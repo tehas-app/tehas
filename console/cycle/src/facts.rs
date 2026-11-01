@@ -79,6 +79,10 @@ pub struct Facts {
     pub approval: Result<Value, String>,
     /// When the image on the record was built, as docker prints .Created.
     pub image_built: String,
+    /// The store's answer to history-show, or the word of its failure.
+    pub history: Result<Value, String>,
+    /// The run's state in the workspace, .pi/work-state/<issue>.json.
+    pub work_state: Option<Value>,
 }
 
 fn st(v: &Value, k: &str) -> String {
@@ -155,6 +159,8 @@ impl Facts {
             record: answer(v.get("record")),
             approval: answer(v.get("approval")),
             image_built: st(v, "image_built"),
+            history: answer(v.get("history")),
+            work_state: v.get("work_state").filter(|s| !s.is_null()).cloned(),
         })
     }
 

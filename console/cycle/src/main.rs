@@ -8,7 +8,7 @@
 //!                                     GitHub it holds under "github"
 //!   tehas-cycle shadow <issue> --attempt <n> --rc <n> --started <s>
 //!       --signalled 0|1 --by <login> --how <how> --approval-at <s>
-//!       --requeued 0|1
+//!       --requeued 0|1 [--now <s>]
 //!                                     just before libexec/cycle reports:
 //!                                     decide the report from the host and
 //!                                     keep it in state/cycles/shadow-<issue>.json
@@ -130,7 +130,7 @@ use tehas_cycle::after::{self, After};
 use tehas_cycle::clock;
 use tehas_cycle::host::Start;
 use tehas_cycle::last_attempt::{self, Action};
-use tehas_cycle::report::{to_json, Given};
+use tehas_cycle::report::{last_attempts, to_json, Given};
 use tehas_cycle::{finish, pin, renew, report, shadow, Facts};
 
 fn usage() -> String {
@@ -196,6 +196,7 @@ fn main() {
                 how: String::new(),
                 approval_at: String::new(),
                 requeued: false,
+                now: None,
             };
             let mut it = rest.iter();
             while let Some(flag) = it.next() {
@@ -212,6 +213,7 @@ fn main() {
                     "--how" => start.how = v,
                     "--approval-at" => start.approval_at = v,
                     "--requeued" => start.requeued = v == "1",
+                    "--now" => start.now = Some(num(&v)),
                     _ => wrong(&args),
                 }
             }
@@ -461,7 +463,8 @@ fn print_report(file: &str) {
         .unwrap_or_else(|e| fail(format!("the facts in {file} cannot be read: {e}")));
     let facts = Facts::from_json(&v).unwrap_or_else(|e| fail(e));
     let mut gh = Given(v.get("github").cloned().unwrap_or(json!({})));
-    let r = report(&facts, &mut gh);
+    let mut r = report(&facts, &mut gh);
+    last_attempts(&mut r, &facts, &mut gh);
     println!("{}", to_json(&r, facts.issue));
 }
 
@@ -471,25 +474,15 @@ fn last_attempt(n: u64, result: &str, workspace: &Path) {
         .unwrap_or_else(|e| fail(format!("the issue cannot be read: {e}")));
     let issue: Value = serde_json::from_str(&stdin)
         .unwrap_or_else(|e| fail(format!("the issue cannot be read: {e}")));
-    let r: Value = std::fs::read_to_string(result)
-        .map_err(|e| e.to_string())
-        .and_then(|t| serde_json::from_str(&t).map_err(|e| e.to_string()))
+    let text = std::fs::read_to_string(result)
         .unwrap_or_else(|e| fail(format!("the result in {result} cannot be read: {e}")));
-    let entry = r
-        .get("issues")
-        .and_then(Value::as_array)
-        .and_then(|l| {
-            l.iter()
-                .find(|e| e.get("issue").and_then(Value::as_u64) == Some(n))
-        })
-        .cloned()
-        .unwrap_or(Value::Null);
-    let body = match issue.get("body") {
-        Some(Value::String(b)) => b.as_str(),
-        Some(Value::Null) => "",
-        _ => fail("the issue has no body".to_string()),
-    };
-    let action = last_attempt::decide(body, &entry, last_attempt::state(workspace, n).as_ref());
+    let state = last_attempt::state(workspace, n);
+    let action =
+        last_attempt::of_issue(n, &issue, Some(&text), state.as_ref()).unwrap_or_else(|| {
+            fail(format!(
+                "the issue or the result in {result} cannot be read"
+            ))
+        });
     println!(
         "{}",
         match action {

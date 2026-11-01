@@ -1,6 +1,6 @@
 [
  {
-  "case": "1793028929782316193",
+  "case": "with the improvement loop on, a cycle that ended leaves its record",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -12,8 +12,8 @@
    "before_retry_dir": false,
    "rc": 0,
    "signalled": false,
-   "started": 1793028929,
-   "now": 1793028929,
+   "started": 1793525961,
+   "now": 1793525961,
    "start": {
     "attempt": 1,
     "by": "",
@@ -38,12 +38,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028929
+     "seen_at": 1793525961
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028929,
+     "started_at": 1793525961,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -75,7 +75,8 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": [
@@ -86,6 +87,12 @@
       "headRefName": "feature/x"
      }
     ]
+   },
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
    }
   },
   "met": {
@@ -149,7 +156,7 @@
   }
  },
  {
-  "case": "1793028930450016075",
+  "case": "the record names the image and the pi-rukas commit tehas work saw as the container started",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -161,8 +168,8 @@
    "before_retry_dir": false,
    "rc": 2,
    "signalled": false,
-   "started": 1793028930,
-   "now": 1793028930,
+   "started": 1793525966,
+   "now": 1793525966,
    "start": {
     "attempt": 1,
     "by": "",
@@ -186,12 +193,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028930
+     "seen_at": 1793525967
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028930,
+     "started_at": 1793525966,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -223,9 +230,16 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
   },
   "met": {
    "recorded": true,
@@ -282,7 +296,7 @@
   }
  },
  {
-  "case": "1793028931089022342",
+  "case": "without an image on record the record falls back, and an earlier cycle's is not this cycle's",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -294,8 +308,8 @@
    "before_retry_dir": false,
    "rc": 2,
    "signalled": false,
-   "started": 1793028931,
-   "now": 1793028931,
+   "started": 1793525971,
+   "now": 1793525971,
    "start": {
     "attempt": 1,
     "by": "",
@@ -319,12 +333,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028931
+     "seen_at": 1793525971
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028931,
+     "started_at": 1793525970,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -356,9 +370,16 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
   },
   "met": {
    "recorded": true,
@@ -415,7 +436,7 @@
   }
  },
  {
-  "case": "1793028931682484952",
+  "case": "without an image on record the record falls back, and an earlier cycle's is not this cycle's (2)",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -427,8 +448,8 @@
    "before_retry_dir": false,
    "rc": 2,
    "signalled": false,
-   "started": 1793028931,
-   "now": 1793028931,
+   "started": 1793525974,
+   "now": 1793525974,
    "start": {
     "attempt": 2,
     "by": "",
@@ -452,12 +473,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028931
+     "seen_at": 1793525975
     },
     "cycle": {
      "issue": 7,
      "attempt": 2,
-     "started_at": 1793028931,
+     "started_at": 1793525974,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -477,7 +498,7 @@
      "stop_said_times": 0,
      "settings": {},
      "quiet": null,
-     "heard_at": 1793028931
+     "heard_at": 1793525974
     }
    },
    "approval": {
@@ -489,9 +510,38 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": [
+     {
+      "kind": "cycle",
+      "id": 1,
+      "issue": 7,
+      "attempt": 1,
+      "at": 1793525974,
+      "status": "unknown",
+      "step": "-",
+      "by": null,
+      "how": "hand",
+      "pr": null,
+      "started_at": 1793525970,
+      "rc": 2,
+      "cap": null,
+      "park_reason": null,
+      "failure_kind": null,
+      "failure_cause": null,
+      "provider": false,
+      "parked": true,
+      "seq": 1
+     }
+    ]
+   }
   },
   "met": {
    "recorded": true,
@@ -548,7 +598,7 @@
   }
  },
  {
-  "case": "1793028932381068397",
+  "case": "an image that is no image id is not on record",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -560,8 +610,8 @@
    "before_retry_dir": false,
    "rc": 2,
    "signalled": false,
-   "started": 1793028932,
-   "now": 1793028932,
+   "started": 1793525980,
+   "now": 1793525980,
    "start": {
     "attempt": 1,
     "by": "",
@@ -585,12 +635,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028932
+     "seen_at": 1793525981
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028932,
+     "started_at": 1793525980,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -622,9 +672,16 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
   },
   "met": {
    "recorded": true,
@@ -681,7 +738,7 @@
   }
  },
  {
-  "case": "1793028933101357382",
+  "case": "the record names the runner's exit when there is no pull request",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -693,8 +750,8 @@
    "before_retry_dir": false,
    "rc": 2,
    "signalled": false,
-   "started": 1793028933,
-   "now": 1793028933,
+   "started": 1793525985,
+   "now": 1793525985,
    "start": {
     "attempt": 1,
     "by": "",
@@ -718,12 +775,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028933
+     "seen_at": 1793525985
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028933,
+     "started_at": 1793525984,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -755,9 +812,16 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
   },
   "met": {
    "recorded": true,
@@ -814,7 +878,7 @@
   }
  },
  {
-  "case": "1793028933746111928",
+  "case": "runner exit 137 with no end state is status killed in the comment and the record",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -826,8 +890,8 @@
    "before_retry_dir": false,
    "rc": 137,
    "signalled": false,
-   "started": 1793028933,
-   "now": 1793028933,
+   "started": 1793525989,
+   "now": 1793525990,
    "start": {
     "attempt": 1,
     "by": "",
@@ -851,12 +915,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028933
+     "seen_at": 1793525991
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028933,
+     "started_at": 1793525989,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -888,9 +952,16 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
   },
   "met": {
    "recorded": true,
@@ -947,7 +1018,7 @@
   }
  },
  {
-  "case": "1793028934445792563",
+  "case": "runner exit 137 with a state that still says running is killed too",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -959,8 +1030,8 @@
    "before_retry_dir": false,
    "rc": 137,
    "signalled": false,
-   "started": 1793028934,
-   "now": 1793028934,
+   "started": 1793525998,
+   "now": 1793525998,
    "start": {
     "attempt": 1,
     "by": "",
@@ -981,12 +1052,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028934
+     "seen_at": 1793525999
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028934,
+     "started_at": 1793525998,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -1018,9 +1089,16 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
   },
   "met": {
    "recorded": true,
@@ -1075,7 +1153,7 @@
   }
  },
  {
-  "case": "1793028934972144659",
+  "case": "runner exit 137 with a state that names an end keeps that status, and is still parked",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -1087,8 +1165,8 @@
    "before_retry_dir": false,
    "rc": 137,
    "signalled": false,
-   "started": 1793028935,
-   "now": 1793028935,
+   "started": 1793526003,
+   "now": 1793526004,
    "start": {
     "attempt": 1,
     "by": "",
@@ -1109,12 +1187,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028935
+     "seen_at": 1793526004
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028934,
+     "started_at": 1793526003,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -1146,7 +1224,8 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": [
@@ -1157,6 +1236,12 @@
       "headRefName": "feature/x"
      }
     ]
+   },
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
    }
   },
   "met": {
@@ -1220,7 +1305,7 @@
   }
  },
  {
-  "case": "1793028935523854828",
+  "case": "another exit with no end state is not called killed",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -1232,8 +1317,8 @@
    "before_retry_dir": false,
    "rc": 2,
    "signalled": false,
-   "started": 1793028935,
-   "now": 1793028935,
+   "started": 1793526009,
+   "now": 1793526009,
    "start": {
     "attempt": 1,
     "by": "",
@@ -1253,12 +1338,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028935
+     "seen_at": 1793526009
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028935,
+     "started_at": 1793526008,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -1290,9 +1375,16 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
   },
   "met": {
    "recorded": true,
@@ -1349,7 +1441,7 @@
   }
  },
  {
-  "case": "1793028936033774946",
+  "case": "the oom count file is read as digits, said in the comment, put in the record and removed",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -1361,8 +1453,8 @@
    "before_retry_dir": false,
    "rc": 137,
    "signalled": false,
-   "started": 1793028936,
-   "now": 1793028936,
+   "started": 1793526014,
+   "now": 1793526014,
    "start": {
     "attempt": 1,
     "by": "",
@@ -1387,12 +1479,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028936
+     "seen_at": 1793526015
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028936,
+     "started_at": 1793526014,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -1424,9 +1516,16 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
   },
   "met": {
    "recorded": true,
@@ -1483,7 +1582,7 @@
   }
  },
  {
-  "case": "1793028936672011394",
+  "case": "a stalled cycle is reported as stalled with how long nothing moved, parked, and the file removed",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -1495,8 +1594,8 @@
    "before_retry_dir": false,
    "rc": 2,
    "signalled": false,
-   "started": 1793028936,
-   "now": 1793028936,
+   "started": 1793526020,
+   "now": 1793526020,
    "start": {
     "attempt": 1,
     "by": "",
@@ -1522,12 +1621,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028936
+     "seen_at": 1793526021
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028936,
+     "started_at": 1793526020,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -1559,9 +1658,16 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
   },
   "met": {
    "recorded": true,
@@ -1620,7 +1726,7 @@
   }
  },
  {
-  "case": "1793028937390999981",
+  "case": "the record keeps the cycle's dispatch-slow lines, so a stuck child reads without the console",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -1632,8 +1738,8 @@
    "before_retry_dir": false,
    "rc": 0,
    "signalled": false,
-   "started": 1793028937,
-   "now": 1793028937,
+   "started": 1793526026,
+   "now": 1793526026,
    "start": {
     "attempt": 1,
     "by": "",
@@ -1658,12 +1764,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028937
+     "seen_at": 1793526026
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028937,
+     "started_at": 1793526025,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -1695,7 +1801,8 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": [
@@ -1706,6 +1813,12 @@
       "headRefName": "feature/x"
      }
     ]
+   },
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
    }
   },
   "met": {
@@ -1769,7 +1882,7 @@
   }
  },
  {
-  "case": "1793028938073020712",
+  "case": "a cycle whose stream holds no slow line leaves no slow.jsonl",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -1781,8 +1894,8 @@
    "before_retry_dir": false,
    "rc": 0,
    "signalled": false,
-   "started": 1793028938,
-   "now": 1793028938,
+   "started": 1793526031,
+   "now": 1793526031,
    "start": {
     "attempt": 1,
     "by": "",
@@ -1807,12 +1920,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028938
+     "seen_at": 1793526032
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028938,
+     "started_at": 1793526031,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -1844,7 +1957,8 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": [
@@ -1855,6 +1969,12 @@
       "headRefName": "feature/x"
      }
     ]
+   },
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
    }
   },
   "met": {
@@ -1918,7 +2038,7 @@
   }
  },
  {
-  "case": "1793028938772643514",
+  "case": "a container that ended before the driver wrote an event is on record as runner-never-started, with its exit status, and no step",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -1930,8 +2050,8 @@
    "before_retry_dir": false,
    "rc": 2,
    "signalled": false,
-   "started": 1793028938,
-   "now": 1793028938,
+   "started": 1793526037,
+   "now": 1793526038,
    "start": {
     "attempt": 1,
     "by": "",
@@ -1956,12 +2076,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028938
+     "seen_at": 1793526038
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028938,
+     "started_at": 1793526037,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -1993,9 +2113,16 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
   },
   "met": {
    "recorded": true,
@@ -2054,7 +2181,7 @@
   }
  },
  {
-  "case": "1793028939499332010",
+  "case": "the memory kills of a runner that never started are said once, from the oom file",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -2066,8 +2193,8 @@
    "before_retry_dir": false,
    "rc": 2,
    "signalled": false,
-   "started": 1793028939,
-   "now": 1793028939,
+   "started": 1793526044,
+   "now": 1793526045,
    "start": {
     "attempt": 1,
     "by": "",
@@ -2093,12 +2220,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028939
+     "seen_at": 1793526045
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028939,
+     "started_at": 1793526044,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -2130,9 +2257,16 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
   },
   "met": {
    "recorded": true,
@@ -2191,7 +2325,7 @@
   }
  },
  {
-  "case": "1793028940155962587",
+  "case": "the note of a runner that never started is read for nothing when the cycle wrote a result, and one of an earlier cycle is not this cycle's",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -2203,8 +2337,8 @@
    "before_retry_dir": false,
    "rc": 10,
    "signalled": false,
-   "started": 1793028940,
-   "now": 1793028940,
+   "started": 1793526051,
+   "now": 1793526051,
    "start": {
     "attempt": 1,
     "by": "",
@@ -2230,12 +2364,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028940
+     "seen_at": 1793526052
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028940,
+     "started_at": 1793526051,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -2267,7 +2401,8 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": [
@@ -2330,7 +2465,7 @@
   }
  },
  {
-  "case": "1793028940788577730",
+  "case": "a note that holds '' is no note: the cycle is reported as one that died part way through",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -2342,8 +2477,8 @@
    "before_retry_dir": false,
    "rc": 2,
    "signalled": false,
-   "started": 1793028940,
-   "now": 1793028940,
+   "started": 1793526058,
+   "now": 1793526058,
    "start": {
     "attempt": 1,
     "by": "",
@@ -2358,7 +2493,7 @@
     "nostart": "\n"
    },
    "run_log": {
-    "name": "/T/home/tehas/logs/work-7-261026-153540.jsonl",
+    "name": "/T/home/tehas/logs/work-7-261101-094058.jsonl",
     "text": "{\"v\":1,\"kind\":\"step-started\",\"issue\":7,\"event\":{\"step\":\"explore\"}}\n"
    },
    "record": {
@@ -2370,12 +2505,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028940
+     "seen_at": 1793526059
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028940,
+     "started_at": 1793526057,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -2407,9 +2542,16 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
   },
   "met": {
    "recorded": true,
@@ -2468,7 +2610,7 @@
   }
  },
  {
-  "case": "1793028941484763866",
+  "case": "a note that holds 'x' is no note: the cycle is reported as one that died part way through",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -2480,8 +2622,8 @@
    "before_retry_dir": false,
    "rc": 2,
    "signalled": false,
-   "started": 1793028941,
-   "now": 1793028941,
+   "started": 1793526063,
+   "now": 1793526063,
    "start": {
     "attempt": 1,
     "by": "",
@@ -2496,7 +2638,7 @@
     "nostart": "x\n"
    },
    "run_log": {
-    "name": "/T/home/tehas/logs/work-7-261026-153541.jsonl",
+    "name": "/T/home/tehas/logs/work-7-261101-094103.jsonl",
     "text": "{\"v\":1,\"kind\":\"step-started\",\"issue\":7,\"event\":{\"step\":\"explore\"}}\n"
    },
    "record": {
@@ -2508,12 +2650,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028941
+     "seen_at": 1793526064
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028941,
+     "started_at": 1793526063,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -2545,9 +2687,16 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
   },
   "met": {
    "recorded": true,
@@ -2606,7 +2755,7 @@
   }
  },
  {
-  "case": "1793028942183959531",
+  "case": "a note that holds '0' is no note: the cycle is reported as one that died part way through",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -2618,8 +2767,8 @@
    "before_retry_dir": false,
    "rc": 2,
    "signalled": false,
-   "started": 1793028942,
-   "now": 1793028942,
+   "started": 1793526069,
+   "now": 1793526070,
    "start": {
     "attempt": 1,
     "by": "",
@@ -2634,7 +2783,7 @@
     "nostart": "0\n"
    },
    "run_log": {
-    "name": "/T/home/tehas/logs/work-7-261026-153542.jsonl",
+    "name": "/T/home/tehas/logs/work-7-261101-094109.jsonl",
     "text": "{\"v\":1,\"kind\":\"step-started\",\"issue\":7,\"event\":{\"step\":\"explore\"}}\n"
    },
    "record": {
@@ -2646,12 +2795,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028942
+     "seen_at": 1793526070
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028942,
+     "started_at": 1793526068,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -2683,9 +2832,16 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
   },
   "met": {
    "recorded": true,
@@ -2744,7 +2900,7 @@
   }
  },
  {
-  "case": "1793028942873981912",
+  "case": "a note that holds '-1' is no note: the cycle is reported as one that died part way through",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -2756,8 +2912,8 @@
    "before_retry_dir": false,
    "rc": 2,
    "signalled": false,
-   "started": 1793028942,
-   "now": 1793028942,
+   "started": 1793526076,
+   "now": 1793526077,
    "start": {
     "attempt": 1,
     "by": "",
@@ -2772,7 +2928,7 @@
     "nostart": "-1\n"
    },
    "run_log": {
-    "name": "/T/home/tehas/logs/work-7-261026-153542.jsonl",
+    "name": "/T/home/tehas/logs/work-7-261101-094116.jsonl",
     "text": "{\"v\":1,\"kind\":\"step-started\",\"issue\":7,\"event\":{\"step\":\"explore\"}}\n"
    },
    "record": {
@@ -2784,12 +2940,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028943
+     "seen_at": 1793526077
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028942,
+     "started_at": 1793526076,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -2821,9 +2977,16 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
   },
   "met": {
    "recorded": true,
@@ -2882,7 +3045,7 @@
   }
  },
  {
-  "case": "1793028943625856374",
+  "case": "a note that holds '1000' is no note: the cycle is reported as one that died part way through",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -2894,8 +3057,8 @@
    "before_retry_dir": false,
    "rc": 2,
    "signalled": false,
-   "started": 1793028943,
-   "now": 1793028943,
+   "started": 1793526085,
+   "now": 1793526086,
    "start": {
     "attempt": 1,
     "by": "",
@@ -2910,7 +3073,7 @@
     "nostart": "1000\n"
    },
    "run_log": {
-    "name": "/T/home/tehas/logs/work-7-261026-153543.jsonl",
+    "name": "/T/home/tehas/logs/work-7-261101-094126.jsonl",
     "text": "{\"v\":1,\"kind\":\"step-started\",\"issue\":7,\"event\":{\"step\":\"explore\"}}\n"
    },
    "record": {
@@ -2922,12 +3085,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028943
+     "seen_at": 1793526086
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028943,
+     "started_at": 1793526083,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -2959,9 +3122,16 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
   },
   "met": {
    "recorded": true,
@@ -3020,7 +3190,7 @@
   }
  },
  {
-  "case": "1793028944363411135",
+  "case": "a note that holds '01' is no note: the cycle is reported as one that died part way through",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -3032,8 +3202,8 @@
    "before_retry_dir": false,
    "rc": 2,
    "signalled": false,
-   "started": 1793028944,
-   "now": 1793028944,
+   "started": 1793526090,
+   "now": 1793526091,
    "start": {
     "attempt": 1,
     "by": "",
@@ -3048,7 +3218,7 @@
     "nostart": "01\n"
    },
    "run_log": {
-    "name": "/T/home/tehas/logs/work-7-261026-153544.jsonl",
+    "name": "/T/home/tehas/logs/work-7-261101-094131.jsonl",
     "text": "{\"v\":1,\"kind\":\"step-started\",\"issue\":7,\"event\":{\"step\":\"explore\"}}\n"
    },
    "record": {
@@ -3060,12 +3230,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028944
+     "seen_at": 1793526091
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028944,
+     "started_at": 1793526090,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -3097,9 +3267,16 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
   },
   "met": {
    "recorded": true,
@@ -3158,7 +3335,7 @@
   }
  },
  {
-  "case": "1793028945078638583",
+  "case": "a second field of the note is read for nothing: the cap stands and the count of the oom file is the one said",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -3170,8 +3347,8 @@
    "before_retry_dir": false,
    "rc": 2,
    "signalled": false,
-   "started": 1793028945,
-   "now": 1793028945,
+   "started": 1793526099,
+   "now": 1793526099,
    "start": {
     "attempt": 1,
     "by": "",
@@ -3197,12 +3374,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028945
+     "seen_at": 1793526100
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028945,
+     "started_at": 1793526098,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -3234,9 +3411,16 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
   },
   "met": {
    "recorded": true,
@@ -3295,7 +3479,7 @@
   }
  },
  {
-  "case": "1793028945797975330",
+  "case": "a note that is a link is not read",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -3307,8 +3491,8 @@
    "before_retry_dir": false,
    "rc": 2,
    "signalled": false,
-   "started": 1793028945,
-   "now": 1793028945,
+   "started": 1793526104,
+   "now": 1793526105,
    "start": {
     "attempt": 1,
     "by": "",
@@ -3332,12 +3516,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028945
+     "seen_at": 1793526106
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028945,
+     "started_at": 1793526104,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -3369,9 +3553,16 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
   },
   "met": {
    "recorded": true,
@@ -3428,7 +3619,7 @@
   }
  },
  {
-  "case": "1793028946452807100",
+  "case": "a cycle tehas stopped at its time limit with no cap from the runner is on record as wall-clock",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -3440,8 +3631,8 @@
    "before_retry_dir": false,
    "rc": 2,
    "signalled": false,
-   "started": 1793028946,
-   "now": 1793028946,
+   "started": 1793526110,
+   "now": 1793526110,
    "start": {
     "attempt": 1,
     "by": "",
@@ -3467,12 +3658,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028946
+     "seen_at": 1793526110
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028946,
+     "started_at": 1793526109,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -3504,9 +3695,16 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
   },
   "met": {
    "recorded": true,
@@ -3564,7 +3762,7 @@
   }
  },
  {
-  "case": "1793028947111233161",
+  "case": "a runner that stopped itself at the time limit with no result is on record as wall-clock at the step it was in, not running",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -3576,8 +3774,8 @@
    "before_retry_dir": false,
    "rc": 2,
    "signalled": false,
-   "started": 1793028947,
-   "now": 1793028947,
+   "started": 1793526116,
+   "now": 1793526116,
    "start": {
     "attempt": 1,
     "by": "",
@@ -3602,12 +3800,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028947
+     "seen_at": 1793526117
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028947,
+     "started_at": 1793526116,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -3639,9 +3837,16 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
   },
   "met": {
    "recorded": true,
@@ -3701,7 +3906,7 @@
   }
  },
  {
-  "case": "1793028947806029715",
+  "case": "a runner that stopped itself at the time limit with a result that names no end is on record as wall-clock",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -3713,8 +3918,8 @@
    "before_retry_dir": false,
    "rc": 30,
    "signalled": false,
-   "started": 1793028947,
-   "now": 1793028947,
+   "started": 1793526122,
+   "now": 1793526123,
    "start": {
     "attempt": 1,
     "by": "",
@@ -3740,12 +3945,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028947
+     "seen_at": 1793526123
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028947,
+     "started_at": 1793526122,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -3777,9 +3982,16 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
   },
   "met": {
    "recorded": true,
@@ -3837,7 +4049,7 @@
   }
  },
  {
-  "case": "1793028948528435473",
+  "case": "the step in the time limit's file is read as a word",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -3849,8 +4061,8 @@
    "before_retry_dir": false,
    "rc": 2,
    "signalled": false,
-   "started": 1793028948,
-   "now": 1793028948,
+   "started": 1793526127,
+   "now": 1793526127,
    "start": {
     "attempt": 1,
     "by": "",
@@ -3871,12 +4083,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028948
+     "seen_at": 1793526127
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028948,
+     "started_at": 1793526127,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -3908,9 +4120,16 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
   },
   "met": {
    "recorded": true,
@@ -3970,7 +4189,7 @@
   }
  },
  {
-  "case": "1793028949169810493",
+  "case": "a stop at the time limit names the step tehas work saw in flight when the result names none",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -3982,8 +4201,8 @@
    "before_retry_dir": false,
    "rc": 2,
    "signalled": false,
-   "started": 1793028949,
-   "now": 1793028949,
+   "started": 1793526130,
+   "now": 1793526130,
    "start": {
     "attempt": 1,
     "by": "",
@@ -4009,12 +4228,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028949
+     "seen_at": 1793526131
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028949,
+     "started_at": 1793526130,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -4046,9 +4265,16 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
   },
   "met": {
    "recorded": true,
@@ -4106,7 +4332,7 @@
   }
  },
  {
-  "case": "1793028949912045382",
+  "case": "a runner stopped mid-step at the time limit is on record with tehas's cap, its own last cap in the reason",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -4118,8 +4344,8 @@
    "before_retry_dir": false,
    "rc": 2,
    "signalled": false,
-   "started": 1793028949,
-   "now": 1793028949,
+   "started": 1793526134,
+   "now": 1793526135,
    "start": {
     "attempt": 1,
     "by": "",
@@ -4145,12 +4371,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028950
+     "seen_at": 1793526135
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028949,
+     "started_at": 1793526134,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -4182,9 +4408,16 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
   },
   "met": {
    "recorded": true,
@@ -4242,7 +4475,7 @@
   }
  },
  {
-  "case": "1793028950561029878",
+  "case": "a stall names the step in flight and is tehas's cap over a runner's mid-step cap",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -4254,8 +4487,8 @@
    "before_retry_dir": false,
    "rc": 2,
    "signalled": false,
-   "started": 1793028950,
-   "now": 1793028950,
+   "started": 1793526140,
+   "now": 1793526140,
    "start": {
     "attempt": 1,
     "by": "",
@@ -4281,12 +4514,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028950
+     "seen_at": 1793526140
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028950,
+     "started_at": 1793526140,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -4318,9 +4551,16 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
   },
   "met": {
    "recorded": true,
@@ -4361,9 +4601,7 @@
     "--step",
     "lens-fix"
    ],
-   "log": [
-    "WARN: #7 ended at step-failed:lens-fix and no reason was found in its progress: an outage is not told from a failure (pi-rukas#1367)"
-   ],
+   "log": [],
    "writes": [
     [
      "relabel",
@@ -4381,7 +4619,7 @@
   }
  },
  {
-  "case": "1793028951231100132",
+  "case": "a cap the runner named is kept when tehas also stopped the cycle",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -4393,8 +4631,8 @@
    "before_retry_dir": false,
    "rc": 2,
    "signalled": false,
-   "started": 1793028951,
-   "now": 1793028951,
+   "started": 1793526143,
+   "now": 1793526143,
    "start": {
     "attempt": 1,
     "by": "",
@@ -4416,12 +4654,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028951
+     "seen_at": 1793526143
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028951,
+     "started_at": 1793526143,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -4453,7 +4691,8 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": [
@@ -4464,6 +4703,12 @@
       "headRefName": "feature/x"
      }
     ]
+   },
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
    }
   },
   "met": {
@@ -4528,7 +4773,7 @@
   }
  },
  {
-  "case": "1793028951775738541",
+  "case": "a stall file beside a state that names an end leaves the end as it is",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -4540,8 +4785,8 @@
    "before_retry_dir": false,
    "rc": 1,
    "signalled": false,
-   "started": 1793028951,
-   "now": 1793028951,
+   "started": 1793526147,
+   "now": 1793526147,
    "start": {
     "attempt": 1,
     "by": "",
@@ -4563,12 +4808,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028951
+     "seen_at": 1793526147
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028951,
+     "started_at": 1793526147,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -4600,9 +4845,16 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
   },
   "met": {
    "recorded": true,
@@ -4661,7 +4913,7 @@
   }
  },
  {
-  "case": "1793028952327881532",
+  "case": "a runner tehas stopped past its time limit is reported as a timeout and parked",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -4673,8 +4925,8 @@
    "before_retry_dir": false,
    "rc": 2,
    "signalled": false,
-   "started": 1793028952,
-   "now": 1793028952,
+   "started": 1793526149,
+   "now": 1793526149,
    "start": {
     "attempt": 1,
     "by": "",
@@ -4696,12 +4948,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028952
+     "seen_at": 1793526150
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028952,
+     "started_at": 1793526149,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -4733,9 +4985,16 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
   },
   "met": {
    "recorded": true,
@@ -4793,7 +5052,7 @@
   }
  },
  {
-  "case": "1793028952892442976",
+  "case": "a cycle a person stopped is on record with the stop in its reason, and no cap of its own",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -4805,8 +5064,8 @@
    "before_retry_dir": false,
    "rc": 2,
    "signalled": false,
-   "started": 1793028952,
-   "now": 1793028952,
+   "started": 1793526153,
+   "now": 1793526153,
    "start": {
     "attempt": 1,
     "by": "",
@@ -4817,7 +5076,7 @@
    "files": {
     "result.json": "{\n  \"schemaVersion\": 5,\n  \"issues\": [\n    {\n      \"issue\": 7,\n      \"status\": \"interrupted\",\n      \"failedStep\": \"develop\",\n      \"branch\": \"-\",\n      \"cap\": \"deadline\"\n    }\n  ]\n}\n",
     "progress.json": "{\"reason\": \"waiting on the fence\"}\n",
-    "stopped": "1793028952 alice\n"
+    "stopped": "1793526153 alice\n"
    },
    "run_log": {
     "name": "/T/home/tehas/logs/work-7-261011-120000.jsonl",
@@ -4832,12 +5091,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028952
+     "seen_at": 1793526154
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028952,
+     "started_at": 1793526153,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -4869,9 +5128,16 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
   },
   "met": {
    "recorded": true,
@@ -4918,7 +5184,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped without a pull request: status `interrupted`, last step `develop`, 0 min (runner exit 2). pi-rukas stopped on the cap `deadline`. It reached its deadline, a quarter of its time limit before the end, and started no new step. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. A person stopped it with `tehas stop` (alice, at 2026-10-26T15:35:52Z).\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=develop kind= provider=0 sig=2ecb78edf66efa7855ad80e51fb98ec20fba85752b80cefded7534486c718d73 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped without a pull request: status `interrupted`, last step `develop`, 0 min (runner exit 2). pi-rukas stopped on the cap `deadline`. It reached its deadline, a quarter of its time limit before the end, and started no new step. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. A person stopped it with `tehas stop` (alice, at 2026-11-01T09:42:33Z).\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=develop kind= provider=0 sig=2ecb78edf66efa7855ad80e51fb98ec20fba85752b80cefded7534486c718d73 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -4928,7 +5194,7 @@
   }
  },
  {
-  "case": "1793028953644917877",
+  "case": "a person's stop with no cap of its own says the stop in the reason and leaves the cap empty",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -4940,8 +5206,8 @@
    "before_retry_dir": false,
    "rc": 137,
    "signalled": false,
-   "started": 1793028953,
-   "now": 1793028953,
+   "started": 1793526157,
+   "now": 1793526157,
    "start": {
     "attempt": 1,
     "by": "",
@@ -4952,7 +5218,7 @@
    "files": {
     "result.json": "{\n  \"schemaVersion\": 5,\n  \"issues\": [\n    {\n      \"issue\": 7,\n      \"status\": \"interrupted\",\n      \"failedStep\": \"develop\",\n      \"branch\": \"\"\n    }\n  ]\n}\n",
     "progress.json": "{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}\n",
-    "stopped": "1793028953 bob.smith_1-2\n"
+    "stopped": "1793526156 bob.smith_1-2\n"
    },
    "run_log": {
     "name": "/T/home/tehas/logs/work-7-261011-120000.jsonl",
@@ -4967,12 +5233,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028953
+     "seen_at": 1793526157
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028953,
+     "started_at": 1793526157,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -5004,9 +5270,16 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
   },
   "met": {
    "recorded": true,
@@ -5051,7 +5324,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped without a pull request: status `interrupted`, last step `develop`, 0 min (runner exit 137). The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. A person stopped it with `tehas stop` (bob.smith_1-2, at 2026-10-26T15:35:53Z).\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=develop kind= provider=0 sig=f25ff331a7f9960c458526d7b95b14f9fedd00ddfe504a1800921c36c4c7908c -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped without a pull request: status `interrupted`, last step `develop`, 0 min (runner exit 137). The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. A person stopped it with `tehas stop` (bob.smith_1-2, at 2026-11-01T09:42:36Z).\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=develop kind= provider=0 sig=f25ff331a7f9960c458526d7b95b14f9fedd00ddfe504a1800921c36c4c7908c -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -5061,7 +5334,7 @@
   }
  },
  {
-  "case": "1793028954398442157",
+  "case": "the marker says nothing beside a time limit or a stall: tehas's own cap stands",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -5073,8 +5346,8 @@
    "before_retry_dir": false,
    "rc": 2,
    "signalled": false,
-   "started": 1793028954,
-   "now": 1793028954,
+   "started": 1793526160,
+   "now": 1793526160,
    "start": {
     "attempt": 1,
     "by": "",
@@ -5086,7 +5359,7 @@
     "result.json": "{\n  \"schemaVersion\": 5,\n  \"issues\": [\n    {\n      \"issue\": 7,\n      \"status\": \"running\",\n      \"failedStep\": \"develop\",\n      \"branch\": \"-\"\n    }\n  ]\n}\n",
     "progress.json": "{}\n",
     "timed": "21600 tehas develop\n",
-    "stopped": "1793028954 alice\n"
+    "stopped": "1793526159 alice\n"
    },
    "run_log": {
     "name": "/T/home/tehas/logs/work-7-261011-120000.jsonl",
@@ -5101,12 +5374,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028954
+     "seen_at": 1793526160
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028954,
+     "started_at": 1793526160,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -5138,9 +5411,16 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
   },
   "met": {
    "recorded": true,
@@ -5188,7 +5468,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped without a pull request: status `timeout`, last step `develop`, 0 min (runner exit 2). tehas stopped the cycle: the cap `wall-clock`. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. It ran past its time limit of 360 min at step `develop`, and the runner did not stop on its own, so tehas stopped it. A person stopped it with `tehas stop` (alice, at 2026-10-26T15:35:54Z).\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=develop kind= provider=0 sig=f25126426750c307cf623343a79a68ef313ee73180538677d27612791fd2d8ea -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped without a pull request: status `timeout`, last step `develop`, 0 min (runner exit 2). tehas stopped the cycle: the cap `wall-clock`. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. It ran past its time limit of 360 min at step `develop`, and the runner did not stop on its own, so tehas stopped it. A person stopped it with `tehas stop` (alice, at 2026-11-01T09:42:39Z).\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=develop kind= provider=0 sig=f25126426750c307cf623343a79a68ef313ee73180538677d27612791fd2d8ea -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -5198,7 +5478,7 @@
   }
  },
  {
-  "case": "1793028955148725858",
+  "case": "a marker that holds no line, or one of the two fields, is no marker, and is gone",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -5210,8 +5490,8 @@
    "before_retry_dir": false,
    "rc": 30,
    "signalled": false,
-   "started": 1793028955,
-   "now": 1793028955,
+   "started": 1793526164,
+   "now": 1793526165,
    "start": {
     "attempt": 1,
     "by": "",
@@ -5232,12 +5512,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028955
+     "seen_at": 1793526165
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028955,
+     "started_at": 1793526164,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -5269,9 +5549,16 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
   },
   "met": {
    "recorded": true,
@@ -5326,7 +5613,7 @@
   }
  },
  {
-  "case": "1793028955573775365",
+  "case": "a marker that holds no line, or one of the two fields, is no marker, and is gone (2)",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -5338,8 +5625,8 @@
    "before_retry_dir": false,
    "rc": 30,
    "signalled": false,
-   "started": 1793028955,
-   "now": 1793028955,
+   "started": 1793526167,
+   "now": 1793526167,
    "start": {
     "attempt": 2,
     "by": "",
@@ -5360,12 +5647,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028955
+     "seen_at": 1793526168
     },
     "cycle": {
      "issue": 7,
      "attempt": 2,
-     "started_at": 1793028955,
+     "started_at": 1793526167,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -5385,7 +5672,7 @@
      "stop_said_times": 0,
      "settings": {},
      "quiet": null,
-     "heard_at": 1793028955
+     "heard_at": null
     }
    },
    "approval": {
@@ -5397,9 +5684,38 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": [
+     {
+      "kind": "cycle",
+      "id": 1,
+      "issue": 7,
+      "attempt": 1,
+      "at": 1793526166,
+      "status": "running",
+      "step": "develop",
+      "by": null,
+      "how": "hand",
+      "pr": null,
+      "started_at": 1793526164,
+      "rc": 30,
+      "cap": null,
+      "park_reason": null,
+      "failure_kind": null,
+      "failure_cause": null,
+      "provider": false,
+      "parked": true,
+      "seq": 1
+     }
+    ]
+   }
   },
   "met": {
    "recorded": true,
@@ -5444,7 +5760,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped without a pull request: status `running`, last step `develop`, 0 min (runner exit 30). The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=develop kind= provider=0 sig=f25ff331a7f9960c458526d7b95b14f9fedd00ddfe504a1800921c36c4c7908c -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped without a pull request: status `running`, last step `develop`, 0 min (runner exit 30). The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. This park repeats the one before it: number 1 of the parks in a row that stopped at step `develop`. A retry on the same text will likely stop the same way and spend another slot: change the issue first, or ask for a smaller change with `tehas:plan`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=develop kind= provider=0 sig=f25ff331a7f9960c458526d7b95b14f9fedd00ddfe504a1800921c36c4c7908c -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -5454,7 +5770,7 @@
   }
  },
  {
-  "case": "1793028956029612341",
+  "case": "a marker that holds no line, or one of the two fields, is no marker, and is gone (3)",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -5466,8 +5782,8 @@
    "before_retry_dir": false,
    "rc": 30,
    "signalled": false,
-   "started": 1793028956,
-   "now": 1793028956,
+   "started": 1793526171,
+   "now": 1793526171,
    "start": {
     "attempt": 3,
     "by": "",
@@ -5488,12 +5804,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028956
+     "seen_at": 1793526171
     },
     "cycle": {
      "issue": 7,
      "attempt": 3,
-     "started_at": 1793028956,
+     "started_at": 1793526170,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -5525,9 +5841,59 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": [
+     {
+      "kind": "cycle",
+      "id": 1,
+      "issue": 7,
+      "attempt": 1,
+      "at": 1793526166,
+      "status": "running",
+      "step": "develop",
+      "by": null,
+      "how": "hand",
+      "pr": null,
+      "started_at": 1793526164,
+      "rc": 30,
+      "cap": null,
+      "park_reason": null,
+      "failure_kind": null,
+      "failure_cause": null,
+      "provider": false,
+      "parked": true,
+      "seq": 1
+     },
+     {
+      "kind": "cycle",
+      "id": 2,
+      "issue": 7,
+      "attempt": 2,
+      "at": 1793526169,
+      "status": "running",
+      "step": "develop",
+      "by": null,
+      "how": "hand",
+      "pr": null,
+      "started_at": 1793526167,
+      "rc": 30,
+      "cap": null,
+      "park_reason": null,
+      "failure_kind": null,
+      "failure_cause": null,
+      "provider": false,
+      "parked": true,
+      "seq": 2
+     }
+    ]
+   }
   },
   "met": {
    "recorded": true,
@@ -5572,7 +5938,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped without a pull request: status `running`, last step `develop`, 0 min (runner exit 30). The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=develop kind= provider=0 sig=f25ff331a7f9960c458526d7b95b14f9fedd00ddfe504a1800921c36c4c7908c -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped without a pull request: status `running`, last step `develop`, 0 min (runner exit 30). The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. This park repeats the one before it: number 1 of the parks in a row that stopped at step `develop`. A retry on the same text will likely stop the same way and spend another slot: change the issue first, or ask for a smaller change with `tehas:plan`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=develop kind= provider=0 sig=f25ff331a7f9960c458526d7b95b14f9fedd00ddfe504a1800921c36c4c7908c -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -5582,7 +5948,7 @@
   }
  },
  {
-  "case": "1793028956514993213",
+  "case": "a marker that holds no line, or one of the two fields, is no marker, and is gone (4)",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -5594,8 +5960,8 @@
    "before_retry_dir": false,
    "rc": 30,
    "signalled": false,
-   "started": 1793028956,
-   "now": 1793028956,
+   "started": 1793526174,
+   "now": 1793526174,
    "start": {
     "attempt": 4,
     "by": "",
@@ -5616,12 +5982,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028956
+     "seen_at": 1793526174
     },
     "cycle": {
      "issue": 7,
      "attempt": 4,
-     "started_at": 1793028956,
+     "started_at": 1793526173,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -5641,7 +6007,7 @@
      "stop_said_times": 0,
      "settings": {},
      "quiet": null,
-     "heard_at": 1793028956
+     "heard_at": null
     }
    },
    "approval": {
@@ -5653,9 +6019,80 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": [
+     {
+      "kind": "cycle",
+      "id": 1,
+      "issue": 7,
+      "attempt": 1,
+      "at": 1793526166,
+      "status": "running",
+      "step": "develop",
+      "by": null,
+      "how": "hand",
+      "pr": null,
+      "started_at": 1793526164,
+      "rc": 30,
+      "cap": null,
+      "park_reason": null,
+      "failure_kind": null,
+      "failure_cause": null,
+      "provider": false,
+      "parked": true,
+      "seq": 1
+     },
+     {
+      "kind": "cycle",
+      "id": 2,
+      "issue": 7,
+      "attempt": 2,
+      "at": 1793526169,
+      "status": "running",
+      "step": "develop",
+      "by": null,
+      "how": "hand",
+      "pr": null,
+      "started_at": 1793526167,
+      "rc": 30,
+      "cap": null,
+      "park_reason": null,
+      "failure_kind": null,
+      "failure_cause": null,
+      "provider": false,
+      "parked": true,
+      "seq": 2
+     },
+     {
+      "kind": "cycle",
+      "id": 3,
+      "issue": 7,
+      "attempt": 3,
+      "at": 1793526172,
+      "status": "running",
+      "step": "develop",
+      "by": null,
+      "how": "hand",
+      "pr": null,
+      "started_at": 1793526170,
+      "rc": 30,
+      "cap": null,
+      "park_reason": null,
+      "failure_kind": null,
+      "failure_cause": null,
+      "provider": false,
+      "parked": true,
+      "seq": 3
+     }
+    ]
+   }
   },
   "met": {
    "recorded": true,
@@ -5700,7 +6137,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped without a pull request: status `running`, last step `develop`, 0 min (runner exit 30). The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=develop kind= provider=0 sig=f25ff331a7f9960c458526d7b95b14f9fedd00ddfe504a1800921c36c4c7908c -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped without a pull request: status `running`, last step `develop`, 0 min (runner exit 30). The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. This park repeats the one before it: number 1 of the parks in a row that stopped at step `develop`. A retry on the same text will likely stop the same way and spend another slot: change the issue first, or ask for a smaller change with `tehas:plan`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=develop kind= provider=0 sig=f25ff331a7f9960c458526d7b95b14f9fedd00ddfe504a1800921c36c4c7908c -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -5710,7 +6147,7 @@
   }
  },
  {
-  "case": "1793028957003941295",
+  "case": "a marker that holds no line, or one of the two fields, is no marker, and is gone (5)",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -5722,8 +6159,8 @@
    "before_retry_dir": false,
    "rc": 30,
    "signalled": false,
-   "started": 1793028957,
-   "now": 1793028957,
+   "started": 1793526177,
+   "now": 1793526177,
    "start": {
     "attempt": 5,
     "by": "",
@@ -5744,12 +6181,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028957
+     "seen_at": 1793526177
     },
     "cycle": {
      "issue": 7,
      "attempt": 5,
-     "started_at": 1793028957,
+     "started_at": 1793526177,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -5781,9 +6218,101 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": [
+     {
+      "kind": "cycle",
+      "id": 1,
+      "issue": 7,
+      "attempt": 1,
+      "at": 1793526166,
+      "status": "running",
+      "step": "develop",
+      "by": null,
+      "how": "hand",
+      "pr": null,
+      "started_at": 1793526164,
+      "rc": 30,
+      "cap": null,
+      "park_reason": null,
+      "failure_kind": null,
+      "failure_cause": null,
+      "provider": false,
+      "parked": true,
+      "seq": 1
+     },
+     {
+      "kind": "cycle",
+      "id": 2,
+      "issue": 7,
+      "attempt": 2,
+      "at": 1793526169,
+      "status": "running",
+      "step": "develop",
+      "by": null,
+      "how": "hand",
+      "pr": null,
+      "started_at": 1793526167,
+      "rc": 30,
+      "cap": null,
+      "park_reason": null,
+      "failure_kind": null,
+      "failure_cause": null,
+      "provider": false,
+      "parked": true,
+      "seq": 2
+     },
+     {
+      "kind": "cycle",
+      "id": 3,
+      "issue": 7,
+      "attempt": 3,
+      "at": 1793526172,
+      "status": "running",
+      "step": "develop",
+      "by": null,
+      "how": "hand",
+      "pr": null,
+      "started_at": 1793526170,
+      "rc": 30,
+      "cap": null,
+      "park_reason": null,
+      "failure_kind": null,
+      "failure_cause": null,
+      "provider": false,
+      "parked": true,
+      "seq": 3
+     },
+     {
+      "kind": "cycle",
+      "id": 4,
+      "issue": 7,
+      "attempt": 4,
+      "at": 1793526176,
+      "status": "running",
+      "step": "develop",
+      "by": null,
+      "how": "hand",
+      "pr": null,
+      "started_at": 1793526173,
+      "rc": 30,
+      "cap": null,
+      "park_reason": null,
+      "failure_kind": null,
+      "failure_cause": null,
+      "provider": false,
+      "parked": true,
+      "seq": 4
+     }
+    ]
+   }
   },
   "met": {
    "recorded": true,
@@ -5828,7 +6357,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped without a pull request: status `running`, last step `develop`, 0 min (runner exit 30). The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=develop kind= provider=0 sig=f25ff331a7f9960c458526d7b95b14f9fedd00ddfe504a1800921c36c4c7908c -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped without a pull request: status `running`, last step `develop`, 0 min (runner exit 30). The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. This park repeats the one before it: number 1 of the parks in a row that stopped at step `develop`. A retry on the same text will likely stop the same way and spend another slot: change the issue first, or ask for a smaller change with `tehas:plan`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=develop kind= provider=0 sig=f25ff331a7f9960c458526d7b95b14f9fedd00ddfe504a1800921c36c4c7908c -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -5838,7 +6367,7 @@
   }
  },
  {
-  "case": "1793028957505312448",
+  "case": "a marker that is a directory, or a link, is not read, and the cycle is reported as it is",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -5850,8 +6379,8 @@
    "before_retry_dir": false,
    "rc": 21,
    "signalled": false,
-   "started": 1793028957,
-   "now": 1793028957,
+   "started": 1793526180,
+   "now": 1793526180,
    "start": {
     "attempt": 1,
     "by": "",
@@ -5872,12 +6401,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028957
+     "seen_at": 1793526181
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028957,
+     "started_at": 1793526180,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -5909,9 +6438,16 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
   },
   "met": {
    "recorded": true,
@@ -5966,7 +6502,7 @@
   }
  },
  {
-  "case": "1793028957986294480",
+  "case": "a marker that is a directory, or a link, is not read, and the cycle is reported as it is (2)",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -5978,8 +6514,8 @@
    "before_retry_dir": false,
    "rc": 21,
    "signalled": false,
-   "started": 1793028958,
-   "now": 1793028958,
+   "started": 1793526183,
+   "now": 1793526184,
    "start": {
     "attempt": 2,
     "by": "",
@@ -6000,12 +6536,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028958
+     "seen_at": 1793526184
     },
     "cycle": {
      "issue": 7,
      "attempt": 2,
-     "started_at": 1793028958,
+     "started_at": 1793526183,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -6037,9 +6573,38 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": [
+     {
+      "kind": "cycle",
+      "id": 1,
+      "issue": 7,
+      "attempt": 1,
+      "at": 1793526182,
+      "status": "interrupted",
+      "step": "develop",
+      "by": null,
+      "how": "hand",
+      "pr": null,
+      "started_at": 1793526180,
+      "rc": 21,
+      "cap": null,
+      "park_reason": null,
+      "failure_kind": null,
+      "failure_cause": null,
+      "provider": false,
+      "parked": true,
+      "seq": 1
+     }
+    ]
+   }
   },
   "met": {
    "recorded": true,
@@ -6084,7 +6649,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped without a pull request: status `interrupted`, last step `develop`, 0 min (runner exit 21). The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=develop kind= provider=0 sig=f25ff331a7f9960c458526d7b95b14f9fedd00ddfe504a1800921c36c4c7908c -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped without a pull request: status `interrupted`, last step `develop`, 0 min (runner exit 21). The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. This park repeats the one before it: number 1 of the parks in a row that stopped at step `develop`. A retry on the same text will likely stop the same way and spend another slot: change the issue first, or ask for a smaller change with `tehas:plan`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=develop kind= provider=0 sig=f25ff331a7f9960c458526d7b95b14f9fedd00ddfe504a1800921c36c4c7908c -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -6094,7 +6659,7 @@
   }
  },
  {
-  "case": "1793028958465838119",
+  "case": "a name that is not one a comment can carry is cut, and the stop is still said",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -6106,8 +6671,8 @@
    "before_retry_dir": false,
    "rc": 2,
    "signalled": false,
-   "started": 1793028958,
-   "now": 1793028958,
+   "started": 1793526189,
+   "now": 1793526189,
    "start": {
     "attempt": 1,
     "by": "",
@@ -6118,7 +6683,7 @@
    "files": {
     "result.json": "{\n  \"schemaVersion\": 5,\n  \"issues\": [\n    {\n      \"issue\": 7,\n      \"status\": \"interrupted\",\n      \"failedStep\": \"develop\",\n      \"branch\": \"\"\n    }\n  ]\n}\n",
     "progress.json": "{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}\n",
-    "stopped": "1793028958\n"
+    "stopped": "1793526188\n"
    },
    "run_log": {
     "name": "/T/home/tehas/logs/work-7-261011-120000.jsonl",
@@ -6133,12 +6698,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028958
+     "seen_at": 1793526189
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028958,
+     "started_at": 1793526189,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -6170,9 +6735,16 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
   },
   "met": {
    "recorded": true,
@@ -6217,7 +6789,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped without a pull request: status `interrupted`, last step `develop`, 0 min (runner exit 2). The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. A person stopped it with `tehas stop` (name not recorded, at 2026-10-26T15:35:58Z).\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=develop kind= provider=0 sig=f25ff331a7f9960c458526d7b95b14f9fedd00ddfe504a1800921c36c4c7908c -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped without a pull request: status `interrupted`, last step `develop`, 0 min (runner exit 2). The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. A person stopped it with `tehas stop` (name not recorded, at 2026-11-01T09:43:08Z).\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=develop kind= provider=0 sig=f25ff331a7f9960c458526d7b95b14f9fedd00ddfe504a1800921c36c4c7908c -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -6227,7 +6799,7 @@
   }
  },
  {
-  "case": "1793028959120959326",
+  "case": "a stall file left by an earlier cycle is not this cycle's",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -6239,8 +6811,8 @@
    "before_retry_dir": false,
    "rc": 30,
    "signalled": false,
-   "started": 1793028959,
-   "now": 1793028959,
+   "started": 1793526192,
+   "now": 1793526192,
    "start": {
     "attempt": 1,
     "by": "",
@@ -6261,12 +6833,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028959
+     "seen_at": 1793526192
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028959,
+     "started_at": 1793526192,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -6298,9 +6870,16 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
   },
   "met": {
    "recorded": true,
@@ -6355,7 +6934,7 @@
   }
  },
  {
-  "case": "1793028959640735019",
+  "case": "the pi-rukas a cycle starts with is on its record, and nothing writes state/rukas-proven",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -6367,8 +6946,8 @@
    "before_retry_dir": false,
    "rc": 0,
    "signalled": false,
-   "started": 1793028959,
-   "now": 1793028959,
+   "started": 1793526195,
+   "now": 1793526195,
    "start": {
     "attempt": 1,
     "by": "",
@@ -6389,12 +6968,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028959
+     "seen_at": 1793526195
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028959,
+     "started_at": 1793526195,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -6426,7 +7005,8 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": [
@@ -6482,7 +7062,7 @@
   }
  },
  {
-  "case": "1793028960130978437",
+  "case": "the pi-rukas a cycle starts with is on its record, and nothing writes state/rukas-proven (2)",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -6494,8 +7074,8 @@
    "before_retry_dir": false,
    "rc": 10,
    "signalled": false,
-   "started": 1793028960,
-   "now": 1793028960,
+   "started": 1793526198,
+   "now": 1793526198,
    "start": {
     "attempt": 2,
     "by": "",
@@ -6516,12 +7096,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028960
+     "seen_at": 1793526198
     },
     "cycle": {
      "issue": 7,
      "attempt": 2,
-     "started_at": 1793028960,
+     "started_at": 1793526198,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -6553,7 +7133,8 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": [
@@ -6616,7 +7197,7 @@
   }
  },
  {
-  "case": "1793028960731424005",
+  "case": "an end the store will not take is an ERROR with its arguments, the cycle is still reported, and the next start replaces the open row",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -6628,8 +7209,8 @@
    "before_retry_dir": false,
    "rc": 10,
    "signalled": false,
-   "started": 1793028960,
-   "now": 1793028960,
+   "started": 1793526204,
+   "now": 1793526204,
    "start": {
     "attempt": 1,
     "by": "",
@@ -6650,12 +7231,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028960
+     "seen_at": 1793526205
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028960,
+     "started_at": 1793526204,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -6687,10 +7268,17 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": []
+   },
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
    }
   },
   "met": {
@@ -6750,7 +7338,7 @@
   }
  },
  {
-  "case": "1793028965398014190",
+  "case": "an end the store will not take is an ERROR with its arguments, the cycle is still reported, and the next start replaces the open row (2)",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -6762,8 +7350,8 @@
    "before_retry_dir": false,
    "rc": 10,
    "signalled": false,
-   "started": 1793028965,
-   "now": 1793028965,
+   "started": 1793526212,
+   "now": 1793526212,
    "start": {
     "attempt": 2,
     "by": "",
@@ -6784,12 +7372,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028965
+     "seen_at": 1793526212
     },
     "cycle": {
      "issue": 7,
      "attempt": 2,
-     "started_at": 1793028965,
+     "started_at": 1793526212,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -6821,10 +7409,17 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": []
+   },
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
    }
   },
   "met": {
@@ -6884,7 +7479,7 @@
   }
  },
  {
-  "case": "1793028966017621484",
+  "case": "the end of a cycle starts one poll of the dispatcher, and leaves the request for the path unit",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -6896,8 +7491,8 @@
    "before_retry_dir": false,
    "rc": 0,
    "signalled": false,
-   "started": 1793028966,
-   "now": 1793028966,
+   "started": 1793526216,
+   "now": 1793526216,
    "start": {
     "attempt": 1,
     "by": "",
@@ -6917,12 +7512,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028966
+     "seen_at": 1793526216
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028966,
+     "started_at": 1793526216,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -6954,9 +7549,16 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
   },
   "met": {
    "recorded": true,
@@ -7013,7 +7615,7 @@
   }
  },
  {
-  "case": "1793028966596834028",
+  "case": "a poll that cannot be started is a warning, and the cycle is still reported",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -7025,8 +7627,8 @@
    "before_retry_dir": false,
    "rc": 0,
    "signalled": false,
-   "started": 1793028966,
-   "now": 1793028966,
+   "started": 1793526220,
+   "now": 1793526220,
    "start": {
     "attempt": 1,
     "by": "",
@@ -7046,12 +7648,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028966
+     "seen_at": 1793526221
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028966,
+     "started_at": 1793526220,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -7083,9 +7685,16 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
   },
   "met": {
    "recorded": true,
@@ -7142,7 +7751,279 @@
   }
  },
  {
-  "case": "1793028967209314543",
+  "case": "a cycle that runs from its own copy of the code runs that copy's tehas-cycle",
+  "facts": {
+   "issue": 7,
+   "repo": "acme/widget",
+   "home": "/T/home",
+   "hostname": "tehas-test",
+   "workdir": "/T/home/tehas/work/widget-7",
+   "workspaces_marked": false,
+   "workdir_dir": false,
+   "before_retry_dir": false,
+   "rc": 0,
+   "signalled": false,
+   "started": 1793526223,
+   "now": 1793526223,
+   "start": {
+    "attempt": 1,
+    "by": "",
+    "how": "hand",
+    "approval_at": null,
+    "requeued": false
+   },
+   "files": {
+    "progress.json": "{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}\n"
+   },
+   "record": {
+    "api": 1,
+    "verb": "cycle-show",
+    "ok": true,
+    "issue": 7,
+    "lock": {
+     "state": "held",
+     "probe_rc": 1,
+     "file": true,
+     "seen_at": 1793526224
+    },
+    "cycle": {
+     "issue": 7,
+     "attempt": 1,
+     "started_at": 1793526223,
+     "started_by": null,
+     "how": "hand",
+     "requeued": false,
+     "rukas_commit": null,
+     "image": null,
+     "branch": null,
+     "end_reason": null,
+     "ended_at": null,
+     "oom_kills": null,
+     "forks_refused": null,
+     "stalled_seconds": null,
+     "timed_out": false,
+     "runner_exit": null,
+     "watched": false,
+     "host_saw": null,
+     "stop_asked_at": null,
+     "stop_said_times": 0,
+     "settings": {},
+     "quiet": null,
+     "heard_at": null
+    }
+   },
+   "approval": {
+    "api": 1,
+    "verb": "approval-current",
+    "ok": true,
+    "approval": null,
+    "current": null,
+    "rests_on": null,
+    "millwright_starts": 0,
+    "fixer_starts": 0,
+    "refreshes": 0,
+    "easy": false
+   },
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
+  },
+  "met": {
+   "recorded": true,
+   "posted": true,
+   "relabel": [
+    "ok",
+    "ok"
+   ]
+  },
+  "expect": {
+   "done": "done #7 rc=0 status=unknown step=- minutes=0 pr=none oom_kills=0 forks_refused=0",
+   "end": [
+    "7",
+    "--attempt",
+    "1",
+    "--status",
+    "unknown",
+    "--step",
+    "-",
+    "--rc",
+    "0",
+    "--oom",
+    "0",
+    "--forks",
+    "0",
+    "--parked"
+   ],
+   "park": [
+    "7",
+    "--attempt",
+    "1",
+    "--reason",
+    "unknown",
+    "--step",
+    "-"
+   ],
+   "log": [
+    "WARN: the result of #7 holds nothing, so its step is read from its run log"
+   ],
+   "writes": [
+    [
+     "relabel",
+     "--remove-label tehas:running --add-label needs-human-attention"
+    ],
+    [
+     "question",
+     "Tehas cycle stopped without a pull request: status `unknown`, last step `-`, 0 min (runner exit 0). This cycle left no workspace on this host; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+    ],
+    [
+     "relabel",
+     "--add-label tehas:question"
+    ]
+   ]
+  }
+ },
+ {
+  "case": "a tehas-cycle that cannot run is a warning, and the cycle is on record as ended",
+  "facts": {
+   "issue": 7,
+   "repo": "acme/widget",
+   "home": "/T/home",
+   "hostname": "tehas-test",
+   "workdir": "/T/home/tehas/work/widget-7",
+   "workspaces_marked": false,
+   "workdir_dir": false,
+   "before_retry_dir": false,
+   "rc": 0,
+   "signalled": false,
+   "started": 1793526227,
+   "now": 1793526227,
+   "start": {
+    "attempt": 1,
+    "by": "",
+    "how": "hand",
+    "approval_at": null,
+    "requeued": false
+   },
+   "files": {
+    "progress.json": "{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}\n"
+   },
+   "record": {
+    "api": 1,
+    "verb": "cycle-show",
+    "ok": true,
+    "issue": 7,
+    "lock": {
+     "state": "held",
+     "probe_rc": 1,
+     "file": true,
+     "seen_at": 1793526227
+    },
+    "cycle": {
+     "issue": 7,
+     "attempt": 1,
+     "started_at": 1793526227,
+     "started_by": null,
+     "how": "hand",
+     "requeued": false,
+     "rukas_commit": null,
+     "image": null,
+     "branch": null,
+     "end_reason": null,
+     "ended_at": null,
+     "oom_kills": null,
+     "forks_refused": null,
+     "stalled_seconds": null,
+     "timed_out": false,
+     "runner_exit": null,
+     "watched": false,
+     "host_saw": null,
+     "stop_asked_at": null,
+     "stop_said_times": 0,
+     "settings": {},
+     "quiet": null,
+     "heard_at": null
+    }
+   },
+   "approval": {
+    "api": 1,
+    "verb": "approval-current",
+    "ok": true,
+    "approval": null,
+    "current": null,
+    "rests_on": null,
+    "millwright_starts": 0,
+    "fixer_starts": 0,
+    "refreshes": 0,
+    "easy": false
+   },
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
+  },
+  "met": {
+   "recorded": true,
+   "posted": true,
+   "relabel": [
+    "ok",
+    "ok"
+   ]
+  },
+  "expect": {
+   "done": "done #7 rc=0 status=unknown step=- minutes=0 pr=none oom_kills=0 forks_refused=0",
+   "end": [
+    "7",
+    "--attempt",
+    "1",
+    "--status",
+    "unknown",
+    "--step",
+    "-",
+    "--rc",
+    "0",
+    "--oom",
+    "0",
+    "--forks",
+    "0",
+    "--parked"
+   ],
+   "park": [
+    "7",
+    "--attempt",
+    "1",
+    "--reason",
+    "unknown",
+    "--step",
+    "-"
+   ],
+   "log": [
+    "WARN: the result of #7 holds nothing, so its step is read from its run log"
+   ],
+   "writes": [
+    [
+     "relabel",
+     "--remove-label tehas:running --add-label needs-human-attention"
+    ],
+    [
+     "question",
+     "Tehas cycle stopped without a pull request: status `unknown`, last step `-`, 0 min (runner exit 0). This cycle left no workspace on this host; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+    ],
+    [
+     "relabel",
+     "--add-label tehas:question"
+    ]
+   ]
+  }
+ },
+ {
+  "case": "a handoff whose pull request merged before the cycle ended is reported with it",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -7154,8 +8035,8 @@
    "before_retry_dir": false,
    "rc": 10,
    "signalled": false,
-   "started": 1793028967,
-   "now": 1793028967,
+   "started": 1793526230,
+   "now": 1793526230,
    "start": {
     "attempt": 1,
     "by": "",
@@ -7176,12 +8057,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028967
+     "seen_at": 1793526231
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028967,
+     "started_at": 1793526230,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -7213,7 +8094,8 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": [
@@ -7271,7 +8153,7 @@
   }
  },
  {
-  "case": "1793028967713104583",
+  "case": "a cycle the dispatcher stopped because its issue was closed only loses its running label",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -7283,8 +8165,8 @@
    "before_retry_dir": false,
    "rc": 2,
    "signalled": false,
-   "started": 1793028967,
-   "now": 1793028967,
+   "started": 1793526235,
+   "now": 1793526235,
    "start": {
     "attempt": 1,
     "by": "",
@@ -7306,12 +8188,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028967
+     "seen_at": 1793526235
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028967,
+     "started_at": 1793526234,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -7343,7 +8225,8 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": []
@@ -7390,7 +8273,7 @@
   }
  },
  {
-  "case": "1793028968190191461",
+  "case": "a cycle the dispatcher stopped for being quiet names that stop in its comment and its record",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -7398,12 +8281,12 @@
    "hostname": "tehas-test",
    "workdir": "/T/home/tehas/work/widget-7",
    "workspaces_marked": false,
-   "workdir_dir": false,
+   "workdir_dir": true,
    "before_retry_dir": false,
-   "rc": 0,
+   "rc": 2,
    "signalled": false,
-   "started": 1793028968,
-   "now": 1793028968,
+   "started": 1793526239,
+   "now": 1793526239,
    "start": {
     "attempt": 1,
     "by": "",
@@ -7412,7 +8295,9 @@
     "requeued": false
    },
    "files": {
-    "progress.json": "{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}\n"
+    "result.json": "{\n  \"schemaVersion\": 5,\n  \"issues\": [\n    {\n      \"issue\": 7,\n      \"status\": \"running\",\n      \"failedStep\": \"adversarial\",\n      \"branch\": \"feature/x\"\n    }\n  ]\n}\n",
+    "progress.json": "{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}\n",
+    "done": "quiet\n"
    },
    "record": {
     "api": 1,
@@ -7423,12 +8308,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028968
+     "seen_at": 1793526239
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028968,
+     "started_at": 1793526239,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -7460,9 +8345,156 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {
+    "prs": []
+   },
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
+  },
+  "met": {
+   "recorded": true,
+   "posted": true,
+   "relabel": [
+    "ok",
+    "ok"
+   ]
+  },
+  "expect": {
+   "done": "done #7 rc=2 status=running step=adversarial minutes=0 pr=none oom_kills=0 forks_refused=0",
+   "end": [
+    "7",
+    "--attempt",
+    "1",
+    "--status",
+    "running",
+    "--step",
+    "adversarial",
+    "--rc",
+    "2",
+    "--oom",
+    "0",
+    "--forks",
+    "0",
+    "--branch",
+    "feature/x",
+    "--park-reason",
+    "quiet",
+    "--parked"
+   ],
+   "park": [
+    "7",
+    "--attempt",
+    "1",
+    "--reason",
+    "running",
+    "--step",
+    "adversarial"
+   ],
+   "log": [],
+   "writes": [
+    [
+     "relabel",
+     "--remove-label tehas:running --add-label needs-human-attention"
+    ],
+    [
+     "question",
+     "Tehas cycle stopped without a pull request: status `running`, last step `adversarial`, 0 min (runner exit 2). The dispatcher stopped it: nothing was heard from it for longer than its quiet bound. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=adversarial kind= provider=0 sig=600fd1b79ffd79b49380ec5857d76ccb7b38a861378384f9d7a259c06fba9b3c -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+    ],
+    [
+     "relabel",
+     "--add-label tehas:question"
+    ]
+   ]
+  }
+ },
+ {
+  "case": "a reason the dispatcher left for an earlier cycle is not this cycle's",
+  "facts": {
+   "issue": 7,
+   "repo": "acme/widget",
+   "home": "/T/home",
+   "hostname": "tehas-test",
+   "workdir": "/T/home/tehas/work/widget-7",
+   "workspaces_marked": false,
+   "workdir_dir": false,
+   "before_retry_dir": false,
+   "rc": 0,
+   "signalled": false,
+   "started": 1793526242,
+   "now": 1793526242,
+   "start": {
+    "attempt": 1,
+    "by": "",
+    "how": "hand",
+    "approval_at": null,
+    "requeued": false
+   },
+   "files": {
+    "progress.json": "{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}\n"
+   },
+   "record": {
+    "api": 1,
+    "verb": "cycle-show",
+    "ok": true,
+    "issue": 7,
+    "lock": {
+     "state": "held",
+     "probe_rc": 1,
+     "file": true,
+     "seen_at": 1793526242
+    },
+    "cycle": {
+     "issue": 7,
+     "attempt": 1,
+     "started_at": 1793526242,
+     "started_by": null,
+     "how": "hand",
+     "requeued": false,
+     "rukas_commit": null,
+     "image": null,
+     "branch": null,
+     "end_reason": null,
+     "ended_at": null,
+     "oom_kills": null,
+     "forks_refused": null,
+     "stalled_seconds": null,
+     "timed_out": false,
+     "runner_exit": null,
+     "watched": false,
+     "host_saw": null,
+     "stop_asked_at": null,
+     "stop_said_times": 0,
+     "settings": {},
+     "quiet": null,
+     "heard_at": null
+    }
+   },
+   "approval": {
+    "api": 1,
+    "verb": "approval-current",
+    "ok": true,
+    "approval": null,
+    "current": null,
+    "rests_on": null,
+    "millwright_starts": 0,
+    "fixer_starts": 0,
+    "refreshes": 0,
+    "easy": false
+   },
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
   },
   "met": {
    "recorded": true,
@@ -7519,7 +8551,7 @@
   }
  },
  {
-  "case": "1793028968685572845",
+  "case": "a merged pull request wins over a closed issue",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -7531,8 +8563,8 @@
    "before_retry_dir": false,
    "rc": 2,
    "signalled": false,
-   "started": 1793028968,
-   "now": 1793028968,
+   "started": 1793526246,
+   "now": 1793526246,
    "start": {
     "attempt": 1,
     "by": "",
@@ -7554,12 +8586,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028968
+     "seen_at": 1793526247
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028968,
+     "started_at": 1793526246,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -7591,7 +8623,8 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": [
@@ -7647,7 +8680,7 @@
   }
  },
  {
-  "case": "1793028969122976189",
+  "case": "a cycle that left a pull request says the count too",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -7659,8 +8692,8 @@
    "before_retry_dir": false,
    "rc": 10,
    "signalled": false,
-   "started": 1793028969,
-   "now": 1793028969,
+   "started": 1793526250,
+   "now": 1793526250,
    "start": {
     "attempt": 1,
     "by": "",
@@ -7682,12 +8715,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028969
+     "seen_at": 1793526250
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028969,
+     "started_at": 1793526250,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -7719,7 +8752,8 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": [
@@ -7782,7 +8816,7 @@
   }
  },
  {
-  "case": "1793028969624492436",
+  "case": "the refused starts are read as digits, said in the comment and the log, and the file is removed",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -7794,8 +8828,8 @@
    "before_retry_dir": false,
    "rc": 0,
    "signalled": false,
-   "started": 1793028969,
-   "now": 1793028969,
+   "started": 1793526253,
+   "now": 1793526253,
    "start": {
     "attempt": 1,
     "by": "",
@@ -7816,12 +8850,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028969
+     "seen_at": 1793526253
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028969,
+     "started_at": 1793526253,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -7853,9 +8887,16 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
   },
   "met": {
    "recorded": true,
@@ -7912,7 +8953,7 @@
   }
  },
  {
-  "case": "1793028970174579879",
+  "case": "a count of refused starts that is not digits, or is a link, counts as nothing",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -7924,8 +8965,8 @@
    "before_retry_dir": false,
    "rc": 0,
    "signalled": false,
-   "started": 1793028970,
-   "now": 1793028970,
+   "started": 1793526258,
+   "now": 1793526258,
    "start": {
     "attempt": 1,
     "by": "",
@@ -7946,12 +8987,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028970
+     "seen_at": 1793526258
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028970,
+     "started_at": 1793526257,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -7983,9 +9024,16 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
   },
   "met": {
    "recorded": true,
@@ -8042,7 +9090,7 @@
   }
  },
  {
-  "case": "1793028970695654038",
+  "case": "a count of refused starts that is not digits, or is a link, counts as nothing (2)",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -8054,8 +9102,8 @@
    "before_retry_dir": false,
    "rc": 0,
    "signalled": false,
-   "started": 1793028970,
-   "now": 1793028970,
+   "started": 1793526261,
+   "now": 1793526261,
    "start": {
     "attempt": 1,
     "by": "",
@@ -8076,12 +9124,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028970
+     "seen_at": 1793526261
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028970,
+     "started_at": 1793526261,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -8113,9 +9161,16 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
   },
   "met": {
    "recorded": true,
@@ -8172,7 +9227,7 @@
   }
  },
  {
-  "case": "1793028971209471972",
+  "case": "a count of refused starts that is not digits, or is a link, counts as nothing (3)",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -8184,8 +9239,8 @@
    "before_retry_dir": false,
    "rc": 0,
    "signalled": false,
-   "started": 1793028971,
-   "now": 1793028971,
+   "started": 1793526264,
+   "now": 1793526264,
    "start": {
     "attempt": 1,
     "by": "",
@@ -8206,12 +9261,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028971
+     "seen_at": 1793526265
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028971,
+     "started_at": 1793526264,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -8243,9 +9298,16 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
   },
   "met": {
    "recorded": true,
@@ -8302,7 +9364,7 @@
   }
  },
  {
-  "case": "1793028971734785234",
+  "case": "a count of refused starts that is not digits, or is a link, counts as nothing (4)",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -8314,8 +9376,8 @@
    "before_retry_dir": false,
    "rc": 0,
    "signalled": false,
-   "started": 1793028971,
-   "now": 1793028971,
+   "started": 1793526268,
+   "now": 1793526268,
    "start": {
     "attempt": 1,
     "by": "",
@@ -8336,12 +9398,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028971
+     "seen_at": 1793526268
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028971,
+     "started_at": 1793526268,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -8373,9 +9435,16 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
   },
   "met": {
    "recorded": true,
@@ -8432,7 +9501,7 @@
   }
  },
  {
-  "case": "1793028972239717415",
+  "case": "a count of refused starts that is not digits, or is a link, counts as nothing (5)",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -8444,8 +9513,8 @@
    "before_retry_dir": false,
    "rc": 0,
    "signalled": false,
-   "started": 1793028972,
-   "now": 1793028972,
+   "started": 1793526272,
+   "now": 1793526273,
    "start": {
     "attempt": 1,
     "by": "",
@@ -8466,12 +9535,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028972
+     "seen_at": 1793526273
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028972,
+     "started_at": 1793526272,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -8503,9 +9572,16 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
   },
   "met": {
    "recorded": true,
@@ -8562,7 +9638,7 @@
   }
  },
  {
-  "case": "1793028972763894275",
+  "case": "a count of refused starts that is not digits, or is a link, counts as nothing (6)",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -8574,8 +9650,8 @@
    "before_retry_dir": false,
    "rc": 0,
    "signalled": false,
-   "started": 1793028972,
-   "now": 1793028972,
+   "started": 1793526276,
+   "now": 1793526276,
    "start": {
     "attempt": 1,
     "by": "",
@@ -8598,12 +9674,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028972
+     "seen_at": 1793526276
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028972,
+     "started_at": 1793526276,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -8635,9 +9711,16 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
   },
   "met": {
    "recorded": true,
@@ -8694,7 +9777,7 @@
   }
  },
  {
-  "case": "1793028973300699125",
+  "case": "a count of refused starts left by an earlier cycle of the issue is not this cycle's",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -8706,8 +9789,8 @@
    "before_retry_dir": false,
    "rc": 0,
    "signalled": false,
-   "started": 1793028973,
-   "now": 1793028973,
+   "started": 1793526281,
+   "now": 1793526281,
    "start": {
     "attempt": 1,
     "by": "",
@@ -8727,12 +9810,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028973
+     "seen_at": 1793526282
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028973,
+     "started_at": 1793526281,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -8764,9 +9847,16 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
   },
   "met": {
    "recorded": true,
@@ -8823,7 +9913,7 @@
   }
  },
  {
-  "case": "1793028973856501807",
+  "case": "a count file with letters counts as nothing",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -8835,8 +9925,8 @@
    "before_retry_dir": false,
    "rc": 2,
    "signalled": false,
-   "started": 1793028973,
-   "now": 1793028973,
+   "started": 1793526285,
+   "now": 1793526285,
    "start": {
     "attempt": 1,
     "by": "",
@@ -8861,12 +9951,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028973
+     "seen_at": 1793526285
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028973,
+     "started_at": 1793526285,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -8898,9 +9988,16 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
   },
   "met": {
    "recorded": true,
@@ -8957,7 +10054,7 @@
   }
  },
  {
-  "case": "1793028974485831853",
+  "case": "a count file with letters counts as nothing (2)",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -8969,8 +10066,8 @@
    "before_retry_dir": false,
    "rc": 2,
    "signalled": false,
-   "started": 1793028974,
-   "now": 1793028974,
+   "started": 1793526290,
+   "now": 1793526290,
    "start": {
     "attempt": 1,
     "by": "",
@@ -8995,12 +10092,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028974
+     "seen_at": 1793526290
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028974,
+     "started_at": 1793526289,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -9032,9 +10129,16 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
   },
   "met": {
    "recorded": true,
@@ -9091,7 +10195,7 @@
   }
  },
  {
-  "case": "1793028975129299473",
+  "case": "a count file with letters counts as nothing (3)",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -9103,8 +10207,8 @@
    "before_retry_dir": false,
    "rc": 2,
    "signalled": false,
-   "started": 1793028975,
-   "now": 1793028975,
+   "started": 1793526293,
+   "now": 1793526293,
    "start": {
     "attempt": 1,
     "by": "",
@@ -9129,12 +10233,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028975
+     "seen_at": 1793526294
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028975,
+     "started_at": 1793526293,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -9166,9 +10270,16 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
   },
   "met": {
    "recorded": true,
@@ -9225,7 +10336,7 @@
   }
  },
  {
-  "case": "1793028975785655802",
+  "case": "a count file with letters counts as nothing (4)",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -9237,8 +10348,8 @@
    "before_retry_dir": false,
    "rc": 2,
    "signalled": false,
-   "started": 1793028975,
-   "now": 1793028975,
+   "started": 1793526297,
+   "now": 1793526297,
    "start": {
     "attempt": 1,
     "by": "",
@@ -9263,12 +10374,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028975
+     "seen_at": 1793526298
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028975,
+     "started_at": 1793526297,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -9300,9 +10411,16 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
   },
   "met": {
    "recorded": true,
@@ -9359,7 +10477,7 @@
   }
  },
  {
-  "case": "1793028976480997899",
+  "case": "a count file with letters counts as nothing (5)",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -9371,8 +10489,8 @@
    "before_retry_dir": false,
    "rc": 2,
    "signalled": false,
-   "started": 1793028976,
-   "now": 1793028976,
+   "started": 1793526302,
+   "now": 1793526302,
    "start": {
     "attempt": 1,
     "by": "",
@@ -9397,12 +10515,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028976
+     "seen_at": 1793526303
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028976,
+     "started_at": 1793526302,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -9434,9 +10552,16 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
   },
   "met": {
    "recorded": true,
@@ -9493,7 +10618,7 @@
   }
  },
  {
-  "case": "1793028977216944504",
+  "case": "a count file with letters counts as nothing (6)",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -9505,8 +10630,8 @@
    "before_retry_dir": false,
    "rc": 2,
    "signalled": false,
-   "started": 1793028977,
-   "now": 1793028977,
+   "started": 1793526306,
+   "now": 1793526306,
    "start": {
     "attempt": 1,
     "by": "",
@@ -9531,12 +10656,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028977
+     "seen_at": 1793526307
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028977,
+     "started_at": 1793526306,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -9568,9 +10693,16 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
   },
   "met": {
    "recorded": true,
@@ -9627,7 +10759,7 @@
   }
  },
  {
-  "case": "1793028977908559895",
+  "case": "a count file with letters counts as nothing (7)",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -9639,8 +10771,8 @@
    "before_retry_dir": false,
    "rc": 2,
    "signalled": false,
-   "started": 1793028977,
-   "now": 1793028977,
+   "started": 1793526312,
+   "now": 1793526312,
    "start": {
     "attempt": 1,
     "by": "",
@@ -9665,12 +10797,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028978
+     "seen_at": 1793526313
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028977,
+     "started_at": 1793526312,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -9702,9 +10834,16 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
   },
   "met": {
    "recorded": true,
@@ -9761,7 +10900,7 @@
   }
  },
  {
-  "case": "1793028978554202284",
+  "case": "a count file with letters counts as nothing (8)",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -9773,8 +10912,8 @@
    "before_retry_dir": false,
    "rc": 2,
    "signalled": false,
-   "started": 1793028978,
-   "now": 1793028978,
+   "started": 1793526316,
+   "now": 1793526316,
    "start": {
     "attempt": 1,
     "by": "",
@@ -9799,12 +10938,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028978
+     "seen_at": 1793526317
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028978,
+     "started_at": 1793526316,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -9836,9 +10975,16 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
   },
   "met": {
    "recorded": true,
@@ -9895,7 +11041,7 @@
   }
  },
  {
-  "case": "1793028979228726913",
+  "case": "a count file that is a link is not read",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -9907,8 +11053,8 @@
    "before_retry_dir": false,
    "rc": 0,
    "signalled": false,
-   "started": 1793028979,
-   "now": 1793028979,
+   "started": 1793526321,
+   "now": 1793526321,
    "start": {
     "attempt": 1,
     "by": "",
@@ -9931,12 +11077,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028979
+     "seen_at": 1793526322
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028979,
+     "started_at": 1793526321,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -9968,9 +11114,16 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
   },
   "met": {
    "recorded": true,
@@ -10027,7 +11180,7 @@
   }
  },
  {
-  "case": "1793028979787102427",
+  "case": "the appended log is not where the count comes from",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -10039,8 +11192,8 @@
    "before_retry_dir": false,
    "rc": 2,
    "signalled": false,
-   "started": 1793028979,
-   "now": 1793028979,
+   "started": 1793526325,
+   "now": 1793526325,
    "start": {
     "attempt": 1,
     "by": "",
@@ -10064,12 +11217,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028979
+     "seen_at": 1793526326
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028979,
+     "started_at": 1793526325,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -10101,9 +11254,16 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
   },
   "met": {
    "recorded": true,
@@ -10160,7 +11320,7 @@
   }
  },
  {
-  "case": "1793028980412309002",
+  "case": "a count left by an earlier cycle of the issue is not this cycle's",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -10172,8 +11332,8 @@
    "before_retry_dir": false,
    "rc": 0,
    "signalled": false,
-   "started": 1793028980,
-   "now": 1793028980,
+   "started": 1793526330,
+   "now": 1793526330,
    "start": {
     "attempt": 1,
     "by": "",
@@ -10193,12 +11353,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028980
+     "seen_at": 1793526330
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028980,
+     "started_at": 1793526330,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -10230,9 +11390,16 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
   },
   "met": {
    "recorded": true,
@@ -10289,7 +11456,7 @@
   }
  },
  {
-  "case": "1793028980928187849",
+  "case": "with the loop off a cycle leaves no record",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -10301,8 +11468,8 @@
    "before_retry_dir": false,
    "rc": 0,
    "signalled": false,
-   "started": 1793028980,
-   "now": 1793028980,
+   "started": 1793526335,
+   "now": 1793526336,
    "start": {
     "attempt": 1,
     "by": "",
@@ -10326,12 +11493,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028981
+     "seen_at": 1793526336
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028980,
+     "started_at": 1793526335,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -10363,9 +11530,16 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
   },
   "met": {
    "recorded": true,
@@ -10422,7 +11596,7 @@
   }
  },
  {
-  "case": "1793028981438961891",
+  "case": "a record that cannot be written changes nothing about the cycle's report",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -10434,8 +11608,8 @@
    "before_retry_dir": false,
    "rc": 0,
    "signalled": false,
-   "started": 1793028981,
-   "now": 1793028981,
+   "started": 1793526340,
+   "now": 1793526340,
    "start": {
     "attempt": 1,
     "by": "",
@@ -10455,12 +11629,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028981
+     "seen_at": 1793526341
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028981,
+     "started_at": 1793526340,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -10492,9 +11666,16 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
   },
   "met": {
    "recorded": true,
@@ -10551,7 +11732,7 @@
   }
  },
  {
-  "case": "1793028981999915798",
+  "case": "the run in analytics carries when its image was built, as docker says of the id on record",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -10563,8 +11744,144 @@
    "before_retry_dir": false,
    "rc": 2,
    "signalled": false,
-   "started": 1793028982,
-   "now": 1793028982,
+   "started": 1793526345,
+   "now": 1793526345,
+   "start": {
+    "attempt": 1,
+    "by": "",
+    "how": "hand",
+    "approval_at": null,
+    "requeued": false
+   },
+   "files": {
+    "progress.json": "{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}\n"
+   },
+   "record": {
+    "api": 1,
+    "verb": "cycle-show",
+    "ok": true,
+    "issue": 7,
+    "lock": {
+     "state": "held",
+     "probe_rc": 1,
+     "file": true,
+     "seen_at": 1793526345
+    },
+    "cycle": {
+     "issue": 7,
+     "attempt": 1,
+     "started_at": 1793526345,
+     "started_by": null,
+     "how": "hand",
+     "requeued": false,
+     "rukas_commit": null,
+     "image": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "branch": null,
+     "end_reason": null,
+     "ended_at": null,
+     "oom_kills": null,
+     "forks_refused": null,
+     "stalled_seconds": null,
+     "timed_out": false,
+     "runner_exit": null,
+     "watched": false,
+     "host_saw": null,
+     "stop_asked_at": null,
+     "stop_said_times": 0,
+     "settings": {},
+     "quiet": null,
+     "heard_at": null
+    }
+   },
+   "approval": {
+    "api": 1,
+    "verb": "approval-current",
+    "ok": true,
+    "approval": null,
+    "current": null,
+    "rests_on": null,
+    "millwright_starts": 0,
+    "fixer_starts": 0,
+    "refreshes": 0,
+    "easy": false
+   },
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
+  },
+  "met": {
+   "recorded": true,
+   "posted": true,
+   "relabel": [
+    "ok",
+    "ok"
+   ]
+  },
+  "expect": {
+   "done": "done #7 rc=2 status=unknown step=- minutes=0 pr=none oom_kills=0 forks_refused=0",
+   "end": [
+    "7",
+    "--attempt",
+    "1",
+    "--status",
+    "unknown",
+    "--step",
+    "-",
+    "--rc",
+    "2",
+    "--oom",
+    "0",
+    "--forks",
+    "0",
+    "--parked"
+   ],
+   "park": [
+    "7",
+    "--attempt",
+    "1",
+    "--reason",
+    "unknown",
+    "--step",
+    "-"
+   ],
+   "log": [
+    "WARN: the result of #7 holds nothing, so its step is read from its run log"
+   ],
+   "writes": [
+    [
+     "relabel",
+     "--remove-label tehas:running --add-label needs-human-attention"
+    ],
+    [
+     "question",
+     "Tehas cycle stopped without a pull request: status `unknown`, last step `-`, 0 min (runner exit 2). This cycle left no workspace on this host; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+    ],
+    [
+     "relabel",
+     "--add-label tehas:question"
+    ]
+   ]
+  }
+ },
+ {
+  "case": "the cycle records its run and its end in analytics after the history line, with what it read and removed",
+  "facts": {
+   "issue": 7,
+   "repo": "acme/widget",
+   "home": "/T/home",
+   "hostname": "tehas-test",
+   "workdir": "/T/home/tehas/work/widget-7",
+   "workspaces_marked": false,
+   "workdir_dir": false,
+   "before_retry_dir": false,
+   "rc": 2,
+   "signalled": false,
+   "started": 1793526350,
+   "now": 1793526351,
    "start": {
     "attempt": 1,
     "by": "",
@@ -10586,12 +11903,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028982
+     "seen_at": 1793526351
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028982,
+     "started_at": 1793526350,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -10623,9 +11940,16 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
   },
   "met": {
    "recorded": true,
@@ -10682,7 +12006,7 @@
   }
  },
  {
-  "case": "1793028982636580610",
+  "case": "an option with no value is left out of the run",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -10694,8 +12018,8 @@
    "before_retry_dir": false,
    "rc": 10,
    "signalled": false,
-   "started": 1793028982,
-   "now": 1793028982,
+   "started": 1793526355,
+   "now": 1793526355,
    "start": {
     "attempt": 1,
     "by": "",
@@ -10716,12 +12040,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028982
+     "seen_at": 1793526356
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028982,
+     "started_at": 1793526355,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -10753,10 +12077,17 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": []
+   },
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
    }
   },
   "met": {
@@ -10816,7 +12147,7 @@
   }
  },
  {
-  "case": "1793028983312571981",
+  "case": "a cycle stopped by a signal is recorded too",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -10828,8 +12159,8 @@
    "before_retry_dir": false,
    "rc": 143,
    "signalled": true,
-   "started": 1793028983,
-   "now": 1793028983,
+   "started": 1793526362,
+   "now": 1793526362,
    "start": {
     "attempt": 1,
     "by": "",
@@ -10849,12 +12180,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028983
+     "seen_at": 1793526362
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028983,
+     "started_at": 1793526361,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -10886,9 +12217,16 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
   },
   "met": {
    "recorded": true,
@@ -10945,7 +12283,165 @@
   }
  },
  {
-  "case": "1793028984020353230",
+  "case": "a start that never ran gives analytics the approval it used, though the record goes with the report",
+  "facts": {
+   "issue": 7,
+   "repo": "acme/widget",
+   "home": "/T/home",
+   "hostname": "tehas-test",
+   "workdir": "/T/home/tehas/work/widget-7",
+   "workspaces_marked": false,
+   "workdir_dir": false,
+   "before_retry_dir": false,
+   "rc": 4,
+   "signalled": false,
+   "started": 1793526367,
+   "now": 1793526367,
+   "start": {
+    "attempt": 1,
+    "by": "alice",
+    "how": "label",
+    "approval_at": 1767225600,
+    "requeued": false
+   },
+   "files": {
+    "progress.json": "{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}\n"
+   },
+   "record": {
+    "api": 1,
+    "verb": "cycle-show",
+    "ok": true,
+    "issue": 7,
+    "lock": {
+     "state": "held",
+     "probe_rc": 1,
+     "file": true,
+     "seen_at": 1793526368
+    },
+    "cycle": {
+     "issue": 7,
+     "attempt": 1,
+     "started_at": 1793526367,
+     "started_by": "alice",
+     "how": "label",
+     "requeued": false,
+     "rukas_commit": null,
+     "image": null,
+     "branch": null,
+     "end_reason": null,
+     "ended_at": null,
+     "oom_kills": null,
+     "forks_refused": null,
+     "stalled_seconds": null,
+     "timed_out": false,
+     "runner_exit": null,
+     "watched": false,
+     "host_saw": null,
+     "stop_asked_at": null,
+     "stop_said_times": 0,
+     "settings": {},
+     "quiet": null,
+     "heard_at": null
+    }
+   },
+   "approval": {
+    "api": 1,
+    "verb": "approval-current",
+    "ok": true,
+    "approval": null,
+    "current": {
+     "issue": 7,
+     "at": 1767225600,
+     "by": "alice",
+     "how": "label",
+     "label": "tehas:ready",
+     "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
+     "title_sha256": null,
+     "comment_id": null,
+     "refresh_pr": null,
+     "refresh_head": null,
+     "used_at": 1793526367,
+     "used_by": 1,
+     "input": null,
+     "easy": false
+    },
+    "rests_on": {
+     "at": 1767225600,
+     "by": "alice",
+     "how": "label",
+     "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
+     "used_by": 1
+    },
+    "millwright_starts": 0,
+    "fixer_starts": 0,
+    "refreshes": 0,
+    "easy": false
+   },
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
+  },
+  "met": {
+   "recorded": true,
+   "posted": true,
+   "relabel": [
+    "ok",
+    "ok"
+   ]
+  },
+  "expect": {
+   "done": "done #7 rc=4 status=unknown step=- minutes=0 pr=none oom_kills=0 forks_refused=0",
+   "end": [
+    "7",
+    "--attempt",
+    "1",
+    "--status",
+    "unknown",
+    "--step",
+    "-",
+    "--rc",
+    "4",
+    "--oom",
+    "0",
+    "--forks",
+    "0",
+    "--parked",
+    "--never-ran"
+   ],
+   "park": [
+    "7",
+    "--attempt",
+    "1",
+    "--reason",
+    "unknown",
+    "--step",
+    "-"
+   ],
+   "log": [
+    "WARN: the result of #7 holds nothing, so its step is read from its run log"
+   ],
+   "writes": [
+    [
+     "relabel",
+     "--remove-label tehas:running --add-label needs-human-attention"
+    ],
+    [
+     "question",
+     "Tehas started no cycle: an image or file the issue links could not be given to it, or the issue could not be read for them (runner exit 4). Nothing of it ran: no workspace, no container, no step, no usage. @​alice approved this start at 2026-01-01T00:00:00Z; tehas keeps no record of an approval that started nothing, so a fresh `tehas:ready` asks for another start. The comment before this one names it; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+    ],
+    [
+     "relabel",
+     "--add-label tehas:question"
+    ]
+   ]
+  }
+ },
+ {
+  "case": "with TEHAS_ANALYTICS off the cycle calls no analytics",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -10957,8 +12453,8 @@
    "before_retry_dir": false,
    "rc": 0,
    "signalled": false,
-   "started": 1793028984,
-   "now": 1793028984,
+   "started": 1793526377,
+   "now": 1793526377,
    "start": {
     "attempt": 1,
     "by": "",
@@ -10978,12 +12474,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028984
+     "seen_at": 1793526377
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028984,
+     "started_at": 1793526377,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -11015,9 +12511,16 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
   },
   "met": {
    "recorded": true,
@@ -11074,7 +12577,7 @@
   }
  },
  {
-  "case": "1793028984573888636",
+  "case": "a failing analytics is a warning, and the cycle is reported as without it",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -11086,8 +12589,8 @@
    "before_retry_dir": false,
    "rc": 10,
    "signalled": false,
-   "started": 1793028984,
-   "now": 1793028984,
+   "started": 1793526382,
+   "now": 1793526383,
    "start": {
     "attempt": 1,
     "by": "",
@@ -11108,12 +12611,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028984
+     "seen_at": 1793526383
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028984,
+     "started_at": 1793526382,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -11145,10 +12648,17 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": []
+   },
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
    }
   },
   "met": {
@@ -11208,7 +12718,7 @@
   }
  },
  {
-  "case": "1793028985124984504",
+  "case": "a failing analytics is a warning, and the cycle is reported as without it (2)",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -11220,8 +12730,8 @@
    "before_retry_dir": false,
    "rc": 10,
    "signalled": false,
-   "started": 1793028985,
-   "now": 1793028985,
+   "started": 1793526388,
+   "now": 1793526389,
    "start": {
     "attempt": 1,
     "by": "",
@@ -11242,12 +12752,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028985
+     "seen_at": 1793526390
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028985,
+     "started_at": 1793526388,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -11279,10 +12789,17 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": []
+   },
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
    }
   },
   "met": {
@@ -11342,7 +12859,7 @@
   }
  },
  {
-  "case": "1793028985853368452",
+  "case": "an analytics that hangs is cut off, and the cycle is reported",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -11354,8 +12871,8 @@
    "before_retry_dir": false,
    "rc": 0,
    "signalled": false,
-   "started": 1793028985,
-   "now": 1793028985,
+   "started": 1793526398,
+   "now": 1793526398,
    "start": {
     "attempt": 1,
     "by": "",
@@ -11375,12 +12892,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028985
+     "seen_at": 1793526399
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028985,
+     "started_at": 1793526397,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -11412,9 +12929,16 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
   },
   "met": {
    "recorded": true,
@@ -11471,7 +12995,7 @@
   }
  },
  {
-  "case": "1793028990503600475",
+  "case": "a host without the analytics program is silent",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -11483,8 +13007,8 @@
    "before_retry_dir": false,
    "rc": 0,
    "signalled": false,
-   "started": 1793028990,
-   "now": 1793028990,
+   "started": 1793526409,
+   "now": 1793526409,
    "start": {
     "attempt": 1,
     "by": "",
@@ -11504,12 +13028,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028990
+     "seen_at": 1793526410
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028990,
+     "started_at": 1793526409,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -11541,9 +13065,16 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
   },
   "met": {
    "recorded": true,
@@ -11600,7 +13131,7 @@
   }
  },
  {
-  "case": "1793028991012655593",
+  "case": "without the test seams it runs the scripts beside it, not names on PATH",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -11612,8 +13143,8 @@
    "before_retry_dir": false,
    "rc": 0,
    "signalled": false,
-   "started": 1793028991,
-   "now": 1793028991,
+   "started": 1793526414,
+   "now": 1793526414,
    "start": {
     "attempt": 1,
     "by": "",
@@ -11633,12 +13164,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028991
+     "seen_at": 1793526414
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028991,
+     "started_at": 1793526413,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -11670,9 +13201,16 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
   },
   "met": {
    "recorded": true,
