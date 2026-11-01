@@ -45,6 +45,7 @@ empty one above it.
 - `lib/planning.sh` and `lib/live.sh` are removed, and an install takes them off a host.
 - The libraries lose the functions only the bash poll called.
 - The dispatcher's shadow is removed: the poll's unit appends to `logs/dispatch.log` and nothing else.
+- The bash left behind by the poll's removal is gone: `lib/limit.sh` and five functions only tests called.
 
 ### Adopter action
 

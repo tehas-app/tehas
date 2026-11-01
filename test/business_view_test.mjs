@@ -18,10 +18,10 @@ const status = (extra = {}) => ({
 test("the line runs prototypes, in line, planning, building, review, stopped, shipped", () => {
   assert.deepEqual(STAGES.map((s) => s.key), ["proto", "line", "plan", "build", "review", "stop", "ship"]);
   const v = lineView({ status: status(), nowMs: NOW });
-  assert.deepEqual(v.stages.map((s) => [s.key, s.count]), [["proto", 0], ["line", 2], ["build", 1], ["review", 1], ["stop", 1], ["ship", 1]]);
+  assert.deepEqual(v.stages.map((s) => [s.key, s.count]), [["line", 2], ["build", 1], ["review", 1], ["stop", 1], ["ship", 1]]);
   assert.equal(v.source, "live");
   assert.equal(v.repo, "https://github.com/acme/widget");
-  assert.deepEqual(v.stages[1].items[0], issue(13));
+  assert.deepEqual(v.stages[0].items[0], issue(13));
 });
 
 test("each stage links to its tickets on GitHub, the stopped one by what it says", () => {
@@ -30,7 +30,10 @@ test("each stage links to its tickets on GitHub, the stopped one by what it says
   assert.deepEqual(line.more, { text: "All 2 in line",
     href: "https://github.com/acme/widget/issues?q=" + encodeURIComponent("is:open label:tehas:ready") });
   assert.equal(v.stages.find((s) => s.key === "stop").more.text, "See what stopped");
-  assert.equal(v.stages.find((s) => s.key === "proto").more, null); // nothing there, and no Protolab
+});
+
+test("prototypes show only while there are some, as planning does", () => {
+  assert.equal(lineView({ status: status(), nowMs: NOW }).stages.find((s) => s.key === "proto"), undefined);
 });
 
 test("a queue older than ten minutes is stale, and a pause is shown", () => {
@@ -86,13 +89,13 @@ test("the sample is staged by its labels, and only where there is no queue", () 
   const v = lineView({ sample, nowMs: NOW });
   assert.equal(v.source, "sample");
   assert.deepEqual(v.stages.map((s) => s.items.map((t) => t.number)), [[2], [1], [2], [], [3], [4]]);
-  assert.equal(lineView({ status: status(), sample, nowMs: NOW }).stages[1].count, 2); // the queue wins
+  assert.equal(lineView({ status: status(), sample, nowMs: NOW }).stages[0].count, 2); // the queue wins
   assert.equal(lineView({ nowMs: NOW }).source, "none");
 });
 
 test("a ticket the queue lists twice stands at one place: stopped first, then review, building, in line", () => {
   const v = lineView({ status: status({ queued: [issue(2), issue(13), issue(18)], running: [issue(18)] }), nowMs: NOW });
-  assert.deepEqual(v.stages.map((s) => s.items.map((t) => t.number)), [[], [13], [], [18], [2], [83]]);
+  assert.deepEqual(v.stages.map((s) => s.items.map((t) => t.number)), [[13], [], [18], [2], [83]]);
 });
 
 // The shipped figure is the label's total, so it keeps rising past the fifty
@@ -143,25 +146,25 @@ test("the only count fields the page reads are the planning and shipped ones", (
 // Planning is drawn only while something is in it.
 test("planning stands between in line and building, and only while work is planned", () => {
   const keys = (extra) => lineView({ status: status(extra), nowMs: NOW }).stages.map((s) => s.key);
-  assert.deepEqual(keys({}), ["proto", "line", "build", "review", "stop", "ship"]);
-  assert.deepEqual(keys({ planned: [], planning: 0 }), ["proto", "line", "build", "review", "stop", "ship"]);
+  assert.deepEqual(keys({}), ["line", "build", "review", "stop", "ship"]);
+  assert.deepEqual(keys({ planned: [], planning: 0 }), ["line", "build", "review", "stop", "ship"]);
   const v = lineView({ status: status({ planned: [issue(30), issue(31)], planning: 2 }), nowMs: NOW });
-  const plan = v.stages[2];
+  const plan = v.stages[1];
   assert.deepEqual([plan.key, plan.label, plan.count, plan.items.map((t) => t.number)], ["plan", "Planning", 2, [30, 31]]);
   assert.deepEqual(plan.more, { text: "All 2 in planning",
     href: `https://github.com/acme/widget/issues?q=${encodeURIComponent("is:open label:tehas:plan,tehas:planning")}` });
   // An older host publishes the count only.
-  const old = lineView({ status: status({ planning: 3 }), nowMs: NOW }).stages[2];
+  const old = lineView({ status: status({ planning: 3 }), nowMs: NOW }).stages[1];
   assert.deepEqual([old.key, old.count, old.items], ["plan", 3, []]);
   // A ticket being planned and in line stands in planning.
   const both = lineView({ status: status({ planned: [issue(13)], planning: 1 }), nowMs: NOW });
-  assert.deepEqual(both.stages.slice(1, 3).map((s) => s.items.map((t) => t.number)), [[14], [13]]);
+  assert.deepEqual(both.stages.slice(0, 2).map((s) => s.items.map((t) => t.number)), [[14], [13]]);
 });
 
 test("the sample stages a ticket labelled for planning in planning", () => {
   const v = lineView({ sample: { issues: [{ number: 7, title: "Plan", labels: ["tehas:plan", "tehas:ready"] }] }, nowMs: NOW });
   assert.deepEqual(v.stages.map((s) => [s.key, s.items.map((t) => t.number)]),
-    [["proto", []], ["line", []], ["plan", [7]], ["build", []], ["review", []], ["stop", []], ["ship", []]]);
+    [["line", []], ["plan", [7]], ["build", []], ["review", []], ["stop", []], ["ship", []]]);
 });
 
 test("the board lists the open tickets on the line, in the line's order", () => {

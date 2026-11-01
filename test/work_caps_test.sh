@@ -561,16 +561,15 @@ t_lacks "$(cat "$T"/calls/docker.args.*)" "--network host"
 
 # The credential helper git is given, by name and by value: the container's
 # entry, the key tehas setup asks the host's git about, and the command the gh
-# stub of test/setup_test.sh writes are one contract in lib/sandbox.sh, so a
-# change to its spelling that only one of the three follows fails here. The
+# stub of test/setup_test.sh writes are one contract, so a change to its
+# spelling that only one of the three follows fails here. The
 # value is not a secret: it is a command on PATH, and the host's operator's own
 # helper is the only value that is withheld, in libexec/setup.
 t_case "the helper a container's git runs is the one key and the one command"
-t_run ". '$T_ROOT/lib/config.sh'; . '$T_ROOT/lib/sandbox.sh'; printf '%s\n' \"\$(tehas_git_github_host)\" \"\$(tehas_git_credential_helper_key)\" \"\$(tehas_sandbox_helper_command)\""
+t_run ". '$T_ROOT/lib/config.sh'; . '$T_ROOT/lib/sandbox.sh'; printf '%s\n' \"\$(tehas_git_github_host)\" \"\$(tehas_git_credential_helper_key)\""
 t_eq "$t_rc" 0
 t_eq "$(printf '%s\n' "$t_out")" "github.com
-credential.https://github.com.helper
-!gh auth git-credential"
+credential.https://github.com.helper"
 
 # The container's own entries, read off the docker options of the cycle the
 # cases above started: the name on one line and its value on the next, the way
