@@ -212,10 +212,14 @@ broken=$T/tree-broken
 mkdir -p "$broken/libexec"
 ln -s "$T_ROOT/lib" "$broken/lib"
 ln -s "$T_ROOT/libexec/work" "$broken/libexec/work"
-cp "$T_CYCLE" "$broken/libexec/tehas-cycle"
-printf '%s\n' '#!/bin/sh' '[ "$1" != size ] || { echo "{oops}"; exit 1; }' >"$broken/libexec/console"
+printf '%s\n' '#!/bin/sh' '[ "$1" != size ] || { echo "{oops}"; exit 1; }' '[ "$1" != slice ] || exec "$T/console-bin" "$@"' >"$broken/libexec/console"
 chmod +x "$broken/libexec/console"
+cp "$tree/libexec/tehas-cycle" "$tree/libexec/tehas-cycle.real" "$broken/libexec/"
+# The console of this tree has to be the one asked, so no other is named.
+keep_env=("${T_ENV_ALWAYS[@]}")
+T_ENV_ALWAYS=()
 t_run "$broken/libexec/work 7"
+T_ENV_ALWAYS=("${keep_env[@]}")
 t_eq "$t_rc" 2
 t_contains "$t_out" "could not record the size of #7 in $sizes (measure)"
 t_eq "$(jq -s 'length' "$sizes")" "1"

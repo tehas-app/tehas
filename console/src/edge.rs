@@ -36,7 +36,6 @@ const OPTION: &str = "com.docker.network.bridge.gateway_mode_ipv4";
 /// `$TEHAS_HOME/state/<name>.lock`, held until the file is dropped. Without a
 /// wait, another holder is an answer at once. None when it is held or cannot
 /// be opened. The file closes on exec, so a child cannot keep the lock.
-#[allow(dead_code, reason = "tehasbot preview and protolab move here next")]
 pub fn lock(home: &Path, name: &str, wait: Option<Duration>) -> Option<File> {
     let state = home.join("state");
     fs::create_dir_all(&state).ok()?;
@@ -55,7 +54,6 @@ pub fn lock(home: &Path, name: &str, wait: Option<Duration>) -> Option<File> {
 
 /// The bytes become the file. A server may read it at any moment, so they are
 /// written beside it and renamed. A failure leaves the file as it was.
-#[allow(dead_code, reason = "tehasbot preview and protolab move here next")]
 pub fn put(file: &Path, bytes: &[u8]) -> io::Result<()> {
     let mut beside = file.as_os_str().to_owned();
     beside.push(".new");
@@ -68,7 +66,6 @@ pub fn put(file: &Path, bytes: &[u8]) -> io::Result<()> {
 
 /// The new directory takes the place by rename. The old one is moved aside
 /// first and removed afterwards, so there is no moment with a half-copied one.
-#[allow(dead_code, reason = "tehasbot preview and protolab move here next")]
 pub fn place(new: &Path, place: &Path) -> io::Result<()> {
     let old = place.parent().unwrap_or(Path::new(".")).join(".old");
     remove(&old)?;
@@ -79,8 +76,7 @@ pub fn place(new: &Path, place: &Path) -> io::Result<()> {
     remove(&old)
 }
 
-#[allow(dead_code, reason = "tehasbot preview and protolab move here next")]
-fn remove(path: &Path) -> io::Result<()> {
+pub fn remove(path: &Path) -> io::Result<()> {
     match fs::remove_dir_all(path) {
         Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
         Err(e) if e.kind() == io::ErrorKind::NotADirectory => fs::remove_file(path),
@@ -90,7 +86,6 @@ fn remove(path: &Path) -> io::Result<()> {
 
 /// The subdirectories whose name is a number, in the order of their names.
 /// A directory that cannot be read has none.
-#[allow(dead_code, reason = "tehasbot preview and protolab move here next")]
 pub fn numbers(dir: &Path) -> Vec<String> {
     let Ok(entries) = fs::read_dir(dir) else {
         return Vec::new();
