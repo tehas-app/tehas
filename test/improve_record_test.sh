@@ -13,7 +13,7 @@ t_cycle || t_bad "no tehas-cycle: $t_cycle_why"
 # replaced.
 lib() {
   t_run '. "$T_ROOT/lib/config.sh"; . "$T_ROOT/lib/improve.sh"; tehas_load || exit 78
-tehas_improve_record() { "$T/cycle-bin" after "$1" --attempt 1 --started "$2" --rc "$3" --status "$4" --step "$5" --pr "${6:-}" --oom "${7:-0}" --image "${8:-}" --rukas-image "${9:-}" --cap "${10:-}" --reason "${11:-}" --build "${12:-}" --forks 0 --signalled 1 --workdir /nowhere --console true --status-cmd true; }
+tehas_improve_record() { "$T/cycle-bin" after "$1" < <(printf "%s\0" --attempt 1 --started "$2" --rc "$3" --status "$4" --step "$5" --pr "${6:-}" --oom "${7:-0}" --image "${8:-}" --rukas-image "${9:-}" --cap "${10:-}" --reason "${11:-}" --build "${12:-}" --forks 0 --signalled 1 --workdir /nowhere --console true --status-cmd true); }
 '"$1"
 }
 
