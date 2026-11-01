@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for libexec/stop: what a cycle leaves on the host, what a stop by hand
+# Tests for tehas stop: what a cycle leaves on the host, what a stop by hand
 # removes, what it keeps, what it refuses to touch, and the label it takes off
 # the issue. systemctl, docker and gh are stubbed. The gh stub prints what gh
 # really prints for `issue view --json labels`, an object, and applies the
@@ -9,7 +9,11 @@
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
 
-stop_cmd=$T_ROOT/libexec/stop
+# The stop is a verb of the console (console/src/stop.rs), found beside the
+# command on a host: TEHAS_CONSOLE names the console of this checkout instead.
+t_console || t_bad "$t_console_why"
+T_ENV_ALWAYS=(TEHAS_CONSOLE="$T_CONSOLE")
+stop_cmd="$T_ROOT/bin/tehas stop"
 th=$T/home/tehas
 state=$th/state/cycles
 works=$th/work
@@ -165,7 +169,7 @@ record() { # <issue>
 removed_containers() { t_calls docker | sed -n 's/^rm -f //p' | tr '\n' ' '; }
 
 # The marker of a stop, as libexec/cycle reads it: the epoch seconds and the
-# account, one line. What this host's account is, read the way libexec/stop
+# account, one line. What this host's account is, read the way the stop
 # reads it, so no case names a user the host does not have.
 whoami_here=$(id -un)
 # The marker of a stop, when the stop wrote one; the sibling name of its write
@@ -534,6 +538,17 @@ t_eq "$t_rc" 0
 t_contains "$t_out" "tehas stop <issue>"
 t_eq "$(leftovers 5 | wc -w)" "$LEFTOVERS_N"
 t_eq "$(t_calls systemctl)" ""
+
+t_case "help among the arguments is help, with no settings to load"
+reset
+t_no_instance
+t_run "$stop_cmd 5 --help"
+t_eq "$t_rc" 0
+t_contains "$t_out" "Usage:"
+t_lacks "$t_out" "no instance.env"
+t_run "$stop_cmd 5 6 --help"
+t_eq "$t_rc" 64
+t_contains "$t_out" "one issue number at most"
 
 t_case "it names only the paths of the issue it was given, never a glob"
 reset

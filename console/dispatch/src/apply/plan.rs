@@ -9,7 +9,6 @@
 
 use super::{text, word, Writer, Wrote};
 use crate::decide::{iso, shape};
-use crate::events::{plan_credit, Events};
 use crate::read::build::rest_events;
 use crate::read::host::plan_start_file;
 use crate::settings::account;
@@ -19,6 +18,7 @@ use serde_json::{json, Value};
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use std::time::{SystemTime, UNIX_EPOCH};
+use tehas_core::events::{plan_credit, Events};
 use tehas_core::plan::made;
 use tehas_core::question::{self, Kind, MAX_OPTIONS};
 

@@ -11,7 +11,7 @@
 # before cycles start, as tehas-index.service, and the cycles start on the
 # poll after it. A systemd timer runs a poll every two minutes, whatever the
 # cycles are doing, and a cycle that ends starts one.
-# Every poll that gets past the bot's login ends by running libexec/tidy,
+# Every poll that gets past the bot's login ends by running console tidy run,
 # which takes tehas's state labels off closed issues, with --dry-run on a dry
 # run.
 #
@@ -258,7 +258,7 @@
 #   TEHAS_LOW_GATE_WAIT       seconds that command gets before its answer is a
 #                             closed gate, 1 to 600 [60]
 # From the environment, for tests: TEHAS_STATUS_CMD, TEHAS_INDEX_CMD,
-# TEHAS_TIDY_CMD (in place of libexec/tidy), TEHAS_PLAN_CMD, TEHAS_PLAN_START_CMD
+# TEHAS_TIDY_CMD (in place of console tidy run), TEHAS_PLAN_CMD, TEHAS_PLAN_START_CMD
 # and TEHAS_INDEX_START_CMD (in place of systemd-run: the first called with the
 # issue and the turn's command line, the second with the index run's),
 # TEHAS_CYCLE_START_CMD and TEHAS_CYCLE_STOP_CMD (in place of systemctl, with the
@@ -472,12 +472,13 @@ for old in "${old_records[@]}"; do
   fi
 done
 
-# However a poll that holds the lock ends: libexec/tidy once past the login,
+# However a poll that holds the lock ends: console tidy run once past the login,
 # then, unless dry, its cost (its own gh calls are the tally) and analytics.
 tidy_on=0 poll_at=$EPOCHREALTIME poll_starts=0 poll_gh=$TEHAS_HOME/state/poll-gh.tally poll_times=$TEHAS_HOME/state/poll.times
 : >"$poll_gh" && gh() { echo >>"$poll_gh"; command gh "$@"; }
+tidy=("$here/console" tidy run); [ -z "${TEHAS_TIDY_CMD:-}" ] || tidy=("$TEHAS_TIDY_CMD")
 trap 'if [ "$tidy_on" = 1 ]; then
-    if [ "$dry" = 1 ]; then "${TEHAS_TIDY_CMD:-$here/tidy}" --dry-run; else "${TEHAS_TIDY_CMD:-$here/tidy}"; fi
+    if [ "$dry" = 1 ]; then "${tidy[@]}" --dry-run; else "${tidy[@]}"; fi
   fi
   [ "$dry" = 1 ] || { times >"$poll_times"; tehas_store poll-record --started "$poll_at" --times "$poll_times" --tally "$poll_gh" \
     --writes-log "$TEHAS_HOME/state/github-writes.log" --starts "$poll_starts" || log "WARN: the cost of the poll was not recorded ($tehas_store_word)"
@@ -659,7 +660,7 @@ slice_ok() { [ -z "$slice_hold" ] && [ "$mem_why" != unreadable ]; }
 # What the code below cannot say:
 #   - The wait runs under the poll's own lock, so lib/config.sh caps
 #     TEHAS_LOW_GATE_WAIT at 600. A longer one holds every later poll too,
-#     urgent issues and libexec/tidy included, and the timer polls two minutes
+#     urgent issues and console tidy run included, and the timer polls two minutes
 #     after this poll ends.
 #   - state/low-gate.held carries nothing but its existence, and only says that
 #     a hold was announced: it names no command, so one left by another
@@ -2174,7 +2175,7 @@ if tehas_millwright_is "$bot"; then
   exit 78
 fi
 # Closed issues lose tehas's state labels once a poll, after the rest of it,
-# however it ends: the trap above runs libexec/tidy from here on.
+# however it ends: the trap above runs console tidy run from here on.
 tidy_on=1
 
 # The open planning sessions, read once before the poll acts: an open session

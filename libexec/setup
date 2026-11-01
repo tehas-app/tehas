@@ -178,7 +178,7 @@ if [ -x "$here/../install.sh" ]; then
 else
   echo "tehas setup: no install.sh beside this command; run the platform's install.sh yourself"
 fi
-step "tehas labels" "$here/labels"
+step "tehas labels" "$TEHAS_HOME/bin/tehas" labels
 
 if [ "$build" = 1 ]; then
   if docker image inspect "$PI_ENSEMBLE_IMAGE" >/dev/null 2>&1; then

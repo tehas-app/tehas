@@ -3,6 +3,7 @@
 
 pub mod disk;
 pub mod env_file;
+pub mod events;
 pub mod file;
 pub mod forge;
 pub mod grammar;
@@ -12,6 +13,7 @@ pub mod lock;
 pub mod mask;
 pub mod models;
 pub mod plan;
+pub mod private;
 #[cfg(feature = "mask")]
 pub mod question;
 pub mod review;

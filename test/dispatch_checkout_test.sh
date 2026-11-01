@@ -357,7 +357,7 @@ t_contains "$t_out" "default branch"
 t_lacks "$(t_calls gh)" "issue edit"
 git -C "$checkout" remote set-head origin main
 
-t_case "--init-labels is libexec/labels now: here it is an unknown argument"
+t_case "--init-labels is tehas labels now: here it is an unknown argument"
 reset
 t_run "$dispatch --init-labels"
 t_eq "$t_rc" 64

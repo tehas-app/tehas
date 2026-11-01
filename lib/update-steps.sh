@@ -100,7 +100,7 @@ tehas_steps_into() { # changed source paths -> tehas_steps
       ;;
     # The MCP server's container mounts its binary: a new one reaches it only
     # when the unit starts the container again.
-    *" libexec/mcp "* | *"/tehas-mcp "*) tehas_steps+=("units tehas-mcp.service") ;;
+    *"/tehas-mcp "*) tehas_steps+=("units tehas-mcp.service") ;;
   esac
   case "$list" in
     *" sandbox/"* | *" versions.env "*) tehas_steps+=(sandbox) ;;
@@ -115,9 +115,9 @@ tehas_steps_into() { # changed source paths -> tehas_steps
     *" edge/router."* | *" edge/protolab."*) tehas_steps+=("edge --force-recreate") ;;
   esac
   case "$list" in
-    # The command that makes the labels changed, so a release that adds one ends
-    # with that label in place on GitHub rather than owed to nobody.
-    *" libexec/labels "*) tehas_steps+=(labels) ;;
+    # The table of the labels changed, so a release that adds one ends with that
+    # label in place on GitHub rather than owed to nobody.
+    *" labels.tsv "*) tehas_steps+=(labels) ;;
   esac
   return 0
 }

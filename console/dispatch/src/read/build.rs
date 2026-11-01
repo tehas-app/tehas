@@ -6,12 +6,12 @@
 use super::run::{self, Calls, GhFail};
 use super::{github, host, models, store};
 use crate::decide::has;
-use crate::events::{pause_holds, Events};
 use crate::settings::Settings;
 use serde_json::{json, Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::time::Duration;
+use tehas_core::events::{pause_holds, Events};
 
 /// Where the snapshot reads from, and with what.
 pub struct Sources<'a> {
