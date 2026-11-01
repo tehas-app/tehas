@@ -15,7 +15,7 @@
 //! clone's lock is held here for the session's life, on a file that closes on
 //! exec, so the docker client does not hold it past this program.
 
-use crate::{clean, improve::models};
+use crate::clean;
 use serde_json::Value;
 use std::env;
 use std::fs;
@@ -26,6 +26,7 @@ use std::process::{Command, Stdio};
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use tehas_core::lock;
+use tehas_core::models;
 use tehas_core::sandbox::{self, Identity, Kind, Paths};
 use tehas_core::settings;
 use tehas_core::slice::{self, Host, Load, Reading};

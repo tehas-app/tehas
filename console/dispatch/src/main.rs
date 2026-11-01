@@ -8,7 +8,8 @@
 //!                                       {exit, log, actions, picked, needs,
 //!                                       report, demand, gh_requests, seconds}
 //!   tehas-dispatch poll [--dry-run]     one poll, as libexec/dispatch runs it:
-//!                                       it acts
+//!                                       it acts. 78 before it when models.json
+//!                                       names a bad or unset key
 //!   tehas-dispatch refresh              one run of tehasbot refresh: it
 //!                                       writes the refresh requests
 //!   tehas-dispatch -h|--help            print this text
@@ -99,6 +100,12 @@ fn main() {
             missing.join(", ")
         );
         std::process::exit(78);
+    }
+    if poll {
+        if let Err(why) = tehas_core::models::host_keys_ok() {
+            eprintln!("tehas: {why}");
+            std::process::exit(78);
+        }
     }
     let mut env = Value::Object(env);
     // tehas_branch: the setting, or the checkout's origin/HEAD.
