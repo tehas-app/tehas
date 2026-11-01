@@ -4,7 +4,11 @@
 //! src/usage/dev.txt says what a person is told.
 //!
 //!   console dev words <arguments>  `<name> <issue>`, each `-` when not given
-//!   console dev run <arguments>    one session; exits as that command says
+//!   console dev ready <arguments>  every refusal of a session, so a fault stops
+//!                                  it before GitHub is called and before
+//!                                  anything is written; prints the slice it read
+//!   console dev run <arguments>    one session, of the slice in TEHAS_DEV_SLICE;
+//!                                  exits as that command says
 //!   console dev table              its row of the table of runs
 //!
 //! The session is spawned, not exec'd: the terminal is put back after it. The
@@ -341,12 +345,120 @@ fn refuse(line: String) -> u8 {
     78
 }
 
+/// Whose name the commits carry.
+struct Committer {
+    /// The author to store; empty for the bot.
+    author: String,
+    name: String,
+    email: String,
+    said: String,
+}
+
+// The author given now, else the stored one, else the bot's, which is the tehas
+// user's own git identity. Err is the exit status.
+fn committer(given: &Words, stored: &str) -> Result<Committer, u8> {
+    let mut author = given.author.clone();
+    if author.is_empty() && Path::new(stored).exists() {
+        let text = fs::read_to_string(stored).unwrap_or_default();
+        author = text.lines().next().unwrap_or("").to_string();
+        if !author_ok(&author) {
+            eprintln!("tehas dev: {stored} does not hold \"Name <email>\"; give --author again");
+            return Err(64);
+        }
+    }
+    if !author.is_empty() {
+        let (name, email) = split_author(&author);
+        let said = author.clone();
+        return Ok(Committer {
+            author,
+            name,
+            email,
+            said,
+        });
+    }
+    let (name, email) = (git_global("user.name"), git_global("user.email"));
+    if name.is_empty() || email.is_empty() {
+        eprintln!(
+            "tehas dev: git user.name and user.email are not set for {}, and {} has no --author",
+            account(),
+            given.name
+        );
+        return Err(64);
+    }
+    let said =
+        format!("the bot, {name} <{email}>. Give --author \"Name <email>\" once to use your own");
+    Ok(Committer {
+        author,
+        name,
+        email,
+        said,
+    })
+}
+
+// Whether the clone is still to make. An existing clone is known by its .git
+// directory and by nothing git would have to be run for. Err is the exit status.
+fn fresh_clone(tree: &str) -> Result<bool, u8> {
+    let fresh = !Path::new(tree).join(".git").is_dir();
+    if fresh && not_a_clone(Path::new(tree)) {
+        return Err(refuse(format!(
+            "tehas dev: {tree} exists and is not a clone, not touching it"
+        )));
+    }
+    Ok(fresh)
+}
+
+// What `ready` hands `run`, so the host is asked once.
+fn slice_words(s: &slice::Usable) -> String {
+    format!("{} {} {} {}", s.max, s.active, s.ceiling_mb, s.cpus)
+}
+
+fn slice_of(words: &str) -> Option<slice::Usable> {
+    let mut w = words.split(' ');
+    let usable = slice::Usable {
+        max: slice::num(w.next()?)?,
+        active: w.next()?.to_string(),
+        ceiling_mb: slice::num(w.next()?)?,
+        cpus: slice::num(w.next()?)?,
+    };
+    w.next().is_none().then_some(usable)
+}
+
+// Every refusal that needs neither GitHub nor a write, in the order a session
+// meets them. Nothing here writes.
+fn ready(given: &Words) -> u8 {
+    // No container starts outside the slice, and none with half its limits.
+    let taken = sandbox::take(&Host::here(), &Load::from_env(), "tehas dev", "a session");
+    let taken = match taken {
+        Ok(taken) => taken,
+        Err(line) => return refuse(line),
+    };
+    let on = |k: &str| env::var(k).is_ok_and(|v| v == "1");
+    if !given.issue.is_empty() && !on("TEHAS_WORK_IMAGES") && !on("TEHAS_WORK_FILES") {
+        return refuse(
+            "tehas dev: this instance gives no images or files (TEHAS_WORK_IMAGES, TEHAS_WORK_FILES), so --issue has nothing to give"
+                .to_string(),
+        );
+    }
+    let devs = format!("{}/dev", env::var("TEHAS_HOME").unwrap_or_default());
+    let name = &given.name;
+    if let Err(rc) = committer(given, &format!("{devs}/{name}.author")) {
+        return rc;
+    }
+    if let Err(rc) = fresh_clone(&format!("{devs}/{name}")) {
+        return rc;
+    }
+    println!("{}", slice_words(&taken.slice));
+    0
+}
+
 fn session(given: &Words) -> u8 {
     let var = |k: &str| env::var(k).unwrap_or_default();
     let name = given.name.as_str();
-    // No container starts outside the slice, and none with half its limits.
     let load = Load::from_env();
-    let taken = match sandbox::take(&Host::here(), &load, "tehas dev", "a session") {
+    let Some(usable) = slice_of(&var("TEHAS_DEV_SLICE")) else {
+        return refuse("tehas dev: no reading of the slice, not starting a session".to_string());
+    };
+    let taken = match sandbox::taken(usable, &load, "tehas dev", "a session") {
         Ok(taken) => taken,
         Err(line) => return refuse(line),
     };
@@ -363,46 +475,18 @@ fn session(given: &Words) -> u8 {
     let state = format!("{devs}/{name}.state");
     let runs = format!("{state}/runs");
 
-    // Whose name the commits carry: the author given now, else the stored one,
-    // else the bot's, which is the tehas user's own git identity.
-    let mut author = given.author.clone();
-    if author.is_empty() && Path::new(&stored).exists() {
-        let text = fs::read_to_string(&stored).unwrap_or_default();
-        author = text.lines().next().unwrap_or("").to_string();
-        if !author_ok(&author) {
-            eprintln!("tehas dev: {stored} does not hold \"Name <email>\"; give --author again");
-            return 64;
-        }
-    }
-    let (git_name, git_email, who) = if author.is_empty() {
-        let (n, e) = (git_global("user.name"), git_global("user.email"));
-        if n.is_empty() || e.is_empty() {
-            eprintln!(
-                "tehas dev: git user.name and user.email are not set for {}, and {name} has no --author",
-                account()
-            );
-            return 64;
-        }
-        let who =
-            format!("the bot, {n} <{e}>. Give --author \"Name <email>\" once to use your own");
-        (n, e, who)
-    } else {
-        let (n, e) = split_author(&author);
-        (n, e, author.clone())
+    let who = match committer(given, &stored) {
+        Ok(who) => who,
+        Err(rc) => return rc,
     };
-
-    // An existing clone is known by its .git directory and by nothing git would
-    // have to be run for.
-    let fresh = !Path::new(&tree).join(".git").is_dir();
-    if fresh && not_a_clone(Path::new(&tree)) {
-        return refuse(format!(
-            "tehas dev: {tree} exists and is not a clone, not touching it"
-        ));
-    }
+    let fresh = match fresh_clone(&tree) {
+        Ok(fresh) => fresh,
+        Err(rc) => return rc,
+    };
     if fs::create_dir_all(&devs).is_err() {
         return 78;
     }
-    if !author.is_empty() && fs::write(&stored, format!("{author}\n")).is_err() {
+    if !who.author.is_empty() && fs::write(&stored, format!("{}\n", who.author)).is_err() {
         return refuse(format!("tehas dev: cannot write {stored}"));
     }
 
@@ -438,8 +522,8 @@ fn session(given: &Words) -> u8 {
 
     let who_git = Identity {
         tree: &tree,
-        name: &git_name,
-        email: &git_email,
+        name: &who.name,
+        email: &who.email,
     };
     let envs = sandbox::env_options(
         Kind::Session,
@@ -465,7 +549,7 @@ fn session(given: &Words) -> u8 {
     };
     let hosts = sandbox::hosts(&var("PI_ENSEMBLE_HOST_ALIASES"));
 
-    println!("tehas dev: {tree}, commits as {who}");
+    println!("tehas dev: {tree}, commits as {}", who.said);
     let view = fs::read_to_string(format!("{home}/live/running.json")).unwrap_or_default();
     if let Some(said) = running_said(&view) {
         println!("tehas dev: {said}");
@@ -508,6 +592,10 @@ pub fn main(given: &[String]) -> u8 {
             }
             _ => 64,
         },
+        Some((verb, rest)) if verb == "ready" => match parse(rest) {
+            Ok(Some(w)) => ready(&w),
+            _ => 64,
+        },
         Some((verb, rest)) if verb == "run" => match parse(rest) {
             Ok(Some(w)) => session(&w),
             _ => 64,
@@ -517,7 +605,7 @@ pub fn main(given: &[String]) -> u8 {
             0
         }
         _ => {
-            eprintln!("console dev: usage: words|run <arguments> | table");
+            eprintln!("console dev: usage: words|ready|run <arguments> | table");
             64
         }
     }
@@ -529,6 +617,26 @@ mod tests {
 
     fn given(w: &[&str]) -> Vec<String> {
         w.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn the_slice_ready_read_comes_back_whole_or_not_at_all() {
+        let usable = slice::Usable {
+            max: 34359738368,
+            active: "active".to_string(),
+            ceiling_mb: 8192,
+            cpus: 16,
+        };
+        assert_eq!(slice_of(&slice_words(&usable)), Some(usable));
+        for bad in [
+            "",
+            "1 active 2",
+            "1 active 2 3 4",
+            "x active 2 3",
+            "1 active 2 ",
+        ] {
+            assert_eq!(slice_of(bad), None, "{bad:?}");
+        }
     }
 
     #[test]

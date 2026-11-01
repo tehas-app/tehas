@@ -711,6 +711,33 @@ t_eq "$t_rc" 78
 t_eq "$(containers)" 0
 t_eq "$(t_calls gh)$(t_calls curl)" ""
 
+t_case "with --issue a fault stops before GitHub is called and before anything is written"
+nothing_fetched() {
+  t_eq "$t_rc" "$1"
+  t_eq "$(containers)" 0
+  t_eq "$(t_calls gh)$(t_calls curl)" ""
+  t_eq "$(find "$devs" -maxdepth 1 -name '*.images' | wc -l)" 0
+}
+attach_on
+printf '%s\n' FragmentPath= ActiveState=inactive MemoryMax=infinity >"$T/slice.show"
+t_run "$dev_cmd --issue 7"
+nothing_fetched 78
+t_contains "$t_out" "tehas dev: no slice file on this host (sudo ./bootstrap.sh slice)"
+attach_on
+slice_good
+mkdir -p "$devs/notes"
+echo keep >"$devs/notes/file.txt"
+t_run "$dev_cmd notes --issue 7"
+nothing_fetched 78
+t_contains "$t_out" "not a clone"
+rm -rf "$devs/notes"
+attach_on
+echo 'not an author' >"$devs/main.author"
+t_run "$dev_cmd --issue 7"
+nothing_fetched 64
+t_contains "$t_out" "main.author"
+rm -f "$devs/main.author"
+
 t_case "--issue without a number is refused"
 for bad in "--issue" "--issue x" "--issue 07" "--issue ''"; do
   attach_on
