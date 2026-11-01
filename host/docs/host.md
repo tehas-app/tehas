@@ -21,7 +21,7 @@ Preparing a fresh machine is on the [bootstrap page](/bootstrap).
 | `~/tehas/lib/config.sh`              | Loads and checks the instance settings; sourced by every command        |
 | `~/tehas/lib/paths.sh`               | The home of each tool this host installs, and the `PATH` that finds them. `env.sh`, `bootstrap.sh` and `install.sh` all take the list from here |
 | `~/tehas/lib/sandbox.sh`             | What a sandbox container is given; sourced by the work, plan and dev scripts |
-| `~/tehas/lib/slice.sh`               | Reads the slice: whether it is usable, a container's limits, the room left. Every command that starts a sandbox container reads it |
+| `~/tehas/lib/slice.sh`               | The way to `console slice`, which reads the slice: whether it is usable, a container's limits, the room left. Every command that starts a sandbox container goes through it, and with no console it finds no slice and stops with 78 |
 | `~/tehas/lib/headless.sh`            | How `tehas review` asks an image for its `--capabilities`, and what `tehas work` reads of a cycle's progress. `libexec/tehas-cycle` reads the answer and the result (`caps`, `runner`) |
 | `~/tehas/lib/attachments.sh`         | Which links of an issue are attached files and how one is fetched. The Protolab and `tehas work` use it |
 | `~/tehas/lib/questions.sh`, `planning.sh` | The question and planning steps of the dispatcher. A cycle's report uses the first too |
@@ -1205,7 +1205,7 @@ the memory - and takes the CPUs over `TEHAS_CYCLE_CPUS` as the
 cycles and the slice's memory over `TEHAS_CONTAINER_MEMORY` as the containers,
 each between its own floor and 16, and neither above `TEHAS_CYCLE_CEILING`, the
 bound for an endpoint that cannot serve what a big host asks for. The cycle
-cannot use such a count yet (`lib/slice.sh` reads a number at every start), so
+cannot use such a count yet (`console slice` reads a number at every start), so
 a cycle started under `auto` parks and a poll starts none until a person
 notices. It fails closed here rather than spend an approval on a cycle that
 cannot run.

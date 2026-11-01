@@ -35,6 +35,8 @@ t_stub systemctl 'cat "$T/slice.show"'
 # The script as a host has it, beside the real console.
 # shellcheck disable=SC2154  # t_console_why is set by t_console (test/lib.sh)
 t_console || t_bad "no console: $t_console_why"
+# The slice is the real console's too, whatever a case does to the stub.
+T_ENV_ALWAYS+=(TEHAS_CONSOLE_CMD="$T_CONSOLE")
 tree=$T/tree
 mkdir -p "$tree/libexec"
 ln -s "$T_ROOT/lib" "$tree/lib"
