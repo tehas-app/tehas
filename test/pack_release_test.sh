@@ -432,8 +432,8 @@ sources_of() {
     sed -n 's/^[[:space:]]*"\([^"|]*\)|.*/\1/p'
   sed -n '/^for f in tehas tehasbot; do$/p' "$T_ROOT/install.sh" |
     sed 's/^for f in //;s/; do$//' | tr ' ' '\n' | sed 's|^|bin/|'
-  sed -n '/^for f in analytics-cmd api cycle;/,/; do$/p' "$T_ROOT/install.sh" |
-    sed 's/^for f in //;s/; do$//' | tr ' ' '\n' | sed '/^$/d;s|^|libexec/|'
+  sed -n '/^for f in \\$/,/; do$/p' "$T_ROOT/install.sh" |
+    sed -n '/^  [a-z-]* \\$\|^  [a-z-]*; do$/{s/^  //;s/ \\$//;s/; do$//;s|^|libexec/|;p}'
 }
 check_sources < <(sources_of)
 # The check itself: a run that read no source would say nothing.
