@@ -23,13 +23,14 @@ use std::sync::LazyLock;
 pub type Refused = (&'static str, String);
 type Why = &'static str;
 
-/// `tehas_attachment_links` of lib/attachments.sh; a test holds them the same.
+/// Only GitHub's own storage: nothing else is ever fetched for an issue. The
+/// dispatcher reads links by the same rule, and a test holds the two the same.
 pub const LINK_RULE: &str = r"https://(?:github\.com/user-attachments/(?:assets|files)/|github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/(?:assets|files)/[0-9]+/|user-images\.githubusercontent\.com/)[A-Za-z0-9._~%/?&=+-]+";
 
 const CUT_COMMENT: usize = 4000;
 const CUT_WHOLE: usize = 32000;
-const CUT_LINK: usize = 512;
-const MOST_LEFT: usize = 100;
+pub const CUT_LINK: usize = 512;
+pub const MOST_LEFT: usize = 100;
 
 static LINK_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(LINK_RULE).unwrap());
 static AT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[0-9T:.Z-]+\z").unwrap());
@@ -48,7 +49,7 @@ static NONE: Value = Value::Array(Vec::new());
 
 // --- Reading as jq reads ------------------------------------------------------
 
-fn read(path: &str) -> Result<String, Refused> {
+pub fn read(path: &str) -> Result<String, Refused> {
     let bytes = fs::read(path).map_err(|e| ("unreadable", format!("{path}: {e}")))?;
     Ok(String::from_utf8_lossy(&bytes).into_owned())
 }
@@ -60,12 +61,12 @@ fn values<T: DeserializeOwned>(text: &str) -> Result<Vec<T>, serde_json::Error> 
         .collect()
 }
 
-fn values_of(path: &str) -> Result<Vec<Value>, Refused> {
+pub fn values_of(path: &str) -> Result<Vec<Value>, Refused> {
     values(&read(path)?).map_err(|e| ("unreadable", format!("{path}: {e}")))
 }
 
 /// `.key`: null of null, an error of anything but an object.
-fn get<'a>(v: &'a Value, key: &str) -> Result<&'a Value, Why> {
+pub fn get<'a>(v: &'a Value, key: &str) -> Result<&'a Value, Why> {
     match v {
         Value::Object(m) => Ok(m.get(key).unwrap_or(&NULL)),
         Value::Null => Ok(&NULL),
@@ -74,7 +75,7 @@ fn get<'a>(v: &'a Value, key: &str) -> Result<&'a Value, Why> {
 }
 
 /// `// []`
-fn or_none(v: &Value) -> &Value {
+pub fn or_none(v: &Value) -> &Value {
     match v {
         Value::Null | Value::Bool(false) => &NONE,
         _ => v,
@@ -110,7 +111,7 @@ fn shown(v: &Value) -> String {
     }
 }
 
-fn cut(s: &str, most: usize) -> String {
+pub fn cut(s: &str, most: usize) -> String {
     s.chars().take(most).collect()
 }
 
@@ -125,6 +126,17 @@ fn is_link(s: &str) -> bool {
         .is_some_and(|m| m.start() == 0 && m.end() == s.len())
 }
 
+/// The links of a text, each once, in the order written.
+pub fn text_links(text: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for m in LINK_RE.find_iter(text) {
+        if !out.iter().any(|have| have == m.as_str()) {
+            out.push(m.as_str().to_string());
+        }
+    }
+    out
+}
+
 fn matches(re: &Regex, v: &Value) -> bool {
     v.as_str().is_some_and(|s| re.is_match(s))
 }
@@ -132,7 +144,7 @@ fn matches(re: &Regex, v: &Value) -> bool {
 // --- JSON that keeps its order ------------------------------------------------
 
 /// JSON with the keys in the order written.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Ordered {
     Plain(Value),
     List(Vec<Ordered>),
@@ -140,10 +152,92 @@ pub enum Ordered {
 }
 
 impl Ordered {
-    fn get(&self, key: &str) -> Option<&Ordered> {
+    pub fn get(&self, key: &str) -> Option<&Ordered> {
         match self {
             Ordered::Map(m) => m.iter().find(|(k, _)| k == key).map(|(_, v)| v),
             _ => None,
+        }
+    }
+
+    pub fn text(s: &str) -> Ordered {
+        Ordered::Plain(Value::from(s))
+    }
+
+    /// A map of keys in this order.
+    pub fn map<const N: usize>(pairs: [(&str, Ordered); N]) -> Ordered {
+        Ordered::Map(pairs.into_iter().map(|(k, v)| (k.to_string(), v)).collect())
+    }
+
+    /// `.key = value`: where the key stands, or at the end.
+    pub fn set(&mut self, key: &str, value: Ordered) {
+        if let Ordered::Map(m) = self {
+            match m.iter_mut().find(|(k, _)| k == key) {
+                Some(slot) => slot.1 = value,
+                None => m.push((key.to_string(), value)),
+            }
+        }
+    }
+
+    /// `.[]` of a list; nothing of anything else.
+    pub fn items(found: Option<&Ordered>) -> &[Ordered] {
+        match found {
+            Some(Ordered::List(l)) => l,
+            _ => &[],
+        }
+    }
+
+    /// As `\(.key)` prints it: a string without its quotes.
+    pub fn shown(&self, key: &str) -> String {
+        match self.get(key) {
+            None => "null".to_string(),
+            Some(Ordered::Plain(v)) => shown(v),
+            Some(v) => v.to_string(),
+        }
+    }
+
+    /// As jq prints it to a file: two spaces a level.
+    pub fn pretty(&self) -> String {
+        let mut out = String::new();
+        self.indented(0, &mut out);
+        out.push('\n');
+        out
+    }
+
+    fn indented(&self, depth: usize, out: &mut String) {
+        fn open(depth: usize, out: &mut String) {
+            out.push('\n');
+            out.push_str(&"  ".repeat(depth));
+        }
+        match self {
+            Ordered::Plain(v) => out.push_str(&quoted_as_jq(v)),
+            Ordered::List(l) if l.is_empty() => out.push_str("[]"),
+            Ordered::Map(m) if m.is_empty() => out.push_str("{}"),
+            Ordered::List(l) => {
+                out.push('[');
+                for (i, v) in l.iter().enumerate() {
+                    if i > 0 {
+                        out.push(',');
+                    }
+                    open(depth + 1, out);
+                    v.indented(depth + 1, out);
+                }
+                open(depth, out);
+                out.push(']');
+            }
+            Ordered::Map(m) => {
+                out.push('{');
+                for (i, (k, v)) in m.iter().enumerate() {
+                    if i > 0 {
+                        out.push(',');
+                    }
+                    open(depth + 1, out);
+                    out.push_str(&quoted_as_jq(&Value::from(k.as_str())));
+                    out.push_str(": ");
+                    v.indented(depth + 1, out);
+                }
+                open(depth, out);
+                out.push('}');
+            }
         }
     }
 
@@ -573,19 +667,33 @@ fn not_given(images: &str, files: &str) -> Option<(&'static str, &'static str)> 
     }
 }
 
-/// The record's links, once each: the body's, then the comments' in the order
-/// written, each with where it came from.
-fn record_links(record: &Value) -> Vec<(String, String)> {
-    let mut out: Vec<(String, String)> = Vec::new();
-    let mut add = |link: &str, source: &str| {
-        if !out.iter().any(|(have, _)| have == link) {
-            out.push((link.to_string(), source.to_string()));
+/// A link, where it came from, and for a comment who wrote it.
+pub struct Linked {
+    pub source: String,
+    pub link: String,
+    pub by: String,
+}
+
+/// The record's links of the shape tehas takes, whatever the record holds, once
+/// each: the body's, then with `comments` the comments' in the order written.
+pub fn record_links(record: &Value, comments: bool) -> Vec<Linked> {
+    let mut out: Vec<Linked> = Vec::new();
+    let mut add = |link: &str, source: &str, by: &str| {
+        if !out.iter().any(|have| have.link == link) {
+            out.push(Linked {
+                source: source.to_string(),
+                link: link.to_string(),
+                by: by.to_string(),
+            });
         }
     };
     for link in record["links"].as_array().into_iter().flatten() {
         if let Some(link) = link.as_str().filter(|l| is_link(l)) {
-            add(link, "body");
+            add(link, "body", "");
         }
+    }
+    if !comments {
+        return out;
     }
     for e in record["comment_links"].as_array().into_iter().flatten() {
         if let (Some(link), true, true) = (
@@ -593,7 +701,11 @@ fn record_links(record: &Value) -> Vec<(String, String)> {
             matches(&COMMENT, &e["source"]),
             matches(&BY, &e["by"]),
         ) {
-            add(link, e["source"].as_str().unwrap_or_default());
+            add(
+                link,
+                e["source"].as_str().unwrap_or_default(),
+                e["by"].as_str().unwrap_or_default(),
+            );
         }
     }
     out
@@ -614,7 +726,7 @@ pub fn left_out_manifest(
     if !record_ok(record) {
         return Err("the approval record is not of the shape tehas reads");
     }
-    let links = record_links(record);
+    let links = record_links(record, true);
     if links.is_empty() {
         return Ok(None);
     }
@@ -636,12 +748,12 @@ pub fn left_out_manifest(
     let left = links
         .iter()
         .take(MOST_LEFT)
-        .map(|(link, source)| {
+        .map(|l| {
             format!(
                 r#"{{"link":{},"reason":{},"source":{}}}"#,
-                Value::from(cut(link, CUT_LINK)),
+                Value::from(cut(&l.link, CUT_LINK)),
                 Value::from(reason),
-                Value::from(source.as_str())
+                Value::from(l.source.as_str())
             )
         })
         .collect::<Vec<_>>()

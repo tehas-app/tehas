@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Tests for lib/attachments.sh: which links of an issue or an answer are the
-# files a cycle is given, the table of kinds a fetched file is named by, where
-# the token goes when a file is fetched, and the archives a cycle may be given.
+# Tests for lib/attachments.sh and the program behind it: which links of an
+# issue or an answer are the files a cycle is given, where the token goes when a
+# file is fetched, and the archives a cycle may be given.
 # A stub curl records its arguments and what it is given on standard input, and
 # hands out the bytes a case put at the address of a fetch, so a case says what
 # one link of an issue is and every other link of it stays the png below.
@@ -12,6 +12,7 @@
 lib=". $T_ROOT/lib/attachments.sh"
 # The bytes of what is fetched are read by the real attachment checker.
 t_attach_home "$T/home/tehas" || exit 1
+att=$T/home/tehas/libexec/attach
 fx=$T/fx
 mkdir -p "$fx/net"
 # The png a link with no bytes of its own is answered with, written here so the
@@ -100,61 +101,58 @@ t_run "$lib"
 t_eq "$t_rc$t_out" "0"
 t_eq "$(find "$T" | LC_ALL=C sort)" "$before"
 
+# gh answers for issue 7 from a file; curl hands out a png.
+t_stub gh 'case "$*" in "api repos/acme/widget/issues/7") cat "$T/issue.json" ;; esac'
+images="TEHAS_REPO=acme/widget GH_TOKEN=tok; $lib; tehas_issue_images 7 $T/images"
+owned() { jq -n --arg b "$1" '{number: 7, author_association: "OWNER", body: $b}' >"$T/issue.json"; }
+
 t_case "only links to GitHub's attachment storage are taken, in the order written"
-text='![a](https://github.com/user-attachments/assets/1111-aa) see https://example.com/x.png
+owned '![a](https://github.com/user-attachments/assets/1111-aa) see https://example.com/x.png
 [b.png](https://github.com/user-attachments/files/21/b.png) <img src="https://github.com/acme/widget/assets/42/cc-dd">
 https://user-images.githubusercontent.com/9/shot.png https://github.com/acme/widget/blob/main/x.png
 http://github.com/user-attachments/assets/plain https://github.com.evil.example/user-attachments/assets/2222'
-t_run "$lib; jq -rn --arg t '$text' \"\$(tehas_attachment_links) \"'\$t | links[]'"
-t_eq "$t_out" "https://github.com/user-attachments/assets/1111-aa
+rm -f "$T"/calls/*
+t_run "$images"
+t_eq "$(awk '{print $NF}' "$T/calls/curl")" "https://github.com/user-attachments/assets/1111-aa
 https://github.com/user-attachments/files/21/b.png
 https://github.com/acme/widget/assets/42/cc-dd
 https://user-images.githubusercontent.com/9/shot.png"
 
-t_case "the kind of a file follows its extension, and an unknown one fails"
-t_run "$lib; for e in png jpg jpeg gif webp svg avif mp4 webm mov html htm css js mjs json txt; do tehas_attachment_kind \$e; done | tr '\n' ' '"
-t_eq "$t_out" "image image image image image image image video video video app app part part part part part "
-t_run "$lib; tehas_attachment_kind zip"
-t_eq "$t_rc$t_out" "1"
-t_run "$lib; tehas_attachment_kind ''"
-t_eq "$t_rc$t_out" "1"
-
-t_case "a content type gives an extension for an image or a video only"
-t_run "$lib; for c in image/png image/jpeg 'image/gif; charset=binary' image/webp image/svg+xml image/avif video/mp4 video/webm video/quicktime; do tehas_attachment_ext \"\$c\"; done | tr '\n' ' '"
-t_eq "$t_out" "png jpg gif webp svg avif mp4 webm mov "
-t_run "$lib; tehas_attachment_ext text/html"
-t_eq "$t_rc$t_out" "1"
-
-t_case "a fetch is https only, limited in size and redirects, and prints the content type"
-t_run "$lib; tehas_attachment_fetch https://github.com/user-attachments/assets/1 $T/out 1234 sekret-token"
-t_eq "$t_rc $t_out" "0 image/png"
-t_eq "$(t_calls curl)" "-sSfL --proto =https --proto-redir =https --max-redirs 3 --max-time 120 --max-filesize 1234 -o $T/out -w %{content_type} -H @- https://github.com/user-attachments/assets/1"
+t_case "a fetch is https only, limited in size and redirects, and asks for the content type"
+owned 'https://github.com/user-attachments/assets/1'
+rm -f "$T"/calls/*
+t_run "TEHAS_REPO=acme/widget GH_TOKEN=sekret-token; $lib; tehas_issue_images 7 $T/images"
+t_eq "$t_rc" 0
+t_eq "$(t_calls curl)" "-sSfL --proto =https --proto-redir =https --max-redirs 3 --max-time 120 --max-filesize 10485760 -o $T/images/.part -w %{content_type} -H @- https://github.com/user-attachments/assets/1"
 
 t_case "the token goes to github.com on standard input, never on the command line"
 t_eq "$(cat "$T/calls/curl-stdin")" "stdin: Authorization: Bearer sekret-token"
 t_lacks "$(t_calls curl)" "sekret-token"
 
 t_case "no other host is sent the token, and without one none is sent"
+owned 'https://user-images.githubusercontent.com/9/shot.png'
 rm -f "$T"/calls/*
-t_run "$lib; tehas_attachment_fetch https://user-images.githubusercontent.com/9/shot.png $T/out 10 sekret-token
-tehas_attachment_fetch https://github.com/user-attachments/assets/1 $T/out 10
-tehas_attachment_fetch https://github.com/user-attachments/assets/1 $T/out 10 ''"
+t_run "TEHAS_REPO=acme/widget GH_TOKEN=sekret-token; $lib; tehas_issue_images 7 $T/images"
+owned 'https://github.com/user-attachments/assets/1'
+t_run "TEHAS_REPO=acme/widget; unset GH_TOKEN; $lib; tehas_issue_images 7 $T/images"
+t_run "TEHAS_REPO=acme/widget GH_TOKEN=; $lib; tehas_issue_images 7 $T/images"
 t_eq "$(find "$T/calls" -name curl-stdin | wc -l)" 0
 t_lacks "$(t_calls curl)" "-H"
 
-t_case "the exit status is curl's"
+t_case "curl's exit status says what becomes of a link"
 T_ENV=(CURL_RC=63)
-t_run "$lib; tehas_attachment_fetch https://github.com/user-attachments/assets/1 $T/out 10 tok"
-t_eq "$t_rc" 63
+t_run "$images"
+t_eq "$t_rc" 0
+t_eq "$(jq -c '[.leftOut[].reason]' "$T/images/manifest.json")" '["Over the 10 MB limit of an issue."]'
+T_ENV=(CURL_RC=22)
+t_run "$images || echo \"\$image_why\""
+t_eq "$t_out" "https://github.com/user-attachments/assets/1 could not be fetched"
 T_ENV=()
 
 # --- The images an issue links -----------------------------------------------
-# gh answers for issue 7 from a file; curl hands out a png.
-t_stub gh 'case "$*" in "api repos/acme/widget/issues/7") cat "$T/issue.json" ;; esac'
 printf '\x89PNG\r\n\x1a\nPNGDATA' >"$T/png"
 outsider() { jq -n --arg who "$1" '{number: 7, author_association: $who,
   body: "See ![shot](https://github.com/user-attachments/assets/1111)"}' >"$T/issue.json"; }
-images="TEHAS_REPO=acme/widget GH_TOKEN=tok; $lib; tehas_issue_images 7 $T/images"
 taken() { jq -c '[(.images | map(.file)), (.leftOut | map(.reason))]' "$T/images/manifest.json"; }
 
 t_case "an issue opened by someone outside the repository is given no image without an approval"
@@ -292,31 +290,21 @@ t_eq "$t_rc" "2"
 t_run "TEHAS_HOME=$T/nowhere; $lib; tehas_issue_images_left_out 7 $T/left.json $T/no-such-record"
 t_eq "$t_rc" "1"
 
-t_case "the text types a cycle may be given, and no other"
-t_run "$lib; for e in md txt log csv json yaml yml html css js; do tehas_text_type \$e; done | tr '\n' ' '"
-t_eq "$t_out" "text/markdown text/plain text/plain text/csv application/json application/yaml application/yaml text/html text/css text/javascript "
-for e in svg htm mjs pdf zip png ''; do
-  t_run "$lib; tehas_text_type '$e'"
-  t_eq "$e:$t_rc$t_out" "$e:1"
-done
-
 t_case "text is valid UTF-8 with no NUL byte"
 printf 'caf\xc3\xa9\n' >"$T/ok.txt"
 printf 'caf\xe9\n' >"$T/latin1.txt"
 printf 'a\x00b' >"$T/nul.txt"
 : >"$T/empty.txt"
-t_run "$lib; for f in ok latin1 nul empty; do tehas_attach_sniff $T/\$f.txt && [ \$sniff_text = true ] && echo \$f; done"
+t_run "for f in ok latin1 nul empty; do [ \"\$($att sniff $T/\$f.txt | jq -r .text)\" = true ] && echo \$f; done"
 t_eq "$t_out" "ok
 empty"
 
 t_case "the sniff says the size, the sha256 and the image of a file"
-t_run "$lib; tehas_attach_sniff $T/png && echo \"\$sniff_bytes \$sniff_image \$sniff_zip \$sniff_text \$sniff_sha256\""
+t_run "$att sniff $T/png | jq -r '\"\\(.bytes) \\(.image) \\(.zip) \\(.text) \\(.sha256)\"'"
 t_eq "$t_out" "15 png false false $(sha256sum <"$T/png" | cut -d' ' -f1)"
-t_run "$lib; tehas_attach_sniff $T/no-such-file || echo \"\$tehas_attach_word \$tehas_attach_why\""
-t_contains "$t_out" "unreadable attach: sniff exited 1: attach: unreadable: $T/no-such-file"
-# Without the program nothing is said of the bytes: the caller stops.
-t_run "TEHAS_HOME=$T/nowhere; $lib; tehas_attach_sniff $T/png || echo \"no: \$tehas_attach_why\""
-t_eq "$t_out" "no: attach: absent: $T/nowhere/libexec/attach is not an executable file"
+t_run "$att sniff $T/no-such-file"
+t_eq "$t_rc" 1
+t_contains "$t_out" "attach: unreadable: $T/no-such-file"
 
 t_case "the comment names images and files apart, and the hash of each"
 mkdir -p "$T/both"
@@ -486,11 +474,11 @@ ls_imgs() { (cd "$1" && find . -mindepth 1 | LC_ALL=C sort | tr '\n' ' '); }
 t_case "a zip is known by its first bytes, and a file named .zip that is not one is not"
 printf 'not a zip at all\n' >"$T/fake.zip"
 for f in "$zips/good.zip" "$zips/big.zip" "$zips/evil.zip"; do
-  t_run "$lib; tehas_attach_sniff '$f' && echo \$sniff_zip"
+  t_run "$att sniff '$f' | jq .zip"
   t_eq "$f $t_out" "$f true"
 done
 for f in "$T/fake.zip" "$T/png"; do
-  t_run "$lib; tehas_attach_sniff '$f' && echo \$sniff_zip"
+  t_run "$att sniff '$f' | jq .zip"
   t_eq "$f $t_out" "$f false"
 done
 
@@ -523,6 +511,11 @@ t_eq "$(ls_imgs "$zipdir")" "./file-1.md ./manifest.json "
 t_eq "$(jq -c '[.leftOut[] | [.path, .reason]]' "$zipdir/manifest.json")" \
   '[["../escape.md","A path outside the archive."],["link","A link or a special file."]]'
 
+# unzip_into <zip> <dest> <most files>: the program's answer, one entry a line.
+unzip_into() {
+  printf '%s' "$att unpack '$1' '$2' --max-bytes 1048576 --max-files $3 | jq -c '.entries[] | if has(\"skip\") then {skip, reason} else {name, kind, bytes, sha256, image, text} end'"
+}
+
 t_case "an entry whose path runs through a link already in the directory writes nothing through it"
 # A directory left with a link in it, as a run that died could leave one: the
 # entry img/b.png would land under the link's target. It is left out instead,
@@ -530,7 +523,7 @@ t_case "an entry whose path runs through a link already in the directory writes 
 rm -rf "$T/unz" "$T/outside"
 mkdir -p "$T/unz" "$T/outside"
 ln -s "$T/outside" "$T/unz/img"
-t_run "$lib; tehas_unzip_into '$zips/good.zip' '$T/unz' 1048576 16"
+t_run "$(unzip_into "$zips/good.zip" "$T/unz" 16)"
 t_eq "$(find "$T/outside" -type f | wc -l)" 0
 t_contains "$t_out" '"skip":"img/b.png","reason":"A path outside the archive."'
 t_contains "$t_out" "A path outside the archive."
@@ -538,7 +531,7 @@ t_eq "$(cat "$T/unz/a.md")" "$(unzip -p "$zips/good.zip" a.md)"
 # The directory given is a link: nothing is written at all.
 rm -rf "$T/unz"
 ln -s "$T/outside" "$T/unz"
-t_run "$lib; tehas_unzip_into '$zips/good.zip' '$T/unz' 1048576 16"
+t_run "$(unzip_into "$zips/good.zip" "$T/unz" 16)"
 t_eq "$(find "$T/outside" -type f | wc -l)" 0
 rm -f "$T/unz"
 
@@ -551,7 +544,7 @@ t_eq "$(jq -c '[.leftOut[] | [.path, .reason]]' "$zipdir/manifest.json")" \
   "[[\"e.txt\",\"Over the 1 MB limit of a file.\"]]"
 t_eq "$(find "$zipdir" -name '.unzip-*' -o -name '.part' | wc -l)" 0
 
-t_case "the kinds an archive's files are unpacked as are those of tehas_attachment_kind, and md"
+t_case "the kinds an archive's files are unpacked as are those the lab hosts, and md"
 exts=(png jpg jpeg gif webp svg avif mp4 webm mov html htm css js mjs json txt md zip pdf csv yaml)
 python3 -I - "$T/kinds.zip" "${exts[@]}" <<'PY2'
 import sys, zipfile
@@ -560,20 +553,14 @@ with zipfile.ZipFile(sys.argv[1], "w") as z:
         z.writestr("x." + ext, "x")
 PY2
 rm -rf "$T/kinds"
-t_run "$lib; tehas_unzip_into '$T/kinds.zip' '$T/kinds' 1048576 100"
+t_run "$(unzip_into "$T/kinds.zip" "$T/kinds" 100)"
 got=$(jq -r 'if .name then "\(.name | sub("^x[.]"; "")):\(.kind)" else "\(.skip | sub("^x[.]"; "")):-" end' <<<"$t_out" | tr '\n' ' ')
-want=""
-for ext in "${exts[@]}"; do
-  k=$(bash -c ". $T_ROOT/lib/attachments.sh; tehas_attachment_kind $ext") || k=-
-  [ "$ext" != md ] || k=part
-  want+="$ext:$k "
-done
-t_eq "$got" "$want"
+t_eq "$got" "png:image jpg:image jpeg:image gif:image webp:image svg:image avif:image mp4:video webm:video mov:video html:app htm:app css:part js:part mjs:part json:part txt:part md:part zip:- pdf:- csv:- yaml:- "
 
 t_case "without the attachment checker a cycle given an issue's files does not start"
 mv "$T/home/tehas/libexec/attach" "$T/attach.away"
 NET_ZIP=$zips/good.zip zip_case "$zipdir" "$zip_body"
-t_eq "$t_out" "FAILED $anyzip could not be checked (attach: absent: $T/home/tehas/libexec/attach is not an executable file)"
+t_eq "$t_out" "FAILED the issue's files could not be checked (attach: absent: $T/home/tehas/libexec/attach is not an executable file)"
 mv "$T/attach.away" "$T/home/tehas/libexec/attach"
 
 # attach_answers <rc>: the installed program exits <rc> for unpack and is the
@@ -600,6 +587,19 @@ NET_ZIP=$zips/good.zip zip_case "$zipdir" "$zip_body"
 t_eq "$t_out" ""
 t_eq "$(jq -c '[.leftOut[] | [.link, .reason]]' "$zipdir/manifest.json")" "[[\"$anyzip\",\"Not a zip archive.\"]]"
 attach_back
+
+t_case "what reads a fetched file holds no token and no other environment"
+mv "$att" "$T/attach.real"
+printf '#!/usr/bin/env bash\n[ "$1" = issue ] || env >>%q\nexec %q "$@"\n' "$T/child.env" "$T/attach.real" >"$att"
+chmod 755 "$att"
+rm -f "$T/child.env"
+NET_ZIP=$zips/good.zip GITHUB_TOKEN=other zip_case "$zipdir" "$zip_body"
+t_eq "$t_out" ""
+t_eq "$(jq -r '.files[0].file' "$zipdir/manifest.json")" "file-1.md"
+t_lacks "$(cut -d= -f1 "$T/child.env")" "TOKEN"
+t_lacks "$(cut -d= -f1 "$T/child.env")" "TEHAS"
+t_lacks "$(cat "$T/child.env")" "=tok"
+mv "$T/attach.real" "$att"
 
 t_case "a program that fails in another way stops the cycle"
 attach_answers 64
