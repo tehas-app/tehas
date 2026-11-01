@@ -3620,10 +3620,9 @@ are enabled. Both write to `~/tehas/logs/preview.log`.
    who opened each; nothing was built or removed`. Each page is an answer of
    its own, taken at its own moment, so the list can move while it is read: a
    pull request that comes back on two pages counts once.
-4. The console reads those pages and chooses what is done with each of them
-   (`console preview choose`, `~/tehas/libexec/console`). A pull request is
-   built when its head is in the product repository itself and an owner,
-   member or collaborator of the repository opened it; the newest
+4. The console reads those pages and chooses what is done with each of them.
+   A pull request is built when its head is in the product repository itself
+   and an owner, member or collaborator of the repository opened it; the newest
    `TEHAS_PREVIEW_MAX` of those are built and the rest say `over-limit`. A
    head in another repository is counted in the log and never built: `<k> pull
    requests from elsewhere, not built`, nor one opened by anyone else: `<k>
@@ -3691,7 +3690,7 @@ memory limit does not count. So an image that declares a volume anywhere but
 `/tmp`, `/config` and `/data` is not run, and every container is removed
 with `docker rm -f -v`, which takes a volume Docker made for it along.
 
-**The notice in the description.** The console beside the command writes it (`~/tehas/libexec/console preview tell`). The preview is said at the top of the pull
+**The notice in the description.** The run writes it as it goes. The preview is said at the top of the pull
 request's own description, between the marker lines `<!-- tehas-preview -->`
 and `<!-- /tehas-preview -->`: the address when the preview serves, or
 "Unable to create a preview" with the reason for `build-failed` and

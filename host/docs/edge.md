@@ -309,7 +309,6 @@ with one of these reasons:
 | `its driver is not bridge` | The option means nothing to another driver |
 | `it has IPv6` | The host has an IPv6 address on the bridge |
 | `it is not isolated from the host` | The network was made without the option: the host has an IPv4 address on the bridge |
-| `the console did not answer` | `~/tehas/libexec/console` did not run, so nothing was checked. `install.sh` puts it right |
 
 `install.sh` checks the same things by the same code. It does not ask a
 Docker older than 27.1 to make the network, and it leaves a network that is

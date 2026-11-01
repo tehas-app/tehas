@@ -28,13 +28,13 @@
 //! The mask alone: standard input to standard output, for libexec/work's own
 //! line on the dashboard, so that the mask is written in one place.
 //!
-//!   console preview tell ...
+//!   console preview run|sweep
 //!   console preview choose <repo> [max] <pull requests
 //!   console preview network check|create|ensure <network>
 //!
-//! The notice tehasbot preview keeps in a pull request's description, see
-//! src/notice.rs, which open pull requests get a preview, see src/preview.rs,
-//! and whether the previews' network keeps the host out, see src/edge.rs.
+//! A preview of every open pull request and which ones get one, see
+//! src/preview.rs, and whether the previews' network keeps the host out, see
+//! src/edge.rs.
 //!
 //!   console plan update|descriptor|workspace|give|place|turn|run ...
 //!
