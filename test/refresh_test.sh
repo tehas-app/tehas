@@ -5,7 +5,10 @@
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
 
-refresh="$T_ROOT/libexec/refresh"
+# shellcheck disable=SC2154  # t_dispatch_why is set by t_dispatch (test/lib.sh)
+t_dispatch || t_bad "no tehas-dispatch: $t_dispatch_why"
+refresh=$(dirname "$T_DISPATCH")/refresh
+cp "$T_ROOT/libexec/refresh" "$refresh"
 fx=$T/fx
 dir=$T/home/tehas/state/refresh
 logfile=$T/home/tehas/logs/refresh.log
@@ -16,7 +19,7 @@ base_c=$(printf 'c%.0s' {1..40})
 
 t_stub gh '
 case "$1 $2" in
-  "api user") [ ! -e "$T/fx/user-fails" ] || exit 1; echo tehas-bot ;;
+  "api user") [ ! -e "$T/fx/user-fails" ] || exit 1; echo '"'"'{"login":"tehas-bot"}'"'"' ;;
   "api graphql") [ ! -e "$T/fx/list-fails" ] || exit 1; cat "$T/fx/prs.json" ;;
   *) exit 1 ;;
 esac'
@@ -223,6 +226,28 @@ t_eq "$(t_calls gh)" ""
 t_run "$refresh --help"
 t_eq "$t_rc" 0
 t_contains "$t_out" "tehasbot refresh"
+
+t_case "--help and an unknown argument need no settings"
+reset
+t_no_instance
+t_run "$refresh --now"
+t_eq "$t_rc" 64
+t_contains "$t_out" "tehasbot refresh: unknown argument: --now"
+t_run "$refresh --help"
+t_eq "$t_rc" 0
+t_contains "$t_out" "Usage:"
+
+t_case "a setting that is missing stops it with 78 before any call or write"
+reset
+t_instance TEHAS_REFRESH_CONFLICTS=1
+t_run "$refresh"
+t_eq "$t_rc" 78
+t_eq "$(t_calls gh)" ""
+t_eq "$(requests)" ""
+t_run "TEHAS_REPO=acme/widget $T_DISPATCH refresh"
+t_eq "$t_rc" 78
+t_eq "$(t_calls gh)" ""
+t_eq "$(find "$T/home/tehas" -type f 2>/dev/null | wc -l)" 0
 
 t_case "with a GitHub App the bot is TEHAS_BOT_LOGIN, and GraphQL's login without [bot] is the bot's"
 reset

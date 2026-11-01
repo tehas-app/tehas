@@ -2,10 +2,10 @@
 //! JSON in the shapes `gh`, the store and the files answer in. A field that a
 //! poll reads only when it needs it is None until it is read.
 
-use crate::events::Events;
 use crate::slice::{Reading, Scope};
 use serde_json::{Map, Value};
 use std::collections::BTreeMap;
+use tehas_core::events::Events;
 
 /// A list GitHub gave, or a call that failed.
 #[derive(Clone, Debug, Default)]

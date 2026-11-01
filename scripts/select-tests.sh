@@ -10,15 +10,20 @@
 #   full <why>    the whole gate is needed; it is then the only line
 #   test <file>   a shell test file, test/*_test.sh
 #   node <file>   a front page test file, test/*_test.mjs
-#   cargo         the workspace's tests
+#   cargo         the whole workspace's tests; then there is no crate line
+#   crate <name>  the tests of one crate of the workspace
 #   omit <file>   a heavy file left to the full gate (see below)
 #
 # How a path maps:
 #
 #   - scripts/test.sh, scripts/verify.sh, this file and test/lib.sh: full.
 #   - A test file: itself.
-#   - console/: cargo, and the shell tests that name console/ or build the
-#     store or the attachment checker (t_store, t_attach).
+#   - console/: the crate the path is in and the crates that depend on it, and
+#     the shell tests that name console/ or build the store or the attachment
+#     checker (t_store, t_attach). The dependencies are those of `cargo metadata`
+#     on the tree as it stands, plus the list in `runs` below.
+#   - cargo instead of crates when the path is in console/core/, is a manifest
+#     or the lock, is in no crate, or cargo cannot say what the crates are.
 #   - A helper under test/ or a fixture under test/fixtures/<name>/: the test
 #     files that name it.
 #   - Any other path: the test files that name its file name as a word, or its
@@ -49,6 +54,13 @@ cd "$root" || exit 1
   exit 64
 }
 
+# <crate>:<crate of a program>. The tests of the first run the program of the
+# second, found beside the test binary. No manifest says so, so metadata cannot:
+# a change to the program needs those tests, and those tests need the program
+# built by the same cargo command, or they run a stale one. test/select_test.sh
+# holds this list to the crates that call current_exe.
+runs=(console:store tehas-dispatch:store)
+
 tests=() helpers=()
 for f in test/*_test.sh test/*_test.mjs; do
   [ -f "$f" ] && tests+=("$f")
@@ -58,6 +70,7 @@ for f in test/*.sh; do
 done
 
 picked=() cargo=0 direct=" "
+declare -A crate_at=() known=() users=() wanted=()
 pick() { picked+=("$@"); }
 heavy() { # file
   case "${1##*/}" in install_*_test.sh | update_*_test.sh | update_test.sh | pack_release_test.sh | bootstrap_test.sh) return 0 ;; esac
@@ -114,6 +127,48 @@ naming() { # path
   done
 }
 
+# The workspace as cargo reads it. --no-deps needs neither the lock nor the
+# registry, and lists dependencies of every kind.
+read_crates() {
+  local json lines name dir deps d pair
+  [ "${#crate_at[@]}" = 0 ] || return 0
+  json=$(cargo metadata --offline --no-deps --format-version 1 --manifest-path console/Cargo.toml 2>/dev/null) || return 1
+  lines=$(jq -r '.workspace_root as $root | .packages[] |
+    [.name, "console" + (.manifest_path | ltrimstr($root) | rtrimstr("/Cargo.toml")),
+      (.dependencies[] | select(.path) | .name)] | @tsv' <<<"$json" 2>/dev/null) || return 1
+  while IFS=$'\t' read -r name dir deps; do
+    [ -n "$name" ] || return 1
+    crate_at[$dir]=$name
+    known[$name]=1
+    for d in $deps; do users[$d]+=" $name"; done
+  done <<<"$lines"
+  [ -n "${crate_at[console]:-}" ] || return 1
+  for pair in "${runs[@]}"; do
+    [ -n "${known[${pair%:*}]:-}" ] && [ -n "${known[${pair#*:}]:-}" ] || return 1
+    users[${pair#*:}]+=" ${pair%:*}"
+  done
+}
+
+want() { # crate
+  local d
+  [ -z "${wanted[$1]:-}" ] || return 0
+  wanted[$1]=1
+  for d in ${users[$1]:-}; do want "$d"; done
+}
+
+# Fails when only the whole workspace will do. The root package owns console/
+# itself, so only its two source directories count as in it.
+want_path() { # path
+  local rest=${1#console/} name=
+  case "$1" in
+    console/core/* | console/*/Cargo.toml) return 1 ;;
+    console/src/* | console/tests/*) name=${crate_at[console]:-} ;;
+    console/*/*) name=${crate_at[console/${rest%%/*}]:-} ;;
+  esac
+  [ -n "$name" ] || return 1
+  want "$name"
+}
+
 for p in "$@"; do
   p=${p#./}
   case "$p" in
@@ -126,7 +181,7 @@ for p in "$@"; do
       continue
       ;;
     console/*)
-      cargo=1
+      [ "$cargo" = 1 ] || { read_crates && want_path "$p"; } || cargo=1
       mapfile -t hit < <(grep -lF -e "console/" -e "t_store" -e "t_attach" -- "${tests[@]}" 2>/dev/null)
       pick "${hit[@]}"
       continue
@@ -154,7 +209,14 @@ for p in "$@"; do
   full "no test names $p"
 done
 
-[ "$cargo" = 0 ] || echo cargo
+if [ "$cargo" = 1 ]; then
+  echo cargo
+elif [ "${#wanted[@]}" -gt 0 ]; then
+  for pair in "${runs[@]}"; do
+    [ -z "${wanted[${pair%:*}]:-}" ] || wanted[${pair#*:}]=1
+  done
+  printf 'crate %s\n' "${!wanted[@]}" | LC_ALL=C sort
+fi
 [ "${#picked[@]}" -eq 0 ] && exit 0
 printf '%s\n' "${picked[@]}" | LC_ALL=C sort -u | while read -r f; do
   if heavy "$f" && [[ $direct != *" $f "* ]]; then

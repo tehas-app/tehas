@@ -6,6 +6,7 @@
 . "$(dirname "$0")/lib.sh" || exit 1
 # shellcheck source=test/install_lib.sh
 . "$(dirname "$0")/install_lib.sh" || exit 1
+real_console
 
 t_case "--check on a home not made yet makes nothing, the marker neither"
 fresh
@@ -67,8 +68,9 @@ instance
 t_run "$install"
 t_eq "$t_rc" 0
 t_eq "$(install_list_report "$(sorted "$files")" "$(core_files)")" ""
-# The two pause commands are installed beside the other commands, ready to run.
-t_eq "$([ -x "$th/libexec/pause" ] && [ -x "$th/libexec/resume" ] && echo both)" "both"
+# The console's loader is installed beside the other commands, ready to run, and
+# the table of labels beside the libraries.
+t_eq "$([ -x "$th/libexec/with-settings" ] && cmp -s "$T_ROOT/host/labels.tsv" "$th/lib/labels.tsv" && echo both)" "both"
 # Every script in libexec/ is installed: a command bin/tehas knows has its script.
 missing=""
 for f in "$T_ROOT"/libexec/*; do [ -x "$th/libexec/${f##*/}" ] || missing="$missing ${f##*/}"; done

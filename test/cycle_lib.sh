@@ -183,6 +183,7 @@ reset() {
   t_store_home "$T/home/tehas"
   # shellcheck disable=SC2154  # t_cycle_why is set by t_cycle (test/lib.sh)
   t_cycle || t_bad "no tehas-cycle: $t_cycle_why"
+  mkdir -p "$T/home/tehas/libexec"
   cp "$T_CYCLE" "$T/home/tehas/libexec/tehas-cycle"
   T_ENV=(TEHAS_WORK_CMD=fake-work TEHAS_STATUS_CMD=fake-status TEHAS_CONSOLE_CMD=fake-console TEHAS_CYCLE_RETRY_WAIT=0)
   t_instance "${T_MINIMAL[@]}"
