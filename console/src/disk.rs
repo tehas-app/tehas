@@ -320,9 +320,7 @@ pub struct Options {
     pub json: bool,
     pub publish: bool,
     /// `TEHAS_SCRATCH_DIR`, when the instance named one: the fourth file
-    /// system the answer names. `libexec/disk` gives it, as `libexec/health`
-    /// gives the budget of the polls: `tehas_load` clears the `TEHAS_*` of the
-    /// host from a command, so a run of the console can name no setting itself.
+    /// system the answer names, read from the instance's own file.
     /// A test builds its own, so a case names the disk it plants.
     pub scratch: Option<PathBuf>,
     /// The two walls of this run, taken once so every call of one answer is
@@ -406,9 +404,7 @@ impl Place {
 }
 
 /// Where the factory's things are, which is what the answer is read from. The
-/// reading is given all three, so a case names the trees it plants and no run
-/// reads a setting of its own: `libexec/disk` loads the settings and hands
-/// over what they named, as `libexec/health` hands the console its budget.
+/// reading is given all three, so a case names the trees it plants.
 #[derive(Clone, Debug)]
 pub struct Host {
     pub home: PathBuf,
