@@ -1,8 +1,8 @@
 //! `tehas analytics` against this program: the copy a person or a program
 //! fetches holds no token, no URL with a host and no address, and the command
-//! calls nothing outside the host. The settings are loaded by the real
-//! libexec/with-settings. The console this crate cannot build stands in for
-//! its verb, which test/analytics_cmd_test.sh runs.
+//! calls nothing outside the host. The real libexec/with-settings runs it. The
+//! console this crate cannot build stands in for the load of the settings and
+//! for its verb, which test/analytics_cmd_test.sh runs.
 
 use rusqlite::{Connection, OpenFlags};
 use serde_json::{json, Value};
@@ -104,6 +104,7 @@ impl Host {
         fs::write(
             &console,
             "#!/usr/bin/env bash\ncase $1 in check | needs) exit 0 ;; esac\n\
+             [ \"$1\" != settings ] || { echo _tehas_loaded=1; exit 0; }\n\
              shift 2\nexec \"$TEHAS_HOME/libexec/analytics\" \"$@\" </dev/null\n",
         )
         .unwrap();
@@ -134,6 +135,7 @@ impl Host {
             .env("TEHAS_HOME", &self.home)
             .env("TEHAS_INSTANCE_DIR", &self.instance)
             .env("TEHAS_CONSOLE", self.dir.join("console"))
+            .env("TEHAS_SETTINGS_CMD", self.dir.join("console"))
             .output()
             .unwrap();
         (
@@ -203,8 +205,8 @@ impl Host {
             &json!({"generatedAt": iso(now), "totals": {"watts": 250.0}}).to_string(),
         );
         self.put("docs/version.txt", "v0.7.22+1234abc\n");
-        // The run's facts as lib/analytics.sh gives them: the history line,
-        // the approval, the settings snapshot as lib/improve.sh writes it (a
+        // The run's facts as tehas-cycle gives them: the history line,
+        // the approval, the settings snapshot as tehas-cycle writes it (a
         // model with dots, a provider word, and a host value it withheld) and
         // the image's commit.
         fs::create_dir_all(self.home.join("tmp")).unwrap();

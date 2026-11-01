@@ -125,13 +125,13 @@
 #
 # Everything lives under $T, a scratch directory removed on exit. HOME and
 # TEHAS_HOME point into it, so a test cannot touch the real ones. On a factory
-# host env.sh exports the settings of lib/config.sh and GH_TOKEN, and
+# host env.sh exports the settings of tehas_load and GH_TOKEN, and
 # scripts/test.sh runs a test file with the caller's environment, so they are
 # dropped here: what reaches a test file is what the file itself sets. The
 # runner's own knobs (TEHAS_TEST_*, T_STORE_*, T_ATTACH_BIN) stay, because scripts/test.sh
 # names them and gives them to the file.
 set -uo pipefail
-# The two families lib/config.sh clears in tehas_load, the PI_RUKAS_* family it
+# The two families tehas_load clears, the PI_RUKAS_* family it
 # leaves alone, and the names outside them all.
 for t_leak in ${!TEHAS_@} ${!PI_ENSEMBLE_@} ${!PI_RUKAS_@} GH_TOKEN; do
   case $t_leak in
@@ -147,6 +147,15 @@ T_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 T=$(mktemp -d "${TMPDIR:-/tmp}/tehas-test.XXXXXX")
 trap 'rm -rf "$T"' EXIT
 mkdir -p "$T/bin" "$T/calls" "$T/home"
+# tehas_load asks the console, and a test's tree has none beside lib/config.sh:
+# every load of a test goes to the one of this run, which a test can stub apart
+# from TEHAS_CONSOLE_CMD. A file run alone builds it here, once, as t_console does.
+if [ -z "${T_CONSOLE_BIN:-}" ] && [ -z "${T_STORE_WHY:-}" ] && command -v cargo >/dev/null 2>&1 &&
+  cargo build --locked --offline --quiet --manifest-path "$T_ROOT/console/Cargo.toml" \
+    --target-dir "$T_ROOT/console/target/shell" -p console >"$T/console-build.log" 2>&1; then
+  export T_CONSOLE_BIN=$T_ROOT/console/target/shell/debug/console
+fi
+export TEHAS_SETTINGS_CMD=${T_CONSOLE_BIN:-}
 # The stubs name bash by its path: through /usr/bin/env a stub costs one more
 # process each call.
 T_BASH=$(command -v bash)
@@ -468,7 +477,8 @@ if [ "$pkg" = store ]; then
   exit 0
 fi
 if [ "$pkg" = console ] && [ -n "${CONSOLE_BIN:-}" ]; then
-  cp "$CONSOLE_BIN" "$CARGO_TARGET_DIR/${triple}release/console"
+  # As cargo does, a new file: an earlier build may still be there.
+  cp --remove-destination "$CONSOLE_BIN" "$CARGO_TARGET_DIR/${triple}release/console"
   exit 0
 fi
 if [ "$pkg" = tehas-cycle ] && [ -n "${CYCLE_BIN:-}" ]; then
@@ -1059,7 +1069,7 @@ t_run() {
   local -a instance_env=()
   [ -z "${TEHAS_INSTANCE_DIR:-}" ] || instance_env=(TEHAS_INSTANCE_DIR="$TEHAS_INSTANCE_DIR")
   t_out=$(env -i PATH="$T/bin:$PATH" HOME="$T/home" TEHAS_HOME="$T/home/tehas" T="$T" T_ROOT="$T_ROOT" \
-    CARGO_TARGET_DIR="$T/target" \
+    CARGO_TARGET_DIR="$T/target" TEHAS_SETTINGS_CMD="$TEHAS_SETTINGS_CMD" \
     "${instance_env[@]}" "${T_ENV[@]}" "${T_ENV_ALWAYS[@]}" \
     bash -c "$1" 2>&1)
   t_rc=$?

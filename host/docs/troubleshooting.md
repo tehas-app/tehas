@@ -959,19 +959,38 @@ line.
 - "the log is no longer on the host": it was removed before the run, by hand
   or by the seven day sweep.
 
+## tehas update says the console does not answer
+
+`tehas update` runs in `~/tehas/libexec/console`, so a console that does not start
+stops any update with exit 1 before it changes anything. Exit 78 and
+`no console at` say the file is not there at all. It cannot repair itself: put a
+working console back by hand. On a host that updates from releases, that is the
+install.sh of a version still on the host:
+
+```
+ls ~/tehas/versions                       # the versions on this host
+~/tehas/versions/<previous>/install.sh    # installs that version's files, its console among them
+tehas update --to <previous>              # points current at it and finishes the steps
+touch ~/tehas/state/update-hold           # stay there until a fixed release is out
+```
+
+On a host that updates from its checkout, run `./install.sh` in `~/tehas/platform`:
+it builds the console. A console left by an interrupted `--to` to an older version
+answers the same way, and the same steps mend it.
+
 ## install.sh --check says `Follow-ups: NOT DONE`
 
 A follow-up that was asked for has not run. The lines are in
 `~/tehas/state/update-pending`: what `install.sh` recorded as it copied files, and
-what `tehas update` has not finished. Run `tehas update`: it runs the steps in the
-order `lib/update-steps.sh` lists them and clears the record. If it names a step
+what `tehas update` has not finished. Run `tehas update`: it runs the steps in
+their fixed order and clears the record. If it names a step
 line in a `WARN:` instead, the checkout asks for a step this installed
 `tehas update` does not know. Pull and run it again, since `install.sh` installs
 the commands before the follow-ups run.
 
 The lines are step lines, not shell text: `docs` on its own is not one, because
-that renewal needs its `--force-recreate` flag. A line `lib/update-steps.sh` does
-not accept is named in a `WARN:`, is not run, and stays in the record.
+that renewal needs its `--force-recreate` flag. A line this version does not
+accept is named in a `WARN:`, is not run, and stays in the record.
 
 A record this account cannot open, written by another account or with a mode
 that blocks reading, stops the update with exit 1 rather than read as "nothing

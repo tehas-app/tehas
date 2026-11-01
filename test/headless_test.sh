@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Tests for what tehas reads of pi-rukas's headless runner: lib/headless.sh and
-# the caps and runner verbs of tehas-cycle. The functions below ask the verbs.
+# Tests for what tehas reads of pi-rukas's headless runner: the caps and runner
+# verbs of tehas-cycle. The functions below ask the verbs.
 # The fixtures in test/fixtures/headless-0.12.80 are what the v0.12.80 runner
 # printed in a throwaway container with no model and no token: its
 # --capabilities answer, and the NDJSON progress and --json result of
@@ -17,8 +17,6 @@
 # documentation one.
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
-# shellcheck source=lib/headless.sh
-. "$T_ROOT/lib/headless.sh"
 # shellcheck disable=SC2154  # t_cycle_why is set by t_cycle (test/lib.sh)
 t_cycle || t_bad "no tehas-cycle: $t_cycle_why"
 tehas_headless_unsupported() { "$T_CYCLE" caps unsupported "$2" "$3" "${4:-}" <<<"$1"; }
@@ -27,6 +25,9 @@ tehas_headless_mode() { "$T_CYCLE" caps mode "$2" <<<"$1"; }
 tehas_headless_expired() { "$T_CYCLE" caps expired "$2" <<<"$1"; }
 tehas_headless_run() { "$T_CYCLE" runner run "$1" "$2"; }
 tehas_headless_outcome() { "$T_CYCLE" runner outcome "$1" "$2"; }
+tehas_headless_progress() { "$T_CYCLE" runner progress "$@"; }
+tehas_headless_error_only() { "$T_CYCLE" runner error-only "$1"; }
+tehas_headless_result=5
 fx=$T_ROOT/test/fixtures/headless-0.12.80
 caps=$(cat "$fx/capabilities.json")
 nx=$T_ROOT/test/fixtures/headless-1ca933e

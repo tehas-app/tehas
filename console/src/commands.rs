@@ -15,6 +15,7 @@
 //!   console tehas stop <issue> [--keep-workspace]
 //!   console tehas|tehasbot mcp serve|key
 //!   console tehasbot health
+//!   console tehasbot status
 //!   console tehasbot top [--every]
 //!   console tehasbot github-token [--check]
 //!
@@ -31,7 +32,9 @@
 //!
 //! Exit: the status of the command; 64 usage.
 
-use crate::{api, dev, disk, flags, github, health, labels, mcp, review, state, status, stop, top};
+use crate::{
+    api, dev, disk, flags, github, health, labels, mcp, queue, review, state, status, stop, top,
+};
 use std::env;
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::process::CommandExt;
@@ -157,12 +160,13 @@ pub fn tehas(given: &[String]) -> u8 {
 pub fn tehasbot(given: &[String]) -> u8 {
     match given.first().map(String::as_str) {
         Some("health") => health::loaded(),
+        Some("status") => queue::main(),
         Some("top") => top::publish(&given[1..]),
         Some("mcp") => mcp::main(&given[1..]),
         Some("github-token") => github::main(&given[1..]),
         _ => {
             eprintln!(
-                "console tehasbot: usage: health | top [--every] | mcp | github-token [--check]"
+                "console tehasbot: usage: health | status | top [--every] | mcp | github-token [--check]"
             );
             64
         }
@@ -200,11 +204,11 @@ pub fn check(given: &[String]) -> u8 {
 }
 
 /// The settings a command cannot run without, on one line.
-fn required(given: &[String]) -> &'static [&'static str] {
+pub fn required(given: &[String]) -> &'static [&'static str] {
     let words: Vec<&str> = given.iter().take(2).map(String::as_str).collect();
     match words[..] {
         ["tehas", "api" | "labels"] => &["TEHAS_REPO"],
-        ["tehas", "resume"] => &[
+        ["tehas", "resume"] | ["tehasbot", "status"] => &[
             "TEHAS_REPO",
             "TEHAS_CONTROL_ISSUE",
             "TEHAS_ALLOWED_LABELERS",
@@ -235,6 +239,7 @@ fn text(command: &str) -> Option<&'static str> {
         "status" => include_str!("usage/status.txt"),
         "stop" => stop::USAGE,
         "top" => include_str!("usage/top.txt"),
+        "update" => include_str!("usage/update.txt"),
         _ => return None,
     })
 }
@@ -366,6 +371,10 @@ mod tests {
                 "TEHAS_ALLOWED_LABELERS"
             ]
         );
+        assert_eq!(
+            required(&words(&["tehasbot", "status"])),
+            required(&words(&["tehas", "resume"]))
+        );
         assert!(required(&words(&["tehas", "drain"])).is_empty());
         assert!(required(&words(&["tehasbot", "health"])).is_empty());
     }
@@ -383,6 +392,7 @@ mod tests {
             "resume",
             "state",
             "status",
+            "update",
         ] {
             let text = text(command).unwrap();
             assert!(text.contains(&format!("tehas {command}")), "{command}");

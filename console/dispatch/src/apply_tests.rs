@@ -173,6 +173,7 @@ fn world() -> World {
             stop_cmd: Some(s("start")),
             start_wait: Duration::from_secs(2),
             status_cmd: s("status"),
+            status_args: Vec::new(),
             health_cmd: s("health"),
             health_args: Vec::new(),
             console_cmd: s("console"),

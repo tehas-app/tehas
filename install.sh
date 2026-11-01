@@ -33,7 +33,9 @@
 # source it was built from and of the program itself. A program is built
 # again only when its source has changed or it is not the one that was
 # installed, and the build that fetches the crates from the network is the
-# first one on a host that has never fetched. The console's source leaves out
+# first one on a host that has never fetched. The console is the one exception:
+# a real run asks cargo for it first of all, because it reads the settings, and
+# cargo answers at once when nothing changed. The console's source leaves out
 # console/analytics, console/mcp, console/store, console/attach,
 # console/dispatch and console/cycle, so a change there builds that program
 # alone. All but the attachment checker use the library in console/core, so a
@@ -85,11 +87,13 @@
 # again and finds the file matching. So a run that dies partway would otherwise
 # leave the files it did copy with no follow-up owed.
 #
-# The follow-ups are named by id (units, sandbox, docs, edge) in
-# lib/update-steps.sh, which is the one place that names them. This script
-# prints them as "next: <step>" and records them; `tehas update` runs them and
-# clears the record. Only a step is printed as "next:". Something for a person
-# to do later that is no step is printed as "later:".
+# The follow-ups are named by id (units, sandbox, docs, edge, labels) in the
+# console, console/src/update/steps.rs, which is the one place that names them.
+# This script asks it for each changed file, prints them as "next: <step>" and
+# has it record them; `tehas update` runs them and clears the record. So a real
+# run needs a console before its first copy: the one of the release tree, the
+# one this run built, else the one installed. Only a step is printed as "next:".
+# Something for a person to do later that is no step is printed as "later:".
 #
 # It does not install the slice the sandbox containers are to run in: that is
 # one system unit, and root's (sudo ./bootstrap.sh slice). It compares the
@@ -133,8 +137,9 @@
 # libexec/dispatch is taken as one installed before the marker, and gets it on
 # this run.
 #
-# Exit: 0 done or nothing to report, 1 --check found something, a step failed
-# or another update is running, 78 the instance settings are invalid or
+# Exit: 0 done or nothing to report, 1 --check found something, a step failed,
+# the console that reads the settings did not build (nothing can judge them
+# then) or another update is running, 78 the instance settings are invalid or
 # TEHAS_HOME is not provably tehas's (nothing was changed).
 set -euo pipefail
 
@@ -150,6 +155,8 @@ tests=0
 suite=${TEHAS_TEST_SUITE:-}
 # Read before tehas_load, which drops it from the environment.
 update_fd=${TEHAS_UPDATE_LOCK_FD:-}
+# The console that answers for the steps, when something names one. See section 3.
+steps_console=${TEHAS_CONSOLE:-}
 # Read before tehas_load, which drops every TEHAS_* it does not know: the one
 # rule for it is tehas_update_lock_wait, taken with lib/update-steps.sh below,
 # where tehas update takes it too. Set here so the file is defined before that
@@ -181,8 +188,6 @@ lock_wait=$(tehas_update_lock_wait)
 dispatch_wait=$(tehas_dispatch_lock_wait)
 # shellcheck source=lib/cycles.sh
 . "$root/lib/cycles.sh"
-# shellcheck source=lib/models.sh
-. "$root/lib/models.sh"
 # A partial checkout is named as the missing file it is, as every other
 # checkout file this script needs is named: sourcing it under set -e would stop
 # the run with a bare bash error and a status this header does not document.
@@ -190,92 +195,179 @@ dispatch_wait=$(tehas_dispatch_lock_wait)
 # shellcheck source=lib/paths.sh
 . "$root/lib/paths.sh"
 
-# --- 1. Instance settings ---------------------------------------------------
-# Every finding is one line. Any finding stops a real run before it changes
-# anything.
-instance_findings() {
-  local dir file models product_model mode owner group provider model
-  # The settings are shell that every command runs: nobody else may write them.
-  # A group-writable file is accepted only for the user's own primary group.
-  # Checked before tehas_load, which sources instance.env: a file another
-  # account can write is refused, not run.
-  dir=$(tehas_instance_dir)
-  # Only a file that exists has permissions to check: a missing directory or a
-  # missing instance.env is tehas_load's to name. A file that is there is
-  # judged here, before anything is sourced. The instance's own
-  # sandbox.Dockerfile is among them: its bytes are built into the image every
-  # cycle runs, so they are as trusted as the platform's Dockerfile and only
-  # the tehas user may write them.
-  for file in "$dir" "$dir/instance.env" "$dir/sandbox.Dockerfile"; do
-    [ -e "$file" ] || [ -L "$file" ] || continue
-    # -L: a symlink is judged by the file it points at.
-    mode=$(stat -L -c %a "$file" 2>/dev/null) || mode=0
-    owner=$(stat -L -c %u "$file" 2>/dev/null) || owner=-1
-    group=$(stat -L -c %g "$file" 2>/dev/null) || group=-1
+# Every apiKey of a models.json is a word or a set TEHAS_MODEL_KEY_ name; else
+# one line, and 78. The rule of console/core/src/models.rs, here in jq because
+# this runs before a console is built or copied.
+model_keys_ok() { # <file>
+  local bad name
+  bad=$(jq -r '.providers // {} | to_entries[] | .key as $p | .value
+    | (.apiKey, .backupApiKey) | strings
+    | select(test("^[$][{]?TEHAS_MODEL_KEY_[A-Z0-9_]+[}]?$") or (test("[$!]") | not) | not)
+    | $p' "$1" 2>/dev/null | head -n 1)
+  if [ -n "$bad" ]; then
+    tehas_err "models.json: provider $bad has an apiKey that is neither a word nor \$TEHAS_MODEL_KEY_<NAME> (see $1)"
+    return 78
+  fi
+  while read -r name; do
+    [ -n "$name" ] || continue
+    if [ -z "${!name:-}" ]; then
+      tehas_err "models.json names $name and it is not set: put it in ~/.config/tehas/env"
+      return 78
+    fi
+  done < <(jq -r '.providers // {} | .[] | (.apiKey, .backupApiKey) | strings
+    | select(startswith("$")) | ltrimstr("$") | ltrimstr("{") | rtrimstr("}")' "$1" 2>/dev/null | sort -u)
+  return 0
+}
+
+note() { if [ "$check" = 1 ]; then report+=("$1"); else echo "$1"; fi; }
+# program_label <name>: how a message names it.
+program_label() {
+  case $1 in
+    console) echo "the console" ;;
+    tehas-mcp) echo "the MCP server" ;;
+    store) echo "the store" ;;
+    attach) echo "the attachment checker" ;;
+    tehas-dispatch) echo "the dispatcher" ;;
+    tehas-cycle) echo "the cycle's shadow" ;;
+    *) echo "the $1 program" ;;
+  esac
+}
+# program_triple <name>: the target a program is built for, empty for the host's.
+program_triple() { [ "$1" != tehas-mcp ] || echo x86_64-unknown-linux-musl; }
+# The build asks cargo for --offline first, so a host that has fetched once needs
+# no network, and asks again without it when cargo says a crate is missing from
+# its cache. cargo_miss_words is the one list of what cargo prints for that: a
+# line counts only when it opens with cargo's own `error:`, because a build
+# script can echo anything, so a line that merely quotes --offline sends no
+# second run on its own. t_stub_cargo's CARGO_OFFLINE answers in these words.
+cargo_miss_words=('no matching package named' 'attempting to make an HTTP request')
+# cargo_build <prog> <offline|online>: one build, cut off after build_timeout
+# seconds (124, as timeout(1) reports). It reads $root, $target, $triple and
+# $hidden from the build loop below, and leaves the build's words in $out, the
+# command it ran in $build_cmd and its exit status in $rc.
+cargo_build() {
+  local args=(build --release --locked)
+  case "$2" in
+    offline) args+=(--offline) ;;
+    online) ;;
+    *)
+      echo "tehas: cargo_build: no such mode: $2" >&2
+      return 2
+      ;;
+  esac
+  args+=(--quiet --manifest-path "$root/console/Cargo.toml" --target-dir "$target" ${triple:+--target "$triple"} -p "$1")
+  build_cmd="cargo ${args[*]}"
+  out=$(timeout "$build_timeout" env "${hidden[@]}" cargo "${args[@]}" 2>&1) && rc=0 || rc=$?
+}
+# cache_miss <cargo's words>: true when one line is cargo's own report that a
+# crate it needs is not in its cache.
+cache_miss() {
+  local line word
+  while IFS= read -r line; do
+    case "$line" in
+      error:*)
+        for word in "${cargo_miss_words[@]}"; do
+          case "$line" in *"$word"*) return 0 ;; esac
+        done
+        ;;
+    esac
+  done <<<"$1"
+  return 1
+}
+# unsafe_tool_dir: a tool directory this run would take its compiler from that
+# is not the running user's own, or nothing. tehas_tool_paths puts those
+# directories first on PATH and the programs cargo builds here are installed in
+# libexec, where every cycle and the dispatcher run them. Only a directory that is there is judged, by the rule instance_findings
+# applies to the settings files.
+unsafe_tool_dir() {
+  local dir mode owner group
+  for dir in "$TEHAS_HOME/bin" "$TEHAS_HOME/tools/node/bin" "$NPM_CONFIG_PREFIX/bin" \
+    "$BUN_INSTALL/bin" "$CARGO_HOME/bin"; do
+    [ -d "$dir" ] || continue
+    mode=$(stat -L -c %a "$dir" 2>/dev/null) || mode=0
+    owner=$(stat -L -c %u "$dir" 2>/dev/null) || owner=-1
+    group=$(stat -L -c %g "$dir" 2>/dev/null) || group=-1
     if [ "$owner" != "$(id -u)" ]; then
-      echo "tehas: $file is not owned by $(id -un)"
+      echo "$dir is not owned by $(id -un)"
       return 0
     elif [ $((8#$mode & 2)) != 0 ]; then
-      echo "tehas: $file is writable by everyone (chmod o-w)"
+      echo "$dir is writable by everyone (chmod o-w)"
       return 0
     elif [ $((8#$mode & 16)) != 0 ] && [ "$group" != "$(id -g)" ]; then
-      echo "tehas: $file is writable by another group (chmod g-w)"
+      echo "$dir is writable by another group (chmod g-w)"
       return 0
     fi
   done
-  tehas_load 2>&1 || return 0
-  (tehas_require_instance_settings 2>&1) || return 0
-  models=$dir/models.json
-  if [ ! -r "$models" ]; then
-    echo "tehas: no models.json in $dir"
-  elif ! jq -e . "$models" >/dev/null 2>&1; then
-    echo "tehas: $models is not valid JSON"
+  return 1
+}
+# build_ready <first prog>: what is settled before the first build of a run.
+build_ready() {
+  # tehas_load has checked it, from the instance or the environment. The build
+  # before the first load has only the environment's, which nothing has checked.
+  build_timeout=${TEHAS_BUILD_TIMEOUT:-1800}
+  if [[ ! $build_timeout =~ ^[1-9][0-9]{0,8}$ ]]; then
+    echo "tehas: TEHAS_BUILD_TIMEOUT is not a number of seconds: $build_timeout; nothing was installed" >&2
+    exit 78
+  fi
+  # Before a build, because this run is about to run a program found under one
+  # of the tool directories and install what it makes.
+  if tool_finding=$(unsafe_tool_dir) && [ -n "$tool_finding" ]; then
+    echo "tehas: $tool_finding, so the tools there are not run; nothing was installed" >&2
+    exit 1
+  fi
+  # The target directory is named, so a program is where this looks for it
+  # whatever cargo's own configuration says, and the old one is removed first,
+  # so what is installed is what this build made. The build scripts of the
+  # crates run here: they are given no variable that is named like a secret,
+  # the bot's token among them.
+  target=${CARGO_TARGET_DIR:-$root/console/target}
+  hidden=()
+  while IFS= read -r name; do hidden+=(-u "$name"); done < <(compgen -e | grep -E 'TOKEN|SECRET|PASSWORD|API_KEY')
+  # The bound is one build's own, so it names no tool of its own: without
+  # timeout(1) every build would be reported as one that did not build.
+  if ! command -v timeout >/dev/null; then
+    echo "tehas: timeout is not installed, so $(program_label "$1") cannot be built with a time limit (bootstrap.sh installs it); nothing was installed" >&2
+    exit 1
+  fi
+}
+# build_program <prog> [keep]: one program built, or the run stopped with what
+# cargo said. keep leaves an earlier build in place while cargo runs.
+build_program() {
+  local prog=$1 triple built
+  triple=$(program_triple "$prog")
+  built=$target/${triple:+$triple/}release/$prog
+  [ "${2:-}" = keep ] || rm -f "$built"
+  cargo_build "$prog" offline
+  offline_out=$out
+  if [ "$rc" != 0 ] && cache_miss "$out"; then
+    # The crate is not in the cache, so this one build goes online. The words
+    # of each attempt are reported under its own heading: a build that fails
+    # again is reported from both, so the miss is not lost behind the fetch
+    # that followed it. The words of the attempt that ended the build are what
+    # the message below names, since $rc and $build_cmd are its own.
+    note "note: cargo's cache has no crate for $prog; building it again with the network"
+    cargo_build "$prog" online
+    build_report="offline build:
+${offline_out:-cargo printed nothing}
+online build:
+${out:-cargo printed nothing}"
   else
-    while read -r provider model; do
-      jq -e --arg p "$provider" --arg m "$model" \
-        '.providers[$p].models // [] | any(.id == $m)' "$models" >/dev/null ||
-        echo "tehas: models.json does not list model $model under provider $provider"
-    done < <(tehas_models)
-    # A token is named, never written: models.json is in a repository.
-    tehas_model_keys_ok "$models" 2>&1
-    # The session's model is named by the product, not the instance.
-    if [ -r "$TEHAS_WORK_REPO/.pi/settings.json" ]; then
-      product_model=$(jq -r '"\(.defaultProvider // "")/\(.defaultModel // "")"' "$TEHAS_WORK_REPO/.pi/settings.json" 2>/dev/null || echo "/")
-      if [ "$product_model" != "/" ]; then
-        jq -e --arg p "${product_model%%/*}" --arg m "${product_model#*/}" \
-          '.providers[$p].models // [] | any(.id == $m)' "$models" >/dev/null ||
-          echo "tehas: models.json does not list the product's session model $product_model (from $TEHAS_WORK_REPO/.pi/settings.json)"
-      fi
+    build_report=${out:-cargo printed nothing}
+  fi
+  if [ "$rc" != 0 ] || [ ! -f "$built" ]; then
+    printf '%s\n' "$build_report" | tail -n 20 >&2
+    if [ "$rc" = 127 ]; then
+      echo "tehas: cargo is not installed, so $(program_label "$prog") cannot be built (bootstrap.sh installs it); nothing was installed" >&2
+    elif [ "$rc" = 124 ]; then
+      echo "tehas: $(program_label "$prog") did not build ($build_cmd in $root/console was cut off after ${build_timeout}s); nothing was installed" >&2
+    else
+      echo "tehas: $(program_label "$prog") did not build ($build_cmd in $root/console); nothing was installed" >&2
     fi
+    exit 1
   fi
 }
 
-findings=$(instance_findings)
-if [ -n "$findings" ]; then
-  if [ "$check" = 1 ]; then
-    echo "Instance:     $(tehas_instance_dir) INVALID"
-    printf '%s\n' "$findings" | sed 's/^/  /'
-    echo "Dependencies: not checked"
-    echo "Installed:    not checked"
-    echo "Tests:        not checked"
-  else
-    printf '%s\n' "$findings" >&2
-    echo "tehas: nothing was installed" >&2
-  fi
-  exit 78
-fi
-tehas_load
-instance=$TEHAS_INSTANCE_DIR
-
-# --- 1a. The tool PATH ------------------------------------------------------
-# A run that is not a login shell has no env.sh yet - this script is what
-# installs it - so the tool directories bootstrap.sh put in the home are named
-# here, from the one list env.sh and bootstrap.sh use. Applied once, after the
-# settings have loaded and before the build and the copies below, so every step
-# that resolves a tool sees what a login shell would.
-tehas_tool_paths
-
-# --- 1b. The home is tehas's -------------------------------------------------
+# --- 0. The home is tehas's --------------------------------------------------
 # The loader takes TEHAS_HOME from the environment as it is (AGENTS.md rule 3
 # keeps loading free of side effects), and this script removes what it takes for
 # stale under it: every file of $TEHAS_HOME/docs and $TEHAS_HOME/fun this
@@ -335,22 +427,147 @@ home_refusal() { # the reason $TEHAS_HOME is not provably tehas's, or nothing
   done < <(ls -A "$path" 2>/dev/null)
 }
 
-if refusal=$(home_refusal) && [ -n "$refusal" ]; then
+refuse_home() {
+  local refusal
+  if refusal=$(home_refusal) && [ -n "$refusal" ]; then
+    if [ "$check" = 1 ]; then
+      # The report's first line, before any of the others: nothing beyond it is
+      # looked at, because a home this script cannot trust makes every answer
+      # about it meaningless. `tehas update --check` reads this line by its prefix.
+      echo "Home:         REFUSED"
+      echo "  tehas: $refusal"
+      echo "Dependencies: not checked"
+      echo "Installed:    not checked"
+      echo "Tests:        not checked"
+      exit 1
+    fi
+    echo "tehas: $refusal" >&2
+    echo "tehas: nothing was installed" >&2
+    exit 78
+  fi
+}
+
+# --- 0a. The console that reads the settings ----------------------------------
+# tehas_load asks a console, and a checkout has none beside lib/config.sh. The
+# settings of this tree are judged by a console of this tree, so a real run
+# builds it before the first load: that writes only to the target directory and
+# cargo's cache. --check builds nothing and takes one an earlier build left,
+# else the installed one. A release carries its console in libexec/, and a test
+# names its own in TEHAS_SETTINGS_CMD.
+#
+# This order has to stay. The settings need the console, so a console that does
+# not build stops the run with 1, whatever the settings say, and a typo in them
+# is named only after the build, which reaches the network when cargo's cache
+# has no crate. The update lock has to wait for the settings: its directory is
+# the first write to the home, and nothing is written before they are judged
+# (AGENTS.md rule 2). So two runs may reach this build side by side: cargo holds
+# its own lock on the target directory, and this build keeps the program that is
+# there, so a run the lock will refuse takes nothing from the run that holds it.
+built_console=""
+if [ -d "$root/console" ] && [ -z "${TEHAS_SETTINGS_CMD:-}" ]; then
+  tehas_tool_paths
+  if [ "$check" != 1 ]; then
+    refuse_home
+    build_ready console
+    build_program console keep
+  fi
+  target=${CARGO_TARGET_DIR:-$root/console/target}
+  if [ -x "$target/release/console" ]; then
+    built_console=$target/release/console
+    export TEHAS_SETTINGS_CMD=$built_console
+  fi
+fi
+
+# --- 1. Instance settings ---------------------------------------------------
+# Every finding is one line. Any finding stops a real run before it changes
+# anything.
+instance_findings() {
+  local dir file models product_model mode owner group provider model
+  # The settings are shell that every command runs: nobody else may write them.
+  # A group-writable file is accepted only for the user's own primary group.
+  # Checked before tehas_load, which sources instance.env: a file another
+  # account can write is refused, not run.
+  dir=$(tehas_instance_dir)
+  # Only a file that exists has permissions to check: a missing directory or a
+  # missing instance.env is tehas_load's to name. A file that is there is
+  # judged here, before anything is sourced. The instance's own
+  # sandbox.Dockerfile is among them: its bytes are built into the image every
+  # cycle runs, so they are as trusted as the platform's Dockerfile and only
+  # the tehas user may write them.
+  for file in "$dir" "$dir/instance.env" "$dir/sandbox.Dockerfile"; do
+    [ -e "$file" ] || [ -L "$file" ] || continue
+    # -L: a symlink is judged by the file it points at.
+    mode=$(stat -L -c %a "$file" 2>/dev/null) || mode=0
+    owner=$(stat -L -c %u "$file" 2>/dev/null) || owner=-1
+    group=$(stat -L -c %g "$file" 2>/dev/null) || group=-1
+    if [ "$owner" != "$(id -u)" ]; then
+      echo "tehas: $file is not owned by $(id -un)"
+      return 0
+    elif [ $((8#$mode & 2)) != 0 ]; then
+      echo "tehas: $file is writable by everyone (chmod o-w)"
+      return 0
+    elif [ $((8#$mode & 16)) != 0 ] && [ "$group" != "$(id -g)" ]; then
+      echo "tehas: $file is writable by another group (chmod g-w)"
+      return 0
+    fi
+  done
+  tehas_load 2>&1 || return 0
+  (tehas_require_instance_settings 2>&1) || return 0
+  models=$dir/models.json
+  if [ ! -r "$models" ]; then
+    echo "tehas: no models.json in $dir"
+  elif ! jq -e . "$models" >/dev/null 2>&1; then
+    echo "tehas: $models is not valid JSON"
+  else
+    while read -r provider model; do
+      jq -e --arg p "$provider" --arg m "$model" \
+        '.providers[$p].models // [] | any(.id == $m)' "$models" >/dev/null ||
+        echo "tehas: models.json does not list model $model under provider $provider"
+    done < <(tehas_models)
+    # A token is named, never written: models.json is in a repository.
+    model_keys_ok "$models" 2>&1
+    # The session's model is named by the product, not the instance.
+    if [ -r "$TEHAS_WORK_REPO/.pi/settings.json" ]; then
+      product_model=$(jq -r '"\(.defaultProvider // "")/\(.defaultModel // "")"' "$TEHAS_WORK_REPO/.pi/settings.json" 2>/dev/null || echo "/")
+      if [ "$product_model" != "/" ]; then
+        jq -e --arg p "${product_model%%/*}" --arg m "${product_model#*/}" \
+          '.providers[$p].models // [] | any(.id == $m)' "$models" >/dev/null ||
+          echo "tehas: models.json does not list the product's session model $product_model (from $TEHAS_WORK_REPO/.pi/settings.json)"
+      fi
+    fi
+  fi
+}
+
+findings=$(instance_findings)
+if [ -n "$findings" ]; then
   if [ "$check" = 1 ]; then
-    # The report's first line, before any of the others: nothing beyond it is
-    # looked at, because a home this script cannot trust makes every answer
-    # about it meaningless. `tehas update --check` reads this line by its prefix.
-    echo "Home:         REFUSED"
-    echo "  tehas: $refusal"
+    echo "Instance:     $(tehas_instance_dir) INVALID"
+    printf '%s\n' "$findings" | sed 's/^/  /'
     echo "Dependencies: not checked"
     echo "Installed:    not checked"
     echo "Tests:        not checked"
-    exit 1
+  else
+    printf '%s\n' "$findings" >&2
+    echo "tehas: nothing was installed" >&2
   fi
-  echo "tehas: $refusal" >&2
-  echo "tehas: nothing was installed" >&2
   exit 78
 fi
+tehas_load
+[ -z "$built_console" ] || unset TEHAS_SETTINGS_CMD
+instance=$TEHAS_INSTANCE_DIR
+
+# --- 1a. The tool PATH ------------------------------------------------------
+# A run that is not a login shell has no env.sh yet - this script is what
+# installs it - so the tool directories bootstrap.sh put in the home are named
+# here, from the one list env.sh and bootstrap.sh use. Applied once, after the
+# settings have loaded and before the build and the copies below, so every step
+# that resolves a tool sees what a login shell would.
+tehas_tool_paths
+
+# --- 1b. The home, after the load ----------------------------------------------
+# --check and a run that built no console reach the proof here, and a load may
+# have named another home.
+refuse_home
 
 # --- 1c. The commit the store records -----------------------------------------
 # The store's database records which commit of tehas made it: git's for a
@@ -439,7 +656,6 @@ files=(
   "shim/gh|$TEHAS_HOME/shim/gh|755"
   "lib/config.sh|$TEHAS_HOME/lib/config.sh|644"
   "lib/paths.sh|$TEHAS_HOME/lib/paths.sh|644"
-  "lib/analytics.sh|$TEHAS_HOME/lib/analytics.sh|644"
   "lib/attachments.sh|$TEHAS_HOME/lib/attachments.sh|644"
   "lib/history-lines.jq|$TEHAS_HOME/lib/history-lines.jq|644"
   "lib/history-listing.jq|$TEHAS_HOME/lib/history-listing.jq|644"
@@ -447,14 +663,11 @@ files=(
   "lib/park-fields.jq|$TEHAS_HOME/lib/park-fields.jq|644"
   "lib/cycles.sh|$TEHAS_HOME/lib/cycles.sh|644"
   "lib/labels.sh|$TEHAS_HOME/lib/labels.sh|644"
-  "lib/improve.sh|$TEHAS_HOME/lib/improve.sh|644"
   "lib/improve-prompt.md|$TEHAS_HOME/lib/improve-prompt.md|644"
   "lib/refine-brief.md|$TEHAS_HOME/lib/refine-brief.md|644"
   "lib/issue-brief.md|$TEHAS_HOME/lib/issue-brief.md|644"
   "lib/millwright.sh|$TEHAS_HOME/lib/millwright.sh|644"
-  "lib/models.sh|$TEHAS_HOME/lib/models.sh|644"
   "lib/update-steps.sh|$TEHAS_HOME/lib/update-steps.sh|644"
-  "lib/headless.sh|$TEHAS_HOME/lib/headless.sh|644"
   "lib/github-app.sh|$TEHAS_HOME/lib/github-app.sh|644"
   "lib/rukas.sh|$TEHAS_HOME/lib/rukas.sh|644"
   "lib/sandbox.sh|$TEHAS_HOME/lib/sandbox.sh|644"
@@ -462,9 +675,7 @@ files=(
   # The free disk of the host, read by the dispatcher's hold and the previews'.
   "lib/disk.sh|$TEHAS_HOME/lib/disk.sh|644"
   # The measure of an issue body, read by the dispatcher and the analytics.
-  "lib/sizing.sh|$TEHAS_HOME/lib/sizing.sh|644"
   "lib/questions.sh|$TEHAS_HOME/lib/questions.sh|644"
-  "lib/status.sh|$TEHAS_HOME/lib/status.sh|644"
   # How the commands run the state store, libexec/store.
   "lib/store.sh|$TEHAS_HOME/lib/store.sh|644"
   # The key a release signature is checked with. It is here so the copy an
@@ -473,7 +684,6 @@ files=(
   "release/minisign.pub|$TEHAS_HOME/release/minisign.pub|644"
   # What a release packs, so the list is on a host as it is in a checkout.
   "lib/release.sh|$TEHAS_HOME/lib/release.sh|644"
-  "lib/update-release.sh|$TEHAS_HOME/lib/update-release.sh|644"
   "versions.env|$TEHAS_HOME/versions.env|644"
   "sandbox/Dockerfile|$TEHAS_HOME/sandbox/Dockerfile|644"
   "sandbox/build.sh|$TEHAS_HOME/sandbox/build.sh|755"
@@ -532,7 +742,6 @@ for f in \
   refresh \
   review \
   setup \
-  status \
   update \
   with-settings \
   work; do
@@ -573,7 +782,6 @@ fi
 
 changed=()
 report=()
-note() { if [ "$check" = 1 ]; then report+=("$1"); else echo "$1"; fi; }
 
 # source_of <src>: the file of this checkout that a table entry names, in from.
 source_of() {
@@ -706,8 +914,10 @@ record_step() { # one source path from the file table
   # to the host's own pins calls for nothing here. The file is still copied, and
   # still counted as drift for --check and for its later: line below.
   if [ "$1" = versions.env ] && [ "$versions_owed" != 1 ]; then return 0; fi
-  tehas_steps_into "$1"
-  if [ "${#tehas_steps[@]}" != 0 ]; then tehas_record_steps "${tehas_steps[@]}" || exit 1; fi
+  "$steps_console" update steps record "$1" || {
+    echo "tehas: $steps_console could not record the follow-ups of $1; the copies so far are installed" >&2
+    exit 1
+  }
 }
 
 # --- 2b. The command root installed for the other accounts ------------------
@@ -823,87 +1033,6 @@ else
     -o -path ./Cargo.toml -o -path ./Cargo.lock -o -path './core/*' \)) ||
     { echo "tehas: could not read the cycle's source in $root/console" >&2; exit 1; }
   program_sum() { sha256sum <"$1" | cut -d' ' -f1; }
-  # program_label <name>: how a message names it.
-  program_label() {
-    case $1 in
-      console) echo "the console" ;;
-      tehas-mcp) echo "the MCP server" ;;
-      store) echo "the store" ;;
-      attach) echo "the attachment checker" ;;
-      tehas-dispatch) echo "the dispatcher" ;;
-      tehas-cycle) echo "the cycle's shadow" ;;
-      *) echo "the $1 program" ;;
-    esac
-  }
-  # program_triple <name>: the target a program is built for, empty for the host's.
-  program_triple() { [ "$1" != tehas-mcp ] || echo x86_64-unknown-linux-musl; }
-  # The build asks cargo for --offline first, so a host that has fetched once needs
-  # no network, and asks again without it when cargo says a crate is missing from
-  # its cache. cargo_miss_words is the one list of what cargo prints for that: a
-  # line counts only when it opens with cargo's own `error:`, because a build
-  # script can echo anything, so a line that merely quotes --offline sends no
-  # second run on its own. t_stub_cargo's CARGO_OFFLINE answers in these words.
-  cargo_miss_words=('no matching package named' 'attempting to make an HTTP request')
-  # cargo_build <prog> <offline|online>: one build, cut off after build_timeout
-  # seconds (124, as timeout(1) reports). It reads $root, $target, $triple and
-  # $hidden from the build loop below, and leaves the build's words in $out, the
-  # command it ran in $build_cmd and its exit status in $rc.
-  cargo_build() {
-    local args=(build --release --locked)
-    case "$2" in
-      offline) args+=(--offline) ;;
-      online) ;;
-      *)
-        echo "tehas: cargo_build: no such mode: $2" >&2
-        return 2
-        ;;
-    esac
-    args+=(--quiet --manifest-path "$root/console/Cargo.toml" --target-dir "$target" ${triple:+--target "$triple"} -p "$1")
-    build_cmd="cargo ${args[*]}"
-    out=$(timeout "$build_timeout" env "${hidden[@]}" cargo "${args[@]}" 2>&1) && rc=0 || rc=$?
-  }
-  # cache_miss <cargo's words>: true when one line is cargo's own report that a
-  # crate it needs is not in its cache.
-  cache_miss() {
-    local line word
-    while IFS= read -r line; do
-      case "$line" in
-        error:*)
-          for word in "${cargo_miss_words[@]}"; do
-            case "$line" in *"$word"*) return 0 ;; esac
-          done
-          ;;
-      esac
-    done <<<"$1"
-    return 1
-  }
-  # unsafe_tool_dir: a tool directory this run would take its compiler from that
-  # is not the running user's own, or nothing. tehas_tool_paths puts those
-  # directories first on PATH and the programs cargo builds here are installed in
-  # libexec, where every cycle and the dispatcher run them. Only a directory that is there is judged, by the rule instance_findings
-  # applies to the settings files.
-  unsafe_tool_dir() {
-    local dir mode owner group
-    for dir in "$TEHAS_HOME/bin" "$TEHAS_HOME/tools/node/bin" "$NPM_CONFIG_PREFIX/bin" \
-      "$BUN_INSTALL/bin" "$CARGO_HOME/bin"; do
-      [ -d "$dir" ] || continue
-      mode=$(stat -L -c %a "$dir" 2>/dev/null) || mode=0
-      owner=$(stat -L -c %u "$dir" 2>/dev/null) || owner=-1
-      group=$(stat -L -c %g "$dir" 2>/dev/null) || group=-1
-      if [ "$owner" != "$(id -u)" ]; then
-        echo "$dir is not owned by $(id -un)"
-        return 0
-      elif [ $((8#$mode & 2)) != 0 ]; then
-        echo "$dir is writable by everyone (chmod o-w)"
-        return 0
-      elif [ $((8#$mode & 16)) != 0 ] && [ "$group" != "$(id -g)" ]; then
-        echo "$dir is writable by another group (chmod g-w)"
-        return 0
-      fi
-    done
-    return 1
-  }
-
   due=()
   for entry in "console $console_source" "analytics $analytics_source" "tehas-mcp $mcp_source" \
     "store $store_source" "attach $attach_source" "tehas-dispatch $dispatch_source" \
@@ -919,61 +1048,10 @@ else
     fi
   done
   if [ "${#due[@]}" != 0 ]; then
-    # Before a build, because this run is about to run a program found under one
-    # of the tool directories and install what it makes.
-    if tool_finding=$(unsafe_tool_dir) && [ -n "$tool_finding" ]; then
-      echo "tehas: $tool_finding, so the tools there are not run; nothing was installed" >&2
-      exit 1
-    fi
-    # The target directory is named, so a program is where this looks for it
-    # whatever cargo's own configuration says, and the old one is removed first,
-    # so what is installed is what this build made. The build scripts of the
-    # crates run here: they are given no variable that is named like a secret,
-    # the bot's token among them.
-    target=${CARGO_TARGET_DIR:-$root/console/target}
-    hidden=()
-    while IFS= read -r name; do hidden+=(-u "$name"); done < <(compgen -e | grep -E 'TOKEN|SECRET|PASSWORD|API_KEY')
-    # The bound is one build's own, so it names no tool of its own: without
-    # timeout(1) every build would be reported as one that did not build.
-    if ! command -v timeout >/dev/null; then
-      echo "tehas: timeout is not installed, so $(program_label "${due[0]%% *}") cannot be built with a time limit (bootstrap.sh installs it); nothing was installed" >&2
-      exit 1
-    fi
-    # tehas_load has checked it, from the instance or the environment.
-    build_timeout=${TEHAS_BUILD_TIMEOUT:-1800}
+    build_ready "${due[0]%% *}"
     for entry in "${due[@]}"; do
       read -r prog _ <<<"$entry"
-      triple=$(program_triple "$prog")
-      built=$target/${triple:+$triple/}release/$prog
-      rm -f "$built"
-      cargo_build "$prog" offline
-      offline_out=$out
-      if [ "$rc" != 0 ] && cache_miss "$out"; then
-        # The crate is not in the cache, so this one build goes online. The words
-        # of each attempt are reported under its own heading: a build that fails
-        # again is reported from both, so the miss is not lost behind the fetch
-        # that followed it. The words of the attempt that ended the build are what
-        # the message below names, since $rc and $build_cmd are its own.
-        note "note: cargo's cache has no crate for $prog; building it again with the network"
-        cargo_build "$prog" online
-        build_report="offline build:
-${offline_out:-cargo printed nothing}
-online build:
-${out:-cargo printed nothing}"
-      else
-        build_report=${out:-cargo printed nothing}
-      fi
-      if [ "$rc" != 0 ] || [ ! -f "$built" ]; then
-        printf '%s\n' "$build_report" | tail -n 20 >&2
-        if [ "$rc" = 127 ]; then
-          echo "tehas: cargo is not installed, so $(program_label "$prog") cannot be built (bootstrap.sh installs it); nothing was installed" >&2
-        elif [ "$rc" = 124 ]; then
-          echo "tehas: $(program_label "$prog") did not build ($build_cmd in $root/console was cut off after ${build_timeout}s); nothing was installed" >&2
-        else
-          echo "tehas: $(program_label "$prog") did not build ($build_cmd in $root/console); nothing was installed" >&2
-        fi
-        exit 1
-      fi
+      build_program "$prog"
     done
     for entry in "${due[@]}"; do
       read -r prog sum <<<"$entry"
@@ -984,6 +1062,18 @@ ${out:-cargo printed nothing}"
       program_stamps+=("build $sum")
     done
   fi
+fi
+
+# The console that names the steps and records them, from here on and before the
+# first copy: the one this run installs, so the rules are the ones of this tree.
+# A tree from a release carries it. Otherwise it is the one this run built, or,
+# with nothing due, the one installed, which was built from this source.
+if [ -z "$steps_console" ]; then
+  steps_console=$TEHAS_HOME/libexec/console
+  [ -d "$root/console" ] || [ ! -f "$root/VERSION" ] || steps_console=$root/libexec/console
+  for entry in "${program_puts[@]}"; do
+    case "$entry" in *"|$TEHAS_HOME/libexec/console|"*) steps_console=${entry%%|*} ;; esac
+  done
 fi
 
 # --- 3a. The old records and the dispatcher's lock ----------------------------
@@ -1202,16 +1292,22 @@ for f in \
   bin/tehas-status \
   bin/tehas-test \
   bin/tehas-work \
+  lib/analytics.sh \
   lib/describe.sh \
   lib/edge.sh \
+  lib/models.sh \
   lib/private.sh \
   libexec/analytics-cmd \
   libexec/api \
   libexec/console.ts \
   lib/limit.sh \
   lib/live.sh \
+  lib/headless.sh \
+  lib/improve.sh \
   lib/planning.sh \
   lib/refresh.sh \
+  lib/status.sh \
+  lib/sizing.sh \
   libexec/disk \
   libexec/drain \
   libexec/energy \
@@ -1222,12 +1318,14 @@ for f in \
   libexec/pause \
   libexec/resume \
   libexec/state \
+  libexec/status \
   libexec/stop \
   libexec/summary \
   libexec/tidy \
   libexec/top \
   libexec/top-publish \
   lib/top.sh \
+  lib/update-release.sh \
   edge/protolab.Caddyfile \
   edge/protolab.compose.yaml; do
   to=$TEHAS_HOME/$f
@@ -1588,7 +1686,7 @@ if [ "${#changed[@]}" = 0 ] && [ "$sandbox_changed" != 1 ]; then
   first_index
   exit 0
 fi
-# The follow-ups, by the ids lib/update-steps.sh defines: one line per step these
+# The follow-ups, by the ids the console defines: one line per step these
 # changed files call for, in the order they run, and one for the instance's own
 # sandbox file when it changed - the file is no source of this checkout, so it is
 # in no list here and calls for the build under its own name. The steps are
@@ -1605,7 +1703,10 @@ for src in "${changed[@]-}"; do
   if [ "$src" = versions.env ] && [ "$versions_owed" != 1 ]; then continue; fi
   step_sources+=("$src")
 done
-seen_steps=$(while IFS= read -r step; do echo "next: $step"; done < <(tehas_steps_for "${step_sources[@]}"))
+seen_steps=$("$steps_console" update steps for "${step_sources[@]}" | sed 's/^/next: /') || {
+  echo "tehas: $steps_console could not name the follow-ups; they are in the record of steps owed" >&2
+  exit 1
+}
 if [ "$sandbox_changed" = 1 ]; then
   # Once, whatever the file's bytes also happened to call for: the build the
   # instance's file owes is the same build the platform's Dockerfile does, and a

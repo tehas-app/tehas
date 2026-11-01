@@ -36,7 +36,7 @@
 #
 # Instance settings (lib/config.sh; defaults in brackets):
 #   TEHAS_PLAN_TIMEOUT  seconds before a turn is given up [7200, the ceiling
-#                       TEHAS_PLAN_TIMEOUT_MAX in lib/config.sh]
+#                       in console/core/src/settings/rules.rs]
 #   and those of tehas work for the checkout and the container's limits.
 #
 # The container is given exactly what a cycle's container is given: the same
@@ -239,7 +239,7 @@ if [ -d "$images_given" ]; then
 fi
 
 if ! { mkdir -p "$works" && : >"$works/.tehas-workspaces" && rm -rf "$tree" "$container" &&
-  tehas_sandbox_clone "$src" "$tree" "$branch"; }; then
+  "$here/tehas-cycle" sandbox clone "$src" "$tree" "$branch"; }; then
   echo "tehas plan: could not make the workspace $tree, not starting a turn" >&2
   exit 78
 fi
@@ -258,7 +258,7 @@ fi
 
 # The turn's own copy of the host's code index, asked for only once this turn
 # will start: a turn that never began leaves no copy behind.
-tehas_sandbox_seed "$container" "$index" ||
+"$here/tehas-cycle" sandbox seed "$container" "$index" ||
   echo "tehas plan: the code index could not be copied into $container/cache, this turn searches without one"
 # The mounts name directories that only exist now.
 mapfile -d '' -t mounts < <(tehas_sandbox_mounts turn "$repo" "$tree" "$container" "$runs")

@@ -44,6 +44,7 @@ pub struct Start {
     /// The cycle's console and status programs, for the report.
     pub console: String,
     pub status_cmd: String,
+    pub status_args: Vec<String>,
 }
 
 /// A file as the facts hold it: its text, {"link": true}, or nothing.
@@ -96,6 +97,11 @@ fn refused(f: Value) -> Refused {
 /// One verb of the state store, its JSON answer or the word of its failure.
 pub fn store(home: &Path, args: &[&str]) -> Result<Value, String> {
     store_value(home, args).map_err(|f| refused(f).word)
+}
+
+/// One verb of the state store, the word and line of its failure.
+pub fn store_said(home: &Path, args: &[&str]) -> Result<Value, Refused> {
+    store_value(home, args).map_err(refused)
 }
 
 /// tehas_store_try: asked again, a second apart, while the store is busy or

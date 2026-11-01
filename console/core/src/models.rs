@@ -1,9 +1,28 @@
-//! The host's models.json: the endpoints of a provider and the key each is
-//! asked with, as tehas_endpoint_url, tehas_endpoint_key and
-//! _tehas_endpoint_auth in lib/models.sh read them, the models the agents use,
-//! and how an endpoint is asked for them.
+//! The host's models.json. A provider may name a second endpoint that serves
+//! the same models, and the token for each:
+//!
+//!   "baseUrl": "https://llm.example/v1",          "apiKey": "$TEHAS_MODEL_KEY_MAIN",
+//!   "backupBaseUrl": "https://fleet.example/v1",  "backupApiKey": "$TEHAS_MODEL_KEY_FLEET"
+//!
+//! An apiKey is a word without "$" or "!" (such as "unused"), or
+//! "$TEHAS_MODEL_KEY_<NAME>": a variable set in ~/.config/tehas/env, never in
+//! the instance directory, which is in a repository. backupApiKey defaults to
+//! apiKey. Pi reads the same "$NAME" form from its environment.
+//!
+//! Only the backup is new to Pi. A container is given a models.json of its own
+//! with every provider on the endpoint picked at its start, and without the
+//! backup keys. A cycle stays on its endpoint: one that fails mid-cycle is
+//! retried by Pi, not switched.
+//!
+//! install.sh holds the one check of the keys that runs before any program of
+//! this workspace exists: its model_keys_ok.
 
+use crate::jq::J;
 use serde_json::Value;
+use std::fs;
+use std::io::Write;
+use std::path::Path;
+use std::process::{Command, Stdio};
 
 const ROLES: [&str; 5] = [
     "DEVELOPER",
@@ -15,16 +34,19 @@ const ROLES: [&str; 5] = [
 
 /// tehas_models: (provider, model), the subagent's first, each pair once.
 pub fn used() -> Vec<(String, String)> {
-    let env = |k: String| std::env::var(k).unwrap_or_default();
+    used_from(|k| std::env::var(k).unwrap_or_default())
+}
+
+fn used_from(env: impl Fn(&str) -> String) -> Vec<(String, String)> {
     let mut used: Vec<(String, String)> = Vec::new();
     let mut pairs = vec![(
-        env("PI_ENSEMBLE_SUBAGENT_PROVIDER".into()),
-        env("PI_ENSEMBLE_SUBAGENT_MODEL".into()),
+        env("PI_ENSEMBLE_SUBAGENT_PROVIDER"),
+        env("PI_ENSEMBLE_SUBAGENT_MODEL"),
     )];
     for r in ROLES {
-        let m = env(format!("PI_ENSEMBLE_MODEL_{r}"));
+        let m = env(&format!("PI_ENSEMBLE_MODEL_{r}"));
         if !m.is_empty() {
-            pairs.push((env(format!("PI_ENSEMBLE_PROVIDER_{r}")), m));
+            pairs.push((env(&format!("PI_ENSEMBLE_PROVIDER_{r}")), m));
         }
     }
     for p in pairs {
@@ -35,8 +57,8 @@ pub fn used() -> Vec<(String, String)> {
     used
 }
 
-/// tehas_endpoint_ask: Ok when the endpoint answers and offers every model,
-/// else the words the hold says. `curl` runs curl with these arguments and the
+/// Ok when the endpoint answers and offers every model, else the words the
+/// hold says. `curl` runs curl with these arguments and the
 /// text on its standard input, and gives what it printed when it succeeded.
 pub fn ask(
     url: &str,
@@ -67,7 +89,7 @@ pub fn ask(
     Ok(())
 }
 
-/// tehas_endpoint_pick: "main" when it offers the provider's models, else
+/// "main" when it offers the provider's models, else
 /// "backup" when that does, else "main". No call without a backupBaseUrl.
 pub fn pick(
     file: &ModelFile,
@@ -102,7 +124,7 @@ pub struct ModelFile {
     pub json: Value,
 }
 
-/// tehas_model_key_names: the variables the file names, sorted, each once.
+/// The variables the file names, sorted, each once.
 pub fn key_names(models: &Value) -> Vec<String> {
     let mut names: Vec<String> = keys(models)
         .filter_map(|(_, k)| k.strip_prefix('$'))
@@ -114,9 +136,18 @@ pub fn key_names(models: &Value) -> Vec<String> {
     names
 }
 
-/// tehas_model_keys_ok: every key is a word or a set token. Why not is the
-/// message for standard error.
+/// Every key is a word or a set token. Why not is the message for standard
+/// error.
 pub fn keys_ok(models: &Value, file: &str, set: impl Fn(&str) -> bool) -> Result<(), String> {
+    // `keys` reads only a map, so any other shape would pass unread.
+    if models
+        .get("providers")
+        .is_some_and(|p| !p.is_object() && !p.is_null())
+    {
+        return Err(format!(
+            "models.json: providers is not a map of provider names (see {file})"
+        ));
+    }
     if let Some((provider, _)) =
         keys(models).find(|(_, k)| !names_a_token(k) && k.contains(['$', '!']))
     {
@@ -147,7 +178,7 @@ fn keys(models: &Value) -> impl Iterator<Item = (&str, &str)> {
 }
 
 // `$TEHAS_MODEL_KEY_<NAME>` or `${TEHAS_MODEL_KEY_<NAME>}`, each brace alone
-// too, as the pattern of tehas_model_keys_ok.
+// too.
 fn names_a_token(key: &str) -> bool {
     let Some(rest) = key.strip_prefix('$') else {
         return false;
@@ -162,12 +193,140 @@ fn names_a_token(key: &str) -> bool {
     })
 }
 
-/// tehas_models_file: the host's file, under HOME.
+/// The host's file, under HOME.
 pub fn host_path() -> String {
     format!(
         "{}/.pi/agent/models.json",
         std::env::var("HOME").unwrap_or_default()
     )
+}
+
+/// [`keys_ok`] of the host's file, against the environment. A file that is
+/// not there or cannot be read names no key.
+pub fn host_keys_ok() -> Result<(), String> {
+    let file = host_path();
+    let set = |name: &str| std::env::var(name).is_ok_and(|v| !v.is_empty());
+    keys_ok(&ModelFile::read(&file).json, &file, set)
+}
+
+/// curl with these arguments and the text on its standard input: what it
+/// printed, when it succeeded.
+pub fn curl(args: &[String], input: &str) -> Option<String> {
+    let mut child = Command::new("curl")
+        .args(args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+    if let Some(mut stdin) = child.stdin.take() {
+        let _ = stdin.write_all(input.as_bytes());
+    }
+    let out = child.wait_with_output().ok()?;
+    out.status
+        .success()
+        .then(|| String::from_utf8_lossy(&out.stdout).into_owned())
+}
+
+fn set(obj: &mut J, key: &str, value: J) {
+    if let J::Obj(fields) = obj {
+        match fields.iter_mut().find(|(k, _)| k == key) {
+            Some(field) => field.1 = value,
+            None => fields.push((key.to_string(), value)),
+        }
+    }
+}
+
+// A provider without its backup keys. None for what can hold no keys.
+fn strip(provider: &mut J) -> Option<()> {
+    match provider {
+        J::Obj(entry) => entry.retain(|(k, _)| k != "backupBaseUrl" && k != "backupApiKey"),
+        J::Null => {}
+        _ => return None,
+    }
+    Some(())
+}
+
+/// The file as a container is given it: each provider on its picked endpoint
+/// and without the backup keys, and the providers moved to their backup, in
+/// the file's order. Key order and number text stay as the file has them.
+/// None for what no provider list can be read in.
+pub fn resolved(
+    text: &str,
+    used: &[(String, String)],
+    curl: &dyn Fn(&[String], &str) -> Option<String>,
+) -> Option<(J, Vec<String>)> {
+    let mut doc = J::parse(text)?;
+    if !matches!(doc, J::Obj(_) | J::Null) {
+        return None;
+    }
+    let file = ModelFile {
+        json: serde_json::from_str(text).ok()?,
+    };
+    let mut moved = Vec::new();
+    let providers = match &mut doc {
+        J::Obj(top) => top.iter_mut().find(|(k, _)| k == "providers"),
+        _ => None,
+    };
+    match providers.map(|(_, list)| list) {
+        Some(J::Obj(list)) => {
+            for (name, p) in list {
+                strip(p)?;
+                if pick(&file, name, used, curl) != "backup" {
+                    continue;
+                }
+                set(p, "baseUrl", J::str(file.url(name, "backup")));
+                let key = file.key(name, "backup");
+                if !key.is_empty() {
+                    set(p, "apiKey", J::str(&key));
+                }
+                moved.push(name.clone());
+            }
+        }
+        Some(J::Arr(list)) => {
+            for p in list {
+                strip(p)?;
+            }
+        }
+        _ => {}
+    }
+    Some((doc, moved))
+}
+
+/// What [`write`] did.
+pub struct Written {
+    /// The variables the host's file names, for a container's environment.
+    pub keys: Vec<String>,
+    /// The providers on their backup.
+    pub moved: Vec<String>,
+}
+
+/// Write a container's models.json to `out`, on the endpoints picked now. None
+/// when the host's file cannot be used; a bad key says why on standard error.
+pub fn write(out: &Path) -> Option<Written> {
+    let file = host_path();
+    let text = String::from_utf8_lossy(&fs::read(&file).ok()?).into_owned();
+    if let Err(why) = host_keys_ok() {
+        eprintln!("tehas: {why}");
+        return None;
+    }
+    let (done, moved) = resolved(&text, &used(), &curl)?;
+    let new = out.with_extension("json.new");
+    fs::write(&new, format!("{}\n", done.pretty())).ok()?;
+    fs::rename(&new, out).ok()?;
+    let keys = key_names(&serde_json::from_str(&text).ok()?);
+    Some(Written { keys, moved })
+}
+
+/// [`write`] for a container with a state directory: <out>, and in `endpoints`
+/// one line "<provider> backup" for each provider on its backup.
+pub fn write_for_container(out: &Path, endpoints: &Path) -> Option<()> {
+    let lines: String = write(out)?
+        .moved
+        .iter()
+        .map(|name| format!("{name} backup\n"))
+        .collect();
+    fs::write(endpoints, lines).ok()
 }
 
 impl ModelFile {
@@ -313,6 +472,160 @@ mod tests {
         let none = ModelFile::read("/nonexistent/models.json");
         assert!(none.json.is_null());
         assert_eq!(none.url("two", "main"), "");
+    }
+
+    const TWO: &str = r#"{"providers":{
+      "main":{"baseUrl":"http://m/v1","apiKey":"$TEHAS_MODEL_KEY_MAIN","backupBaseUrl":"http://b/v1","backupApiKey":"${TEHAS_MODEL_KEY_FLEET}","models":[{"id":"big","cost":0.10}]},
+      "word":{"baseUrl":"http://w/v1","apiKey":"unused"}},"z":1}"#;
+
+    fn two_used() -> Vec<(String, String)> {
+        vec![("main".to_string(), "big".to_string())]
+    }
+
+    // An endpoint that offers the model when its url starts `host`.
+    fn only(host: &'static str) -> impl Fn(&[String], &str) -> Option<String> {
+        move |args, _| {
+            args[5]
+                .starts_with(host)
+                .then(|| r#"{"data":[{"id":"big"}]}"#.to_string())
+        }
+    }
+
+    #[test]
+    fn the_names_are_sorted_each_once_and_without_their_marks() {
+        assert_eq!(
+            key_names(&serde_json::from_str(TWO).unwrap()),
+            ["TEHAS_MODEL_KEY_FLEET", "TEHAS_MODEL_KEY_MAIN"]
+        );
+        assert!(key_names(&json!({})).is_empty());
+    }
+
+    #[test]
+    fn a_key_is_a_word_or_a_set_token() {
+        let two: Value = serde_json::from_str(TWO).unwrap();
+        assert_eq!(keys_ok(&two, "f", |_| true), Ok(()));
+        assert_eq!(
+            keys_ok(&two, "f", |k| k != "TEHAS_MODEL_KEY_FLEET"),
+            Err("models.json names TEHAS_MODEL_KEY_FLEET and it is not set: put it in ~/.config/tehas/env".to_string())
+        );
+        for bad in [
+            "$OTHER",
+            "pass!word",
+            "a$b",
+            "$TEHAS_MODEL_KEY_",
+            "$TEHAS_MODEL_KEY_a",
+        ] {
+            assert_eq!(
+                keys_ok(&json!({"providers": {"odd": {"apiKey": bad}}}), "f", |_| true),
+                Err("models.json: provider odd has an apiKey that is neither a word nor $TEHAS_MODEL_KEY_<NAME> (see f)".to_string()),
+                "{bad}"
+            );
+        }
+    }
+
+    #[test]
+    fn providers_of_another_shape_are_refused_unread() {
+        for providers in [
+            json!([{"apiKey": "$GH_TOKEN"}]),
+            json!([{"apiKey": "unused"}]),
+            json!([]),
+            json!(7),
+            json!("main"),
+        ] {
+            assert_eq!(
+                keys_ok(&json!({"providers": providers}), "f", |_| true),
+                Err("models.json: providers is not a map of provider names (see f)".to_string()),
+                "{providers}"
+            );
+        }
+        assert_eq!(keys_ok(&json!({"providers": null}), "f", |_| false), Ok(()));
+        assert_eq!(keys_ok(&json!({}), "f", |_| false), Ok(()));
+    }
+
+    #[test]
+    fn main_answers_and_the_backup_keys_go() {
+        let (done, moved) = resolved(TWO, &two_used(), &only("http://m/")).unwrap();
+        assert_eq!(
+            done.dump(),
+            r#"{"providers":{"main":{"baseUrl":"http://m/v1","apiKey":"$TEHAS_MODEL_KEY_MAIN","models":[{"id":"big","cost":0.10}]},"word":{"baseUrl":"http://w/v1","apiKey":"unused"}},"z":1}"#
+        );
+        assert!(moved.is_empty());
+    }
+
+    #[test]
+    fn main_is_down_and_the_backup_takes_its_place() {
+        let (done, moved) = resolved(TWO, &two_used(), &only("http://b/")).unwrap();
+        assert_eq!(
+            done.dump(),
+            r#"{"providers":{"main":{"baseUrl":"http://b/v1","apiKey":"${TEHAS_MODEL_KEY_FLEET}","models":[{"id":"big","cost":0.10}]},"word":{"baseUrl":"http://w/v1","apiKey":"unused"}},"z":1}"#
+        );
+        assert_eq!(moved, ["main"]);
+    }
+
+    #[test]
+    fn the_providers_moved_keep_the_order_of_the_file() {
+        let text = r#"{"providers":{
+          "z":{"baseUrl":"http://m/v1","backupBaseUrl":"http://b/v1"},
+          "a":{"baseUrl":"http://m/v1","backupBaseUrl":"http://b/v1"}}}"#;
+        let used = [
+            ("a".to_string(), "big".to_string()),
+            ("z".to_string(), "big".to_string()),
+        ];
+        let (_, moved) = resolved(text, &used, &only("http://b/")).unwrap();
+        assert_eq!(moved, ["z", "a"]);
+    }
+
+    #[test]
+    fn both_down_stays_on_main() {
+        let (done, moved) = resolved(TWO, &two_used(), &only("x/")).unwrap();
+        assert!(done.dump().contains(r#""baseUrl":"http://m/v1""#));
+        assert!(moved.is_empty());
+    }
+
+    #[test]
+    fn no_call_is_made_without_a_backup() {
+        let text = r#"{"providers":{"word":{"baseUrl":"http://w/v1","apiKey":"unused"}}}"#;
+        let (done, _) = resolved(text, &two_used(), &|_, _| panic!("no call")).unwrap();
+        assert_eq!(done.dump(), text);
+    }
+
+    #[test]
+    fn what_no_provider_list_can_be_read_in_is_refused() {
+        let no = |_: &[String], _: &str| None;
+        assert!(resolved("[]", &[], &no).is_none());
+        assert!(resolved(r#"{"providers":{"a":7}}"#, &[], &no).is_none());
+        assert!(resolved(r#"{"providers":[7]}"#, &[], &no).is_none());
+        assert!(resolved("not json", &[], &no).is_none());
+    }
+
+    #[test]
+    fn a_list_of_providers_loses_its_backup_keys_and_moves_nothing() {
+        let text = r#"{"providers":[{"baseUrl":"m","backupBaseUrl":"b"}]}"#;
+        let (done, moved) = resolved(text, &[], &|_, _| panic!("no call")).unwrap();
+        assert_eq!(done.dump(), r#"{"providers":[{"baseUrl":"m"}]}"#);
+        assert!(moved.is_empty());
+    }
+
+    #[test]
+    fn the_models_of_a_provider_are_the_agents_each_once() {
+        let env_of = |k: &str| {
+            match k {
+                "PI_ENSEMBLE_SUBAGENT_PROVIDER"
+                | "PI_ENSEMBLE_PROVIDER_OPS"
+                | "PI_ENSEMBLE_PROVIDER_EXPLORE" => "p",
+                "PI_ENSEMBLE_SUBAGENT_MODEL" | "PI_ENSEMBLE_MODEL_EXPLORE" => "one",
+                "PI_ENSEMBLE_MODEL_OPS" => "two",
+                "PI_ENSEMBLE_MODEL_DEVELOPER" => "three",
+                "PI_ENSEMBLE_PROVIDER_DEVELOPER" => "q",
+                _ => "",
+            }
+            .to_string()
+        };
+        let pair = |p: &str, m: &str| (p.to_string(), m.to_string());
+        assert_eq!(
+            used_from(env_of),
+            [pair("p", "one"), pair("q", "three"), pair("p", "two")]
+        );
     }
 
     #[test]

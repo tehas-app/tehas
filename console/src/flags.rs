@@ -118,7 +118,7 @@ fn clock(given: Option<String>) -> i64 {
 }
 
 /// The longest reason the flag holds.
-const REASON: usize = 200;
+pub const REASON: usize = 200;
 /// The largest limit a person can set, and the widest `--for` in seconds: the
 /// bounds `tehas limit` has always checked its arguments against.
 const MAX_CYCLES: u64 = 9999;
@@ -1465,21 +1465,16 @@ fn replaced(c: char) -> bool {
     matches!(c, '\u{1}'..='\u{1f}' | '\u{7f}'..='\u{9f}' | '\u{2028}' | '\u{2029}')
 }
 
-/// A reason as the health file holds it, the rule of `lib/status.sh` in
-/// words: a run of the characters jq replaces becomes one space, a run of
+/// A reason as the health file holds it: a run of the characters jq replaces becomes one space, a run of
 /// spaces stays as it was written, 200 characters is the most, counted as
 /// characters and cut before the ends, and the ends go last. The line
 /// `tehas status` prints is one fact, so a reason which carried a newline
 /// would otherwise print a line which is not there.
-fn oneline(s: &str) -> String {
-    // The rule of `tehas_pause_oneline` in `lib/status.sh`, which is the rule
-    // the shell has always applied to a reason: jq's `gsub` reads its pattern
-    // as POSIX basic regex, where the `+` after the class is one of the
-    // characters being replaced rather than a repeat, so each of them becomes
-    // a space of its own and a run of spaces which were written keeps every
-    // character of itself; 200 characters is the most, cut before the ends go,
-    // and only the spaces which touch the two ends of what is left go with
-    // them.
+pub fn oneline(s: &str) -> String {
+    // Each replaced character becomes a space of its own and a run of spaces
+    // which were written keeps every character of itself; 200 characters is
+    // the most, cut before the ends go, and only the spaces which touch the
+    // two ends of what is left go with them.
     let folded: String = s
         .chars()
         .map(|c| if replaced(c) { ' ' } else { c })

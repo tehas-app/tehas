@@ -1484,10 +1484,13 @@ fresh_slice
 slice_stubs 0
 # A shipped file the step cannot read is reported as the write that failed, and
 # nothing is left on disk: the pre-flight test of -f cannot tell that file from
-# one that is there and readable.
-chmod 000 "$reload_shipped"
-t_run "$bootstrap slice"
-chmod 644 "$reload_shipped"
+# one that is there and readable. On a copy of the tree: other files of the suite
+# read the shipped one while this runs.
+mkdir -p "$T/unreadable"
+cp "$bootstrap" "$T/unreadable/"
+cp -R "$T_ROOT/lib" "$T_ROOT/host" "$T/unreadable/"
+chmod 000 "$T/unreadable/host/slice/tehas-slice-reload.service"
+t_run "$T/unreadable/bootstrap.sh slice"
 t_eq "$t_rc" 1
 t_contains "$t_out" "could not write"
 t_eq "$([ -e "$slice" ] && echo there)" ""

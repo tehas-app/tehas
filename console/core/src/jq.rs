@@ -112,6 +112,10 @@ impl J {
     }
 
     /// `length`, for an array or an object.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     pub fn len(&self) -> usize {
         match self {
             J::Arr(a) => a.len(),
@@ -202,6 +206,7 @@ impl J {
 
     /// jq's order of values: null, false, true, numbers, strings, arrays,
     /// objects; an object by its sorted keys first, then by their values.
+    #[allow(clippy::should_implement_trait)]
     pub fn cmp(&self, other: &J) -> Ordering {
         match (self, other) {
             (J::Num(_), J::Num(_)) => {

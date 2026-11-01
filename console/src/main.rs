@@ -90,7 +90,7 @@
 //!   console epics <owner/name> <out>
 //!
 //! The open epics and their sub-issues, live/epics.json, for tehasbot status,
-//! see src/epics.rs.
+//! see src/epics.rs. A run of tehasbot status calls this with a time limit.
 //!
 //!   console flags limit show|set|clear|read ...
 //!
@@ -109,6 +109,10 @@
 //!
 //! One pass of the Protolab, for libexec/protolab, see src/protolab.rs.
 //!
+//!   console settings load <euid> [<bash>] | valid [<name> <value>] | words <name>
+//!
+//! What tehas_load does and what a setting may hold, see src/settings.rs.
+//!
 //!   console setup files ...
 //!
 //! The settings, the checks and the files of tehas setup, see src/setup.rs.
@@ -116,8 +120,7 @@
 //!   console shipped page|query|answer|list|has|whole ...
 //!
 //! What closed an issue: the page and the GraphQL query of the read, and what its
-//! answer says, for tehasbot status, which makes the call to these verbs itself,
-//! see src/shipped.rs.
+//! answer says, see src/shipped.rs.
 //!
 //!   console tidy run [--dry-run]
 //!
@@ -129,6 +132,16 @@
 //! The forge as a command bash can call: an issue's labels, the newest event of
 //! one label, who applied the label that lets a cycle start, and a label put on
 //! or taken off, asked of GitHub through tehas_core::forge, see src/forge.rs.
+//!
+//!   console label actor|allowed|pause-holds ...
+//!
+//! Who applied a label, read from the label events, behind lib/labels.sh, see
+//! src/label.rs.
+//!
+//!   console models keys-ok | pick <provider> | resolve <out>
+//!
+//! The host's models.json: its keys, the endpoint of a provider, and the file
+//! a container is given, see src/models.rs.
 //!
 //!   console slice ok|limits|cpus|verify|room|pressure ...
 //!
@@ -147,13 +160,17 @@
 //! pull request, see src/product.rs.
 //!
 //!   console tehas status|disk|state|limit|pause|analytics|top|api|labels|resume|drain|stop|mcp ...
-//!   console tehasbot health|top|mcp
+//!   console tehasbot health|status|top|mcp
 //!   console check tehas|tehasbot <command> ...
 //!   console usage <command>
 //!
 //! The commands of bin/tehas and bin/tehasbot that are verbs of this program,
 //! the check libexec/with-settings makes before it loads the settings, and
 //! the text of tehas help, see src/commands.rs.
+//!
+//!   console update args|gate|prepare|api|finish|release|steps ...
+//!
+//! What tehas update decides and does, see src/update/mod.rs.
 //!
 //! Exit: 0 stopped by a signal or masked, 1 the console file or standard
 //! output cannot be written, 2 usage.
@@ -173,18 +190,23 @@ mod frame;
 mod github;
 mod health;
 mod improve;
-mod jq;
+mod label;
 mod labels;
 mod mcp;
+mod models;
 mod notice;
 mod now;
 mod plan;
+mod platform;
 mod pr_title;
 mod preview;
 mod product;
 mod protolab;
+mod publish;
+mod queue;
 mod render;
 mod review;
+mod settings;
 mod setup;
 mod shipped;
 mod size;
@@ -197,6 +219,7 @@ mod store;
 mod tail;
 mod tidy;
 mod top;
+mod update;
 
 use render::Entry;
 use std::collections::HashSet;
@@ -208,6 +231,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread::sleep;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use tehas_core::jq;
 use tehas_core::mask;
 
 const POLL: Duration = Duration::from_millis(1500);
@@ -414,11 +438,14 @@ fn main() -> ExitCode {
             Some("dev") => return ExitCode::from(dev::main(&given[1..])),
             Some("review") => return ExitCode::from(review::main(&given[1..])),
             Some("preview") => return ExitCode::from(preview::main(&given[1..])),
+            Some("settings") => return ExitCode::from(settings::main(&given[1..])),
             Some("setup") => return ExitCode::from(setup::main(&given[1..])),
             Some("size") => return ExitCode::from(size::main(&given[1..])),
             Some("slice") => return ExitCode::from(slice::main(&given[1..])),
             Some("health") => return ExitCode::from(health::main(&given[1..])),
             Some("improve") => return ExitCode::from(improve::main(&given[1..])),
+            Some("label") => return ExitCode::from(label::main(&given[1..])),
+            Some("models") => return ExitCode::from(models::main(&given[1..])),
             Some("state") => return ExitCode::from(state::main(&given[1..])),
             Some("status") => return ExitCode::from(status::main(&given[1..])),
             Some("shipped") => return ExitCode::from(shipped::main(&given[1..])),
@@ -429,6 +456,7 @@ fn main() -> ExitCode {
             Some("tehas") => return ExitCode::from(commands::tehas(&given[1..])),
             Some("tehasbot") => return ExitCode::from(commands::tehasbot(&given[1..])),
             Some("top") => return ExitCode::from(top::main(&given[1..])),
+            Some("update") => return ExitCode::from(update::main(&given[1..])),
             Some("usage") => return ExitCode::from(commands::usage(&given[1..])),
             _ => {}
         }
