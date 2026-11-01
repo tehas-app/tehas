@@ -1,4 +1,4 @@
-//! The forge as a command: what `libexec/tidy`, `libexec/status` and
+//! The forge as a command: what `libexec/status` and
 //! `lib/labels.sh` ask of GitHub, asked through `tehas_core::forge`, so that
 //! bash holds no gh call, no REST path and no rule of its own (#800 part 2).
 //!
@@ -234,7 +234,7 @@ pub(crate) fn repo() -> Option<String> {
 /// Whether `file` is something that may be run: a regular file with a bit for
 /// someone to execute it. The same test `clean`'s `which` and the dispatcher's
 /// readers make of a program.
-fn runnable(path: &Path) -> bool {
+pub(crate) fn runnable(path: &Path) -> bool {
     std::fs::metadata(path).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
 }
 

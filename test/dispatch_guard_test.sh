@@ -87,6 +87,25 @@ for program in "$T/bin/no-such-poll" "$T/bin/plain-file" "$T/bin"; do
   t_eq "$(t_calls gh)" ""
 done
 rm -f "$T/bin/plain-file"
+for bytes in '' '\n' 'not a program\n' '\01\02\03\04\05'; do
+  printf '%b' "$bytes" >"$T/bin/not-a-program"
+  chmod +x "$T/bin/not-a-program"
+  T_ENV_ALWAYS=(TEHAS_DISPATCH_CMD="$T/bin/not-a-program")
+  t_run "$dispatch"
+  t_eq "$t_rc" 78
+  t_contains "$t_out" "is not installed (run install.sh)"
+  t_eq "$(t_calls gh)" ""
+done
+for bytes in '\0177ELF\02\01\01' '#!/no/such/interpreter\n'; do
+  printf '%b' "$bytes" >"$T/bin/not-a-program"
+  chmod +x "$T/bin/not-a-program"
+  T_ENV_ALWAYS=(TEHAS_DISPATCH_CMD="$T/bin/not-a-program")
+  t_run "$dispatch"
+  t_eq "$t_rc" 78
+  t_contains "$t_out" "tehas: $T/bin/not-a-program cannot run (run install.sh)"
+  t_eq "$(t_calls gh)" ""
+done
+rm -f "$T/bin/not-a-program"
 T_ENV_ALWAYS=("${keep_env[@]}")
 
 t_case "with no TEHAS_DISPATCH_CMD the poll is the program beside the command"
@@ -746,5 +765,35 @@ t_eq "$t_rc" 0
 t_lacks "$t_out" "older tehas"
 t_eq "$(t_calls fake-start)" "7"
 rm -rf "$T/home/tehas/state/imported-20261024" "$T"/home/tehas/state/plan-5.* "$T/home/tehas/state/refined.jsonl" "$T"/home/tehas/state/cycles/5.*.new "$T"/home/tehas/state/cycles/shadow-5.*
+
+# No TEHAS_TIDY_CMD and a console beside the poll, as on a host.
+host_poll() {
+  local v tree=$T/poll-tree
+  # shellcheck disable=SC2154  # t_console_why is set by t_console (test/lib.sh)
+  t_console || t_bad "no console: $t_console_why"
+  reset
+  mkdir -p "$tree"
+  cp "$T_DISPATCH" "$tree/tehas-dispatch"
+  cp "$T_CONSOLE" "$tree/console"
+  local -a kept=()
+  for v in "${T_ENV[@]}"; do [[ $v == TEHAS_TIDY_CMD=* ]] || kept+=("$v"); done
+  T_ENV=("${kept[@]}")
+  T_ENV_ALWAYS=(TEHAS_DISPATCH_CMD="$tree/tehas-dispatch" TEHAS_HEALTH_CMD=fake-health)
+  echo '[{"number":44,"state":"CLOSED","labels":[{"name":"tehas:awaiting-merge"},{"name":"tehas:shipped"}]}]' >"$fx/closed.json"
+}
+
+t_case "the poll runs the console's tidy on a host, and a dry run edits nothing"
+host_poll
+t_run "$dispatch --dry-run"
+t_eq "$t_rc" 0
+t_contains "$t_out" "tidy #44: would remove tehas:awaiting-merge"
+t_lacks "$t_out" "No such file"
+t_lacks "$(t_calls gh)" "issue edit"
+host_poll
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_contains "$t_out" "tidy #44: removed tehas:awaiting-merge"
+t_lacks "$t_out" "No such file"
+t_contains "$(t_calls gh)" "issue edit 44"
 
 t_done

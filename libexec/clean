@@ -1,113 +1,41 @@
 #!/usr/bin/env bash
-# Remove what the host can make again: build output in kept workspaces,
-# Docker's build cache, old sandbox and base images, and old files under
-# ~/tehas/tmp.
-#
-# A full disk stops previews and fails clones. A kept workspace is never built
-# in again, since every cycle clones fresh. A cycle takes its build output as it
-# ends (libexec/cycle); this takes what a killed cycle left.
-#
-# Only what has not been used for TEHAS_CLEAN_AFTER hours (24 by default)
-# goes. When the free disk is under TEHAS_CLEAN_MIN_FREE (30g by default),
-# steps 1 and 2 go whatever the age; a lock a cycle or a `tehas dev` holds is
-# still never touched.
-#
-#   1. build output in kept workspaces   directories named in TEHAS_CLEAN_DIRS
-#                                        anywhere in an issue's workspace, the
-#                                        tree a retry moved aside and a
-#                                        cycle's worktrees, and the cycle's
-#                                        copy of the code index, under the
-#                                        issue's lock. No dot-name is entered
-#                                        and no symlink followed.
-#   2. Docker's build cache              `docker builder prune` of that age,
-#                                        the whole host daemon's
-#   3. host scratch                      under $TEHAS_HOME/tmp: dl, node-
-#                                        compile-cache, analytics-facts.*,
-#                                        tehas-test.* dirs, a staged recipe
-#                                        and the /tmp of a killed cycle on
-#                                        TEHAS_SCRATCH_DIR, under its lock
-#   4. old sandbox images                dated tags of that age, except the
-#                                        newest and any a container or a uid
-#                                        tag holds
-#   5. the old base images               `sha-` tags of the base's repository
-#                                        of that age that nothing on the host
-#                                        stands on, each by its own name
-#   6. logs and the state store          `store upkeep`: old logs, a daily
-#                                        backup, prune
-#   7. a manual session's build output   <name>.state/target under
-#                                        $TEHAS_HOME/dev, of that age, only
-#                                        under the minimum free and with no
-#                                        session open, under the clone's lock
-#
-# The steps are the console's (console/src/clean.rs); this checks the settings,
-# reads the free disk and names the two images.
-#
-# Docker volumes are never touched, a person's call (see the host manual).
-#
-# One line per removal, and a closing line with the bytes freed, go to
-# $TEHAS_HOME/logs/clean.log. A docker step that fails is logged as a warning
-# and the other steps still run. `tehasbot clean` runs it by hand;
-# tehas-clean.timer runs it every hour. The pause label does not stop it: it
-# starts no work.
+# Remove what the host can make again. This loads the settings and reads the
+# free disk; the steps, the two image names and the help text are the console's
+# (console/src/clean.rs). What the command removes: tehasbot clean --help.
 #
 # Usage:
 #   tehasbot clean              one run
 #   tehasbot clean --dry-run    log what it would remove and remove nothing
-#   tehasbot clean -h|--help    print this text and exit 0
+#   tehasbot clean -h|--help    print the help text and exit 0
 #
 # Exit: 0 the run finished with every step working; 1 a step failed, or the log
-# could not be written (what could be removed was removed); 3 another run holds
-# its lock, which changes nothing; 64 an argument this command does not know;
-# 78 instance settings are missing or malformed, or no console is installed,
-# before any docker, find or rm call.
+# could not be written; 3 another run holds its lock; 64 an argument this
+# command does not know; 78 instance settings are missing or malformed, or no
+# console is installed, before any docker, find or rm call.
 set -uo pipefail
 
-show_usage() {
-  sed -n '2,/^[^#]/p' "$0" | sed -n '/^#/s/^# \{0,1\}//p'
-}
-
-unknown() {
-  printf 'tehasbot clean: unknown argument: %s\n' "$1" >&2
-  show_usage >&2
-  exit 64
-}
-
-dry=0
-case "${1-}" in
-  -h | --help)
-    [ "$#" = 1 ] || unknown "${2-}"
-    show_usage
-    exit 0
-    ;;
-  --dry-run) dry=1 ;;
-  "") ;;
-  *) unknown "$1" ;;
-esac
-[ "$#" -le 1 ] || unknown "$2"
-
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+console=$here/console
+[ -x "$console" ] || { printf 'tehas clean: no console beside this command at %s, run install.sh\n' "$console" >&2; exit 78; }
+
+case "${1-}" in
+  "") dry=0 ;;
+  --dry-run) dry=1 ;;
+  *) exec "$console" clean usage "$@" ;;
+esac
+[ "$#" -le 1 ] || exec "$console" clean usage "$@"
+
 # shellcheck source=lib/config.sh
 . "$here/../lib/config.sh"
-# tehas_sandbox_image_repo and tehas_base_image, the names the sandbox build
-# uses; rukas.sh answers which commit the host follows.
-# shellcheck source=lib/rukas.sh
-. "$here/../lib/rukas.sh"
-# shellcheck source=lib/sandbox.sh
-. "$here/../lib/sandbox.sh"
 # shellcheck source=lib/disk.sh
 . "$here/../lib/disk.sh"
 tehas_load || exit 78
 tehas_require_instance_settings
 
-sandbox_image=$(tehas_sandbox_image_repo) ||
-  { printf 'tehas clean: %s\n' "PI_ENSEMBLE_IMAGE=${PI_ENSEMBLE_IMAGE:-} is not an image name" >&2; exit 78; }
-console=$here/console
-[ -x "$console" ] || { printf 'tehas clean: no console beside this command at %s, run install.sh\n' "$console" >&2; exit 78; }
 logfile=$TEHAS_HOME/logs/clean.log
-# A free figure that cannot be read changes nothing, and no base named is a
-# warning of step 5.
+sandbox_image=$("$console" clean image "$PI_ENSEMBLE_IMAGE") || exit 78
+# A free figure that cannot be read changes nothing.
 free_kb=$(tehas_free_kb "$TEHAS_HOME") || free_kb=""
-pulled=$(tehas_base_image) || pulled=""
 exec "$console" clean run "$dry" "$TEHAS_HOME" "$TEHAS_WORK_DIR" "$TEHAS_CLEAN_AFTER" \
   "$TEHAS_CLEAN_MIN_FREE_MB" "$TEHAS_CLEAN_MIN_FREE" "$free_kb" "$TEHAS_CLEAN_DIRS" \
-  "$sandbox_image" "$pulled" "$logfile" "${TEHAS_SCRATCH_DIR:-}"
+  "$sandbox_image" "$logfile" "${TEHAS_SCRATCH_DIR:-}"

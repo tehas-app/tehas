@@ -29,7 +29,13 @@ tree=$T/tree
 mkdir -p "$tree/libexec"
 ln -s "$T_ROOT/lib" "$tree/lib"
 ln -s "$T_ROOT/libexec/work" "$tree/libexec/work"
-t_stub console 'prev=
+# The measure of a start is the real console's: a size verb goes to it.
+# shellcheck disable=SC2154  # t_console_why is set by t_console (test/lib.sh)
+t_console || t_bad "no console: $t_console_why"
+# The slice is the real console's too, whatever a case does to the stub.
+T_ENV_ALWAYS+=(TEHAS_CONSOLE_CMD="$T_CONSOLE")
+t_stub console '[ "${1:-}" != size ] || exec "$T/console-bin" "$@"
+prev=
 for a in "$@"; do
   case $prev in
     --progress) log=$a ;;
@@ -68,7 +74,8 @@ mv "$T/bin/console" "$tree/libexec/console"
 # measured as it was before the cycle clock: `clock now` gives the seconds
 # since the mark and `clock check` decides from them. A case that means the
 # cycle clock itself writes $T/clock.now, one reading per call of `clock now`
-# in order, and $T/clock.check, the word `clock check` answers with.
+# in order, and $T/clock.check, the word `clock check` answers with. Any other
+# verb goes to the real program.
 t_stub tehas-cycle 'case "$1 $2" in
   "clock mark") date +%s >"$3"; date +%s >"$T/clock.start" ;;
   "clock now")
@@ -90,9 +97,14 @@ t_stub tehas-cycle 'case "$1 $2" in
     [ $((now - start)) -le "$limit" ] || { echo over; exit 2; }
     [ $((now - since)) -lt "$stall" ] || { echo stalled; exit 1; }
     echo ok ;;
+  *) exec "$0.real" "$@" ;;
 esac
 exit 0'
 mv "$T/bin/tehas-cycle" "$tree/libexec/tehas-cycle"
+# The real program, beside the stub.
+# shellcheck disable=SC2154  # t_cycle_why is set by t_cycle (test/lib.sh)
+t_cycle || t_bad "no tehas-cycle: $t_cycle_why"
+cp "$T_CYCLE" "$tree/libexec/tehas-cycle.real"
 work="$tree/libexec/work"
 checkout=$T/home/tehas/repos/widget
 # The workspace of issue 7 on the host, and the path every cycle has it at
@@ -223,9 +235,9 @@ cycle_args() { grep -l -x -e 'pi-rukas-headless' -e "$runner" "$T"/calls/docker.
 # The arguments of the docker call that checks the push before the cycle.
 preflight_args() { grep -l -x -e '--entrypoint' "$T"/calls/docker.args.* 2>/dev/null | head -n 1 | xargs -r cat; }
 # The security options and the readers of a docker line come from
-# test/docker_args.sh, which takes the list from tehas_sandbox_security itself,
-# so the cycle, the turn, the session and the push check are all pinned against
-# one source and not against a copy kept in step by hand.
+# test/docker_args.sh, which holds the list as a literal, so the cycle, the
+# turn, the session and the push check are all pinned against one list, and not
+# against the function under test.
 # shellcheck source=test/docker_args.sh
 . "$(dirname "$0")/docker_args.sh" || exit 1
 # The options of lib/slice.sh and of tehas_sandbox_security, by name, for the

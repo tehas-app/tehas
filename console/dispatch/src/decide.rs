@@ -2,16 +2,16 @@
 //! it logs and every text it writes on an issue is the bash's, word for word,
 //! so the two can be compared line by line.
 
-use crate::events::{
-    first_unallowed_rename, label_actor, label_state, pause_holds, plan_credit, sole_application,
-    Event, Events, UNKNOWN_ACTOR,
-};
 use crate::settings::{account, Settings};
 use crate::slice::{self, gib};
 use crate::slots::{self, Probe, Slots};
 use crate::snapshot::{Issues, Listed, Snapshot};
 use crate::text;
 use serde_json::{json, Map, Value};
+use tehas_core::events::{
+    first_unallowed_rename, label_actor, label_state, pause_holds, plan_credit, sole_application,
+    Event, Events, UNKNOWN_ACTOR,
+};
 use tehas_core::hold::{Report, Why};
 
 mod clean;
@@ -20,6 +20,7 @@ mod retry;
 
 pub(crate) use clean::{iso, quiet_due, QUIET_ASKS, QUIET_BOUND};
 pub(crate) use plan::shape;
+pub(crate) use retry::{hex40, refresh_why};
 
 /// The time now as log() writes it.
 pub fn iso_now() -> String {

@@ -71,21 +71,16 @@ record 7 "$(by_refresh 1 1)"
 view 7 'tehas_millwright_base "$v" | jq -c "[.by, .how]"'
 t_eq "$t_out" '["alice","label"]'
 
-# The answer approval-current gives for a label start whose account is the name
-# in <file>: a reader's record of that start, in the shape lib/store.sh gives it
+# The answer approval-view gives for a label start whose account is the name
+# in <file>: a reader's record of that start, in the shape lib/store.sh writes
 # before tehas_millwright_base reads it. The store refuses such a name on its
 # own command line, so this is how a case hands a reader an approval its writer
 # could not have made.
-approval_current() { # <file with the JSON text of the name>
+approval_view() { # <file with the JSON text of the name>
   jq -nc --rawfile by "$1" --arg sum "$SUM" \
-    '{api: 1, ok: true, verb: "approval-current", approval: null,
-      current: ({issue: 7, at: 1760000000, by: ($by | fromjson), how: "label",
-        label: "tehas:ready", body_sha256: $sum, title_sha256: null,
-        comment_id: null, refresh_pr: null, refresh_head: null, used_at: 1,
-        used_by: 1, input: {links: []}}),
-      rests_on: {at: 1760000000, by: "alice", how: "label",
-        body_sha256: $sum, used_by: 1},
-      millwright_starts: 0, fixer_starts: 0, refreshes: 0}'
+    '{api: 1, ok: true, verb: "approval-view",
+      view: {at: (1760000000 | todate), by: ($by | fromjson), how: "label",
+        body_sha256: $sum, links: []}}'
 }
 
 t_case "an approval whose account has a newline on the end is no approval"
@@ -93,14 +88,14 @@ t_case "an approval whose account has a newline on the end is no approval"
 # so the shape checks of a record end their pattern with \\z: alice\n is a name
 # no instance allows, and the reader must refuse the record that carries one.
 # The store refuses such a name on its own command line (its account), so the
-# case plants the answer approval-current would have given: the shape check is
+# case plants the answer approval-view would have given: the shape check is
 # the only thing that refuses the record, and a test of the form "^...$" is not
 # a check. The name of six bytes is written by jq with \\u000a, which survives
 # the quoting the planted answer goes through, and read back with fromjson.
 nl_name=$T/by-nl
 jq -cn '"alice" + "\u000a"' >"$nl_name"
 record 7 "$(person)"
-t_store_answers approval-current 0 "$(approval_current "$nl_name")"
+t_store_answers approval-view 0 "$(approval_view "$nl_name")"
 view 7 "jq -c \".by | length\" \"\$v\""
 t_eq "$t_out" 6
 view 7 'tehas_millwright_base "$v" >/dev/null 2>&1 && echo read || echo refused'
@@ -109,12 +104,12 @@ t_eq "$t_out" refused
 # the cases that follow use the real one again.
 t_store_home "$home"
 
-# The same record, named by alice alone: read, and it grants.
+# The same record, named by alice alone: read.
 t_case "an approval of the same shape, named by an account alone, is read"
 nl_plain=$T/by-plain
 jq -cn '"alice"' >"$nl_plain"
 record 7 "$(person)"
-t_store_answers approval-current 0 "$(approval_current "$nl_plain")"
+t_store_answers approval-view 0 "$(approval_view "$nl_plain")"
 view 7 "jq -c \".by | length\" \"\$v\""
 t_eq "$t_out" 5
 view 7 'tehas_millwright_base "$v" >/dev/null 2>&1 && echo read || echo refused'

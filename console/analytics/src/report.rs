@@ -19,7 +19,7 @@
 //! lead time of the refined ones. Counts only, no issue number.
 //!
 //! `sizes` says how issues of each size fare, read from state/sizes.jsonl
-//! (lib/sizing.sh) beside the database: the issues measured in the window in
+//! (console/src/size.rs) beside the database: the issues measured in the window in
 //! three buckets of the file count, how many of them shipped and the median
 //! lead time of those. Counts only, no issue number: the sizes are coarse and
 //! say nothing of what the issue asked for.
@@ -548,7 +548,7 @@ pub fn refine(conn: &Connection, refined: &[Refined], to: i64) -> rusqlite::Resu
     ]))
 }
 
-/// One line of state/sizes.jsonl (lib/sizing.sh): what an approved start
+/// One line of state/sizes.jsonl (console/src/size.rs): what an approved start
 /// measured of its issue's body, keyed with the time and the issue number.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Size {

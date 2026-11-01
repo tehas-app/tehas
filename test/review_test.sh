@@ -121,6 +121,9 @@ mkdir -p "$shim/libexec"
 ln -s "$T_ROOT/libexec/review" "$shim/libexec/review"
 ln -s "$T_ROOT/lib" "$shim/lib"
 review=$shim/libexec/review
+# shellcheck disable=SC2154  # t_cycle_why is set by t_cycle (test/lib.sh)
+t_cycle || t_bad "no tehas-cycle: $t_cycle_why"
+cp "$T_CYCLE" "$shim/libexec/tehas-cycle"
 fx=$T/fx
 mkdir -p "$fx"
 checkout=$T/home/tehas/repos/widget
@@ -1167,6 +1170,7 @@ drift=$T/drift
 mkdir -p "$drift/libexec" "$drift/lib"
 cp "$T_ROOT"/lib/*.sh "$drift/lib/"
 ln -s "$review" "$drift/libexec/review"
+cp "$T_CONSOLE" "$drift/libexec/console"
 printf '%s\n' "tehas_sandbox_security() { printf '%s\\0' --cap-drop ALL --cap-add CHOWN --cap-add FOWNER --security-opt no-new-privileges:true; }" \
   >>"$drift/lib/sandbox.sh"
 reset

@@ -52,7 +52,8 @@ fn digits(v: &Value) -> Option<String> {
         .then_some(s)
 }
 
-/// The session as plan_view gives it, from plan-show's `.planning`: the refused replies of both names and the held ticks from
+/// The shape of `store plan-view`: the session as plan_view gives it, from plan-show's
+/// `.planning`: the refused replies of both names and the held ticks from
 /// the notes, and an answer's millwright as fixer.
 pub(crate) fn shape(row: &Value) -> Value {
     if !row.is_object() {
