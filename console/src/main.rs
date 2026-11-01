@@ -61,6 +61,10 @@
 //!
 //! What tehasbot clean removes, see src/clean.rs.
 //!
+//!   console improve due|run <prompt file>
+//!
+//! One run of the improvement loop, see src/improve/mod.rs.
+//!
 //!   console disk <home> [--full] [--json] [--publish]
 //!
 //! How full this host is and what fills it, for tehas disk and the MCP tool
@@ -158,6 +162,7 @@ mod flags;
 mod forge;
 mod frame;
 mod health;
+mod improve;
 mod jq;
 mod notice;
 mod now;
@@ -396,6 +401,7 @@ fn main() -> ExitCode {
             Some("setup") => return ExitCode::from(setup::main(&given[1..])),
             Some("size") => return ExitCode::from(size::main(&given[1..])),
             Some("health") => return ExitCode::from(health::main(&given[1..])),
+            Some("improve") => return ExitCode::from(improve::main(&given[1..])),
             Some("state") => return ExitCode::from(state::main(&given[1..])),
             Some("status") => return ExitCode::from(status::main(&given[1..])),
             Some("shipped") => return ExitCode::from(shipped::main(&given[1..])),
