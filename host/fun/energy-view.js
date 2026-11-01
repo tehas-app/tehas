@@ -1,6 +1,6 @@
 // The Energy use section of the game view: what the model mesh draws and
 // which models it serves, read from /live/energy.json (written by
-// libexec/energy). See DESIGN.md, "Energy Use".
+// console energy). See DESIGN.md, "Energy Use".
 //
 // layout() turns the file into what is drawn and has no side effects, so it is
 // tested without a browser (test/energy_view_test.mjs). The rest of the module
