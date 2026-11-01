@@ -46,6 +46,9 @@ for c in plan review index dev check-product improve; do
   ln -s "$T_ROOT/libexec/$c" "$shim/libexec/$c"
 done
 cp "$T_CONSOLE" "$shim/libexec/console"
+# shellcheck disable=SC2154  # t_cycle_why is set by t_cycle (test/lib.sh)
+t_cycle || t_bad "no tehas-cycle: $t_cycle_why"
+cp "$T_CYCLE" "$shim/libexec/tehas-cycle"
 
 # What an image answers that can do all a command here asks of it.
 jq '. + {contract: "0.14.0"}
