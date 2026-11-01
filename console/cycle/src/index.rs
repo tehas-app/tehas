@@ -28,9 +28,11 @@
 //! set aside outside the index, the run builds from scratch, and it says which
 //! two images it compared. A run that did not write its index puts them back, so
 //! a failed rebuild leaves cycles the index they had instead of nothing, and a
-//! run that wrote a database keeps what it wrote instead. A run that was killed
-//! never gets that far: the next run takes what it left set aside back into the
-//! index, or removes it when the index already holds a database. The id is read
+//! run that wrote a database keeps what it wrote instead. TERM, INT and HUP end
+//! a run the same way, with the clone removed, and it exits 128 plus the signal.
+//! A run that was killed outright never gets that far: the next run takes what
+//! it left set aside back into the index, or removes it when the index already
+//! holds a database. The id is read
 //! from the image, not from the pin in host/versions.env, because a host that
 //! pulled a new pin has not necessarily rebuilt the image.
 //!
@@ -55,12 +57,15 @@
 //! a usable slice nothing is cloned and nothing starts.
 
 use serde_json::Value;
+use signal_hook::consts::{SIGHUP, SIGINT, SIGTERM};
+use signal_hook::iterator::Signals;
 use std::env;
 use std::fs::{self, OpenOptions};
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::thread::sleep;
+use std::sync::{Arc, Mutex, MutexGuard};
+use std::thread::{self, sleep};
 use std::time::{Duration, Instant};
 use tehas_core::lock::{self, Probe};
 use tehas_core::sandbox::{self, CACHE_DIR};
@@ -398,10 +403,43 @@ struct Run {
     image: String,
     branch: String,
     base: String,
+    left: Arc<Mutex<Left>>,
+}
+
+/// What a run has to put right when it ends, however it ends. A signal's thread
+/// reads it, so a step that changes it holds the lock until it is done.
+#[derive(Default)]
+struct Left {
     /// Where what another image wrote waits; None when nothing is waiting.
     stale: Option<PathBuf>,
     tree: Option<PathBuf>,
     started: Option<i64>,
+}
+
+fn left_of(left: &Mutex<Left>) -> MutexGuard<'_, Left> {
+    left.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+fn clean_up(index: &Path, left: &Mutex<Left>) {
+    let mut left = left_of(left);
+    let started = left.started;
+    restore(index, started, &mut left.stale);
+    if let Some(tree) = left.tree.take() {
+        let _ = fs::remove_dir_all(tree);
+    }
+}
+
+/// A signal ends the run where it stands, as an EXIT trap does, whatever call it
+/// is blocked in. The indexer's client is left to the signal that reached it.
+fn clean_up_on_signal(index: PathBuf, left: Arc<Mutex<Left>>) -> std::io::Result<()> {
+    let mut signals = Signals::new([SIGTERM, SIGINT, SIGHUP])?;
+    thread::spawn(move || {
+        if let Some(signal) = signals.forever().next() {
+            clean_up(&index, &left);
+            std::process::exit(128 + signal);
+        }
+    });
+    Ok(())
 }
 
 impl Run {
@@ -517,10 +555,14 @@ impl Run {
         // one. Empty when none is recorded.
         let built = jq_raw(record_of(&self.marker).get("indexer_image"), "");
 
-        let Some(tree) = temp_dir(&self.tmp, "index") else {
-            return 1;
+        let tree = {
+            let mut left = left_of(&self.left);
+            let Some(tree) = temp_dir(&self.tmp, "index") else {
+                return 1;
+            };
+            left.tree = Some(tree.clone());
+            tree
         };
-        self.tree = Some(tree.clone());
         if !self.clone_at_base(&tree) {
             warn(&format!(
                 "could not clone {}, nothing was indexed",
@@ -535,12 +577,15 @@ impl Run {
         // index data no cycle can search, and this run would only move it out
         // again.
         reclaim(&self.index, &self.tmp);
-        if set_aside(&self.index, &self.tmp, &built, &image_id, &mut self.stale).is_err() {
-            return 1;
-        }
-
-        let started = time::now();
-        self.started = Some(started);
+        let started = {
+            let mut left = left_of(&self.left);
+            if set_aside(&self.index, &self.tmp, &built, &image_id, &mut left.stale).is_err() {
+                return 1;
+            }
+            let started = time::now();
+            left.started = Some(started);
+            started
+        };
         self.remove_container();
         let user = sandbox::user();
         let rc = self.indexer(&limits, &user, &tree);
@@ -580,7 +625,7 @@ impl Run {
         let _ = fs::remove_file(&self.failed);
         // This run wrote its index, so what the other image wrote is no longer
         // needed.
-        if let Some(aside) = self.stale.take() {
+        if let Some(aside) = left_of(&self.left).stale.take() {
             let _ = fs::remove_dir_all(aside);
         }
         // Only a run that wrote its index prunes. A failed one may have left the
@@ -655,9 +700,7 @@ pub fn table() -> String {
         image: "PI_ENSEMBLE_IMAGE".to_string(),
         branch: String::new(),
         base: String::new(),
-        stale: None,
-        tree: None,
-        started: None,
+        left: Arc::default(),
     };
     let args = run_args(&run, &[], "", Path::new(""));
     let at = args.iter().position(|a| a == "--entrypoint");
@@ -691,16 +734,17 @@ pub fn main(branch: &str, base: &str, before_cycle: bool) -> u8 {
         image: var("PI_ENSEMBLE_IMAGE"),
         branch: branch.to_string(),
         base: base.to_string(),
-        stale: None,
-        tree: None,
-        started: None,
+        left: Arc::default(),
         home,
     };
-    let status = run.go(before_cycle, &wait);
-    restore(&run.index, run.started, &mut run.stale);
-    if let Some(tree) = run.tree.take() {
-        let _ = fs::remove_dir_all(tree);
+    if let Err(e) = clean_up_on_signal(run.index.clone(), Arc::clone(&run.left)) {
+        warn(&format!(
+            "cannot listen for signals, nothing was indexed: {e}"
+        ));
+        return 1;
     }
+    let status = run.go(before_cycle, &wait);
+    clean_up(&run.index, &run.left);
     status
 }
 
@@ -749,6 +793,27 @@ mod tests {
 
     fn soon() -> i64 {
         time::now() - 10
+    }
+
+    #[test]
+    fn the_end_of_a_run_puts_back_what_it_set_aside_and_removes_its_clone() {
+        let d = Dir::new("end");
+        d.put("widget.db");
+        let mut stale = None;
+        set_aside(&d.index(), &d.tmp(), "a", "b", &mut stale).unwrap();
+        let aside = stale.clone().unwrap();
+        let tree = d.tmp().join("index.clone");
+        fs::create_dir(&tree).unwrap();
+        fs::write(tree.join("file"), "x").unwrap();
+        let left = Mutex::new(Left {
+            stale,
+            tree: Some(tree.clone()),
+            started: None,
+        });
+        clean_up(&d.index(), &left);
+        clean_up(&d.index(), &left);
+        assert_eq!(d.names(), ["widget.db"]);
+        assert!(!aside.exists() && !tree.exists());
     }
 
     #[test]

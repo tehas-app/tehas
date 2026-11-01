@@ -42,7 +42,8 @@ git clone -q "$upstream" "$checkout"
 image_id=sha256:1111111111111111111111111111111111111111111111111111111111111111
 other_id=sha256:2222222222222222222222222222222222222222222222222222222222222222
 # The stub answers `image inspect` with $IMAGE_ID and by $IMAGE_RC, and `run`
-# by $RUN_RC. For a run it also notes the commit of the tree mounted read-only,
+# by $RUN_RC. $RUN_SIGNAL is sent to tehas-cycle from inside the run, the parent
+# of timeout. For a run it also notes the commit of the tree mounted read-only,
 # which is gone by the time the command returns, and what the directory it is
 # given read-write held when the run started. Only a run that succeeded writes a
 # database into that directory, under the name of the tree, as the indexer
@@ -59,6 +60,7 @@ for a in "$@"; do
   esac
 done
 [ -z "$written" ] || find "$written" -mindepth 1 -maxdepth 1 -printf "%f\n" | LC_ALL=C sort | tr "\n" " " >"$T/calls/index.at.run"
+[ -z "${RUN_SIGNAL:-}" ] || { kill "-$RUN_SIGNAL" "$(ps -o ppid= -p "$PPID")"; exec sleep 1; }
 [ -z "${RUN_SLEEP:-}" ] || exec sleep "$RUN_SLEEP"
 [ "${RUN_RC:-0}" = 0 ] || exit "$RUN_RC"
 echo index >"$written/widget.db"
@@ -637,6 +639,23 @@ t_eq "$(find "$indexdir" -mindepth 1 -maxdepth 1 -printf '%f\n' | LC_ALL=C sort 
   "_config.db logs widget.db "
 t_eq "$(jq -r .indexer_image "$marker")" "$image_id"
 t_eq "$(find "$T/home/tehas/tmp" -mindepth 1 2>/dev/null | wc -l)" 0
+T_ENV=("$root" "$wait")
+
+t_case "a signal during a rebuild puts the index back and removes the clone"
+for signal in "TERM 143" "INT 130" "HUP 129"; do
+  read -r name status <<<"$signal"
+  reset
+  rm -rf "$indexdir"
+  mkdir -p "$indexdir"
+  echo old >"$indexdir/other-tree.db"
+  T_ENV=(IMAGE_ID="$image_id" RUN_SIGNAL="$name" "$root" "$wait")
+  t_run "$index"
+  t_eq "$t_rc" "$status"
+  t_eq "$(find "$indexdir" -mindepth 1 -maxdepth 1 -printf '%f\n')" "other-tree.db"
+  t_eq "$(find "$T/home/tehas/tmp" -mindepth 1 | wc -l)" 0
+  # The client outlives the run and holds the lock until it ends.
+  flock "$T/home/tehas/state/index.lock" true
+done
 T_ENV=("$root" "$wait")
 
 # The set-aside goes back only for a run that wrote no index. An indexer that
