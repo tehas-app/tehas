@@ -13,9 +13,57 @@ empty one above it.
 
 ### Changes
 
+- `tehas status`, `disk`, `state`, `limit`, `pause`, `analytics` and `tehasbot health` run the console directly, and seven wrapper scripts are gone.
+- The measure of an issue and the free-disk reading are the console's: `console size` and `console disk free` replace the jq and df in lib/sizing.sh and lib/disk.sh.
+- The cleaner's image names and the held set are the console's, and libexec/clean is a wrapper.
+- `tehasbot refresh` runs in tehas-dispatch; each GitHub call has a 30 s bound.
+- check-product and init-product run in the console.
+- tidy is a console verb, `console tidy run`; `libexec/tidy` is gone.
+- tehas top and tehasbot top run in the console; libexec/top, libexec/top-publish and lib/top.sh are gone, and an update restarts tehas-top.service.
+- tehas api, resume, drain and labels run in the console; the labels live in host/labels.tsv and the update's labels step follows that file.
+- tehas stop runs in the console; libexec/stop is gone.
+- `tehas mcp` runs in the console and `libexec/mcp` is gone; a new console no longer restarts `tehas-mcp.service`, a new server binary still does.
+- The store answers the approval, plan and settings views itself; lib/store.sh loses its jq shapes.
+- What an image says and what a runner left are read by tehas-cycle (`caps`, `runner`); sandbox/build.sh needs libexec/tehas-cycle beside it.
+- Image descriptions and the private names are verbs of tehas-cycle; lib/describe.sh and lib/private.sh are gone.
+- `tehasbot improve` runs in the console, and its unit allows 90 minutes, longer than the analyst's 60-minute bound.
+- The previews' network is checked and made by the console (`console preview network`); `install.sh` no longer sources `lib/edge.sh`.
+- A planning turn's preparation, docker wait and end moved from `libexec/plan` to `console plan`.
+- The GitHub App token is made in the console, and the JWT and the token reach curl on standard input, not on its command line.
+- A factory pull request whose issue carries `needs-human-attention` loses
+  `STUCK: ` when it is proven fine to merge: clean on GitHub, and the last
+  six-pass review is newer than its head and lists nothing above MEDIUM.
+
 ### Adopter action
 
 None.
+
+## v0.20.1 (2026-11-01)
+
+### Changes
+
+- The MCP tool `factory_disk` is served. v0.20.0 described it in the manual
+  only (#1200).
+- `tehas disk` reads `instance.env` past a comment or a blank line, so it now
+  includes `TEHAS_SCRATCH_DIR`. Disk and setup share one reader of the file
+  (#1201).
+- `libexec/status` is told when the poll ran it, and reports `from_poll=yes`
+  (#1202).
+- The energy sampler is `console energy`, and `libexec/energy` is gone. It no
+  longer falls back to `fleet` (#1225).
+- `libexec/attach` composes what a cycle is told it was given. A cycle given
+  nothing that has a record now says the record could not be read when attach
+  is missing, and a start stops when a kept manifest cannot be compared
+  (#1233).
+- `scripts/verify.sh --changed` runs `cargo test -p` for the crates a change can
+  affect, not the whole workspace (#911).
+- Golden files pin every container's whole argument list, in order (#1234).
+
+### Adopter action
+
+Set `PI_ENSEMBLE_SUBAGENT_PROVIDER` or `TEHAS_ENERGY_URL` for the energy sampler,
+or set `TEHAS_ENERGY=off`. With none of them `console energy` exits 78 and its
+service retries every 15 s.
 
 ## v0.20.0 (2026-11-01)
 

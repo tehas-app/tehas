@@ -28,14 +28,15 @@
 # Rules:
 #   - instance.env is authoritative. Settings of the same name in the
 #     environment are dropped; only TEHAS_HOME, TEHAS_INSTANCE_DIR and the test
-#     hooks TEHAS_WORK_CMD, TEHAS_STATUS_CMD, TEHAS_CONSOLE_CMD, TEHAS_INDEX_CMD, TEHAS_PLAN_CMD,
+#     hooks TEHAS_WORK_CMD, TEHAS_STATUS_CMD, TEHAS_CONSOLE, TEHAS_CONSOLE_CMD, TEHAS_INDEX_CMD, TEHAS_PLAN_CMD,
 #     TEHAS_PLAN_START_CMD, TEHAS_INDEX_START_CMD, TEHAS_INDEX_LOCK_WAIT,
 #     TEHAS_CYCLE_START_CMD, TEHAS_CYCLE_STOP_CMD, TEHAS_CYCLE_START_WAIT,
 #     TEHAS_CGROUP_ROOT, TEHAS_SLICE_WAIT, TEHAS_DISK_WAIT, TEHAS_PREFLIGHT_WAIT, TEHAS_STOP_WAIT, TEHAS_FETCH_WAIT, TEHAS_CHECK_WAIT,
 #     TEHAS_CONSOLE_WAIT, TEHAS_WORK_GRACE, TEHAS_CAPS_WAIT, TEHAS_TEXT_WAIT,
 #     TEHAS_BUILD_TIMEOUT, TEHAS_CYCLE_RETRY_WAIT, TEHAS_CYCLE_STOP_GH_WAIT, TEHAS_TIDY_CMD, TEHAS_DISPATCH_CMD, TEHAS_HEALTH_CMD,
 #     TEHAS_TIDY_WAIT, TEHAS_ANALYTICS_WAIT, TEHAS_GITHUB_API,
-#     TEHAS_GITHUB_APP_KEY and TEHAS_GITHUB_RENEW_EVERY are kept, so are the
+#     TEHAS_GITHUB_APP_KEY, TEHAS_GITHUB_RENEW_EVERY, TEHAS_CONSOLE and
+#     TEHAS_PROC_DIR are kept, so are the
 #     two words a cycle hands down, TEHAS_CYCLE_FROM (tehas-cycle@.service)
 #     and TEHAS_CYCLE_ATTEMPT (tehasbot cycle to tehas work), and from
 #     ~/.config/tehas/env TEHAS_ENERGY, TEHAS_ENERGY_URL and the model
@@ -246,7 +247,7 @@ _tehas_valid() {
       done
       ;;
     # What tehas work measures of an approved body, and no further: the two
-    # bounds of lib/sizing.sh, each holding what the other leaves unbounded (a
+    # bounds of console/core/src/size.rs, each holding what the other leaves unbounded (a
     # body of one huge line, a body of many short ones). Both must be numbers.
     TEHAS_SIZE_MAX_BYTES | TEHAS_SIZE_MAX_LINES)
       [[ $v =~ ^[1-9][0-9]{0,7}$ ]] || { echo "expected a whole number of at least 1"; return 1; }
@@ -435,10 +436,10 @@ tehas_load() {
   # are host choices in ~/.config/tehas/env, which env.sh reads before this.
   for v in ${!TEHAS_@} ${!PI_ENSEMBLE_@}; do
     case "$v" in
-      TEHAS_HOME | TEHAS_INSTANCE_DIR | TEHAS_WORK_CMD | TEHAS_STATUS_CMD | TEHAS_CONSOLE_CMD | TEHAS_INDEX_CMD | TEHAS_PLAN_CMD | \
+      TEHAS_HOME | TEHAS_INSTANCE_DIR | TEHAS_WORK_CMD | TEHAS_STATUS_CMD | TEHAS_CONSOLE | TEHAS_CONSOLE_CMD | TEHAS_INDEX_CMD | TEHAS_PLAN_CMD | \
         TEHAS_PLAN_START_CMD | TEHAS_INDEX_START_CMD | TEHAS_INDEX_LOCK_WAIT | TEHAS_CYCLE_START_CMD | TEHAS_CYCLE_STOP_CMD | TEHAS_CYCLE_START_WAIT | TEHAS_CGROUP_ROOT | TEHAS_SLICE_WAIT | TEHAS_DISK_WAIT | \
         TEHAS_PREFLIGHT_WAIT | TEHAS_STOP_WAIT | TEHAS_FETCH_WAIT | TEHAS_CHECK_WAIT | TEHAS_CONSOLE_WAIT | TEHAS_WORK_GRACE | TEHAS_CAPS_WAIT | TEHAS_TEXT_WAIT | TEHAS_BUILD_TIMEOUT | \
-        TEHAS_CYCLE_RETRY_WAIT | TEHAS_CYCLE_STOP_GH_WAIT | TEHAS_CYCLE_FROM | TEHAS_CYCLE_ATTEMPT | TEHAS_TIDY_CMD | TEHAS_DISPATCH_CMD | TEHAS_HEALTH_CMD | TEHAS_TIDY_WAIT | TEHAS_ANALYTICS_WAIT | TEHAS_GITHUB_API | TEHAS_GITHUB_APP_KEY | TEHAS_GITHUB_RENEW_EVERY | TEHAS_ENERGY | TEHAS_ENERGY_URL | TEHAS_MODEL_KEY_* | TEHAS_MCP | TEHAS_MCP_KEYS | TEHAS_MCP_DASHBOARD_KEYS) ;;
+        TEHAS_CYCLE_RETRY_WAIT | TEHAS_CYCLE_STOP_GH_WAIT | TEHAS_CYCLE_FROM | TEHAS_CYCLE_ATTEMPT | TEHAS_TIDY_CMD | TEHAS_DISPATCH_CMD | TEHAS_HEALTH_CMD | TEHAS_TIDY_WAIT | TEHAS_ANALYTICS_WAIT | TEHAS_GITHUB_API | TEHAS_GITHUB_APP_KEY | TEHAS_GITHUB_RENEW_EVERY | TEHAS_ENERGY | TEHAS_ENERGY_URL | TEHAS_MODEL_KEY_* | TEHAS_MCP | TEHAS_MCP_KEYS | TEHAS_MCP_DASHBOARD_KEYS | TEHAS_PROC_DIR) ;;
       TEHAS_* | PI_ENSEMBLE_*) unset "$v" ;;
     esac
   done
@@ -510,7 +511,7 @@ tehas_load() {
   # Over the medians of the idle polls of the last hour, health warns.
   export TEHAS_POLL_BUDGET=${TEHAS_POLL_BUDGET:-cpu=5,wall=30,writes=0}
   # The two bounds of the measure tehas work makes of an approved body, in
-  # bytes and in lines (lib/sizing.sh).
+  # bytes and in lines (console/core/src/size.rs).
   export TEHAS_SIZE_MAX_BYTES=${TEHAS_SIZE_MAX_BYTES:-131072} TEHAS_SIZE_MAX_LINES=${TEHAS_SIZE_MAX_LINES:-1000}
   # The factory's own 365 days of runs, events and samples in state/analytics.db
   # (lib/analytics.sh), not the visitor analytics above: on unless the instance
@@ -606,7 +607,7 @@ tehas_load() {
     export PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS=$PI_ENSEMBLE_VERIFY_TIMEOUT_MS
   fi
   # The most files an issue's own body may name before the dispatcher holds it
-  # instead of starting a cycle (libexec/dispatch, lib/sizing.sh): unset, it never
+  # instead of starting a cycle (libexec/dispatch, console/core/src/size.rs): unset, it never
   # asks, and an empty value stays empty rather than become a ceiling.
   export TEHAS_SIZE_MAX_FILES="${TEHAS_SIZE_MAX_FILES-}"
   # Agents get neither the host Docker socket nor SSH keys: not a setting here.
@@ -759,20 +760,6 @@ tehas_require() {
     [ -n "${!name:-}" ] && [ -n "${!name// /}" ] || { tehas_err "$name is not set (see $file)"; exit 78; }
     _tehas_why "$name" "${!name}" || { tehas_err "$name is not valid: $reason (see $file)"; exit 78; }
   done
-}
-
-# tehas_edge_name <kind> <number>: the host name of a preview (uat) or of a
-# Protolab ticket (lab) under TEHAS_DOMAIN. It is the one definition of such a
-# name. The jq programs of libexec/protolab and libexec/preview put the same
-# name together themselves, because jq cannot call a shell function, and
-# test/protolab_test.sh and test/preview_build_test.sh pin that theirs is this one.
-# Fails without a domain, for another kind, and for anything but a number of
-# one to nine digits that does not start with a zero.
-tehas_edge_name() {
-  [ -n "${TEHAS_DOMAIN:-}" ] || return 1
-  case "${1:-}" in uat | lab) ;; *) return 1 ;; esac
-  [[ ${2:-} =~ ^[1-9][0-9]{0,8}$ ]] || return 1
-  printf '%s-%s.%s\n' "$1" "$2" "$TEHAS_DOMAIN"
 }
 
 # The settings an instance has to set itself, because nothing here can give them

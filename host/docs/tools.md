@@ -40,9 +40,12 @@ tehas help [command]             # this list, or the text of one command
 
 `tehas` is the one a person types. [`tehasbot`](#tehasbot) is what the timers
 and services run. Each of their commands is a script in `~/tehas/libexec`,
-installed from `libexec/` in the platform repository; the two commands only
-choose a script and run it, and exit with its status. A command neither of
-them knows is exit 64 with the list on standard error. `tehas <command> --help`
+installed from `libexec/` in the platform repository, or a verb of the console
+beside those scripts; the two commands only choose one and run it, and exit
+with its status. `tehas status` and `tehas disk` need no settings. `tehas
+state`, `limit`, `pause`, `analytics` and `stop` and `tehasbot health` run under
+`libexec/with-settings`, which checks the arguments, loads the settings and
+hands over to the console. A command neither of them knows is exit 64 with the list on standard error. `tehas <command> --help`
 prints the same text as `tehas help <command>`.
 
 Every script that needs the instance settings loads them first and stops with
@@ -302,17 +305,16 @@ cycle that already runs, and it is not a hold in `live/dispatch.json`: [tehas
 status](#tehas-status) does not show it, so a gate that will not open is seen in
 `~/tehas/logs/dispatch.log` and `~/tehas/logs/low-gate.log`.
 
-Every poll that gets past the bot's login ends by running `libexec/tidy`,
+Every poll that gets past the bot's login ends by running `console tidy run`,
 however the poll ends; the poll's exit status stays its own. It takes tehas's
 state labels off closed issues: `tehas:running`, `tehas:awaiting-merge`,
 `tehas:question`, `tehas:planning`, `tehas:refreshing`, `tehas:blocked`,
 `tehas:ready`, `tehas:plan` and `tehas:refine`. Not `tehas:shipped`, not
 `needs-human-attention`, and not the labels a person chooses (`tehas:urgent`,
-`tehas:next`, `tehas:lean`, `tehas:prototype`). The list is the console's
-(`console tidy states`, `console/src/tidy.rs`), and so is the decision of what
-comes off which issue and which issue the read below is asked about
-(`console tidy plan`): the command keeps the settings, the two searches and the
-edits, and hands the answer of the first to the console. It makes one search,
+`tehas:next`, `tehas:lean`, `tehas:prototype`). It is one console verb
+(`console/src/tidy.rs`), with the settings of the poll's environment: the list,
+the searches, the decision of what comes off which issue and the edits are all
+there. It makes one search,
 for the closed issues
 that carry one of those labels, up to a hundred a poll, the most recently updated
 first, and gives it 60 seconds. It takes all of an issue's state labels off in
@@ -664,8 +666,15 @@ linked issue. A person's pull request is never touched.
 | The title starts with | When |
 | --- | --- |
 | `WIP: ` | The linked issue carries `tehas:running`, or the pull request carries `tehas:refreshing` |
-| `STUCK: ` | No cycle runs and the linked issue carries `needs-human-attention` |
+| `STUCK: ` | No cycle runs, the linked issue carries `needs-human-attention`, and the pull request is not proven fine to merge |
 | nothing | Anything else: it is ok to merge. A person clearing the label clears the prefix |
+
+A pull request is proven fine to merge when all of these hold: it is not a
+draft, GitHub reports it mergeable with the state `clean`, and the factory's
+last six-pass review comment is newer than its head commit and lists no
+finding above MEDIUM. `STUCK: ` stays when any of them cannot be shown, also
+when no review comment exists. Clearing the prefix leaves the label on the
+issue. `WIP: ` is never cleared this way: a running cycle may still push.
 
 Each poll sets the title from what it read already, through
 `console pr-title poll`, and a cycle's end sets it once with
@@ -957,7 +966,8 @@ Whether a cycle was shown them is answered by the sandbox image itself.
 pi-rukas reads this manifest (`PI_ENSEMBLE_ISSUE_IMAGES` for manifest format
 1), and the build records the answer as the label
 `tehas.rukas.images`; a build that is given an answer that does not match the
-base it stands on stops. `tehas work`, `tehas plan`, the dispatcher and
+base it stands on stops. `tehas-cycle` reads the answer, so the build stops
+when `libexec/tehas-cycle` is not beside it. `tehas work`, `tehas plan`, the dispatcher and
 `install.sh` read that label. When it says the pi-rukas does not read the
 manifest, the comment says the images were fetched and not shown rather than
 that they were given, and the dispatcher holds every cycle while the setting
@@ -1715,9 +1725,13 @@ filed a ticket for), `tehas:millwright-escalated`, `tehas:next`, `tehas:blocked`
 pull request a [refresh](/operating#refreshes) works on), `tehas:all-hands` and
 `tehas:lean` (see [choosing the driver](/operating#choosing-the-driver)).
 Run it once for a new product, and again after pulling a version that adds a
-label. Run again, it puts their colours and descriptions back. It needs `TEHAS_REPO` and no other
-setting. Exit 0 when every label is there, 1 when one could not be made, 64 on
-any argument, 78 when the repository is not set.
+label. Run again, it puts their colours and descriptions back. The labels are
+the lines of `~/tehas/lib/labels.tsv`, which `install.sh` copies from
+`host/labels.tsv`: a change to that file owes the `labels` step of an update, and
+a new console does not. It needs `TEHAS_REPO` and no other setting. Exit 0 when
+every label is there, 1 when one could not be made, 64 on any argument, 78 when
+the repository is not set or the table is missing or holds a line that is no
+label, before any label is made.
 
 ## tehas check-product
 
@@ -1750,7 +1764,9 @@ It changes nothing in the product. The result goes to
 the check itself, and the `Product:` line does not change install.sh's exit
 status. Exit 0 when every check passed, 1 when the sandbox could not be run (no
 image, or the clone failed), 64 on a wrong argument, 78 when the settings are
-missing or malformed or a check failed.
+missing or malformed, a check failed, or no console stands beside the command.
+The command loads the settings; the checks and the run are the console's
+(`console check-product`, `console/src/product.rs`).
 
 ## tehas init-product
 
@@ -1775,8 +1791,10 @@ to the branch `tehas/init-product`, pushed with gh's credentials, and the bot
 opens the pull request against the default branch. It never commits to the
 default branch. Exit 0 when the pull request is open or nothing is missing, 1
 when git or gh failed or `tehas/init-product` is already on origin, 64 on a
-wrong argument, 78 when the settings are missing or malformed or the checkout
-is not a clone of `TEHAS_REPO`.
+wrong argument, 78 when the settings are missing or malformed, the checkout is
+not a clone of `TEHAS_REPO`, or no console stands beside the command. The
+command loads the settings and checks the checkout; the rest is the console's
+(`console init-product`, `console/src/product.rs`).
 
 ## tehas limit
 
@@ -2160,8 +2178,8 @@ one. It is the only form that writes anything and no timer runs it; the
 and so asks the host's disk nothing. The reading, the bounds and the printing
 are the console's (`~/tehas/libexec/console disk`, `console/src/disk.rs`);
 it reads the home, the scratch disk and the bound of the wait from the
-instance's own file, so `libexec/disk` names no path, loads nothing, and hands
-the arguments straight over. See
+instance's own file, so `bin/tehas` loads nothing for it and hands the
+arguments straight over. See
 [`tehas disk`](/api#tehas-disk) for every field of `--json`.
 
 Exit 0 when it printed, and with the file written; 1 when the published file
@@ -2506,7 +2524,7 @@ The pull request is looked up in every state. One that a person merged while
 the cycle ran ends the cycle as merged, whatever the result says: the
 issue only loses `tehas:running`, the comment says the pull request was merged
 while the cycle ran, nothing is parked, and the tail of every poll,
-[`tehas tidy`](#tehas-dispatch), and
+[`console tidy run`](#tehas-dispatch), and
 [tehasbot status](#tehasbot-status-and-the-console)
 label the closed issue `tehas:shipped`. One that a person closed without
 merging gets `needs-human-attention` and a plain comment that says so, without
@@ -2626,12 +2644,12 @@ by a merged pull request GitHub lists as closing the issue when the close event
 names none. That list is what GitHub derives from the text and the links of the
 issue, not what the close event recorded. Whatever labels the issue was left
 with: the query and the acceptance rule are the console's (`console shipped`,
-`console/src/shipped.rs`), the ones `tehas tidy` reads too, so
+`console/src/shipped.rs`), the ones `console tidy run` reads too, so
 the two commands cannot disagree on what a merge closed. `tehasbot status` asks the console which shipped
 issues lack the label (`console shipped list --numbers --lacking <label>`),
 which names those whose labels do not hold it or could not be read, and gives
 each of them the label;
-`tehas tidy` is the one that logs the read, and both leave the control issue
+`console tidy run` is the one that logs the read, and both leave the control issue
 unlabelled. The read of the list goes under the same 60 seconds as the count
 below; one that times out or is refused writes no snapshot, and the file of the
 run before stays. `planned` lists the open issues labelled `tehas:plan` or
@@ -2645,7 +2663,7 @@ platform reads go under; a call that fails or runs out of time leaves the key
 out of the snapshot. The key is absent whenever the search gave no such number, so
 absence is not zero: a reader cannot tell a factory that shipped nothing from
 one whose search could not be read. `tehasbot status` gives each such issue `tehas:shipped`, so GitHub
-lists the same issues, and `tehas tidy` gives it too, from the same read; run `tehas labels` once so the label exists. The control
+lists the same issues, and `console tidy run` gives it too, from the same read; run `tehas labels` once so the label exists. The control
 issue, the one `TEHAS_CONTROL_ISSUE` names, is left out of every list and every
 count: it holds the pause label and is not work, whatever label it carries.
 
@@ -2818,9 +2836,12 @@ what the dispatcher's last poll wrote about the slice and the demand, and this
 host's pause flag. The status script
 runs it on exit, so it is
 refreshed at every poll and at the end of every cycle. When the poll of the
-dispatcher is the one that ran the status script, the script does not: it holds
-the poll's GitHub token in its environment as `TEHAS_GH_TOKEN`, which is how it
-knows, and the poll runs health itself a moment after the status ends. So one
+dispatcher is the one that ran the status script, the script does not: the poll
+gives it `TEHAS_FROM_POLL=1` in its environment, which the script reads before
+its load, and the poll runs health itself a moment after the status ends. The
+name says the poll ran it and nothing else: it is given whatever token the poll
+holds, so a host that acts as a machine user, or a poll whose token read
+failed, is still known and does not refresh the file twice. So one
 poll refreshes the file once, not twice; a `tehasbot status` a person or a
 cycle runs does it on its own exit, as before. The poll that runs it
 bounds it at 120 s, the same bound it gives the status and tidy, because health
@@ -2829,12 +2850,12 @@ the last writer left it, and the poll says
 `WARN: the health file could not be written`. The docs server
 serves the file at `/health` and `/healthz` as `application/health+json`.
 `tehas status` prints the same file for a person. The whole run is the console
-beside the command (`console health run`, `console/src/health.rs`): it makes
-the five calls of the state store, the `systemctl --user --failed` read and the
-publish itself. `libexec/health` is the wrapper of that one command: it loads
-the settings, so the budget it passes with `--budget` is the instance's and the
-load's 78 still fires on a malformed one, and it says so and exits 78 when no
-console stands beside it. The console reads no setting name of the host.
+beside the command (`console tehasbot health`, `console/src/health.rs`): it
+makes the five calls of the state store, the `systemctl --user --failed` read
+and the publish itself. `libexec/with-settings` runs it: the settings are
+loaded first, so the budget it reads from `TEHAS_POLL_BUDGET` is the
+instance's and the load's 78 still fires on a malformed one, and it says so and
+exits 78 when no console stands beside it.
 `console health report`
 builds the report alone from answers given as arguments, and writes nothing.
 
@@ -3007,7 +3028,10 @@ token, and samples the first that answers. The file is removed only when the
 endpoint it asks is not a mesh and was not just down or busy. Set
 `TEHAS_ENERGY_URL` in `~/.config/tehas/env` to ask another
 cluster URL, which is asked with no token, and
-`TEHAS_ENERGY=off` to remove the file. The file is readable by anyone who can
+`TEHAS_ENERGY=off` to remove the file. With neither,
+`PI_ENSEMBLE_SUBAGENT_PROVIDER` has to be set: without it the command says so
+and exits 78, asks nobody and leaves the file as it is, and `--every` stops
+with it. The file is readable by anyone who can
 open the dashboard and names the machines, their draw and their models. It
 also holds the version of the mesh software and, for each model, the name and
 the version of the engine behind it. Addresses, node ids and GPUs are not in it.
@@ -3067,10 +3091,10 @@ tehasbot top --every         # one snapshot at every 5-second mark; what the ser
 systemctl --user enable --now tehas-top.service
 ```
 
-It builds the snapshot with the same `lib/top.sh` the terminal view uses, and
-writes it as one line of JSON holding the keys the pages draw and nothing else:
+It builds the snapshot with the same code the terminal view uses, in the
+console (`console/src/top.rs`), and writes it as one line of JSON holding the keys the pages draw and nothing else:
 `generatedAt`, `factory`, `queue`, `cycle`, `host`, `units` and `energy`. The
-list is `tehas_top_publish_keys` in `lib/top.sh`. A key added to the snapshot
+list is `PUBLISHED` in `console/src/top.rs`. A key added to the snapshot
 later is not in the file until someone puts it on that list, which is how the
 console of a cycle and the raw reading a host section was computed from stay
 out. The command reads the instance settings, so a setting that is missing or
@@ -3120,14 +3144,20 @@ files attached to it, and the list
 `~/tehas/live/protolab.json` that the dashboard links from. The timer runs it
 every five minutes; the log is `~/tehas/logs/protolab.log`.
 
-The pages are the console's (`~/tehas/libexec/console protolab`,
-`console/protolab.rs`), as the steps of
-[`tehas clean`](#tehas-clean) are: the page of a ticket, the lab's front page
-and the dashboard's file. It escapes what came from GitHub, puts together every
-figure of a page, and reads the attachment links of a ticket, which is the one
-regular expression of `lib/attachments.sh`. The command beside it keeps the
-settings, the calls to GitHub, the downloads and the order of the work, and
-refuses with exit 78 when no console stands beside it.
+The pass is the console's (`~/tehas/libexec/console protolab run`,
+`console/src/protolab.rs`): the calls to GitHub, the check of who applied the
+label, the downloads, the zips through `libexec/attach`, the pages and the
+dashboard's file. It escapes what came from GitHub, puts together every figure
+of a page, and reads the attachment links of a ticket, which is the one regular
+expression of `lib/attachments.sh`. The command beside it keeps the settings and
+the GitHub App's token, and refuses with exit 78 when no console stands beside
+it. Each call of gh is held to 30 seconds. A console with other bytes builds
+every page once more.
+
+A host updated from the version whose command built the pages in bash: a pass
+of the old command that is running when the new console lands logs that its
+tickets could not be read, leaves `protolab/index.html` empty and exits 1. The
+next pass of the timer writes the page again, within five minutes.
 
 The container is the edge router, on port 8081. It answers for the Protolab
 and for the [previews](#tehasbot-preview), and picks by the name it is asked
@@ -3246,9 +3276,9 @@ Limits: 3 issues a run; no run files in a repository while
 `TEHAS_IMPROVE_MAX_OPEN` (10 by default) open issues there carry the label. The
 whole log of each cycle a finding names is gzipped and uploaded to the release
 `tehas-improve-logs`, in pieces of at most 5 MB (`ticket-<issue>-<time>.log.gz`,
-or `.log.1.gz`, `.log.2.gz`), masked first by `console --mask`. A log that
-still holds something shaped like a token, or that could not be masked, is not
-uploaded.
+or `.log.1.gz`, `.log.2.gz`), masked first as the console masks a line. A log
+that still holds something shaped like a token, or whose masked copy could not
+be written, is not uploaded.
 
 Exit 0 when the run finished, also with an analyst stopped at its bound that
 left a good file, there was nothing to read, the open issues are at their
@@ -3257,9 +3287,10 @@ Exit 1 when the analyst or GitHub failed: the records are kept and the next run
 reads them again. What a failed analyst printed is in
 `~/tehas/logs/improve-analyst-<stamp>.log`, one file per failed run, named by
 the time the run took the records. The run's line names it. Exit 64 on any
-argument, 78 on invalid settings, or when there are records to read and
-`tehas.slice` cannot be used: the records are kept. A second run while one is going leaves it to
-that one.
+argument, 78 on invalid settings, without a console in `~/tehas/libexec`, or
+when there are records to read and `tehas.slice` cannot be used: the records
+are kept. A second run while one is going leaves it to that one. The unit gives
+a run 90 minutes: the analyst's 60, one to kill it, and the uploads.
 
 Each run also removes the per-cycle files and the kept analyst output in
 `~/tehas/logs/`, and the records under `~/tehas/tmp/improve/`, older than seven
@@ -3280,8 +3311,8 @@ time 15 minutes after boot, and a run goes ahead only when the last one began
 `TEHAS_REFRESH_EVERY` minutes ago or more (`~/tehas/state/refresh/last-run`,
 written as a run begins, so a failed run counts too). With
 `TEHAS_REFRESH_CONFLICTS` other than 1, or inside the interval, it exits 0 at
-once and calls nothing. Exit 1 when a call to GitHub fails: no
-request is written or removed, and the dispatcher checks the old ones again
+once and calls nothing. Exit 1 when a call to GitHub fails or takes more
+than 30 seconds: no request is written or removed, and the dispatcher checks the old ones again
 before it starts any.
 
 ## tehasbot github-token
@@ -3297,7 +3328,8 @@ Token with the app's key, `~/.config/tehas/github-app.pem` (mode 600, never
 given to a container), and exchanges it at GitHub for a token that lasts an
 hour. The token is kept in `~/tehas/state/github/token` (mode 600) and made
 again when fewer than 10 minutes are left; one command makes it at a time.
-Without `--check` it prints the token and nothing else. `--check` prints the
+The web token and the token go to curl on its standard input, never on its
+command line. Without `--check` it prints the token and nothing else. `--check` prints the
 app, the installation, the bot's login, when the token runs out and whether the
 installation reaches `TEHAS_REPO`, and never the token.
 
@@ -3308,7 +3340,10 @@ expired token. One exception: a call given `TEHAS_GH_TOKEN` in its environment
 uses that as `GH_TOKEN` and runs no `github-token` at all. The dispatcher's
 poll takes the token once at its start and gives it to every `gh` it runs that
 way, and to `tidy`, `status` and `health` when it runs them, so twenty calls of
-a poll ask for one token and not twenty (#938, #965). The
+a poll ask for one token and not twenty (#938, #965). The name of the token is
+not how the status knows the poll ran it: the poll gives the status
+`TEHAS_FROM_POLL=1` as well, and nothing else takes that name (see
+[tehasbot health](#tehasbot-health)). The
 poll holds that token in memory: it is never logged, never written to a file,
 and never put in the poll's record. git's github.com credential helper is
 pointed at the same shim, as environment-level config (no file is written), and
@@ -3506,8 +3541,8 @@ removed); 3 when another run holds the lock, which changes nothing; 64 on an
 argument this command does not know; 78 when the settings are missing or
 malformed, or the console is not installed beside the command, before any
 docker, find or rm call. The steps are the console's
-(`~/tehas/libexec/console clean`); the command checks the settings, reads the
-free disk and names the two images.
+(`~/tehas/libexec/console clean`), and so are the two image names; the command
+loads the settings and reads the free disk.
 
 Each line that goes to `clean.log` is printed as well, and the unit adds no
 redirect of its own, so a timer run's output is in the journal. The exits that
@@ -3584,10 +3619,9 @@ are enabled. Both write to `~/tehas/logs/preview.log`.
    who opened each; nothing was built or removed`. Each page is an answer of
    its own, taken at its own moment, so the list can move while it is read: a
    pull request that comes back on two pages counts once.
-4. The console reads those pages and chooses what is done with each of them
-   (`console preview choose`, `~/tehas/libexec/console`). A pull request is
-   built when its head is in the product repository itself and an owner,
-   member or collaborator of the repository opened it; the newest
+4. The console reads those pages and chooses what is done with each of them.
+   A pull request is built when its head is in the product repository itself
+   and an owner, member or collaborator of the repository opened it; the newest
    `TEHAS_PREVIEW_MAX` of those are built and the rest say `over-limit`. A
    head in another repository is counted in the log and never built: `<k> pull
    requests from elsewhere, not built`, nor one opened by anyone else: `<k>
@@ -3655,7 +3689,7 @@ memory limit does not count. So an image that declares a volume anywhere but
 `/tmp`, `/config` and `/data` is not run, and every container is removed
 with `docker rm -f -v`, which takes a volume Docker made for it along.
 
-**The notice in the description.** The console beside the command writes it (`~/tehas/libexec/console preview tell`). The preview is said at the top of the pull
+**The notice in the description.** The run writes it as it goes. The preview is said at the top of the pull
 request's own description, between the marker lines `<!-- tehas-preview -->`
 and `<!-- /tehas-preview -->`: the address when the preview serves, or
 "Unable to create a preview" with the reason for `build-failed` and
@@ -3828,7 +3862,13 @@ keeps no new log.
 uncommitted and untracked files included, and hands them to
 `scripts/select-tests.sh`. A changed test file runs itself; another path runs
 the test files that name it (`libexec/update`, `tehas update`, a test file
-named `update_*`), and a path under `console/` also runs the workspace's tests.
+named `update_*`). A path under `console/` also runs `cargo test -p` for the
+crate it is in and the crates that depend on it, from `cargo metadata`. The
+tests of the console and the dispatcher run the store's program, which no
+manifest says, so `scripts/select-tests.sh` lists that link: they run with the
+store, and a change to the store runs them. A path in `console/core/`, a
+manifest, `console/Cargo.lock`, a path in no crate, or metadata that cannot be
+read runs the whole workspace's tests.
 The heavy integration files, `test/install_*`, `test/update_*`,
 `test/pack_release_test.sh` and `test/bootstrap_test.sh`, run only when the
 change touches what they test directly, and a `note` line names the ones left
@@ -4397,7 +4437,7 @@ yet, so tehas need not wait for the release. It ends when pi-rukas has the
 feature. It is only for work pi-rukas has taken on: an issue that asks for the
 feature and a pull request that builds it. A feature with no pull request
 upstream gets no polyfill; it is asked for upstream first. Each check of a pi-rukas feature asks one function,
-`tehas_headless_mode <caps> <feature>` in `lib/headless.sh`, where `<feature>`
+`tehas-cycle caps mode <feature>`, given the answer on standard input, where `<feature>`
 is a key of `features` in the runner's `--capabilities` answer. It says one of
 four things:
 

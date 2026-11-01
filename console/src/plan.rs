@@ -1,13 +1,7 @@
 //! What a planning turn says, for libexec/plan: the runner's answer shaped
 //! as the dispatcher posts it, and a drafted plan the operator chose to make
-//! the issue's own text.
+//! the issue's own text. The host's side of a turn is src/plan/turn.rs.
 //!
-//!   console plan outcome <runner exit> <session> <keep> [refine]
-//!       the runner's JSON document on standard input. A drafted plan (exit
-//!       12) is kept in <keep>/draft.json for update. Only a refine session
-//!       offers to file it as a new issue. A plan session's draft with no open
-//!       points is marked `clear`: the dispatcher decides whether it needs the
-//!       tick its question asks for.
 //!   console plan update <session> <keep>
 //!       the issue's {title, body} on standard input, as gh issue view gives
 //!       them, and the draft in <keep>/draft.json.
@@ -16,14 +10,21 @@
 //!       (what plan_brief writes: `# <title>`, a blank line, then the body)
 //!       and the issue's number. See descriptor for how the line is made.
 //!
-//! Each prints the --out document of libexec/plan, except descriptor, which
-//! prints its one line. Exit 0 printed, 1 nothing to print (why on standard
-//! error), 2 a usage error.
+//! update prints the --out document of libexec/plan, descriptor its one line.
+//! Exit 0 printed, 1 nothing to print (why on standard error), 2 a usage
+//! error.
+//!
+//! `outcome` shapes the runner's answer. A drafted plan (exit 12) is kept in
+//! <keep>/draft.json for update. Only a refine session offers to file it as a
+//! new issue. A plan session's draft with no open points is marked `clear`:
+//! the dispatcher decides whether it needs the tick its question asks for.
 
 use serde_json::{json, Value};
 use std::io::Read;
 use std::path::Path;
 use tehas_core::plan::{clip, made, text_of, APPLY_READY, CLIP};
+
+mod turn;
 
 /// pi-rukas keeps a plan's title to 72 characters in all, its prefix included,
 /// and its longest prefix, `research: `, is 10 of them.
@@ -40,20 +41,11 @@ const DRAFTED_REFINE: &str = "Tick Update this issue to make the plan, proposals
 const DUPLICATE: &str = "pi-rukas thinks this plan duplicates open work. Reply to say why it does not, or end the session.";
 
 pub fn main(given: &[String]) -> u8 {
+    if let Some(code) = turn::verb(given) {
+        return code;
+    }
     let mut input = String::new();
     let done = match given {
-        [verb, rc, session, keep, kind @ ..] if verb == "outcome" => {
-            let refine = match kind {
-                [] => false,
-                [k] if k == "refine" => true,
-                _ => return usage(),
-            };
-            let _ = std::io::stdin().read_to_string(&mut input);
-            let Ok(rc) = rc.parse::<i64>() else {
-                return usage();
-            };
-            outcome(rc, session, Path::new(keep), &input, refine)
-        }
         [verb, session, keep] if verb == "update" => {
             let _ = std::io::stdin().read_to_string(&mut input);
             update(session, Path::new(keep), &input)
@@ -83,7 +75,7 @@ pub fn main(given: &[String]) -> u8 {
 
 fn usage() -> u8 {
     eprintln!(
-        "console plan: usage: outcome <runner exit> <session> <keep> [refine] | update <session> <keep> | descriptor <brief> <issue>"
+        "console plan: usage: update <session> <keep> | descriptor <brief> <issue> | workspace|give|place|turn|run ..."
     );
     2
 }

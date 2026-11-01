@@ -177,10 +177,9 @@ tehas_rukas_reads_images() {
 }
 
 # The one grammar for a branch pi-rukas makes for an issue: feature/issue-<n>
-# with an optional slug of up to 80 characters. tehas_headless_run (lib/
-# headless.sh) asks whether a name read out of a cycle's run log is this
-# issue's branch, and tehasbot cycle holds the same grammar before it asks
-# GitHub about a branch; both take it from here so the two cannot drift.
+# with an optional slug of up to 80 characters. tehasbot cycle holds this
+# grammar before it asks GitHub about a branch. tehas-cycle runner holds it in
+# Rust (branch_of), for a name read out of a cycle's run log.
 tehas_branch_pattern() { # <issue>
   local n=$1
   [[ $n =~ ^[1-9][0-9]*$ ]] || return 1

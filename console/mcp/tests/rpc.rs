@@ -167,7 +167,7 @@ fn tools_list_is_cacheable_and_in_order() {
     assert_eq!(res["ttlMs"], 30000);
     assert_eq!(res["cacheScope"], "private");
     assert_eq!(res["tools"][0]["name"], "factory_status");
-    assert_eq!(res["tools"].as_array().unwrap().len(), 15);
+    assert_eq!(res["tools"].as_array().unwrap().len(), 16);
 }
 
 // A dashboard key is a key of the second list: it is served the four tools
@@ -223,7 +223,7 @@ fn a_dashboard_key_sees_four_tools_and_no_more() {
         ]
     );
     let full = names(ask(K1, "tools/list", json!({})));
-    assert_eq!(full.len(), 15);
+    assert_eq!(full.len(), 16);
     // The same names, in the order the full list gives them, and the same
     // entries: `list_scoped` takes the entries of `list` and does not rewrite
     // a description or a schema for the shorter answer.
@@ -658,7 +658,7 @@ fn a_legacy_client_initializes_and_calls_tools() {
         json!({})
     );
     let list = json_of(&legacy(Some(3), "tools/list", json!({})));
-    assert_eq!(list["result"]["tools"].as_array().unwrap().len(), 15);
+    assert_eq!(list["result"]["tools"].as_array().unwrap().len(), 16);
     let call = json_of(&legacy(
         Some(4),
         "tools/call",

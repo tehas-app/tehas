@@ -90,16 +90,17 @@ tehas_steps_into() { # changed source paths -> tehas_steps
   local list=" $* "
   tehas_steps=()
   case "$list" in
-    # bin/tehas-energy is the sampler of the layout before bin/tehas. A running
-    # one is that file calling itself, and it moves on only when restarted. A
-    # running service keeps the environment env.sh gave it at its start.
-    *" systemd/"* | *" bin/tehas-energy "* | *" env.sh "*)
+    # bin/tehas-energy, libexec/energy and libexec/top-publish are the loops of
+    # before bin/tehas and of before the console. A running one is that file
+    # calling itself, and it moves on only when restarted. A running service keeps the environment
+    # env.sh gave it at its start.
+    *" systemd/"* | *" bin/tehas-energy "* | *" libexec/energy "* | *" libexec/top-publish "* | *" env.sh "*)
       tehas_units_line
       tehas_steps+=("units ${_tehas_units_line% }")
       ;;
     # The MCP server's container mounts its binary: a new one reaches it only
     # when the unit starts the container again.
-    *" libexec/mcp "* | *"/tehas-mcp "*) tehas_steps+=("units tehas-mcp.service") ;;
+    *"/tehas-mcp "*) tehas_steps+=("units tehas-mcp.service") ;;
   esac
   case "$list" in
     *" sandbox/"* | *" versions.env "*) tehas_steps+=(sandbox) ;;
@@ -114,9 +115,9 @@ tehas_steps_into() { # changed source paths -> tehas_steps
     *" edge/router."* | *" edge/protolab."*) tehas_steps+=("edge --force-recreate") ;;
   esac
   case "$list" in
-    # The command that makes the labels changed, so a release that adds one ends
-    # with that label in place on GitHub rather than owed to nobody.
-    *" libexec/labels "*) tehas_steps+=(labels) ;;
+    # The table of the labels changed, so a release that adds one ends with that
+    # label in place on GitHub rather than owed to nobody.
+    *" labels.tsv "*) tehas_steps+=(labels) ;;
   esac
   return 0
 }

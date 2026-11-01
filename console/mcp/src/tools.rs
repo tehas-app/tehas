@@ -890,13 +890,17 @@ fn build_entries() -> Value {
         // and the search over them - then factory_events, the host's own two
         // logs, and factory_failures after them, and factory_outcomes after
         // it: the counts of the last 30 days first, then the longer view
-        // beside it, then factory_park, and factory_decisions last.
+        // beside it, then factory_park, then factory_decisions, and
+        // factory_disk after them all.
         a.insert(a.len() - 1, logs::tool());
         a.insert(a.len() - 1, logs::search_tool());
         a.insert(a.len() - 1, events::tool());
         a.push(outcomes_schema::tool());
         a.push(park::tool());
         a.push(decisions::tool());
+        // factory_disk last: the catalog holds it beside the tools that read
+        // the live files, and it reads just one published file of them.
+        a.push(disk::tool());
     }
     tools
 }
@@ -905,7 +909,7 @@ fn build_entries() -> Value {
 /// `spec_of` name the same tools in their own literals, and the test beside
 /// `call_held` compares the three, so the access log can name no name the
 /// server does not serve, and serves none it does not publish.
-const CALLED: [&str; 15] = [
+const CALLED: [&str; 16] = [
     "factory_status",
     "factory_issues",
     "factory_endings",
@@ -921,6 +925,7 @@ const CALLED: [&str; 15] = [
     "factory_outcomes",
     "factory_park",
     "factory_decisions",
+    "factory_disk",
 ];
 
 /// Whether the server has a tool of this name. The access log asks it before
@@ -937,7 +942,7 @@ pub fn known(name: &str) -> bool {
 /// This is the only function that answers the catalog, so a method added to
 /// the dispatch cannot answer a tool list of its own and leave the scope out.
 /// The entries are held once for the process, so a request for the list costs
-/// a clone of the entries it needs and not the building of all fifteen.
+/// a clone of the entries it needs and not the building of all sixteen.
 pub fn list_scoped(scope: Scope) -> Value {
     Value::Array(
         entries()
@@ -951,7 +956,7 @@ pub fn list_scoped(scope: Scope) -> Value {
 /// The published entries, built once for the process. The schemas of the tools
 /// are constants of this file, so every `tools/list` of either scope answers
 /// the same bytes, and a dashboard key that polls the list costs a clone of
-/// four entries rather than the reconstruction of fifteen.
+/// four entries rather than the reconstruction of sixteen.
 fn entries() -> &'static [Value] {
     static ENTRIES: LazyLock<Value> = LazyLock::new(build_entries);
     ENTRIES.as_array().map_or(&[], Vec::as_slice)
@@ -1029,6 +1034,13 @@ pub(crate) fn read(live: &Path, file: &str) -> Result<Value, ToolError> {
 /// `stale`, which `status` computes, and `console`, whose text comes from the
 /// console file of the cycle.
 pub fn spec_of(name: &str) -> Option<Value> {
+    // The answer of factory_disk is copied with the allowlist beside its own
+    // reading, in the module that makes the answer: the file is the host's own
+    // and the door it comes through is that one spec. It is read before the
+    // match so the match holds only the tools whose spec is written here.
+    if name == "factory_disk" {
+        return Some(disk::spec());
+    }
     let issues = json!([{
         "number": true, "title": true, "url": true, "updatedAt": true, "closedAt": true
     }]);
@@ -1153,10 +1165,6 @@ pub fn spec_of(name: &str) -> Option<Value> {
             );
             Value::Object(s)
         }
-        // factory_disk is copied with the allowlist beside its own reading, in
-        // the module that makes the answer: the file is the host's own and the
-        // door it comes through is that one spec.
-        "factory_disk" => return Some(disk::spec()),
         _ => return None,
     })
 }
@@ -1516,8 +1524,11 @@ mod tests {
         // `spec_of` is the third list of the names, and the one the dispatch's
         // guard does not touch: the five tools whose answer is copied from a
         // live file name themselves there, so a name that drifts out of
-        // `CALLED` loses its allowlist here. The other nine build their answer
+        // `CALLED` loses its allowlist here. The other ten build their answer
         // beside their own pick list, in their own module, and have none.
+        // The rule is the whole list rather than those five names: every name
+        // `spec_of` admits is a name of `CALLED`, so the allowlist of an
+        // answer cannot belong to a tool the dispatch refuses.
         for name in [
             "factory_status",
             "factory_issues",
@@ -1527,6 +1538,14 @@ mod tests {
         ] {
             assert!(known(name), "{name} is not called");
             assert!(spec_of(name).is_some(), "{name} has no answer allowlist");
+        }
+        for name in CALLED {
+            // A tool answers either from an allowlist of this file or from a
+            // pick list written beside its own reading, in its own module: a
+            // name with an allowlist here is a name the dispatch serves.
+            if spec_of(name).is_some() {
+                assert!(known(name), "{name} has an allowlist and is not called");
+            }
         }
         for name in ["", "factory_delete", "factory_status_x", "Factory_Status"] {
             assert!(!known(name), "{name}");
@@ -1587,7 +1606,7 @@ mod tests {
             assert!(known(name), "{name} is not called");
         }
         // A dashboard key is served exactly these four, in the order the
-        // catalog gives them, and a full key is served all fifteen.
+        // catalog gives them, and a full key is served all sixteen.
         let short = list_scoped(Scope::Dashboard);
         let scoped = names_of(&short);
         let want: Vec<&str> = listed
@@ -1596,7 +1615,7 @@ mod tests {
             .copied()
             .collect();
         assert_eq!(scoped, want);
-        assert_eq!(names_of(&catalog).len(), 15);
+        assert_eq!(names_of(&catalog).len(), 16);
         // The entries of the shorter list are the entries of the longer one:
         // the same description and the same two schemas.
         for name in DASHBOARD {
@@ -1636,7 +1655,7 @@ mod tests {
         // of `call_held` answers every name absent from this list, so a name
         // written here and not there, or there and not here, is the drift the
         // dispatch alone cannot show.
-        const ARMS: [&str; 15] = [
+        const ARMS: [&str; 16] = [
             "factory_log",
             "factory_search",
             "factory_status",
@@ -1652,6 +1671,7 @@ mod tests {
             "factory_outcomes",
             "factory_park",
             "factory_decisions",
+            "factory_disk",
         ];
         let mut arms = ARMS.to_vec();
         arms.sort_unstable();

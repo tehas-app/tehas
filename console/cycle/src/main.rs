@@ -52,6 +52,15 @@
 //!                                     is stopped on a guess. It reads no wall
 //!                                     clock, so a VM that was saved is not
 //!                                     counted against a cycle
+//!   tehas-cycle describe <dir>        write <dir>/images.md, a model's
+//!                                     description of each image in
+//!                                     <dir>/manifest.json, and name it in the
+//!                                     manifest (src/describe.rs). Exits 1 only
+//!                                     when a file could not be written
+//!   tehas-cycle private <models.json> <email>
+//!                                     the names a mask hides, two lines each:
+//!                                     `--private` and the name, for a command
+//!                                     to read into its arguments
 //!   tehas-cycle renew --cmd <path> --every <s> --retry <s>
 //!                                     the renewer of a cycle's GitHub token:
 //!                                     run <path> with its output discarded,
@@ -74,6 +83,42 @@
 //!                                     or one line on standard error and exits 1
 //!                                     for a refusal that changed nothing
 //!                                     (src/finish.rs)
+//!   tehas-cycle caps unsupported <flags> <names> [<features>]
+//!                                     the image's --capabilities answer on
+//!                                     standard input, as every caps verb
+//!                                     takes it: what it does not support,
+//!                                     one line each (src/caps.rs). <flags>
+//!                                     are the work arguments, <names> the
+//!                                     inputs, <features> the features, each
+//!                                     space separated. Exits 1 on an answer
+//!                                     that cannot be read
+//!   tehas-cycle caps expired <workarounds>
+//!                                     which NAME@VERSION entries the image's
+//!                                     pi-rukas no longer needs, one line each
+//!   tehas-cycle caps mode <feature>   how tehas gets a feature: `native`,
+//!                                     `polyfill` when lib/polyfill-<feature>.sh
+//!                                     stands beside this program's libexec/,
+//!                                     or `off`. `error` and exit 1 on an
+//!                                     answer that cannot be read, `off` and
+//!                                     exit 1 on no feature name
+//!   tehas-cycle caps verb <verb> <flags>
+//!                                     exit 0 when the runner takes <verb>
+//!                                     with all of <flags>, else 1
+//!   tehas-cycle caps reads-images     1 when the runner reads the image
+//!                                     manifest tehas writes, else 0
+//!   tehas-cycle runner outcome <result> <issue>
+//!                                     the issue's entry of a schema 5 result
+//!                                     as one JSON object. Exits 4 when there
+//!                                     is none, 2 when the file or the number
+//!                                     cannot be read
+//!   tehas-cycle runner run <ndjson> <issue>
+//!                                     three lines of a run log: the last
+//!                                     step started, the branch of its last
+//!                                     push when it is the issue's, and
+//!                                     `whole` or, past 200 KB, `truncated`.
+//!                                     Exits 1 with nothing printed when
+//!                                     <issue> is no number or the log is no
+//!                                     file it can read
 //!   tehas-cycle -h|--help             print this text
 //!
 //! shadow and compare do nothing while $TEHAS_HOME/state/cycle-shadow.on is
@@ -91,9 +136,9 @@
 //!
 //! Exit: 0 it printed or kept its answer; 1 what it reads could not be
 //! read, said on standard error, or run could not exec, or `clock check` said
-//! `stalled`, or `finish` refused; 2 `clock check` said `over`; 3 `clock check`
-//! said `unknown`; 64 an argument it does not know; 78 run without an absolute
-//! TEHAS_HOME.
+//! `stalled`, or `finish` refused, or a caps or runner verb said no as above;
+//! 2 `clock check` said `over`; 3 `clock check` said `unknown`; 64 an argument
+//! it does not know; 78 run without an absolute TEHAS_HOME.
 //!
 //! finish is asked the whole of its words and reads no setting of its own, so it
 //! takes no TEHAS_HOME: part 2's poll step, the only caller today, passes the
@@ -102,10 +147,10 @@
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use tehas_cycle::clock;
 use tehas_cycle::host::Start;
 use tehas_cycle::last_attempt::{self, Action};
 use tehas_cycle::report::{to_json, Given};
+use tehas_cycle::{caps, clock, runner};
 use tehas_cycle::{finish, pin, renew, report, shadow, Facts};
 
 fn usage() -> String {
@@ -256,6 +301,12 @@ fn main() {
             renew_verb(&cmd, every, retry);
         }
         ["finish", n, rest @ ..] => finish_verb(issue(n, &args), &args, rest),
+        ["caps", rest @ ..] => caps_verb(rest, &args),
+        ["runner", "outcome", result, n] => outcome_verb(result, n),
+        ["runner", "run", log, n] => match runner::run_log(Path::new(log), n) {
+            Some(r) => println!("{}\n{}\n{}", r.step, r.branch, r.read),
+            None => std::process::exit(1),
+        },
         ["compare", n] => {
             let n = issue(n, &args);
             if on() {
@@ -264,7 +315,65 @@ fn main() {
                 }
             }
         }
+        ["describe", dir] => {
+            if tehas_cycle::describe::describe(Path::new(dir)).is_err() {
+                std::process::exit(1);
+            }
+        }
+        ["private", models, email] => {
+            for name in tehas_core::mask::host_names(models, email) {
+                println!("--private\n{name}");
+            }
+        }
         _ => wrong(&args),
+    }
+}
+
+/// The caps verbs. The answer comes on standard input: it can pass what one
+/// argument may hold.
+fn caps_verb(rest: &[&str], args: &[String]) {
+    let mut bytes = vec![];
+    let read = std::io::Read::read_to_end(&mut std::io::stdin(), &mut bytes);
+    read.unwrap_or_else(|e| fail(format!("the answer cannot be read: {e}")));
+    let text = String::from_utf8_lossy(&bytes);
+    match rest {
+        ["unsupported", flags, names, features @ ..] if features.len() < 2 => {
+            let features = features.first().copied().unwrap_or("");
+            match caps::unsupported(&text, flags, names, features) {
+                Some(lines) => print!("{lines}"),
+                None => std::process::exit(1),
+            }
+        }
+        ["expired", workarounds] => {
+            for line in caps::expired(&text, workarounds) {
+                println!("{line}");
+            }
+        }
+        ["mode", feature] => {
+            let lib = std::env::current_exe()
+                .ok()
+                .and_then(|p| Some(p.parent()?.parent()?.join("lib")));
+            let (word, code) = caps::mode(&text, feature, lib.as_deref());
+            println!("{word}");
+            std::process::exit(code);
+        }
+        ["verb", verb, flags] => std::process::exit(i32::from(!caps::verb(&text, verb, flags))),
+        ["reads-images"] => println!("{}", u8::from(caps::reads_images(&text))),
+        _ => wrong(args),
+    }
+}
+
+/// The statuses are jq's, which is what this verb replaced.
+fn outcome_verb(result: &str, n: &str) {
+    let Ok(n) = n.parse::<u64>() else {
+        std::process::exit(2)
+    };
+    let Ok(bytes) = std::fs::read(result) else {
+        std::process::exit(2)
+    };
+    match runner::outcome(&String::from_utf8_lossy(&bytes), n) {
+        Some(o) => println!("{o}"),
+        None => std::process::exit(4),
     }
 }
 

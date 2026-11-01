@@ -179,8 +179,6 @@ fi
 # below drops them.
 lock_wait=$(tehas_update_lock_wait)
 dispatch_wait=$(tehas_dispatch_lock_wait)
-# shellcheck source=lib/edge.sh
-. "$root/lib/edge.sh"
 # shellcheck source=lib/cycles.sh
 . "$root/lib/cycles.sh"
 # shellcheck source=lib/models.sh
@@ -443,7 +441,6 @@ files=(
   "lib/paths.sh|$TEHAS_HOME/lib/paths.sh|644"
   "lib/analytics.sh|$TEHAS_HOME/lib/analytics.sh|644"
   "lib/attachments.sh|$TEHAS_HOME/lib/attachments.sh|644"
-  "lib/describe.sh|$TEHAS_HOME/lib/describe.sh|644"
   "lib/history-lines.jq|$TEHAS_HOME/lib/history-lines.jq|644"
   "lib/history-listing.jq|$TEHAS_HOME/lib/history-listing.jq|644"
   "lib/history-repeats.jq|$TEHAS_HOME/lib/history-repeats.jq|644"
@@ -458,9 +455,7 @@ files=(
   "lib/live.sh|$TEHAS_HOME/lib/live.sh|644"
   "lib/limit.sh|$TEHAS_HOME/lib/limit.sh|644"
   "lib/models.sh|$TEHAS_HOME/lib/models.sh|644"
-  "lib/private.sh|$TEHAS_HOME/lib/private.sh|644"
   "lib/update-steps.sh|$TEHAS_HOME/lib/update-steps.sh|644"
-  "lib/edge.sh|$TEHAS_HOME/lib/edge.sh|644"
   "lib/headless.sh|$TEHAS_HOME/lib/headless.sh|644"
   "lib/github-app.sh|$TEHAS_HOME/lib/github-app.sh|644"
   "lib/rukas.sh|$TEHAS_HOME/lib/rukas.sh|644"
@@ -474,7 +469,6 @@ files=(
   "lib/status.sh|$TEHAS_HOME/lib/status.sh|644"
   # How the commands run the state store, libexec/store.
   "lib/store.sh|$TEHAS_HOME/lib/store.sh|644"
-  "lib/top.sh|$TEHAS_HOME/lib/top.sh|644"
   "lib/planning.sh|$TEHAS_HOME/lib/planning.sh|644"
   "lib/refresh.sh|$TEHAS_HOME/lib/refresh.sh|644"
   # The key a release signature is checked with. It is here so the copy an
@@ -524,51 +518,37 @@ for f in tehas tehasbot; do
   files+=("bin/$f|$TEHAS_HOME/bin/$f|755")
 done
 for f in \
-  analytics-cmd \
-  api \
   check-product \
   clean \
   cycle \
   dev \
   dev-login \
   dispatch \
-  disk \
-  drain \
-  energy \
   export \
   github-token \
-  health \
   history \
   improve \
   index \
   init-product \
-  labels \
-  limit \
-  mcp \
-  pause \
   plan \
   preview \
   protolab \
   refresh \
   review \
-  resume \
   setup \
-  state \
   status \
-  stop \
-  summary \
-  tidy \
-  top \
-  top-publish \
   update \
+  with-settings \
   work; do
   files+=("libexec/$f|$TEHAS_HOME/libexec/$f|755")
 done
+# What tehas labels makes. A change here owes the labels step.
+files+=("labels.tsv|$TEHAS_HOME/lib/labels.tsv|644")
 # The polyfills of pi-rukas features (scripts/polyfills.sh) are a glob, not a
 # list: which ones the tree carries changes when upstream releases one, and a
 # name in a list is one more thing an install can be missing.
-# tehas_headless_mode (lib/headless.sh) reads a polyfill beside the
-# headless.sh it was sourced from, so a host that never got the file answers
+# tehas-cycle caps mode reads a polyfill in the lib/ beside its own libexec/,
+# so a host that never got the file answers
 # `off` for a feature this checkout answers `polyfill` for. nullglob: a tree
 # with none adds nothing.
 shopt -s nullglob
@@ -1212,7 +1192,9 @@ done
 
 # The commands of before bin/tehas, one file each in bin/, and the console of
 # before it was a compiled program. And the Protolab's server files of before the
-# edge router. Found here, removed in step 5 once systemd has the new units.
+# edge router. And the wrappers of what is now a verb of the console, and the
+# libraries of what is now a verb of tehas-cycle. Found here,
+# removed in step 5 once systemd has the new units.
 old=()
 for f in \
   bin/tehas-console.ts \
@@ -1224,15 +1206,36 @@ for f in \
   bin/tehas-status \
   bin/tehas-test \
   bin/tehas-work \
+  lib/describe.sh \
+  lib/edge.sh \
+  lib/private.sh \
+  libexec/analytics-cmd \
+  libexec/api \
   libexec/console.ts \
+  libexec/disk \
+  libexec/drain \
+  libexec/energy \
+  libexec/health \
+  libexec/labels \
+  libexec/limit \
+  libexec/mcp \
+  libexec/pause \
+  libexec/resume \
+  libexec/state \
+  libexec/stop \
+  libexec/summary \
+  libexec/tidy \
+  libexec/top \
+  libexec/top-publish \
+  lib/top.sh \
   edge/protolab.Caddyfile \
   edge/protolab.compose.yaml; do
   to=$TEHAS_HOME/$f
   [ -e "$to" ] || continue
   old+=("$to")
   changed+=("$f")
-  # A running sampler is the old file calling itself; only a restart moves it
-  # on, and the units step is what restarts it.
+  # A running sampler or publisher is the old file calling itself; only a
+  # restart moves it on, and the units step is what restarts it.
   if [ "$check" = 1 ]; then note "stale: $to"; else record_step "$f"; fi
 done
 
@@ -1469,34 +1472,33 @@ for left in "$TEHAS_HOME"/state/cycles/[0-9]*; do
 done
 
 # The previews' network keeps a preview from the host: it reaches the router
-# and the other previews and nothing else. What that takes is in lib/edge.sh,
-# and `tehasbot preview` decides by the same functions before every run. The
-# router's compose file names the network as external and `tehasbot preview`
-# puts containers on it, so it is made here, whichever of the two starts first.
-# A host with no Docker yet gets it from `tehasbot preview`. A Docker older
-# than 27.1 is not asked: it does not know the option that keeps the host out.
-# The bridge driver of Docker 29.1.3 was seen to accept an option it does not
-# know, so an older one may make a network that looks right and gives the
-# host an address. That was not tried, and with the version checked it does
-# not have to be. A network that is there and does not keep the host out
-# is not removed here: containers may be on it.
+# and the other previews and nothing else. What that takes is in
+# console/src/edge.rs, and `tehasbot preview` decides by the same code before
+# every run. The router's compose file names the network as external and
+# `tehasbot preview` puts containers on it, so it is made here, whichever of the
+# two starts first. A host with no Docker yet gets it from `tehasbot preview`. A
+# Docker older than 27.1 is not asked: it does not know the option that keeps
+# the host out. A network that is there and does not keep the host out is not
+# removed here: containers may be on it.
 if command -v docker >/dev/null 2>&1; then
-  if ! previews_fault=$(edge_docker_fault); then
-    note "The network tehas-previews was not made or checked: $previews_fault. No preview is built until Docker is 27.1 or later."
-  else
-    previews_rc=0
-    previews_fault=$(edge_net_fault tehas-previews) || previews_rc=$?
-    case "$previews_rc" in
-      0) ;;
-      2)
-        edge_net_create tehas-previews ||
-          note "The network tehas-previews could not be made; the edge router will not start without it."
-        ;;
-      *)
-        note "The network tehas-previews does not keep the host out ($previews_fault). It has to be remade before a preview is built; the manual's troubleshooting page says how."
-        ;;
-    esac
-  fi
+  previews_rc=0
+  previews_fault=$("$TEHAS_HOME/libexec/console" preview network check tehas-previews 2>/dev/null) || previews_rc=$?
+  case "$previews_rc" in
+    0) ;;
+    1)
+      note "The network tehas-previews does not keep the host out ($previews_fault). It has to be remade before a preview is built; the manual's troubleshooting page says how."
+      ;;
+    2)
+      "$TEHAS_HOME/libexec/console" preview network create tehas-previews ||
+        note "The network tehas-previews could not be made; the edge router will not start without it."
+      ;;
+    3)
+      note "The network tehas-previews was not made or checked: $previews_fault. No preview is built until Docker is 27.1 or later."
+      ;;
+    *)
+      note "The network tehas-previews was not made or checked: the console did not answer."
+      ;;
+  esac
 fi
 
 case "$(slice_state)" in

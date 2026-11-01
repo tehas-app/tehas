@@ -65,9 +65,9 @@ slice_good() {
 slice_good
 limits="--cgroup-parent --memory --memory-swap --memory-reservation --cpus --pids-limit --cpu-shares"
 # The security options and the readers of a docker line come from
-# test/docker_args.sh, which takes the list from tehas_sandbox_security itself,
-# so the cycle, the turn, the session and the push check are all pinned against
-# one source and not against a copy kept in step by hand. docker_opts is the
+# test/docker_args.sh, which holds the list as a literal, so the cycle, the
+# turn, the session and the push check are all pinned against one list, and not
+# against the function under test. docker_opts is the
 # allow-list of unknown_options: the slice's options and the security ones, by
 # name, so an option added to either is allow-listed in all of them at once.
 # shellcheck source=test/docker_args.sh
@@ -827,7 +827,7 @@ again
 t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
 T_ENV=()
 # The console of the case waits one second of the five minutes the command asks.
-printf '#!/bin/sh\nexec "%s" clean session "$3" "$4" 1\n' "$T_CONSOLE" >"$T/tree/libexec/console"
+printf '#!/bin/sh\n[ "$1" != slice ] || exec "%s" "$@"\nexec "%s" clean session "$3" "$4" 1\n' "$T_CONSOLE" "$T_CONSOLE" >"$T/tree/libexec/console"
 chmod +x "$T/tree/libexec/console"
 t_stub flock "if [ \"\${FLOCK_WHY:-}\" = held ]; then exit 1; fi
 if [ \"\$1\" = -w ]; then sleep \"\${FLOCK_WAIT:-0}\"; fi

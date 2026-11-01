@@ -54,6 +54,26 @@ t_contains "$t_out" "removed: $th/libexec/console.ts"
 t_eq "$([ -e "$th/libexec/console.ts" ] || echo gone)" "gone"
 t_eq "$([ -x "$th/libexec/console" ] && echo there)" "there"
 
+t_case "the tidy script of before the console ran it goes the same way"
+echo "# old" >"$th/libexec/tidy"
+t_run "$install --check"
+t_eq "$t_rc" 1
+t_contains "$t_out" "stale: $th/libexec/tidy"
+t_run "$install"
+t_eq "$t_rc" 0
+t_contains "$t_out" "removed: $th/libexec/tidy"
+t_eq "$([ -e "$th/libexec/tidy" ] || echo gone)" "gone"
+
+t_case "the library of before the console did the edge's work goes the same way"
+echo "# old" >"$th/lib/edge.sh"
+t_run "$install --check"
+t_eq "$t_rc" 1
+t_contains "$t_out" "stale: $th/lib/edge.sh"
+t_run "$install"
+t_eq "$t_rc" 0
+t_contains "$t_out" "removed: $th/lib/edge.sh"
+t_eq "$([ -e "$th/lib/edge.sh" ] || echo gone)" "gone"
+
 t_case "while a poll holds the dispatcher's lock nothing is installed, and the next run removes them"
 old_layout
 mkdir -p "$th/state"
@@ -128,14 +148,23 @@ t_contains "$t_out" "installed: $th/lib/polyfill-demo.sh"
 t_eq "$([ -f "$th/lib/polyfill-demo.sh" ] && echo there)" "there"
 t_eq "$(stat -L -c %a "$th/lib/polyfill-demo.sh")" "644"
 # The host answers the way the checkout does: a feature the image lacks and the
-# tree carries is `polyfill`, not `off`. The file the function reads for it is
-# the one beside the headless.sh it was sourced from, so the checkout's answer
-# is read from a copy of the checkout's own file: sourced from $T_ROOT/lib it
-# would look for the polyfill beside that headless.sh, and the rule of these
-# cases is that the repository carries none.
-t_run ". '$th/lib/headless.sh' && tehas_headless_mode '{}' demo"
+# tree carries is `polyfill`, not `off`. The file tehas-cycle reads for it is
+# the one in the lib/ beside its own libexec/, so it is asked from there, and
+# the program the install left is put back: the build here is a stub.
+mode_in() { # <tree> <feature>: what tehas-cycle in that tree answers
+  local held=""
+  [ ! -e "$1/libexec/tehas-cycle" ] || { held=$T/held-cycle; mv "$1/libexec/tehas-cycle" "$held"; }
+  cp "$T_CYCLE" "$1/libexec/tehas-cycle"
+  t_run "'$1/libexec/tehas-cycle' caps mode $2 <<<'{}'"
+  rm -f "$1/libexec/tehas-cycle"
+  [ -z "$held" ] || mv "$held" "$1/libexec/tehas-cycle"
+}
+# shellcheck disable=SC2154  # t_cycle_why is set by t_cycle (test/lib.sh)
+t_cycle || t_bad "no tehas-cycle: $t_cycle_why"
+mode_in "$th" demo
 t_eq "$t_out" "polyfill"
-t_run "cp '$T_ROOT/lib/headless.sh' '$checkout/lib/headless.sh' && . '$checkout/lib/headless.sh' && tehas_headless_mode '{}' demo"
+mkdir -p "$checkout/libexec"
+mode_in "$checkout" demo
 t_eq "$t_out" "polyfill"
 # The host the install just made is current, apart from the follow-ups its own
 # copies asked for, which no run of this file has taken.
@@ -150,7 +179,7 @@ make_checkout "$checkout"
 t_run "cd '$checkout' && ./install.sh"
 t_eq "$t_rc" 0
 t_eq "$(cd "$th/lib" && find . -name 'polyfill-*' | tr '\n' ' ')" ""
-t_run ". '$th/lib/headless.sh' && tehas_headless_mode '{}' demo"
+mode_in "$th" demo
 t_eq "$t_out" "off"
 
 t_case "an old command that cannot be removed fails the install"
