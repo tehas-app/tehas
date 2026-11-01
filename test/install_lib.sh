@@ -167,7 +167,6 @@ files="./.bashrc
 ./tehas/libexec/tehas-dispatch.stamp
 ./tehas/libexec/tehas-mcp
 ./tehas/libexec/tehas-mcp.stamp
-./tehas/libexec/tidy
 ./tehas/libexec/update
 ./tehas/libexec/with-settings
 ./tehas/libexec/work
