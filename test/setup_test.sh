@@ -30,15 +30,15 @@ chmod +x "$plat/install.sh" "$T/home/tehas/bin/tehas" "$build"
 printf 'ghp_secret_token\n' >"$T/token"
 printf 'sk_model_key\n' >"$T/model-key"
 
-# The github.com host, the key of its credential helper, and the helper command
-# gh writes, all read from lib/sandbox.sh. The container's git, the probe of
-# tehas setup and the gh stub below read one contract, so a change to its
-# spelling moves the three together and a drift fails here, not on a host.
+# The github.com host and the key of its credential helper, read from
+# lib/sandbox.sh, and the helper command gh writes, the one work_caps_test.sh
+# pins on a container's git. A change to its spelling fails there or here, not
+# on a host.
 # shellcheck source=lib/sandbox.sh
 . "$T_ROOT/lib/sandbox.sh"
 HK=$(tehas_git_credential_helper_key)
 HG=$(tehas_git_github_host)
-HB=$(tehas_sandbox_helper_command)
+HB='!gh auth git-credential'
 
 # gh: the token can push (PUSH=false: it cannot), the bot is tehas-bot, the
 # app's installation lists APP_REPOS and its bot has the ID 9191, a new
