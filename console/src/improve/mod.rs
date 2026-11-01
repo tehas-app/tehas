@@ -4,6 +4,7 @@
 //!
 //!   console improve due <prompt file>
 //!   console improve run <prompt file>
+//!   console improve table
 //!
 //! `due` holds the lock for the sweep and says whether a run has anything to
 //! do. `run` is the run. libexec/improve calls them in that order with the
@@ -81,16 +82,20 @@
 
 mod body;
 mod check;
-mod models;
+pub mod models;
 mod pack;
 mod run;
 
 pub fn main(given: &[String]) -> u8 {
     match given {
+        [verb] if verb == "table" => {
+            println!("{}", run::table());
+            0
+        }
         [verb, prompt] if verb == "due" => run::due(prompt),
         [verb, prompt] if verb == "run" => run::run(prompt),
         _ => {
-            eprintln!("console improve: usage: due|run <prompt file>");
+            eprintln!("console improve: usage: due|run <prompt file> | table");
             64
         }
     }
