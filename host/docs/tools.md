@@ -2359,6 +2359,11 @@ made is said there as `#N runs from the install: its own copy could not be made
 (<why>)`, and the cycle runs from `~/tehas` as before. Each start removes the
 copies whose process has ended.
 
+`libexec/cycle` loads the settings, takes the lock and execs `tehas-cycle
+cycle`, which puts the start on record, asks what the number is, runs `tehas
+work` and sees to the report. A stop reaches it as the main process of the unit.
+With no `libexec/tehas-cycle` nothing starts: exit 78.
+
 **The clock a cycle is measured on.** `tehas-cycle clock` counts a cycle on a
 monotonic clock: the seconds since boot, read from the first number of
 `/proc/uptime`. The wall clock is not read at all, so the time a VM was saved
