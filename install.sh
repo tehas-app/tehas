@@ -524,28 +524,24 @@ for f in tehas tehasbot; do
   files+=("bin/$f|$TEHAS_HOME/bin/$f|755")
 done
 for f in \
-  api \
   check-product \
   clean \
   cycle \
   dev \
   dev-login \
   dispatch \
-  drain \
   export \
   github-token \
   history \
   improve \
   index \
   init-product \
-  labels \
   mcp \
   plan \
   preview \
   protolab \
   refresh \
   review \
-  resume \
   setup \
   status \
   stop \
@@ -557,6 +553,8 @@ for f in \
   work; do
   files+=("libexec/$f|$TEHAS_HOME/libexec/$f|755")
 done
+# What tehas labels makes. A change here owes the labels step.
+files+=("labels.tsv|$TEHAS_HOME/lib/labels.tsv|644")
 # The polyfills of pi-rukas features (scripts/polyfills.sh) are a glob, not a
 # list: which ones the tree carries changes when upstream releases one, and a
 # name in a list is one more thing an install can be missing.
@@ -1219,12 +1217,16 @@ for f in \
   bin/tehas-test \
   bin/tehas-work \
   libexec/analytics-cmd \
+  libexec/api \
   libexec/console.ts \
   libexec/disk \
+  libexec/drain \
   libexec/energy \
   libexec/health \
+  libexec/labels \
   libexec/limit \
   libexec/pause \
+  libexec/resume \
   libexec/state \
   libexec/summary \
   edge/protolab.Caddyfile \

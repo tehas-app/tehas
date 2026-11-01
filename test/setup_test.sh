@@ -3,7 +3,7 @@
 # GitHub and the model endpoint, the files it writes and their modes, that a
 # second run changes nothing, that it never overwrites a setting without
 # --force, and that no token is ever on a command line. A scratch platform
-# tree stands in for the install: its install.sh, labels and check-product
+# tree stands in for the install: its install.sh, the host's tehas and check-product
 # record that they ran.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
 # shellcheck source=test/lib.sh
@@ -21,10 +21,11 @@ build=$T/home/tehas/sandbox/build.sh
 
 # The platform's own steps, each recording its run.
 printf '#!/usr/bin/env bash\necho install.sh $* >>"$T/calls/steps"\n' >"$plat/install.sh"
-printf '#!/usr/bin/env bash\necho labels $* >>"$T/calls/steps"\n' >"$plat/libexec/labels"
+mkdir -p "$T/home/tehas/bin"
+printf '#!/usr/bin/env bash\necho $* >>"$T/calls/steps"\n' >"$T/home/tehas/bin/tehas"
 mkdir -p "$(dirname "$build")"
 printf '#!/usr/bin/env bash\necho build $* >>"$T/calls/steps"\n' >"$build"
-chmod +x "$plat/install.sh" "$plat/libexec/labels" "$build"
+chmod +x "$plat/install.sh" "$T/home/tehas/bin/tehas" "$build"
 
 printf 'ghp_secret_token\n' >"$T/token"
 printf 'sk_model_key\n' >"$T/model-key"

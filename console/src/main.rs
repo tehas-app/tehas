@@ -136,7 +136,7 @@
 //! The product against the contract, and the files it is missing proposed in a
 //! pull request, see src/product.rs.
 //!
-//!   console tehas status|disk|state|limit|pause|analytics ...
+//!   console tehas status|disk|state|limit|pause|analytics|api|labels|resume|drain ...
 //!   console tehasbot health
 //!   console check tehas|tehasbot <command> ...
 //!   console usage <command>
@@ -148,6 +148,7 @@
 //! Exit: 0 stopped by a signal or masked, 1 the console file or standard
 //! output cannot be written, 2 usage.
 
+mod api;
 mod clean;
 mod commands;
 mod disk;
@@ -159,6 +160,7 @@ mod forge;
 mod frame;
 mod health;
 mod jq;
+mod labels;
 mod notice;
 mod now;
 mod plan;
@@ -383,6 +385,7 @@ fn main() -> ExitCode {
         match given.first().map(String::as_str) {
             Some("check-product") => return ExitCode::from(product::check(&given[1..])),
             Some("check") => return ExitCode::from(commands::check(&given[1..])),
+            Some("needs") => return ExitCode::from(commands::needs(&given[1..])),
             Some("clean") => return ExitCode::from(clean::main(&given[1..])),
             Some("disk") => return ExitCode::from(disk::main(&given[1..])),
             Some("energy") => return ExitCode::from(energy::main(&given[1..])),
