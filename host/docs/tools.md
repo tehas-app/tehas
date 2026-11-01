@@ -1469,9 +1469,9 @@ index's copy is.
 
 The command makes the directory before the container starts and refuses to start
 a session when it is not a directory of the user the session runs as. The
-cleaner takes it when the disk is under `TEHAS_CLEAN_MIN_FREE`, and when it has
-not been written to for `TEHAS_CLEAN_AFTER` hours, of a clone that no session
-holds: see [clean](#tehasbot-clean). Nothing else under `<name>.state` is ever
+cleaner takes it when the disk is under `TEHAS_CLEAN_MIN_FREE` and it has not
+been written to for `TEHAS_CLEAN_AFTER` hours, of a clone that no session holds:
+see [clean](#tehasbot-clean). Nothing else under `<name>.state` is ever
 taken, so the clone, its memory, sessions, transcripts, code index, author and
 images stay whatever the disk does:
 
@@ -1481,8 +1481,8 @@ rm -rf ~/tehas/dev/<name>.state/target          # clear one clone's build by han
 tehasbot clean                                  # or let the cleaner decide
 ```
 
-`tehasbot clean --dry-run` names the path with the bytes it would free, which is
-how an operator sees the size before the disk fills.
+Every `tehasbot clean`, and `--dry-run`, logs its size, which is how an operator
+sees it before the disk fills.
 
 ### From another account
 
@@ -3303,11 +3303,11 @@ store in bounds. Seven steps, and a step that fails
 is logged as a warning while the others still run. One exception to the age:
 when less than `TEHAS_CLEAN_MIN_FREE` (30g by default) is free on the file
 system of `~/tehas` or on the one Docker keeps its images on, whichever has
-less, steps 1, 2 and 7 take build output and the build cache whatever their age -
+less, steps 1 and 2 take build output and the build cache whatever their age -
 step 2 with `until=0h`, which prunes the whole cache - and the run opens with
 the line `clean: low on disk: <n> GiB free, under TEHAS_CLEAN_MIN_FREE=<value>:
 build output and build cache go whatever their age`. Steps 3, 4, 5 and 6 keep the
-age, the free figure is read once for the whole run, and a figure that cannot
+age, step 7 runs only then and keeps the age too, the free figure is read once for the whole run, and a figure that cannot
 be read changes nothing. The lock rule is not relaxed: a workspace whose lock a
 cycle holds, and a clone whose lock `tehas dev` holds, are left alone low on
 disk or not. It sits above
@@ -3403,9 +3403,10 @@ starting cycles:
    store alone.
 7. **The build output of a manual session.** `<name>.state/target` of every
    clone under `~/tehas/dev`, a plain directory of the account the cleaner runs
-   as and no link, which goes on the same two rules as a kept workspace: under
-   `TEHAS_CLEAN_MIN_FREE` whatever its age, and otherwise once it has gone
-   untouched for `TEHAS_CLEAN_AFTER` hours. Nothing else under `<name>.state` is
+   as and no link. Every run logs one line per clone with the size of it. It
+   goes only under `TEHAS_CLEAN_MIN_FREE` and once it has gone untouched for
+   `TEHAS_CLEAN_AFTER` hours; above that figure a clone keeps its build, so a
+   healthy host never loses one. Nothing else under `<name>.state` is
    named: the clone, its memory, sessions, runs, transcripts, author and images
    stay. A session is open when the lock `tehas dev` holds for its whole life,
    `~/tehas/state/dev/<name>.lock`, is held, or when `docker ps` names the
@@ -3414,12 +3415,12 @@ starting cycles:
    lock that is a link, a directory or a file no one can open is the same as
    held, and so is a docker that will not say whether the container stands, on
    the line `docker gave no answer for the session of clone <name>, so its build
-   output was kept`: an unknown is never a reason to take a build away. The lock
-   is asked of again at the instant of the removal, as step 1 asks the issue's,
-   so a session that started in between is not met with a target half removed.
-   A kept clone says `kept the build output of clone <name>: its session is
-   open`, a young one `kept the build output of clone <name>: its target was
-   written within <N> hours`, and a taken one
+   output was kept, <n> bytes`: an unknown is never a reason to take a build
+   away. The cleaner holds the lock through the removal, so a session that starts
+   then waits and does not meet a target half removed. A kept clone says `kept
+   the build output of clone <name>: its session is open, <n> bytes`, `the disk
+   is not low, <n> bytes`, or `its target was written within <N> hours, <n>
+   bytes`, and a taken one
    `removed <path>: the build output of clone <name>, <n> bytes`.
 
 A dry run measures what it names. Each path it would take is logged as

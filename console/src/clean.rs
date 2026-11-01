@@ -9,10 +9,9 @@
 //!     written; 3 another run holds the lock; 64 a usage error.
 //!
 //! Only what has not been used for <after> hours goes. When the free disk is
-//! under the minimum, steps 1, 2 and 7 take build output and the build cache
+//! under the minimum, steps 1 and 2 take build output and the build cache
 //! whatever their age; a workspace whose lock a cycle holds is still never
-//! touched, and neither is the build output of a clone whose lock `tehas dev`
-//! holds.
+//! touched.
 //!
 //! A cycle's scratch on the host's scratch disk goes with its lock free.
 //!
@@ -37,14 +36,15 @@
 //!    removed by its own name. Never `docker image prune`.
 //! 6. `store upkeep`: old logs, a daily backup of the state store, prune.
 //! 7. The build output of a manual session: `<name>.state/target` of every
-//!    clone under `dev`, a plain directory of the run's own user and no link,
-//!    which is kept by age above the minimum free and taken under it. Nothing
-//!    else under `<name>.state` is named: the clone, its memory, sessions,
-//!    runs, transcripts, author and images stay. The lock `tehas dev` holds for
-//!    a session, `state/dev/<name>.lock` and no lock file of `state/cycles` is
-//!    what marks a session open; one that is a link, a directory or a file no
-//!    one can open is the same as held, and so is a docker that will not say
-//!    whether the session's container stands.
+//!    clone under `dev`, a plain directory of the run's own user and no link.
+//!    Above the minimum free every clone keeps its build; under it a build of
+//!    that age goes. Nothing else under `<name>.state` is
+//!    named: the clone, its memory, sessions, runs, transcripts, author and
+//!    images stay. The lock `tehas dev` holds for a session,
+//!    `state/dev/<name>.lock` and no lock file of `state/cycles`, is what marks
+//!    a session open, and this step holds it through the removal; one that is
+//!    a link, a directory or a file no one can open is the same as held, and so
+//!    is a docker that will not say whether the session's container stands.
 //!
 //! One line per removal and a closing line with the bytes freed go to the log
 //! and to standard output; a warning goes to the log and standard error. A dry
@@ -232,10 +232,12 @@ fn open_session(given: &[String]) -> u8 {
         && made(&state)
         && fs::symlink_metadata(&state).is_ok_and(|m| m.is_dir())
         && made(&target)
-        && fs::symlink_metadata(&target)
-            .is_ok_and(|m| m.is_dir() && m.uid() == the_uid());
+        && fs::symlink_metadata(&target).is_ok_and(|m| m.is_dir() && m.uid() == the_uid());
     if !prepared {
-        eprintln!("tehas clean: {} is not a directory of this account, or could not be made", target.display());
+        eprintln!(
+            "tehas clean: {} is not a directory of this account, or could not be made",
+            target.display()
+        );
         return 78;
     }
     // The wait, spent here: a session that is merely running must not hold the
@@ -1603,35 +1605,48 @@ impl Run {
                 // clone, a `.author` or an `.images` file is no build output.
                 continue;
             };
-            // The name the session's container would carry, asked of the lock
-            // and of docker before the tree: what a clone keeps of its own is
-            // taken only when nothing says a session is at work in it.
+            // Only this run's own user's own plain directory: a target left by
+            // hand, by root or by another account is not what this command made
+            // and is not taken, and no link is walked, of the state or the target.
+            let state = devs.join(&name);
+            let target = state.join("target");
+            let owned = fs::symlink_metadata(&target).is_ok_and(|m| m.is_dir() && m.uid() == me);
+            if !real_dir(&state) || !real_dir(&target) || !owned {
+                continue;
+            }
+            let shown = target.display().to_string();
+            let bytes = bytes_of(&target);
             let session = match self.session_open(shown_name, containers) {
                 Some(open) => open,
                 None => {
                     self.warn(&format!(
-                        "docker gave no answer for the session of clone {shown_name}, so its build output was kept"
+                        "docker gave no answer for the session of clone {shown_name}, so its build output was kept, {bytes} bytes"
                     ));
                     continue;
                 }
             };
             if session {
                 self.log(&format!(
-                    "kept the build output of clone {shown_name}: its session is open"
+                    "kept the build output of clone {shown_name}: its session is open, {bytes} bytes"
                 ));
                 continue;
             }
-            // Only this run's own user's own plain directory: a target left by
-            // hand, by root or by another account is not what this command made
-            // and is not taken. Dot-names are never entered, no link is walked.
-            let state = devs.join(&name);
-            let target = state.join("target");
-            let owned = fs::symlink_metadata(&target).is_ok_and(|m| m.is_dir() && m.uid() == me);
-            if !real_dir(&target) || !owned {
+            // Low on disk only, so a healthy host never loses a build, and
+            // even then only a build of that age. <after>, not <build_after>:
+            // the low disk that zeroes the second is the first rule here.
+            if !self.low {
+                self.log(&format!(
+                    "kept the build output of clone {shown_name}: the disk is not low, {bytes} bytes"
+                ));
                 continue;
             }
-            let shown = target.display().to_string();
-            let bytes = bytes_of(&target);
+            if newer(&target, self.after) != Some(false) {
+                let hours = self.after;
+                self.log(&format!(
+                    "kept the build output of clone {shown_name}: its target was written within {hours} hours, {bytes} bytes"
+                ));
+                continue;
+            }
             if self.dry {
                 self.log(&format!(
                     "would remove {shown}: the build output of clone {shown_name}, {bytes} bytes"
@@ -1639,20 +1654,7 @@ impl Run {
                 self.freed += bytes;
                 continue;
             }
-            // Above the minimum free the age decides, as it does for a kept
-            // workspace; under it a clone's build goes whatever its age, which
-            // is what a host that fills without anyone looking is saved by.
-            if !self.low && newer(&target, self.build_after) != Some(false) {
-                let hours = self.build_after;
-                self.log(&format!(
-                    "kept the build output of clone {shown_name}: its target was written within {hours} hours"
-                ));
-                continue;
-            }
-            // The session's lock is asked of again here, as the sweep asks the
-            // issue's at the instant of the removal: between the two questions a
-            // session may have started, and its lock, not a name docker answers,
-            // is what `tehas dev` holds for the session's life.
+            // The session's lock is asked of again at the instant of the removal.
             let held = !matches!(
                 self.clone_lock(shown_name)
                     .as_deref()
@@ -1661,7 +1663,7 @@ impl Run {
             );
             if held {
                 self.log(&format!(
-                    "kept the build output of clone {shown_name}: its session is open"
+                    "kept the build output of clone {shown_name}: its session is open, {bytes} bytes"
                 ));
                 continue;
             }
@@ -1901,23 +1903,38 @@ mod tests {
         // No container of the host carries a session's name, so no case here
         // asks a docker.
         let none: Vec<String> = Vec::new();
+        // Above the minimum nothing goes, of any age, and the size is logged.
+        assert!(run.clone_targets_among(Some(&none)));
+        let said = fs::read_to_string(&run.logfile).unwrap();
+        assert!(run.home.join("dev/alice.state/target").exists(), "{said}");
+        assert!(
+            said.contains(&format!(
+                "kept the build output of clone alice: the disk is not low, {alice_bytes} bytes"
+            )),
+            "{said}"
+        );
+        assert_eq!(run.freed, 0, "{said}");
+        // Under it, of an age, so it goes; young, so it stays; and the lines
+        // name why. The bytes are what went, read back of the tree itself.
+        run.low = true;
+        run.build_after = 0;
+        fs::remove_file(&run.logfile).unwrap();
         assert!(
             run.clone_targets_among(Some(&none)),
             "{}",
             fs::read_to_string(&run.logfile).unwrap()
         );
         let said = fs::read_to_string(&run.logfile).unwrap();
-        // Of an age, so it goes; young, so it stays; and the lines name why.
-        // The bytes are the whole of what went, read back of the tree itself.
         assert!(!run.home.join("dev/alice.state/target").exists(), "{said}");
         assert!(run.home.join("dev/alice.state/sessions").exists(), "{said}");
         assert!(run.home.join("dev/bob.state/target").exists(), "{said}");
         assert!(run.home.join("dev/bob.state/sessions").exists());
         assert!(said.contains("removed "), "{said}");
+        let young = bytes_of(&devs.join("bob.state/target"));
         assert!(
-            said.contains(
-                "kept the build output of clone bob: its target was written within 24 hours"
-            ),
+            said.contains(&format!(
+                "kept the build output of clone bob: its target was written within 24 hours, {young} bytes"
+            )),
             "{said}"
         );
         assert_eq!(run.freed, alice_bytes, "{said}");
@@ -1925,8 +1942,9 @@ mod tests {
         // account, is nobody's build output to take: a link of that name is
         // left a link and what it points at is not walked.
         let aside = root.join("elsewhere");
-        fs::create_dir_all(aside.join("build")).unwrap();
-        fs::write(aside.join("build/lib"), vec![b'x'; 4096]).unwrap();
+        fs::create_dir_all(aside.join("target")).unwrap();
+        fs::write(aside.join("target/lib"), vec![b'x'; 4096]).unwrap();
+        age_tree(&aside, 72);
         std::os::unix::fs::symlink(&aside, devs.join("dave.state")).unwrap();
         let mut dry = Run {
             dry: true,
@@ -1934,12 +1952,24 @@ mod tests {
             ..run
         };
         clone("carol", true);
+        fs::remove_file(&dry.logfile).unwrap();
         assert!(dry.clone_targets_among(Some(&none)));
         assert!(dry.home.join("dev/carol.state/target").exists());
-        assert!(aside.join("build/lib").exists(), "a link was followed");
+        assert!(aside.join("target/lib").exists(), "a link was followed");
         let said = fs::read_to_string(&dry.logfile).unwrap();
         assert!(said.contains("would remove "), "{said}");
         assert!(!said.contains("dave"), "{said}: a link is no build output");
+        // A dry run answers as the run would: the young build is not named.
+        assert_eq!(
+            dry.freed,
+            bytes_of(&devs.join("carol.state/target")),
+            "{said}"
+        );
+        // A docker that will not answer keeps every build.
+        fs::remove_file(&dry.logfile).unwrap();
+        dry.freed = 0;
+        assert!(dry.clone_targets_among(None));
+        assert_eq!(dry.freed, 0);
         fs::remove_dir_all(&root).unwrap();
     }
 
