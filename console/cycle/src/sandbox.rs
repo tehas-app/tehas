@@ -28,8 +28,6 @@ fn limits(who: &str, what: &str) -> i32 {
     };
     let mut words = taken.limits;
     words.extend(taken.security);
-    words.push(taken.slice.max.to_string());
-    words.push(taken.slice.active);
     print(&words)
 }
 

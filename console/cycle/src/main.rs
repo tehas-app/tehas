@@ -126,14 +126,13 @@
 //!   tehas-cycle sandbox limits <who> <what>
 //!                                     one systemctl and one docker info: the
 //!                                     14 limit words, the 10 security words,
-//!                                     then the slice's MemoryMax and
-//!                                     ActiveState, NUL separated. Without a
-//!                                     usable slice one line on standard error
+//!                                     NUL separated. Without a usable slice
+//!                                     one line on standard error
 //!                                     that starts with <who>, and exit 78;
 //!                                     <what> names what does not start
 //!   tehas-cycle sandbox env <kind> <tree> <git name> <git email>
-//!                                     the -e options of a cycle, turn, session
-//!                                     or review, NUL separated
+//!                                     the -e options of a cycle or turn, NUL
+//!                                     separated
 //!   tehas-cycle sandbox hosts         the --add-host options, NUL separated
 //!   tehas-cycle sandbox mounts <kind> <tree> <host> <state> <runs>
 //!                                     make what the -v options name and print

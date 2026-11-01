@@ -15,7 +15,7 @@ ok="$pre"'tehas_slice_ok; echo "rc=$? max=$TEHAS_SLICE_MAX active=$TEHAS_SLICE_A
 # shellcheck disable=SC2154  # t_cycle_why is set by t_cycle (test/lib.sh)
 t_cycle || t_bad "no tehas-cycle: $t_cycle_why"
 # The words the program hands a command, one line: the fourteen of the limits,
-# the ten of the security options, then the slice's own two.
+# then the ten of the security options.
 limits="$pre'$T_CYCLE' sandbox limits 'tehas t' 'a test' | tr '\\0' ' '; "'echo "rc=${PIPESTATUS[0]}"'
 a=$(slice_id a)
 b=$(slice_id b)
@@ -183,7 +183,7 @@ done
 t_case "limits fills exactly the fourteen words with a quarter of the max in MiB"
 good
 t_run "$limits"
-t_eq "$t_out" "--cgroup-parent tehas.slice --memory 5120m --memory-swap 5120m --memory-reservation 2g --cpus 7.00 --pids-limit 2048 --cpu-shares 1024 --cap-drop ALL --cap-add CHOWN --cap-add FOWNER --security-opt no-new-privileges:true --tmpfs /tmp:rw,exec,nosuid,nodev,size=2560m,mode=1777 $MAX active rc=0"
+t_eq "$t_out" "--cgroup-parent tehas.slice --memory 5120m --memory-swap 5120m --memory-reservation 2g --cpus 7.00 --pids-limit 2048 --cpu-shares 1024 --cap-drop ALL --cap-add CHOWN --cap-add FOWNER --security-opt no-new-privileges:true --tmpfs /tmp:rw,exec,nosuid,nodev,size=2560m,mode=1777 rc=0"
 
 t_case "limits makes one call of each, and its words start with the command"
 t_eq "$(wc -l <"$T/calls/systemctl" | tr -d ' ') $(wc -l <"$T/calls/docker" | tr -d ' ')" "1 1"
