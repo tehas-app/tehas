@@ -4,9 +4,10 @@
 
 use serde_json::{json, Value};
 use std::fs;
+use std::io::Write;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::{Command, Output, Stdio};
 
 const STORE: &str = r#"#!/usr/bin/env bash
 d=$(dirname "$0")
@@ -104,6 +105,37 @@ impl Host {
             .env_remove("TEHAS_IMPROVE_REPO")
             .output()
             .unwrap()
+    }
+
+    /// `tehas-cycle after` as the cycle runs it, the words on its stdin.
+    fn after(&self, words: &[&str]) -> Output {
+        let mut child = Command::new(env!("CARGO_BIN_EXE_tehas-cycle"))
+            .args(["after", "7"])
+            .env(
+                "PATH",
+                format!(
+                    "{}/bin:{}",
+                    self.dir.display(),
+                    std::env::var("PATH").unwrap()
+                ),
+            )
+            .env("TEHAS_HOME", &self.dir)
+            .env("HOME", &self.dir)
+            .env("TEHAS_ANALYTICS", "on")
+            .env("TEHAS_ANALYTICS_WAIT", "60")
+            .env_remove("TEHAS_IMPROVE_REPO")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut stdin = child.stdin.take().unwrap();
+        for word in words {
+            stdin.write_all(word.as_bytes()).unwrap();
+            stdin.write_all(b"\0").unwrap();
+        }
+        drop(stdin);
+        child.wait_with_output().unwrap()
     }
 
     fn calls(&self) -> Vec<String> {
@@ -352,4 +384,44 @@ fn a_store_that_cannot_run_is_absent_and_is_not_asked_again() {
     fs::set_permissions(&store, fs::Permissions::from_mode(0o644)).unwrap();
     let plain = tehas_cycle::host::store_try(&h.dir, 3, &["publish"]).unwrap_err();
     assert_eq!(plain.word, "absent", "{}", plain.line);
+}
+
+#[test]
+fn a_history_line_of_200000_characters_goes_through_after_whole() {
+    let h = Host::new("after-long");
+    exe(
+        &h.dir.join("libexec/analytics"),
+        r#"#!/usr/bin/env bash
+d=$(dirname "$0")
+[ "$1" = run ] || exit 0
+while [ $# -gt 1 ]; do
+  [ "$1" = --facts ] && cp "$2" "$d/../facts.json"
+  shift
+done
+"#,
+    );
+    let step = "x".repeat(200_000);
+    let out = h.after(&[
+        "--attempt",
+        "1",
+        "--started",
+        "1000",
+        "--rc",
+        "2",
+        "--status",
+        "failed",
+        "--step",
+        &step,
+        "--console",
+        "true",
+        "--status-cmd",
+        "true",
+    ]);
+    assert!(out.status.success(), "{out:?}");
+    let said = String::from_utf8_lossy(&out.stdout);
+    assert!(!said.contains("WARN"), "{said}");
+    let facts: Value =
+        serde_json::from_str(&fs::read_to_string(h.dir.join("facts.json")).unwrap()).unwrap();
+    assert_eq!(facts["line"]["step"].as_str(), Some(step.as_str()));
+    assert!(h.dir.join("state/dispatch.again").exists());
 }
