@@ -6,11 +6,16 @@
 //! `clock` measures a cycle on a clock that stops while the VM is saved.
 //! `renew` keeps a cycle's GitHub token fresh and says what went wrong.
 //! `finish` opens a pull request from what a cycle that stopped left.
+//! `after` does what follows a cycle's record, and `improve` writes the
+//! record the improvement loop reads.
 
+pub mod after;
 pub mod clock;
 pub mod facts;
 pub mod finish;
 pub mod host;
+pub mod improve;
+pub mod jq;
 pub mod last_attempt;
 pub mod pin;
 pub mod renew;

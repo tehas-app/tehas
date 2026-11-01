@@ -1,22 +1,11 @@
 # shellcheck shell=bash
-# The improvement loop's shared parts: the switch, the record a cycle leaves
-# for the loop, what a cycle ran with, and how a whole log is packed for
-# upload. Sourced by libexec/improve, by tehas work and by the script that
-# ends a cycle.
+# The improvement loop's shared parts: the switch, what a cycle ran with, and
+# how a whole log is packed for upload. Sourced by libexec/improve and by tehas
+# work. The record a cycle leaves for the loop is tehas-cycle's
+# (console/cycle/src/improve.rs).
 #
 #   tehas_improve_on       is the loop switched on for this instance?
 #   tehas_improve_dir      print where records wait
-#   tehas_improve_record <issue> <started> <rc> <status> <step> [<pr> [<kills> [<image> [<rukas> [<cap> [<reason> [<build>]]]]]]]
-#                          write the record of a cycle that has ended. <kills>
-#                          is how many processes in its container were killed
-#                          for memory, oomKills in cycle.json; anything but a
-#                          number counts as 0. <image> and <rukas> are the id
-#                          of the image the container started from and the
-#                          pi-rukas commit of its label, image and rukas.
-#                          <cap> and <reason> are what ended the cycle, cap
-#                          and capReason. <build> is the commit the runner's
-#                          result names (buildCommit), the build a fix is
-#                          checked against
 #   tehas_improve_settings <file> <concurrent> <docker options>...
 #                          write what a cycle ran with, for its record: the
 #                          PI_ENSEMBLE_* variables the -e options give the
@@ -29,17 +18,6 @@
 #                          pieces when that would be over <limit> bytes
 #
 # Source lib/config.sh and call tehas_load first.
-#
-# A record is a directory, window/<issue>-<stamp>, and the only thing the loop
-# reads of a cycle. Its cycle.json also holds the settings tehas work put on
-# the cycle's record on the state store as the container started
-# (cycle-show), and the provider
-# retry line of the preflight log. With the issue's attachments given, it also holds what
-# tehas work kept of them: manifest.json, images.md and retry-context.md, each
-# when the cycle had it, none over tehas_manifest_bytes, which is the bound
-# both writers of a manifest keep one under. Never an image or a file. It is
-# built beside the window and renamed into it, so a
-# run never sees half of one and cycles that end together do not collide.
 
 # shellcheck source=lib/attachments.sh
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/attachments.sh"
@@ -49,93 +27,6 @@
 tehas_improve_on() { [ -n "${TEHAS_IMPROVE_REPO:-}" ]; }
 
 tehas_improve_dir() { printf '%s\n' "$TEHAS_HOME/tmp/improve"; }
-
-# The stream as a model can read it. A line that is not JSON is dropped. The
-# id of a status event differs every time, so it goes, and uniq then keeps a
-# status repeated in a row once.
-# shellcheck disable=SC2016  # a jq program: the variables are jq's
-_tehas_improve_condense='
-  fromjson? | select(type == "object" and .type != "message_update")
-  | if .type == "extension_ui_request" then del(.id) else . end
-  | walk(if type == "string" and length > 2000 then .[0:2000] + " [cut]" else . end)'
-
-tehas_improve_record() { # <issue> <started> <rc> <status> <step> [<pr> [<kills> [<image> [<rukas> [<cap> [<reason> [<build>]]]]]]]
-  tehas_improve_on || return 0
-  local issue=$1 started=$2 rc=$3 status=$4 step=$5 pr=${6:-} kills=${7:-0} image=${8:-} rukas=${9:-} base raw rec tmp f from
-  local cap=${10:-} reason=${11:-} settings retry build=${12:-} prose='[!A-Za-z0-9 _.,:;/()=+-]'
-  [[ $build =~ ^[0-9a-f]{40}$ ]] || build=""
-  cap=${cap//[!A-Za-z0-9_.:-]/} reason=${reason//$prose/}
-  cap=${cap:0:80} reason=${reason:0:200}
-  [[ $kills =~ ^(0|[1-9][0-9]{0,8})$ ]] || kills=0
-  [[ $image =~ ^sha256:[0-9a-f]{64}$ ]] || image=""
-  base=$(tehas_improve_dir)
-  raw=$(find "$TEHAS_HOME/logs" -maxdepth 1 -type f -name "work-$issue-*.jsonl" \
-    -newermt "@$((started - 5))" 2>/dev/null | sort | tail -n 1)
-  if [ -z "$raw" ]; then
-    tehas_err "improve: no log of issue $issue since the cycle began, no record written"
-    return 1
-  fi
-  rec=$(basename "$raw" .jsonl)
-  rec=${rec#work-}
-  mkdir -p "$base/window" || return 1
-  tmp=$(mktemp -d "$base/.new.XXXXXX") || return 1
-  # The pi-rukas this cycle ran with: the image's, as its container started,
-  # else as tehasbot cycle noted it at the start. What a fix in it is checked
-  # against. With it, what the cycle ran with: the settings on the record of
-  # the issue's latest start, which is this cycle's, as the cycle still holds
-  # the issue's lock. A record that cannot be read leaves both out.
-  settings=null
-  from=""
-  if tehas_store cycle-show "$issue"; then
-    from=$(jq -r '.cycle.rukas_commit // "" | strings' <<<"$tehas_store_out" 2>/dev/null) || from=""
-    settings=$(jq -c ".cycle | select(. != null) | $tehas_settings_shape" <<<"$tehas_store_out" 2>/dev/null) || settings=null
-    [ -n "$settings" ] || settings=null
-  fi
-  [[ $rukas =~ ^[0-9a-f]{7,40}$ ]] || rukas=$from
-  [[ $rukas =~ ^[0-9a-f]{7,40}$ ]] || rukas=""
-  retry=$(grep -a -m 1 '^provider retry: ' "$raw.preflight" 2>/dev/null)
-  retry=${retry//$prose/} retry=${retry:0:200}
-  if ! jq -n --argjson issue "$issue" --argjson started "$started" --argjson rc "$rc" \
-    --argjson ended "$EPOCHSECONDS" --arg status "$status" --arg step "$step" --arg pr "$pr" \
-    --arg log "$(basename "$raw")" --argjson kills "$kills" --arg rukas "$rukas" --arg image "$image" \
-    --arg cap "$cap" --arg reason "$reason" --arg build "$build" --argjson settings "$settings" --arg retry "$retry" '
-      {issue: $issue, started: $started, seconds: ($ended - $started), status: $status,
-       step: $step, rc: $rc, pr: (if $pr == "" then null else $pr end), log: $log,
-       oomKills: $kills, rukas: (if $rukas == "" then null else $rukas end),
-       buildCommit: (if $build == "" then null else $build end),
-       image: (if $image == "" then null else $image end),
-       cap: (if $cap == "" then null else $cap end), capReason: (if $reason == "" then null else $reason end),
-       settings: (if $settings == null then null else {container: $settings.container, host: $settings.host} end),
-       concurrentCycles: (if $settings == null then null else $settings.concurrentCycles end),
-       providerRetry: (if $retry == "" then null else $retry end)}' \
-    >"$tmp/cycle.json"; then
-    rm -rf "$tmp"
-    return 1
-  fi
-  jq -c -R "$_tehas_improve_condense" "$raw" 2>/dev/null | uniq >"$tmp/stream.jsonl"
-  cp "$TEHAS_HOME/live/console-$issue.txt" "$tmp/console.txt" 2>/dev/null || : >"$tmp/console.txt"
-  cp "$raw.err" "$tmp/err.txt" 2>/dev/null || : >"$tmp/err.txt"
-  cp "$raw.preflight" "$tmp/preflight.txt" 2>/dev/null || : >"$tmp/preflight.txt"
-  # What the cycle was given of the issue's attachments, as tehas work kept it:
-  # the manifest, the model's descriptions and a retry's pull request text.
-  # Never the files themselves. Only this cycle's, only plain files, and none
-  # over the bound. The driver's slow notices (slow.jsonl), what a child was
-  # doing while it ran, come from the store's `slow` verb, which writes none of
-  # a cycle whose children all came in under its bound.
-  tehas_store slow "$raw" --out "$tmp/slow.jsonl" >/dev/null || rm -f "$tmp/slow.jsonl"
-  for f in manifest.json images.md retry-context.md; do
-    from=$TEHAS_HOME/state/cycles/$issue.$f
-    [ -f "$from" ] && [ ! -L "$from" ] || continue
-    [ -n "$(find "$from" -maxdepth 0 -newermt "@$((started - 5))" 2>/dev/null)" ] || continue
-    [ "$(stat -c %s "$from" 2>/dev/null || echo 0)" -le "$(tehas_manifest_bytes)" ] || continue
-    cp "$from" "$tmp/$f" 2>/dev/null || rm -f "$tmp/$f"
-  done
-  rm -rf "${base:?}/window/$rec"
-  if ! { mkdir -p "$base/window" && mv "$tmp" "$base/window/$rec"; }; then
-    rm -rf "$tmp"
-    return 1
-  fi
-}
 
 # The TEHAS_* settings a record carries: those that shape a cycle. Not every one:
 # the analyst's words are filed in public, and a host's addresses and the
