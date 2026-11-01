@@ -3270,7 +3270,8 @@ reads them again. What a failed analyst printed is in
 the time the run took the records. The run's line names it. Exit 64 on any
 argument, 78 on invalid settings, without a console in `~/tehas/libexec`, or
 when there are records to read and `tehas.slice` cannot be used: the records
-are kept. A second run while one is going leaves it to that one.
+are kept. A second run while one is going leaves it to that one. The unit gives
+a run 90 minutes: the analyst's 60, one to kill it, and the uploads.
 
 Each run also removes the per-cycle files and the kept analyst output in
 `~/tehas/logs/`, and the records under `~/tehas/tmp/improve/`, older than seven
