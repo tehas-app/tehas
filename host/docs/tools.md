@@ -664,8 +664,15 @@ linked issue. A person's pull request is never touched.
 | The title starts with | When |
 | --- | --- |
 | `WIP: ` | The linked issue carries `tehas:running`, or the pull request carries `tehas:refreshing` |
-| `STUCK: ` | No cycle runs and the linked issue carries `needs-human-attention` |
+| `STUCK: ` | No cycle runs, the linked issue carries `needs-human-attention`, and the pull request is not proven fine to merge |
 | nothing | Anything else: it is ok to merge. A person clearing the label clears the prefix |
+
+A pull request is proven fine to merge when all of these hold: it is not a
+draft, GitHub reports it mergeable with the state `clean`, and the factory's
+last six-pass review comment is newer than its head commit and lists no
+finding above MEDIUM. `STUCK: ` stays when any of them cannot be shown, also
+when no review comment exists. Clearing the prefix leaves the label on the
+issue. `WIP: ` is never cleared this way: a running cycle may still push.
 
 Each poll sets the title from what it read already, through
 `console pr-title poll`, and a cycle's end sets it once with
@@ -2819,9 +2826,12 @@ what the dispatcher's last poll wrote about the slice and the demand, and this
 host's pause flag. The status script
 runs it on exit, so it is
 refreshed at every poll and at the end of every cycle. When the poll of the
-dispatcher is the one that ran the status script, the script does not: it holds
-the poll's GitHub token in its environment as `TEHAS_GH_TOKEN`, which is how it
-knows, and the poll runs health itself a moment after the status ends. So one
+dispatcher is the one that ran the status script, the script does not: the poll
+gives it `TEHAS_FROM_POLL=1` in its environment, which the script reads before
+its load, and the poll runs health itself a moment after the status ends. The
+name says the poll ran it and nothing else: it is given whatever token the poll
+holds, so a host that acts as a machine user, or a poll whose token read
+failed, is still known and does not refresh the file twice. So one
 poll refreshes the file once, not twice; a `tehasbot status` a person or a
 cycle runs does it on its own exit, as before. The poll that runs it
 bounds it at 120 s, the same bound it gives the status and tidy, because health
@@ -3008,7 +3018,10 @@ token, and samples the first that answers. The file is removed only when the
 endpoint it asks is not a mesh and was not just down or busy. Set
 `TEHAS_ENERGY_URL` in `~/.config/tehas/env` to ask another
 cluster URL, which is asked with no token, and
-`TEHAS_ENERGY=off` to remove the file. The file is readable by anyone who can
+`TEHAS_ENERGY=off` to remove the file. With neither,
+`PI_ENSEMBLE_SUBAGENT_PROVIDER` has to be set: without it the command says so
+and exits 78, asks nobody and leaves the file as it is, and `--every` stops
+with it. The file is readable by anyone who can
 open the dashboard and names the machines, their draw and their models. It
 also holds the version of the mesh software and, for each model, the name and
 the version of the engine behind it. Addresses, node ids and GPUs are not in it.
@@ -3309,7 +3322,10 @@ expired token. One exception: a call given `TEHAS_GH_TOKEN` in its environment
 uses that as `GH_TOKEN` and runs no `github-token` at all. The dispatcher's
 poll takes the token once at its start and gives it to every `gh` it runs that
 way, and to `tidy`, `status` and `health` when it runs them, so twenty calls of
-a poll ask for one token and not twenty (#938, #965). The
+a poll ask for one token and not twenty (#938, #965). The name of the token is
+not how the status knows the poll ran it: the poll gives the status
+`TEHAS_FROM_POLL=1` as well, and nothing else takes that name (see
+[tehasbot health](#tehasbot-health)). The
 poll holds that token in memory: it is never logged, never written to a file,
 and never put in the poll's record. git's github.com credential helper is
 pointed at the same shim, as environment-level config (no file is written), and

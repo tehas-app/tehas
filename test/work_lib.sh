@@ -223,9 +223,9 @@ cycle_args() { grep -l -x -e 'pi-rukas-headless' -e "$runner" "$T"/calls/docker.
 # The arguments of the docker call that checks the push before the cycle.
 preflight_args() { grep -l -x -e '--entrypoint' "$T"/calls/docker.args.* 2>/dev/null | head -n 1 | xargs -r cat; }
 # The security options and the readers of a docker line come from
-# test/docker_args.sh, which takes the list from tehas_sandbox_security itself,
-# so the cycle, the turn, the session and the push check are all pinned against
-# one source and not against a copy kept in step by hand.
+# test/docker_args.sh, which holds the list as a literal, so the cycle, the
+# turn, the session and the push check are all pinned against one list, and not
+# against the function under test.
 # shellcheck source=test/docker_args.sh
 . "$(dirname "$0")/docker_args.sh" || exit 1
 # The options of lib/slice.sh and of tehas_sandbox_security, by name, for the

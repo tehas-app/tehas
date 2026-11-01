@@ -534,7 +534,6 @@ for f in \
   dispatch \
   disk \
   drain \
-  energy \
   export \
   github-token \
   health \
@@ -1225,6 +1224,7 @@ for f in \
   bin/tehas-test \
   bin/tehas-work \
   libexec/console.ts \
+  libexec/energy \
   edge/protolab.Caddyfile \
   edge/protolab.compose.yaml; do
   to=$TEHAS_HOME/$f

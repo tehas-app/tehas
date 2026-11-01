@@ -1098,7 +1098,7 @@ esac"#,
             systemctl: "true".into(),
             now: 1_793_404_800,
             models: Models {
-                file: Value::Null,
+                file: tehas_core::models::ModelFile { json: Value::Null },
                 used: Vec::new(),
                 provider: String::new(),
                 model: String::new(),
