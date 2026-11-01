@@ -515,7 +515,7 @@ fn extension(name: &str) -> String {
         .unwrap_or_default()
 }
 
-/// tehas_attachment_kind of lib/attachments.sh, until attachments move.
+/// The same table as `kind` in console/attach/src/unpack.rs, less md.
 fn kind_of(ext: &str) -> Option<&'static str> {
     match ext {
         "png" | "jpg" | "jpeg" | "gif" | "webp" | "svg" | "avif" => Some("image"),
@@ -526,7 +526,8 @@ fn kind_of(ext: &str) -> Option<&'static str> {
     }
 }
 
-/// tehas_attachment_ext of lib/attachments.sh, until attachments move.
+/// An image or video pasted into an issue has no name, so its type is the one
+/// GitHub's storage answers with.
 fn extension_of_type(content_type: &str) -> Option<&'static str> {
     match content_type.split(';').next().unwrap_or("") {
         "image/png" => Some("png"),
@@ -793,49 +794,51 @@ mod tests {
         assert_eq!(extension("plain"), "");
     }
 
-    /// The two tables here against the file that holds them for the shell, so
-    /// the copies cannot drift while attachments stay bash.
     #[test]
-    fn kinds_and_extensions_are_those_of_lib_attachments() {
-        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../lib/attachments.sh");
-        let source = fs::read_to_string(path).expect("lib/attachments.sh is there");
-        let kinds = source
-            .split("tehas_attachment_kind() {")
-            .nth(1)
-            .unwrap()
-            .split("*) return 1")
-            .next()
-            .unwrap();
-        let mut seen = 0;
-        for line in kinds.lines().filter(|line| line.contains("echo ")) {
-            let (exts, word) = line.split_once(") echo ").unwrap();
-            let word = word.trim_end_matches(" ;;");
-            for ext in exts.split('|') {
-                assert_eq!(kind_of(ext.trim()), Some(word), "{ext}");
-                seen += 1;
-            }
+    fn the_kind_follows_the_extension_and_an_unknown_one_has_none() {
+        for (ext, kind) in [
+            ("png", "image"),
+            ("jpg", "image"),
+            ("jpeg", "image"),
+            ("gif", "image"),
+            ("webp", "image"),
+            ("svg", "image"),
+            ("avif", "image"),
+            ("mp4", "video"),
+            ("webm", "video"),
+            ("mov", "video"),
+            ("html", "app"),
+            ("htm", "app"),
+            ("css", "part"),
+            ("js", "part"),
+            ("mjs", "part"),
+            ("json", "part"),
+            ("txt", "part"),
+        ] {
+            assert_eq!(kind_of(ext), Some(kind), "{ext}");
         }
-        assert_eq!(seen, 17);
-        let types = source
-            .split("tehas_attachment_ext() {")
-            .nth(1)
-            .unwrap()
-            .split("*) return 1")
-            .next()
-            .unwrap();
-        let mut seen = 0;
-        for line in types.lines().filter(|line| line.contains("echo ")) {
-            let (content_type, ext) = line.split_once(") echo ").unwrap();
-            let ext = ext.trim_end_matches(" ;;");
-            let content_type = content_type.trim();
+        assert_eq!(kind_of(""), None);
+    }
+
+    #[test]
+    fn a_content_type_gives_an_extension_for_an_image_or_a_video_only() {
+        for (content_type, ext) in [
+            ("image/png", "png"),
+            ("image/jpeg", "jpg"),
+            ("image/gif", "gif"),
+            ("image/webp", "webp"),
+            ("image/svg+xml", "svg"),
+            ("image/avif", "avif"),
+            ("video/mp4", "mp4"),
+            ("video/webm", "webm"),
+            ("video/quicktime", "mov"),
+        ] {
             assert_eq!(extension_of_type(content_type), Some(ext));
             assert_eq!(
                 extension_of_type(&format!("{content_type}; charset=x")),
                 Some(ext)
             );
-            seen += 1;
         }
-        assert_eq!(seen, 9);
         assert_eq!(kind_of("zip"), None);
         assert_eq!(extension_of_type("text/html"), None);
     }

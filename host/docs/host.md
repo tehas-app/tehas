@@ -22,7 +22,7 @@ Preparing a fresh machine is on the [bootstrap page](/bootstrap).
 | `~/tehas/lib/paths.sh`               | The home of each tool this host installs, and the `PATH` that finds them. `env.sh`, `bootstrap.sh` and `install.sh` all take the list from here |
 | `~/tehas/lib/sandbox.sh`             | The bash of a sandbox container: the reading of what `tehas-cycle sandbox` gives it; sourced by the work and plan scripts, and by dev for the check of Pi's files |
 | `~/tehas/lib/slice.sh`               | The way to `console slice`, for the poll and `tehas improve`: whether the slice is usable and the room left, and with no console it finds no slice. A command that starts a sandbox container asks `tehas-cycle sandbox limits`, which holds the same rules and makes the container's limits, and it starts nothing without a usable slice |
-| `~/tehas/lib/attachments.sh`         | Which links of an issue are attached files and how one is fetched. `tehas work` and `tehas plan` use it; the Protolab holds the same rules in the console |
+| `~/tehas/lib/attachments.sh`         | The way to `libexec/attach`, which holds which links of an issue are attached files, who may attach and how one is fetched. `tehas work`, `tehas plan` and `tehas dev` use it; the Protolab holds the same link rule in the console |
 | `~/tehas/lib/questions.sh`            | The questions of a park. A cycle's report uses it |
 | `~/tehas/bin/`                       | The two commands on `PATH`: `tehas` for a person, `tehasbot` for the units. Plus `gh` |
 | `~/tehas/libexec/`                   | The scripts behind the two commands, one for each thing they do. Not on `PATH` |
@@ -496,11 +496,15 @@ health page and the cleaner ask).
 A real run builds each with `cargo` in the checkout and installs them as
 `~/tehas/libexec/console`, `~/tehas/libexec/analytics`,
 `~/tehas/libexec/tehas-mcp`, `~/tehas/libexec/store` and
-`~/tehas/libexec/attach`. The attachment checker reads the bytes of every file
-fetched for an issue, unpacks its zips, and composes what a cycle is told it was
-given (see [Tools](/tools)); without it a cycle given an issue's attachments
-does not start, a cycle given none says it could not read the record, and the
-Protolab leaves a zip out. A host installed from a release tarball has neither
+`~/tehas/libexec/attach`. The attachment checker fetches the files of an issue
+and of a planning reply, judges who may attach them and how much is given,
+reads their bytes, unpacks their zips, and composes what a cycle is told it was
+given (see [Tools](/tools)). It holds `GH_TOKEN` only to pass it to `gh` and to
+`curl`, on `curl`'s standard input; what was fetched is read by the same program
+run as a child with no environment but `PATH`. Without it a cycle on an instance
+that gives attachments does not start, whether or not its issue links any, a
+cycle given none says it could not read the record, and the Protolab leaves a
+zip out. A host installed from a release tarball has neither
 `cargo` nor `console/`: its programs are the ones the release packed
 ([Releases](/tools#releases)), and a release without a store installs only on a
 host that has one. On a host with none, `--check` says so on a `Store: REFUSED`

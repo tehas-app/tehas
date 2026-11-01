@@ -142,7 +142,7 @@ carrier '\.cid\b' 'cid_file=$TEHAS_HOME/state/cycles/$issue.cid' \
   'console/src/dev.rs console/src/stop.rs libexec/work' \
   "the container's id, for docker"
 carrier '\.manifest\.json\b' 'kept=$TEHAS_HOME/state/cycles/$issue.manifest.json' \
-  'lib/attachments.sh console/src/export.rs console/src/stop.rs libexec/work' \
+  'console/src/export.rs console/src/stop.rs libexec/work' \
   "the images a container is given, mounted into it"
 carrier '\.images\.md\b' 'cp "$images/x" "$TEHAS_HOME/state/cycles/7.images.md"' \
   'libexec/work' \
