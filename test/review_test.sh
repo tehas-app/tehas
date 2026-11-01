@@ -1085,8 +1085,26 @@ t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
 kill "$holder" 2>/dev/null
 wait "$holder" 2>/dev/null
 
-# The two directories a run that never started made are removed by the trap the
-# command sets once it owns them, as libexec/index cleans its tree.
+# The two directories go on every way out: the signal comes while the clone is
+# made, and the run stops before it starts a container.
+t_case "a signal before the container starts leaves no workspace and no state behind"
+for signal in "TERM 143" "INT 130" "HUP 129"; do
+  read -r name status <<<"$signal"
+  reset
+  mkdir -p "$T/bin"
+  real_git=$(command -v git)
+  printf '%s\n' '#!/usr/bin/env bash' 'for a in "$@"; do' "  [ \"\$a\" = checkout ] && kill -$name \$PPID" 'done' \
+    'exec '"$real_git"' "$@"' >"$T/bin/git"
+  chmod +x "$T/bin/git"
+  t_run "$review"
+  t_eq "$t_rc" "$status"
+  t_lacks "$(t_calls docker)" "lens-review"
+  t_eq "$([ -e "$tree" ] && echo left)" ""
+  t_eq "$([ -e "$state" ] && echo left)" ""
+done
+rm -f "$T/bin/git"
+
+# The two directories a run that never started made are removed on the way out.
 t_case "a run that could not clone leaves no workspace and no state behind"
 reset
 mkdir -p "$T/bin"

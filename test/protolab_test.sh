@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for libexec/protolab against a stub gh and a stub curl: which tickets
+# Tests for tehasbot protolab against a stub gh and a stub curl: which tickets
 # are at the prototype stage and whose label counts, which files of a ticket
 # are taken, the 10 MB limit, what the page says, and that a ticket leaves the
 # lab when it is closed or unlabelled, and how an attached zip is unpacked.
@@ -621,5 +621,125 @@ jq -n --arg pad "$(head -c 2000 /dev/zero | tr '\0' x)" --arg link "$F/21/proto.
 t_protolab
 t_eq "$t_rc" 0
 t_eq "$(files_of 8)" "./proto.html "
+
+t_case "a run that finds another one running changes nothing"
+reset
+issues "$(issue 60 'Held off' 'no files')"
+mkdir -p "$T/home/tehas/state"
+exec {held}>"$T/home/tehas/state/protolab.lock"
+flock -n "$held"
+t_protolab
+exec {held}>&-
+t_eq "$t_rc" 0
+t_eq "$t_out" "another tehasbot protolab is running"
+t_eq "$(t_calls gh)" ""
+t_eq "$([ -e "$site/60" ] && echo there)" ""
+
+t_case "a pass leaves no work area behind, and a lock another pass can take"
+t_protolab
+t_contains "$t_out" "#60: 0 files, 0 bytes, 0 left out"
+t_eq "$([ -e "$site/.work" ] && echo there)" ""
+
+t_case "with no console anywhere it says to install, before GitHub is asked"
+reset
+rm -f "$T/calls/gh"
+t_run "PATH=/nonexistent:\$PATH \"$protolab\""
+t_eq "$t_rc" 78
+t_contains "$t_out" "no console to build the pages with; run install.sh"
+t_eq "$(t_calls gh)" ""
+
+t_case "a console with other bytes builds every page again"
+reset
+issues "$(issue 61 'Kept' 'no files')"
+t_protolab
+t_contains "$t_out" "#61: 0 files"
+was=$(cat "$site/61/.stamp")
+t_protolab
+t_eq "$t_out" ""
+keep=$T/console-before
+cp "$T_CONSOLE_DIR/console" "$keep"
+printf x >>"$T_CONSOLE_DIR/console"
+t_protolab
+t_contains "$t_out" "#61: 0 files"
+t_eq "$([ "$(cat "$site/61/.stamp")" != "$was" ] && echo other)" "other"
+cp "$keep" "$T_CONSOLE_DIR/console"
+
+t_case "an app with no token to be had stops before anything is read"
+reset
+app=(TEHAS_GITHUB_APP_ID=5452597 TEHAS_GITHUB_APP_INSTALLATION=174742089 "TEHAS_BOT_LOGIN=tehas-app-bot[bot]")
+t_instance "${T_MINIMAL[@]}" "${app[@]}"
+t_protolab
+t_eq "$t_rc" 1
+t_contains "$t_out" "tehasbot protolab: no GitHub token for the app"
+t_eq "$(t_calls gh)" ""
+
+t_case "the bot's login as a setting asks GitHub for no account, and the app's token is the one used"
+reset
+t_instance "${T_MINIMAL[@]}" "${app[@]}"
+mkdir -p "$T/home/tehas/state/github"
+echo app-token >"$T/home/tehas/state/github/token"
+echo $((EPOCHSECONDS + 3600)) >"$T/home/tehas/state/github/token.expires"
+net "$F/70/a.html" "<p>a</p>"
+t_stub curl '
+while [ $# -gt 0 ]; do
+  case "$1" in -o) out=$2; shift ;; -H) cat >>"$T/calls/curl-headers"; shift ;; https://*) url=$1 ;; esac
+  shift
+done
+cp "$T/fx/net/$(printf %s "$url" | tr -c "A-Za-z0-9" _)" "$out"'
+issues "$(issue 62 'By setting' "[a.html]($F/70/a.html)")"
+t_protolab
+t_contains "$t_out" "#62: 1 files"
+t_lacks "$(t_calls gh)" "api user"
+t_eq "$(cat "$T/calls/curl-headers")" "Authorization: Bearer app-token"
+issues "$(issue 62 'By setting' 'no files' OWNER 0 2026-10-09T14:00:00Z)"
+labeled 62 'tehas-app-bot[bot]'
+t_protolab
+t_contains "$t_out" "#62: tehas:prototype was applied by 'tehas-app-bot[bot]', not an allowed account"
+
+t_case "the allowed list is whole logins in exact case"
+reset
+issues "$(issue 63 'Upper' '')" "$(issue 64 'Part' '')"
+labeled 63 Alice
+labeled 64 ali
+t_protolab
+t_contains "$t_out" "#63: tehas:prototype was applied by 'Alice', not an allowed account"
+t_contains "$t_out" "#64: tehas:prototype was applied by 'ali', not an allowed account"
+t_eq "$(jq -c '.tickets' "$live/protolab.json")" "[]"
+
+t_case "a label taken off is not the labelling that counts: who applied it decides"
+reset
+issues "$(issue 65 'Taken off by a stranger, still on' '')"
+jq -n -c '[{event: "labeled", label: {name: "tehas:prototype"}, actor: {login: "alice"}, created_at: "2026-10-01T00:00:00Z"},
+  {event: "unlabeled", label: {name: "tehas:prototype"}, actor: {login: "mallory"}, created_at: "2026-10-02T00:00:00Z"}]' >"$fx/events-65.json"
+t_protolab
+t_contains "$t_out" "#65: 0 files"
+
+t_case "a ticket's meta keeps its keys in the order it always had"
+reset
+net "$F/70/a.html" "<p>a</p>"
+issues "$(issue 66 'Meta' "[a.html]($F/70/a.html) [b.tar]($F/71/b.tar)")"
+t_protolab
+t_eq "$(cat "$site/66/.meta.json")" '{
+  "number": 66,
+  "title": "Meta",
+  "url": "https://github.com/acme/widget/issues/66",
+  "author": "alice",
+  "updatedAt": "2026-10-09T08:00:00Z",
+  "files": [
+    {
+      "name": "a.html",
+      "kind": "app",
+      "bytes": 8
+    }
+  ],
+  "skipped": [
+    {
+      "name": "b.tar",
+      "reason": "Not a type the lab hosts."
+    }
+  ],
+  "outside": 0,
+  "bytes": 8
+}'
 
 t_done

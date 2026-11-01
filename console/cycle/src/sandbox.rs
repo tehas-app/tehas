@@ -6,7 +6,7 @@
 use std::env;
 use std::io::{self, Write};
 use tehas_core::sandbox::{self, Identity, Kind, Paths};
-use tehas_core::slice::{self, Load, Reading};
+use tehas_core::slice::{self, Host, Load};
 
 fn print(words: &[String]) -> i32 {
     let mut out = io::stdout().lock();
@@ -19,7 +19,7 @@ fn print(words: &[String]) -> i32 {
 }
 
 fn limits(who: &str, what: &str) -> i32 {
-    let taken = match sandbox::take(&Reading::probe(), &Load::from_env(), who, what) {
+    let taken = match sandbox::take(&Host::here(), &Load::from_env(), who, what) {
         Ok(taken) => taken,
         Err(line) => {
             eprintln!("{line}");
