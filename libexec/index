@@ -68,7 +68,7 @@
 # What the container is given is pinned by test/index_test.sh: the clone, the
 # host's index directory, which is the only thing it may write, and nothing
 # else. No network, no token, no settings. It runs in tehas.slice with a
-# cycle's limits (lib/slice.sh), so the dispatcher counts its memory with the
+# cycle's limits, so the dispatcher counts its memory with the
 # cycles'. Without a usable slice nothing is cloned and nothing starts.
 set -uo pipefail
 
@@ -93,8 +93,6 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/cycles.sh"
 # shellcheck source=lib/sandbox.sh
 . "$here/../lib/sandbox.sh"
-# shellcheck source=lib/slice.sh
-. "$here/../lib/slice.sh"
 tehas_load || exit 78
 tehas_require TEHAS_REPO
 tehas_checkout || exit 78
@@ -266,13 +264,7 @@ fi
 # No container starts outside the slice, and none with half its limits. Asked
 # here, not at the top: a run that finds the lock held or the index current
 # has no container to start.
-TEHAS_SLICE_LIMITS=()
-tehas_slice_ok || { echo "tehas index: $TEHAS_SLICE_WHY" >&2; exit 78; }
-tehas_slice_limits || true
-if [ "${#TEHAS_SLICE_LIMITS[@]}" != 14 ] || [ "${TEHAS_SLICE_LIMITS[1]}" != tehas.slice ]; then
-  echo "tehas index: the container limits could not be made, not starting" >&2
-  exit 78
-fi
+tehas_sandbox_limits "tehas index" "an index" || exit 78
 
 # One call answers both questions: is the image there, and which image is it.
 image_id=$(docker image inspect "$image" -f '{{.Id}}' 2>/dev/null) || {

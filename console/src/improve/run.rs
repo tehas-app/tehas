@@ -17,6 +17,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::SystemTime;
 use tehas_core::models::host_path;
+use tehas_core::sandbox;
 use tehas_core::secret::secret;
 use tehas_core::{mask, time};
 
@@ -327,7 +328,7 @@ impl Loop {
             provider: need("PI_ENSEMBLE_SUBAGENT_PROVIDER")?,
             model: need("PI_ENSEMBLE_SUBAGENT_MODEL")?,
             image: need("PI_ENSEMBLE_IMAGE")?,
-            hosts: models::hosts(&env::var("PI_ENSEMBLE_HOST_ALIASES").unwrap_or_default()),
+            hosts: sandbox::hosts(&env::var("PI_ENSEMBLE_HOST_ALIASES").unwrap_or_default()),
             skip_rukas: need("TEHAS_IMPROVE_RUKAS_SKIP")?,
             max_open,
         })

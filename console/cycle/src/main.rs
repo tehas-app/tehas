@@ -119,6 +119,31 @@
 //!                                     Exits 1 with nothing printed when
 //!                                     <issue> is no number or the log is no
 //!                                     file it can read
+//!   tehas-cycle sandbox ok            Pi's settings.json and models.json are
+//!                                     there and the tokens models.json names
+//!                                     are set, else one line on standard
+//!                                     error and exit 78
+//!   tehas-cycle sandbox limits <who> <what>
+//!                                     one systemctl and one docker info: the
+//!                                     14 limit words, the 10 security words,
+//!                                     then the slice's MemoryMax and
+//!                                     ActiveState, NUL separated. Without a
+//!                                     usable slice one line on standard error
+//!                                     that starts with <who>, and exit 78;
+//!                                     <what> names what does not start
+//!   tehas-cycle sandbox env <kind> <tree> <git name> <git email>
+//!                                     the -e options of a cycle, turn, session
+//!                                     or review, NUL separated
+//!   tehas-cycle sandbox hosts         the --add-host options, NUL separated
+//!   tehas-cycle sandbox mounts <kind> <tree> <host> <state> <runs>
+//!                                     make what the -v options name and print
+//!                                     them, NUL separated. Exit 1 with nothing
+//!                                     printed when it cannot
+//!   tehas-cycle sandbox verify <limit words>
+//!                                     how many runs of the gate one container
+//!                                     runs at once. Exit 1 with nothing
+//!                                     printed when the words have no quota or
+//!                                     ceiling
 //!   tehas-cycle -h|--help             print this text
 //!
 //! shadow and compare do nothing while $TEHAS_HOME/state/cycle-shadow.on is
@@ -150,7 +175,7 @@ use std::sync::Arc;
 use tehas_cycle::host::Start;
 use tehas_cycle::last_attempt::{self, Action};
 use tehas_cycle::report::{to_json, Given};
-use tehas_cycle::{caps, clock, runner};
+use tehas_cycle::{caps, clock, runner, sandbox};
 use tehas_cycle::{finish, pin, renew, report, shadow, Facts};
 
 fn usage() -> String {
@@ -192,6 +217,10 @@ fn main() {
     match a.as_slice() {
         ["-h" | "--help"] => println!("{}", usage()),
         ["report", file] => print_report(file),
+        ["sandbox", ..] => match sandbox::main(&args[1..]) {
+            Some(status) => std::process::exit(status),
+            None => wrong(&args),
+        },
         ["last-attempt", n, result, workspace] => {
             last_attempt(issue(n, &args), result, Path::new(workspace))
         }

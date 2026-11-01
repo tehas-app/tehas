@@ -20,8 +20,8 @@ Preparing a fresh machine is on the [bootstrap page](/bootstrap).
 | `~/tehas/env.sh`                     | Environment for every tehas process, its tool directories taken from `lib/paths.sh`; sourced from `~/.bashrc`           |
 | `~/tehas/lib/config.sh`              | Loads and checks the instance settings; sourced by every command        |
 | `~/tehas/lib/paths.sh`               | The home of each tool this host installs, and the `PATH` that finds them. `env.sh`, `bootstrap.sh` and `install.sh` all take the list from here |
-| `~/tehas/lib/sandbox.sh`             | What a sandbox container is given; sourced by the work, plan and dev scripts |
-| `~/tehas/lib/slice.sh`               | Reads the slice: whether it is usable, a container's limits, the room left. Every command that starts a sandbox container reads it |
+| `~/tehas/lib/sandbox.sh`             | The bash of a sandbox container: the seed of its code index, its clone, and the reading of what `tehas-cycle sandbox` gives it; sourced by the work, plan and dev scripts |
+| `~/tehas/lib/slice.sh`               | Reads the slice for the poll and `tehas improve`: whether it is usable and the room left. A command that starts a sandbox container asks `tehas-cycle sandbox limits`, which reads it the same way and makes the container's limits, and it starts nothing without a usable slice |
 | `~/tehas/lib/headless.sh`            | How `tehas review` asks an image for its `--capabilities`, and what `tehas work` reads of a cycle's progress. `libexec/tehas-cycle` reads the answer and the result (`caps`, `runner`) |
 | `~/tehas/lib/attachments.sh`         | Which links of an issue are attached files and how one is fetched. The Protolab and `tehas work` use it |
 | `~/tehas/lib/questions.sh`, `planning.sh` | The question and planning steps of the dispatcher. A cycle's report uses the first too |
@@ -1023,8 +1023,8 @@ edge router are outside the slice too.
 ### What a container may not do
 
 A cycle, a planning turn, a `tehas dev` session and the push check before a
-cycle all get the options below, from `tehas_sandbox_security` in
-`lib/sandbox.sh`, beside the mounts and the variables. The list is
+cycle all get the options below, from `security` in
+`console/core/src/sandbox.rs`, beside the mounts and the variables. The list is
 capability-shaped options and this round's bounded `/tmp`. The indexer and the
 analyst are not given them yet (issue #54 leaves them to a follow-up), so the
 bounded `/tmp` below is not in those two containers either: when that follow-up
@@ -1859,7 +1859,7 @@ for it with these differences:
 | What the host runs from the clone | Nothing. The host runs git there once, to make it, and never again                                           |
 
 `test/dev_test.sh` pins the session's `docker run` the same way. Both commands
-take the mounts and variables from `lib/sandbox.sh`, so they cannot differ by
+take the mounts and variables from `tehas-cycle sandbox`, so they cannot differ by
 accident.
 
 ### Other accounts
