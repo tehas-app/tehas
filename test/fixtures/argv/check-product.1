@@ -1,0 +1,24 @@
+run
+--rm
+--cgroup-parent
+tehas.slice
+--memory
+4g
+--memory-swap
+4g
+--user
+@UID@:@GID@
+-e
+HOME=/home/vscode
+-v
+@T@/home/tehas/tmp/check-product.@RANDOM@:@T@/home/tehas/tmp/check-product.@RANDOM@
+-w
+@T@/home/tehas/tmp/check-product.@RANDOM@
+--entrypoint
+bash
+tehas/pi-rukas:uid@UID@
+-c
+sh .pi/worktree-setup && sh -c "$1" && sh -c "$2"
+gates
+make full
+make smoke

@@ -20,10 +20,10 @@ Preparing a fresh machine is on the [bootstrap page](/bootstrap).
 | `~/tehas/env.sh`                     | Environment for every tehas process, its tool directories taken from `lib/paths.sh`; sourced from `~/.bashrc`           |
 | `~/tehas/lib/config.sh`              | Loads and checks the instance settings; sourced by every command        |
 | `~/tehas/lib/paths.sh`               | The home of each tool this host installs, and the `PATH` that finds them. `env.sh`, `bootstrap.sh` and `install.sh` all take the list from here |
-| `~/tehas/lib/sandbox.sh`             | What a sandbox container is given, and the one name of the sandbox and base images; sourced by the work, plan and dev scripts, and beside `lib/rukas.sh` by `tehasbot clean` |
-| `~/tehas/lib/slice.sh`               | Reads the slice: whether it is usable, a container's limits, the room left. Every command that starts a sandbox container reads it |
-| `~/tehas/lib/headless.sh`            | What tehas reads of pi-rukas's headless runner: its `--capabilities` answer, its progress and its result. `tehas work` and `tehasbot cycle` use it |
-| `~/tehas/lib/attachments.sh`         | Which links of an issue are attached files and how one is fetched. The Protolab and `tehas work` use it |
+| `~/tehas/lib/sandbox.sh`             | What a sandbox container is given; sourced by the work, plan and dev scripts |
+| `~/tehas/lib/slice.sh`               | The way to `console slice`, which reads the slice: whether it is usable, a container's limits, the room left. Every command that starts a sandbox container goes through it, and with no console it finds no slice and stops with 78 |
+| `~/tehas/lib/headless.sh`            | How `tehas review` asks an image for its `--capabilities`, and what `tehas work` reads of a cycle's progress. `libexec/tehas-cycle` reads the answer and the result (`caps`, `runner`) |
+| `~/tehas/lib/attachments.sh`         | Which links of an issue are attached files and how one is fetched. `tehas work` and `tehas plan` use it; the Protolab holds the same rules in the console |
 | `~/tehas/lib/questions.sh`, `planning.sh` | The question and planning steps of the dispatcher. A cycle's report uses the first too |
 | `~/tehas/bin/`                       | The two commands on `PATH`: `tehas` for a person, `tehasbot` for the units. Plus `gh` |
 | `~/tehas/libexec/`                   | The scripts behind the two commands, one for each thing they do. Not on `PATH` |
@@ -498,9 +498,10 @@ A real run builds each with `cargo` in the checkout and installs them as
 `~/tehas/libexec/console`, `~/tehas/libexec/analytics`,
 `~/tehas/libexec/tehas-mcp`, `~/tehas/libexec/store` and
 `~/tehas/libexec/attach`. The attachment checker reads the bytes of every file
-fetched for an issue and unpacks its zips (see [Tools](/tools)); without it a
-cycle given an issue's attachments does not start, and the Protolab leaves a
-zip out. A host installed from a release tarball has neither
+fetched for an issue, unpacks its zips, and composes what a cycle is told it was
+given (see [Tools](/tools)); without it a cycle given an issue's attachments
+does not start, a cycle given none says it could not read the record, and the
+Protolab leaves a zip out. A host installed from a release tarball has neither
 `cargo` nor `console/`: its programs are the ones the release packed
 ([Releases](/tools#releases)), and a release without a store installs only on a
 host that has one. On a host with none, `--check` says so on a `Store: REFUSED`
@@ -1204,7 +1205,7 @@ the memory - and takes the CPUs over `TEHAS_CYCLE_CPUS` as the
 cycles and the slice's memory over `TEHAS_CONTAINER_MEMORY` as the containers,
 each between its own floor and 16, and neither above `TEHAS_CYCLE_CEILING`, the
 bound for an endpoint that cannot serve what a big host asks for. The cycle
-cannot use such a count yet (`lib/slice.sh` reads a number at every start), so
+cannot use such a count yet (`console slice` reads a number at every start), so
 a cycle started under `auto` parks and a poll starts none until a person
 notices. It fails closed here rather than spend an approval on a cycle that
 cannot run.

@@ -4,7 +4,14 @@
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
 
-check="$T_ROOT/libexec/check-product"
+# The command as a host has it: beside the console, which does the work
+# (console/src/product.rs), and the tests of its parts are beside its source.
+t_console || t_bad "no console: $t_console_why"
+mkdir -p "$T/tree/libexec"
+ln -s "$T_ROOT/lib" "$T/tree/lib"
+ln -s "$T_ROOT/libexec/check-product" "$T/tree/libexec/check-product"
+cp "$T_CONSOLE" "$T/tree/libexec/console"
+check=$T/tree/libexec/check-product
 result=$T/home/tehas/state/check-product.json
 g() { git -c user.name=t -c user.email=t@example.invalid -c init.defaultBranch=main "$@"; }
 
@@ -131,7 +138,139 @@ t_run "$check --sandbox"
 t_eq "$t_rc" 1
 t_contains "$t_out" "no sandbox image"
 
+t_case "golden: every line of a run that fails each check, and the result file"
+product ".pi/verify-cmd=# nothing yet" ".pi/settings.json=[1]"
+t_run "$check"
+t_eq "$t_rc" 78
+t_eq "${t_out//$T/@T}" "ok    origin   @T/home/tehas/repos/widget is a clone of acme/widget
+ok    default  origin/HEAD is origin/main
+FAIL  agents   no AGENTS.md: tehas init-product proposes one
+FAIL  gate     no command in .pi/verify-cmd: tehas init-product proposes one
+FAIL  model    .pi/settings.json is not valid JSON"
+t_eq "$(sed '/"at":/d' "$result")" '{
+  "v": 1,
+  "ok": false,
+  "failures": [
+    "no AGENTS.md: tehas init-product proposes one",
+    "no command in .pi/verify-cmd: tehas init-product proposes one",
+    ".pi/settings.json is not valid JSON"
+  ],
+  "sandbox": null
+}'
+[[ $(sed -n 3p "$result") =~ ^\ \ \"at\":\ \"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z\",$ ]] ||
+  t_bad "the time is not the second line: $(sed -n 3p "$result")"
+
+t_case "golden: the settings of a model read as jq reads them"
+product "${good[@]}" '.pi/settings.json={"defaultProvider": false, "defaultModel": null}'
+t_run "$check"
+t_contains "$t_out" "ok    model    .pi/settings.json names no model, the instance's is used"
+product "${good[@]}" '.pi/settings.json=null'
+t_run "$check"
+t_contains "$t_out" "ok    model    .pi/settings.json names no model, the instance's is used"
+product "${good[@]}" '.pi/settings.json={"defaultProvider": "a/b", "defaultModel": 7}'
+t_run "$check"
+t_contains "${t_out//$T/@T}" "FAIL  model    .pi/settings.json names a/b/7, which @T/instance/models.json does not list"
+
+t_case "golden: the origin check strips a slash and .git, and says what it found"
+product "${good[@]}"
+g -C "$T/home/tehas/repos/widget" config remote.origin.url "git@github.com:acme/widget.git/"
+t_run "$check"
+t_contains "$t_out" "ok    origin   "
+g -C "$T/home/tehas/repos/widget" config remote.origin.url "https://github.com/acme/widget2.git"
+t_run "$check"
+t_contains "${t_out//$T/@T}" "FAIL  origin   @T/home/tehas/repos/widget is a checkout of https://github.com/acme/widget2, not of acme/widget"
+g -C "$T/home/tehas/repos/widget" config --unset remote.origin.url
+t_run "$check"
+t_contains "${t_out//$T/@T}" "FAIL  origin   @T/home/tehas/repos/widget is a checkout of nothing, not of acme/widget"
+
+t_case "golden: the docker call of --sandbox, one argument a line, and its order"
+product "${good[@]}" ".pi/verify-cmd-full=make full" ".pi/smoke-cmd=make smoke" ".pi/worktree-setup=true"
+t_stub docker 'case $1 in image) printf "%s\n" "$@" >"$T/calls/inspect"; exit 0 ;; run) printf "%s\n" "$@" >"$T/calls/argv"; git -C "${@: -9:1}" log --format="%an %ae %s" -1 >"$T/calls/tip"; git -C "${@: -9:1}" branch --show-current >>"$T/calls/tip" ;; esac'
+t_run "$check --sandbox"
+t_eq "$t_rc" 0
+t_eq "$(cat "$T/calls/inspect")" "image
+inspect
+tehas/pi-rukas:uid$(id -u)"
+t_eq "$(sed -E "s#$T/home/tehas/tmp/check-product\.[A-Za-z0-9]{6}#@TREE#g" "$T/calls/argv")" "run
+--rm
+--cgroup-parent
+tehas.slice
+--memory
+4g
+--memory-swap
+4g
+--user
+$(id -u):$(id -g)
+-e
+HOME=/home/vscode
+-v
+@TREE:@TREE
+-w
+@TREE
+--entrypoint
+bash
+tehas/pi-rukas:uid$(id -u)
+-c
+sh .pi/worktree-setup && sh -c \"\$1\" && sh -c \"\$2\"
+gates
+make full
+make smoke"
+t_eq "$(cat "$T/calls/tip")" "tehas tehas@localhost tehas check-product: no change
+tehas/check-product"
+
+t_case "golden: with no setup and no smoke the script is the gate, and the smoke is an empty word"
+product "${good[@]}"
+t_stub docker 'case $1 in image) exit 0 ;; run) printf "%s\n" "${@: -5}" >"$T/calls/argv" ;; esac'
+t_run "$check --sandbox"
+t_eq "$t_rc" 0
+t_eq "$(cat "$T/calls/argv"; echo end)" "-c
+sh -c \"\$1\"
+gates
+make test
+
+end"
+
+t_case "--sandbox: nothing to run is a failure of its own, and no gate reaches docker"
+product "AGENTS.md=rules" ".pi/verify-cmd=# nothing yet"
+t_stub docker 'exit 0'
+t_run "$check --sandbox"
+t_eq "$t_rc" 78
+t_contains "$t_out" "FAIL  sandbox  no gate to run in the sandbox"
+t_eq "$(t_calls docker)" ""
+t_eq "$(jq .sandbox "$result")" null
+
+t_case "--sandbox without origin/HEAD runs nothing"
+product "${good[@]}"
+g -C "$T/home/tehas/repos/widget" remote set-head origin -d
+t_run "$check --sandbox"
+t_eq "$t_rc" 78
+t_lacks "$t_out" "sandbox"
+t_eq "$(t_calls docker)" ""
+
+t_case "--sandbox: a signal during the run takes the clone away"
+product "${good[@]}"
+t_stub docker 'case $1 in image) exit 0 ;; run) : >"$T/calls/started"; exec sleep 5 ;; esac'
+t_run "$check --sandbox >/dev/null 2>&1 &
+pid=\$!
+until [ -e \"\$T/calls/started\" ]; do sleep 0.05; done
+kill -TERM \$pid
+wait \$pid
+echo status \$?"
+t_eq "$t_out" "status 143"
+t_eq "$(find "$T/home/tehas/tmp" -mindepth 1 | wc -l)" 0
+
+t_case "a host with no console beside the command starts nothing: 78, and says to install"
+rm "$T/tree/libexec/console"
+t_run "$check"
+t_eq "$t_rc" 78
+t_contains "$t_out" "no console beside this command"
+cp "$T_CONSOLE" "$T/tree/libexec/console"
+
 t_case "a wrong argument is 64"
+t_run "$check --what"
+t_eq "$t_rc" 64
+t_eq "$t_out" "usage: tehas check-product [--sandbox]"
+t_instance PI_ENSEMBLE_SUBAGENT_MODEL=x
 t_run "$check --what"
 t_eq "$t_rc" 64
 

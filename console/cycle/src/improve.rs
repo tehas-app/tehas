@@ -168,47 +168,19 @@ fn copy_or_empty(from: &Path, to: &Path) {
     }
 }
 
-/// A number the way jq's tonumber reads a setting's: `null` for anything else.
-fn number(v: Option<&Value>) -> J {
-    match v {
-        Some(Value::Number(n)) => J::Lit(n.to_string()),
-        Some(Value::String(s)) => match (s.parse::<i64>(), s.parse::<f64>()) {
-            (Ok(n), _) => J::int(n),
-            (_, Ok(x)) if x.is_finite() => J::from(&serde_json::json!(x)),
-            _ => J::null(),
-        },
-        _ => J::null(),
-    }
+/// Container, host and concurrentCycles of a settings-view.
+pub fn ran_with(view: &Value) -> (J, J, J) {
+    let part = |k: &str| view.get(k).map_or(J::null(), J::from);
+    (part("container"), part("host"), part("concurrentCycles"))
 }
 
-/// What a cycle ran with, of a cycle as cycle-show answers it, in the shape
-/// tehas_improve_settings wrote it: None when it has none on record.
-pub fn settings(cycle: &Value) -> Option<(J, J, J)> {
-    let s = cycle
-        .get("settings")?
-        .as_object()
-        .filter(|s| !s.is_empty())?;
-    let half = |prefix: &str| {
-        J::Obj(
-            s.iter()
-                .filter(|(k, _)| k.starts_with(prefix))
-                .map(|(k, v)| (k.clone(), J::from(v)))
-                .collect(),
-        )
-    };
-    Some((
-        half("PI_ENSEMBLE_"),
-        half("TEHAS_"),
-        number(s.get("concurrentCycles")),
-    ))
-}
-
-/// Write the record of a cycle that has ended, reading the cycle's record
-/// through `record`. `Err` holds a line for standard error, when there is one.
+/// Write the record of a cycle that has ended; `view` is the store's
+/// settings-view of it. `Err` holds a line for standard error, when there is
+/// one.
 pub fn write(
     home: &Path,
     e: &Ended,
-    record: &Result<Value, String>,
+    view: &Result<Value, String>,
     now: i64,
 ) -> Result<(), Option<String>> {
     let base = home.join("tmp/improve");
@@ -233,20 +205,16 @@ pub fn write(
         fs::DirBuilder::new().mode(0o700).create(p)
     })
     .ok_or(None)?;
-    let cycle = record
-        .as_ref()
-        .ok()
-        .and_then(|r| r.get("cycle"))
-        .filter(|c| !c.is_null());
-    let from = cycle
-        .and_then(|c| c.get("rukas_commit"))
+    let view = view.as_ref().ok();
+    let from = view
+        .and_then(|v| v.get("rukas_commit"))
         .and_then(Value::as_str)
         .unwrap_or("");
     let rukas = [e.rukas.as_str(), from]
         .into_iter()
         .find(|r| re(r"^[0-9a-f]{7,40}$", r))
         .unwrap_or("");
-    let shape = cycle.and_then(settings);
+    let shape = view.and_then(|v| v.get("view")).filter(|v| v.is_object());
     let preflight = PathBuf::from(format!("{}.preflight", raw.display()));
     let retry = fs::read(&preflight)
         .map(|b| String::from_utf8_lossy(&b).into_owned())
@@ -277,7 +245,7 @@ pub fn write(
     } else {
         ""
     };
-    let (ran_with, concurrent) = match shape {
+    let (ran_with, concurrent) = match shape.map(ran_with) {
         Some((container, host, n)) => (J::obj(vec![("container", container), ("host", host)]), n),
         None => (J::null(), J::null()),
     };
@@ -453,19 +421,5 @@ mod tests {
     fn free_text_keeps_only_prose_and_is_cut() {
         assert_eq!(prose("Connection error. @x <b>`"), "Connection error. x b");
         assert_eq!(cut(&"a".repeat(300), 200).len(), 200);
-    }
-
-    #[test]
-    fn the_settings_of_a_record_are_split_by_their_prefix() {
-        let c = serde_json::json!({"settings": {"PI_ENSEMBLE_A": "1", "TEHAS_B": "2", "concurrentCycles": "3", "OTHER": "x"}});
-        let (container, host, n) = settings(&c).unwrap();
-        assert_eq!(container.compact(), r#"{"PI_ENSEMBLE_A":"1"}"#);
-        assert_eq!(host.compact(), r#"{"TEHAS_B":"2"}"#);
-        assert_eq!(n, J::Lit("3".into()));
-        let none = serde_json::json!({"settings": {}});
-        assert_eq!(settings(&none), None);
-        assert_eq!(settings(&serde_json::json!({"settings": 1})), None);
-        let word = serde_json::json!({"settings": {"concurrentCycles": "many"}});
-        assert_eq!(settings(&word).unwrap().2, J::null());
     }
 }

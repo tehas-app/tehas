@@ -11,7 +11,7 @@
 # before cycles start, as tehas-index.service, and the cycles start on the
 # poll after it. A systemd timer runs a poll every two minutes, whatever the
 # cycles are doing, and a cycle that ends starts one.
-# Every poll that gets past the bot's login ends by running libexec/tidy,
+# Every poll that gets past the bot's login ends by running console tidy run,
 # which takes tehas's state labels off closed issues, with --dry-run on a dry
 # run.
 #
@@ -186,7 +186,7 @@
 #      a state GitHub does not give holds it too, and the log says why.
 #      Alone, on an issue in no other flow, it approves as tehas:ready does.
 #      With TEHAS_SIZE_MAX_FILES set, the body the label approved is measured
-#      (lib/sizing.sh), and an issue whose body names more files than the
+#      (console/core/src/size.rs), and an issue whose body names more files than the
 #      setting is not started either: its tehas:ready comes off,
 #      needs-human-attention goes on, and the issue says the counts, the
 #      setting and the way out once. Unset, nothing here changes, and a refresh
@@ -258,7 +258,7 @@
 #   TEHAS_LOW_GATE_WAIT       seconds that command gets before its answer is a
 #                             closed gate, 1 to 600 [60]
 # From the environment, for tests: TEHAS_STATUS_CMD, TEHAS_INDEX_CMD,
-# TEHAS_TIDY_CMD (in place of libexec/tidy), TEHAS_PLAN_CMD, TEHAS_PLAN_START_CMD
+# TEHAS_TIDY_CMD (in place of console tidy run), TEHAS_PLAN_CMD, TEHAS_PLAN_START_CMD
 # and TEHAS_INDEX_START_CMD (in place of systemd-run: the first called with the
 # issue and the turn's command line, the second with the index run's),
 # TEHAS_CYCLE_START_CMD and TEHAS_CYCLE_STOP_CMD (in place of systemctl, with the
@@ -391,8 +391,6 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/attachments.sh"
 # shellcheck source=lib/models.sh
 . "$here/../lib/models.sh"
-# shellcheck source=lib/headless.sh
-. "$here/../lib/headless.sh"
 # shellcheck source=lib/refresh.sh
 . "$here/../lib/refresh.sh"
 # shellcheck source=lib/analytics.sh
@@ -402,9 +400,6 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source=lib/live.sh
 . "$here/../lib/live.sh"
 tehas_load || exit 78
-# Sourced after tehas_load, as lib/questions.sh is below: the measure builds
-# the tick of markdown into a jq program with a `file` of its own, and a
-# command that sources a file before tehas_load would lose its own to it.
 # shellcheck source=lib/sizing.sh
 . "$here/../lib/sizing.sh"
 # shellcheck source=lib/questions.sh
@@ -477,12 +472,13 @@ for old in "${old_records[@]}"; do
   fi
 done
 
-# However a poll that holds the lock ends: libexec/tidy once past the login,
+# However a poll that holds the lock ends: console tidy run once past the login,
 # then, unless dry, its cost (its own gh calls are the tally) and analytics.
 tidy_on=0 poll_at=$EPOCHREALTIME poll_starts=0 poll_gh=$TEHAS_HOME/state/poll-gh.tally poll_times=$TEHAS_HOME/state/poll.times
 : >"$poll_gh" && gh() { echo >>"$poll_gh"; command gh "$@"; }
+tidy=("$here/console" tidy run); [ -z "${TEHAS_TIDY_CMD:-}" ] || tidy=("$TEHAS_TIDY_CMD")
 trap 'if [ "$tidy_on" = 1 ]; then
-    if [ "$dry" = 1 ]; then "${TEHAS_TIDY_CMD:-$here/tidy}" --dry-run; else "${TEHAS_TIDY_CMD:-$here/tidy}"; fi
+    if [ "$dry" = 1 ]; then "${tidy[@]}" --dry-run; else "${tidy[@]}"; fi
   fi
   [ "$dry" = 1 ] || { times >"$poll_times"; tehas_store poll-record --started "$poll_at" --times "$poll_times" --tally "$poll_gh" \
     --writes-log "$TEHAS_HOME/state/github-writes.log" --starts "$poll_starts" || log "WARN: the cost of the poll was not recorded ($tehas_store_word)"
@@ -664,7 +660,7 @@ slice_ok() { [ -z "$slice_hold" ] && [ "$mem_why" != unreadable ]; }
 # What the code below cannot say:
 #   - The wait runs under the poll's own lock, so lib/config.sh caps
 #     TEHAS_LOW_GATE_WAIT at 600. A longer one holds every later poll too,
-#     urgent issues and libexec/tidy included, and the timer polls two minutes
+#     urgent issues and console tidy run included, and the timer polls two minutes
 #     after this poll ends.
 #   - state/low-gate.held carries nothing but its existence, and only says that
 #     a hold was announced: it names no command, so one left by another
@@ -1130,7 +1126,7 @@ cross_repo_holds() {
 
 # size_ok <issue> <its labels>: is that number small enough for one cycle? With
 # TEHAS_SIZE_MAX_FILES set on the instance, the body the label approved is
-# measured (lib/sizing.sh) and a body naming more files than the setting names
+# measured (console/core/src/size.rs) and a body naming more files than the setting names
 # is not started: it is a stack of changes wearing the shape of one issue, and
 # the cycle would spend its explore and its plan before it parked. As for an
 # epic, the label that asked for the cycle comes off, needs-human-attention
@@ -2179,7 +2175,7 @@ if tehas_millwright_is "$bot"; then
   exit 78
 fi
 # Closed issues lose tehas's state labels once a poll, after the rest of it,
-# however it ends: the trap above runs libexec/tidy from here on.
+# however it ends: the trap above runs console tidy run from here on.
 tidy_on=1
 
 # The open planning sessions, read once before the poll acts: an open session
@@ -2198,7 +2194,7 @@ plan_sessions_must
 # health file the snapshot above wrote is written again with it.
 if [ "$dry" = 0 ]; then
   report_demand
-  "$here/health" || log "WARN: the health file could not be written"
+  "$here/with-settings" tehasbot health || log "WARN: the health file could not be written"
 fi
 
 # The label, when the flag has not already decided: it asks GitHub, so it comes
@@ -2756,7 +2752,7 @@ disk_free=""
 disk_read=""
 # disk_check: the free disk of the host for this poll, in $disk_free. It is the
 # one df of ~/tehas, the one docker info and the one df of Docker's own a poll
-# makes (tehas_free_kb in lib/disk.sh), each bounded, so a Docker or a mount
+# makes (console disk free), each bounded, so a Docker or a mount
 # that does not answer leaves no figure and a hold rather than a poll that
 # waits for it. The read is made once and its answer kept, also when it is
 # nothing: a poll that reads nothing pays for the read once, and the next poll

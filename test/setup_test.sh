@@ -3,7 +3,7 @@
 # GitHub and the model endpoint, the files it writes and their modes, that a
 # second run changes nothing, that it never overwrites a setting without
 # --force, and that no token is ever on a command line. A scratch platform
-# tree stands in for the install: its install.sh, labels and check-product
+# tree stands in for the install: its install.sh, the host's tehas and check-product
 # record that they ran.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
 # shellcheck source=test/lib.sh
@@ -21,10 +21,11 @@ build=$T/home/tehas/sandbox/build.sh
 
 # The platform's own steps, each recording its run.
 printf '#!/usr/bin/env bash\necho install.sh $* >>"$T/calls/steps"\n' >"$plat/install.sh"
-printf '#!/usr/bin/env bash\necho labels $* >>"$T/calls/steps"\n' >"$plat/libexec/labels"
+mkdir -p "$T/home/tehas/bin"
+printf '#!/usr/bin/env bash\necho $* >>"$T/calls/steps"\n' >"$T/home/tehas/bin/tehas"
 mkdir -p "$(dirname "$build")"
 printf '#!/usr/bin/env bash\necho build $* >>"$T/calls/steps"\n' >"$build"
-chmod +x "$plat/install.sh" "$plat/libexec/labels" "$build"
+chmod +x "$plat/install.sh" "$T/home/tehas/bin/tehas" "$build"
 
 printf 'ghp_secret_token\n' >"$T/token"
 printf 'sk_model_key\n' >"$T/model-key"
@@ -71,12 +72,13 @@ esac
 
 # curl: the endpoint's model list (MODELS, space separated). The config it was
 # given on stdin is kept, to see the key went there and not on the line. For
-# the app: GET /app answers the slug tehas-app, and a minted token has the
-# permissions PERMS, by default write on all three that setup needs.
+# the app, whose JWT goes there too: GET /app answers APP_ANSWER, by default
+# the slug tehas-app, and a minted token has the permissions PERMS, by default
+# write on all three that setup needs.
 stub_curl() {
   t_stub curl 'case "$*" in
-*access_tokens) printf "{\"token\":\"ghs_minted\",\"expires_at\":\"2099-01-01T00:00:00Z\",\"permissions\":%s}\n" "${PERMS:-{\"contents\":\"write\",\"issues\":\"write\",\"pull_requests\":\"write\"\}}"; exit 0 ;;
-*/app) printf "{\"slug\":\"tehas-app\"}\n"; exit 0 ;;
+*access_tokens) cat >>"$T/calls/app-auth"; printf "{\"token\":\"ghs_minted\",\"expires_at\":\"2099-01-01T00:00:00Z\",\"permissions\":%s}\n" "${PERMS:-{\"contents\":\"write\",\"issues\":\"write\",\"pull_requests\":\"write\"\}}"; exit 0 ;;
+*/app) cat >>"$T/calls/app-auth"; printf "%s\n" "${APP_ANSWER:-{\"slug\":\"tehas-app\"\}}"; exit 0 ;;
 esac
 cat >"$T/curl-stdin"
 printf "{\"data\":["
@@ -89,7 +91,7 @@ stub_all() {
   stub_gh
   stub_curl
   t_stub systemctl
-  t_stub openssl 'case "$1" in base64) base64 -w0 ;; dgst) cat >/dev/null; printf signature ;; esac'
+  t_stub openssl 'case "$1" in dgst) cat >/dev/null; printf signature ;; esac'
   t_stub docker 'case "$1 $2" in "image inspect") [ -e "$T/image-there" ] ;; esac'
 }
 fresh() {
@@ -359,6 +361,19 @@ t_contains "$(t_calls shim)" "repo clone acme/widget"
 t_lacks "$(t_calls shim)" "installation/repositories"
 t_eq "$(cat "$T/gh-token")" "ghs_shim"
 t_lacks "$(cat "$T"/calls/*)" "ghs_minted"
+t_contains "$(t_calls curl)" "https://api.github.com/app"
+t_eq "$(t_calls app-auth | grep -c 'Authorization: Bearer ')" 2
+t_lacks "$(t_calls curl)" "Authorization"
+
+t_case "an answer for GET /app with no slug writes nothing, exit 1"
+fresh
+T_ENV=("APP_ANSWER={}")
+run_setup "${app_args[@]}" --no-build
+T_ENV=()
+t_eq "$t_rc" 1
+t_contains "$t_out" "GitHub's answer for app 77 held no slug"
+t_contains "$t_out" "nothing was written"
+t_eq "$([ -e "$cfg/instance.env" ] && echo written)" ""
 
 t_case "a first app run installs before it clones, because the app's gh is the install's"
 fresh
