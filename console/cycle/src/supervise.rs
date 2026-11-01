@@ -15,7 +15,8 @@
 //! leaving tehas:running on the issue would park it for good.
 //!
 //! The report is `apply` where the instance sets TEHAS_CYCLE_REPORT=rust. Else
-//! libexec/cycle is run again with what it needs in TEHAS_CYCLE_ENDED.
+//! libexec/cycle is run again with what it needs in TEHAS_CYCLE_ENDED. It goes by
+//! the settings of this environment and loads none: instance.env may have changed.
 
 use crate::after::log;
 use crate::apply;

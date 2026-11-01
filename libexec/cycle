@@ -26,7 +26,9 @@
 # This script loads the settings and takes the lock, then execs `tehas-cycle
 # cycle` (console/cycle/src/supervise.rs), which makes the start and runs tehas
 # work. With no tehas-cycle beside the install it stops with 78. The report in
-# bash below is run as a child of that program, with TEHAS_CYCLE_ENDED set.
+# bash below is run as a child of that program, with TEHAS_CYCLE_ENDED set. That
+# child goes by the settings of the start, which it inherits: it loads nothing,
+# so an instance.env that changed during the cycle cannot stop the report.
 #
 # It holds state/cycles/<issue>.lock for as long as it runs. The dispatcher
 # counts the held locks, so a cycle that dies frees its place. Once it holds
@@ -217,6 +219,10 @@ if [ "$#" != 1 ] || ! [[ $issue =~ ^[1-9][0-9]*$ ]]; then
   exit 64
 fi
 
+# Not for what the report runs.
+ended=${TEHAS_CYCLE_ENDED:-}
+unset TEHAS_CYCLE_ENDED
+
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source=lib/config.sh
 . "$here/../lib/config.sh"
@@ -228,7 +234,7 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/millwright.sh"
 # shellcheck source=lib/store.sh
 . "$here/../lib/store.sh"
-tehas_load || exit 78
+[ -n "$ended" ] || tehas_load || exit 78
 # shellcheck source=lib/questions.sh
 . "$here/../lib/questions.sh"
 tehas_require TEHAS_REPO
@@ -238,7 +244,7 @@ stop_gh_wait=${TEHAS_CYCLE_STOP_GH_WAIT:-20}
 
 log() { TZ=UTC0 printf '%(%FT%TZ)T %s\n' -1 "$*"; }
 
-if ! tehas_store_ready; then
+if [ -z "$ended" ] && ! tehas_store_ready; then
   log "ERROR: the state store is not installed (run install.sh)"
   exit 78
 fi
@@ -255,7 +261,7 @@ cycles=$TEHAS_HOME/state/cycles
 
 # Run again by tehas-cycle for the report in bash: the lock is held already, and
 # what it needs of the start is in TEHAS_CYCLE_ENDED.
-if [ -z "${TEHAS_CYCLE_ENDED:-}" ]; then
+if [ -z "$ended" ]; then
   mkdir -p "$cycles" "$TEHAS_HOME/logs"
   # The runner and the docker client it starts inherit this lock. If this
   # process is killed outright the place stays taken until they are gone too.
@@ -267,7 +273,7 @@ if [ -z "${TEHAS_CYCLE_ENDED:-}" ]; then
   fi
   exec "$tc" cycle "$issue" --work "$work" --status-cmd "$status_cmd" --console "$console" --again "$here/cycle"
 fi
-IFS='|' read -r attempt rc started signalled requeued start_by start_how approval_at <<<"$TEHAS_CYCLE_ENDED"
+IFS='|' read -r attempt rc started signalled requeued start_by start_how approval_at <<<"$ended"
 retry_wait=${TEHAS_CYCLE_RETRY_WAIT:-5}
 # The fields of one read: one each, ended by a NUL, as $(jq -r) leaves it.
 one='def v: tostring | gsub("\u0000"; "") | sub("\n+\\z"; "") + "\u0000";

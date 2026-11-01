@@ -510,6 +510,8 @@ file](/tools#the-health-file).
 cycle. `bash`, or leaving the setting out, is the report of `libexec/cycle`. A
 value of neither is exit 78. The switch is read when a cycle starts, with the
 rest of its settings, so a cycle already running reports as the line said then.
+Either report goes by the settings the cycle started with and does not load
+`instance.env` again: a file changed or broken during a cycle does not stop it.
 Roll back by taking the line out: cycles that start after that report in bash,
 and one already running does not change. A host without `libexec/tehas-cycle`
 starts no cycle: `tehasbot cycle` stops with 78.
