@@ -232,7 +232,7 @@ tehas_update_lock_wait_max=300
 # nowhere else, so the two commands cannot drift apart.
 #
 # 0 is the refuse-at-once value, so a leading zero has to be asked for a digit
-# after it: lib/config.sh's _tehas_is_count drops 0 outright because none of its
+# after it: the settings' count (console/core/src/settings/rules.rs) drops 0 outright because none of its
 # own waits may be zero, which would be wrong here. The length is read before the
 # value, as lib/config.sh does for its waits, so a number no comparison can hold
 # is refused by its length instead of by a failing comparison.

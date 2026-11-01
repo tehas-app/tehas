@@ -17,6 +17,10 @@
 //! Exit 1 with the reason on standard output when `value` is no value of
 //! `name`. With no name and value, standard input holds pairs of NUL-ended
 //! words, and each pair is answered with its status and reason, NUL-ended.
+//!
+//!   console settings words <name>
+//!
+//! The words a setting takes, for what ships to be held against them.
 
 use std::env;
 use std::ffi::OsStr;
@@ -170,8 +174,17 @@ pub fn main(given: &[String]) -> u8 {
             }
             None => 0,
         },
+        ["words", name] => match rules::words(name) {
+            Some(words) => {
+                println!("{}", words.join(" "));
+                0
+            }
+            None => 1,
+        },
         _ => {
-            eprintln!("usage: console settings load <euid> [<bash>] | valid [<name> <value>]");
+            eprintln!(
+                "usage: console settings load <euid> [<bash>] | valid [<name> <value>] | words <name>"
+            );
             64
         }
     }

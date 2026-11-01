@@ -109,7 +109,7 @@
 //!
 //! One pass of the Protolab, for libexec/protolab, see src/protolab.rs.
 //!
-//!   console settings load <euid> [<bash>] | valid [<name> <value>]
+//!   console settings load <euid> [<bash>] | valid [<name> <value>] | words <name>
 //!
 //! What tehas_load does and what a setting may hold, see src/settings.rs.
 //!

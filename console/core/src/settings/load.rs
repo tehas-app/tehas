@@ -83,6 +83,7 @@ const KEPT: &[&str] = &[
     "TEHAS_MCP_KEYS",
     "TEHAS_MCP_DASHBOARD_KEYS",
     "TEHAS_PROC_DIR",
+    "TEHAS_SETTINGS_CMD",
 ];
 
 /// The names an earlier version read are refused, not ignored: a line that
@@ -711,7 +712,7 @@ pub fn script(start: &Vars, vars: &Vars) -> Vec<u8> {
         quote(&mut out, why.as_bytes());
         out.push(b' ');
     }
-    out.extend_from_slice(b")\n");
+    out.extend_from_slice(b")\n_tehas_loaded=1\n");
     out
 }
 
@@ -1277,7 +1278,7 @@ mod tests {
         let text = script(&before, &vars);
         assert_eq!(
             String::from_utf8_lossy(&text),
-            "declare -gA _tehas_bad\n_tehas_bad=()\n"
+            "declare -gA _tehas_bad\n_tehas_bad=()\n_tehas_loaded=1\n"
         );
     }
 
