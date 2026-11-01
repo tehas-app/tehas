@@ -161,11 +161,15 @@ pub fn q_render(kind: Kind, issue: u64, turn: u64, out: &Value, line: &str) -> S
             "plan"
         }
         Kind::Park => {
-            b += &format!(
-                "{}\n{}\n- [ ] Leave it parked\n\n",
-                box_line(BOX_CLEAN, false),
-                box_line(BOX_ALONE, false)
-            );
+            // A develop timeout that repeats on the same text offers no retry.
+            if out.get("retry") != Some(&Value::Bool(false)) {
+                b += &format!(
+                    "{}\n{}\n",
+                    box_line(BOX_CLEAN, false),
+                    box_line(BOX_ALONE, false)
+                );
+            }
+            b += "- [ ] Leave it parked\n\n";
             b += "Tick one box. Only a tick from an account that may authorise work counts.\n";
             "park"
         }
