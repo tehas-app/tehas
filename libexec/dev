@@ -24,10 +24,10 @@
 #                no container was started.
 #             78 the instance settings are invalid, tehas.slice is not usable
 #                on this host, the clone's directory exists and is not a
-#                clone, the build output directory cannot be made or is not a
-#                directory of the user the container runs as, or --issue was
-#                given and the instance gives no images or files; no container
-#                was started.
+#                clone, its lock stayed held for five minutes, the build output
+#                directory cannot be made or is not a directory of the user the
+#                container runs as, or --issue was given and the instance gives
+#                no images or files; no container was started.
 #
 # The container is a cycle's container with a terminal: the same image, limits,
 # mounts and variables as a cycle is given, assembled by lib/sandbox.sh and
@@ -69,7 +69,7 @@
 # their session built and does not build the workspace again from nothing,
 # and no cycle shares any of it. The host's index of the product is not copied
 # here: it is keyed to the path a cycle works at, which is not the path of this
-# clone. Its target is the one build output the cleaner may take, under the
+# clone. Its target is the one thing here the cleaner may take, under the
 # clone's lock, when the host is low on disk and the tree has gone unused; this
 # command holds that lock for the session's life.
 #
@@ -236,6 +236,9 @@ lock=$("$console" clean session "$TEHAS_HOME" "$name" 300) ||
   { echo "tehas dev: not starting a session of $name" >&2; exit 78; }
 exec 9>"$lock" || { echo "tehas dev: cannot open $lock, not starting a session" >&2; exit 78; }
 flock -w 300 9 || { echo "tehas dev: $lock is held, not starting a second session" >&2; exit 78; }
+# The cleaner may have taken it while this waited, and docker would make it root's.
+[ -d "$target_host" ] || mkdir "$target_host" ||
+  { echo "tehas dev: cannot make $target_host, not starting a session" >&2; exit 78; }
 
 if [ "$fresh" = 1 ]; then
   # Made beside its place and moved there whole. A clone that stopped halfway

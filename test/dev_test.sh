@@ -784,6 +784,27 @@ t_release
 t_stub flock
 rm -rf "$devs/erin.state" "$devs/erin.author" "$devs/erin"
 
+t_case "the build output the cleaner took during the wait is made again"
+again
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
+T_ENV=()
+slice_good
+# The removal happens between the console's answer and the shell's lock.
+t_stub flock "rmdir \"\$TARGET_GOES\"
+exec $(command -pv flock) \"\$@\""
+t_stub docker 'if [ "$1" = info ]; then cat "$T/docker.info"; exit; fi
+if [ "$1" = image ]; then cat "$T/image.label" 2>/dev/null; exit; fi
+printf "%s\n" "$@" >"$T/calls/docker.args.1"'
+T_ENV=("TARGET_GOES=$devs/frank.state/target" GH_TOKEN=test-token "$root")
+t_run "$dev_cmd frank"
+t_eq "$t_rc" 0
+t_eq "$(containers)" 1
+t_eq "$(stat -c %u "$devs/frank.state/target")" "$(id -u)"
+T_ENV=()
+t_stub docker "$docker_stub"
+t_stub flock
+rm -rf "$devs/frank.state" "$devs/frank.author" "$devs/frank"
+
 t_case "words of the console on standard error are no part of the lock's path"
 again
 slice_good
