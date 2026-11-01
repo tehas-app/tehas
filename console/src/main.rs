@@ -158,6 +158,7 @@ mod flags;
 mod forge;
 mod frame;
 mod health;
+mod improve;
 mod jq;
 mod notice;
 mod now;
