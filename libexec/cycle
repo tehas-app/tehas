@@ -1065,7 +1065,7 @@ rm -f "$cycles/$issue.done"
 # refresh marked. A start by hand used none. An approval that cannot be read
 # leaves it unknown: the mark of a refresh is then the dispatcher's to clear.
 # A refresh is on record at the time the poll decided it: the person's approval
-# it rests on is the one named for it, as tehas_approval_shape names it.
+# it rests on is the one named for it, as approval-view names it.
 refreshed="" base_at="" base_by=""
 if tehas_store approval-current "$issue"; then
   read -r refreshed base_at base_by < <(jq -r --argjson a "$attempt" '.rests_on as $r

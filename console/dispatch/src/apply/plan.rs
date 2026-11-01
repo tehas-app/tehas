@@ -89,7 +89,7 @@ pub fn no_later_parts(body: &str) -> bool {
     seen && !more
 }
 
-/// tehas_plan_shape, whole: the session as plan_view gives it, which the
+/// The shape of `store plan-view`, whole: the session as plan_view gives it, which the
 /// analytics program reads. decide's shape is its answers and notes; this
 /// adds the session, its turns and options, its states and its times.
 pub fn plan_view(row: &Value) -> Value {

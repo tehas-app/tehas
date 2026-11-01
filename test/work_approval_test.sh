@@ -268,7 +268,7 @@ for answer in "78 store: corrupt: the file is not a database" "1 store: busy #7:
   images_off
   issue_is "Words only." NONE
   record_is alice "Words only."
-  t_store_answers approval-current "${answer%% *}" "${answer#* }"
+  t_store_answers approval-view "${answer%% *}" "${answer#* }"
   t_run "$work 7"
   t_eq "$t_rc" 4
   t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
@@ -417,7 +417,7 @@ t_case "an approval that cannot be read starts no cycle: exit 4"
 images_on
 issue_is "Words only." OWNER
 record_is alice "Words only."
-t_store_answers approval-current 78 'store: unreadable: the store holds no schema'
+t_store_answers approval-view 78 'store: unreadable: the store holds no schema'
 t_run "$work 7"
 t_eq "$t_rc" 4
 t_contains "$t_out" "the approval of this issue could not be read"
@@ -719,7 +719,7 @@ for answer in "78 store: corrupt: the file is not a database" "1 store: busy #7:
   issue_is "![a]($A/1111)" NONE
   labelled_by alice
   unit_start alice
-  t_store_answers approval-current "${answer%% *}" "${answer#* }"
+  t_store_answers approval-view "${answer%% *}" "${answer#* }"
   t_run "$work 7"
   t_eq "$t_rc" 4
   t_contains "$t_out" "tehas work: the approval of this start could not be read, not starting a cycle"

@@ -546,10 +546,9 @@ record=$T/home/tehas/state/plan-7.json
 # What the session carries from one turn to the next, beside the workspace.
 keep=$T/home/tehas/work/widget-plan-7.keep
 # rec: issue 7's session as the store has it, in the shape its record file
-# had (tehas_plan_shape); null when there is none. rec_open: "open" while one
-# is open, else "none".
-plan_shape=$(bash -c '. "$1"; printf "%s" "$tehas_plan_shape"' _ "$T_ROOT/lib/store.sh")
-rec() { t_row plan-show 7 -- "$plan_shape" | jq -c .; }
+# had (plan-view); null when there is none. rec_open: "open" while one is
+# open, else "none".
+rec() { t_row plan-view 7 -- .view | jq -c .; }
 rec_open() { t_row plan-show 7 -- 'if .planning != null and .planning.ended_at == null then "open" else "none" end'; }
 # The session's brief, and the answer the turn running was given, on record.
 rec_brief() { t_row plan-show 7 -- '.planning.brief // "" | rtrimstr("\n")'; }

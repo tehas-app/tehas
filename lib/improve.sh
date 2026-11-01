@@ -86,9 +86,9 @@ tehas_improve_record() { # <issue> <started> <rc> <status> <step> [<pr> [<kills>
   # the issue's lock. A record that cannot be read leaves both out.
   settings=null
   from=""
-  if tehas_store cycle-show "$issue"; then
-    from=$(jq -r '.cycle.rukas_commit // "" | strings' <<<"$tehas_store_out" 2>/dev/null) || from=""
-    settings=$(jq -c ".cycle | select(. != null) | $tehas_settings_shape" <<<"$tehas_store_out" 2>/dev/null) || settings=null
+  if tehas_store settings-view "$issue"; then
+    from=$(jq -r '.rukas_commit // "" | strings' <<<"$tehas_store_out" 2>/dev/null) || from=""
+    settings=$(jq -c .view <<<"$tehas_store_out" 2>/dev/null) || settings=null
     [ -n "$settings" ] || settings=null
   fi
   [[ $rukas =~ ^[0-9a-f]{7,40}$ ]] || rukas=$from
