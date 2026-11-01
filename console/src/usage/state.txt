@@ -1,0 +1,16 @@
+tehas state: move a stopped factory's state to another machine as one tar.
+
+pack writes the tar to standard output: tehas-state.json, then state/,
+repos/, live/ and mcp/, the store as a copy it made of itself, not the live
+token. It refuses while a cycle or a planning turn runs or a tehas-* unit is
+active; --rehearse does not, changes nothing, marks the tar. unpack reads
+the tar from standard input, checks it in a directory beside the home, then
+replaces those directories. It refuses while a tehas-* unit is active and a
+marked tar without --rehearse, and starts no unit. unpack --rehearse also
+replaces the state, the old one gone: only for a machine to be rebuilt.
+
+Usage: tehas state pack [--rehearse] -
+       tehas state unpack [--rehearse] -
+
+Exit: 0 done; 1 refused or failed; 64 a bad argument; 78 the instance
+settings, the release or the state store are missing or malformed.

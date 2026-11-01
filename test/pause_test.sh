@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for libexec/pause and libexec/resume against a stub gh: what the flag
+# Tests for tehas pause and libexec/resume against a stub gh: what the flag
 # holds and who can read it, what a second pause keeps, what resume removes,
 # and what resume says about the other switch, tehas:pause on the control issue.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
@@ -12,7 +12,7 @@
 t_console || t_bad "$t_console_why"
 T_ENV_ALWAYS=(TEHAS_CONSOLE="$T_CONSOLE")
 
-pause="$T_ROOT/libexec/pause"
+pause="$T_ROOT/bin/tehas pause"
 resume="$T_ROOT/libexec/resume"
 flag=$T/home/tehas/state/pause.json
 
@@ -184,7 +184,7 @@ t_eq "$([ -e "$flag" ] && echo there)" ""
 t_case "help prints the text of each command and writes nothing"
 reset
 for name in pause resume; do
-  t_run "$T_ROOT/libexec/$name --help"
+  t_run "$T_ROOT/bin/tehas $name --help"
   t_eq "$t_rc" 0
   t_contains "$t_out" "Usage: tehas $name"
   t_lacks "$t_out" "set -uo pipefail"

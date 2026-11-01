@@ -14,5 +14,6 @@ pub mod plan;
 pub mod question;
 pub mod review;
 pub mod rukas;
+pub mod settings;
 pub mod slow;
 pub mod time;

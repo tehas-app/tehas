@@ -29,12 +29,12 @@ T_DISK_TREE=$T/disk-tree
 t_disk() { # the command, with the console of this checkout beside it
   [ -x "$T_DISK_TREE/libexec/console" ] && return 0
   t_console || return 1
-  mkdir -p "$T_DISK_TREE/libexec"
+  mkdir -p "$T_DISK_TREE/libexec" "$T_DISK_TREE/bin"
   ln -sfn "$T_ROOT/lib" "$T_DISK_TREE/lib"
-  cp "$T_ROOT/libexec/disk" "$T_DISK_TREE/libexec/disk"
+  cp "$T_ROOT/bin/tehas" "$T_DISK_TREE/bin/tehas"
   cp "$T_CONSOLE" "$T_DISK_TREE/libexec/console"
 }
-disk="$T_DISK_TREE/libexec/disk"
+disk="$T_DISK_TREE/bin/tehas disk"
 
 t_case "it prints the file systems of the host, one line each, and asks no more of df than one call each"
 t_disk || t_skip "no console: $t_console_why"

@@ -2198,7 +2198,7 @@ plan_sessions_must
 # health file the snapshot above wrote is written again with it.
 if [ "$dry" = 0 ]; then
   report_demand
-  "$here/health" || log "WARN: the health file could not be written"
+  "$here/with-settings" tehasbot health || log "WARN: the health file could not be written"
 fi
 
 # The label, when the flag has not already decided: it asks GitHub, so it comes

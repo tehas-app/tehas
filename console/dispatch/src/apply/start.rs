@@ -42,6 +42,7 @@ pub struct Host {
     pub status_cmd: String,
     /// TEHAS_HEALTH_CMD, run after the poll wrote the demand.
     pub health_cmd: String,
+    pub health_args: Vec<String>,
     pub console_cmd: String,
     /// TEHAS_TIDY_CMD, run by the end of every poll past the bot's login.
     pub tidy_cmd: String,
@@ -89,7 +90,7 @@ pub struct Host {
 /// them: how long it has to end, and how long it then has after TERM before
 /// it is killed. The poll holds `state/dispatch.lock` while it runs a host
 /// command, and the commands bound themselves only one call at a time -
-/// `libexec/tidy` each gh by `TEHAS_TIDY_WAIT`, `libexec/health` each call of
+/// `libexec/tidy` each gh by `TEHAS_TIDY_WAIT`, `tehasbot health` each call of
 /// the store by `tehas_store_bound` - so the poll bounds the whole run. The
 /// bound is the status's, and not a short one: a health file the poll cut off
 /// at two seconds is a worse report than one written late, which is what the
@@ -373,7 +374,8 @@ impl Writer {
     /// Its exit status, None when it did not end in its bound.
     pub fn health(&mut self, printed: &mut Vec<String>, log: &mut Vec<String>) -> Option<i32> {
         let cmd = self.host.health_cmd.clone();
-        self.status_of_grace(&cmd, &[], printed, log, &Term::HOST)
+        let args = self.host.health_args.clone();
+        self.status_of_grace(&cmd, &args, printed, log, &Term::HOST)
     }
 
     /// The host's command `cmd` run under a bound, with the grace between
