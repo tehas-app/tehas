@@ -28,7 +28,7 @@
 . "$(dirname "$0")/lib.sh" || exit 1
 
 code() { # every tracked file that is installed or run and could name a record
-  git -C "$T_ROOT" ls-files -- bin libexec lib install.sh console/analytics/src console/src/export.rs
+  git -C "$T_ROOT" ls-files -- bin libexec lib install.sh console/analytics/src console/src/export.rs console/src/stop.rs
 }
 
 # The old files of the records that moved, as extended regular expressions,
@@ -108,43 +108,43 @@ forbid "$p"'\.history\.jsonl\b' 'files=("$TEHAS_HOME/state/cycles/plan-$issue.hi
 forbid '\bplan_record_number\b' 'plan_record_number "$st" || continue'
 forbid '\btehas_plan_history_add\b' 'tehas_plan_history_add "$n" "$line"'
 carrier '\.runner_exit\b' 'runner_exit_file=$TEHAS_HOME/state/cycles/$issue.runner_exit' \
-  'lib/cycles.sh libexec/cycle libexec/stop libexec/work' \
+  'lib/cycles.sh libexec/cycle console/src/stop.rs libexec/work' \
   "work tells the cycle how the runner ended"
 carrier "$n"'\.status\b' 'status_file=$TEHAS_HOME/state/cycles/$issue.status' \
   'libexec/cycle libexec/work' \
   "work tells the cycle the runner's status word"
 carrier '\.oom\b' 'oom_file=${cycles:?}/${issue:?}.oom' \
-  "lib/cycles.sh libexec/cycle libexec/stop libexec/work $an/main.rs $an/run.rs $an/tests.rs" \
+  "lib/cycles.sh libexec/cycle console/src/stop.rs libexec/work $an/main.rs $an/run.rs $an/tests.rs" \
   "work counts the container's kills for memory for the cycle"
 carrier '\.forks\b' 'forks_file=$TEHAS_HOME/state/cycles/$issue.forks' \
-  "libexec/cycle libexec/stop libexec/work $an/main.rs $an/run.rs" \
+  "libexec/cycle console/src/stop.rs libexec/work $an/main.rs $an/run.rs" \
   "work counts the container's refused forks for the cycle"
 carrier '\.stalled\b' 'stall_file=${cycles:?}/${issue:?}.stalled' \
-  'libexec/cycle libexec/stop libexec/work' \
+  'libexec/cycle console/src/stop.rs libexec/work' \
   "work tells the cycle the container stalled"
 carrier '\.timed\b' 'timed_file=${cycles:?}/${issue:?}.timed' \
-  'libexec/cycle libexec/stop libexec/work' \
+  'libexec/cycle console/src/stop.rs libexec/work' \
   "work tells the cycle the container ran out of time"
 carrier '\.nostart\b' 'nostart_file=$TEHAS_HOME/state/cycles/$issue.nostart' \
-  'lib/cycles.sh libexec/cycle libexec/stop libexec/work' \
+  'lib/cycles.sh libexec/cycle console/src/stop.rs libexec/work' \
   "work tells the cycle the runner never started"
 carrier '\.result\.json\b' 'result=$TEHAS_HOME/state/cycles/$issue.result.json' \
-  "libexec/cycle libexec/export console/src/export.rs libexec/stop libexec/work $an/run.rs $an/sessions.rs $an/tests.rs" \
+  "libexec/cycle libexec/export console/src/export.rs console/src/stop.rs libexec/work $an/run.rs $an/sessions.rs $an/tests.rs" \
   "the container's result, kept to the next start for tehas export"
 carrier '\.progress\.json\b' 'progress=$TEHAS_HOME/state/cycles/$issue.progress.json' \
-  "lib/cycles.sh libexec/cycle libexec/export console/src/export.rs libexec/stop libexec/work $an/run.rs $an/tests.rs" \
+  "lib/cycles.sh libexec/cycle libexec/export console/src/export.rs console/src/stop.rs libexec/work $an/run.rs $an/tests.rs" \
   "the summary of the container's output, kept to the next start for tehas export"
 carrier "$n"'\.done\b' 'echo "$done_why" >"$TEHAS_HOME/state/cycles/$n.done"' \
   'libexec/cycle libexec/dispatch' \
   "the dispatcher tells a running cycle why it is done"
 carrier "$n"'\.stopped\b' 'stopped_marker=$state/$n.stopped' \
-  'libexec/cycle libexec/stop' \
+  'libexec/cycle console/src/stop.rs' \
   "tehas stop tells a running cycle it was stopped"
 carrier '\.cid\b' 'cid_file=$TEHAS_HOME/state/cycles/$issue.cid' \
-  'libexec/dev libexec/dispatch libexec/stop libexec/work' \
+  'libexec/dev libexec/dispatch console/src/stop.rs libexec/work' \
   "the container's id, for docker"
 carrier '\.manifest\.json\b' 'kept=$TEHAS_HOME/state/cycles/$issue.manifest.json' \
-  'lib/attachments.sh console/src/export.rs libexec/stop libexec/work' \
+  'lib/attachments.sh console/src/export.rs console/src/stop.rs libexec/work' \
   "the images a container is given, mounted into it"
 carrier '\.images\.md\b' 'cp "$images/x" "$TEHAS_HOME/state/cycles/7.images.md"' \
   'libexec/work' \

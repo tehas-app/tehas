@@ -7,6 +7,7 @@
 //!   console tehas limit [--json] | set ... | clear
 //!   console tehas pause [reason]
 //!   console tehas analytics report | export <file> [--json]
+//!   console tehas stop <issue> [--keep-workspace]
 //!   console tehasbot health
 //!
 //! status and disk need no settings. The rest run under
@@ -20,7 +21,7 @@
 //!
 //! Exit: the status of the command; 64 usage.
 
-use crate::{disk, flags, health, state, status};
+use crate::{disk, flags, health, state, status, stop};
 use std::env;
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::process::CommandExt;
@@ -129,6 +130,7 @@ pub fn tehas(given: &[String]) -> u8 {
         "limit" => flag(limit_words(rest)),
         "pause" => flag(pause_words(rest)),
         "analytics" => analytics(rest),
+        "stop" => stop::main(rest),
         _ => {
             eprintln!("console tehas: no such command: {command}");
             64
@@ -146,6 +148,10 @@ pub fn tehasbot(given: &[String]) -> u8 {
     }
 }
 
+/// What `check` ends with when it was the whole answer, as a help text met
+/// among the arguments is: `libexec/with-settings` then ends 0 and loads nothing.
+const ANSWERED: u8 = 99;
+
 /// What can be said of the arguments before the settings are loaded. A
 /// command with no check here passes.
 pub fn check(given: &[String]) -> u8 {
@@ -155,6 +161,11 @@ pub fn check(given: &[String]) -> u8 {
         ["tehas", "limit"] => limit_words(rest).map(|_| ()),
         ["tehas", "pause"] => pause_words(rest).map(|_| ()),
         ["tehas", "analytics"] => analytics_words(rest),
+        ["tehas", "stop"] => match stop::parse(rest) {
+            Ok(Some(_)) => Ok(()),
+            Ok(None) => Err(ANSWERED),
+            Err(rc) => Err(rc),
+        },
         _ => Ok(()),
     };
     said.err().unwrap_or(0)
@@ -168,6 +179,7 @@ fn text(command: &str) -> Option<&'static str> {
         "pause" => include_str!("usage/pause.txt"),
         "state" => include_str!("usage/state.txt"),
         "status" => include_str!("usage/status.txt"),
+        "stop" => stop::USAGE,
         _ => return None,
     })
 }

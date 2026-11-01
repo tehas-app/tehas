@@ -8,6 +8,8 @@ use std::os::unix::fs::PermissionsExt;
 use std::os::unix::process::ExitStatusExt;
 use std::path::Path;
 use std::process::{Command, ExitStatus, Stdio};
+use std::thread::sleep;
+use std::time::Duration;
 
 /// What a call that did not answer said, as lib/store.sh sets it: the status
 /// (1 refused, busy or timeout; 64 usage; 78 unusable), the store's word or
@@ -145,5 +147,94 @@ pub fn call(home: &Path, args: &[&str]) -> Result<Value, Refusal> {
             no(rc as u8, &word, first.to_string())
         }
         _ => no(78, "garbled", format!("store: garbled: {verb} exited {rc}")),
+    }
+}
+
+/// `call` again while the word is busy or timeout, one second apart, at most
+/// `tries` calls, as `tehas_store_try` does.
+pub fn try_call(home: &Path, tries: u32, args: &[&str]) -> Result<Value, Refusal> {
+    let mut made = 1;
+    loop {
+        match call(home, args) {
+            Err(no)
+                if no.rc == 1 && made < tries && matches!(no.word.as_str(), "busy" | "timeout") =>
+            {
+                made += 1;
+                sleep(Duration::from_secs(1));
+            }
+            answer => return answer,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    struct Home(PathBuf);
+
+    impl Home {
+        /// A home whose store says each line of `said` in turn, the last one
+        /// from then on, and counts its calls.
+        fn new(name: &str, said: &[&str]) -> Home {
+            let home = std::env::temp_dir().join(format!("store-{}-{name}", std::process::id()));
+            let _ = fs::remove_dir_all(&home);
+            fs::create_dir_all(home.join("libexec")).unwrap();
+            let mut script = String::from("#!/bin/sh\necho x >>\"$TEHAS_HOME/calls\"\n");
+            script.push_str("case $(wc -l <\"$TEHAS_HOME/calls\") in\n");
+            for (i, line) in said.iter().enumerate() {
+                let pattern = if i + 1 == said.len() {
+                    "*"
+                } else {
+                    &(i + 1).to_string()
+                };
+                script.push_str(&format!("  *{pattern}) {line} ;;\n").replace("**", "*"));
+            }
+            script.push_str("esac\n");
+            let bin = home.join("libexec/store");
+            fs::write(&bin, script).unwrap();
+            fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
+            Home(home)
+        }
+
+        fn calls(&self) -> usize {
+            fs::read_to_string(self.0.join("calls"))
+                .unwrap_or_default()
+                .lines()
+                .count()
+        }
+    }
+
+    impl Drop for Home {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    const BUSY: &str = "echo 'store: busy #5: locked'; exit 1";
+    const ANSWER: &str = r#"echo '{"api":1,"ok":true,"verb":"park-retry"}'"#;
+
+    #[test]
+    fn a_busy_store_is_asked_again() {
+        let home = Home::new("again", &[BUSY, ANSWER]);
+        assert!(try_call(&home.0, 3, &["park-retry", "5"]).is_ok());
+        assert_eq!(home.calls(), 2);
+    }
+
+    #[test]
+    fn the_tries_are_a_ceiling_and_the_last_refusal_is_the_answer() {
+        let home = Home::new("ceiling", &[BUSY]);
+        let no = try_call(&home.0, 3, &["park-retry", "5"]).unwrap_err();
+        assert_eq!((no.rc, no.word.as_str()), (1, "busy"));
+        assert_eq!(home.calls(), 3);
+    }
+
+    #[test]
+    fn another_refusal_is_not_asked_again() {
+        let home = Home::new("refused", &["echo 'store: conflict #5: no'; exit 1"]);
+        let no = try_call(&home.0, 3, &["park-retry", "5"]).unwrap_err();
+        assert_eq!(no.word, "conflict");
+        assert_eq!(home.calls(), 1);
     }
 }

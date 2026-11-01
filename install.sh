@@ -548,7 +548,6 @@ for f in \
   resume \
   setup \
   status \
-  stop \
   tidy \
   top \
   top-publish \
@@ -1226,6 +1225,7 @@ for f in \
   libexec/limit \
   libexec/pause \
   libexec/state \
+  libexec/stop \
   libexec/summary \
   edge/protolab.Caddyfile \
   edge/protolab.compose.yaml; do

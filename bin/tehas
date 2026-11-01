@@ -48,14 +48,14 @@ usage_of() {
 # script <command>: the file behind a command, or nothing.
 script() {
   case "$1" in
-    dispatch | work | plan | dev | index | setup | update | labels | top | resume | stop | api | drain | history | export | mcp | check-product | init-product) echo "$libexec/$1" ;;
+    dispatch | work | plan | dev | index | setup | update | labels | top | resume | api | drain | history | export | mcp | check-product | init-product) echo "$libexec/$1" ;;
   esac
 }
 
 # verb <command>: whether the command is a verb of the console.
 verb() {
   case "$1" in
-    status | disk | state | limit | pause | analytics) ;;
+    status | disk | state | limit | pause | analytics | stop) ;;
     *) return 1 ;;
   esac
 }
@@ -92,7 +92,7 @@ case "$#:${2-}" in
 esac
 case "$1" in
   status | disk) exec "$console" tehas "$@" ;;
-  state | limit | pause | analytics) exec "$libexec/with-settings" tehas "$@" ;;
+  state | limit | pause | analytics | stop) exec "$libexec/with-settings" tehas "$@" ;;
 esac
 file=$(script "$1")
 shift
