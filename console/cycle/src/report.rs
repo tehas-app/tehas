@@ -242,7 +242,7 @@ pub struct Report {
     /// The arguments of `analytics run` after the issue, the attempt and the
     /// line.
     pub analytics: Vec<String>,
-    /// The arguments of tehas_improve_record.
+    /// The arguments of the improvement record.
     pub improve: Vec<String>,
     /// Whether the status runs after it (not after a stop).
     pub status_run: bool,
