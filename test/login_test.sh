@@ -177,6 +177,29 @@ for login in ../main a.b -x 'a b'; do
 done
 t_eq "$(containers)" 0
 
+t_case "the session has the tehas user's own environment, from its home, and the token reaches docker by name only"
+again
+cat >"$T/tree/env.sh" <<'ENV'
+pwd >"$T/calls/env.pwd"
+export GH_TOKEN=from-env-sh
+not_exported=kept-here
+ENV
+t_stub docker 'if [ "$1" = info ]; then echo "systemd 2"; exit; fi
+printf "%s\n" "$@" >"$T/calls/docker.args.$$"
+printf "%s\n" "$GH_TOKEN" >"$T/calls/docker.token"
+printf "%s\n" "${not_exported-unset}" >"$T/calls/docker.other"'
+T_ENV=(SUDO_USER=alice "TEHAS_CGROUP_ROOT=$T_CGROUP")
+t_run "$entry 'Alice Example <alice@example.com>' --"
+t_eq "$t_rc" 0
+t_eq "$(cat "$T/calls/env.pwd")" "$T/home"
+t_eq "$(cat "$T/calls/docker.token")" from-env-sh
+t_eq "$(cat "$T/calls/docker.other")" unset
+t_lacks "$(session_args)" from-env-sh
+rm -f "$T/tree/env.sh"
+t_stub docker 'if [ "$1" = info ]; then echo "systemd 2"; exit; fi
+printf "%s\n" "$@" >"$T/calls/docker.args.$$"'
+again
+
 t_case "it does not depend on the directory sudo was called from"
 T_ENV=(GH_TOKEN=test-token SUDO_USER=alice "TEHAS_CGROUP_ROOT=$T_CGROUP")
 mkdir -p "$T/closed"
