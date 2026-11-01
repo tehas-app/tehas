@@ -97,8 +97,10 @@ held`, for an issue a cycle is running before the age is asked, and `git could n
 name the gitdir of one of its worktrees`, for a worktree record that no longer
 matches a tree. The 7-day sweep of the dispatcher still takes the workspace
 itself. The build output of a manual session, `~/tehas/dev/<name>.state/target`,
-is the one build output the cleaner never takes: it walks no directory under
-`~/tehas/dev` for build-output names, and that tree is a person's call (see
+goes on the same two rules and nothing else under `<name>.state` is ever named:
+it goes only of a clone whose session lock, `~/tehas/state/dev/<name>.lock`, no
+`tehas dev` holds and whose container `docker ps` does not name, so a running
+session keeps its build and a docker that will not answer keeps every one (see
 [tehas dev](/tools#tehas-dev)).
 
 The same run prunes Docker's build cache of that age with `docker builder prune`.
@@ -1850,7 +1852,7 @@ for it with these differences:
 | The tree it works in        | `~/tehas/dev/<name>`, kept between sessions, where a cycle gets a fresh clone                                       |
 | git identity                | The stored author of that clone, else the bot's. A label: it is not checked against anything                       |
 | What else enters            | A terminal, and `TERM` and `COLORTERM` from the shell. Nothing else of the host environment, and not `~/.config/gh` |
-| Where its build output goes | `~/tehas/dev/<name>.state/target`, mounted read-write and named by `CARGO_TARGET_DIR`. A session's build output is kept with its clone and the cleaner walks nothing under `<name>.state`; [tehas dev](/tools#tehas-dev) says what that costs and who clears it |
+| Where its build output goes | `~/tehas/dev/<name>.state/target`, mounted read-write and named by `CARGO_TARGET_DIR`. A session's build output is kept with its clone, and the cleaner takes it on the age rule and the low-disk rule of a kept workspace - of a clone no session holds, never anything else under `<name>.state`; [tehas dev](/tools#tehas-dev) says who clears it by hand |
 | What the host runs from the clone | Nothing. The host runs git there once, to make it, and never again                                           |
 
 `test/dev_test.sh` pins the session's `docker run` the same way. Both commands

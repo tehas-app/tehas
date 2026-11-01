@@ -39,6 +39,17 @@ empty one above it.
   changes who approves a build: that person's `tehas:plan` does, and nobody
   reads the plan first. With any open point, in a `tehas:refine` session, or
   from the millwright, it asks as before (#1178).
+- `tehasbot clean` takes the cargo build output of a manual session,
+  `~/tehas/dev/<name>.state/target`, on the same age rule and the same
+  low-disk rule as the build output of a kept workspace, and only of a clone
+  whose session is closed: the lock `tehas dev` holds for the whole session,
+  `~/tehas/state/dev/<name>.lock`, and the container name `docker ps` answers
+  say whether it is, and one that will not answer keeps the build. Nothing else
+  under `<name>.state` is named, so the clone, its memory, sessions,
+  transcripts, code index, author and images stay. `tehas dev` now takes that
+  lock before it makes the clone and holds it for the session, so a second
+  session of the same clone waits for it and a cleaner never meets a target
+  half removed (#1112).
 
 ### Adopter action
 

@@ -9,9 +9,10 @@
 //!     written; 3 another run holds the lock; 64 a usage error.
 //!
 //! Only what has not been used for <after> hours goes. When the free disk is
-//! under the minimum, steps 1 and 2 take build output and the build cache
+//! under the minimum, steps 1, 2 and 7 take build output and the build cache
 //! whatever their age; a workspace whose lock a cycle holds is still never
-//! touched.
+//! touched, and neither is the build output of a clone whose lock `tehas dev`
+//! holds.
 //!
 //! A cycle's scratch on the host's scratch disk goes with its lock free.
 //!
@@ -35,6 +36,15 @@
 //!    container was made from and no kept tag (uid, release-) stands on, each
 //!    removed by its own name. Never `docker image prune`.
 //! 6. `store upkeep`: old logs, a daily backup of the state store, prune.
+//! 7. The build output of a manual session: `<name>.state/target` of every
+//!    clone under `dev`, a plain directory of the run's own user and no link,
+//!    which is kept by age above the minimum free and taken under it. Nothing
+//!    else under `<name>.state` is named: the clone, its memory, sessions,
+//!    runs, transcripts, author and images stay. The lock `tehas dev` holds for
+//!    a session, `state/dev/<name>.lock` and no lock file of `state/cycles` is
+//!    what marks a session open; one that is a link, a directory or a file no
+//!    one can open is the same as held, and so is a docker that will not say
+//!    whether the session's container stands.
 //!
 //! One line per removal and a closing line with the bytes freed go to the log
 //! and to standard output; a warning goes to the log and standard error. A dry
@@ -53,14 +63,17 @@ use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 use tehas_core::time;
 
-const USAGE: &str = "usage: console clean run <dry 0|1> <home> <work dir> <after hours> <min free MiB> <min free> <free KiB> <dirs> <sandbox image> <base image> <log file> <scratch dir>\n       console clean ended <workspace> <dirs> <log file> <scratch of the cycle>\n       console clean scratch <scratch dir> <name>";
+const USAGE: &str = "usage: console clean run <dry 0|1> <home> <work dir> <after hours> <min free MiB> <min free> <free KiB> <dirs> <sandbox image> <base image> <log file> <scratch dir>\n       console clean ended <workspace> <dirs> <log file> <scratch of the cycle>\n       console clean scratch <scratch dir> <name>\n       console clean session <home> <clone name> [<seconds>]";
 
 pub fn main(given: &[String]) -> u8 {
     if given.first().is_some_and(|v| v == "ended") {
         return ended(&given[1..]);
+    }
+    if given.first().is_some_and(|v| v == "session") {
+        return hold_session_lock(&given[1..]);
     }
     if given.first().is_some_and(|v| v == "scratch") {
         return scratch_made(&given[1..]);
@@ -90,6 +103,7 @@ pub fn main(given: &[String]) -> u8 {
         base,
         after,
         build_after: after,
+        low: false,
         dirs: dirs.split_whitespace().map(String::from).collect(),
         sandbox: sandbox.clone(),
         pulled: pulled.clone(),
@@ -116,6 +130,7 @@ fn ended(given: &[String]) -> u8 {
         base: String::new(),
         after: 0,
         build_after: 0,
+        low: false,
         dirs: dirs.split_whitespace().map(String::from).collect(),
         sandbox: String::new(),
         pulled: String::new(),
@@ -154,6 +169,156 @@ fn scratch_made(given: &[String]) -> u8 {
     0
 }
 
+/// `console clean session`: the lock of a manual session, prepared and named.
+/// The cleaner's step for a clone's build output waits behind
+/// `state/dev/<name>.lock` and no file of `state/cycles`, so this makes the
+/// directory the session's cargo build output is mounted at - a plain directory
+/// of the account the session runs as, never a link or a tree another account
+/// left - makes the lock, and prints its path. `tehas dev` holds the lock itself
+/// for the session's life, and ends when the container is gone. The wait is
+/// spent in this call, which is what says who else holds the lock; the wait of
+/// the shell that comes back is for a lock that went and came.
+fn hold_session_lock(given: &[String]) -> u8 {
+    let [home, name, wait @ ..] = given else {
+        eprintln!("{USAGE}");
+        return 64;
+    };
+    // The path of the lock is the contract between this verb and libexec/dev:
+    // one plain word of a name, so a clone cannot name another directory or
+    // leave the tree of clones.
+    if name.is_empty()
+        || !name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+    {
+        eprintln!("tehas clean: not a name for a clone: {name}");
+        return 64;
+    }
+    let secs = match wait {
+        [] => 300u64,
+        [one] => match one.parse::<u64>() {
+            Ok(0) | Err(_) => {
+                eprintln!("tehas clean: not a number of seconds to wait: {one}");
+                return 64;
+            }
+            Ok(n) => n,
+        },
+        _ => {
+            eprintln!("{USAGE}");
+            return 64;
+        }
+    };
+    let devs = Path::new(home).join("dev");
+    let state = devs.join(format!("{name}.state"));
+    let target = state.join("target");
+    let lock = Path::new(home)
+        .join("state")
+        .join("dev")
+        .join(format!("{name}.lock"));
+    let shown = lock.display().to_string();
+    // Made apart, and the build output with a plain create: a create of one
+    // path of a tree makes the directory beside it too, and then nothing left
+    // at that path by a hand could be refused as the shape it is. The shape and
+    // the owner are asked on their own, not taken on trust from the create,
+    // because on a kept clone the directory is there already, which is the
+    // normal path.
+    let made = |p: &Path| match fs::create_dir(p) {
+        Ok(()) => true,
+        Err(e) => e.kind() == io::ErrorKind::AlreadyExists,
+    };
+    let prepared = fs::create_dir_all(devs).is_ok()
+        && fs::create_dir_all(lock.parent().unwrap_or(Path::new(home))).is_ok()
+        && made(&state)
+        && fs::symlink_metadata(&state).is_ok_and(|m| m.is_dir())
+        && made(&target)
+        && fs::symlink_metadata(&target)
+            .is_ok_and(|m| m.is_dir() && m.uid() == the_uid());
+    if !prepared {
+        eprintln!("tehas clean: {} is not a directory of this account, or could not be made", target.display());
+        return 78;
+    }
+    // The wait, spent here: a session that is merely running must not hold the
+    // shell that asked past its own life, and the answer names who held it.
+    let deadline = Instant::now() + Duration::from_secs(secs);
+    loop {
+        match take_clone_lock(&lock) {
+            Ok(locked) => {
+                drop(locked);
+                out(&format!("{shown}\n"));
+                return 0;
+            }
+            Err(why) => {
+                if Instant::now() >= deadline {
+                    eprintln!("tehas clean: {shown} is held{why}");
+                    return 78;
+                }
+                std::thread::sleep(Duration::from_millis(200));
+            }
+        }
+    }
+}
+
+/// The lock of one clone, taken once: the file that holds it, or what to say
+/// beside `is held`. A link, a directory or a file that cannot be opened is
+/// never taken, since a lock is held by descriptor and a lock of a name that is
+/// no file proves nothing either way.
+fn take_clone_lock(path: &Path) -> Result<File, String> {
+    let f = OpenOptions::new()
+        .append(true)
+        .create(true)
+        .open(path)
+        .map_err(|e| format!(": it could not be opened ({e})"))?;
+    if !fs::symlink_metadata(path).is_ok_and(|m| m.is_file()) {
+        return Err(": its name is no regular file".to_string());
+    }
+    f.try_lock().map_err(|_| lock_holders(path))?;
+    Ok(f)
+}
+
+/// Who holds a clone's lock, as the process table can say it: the login and the
+/// command of each process with the file open. `fuser` answers the pids that
+/// `ps` is asked about, and an answer of none is no word at all, which is what
+/// the line beside it reads as "held, by nobody it could name".
+fn lock_holders(path: &Path) -> String {
+    let (Some(fuser), Some(ps)) = (which("fuser"), which("ps")) else {
+        return String::new();
+    };
+    let pids = Command::new(fuser)
+        .arg(path)
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+        .ok()
+        .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+        .unwrap_or_default();
+    let pids: Vec<&str> = pids
+        .split_whitespace()
+        .filter(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()))
+        .collect();
+    if pids.is_empty() {
+        return String::new();
+    }
+    let named = Command::new(ps)
+        .arg("-o=user=,comm=")
+        .args(pids)
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+        .ok()
+        .map(|o| {
+            String::from_utf8_lossy(&o.stdout)
+                .split('\n')
+                .filter(|l| !l.trim().is_empty())
+                .collect::<Vec<_>>()
+                .join(",")
+        })
+        .unwrap_or_default();
+    if named.is_empty() {
+        return String::new();
+    }
+    format!(" by {named}")
+}
+
 struct Run {
     dry: bool,
     home: PathBuf,
@@ -161,6 +326,8 @@ struct Run {
     base: String,
     after: u64,
     build_after: u64,
+    /// The free disk was under TEHAS_CLEAN_MIN_FREE when the run read it.
+    low: bool,
     dirs: Vec<String>,
     sandbox: String,
     pulled: String,
@@ -340,6 +507,13 @@ fn issue_of(name: &str, base: &str) -> Option<String> {
 fn repo_of(pulled: &str) -> &str {
     let r = pulled.split('@').next().unwrap_or(pulled);
     r.rsplit_once(':').map_or(r, |(a, _)| a)
+}
+
+/// The account of this run: what `stat -c %u` answers and what a directory of
+/// the session's own user carries.
+fn the_uid() -> u32 {
+    // SAFETY: getuid takes no argument and has no preconditions.
+    unsafe { libc::getuid() }
 }
 
 fn is_link(p: &Path) -> bool {
@@ -606,6 +780,7 @@ impl Run {
         if let Ok(kb) = free_kb.parse::<u64>() {
             if kb < min_mb * 1024 {
                 self.build_after = 0;
+                self.low = true;
                 self.log(&format!("low on disk: {} free, under TEHAS_CLEAN_MIN_FREE={min_word}: build output and build cache go whatever their age", gib(kb * 1024)));
             }
         }
@@ -618,6 +793,7 @@ impl Run {
             self.sandbox_images(),
             self.base_images(),
             self.upkeep(),
+            self.clone_targets(),
         ];
         if steps.contains(&false) {
             self.rc = 1;
@@ -1333,6 +1509,159 @@ impl Run {
         }
         true
     }
+
+    /// The lock of one clone's manual session, beside the tree of clones and
+    /// nowhere among the locks of the cycles: `state/dev` holds what `tehas dev`
+    /// takes, `state/cycles` what a cycle takes, so no reader of a cycle's lock
+    /// ever asks about one of these. The path is the contract with
+    /// `libexec/dev`, which holds it for a session's life, so a test of the rule
+    /// is a test of the path. A name of no plain word has no lock of its own and
+    /// answers nothing.
+    fn clone_lock(&self, name: &str) -> Option<PathBuf> {
+        if name.is_empty()
+            || !name
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+        {
+            return None;
+        }
+        Some(
+            self.home
+                .join("state")
+                .join("dev")
+                .join(format!("{name}.lock")),
+        )
+    }
+
+    /// The names of the host's containers, as docker lists them: one call for
+    /// the whole step, as the image steps list the host's images once. The one
+    /// form `--format` is asked with, so no step of the cleaner asks docker for
+    /// a container in any other way. None when docker would not answer, which
+    /// is no proof of no session: a clone whose session cannot be told keeps
+    /// its build, as an image no container has been named for keeps itself.
+    fn container_names(&self) -> Option<Vec<String>> {
+        docker_list(&["ps", "--all", "--format", "{{.Names}}"])
+            .map(|listed| listed.split('\n').map(String::from).collect())
+    }
+
+    /// The rule of a session: Some(false) only when the clone's lock answers no
+    /// session and docker answers no container of the session's name. A lock
+    /// that is a link, a directory or a file no one can open, and a docker that
+    /// says nothing, all answer the same as a session at work: keep.
+    fn session_open(&self, name: &str, containers: Option<&Vec<String>>) -> Option<bool> {
+        if let Some(lock) = self.clone_lock(name) {
+            match tehas_core::lock::probe(&lock) {
+                tehas_core::lock::Probe::Absent | tehas_core::lock::Probe::Free => {}
+                _ => return Some(true),
+            }
+        }
+        // A session's container carries the clone's name, which docker knows
+        // with or without the lock, so the listing answers a name of no plain
+        // word as well as one of a lock that has gone with its session.
+        let cname = format!("tehas-dev-{name}");
+        containers.map(|listed| listed.contains(&cname))
+    }
+
+    // --- 7. the build output of a manual session: <name>.state/target, and
+    // nothing else under <name>.state.
+    fn clone_targets(&mut self) -> bool {
+        let devs = self.home.join("dev");
+        let Ok(entries) = fs::read_dir(&devs) else {
+            // No directory of clones: no person has run `tehas dev` here.
+            return true;
+        };
+        let mut names: Vec<String> = entries
+            .flatten()
+            .filter_map(|e| e.file_name().to_str().map(String::from))
+            .filter(|n| !n.starts_with('.'))
+            .collect();
+        names.sort();
+        let me = the_uid();
+        let mut ok = true;
+        // The containers of the host are listed once for the whole step: one
+        // docker that will not answer keeps every clone's build, as it keeps an
+        // image no container has been named for.
+        let containers = self.container_names();
+        for name in names {
+            let Some(shown_name) = name.strip_suffix(".state") else {
+                // Only the tree of a clone's own state is asked about: a bare
+                // clone, a `.author` or an `.images` file is no build output.
+                continue;
+            };
+            // The name the session's container would carry, asked of the lock
+            // and of docker before the tree: what a clone keeps of its own is
+            // taken only when nothing says a session is at work in it.
+            let session = match self.session_open(shown_name, containers.as_ref()) {
+                Some(open) => open,
+                None => {
+                    self.warn(&format!(
+                        "docker gave no answer for the session of clone {shown_name}, so its build output was kept"
+                    ));
+                    continue;
+                }
+            };
+            if session {
+                self.log(&format!(
+                    "kept the build output of clone {shown_name}: its session is open"
+                ));
+                continue;
+            }
+            // Only this run's own user's own plain directory: a target left by
+            // hand, by root or by another account is not what this command made
+            // and is not taken. Dot-names are never entered, no link is walked.
+            let state = devs.join(&name);
+            let target = state.join("target");
+            let owned = fs::symlink_metadata(&target).is_ok_and(|m| m.is_dir() && m.uid() == me);
+            if !real_dir(&target) || !owned {
+                continue;
+            }
+            let shown = target.display().to_string();
+            let bytes = bytes_of(&target);
+            if self.dry {
+                self.log(&format!(
+                    "would remove {shown}: the build output of clone {shown_name}, {bytes} bytes"
+                ));
+                self.freed += bytes;
+                continue;
+            }
+            // Above the minimum free the age decides, as it does for a kept
+            // workspace; under it a clone's build goes whatever its age, which
+            // is what a host that fills without anyone looking is saved by.
+            if !self.low && newer(&target, self.build_after) != Some(false) {
+                let hours = self.build_after;
+                self.log(&format!(
+                    "kept the build output of clone {shown_name}: its target was written within {hours} hours"
+                ));
+                continue;
+            }
+            // The session's lock is asked of again here, as the sweep asks the
+            // issue's at the instant of the removal: between the two questions a
+            // session may have started, and its lock, not a name docker answers,
+            // is what `tehas dev` holds for the session's life.
+            let held = !matches!(
+                self.clone_lock(shown_name)
+                    .as_deref()
+                    .map(tehas_core::lock::probe),
+                Some(tehas_core::lock::Probe::Absent) | Some(tehas_core::lock::Probe::Free)
+            );
+            if held {
+                self.log(&format!(
+                    "kept the build output of clone {shown_name}: its session is open"
+                ));
+                continue;
+            }
+            if remove(&target) {
+                self.freed += bytes;
+                self.log(&format!(
+                    "removed {shown}: the build output of clone {shown_name}, {bytes} bytes"
+                ));
+            } else {
+                self.warn(&format!("could not remove {shown}"));
+                ok = false;
+            }
+        }
+        ok
+    }
 }
 
 #[cfg(test)]
@@ -1435,6 +1764,7 @@ mod tests {
             base: "widget".to_string(),
             after: 24,
             build_after: 24,
+            low: false,
             dirs: vec!["target".to_string()],
             sandbox: String::new(),
             pulled: String::new(),
@@ -1515,6 +1845,182 @@ mod tests {
         fs::remove_dir_all(&root).unwrap();
     }
 
+    #[test]
+    fn a_clone_keeps_its_build_output_till_the_disk_or_the_age_says_otherwise() {
+        let root = std::env::temp_dir().join(format!("clean-clone-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let home = root.join("home");
+        let devs = home.join("dev");
+        let clone = |name: &str, age: bool| {
+            let target = devs.join(format!("{name}.state/target"));
+            fs::create_dir_all(&target).unwrap();
+            fs::write(target.join("console"), vec![b'x'; 2048]).unwrap();
+            fs::create_dir_all(devs.join(format!("{name}.state/sessions"))).unwrap();
+            if age {
+                age_tree(&target, 72);
+            }
+            bytes_of(&target)
+        };
+        clone("alice", true);
+        clone("bob", false);
+        // The case that takes a build output must answer the docker the step
+        // asks, and the test binary runs with no docker beside it: the tree of
+        // this case is a host whose sessions have all ended, named as such by a
+        // docker of the test's own. The case beside this names no such docker and
+        // keeps every build of the same tree, which is what a docker that will
+        // not answer means on a host.
+        let host = root.join("docker-host");
+        fs::create_dir_all(&host).unwrap();
+        let stub = host.join("docker");
+        fs::write(&stub, "#!/bin/sh\nexit 0\n").unwrap();
+        fs::set_permissions(&stub, fs::Permissions::from_mode(0o755)).unwrap();
+        // SAFETY: the cases of this file run one after another in one process,
+        // and the path is read by the next call on this thread alone.
+        let had_path = std::env::var_os("PATH");
+        unsafe {
+            std::env::set_var(
+                "PATH",
+                format!(
+                    "{}:{}",
+                    host.display(),
+                    had_path.clone().unwrap_or_default().display().to_string()
+                ),
+            );
+        }
+        // What the run frees is read back of the tree before it goes: the
+        // figure is bytes_of's own, not a count this case keeps by hand.
+        let alice_bytes = bytes_of(&devs.join("alice.state/target"));
+        let run = Run {
+            dry: false,
+            home: home.clone(),
+            works: String::new(),
+            base: "widget".to_string(),
+            after: 24,
+            build_after: 24,
+            low: false,
+            dirs: Vec::new(),
+            sandbox: String::new(),
+            pulled: String::new(),
+            logfile: root.join("clean.log"),
+            tmp_disk: String::new(),
+            freed: 0,
+            rc: 0,
+        };
+        let mut run = run;
+        assert!(
+            run.clone_targets(),
+            "{}",
+            fs::read_to_string(&run.logfile).unwrap()
+        );
+        let said = fs::read_to_string(&run.logfile).unwrap();
+        // Of an age, so it goes; young, so it stays; and the lines name why.
+        // The bytes are the whole of what went, read back of the tree itself.
+        assert!(!run.home.join("dev/alice.state/target").exists(), "{said}");
+        assert!(run.home.join("dev/alice.state/sessions").exists(), "{said}");
+        assert!(run.home.join("dev/bob.state/target").exists(), "{said}");
+        assert!(run.home.join("dev/bob.state/sessions").exists());
+        assert!(said.contains("removed "), "{said}");
+        assert!(
+            said.contains(
+                "kept the build output of clone bob: its target was written within 24 hours"
+            ),
+            "{said}"
+        );
+        assert_eq!(run.freed, alice_bytes, "{said}");
+        // A target a hand or an earlier root mount left, and not of this run's
+        // account, is nobody's build output to take: a link of that name is
+        // left a link and what it points at is not walked.
+        let aside = root.join("elsewhere");
+        fs::create_dir_all(aside.join("build")).unwrap();
+        fs::write(aside.join("build/lib"), vec![b'x'; 4096]).unwrap();
+        std::os::unix::fs::symlink(&aside, devs.join("dave.state")).unwrap();
+        let mut dry = Run {
+            dry: true,
+            freed: 0,
+            ..run
+        };
+        clone("carol", true);
+        assert!(dry.clone_targets());
+        assert!(dry.home.join("dev/carol.state/target").exists());
+        assert!(aside.join("build/lib").exists(), "a link was followed");
+        let said = fs::read_to_string(&dry.logfile).unwrap();
+        assert!(said.contains("would remove "), "{said}");
+        assert!(!said.contains("dave"), "{said}: a link is no build output");
+        unsafe {
+            match had_path {
+                Some(p) => std::env::set_var("PATH", p),
+                None => std::env::remove_var("PATH"),
+            }
+        }
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn an_open_session_holds_a_clones_build_output() {
+        let root = std::env::temp_dir().join(format!("clean-clone-held-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let home = root.join("home");
+        for name in ["alice", "bob"] {
+            let target = home.join("dev").join(format!("{name}.state/target"));
+            fs::create_dir_all(&target).unwrap();
+            fs::write(target.join("console"), vec![b'x'; 1024]).unwrap();
+            age_tree(&target, 72);
+        }
+        // The rule of one clone, told by its lock alone: the container question
+        // is docker's, and a docker that answers nothing is an open session.
+        let run = Run {
+            dry: false,
+            home,
+            works: String::new(),
+            base: "widget".to_string(),
+            after: 24,
+            build_after: 24,
+            low: false,
+            dirs: Vec::new(),
+            sandbox: String::new(),
+            pulled: String::new(),
+            logfile: root.join("clean.log"),
+            tmp_disk: String::new(),
+            freed: 0,
+            rc: 0,
+        };
+        fs::create_dir_all(run.clone_lock("alice").unwrap().parent().unwrap()).unwrap();
+        // No container of the host carries a session's name, and no lock stands:
+        // the ordinary shape of a host whose sessions have all ended.
+        let none: Vec<String> = Vec::new();
+        assert_eq!(run.session_open("alice", Some(&none)), Some(false));
+        fs::write(run.clone_lock("alice").unwrap(), "").unwrap();
+        assert_eq!(run.session_open("alice", Some(&none)), Some(false));
+        // The container of a session carries the clone's name, and answers with
+        // or without the lock: it is the second of the two proofs, the one a
+        // session whose lock went with its killed holder still gives.
+        let session = vec!["tehas-work-7".to_string(), "tehas-dev-alice".to_string()];
+        assert_eq!(run.session_open("alice", Some(&session)), Some(true));
+        assert_eq!(run.session_open("carol", Some(&session)), Some(false));
+        // A docker that answers nothing is not a host with no session.
+        assert_eq!(run.session_open("alice", None), None);
+        // A lock another process holds is a session: its target stays whatever
+        // its age, and the line says why. The cleaner's step asks the lock
+        // again at the instant of the removal, so this is the one rule that must
+        // not read a held lock as free.
+        let held = std::fs::OpenOptions::new()
+            .append(true)
+            .create(true)
+            .open(run.clone_lock("bob").unwrap())
+            .unwrap();
+        held.try_lock().unwrap();
+        assert_eq!(run.session_open("bob", Some(&none)), Some(true));
+        // A link, a directory and a lock no one can open are the same answer:
+        // a lock is held by descriptor, so a name of its own proves nothing.
+        let dir = run.clone_lock("carol").unwrap();
+        fs::create_dir(&dir).unwrap();
+        assert_eq!(run.session_open("carol", Some(&none)), Some(true));
+        std::os::unix::fs::symlink(root.join("nope"), run.clone_lock("dave").unwrap()).unwrap();
+        assert_eq!(run.session_open("dave", Some(&none)), Some(true));
+        drop(held);
+        fs::remove_dir_all(&root).unwrap();
+    }
+
     enum LockShape {
         None,
         File,
@@ -1552,6 +2058,7 @@ mod tests {
             base: "tehas".to_string(),
             after: 24,
             build_after: 24,
+            low: false,
             dirs: Vec::new(),
             sandbox: String::new(),
             pulled: String::new(),

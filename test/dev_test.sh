@@ -35,6 +35,17 @@ n=$((n + 1))
 printf "%s\n" "$n" >"$T/docker.n"
 printf "%s\n" "$@" >"$T/calls/docker.args.$n"'
 t_stub docker "$docker_stub"
+# The command beside the console, as a host has it: `clean session` is the
+# console's (console/src/clean.rs) and makes the clone's state, its build output
+# and the lock of the session, so a run that has no console refuses to start
+# rather than starting a session without its lock.
+# shellcheck disable=SC2154  # t_console_why is set by t_console (test/lib.sh)
+t_console || t_bad "no console: $t_console_why"
+mkdir -p "$T/tree/libexec"
+ln -s "$dev" "$T/tree/libexec/dev"
+ln -s "$T_ROOT/lib" "$T/tree/lib"
+cp "$T_CONSOLE" "$T/tree/libexec/console"
+dev_cmd=$T/tree/libexec/dev
 printf '[user]\n\tname = Test Bot\n\temail = bot@example.com\n' >"$T/home/.gitconfig"
 # Pi's settings as install.sh leaves them on a host.
 # An issue's attachments are read by the real attachment checker.
@@ -81,7 +92,7 @@ again() { rm -f "$T"/calls/* "$T/docker.n"; }
 
 t_case "--help prints the usage with no instance and starts nothing"
 T_ENV=()
-t_run "$dev --help"
+t_run "$dev_cmd --help"
 t_eq "$t_rc" 0
 t_contains "$t_out" "Usage: tehas dev"
 t_eq "$(containers)" 0
@@ -89,17 +100,17 @@ t_eq "$(containers)" 0
 t_case "an unknown argument starts no container and makes no clone"
 t_instance "${T_MINIMAL[@]}"
 T_ENV=(GH_TOKEN=test-token "$root")
-t_run "$dev --resume"
+t_run "$dev_cmd --resume"
 t_eq "$t_rc" 64
 t_contains "$t_out" "unknown argument: --resume"
-t_run "$dev main other"
+t_run "$dev_cmd main other"
 t_eq "$t_rc" 64
 t_eq "$(containers)" 0
 t_eq "$([ -e "$devs" ] && echo there)" ""
 
 t_case "a name that is not one plain word is refused"
 for bad in ../repos/widget a/b a.author -x ''; do
-  t_run "$dev '$bad'"
+  t_run "$dev_cmd '$bad'"
   t_eq "$t_rc" 64
 done
 t_eq "$(containers)" 0
@@ -107,17 +118,17 @@ t_eq "$([ -e "$devs" ] && echo there)" ""
 
 t_case "a malformed author is refused and not stored"
 for bad in 'Alice' 'Alice alice@example.com' '<alice@example.com>' 'Alice <alice>' 'A <a@b> <c@d>' ''; do
-  t_run "$dev main --author '$bad'"
+  t_run "$dev_cmd main --author '$bad'"
   t_eq "$t_rc" 64
 done
-t_run "$dev main --author"
+t_run "$dev_cmd main --author"
 t_eq "$t_rc" 64
 t_eq "$(containers)" 0
 t_eq "$([ -e "$devs" ] && echo there)" ""
 
 t_case "an invalid instance starts no container"
 t_instance TEHAS_CONTROL_ISSUE=1
-t_run "$dev"
+t_run "$dev_cmd"
 t_eq "$t_rc" 78
 t_eq "$(containers)" 0
 t_eq "$([ -e "$devs" ] && echo there)" ""
@@ -125,7 +136,7 @@ t_eq "$([ -e "$devs" ] && echo there)" ""
 t_case "a missing token starts no container"
 t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
 T_ENV=("$root")
-t_run "$dev"
+t_run "$dev_cmd"
 t_eq "$t_rc" 64
 t_contains "$t_out" "GH_TOKEN is not set"
 t_eq "$(containers)" 0
@@ -134,7 +145,7 @@ t_eq "$([ -e "$devs" ] && echo there)" ""
 t_case "a checkout of another repository starts no container"
 T_ENV=(GH_TOKEN=test-token TERM=xterm-256color COLORTERM=truecolor SECRET_THING=leak "$root")
 git -C "$checkout" remote set-url origin https://github.com/acme/other.git
-t_run "$dev"
+t_run "$dev_cmd"
 t_eq "$t_rc" 78
 t_contains "$t_out" "not of acme/widget"
 t_eq "$(containers)" 0
@@ -143,7 +154,7 @@ git -C "$checkout" remote set-url origin "$upstream"
 t_case "without Pi's settings.json no container starts and no clone is made"
 mv "$T/home/.pi/agent/settings.json" "$T/settings.kept"
 rm -f "$T"/calls/*
-t_run "$dev"
+t_run "$dev_cmd"
 t_eq "$t_rc" 78
 t_contains "$t_out" "no $T/home/.pi/agent/settings.json: run install.sh"
 t_eq "$(t_calls docker)" ""
@@ -153,7 +164,7 @@ mv "$T/settings.kept" "$T/home/.pi/agent/settings.json"
 
 t_case "the first run makes the clone at the branch's tip, with the product's origin"
 again
-t_run "$dev"
+t_run "$dev_cmd"
 t_eq "$t_rc" 0
 t_eq "$(containers)" 1
 t_eq "$(git -C "$clone" rev-parse HEAD)" "$(git -C "$upstream" rev-parse main)"
@@ -226,7 +237,7 @@ t_lacks "$(after -v)" "$T/home/.vipune"
 echo mine >"$state/sessions/one.jsonl"
 echo built >"$state/target/debug/console"
 again
-t_run "$dev"
+t_run "$dev_cmd"
 t_eq "$(cat "$state/sessions/one.jsonl")" mine
 t_eq "$(cat "$state/target/debug/console")" built
 
@@ -291,7 +302,7 @@ printf '[core]\n\tfsmonitor = touch %s; false\n\tsshCommand = touch %s\n' "$T/ra
 git -C "$upstream" -c user.name=t -c user.email=t@example.com commit -q --allow-empty -m second
 git -C "$checkout" fetch -q origin
 again
-t_run "$dev"
+t_run "$dev_cmd"
 t_eq "$t_rc" 0
 t_eq "$(containers)" 1
 t_eq "$(cat "$clone/in-progress.txt")" mine
@@ -301,7 +312,7 @@ rm -f "$T"/ran-*
 
 t_case "an author is stored next to the clone, not in it, and used"
 again
-t_run "$dev main --author 'Alice Example <alice@example.com>'"
+t_run "$dev_cmd main --author 'Alice Example <alice@example.com>'"
 t_eq "$t_rc" 0
 t_eq "$(cat "$devs/main.author")" "Alice Example <alice@example.com>"
 t_eq "$(passed GIT_CONFIG_VALUE_2)" "Alice Example"
@@ -311,14 +322,14 @@ t_eq "$(find "$clone" -name '*.author' | wc -l)" 0
 
 t_case "the stored author is used on the next run without the option"
 again
-t_run "$dev"
+t_run "$dev_cmd"
 t_eq "$(passed GIT_CONFIG_VALUE_2)" "Alice Example"
 t_eq "$(passed GIT_CONFIG_VALUE_3)" "alice@example.com"
 
 t_case "a stored author that is not Name <email> starts no container"
 echo 'not an author' >"$devs/main.author"
 again
-t_run "$dev"
+t_run "$dev_cmd"
 t_eq "$t_rc" 64
 t_contains "$t_out" "main.author"
 t_eq "$(containers)" 0
@@ -326,7 +337,7 @@ echo 'Alice Example <alice@example.com>' >"$devs/main.author"
 
 t_case "a second name is a second clone with its own author"
 again
-t_run "$dev bob"
+t_run "$dev_cmd bob"
 t_eq "$t_rc" 0
 t_eq "$(after -w)" "$devs/bob"
 t_eq "$(after --name)" "tehas-dev-bob"
@@ -334,27 +345,30 @@ t_eq "$(passed GIT_CONFIG_VALUE_2)" "Test Bot"
 t_eq "$(git -C "$devs/bob" rev-parse HEAD)" "$(git -C "$checkout" rev-parse origin/main)"
 
 t_case "a clone that could not be finished is not left to pass for one"
+# The clone is made by a fetch of the product's own remote, so a git that will
+# not fetch is the failure the rule is for. The tree is moved into its place
+# whole, or not at all: nothing of a name is left behind to pass for a clone.
 real_git=$(command -v git)
 t_stub git "case \" \$* \" in *' fetch '*) exit 1 ;; esac; exec $real_git \"\$@\""
 again
-t_run "$dev carol"
+t_run "$dev_cmd carol"
 t_eq "$t_rc" 78
 t_contains "$t_out" "could not make the clone"
 t_eq "$(containers)" 0
 t_eq "$(find "$devs" -mindepth 1 -maxdepth 1 -name '*carol*' | wc -l)" 0
 rm -f "$T/bin/git"
 again
-t_run "$dev carol"
+t_run "$dev_cmd carol"
 t_eq "$t_rc" 0
 t_eq "$(git -C "$devs/carol" rev-parse HEAD)" "$(git -C "$checkout" rev-parse origin/main)"
 t_eq "$(find "$devs" -mindepth 1 -maxdepth 1 -name '.*' | wc -l)" 0
 
 t_case "the arguments after -- reach pi"
 again
-t_run "$dev main -- -r --model 'a b'"
+t_run "$dev_cmd main -- -r --model 'a b'"
 t_eq "$(session_args | sed -n "/^$(printf '%s' "$image" | sed 's/[\/.]/\\&/g')\$/,\$p" | tr '\n' '|')" "$image|pi|-r|--model|a b|"
 again
-t_run "$dev -- -r"
+t_run "$dev_cmd -- -r"
 t_eq "$(after -w)" "$clone"
 t_eq "$(session_args | tail -n 2 | tr '\n' ' ')" "pi -r "
 
@@ -362,7 +376,7 @@ t_case "a directory that is not a clone is left alone"
 mkdir -p "$devs/notes"
 echo keep >"$devs/notes/file.txt"
 again
-t_run "$dev notes"
+t_run "$dev_cmd notes"
 t_eq "$t_rc" 78
 t_contains "$t_out" "not a clone"
 t_eq "$(cat "$devs/notes/file.txt")" keep
@@ -372,31 +386,31 @@ t_case "a running cycle is announced, and the session starts"
 mkdir -p "$T/home/tehas/live"
 echo '{"cycles":[{"issue":12,"running":true}],"last":null}' >"$T/home/tehas/live/running.json"
 again
-t_run "$dev"
+t_run "$dev_cmd"
 t_eq "$t_rc" 0
 t_contains "$t_out" "a cycle is running on issue 12"
 t_eq "$(containers)" 1
 echo '{"cycles":[],"last":{"issue":12,"running":false}}' >"$T/home/tehas/live/running.json"
-t_run "$dev"
+t_run "$dev_cmd"
 t_lacks "$t_out" "issue 12"
 
 t_case "several running cycles are all named"
 echo '{"cycles":[{"issue":12,"running":true},{"issue":14,"running":true}],"last":null}' >"$T/home/tehas/live/running.json"
-t_run "$dev"
+t_run "$dev_cmd"
 t_contains "$t_out" "cycles are running on issues 12, 14"
 
 t_case "the one object an earlier version wrote is still read"
 echo '{"issue":12,"running":true}' >"$T/home/tehas/live/running.json"
-t_run "$dev"
+t_run "$dev_cmd"
 t_contains "$t_out" "a cycle is running on issue 12"
 echo '{"issue":12,"running":false}' >"$T/home/tehas/live/running.json"
-t_run "$dev"
+t_run "$dev_cmd"
 t_lacks "$t_out" "issue 12"
 
 t_case "the session's exit status is passed on"
 t_stub docker '[ "$1" != info ] || { cat "$T/docker.info"; exit; }
 exit 7'
-t_run "$dev"
+t_run "$dev_cmd"
 t_eq "$t_rc" 7
 t_stub docker "$docker_stub"
 echo '{"cycles":[],"last":null}' >"$T/home/tehas/live/running.json"
@@ -404,17 +418,17 @@ echo '{"cycles":[],"last":null}' >"$T/home/tehas/live/running.json"
 t_case "the room counts what is in the slice: another container at its use, a cycle with no container yet at one reserve"
 again
 slice_child "$(slice_id b)" $((3 * 1073741824)) 0 2147483648
-t_run "$dev"
+t_run "$dev_cmd"
 t_contains "$t_out" "tehas dev: tehas.slice has room for 2 more cycles"
 mkdir -p "$T/home/tehas/state/cycles"
 exec 9>"$T/home/tehas/state/cycles/12.lock"
 flock -n 9
-t_run "$dev"
+t_run "$dev_cmd"
 t_contains "$t_out" "tehas dev: tehas.slice has room for 1 more cycles"
 # The cycle's container is in the slice: it is counted once, at its floor.
 slice_id c >"$T/home/tehas/state/cycles/12.cid"
 slice_child "$(slice_id c)" 1000 0 2147483648
-t_run "$dev"
+t_run "$dev_cmd"
 t_contains "$t_out" "tehas dev: tehas.slice has room for 1 more cycles"
 exec 9>&-
 rm -rf "$T/home/tehas/state/cycles"
@@ -424,12 +438,12 @@ again
 slice_good
 slice_state 12.00
 slice_child "$(slice_id b)" $((5 * 1073741824)) 0 2147483648
-t_run "$dev"
+t_run "$dev_cmd"
 t_eq "$t_rc" 0
 t_contains "$t_out" "tehas dev: tehas.slice has room for 0 more cycles (it is under memory pressure)"
 slice_good
 rm -f "$T_CGROUP/tehas.slice/memory.pressure"
-t_run "$dev"
+t_run "$dev_cmd"
 t_contains "$t_out" "tehas dev: tehas.slice has room for 0 more cycles (its use could not be read: $T_CGROUP/tehas.slice/memory.pressure cannot be read)"
 t_eq "$(containers)" 2
 slice_good
@@ -438,7 +452,7 @@ t_case "a build output that is not a directory starts no session"
 again
 rm -rf "$state/target"
 touch "$state/target"
-t_run "$dev"
+t_run "$dev_cmd"
 t_eq "$t_rc" 78
 t_contains "$t_out" "$state/target is not a directory"
 t_eq "$(containers)" 0
@@ -448,7 +462,7 @@ rm -f "$state/target"
 mkdir -p "$T/outside-target"
 ln -s "$T/outside-target" "$state/target"
 again
-t_run "$dev"
+t_run "$dev_cmd"
 t_eq "$t_rc" 78
 t_contains "$t_out" "$state/target is not a directory"
 t_eq "$(containers)" 0
@@ -466,7 +480,7 @@ echo mine >"$devs/bob2.state/sessions/one.jsonl"
 
 t_case "the build output of a clone the command made is owned, empty, and there when docker is called"
 again
-t_run "$dev bob3"
+t_run "$dev_cmd bob3"
 t_eq "$t_rc" 0
 # Empty, so what a session builds is its own, and owned by the user the
 # container runs as, not by root: Docker would make a missing source root-owned.
@@ -486,12 +500,12 @@ t_case "the build of the last session of a clone survives the next session"
 # empties the directory it was handed nor replaces it. bob2 has an author file
 # already, so this is the path of a kept clone, where mkdir -p is a no-op.
 again
-t_run "$dev bob2"
+t_run "$dev_cmd bob2"
 t_eq "$t_rc" 0
 t_eq "$(cat "$built")" built
 t_eq "$(cat "$devs/bob2.state/sessions/one.jsonl")" mine
 again
-t_run "$dev bob2"
+t_run "$dev_cmd bob2"
 t_eq "$t_rc" 0
 t_eq "$(cat "$built")" built
 
@@ -533,7 +547,7 @@ t_stub docker "$target_guard_stub"
 rm -rf "$devs/bob2.state/target"
 find "$devs/bob2.state" -exec touch -d '1 minute ago' {} +
 sleep 1.1
-t_run "$dev bob2"
+t_run "$dev_cmd bob2"
 t_eq "$t_rc" 0
 t_eq "$(containers)" 1
 t_eq "$(find "$devs/bob2.state/target" -mindepth 1 | wc -l)" 0
@@ -556,7 +570,7 @@ without() { again; slice_good; }
 t_case "refuses with 78 without the slice, before any docker run"
 without
 printf '%s\n' FragmentPath= ActiveState=inactive MemoryMax=infinity >"$T/slice.show"
-t_run "$dev zed --author 'Zed Example <zed@example.com>'"
+t_run "$dev_cmd zed --author 'Zed Example <zed@example.com>'"
 refused
 t_contains "$t_out" "tehas dev: no slice file on this host (sudo ./bootstrap.sh slice)"
 
@@ -564,7 +578,7 @@ t_case "a cgroupfs driver, cgroup v1 and a silent docker are refused the same wa
 for answer in "cgroupfs 2" "systemd 1" ""; do
   without
   echo "$answer" >"$T/docker.info"
-  t_run "$dev zed"
+  t_run "$dev_cmd zed"
   refused
   t_contains "$t_out" "tehas dev: "
   t_contains "$t_out" "ocker"
@@ -573,7 +587,7 @@ done
 t_case "a reserve above the ceiling is refused"
 without
 t_instance "${T_MINIMAL[@]}" TEHAS_CYCLE_RESERVE=3g
-t_run "$dev zed"
+t_run "$dev_cmd zed"
 refused
 t_contains "$t_out" "tehas dev: TEHAS_CYCLE_RESERVE=3g is more than a container may use here (2048m"
 t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
@@ -585,6 +599,7 @@ short=$T/short
 mkdir -p "$short/libexec" "$short/lib"
 cp "$T_ROOT"/lib/*.sh "$short/lib/"
 ln -s "$dev" "$short/libexec/dev"
+cp "$T_CONSOLE" "$short/libexec/console"
 for words in "--cgroup-parent tehas.slice --memory 2048m --memory-swap 2048m --memory-reservation 2g --cpus 3.75 --pids-limit 4096" \
   "--cgroup-parent other.slice --memory 2048m --memory-swap 2048m --memory-reservation 2g --cpus 3.75 --pids-limit 4096 --cpu-shares 1024" ""; do
   without
@@ -646,7 +661,7 @@ attach_on
 net "$A/1111" '\x89PNG\r\n\x1a\nPNGDATA'
 issue_is "Look ![shot]($A/1111)"
 printf '%s|1\n' "$(printf 'a%.0s' {1..40})" >"$T/image.label"
-t_run "$dev --issue 7"
+t_run "$dev_cmd --issue 7"
 t_eq "$t_rc" 0
 t_eq "$(containers)" 1
 t_eq "$(after -v | LC_ALL=C sort)" "$(printf '%s\n' "$mounts_base" "$imgs:$imgs:ro" | LC_ALL=C sort)"
@@ -661,7 +676,7 @@ t_lacks "$(session_args)" "/elsewhere"
 
 t_case "without --issue the session gets neither, and an instance's image directory is not passed on"
 again
-t_run "$dev"
+t_run "$dev_cmd"
 t_eq "$t_rc" 0
 t_eq "$(after -v | LC_ALL=C sort)" "$(printf '%s\n' "$mounts_base" | LC_ALL=C sort)"
 t_eq "$(after -e | grep -c '^PI_ENSEMBLE_EXTRA_IMAGE_DIRS')" 0
@@ -673,7 +688,7 @@ for who in alice mallory; do
   net "$A/1111" '\x89PNG\r\n\x1a\nPNGDATA'
   issue_is "Look ![shot]($A/1111)" NONE
   labelled_by "$who"
-  t_run "$dev --issue 7"
+  t_run "$dev_cmd --issue 7"
   t_eq "$t_rc" 0
   t_eq "$who $(jq -c '.images | length' "$imgs/manifest.json")" "$who $([ "$who" = alice ] && echo 1 || echo 0)"
 done
@@ -683,7 +698,7 @@ attach_on
 t_instance "${T_MINIMAL[@]}" TEHAS_WORK_FILES=1
 net "https://github.com/user-attachments/files/31/spec.md" '# Spec\n'
 issue_is "[spec.md](https://github.com/user-attachments/files/31/spec.md)"
-t_run "$dev --issue 7"
+t_run "$dev_cmd --issue 7"
 t_eq "$t_rc" 0
 t_eq "$(cd "$imgs" && find . -mindepth 1 | LC_ALL=C sort | tr '\n' ' ')" "./file-1.md ./manifest.json "
 t_eq "$(after -v | grep -c -x "$imgs:$imgs:ro")" 1
@@ -691,7 +706,7 @@ t_eq "$(after -v | grep -c -x "$imgs:$imgs:ro")" 1
 t_case "an image that cannot be fetched starts no session: exit 4"
 attach_on
 issue_is "Look ![shot]($A/9999)"
-t_run "$dev --issue 7"
+t_run "$dev_cmd --issue 7"
 t_eq "$t_rc" 4
 t_eq "$(containers)" 0
 t_contains "$t_out" "tehas dev: $A/9999 could not be fetched, not starting a session"
@@ -700,7 +715,7 @@ t_eq "$([ -e "$imgs" ] && echo left)" ""
 t_case "--issue on an instance that gives no images or files starts nothing: exit 78"
 attach_on
 t_instance "${T_MINIMAL[@]}"
-t_run "$dev --issue 7"
+t_run "$dev_cmd --issue 7"
 t_eq "$t_rc" 78
 t_eq "$(containers)" 0
 t_eq "$(t_calls gh)$(t_calls curl)" ""
@@ -708,7 +723,7 @@ t_eq "$(t_calls gh)$(t_calls curl)" ""
 t_case "--issue without a number is refused"
 for bad in "--issue" "--issue x" "--issue 07" "--issue ''"; do
   attach_on
-  t_run "$dev $bad"
+  t_run "$dev_cmd $bad"
   t_eq "$t_rc" 64
   t_eq "$(containers)" 0
 done
@@ -716,9 +731,87 @@ done
 t_case "no git identity at all starts no container"
 : >"$T/home/.gitconfig"
 again
-t_run "$dev bob"
+t_run "$dev_cmd bob"
 t_eq "$t_rc" 64
 t_contains "$t_out" "user.name"
 t_eq "$(containers)" 0
+
+t_case "a clone whose lock another holds waits for it and then starts its session"
+again
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
+# The case before this one took the git identity away, and the command asks for
+# it before it asks for the lock. T_ENV is the file's, not the case's: it is
+# emptied here, before the stub of flock whose body spans lines, so the words of
+# the run below are its own.
+T_ENV=()
+slice_good
+printf '[user]\n\tname = Test Bot\n\temail = bot@example.com\n' >"$T/home/.gitconfig"
+# The stub waits for the figure a case names and then asks the real flock, by
+# its path: through the name it would answer itself forever. The wait is what a
+# session of a busy clone does, and the second case reads what follows a wait
+# that did not come to anything: the refusal, with the holder named.
+t_stub flock "if [ \"\${FLOCK_WHY:-}\" = held ]; then exit 1; fi
+if [ \"\$1\" = -w ]; then sleep \"\${FLOCK_WAIT:-0}\"; fi
+exec $(command -pv flock) \"\$@\""
+mkdir -p "$T/home/tehas/state/dev"
+lock=$T/home/tehas/state/dev/erin.lock
+# The holder is released before the run asks for the lock, so what the session
+# meets is a lock that came free while it waited: the three seconds of the wait
+# and then its own container.
+t_hold "$lock"
+t_release
+start=$(date +%s)
+T_ENV=(FLOCK_WAIT=3 GH_TOKEN=test-token "$root")
+t_run "$dev_cmd erin"
+t_eq "$t_rc" 0
+t_eq "$(($(date +%s) - start))" 3
+t_eq "$(containers)" 1
+t_contains "$(session_args)" "$devs/erin.state/target:$target_container"
+t_eq "$(find "$devs/erin.state/target" -mindepth 1 | wc -l)" 0
+# The lock of the session is the clone's own, named by its clone, and beside
+# the locks of the cycles rather than among them.
+t_eq "$(t_calls flock)" "-w 300 9"
+t_eq "$([ -e "$T/home/tehas/state/cycles/erin.lock" ] && echo there)" ""
+t_release
+t_stub flock
+rm -rf "$devs/erin.state" "$devs/erin.author" "$devs/erin"
+
+t_case "a lock that is not free in five minutes starts no session and says who holds it"
+again
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
+T_ENV=()
+t_stub flock "if [ \"\${FLOCK_WHY:-}\" = held ]; then exit 1; fi
+if [ \"\$1\" = -w ]; then sleep \"\${FLOCK_WAIT:-0}\"; fi
+exec $(command -pv flock) \"\$@\""
+slice_good
+# The holder is the sleep t_hold leaves behind, so the line names that account:
+# the person running the other session.
+mkdir -p "$T/home/tehas/state/dev"
+t_hold "$T/home/tehas/state/dev/erin.lock"
+sleep_holder=$(ps -o user= -p "$t_holder" | tr -d ' ')
+T_ENV=(FLOCK_WHY=held GH_TOKEN=test-token "$root")
+t_run "$dev_cmd erin"
+t_eq "$t_rc" 78
+t_eq "$(containers)" 0
+t_lacks "$(t_calls docker)" "run "
+t_contains "$t_out" "$T/home/tehas/state/dev/erin.lock is held"
+t_contains "$t_out" "$sleep_holder"
+t_eq "$([ -e "$devs/erin" ] && echo there)" ""
+# The refusal neither makes the clone nor takes what an earlier session of it
+# left: the lock is asked for before the tree is made, and nothing is removed on
+# the way to the refusal.
+mkdir -p "$devs/erin"
+mkdir -p "$devs/erin.state/target/debug"
+echo built >"$devs/erin.state/target/debug/console"
+T_ENV=(FLOCK_WHY=held GH_TOKEN=test-token "$root")
+t_run "$dev_cmd erin"
+t_eq "$t_rc" 78
+t_eq "$([ -d "$devs/erin/.git" ] && echo clone)" ""
+t_eq "$(cat "$devs/erin.state/target/debug/console")" built
+t_release
+rm -f "$T/home/tehas/state/dev/erin.lock"
+t_stub docker "$docker_stub"
+t_stub flock
+rm -rf "$devs/erin.state" "$devs/erin"
 
 t_done
