@@ -121,7 +121,6 @@ files="./.bashrc
 ./tehas/lib/paths.sh
 ./tehas/lib/questions.sh
 ./tehas/lib/refine-brief.md
-./tehas/lib/refresh.sh
 ./tehas/lib/release.sh
 ./tehas/lib/rukas.sh
 ./tehas/lib/sandbox.sh

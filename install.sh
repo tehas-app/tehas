@@ -468,7 +468,6 @@ files=(
   "lib/status.sh|$TEHAS_HOME/lib/status.sh|644"
   # How the commands run the state store, libexec/store.
   "lib/store.sh|$TEHAS_HOME/lib/store.sh|644"
-  "lib/refresh.sh|$TEHAS_HOME/lib/refresh.sh|644"
   # The key a release signature is checked with. It is here so the copy an
   # adopter verifies against is the one the repository holds and not one that
   # came inside the download it is checking.
@@ -1212,6 +1211,7 @@ for f in \
   libexec/console.ts \
   lib/live.sh \
   lib/planning.sh \
+  lib/refresh.sh \
   libexec/disk \
   libexec/drain \
   libexec/energy \
