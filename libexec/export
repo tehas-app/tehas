@@ -149,7 +149,7 @@ esac
 
 # The lines to copy, as tehas history prints them. Its exit status is this
 # command's: a factory whose settings are wrong is not half-exported.
-listing=$("$here/history" --json --after "$after") || exit $?
+listing=$("$console" tehas history --json --after "$after") || exit $?
 [ -n "$(jq -r '.cycles | length' <<<"$listing" 2>/dev/null)" ] || {
   echo "tehas export: tehas history gave no object" >&2
   exit 1
