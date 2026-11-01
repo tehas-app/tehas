@@ -33,7 +33,9 @@
 # source it was built from and of the program itself. A program is built
 # again only when its source has changed or it is not the one that was
 # installed, and the build that fetches the crates from the network is the
-# first one on a host that has never fetched. The console's source leaves out
+# first one on a host that has never fetched. The console is the one exception:
+# a real run asks cargo for it first of all, because it reads the settings, and
+# cargo answers at once when nothing changed. The console's source leaves out
 # console/analytics, console/mcp, console/store, console/attach,
 # console/dispatch and console/cycle, so a change there builds that program
 # alone. All but the attachment checker use the library in console/core, so a
@@ -135,8 +137,9 @@
 # libexec/dispatch is taken as one installed before the marker, and gets it on
 # this run.
 #
-# Exit: 0 done or nothing to report, 1 --check found something, a step failed
-# or another update is running, 78 the instance settings are invalid or
+# Exit: 0 done or nothing to report, 1 --check found something, a step failed,
+# the console that reads the settings did not build (nothing can judge them
+# then) or another update is running, 78 the instance settings are invalid or
 # TEHAS_HOME is not provably tehas's (nothing was changed).
 set -euo pipefail
 
@@ -299,6 +302,13 @@ unsafe_tool_dir() {
 }
 # build_ready <first prog>: what is settled before the first build of a run.
 build_ready() {
+  # tehas_load has checked it, from the instance or the environment. The build
+  # before the first load has only the environment's, which nothing has checked.
+  build_timeout=${TEHAS_BUILD_TIMEOUT:-1800}
+  if [[ ! $build_timeout =~ ^[1-9][0-9]{0,8}$ ]]; then
+    echo "tehas: TEHAS_BUILD_TIMEOUT is not a number of seconds: $build_timeout; nothing was installed" >&2
+    exit 78
+  fi
   # Before a build, because this run is about to run a program found under one
   # of the tool directories and install what it makes.
   if tool_finding=$(unsafe_tool_dir) && [ -n "$tool_finding" ]; then
@@ -319,16 +329,14 @@ build_ready() {
     echo "tehas: timeout is not installed, so $(program_label "$1") cannot be built with a time limit (bootstrap.sh installs it); nothing was installed" >&2
     exit 1
   fi
-  # tehas_load has checked it, from the instance or the environment. The build
-  # before the first load has only the environment's.
-  build_timeout=${TEHAS_BUILD_TIMEOUT:-1800}
 }
-# build_program <prog>: one program built, or the run stopped with what cargo said.
+# build_program <prog> [keep]: one program built, or the run stopped with what
+# cargo said. keep leaves an earlier build in place while cargo runs.
 build_program() {
   local prog=$1 triple built
   triple=$(program_triple "$prog")
   built=$target/${triple:+$triple/}release/$prog
-  rm -f "$built"
+  [ "${2:-}" = keep ] || rm -f "$built"
   cargo_build "$prog" offline
   offline_out=$out
   if [ "$rc" != 0 ] && cache_miss "$out"; then
@@ -359,19 +367,109 @@ ${out:-cargo printed nothing}"
   fi
 }
 
-# --- 0. The console that reads the settings -----------------------------------
+# --- 0. The home is tehas's --------------------------------------------------
+# The loader takes TEHAS_HOME from the environment as it is (AGENTS.md rule 3
+# keeps loading free of side effects), and this script removes what it takes for
+# stale under it: every file of $TEHAS_HOME/docs and $TEHAS_HOME/fun this
+# checkout does not have, and the commands of an earlier layout. So a home that
+# is not tehas's is refused before the lock, the build and the first copy, and
+# --check says the same thing.
+#
+# The proof is the marker .tehas-home, which a run leaves there and nothing
+# removes: an existing host has one as soon as it has been installed once. A run
+# that makes the home, or finds the marker, goes on and leaves the marker there.
+# A home with no marker is known another way, by what an install of tehas leaves
+# and nothing else puts beside it: env.sh with libexec/dispatch, or the manual
+# with the front page. Otherwise it is tehas's only when everything under it is
+# one of the directories tehas makes - no docs/ or fun/ of its own, which is what
+# this run would empty - or versions.env. Anything else is refused, as is a path
+# that is not absolute or that names a parent.
+home_marker=.tehas-home
+# The top-level directories of a home tehas makes: the ones install.sh puts
+# there, the ones bootstrap.sh user makes (tools/, repos/ and tmp/, the tools
+# under tools/node and tools/npm/<name>), and .cargo, which bootstrap.sh leaves
+# for cargo but does not make, and run, where each cycle keeps its copy of the
+# code (tehas-cycle run). docs and fun are not among them: a home that has
+# them without the marker is not known to be tehas's, and this run would remove
+# the pages of someone else from them.
+home_dirs=(bin libexec lib live logs mcp platform preview protolab repos sandbox
+  state tmp tools work target .cargo versions current run)
+
+home_refusal() { # the reason $TEHAS_HOME is not provably tehas's, or nothing
+  local path=${TEHAS_HOME:-} entry part rest
+  [ -n "$path" ] || { echo "TEHAS_HOME is not set"; return; }
+  case "$path" in
+    /*) ;;
+    *) echo "TEHAS_HOME is not an absolute path: $path"; return ;;
+  esac
+  # A component, not a substring: a directory of someone else may be named
+  # a..b, and only a component of `..` moves the path out of where it says it is.
+  rest=${path#/}
+  while [ -n "$rest" ]; do
+    part=${rest%%/*}
+    [ "$rest" = "$part" ] && rest= || rest=${rest#*/}
+    [ "$part" != ".." ] || { echo "TEHAS_HOME names a parent directory: $path"; return; }
+  done
+  [ -d "$path" ] || return
+  [ -e "$path/$home_marker" ] && return
+  # An existing host has no marker yet, so the home of an earlier install has to
+  # be known another way: env.sh beside libexec/dispatch, and the manual and the
+  # front page beside the rest, are what an install of tehas leaves and nothing
+  # else puts there.
+  if [ -f "$path/env.sh" ] && [ -f "$path/libexec/dispatch" ]; then return; fi
+  if [ -f "$path/docs/host.md" ] && [ -f "$path/fun/index.html" ]; then return; fi
+  while IFS= read -r entry; do
+    [ -n "$entry" ] || continue
+    case " ${home_dirs[*]} " in *" $entry "*) continue ;; esac
+    case "$entry" in versions.env) continue ;; esac
+    echo "TEHAS_HOME is not empty and holds no $home_marker: $path"
+    return
+  done < <(ls -A "$path" 2>/dev/null)
+}
+
+refuse_home() {
+  local refusal
+  if refusal=$(home_refusal) && [ -n "$refusal" ]; then
+    if [ "$check" = 1 ]; then
+      # The report's first line, before any of the others: nothing beyond it is
+      # looked at, because a home this script cannot trust makes every answer
+      # about it meaningless. `tehas update --check` reads this line by its prefix.
+      echo "Home:         REFUSED"
+      echo "  tehas: $refusal"
+      echo "Dependencies: not checked"
+      echo "Installed:    not checked"
+      echo "Tests:        not checked"
+      exit 1
+    fi
+    echo "tehas: $refusal" >&2
+    echo "tehas: nothing was installed" >&2
+    exit 78
+  fi
+}
+
+# --- 0a. The console that reads the settings ----------------------------------
 # tehas_load asks a console, and a checkout has none beside lib/config.sh. The
 # settings of this tree are judged by a console of this tree, so a real run
 # builds it before the first load: that writes only to the target directory and
 # cargo's cache. --check builds nothing and takes one an earlier build left,
 # else the installed one. A release carries its console in libexec/, and a test
 # names its own in TEHAS_SETTINGS_CMD.
+#
+# This order has to stay. The settings need the console, so a console that does
+# not build stops the run with 1, whatever the settings say, and a typo in them
+# is named only after the build, which reaches the network when cargo's cache
+# has no crate. The update lock has to wait for the settings: its directory is
+# the first write to the home, and nothing is written before they are judged
+# (AGENTS.md rule 2). So two runs may reach this build side by side: cargo holds
+# its own lock on the target directory, and this build keeps the program that is
+# there, so a run the lock will refuse takes nothing from the run that holds it.
 built_console=""
 if [ -d "$root/console" ] && [ -z "${TEHAS_SETTINGS_CMD:-}" ]; then
   tehas_tool_paths
   if [ "$check" != 1 ]; then
+    refuse_home
     build_ready console
-    build_program console
+    build_program console keep
   fi
   target=${CARGO_TARGET_DIR:-$root/console/target}
   if [ -x "$target/release/console" ]; then
@@ -466,82 +564,10 @@ instance=$TEHAS_INSTANCE_DIR
 # that resolves a tool sees what a login shell would.
 tehas_tool_paths
 
-# --- 1b. The home is tehas's -------------------------------------------------
-# The loader takes TEHAS_HOME from the environment as it is (AGENTS.md rule 3
-# keeps loading free of side effects), and this script removes what it takes for
-# stale under it: every file of $TEHAS_HOME/docs and $TEHAS_HOME/fun this
-# checkout does not have, and the commands of an earlier layout. So a home that
-# is not tehas's is refused before the lock, the build and the first copy, and
-# --check says the same thing.
-#
-# The proof is the marker .tehas-home, which a run leaves there and nothing
-# removes: an existing host has one as soon as it has been installed once. A run
-# that makes the home, or finds the marker, goes on and leaves the marker there.
-# A home with no marker is known another way, by what an install of tehas leaves
-# and nothing else puts beside it: env.sh with libexec/dispatch, or the manual
-# with the front page. Otherwise it is tehas's only when everything under it is
-# one of the directories tehas makes - no docs/ or fun/ of its own, which is what
-# this run would empty - or versions.env. Anything else is refused, as is a path
-# that is not absolute or that names a parent.
-home_marker=.tehas-home
-# The top-level directories of a home tehas makes: the ones install.sh puts
-# there, the ones bootstrap.sh user makes (tools/, repos/ and tmp/, the tools
-# under tools/node and tools/npm/<name>), and .cargo, which bootstrap.sh leaves
-# for cargo but does not make, and run, where each cycle keeps its copy of the
-# code (tehas-cycle run). docs and fun are not among them: a home that has
-# them without the marker is not known to be tehas's, and this run would remove
-# the pages of someone else from them.
-home_dirs=(bin libexec lib live logs mcp platform preview protolab repos sandbox
-  state tmp tools work target .cargo versions current run)
-
-home_refusal() { # the reason $TEHAS_HOME is not provably tehas's, or nothing
-  local path=${TEHAS_HOME:-} entry part rest
-  [ -n "$path" ] || { echo "TEHAS_HOME is not set"; return; }
-  case "$path" in
-    /*) ;;
-    *) echo "TEHAS_HOME is not an absolute path: $path"; return ;;
-  esac
-  # A component, not a substring: a directory of someone else may be named
-  # a..b, and only a component of `..` moves the path out of where it says it is.
-  rest=${path#/}
-  while [ -n "$rest" ]; do
-    part=${rest%%/*}
-    [ "$rest" = "$part" ] && rest= || rest=${rest#*/}
-    [ "$part" != ".." ] || { echo "TEHAS_HOME names a parent directory: $path"; return; }
-  done
-  [ -d "$path" ] || return
-  [ -e "$path/$home_marker" ] && return
-  # An existing host has no marker yet, so the home of an earlier install has to
-  # be known another way: env.sh beside libexec/dispatch, and the manual and the
-  # front page beside the rest, are what an install of tehas leaves and nothing
-  # else puts there.
-  if [ -f "$path/env.sh" ] && [ -f "$path/libexec/dispatch" ]; then return; fi
-  if [ -f "$path/docs/host.md" ] && [ -f "$path/fun/index.html" ]; then return; fi
-  while IFS= read -r entry; do
-    [ -n "$entry" ] || continue
-    case " ${home_dirs[*]} " in *" $entry "*) continue ;; esac
-    case "$entry" in versions.env) continue ;; esac
-    echo "TEHAS_HOME is not empty and holds no $home_marker: $path"
-    return
-  done < <(ls -A "$path" 2>/dev/null)
-}
-
-if refusal=$(home_refusal) && [ -n "$refusal" ]; then
-  if [ "$check" = 1 ]; then
-    # The report's first line, before any of the others: nothing beyond it is
-    # looked at, because a home this script cannot trust makes every answer
-    # about it meaningless. `tehas update --check` reads this line by its prefix.
-    echo "Home:         REFUSED"
-    echo "  tehas: $refusal"
-    echo "Dependencies: not checked"
-    echo "Installed:    not checked"
-    echo "Tests:        not checked"
-    exit 1
-  fi
-  echo "tehas: $refusal" >&2
-  echo "tehas: nothing was installed" >&2
-  exit 78
-fi
+# --- 1b. The home, after the load ----------------------------------------------
+# --check and a run that built no console reach the proof here, and a load may
+# have named another home.
+refuse_home
 
 # --- 1c. The commit the store records -----------------------------------------
 # The store's database records which commit of tehas made it: git's for a
