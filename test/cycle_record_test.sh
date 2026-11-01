@@ -532,6 +532,43 @@ t_contains "$t_out" "WARN: could not start a poll of the dispatcher"
 t_contains "$t_out" "done #7"
 t_stub systemctl
 
+t_case "a cycle that runs from its own copy of the code runs that copy's tehas-cycle"
+reset
+mkdir -p "$T/copy/libexec"
+printf '%s\n' '#!/usr/bin/env bash' 'echo "$1" >>"$T/calls/copy"' "exec \"$T_CYCLE\" \"\$@\"" >"$T/copy/libexec/tehas-cycle"
+chmod +x "$T/copy/libexec/tehas-cycle"
+rm -f "$T/home/tehas/libexec/tehas-cycle"
+T_ENV+=("TEHAS_CODE=$T/copy")
+t_run "$cycle 7"
+t_eq "$t_rc" 0
+if [ "${T_CYCLE_REPORT:-}" = rust ]; then
+  t_eq "$(tr '\n' ' ' <"$T/calls/copy")" "report "
+else
+  t_eq "$(tr '\n' ' ' <"$T/calls/copy")" "approved after "
+fi
+t_eq "$(t_calls systemctl)" "--user start --no-block tehas-dispatch.service"
+
+t_case "a tehas-cycle that cannot run is a warning, and the cycle is on record as ended"
+reset
+rm -f "$T/home/tehas/libexec/tehas-cycle"
+t_run "$cycle 7"
+t_eq "$t_rc" 0
+t_contains "$t_out" "WARN: what follows the end of #7 did not run"
+t_contains "$t_out" "done #7"
+t_eq "$(t_row cycle-show 7 -- '.cycle.ended_at != null')" true
+
+t_case "a step longer than one argument may be stops nothing that follows the end"
+reset
+ended failed develop
+printf 'x%.0s' $(seq 1 200000) >"$T/long"
+jq --rawfile step "$T/long" '.issues[0].failedStep = $step' "$fx/result.json" >"$T/long.json"
+mv "$T/long.json" "$fx/result.json"
+t_run "$cycle 7"
+t_eq "$(jq -r '.issues[0].failedStep | length' "$fx/result.json")" 200000
+t_lacks "$t_out" "did not run"
+t_eq "$(t_calls systemctl)" "--user start --no-block tehas-dispatch.service"
+t_eq "$([ -e "$T/home/tehas/state/dispatch.again" ] && echo there)" there
+
 t_case "a handoff whose pull request merged before the cycle ended is reported with it"
 reset
 ended handoff handoff feature/x
@@ -808,12 +845,13 @@ tree=$T/tree
 mkdir -p "$tree/libexec" "$tree/lib"
 cp "$cycle" "$tree/libexec/cycle"
 cp "$T_ROOT"/lib/*.sh "$tree/lib/"
-for name in work status; do cp "$T/bin/fake-$name" "$tree/libexec/$name"; done
+cp "$T/bin/fake-work" "$tree/libexec/work"
+cp "$T/bin/fake-status" "$tree/libexec/with-settings"
 for name in tehas tehasbot tehas-work tehas-status; do t_stub "$name"; done
 t_run "$tree/libexec/cycle 7"
 t_eq "$t_rc" 0
 t_eq "$(t_calls fake-work)" "7"
-t_eq "$(t_calls fake-status | wc -l)" 1
+t_eq "$(t_calls fake-status)" "tehasbot status"
 for name in tehas tehasbot tehas-work tehas-status; do t_eq "$(t_calls "$name")" ""; done
 
 t_done

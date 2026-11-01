@@ -6,12 +6,12 @@
 use super::run::{self, Calls, GhFail};
 use super::{github, host, models, store};
 use crate::decide::has;
-use crate::events::{pause_holds, Events};
 use crate::settings::Settings;
 use serde_json::{json, Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::time::Duration;
+use tehas_core::events::{pause_holds, Events};
 
 /// Where the snapshot reads from, and with what.
 pub struct Sources<'a> {
@@ -22,8 +22,7 @@ pub struct Sources<'a> {
     pub models: models::Models,
     /// The subagent provider's endpoint, url and key, as the probe found it.
     pub endpoint: (String, String),
-    /// Whether the low gate may be run: a poll's, never the shadow's, which
-    /// the poll has run already.
+    /// Whether the low gate may be run: a poll's, never `decide`'s.
     pub gate: bool,
 }
 
@@ -115,7 +114,7 @@ fn listed(open: &[github::Open], label: &str) -> Value {
     )
 }
 
-/// The snapshot, or the line the bash poll logs when a read it cannot do
+/// The snapshot, or the line the poll logs when a read it cannot do
 /// without failed.
 pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
     let home = src.home;

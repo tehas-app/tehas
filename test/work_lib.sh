@@ -4,18 +4,19 @@
 # stub docker records its arguments, one per line, and exits at once, so no
 # cycle runs. It answers --capabilities from $T/caps.json.
 # The part has sourced test/lib.sh before this.
-# The library's own rule for the hash of a body, so that a fixture records what
-# the dispatcher would have recorded and not an approximation of it. Sourcing
-# attachments.sh runs nothing.
-# shellcheck source=lib/attachments.sh
-. "$T_ROOT/lib/attachments.sh" || exit 1
+# The rule for the hash of a body and of a title, written here apart from the
+# Rust, so that a fixture holds tehas-cycle to it. A body loses its carriage
+# returns: the dispatcher reads it from GraphQL and tehas work from REST. A title
+# loses its line ends too.
+tehas_body_sha256() { jq -j '(.body // "") | gsub("\r"; "")' | sha256sum | cut -d' ' -f1; }
+tehas_title_sha256() { jq -j '.title | gsub("\r"; "") | gsub("\n"; "")' | sha256sum | cut -d' ' -f1; }
 # The CPU quota and the ticket ceiling follow the host's CPUs: the same on
 # every test machine.
 t_stub nproc 'echo 16'
-# libexec/work sleeps ten seconds between two looks at the container, and
-# three for the console at the end. Here each costs a tenth of a second. What
-# stands in for the container uses the real sleep, $nap.
-t_stub sleep '"$(command -pv sleep)" 0.1'
+# The watch of a cycle waits ten seconds between two looks at the container,
+# and three for the console at the end. Here each costs a tenth of a second.
+# What stands in for the container sleeps with $nap.
+T_ENV_ALWAYS+=(TEHAS_WATCH_TICK=0.1)
 nap=$(command -pv sleep)
 
 # The script as a host has it: beside the console, a compiled program that a
@@ -29,7 +30,13 @@ tree=$T/tree
 mkdir -p "$tree/libexec"
 ln -s "$T_ROOT/lib" "$tree/lib"
 ln -s "$T_ROOT/libexec/work" "$tree/libexec/work"
-t_stub console 'prev=
+# The measure of a start is the real console's: a size verb goes to it.
+# shellcheck disable=SC2154  # t_console_why is set by t_console (test/lib.sh)
+t_console || t_bad "no console: $t_console_why"
+# The slice is the real console's too, whatever a case does to the stub.
+T_ENV_ALWAYS+=(TEHAS_CONSOLE_CMD="$T_CONSOLE")
+t_stub console '[ "${1:-}" != size ] || exec "$T/console-bin" "$@"
+prev=
 for a in "$@"; do
   case $prev in
     --progress) log=$a ;;
@@ -62,13 +69,15 @@ printf '%s\n' '[.[] | objects | select(.v == 1 and (.unstable // false) == false
   | [.[] | split("\u000a") | .[0]]
   | map(select(. != "" and (startswith("pi-rukas:driver-event") | not))) | last // ""' >"$T/now.text.jq"
 mv "$T/bin/console" "$tree/libexec/console"
-# The cycle clock of tehas work, in $tree/libexec/tehas-cycle. By default it
+# The cycle clock of tehas work, in $tree/libexec/tehas-cycle, which the watch
+# asks through TEHAS_WATCH_CLOCK. By default it
 # keeps the seconds tehas work's own start was marked at and counts on with
 # the wall clock, so a case that says nothing about the clock sees a cycle
 # measured as it was before the cycle clock: `clock now` gives the seconds
 # since the mark and `clock check` decides from them. A case that means the
 # cycle clock itself writes $T/clock.now, one reading per call of `clock now`
-# in order, and $T/clock.check, the word `clock check` answers with.
+# in order, and $T/clock.check, the word `clock check` answers with. Any other
+# verb, watch among them, goes to the real program.
 t_stub tehas-cycle 'case "$1 $2" in
   "clock mark") date +%s >"$3"; date +%s >"$T/clock.start" ;;
   "clock now")
@@ -90,9 +99,15 @@ t_stub tehas-cycle 'case "$1 $2" in
     [ $((now - start)) -le "$limit" ] || { echo over; exit 2; }
     [ $((now - since)) -lt "$stall" ] || { echo stalled; exit 1; }
     echo ok ;;
+  *) exec "$0.real" "$@" ;;
 esac
 exit 0'
 mv "$T/bin/tehas-cycle" "$tree/libexec/tehas-cycle"
+T_ENV_ALWAYS+=(TEHAS_WATCH_CLOCK="$tree/libexec/tehas-cycle")
+# The real program, beside the stub.
+# shellcheck disable=SC2154  # t_cycle_why is set by t_cycle (test/lib.sh)
+t_cycle || t_bad "no tehas-cycle: $t_cycle_why"
+cp "$T_CYCLE" "$tree/libexec/tehas-cycle.real"
 work="$tree/libexec/work"
 checkout=$T/home/tehas/repos/widget
 # The workspace of issue 7 on the host, and the path every cycle has it at
@@ -154,7 +169,10 @@ case " $* " in
     . "$T/container.sh" ;;
   *" push --dry-run "*)
     [ ! -e "$T/push-hangs" ] || exec "$(command -pv sleep)" 30
+    [ ! -e "$T/push-slow" ] || { : >"$T/slow-began"; "$(command -pv sleep)" 1; }
     [ "${PUSH_RC:-0}" = 0 ] || { echo "docker: could not read from remote repository" >&2; exit "$PUSH_RC"; } ;;
+  " rm -f "*)
+    [ ! -e "$T/rm-slow" ] || { : >"$T/slow-began"; "$(command -pv sleep)" 1; } ;;
   " stop "*)
     [ ! -e "$T/stop-hangs" ] || exec "$(command -pv sleep)" 30
     kill "$(cat "$T/sleeper.pid" 2>/dev/null)" 2>/dev/null ;;
@@ -443,7 +461,7 @@ record_edit() {
   record_put
 }
 # record_is <by> <body it approved> <link>...: the approval of a start. The
-# hash is tehas_body_sha256's own, the one the dispatcher records and tehas work
+# hash is the one the dispatcher records and tehas work
 # compares, so a body that differs only in line ends differs in nothing.
 record_is() {
   local by=$1 body=$2

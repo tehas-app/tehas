@@ -37,7 +37,7 @@ const UNUSABLE: &str = "A name the lab cannot use.";
 const FULL: &str = "Over the 10 MB limit of a ticket.";
 
 /// The kind protolab hosts a file of this extension as; None for one it does
-/// not. The same table as tehas_attachment_kind in lib/attachments.sh, and md.
+/// not. The same table as `kind_of` in console/src/protolab/build.rs, and md.
 pub fn kind(ext: &str) -> Option<&'static str> {
     match ext {
         "png" | "jpg" | "jpeg" | "gif" | "webp" | "svg" | "avif" => Some("image"),

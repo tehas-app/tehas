@@ -1,27 +1,21 @@
 #!/usr/bin/env bash
-# Tests for the issue events libexec/status records in the factory's
+# Tests for the issue events tehasbot status records in the factory's
 # analytics: awaiting, stopped, merged and closed, each when the snapshot it
 # writes differs from the one before.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
 
-# The command as a host has it: beside the console, which decides what the read
-# of what closed an issue means (console/src/shipped.rs) and is this checkout's
-# own build. The copy is a real file and not a symlink, because the command finds
-# its siblings - health, analytics, store - beside itself by the directory it was
-# run from, and a symlink there would name the checkout instead.
+# The command as a host has it: with-settings beside the console, this
+# checkout's own build, which holds the command.
 # shellcheck disable=SC2154  # t_console_why is set by t_console (test/lib.sh)
 t_console || t_bad "no console: $t_console_why"
 shim=$T/tree
 mkdir -p "$shim/libexec"
-cp "$T_ROOT/libexec/status" "$shim/libexec/status"
 ln -s "$T_ROOT/lib" "$shim/lib"
 cp "$T_CONSOLE" "$shim/libexec/console"
-for sibling in health summary analytics; do
-  ln -s "$T_ROOT/libexec/$sibling" "$shim/libexec/$sibling"
-done
-status=$shim/libexec/status
+ln -s "$T_ROOT/libexec/with-settings" "$shim/libexec/with-settings"
+status="$shim/libexec/with-settings tehasbot status"
 live=$T/home/tehas/live
 
 t_stub gh '

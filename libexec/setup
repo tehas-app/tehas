@@ -65,7 +65,9 @@ die() { echo "tehas setup: $*" >&2; exit "${2:-1}"; }
 
 # Steps 1 and 2 are the console's (console/src/setup.rs). A release carries
 # the console beside this command; a checkout builds it here, because the
-# install that would build it needs the instance this writes.
+# install that would build it needs the instance this writes, and each load
+# below names it because a checkout has none where a load looks. Named per load,
+# so install.sh still builds and judges its own.
 console=$here/console
 if [ ! -x "$console" ] && [ -r "$here/../console/Cargo.toml" ]; then
   echo "tehas setup: building the console in $here/../console" >&2
@@ -75,7 +77,7 @@ if [ ! -x "$console" ] && [ -r "$here/../console/Cargo.toml" ]; then
 fi
 [ -x "$console" ] || die "no console beside this command at $here/console, run install.sh" 78
 
-files=$("$console" setup files "$here/../lib" "$(tehas_instance_dir)" "$@") || exit $?
+files=$("$console" setup files "$(tehas_instance_dir)" "$@") || exit $?
 read -r build kind bot bot_id <<<"$files"
 
 # --- git, the product, the install --------------------------------------------
@@ -87,7 +89,7 @@ read -r build kind bot bot_id <<<"$files"
 if [ "$kind" = app ]; then
   # shellcheck source=lib/github-app.sh
   . "$here/../lib/github-app.sh"
-  tehas_load || exit 78
+  TEHAS_SETTINGS_CMD=${TEHAS_SETTINGS_CMD:-$console} tehas_load || exit 78
   tehas_github_app_env
 else
   # shellcheck source=/dev/null
@@ -157,7 +159,7 @@ else
   echo "tehas setup: git's identity is kept: $(git config --global user.name) <$(git config --global user.email)>"
 fi
 
-tehas_load || exit 78
+TEHAS_SETTINGS_CMD=${TEHAS_SETTINGS_CMD:-$console} tehas_load || exit 78
 tehas_require_instance_settings
 step() { # <name> <command...>
   local name=$1 rc=0
@@ -178,7 +180,7 @@ if [ -x "$here/../install.sh" ]; then
 else
   echo "tehas setup: no install.sh beside this command; run the platform's install.sh yourself"
 fi
-step "tehas labels" "$here/labels"
+step "tehas labels" "$TEHAS_HOME/bin/tehas" labels
 
 if [ "$build" = 1 ]; then
   if docker image inspect "$PI_ENSEMBLE_IMAGE" >/dev/null 2>&1; then

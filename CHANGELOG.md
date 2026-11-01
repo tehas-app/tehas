@@ -13,6 +13,52 @@ empty one above it.
 
 ### Changes
 
+- `tehas status`, `disk`, `state`, `limit`, `pause`, `analytics` and `tehasbot health` run the console directly, and seven wrapper scripts are gone.
+- The measure of an issue and the free-disk reading are the console's: `console size` and `console disk free` replace the jq and df in lib/sizing.sh and lib/disk.sh.
+- The cleaner's image names and the held set are the console's, and libexec/clean is a wrapper.
+- `tehasbot refresh` runs in tehas-dispatch; each GitHub call has a 30 s bound.
+- check-product and init-product run in the console.
+- tidy is a console verb, `console tidy run`; `libexec/tidy` is gone.
+- tehas top and tehasbot top run in the console; libexec/top, libexec/top-publish and lib/top.sh are gone, and an update restarts tehas-top.service.
+- tehas api, resume, drain and labels run in the console; the labels live in host/labels.tsv and the update's labels step follows that file.
+- tehas stop runs in the console; libexec/stop is gone.
+- `tehas mcp` runs in the console and `libexec/mcp` is gone; a new console no longer restarts `tehas-mcp.service`, a new server binary still does.
+- The store answers the approval, plan and settings views itself; lib/store.sh loses its jq shapes.
+- What an image says and what a runner left are read by tehas-cycle (`caps`, `runner`); sandbox/build.sh needs libexec/tehas-cycle beside it.
+- Image descriptions and the private names are verbs of tehas-cycle; lib/describe.sh and lib/private.sh are gone.
+- `tehasbot improve` runs in the console, and its unit allows 90 minutes, longer than the analyst's 60-minute bound.
+- The previews' network is checked and made by the console (`console preview network`); `install.sh` no longer sources `lib/edge.sh`.
+- A planning turn's preparation, docker wait and end moved from `libexec/plan` to `console plan`.
+- The GitHub App token is made in the console, and the JWT and the token reach curl on standard input, not on its command line.
+- The rules of `tehas.slice` are the console's: `console slice` answers for the commands and `lib/slice.sh` is wrappers.
+- `tehasbot protolab` runs in the console; every page rebuilds once, and each gh call of a pass is held to 30 s.
+- tehasbot preview runs in the console; libexec/preview only loads the settings, and lib/edge.sh is gone.
+- The docker options of every container come from one Rust builder (rule 4: nothing widens).
+- tehas index is a program.
+- tehasbot review is prepared by the console.
+- tehas dev starts its session from Rust.
+- What follows a cycle's record, from the live view to the next poll, is done by tehas-cycle; a pinned cycle runs its own copy of it.
+- The Rust report says a repeat park, a develop timeout's last attempt and a quiet stop, has no outage fallback, and the shadow's log names the arm.
+- A poll and a cycle can write to GitHub through one journal, and a poll's settle leaves the actions of a running cycle.
+- tehas-cycle can report a cycle through the action journal, with TEHAS_CYCLE_REPORT=rust; the deadline is the time limit less the handoff allowance.
+- The poll is tehas-dispatch alone: the bash poll is removed, `TEHAS_DISPATCHER=bash` stops with 78, and a missing program stops with 78.
+- `lib/planning.sh` and `lib/live.sh` are removed, and an install takes them off a host.
+- The libraries lose the functions only the bash poll called.
+- The dispatcher's shadow is removed: the poll's unit appends to `logs/dispatch.log` and nothing else.
+- The bash left behind by the poll's removal is gone: `lib/limit.sh` and five functions only tests called.
+- `tehasbot status` is a verb of the console; libexec/status, lib/status.sh and lib/analytics.sh are gone.
+- The watch of a cycle is `tehas-cycle watch`, and `lib/headless.sh` is gone.
+- A start is approved, read and measured in `tehas-cycle start-check`, and `lib/sizing.sh` is gone.
+- The workspace, the push check and the image record of a cycle are `tehas-cycle prepare`, and `lib/improve.sh` is gone.
+- models.json is read by the programs; lib/models.sh is gone.
+- Who applied a label is read in one place, the console.
+- The files of an issue and of a reply are fetched and judged by libexec/attach; lib/attachments.sh is a thin wrapper.
+- `tehas_load` asks the console, and `lib/config.sh` is a thin loader. A load needs `libexec/console`; `install.sh` builds it first.
+- tehas update reads, checks and switches releases in the console; lib/update-release.sh is gone.
+- tehas update runs its follow-ups in the console; a --to to a version before this finishes with console.prev.
+- install.sh asks the console which steps a changed file owes.
+- libexec/update is a thin wrapper round the console; a console that does not start stops an update, and the manual says how to recover.
+
 ### Adopter action
 
 None.

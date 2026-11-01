@@ -1,12 +1,23 @@
-//! What `tehasbot clean` removes, for libexec/clean. The shell checks the
-//! settings and names the two images; this takes the run's lock and runs the
-//! seven steps.
+//! What `tehasbot clean` removes, for libexec/clean. The shell loads the
+//! settings and reads the free disk; this names the two images, takes the
+//! run's lock and runs the seven steps.
+//!
+//!   console clean image <PI_ENSEMBLE_IMAGE>
+//!     The sandbox image without its tag. Exit 78 when that names no image.
 //!
 //!   console clean run <dry 0|1> <home> <work dir> <after hours>
 //!     <min free MiB> <min free as set> <free KiB, or empty> <clean dirs>
-//!     <sandbox image> <base image, or empty> <log file>
+//!     <sandbox image> <log file> <scratch dir>
 //!     Exit 0 every step worked; 1 a step failed or the log could not be
 //!     written; 3 another run holds the lock; 64 a usage error.
+//!   console clean usage <the arguments of tehasbot clean>
+//!     The help text, or an unknown argument and exit 64.
+//!   console clean held <the image's tags, "<tag> <id>" per line>
+//!     The ids something holds, one per line, for the sandbox build. Exit 1
+//!     with nothing on stdout when docker would not say.
+//!   console clean target <PI_RUKAS_FOLLOW> <PI_RUKAS_REPO>
+//!     "<commit> <what it is>", as tehas_rukas_target of lib/rukas.sh prints
+//!     it. Exit 1 with nothing printed when there is no answer.
 //!
 //! Only what has not been used for <after> hours goes. When the free disk is
 //! under the minimum, steps 1 and 2 take build output and the build cache
@@ -64,21 +75,94 @@ use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant, SystemTime};
-use tehas_core::time;
+use tehas_core::{rukas, time};
 
-const USAGE: &str = "usage: console clean run <dry 0|1> <home> <work dir> <after hours> <min free MiB> <min free> <free KiB> <dirs> <sandbox image> <base image> <log file> <scratch dir>\n       console clean ended <workspace> <dirs> <log file> <scratch of the cycle>\n       console clean scratch <scratch dir> <name>\n       console clean session <home> <clone name> [<seconds>]";
+const USAGE: &str = "usage: console clean run <dry 0|1> <home> <work dir> <after hours> <min free MiB> <min free> <free KiB> <dirs> <sandbox image> <log file> <scratch dir>\n       console clean image <PI_ENSEMBLE_IMAGE>\n       console clean usage <arguments>\n       console clean held <tags>\n       console clean target <follow> <repo>\n       console clean ended <workspace> <dirs> <log file> <scratch of the cycle>\n       console clean scratch <scratch dir> <name>";
+
+/// What `tehasbot clean --help` prints.
+const HELP: &str = r#"Remove what the host can make again: build output in kept workspaces,
+Docker's build cache, old sandbox and base images, and old files under
+~/tehas/tmp.
+
+A full disk stops previews and fails clones. A kept workspace is never built
+in again, since every cycle clones fresh. A cycle takes its build output as it
+ends (libexec/cycle); this takes what a killed cycle left.
+
+Only what has not been used for TEHAS_CLEAN_AFTER hours (24 by default)
+goes. When the free disk is under TEHAS_CLEAN_MIN_FREE (30g by default),
+steps 1 and 2 go whatever the age; a lock a cycle or a `tehas dev` holds is
+still never touched.
+
+  1. build output in kept workspaces   directories named in TEHAS_CLEAN_DIRS
+                                       anywhere in an issue's workspace, the
+                                       tree a retry moved aside and a
+                                       cycle's worktrees, and the cycle's
+                                       copy of the code index, under the
+                                       issue's lock. No dot-name is entered
+                                       and no symlink followed.
+  2. Docker's build cache              `docker builder prune` of that age,
+                                       the whole host daemon's
+  3. host scratch                      under $TEHAS_HOME/tmp: dl, node-
+                                       compile-cache, analytics-facts.*,
+                                       tehas-test.* dirs, a staged recipe
+                                       and the /tmp of a killed cycle on
+                                       TEHAS_SCRATCH_DIR, under its lock
+  4. old sandbox images                dated tags of that age, except the
+                                       newest and any a container or a uid
+                                       tag holds
+  5. the old base images               `sha-` tags of the base's repository
+                                       of that age that nothing on the host
+                                       stands on, each by its own name
+  6. logs and the state store          `store upkeep`: old logs, a daily
+                                       backup, prune
+  7. a manual session's build output   <name>.state/target under
+                                       $TEHAS_HOME/dev, of that age, only
+                                       under the minimum free and with no
+                                       session open, under the clone's lock
+
+The steps are the console's (console/src/clean.rs); this checks the settings,
+reads the free disk and names the two images.
+
+Docker volumes are never touched, a person's call (see the host manual).
+
+One line per removal, and a closing line with the bytes freed, go to
+$TEHAS_HOME/logs/clean.log. A docker step that fails is logged as a warning
+and the other steps still run. `tehasbot clean` runs it by hand;
+tehas-clean.timer runs it every hour. The pause label does not stop it: it
+starts no work.
+
+Usage:
+  tehasbot clean              one run
+  tehasbot clean --dry-run    log what it would remove and remove nothing
+  tehasbot clean -h|--help    print this text and exit 0
+
+Exit: 0 the run finished with every step working; 1 a step failed, or the log
+could not be written (what could be removed was removed); 3 another run holds
+its lock, which changes nothing; 64 an argument this command does not know;
+78 instance settings are missing or malformed, or no console is installed,
+before any docker, find or rm call.
+"#;
 
 pub fn main(given: &[String]) -> u8 {
     if given.first().is_some_and(|v| v == "ended") {
         return ended(&given[1..]);
     }
-    if given.first().is_some_and(|v| v == "session") {
-        return open_session(&given[1..]);
-    }
     if given.first().is_some_and(|v| v == "scratch") {
         return scratch_made(&given[1..]);
     }
-    let [verb, dry, home, work, after, min_mb, min_word, free_kb, dirs, sandbox, pulled, logfile, tmp_disk] =
+    if given.first().is_some_and(|v| v == "image") {
+        return image(&given[1..]);
+    }
+    if given.first().is_some_and(|v| v == "usage") {
+        return usage(&given[1..]);
+    }
+    if given.first().is_some_and(|v| v == "held") {
+        return held(&given[1..]);
+    }
+    if given.first().is_some_and(|v| v == "target") {
+        return target(&given[1..]);
+    }
+    let [verb, dry, home, work, after, min_mb, min_word, free_kb, dirs, sandbox, logfile, tmp_disk] =
         given
     else {
         eprintln!("{USAGE}");
@@ -92,6 +176,7 @@ pub fn main(given: &[String]) -> u8 {
         eprintln!("{USAGE}");
         return 64;
     }
+    let pulled = pulled_base(Path::new(home)).unwrap_or_default();
     let (works, base) = match work.rsplit_once('/') {
         Some((w, b)) => (w.to_string(), b.to_string()),
         None => (work.clone(), work.clone()),
@@ -106,13 +191,122 @@ pub fn main(given: &[String]) -> u8 {
         low: false,
         dirs: dirs.split_whitespace().map(String::from).collect(),
         sandbox: sandbox.clone(),
-        pulled: pulled.clone(),
+        pulled,
         logfile: PathBuf::from(logfile),
         tmp_disk: tmp_disk.clone(),
         freed: 0,
         rc: 0,
     };
     run.main(min_mb, min_word, free_kb)
+}
+
+/// The sandbox image's name for the run, or 78 and what is wrong with it.
+fn image(given: &[String]) -> u8 {
+    let [image] = given else {
+        eprintln!("{USAGE}");
+        return 64;
+    };
+    let Some(repo) = image_repo(image) else {
+        eprintln!("tehas: PI_ENSEMBLE_IMAGE={image} names no image docker can list");
+        eprintln!("tehas clean: PI_ENSEMBLE_IMAGE={image} is not an image name");
+        return 78;
+    };
+    println!("{repo}");
+    0
+}
+
+/// The arguments the command does not run with: the help text when that is
+/// all that was asked, else the first word it does not know.
+fn usage(given: &[String]) -> u8 {
+    if let [help] = given {
+        if help == "-h" || help == "--help" {
+            print!("{HELP}");
+            return 0;
+        }
+    }
+    let word = match given.first().map(String::as_str) {
+        Some("-h" | "--help" | "--dry-run" | "") => given.get(1),
+        _ => given.first(),
+    };
+    let word = word.map_or("", String::as_str);
+    eprint!("tehasbot clean: unknown argument: {word}\n{HELP}");
+    64
+}
+
+/// `images_held` for the sandbox build, so the two cannot drift apart on what
+/// is safe to remove.
+fn held(given: &[String]) -> u8 {
+    let [tags] = given else {
+        eprintln!("{USAGE}");
+        return 64;
+    };
+    let Some(ids) = images_held(tags) else {
+        return 1;
+    };
+    for id in ids {
+        println!("{id}");
+    }
+    0
+}
+
+/// `rukas::target` on the real upstream, for test/rukas_test.sh to hold beside
+/// lib/rukas.sh.
+fn target(given: &[String]) -> u8 {
+    let [follow, repo] = given else {
+        eprintln!("{USAGE}");
+        return 64;
+    };
+    match rukas::target(follow, repo, ls_remote) {
+        Some((commit, what)) => {
+            println!("{commit} {what}");
+            0
+        }
+        None => 1,
+    }
+}
+
+/// `git ls-remote`, bounded: the cleaner runs unattended on a timer and may
+/// not wait on a network that does not answer.
+fn ls_remote(args: &[&str]) -> Option<String> {
+    let said = bounded("5", "30", "git")
+        .arg("ls-remote")
+        .args(args)
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
+    said.status
+        .success()
+        .then(|| String::from_utf8_lossy(&said.stdout).into_owned())
+}
+
+/// The base image the host's pins name. The build pulls the same name, and
+/// `home`'s versions.env is the one file read: an unreadable file names no base.
+fn pulled_base(home: &Path) -> Option<String> {
+    let versions = fs::read(home.join("versions.env")).ok()?;
+    rukas::base_image(&String::from_utf8_lossy(&versions), ls_remote)
+}
+
+/// The name the build tags and the dated tags are listed under: `image`
+/// without its tag. An instance that points PI_ENSEMBLE_IMAGE at another
+/// repository keeps the build's tag for itself, and the dated tags of the
+/// build's name go uncleaned. Only the part after the last slash may hold a
+/// tag, so a repository that carries a registry and its port keeps it.
+fn image_repo(image: &str) -> Option<String> {
+    fn word(s: &str) -> bool {
+        let wordy = |b: u8| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-');
+        s.as_bytes().first().is_some_and(u8::is_ascii_alphanumeric) && s.bytes().all(wordy)
+    }
+    let (prefix, tail) = image.rsplit_once('/').map_or(("", image), |(p, t)| (p, t));
+    let (name, tag) = tail.split_once(':').unwrap_or((tail, "a"));
+    if !word(name) || !word(tag) {
+        return None;
+    }
+    if image.contains('/') {
+        Some(format!("{prefix}/{name}"))
+    } else {
+        Some(name.to_string())
+    }
 }
 
 /// What a cycle does as it ends, under the issue's lock it still holds. No
@@ -169,46 +363,14 @@ fn scratch_made(given: &[String]) -> u8 {
     0
 }
 
-/// `console clean session`: the lock of a manual session, prepared and named.
-/// The cleaner's step for a clone's build output waits behind
-/// `state/dev/<name>.lock` and no file of `state/cycles`, so this makes the
-/// directory the session's cargo build output is mounted at - a plain directory
-/// of the account the session runs as, never a link or a tree another account
-/// left - makes the lock, and prints its path. `tehas dev` holds the lock itself
-/// for the session's life, and ends when the container is gone. The wait is
-/// spent in this call, which is what says who else holds the lock; the wait of
-/// the shell that comes back is for a lock that went and came. Standard output
-/// carries the path and nothing else, the words go to standard error.
-fn open_session(given: &[String]) -> u8 {
-    let [home, name, wait @ ..] = given else {
-        eprintln!("{USAGE}");
-        return 64;
-    };
-    // The path of the lock is the contract between this verb and libexec/dev:
-    // one plain word of a name, so a clone cannot name another directory or
-    // leave the tree of clones.
-    if name.is_empty()
-        || !name
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
-    {
-        eprintln!("tehas clean: not a name for a clone: {name}");
-        return 64;
-    }
-    let secs = match wait {
-        [] => 300u64,
-        [one] => match one.parse::<u64>() {
-            Ok(0) | Err(_) => {
-                eprintln!("tehas clean: not a number of seconds to wait: {one}");
-                return 64;
-            }
-            Ok(n) => n,
-        },
-        _ => {
-            eprintln!("{USAGE}");
-            return 64;
-        }
-    };
+/// The lock of a manual session, held. The cleaner's step for a clone's build
+/// output waits behind `state/dev/<name>.lock` and no file of `state/cycles`, so
+/// this makes the directory the session's cargo build output is mounted at - a
+/// plain directory of the account the session runs as, never a link or a tree
+/// another account left - makes the lock and takes it. `tehas dev` holds what it
+/// returns for the session's life. The words go to standard error, and name who
+/// else holds the lock. `wait` is in seconds.
+pub fn open_session(home: &str, name: &str, wait: u64) -> Result<File, ()> {
     let devs = Path::new(home).join("dev");
     let state = devs.join(format!("{name}.state"));
     let target = state.join("target");
@@ -238,26 +400,20 @@ fn open_session(given: &[String]) -> u8 {
             "tehas clean: {} is not a directory of this account, or could not be made",
             target.display()
         );
-        return 78;
+        return Err(());
     }
-    // The wait, spent here: a session that is merely running must not hold the
-    // shell that asked past its own life, and the answer names who held it.
-    let deadline = Instant::now() + Duration::from_secs(secs);
+    let deadline = Instant::now() + Duration::from_secs(wait);
     let mut said = false;
     loop {
         match take_clone_lock(&lock) {
-            Ok(locked) => {
-                drop(locked);
-                out(&format!("{shown}\n"));
-                return 0;
-            }
+            Ok(locked) => return Ok(locked),
             Err(why) => {
                 if Instant::now() >= deadline {
                     eprintln!("tehas clean: {shown} is held{why}");
-                    return 78;
+                    return Err(());
                 }
                 if !said {
-                    eprintln!("tehas clean: {shown} is held{why}, waiting {secs} seconds for it");
+                    eprintln!("tehas clean: {shown} is held{why}, waiting {wait} seconds for it");
                     said = true;
                 }
                 std::thread::sleep(Duration::from_millis(200));
@@ -2164,6 +2320,40 @@ mod tests {
             "2026-10-24T10:00:00+03:0:0",
         ] {
             assert!(!stamp_shaped(t), "{t}");
+        }
+    }
+
+    #[test]
+    fn an_image_loses_its_tag_and_keeps_a_registry_and_its_port() {
+        for (image, repo) in [
+            ("tehas/pi-rukas:uid1000", "tehas/pi-rukas"),
+            ("tehas/pi-rukas", "tehas/pi-rukas"),
+            ("pi-rukas:uid1000", "pi-rukas"),
+            ("pi-rukas", "pi-rukas"),
+            (
+                "registry:5000/tehas/pi-rukas:uid1000",
+                "registry:5000/tehas/pi-rukas",
+            ),
+            ("registry:5000/pi-rukas", "registry:5000/pi-rukas"),
+        ] {
+            assert_eq!(image_repo(image).as_deref(), Some(repo), "{image}");
+        }
+    }
+
+    #[test]
+    fn a_name_docker_cannot_list_is_refused() {
+        for image in [
+            "",
+            "tehas/",
+            "a:",
+            ":tag",
+            "a:b:c",
+            "a b",
+            "tehas/-x",
+            "tehas/x:-y",
+            "tehas/x@sha256:1",
+        ] {
+            assert_eq!(image_repo(image), None, "{image}");
         }
     }
 

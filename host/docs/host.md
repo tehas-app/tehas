@@ -18,13 +18,12 @@ Preparing a fresh machine is on the [bootstrap page](/bootstrap).
 | Path                                 | Content                                                                 |
 | ------------------------------------ | ----------------------------------------------------------------------- |
 | `~/tehas/env.sh`                     | Environment for every tehas process, its tool directories taken from `lib/paths.sh`; sourced from `~/.bashrc`           |
-| `~/tehas/lib/config.sh`              | Loads and checks the instance settings; sourced by every command        |
+| `~/tehas/lib/config.sh`              | Asks `libexec/console` to load and check the instance settings; sourced by every command |
 | `~/tehas/lib/paths.sh`               | The home of each tool this host installs, and the `PATH` that finds them. `env.sh`, `bootstrap.sh` and `install.sh` all take the list from here |
-| `~/tehas/lib/sandbox.sh`             | What a sandbox container is given, and the one name of the sandbox and base images; sourced by the work, plan and dev scripts, and beside `lib/rukas.sh` by `tehasbot clean` |
-| `~/tehas/lib/slice.sh`               | Reads the slice: whether it is usable, a container's limits, the room left. Every command that starts a sandbox container reads it |
-| `~/tehas/lib/headless.sh`            | What tehas reads of pi-rukas's headless runner: its `--capabilities` answer, its progress and its result. `tehas work` and `tehasbot cycle` use it |
-| `~/tehas/lib/attachments.sh`         | Which links of an issue are attached files and how one is fetched. The Protolab and `tehas work` use it |
-| `~/tehas/lib/questions.sh`, `planning.sh` | The question and planning steps of the dispatcher. A cycle's report uses the first too |
+| `~/tehas/lib/sandbox.sh`             | The bash of a sandbox container: the reading of what `tehas-cycle sandbox` gives it; sourced by the work and plan scripts, and by dev for the check of Pi's files |
+| `~/tehas/lib/slice.sh`               | The way to `console slice`, for the poll and `tehas improve`: whether the slice is usable and the room left, and with no console it finds no slice. A command that starts a sandbox container asks `tehas-cycle sandbox limits`, which holds the same rules and makes the container's limits, and it starts nothing without a usable slice |
+| `~/tehas/lib/attachments.sh`         | The way to `libexec/attach`, which holds which links of an issue are attached files, who may attach and how one is fetched. `tehas work`, `tehas plan` and `tehas dev` use it; the Protolab holds the same link rule in the console |
+| `~/tehas/lib/questions.sh`            | The questions of a park. A cycle's report uses it |
 | `~/tehas/bin/`                       | The two commands on `PATH`: `tehas` for a person, `tehasbot` for the units. Plus `gh` |
 | `~/tehas/libexec/`                   | The scripts behind the two commands, one for each thing they do. Not on `PATH` |
 | `~/tehas/run/`                       | One copy of `bin/`, `libexec/` and `lib/` for each running cycle (`cycle-<issue>-<pid>`) and planning turn (`plan-<issue>-<pid>`), as hardlinks, so an update leaves the code of what runs as it started. The next start removes the copies whose process has ended |
@@ -264,13 +263,18 @@ Rules that hold for every command:
 
 - `instance.env` wins. A setting of the same name in the environment is
   dropped. Only `TEHAS_HOME`, `TEHAS_INSTANCE_DIR`, the energy switches
-  `TEHAS_ENERGY` and `TEHAS_ENERGY_URL`, and seven hooks the tests use are
+  `TEHAS_ENERGY` and `TEHAS_ENERGY_URL`, and the hooks the tests use are
   taken from the environment.
 - A missing or malformed setting stops the command with exit 78 and one line
   naming the setting, before it calls GitHub, Docker or git.
 - Loading settings runs no git command, makes no network call and writes
-  nothing.
-- `instance.env` is shell, sourced as written. Keep it writable by the tehas
+  nothing. The rules are the console's (`console settings load`): with no
+  console that can run, a command stops with 78 and a line that says so, and a
+  login shell prints that line and goes on.
+- `instance.env` is shell, sourced as written, in a shell of its own with the
+  environment left after the sweep. What it exports is what the command gets.
+  A `cd` in it moves no command, an `exit` in it is a refusal, and what it
+  prints goes to standard error. Keep it writable by the tehas
   user only. `./install.sh --check` reports it if it is not, and reads the
   file no further once it has a finding: the owner and mode of the instance
   directory, of `instance.env` and of `sandbox.Dockerfile` are checked before
@@ -414,7 +418,7 @@ The record is also the way to finish an install on a host that cannot run an
 update. A checkout at a release tag has no branch to fast-forward, and a remote
 that is a local path can stop answering, while the copies `install.sh` made are
 already in place. `tehas update --pending` reads that record, runs the steps it
-lists in the order `lib/update-steps.sh` gives them, and calls no git command and
+lists in the order they run, and calls no git command and
 no `install.sh`, so it needs no checkout and no remote and no hold to be removed.
 A program finishes an install with `install.sh` and then that command; see
 [tehas update](/tools#tehas-update).
@@ -497,18 +501,28 @@ health page and the cleaner ask).
 A real run builds each with `cargo` in the checkout and installs them as
 `~/tehas/libexec/console`, `~/tehas/libexec/analytics`,
 `~/tehas/libexec/tehas-mcp`, `~/tehas/libexec/store` and
-`~/tehas/libexec/attach`. The attachment checker reads the bytes of every file
-fetched for an issue, unpacks its zips, and composes what a cycle is told it was
-given (see [Tools](/tools)); without it a cycle given an issue's attachments
-does not start, a cycle given none says it could not read the record, and the
-Protolab leaves a zip out. A host installed from a release tarball has neither
+`~/tehas/libexec/attach`. The attachment checker fetches the files of an issue
+and of a planning reply, judges who may attach them and how much is given,
+reads their bytes, unpacks their zips, and composes what a cycle is told it was
+given (see [Tools](/tools)). It holds `GH_TOKEN` only to pass it to `gh` and to
+`curl`, on `curl`'s standard input; what was fetched is read by the same program
+run as a child with no environment but `PATH`. Without it a start or a planning
+reply that links a file stops, with a reason that names no host path, one that
+links nothing goes on with a manifest that gives nothing, a cycle given none says
+it could not read the record, and the Protolab leaves a zip out. A host installed from a release tarball has neither
 `cargo` nor `console/`: its programs are the ones the release packed
 ([Releases](/tools#releases)), and a release without a store installs only on a
 host that has one. On a host with none, `--check` says so on a `Store: REFUSED`
 line rather than as drift. Beside each, `<name>.stamp` holds two checksums:
 of the source it was built from and of the program. A program is built again
 only when its source has changed or the program on the host is not the one
-that was installed. The console's source is `console/` without its tests and
+that was installed. The console is the one exception: a real run asks `cargo`
+for it first of all, because it reads the settings, and `cargo` answers at once
+when nothing changed. That build comes after the proof of the home and before
+the update lock, whose directory is a write to the home and waits for the
+settings. It removes no earlier build, so a run the lock will refuse takes
+nothing from the run that holds it. A console that does not build stops the run
+with exit 1 before the settings are read. The console's source is `console/` without its tests and
 without `console/analytics/`, `console/mcp/` and `console/store/`, so a change
 to one of those alone builds that program alone. The store's source is
 `console/store/` without its tests, the workspace's `Cargo.toml` and
@@ -603,6 +617,10 @@ again:
 touch ~/tehas/state/update-hold     # tehas update refuses while this exists
 tehas update --to v0.8.0            # --to runs with the hold there
 ```
+
+`tehas update` needs a console that starts. A release whose console does not
+cannot update itself; the way back is the install.sh of a version still on the
+host, see [tehas update says the console does not answer](/troubleshooting#tehas-update-says-the-console-does-not-answer).
 
 `install.sh` keeps one `<name>.prev` beside each file it replaces, and only
 one: a second install that changes the file replaces it. Copying a `.prev`
@@ -1023,8 +1041,8 @@ edge router are outside the slice too.
 ### What a container may not do
 
 A cycle, a planning turn, a `tehas dev` session and the push check before a
-cycle all get the options below, from `tehas_sandbox_security` in
-`lib/sandbox.sh`, beside the mounts and the variables. The list is
+cycle all get the options below, from `security` in
+`console/core/src/sandbox.rs`, beside the mounts and the variables. The list is
 capability-shaped options and this round's bounded `/tmp`. The indexer and the
 analyst are not given them yet (issue #54 leaves them to a follow-up), so the
 bounded `/tmp` below is not in those two containers either: when that follow-up
@@ -1141,17 +1159,13 @@ and is tehas' to set; pi-rukas alone allows two hours. It may be at most
 `TEHAS_WORK_TIMEOUT`, so no child outlives the cycle that spawned it: a longer
 one is refused with 78, because tehas would only see such a child when the
 cycle itself ended. Before the limit comes the cycle's deadline,
-`PI_ENSEMBLE_CYCLE_DEADLINE`: a quarter of `TEHAS_WORK_TIMEOUT` before the end,
-or one run of the gate and the handoff allowance when that is longer. The
-allowance is 8 minutes, and pi-rukas is given it as
+`PI_ENSEMBLE_CYCLE_DEADLINE`: `TEHAS_WORK_TIMEOUT` less the handoff allowance.
+The allowance is 8 minutes, and pi-rukas is given it as
 `PI_ENSEMBLE_HANDOFF_TIMEOUT_MS`, so both sides count the same time for the
-handoff. An image whose `--capabilities` has the feature
-`cycleDeadlineHandoffAllowance` bounds every step by the deadline, so its
-deadline is `TEHAS_WORK_TIMEOUT` less the allowance alone. After it pi-rukas
-starts no new step and parks the cycle with the cap `deadline` and a handoff,
-so a cycle that runs long ends at a step boundary with its branch and pull
-request said, not in the middle of a step. A step that started before the
-deadline may run past it; the margin is there for that step. The runner is
+handoff. pi-rukas bounds every step by the deadline. After it pi-rukas starts
+no new step and parks the cycle with the cap `deadline` and a handoff, so a
+cycle that runs long ends at a step boundary with its branch and pull request
+said, not in the middle of a step. The runner is
 given `TEHAS_WORK_TIMEOUT` in whole minutes and ends the cycle itself, with
 exit 30; `tehas work` stops a runner that is still there 300 seconds later.
 Either way the cycle is `timeout` and goes on record with the cap
@@ -1205,7 +1219,7 @@ the memory - and takes the CPUs over `TEHAS_CYCLE_CPUS` as the
 cycles and the slice's memory over `TEHAS_CONTAINER_MEMORY` as the containers,
 each between its own floor and 16, and neither above `TEHAS_CYCLE_CEILING`, the
 bound for an endpoint that cannot serve what a big host asks for. The cycle
-cannot use such a count yet (`lib/slice.sh` reads a number at every start), so
+cannot use such a count yet (`console slice` reads a number at every start), so
 a cycle started under `auto` parks and a poll starts none until a person
 notices. It fails closed here rather than spend an approval on a cycle that
 cannot run.
@@ -1590,7 +1604,7 @@ commit a host follows:
 
 For the sandbox build, any of these may go in the instance's `instance.env`, where
 it wins over the line in `versions.env`, and so may `PI_RUKAS_IMAGE_DIGEST` below.
-An instance that sets neither follows the line its tehas was shipped with. `lib/config.sh` checks `PI_RUKAS_FOLLOW` when the
+An instance that sets neither follows the line its tehas was shipped with. A load checks `PI_RUKAS_FOLLOW` when the
 settings load and stops the command with 78 naming it. `bootstrap.sh` reads only
 `versions.env`.
 
@@ -1776,7 +1790,8 @@ and every other theme the logo, which is also the favicon. The share card
 follows it, `share.png` for `pixel` and `share-logo.png` for the rest.
 
 A theme is one file in `host/fun/`, `theme-<name>.css`, that sets every token
-`theme-pixel.css` sets; its name is added to the list in `lib/config.sh`.
+`theme-pixel.css` sets; its name is added to the list in
+`console/core/src/settings/rules.rs`.
 `test/theme_test.sh` fails when a theme leaves a token out or a page names a
 colour or a typeface of its own.
 
@@ -1859,7 +1874,7 @@ for it with these differences:
 | What the host runs from the clone | Nothing. The host runs git there once, to make it, and never again                                           |
 
 `test/dev_test.sh` pins the session's `docker run` the same way. Both commands
-take the mounts and variables from `lib/sandbox.sh`, so they cannot differ by
+take the mounts and variables from `console/core/src/sandbox.rs`, so they cannot differ by
 accident.
 
 ### Other accounts

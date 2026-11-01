@@ -1,9 +1,10 @@
 //! The factory's health file, live/health.json: pass, warn or fail, the one
 //! line that says why, and every check under `checks`. `tehasbot health` is
-//! `console health run` (libexec/health is the wrapper of that one command).
+//! `console tehasbot health`, which `libexec/with-settings` runs once the
+//! settings are loaded, and which comes to `console health run`.
 //!
 //!   console health run <home>
-//!     The whole run, in the order libexec/health had it: the store's answers,
+//!     The whole run, in the order the shell had it: the store's answers,
 //!     the units read, the report, and the publish of the report. Each verb is
 //!     documented beside the function that makes it; the flags of `report`
 //!     below are the usage `main` prints.
@@ -39,6 +40,7 @@ use crate::flags::{self, epoch};
 use crate::jq::{first, obj, J, NULL};
 use crate::store::{self, bounded, merged, Refusal};
 use serde_json::Value;
+use std::env;
 use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
@@ -182,7 +184,7 @@ fn report_file(home: &Path, text: &str) -> io::Result<PathBuf> {
     }
 }
 
-/// What a refused publish of the report says, in the voice libexec/health had.
+/// What a refused publish of the report says, in the voice the shell had.
 /// `Refusal::line` is the store's first line, already cut to 300 bytes and
 /// freed of control characters by the `refusal` of store.rs, as
 /// `tehas_store_said` kept it.
@@ -344,10 +346,8 @@ fn stopped(step: Step, no: &Refusal) -> u8 {
 /// read of the store that refused is no reason to write no file; only the
 /// sessions, a `publish` the store could not use at all, and the publish of
 /// the report stop the run, each with the line and the status the shell gave
-/// them. The budget of the idle polls is the wrapper's to give: `libexec/health`
-/// loads the settings, where the value's shape is checked, and passes it with
-/// `--budget`. A run asked for none, as the cases are, takes the instance's
-/// default.
+/// them. A run asked for no budget of the idle polls, as the cases are, takes
+/// the instance's default.
 pub fn run(given: &[String]) -> u8 {
     let [home, rest @ ..] = given else {
         eprintln!("console health: usage: run <home> [--budget <spec>]");
@@ -369,6 +369,20 @@ pub fn run(given: &[String]) -> u8 {
         budget.unwrap_or_else(|| POLL_BUDGET.to_string()),
         Path::new("systemctl"),
     )
+}
+
+/// `tehasbot health`, under settings already loaded: the load is the one place
+/// the shape of `TEHAS_POLL_BUDGET` is checked, and it gives the home.
+pub fn loaded() -> u8 {
+    let Some(home) = env::var_os("TEHAS_HOME") else {
+        eprintln!("tehasbot health: TEHAS_HOME is not set");
+        return 78;
+    };
+    let budget = env::var("TEHAS_POLL_BUDGET")
+        .ok()
+        .filter(|b| !b.is_empty())
+        .unwrap_or_else(|| POLL_BUDGET.to_string());
+    run_with(Path::new(&home), budget, Path::new("systemctl"))
 }
 
 /// The run itself, with the budget the host's settings give: the case that
@@ -1134,7 +1148,7 @@ fn held(lock: &Path) -> bool {
 
 /// The planning turns in flight, each {issue, turn, startedAt}: the sessions
 /// the store has running whose turn holds its lock and has not left its exit
-/// status (lib/planning.sh).
+/// status (console/dispatch/src/apply/turn.rs).
 fn plans(home: &Path, sessions: &J) -> J {
     let state = home.join("state");
     let mut out = Vec::new();
@@ -1429,7 +1443,7 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
     let old_queue = queue_age.is_some_and(|a| a > QUEUE_MAX_AGE);
     let paused = !flag.is_null() || label || lifted;
     let limit_holds = in_list(limit.get("state"), &["expired", "unreadable"]);
-    let over_budget = !poll_cost.is_null() && poll_cost.get("over").len() > 0;
+    let over_budget = !poll_cost.is_null() && !poll_cost.get("over").is_empty();
     let old_backup = backup_known
         && (backup.is_null()
             || backup
@@ -1437,7 +1451,7 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
                 .cmp(&J::num(BACKUP_MAX_AGE))
                 .is_gt());
     let disk_low = !disk.is_null() && disk.get("low").truthy();
-    let has_units = units.as_ref().is_some_and(|u| u.len() > 0);
+    let has_units = units.as_ref().is_some_and(|u| !u.is_empty());
 
     let status = if queue.is_null() || failed {
         "fail"
@@ -1526,7 +1540,7 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
             joined(poll_cost.get("over")),
             poll_cost.get("budget").text()
         )
-    } else if running.len() > 0 {
+    } else if !running.is_empty() {
         let issues: Vec<String> = running
             .items()
             .iter()

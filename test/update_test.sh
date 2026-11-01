@@ -15,7 +15,7 @@
 # shellcheck source=test/update_lib.sh
 . "$(dirname "$0")/update_lib.sh" || exit 1
 # The one place the follow-ups are named. Every case that needs install.sh's
-# "next:" lines takes them from here, so the fixture is the text install.sh
+# "next:" lines takes them from the console, so the fixture is the text install.sh
 # produces rather than a copy of it someone could keep out of step.
 # shellcheck source=lib/update-steps.sh
 . "$T_ROOT/lib/update-steps.sh"
@@ -72,10 +72,10 @@ write_install() { # <what the stub prints> [<dir to write it in>]
 }
 
 # The follow-ups install.sh asks for when its units, its sandbox files and both
-# compose servers changed - taken from lib/update-steps.sh, in the order it
+# compose servers changed - taken from the console, in the order it
 # prints them (systemd first), which is the order an update runs them in.
 next_lines() {
-  tehas_steps_for systemd/tehas-dispatch.timer sandbox/Dockerfile versions.env \
+  "$T_CONSOLE" update steps for systemd/tehas-dispatch.timer sandbox/Dockerfile versions.env \
     edge/docs.compose.yaml edge/router.compose.yaml
 }
 
@@ -202,6 +202,13 @@ instance_models() {
 # the checkout. A case can then run the seam between the two commands against
 # its producer.
 real_platform() {
+  # The console the stub of cargo builds is no program, and tehas labels and tehas
+  # api are verbs of it. Nor is its tehas-cycle: the real sandbox build asks that
+  # one what the base image can do.
+  t_console || t_bad "$t_console_why"
+  # shellcheck disable=SC2154  # t_cycle_why is set by t_cycle (test/lib.sh)
+  t_cycle || t_bad "no tehas-cycle: $t_cycle_why"
+  T_ENV_ALWAYS=(TEHAS_CONSOLE="$T_CONSOLE" CYCLE_BIN="$T_CYCLE")
   rm -rf "${T:?}/home" "$T/origin" "$T/upstream" "$T/calls"/*
   mkdir -p "$T/home"
   systemctl_active
@@ -326,6 +333,23 @@ rm -rf "$T/instance" "$th"
 t_run "$update --help"
 t_eq "$t_rc" 0
 t_contains "$t_out" "tehas update --check"
+
+t_case "no console stops it with 78, and one that does not answer with 1 and where to look"
+instance
+platform 0
+T_ENV_ALWAYS=(TEHAS_CONSOLE="$T/no-console")
+t_run "$update"
+t_eq "$t_rc" 78
+t_contains "$t_out" "tehas update: no console at $T/no-console: run install.sh"
+t_stub broken-console 'exit 2'
+T_ENV_ALWAYS=(TEHAS_CONSOLE="$T/bin/broken-console")
+t_run "$update"
+t_eq "$t_rc" 1
+t_contains "$t_out" "the console at $T/bin/broken-console does not answer (exit 2)"
+t_contains "$t_out" "troubleshooting"
+T_ENV_ALWAYS=(TEHAS_CONSOLE="$T_CONSOLE")
+t_eq "$(state | cut -d' ' -f2)" "$(head_sha)"
+t_eq "$(t_calls install)" ""
 
 t_case "no platform checkout: exit 78 saying where it looked"
 instance
@@ -466,6 +490,27 @@ t_eq "$t_rc" 0
 t_contains "$t_out" "the lock is ours"
 t_contains "$t_out" "held against others"
 
+t_case "install.sh is the only child given the lock's descriptor"
+instance
+platform 1 "$ASK"
+t_stub timeout "case \"\$*\" in
+  *install.sh*) ;;
+  *) [ ! -e /proc/self/fd/7 ] || echo \"\$*\" >>'$T/calls/held' ;;
+esac
+exec $real_timeout \"\$@\""
+printf '%s\n' '#!/usr/bin/env bash' \
+  "[ ! -e /proc/self/fd/7 ] || echo \"console \$1 \$2\" >>'$T/calls/held'" \
+  "exec '$T_CONSOLE' \"\$@\"" >"$T/console.held"
+chmod +x "$T/console.held"
+T_ENV_ALWAYS=(TEHAS_CONSOLE="$T/console.held")
+t_run "$update"
+T_ENV_ALWAYS=(TEHAS_CONSOLE="$T_CONSOLE")
+t_eq "$t_rc" 0
+t_eq "$(owed_steps)" ""
+t_eq "$(cat "$T/calls/held" 2>/dev/null)" ""
+rm -f "$T/console.held"
+bound_calls
+
 # A child that outlives the update must not keep the lock: the next update would
 # read it as another one running. systemctl stands for every such child here.
 t_case "a child the update starts and that outlives it does not keep the lock"
@@ -484,20 +529,67 @@ while read -r pid; do kill "$pid" 2>/dev/null; done <"$T/calls/sleepers"
 rm -f "$T/calls/sleepers"
 systemctl_active
 
-t_case "a unit the pulled step library adds is restarted by the update that pulled it"
+# install.sh may replace the console while the update runs. The one installed
+# after it holds the rules of the code just installed, so it finishes the run. A
+# stand-in in the place of the console shows which one did.
+stand_in() { # <path> <what it says for update api> <what finish prints first>
+  printf '%s\n' '#!/usr/bin/env bash' \
+    "case \"\$1 \$2\" in" \
+    "  'update api') $2 ;;" \
+    "  'update finish') echo '$3' ;;" \
+    "esac" \
+    "exec '$T_CONSOLE' \"\$@\"" >"$1.new"
+  chmod +x "$1.new"
+  mv -f "$1.new" "$1"
+}
+new_console="stand_in() { :; }
+cp '$T/console.next' '$T/console.now'"
+
+t_case "the console install.sh installed finishes the update that installed it"
 instance
-platform 0 'echo "next: units tehas-dispatch.timer tehas-new.timer"'
-rm -rf "$T/upstream"
-git clone -q "$T/origin" "$T/upstream"
-sed -i 's/^tehas_units() { printf .%s\\n. /&tehas-new.timer /' "$T/upstream/lib/update-steps.sh"
-grep -q 'tehas-new.timer' "$T/upstream/lib/update-steps.sh" || t_bad "the fixture did not add a unit"
-git -C "$T/upstream" -c user.name=other -c user.email=other@example.com commit -qam "a new unit"
-git -C "$T/upstream" push -q origin main
+stand_in "$T/console.now" 'echo 1; exit 0' 'finished by the console before'
+stand_in "$T/console.next" 'echo 1; exit 0' 'finished by the console installed'
+platform 0 "$new_console
+echo 'next: units tehas-dispatch.timer'"
+T_ENV_ALWAYS=(TEHAS_CONSOLE="$T/console.now")
 t_run "$update"
 t_eq "$t_rc" 0
-t_lacks "$t_out" "WARN"
-t_contains "$(t_calls systemctl)" "--user restart tehas-dispatch.timer tehas-new.timer"
+t_contains "$t_out" "finished by the console installed"
+t_lacks "$t_out" "finished by the console before"
+t_contains "$(t_calls systemctl)" "--user restart tehas-dispatch.timer"
 t_eq "$(owed_steps)" ""
+
+t_case "a console that cannot finish an update leaves it to the one install.sh kept"
+instance
+stand_in "$T/console.now" 'echo 1; exit 0' 'finished by the console before'
+# What --to a version below this one installs: a console with no update verbs.
+stand_in "$T/console.next" 'exit 2' 'finished by the console installed'
+platform 0 "cp '$T/console.now' '$T/console.now.prev'
+$new_console
+echo 'next: units tehas-dispatch.timer'"
+t_run "$update"
+t_eq "$t_rc" 0
+t_contains "$t_out" "finished by the console before"
+t_lacks "$t_out" "finished by the console installed"
+t_contains "$(t_calls systemctl)" "--user restart tehas-dispatch.timer"
+
+t_case "with no console that can finish, what install.sh did stays owed and the run is red"
+instance
+rm -f "$T/console.now.prev"
+stand_in "$T/console.now" 'echo 1; exit 0' 'finished by the console before'
+stand_in "$T/console.next" 'exit 2' 'finished by the console installed'
+platform 0 "$new_console
+\"\$TEHAS_CONSOLE\" update steps record sandbox/Dockerfile
+echo 'installed: libexec/console'
+echo 'next: sandbox'"
+t_run "$update"
+t_eq "$t_rc" 1
+t_contains "$t_out" "installed: libexec/console"
+t_contains "$t_out" "neither $T/console.now nor $T/console.now.prev can finish this update"
+t_eq "$(owed_steps)" "sandbox"
+t_eq "$(t_calls build)" ""
+rm -f "$T/console.now" "$T/console.now.prev" "$T/console.next"
+T_ENV_ALWAYS=(TEHAS_CONSOLE="$T_CONSOLE")
 
 t_case "a later: line of install.sh is printed and is no step"
 instance
@@ -734,8 +826,8 @@ t_contains "$t_out" "installed: $th/libexec/update"
 t_contains "$t_out" "systemd: restarted tehas-dispatch.timer tehas-energy.service tehas-top.service tehas-mcp.service tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-improve.timer tehas-refresh.timer tehas-review.timer tehas-clean.timer"
 t_contains "$t_out" "docs: updating the container"
 t_contains "$t_out" "edge: updating the container"
-# The command that makes the labels is among the files this run copied, so the
-# labels step is owed too, and the run is green: the stubbed host's command makes
+# The table of the labels is among the files this run copied, so the labels step
+# is owed too, and the run is green: the stubbed host's command makes
 # them, so nothing is left looking like work for a person.
 t_eq "$(step_order)" "systemd: restarted
 sandbox: building
@@ -749,7 +841,7 @@ t_eq "$(owed_steps)" ""
 # gh and nothing else. The copies of this run made the labels twice over: install.sh
 # makes them itself, and then the step this change adds makes them again.
 t_eq "$(t_calls gh | grep '^label create ' | sed 's/^label create \([^ ]*\).*/\1/' | sort -u | wc -l)" \
-  "$(sed -n 's/^mk \([^ ]*\).*/\1/p' "$T_ROOT/libexec/labels" | sort -u | wc -l)"
+  "$(cut -f1 "$T_ROOT/host/labels.tsv" | sort -u | wc -l)"
 t_eq "$(t_calls gh | sed -n 's/^label create [^ ]* --repo \([^ ]*\).*/\1/p' | sort -u)" acme/widget
 # Nothing of this host's real /etc or /usr/local/bin was read: the scratch marker
 # is not there, so install.sh says nothing about root's copy.
@@ -798,14 +890,14 @@ real_platform
 login_setup
 login_age
 before=$(login_state)
-# The install before this one, so the labels of the copied command are owed as a
+# The install before this one, so the labels of the copied table are owed as a
 # step of this update rather than made by a first install on the spot.
 t_run "mkdir -p '$th/state'; : >'$th/state/first-install'; '$update'"
 t_eq "$t_rc" 0
 t_contains "$t_out" "later: sudo $checkout/bootstrap.sh dev boss"
 t_contains "$t_out" "$dev_bin/tehas is not this checkout's host/login/tehas"
 # Not a step: nothing was recorded for it, no sudo ran, and the copy was not
-# touched. The labels step of the copied command ran in the same call, so the
+# touched. The labels step of the copied table ran in the same call, so the
 # record it clears is empty by the end of the run.
 t_eq "$(t_calls sudo)" ""
 t_eq "$(login_state)" "$before"
@@ -865,8 +957,7 @@ t_eq "$(owed_steps)" "renew-dashboard --now"
 t_case "steps an install.sh that died partway recorded are run by the next one"
 instance
 platform 1 'echo "installed: libexec/dispatch"
-. "$T_ROOT/lib/update-steps.sh"
-tehas_record_steps sandbox "docs --force-recreate"
+"$TEHAS_CONSOLE" update steps record sandbox/Dockerfile edge/docs.Caddyfile
 echo "tehas: /x is missing from this checkout" >&2
 exit 1'
 t_run "$update"
@@ -1197,8 +1288,8 @@ t_contains "$t_out" "docs: updating the container"
 t_eq "$(owed_steps)" ""
 rm -f "$th/state/update-hold"
 
-# A release that adds a label records the labels step when it copies the command
-# that makes them, and the follow-up is `tehas labels` itself: the labels end up
+# A release that adds a label records the labels step when it copies the table,
+# and the follow-up is `tehas labels` itself: the labels end up
 # on GitHub rather than owed to nobody in the record.
 t_case "--pending runs the labels step once and clears the record"
 instance

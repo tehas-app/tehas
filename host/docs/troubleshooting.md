@@ -227,7 +227,7 @@ Run `tehas dispatch --dry-run` and read what it prints.
   a report, or never started. The next real poll gives the issue
   `needs-human-attention`. Read `~/tehas/logs/dispatch-work-N.log`.
 - `park #N: it is marked tehas:planning and no planning session is open on
-  it` (`TEHAS_DISPATCHER=rust`): the issue carries `tehas:planning` but no
+  it`: the issue carries `tehas:planning` but no
   session is on record, because the poll that marked it took its turn back.
   The issue gets `needs-human-attention`. Apply `tehas:plan` to plan it.
 - `WARN: the cycle for #N holds its lock but has not been heard from since
@@ -925,6 +925,7 @@ Read the last lines of `~/tehas/logs/improve.log`.
 | --- | --- |
 | Nothing new for hours | The timer is not enabled: `systemctl --user list-timers tehas-improve.timer` |
 | `TEHAS_IMPROVE_REPO is not set` | The loop is off for this instance |
+| `no console at <path>` | `~/tehas/libexec/console` is missing, and a run stops with exit 78. Run `install.sh`, which builds it. The records wait |
 | `the improvement loop files in <repo>, the product repository` | `TEHAS_IMPROVE_REPO` or `TEHAS_IMPROVE_RUKAS_REPO` names `TEHAS_REPO`. Name a private repository for the findings instead; every command stops with exit 78 until then |
 | `cycles=0, nothing to read` | No cycle has ended since the last run. A cycle that stopped before Pi started leaves no record |
 | `waiting: 10 open issues carry tehas:improvement` | Every repository the loop files in is at the limit. Close some or build some, or raise `TEHAS_IMPROVE_MAX_OPEN` |
@@ -950,27 +951,46 @@ line.
 - `secret-shape=<cycle>`: the log holds something shaped like a token, so it
   was kept on the host. Read `~/tehas/logs/work-<cycle>.jsonl` there, and find
   out how a secret got into a log.
-- `not-masked=<cycle>`: `~/tehas/libexec/console` is missing or failed, so
-  the log could not be masked. Run `install.sh`, which builds it.
+- `not-masked=<cycle>`: the masked copy of the log could not be written under
+  `~/tehas/tmp/improve`. See how full that disk is.
 - `not-uploaded=<cycle>`: GitHub refused the release or the upload. The bot
   account needs write access to the repository.
 - `not-packed=<cycle>`: one line of the log is over 5 MB compressed.
 - "the log is no longer on the host": it was removed before the run, by hand
   or by the seven day sweep.
 
+## tehas update says the console does not answer
+
+`tehas update` runs in `~/tehas/libexec/console`, so a console that does not start
+stops any update with exit 1 before it changes anything. Exit 78 and
+`no console at` say the file is not there at all. It cannot repair itself: put a
+working console back by hand. On a host that updates from releases, that is the
+install.sh of a version still on the host:
+
+```
+ls ~/tehas/versions                       # the versions on this host
+~/tehas/versions/<previous>/install.sh    # installs that version's files, its console among them
+tehas update --to <previous>              # points current at it and finishes the steps
+touch ~/tehas/state/update-hold           # stay there until a fixed release is out
+```
+
+On a host that updates from its checkout, run `./install.sh` in `~/tehas/platform`:
+it builds the console. A console left by an interrupted `--to` to an older version
+answers the same way, and the same steps mend it.
+
 ## install.sh --check says `Follow-ups: NOT DONE`
 
 A follow-up that was asked for has not run. The lines are in
 `~/tehas/state/update-pending`: what `install.sh` recorded as it copied files, and
-what `tehas update` has not finished. Run `tehas update`: it runs the steps in the
-order `lib/update-steps.sh` lists them and clears the record. If it names a step
+what `tehas update` has not finished. Run `tehas update`: it runs the steps in
+their fixed order and clears the record. If it names a step
 line in a `WARN:` instead, the checkout asks for a step this installed
 `tehas update` does not know. Pull and run it again, since `install.sh` installs
 the commands before the follow-ups run.
 
 The lines are step lines, not shell text: `docs` on its own is not one, because
-that renewal needs its `--force-recreate` flag. A line `lib/update-steps.sh` does
-not accept is named in a `WARN:`, is not run, and stays in the record.
+that renewal needs its `--force-recreate` flag. A line this version does not
+accept is named in a `WARN:`, is not run, and stays in the record.
 
 A record this account cannot open, written by another account or with a mode
 that blocks reading, stops the update with exit 1 rather than read as "nothing
@@ -1130,7 +1150,8 @@ docker system df
 docker image prune      # removes images with no tag that nothing uses
 ```
 
-A sandbox build removes date tags beyond its newest three itself. The cleaner
+A sandbox build removes date tags beyond its newest three itself; one run from a
+checkout has no console to ask what is held, and removes none. The cleaner
 prunes Docker's build cache every hour, of whatever has not been
 used for `TEHAS_CLEAN_AFTER` hours, and removes the build output of kept
 workspaces, old host scratch, the sandbox image's dated tags past that age

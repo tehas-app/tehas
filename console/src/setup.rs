@@ -1,14 +1,14 @@
 //! The first half of tehas setup: the settings, the checks and the files
 //! (libexec/setup says what the command does as a whole).
 //!
-//!   console setup files <lib dir> <instance dir> [options of tehas setup]...
+//!   console setup files <instance dir> [options of tehas setup]...
 //!
 //! Reads what the options leave out from the instance's files, then asks on
 //! a terminal. Checks every value and refuses a setting that is there and
 //! differs, unless --force, before it calls anything. Then checks GitHub and
 //! the endpoint, makes the control issue, and writes instance.env, models.json,
 //! ~/.config/tehas/env and the app's key. The app's token is made by
-//! <lib dir>/github-app.sh. Nothing is written before every check passed.
+//! src/github.rs. Nothing is written before every check passed.
 //!
 //! What it says goes to standard error. Standard output is one line for the
 //! steps after it: "<build 0|1> token", or "<build 0|1> app <bot> <bot id>".
@@ -16,6 +16,7 @@
 //! Exit: 0 written; 1 a check failed; 64 usage; 78 a setting is missing,
 //! malformed or differs from the one there without --force.
 
+use crate::github;
 use serde_json::{json, Value};
 use std::fs::{self, DirBuilder, OpenOptions};
 use std::io::{self, BufRead, IsTerminal, Write};
@@ -39,7 +40,7 @@ fn say(what: &str) {
 }
 
 pub fn main(given: &[String]) -> u8 {
-    let [verb, lib, dir, rest @ ..] = given else {
+    let [verb, dir, rest @ ..] = given else {
         eprintln!("{USAGE}");
         return 64;
     };
@@ -47,7 +48,7 @@ pub fn main(given: &[String]) -> u8 {
         eprintln!("{USAGE}");
         return 64;
     }
-    match run(Path::new(lib), Path::new(dir), rest) {
+    match run(Path::new(dir), rest) {
         Ok(line) => {
             println!("{line}");
             0
@@ -235,28 +236,6 @@ fn gh(token: &str, args: &[&str]) -> Option<String> {
         .then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
 
-/// A function of lib/github-app.sh for the app being checked, its standard
-/// output when it exits 0. It says why it failed on standard error.
-fn app_lib(lib: &Path, function: &str, g: &Given) -> Option<String> {
-    let out = Command::new("bash")
-        .args([
-            "-c",
-            &format!(". \"$1/github-app.sh\" && {function}"),
-            "tehas-setup",
-        ])
-        .arg(lib)
-        .env("TEHAS_GITHUB_APP_ID", &g.app_id)
-        .env("TEHAS_GITHUB_APP_INSTALLATION", &g.app_inst)
-        .env("TEHAS_GITHUB_APP_KEY", &g.app_key_file)
-        .stdin(Stdio::null())
-        .stderr(Stdio::inherit())
-        .output()
-        .ok()?;
-    out.status
-        .success()
-        .then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
-}
-
 /// The ids of the models the endpoint lists. The key goes to curl on
 /// standard input, never on its command line.
 fn model_ids(endpoint: &str, key: &str) -> Vec<String> {
@@ -312,7 +291,7 @@ impl Conflicts {
     }
 }
 
-fn run(lib: &Path, dir: &Path, args: &[String]) -> Result<String, Fail> {
+fn run(dir: &Path, args: &[String]) -> Result<String, Fail> {
     let mut g = parse(args)?;
     let app = !(g.app_id.is_empty() && g.app_inst.is_empty() && g.app_key_file.is_empty());
     if app {
@@ -512,10 +491,15 @@ fn run(lib: &Path, dir: &Path, args: &[String]) -> Result<String, Fail> {
     if app {
         // Checked with the given key: nothing is installed yet. The minted
         // token is kept in no file.
-        let mint = app_lib(lib, "tehas_github_app_mint", &g).ok_or_else(|| {
+        let given_app = github::App {
+            id: g.app_id.clone(),
+            installation: g.app_inst.clone(),
+            key: PathBuf::from(&g.app_key_file),
+        };
+        let mint = given_app.mint().ok_or_else(|| {
             Die("the app's key could not make a token; nothing was written".into())
         })?;
-        let mint: Value = serde_json::from_str(&mint).unwrap_or_default();
+        let mint: Value = serde_json::from_slice(&mint).unwrap_or_default();
         token = mint["token"].as_str().unwrap_or_default().to_string();
         if token.is_empty() {
             return Err(Die(
@@ -527,7 +511,8 @@ fn run(lib: &Path, dir: &Path, args: &[String]) -> Result<String, Fail> {
                 return Err(Die(format!("the app's installation may not write {p} (it needs contents, issues and pull_requests: write); nothing was written")));
             }
         }
-        let slug = app_lib(lib, "tehas_github_app_slug", &g)
+        let slug = given_app
+            .slug()
             .filter(|s| is_slug_or_login(s))
             .ok_or_else(|| Die("GitHub did not say the app's name; nothing was written".into()))?;
         let login = format!("{slug}[bot]");

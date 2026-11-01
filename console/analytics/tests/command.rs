@@ -1,6 +1,8 @@
-//! `tehas analytics`, libexec/analytics-cmd, against this program: the copy a
-//! person or a program fetches holds no token, no URL with a host and no
-//! address, and the command calls nothing outside the host.
+//! `tehas analytics` against this program: the copy a person or a program
+//! fetches holds no token, no URL with a host and no address, and the command
+//! calls nothing outside the host. The real libexec/with-settings runs it. The
+//! console this crate cannot build stands in for the load of the settings and
+//! for its verb, which test/analytics_cmd_test.sh runs.
 
 use rusqlite::{Connection, OpenFlags};
 use serde_json::{json, Value};
@@ -98,6 +100,15 @@ impl Host {
             .unwrap();
             fs::set_permissions(&stub, fs::Permissions::from_mode(0o755)).unwrap();
         }
+        let console = dir.join("console");
+        fs::write(
+            &console,
+            "#!/usr/bin/env bash\ncase $1 in check | needs) exit 0 ;; esac\n\
+             [ \"$1\" != settings ] || { echo _tehas_loaded=1; exit 0; }\n\
+             shift 2\nexec \"$TEHAS_HOME/libexec/analytics\" \"$@\" </dev/null\n",
+        )
+        .unwrap();
+        fs::set_permissions(&console, fs::Permissions::from_mode(0o755)).unwrap();
         Host {
             dir,
             home,
@@ -114,7 +125,8 @@ impl Host {
     fn tehas(&self, args: &[&str]) -> (i32, String, String) {
         let path = format!("{}:{}", self.bin.display(), std::env::var("PATH").unwrap());
         let out = Command::new("bash")
-            .arg(root().join("libexec/analytics-cmd"))
+            .arg(root().join("libexec/with-settings"))
+            .args(["tehas", "analytics"])
             .args(args)
             .current_dir(&self.dir)
             .env_clear()
@@ -122,6 +134,8 @@ impl Host {
             .env("HOME", &self.dir)
             .env("TEHAS_HOME", &self.home)
             .env("TEHAS_INSTANCE_DIR", &self.instance)
+            .env("TEHAS_CONSOLE", self.dir.join("console"))
+            .env("TEHAS_SETTINGS_CMD", self.dir.join("console"))
             .output()
             .unwrap();
         (
@@ -191,8 +205,8 @@ impl Host {
             &json!({"generatedAt": iso(now), "totals": {"watts": 250.0}}).to_string(),
         );
         self.put("docs/version.txt", "v0.7.22+1234abc\n");
-        // The run's facts as lib/analytics.sh gives them: the history line,
-        // the approval, the settings snapshot as lib/improve.sh writes it (a
+        // The run's facts as tehas-cycle gives them: the history line,
+        // the approval, the settings snapshot as tehas-cycle writes it (a
         // model with dots, a provider word, and a host value it withheld) and
         // the image's commit.
         fs::create_dir_all(self.home.join("tmp")).unwrap();
@@ -373,21 +387,4 @@ fn tehas_analytics_report_prints_the_ten_days_for_a_person() {
     assert!(out.contains("\nRuns               1: "), "{out}");
     assert!(!out.contains("ECONNREFUSED"), "{out}");
     assert_eq!(host.outside(), "");
-}
-
-#[test]
-fn with_analytics_off_tehas_analytics_is_69_and_touches_nothing() {
-    let host = Host::new("off");
-    let env = host.instance.join("instance.env");
-    let mut settings = fs::read_to_string(&env).unwrap();
-    settings.push_str("TEHAS_ANALYTICS=off\n");
-    fs::write(&env, settings).unwrap();
-    let copy = host.dir.join("copy.db");
-    for args in [vec!["report"], vec!["export", copy.to_str().unwrap()]] {
-        let (code, out, err) = host.tehas(&args);
-        assert_eq!((code, out.as_str()), (69, ""), "{args:?}");
-        assert!(err.contains("TEHAS_ANALYTICS=off"), "{err}");
-    }
-    assert!(!copy.exists());
-    assert!(!host.home.join("state/analytics.db").exists());
 }

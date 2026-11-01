@@ -20,7 +20,7 @@ what changed in which file. It is not the visitor analytics of
 | What | Written by | When |
 | --- | --- | --- |
 | A work run, its steps and its roles | `tehasbot cycle` | As the cycle ends, after its history line and before its files are cleaned up |
-| A planning turn, as a run of kind `plan` | the dispatcher, `lib/planning.sh` | As the turn ends. No token usage: pi's rpc mode does not report it |
+| A planning turn, as a run of kind `plan` | the dispatcher | As the turn ends. No token usage: pi's rpc mode does not report it |
 | The issue events `ready` and `started` | the dispatcher | `ready` with the time `tehas:ready` was accepted, `started` as a cycle starts |
 | The issue event `ended` | `tehasbot cycle` | As a cycle ends |
 | The issue events `awaiting`, `merged`, `closed` and `stopped` | `tehasbot status` | The first time a run of it sees the issue in that state, by comparing with its last snapshot |
@@ -97,7 +97,7 @@ came in schema 1. A column without a value is NULL.
 
 One row per run, written when the run ends. A work run takes its facts from
 the cycle, which gathers them into a private file for the call
-(`lib/analytics.sh`): the line of history the cycle made of its end and the
+(`tehas-cycle after`): the line of history the cycle made of its end and the
 attempt the state store gave its start, and from the state store `at`, `how`
 and `driver` of the approval that start used, read before the end goes on record
 because a start that never ran takes its approval with it, the run's `settings`

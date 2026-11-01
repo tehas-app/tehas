@@ -366,17 +366,4 @@ t_run "$dispatch"
 t_contains "$(t_calls gh)" "<!-- tehas:question kind=plan issue=7 turn=1 -->"
 t_lacks "$(t_calls gh)" "Replaced by"
 
-t_case "a plan has no later parts only when its Later parts section says none"
-none_later() { (. "$T_ROOT/lib/planning.sh" && printf '%b' "$1" | plan_no_later_parts && echo yes || echo no); }
-t_eq "$(none_later 'No later parts here.\n## Later parts\n\n- none\n')" yes
-t_eq "$(none_later '## Later parts\nNone.\n## Evidence\nx - a:1\n')" yes
-t_eq "$(none_later '## Spec\nLater parts: none\n')" yes
-t_eq "$(none_later '### Later parts\n1. Next\n## Evidence\n')" no
-t_eq "$(none_later '## Later Parts\n- Cache it\n')" no
-t_eq "$(none_later '**Later parts**\n- Cache it\n')" no
-t_eq "$(none_later '## Later parts:\n- Cache it\n')" no
-t_eq "$(none_later '### Later parts (not this issue)\n- Cache it\n')" no
-t_eq "$(none_later 'Later parts: cache it\n')" no
-t_eq "$(none_later '## Deliverables\n1. All of it\n')" no
-
 t_done

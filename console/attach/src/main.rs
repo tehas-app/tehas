@@ -1,9 +1,11 @@
-//! attach: the bytes of a file attached to an issue, read by a program and
+//! attach: the files attached to an issue, fetched and judged by a program and
 //! not by the shell, and what a cycle was given, said as text. lib/attachments.sh
-//! runs it as $TEHAS_HOME/libexec/attach for tehas work, tehas plan, tehas dev
-//! and tehasbot protolab. It fetches nothing and reads no setting: the shell
-//! fetches with curl, keeps the rules of who may attach and how much an issue
-//! is given, and passes a setting as a flag.
+//! runs it as $TEHAS_HOME/libexec/attach for tehas work, tehas plan and tehas dev,
+//! and the console for tehasbot protolab. It reads no setting: the shell passes
+//! each as a flag, the approval word (rule 5) among them. Only `issue` and
+//! `answer` hold GH_TOKEN and reach the network, through curl and gh, and they
+//! read what was fetched through `sniff` and `unpack` run as a child with no
+//! environment (src/take.rs).
 //!
 //!   attach sniff <file>
 //!     What the bytes of a regular file say. Answers
@@ -31,19 +33,38 @@
 //!     all. --images and --files are the instance's settings. Answers "gap":
 //!     the line that says it, or null when there is nothing to say.
 //!
-//! The rules of the last four are in src/given.rs. Each answers one line on
+//!   attach issue <issue> <dir> --approved WORD --record PATH --repo R
+//!       --comments 0|1 --allowed LOGINS --millwright LOGIN
+//!       --images 0|1 --files 0|1 --zips 0|1 --attach PATH
+//!     Remake <dir> from what the issue links, with a manifest.json. The issue
+//!     as JSON on standard input, or nothing to read it with gh. --approved is
+//!     the word `approved`, or the links of an outsider's issue are left out.
+//!     --attach is this program, run as the child that reads what was fetched.
+//!     GH_TOKEN goes to github.com on curl's standard input. Answers "why":
+//!     null, or the reason nothing may start.
+//!   attach answer <dir> <reply file> <comment id> --images 0|1 --files 0|1
+//!       --zips 0|1 --attach PATH
+//!     Add to a session's <dir> what the reply links. Answers "why", and "new"
+//!     and "left", the lines that say what was added and what was left out.
+//!
+//! The rules of said, retry-context, changed and left-out are in src/given.rs,
+//! those of issue and answer in src/take.rs. Each answers one line on
 //! standard output. Exit: 0 the answer; 64 an argument the verb does not know;
 //! 1 the file cannot be read (`attach: unreadable: ...`, which for unpack is an
 //! archive it cannot read and nothing was written) or <dir> or <file> cannot be
 //! written (`attach: unwritable: ...`).
 
 mod given;
+mod manifest;
 mod sniff;
+mod take;
 mod unpack;
 mod zip;
 
 #[cfg(test)]
 mod given_tests;
+#[cfg(test)]
+mod take_tests;
 #[cfg(test)]
 mod tests;
 
@@ -63,6 +84,8 @@ fn usage(why: &str) -> ! {
     eprintln!("       attach retry-context <record> --comments 0|1 --millwright LOGIN");
     eprintln!("       attach changed <kept manifest> <manifest>");
     eprintln!("       attach left-out <issue> <file> <record> --images 0|1 --files 0|1");
+    eprintln!("       attach issue <issue> <dir> --approved WORD --record PATH --repo R --comments 0|1 --allowed LOGINS --millwright LOGIN --images 0|1 --files 0|1 --zips 0|1 --attach PATH");
+    eprintln!("       attach answer <dir> <reply file> <comment id> --images 0|1 --files 0|1 --zips 0|1 --attach PATH");
     exit(64);
 }
 
@@ -207,6 +230,80 @@ fn left_out_verb(args: &[String]) {
     answer("left-out", json!({"gap": gap}));
 }
 
+fn issue_verb(args: &[String]) {
+    let (
+        pos,
+        [approved, record, repo, comments, allowed, millwright, images, files, zips, program],
+    ) = flagged(
+        "issue",
+        args,
+        [
+            "--approved",
+            "--record",
+            "--repo",
+            "--comments",
+            "--allowed",
+            "--millwright",
+            "--images",
+            "--files",
+            "--zips",
+            "--attach",
+        ],
+    );
+    let [issue, dir] = pos.as_slice() else {
+        usage("issue <issue> <dir> and its flags")
+    };
+    let mut data = Vec::new();
+    if let Err(e) = std::io::stdin().read_to_end(&mut data) {
+        refuse("unreadable", &format!("standard input: {e}"));
+    }
+    let token = std::env::var("GH_TOKEN").unwrap_or_default();
+    let run = take::IssueRun {
+        issue,
+        dir,
+        repo,
+        approved,
+        record,
+        wants: take::Wants::of(images, files, zips),
+        comments: comments == "1",
+        allowed,
+        millwright,
+        data: &String::from_utf8_lossy(&data),
+    };
+    let net = take::Children {
+        token: &token,
+        program,
+    };
+    answer("issue", json!({"why": take::issue(&run, &net).err()}));
+}
+
+fn answer_verb(args: &[String]) {
+    let (pos, [images, files, zips, program]) = flagged(
+        "answer",
+        args,
+        ["--images", "--files", "--zips", "--attach"],
+    );
+    let [dir, text, id] = pos.as_slice() else {
+        usage("answer <dir> <reply file> <comment id> and its flags")
+    };
+    let token = std::env::var("GH_TOKEN").unwrap_or_default();
+    let run = take::AnswerRun {
+        dir,
+        text,
+        id,
+        wants: take::Wants::of(images, files, zips),
+    };
+    let net = take::Children {
+        token: &token,
+        program,
+    };
+    let v = match take::answer(&run, &net) {
+        Ok((new, left)) => json!({"why": null, "new": new, "left": left}),
+        Err(why) => json!({"why": why, "new": "", "left": ""}),
+    };
+    answer("answer", v);
+}
+
 fn main() {
     let args: Vec<String> = std::env::args_os()
         .skip(1)
@@ -222,6 +319,8 @@ fn main() {
         Some("retry-context") => retry_context_verb(&args[1..]),
         Some("changed") => changed_verb(&args[1..]),
         Some("left-out") => left_out_verb(&args[1..]),
+        Some("issue") => issue_verb(&args[1..]),
+        Some("answer") => answer_verb(&args[1..]),
         Some(other) => usage(&format!("no verb {other}")),
         None => usage("no verb"),
     }

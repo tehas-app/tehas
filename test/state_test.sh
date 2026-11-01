@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for libexec/state: what a stopped factory's state moves as, and when
+# Tests for tehas state: what a stopped factory's state moves as, and when
 # pack and unpack refuse. The tar is real, the store is the real store of this
 # checkout, systemctl is a stub that lists the units in $T/units, and no case
 # touches the factory home of the machine it runs on.
@@ -7,7 +7,7 @@
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
 
-state="$T_ROOT/libexec/state"
+state="$T_ROOT/bin/tehas state"
 src=$T/src/tehas
 dst=$T/home/tehas
 tar_file=$T/state.tar
@@ -399,7 +399,7 @@ t_case "SIGTERM while the archive is still coming removes the directory made bes
 reset
 mkfifo "$T/in"
 env -i PATH="$T/bin:$PATH" HOME="$T/home" TEHAS_HOME="$dst" T="$T" TEHAS_INSTANCE_DIR="$TEHAS_INSTANCE_DIR" \
-  TEHAS_CONSOLE="$T_CONSOLE" "$state" unpack - <"$T/in" >/dev/null 2>&1 &
+  TEHAS_SETTINGS_CMD="$TEHAS_SETTINGS_CMD" TEHAS_CONSOLE="$T_CONSOLE" "$T_ROOT/bin/tehas" state unpack - <"$T/in" >/dev/null 2>&1 &
 unpacker=$!
 exec 8>"$T/in"
 for _ in $(seq 50); do

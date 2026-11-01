@@ -1,283 +1,101 @@
-//! The Protolab's pages, for `tehasbot protolab`. libexec/protolab keeps the
-//! settings, the GitHub calls and the downloads; this turns what it read into
-//! the files the edge router serves.
+//! The Protolab: a page for every ticket at the prototype stage, with the
+//! files attached to the ticket beside it, written to $TEHAS_HOME/protolab,
+//! which the edge router serves on port 8081 (edge/router.compose.yaml): by
+//! path, and with TEHAS_DOMAIN set, each ticket also under a name of its own,
+//! lab-<number>.<domain>.
 //!
-//!   console protolab page <ticket> <files> <skipped> <outside> <home> <limit>
-//!       The page of one ticket, printed in full. <ticket> is its JSON -
-//!       {number, title, url, author, updatedAt} - as the shell read it. The
-//!       two lists are files and skipped, each one line of JSON,
-//!       {"name","kind","bytes"} and {"name","reason"}; a file's name holds a
-//!       slash when it came out of a zip. Either list is a file to read or the
-//!       lines themselves. <outside> counts the attachment links of people
-//!       outside the repository, <home> the address the list is at, <limit> the
-//!       bytes a ticket may hold.
-//!   console protolab front <metas> <domain> <home> <limit>
-//!       The list at the front of the lab: one line of ticket JSON each under
-//!       <metas>, a file of them or the lines themselves.
-//!   console protolab live <metas> <now> <url> <domain> <limit>
-//!       live/protolab.json, the list the dashboard links from: the same
-//!       lines, <now> the time this pass read them, <url> TEHAS_PROTOLAB_URL.
-//!   console protolab refs - -
-//!       The attachment links of one ticket: {"refs":[...],"outside":n} on
-//!       standard output. The ticket and its comments are given on standard
-//!       input, both of them, the ticket first and then the list of its
-//!       replies; each is a JSON value of its own, the replies read as the
-//!       whole of the text after the ticket. Only text by an owner, member or
-//!       collaborator gives links to fetch; what anyone outside the repository
-//!       wrote is counted, not fetched.
+//!   console protolab run
 //!
-//! The files beside a ticket are fetched and written by the shell: this only
-//! names them under files/ and says what a page holds. Every value that came
-//! from GitHub is escaped, so no title, name or reason can start a tag of its
-//! own. Nothing here writes a file or calls anything.
+//! libexec/protolab keeps the settings and the GitHub App's token and runs
+//! this under them. A pass is in protolab/build.rs. This file holds what is
+//! said: the page of a ticket, the lab's front page, live/protolab.json, and
+//! the attachment links of a ticket.
 //!
-//! Exit: 0 what was asked for was printed; 1 standard output could not be
-//! written; 64 a usage error, a ticket that is not one, or a figure that is
-//! not a whole number.
+//! A ticket is at the prototype stage while it is open and carries
+//! tehas:prototype applied by an account the instance allows. Its page has the
+//! title, a link to the issue on GitHub and the attached files: images and
+//! videos shown as they are, HTML files shown in a frame, and the style sheets,
+//! scripts and data an HTML file refers to beside them. Everything is static.
+//! Nothing here runs a prototype.
+//!
+//!   which tickets   Open issues whose most recent tehas:prototype labelling is
+//!                   by an account in TEHAS_ALLOWED_LABELERS. One applied by
+//!                   anyone else, the bot included, counts as no label at all:
+//!                   the ticket gets no page, and a page it had is removed. The
+//!                   log names the issue and the account.
+//!   which files     Only links to GitHub's own attachment storage, in the issue
+//!                   text and its comments, written by an owner, member or
+//!                   collaborator of the repository. Nothing else is fetched.
+//!   which types     png jpg gif webp svg avif, mp4 webm mov, html htm, and
+//!                   css js mjs json txt. A zip is unpacked into a folder of
+//!                   its own by libexec/attach, which takes the same types and
+//!                   md; its files count against the same limits.
+//!   how much        10 megabytes a ticket, counted in the order the files were
+//!                   attached, and at most 40 files. What does not fit is left
+//!                   out and the page says so.
+//!   when it goes    The page and its files are removed when the ticket is
+//!                   closed, loses the label, or carries it from an account the
+//!                   instance does not allow. GitHub keeps the originals.
+//!
+//! Who applied a label is read by `tehas_core::forge`, the same reading the
+//! dispatcher uses for tehas:ready: authorisation is the account, not the label
+//! (AGENTS.md rule 5). Where the events of a ticket cannot be read at all,
+//! nothing is built and nothing is removed for that ticket; a page it had stays
+//! as it was. An instance that lists the bot's own login in
+//! TEHAS_ALLOWED_LABELERS is refused: an account in a cycle labels as the bot,
+//! so such a list would let an agent choose what this publishes. A pass that
+//! cannot read its own login ends there, with nothing built and nothing removed.
+//!
+//! A ticket whose issue has not changed since the last run is left alone, so a
+//! run with nothing new fetches no files: it makes one GitHub call for its own
+//! account, one for the list, and one for every ticket at the stage, its label
+//! events. A console with other bytes builds every page again. No model.
+//!
+//! It also writes $TEHAS_HOME/live/protolab.json, the list the dashboard links
+//! from. TEHAS_PROTOLAB_URL in instance.env is the address people reach the
+//! Protolab at, when that is not port 8081 of the dashboard's own host.
+//!
+//! Every value that came from GitHub is escaped, so no title, name or reason
+//! can start a tag of its own.
+//!
+//! Exit: 0 even when GitHub is down, what is there is then left in place; 1 it
+//! cannot write; 64 usage; 78 the settings are missing, or the bot is on the
+//! allowed list. One line per ticket built or removed on standard output.
 //!
 //! The shape of every page here is what test/protolab_test.sh pins, line for
 //! line, so that the pages of a host of this tehas are the pages of the host
 //! before it.
 
-use serde_json::{Map, Value};
-use std::cell::{Cell, RefCell};
-use std::fs;
-use std::io::{self, Read, Write};
+mod build;
 
-const USAGE: &str = "usage: console protolab page <ticket> <files> <skipped> <outside> <home> <limit> | front <metas> <domain> <home> <limit> | live <metas> <now> <url> <domain> <limit> | refs - -";
+use serde_json::{Map, Value};
 
 pub fn main(given: &[String]) -> u8 {
-    let arg = |i: usize| given.get(i).cloned().unwrap_or_default();
-    let said = match given.first().map(String::as_str) {
-        Some("page") if given.len() == 7 => {
-            page(&arg(1), &arg(2), &arg(3), &arg(4), &arg(5), &arg(6))
-        }
-        Some("front") if given.len() == 5 => {
-            metas(&arg(1)).map(|tickets| front(&tickets, &arg(2), &arg(3), whole(&arg(4))))
-        }
-        Some("live") if given.len() == 6 => {
-            metas(&arg(1)).map(|tickets| live(&tickets, &arg(2), &arg(3), &arg(4), whole(&arg(5))))
-        }
-        Some("refs") if given.len() == 3 && given[1] == "-" && given[2] == "-" => refs(),
+    match given {
+        [verb] if verb == "run" => build::run(),
         _ => {
-            eprintln!("{USAGE}");
-            return 64;
-        }
-    };
-    match said {
-        Ok(text) => {
-            let mut out = io::stdout();
-            if out
-                .write_all(text.as_bytes())
-                .and_then(|()| out.flush())
-                .is_err()
-            {
-                eprintln!("console protolab: standard output could not be written");
-                return 1;
-            }
-            0
-        }
-        Err(why) => {
-            eprintln!("console protolab: {why}");
+            eprintln!("usage: console protolab run");
             64
         }
     }
 }
 
-/// A whole number, and nothing else: a figure of the page, never a word.
-fn whole(text: &str) -> i64 {
-    text.trim().parse().unwrap_or(0)
+/// The links of a ticket to fetch, and how many came from outside.
+struct Refs {
+    fetch: Vec<String>,
+    outside: i64,
 }
 
-/// A file to read, or the text itself when no file stands at that path: a
-/// page's lists are short enough for an argument and long enough for a file.
-fn read_back(text_or_path: &str) -> String {
-    if text_or_path == "-" {
-        return whole_of_stdin();
-    }
-    match fs::read(text_or_path) {
-        Ok(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
-        // What is there cannot be read as text, so it is no file to read: the
-        // bytes of the argument are what was asked for.
-        Err(_) => text_or_path.to_string(),
-    }
-}
-
-/// Every text the shell gave on standard input, read once and kept: a verb that
-/// takes two of them reads the one descriptor once. Nothing was given when the
-/// descriptor has nothing to give.
-fn whole_of_stdin() -> String {
-    if GIVEN.with(|asked| !asked.replace(true)) {
-        let mut text = String::new();
-        // A closed or broken descriptor is no text: what was asked for is then
-        // nothing, and the verb says so in its own words.
-        let _ = io::stdin().read_to_string(&mut text);
-        STDIN.with(|held| held.replace(text));
-    }
-    STDIN.with(|held| held.borrow().clone())
-}
-
-thread_local! {
-    static STDIN: RefCell<String> = const { RefCell::new(String::new()) };
-    static GIVEN: Cell<bool> = const { Cell::new(false) };
-}
-
-/// What a test gives in place of the shell's standard input.
-#[cfg(test)]
-fn give(text: &str) {
-    STDIN.with(|held| held.replace(text.to_string()));
-    GIVEN.with(|held| held.set(true));
-}
-
-/// The value of a whole text: a list, an object, nothing when it is no JSON.
-fn value_of(text: &str) -> Value {
-    serde_json::from_str(text.trim()).unwrap_or(Value::Null)
-}
-
-/// The first JSON value of a text, and nothing of what follows it: the two
-/// texts the shell gives are read in one go, and each is a value of its own. A
-/// bracket inside a string is no bracket, which is what the walk of the text
-/// has to know before it counts one.
-fn first_value(text: &str) -> Option<Value> {
-    let (start, end) = value_span(text)?;
-    serde_json::from_str(&text[start..end]).ok()
-}
-
-/// The last JSON value of a text: where it begins and where the text ends, so
-/// everything after the first value belongs to it, brackets and all.
-fn last_value(text: &str) -> Option<Value> {
-    let after = value_span(text)?;
-    let rest = text[after.1..].trim();
-    if rest.is_empty() {
-        return None;
-    }
-    serde_json::from_str(rest).ok()
-}
-
-/// The front of the first JSON value of a text and the byte one past it. The
-/// walk counts brackets that are not inside a string, so it finds where the
-/// value ends without reading it twice.
-fn value_span(text: &str) -> Option<(usize, usize)> {
-    let bytes = text.as_bytes();
-    let mut start = usize::MAX;
-    let mut depth = 0i32;
-    let mut quoted = false;
-    let mut escaped = false;
-    for (at, byte) in bytes.iter().enumerate() {
-        if start == usize::MAX {
-            if *byte == b'{' || *byte == b'[' {
-                start = at;
-                depth = 1;
-            }
-            continue;
-        }
-        if quoted {
-            if escaped {
-                escaped = false;
-            } else if *byte == b'\\' {
-                escaped = true;
-            } else if *byte == b'"' {
-                quoted = false;
-            }
-            continue;
-        }
-        match byte {
-            b'"' => quoted = true,
-            b'{' | b'[' => depth += 1,
-            b'}' | b']' => {
-                depth -= 1;
-                if depth == 0 {
-                    return Some((start, at + 1));
-                }
-            }
-            _ => {}
-        }
-    }
-    None
-}
-
-/// The lines of a file of JSON, one value each; a line that is no JSON says
-/// nothing, so one broken page does not cost the list its other rows. A whole
-/// text that is one list of its own is read as that list.
-fn lines(text: &str) -> Vec<Value> {
-    if let Value::Array(rows) = value_of(text) {
-        return rows;
-    }
-    text.lines()
-        .filter(|line| !line.trim().is_empty())
-        .map(value_of)
-        .filter(|row| !row.is_null())
-        .collect()
-}
-
-/// The page of one ticket, printed whole.
-fn page(
-    ticket: &str,
-    files: &str,
-    skipped: &str,
-    outside: &str,
-    home: &str,
-    limit: &str,
-) -> Result<String, String> {
-    let row = match value_of(&read_back(ticket)) {
-        Value::Object(row) => Value::Object(row),
-        _ => return Err("the ticket is not a ticket".to_string()),
-    };
-    let files = lines(&read_back(files));
-    let skipped = lines(&read_back(skipped));
-    Ok(ticket_page(
-        &row,
-        &files,
-        &skipped,
-        whole(outside),
-        home,
-        whole(limit),
-    ))
-}
-
-/// The lab's front page.
-fn front(metas: &[Value], domain: &str, home: &str, limit: i64) -> String {
-    front_page(metas, domain, home, limit)
-}
-
-/// live/protolab.json, the list the dashboard links from.
-fn live(metas: &[Value], now: &str, url: &str, domain: &str, limit: i64) -> String {
-    live_file(metas, now, url, domain, limit)
-}
-
-/// Every ticket of the lab, newest first, whatever order the file held them
-/// in: the number is what the pages are named by.
-fn metas(path: &str) -> Result<Vec<Value>, String> {
-    let mut tickets = lines(&read_back(path));
-    tickets.sort_by_key(|row| std::cmp::Reverse(number_of(row)));
-    Ok(tickets)
-}
-
-/// The attachment links of one ticket, and how many came from outside.
-///
-/// The shell gives both texts on standard input, the ticket first and then the
-/// list of its replies: one read of one descriptor, so a caller needs no
-/// temporary file and no argument long enough to break. The replies are read as
-/// the whole of the text after the ticket, so a body of its own may hold a
-/// newline or any bracket.
-fn refs() -> Result<String, String> {
-    let both = read_back("-");
-    let row = match first_value(&both) {
-        Some(Value::Object(row)) => Value::Object(row),
-        _ => return Err("the ticket is not a ticket".to_string()),
-    };
-    let list = match last_value(&both) {
-        Some(Value::Array(rows)) => rows,
-        Some(Value::Object(reply)) => vec![Value::Object(reply)],
-        _ => return Err("the comments are not a list".to_string()),
-    };
+/// The attachment links of one ticket and its replies: a link of an owner, a
+/// member or a collaborator is fetched, a link of anyone else only counted.
+fn refs(row: &Value, replies: &[Value]) -> Refs {
     // The text of the ticket is written by its author, so the association of
     // the issue answers for it, under either of the two names it is read by.
-    let mine_word = association(&row, &["association", "author_association"]);
+    let mine_word = association(row, &["association", "author_association"]);
     let mut mine = Vec::new();
     let mut theirs = Vec::new();
-    let mut texts: Vec<(String, String)> = vec![(mine_word, text_of(&row, "body"))];
-    for reply in &list {
+    let mut texts: Vec<(String, String)> = vec![(mine_word, text_of(row, "body"))];
+    for reply in replies {
         texts.push((
             association(reply, &["author_association", "association"]),
             text_of(reply, "body"),
@@ -292,19 +110,10 @@ fn refs() -> Result<String, String> {
             }
         }
     }
-    let mut said = String::from("{\"refs\":[");
-    // The two keys in the order the file has always held them, and its links
-    // in the order the ticket wrote them.
-    for (i, link) in mine.iter().enumerate() {
-        if i > 0 {
-            said.push(',');
-        }
-        said.push_str(&Value::from(link.as_str()).to_string());
+    Refs {
+        fetch: mine,
+        outside: theirs.len() as i64,
     }
-    said.push_str("],\"outside\":");
-    said.push_str(&theirs.len().to_string());
-    said.push_str("}\n");
-    Ok(said)
 }
 
 // --- The page ---------------------------------------------------------------
@@ -424,7 +233,7 @@ fn src(name: &str) -> String {
 }
 
 /// The door of a ticket: a name of its own with a domain, its number as a
-/// path without one. tehas_edge_name makes the same name for the shell.
+/// path without one.
 fn door(number: i64, domain: &str) -> String {
     if domain.is_empty() {
         format!("/{number}/")
@@ -735,8 +544,8 @@ fn live_file(tickets: &[Value], now: &str, url: &str, domain: &str, limit: i64) 
 // --- The links of a ticket --------------------------------------------------
 
 /// Every link of GitHub's own attachment storage in a text, in the order it was
-/// written: the same shapes tehas_attachment_links of lib/attachments.sh gives,
-/// which are the only addresses the lab ever fetches.
+/// written: the same shapes as LINK_RULE of console/attach/src/given.rs, which
+/// are the only addresses the lab ever fetches.
 ///
 /// The scan walks the text a byte at a time and asks each position whether a
 /// scan of that regular expression may begin there, which is what the
@@ -765,7 +574,7 @@ const IMAGES: &str = "https://user-images.githubusercontent.com/";
 const GITHUB: &str = "https://github.com/";
 
 /// The byte one past the link that begins at `at`, or None when no branch of
-/// the regular expression of lib/attachments.sh matches there. Each branch is
+/// the regular expression of console/attach matches there. Each branch is
 /// the host, the folders that say the file is GitHub's own, and then a run of
 /// URL characters that holds the file.
 fn address(bytes: &[u8], at: usize) -> Option<usize> {
@@ -837,24 +646,36 @@ fn run(bytes: &[u8], at: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
 
     const LIMIT: i64 = 10 * 1024 * 1024;
 
-    /// The links of `text` as jq reads them with the program of
-    /// lib/attachments.sh. The definition is read from that file when the test
-    /// runs, so this compares two readings and not two copies of one. With no
-    /// jq on the host there is nothing to compare, and the Rust side is pinned
-    /// by every other case of links here.
-    fn links_of_the_shell(text: &str) -> Vec<String> {
-        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../lib/attachments.sh");
-        let source = fs::read_to_string(path).expect("lib/attachments.sh is there");
-        let held = source
+    fn value_of(text: &str) -> Value {
+        serde_json::from_str(text).unwrap_or(Value::Null)
+    }
+
+    /// One JSON value a line, or one list.
+    fn lines(text: &str) -> Vec<Value> {
+        if let Value::Array(rows) = value_of(text) {
+            return rows;
+        }
+        text.lines().map(value_of).collect()
+    }
+
+    /// The links of `text` as jq reads them with the rule of
+    /// console/attach/src/given.rs. The rule is read from that file when the
+    /// test runs, so this compares two readings and not two copies of one. With
+    /// no jq on the host there is nothing to compare, and the Rust side is
+    /// pinned by every other case of links here.
+    fn links_of_the_rule(text: &str) -> Vec<String> {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/attach/src/given.rs");
+        let source = fs::read_to_string(path).expect("console/attach/src/given.rs is there");
+        let rule = source
             .lines()
-            .find(|line| line.contains("def links:"))
-            .expect("the definition of links is in lib/attachments.sh");
-        // The printf of the function holds the program between two quotes,
-        // after the one that quotes the format of the printf.
-        let program = held.split('\'').nth(3).expect("the program of the printf");
+            .find_map(|line| line.strip_prefix("pub const LINK_RULE: &str = r\""))
+            .and_then(|tail| tail.strip_suffix("\";"))
+            .expect("the rule of the links is in console/attach/src/given.rs");
+        let program = format!("def links: [scan({})];", Value::from(rule));
         let Ok(answered) = std::process::Command::new("jq")
             .args(["-Rs", "--arg", "t", text])
             .arg(format!("{program} $t | links"))
@@ -1110,25 +931,6 @@ mod tests {
     }
 
     #[test]
-    fn the_metas_are_read_newest_first_whatever_order_they_came_in() {
-        let got: Vec<i64> = metas(
-            "{\"number\":3,\"title\":\"c\"}\n{\"number\":11,\"title\":\"a\"}\n{\"number\":7,\"title\":\"b\"}\n",
-        )
-        .unwrap()
-        .iter()
-        .map(number_of)
-        .collect();
-        assert_eq!(got, [11, 7, 3]);
-    }
-
-    #[test]
-    fn one_broken_line_does_not_cost_the_list_its_other_rows() {
-        assert_eq!(lines("not json\n{\"a\":1}\n\n").len(), 1);
-        assert_eq!(lines("[{\"a\":1},{\"b\":2}]").len(), 2);
-        assert!(lines("").is_empty());
-    }
-
-    #[test]
     fn only_people_of_the_repository_give_links_to_fetch() {
         let row = value_of(&format!(
             "{{\"number\":7,\"author_association\":\"OWNER\",\"body\":\"shot [{}]({}) and [again]({}) and {}\"}}",
@@ -1137,66 +939,41 @@ mod tests {
             "https://github.com/user-attachments/assets/11111111-2222-3333-4444-555555555555",
             "https://github.com/acme/widget/files/21/proto.html",
         ));
-        let replies = value_of(
+        let replies = lines(
             r#"[{"author_association":"COLLABORATOR","body":"https://github.com/user-attachments/files/31/vid.mp4"},
                 {"author_association":"NONE","body":"[stranger](https://github.com/user-attachments/files/32/stranger.html)"}]"#,
         );
-        let mut texts: Vec<(String, String)> =
-            vec![(text_of(&row, "author_association"), text_of(&row, "body"))];
-        for reply in replies.as_array().unwrap() {
-            texts.push((text_of(reply, "author_association"), text_of(reply, "body")));
-        }
-        let (mut mine, mut theirs) = (Vec::new(), Vec::new());
-        for (who, text) in texts {
-            let ours = matches!(who.as_str(), "OWNER" | "MEMBER" | "COLLABORATOR");
-            for link in links(&text) {
-                let keep = if ours { &mut mine } else { &mut theirs };
-                if !keep.contains(&link) {
-                    keep.push(link);
-                }
-            }
-        }
+        let got = refs(&row, &replies);
         assert_eq!(
-            mine,
+            got.fetch,
             [
                 "https://github.com/user-attachments/assets/11111111-2222-3333-4444-555555555555",
                 "https://github.com/acme/widget/files/21/proto.html",
                 "https://github.com/user-attachments/files/31/vid.mp4",
             ]
         );
-        assert_eq!(
-            theirs,
-            ["https://github.com/user-attachments/files/32/stranger.html"]
-        );
+        assert_eq!(got.outside, 1);
     }
 
     #[test]
     fn the_refs_of_a_ticket_are_its_links_and_the_count_of_the_rest() {
-        let row = r#"{"number":7,"author_association":"NONE","body":"[theirs](https://github.com/user-attachments/files/40/theirs.html)"}"#;
-        give(&format!("{row}\n[]\n"));
-        let said = refs().unwrap();
-        assert_eq!(said, "{\"refs\":[],\"outside\":1}\n".to_string());
-        give("nope\n[]\n");
-        assert!(refs().is_err());
-        give(&format!("{row}\nnope\n"));
-        assert!(refs().is_err());
-        // A reply by a person of the repository gives a link to fetch, and the
-        // body of one may hold a newline: the list is read as a whole.
-        give(&format!(
-            "{row}\n[{{\"author_association\":\"OWNER\",\"body\":\"one\\nhttps://github.com/user-attachments/files/9/one.html\"}}]\n"
-        ));
-        assert_eq!(
-            refs().unwrap(),
-            "{\"refs\":[\"https://github.com/user-attachments/files/9/one.html\"],\"outside\":1}\n"
+        let row = value_of(
+            r#"{"number":7,"association":"NONE","body":"[theirs](https://github.com/user-attachments/files/40/theirs.html)"}"#,
         );
-        // Nothing at all is no ticket, and a list with no ticket before it is
-        // nothing to say.
-        give("");
-        assert!(refs().is_err());
-        // A ticket alone is no answer: its replies are asked for as well, and
-        // a list of them is what the command reads after the ticket.
-        give(&format!("{row}\n"));
-        assert!(refs().is_err());
+        let got = refs(&row, &[]);
+        assert!(got.fetch.is_empty());
+        assert_eq!(got.outside, 1);
+        // A reply by a person of the repository gives a link to fetch, and the
+        // body of one may hold a newline.
+        let replies = lines(
+            r#"[{"author_association":"OWNER","body":"one\nhttps://github.com/user-attachments/files/9/one.html"}]"#,
+        );
+        let got = refs(&row, &replies);
+        assert_eq!(
+            got.fetch,
+            ["https://github.com/user-attachments/files/9/one.html"]
+        );
+        assert_eq!(got.outside, 1);
     }
 
     #[test]
@@ -1252,24 +1029,15 @@ mod tests {
                 "https://github.com/a/b/files/2/c.js",
             ]
         );
-        // The same cut with jq's own program, read from lib/attachments.sh
-        // where it lives, so the two cannot drift: the line is taken from the
-        // file every time this test runs.
+        // The same cut with jq's own reading of the rule, so the two cannot
+        // drift: the line is taken from the file every time this test runs.
         let cases = "x https://github.com/user-attachments/files/1/a.png?foo=bar&x=1,baz, https://github.com/a/b/files/2/c.js#frag y";
-        let said = links_of_the_shell(cases);
+        let said = links_of_the_rule(cases);
         assert_eq!(said, links(cases));
         // Markdown's bracket is no URL character, and a link may stand alone.
         assert_eq!(
             links("![shot](https://github.com/user-attachments/files/2/a.png)"),
             ["https://github.com/user-attachments/files/2/a.png"]
         );
-    }
-
-    #[test]
-    fn a_figure_of_the_page_is_a_whole_number_or_nothing() {
-        assert_eq!(whole("40"), 40);
-        assert_eq!(whole(" 10485760 "), 10_485_760);
-        assert_eq!(whole("4.0"), 0);
-        assert_eq!(whole(""), 0);
     }
 }

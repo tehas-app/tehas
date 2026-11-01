@@ -107,98 +107,22 @@ for odd in "alice  bob" "alice " " alice" " "; do
   t_eq "$(t_calls gh)" ""
 done
 
-t_case "when the pause check cannot reach GitHub nothing is dispatched"
-# The Rust poll reads the control issue, the awaiting-merge count and the label events in its one page, which fails or holds them all.
-if bash_reads; then
-  reset
-  rm "$fx/control.json"
-  t_run "$dispatch"
-  t_eq "$t_rc" 1
-  t_contains "$t_out" "ERROR: gh issue view failed"
-  t_eq "$(t_calls fake-start)" ""
-  t_lacks "$(t_calls gh)" "issue edit"
-fi
-
-t_case "when the awaiting-merge count cannot be read nothing is dispatched"
-# The Rust poll reads the control issue, the awaiting-merge count and the label events in its one page, which fails or holds them all.
-if bash_reads; then
-  reset
-  rm "$fx/awaiting.json"
-  t_run "$dispatch"
-  t_eq "$t_rc" 1
-  t_contains "$t_out" "ERROR: gh issue list failed"
-  t_eq "$(t_calls fake-start)" ""
-fi
-
-t_case "when the label events cannot be read the issue is not taken"
-# The Rust poll reads the control issue, the awaiting-merge count and the label events in its one page, which fails or holds them all.
-if bash_reads; then
-  reset
-  rm "$fx/events-7.json"
-  t_run "$dispatch"
-  t_eq "$t_rc" 1
-  t_eq "$(t_calls fake-start)" ""
-  t_lacks "$(t_calls gh)" "issue edit"
-
-  # Open issues only. The list a poll read can name an issue that was closed
-  # since, and a number can name a pull request: GitHub is asked what it is
-  # before a label is changed or a cycle is started.
-fi
 t_case "an issue closed after the queue was read starts nothing"
 reset
 echo '{"number":7,"state":"closed"}' >"$fx/work-7.json"
 t_run "$dispatch"
 t_eq "$t_rc" 0
-# The Rust poll reads the queue once: a closed issue is not in it.
-bash_reads && t_contains "$t_out" "skip #7: it is closed, and a closed issue is never taken"
-bash_reads && t_contains "$(t_calls gh)" "api repos/acme/widget/issues/7"
+# The poll reads the queue once: a closed issue is not in it.
 t_eq "$(t_calls fake-start)" ""
 t_lacks "$(t_calls gh)" "issue edit"
 t_run "$dispatch --dry-run"
-bash_reads && t_contains "$t_out" "skip #7: it is closed, and a closed issue is never taken"
 t_lacks "$t_out" "would run a cycle"
-
-t_case "a pull request is refused, open, merged or closed"
-# GitHub's issues query, the one the Rust poll reads, never holds a pull request, and its answers are parsed as one page.
-if bash_reads; then
-  for answer in '{"number":7,"state":"open","pull_request":{"url":"u"}}' '{"number":7,"state":"closed","pull_request":{"url":"u"}}'; do
-    reset
-    printf '%s' "$answer" >"$fx/work-7.json"
-    t_run "$dispatch --dry-run"
-    t_eq "$t_rc" 0
-    t_contains "$t_out" "skip #7: it is a pull request, not an issue the factory works on"
-    t_lacks "$t_out" "would run a cycle"
-    t_eq "$(t_calls fake-start)" ""
-  done
-fi
-
-t_case "an answer that cannot be read stops the poll before any label change"
-# GitHub's issues query, the one the Rust poll reads, never holds a pull request, and its answers are parsed as one page.
-if bash_reads; then
-  for answer in '' 'not json' 'null' '[]'; do
-    reset
-    printf '%s' "$answer" >"$fx/work-7.json"
-    t_run "$dispatch"
-    t_eq "$t_rc" 1
-    t_contains "$t_out" "ERROR: GitHub's answer for #7 could not be read"
-    t_eq "$(t_calls fake-start)" ""
-    t_lacks "$(t_calls gh)" "issue edit"
-  done
-  reset
-  : >"$fx/work-fails"
-  t_run "$dispatch"
-  t_eq "$t_rc" 1
-  t_contains "$t_out" "ERROR: gh api repos/acme/widget/issues/7 failed"
-  t_eq "$(t_calls fake-start)" ""
-  t_lacks "$(t_calls gh)" "issue edit"
-fi
 
 t_case "a closed issue labelled for planning starts no session"
 to_plan
 echo '{"number":7,"state":"closed"}' >"$fx/work-7.json"
 t_run "$dispatch --dry-run"
 t_eq "$t_rc" 0
-bash_reads && t_contains "$t_out" "skip #7: it is closed, and a closed issue is never taken"
 t_lacks "$t_out" "would start a planning session"
 t_eq "$(t_calls fake-plan)" ""
 t_lacks "$(t_calls gh)" "issue edit"
@@ -236,17 +160,6 @@ jq -n --arg body "Words." '{data: {repository: {issue: {lastEditedAt: null, edit
   title: "Faster\r\nsearch"}}}}' >"$fx/edit-7.json"
 t_run "$dispatch"
 t_eq "$(approval .title_sha256)" "$(printf '%s' "Fastersearch" | sha256sum | cut -d' ' -f1)"
-
-t_case "an answer that names no title records no title hash, the shape of a record written before titles were bound"
-# GitHub's page always holds an issue's title.
-if bash_reads; then
-  reset
-  jq -n --arg body "Words." '{data: {repository: {issue: {lastEditedAt: null, editor: null, body: $body}}}}' >"$fx/edit-7.json"
-  t_run "$dispatch"
-  t_eq "$t_rc" 0
-  t_eq "$(t_calls fake-start)" "7"
-  t_eq "$(approval 'has("title_sha256")')" false
-fi
 
 t_case "without the comments setting the record names no comment and none are read"
 t_eq "$(approval 'has("comment_links")')" false

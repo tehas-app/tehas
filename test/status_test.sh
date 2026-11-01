@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Tests for the three scripts around the factory's state: libexec/status
-# writes the queue snapshot and runs libexec/health beside it, and
-# libexec/summary prints the health file for `tehas status`.
+# Tests for the three commands around the factory's state: tehasbot status
+# writes the queue snapshot and runs tehasbot health beside it, and
+# `tehas status` prints the health file.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
@@ -9,24 +9,18 @@
 t_console || t_bad "no console: $t_console_why"
 T_ENV_ALWAYS+=(TEHAS_CONSOLE="$T_CONSOLE")
 
-# The command as a host has it: beside the console, which decides what the read
-# of what closed an issue means (console/src/shipped.rs) and is this checkout's
-# own build. The copy is a real file and not a symlink, because the command finds
-# its siblings - health, analytics, store - beside itself by the directory it was
-# run from, and a symlink there would name the checkout instead.
+# The command as a host has it: with-settings beside the console, this
+# checkout's own build, which holds the command.
 # shellcheck disable=SC2154  # t_console_why is set by t_console (test/lib.sh)
 t_console || t_bad "no console: $t_console_why"
 shim=$T/tree
 mkdir -p "$shim/libexec"
-cp "$T_ROOT/libexec/status" "$shim/libexec/status"
 ln -s "$T_ROOT/lib" "$shim/lib"
 cp "$T_CONSOLE" "$shim/libexec/console"
-for sibling in health summary analytics; do
-  ln -s "$T_ROOT/libexec/$sibling" "$shim/libexec/$sibling"
-done
-status=$shim/libexec/status
-health="$T_ROOT/libexec/health"
-summary="$T_ROOT/libexec/summary"
+ln -s "$T_ROOT/libexec/with-settings" "$shim/libexec/with-settings"
+status="$shim/libexec/with-settings tehasbot status"
+health="$T_ROOT/bin/tehasbot health"
+summary="$T_ROOT/bin/tehas status"
 live=$T/home/tehas/live
 
 t_stub gh '
@@ -64,24 +58,6 @@ t_stub curl '[ ! -e "${CURL_RC:-}" ] && exit "${CURL_RC:-0}"; exit 0'
 # them: none until a case writes $T/failed-units, and the read fails with
 # SYSTEMCTL_RC when a case names one.
 t_stub systemctl 'cat "$T/failed-units" 2>/dev/null; exit "${SYSTEMCTL_RC:-0}"'
-# The console of the host, where status looks for it beside itself, wrapped so
-# every call the command makes is written down: the labels of the shipped issues
-# are one call of one verb, and a case counts them.
-cp "$T_CONSOLE" "$shim/libexec/console-real"
-t_stub console '[ -e "$T/console-calls" ] || : >"$T/console-calls"
-printf "%s\n" "$*" >>"$T/console-calls"
-exec "$shim/libexec/console-real" "$@"'
-# The console of the host, where status looks for it beside itself, wrapped so
-# every call the command makes is written down: the labels of the shipped issues
-# are one call of one verb, and a case counts them.
-cp "$shim/libexec/console" "$T/console-real"
-mv "$shim/libexec/console" "$shim/libexec/console-real"
-cat >"$shim/libexec/console" <<'STUB'
-#!/usr/bin/env bash
-{ [ -e "$T/console-calls" ] || :; printf '%s\n' "$*" >>"$T/console-calls"; }
-exec "$T/console-real" "$@"
-STUB
-chmod +x "$shim/libexec/console"
 closed() { # number closedAt closer [label]: a closed issue as the search for shipped work returns it
   local label=""
   [ -z "${4:-}" ] || label="{\"name\":\"$4\"}"
@@ -115,7 +91,6 @@ issue() { # number label state
 reset() {
   rm -rf "$T"/calls/* "$T/gh-down" "$T/all-down" "$T/shipped-down" "$T/count-down" "$T/control-down" "$T/allhands" "$T/epics-down" "$live" \
     "$T/home/tehas/state" "$T/home/tehas/current" "$T/home/tehas/versions" "$T/home/tehas/versions.env" "$T/rel.json"
-  rm -f "$T/console-calls"
   echo "[]" >"$T/all.json"
   epics_page
   shipped
@@ -145,6 +120,20 @@ t_eq "$t_out" ""
 t_eq "$(jq -r '.queued | length' "$live/status.json")" 2
 t_eq "$(jq -r .status "$live/health.json")" pass
 t_eq "$(jq -r .checks.queue.review "$live/health.json")" 1
+
+t_case "status with a setting not given stops with 78, before GitHub and before a write, however it is started"
+reset
+rm -rf "$live"
+all=("TEHAS_HOME=$T/home/tehas" TEHAS_REPO=acme/widget TEHAS_CONTROL_ISSUE=1 TEHAS_ALLOWED_LABELERS=boss)
+for name in TEHAS_HOME TEHAS_REPO TEHAS_CONTROL_ISSUE TEHAS_ALLOWED_LABELERS; do
+  given=()
+  for word in "${all[@]}"; do [[ $word == "$name="* ]] || given+=("$word"); done
+  t_run "env -u $name ${given[*]} '$shim/libexec/console' tehasbot status"
+  t_eq "$t_rc" 78
+  t_contains "$t_out" "$name is not set"
+  t_eq "$(t_calls gh)" ""
+  [ ! -e "$live" ] || t_bad "$name: status wrote $live"
+done
 
 t_case "status writes the open epics and their sub-issues, and not an issue without any"
 reset
@@ -442,10 +431,9 @@ t_contains "$(t_calls gh)" "issue edit 21 --repo acme/widget --add-label tehas:s
 t_lacks "$(t_calls gh)" "issue edit 20 --repo"
 t_lacks "$(t_calls gh)" "issue edit 22 --repo"
 
-# The one call of the console: of three shipped issues the poll edits the two
-# that lack the label and the one whose labels are no list, and it asks for the
-# labels once and not once per issue (issue #1083).
-t_case "the issues to label come from one console call of the list that lacks the label"
+# Of three shipped issues the poll edits the two that lack the label and the one
+# whose labels are no list (issue #1083).
+t_case "the issues to label are the ones the read says lack the label"
 reset
 shipped "$(closed 20 2026-01-02T00:00:00Z '{"merged":true}' tehas:shipped)" \
   "$(closed 21 2026-01-03T00:00:00Z '{"merged":true}')" \
@@ -457,8 +445,6 @@ t_eq "$(t_calls gh | grep -c 'issue edit')" 2
 t_contains "$(t_calls gh)" "issue edit 21 --repo acme/widget --add-label tehas:shipped"
 t_contains "$(t_calls gh)" "issue edit 22 --repo acme/widget --add-label tehas:shipped"
 t_lacks "$(t_calls gh)" "issue edit 20 --repo"
-t_eq "$(grep -c 'shipped list --numbers --lacking tehas:shipped' "$T/console-calls")" 1
-t_eq "$(grep -c ' shipped has ' "$T/console-calls")" 0
 
 # A label the read could not read is a missing label: the edit is sent, as it
 # was before the query read the labels at all.
@@ -472,7 +458,7 @@ t_eq "$(t_calls gh | grep -c 'issue edit')" 1
 t_contains "$(t_calls gh)" "issue edit 20 --repo acme/widget --add-label tehas:shipped"
 
 t_case "the control issue is not listed as shipped and not given the label, whatever the read answers"
-# It holds the pause switch and is not work: libexec/status leaves the number
+# It holds the pause switch and is not work: tehasbot status leaves the number
 # TEHAS_CONTROL_ISSUE names out of every list and every count, and tehas tidy
 # follows the same rule when it puts the label on.
 reset
@@ -862,16 +848,16 @@ t_run "$status"
 t_eq "$([ -e "$live/health.json" ] && echo written)" written
 rm -f "$live/health.json"
 t_store_answers plan-show 1 'store: busy #0: the database is locked'
-t_run "TEHAS_HOME=$T/home/tehas $T_ROOT/libexec/health"
+t_run "TEHAS_HOME=$T/home/tehas $T_ROOT/bin/tehasbot health"
 t_eq "$t_rc" 1
 t_contains "$t_out" "the planning sessions could not be read from the state store"
 t_eq "$([ -e "$live/health.json" ] && echo written)" ""
 t_store_answers plan-show 78 'store: corrupt: the file is not a database'
-t_run "TEHAS_HOME=$T/home/tehas $T_ROOT/libexec/health"
+t_run "TEHAS_HOME=$T/home/tehas $T_ROOT/bin/tehasbot health"
 t_eq "$t_rc" 78
 t_eq "$([ -e "$live/health.json" ] && echo written)" ""
 rm -f "$T/home/tehas/libexec/store"
-t_run "TEHAS_HOME=$T/home/tehas $T_ROOT/libexec/health"
+t_run "TEHAS_HOME=$T/home/tehas $T_ROOT/bin/tehasbot health"
 t_eq "$t_rc" 78
 t_contains "$t_out" "ERROR: the state store is not installed (run install.sh)"
 
@@ -886,12 +872,12 @@ reset
 # the case cannot empty, so the wrapper of this case is given the empty name by
 # its own command line and the run is called with env -i through t_run's PATH.
 mkdir -p "$T/no-console"
-cp "$T_ROOT/libexec/health" "$T/no-console/health"
+cp "$T_ROOT/libexec/with-settings" "$T/no-console/with-settings"
 mkdir -p "$T/lib"
 cp "$T_ROOT/lib/config.sh" "$T/lib/config.sh"
 rm -f "$T/bin/console"
 T_ENV=(TEHAS_CONSOLE= TEHAS_CONSOLE= PATH=/usr/bin:/bin)
-t_run "unset TEHAS_CONSOLE; TEHAS_HOME=$T/home/tehas $T/no-console/health"
+t_run "unset TEHAS_CONSOLE; TEHAS_HOME=$T/home/tehas $T/no-console/with-settings tehasbot health"
 t_eq "$t_rc" 78
 t_contains "$t_out" "tehasbot health: no console at $T/no-console/console: run install.sh"
 t_eq "$([ -e "$live/health.json" ] && echo written)" ""
@@ -1245,7 +1231,7 @@ t_contains "$t_out" "platform  0.10.0, newest v0.10.0, fetched "
 t_case "platform: a checkout host with a current that is not a release stays on the checkout"
 reset
 platform_setup
-# tehas_release_installed reads a link with a VERSION and nothing else, which
+# The installed version is read from a link with a VERSION and nothing else, which
 # is what keeps a host whose current is not such a link on its checkout.
 mkdir -p "$T/home/tehas/versions/v0.9.0"
 echo v0.9.0 >"$T/home/tehas/versions/v0.9.0/VERSION"

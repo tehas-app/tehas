@@ -13,7 +13,7 @@
 //! says so on any output. A caller that has already read the file says so with
 //! set_models, as it gives the names of the host with set_private.
 //!
-//! lib/models.sh refuses a literal apiKey that holds `$` or `!` at the load of
+//! models::keys_ok refuses a literal apiKey that holds `$` or `!` at the load of
 //! the commands that check it; the mask serves the programs that do not, so it
 //! keeps the `$` half of that rule. A word such as "unused" is a supported
 //! literal, and so is short: what keeps it out of the pattern is its length.
@@ -150,8 +150,8 @@ pub fn set_models(text: &str) {
 // The text of the host's file, given by a caller; None is "read it yourself".
 static MODELS: OnceLock<String> = OnceLock::new();
 
-// The name of the host's file under a home, as tehas_models_file in
-// lib/models.sh writes it: .pi/agent/models.json. console energy honours a
+// The name of the host's file under a home, as models::host_path
+// writes it: .pi/agent/models.json. console energy honours a
 // TEHAS_MODELS_FILE of its own; the mask keeps that one name, as the loader
 // does, and a program that reads the file another way passes its text with
 // set_models.
@@ -212,7 +212,7 @@ const LONGEST_KEY: usize = 512;
 /// a value that starts with `$` names a variable, whose value the environment
 /// already gives, and one that holds white space or a format character is a
 /// value the mask could never match in the whole, since it strips those
-/// characters first and the MCP server masks a log line by line. lib/models.sh
+/// characters first and the MCP server masks a log line by line. models::keys_ok
 /// refuses a value that holds `$` or `!` at the load of the commands that check
 /// it; this is the net for the programs that do not, and it keeps only the `$`
 /// half, because a short word such as "unused" is a supported literal.
@@ -289,6 +289,53 @@ static PRIVATE: OnceLock<Option<Regex>> = OnceLock::new();
 
 // A shorter name would mask ordinary words.
 const SHORTEST_PRIVATE: usize = 4;
+
+/// The host part of a model endpoint's url.
+fn url_host(url: &str) -> &str {
+    let rest = url.split_once("://").map_or(url, |(_, r)| r);
+    let authority = rest.split('/').next().unwrap_or("");
+    let host = authority.rsplit('@').next().unwrap_or("");
+    match host.strip_prefix('[') {
+        Some(v6) => v6.split(']').next().unwrap_or(""),
+        None => host.split(':').next().unwrap_or(""),
+    }
+}
+
+/// The names the host knows that an agent can print, for a mask to hide: the
+/// host aliases of PI_ENSEMBLE_HOST_ALIASES, the host of every endpoint of
+/// every provider the agents use, and the bot's email. They are names, not
+/// secrets, so they may go on a command line; a token never does.
+pub fn host_names(models_file: &str, email: &str) -> Vec<String> {
+    let aliases = std::env::var("PI_ENSEMBLE_HOST_ALIASES").unwrap_or_default();
+    let file = crate::models::ModelFile::read(models_file);
+    names_of(&aliases, &file, &crate::models::used(), email)
+}
+
+fn names_of(
+    aliases: &str,
+    file: &crate::models::ModelFile,
+    used: &[(String, String)],
+    email: &str,
+) -> Vec<String> {
+    let mut names: Vec<&str> = vec![];
+    for pair in aliases.lines().next().unwrap_or("").split(',') {
+        match pair.split_once(':') {
+            Some((a, b)) => names.extend([a, b]),
+            None => names.push(pair),
+        }
+    }
+    let urls: Vec<String> = used
+        .iter()
+        .flat_map(|(p, _)| [file.url(p, "main"), file.url(p, "backup")])
+        .collect();
+    names.extend(urls.iter().map(|u| url_host(u)));
+    names.push(email);
+    names
+        .into_iter()
+        .filter(|n| n.chars().count() >= SHORTEST_PRIVATE)
+        .map(String::from)
+        .collect()
+}
 
 /// One pattern of the names, matched as text in any case, the longest first
 /// so that a name is not masked in part. None when no name is kept.
@@ -893,5 +940,52 @@ mod private_tests {
     #[test]
     fn without_names_nothing_changes() {
         assert_eq!(hide(None, "models.lan"), "models.lan");
+    }
+}
+
+#[cfg(test)]
+mod host_name_tests {
+    use super::{names_of, url_host};
+    use crate::models::ModelFile;
+
+    #[test]
+    fn a_host_name_is_the_host_of_a_url_of_any_shape() {
+        for (url, host) in [
+            ("http://models.lan:8086/v1", "models.lan"),
+            ("https://user:pw@models.lan/v1", "models.lan"),
+            ("http://[::1]:8080/v1", "::1"),
+            ("http://[2001:db8::1]/v1", "2001:db8::1"),
+            ("models.lan:8086", "models.lan"),
+        ] {
+            assert_eq!(url_host(url), host, "{url}");
+        }
+    }
+
+    #[test]
+    fn the_names_are_those_of_four_characters_or_more_in_order() {
+        let file = ModelFile {
+            json: serde_json::json!({"providers": {
+                "p": {"baseUrl": "http://models.lan:1/v1", "backupBaseUrl": "http://[2001:db8::1]/v1"},
+                "q": {"baseUrl": "http://abc/v1"},
+                "r": {"baseUrl": "http://unused.lan/v1"}}}),
+        };
+        let used = [
+            ("p".to_string(), "a".to_string()),
+            ("p".to_string(), "b".to_string()),
+            ("q".to_string(), "c".to_string()),
+        ];
+        assert_eq!(
+            names_of("gpu1:192.0.2.9:x,ab,,solo", &file, &used, "bot@example.com"),
+            [
+                "gpu1",
+                "192.0.2.9:x",
+                "solo",
+                "models.lan",
+                "2001:db8::1",
+                "models.lan",
+                "2001:db8::1",
+                "bot@example.com"
+            ]
+        );
     }
 }

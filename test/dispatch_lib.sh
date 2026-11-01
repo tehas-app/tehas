@@ -51,6 +51,8 @@ case "$1 $2" in
     cat "$T/fx/repo.json" || exit 1 ;;
   "issue view") cat "$T/fx/issue-$3.json" 2>/dev/null || cat "$T/fx/control.json" || exit 1 ;;
   "issue list")
+    # The closed issues console tidy run searches for, when a case names some.
+    case "$*" in *"--state closed"*) [ ! -e "$T/fx/closed.json" ] || exec cat "$T/fx/closed.json" ;; esac
     case "$*" in
       *awaiting-merge*) cat "$T/fx/awaiting.json" || exit 1 ;;
       *tehas:ready*) cat "$T/fx/ready.json" || exit 1 ;;
@@ -178,9 +180,9 @@ flock -w 5 "$TEHAS_HOME/state/cycles/$1.lock" "$T/store-bin" cycle-start "$1" >>
 }
 default_start
 t_stub fake-status
-# Stands in for libexec/tidy, and notes whether a cycle had started before it.
+# Stands in for console tidy run, and notes whether a cycle had started before it.
 t_stub fake-tidy '[ ! -e "$T/calls/fake-start" ] || : >"$T/calls/tidy.after-start"'
-# Stands in for libexec/health, as these two commands are stood in for: a call
+# Stands in for tehasbot health, as these two commands are stood in for: a call
 # of health is recorded and it answers 0. The poll runs health once at its
 # start, and the real one is about 45 processes - five calls of the store and
 # about eighteen of jq - which no case of these files reads. A case that looks
@@ -200,9 +202,9 @@ t_stub sleep '[ "$1" = 10 ] || PATH=/usr/bin:/bin exec sleep "$@"'
 # The real timeout, named once, for the stub of it below.
 t_real_timeout=$(command -v timeout || true)
 # Stands in for the real timeout, which sits around the calls of lib/store.sh,
-# lib/disk.sh, lib/slice.sh, lib/analytics.sh, lib/attachments.sh and
-# libexec/status, and around the poll's own git fetch, gh call, stop of a unit
-# and run of the low-priority gate. The commands a poll of these tests runs are
+# lib/disk.sh, lib/slice.sh, lib/attachments.sh and tehasbot status, and around
+# the poll's own git fetch, gh call, stop of a unit and run of the low-priority
+# gate. The commands a poll of these tests runs are
 # stubs, and a stub answers from a fixture: it runs no network, no daemon and
 # nothing that waits, so a bound around it guards nothing a test can hang on,
 # and the process that pays for that bound is the test's. Such a call is execed
@@ -214,8 +216,8 @@ t_real_timeout=$(command -v timeout || true)
 # this suite hangs by exec'ing sleep: the checks of the branch, the slice
 # probe, the store that never answers and the gate that stays up. None of them
 # stubs sleep, so each of those bounds holds. The others are the commands of
-# the host a poll reaches for under timeout - df and docker through lib/disk.sh
-# and lib/slice.sh, systemctl through lib/slice.sh, gh through libexec/tidy and
+# the host a poll reaches for under timeout - df and docker through console disk free
+# and lib/slice.sh, systemctl through lib/slice.sh, gh through console tidy run and
 # the poll's own branch check, the fetch of the checkout, the gate of rule 7,
 # the analytics program, the attachment checker and the store - which a case
 # would hang by some means other than sleep.
@@ -296,7 +298,7 @@ t_stub docker 'case "$1" in
   run) [ -e "$T/fx/caps.json" ] || exit 1; cat "$T/fx/caps.json" ;;
 esac'
 # The free kilobytes of the host, as the disk hold reads it through
-# lib/disk.sh, whose df and docker info calls run under timeout. The file
+# console disk free, whose df and docker info calls run under timeout. The file
 # system asked about answers with the kilobytes named for it: those of Docker's
 # own come from $T/fx/free-docker and the ones of every other path from
 # $T/fx/free, so a case can tell the two file systems from each other. With
@@ -366,7 +368,7 @@ dispatch_json=$T/home/tehas/live/dispatch.json
 t_after='t_no_old_state "$T/home/tehas"'
 
 reset() {
-  rm -f "$T"/calls/* "$fx"/pulls.json "$fx"/pull-* "$fx"/edit-* "$fx"/start-* "$fx"/events-* "$fx"/comments-* "$fx"/icomments-* "$fx"/prs.json "$fx"/prlist.json "$fx"/pr-fails "$fx"/issue-* "$fx"/work-* "$fx"/post-fails "$fx"/patch-fails "$fx"/plan-fails "$fx"/plan-runs "$fx"/image.during "$fx"/slice-* "$fx"/orphan-* "$fx"/prs-* "$fx"/blockers* "$fx"/blocked.json "$fx"/checks* "$fx"/mark-fails "$fx"/mark-fails-times "$fx"/unmark-fails "$fx"/label-missing "$fx"/gh-stderr "$fx"/gh-stderr-fails
+  rm -f "$T"/calls/* "$fx"/pulls.json "$fx"/pull-* "$fx"/edit-* "$fx"/start-* "$fx"/events-* "$fx"/comments-* "$fx"/icomments-* "$fx"/prs.json "$fx"/prlist.json "$fx"/pr-fails "$fx"/issue-* "$fx"/work-* "$fx"/post-fails "$fx"/patch-fails "$fx"/plan-fails "$fx"/plan-runs "$fx"/image.during "$fx"/slice-* "$fx"/orphan-* "$fx"/prs-* "$fx"/blockers* "$fx"/blocked.json "$fx"/checks* "$fx"/mark-fails "$fx"/mark-fails-times "$fx"/unmark-fails "$fx"/label-missing "$fx"/gh-stderr "$fx"/gh-stderr-fails "$fx"/closed.json
   rm -rf "$T/home/tehas/libexec" "$T/home/tehas/state/cycles" "$T"/home/tehas/state/plan-* "$T/home/tehas/live" "$T/home/tehas/state/pause.json" "$T/home/tehas/state/limit.json" "$T/home/tehas/state/branch-check" \
     "$T"/home/tehas/work/widget-plan-* "$T"/home/tehas/tmp/plan-*
   # The state store a poll runs, with nothing on record.
@@ -394,21 +396,15 @@ reset() {
   echo '[]' >"$fx/events-1.json"
   T_ENV=(TEHAS_CYCLE_START_CMD=fake-start TEHAS_CYCLE_START_WAIT=2 TEHAS_STATUS_CMD=fake-status TEHAS_TIDY_CMD=fake-tidy TEHAS_INDEX_CMD=fake-index TEHAS_INDEX_START_CMD=fake-index-start TEHAS_PLAN_CMD=fake-plan TEHAS_PLAN_START_CMD=fake-plan-start "$slice_env")
   # Every poll of the case runs in Rust, as on a host: libexec/dispatch hands
-  # it to tehas-dispatch. T_BASH_POLL=1 runs the bash poll instead, as
-  # TEHAS_DISPATCHER=bash does.
-  if [ -n "${T_BASH_POLL:-}" ]; then
-    case " ${T_MINIMAL[*]} " in *" TEHAS_DISPATCHER=bash "*) ;; *) T_MINIMAL+=(TEHAS_DISPATCHER=bash) ;; esac
-  else
-    # shellcheck disable=SC2154  # t_dispatch_why is set by t_dispatch (test/lib.sh)
-    t_dispatch || t_bad "no tehas-dispatch: $t_dispatch_why"
-    # No TEHAS_HEALTH_CMD: health is the stub t_stub made above. The Rust poll
-    # names its own health beside its own binary, as the bash poll names the one
-    # beside libexec/dispatch, so the bare word of a command on PATH is never
-    # asked for: the stub has to be named. It records its call and answers 0;
-    # the WARN of a health file that could not be written is read here as no
-    # command having been given to the poll at all.
-    T_ENV_ALWAYS=(TEHAS_DISPATCH_CMD="$T_DISPATCH" TEHAS_HEALTH_CMD=fake-health)
-  fi
+  # it to tehas-dispatch.
+  # shellcheck disable=SC2154  # t_dispatch_why is set by t_dispatch (test/lib.sh)
+  t_dispatch || t_bad "no tehas-dispatch: $t_dispatch_why"
+  # No TEHAS_HEALTH_CMD: health is the stub t_stub made above. The poll names
+  # its own health beside its own binary, so the bare word of a command on PATH
+  # is never asked for: the stub has to be named. It records its call and
+  # answers 0; the WARN of a health file that could not be written is read here
+  # as no command having been given to the poll at all.
+  T_ENV_ALWAYS=(TEHAS_DISPATCH_CMD="$T_DISPATCH" TEHAS_HEALTH_CMD=fake-health)
   t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1
 }
 # A cycle that is running: its lock, held by this shell until release.
@@ -543,10 +539,9 @@ record=$T/home/tehas/state/plan-7.json
 # What the session carries from one turn to the next, beside the workspace.
 keep=$T/home/tehas/work/widget-plan-7.keep
 # rec: issue 7's session as the store has it, in the shape its record file
-# had (tehas_plan_shape); null when there is none. rec_open: "open" while one
-# is open, else "none".
-plan_shape=$(bash -c '. "$1"; printf "%s" "$tehas_plan_shape"' _ "$T_ROOT/lib/store.sh")
-rec() { t_row plan-show 7 -- "$plan_shape" | jq -c .; }
+# had (plan-view); null when there is none. rec_open: "open" while one is
+# open, else "none".
+rec() { t_row plan-view 7 -- .view | jq -c .; }
 rec_open() { t_row plan-show 7 -- 'if .planning != null and .planning.ended_at == null then "open" else "none" end'; }
 # The session's brief, and the answer the turn running was given, on record.
 rec_brief() { t_row plan-show 7 -- '.planning.brief // "" | rtrimstr("\n")'; }
@@ -678,10 +673,9 @@ mesh() { # [<the endpoint's answer>]
   [ "$#" = 0 ] || echo "$1" >"$fx/mesh.json"
 }
 # curl_heard: the opening of a curl stub. What curl was given is kept the same
-# way from either poll: the bash poll's config in a /dev/fd file and its body on
-# standard input, the Rust poll's config on standard input with the body as its
-# `data` line. The config's lines go to calls/curl-config, the body to
-# calls/curl-body.
+# way from either form: a config in a /dev/fd file and a body on standard input,
+# or a config on standard input with the body as its `data` line. The config's
+# lines go to calls/curl-config, the body to calls/curl-body.
 curl_heard='conf=""
 case " $* " in *" -K - "*) conf=$(cat) ;; esac
 for a; do case "$a" in /dev/fd/*) cat "$a" >>"$T/calls/curl-config" ;; esac; done
@@ -808,7 +802,7 @@ open_read_fails_again() {
 }
 
 # The open issues as tehas-dispatch's one GraphQL page asks for them, made from
-# the fixtures the bash poll's REST calls answer from: the lists name the
+# the fixtures: the lists name the
 # issues and their labels, events-<n>.json their label events, work-<n>.json
 # and edit-<n>.json (or edit.json) their text, prs-<n>.json (or prs.json)
 # the pull requests that close them, and issue-<n>.json with a state their
@@ -893,9 +887,3 @@ jq -n --argjson lists "$lists" --argjson items "$items" --argjson control "$(rea
     + (if $pulls == null then {} else {openPulls: {nodes: $pulls}} end)}}'
 STUB
 chmod +x "$T/page-stub"
-
-# bash_reads: whether the poll under test makes the bash poll's own reads,
-# its REST calls and their words (T_BASH_POLL). The Rust poll reads the queue
-# in one GraphQL page instead, and ends the poll on its failure with its own
-# words, so a case that checks those calls checks them for the bash alone.
-bash_reads() { [ -n "${T_BASH_POLL:-}" ]; }

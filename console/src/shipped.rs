@@ -1,11 +1,9 @@
 //! What closed an issue: the test that a merged pull request did, for
-//! `libexec/tidy` and `libexec/status`. The GraphQL read stays bash -
-//! `console shipped query` prints
-//! the document and the caller makes the call with gh - and the answer is
-//! handed here, so the acceptance rule has one statement. Two commands act on
-//! it: tehas tidy (libexec/tidy) puts tehas:shipped on in the edit that takes
-//! the state labels off, and tehasbot status (libexec/status) lists the shipped
-//! issues and gives them the label, and the two must not disagree.
+//! `console tidy run` and `tehasbot status`. The acceptance rule has one
+//! statement here. Two commands act on it: tidy (src/tidy.rs) puts tehas:shipped
+//! on in the edit that takes the state labels off, and tehasbot status
+//! (src/queue.rs) lists the shipped issues and gives them the label, and the
+//! two must not disagree.
 //!
 //!   console shipped page
 //!     The page of the query: how many issues one read of the search may name,
@@ -16,9 +14,8 @@
 //!
 //!   console shipped label
 //!     The name of the label of a merge, on a line of its own: the one word the
-//!     two commands print when they add it, and the one word tidy compares. The
-//!     caller that edits holds the name only as a fallback for a console of an
-//!     older tehas, so a rename reaches the add and the removal rule at once.
+//!     two commands print when they add it, and the one word tidy compares, so
+//!     a rename reaches the add and the removal rule at once.
 //!
 //!   console shipped query
 //!     The query: the last closed event of each issue the search $q names,
@@ -49,7 +46,7 @@
 //!     status lists them in. Each <number> given with --control is not work and is
 //!     left out, as both commands leave the control issue out of every list and
 //!     every count. `--numbers` prints the number of each node alone, which is
-//!     all tehas tidy asks and the cheaper line to read. `--lacking <label>`
+//!     the cheaper line to read. `--lacking <label>`
 //!     keeps only the nodes that do not carry <label>, read as `has` reads it,
 //!     so labels the answer did not answer for count as lacking it; with
 //!     `--numbers` it prints the number of each of them, in the order above,
@@ -58,7 +55,7 @@
 //!     not once per issue. Nothing is printed and the exit is 1 when the answer is no answer at
 //!     all: it carries errors, or its nodes are no list. A read that named issues
 //!     and found no merged closer among them answers the empty list, which is a
-//!     whole answer that earns no label: 0 and no lines, the case tehas tidy logs
+//!     whole answer that earns no label: 0 and no lines, the case tidy logs
 //!     as a closed issue rather than as a failed read.
 //!
 //!   console shipped has <label> <node>
@@ -86,7 +83,7 @@
 //! otherwise.
 //!
 //! The rule is one answer for one node. The callers do make two reads of it -
-//! `tehas tidy` builds its search from the plan and `tehasbot status` from its
+//! tidy builds its search from the plan and `tehasbot status` from its
 //! own search, at different instants of the same poll - so a poll can still
 //! disagree with a poll, and each caller logs what its own read said. When the
 //! two sources disagree for one issue it is because they were read at two
@@ -111,12 +108,12 @@ pub const PAGE: usize = 100;
 // needs.
 pub const REFERENCES: usize = 20;
 
-// The label of a merge: the name tehas tidy puts on in the edit that takes the
+// The label of a merge: the name tidy puts on in the edit that takes the
 // state labels off, and the name tehasbot status gives from its own read. It is
 // named here because both the comparison that earns it and the edit that writes
 // it read this one word - `console shipped label` prints it for the bash that
-// edits, and each of the two commands holds the name only as a fallback for a
-// host whose console is older than this verb.
+// edits, which holds the name only as a fallback for a host whose console is
+// older than this verb.
 pub const SHIPPED: &str = "tehas:shipped";
 
 // The document, in the lines the GitHub endpoint reads as one. $q is a GraphQL
@@ -129,7 +126,7 @@ pub const SHIPPED: &str = "tehas:shipped";
 // asked here too. The references are read for the one boolean the rule needs,
 // and each node names its type, so a reference the read did not resolve as a
 // pull request is no merge.
-const QUERY: &str = "query($q: String!) { search(type: ISSUE, query: $q, first: 100) { nodes { ... on Issue { number title url createdAt updatedAt closedAt labels(first: 100) { nodes { name } } closedByPullRequestsReferences(first: 20) { nodes { __typename merged } } timelineItems(itemTypes: [CLOSED_EVENT], last: 1) { nodes { ... on ClosedEvent { closer { ... on PullRequest { merged } } } } } } } } }";
+pub const QUERY: &str = "query($q: String!) { search(type: ISSUE, query: $q, first: 100) { nodes { ... on Issue { number title url createdAt updatedAt closedAt labels(first: 100) { nodes { name } } closedByPullRequestsReferences(first: 20) { nodes { __typename merged } } timelineItems(itemTypes: [CLOSED_EVENT], last: 1) { nodes { ... on ClosedEvent { closer { ... on PullRequest { merged } } } } } } } } }";
 
 pub fn main(given: &[String]) -> u8 {
     let Some(verb) = given.first().map(String::as_str) else {
@@ -208,7 +205,7 @@ pub fn main(given: &[String]) -> u8 {
                     0
                 }
                 // A read that named no shipped issue is the same failure to
-                // answer as one that named none at all: tehas tidy has no label
+                // answer as one that named none at all: tidy has no label
                 // to earn and tehasbot status writes no snapshot either way.
                 _ => 1,
             }
@@ -440,6 +437,11 @@ pub fn list(answer: &str, controls: &[String]) -> Option<Vec<Value>> {
     Some(kept.into_iter().map(|(_, _, n)| n).collect())
 }
 
+/// The numbers `list` keeps, for tidy.
+pub fn numbers(answer: &str, controls: &[String]) -> Option<Vec<u64>> {
+    Some(list(answer, controls)?.iter().filter_map(number).collect())
+}
+
 /// The number of a node on a line of its own, for the caller that asks with
 /// `--numbers`. A node the caller reached through `list` has one.
 fn number_line(node: &Value) -> String {
@@ -460,6 +462,13 @@ pub fn shipped_listed(
         Some(label) => nodes.into_iter().filter(|n| lacks(n, label)).collect(),
         None => nodes,
     })
+}
+
+/// The numbers of the shipped issues that do not carry `label`, for tehasbot
+/// status, which gives it to them. None of them when the answer is no answer.
+pub fn lacking(answer: &str, controls: &[String], label: &str) -> Vec<u64> {
+    let listed = shipped_listed(answer, controls, Some(label)).unwrap_or_default();
+    listed.iter().filter_map(number).collect()
 }
 
 /// The names a read gave under `labels`, or nothing when it named no list of
@@ -1248,7 +1257,7 @@ mod tests {
 
     #[test]
     fn the_query_asks_for_the_fields_the_shipped_list_shows() {
-        // libexec/status publishes each node it keeps as an item of `completed`,
+        // tehasbot status publishes each node it keeps as an item of `completed`,
         // and a field the query does not ask for is null on every one of them.
         assert!(QUERY.contains("number title url createdAt updatedAt closedAt labels("));
     }
@@ -1273,9 +1282,6 @@ mod tests {
 
     #[test]
     fn the_label_of_a_merge_is_the_one_word_the_callers_print() {
-        // Each caller holds the name too, for a host whose console is older
-        // than this verb: the two must say the same word, which is what the
-        // shell test of libexec/tidy reads out of the console.
         assert_eq!(SHIPPED, "tehas:shipped");
         let given: Vec<String> = ["label"].iter().map(|s| s.to_string()).collect();
         assert_eq!(main(&given), 0);
