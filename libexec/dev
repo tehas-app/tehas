@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # tehas dev: an interactive Pi session on the factory host. The session is the
 # console's, and console/src/usage/dev.txt is the usage and its exit statuses.
-# This loads the settings, gets the bot's token and, with --issue, the issue's
-# images and files, which lib/attachments.sh fetches.
+# This loads the settings, asks the console whether a session can start, gets
+# the bot's token and, with --issue, the issue's images and files, which
+# lib/attachments.sh fetches. A fault stops before GitHub is called and before
+# anything is written.
 set -uo pipefail
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -31,15 +33,12 @@ tehas_sandbox_ok || exit 78
 tehas_checkout || exit 78
 tehas_branch >/dev/null || exit 78
 
+slice=$("$console" dev ready "$@") || exit
 tehas_github_env || { echo "tehas dev: no GitHub token for the app" >&2; exit 1; }
 [ -n "${GH_TOKEN:-}" ] || { echo "tehas dev: GH_TOKEN is not set (source ~/tehas/env.sh)" >&2; exit 64; }
 
 read -r name issue < <("$console" dev words "$@")
 if [ "$issue" != - ]; then
-  if [ "$TEHAS_WORK_IMAGES" != 1 ] && [ "$TEHAS_WORK_FILES" != 1 ]; then
-    echo "tehas dev: this instance gives no images or files (TEHAS_WORK_IMAGES, TEHAS_WORK_FILES), so --issue has nothing to give" >&2
-    exit 78
-  fi
   images=$TEHAS_HOME/dev/$name.images
   mkdir -p "$TEHAS_HOME/dev" || exit 78
   approved=""
@@ -58,4 +57,4 @@ if [ "$issue" != - ]; then
   [ -z "$said" ] || printf '%s\n' "$said" | sed 's/^/tehas dev: /'
 fi
 
-exec "$console" dev run "$@"
+TEHAS_DEV_SLICE=$slice exec "$console" dev run "$@"
