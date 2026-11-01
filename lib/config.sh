@@ -764,9 +764,9 @@ tehas_require() {
 
 # tehas_edge_name <kind> <number>: the host name of a preview (uat) or of a
 # Protolab ticket (lab) under TEHAS_DOMAIN. It is the one definition of such a
-# name. The jq programs of libexec/protolab and libexec/preview put the same
-# name together themselves, because jq cannot call a shell function, and
-# test/protolab_test.sh and test/preview_build_test.sh pin that theirs is this one.
+# name. libexec/protolab's jq program and the console's preview command put the
+# same name together themselves, and test/protolab_test.sh and
+# test/preview_build_test.sh pin that theirs is this one.
 # Fails without a domain, for another kind, and for anything but a number of
 # one to nine digits that does not start with a zero.
 tehas_edge_name() {
