@@ -14,7 +14,7 @@
 //! else. The last list of releases answered is kept in state/platform-newest.
 
 use crate::jq::{obj, J};
-use std::cmp::Ordering;
+use crate::update::release::{older, stale, tag_ok};
 use std::env;
 use std::fs;
 use std::path::Path;
@@ -49,35 +49,6 @@ fn installed(home: &Path) -> Option<String> {
     Some(text.lines().next().unwrap_or_default().to_string())
 }
 
-/// `vX.Y.Z`, the one shape of a release's tag.
-fn tag_ok(tag: &str) -> bool {
-    let parts = tag
-        .strip_prefix('v')
-        .map(|t| t.split('.').collect::<Vec<_>>());
-    parts.is_some_and(|p| {
-        p.len() == 3
-            && p.iter()
-                .all(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
-    })
-}
-
-/// Two tags of the shape above, by their numbers. Digits of any length.
-fn by_version(a: &str, b: &str) -> Ordering {
-    let number = |n: &str| n.trim_start_matches('0').to_string();
-    let parts = |t: &str| {
-        t.trim_start_matches('v')
-            .split('.')
-            .map(number)
-            .collect::<Vec<_>>()
-    };
-    let (x, y) = (parts(a), parts(b));
-    x.iter()
-        .zip(&y)
-        .map(|(p, q)| p.len().cmp(&q.len()).then_with(|| p.cmp(q)))
-        .find(|o| o.is_ne())
-        .unwrap_or_else(|| a.cmp(b))
-}
-
 /// The release list as GitHub answers it, published `vX.Y.Z` tags only: the
 /// newest by version, not by date. None when the answer is not such a list,
 /// which ends the read as a list that failed.
@@ -103,7 +74,7 @@ fn newest_of(answer: &str) -> Option<String> {
         if !tag_ok(tag) {
             continue;
         }
-        if newest.is_none_or(|n| by_version(tag, n).is_ge()) {
+        if newest.is_none_or(|n| !older(tag, n)) {
             newest = Some(tag);
         }
     }
@@ -203,11 +174,7 @@ fn release(home: &Path, live: &Path, installed: &str) {
     let (last, mut fetched) = stamp_read(&stamp);
     let cached = fs::read_to_string(&cache).unwrap_or_default();
     let mut newest = cached.lines().next().unwrap_or_default().to_string();
-    if !newest.is_empty()
-        && (!tag_ok(&newest)
-            || !tag_ok(installed)
-            || (newest != installed && by_version(&newest, installed).is_lt()))
-    {
+    if !newest.is_empty() && stale(&newest, installed) {
         let _ = fs::remove_file(&cache);
         newest.clear();
     }
@@ -327,26 +294,6 @@ fn checkout(home: &Path, live: &Path) {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn a_tag_is_v_and_three_numbers() {
-        for good in ["v0.9.0", "v10.20.30"] {
-            assert!(tag_ok(good), "{good}");
-        }
-        for bad in [
-            "0.9.0", "v0.9", "v0.9.0.1", "v0..1", "v0.9.x", "", "v0.9.0\n",
-        ] {
-            assert!(!tag_ok(bad), "{bad:?}");
-        }
-    }
-
-    #[test]
-    fn versions_compare_as_numbers() {
-        assert!(by_version("v0.9.0", "v0.10.0").is_lt());
-        assert!(by_version("v1.0.0", "v0.99.99").is_gt());
-        assert!(by_version("v0.9.0", "v0.9.0").is_eq());
-        assert!(by_version("v0.0.99999999999999999999", "v0.1.0").is_lt());
-    }
 
     #[test]
     fn the_newest_is_by_version_and_leaves_out_what_is_not_published() {
