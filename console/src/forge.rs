@@ -236,7 +236,7 @@ pub(crate) fn repo() -> Option<String> {
 /// Whether `file` is something that may be run: a regular file with a bit for
 /// someone to execute it. The same test `clean`'s `which` and the dispatcher's
 /// readers make of a program.
-fn runnable(path: &Path) -> bool {
+pub(crate) fn runnable(path: &Path) -> bool {
     std::fs::metadata(path).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
 }
 
