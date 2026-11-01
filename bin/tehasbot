@@ -9,7 +9,7 @@
 #   tehasbot health               write the health file, live/health.json
 #   tehasbot energy [--every]     sample the model mesh's power (the service)
 #   tehasbot top [--every]        publish the host section for the dashboard
-#                                 (the service; its script is top-publish)
+#                                 (the service)
 #   tehasbot protolab             build the Protolab pages (the timer)
 #   tehasbot preview [--sweep]    keep the previews of pull requests (the timers)
 #   tehasbot improve              one run of the improvement loop (the timer)
@@ -22,7 +22,7 @@
 #
 # Each command is a program in ../libexec, and this only chooses one and runs
 # it with the remaining arguments: it loads no settings and calls nothing
-# else. health is a verb of the console, run under with-settings. The exit
+# else. health and top are verbs of the console, run under with-settings. The exit
 # status is the script's. The scripts call each other by the path of their own
 # directory, not through this command.
 #
@@ -41,8 +41,8 @@ case "${1-help}" in
     usage
     exit 0
     ;;
-  health)
-    exec "$libexec/with-settings" tehasbot health
+  health | top)
+    exec "$libexec/with-settings" tehasbot "$@"
     ;;
   dispatch | cycle | status | protolab | preview | improve | refresh | review | clean | mcp | github-token)
     file=$libexec/$1
@@ -50,12 +50,6 @@ case "${1-help}" in
     exec "$file" "$@"
     ;;
   energy) shift; exec "$libexec/console" energy "$@" ;;
-  top)
-    # The command is `top`; its script is named for what it does, because
-    # libexec/top is the view for a person and not this.
-    shift
-    exec "$libexec/top-publish" "$@"
-    ;;
   *)
     printf 'tehasbot: unknown command: %s\n' "$1" >&2
     usage >&2
