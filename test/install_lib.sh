@@ -138,7 +138,6 @@ files="./.bashrc
 ./tehas/libexec/dispatch
 ./tehas/libexec/disk
 ./tehas/libexec/drain
-./tehas/libexec/energy
 ./tehas/libexec/export
 ./tehas/libexec/github-token
 ./tehas/libexec/health

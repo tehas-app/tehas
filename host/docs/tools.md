@@ -3008,7 +3008,10 @@ token, and samples the first that answers. The file is removed only when the
 endpoint it asks is not a mesh and was not just down or busy. Set
 `TEHAS_ENERGY_URL` in `~/.config/tehas/env` to ask another
 cluster URL, which is asked with no token, and
-`TEHAS_ENERGY=off` to remove the file. The file is readable by anyone who can
+`TEHAS_ENERGY=off` to remove the file. With neither,
+`PI_ENSEMBLE_SUBAGENT_PROVIDER` has to be set: without it the command says so
+and exits 78, asks nobody and leaves the file as it is, and `--every` stops
+with it. The file is readable by anyone who can
 open the dashboard and names the machines, their draw and their models. It
 also holds the version of the mesh software and, for each model, the name and
 the version of the engine behind it. Addresses, node ids and GPUs are not in it.

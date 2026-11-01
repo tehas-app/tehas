@@ -151,7 +151,7 @@ pub fn set_models(text: &str) {
 static MODELS: OnceLock<String> = OnceLock::new();
 
 // The name of the host's file under a home, as tehas_models_file in
-// lib/models.sh writes it: .pi/agent/models.json. libexec/energy honours a
+// lib/models.sh writes it: .pi/agent/models.json. console energy honours a
 // TEHAS_MODELS_FILE of its own; the mask keeps that one name, as the loader
 // does, and a program that reads the file another way passes its text with
 // set_models.
