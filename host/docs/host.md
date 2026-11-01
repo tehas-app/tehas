@@ -516,7 +516,13 @@ host that has one. On a host with none, `--check` says so on a `Store: REFUSED`
 line rather than as drift. Beside each, `<name>.stamp` holds two checksums:
 of the source it was built from and of the program. A program is built again
 only when its source has changed or the program on the host is not the one
-that was installed. The console's source is `console/` without its tests and
+that was installed. The console is the one exception: a real run asks `cargo`
+for it first of all, because it reads the settings, and `cargo` answers at once
+when nothing changed. That build comes after the proof of the home and before
+the update lock, whose directory is a write to the home and waits for the
+settings. It removes no earlier build, so a run the lock will refuse takes
+nothing from the run that holds it. A console that does not build stops the run
+with exit 1 before the settings are read. The console's source is `console/` without its tests and
 without `console/analytics/`, `console/mcp/` and `console/store/`, so a change
 to one of those alone builds that program alone. The store's source is
 `console/store/` without its tests, the workspace's `Cargo.toml` and

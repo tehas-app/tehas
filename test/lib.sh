@@ -477,7 +477,8 @@ if [ "$pkg" = store ]; then
   exit 0
 fi
 if [ "$pkg" = console ] && [ -n "${CONSOLE_BIN:-}" ]; then
-  cp "$CONSOLE_BIN" "$CARGO_TARGET_DIR/${triple}release/console"
+  # As cargo does, a new file: an earlier build may still be there.
+  cp --remove-destination "$CONSOLE_BIN" "$CARGO_TARGET_DIR/${triple}release/console"
   exit 0
 fi
 if [ "$pkg" = tehas-cycle ] && [ -n "${CYCLE_BIN:-}" ]; then

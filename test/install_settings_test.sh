@@ -250,6 +250,40 @@ t_contains "$t_out" "the console did not build"
 t_contains "$t_out" "nothing was installed"
 t_eq "$(find "$home" -type f | wc -l)" 0
 
+t_case "a build that fails leaves the program that was there, for the run that holds the lock"
+fresh
+instance
+mkdir -p "$T/target/release"
+echo holder >"$T/target/release/console"
+t_env CARGO_FAIL=console
+t_run "$no_hook$install"
+t_env
+t_eq "$t_rc" 1
+t_eq "$(cat "$T/target/release/console")" holder
+rm -rf "$T/target"
+
+t_case "a home that is not tehas's is refused before the console is built"
+fresh
+instance
+mkdir -p "$th"
+echo mine >"$th/notes.txt"
+t_run "$no_hook$install"
+t_eq "$t_rc" 78
+t_contains "$t_out" "TEHAS_HOME is not empty and holds no .tehas-home"
+t_contains "$t_out" "nothing was installed"
+t_eq "$(t_calls cargo)" ""
+rm -f "$th/notes.txt"
+
+t_case "a TEHAS_BUILD_TIMEOUT that is no number stops the first build: 78, and no cargo"
+fresh
+instance
+t_env TEHAS_BUILD_TIMEOUT=abc
+t_run "$no_hook$install"
+t_env
+t_eq "$t_rc" 78
+t_contains "$t_out" "TEHAS_BUILD_TIMEOUT is not a number of seconds: abc"
+t_eq "$(t_calls cargo)" ""
+
 t_case "the home's old console does not judge a tree it did not come from"
 fresh
 instance
