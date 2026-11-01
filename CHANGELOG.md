@@ -13,10 +13,60 @@ empty one above it.
 
 ### Changes
 
+### Adopter action
+
+None.
+
+## v0.20.0 (2026-11-01)
+
+### Changes
+
+- `scripts/test.sh` sizes its pool from the memory it runs in as well as the
+  CPUs: at most two tasks a GiB of `/sys/fs/cgroup/memory.max`. On a 48 CPU host
+  that is 8 in `check-product`'s sandbox and 24 in a cycle's container, where
+  the kernel used to kill shellcheck. `TEHAS_TEST_JOBS` still wins (#1182).
 - A factory pull request's title says `WIP: ` while a cycle works on it,
   `STUCK: ` when it waits for a person and nothing when it is ok to merge. Each
   poll and each cycle's end keep it true, and `tehas api` names the feature
   `pr-title` (#1179).
+- A `tehas:plan` session from an allowed person that drafts a plan with no open
+  points makes it the issue's text and starts a cycle, with no tick. This
+  changes who approves a build: that person's `tehas:plan` does, and nobody
+  reads the plan first. With any open point, in a `tehas:refine` session, or
+  from the millwright, it asks as before (#1178).
+- `tehas-cycle finish` opens a draft pull request from a finished cycle's
+  branch (#1131).
+- A millwright's guidance comment lifts the hold on a parked issue, and its
+  `action=retry` and `action=change` notes now reach the cycle. Before, they
+  were all lost. A failed read of a parked issue's comments keeps the hold and
+  says nothing on the issue (#1130).
+- `tehas disk` says how full a host is and what fills it, and
+  `tehas disk --publish` writes that to `live/disk.json`. It leaves out
+  `TEHAS_SCRATCH_DIR` for now (#1201). The MCP tool `factory_disk` is described
+  in the manual but not served yet (#1200) (#1110).
+- The MCP server has a key that sees only what the dashboard shows. A full key
+  now serves only known tools, and a setting given twice is refused (#1146).
+- `tehasbot clean --dry-run` prunes nothing. Before, it really ran
+  `docker builder prune`. It now counts the bytes it would free (#1111).
+- `tehasbot clean` logs the size of the cargo build output of a manual session,
+  `~/tehas/dev/<name>.state/target`, on every run, and takes it only under
+  `TEHAS_CLEAN_MIN_FREE`, once it has gone untouched for `TEHAS_CLEAN_AFTER`
+  hours, and only of a clone whose session is closed. `tehas dev` now holds a
+  lock for the whole session, `~/tehas/state/dev/<name>.lock`, so a second
+  session of the same clone waits for it (#1112).
+- Status leaves health to the poll when the poll runs it (#1169).
+- Health copies the slots of `live/dispatch.json` only when they have the shape
+  the status API promises (#1170).
+
+### Adopter action
+
+Tell whoever applies `tehas:plan` on your instance that the label can now start
+a cycle.
+
+## v0.19.2 (2026-10-31)
+
+### Changes
+
 - An idle poll runs `tehasbot status` only when its file is five minutes old,
   not on every poll (#1153).
 - A poll reads the comments of blocked issues side by side and the states of
@@ -34,28 +84,10 @@ empty one above it.
   takes `--head` and `--base` in upper case, and no longer prints `calls`. A
   command that fills its pipe no longer waits out the 900 s bound, and output
   it cannot read whole refuses the merge (#1149).
-- A `tehas:plan` session from an allowed person that drafts a plan with no open
-  points makes it the issue's text and starts a cycle, with no tick. This
-  changes who approves a build: that person's `tehas:plan` does, and nobody
-  reads the plan first. With any open point, in a `tehas:refine` session, or
-  from the millwright, it asks as before (#1178).
-- `tehasbot clean` logs the size of the cargo build output of a manual session,
-  `~/tehas/dev/<name>.state/target`, on every run, and takes it only under
-  `TEHAS_CLEAN_MIN_FREE`, once it has gone untouched for `TEHAS_CLEAN_AFTER`
-  hours, and only of a clone whose session is closed: the lock `tehas dev` holds
-  for the whole session, `~/tehas/state/dev/<name>.lock`, and the container name
-  `docker ps` answers say whether it is, and a docker that will not answer keeps
-  the build. Nothing else
-  under `<name>.state` is named, so the clone, its memory, sessions,
-  transcripts, code index, author and images stay. `tehas dev` now takes that
-  lock before it makes the clone and holds it for the session, so a second
-  session of the same clone waits for it and a cleaner never meets a target
-  half removed (#1112).
 
 ### Adopter action
 
-Tell whoever applies `tehas:plan` on your instance that the label can now start
-a cycle.
+None.
 
 ## v0.19.1 (2026-10-31)
 
