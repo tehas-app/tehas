@@ -309,10 +309,12 @@ with one of these reasons:
 | `its driver is not bridge` | The option means nothing to another driver |
 | `it has IPv6` | The host has an IPv6 address on the bridge |
 | `it is not isolated from the host` | The network was made without the option: the host has an IPv4 address on the bridge |
+| `the console did not answer` | `~/tehas/libexec/console` did not run, so nothing was checked. `install.sh` puts it right |
 
 `install.sh` checks the same things by the same code. It does not ask a
 Docker older than 27.1 to make the network, and it leaves a network that is
-there and fails a check, and says so.
+there and fails a check, and says so. The check is `~/tehas/libexec/console
+preview network`.
 
 Only a pull request whose branch is in the product repository gets one, and
 only when an owner, member or collaborator of the repository opened it.

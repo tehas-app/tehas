@@ -424,7 +424,9 @@ t_stub_analytics() {
 #         retry fails for its own reason, so both are reported. The retry's own
 #         words are invented here, not captured from a real cargo: they only
 #         exercise the report of both attempts
-# Any other build is an ordinary build.
+# Any other build is an ordinary build. A console is a line of text that cannot
+# answer, unless CONSOLE_BIN names a real one to hand over, as STORE_BIN does
+# for the store: install.sh runs the console for the previews' network.
 t_stub_cargo() {
   # shellcheck disable=SC2016  # the stub's body is expanded when the stub runs
   t_stub cargo 'pkg=console triple="" prev="" offline=""
@@ -463,6 +465,10 @@ if [ "$pkg" = store ]; then
   if [ -n "${STORE_BIN:-}" ]; then cp "$STORE_BIN" "$out"; exit 0; fi
   { cat "$T/store-stand-in"; echo "# a store built from ${CONSOLE_BUILD:-source}"; } >"$out"
   chmod 755 "$out"
+  exit 0
+fi
+if [ "$pkg" = console ] && [ -n "${CONSOLE_BIN:-}" ]; then
+  cp "$CONSOLE_BIN" "$CARGO_TARGET_DIR/${triple}release/console"
   exit 0
 fi
 case $pkg in analytics) art=an ;; *) art=a ;; esac

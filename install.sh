@@ -179,8 +179,6 @@ fi
 # below drops them.
 lock_wait=$(tehas_update_lock_wait)
 dispatch_wait=$(tehas_dispatch_lock_wait)
-# shellcheck source=lib/edge.sh
-. "$root/lib/edge.sh"
 # shellcheck source=lib/cycles.sh
 . "$root/lib/cycles.sh"
 # shellcheck source=lib/models.sh
@@ -1472,34 +1470,33 @@ for left in "$TEHAS_HOME"/state/cycles/[0-9]*; do
 done
 
 # The previews' network keeps a preview from the host: it reaches the router
-# and the other previews and nothing else. What that takes is in lib/edge.sh,
-# and `tehasbot preview` decides by the same functions before every run. The
-# router's compose file names the network as external and `tehasbot preview`
-# puts containers on it, so it is made here, whichever of the two starts first.
-# A host with no Docker yet gets it from `tehasbot preview`. A Docker older
-# than 27.1 is not asked: it does not know the option that keeps the host out.
-# The bridge driver of Docker 29.1.3 was seen to accept an option it does not
-# know, so an older one may make a network that looks right and gives the
-# host an address. That was not tried, and with the version checked it does
-# not have to be. A network that is there and does not keep the host out
-# is not removed here: containers may be on it.
+# and the other previews and nothing else. What that takes is in
+# console/src/edge.rs, and `tehasbot preview` decides by the same code before
+# every run. The router's compose file names the network as external and
+# `tehasbot preview` puts containers on it, so it is made here, whichever of the
+# two starts first. A host with no Docker yet gets it from `tehasbot preview`. A
+# Docker older than 27.1 is not asked: it does not know the option that keeps
+# the host out. A network that is there and does not keep the host out is not
+# removed here: containers may be on it.
 if command -v docker >/dev/null 2>&1; then
-  if ! previews_fault=$(edge_docker_fault); then
-    note "The network tehas-previews was not made or checked: $previews_fault. No preview is built until Docker is 27.1 or later."
-  else
-    previews_rc=0
-    previews_fault=$(edge_net_fault tehas-previews) || previews_rc=$?
-    case "$previews_rc" in
-      0) ;;
-      2)
-        edge_net_create tehas-previews ||
-          note "The network tehas-previews could not be made; the edge router will not start without it."
-        ;;
-      *)
-        note "The network tehas-previews does not keep the host out ($previews_fault). It has to be remade before a preview is built; the manual's troubleshooting page says how."
-        ;;
-    esac
-  fi
+  previews_rc=0
+  previews_fault=$("$TEHAS_HOME/libexec/console" preview network check tehas-previews 2>/dev/null) || previews_rc=$?
+  case "$previews_rc" in
+    0) ;;
+    1)
+      note "The network tehas-previews does not keep the host out ($previews_fault). It has to be remade before a preview is built; the manual's troubleshooting page says how."
+      ;;
+    2)
+      "$TEHAS_HOME/libexec/console" preview network create tehas-previews ||
+        note "The network tehas-previews could not be made; the edge router will not start without it."
+      ;;
+    3)
+      note "The network tehas-previews was not made or checked: $previews_fault. No preview is built until Docker is 27.1 or later."
+      ;;
+    *)
+      note "The network tehas-previews was not made or checked: the console did not answer."
+      ;;
+  esac
 fi
 
 case "$(slice_state)" in
