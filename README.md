@@ -189,7 +189,7 @@ host.
 | `lib/attachments.sh` | Files attached to an issue: which links count and how one is fetched |
 | `lib/cycles.sh` | Which cycles are running, from the lock each one holds, and where a parked cycle's question is on record |
 | `lib/polyfill-<feature>.sh` | What tehas does itself for a pi-rukas feature no release has yet, until one has it. Each names the upstream issue and pull request. None today |
-| `lib/improve.sh`, `lib/improve-prompt.md` | The improvement loop's shared parts, and the prompt its analyst reads |
+| `lib/improve-prompt.md` | The prompt the improvement loop's analyst reads |
 | `lib/labels.sh` | Who applied a label, read from the label events |
 | `lib/questions.sh` | The questions the factory asks on an issue |
 | `lib/sandbox.sh` | What a sandbox container is given, for a cycle and for a session by hand |
