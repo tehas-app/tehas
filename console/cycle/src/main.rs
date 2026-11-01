@@ -1,11 +1,18 @@
-//! tehas-cycle: a cycle's report in Rust, beside libexec/cycle. It acts on
-//! nothing on GitHub or in the state store.
+//! tehas-cycle: a cycle's report in Rust, beside libexec/cycle.
 //!
 //! Usage:
 //!   tehas-cycle report <facts.json>   print the report of an ended cycle,
 //!                                     as JSON, from the facts in the file
 //!                                     (src/facts.rs) and the answers of
 //!                                     GitHub it holds under "github"
+//!   tehas-cycle report <issue> --attempt <n> --rc <n> --started <s>
+//!       --signalled 0|1 --by <login> --how <how> --approval-at <s>
+//!       --requeued 0|1 [--now <s>]
+//!                                     libexec/cycle execs this where the
+//!                                     instance sets TEHAS_CYCLE_REPORT=rust:
+//!                                     report the cycle, every GitHub write
+//!                                     through the action journal, then what
+//!                                     follows its end (src/apply.rs)
 //!   tehas-cycle shadow <issue> --attempt <n> --rc <n> --started <s>
 //!       --signalled 0|1 --by <login> --how <how> --approval-at <s>
 //!       --requeued 0|1 [--now <s>]
@@ -110,10 +117,14 @@
 //! tehasbot runs instead. It returns only when neither could be run. pin plan
 //! does the same under $TEHAS_HOME/run/plan-<issue>-<pid>/.
 //!
+//! report <issue> reads what shadow and after read, and TEHAS_CYCLE_RETRY_WAIT,
+//! TEHAS_CYCLE_STOP_GH_WAIT, TEHAS_CODE, TEHAS_CONSOLE_CMD and TEHAS_STATUS_CMD.
+//!
 //! after and approved read $TEHAS_HOME, TEHAS_ANALYTICS, TEHAS_ANALYTICS_WAIT,
 //! TEHAS_IMPROVE_REPO, TEHAS_CLEAN_DIRS and TEHAS_SCRATCH_DIR.
 //!
-//! Exit: 0 it printed or kept its answer; 1 what it reads could not be
+//! Exit: 0 it printed or kept its answer; 70 report: the end of the cycle is
+//! not on record; 1 what it reads could not be
 //! read, said on standard error, or run could not exec, or `clock check` said
 //! `stalled`, or `finish` refused; 2 `clock check` said `over`; 3 `clock check`
 //! said `unknown`; 64 an argument it does not know; 78 run without an absolute
@@ -131,7 +142,7 @@ use tehas_cycle::clock;
 use tehas_cycle::host::Start;
 use tehas_cycle::last_attempt::{self, Action};
 use tehas_cycle::report::{last_attempts, to_json, Given};
-use tehas_cycle::{finish, pin, renew, report, shadow, Facts};
+use tehas_cycle::{apply, finish, pin, renew, report, shadow, Facts};
 
 fn usage() -> String {
     include_str!("main.rs")
@@ -184,42 +195,12 @@ fn main() {
             println!("{}", after::approved(&home, issue(n, &args), attempt));
         }
         ["after", n, rest @ ..] => after_verb(&home, issue(n, &args), &args, rest),
+        ["report", n, rest @ ..] if !rest.is_empty() => {
+            let start = start(issue(n, &args), &args, rest);
+            std::process::exit(apply::run(&home, &start));
+        }
         ["shadow", n, rest @ ..] => {
-            let n = issue(n, &args);
-            let mut start = Start {
-                issue: n,
-                attempt: 0,
-                rc: 0,
-                started: 0,
-                signalled: false,
-                by: String::new(),
-                how: String::new(),
-                approval_at: String::new(),
-                requeued: false,
-                now: None,
-            };
-            let mut it = rest.iter();
-            while let Some(flag) = it.next() {
-                let v = it.next().unwrap_or_else(|| wrong(&args)).to_string();
-                let num = |v: &str| v.parse::<i64>().unwrap_or_else(|_| wrong(&args));
-                match *flag {
-                    "--attempt" => {
-                        start.attempt = num(&v).try_into().unwrap_or_else(|_| wrong(&args))
-                    }
-                    "--rc" => start.rc = num(&v),
-                    "--started" => start.started = num(&v),
-                    "--signalled" => start.signalled = v == "1",
-                    "--by" => start.by = v,
-                    "--how" => start.how = v,
-                    "--approval-at" => start.approval_at = v,
-                    "--requeued" => start.requeued = v == "1",
-                    "--now" => start.now = Some(num(&v)),
-                    _ => wrong(&args),
-                }
-            }
-            if start.attempt == 0 {
-                wrong(&args);
-            }
+            let start = start(issue(n, &args), &args, rest);
             if on() {
                 shadow::begin(&home, &start).unwrap_or_else(|e| fail(e));
             }
@@ -302,6 +283,43 @@ fn main() {
         }
         _ => wrong(&args),
     }
+}
+
+/// The start and end of a cycle, as libexec/cycle holds them.
+fn start(n: u64, args: &[String], rest: &[&str]) -> Start {
+    let mut start = Start {
+        issue: n,
+        attempt: 0,
+        rc: 0,
+        started: 0,
+        signalled: false,
+        by: String::new(),
+        how: String::new(),
+        approval_at: String::new(),
+        requeued: false,
+        now: None,
+    };
+    let mut it = rest.iter();
+    while let Some(flag) = it.next() {
+        let v = it.next().unwrap_or_else(|| wrong(args)).to_string();
+        let num = |v: &str| v.parse::<i64>().unwrap_or_else(|_| wrong(args));
+        match *flag {
+            "--attempt" => start.attempt = num(&v).try_into().unwrap_or_else(|_| wrong(args)),
+            "--rc" => start.rc = num(&v),
+            "--started" => start.started = num(&v),
+            "--signalled" => start.signalled = v == "1",
+            "--by" => start.by = v,
+            "--how" => start.how = v,
+            "--approval-at" => start.approval_at = v,
+            "--requeued" => start.requeued = v == "1",
+            "--now" => start.now = Some(num(&v)),
+            _ => wrong(args),
+        }
+    }
+    if start.attempt == 0 {
+        wrong(args);
+    }
+    start
 }
 
 /// What follows a cycle's record, from what libexec/cycle holds of its end.

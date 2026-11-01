@@ -135,6 +135,8 @@ case "$1 $2" in
     [ ! -e "$T/fx/issue-fails" ] || exit 1
     if [ -e "$T/fx/issue-$n.json" ]; then cat "$T/fx/issue-$n.json"; else echo "{\"number\":$n,\"state\":\"open\"}"; fi ;;
 esac'
+# A file that asks for it runs every case with the report in Rust.
+[ -z "${T_CYCLE_REPORT:-}" ] || T_MINIMAL+=("TEHAS_CYCLE_REPORT=$T_CYCLE_REPORT")
 # The sandbox image has no label unless a case writes one: no commit is then
 # on record.
 t_stub docker '[ -e "$T/fx/image.label" ] || exit 1; cat "$T/fx/image.label"'

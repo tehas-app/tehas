@@ -1140,17 +1140,13 @@ and is tehas' to set; pi-rukas alone allows two hours. It may be at most
 `TEHAS_WORK_TIMEOUT`, so no child outlives the cycle that spawned it: a longer
 one is refused with 78, because tehas would only see such a child when the
 cycle itself ended. Before the limit comes the cycle's deadline,
-`PI_ENSEMBLE_CYCLE_DEADLINE`: a quarter of `TEHAS_WORK_TIMEOUT` before the end,
-or one run of the gate and the handoff allowance when that is longer. The
-allowance is 8 minutes, and pi-rukas is given it as
+`PI_ENSEMBLE_CYCLE_DEADLINE`: `TEHAS_WORK_TIMEOUT` less the handoff allowance.
+The allowance is 8 minutes, and pi-rukas is given it as
 `PI_ENSEMBLE_HANDOFF_TIMEOUT_MS`, so both sides count the same time for the
-handoff. An image whose `--capabilities` has the feature
-`cycleDeadlineHandoffAllowance` bounds every step by the deadline, so its
-deadline is `TEHAS_WORK_TIMEOUT` less the allowance alone. After it pi-rukas
-starts no new step and parks the cycle with the cap `deadline` and a handoff,
-so a cycle that runs long ends at a step boundary with its branch and pull
-request said, not in the middle of a step. A step that started before the
-deadline may run past it; the margin is there for that step. The runner is
+handoff. pi-rukas bounds every step by the deadline. After it pi-rukas starts
+no new step and parks the cycle with the cap `deadline` and a handoff, so a
+cycle that runs long ends at a step boundary with its branch and pull request
+said, not in the middle of a step. The runner is
 given `TEHAS_WORK_TIMEOUT` in whole minutes and ends the cycle itself, with
 exit 30; `tehas work` stops a runner that is still there 300 seconds later.
 Either way the cycle is `timeout` and goes on record with the cap

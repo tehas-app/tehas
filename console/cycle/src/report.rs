@@ -7,7 +7,9 @@
 //! The order of the bash is kept, and so are its words: the report of the
 //! Rust and the report of the bash are compared line by line.
 
+use crate::after::After;
 use crate::facts::{first_bytes, line, two_lines, words, Facts, File};
+use crate::improve::Ended;
 use crate::last_attempt;
 use crate::runner::{self, cut, kept, names_issue};
 use serde_json::{json, Map, Value};
@@ -231,9 +233,10 @@ pub struct Report {
     /// The line logged once the writes are done.
     pub done: String,
     /// The arguments of `store cycle-end`; the paths of the result and the
-    /// progress are the caller's to add, for each of `files`.
+    /// progress are the caller's to add, for each of `files`, at `files_at`.
     pub end: Vec<String>,
     pub files: Vec<String>,
+    pub files_at: usize,
     /// The analytics line, without its time.
     pub history: Value,
     /// The arguments of `analytics run` after the issue, the attempt and the
@@ -247,6 +250,8 @@ pub struct Report {
     pub asked: Vec<String>,
     /// Which arm of the report this cycle took, for the shadow's log.
     pub arm: &'static str,
+    /// What follows the end; the caller adds the approval and its programs.
+    pub after: After,
 }
 
 fn re(pattern: &str, s: &str) -> bool {
@@ -846,7 +851,7 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         why = format!(" pi-rukas stopped on the cap `{cap}`{pr_why}.");
     }
     if cap == "deadline" {
-        why += " It reached its deadline, a quarter of its time limit before the end, and started no new step.";
+        why += " It reached its deadline before the time limit and started no new step.";
     }
     if own.is_empty()
         && failure_from == "result"
@@ -1302,6 +1307,7 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
             end.extend(["--pr".into(), n.to_string()]);
         }
     }
+    r.files_at = end.len();
     for (k, name) in [("result", "result.json"), ("progress", "progress.json")] {
         if f.file(name) != &File::Absent {
             r.files.push(k.to_string());
@@ -1366,6 +1372,34 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         "--forks".into(),
         forks.clone(),
     ]);
+    r.after = After {
+        ended: Ended {
+            issue,
+            started: f.started,
+            rc,
+            status: status.clone(),
+            step: step.clone(),
+            pr: pr.clone(),
+            kills: kills.clone(),
+            image: image_id.clone(),
+            rukas: image_rukas.clone(),
+            cap: cap.clone(),
+            reason: reason.clone(),
+            build: build.clone(),
+        },
+        attempt: f.attempt,
+        park_reason,
+        failure_kind,
+        failure_cause,
+        provider,
+        parked: parked_now,
+        by: f.start_by.clone(),
+        how: f.start_how.clone(),
+        image_built: f.image_built.clone(),
+        forks: forks.clone(),
+        signalled: f.signalled,
+        ..After::default()
+    };
     r.improve = vec![
         issue.to_string(),
         f.started.to_string(),

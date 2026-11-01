@@ -473,6 +473,9 @@ done
 # issue would park it for good.
 trap '' TERM INT HUP
 [ "$signalled" = 0 ] || tries=1
+# The report in Rust, where the instance asks for it: the signals stay ignored
+# across the exec, and the lock stays held. Without the program bash reports.
+[ "${TEHAS_CYCLE_REPORT:-}" != rust ] || [ ! -x "$tc" ] || exec "$tc" report "$issue" --attempt "$attempt" --rc "$rc" --started "$started" --signalled "$signalled" --by "$start_by" --how "$start_how" --approval-at "$approval_at" --requeued "$requeued"
 # The report's shadow (#256): tehas-cycle decides beside this report, from the
 # same files, while state/cycle-shadow.on is there. It never fails the report.
 ended=$EPOCHSECONDS mins=$(((ended - started) / 60))
@@ -1045,7 +1048,7 @@ if tehas_cycle_own_cap "${cap:-}"; then
 else
   [ -z "$cap" ] || why=" pi-rukas stopped on the cap \`$cap\`${park_reason:+ (\`$park_reason\`)}."
 fi
-[ "$cap" != deadline ] || why="$why It reached its deadline, a quarter of its time limit before the end, and started no new step."
+[ "$cap" != deadline ] || why="$why It reached its deadline before the time limit and started no new step."
 # The failure behind the cap, where the result gives one. Of kind cap nothing
 # failed: the cap's own rule stopped the cycle, and the cap says that.
 if [ -z "$own" ] && [ "$failure_from" = result ] && [ -n "$failure_kind" ] && [ "$failure_kind" != cap ] && [ "$provider" != 1 ]; then

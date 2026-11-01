@@ -162,7 +162,7 @@ _tehas_valid() {
     TEHAS_UPDATE_FROM)
       case "$v" in git | release) ;; *) echo "expected git or release"; return 1 ;; esac
       ;;
-    TEHAS_DISPATCHER)
+    TEHAS_DISPATCHER | TEHAS_CYCLE_REPORT)
       case "$v" in bash | rust) ;; *) echo "expected bash or rust"; return 1 ;; esac
       ;;
     # The look of every page: host/fun/theme-<name>.css. The servers write the
@@ -636,7 +636,7 @@ tehas_load() {
   if [ -n "${PI_RUKAS_FOLLOW+x}" ]; then
     _tehas_why PI_RUKAS_FOLLOW "$PI_RUKAS_FOLLOW" || { tehas_err "PI_RUKAS_FOLLOW is not valid: $reason (see $file)"; return 78; }
   fi
-  for v in TEHAS_BRANCH TEHAS_DOMAIN TEHAS_PROTOLAB_URL TEHAS_UPDATE_FROM TEHAS_RELEASE_REPO TEHAS_SIZE_MAX_FILES TEHAS_DISPATCHER TEHAS_SCRATCH_DIR; do
+  for v in TEHAS_BRANCH TEHAS_DOMAIN TEHAS_PROTOLAB_URL TEHAS_UPDATE_FROM TEHAS_RELEASE_REPO TEHAS_SIZE_MAX_FILES TEHAS_DISPATCHER TEHAS_CYCLE_REPORT TEHAS_SCRATCH_DIR; do
     [ -n "${!v:-}" ] || continue
     _tehas_why "$v" "${!v}" || { tehas_err "$v is not valid: $reason (see $file)"; return 78; }
   done

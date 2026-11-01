@@ -556,6 +556,28 @@ The shadow is for a host that runs the bash poll (`TEHAS_DISPATCHER=bash`).
 Beside the Rust poll, which is the default, it only sets the Rust's decision
 beside itself.
 
+### The report in Rust
+
+`TEHAS_CYCLE_REPORT=rust` in `instance.env` has `tehas-cycle report` report a
+cycle. `bash`, or leaving the setting out, is the report of `libexec/cycle`. A
+value of neither is exit 78. The switch is read when a cycle ends, by the code
+that cycle runs from, so a cycle already running reports as its own copy says.
+Roll back by taking the line out. A host without `libexec/tehas-cycle` reports
+in bash.
+
+The Rust report makes the same writes in the same order, with the same tries:
+three, and one bounded try after a stop. The differences:
+
+- Every write to GitHub goes through the action journal, as a poll's does, and
+  each try is a row of its own. The row names the cycle. A poll leaves the open
+  rows of a cycle whose lock is held, and settles the rows of one that is gone.
+  A store that will not record a write, after three tries, makes that try fail:
+  the write is not made.
+- Bodies go to gh on standard input, not as an argument.
+- A call to GitHub has a bound of two minutes. The bash has none.
+
+While it reports, the shadow below does not run.
+
 ### The cycle's shadow
 
 `tehas-cycle`, a cycle's report written in Rust, decides beside each report
@@ -678,9 +700,8 @@ result](/troubleshooting).
 An issue never ends a cycle with both labels.
 
 A cycle that reaches its deadline parks with the cap `deadline`. tehas gives
-pi-rukas a deadline a quarter of `TEHAS_WORK_TIMEOUT` before the end (at least
-one run of the gate and the handoff's 8 minutes): after it, the cycle starts no new step and
-hands off with its branch and pull request, instead of being stopped in the
+pi-rukas a deadline the handoff's 8 minutes before the end of
+`TEHAS_WORK_TIMEOUT`: after it, the cycle starts no new step and hands off with its branch and pull request, instead of being stopped in the
 middle of one.
 
 To try again after fixing the cause (often: make the issue clearer), tick

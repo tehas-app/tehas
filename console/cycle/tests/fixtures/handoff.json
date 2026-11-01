@@ -3134,7 +3134,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped without a pull request: status `handoff`, last step `lens-fix`, 0 min (runner exit 10). pi-rukas stopped on the cap `deadline`. It reached its deadline, a quarter of its time limit before the end, and started no new step. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=lens-fix kind= provider=0 sig=3f7491fbc37b9a7080ec009f4a436bd6f5e0d88f26a0b060c19785eea31fbd7d -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped without a pull request: status `handoff`, last step `lens-fix`, 0 min (runner exit 10). pi-rukas stopped on the cap `deadline`. It reached its deadline before the time limit and started no new step. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=lens-fix kind= provider=0 sig=3f7491fbc37b9a7080ec009f4a436bd6f5e0d88f26a0b060c19785eea31fbd7d -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
