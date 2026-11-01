@@ -152,7 +152,6 @@ files="./.bashrc
 ./tehas/libexec/improve
 ./tehas/libexec/index
 ./tehas/libexec/init-product
-./tehas/libexec/mcp
 ./tehas/libexec/plan
 ./tehas/libexec/preview
 ./tehas/libexec/protolab
