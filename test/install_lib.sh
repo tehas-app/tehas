@@ -5,8 +5,8 @@
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
 # shellcheck disable=SC2034  # the variables here are read by the test files
 # The part has sourced test/lib.sh before this.
-# The one place the follow-ups are named: install.sh prints what it defines here,
-# and tehas update runs the same ids, so a case can pin both sides to it.
+# The record's path and the lock's wait; the steps are the console's, and a case
+# asks it, so it pins install.sh and tehas update to one table.
 # shellcheck source=lib/update-steps.sh
 . "$T_ROOT/lib/update-steps.sh"
 
@@ -121,7 +121,6 @@ files="./.bashrc
 ./tehas/lib/sandbox.sh
 ./tehas/lib/store.sh
 ./tehas/lib/slice.sh
-./tehas/lib/update-release.sh
 ./tehas/lib/update-steps.sh
 ./tehas/libexec/analytics
 ./tehas/libexec/analytics.stamp
@@ -186,7 +185,7 @@ host_files() { find "$home" -type f ! -path "$th/state/update.lock"; }
 # The follow-ups a fresh install of this repository asks for, taken from the one
 # place that names them and the sources a fresh host has none of.
 next_steps() {
-  tehas_steps_for systemd/tehas-cycle@.service systemd/tehas-clean.service systemd/tehas-clean.timer \
+  "$T_CONSOLE" update steps for systemd/tehas-cycle@.service systemd/tehas-clean.service systemd/tehas-clean.timer \
     systemd/tehas-dispatch.path systemd/tehas-dispatch.service systemd/tehas-dispatch.timer \
     systemd/tehas-energy.service systemd/tehas-improve.service systemd/tehas-improve.timer \
     systemd/tehas-preview.service \

@@ -20,7 +20,7 @@ asset_for() { # [machine]
 }
 
 # The architecture words of host/release/install, the same choice as
-# tehas_release_arch of lib/update-release.sh. The installer is a standalone
+# console/src/update/release.rs. The installer is a standalone
 # script, so the test names them too rather than sourcing either.
 arch_of() { # <machine>
   case "$1" in
