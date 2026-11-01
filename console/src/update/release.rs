@@ -14,6 +14,7 @@
 
 use super::{
     fault, first_line, host_or_refuse, output, quiet, say, tell, temp_dir, timed, Host, Mode, Plan,
+    ANSWERED,
 };
 use serde_json::Value;
 use std::cmp::Ordering;
@@ -37,7 +38,7 @@ fn digits(s: &str) -> bool {
 }
 
 /// The shape of a published version: vX.Y.Z.
-pub fn tag_ok(tag: &str) -> bool {
+pub(crate) fn tag_ok(tag: &str) -> bool {
     let Some(rest) = tag.strip_prefix('v') else {
         return false;
     };
@@ -814,7 +815,7 @@ fn bring(host: &Host, target: &str, tree: &Path, arch: &str) -> u8 {
 /// The version to run, unpacked beside the others and checked before current is
 /// moved to it, so a download that fails a check, or a release that asks for a
 /// setting this instance lacks, leaves the host on the version it runs.
-fn go(host: &Host, to: Option<&str>, plan: &mut Plan) -> u8 {
+pub(crate) fn go(host: &Host, to: Option<&str>, plan: &mut Plan) -> u8 {
     let check = plan.mode == Mode::Check;
     let installed = installed(host);
     let list = match list(host) {
@@ -888,7 +889,8 @@ fn go(host: &Host, to: Option<&str>, plan: &mut Plan) -> u8 {
         if fs::symlink_metadata(&current).is_ok_and(|m| m.file_type().is_symlink()) {
             plan.tree = current.display().to_string();
         } else if !host.checkout().join("install.sh").is_file() {
-            plan.end = Some(plan.found as u8);
+            // No install.sh to ask.
+            return if plan.found { 1 } else { ANSWERED };
         }
         return 0;
     }
@@ -938,48 +940,6 @@ fn go(host: &Host, to: Option<&str>, plan: &mut Plan) -> u8 {
             "sandbox: the image {target} ran with is in use again"
         ));
         plan.reused = true;
-    }
-    0
-}
-
-/// `console update move --plan <file> [--to <version>]`.
-/// Exit: 0 the plan says what comes next, 1 no release could be taken, 78 a
-/// setting is missing or the release asks for one this instance lacks.
-pub fn moved(given: &[String]) -> u8 {
-    let (mut file, mut to) = (None, None);
-    let mut words = given.iter();
-    while let Some(word) = words.next() {
-        let slot = match word.as_str() {
-            "--plan" => &mut file,
-            "--to" => &mut to,
-            _ => {
-                tell(&format!("console update move: unknown argument: {word}"));
-                return 64;
-            }
-        };
-        *slot = words.next().map(String::as_str);
-    }
-    let Some(file) = file else {
-        tell("console update move: --plan is required");
-        return 64;
-    };
-    let Some(mut plan) = Plan::read(Path::new(file)) else {
-        tell(&format!("console update move: {file} is no plan"));
-        return 64;
-    };
-    let host = match host_or_refuse() {
-        Ok(host) => host,
-        Err(rc) => return rc,
-    };
-    let rc = go(&host, to, &mut plan);
-    if rc != 0 {
-        return rc;
-    }
-    if plan.write(Path::new(file)).is_err() {
-        tell(&format!(
-            "release: could not write {file}; run tehas update again to finish"
-        ));
-        return 1;
     }
     0
 }

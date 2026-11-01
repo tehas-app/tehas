@@ -334,6 +334,23 @@ t_run "$update --help"
 t_eq "$t_rc" 0
 t_contains "$t_out" "tehas update --check"
 
+t_case "no console stops it with 78, and one that does not answer with 1 and where to look"
+instance
+platform 0
+T_ENV_ALWAYS=(TEHAS_CONSOLE="$T/no-console")
+t_run "$update"
+t_eq "$t_rc" 78
+t_contains "$t_out" "tehas update: no console at $T/no-console: run install.sh"
+t_stub broken-console 'exit 2'
+T_ENV_ALWAYS=(TEHAS_CONSOLE="$T/bin/broken-console")
+t_run "$update"
+t_eq "$t_rc" 1
+t_contains "$t_out" "the console at $T/bin/broken-console does not answer (exit 2)"
+t_contains "$t_out" "troubleshooting"
+T_ENV_ALWAYS=(TEHAS_CONSOLE="$T_CONSOLE")
+t_eq "$(state | cut -d' ' -f2)" "$(head_sha)"
+t_eq "$(t_calls install)" ""
+
 t_case "no platform checkout: exit 78 saying where it looked"
 instance
 rm -rf "$th"
@@ -472,6 +489,27 @@ t_run "$update"
 t_eq "$t_rc" 0
 t_contains "$t_out" "the lock is ours"
 t_contains "$t_out" "held against others"
+
+t_case "install.sh is the only child given the lock's descriptor"
+instance
+platform 1 "$ASK"
+t_stub timeout "case \"\$*\" in
+  *install.sh*) ;;
+  *) [ ! -e /proc/self/fd/7 ] || echo \"\$*\" >>'$T/calls/held' ;;
+esac
+exec $real_timeout \"\$@\""
+printf '%s\n' '#!/usr/bin/env bash' \
+  "[ ! -e /proc/self/fd/7 ] || echo \"console \$1 \$2\" >>'$T/calls/held'" \
+  "exec '$T_CONSOLE' \"\$@\"" >"$T/console.held"
+chmod +x "$T/console.held"
+T_ENV_ALWAYS=(TEHAS_CONSOLE="$T/console.held")
+t_run "$update"
+T_ENV_ALWAYS=(TEHAS_CONSOLE="$T_CONSOLE")
+t_eq "$t_rc" 0
+t_eq "$(owed_steps)" ""
+t_eq "$(cat "$T/calls/held" 2>/dev/null)" ""
+rm -f "$T/console.held"
+bound_calls
 
 # A child that outlives the update must not keep the lock: the next update would
 # read it as another one running. systemctl stands for every such child here.

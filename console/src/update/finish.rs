@@ -18,6 +18,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
+/// What libexec/update gives install.sh. It runs it; this says so.
 const INSTALL_LIMIT: u32 = 1800;
 /// docker ps and docker compose up.
 const COMPOSE_LIMIT: u32 = 180;
@@ -530,18 +531,15 @@ fn follow_ups(run: &mut Run, plan: &Plan, out: &str) -> u8 {
     status
 }
 
-/// `console update finish --plan <file> [--tree <dir>] [--found 0|1]
-/// --install-out <file> --install-err <file> --install-rc <n>`.
-/// Exit: the status of the run.
+/// `console update finish --plan <file> --install-out <file> --install-err
+/// <file> --install-rc <n>`, by the console install.sh left. --pending runs no
+/// install.sh, so of those it gives only the plan. Exit: the status of the run.
 pub fn main(given: &[String]) -> u8 {
-    let (mut file, mut tree, mut found, mut out, mut err, mut rc) =
-        (None, None, None, None, None, None);
+    let (mut file, mut out, mut err, mut rc) = (None, None, None, None);
     let mut words = given.iter();
     while let Some(word) = words.next() {
         let slot = match word.as_str() {
             "--plan" => &mut file,
-            "--tree" => &mut tree,
-            "--found" => &mut found,
             "--install-out" => &mut out,
             "--install-err" => &mut err,
             "--install-rc" => &mut rc,
@@ -552,16 +550,10 @@ pub fn main(given: &[String]) -> u8 {
         };
         *slot = words.next().map(String::as_str);
     }
-    let Some(mut plan) = file.and_then(|f| Plan::read(Path::new(f))) else {
+    let Some(plan) = file.and_then(|f| Plan::read(Path::new(f))) else {
         tell("console update finish: --plan names no plan");
         return 64;
     };
-    if let Some(tree) = tree {
-        plan.tree = tree.to_string();
-    }
-    if found.is_some_and(|f| f != "0") {
-        plan.found = true;
-    }
     let host = match host_or_refuse() {
         Ok(host) => host,
         Err(rc) => return rc,
@@ -597,6 +589,13 @@ pub fn main(given: &[String]) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_script_and_this_console_agree() {
+        let script = include_str!("../../../libexec/update");
+        assert!(script.contains(&format!("timeout {INSTALL_LIMIT} \"${{run[@]}}\"")));
+        assert!(script.contains(&format!("7>&-)\" != {} ]", super::super::API)));
+    }
 
     #[test]
     fn a_check_line_is_read_by_its_label_and_its_word() {
