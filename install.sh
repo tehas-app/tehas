@@ -1202,7 +1202,6 @@ for f in \
   lib/analytics.sh \
   lib/describe.sh \
   lib/edge.sh \
-  lib/limit.sh \
   lib/private.sh \
   libexec/analytics-cmd \
   libexec/api \
