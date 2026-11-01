@@ -116,7 +116,6 @@ files="./.bashrc
 ./tehas/lib/labels.sh
 ./tehas/lib/labels.tsv
 ./tehas/lib/park-fields.jq
-./tehas/lib/limit.sh
 ./tehas/lib/models.sh
 ./tehas/lib/paths.sh
 ./tehas/lib/questions.sh

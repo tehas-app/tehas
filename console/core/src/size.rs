@@ -71,7 +71,7 @@ pub struct Size {
 
 impl Size {
     /// The keys without their braces, always in this order: state/sizes.jsonl
-    /// and tehas_issue_size both pin it.
+    /// and `console size measure` both pin it.
     pub fn fields(&self) -> String {
         format!(
             r#""files":{},"tests":{},"deliverables":{},"done_when":{}"#,
