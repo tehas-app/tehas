@@ -7,6 +7,9 @@
 //! `renew` keeps a cycle's GitHub token fresh and says what went wrong.
 //! `finish` opens a pull request from what a cycle that stopped left.
 //! `caps` reads what an image says its runner can do.
+//! `index` builds the code index a cycle's agents search.
+//! `sandbox` prints the docker options of a container for the commands that
+//! keep their docker line in bash.
 
 pub mod caps;
 pub mod clock;
@@ -14,11 +17,13 @@ pub mod describe;
 pub mod facts;
 pub mod finish;
 pub mod host;
+pub mod index;
 pub mod last_attempt;
 pub mod pin;
 pub mod renew;
 pub mod report;
 pub mod runner;
+pub mod sandbox;
 pub mod shadow;
 
 pub use facts::Facts;
