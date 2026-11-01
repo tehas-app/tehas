@@ -11,7 +11,7 @@ use regex::Regex;
 use serde_json::{json, Map, Value};
 use std::path::Path;
 
-/// The result schema this reads (tehas_headless_result of lib/headless.sh).
+/// The result schema this reads.
 pub const RESULT_SCHEMA: u64 = 5;
 
 /// The first JSON value of a text, as `jq -n input` reads it.

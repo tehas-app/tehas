@@ -455,7 +455,6 @@ files=(
   "lib/limit.sh|$TEHAS_HOME/lib/limit.sh|644"
   "lib/models.sh|$TEHAS_HOME/lib/models.sh|644"
   "lib/update-steps.sh|$TEHAS_HOME/lib/update-steps.sh|644"
-  "lib/headless.sh|$TEHAS_HOME/lib/headless.sh|644"
   "lib/github-app.sh|$TEHAS_HOME/lib/github-app.sh|644"
   "lib/rukas.sh|$TEHAS_HOME/lib/rukas.sh|644"
   "lib/sandbox.sh|$TEHAS_HOME/lib/sandbox.sh|644"
@@ -1210,6 +1209,7 @@ for f in \
   libexec/api \
   libexec/console.ts \
   lib/live.sh \
+  lib/headless.sh \
   lib/planning.sh \
   lib/refresh.sh \
   libexec/disk \
