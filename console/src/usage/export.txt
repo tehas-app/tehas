@@ -1,0 +1,58 @@
+tehas export: copy what a person reading a cycle needs into a directory,
+masked, and change nothing in the factory.
+
+For every cycle tehas history would list, this writes <dir>/<cursor>/ with
+the cycle's result, its logs, its agents' transcripts and its Protolab page:
+
+  result.json        state/cycles/<issue>.result.json and .progress.json, as
+                     the cycle left them
+  history.json       the cycle's own line of history, as tehas history
+                     publishes it, so the copy says what the factory said
+  logs/              the runner's progress and its error and console streams,
+                     and the dispatcher's log of the cycle
+  transcripts/       the agents' transcripts of that cycle, under the name the
+                     console found them by
+  protolab/          the ticket's page and its files, when the ticket has one
+  plan.json          the planning session on the state store, for a kind:
+                     plan line, as plan-show gives it
+
+The copying is the console's (console/src/export.rs).
+Every file goes through its mask, with the same names of the host it is given
+when a cycle runs (the host aliases, the model hosts, the bot's email): a
+token, a key, a password or a private address that reached a log does not
+reach the copy. Only a file of a Protolab page that is not UTF-8 is copied as
+it is: an image or a video holds nothing to hide and a mask would only corrupt
+it. A log is masked whatever bytes it holds. The mask catches accidents; it
+cannot stop what no pattern knows, so an export is still a copy of what a
+cycle wrote.
+
+A cycle with no logs, no transcripts or no Protolab page is not an error:
+those directories are simply not there. The improvement loop removes logs
+after seven days, and a planning turn has no result file at all.
+
+Usage: tehas export [--json] --after CURSOR <dir>
+
+  --after CURSOR   required: the cursor tehas history printed as "next". The
+                   command writes what it copied, so a program that keeps the
+                   cursor it is given and calls again copies each cycle once
+  --json           the object on standard output; without it, one line per
+                   cycle and one for the directory
+  <dir>            where to put them, required, and not the factory's home or
+                   a link to it: an export is for somewhere else. It is made
+                   if it is not there, readable by anyone, so the person who
+                   reads the archive can be someone else. Its name may not be
+                   "." or ".."
+
+With --json, the object tehas history prints for what was copied, so the
+cursor to keep is the "next" of the object:
+
+  {"api": 1, "cycles": [...], "next": "1760700300-7-42", "to": "/home/boss/archive"}
+
+Exit: 0 copied, also when there was nothing to copy; 1 the state store did
+not answer (busy) for the history, which copies nothing, or a cycle could not
+be written, a planning turn whose session the store did not give among them,
+which the others are copied without; 64 a bad argument,
+an export into the factory's own home or a directory that cannot be made,
+which copies nothing; 78 the instance settings are missing or malformed, the
+file of models is there and cannot be read, or the state store is not installed
+or cannot be used, which copies nothing.

@@ -365,7 +365,7 @@ tidies and adds the label in the call that strips their state labels, so the
 label says one thing, that a merge closed the issue, whatever the queue's list
 happened to hold. Two commands
 put the label from a merged closer, and both make the one read of
-`console shipped query` and go by the same rule (`console/src/shipped.rs`):
+the query of `console/src/shipped.rs` and go by the same rule:
 `console tidy run` in the edit that takes the state labels off, and
 `tehasbot status` from its own read of the list for any issue missing it.
 `console tidy run` is the one that says what it did in

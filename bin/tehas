@@ -49,14 +49,14 @@ usage_of() {
 # script <command>: the file behind a command, or nothing.
 script() {
   case "$1" in
-    dispatch | work | plan | dev | index | setup | update | history | export | check-product | init-product) echo "$libexec/$1" ;;
+    dispatch | work | plan | dev | index | setup | update | check-product | init-product) echo "$libexec/$1" ;;
   esac
 }
 
 # verb <command>: whether the command is a verb of the console.
 verb() {
   case "$1" in
-    status | disk | state | limit | pause | analytics | top | api | labels | resume | drain | stop | mcp) ;;
+    status | disk | state | limit | pause | analytics | top | api | labels | resume | drain | history | export | stop | mcp) ;;
     *) return 1 ;;
   esac
 }
@@ -96,11 +96,12 @@ case "$#:${2-}" in
 esac
 case "$1" in
   status | disk) exec "$console" tehas "$@" ;;
-  top)
-    [ -x "$console" ] || { echo "tehas top: no console at $console, run install.sh" >&2; exit 1; }
+  top | export)
+    [ -x "$console" ] || { echo "tehas $1: no console at $console, run install.sh" >&2; exit 1; }
+    [ "$1" = top ] || exec "$libexec/with-settings" tehas "$@"
     exec "$console" tehas "$@"
     ;;
-  state | limit | pause | analytics | api | labels | resume | drain | stop) exec "$libexec/with-settings" tehas "$@" ;;
+  state | limit | pause | analytics | api | labels | resume | drain | history | stop) exec "$libexec/with-settings" tehas "$@" ;;
   mcp) [ "${2-}" != serve ] || exec "$libexec/with-settings" tehas "$@"; exec "$console" tehas "$@" ;;
 esac
 file=$(script "$1")

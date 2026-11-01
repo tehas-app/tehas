@@ -97,10 +97,6 @@
 //! The flags under state/ of one instance: the limit tehas limit sets, see
 //! src/flags.rs.
 //!
-//!   console export run ...
-//!
-//! What tehas export copies, see src/export.rs.
-//!
 //!   console state pack|unpack ...
 //!
 //! A stopped factory's state as one tar, see src/state.rs.
@@ -117,7 +113,7 @@
 //!
 //! The settings, the checks and the files of tehas setup, see src/setup.rs.
 //!
-//!   console shipped page|query|answer|list|has|whole ...
+//!   console shipped page
 //!
 //! What closed an issue: the page and the GraphQL query of the read, and what its
 //! answer says, see src/shipped.rs.
@@ -159,7 +155,7 @@
 //! The product against the contract, and the files it is missing proposed in a
 //! pull request, see src/product.rs.
 //!
-//!   console tehas status|disk|state|limit|pause|analytics|top|api|labels|resume|drain|stop|mcp ...
+//!   console tehas status|disk|state|limit|pause|analytics|top|api|labels|resume|drain|history|export|stop|mcp ...
 //!   console tehasbot health|status|top|mcp
 //!   console check tehas|tehasbot <command> ...
 //!   console usage <command>
@@ -189,6 +185,7 @@ mod forge;
 mod frame;
 mod github;
 mod health;
+mod history;
 mod improve;
 mod label;
 mod labels;
@@ -417,6 +414,13 @@ fn mask_stdin() -> io::Result<()> {
 }
 
 fn main() -> ExitCode {
+    // No command takes a word that is not text: `check` refuses it with the
+    // usage of the command it is asked about.
+    let words = std::env::args_os().skip(1);
+    let words: Vec<String> = words.map(|a| a.to_string_lossy().into_owned()).collect();
+    if words.first().is_some_and(|w| w == "check") {
+        return ExitCode::from(commands::check(&words[1..]));
+    }
     let given = std::env::args_os()
         .skip(1)
         .map(|a| a.into_string())
@@ -425,13 +429,11 @@ fn main() -> ExitCode {
     if let Ok(given) = &given {
         match given.first().map(String::as_str) {
             Some("check-product") => return ExitCode::from(product::check(&given[1..])),
-            Some("check") => return ExitCode::from(commands::check(&given[1..])),
             Some("needs") => return ExitCode::from(commands::needs(&given[1..])),
             Some("clean") => return ExitCode::from(clean::main(&given[1..])),
             Some("disk") => return ExitCode::from(disk::main(&given[1..])),
             Some("energy") => return ExitCode::from(energy::main(&given[1..])),
             Some("epics") => return ExitCode::from(epics::main(&given[1..])),
-            Some("export") => return ExitCode::from(export::main(&given[1..])),
             Some("flags") => return ExitCode::from(flags::main(&given[1..])),
             Some("forge") => return ExitCode::from(forge::main(&given[1..])),
             Some("init-product") => return ExitCode::from(product::init(&given[1..])),
