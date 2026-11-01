@@ -32,7 +32,7 @@
 
 mod checkout;
 mod finish;
-mod release;
+pub(crate) mod release;
 mod steps;
 
 use std::env;
