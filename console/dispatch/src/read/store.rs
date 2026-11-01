@@ -514,7 +514,7 @@ pub fn fed(asked: &Asked, running: &[u64]) -> Value {
     json!(count)
 }
 
-/// history-show <n> --kind cycle, as tehas_cycle_history gives its lines.
+/// history-show <n> --kind cycle, its lines in the shape they had before the store.
 pub fn history(calls: &mut Calls, n: u64) -> Value {
     match calls.store(&["history-show", &n.to_string(), "--kind", "cycle"]) {
         Ok(v) => Value::Array(

@@ -8,15 +8,6 @@
 #   tehas_attachment_links            print a jq definition, `links`: every
 #                                     attachment link in a string, in the
 #                                     order written
-#   tehas_attachment_placeholder      print a jq definition, `placeholder`: an
-#                                     unfilled attachment placeholder in a
-#                                     string, or null for text with none
-#   tehas_text_holds_attachment <json> <field>
-#                                     0 when the text in <field> of that JSON
-#                                     promises an attachment it does not link;
-#                                     the word it promises is left in
-#                                     $attach_promise. A field that is not
-#                                     there, or is not text, promises nothing
 #   tehas_attachment_kind <extension> image, video, app or part; fails for a
 #                                     type that is not known
 #   tehas_attachment_ext <content type>
@@ -51,77 +42,6 @@
 tehas_attachment_links() {
   # shellcheck disable=SC2016  # a jq program
   printf '%s\n' 'def links: [scan("https://(?:github\\.com/user-attachments/(?:assets|files)/|github\\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/(?:assets|files)/[0-9]+/|user-images\\.githubusercontent\\.com/)[A-Za-z0-9._~%/?&=+-]+")];'
-}
-
-# The words of an issue written around a file that was never attached:
-# `SCREENSHOT GOES HERE`, `the image goes here`, `IMAGE_GOES_HERE`. The word
-# before it names what is missing, so it is one of these and no other: "the
-# value goes here" in a body of prose is not a missing file. A placeholder
-# names no bytes, so this is the other half of the question `links` answers:
-# the links are what was attached, this is what was promised. It is a
-# definition, not a command, because the dispatcher reads an issue's text in
-# one jq pass and asks GitHub for nothing.
-tehas_attachment_placeholder() {
-  # shellcheck disable=SC2016  # a jq program
-  printf '%s\n' 'def placeholder:
-    ["screenshot", "image", "picture", "figure", "shot", "mockup", "mock", "diagram",
-     "attachment", "file", "video", "gif", "screencast", "thumbnail", "animation",
-     "example", "prototype"] as $what
-    | [scan("(?i)[a-z0-9_.-]+(?:[[:space:]]+|_)goes(?:[[:space:]]+|_)here")] as $said
-    | [$said[] | select(. as $m | $what
-        | any((. + " goes here") == ($m | ascii_downcase | gsub("[[:space:]]+"; " ")) or
-              (. + "_goes_here") == ($m | ascii_downcase)))]
-    | if length > 0 then .[0] else null end;'
-}
-
-# tehas_texts_hold_attachment <json>: 0 when any text of that JSON promises an
-# attachment none of its texts link. The JSON is the issue as GitHub answers
-# for it, or as the dispatcher's GraphQL read of it answers, and the texts are
-# the strings it holds: the body, the title, a reply. A placeholder alone is no
-# reason to hold -- the file may be there and the words left over from an
-# earlier draft -- so it is a reason only when no text of the JSON links an
-# attachment at all, and then the cycle would start with no picture, no file,
-# and nothing to say the gap. The word it promises is left in $attach_promise,
-# empty otherwise: it goes on one line of a log, so a control character or more
-# than 80 characters of it is taken as no answer. A JSON that cannot be read
-# promises nothing; whoever reads it fails there. Needs no setting: a body that
-# promises a file holds whether or not the instance gives a cycle images.
-tehas_texts_hold_attachment() { # <json>
-  local out
-  attach_promise=""
-  # `one` is the promise of one text; the answer is that of the first text that
-  # makes one, and empty when any text of the JSON links at all. `.. | strings`
-  # is every string of the answer, at any depth: the dispatcher reads the issue
-  # with GraphQL and hands the whole answer on, so the body sits wherever that
-  # read puts it. A text is taken before its own address in it is asked about,
-  # and `.[0]` is the first in the order the answer holds them, so what the
-  # issue wrote is what comes back, whatever its case. Every text of the whole
-  # answer is read, which is the whole of what a caller may hand this file: one
-  # issue's answer, or one reply, never a list of issues.
-  # shellcheck disable=SC2016  # a jq program
-  out=$(jq -c "$(tehas_attachment_links)$(tehas_attachment_placeholder)
-def promise: if type != \"string\" then null
-  elif ((. | links) | length) > 0 then \"LINKED\" else placeholder end;
-def texts: [.. | strings];
-def clean: if type == \"string\" then test(\"^[^\\\\t\\\\r\\\\n]{1,80}$\") else false end;
-texts as \$ts
-| (if ((\$ts | map(links) | add // []) | length) > 0 then \"\"
-   else ([\$ts[] | promise] | map(select(. != null and . != \"LINKED\")) | map(select(clean)) | .[0] // \"\") end)" \
-    <<<"${1:-}" 2>/dev/null) || return 1
-  out=${out%$'\n'}
-  out=${out#\"}
-  out=${out%\"}
-  # jq answered with its own reading of one text; nothing of it goes to the
-  # log before it is taken as one word of the issue's own. The rule is
-  # written once in jq and again here: `clean` lets jq drop what fails it, and
-  # this refuses one that came through anyway.
-  case $out in
-    *\\\\* | *\\\"* | *\\u*) return 1 ;;
-  esac
-  [ "$out" = "${out//[$'\n\t\r']/}" ] || return 1
-  [ "${#out}" -le 80 ] || return 1
-  attach_promise=$out
-  [ -n "$attach_promise" ] || return 1
 }
 
 # The dispatcher's approval of a start, as tehas_approval_view (lib/store.sh)

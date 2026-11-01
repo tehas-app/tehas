@@ -45,19 +45,17 @@ t_store_home "$home"
 
 # --- What a call returns -------------------------------------------------------
 t_case "an answer is 0, and only then is a field read"
-lib 'said cycle-show 7; tehas_store_get .issue; tehas_store_looked && echo looked; echo "line=$tehas_store_line"'
+lib 'said cycle-show 7; tehas_store_get .issue; echo "line=$tehas_store_line"'
 t_eq "$t_out" "rc=0 word=
 7
-looked
 line="
 
 t_case "a 0 whose line is not JSON is 78 garbled, and nothing is read from it"
 t_store_answers check 0 'all is well'
-lib 'said check; tehas_store_get .ok || echo "no read"; echo "out=$tehas_store_out"; tehas_store_looked || echo "not looked"'
+lib 'said check; tehas_store_get .ok || echo "no read"; echo "out=$tehas_store_out"'
 t_eq "$t_out" "rc=78 word=garbled
 no read
-out=
-not looked"
+out="
 
 t_case "a 0 whose line says it is not ok, or answers another verb or api, or is two lines, is 78 garbled"
 for line in '{"api":1,"verb":"check","ok":false}' '{"api":1,"verb":"cycle-show","ok":true}' \
@@ -226,21 +224,6 @@ t_eq "$(cat "$T/ran" 2>/dev/null)" ""
 t_eq "$([ -e "$home/tmp" ] && echo made)" ""
 rm -f "$T"/bin/*
 
-# --- The attempt on record ---------------------------------------------------------
-t_case "tehas_cycle_attempt: 0 when no cycle is on record, the attempt after a start"
-t_store_home "$home"
-lib 'tehas_cycle_attempt 7; echo "rc=$? is=$tehas_cycle_attempt_is"'
-t_eq "$t_out" "rc=0 is=0"
-record 7 --at 1792497600 --by alice --how label --label tehas:ready --body-sha "$SUM"
-start 7
-lib 'tehas_cycle_attempt 7; echo "rc=$? is=$tehas_cycle_attempt_is"'
-t_eq "$t_out" "rc=0 is=1"
-
-t_case "tehas_cycle_attempt returns 1 and sets nothing when the store could not look"
-t_store_answers cycle-show 1 "$BUSY"
-lib 'tehas_cycle_attempt_is=5; tehas_cycle_attempt 7; echo "rc=$? is=$tehas_cycle_attempt_is word=$tehas_store_word"'
-t_eq "$t_out" "rc=1 is= word=busy"
-
 # --- The approval, as .approved.json had it ------------------------------------------
 t_case "tehas_approval_view: the driver on record is in the view, and a record with none has no key"
 t_store_home "$home"
@@ -347,7 +330,7 @@ t_case "approval-record takes the millwright's word, and the shape and the cap r
 # The store writes the row under its own word whichever spelling was sent, and
 # answers the count under both keys: `fixer` above, `millwright` below, both read
 # the same. lib/store.sh gives the record back with the `fixer` its shape has
-# always carried, and tehas_millwright_starts of lib/millwright.sh, which is what the retry
+# always carried, and what the retry
 # cap reads, must see that count and not 0: a silent 0 here leaves
 # TEHAS_MILLWRIGHT_MAX_RETRIES with nothing to count.
 t_store_home "$home"
@@ -362,8 +345,6 @@ t_eq "$t_out" "millwright
 1"
 lib 'f=$(tehas_approval_view 7 1) && jq -c "{how, fixer_starts}" "$f"'
 t_eq "$t_out" '{"how":"fixer","fixer_starts":1}'
-lib '. "$T_ROOT/lib/millwright.sh"; f=$(tehas_approval_view 7 1) && tehas_millwright_starts "$f"'
-t_eq "$t_out" "1"
 # A second start while one is on record replaces it and keeps only its own
 # approval, which is why this pair reads its own count and not two. It is also
 # why the refresh below rests on nothing.
