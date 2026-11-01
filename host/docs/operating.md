@@ -1197,6 +1197,9 @@ Most of the time you do not need it. The machine's CPUs and memory change while
 it runs, and a hypervisor restart saves the virtual machine with its cycles in
 it, so what runs goes on where it stopped: [Resize or restart the
 host](/resize) is that, and it names the four changes that still need a drain.
+That is a VM host: a factory that is a container on another project's machine
+has no hypervisor to save it, so a restart of the machine under it is always a
+drain.
 
 A program that drives factories uses the same commands: see
 [the factory API](/api).
