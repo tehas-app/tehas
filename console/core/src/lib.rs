@@ -11,6 +11,7 @@ pub mod lock;
 pub mod mask;
 pub mod models;
 pub mod plan;
+pub mod private;
 #[cfg(feature = "mask")]
 pub mod question;
 pub mod review;
