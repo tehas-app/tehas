@@ -4763,7 +4763,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped without a pull request: status `handoff`, last step `develop`, 0 min (runner exit 2). pi-rukas stopped on the cap `deadline`. It reached its deadline, a quarter of its time limit before the end, and started no new step. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. It ran past its time limit of 360 min at step `develop`, and the runner did not stop on its own, so tehas stopped it. Its branch has an open pull request: https://github.com/acme/widget/pull/9\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=develop kind= provider=0 sig=2ecb78edf66efa7855ad80e51fb98ec20fba85752b80cefded7534486c718d73 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped without a pull request: status `handoff`, last step `develop`, 0 min (runner exit 2). pi-rukas stopped on the cap `deadline`. It reached its deadline before the time limit and started no new step. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. It ran past its time limit of 360 min at step `develop`, and the runner did not stop on its own, so tehas stopped it. Its branch has an open pull request: https://github.com/acme/widget/pull/9\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=develop kind= provider=0 sig=2ecb78edf66efa7855ad80e51fb98ec20fba85752b80cefded7534486c718d73 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -5184,7 +5184,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped without a pull request: status `interrupted`, last step `develop`, 0 min (runner exit 2). pi-rukas stopped on the cap `deadline`. It reached its deadline, a quarter of its time limit before the end, and started no new step. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. A person stopped it with `tehas stop` (alice, at 2026-11-01T09:42:33Z).\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=develop kind= provider=0 sig=2ecb78edf66efa7855ad80e51fb98ec20fba85752b80cefded7534486c718d73 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped without a pull request: status `interrupted`, last step `develop`, 0 min (runner exit 2). pi-rukas stopped on the cap `deadline`. It reached its deadline before the time limit and started no new step. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. A person stopped it with `tehas stop` (alice, at 2026-11-01T09:42:33Z).\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=develop kind= provider=0 sig=2ecb78edf66efa7855ad80e51fb98ec20fba85752b80cefded7534486c718d73 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",

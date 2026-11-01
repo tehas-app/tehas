@@ -9,6 +9,8 @@ use serde_json::{json, Map, Value};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::Duration;
+use tehas_core::call;
 
 /// The files of the protocol a report reads, state/cycles/<issue>.<name>.
 pub const FILES: [&str; 12] = [
@@ -61,80 +63,37 @@ pub struct Refused {
     pub line: String,
 }
 
-/// One verb of the state store, its JSON answer or the word of its failure.
-pub fn store(home: &Path, args: &[&str]) -> Result<Value, String> {
-    store_said(home, args).map_err(|f| f.word)
+/// One verb of the state store, as lib/store.sh bounds it, its failure as
+/// tehas_core::call keeps it.
+pub fn store_value(home: &Path, args: &[&str]) -> Result<Value, Value> {
+    let program = home.join("libexec/store");
+    let extra = [("TEHAS_HOME", home.to_str().unwrap_or(""))];
+    call::store(
+        &program.to_string_lossy(),
+        args,
+        Duration::from_secs(20),
+        Duration::from_secs(2),
+        &extra,
+    )
 }
 
-/// One verb of the state store, its JSON answer or how it failed.
-pub fn store_said(home: &Path, args: &[&str]) -> Result<Value, Refused> {
-    let verb = args.first().copied().unwrap_or("");
-    let refused = |word: &str, line: String| Refused {
-        word: word.to_string(),
-        line,
-    };
-    let out = Command::new("timeout")
-        .args(["-k", "2", "20"])
-        .arg(home.join("libexec/store"))
-        .args(args)
-        .env("TEHAS_HOME", home)
-        .stdin(std::process::Stdio::null())
-        .output()
-        .map_err(|_| refused("absent", format!("store: absent: {verb} could not be run")))?;
-    match out.status.code() {
-        Some(0) => {}
-        Some(124 | 137) | None => {
-            return Err(refused(
-                "timeout",
-                format!("store: timeout: {verb} did not answer in 20 s"),
-            ))
-        }
-        Some(126 | 127) => {
-            return Err(refused(
-                "absent",
-                format!("store: absent: {verb} could not be run"),
-            ))
-        }
-        Some(_) => {
-            let said = String::from_utf8_lossy(&out.stderr);
-            let line: String = said
-                .lines()
-                .next()
-                .unwrap_or("")
-                .chars()
-                .map(|c| if c.is_control() { '?' } else { c })
-                .take(300)
-                .collect();
-            let word = line
-                .split_whitespace()
-                .nth(1)
-                .unwrap_or("unknown")
-                .trim_end_matches(':')
-                .to_string();
-            return Err(Refused { word, line });
-        }
+fn refused(f: Value) -> Refused {
+    let word = |k: &str| f.get(k).and_then(Value::as_str).unwrap_or("").to_string();
+    Refused {
+        word: word("word"),
+        line: word("line"),
     }
-    serde_json::from_slice(&out.stdout).map_err(|_| {
-        refused(
-            "unreadable",
-            format!("store: garbled: {verb} answered no JSON"),
-        )
-    })
+}
+
+/// One verb of the state store, its JSON answer or the word of its failure.
+pub fn store(home: &Path, args: &[&str]) -> Result<Value, String> {
+    store_value(home, args).map_err(|f| refused(f).word)
 }
 
 /// tehas_store_try: asked again, a second apart, while the store is busy or
 /// did not answer in time.
 pub fn store_try(home: &Path, tries: u32, args: &[&str]) -> Result<Value, Refused> {
-    let mut i = 1;
-    loop {
-        match store_said(home, args) {
-            Err(f) if i < tries && matches!(f.word.as_str(), "busy" | "timeout") => {
-                i += 1;
-                std::thread::sleep(std::time::Duration::from_secs(1));
-            }
-            r => return r,
-        }
-    }
+    call::store_try(tries, Duration::from_secs(1), || store_value(home, args)).map_err(refused)
 }
 
 /// The facts of the cycle `s`, read from the host under `home`.
