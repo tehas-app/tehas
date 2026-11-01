@@ -11,9 +11,14 @@
 #
 # Every run prints the count, the ceiling and the room left or the lines
 # over, so a cycle can see how far it has to go without rerunning the check.
-# Over the ceiling it adds the files that changed since the merge base with
-# the default branch, with their deltas. Without a merge base it lists the
-# largest files. It reads only local refs.
+# With a merge base that line names the base's own count, the room under it
+# and what the change adds on top, so a run can plan its bash before it
+# writes any; the working tree's figure is the one the ceiling is judged by.
+# When the tree differs from HEAD the line says the figure includes
+# uncommitted work. Over the ceiling it adds the files that changed since the
+# merge base, with their deltas, and a `pay from` list: the five largest
+# counted files the change did not touch, where the lines can come from.
+# Without a merge base it lists the largest files. It reads only local refs.
 #
 # Usage: scripts/check-bash-lines.sh
 # Exit: 0 at or under the ceiling, 1 over it or the ceiling is unreadable
@@ -43,28 +48,20 @@ lines=0
 # the ceiling meets arithmetic, so the base is forced here, once.
 max=$((10#"$max"))
 
-if [ "$lines" -le "$max" ]; then
-  echo "check-bash-lines: $lines of $max: $((max - lines)) lines of room"
-  exit 0
-fi
-
-echo "check-bash-lines: $lines lines of bash, over the ceiling of $max: $((lines - max)) lines over (scripts/bash-lines.max)."
-echo "Take out $((lines - max)) lines."
-echo "A raise of the ceiling says why this cannot go into Rust now, and which issue takes the lines out again."
-
-# The lines a path counts for at the merge base, 0 if it was not counted.
-base_lines() { # path
+# The lines a path counts for at a revision, 0 if it is not counted there.
+rev_lines() { # rev path
   local first
-  case $1 in bin/* | lib/*.sh | libexec/*) ;; *) echo 0 && return ;; esac
-  first=$(git show "$base:$1" 2>/dev/null | head -n 1)
-  case $first in *bash*) git show "$base:$1" | wc -l ;; *) echo 0 ;; esac
+  case $2 in bin/* | lib/*.sh | libexec/*) ;; *) echo 0 && return ;; esac
+  first=$(git show "$1:$2" 2>/dev/null | head -n 1)
+  case $first in *bash*) git show "$1:$2" | wc -l ;; *) echo 0 ;; esac
 }
+base_lines() { rev_lines "$base" "$1"; }
 now_lines() { # path
-  if [ -f "$1" ] && printf '%s\n' "${files[@]}" | grep -qxF -- "$1"; then
-    wc -l <"$1"
-  else
-    echo 0
-  fi
+  local f
+  for f in ${files[@]+"${files[@]}"}; do
+    [ "$f" = "$1" ] && { [ -f "$1" ] && wc -l <"$1" || echo 0; return; }
+  done
+  echo 0
 }
 
 base='' ref=''
@@ -77,13 +74,81 @@ if git rev-parse --git-dir >/dev/null 2>&1; then
   done
 fi
 
+# The change's own counted paths: the two figures are the base's total and
+# these paths' part of it, so nothing else is read.
+changed=()
+if [ -n "$base" ]; then
+  # Paths are read with -z: the default separator makes git print a quoted
+  # name for a path that holds a space, which would name no file on disk.
+  mapfile -d '' -t changed < <(
+    {
+      git diff --name-only -z "$base" -- bin lib libexec
+      git ls-files --others --exclude-standard -z -- bin lib libexec
+    } | sort -zu
+  )
+fi
+
+# The base's count, the room under it, and what the change adds. A tree with
+# work in it would otherwise read as if the base had that room. The change is
+# read from the working tree, uncommitted and untracked files included: a
+# cycle has its bash in hand before it commits any of it, and the figure must
+# name the lines it is about to add. Work not yet committed is said so too.
+base_lines_total=$lines base_room=$((max - lines)) delta=0 base_figure=""
+if [ -n "$base" ]; then
+  # The one pass over the change's paths sums both sides: the lines they hold
+  # now and the lines they hold at the base. A path counted only in one of the
+  # two, or no longer there, holds no lines on that side and moves the delta on
+  # its own. A line always comes back, so both names are always set. A file
+  # nobody touched is not read at all: it counts the same on both sides.
+  read -r now_now base_now < <(
+    for f in ${changed[@]+"${changed[@]}"}; do
+      printf '%d %d\n' "$(now_lines "$f")" "$(base_lines "$f")"
+    done | awk '{ a += $1; b += $2 } END { printf "%d %d\n", a + 0, b + 0 }'
+  )
+  delta=$((now_now - base_now))
+  base_lines_total=$((lines - delta))
+  base_room=$((max - base_lines_total))
+fi
+
+# Whether the working tree differs from HEAD, counted files or not: the figure
+# is the tree's, and a tree with work in it must not read as the base. Status
+# is read from porcelain rather than from a quiet diff, because the diff of a
+# tree that differs can reach the output of the run.
+dirty=''
+if git rev-parse --git-dir >/dev/null 2>&1; then
+  [ -z "$(git status --porcelain 2>/dev/null)" ] || dirty=1
+fi
+
+# The base's figure, on a line of its own so the first line of the run stays
+# the working tree's figure: the ceiling is judged by the tree, and the base's
+# figure is the room the change starts from. The first word of both lines
+# stays check-bash-lines:, and a change that takes lines out keeps its minus.
+if [ -n "$base" ]; then
+  if [ "$delta" -ge 0 ]; then
+    base_figure="base $base_lines_total of $max: $base_room lines of room; this change +$delta"
+  else
+    base_figure="base $base_lines_total of $max: $base_room lines of room; this change $delta"
+  fi
+fi
+
+if [ "$lines" -le "$max" ]; then
+  line="check-bash-lines: $lines of $max: $((max - lines)) lines of room"
+  [ -z "$base_figure" ] || line+="; $base_figure"
+  [ -z "$dirty" ] || line+=" (working tree: includes uncommitted work)"
+  echo "$line"
+  exit 0
+fi
+
+echo "check-bash-lines: $lines lines of bash, over the ceiling of $max: $((lines - max)) lines over (scripts/bash-lines.max)."
+[ -z "$base_figure" ] || echo "check-bash-lines: $base_figure"
+[ -z "$dirty" ] || echo "The working tree differs from HEAD: the figure includes uncommitted work."
+echo "Take out $((lines - max)) lines."
+echo "A raise of the ceiling says why this cannot go into Rust now, and which issue takes the lines out again."
+
 shown=0
 if [ -n "$base" ]; then
   report=$(
-    {
-      git diff --name-only "$base" -- bin lib libexec
-      git ls-files --others --exclude-standard -- bin lib libexec
-    } | sort -u | while IFS= read -r f; do
+    for f in ${changed[@]+"${changed[@]}"}; do
       old=$(base_lines "$f")
       new=$(now_lines "$f")
       [ "$old" = "$new" ] || printf '  %+6d %6d  %s\n' "$((new - old))" "$new" "$f"
@@ -94,7 +159,32 @@ if [ -n "$base" ]; then
     echo "$report"
     shown=1
   fi
+
+  # Where the lines can come from: the five largest counted files the change
+  # did not touch. A file the change grew is where the lines went in, not
+  # where they come out, so it is not on this list. The names come from the
+  # count itself and the line holds a tab between the figure and the path, so
+  # a name with spaces in it stays one path.
+  if [ "${#files[@]}" -gt 0 ]; then
+    pay=$(
+      printf '%s\n' "${files[@]}" | while IFS= read -r f; do
+        for c in ${changed[@]+"${changed[@]}"}; do
+          [ "$c" = "$f" ] && continue 2
+        done
+        printf '%d\t%s\n' "$(wc -l <"$f")" "$f"
+      done | sort -nr | head -n 5
+    )
+    if [ -n "$pay" ]; then
+      echo "Pay from: the five largest counted files the change did not touch."
+      while IFS=$'\t' read -r n f; do
+        printf '  %6d  %s\n' "$n" "$f"
+      done <<EOF
+$pay
+EOF
+    fi
+  fi
 fi
+
 if [ "$shown" = 0 ]; then
   echo "Largest files:"
   wc -l "${files[@]}" | grep -v ' total$' | sort -nr | head -n 5 | awk '{ printf "  %6d  %s\n", $1, $2 }'
