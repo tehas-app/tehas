@@ -6,6 +6,7 @@
 use super::run::{run, run_input};
 use serde_json::{json, Value};
 use std::time::Duration;
+use tehas_core::models::{auth, host_path, ModelFile};
 
 /// A png of one pixel, as libexec/dispatch's mesh_pixel.
 const PIXEL: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
@@ -20,8 +21,7 @@ const ROLES: [&str; 5] = [
 
 /// The instance's providers and the models its agents use.
 pub struct Models {
-    /// models.json, null when there is none or it cannot be read.
-    pub file: Value,
+    pub file: ModelFile,
     /// tehas_models: (provider, model), the subagent's first, each pair once.
     pub used: Vec<(String, String)>,
     pub provider: String,
@@ -34,11 +34,7 @@ fn env(k: &str) -> String {
 
 impl Models {
     pub fn read() -> Models {
-        let path = format!("{}/.pi/agent/models.json", env("HOME"));
-        let file = std::fs::read_to_string(path)
-            .ok()
-            .and_then(|t| serde_json::from_str(&t).ok())
-            .unwrap_or(Value::Null);
+        let file = ModelFile::read(&host_path());
         let mut used: Vec<(String, String)> = Vec::new();
         let mut pairs = vec![(
             env("PI_ENSEMBLE_SUBAGENT_PROVIDER"),
@@ -61,50 +57,6 @@ impl Models {
             provider: env("PI_ENSEMBLE_SUBAGENT_PROVIDER"),
             model: env("PI_ENSEMBLE_SUBAGENT_MODEL"),
         }
-    }
-
-    /// tehas_endpoint_url.
-    fn url(&self, p: &str, end: &str) -> String {
-        let k = if end == "main" {
-            "baseUrl"
-        } else {
-            "backupBaseUrl"
-        };
-        self.file
-            .get("providers")
-            .and_then(|x| x.get(p))
-            .and_then(|x| x.get(k))
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_string()
-    }
-
-    /// tehas_endpoint_key: the key as models.json writes it.
-    fn key(&self, p: &str, end: &str) -> String {
-        let pr = self.file.get("providers").and_then(|x| x.get(p));
-        let k = |n: &str| pr.and_then(|x| x.get(n)).and_then(Value::as_str);
-        let v = if end == "main" {
-            k("apiKey")
-        } else {
-            k("backupApiKey").or_else(|| k("apiKey"))
-        };
-        v.unwrap_or("").to_string()
-    }
-}
-
-/// _tehas_endpoint_auth: curl's config line for a key named by a variable.
-fn auth(key: &str) -> String {
-    let name = key.strip_prefix('$').unwrap_or(key);
-    let name = name.strip_prefix('{').unwrap_or(name);
-    let name = name.strip_suffix('}').unwrap_or(name);
-    if name == key {
-        return String::new();
-    }
-    let v = env(name);
-    if v.is_empty() {
-        String::new()
-    } else {
-        format!("header = \"Authorization: Bearer {v}\"\n")
     }
 }
 
@@ -151,7 +103,7 @@ fn ask(url: &str, key: &str, models: &[String]) -> Result<(), String> {
 pub fn endpoint(m: &Models) -> (Value, String, String) {
     let mut log: Vec<String> = Vec::new();
     let (mut url_used, mut key_used, mut end) = (String::new(), String::new(), String::new());
-    if m.url(&m.provider, "main").is_empty() || m.model.is_empty() {
+    if m.file.url(&m.provider, "main").is_empty() || m.model.is_empty() {
         return (
             json!({"hold": "", "end": "", "log": []}),
             url_used,
@@ -165,7 +117,7 @@ pub fn endpoint(m: &Models) -> (Value, String, String) {
         }
     }
     for p in providers {
-        let url = m.url(p, "main");
+        let url = m.file.url(p, "main");
         if url.is_empty() {
             continue;
         }
@@ -175,26 +127,27 @@ pub fn endpoint(m: &Models) -> (Value, String, String) {
             .filter(|(x, _)| x == p)
             .map(|(_, y)| y.clone())
             .collect();
-        let why = match ask(&url, &m.key(p, "main"), &models) {
+        let why = match ask(&url, &m.file.key(p, "main"), &models) {
             Ok(()) => {
                 if p == m.provider {
-                    (url_used, key_used, end) = (url, m.key(p, "main"), "main".into());
+                    (url_used, key_used, end) = (url, m.file.key(p, "main"), "main".into());
                 }
                 continue;
             }
             Err(w) => w,
         };
-        let backup = m.url(p, "backup");
+        let backup = m.file.url(p, "backup");
         let hold = if backup.is_empty() {
             format!("holding: no resources: the model endpoint {why}")
         } else {
-            match ask(&backup, &m.key(p, "backup"), &models) {
+            match ask(&backup, &m.file.key(p, "backup"), &models) {
                 Ok(()) => {
                     log.push(format!(
                         "model endpoint: provider {p} is on its backup, the main endpoint {why}"
                     ));
                     if p == m.provider {
-                        (url_used, key_used, end) = (backup, m.key(p, "backup"), "backup".into());
+                        (url_used, key_used, end) =
+                            (backup, m.file.key(p, "backup"), "backup".into());
                     }
                     continue;
                 }
@@ -254,6 +207,7 @@ pub fn images(m: &Models, url: &str, key: &str) -> Value {
     };
     let declares = m
         .file
+        .json
         .get("providers")
         .and_then(|x| x.get(&m.provider))
         .and_then(|x| x.get("models"))
