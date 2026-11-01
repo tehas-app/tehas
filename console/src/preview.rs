@@ -338,9 +338,11 @@ pub fn main(given: &[String]) -> u8 {
     match given.first().map(String::as_str) {
         Some("choose") => choose_main(&given[1..]),
         Some("tell") => crate::notice::main(given),
+        Some("network") => crate::edge::network_main(&given[1..]),
         _ => {
             eprintln!("console preview: usage: tell <number> <time> <repo> <root> <address>");
             eprintln!("console preview choose: usage: <repo> [max] <pull requests");
+            eprintln!("console preview network: usage: check|create|ensure <network>");
             2
         }
     }

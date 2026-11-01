@@ -82,6 +82,20 @@ t_eq "$(t_calls docker | grep '^network create')" \
   "network create --internal --ipv6=false -o com.docker.network.bridge.gateway_mode_ipv4=isolated tehas-previews"
 t_eq "$(state_of 12)" "serving"
 
+t_case "a console that does not answer gets nothing built"
+reset
+a=$(commit feature)
+pulls "$(pull 12 "$a")"
+mv "$T/tree/libexec/console" "$T/console.kept"
+printf '#!/bin/sh\nexit 9\n' >"$T/tree/libexec/console"
+chmod 755 "$T/tree/libexec/console"
+t_run "$preview"
+rm -f "$T/tree/libexec/console"
+mv "$T/console.kept" "$T/tree/libexec/console"
+t_eq "$t_rc" 0
+t_contains "$t_out" "the network tehas-previews does not keep the host out (the console did not answer); nothing was built"
+t_eq "$(builds) $(runs)" "0 0"
+
 t_case "a pull request that got a new title has it in its state, and the state began when it did"
 reset
 a=$(commit feature)

@@ -18,9 +18,18 @@ th=$home/tehas
 # in every run here, so no test reads or writes the real /etc or /usr/local/bin.
 dev_etc=$T/etc
 dev_bin=$T/usr-local-bin
+console_env=()
 # shellcheck disable=SC2120  # the parts pass it variables, this file does not
-t_env() { T_ENV=(BOOTSTRAP_ETC="$dev_etc" BOOTSTRAP_BIN="$dev_bin" T_IN_TEST=1 "$@"); }
+t_env() { T_ENV=(BOOTSTRAP_ETC="$dev_etc" BOOTSTRAP_BIN="$dev_bin" T_IN_TEST=1 "${console_env[@]}" "$@"); }
 t_env
+# real_console: installs from here on hold the console of this checkout, not the
+# stub's line of text. A file that pins what install.sh asks Docker needs it.
+real_console() {
+  # shellcheck disable=SC2154  # t_console_why is set by t_console (test/lib.sh)
+  t_console || t_bad "no console: $t_console_why"
+  console_env=(CONSOLE_BIN="$T_CONSOLE")
+  t_env
+}
 
 # The previews' network as install.sh wants to find it, and how it asks.
 net_good='case "$1 $2" in "version --format") echo 29.1.3 ;; "network inspect") echo "true bridge false isolated" ;; esac'
