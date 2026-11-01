@@ -32,9 +32,10 @@ esac
 tehas_load || exit 78
 tehas_require_instance_settings
 
+logfile=$TEHAS_HOME/logs/clean.log
 sandbox_image=$("$console" clean image "$PI_ENSEMBLE_IMAGE") || exit 78
 # A free figure that cannot be read changes nothing.
 free_kb=$(tehas_free_kb "$TEHAS_HOME") || free_kb=""
 exec "$console" clean run "$dry" "$TEHAS_HOME" "$TEHAS_WORK_DIR" "$TEHAS_CLEAN_AFTER" \
   "$TEHAS_CLEAN_MIN_FREE_MB" "$TEHAS_CLEAN_MIN_FREE" "$free_kb" "$TEHAS_CLEAN_DIRS" \
-  "$sandbox_image" "$TEHAS_HOME/logs/clean.log" "${TEHAS_SCRATCH_DIR:-}"
+  "$sandbox_image" "$logfile" "${TEHAS_SCRATCH_DIR:-}"
