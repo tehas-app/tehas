@@ -410,7 +410,7 @@ from the cycle's own copy of the code.
 It does not wait for the cycle. If the unit does not come up within 30
 seconds, the issue gets `needs-human-attention`, the poll goes on to the
 remaining issues, and it ends with exit 1.
-The dispatcher runs the index, plan and status scripts from its own directory,
+The dispatcher runs the index and plan scripts and `tehasbot status` from its own directory,
 `~/tehas/libexec`, not by a name on `PATH`.
 
 The labels `tehas:plan`, `tehas:planning` and `tehas:question` exist in a
@@ -2650,10 +2650,9 @@ names none. That list is what GitHub derives from the text and the links of the
 issue, not what the close event recorded. Whatever labels the issue was left
 with: the query and the acceptance rule are the console's (`console shipped`,
 `console/src/shipped.rs`), the ones `console tidy run` reads too, so
-the two commands cannot disagree on what a merge closed. `tehasbot status` asks the console which shipped
-issues lack the label (`console shipped list --numbers --lacking <label>`),
-which names those whose labels do not hold it or could not be read, and gives
-each of them the label;
+the two commands cannot disagree on what a merge closed. `tehasbot status` reads from the same answer which shipped
+issues lack the label, those whose labels do not hold it or could not be read,
+and gives each of them the label;
 `console tidy run` is the one that logs the read, and both leave the control issue
 unlabelled. The read of the list goes under the same 60 seconds as the count
 below; one that times out or is refused writes no snapshot, and the file of the
@@ -2705,7 +2704,7 @@ answer, `tehasbot status` writes `~/tehas/live/analytics.json`, the ten-day
 report of the factory's analytics, from `~/tehas/libexec/analytics report
 --json`. It writes `analytics.json.new` and moves it into place, and keeps only
 the top-level keys it names, so a key the program adds later is not published
-until someone adds it to that list in `libexec/status`. The call has the same
+until someone adds it to that list in `console/src/publish.rs`. The call has the same
 5-second limit. A report that fails or is not one is a line `WARN analytics
 report: ...` on standard error; the file that is there stays while it is less
 than ten minutes old, so one poll that meets a locked database does not empty
@@ -2838,12 +2837,12 @@ curl -i http://tehas-tehas:8080/health
 Writes the factory's health from what is already on disk: the queue snapshot,
 the running cycles, the last one that finished, the planning turns in flight,
 what the dispatcher's last poll wrote about the slice and the demand, and this
-host's pause flag. The status script
-runs it on exit, so it is
+host's pause flag. `tehasbot status`
+runs it as it ends, so it is
 refreshed at every poll and at the end of every cycle. When the poll of the
-dispatcher is the one that ran the status script, the script does not: the poll
-gives it `TEHAS_FROM_POLL=1` in its environment, which the script reads before
-its load, and the poll runs health itself a moment after the status ends. The
+dispatcher is the one that ran `tehasbot status`, the command does not: the poll
+gives it `TEHAS_FROM_POLL=1` in its environment, one of the names the load of
+the settings keeps, and the poll runs health itself a moment after the status ends. The
 name says the poll ran it and nothing else: it is given whatever token the poll
 holds, so a host that acts as a machine user, or a poll whose token read
 failed, is still known and does not refresh the file twice. So one

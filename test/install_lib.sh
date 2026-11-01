@@ -99,7 +99,6 @@ files="./.bashrc
 ./tehas/edge/router.Caddyfile
 ./tehas/edge/router.compose.yaml
 ./tehas/env.sh
-./tehas/lib/analytics.sh
 ./tehas/lib/attachments.sh
 ./tehas/lib/config.sh
 ./tehas/lib/cycles.sh
@@ -116,7 +115,6 @@ files="./.bashrc
 ./tehas/lib/labels.sh
 ./tehas/lib/labels.tsv
 ./tehas/lib/park-fields.jq
-./tehas/lib/limit.sh
 ./tehas/lib/models.sh
 ./tehas/lib/paths.sh
 ./tehas/lib/questions.sh
@@ -125,7 +123,6 @@ files="./.bashrc
 ./tehas/lib/rukas.sh
 ./tehas/lib/sandbox.sh
 ./tehas/lib/sizing.sh
-./tehas/lib/status.sh
 ./tehas/lib/store.sh
 ./tehas/lib/slice.sh
 ./tehas/lib/update-release.sh
@@ -154,7 +151,6 @@ files="./.bashrc
 ./tehas/libexec/refresh
 ./tehas/libexec/review
 ./tehas/libexec/setup
-./tehas/libexec/status
 ./tehas/libexec/store
 ./tehas/libexec/store.stamp
 ./tehas/libexec/tehas-cycle

@@ -45,6 +45,7 @@ pub struct After {
     pub workdir: String,
     pub console: String,
     pub status_cmd: String,
+    pub status_args: Vec<String>,
 }
 
 fn env(name: &str) -> String {
@@ -242,7 +243,7 @@ pub fn after(home: &Path, a: &After) {
     }
     clean(home, a);
     if !a.signalled {
-        let _ = Command::new(&a.status_cmd).status();
+        let _ = Command::new(&a.status_cmd).args(&a.status_args).status();
     }
     next_poll(home);
 }

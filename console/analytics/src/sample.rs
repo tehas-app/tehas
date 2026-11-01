@@ -1,7 +1,7 @@
 //! `analytics sample`: one row of samples, read from the live files of the
 //! dispatcher's poll. Under $TEHAS_HOME:
 //!
-//! - live/status.json (libexec/status, run at the start of every poll):
+//! - live/status.json (tehasbot status, run at the start of every poll):
 //!   {generatedAt, paused, queued: [..], running: [..], awaiting: [..],
 //!   stopped: [..], planning, ...}. in_line, running, awaiting and stopped
 //!   are the lengths of those lists; planning is the count of open issues

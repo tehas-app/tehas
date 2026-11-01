@@ -80,12 +80,17 @@ impl Host {
     }
 
     fn report(&self, rc: i64, signalled: bool) -> Output {
+        self.report_to(rc, signalled, &["--status-cmd", "true"])
+    }
+
+    fn report_to(&self, rc: i64, signalled: bool, status: &[&str]) -> Output {
         Command::new(env!("CARGO_BIN_EXE_tehas-cycle"))
             .args(["report", "7", "--attempt", "1", "--rc", &rc.to_string()])
             .args(["--started", "1000", "--by", "alice", "--how", "label"])
             .args(["--signalled", if signalled { "1" } else { "0" }])
             .args(["--approval-at", "900", "--requeued", "0", "--now", "1060"])
-            .args(["--console", "true", "--status-cmd", "true"])
+            .args(["--console", "true"])
+            .args(status)
             .env(
                 "PATH",
                 format!(
@@ -133,6 +138,29 @@ fn out(o: &Output) -> String {
         String::from_utf8_lossy(&o.stdout),
         String::from_utf8_lossy(&o.stderr)
     )
+}
+
+#[test]
+fn the_status_command_of_the_end_of_a_cycle_gets_its_arguments() {
+    let h = Host::new("status-args");
+    h.result("merged", "", "", "");
+    let cmd = h.dir.join("status-cmd");
+    let said = h.dir.join("status-said");
+    exe(
+        &cmd,
+        &format!("#!/bin/sh\necho \"$*\" >{}\n", said.display()),
+    );
+    let cmd = cmd.to_string_lossy().into_owned();
+    let words = [
+        "--status-cmd",
+        &cmd,
+        "--status-arg",
+        "tehasbot",
+        "--status-arg",
+        "status",
+    ];
+    h.report_to(0, false, &words);
+    assert_eq!(fs::read_to_string(&said).unwrap(), "tehasbot status\n");
 }
 
 #[test]

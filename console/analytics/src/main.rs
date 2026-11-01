@@ -45,14 +45,14 @@
 //!   analytics report [--json]
 //!     Prints the ten-day report the dashboard shows, aggregates only
 //!     (report.rs says what is in it): as plain text for a person, or with
-//!     --json as one JSON object, which libexec/status writes to
+//!     --json as one JSON object, which tehasbot status writes to
 //!     live/analytics.json. Among the figures, `gate`: report.rs's `gate`
-//!     says what it holds, and libexec/status publishes no key it does not
+//!     says what it holds, and tehasbot status publishes no key it does not
 //!     name, which `gate` is not.
 //!   analytics orders
 //!     Writes live/orders.json: the runs, seconds and tokens of each issue
 //!     live/status.json lists, for the front page's work order (orders.rs
-//!     says what is in it). libexec/status asks for it after it writes the
+//!     says what is in it). tehasbot status asks for it after it writes the
 //!     snapshot.
 //!   analytics sessions [--out <directory>]
 //!     Prints the runs of the last 30 days as JSON Lines, for the MCP server
@@ -60,7 +60,7 @@
 //!     line, newest first, each with its steps, roles and log file names.
 //!     It writes nothing; a failure cause is as the run stored it, masked.
 //!     With --out the lines go to <directory>/sessions.jsonl instead, mode
-//!     600 and moved in from a name of this run, which is how libexec/status
+//!     600 and moved in from a name of this run, which is how tehasbot status
 //!     asks for the file the MCP server reads.
 //!   analytics outcomes [--tehas <version>] [--rukas <version>]
 //!                 [--since <day or time>] [--until <day or time>]
@@ -74,7 +74,7 @@
 //!     (YYYY-MM-DD, its start) or a full UTC time, --by version or week
 //!     (the default). One of another shape is a usage error. With --out the
 //!     lines go to <directory>/outcomes.jsonl instead, mode 600 and moved in
-//!     from a name of this run, which is how libexec/status asks for the file
+//!     from a name of this run, which is how tehasbot status asks for the file
 //!     the MCP server reads.
 //!   analytics export <file> [--json]
 //!     Writes a consistent copy of the database to <file>, mode 0600, with

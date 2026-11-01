@@ -31,8 +31,8 @@
 //!   {"api":1,"state":"ok","cycles":1,"plan":false,"until":"...","reason":"..."}
 //!
 //! `read` prints the same reading as one object with no `api`: the answer
-//! `lib/limit.sh` gives the dispatcher, `tehasbot improve` and `tehasbot
-//! health`, and the object `tehas status --json` publishes, so it keeps
+//! The reading the dispatcher, `tehasbot improve` and `tehasbot health` take,
+//! and the object `tehas status --json` publishes, so it keeps
 //! exactly the fields it has today; with `--line` it prints the words of that
 //! reading instead, which is how the shell prints the line of a limit it has
 //! just read. `state` is `none` when no file is there,
@@ -312,7 +312,7 @@ impl Reading {
     }
 
     /// The reading as one compact object, `state` first: the order
-    /// `lib/limit.sh` printed, which `tehas status --json` republishes.
+    /// the reading prints, which `tehas status --json` republishes.
     fn text(&self) -> String {
         let mut parts = vec![format!("\"state\":\"{}\"", self.state)];
         parts.extend(
@@ -1466,21 +1466,16 @@ fn replaced(c: char) -> bool {
     matches!(c, '\u{1}'..='\u{1f}' | '\u{7f}'..='\u{9f}' | '\u{2028}' | '\u{2029}')
 }
 
-/// A reason as the health file holds it, the rule of `lib/status.sh` in
-/// words: a run of the characters jq replaces becomes one space, a run of
+/// A reason as the health file holds it: a run of the characters jq replaces becomes one space, a run of
 /// spaces stays as it was written, 200 characters is the most, counted as
 /// characters and cut before the ends, and the ends go last. The line
 /// `tehas status` prints is one fact, so a reason which carried a newline
 /// would otherwise print a line which is not there.
-fn oneline(s: &str) -> String {
-    // The rule of `tehas_pause_oneline` in `lib/status.sh`, which is the rule
-    // the shell has always applied to a reason: jq's `gsub` reads its pattern
-    // as POSIX basic regex, where the `+` after the class is one of the
-    // characters being replaced rather than a repeat, so each of them becomes
-    // a space of its own and a run of spaces which were written keeps every
-    // character of itself; 200 characters is the most, cut before the ends go,
-    // and only the spaces which touch the two ends of what is left go with
-    // them.
+pub fn oneline(s: &str) -> String {
+    // Each replaced character becomes a space of its own and a run of spaces
+    // which were written keeps every character of itself; 200 characters is
+    // the most, cut before the ends go, and only the spaces which touch the
+    // two ends of what is left go with them.
     let folded: String = s
         .chars()
         .map(|c| if replaced(c) { ' ' } else { c })

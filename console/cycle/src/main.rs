@@ -404,6 +404,7 @@ fn start(n: u64, args: &[String], rest: &[&str]) -> Start {
         now: None,
         console: String::new(),
         status_cmd: String::new(),
+        status_args: Vec::new(),
     };
     let mut it = rest.iter();
     while let Some(flag) = it.next() {
@@ -421,6 +422,7 @@ fn start(n: u64, args: &[String], rest: &[&str]) -> Start {
             "--now" => start.now = Some(num(&v)),
             "--console" => start.console = v,
             "--status-cmd" => start.status_cmd = v,
+            "--status-arg" => start.status_args.push(v),
             _ => wrong(args),
         }
     }
@@ -470,6 +472,7 @@ fn after_verb(home: &Path, n: u64, args: &[String]) {
             "--workdir" => a.workdir = v,
             "--console" => a.console = v,
             "--status-cmd" => a.status_cmd = v,
+            "--status-arg" => a.status_args.push(v),
             _ => wrong(args),
         }
     }

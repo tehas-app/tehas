@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for the three scripts around the factory's state: libexec/status
+# Tests for the three commands around the factory's state: tehasbot status
 # writes the queue snapshot and runs tehasbot health beside it, and
 # `tehas status` prints the health file.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
@@ -9,22 +9,16 @@
 t_console || t_bad "no console: $t_console_why"
 T_ENV_ALWAYS+=(TEHAS_CONSOLE="$T_CONSOLE")
 
-# The command as a host has it: beside the console, which decides what the read
-# of what closed an issue means (console/src/shipped.rs) and is this checkout's
-# own build. The copy is a real file and not a symlink, because the command finds
-# its siblings - health, analytics, store - beside itself by the directory it was
-# run from, and a symlink there would name the checkout instead.
+# The command as a host has it: with-settings beside the console, this
+# checkout's own build, which holds the command.
 # shellcheck disable=SC2154  # t_console_why is set by t_console (test/lib.sh)
 t_console || t_bad "no console: $t_console_why"
 shim=$T/tree
 mkdir -p "$shim/libexec"
-cp "$T_ROOT/libexec/status" "$shim/libexec/status"
 ln -s "$T_ROOT/lib" "$shim/lib"
 cp "$T_CONSOLE" "$shim/libexec/console"
-for sibling in with-settings analytics; do
-  ln -s "$T_ROOT/libexec/$sibling" "$shim/libexec/$sibling"
-done
-status=$shim/libexec/status
+ln -s "$T_ROOT/libexec/with-settings" "$shim/libexec/with-settings"
+status="$shim/libexec/with-settings tehasbot status"
 health="$T_ROOT/bin/tehasbot health"
 summary="$T_ROOT/bin/tehas status"
 live=$T/home/tehas/live
@@ -64,24 +58,6 @@ t_stub curl '[ ! -e "${CURL_RC:-}" ] && exit "${CURL_RC:-0}"; exit 0'
 # them: none until a case writes $T/failed-units, and the read fails with
 # SYSTEMCTL_RC when a case names one.
 t_stub systemctl 'cat "$T/failed-units" 2>/dev/null; exit "${SYSTEMCTL_RC:-0}"'
-# The console of the host, where status looks for it beside itself, wrapped so
-# every call the command makes is written down: the labels of the shipped issues
-# are one call of one verb, and a case counts them.
-cp "$T_CONSOLE" "$shim/libexec/console-real"
-t_stub console '[ -e "$T/console-calls" ] || : >"$T/console-calls"
-printf "%s\n" "$*" >>"$T/console-calls"
-exec "$shim/libexec/console-real" "$@"'
-# The console of the host, where status looks for it beside itself, wrapped so
-# every call the command makes is written down: the labels of the shipped issues
-# are one call of one verb, and a case counts them.
-cp "$shim/libexec/console" "$T/console-real"
-mv "$shim/libexec/console" "$shim/libexec/console-real"
-cat >"$shim/libexec/console" <<'STUB'
-#!/usr/bin/env bash
-{ [ -e "$T/console-calls" ] || :; printf '%s\n' "$*" >>"$T/console-calls"; }
-exec "$T/console-real" "$@"
-STUB
-chmod +x "$shim/libexec/console"
 closed() { # number closedAt closer [label]: a closed issue as the search for shipped work returns it
   local label=""
   [ -z "${4:-}" ] || label="{\"name\":\"$4\"}"
@@ -115,7 +91,6 @@ issue() { # number label state
 reset() {
   rm -rf "$T"/calls/* "$T/gh-down" "$T/all-down" "$T/shipped-down" "$T/count-down" "$T/control-down" "$T/allhands" "$T/epics-down" "$live" \
     "$T/home/tehas/state" "$T/home/tehas/current" "$T/home/tehas/versions" "$T/home/tehas/versions.env" "$T/rel.json"
-  rm -f "$T/console-calls"
   echo "[]" >"$T/all.json"
   epics_page
   shipped
@@ -442,10 +417,9 @@ t_contains "$(t_calls gh)" "issue edit 21 --repo acme/widget --add-label tehas:s
 t_lacks "$(t_calls gh)" "issue edit 20 --repo"
 t_lacks "$(t_calls gh)" "issue edit 22 --repo"
 
-# The one call of the console: of three shipped issues the poll edits the two
-# that lack the label and the one whose labels are no list, and it asks for the
-# labels once and not once per issue (issue #1083).
-t_case "the issues to label come from one console call of the list that lacks the label"
+# Of three shipped issues the poll edits the two that lack the label and the one
+# whose labels are no list (issue #1083).
+t_case "the issues to label are the ones the read says lack the label"
 reset
 shipped "$(closed 20 2026-01-02T00:00:00Z '{"merged":true}' tehas:shipped)" \
   "$(closed 21 2026-01-03T00:00:00Z '{"merged":true}')" \
@@ -457,8 +431,6 @@ t_eq "$(t_calls gh | grep -c 'issue edit')" 2
 t_contains "$(t_calls gh)" "issue edit 21 --repo acme/widget --add-label tehas:shipped"
 t_contains "$(t_calls gh)" "issue edit 22 --repo acme/widget --add-label tehas:shipped"
 t_lacks "$(t_calls gh)" "issue edit 20 --repo"
-t_eq "$(grep -c 'shipped list --numbers --lacking tehas:shipped' "$T/console-calls")" 1
-t_eq "$(grep -c ' shipped has ' "$T/console-calls")" 0
 
 # A label the read could not read is a missing label: the edit is sent, as it
 # was before the query read the labels at all.
@@ -472,7 +444,7 @@ t_eq "$(t_calls gh | grep -c 'issue edit')" 1
 t_contains "$(t_calls gh)" "issue edit 20 --repo acme/widget --add-label tehas:shipped"
 
 t_case "the control issue is not listed as shipped and not given the label, whatever the read answers"
-# It holds the pause switch and is not work: libexec/status leaves the number
+# It holds the pause switch and is not work: tehasbot status leaves the number
 # TEHAS_CONTROL_ISSUE names out of every list and every count, and tehas tidy
 # follows the same rule when it puts the label on.
 reset

@@ -35,15 +35,6 @@ use std::path::{Path, PathBuf};
 pub const MAX_AGE: i64 = 600;
 
 pub fn main(given: &[String]) -> u8 {
-    if let Some(verb @ ("platform" | "publish")) = given.first().map(String::as_str) {
-        let home = PathBuf::from(env::var_os("TEHAS_HOME").unwrap_or_default());
-        let live = home.join("live");
-        match verb {
-            "platform" => crate::platform::write(&home, &live),
-            _ => crate::publish::Analytics::new(&home).publish(&live),
-        }
-        return 0;
-    }
     let usage = || {
         eprintln!(
             "console status: usage: show <health file> <now> [--poll <line>] [--product <file>] | json <health file> <now>"
