@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Tests for libexec/limit: setting, showing and clearing the factory's limit,
+# Tests for tehas limit: setting, showing and clearing the factory's limit,
 # and lib/limit.sh, which reads it for everything that honours it.
 # shellcheck disable=SC2016  # snippets are expanded by the shell under test
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
 
-limit="$T_ROOT/libexec/limit"
+limit="$T_ROOT/bin/tehas limit"
 file=$T/home/tehas/state/limit.json
 t_stub gh
 

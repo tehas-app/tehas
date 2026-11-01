@@ -179,7 +179,7 @@ default_start
 t_stub fake-status
 # Stands in for libexec/tidy, and notes whether a cycle had started before it.
 t_stub fake-tidy '[ ! -e "$T/calls/fake-start" ] || : >"$T/calls/tidy.after-start"'
-# Stands in for libexec/health, as these two commands are stood in for: a call
+# Stands in for tehasbot health, as these two commands are stood in for: a call
 # of health is recorded and it answers 0. The poll runs health once at its
 # start, and the real one is about 45 processes - five calls of the store and
 # about eighteen of jq - which no case of these files reads. A case that looks

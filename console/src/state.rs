@@ -1,10 +1,10 @@
 //! tehas state pack and unpack: a stopped factory's state as one tar, to move
-//! it to another machine (libexec/state says how and why).
+//! it to another machine (console/src/usage/state.txt says how and why).
 //!
 //!   console state pack [--rehearse] -    the tar on standard output
 //!   console state unpack [--rehearse] -  the tar on standard input
 //!
-//! The home is $TEHAS_HOME, which libexec/state has loaded.
+//! The home is $TEHAS_HOME, which libexec/with-settings has loaded.
 //!
 //! The tar holds tehas-state.json first, {"api":1,"tag":...,"schema":...},
 //! then state/, repos/, live/ and mcp/ of the home where they exist. The

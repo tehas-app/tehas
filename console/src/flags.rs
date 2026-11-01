@@ -1,6 +1,6 @@
 //! The flags one instance keeps under `state/`: the limit `tehas limit` sets
 //! and the pause `tehas pause` sets. Reading, validating, writing and printing
-//! them, for `libexec/limit`, `libexec/pause` and `libexec/resume`, so that
+//! them, for `tehas limit`, `tehas pause` and `libexec/resume`, so that
 //! every command which honours a flag reads it through one Rust function.
 //!
 //!   console flags limit show [--json]

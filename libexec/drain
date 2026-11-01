@@ -38,7 +38,7 @@ tehas_load || exit 78
 # shellcheck source=lib/cycles.sh
 . "$here/../lib/cycles.sh"
 
-said=$(TEHAS_CONSOLE=$console "$here/limit" set --cycles 0 --plan off --reason draining) || exit $?
+said=$(TEHAS_CONSOLE=$console "$here/with-settings" tehas limit set --cycles 0 --plan off --reason draining) || exit $?
 # The limit holds only a poll that has yet to read it: one past that read starts
 # its cycles whatever the file says. So the poll's lock is taken and released
 # before the count, and its cycles are in it: --wait bounds it, or 600.
@@ -54,7 +54,7 @@ while :; do
 done
 
 if [ "$json" = 1 ]; then
-  jq -nc --arg running "$running" --argjson limit "$(TEHAS_CONSOLE=$console "$here/limit" --json)" '
+  jq -nc --arg running "$running" --argjson limit "$(TEHAS_CONSOLE=$console "$here/with-settings" tehas limit --json)" '
     ($running | split(" ") | map(select(. != "") | tonumber)) as $r
     | {api: 1, drained: ($r == []), running: $r, limit: ($limit | del(.api))}'
 elif [ -z "$running" ]; then

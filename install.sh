@@ -524,7 +524,6 @@ for f in tehas tehasbot; do
   files+=("bin/$f|$TEHAS_HOME/bin/$f|755")
 done
 for f in \
-  analytics-cmd \
   api \
   check-product \
   clean \
@@ -532,20 +531,16 @@ for f in \
   dev \
   dev-login \
   dispatch \
-  disk \
   drain \
   energy \
   export \
   github-token \
-  health \
   history \
   improve \
   index \
   init-product \
   labels \
-  limit \
   mcp \
-  pause \
   plan \
   preview \
   protolab \
@@ -553,14 +548,13 @@ for f in \
   review \
   resume \
   setup \
-  state \
   status \
   stop \
-  summary \
   tidy \
   top \
   top-publish \
   update \
+  with-settings \
   work; do
   files+=("libexec/$f|$TEHAS_HOME/libexec/$f|755")
 done
@@ -1212,7 +1206,8 @@ done
 
 # The commands of before bin/tehas, one file each in bin/, and the console of
 # before it was a compiled program. And the Protolab's server files of before the
-# edge router. Found here, removed in step 5 once systemd has the new units.
+# edge router. And the wrappers of what is now a verb of the console. Found here,
+# removed in step 5 once systemd has the new units.
 old=()
 for f in \
   bin/tehas-console.ts \
@@ -1224,7 +1219,14 @@ for f in \
   bin/tehas-status \
   bin/tehas-test \
   bin/tehas-work \
+  libexec/analytics-cmd \
   libexec/console.ts \
+  libexec/disk \
+  libexec/health \
+  libexec/limit \
+  libexec/pause \
+  libexec/state \
+  libexec/summary \
   edge/protolab.Caddyfile \
   edge/protolab.compose.yaml; do
   to=$TEHAS_HOME/$f
