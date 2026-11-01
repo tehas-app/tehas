@@ -115,9 +115,9 @@ tehas_steps_into() { # changed source paths -> tehas_steps
     *" edge/router."* | *" edge/protolab."*) tehas_steps+=("edge --force-recreate") ;;
   esac
   case "$list" in
-    # The command that makes the labels changed, so a release that adds one ends
-    # with that label in place on GitHub rather than owed to nobody.
-    *" libexec/labels "*) tehas_steps+=(labels) ;;
+    # The table of the labels changed, so a release that adds one ends with that
+    # label in place on GitHub rather than owed to nobody.
+    *" labels.tsv "*) tehas_steps+=(labels) ;;
   esac
   return 0
 }

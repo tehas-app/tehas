@@ -645,8 +645,7 @@ t_console() {
 }
 # t_health: tehasbot health as a host runs it, with-settings beside the console
 # that builds its report (console/src/health.rs), as the one command $T_HEALTH.
-# A command whose settings were loaded has no TEHAS_CONSOLE, so the console has
-# to be beside it. The commands are copies, not symlinks, so they find their
+# The console is beside it, as on a host. The commands are copies, not symlinks, so they find their
 # siblings beside themselves.
 T_HEALTH=$T/health-tree/libexec/health
 t_health() {
