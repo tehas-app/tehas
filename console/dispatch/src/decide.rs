@@ -2354,7 +2354,7 @@ impl<'a> Poll<'a> {
     }
 }
 
-/// tehas_fixer_base: the person's approval a record rests on, {at, by, how,
+/// The person's approval a record rests on, {at, by, how,
 /// body_sha256}, when it reads as one.
 fn fixer_base(record: &Value) -> Option<Value> {
     let how = record.get("how").and_then(Value::as_str);
@@ -2380,7 +2380,7 @@ fn fixer_base(record: &Value) -> Option<Value> {
     ok.then(|| json!({"at": at, "by": by, "how": how, "body_sha256": sum}))
 }
 
-/// tehas_fixer_starts: the fixer starts a record counts, at most six digits.
+/// The fixer starts a record counts, at most six digits.
 fn fixer_starts(record: &Value) -> Option<u64> {
     let whole = |v: &Value, min: f64| v.as_f64().filter(|f| *f >= min && f.fract() == 0.0);
     let n = match record.get("how").and_then(Value::as_str) {
@@ -2424,6 +2424,71 @@ fn blockers(body: &str) -> Option<Vec<u64>> {
         return Some(out);
     }
     None
+}
+
+#[cfg(test)]
+mod fixer_tests {
+    use super::{fixer_base, fixer_starts};
+    use serde_json::{json, Value};
+
+    const SUM: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
+    fn person(by: &str) -> Value {
+        json!({"at": "2026-10-01T00:00:00Z", "by": by, "how": "label", "body_sha256": SUM, "links": []})
+    }
+
+    fn by_fixer(starts: Value, rests_on: Value) -> Value {
+        json!({"at": "2026-10-02T00:00:00Z", "by": "tehas-fixer", "how": "fixer", "body_sha256": SUM,
+            "links": [], "fixer_starts": starts, "rests_on": rests_on})
+    }
+
+    fn by_refresh(starts: Value) -> Value {
+        json!({"at": "2026-10-01T00:00:00Z", "by": "alice", "how": "refresh", "body_sha256": SUM,
+            "links": [], "refreshes": 1, "fixer_starts": starts, "rests_on": person("alice")})
+    }
+
+    #[test]
+    fn a_base_is_the_persons_approval_a_record_rests_on() {
+        let want = json!({"at": "2026-10-01T00:00:00Z", "by": "alice", "how": "label", "body_sha256": SUM});
+        assert_eq!(fixer_base(&person("alice")), Some(want.clone()));
+        assert_eq!(
+            fixer_base(&by_fixer(json!(1), person("alice"))),
+            Some(want.clone())
+        );
+        assert_eq!(fixer_base(&by_refresh(json!(1))), Some(want));
+    }
+
+    #[test]
+    fn a_fixers_record_that_rests_on_no_person_is_no_base() {
+        assert_eq!(fixer_base(&by_fixer(json!(1), Value::Null)), None);
+        let twice = by_fixer(json!(1), by_fixer(json!(1), person("alice")));
+        assert_eq!(fixer_base(&twice), None);
+        let mut own = person("alice");
+        own["how"] = json!("fixer");
+        assert_eq!(fixer_base(&own), None);
+    }
+
+    #[test]
+    fn an_approval_whose_account_has_a_newline_on_the_end_is_no_base() {
+        assert_eq!(fixer_base(&person("alice\n")), None);
+    }
+
+    #[test]
+    fn a_record_counts_its_fixer_starts_and_a_refresh_carries_them_on() {
+        assert_eq!(fixer_starts(&person("alice")), Some(0));
+        assert_eq!(fixer_starts(&by_fixer(json!(2), person("alice"))), Some(2));
+        assert_eq!(fixer_starts(&by_refresh(json!(1))), Some(1));
+        assert_eq!(fixer_starts(&by_refresh(json!(0))), Some(0));
+        assert_eq!(fixer_starts(&by_refresh(Value::Null)), Some(0));
+    }
+
+    #[test]
+    fn a_count_that_is_no_whole_number_is_no_count() {
+        assert_eq!(fixer_starts(&by_fixer(json!(0), person("alice"))), None);
+        assert_eq!(fixer_starts(&by_fixer(json!(1.5), person("alice"))), None);
+        assert_eq!(fixer_starts(&by_fixer(json!("1"), person("alice"))), None);
+        assert_eq!(fixer_starts(&by_refresh(json!(-1))), None);
+    }
 }
 
 #[cfg(test)]
