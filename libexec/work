@@ -364,6 +364,8 @@ tehas_sandbox_ok || exit 78
 # Docker would create a missing mount source as a root-owned directory.
 tehas_checkout || exit 78
 branch=$(tehas_branch) || exit 78
+[ -x "${TEHAS_CONSOLE_CMD:-$here/console}" ] ||
+  { echo "tehas work: no console beside this command at $here/console, run install.sh" >&2; exit 78; }
 # No container starts outside the slice, and none with half its limits.
 tehas_sandbox_limits "tehas work" "a cycle" || exit 78
 src=$TEHAS_WORK_REPO
