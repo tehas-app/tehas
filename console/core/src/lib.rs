@@ -15,4 +15,5 @@ pub mod plan;
 pub mod question;
 pub mod review;
 pub mod slow;
+pub mod textcheck;
 pub mod time;
