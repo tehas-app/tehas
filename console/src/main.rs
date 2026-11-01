@@ -36,9 +36,10 @@
 //! src/notice.rs, which open pull requests get a preview, see src/preview.rs,
 //! and whether the previews' network keeps the host out, see src/edge.rs.
 //!
-//!   console plan outcome|update ...
+//!   console plan update|descriptor|workspace|give|place|turn|run ...
 //!
-//! What a planning turn of libexec/plan says, see src/plan.rs.
+//! What a planning turn of libexec/plan says and does on the host, see
+//! src/plan.rs and src/plan/turn.rs.
 //!
 //!   console top reading|snapshot|frame ...
 //!
@@ -168,6 +169,7 @@ mod export;
 mod flags;
 mod forge;
 mod frame;
+mod github;
 mod health;
 mod improve;
 mod jq;

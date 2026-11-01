@@ -16,6 +16,7 @@
 //!   console tehas|tehasbot mcp serve|key
 //!   console tehasbot health
 //!   console tehasbot top [--every]
+//!   console tehasbot github-token [--check]
 //!
 //! status, disk, top and mcp key need no settings. The rest run under
 //! `libexec/with-settings`, which first asks `console check` with the same
@@ -30,7 +31,7 @@
 //!
 //! Exit: the status of the command; 64 usage.
 
-use crate::{api, disk, flags, health, labels, mcp, state, status, stop, top};
+use crate::{api, disk, flags, github, health, labels, mcp, state, status, stop, top};
 use std::env;
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::process::CommandExt;
@@ -158,8 +159,11 @@ pub fn tehasbot(given: &[String]) -> u8 {
         Some("health") => health::loaded(),
         Some("top") => top::publish(&given[1..]),
         Some("mcp") => mcp::main(&given[1..]),
+        Some("github-token") => github::main(&given[1..]),
         _ => {
-            eprintln!("console tehasbot: usage: health | top [--every] | mcp");
+            eprintln!(
+                "console tehasbot: usage: health | top [--every] | mcp | github-token [--check]"
+            );
             64
         }
     }
@@ -187,6 +191,7 @@ pub fn check(given: &[String]) -> u8 {
             Ok(None) => Err(ANSWERED),
             Err(rc) => Err(rc),
         },
+        ["tehasbot", "github-token"] => github::words(rest).map(|_| ()),
         _ => Ok(()),
     };
     said.err().unwrap_or(0)
@@ -340,6 +345,8 @@ mod tests {
         assert_eq!(check(&words(&["tehas", "limit", "set", "--bad"])), 0);
         assert_eq!(check(&words(&["tehas", "state", "bogus"])), 0);
         assert_eq!(check(&words(&["tehasbot", "health"])), 0);
+        assert_eq!(check(&words(&["tehasbot", "github-token", "--check"])), 0);
+        assert_eq!(check(&words(&["tehasbot", "github-token", "--print"])), 64);
         assert_eq!(check(&[]), 0);
     }
 
