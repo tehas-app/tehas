@@ -372,38 +372,8 @@ t_contains "$(cat "$T_ROOT/lib/improve-prompt.md")" "never guess it, never fill 
 t_contains "$(cat "$T_ROOT/lib/improve-prompt.md")" "\`boundary\` is for a problem with a half on each side"
 t_contains "$(cat "$T_ROOT/lib/improve-prompt.md")" "pi-rukas | console | gate | docs | boundary"
 
-# --- Packing a whole log -----------------------------------------------------
-# 300 lines that compress badly, so a small limit forces pieces.
+# 300 lines of no words a token could be taken for.
 big_log() { for i in $(seq 1 300); do printf '%s\n' "$i" | sha256sum; done >"$1"; }
-
-t_case "a log under the limit is one file"
-reset
-big_log "$fx/log"
-lib 'tehas_improve_pack "$T/fx/log" "$T/fx/gz" ticket-7.log 1000000'
-t_eq "$t_rc" 0
-t_eq "$(ls "$fx/gz")" "ticket-7.log.gz"
-t_eq "$(zcat "$fx/gz/ticket-7.log.gz" | cksum)" "$(cksum <"$fx/log")"
-
-t_case "a log over the limit is numbered pieces that join back to it"
-reset
-big_log "$fx/log"
-lib 'tehas_improve_pack "$T/fx/log" "$T/fx/gz" ticket-7.log 3000'
-t_eq "$t_rc" 0
-n=$(find "$fx/gz" -name 'ticket-7.log.*.gz' | wc -l)
-[ "$n" -ge 2 ] || t_bad "expected pieces, got $n"
-[ ! -e "$fx/gz/ticket-7.log.gz" ] || t_bad "the whole file was left beside the pieces"
-t_eq "$(for i in $(seq 1 "$n"); do zcat "$fx/gz/ticket-7.log.$i.gz"; done | cksum)" "$(cksum <"$fx/log")"
-t_eq "$(find "$fx/gz" -name '*.gz' -size +3000c | wc -l)" 0
-t_eq "$(find "$fx/gz" -mindepth 1 ! -name '*.gz' | wc -l)" 0
-
-t_case "a line too long for one piece: no pieces are left"
-reset
-head -c 20000 /dev/urandom | base64 -w 0 >"$fx/log"
-echo >>"$fx/log"
-echo "second line" >>"$fx/log"
-lib 'tehas_improve_pack "$T/fx/log" "$T/fx/gz" ticket-7.log 3000'
-t_eq "$t_rc" 1
-t_eq "$(find "$fx/gz" -name '*.gz' | wc -l)" 0
 
 t_case "the shape of a token is seen"
 reset

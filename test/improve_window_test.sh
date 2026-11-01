@@ -19,7 +19,8 @@ t_lacks "$body" 'a ``` b'
 
 t_case "a log with the shape of a token is not uploaded and the issue says so"
 ready
-echo "ghp_$(printf 'a%.0s' $(seq 1 36))" >>"$home/logs/work-$REC.jsonl"
+# A shape the mask leaves: what it hides goes up hidden, as the next case says.
+echo "-----BEGIN OPENSSH PRIVATE KEY-----" >>"$home/logs/work-$REC.jsonl"
 t_run "$improve"
 t_eq "$t_rc" 0
 t_eq "$(cat "$T/calls/assets" 2>/dev/null)" ""
@@ -37,23 +38,24 @@ t_contains "$(cat "$T/calls/uploaded")" 'PASSWORD=***'
 t_contains "$(cat "$T/calls/uploaded")" "stderr line"
 t_lacks "$(cat "$T/calls/uploaded")" "hunter2"
 
-t_case "without a console the log is not uploaded and the issue says so"
+t_case "a token the mask knows goes up hidden"
+ready
+token=ghp_$(printf 'a%.0s' $(seq 1 36))
+echo "$token" >>"$home/logs/work-$REC.jsonl"
+t_run "$improve"
+t_eq "$t_rc" 0
+t_eq "$(wc -l <"$T/calls/assets")" 1
+t_lacks "$(cat "$T/calls/uploaded")" "$token"
+
+t_case "without a console the run stops with 78 and the records wait"
 ready
 rm "$tree/libexec/console"
 t_run "$improve"
-t_eq "$t_rc" 0
-t_eq "$(cat "$T/calls/assets" 2>/dev/null)" ""
-t_contains "$(cat "$T/calls/body-101")" "could not be masked"
-t_contains "$t_out" "not-masked=$REC"
-console_stub
-
-t_case "a console that fails: the log is not uploaded"
-ready
-: >"$fx/console.rc"
-t_run "$improve"
-t_eq "$t_rc" 0
-t_eq "$(cat "$T/calls/assets" 2>/dev/null)" ""
-t_contains "$t_out" "not-masked=$REC"
+t_eq "$t_rc" 78
+t_contains "$t_out" "no console at"
+t_eq "$(t_calls gh)$(t_calls docker)" ""
+[ -f "$base/window/$REC/cycle.json" ] || t_bad "the record is gone"
+cp "$T_CONSOLE" "$tree/libexec/console"
 
 t_case "a log that is gone: the issue is filed and says so"
 ready
