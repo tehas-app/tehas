@@ -103,9 +103,9 @@ t_eq "$(sed -n 's/^RuntimeMaxSec=//p' "$T_ROOT/host/systemd/tehas-cycle@.service
 
 t_case "the plan unit's limit is the longest turn's limit accepted plus the grace"
 # The pair that has to fit together: the ceiling tehas_load accepts, and the
-# grace lib/planning.sh adds to make the unit's RuntimeMaxSec.
+# grace apply/turn.rs adds to make the unit's RuntimeMaxSec.
 t_eq "$plan_max" "7200"
-t_contains "$(cat "$T_ROOT/lib/planning.sh")" "TEHAS_PLAN_TIMEOUT + 900"
+t_contains "$(cat "$T_ROOT/console/dispatch/src/apply/turn.rs")" "self.host.plan_timeout + 900"
 t_contains "$(cat "$T_ROOT/host/docs/host.md")" "may be at most $plan_max, 2 hours"
 t_contains "$(grep 'at most' "$T_ROOT/instances/example/optional.env")" "at most $plan_max"
 # Read from the config the same way tehas does: the largest value accepted, at

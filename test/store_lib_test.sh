@@ -409,8 +409,8 @@ t_eq "$t_out" "1
 number"
 lib 'f=$(tehas_approval_view 7 1) && jq -c "{how, fixer_starts}" "$f"'
 t_eq "$t_out" '{"how":"fixer","fixer_starts":1}'
-# plan-show answers each answer's mark under both names, and the shape gives
-# the file's `fixer` of it: a store that answered only one key breaks here.
+# plan-show answers each answer's mark under both names: a store that answered
+# only one key breaks here.
 printf '# The brief\n' >"$T/plan-brief.md"
 TEHAS_HOME=$home "$T_STORE" plan-begin 8 --by alice --label tehas:plan --brief-file "$T/plan-brief.md" >/dev/null
 TEHAS_HOME=$home "$T_STORE" plan-end 8 --turn 1 --outcome finished --rc 0 --session s1 >/dev/null
@@ -419,12 +419,5 @@ lib 'tehas_store plan-show 8 >/dev/null; tehas_store_get .planning.answers[0].mi
 t_eq "$t_out" "true
 true
 boolean"
-lib 'f=$(plan_view 8) && jq -c '.answers' "$f"; rm -f "$f"'
-t_eq "$t_out" '[{"turn":2,"by":"tehas-fixer","fixer":true}]'
-# A mark that is not a boolean is not renamed into the file's `fixer` slot:
-# the shape of the boundary is the shape lib/millwright.sh checks with a type test,
-# so a string mark reaches the record file as it came and not as a `fixer`.
-lib 'echo "{\"planning\":{\"answers\":[{\"turn\":1,\"by\":\"alice\",\"millwright\":\"yes\"}]}}" | jq -c "$tehas_plan_shape"'
-t_eq "$t_out" '{"session":"","turns":null,"options":[],"pending":null,"failed":null,"running":null,"answers":[{"turn":1,"by":"alice","millwright":"yes"}]}'
 
 t_done

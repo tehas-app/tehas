@@ -455,7 +455,6 @@ files=(
   "lib/refine-brief.md|$TEHAS_HOME/lib/refine-brief.md|644"
   "lib/issue-brief.md|$TEHAS_HOME/lib/issue-brief.md|644"
   "lib/millwright.sh|$TEHAS_HOME/lib/millwright.sh|644"
-  "lib/live.sh|$TEHAS_HOME/lib/live.sh|644"
   "lib/limit.sh|$TEHAS_HOME/lib/limit.sh|644"
   "lib/models.sh|$TEHAS_HOME/lib/models.sh|644"
   "lib/private.sh|$TEHAS_HOME/lib/private.sh|644"
@@ -475,7 +474,6 @@ files=(
   # How the commands run the state store, libexec/store.
   "lib/store.sh|$TEHAS_HOME/lib/store.sh|644"
   "lib/top.sh|$TEHAS_HOME/lib/top.sh|644"
-  "lib/planning.sh|$TEHAS_HOME/lib/planning.sh|644"
   "lib/refresh.sh|$TEHAS_HOME/lib/refresh.sh|644"
   # The key a release signature is checked with. It is here so the copy an
   # adopter verifies against is the one the repository holds and not one that
@@ -1211,8 +1209,9 @@ for f in "$TEHAS_HOME"/sandbox/sandbox-uid.Dockerfile \
 done
 
 # The commands of before bin/tehas, one file each in bin/, and the console of
-# before it was a compiled program. And the Protolab's server files of before the
-# edge router. Found here, removed in step 5 once systemd has the new units.
+# before it was a compiled program. The libraries the bash poll sourced. And the
+# Protolab's server files of before the edge router. Found here, removed in step
+# 5 once systemd has the new units.
 old=()
 for f in \
   bin/tehas-console.ts \
@@ -1225,6 +1224,8 @@ for f in \
   bin/tehas-test \
   bin/tehas-work \
   libexec/console.ts \
+  lib/live.sh \
+  lib/planning.sh \
   edge/protolab.Caddyfile \
   edge/protolab.compose.yaml; do
   to=$TEHAS_HOME/$f

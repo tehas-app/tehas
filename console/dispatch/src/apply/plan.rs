@@ -1,4 +1,4 @@
-//! The end of a planning turn, as lib/planning.sh does it: the turn's exit
+//! The end of a planning turn: the turn's exit
 //! status collected (plan_collect, plan_finish), its question posted
 //! (plan_post) unless its plan needs none (plan_clear), a plan written onto
 //! its issue (plan_update), a refine that filed replacing its issue
@@ -45,7 +45,7 @@ pub fn q_render(issue: u64, turn: u64, out: &Value, line: &str) -> String {
     question::q_render(Kind::Plan, issue, turn, out, line)
 }
 
-/// plan_no_later_parts: true only when the plan has a Later parts section
+/// True only when the plan has a Later parts section
 /// of nothing but None.
 pub fn no_later_parts(body: &str) -> bool {
     let none = |t: &str| {
@@ -89,7 +89,7 @@ pub fn no_later_parts(body: &str) -> bool {
     seen && !more
 }
 
-/// tehas_plan_shape, whole: the session as plan_view gives it, which the
+/// The session as its record file had it before the store, whole, which the
 /// analytics program reads. decide's shape is its answers and notes; this
 /// adds the session, its turns and options, its states and its times.
 pub fn plan_view(row: &Value) -> Value {
@@ -286,8 +286,8 @@ impl Writer {
         }
     }
 
-    /// tehas_analytics_plan: the turn's end for the factory's analytics,
-    /// with the session as plan_view gives it and the image's pi-rukas.
+    /// The turn's end for the factory's analytics, with the session as
+    /// plan_view gives it and the image's pi-rukas.
     fn analytics_plan(&mut self, n: u64, show: &Value, rc: &str, log: &mut Vec<String>) {
         if self.host.analytics.is_none() {
             return;

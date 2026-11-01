@@ -33,15 +33,6 @@
 #                                 one). On 1, $tehas_millwright_why says why not;
 #                                 2 when the store could not answer, which
 #                                 decides nothing.
-#   tehas_millwright_answer <session>  0 when the millwright may answer the open
-#                                 question of the session, a file as plan_view
-#                                 writes it (lib/store.sh, lib/planning.sh): a
-#                                 person allowed now started it, the millwright
-#                                 gave fewer
-#                                 than TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS of its
-#                                 answers and not the last one. On 1,
-#                                 $tehas_millwright_why says why not. What the
-#                                 answer is, the caller checks.
 #   tehas_cycle_history <issue>   the issue's cycle history on the state store
 #                                 (history-show), one JSON object per line in
 #                                 the shape the lines had before the store
@@ -134,41 +125,6 @@ tehas_millwright_grant() { # <issue> <body sha256>
     return 1
   fi
   tehas_millwright_count=$((had + 1))
-}
-
-# shellcheck disable=SC2034  # the caller reads what this sets
-tehas_millwright_answer() { # <session, as plan_view writes it>
-  local by got had last
-  tehas_millwright_why=""
-  if ! tehas_millwright_on; then
-    tehas_millwright_why="there is no fixer"
-    return 1
-  fi
-  if [ ! -f "$1" ] || [ -L "$1" ]; then
-    tehas_millwright_why="the session has no record on this host"
-    return 1
-  fi
-  by=$(jq -r '.by | if type == "string" then . else "" end' "$1" 2>/dev/null) || by=""
-  if [ -z "$by" ] || ! tehas_allowed_labeler "$by"; then
-    tehas_millwright_why="no person's tehas:plan started this session, as far as its record says"
-    return 1
-  fi
-  got=$(jq -r '.answers // [] | if type == "array" and all(.[]; type == "object" and (.fixer | type) == "boolean")
-      then "\(map(select(.fixer)) | length) \(last.fixer // false)" else error("no list") end' "$1" 2>/dev/null) || got=""
-  if ! [[ $got =~ ^([0-9]{1,6})\ (true|false)$ ]]; then
-    tehas_millwright_why="its record does not say who answered its turns"
-    return 1
-  fi
-  had=${BASH_REMATCH[1]}
-  last=${BASH_REMATCH[2]}
-  if [ "$last" = true ]; then
-    tehas_millwright_why="the fixer answered the question before this one; a person answers this one"
-    return 1
-  fi
-  if [ "$had" -ge "${TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS:-3}" ]; then
-    tehas_millwright_why="the fixer has answered $had questions in this session, the limit"
-    return 1
-  fi
 }
 
 tehas_cycle_history() { # <issue>

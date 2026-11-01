@@ -26,7 +26,7 @@
 //!     Records the planning turn of the issue that ended: its row in runs,
 //!     kind plan, from its record, which its caller wrote to <file>, and the
 //!     turn's output (plan.rs lists both), with no usage.
-//!     lib/planning.sh calls it as plan_finish begins, before the record is
+//!     The poll calls it as a turn's end begins, before the record is
 //!     rewritten. <rc> is how the turn's unit ended: its exit status, or
 //!     interrupted, not-started or not-readable. The commit, id and build
 //!     time are those of the sandbox image as the dispatcher started the

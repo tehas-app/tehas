@@ -538,8 +538,19 @@ keep=$T/home/tehas/work/widget-plan-7.keep
 # rec: issue 7's session as the store has it, in the shape its record file
 # had (tehas_plan_shape); null when there is none. rec_open: "open" while one
 # is open, else "none".
-plan_shape=$(bash -c '. "$1"; printf "%s" "$tehas_plan_shape"' _ "$T_ROOT/lib/store.sh")
-rec() { t_row plan-show 7 -- "$plan_shape" | jq -c .; }
+tehas_plan_shape='.planning | if type != "object" then null else
+  ((.notes.millwright_refused // []) + (.notes.fixer_refused // [])) as $refused |
+  {session: (.session // ""), turns, options: (.options // []), pending, failed, running}
+  + (if .started_at == null then {} else {startedAt: (.started_at | todate)} end)
+  + (if .comment_id == null then {} else {comment: .comment_id} end)
+  + (if .lost == true then {lost: true} else {} end)
+  + (if .by == null then {} else {by} end)
+  + (if .label == null then {} else {label} end)
+  + {answers: ((.answers // []) | map(if (.millwright | type) == "boolean" then {turn, by, fixer: .millwright} else . end))}
+  + (if (.filed // []) == [] then {} else {filed} end)
+  + (if $refused == [] then {} else {fixer_refused: $refused} end)
+  + (if (.notes.held // []) == [] then {} else {held: .notes.held} end) end'
+rec() { t_row plan-show 7 -- "$tehas_plan_shape" | jq -c .; }
 rec_open() { t_row plan-show 7 -- 'if .planning != null and .planning.ended_at == null then "open" else "none" end'; }
 # The session's brief, and the answer the turn running was given, on record.
 rec_brief() { t_row plan-show 7 -- '.planning.brief // "" | rtrimstr("\n")'; }

@@ -65,7 +65,7 @@ bare_tree
 t_run "$tree/libexec/dispatch"
 t_eq "$t_rc" 0
 t_contains "$(plan_calls)" "7 --out $record.out --keep $keep --brief $T/home/tehas/tmp/plan-7.brief."
-# The unit of a turn is the whole limit plus the grace of lib/planning.sh; the
+# The unit of a turn is the whole limit plus the grace of apply/turn.rs; the
 # bound itself, and the pair it has to fit, are pinned in config_test.sh.
 t_contains "$(t_calls systemd-run)" "--unit tehas-plan-7 -p RuntimeMaxSec="
 t_contains "$(t_calls gh)" "- [ ] Adopt all"

@@ -327,9 +327,8 @@
 # `analytics sample` (the counts of live/status.json, the hold and the cycles
 # allowed of live/dispatch.json, the draw of live/energy.json) and `analytics
 # prune`. Each call has a time limit, and one that fails or runs out of time is
-# a WARN line: it changes nothing in the poll (lib/analytics.sh). A planning
-# turn that ended is recorded with `analytics plan` as its end is posted
-# (lib/planning.sh).
+# a WARN line: it changes nothing in the poll. A planning turn that ended is
+# recorded with `analytics plan` as its end is posted.
 set -uo pipefail
 
 # The usage is this file's own header comment: every line from the second to the
