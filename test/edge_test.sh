@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for lib/edge.sh, what tehasbot protolab and tehasbot preview share,
+# Tests for lib/edge.sh, what tehasbot protolab uses,
 # and for the router's files in host/edge.
 # shellcheck disable=SC2016  # snippets and patterns are expanded later, or never
 # shellcheck source=test/lib.sh
@@ -56,7 +56,7 @@ free"
 t_eq "$(grep -c -E 'flock (-n|-w [0-9]+) 9' "$T_ROOT/lib/edge.sh")" 0
 
 t_case "a command the run starts keeps the lock unless it is told to drop the descriptor"
-# What libexec/preview does for every command that can outlive its run: a
+# What a command does for every program that can outlive its run: a
 # descriptor a child inherits holds the lock after the parent has ended.
 # The child writes $ready when it has started, and the check waits for that
 # file: waiting for the lock itself to answer would be a race won only by a

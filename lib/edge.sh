@@ -1,9 +1,8 @@
 # shellcheck shell=bash
-# What tehasbot protolab and tehasbot preview both do with a numbered set
-# under $TEHAS_HOME: a ticket's pages, a pull request's preview. Sourced, not
-# run. These need TEHAS_HOME and call nothing but the shell's own tools and
-# flock. The console has the same four in console/src/edge.rs, beside the
-# previews' network.
+# What tehasbot protolab does with a numbered set under $TEHAS_HOME: a ticket's
+# pages. Sourced, not run. These need TEHAS_HOME and call nothing but the
+# shell's own tools and flock. The console has the same four in
+# console/src/edge.rs, which tehasbot preview uses, beside the previews' network.
 #
 #   edge_lock <name> [<seconds>]   one run at a time, on the descriptor bash
 #                                  chose, named in edge_lock_fd

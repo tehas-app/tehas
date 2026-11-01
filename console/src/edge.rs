@@ -16,8 +16,8 @@
 //! that it does not matter, and an old Docker is not asked to make anything.
 //!
 //! `check` is install.sh's: it changes nothing. `create` makes the network.
-//! `ensure` is tehasbot preview's: it makes a network Docker does not have,
-//! then checks.
+//! `ensure` is what tehasbot preview does: it makes a network Docker does not
+//! have, then checks.
 //!
 //! Exit, with the reason on standard output for 1, 2 and 3: 0 the network
 //! keeps the host out, or `create` made it; 1 it does not, or `create` failed;
@@ -36,7 +36,6 @@ const OPTION: &str = "com.docker.network.bridge.gateway_mode_ipv4";
 /// `$TEHAS_HOME/state/<name>.lock`, held until the file is dropped. Without a
 /// wait, another holder is an answer at once. None when it is held or cannot
 /// be opened. The file closes on exec, so a child cannot keep the lock.
-#[allow(dead_code, reason = "tehasbot preview and protolab move here next")]
 pub fn lock(home: &Path, name: &str, wait: Option<Duration>) -> Option<File> {
     let state = home.join("state");
     fs::create_dir_all(&state).ok()?;
@@ -55,7 +54,6 @@ pub fn lock(home: &Path, name: &str, wait: Option<Duration>) -> Option<File> {
 
 /// The bytes become the file. A server may read it at any moment, so they are
 /// written beside it and renamed. A failure leaves the file as it was.
-#[allow(dead_code, reason = "tehasbot preview and protolab move here next")]
 pub fn put(file: &Path, bytes: &[u8]) -> io::Result<()> {
     let mut beside = file.as_os_str().to_owned();
     beside.push(".new");
@@ -68,7 +66,7 @@ pub fn put(file: &Path, bytes: &[u8]) -> io::Result<()> {
 
 /// The new directory takes the place by rename. The old one is moved aside
 /// first and removed afterwards, so there is no moment with a half-copied one.
-#[allow(dead_code, reason = "tehasbot preview and protolab move here next")]
+#[allow(dead_code, reason = "tehasbot protolab moves here next")]
 pub fn place(new: &Path, place: &Path) -> io::Result<()> {
     let old = place.parent().unwrap_or(Path::new(".")).join(".old");
     remove(&old)?;
@@ -79,8 +77,7 @@ pub fn place(new: &Path, place: &Path) -> io::Result<()> {
     remove(&old)
 }
 
-#[allow(dead_code, reason = "tehasbot preview and protolab move here next")]
-fn remove(path: &Path) -> io::Result<()> {
+pub fn remove(path: &Path) -> io::Result<()> {
     match fs::remove_dir_all(path) {
         Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
         Err(e) if e.kind() == io::ErrorKind::NotADirectory => fs::remove_file(path),
@@ -90,7 +87,6 @@ fn remove(path: &Path) -> io::Result<()> {
 
 /// The subdirectories whose name is a number, in the order of their names.
 /// A directory that cannot be read has none.
-#[allow(dead_code, reason = "tehasbot preview and protolab move here next")]
 pub fn numbers(dir: &Path) -> Vec<String> {
     let Ok(entries) = fs::read_dir(dir) else {
         return Vec::new();
@@ -142,7 +138,7 @@ fn docker_fault(docker: &mut impl FnMut(&[&str]) -> Option<String>) -> Option<St
 
 /// The four words of Docker's answer, split as `read` does: on blanks in the
 /// first line, what is left over staying in the last.
-fn words(said: &str) -> [&str; 4] {
+pub fn words(said: &str) -> [&str; 4] {
     let blank = [' ', '\t'];
     let mut rest = said.split('\n').next().unwrap_or("").trim_matches(blank);
     let mut found = [""; 4];
@@ -229,7 +225,14 @@ fn net_answer(
     }
 }
 
-fn docker(args: &[&str]) -> Option<String> {
+/// Why the network does not keep the host out, as `ensure` finds it: a network
+/// Docker does not have is made first.
+pub fn network_fault(network: &str) -> Option<String> {
+    let mut ask = docker;
+    ensure(&mut ask, network).1
+}
+
+pub fn docker(args: &[&str]) -> Option<String> {
     let out = Command::new("docker")
         .args(args)
         .stderr(Stdio::null())

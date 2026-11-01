@@ -242,12 +242,9 @@ t_eq "$t_rc" 0
 t_eq "$([ -e "$root/sweep.json" ] && echo yes || echo no)" "yes"
 t_eq "$(find "$T/home/tehas/tmp" -mindepth 1 2>/dev/null | wc -l)" 0
 
-# The sweep's temporary file was removed on the last line of the sweep, which a
-# signal never reaches. The trap removes what this run made. The sweep is stopped
-# while it waits on the call about one pull request: fx/slow holds that call
-# until fx/go is there, and fx/held is what the wait looks for. Not the file
-# under tmp: it is there a moment before the run remembers it, and a signal in
-# that moment leaves it behind, which a loaded runner hit.
+# The sweep is stopped while it waits on the call about one pull request:
+# fx/slow holds that call until fx/go is there, and fx/held is what the wait
+# looks for.
 t_case "a sweep that is stopped partway leaves no temporary file either"
 reset
 stub_gh
@@ -271,9 +268,18 @@ t_eq "$(count "$root" sweep.json)" 0
 t_eq "$(find "$T/home/tehas/tmp" -mindepth 1 2>/dev/null | wc -l)" 0
 t_eq "$(state_of 12)" "serving"
 
-t_case "the run closes the lock descriptor bash gave it, not a number it guessed"
-t_eq "$(grep -c -F '9>&-' "$T_ROOT/libexec/preview")" 0
-t_contains "$(cat "$T_ROOT/libexec/preview")" '{edge_lock_fd}>&-'
-
+# A descriptor a child inherits would hold the lock after the run has ended (a
+# detached gc, a daemon). The stub looks at what it was given while the run
+# waits on it, with the lock held.
+t_case "a program the run starts does not hold the lock"
+reset
+a=$(commit feature)
+pulls "$(pull 12 "$a")"
+t_stub sleep 'for fd in /proc/$$/fd/*; do readlink "$fd"; done >"$T/fx/given"'
+t_run "$preview"
+t_eq "$(state_of 12)" "serving"
+t_eq "$(test -s "$fx/given" && echo yes)" yes
+t_lacks "$(cat "$fx/given")" "preview.lock"
+t_eq "$(test -e "$T/home/tehas/state/preview.lock" && echo yes)" yes
 
 t_done
