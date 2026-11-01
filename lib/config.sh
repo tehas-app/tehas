@@ -44,8 +44,8 @@ tehas_instance_dir() {
 # source of this file keeps what a load said.
 declare -gA _tehas_bad
 
-# The console that reads the settings: TEHAS_SETTINGS_CMD, the tests' hook, else
-# the one beside this file, else the home's.
+# The console that reads the settings: TEHAS_SETTINGS_CMD, which a build or a
+# test names, else the one beside this file, else the home's.
 _tehas_settings_console() {
   local beside=${BASH_SOURCE[0]%/*}/../libexec/console
   if [ -n "${TEHAS_SETTINGS_CMD:-}" ]; then
