@@ -104,10 +104,9 @@
 //!
 //! A stopped factory's state as one tar, see src/state.rs.
 //!
-//!   console protolab page|front|live|refs ...
+//!   console protolab run
 //!
-//! The pages of the Protolab and the links of a ticket, for libexec/protolab,
-//! see src/protolab.rs.
+//! One pass of the Protolab, for libexec/protolab, see src/protolab.rs.
 //!
 //!   console setup files ...
 //!

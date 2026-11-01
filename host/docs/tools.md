@@ -3138,14 +3138,15 @@ files attached to it, and the list
 `~/tehas/live/protolab.json` that the dashboard links from. The timer runs it
 every five minutes; the log is `~/tehas/logs/protolab.log`.
 
-The pages are the console's (`~/tehas/libexec/console protolab`,
-`console/protolab.rs`), as the steps of
-[`tehas clean`](#tehas-clean) are: the page of a ticket, the lab's front page
-and the dashboard's file. It escapes what came from GitHub, puts together every
-figure of a page, and reads the attachment links of a ticket, which is the one
-regular expression of `lib/attachments.sh`. The command beside it keeps the
-settings, the calls to GitHub, the downloads and the order of the work, and
-refuses with exit 78 when no console stands beside it.
+The pass is the console's (`~/tehas/libexec/console protolab run`,
+`console/src/protolab.rs`): the calls to GitHub, the check of who applied the
+label, the downloads, the zips through `libexec/attach`, the pages and the
+dashboard's file. It escapes what came from GitHub, puts together every figure
+of a page, and reads the attachment links of a ticket, which is the one regular
+expression of `lib/attachments.sh`. The command beside it keeps the settings and
+the GitHub App's token, and refuses with exit 78 when no console stands beside
+it. Each call of gh is held to 30 seconds. A console with other bytes builds
+every page once more.
 
 The container is the edge router, on port 8081. It answers for the Protolab
 and for the [previews](#tehasbot-preview), and picks by the name it is asked
