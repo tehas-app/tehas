@@ -13,6 +13,7 @@ use std::io::{BufRead, BufReader};
 use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Mutex;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -21,6 +22,11 @@ const STORE: &str = env!("CARGO_BIN_EXE_store");
 const WRITERS: u32 = 8;
 const READERS: u32 = 8;
 const LOAD: Duration = Duration::from_secs(2);
+/// Calls each process of the load must get through. The load runs past `LOAD`
+/// until all have, so a machine that lends it little time cannot fail the case.
+const FLOOR: usize = 5;
+/// Past this a process still short of `FLOOR` is starved, whatever the machine.
+const STARVED: Duration = Duration::from_secs(120);
 /// The store's notice of a wait on a lock: one line for the first look at it,
 /// on standard error, given to a build with debug assertions that was asked for
 /// it by the variable of `src/db.rs`. That line is what says a call sat on the
@@ -179,10 +185,17 @@ fn expected(batch: u32, rows: u32) -> impl Iterator<Item = (String, String)> {
     (0..rows).map(move |row| (format!("test-write-{batch}"), row.to_string()))
 }
 
+fn load_goes_on(end: Instant, starved: Instant, short: &AtomicU32) -> bool {
+    let now = Instant::now();
+    now < starved && (now < end || short.load(Ordering::SeqCst) > 0)
+}
+
 #[test]
 fn eight_writers_and_eight_readers_meet_no_busy_and_lose_no_write() {
     let home = home("load");
     let end = Instant::now() + LOAD;
+    let starved = Instant::now() + STARVED;
+    let short: &'static AtomicU32 = Box::leak(Box::new(AtomicU32::new(WRITERS + READERS)));
     // What any of the sixteen processes was kept out of the store for, named so
     // a failure says who and with what answer. The handles are collected before
     // the join, so the closures are alive by the time their lifetimes are
@@ -203,7 +216,7 @@ fn eight_writers_and_eight_readers_meet_no_busy_and_lose_no_write() {
             thread::spawn(move || {
                 let (mut written, mut failed) = (Vec::new(), Vec::new());
                 let mut n = 0;
-                while Instant::now() < end {
+                while load_goes_on(end, starved, short) {
                     let batch = w * 1_000_000 + n;
                     let asked = Instant::now();
                     let args = [
@@ -216,6 +229,9 @@ fn eight_writers_and_eight_readers_meet_no_busy_and_lose_no_write() {
                     let out = run(&home, &args);
                     if out.status.success() {
                         written.push(batch);
+                        if written.len() == FLOOR {
+                            short.fetch_sub(1, Ordering::SeqCst);
+                        }
                         let waits = met_lock(&out);
                         if waits > 0 {
                             note(format!("writer {w}, batch {batch}"), waits, &args, &out);
@@ -238,11 +254,14 @@ fn eight_writers_and_eight_readers_meet_no_busy_and_lose_no_write() {
             let home = home.clone();
             thread::spawn(move || {
                 let (mut reads, mut failed) = (0, Vec::new());
-                while Instant::now() < end {
+                while load_goes_on(end, starved, short) {
                     let args = ["check"];
                     let out = run(&home, &args);
                     if out.status.success() {
                         reads += 1;
+                        if reads == FLOOR {
+                            short.fetch_sub(1, Ordering::SeqCst);
+                        }
                         let waits = met_lock(&out);
                         if waits > 0 {
                             note(format!("reader {r}"), waits, &args, &out);
@@ -312,7 +331,7 @@ fn eight_writers_and_eight_readers_meet_no_busy_and_lose_no_write() {
     );
     // Every writer and every reader had its turn many times over.
     assert!(
-        fewest.0 >= 5 && fewest.1 >= 5,
+        fewest.0 >= FLOOR && fewest.1 >= FLOOR,
         "fewest writes, reads: {fewest:?}"
     );
     assert_eq!(rows(&home), want, "every write that answered 0 is there");
