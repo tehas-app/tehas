@@ -1,8 +1,101 @@
 //! The host's models.json: the endpoints of a provider and the key each is
 //! asked with, as tehas_endpoint_url, tehas_endpoint_key and
-//! _tehas_endpoint_auth in lib/models.sh read them.
+//! _tehas_endpoint_auth in lib/models.sh read them, the models the agents use,
+//! and how an endpoint is asked for them.
 
 use serde_json::Value;
+
+const ROLES: [&str; 5] = [
+    "DEVELOPER",
+    "OPS",
+    "EXPLORE",
+    "ADVERSARIAL_DEVELOPER",
+    "CODE_REVIEW_SPECIALIST",
+];
+
+/// tehas_models: (provider, model), the subagent's first, each pair once.
+pub fn used() -> Vec<(String, String)> {
+    let env = |k: String| std::env::var(k).unwrap_or_default();
+    let mut used: Vec<(String, String)> = Vec::new();
+    let mut pairs = vec![(
+        env("PI_ENSEMBLE_SUBAGENT_PROVIDER".into()),
+        env("PI_ENSEMBLE_SUBAGENT_MODEL".into()),
+    )];
+    for r in ROLES {
+        let m = env(format!("PI_ENSEMBLE_MODEL_{r}"));
+        if !m.is_empty() {
+            pairs.push((env(format!("PI_ENSEMBLE_PROVIDER_{r}")), m));
+        }
+    }
+    for p in pairs {
+        if !p.0.is_empty() && !p.1.is_empty() && !used.contains(&p) {
+            used.push(p);
+        }
+    }
+    used
+}
+
+/// tehas_endpoint_ask: Ok when the endpoint answers and offers every model,
+/// else the words the hold says. `curl` runs curl with these arguments and the
+/// text on its standard input, and gives what it printed when it succeeded.
+pub fn ask(
+    url: &str,
+    key: &str,
+    models: &[String],
+    curl: &dyn Fn(&[String], &str) -> Option<String>,
+) -> Result<(), String> {
+    let args = ["-fsS", "-K", "-", "-m", "10", &format!("{url}/models")].map(String::from);
+    let Some(out) = curl(&args, &auth(key)) else {
+        return Err("does not answer".into());
+    };
+    let list: Value = serde_json::from_str(&out).unwrap_or(Value::Null);
+    let Some(data) = list
+        .get("data")
+        .and_then(Value::as_array)
+        .filter(|d| !d.is_empty())
+    else {
+        return Err("offers no models".into());
+    };
+    for m in models {
+        if !data
+            .iter()
+            .any(|x| x.get("id").and_then(Value::as_str) == Some(m))
+        {
+            return Err(format!("does not offer {m}"));
+        }
+    }
+    Ok(())
+}
+
+/// tehas_endpoint_pick: "main" when it offers the provider's models, else
+/// "backup" when that does, else "main". No call without a backupBaseUrl.
+pub fn pick(
+    file: &ModelFile,
+    provider: &str,
+    used: &[(String, String)],
+    curl: &dyn Fn(&[String], &str) -> Option<String>,
+) -> &'static str {
+    let backup = file.url(provider, "backup");
+    if backup.is_empty() {
+        return "main";
+    }
+    let models: Vec<String> = used
+        .iter()
+        .filter(|(p, _)| p == provider)
+        .map(|(_, m)| m.clone())
+        .collect();
+    let main_ok = ask(
+        &file.url(provider, "main"),
+        &file.key(provider, "main"),
+        &models,
+        curl,
+    );
+    if main_ok.is_err() && ask(&backup, &file.key(provider, "backup"), &models, curl).is_ok() {
+        "backup"
+    } else {
+        "main"
+    }
+}
 
 pub struct ModelFile {
     /// The file, null when there is none or it cannot be read.
@@ -81,6 +174,48 @@ fn auth_from(key: &str, value: impl Fn(&str) -> String) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn of(json: Value) -> ModelFile {
+        ModelFile { json }
+    }
+
+    #[test]
+    fn an_endpoint_is_asked_for_every_model() {
+        let offers = |out: &'static str| move |_: &[String], _: &str| Some(out.to_string());
+        let m = ["a".to_string()];
+        assert_eq!(
+            ask("u", "w", &m, &|_, _| None).unwrap_err(),
+            "does not answer"
+        );
+        assert_eq!(
+            ask("u", "w", &m, &offers("{}")).unwrap_err(),
+            "offers no models"
+        );
+        assert_eq!(
+            ask("u", "w", &m, &offers(r#"{"data":[{"id":"b"}]}"#)).unwrap_err(),
+            "does not offer a"
+        );
+        assert!(ask("u", "w", &m, &offers(r#"{"data":[{"id":"a"}]}"#)).is_ok());
+    }
+
+    #[test]
+    fn the_backup_is_picked_only_when_it_offers_what_the_main_does_not() {
+        let f = of(serde_json::json!({"providers": {"p": {"baseUrl": "m", "backupBaseUrl": "b"}}}));
+        let used = [
+            ("p".to_string(), "a".to_string()),
+            ("q".to_string(), "z".to_string()),
+        ];
+        let good = r#"{"data":[{"id":"a"}]}"#.to_string();
+        let up = |host: &'static str| {
+            let good = good.clone();
+            move |args: &[String], _: &str| args[5].starts_with(host).then(|| good.clone())
+        };
+        assert_eq!(pick(&f, "p", &used, &up("m/")), "main");
+        assert_eq!(pick(&f, "p", &used, &up("b/")), "backup");
+        assert_eq!(pick(&f, "p", &used, &up("x/")), "main");
+        let none = of(serde_json::json!({"providers": {"p": {"baseUrl": "m"}}}));
+        assert_eq!(pick(&none, "p", &used, &|_, _| panic!("asked")), "main");
+    }
     use serde_json::json;
 
     fn file() -> ModelFile {
