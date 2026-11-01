@@ -440,7 +440,7 @@ labelled_by() {
 }
 kept=$T/home/tehas/state/cycles/7.manifest.json
 # The approval of the start, as the dispatcher records it on the state store,
-# kept here in the shape tehas_approval_view gives it back (the shape the
+# kept here in the shape approval-view gives it back (the shape the
 # record file had). record_put puts it on a fresh store with a start that used
 # it, so a run of tehas work on its own finds it as the latest start's. A
 # fixer's or a refresh's rests on an earlier start of the person's approval in
