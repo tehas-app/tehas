@@ -1573,9 +1573,20 @@ impl Run {
     // --- 7. the build output of a manual session: <name>.state/target, and
     // nothing else under <name>.state.
     fn clone_targets(&mut self) -> bool {
+        // No directory of clones: no person has run `tehas dev` here.
+        if !self.home.join("dev").is_dir() {
+            return true;
+        }
+        // Listed once for the whole step: one docker that will not answer keeps
+        // every clone's build, as it keeps an image no container has been
+        // named for.
+        let containers = self.container_names();
+        self.clone_targets_among(containers.as_ref())
+    }
+
+    fn clone_targets_among(&mut self, containers: Option<&Vec<String>>) -> bool {
         let devs = self.home.join("dev");
         let Ok(entries) = fs::read_dir(&devs) else {
-            // No directory of clones: no person has run `tehas dev` here.
             return true;
         };
         let mut names: Vec<String> = entries
@@ -1586,10 +1597,6 @@ impl Run {
         names.sort();
         let me = the_uid();
         let mut ok = true;
-        // The containers of the host are listed once for the whole step: one
-        // docker that will not answer keeps every clone's build, as it keeps an
-        // image no container has been named for.
-        let containers = self.container_names();
         for name in names {
             let Some(shown_name) = name.strip_suffix(".state") else {
                 // Only the tree of a clone's own state is asked about: a bare
@@ -1599,7 +1606,7 @@ impl Run {
             // The name the session's container would carry, asked of the lock
             // and of docker before the tree: what a clone keeps of its own is
             // taken only when nothing says a session is at work in it.
-            let session = match self.session_open(shown_name, containers.as_ref()) {
+            let session = match self.session_open(shown_name, containers) {
                 Some(open) => open,
                 None => {
                     self.warn(&format!(
@@ -1871,30 +1878,6 @@ mod tests {
         };
         clone("alice", true);
         clone("bob", false);
-        // The case that takes a build output must answer the docker the step
-        // asks, and the test binary runs with no docker beside it: the tree of
-        // this case is a host whose sessions have all ended, named as such by a
-        // docker of the test's own. The case beside this names no such docker and
-        // keeps every build of the same tree, which is what a docker that will
-        // not answer means on a host.
-        let host = root.join("docker-host");
-        fs::create_dir_all(&host).unwrap();
-        let stub = host.join("docker");
-        fs::write(&stub, "#!/bin/sh\nexit 0\n").unwrap();
-        fs::set_permissions(&stub, fs::Permissions::from_mode(0o755)).unwrap();
-        // SAFETY: the cases of this file run one after another in one process,
-        // and the path is read by the next call on this thread alone.
-        let had_path = std::env::var_os("PATH");
-        unsafe {
-            std::env::set_var(
-                "PATH",
-                format!(
-                    "{}:{}",
-                    host.display(),
-                    had_path.clone().unwrap_or_default().display().to_string()
-                ),
-            );
-        }
         // What the run frees is read back of the tree before it goes: the
         // figure is bytes_of's own, not a count this case keeps by hand.
         let alice_bytes = bytes_of(&devs.join("alice.state/target"));
@@ -1915,8 +1898,11 @@ mod tests {
             rc: 0,
         };
         let mut run = run;
+        // No container of the host carries a session's name, so no case here
+        // asks a docker.
+        let none: Vec<String> = Vec::new();
         assert!(
-            run.clone_targets(),
+            run.clone_targets_among(Some(&none)),
             "{}",
             fs::read_to_string(&run.logfile).unwrap()
         );
@@ -1948,18 +1934,12 @@ mod tests {
             ..run
         };
         clone("carol", true);
-        assert!(dry.clone_targets());
+        assert!(dry.clone_targets_among(Some(&none)));
         assert!(dry.home.join("dev/carol.state/target").exists());
         assert!(aside.join("build/lib").exists(), "a link was followed");
         let said = fs::read_to_string(&dry.logfile).unwrap();
         assert!(said.contains("would remove "), "{said}");
         assert!(!said.contains("dave"), "{said}: a link is no build output");
-        unsafe {
-            match had_path {
-                Some(p) => std::env::set_var("PATH", p),
-                None => std::env::remove_var("PATH"),
-            }
-        }
         fs::remove_dir_all(&root).unwrap();
     }
 
