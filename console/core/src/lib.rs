@@ -22,5 +22,6 @@ pub mod secret;
 pub mod settings;
 #[cfg(feature = "mask")]
 pub mod size;
+pub mod slice;
 pub mod slow;
 pub mod time;

@@ -278,7 +278,8 @@ rm -rf "$T/keep"
 # other verb with the noun first. A console that answers nothing for it stops
 # the turn before the container: the rules themselves are pinned in plan.rs.
 mv "$shim/libexec/console" "$T/console.kept"
-t_stub console '[ "$2" = descriptor ] || exit 0
+t_stub console '[ "$1" != slice ] || exec "$T/console.kept" "$@"
+[ "$2" = descriptor ] || exit 0
 exit 1'
 mv "$T/bin/console" "$shim/libexec/console"
 t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
