@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# Tests for libexec/history: the cycles and planning turns that ended, in the
+# Tests for tehas history: the cycles and planning turns that ended, in the
 # order they were written, after a cursor, for one issue, with the park fields.
 # shellcheck disable=SC2016  # snippets and stub bodies are expanded when they run
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
 
-history="$T_ROOT/libexec/history"
+history="$T_ROOT/bin/tehas history"
+t_console || t_bad "no console: $t_console_why"
 home=$T/home/tehas
 cycles=$home/state/cycles
 t_stub gh
@@ -17,7 +18,7 @@ iso() { date -u -d "@$1" +%FT%TZ; }
 
 reset() {
   rm -rf "$T"/calls/* "$T/instance" "$home"
-  T_ENV=()
+  T_ENV=(TEHAS_CONSOLE="$T_CONSOLE")
   t_instance "${T_MINIMAL[@]}"
   t_store_home "$home"
 }
@@ -54,6 +55,14 @@ number
 null"
 t_eq "$(jq -r '.api' <<<"$t_out")" 1
 t_eq "$(t_calls gh)$(t_calls git)" ""
+
+t_case "the object is printed byte for byte, keys in their order"
+reset
+work 12 "$T0" '{"kind":"work","started":1760696400,"rc":10,"status":"handoff","step":"review","cap":"awaiting-human-merge","park_reason":"merge","failure_kind":"review","failure_cause":"findings-open","provider":false,"parked":true,"pr":"https://github.com/acme/widget/pull/9","by":"alice","how":"label"}'
+plan 7 "$((T0 + 300))" '{"kind":"plan","started":1760700000,"rc":0,"status":"finished","turn":1,"by":"alice","label":"tehas:refine","filed":["https://github.com/acme/widget/issues/41"],"auto":true}'
+run_json
+t_eq "$t_rc" 0
+t_eq "$t_out" "{\"api\":1,\"cycles\":[{\"cursor\":\"1760700000-12-1\",\"kind\":\"work\",\"issue\":12,\"ended\":\"$(iso "$T0")\",\"started\":\"$(iso 1760696400)\",\"status\":10,\"outcome\":\"handoff\",\"step\":\"review\",\"cap\":\"awaiting-human-merge\",\"parkReason\":\"merge\",\"failureKind\":\"review\",\"failureCause\":\"findings-open\",\"provider\":false,\"parked\":true,\"pr\":\"https://github.com/acme/widget/pull/9\",\"by\":\"alice\",\"how\":\"label\"},{\"cursor\":\"1760700300-7-2\",\"kind\":\"plan\",\"issue\":7,\"ended\":\"$(iso "$((T0 + 300))")\",\"started\":\"$(iso 1760700000)\",\"status\":0,\"outcome\":\"finished\",\"turn\":1,\"by\":\"alice\",\"label\":\"tehas:refine\",\"auto\":true,\"filed\":[\"https://github.com/acme/widget/issues/41\"]}],\"next\":\"1760700300-7-2\"}"
 
 t_case "a field the line does not have is left out, never null"
 reset
@@ -294,6 +303,25 @@ for arg in "--json --json" "--after" "--after 12" "--after 1760700000-0" "--afte
   t_contains "$t_out" "usage: tehas history"
 done
 
+t_case "a word that is not text is a bad argument too, and --help among others is one"
+reset
+t_run "$history --after \$'\\xff'"
+t_eq "$t_rc" 64
+t_contains "$t_out" "usage: tehas history"
+t_run "$history --json --help"
+t_eq "$t_rc" 64
+t_contains "$t_out" "usage: tehas history"
+
+t_case "its text is the same for help and for --help alone"
+reset
+t_run "$T_ROOT/bin/tehas help history"
+t_eq "$t_rc" 0
+t_contains "$t_out" "Usage: tehas history [--json] [--after CURSOR] [--issue N]"
+text=$t_out
+t_run "$history --help"
+t_eq "$t_rc" 0
+t_eq "$t_out" "$text"
+
 # A cursor is what this command printed. One wider than anything it can print
 # belongs to no listing, and an empty listing would be read as "nothing has
 # ended" by a program that keeps it and asks again.
@@ -335,6 +363,28 @@ run_json "2>/dev/null"
 t_eq "$t_rc" 78
 t_eq "$t_out" ""
 
+t_case "a bad argument is 64 whatever the settings hold"
+rm -rf "$T/instance"
+run_json "--issue 0 2>/dev/null"
+t_eq "$t_rc" 64
+
+t_case "without a repository to name its pull requests it is exit 78 and reads nothing"
+reset
+work 12 "$T0" '{"kind":"work","rc":0,"status":"merged","pr":"https://github.com/acme/widget/pull/9"}'
+t_instance TEHAS_CONTROL_ISSUE=1 TEHAS_ALLOWED_LABELERS=alice
+t_store_answers history-show 0 '{"api":1,"ok":true,"verb":"history-show","rows":[]}'
+t_run "$history --json"
+t_eq "$t_rc" 78
+t_contains "$t_out" "TEHAS_REPO is not set"
+t_eq "$(t_calls store)" ""
+
+t_case "without a console there is nothing to run: exit 78"
+reset
+T_ENV=(TEHAS_CONSOLE="$T/no-console")
+t_run "$history --json"
+t_eq "$t_rc" 78
+t_contains "$t_out" "no console at $T/no-console"
+
 t_case "history writes nothing"
 reset
 work 12 "$T0" '{"kind":"work","rc":0,"status":"merged"}'
@@ -353,7 +403,7 @@ t_case "reading takes no lock a running cycle holds"
 reset
 work 12 "$T0" '{"kind":"work","rc":0,"status":"merged"}'
 : >"$cycles/12.lock"
-t_run "flock '$cycles/12.lock' '$history' --json"
+t_run "flock '$cycles/12.lock' $history --json"
 t_eq "$t_rc" 0
 t_eq "$(jq -r '.cycles | length' <<<"$t_out")" 1
 
