@@ -666,8 +666,15 @@ linked issue. A person's pull request is never touched.
 | The title starts with | When |
 | --- | --- |
 | `WIP: ` | The linked issue carries `tehas:running`, or the pull request carries `tehas:refreshing` |
-| `STUCK: ` | No cycle runs and the linked issue carries `needs-human-attention` |
+| `STUCK: ` | No cycle runs, the linked issue carries `needs-human-attention`, and the pull request is not proven fine to merge |
 | nothing | Anything else: it is ok to merge. A person clearing the label clears the prefix |
+
+A pull request is proven fine to merge when all of these hold: it is not a
+draft, GitHub reports it mergeable with the state `clean`, and the factory's
+last six-pass review comment is newer than its head commit and lists no
+finding above MEDIUM. `STUCK: ` stays when any of them cannot be shown, also
+when no review comment exists. Clearing the prefix leaves the label on the
+issue. `WIP: ` is never cleared this way: a running cycle may still push.
 
 Each poll sets the title from what it read already, through
 `console pr-title poll`, and a cycle's end sets it once with
@@ -3147,6 +3154,11 @@ expression of `lib/attachments.sh`. The command beside it keeps the settings and
 the GitHub App's token, and refuses with exit 78 when no console stands beside
 it. Each call of gh is held to 30 seconds. A console with other bytes builds
 every page once more.
+
+A host updated from the version whose command built the pages in bash: a pass
+of the old command that is running when the new console lands logs that its
+tickets could not be read, leaves `protolab/index.html` empty and exits 1. The
+next pass of the timer writes the page again, within five minutes.
 
 The container is the edge router, on port 8081. It answers for the Protolab
 and for the [previews](#tehasbot-preview), and picks by the name it is asked
