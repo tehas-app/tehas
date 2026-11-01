@@ -16,7 +16,8 @@
 //! (src/epics.rs) and what the analytics program publishes (src/publish.rs),
 //! and it refreshes the health file unless the poll ran it: the poll sets
 //! TEHAS_FROM_POLL and runs health a moment later. Those last two happen at
-//! every run, early ends included.
+//! every run, early ends included. TERM or INT is an early end: the read in hand
+//! finishes, or dies with the group the signal went to, and nothing new starts.
 //!
 //! The snapshot says whether the factory is paused, and which of the two
 //! switches holds it: `paused: true` when either is set, and `pause: {flag,
@@ -62,6 +63,8 @@ use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tehas_core::call;
 use tehas_core::events::{label_actor, pause_holds, Event, Events};
@@ -635,7 +638,8 @@ fn health() {
         .status();
 }
 
-fn queue(home: &Path, live: &Path, analytics: &Analytics) {
+fn queue(home: &Path, live: &Path, analytics: &Analytics, stop: &AtomicBool) {
+    let stopped = || stop.load(Ordering::Relaxed);
     let repo = env::var("TEHAS_REPO").unwrap_or_default();
     let repo = repo.as_str();
     let issue = env::var("TEHAS_CONTROL_ISSUE").unwrap_or_default();
@@ -660,6 +664,9 @@ fn queue(home: &Path, live: &Path, analytics: &Analytics) {
         log("WARN status: the list of issues could not be read, no snapshot was written");
         return;
     };
+    if stopped() {
+        return;
+    }
     let every = gh(&[
         "issue",
         "list",
@@ -679,6 +686,9 @@ fn queue(home: &Path, live: &Path, analytics: &Analytics) {
     // is GraphQL. The query and the acceptance rule are shipped.rs's, the same
     // ones tehas tidy reads, so the two commands cannot disagree on what a merge
     // closed.
+    if stopped() {
+        return;
+    }
     let closed_query = format!("q=repo:{repo} is:issue is:closed linked:pr sort:updated-desc");
     let the_query = format!("query={}", shipped::QUERY);
     let Some(closers) = search(&["api", "graphql", "-f", &closed_query, "-f", &the_query]) else {
@@ -696,12 +706,18 @@ fn queue(home: &Path, live: &Path, analytics: &Analytics) {
         .iter()
         .filter_map(|n| J::parse(&n.to_string()))
         .collect();
+    if stopped() {
+        return;
+    }
     let shipped_query = format!("is:issue is:closed label:{}", shipped::SHIPPED);
     let count_q = format!("q=repo:{repo} {shipped_query}");
     let count_query = format!("query={COUNT_QUERY}");
     let completed = search(&["api", "graphql", "-f", &count_q, "-f", &count_query])
         .and_then(|answer| count(&answer));
 
+    if stopped() {
+        return;
+    }
     let labels = gh(&[
         "issue",
         "view",
@@ -721,6 +737,9 @@ fn queue(home: &Path, live: &Path, analytics: &Analytics) {
         &home.join("state/all-hands.ignored"),
         issue,
     );
+    if stopped() {
+        return;
+    }
     let (flag, flag_paused) = pause_flag(&home.join("state/pause.json"));
     let now = time::now();
     let on = env::var("TEHAS_ANALYTICS").as_deref() == Ok("on");
@@ -753,7 +772,13 @@ fn queue(home: &Path, live: &Path, analytics: &Analytics) {
     if let Err(why) = &written {
         log(&format!("WARN status.json not written: {why}"));
     }
+    if stopped() {
+        return;
+    }
     epics(repo, live);
+    if stopped() {
+        return;
+    }
 
     // An issue this read finds shipped carries the label whatever the reason,
     // and the read names its labels, so an issue that already holds it is not
@@ -772,6 +797,9 @@ fn queue(home: &Path, live: &Path, analytics: &Analytics) {
         ]);
     }
 
+    if stopped() {
+        return;
+    }
     if let (Ok(s), true, Some(issues)) = (&written, on, &issues) {
         record(analytics, &events(s, &was, issues, issue, time::now()));
     }
@@ -784,12 +812,20 @@ pub fn main() -> u8 {
     let live = home.join("live");
     let _ = fs::create_dir_all(&live);
     let analytics = Analytics::new(&home);
-    queue(&home, &live, &analytics);
+    let stop = Arc::new(AtomicBool::new(false));
+    for signal in [signal_hook::consts::SIGTERM, signal_hook::consts::SIGINT] {
+        let _ = signal_hook::flag::register(signal, Arc::clone(&stop));
+    }
+    queue(&home, &live, &analytics, &stop);
     analytics.publish(&live);
     if !from_poll {
         health();
     }
-    0
+    if stop.load(Ordering::Relaxed) {
+        143
+    } else {
+        0
+    }
 }
 
 #[cfg(test)]
