@@ -18,13 +18,20 @@ fn pretty(value: &Value) -> Vec<u8> {
     text.into_bytes()
 }
 
-/// A file of JSON read whole: its first value, null when it has none, and None
-/// when it cannot be read as JSON.
-fn first_value(file: &Path) -> Option<Value> {
+/// Every value of a file of JSON, none for an empty one, and None when it
+/// cannot be read as JSON.
+fn values(file: &Path) -> Option<Vec<Value>> {
     let text = fs::read_to_string(file).ok()?;
-    let mut values = serde_json::Deserializer::from_str(&text).into_iter::<Value>();
-    let first = values.next().transpose().ok()?.unwrap_or(Value::Null);
-    values.all(|value| value.is_ok()).then_some(first)
+    serde_json::Deserializer::from_str(&text)
+        .into_iter::<Value>()
+        .collect::<Result<_, _>>()
+        .ok()
+}
+
+/// A file's first value, null when it has none.
+fn first_value(file: &Path) -> Option<Value> {
+    let first = values(file)?.into_iter().next();
+    Some(first.unwrap_or(Value::Null))
 }
 
 /// `$a // $b` of jq: null and false are not there.
@@ -148,6 +155,8 @@ impl Preview {
     }
 
     /// Every state of a directory that holds one, in the order of their names.
+    /// An empty file is no state: a list that stops at one would stay stale
+    /// through the runs that only refresh it.
     fn states(&self) -> Option<Vec<Map<String, Value>>> {
         let mut names: Vec<String> = fs::read_dir(&self.root)
             .ok()?
@@ -156,11 +165,16 @@ impl Preview {
             .filter(|name| !name.starts_with('.') && self.state_file(name).is_file())
             .collect();
         names.sort();
-        let read = |name: &String| match first_value(&self.state_file(name)) {
-            Some(Value::Object(state)) => Some(state),
-            _ => None,
-        };
-        names.iter().map(read).collect()
+        let mut rows = Vec::new();
+        for name in &names {
+            for value in values(&self.state_file(name))? {
+                match value {
+                    Value::Object(state) => rows.push(state),
+                    _ => return None,
+                }
+            }
+        }
+        Some(rows)
     }
 
     fn list(&self) -> Option<Value> {
@@ -428,6 +442,47 @@ mod tests {
             fs::read_to_string(preview.live.join("previews.json")).unwrap(),
             "before"
         );
+    }
+
+    #[test]
+    fn an_empty_state_is_no_row_and_the_list_is_still_written() {
+        let preview = scratch("list-empty");
+        assert!(preview.mark("12", "abc", "serving", ""));
+        assert!(preview.mark("13", "abc", "serving", ""));
+        for empty in ["", " \n"] {
+            fs::write(preview.state_file("13"), empty).unwrap();
+            let rows = list_of(&preview)["previews"].as_array().unwrap().clone();
+            assert_eq!(rows.len(), 1, "{empty:?}");
+            assert_eq!(rows[0]["number"], 12);
+        }
+    }
+
+    #[test]
+    fn a_state_of_two_objects_is_two_rows_as_jq_read_it() {
+        let preview = scratch("list-two");
+        fs::create_dir_all(preview.root.join("12")).unwrap();
+        fs::write(
+            preview.state_file("12"),
+            "{\"number\":12}\n{\"number\":13}\n",
+        )
+        .unwrap();
+        let numbers: Vec<Value> = list_of(&preview)["previews"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|row| row["number"].clone())
+            .collect();
+        assert_eq!(numbers, [json!(13), json!(12)]);
+    }
+
+    #[test]
+    fn a_state_that_is_a_null_or_not_an_object_writes_no_list() {
+        let preview = scratch("list-null");
+        assert!(preview.mark("12", "abc", "serving", ""));
+        for bad in ["null", "[]", "12", "\"text\""] {
+            fs::write(preview.state_file("12"), bad).unwrap();
+            assert!(!preview.write_list(), "{bad}");
+        }
     }
 
     #[test]
