@@ -64,7 +64,7 @@ use std::thread::sleep;
 use std::time::{Duration, Instant};
 use tehas_core::lock::{self, Probe};
 use tehas_core::sandbox::{self, CACHE_DIR};
-use tehas_core::slice::{self, Load, Reading};
+use tehas_core::slice::{self, Host, Load};
 use tehas_core::time;
 
 // How long the indexer may run, in seconds. No cycle starts meanwhile. Indexing
@@ -484,7 +484,7 @@ impl Run {
         // Asked here, not at the top: a run that finds the lock held or the
         // index current has no container to start.
         let load = Load::from_env();
-        let limits = match slice::usable(&Reading::probe(), &load.reserve, &load.containers) {
+        let limits = match slice::usable(&Host::here(), &load.reserve, &load.containers) {
             Ok(usable) => slice::limits(&usable, &load),
             Err(why) => {
                 warn(&why);
