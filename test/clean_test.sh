@@ -656,23 +656,152 @@ t_eq "$([ -e "$sandbox/sandbox-uid.Dockerfile" ] && echo there)" "there"
 t_eq "$([ -e "$sandbox/sandbox-uid.Dockerfile.abcdef" ] && echo there)" ""
 
 t_case "a session's kept build output is not walked for build-output names"
-# The claim the manual makes of the cleaner, pinned the way is_cache_dir pins
-# the cycle's cache: a directory named target under a manual session's
-# <name>.state, of an age that takes a workspace's build output, stays. The
-# cleaner enters no directory under $TEHAS_HOME/dev at all.
+# The walk of a workspace never enters $TEHAS_HOME/dev: a directory named for
+# build output there, of an age that takes a workspace's build output, is not
+# taken as build output of the tree beside it. It is named by no build-output
+# name at all, which is what the line beside it says: the cleaner kept the
+# clone's build because its own step did not find it low on disk.
 reset
 workspace
 devs=$th/dev
-mkdir -p "$devs/alice.state/target/debug" "$devs/alice.state/memory"
-echo big >"$devs/alice.state/target/debug/console"
+mkdir -p "$devs/alice.state/next_modules/debug" "$devs/alice.state/memory"
+echo big >"$devs/alice.state/next_modules/debug/console"
 echo m >"$devs/alice.state/memory/learned"
+age "$devs" "$devs/alice.state" "$devs/alice.state/next_modules" \
+  "$devs/alice.state/next_modules/debug"
+t_run "$clean"
+t_eq "$t_rc" 0
+t_eq "$([ -e "$devs/alice.state/next_modules/debug/console" ] && echo there)" "there"
+t_eq "$([ -e "$devs/alice.state/memory/learned" ] && echo there)" "there"
+t_lacks "$t_out" "removed $devs/alice.state"
+t_lacks "$t_out" "would remove $devs/alice.state"
+
+t_case "low on disk a clone's build output goes and the rest of its state stays"
+reset
+workspace
+devs=$th/dev
+clone_state() { # <name>
+  mkdir -p "$devs/$1.state/target/debug" "$devs/$1.state/memory" \
+    "$devs/$1.state/sessions" "$devs/$1.state/cache"
+  echo big >"$devs/$1.state/target/debug/console"
+  echo m >"$devs/$1.state/memory/learned"
+  echo s >"$devs/$1.state/sessions/one.jsonl"
+  echo i >"$devs/$1.state/cache/index.db"
+  printf '%s\n' "alice" >"$devs/$1.author"
+  age "$devs" "$devs/$1.state" "$devs/$1.state/target" \
+    "$devs/$1.state/target/debug"
+}
+clone_state alice
+# A clone with no <name>.state beside it at all, and one whose target is a link:
+# neither is build output, and what a link points at is not walked.
+mkdir -p "$devs/bob"
+mkdir -p "$T/outside/build"
+echo stay >"$T/outside/build/lib"
+ln -s "$T/outside" "$devs/carol.state"
+# The host is under TEHAS_CLEAN_MIN_FREE, which is what takes build output of
+# any age. The one listing of the host's containers answers no session's name,
+# so nothing says a person sits in a session of these clones.
+: >"$fx/containers"
+df_free 1
+t_run "$clean"
+t_eq "$t_rc" 0
+t_eq "$([ -e "$devs/alice.state/target" ] && echo there)" ""
+for kept in memory/learned sessions/one.jsonl cache/index.db; do
+  t_eq "$([ -e "$devs/alice.state/$kept" ] && echo there)" "there"
+done
+t_eq "$([ -e "$devs/alice.author" ] && echo there)" "there"
+t_eq "$([ -e "$devs/bob" ] && echo there)" "there"
+t_eq "$([ -L "$devs/carol.state" ] && echo link)" "link"
+t_eq "$([ -e "$T/outside/build/lib" ] && echo there)" "there"
+t_contains "$t_out" "removed $devs/alice.state/target: the build output of clone alice"
+t_contains "$t_out" "freed"
+# The size line is on every run, taken or kept, and the low figure is the one
+# the run opened with.
+t_eq "$(grep -c 'the build output of clone alice' "$logfile")" 1
+
+t_case "above the minimum free a clone keeps its build of any age and the size is logged"
+reset
+workspace
+devs=$th/dev
+clone_state alice
+: >"$fx/containers"
+df_reset
+for run in "$clean" "$clean --dry-run"; do
+  t_run "$run"
+  t_eq "$t_rc" 0
+  t_eq "$([ -e "$devs/alice.state/target/debug/console" ] && echo there)" "there"
+  t_contains "$t_out" "kept the build output of clone alice: the disk is not low, "
+  t_lacks "$t_out" "would remove $devs/alice.state/target"
+done
+
+t_case "low on disk a young build output stays"
+reset
+workspace
+devs=$th/dev
+mkdir -p "$devs/alice.state/target/debug"
+: >"$fx/containers"
+df_free 1
+t_run "$clean"
+t_eq "$t_rc" 0
+t_eq "$([ -e "$devs/alice.state/target" ] && echo there)" "there"
+t_contains "$t_out" "kept the build output of clone alice: its target was written within 24 hours, "
+
+t_case "a clone whose session is open keeps its build output and the line says why"
+reset
+workspace
+devs=$th/dev
+mkdir -p "$devs/alice.state/target/debug"
+echo big >"$devs/alice.state/target/debug/console"
 age "$devs" "$devs/alice.state" "$devs/alice.state/target" \
   "$devs/alice.state/target/debug"
+mkdir -p "$th/state/dev"
+t_hold "$th/state/dev/alice.lock"
+: >"$fx/containers"
+df_free 1
 t_run "$clean"
 t_eq "$t_rc" 0
 t_eq "$([ -e "$devs/alice.state/target/debug/console" ] && echo there)" "there"
-t_eq "$([ -e "$devs/alice.state/memory/learned" ] && echo there)" "there"
-t_lacks "$t_out" "$devs/alice.state/target"
+t_contains "$t_out" "kept the build output of clone alice: its session is open"
+t_release
+
+t_case "the containers of the host are listed once, and a docker that will not answer keeps every build"
+reset
+workspace
+devs=$th/dev
+for one in alice bob; do
+  mkdir -p "$devs/$one.state/target/debug"
+  echo big >"$devs/$one.state/target/debug/console"
+done
+age "$devs" "$devs/alice.state" "$devs/alice.state/target" \
+  "$devs/alice.state/target/debug" "$devs/bob.state" "$devs/bob.state/target" \
+  "$devs/bob.state/target/debug"
+T_ENV=("BASE_NAME=$base_repo" PS_RC=1)
+df_free 1
+t_run "$clean"
+T_ENV=()
+t_eq "$([ -e "$devs/alice.state/target" ] && echo there)" "there"
+t_eq "$([ -e "$devs/bob.state/target" ] && echo there)" "there"
+t_contains "$t_out" "docker gave no answer for the session of clone alice"
+t_contains "$t_out" "docker gave no answer for the session of clone bob"
+# The step asks docker once for the whole run, as the image steps ask once.
+t_eq "$(t_calls docker | grep -c '^ps --all --format {{.Names}}$')" 1
+
+t_case "the dry run names a clone's build output with its bytes and removes none of it"
+reset
+workspace
+devs=$th/dev
+mkdir -p "$devs/alice.state/target/debug"
+head -c 4096 /dev/zero | tr '\0' 'x' >"$devs/alice.state/target/debug/console"
+age "$devs" "$devs/alice.state" "$devs/alice.state/target" \
+  "$devs/alice.state/target/debug"
+: >"$fx/containers"
+df_free 1
+t_run "$clean --dry-run"
+t_eq "$t_rc" 0
+t_eq "$([ -e "$devs/alice.state/target/debug/console" ] && echo there)" "there"
+t_contains "$t_out" "would remove $devs/alice.state/target: the build output of clone alice, "
+t_contains "$t_out" "clean: would free "
+t_lacks "$t_out" "clean: removed $devs/alice.state/target"
 
 t_case "--dry-run removes nothing and logs what it would remove"
 reset
@@ -933,18 +1062,24 @@ reset
 workspace
 mkdir -p "$workdir-7/$worktrees_dir/forged/target"
 printf 'gitdir: %s\n' "$th/dev/someone.state" >"$workdir-7/$worktrees_dir/forged/.git"
-mkdir -p "$th/dev/someone.state/target"
+mkdir -p "$th/dev/someone.state/build"
 echo big >"$workdir-7/$worktrees_dir/forged/target/app"
-echo big >"$th/dev/someone.state/target/app"
+echo big >"$th/dev/someone.state/build/app"
 age "$workdir-7/$worktrees_dir" "$workdir-7/$worktrees_dir/forged" \
   "$workdir-7/$worktrees_dir/forged/target" "$workdir-7/$worktrees_dir/forged/.git" \
-  "$th/dev" "$th/dev/someone.state" "$th/dev/someone.state/target" \
-  "$th/dev/someone.state/target/app"
+  "$th/dev" "$th/dev/someone.state" "$th/dev/someone.state/build" \
+  "$th/dev/someone.state/build/app"
 age "$workdir-7"
+# The tree the forged gitdir names is no build output of a clone: it is a plain
+# directory of the clone's own state under another name, so the step of a clone's
+# own has no part in this case and the run keeps the issue whole for the one
+# reason the case asks about. The host has room besides, which keeps the age rule
+# the only rule that could have taken anything here.
+df_reset
 t_run "$clean"
 t_eq "$t_rc" 0
 t_eq "$([ -e "$workdir-7/$worktrees_dir/forged/target" ] && echo there)" "there"
-t_eq "$([ -e "$th/dev/someone.state/target/app" ] && echo there)" "there"
+t_eq "$([ -e "$th/dev/someone.state/build/app" ] && echo there)" "there"
 t_eq "$([ -e "$workdir-7/target" ] && echo there)" "there"
 t_contains "$t_out" "kept the build output of #7: git could not name the gitdir of one of its worktrees"
 t_lacks "$t_out" "younger than"
