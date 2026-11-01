@@ -109,6 +109,10 @@
 //!
 //! One pass of the Protolab, for libexec/protolab, see src/protolab.rs.
 //!
+//!   console settings load <euid> [<bash>] | valid [<name> <value>]
+//!
+//! What tehas_load does and what a setting may hold, see src/settings.rs.
+//!
 //!   console setup files ...
 //!
 //! The settings, the checks and the files of tehas setup, see src/setup.rs.
@@ -185,6 +189,7 @@ mod product;
 mod protolab;
 mod render;
 mod review;
+mod settings;
 mod setup;
 mod shipped;
 mod size;
@@ -414,6 +419,7 @@ fn main() -> ExitCode {
             Some("dev") => return ExitCode::from(dev::main(&given[1..])),
             Some("review") => return ExitCode::from(review::main(&given[1..])),
             Some("preview") => return ExitCode::from(preview::main(&given[1..])),
+            Some("settings") => return ExitCode::from(settings::main(&given[1..])),
             Some("setup") => return ExitCode::from(setup::main(&given[1..])),
             Some("size") => return ExitCode::from(size::main(&given[1..])),
             Some("slice") => return ExitCode::from(slice::main(&given[1..])),
