@@ -63,15 +63,15 @@
 # there again, not even to read it.
 #
 # Beside the clone is <name>.state, this clone's own: its memory, its Pi
-# sessions, its transcripts, its own code index and its cargo build output, a
-# directory this command makes and mounts as the session's CARGO_TARGET_DIR. It
+# sessions, its transcripts, its own code index and its cargo build output, made
+# by `console clean session` and mounted as the session's CARGO_TARGET_DIR. It
 # is kept with the clone, so a person resumes their sessions, keeps the index
 # their session built and does not build the workspace again from nothing,
 # and no cycle shares any of it. The host's index of the product is not copied
 # here: it is keyed to the path a cycle works at, which is not the path of this
-# clone. The cleaner walks no directory under <name>.state for build output
-# names, so clearing a clone's build is a person's call, by removing its target
-# directory.
+# clone. Its target is the one build output the cleaner may take, under the
+# clone's lock, when the host is low on disk or the tree has gone unused; this
+# command holds that lock for the session's life.
 #
 # A session shares the model endpoint with a running cycle and does not hold
 # the queue, beyond the room its memory takes in the slice. One session per clone: docker refuses a second container of the
@@ -226,6 +226,20 @@ mkdir -p "$devs" || exit 78
 if [ -n "$author" ]; then
   printf '%s\n' "$author" >"$stored" || { echo "tehas dev: cannot write $stored" >&2; exit 78; }
 fi
+
+# The lock of this clone, taken before the clone is made and held on descriptor
+# 9 for the session's life, so the cleaner waits behind it and no session meets
+# a target half removed. `console clean session` (console/src/clean.rs) holds the
+# rule of the lock, the state directory and the build output - a plain directory
+# of the account the session runs as, no link - makes them, says who else holds
+# the lock, and prints its path: the path is the contract between the two.
+console=$here/console
+[ -x "$console" ] || { echo "tehas dev: no console beside this command at $console, run install.sh" >&2; exit 78; }
+lock=$("$console" clean session "$TEHAS_HOME" "$name" 300 2>&1) ||
+  { echo "tehas dev: ${lock:-the session of $name is already open}, not starting a second" >&2; exit 78; }
+exec 9>"$lock" || { echo "tehas dev: cannot open $lock, not starting a session" >&2; exit 78; }
+flock -w 300 9 || { echo "tehas dev: $lock is held, not starting a second session" >&2; exit 78; }
+
 if [ "$fresh" = 1 ]; then
   # Made beside its place and moved there whole. A clone that stopped halfway
   # has a .git directory too, and the next run would take it for a finished
@@ -241,25 +255,13 @@ if [ "$fresh" = 1 ]; then
   echo "tehas dev: made $tree at the tip of $branch the product checkout last fetched"
 fi
 
-# Made after the clone, so a clone that could not be finished leaves no state
-# directory beside it, and before any attachment is fetched, so a host that
-# cannot hold the build output says so before it is asked for anything. A missing
-# mount source would come back root-owned from Docker, so this command makes it.
-# The state directory and the build output are made apart, and the build output
-# with a plain mkdir: a mkdir -p of one path makes the directory beside it too,
-# and then nothing left at that path by a hand could be refused as the shape it
-# is. The shape and the owner are asked on their own, not taken on trust from the
-# mkdir, because on a kept clone the directory is there already, which is the
-# normal path. A tree a hand or an earlier root mount left behind is refused here
-# rather than mounting into the session, where cargo would fail inside the
-# container and leave only the session's exit status to tell of it.
-mkdir -p "$state" ||
-  { echo "tehas dev: cannot make $target_host, not starting a session" >&2; exit 78; }
-mkdir "$target_host" 2>/dev/null ||
-  if [ ! -d "$target_host" ] || [ -L "$target_host" ] || [ "$(stat -c %u -- "$target_host")" != "$(id -u)" ]; then
-    echo "tehas dev: $target_host is not a directory of $(id -un), not starting a session" >&2
-    exit 78
-  fi
+# The state directory and the build output were made by `clean session` above,
+# before the clone: a host that cannot hold either says so before a clone is
+# made, before an attachment is fetched and before a container starts, since a
+# missing mount source would come back root-owned from Docker. A tree a hand or
+# an earlier root mount left behind is refused there rather than mounting into
+# the session, where cargo would fail inside the container and leave only the
+# session's exit status to tell of it.
 
 image_opts=()
 if [ -n "$issue" ]; then

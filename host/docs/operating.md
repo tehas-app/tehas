@@ -1601,11 +1601,19 @@ removes what has not been used for `TEHAS_CLEAN_AFTER` hours, 24 by default:
   temporary - that a build killed before its cleanup ran left beside the build
   script. Nothing outside those four directories under `~/tehas`, and nothing
   outside it: not
-  `~/tehas/dev`, so the build output a manual session keeps in
-  `<name>.state/target` is walked for no build-output name. It is the one build
-  output on the host with no automated reclaim, and a person's call: `du -sh
+  `~/tehas/dev`, so nothing under a manual session's `<name>.state` is walked
+  for a build-output name. The last step names that tree of its own.
+- the build output a manual session keeps, `<name>.state/target` of every clone
+  under `~/tehas/dev`, on the same two rules as a kept workspace: under
+  `TEHAS_CLEAN_MIN_FREE` whatever its age, and otherwise once it has gone
+  untouched for `TEHAS_CLEAN_AFTER` hours. It goes only of a clone no session
+  holds: the lock `tehas dev` takes for the whole session,
+  `~/tehas/state/dev/<name>.lock`, and the container name `docker ps` answers,
+  `tehas-dev-<name>`, both say so, and a docker that will not say keeps the
+  build. Nothing else under `<name>.state` is ever named, so the clone, its
+  memory, sessions, transcripts, code index, author and images stay. `du -sh
   ~/tehas/dev/*.state/target` says what the sessions hold, and `rm -rf` of that
-  path clears one clone's build (see [tehas dev](/tools#tehas-dev)).
+  path clears one clone's build by hand (see [tehas dev](/tools#tehas-dev)).
 - the sandbox image's dated tags whose image is of that age, each with its own
   `docker rmi`. The newest dated tag stays, and so does any tag a container or
   a `uid` tag was made from: a cycle or a preview still running from an image
