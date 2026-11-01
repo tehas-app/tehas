@@ -685,8 +685,7 @@ pub fn take(r: &impl Probe, load: &Load, who: &str, what: &str) -> Result<Taken,
     taken(slice, load, who, what)
 }
 
-/// [`take`], of a slice already read.
-pub fn taken(slice: Usable, load: &Load, who: &str, what: &str) -> Result<Taken, String> {
+fn taken(slice: Usable, load: &Load, who: &str, what: &str) -> Result<Taken, String> {
     let limits = slice::limits(&slice, load)
         .ok_or_else(|| format!("{who}: the container limits could not be made, not starting"))?;
     let security = security(slice.ceiling_mb).ok_or_else(|| {

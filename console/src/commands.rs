@@ -13,16 +13,18 @@
 //!   console tehas resume
 //!   console tehas drain [--wait SECONDS] [--json]
 //!   console tehas stop <issue> [--keep-workspace]
+//!   console tehas dev <arguments>
+//!   console tehas dev-login "Name <email>" [-- <pi arguments>]
 //!   console tehas|tehasbot mcp serve|key
 //!   console tehasbot health
 //!   console tehasbot status
 //!   console tehasbot top [--every]
 //!   console tehasbot github-token [--check]
 //!
-//! status, disk, top and mcp key need no settings. The rest run under
-//! `libexec/with-settings`, which first asks `console check` with the same
-//! words: an argument that cannot be right is 64 with the usage, whatever the
-//! settings hold, and only then are they loaded. `console needs` with those
+//! status, disk, top and mcp key need no settings, and dev loads its own. The
+//! rest run under `libexec/with-settings`, which first asks `console check`
+//! with the same words: an argument that cannot be right is 64 with the usage,
+//! whatever the settings hold, and only then are they loaded. `console needs` with those
 //! words then names the settings the command cannot run without, for
 //! `tehas_require`, so the rules of a setting stay in `lib/config.sh`.
 //!
@@ -149,6 +151,8 @@ pub fn tehas(given: &[String]) -> u8 {
         "resume" => flags::resume(rest),
         "drain" => flags::drain(rest),
         "stop" => stop::main(rest),
+        "dev" => dev::start(rest),
+        "dev-login" => dev::login(rest),
         "mcp" => mcp::main(rest),
         _ => {
             eprintln!("console tehas: no such command: {command}");
@@ -197,7 +201,6 @@ pub fn check(given: &[String]) -> u8 {
         },
         ["tehasbot", "github-token"] => github::words(rest).map(|_| ()),
         ["tehasbot", "review"] => review::words(rest, include_str!("usage/review.txt")),
-        ["tehas", "dev"] => dev::words(rest, include_str!("usage/dev.txt")),
         _ => Ok(()),
     };
     said.err().unwrap_or(0)
@@ -231,7 +234,7 @@ fn text(command: &str) -> Option<&'static str> {
         "labels" => include_str!("usage/labels.txt"),
         "limit" => include_str!("usage/limit.txt"),
         "mcp" => include_str!("usage/mcp.txt"),
-        "dev" => include_str!("usage/dev.txt"),
+        "dev" => dev::USAGE,
         "pause" => include_str!("usage/pause.txt"),
         "review" => include_str!("usage/review.txt"),
         "resume" => include_str!("usage/resume.txt"),
