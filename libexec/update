@@ -276,8 +276,11 @@ tehas_load || exit 78
 # checkout moves, not after install.sh has installed from the new code.
 tehas_require_instance_settings
 
-# shellcheck source=lib/update-release.sh
-. "$here/../lib/update-release.sh"
+# The console decides everything about releases (console/src/update/). It reads
+# the settings just loaded from this script's environment. A child of this
+# command closes the lock descriptor; see below.
+console=${TEHAS_CONSOLE:-$here/console}
+[ -x "$console" ] || { echo "tehas update: no console at $console: run install.sh" >&2; exit 78; }
 # --pending runs no git command and no install.sh, so it asks of the host only
 # that its settings read. A host whose platform checkout is at a release tag
 # (detached HEAD), or whose remote is a local path that no longer answers, is
@@ -287,7 +290,7 @@ tehas_require_instance_settings
 # asks no question of the host's checkout or of a remote and leaves this unset.
 from=""
 if [ "$mode" != pending ]; then
-  from=$(tehas_update_source) || exit 78
+  from=$("$console" update release source) || exit 78
 fi
 if [ -n "$to" ] && [ "$from" != release ]; then
   echo "tehas update: --to installs a release, and this host updates from its platform checkout (TEHAS_UPDATE_FROM=git); nothing was changed" >&2
@@ -517,120 +520,29 @@ elif [ "$from" = git ]; then
   fi
 else
   # --- 1. The release ----------------------------------------------------------
-  # The version to run is unpacked beside the others and checked before current
-  # is moved to it, so a download that fails a check, or a release that asks for
-  # a setting this instance lacks, leaves the host on the version it runs.
-  installed=$(tehas_release_installed)
-  list=$(tehas_release_list) || exit $?
-  tags=$(jq -r .tag <<<"$list")
-  newest=$(head -n 1 <<<"$tags")
-  if [ -z "$newest" ]; then
-    echo "release: $(tehas_release_repo) has no published release; nothing was changed" >&2
+  # The console chooses the version, and downloads, checks and unpacks it before
+  # current moves, so whatever fails leaves the host on the version it runs. The
+  # plan says what comes next: the tree install.sh runs from, whether --check
+  # found something, whether a version's image came back, and the status of a
+  # run that ends here because it has no install.sh to ask.
+  plan=$(mktemp "${TMPDIR:-/tmp}/tehas-update.XXXXXX") || {
+    echo "tehas update: could not make a scratch file for the plan; nothing was changed" >&2
     exit 1
-  fi
-  if [ -n "$to" ] && ! grep -qxF -- "$to" <<<"$tags"; then
-    echo "release: there is no published release $to; nothing was changed" >&2
-    exit 1
-  fi
-  target=${to:-$newest}
-  # The asset's name needs this machine's architecture, so an unsupported one is
-  # named here, before the download directory is made: nothing is written and
-  # nothing is switched on a machine that has no release to download. It is said
-  # after the list and the notes above, which ask nothing of a download.
-  tehas_release_arch >/dev/null || exit 1
-  # The notes a person reads start at the version the host came from: what is
-  # installed, or, for a host that ran from its platform checkout, the tag of
-  # that checkout. It has no installed version, so it still has to switch to a
-  # release even when the tag names the newest one. Without a tag the notes are
-  # every release, as they were before.
-  from_note=$installed
-  checkout_tag=""
-  if [ -z "$installed" ]; then
-    checkout_tag=$(tehas_release_checkout_tag "$checkout")
-  fi
-  if [ -n "$checkout_tag" ]; then
-    echo "release: installed none, this host ran from its platform checkout at $checkout_tag, newest $newest"
-    from_note=$checkout_tag
-  else
-    echo "release: installed ${installed:-none, this host ran from its platform checkout}, newest $newest"
-  fi
-  if [ -z "$to" ] && [ -n "$installed" ] && tehas_release_older "$newest" "$installed"; then
-    echo "release: $installed is newer than the newest release; tehas update --to moves it back"
-    target=$installed
-  fi
-
-  # The notes a person reads before moving: each release's own section of the
-  # changelog, its Adopter action among them. Going back, the ones undone.
-  if [ "$target" != "$installed" ]; then
-    if [ -n "$from_note" ] && tehas_release_older "$target" "$from_note"; then
-      echo "release: going back to $target undoes these releases:"
-      notes=$(tehas_release_between "$target" "$from_note" "$list")
-    else
-      echo "release: the notes up to $target:"
-      notes=$(tehas_release_between "$from_note" "$target" "$list")
-    fi
-    while IFS= read -r line; do
-      [ -n "$line" ] || continue
-      printf '\n== %s\n' "$(jq -r .tag <<<"$line")"
-      jq -r .body <<<"$line" | sed 's/^/  /'
-    done <<<"$notes"
-    echo
-  fi
-
-  if [ "$mode" = check ]; then
-    if [ "$target" != "$installed" ]; then
-      echo "release: would switch to $target"
-      pending=1
-    fi
-    # What is installed is checked by the install.sh it came from.
-    if [ -L "$TEHAS_HOME/current" ]; then
-      checkout=$TEHAS_HOME/current
-    elif [ ! -f "$checkout/install.sh" ]; then
-      exit "$pending"
-    fi
-  elif [ "$target" = "$installed" ]; then
-    echo "release: $installed is the version installed"
-    checkout=$TEHAS_HOME/current
-  else
-    tree=$TEHAS_HOME/versions/$target
-    if [ "$(head -n 1 "$tree/VERSION" 2>/dev/null)" = "$target" ]; then
-      echo "release: $target is on this host from before; it is not downloaded again"
-    else
-      mkdir -p "$TEHAS_HOME/tmp"
-      download=$(mktemp -d "$TEHAS_HOME/tmp/release.XXXXXX") || {
-        echo "release: cannot make a directory to download into; nothing was changed" >&2
-        exit 1
-      }
-      if ! tehas_release_fetch "$target" "$download" || ! tehas_release_verify "$target" "$download" ||
-        ! tehas_release_unpack "$target" "$download"; then
-        rm -rf "$download"
-        echo "release: $target was not installed; nothing was changed" >&2
-        exit 1
-      fi
-      rm -rf "$download"
-      echo "release: $target downloaded, checked against its .sha256 and its signature, unpacked in $tree"
-    fi
-    if ! tehas_release_settings "$tree"; then
-      echo "settings: $target asks for settings this instance does not have; nothing was switched" >&2
-      exit 78
-    fi
-    while IFS= read -r key; do
-      [ -n "$key" ] && echo "WARN: $TEHAS_INSTANCE_DIR/instance.env sets $key, which $target does not know" >&2
-    done < <(tehas_release_unknown_keys "$tree")
-    if ! tehas_release_switch "$target"; then
-      echo "release: current could not be pointed at $target; nothing was installed" >&2
-      exit 1
-    fi
-    echo "release: current is $target, was ${installed:-the platform checkout}"
-    checkout=$TEHAS_HOME/current
-    # A version that ran here before has its sandbox image still tagged, so going
-    # back to it is a tag and not a build.
-    if timeout "$compose_limit" docker image inspect "tehas/pi-rukas:release-$target" 7>&- >/dev/null 2>&1 &&
-      timeout "$compose_limit" docker tag "tehas/pi-rukas:release-$target" "$PI_ENSEMBLE_IMAGE" 7>&- >/dev/null 2>&1; then
-      echo "sandbox: the image $target ran with is in use again"
-      reused=1
-    fi
-  fi
+  }
+  trap 'rm -f "$plan"' EXIT
+  move=(--plan "$plan" --mode "$mode")
+  [ -z "$to" ] || move+=(--to "$to")
+  "$console" update move "${move[@]}" 7>&-
+  rc=$?
+  [ "$rc" = 0 ] || exit "$rc"
+  while IFS='=' read -r key value; do
+    case "$key" in
+      tree) checkout=$value ;;
+      found) [ "$value" = 0 ] || pending=1 ;;
+      reused) reused=$value ;;
+      end) exit "$value" ;;
+    esac
+  done <"$plan"
 fi
 
 # pi-rukas is not pinned: the sandbox image follows the commit the installed
@@ -704,7 +616,7 @@ err_file=$(mktemp "$scratch/tehas-update.XXXXXX") || {
   echo "tehas update: could not make a scratch file to keep install.sh's diagnostics apart" >&2
   exit 1
 }
-trap 'rm -f "$err_file"' EXIT
+trap 'rm -f "$err_file" "${plan:-}"' EXIT
 # install.sh is the one child that keeps the descriptor: it is named there in
 # TEHAS_UPDATE_LOCK_FD and takes the lock on it rather than refusing its parent,
 # which is what test/update_test.sh checks.
@@ -1078,15 +990,10 @@ if [ "$status" = 0 ] && [ "$mode" = update ] && follows_rukas; then
   esac
 fi
 
-# The image this version runs with keeps a tag of its own, so going back to the
-# version later is a tag and not a build; prune drops the tags of versions it
-# removes.
+# The image this version runs with keeps a tag of its own, and versions past the
+# last three go.
 if [ "$status" = 0 ] && [ "$from" = release ]; then
-  version=$(tehas_release_installed)
-  if [ -n "$version" ] && ! timeout "$compose_limit" docker tag "$PI_ENSEMBLE_IMAGE" "tehas/pi-rukas:release-$version" 7>&- >/dev/null 2>&1; then
-    echo "sandbox: $PI_ENSEMBLE_IMAGE could not be tagged for $version; going back to it builds the image again"
-  fi
-  tehas_release_prune
+  "$console" update release keep 7>&-
 fi
 
 exit "$status"

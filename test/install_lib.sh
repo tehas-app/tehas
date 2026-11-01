@@ -128,7 +128,6 @@ files="./.bashrc
 ./tehas/lib/status.sh
 ./tehas/lib/store.sh
 ./tehas/lib/slice.sh
-./tehas/lib/update-release.sh
 ./tehas/lib/update-steps.sh
 ./tehas/libexec/analytics
 ./tehas/libexec/analytics.stamp
