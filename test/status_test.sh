@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Tests for the three scripts around the factory's state: libexec/status
-# writes the queue snapshot and runs libexec/health beside it, and
-# libexec/summary prints the health file for `tehas status`.
+# writes the queue snapshot and runs tehasbot health beside it, and
+# `tehas status` prints the health file.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
@@ -21,12 +21,12 @@ mkdir -p "$shim/libexec"
 cp "$T_ROOT/libexec/status" "$shim/libexec/status"
 ln -s "$T_ROOT/lib" "$shim/lib"
 cp "$T_CONSOLE" "$shim/libexec/console"
-for sibling in health summary analytics; do
+for sibling in with-settings analytics; do
   ln -s "$T_ROOT/libexec/$sibling" "$shim/libexec/$sibling"
 done
 status=$shim/libexec/status
-health="$T_ROOT/libexec/health"
-summary="$T_ROOT/libexec/summary"
+health="$T_ROOT/bin/tehasbot health"
+summary="$T_ROOT/bin/tehas status"
 live=$T/home/tehas/live
 
 t_stub gh '
@@ -853,16 +853,16 @@ t_run "$status"
 t_eq "$([ -e "$live/health.json" ] && echo written)" written
 rm -f "$live/health.json"
 t_store_answers plan-show 1 'store: busy #0: the database is locked'
-t_run "TEHAS_HOME=$T/home/tehas $T_ROOT/libexec/health"
+t_run "TEHAS_HOME=$T/home/tehas $T_ROOT/bin/tehasbot health"
 t_eq "$t_rc" 1
 t_contains "$t_out" "the planning sessions could not be read from the state store"
 t_eq "$([ -e "$live/health.json" ] && echo written)" ""
 t_store_answers plan-show 78 'store: corrupt: the file is not a database'
-t_run "TEHAS_HOME=$T/home/tehas $T_ROOT/libexec/health"
+t_run "TEHAS_HOME=$T/home/tehas $T_ROOT/bin/tehasbot health"
 t_eq "$t_rc" 78
 t_eq "$([ -e "$live/health.json" ] && echo written)" ""
 rm -f "$T/home/tehas/libexec/store"
-t_run "TEHAS_HOME=$T/home/tehas $T_ROOT/libexec/health"
+t_run "TEHAS_HOME=$T/home/tehas $T_ROOT/bin/tehasbot health"
 t_eq "$t_rc" 78
 t_contains "$t_out" "ERROR: the state store is not installed (run install.sh)"
 
@@ -877,12 +877,12 @@ reset
 # the case cannot empty, so the wrapper of this case is given the empty name by
 # its own command line and the run is called with env -i through t_run's PATH.
 mkdir -p "$T/no-console"
-cp "$T_ROOT/libexec/health" "$T/no-console/health"
+cp "$T_ROOT/libexec/with-settings" "$T/no-console/with-settings"
 mkdir -p "$T/lib"
 cp "$T_ROOT/lib/config.sh" "$T/lib/config.sh"
 rm -f "$T/bin/console"
 T_ENV=(TEHAS_CONSOLE= TEHAS_CONSOLE= PATH=/usr/bin:/bin)
-t_run "unset TEHAS_CONSOLE; TEHAS_HOME=$T/home/tehas $T/no-console/health"
+t_run "unset TEHAS_CONSOLE; TEHAS_HOME=$T/home/tehas $T/no-console/with-settings tehasbot health"
 t_eq "$t_rc" 78
 t_contains "$t_out" "tehasbot health: no console at $T/no-console/console: run install.sh"
 t_eq "$([ -e "$live/health.json" ] && echo written)" ""

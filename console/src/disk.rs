@@ -1,4 +1,4 @@
-//! How full this host is and what fills it, for `tehas disk` (libexec/disk)
+//! How full this host is and what fills it, for `tehas disk`
 //! and, published, for `factory_disk` (console/mcp/src/disk.rs).
 //!
 //!   console disk [<home>] [--full] [--json] [--publish]
@@ -7,7 +7,7 @@
 //!
 //! `<home>` is the instance's, read from its own settings: `$TEHAS_HOME`, or
 //! `$HOME/tehas` with neither, as `lib/config.sh` resolves it, so
-//! `libexec/disk` is a line of `exec` and nothing more. A run may name it
+//! `bin/tehas` loads nothing for it. A run may name it
 //! anyway, and then the instance is asked nothing - `TEHAS_SCRATCH_DIR` and
 //! `TEHAS_DISK_WAIT` come of the file only for a run that named nothing, so a
 //! case plants its own home and names the bounds it walks under.

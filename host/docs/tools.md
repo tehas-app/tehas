@@ -40,9 +40,12 @@ tehas help [command]             # this list, or the text of one command
 
 `tehas` is the one a person types. [`tehasbot`](#tehasbot) is what the timers
 and services run. Each of their commands is a script in `~/tehas/libexec`,
-installed from `libexec/` in the platform repository; the two commands only
-choose a script and run it, and exit with its status. A command neither of
-them knows is exit 64 with the list on standard error. `tehas <command> --help`
+installed from `libexec/` in the platform repository, or a verb of the console
+beside those scripts; the two commands only choose one and run it, and exit
+with its status. `tehas status` and `tehas disk` need no settings. `tehas
+state`, `limit`, `pause` and `analytics` and `tehasbot health` run under
+`libexec/with-settings`, which checks the arguments, loads the settings and
+hands over to the console. A command neither of them knows is exit 64 with the list on standard error. `tehas <command> --help`
 prints the same text as `tehas help <command>`.
 
 Every script that needs the instance settings loads them first and stops with
@@ -2165,8 +2168,8 @@ one. It is the only form that writes anything and no timer runs it; the
 and so asks the host's disk nothing. The reading, the bounds and the printing
 are the console's (`~/tehas/libexec/console disk`, `console/src/disk.rs`);
 it reads the home, the scratch disk and the bound of the wait from the
-instance's own file, so `libexec/disk` names no path, loads nothing, and hands
-the arguments straight over. See
+instance's own file, so `bin/tehas` loads nothing for it and hands the
+arguments straight over. See
 [`tehas disk`](/api#tehas-disk) for every field of `--json`.
 
 Exit 0 when it printed, and with the file written; 1 when the published file
@@ -2834,12 +2837,12 @@ the last writer left it, and the poll says
 `WARN: the health file could not be written`. The docs server
 serves the file at `/health` and `/healthz` as `application/health+json`.
 `tehas status` prints the same file for a person. The whole run is the console
-beside the command (`console health run`, `console/src/health.rs`): it makes
-the five calls of the state store, the `systemctl --user --failed` read and the
-publish itself. `libexec/health` is the wrapper of that one command: it loads
-the settings, so the budget it passes with `--budget` is the instance's and the
-load's 78 still fires on a malformed one, and it says so and exits 78 when no
-console stands beside it. The console reads no setting name of the host.
+beside the command (`console tehasbot health`, `console/src/health.rs`): it
+makes the five calls of the state store, the `systemctl --user --failed` read
+and the publish itself. `libexec/with-settings` runs it: the settings are
+loaded first, so the budget it reads from `TEHAS_POLL_BUDGET` is the
+instance's and the load's 78 still fires on a malformed one, and it says so and
+exits 78 when no console stands beside it.
 `console health report`
 builds the report alone from answers given as arguments, and writes nothing.
 

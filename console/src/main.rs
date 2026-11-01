@@ -127,10 +127,20 @@
 //! The product against the contract, and the files it is missing proposed in a
 //! pull request, see src/product.rs.
 //!
+//!   console tehas status|disk|state|limit|pause|analytics ...
+//!   console tehasbot health
+//!   console check tehas|tehasbot <command> ...
+//!   console usage <command>
+//!
+//! The commands of bin/tehas and bin/tehasbot that are verbs of this program,
+//! the check libexec/with-settings makes before it loads the settings, and
+//! the text of tehas help, see src/commands.rs.
+//!
 //! Exit: 0 stopped by a signal or masked, 1 the console file or standard
 //! output cannot be written, 2 usage.
 
 mod clean;
+mod commands;
 mod disk;
 mod energy;
 mod epics;
@@ -362,6 +372,7 @@ fn main() -> ExitCode {
     if let Ok(given) = &given {
         match given.first().map(String::as_str) {
             Some("check-product") => return ExitCode::from(product::check(&given[1..])),
+            Some("check") => return ExitCode::from(commands::check(&given[1..])),
             Some("clean") => return ExitCode::from(clean::main(&given[1..])),
             Some("disk") => return ExitCode::from(disk::main(&given[1..])),
             Some("energy") => return ExitCode::from(energy::main(&given[1..])),
@@ -381,7 +392,10 @@ fn main() -> ExitCode {
             Some("plan") => return ExitCode::from(plan::main(&given[1..])),
             Some("pr-title") => return ExitCode::from(pr_title::main(&given[1..])),
             Some("protolab") => return ExitCode::from(protolab::main(&given[1..])),
+            Some("tehas") => return ExitCode::from(commands::tehas(&given[1..])),
+            Some("tehasbot") => return ExitCode::from(commands::tehasbot(&given[1..])),
             Some("top") => return ExitCode::from(top::main(&given[1..])),
+            Some("usage") => return ExitCode::from(commands::usage(&given[1..])),
             _ => {}
         }
     }
