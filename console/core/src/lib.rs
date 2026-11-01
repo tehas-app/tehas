@@ -3,6 +3,7 @@
 
 pub mod disk;
 pub mod env_file;
+pub mod events;
 pub mod file;
 pub mod forge;
 pub mod grammar;

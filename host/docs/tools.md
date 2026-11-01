@@ -1720,9 +1720,13 @@ filed a ticket for), `tehas:millwright-escalated`, `tehas:next`, `tehas:blocked`
 pull request a [refresh](/operating#refreshes) works on), `tehas:all-hands` and
 `tehas:lean` (see [choosing the driver](/operating#choosing-the-driver)).
 Run it once for a new product, and again after pulling a version that adds a
-label. Run again, it puts their colours and descriptions back. It needs `TEHAS_REPO` and no other
-setting. Exit 0 when every label is there, 1 when one could not be made, 64 on
-any argument, 78 when the repository is not set.
+label. Run again, it puts their colours and descriptions back. The labels are
+the lines of `~/tehas/lib/labels.tsv`, which `install.sh` copies from
+`host/labels.tsv`: a change to that file owes the `labels` step of an update, and
+a new console does not. It needs `TEHAS_REPO` and no other setting. Exit 0 when
+every label is there, 1 when one could not be made, 64 on any argument, 78 when
+the repository is not set or the table is missing or holds a line that is no
+label, before any label is made.
 
 ## tehas check-product
 

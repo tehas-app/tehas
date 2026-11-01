@@ -52,14 +52,15 @@ t_contains "$(tehas_steps_for env.sh)" "units tehas-dispatch.timer tehas-energy.
 t_case "a change that needs no follow-up asks for none"
 t_eq "$(tehas_steps_for libexec/dispatch docs/host.md lib/config.sh)" ""
 
-# The command that makes the labels is the one thing whose own change owes the
-# labels: a release that adds one ends with it on GitHub, not owed in the record.
-t_case "the labels command asks for the labels step, last"
-t_eq "$(tehas_steps_for libexec/labels)" "labels"
-t_eq "$(tehas_steps_for libexec/labels libexec/dispatch)" "labels"
-t_eq "$(tehas_steps_for libexec/labels-test libexec/labels_helper)" ""
+# The table of the labels is the one thing whose own change owes the labels: a
+# release that adds one ends with it on GitHub, not owed in the record. A new
+# console owes none, nor does the old script's removal.
+t_case "the table of labels asks for the labels step, last"
+t_eq "$(tehas_steps_for labels.tsv)" "labels"
+t_eq "$(tehas_steps_for labels.tsv libexec/dispatch)" "labels"
+t_eq "$(tehas_steps_for labels.tsv-test old-labels.tsv lib/labels.sh libexec/console libexec/labels)" ""
 t_eq "$(tehas_steps_for systemd/tehas-dispatch.timer sandbox/Dockerfile versions.env \
-  edge/docs.compose.yaml edge/router.compose.yaml libexec/labels)" \
+  edge/docs.compose.yaml edge/router.compose.yaml labels.tsv)" \
   "units tehas-dispatch.timer tehas-energy.service tehas-top.service tehas-mcp.service tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-improve.timer tehas-refresh.timer tehas-review.timer tehas-clean.timer
 sandbox
 docs --force-recreate

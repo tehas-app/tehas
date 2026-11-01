@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for libexec/drain: set a limit of no new work, and wait for the
+# Tests for tehas drain: set a limit of no new work, and wait for the
 # running cycles to end.
 # shellcheck disable=SC2016  # snippets are expanded by the shell under test
 # shellcheck source=test/lib.sh
@@ -8,7 +8,7 @@
 t_console || t_bad "no console: $t_console_why"
 T_ENV_ALWAYS+=(TEHAS_CONSOLE="$T_CONSOLE")
 
-drain="$T_ROOT/libexec/drain"
+drain="$T_ROOT/bin/tehas drain"
 file=$T/home/tehas/state/limit.json
 cycles=$T/home/tehas/state/cycles
 home=$T/home/tehas
