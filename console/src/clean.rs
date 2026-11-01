@@ -1,6 +1,6 @@
 //! What `tehasbot clean` removes, for libexec/clean. The shell checks the
 //! settings and names the two images; this takes the run's lock and runs the
-//! six steps.
+//! seven steps.
 //!
 //!   console clean run <dry 0|1> <home> <work dir> <after hours>
 //!     <min free MiB> <min free as set> <free KiB, or empty> <clean dirs>
@@ -73,7 +73,7 @@ pub fn main(given: &[String]) -> u8 {
         return ended(&given[1..]);
     }
     if given.first().is_some_and(|v| v == "session") {
-        return hold_session_lock(&given[1..]);
+        return open_session(&given[1..]);
     }
     if given.first().is_some_and(|v| v == "scratch") {
         return scratch_made(&given[1..]);
@@ -177,8 +177,9 @@ fn scratch_made(given: &[String]) -> u8 {
 /// left - makes the lock, and prints its path. `tehas dev` holds the lock itself
 /// for the session's life, and ends when the container is gone. The wait is
 /// spent in this call, which is what says who else holds the lock; the wait of
-/// the shell that comes back is for a lock that went and came.
-fn hold_session_lock(given: &[String]) -> u8 {
+/// the shell that comes back is for a lock that went and came. Standard output
+/// carries the path and nothing else, the words go to standard error.
+fn open_session(given: &[String]) -> u8 {
     let [home, name, wait @ ..] = given else {
         eprintln!("{USAGE}");
         return 64;
@@ -240,6 +241,7 @@ fn hold_session_lock(given: &[String]) -> u8 {
     // The wait, spent here: a session that is merely running must not hold the
     // shell that asked past its own life, and the answer names who held it.
     let deadline = Instant::now() + Duration::from_secs(secs);
+    let mut said = false;
     loop {
         match take_clone_lock(&lock) {
             Ok(locked) => {
@@ -251,6 +253,10 @@ fn hold_session_lock(given: &[String]) -> u8 {
                 if Instant::now() >= deadline {
                     eprintln!("tehas clean: {shown} is held{why}");
                     return 78;
+                }
+                if !said {
+                    eprintln!("tehas clean: {shown} is held{why}, waiting {secs} seconds for it");
+                    said = true;
                 }
                 std::thread::sleep(Duration::from_millis(200));
             }

@@ -232,8 +232,8 @@ fi
 # build output, refuses a wrong shape, and prints the lock's path.
 console=$here/console
 [ -x "$console" ] || { echo "tehas dev: no console beside this command at $console, run install.sh" >&2; exit 78; }
-lock=$("$console" clean session "$TEHAS_HOME" "$name" 300 2>&1) ||
-  { echo "tehas dev: ${lock:-the session of $name is already open}, not starting a second" >&2; exit 78; }
+lock=$("$console" clean session "$TEHAS_HOME" "$name" 300) ||
+  { echo "tehas dev: not starting a session of $name" >&2; exit 78; }
 exec 9>"$lock" || { echo "tehas dev: cannot open $lock, not starting a session" >&2; exit 78; }
 flock -w 300 9 || { echo "tehas dev: $lock is held, not starting a second session" >&2; exit 78; }
 
