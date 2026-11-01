@@ -256,6 +256,14 @@ pub const TABLE: &[Setting] = &[
     row("TEHAS_REVIEW_REPO", Rule::Repo, When::Required, Some("")),
 ];
 
+/// The words a setting takes, when it takes a list of them.
+pub fn words(name: &str) -> Option<&'static [&'static str]> {
+    match rule_of(name)? {
+        Rule::OneOf(words, _) => Some(words),
+        _ => None,
+    }
+}
+
 /// The trees a merged pull request writes: a gate may not sit under one.
 #[derive(Default)]
 pub struct Trees<'a> {

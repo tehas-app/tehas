@@ -190,6 +190,170 @@ dispatch_wait=$(tehas_dispatch_lock_wait)
 # shellcheck source=lib/paths.sh
 . "$root/lib/paths.sh"
 
+note() { if [ "$check" = 1 ]; then report+=("$1"); else echo "$1"; fi; }
+# program_label <name>: how a message names it.
+program_label() {
+  case $1 in
+    console) echo "the console" ;;
+    tehas-mcp) echo "the MCP server" ;;
+    store) echo "the store" ;;
+    attach) echo "the attachment checker" ;;
+    tehas-dispatch) echo "the dispatcher" ;;
+    tehas-cycle) echo "the cycle's shadow" ;;
+    *) echo "the $1 program" ;;
+  esac
+}
+# program_triple <name>: the target a program is built for, empty for the host's.
+program_triple() { [ "$1" != tehas-mcp ] || echo x86_64-unknown-linux-musl; }
+# The build asks cargo for --offline first, so a host that has fetched once needs
+# no network, and asks again without it when cargo says a crate is missing from
+# its cache. cargo_miss_words is the one list of what cargo prints for that: a
+# line counts only when it opens with cargo's own `error:`, because a build
+# script can echo anything, so a line that merely quotes --offline sends no
+# second run on its own. t_stub_cargo's CARGO_OFFLINE answers in these words.
+cargo_miss_words=('no matching package named' 'attempting to make an HTTP request')
+# cargo_build <prog> <offline|online>: one build, cut off after build_timeout
+# seconds (124, as timeout(1) reports). It reads $root, $target, $triple and
+# $hidden from the build loop below, and leaves the build's words in $out, the
+# command it ran in $build_cmd and its exit status in $rc.
+cargo_build() {
+  local args=(build --release --locked)
+  case "$2" in
+    offline) args+=(--offline) ;;
+    online) ;;
+    *)
+      echo "tehas: cargo_build: no such mode: $2" >&2
+      return 2
+      ;;
+  esac
+  args+=(--quiet --manifest-path "$root/console/Cargo.toml" --target-dir "$target" ${triple:+--target "$triple"} -p "$1")
+  build_cmd="cargo ${args[*]}"
+  out=$(timeout "$build_timeout" env "${hidden[@]}" cargo "${args[@]}" 2>&1) && rc=0 || rc=$?
+}
+# cache_miss <cargo's words>: true when one line is cargo's own report that a
+# crate it needs is not in its cache.
+cache_miss() {
+  local line word
+  while IFS= read -r line; do
+    case "$line" in
+      error:*)
+        for word in "${cargo_miss_words[@]}"; do
+          case "$line" in *"$word"*) return 0 ;; esac
+        done
+        ;;
+    esac
+  done <<<"$1"
+  return 1
+}
+# unsafe_tool_dir: a tool directory this run would take its compiler from that
+# is not the running user's own, or nothing. tehas_tool_paths puts those
+# directories first on PATH and the programs cargo builds here are installed in
+# libexec, where every cycle and the dispatcher run them. Only a directory that is there is judged, by the rule instance_findings
+# applies to the settings files.
+unsafe_tool_dir() {
+  local dir mode owner group
+  for dir in "$TEHAS_HOME/bin" "$TEHAS_HOME/tools/node/bin" "$NPM_CONFIG_PREFIX/bin" \
+    "$BUN_INSTALL/bin" "$CARGO_HOME/bin"; do
+    [ -d "$dir" ] || continue
+    mode=$(stat -L -c %a "$dir" 2>/dev/null) || mode=0
+    owner=$(stat -L -c %u "$dir" 2>/dev/null) || owner=-1
+    group=$(stat -L -c %g "$dir" 2>/dev/null) || group=-1
+    if [ "$owner" != "$(id -u)" ]; then
+      echo "$dir is not owned by $(id -un)"
+      return 0
+    elif [ $((8#$mode & 2)) != 0 ]; then
+      echo "$dir is writable by everyone (chmod o-w)"
+      return 0
+    elif [ $((8#$mode & 16)) != 0 ] && [ "$group" != "$(id -g)" ]; then
+      echo "$dir is writable by another group (chmod g-w)"
+      return 0
+    fi
+  done
+  return 1
+}
+# build_ready <first prog>: what is settled before the first build of a run.
+build_ready() {
+  # Before a build, because this run is about to run a program found under one
+  # of the tool directories and install what it makes.
+  if tool_finding=$(unsafe_tool_dir) && [ -n "$tool_finding" ]; then
+    echo "tehas: $tool_finding, so the tools there are not run; nothing was installed" >&2
+    exit 1
+  fi
+  # The target directory is named, so a program is where this looks for it
+  # whatever cargo's own configuration says, and the old one is removed first,
+  # so what is installed is what this build made. The build scripts of the
+  # crates run here: they are given no variable that is named like a secret,
+  # the bot's token among them.
+  target=${CARGO_TARGET_DIR:-$root/console/target}
+  hidden=()
+  while IFS= read -r name; do hidden+=(-u "$name"); done < <(compgen -e | grep -E 'TOKEN|SECRET|PASSWORD|API_KEY')
+  # The bound is one build's own, so it names no tool of its own: without
+  # timeout(1) every build would be reported as one that did not build.
+  if ! command -v timeout >/dev/null; then
+    echo "tehas: timeout is not installed, so $(program_label "$1") cannot be built with a time limit (bootstrap.sh installs it); nothing was installed" >&2
+    exit 1
+  fi
+  # tehas_load has checked it, from the instance or the environment. The build
+  # before the first load has only the environment's.
+  build_timeout=${TEHAS_BUILD_TIMEOUT:-1800}
+}
+# build_program <prog>: one program built, or the run stopped with what cargo said.
+build_program() {
+  local prog=$1 triple built
+  triple=$(program_triple "$prog")
+  built=$target/${triple:+$triple/}release/$prog
+  rm -f "$built"
+  cargo_build "$prog" offline
+  offline_out=$out
+  if [ "$rc" != 0 ] && cache_miss "$out"; then
+    # The crate is not in the cache, so this one build goes online. The words
+    # of each attempt are reported under its own heading: a build that fails
+    # again is reported from both, so the miss is not lost behind the fetch
+    # that followed it. The words of the attempt that ended the build are what
+    # the message below names, since $rc and $build_cmd are its own.
+    note "note: cargo's cache has no crate for $prog; building it again with the network"
+    cargo_build "$prog" online
+    build_report="offline build:
+${offline_out:-cargo printed nothing}
+online build:
+${out:-cargo printed nothing}"
+  else
+    build_report=${out:-cargo printed nothing}
+  fi
+  if [ "$rc" != 0 ] || [ ! -f "$built" ]; then
+    printf '%s\n' "$build_report" | tail -n 20 >&2
+    if [ "$rc" = 127 ]; then
+      echo "tehas: cargo is not installed, so $(program_label "$prog") cannot be built (bootstrap.sh installs it); nothing was installed" >&2
+    elif [ "$rc" = 124 ]; then
+      echo "tehas: $(program_label "$prog") did not build ($build_cmd in $root/console was cut off after ${build_timeout}s); nothing was installed" >&2
+    else
+      echo "tehas: $(program_label "$prog") did not build ($build_cmd in $root/console); nothing was installed" >&2
+    fi
+    exit 1
+  fi
+}
+
+# --- 0. The console that reads the settings -----------------------------------
+# tehas_load asks a console, and a checkout has none beside lib/config.sh. The
+# settings of this tree are judged by a console of this tree, so a real run
+# builds it before the first load: that writes only to the target directory and
+# cargo's cache. --check builds nothing and takes one an earlier build left,
+# else the installed one. A release carries its console in libexec/, and a test
+# names its own in TEHAS_SETTINGS_CMD.
+built_console=""
+if [ -d "$root/console" ] && [ -z "${TEHAS_SETTINGS_CMD:-}" ]; then
+  tehas_tool_paths
+  if [ "$check" != 1 ]; then
+    build_ready console
+    build_program console
+  fi
+  target=${CARGO_TARGET_DIR:-$root/console/target}
+  if [ -x "$target/release/console" ]; then
+    built_console=$target/release/console
+    export TEHAS_SETTINGS_CMD=$built_console
+  fi
+fi
+
 # --- 1. Instance settings ---------------------------------------------------
 # Every finding is one line. Any finding stops a real run before it changes
 # anything.
@@ -265,6 +429,7 @@ if [ -n "$findings" ]; then
   exit 78
 fi
 tehas_load
+[ -z "$built_console" ] || unset TEHAS_SETTINGS_CMD
 instance=$TEHAS_INSTANCE_DIR
 
 # --- 1a. The tool PATH ------------------------------------------------------
@@ -574,7 +739,6 @@ fi
 
 changed=()
 report=()
-note() { if [ "$check" = 1 ]; then report+=("$1"); else echo "$1"; fi; }
 
 # source_of <src>: the file of this checkout that a table entry names, in from.
 source_of() {
@@ -824,87 +988,6 @@ else
     -o -path ./Cargo.toml -o -path ./Cargo.lock -o -path './core/*' \)) ||
     { echo "tehas: could not read the cycle's source in $root/console" >&2; exit 1; }
   program_sum() { sha256sum <"$1" | cut -d' ' -f1; }
-  # program_label <name>: how a message names it.
-  program_label() {
-    case $1 in
-      console) echo "the console" ;;
-      tehas-mcp) echo "the MCP server" ;;
-      store) echo "the store" ;;
-      attach) echo "the attachment checker" ;;
-      tehas-dispatch) echo "the dispatcher" ;;
-      tehas-cycle) echo "the cycle's shadow" ;;
-      *) echo "the $1 program" ;;
-    esac
-  }
-  # program_triple <name>: the target a program is built for, empty for the host's.
-  program_triple() { [ "$1" != tehas-mcp ] || echo x86_64-unknown-linux-musl; }
-  # The build asks cargo for --offline first, so a host that has fetched once needs
-  # no network, and asks again without it when cargo says a crate is missing from
-  # its cache. cargo_miss_words is the one list of what cargo prints for that: a
-  # line counts only when it opens with cargo's own `error:`, because a build
-  # script can echo anything, so a line that merely quotes --offline sends no
-  # second run on its own. t_stub_cargo's CARGO_OFFLINE answers in these words.
-  cargo_miss_words=('no matching package named' 'attempting to make an HTTP request')
-  # cargo_build <prog> <offline|online>: one build, cut off after build_timeout
-  # seconds (124, as timeout(1) reports). It reads $root, $target, $triple and
-  # $hidden from the build loop below, and leaves the build's words in $out, the
-  # command it ran in $build_cmd and its exit status in $rc.
-  cargo_build() {
-    local args=(build --release --locked)
-    case "$2" in
-      offline) args+=(--offline) ;;
-      online) ;;
-      *)
-        echo "tehas: cargo_build: no such mode: $2" >&2
-        return 2
-        ;;
-    esac
-    args+=(--quiet --manifest-path "$root/console/Cargo.toml" --target-dir "$target" ${triple:+--target "$triple"} -p "$1")
-    build_cmd="cargo ${args[*]}"
-    out=$(timeout "$build_timeout" env "${hidden[@]}" cargo "${args[@]}" 2>&1) && rc=0 || rc=$?
-  }
-  # cache_miss <cargo's words>: true when one line is cargo's own report that a
-  # crate it needs is not in its cache.
-  cache_miss() {
-    local line word
-    while IFS= read -r line; do
-      case "$line" in
-        error:*)
-          for word in "${cargo_miss_words[@]}"; do
-            case "$line" in *"$word"*) return 0 ;; esac
-          done
-          ;;
-      esac
-    done <<<"$1"
-    return 1
-  }
-  # unsafe_tool_dir: a tool directory this run would take its compiler from that
-  # is not the running user's own, or nothing. tehas_tool_paths puts those
-  # directories first on PATH and the programs cargo builds here are installed in
-  # libexec, where every cycle and the dispatcher run them. Only a directory that is there is judged, by the rule instance_findings
-  # applies to the settings files.
-  unsafe_tool_dir() {
-    local dir mode owner group
-    for dir in "$TEHAS_HOME/bin" "$TEHAS_HOME/tools/node/bin" "$NPM_CONFIG_PREFIX/bin" \
-      "$BUN_INSTALL/bin" "$CARGO_HOME/bin"; do
-      [ -d "$dir" ] || continue
-      mode=$(stat -L -c %a "$dir" 2>/dev/null) || mode=0
-      owner=$(stat -L -c %u "$dir" 2>/dev/null) || owner=-1
-      group=$(stat -L -c %g "$dir" 2>/dev/null) || group=-1
-      if [ "$owner" != "$(id -u)" ]; then
-        echo "$dir is not owned by $(id -un)"
-        return 0
-      elif [ $((8#$mode & 2)) != 0 ]; then
-        echo "$dir is writable by everyone (chmod o-w)"
-        return 0
-      elif [ $((8#$mode & 16)) != 0 ] && [ "$group" != "$(id -g)" ]; then
-        echo "$dir is writable by another group (chmod g-w)"
-        return 0
-      fi
-    done
-    return 1
-  }
-
   due=()
   for entry in "console $console_source" "analytics $analytics_source" "tehas-mcp $mcp_source" \
     "store $store_source" "attach $attach_source" "tehas-dispatch $dispatch_source" \
@@ -920,61 +1003,10 @@ else
     fi
   done
   if [ "${#due[@]}" != 0 ]; then
-    # Before a build, because this run is about to run a program found under one
-    # of the tool directories and install what it makes.
-    if tool_finding=$(unsafe_tool_dir) && [ -n "$tool_finding" ]; then
-      echo "tehas: $tool_finding, so the tools there are not run; nothing was installed" >&2
-      exit 1
-    fi
-    # The target directory is named, so a program is where this looks for it
-    # whatever cargo's own configuration says, and the old one is removed first,
-    # so what is installed is what this build made. The build scripts of the
-    # crates run here: they are given no variable that is named like a secret,
-    # the bot's token among them.
-    target=${CARGO_TARGET_DIR:-$root/console/target}
-    hidden=()
-    while IFS= read -r name; do hidden+=(-u "$name"); done < <(compgen -e | grep -E 'TOKEN|SECRET|PASSWORD|API_KEY')
-    # The bound is one build's own, so it names no tool of its own: without
-    # timeout(1) every build would be reported as one that did not build.
-    if ! command -v timeout >/dev/null; then
-      echo "tehas: timeout is not installed, so $(program_label "${due[0]%% *}") cannot be built with a time limit (bootstrap.sh installs it); nothing was installed" >&2
-      exit 1
-    fi
-    # tehas_load has checked it, from the instance or the environment.
-    build_timeout=${TEHAS_BUILD_TIMEOUT:-1800}
+    build_ready "${due[0]%% *}"
     for entry in "${due[@]}"; do
       read -r prog _ <<<"$entry"
-      triple=$(program_triple "$prog")
-      built=$target/${triple:+$triple/}release/$prog
-      rm -f "$built"
-      cargo_build "$prog" offline
-      offline_out=$out
-      if [ "$rc" != 0 ] && cache_miss "$out"; then
-        # The crate is not in the cache, so this one build goes online. The words
-        # of each attempt are reported under its own heading: a build that fails
-        # again is reported from both, so the miss is not lost behind the fetch
-        # that followed it. The words of the attempt that ended the build are what
-        # the message below names, since $rc and $build_cmd are its own.
-        note "note: cargo's cache has no crate for $prog; building it again with the network"
-        cargo_build "$prog" online
-        build_report="offline build:
-${offline_out:-cargo printed nothing}
-online build:
-${out:-cargo printed nothing}"
-      else
-        build_report=${out:-cargo printed nothing}
-      fi
-      if [ "$rc" != 0 ] || [ ! -f "$built" ]; then
-        printf '%s\n' "$build_report" | tail -n 20 >&2
-        if [ "$rc" = 127 ]; then
-          echo "tehas: cargo is not installed, so $(program_label "$prog") cannot be built (bootstrap.sh installs it); nothing was installed" >&2
-        elif [ "$rc" = 124 ]; then
-          echo "tehas: $(program_label "$prog") did not build ($build_cmd in $root/console was cut off after ${build_timeout}s); nothing was installed" >&2
-        else
-          echo "tehas: $(program_label "$prog") did not build ($build_cmd in $root/console); nothing was installed" >&2
-        fi
-        exit 1
-      fi
+      build_program "$prog"
     done
     for entry in "${due[@]}"; do
       read -r prog sum <<<"$entry"

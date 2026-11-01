@@ -494,6 +494,10 @@ elif [ "$from" = git ]; then
           echo "this checkout has no lib/config.sh; install.sh will report it"
           exit 0
         fi
+        if [ ! -x "$1/libexec/console" ] && [ -z "${TEHAS_SETTINGS_CMD:-}" ]; then
+          echo "this checkout has no console beside it; install.sh will check the settings itself"
+          exit 0
+        fi
         . "$1/lib/config.sh"
         if [ "$(type -t tehas_load 2>/dev/null)" != function ]; then
           echo "this checkout does not define tehas_load; install.sh will check the settings itself"

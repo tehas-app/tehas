@@ -6,10 +6,13 @@
 . "$(dirname "$0")/lib.sh" || exit 1
 
 load='. "$T_ROOT/lib/config.sh"; tehas_load'
-# The ceiling as lib/config.sh writes it, so a test never hand-copies it.
-plan_max=$(sed -n 's/^[[:space:]]*local TEHAS_PLAN_TIMEOUT_MAX=//p' "$T_ROOT/lib/config.sh")
-# The bound of one child, likewise read from the config rather than copied.
-child_max=$(sed -n 's/^[[:space:]]*local TEHAS_CHILD_TIMEOUT_MAX=//p' "$T_ROOT/lib/config.sh")
+# shellcheck disable=SC2154  # t_console_why is set by t_console (test/lib.sh)
+t_console || t_bad "no console: $t_console_why"
+# The ceiling of a turn and the bound of one child are the defaults a load gives,
+# so a test never hand-copies them; the cases below refuse one more.
+t_instance "${T_MINIMAL[@]}"
+t_run "$load && echo \"\$TEHAS_PLAN_TIMEOUT \$TEHAS_CHILD_TIMEOUT\""
+read -r plan_max child_max <<<"$t_out"
 
 t_case "a minimal instance loads and derives the checkout path"
 t_instance "${T_MINIMAL[@]}"
@@ -631,7 +634,7 @@ t_run "$load && echo \"[\$TEHAS_LAYOUT][\$TEHAS_THEME]\""
 t_eq "$t_out" "[business][beesknees26]"
 
 t_case "every layout the settings accept has a page"
-layouts=$(sed -n '/TEHAS_LAYOUT)/{n;p}' "$T_ROOT/lib/config.sh" | sed 's/^ *case "\$v" in \(.*\)) ;; \*).*/\1/' | tr -d ' ' | tr '|' ' ')
+layouts=$("$T_CONSOLE" settings words TEHAS_LAYOUT)
 t_contains "$layouts" floor
 t_contains "$layouts" business
 for l in $layouts; do
@@ -640,7 +643,7 @@ for l in $layouts; do
 done
 
 t_case "every theme the settings accept ships, and every theme that ships is accepted"
-t_eq "$(sed -n '/TEHAS_THEME)/{n;p}' "$T_ROOT/lib/config.sh" | sed 's/^ *case "\$v" in \(.*\)) ;; \*).*/\1/' | tr -d ' ' | tr '|' '\n' | sort | xargs)" \
+t_eq "$("$T_CONSOLE" settings words TEHAS_THEME | tr ' ' '\n' | sort | xargs)" \
   "$(for f in "$T_ROOT"/host/fun/theme-*.css; do f=${f##*/theme-}; echo "${f%.css}"; done | sort | xargs)"
 
 t_case "an analytics script without a site is refused"
@@ -882,7 +885,7 @@ t_instance "${T_MINIMAL[@]}"
 mkdir -p "$T/nogit"
 for tool in bash awk nproc id head cat tr env; do ln -sf "$(command -v "$tool")" "$T/nogit/$tool"; done
 t_out=$(cd "$T" && env -i PATH="$T/nogit" HOME="$T/home" TEHAS_HOME="$T/home/tehas" T_ROOT="$T_ROOT" \
-  TEHAS_INSTANCE_DIR="$TEHAS_INSTANCE_DIR" bash -c "$load && echo loaded" 2>&1)
+  TEHAS_INSTANCE_DIR="$TEHAS_INSTANCE_DIR" TEHAS_SETTINGS_CMD="$TEHAS_SETTINGS_CMD" bash -c "$load && echo loaded" 2>&1)
 t_eq "$t_out" "loaded"
 
 t_case "loading writes nothing"
@@ -1410,9 +1413,11 @@ for bad in "." ".." ".git" ".pi" "a/target" "/target" "target;rm -rf" "target *"
 done
 
 t_case "a TEHAS_CLEAN_DIRS with .git among other names is refused whatever IFS is"
-t_run ". \"$T_ROOT/lib/config.sh\"; IFS=x; _tehas_valid TEHAS_CLEAN_DIRS 'target .git'; echo rc=\$?"
-t_contains "$t_out" "refuses .git: that is not build output"
-t_contains "$t_out" "rc=1"
+t_instance "${T_MINIMAL[@]}" "TEHAS_CLEAN_DIRS='target .git'"
+t_run "IFS=x; $load; echo rc=\$?"
+t_contains "$t_out" "TEHAS_CLEAN_DIRS is not valid: refuses .git: that is not build output"
+t_contains "$t_out" "rc=78"
+t_instance "${T_MINIMAL[@]}"
 
 # The default the example instance copies by hand is pinned against the
 # config's own list, so the two cannot drift apart.
@@ -1461,13 +1466,13 @@ t_run "PATH=\$T/only; $load; echo \"rc=\$? \$TEHAS_CYCLE_MIN_FREE_MB \$TEHAS_TIC
 t_eq "$t_out" "rc=0 2048 3 tehas/pi-rukas:uid$EUID"
 t_instance "${T_MINIMAL[@]}"
 
-# --- the rules of tehas_load in Rust -------------------------------------------
-# console settings holds what this file pins (console/core/src/settings). Bash is
-# the authority until the verb has agreed with it on everything below.
-# shellcheck disable=SC2154  # t_console_why is set by t_console (test/lib.sh)
-t_console || t_bad "no console: $t_console_why"
-
-t_case "the console and _tehas_valid give one verdict and one reason for every value of every setting"
+# --- what the bash load left -----------------------------------------------------
+# The rules were bash until the console had agreed with them on all of this,
+# value by value and name by name. The two hashes are of that bash's answers:
+# console/core/src/settings holds the rules now, and each is tested beside them.
+# A deliberate change to a rule or a default changes a hash: take the new one
+# from the failure, and say in the pull request what changed.
+t_case "every value of every setting gets the verdict and the reason bash gave it"
 # shellcheck disable=SC2054  # a comma is part of a budget
 values=('' ' ' 0 1 2 6 16 17 99 100 600 601 1440 1441 123456 999999999 1000000000 99999999999999999999 01 auto AUTO on off
   yes git release bash rust pixel floor business beesknees26 'two words' 'alice  bob' 'alice bob-2' alice- -alice
@@ -1479,55 +1484,37 @@ values=('' ' ' 0 1 2 6 16 17 99 100 600 601 1440 1441 123456 999999999 100000000
   cpu=5 wall=0,writes=1 cpu=1,writes=2 wall=1,cpu=1 cpu=05 cpu=1000000000 release:0.14 release:0.14.1 branch:a/b branch:
   commit:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa commit:aaa main 'build / verify (linux)' verify\&x=1 $'tab\tbed'
   $'new\nline' $'word\n' é)
-T_ENV_ALWAYS=(CONSOLE="$T_CONSOLE")
-t_run '. "$T_ROOT/lib/config.sh"; declare -f _tehas_valid | grep -oE "\b(TEHAS|PI_ENSEMBLE|PI_RUKAS)_[A-Z_]+" | sort -u'
-mapfile -t names <<<"$t_out"
-[ "${#names[@]}" -gt 60 ] || t_bad "only ${#names[@]} names in _tehas_valid"
+names=(PI_ENSEMBLE_MODEL_ PI_ENSEMBLE_PROVIDER_ PI_ENSEMBLE_SUBAGENT_MODEL PI_ENSEMBLE_SUBAGENT_PROVIDER PI_RUKAS_FOLLOW
+  TEHAS_ALLOWED_LABELERS TEHAS_ANALYTICS TEHAS_ANALYTICS_COOKIE TEHAS_ANALYTICS_SITE TEHAS_ANALYTICS_SRC TEHAS_BOT_LOGIN
+  TEHAS_BRANCH TEHAS_BRANCH_CHECK TEHAS_BUILD_TIMEOUT TEHAS_CHILD_TIMEOUT TEHAS_CLEAN_AFTER TEHAS_CLEAN_DIRS
+  TEHAS_CLEAN_MIN_FREE TEHAS_CONCURRENCY TEHAS_CONTAINER_MEMORY TEHAS_CONTROL_ISSUE TEHAS_CYCLE_MIN_FREE TEHAS_CYCLE_REPORT
+  TEHAS_CYCLE_RESERVE TEHAS_DOMAIN TEHAS_EASY_MERGE TEHAS_GITHUB_APP_ID TEHAS_GITHUB_APP_INSTALLATION TEHAS_HOME
+  TEHAS_HOST_ADDR TEHAS_IMPROVE_MAX_OPEN TEHAS_IMPROVE_REPO TEHAS_IMPROVE_RUKAS_REPO TEHAS_IMPROVE_RUKAS_SKIP
+  TEHAS_INDEXING TEHAS_INSTANCE_DIR TEHAS_LAYOUT TEHAS_LOW_GATE TEHAS_LOW_GATE_WAIT TEHAS_MAX_AWAITING
+  TEHAS_MILLWRIGHT_FEED TEHAS_MILLWRIGHT_LOGIN TEHAS_MILLWRIGHT_MAX_FEEDS TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS
+  TEHAS_MILLWRIGHT_MAX_RETRIES TEHAS_PLAN_MAX_TURNS TEHAS_PLAN_TIMEOUT TEHAS_POLL_BUDGET TEHAS_PREVIEWS TEHAS_PREVIEW_MAX
+  TEHAS_PREVIEW_MIN_FREE TEHAS_PROTOLAB_URL TEHAS_REFRESH_CONFLICTS TEHAS_REFRESH_EVERY TEHAS_REFRESH_MAX
+  TEHAS_REFRESH_SLOTS TEHAS_RELEASE_REPO TEHAS_REPO TEHAS_REVIEW TEHAS_REVIEW_REPO TEHAS_RUKAS_WORKAROUNDS
+  TEHAS_SCRATCH_DIR TEHAS_SIZE_MAX_BYTES TEHAS_SIZE_MAX_FILES TEHAS_SIZE_MAX_LINES TEHAS_SLICE_CONTAINERS TEHAS_THEME
+  TEHAS_TICKET_CONCURRENCY TEHAS_TOP TEHAS_UPDATE_FROM TEHAS_VERIFY_TIMEOUT TEHAS_WORK_COMMENTS TEHAS_WORK_DESCRIBE
+  TEHAS_WORK_FILES TEHAS_WORK_IMAGES TEHAS_WORK_REPO TEHAS_WORK_STALL TEHAS_WORK_TIMEOUT TEHAS_WORK_ZIPS)
 for name in "${names[@]}"; do
   for value in "${values[@]}"; do printf '%s\0%s\0' "$name" "$value"; done
 done >"$T/pairs"
-# A range of a shell's pattern follows the locale: in en_US.UTF-8 [a-z] holds é.
-# The verb's is ASCII in every locale.
-t_run 'export LC_ALL=C TEHAS_HOME=/h/tehas TEHAS_INSTANCE_DIR=/i/ TEHAS_WORK_REPO=/w
-  . "$T_ROOT/lib/config.sh"
-  while IFS= read -r -d "" name && IFS= read -r -d "" value; do
-    reason=$(_tehas_valid "$name" "$value")
-    printf "%s\0%s\0" "$?" "$reason"
-  done <"$T/pairs" >"$T/shell"
-  "$CONSOLE" settings valid <"$T/pairs" >"$T/verb"'
-t_eq "$t_out" ""
-cmp "$T/shell" "$T/verb" || t_bad "the verb and _tehas_valid differ"
-[ -s "$T/verb" ] || t_bad "no verdicts were compared"
+TEHAS_HOME=/h/tehas TEHAS_INSTANCE_DIR=/i/ TEHAS_WORK_REPO=/w "$T_CONSOLE" settings valid <"$T/pairs" >"$T/verb"
+t_eq "$(sha256sum <"$T/verb" | cut -d' ' -f1)" "91bda0bd5cce7b51322a48cf2dd5cc6ed4218976e5491db40f94fc734faeff1c"
 
-t_case "the console takes one pair on its command line, and says why on standard output"
-t_run "'$T_CONSOLE' settings valid TEHAS_REPO widget; echo rc=\$?"
-t_contains "$t_out" "expected owner/name
-rc=1"
-t_run "'$T_CONSOLE' settings valid TEHAS_REPO acme/widget; echo rc=\$?"
-t_eq "$t_out" "rc=0"
-t_run "'$T_CONSOLE' settings nothing; echo rc=\$?"
-t_contains "$t_out" "rc=64"
-
-# The environment a load leaves and its words, from tehas_load and from the verb
-# through the eval tehas_load will make of it.
-shell_load='. "$T_ROOT/lib/config.sh"; tehas_load; echo "rc=$?"; export -p'
-verb_load='out=$(export TEHAS_HOME="${TEHAS_HOME:-$HOME/tehas}" "${!TEHAS_@}" "${!PI_ENSEMBLE_@}"; "$CONSOLE" settings load "$EUID" "$BASH"); rc=$?; eval "$out"; echo "rc=$rc"; export -p'
-t_both() {
-  local shell_says
-  t_run "$shell_load"
-  shell_says=$t_out
-  t_run "$verb_load"
-  t_eq "$t_out" "$shell_says"
-}
 t_stub nproc 'echo 8'
-
+t_case "each kind of instance leaves the environment and the words bash left"
 # One instance a line: its lines after T_MINIMAL, separated by |. It is shell, so
 # a value may name what the source's environment holds.
+: >"$T/loads"
 while IFS='|' read -r -u 5 -a lines; do
-  t_case "the verb and tehas_load agree on: ${lines[*]}"
   t_instance "${T_MINIMAL[@]}" "${lines[@]}"
   T_ENV=(TEHAS_REPO=other/thing TEHAS_INDEXING=1 PI_ENSEMBLE_DEBUG=1 TEHAS_WORK_CMD=fake EDITOR=ed)
-  t_both
+  t_run "$load; echo rc=\$?; export -p"
+  t_out=${t_out//$T/@T}
+  grep -vE '^declare -x (PATH|PWD|OLDPWD|SHLVL|_|T|T_ROOT|TEHAS_SETTINGS_CMD)(=|$)' <<<"${t_out//uid$EUID/uid@}" >>"$T/loads"
 done 5<<'INSTANCES'
 
 TEHAS_LOW_GATE=/x/gate
@@ -1617,86 +1604,170 @@ X=$'a\nb'
 T_INSIDE=$TEHAS_INSTANCE_DIR/$HOME
 INSTANCES
 T_ENV=()
-
-t_case "the verb and tehas_load agree when there is no instance.env, and what it keeps of the environment"
 t_instance "${T_MINIMAL[@]}"
+t_eq "$(sha256sum <"$T/loads" | cut -d' ' -f1)" "2e8a3e4b3abdb7dd5b323c6aaf6971793d2a5121162227f83c773581d11d345f"
+t_contains "$(cat "$T/loads")" "rc=78"
+
+t_case "no instance.env keeps the environment as it was, as bash did"
 rm -f "$TEHAS_INSTANCE_DIR/instance.env"
 T_ENV=(TEHAS_REPO=other/thing)
-t_both
+t_run "$load; echo rc=\$? \$TEHAS_REPO"
 T_ENV=()
-t_contains "$t_out" "other/thing"
-
-t_case "the verb and tehas_load agree on a pointer file and on a home with none"
+t_contains "$t_out" "rc=78 other/thing"
 t_instance "${T_MINIMAL[@]}"
+
+t_case "a pointer's blanks are not part of the directory, and an empty pointer is no pointer"
 mkdir -p "$T/home/.config/tehas"
 echo "  $T/instance  " >"$T/home/.config/tehas/instance-dir"
 saved=$TEHAS_INSTANCE_DIR
 unset TEHAS_INSTANCE_DIR
-t_both
-rm -f "$T/home/.config/tehas/instance-dir"
-t_both
+t_run "$load && echo \"\$TEHAS_INSTANCE_DIR\""
+t_eq "$t_out" "$T/instance"
+: >"$T/home/.config/tehas/instance-dir"
+t_run "$load; echo rc=\$?"
+t_contains "$t_out" "no instance.env in $T/home/.config/tehas"
 export TEHAS_INSTANCE_DIR=$saved
 rm -rf "$T/home/.config"
-
-t_case "the verb and tehas_load agree on the worked example"
-TEHAS_INSTANCE_DIR=$T_ROOT/instances/tehas-tehas
-t_both
-t_instance "${T_MINIMAL[@]}"
-
-t_case "the verb's load needs no bash on PATH and no env: only nproc"
-mkdir -p "$T/only"
-printf '#!/bin/bash\necho 4\n' >"$T/only/nproc"
-chmod +x "$T/only/nproc"
-t_run "PATH=\$T/only; $verb_load"
-t_contains "$t_out" "rc=0"
-t_contains "$t_out" 'TEHAS_TICKET_CONCURRENCY="3"'
-rm -rf "$T/only"
 
 t_case "a host's nproc that fails or says nothing leaves one cycle"
 for body in 'exit 3' 'echo'; do
   t_stub nproc "$body"
-  t_both
-  t_contains "$t_out" 'TEHAS_TICKET_CONCURRENCY="1"'
+  t_run "$load && echo \"\$TEHAS_TICKET_CONCURRENCY\""
+  t_eq "$t_out" "1"
 done
 t_stub nproc 'echo 8'
 
-t_case "a size the shell's arithmetic cannot read stops the verb's load, where tehas_load fell through"
+t_case "a size arithmetic cannot read stops the load, where bash fell through with no word"
 t_instance "${T_MINIMAL[@]}" TEHAS_CYCLE_MIN_FREE=09g
-t_run "$verb_load"
+t_run "$load; echo rc=\$?"
 t_contains "$t_out" "tehas: TEHAS_CYCLE_MIN_FREE is not valid: expected a size such as 512m or 5g (see $T/instance/instance.env)"
 t_contains "$t_out" "rc=78"
 t_instance "${T_MINIMAL[@]}"
 
 t_case "what instance.env prints is not read as settings"
 t_instance "${T_MINIMAL[@]}" "echo 'export TEHAS_REPO=evil/repo'" "TEHAS_TOP=1"
-t_run "$verb_load"
-t_contains "$t_out" "rc=0"
-t_contains "$t_out" 'TEHAS_TOP="1"'
-t_contains "$t_out" 'TEHAS_REPO="acme/widget"'
+t_run "$load; echo rc=\$? \$TEHAS_TOP \$TEHAS_REPO"
+t_contains "$t_out" "rc=0 1 acme/widget"
 t_contains "$t_out" "export TEHAS_REPO=evil/repo"
 
-t_case "an exit in instance.env is a refusal, with the environment as the load left it"
+t_case "an exit in instance.env is a refusal, and ends no shell"
 t_instance "${T_MINIMAL[@]}" "exit 0"
-t_run "$verb_load"
+t_run "$load; echo rc=\$? [\${TEHAS_REPO:-}]"
 t_contains "$t_out" "could not be read as shell"
-t_contains "$t_out" "rc=78"
-t_lacks "$t_out" "TEHAS_REPO="
+t_contains "$t_out" "rc=78 []"
 
-t_case "a file BASH_ENV names is not run by the shell that reads the settings"
-t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1
-printf 'echo ran >>"%s/bash-env"\n' "$T" >"$T/bash-env.sh"
-t_run "export BASH_ENV=\$T/bash-env.sh; $verb_load"
-t_contains "$t_out" "rc=0"
-[ ! -e "$T/bash-env" ] || t_bad "the file BASH_ENV names ran"
-t_contains "$t_out" "BASH_ENV="
+t_case "instance.env moves no shell: a cd stays in the shell that read it"
+t_instance "${T_MINIMAL[@]}" "cd /"
+t_run "cd \"\$T\" && $load; echo rc=\$? \"\$PWD\""
+t_eq "$t_out" "rc=0 $T"
 
-t_case "what the verb refuses later is said in a map, not by the load"
-t_instance "${T_MINIMAL[@]}" TEHAS_REPO=widget TEHAS_CONTAINER_MEMORY=1m "TEHAS_ALLOWED_LABELERS='a  b'"
-t_run "$verb_load; printf '%s|' \"\${_tehas_bad[TEHAS_REPO]}\" \"\${_tehas_bad[TEHAS_CONTAINER_MEMORY]}\" \"\${_tehas_bad[TEHAS_ALLOWED_LABELERS]}\""
-t_contains "$t_out" "rc=0"
-t_contains "$t_out" "expected owner/name|expected a size of at least 6m, such as 512m or 2g|expected GitHub logins separated by single spaces|"
+t_case "instance.env sees the environment, and the name of a host's setting is gone from it"
+t_instance "${T_MINIMAL[@]}" 'TEHAS_MILLWRIGHT_LOGIN=${TEHAS_TOP:-seen-${HOME##*/}}'
+T_ENV=(TEHAS_TOP=1)
+t_run "$load && echo \"\$TEHAS_MILLWRIGHT_LOGIN\""
+T_ENV=()
+t_eq "$t_out" "seen-home"
 t_instance "${T_MINIMAL[@]}"
-T_ENV_ALWAYS=()
+
+t_case "the shell that reads instance.env reads no stdin and runs no file BASH_ENV names"
+t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1 'read -r TEHAS_BRANCH || TEHAS_BRANCH=none'
+printf 'echo ran >>"%s/bash-env"\n' "$T" >"$T/bash-env.sh"
+t_run "export BASH_ENV=\$T/bash-env.sh; echo stdin | { $load; echo rc=\$? \"\$TEHAS_BRANCH\" \"\$BASH_ENV\"; }"
+t_contains "$t_out" "rc=0 none $T/bash-env.sh"
+[ ! -e "$T/bash-env" ] || t_bad "the file BASH_ENV names ran"
+t_instance "${T_MINIMAL[@]}"
+
+t_case "what a load does not refuse tehas_require does, in the words it always had"
+t_instance "${T_MINIMAL[@]}" TEHAS_REPO=widget TEHAS_CONTAINER_MEMORY=1m "TEHAS_ALLOWED_LABELERS='a  b'" TEHAS_REVIEW_REPO=acme
+for pair in "TEHAS_REPO|expected owner/name" "TEHAS_CONTAINER_MEMORY|expected a size of at least 6m, such as 512m or 2g" \
+  "TEHAS_ALLOWED_LABELERS|expected GitHub logins separated by single spaces" "TEHAS_REVIEW_REPO|expected owner/name"; do
+  t_run "$load || exit 9; echo loaded; tehas_require ${pair%%|*}; echo not-reached"
+  t_eq "$t_rc" 78
+  t_contains "$t_out" "loaded"
+  t_contains "$t_out" "tehas: ${pair%%|*} is not valid: ${pair#*|} (see $T/instance/instance.env)"
+  t_lacks "$t_out" "not-reached"
+done
+
+t_case "a second source of lib/config.sh keeps what the load said, and a later load replaces it"
+t_run "$load; . \"\$T_ROOT/lib/config.sh\"; (tehas_require TEHAS_REPO); echo rc=\$?"
+t_contains "$t_out" "rc=78"
+t_instance "${T_MINIMAL[@]}"
+t_run ". \"\$T_ROOT/lib/config.sh\"; _tehas_bad[TEHAS_REPO]=stale; tehas_load; tehas_require TEHAS_REPO; echo fine"
+t_eq "$t_out" "fine"
+
+t_case "tehas_require with no load before it is 78: it has no rules of its own to ask"
+t_run ". \"\$T_ROOT/lib/config.sh\"; TEHAS_REPO=x; tehas_require TEHAS_REPO; echo not-reached"
+t_eq "$t_rc" 78
+t_contains "$t_out" "tehas: no settings are loaded here, so none can be required"
+t_lacks "$t_out" "not-reached"
+
+t_case "a shell's own PI_RUKAS_FOLLOW, as versions.env leaves it unexported, is checked by a load"
+t_instance "${T_MINIMAL[@]}"
+t_run "PI_RUKAS_FOLLOW=main; $load; echo rc=\$?"
+t_contains "$t_out" "PI_RUKAS_FOLLOW is not valid"
+t_contains "$t_out" "rc=78"
+
+t_case "the roles of tehas_models are the roles a load takes"
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_MODEL_NOPE=m
+t_run "$load"
+list=$(sed -n 's/^.*the roles are \(.*[A-Z]\)  (see.*$/\1/p' <<<"$t_out")
+t_eq "$list" "$(sed -n 's/^    for role in \(.*\); do$/\1/p' "$T_ROOT/lib/config.sh")"
+t_instance "${T_MINIMAL[@]}"
+
+t_case "the host's hook stays from the environment, and an instance line of it is not what a load uses"
+t_run "$load && echo \"\$TEHAS_SETTINGS_CMD\""
+t_eq "$t_out" "$TEHAS_SETTINGS_CMD"
+
+t_case "with no console a load is one line and 78, the shell goes on, and nothing is read"
+T_ENV=(TEHAS_SETTINGS_CMD="$T/no-such-console")
+t_run "$load; echo rc=\$? [\${TEHAS_REPO:-}]"
+T_ENV=()
+t_eq "$t_out" "tehas: no console at $T/no-such-console to load the settings: run install.sh
+rc=78 []"
+
+t_case "a console beside lib/config.sh is the one a load runs, and then the home's"
+mkdir -p "$T/tree/lib" "$T/tree/libexec" "$T/home/tehas/libexec"
+cp "$T_ROOT/lib/config.sh" "$T/tree/lib/"
+for at in "$T/tree/libexec/console" "$T/home/tehas/libexec/console"; do
+  printf '#!%s\necho "echo at %s"\n' "$T_BASH" "$at" >"$at"
+  chmod +x "$at"
+done
+t_run "unset TEHAS_SETTINGS_CMD; . \"\$T/tree/lib/config.sh\"; tehas_load"
+t_eq "$t_out" "at $T/tree/libexec/console"
+rm -f "$T/tree/libexec/console"
+t_run "unset TEHAS_SETTINGS_CMD; . \"\$T/tree/lib/config.sh\"; tehas_load"
+t_eq "$t_out" "at $T/home/tehas/libexec/console"
+rm -f "$T/home/tehas/libexec/console"
+t_run "unset TEHAS_SETTINGS_CMD; . \"\$T/tree/lib/config.sh\"; tehas_load; echo rc=\$?"
+t_contains "$t_out" "no console at $T/home/tehas/libexec/console"
+t_contains "$t_out" "rc=78"
+
+t_case "a console that cannot run or does not know the verb is 78, its words are not run, and the shell goes on"
+printf 'not a program\0\0\0' >"$T/garbage"
+chmod +x "$T/garbage"
+printf '#!/nonexistent/interpreter\n' >"$T/no-interpreter"
+chmod +x "$T/no-interpreter"
+printf '#!%s\necho "touch %s/ran"\nexit 2\n' "$T_BASH" "$T" >"$T/older-console"
+chmod +x "$T/older-console"
+for console in "$T/garbage" "$T/no-interpreter" "$T/older-console" /; do
+  T_ENV=(TEHAS_SETTINGS_CMD="$console")
+  t_run "$load; echo rc=\$? [\${TEHAS_REPO:-}]"
+  t_contains "$t_out" "rc=78 []"
+  t_contains "$t_out" "tehas: the console at $console cannot load the settings"
+done
+T_ENV=()
+[ ! -e "$T/ran" ] || t_bad "what a console that failed printed was run"
+
+t_case "a login shell with no console stays usable and does not hang"
+t_instance "${T_MINIMAL[@]}"
+mkdir -p "$T/home/tehas/lib"
+cp "$T_ROOT/lib/config.sh" "$T/home/tehas/lib/"
+T_ENV=(TEHAS_SETTINGS_CMD=)
+t_run 'timeout 20 bash -c ". \"\$T_ROOT/host/env.sh\"; echo shell-is-here \$?"'
+T_ENV=()
+t_contains "$t_out" "tehas: no console at $T/home/tehas/libexec/console to load the settings: run install.sh"
+t_contains "$t_out" "shell-is-here 0"
+rm -rf "$T/home/tehas/lib"
 rm -f "$T/bin/nproc"
 
 t_done
