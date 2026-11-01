@@ -154,6 +154,30 @@ t_eq "$t_rc" 0
 t_eq "$(there)" there
 t_eq "$(jq -r .report "$file")" 1
 
+t_case "a run that is told to stop starts no read and still writes the report"
+reset
+t_stub gh '
+: >"$T/gh-started"
+sleep 1
+echo "[]"'
+t_run "$status & p=\$!
+until [ -e \"\$T/gh-started\" ]; do sleep 0.1; done
+kill -TERM \$p
+wait \$p"
+t_eq "$t_rc" 143
+t_eq "$(t_calls gh | wc -l)" 1
+t_eq "$(there)" there
+t_eq "$([ -e "$live/status.json" ] && echo there || echo gone)" gone
+t_stub gh '
+[ ! -e "$T/github-down" ] || exit 1
+case "$*" in
+  "issue list"*) echo "[]" ;;
+  "issue view"*) echo "" ;;
+  "api repos/"*) echo "[]" ;;
+  "api graphql"*subIssues*) echo "{\"data\":{\"repository\":{\"issues\":{\"nodes\":[]}}}}" ;;
+  "api graphql"*) echo "{\"data\":{\"search\":{\"nodes\":[]}}}" ;;
+esac'
+
 t_case "TEHAS_ANALYTICS=off removes the file and asks for no report"
 reset
 t_run "$status"
