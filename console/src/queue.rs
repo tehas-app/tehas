@@ -819,7 +819,7 @@ fn unset(given: impl Fn(&str) -> Option<String>) -> Option<&'static str> {
     let needed = commands::required(&asked).iter().copied();
     std::iter::once("TEHAS_HOME")
         .chain(needed)
-        .find(|name| !given(name).is_some_and(|v| !v.trim_matches(' ').is_empty()))
+        .find(|name| given(name).is_none_or(|v| v.trim_matches(' ').is_empty()))
 }
 
 /// `tehasbot status`. It takes no argument and reads none.
