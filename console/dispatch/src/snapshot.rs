@@ -174,7 +174,7 @@ pub struct Snapshot {
     pub ready: Issues,
     pub blocked: Issues,
     pub awaiting: Option<Issues>,
-    /// tehas_limit_read's answer.
+    /// The limit as `flags limit read` reads it.
     pub limit: Value,
     pub slice: Reading,
     /// What the model endpoints answered: the hold, when both failed, and
