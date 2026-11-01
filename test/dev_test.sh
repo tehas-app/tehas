@@ -827,7 +827,7 @@ again
 t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
 T_ENV=()
 # The console of the case waits one second of the five minutes the command asks.
-printf '#!/bin/sh\nexec "%s" clean session "$3" "$4" 1\n' "$T_CONSOLE" >"$T/tree/libexec/console"
+printf '#!/bin/sh\n[ "$1" != slice ] || exec "%s" "$@"\nexec "%s" clean session "$3" "$4" 1\n' "$T_CONSOLE" "$T_CONSOLE" >"$T/tree/libexec/console"
 chmod +x "$T/tree/libexec/console"
 t_stub flock "if [ \"\${FLOCK_WHY:-}\" = held ]; then exit 1; fi
 if [ \"\$1\" = -w ]; then sleep \"\${FLOCK_WAIT:-0}\"; fi

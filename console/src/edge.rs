@@ -66,7 +66,6 @@ pub fn put(file: &Path, bytes: &[u8]) -> io::Result<()> {
 
 /// The new directory takes the place by rename. The old one is moved aside
 /// first and removed afterwards, so there is no moment with a half-copied one.
-#[allow(dead_code, reason = "tehasbot protolab moves here next")]
 pub fn place(new: &Path, place: &Path) -> io::Result<()> {
     let old = place.parent().unwrap_or(Path::new(".")).join(".old");
     remove(&old)?;
