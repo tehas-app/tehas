@@ -256,7 +256,7 @@
 #
 # Which approval is this start's: under tehasbot cycle, TEHAS_CYCLE_ATTEMPT
 # names the attempt the state store gave the start, and only the approval that
-# attempt used counts (tehas_approval_view, lib/store.sh). A start the store
+# attempt used counts (the store's approval-view). A start the store
 # has on record as one by hand is a run by hand. Anything else stops the start
 # with exit 4: a store that cannot be read is never taken for a run by hand.
 # Run on its own (tehas work by hand), the approval of the issue's latest start

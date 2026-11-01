@@ -18,8 +18,9 @@ use std::os::unix::fs::PermissionsExt;
 use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::{Command, Stdio};
-use tehas_core::models::{self, ModelFile};
-use tehas_core::{private, settings};
+use tehas_core::mask;
+use tehas_core::models;
+use tehas_core::settings;
 
 const NAME: &str = "tehas-mcp";
 const MASQUERADE: &str = "com.docker.network.bridge.enable_ip_masquerade";
@@ -292,7 +293,7 @@ fn prepare(home: &str) -> Result<Run, (u8, String)> {
         user: format!("{}:{}", id("-u"), id("-g")),
         digest,
         version,
-        private: private::names(&ModelFile::read(&models::host_path()), &email),
+        private: mask::host_names(&models::host_path(), &email),
     })
 }
 

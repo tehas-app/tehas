@@ -637,7 +637,7 @@ pub fn changed_of(kept: &str, new: &str) -> Option<String> {
 
 // --- attach left-out ----------------------------------------------------------
 
-/// `record_ok` of `tehas_approval_record` in lib/attachments.sh.
+/// The shape a reader of an approval checks.
 fn record_ok(r: &Value) -> bool {
     r.is_object()
         && r["links"].is_array()
