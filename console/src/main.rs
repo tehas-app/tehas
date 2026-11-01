@@ -130,6 +130,11 @@
 //! one label, who applied the label that lets a cycle start, and a label put on
 //! or taken off, asked of GitHub through tehas_core::forge, see src/forge.rs.
 //!
+//!   console label actor|allowed|pause-holds ...
+//!
+//! Who applied a label, read from the label events, behind lib/labels.sh, see
+//! src/label.rs.
+//!
 //!   console models keys-ok | pick <provider> | resolve <out>
 //!
 //! The host's models.json: its keys, the endpoint of a provider, and the file
@@ -178,6 +183,7 @@ mod frame;
 mod github;
 mod health;
 mod improve;
+mod label;
 mod labels;
 mod mcp;
 mod models;
@@ -425,6 +431,7 @@ fn main() -> ExitCode {
             Some("slice") => return ExitCode::from(slice::main(&given[1..])),
             Some("health") => return ExitCode::from(health::main(&given[1..])),
             Some("improve") => return ExitCode::from(improve::main(&given[1..])),
+            Some("label") => return ExitCode::from(label::main(&given[1..])),
             Some("models") => return ExitCode::from(models::main(&given[1..])),
             Some("state") => return ExitCode::from(state::main(&given[1..])),
             Some("status") => return ExitCode::from(status::main(&given[1..])),
