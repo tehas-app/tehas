@@ -539,7 +539,6 @@ for f in \
   index \
   init-product \
   labels \
-  mcp \
   plan \
   preview \
   protolab \
@@ -1224,6 +1223,7 @@ for f in \
   libexec/energy \
   libexec/health \
   libexec/limit \
+  libexec/mcp \
   libexec/pause \
   libexec/state \
   libexec/summary \
