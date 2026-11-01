@@ -13,6 +13,14 @@ empty one above it.
 
 ### Changes
 
+### Adopter action
+
+None.
+
+## v0.21.0 (2026-11-02)
+
+### Changes
+
 - `tehas status`, `disk`, `state`, `limit`, `pause`, `analytics` and `tehasbot health` run the console directly, and seven wrapper scripts are gone.
 - The measure of an issue and the free-disk reading are the console's: `console size` and `console disk free` replace the jq and df in lib/sizing.sh and lib/disk.sh.
 - The cleaner's image names and the held set are the console's, and libexec/clean is a wrapper.
@@ -61,7 +69,18 @@ empty one above it.
 
 ### Adopter action
 
-None.
+Remove `TEHAS_DISPATCHER=bash` from the settings if it is there: the bash poll is
+gone and that value stops every command with 78. `rust` and a blank value still
+load.
+
+Settings now need `libexec/console`, so a host needs its update to finish:
+`install.sh` builds or installs the console first, and a command with no console
+stops with 78. A `models.json` whose `providers` is not a map now stops the poll
+with 78.
+
+An update now runs in the console. If a release's console does not start, it
+cannot update itself: recover with `~/tehas/versions/<previous>/install.sh`, as
+the manual's troubleshooting page says.
 
 ## v0.20.1 (2026-11-01)
 
