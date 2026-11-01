@@ -1353,12 +1353,11 @@ variable-in-another-file	1	unplaced		the image "$image" is assigned by no statem
 t_case "the scan places one record for every docker run the units hold"
 # The count is made by a rule the scan does not share, and the two must agree:
 # the count is what the units hold today: three for work (the check of a runner,
-# the check of a push, and the cycle), two for plan (the check of a runner and the
-# turn), and one for preview, the run of the comment that
-# names docker run being read by neither. The runs of the programs are the rows
-# of the table below.
+# the check of a push, and the cycle) and two for plan (the check of a runner and
+# the turn), the run of the comment that names docker run being read by neither.
+# The runs of the programs are the rows of the table below.
 count=$(docker_run_count "$T_ROOT/libexec")
-t_eq "$count" 6
+t_eq "$count" 5
 # The account of the records is read off the records themselves, and not from
 # two totals that could drift together: the lines of the records are the runs
 # the scan made records for, so a record of anything at all answers one line of
@@ -1372,17 +1371,11 @@ t_eq "$(wc -l <<<"$records")" "$count"
 # ends with the reason it gives. The scan keeps the two apart itself, and says
 # how many records it read as neither, which is what the account on the error
 # of the scan is asked for.
-t_eq "$(records_account "$T_ROOT/libexec")" "placed 5 unplaced 1 bad 0"
+t_eq "$(records_account "$T_ROOT/libexec")" "placed 5 unplaced 0 bad 0"
 # Any run the scan cannot place fails this case, and is named by the file and
-# the line it stands on. The two the units leave today are named by who and
-# where, and by no number that a third unplaced run could drift beside: one is
-# the preview of an image the unit builds itself, and one the server of a digest
-# install.sh wrote to a file. A run that joins them, or one of them leaving,
-# fails here rather than holding the count. They are compared by unit, so an
-# edit above them passes, and the failure names the lines.
+# the line it stands on. The units leave none today.
 unplaced=$(unplaced_of "$T_ROOT/libexec")
-[ "$(cut -d: -f1 <<<"$unplaced")" = preview ] ||
-  t_bad "the unplaced run is not preview: $(tr '\n' ' ' <<<"$unplaced")"
+[ -z "$unplaced" ] || t_bad "a run the scan cannot place: $(tr '\n' ' ' <<<"$unplaced")"
 
 t_case "every container tehas starts runs an image and a command the image checks"
 records=$(records_of "$T_ROOT/libexec")
@@ -1409,9 +1402,6 @@ review	PI_ENSEMBLE_IMAGE	/opt/pi-rukas/bin/pi-rukas-headless
 work	PI_ENSEMBLE_IMAGE	$runner
 work	PI_ENSEMBLE_IMAGE	$runner
 work	PI_ENSEMBLE_IMAGE	git'
-# The two containers of the units the scan cannot place are the preview it builds
-# itself and the server of a digest install.sh chose: neither runs in the sandbox
-# image, so neither is a command the image would check.
 missing=""
 while IFS=$'\t' read -r unit line image cmd _; do
   [ -n "$unit" ] || continue
