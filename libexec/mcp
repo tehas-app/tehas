@@ -40,8 +40,6 @@ serve() {
   . "$here/../lib/config.sh"
   # shellcheck source=lib/models.sh
   . "$here/../lib/models.sh"
-  # shellcheck source=lib/private.sh
-  . "$here/../lib/private.sh"
   tehas_load || exit 78
 
   case "${TEHAS_MCP:-0}" in
@@ -90,11 +88,9 @@ serve() {
   if ! mkdir -p "$TEHAS_HOME/mcp" || ! chmod 700 "$TEHAS_HOME/mcp"; then
     tehas_err "could not make $TEHAS_HOME/mcp"; exit 1
   fi
-  # The logs are masked with the names the console hides (lib/private.sh).
-  local private=() private_name
-  while IFS= read -r private_name; do
-    private+=(--private "$private_name")
-  done < <(tehas_private_names "$(tehas_models_file)" "$(git config --global user.email || true)")
+  # The logs are masked with the names the console hides.
+  local private=()
+  mapfile -t private < <("$TEHAS_HOME/libexec/tehas-cycle" private "$(tehas_models_file)" "$(git config --global user.email || true)")
   docker rm -f tehas-mcp >/dev/null 2>&1
   export TEHAS_MCP_KEYS TEHAS_MCP_DASHBOARD_KEYS
   exec docker run --rm --init --name tehas-mcp --user "$(id -u):$(id -g)" --network tehas-mcp --read-only --cap-drop ALL \

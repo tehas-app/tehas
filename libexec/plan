@@ -160,8 +160,6 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/slice.sh"
 # shellcheck source=lib/attachments.sh
 . "$here/../lib/attachments.sh"
-# shellcheck source=lib/describe.sh
-. "$here/../lib/describe.sh"
 # shellcheck source=lib/labels.sh
 . "$here/../lib/labels.sh"
 # shellcheck source=lib/cycles.sh
@@ -309,7 +307,7 @@ if [ "$give" = 1 ]; then
         echo "tehas plan: the comment on #$issue failed" >&2
       exit 4
     fi
-    if [ "$TEHAS_WORK_DESCRIBE" = 1 ] && ! tehas_describe_images "$images"; then
+    if [ "$TEHAS_WORK_DESCRIBE" = 1 ] && ! "$here/tehas-cycle" describe "$images"; then
       echo "tehas plan: the descriptions of the images could not be written, the session goes on without them" >&2
     fi
     said=$(tehas_issue_images_said "$images" "planning session" "$(tehas_rukas_reads_images)")

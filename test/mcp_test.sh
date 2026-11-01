@@ -12,11 +12,14 @@ key2=ABCDEFGHIJKLMNOPQRSTUVWXYZ-_6789
 digest=sha256:$(printf 'a%.0s' {1..64})
 t_env() { T_ENV=("$@"); }
 
+# shellcheck disable=SC2154  # t_cycle_why is set by t_cycle (test/lib.sh)
+t_cycle || t_bad "no tehas-cycle: $t_cycle_why"
 reset() {
   rm -rf "$th" "$T/calls"
   mkdir -p "$th/libexec" "$th/live" "$th/docs" "$T/calls"
   echo "binary" >"$th/libexec/tehas-mcp"
   chmod 755 "$th/libexec/tehas-mcp"
+  cp "$T_CYCLE" "$th/libexec/tehas-cycle"
   printf 'CADDY_VERSION=2.8.4\nCADDY_DIGEST=%s\n' "$digest" >"$th/versions.env"
   echo "v0.7.30+abc1234" >"$th/docs/version.txt"
   # The network the server runs on exists, and lets nothing out.

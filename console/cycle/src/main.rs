@@ -52,6 +52,15 @@
 //!                                     is stopped on a guess. It reads no wall
 //!                                     clock, so a VM that was saved is not
 //!                                     counted against a cycle
+//!   tehas-cycle describe <dir>        write <dir>/images.md, a model's
+//!                                     description of each image in
+//!                                     <dir>/manifest.json, and name it in the
+//!                                     manifest (src/describe.rs). Exits 1 only
+//!                                     when a file could not be written
+//!   tehas-cycle private <models.json> <email>
+//!                                     the names a mask hides, two lines each:
+//!                                     `--private` and the name, for a command
+//!                                     to read into its arguments
 //!   tehas-cycle renew --cmd <path> --every <s> --retry <s>
 //!                                     the renewer of a cycle's GitHub token:
 //!                                     run <path> with its output discarded,
@@ -304,6 +313,16 @@ fn main() {
                 if let Some(line) = shadow::compare(&home, n).unwrap_or_else(|e| fail(e)) {
                     println!("{line}");
                 }
+            }
+        }
+        ["describe", dir] => {
+            if tehas_cycle::describe::describe(Path::new(dir)).is_err() {
+                std::process::exit(1);
+            }
+        }
+        ["private", models, email] => {
+            for name in tehas_core::mask::host_names(models, email) {
+                println!("--private\n{name}");
             }
         }
         _ => wrong(&args),
