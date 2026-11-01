@@ -105,12 +105,10 @@ files="./.bashrc
 ./tehas/lib/disk.sh
 ./tehas/lib/millwright.sh
 ./tehas/lib/github-app.sh
-./tehas/lib/headless.sh
 ./tehas/lib/history-lines.jq
 ./tehas/lib/history-listing.jq
 ./tehas/lib/history-repeats.jq
 ./tehas/lib/improve-prompt.md
-./tehas/lib/improve.sh
 ./tehas/lib/issue-brief.md
 ./tehas/lib/labels.sh
 ./tehas/lib/labels.tsv
@@ -122,7 +120,6 @@ files="./.bashrc
 ./tehas/lib/release.sh
 ./tehas/lib/rukas.sh
 ./tehas/lib/sandbox.sh
-./tehas/lib/sizing.sh
 ./tehas/lib/store.sh
 ./tehas/lib/slice.sh
 ./tehas/lib/update-release.sh

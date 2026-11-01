@@ -178,7 +178,7 @@ fn cycle(home: &Path, name: &str, started: i64, line: Value) {
 fn each_fixture_result_is_stored_with_what_the_outcome_drops() {
     // started and the end of the last step of each fixture, the runner's
     // durationMs, and the status, cap and exit tehas wrote: for schema 3
-    // lib/headless.sh reads no outcome, so the history says unknown.
+    // tehas-cycle reads no outcome, so the history says unknown.
     let cases = [
         (
             "headless-0.12.80",

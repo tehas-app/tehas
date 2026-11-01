@@ -446,14 +446,12 @@ files=(
   "lib/park-fields.jq|$TEHAS_HOME/lib/park-fields.jq|644"
   "lib/cycles.sh|$TEHAS_HOME/lib/cycles.sh|644"
   "lib/labels.sh|$TEHAS_HOME/lib/labels.sh|644"
-  "lib/improve.sh|$TEHAS_HOME/lib/improve.sh|644"
   "lib/improve-prompt.md|$TEHAS_HOME/lib/improve-prompt.md|644"
   "lib/refine-brief.md|$TEHAS_HOME/lib/refine-brief.md|644"
   "lib/issue-brief.md|$TEHAS_HOME/lib/issue-brief.md|644"
   "lib/millwright.sh|$TEHAS_HOME/lib/millwright.sh|644"
   "lib/models.sh|$TEHAS_HOME/lib/models.sh|644"
   "lib/update-steps.sh|$TEHAS_HOME/lib/update-steps.sh|644"
-  "lib/headless.sh|$TEHAS_HOME/lib/headless.sh|644"
   "lib/github-app.sh|$TEHAS_HOME/lib/github-app.sh|644"
   "lib/rukas.sh|$TEHAS_HOME/lib/rukas.sh|644"
   "lib/sandbox.sh|$TEHAS_HOME/lib/sandbox.sh|644"
@@ -461,7 +459,6 @@ files=(
   # The free disk of the host, read by the dispatcher's hold and the previews'.
   "lib/disk.sh|$TEHAS_HOME/lib/disk.sh|644"
   # The measure of an issue body, read by the dispatcher and the analytics.
-  "lib/sizing.sh|$TEHAS_HOME/lib/sizing.sh|644"
   "lib/questions.sh|$TEHAS_HOME/lib/questions.sh|644"
   # How the commands run the state store, libexec/store.
   "lib/store.sh|$TEHAS_HOME/lib/store.sh|644"
@@ -1208,9 +1205,12 @@ for f in \
   libexec/console.ts \
   lib/limit.sh \
   lib/live.sh \
+  lib/headless.sh \
+  lib/improve.sh \
   lib/planning.sh \
   lib/refresh.sh \
   lib/status.sh \
+  lib/sizing.sh \
   libexec/disk \
   libexec/drain \
   libexec/energy \

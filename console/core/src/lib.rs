@@ -2,6 +2,8 @@
 //! more than one program keeps, so the rule is written once.
 
 #[cfg(feature = "mask")]
+pub mod approval;
+#[cfg(feature = "mask")]
 pub mod call;
 pub mod disk;
 pub mod env_file;

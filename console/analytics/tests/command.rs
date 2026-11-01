@@ -204,7 +204,7 @@ impl Host {
         );
         self.put("docs/version.txt", "v0.7.22+1234abc\n");
         // The run's facts as tehas-cycle gives them: the history line,
-        // the approval, the settings snapshot as lib/improve.sh writes it (a
+        // the approval, the settings snapshot as tehas-cycle writes it (a
         // model with dots, a provider word, and a host value it withheld) and
         // the image's commit.
         fs::create_dir_all(self.home.join("tmp")).unwrap();
