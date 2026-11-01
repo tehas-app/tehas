@@ -12,10 +12,10 @@
 # The CPU quota and the ticket ceiling follow the host's CPUs: the same on
 # every test machine.
 t_stub nproc 'echo 16'
-# libexec/work sleeps ten seconds between two looks at the container, and
-# three for the console at the end. Here each costs a tenth of a second. What
-# stands in for the container uses the real sleep, $nap.
-t_stub sleep '"$(command -pv sleep)" 0.1'
+# The watch of a cycle waits ten seconds between two looks at the container,
+# and three for the console at the end. Here each costs a tenth of a second.
+# What stands in for the container sleeps with $nap.
+T_ENV_ALWAYS+=(TEHAS_WATCH_TICK=0.1)
 nap=$(command -pv sleep)
 
 # The script as a host has it: beside the console, a compiled program that a
@@ -68,14 +68,15 @@ printf '%s\n' '[.[] | objects | select(.v == 1 and (.unstable // false) == false
   | [.[] | split("\u000a") | .[0]]
   | map(select(. != "" and (startswith("pi-rukas:driver-event") | not))) | last // ""' >"$T/now.text.jq"
 mv "$T/bin/console" "$tree/libexec/console"
-# The cycle clock of tehas work, in $tree/libexec/tehas-cycle. By default it
+# The cycle clock of tehas work, in $tree/libexec/tehas-cycle, which the watch
+# asks through TEHAS_WATCH_CLOCK. By default it
 # keeps the seconds tehas work's own start was marked at and counts on with
 # the wall clock, so a case that says nothing about the clock sees a cycle
 # measured as it was before the cycle clock: `clock now` gives the seconds
 # since the mark and `clock check` decides from them. A case that means the
 # cycle clock itself writes $T/clock.now, one reading per call of `clock now`
 # in order, and $T/clock.check, the word `clock check` answers with. Any other
-# verb goes to the real program.
+# verb, watch among them, goes to the real program.
 t_stub tehas-cycle 'case "$1 $2" in
   "clock mark") date +%s >"$3"; date +%s >"$T/clock.start" ;;
   "clock now")
@@ -101,6 +102,7 @@ t_stub tehas-cycle 'case "$1 $2" in
 esac
 exit 0'
 mv "$T/bin/tehas-cycle" "$tree/libexec/tehas-cycle"
+T_ENV_ALWAYS+=(TEHAS_WATCH_CLOCK="$tree/libexec/tehas-cycle")
 # The real program, beside the stub.
 # shellcheck disable=SC2154  # t_cycle_why is set by t_cycle (test/lib.sh)
 t_cycle || t_bad "no tehas-cycle: $t_cycle_why"

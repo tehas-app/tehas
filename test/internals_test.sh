@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # tehas reads pi-rukas only through the contract its headless runner
 # publishes: the --capabilities answer, the --json result and the stable
-# NDJSON lines (lib/headless.sh). Not its state file, its worktree layout, its
+# NDJSON lines (console/cycle/src/progress.rs). Not its state file, its worktree layout, its
 # event log or its source. This test fails when code that is installed or run
 # names one of those again. Tests, the manual in host/docs/ and the records in
 # docs/ may: a test writes a state file to show it is not read, and the manual

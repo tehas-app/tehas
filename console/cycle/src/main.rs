@@ -141,6 +141,13 @@
 //!                                     as one JSON object. Exits 4 when there
 //!                                     is none, 2 when the file or the number
 //!                                     cannot be read
+//!   tehas-cycle runner progress <ndjson> [<result> <issue>]
+//!                                     the summary of a run, one JSON object:
+//!                                     what state/cycles/<issue>.progress.json
+//!                                     holds (src/progress.rs)
+//!   tehas-cycle runner error-only <result>
+//!                                     exit 0 when <result> is a schema 5
+//!                                     result with no issue entry at all
 //!   tehas-cycle runner run <ndjson> <issue>
 //!                                     three lines of a run log: the last
 //!                                     step started, the branch of its last
@@ -173,6 +180,14 @@
 //!                                     runs at once. Exit 1 with nothing
 //!                                     printed when the words have no quota or
 //!                                     ceiling
+//!   tehas-cycle watch <issue> --log <file> --runs <dir> --name <container>
+//!       --limit <s> --stall <s> --grace <s> --stop-wait <s> --console-wait <s>
+//!       --console <path> --models <file> --email <address> [--attempt <n>]
+//!       [--renewer <pid>] -- <docker run ...>
+//!                                     the end of tehas work, which execs it:
+//!                                     start the container, watch it to its end
+//!                                     and leave the cycle's notes
+//!                                     (src/watch.rs). Exits as tehas work does
 //!   tehas-cycle index <branch> <commit> [--before-cycle]
 //!                                     one run of the code indexer at <commit>,
 //!                                     the tip of <branch>, under the lock
@@ -217,7 +232,7 @@ use tehas_cycle::after::{self, After};
 use tehas_cycle::host::Start;
 use tehas_cycle::last_attempt::{self, Action};
 use tehas_cycle::report::{last_attempts, to_json, Given};
-use tehas_cycle::{apply, finish, pin, renew, report, shadow, Facts};
+use tehas_cycle::{apply, finish, pin, progress, renew, report, shadow, watch, Facts};
 use tehas_cycle::{caps, clock, index, runner, sandbox};
 
 fn usage() -> String {
@@ -363,6 +378,20 @@ fn main() {
         ["finish", n, rest @ ..] => finish_verb(issue(n, &args), &args, rest),
         ["caps", rest @ ..] => caps_verb(rest, &args),
         ["runner", "outcome", result, n] => outcome_verb(result, n),
+        ["runner", "progress", log] => println!("{}", progress::summary(Path::new(log), None)),
+        ["runner", "progress", log, result, n] => println!(
+            "{}",
+            progress::summary(
+                Path::new(log),
+                n.parse().ok().map(|n| (Path::new(*result), n))
+            )
+        ),
+        ["runner", "error-only", result] => {
+            let text = std::fs::read(result).unwrap_or_default();
+            let only = progress::error_only(&String::from_utf8_lossy(&text));
+            std::process::exit(i32::from(!only));
+        }
+        ["watch", n, rest @ ..] => watch_verb(&home, issue(n, &args), &args, rest),
         ["runner", "run", log, n] => match runner::run_log(Path::new(log), n) {
             Some(r) => println!("{}\n{}\n{}", r.step, r.branch, r.read),
             None => std::process::exit(1),
@@ -387,6 +416,62 @@ fn main() {
         }
         _ => wrong(&args),
     }
+}
+
+/// The words of tehas work's watch.
+fn watch_verb(home: &Path, n: u64, args: &[String], rest: &[&str]) -> ! {
+    let Some(split) = rest.iter().position(|a| *a == "--") else {
+        wrong(args)
+    };
+    let (flags, docker) = (&rest[..split], &rest[split + 1..]);
+    let mut g = watch::Given {
+        issue: n,
+        attempt: String::new(),
+        log: PathBuf::new(),
+        runs: PathBuf::new(),
+        name: String::new(),
+        limit: 0,
+        stall: 0,
+        grace: 300,
+        stop_wait: 60,
+        console_wait: 30,
+        console: PathBuf::new(),
+        models: String::new(),
+        email: String::new(),
+        renewer: String::new(),
+        docker: docker.iter().map(|w| w.to_string()).collect(),
+    };
+    let secs = |v: &str| v.parse::<u64>().unwrap_or_else(|_| wrong(args));
+    let mut it = flags.iter();
+    while let Some(flag) = it.next() {
+        let v = *it.next().unwrap_or_else(|| wrong(args));
+        match *flag {
+            "--attempt" => g.attempt = v.to_string(),
+            "--log" => g.log = PathBuf::from(v),
+            "--runs" => g.runs = PathBuf::from(v),
+            "--name" => g.name = v.to_string(),
+            "--limit" => g.limit = secs(v),
+            "--stall" => g.stall = secs(v),
+            "--grace" => g.grace = v.parse().ok().filter(|s| *s < 100_000).unwrap_or(300),
+            "--stop-wait" => g.stop_wait = v.parse().unwrap_or(60),
+            "--console-wait" => {
+                g.console_wait = v
+                    .parse()
+                    .ok()
+                    .filter(|s| (1..10_000).contains(s))
+                    .unwrap_or(30)
+            }
+            "--console" => g.console = PathBuf::from(v),
+            "--models" => g.models = v.to_string(),
+            "--email" => g.email = v.to_string(),
+            "--renewer" => g.renewer = v.to_string(),
+            _ => wrong(args),
+        }
+    }
+    if g.log.as_os_str().is_empty() || g.name.is_empty() || g.docker.is_empty() {
+        wrong(args);
+    }
+    std::process::exit(watch::run(home, &g));
 }
 
 /// The start and end of a cycle, as libexec/cycle holds them.

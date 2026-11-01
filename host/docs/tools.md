@@ -704,7 +704,9 @@ has not stopped `TEHAS_WORK_GRACE` seconds (300) later is stopped with
 from the workspace `~/tehas/work/<name>-<issue>`: the outcome is the runner's
 `--json` result, which goes to `~/tehas/state/cycles/<issue>.result.json`, and
 a copy beside the log. The contract is pi-rukas's `docs/headless.md`: exit
-codes v1, result schema 5, NDJSON progress with a stable subset.
+codes v1, result schema 5, NDJSON progress with a stable subset. The last step
+of `tehas work` is `tehas-cycle watch`, which it execs: the same process and the
+same lock start the container, watch it to its end and leave the cycle's notes.
 
 A start whose approval says driver `lean` stops first, with exit 78, the note
 `state/cycles/<issue>.lean-refused` and a line that says this tehas cannot run
@@ -2371,8 +2373,7 @@ that would run backwards (a mark ahead of the clock, as after the boot was
 redone), prints `unknown` and exits 3: a caller stops nothing on a guess. The
 seconds are whole seconds since boot truncated down, and one mark file holds
 one number; a mark file of more than 32 bytes, or one that is not a regular
-file, is no mark. The glue that calls it from `tehas work` is a later change;
-on a host today these three verbs are the whole of it.
+file, is no mark. `tehas-cycle watch` asks the same clock in its own process.
 
 **The pull request of a stopped cycle.** `tehas-cycle finish <issue> --home
 <dir> --repo <owner/name> --default <branch> --reason <text>` takes what a

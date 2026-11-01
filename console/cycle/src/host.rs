@@ -98,6 +98,11 @@ pub fn store(home: &Path, args: &[&str]) -> Result<Value, String> {
     store_value(home, args).map_err(|f| refused(f).word)
 }
 
+/// One verb of the state store, the word and line of its failure.
+pub fn store_said(home: &Path, args: &[&str]) -> Result<Value, Refused> {
+    store_value(home, args).map_err(refused)
+}
+
 /// tehas_store_try: asked again, a second apart, while the store is busy or
 /// did not answer in time.
 pub fn store_try(home: &Path, tries: u32, args: &[&str]) -> Result<Value, Refused> {
