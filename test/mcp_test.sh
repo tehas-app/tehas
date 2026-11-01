@@ -1,16 +1,17 @@
 #!/usr/bin/env bash
-# Tests for libexec/mcp: the settings it refuses, the container it runs the MCP
+# Tests for tehas and tehasbot mcp: the settings it refuses, the container it runs the MCP
 # server in, and the keys it makes.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
 
-mcp="$T_ROOT/libexec/mcp"
+t_console || t_bad "no console: $t_console_why"
+mcp="$T_ROOT/bin/tehasbot mcp"
 th=$T/home/tehas
 key1=abcdefghijklmnopqrstuvwxyz012345
 key2=ABCDEFGHIJKLMNOPQRSTUVWXYZ-_6789
 digest=sha256:$(printf 'a%.0s' {1..64})
-t_env() { T_ENV=("$@"); }
+t_env() { T_ENV=(TEHAS_CONSOLE="$T_CONSOLE" "$@"); }
 
 # shellcheck disable=SC2154  # t_cycle_why is set by t_cycle (test/lib.sh)
 t_cycle || t_bad "no tehas-cycle: $t_cycle_why"
@@ -142,6 +143,28 @@ t_env TEHAS_MCP=1 TEHAS_MCP_KEYS="$key1"
 t_run "$mcp serve"
 t_lacks "$(t_calls docker)" "--private"
 
+t_case "the names are those of tehas-cycle private, role providers and repeats included"
+reset
+t_cycle || t_bad "no tehas-cycle: $t_cycle_why"
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=gb:192.0.2.10,,v6host:2001:db8::1 \
+  PI_ENSEMBLE_MODEL_DEVELOPER=big PI_ENSEMBLE_PROVIDER_DEVELOPER=test-provider \
+  PI_ENSEMBLE_MODEL_EXPLORE=m PI_ENSEMBLE_PROVIDER_EXPLORE=role-provider
+mkdir -p "$T/home/.pi/agent"
+cat >"$T/home/.pi/agent/models.json" <<'JSON'
+{"providers":{"test-provider":{"baseUrl":"http://user@models.lan:8086/v1","backupBaseUrl":"https://[2001:db8::2]:1/v1"},
+"role-provider":{"baseUrl":"https://gb/v1","backupBaseUrl":"role.lan"}}}
+JSON
+printf '[user]\n\temail = bot@example.com\n' >"$T/home/.gitconfig"
+t_env TEHAS_MCP=1 TEHAS_MCP_KEYS="$key1"
+t_run "$mcp serve"
+t_eq "$t_rc" 0
+given=$(t_calls docker | grep -e '^run ' | grep -o -e '--private .*' | sed 's/--private //g')
+t_run ". '$T_ROOT/lib/config.sh'; . '$T_ROOT/lib/models.sh'; tehas_load
+'$T_CYCLE' private \"\$(tehas_models_file)\" bot@example.com | grep -vx -e --private | tr '\n' ' '"
+t_eq "$given " "$t_out"
+t_contains "$given" "role.lan"
+rm -rf "$T/home/.pi" "$T/home/.gitconfig"
+
 t_case "it makes the snapshot's directory private before the container runs, so Docker never makes it"
 reset
 t_stub docker 'case "$*" in "network inspect"*) echo false ;; esac
@@ -208,10 +231,32 @@ t_run "$mcp key"
 [ "$t_out" != "$first" ] || t_bad "the same key twice"
 t_eq "$(find "$th" -newer "$T/before-key" -type f | wc -l)" 0
 
-t_case "an unknown argument is 64"
+t_case "an unknown argument is 64, whatever the settings hold"
 reset
+t_no_instance
 t_run "$mcp nope"
 t_eq "$t_rc" 64
+t_contains "$t_out" "usage: tehasbot mcp serve | tehas mcp key"
+t_eq "$(t_calls docker)" ""
+
+t_case "both commands reach it: a key needs no settings, the server does"
+reset
+t_no_instance
+t_run "$T_ROOT/bin/tehas mcp key"
+t_eq "$t_rc" 0
+[[ $t_out =~ ^[A-Za-z0-9_-]{43}$ ]] || t_bad "not a key: $t_out"
+t_run "$T_ROOT/bin/tehas mcp serve"
+t_eq "$t_rc" 78
+t_eq "$(t_calls docker)" ""
+t_run "$T_ROOT/bin/tehas help mcp"
+t_eq "$t_rc" 0
+t_contains "$t_out" "tehas mcp key"
+
+t_case "a console run without the load refuses, and does not remove the container"
+reset
+t_run "env -u TEHAS_INSTANCE_DIR -u TEHAS_HOME TEHAS_MCP= $T_CONSOLE tehasbot mcp serve"
+t_eq "$t_rc" 78
+t_eq "$(t_calls docker)" ""
 
 t_case "the manual leaves /mcp to the server: no page there, and no link to it"
 docs=$T_ROOT/host/docs
@@ -220,7 +265,7 @@ docs=$T_ROOT/host/docs
 t_eq "$(grep -rlE '\]\(/mcp\)|href="/mcp"|/mcp\.md\)' "$docs" | wc -l)" 0
 
 t_case "the manual keeps the server's deadline at 10 seconds and names the flag it is given by"
-# libexec/mcp gives the binary no --io-timeout, so the only deadline a host ever
+# tehasbot mcp serve gives the binary no --io-timeout, so the only deadline a host ever
 # waits is the default the manual states.
 grep -q "must arrive whole within 10 seconds" "$docs/mcp-server.md" \
   || t_bad "the manual no longer gives the 10 second deadline"

@@ -1,0 +1,26 @@
+tehas resume: lift this host's pause flag.
+
+It removes $TEHAS_HOME/state/pause.json, the switch tehas pause sets, and
+reports the other switch: tehas:pause on the control issue. Removing the flag
+does not touch that label, and only an account in TEHAS_ALLOWED_LABELERS can
+lift it: when the tehas:pause event with the latest stamp on the control issue
+is a removal by anyone else, or is an application nothing has taken back, the
+factory stays paused and this command says who removed it.
+
+Usage: tehas resume
+       tehas resume -h|--help   print this text and exit 0
+
+It calls GitHub to read the control issue, and only after it has removed the
+flag: the host's own switch comes off whatever GitHub then says.
+
+The console (console/src/flags.rs) checks the argument, removes the flag and
+reads the control issue. A name of the flag is removed only when it holds a
+regular file of this account, never a symlink.
+
+Exit: 0 the flag is gone (removed, or there was none), whatever the label
+says; 64 an argument, this command takes none; 78 missing or malformed
+settings, or no console to run, which write nothing; 1 when a name of the flag
+could not be removed, or is not this account's to remove.
+
+Instance settings (lib/config.sh): TEHAS_REPO, TEHAS_CONTROL_ISSUE and
+TEHAS_ALLOWED_LABELERS, which this reads the control issue with.
