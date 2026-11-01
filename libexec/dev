@@ -324,7 +324,7 @@ docker run --rm -it --init --name "tehas-dev-$name" \
   "${TEHAS_SLICE_LIMITS[@]}" "${sec[@]}" --user "$(id -u):$(id -g)" \
   -w "$tree" "${mounts[@]}" "${image_opts[@]}" \
   "${envs[@]}" -e TERM -e COLORTERM "${hosts[@]}" \
-  "$PI_ENSEMBLE_IMAGE" pi "${pi_args[@]}"
+  "$PI_ENSEMBLE_IMAGE" pi "${pi_args[@]}" 9>&-
 rc=$?
 
 # Pi leaves the terminal on its alternate screen with the cursor hidden when
