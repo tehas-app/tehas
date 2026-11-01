@@ -78,8 +78,6 @@ from_poll=${TEHAS_FROM_POLL:+yes} # read before the load, which unsets the name
 . "$here/../lib/status.sh"
 # shellcheck source=lib/analytics.sh
 . "$here/../lib/analytics.sh"
-# shellcheck source=lib/update-release.sh
-. "$here/../lib/update-release.sh"
 tehas_load || exit 78
 tehas_require TEHAS_REPO TEHAS_CONTROL_ISSUE TEHAS_ALLOWED_LABELERS
 # The console decides what the read of what closed an issue means
@@ -159,122 +157,8 @@ analytics_outcomes() { analytics_publish outcomes "$TEHAS_HOME/mcp/outcomes.json
 # Write the report, and refresh health unless the poll ran this: it runs health next.
 trap 'analytics_report; analytics_sessions; analytics_outcomes; [ -n "$from_poll" ] || "$here/with-settings" tehasbot health 2>/dev/null || true' EXIT
 
-fetch_every=3600
 fetch_limit=60
-# What the host runs, in live/platform.json: the release when it runs one
-# (platform_release), the checkout when it has one, and nothing when it has
-# neither. Both halves read the outside world at most once an hour: the
-# checkout is fetched, the releases are listed, and state/platform-fetch says
-# when either was last tried.
-platform() {
-  local installed
-  installed=$(tehas_release_installed) || return 0
-  if [ -n "$installed" ]; then
-    platform_release "$installed"
-    return 0
-  fi
-  platform_checkout
-}
-
-# The newest published release, as tehas_release_list answers it: its tag, or
-# nothing when GitHub does not answer, answers no release, or answers a tag
-# that is no version. The list is newest first, so the first line is what the
-# host should move to. Called only by the substitution below, so the tehas_err
-# of a list that failed stays on standard error of this script instead of
-# becoming the newest.
-platform_newest_read() {
-  local line tag
-  line=$(tehas_release_list 2>/dev/null | head -n 1)
-  [ -n "$line" ] || return 0
-  tag=$(jq -r '.tag // ""' <<<"$line" 2>/dev/null) || return 0
-  tehas_release_tag_ok "$tag" && printf '%s\n' "$tag"
-}
-
-# A host that runs a release: the version current points at, the newest there
-# is, and nothing of a checkout it may still hold. The list is read once an
-# hour under fetch_limit; the answer is kept in state/platform-newest and a
-# poll between reads, or one whose read fails, says the newest it last had -
-# unless the installed version is no version, or the cached answer is older
-# than it: then the cache goes and the next read asks again.
-platform_release() { # <installed version>
-  local installed=$1 stamp=$TEHAS_HOME/state/platform-fetch newestfile=$TEHAS_HOME/state/platform-newest
-  local last=0 now fetched="" newest=""
-  now=$EPOCHSECONDS
-  read -r last fetched 2>/dev/null <"$stamp" || true
-  [[ $last =~ ^[0-9]+$ ]] || last=0
-  [[ $fetched =~ ^[0-9]+$ ]] || fetched=""
-  newest=$(head -n 1 "$newestfile" 2>/dev/null) || newest=""
-  # What the cache may be said at all: a tag that is no version says nothing,
-  # nor does one older than the version the host runs, which no published
-  # release list of that repository holds.
-  if [ -n "$newest" ]; then
-    if ! tehas_release_tag_ok "$newest" || ! tehas_release_tag_ok "$installed" ||
-      tehas_release_older "$newest" "$installed"; then
-      rm -f "$newestfile"
-      newest=""
-    fi
-  fi
-  if [ $((now - last)) -ge "$fetch_every" ]; then
-    # The attempt is remembered first, so a read that hangs or fails is not
-    # tried at every poll.
-    mkdir -p "${stamp%/*}"
-    echo "$now $fetched" >"$stamp"
-    local got
-    got=$(platform_newest_read)
-    if [ -n "$got" ]; then
-      newest=$got
-      fetched=$now
-      printf '%s\n' "$newest" >"$newestfile"
-      echo "$now $fetched" >"$stamp"
-    fi
-  fi
-  [[ $newest =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || newest=""
-  jq -n --arg now "$(date -u +%FT%TZ)" --arg release "$installed" --arg newest "$newest" \
-    --arg fetched "$fetched" '
-    def num: if test("^[0-9]+$") then tonumber else null end;
-    {generatedAt: $now, release: $release, newest: (if $newest == "" then null else $newest end),
-     behind: 0, upstream: "releases",
-     fetchedAt: ($fetched | num | if . == null then null else todate end)}' \
-    >"$live/platform.json.$$.new" 2>/dev/null &&
-    mv "$live/platform.json.$$.new" "$live/platform.json" 2>/dev/null
-  rm -f "$live/platform.json.$$.new"
-}
-
-platform_checkout() {
-  local co=$TEHAS_HOME/platform stamp=$TEHAS_HOME/state/platform-fetch last=0 now upstream head behind since fetched=""
-  [ -e "$co/.git" ] || { rm -f "$live/platform.json"; return 0; }
-  now=$EPOCHSECONDS
-  read -r last fetched 2>/dev/null <"$stamp" || true
-  [[ $last =~ ^[0-9]+$ ]] || last=0
-  [[ $fetched =~ ^[0-9]+$ ]] || fetched=""
-  if [ $((now - last)) -ge "$fetch_every" ]; then
-    # The attempt is remembered first, so a fetch that hangs or fails is not
-    # tried at every poll.
-    mkdir -p "${stamp%/*}"
-    echo "$now $fetched" >"$stamp"
-    if timeout "$fetch_limit" git -C "$co" fetch -q origin >/dev/null 2>&1 </dev/null; then
-      fetched=$now
-      echo "$now $fetched" >"$stamp"
-    fi
-  fi
-  upstream=$(git -C "$co" symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null) ||
-    upstream=origin/$(git -C "$co" symbolic-ref --quiet --short HEAD 2>/dev/null)
-  head=$(git -C "$co" rev-parse --quiet --verify HEAD 2>/dev/null) || head=""
-  behind=$(git -C "$co" rev-list --count "HEAD..$upstream" 2>/dev/null) || behind=""
-  # When the oldest commit main has and this checkout lacks landed there.
-  since=$(git -C "$co" log --first-parent --reverse --format=%ct "HEAD..$upstream" 2>/dev/null | head -n 1)
-  jq -n --arg now "$(date -u +%FT%TZ)" --arg commit "$head" --arg upstream "$upstream" --arg behind "$behind" \
-    --arg since "$since" --arg fetched "$fetched" '
-    def num: if test("^[0-9]+$") then tonumber else null end;
-    {generatedAt: $now, commit: (if $commit == "" then null else $commit end),
-     upstream: $upstream, behind: ($behind | num),
-     behindSince: ($since | num | if . == null then null else todate end),
-     fetchedAt: ($fetched | num | if . == null then null else todate end)}' \
-    >"$live/platform.json.$$.new" 2>/dev/null &&
-    mv "$live/platform.json.$$.new" "$live/platform.json" 2>/dev/null
-  rm -f "$live/platform.json.$$.new"
-}
-platform
+"$console" status platform
 
 issues=$(gh issue list --repo "$repo" --state all --limit 200 \
   --search 'label:"tehas:ready","tehas:running","tehas:awaiting-merge","needs-human-attention","tehas:plan","tehas:planning" sort:updated-desc' \
