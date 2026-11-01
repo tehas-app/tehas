@@ -233,7 +233,7 @@ fn src(name: &str) -> String {
 }
 
 /// The door of a ticket: a name of its own with a domain, its number as a
-/// path without one. tehas_edge_name makes the same name for the shell.
+/// path without one.
 fn door(number: i64, domain: &str) -> String {
     if domain.is_empty() {
         format!("/{number}/")

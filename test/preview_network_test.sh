@@ -92,9 +92,9 @@ chmod 755 "$T/tree/libexec/console"
 t_run "$preview"
 rm -f "$T/tree/libexec/console"
 mv "$T/console.kept" "$T/tree/libexec/console"
-t_eq "$t_rc" 0
-t_contains "$t_out" "the network tehas-previews does not keep the host out (the console did not answer); nothing was built"
+t_eq "$t_rc" 9
 t_eq "$(builds) $(runs)" "0 0"
+t_eq "$(t_calls docker)" ""
 
 t_case "a pull request that got a new title has it in its state, and the state began when it did"
 reset
@@ -171,7 +171,7 @@ t_run "$preview"
 t_eq "$(builds)" 0
 t_eq "$(state_of 12)" "no-space"
 t_contains "$(jq -r .reason "$root/12/state.json")" "1.0 GB is free and 5.0 GB is needed"
-t_eq "$(jq -c '.disk' "$live/previews.json")" '{"freeBytes":1073741824,"minFreeBytes":5368709120,"low":true}'
+t_eq "$(jq -cS '.disk' "$live/previews.json")" '{"freeBytes":1073741824,"low":true,"minFreeBytes":5368709120}'
 
 t_case "with room again the same commit is built"
 rm -f "$fx/free"
