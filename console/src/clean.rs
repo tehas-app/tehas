@@ -2045,7 +2045,9 @@ mod tests {
         let hold = run.hold_clone("eve").unwrap();
         assert_eq!(tehas_core::lock::probe(&eve), tehas_core::lock::Probe::Held);
         assert!(run.hold_clone("eve").is_none());
-        drop(hold);
+        // Unlocked by name: a child another case forks this instant shares the
+        // descriptor until it execs, so a drop alone may not free it yet.
+        hold.unlock().unwrap();
         assert_eq!(tehas_core::lock::probe(&eve), tehas_core::lock::Probe::Free);
         // A link is not taken, and a name of no plain word has no lock to hold.
         assert!(run.hold_clone("dave").is_none());
