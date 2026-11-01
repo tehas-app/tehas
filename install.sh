@@ -1207,6 +1207,7 @@ for f in \
   libexec/analytics-cmd \
   libexec/api \
   libexec/console.ts \
+  lib/limit.sh \
   lib/live.sh \
   lib/planning.sh \
   lib/refresh.sh \
