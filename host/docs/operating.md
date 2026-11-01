@@ -571,8 +571,11 @@ three, and one bounded try after a stop. The differences:
 - Every write to GitHub goes through the action journal, as a poll's does, and
   each try is a row of its own. The row names the cycle. A poll leaves the open
   rows of a cycle whose lock is held, and settles the rows of one that is gone.
-  A store that will not record a write, after three tries, makes that try fail:
-  the write is not made.
+  A store that will not record a write, after three tries, does not stop it:
+  the report logs `WARN: the journal will not record the report of #N` once, and
+  that write and the rest of the report's writes go to GitHub with no row, as
+  the bash's do. A poll's write in that case is not made, as its next read
+  decides again; nothing decides a report again.
 - Bodies go to gh on standard input, not as an argument.
 - A call to GitHub has a bound of two minutes. The bash has none.
 
