@@ -169,7 +169,10 @@ case " $* " in
     . "$T/container.sh" ;;
   *" push --dry-run "*)
     [ ! -e "$T/push-hangs" ] || exec "$(command -pv sleep)" 30
+    [ ! -e "$T/push-slow" ] || { : >"$T/slow-began"; "$(command -pv sleep)" 1; }
     [ "${PUSH_RC:-0}" = 0 ] || { echo "docker: could not read from remote repository" >&2; exit "$PUSH_RC"; } ;;
+  " rm -f "*)
+    [ ! -e "$T/rm-slow" ] || { : >"$T/slow-began"; "$(command -pv sleep)" 1; } ;;
   " stop "*)
     [ ! -e "$T/stop-hangs" ] || exec "$(command -pv sleep)" 30
     kill "$(cat "$T/sleeper.pid" 2>/dev/null)" 2>/dev/null ;;
