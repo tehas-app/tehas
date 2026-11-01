@@ -531,7 +531,6 @@ for f in \
   improve \
   index \
   init-product \
-  mcp \
   plan \
   preview \
   protolab \
@@ -539,8 +538,6 @@ for f in \
   review \
   setup \
   status \
-  stop \
-  tidy \
   update \
   with-settings \
   work; do
@@ -1221,10 +1218,13 @@ for f in \
   libexec/health \
   libexec/labels \
   libexec/limit \
+  libexec/mcp \
   libexec/pause \
   libexec/resume \
   libexec/state \
+  libexec/stop \
   libexec/summary \
+  libexec/tidy \
   libexec/top \
   libexec/top-publish \
   lib/top.sh \

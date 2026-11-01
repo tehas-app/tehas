@@ -12,10 +12,13 @@
 //!   console tehas labels
 //!   console tehas resume
 //!   console tehas drain [--wait SECONDS] [--json]
+//!   console tehas stop <issue> [--keep-workspace]
+//!   console tehas|tehasbot mcp serve|key
 //!   console tehasbot health
 //!   console tehasbot top [--every]
+//!   console tehasbot github-token [--check]
 //!
-//! status, disk and top need no settings. The rest run under
+//! status, disk, top and mcp key need no settings. The rest run under
 //! `libexec/with-settings`, which first asks `console check` with the same
 //! words: an argument that cannot be right is 64 with the usage, whatever the
 //! settings hold, and only then are they loaded. `console needs` with those
@@ -28,7 +31,7 @@
 //!
 //! Exit: the status of the command; 64 usage.
 
-use crate::{api, disk, flags, health, labels, state, status, top};
+use crate::{api, disk, flags, github, health, labels, mcp, state, status, stop, top};
 use std::env;
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::process::CommandExt;
@@ -142,6 +145,8 @@ pub fn tehas(given: &[String]) -> u8 {
         "labels" => labels::main(rest),
         "resume" => flags::resume(rest),
         "drain" => flags::drain(rest),
+        "stop" => stop::main(rest),
+        "mcp" => mcp::main(rest),
         _ => {
             eprintln!("console tehas: no such command: {command}");
             64
@@ -153,12 +158,20 @@ pub fn tehasbot(given: &[String]) -> u8 {
     match given.first().map(String::as_str) {
         Some("health") => health::loaded(),
         Some("top") => top::publish(&given[1..]),
+        Some("mcp") => mcp::main(&given[1..]),
+        Some("github-token") => github::main(&given[1..]),
         _ => {
-            eprintln!("console tehasbot: usage: health | top [--every]");
+            eprintln!(
+                "console tehasbot: usage: health | top [--every] | mcp | github-token [--check]"
+            );
             64
         }
     }
 }
+
+/// What `check` ends with when it was the whole answer, as a help text met
+/// among the arguments is: `libexec/with-settings` then ends 0 and loads nothing.
+const ANSWERED: u8 = 99;
 
 /// What can be said of the arguments before the settings are loaded. A
 /// command with no check here passes.
@@ -173,6 +186,12 @@ pub fn check(given: &[String]) -> u8 {
         ["tehas", "labels"] => labels::words(rest),
         ["tehas", "resume"] => flags::resume_words(rest),
         ["tehas", "drain"] => flags::drain_words(rest).map(|_| ()),
+        ["tehas", "stop"] => match stop::parse(rest) {
+            Ok(Some(_)) => Ok(()),
+            Ok(None) => Err(ANSWERED),
+            Err(rc) => Err(rc),
+        },
+        ["tehasbot", "github-token"] => github::words(rest).map(|_| ()),
         _ => Ok(()),
     };
     said.err().unwrap_or(0)
@@ -205,10 +224,12 @@ fn text(command: &str) -> Option<&'static str> {
         "drain" => include_str!("usage/drain.txt"),
         "labels" => include_str!("usage/labels.txt"),
         "limit" => include_str!("usage/limit.txt"),
+        "mcp" => include_str!("usage/mcp.txt"),
         "pause" => include_str!("usage/pause.txt"),
         "resume" => include_str!("usage/resume.txt"),
         "state" => include_str!("usage/state.txt"),
         "status" => include_str!("usage/status.txt"),
+        "stop" => stop::USAGE,
         "top" => include_str!("usage/top.txt"),
         _ => return None,
     })
@@ -324,6 +345,8 @@ mod tests {
         assert_eq!(check(&words(&["tehas", "limit", "set", "--bad"])), 0);
         assert_eq!(check(&words(&["tehas", "state", "bogus"])), 0);
         assert_eq!(check(&words(&["tehasbot", "health"])), 0);
+        assert_eq!(check(&words(&["tehasbot", "github-token", "--check"])), 0);
+        assert_eq!(check(&words(&["tehasbot", "github-token", "--print"])), 64);
         assert_eq!(check(&[]), 0);
     }
 
