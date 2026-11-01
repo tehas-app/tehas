@@ -443,7 +443,6 @@ files=(
   "lib/paths.sh|$TEHAS_HOME/lib/paths.sh|644"
   "lib/analytics.sh|$TEHAS_HOME/lib/analytics.sh|644"
   "lib/attachments.sh|$TEHAS_HOME/lib/attachments.sh|644"
-  "lib/describe.sh|$TEHAS_HOME/lib/describe.sh|644"
   "lib/history-lines.jq|$TEHAS_HOME/lib/history-lines.jq|644"
   "lib/history-listing.jq|$TEHAS_HOME/lib/history-listing.jq|644"
   "lib/history-repeats.jq|$TEHAS_HOME/lib/history-repeats.jq|644"
@@ -458,7 +457,6 @@ files=(
   "lib/live.sh|$TEHAS_HOME/lib/live.sh|644"
   "lib/limit.sh|$TEHAS_HOME/lib/limit.sh|644"
   "lib/models.sh|$TEHAS_HOME/lib/models.sh|644"
-  "lib/private.sh|$TEHAS_HOME/lib/private.sh|644"
   "lib/update-steps.sh|$TEHAS_HOME/lib/update-steps.sh|644"
   "lib/edge.sh|$TEHAS_HOME/lib/edge.sh|644"
   "lib/headless.sh|$TEHAS_HOME/lib/headless.sh|644"
@@ -1205,7 +1203,8 @@ done
 
 # The commands of before bin/tehas, one file each in bin/, and the console of
 # before it was a compiled program. And the Protolab's server files of before the
-# edge router. And the wrappers of what is now a verb of the console. Found here,
+# edge router. And the wrappers of what is now a verb of the console, and the
+# libraries of what is now a verb of tehas-cycle. Found here,
 # removed in step 5 once systemd has the new units.
 old=()
 for f in \
@@ -1218,6 +1217,8 @@ for f in \
   bin/tehas-status \
   bin/tehas-test \
   bin/tehas-work \
+  lib/describe.sh \
+  lib/private.sh \
   libexec/analytics-cmd \
   libexec/console.ts \
   libexec/disk \
