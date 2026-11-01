@@ -92,14 +92,17 @@ t_eq "$t_rc" 2
 t_contains "$t_out" "tehas work: the console ended with 1, see $T/home/tehas/logs/work-7-"
 t_eq "$(cat "$T"/home/tehas/logs/work-7-*.jsonl.console | sort -u)" "cannot write"
 
-t_case "without a console the cycle still runs, and says there is none"
+t_case "without a console no cycle starts: exit 78, no container, and it says to install"
 mv "$tree/libexec/console" "$T/console.kept"
 rm -f "$T"/calls/docker*
+# Only the console of this tree may answer, as on a host.
+keep_env=("${T_ENV_ALWAYS[@]}")
+T_ENV_ALWAYS=()
 t_run "$work 7"
-t_eq "$t_rc" 2
-t_contains "$t_out" "tehas work: no console at $tree/libexec/console"
-t_lacks "$t_out" "the console ended"
-t_contains "$(cycle_args | tr '\n' ' ')" "$runner work 7 --timeout 360 --json"
+T_ENV_ALWAYS=("${keep_env[@]}")
+t_eq "$t_rc" 78
+t_contains "$t_out" "tehas work: no console beside this command at $tree/libexec/console, run install.sh"
+t_eq "$(cat "$T"/calls/docker* 2>/dev/null)" ""
 t_stub console
 mv "$T/bin/console" "$tree/libexec/console"
 t_run "$work 7"
