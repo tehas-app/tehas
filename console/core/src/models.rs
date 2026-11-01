@@ -102,6 +102,66 @@ pub struct ModelFile {
     pub json: Value,
 }
 
+/// tehas_model_key_names: the variables the file names, sorted, each once.
+pub fn key_names(models: &Value) -> Vec<String> {
+    let mut names: Vec<String> = keys(models)
+        .filter_map(|(_, k)| k.strip_prefix('$'))
+        .map(|k| k.strip_prefix('{').unwrap_or(k))
+        .map(|k| k.strip_suffix('}').unwrap_or(k).to_string())
+        .collect();
+    names.sort();
+    names.dedup();
+    names
+}
+
+/// tehas_model_keys_ok: every key is a word or a set token. Why not is the
+/// message for standard error.
+pub fn keys_ok(models: &Value, file: &str, set: impl Fn(&str) -> bool) -> Result<(), String> {
+    if let Some((provider, _)) =
+        keys(models).find(|(_, k)| !names_a_token(k) && k.contains(['$', '!']))
+    {
+        return Err(format!(
+            "models.json: provider {provider} has an apiKey that is neither a word nor $TEHAS_MODEL_KEY_<NAME> (see {file})"
+        ));
+    }
+    match key_names(models).into_iter().find(|name| !set(name)) {
+        Some(name) => Err(format!(
+            "models.json names {name} and it is not set: put it in ~/.config/tehas/env"
+        )),
+        None => Ok(()),
+    }
+}
+
+// Every provider's two keys, as (provider, key).
+fn keys(models: &Value) -> impl Iterator<Item = (&str, &str)> {
+    models
+        .get("providers")
+        .and_then(Value::as_object)
+        .into_iter()
+        .flatten()
+        .flat_map(|(name, p)| {
+            ["apiKey", "backupApiKey"]
+                .into_iter()
+                .filter_map(move |k| Some((name.as_str(), p.get(k)?.as_str()?)))
+        })
+}
+
+// `$TEHAS_MODEL_KEY_<NAME>` or `${TEHAS_MODEL_KEY_<NAME>}`, each brace alone
+// too, as the pattern of tehas_model_keys_ok.
+fn names_a_token(key: &str) -> bool {
+    let Some(rest) = key.strip_prefix('$') else {
+        return false;
+    };
+    let rest = rest.strip_prefix('{').unwrap_or(rest);
+    let rest = rest.strip_suffix('}').unwrap_or(rest);
+    rest.strip_prefix("TEHAS_MODEL_KEY_").is_some_and(|name| {
+        !name.is_empty()
+            && name
+                .bytes()
+                .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'_')
+    })
+}
+
 /// tehas_models_file: the host's file, under HOME.
 pub fn host_path() -> String {
     format!(
