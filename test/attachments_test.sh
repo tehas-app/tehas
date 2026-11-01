@@ -482,6 +482,8 @@ three_body="[a.zip]($anyzip) [b.zip]($bzip) [c.zip]($czip) ![shot]($pnglink)"
 big_body="[big.zip]($bigzip)"
 # The files of a directory, in order, as one line.
 ls_imgs() { (cd "$1" && find . -mindepth 1 | LC_ALL=C sort | tr '\n' ' '); }
+# unpack <zip> <dir> <most files>: the checker's entries, one to a line.
+unpack() { t_run "$lib; tehas_attach unpack '$1' '$2' --max-bytes 1048576 --max-files $3; jq -c '.entries[]' <<<\"\$tehas_attach_out\""; }
 
 t_case "a zip is known by its first bytes, and a file named .zip that is not one is not"
 printf 'not a zip at all\n' >"$T/fake.zip"
@@ -530,15 +532,15 @@ t_case "an entry whose path runs through a link already in the directory writes 
 rm -rf "$T/unz" "$T/outside"
 mkdir -p "$T/unz" "$T/outside"
 ln -s "$T/outside" "$T/unz/img"
-t_run "$lib; tehas_unzip_into '$zips/good.zip' '$T/unz' 1048576 16"
+unpack "$zips/good.zip" "$T/unz" 16
 t_eq "$(find "$T/outside" -type f | wc -l)" 0
-t_contains "$t_out" '"skip":"img/b.png","reason":"A path outside the archive."'
+t_contains "$t_out" '{"reason":"A path outside the archive.","skip":"img/b.png"}'
 t_contains "$t_out" "A path outside the archive."
 t_eq "$(cat "$T/unz/a.md")" "$(unzip -p "$zips/good.zip" a.md)"
 # The directory given is a link: nothing is written at all.
 rm -rf "$T/unz"
 ln -s "$T/outside" "$T/unz"
-t_run "$lib; tehas_unzip_into '$zips/good.zip' '$T/unz' 1048576 16"
+unpack "$zips/good.zip" "$T/unz" 16
 t_eq "$(find "$T/outside" -type f | wc -l)" 0
 rm -f "$T/unz"
 
@@ -560,7 +562,7 @@ with zipfile.ZipFile(sys.argv[1], "w") as z:
         z.writestr("x." + ext, "x")
 PY2
 rm -rf "$T/kinds"
-t_run "$lib; tehas_unzip_into '$T/kinds.zip' '$T/kinds' 1048576 100"
+unpack "$T/kinds.zip" "$T/kinds" 100
 got=$(jq -r 'if .name then "\(.name | sub("^x[.]"; "")):\(.kind)" else "\(.skip | sub("^x[.]"; "")):-" end' <<<"$t_out" | tr '\n' ' ')
 want=""
 for ext in "${exts[@]}"; do
