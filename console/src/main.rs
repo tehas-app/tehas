@@ -184,6 +184,7 @@ mod pr_title;
 mod preview;
 mod product;
 mod protolab;
+mod publish;
 mod render;
 mod review;
 mod setup;
