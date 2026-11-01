@@ -3148,6 +3148,11 @@ the GitHub App's token, and refuses with exit 78 when no console stands beside
 it. Each call of gh is held to 30 seconds. A console with other bytes builds
 every page once more.
 
+A host updated from the version whose command built the pages in bash: a pass
+of the old command that is running when the new console lands logs that its
+tickets could not be read, leaves `protolab/index.html` empty and exits 1. The
+next pass of the timer writes the page again, within five minutes.
+
 The container is the edge router, on port 8081. It answers for the Protolab
 and for the [previews](#tehasbot-preview), and picks by the name it is asked
 for: `lab-<issue>.` is that ticket's page, `uat-<pr>.` is the preview of that
