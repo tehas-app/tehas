@@ -152,14 +152,30 @@ mod tests {
         assert_eq!(out["filesystems"][1]["why"], "df answered nothing");
         // A figure that the host could not read is absent, never served as 0:
         // the reason travels in its place.
-        assert!(out["filesystems"][1].get("freeBytes").is_none(), "{}", out["filesystems"][1]);
-        assert!(out["full"]["places"][1].get("bytes").is_none(), "{}", out["full"]["places"][1]);
+        assert!(
+            out["filesystems"][1].get("freeBytes").is_none(),
+            "{}",
+            out["filesystems"][1]
+        );
+        assert!(
+            out["full"]["places"][1].get("bytes").is_none(),
+            "{}",
+            out["full"]["places"][1]
+        );
         assert_eq!(out["full"]["places"][1]["cut"], "unreadable");
         assert_eq!(out["full"]["stoppedContainers"], 2);
         // What the allowlist does not name does not reach the answer.
         let said = out.to_string();
-        for forbidden in ["ab12", "a name no answer gives", "not asked for", "hostname"] {
-            assert!(!said.contains(forbidden), "{forbidden} reached the answer: {said}");
+        for forbidden in [
+            "ab12",
+            "a name no answer gives",
+            "not asked for",
+            "hostname",
+        ] {
+            assert!(
+                !said.contains(forbidden),
+                "{forbidden} reached the answer: {said}"
+            );
         }
         let _ = fs::remove_dir_all(&dir);
     }
@@ -203,7 +219,9 @@ mod tests {
     #[test]
     fn the_schema_and_the_allowlist_name_the_same_fields() {
         let schema_tool = tool();
-        let schema = schema_tool["outputSchema"]["properties"].as_object().unwrap();
+        let schema = schema_tool["outputSchema"]["properties"]
+            .as_object()
+            .unwrap();
         let allowed = spec();
         let allow = allowed.as_object().unwrap();
         for named in ["generatedAt", "dockerRoot", "filesystems", "full"] {
