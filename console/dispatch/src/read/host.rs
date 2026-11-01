@@ -123,7 +123,7 @@ pub(crate) fn epoch(s: &str) -> Option<i64> {
     Some((era * 146_097 + doe - 719_468) * 86_400 + hh * 3600 + mm * 60 + ss)
 }
 
-/// tehas_limit_read.
+/// The limit, as `flags limit read` reads it.
 pub fn limit(home: &Path, now: i64) -> Value {
     let p = home.join("state/limit.json");
     if !p.exists() && p.symlink_metadata().is_err() {
