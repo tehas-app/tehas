@@ -1,12 +1,14 @@
 // factory_decisions: the dispatcher's last decisions from the end of
-// dispatch.log, as `grep -E ' (start|skip|wait|drop the refresh of) #' | tail -n N`
-// shows.
+// dispatch.log, as `grep -E ' (start|skip|wait|hold|drop the refresh of) #' | tail -n N`
+// shows, which is the same set of words the tool's table reads.
 
 use mcp::tools::{list_scoped, Dirs, Output, Scope, ToolError};
 use regex::Regex;
 use serde_json::{json, Value};
+use std::collections::BTreeSet;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::LazyLock;
 
 fn fixtures() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
@@ -48,24 +50,34 @@ impl Drop for Logs {
     }
 }
 
-// What the issue's grep and tail show of the fixture, as the four fields.
+// What the issue's grep and tail show of the fixture, as the four fields. The
+// words are the ones the writers of the log use, written out below rather than
+// read from the table, so a word a host's dispatcher logs and the table
+// forgets fails the comparison test instead of agreeing with it by construction.
+const GREP_WORDS: [&str; 5] = ["start", "skip", "wait", "hold", "drop the refresh of"];
+
+static TAIL: LazyLock<Regex> = LazyLock::new(|| {
+    let words = GREP_WORDS
+        .iter()
+        .map(|w| regex::escape(w))
+        .collect::<Vec<_>>()
+        .join("|");
+    Regex::new(&format!(" ({words}) #")).unwrap()
+});
+
 fn grep_tail(text: &str, n: usize) -> Vec<Value> {
-    let re = Regex::new(r" (start|skip|wait|drop the refresh of) #").unwrap();
-    let hits: Vec<&str> = text.lines().filter(|l| re.is_match(l)).collect();
+    let hits: Vec<&str> = text
+        .lines()
+        .filter(|l| TAIL.is_match(l) && mcp::decisions::parse(l).is_some())
+        .collect();
     hits[hits.len().saturating_sub(n)..]
         .iter()
         .map(|l| {
-            let (time, rest) = l.split_once(' ').unwrap();
-            let (word, rest) = rest.split_once(" #").unwrap();
-            let word = word.strip_suffix(" the refresh of").unwrap_or(word);
-            let digits = rest.bytes().take_while(u8::is_ascii_digit).count();
-            let tail = &rest[digits..];
-            let reason = tail
-                .strip_prefix(": ")
-                .or_else(|| tail.strip_prefix(" (").and_then(|r| r.strip_suffix(')')))
-                .unwrap();
-            json!({"time": time, "decision": word,
-                   "issue": rest[..digits].parse::<u64>().unwrap(), "reason": reason})
+            // Read by the tool's own parse, so the oracle differs from it only
+            // in which lines it keeps and how many.
+            let d = mcp::decisions::parse(l).expect("a line parse keeps");
+            json!({"time": d.time, "decision": d.word,
+                   "issue": d.issue, "reason": d.reason})
         })
         .collect()
 }
@@ -100,20 +112,92 @@ fn the_answer_is_what_grep_and_tail_show() {
     );
 }
 
+// The whole vocabulary of `dispatch.log` the two writers log, written out
+// here rather than read from the crate, so a word added to one side and not
+// the other fails this test. Each is a `logged` of the table or the first word
+// of a `WRITER_NON_DECISIONS`.
+const WRITTEN_WORDS: [&str; 12] = [
+    "clear",
+    "drop the refresh of",
+    "hold",
+    "hold refreshes",
+    "holding",
+    "ignore",
+    "lift",
+    "park",
+    "released",
+    "skip",
+    "start",
+    "wait",
+];
+
+#[test]
+fn the_table_and_the_grep_read_the_same_words() {
+    let table = mcp::decisions::DECISIONS
+        .iter()
+        .map(|row| row.logged)
+        .chain(
+            mcp::decisions::WRITER_NON_DECISIONS
+                .iter()
+                .map(|(w, _, _)| *w),
+        )
+        .chain(GREP_WORDS.iter().copied())
+        .collect::<BTreeSet<_>>();
+    assert_eq!(
+        table,
+        WRITTEN_WORDS.iter().copied().collect::<BTreeSet<_>>(),
+        "the words the grep reads and the words the table knows"
+    );
+}
+
+// A hold line of each shape a host's dispatcher writes today is answered, so a
+// writer's shape that falls out of the table fails a test here instead of
+// vanishing from the answer. The hold lines and the table's own sample are
+// named by the crate, so this test cannot quietly read a different line.
+#[test]
+fn every_hold_line_a_host_writes_is_answered() {
+    let log = [
+        "2026-10-20T10:00:00Z start #1 (labelled by alice)",
+        mcp::decisions::HOST_HOLD_LINES[0],
+        mcp::decisions::HOST_HOLD_LINES[1],
+        mcp::decisions::HOST_HOLD_LINES[2],
+        mcp::decisions::DECISIONS[3].sample,
+    ]
+    .join("\n");
+    let l = Logs::with("holds", &log);
+    let out = call_in(&l.0, &json!({})).unwrap();
+    let lines = out["decisions"].as_array().unwrap();
+    assert_eq!(lines.len(), 5, "{out}");
+    for (line, d) in log.lines().zip(lines) {
+        let (_, rest) = line.split_once(' ').expect("a timed line");
+        let (word, _) = rest.split_once(" #").expect("an issue");
+        assert_eq!(d["decision"], word, "{line}");
+        assert!(
+            d["reason"].as_str().is_some_and(|r| !r.is_empty()),
+            "{line} gives no reason"
+        );
+    }
+}
+
 #[test]
 fn other_lines_are_not_decisions() {
-    let l = Logs::with(
-        "other",
+    let mut log = String::from(
         "2026-10-20T10:00:00Z start planning #9 (labelled by alice)\n\
          2026-10-20T10:00:01Z drop #8: no writer logs this shape\n\
-         2026-10-20T10:00:02Z holding: the limit allows 0 cycles at once and 2 are running: draining\n\
          2026-10-20T10:00:03Z done #7 rc=0 status=merged\n\
          /home/x/libexec/dispatch: line 197: no such file\n\
          not a time skip #4: no\n\
          2026-10-20T10:00:04Z skip #0: no issue\n\
-         2026-10-20T10:00:05Z wait #5x: not a number\n\
-         2026-10-20T10:00:06Z wait #6: its cycle is still running\n",
+         2026-10-20T10:00:05Z wait #5x: not a number\n",
     );
+    // The shapes the writers log today that are no decision, from the table's
+    // own list of them, and one wait that is.
+    for (_, line, _) in mcp::decisions::WRITER_NON_DECISIONS {
+        log.push_str(line);
+        log.push('\n');
+    }
+    log.push_str("2026-10-20T10:00:06Z wait #6: its cycle is still running\n");
+    let l = Logs::with("other", &log);
     let out = call_in(&l.0, &json!({})).unwrap();
     assert_eq!(
         out["decisions"],
