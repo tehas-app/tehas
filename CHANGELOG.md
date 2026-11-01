@@ -13,12 +13,36 @@ empty one above it.
 
 ### Changes
 
-- `scripts/verify.sh --changed` runs `cargo test -p` for the crates a change can
-  affect, not the whole workspace (#911).
-
 ### Adopter action
 
 None.
+
+## v0.20.1 (2026-11-01)
+
+### Changes
+
+- The MCP tool `factory_disk` is served. v0.20.0 described it in the manual
+  only (#1200).
+- `tehas disk` reads `instance.env` past a comment or a blank line, so it now
+  includes `TEHAS_SCRATCH_DIR`. Disk and setup share one reader of the file
+  (#1201).
+- `libexec/status` is told when the poll ran it, and reports `from_poll=yes`
+  (#1202).
+- The energy sampler is `console energy`, and `libexec/energy` is gone. It no
+  longer falls back to `fleet` (#1225).
+- `libexec/attach` composes what a cycle is told it was given. A cycle given
+  nothing that has a record now says the record could not be read when attach
+  is missing, and a start stops when a kept manifest cannot be compared
+  (#1233).
+- `scripts/verify.sh --changed` runs `cargo test -p` for the crates a change can
+  affect, not the whole workspace (#911).
+- Golden files pin every container's whole argument list, in order (#1234).
+
+### Adopter action
+
+Set `PI_ENSEMBLE_SUBAGENT_PROVIDER` or `TEHAS_ENERGY_URL` for the energy sampler,
+or set `TEHAS_ENERGY=off`. With none of them `console energy` exits 78 and its
+service retries every 15 s.
 
 ## v0.20.0 (2026-11-01)
 
