@@ -3007,7 +3007,10 @@ token, and samples the first that answers. The file is removed only when the
 endpoint it asks is not a mesh and was not just down or busy. Set
 `TEHAS_ENERGY_URL` in `~/.config/tehas/env` to ask another
 cluster URL, which is asked with no token, and
-`TEHAS_ENERGY=off` to remove the file. The file is readable by anyone who can
+`TEHAS_ENERGY=off` to remove the file. With neither,
+`PI_ENSEMBLE_SUBAGENT_PROVIDER` has to be set: without it the command says so
+and exits 78, asks nobody and leaves the file as it is, and `--every` stops
+with it. The file is readable by anyone who can
 open the dashboard and names the machines, their draw and their models. It
 also holds the version of the mesh software and, for each model, the name and
 the version of the engine behind it. Addresses, node ids and GPUs are not in it.
@@ -3828,7 +3831,13 @@ keeps no new log.
 uncommitted and untracked files included, and hands them to
 `scripts/select-tests.sh`. A changed test file runs itself; another path runs
 the test files that name it (`libexec/update`, `tehas update`, a test file
-named `update_*`), and a path under `console/` also runs the workspace's tests.
+named `update_*`). A path under `console/` also runs `cargo test -p` for the
+crate it is in and the crates that depend on it, from `cargo metadata`. The
+tests of the console and the dispatcher run the store's program, which no
+manifest says, so `scripts/select-tests.sh` lists that link: they run with the
+store, and a change to the store runs them. A path in `console/core/`, a
+manifest, `console/Cargo.lock`, a path in no crate, or metadata that cannot be
+read runs the whole workspace's tests.
 The heavy integration files, `test/install_*`, `test/update_*`,
 `test/pack_release_test.sh` and `test/bootstrap_test.sh`, run only when the
 change touches what they test directly, and a `note` line names the ones left

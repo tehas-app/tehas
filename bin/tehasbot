@@ -20,7 +20,7 @@
 #   tehasbot github-token [--check]  the GitHub App's token (the gh shim)
 #   tehasbot help                 this text
 #
-# Each command is a script in ../libexec, and this only chooses one and runs
+# Each command is a program in ../libexec, and this only chooses one and runs
 # it with the remaining arguments: it loads no settings and calls nothing
 # else. The exit status is the script's. The scripts call each other by the
 # path of their own directory, not through this command.
@@ -40,11 +40,12 @@ case "${1-help}" in
     usage
     exit 0
     ;;
-  dispatch | cycle | status | health | energy | protolab | preview | improve | refresh | review | clean | mcp | github-token)
+  dispatch | cycle | status | health | protolab | preview | improve | refresh | review | clean | mcp | github-token)
     file=$libexec/$1
     shift
     exec "$file" "$@"
     ;;
+  energy) shift; exec "$libexec/console" energy "$@" ;;
   top)
     # The command is `top`; its script is named for what it does, because
     # libexec/top is the view for a person and not this.

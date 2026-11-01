@@ -91,9 +91,9 @@ slice_good() {
 }
 limits="--cgroup-parent --memory --memory-swap --memory-reservation --cpus --pids-limit --cpu-shares"
 # The security options and the readers of a docker line come from
-# test/docker_args.sh, which takes the list from tehas_sandbox_security itself,
-# so the cycle, the turn, the session and the push check are all pinned against
-# one source and not against a copy kept in step by hand. docker_opts is the
+# test/docker_args.sh, which holds the list as a literal, so the cycle, the
+# turn, the session and the push check are all pinned against one list, and not
+# against the function under test. docker_opts is the
 # allow-list of unknown_options: the slice's options and the security ones, by
 # name, so an option added to either is allow-listed in all of them at once.
 # shellcheck source=test/docker_args.sh
