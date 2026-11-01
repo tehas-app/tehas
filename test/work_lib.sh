@@ -32,6 +32,8 @@ ln -s "$T_ROOT/libexec/work" "$tree/libexec/work"
 # The measure of a start is the real console's: a size verb goes to it.
 # shellcheck disable=SC2154  # t_console_why is set by t_console (test/lib.sh)
 t_console || t_bad "no console: $t_console_why"
+# The slice is the real console's too, whatever a case does to the stub.
+T_ENV_ALWAYS+=(TEHAS_CONSOLE_CMD="$T_CONSOLE")
 t_stub console '[ "${1:-}" != size ] || exec "$T/console-bin" "$@"
 prev=
 for a in "$@"; do
