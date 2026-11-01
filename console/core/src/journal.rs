@@ -3,9 +3,9 @@
 //! write the journal could not record is not made. A poll and a cycle write
 //! through this one path. Each brings its own store call: a poll's next read
 //! decides a lost write again, and nothing decides a cycle's report again, so
-//! a cycle asks a busy store again.
+//! a cycle asks a busy store again, and then makes the write with no row.
 
-use crate::call::{gh_why, run_full};
+use crate::call::{gh_why, run_full, Ran};
 use serde_json::{json, Value};
 use std::time::Duration;
 
@@ -119,12 +119,8 @@ impl Journal<'_> {
         if store(&["journal-attempt", "--action", &id]).is_err() {
             return Wrote::Unrecorded;
         }
-        let extra: Vec<(&str, &str)> = match self.token {
-            Some(t) => vec![("TEHAS_GH_TOKEN", t)],
-            None => Vec::new(),
-        };
-        let r = run_full(self.gh, &args, body, self.bound, self.grace, &extra);
-        let there = done_if.is_some_and(|w| r.out.contains(w) || r.err.contains(w));
+        let r = self.gh(&args, body);
+        let there = there(&r, done_if);
         let result = match r.status {
             Some(0) => "ok",
             None => "timed-out",
@@ -134,11 +130,41 @@ impl Journal<'_> {
         // A settle that fails leaves the action attempted: the next poll
         // settles it from a fresh read.
         let _ = store(&["journal-settle", "--action", &id, "--result", result]);
-        if r.ok() || (there && r.status.is_some()) {
-            Wrote::Done(r.out)
-        } else {
-            Wrote::Failed(gh_why(&r.err))
-        }
+        wrote(r, there)
+    }
+
+    /// A write the journal could not record, made with no row. For a writer
+    /// that nothing decides again: a row it left open is safe, as a settling
+    /// poll replays nothing.
+    pub fn unrecorded(
+        &self,
+        args: Vec<String>,
+        input: Option<&str>,
+        done_if: Option<&str>,
+    ) -> Wrote {
+        let r = self.gh(&args, input);
+        let there = there(&r, done_if);
+        wrote(r, there)
+    }
+
+    fn gh(&self, args: &[String], input: Option<&str>) -> Ran {
+        let extra: Vec<(&str, &str)> = match self.token {
+            Some(t) => vec![("TEHAS_GH_TOKEN", t)],
+            None => Vec::new(),
+        };
+        run_full(self.gh, args, input, self.bound, self.grace, &extra)
+    }
+}
+
+fn there(r: &Ran, done_if: Option<&str>) -> bool {
+    done_if.is_some_and(|w| r.out.contains(w) || r.err.contains(w))
+}
+
+fn wrote(r: Ran, there: bool) -> Wrote {
+    if r.ok() || (there && r.status.is_some()) {
+        Wrote::Done(r.out)
+    } else {
+        Wrote::Failed(gh_why(&r.err))
     }
 }
 
@@ -233,6 +259,28 @@ mod tests {
             None,
         );
         assert_eq!(w, Wrote::Unrecorded);
+    }
+
+    fn sh(script: &str) -> Vec<String> {
+        vec!["-c".into(), script.into()]
+    }
+
+    #[test]
+    fn a_write_with_no_row_says_as_a_journaled_one_does() {
+        let (mut at, mut no_row) = (0, false);
+        let j = journal(&mut at, &mut no_row, "sh", None);
+        assert_eq!(
+            j.unrecorded(sh("cat"), Some("text"), None),
+            Wrote::Done("text".into())
+        );
+        assert_eq!(
+            j.unrecorded(sh("echo Not Found >&2; exit 1"), None, Some("Not Found")),
+            Wrote::Done(String::new())
+        );
+        assert!(matches!(
+            j.unrecorded(sh("exit 1"), None, Some("Not Found")),
+            Wrote::Failed(_)
+        ));
     }
 
     #[test]

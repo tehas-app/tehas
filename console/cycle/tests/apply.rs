@@ -245,15 +245,59 @@ fn an_end_the_store_will_not_take_is_exit_70_and_what_follows_still_runs() {
 }
 
 #[test]
-fn a_write_the_journal_cannot_record_is_a_try_that_failed() {
-    let h = Host::new("journal");
+fn a_write_the_journal_cannot_record_is_made_with_no_row() {
+    for verb in ["poll-begin", "journal-record", "journal-attempt"] {
+        let h = Host::new(&format!("journal-{verb}"));
+        h.result("aborted", "develop", "", "");
+        fs::write(h.dir.join("store-fail"), verb).unwrap();
+        let o = h.report(20, false);
+        assert!(o.status.success(), "{}", out(&o));
+        let order = [
+            "gh issue edit 7 --repo a/b --remove-label tehas:running --add-label needs-human-attention",
+            "store park 7",
+            "gh api repos/a/b/issues/7/comments --input - --jq .id",
+            "store question-asked 7 --id 4002",
+            "gh issue edit 7 --repo a/b --add-label tehas:question",
+            "store cycle-end 7",
+        ];
+        let at: Vec<usize> = order.iter().map(|c| h.at(c)).collect();
+        assert!(at.windows(2).all(|w| w[0] < w[1]), "{:#?}", h.calls());
+        let said = out(&o);
+        assert_eq!(
+            said.matches("WARN: the journal will not record").count(),
+            1,
+            "{said}"
+        );
+        assert!(!said.contains("WARN: label change"), "{said}");
+        // Once it failed, the report asks it no more: a hung store would
+        // spend what a stop leaves.
+        assert_eq!(h.count(&format!("store {verb}")), 1, "{:#?}", h.calls());
+    }
+}
+
+#[test]
+fn a_write_with_no_row_keeps_its_tries() {
+    let h = Host::new("journal-tries");
     h.result("aborted", "develop", "", "");
     fs::write(h.dir.join("store-fail"), "journal-record").unwrap();
+    fs::write(h.dir.join("gh-fail"), "--add-label needs-human-attention\n").unwrap();
     let o = h.report(20, false);
     assert!(o.status.success());
-    assert_eq!(h.count("gh issue"), 0, "{:#?}", h.calls());
+    assert_eq!(h.count("gh issue edit 7 --repo a/b --remove-label"), 3);
     assert!(out(&o).contains("WARN: label change on #7 failed"));
-    assert_eq!(h.count("store cycle-end"), 1);
+    let q = h.at("gh api repos/a/b/issues/7/comments");
+    assert!(h.calls()[q].contains("The label of this issue could not be changed"));
+}
+
+#[test]
+fn after_a_stop_a_write_with_no_row_is_one_try() {
+    let h = Host::new("journal-stop");
+    h.result("aborted", "develop", "", "");
+    fs::write(h.dir.join("store-fail"), "poll-begin").unwrap();
+    fs::write(h.dir.join("gh-fail"), "--add-label needs-human-attention\n").unwrap();
+    let o = h.report(20, true);
+    assert!(o.status.success());
+    assert_eq!(h.count("gh issue edit 7 --repo a/b --remove-label"), 1);
 }
 
 #[test]

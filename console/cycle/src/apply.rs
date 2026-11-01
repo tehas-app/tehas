@@ -1,9 +1,10 @@
 //! A cycle's report applied: the writes of `report`, in its order, with the
 //! tries and bounds of libexec/cycle. Every write to GitHub goes through the
-//! action journal, and each try is a row of its own. A write that cannot be
-//! recorded is a try that failed. Then the end on the cycle's record, 5 tries,
-//! and what follows it. Run after tehas work with the signals the report
-//! ignores already ignored, and with the cycle's lock held.
+//! action journal, and each try is a row of its own. Nothing decides a report
+//! again and tehas:running left on an issue parks it for good, so a write the
+//! journal cannot record is made with no row. Then the end on the cycle's
+//! record, 5 tries, and what follows it. Run after tehas work with the signals
+//! the report ignores already ignored, and with the cycle's lock held.
 
 use crate::after::{self, log};
 use crate::facts::Facts;
@@ -155,6 +156,9 @@ struct Writer<'a> {
     before: i64,
     poll_at: i64,
     no_row: bool,
+    /// The journal failed a write. The rest go with no row: a hung store
+    /// must not spend the time a stop leaves.
+    unjournaled: bool,
     /// The label stayed: the next comment says so.
     stuck: bool,
 }
@@ -184,7 +188,7 @@ impl Writer<'_> {
         // A busy store must not lose a report: nothing decides it again.
         let mut store =
             |a: &[&str]| store_try(3, Duration::from_secs(1), || host::store_value(home, a));
-        Journal {
+        let mut journal = Journal {
             repo: &self.repo,
             gh: "gh",
             before: self.before,
@@ -194,8 +198,19 @@ impl Writer<'_> {
             poll_at: &mut self.poll_at,
             row_not_begun: &mut self.no_row,
             cycle: Some((self.issue, self.attempt)),
+        };
+        if !self.unjournaled {
+            let wrote = journal.write(&mut store, issue, kind, args.clone(), input, done_if);
+            if wrote != Wrote::Unrecorded {
+                return wrote;
+            }
+            self.unjournaled = true;
+            log(&format!(
+                "WARN: the journal will not record the report of #{}: its writes go to GitHub with no row",
+                self.issue
+            ));
         }
-        .write(&mut store, issue, kind, args, input, done_if)
+        journal.unrecorded(args, input, done_if)
     }
 
     /// A write tried as the bash tried it, `warn` logged when all tries fail.
@@ -596,6 +611,7 @@ pub fn run(home: &Path, s: &Start) -> i32 {
         before: now,
         poll_at: 0,
         no_row: false,
+        unjournaled: false,
         stuck: true,
     };
     for a in &mut r.actions {
