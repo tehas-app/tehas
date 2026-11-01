@@ -2,8 +2,8 @@
 # shellcheck disable=SC2154  # here is the sourcing command's
 # The bash of what a sandbox container is given, and the tree it works in.
 # Sourced by the commands that start one: tehas work (a cycle), tehas plan (a
-# planning turn), tehas dev (a manual session), tehasbot review (a review) and
-# tehas index (the indexer). The docker options themselves are made in one
+# planning turn), tehas dev (a manual session) and tehasbot review (a review).
+# The docker options themselves are made in one
 # place, console/core/src/sandbox.rs, and reach bash through tehas-cycle
 # sandbox, which stands beside the command as "$here/tehas-cycle". The goldens
 # of test/sandbox_argv_test.sh pin the result word by word.
@@ -22,7 +22,6 @@
 #                                        with, as one line
 #   tehas_sandbox_seed <state> [<index dir>]
 #                                        give <state> the host's code index
-#   tehas_sandbox_cache_dir              where a container has that copy
 #   tehas_index_dir                      where the host keeps the index
 #   tehas_git_github_host                the github.com host git authenticates to
 #   tehas_git_credential_helper_key      the config key of that host's helper
@@ -35,13 +34,6 @@
 
 # shellcheck source=lib/models.sh
 . "$(dirname "${BASH_SOURCE[0]}")/models.sh"
-
-# Where a container has its own copy of the code index, and the variable that
-# points the indexer and the agents' code search at it. It is a path inside the
-# container, not a setting: no instance names it. The host directory behind it
-# belongs to one container and goes with it, so nothing one container writes
-# there is what a later container reads.
-tehas_sandbox_cache_dir() { printf '%s\n' /home/vscode/.tehas-cache; }
 
 # Where the host keeps the code index it gives to containers: the one directory
 # the indexer writes and every container is given a copy of. No container is

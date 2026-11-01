@@ -144,6 +144,12 @@
 //!                                     runs at once. Exit 1 with nothing
 //!                                     printed when the words have no quota or
 //!                                     ceiling
+//!   tehas-cycle index <branch> <commit> [--before-cycle]
+//!                                     one run of the code indexer at <commit>,
+//!                                     the tip of <branch>, under the lock
+//!                                     libexec/index holds (src/index.rs).
+//!                                     Exit 0, 1, 3, 78 as that command says
+//!   tehas-cycle index table           its row of the table of runs
 //!   tehas-cycle -h|--help             print this text
 //!
 //! shadow and compare do nothing while $TEHAS_HOME/state/cycle-shadow.on is
@@ -175,7 +181,7 @@ use std::sync::Arc;
 use tehas_cycle::host::Start;
 use tehas_cycle::last_attempt::{self, Action};
 use tehas_cycle::report::{to_json, Given};
-use tehas_cycle::{caps, clock, runner, sandbox};
+use tehas_cycle::{caps, clock, index, runner, sandbox};
 use tehas_cycle::{finish, pin, renew, report, shadow, Facts};
 
 fn usage() -> String {
@@ -217,6 +223,11 @@ fn main() {
     match a.as_slice() {
         ["-h" | "--help"] => println!("{}", usage()),
         ["report", file] => print_report(file),
+        ["index", "table"] => println!("{}", index::table()),
+        ["index", branch, base] => std::process::exit(index::main(branch, base, false).into()),
+        ["index", branch, base, "--before-cycle"] => {
+            std::process::exit(index::main(branch, base, true).into())
+        }
         ["sandbox", ..] => match sandbox::main(&args[1..]) {
             Some(status) => std::process::exit(status),
             None => wrong(&args),
