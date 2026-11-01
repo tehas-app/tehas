@@ -171,6 +171,7 @@ fn world() -> World {
             health_cmd: s("health"),
             console_cmd: s("console"),
             tidy_cmd: s("tidy"),
+            tidy_args: vec!["tidy".into(), "run".into()],
             analytics: None,
             analytics_wait: Duration::from_secs(5),
             work_dir: dir.join("works/tehas-work").to_string_lossy().into_owned(),
@@ -356,7 +357,7 @@ fn the_poll_gives_its_host_commands_its_token() {
     assert!(t
         .calls()
         .iter()
-        .any(|c| c.starts_with(&format!("{tidy} --dry-run"))));
+        .any(|c| c.starts_with(&format!("{tidy} tidy run --dry-run"))));
 }
 
 #[test]

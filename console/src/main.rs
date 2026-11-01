@@ -96,14 +96,13 @@
 //!   console shipped page|query|answer|list|has|whole ...
 //!
 //! What closed an issue: the page and the GraphQL query of the read, and what its
-//! answer says, for tehas tidy and tehasbot status (each command makes the call
-//! to these verbs itself), see src/shipped.rs.
+//! answer says, for tehasbot status, which makes the call to these verbs itself,
+//! see src/shipped.rs.
 //!
-//!   console tidy states|plan ...
+//!   console tidy run [--dry-run]
 //!
-//! Which of tehas's state labels come off which closed issue, and which issue the
-//! read of what closed them is asked about, for tehas tidy (libexec/tidy makes the
-//! two searches and the edits), see src/tidy.rs.
+//! The poll's tidy of closed issues: their state labels come off, and tehas:shipped
+//! goes on the ones a merged pull request closed, see src/tidy.rs.
 //!
 //!   console forge labels|label-state|approval|add-label|remove-label ...
 //!

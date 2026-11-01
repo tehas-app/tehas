@@ -302,17 +302,16 @@ cycle that already runs, and it is not a hold in `live/dispatch.json`: [tehas
 status](#tehas-status) does not show it, so a gate that will not open is seen in
 `~/tehas/logs/dispatch.log` and `~/tehas/logs/low-gate.log`.
 
-Every poll that gets past the bot's login ends by running `libexec/tidy`,
+Every poll that gets past the bot's login ends by running `console tidy run`,
 however the poll ends; the poll's exit status stays its own. It takes tehas's
 state labels off closed issues: `tehas:running`, `tehas:awaiting-merge`,
 `tehas:question`, `tehas:planning`, `tehas:refreshing`, `tehas:blocked`,
 `tehas:ready`, `tehas:plan` and `tehas:refine`. Not `tehas:shipped`, not
 `needs-human-attention`, and not the labels a person chooses (`tehas:urgent`,
-`tehas:next`, `tehas:lean`, `tehas:prototype`). The list is the console's
-(`console tidy states`, `console/src/tidy.rs`), and so is the decision of what
-comes off which issue and which issue the read below is asked about
-(`console tidy plan`): the command keeps the settings, the two searches and the
-edits, and hands the answer of the first to the console. It makes one search,
+`tehas:next`, `tehas:lean`, `tehas:prototype`). It is one console verb
+(`console/src/tidy.rs`), with the settings of the poll's environment: the list,
+the searches, the decision of what comes off which issue and the edits are all
+there. It makes one search,
 for the closed issues
 that carry one of those labels, up to a hundred a poll, the most recently updated
 first, and gives it 60 seconds. It takes all of an issue's state labels off in
@@ -2507,7 +2506,7 @@ The pull request is looked up in every state. One that a person merged while
 the cycle ran ends the cycle as merged, whatever the result says: the
 issue only loses `tehas:running`, the comment says the pull request was merged
 while the cycle ran, nothing is parked, and the tail of every poll,
-[`tehas tidy`](#tehas-dispatch), and
+[`console tidy run`](#tehas-dispatch), and
 [tehasbot status](#tehasbot-status-and-the-console)
 label the closed issue `tehas:shipped`. One that a person closed without
 merging gets `needs-human-attention` and a plain comment that says so, without
@@ -2627,12 +2626,12 @@ by a merged pull request GitHub lists as closing the issue when the close event
 names none. That list is what GitHub derives from the text and the links of the
 issue, not what the close event recorded. Whatever labels the issue was left
 with: the query and the acceptance rule are the console's (`console shipped`,
-`console/src/shipped.rs`), the ones `tehas tidy` reads too, so
+`console/src/shipped.rs`), the ones `console tidy run` reads too, so
 the two commands cannot disagree on what a merge closed. `tehasbot status` asks the console which shipped
 issues lack the label (`console shipped list --numbers --lacking <label>`),
 which names those whose labels do not hold it or could not be read, and gives
 each of them the label;
-`tehas tidy` is the one that logs the read, and both leave the control issue
+`console tidy run` is the one that logs the read, and both leave the control issue
 unlabelled. The read of the list goes under the same 60 seconds as the count
 below; one that times out or is refused writes no snapshot, and the file of the
 run before stays. `planned` lists the open issues labelled `tehas:plan` or
@@ -2646,7 +2645,7 @@ platform reads go under; a call that fails or runs out of time leaves the key
 out of the snapshot. The key is absent whenever the search gave no such number, so
 absence is not zero: a reader cannot tell a factory that shipped nothing from
 one whose search could not be read. `tehasbot status` gives each such issue `tehas:shipped`, so GitHub
-lists the same issues, and `tehas tidy` gives it too, from the same read; run `tehas labels` once so the label exists. The control
+lists the same issues, and `console tidy run` gives it too, from the same read; run `tehas labels` once so the label exists. The control
 issue, the one `TEHAS_CONTROL_ISSUE` names, is left out of every list and every
 count: it holds the pause label and is not work, whatever label it carries.
 
