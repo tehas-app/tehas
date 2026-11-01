@@ -243,11 +243,11 @@ no_question
 lifts
 
 t_case "a change note saved again before the label lifts only where the poll can see its own account did"
-# GraphQL names the editor. REST does not, so the bash poll takes any edit as another's.
+# GraphQL names the editor.
 millwright_parked
 with_notes "$(icomment 81 tehas-fixer "$(lift_at 180)" "$(lift_at 60)" '<!-- tehas:millwright issue=7 action=change -->
 Second thoughts.' | jq -s .)"
-if bash_reads; then holds "Words."; else lifts; fi
+lifts
 
 t_case "comments that cannot be read keep the hold, untold, and the next poll asks again"
 millwright_parked

@@ -1,10 +1,44 @@
 //! Planning sessions: the turns already under way (rule 4), the answers to a
 //! planning question (rule 4 and 5), new sessions (rule 5) and the refine a
-//! park is owed (rule 5a). Each turn is the caller's to run (lib/planning.sh);
-//! this decides which, with what answer, and says it as the bash does.
+//! park is owed (rule 5a). Each turn is the caller's to run (apply/turn.rs);
+//! this decides which, with what answer, and says it.
 
 use super::clean::iso;
+
+/// Why the fixer may not answer this session's question, empty when it may.
+fn fixer_answer_why(c: &Settings, view: &Value) -> String {
+    if c.millwright.is_empty() {
+        return "there is no fixer".into();
+    }
+    if !view.is_object() {
+        return "the session has no record on this host".into();
+    }
+    let by = view.get("by").and_then(Value::as_str).unwrap_or("");
+    if by.is_empty() || !c.allowed(by) {
+        return "no person's tehas:plan started this session, as far as its record says".into();
+    }
+    let answers = match view.get("answers") {
+        None | Some(Value::Null) => Some(Vec::new()),
+        Some(Value::Array(a)) => a
+            .iter()
+            .map(|x| x.get("fixer").and_then(Value::as_bool))
+            .collect::<Option<Vec<bool>>>(),
+        Some(_) => None,
+    };
+    let Some(answers) = answers else {
+        return "its record does not say who answered its turns".into();
+    };
+    let had = answers.iter().filter(|f| **f).count();
+    if answers.last() == Some(&true) {
+        return "the fixer answered the question before this one; a person answers this one".into();
+    }
+    if had as i64 >= c.fixer_max_plan_answers {
+        return format!("the fixer has answered {had} questions in this session, the limit");
+    }
+    String::new()
+}
 use super::{has, End, Poll, Room, Step};
+use crate::settings::Settings;
 use crate::text;
 use serde_json::{json, Value};
 
@@ -124,41 +158,6 @@ impl Poll<'_> {
         self.act(json!({"plan_end": n, "say": text}));
     }
 
-    /// tehas_fixer_answer: why the fixer may not answer this session's
-    /// question, empty when it may.
-    fn fixer_answer_why(&self, view: &Value) -> String {
-        if self.c.millwright.is_empty() {
-            return "there is no fixer".into();
-        }
-        if !view.is_object() {
-            return "the session has no record on this host".into();
-        }
-        let by = view.get("by").and_then(Value::as_str).unwrap_or("");
-        if by.is_empty() || !self.c.allowed(by) {
-            return "no person's tehas:plan started this session, as far as its record says".into();
-        }
-        let answers = match view.get("answers") {
-            None | Some(Value::Null) => Some(Vec::new()),
-            Some(Value::Array(a)) => a
-                .iter()
-                .map(|x| x.get("fixer").and_then(Value::as_bool))
-                .collect::<Option<Vec<bool>>>(),
-            Some(_) => None,
-        };
-        let Some(answers) = answers else {
-            return "its record does not say who answered its turns".into();
-        };
-        let had = answers.iter().filter(|f| **f).count();
-        if answers.last() == Some(&true) {
-            return "the fixer answered the question before this one; a person answers this one"
-                .into();
-        }
-        if had as i64 >= self.c.fixer_max_plan_answers {
-            return format!("the fixer has answered {had} questions in this session, the limit");
-        }
-        String::new()
-    }
-
     /// fixer_answer_ok: whether the fixer's tick or reply may run the turn.
     fn fixer_answer_ok(&mut self, n: u64, view: &Value, ans: &Value, said: &str) -> bool {
         let boxes = ans["boxes"].as_u64().unwrap_or(0);
@@ -171,7 +170,7 @@ impl Poll<'_> {
                 "its reply does not start with <!-- tehas:millwright issue={n} action=answer -->"
             )
         } else {
-            self.fixer_answer_why(view)
+            fixer_answer_why(self.c, view)
         };
         if why.is_empty() {
             return true;
@@ -690,5 +689,116 @@ impl Poll<'_> {
             return Err(End(0));
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn with_fixer(max: &str) -> Settings {
+        Settings::parse(&json!({
+            "TEHAS_ALLOWED_LABELERS": "alice bob",
+            "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
+            "TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS": max,
+        }))
+    }
+
+    /// A session alice started, with the fixer flags of its answers, oldest
+    /// first.
+    fn turns(flags: &[bool]) -> Value {
+        let answers: Vec<Value> = flags
+            .iter()
+            .enumerate()
+            .map(|(i, f)| {
+                json!({"turn": i + 2, "by": if *f { "tehas-fixer" } else { "alice" }, "fixer": f})
+            })
+            .collect();
+        json!({"session": "s", "turns": flags.len() + 1, "by": "alice", "answers": answers})
+    }
+
+    #[test]
+    fn the_fixer_may_answer_in_a_session_a_person_started() {
+        let c = with_fixer("3");
+        let (p, f) = (false, true);
+        let one = json!({"session": "s", "turns": 1, "by": "alice"});
+        assert_eq!(fixer_answer_why(&c, &one), "");
+        assert_eq!(fixer_answer_why(&c, &turns(&[p, f, p])), "");
+    }
+
+    #[test]
+    fn a_session_no_allowed_account_started_takes_no_fixer_answer() {
+        let c = with_fixer("3");
+        for bad in [
+            json!({"session": "s", "turns": 1}),
+            json!({"session": "s", "turns": 1, "by": "mallory"}),
+            json!({"session": "s", "turns": 1, "by": 7}),
+        ] {
+            assert_eq!(
+                fixer_answer_why(&c, &bad),
+                "no person's tehas:plan started this session, as far as its record says"
+            );
+        }
+    }
+
+    #[test]
+    fn the_fixer_never_answers_two_turns_in_a_row() {
+        assert_eq!(
+            fixer_answer_why(&with_fixer("3"), &turns(&[false, true])),
+            "the fixer answered the question before this one; a person answers this one"
+        );
+    }
+
+    #[test]
+    fn at_the_limit_the_fixer_answers_no_more_in_the_session() {
+        let (p, f) = (false, true);
+        let view = turns(&[f, p, f, p, f, p]);
+        assert_eq!(
+            fixer_answer_why(&with_fixer("3"), &view),
+            "the fixer has answered 3 questions in this session, the limit"
+        );
+        assert_eq!(fixer_answer_why(&with_fixer("4"), &view), "");
+    }
+
+    #[test]
+    fn answers_of_a_shape_tehas_does_not_know_take_no_fixer_answer() {
+        let c = with_fixer("3");
+        for bad in [
+            json!("lots"),
+            json!([{"turn": 2, "by": "alice"}]),
+            json!([1]),
+            json!({}),
+        ] {
+            let view = json!({"session": "s", "turns": 1, "by": "alice", "answers": bad});
+            assert_eq!(
+                fixer_answer_why(&c, &view),
+                "its record does not say who answered its turns"
+            );
+        }
+    }
+
+    #[test]
+    fn no_record_or_no_fixer_takes_no_fixer_answer() {
+        assert_eq!(
+            fixer_answer_why(&with_fixer("3"), &Value::Null),
+            "the session has no record on this host"
+        );
+        let none = Settings::parse(&json!({"TEHAS_ALLOWED_LABELERS": "alice bob"}));
+        assert_eq!(
+            fixer_answer_why(&none, &json!({"session": "s", "turns": 1, "by": "alice"})),
+            "there is no fixer"
+        );
+    }
+
+    #[test]
+    fn a_mark_that_is_no_boolean_is_not_read_as_the_fixers() {
+        assert_eq!(
+            shape(&json!({"answers": [{"turn": 1, "by": "alice", "millwright": "yes"}]})),
+            json!({"answers": [{"turn": 1, "by": "alice", "millwright": "yes"}]})
+        );
+        assert_eq!(
+            shape(&json!({"answers": [{"turn": 2, "by": "tehas-fixer", "millwright": true}]})),
+            json!({"answers": [{"turn": 2, "by": "tehas-fixer", "fixer": true}]})
+        );
     }
 }

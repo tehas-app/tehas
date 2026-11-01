@@ -167,32 +167,12 @@ t_run "$scall; run_facts 7 1 \"\$(cat \"\$T/line.json\")\"; echo rc=\$?"
 t_eq "$t_out" "rc=0"
 t_eq "$(jq -c '[(.line.failure_cause | length), .attempt]' "$T/calls/facts.json")" '[200000,1]'
 
-t_case "a planning turn's facts are its session on the state store, in the shape its record had"
-rm -f "$T"/calls/*
-t_store_home "$home"
-t_plan "$home" 7 '{"session":"s","turns":1,"running":true,"startedAt":"2026-10-24T11:00:00Z","label":"tehas:refine"}'
-t_run "$scall; tehas_analytics_plan 7 --rc 0 --rukas-image abcdef1; echo rc=\$?"
-t_eq "$t_out" "rc=0"
-facts=$(cat "$T/calls/facts.path")
-t_eq "$(t_calls analytics)" "plan 7 --facts $facts --rc 0 --rukas-image abcdef1"
-t_eq "$(jq -c . "$T/calls/facts.json")" '{"session":"s","turns":1,"options":[],"pending":false,"failed":false,"running":true,"startedAt":"2026-10-24T11:00:00Z","by":"alice","label":"tehas:refine","answers":[{"turn":2,"by":"alice","fixer":false}]}'
-t_eq "$(cat "$T/calls/facts.mode")" 600
-t_eq "$([ -e "$facts" ] && echo there || echo gone)" gone
-t_eq "$([[ $facts == "$T/home/tehas/tmp/analytics-facts."?????? ]] && echo named)" named
-t_store_answers plan-view 1 'store: busy #7: the database is locked'
-t_run "$scall; tehas_analytics_plan 7 --rc 0"
-t_eq "$(cat "$T/calls/facts.json")" null
-t_store_home "$home"
-t_run "$scall; tehas_analytics_plan 7 --rc 0"
-t_eq "$(cat "$T/calls/facts.json")" null
-
 t_case "facts that cannot be written are one WARN line, and the program is not called"
 rm -f "$T"/calls/*
 rm -rf "$T/home/tehas/tmp"
 : >"$T/home/tehas/tmp"
-t_run "$scall; run_facts 7 1 '{}'; tehas_analytics_plan 7 --rc 0; echo rc=\$?"
+t_run "$scall; run_facts 7 1 '{}'; echo rc=\$?"
 t_contains "$t_out" "WARN analytics run: no facts written"
-t_contains "$t_out" "WARN analytics plan: no facts written"
 t_contains "$t_out" "rc=0"
 t_eq "$(t_calls analytics)" ""
 rm -f "$T/home/tehas/tmp"
@@ -201,11 +181,11 @@ t_case "with TEHAS_ANALYTICS off, or no program, no facts are made and nothing i
 rm -rf "$T"/calls/* "$T/home/tehas/tmp"
 facts_stub
 T_ENV=(TEHAS_ANALYTICS=off)
-t_run "$scall; run_facts 7 1 '{}'; tehas_analytics_plan 7 --rc 0; echo rc=\$?"
+t_run "$scall; run_facts 7 1 '{}'; echo rc=\$?"
 t_eq "$t_out" "rc=0"
 rm -f "$bin"
 T_ENV=(TEHAS_ANALYTICS=on)
-t_run "$scall; run_facts 7 1 '{}'; tehas_analytics_plan 7 --rc 0; echo rc=\$?"
+t_run "$scall; run_facts 7 1 '{}'; echo rc=\$?"
 t_eq "$t_out" "rc=0"
 t_eq "$(t_calls analytics)" ""
 t_eq "$([ -e "$T/home/tehas/tmp" ] && echo made || echo none)" none
@@ -214,7 +194,7 @@ T_ENV=()
 t_case "sourcing it defines and runs nothing else"
 rm -f "$T"/calls/*
 t_run '. "$T_ROOT/lib/analytics.sh"; declare -F | wc -l; ls "$T/calls" | wc -l'
-t_eq "$t_out" "8
+t_eq "$t_out" "7
 0"
 
 t_done

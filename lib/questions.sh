@@ -1,7 +1,7 @@
 # shellcheck shell=bash
 # Questions the factory asks on an issue, and the answers it accepts. Text in,
 # text out: nothing here calls GitHub, so every function can be tested with a
-# string. Sourced by libexec/dispatch and libexec/cycle.
+# string. Sourced by libexec/cycle.
 #
 #   q_clean [max characters]         stdin to stdout: an agent's words, safe to
 #                                    post, cut at the limit [60000]
@@ -13,14 +13,10 @@
 #                                    of pi-rukas's handoff on top, a "park"
 #                                    marker above the question's own; <line> is
 #                                    the host's own, above the boxes
-#   q_answer <bot> <allowed logins> [comment id] [fixer login]
-#                                    stdin: the issue's comments as GraphQL
-#                                    answers them; stdout: what was answered
 #   q_park_repeat <count> [step] [cap]
 #                                    the host's line of a park that repeats the
 #                                    one before it, given as <line> of q_render.
 #                                    Nothing for a count of 0 or an unreadable one
-#   q_untick                         stdin to stdout: a body with every box empty
 #
 # <kind> is plan (a planning turn) or park (a cycle that stopped).
 
@@ -114,71 +110,6 @@ q_render() {
   fi
   printf '<!-- tehas:question kind=%s issue=%s turn=%s -->\n' "$kind" "$issue" "$turn"
 }
-
-# The question the bot asked, the boxes ticked in it and the newest reply
-# after it from an allowed account, last edited by none or by an allowed
-# account. A marker proves nothing unless the
-# bot wrote the comment: anyone can paste one on a public issue.
-#
-# With a comment id the question is that comment and no other. An agent in a
-# container posts as the bot too, so the caller names the comment the host
-# itself has on record. Without an id it is the newest comment of the bot
-# with a marker: good enough to tell a person something, never to start work.
-# The marker's issue number is reported for the caller to compare.
-#
-# With a fixer login, a tick the fixer saved has the status "fixer", or
-# "held" when anyone but the bot and the fixer edited the question too, or
-# the edits read (userContentEdits) are not all of them: GitHub names who
-# saved a comment, not who ticked which box, so the tick may be a person's.
-# And the fixer's newest reply, edited by nobody else, is fixer_reply: marked
-# when its first line is <!-- tehas:millwright issue=<n> action=answer -->,
-# which its text then leaves out; a marked reply with
-# nothing after the marker is none.
-# Whether either counts is the caller's to decide.
-q_answer() {
-  # GraphQL names a GitHub App without the [bot] its REST login carries.
-  jq -c --arg bot "${1%\[bot\]}" --arg allowed "$2" --arg id "${3:-}" --arg fixer "${4:-}" '
-    ($allowed | split(" ")) as $list | ($fixer | rtrimstr("[bot]")) as $fixer
-    | (.data.repository.issue.comments.nodes // []) as $c
-    | "<!-- tehas:question kind=(?<kind>[a-z]+) issue=(?<issue>[0-9]+) turn=(?<turn>[0-9]+) -->" as $re
-    | ($c | to_entries | map(select((.value.author.login // "") == $bot and (.value.body | test($re))
-                                    and ($id == "" or (.value.databaseId | tostring) == $id))) | last) as $q
-    | if $q == null then {asked: false} else
-        ($q.value.body | capture($re)) as $m
-        | ($q.value.body | split("\n") | map(select(test("^- \\[[ xX]\\] ")))) as $l
-        | ($l | map(test("^- \\[[xX]\\]"))) as $boxes
-        | ($boxes | to_entries | map(select(.value) | .key)) as $ticks
-        | ($q.value.editor.login // "") as $ed
-        | ($c[($q.key + 1):] | map(select((.author.login // "") as $a | ($list | index($a))
-                  and ((.editor.login // "") as $e | $e == "" or ($list | index($e))))) | last) as $r
-        | {asked: true, comment: $q.value.databaseId, asked_at: ($q.value.createdAt // ""), body: $q.value.body, kind: $m.kind,
-           issue: ($m.issue | tonumber), turn: ($m.turn | tonumber), boxes: ($boxes | length),
-           labels: ($l | map(.[6:])),
-           tick: (if ($ticks | length) == 0 then {status: "none"}
-                  elif $fixer != "" and $ed == $fixer and ($ticks | length) == 1 then
-                    ($q.value.userContentEdits // {}) as $h
-                    | if (($h.totalCount // 0) > ($h.nodes // [] | length))
-                         or any($h.nodes[]?; (.editor.login // "") as $e | $e != $fixer and $e != $bot)
-                      then {status: "held", by: $ed}
-                      else {status: "fixer", by: $ed, index: $ticks[0], at: ($q.value.lastEditedAt // "")} end
-                  elif ($list | index($ed)) == null and ($fixer == "" or $ed != $fixer) then {status: "stranger", by: $ed}
-                  elif ($ticks | length) > 1 then {status: "many", by: $ed}
-                  else {status: "one", by: $ed, index: $ticks[0], at: ($q.value.lastEditedAt // "")} end),
-           reply: (if $r == null then null else {by: $r.author.login, text: $r.body, at: $r.createdAt, id: $r.databaseId} end)}
-        + if $fixer == "" then {} else
-            ($c[($q.key + 1):] | map(select((.author.login // "") == $fixer
-                  and ((.editor.login // "") as $e | $e == "" or $e == $fixer))) | last) as $f
-            | {fixer_reply: (if $f == null then null else
-                (($f.body | split("\n"))[0] | test("^<!-- tehas:millwright issue=\($m.issue) action=answer -->\r?$")) as $marked
-                | (if $marked then $f.body | sub("^[^\n]*\n?"; "") else $f.body end) as $text
-                # A marker alone answers nothing.
-                | if $marked and ($text | test("^\\s*$")) then null
-                  else {by: $f.author.login, text: $text, at: $f.createdAt, id: $f.databaseId, marked: $marked} end end)}
-          end
-      end'
-}
-
-q_untick() { sed -E 's/^- \[[xX]\] /- [ ] /'; }
 
 # The one line a repeating park says of itself, in the host's own words: the
 # count of the run, the step and the cap the cycle already has, each reduced as

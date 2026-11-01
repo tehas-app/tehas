@@ -1,8 +1,8 @@
 # shellcheck shell=bash
 # The calls of the analytics program, $TEHAS_HOME/libexec/analytics, which
 # keeps the factory's 365 days of runs, issue events and samples in
-# state/analytics.db. Sourced by libexec/cycle, libexec/dispatch and
-# libexec/status, and written for them: it uses their log().
+# state/analytics.db. Sourced by libexec/cycle and libexec/status, and written
+# for them: it uses their log().
 #
 #   tehas_analytics <subcommand> [<argument>...]
 #       Run the program with TEHAS_HOME, for at most tehas_analytics_limit
@@ -35,13 +35,7 @@
 #       sources). What the store cannot answer, or has none of, is a null fact,
 #       as is a line that is not an object.
 #
-#   tehas_analytics_plan <issue> [<option>...]
-#       tehas_analytics plan <issue> --facts <file> [<option>...], the facts
-#       being the issue's planning session on the state store as it is, in the
-#       shape plan_view gives it (lib/store.sh, which the caller sources); null
-#       when the store has none or could not answer.
-#
-#       Both return 0. Facts are built only where tehas_analytics would call
+#       It returns 0. Facts are built only where tehas_analytics would call
 #       the program. <file> is a new 0600 file, $TEHAS_HOME/tmp/analytics-facts.*;
 #       one a killed caller left is libexec/clean's. Facts
 #       that cannot be written there are one line "WARN analytics
@@ -138,15 +132,4 @@ tehas_analytics_run() {
     facts=""
   [ -n "$facts" ] || facts=null
   tehas_analytics_facts run "$issue" "$facts" "$@"
-}
-
-tehas_analytics_plan() {
-  local issue=$1 record=null
-  shift
-  tehas_analytics_on || return 0
-  if tehas_store plan-view "$issue"; then
-    record=$(jq -c .view <<<"$tehas_store_out" 2>/dev/null) || record=null
-  fi
-  [ -n "$record" ] || record=null
-  tehas_analytics_facts plan "$issue" "$record" "$@"
 }

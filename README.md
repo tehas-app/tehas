@@ -192,8 +192,7 @@ host.
 | `lib/polyfill-<feature>.sh` | What tehas does itself for a pi-rukas feature no release has yet, until one has it. Each names the upstream issue and pull request. None today |
 | `lib/improve.sh`, `lib/improve-prompt.md` | The improvement loop's shared parts, and the prompt its analyst reads |
 | `lib/labels.sh` | Who applied a label, read from the label events |
-| `lib/live.sh` | The live view of the cycles, put together from a file per cycle |
-| `lib/planning.sh`, `lib/questions.sh` | The steps of a planning session, and the questions the factory asks on an issue |
+| `lib/questions.sh` | The questions the factory asks on an issue |
 | `lib/sandbox.sh` | What a sandbox container is given, for a cycle and for a session by hand |
 | `lib/slice.sh` | The way to `console slice`: whether `tehas.slice` is usable, the limits of a container, the room left |
 | `lib/status.sh` | The factory's state for `tehas status` |

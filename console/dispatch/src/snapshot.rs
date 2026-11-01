@@ -53,7 +53,7 @@ pub struct Issue {
     pub question: Option<Result<Value, StoreErr>>,
     /// gh issue view --json state,labels, for a retry after an outage.
     pub view: Option<Value>,
-    /// The cycle history on record (tehas_cycle_history), Err when the store
+    /// The cycle history on record, Err when the store
     /// could not answer.
     pub history: Option<Result<Vec<Value>, ()>>,
     /// state/refresh/<n>.json, as written; and what <n>.said holds.

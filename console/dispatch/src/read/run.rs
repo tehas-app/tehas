@@ -531,7 +531,7 @@ impl Calls {
         out
     }
 
-    /// gh's answer as JSON, Err with the line the bash poll logs.
+    /// gh's answer as JSON, Err with the line the poll logs.
     pub fn gh(&mut self, args: &[&str]) -> Result<Value, GhFail> {
         let args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
         let word = format!("ERROR: gh {} {} failed", args[0], args[1]);

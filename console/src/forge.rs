@@ -9,9 +9,7 @@
 //!   console forge label-state <issue> <label>
 //!     `<kind>\t<account>\t<time>` of the newest `labeled` or `unlabeled` event
 //!     of the label. Account and time are empty when the event names none.
-//!     Where `tehas_label_state` of `lib/labels.sh` answers three empty fields
-//!     for a label no event carries, this prints nothing at all, so a caller
-//!     that migrates onto it reads the fields and not the line count.
+//!     For a label no event carries this prints nothing at all.
 //!     Authorisation stays the caller's (AGENTS.md rule 5): this says who,
 //!     never whether that account may start anything.
 //!   console forge approval <issue>
@@ -702,9 +700,8 @@ mod tests {
     }
 
     #[test]
-    fn the_state_line_is_the_line_tehas_label_state_prints() {
-        // Kind, account and time with tabs between them, as the jq of
-        // lib/labels.sh writes them: a caller reads the line with IFS=tab.
+    fn the_state_line_is_kind_account_and_time() {
+        // Tabs between them: a caller reads the line with IFS=tab.
         let run = one(
             &["label-state", "7", "tehas:running"],
             Ok("unlabeled\tbot\t2026-01-02T00:00:00Z"),

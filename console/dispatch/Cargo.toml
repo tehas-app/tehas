@@ -1,7 +1,6 @@
 # The dispatcher's decisions: what one poll does, given what it read, and the
 # reads of a snapshot. A member of the workspace in ../Cargo.toml. The binary,
-# tehas-dispatch, prints a snapshot and its decision and writes nothing; the
-# bash poll, libexec/dispatch, is still the one that acts.
+# tehas-dispatch, is the poll: libexec/dispatch loads the settings and runs it.
 [package]
 name = "tehas-dispatch"
 version = "0.1.0"

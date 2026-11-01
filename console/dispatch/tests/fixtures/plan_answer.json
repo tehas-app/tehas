@@ -923,6 +923,6 @@
  "not_ported": [
   "the options the record lists, questions posted as one, what a turn filed and the next turn told of it, and the answer file's lines of filings: the turn's own writes (plan_turn, plan_post)",
   "a reply's turn given the reply's comment id: the action carries it (reply); the call is the caller's",
-  "the turn limit, a later turn that fails or whose session pi-rukas lost, a refine that hands the issue back, and labels that cannot be taken off: the turn and its end, lib/planning.sh"
+  "the turn limit, a later turn that fails or whose session pi-rukas lost, a refine that hands the issue back, and labels that cannot be taken off: the turn and its end, console/dispatch/src/apply/plan.rs"
  ]
 }

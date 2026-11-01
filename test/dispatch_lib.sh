@@ -191,9 +191,6 @@ t_stub fake-tidy '[ ! -e "$T/calls/fake-start" ] || : >"$T/calls/tidy.after-star
 t_stub fake-health
 # shellcheck disable=SC2154  # t_console_why is set by t_console (test/lib.sh)
 real_health() { t_health || t_bad "no console: $t_console_why"; T_ENV_ALWAYS+=(TEHAS_HEALTH_CMD="$T_HEALTH"); }
-# The bash poll reads the free disk through the console, which the checkout's
-# libexec does not hold.
-bash_poll_console() { t_console || t_bad "no console: $t_console_why"; T_ENV_ALWAYS+=(TEHAS_CONSOLE_CMD="$T_CONSOLE"); }
 # The dispatcher waits for a planning turn in steps of ten seconds. No case
 # here needs that time to
 # pass: the wait for a turn returns at once. Every other sleep is real, the
@@ -399,22 +396,15 @@ reset() {
   echo '[]' >"$fx/events-1.json"
   T_ENV=(TEHAS_CYCLE_START_CMD=fake-start TEHAS_CYCLE_START_WAIT=2 TEHAS_STATUS_CMD=fake-status TEHAS_TIDY_CMD=fake-tidy TEHAS_INDEX_CMD=fake-index TEHAS_INDEX_START_CMD=fake-index-start TEHAS_PLAN_CMD=fake-plan TEHAS_PLAN_START_CMD=fake-plan-start "$slice_env")
   # Every poll of the case runs in Rust, as on a host: libexec/dispatch hands
-  # it to tehas-dispatch. T_BASH_POLL=1 runs the bash poll instead, as
-  # TEHAS_DISPATCHER=bash does.
-  if [ -n "${T_BASH_POLL:-}" ]; then
-    case " ${T_MINIMAL[*]} " in *" TEHAS_DISPATCHER=bash "*) ;; *) T_MINIMAL+=(TEHAS_DISPATCHER=bash) ;; esac
-    bash_poll_console
-  else
-    # shellcheck disable=SC2154  # t_dispatch_why is set by t_dispatch (test/lib.sh)
-    t_dispatch || t_bad "no tehas-dispatch: $t_dispatch_why"
-    # No TEHAS_HEALTH_CMD: health is the stub t_stub made above. The Rust poll
-    # names its own health beside its own binary, as the bash poll names the one
-    # beside libexec/dispatch, so the bare word of a command on PATH is never
-    # asked for: the stub has to be named. It records its call and answers 0;
-    # the WARN of a health file that could not be written is read here as no
-    # command having been given to the poll at all.
-    T_ENV_ALWAYS=(TEHAS_DISPATCH_CMD="$T_DISPATCH" TEHAS_HEALTH_CMD=fake-health)
-  fi
+  # it to tehas-dispatch.
+  # shellcheck disable=SC2154  # t_dispatch_why is set by t_dispatch (test/lib.sh)
+  t_dispatch || t_bad "no tehas-dispatch: $t_dispatch_why"
+  # No TEHAS_HEALTH_CMD: health is the stub t_stub made above. The poll names
+  # its own health beside its own binary, so the bare word of a command on PATH
+  # is never asked for: the stub has to be named. It records its call and
+  # answers 0; the WARN of a health file that could not be written is read here
+  # as no command having been given to the poll at all.
+  T_ENV_ALWAYS=(TEHAS_DISPATCH_CMD="$T_DISPATCH" TEHAS_HEALTH_CMD=fake-health)
   t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1
 }
 # A cycle that is running: its lock, held by this shell until release.
@@ -683,10 +673,9 @@ mesh() { # [<the endpoint's answer>]
   [ "$#" = 0 ] || echo "$1" >"$fx/mesh.json"
 }
 # curl_heard: the opening of a curl stub. What curl was given is kept the same
-# way from either poll: the bash poll's config in a /dev/fd file and its body on
-# standard input, the Rust poll's config on standard input with the body as its
-# `data` line. The config's lines go to calls/curl-config, the body to
-# calls/curl-body.
+# way from either form: a config in a /dev/fd file and a body on standard input,
+# or a config on standard input with the body as its `data` line. The config's
+# lines go to calls/curl-config, the body to calls/curl-body.
 curl_heard='conf=""
 case " $* " in *" -K - "*) conf=$(cat) ;; esac
 for a; do case "$a" in /dev/fd/*) cat "$a" >>"$T/calls/curl-config" ;; esac; done
@@ -813,7 +802,7 @@ open_read_fails_again() {
 }
 
 # The open issues as tehas-dispatch's one GraphQL page asks for them, made from
-# the fixtures the bash poll's REST calls answer from: the lists name the
+# the fixtures: the lists name the
 # issues and their labels, events-<n>.json their label events, work-<n>.json
 # and edit-<n>.json (or edit.json) their text, prs-<n>.json (or prs.json)
 # the pull requests that close them, and issue-<n>.json with a state their
@@ -898,9 +887,3 @@ jq -n --argjson lists "$lists" --argjson items "$items" --argjson control "$(rea
     + (if $pulls == null then {} else {openPulls: {nodes: $pulls}} end)}}'
 STUB
 chmod +x "$T/page-stub"
-
-# bash_reads: whether the poll under test makes the bash poll's own reads,
-# its REST calls and their words (T_BASH_POLL). The Rust poll reads the queue
-# in one GraphQL page instead, and ends the poll on its failure with its own
-# words, so a case that checks those calls checks them for the bash alone.
-bash_reads() { [ -n "${T_BASH_POLL:-}" ]; }
