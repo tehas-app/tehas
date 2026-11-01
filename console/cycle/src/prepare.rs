@@ -424,7 +424,8 @@ fn has_gate(tree: &str, branch: &str) -> bool {
 }
 
 /// Can the sandbox push at all? The client passes the timeout's TERM on to git
-/// in the container. None when it can; else the status to exit with.
+/// in the container. None only when the check ran and passed; else the status
+/// to exit with.
 fn push_check(t: &Tree, state: &Value, tree: &str, preflight: &Path) -> Option<i32> {
     let image = env("PI_ENSEMBLE_IMAGE");
     let words = sandbox::push_check(
@@ -435,8 +436,15 @@ fn push_check(t: &Tree, state: &Value, tree: &str, preflight: &Path) -> Option<i
         tree,
         &image,
     );
-    let log = fs::File::create(preflight).ok()?;
-    let err = log.try_clone().ok()?;
+    let opened = fs::File::create(preflight).and_then(|log| Ok((log.try_clone()?, log)));
+    let Ok((err, log)) = opened else {
+        say("tehas work: the sandbox cannot push to origin, not starting a cycle:");
+        say(&format!(
+            "    the log of the push check could not be made at {}",
+            preflight.display()
+        ));
+        return Some(3);
+    };
     let rc = code(
         bounded(10, t.push_wait, &words)
             .stdout(log)
@@ -783,6 +791,21 @@ mod tests {
         );
         assert_eq!(gate_line("  # indented\n\t\n"), None);
         assert_eq!(gate_line(""), None);
+    }
+
+    #[test]
+    fn a_push_log_that_cannot_be_made_is_no_pass() {
+        let t = Tree {
+            issue: 7,
+            file: PathBuf::new(),
+            branch: "main".to_string(),
+            log: PathBuf::new(),
+            push_wait: 1,
+            console: String::new(),
+            caller: Caller::now(),
+        };
+        let nowhere = Path::new("/nonexistent/tehas/work.jsonl.preflight");
+        assert_eq!(push_check(&t, &json!({}), "/nonexistent", nowhere), Some(3));
     }
 
     #[test]
