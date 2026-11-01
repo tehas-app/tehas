@@ -87,7 +87,7 @@ pub fn plan_sum(issue: &Value) -> String {
     sum.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-/// tehas_attachment_placeholder: the first unfilled placeholder of a text.
+/// The first unfilled placeholder of a text.
 fn placeholder(text: &str) -> Option<String> {
     static SAID: OnceLock<Regex> = OnceLock::new();
     static SPACE: OnceLock<Regex> = OnceLock::new();
@@ -135,7 +135,7 @@ fn strings<'a>(v: &'a Value, out: &mut Vec<&'a str>) {
     }
 }
 
-/// tehas_texts_hold_attachment: the word a text of the answer promises when
+/// The word a text of the answer promises when
 /// none of its texts links an attachment.
 pub fn promise(answer: &Value) -> Option<String> {
     let mut texts = Vec::new();
@@ -162,6 +162,120 @@ pub fn promise(answer: &Value) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_unfilled_placeholder_in_a_text_that_links_nothing_is_a_promise() {
+        assert_eq!(
+            promise(&json!({"body": "The screenshot is the place. SCREENSHOT GOES HERE."}))
+                .as_deref(),
+            Some("SCREENSHOT GOES HERE")
+        );
+        assert_eq!(
+            promise(&json!({"title": "IMAGE GOES HERE", "body": "A plain body."})).as_deref(),
+            Some("IMAGE GOES HERE")
+        );
+        assert_eq!(
+            promise(&json!({"body": "The Mockup goes here."})).as_deref(),
+            Some("Mockup goes here")
+        );
+    }
+
+    #[test]
+    fn a_text_that_links_an_attachment_answers_for_them_all() {
+        for v in [
+            json!({"body": "SCREENSHOT GOES HERE: ![s](https://github.com/user-attachments/assets/aa)"}),
+            json!({"title": "SCREENSHOT GOES HERE",
+                "body": "See ![s](https://github.com/user-attachments/files/9/spec.md)."}),
+        ] {
+            assert_eq!(promise(&v), None, "{v}");
+        }
+    }
+
+    #[test]
+    fn the_name_of_a_file_before_goes_here_is_a_promise() {
+        for words in [
+            "SCREENSHOT GOES HERE",
+            "SCREENSHOT_GOES_HERE",
+            "IMAGE GOES HERE",
+            "image goes here",
+            "the picture goes here",
+            "MOCKUP GOES HERE",
+            "the file goes here",
+            "the video goes here",
+            "shot goes here",
+            "the figure goes here",
+            "the diagram goes here",
+            "the screencast goes here",
+            "the thumbnail goes here",
+            "the animation goes here",
+            "the attachment goes here",
+            "the gif goes here",
+            "the example goes here",
+        ] {
+            let text = format!("See ({words}) for the layout of the header.");
+            assert_eq!(
+                promise(&json!({"body": text})).as_deref(),
+                Some(words.strip_prefix("the ").unwrap_or(words))
+            );
+        }
+    }
+
+    #[test]
+    fn the_same_words_of_something_that_is_no_file_are_prose() {
+        for words in [
+            "the value goes here in the code",
+            "goes here",
+            "WORDS GOES HERE",
+            "the plan goes here, then the build",
+            "the name goes here",
+            "the title goes here",
+            "a sentence goes here",
+            "nothing goes here at all",
+        ] {
+            let text = format!("In the form, {words}, and the rest is clear.");
+            assert_eq!(promise(&json!({"body": text})), None, "{words}");
+        }
+        assert_eq!(
+            promise(&json!({"body": "Plain words about the feature, with no gap in them."})),
+            None
+        );
+        assert_eq!(
+            promise(&json!({"body": "The feature works as the manual says."})),
+            None
+        );
+    }
+
+    #[test]
+    fn the_promise_of_a_body_at_any_depth_of_the_answer() {
+        // Spelled from parts: this file is read by no rule, but the fixture of
+        // the shell test it replaces was, and the words stay as they were.
+        let body = format!("The body reads IMAGE{}GOES{}HERE.", '_', '_');
+        let v = json!({"data": {"repository": {"issue": {"lastEditedAt": null, "editor": null, "body": body}}}});
+        assert_eq!(promise(&v).as_deref(), Some("IMAGE_GOES_HERE"));
+    }
+
+    #[test]
+    fn a_promise_with_a_line_end_or_of_more_than_80_characters_is_no_answer() {
+        assert_eq!(promise(&json!({"body": "SCREENSHOT GOES\nHERE"})), None);
+        let long = format!("{} GOES HERE", "A".repeat(90));
+        assert_eq!(promise(&json!({"body": long})), None);
+    }
+
+    #[test]
+    fn an_answer_with_no_text_that_promises_promises_nothing() {
+        for v in [
+            json!({"body": 42}),
+            json!({}),
+            json!([]),
+            Value::Null,
+            json!(42),
+            json!({"body": null}),
+            json!(["a screenshot goes", 42]),
+            json!({"number": 7, "state": "open"}),
+        ] {
+            assert_eq!(promise(&v), None, "{v}");
+        }
+    }
 
     #[test]
     fn the_hash_drops_carriage_returns() {
