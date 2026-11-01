@@ -539,6 +539,45 @@ overlap() {
 # The runner takes the host's CPUs from nproc, so a stub makes the threshold
 # the same on every machine: eight here, where the host may have sixteen.
 t_stub nproc 'echo 8'
+# The memory the run may use sizes the pool as well as the CPUs: two tasks a
+# GiB. TEHAS_TEST_MEMORY_MAX names the file read in place of the cgroup's, and
+# no case here sets TEHAS_TEST_JOBS, or the ceiling would not be asked.
+pool() { # memory.max's contents, or nothing for a file that does not exist
+  fresh
+  printf '#!/usr/bin/env bash\n:\n' >"$repo/test/a_test.sh"
+  rm -f "$T/memory.max"
+  [ -z "$1" ] || echo "$1" >"$T/memory.max"
+  T_ENV=(TMPDIR="$recs" TEHAS_TEST_MEMORY_MAX="$T/memory.max" TEHAS_TEST_LOADAVG="$T/loadavg")
+  run
+  T_ENV=(TEHAS_TEST_JOBS=1 TMPDIR="$recs")
+}
+echo "0.00 0.00 0.00 1/100 1" >"$T/loadavg"
+
+t_case "a memory ceiling too small for the CPUs sizes the pool"
+pool $((2 * 1024 * 1024 * 1024))
+t_eq "$t_rc" 0
+t_contains "$t_out" " 4 at a time"
+
+t_case "a ceiling with room for every CPU leaves the pool at the CPUs"
+pool $((96 * 1024 * 1024 * 1024))
+t_eq "$t_rc" 0
+t_contains "$t_out" " 8 at a time"
+
+t_case "no ceiling leaves the pool at the CPUs"
+pool max
+t_eq "$t_rc" 0
+t_contains "$t_out" " 8 at a time"
+
+t_case "no file to read leaves the pool at the CPUs"
+pool ""
+t_eq "$t_rc" 0
+t_contains "$t_out" " 8 at a time"
+
+t_case "a ceiling below one task still runs one"
+pool $((100 * 1024 * 1024))
+t_eq "$t_rc" 0
+t_contains "$t_out" " 1 at a time"
+
 t_case "an idle host runs the files side by side"
 echo "0.00 0.00 0.00 1/100 1" >"$T/loadavg"
 overlap

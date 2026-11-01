@@ -993,7 +993,9 @@ processes at once with 16 test files side by side, 38 with 4. The floor of
 Inside the container `nproc` still says how many CPUs the host has: a quota
 does not change it. A gate that runs its tests side by side should size
 itself from `/sys/fs/cgroup/cpu.max`, as this repository's `scripts/test.sh`
-does, or it starts more than the quota can run.
+does, or it starts more than the quota can run. `/sys/fs/cgroup/memory.max` is
+the same for memory: `nproc` knows nothing of the ceiling, and a pool sized to
+48 CPUs in 12 GiB has its processes killed.
 
 The share also sets how many runs of the gate pi-rukas makes at once inside the
 cycle: `tehas work` passes `PI_ENSEMBLE_VERIFY_CONCURRENCY`, one for each two
