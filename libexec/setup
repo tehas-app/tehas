@@ -1,73 +1,17 @@
 #!/usr/bin/env bash
-# tehas setup: write this host's instance and start the factory, once.
+# tehas setup: find or build the console, which does the rest
+# (console/src/setup.rs). Bash because a new host has no console to run yet.
 #
-# Asks for what it is not given, when there is a terminal to ask on:
+# Usage: tehas setup [options], see tehas help setup
 #
-#   --repo <owner/name>        the product repository
-#   --labellers "<a> <b>"      the logins whose labels count; never the bot
-#   --token-file <file>|-      the bot's GitHub token, read from a file or
-#                              from standard input. Never on the command line
-#   --app-id <id>              the GitHub App the factory acts as, in place of
-#   --app-installation <id>    a token: its ID, its installation's ID and its
-#   --app-key-file <file>      private key. All three or none, and not with
-#                              --token-file
-#   --endpoint <url>           the model endpoint, OpenAI-compatible, with its
-#                              /v1: its models are read from <url>/models
-#   --model <id>               the model to use; needed when the endpoint
-#                              offers more than one and there is no terminal
-#   --model-key-file <file>|-  the endpoint's key, if it takes one
-#   --provider <name>          the provider's name in models.json (main)
-#   --control-issue <n>        the control issue; without it one is made
-#   --no-build                 leave out the sandbox image and the gates
-#   --force                    replace a setting that is there and differs
-#
-# Then, in this order, stopping at the first step that fails:
-#   1. checks the token can push to the repository, or that the app's
-#      installation lists it and may write its contents, issues and pull
-#      requests, checks the endpoint offers the model, and makes the control
-#      issue
-#   2. writes ~/.config/tehas (or the directory instance-dir names):
-#      instance.env with the required settings only, models.json, and the
-#      token and the model key in env, mode 600. With an app: the app's three
-#      settings in instance.env, the key in ~/.config/tehas/github-app.pem,
-#      mode 600, and no token; the later steps run gh through ~/tehas/shim/gh
-#   3. gives git gh's credential helper for github.com, unless git has one, and
-#      gives it the bot's name and noreply address, unless it has one. The
-#      helper is checked first: the identity is of no use on a host whose git
-#      cannot authenticate, and the two are read from two different programs
-#   4. clones the product to ~/tehas/repos/<name>; an app's first run installs first
-#   5. runs install.sh beside this command, then tehas labels
-#   6. builds the sandbox image unless it is there, and runs the product's
-#      gates in it with tehas check-product --sandbox where that is installed
-#   7. enables the dispatch timer and path, starts the docs server and
-#      prints the dashboard's address
-#
-# A second run changes nothing that is right. A setting that is there and
-# differs is never replaced without --force: the run stops with 78 before it
-# calls anything or writes anything. Steps 1 and 2 are the console's, and
-# what it says goes to standard error.
-#
-# Usage:
-#   tehas setup [options]
-#
-# Exit: 0 done; 1 a check or a step failed (a step's own status when it has
-# one); 64 an unknown option, or the app options given in part or with
-# --token-file; 78 a setting is missing, malformed, or differs
-# from the one there without --force, a git config file git could not open,
-# or there is no console and no checkout to build it from.
+# Exit: the console's; 1 the build failed; 78 there is no console and no
+# checkout to build it from.
 set -uo pipefail
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-# shellcheck source=lib/config.sh
-. "$here/../lib/config.sh"
 
 die() { echo "tehas setup: $*" >&2; exit "${2:-1}"; }
 
-# Steps 1 and 2 are the console's (console/src/setup.rs). A release carries
-# the console beside this command; a checkout builds it here, because the
-# install that would build it needs the instance this writes, and each load
-# below names it because a checkout has none where a load looks. Named per load,
-# so install.sh still builds and judges its own.
 console=$here/console
 if [ ! -x "$console" ] && [ -r "$here/../console/Cargo.toml" ]; then
   echo "tehas setup: building the console in $here/../console" >&2
@@ -77,127 +21,4 @@ if [ ! -x "$console" ] && [ -r "$here/../console/Cargo.toml" ]; then
 fi
 [ -x "$console" ] || die "no console beside this command at $here/console, run install.sh" 78
 
-files=$("$console" setup files "$(tehas_instance_dir)" "$@") || exit $?
-read -r build kind bot bot_id <<<"$files"
-
-# --- git, the product, the install --------------------------------------------
-# shellcheck source=lib/sandbox.sh
-. "$here/../lib/sandbox.sh"
-
-# From here gh acts as the app through the shim, as every later command on the
-# host does. Without one it acts with the token just written.
-if [ "$kind" = app ]; then
-  # shellcheck source=lib/github-app.sh
-  . "$here/../lib/github-app.sh"
-  TEHAS_SETTINGS_CMD=${TEHAS_SETTINGS_CMD:-$console} tehas_load || exit 78
-  tehas_github_app_env
-else
-  # shellcheck source=/dev/null
-  GH_TOKEN=$(. "$HOME/.config/tehas/env" && printf '%s' "${GH_TOKEN:-}") || die "could not read $HOME/.config/tehas/env"
-  export GH_TOKEN
-fi
-
-# git's own read of the helper key: its standard output is the value and its
-# standard error is what git says about a file it could not open. The two are
-# read apart, because neither is printed: the value is a command an operator
-# wrote and may hold a token in its arguments, and git's words name the file
-# and can quote a value in it. The read covers the scopes git reads from this
-# directory - system, global and the environment's own entries; the product's
-# checkout is not one of them, because it is not made until below.
-git_helper_values() { git config --get-all "$(tehas_git_credential_helper_key)"; }
-git_helper_errors() { git config --get-all "$(tehas_git_credential_helper_key)"; }
-
-# The credential helper before the clone and before the identity: a host with
-# no helper for github.com cannot read a private product's remote with plain
-# git, so this is a prerequisite of the run and not of the clone alone. The
-# clone here, and the fetches of tehas dispatch, update, status and preview,
-# are the git runs that stop at a prompt without it.
-give_git_the_helper() {
-  local helpers="" err="" host rc=0
-  host=$(tehas_git_github_host)
-  # git exits 1 and writes nothing when the key is simply not set, so a value
-  # read from a run that said something on standard error is not a helper and
-  # nothing is written over it: that is a settings problem rather than a step
-  # failure, because gh writes the global file and the run must not ask it to
-  # write over one git refused. Only git's status is named, never its words,
-  # and never the value.
-  err=$(git_helper_errors 2>&1 >/dev/null)
-  helpers=$(git_helper_values 2>/dev/null)
-  rc=$?
-  if [ -n "${err//[[:space:]]/}" ]; then
-    die "could not read git's credential helper for $host (git exit $rc); fix git's config and run tehas setup again" 78
-  fi
-  # gitcredentials ends a helper list at an empty value, so a chain of nothing
-  # but empty entries is no helper and the run asks gh for its own, the entry
-  # gh itself writes first.
-  if [ -n "${helpers//[[:space:]]/}" ]; then
-    echo "tehas setup: git's helper for $host is kept ($(printf '%s\n' "$helpers" | grep -c '') in git's config)"
-    return 0
-  fi
-  # gh is run without a terminal to prompt on: setup may be run from a unit.
-  GIT_TERMINAL_PROMPT=0 gh auth setup-git --hostname "$host" 2>/dev/null
-  rc=$?
-  [ "$rc" = 0 ] ||
-    die "gh auth setup-git failed for $host (exit $rc); it cannot give git a credential helper"
-  echo "tehas setup: git uses gh's credential helper for $host"
-}
-give_git_the_helper
-
-# An installation token cannot ask /user who it is: the app's bot was read above.
-if [ "$kind" = app ]; then
-  login=$bot uid=$bot_id
-else
-  read -r login uid < <(gh api user --jq '[.login,.id]|@tsv' 2>/dev/null) || true
-  [ -n "${login:-}" ] || die "gh api user did not say who the bot is"
-fi
-if [ -z "$(git config --global user.name)" ] && [ -z "$(git config --global user.email)" ]; then
-  if ! git config --global user.name "$login" || ! git config --global user.email "$uid+$login@users.noreply.github.com"; then
-    die "could not set git's identity"
-  fi
-  echo "tehas setup: git commits as $login <$uid+$login@users.noreply.github.com>"
-else
-  echo "tehas setup: git's identity is kept: $(git config --global user.name) <$(git config --global user.email)>"
-fi
-
-TEHAS_SETTINGS_CMD=${TEHAS_SETTINGS_CMD:-$console} tehas_load || exit 78
-tehas_require_instance_settings
-step() { # <name> <command...>
-  local name=$1 rc=0
-  shift
-  "$@" || rc=$?
-  [ "$rc" = 0 ] || die "$name failed (exit $rc); fix it and run tehas setup again" "$rc"
-}
-# The app's gh and helper are the install's; the install below reads the clone.
-[ "$kind" != app ] || [ -x "$TEHAS_HOME/shim/gh" ] || [ ! -x "$here/../install.sh" ] || step install.sh "$here/../install.sh"
-if [ ! -d "$TEHAS_WORK_REPO/.git" ]; then
-  mkdir -p "$(dirname "$TEHAS_WORK_REPO")"
-  gh repo clone "$TEHAS_REPO" "$TEHAS_WORK_REPO" -- -q || die "could not clone $TEHAS_REPO to $TEHAS_WORK_REPO"
-  echo "tehas setup: cloned $TEHAS_REPO to $TEHAS_WORK_REPO"
-fi
-
-if [ -x "$here/../install.sh" ]; then
-  step install.sh "$here/../install.sh"
-else
-  echo "tehas setup: no install.sh beside this command; run the platform's install.sh yourself"
-fi
-step "tehas labels" "$TEHAS_HOME/bin/tehas" labels
-
-if [ "$build" = 1 ]; then
-  if docker image inspect "$PI_ENSEMBLE_IMAGE" >/dev/null 2>&1; then
-    echo "tehas setup: the sandbox image is there ($PI_ENSEMBLE_IMAGE)"
-  else
-    step "the sandbox build" "$TEHAS_HOME/sandbox/build.sh"
-  fi
-  if [ -x "$here/check-product" ]; then
-    step "tehas check-product --sandbox" "$here/check-product" --sandbox
-  else
-    echo "tehas setup: check-product is not installed, so the product's gates were not run in the sandbox"
-  fi
-fi
-
-step "systemctl --user daemon-reload" systemctl --user daemon-reload
-step "enabling the dispatcher" systemctl --user enable --now tehas-dispatch.timer tehas-dispatch.path
-docs=$TEHAS_HOME/edge/docs.compose.yaml
-[ ! -r "$docs" ] || step "the docs server" docker compose -f "$docs" up -d
-echo "tehas setup: done. The dashboard is at http://${TEHAS_HOST_ADDR:-127.0.0.1}:8080/"
-echo "tehas setup: label a small issue in $TEHAS_REPO with tehas:ready to start the first cycle"
+exec "$console" setup run "$here" "$EUID" "$BASH" "$@"

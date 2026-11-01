@@ -1,58 +1,91 @@
-//! The first half of tehas setup: the settings, the checks and the files
-//! (libexec/setup says what the command does as a whole).
+//! tehas setup, after libexec/setup has found or built this console
+//! (src/usage/setup.txt says what the command does as a whole).
 //!
-//!   console setup files <instance dir> [options of tehas setup]...
+//!   console setup run <libexec dir> <euid> <bash> [options of tehas setup]...
 //!
-//! Reads what the options leave out from the instance's files, then asks on
-//! a terminal. Checks every value and refuses a setting that is there and
-//! differs, unless --force, before it calls anything. Then checks GitHub and
-//! the endpoint, makes the control issue, and writes instance.env, models.json,
-//! ~/.config/tehas/env and the app's key. The app's token is made by
-//! src/github.rs. Nothing is written before every check passed.
+//! First the settings, the checks and the files. Reads what the options leave
+//! out from the instance's files, then asks on a terminal. Checks every value
+//! and refuses a setting that is there and differs, unless --force, before it
+//! calls anything. Then checks GitHub and the endpoint, makes the control
+//! issue, and writes instance.env, models.json, ~/.config/tehas/env and the
+//! app's key. The app's token is made by src/github.rs. Nothing is written
+//! before every check passed. What this half says goes to standard error.
 //!
-//! What it says goes to standard error. Standard output is one line for the
-//! steps after it: "<build 0|1> token", or "<build 0|1> app <bot> <bot id>".
+//! Then the steps: git's helper and identity, the clone, the install, the
+//! labels, the sandbox, the units. What they say goes to standard output, a
+//! failure to standard error. `<libexec dir>` is where the command stands and
+//! `<euid>` and `<bash>` are its shell's, as for `console settings load`.
 //!
-//! Exit: 0 written; 1 a check failed; 64 usage; 78 a setting is missing,
-//! malformed or differs from the one there without --force.
+//! Exit: 0 done; 1 a check or a step failed (a step's own status when it has
+//! one); 64 usage; 78 a setting is missing, malformed or differs from the one
+//! there without --force, or git's config could not be read.
 
+use crate::forge::runnable;
 use crate::github;
+use crate::settings;
 use serde_json::{json, Value};
+use std::ffi::OsStr;
 use std::fs::{self, DirBuilder, OpenOptions};
 use std::io::{self, BufRead, IsTerminal, Write};
+use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
+use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Command, ExitStatus, Stdio};
+use tehas_core::sandbox::HELPER_KEY;
+use tehas_core::settings::load::{self, Vars};
 
 const USAGE: &str = "usage: tehas setup [--repo owner/name] [--labellers \"a b\"] [--token-file f|- | --app-id id --app-installation id --app-key-file f] [--endpoint url] [--model id] [--model-key-file f|-] [--provider name] [--control-issue n] [--no-build] [--force]";
 
 const CONTROL_BODY: &str = "The control issue of this repository's tehas factory. The label tehas:pause here stops it starting work. Keep this issue open; it is never worked on.";
 
+/// The host git authenticates to; HELPER_KEY is its helper's config key.
+const GIT_HOST: &str = "github.com";
+
+/// tehas_require_instance_settings.
+const INSTANCE_SETTINGS: [&str; 5] = [
+    "TEHAS_REPO",
+    "TEHAS_CONTROL_ISSUE",
+    "TEHAS_ALLOWED_LABELERS",
+    "PI_ENSEMBLE_SUBAGENT_MODEL",
+    "PI_ENSEMBLE_SUBAGENT_PROVIDER",
+];
+
 enum Fail {
     Usage,
     Bad(String),
     Die(String),
+    /// The status, with what there was to say said.
+    Stop(u8),
 }
-use Fail::{Bad, Die};
+use Fail::{Bad, Die, Stop};
 
 fn say(what: &str) {
     eprintln!("tehas setup: {what}");
 }
 
+/// For a person reading standard output, which may be gone.
+fn tell(what: &str) {
+    let _ = writeln!(io::stdout(), "tehas setup: {what}");
+}
+
 pub fn main(given: &[String]) -> u8 {
-    let [verb, dir, rest @ ..] = given else {
+    let [verb, libexec, uid, bash, rest @ ..] = given else {
         eprintln!("{USAGE}");
         return 64;
     };
-    if verb != "files" {
+    if verb != "run" {
         eprintln!("{USAGE}");
         return 64;
     }
-    match run(Path::new(dir), rest) {
-        Ok(line) => {
-            println!("{line}");
-            0
-        }
+    let shell = Shell { uid, bash };
+    let mut vars = settings::this_environment();
+    let dir = settings::instance_dir(&vars);
+    let done = files(Path::new(&dir), rest)
+        .and_then(|written| steps(Path::new(libexec), &shell, &mut vars, &written));
+    match done {
+        Ok(()) => 0,
+        Err(Stop(status)) => status,
         Err(Fail::Usage) => {
             eprintln!("{USAGE}");
             64
@@ -291,7 +324,13 @@ impl Conflicts {
     }
 }
 
-fn run(dir: &Path, args: &[String]) -> Result<String, Fail> {
+/// What the files leave for the steps. `bot` is the app's login and ID.
+struct Written {
+    build: bool,
+    bot: Option<(String, String)>,
+}
+
+fn files(dir: &Path, args: &[String]) -> Result<Written, Fail> {
     let mut g = parse(args)?;
     let app = !(g.app_id.is_empty() && g.app_inst.is_empty() && g.app_key_file.is_empty());
     if app {
@@ -728,11 +767,354 @@ fn run(dir: &Path, args: &[String]) -> Result<String, Fail> {
         ));
     }
 
-    let build = u8::from(g.build);
-    Ok(match bot {
-        Some((login, id)) => format!("{build} app {login} {id}"),
-        None => format!("{build} token"),
+    Ok(Written {
+        build: g.build,
+        bot,
     })
+}
+
+/// The shell of libexec/setup, which a load asks for.
+struct Shell<'a> {
+    uid: &'a str,
+    bash: &'a str,
+}
+
+impl Shell<'_> {
+    /// tehas_load || exit 78.
+    fn load(&self, vars: &mut Vars) -> Result<(), Fail> {
+        settings::load_into(vars, self.uid, self.bash).map_err(|line| {
+            eprintln!("tehas: {line}");
+            Stop(78)
+        })
+    }
+}
+
+/// A program under `vars` and nothing else. A name without a slash is looked
+/// for on the PATH of `vars`.
+fn program(vars: &Vars, name: impl AsRef<OsStr>) -> Command {
+    let mut command = Command::new(name);
+    command.env_clear().envs(
+        vars.iter()
+            .map(|(k, v)| (OsStr::from_bytes(k), OsStr::from_bytes(v))),
+    );
+    command
+}
+
+/// The status a shell gives what it ran.
+fn status_of(done: io::Result<ExitStatus>) -> u8 {
+    match done {
+        Ok(status) => status
+            .code()
+            .or_else(|| status.signal().map(|signal| 128 + signal))
+            .and_then(|code| u8::try_from(code).ok())
+            .unwrap_or(1),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => 127,
+        Err(_) => 126,
+    }
+}
+
+fn step(name: &str, command: &mut Command) -> Result<(), Fail> {
+    match status_of(command.status()) {
+        0 => Ok(()),
+        rc => {
+            say(&failed(name, rc));
+            Err(Stop(rc))
+        }
+    }
+}
+
+/// The status closes the line, as it always has.
+fn failed(name: &str, rc: u8) -> String {
+    format!("{name} failed (exit {rc}); fix it and run tehas setup again {rc}")
+}
+
+/// The command's standard output, whatever its status; standard input and
+/// standard error stay the caller's to give.
+fn asked(command: &mut Command) -> String {
+    let said = command.stdin(Stdio::inherit()).output();
+    let said = said.map_or(Vec::new(), |done| done.stdout);
+    String::from_utf8_lossy(&said)
+        .trim_end_matches('\n')
+        .to_string()
+}
+
+fn git_global(vars: &Vars, key: &str) -> String {
+    asked(
+        program(vars, "git")
+            .args(["config", "--global", key])
+            .stderr(Stdio::inherit()),
+    )
+}
+
+/// lib/github-app.sh, tehas_github_app_env: gh and git act as the app, through
+/// the shim the install puts in place.
+fn act_as_the_app(vars: &mut Vars) {
+    if vars.text("TEHAS_GITHUB_APP_ID").is_empty() {
+        return;
+    }
+    let shim = format!("{}/shim", vars.text("TEHAS_HOME"));
+    let path = vars.text("PATH");
+    vars.unset(b"GH_TOKEN");
+    if !format!(":{path}:").contains(&format!(":{shim}:")) {
+        vars.set("PATH", format!("{shim}:{path}"));
+    }
+    vars.set("GIT_CONFIG_COUNT", "2");
+    vars.set("GIT_CONFIG_KEY_0", HELPER_KEY);
+    vars.set("GIT_CONFIG_VALUE_0", "");
+    vars.set("GIT_CONFIG_KEY_1", HELPER_KEY);
+    vars.set(
+        "GIT_CONFIG_VALUE_1",
+        format!("!{shim}/gh auth git-credential"),
+    );
+}
+
+/// The token just written. The file is shell, sourced as host/env.sh sources
+/// it, and hands the token back on standard output, never on a command line.
+fn written_token(vars: &Vars, bash: &str) -> Result<String, Fail> {
+    let file = format!("{}/.config/tehas/env", vars.text("HOME"));
+    let done = program(vars, bash)
+        .args(["-c", r#". "$0" && printf '%s' "${GH_TOKEN:-}""#, &file])
+        .env_remove("BASH_ENV")
+        .stdin(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .output();
+    match done {
+        Ok(done) if done.status.success() => Ok(String::from_utf8_lossy(&done.stdout)
+            .trim_end_matches('\n')
+            .to_string()),
+        _ => Err(Die(format!("could not read {file}"))),
+    }
+}
+
+/// How many entries `git config --get-all` listed, one line each.
+fn helpers_listed(values: &str) -> usize {
+    values.trim_end_matches('\n').split('\n').count()
+}
+
+/// Before the clone and before the identity: with no helper for github.com a
+/// host cannot read a private product's remote with plain git, and the fetches
+/// of tehas dispatch, update, status and preview stop at a prompt.
+fn give_git_the_helper(vars: &Vars) -> Result<(), Fail> {
+    // Neither stream is printed: the value is a command an operator wrote and
+    // may hold a token, and git's words name the file and can quote a value.
+    // git says nothing and exits 1 when the key is not set, so a word on
+    // standard error is a file git refused. gh would write over it, so this is
+    // a settings problem. The read covers what git reads from this directory;
+    // the product's checkout is not made yet.
+    let read = program(vars, "git")
+        .args(["config", "--get-all", HELPER_KEY])
+        .stdin(Stdio::inherit())
+        .output();
+    let (rc, values, words) = match read {
+        Ok(done) => (status_of(Ok(done.status)), done.stdout, done.stderr),
+        Err(_) => (127, Vec::new(), b"no git".to_vec()),
+    };
+    if !String::from_utf8_lossy(&words).trim().is_empty() {
+        return Err(Bad(format!("could not read git's credential helper for {GIT_HOST} (git exit {rc}); fix git's config and run tehas setup again 78")));
+    }
+    // gitcredentials ends a list at an empty value, so a chain of nothing but
+    // empty entries is no helper.
+    let values = String::from_utf8_lossy(&values);
+    if !values.trim().is_empty() {
+        let n = helpers_listed(&values);
+        tell(&format!(
+            "git's helper for {GIT_HOST} is kept ({n} in git's config)"
+        ));
+        return Ok(());
+    }
+    // No terminal to prompt on: setup may be run from a unit.
+    let rc = status_of(
+        program(vars, "gh")
+            .args(["auth", "setup-git", "--hostname", GIT_HOST])
+            .env("GIT_TERMINAL_PROMPT", "0")
+            .stderr(Stdio::null())
+            .status(),
+    );
+    if rc != 0 {
+        return Err(Die(format!(
+            "gh auth setup-git failed for {GIT_HOST} (exit {rc}); it cannot give git a credential helper"
+        )));
+    }
+    tell(&format!("git uses gh's credential helper for {GIT_HOST}"));
+    Ok(())
+}
+
+/// The login and the ID in what `gh api user` said, as `read` splits a line.
+fn who(said: &str) -> Option<(String, String)> {
+    let line = said.lines().next()?.trim();
+    let (login, id) = line.split_once([' ', '\t']).unwrap_or((line, ""));
+    (!login.is_empty()).then(|| (login.to_string(), id.trim().to_string()))
+}
+
+/// An installation token cannot ask /user who it is: an app's bot comes from
+/// the files.
+fn the_bot(vars: &Vars, bot: &Option<(String, String)>) -> Result<(String, String), Fail> {
+    if let Some(bot) = bot {
+        return Ok(bot.clone());
+    }
+    who(&asked(
+        program(vars, "gh")
+            .args(["api", "user", "--jq", "[.login,.id]|@tsv"])
+            .stderr(Stdio::null()),
+    ))
+    .ok_or_else(|| Die("gh api user did not say who the bot is".into()))
+}
+
+fn give_git_an_identity(vars: &Vars, login: &str, id: &str) -> Result<(), Fail> {
+    let name = git_global(vars, "user.name");
+    let email = git_global(vars, "user.email");
+    if !name.is_empty() || !email.is_empty() {
+        tell(&format!("git's identity is kept: {name} <{email}>"));
+        return Ok(());
+    }
+    let noreply = format!("{id}+{login}@users.noreply.github.com");
+    for (key, value) in [("user.name", login), ("user.email", &noreply)] {
+        let set = program(vars, "git")
+            .args(["config", "--global", key, value])
+            .status();
+        if status_of(set) != 0 {
+            return Err(Die("could not set git's identity".into()));
+        }
+    }
+    tell(&format!("git commits as {login} <{noreply}>"));
+    Ok(())
+}
+
+/// tehas_require_instance_settings, on what the load left: the line for
+/// standard error, without its `tehas: `, or nothing when all are good.
+fn missing_setting(vars: &Vars) -> Option<String> {
+    let dir = vars.text("TEHAS_INSTANCE_DIR");
+    let dir = if dir.is_empty() { "?" } else { &dir };
+    let bad = load::bad(vars);
+    INSTANCE_SETTINGS.iter().find_map(|name| {
+        if vars.text(name).trim_matches(' ').is_empty() {
+            return Some(format!("{name} is not set (see {dir}/instance.env)"));
+        }
+        let (_, why) = bad.iter().find(|(n, _)| n == name)?;
+        Some(format!(
+            "{name} is not valid: {why} (see {dir}/instance.env)"
+        ))
+    })
+}
+
+fn clone_the_product(vars: &Vars) -> Result<(), Fail> {
+    let (repo, work) = (vars.text("TEHAS_REPO"), vars.text("TEHAS_WORK_REPO"));
+    if Path::new(&work).join(".git").is_dir() {
+        return Ok(());
+    }
+    if let Some(parent) = Path::new(&work).parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    let clone = program(vars, "gh")
+        .args(["repo", "clone", &repo, &work, "--", "-q"])
+        .status();
+    if status_of(clone) != 0 {
+        return Err(Die(format!("could not clone {repo} to {work}")));
+    }
+    tell(&format!("cloned {repo} to {work}"));
+    Ok(())
+}
+
+fn the_sandbox(vars: &Vars, libexec: &Path, home: &str) -> Result<(), Fail> {
+    let image = vars.text("PI_ENSEMBLE_IMAGE");
+    let there = program(vars, "docker")
+        .args(["image", "inspect", &image])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+    if status_of(there) == 0 {
+        tell(&format!("the sandbox image is there ({image})"));
+    } else {
+        step(
+            "the sandbox build",
+            &mut program(vars, format!("{home}/sandbox/build.sh")),
+        )?;
+    }
+    let check = libexec.join("check-product");
+    if runnable(&check) {
+        step(
+            "tehas check-product --sandbox",
+            program(vars, check).arg("--sandbox"),
+        )?;
+    } else {
+        tell("check-product is not installed, so the product's gates were not run in the sandbox");
+    }
+    Ok(())
+}
+
+/// Steps 3 to 7 of the text. Each load is this process's, so install.sh still
+/// builds and judges its own console.
+fn steps(libexec: &Path, shell: &Shell, vars: &mut Vars, done: &Written) -> Result<(), Fail> {
+    // From here gh acts as the app through the shim, as every later command on
+    // the host does. Without one it acts with the token just written.
+    if done.bot.is_some() {
+        shell.load(vars)?;
+        act_as_the_app(vars);
+    } else {
+        let token = written_token(vars, shell.bash)?;
+        vars.set("GH_TOKEN", token);
+    }
+    give_git_the_helper(vars)?;
+    let (login, id) = the_bot(vars, &done.bot)?;
+    give_git_an_identity(vars, &login, &id)?;
+
+    shell.load(vars)?;
+    if let Some(line) = missing_setting(vars) {
+        eprintln!("tehas: {line}");
+        return Err(Stop(78));
+    }
+    let home = vars.text("TEHAS_HOME");
+    let install = libexec.join("../install.sh");
+    let has_install = runnable(&install);
+    // The app's gh and helper are the install's; the install below reads the
+    // clone.
+    let no_shim = !runnable(&Path::new(&home).join("shim/gh"));
+    if done.bot.is_some() && no_shim && has_install {
+        step("install.sh", &mut program(vars, &install))?;
+    }
+    clone_the_product(vars)?;
+    if has_install {
+        step("install.sh", &mut program(vars, &install))?;
+    } else {
+        tell("no install.sh beside this command; run the platform's install.sh yourself");
+    }
+    step(
+        "tehas labels",
+        program(vars, format!("{home}/bin/tehas")).arg("labels"),
+    )?;
+    if done.build {
+        the_sandbox(vars, libexec, &home)?;
+    }
+
+    step(
+        "systemctl --user daemon-reload",
+        program(vars, "systemctl").args(["--user", "daemon-reload"]),
+    )?;
+    step(
+        "enabling the dispatcher",
+        program(vars, "systemctl").args([
+            "--user",
+            "enable",
+            "--now",
+            "tehas-dispatch.timer",
+            "tehas-dispatch.path",
+        ]),
+    )?;
+    let docs = format!("{home}/edge/docs.compose.yaml");
+    if fs::File::open(&docs).is_ok() {
+        step(
+            "the docs server",
+            program(vars, "docker").args(["compose", "-f", &docs, "up", "-d"]),
+        )?;
+    }
+    let addr = vars.text("TEHAS_HOST_ADDR");
+    let addr = if addr.is_empty() { "127.0.0.1" } else { &addr };
+    tell(&format!("done. The dashboard is at http://{addr}:8080/"));
+    tell(&format!(
+        "label a small issue in {} with tehas:ready to start the first cycle",
+        vars.text("TEHAS_REPO")
+    ));
+    Ok(())
 }
 
 fn line(k: &str, v: &str, quoted: bool) -> String {
@@ -885,6 +1267,135 @@ mod tests {
         assert!(!g.build && g.force);
         assert!(matches!(parse(&a(&["--repo"])), Err(Fail::Usage)));
         assert!(matches!(parse(&a(&["--bogus"])), Err(Fail::Usage)));
+    }
+
+    #[test]
+    fn a_shell_reads_the_status_of_what_it_ran() {
+        let run = |line: &str| status_of(Command::new("sh").args(["-c", line]).status());
+        assert_eq!(run("exit 3"), 3);
+        assert_eq!(run("kill -TERM $$"), 143);
+        assert_eq!(status_of(Command::new("/no/such/program").status()), 127);
+        assert_eq!(status_of(Command::new("/").status()), 126);
+    }
+
+    #[test]
+    fn a_step_that_fails_stops_with_its_status_and_says_it_twice() {
+        assert_eq!(
+            failed("install.sh", 78),
+            "install.sh failed (exit 78); fix it and run tehas setup again 78"
+        );
+        let mut command = Command::new("sh");
+        command.args(["-c", "exit 5"]);
+        assert!(matches!(step("x", &mut command), Err(Stop(5))));
+        assert!(step("x", &mut Command::new("true")).is_ok());
+    }
+
+    #[test]
+    fn a_child_has_the_environment_of_the_load_and_no_other() {
+        let path = std::env::var_os("PATH").unwrap().into_encoded_bytes();
+        let mut vars = Vars::new([(b"PATH".to_vec(), path)]);
+        vars.set("A_NAME", "a value");
+        let said = asked(
+            program(&vars, "sh")
+                .args(["-c", "echo \"$A_NAME/${HOME:-none}\""])
+                .stderr(Stdio::inherit()),
+        );
+        assert_eq!(said, "a value/none");
+    }
+
+    #[test]
+    fn the_token_comes_out_of_the_file_on_no_command_line() {
+        let d = scratch("token");
+        fs::create_dir_all(d.join(".config/tehas")).unwrap();
+        fs::write(d.join(".config/tehas/env"), "GH_TOKEN=ghp_x\n").unwrap();
+        let mut vars = Vars::new([(
+            b"PATH".to_vec(),
+            std::env::var_os("PATH").unwrap().into_encoded_bytes(),
+        )]);
+        vars.set("HOME", d.display().to_string());
+        assert_eq!(written_token(&vars, "bash").ok().unwrap(), "ghp_x");
+        fs::write(d.join(".config/tehas/env"), "if\n").unwrap();
+        let Err(Die(why)) = written_token(&vars, "bash") else {
+            panic!("a file that is no shell was read");
+        };
+        assert_eq!(
+            why,
+            format!("could not read {}/.config/tehas/env", d.display())
+        );
+    }
+
+    #[test]
+    fn the_app_gets_its_shim_and_helper_and_loses_a_token() {
+        let mut vars = Vars::new([(b"PATH".to_vec(), b"/bin".to_vec())]);
+        vars.set("TEHAS_HOME", "/h");
+        vars.set("GH_TOKEN", "old");
+        act_as_the_app(&mut vars);
+        assert_eq!(vars.text("GH_TOKEN"), "old", "no app, no change");
+        assert!(!vars.is_set("GIT_CONFIG_COUNT"));
+
+        vars.set("TEHAS_GITHUB_APP_ID", "7");
+        act_as_the_app(&mut vars);
+        assert!(!vars.is_set("GH_TOKEN"));
+        assert_eq!(vars.text("PATH"), "/h/shim:/bin");
+        assert_eq!(vars.text("GIT_CONFIG_COUNT"), "2");
+        assert_eq!(vars.text("GIT_CONFIG_KEY_0"), HELPER_KEY);
+        assert_eq!(vars.text("GIT_CONFIG_VALUE_0"), "");
+        assert_eq!(vars.text("GIT_CONFIG_KEY_1"), HELPER_KEY);
+        assert_eq!(
+            vars.text("GIT_CONFIG_VALUE_1"),
+            "!/h/shim/gh auth git-credential"
+        );
+        act_as_the_app(&mut vars);
+        assert_eq!(vars.text("PATH"), "/h/shim:/bin", "once on PATH");
+    }
+
+    #[test]
+    fn the_helper_key_names_the_host() {
+        assert_eq!(HELPER_KEY, format!("credential.https://{GIT_HOST}.helper"));
+    }
+
+    #[test]
+    fn an_empty_entry_counts_as_a_line_of_the_list() {
+        assert_eq!(helpers_listed("\n!gh auth git-credential\n"), 2);
+        assert_eq!(helpers_listed("!store\n"), 1);
+    }
+
+    #[test]
+    fn the_bot_is_the_first_two_words_of_the_first_line() {
+        let got = |s: &str| who(s);
+        assert_eq!(
+            got("tehas-bot\t4242\n"),
+            Some(("tehas-bot".into(), "4242".into()))
+        );
+        assert_eq!(got("tehas-bot"), Some(("tehas-bot".into(), String::new())));
+        assert_eq!(got(""), None);
+        assert_eq!(got("\n"), None);
+    }
+
+    #[test]
+    fn an_instance_setting_is_named_when_it_is_unset_or_invalid() {
+        let mut vars = Vars::new([]);
+        assert_eq!(
+            missing_setting(&vars).unwrap(),
+            "TEHAS_REPO is not set (see ?/instance.env)"
+        );
+        vars.set("TEHAS_INSTANCE_DIR", "/i");
+        vars.set("TEHAS_REPO", "   ");
+        assert_eq!(
+            missing_setting(&vars).unwrap(),
+            "TEHAS_REPO is not set (see /i/instance.env)"
+        );
+        vars.set("TEHAS_REPO", "not a repo");
+        assert_eq!(
+            missing_setting(&vars).unwrap(),
+            "TEHAS_REPO is not valid: expected owner/name (see /i/instance.env)"
+        );
+        vars.set("TEHAS_REPO", "acme/widget");
+        vars.set("TEHAS_CONTROL_ISSUE", "1");
+        vars.set("TEHAS_ALLOWED_LABELERS", "alice");
+        vars.set("PI_ENSEMBLE_SUBAGENT_MODEL", "m");
+        vars.set("PI_ENSEMBLE_SUBAGENT_PROVIDER", "p");
+        assert_eq!(missing_setting(&vars), None);
     }
 
     #[test]

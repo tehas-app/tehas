@@ -178,7 +178,7 @@ fn has(vars: &Vars, name: &str) -> bool {
 
 /// Where the instance's settings are: the environment, else the first line of
 /// ~/.config/tehas/instance-dir, else ~/.config/tehas.
-fn instance_dir(vars: &Vars, host: &dyn Host) -> String {
+pub fn instance_dir(vars: &Vars, host: &dyn Host) -> String {
     let dir = vars.text("TEHAS_INSTANCE_DIR");
     if !dir.is_empty() {
         return dir;
