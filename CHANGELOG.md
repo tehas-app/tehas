@@ -30,6 +30,9 @@ empty one above it.
 - The previews' network is checked and made by the console (`console preview network`); `install.sh` no longer sources `lib/edge.sh`.
 - A planning turn's preparation, docker wait and end moved from `libexec/plan` to `console plan`.
 - The GitHub App token is made in the console, and the JWT and the token reach curl on standard input, not on its command line.
+- A factory pull request whose issue carries `needs-human-attention` loses
+  `STUCK: ` when it is proven fine to merge: clean on GitHub, and the last
+  six-pass review is newer than its head and lists nothing above MEDIUM.
 
 ### Adopter action
 
