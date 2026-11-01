@@ -100,7 +100,7 @@ tehas_steps_into() { # changed source paths -> tehas_steps
       ;;
     # The MCP server's container mounts its binary: a new one reaches it only
     # when the unit starts the container again.
-    *" libexec/mcp "* | *"/tehas-mcp "*) tehas_steps+=("units tehas-mcp.service") ;;
+    *"/tehas-mcp "*) tehas_steps+=("units tehas-mcp.service") ;;
   esac
   case "$list" in
     *" sandbox/"* | *" versions.env "*) tehas_steps+=(sandbox) ;;

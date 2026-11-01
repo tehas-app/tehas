@@ -13,10 +13,11 @@
 //!   console tehas resume
 //!   console tehas drain [--wait SECONDS] [--json]
 //!   console tehas stop <issue> [--keep-workspace]
+//!   console tehas|tehasbot mcp serve|key
 //!   console tehasbot health
 //!   console tehasbot top [--every]
 //!
-//! status, disk and top need no settings. The rest run under
+//! status, disk, top and mcp key need no settings. The rest run under
 //! `libexec/with-settings`, which first asks `console check` with the same
 //! words: an argument that cannot be right is 64 with the usage, whatever the
 //! settings hold, and only then are they loaded. `console needs` with those
@@ -29,7 +30,7 @@
 //!
 //! Exit: the status of the command; 64 usage.
 
-use crate::{api, disk, flags, health, labels, state, status, stop, top};
+use crate::{api, disk, flags, health, labels, mcp, state, status, stop, top};
 use std::env;
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::process::CommandExt;
@@ -144,6 +145,7 @@ pub fn tehas(given: &[String]) -> u8 {
         "resume" => flags::resume(rest),
         "drain" => flags::drain(rest),
         "stop" => stop::main(rest),
+        "mcp" => mcp::main(rest),
         _ => {
             eprintln!("console tehas: no such command: {command}");
             64
@@ -155,8 +157,9 @@ pub fn tehasbot(given: &[String]) -> u8 {
     match given.first().map(String::as_str) {
         Some("health") => health::loaded(),
         Some("top") => top::publish(&given[1..]),
+        Some("mcp") => mcp::main(&given[1..]),
         _ => {
-            eprintln!("console tehasbot: usage: health | top [--every]");
+            eprintln!("console tehasbot: usage: health | top [--every] | mcp");
             64
         }
     }
@@ -216,6 +219,7 @@ fn text(command: &str) -> Option<&'static str> {
         "drain" => include_str!("usage/drain.txt"),
         "labels" => include_str!("usage/labels.txt"),
         "limit" => include_str!("usage/limit.txt"),
+        "mcp" => include_str!("usage/mcp.txt"),
         "pause" => include_str!("usage/pause.txt"),
         "resume" => include_str!("usage/resume.txt"),
         "state" => include_str!("usage/state.txt"),
