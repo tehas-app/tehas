@@ -15,6 +15,9 @@ empty one above it.
 
 - `scripts/verify.sh --changed` runs `cargo test -p` for the crates a change can
   affect, not the whole workspace (#911).
+- A factory pull request whose issue carries `needs-human-attention` loses
+  `STUCK: ` when it is proven fine to merge: clean on GitHub, and the last
+  six-pass review is newer than its head and lists nothing above MEDIUM.
 
 ### Adopter action
 
