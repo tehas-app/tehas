@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
 # Tests for lib/update-steps.sh: the follow-up names install.sh prints and
-# tehas update runs, the sources that call for each one, what counts as a step
-# line rather than text, the order the steps run in, and the record of steps owed.
+# tehas update runs, the sources that call for each one, the order the steps run
+# in, and the record of steps owed. What counts as a step line rather than text
+# is the console's: its cases are the Rust tests of console/src/update/steps.rs.
 # shellcheck disable=SC2016  # snippets are expanded by the shell under test
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
 # shellcheck source=lib/update-steps.sh
 . "$T_ROOT/lib/update-steps.sh"
+# shellcheck disable=SC2154  # t_console_why is set by t_console (test/lib.sh)
+t_console || t_bad "no console: $t_console_why"
 
 t_case "the changed sources ask for the steps, systemd first"
 t_eq "$(tehas_steps_for systemd/tehas-dispatch.timer sandbox/Dockerfile versions.env \
@@ -76,7 +79,7 @@ for srcs in "systemd/tehas-dispatch.timer sandbox/Dockerfile edge/docs.Caddyfile
 done
 t_eq "${#tehas_steps[@]}" 0
 
-t_case "every step it asks for is one it defines, and reads back as valid"
+t_case "every step it asks for is one it defines, and the console takes it as valid"
 ids=$(tehas_step_ids | tr '\n' ' ')
 while IFS= read -r step; do
   id=${step%% *}
@@ -84,49 +87,16 @@ while IFS= read -r step; do
     *" $id "*) ;;
     *) t_bad "tehas_steps_for asked for an id this file does not define: $step" ;;
   esac
-  if ! tehas_valid_step "$step"; then t_bad "a step this file asked for is not one it accepts: $step"; fi
+  "$T_CONSOLE" update steps valid "$step" || t_bad "a step this file asked for is not one the console accepts: $step"
 done < <(tehas_steps_for systemd/tehas-dispatch.service sandbox/build.sh versions.env \
   edge/docs.compose.yaml edge/router.Caddyfile)
 
-t_case "a line that is not a step this file knows is refused"
-# A compose id on its own belongs on this list: docker compose up -d without
-# --force-recreate leaves a running container serving the config it loaded at its
-# start, so a bare id would perform the weaker action and then be counted as the
-# step having run.
-for bad in "" "rm -rf something" "units" "units --help tehas-dispatch.timer" \
-  "units dispatch" "units tehas-dispatch.timers" "units ../etc/passwd" \
-  "units gnome-shell.service" "units systemd-journald.service" \
-  "docs" "edge" "docs restart" "docs up -d" "docs --always-recreate" \
-  "docs --force-recreate up" "docs --force-recreate --force-recreate" \
-  "edge --always-recreate" "sandbox --now" "labels x" "labels --force"; do
-  t_case "refused: [$bad]"
-  if tehas_valid_step "$bad"; then t_bad "accepted: $bad"; fi
-done
-
-t_case "a step line is read as words, not as a command"
-# Names are parsed as unit names, and nothing here runs: the file only answers
-# questions. Instance names and odd characters parse as the single word they are.
-tehas_is_unit "tehas-energy@1.service" || t_bad "a unit name with @ was refused"
-tehas_is_unit "socket-2.socket" || t_bad "a unit name with - and a digit was refused"
-tehas_is_unit "--force-recreate" && t_bad "an option was taken for a unit name"
-# A name that parses is still not enough: the units step may only name units this
-# version of tehas installs, so no step line reaches some other unit of the host's.
-tehas_valid_step "units $(tehas_units | tr '\n' ' ')" ||
-  t_bad "the units install.sh names were refused"
-tehas_valid_step "units gnome-shell.service" &&
-  t_bad "a unit tehas does not install was accepted"
-tehas_valid_step "docs --force-recreate" || t_bad "the flag install.sh asks for was refused"
-tehas_valid_step "docs" && t_bad "a bare docs was accepted, which is the weaker renewal"
-# The labels step is the bare id: the command it runs takes no argument.
-tehas_valid_step "labels" || t_bad "the bare labels line install.sh records was refused"
-t_run '. "$T_ROOT/lib/update-steps.sh"; tehas_valid_step "labels x"; echo rc=$?'
-t_eq "$t_out" "rc=1"
+# While both tables exist: what install.sh asks for and what the console runs.
+t_case "the console names the steps and the units this file names"
+t_eq "$("$T_CONSOLE" update steps ids)" "$(tehas_step_ids)"
+t_eq "$("$T_CONSOLE" update steps units)" "$(tehas_units)"
 
 t_case "a step recorded under the Protolab's old id is still a step"
-t_run '. "$T_ROOT/lib/update-steps.sh"; tehas_valid_step "protolab --force-recreate"; echo rc=$?'
-t_eq "$t_out" "rc=0"
-t_run '. "$T_ROOT/lib/update-steps.sh"; tehas_valid_step "edge --force-recreate"; echo rc=$?'
-t_eq "$t_out" "rc=0"
 t_eq "$(tehas_sort_steps "protolab --force-recreate" "units tehas-dispatch.timer")" \
   "units tehas-dispatch.timer
 protolab --force-recreate"
@@ -140,10 +110,6 @@ t_eq "$t_out" "edge
 edge
 docs
 a-step-newer-than-this"
-# Read through that function, the alias carries the rules of the id it stands
-# for: a bare protolab is the weaker renewal, and is refused like a bare edge.
-t_run '. "$T_ROOT/lib/update-steps.sh"; tehas_valid_step "protolab"; echo rc=$?'
-t_eq "$t_out" "rc=1"
 t_eq "$(tehas_sort_steps "protolab --force-recreate" "sandbox" "docs --force-recreate")" \
   "sandbox
 docs --force-recreate

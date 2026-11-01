@@ -1,21 +1,34 @@
 //! What `tehas update` decides and does. libexec/update holds the lock and
 //! runs install.sh; everything else of an update is here.
 //!
+//!   console update api
+//!   console update leftover --plan <file> --mode update|check|pending [--from git|release]
+//!   console update move --plan <file> [--to <version>]
+//!   console update finish --plan <file> [--tree <dir>] [--found 0|1] \
+//!     --install-out <file> --install-err <file> --install-rc <n>
 //!   console update release source|installed|newest|keep
 //!   console update release older|stale <version> <version>
-//!   console update move --plan <file> --mode update|check [--to <version>]
+//!   console update steps ids|units|valid <line>
 //!
-//! `release` answers one question about the releases, see src/update/release.rs.
-//! `move` chooses a version, downloads and checks it and switches current; it
-//! leaves what the script needs next in the plan file.
+//! `api` says which of these this console speaks: install.sh may have replaced
+//! the console while an update ran, and the one left has to finish it.
+//! `leftover` reads the steps an earlier run owes. `move` chooses a version,
+//! downloads and checks it and switches current, see src/update/release.rs.
+//! Each leaves what comes next in the plan file. `finish` reads install.sh's
+//! answer and runs the follow-ups, see src/update/finish.rs. `release` answers
+//! one question about the releases and `steps` names the steps, see
+//! src/update/steps.rs.
 //!
 //! Every program is spawned by name from PATH, so a host's own tool, or a
 //! test's stub, answers. Each call outside goes through `timeout`, and only
 //! what the message says it waited for is waited for.
 //!
-//! Exit: as each verb says; 64 usage, 78 a setting is missing.
+//! Exit: as each verb says; 64 usage, 78 a setting is missing, 99 the run is
+//! over and went well, which `leftover` says of --pending with nothing owed.
 
+mod finish;
 mod release;
+mod steps;
 
 use std::env;
 use std::fs;
@@ -26,9 +39,49 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-/// What a run of `tehas update` has come to mean by the time install.sh runs.
+/// What `console update api` answers. libexec/update passes this plan and these
+/// arguments to `finish`; a console that answers anything else cannot finish it.
+const API: u8 = 1;
+
+/// `leftover` answered the whole run.
+const ANSWERED: u8 = 99;
+
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub(crate) enum Mode {
+    #[default]
+    Update,
+    Check,
+    Pending,
+}
+
+impl Mode {
+    fn parse(word: &str) -> Option<Mode> {
+        match word {
+            "update" => Some(Mode::Update),
+            "check" => Some(Mode::Check),
+            "pending" => Some(Mode::Pending),
+            _ => None,
+        }
+    }
+
+    fn word(self) -> &'static str {
+        match self {
+            Mode::Update => "update",
+            Mode::Check => "check",
+            Mode::Pending => "pending",
+        }
+    }
+}
+
+/// What a run of `tehas update` knows at one step and the next needs. It is a
+/// file because the steps are separate programs, and the console that finishes
+/// a run may be another one than the console that began it: `API` is what says
+/// the two read this file alike.
 #[derive(Debug, Default, PartialEq)]
 pub(crate) struct Plan {
+    pub mode: Mode,
+    /// git or release; nothing for --pending, which asks neither.
+    pub from: String,
     /// The tree install.sh runs from.
     pub tree: String,
     /// --check found something to update.
@@ -37,18 +90,55 @@ pub(crate) struct Plan {
     pub reused: bool,
     /// The run ends here with this status: there is no install.sh to ask.
     pub end: Option<u8>,
+    /// The steps an earlier run owes, read before install.sh ran.
+    pub leftover: Vec<String>,
+    /// The lines of that record no step here knows.
+    pub unknown: Vec<String>,
 }
 
 impl Plan {
     fn text(&self) -> String {
         let mut text = format!(
-            "tree={}\nfound={}\nreused={}\n",
-            self.tree, self.found as u8, self.reused as u8
+            "mode={}\nfrom={}\ntree={}\nfound={}\nreused={}\n",
+            self.mode.word(),
+            self.from,
+            self.tree,
+            self.found as u8,
+            self.reused as u8
         );
         if let Some(end) = self.end {
             text.push_str(&format!("end={end}\n"));
         }
+        for line in &self.leftover {
+            text.push_str(&format!("leftover={line}\n"));
+        }
+        for line in &self.unknown {
+            text.push_str(&format!("unknown={line}\n"));
+        }
         text
+    }
+
+    fn parse(text: &str) -> Option<Plan> {
+        let mut plan = Plan::default();
+        for line in text.lines() {
+            let (key, value) = line.split_once('=')?;
+            match key {
+                "mode" => plan.mode = Mode::parse(value)?,
+                "from" => plan.from = value.to_string(),
+                "tree" => plan.tree = value.to_string(),
+                "found" => plan.found = value != "0",
+                "reused" => plan.reused = value != "0",
+                "end" => plan.end = Some(value.parse().ok()?),
+                "leftover" => plan.leftover.push(value.to_string()),
+                "unknown" => plan.unknown.push(value.to_string()),
+                _ => return None,
+            }
+        }
+        Some(plan)
+    }
+
+    fn read(file: &Path) -> Option<Plan> {
+        Plan::parse(&fs::read_to_string(file).ok()?)
     }
 
     fn write(&self, file: &Path) -> io::Result<()> {
@@ -175,12 +265,84 @@ pub(crate) fn host_or_refuse() -> Result<Host, u8> {
     })
 }
 
+/// The steps an earlier run was asked for and did not finish are still owed:
+/// install.sh's report of what changed is spent by the run that made the copies.
+/// A line no step here knows is not owed work this command can do; it is named
+/// at the end, kept in the record, and the run ends red.
+fn leftover(given: &[String]) -> u8 {
+    let (mut file, mut mode, mut from) = (None, None, None);
+    let mut words = given.iter();
+    while let Some(word) = words.next() {
+        let slot = match word.as_str() {
+            "--plan" => &mut file,
+            "--mode" => &mut mode,
+            "--from" => &mut from,
+            _ => {
+                tell(&format!(
+                    "console update leftover: unknown argument: {word}"
+                ));
+                return 64;
+            }
+        };
+        *slot = words.next().map(String::as_str);
+    }
+    let (Some(file), Some(mode)) = (file, mode.and_then(Mode::parse)) else {
+        tell("console update leftover: --plan and --mode are required");
+        return 64;
+    };
+    let host = match host_or_refuse() {
+        Ok(host) => host,
+        Err(rc) => return rc,
+    };
+    let Ok(record) = steps::read_record(&host.home) else {
+        tell("update: the follow-up record is there but cannot be read; nothing was run");
+        return 1;
+    };
+    let (known, unknown): (Vec<String>, Vec<String>) =
+        record.into_iter().partition(|line| steps::valid(line));
+    if !known.is_empty() {
+        tell(&format!(
+            "update: {} follow-up(s) an earlier run did not finish (see {})",
+            known.len(),
+            steps::record_file(&host.home).display()
+        ));
+        for line in &known {
+            tell(&format!("  next: {line}"));
+        }
+    }
+    if mode == Mode::Pending && known.is_empty() && unknown.is_empty() {
+        say("update: nothing is owed");
+        return ANSWERED;
+    }
+    let plan = Plan {
+        mode,
+        from: from.unwrap_or("").to_string(),
+        leftover: known,
+        unknown,
+        ..Plan::default()
+    };
+    if plan.write(Path::new(file)).is_err() {
+        tell(&format!(
+            "tehas update: could not write {file}; nothing was changed"
+        ));
+        return 1;
+    }
+    0
+}
+
 pub fn main(given: &[String]) -> u8 {
     match given.split_first() {
-        Some((verb, rest)) if verb == "release" => release::verb(rest),
+        Some((verb, [])) if verb == "api" => {
+            say(&API.to_string());
+            0
+        }
+        Some((verb, rest)) if verb == "leftover" => leftover(rest),
         Some((verb, rest)) if verb == "move" => release::moved(rest),
+        Some((verb, rest)) if verb == "finish" => finish::main(rest),
+        Some((verb, rest)) if verb == "release" => release::verb(rest),
+        Some((verb, rest)) if verb == "steps" => steps::verb(rest),
         _ => {
-            tell("console update: usage: release <question> | move --plan <file> --mode update|check [--to <version>]");
+            tell("console update: usage: api | leftover | move | finish | release <question> | steps <question>");
             64
         }
     }
@@ -223,15 +385,30 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_plan_says_each_field_on_its_line() {
+    fn the_plan_reads_back_as_it_was_written() {
         let plan = Plan {
-            tree: "/h/current".into(),
+            mode: Mode::Check,
+            from: "release".into(),
+            tree: "/h/cur=rent".into(),
             found: true,
             reused: false,
             end: Some(1),
+            leftover: vec!["docs --force-recreate".into(), "sandbox".into()],
+            unknown: vec!["rm -rf something=else".into()],
         };
-        assert_eq!(plan.text(), "tree=/h/current\nfound=1\nreused=0\nend=1\n");
+        assert_eq!(Plan::parse(&plan.text()).unwrap(), plan);
+        assert_eq!(
+            Plan::parse(&Plan::default().text()).unwrap(),
+            Plan::default()
+        );
         assert!(!Plan::default().text().contains("end="));
+    }
+
+    #[test]
+    fn a_plan_this_console_cannot_read_is_no_plan() {
+        assert_eq!(Plan::parse("no equals sign\n"), None);
+        assert_eq!(Plan::parse("mode=later\n"), None);
+        assert_eq!(Plan::parse("newer=1\n"), None);
     }
 
     #[test]

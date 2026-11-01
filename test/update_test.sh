@@ -491,20 +491,68 @@ while read -r pid; do kill "$pid" 2>/dev/null; done <"$T/calls/sleepers"
 rm -f "$T/calls/sleepers"
 systemctl_active
 
-t_case "a unit the pulled step library adds is restarted by the update that pulled it"
+# install.sh may replace the console while the update runs. The one installed
+# after it holds the rules of the code just installed, so it finishes the run. A
+# stand-in in the place of the console shows which one did.
+stand_in() { # <path> <what it says for update api> <what finish prints first>
+  printf '%s\n' '#!/usr/bin/env bash' \
+    "case \"\$1 \$2\" in" \
+    "  'update api') $2 ;;" \
+    "  'update finish') echo '$3' ;;" \
+    "esac" \
+    "exec '$T_CONSOLE' \"\$@\"" >"$1.new"
+  chmod +x "$1.new"
+  mv -f "$1.new" "$1"
+}
+new_console="stand_in() { :; }
+cp '$T/console.next' '$T/console.now'"
+
+t_case "the console install.sh installed finishes the update that installed it"
 instance
-platform 0 'echo "next: units tehas-dispatch.timer tehas-new.timer"'
-rm -rf "$T/upstream"
-git clone -q "$T/origin" "$T/upstream"
-sed -i 's/^tehas_units() { printf .%s\\n. /&tehas-new.timer /' "$T/upstream/lib/update-steps.sh"
-grep -q 'tehas-new.timer' "$T/upstream/lib/update-steps.sh" || t_bad "the fixture did not add a unit"
-git -C "$T/upstream" -c user.name=other -c user.email=other@example.com commit -qam "a new unit"
-git -C "$T/upstream" push -q origin main
+stand_in "$T/console.now" 'echo 1; exit 0' 'finished by the console before'
+stand_in "$T/console.next" 'echo 1; exit 0' 'finished by the console installed'
+platform 0 "$new_console
+echo 'next: units tehas-dispatch.timer'"
+T_ENV_ALWAYS=(TEHAS_CONSOLE="$T/console.now")
 t_run "$update"
 t_eq "$t_rc" 0
-t_lacks "$t_out" "WARN"
-t_contains "$(t_calls systemctl)" "--user restart tehas-dispatch.timer tehas-new.timer"
+t_contains "$t_out" "finished by the console installed"
+t_lacks "$t_out" "finished by the console before"
+t_contains "$(t_calls systemctl)" "--user restart tehas-dispatch.timer"
 t_eq "$(owed_steps)" ""
+
+t_case "a console that cannot finish an update leaves it to the one install.sh kept"
+instance
+stand_in "$T/console.now" 'echo 1; exit 0' 'finished by the console before'
+# What --to a version below this one installs: a console with no update verbs.
+stand_in "$T/console.next" 'exit 2' 'finished by the console installed'
+platform 0 "cp '$T/console.now' '$T/console.now.prev'
+$new_console
+echo 'next: units tehas-dispatch.timer'"
+t_run "$update"
+t_eq "$t_rc" 0
+t_contains "$t_out" "finished by the console before"
+t_lacks "$t_out" "finished by the console installed"
+t_contains "$(t_calls systemctl)" "--user restart tehas-dispatch.timer"
+
+t_case "with no console that can finish, what install.sh did stays owed and the run is red"
+instance
+rm -f "$T/console.now.prev"
+stand_in "$T/console.now" 'echo 1; exit 0' 'finished by the console before'
+stand_in "$T/console.next" 'exit 2' 'finished by the console installed'
+platform 0 "$new_console
+. '$T_ROOT/lib/update-steps.sh'
+tehas_record_steps sandbox
+echo 'installed: libexec/console'
+echo 'next: sandbox'"
+t_run "$update"
+t_eq "$t_rc" 1
+t_contains "$t_out" "installed: libexec/console"
+t_contains "$t_out" "neither $T/console.now nor $T/console.now.prev can finish this update"
+t_eq "$(owed_steps)" "sandbox"
+t_eq "$(t_calls build)" ""
+rm -f "$T/console.now" "$T/console.now.prev" "$T/console.next"
+T_ENV_ALWAYS=(TEHAS_CONSOLE="$T_CONSOLE")
 
 t_case "a later: line of install.sh is printed and is no step"
 instance

@@ -155,7 +155,7 @@
 //! the check libexec/with-settings makes before it loads the settings, and
 //! the text of tehas help, see src/commands.rs.
 //!
-//!   console update release|move ...
+//!   console update api|leftover|move|finish|release|steps ...
 //!
 //! What tehas update decides and does, see src/update/mod.rs.
 //!
