@@ -226,6 +226,21 @@ echo "// changed" >>"$part/console/store/src/tests.rs"
 t_run "$part/install.sh"
 t_eq "$(t_calls cargo)" ""
 
+t_case "a change to the cycle builds the console too, which links it, and its tests build nothing"
+mkdir -p "$part/console/cycle/src"
+echo "// changed" >>"$part/console/cycle/src/caps.rs"
+rm -f "$T/calls/cargo"
+t_run "$part/install.sh"
+t_eq "$t_rc" 0
+t_eq "$(t_calls cargo | wc -l)" 2
+t_contains "$(t_calls cargo)" "-p console"
+t_contains "$(t_calls cargo)" "-p tehas-cycle"
+mkdir -p "$part/console/cycle/tests"
+echo "// changed" >>"$part/console/cycle/tests/changed.rs"
+rm -f "$T/calls/cargo"
+t_run "$part/install.sh"
+t_eq "$(t_calls cargo)" ""
+
 for shared in src/mask.rs src/time.rs Cargo.toml; do
   t_case "a change to the library the six share builds all six ($shared)"
   echo "# changed" >>"$part/console/core/$shared"

@@ -487,42 +487,67 @@ t_lacks "$given" ".ssh"
 t_lacks "$given" ".config/tehas"
 t_lacks "$given" "--privileged"
 
-# The options themselves, as lib/sandbox.sh prints them: the one function the
-# cycle, the planning turn, the session and the push check are all given them
-# from. The units pin them on the docker line; this pins the source of them.
+# The options themselves, as tehas-cycle sandbox prints them: the one list the
+# cycle, the planning turn, the session and the push check are all given. The
+# units pin them on the docker line; this pins the source of them.
+real=$tree/libexec/tehas-cycle.real
+words_of() { t_run ". '$T_ROOT/lib/config.sh'; tehas_load || exit 9; '$real' sandbox limits 'tehas work' 'a cycle' | tr '\0' '\n'; exit \"\${PIPESTATUS[0]}\""; }
 t_case "the security options drop every capability and take privileges away"
-t_run ". '$T_ROOT/lib/config.sh'; . '$T_ROOT/lib/sandbox.sh'; TEHAS_SLICE_CEILING_MB=2048; tehas_sandbox_security | tr '\0' '\n'"
+words_of
 t_eq "$t_rc" 0
-t_eq "$(printf '%s\n' "$t_out" | tr '\n' ' ')" "$security_opts "
-# The library's own two guards, which the four commands ask before Docker is
-# called: they are asked here of the function, so a guard that drifted from the
-# list is a failure in this file and not a cycle that stops on a host.
-t_run ". '$T_ROOT/lib/config.sh'; . '$T_ROOT/lib/sandbox.sh'; TEHAS_SLICE_CEILING_MB=2048; tehas_sandbox_security_count"
-t_eq "$t_out" "$(printf '%s\n' "$security_opts" | wc -w)"
-t_run ". '$T_ROOT/lib/config.sh'; . '$T_ROOT/lib/sandbox.sh'; TEHAS_SLICE_CEILING_MB=2048; tehas_sandbox_security_ok"
-t_eq "$t_rc" 0
+t_eq "$(printf '%s\n' "$t_out" | sed -n '15,24p' | tr '\n' ' ')" "$security_opts "
 # No capability is left in the default list by name, and nothing is added
 # beyond the two a gate needs: a wider list here is a change of the contract.
 t_eq "$(printf '%s\n' "$t_out" | sed -n 's/^--cap-add=//p')" ""
+
+# The guard of tehas_sandbox_limits (lib/sandbox.sh), which judges what the
+# program hands out before Docker is called: asked of the command, so a guard
+# that drifted from the list is a failure in this file and not a cycle that stops
+# on a host. The tables of the size are in console/core/src/sandbox.rs.
+t_case "a list the program hands out that is not the documented one starts no cycle"
+short=$T/short-caps
+mkdir -p "$short/libexec"
+ln -s "$T_ROOT/lib" "$short/lib"
+ln -s "$T_ROOT/libexec/work" "$short/libexec/work"
+fourteen="--cgroup-parent tehas.slice --memory 2048m --memory-swap 2048m --memory-reservation 2g --cpus 3.75 --pids-limit 4096 --cpu-shares 1024"
+for words in "--cgroup-parent tehas.slice --memory 2048m --memory-swap 2048m --memory-reservation 2g --cpus 3.75 --pids-limit 4096" \
+  "--cgroup-parent other.slice --memory 2048m --memory-swap 2048m --memory-reservation 2g --cpus 3.75 --pids-limit 4096 --cpu-shares 1024" \
+  "--memory 2048m --cgroup-parent tehas.slice --memory-swap 2048m --memory-reservation 2g --cpus 3.75 --pids-limit 4096 --cpu-shares 1024" ""; do
+  rm -f "$T"/calls/*
+  # shellcheck disable=SC2086  # the words are the list
+  t_fake_limits "$short/libexec" $words ${words:+$security_opts}
+  t_run "$short/libexec/work 7"
+  t_eq "$t_rc" 78
+  t_contains "$t_out" "tehas work: the container limits could not be made, not starting"
+  t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
+done
+for opts in "--cap-drop ALL --cap-add CHOWN --cap-add FOWNER --security-opt no-new-privileges:true" \
+  "--cap-drop NET_RAW --cap-add CHOWN --cap-add FOWNER --security-opt no-new-privileges:true --tmpfs /tmp:rw,exec,nosuid,nodev,size=1024m,mode=1777"; do
+  rm -f "$T"/calls/*
+  # shellcheck disable=SC2086  # the words are the list
+  t_fake_limits "$short/libexec" $fourteen $opts
+  t_run "$short/libexec/work 7"
+  t_eq "$t_rc" 78
+  t_contains "$t_out" "tehas_sandbox_security gave "
+  t_contains "$t_out" "wants 10: not starting a cycle"
+  t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
+done
 
 # A cycle's /tmp is a tmpfs, whose pages count against --memory and cannot be
 # reclaimed: one as large as the ceiling ends in OOM kills, not ENOSPC. It is
 # half the ceiling, and without a ceiling there is no list to start with.
 t_case "the /tmp tmpfs is half the container's memory ceiling, and no ceiling gives no options"
+words_of
+t_contains "$t_out" "/tmp:rw,exec,nosuid,nodev,size=1024m,mode=1777"
 # size=0 would be no bound at all, so a ceiling under 10 MiB is no ceiling.
-for pair in 2048:1024m 5478:2739m 10:5m; do
-  t_run ". '$T_ROOT/lib/config.sh'; . '$T_ROOT/lib/sandbox.sh'; TEHAS_SLICE_CEILING_MB=${pair%%:*}; tehas_sandbox_security | tr '\0' '\n' | grep -c 'size=${pair#*:},'; tehas_sandbox_security_ok"
-  t_eq "$t_rc" 0
-  t_eq "$t_out" 1
-done
-for bad in "" 0 1 9 8g 1+1 abc; do
-  t_run ". '$T_ROOT/lib/config.sh'; . '$T_ROOT/lib/sandbox.sh'; TEHAS_SLICE_CEILING_MB='$bad'; tehas_sandbox_security | wc -c; tehas_sandbox_security_ok"
-  t_eq "$t_rc" 1
-  t_eq "$t_out" 0
-  t_run ". '$T_ROOT/lib/config.sh'; . '$T_ROOT/lib/sandbox.sh'; TEHAS_SLICE_CEILING_MB='$bad'; tehas_sandbox_security_take 'tehas work' 'a cycle'"
-  t_eq "$t_rc" 1
-  t_contains "$t_out" "not starting a cycle"
-done
+printf '%s\n' FragmentPath=/etc/systemd/system/tehas.slice ActiveState=active MemoryMax=33554432 >"$T/slice.show"
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9 TEHAS_CYCLE_RESERVE=6m
+words_of
+t_eq "$t_rc" 78
+t_contains "$t_out" "tehas work: tehas_sandbox_security gave 0 words, wants 0: not starting a cycle"
+slice_good
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
+t_run "$work 7"
 
 # The manual's table of "What a container may not do" is the same list as the
 # function's, option by option and value by value: the page and the container

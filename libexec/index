@@ -1,52 +1,8 @@
 #!/usr/bin/env bash
-# Build the code index that a cycle's agents search, or refresh it.
-#
-# pi-rukas tells its agents to find code with the codebase_memory tools. Those
-# answer from an index that nothing builds on its own: interactive pi-rukas
-# builds it in /start, which a headless cycle never runs. Without an index
-# every search in a cycle fails and the agents fall back to reading files.
-#
-# The index is kept in the host's own directory, $TEHAS_HOME/state/index, under
-# the name of the tree it was made from. No container is given that directory:
-# tehas work and tehas plan copy it into the cache directory of the container
-# they start, so a cycle reads the host's index and changes only its own copy.
-# This command runs the indexer in the sandbox image, over a clone mounted at
-# the path a cycle works in, so the index it writes is the one a cycle looks
-# for. The clone is made at the tip the product checkout last fetched, mounted
-# read-only and removed afterwards. The cycle's workspace is not touched.
-#
-# The index is as fresh as its last run. The dispatcher runs this as
-# tehas-index.service when it would start cycles and none is running, and
-# starts them on the poll after it, so those cycles start with an index of the
-# tree they are cloned from. A cycle started while another runs gets the index
-# as it is, which falls behind the branch while cycles overlap. What a cycle
-# changes is never in it.
-#
-# The record names the sandbox image that built the index, by the id Docker
-# gives that image. An index written by another image is not updated: what one
-# indexer wrote is not data the next one can add to. What that image wrote is
-# set aside outside the index, the run builds from scratch, and it says which
-# two images it compared. A run that did not write its index puts them back, so
-# a failed rebuild leaves cycles the index they had instead of nothing, and a
-# run that wrote a database keeps what it wrote instead. A run that was killed
-# never gets that far: the next run takes what it left set aside back into the
-# index, or removes it when the index already holds a database. The id is read
-# from the image, not from the pin in host/versions.env, because a host that
-# pulled a new pin has not necessarily rebuilt the image.
-#
-# Called before a cycle, it is done only when the directory holds index data
-# and its record names the branch's tip. The record alone is not enough: on a
-# host upgraded from the version that kept the index in a cache volume, the
-# record names the tip while this directory is empty, and every cycle would be
-# given nothing to search. Only a database counts as index data, and after a
-# run that wrote one the leftovers of earlier runs are removed, so what a cycle
-# is copied stays the size of the index.
-#
-# One run at a time, under $TEHAS_HOME/state/index.lock, and none while a
-# cycle runs: a cycle copies the index when it starts. A poll does not start a
-# cycle while this lock is held, and a poll that is starting cycles holds the
-# dispatcher's lock, so a run waits for that lock, up to a minute, before it
-# looks at the cycles, and lets it go again. A poll is never held by a run.
+# Build the code index that a cycle's agents search, or refresh it. The run is
+# tehas-cycle's, and console/cycle/src/index.rs says what it does. This loads the
+# settings and takes the lock, because the indexer's docker client inherits the
+# descriptor on purpose: a client that outlives the run still writes the index.
 #
 # Usage: tehas index                  build the index
 #        tehas index --before-cycle   what the dispatcher's unit runs: nothing
@@ -62,283 +18,28 @@
 #                poll held the dispatcher's lock for the whole wait; nothing
 #                was done.
 #             64 an argument this command does not know.
-#             78 the instance settings are invalid, or tehas.slice is not
-#                usable on this host; nothing was done.
-#
-# What the container is given is pinned by test/index_test.sh: the clone, the
-# host's index directory, which is the only thing it may write, and nothing
-# else. No network, no token, no settings. It runs in tehas.slice with a
-# cycle's limits (lib/slice.sh), so the dispatcher counts its memory with the
-# cycles'. Without a usable slice nothing is cloned and nothing starts.
+#             78 the instance settings are invalid, tehas.slice is not usable
+#                on this host, or no tehas-cycle stands beside this command;
+#                nothing was done.
 set -uo pipefail
 
-# How long the indexer may run, in seconds. No cycle starts meanwhile.
-# Indexing takes seconds to minutes; this bounds an indexer that hangs.
-# tehas-index.service, which the dispatcher starts, stops after 2400 s.
-index_bound=1800
-# How long to wait for a poll that holds the dispatcher's lock.
-lock_wait=${TEHAS_INDEX_LOCK_WAIT:-60}
-
-cycle=0
 case "$#:${1:-}" in
-  0:) ;;
-  1:--before-cycle) cycle=1 ;;
+  0: | 1:--before-cycle) ;;
   *) echo "usage: tehas index [--before-cycle]" >&2; exit 64 ;;
 esac
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source=lib/config.sh
 . "$here/../lib/config.sh"
-# shellcheck source=lib/cycles.sh
-. "$here/../lib/cycles.sh"
-# shellcheck source=lib/sandbox.sh
-. "$here/../lib/sandbox.sh"
-# shellcheck source=lib/slice.sh
-. "$here/../lib/slice.sh"
 tehas_load || exit 78
 tehas_require TEHAS_REPO
 tehas_checkout || exit 78
 branch=$(tehas_branch) || exit 78
-src=$TEHAS_WORK_REPO
-repo=$TEHAS_WORK_DIR
-image=$PI_ENSEMBLE_IMAGE
-marker=$TEHAS_HOME/state/index.json
-# The tip the indexer last failed at. Apart from the marker, which install.sh
-# reads as "an index was built".
-failed=$TEHAS_HOME/state/index.failed
-index=$(tehas_index_dir)
-log=$TEHAS_HOME/logs/index-$(date -u +%y%m%d-%H%M%S).log
+base=$(git -C "$TEHAS_WORK_REPO" rev-parse -q --verify "refs/remotes/origin/$branch^{commit}") ||
+  { echo "tehas index: $TEHAS_WORK_REPO has no origin/$branch, nothing was indexed" >&2; exit 78; }
 
-base=$(git -C "$src" rev-parse -q --verify "refs/remotes/origin/$branch^{commit}") ||
-  { echo "tehas index: $src has no origin/$branch, nothing was indexed" >&2; exit 78; }
-
-# An index written by another sandbox image is not updated: what one indexer
-# wrote is not data the next one can add to. When the record names another
-# image, or none, what that one wrote waits outside the index while this run
-# builds from nothing, and the run says which two images it compared. Nothing
-# is said when the directory holds no database, which is what a host that has
-# never been indexed looks like. The indexer's own configuration and its logs
-# stay.
-# Where what another image wrote waits. Empty when nothing is waiting, which is
-# what every run that does not rebuild looks like.
-stale=
-
-# Move what another sandbox image wrote out of <dir>, so this run finds nothing
-# to add to. The files wait outside the index rather than being deleted: the
-# run that replaces them can fail, and the index they hold is the only one a
-# cycle has until a run succeeds. <dir> <image that built the index>
-# <image this run uses>.
-rebuild_index() { # <dir> <image that built the index> <image this run uses>
-  local dir=$1 built=$2 now=$3 f moved=0
-  [ "$built" = "$now" ] && return 0
-  stale=$(mktemp -d "$TEHAS_HOME/tmp/index.stale.XXXXXX") || {
-    echo "tehas index: could not make a place for the index of another sandbox image, nothing was indexed" >&2
-    return 1
-  }
-  for f in "$dir"/*; do
-    [ -f "$f" ] || continue
-    case "$f" in
-      *_config.db) continue ;;
-    esac
-    # A file that cannot be moved would stay and mix two images' data, which is
-    # what this is for. The run stops instead of doing it halfway.
-    mv -f "$f" "$stale" || {
-      echo "tehas index: could not set aside $f, nothing was indexed" >&2
-      return 1
-    }
-    moved=$((moved + 1))
-  done
-  [ "$moved" = 0 ] ||
-    echo "tehas index: the index was built by sandbox image ${built:-unknown}, this run uses $now: $moved file(s) it wrote are set aside and the index is built from scratch"
-}
-
-# Put back what this run set aside, so a run that did not write its index leaves
-# the host the index it found. Called by the EXIT trap, and does nothing for a
-# run that succeeded or never rebuilt. A run whose indexer did write a database
-# keeps what it wrote and drops the set-aside instead: the answer can fail this
-# command's check for a reason that has nothing to do with the write, and putting
-# the other image's files back over them would lose the index this run made and
-# mix two images' data. <dir> <epoch this run started, empty when it never got
-# that far>.
-restore_index() { # <dir> <epoch this run started>
-  local dir=$1 started=$2 f wrote=0
-  [ -n "$stale" ] && [ -d "$stale" ] || return 0
-  if [ -n "$started" ]; then
-    for f in "$dir"/*.db; do
-      [ -f "$f" ] || continue
-      case "$f" in *_config.db) continue ;; esac
-      [ "$(stat -c %Y "$f")" -ge "$started" ] && { wrote=1; break; }
-    done
-  fi
-  if [ "$wrote" = 1 ]; then
-    echo "tehas index: this run wrote index data, what the other sandbox image wrote was dropped" >&2
-    rm -rf "$stale"
-    stale=
-    return 0
-  fi
-  for f in "$stale"/*; do
-    [ -f "$f" ] || continue
-    mv -f "$f" "$dir" || echo "tehas index: could not put $f back in $dir" >&2
-  done
-  rmdir "$stale" 2>/dev/null || true
-  stale=
-}
-
-# Take back what a run that was killed set aside: its EXIT trap never ran, so
-# those files wait in $TEHAS_HOME/tmp and no later run looks at them. Only this
-# run holds the index's lock, so what is set aside there belongs to no run in
-# progress. When the index holds no database the cycles have nothing to search,
-# so the files go back where a run can use them; when it does, they are what
-# this run would only set aside again, and they are removed. <dir>.
-reclaim_index() { # <dir>
-  local dir=$1 d f empty=1 back=0 gone=0
-  for f in "$dir"/*.db; do
-    [ -f "$f" ] || continue
-    case "$f" in *_config.db) continue ;; esac
-    empty=0
-  done
-  for d in "$TEHAS_HOME"/tmp/index.stale.*; do
-    [ -d "$d" ] || continue
-    for f in "$d"/*; do
-      [ -f "$f" ] || continue
-      if [ "$empty" = 1 ]; then
-        mv -f "$f" "$dir" && back=$((back + 1))
-      else
-        rm -f "$f" && gone=$((gone + 1))
-      fi
-    done
-    rmdir "$d" 2>/dev/null || true
-  done
-  [ "$back" = 0 ] && [ "$gone" = 0 ] ||
-    echo "tehas index: a run that was killed left index data set aside: $back file(s) put back in $dir, $gone removed"
-}
-
-# Remove what earlier runs left in <dir>, so the copy a cycle is given stays
-# the size of the index and not of everything the indexer ever wrote. A staging
-# file is how the indexer writes: a run that was stopped leaves one behind,
-# about half the size of the database it was writing, and nothing reads it
-# again. A database named for another tree is what a host keeps after the path
-# it indexes changed. Only a run that wrote its own database removes the others.
-prune_index() { # <dir> <epoch this run started>
-  local dir=$1 started=$2 f fresh=0 left=0
-  for f in "$dir"/*.db; do
-    [ -f "$f" ] && [ "$(stat -c %Y "$f")" -ge "$started" ] && { fresh=1; break; }
-  done
-  for f in "$dir"/*; do
-    [ -f "$f" ] || continue # the indexer's logs are a directory
-    case "$f" in
-      *_config.db) continue ;;
-      *.db)
-        [ "$fresh" = 1 ] && [ "$(stat -c %Y "$f")" -lt "$started" ] || continue
-        ;;
-    esac
-    rm -f "$f" && left=$((left + 1))
-  done
-  [ "$left" = 0 ] || echo "tehas index: removed $left file(s) an earlier run left in $dir"
-}
-
-mkdir -p "$TEHAS_HOME/state" "$TEHAS_HOME/logs" "$TEHAS_HOME/tmp" "$index"
-# Held to the end, by the indexer's docker client too: a client that outlives
-# this script still writes the index.
+[ -x "$here/tehas-cycle" ] || { echo "tehas index: no tehas-cycle beside this command, run install.sh" >&2; exit 78; }
+mkdir -p "$TEHAS_HOME/state"
 exec 7>>"$TEHAS_HOME/state/index.lock"
 flock -n 7 || { echo "tehas index: another index run holds its lock, nothing was indexed; run it again in a moment" >&2; exit 3; }
-exec 8>>"$TEHAS_HOME/state/dispatch.lock"
-flock -w "$lock_wait" 8 ||
-  { echo "tehas index: a poll held the dispatcher's lock for ${lock_wait}s, nothing was indexed; run it again in a moment" >&2; exit 3; }
-running=$(tehas_cycles_running | tr '\n' ' ')
-exec 8>&-
-[ -z "$running" ] ||
-  { echo "tehas index: a cycle is running (issue ${running% }), nothing was indexed; run it again afterwards" >&2; exit 3; }
-if [ "$cycle" = 1 ]; then
-  case "$(tehas_index_state "$base")" in
-    current)
-      echo "tehas index: ${TEHAS_REPO##*/} is already indexed at ${base:0:12}"
-      exit 0
-      ;;
-    failed)
-      # Without this every idle poll would run the same failing indexer again.
-      echo "tehas index: the indexer failed at ${base:0:12}, not tried again before the branch moves; run tehas index to try now" >&2
-      exit 1
-      ;;
-  esac
-fi
-
-# No container starts outside the slice, and none with half its limits. Asked
-# here, not at the top: a run that finds the lock held or the index current
-# has no container to start.
-TEHAS_SLICE_LIMITS=()
-tehas_slice_ok || { echo "tehas index: $TEHAS_SLICE_WHY" >&2; exit 78; }
-tehas_slice_limits || true
-if [ "${#TEHAS_SLICE_LIMITS[@]}" != 14 ] || [ "${TEHAS_SLICE_LIMITS[1]}" != tehas.slice ]; then
-  echo "tehas index: the container limits could not be made, not starting" >&2
-  exit 78
-fi
-
-# One call answers both questions: is the image there, and which image is it.
-image_id=$(docker image inspect "$image" -f '{{.Id}}' 2>/dev/null) || {
-  echo "tehas index: no sandbox image $image, nothing was indexed; build it with $TEHAS_HOME/sandbox/build.sh" >&2
-  exit 1
-}
-# The image that built the index, as the run that wrote it recorded one. Empty
-# when none is recorded: an index built before this was recorded, or none.
-recorded=$(jq -r '.indexer_image // empty' "$marker" 2>/dev/null)
-
-tree=$(mktemp -d "$TEHAS_HOME/tmp/index.XXXXXX") || exit 1
-trap 'restore_index "$index" "${started:-}"; rm -rf "$tree"' EXIT
-if ! { git init -q -b "$branch" "$tree" &&
-  git -C "$tree" fetch -q --no-tags "$src" "+refs/remotes/origin/$branch:refs/remotes/origin/$branch" &&
-  git -C "$tree" checkout -q -B "$branch" "$base"; }; then
-  echo "tehas index: could not clone $src, nothing was indexed" >&2
-  exit 1
-fi
-
-# Asked after the clone: a run that could not clone keeps the index it has, and
-# so does one that could not set aside what another image wrote.
-# What a killed run left set aside is dealt with first: it is index data no
-# cycle can search, and this run would only move it out again.
-reclaim_index "$index"
-rebuild_index "$index" "$recorded" "$image_id" || exit 1
-
-started=$(date +%s)
-# A run that was killed leaves its container under this name, and every later
-# run would fail on the name.
-docker rm -f tehas-index >/dev/null 2>&1 || true
-timeout -k 30 "$index_bound" docker run --rm --init --name tehas-index --network none \
-  "${TEHAS_SLICE_LIMITS[@]}" \
-  --user "$(id -u):$(id -g)" -e HOME=/home/vscode \
-  -e "CBM_CACHE_DIR=$(tehas_sandbox_cache_dir)" \
-  -w "$repo" -v "$tree:$repo:ro" \
-  -v "$index:$(tehas_sandbox_cache_dir)" \
-  --entrypoint codebase-memory-mcp "$image" \
-  cli index_repository --repo-path "$repo" >"$log" 2>"$log.err"
-rc=$?
-
-# The indexer answers with one JSON object. Anything else is a failure.
-answer=$(grep '^{' "$log" | tail -n 1)
-if [ "$rc" != 0 ] || [ "$(jq -r '.status // empty' <<<"$answer" 2>/dev/null)" != indexed ]; then
-  case "$rc" in
-    124) echo "tehas index: the indexer did not finish within ${index_bound}s, see $log and $log.err" >&2 ;;
-    *) echo "tehas index: the indexer failed (exit $rc), see $log and $log.err" >&2 ;;
-  esac
-  echo "$base" >"$failed"
-  # timeout stops the docker client, not the container.
-  docker rm -f tehas-index >/dev/null 2>&1 || true
-  exit 1
-fi
-
-nodes=$(jq -r '.nodes // 0' <<<"$answer")
-edges=$(jq -r '.edges // 0' <<<"$answer")
-jq -n --arg commit "$base" --arg branch "$branch" --arg image "$image_id" \
-  --argjson nodes "$nodes" --argjson edges "$edges" --argjson at "$(date +%s)" \
-  '{commit: $commit, branch: $branch, nodes: $nodes, edges: $edges, at: $at, indexer_image: $image}' \
-  >"$marker.new" && mv "$marker.new" "$marker"
-rm -f "$failed"
-# This run wrote its index, so what the other image wrote is no longer needed.
-# An exit that wrote no index puts it back, through the trap; an exit that wrote
-# one drops it the same way.
-rm -rf "$stale"
-stale=
-# Only a run that wrote its index prunes. A failed one may have left the half
-# written database where a later run can still find it.
-prune_index "$index" "$started"
-echo "tehas index: ${TEHAS_REPO##*/} indexed at ${base:0:12} on $branch, $nodes nodes, $edges edges, $(($(date +%s) - started))s"
+exec "$here/tehas-cycle" index "$branch" "$base" "$@"
