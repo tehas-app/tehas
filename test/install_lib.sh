@@ -152,7 +152,6 @@ files="./.bashrc
 ./tehas/libexec/resume
 ./tehas/libexec/setup
 ./tehas/libexec/status
-./tehas/libexec/stop
 ./tehas/libexec/store
 ./tehas/libexec/store.stamp
 ./tehas/libexec/tehas-cycle
