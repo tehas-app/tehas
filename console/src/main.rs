@@ -179,6 +179,7 @@ mod mcp;
 mod notice;
 mod now;
 mod plan;
+mod platform;
 mod pr_title;
 mod preview;
 mod product;
