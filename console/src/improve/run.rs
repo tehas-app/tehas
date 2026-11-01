@@ -261,6 +261,99 @@ struct Loop {
     max_open: i64,
 }
 
+// What the analyst's container is started with.
+struct Analyst<'a> {
+    image: &'a str,
+    provider: &'a str,
+    model: &'a str,
+    hosts: &'a [String],
+    keys: &'a [String],
+}
+
+impl Analyst<'_> {
+    // The docker command, in order.
+    fn words(&self, run: &str, ask: &str) -> Vec<String> {
+        let mut c: Vec<String> = [
+            "docker",
+            "run",
+            "--rm",
+            "--init",
+            "--name",
+            "tehas-improve",
+            "--cgroup-parent",
+            "tehas.slice",
+            "--cpus",
+            "1",
+            "--memory",
+            "2g",
+            "--memory-swap",
+            "2g",
+            "--pids-limit",
+            "1024",
+            "--cpu-shares",
+            "1024",
+            "-e",
+            "HOME=/home/vscode",
+        ]
+        .map(String::from)
+        .to_vec();
+        for k in self.keys {
+            c.extend(["-e".to_string(), k.clone()]);
+        }
+        c.extend(
+            [
+                "-w",
+                "/improve",
+                "-v",
+                &format!("{run}/in:/improve/in:ro"),
+                "-v",
+                &format!("{run}/out:/improve/out"),
+                "-v",
+                &format!("{run}/models.json:/home/vscode/.pi/agent/models.json:ro"),
+            ]
+            .map(String::from),
+        );
+        c.extend_from_slice(self.hosts);
+        c.extend(
+            [
+                self.image,
+                "pi",
+                "-p",
+                "--no-session",
+                "--no-extensions",
+                "--no-skills",
+                "--no-prompt-templates",
+                "--no-context-files",
+                "--tools",
+                "read,grep,find,ls,write",
+                "--provider",
+                self.provider,
+                "--model",
+                self.model,
+                ask,
+            ]
+            .map(String::from),
+        );
+        c
+    }
+}
+
+/// This file's row of the table of runs, read off the arguments of the analyst.
+pub fn table() -> String {
+    let image = "PI_ENSEMBLE_IMAGE";
+    let given = Analyst {
+        image,
+        provider: "",
+        model: "",
+        hosts: &[],
+        keys: &[],
+    };
+    let words = given.words("", "");
+    let at = words.iter().position(|w| w == image);
+    let entry = at.map_or("", |i| &words[i + 1]);
+    format!("improve\t{image}\t{entry}")
+}
+
 /// Why `prepare` ended a run before it began.
 enum Stop {
     Quiet,
@@ -464,33 +557,17 @@ impl Loop {
             return 1;
         };
         let Ok(err) = log.try_clone() else { return 1 };
-        let path = |p: &str| run.join(p).display().to_string();
+        let run = run.display().to_string();
+        let given = Analyst {
+            image: &self.image,
+            provider: &self.provider,
+            model: &self.model,
+            hosts: &self.hosts,
+            keys,
+        };
         let mut c = Command::new("timeout");
         c.args(["-k", "60", &BOUND.to_string()]);
-        c.args(["docker", "run", "--rm", "--init", "--name", "tehas-improve"]);
-        c.args(["--cgroup-parent", "tehas.slice", "--cpus", "1"]);
-        c.args(["--memory", "2g", "--memory-swap", "2g"]);
-        c.args(["--pids-limit", "1024", "--cpu-shares", "1024"]);
-        c.args(["-e", "HOME=/home/vscode"]);
-        for k in keys {
-            c.args(["-e", k]);
-        }
-        c.args(["-w", "/improve"]);
-        c.args(["-v", &format!("{}:/improve/in:ro", path("in"))]);
-        c.args(["-v", &format!("{}:/improve/out", path("out"))]);
-        c.args([
-            "-v",
-            &format!(
-                "{}:/home/vscode/.pi/agent/models.json:ro",
-                path("models.json")
-            ),
-        ]);
-        c.args(&self.hosts).arg(&self.image);
-        c.args(["pi", "-p", "--no-session", "--no-extensions", "--no-skills"]);
-        c.args(["--no-prompt-templates", "--no-context-files"]);
-        c.args(["--tools", "read,grep,find,ls,write"]);
-        c.args(["--provider", &self.provider, "--model", &self.model]);
-        c.arg(ask);
+        c.args(given.words(&run, ask));
         c.stdin(Stdio::null()).stdout(log).stderr(err);
         match c.status() {
             Ok(s) => s.code().unwrap_or_else(|| 128 + s.signal().unwrap_or(0)),

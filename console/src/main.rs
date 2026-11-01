@@ -63,7 +63,7 @@
 //!
 //! What tehasbot clean removes, see src/clean.rs.
 //!
-//!   console improve due|run <prompt file>
+//!   console improve due|run <prompt file> | table
 //!
 //! One run of the improvement loop, see src/improve/mod.rs.
 //!
