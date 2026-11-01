@@ -515,6 +515,7 @@ fn prepare_verb(home: &Path, step: &str, n: u64, args: &[String], rest: &[&str])
     if file.as_os_str().is_empty() {
         wrong(args);
     }
+    let caller = prepare::Caller::now();
     match step {
         "check" => prepare::check(&prepare::Check {
             issue: n,
@@ -524,6 +525,7 @@ fn prepare_verb(home: &Path, step: &str, n: u64, args: &[String], rest: &[&str])
             caps_wait,
             console,
             words,
+            caller,
         }),
         "tree" => prepare::tree(
             home,
@@ -534,6 +536,7 @@ fn prepare_verb(home: &Path, step: &str, n: u64, args: &[String], rest: &[&str])
                 log,
                 push_wait,
                 console,
+                caller,
             },
         ),
         "record" => prepare::record(
@@ -548,6 +551,7 @@ fn prepare_verb(home: &Path, step: &str, n: u64, args: &[String], rest: &[&str])
                 text_wait,
                 gap,
                 images: words,
+                caller,
             },
         ),
         _ => wrong(args),

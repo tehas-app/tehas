@@ -13,6 +13,10 @@
 //! What one step works out for the next is in state/cycles/<issue>.prepared,
 //! under the issue's lock. It holds names of variables, not their values.
 //!
+//! A stop ends libexec/work and not the step in its foreground. A step goes on
+//! with the command it is in, and starts no other once the script is gone
+//! ([`Caller`]), so a stop costs one command, as it did when bash ran them.
+//!
 //! The workspace is $TEHAS_HOME/work/<name>-<issue>, a fresh clone for every
 //! cycle. One a stopped cycle left may hold the only copy of commits that were
 //! never pushed: it is moved aside, not removed, no container is given it and
@@ -25,6 +29,7 @@ use serde_json::{json, Value};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::os::unix::fs::OpenOptionsExt;
+use std::os::unix::process::parent_id;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use tehas_core::sandbox::{self, Identity, Kind, Paths, HANDOFF_SECONDS};
@@ -75,6 +80,27 @@ fn git_identity(field: &str) -> String {
     let mut git = Command::new("git");
     git.args(["config", "--global", field]);
     printed(git)
+}
+
+/// The exit status of a step whose script was stopped: 128 plus TERM.
+const STOPPED: i32 = 143;
+
+/// The script that started this step.
+pub struct Caller(u32);
+
+impl Caller {
+    pub fn now() -> Self {
+        Self(parent_id())
+    }
+
+    /// Whether the script has gone. An orphan has another parent.
+    fn gone(&self) -> bool {
+        let gone = parent_id() != self.0;
+        if gone {
+            eprintln!("tehas work: stopped, not going on with the start");
+        }
+        gone
+    }
 }
 
 /// The rule of AGENTS.md: a run with a bound, as timeout runs it.
@@ -154,6 +180,7 @@ pub struct Check {
     pub console: String,
     /// The limits and the security options of the slice.
     pub words: Vec<String>,
+    pub caller: Caller,
 }
 
 fn scratch(c: &Check, security: &mut Vec<String>) -> Option<()> {
@@ -297,6 +324,9 @@ pub fn check(c: &Check) -> i32 {
         );
         return 78;
     }
+    if c.caller.gone() {
+        return STOPPED;
+    }
     let state = json!({"limits": limits, "security": security, "env": vars,
         "hosts": hosts, "flags": flags});
     if !write_state(&c.file, &state) {
@@ -314,6 +344,7 @@ pub struct Tree {
     pub log: PathBuf,
     pub push_wait: u64,
     pub console: String,
+    pub caller: Caller,
 }
 
 fn ran(cmd: &mut Command) -> bool {
@@ -470,6 +501,9 @@ pub fn tree(home: &Path, t: &Tree) -> i32 {
     };
     let tree = tree_of(t.issue);
     let state_dir = format!("{tree}.state");
+    if t.caller.gone() {
+        return STOPPED;
+    }
     if !make_tree(&tree, &state_dir, &t.branch) {
         eprintln!("tehas work: could not make the workspace {tree}, not starting a cycle");
         return 78;
@@ -485,9 +519,15 @@ pub fn tree(home: &Path, t: &Tree) -> i32 {
         );
         return 78;
     }
+    if t.caller.gone() {
+        return STOPPED;
+    }
     let preflight = on(&t.log, ".preflight");
     if let Some(rc) = push_check(t, &state, &tree, &preflight) {
         return rc;
+    }
+    if t.caller.gone() {
+        return STOPPED;
     }
     let retry = sandbox::retry_line(&tree);
     let _ = append(&preflight, &retry);
@@ -499,6 +539,9 @@ pub fn tree(home: &Path, t: &Tree) -> i32 {
         say(&format!(
             "tehas work: the code index could not be copied into {state_dir}/cache, this cycle searches without one"
         ));
+    }
+    if t.caller.gone() {
+        return STOPPED;
     }
     let runs = format!("{}/.pi/agent/ensemble-runs/issue-{}", env("HOME"), t.issue);
     let Some(words) = mounts(t, &tree, &state_dir, &runs) else {
@@ -514,6 +557,9 @@ pub fn tree(home: &Path, t: &Tree) -> i32 {
         let line = format!("model endpoint: provider {provider} is on its backup");
         let _ = append(&preflight, &line);
         say(&format!("tehas work: {line}"));
+    }
+    if t.caller.gone() {
+        return STOPPED;
     }
     if !write_state(&t.file, &state) {
         eprintln!("tehas work: could not prepare the sandbox, not starting a cycle");
@@ -534,6 +580,7 @@ pub struct Record {
     pub gap: String,
     /// The issue's images, as -v and -e options.
     pub images: Vec<String>,
+    pub caller: Caller,
 }
 
 /// How many cycles hold their lock, this one with them.
@@ -608,6 +655,10 @@ fn on_record(home: &Path, r: &Record, state: &Value) -> bool {
     let Err(refused) = done else {
         return true;
     };
+    // The record has moved on under a stop: nothing to tell the issue.
+    if r.caller.gone() {
+        return false;
+    }
     if matches!(refused.word.as_str(), "busy" | "timeout") {
         eprintln!(
             "tehas work: the image of #{n} is not on its record: the state store did not answer ({})",
@@ -637,6 +688,9 @@ pub fn record(home: &Path, r: &Record) -> i32 {
     };
     let cycles = home.join("state/cycles");
     let file = |name: &str| cycles.join(format!("{}.{name}", r.issue));
+    if r.caller.gone() {
+        return STOPPED;
+    }
     // Docker refuses a cid file that is already there. One is left only by a
     // cycle that was killed outright, and so is a count of kills.
     for name in PROTOCOL {
@@ -650,6 +704,9 @@ pub fn record(home: &Path, r: &Record) -> i32 {
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status();
+    if r.caller.gone() {
+        return STOPPED;
+    }
     if !r.attempt.is_empty() && !on_record(home, r, &state) {
         return 4;
     }
@@ -726,6 +783,12 @@ mod tests {
         );
         assert_eq!(gate_line("  # indented\n\t\n"), None);
         assert_eq!(gate_line(""), None);
+    }
+
+    #[test]
+    fn a_caller_with_another_pid_is_gone() {
+        assert!(!Caller::now().gone());
+        assert!(Caller(0).gone());
     }
 
     #[test]
