@@ -71,6 +71,10 @@ install_host_toolchain() {
     "$T_ROOT"/lib/sandbox.sh "$T_ROOT"/lib/models.sh "$T/home/tehas/lib/"
   cp "$T_ROOT/host/versions.env" "$T/home/tehas/"
 }
+# The build runs from the checkout here, which has no console beside it.
+# shellcheck disable=SC2154  # t_console_why is set by t_console (test/lib.sh)
+t_console || t_bad "no console: $t_console_why"
+T_ENV_ALWAYS+=("TEHAS_CONSOLE=$T_CONSOLE")
 uid=$(id -u)
 # pi-rukas's newest release tag, so the build asks no network.
 t_stub git 'printf "%s\trefs/tags/v0.12.80\n" aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
