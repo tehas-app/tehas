@@ -70,7 +70,7 @@
 # and no cycle shares any of it. The host's index of the product is not copied
 # here: it is keyed to the path a cycle works at, which is not the path of this
 # clone. Its target is the one build output the cleaner may take, under the
-# clone's lock, when the host is low on disk or the tree has gone unused; this
+# clone's lock, when the host is low on disk and the tree has gone unused; this
 # command holds that lock for the session's life.
 #
 # A session shares the model endpoint with a running cycle and does not hold

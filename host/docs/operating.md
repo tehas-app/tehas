@@ -1604,10 +1604,9 @@ removes what has not been used for `TEHAS_CLEAN_AFTER` hours, 24 by default:
   `~/tehas/dev`, so nothing under a manual session's `<name>.state` is walked
   for a build-output name. The last step names that tree of its own.
 - the build output a manual session keeps, `<name>.state/target` of every clone
-  under `~/tehas/dev`, on the same two rules as a kept workspace: under
-  `TEHAS_CLEAN_MIN_FREE` whatever its age, and otherwise once it has gone
-  untouched for `TEHAS_CLEAN_AFTER` hours. It goes only of a clone no session
-  holds: the lock `tehas dev` takes for the whole session,
+  under `~/tehas/dev`, only under `TEHAS_CLEAN_MIN_FREE` and once it has gone
+  untouched for `TEHAS_CLEAN_AFTER` hours; above that figure a clone keeps its
+  build. It goes only of a clone no session holds: the lock `tehas dev` takes for the whole session,
   `~/tehas/state/dev/<name>.lock`, and the container name `docker ps` answers,
   `tehas-dev-<name>`, both say so, and a docker that will not say keeps the
   build. Nothing else under `<name>.state` is ever named, so the clone, its

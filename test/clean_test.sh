@@ -719,6 +719,33 @@ t_contains "$t_out" "freed"
 # the run opened with.
 t_eq "$(grep -c 'the build output of clone alice' "$logfile")" 1
 
+t_case "above the minimum free a clone keeps its build of any age and the size is logged"
+reset
+workspace
+devs=$th/dev
+clone_state alice
+: >"$fx/containers"
+df_reset
+for run in "$clean" "$clean --dry-run"; do
+  t_run "$run"
+  t_eq "$t_rc" 0
+  t_eq "$([ -e "$devs/alice.state/target/debug/console" ] && echo there)" "there"
+  t_contains "$t_out" "kept the build output of clone alice: the disk is not low, "
+  t_lacks "$t_out" "would remove $devs/alice.state/target"
+done
+
+t_case "low on disk a young build output stays"
+reset
+workspace
+devs=$th/dev
+mkdir -p "$devs/alice.state/target/debug"
+: >"$fx/containers"
+df_free 1
+t_run "$clean"
+t_eq "$t_rc" 0
+t_eq "$([ -e "$devs/alice.state/target" ] && echo there)" "there"
+t_contains "$t_out" "kept the build output of clone alice: its target was written within 24 hours, "
+
 t_case "a clone whose session is open keeps its build output and the line says why"
 reset
 workspace
