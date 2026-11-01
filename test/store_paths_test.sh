@@ -20,7 +20,7 @@
 # - state/dispatch.*: the poll's own lock and notes.
 # Every other record moved. install.sh imports the old files (store import),
 # and the poll stops at 78 while one is left (test/dispatch_guard_test.sh).
-# Those two may name the old files, on the lines `allow` lists. The export copy
+# install.sh may name the old files, on the lines `allow` lists. The export copy
 # an ended session left, state/plan-<n>.turn, is neither imported nor guarded:
 # nothing reads it.
 # shellcheck disable=SC2016  # the patterns and samples are code, not expanded
@@ -50,8 +50,6 @@ allow() {
   a_file+=("$1")
   a_re+=("$2")
 }
-allow libexec/dispatch "'state/[a-z/]*(park|plan)?-?\\[1-9\\]\\*" \
-  "the poll stops at 78 while a record file of an older tehas is there"
 allow install.sh 'plan-(<n>|\[0-9\]\*)\.json\.keep|%\.json\.keep' \
   "install.sh moves a planning session's kept directory out of state/"
 
@@ -135,13 +133,13 @@ carrier '\.progress\.json\b' 'progress=$TEHAS_HOME/state/cycles/$issue.progress.
   "lib/cycles.sh libexec/cycle libexec/export console/src/export.rs libexec/stop libexec/work $an/run.rs $an/tests.rs" \
   "the summary of the container's output, kept to the next start for tehas export"
 carrier "$n"'\.done\b' 'echo "$done_why" >"$TEHAS_HOME/state/cycles/$n.done"' \
-  'libexec/cycle libexec/dispatch' \
+  'libexec/cycle' \
   "the dispatcher tells a running cycle why it is done"
 carrier "$n"'\.stopped\b' 'stopped_marker=$state/$n.stopped' \
   'libexec/cycle libexec/stop' \
   "tehas stop tells a running cycle it was stopped"
 carrier '\.cid\b' 'cid_file=$TEHAS_HOME/state/cycles/$issue.cid' \
-  'libexec/dev libexec/dispatch libexec/stop libexec/work' \
+  'libexec/dev libexec/stop libexec/work' \
   "the container's id, for docker"
 carrier '\.manifest\.json\b' 'kept=$TEHAS_HOME/state/cycles/$issue.manifest.json' \
   'lib/attachments.sh console/src/export.rs libexec/stop libexec/work' \
@@ -159,7 +157,7 @@ carrier '\$\{?st\}?\.rc\b|\.json\.rc\b' 'rc=$(cat "$st.rc" 2>/dev/null)' \
   'lib/planning.sh console/src/health.rs' \
   "a planning turn's exit, from the turn to the poll that collects it"
 carrier '\$\{?st\}?\.lock\b|\.json\.lock\b' '[ -f "$st.lock" ]' \
-  'install.sh lib/planning.sh libexec/dispatch console/src/health.rs' \
+  'install.sh lib/planning.sh console/src/health.rs' \
   "the lock a planning turn holds while it runs; install.sh moves no .keep while it is held"
 carrier '\$\{?st\}?\.out\b|\.json\.out\b' 'what=$(plan_filed "$st.out")' \
   "lib/planning.sh $an/plan.rs $an/tests.rs" \

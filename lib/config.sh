@@ -162,9 +162,6 @@ _tehas_valid() {
     TEHAS_UPDATE_FROM)
       case "$v" in git | release) ;; *) echo "expected git or release"; return 1 ;; esac
       ;;
-    TEHAS_DISPATCHER)
-      case "$v" in bash | rust) ;; *) echo "expected bash or rust"; return 1 ;; esac
-      ;;
     # The look of every page: host/fun/theme-<name>.css. The servers write the
     # name into a path, so only a theme that ships is let through.
     TEHAS_THEME)
@@ -398,22 +395,25 @@ _tehas_role_models() { # <instance.env>
 # arms cannot drift apart into a refusal with no message.
 _tehas_retired_names() { # <instance.env>
   local file=$1 v reason
-  for v in TEHAS_FIXER_LOGIN TEHAS_FIXER_MAX_RETRIES TEHAS_FIXER_MAX_PLAN_ANSWERS TEHAS_CLONES TEHAS_WORK_CPUS TEHAS_WORK_MEMORY; do
+  for v in TEHAS_FIXER_LOGIN TEHAS_FIXER_MAX_RETRIES TEHAS_FIXER_MAX_PLAN_ANSWERS TEHAS_CLONES TEHAS_WORK_CPUS TEHAS_WORK_MEMORY TEHAS_DISPATCHER; do
     [ -n "${!v+x}" ] || continue
-    # The off value of the one name that took one: an earlier version read 0 and
-    # a blank line alike as no clones, which is what this version does, so the
-    # line stays loadable. The name is unset with it, so it never reaches a
-    # cycle, and the sweep in tehas_load took the host's TEHAS_* names before
-    # instance.env was read, so this is the file's own line.
-    if [ "$v" = TEHAS_CLONES ] && { [ "${!v}" = 0 ] || [ -z "${!v}" ]; }; then
-      unset "$v"
-      continue
-    fi
+    # The values that ask for what this version does: an earlier version read 0
+    # and a blank line alike as no clones, and rust or a blank line as the Rust
+    # poll, so the line stays loadable. The name is unset with it, so it never
+    # reaches a cycle, and the sweep in tehas_load took the host's TEHAS_* names
+    # before instance.env was read, so this is the file's own line.
+    case "$v=${!v}" in
+      TEHAS_CLONES=0 | TEHAS_CLONES= | TEHAS_DISPATCHER=rust | TEHAS_DISPATCHER=)
+        unset "$v"
+        continue
+        ;;
+    esac
     case "$v" in
       TEHAS_FIXER_*) reason="is no longer read: rename it TEHAS_MILLWRIGHT_${v#TEHAS_FIXER_}" ;;
       TEHAS_CLONES) reason="is set and this version of tehas has no database clones" ;;
       TEHAS_WORK_CPUS) reason="is set and this version of tehas has no CPU budget to set: the limit around all containers is /etc/systemd/system/tehas.slice" ;;
       TEHAS_WORK_MEMORY) reason="is set and this version of tehas has no memory budget to set: the limit around all containers is /etc/systemd/system/tehas.slice" ;;
+      TEHAS_DISPATCHER) reason="is set and this version of tehas has no bash poll: every poll is tehas-dispatch, so take the line out" ;;
       *) reason="is set and this version of tehas does not read it" ;;
     esac
     tehas_err "$v $reason (see $file)"
@@ -636,7 +636,7 @@ tehas_load() {
   if [ -n "${PI_RUKAS_FOLLOW+x}" ]; then
     _tehas_why PI_RUKAS_FOLLOW "$PI_RUKAS_FOLLOW" || { tehas_err "PI_RUKAS_FOLLOW is not valid: $reason (see $file)"; return 78; }
   fi
-  for v in TEHAS_BRANCH TEHAS_DOMAIN TEHAS_PROTOLAB_URL TEHAS_UPDATE_FROM TEHAS_RELEASE_REPO TEHAS_SIZE_MAX_FILES TEHAS_DISPATCHER TEHAS_SCRATCH_DIR; do
+  for v in TEHAS_BRANCH TEHAS_DOMAIN TEHAS_PROTOLAB_URL TEHAS_UPDATE_FROM TEHAS_RELEASE_REPO TEHAS_SIZE_MAX_FILES TEHAS_SCRATCH_DIR; do
     [ -n "${!v:-}" ] || continue
     _tehas_why "$v" "${!v}" || { tehas_err "$v is not valid: $reason (see $file)"; return 78; }
   done

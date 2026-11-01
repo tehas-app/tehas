@@ -259,7 +259,7 @@ impl<'a> Poll<'a> {
         self.d.actions.push(a);
     }
 
-    /// The line the bash poll logs when a label change fails: the flags it
+    /// The line the poll logs when a label change fails: the flags it
     /// gave gh, as `--remove-label X --add-label Y`.
     fn label_fail(n: u64, remove: &[&str], add: &[&str]) -> String {
         let mut flags: Vec<String> = remove
