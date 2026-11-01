@@ -1429,7 +1429,9 @@ every start with `--issue`, and the container gets that directory read-only
 at the same path and `PI_ENSEMBLE_EXTRA_IMAGE_DIRS`, which names it. What was
 given and left out is printed; nothing is said on the issue. Without
 `--issue` the session gets neither, and an instance's
-`PI_ENSEMBLE_EXTRA_IMAGE_DIRS` is not passed on.
+`PI_ENSEMBLE_EXTRA_IMAGE_DIRS` is not passed on. A slice that cannot be used, a
+clone's directory that is not a clone or a stored author that is malformed
+stops the command before GitHub is called and before anything is written.
 
 | Exit | Meaning                                                                                   |
 | ---- | ----------------------------------------------------------------------------------------- |
