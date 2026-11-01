@@ -15,7 +15,6 @@
 #   tehas_cycles_running          the issues with a running cycle, one per line:
 #                                 one call of the store's locks-held where
 #                                 lib/store.sh is sourced, else a probe a file
-#   tehas_rukas_commit            the pi-rukas commit a cycle started now runs
 #   tehas_names_issue             print a jq definition, `mine`: whether a pull
 #                                 request of gh pr list names the issue $n
 #   tehas_branch_pattern <issue>  the one grammar for the branch pi-rukas makes
@@ -97,30 +96,6 @@ tehas_cycle_own_cap() { # <cap>: 0 when tehas itself set that cap
   return 1
 }
 
-# The factory works on open issues only: a closed issue is never taken, and a
-# pull request is never taken, open, merged or closed. What GitHub answers for
-# a number decides it, not which labels that number carries.
-#
-#   tehas_work_kind <the answer for that number>
-#     0  the answer is an open issue, which the factory may take
-#     1  it is anything else, with the reason in $tehas_work_why: pr (a pull
-#        request), closed, or unreadable (no answer, or one that is not the
-#        answer for a single issue). A number is never taken on a guess.
-tehas_work_why=""
-tehas_work_kind() {
-  local kind
-  kind=$(jq -r 'if type == "object" and ((.pull_request // null) != null) then "pr"
-                elif type == "object" and ((.state // "") | ascii_downcase) == "open" then "open"
-                elif type == "object" and ((.state // "") | ascii_downcase) == "closed" then "closed"
-                else "unreadable" end' <<<"${1:-}" 2>/dev/null) || kind=""
-  case "$kind" in
-    open) tehas_work_why=open ;;
-    pr | closed) tehas_work_why=$kind ;;
-    *) tehas_work_why=unreadable; return 1 ;;
-  esac
-  [ "$tehas_work_why" = open ]
-}
-
 # The sandbox image answers two questions about itself, in its labels, and one
 # docker call answers both. tehas.rukas is the pi-rukas commit it was built
 # with; tehas.rukas.images is whether that pi-rukas reads the issue image
@@ -131,25 +106,15 @@ tehas_work_kind() {
 # rollback of the image while a command runs. A label the image does not carry,
 # or a value that is not one of the expected ones, reads as nothing.
 tehas_rukas_asked=""
-tehas_rukas_commit_label=""
 tehas_rukas_images_label=""
 tehas_rukas_ask() {
-  local line commit="" images=""
+  local line _commit="" images=""
   if [ -n "$tehas_rukas_asked" ]; then return 0; fi
   tehas_rukas_asked=1
   line=$(docker image inspect --format '{{index .Config.Labels "tehas.rukas"}}|{{index .Config.Labels "tehas.rukas.images"}}' "${PI_ENSEMBLE_IMAGE:-}" 2>/dev/null) || line=""
-  IFS='|' read -r commit images <<<"$line" || true
-  [[ $commit =~ ^[0-9a-f]{7,40}$ ]] || commit=""
+  IFS='|' read -r _commit images <<<"$line" || true
   case "$images" in 1 | 0) ;; *) images="" ;; esac
-  tehas_rukas_commit_label=$commit
   tehas_rukas_images_label=$images
-}
-
-# The commit, also for an image put back for a rollback. Nothing when the
-# image does not say.
-tehas_rukas_commit() {
-  tehas_rukas_ask
-  printf '%s\n' "$tehas_rukas_commit_label"
 }
 
 # Whether the pi-rukas in the sandbox image reads the manifest tehas writes

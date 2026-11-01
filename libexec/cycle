@@ -23,6 +23,11 @@
 # malformed, or the state store cannot be used; 70 the cycle's end. 75, 77 and
 # 78 come before any label, comment or container.
 #
+# This script loads the settings and takes the lock, then execs `tehas-cycle
+# cycle` (console/cycle/src/supervise.rs), which makes the start and runs tehas
+# work. With no tehas-cycle beside the install it stops with 78. The report in
+# bash below is run as a child of that program, with TEHAS_CYCLE_ENDED set.
+#
 # It holds state/cycles/<issue>.lock for as long as it runs. The dispatcher
 # counts the held locks, so a cycle that dies frees its place. Once it holds
 # the lock it starts the cycle's record on the state store (lib/store.sh,
@@ -248,116 +253,29 @@ console=${TEHAS_CONSOLE_CMD:-$here/console}
 tc=${TEHAS_CODE:-$TEHAS_HOME}/libexec/tehas-cycle
 cycles=$TEHAS_HOME/state/cycles
 
-mkdir -p "$cycles" "$TEHAS_HOME/logs"
-# The runner and the docker client it starts inherit this lock. If this
-# process is killed outright the place stays taken until they are gone too.
-exec 9>"$cycles/$issue.lock"
-flock -w 5 9 || { log "a cycle for #$issue is already running"; exit 3; }
-# The place is claimed with the lock, and the start goes on record under it.
-# The new attempt is what the dispatcher waits for to know its unit came up,
-# and a cycle that goes on to refuse its number still came up. From the unit
-# the start uses the approval the dispatcher recorded; a run by hand is on
-# record as one. A unit is never taken for a run by hand: a start the store
-# refuses runs nothing.
-rukas=$(tehas_rukas_commit)
-[[ $rukas =~ ^[0-9a-f]{7,40}$ ]] || rukas=""
-start_args=("$issue")
-[ -z "$rukas" ] || start_args+=(--rukas "$rukas")
-if [ "${TEHAS_CYCLE_FROM:-}" != unit ] && [ -z "${INVOCATION_ID:-}" ]; then
-  start_args+=(--by-hand)
-fi
-# A busy store committed nothing, so the start is asked again. A store that
-# timed out may have committed it: a start on record since this one began,
-# under this lock, is its own. It is ended as refused and nothing runs.
-start_t0=$EPOCHSECONDS
-for try in 1 2 3; do
-  tehas_store cycle-start "${start_args[@]}"
-  start_rc=$?
-  [ "$start_rc" = 1 ] || break
-  case $tehas_store_word in
-    busy) ;;
-    timeout)
-      start_said=$tehas_store_line
-      if ! tehas_store_try 3 cycle-show "$issue"; then
-        log "refuse #$issue: the state store did not answer the start in time, and whether it took it is not known ($tehas_store_word): $start_said"
-        exit 75
-      fi
-      took=$(tehas_store_get ".cycle | select(. != null and .ended_at == null and .started_at >= $start_t0) | .attempt")
-      if [[ $took =~ ^[1-9][0-9]{0,8}$ ]]; then
-        tehas_store_try 5 cycle-end "$issue" --attempt "$took" --refused ||
-          log "ERROR: the start of #$issue the store took late is not ended ($tehas_store_word): cycle-end $issue --attempt $took --refused"
-        log "refuse #$issue: the state store took the start only after it timed out: $start_said"
-        exit 75
-      fi
-      tehas_store_said 1 timeout "$start_said"
-      ;;
-    *) break ;;
-  esac
-  [ "$try" = 3 ] || sleep 1
-done
-case $start_rc in
-  0) ;;
-  1)
-    case $tehas_store_word in
-      busy | timeout)
-        log "refuse #$issue: the state store did not take the start ($tehas_store_word): $tehas_store_line"
-        exit 75
-        ;;
-    esac
-    log "refuse #$issue: the state store refused the start: $tehas_store_line"
-    exit 77
-    ;;
-  *)
-    log "ERROR: #$issue: the state store cannot be used: $tehas_store_line"
+# Run again by tehas-cycle for the report in bash: the lock is held already, and
+# what it needs of the start is in TEHAS_CYCLE_ENDED.
+if [ -z "${TEHAS_CYCLE_ENDED:-}" ]; then
+  mkdir -p "$cycles" "$TEHAS_HOME/logs"
+  # The runner and the docker client it starts inherit this lock. If this
+  # process is killed outright the place stays taken until they are gone too.
+  exec 9>"$cycles/$issue.lock"
+  flock -w 5 9 || { log "a cycle for #$issue is already running"; exit 3; }
+  if [ ! -x "$tc" ]; then
+    log "ERROR: #$issue: no tehas-cycle at $tc, run install.sh"
     exit 78
-    ;;
-esac
-# The start's fields in one read: one each, ended by a NUL, as $(jq -r) leaves it.
+  fi
+  exec "$tc" cycle "$issue" --work "$work" --status-cmd "$status_cmd" --console "$console" --again "$here/cycle"
+fi
+IFS='|' read -r attempt rc started signalled requeued start_by start_how approval_at <<<"$TEHAS_CYCLE_ENDED"
+retry_wait=${TEHAS_CYCLE_RETRY_WAIT:-5}
+# The fields of one read: one each, ended by a NUL, as $(jq -r) leaves it.
 one='def v: tostring | gsub("\u0000"; "") | sub("\n+\\z"; "") + "\u0000";
   def s: if type == "string" then . else "" end; def n: if type == "number" then . else "" end;'
-mapfile -d '' -t got < <(jq -j "$one"'(.attempt | v), (.started_by | s | v), (.how | s | v),
-  (.approval_at | n | v), (if .requeued == true then 1 else 0 end | v)' <<<"$tehas_store_out" 2>/dev/null)
-attempt=${got[0]-} start_by=${got[1]-} start_how=${got[2]-} approval_at=${got[3]-} requeued=${got[4]-}
-if ! [[ $attempt =~ ^[1-9][0-9]{0,8}$ ]]; then
-  log "ERROR: #$issue: the state store answered the start with no attempt"
-  exit 78
-fi
-# end_refused: a start that refuses its number ends its record, so the next
-# start of the issue is not one that replaces an open row.
-end_refused() {
-  tehas_store_try 5 cycle-end "$issue" --attempt "$attempt" --refused ||
-    log "ERROR: the refused start of #$issue is not on record ($tehas_store_word): cycle-end $issue --attempt $attempt --refused"
-}
-retry_wait=${TEHAS_CYCLE_RETRY_WAIT:-5}
-# Open issues only. GitHub is asked what the number is before a label is
-# changed, a comment is posted or a container starts. The dispatcher has often
-# marked the issue tehas:running by now, so a call that only failed is tried
-# again rather than refusing a cycle that was already authorized. A transport
-# that never answers is a refusal too, said as itself.
-asked="" answer=""
-for try in 1 2 3; do
-  if answer=$(gh api "repos/$repo/issues/$issue" 2>/dev/null); then asked=1; break; fi
-  answer=""
-  [ "$try" = 3 ] || sleep "$retry_wait"
-done
-if [ -z "$asked" ]; then
-  log "refuse #$issue: GitHub could not be asked what the number is"
-  end_refused
-  exit 65
-fi
-tehas_work_kind "$answer" || {
-  case "$tehas_work_why" in
-    pr) log "refuse #$issue: it is a pull request, not an issue the factory works on" ;;
-    closed) log "refuse #$issue: the issue is closed" ;;
-    *) log "refuse #$issue: GitHub's answer for it could not be read" ;;
-  esac
-  end_refused
-  exit 65
-}
 
 # A cycle stopped by a signal has until systemd's TimeoutStopSec to report:
 # then every call to GitHub is tried once and bounded.
-signalled=0 tries=3
+tries=3
 shadow=""
 gh_call() {
   [ -z "$shadow" ] || printf '%s\0' "$@" $'\x1e' >>"$shadow.gh"
@@ -429,51 +347,10 @@ tidy() {
   fi
 }
 
-started=$EPOCHSECONDS
-# An issue a handoff left with needs-human-attention starts again only on a
-# person's answer: the label or the tick that started this cycle, or the one
-# start after a provider outage the dispatcher makes for the account that
-# authorised the cycle before. That answer is what --restart tells the runner.
-# It lets the start past pi-rukas's attention gate and takes the label off the
-# issue itself: nothing here removes it.
-restart=""
-if jq -e '(.labels // []) | any(.name? == "needs-human-attention")' >/dev/null 2>&1 <<<"$answer"; then
-  restart=--restart
-fi
-# A count of kills still here is an earlier cycle's, one that was killed
-# outright before it could report. The one start the dispatcher makes on its
-# own after a provider outage is on record as requeued: that start's cycle, if
-# an outage parks it again, waits for a person.
-rm -f "${cycles:?}/${issue:?}.oom" "${cycles:?}/${issue:?}.forks" "${cycles:?}/${issue:?}.stalled" "${cycles:?}/${issue:?}.timed" \
-  "${cycles:?}/${issue:?}.stopped" "${cycles:?}/${issue:?}.stopped.new" \
-  "${cycles:?}/${issue:?}.result.json" "${cycles:?}/${issue:?}.progress.json" \
-  "${cycles:?}/${issue:?}.nostart" "${cycles:?}/${issue:?}.lean-refused" "${cycles:?}/${issue:?}.done" \
-  "${cycles:?}/${issue:?}.runner_exit" "${cycles:?}/${issue:?}.status"
-# The trap is set before the runner starts, so no signal falls between.
-wpid=""
-stopped=0
-trap 'stopped=1 signalled=1; [ -z "$wpid" ] || kill -TERM "$wpid" 2>/dev/null' TERM INT HUP
-TEHAS_CYCLE_ATTEMPT=$attempt "$work" "$issue" ${restart:+"$restart"} >>"$TEHAS_HOME/logs/dispatch-work-$issue.log" 2>&1 &
-wpid=$!
-[ "$stopped" = 0 ] || kill -TERM "$wpid" 2>/dev/null
-wait "$wpid"
-rc=$?
-# A signal ends the wait early, with a status that is not the runner's. The
-# runner is still stopping its container: wait again for its own status. A
-# wait that answers 127 found the runner already reaped, so rc stands.
-while [ "$stopped" = 1 ]; do
-  stopped=0
-  wait "$wpid"
-  r=$?
-  [ "$r" = 127 ] || rc=$r
-done
 # The report is made even if a stop arrives now: leaving tehas:running on the
 # issue would park it for good.
 trap '' TERM INT HUP
 [ "$signalled" = 0 ] || tries=1
-# The report in Rust, where the instance asks for it: the signals stay ignored
-# across the exec, and the lock stays held. Without the program bash reports.
-[ "${TEHAS_CYCLE_REPORT:-}" != rust ] || [ ! -x "$tc" ] || exec "$tc" report "$issue" --attempt "$attempt" --rc "$rc" --started "$started" --signalled "$signalled" --by "$start_by" --how "$start_how" --approval-at "$approval_at" --requeued "$requeued" --console "$console" --status-cmd "$status_cmd"
 # The report's shadow (#256): tehas-cycle decides beside this report, from the
 # same files, while state/cycle-shadow.on is there. It never fails the report.
 ended=$EPOCHSECONDS mins=$(((ended - started) / 60))

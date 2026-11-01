@@ -512,8 +512,7 @@ value of neither is exit 78. The switch is read when a cycle starts, with the
 rest of its settings, so a cycle already running reports as the line said then.
 Roll back by taking the line out: cycles that start after that report in bash,
 and one already running does not change. A host without `libexec/tehas-cycle`
-reports in bash, and what follows the end does not run (see
-[The cycle's shadow](#the-cycles-shadow)).
+starts no cycle: `tehasbot cycle` stops with 78.
 
 The Rust report makes the same writes in the same order, with the same tries:
 three, and one bounded try after a stop. The differences:
@@ -567,10 +566,10 @@ difference is not yet a fault; the same one cycle after cycle is.
 `jq -c 'select(.same | not)' ~/tehas/logs/cycle-shadow.log` lists them. `touch
 ~/tehas/state/cycle-shadow.on` starts it, and removing the file stops it.
 Without that file the bash report runs alone, and the shadow failing never
-fails the report. A host needs `libexec/tehas-cycle` all the same: without it
-the cycle still reports and ends on record, with one line `WARN: what follows
-the end of #N did not run`, and the live view, the run in the analytics, the
-improvement record, the clean, the status and the next poll do not happen.
+fails the report. A `tehas-cycle` that cannot run what follows the end leaves
+one line `WARN: what follows the end of #N did not run`: the cycle still reports
+and ends on record, and the live view, the run in the analytics, the improvement
+record, the clean, the status and the next poll do not happen.
 
 ## 4. Review and merge
 

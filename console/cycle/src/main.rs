@@ -54,6 +54,13 @@
 //!                                     "body": <the body to write>,
 //!                                     "say": <a repeat's words for the park>}
 //!                                     (src/last_attempt.rs)
+//!   tehas-cycle cycle <issue> --work <path> --status-cmd <path> --console <path>
+//!       --again <path>
+//!                                     libexec/cycle execs this under the lock:
+//!                                     the start on record, what the number is,
+//!                                     tehas work to its end and the report
+//!                                     (src/supervise.rs). Exits as tehasbot
+//!                                     cycle does
 //!   tehas-cycle run <issue>           what tehas-cycle@.service starts:
 //!                                     copy the install's code for this
 //!                                     cycle and run tehasbot cycle from the
@@ -271,7 +278,9 @@ use tehas_cycle::host::Start;
 use tehas_cycle::last_attempt::{self, Action};
 use tehas_cycle::report::{last_attempts, to_json, Given};
 use tehas_cycle::{apply, finish, pin, prepare, progress, renew, report};
-use tehas_cycle::{caps, clock, improve, index, runner, sandbox, shadow, start, watch, Facts};
+use tehas_cycle::{
+    caps, clock, improve, index, runner, sandbox, shadow, start, supervise, watch, Facts,
+};
 
 fn usage() -> String {
     include_str!("main.rs")
@@ -438,6 +447,7 @@ fn main() {
         ["start-check", "text", n, rest @ ..] => {
             std::process::exit(start_text(&home, issue(n, &args), &args, rest))
         }
+        ["cycle", n, rest @ ..] => cycle_verb(&home, issue(n, &args), &args, rest),
         ["prepare", step, n, rest @ ..] => {
             std::process::exit(prepare_verb(&home, step, issue(n, &args), &args, rest))
         }
@@ -473,6 +483,32 @@ fn main() {
         }
         _ => wrong(&args),
     }
+}
+
+/// The words of a cycle's supervision.
+fn cycle_verb(home: &Path, n: u64, args: &[String], rest: &[&str]) -> ! {
+    let mut g = supervise::Given {
+        issue: n,
+        work: String::new(),
+        status_cmd: String::new(),
+        console: String::new(),
+        again: String::new(),
+    };
+    let mut it = rest.iter();
+    while let Some(flag) = it.next() {
+        let v = it.next().unwrap_or_else(|| wrong(args)).to_string();
+        match *flag {
+            "--work" => g.work = v,
+            "--status-cmd" => g.status_cmd = v,
+            "--console" => g.console = v,
+            "--again" => g.again = v,
+            _ => wrong(args),
+        }
+    }
+    if g.work.is_empty() || g.status_cmd.is_empty() || g.console.is_empty() || g.again.is_empty() {
+        wrong(args);
+    }
+    std::process::exit(supervise::run(home, &g));
 }
 
 /// The words of one step of `prepare`.
