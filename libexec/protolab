@@ -26,5 +26,5 @@ if [ -z "$console" ] || [ ! -x "$console" ]; then
   echo "tehasbot protolab: no console to build the pages with; run install.sh" >&2
   exit 78
 fi
-tehas_github_env || { echo "tehasbot protolab: no GitHub token for the app" >&2; exit 1; }
+TEHAS_CONSOLE_CMD=$console tehas_github_env || { echo "tehasbot protolab: no GitHub token for the app" >&2; exit 1; }
 exec "$console" protolab run
