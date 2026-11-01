@@ -37,6 +37,10 @@ empty one above it.
 - tehas index is a program.
 - tehasbot review is prepared by the console.
 - tehas dev starts its session from Rust.
+- What follows a cycle's record, from the live view to the next poll, is done by tehas-cycle; a pinned cycle runs its own copy of it.
+- The Rust report says a repeat park, a develop timeout's last attempt and a quiet stop, has no outage fallback, and the shadow's log names the arm.
+- A poll and a cycle can write to GitHub through one journal, and a poll's settle leaves the actions of a running cycle.
+- tehas-cycle can report a cycle through the action journal, with TEHAS_CYCLE_REPORT=rust; the deadline is the time limit less the handoff allowance.
 
 ### Adopter action
 
