@@ -134,7 +134,7 @@ pub fn sole_application(
     }
 }
 
-/// The newest labeled or unlabeled event of one label: tehas_label_state.
+/// The newest labeled or unlabeled event of one label.
 #[derive(Clone, Debug, PartialEq)]
 pub enum LabelState {
     /// The page had no event of the label, so it says nothing about it.

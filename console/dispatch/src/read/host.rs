@@ -441,7 +441,7 @@ pub fn leftovers(home: &Path, work_dir: &str, user_home: &Path, now: i64) -> Val
         }
         seen.push(n);
         let lock = home.join(format!("state/cycles/{n}.lock"));
-        // tehas_cycle_lock_free: a lock that is not there (a dangling link
+        // A lock that is not there (a dangling link
         // too) is free; one that is there is a plain file and no link.
         let lock_ok =
             !lock.exists() || fs::symlink_metadata(&lock).is_ok_and(|m| m.file_type().is_file());

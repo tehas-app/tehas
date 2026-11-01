@@ -208,7 +208,7 @@ for line in 'jq -r .by <<<"$base"' '.branch // ""' 'tehas.rukas' '"$TEHAS_HOME/s
   '$images/.taken' '.images.md' '"$st.out"' '"$st.rc"' '"$st.lock"' 'state/plan-<issue>.json.out' \
   '.planning.answer // ""' \
   '.planning.brief' "tehas_store_get '.planning.turn'" '"$keep/answer.md"' \
-  'tehas_cycle_history "$1"' "q=\$(tehas_store_get '.park.question // empty')" ".park // \"\" | strings" \
+  "q=\$(tehas_store_get '.park.question // empty')" ".park // \"\" | strings" \
   'park_holds "$n"' 'park-show "$n"' '<!-- tehas:park issue=7 -->' \
   'systemd-run --user --quiet --collect' 'quiet_running=$(tehas_cycles_running)' '.cycle.quiet'; do
   for re in "${forbidden[@]}"; do

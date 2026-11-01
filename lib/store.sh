@@ -23,15 +23,9 @@
 #   tehas_store_get <jq filter>   jq -r of $tehas_store_out; only after a 0
 #   tehas_store_try <tries> <verb> [args...]
 #       tehas_store again while the word is busy or timeout, 1 s apart
-#   tehas_store_looked            0 when the last call answered (returned 0)
 #   tehas_store_ready             0 when the binary is executable and
 #                                 state/tehas.db is a regular file and not a
 #                                 link: two tests, no process
-#   tehas_cycle_attempt <issue>   sets tehas_cycle_attempt_is to the attempt on
-#                                 record, 0 when none. Returns 1 when it could
-#                                 not look, and the value is then empty. Call
-#                                 it in the caller's shell, never in $(...), so
-#                                 tehas_store_word stays readable
 #   tehas_approval_view <issue> [<attempt>]
 #       The approval of the issue's latest start, in the shape .approved.json
 #       had, in a new 0600 file under $TEHAS_HOME/tmp; prints its path, and the
@@ -51,7 +45,6 @@ tehas_store_out=""
 tehas_store_word=""
 tehas_store_line=""
 tehas_store_rc=78
-tehas_cycle_attempt_is=""
 
 # tehas_store_said <rc> <word> <line>: what a failed call sets. The line is
 # for a log: no control bytes, at most 300 bytes.
@@ -134,21 +127,9 @@ tehas_store_try() { # <tries> <verb> [args...]
   done
 }
 
-tehas_store_looked() { [ "$tehas_store_rc" = 0 ]; }
-
 tehas_store_ready() {
   local bin=${TEHAS_HOME:-}/libexec/store db=${TEHAS_HOME:-}/state/tehas.db
   [ -n "${TEHAS_HOME:-}" ] && [ -f "$bin" ] && [ -x "$bin" ] && [ -f "$db" ] && [ ! -L "$db" ]
-}
-
-# shellcheck disable=SC2034  # the caller reads what this sets
-tehas_cycle_attempt() { # <issue>
-  local got
-  tehas_cycle_attempt_is=""
-  tehas_store cycle-show "$1" || return 1
-  got=$(tehas_store_get '.cycle.attempt // 0') || return 1
-  [[ $got =~ ^[0-9]{1,9}$ ]] || return 1
-  tehas_cycle_attempt_is=$got
 }
 
 # The approval as the dispatcher wrote .approved.json: its inputs, the driver it
