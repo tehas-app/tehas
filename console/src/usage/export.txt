@@ -16,7 +16,7 @@ the cycle's result, its logs, its agents' transcripts and its Protolab page:
   plan.json          the planning session on the state store, for a kind:
                      plan line, as plan-show gives it
 
-The copying is the console's (console export run, console/src/export.rs).
+The copying is the console's (console/src/export.rs).
 Every file goes through its mask, with the same names of the host it is given
 when a cycle runs (the host aliases, the model hosts, the bot's email): a
 token, a key, a password or a private address that reached a log does not
@@ -53,5 +53,6 @@ not answer (busy) for the history, which copies nothing, or a cycle could not
 be written, a planning turn whose session the store did not give among them,
 which the others are copied without; 64 a bad argument,
 an export into the factory's own home or a directory that cannot be made,
-which copies nothing; 78 the instance settings are missing or malformed, or
-the state store is not installed or cannot be used, which copies nothing.
+which copies nothing; 78 the instance settings are missing or malformed, the
+file of models is there and cannot be read, or the state store is not installed
+or cannot be used, which copies nothing.

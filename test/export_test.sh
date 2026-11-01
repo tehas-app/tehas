@@ -377,6 +377,24 @@ run_export --json --after $((T0 - 1))-12 "$out"
 t_contains "$(cat "$out/cycles/1760700000-12-1/logs/work-12-1760.jsonl")" "not-used.lan"
 t_stub git
 
+t_case "a file of models that is there and cannot be read is exit 78 and makes nothing"
+reset
+cycle 12 "$T0" '{"kind":"work","rc":0,"status":"merged"}'
+mkdir -p "$T/home/.pi/agent"
+printf '{"providers":{"alpha":{"baseUrl":"http://model-main.lan/v1"}}}\ntrailing\n' \
+  >"$T/home/.pi/agent/models.json"
+run_export --json --after $((T0 - 1))-12 "$out"
+t_eq "$t_rc" 78
+t_contains "$t_out" "models.json"
+[ ! -e "$out" ] || t_bad "the export made $out"
+
+t_case "a host with no file of models still exports"
+reset
+cycle 12 "$T0" '{"kind":"work","rc":0,"status":"merged"}'
+rm -f "$T/home/.pi/agent/models.json"
+run_export --json --after $((T0 - 1))-12 "$out"
+t_eq "$t_rc" 0
+
 t_case "a repository that is not valid is exit 78 and makes nothing"
 reset
 cycle 12 "$T0" '{"kind":"work","rc":0,"status":"merged"}'
