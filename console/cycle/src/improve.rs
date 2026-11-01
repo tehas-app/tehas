@@ -12,6 +12,7 @@ use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::OnceLock;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 /// The most bytes of an attachment file a record takes: lib/attachments.sh's
@@ -49,6 +50,104 @@ pub fn fresh(
         }
     }
     None
+}
+
+/// Whether the value of a setting may go on a record, which an analyst files in
+/// public. Only a value of a safe shape goes in: a number, a boolean, or a short
+/// word. Everything else is withheld, and so is any value whose name says it may
+/// be a secret or a host.
+fn safe_value(name: &str, v: &str) -> String {
+    const NAMES: [&str; 16] = [
+        "KEY", "TOKEN", "SECRET", "PASS", "PWD", "COOKIE", "AUTH", "CRED", "BEARER", "PRIVATE",
+        "HOST", "URL", "ADDR", "ENDPOINT", "DOMAIN", "PROXY",
+    ];
+    static SHAPES: OnceLock<[Regex; 5]> = OnceLock::new();
+    let [word, address, long, jwt, dotted] = SHAPES.get_or_init(|| {
+        [
+            Regex::new(r"\A[A-Za-z0-9_.,:=-]{0,64}\z").unwrap(),
+            Regex::new(r"\A[0-9]{1,3}(\.[0-9]{1,3}){3}(:[0-9]+)?\z|:[0-9]+\z").unwrap(),
+            Regex::new(r"[A-Za-z0-9]{16,}").unwrap(),
+            Regex::new(r"(\A|[^A-Za-z0-9])eyJ").unwrap(),
+            Regex::new(r"[A-Za-z0-9-]\.[A-Za-z]").unwrap(),
+        ]
+    });
+    let safe = !NAMES.iter().any(|n| name.contains(n))
+        && word.is_match(v)
+        && !address.is_match(v)
+        && !long.is_match(v)
+        && !jwt.is_match(v)
+        && !dotted.is_match(v)
+        && !tehas_core::secret::secret(v.as_bytes());
+    if safe {
+        v.to_string()
+    } else {
+        "[withheld]".to_string()
+    }
+}
+
+/// What a cycle ran with, for its record: the PI_ENSEMBLE_* variables the -e
+/// options give the container, the instance's TEHAS_* settings that shape a
+/// cycle, and how many cycles were running. Not every setting: the analyst's
+/// words are filed in public, and a host's addresses and the analytics settings
+/// are none of its business.
+pub fn settings(running: &str, options: &[String]) -> String {
+    static HOST: OnceLock<Regex> = OnceLock::new();
+    let host = HOST.get_or_init(|| {
+        Regex::new(
+            r"\ATEHAS_(WORK_(TIMEOUT|STALL|CPUS|MEMORY|IMAGES|FILES|COMMENTS|DESCRIBE)|CONCURRENCY|TICKET_CONCURRENCY|MAX_AWAITING|CYCLE_RESERVE|VERIFY_TIMEOUT|CHILD_TIMEOUT|PREFLIGHT_WAIT|STOP_WAIT|CONSOLE_WAIT|BRANCH)\z",
+        )
+        .unwrap()
+    });
+    let mut container: Vec<(String, J)> = vec![];
+    let mut words = options.iter();
+    while let Some(word) = words.next() {
+        if word != "-e" {
+            continue;
+        }
+        let Some(a) = words.next() else { break };
+        let (name, value) = match a.split_once('=') {
+            Some((n, v)) => (n, v.to_string()),
+            None => (a.as_str(), std::env::var(a).unwrap_or_default()),
+        };
+        let shaped = name.strip_prefix("PI_ENSEMBLE_").is_some_and(|r| {
+            !r.is_empty()
+                && r.bytes()
+                    .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'_')
+        });
+        if !shaped {
+            continue;
+        }
+        let value = J::Str(safe_value(name, &value));
+        match container.iter_mut().find(|(k, _)| k == name) {
+            Some(slot) => slot.1 = value,
+            None => container.push((name.to_string(), value)),
+        }
+    }
+    let mut shape: Vec<(String, String)> = std::env::vars_os()
+        .filter_map(|(k, v)| Some((k.into_string().ok()?, v.to_string_lossy().into_owned())))
+        .filter(|(k, _)| host.is_match(k))
+        .collect();
+    shape.sort();
+    let shape = shape
+        .into_iter()
+        .map(|(k, v)| {
+            let value = J::Str(safe_value(&k, &v));
+            (k, value)
+        })
+        .collect();
+    let count = running.len() < 6
+        && !running.is_empty()
+        && running.bytes().all(|b| b.is_ascii_digit())
+        && (running == "0" || !running.starts_with('0'));
+    J::obj(vec![
+        ("container", J::Obj(container)),
+        ("host", J::Obj(shape)),
+        (
+            "concurrentCycles",
+            J::Lit(if count { running } else { "null" }.to_string()),
+        ),
+    ])
+    .pretty()
 }
 
 /// What one cycle ended with, as far as the record says it.

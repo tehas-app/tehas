@@ -109,7 +109,7 @@ carrier '\.runner_exit\b' 'runner_exit_file=$TEHAS_HOME/state/cycles/$issue.runn
   'lib/cycles.sh libexec/cycle console/src/stop.rs libexec/work' \
   "work tells the cycle how the runner ended"
 carrier "$n"'\.status\b' 'status_file=$TEHAS_HOME/state/cycles/$issue.status' \
-  'libexec/cycle libexec/work' \
+  'libexec/cycle' \
   "work tells the cycle the runner's status word"
 carrier '\.oom\b' 'oom_file=${cycles:?}/${issue:?}.oom' \
   "lib/cycles.sh libexec/cycle console/src/stop.rs libexec/work $an/main.rs $an/run.rs $an/tests.rs" \

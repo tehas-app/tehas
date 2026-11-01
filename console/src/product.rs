@@ -460,7 +460,7 @@ fn in_sandbox(home: &str, repo: &str, gates: Gates, run: &mut Run) -> Result<Opt
     Ok(Some(passed))
 }
 
-// tehas_sandbox_clone of lib/sandbox.sh: the tip the checkout last fetched,
+// tehas_core::sandbox::clone: the tip the checkout last fetched,
 // with the product's address as origin. Nothing comes from the network.
 // One string as jq prints it: serde_json and jq differ on DEL alone.
 fn json_string(s: &str) -> String {

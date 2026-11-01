@@ -12,7 +12,7 @@ t_cycle || t_bad "no tehas-cycle: $t_cycle_why"
 # tehas_improve_record is the verb under the arguments of the function it
 # replaced.
 lib() {
-  t_run '. "$T_ROOT/lib/config.sh"; . "$T_ROOT/lib/improve.sh"; tehas_load || exit 78
+  t_run '. "$T_ROOT/lib/config.sh"; tehas_load || exit 78
 tehas_improve_record() { "$T/cycle-bin" after "$1" < <(printf "%s\0" --attempt 1 --started "$2" --rc "$3" --status "$4" --step "$5" --pr "${6:-}" --oom "${7:-0}" --image "${8:-}" --rukas-image "${9:-}" --cap "${10:-}" --reason "${11:-}" --build "${12:-}" --forks 0 --signalled 1 --workdir /nowhere --console true --status-cmd true); }
 '"$1"
 }
@@ -278,7 +278,7 @@ t_eq "$t_rc" 0
 t_eq "$(find "$base/window/$REC" -name slow.jsonl | wc -l)" 0
 
 # --- What a cycle ran with --------------------------------------------------
-settings() { lib "export $1; tehas_improve_settings \"\$TEHAS_HOME/s.json\" ${2:-3} ${3:-}"; }
+settings() { lib "export $1; \"\$T/cycle-bin\" settings \"\$TEHAS_HOME/s.json\" ${2:-3} ${3:-}"; }
 
 t_case "the settings a container is given, the TEHAS_* that shape a cycle, and how many cycles ran"
 reset
@@ -380,29 +380,4 @@ t_contains "$(cat "$T_ROOT/lib/improve-prompt.md")" "never guess it, never fill 
 t_contains "$(cat "$T_ROOT/lib/improve-prompt.md")" "\`boundary\` is for a problem with a half on each side"
 t_contains "$(cat "$T_ROOT/lib/improve-prompt.md")" "pi-rukas | console | gate | docs | boundary"
 
-# 300 lines of no words a token could be taken for.
-big_log() { for i in $(seq 1 300); do printf '%s\n' "$i" | sha256sum; done >"$1"; }
-
-t_case "the shape of a token is seen"
-reset
-echo "push with ghp_$(printf 'a%.0s' $(seq 1 36)) failed" >"$fx/log"
-lib 'tehas_improve_secret "$T/fx/log"'
-t_eq "$t_rc" 0
-echo "-----BEGIN OPENSSH PRIVATE KEY-----" >"$fx/log"
-lib 'tehas_improve_secret "$T/fx/log"'
-t_eq "$t_rc" 0
-echo "{\"apiKey\":\"sk-$(printf 'b%.0s' $(seq 1 24))\"}" >"$fx/log"
-lib 'tehas_improve_secret "$T/fx/log"'
-t_eq "$t_rc" 0
-
-t_case "an ordinary log is not taken for a secret"
-reset
-big_log "$fx/log"
-{
-  echo "the ghp_ prefix and sk-short are words here"
-  echo "check disk-usage-of-the-container-first"
-  echo '{"branch":"task-1234-add-the-login-page"}'
-} >>"$fx/log"
-lib 'tehas_improve_secret "$T/fx/log"'
-t_eq "$t_rc" 1
 t_done

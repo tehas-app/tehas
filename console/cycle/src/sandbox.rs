@@ -73,6 +73,44 @@ fn ok() -> i32 {
     }
 }
 
+/// The containers tehas work starts, each row its command, its image and what
+/// it runs, read off the words of the run itself. The runner stands as the
+/// libexec scripts name it.
+pub fn table() -> String {
+    let image = "PI_ENSEMBLE_IMAGE";
+    let none: [String; 0] = [];
+    let runs = [
+        sandbox::capabilities(image),
+        sandbox::push_check(&none, "", &none, "", "", image),
+        sandbox::cycle_run(&sandbox::CycleRun {
+            name: "",
+            limits: &none,
+            security: &none,
+            user: "",
+            cid_file: "",
+            tree: "",
+            mounts: &none,
+            images: &none,
+            env: &none,
+            hosts: &none,
+            image,
+            issue: 1,
+            flags: &none,
+        }),
+    ];
+    let rows = runs.iter().map(|run| {
+        let at = run.iter().position(|w| w == image).unwrap_or(0);
+        let cmd = match run.get(at + 1).map(String::as_str) {
+            Some(sandbox::RUNNER) => "$runner",
+            Some("push") => "git",
+            Some(other) => other,
+            None => "",
+        };
+        format!("work\t{image}\t{cmd}")
+    });
+    rows.collect::<Vec<_>>().join("\n")
+}
+
 /// The exit status of one verb, None for words it does not take.
 pub fn main(args: &[String]) -> Option<i32> {
     let a: Vec<&str> = args.iter().map(String::as_str).collect();
@@ -93,6 +131,16 @@ pub fn main(args: &[String]) -> Option<i32> {
             },
         ),
         ["verify", ..] => verify(&args[1..]),
+        ["table"] => {
+            println!("{}", table());
+            0
+        }
+        ["retry", host] => {
+            println!("{}", sandbox::retry_line(host));
+            0
+        }
+        ["clone", src, tree, branch] => i32::from(!sandbox::clone(src, tree, branch)),
+        ["seed", state, index] => i32::from(!sandbox::seed(state, index)),
         _ => return None,
     })
 }

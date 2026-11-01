@@ -1352,12 +1352,11 @@ variable-in-another-file	1	unplaced		the image "$image" is assigned by no statem
 
 t_case "the scan places one record for every docker run the units hold"
 # The count is made by a rule the scan does not share, and the two must agree:
-# the count is what the units hold today: three for work (the check of a runner,
-# the check of a push, and the cycle) and two for plan (the check of a runner and
+# the count is what the units hold today: two for plan (the check of a runner and
 # the turn), the run of the comment that names docker run being read by neither.
 # The runs of the programs are the rows of the table below.
 count=$(docker_run_count "$T_ROOT/libexec")
-t_eq "$count" 5
+t_eq "$count" 2
 # The account of the records is read off the records themselves, and not from
 # two totals that could drift together: the lines of the records are the runs
 # the scan made records for, so a record of anything at all answers one line of
@@ -1371,7 +1370,7 @@ t_eq "$(wc -l <<<"$records")" "$count"
 # ends with the reason it gives. The scan keeps the two apart itself, and says
 # how many records it read as neither, which is what the account on the error
 # of the scan is asked for.
-t_eq "$(records_account "$T_ROOT/libexec")" "placed 5 unplaced 0 bad 0"
+t_eq "$(records_account "$T_ROOT/libexec")" "placed 2 unplaced 0 bad 0"
 # Any run the scan cannot place fails this case, and is named by the file and
 # the line it stands on. The units leave none today.
 unplaced=$(unplaced_of "$T_ROOT/libexec")
@@ -1385,7 +1384,7 @@ records=$(records_of "$T_ROOT/libexec")
 t_console || t_bad "no console: $t_console_why"
 # shellcheck disable=SC2154  # t_cycle_why is set by t_cycle (test/lib.sh)
 t_cycle || t_bad "no tehas-cycle: $t_cycle_why"
-program_runs=$("$T_CONSOLE" check-product table; "$T_CONSOLE" improve table; "$T_CONSOLE" review table; "$T_CONSOLE" dev table; "$T_CYCLE" index table)
+program_runs=$("$T_CONSOLE" check-product table; "$T_CONSOLE" improve table; "$T_CONSOLE" review table; "$T_CONSOLE" dev table; "$T_CYCLE" index table; "$T_CYCLE" sandbox table)
 while IFS= read -r row; do
   records+=$'\n'"${row/$'\t'/$'\t0\t'}"$'\t'
 done <<<"$program_runs"

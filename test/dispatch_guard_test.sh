@@ -502,9 +502,9 @@ t_eq "$t_rc" 1
 t_eq "$(t_calls fake-tidy)" ""
 
 # The size of one body, as the measure reads it: a path counts when it stands
-# between two ticks, so the ticks are built from their octal code (the same one
-# lib/sizing.sh uses) and never typed. <word> is the letters of the names, so a
-# case can tell one body from another by what it says.
+# between two ticks, so the ticks are built from their octal code and never
+# typed. <word> is the letters of the names, so a case can tell one body from
+# another by what it says.
 TICK=$(printf '\140')
 wide_body() { # <n> [<word>]: a body the measure reads as n files
   local i out='Wide issue, one cycle.'$'\n'
