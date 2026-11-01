@@ -86,6 +86,20 @@ fn branch_name(name: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || "._/-".contains(c))
 }
 
+/// TEHAS_DOMAIN as lib/config.sh takes it. A preview's address is made by
+/// putting uat-<n>. in front of it, and goes into pull requests.
+fn domain_name(name: &str) -> bool {
+    let label = |word: &str| {
+        !word.starts_with('-')
+            && !word.ends_with('-')
+            && !word.is_empty()
+            && word
+                .bytes()
+                .all(|b| matches!(b, b'a'..=b'z' | b'0'..=b'9' | b'-'))
+    };
+    name.contains('.') && name.split('.').all(label)
+}
+
 fn commit_id(word: &str) -> bool {
     word.len() == 40 && word.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
 }
@@ -147,6 +161,12 @@ impl Preview {
         }
         if get("TEHAS_PREVIEWS") != "1" {
             return Err("TEHAS_PREVIEWS is not 1: this instance has no previews".to_string());
+        }
+        if !domain_name(&get("TEHAS_DOMAIN")) {
+            return Err(
+                "TEHAS_DOMAIN is not set or not a domain: a preview has no address without it"
+                    .to_string(),
+            );
         }
         let work_repo = match get("TEHAS_WORK_REPO") {
             dir if dir.is_empty() => "/nonexistent".to_string(),
@@ -663,6 +683,30 @@ mod tests {
         }
         for name in ["", "-x", ".x", "/x", "a b", "a:b", "a\nb", "a\n", "ä"] {
             assert!(!branch_name(name), "{name:?}");
+        }
+    }
+
+    #[test]
+    fn a_domain_reads_as_lib_config_sh_reads_it() {
+        for name in ["example.org", "a.b.c", "x-1.example.org", "1.2"] {
+            assert!(domain_name(name), "{name}");
+        }
+        for name in [
+            "",
+            " ",
+            "example",
+            "Example.org",
+            "-a.example.org",
+            "a-.example.org",
+            "a..org",
+            ".example.org",
+            "example.org.",
+            "example.org/x",
+            "https://example.org",
+            "example.org\n",
+            "ä.example.org",
+        ] {
+            assert!(!domain_name(name), "{name:?}");
         }
     }
 
