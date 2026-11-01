@@ -8,6 +8,7 @@
 //! `finish` opens a pull request from what a cycle that stopped left.
 
 pub mod clock;
+pub mod describe;
 pub mod facts;
 pub mod finish;
 pub mod host;
