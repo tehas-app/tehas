@@ -4008,10 +4008,10 @@ image yet, makes the update exit 1. `--check` runs `build.sh --check` and
 exits 1 when the commit moved. See
 [pi-rukas comes from upstream](/host#pi-rukas-comes-from-upstream).
 
-The follow-ups are steps named by id in `lib/update-steps.sh`, which install.sh
-prints as `next: <step line>` and this command runs as its own steps rather than
-as shell text. The arguments belong to the step, and `lib/update-steps.sh` says
-which ones each id accepts and which of them it requires:
+The follow-ups are steps named by id in the console, which install.sh prints as
+`next: <step line>` and this command runs as its own steps rather than as shell
+text. The arguments belong to the step, and the console says which ones each id
+accepts and which of them it requires:
 
 | Step                        | install.sh asks for it when         | tehas update runs it when                                        |
 | --------------------------- | ------------------------------------ | ----------------------------------------------------------------- |
@@ -4162,10 +4162,12 @@ runs in the slice and none starts without it. A real run installs either way and
 prints a `note:` line instead.
 
 After a real run it prints one `next: <step>` line per follow-up its changed
-files call for - the ids `lib/update-steps.sh` defines - and starts nothing
+files call for - the ids the console defines - and starts nothing
 itself; `tehas update` is what runs them. Each of those steps is also recorded in
-`$TEHAS_HOME/state/update-pending` as the file that calls for it is copied, so a
-run that dies partway still leaves its copies owed, and `--check` adds a
+`$TEHAS_HOME/state/update-pending` as the file that calls for it is copied, by the
+console this run installs, so a real run needs one that starts before its first
+copy: the release tree's, the one it built, or the one installed. A run that dies
+partway still leaves its copies owed, and `--check` adds a
 `Follow-ups: NOT DONE` line, and exits 1, while any of them is left. It asks
 systemd for nothing, but to reload before it removes the earlier layout: a copied unit file is not in effect until systemd has reloaded
 it, and that reload belongs to the `units` step, which cannot report a changed unit

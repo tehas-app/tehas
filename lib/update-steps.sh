@@ -1,161 +1,21 @@
 # shellcheck shell=bash
-# The follow-up steps an update finishes after install.sh has copied files.
+# What of the follow-up steps is read before the console can be asked: the waits
+# for the update lock and the dispatcher's, which tehas update and install.sh read
+# before tehas_load and before any build, and the record of steps owed, which
+# install.sh --check reads on a checkout with no console built. The steps are in
+# console/src/update/steps.rs.
 #
-# One place names them, because two commands read the list. install.sh prints
-# the steps its changed sources call for, one per line, as "next: <step line>",
-# and records the same lines in the file of steps owed before it copies a file.
-# The console checks a step line before anything runs it, in
-# console/src/update/steps.rs, which holds these tables too.
-# tehas update reads those lines and runs each step as its own command with the
-# arguments written on that line. Neither side rewrites a step into a command
-# line of its own, so editing what install.sh asks for cannot silently turn a
-# performed step into an unperformed one: the id has to be one this file knows.
-#
-#   tehas_step_ids            every step id this file defines, one per line
-#   tehas_steps_for <src>...  the steps these changed sources call for, in the
-#                             order they run, one per line
-#   tehas_steps_into <src>... the same, into the array tehas_steps
-#   tehas_sort_steps <line>.. the same step lines in the order they run
-#   tehas_step_id <token>       the id this file defines for that token: the
-#                               Protolab's old name reads as the edge step
 #   tehas_read_steps          the lines of the record of steps owed, one per line;
 #                             1 when there is a record this cannot read
-#   tehas_write_steps <line>.. replace that record with these lines (it writes)
-#   tehas_record_steps <line>.. add these steps to that record (it writes)
 #   tehas_pending_file        where the steps a run asked for and did not finish
 #                             are kept until each one has run
 #   tehas_update_lock_wait    the seconds tehas update and install.sh wait for
 #                             state/update.lock, read from the environment here
 #                             because tehas_load drops what it does not know
+#   tehas_dispatch_lock_wait  the seconds install.sh waits for state/dispatch.lock
 #
-# Steps, and what they mean to the command that runs them:
-#   units <unit>...   systemd reloads its unit files, then restarts these units,
-#                     and only where one is already active
-#   sandbox           rebuild the sandbox image
-#   docs <flag>       renew the docs container, and only where it is running; the
-#                     one flag accepted is --force-recreate and it is required,
-#                     because Caddy reads its config when the process starts and
-#                     a changed Caddyfile never reaches a container left as it
-#                     was. A bare "docs" is not this step: it would run the
-#                     weaker action and still be marked done.
-#   edge <flag>       renew the edge router's container, and only where it is
-#                     running; the one flag accepted is --force-recreate, and it
-#                     is required for the same reason. A line recorded as
-#                     "protolab <flag>" by an earlier version means this step.
-#   labels            the tehas labels are created in the product repository, or
-#                     brought back to the colours and descriptions this version
-#                     names; tehas labels is run with no arguments, and no
-#                     arguments are accepted on the line.
-#
-# Rules: an id this file does not define is run by nobody, and it stays in the
-# record so the host keeps reporting it until a command that knows it runs.
-# Whether a step has happened is never read from what a command happened to copy
-# - a step that was asked for and did not run stays owed until it has run.
-
-# The systemd units install.sh names when a unit file changed. It asks for the
-# timers and services tehas runs, not only the changed one: an update restarts
-# the ones that were already active and leaves the rest as the operator left
-# them, so naming all of them adds no work. A oneshot service whose timer is
-# named here is not restarted, because restarting it would run the job off
-# schedule; its changed definition reaches it when the units step asks systemd to
-# reload.
-tehas_units() { printf '%s\n' tehas-dispatch.timer tehas-energy.service tehas-top.service tehas-mcp.service tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-improve.timer tehas-refresh.timer tehas-review.timer tehas-clean.timer; }
-
-tehas_step_ids() { printf '%s\n' units sandbox docs edge labels; }
-
-# The units of tehas_units on one line, space separated, asked once per process:
-# install.sh asks for every file it copies. Sourcing this file again, a newer
-# copy of it, asks again.
-_tehas_units_line=""
-tehas_units_line() {
-  [ -n "${_tehas_units_line:-}" ] || _tehas_units_line=$(tehas_units | tr '\n' ' ')
-}
-
-# The steps these changed sources call for, in the order they run: systemd
-# first, because a unit file is not in effect until it is reloaded and its unit
-# restarted, and the containers last.
-tehas_steps_for() { # changed source paths -> one step per line
-  tehas_steps_into "$@"
-  if [ "${#tehas_steps[@]}" != 0 ]; then printf '%s\n' "${tehas_steps[@]}"; fi
-  return 0
-}
-
-# The same answer in the array tehas_steps, with no subshell: install.sh asks
-# once for every file it copies.
-tehas_steps_into() { # changed source paths -> tehas_steps
-  local list=" $* "
-  tehas_steps=()
-  case "$list" in
-    # bin/tehas-energy, libexec/energy and libexec/top-publish are the loops of
-    # before bin/tehas and of before the console. A running one is that file
-    # calling itself, and it moves on only when restarted. A running service keeps the environment
-    # env.sh gave it at its start.
-    *" systemd/"* | *" bin/tehas-energy "* | *" libexec/energy "* | *" libexec/top-publish "* | *" env.sh "*)
-      tehas_units_line
-      tehas_steps+=("units ${_tehas_units_line% }")
-      ;;
-    # The MCP server's container mounts its binary: a new one reaches it only
-    # when the unit starts the container again.
-    *"/tehas-mcp "*) tehas_steps+=("units tehas-mcp.service") ;;
-  esac
-  case "$list" in
-    *" sandbox/"* | *" versions.env "*) tehas_steps+=(sandbox) ;;
-  esac
-  case "$list" in
-    # Both compose servers take --force-recreate: their service definition is
-    # what changed only when the file they mount did, and docker compose leaves
-    # a running container with an unchanged definition exactly as it was.
-    *" edge/docs."*) tehas_steps+=("docs --force-recreate") ;;
-  esac
-  case "$list" in
-    *" edge/router."* | *" edge/protolab."*) tehas_steps+=("edge --force-recreate") ;;
-  esac
-  case "$list" in
-    # The table of the labels changed, so a release that adds one ends with that
-    # label in place on GitHub rather than owed to nobody.
-    *" labels.tsv "*) tehas_steps+=(labels) ;;
-  esac
-  return 0
-}
-
-# A step id as this file defines it. The Protolab's server became the edge
-# router, so a line recorded as "protolab <flag>" by an earlier version means
-# the edge step. One function says that, and everything that reads a step line
-# asks it rather than spelling the alias out.
-tehas_step_id() { # <id token> -> the id this file defines for it
-  tehas_step_id_into "$1"
-  printf '%s\n' "$tehas_step_id_out"
-}
-# The same answer in tehas_step_id_out, with no subshell.
-tehas_step_id_into() {
-  case "$1" in
-    protolab) tehas_step_id_out=edge ;;
-    *) tehas_step_id_out=$1 ;;
-  esac
-}
-
-# The same step lines in the order they run, by id as tehas_step_ids lists them.
-# Lines whose id this file does not know keep their order at the end: nobody runs
-# them, but they stay visible. Sorting here rather than in each command keeps one
-# answer to "what runs first" for install.sh's record and tehas update's run.
-tehas_sort_steps() { # step lines -> the same lines, ordered
-  local id line known tehas_step_id_out
-  known=" $(tehas_step_ids | tr '\n' ' ') "
-  for id in $known; do
-    for line in "$@"; do
-      tehas_step_id_into "${line%% *}"
-      if [ "$tehas_step_id_out" = "$id" ]; then printf '%s\n' "$line"; fi
-    done
-  done
-  for line in "$@"; do
-    tehas_step_id_into "${line%% *}"
-    case "$known" in
-      *" $tehas_step_id_out "*) ;;
-      *) printf '%s\n' "$line" ;;
-    esac
-  done
-  return 0
-}
+# An updater from before keeps every other function of this file as it loaded
+# them, when it reads this one again after install.sh: nothing here unsets one.
 
 # Where the unfinished steps of a run are kept. install.sh's report of what
 # changed is one-shot: it is spent by the run that made the copies, so without
@@ -231,80 +91,4 @@ tehas_read_steps() {
     }
   fi
   return 0
-}
-
-# Replace the record with these lines: what is owed after this run, in the order
-# they run. No lines means no record. It writes through a temporary file beside
-# it and moves that over, because the record is the only memory a half-finished
-# run leaves behind - a truncation that died halfway would erase the steps that
-# were already owed there.
-tehas_write_steps() { # one step line per argument; none means remove the record
-  local file tmp
-  file=$(tehas_pending_file)
-  if ! mkdir -p "${file%/*}"; then
-    echo "tehas: could not create ${file%/*}" >&2
-    return 1
-  fi
-  if [ "$#" = 0 ]; then
-    rm -f "$file"
-    return 0
-  fi
-  tmp=$(mktemp "$file.XXXXXX") || {
-    echo "tehas: could not make a temporary file beside $file" >&2
-    return 1
-  }
-  if ! printf '%s\n' "$@" >"$tmp" || ! mv -f "$tmp" "$file"; then
-    rm -f "$tmp"
-    echo "tehas: could not record the follow-ups owed in $file" >&2
-    return 1
-  fi
-  return 0
-}
-
-# Add these steps to the record of steps owed, keeping it free of duplicates and
-# in the order they run. install.sh calls it before each copy, so a run that
-# dies partway still leaves behind what its copies asked for; tehas update calls
-# it for the lines it was given and has not run. This writes, and says so when
-# it cannot - including when what is already there cannot be read, because
-# merging into an unreadable record would overwrite it.
-tehas_record_steps() { # one step line per argument
-  local line seen have sorted=() merged=() record
-  if [ "$#" = 0 ]; then return 0; fi
-  record=$(tehas_read_steps) || return 1
-  while IFS= read -r line; do
-    [ -n "$line" ] || continue
-    merged+=("$line")
-  done <<<"$record"
-  for line in "$@"; do
-    [ -n "$line" ] || continue
-    seen=0
-    for have in "${merged[@]}"; do
-      if [ "$have" = "$line" ]; then seen=1; break; fi
-    done
-    if [ "$seen" = 0 ]; then merged+=("$line"); fi
-  done
-  if [ "${#merged[@]}" = 0 ]; then return 0; fi
-  # A units step whose units another units step names too is done by that one.
-  local kept=() unit covered
-  for line in "${merged[@]}"; do
-    covered=0
-    if [ "${line%% *}" = units ]; then
-      for have in "${merged[@]}"; do
-        [ "${have%% *}" = units ] && [ "$have" != "$line" ] || continue
-        covered=1
-        for unit in ${line#units }; do
-          case " ${have#units } " in *" $unit "*) ;; *) covered=0 ;; esac
-        done
-        [ "$covered" = 0 ] || break
-      done
-    fi
-    [ "$covered" = 1 ] || kept+=("$line")
-  done
-  merged=("${kept[@]}")
-  # Sorted as whole lines: a units step carries spaces, so it is read back one
-  # line at a time rather than word-split.
-  while IFS= read -r line; do sorted+=("$line"); done < <(tehas_sort_steps "${merged[@]}")
-  # A record that already holds these lines in this order is left as it is.
-  [ "$(printf '%s\n' "${sorted[@]}")" != "$record" ] || return 0
-  tehas_write_steps "${sorted[@]}"
 }

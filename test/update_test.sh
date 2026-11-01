@@ -15,7 +15,7 @@
 # shellcheck source=test/update_lib.sh
 . "$(dirname "$0")/update_lib.sh" || exit 1
 # The one place the follow-ups are named. Every case that needs install.sh's
-# "next:" lines takes them from here, so the fixture is the text install.sh
+# "next:" lines takes them from the console, so the fixture is the text install.sh
 # produces rather than a copy of it someone could keep out of step.
 # shellcheck source=lib/update-steps.sh
 . "$T_ROOT/lib/update-steps.sh"
@@ -72,10 +72,10 @@ write_install() { # <what the stub prints> [<dir to write it in>]
 }
 
 # The follow-ups install.sh asks for when its units, its sandbox files and both
-# compose servers changed - taken from lib/update-steps.sh, in the order it
+# compose servers changed - taken from the console, in the order it
 # prints them (systemd first), which is the order an update runs them in.
 next_lines() {
-  tehas_steps_for systemd/tehas-dispatch.timer sandbox/Dockerfile versions.env \
+  "$T_CONSOLE" update steps for systemd/tehas-dispatch.timer sandbox/Dockerfile versions.env \
     edge/docs.compose.yaml edge/router.compose.yaml
 }
 
@@ -541,8 +541,7 @@ rm -f "$T/console.now.prev"
 stand_in "$T/console.now" 'echo 1; exit 0' 'finished by the console before'
 stand_in "$T/console.next" 'exit 2' 'finished by the console installed'
 platform 0 "$new_console
-. '$T_ROOT/lib/update-steps.sh'
-tehas_record_steps sandbox
+\"\$TEHAS_CONSOLE\" update steps record sandbox/Dockerfile
 echo 'installed: libexec/console'
 echo 'next: sandbox'"
 t_run "$update"
@@ -920,8 +919,7 @@ t_eq "$(owed_steps)" "renew-dashboard --now"
 t_case "steps an install.sh that died partway recorded are run by the next one"
 instance
 platform 1 'echo "installed: libexec/dispatch"
-. "$T_ROOT/lib/update-steps.sh"
-tehas_record_steps sandbox "docs --force-recreate"
+"$TEHAS_CONSOLE" update steps record sandbox/Dockerfile edge/docs.Caddyfile
 echo "tehas: /x is missing from this checkout" >&2
 exit 1'
 t_run "$update"

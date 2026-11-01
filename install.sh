@@ -85,11 +85,13 @@
 # again and finds the file matching. So a run that dies partway would otherwise
 # leave the files it did copy with no follow-up owed.
 #
-# The follow-ups are named by id (units, sandbox, docs, edge) in
-# lib/update-steps.sh, which is the one place that names them. This script
-# prints them as "next: <step>" and records them; `tehas update` runs them and
-# clears the record. Only a step is printed as "next:". Something for a person
-# to do later that is no step is printed as "later:".
+# The follow-ups are named by id (units, sandbox, docs, edge, labels) in the
+# console, console/src/update/steps.rs, which is the one place that names them.
+# This script asks it for each changed file, prints them as "next: <step>" and
+# has it record them; `tehas update` runs them and clears the record. So a real
+# run needs a console before its first copy: the one of the release tree, the
+# one this run built, else the one installed. Only a step is printed as "next:".
+# Something for a person to do later that is no step is printed as "later:".
 #
 # It does not install the slice the sandbox containers are to run in: that is
 # one system unit, and root's (sudo ./bootstrap.sh slice). It compares the
@@ -150,6 +152,8 @@ tests=0
 suite=${TEHAS_TEST_SUITE:-}
 # Read before tehas_load, which drops it from the environment.
 update_fd=${TEHAS_UPDATE_LOCK_FD:-}
+# The console that answers for the steps, when something names one. See section 3.
+steps_console=${TEHAS_CONSOLE:-}
 # Read before tehas_load, which drops every TEHAS_* it does not know: the one
 # rule for it is tehas_update_lock_wait, taken with lib/update-steps.sh below,
 # where tehas update takes it too. Set here so the file is defined before that
@@ -706,8 +710,10 @@ record_step() { # one source path from the file table
   # to the host's own pins calls for nothing here. The file is still copied, and
   # still counted as drift for --check and for its later: line below.
   if [ "$1" = versions.env ] && [ "$versions_owed" != 1 ]; then return 0; fi
-  tehas_steps_into "$1"
-  if [ "${#tehas_steps[@]}" != 0 ]; then tehas_record_steps "${tehas_steps[@]}" || exit 1; fi
+  "$steps_console" update steps record "$1" || {
+    echo "tehas: $steps_console could not record the follow-ups of $1; the copies so far are installed" >&2
+    exit 1
+  }
 }
 
 # --- 2b. The command root installed for the other accounts ------------------
@@ -984,6 +990,18 @@ ${out:-cargo printed nothing}"
       program_stamps+=("build $sum")
     done
   fi
+fi
+
+# The console that names the steps and records them, from here on and before the
+# first copy: the one this run installs, so the rules are the ones of this tree.
+# A tree from a release carries it. Otherwise it is the one this run built, or,
+# with nothing due, the one installed, which was built from this source.
+if [ -z "$steps_console" ]; then
+  steps_console=$TEHAS_HOME/libexec/console
+  [ -d "$root/console" ] || [ ! -f "$root/VERSION" ] || steps_console=$root/libexec/console
+  for entry in "${program_puts[@]}"; do
+    case "$entry" in *"|$TEHAS_HOME/libexec/console|"*) steps_console=${entry%%|*} ;; esac
+  done
 fi
 
 # --- 3a. The old records and the dispatcher's lock ----------------------------
@@ -1588,7 +1606,7 @@ if [ "${#changed[@]}" = 0 ] && [ "$sandbox_changed" != 1 ]; then
   first_index
   exit 0
 fi
-# The follow-ups, by the ids lib/update-steps.sh defines: one line per step these
+# The follow-ups, by the ids the console defines: one line per step these
 # changed files call for, in the order they run, and one for the instance's own
 # sandbox file when it changed - the file is no source of this checkout, so it is
 # in no list here and calls for the build under its own name. The steps are
@@ -1605,7 +1623,10 @@ for src in "${changed[@]-}"; do
   if [ "$src" = versions.env ] && [ "$versions_owed" != 1 ]; then continue; fi
   step_sources+=("$src")
 done
-seen_steps=$(while IFS= read -r step; do echo "next: $step"; done < <(tehas_steps_for "${step_sources[@]}"))
+seen_steps=$("$steps_console" update steps for "${step_sources[@]}" | sed 's/^/next: /') || {
+  echo "tehas: $steps_console could not name the follow-ups; they are in the record of steps owed" >&2
+  exit 1
+}
 if [ "$sandbox_changed" = 1 ]; then
   # Once, whatever the file's bytes also happened to call for: the build the
   # instance's file owes is the same build the platform's Dockerfile does, and a

@@ -8,7 +8,7 @@
 //!     --install-out <file> --install-err <file> --install-rc <n>
 //!   console update release source|installed|newest|keep
 //!   console update release older|stale <version> <version>
-//!   console update steps ids|units|valid <line>
+//!   console update steps ids|units|valid <line>|for <source>...|record <source>...
 //!
 //! `api` says which of these this console speaks: install.sh may have replaced
 //! the console while an update ran, and the one left has to finish it.
