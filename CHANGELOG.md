@@ -30,6 +30,13 @@ empty one above it.
 - The previews' network is checked and made by the console (`console preview network`); `install.sh` no longer sources `lib/edge.sh`.
 - A planning turn's preparation, docker wait and end moved from `libexec/plan` to `console plan`.
 - The GitHub App token is made in the console, and the JWT and the token reach curl on standard input, not on its command line.
+- The rules of `tehas.slice` are the console's: `console slice` answers for the commands and `lib/slice.sh` is wrappers.
+- `tehasbot protolab` runs in the console; every page rebuilds once, and each gh call of a pass is held to 30 s.
+- tehasbot preview runs in the console; libexec/preview only loads the settings, and lib/edge.sh is gone.
+- The docker options of every container come from one Rust builder (rule 4: nothing widens).
+- tehas index is a program.
+- tehasbot review is prepared by the console.
+- tehas dev starts its session from Rust.
 - A factory pull request whose issue carries `needs-human-attention` loses
   `STUCK: ` when it is proven fine to merge: clean on GitHub, and the last
   six-pass review is newer than its head and lists nothing above MEDIUM.
