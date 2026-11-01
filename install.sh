@@ -523,7 +523,45 @@ files=(
 for f in tehas tehasbot; do
   files+=("bin/$f|$TEHAS_HOME/bin/$f|755")
 done
-for f in analytics-cmd api check-product clean cycle dev dev-login dispatch disk drain energy export github-token health history improve index init-product labels limit mcp pause plan preview protolab refresh review resume setup state status stop summary tidy top top-publish update work; do
+for f in \
+  analytics-cmd \
+  api \
+  check-product \
+  clean \
+  cycle \
+  dev \
+  dev-login \
+  dispatch \
+  disk \
+  drain \
+  energy \
+  export \
+  github-token \
+  health \
+  history \
+  improve \
+  index \
+  init-product \
+  labels \
+  limit \
+  mcp \
+  pause \
+  plan \
+  preview \
+  protolab \
+  refresh \
+  review \
+  resume \
+  setup \
+  state \
+  status \
+  stop \
+  summary \
+  tidy \
+  top \
+  top-publish \
+  update \
+  work; do
   files+=("libexec/$f|$TEHAS_HOME/libexec/$f|755")
 done
 # The polyfills of pi-rukas features (scripts/polyfills.sh) are a glob, not a
@@ -1176,9 +1214,19 @@ done
 # before it was a compiled program. And the Protolab's server files of before the
 # edge router. Found here, removed in step 5 once systemd has the new units.
 old=()
-for f in bin/tehas-console.ts bin/tehas-dispatch bin/tehas-energy bin/tehas-health bin/tehas-index \
-  bin/tehas-protolab bin/tehas-status bin/tehas-test bin/tehas-work libexec/console.ts \
-  edge/protolab.Caddyfile edge/protolab.compose.yaml; do
+for f in \
+  bin/tehas-console.ts \
+  bin/tehas-dispatch \
+  bin/tehas-energy \
+  bin/tehas-health \
+  bin/tehas-index \
+  bin/tehas-protolab \
+  bin/tehas-status \
+  bin/tehas-test \
+  bin/tehas-work \
+  libexec/console.ts \
+  edge/protolab.Caddyfile \
+  edge/protolab.compose.yaml; do
   to=$TEHAS_HOME/$f
   [ -e "$to" ] || continue
   old+=("$to")
