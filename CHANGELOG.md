@@ -13,6 +13,11 @@ empty one above it.
 
 ### Changes
 
+- `tehas status`, `disk`, `state`, `limit`, `pause`, `analytics` and `tehasbot health` run the console directly, and seven wrapper scripts are gone.
+- The measure of an issue and the free-disk reading are the console's: `console size` and `console disk free` replace the jq and df in lib/sizing.sh and lib/disk.sh.
+- The cleaner's image names and the held set are the console's, and libexec/clean is a wrapper.
+- `tehasbot refresh` runs in tehas-dispatch; each GitHub call has a 30 s bound.
+- check-product and init-product run in the console.
 - `scripts/verify.sh --changed` runs `cargo test -p` for the crates a change can
   affect, not the whole workspace (#911).
 
