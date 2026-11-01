@@ -16,7 +16,7 @@ cp "$T_ROOT/bin/tehas" "$T_ROOT/bin/tehasbot" "$tree/bin/"
 # The settings library is there to be read, so that not reading it means something.
 cp "$T_ROOT/lib/config.sh" "$tree/lib/config.sh"
 # One line per call: the name, then each argument after a "|".
-for name in dispatch cycle work plan dev index setup update labels status console protolab preview improve refresh review clean top top-publish resume stop api drain mcp with-settings console; do
+for name in dispatch cycle work plan dev index setup update labels status console protolab preview improve refresh review clean resume stop api drain mcp with-settings console; do
   printf '%s\n' '#!/usr/bin/env bash' "# The text of $name." '#' "# Usage: $name" 'set -u' 'IFS="|"' \
     "printf '%s\\n' \"$name\${*:+|\$*}\" >>\"\$T/calls/libexec\"" 'exit "${RC:-0}"' >"$tree/libexec/$name"
   chmod +x "$tree/libexec/$name"
@@ -115,12 +115,21 @@ t_run "$tehas limit set --cycles 1 --reason 'a b' && $tehas drain --wait 5"
 t_eq "$(ran)" "with-settings|tehas|limit|set|--cycles|1|--reason|a b
 drain|--wait|5"
 
-t_case "tehas top runs its script with what follows it"
+t_case "tehas top is a verb of the console with what follows it"
 reset
 t_run "$tehas top --once && $tehas top"
 t_eq "$t_rc" 0
-t_eq "$(ran)" "top|--once
-top"
+t_eq "$(ran)" "console|tehas|top|--once
+console|tehas|top"
+
+t_case "tehas top with no console says to install"
+reset
+T_ENV=(TEHAS_CONSOLE="$T/no-console")
+t_run "$tehas top --once"
+t_eq "$t_rc" 1
+t_contains "$t_out" "tehas top: no console at $T/no-console, run install.sh"
+t_eq "$(ran)" ""
+T_ENV=()
 
 t_case "an argument with a space reaches the script as one argument"
 reset
@@ -212,7 +221,7 @@ cycle|7
 status
 with-settings|tehasbot|health
 console|energy|--every
-top-publish|--every
+with-settings|tehasbot|top|--every
 protolab
 preview
 improve"
@@ -274,13 +283,11 @@ names=$("$T_ROOT/bin/tehasbot" help | sed -n 's/^  tehasbot \([a-z-]*\).*/\1/p' 
 t_eq "$names" "dispatch cycle status health energy top protolab preview improve refresh review clean mcp github-token "
 missing=""
 for name in $names; do
-  # The command is `top`; its script is top-publish, because libexec/top is the
-  # view a person runs. health is a verb of the console.
+  # health and top are verbs of the console.
   script=$name
-  [ "$name" = top ] && script=top-publish
   # The sampler is a verb of the console, built by install.sh.
   [ "$name" = energy ] && continue
-  [ "$name" = health ] && script=with-settings
+  case "$name" in health | top) script=with-settings ;; esac
   [ -x "$T_ROOT/libexec/$script" ] || missing="$missing $name"
 done
 t_eq "$missing" ""

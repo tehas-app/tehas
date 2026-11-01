@@ -7,9 +7,11 @@
 //!   console tehas limit [--json] | set ... | clear
 //!   console tehas pause [reason]
 //!   console tehas analytics report | export <file> [--json]
+//!   console tehas top [--once | --json] [--every <seconds>]
 //!   console tehasbot health
+//!   console tehasbot top [--every]
 //!
-//! status and disk need no settings. The rest run under
+//! status, disk and top need no settings. The rest run under
 //! `libexec/with-settings`, which first asks `console check` with the same
 //! words: an argument that cannot be right is 64 with the usage, whatever the
 //! settings hold, and only then are they loaded.
@@ -20,7 +22,7 @@
 //!
 //! Exit: the status of the command; 64 usage.
 
-use crate::{disk, flags, health, state, status};
+use crate::{disk, flags, health, state, status, top};
 use std::env;
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::process::CommandExt;
@@ -129,6 +131,7 @@ pub fn tehas(given: &[String]) -> u8 {
         "limit" => flag(limit_words(rest)),
         "pause" => flag(pause_words(rest)),
         "analytics" => analytics(rest),
+        "top" => top::view(rest),
         _ => {
             eprintln!("console tehas: no such command: {command}");
             64
@@ -139,8 +142,9 @@ pub fn tehas(given: &[String]) -> u8 {
 pub fn tehasbot(given: &[String]) -> u8 {
     match given.first().map(String::as_str) {
         Some("health") => health::loaded(),
+        Some("top") => top::publish(&given[1..]),
         _ => {
-            eprintln!("console tehasbot: usage: health");
+            eprintln!("console tehasbot: usage: health | top [--every]");
             64
         }
     }
@@ -168,6 +172,7 @@ fn text(command: &str) -> Option<&'static str> {
         "pause" => include_str!("usage/pause.txt"),
         "state" => include_str!("usage/state.txt"),
         "status" => include_str!("usage/status.txt"),
+        "top" => include_str!("usage/top.txt"),
         _ => return None,
     })
 }

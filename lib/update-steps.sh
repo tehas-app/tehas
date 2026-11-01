@@ -90,11 +90,11 @@ tehas_steps_into() { # changed source paths -> tehas_steps
   local list=" $* "
   tehas_steps=()
   case "$list" in
-    # bin/tehas-energy and libexec/energy are the samplers of before bin/tehas
-    # and of before the console. A running one is that file calling itself, and
-    # it moves on only when restarted. A running service keeps the environment
+    # bin/tehas-energy, libexec/energy and libexec/top-publish are the loops of
+    # before bin/tehas and of before the console. A running one is that file
+    # calling itself, and it moves on only when restarted. A running service keeps the environment
     # env.sh gave it at its start.
-    *" systemd/"* | *" bin/tehas-energy "* | *" libexec/energy "* | *" env.sh "*)
+    *" systemd/"* | *" bin/tehas-energy "* | *" libexec/energy "* | *" libexec/top-publish "* | *" env.sh "*)
       tehas_units_line
       tehas_steps+=("units ${_tehas_units_line% }")
       ;;

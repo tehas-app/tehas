@@ -118,7 +118,6 @@ files="./.bashrc
 ./tehas/lib/sizing.sh
 ./tehas/lib/status.sh
 ./tehas/lib/store.sh
-./tehas/lib/top.sh
 ./tehas/lib/slice.sh
 ./tehas/lib/update-release.sh
 ./tehas/lib/update-steps.sh
@@ -162,8 +161,6 @@ files="./.bashrc
 ./tehas/libexec/tehas-mcp
 ./tehas/libexec/tehas-mcp.stamp
 ./tehas/libexec/tidy
-./tehas/libexec/top
-./tehas/libexec/top-publish
 ./tehas/libexec/update
 ./tehas/libexec/with-settings
 ./tehas/libexec/work

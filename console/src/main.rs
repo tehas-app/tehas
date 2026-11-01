@@ -136,8 +136,8 @@
 //! The product against the contract, and the files it is missing proposed in a
 //! pull request, see src/product.rs.
 //!
-//!   console tehas status|disk|state|limit|pause|analytics ...
-//!   console tehasbot health
+//!   console tehas status|disk|state|limit|pause|analytics|top ...
+//!   console tehasbot health|top
 //!   console check tehas|tehasbot <command> ...
 //!   console usage <command>
 //!

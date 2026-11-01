@@ -3078,10 +3078,10 @@ tehasbot top --every         # one snapshot at every 5-second mark; what the ser
 systemctl --user enable --now tehas-top.service
 ```
 
-It builds the snapshot with the same `lib/top.sh` the terminal view uses, and
-writes it as one line of JSON holding the keys the pages draw and nothing else:
+It builds the snapshot with the same code the terminal view uses, in the
+console (`console/src/top.rs`), and writes it as one line of JSON holding the keys the pages draw and nothing else:
 `generatedAt`, `factory`, `queue`, `cycle`, `host`, `units` and `energy`. The
-list is `tehas_top_publish_keys` in `lib/top.sh`. A key added to the snapshot
+list is `PUBLISHED` in `console/src/top.rs`. A key added to the snapshot
 later is not in the file until someone puts it on that list, which is how the
 console of a cycle and the raw reading a host section was computed from stay
 out. The command reads the instance settings, so a setting that is missing or
