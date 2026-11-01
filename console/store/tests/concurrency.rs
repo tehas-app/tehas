@@ -42,11 +42,14 @@ const RETRY: &str = "store debug: busy retry 0";
 /// most any call met was one such wait, and no wait of it came near the five
 /// seconds of a bound -- a hundred polls is one twentieth of that. What the
 /// store cannot be asked to sit out is another process's transaction, so the
-/// bound is roomy rather than tight: a writer past it, or a reader at one, met
-/// something the load does not explain, and that is the failure this test is for.
+/// bound is roomy rather than tight: a writer past it, or a reader past
+/// `READER_WAITS`, met something the load does not explain, and that is the
+/// failure this test is for.
 /// `a_call_kept_out_by_a_held_lock_reports_its_wait` is the case that shows a
 /// wait held out of the store is reported at all.
 const LOAD_WAITS: usize = 100;
+/// The waits of one reader's call. Load after load has shown one at most.
+const READER_WAITS: usize = 2;
 const ROWS_PER_WRITE: u32 = 3;
 
 /// A home with a store `init` made, as install.sh will leave it.
@@ -139,12 +142,18 @@ struct Waited {
 }
 
 /// Whether a wait that answered ok is the load's own doing rather than a
-/// finding. See `LOAD_WAITS` for the figure and what it leaves room for. A
-/// reader's waits are forbidden outright: WAL lets a reader go on while a writer
-/// holds its transaction, so a `check` that had to wait met the one lock that
-/// keeps the file itself away, which nothing of the load holds.
+/// finding. See `LOAD_WAITS` for the figure and what it leaves room for. WAL
+/// lets a reader go on past a writer, so a `check` waits only on SQLite's brief
+/// exclusive steps, which this load does cause: each process closes the last
+/// connection now and then, and that one checkpoints. See `READ_WAIT` in
+/// `src/db.rs`. `READER_WAITS` is that and no more.
 fn load_allows(w: &Waited) -> bool {
-    w.args.first().is_some_and(|verb| verb == "test-write") && w.waits <= LOAD_WAITS
+    let bound = if w.args.first().is_some_and(|verb| verb == "test-write") {
+        LOAD_WAITS
+    } else {
+        READER_WAITS
+    };
+    w.waits <= bound
 }
 
 fn run(home: &Path, args: &[&str]) -> Output {
