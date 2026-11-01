@@ -1,11 +1,9 @@
-//! The snapshot behind `tehas top` (lib/top.sh): one JSON object from what
-//! the factory already writes under live/, the user's tehas-* units, and two
-//! readings of the host that the shell took.
+//! The snapshot behind `tehas top`: one JSON object from what the factory
+//! already writes under live/, the user's tehas-* units, and two readings of
+//! the host, see src/top.rs.
 //!
-//!   console top snapshot <live dir> <console lines> <max age> <reading> <earlier>
-//!
-//! <reading> and <earlier> are readings of `console top reading`, either of
-//! them empty. The host section is computed when both are there. No GitHub
+//! The readings are those of `console top reading`, either of them empty. The
+//! host section is computed when both are there. No GitHub
 //! call, no Docker call, no settings, and nothing is written. A section whose
 //! source is missing, unreadable or older than <max age> seconds is null; the
 //! others are there all the same. Every string is cleaned of control

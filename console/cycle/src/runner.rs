@@ -1,7 +1,7 @@
-//! What tehas reads of pi-rukas's headless runner for a cycle's report, as
-//! lib/headless.sh and libexec/cycle read it: the issue's entry of the result
-//! (tehas_headless_outcome), the steps of a run log (tehas_headless_run), the
-//! fields of the progress summary, and the table of token usage.
+//! What tehas reads of pi-rukas's headless runner: the issue's entry of the
+//! result (`tehas-cycle runner outcome`), the steps of a run log
+//! (`tehas-cycle runner run`), the fields of the progress summary, and the
+//! table of token usage.
 //!
 //! Where jq would stop on a value of the wrong type, these stop too: an
 //! outcome jq cannot make is none, and a progress jq stops in gives the fields
@@ -9,9 +9,10 @@
 
 use regex::Regex;
 use serde_json::{json, Map, Value};
+use std::path::Path;
 
-/// The result schema this reads (tehas_headless_result).
-const RESULT_SCHEMA: u64 = 5;
+/// The result schema this reads (tehas_headless_result of lib/headless.sh).
+pub const RESULT_SCHEMA: u64 = 5;
 
 /// The first JSON value of a text, as `jq -n input` reads it.
 pub fn first_value(text: &str) -> Option<Value> {
@@ -22,7 +23,7 @@ pub fn first_value(text: &str) -> Option<Value> {
 }
 
 /// Every JSON value of a text, or None when one cannot be parsed.
-fn values(text: &str) -> Option<Vec<Value>> {
+pub fn values(text: &str) -> Option<Vec<Value>> {
     serde_json::Deserializer::from_str(text)
         .into_iter::<Value>()
         .collect::<Result<Vec<_>, _>>()
@@ -60,8 +61,10 @@ fn hides(v: Option<&Value>) -> bool {
     !matches!(v, None | Some(Value::Null) | Some(Value::Object(_)))
 }
 
-/// tehas_headless_outcome: the issue's entry of a schema 5 result, its text
-/// fields reduced to plain characters. None when there is none.
+/// The issue's entry of a schema 5 result, its text fields reduced to plain
+/// characters, its exitCode null unless a number. handoffBody is the handoff's
+/// markdown as the runner rendered it, cut at 30000 characters and not
+/// cleaned: it is for a comment, through q_clean. None when there is none.
 pub fn outcome(text: &str, issue: u64) -> Option<Value> {
     let r = values(text)?;
     // jq -e answers for its last output; a file of several results has the
@@ -128,7 +131,7 @@ fn outcome_of(r: &Value, issue: u64) -> Option<Value> {
     }))
 }
 
-/// tehas_branch_pattern: a branch pi-rukas makes for the issue.
+/// tehas_branch_pattern of lib/cycles.sh: a branch pi-rukas makes for the issue.
 pub fn branch_of(issue: u64, b: &str) -> bool {
     let rest = match b.strip_prefix(&format!("feature/issue-{issue}")) {
         Some(r) => r,
@@ -142,7 +145,7 @@ pub fn branch_of(issue: u64, b: &str) -> bool {
         })
 }
 
-/// What tehas_headless_run says of a run log.
+/// What the step-started lines of a run log say of the run.
 #[derive(Debug, Default, PartialEq)]
 pub struct Run {
     pub step: String,
@@ -172,15 +175,38 @@ fn stable(text: &str) -> impl Iterator<Item = Value> + '_ {
     })
 }
 
-/// tehas_headless_run: the last step a log says was started, the branch of
-/// its last commit-pr when it is the issue's, and whether it was read whole.
-pub fn run(text: &str, issue: u64) -> Run {
-    let read = if text.len() <= 200_000 {
+/// A run log at `path`, read as `run` reads it, or None when `issue` is not a
+/// number or the path is no regular file. A log whose runner died is all tehas
+/// has of the step it was in and the branch it pushed. `read` counts the bytes
+/// of the file.
+pub fn run_log(path: &Path, issue: &str) -> Option<Run> {
+    if !issue.starts_with(|c: char| ('1'..='9').contains(&c))
+        || !issue.bytes().all(|c| c.is_ascii_digit())
+    {
+        return None;
+    }
+    let n = issue.parse().ok()?;
+    if !path.symlink_metadata().ok()?.is_file() {
+        return None;
+    }
+    let bytes = std::fs::read(path).ok()?;
+    let mut r = run(&String::from_utf8_lossy(&bytes), n);
+    r.read = read_of(bytes.len()).to_string();
+    Some(r)
+}
+
+fn read_of(size: usize) -> &'static str {
+    if size <= 200_000 {
         "whole"
     } else {
         "truncated"
     }
-    .to_string();
+}
+
+/// The last step a log says was started, the branch of its last commit-pr
+/// when it is the issue's, and whether it was read whole.
+pub fn run(text: &str, issue: u64) -> Run {
+    let read = read_of(text.len()).to_string();
     let mut steps = vec![];
     for v in stable(text) {
         if v.get("kind").and_then(Value::as_str) != Some("step-started") {
@@ -308,7 +334,7 @@ impl Getter {
 }
 
 /// A count as jq prints it in a string: an integer without a point.
-fn num(v: &Value) -> String {
+pub fn num(v: &Value) -> String {
     match v {
         Value::Number(x) if x.is_i64() || x.is_u64() => x.to_string(),
         Value::Number(x) => {

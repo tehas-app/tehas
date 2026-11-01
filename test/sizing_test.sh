@@ -1,17 +1,21 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # Tests for lib/sizing.sh: tehas_issue_size, the four counts an issue body
-# gives itself. Bodies are written inline, and passed to the measure in the
-# environment so a tick in one is never run by the shell that carries it.
+# gives itself, through the console of this checkout. Bodies are written
+# inline, and passed to the measure in the environment so a tick in one is
+# never run by the shell that carries it.
 # shellcheck disable=SC2016  # snippets are expanded by the shell under test
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
 
 sizing=$T_ROOT/lib/sizing.sh
+# shellcheck disable=SC2154  # t_console_why is set by t_console (test/lib.sh)
+t_console || t_bad "no console: $t_console_why"
+T_ENV_ALWAYS=(TEHAS_CONSOLE_CMD="$T_CONSOLE")
 
 # size <body>: what tehas_issue_size prints for that body on its stdin.
 size() {
-  t_out=$(env -i PATH="$PATH" BODY="$1" bash -c \
+  t_out=$(env -i PATH="$PATH" TEHAS_CONSOLE_CMD="$T_CONSOLE" BODY="$1" bash -c \
     ". '$sizing'; tehas_issue_size <<<\"\$BODY\"" 2>&1)
   t_rc=$?
 }
@@ -243,7 +247,7 @@ sized() {
   local n=$1 f=$T/sized.txt
   shift
   seq 1 "$n" | sed 's|.*|test/f&.sh|; s|^|`|; s|$|`|' >"$f"
-  t_out=$(env -i PATH="$PATH" "$@" bash -c ". '$sizing'; tehas_issue_size <'$f'" 2>&1)
+  t_out=$(env -i PATH="$PATH" TEHAS_CONSOLE_CMD="$T_CONSOLE" "$@" bash -c ". '$sizing'; tehas_issue_size <'$f'" 2>&1)
   t_rc=$?
 }
 

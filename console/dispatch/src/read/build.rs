@@ -6,12 +6,12 @@
 use super::run::{self, Calls, GhFail};
 use super::{github, host, models, store};
 use crate::decide::has;
-use crate::events::{pause_holds, Events};
 use crate::settings::Settings;
 use serde_json::{json, Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::time::Duration;
+use tehas_core::events::{pause_holds, Events};
 
 /// Where the snapshot reads from, and with what.
 pub struct Sources<'a> {
@@ -1097,7 +1097,7 @@ esac"#,
             systemctl: "true".into(),
             now: 1_793_404_800,
             models: Models {
-                file: Value::Null,
+                file: tehas_core::models::ModelFile { json: Value::Null },
                 used: Vec::new(),
                 provider: String::new(),
                 model: String::new(),

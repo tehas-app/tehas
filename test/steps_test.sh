@@ -16,11 +16,10 @@ sandbox
 docs --force-recreate
 edge --force-recreate"
 
-t_case "a new MCP server or its command restarts its unit, and only it"
-t_eq "$(tehas_steps_for libexec/mcp)" "units tehas-mcp.service"
+t_case "a new MCP server restarts its unit, and only it"
 t_eq "$(tehas_steps_for /src/console/target/x86_64-unknown-linux-musl/release/tehas-mcp)" "units tehas-mcp.service"
 t_eq "$(tehas_steps_for libexec/tehas-mcp)" "units tehas-mcp.service"
-t_eq "$(tehas_steps_for systemd/tehas-top.service libexec/mcp | grep -c '^units ')" 1
+t_eq "$(tehas_steps_for systemd/tehas-top.service libexec/tehas-mcp | grep -c '^units ')" 1
 t_eq "$(tehas_steps_for libexec/dispatch)" ""
 
 t_case "a change to one server asks for that server only"
@@ -43,6 +42,8 @@ t_case "the versions the sandbox image pins ask for the build"
 t_eq "$(tehas_steps_for versions.env)" "sandbox"
 # The sampler of the layout before bin/tehas: retiring it asks for the restart.
 t_contains "$(tehas_steps_for bin/tehas-energy)" "units tehas-dispatch.timer tehas-energy.service"
+t_contains "$(tehas_steps_for libexec/energy)" "units tehas-dispatch.timer tehas-energy.service"
+t_contains "$(tehas_steps_for libexec/top-publish)" "tehas-top.service"
 
 t_case "a new env.sh restarts the running services, which keep the environment of their start"
 t_contains "$(tehas_steps_for env.sh)" "units tehas-dispatch.timer tehas-energy.service"
@@ -50,14 +51,15 @@ t_contains "$(tehas_steps_for env.sh)" "units tehas-dispatch.timer tehas-energy.
 t_case "a change that needs no follow-up asks for none"
 t_eq "$(tehas_steps_for libexec/dispatch docs/host.md lib/config.sh)" ""
 
-# The command that makes the labels is the one thing whose own change owes the
-# labels: a release that adds one ends with it on GitHub, not owed in the record.
-t_case "the labels command asks for the labels step, last"
-t_eq "$(tehas_steps_for libexec/labels)" "labels"
-t_eq "$(tehas_steps_for libexec/labels libexec/dispatch)" "labels"
-t_eq "$(tehas_steps_for libexec/labels-test libexec/labels_helper)" ""
+# The table of the labels is the one thing whose own change owes the labels: a
+# release that adds one ends with it on GitHub, not owed in the record. A new
+# console owes none, nor does the old script's removal.
+t_case "the table of labels asks for the labels step, last"
+t_eq "$(tehas_steps_for labels.tsv)" "labels"
+t_eq "$(tehas_steps_for labels.tsv libexec/dispatch)" "labels"
+t_eq "$(tehas_steps_for labels.tsv-test old-labels.tsv lib/labels.sh libexec/console libexec/labels)" ""
 t_eq "$(tehas_steps_for systemd/tehas-dispatch.timer sandbox/Dockerfile versions.env \
-  edge/docs.compose.yaml edge/router.compose.yaml libexec/labels)" \
+  edge/docs.compose.yaml edge/router.compose.yaml labels.tsv)" \
   "units tehas-dispatch.timer tehas-energy.service tehas-top.service tehas-mcp.service tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-improve.timer tehas-refresh.timer tehas-review.timer tehas-clean.timer
 sandbox
 docs --force-recreate
@@ -66,7 +68,7 @@ labels"
 
 t_case "tehas_steps_into gives the same steps in tehas_steps, and empties it first"
 for srcs in "systemd/tehas-dispatch.timer sandbox/Dockerfile edge/docs.Caddyfile edge/router.compose.yaml" \
-  "libexec/mcp" "versions.env" "libexec/dispatch"; do
+  "libexec/tehas-mcp" "versions.env" "libexec/dispatch"; do
   # shellcheck disable=SC2086  # one source path per word
   tehas_steps_into $srcs
   # shellcheck disable=SC2086

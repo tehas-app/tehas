@@ -9,6 +9,8 @@
 //!                                       report, demand, gh_requests, seconds}
 //!   tehas-dispatch poll [--dry-run]     one poll, as libexec/dispatch runs it:
 //!                                       it acts
+//!   tehas-dispatch refresh              one run of tehasbot refresh: it
+//!                                       writes the refresh requests
 //!   tehas-dispatch -h|--help            print this text
 //!
 //! Reads the instance's settings from the environment, as lib/config.sh
@@ -18,6 +20,7 @@
 //! Exit: 0 it printed its answer, whatever the decision says; 1 a
 //! read it cannot do without failed, said on standard error; 64 an argument
 //! it does not know; 78 a setting tehas_load always leaves set is not set.
+//! refresh has its own text and statuses: tehasbot refresh --help.
 
 use serde_json::{json, Map, Value};
 use std::path::{Path, PathBuf};
@@ -56,6 +59,7 @@ fn main() {
         ["decide", "--dry-run"] => (false, true, false),
         ["poll"] => (false, false, true),
         ["poll", "--dry-run"] => (false, true, true),
+        ["refresh", rest @ ..] => std::process::exit(tehas_dispatch::refresh::main(rest)),
         _ => {
             eprintln!(
                 "tehas-dispatch: unknown invocation: {}\n\n{}",

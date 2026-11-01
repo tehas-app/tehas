@@ -1,6 +1,6 @@
 # What the console, analytics, the MCP server and the store share: the mask,
-# the clock and civil dates, the read of a host file, the one lock probe, the
-# argument grammars and the slow notices a cycle's record keeps. A library
+# the clock and civil dates, the read of a host file, the host's models.json,
+# the one lock probe, the argument grammars and the slow notices a cycle's record keeps. A library
 # member of the workspace in ../Cargo.toml. The mask, and the questions with
 # the park signature, are a feature.
 [package]
