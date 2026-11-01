@@ -190,7 +190,6 @@ host.
 | `lib/cycles.sh` | Which cycles are running, from the lock each one holds, and where a parked cycle's question is on record |
 | `lib/headless.sh` | What tehas reads of pi-rukas's headless runner: its `--capabilities` answer, its NDJSON progress and its `--json` result. Every check of a pi-rukas feature asks its `tehas_headless_mode` |
 | `lib/polyfill-<feature>.sh` | What tehas does itself for a pi-rukas feature no release has yet, until one has it. Each names the upstream issue and pull request. None today |
-| `lib/edge.sh` | What `tehasbot protolab` uses: numbered sets under `~/tehas` |
 | `lib/improve.sh`, `lib/improve-prompt.md` | The improvement loop's shared parts, and the prompt its analyst reads |
 | `lib/labels.sh` | Who applied a label, read from the label events |
 | `lib/live.sh` | The live view of the cycles, put together from a file per cycle |

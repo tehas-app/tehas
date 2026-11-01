@@ -69,12 +69,9 @@ t_case "the list for the dashboard has the address"
 t_eq "$(jq -r '.previews[0] | "\(.number) \(.state) \(.address) \(.title)"' "$live/previews.json")" \
   "12 serving https://uat-12.example.org/ Change 12"
 
-t_case "the address in the list is the name tehas_edge_name makes"
-# The console puts the name together itself.
-t_run '. "$T_ROOT/lib/config.sh"; tehas_load && tehas_edge_name uat 12'
-t_eq "$t_out" "uat-12.example.org"
-t_eq "$(jq -r '.previews[0].address' "$live/previews.json")" "https://$t_out/"
-t_contains "$(writes)" "https://$t_out/"
+t_case "the notice gives the address the list gives"
+t_eq "$(jq -r '.previews[0].address' "$live/previews.json")" "https://uat-12.example.org/"
+t_contains "$(writes)" "https://uat-12.example.org/"
 
 t_case "an unchanged commit builds nothing"
 rm -f "$T"/calls/docker*
