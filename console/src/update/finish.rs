@@ -135,7 +135,7 @@ impl Run<'_> {
             return;
         }
         tell(&format!(
-            "WARN: {} step line(s) name no step this command knows (see lib/update-steps.sh); they were not run and stay recorded in {}",
+            "WARN: {} step line(s) name no step this command knows; they were not run and stay recorded in {}",
             unknown.len(),
             self.file
         ));

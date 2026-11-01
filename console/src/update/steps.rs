@@ -1,8 +1,10 @@
 //! The follow-up steps an update finishes after install.sh has copied files.
 //!
-//! install.sh prints the steps its changed sources call for, one per line, as
-//! "next: <step line>", and records the same lines in state/update-pending as
-//! it copies each file. A step line is checked here before anything runs it, so
+//! One place names them, because two commands read the list. install.sh asks
+//! here which steps its changed sources call for, prints them one per line as
+//! "next: <step line>", and records the same lines in state/update-pending
+//! before it copies each file. tehas update reads those lines and runs each
+//! step as its own command. A step line is checked here before anything runs it, so
 //! what a step may be asked for, its arguments included, is fixed by this file
 //! and not by whoever wrote the line. The id has to be one this file knows.
 //!
@@ -86,6 +88,42 @@ fn is_unit(word: &str) -> bool {
         && stem
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || b"_.:@+-".contains(&b))
+}
+
+/// The steps these changed sources call for, in the order they run.
+pub(crate) fn steps_for(sources: &[String]) -> Vec<String> {
+    let any = |test: &dyn Fn(&str) -> bool| sources.iter().any(|s| test(s));
+    let mut steps = Vec::new();
+    // bin/tehas-energy, libexec/energy and libexec/top-publish are loops of
+    // before the console: a running one moves on only when restarted. A running
+    // service keeps the environment env.sh gave it at its start.
+    if any(&|s| {
+        s.starts_with("systemd/")
+            || matches!(
+                s,
+                "bin/tehas-energy" | "libexec/energy" | "libexec/top-publish" | "env.sh"
+            )
+    }) {
+        steps.push(format!("units {}", UNITS.join(" ")));
+    } else if any(&|s| s.ends_with("/tehas-mcp")) {
+        // The MCP server's container mounts its binary: a new one reaches it only
+        // when the unit starts the container again.
+        steps.push("units tehas-mcp.service".to_string());
+    }
+    if any(&|s| s.starts_with("sandbox/") || s == "versions.env") {
+        steps.push("sandbox".to_string());
+    }
+    if any(&|s| s.starts_with("edge/docs.")) {
+        steps.push(format!("docs {RECREATE}"));
+    }
+    if any(&|s| s.starts_with("edge/router.") || s.starts_with("edge/protolab.")) {
+        steps.push(format!("edge {RECREATE}"));
+    }
+    // A release that adds a label ends with that label in place on GitHub.
+    if any(&|s| s == "labels.tsv") {
+        steps.push("labels".to_string());
+    }
+    steps
 }
 
 /// Is this a step this file knows, carrying only arguments that id accepts? A
@@ -216,16 +254,97 @@ pub(crate) fn write_record(home: &Path, lines: &[String]) -> Result<(), ()> {
     Ok(())
 }
 
-/// `console update steps ids|units|valid <line>`: the tables, one name per
-/// line, and whether a line is a step: 0 yes, 1 no.
+fn is_units(line: &str) -> bool {
+    line.split(' ').next() == Some("units")
+}
+
+fn units_in(line: &str) -> impl Iterator<Item = &str> {
+    line.strip_prefix("units ")
+        .unwrap_or(line)
+        .split_whitespace()
+}
+
+fn names_all_of(have: &str, line: &str) -> bool {
+    units_in(line).all(|unit| units_in(have).any(|u| u == unit))
+}
+
+/// A units step whose units another units step names too is done by that one.
+/// Of two that name the same units, the first stays.
+fn without_covered(merged: Vec<String>) -> Vec<String> {
+    let keep: Vec<bool> = (0..merged.len())
+        .map(|i| {
+            let line = &merged[i];
+            !is_units(line)
+                || !merged.iter().enumerate().any(|(j, have)| {
+                    is_units(have)
+                        && have != line
+                        && names_all_of(have, line)
+                        && (j < i || !names_all_of(line, have))
+                })
+        })
+        .collect();
+    merged
+        .into_iter()
+        .zip(keep)
+        .filter_map(|(line, keep)| keep.then_some(line))
+        .collect()
+}
+
+/// Add these steps to the record, keeping it free of duplicates and in the order
+/// they run. install.sh calls this before each copy, so a run that dies partway
+/// still leaves what its copies asked for. What is already there has to be read
+/// first: merging into an unreadable record would overwrite it. A record that
+/// already holds these lines in this order is left as it is.
+pub(crate) fn record_lines(home: &Path, lines: &[String]) -> Result<(), ()> {
+    if lines.is_empty() {
+        return Ok(());
+    }
+    let record = read_record(home)?;
+    let mut merged = record.clone();
+    for line in lines {
+        if !line.is_empty() && !merged.contains(line) {
+            merged.push(line.clone());
+        }
+    }
+    let owed = sorted(&without_covered(merged));
+    if owed == record {
+        return Ok(());
+    }
+    write_record(home, &owed)
+}
+
+/// `console update steps ids|units|valid <line>|for <source>...|record <source>...`:
+/// the tables, one name per line, whether a line is a step (0 yes, 1 no), the
+/// steps changed sources call for, and those steps added to the record. Exit:
+/// 1 the record could not be read or written.
 pub fn verb(given: &[String]) -> u8 {
+    if let Some((word, sources)) = given.split_first() {
+        match word.as_str() {
+            "for" => {
+                for step in steps_for(sources) {
+                    say(&step);
+                }
+                return 0;
+            }
+            "record" => {
+                let host = match super::host_or_refuse() {
+                    Ok(host) => host,
+                    Err(rc) => return rc,
+                };
+                return u8::from(record_lines(&host.home, &steps_for(sources)).is_err());
+            }
+            _ => {}
+        }
+    }
     let words: Vec<&str> = given.iter().map(String::as_str).collect();
     let table = match words[..] {
         ["ids"] => IDS,
         ["units"] => UNITS,
         ["valid", line] => return u8::from(!valid(line)),
         _ => {
-            super::tell("console update steps: usage: ids | units | valid <line>");
+            super::tell(
+                "console update steps: usage: ids | units | valid <line> | for <source>... | record <source>...",
+            );
             return 64;
         }
     };
@@ -242,6 +361,209 @@ mod tests {
 
     fn lines(given: &[&str]) -> Vec<String> {
         given.iter().map(|l| l.to_string()).collect()
+    }
+
+    fn asked(sources: &[&str]) -> Vec<String> {
+        steps_for(&lines(sources))
+    }
+
+    #[test]
+    fn the_changed_sources_ask_for_the_steps_systemd_first() {
+        let units = format!("units {}", UNITS.join(" "));
+        assert_eq!(
+            asked(&[
+                "systemd/tehas-dispatch.timer",
+                "sandbox/Dockerfile",
+                "versions.env",
+                "edge/docs.compose.yaml",
+                "edge/router.compose.yaml",
+                "labels.tsv",
+                "libexec/dispatch",
+            ]),
+            [
+                units.as_str(),
+                "sandbox",
+                "docs --force-recreate",
+                "edge --force-recreate",
+                "labels"
+            ]
+        );
+    }
+
+    #[test]
+    fn a_new_mcp_server_restarts_its_unit_and_only_it() {
+        let one = ["units tehas-mcp.service"];
+        assert_eq!(
+            asked(&["/src/console/target/x86_64-unknown-linux-musl/release/tehas-mcp"]),
+            one
+        );
+        assert_eq!(asked(&["libexec/tehas-mcp"]), one);
+        assert_eq!(
+            asked(&["systemd/tehas-top.service", "libexec/tehas-mcp"]),
+            [format!("units {}", UNITS.join(" "))]
+        );
+        assert!(asked(&["libexec/dispatch"]).is_empty());
+    }
+
+    #[test]
+    fn a_change_to_one_server_asks_for_that_server_only() {
+        assert_eq!(asked(&["edge/docs.Caddyfile"]), ["docs --force-recreate"]);
+        assert_eq!(
+            asked(&["edge/router.compose.yaml"]),
+            ["edge --force-recreate"]
+        );
+        // The retired files of the Protolab's server call for the same step, once.
+        assert_eq!(
+            asked(&["edge/protolab.Caddyfile", "edge/protolab.compose.yaml"]),
+            ["edge --force-recreate"]
+        );
+    }
+
+    #[test]
+    fn the_loops_of_before_and_env_sh_ask_for_the_units() {
+        for source in [
+            "bin/tehas-energy",
+            "libexec/energy",
+            "libexec/top-publish",
+            "env.sh",
+        ] {
+            assert_eq!(
+                asked(&[source]),
+                [format!("units {}", UNITS.join(" "))],
+                "{source}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_change_that_needs_no_follow_up_asks_for_none() {
+        assert!(asked(&["libexec/dispatch", "docs/host.md", "lib/config.sh"]).is_empty());
+        assert!(asked(&[
+            "labels.tsv-test",
+            "old-labels.tsv",
+            "lib/labels.sh",
+            "libexec/console",
+            "libexec/labels"
+        ])
+        .is_empty());
+        assert!(asked(&[]).is_empty());
+    }
+
+    #[test]
+    fn every_step_it_asks_for_is_one_it_accepts() {
+        for step in asked(&[
+            "systemd/tehas-dispatch.service",
+            "sandbox/build.sh",
+            "versions.env",
+            "edge/docs.compose.yaml",
+            "edge/router.Caddyfile",
+            "labels.tsv",
+            "libexec/tehas-mcp",
+        ]) {
+            assert!(valid(&step), "{step}");
+            assert!(IDS.contains(&step.split(' ').next().unwrap()), "{step}");
+        }
+    }
+
+    #[test]
+    fn recording_keeps_each_step_once_in_the_order_they_run() {
+        let d = dir("record-order");
+        record_lines(
+            &d.0,
+            &lines(&["docs --force-recreate", "units tehas-dispatch.timer"]),
+        )
+        .unwrap();
+        record_lines(&d.0, &lines(&["sandbox", "docs --force-recreate"])).unwrap();
+        assert_eq!(
+            read_record(&d.0).unwrap(),
+            lines(&[
+                "units tehas-dispatch.timer",
+                "sandbox",
+                "docs --force-recreate"
+            ])
+        );
+    }
+
+    #[test]
+    fn a_record_that_holds_the_steps_is_left_as_it_is_one_that_does_not_is_rewritten() {
+        use std::os::unix::fs::MetadataExt;
+        let d = dir("record-same");
+        let inode = || fs::metadata(record_file(&d.0)).unwrap().ino();
+        record_lines(&d.0, &lines(&["units tehas-dispatch.timer", "sandbox"])).unwrap();
+        let a = inode();
+        record_lines(&d.0, &lines(&["sandbox", "units tehas-dispatch.timer"])).unwrap();
+        assert_eq!(a, inode());
+        record_lines(&d.0, &lines(&["docs --force-recreate"])).unwrap();
+        assert_ne!(a, inode());
+        // In another order it is sorted.
+        fs::write(record_file(&d.0), "sandbox\nunits tehas-dispatch.timer\n").unwrap();
+        let b = inode();
+        record_lines(&d.0, &lines(&["sandbox"])).unwrap();
+        assert_ne!(b, inode());
+        assert_eq!(
+            read_record(&d.0).unwrap(),
+            lines(&["units tehas-dispatch.timer", "sandbox"])
+        );
+    }
+
+    #[test]
+    fn a_units_step_another_one_covers_is_not_recorded_twice() {
+        let d = dir("record-units");
+        record_lines(&d.0, &lines(&["units tehas-mcp.service"])).unwrap();
+        record_lines(
+            &d.0,
+            &lines(&["units tehas-dispatch.timer tehas-mcp.service", "sandbox"]),
+        )
+        .unwrap();
+        record_lines(&d.0, &lines(&["units tehas-mcp.service"])).unwrap();
+        assert_eq!(
+            read_record(&d.0).unwrap(),
+            lines(&["units tehas-dispatch.timer tehas-mcp.service", "sandbox"])
+        );
+        let d = dir("record-units-2");
+        let two = lines(&["units tehas-mcp.service", "units tehas-top.service"]);
+        record_lines(&d.0, &two).unwrap();
+        assert_eq!(read_record(&d.0).unwrap(), two);
+    }
+
+    #[test]
+    fn two_units_steps_of_the_same_units_leave_one() {
+        let d = dir("record-units-same");
+        let two = lines(&["units a.timer b.timer", "units b.timer a.timer"]);
+        record_lines(&d.0, &two).unwrap();
+        assert_eq!(
+            read_record(&d.0).unwrap(),
+            lines(&["units a.timer b.timer"])
+        );
+    }
+
+    #[test]
+    fn a_recorded_step_no_version_here_knows_stays_recorded_at_the_end() {
+        let d = dir("record-unknown");
+        record_lines(&d.0, &lines(&["renew-dashboard --now"])).unwrap();
+        record_lines(&d.0, &lines(&["sandbox"])).unwrap();
+        assert_eq!(
+            read_record(&d.0).unwrap(),
+            lines(&["sandbox", "renew-dashboard --now"])
+        );
+    }
+
+    #[test]
+    fn recording_makes_the_state_directory() {
+        let d = dir("record-dir-made");
+        record_lines(&d.0.join("not-yet"), &lines(&["sandbox"])).unwrap();
+        assert_eq!(
+            fs::read_to_string(record_file(&d.0.join("not-yet"))).unwrap(),
+            "sandbox\n"
+        );
+    }
+
+    #[test]
+    fn merging_into_a_record_it_cannot_read_stops_instead_of_replacing_it() {
+        let d = dir("record-unreadable");
+        fs::create_dir_all(record_file(&d.0)).unwrap();
+        assert!(record_lines(&d.0, &lines(&["sandbox"])).is_err());
+        assert!(record_file(&d.0).is_dir());
     }
 
     #[test]

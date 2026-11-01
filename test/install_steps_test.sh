@@ -65,14 +65,14 @@ sandbox
 docs --force-recreate
 edge --force-recreate"
 
-t_case "the follow-ups it prints are the ids lib/update-steps.sh defines"
+t_case "the follow-ups it prints are the ids the console defines"
 fresh
 instance
 t_stub systemctl
 t_run "$install"
 t_eq "$t_rc" 0
 t_eq "$(printf '%s\n' "$t_out" | sed -n 's/^next: //p')" \
-  "$(tehas_steps_for systemd/tehas-dispatch.timer sandbox/Dockerfile versions.env edge/docs.compose.yaml edge/router.compose.yaml labels.tsv)"
+  "$("$T_CONSOLE" update steps for systemd/tehas-dispatch.timer sandbox/Dockerfile versions.env edge/docs.compose.yaml edge/router.compose.yaml labels.tsv)"
 # Steps, not shell text for a person to paste.
 t_lacks "$t_out" "docker compose -f"
 t_lacks "$t_out" "systemctl --user enable"
@@ -355,6 +355,43 @@ if real_store "a home reached through a link installs a second time"; then
   t_eq "$(find "$T/disk/state/backup" -type f -name 'tehas-9-*.db' | wc -l)" 1
   rm -rf "$T/disk"
 fi
+t_env
+
+# The console that names the steps, where nothing else names one: a real run needs
+# it before its first copy, so these run with no TEHAS_CONSOLE and the console a
+# build leaves is the real one.
+t_case "with the console due, the one this run built records the steps before it is put"
+fresh
+instance
+real_console
+T_ENV_ALWAYS=()
+t_run "$install"
+t_eq "$t_rc" 0
+t_contains "$t_out" "next: sandbox"
+t_contains "$t_out" "next: labels"
+t_eq "$(cat "$th/state/update-pending")" "$(next_steps)"
+
+t_case "with nothing due, the one installed records them and nothing is built"
+: >"$T/calls/cargo"
+rm -f "$th/state/update-pending"
+echo "# a change" >>"$th/env.sh"
+t_run "$install"
+t_eq "$t_rc" 0
+t_eq "$(t_calls cargo)" ""
+t_contains "$t_out" "next: units tehas-dispatch.timer"
+t_contains "$(cat "$th/state/update-pending")" "units tehas-dispatch.timer"
+
+t_case "a console that cannot record the steps stops the run at the first copy"
+rm -f "$th/state/update-pending"
+echo "# another change" >>"$th/env.sh"
+t_stub no-console 'exit 1'
+T_ENV_ALWAYS=(TEHAS_CONSOLE="$T/bin/no-console")
+t_run "$install"
+t_eq "$t_rc" 1
+t_contains "$t_out" "$T/bin/no-console could not record the follow-ups of env.sh"
+t_contains "$(cat "$th/env.sh")" "# another change"
+T_ENV_ALWAYS=(TEHAS_CONSOLE="$T_CONSOLE")
+console_env=()
 t_env
 
 t_done
