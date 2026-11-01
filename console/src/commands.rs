@@ -8,6 +8,7 @@
 //!   console tehas pause [reason]
 //!   console tehas analytics report | export <file> [--json]
 //!   console tehasbot health
+//!   console tehasbot github-token [--check]
 //!
 //! status and disk need no settings. The rest run under
 //! `libexec/with-settings`, which first asks `console check` with the same
@@ -20,7 +21,7 @@
 //!
 //! Exit: the status of the command; 64 usage.
 
-use crate::{disk, flags, health, state, status};
+use crate::{disk, flags, github, health, state, status};
 use std::env;
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::process::CommandExt;
@@ -139,8 +140,9 @@ pub fn tehas(given: &[String]) -> u8 {
 pub fn tehasbot(given: &[String]) -> u8 {
     match given.first().map(String::as_str) {
         Some("health") => health::loaded(),
+        Some("github-token") => github::main(&given[1..]),
         _ => {
-            eprintln!("console tehasbot: usage: health");
+            eprintln!("console tehasbot: usage: health | github-token [--check]");
             64
         }
     }
@@ -155,6 +157,7 @@ pub fn check(given: &[String]) -> u8 {
         ["tehas", "limit"] => limit_words(rest).map(|_| ()),
         ["tehas", "pause"] => pause_words(rest).map(|_| ()),
         ["tehas", "analytics"] => analytics_words(rest),
+        ["tehasbot", "github-token"] => github::words(rest).map(|_| ()),
         _ => Ok(()),
     };
     said.err().unwrap_or(0)
@@ -276,6 +279,8 @@ mod tests {
         assert_eq!(check(&words(&["tehas", "limit", "set", "--bad"])), 0);
         assert_eq!(check(&words(&["tehas", "state", "bogus"])), 0);
         assert_eq!(check(&words(&["tehasbot", "health"])), 0);
+        assert_eq!(check(&words(&["tehasbot", "github-token", "--check"])), 0);
+        assert_eq!(check(&words(&["tehasbot", "github-token", "--print"])), 64);
         assert_eq!(check(&[]), 0);
     }
 
