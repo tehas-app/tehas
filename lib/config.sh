@@ -138,3 +138,14 @@ tehas_branch() {
   }
   printf '%s\n' "$b"
 }
+
+# tehas update from before v0.21.0 sources this file from the checkout it pulled
+# and calls tehas_load, with no console here and a home console with no settings
+# verb, so it would report a settings problem that is not there. It leaves the
+# check to install.sh when no tehas_load is defined. Drop this when no host runs
+# such an update.
+case ${BASH_EXECUTION_STRING:-} in
+  *'install.sh will check the settings itself'*)
+    [ -x "${BASH_SOURCE[0]%/*}/../libexec/console" ] || [ -n "${TEHAS_SETTINGS_CMD:-}" ] || unset -f tehas_load
+    ;;
+esac
