@@ -152,7 +152,8 @@ t_contains "$(cat "$dockerfile")" 'LABEL tehas.rukas=$PI_RUKAS_COMMIT tehas.ruka
 t_contains "$(cat "$build")" '--build-arg TEHAS_RUKAS_IMAGES="$reads"'
 t_contains "$(cat "$dockerfile")" '/opt/pi-rukas/bin/pi-rukas-headless --capabilities'
 t_contains "$(cat "$dockerfile")" '.name == "PI_ENSEMBLE_ISSUE_IMAGES" and .manifestVersion == 1'
-t_contains "$(cat "$T_ROOT/lib/headless.sh")" '.name == "PI_ENSEMBLE_ISSUE_IMAGES" and .manifestVersion == 1'
+t_contains "$(cat "$T_ROOT/console/cycle/src/caps.rs")" '.and_then(Value::as_str) == Some("PI_ENSEMBLE_ISSUE_IMAGES")'
+t_contains "$(cat "$T_ROOT/console/cycle/src/caps.rs")" 'is_num(i.get("manifestVersion"), 1)'
 
 # --- What the image has to carry --------------------------------------------
 # A cycle reaches for the tools its instructions name. Each of these cases is

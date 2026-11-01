@@ -552,7 +552,7 @@ caps_rc=$?
 # the margin holds the longest step there is room for and then the handoff:
 # a quarter of the limit, and never less than one run of the gate and the
 # handoff allowance.
-if [ "$(tehas_headless_mode "$caps" cycleDeadlineHandoffAllowance)" = native ]; then
+if [ "$("$here/tehas-cycle" caps mode cycleDeadlineHandoffAllowance <<<"$caps")" = native ]; then
   margin=$handoff
 else
   margin=$((limit / 4))
@@ -588,7 +588,7 @@ for e in "${envs[@]}"; do
   case "$e" in PI_ENSEMBLE_*) names+=" ${e%%=*}" ;; esac
 done
 [ "$give" != 1 ] || names+=" PI_ENSEMBLE_EXTRA_IMAGE_DIRS"
-if [ "$caps_rc" != 0 ] || ! unsupported=$(tehas_headless_unsupported "$caps" "${run_flags[*]}" "$names" "$features"); then
+if [ "$caps_rc" != 0 ] || ! unsupported=$("$here/tehas-cycle" caps unsupported "${run_flags[*]}" "$names" "$features" <<<"$caps"); then
   echo "tehas work: $image gave no --capabilities answer (exit $caps_rc), not starting a cycle" >&2
   exit 78
 fi
@@ -599,7 +599,7 @@ if [ -n "$unsupported" ]; then
 fi
 # A workaround the instance carries for a pi-rukas defect ends with the
 # release that fixes it.
-expired=$(tehas_headless_expired "$caps" "$TEHAS_RUKAS_WORKAROUNDS")
+expired=$("$here/tehas-cycle" caps expired "$TEHAS_RUKAS_WORKAROUNDS" <<<"$caps")
 if [ -n "$expired" ]; then
   echo "tehas work: TEHAS_RUKAS_WORKAROUNDS names a workaround this image no longer needs, not starting a cycle:" >&2
   printf '%s\n' "$expired" | sed 's/^/    /' >&2
@@ -1023,7 +1023,7 @@ rm -f "$cid_file"
 if [ -n "$oom_id" ] && oom_log=$(timeout -k 5 "$stop_wait" journalctl -k -q -o cat --no-pager --since "@$started" 2>/dev/null |
   grep -c "^oom-kill:.*task_memcg=/tehas.slice/docker-$oom_id.scope,") && [ "$oom_log" -gt "$ooms" ]; then ooms=$oom_log; fi
 have=0 error_only=0
-outcome=$(tehas_headless_outcome "$result_file" "$issue") && have=1 || outcome='{}'
+outcome=$("$here/tehas-cycle" runner outcome "$result_file" "$issue") && have=1 || outcome='{}'
 [ "$have" = 1 ] || ! tehas_headless_error_only "$result_file" || error_only=1
 # What the runner ended with, whatever this command goes on to exit with. Said
 # in the cycle's comment, which otherwise names only this command's status.

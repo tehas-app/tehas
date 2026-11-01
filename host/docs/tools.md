@@ -961,7 +961,8 @@ Whether a cycle was shown them is answered by the sandbox image itself.
 pi-rukas reads this manifest (`PI_ENSEMBLE_ISSUE_IMAGES` for manifest format
 1), and the build records the answer as the label
 `tehas.rukas.images`; a build that is given an answer that does not match the
-base it stands on stops. `tehas work`, `tehas plan`, the dispatcher and
+base it stands on stops. `tehas-cycle` reads the answer, so the build stops
+when `libexec/tehas-cycle` is not beside it. `tehas work`, `tehas plan`, the dispatcher and
 `install.sh` read that label. When it says the pi-rukas does not read the
 manifest, the comment says the images were fetched and not shown rather than
 that they were given, and the dispatcher holds every cycle while the setting
@@ -4414,7 +4415,7 @@ yet, so tehas need not wait for the release. It ends when pi-rukas has the
 feature. It is only for work pi-rukas has taken on: an issue that asks for the
 feature and a pull request that builds it. A feature with no pull request
 upstream gets no polyfill; it is asked for upstream first. Each check of a pi-rukas feature asks one function,
-`tehas_headless_mode <caps> <feature>` in `lib/headless.sh`, where `<feature>`
+`tehas-cycle caps mode <feature>`, given the answer on standard input, where `<feature>`
 is a key of `features` in the runner's `--capabilities` answer. It says one of
 four things:
 

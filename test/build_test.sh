@@ -67,14 +67,17 @@ install_host_toolchain() {
   home=$T/home/tehas/sandbox
   mkdir -p "$home" "$T/home/tehas/lib"
   cp "$build" "$dockerfile" "$home/"
-  cp "$T_ROOT"/lib/headless.sh "$T_ROOT"/lib/rukas.sh "$T_ROOT"/lib/config.sh \
+  cp "$T_ROOT"/lib/rukas.sh "$T_ROOT"/lib/config.sh \
     "$T_ROOT"/lib/sandbox.sh "$T_ROOT"/lib/models.sh "$T/home/tehas/lib/"
   cp "$T_ROOT/host/versions.env" "$T/home/tehas/"
 }
-# The build runs from the checkout here, which has no console beside it.
+# The build runs from the checkout here, which has no console and no
+# tehas-cycle beside it.
 # shellcheck disable=SC2154  # t_console_why is set by t_console (test/lib.sh)
 t_console || t_bad "no console: $t_console_why"
-T_ENV_ALWAYS+=("TEHAS_CONSOLE=$T_CONSOLE")
+# shellcheck disable=SC2154  # t_cycle_why is set by t_cycle (test/lib.sh)
+t_cycle || t_bad "no tehas-cycle: $t_cycle_why"
+T_ENV_ALWAYS+=("TEHAS_CONSOLE=$T_CONSOLE" "TEHAS_CYCLE_BIN=$T_CYCLE")
 uid=$(id -u)
 # pi-rukas's newest release tag, so the build asks no network.
 t_stub git 'printf "%s\trefs/tags/v0.12.80\n" aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
@@ -301,7 +304,7 @@ install_host_toolchain
 for_stage=$T/home/no-stage
 mkdir -p "$for_stage/sandbox" "$for_stage/lib"
 cp "$build" "$dockerfile" "$for_stage/sandbox/"
-cp "$T_ROOT"/lib/headless.sh "$T_ROOT"/lib/rukas.sh "$T_ROOT"/lib/config.sh \
+cp "$T_ROOT"/lib/rukas.sh "$T_ROOT"/lib/config.sh \
   "$T_ROOT"/lib/sandbox.sh "$T_ROOT"/lib/models.sh "$for_stage/lib/"
 cp "$T_ROOT/host/versions.env" "$for_stage/"
 # The name the staging would have used is made first, owned by the case, so the
