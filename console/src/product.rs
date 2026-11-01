@@ -288,6 +288,25 @@ fn word(value: &Value) -> String {
     }
 }
 
+// jq's `any(.id == $m)`: it stops at the first match, and an entry before one
+// that is neither an object nor null stops the search unlisted.
+fn listed_in(models: &Value, model: &str) -> bool {
+    let entries: Vec<&Value> = match models {
+        Value::Array(list) => list.iter().collect(),
+        Value::Object(map) => map.values().collect(),
+        _ => return false,
+    };
+    for entry in entries {
+        if !matches!(entry, Value::Object(_) | Value::Null) {
+            return false;
+        }
+        if entry["id"] == model {
+            return true;
+        }
+    }
+    false
+}
+
 // The model check: the words of a pass, or of a failure.
 fn model_check(
     settings: Option<&str>,
@@ -313,11 +332,7 @@ fn model_check(
     let (provider, model) = pm.split_once('/').unwrap_or((&pm, ""));
     let listed = models
         .and_then(|text| serde_json::from_str::<Value>(text).ok())
-        .is_some_and(|models| {
-            models["providers"][provider]["models"]
-                .as_array()
-                .is_some_and(|list| list.iter().any(|m| m["id"] == model))
-        });
+        .is_some_and(|models| listed_in(&models["providers"][provider]["models"], model));
     if listed {
         Ok(format!(".pi/settings.json names {pm}"))
     } else {
@@ -971,6 +986,17 @@ mod tests {
             ".pi/settings.json names /big, which m.json does not list"
         );
         assert!(model_check(Some(r#"{"defaultModel": "big"}"#), None, "m.json").is_err());
+    }
+
+    #[test]
+    fn a_malformed_model_before_the_match_stops_the_search() {
+        let id = |models: Value| listed_in(&models, "big");
+        assert!(id(json!([null, {"id": "big"}])));
+        assert!(id(json!({"a": {"id": "big"}})));
+        assert!(id(json!([{"id": "big"}, 1])));
+        assert!(!id(json!([1, {"id": "big"}])));
+        assert!(!id(json!(["x", {"id": "big"}])));
+        assert!(!id(json!("big")));
     }
 
     #[test]
