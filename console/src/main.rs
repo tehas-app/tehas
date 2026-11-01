@@ -164,6 +164,7 @@ mod export;
 mod flags;
 mod forge;
 mod frame;
+mod github;
 mod health;
 mod improve;
 mod jq;
