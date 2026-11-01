@@ -107,6 +107,9 @@ ln -s "$T_ROOT/libexec/dev-login" "$T/tree/libexec/dev-login"
 ln -s "$T_ROOT/libexec/dev" "$T/tree/libexec/dev"
 ln -s "$T_ROOT/lib" "$T/tree/lib"
 cp "$T_CONSOLE" "$T/tree/libexec/console"
+# shellcheck disable=SC2154  # t_cycle_why is set by t_cycle (test/lib.sh)
+t_cycle || t_bad "no tehas-cycle: $t_cycle_why"
+cp "$T_CYCLE" "$T/tree/libexec/tehas-cycle"
 entry=$T/tree/libexec/dev-login
 checkout=$T/home/tehas/repos/widget
 devs=$T/home/tehas/dev

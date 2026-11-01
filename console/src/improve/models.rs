@@ -193,6 +193,33 @@ fn resolved(
     Some(out)
 }
 
+/// tehas_models_resolve for a container: its own models.json at `out`, and in
+/// `endpoints` one line for each provider on its backup. None when the host's
+/// file cannot be used.
+pub fn write_for_container(out: &Path, endpoints: &Path) -> Option<()> {
+    write(out)?;
+    let host = fs::read(host_path()).ok()?;
+    let doc = J::parse(&String::from_utf8_lossy(&host))?;
+    let done = fs::read(out).ok()?;
+    let done = J::parse(&String::from_utf8_lossy(&done))?;
+    fs::write(endpoints, backups(&doc, &done)).ok()
+}
+
+// "<provider> backup" for each provider that was moved to its backup.
+fn backups(host: &J, done: &J) -> String {
+    let mut lines = String::new();
+    for (name, p) in fields(host.get("providers")) {
+        let moved = done.at(&["providers", name]);
+        if matches!(p.get("backupBaseUrl"), J::Str(_))
+            && string(moved, "baseUrl") == string(p, "backupBaseUrl")
+            && string(p, "baseUrl") != string(p, "backupBaseUrl")
+        {
+            lines.push_str(&format!("{name} backup\n"));
+        }
+    }
+    lines
+}
+
 /// Write the analyst's models.json to `out`, and give the names of the tokens
 /// its container is given. None when the host's file cannot be used; a bad key
 /// says why on standard error.
@@ -210,18 +237,6 @@ pub fn write(out: &Path) -> Option<Vec<String>> {
     fs::write(&new, format!("{}\n", done.pretty())).ok()?;
     fs::rename(&new, out).ok()?;
     Some(key_names(&doc))
-}
-
-/// The analyst's `--add-host` options.
-pub fn hosts(aliases: &str) -> Vec<String> {
-    aliases
-        .lines()
-        .next()
-        .unwrap_or("")
-        .split(',')
-        .filter(|p| !p.is_empty())
-        .map(|p| format!("--add-host={p}"))
-        .collect()
 }
 
 #[cfg(test)]
@@ -342,14 +357,5 @@ mod tests {
         assert!(!lists(&doc(r#"{"data":[{"id":"b"}]}"#), &wanted));
         assert!(!lists(&doc(r#"{"data":[]}"#), &[]));
         assert!(!lists(&doc("{}"), &[]));
-    }
-
-    #[test]
-    fn hosts_are_one_option_each() {
-        assert_eq!(
-            hosts("models:192.0.2.9,,b:192.0.2.10,"),
-            ["--add-host=models:192.0.2.9", "--add-host=b:192.0.2.10"]
-        );
-        assert!(hosts("").is_empty());
     }
 }

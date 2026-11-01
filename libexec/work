@@ -38,7 +38,7 @@
 #                       PI_ENSEMBLE_CYCLE_BUDGET_MS is not passed.
 #   PI_ENSEMBLE_VERIFY_CONCURRENCY  runs of the gate at once, from the
 #                       container's share of the CPUs and memory ceiling
-#                       (tehas_slice_verify).
+#                       (tehas-cycle sandbox verify).
 #   PI_ENSEMBLE_SPAWN_TIMEOUT_MS  one child's bound in ms from
 #                       TEHAS_CHILD_TIMEOUT: pi-rukas's backstop for a child
 #                       nothing else ended.
@@ -245,7 +245,7 @@
 # hours of the cycle's budget left.
 #
 # The container runs in tehas.slice, as every sandbox container does, with the
-# limits lib/slice.sh makes: a memory ceiling of 1/TEHAS_SLICE_CONTAINERS of the
+# limits tehas-cycle sandbox makes: a memory ceiling of 1/TEHAS_SLICE_CONTAINERS of the
 # slice, no swap, the reserve as its floor, a CPU quota of the host less one CPU,
 # a pids limit that follows its share of that and a CPU weight.
 # It has an init (--init): Pi collects only its own children, and a process
@@ -329,8 +329,6 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/config.sh"
 # shellcheck source=lib/sandbox.sh
 . "$here/../lib/sandbox.sh"
-# shellcheck source=lib/slice.sh
-. "$here/../lib/slice.sh"
 # shellcheck source=lib/attachments.sh
 . "$here/../lib/attachments.sh"
 # shellcheck source=lib/labels.sh
@@ -356,18 +354,14 @@ if ! tehas_store_ready; then
   echo "tehas work: ERROR: the state store is not installed (run install.sh)" >&2
   exit 78
 fi
-tehas_sandbox_settings_ok || exit 78
+tehas_sandbox_ok || exit 78
 # Docker would create a missing mount source as a root-owned directory.
 tehas_checkout || exit 78
 branch=$(tehas_branch) || exit 78
+[ -x "${TEHAS_CONSOLE_CMD:-$here/console}" ] ||
+  { echo "tehas work: no console beside this command at $here/console, run install.sh" >&2; exit 78; }
 # No container starts outside the slice, and none with half its limits.
-TEHAS_SLICE_LIMITS=()
-tehas_slice_ok || { echo "tehas work: $TEHAS_SLICE_WHY" >&2; exit 78; }
-tehas_slice_limits || true
-if [ "${#TEHAS_SLICE_LIMITS[@]}" != 14 ] || [ "${TEHAS_SLICE_LIMITS[1]}" != tehas.slice ]; then
-  echo "tehas work: the container limits could not be made, not starting" >&2
-  exit 78
-fi
+tehas_sandbox_limits "tehas work" "a cycle" || exit 78
 src=$TEHAS_WORK_REPO
 # The workspace inside the container, and the directory on the host behind it.
 repo=$TEHAS_WORK_DIR
@@ -484,7 +478,7 @@ if tehas_record_is_file "$record" && [ -n "$(jq -r '.driver // ""' "$record" 2>/
 fi
 
 # The bot's identity is the tehas user's own. What the container is given is
-# assembled in lib/sandbox.sh, which tehas dev uses too.
+# assembled by tehas-cycle sandbox, which tehas dev uses too.
 bot_name=$(git config --global user.name || true)
 bot_email=$(git config --global user.email || true)
 [ -n "$bot_name" ] && [ -n "$bot_email" ] ||
@@ -505,9 +499,8 @@ fi
 # deadline, how many gate runs it makes at once, and one child's bound, from
 # TEHAS_CHILD_TIMEOUT, below.
 unset PI_ENSEMBLE_EXTRA_IMAGE_DIRS PI_ENSEMBLE_HANDOFF_CHANNEL PI_ENSEMBLE_HANDOFF_TIMEOUT_MS PI_ENSEMBLE_CYCLE_DEADLINE PI_ENSEMBLE_CYCLE_BUDGET_MS PI_ENSEMBLE_VERIFY_CONCURRENCY PI_ENSEMBLE_SPAWN_TIMEOUT_MS
-mapfile -d '' -t envs < <(tehas_sandbox_env "$repo" "$bot_name" "$bot_email")
-mapfile -d '' -t hosts < <(tehas_sandbox_hosts)
-tehas_sandbox_security_take "tehas work" "a cycle" || exit 78
+mapfile -d '' -t envs < <("$here/tehas-cycle" sandbox env cycle "$repo" "$bot_name" "$bot_email")
+mapfile -d '' -t hosts < <("$here/tehas-cycle" sandbox hosts)
 # The host's scratch disk in place of the last option, the tmpfs: same path, on disk.
 if [ -n "${TEHAS_SCRATCH_DIR:-}" ]; then
   scratch=$("${TEHAS_CONSOLE_CMD:-$here/console}" clean scratch "$TEHAS_SCRATCH_DIR" "${TEHAS_WORK_DIR##*/}-$issue") || exit 78
@@ -515,7 +508,7 @@ if [ -n "${TEHAS_SCRATCH_DIR:-}" ]; then
 fi
 [ "${#envs[@]}" -gt 0 ] ||
   { echo "tehas work: could not prepare the sandbox, not starting a cycle" >&2; exit 78; }
-verify_at_once=$(tehas_slice_verify) ||
+verify_at_once=$("$here/tehas-cycle" sandbox verify "${TEHAS_SLICE_LIMITS[@]}") ||
   { echo "tehas work: the container limits could not be made, not starting" >&2; exit 78; }
 # The handoff allowance, in seconds: the one budget the cycle's handoff has,
 # given to pi-rukas and kept clear of the stop by the margin below.
@@ -759,7 +752,7 @@ echo "tehas work: $retry"
 tehas_sandbox_seed "$container" "$index" ||
   echo "tehas work: the code index could not be copied into $container/cache, this cycle searches without one"
 # The mounts name directories that only exist now.
-mapfile -d '' -t mounts < <(tehas_sandbox_mounts "$repo" "$tree" "$container" "$runs")
+mapfile -d '' -t mounts < <(tehas_sandbox_mounts cycle "$repo" "$tree" "$container" "$runs")
 [ "${#mounts[@]}" -gt 0 ] ||
   { echo "tehas work: could not prepare the sandbox, not starting a cycle" >&2; exit 78; }
 while read -r model_provider _; do

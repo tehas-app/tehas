@@ -171,7 +171,7 @@ session.
   command gives it after the shared list, so an inherited value or one a gate
   exports is replaced by tehas' path with no message. The name is not read from
   `instance.env` and there is no `TEHAS_*` name for it: the path is named once,
-  by `tehas_sandbox_target_dir` in `lib/sandbox.sh`. A product's gate must honour
+  by `TARGET_DIR` in `console/core/src/sandbox.rs`. A product's gate must honour
   it rather than build into the clone, because the host runs no git in a kept
   clone to tell a person what an agent left there.
 - `PI_ENSEMBLE_HANDOFF_CHANNEL`, `PI_ENSEMBLE_HANDOFF_TIMEOUT_MS`,
@@ -1228,7 +1228,7 @@ session and says on the issue to apply `tehas:plan` again.
 
 The container is the one `tehas work` starts, under the name
 `tehas-plan-<issue>`: the same image, the same limits in `tehas.slice`, the
-same mounts, token and settings, from `lib/sandbox.sh`, and no Docker socket,
+same mounts, token and settings, from `console/core/src/sandbox.rs`, and no Docker socket,
 SSH keys or `~/.config/tehas`. It works in a workspace of its own,
 `~/tehas/work/<name>-plan-<issue>`, made fresh for the turn and removed after
 it, and its cache and memory go in `<name>-plan-<issue>.state` beside it and
@@ -1341,7 +1341,7 @@ verb ends.
 
 The container is the one `tehas plan` starts a planning turn in: the same
 image, the same limits in `tehas.slice`, the same mounts and variables from
-`lib/sandbox.sh`, and no Docker socket, SSH keys or `~/.config/tehas`. It
+`console/core/src/sandbox.rs`, and no Docker socket, SSH keys or `~/.config/tehas`. It
 differs in its name, in what it runs, and in having no token: a review reads
 code, and the container writes nothing to the tracker, so no `-e` carries
 `GH_TOKEN`, and on a host with a GitHub App the directory of the app's token is
@@ -1430,7 +1430,9 @@ every start with `--issue`, and the container gets that directory read-only
 at the same path and `PI_ENSEMBLE_EXTRA_IMAGE_DIRS`, which names it. What was
 given and left out is printed; nothing is said on the issue. Without
 `--issue` the session gets neither, and an instance's
-`PI_ENSEMBLE_EXTRA_IMAGE_DIRS` is not passed on.
+`PI_ENSEMBLE_EXTRA_IMAGE_DIRS` is not passed on. A slice that cannot be used, a
+clone's directory that is not a clone or a stored author that is malformed
+stops the command before GitHub is called and before anything is written.
 
 | Exit | Meaning                                                                                   |
 | ---- | ----------------------------------------------------------------------------------------- |
@@ -1469,8 +1471,8 @@ clone. A session that ran before the state directory existed has its history in
 begins a new history in `<name>.state/sessions`.
 
 `<name>.state/target` is the session's cargo target directory: the container is
-given it read-write at the path `tehas_sandbox_target_dir` names in
-`lib/sandbox.sh`, and `CARGO_TARGET_DIR` names that path. Only the build output
+given it read-write at the path `TARGET_DIR` names in
+`console/core/src/sandbox.rs`, and `CARGO_TARGET_DIR` names that path. Only the build output
 is kept for a session. A cycle's is in its own container's layer and is gone
 with the container, and so is cargo's crate registry, which stays in the image's
 layer on purpose: a registry kept between cycles would be code one cycle leaves
@@ -1606,8 +1608,10 @@ behind the branch. What a cycle changes, in its workspace or its worktrees, is
 never in the index.
 
 The indexer may run for 30 minutes, and `tehas-index.service` for 40, so a hung
-indexer is stopped and the next poll starts the cycles. A container
-named `tehas-index` that a killed run left behind is removed before each run.
+indexer is stopped and the next poll starts the cycles. TERM, INT and HUP end a
+run at once: it puts back what it set aside, removes its clone and exits 128
+plus the signal. A container named `tehas-index` that a killed run left behind
+is removed before each run.
 When the indexer fails, `~/tehas/state/index.json` stays as it was and
 `~/tehas/state/index.failed` holds the tip that failed. Before a cycle that tip
 is not tried again: the dispatcher does not start the unit for it, and the

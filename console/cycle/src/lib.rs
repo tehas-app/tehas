@@ -9,6 +9,9 @@
 //! `after` does what follows a cycle's record, and `improve` writes the
 //! record the improvement loop reads.
 //! `caps` reads what an image says its runner can do.
+//! `index` builds the code index a cycle's agents search.
+//! `sandbox` prints the docker options of a container for the commands that
+//! keep their docker line in bash.
 
 pub mod after;
 pub mod apply;
@@ -19,12 +22,14 @@ pub mod facts;
 pub mod finish;
 pub mod host;
 pub mod improve;
+pub mod index;
 pub mod jq;
 pub mod last_attempt;
 pub mod pin;
 pub mod renew;
 pub mod report;
 pub mod runner;
+pub mod sandbox;
 pub mod shadow;
 
 pub use facts::Facts;
