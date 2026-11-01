@@ -328,7 +328,11 @@ fn names_of(
         .iter()
         .flat_map(|(p, _)| [file.url(p, "main"), file.url(p, "backup")])
         .collect();
-    names.extend(urls.iter().map(|u| url_host(u)));
+    names.extend(
+        urls.iter()
+            .flat_map(|u| u.split('\n'))
+            .map(|line| url_host(line.trim_matches([' ', '\t']))),
+    );
     names.push(email);
     names
         .into_iter()
@@ -956,9 +960,21 @@ mod host_name_tests {
             ("http://[::1]:8080/v1", "::1"),
             ("http://[2001:db8::1]/v1", "2001:db8::1"),
             ("models.lan:8086", "models.lan"),
+            ("https://a@b@models.lan:1/", "models.lan"),
+            ("", ""),
         ] {
             assert_eq!(url_host(url), host, "{url}");
         }
+    }
+
+    #[test]
+    fn every_line_of_an_endpoint_is_a_name() {
+        let file = ModelFile {
+            json: serde_json::json!({"providers": {
+                "p": {"baseUrl": "http://one.lan/v1\n\thttp://two.lan/v1 "}}}),
+        };
+        let used = [("p".to_string(), "a".to_string())];
+        assert_eq!(names_of("", &file, &used, ""), ["one.lan", "two.lan"]);
     }
 
     #[test]
