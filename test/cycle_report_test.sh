@@ -24,7 +24,7 @@ for v in "" TEHAS_CYCLE_REPORT=bash; do
   ended aborted develop
   t_run "$cycle 7"
   t_eq "$t_rc" 0
-  t_eq "$(tr '\n' ' ' <"$T/calls/verbs")" "runner approved after "
+  t_eq "$(tr '\n' ' ' <"$T/calls/verbs")" "cycle runner approved after "
   t_contains "$(t_calls gh)" "Tehas cycle stopped without a pull request"
 done
 
@@ -35,7 +35,7 @@ t_instance "${T_MINIMAL[@]}" TEHAS_CYCLE_REPORT=rust
 ended aborted develop
 t_run "$cycle 7"
 t_eq "$t_rc" 0
-t_eq "$(tr '\n' ' ' <"$T/calls/verbs")" "report "
+t_eq "$(tr '\n' ' ' <"$T/calls/verbs")" "cycle "
 t_contains "$(t_calls gh)" "Tehas cycle stopped without a pull request"
 t_contains "$t_out" "done #7 rc=20 status=aborted step=develop"
 t_eq "$(TEHAS_HOME=$home "$T_STORE" journal-open | jq '.actions | length')" 0
@@ -51,13 +51,14 @@ t_eq "$t_rc" 78
 t_contains "$t_out" "TEHAS_CYCLE_REPORT is not valid: expected bash or rust"
 t_eq "$(t_calls gh)" ""
 
-t_case "without the program the bash reports"
+t_case "without the program nothing starts: 78, and nothing is asked of GitHub"
 reset
 rm -f "$home/libexec/tehas-cycle"
 t_instance "${T_MINIMAL[@]}" TEHAS_CYCLE_REPORT=rust
 ended aborted develop
 t_run "$cycle 7"
-t_eq "$t_rc" 0
-t_contains "$(t_calls gh)" "Tehas cycle stopped without a pull request"
+t_eq "$t_rc" 78
+t_contains "$t_out" "no tehas-cycle at $home/libexec/tehas-cycle"
+t_eq "$(t_calls gh)$(t_calls fake-work)" ""
 
 t_done
