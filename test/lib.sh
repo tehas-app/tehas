@@ -471,6 +471,10 @@ if [ "$pkg" = console ] && [ -n "${CONSOLE_BIN:-}" ]; then
   cp "$CONSOLE_BIN" "$CARGO_TARGET_DIR/${triple}release/console"
   exit 0
 fi
+if [ "$pkg" = tehas-cycle ] && [ -n "${CYCLE_BIN:-}" ]; then
+  cp "$CYCLE_BIN" "$CARGO_TARGET_DIR/${triple}release/tehas-cycle"
+  exit 0
+fi
 case $pkg in analytics) art=an ;; *) art=a ;; esac
 echo "$art $pkg built from ${CONSOLE_BUILD:-source}" >"$CARGO_TARGET_DIR/${triple}release/$pkg"'
   # The store is run by install.sh, so what the stub builds for it is a program:
