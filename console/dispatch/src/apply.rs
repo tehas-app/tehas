@@ -20,10 +20,12 @@ pub mod start;
 mod stop;
 mod turn;
 
-use crate::read::run::{gh_why, run, run_input_env, Calls};
+use crate::read::run::{run, Calls};
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
+use tehas_core::call::{self, GRACE};
+use tehas_core::journal::{Journal, Wrote};
 
 /// The calls of one poll's writes.
 pub struct Writer {
@@ -80,16 +82,6 @@ pub struct Applied {
     /// them is applied (A2: a retry's untick follows only a start that
     /// worked).
     pub exit: Option<i32>,
-}
-
-/// How a journaled call ended.
-enum Wrote {
-    /// What gh printed: a comment posted names its id there.
-    Done(String),
-    /// What gh gave as its reason, as `gh_why` has it.
-    Failed(String),
-    /// Not made: the journal could not record it.
-    Unrecorded,
 }
 
 fn word(v: &Value) -> String {
@@ -266,10 +258,9 @@ impl Writer {
         true
     }
 
-    /// A write to GitHub, journaled: recorded before it is made, settled
-    /// after. `input` goes to gh on standard input.
+    /// A write to GitHub, journaled. `input` goes to gh on standard input.
     /// `done_if`: words in a failed call's answer that mean the change is
-    /// there already, settled empty.
+    /// there already. The poll says once that no row stands: apply().
     fn write(
         &mut self,
         issue: u64,
@@ -278,94 +269,33 @@ impl Writer {
         input: Option<&str>,
         done_if: Option<&str>,
     ) -> Wrote {
-        // The body by its sum and length: the settling poll finds a comment
-        // by them, and the store's arguments stay short and hold no text.
-        // Given as JSON (--input -), the body is its field: the text GitHub
-        // keeps.
-        let body = input;
-        let json = args.iter().any(|a| a == "--input");
-        let field = input
-            .filter(|_| json)
-            .and_then(|b| serde_json::from_str::<Value>(b).ok())
-            .and_then(|v| v.get("body").and_then(Value::as_str).map(str::to_string));
-        let input = field.as_deref().or(input).map(|b| {
-            use sha2::{Digest, Sha256};
-            let sum: String = Sha256::digest(b.as_bytes())
-                .iter()
-                .map(|x| format!("{x:02x}"))
-                .collect();
-            json!({"sha256": sum, "bytes": b.len()})
-        });
-        let call = json!({"repo": self.repo, "gh": args, "input": input});
-        // The first write asks for the poll's row. A store that cannot begin
-        // it records, and so makes, no write this poll: an answer with no time
-        // of its own is refused the same way, since 0 is no row. Every write
-        // asks again while no row stands, and the poll says it once: apply().
-        if self.poll_at == 0 {
-            match self.calls.store(&["poll-begin"]) {
-                Ok(v) => match v.get("at").and_then(Value::as_i64) {
-                    Some(at) if at > 0 => self.poll_at = at,
-                    _ => {
-                        self.row_not_begun = true;
-                        return Wrote::Unrecorded;
-                    }
-                },
-                Err(_) => return Wrote::Unrecorded,
-            }
-        }
-        let recorded = self.calls.store(&[
-            "journal-record",
-            "--poll",
-            &self.poll_at.to_string(),
-            "--kind",
+        let token = self.calls.gh_token.clone();
+        let mut journal = Journal {
+            repo: &self.repo,
+            gh: &self.gh,
+            before: self.before,
+            bound: self.bound,
+            grace: GRACE,
+            token: token.as_deref(),
+            poll_at: &mut self.poll_at,
+            row_not_begun: &mut self.row_not_begun,
+            cycle: None,
+        };
+        let calls = &mut self.calls;
+        let wrote = journal.write(
+            &mut |a: &[&str]| calls.store(a),
+            issue,
             kind,
-            "--issue",
-            &issue.to_string(),
-            "--args",
-            &call.to_string(),
-            "--before",
-            &self.before.to_string(),
-        ]);
-        let Some(id) = recorded
-            .ok()
-            .and_then(|v| v.get("action").and_then(Value::as_i64))
-        else {
-            return Wrote::Unrecorded;
-        };
-        let id = id.to_string();
-        if self
-            .calls
-            .store(&["journal-attempt", "--action", &id])
-            .is_err()
-        {
-            return Wrote::Unrecorded;
-        }
+            args,
+            input,
+            done_if,
+        );
         // The queue changes here: the poll's end owes a status and a sample.
-        self.changed = true;
-        self.gh_writes += 1;
-        // The token the poll took, when it has one, so the shim asks for none.
-        let extra: Vec<(&str, &str)> = match self.calls.gh_token.as_deref() {
-            Some(t) => vec![("TEHAS_GH_TOKEN", t)],
-            None => Vec::new(),
-        };
-        let r = run_input_env(&self.gh, &args, body, self.bound, &extra);
-        let there = done_if.is_some_and(|w| r.out.contains(w) || r.err.contains(w));
-        let result = match r.status {
-            Some(0) => "ok",
-            None => "timed-out",
-            Some(_) if there => "empty",
-            Some(_) => "read-failed",
-        };
-        // A settle that fails leaves the action attempted: the next poll
-        // settles it from a fresh read.
-        let _ = self
-            .calls
-            .store(&["journal-settle", "--action", &id, "--result", result]);
-        if r.ok() || (there && r.status.is_some()) {
-            Wrote::Done(r.out)
-        } else {
-            Wrote::Failed(gh_why(&r.err))
+        if !matches!(wrote, Wrote::Unrecorded) {
+            self.changed = true;
+            self.gh_writes += 1;
         }
+        wrote
     }
 
     /// reap: a container no cycle holds, removed; said only when docker
@@ -384,21 +314,8 @@ impl Writer {
     /// tehas_store_try: asked again, a second apart, only when the store
     /// answered 1 busy or timeout.
     pub fn store_try(&mut self, tries: u32, args: &[&str]) -> Result<Value, Value> {
-        let mut i = 1;
-        loop {
-            let r = self.calls.store(args);
-            match &r {
-                Err(f)
-                    if i < tries
-                        && f.get("rc") == Some(&json!(1))
-                        && matches!(word(f).as_str(), "busy" | "timeout") =>
-                {
-                    i += 1;
-                    std::thread::sleep(self.store_retry);
-                }
-                _ => return r,
-            }
-        }
+        let wait = self.store_retry;
+        call::store_try(tries, wait, || self.calls.store(args))
     }
 
     fn unrecorded(n: u64) -> String {
