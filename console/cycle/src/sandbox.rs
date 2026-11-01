@@ -38,7 +38,7 @@ fn env_options(kind: Kind, tree: &str, name: &str, email: &str) -> i32 {
     print(&sandbox::env_options(
         kind,
         &who,
-        &sandbox::ensemble(),
+        &sandbox::ensemble(kind),
         &sandbox::tokens(),
     ))
 }

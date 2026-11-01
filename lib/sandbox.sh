@@ -2,7 +2,7 @@
 # shellcheck disable=SC2154  # here is the sourcing command's
 # The bash of what a sandbox container is given, and the tree it works in.
 # Sourced by the commands that start one: tehas work (a cycle), tehas plan (a
-# planning turn), tehas dev (a manual session) and tehasbot review (a review).
+# planning turn) and tehas dev (a manual session).
 # The docker options themselves are made in one
 # place, console/core/src/sandbox.rs, and reach bash through tehas-cycle
 # sandbox, which stands beside the command as "$here/tehas-cycle". The goldens

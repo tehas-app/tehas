@@ -33,6 +33,16 @@ pub const TARGET_DIR: &str = "/home/vscode/.tehas-target";
 const HELPER_KEY: &str = "credential.https://github.com.helper";
 const HELPER: &str = "!gh auth git-credential";
 
+const REVIEW_LEAVES_OUT: [&str; 7] = [
+    "PI_ENSEMBLE_EXTRA_IMAGE_DIRS",
+    "PI_ENSEMBLE_PLAN_ISSUE",
+    "PI_ENSEMBLE_PLAN_SESSION_DIR",
+    "PI_ENSEMBLE_PLAN_CACHE_TTL_MS",
+    "PI_ENSEMBLE_MAX_WORKSTREAMS",
+    "PI_ENSEMBLE_VERIFY_TIMEOUT_MS",
+    "PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS",
+];
+
 /// The containers that run an agent.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {
@@ -122,10 +132,11 @@ pub fn env_options(
 /// The PI_ENSEMBLE_* the host has set, in the order of its environment. Not the
 /// settings of pi-rukas's own docker wrapper, which no container runs: the
 /// image, the aliases (given as --add-host) and the socket and SSH switches.
-/// The runner does not list them as inputs.
-pub fn ensemble() -> Vec<String> {
-    env::vars_os()
-        .filter_map(|(name, _)| name.into_string().ok())
+/// The runner does not list them as inputs. A review is given none of the names
+/// of a planning turn or of a cycle's gate: it writes nothing to the tracker.
+pub fn ensemble(kind: Kind) -> Vec<String> {
+    let names = env::vars_os().filter_map(|(name, _)| name.into_string().ok());
+    names
         .filter(|name| name.starts_with("PI_ENSEMBLE_"))
         .filter(|name| {
             !matches!(
@@ -136,6 +147,7 @@ pub fn ensemble() -> Vec<String> {
                     | "PI_ENSEMBLE_NO_SSH"
             )
         })
+        .filter(|name| kind != Kind::Review || !REVIEW_LEAVES_OUT.contains(&name.as_str()))
         .collect()
 }
 
@@ -260,6 +272,95 @@ pub fn user() -> String {
             .unwrap_or_default()
     };
     format!("{}:{}", id("-u"), id("-g"))
+}
+
+// One call of git, stdio as this program's. True when it succeeded.
+fn ran(cmd: &mut Command) -> bool {
+    cmd.status().is_ok_and(|s| s.success())
+}
+
+fn git(dir: &str) -> Command {
+    let mut cmd = Command::new("git");
+    cmd.arg("-C").arg(dir);
+    cmd
+}
+
+// What one git call printed, when it succeeded.
+fn git_says(dir: &str, args: &[&str]) -> Option<String> {
+    let out = git(dir).args(args).stderr(Stdio::null()).output().ok()?;
+    out.status.success().then(|| {
+        String::from_utf8_lossy(&out.stdout)
+            .trim_end_matches('\n')
+            .to_string()
+    })
+}
+
+/// Make <tree>: a clone at the tip the product checkout <src> last fetched for
+/// <branch>, with the product's address as origin. Nothing is fetched from the
+/// network. The host runs git in <tree> here and only here: once a container
+/// has written a tree, anything in it, hooks and git configuration included,
+/// may be an agent's. The caller decides whether <tree> may be made.
+pub fn clone(src: &str, tree: &str, branch: &str) -> bool {
+    let tip = format!("refs/remotes/origin/{branch}");
+    let verify = format!("{tip}^{{commit}}");
+    let Some(base) = git_says(src, &["rev-parse", "-q", "--verify", &verify]) else {
+        eprintln!("tehas: {src} has no origin/{branch}");
+        return false;
+    };
+    let Some(url) = git_says(src, &["config", "--get", "remote.origin.url"]) else {
+        return false;
+    };
+    let all = "+refs/remotes/origin/*:refs/remotes/origin/*";
+    let upstream = format!("--set-upstream-to=origin/{branch}");
+    ran(Command::new("git").args(["init", "-q", "-b", branch, tree]))
+        && ran(git(tree).args(["remote", "add", "origin", &url]))
+        && ran(Command::new("timeout")
+            .args(["-k", "10", "300", "git", "-C", tree, "fetch"])
+            .args(["-q", "--no-tags", src, all]))
+        && ran(git(tree).args(["symbolic-ref", "refs/remotes/origin/HEAD", &tip]))
+        && ran(git(tree).args(["checkout", "-q", "-B", branch, &base]))
+        && ran(git(tree).args(["branch", "-q", &upstream, branch]))
+}
+
+/// Put the host's code index in <state>/cache, the copy this container is given.
+/// The index is one sqlite file per tree that was indexed. Not copied: the
+/// indexer's own logs, which a container has no use for, and what a run that was
+/// stopped left behind (a staging file about half the size of the index it was
+/// writing, read by nothing). A host that never indexed anything has nothing to
+/// give: that is not a failure, and a container then searches by reading files.
+pub fn seed(state: &str, index: &str) -> bool {
+    let cache = format!("{state}/cache");
+    if fs::create_dir_all(&cache).is_err() {
+        return false;
+    }
+    let Ok(entries) = fs::read_dir(index) else {
+        return !std::path::Path::new(index).is_dir();
+    };
+    let mut files: Vec<_> = entries
+        .flatten()
+        .filter(|e| {
+            let name = e.file_name().to_string_lossy().into_owned();
+            !(name.starts_with('.')
+                || name == "logs"
+                || name.contains(".db.stage.")
+                || name.ends_with(".tmp"))
+        })
+        .map(|e| e.path())
+        .collect();
+    files.sort();
+    let copied = files.iter().all(|f| {
+        Command::new("cp")
+            .arg("-a")
+            .arg(f)
+            .arg(format!("{cache}/"))
+            .status()
+            .is_ok_and(|s| s.success())
+    });
+    if !copied {
+        let _ = fs::remove_dir_all(&cache);
+        let _ = fs::create_dir_all(&cache);
+    }
+    copied
 }
 
 /// The --add-host options: the names the sandbox cannot resolve by itself, from
@@ -499,6 +600,27 @@ mod tests {
                 assert!(!all.contains(word), "{kind:?} has {word}");
             }
         }
+    }
+
+    #[test]
+    fn the_seed_leaves_out_the_logs_and_what_a_stopped_run_left() {
+        let at = env::temp_dir().join(format!("sandbox-seed-{}", std::process::id()));
+        let index = at.join("index");
+        fs::create_dir_all(index.join("logs")).unwrap();
+        for f in ["widget.db", "widget.db.stage.1", "other.tmp", "_config.db"] {
+            fs::write(index.join(f), "x").unwrap();
+        }
+        let state = at.join("state").display().to_string();
+        assert!(seed(&state, &index.display().to_string()));
+        let mut got: Vec<String> = fs::read_dir(format!("{state}/cache"))
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        got.sort();
+        assert_eq!(got, ["_config.db", "widget.db"]);
+        assert!(seed(&state, &at.join("no-index").display().to_string()));
+        fs::remove_dir_all(&at).unwrap();
     }
 
     #[test]

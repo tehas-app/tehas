@@ -82,7 +82,7 @@
 
 mod body;
 mod check;
-mod models;
+pub mod models;
 mod pack;
 mod run;
 

@@ -193,6 +193,33 @@ fn resolved(
     Some(out)
 }
 
+/// tehas_models_resolve for a container: its own models.json at `out`, and in
+/// `endpoints` one line for each provider on its backup. None when the host's
+/// file cannot be used.
+pub fn write_for_container(out: &Path, endpoints: &Path) -> Option<()> {
+    write(out)?;
+    let host = fs::read(host_path()).ok()?;
+    let doc = J::parse(&String::from_utf8_lossy(&host))?;
+    let done = fs::read(out).ok()?;
+    let done = J::parse(&String::from_utf8_lossy(&done))?;
+    fs::write(endpoints, backups(&doc, &done)).ok()
+}
+
+// "<provider> backup" for each provider that was moved to its backup.
+fn backups(host: &J, done: &J) -> String {
+    let mut lines = String::new();
+    for (name, p) in fields(host.get("providers")) {
+        let moved = done.at(&["providers", name]);
+        if matches!(p.get("backupBaseUrl"), J::Str(_))
+            && string(moved, "baseUrl") == string(p, "backupBaseUrl")
+            && string(p, "baseUrl") != string(p, "backupBaseUrl")
+        {
+            lines.push_str(&format!("{name} backup\n"));
+        }
+    }
+    lines
+}
+
 /// Write the analyst's models.json to `out`, and give the names of the tokens
 /// its container is given. None when the host's file cannot be used; a bad key
 /// says why on standard error.

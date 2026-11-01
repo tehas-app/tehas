@@ -31,7 +31,7 @@
 //!
 //! Exit: the status of the command; 64 usage.
 
-use crate::{api, disk, flags, github, health, labels, mcp, state, status, stop, top};
+use crate::{api, disk, flags, github, health, labels, mcp, review, state, status, stop, top};
 use std::env;
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::process::CommandExt;
@@ -192,6 +192,7 @@ pub fn check(given: &[String]) -> u8 {
             Err(rc) => Err(rc),
         },
         ["tehasbot", "github-token"] => github::words(rest).map(|_| ()),
+        ["tehasbot", "review"] => review::words(rest, include_str!("usage/review.txt")),
         _ => Ok(()),
     };
     said.err().unwrap_or(0)
@@ -226,6 +227,7 @@ fn text(command: &str) -> Option<&'static str> {
         "limit" => include_str!("usage/limit.txt"),
         "mcp" => include_str!("usage/mcp.txt"),
         "pause" => include_str!("usage/pause.txt"),
+        "review" => include_str!("usage/review.txt"),
         "resume" => include_str!("usage/resume.txt"),
         "state" => include_str!("usage/state.txt"),
         "status" => include_str!("usage/status.txt"),
