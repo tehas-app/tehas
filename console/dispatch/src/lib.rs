@@ -9,7 +9,6 @@ pub mod poll;
 pub mod questions;
 pub mod read;
 pub mod settings;
-pub mod shadow;
 pub mod slice;
 pub mod slots;
 pub mod snapshot;

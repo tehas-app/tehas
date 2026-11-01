@@ -838,8 +838,8 @@ else
   attach_source=$(source_sum \( \( -path './attach/*' ! -path './attach/src/tests.rs' ! -path './attach/target/*' \) \
     -o -path ./Cargo.toml -o -path ./Cargo.lock \)) ||
     { echo "tehas: could not read the attachment checker's source in $root/console" >&2; exit 1; }
-  # The dispatcher's shadow and the cycle's each read their own directory,
-  # the workspace's manifest and lock, and core/.
+  # The dispatcher and the cycle's shadow each read their own directory, the
+  # workspace's manifest and lock, and core/.
   dispatch_source=$(source_sum \( \( -path './dispatch/*' ! -path './dispatch/tests/*' ! -path './dispatch/target/*' \) \
     -o -path ./Cargo.toml -o -path ./Cargo.lock -o -path './core/*' \)) ||
     { echo "tehas: could not read the dispatcher's source in $root/console" >&2; exit 1; }
