@@ -53,7 +53,7 @@ t_eq "$(jq -r .rukas "$base/window/$REC/cycle.json")" fedcba9876543210fedcba9876
 
 t_case "a record that cannot be read gives null, whatever versions.env says"
 printf '%s\n' "PI_RUKAS_COMMIT=0123456789abcdef0123456789abcdef01234567" >"$home/versions.env"
-t_store_answers cycle-show 1 'store: busy #7: the database is locked'
+t_store_answers settings-view 1 'store: busy #7: the database is locked'
 cycle_log
 lib "tehas_improve_record 7 $started 0 handoff review"
 t_eq "$(jq -c '[.rukas, .settings]' "$base/window/$REC/cycle.json")" '[null,null]'
