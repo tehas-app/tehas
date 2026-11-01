@@ -113,7 +113,7 @@
 //!
 //! The settings, the checks and the files of tehas setup, see src/setup.rs.
 //!
-//!   console shipped page|query|answer|list|has|whole ...
+//!   console shipped page
 //!
 //! What closed an issue: the page and the GraphQL query of the read, and what its
 //! answer says, see src/shipped.rs.

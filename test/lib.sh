@@ -70,7 +70,7 @@
 #                                    of HOW [label], or by hand when BY is -
 #   t_record HOME N JSON             on a fresh store, the approval JSON
 #                                    describes in the shape the record file had
-#                                    (tehas_approval_view's), used by a start of
+#                                    (approval-view's), used by a start of
 #                                    issue N: with the person's approval it rests
 #                                    on, and the fixer's and the refreshes'
 #                                    starts it counts, as ended starts before it

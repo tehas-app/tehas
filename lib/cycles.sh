@@ -12,9 +12,6 @@
 # state store's (lib/store.sh).
 #
 #   tehas_cycle_running <issue>   0 if that issue's cycle holds its lock
-#   tehas_cycles_running          the issues with a running cycle, one per line:
-#                                 one call of the store's locks-held where
-#                                 lib/store.sh is sourced, else a probe a file
 #   tehas_rukas_commit            the pi-rukas commit a cycle started now runs
 #   tehas_names_issue             print a jq definition, `mine`: whether a pull
 #                                 request of gh pr list names the issue $n
@@ -33,18 +30,6 @@
 tehas_cycle_running() {
   local lock=$TEHAS_HOME/state/cycles/$1.lock
   [ -e "$lock" ] && ! flock -n 9 9<"$lock"
-}
-
-tehas_cycles_running() {
-  local lock n
-  if declare -F tehas_store >/dev/null && tehas_store locks-held; then tehas_store_get '.held[]'; return 0; fi
-  for lock in "$TEHAS_HOME"/state/cycles/*.lock; do
-    [ -e "$lock" ] || continue
-    n=${lock##*/}
-    n=${n%.lock}
-    if tehas_cycle_running "$n"; then printf '%s\n' "$n"; fi
-  done
-  return 0
 }
 
 # The files of a cycle's end, and what each one is proof of. tehas work writes
