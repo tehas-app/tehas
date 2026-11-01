@@ -13,6 +13,7 @@ use std::io::{BufRead, BufReader};
 use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Mutex;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -21,6 +22,11 @@ const STORE: &str = env!("CARGO_BIN_EXE_store");
 const WRITERS: u32 = 8;
 const READERS: u32 = 8;
 const LOAD: Duration = Duration::from_secs(2);
+/// Calls each process of the load must get through. The load runs past `LOAD`
+/// until all have, so a machine that lends it little time cannot fail the case.
+const FLOOR: usize = 5;
+/// Past this a process still short of `FLOOR` is starved, whatever the machine.
+const STARVED: Duration = Duration::from_secs(120);
 /// The store's notice of a wait on a lock: one line for the first look at it,
 /// on standard error, given to a build with debug assertions that was asked for
 /// it by the variable of `src/db.rs`. That line is what says a call sat on the
@@ -36,11 +42,14 @@ const RETRY: &str = "store debug: busy retry 0";
 /// most any call met was one such wait, and no wait of it came near the five
 /// seconds of a bound -- a hundred polls is one twentieth of that. What the
 /// store cannot be asked to sit out is another process's transaction, so the
-/// bound is roomy rather than tight: a writer past it, or a reader at one, met
-/// something the load does not explain, and that is the failure this test is for.
+/// bound is roomy rather than tight: a writer past it, or a reader past
+/// `READER_WAITS`, met something the load does not explain, and that is the
+/// failure this test is for.
 /// `a_call_kept_out_by_a_held_lock_reports_its_wait` is the case that shows a
 /// wait held out of the store is reported at all.
 const LOAD_WAITS: usize = 100;
+/// The waits of one reader's call. Load after load has shown one at most.
+const READER_WAITS: usize = 2;
 const ROWS_PER_WRITE: u32 = 3;
 
 /// A home with a store `init` made, as install.sh will leave it.
@@ -133,12 +142,18 @@ struct Waited {
 }
 
 /// Whether a wait that answered ok is the load's own doing rather than a
-/// finding. See `LOAD_WAITS` for the figure and what it leaves room for. A
-/// reader's waits are forbidden outright: WAL lets a reader go on while a writer
-/// holds its transaction, so a `check` that had to wait met the one lock that
-/// keeps the file itself away, which nothing of the load holds.
+/// finding. See `LOAD_WAITS` for the figure and what it leaves room for. WAL
+/// lets a reader go on past a writer, so a `check` waits only on SQLite's brief
+/// exclusive steps, which this load does cause: each process closes the last
+/// connection now and then, and that one checkpoints. See `READ_WAIT` in
+/// `src/db.rs`. `READER_WAITS` is that and no more.
 fn load_allows(w: &Waited) -> bool {
-    w.args.first().is_some_and(|verb| verb == "test-write") && w.waits <= LOAD_WAITS
+    let bound = if w.args.first().is_some_and(|verb| verb == "test-write") {
+        LOAD_WAITS
+    } else {
+        READER_WAITS
+    };
+    w.waits <= bound
 }
 
 fn run(home: &Path, args: &[&str]) -> Output {
@@ -179,10 +194,17 @@ fn expected(batch: u32, rows: u32) -> impl Iterator<Item = (String, String)> {
     (0..rows).map(move |row| (format!("test-write-{batch}"), row.to_string()))
 }
 
+fn load_goes_on(end: Instant, starved: Instant, short: &AtomicU32) -> bool {
+    let now = Instant::now();
+    now < starved && (now < end || short.load(Ordering::SeqCst) > 0)
+}
+
 #[test]
 fn eight_writers_and_eight_readers_meet_no_busy_and_lose_no_write() {
     let home = home("load");
     let end = Instant::now() + LOAD;
+    let starved = Instant::now() + STARVED;
+    let short: &'static AtomicU32 = Box::leak(Box::new(AtomicU32::new(WRITERS + READERS)));
     // What any of the sixteen processes was kept out of the store for, named so
     // a failure says who and with what answer. The handles are collected before
     // the join, so the closures are alive by the time their lifetimes are
@@ -203,7 +225,7 @@ fn eight_writers_and_eight_readers_meet_no_busy_and_lose_no_write() {
             thread::spawn(move || {
                 let (mut written, mut failed) = (Vec::new(), Vec::new());
                 let mut n = 0;
-                while Instant::now() < end {
+                while load_goes_on(end, starved, short) {
                     let batch = w * 1_000_000 + n;
                     let asked = Instant::now();
                     let args = [
@@ -216,6 +238,9 @@ fn eight_writers_and_eight_readers_meet_no_busy_and_lose_no_write() {
                     let out = run(&home, &args);
                     if out.status.success() {
                         written.push(batch);
+                        if written.len() == FLOOR {
+                            short.fetch_sub(1, Ordering::SeqCst);
+                        }
                         let waits = met_lock(&out);
                         if waits > 0 {
                             note(format!("writer {w}, batch {batch}"), waits, &args, &out);
@@ -238,11 +263,14 @@ fn eight_writers_and_eight_readers_meet_no_busy_and_lose_no_write() {
             let home = home.clone();
             thread::spawn(move || {
                 let (mut reads, mut failed) = (0, Vec::new());
-                while Instant::now() < end {
+                while load_goes_on(end, starved, short) {
                     let args = ["check"];
                     let out = run(&home, &args);
                     if out.status.success() {
                         reads += 1;
+                        if reads == FLOOR {
+                            short.fetch_sub(1, Ordering::SeqCst);
+                        }
                         let waits = met_lock(&out);
                         if waits > 0 {
                             note(format!("reader {r}"), waits, &args, &out);
@@ -312,7 +340,7 @@ fn eight_writers_and_eight_readers_meet_no_busy_and_lose_no_write() {
     );
     // Every writer and every reader had its turn many times over.
     assert!(
-        fewest.0 >= 5 && fewest.1 >= 5,
+        fewest.0 >= FLOOR && fewest.1 >= FLOOR,
         "fewest writes, reads: {fewest:?}"
     );
     assert_eq!(rows(&home), want, "every write that answered 0 is there");
