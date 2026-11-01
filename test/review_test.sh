@@ -1170,6 +1170,7 @@ drift=$T/drift
 mkdir -p "$drift/libexec" "$drift/lib"
 cp "$T_ROOT"/lib/*.sh "$drift/lib/"
 ln -s "$review" "$drift/libexec/review"
+cp "$T_CONSOLE" "$drift/libexec/console"
 printf '%s\n' "tehas_sandbox_security() { printf '%s\\0' --cap-drop ALL --cap-add CHOWN --cap-add FOWNER --security-opt no-new-privileges:true; }" \
   >>"$drift/lib/sandbox.sh"
 reset
