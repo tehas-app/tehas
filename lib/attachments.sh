@@ -21,15 +21,6 @@
 #                                     empty), $sniff_zip and $sniff_text (true
 #                                     or false). Returns 1, with the reason in
 #                                     $tehas_attach_why, when it cannot say
-#   tehas_unzip_into <zip> <dest dir> <most bytes> <most files>
-#                                     unpack a zip, for tehasbot protolab and
-#                                     the archives a cycle is given: one JSON
-#                                     line per file written,
-#                                     {"name","kind","bytes","sha256","image",
-#                                     "text"}, and one per entry left out,
-#                                     {"skip","reason"}. Returns 2 when the zip
-#                                     cannot be read, 3 when the program is
-#                                     missing or failed
 #
 # Sourcing it does nothing. Which of the known types protolab takes, and how
 # much, is its own rule; the images a container is given follow the rule of
@@ -174,17 +165,6 @@ tehas_attach_sniff() { # <file>
     tehas_attach_why="attach: sniff answered without its fields"
     return 1
   fi
-}
-
-tehas_unzip_into() { # <zip> <dest dir> <most bytes> <most files>
-  if ! tehas_attach unpack "$1" "$2" --max-bytes "$3" --max-files "$4"; then
-    case $tehas_attach_word in
-      unreadable | timeout | crashed) return 2 ;;
-    esac
-    echo "tehas: $tehas_attach_why" >&2
-    return 3
-  fi
-  jq -c '.entries[] | if has("skip") then {skip, reason} else {name, kind, bytes, sha256, image, text} end' <<<"$tehas_attach_out"
 }
 
 # The images and text files an issue links, for a container that is given
