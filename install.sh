@@ -456,7 +456,6 @@ files=(
   "lib/limit.sh|$TEHAS_HOME/lib/limit.sh|644"
   "lib/models.sh|$TEHAS_HOME/lib/models.sh|644"
   "lib/update-steps.sh|$TEHAS_HOME/lib/update-steps.sh|644"
-  "lib/edge.sh|$TEHAS_HOME/lib/edge.sh|644"
   "lib/headless.sh|$TEHAS_HOME/lib/headless.sh|644"
   "lib/github-app.sh|$TEHAS_HOME/lib/github-app.sh|644"
   "lib/rukas.sh|$TEHAS_HOME/lib/rukas.sh|644"
@@ -1208,6 +1207,7 @@ for f in \
   bin/tehas-test \
   bin/tehas-work \
   lib/describe.sh \
+  lib/edge.sh \
   lib/private.sh \
   libexec/analytics-cmd \
   libexec/api \

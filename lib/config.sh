@@ -762,21 +762,6 @@ tehas_require() {
   done
 }
 
-# tehas_edge_name <kind> <number>: the host name of a preview (uat) or of a
-# Protolab ticket (lab) under TEHAS_DOMAIN. It is the one definition of such a
-# name. The console (console/src/protolab.rs) and the jq programs of
-# libexec/preview put the same name together themselves, because neither can
-# call a shell function, and test/protolab_test.sh and
-# test/preview_build_test.sh pin that theirs is this one.
-# Fails without a domain, for another kind, and for anything but a number of
-# one to nine digits that does not start with a zero.
-tehas_edge_name() {
-  [ -n "${TEHAS_DOMAIN:-}" ] || return 1
-  case "${1:-}" in uat | lab) ;; *) return 1 ;; esac
-  [[ ${2:-} =~ ^[1-9][0-9]{0,8}$ ]] || return 1
-  printf '%s-%s.%s\n' "$1" "$2" "$TEHAS_DOMAIN"
-}
-
 # The settings an instance has to set itself, because nothing here can give them
 # a sensible default: install.sh, tehas-dispatch and tehas update each check this
 # one list before they call GitHub, Docker, git or write a file.
