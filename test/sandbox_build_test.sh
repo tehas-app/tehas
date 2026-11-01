@@ -19,6 +19,11 @@ cp "$T_ROOT/host/sandbox/Dockerfile" "$home/sandbox/"
 cp "$T_ROOT/lib/headless.sh" "$T_ROOT/lib/rukas.sh" "$T_ROOT/lib/config.sh" \
   "$T_ROOT/lib/sandbox.sh" "$T_ROOT/lib/models.sh" "$home/lib/"
 cp "$T_ROOT/host/versions.env" "$home/"
+# The sweep of old dated tags asks the console what is held.
+# shellcheck disable=SC2154  # t_console_why is set by t_console (test/lib.sh)
+t_console || t_bad "no console: $t_console_why"
+mkdir -p "$home/libexec"
+cp "$T_CONSOLE" "$home/libexec/console"
 sed -i 's#^PI_RUKAS_REPO=.*#PI_RUKAS_REPO=https://github.com/Up-Owner/pi-rukas.git#' "$home/versions.env"
 build=$home/sandbox/build.sh
 fx=$T/fx
@@ -533,6 +538,19 @@ printf '%s\n' "uid$uid sha256:1" >"$fx/containers"
 t_run "$build"
 t_eq "$t_rc" 0
 t_contains "$t_out" "kept tehas/pi-rukas:261009-1000: a container or a uid tag uses it"
+
+t_case "a build with no console beside it removes no dated tag, and says so"
+reset
+fx_ids
+: >"$fx/no-containers"
+printf '%s\n' "uid$uid sha256:1" "261009-1000 sha256:1" "261009-1000-product sha256:2" \
+  "261010-1000 sha256:3" "261011-1000 sha256:4" >"$fx/images"
+mv "$home/libexec/console" "$T/console-aside"
+t_run "$build"
+mv "$T/console-aside" "$home/libexec/console"
+t_eq "$t_rc" 0
+t_lacks "$(t_calls docker)" "rmi"
+t_contains "$t_out" "warning: no console at $home/sandbox/../lib/../libexec/console, no old tehas/pi-rukas tag was removed"
 
 t_case "an instance directory with no sandbox.Dockerfile in it is no second build"
 reset

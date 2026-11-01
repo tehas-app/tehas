@@ -2,8 +2,9 @@
 # Which pi-rukas commit a host follows, from PI_RUKAS_REPO and PI_RUKAS_FOLLOW
 # (versions.env, or the instance's instance.env over it). A checkout follows
 # upstream, so the commit is looked up each time; a release names one commit.
-# Sourced by bootstrap.sh and host/sandbox/build.sh, and beside lib/sandbox.sh
-# by the commands that ask tehas_base_image which commit the base is named for.
+# Sourced by bootstrap.sh, host/sandbox/build.sh and scripts/tag-release.sh,
+# where no console may exist. console/core/src/rukas.rs reads the same for
+# tehasbot clean; test/rukas_test.sh holds the two side by side.
 #
 #   tehas_rukas_target
 #       "<commit> <what it is>" on one line. PI_RUKAS_FOLLOW=release takes the

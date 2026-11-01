@@ -3514,8 +3514,8 @@ removed); 3 when another run holds the lock, which changes nothing; 64 on an
 argument this command does not know; 78 when the settings are missing or
 malformed, or the console is not installed beside the command, before any
 docker, find or rm call. The steps are the console's
-(`~/tehas/libexec/console clean`); the command checks the settings, reads the
-free disk and names the two images.
+(`~/tehas/libexec/console clean`), and so are the two image names; the command
+loads the settings and reads the free disk.
 
 Each line that goes to `clean.log` is printed as well, and the unit adds no
 redirect of its own, so a timer run's output is in the journal. The exits that

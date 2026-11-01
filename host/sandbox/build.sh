@@ -132,6 +132,9 @@ if [ "$(grep -cxF -- 'FROM shared' "$dockerfile")" != 1 ] ||
   echo "sandbox: $dockerfile does not hold one 'FROM shared' stage and one 'ARG TEHAS_UID=' line, so the shared layers cannot be cut" >&2
   exit 1
 fi
+# What asks the date sweep below what is held. Read before tehas_load clears the
+# name. A checkout has no console, so a build there keeps every tag and says so.
+console=${TEHAS_CONSOLE:-$lib/../libexec/console}
 # shellcheck source=lib/rukas.sh
 . "$lib/rukas.sh"
 # shellcheck source=lib/headless.sh
@@ -142,10 +145,6 @@ fi
 # otherwise read.
 # shellcheck source=lib/config.sh
 . "$lib/config.sh"
-# images_held, which the date sweep below asks: what a container or a uid tag
-# holds. tehasbot clean asks the same function for the same question.
-# shellcheck source=lib/sandbox.sh
-. "$lib/sandbox.sh"
 instance_file=$(tehas_instance_dir)/sandbox.Dockerfile
 # A host with an instance may follow another pi-rukas than its release names
 # (PI_RUKAS_FOLLOW in instance.env). Its settings are loaded and checked as
@@ -462,13 +461,13 @@ if [ -f "$instance_file" ]; then
   echo "built $image:$stamp-product from $instance_file, also tagged $current"
 fi
 
-# The ids of images a container was made from, or a uid tag names, are
-# images_held in lib/sandbox.sh, which the cleaner asks too.
+# The ids of images a container was made from, or a uid tag names, are the
+# console's answer, the one the cleaner goes by.
 
 prune_dated() {
   local tags held tag id n=0
   tags=$(docker image ls --no-trunc --format '{{.Tag}} {{.ID}}' "$image") || return 1
-  held=$(images_held "$tags") || return 1
+  held=$("$console" clean held "$tags") || return 1
   while read -r tag id; do
     n=$((n + 1))
     [ "$n" -gt "$keep" ] || continue
@@ -481,4 +480,8 @@ prune_dated() {
     fi
   done < <(grep -E '^[0-9]{6}-[0-9]{4}(-product)? ' <<<"$tags" | LC_ALL=C sort -r)
 }
-prune_dated || echo "warning: docker did not list its images or containers, no old $image tag was removed" >&2
+if [ ! -x "$console" ]; then
+  echo "warning: no console at $console, no old $image tag was removed" >&2
+else
+  prune_dated || echo "warning: docker did not list its images or containers, no old $image tag was removed" >&2
+fi

@@ -195,7 +195,7 @@ host.
 | `lib/labels.sh` | Who applied a label, read from the label events |
 | `lib/live.sh` | The live view of the cycles, put together from a file per cycle |
 | `lib/planning.sh`, `lib/questions.sh` | The steps of a planning session, and the questions the factory asks on an issue |
-| `lib/sandbox.sh` | What a sandbox container is given, for a cycle and for a session by hand, and the one name each of the sandbox's images is known by (the build and `tehasbot clean` both ask it; `tehas_base_image` needs `lib/rukas.sh` sourced beside it) |
+| `lib/sandbox.sh` | What a sandbox container is given, for a cycle and for a session by hand |
 | `lib/slice.sh` | Reads `tehas.slice`: whether it is usable, the limits of a container, the room left |
 | `lib/status.sh`, `lib/top.sh` | The factory's state for `tehas status`, and the frame of `tehas top` |
 | `api/` | A JSON Schema of `tehas status --json` and two samples the tests make from the code; a program that reads the object copies them into its own tests |
