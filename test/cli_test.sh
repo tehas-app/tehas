@@ -15,7 +15,7 @@ cp "$T_ROOT/bin/tehas" "$T_ROOT/bin/tehasbot" "$tree/bin/"
 # The settings library is there to be read, so that not reading it means something.
 cp "$T_ROOT/lib/config.sh" "$tree/lib/config.sh"
 # One line per call: the name, then each argument after a "|".
-for name in dispatch cycle work plan dev index setup update labels summary status health energy protolab preview improve refresh review clean top top-publish pause resume stop api limit drain analytics-cmd mcp; do
+for name in dispatch cycle work plan dev index setup update labels summary status health console protolab preview improve refresh review clean top top-publish pause resume stop api limit drain analytics-cmd mcp; do
   printf '%s\n' '#!/usr/bin/env bash' "# The text of $name." '#' "# Usage: $name" 'set -u' 'IFS="|"' \
     "printf '%s\\n' \"$name\${*:+|\$*}\" >>\"\$T/calls/libexec\"" 'exit "${RC:-0}"' >"$tree/libexec/$name"
   chmod +x "$tree/libexec/$name"
@@ -105,7 +105,7 @@ t_case "an argument with a space reaches the script as one argument"
 reset
 t_run "$tehas work 'a b' '' c && $bot energy 'a b'"
 t_eq "$(ran)" "work|a b||c
-energy|a b"
+console|energy|a b"
 
 t_case "the exit status is the script's"
 reset
@@ -180,7 +180,7 @@ t_eq "$(ran)" "dispatch
 cycle|7
 status
 health
-energy|--every
+console|energy|--every
 top-publish|--every
 protolab
 preview
@@ -245,6 +245,8 @@ for name in $names; do
   # view a person runs.
   script=$name
   [ "$name" = top ] && script=top-publish
+  # The sampler is a verb of the console, built by install.sh.
+  [ "$name" = energy ] && continue
   [ -x "$T_ROOT/libexec/$script" ] || missing="$missing $name"
 done
 t_eq "$missing" ""

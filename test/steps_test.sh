@@ -43,6 +43,7 @@ t_case "the versions the sandbox image pins ask for the build"
 t_eq "$(tehas_steps_for versions.env)" "sandbox"
 # The sampler of the layout before bin/tehas: retiring it asks for the restart.
 t_contains "$(tehas_steps_for bin/tehas-energy)" "units tehas-dispatch.timer tehas-energy.service"
+t_contains "$(tehas_steps_for libexec/energy)" "units tehas-dispatch.timer tehas-energy.service"
 
 t_case "a new env.sh restarts the running services, which keep the environment of their start"
 t_contains "$(tehas_steps_for env.sh)" "units tehas-dispatch.timer tehas-energy.service"
