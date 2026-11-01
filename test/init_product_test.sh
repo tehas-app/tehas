@@ -5,7 +5,14 @@
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
 
-init="$T_ROOT/libexec/init-product"
+# The command as a host has it: beside the console, which does the work
+# (console/src/product.rs), and the tests of its parts are beside its source.
+t_console || t_bad "no console: $t_console_why"
+mkdir -p "$T/tree/libexec"
+ln -s "$T_ROOT/lib" "$T/tree/lib"
+ln -s "$T_ROOT/libexec/init-product" "$T/tree/libexec/init-product"
+cp "$T_CONSOLE" "$T/tree/libexec/console"
+init=$T/tree/libexec/init-product
 origin=$T/acme/widget.git
 g() { git -c user.name=t -c user.email=t@example.invalid -c init.defaultBranch=main "$@"; }
 
@@ -244,6 +251,13 @@ t_run "$init"
 t_eq "$t_rc" 1
 t_contains "$t_out" "/repos/widget has no origin/trunk to start from"
 t_eq "$(find "$T/home/tehas/tmp" -mindepth 1 | wc -l)" 0
+
+t_case "a host with no console beside the command starts nothing: 78, and says to install"
+rm "$T/tree/libexec/console"
+t_run "$init"
+t_eq "$t_rc" 78
+t_contains "$t_out" "no console beside this command"
+cp "$T_CONSOLE" "$T/tree/libexec/console"
 
 t_case "a wrong argument is 64"
 t_run "$init --force"

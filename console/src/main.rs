@@ -116,6 +116,12 @@
 //! A factory pull request's title, kept true by the prefix of its state, see
 //! src/pr_title.rs.
 //!
+//!   console check-product [--sandbox] | table
+//!   console init-product <branch> [--dry-run]
+//!
+//! The product against the contract, and the files it is missing proposed in a
+//! pull request, see src/product.rs.
+//!
 //! Exit: 0 stopped by a signal or masked, 1 the console file or standard
 //! output cannot be written, 2 usage.
 
@@ -133,6 +139,7 @@ mod now;
 mod plan;
 mod pr_title;
 mod preview;
+mod product;
 mod protolab;
 mod render;
 mod review;
@@ -348,12 +355,14 @@ fn main() -> ExitCode {
         .map_err(|_| "console: an argument is not UTF-8".to_string());
     if let Ok(given) = &given {
         match given.first().map(String::as_str) {
+            Some("check-product") => return ExitCode::from(product::check(&given[1..])),
             Some("clean") => return ExitCode::from(clean::main(&given[1..])),
             Some("disk") => return ExitCode::from(disk::main(&given[1..])),
             Some("epics") => return ExitCode::from(epics::main(&given[1..])),
             Some("export") => return ExitCode::from(export::main(&given[1..])),
             Some("flags") => return ExitCode::from(flags::main(&given[1..])),
             Some("forge") => return ExitCode::from(forge::main(&given[1..])),
+            Some("init-product") => return ExitCode::from(product::init(&given[1..])),
             Some("review") => return ExitCode::from(review::main(&given[1..])),
             Some("preview") => return ExitCode::from(preview::main(&given[1..])),
             Some("setup") => return ExitCode::from(setup::main(&given[1..])),

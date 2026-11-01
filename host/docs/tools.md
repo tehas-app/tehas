@@ -1751,7 +1751,9 @@ It changes nothing in the product. The result goes to
 the check itself, and the `Product:` line does not change install.sh's exit
 status. Exit 0 when every check passed, 1 when the sandbox could not be run (no
 image, or the clone failed), 64 on a wrong argument, 78 when the settings are
-missing or malformed or a check failed.
+missing or malformed, a check failed, or no console stands beside the command.
+The command loads the settings; the checks and the run are the console's
+(`console check-product`, `console/src/product.rs`).
 
 ## tehas init-product
 
@@ -1776,8 +1778,10 @@ to the branch `tehas/init-product`, pushed with gh's credentials, and the bot
 opens the pull request against the default branch. It never commits to the
 default branch. Exit 0 when the pull request is open or nothing is missing, 1
 when git or gh failed or `tehas/init-product` is already on origin, 64 on a
-wrong argument, 78 when the settings are missing or malformed or the checkout
-is not a clone of `TEHAS_REPO`.
+wrong argument, 78 when the settings are missing or malformed, the checkout is
+not a clone of `TEHAS_REPO`, or no console stands beside the command. The
+command loads the settings and checks the checkout; the rest is the console's
+(`console init-product`, `console/src/product.rs`).
 
 ## tehas limit
 
