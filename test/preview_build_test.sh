@@ -31,6 +31,22 @@ t_contains "$t_out" "sweep=78"
 t_eq "$(t_calls gh)$(t_calls docker)" ""
 t_eq "$(count "$T/home/tehas/preview" '*')" 0
 
+t_case "the console without a usable domain: exit 78, nothing asked, nothing written"
+reset
+settings="TEHAS_HOME=$T/home/tehas TEHAS_REPO=acme/widget TEHAS_PREVIEWS=1 TEHAS_PREVIEW_MAX=5 TEHAS_PREVIEW_MIN_FREE_MB=1"
+for domain in "" TEHAS_DOMAIN= TEHAS_DOMAIN=EXAMPLE.org TEHAS_DOMAIN=example TEHAS_DOMAIN=example.org/x TEHAS_DOMAIN=-a.example.org; do
+  t_run "env $settings $domain $T/tree/libexec/console preview run; echo run=\$?; env $settings $domain $T/tree/libexec/console preview sweep; echo sweep=\$?"
+  t_contains "$t_out" "run=78"
+  t_contains "$t_out" "sweep=78"
+  t_contains "$t_out" "TEHAS_DOMAIN"
+done
+t_eq "$(t_calls gh)$(t_calls docker)" ""
+t_eq "$(count "$T/home/tehas/preview" '*')" 0
+# The same call with a domain gets past the check, so the 78 above is the domain's.
+t_run "env $settings TEHAS_DOMAIN=example.org $T/tree/libexec/console preview run; echo run=\$?"
+t_lacks "$t_out" "run=78"
+t_contains "$(t_calls docker)" "info"
+
 t_case "an argument it does not know: exit 64"
 reset
 t_run "$preview --everything"
