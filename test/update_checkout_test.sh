@@ -166,6 +166,37 @@ t_contains "$t_out" "does not define tehas_load; install.sh will check the setti
 t_lacks "$t_out" "asks for settings this instance does not have"
 t_eq "$(t_calls install)" "install "
 
+t_case "a pulled checkout has no console beside it, so install.sh checks the settings"
+instance
+platform 1 'echo "installed: nothing"'
+push_settings_change
+mkdir -p "$th/libexec"
+cp "$TEHAS_SETTINGS_CMD" "$th/libexec/console"
+t_run "unset TEHAS_SETTINGS_CMD; $update"
+t_contains "$t_out" "this checkout has no console beside it; install.sh will check the settings itself"
+t_lacks "$t_out" "asks for settings this instance does not have"
+t_eq "$(t_calls install)" "install "
+
+t_case "an update from before the console read settings leaves a pulled checkout to install.sh"
+instance
+platform 1 'echo "installed: nothing"'
+push_one "remote work"
+old=$T/old-install
+rm -rf "$old"
+mkdir -p "$old/libexec" "$th/libexec"
+sed '/\[ ! -x "$1\/libexec\/console" \]/,+3d' "$update" >"$old/libexec/update"
+chmod +x "$old/libexec/update"
+t_lacks "$(cat "$old/libexec/update")" "has no console beside it"
+cp -R "$T_ROOT/lib" "$old/lib"
+cp "$TEHAS_SETTINGS_CMD" "$old/libexec/console"
+printf '#!%s\necho "--since is required" >&2\nexit 2\n' "$T_BASH" >"$th/libexec/console"
+chmod +x "$th/libexec/console"
+t_run "unset TEHAS_SETTINGS_CMD; $old/libexec/update"
+t_eq "$t_rc" 0
+t_contains "$t_out" "does not define tehas_load; install.sh will check the settings itself"
+t_lacks "$t_out" "asks for settings this instance does not have"
+t_eq "$(t_calls install)" "install "
+
 t_case "--check reports what would change and leaves the checkout as it was"
 instance
 platform 2 'echo "Instance:     $TEHAS_INSTANCE_DIR OK"

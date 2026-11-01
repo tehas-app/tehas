@@ -8,19 +8,11 @@
 //! prints. test/mcp_test.sh compares the two.
 
 use crate::models::ModelFile;
+use crate::settings::rules::ROLES;
 use std::collections::HashSet;
 use std::env;
 
 const MIN_CHARS: usize = 4;
-
-// _tehas_roles of lib/config.sh.
-const ROLES: [&str; 5] = [
-    "DEVELOPER",
-    "OPS",
-    "EXPLORE",
-    "ADVERSARIAL_DEVELOPER",
-    "CODE_REVIEW_SPECIALIST",
-];
 
 /// The provider of each pair `tehas_models` lists: a provider with two models
 /// comes twice, and so do its names.
