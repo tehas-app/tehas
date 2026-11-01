@@ -180,6 +180,18 @@
 //!                                     runs at once. Exit 1 with nothing
 //!                                     printed when the words have no quota or
 //!                                     ceiling
+//!   tehas-cycle start-check record <issue> [--attempt <n>]
+//!                                     the approval of this start in a private
+//!                                     file: two lines, its path and why a
+//!                                     start with none stops. Exit 78 on driver
+//!                                     lean (src/start.rs)
+//!   tehas-cycle start-check text <issue> --record <file> --why <text>
+//!       --log <file> --text-wait <s> --console <path>
+//!                                     hold the issue's words to that approval
+//!                                     and measure them: the path of a private
+//!                                     file with GitHub's answer, an empty line
+//!                                     for a run by hand, or exit 4, said on
+//!                                     the issue
 //!   tehas-cycle watch <issue> --log <file> --runs <dir> --name <container>
 //!       --limit <s> --stall <s> --grace <s> --stop-wait <s> --console-wait <s>
 //!       --console <path> --models <file> --email <address> [--attempt <n>]
@@ -232,7 +244,7 @@ use tehas_cycle::after::{self, After};
 use tehas_cycle::host::Start;
 use tehas_cycle::last_attempt::{self, Action};
 use tehas_cycle::report::{last_attempts, to_json, Given};
-use tehas_cycle::{apply, finish, pin, progress, renew, report, shadow, watch, Facts};
+use tehas_cycle::{apply, finish, pin, progress, renew, report, shadow, start, watch, Facts};
 use tehas_cycle::{caps, clock, index, runner, sandbox};
 
 fn usage() -> String {
@@ -391,6 +403,15 @@ fn main() {
             let only = progress::error_only(&String::from_utf8_lossy(&text));
             std::process::exit(i32::from(!only));
         }
+        ["start-check", "record", n] => {
+            std::process::exit(start::record(&home, issue(n, &args), ""))
+        }
+        ["start-check", "record", n, "--attempt", attempt] => {
+            std::process::exit(start::record(&home, issue(n, &args), attempt))
+        }
+        ["start-check", "text", n, rest @ ..] => {
+            std::process::exit(start_text(&home, issue(n, &args), &args, rest))
+        }
         ["watch", n, rest @ ..] => watch_verb(&home, issue(n, &args), &args, rest),
         ["runner", "run", log, n] => match runner::run_log(Path::new(log), n) {
             Some(r) => println!("{}\n{}\n{}", r.step, r.branch, r.read),
@@ -416,6 +437,35 @@ fn main() {
         }
         _ => wrong(&args),
     }
+}
+
+/// The words of the text step of a start.
+fn start_text(home: &Path, n: u64, args: &[String], rest: &[&str]) -> i32 {
+    let mut t = start::Text {
+        issue: n,
+        repo: std::env::var("TEHAS_REPO").unwrap_or_default(),
+        record: String::new(),
+        why: String::new(),
+        log: PathBuf::new(),
+        wait: 60,
+        console: String::new(),
+    };
+    let mut it = rest.iter();
+    while let Some(flag) = it.next() {
+        let v = *it.next().unwrap_or_else(|| wrong(args));
+        match *flag {
+            "--record" => t.record = v.to_string(),
+            "--why" => t.why = v.to_string(),
+            "--log" => t.log = PathBuf::from(v),
+            "--text-wait" => t.wait = v.parse().unwrap_or_else(|_| wrong(args)),
+            "--console" => t.console = v.to_string(),
+            _ => wrong(args),
+        }
+    }
+    if t.repo.is_empty() || t.log.as_os_str().is_empty() || t.console.is_empty() {
+        wrong(args);
+    }
+    start::text(home, &t)
 }
 
 /// The words of tehas work's watch.

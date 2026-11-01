@@ -4,11 +4,12 @@
 # stub docker records its arguments, one per line, and exits at once, so no
 # cycle runs. It answers --capabilities from $T/caps.json.
 # The part has sourced test/lib.sh before this.
-# The library's own rule for the hash of a body, so that a fixture records what
-# the dispatcher would have recorded and not an approximation of it. Sourcing
-# attachments.sh runs nothing.
-# shellcheck source=lib/attachments.sh
-. "$T_ROOT/lib/attachments.sh" || exit 1
+# The rule for the hash of a body and of a title, written here apart from the
+# Rust, so that a fixture holds tehas-cycle to it. A body loses its carriage
+# returns: the dispatcher reads it from GraphQL and tehas work from REST. A title
+# loses its line ends too.
+tehas_body_sha256() { jq -j '(.body // "") | gsub("\r"; "")' | sha256sum | cut -d' ' -f1; }
+tehas_title_sha256() { jq -j '.title | gsub("\r"; "") | gsub("\n"; "")' | sha256sum | cut -d' ' -f1; }
 # The CPU quota and the ticket ceiling follow the host's CPUs: the same on
 # every test machine.
 t_stub nproc 'echo 16'
@@ -457,7 +458,7 @@ record_edit() {
   record_put
 }
 # record_is <by> <body it approved> <link>...: the approval of a start. The
-# hash is tehas_body_sha256's own, the one the dispatcher records and tehas work
+# hash is the one the dispatcher records and tehas work
 # compares, so a body that differs only in line ends differs in nothing.
 record_is() {
   local by=$1 body=$2
