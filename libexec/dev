@@ -246,6 +246,8 @@ if [ "$fresh" = 1 ]; then
   if ! { tehas_sandbox_clone "$TEHAS_WORK_REPO" "$making" "$branch" &&
     { [ ! -d "$tree" ] || rmdir "$tree"; } && mv "$making" "$tree"; }; then
     rm -rf "$making"
+    # Only empty ones: a state a person kept from an earlier clone stays.
+    rmdir "$target_host" "$state" 2>/dev/null
     echo "tehas dev: could not make the clone $tree, not starting a session" >&2
     exit 78
   fi

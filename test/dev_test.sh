@@ -356,6 +356,14 @@ t_eq "$t_rc" 78
 t_contains "$t_out" "could not make the clone"
 t_eq "$(containers)" 0
 t_eq "$(find "$devs" -mindepth 1 -maxdepth 1 -name '*carol*' | wc -l)" 0
+# A state a person kept from an earlier clone is theirs: only what is empty goes.
+mkdir -p "$devs/dora.state/sessions"
+echo mine >"$devs/dora.state/sessions/one.jsonl"
+again
+t_run "$dev_cmd dora"
+t_eq "$t_rc" 78
+t_eq "$(cat "$devs/dora.state/sessions/one.jsonl")" mine
+rm -rf "$devs/dora.state"
 rm -f "$T/bin/git"
 again
 t_run "$dev_cmd carol"
