@@ -70,9 +70,14 @@ pub struct Refused {
 /// tehas_core::call keeps it.
 pub fn store_value(home: &Path, args: &[&str]) -> Result<Value, Value> {
     let program = home.join("libexec/store");
+    let program = program.to_string_lossy();
+    if !call::store_executable(&program) {
+        let line = format!("store: absent: {program} is not an executable file");
+        return Err(call::store_failed(78, "absent", &line));
+    }
     let extra = [("TEHAS_HOME", home.to_str().unwrap_or(""))];
     call::store(
-        &program.to_string_lossy(),
+        &program,
         args,
         Duration::from_secs(20),
         Duration::from_secs(2),
