@@ -54,6 +54,15 @@ t_run "$lib; tehas_model_keys_ok"
 t_eq "$t_rc" 78
 t_contains "$t_out" "provider test-provider"
 
+t_case "providers given as a list stop with 78, whatever its keys"
+printf '{"providers": [{"apiKey": "$GH_TOKEN"}]}\n' >"$file"
+t_run "$lib; tehas_model_keys_ok"
+t_eq "$t_rc" 78
+t_contains "$t_out" "providers is not a map of provider names"
+printf '{"providers": [{"apiKey": "unused"}]}\n' >"$file"
+t_run "$lib; tehas_model_keys_ok"
+t_eq "$t_rc" 78
+
 t_case "a provider without a backup is on its main endpoint, and nothing is asked"
 models '{"baseUrl": "https://main.test/v1", "apiKey": "unused"}'
 fresh
