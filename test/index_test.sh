@@ -8,6 +8,10 @@
 # The CPU quota and the ticket ceiling follow the host's CPUs: the same on
 # every test machine.
 t_stub nproc 'echo 16'
+# The slice is the console's, which a checkout's libexec does not hold.
+# shellcheck disable=SC2154  # t_console_why is set by t_console (test/lib.sh)
+t_console || t_bad "no console: $t_console_why"
+T_ENV_ALWAYS+=(TEHAS_CONSOLE_CMD="$T_CONSOLE")
 
 # The command as a host has it: beside tehas-cycle, which does the run.
 # shellcheck disable=SC2154  # t_cycle_why is set by t_cycle (test/lib.sh)
