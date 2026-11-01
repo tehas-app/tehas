@@ -136,8 +136,8 @@
 //! The product against the contract, and the files it is missing proposed in a
 //! pull request, see src/product.rs.
 //!
-//!   console tehas status|disk|state|limit|pause|analytics ...
-//!   console tehasbot health
+//!   console tehas status|disk|state|limit|pause|analytics|mcp ...
+//!   console tehasbot health|mcp
 //!   console check tehas|tehasbot <command> ...
 //!   console usage <command>
 //!
@@ -159,6 +159,7 @@ mod forge;
 mod frame;
 mod health;
 mod jq;
+mod mcp;
 mod notice;
 mod now;
 mod plan;

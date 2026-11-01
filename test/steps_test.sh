@@ -16,11 +16,10 @@ sandbox
 docs --force-recreate
 edge --force-recreate"
 
-t_case "a new MCP server or its command restarts its unit, and only it"
-t_eq "$(tehas_steps_for libexec/mcp)" "units tehas-mcp.service"
+t_case "a new MCP server restarts its unit, and only it"
 t_eq "$(tehas_steps_for /src/console/target/x86_64-unknown-linux-musl/release/tehas-mcp)" "units tehas-mcp.service"
 t_eq "$(tehas_steps_for libexec/tehas-mcp)" "units tehas-mcp.service"
-t_eq "$(tehas_steps_for systemd/tehas-top.service libexec/mcp | grep -c '^units ')" 1
+t_eq "$(tehas_steps_for systemd/tehas-top.service libexec/tehas-mcp | grep -c '^units ')" 1
 t_eq "$(tehas_steps_for libexec/dispatch)" ""
 
 t_case "a change to one server asks for that server only"
@@ -67,7 +66,7 @@ labels"
 
 t_case "tehas_steps_into gives the same steps in tehas_steps, and empties it first"
 for srcs in "systemd/tehas-dispatch.timer sandbox/Dockerfile edge/docs.Caddyfile edge/router.compose.yaml" \
-  "libexec/mcp" "versions.env" "libexec/dispatch"; do
+  "libexec/tehas-mcp" "versions.env" "libexec/dispatch"; do
   # shellcheck disable=SC2086  # one source path per word
   tehas_steps_into $srcs
   # shellcheck disable=SC2086

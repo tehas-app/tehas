@@ -647,7 +647,7 @@ fn a_request_has_a_deadline_however_it_trickles() {
 }
 
 // The 10 seconds the manual promises is the default of the flag, not the flag:
-// libexec/mcp never passes `--io-timeout`, so what a host waits is what the
+// `tehasbot mcp serve` never passes `--io-timeout`, so what a host waits is what the
 // constant says, and a test says so without waiting out a second trickle. The
 // argument is read rather than ignored: 0 would mean no deadline at all, so a
 // value that is not a whole number of seconds from 1 to 3600 is 78 like any
