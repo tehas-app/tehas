@@ -265,6 +265,13 @@ t_run "$load && echo \"\$TEHAS_WORK_CMD \$TEHAS_STATUS_CMD \$TEHAS_INDEX_CMD \$T
 t_eq "$t_out" "fake-work fake-status fake-index fake-start 2 3 4 5 6 7 8 fake-stop fake-tidy 9 1 600"
 T_ENV=()
 
+t_case "the poll's word to tehasbot status survives from the environment"
+t_instance "${T_MINIMAL[@]}"
+T_ENV=(TEHAS_FROM_POLL=1)
+t_run "$load && echo \"\$TEHAS_FROM_POLL\""
+t_eq "$t_out" "1"
+T_ENV=()
+
 t_case "the words a cycle hands down survive from the environment, and nothing else of its kind"
 t_instance "${T_MINIMAL[@]}"
 T_ENV=(TEHAS_CYCLE_FROM=unit TEHAS_CYCLE_ATTEMPT=3 TEHAS_CYCLE_OTHER=x)

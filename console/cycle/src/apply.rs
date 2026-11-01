@@ -629,6 +629,7 @@ pub fn run(home: &Path, s: &Start) -> i32 {
     a.approved = approved;
     a.console = s.console.clone();
     a.status_cmd = s.status_cmd.clone();
+    a.status_args = s.status_args.clone();
     a.workdir = workdir;
     after::after(home, &a);
     if on_record {

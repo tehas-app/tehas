@@ -845,12 +845,13 @@ tree=$T/tree
 mkdir -p "$tree/libexec" "$tree/lib"
 cp "$cycle" "$tree/libexec/cycle"
 cp "$T_ROOT"/lib/*.sh "$tree/lib/"
-for name in work status; do cp "$T/bin/fake-$name" "$tree/libexec/$name"; done
+cp "$T/bin/fake-work" "$tree/libexec/work"
+cp "$T/bin/fake-status" "$tree/libexec/with-settings"
 for name in tehas tehasbot tehas-work tehas-status; do t_stub "$name"; done
 t_run "$tree/libexec/cycle 7"
 t_eq "$t_rc" 0
 t_eq "$(t_calls fake-work)" "7"
-t_eq "$(t_calls fake-status | wc -l)" 1
+t_eq "$(t_calls fake-status)" "tehasbot status"
 for name in tehas tehasbot tehas-work tehas-status; do t_eq "$(t_calls "$name")" ""; done
 
 t_done

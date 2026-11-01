@@ -30,31 +30,9 @@
 #                                   <label> most recently is allowed, 1 when it
 #                                   is not or no event applies it, 2 when the
 #                                   events cannot be read.
-#   tehas_pause_holds               stdin: one issue's events, as above, for the
-#                                   control issue. The pause label works one way:
-#                                   anyone who can label may stop the factory,
-#                                   only an allowed account may start it again.
-#                                   0 when the tehas:pause event with the latest
-#                                   stamp holds the host paused: a removal by an
-#                                   account outside TEHAS_ALLOWED_LABELERS or by
-#                                   an event that names no account, or an
-#                                   application no event has taken back - the
-#                                   label is gone from the issue all the same,
-#                                   which means the label object was deleted or
-#                                   renamed, and no account was asked to lift it.
-#                                   stdout is "<event>\t<account>", the account
-#                                   empty when the event names none. 1 when
-#                                   nothing the events say holds the host paused:
-#                                   no tehas:pause event, or its last removal was
-#                                   by an allowed account. 2 when the events are
-#                                   not what this expects, which is never the
-#                                   same as having no event. Whether the label is
-#                                   on the issue now is not this function's to
-#                                   see: the caller reads the issue.
 #
 # Which issue to ask about, and what to do when its events cannot be read, is
-# the caller's: a poll that cannot ask GitHub ends, the Protolab leaves a
-# ticket's page as it is. Sourcing this file does nothing.
+# the caller's. Sourcing this file does nothing.
 
 tehas_label_actor() {
   # A tab between the two fields: a login holds no tab, and either may be empty.
@@ -83,32 +61,4 @@ tehas_label_allowed() { # <issue> <label>
   events=$(gh api "repos/$TEHAS_REPO/issues/$1/events?per_page=100" --paginate 2>/dev/null) || return 2
   line=$(tehas_label_actor "$2" <<<"$events") || return 2
   tehas_allowed_labeler "${line%%$'\t'*}"
-}
-
-# tehas_pause_holds: as tehas_label_actor reads the events, but for both kinds
-# of pause event: what stopped the factory, and what took the stop away.
-tehas_pause_holds() {
-  local line event by
-  line=$(jq -rs '
-    if any(.[]; type != "array") then error("not a list of events") else . end
-    | (add // [])
-    | map(select((.event == "labeled" or .event == "unlabeled") and .label.name == "tehas:pause"))
-    # GitHub documents no order for these events, so the stamp decides: a missing
-    # stamp sorts first. Two events sharing one stamp are put in the order that
-    # holds the host paused, removal before application, so that a pause applied
-    # and lifted inside one second is read as still applied.
-    | sort_by([.created_at // "", if .event == "unlabeled" then 0 else 1 end])
-    | last // {}
-    | "\(.event // "")\t\(.actor.login // "")"' 2>/dev/null) || return 2
-  event=${line%%$'\t'*}
-  by=${line#*$'\t'}
-  case "$event" in
-    # The label came off: who took it off decides.
-    unlabeled) tehas_allowed_labeler "$by" && return 1 ;;
-    # Applied, and nothing has taken it off. That is the one state where a pause
-    # would else be lifted by no account at all, so it holds the host.
-    labeled) ;;
-    *) return 1 ;;
-  esac
-  printf '%s\t%s\n' "$event" "$by"
 }
