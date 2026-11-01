@@ -611,23 +611,21 @@ mod tests {
     #[test]
     fn every_decision_line_of_the_table_is_a_kind() {
         // The same sample lines `parse` is tested of, so the two readers of
-        // these words cannot drift apart on a word the dispatcher writes. A
-        // hold is no kind of its own: `kind_of` reads it as a wait, which is
-        // what a parked issue is, and every other word names its own kind.
-        let kind_of_word = |word: &str| {
-            let line = crate::decisions::DECISIONS
-                .iter()
-                .find(|(w, _, _, _)| *w == word)
-                .map(|(_, _, line, _)| *line)
-                .expect("every decision has a sample line");
-            kind_of("dispatch", line.split_once(' ').expect("a timed line").1)
-        };
-        for word in crate::decisions::WORDS {
-            assert!(KINDS.contains(&kind_of_word(word)), "{word}");
-            assert_eq!(
-                kind_of_word(word),
-                if word == "hold" { "wait" } else { word }
-            );
+        // these words cannot drift apart on a word the dispatcher writes. The
+        // kind each row is read as is named in the table itself.
+        for row in crate::decisions::DECISIONS {
+            let text = row.sample.split_once(' ').expect("a timed line").1;
+            let kind = kind_of("dispatch", text);
+            assert!(KINDS.contains(&kind), "{}", row.word);
+            assert_eq!(kind, row.kind, "{}", row.sample);
+        }
+        // The writers' own words for a line that is no decision of this tool
+        // are events all the same, each of a kind `factory_events` names.
+        for (word, line, kind) in crate::decisions::WRITER_NON_DECISIONS {
+            let text = line.split_once(' ').expect("a timed line").1;
+            let read = kind_of("dispatch", text);
+            assert!(KINDS.contains(&read), "{word}");
+            assert_eq!(read, kind, "{line}");
         }
     }
 
@@ -656,6 +654,16 @@ mod tests {
         assert_eq!(d("wait #462: tehas:blocked holds it"), "wait");
         assert_eq!(d("holding: the limit allows 0 cycles at once"), "wait");
         assert_eq!(d("hold #688: its last cycle parked"), "wait");
+        // The release of a hold is no decision of `factory_decisions`, but it
+        // is an event; the poll's own words for its slots are a wait.
+        assert_eq!(
+            d("lift #7: its last cycle parked on intent-park and the body has not changed since, lifted on the fixer's guidance comment"),
+            "warn"
+        );
+        assert_eq!(
+            d("lift #7: its last cycle parked on intent-park and the body has not changed since, lifted on the fixer's guidance comment"),
+            "warn"
+        );
         assert_eq!(
             d("hold #7: its text links an attachment and TEHAS_WORK_IMAGES is 1, but test-model does not declare image input in models.json"),
             "wait"
