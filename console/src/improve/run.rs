@@ -134,19 +134,6 @@ fn next_cap(exit: i32, cap: usize, took: usize) -> usize {
     next.clamp(1, MAX_TAKE)
 }
 
-/// `date -u +%y%m%d-%H%M%S`.
-fn stamp_of(t: i64) -> String {
-    let (y, m, d) = time::civil_from_days(t.div_euclid(86_400));
-    let s = t.rem_euclid(86_400);
-    format!(
-        "{:02}{m:02}{d:02}-{:02}{:02}{:02}",
-        y.rem_euclid(100),
-        s / 3600,
-        s % 3600 / 60,
-        s % 60
-    )
-}
-
 /// `date -u -d '30 days ago' +%Y-%m-%d`.
 fn month_ago(now: i64) -> String {
     let (y, m, d) = time::civil_from_days((now - 30 * 86_400).div_euclid(86_400));
@@ -546,7 +533,7 @@ impl Loop {
             say("cycles=0, nothing to read");
             return 0;
         }
-        let stamp = stamp_of(time::now());
+        let stamp = time::stamp(time::now());
         let dir = self.base.join(format!("run-{stamp}"));
         let cap = cap_of(&self.capf);
         let recs = oldest(recs, cap);
@@ -1191,7 +1178,7 @@ mod tests {
         // 2026-10-10T20:01:40Z
         let t = 1_791_662_500;
         assert_eq!(time::iso(t), "2026-10-10T20:01:40Z");
-        assert_eq!(stamp_of(t), "261010-200140");
+        assert_eq!(time::stamp(t), "261010-200140");
         assert_eq!(month_ago(t), "2026-09-10");
     }
 

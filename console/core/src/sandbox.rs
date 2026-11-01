@@ -15,6 +15,7 @@ use crate::models::{self, ModelFile};
 use crate::slice::{self, Load, Reading, Usable};
 use std::env;
 use std::fs;
+use std::process::{Command, Stdio};
 
 /// Where a container has its own copy of the code index. A path inside the
 /// container, not a setting. The host directory behind it belongs to one
@@ -246,6 +247,19 @@ pub fn prepared_mounts(kind: Kind, p: &Paths) -> Result<Vec<String>, String> {
         fs::create_dir_all(&dir).map_err(|e| format!("tehas: cannot make {dir}: {e}"))?;
     }
     Ok(mount_options(kind, p, &agent_dir(), app.as_deref()))
+}
+
+/// The account a container runs as, `<uid>:<gid>`, as `id` says it.
+pub fn user() -> String {
+    let id = |flag: &str| {
+        Command::new("id")
+            .arg(flag)
+            .stderr(Stdio::null())
+            .output()
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim_end().to_string())
+            .unwrap_or_default()
+    };
+    format!("{}:{}", id("-u"), id("-g"))
 }
 
 /// The --add-host options: the names the sandbox cannot resolve by itself, from
