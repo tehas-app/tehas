@@ -11,6 +11,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::Value;
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
+use tehas_core::secret::secret;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Call {
@@ -637,59 +638,6 @@ pub fn settings_of(bytes: &[u8]) -> SettingsIn {
         return SettingsIn::Secret;
     }
     SettingsIn::Good(rows)
-}
-
-fn run_of(b: &[u8], from: usize, keep: impl Fn(u8) -> bool) -> usize {
-    b.get(from..)
-        .map_or(0, |t| t.iter().take_while(|&&c| keep(c)).count())
-}
-
-/// The six shapes of `tehas_improve_secret` (lib/improve.sh).
-pub fn secret(b: &[u8]) -> bool {
-    let alnum = |c: u8| c.is_ascii_alphanumeric();
-    for i in 0..b.len() {
-        let t = &b[i..];
-        if t.len() >= 4
-            && t.starts_with(b"gh")
-            && b"pousr".contains(&t[2])
-            && t[3] == b'_'
-            && run_of(b, i + 4, alnum) >= 36
-        {
-            return true;
-        }
-        if t.starts_with(b"github_pat_") && run_of(b, i + 11, |c| alnum(c) || c == b'_') >= 22 {
-            return true;
-        }
-        if t.starts_with(b"sk-")
-            && (i == 0 || !alnum(b[i - 1]))
-            && run_of(b, i + 3, |c| alnum(c) || c == b'_' || c == b'-') >= 20
-        {
-            return true;
-        }
-        if t.len() >= 5
-            && t.starts_with(b"xox")
-            && b"abprs".contains(&t[3])
-            && t[4] == b'-'
-            && run_of(b, i + 5, |c| alnum(c) || c == b'-') >= 10
-        {
-            return true;
-        }
-        if t.starts_with(b"AKIA")
-            && run_of(b, i + 4, |c| c.is_ascii_digit() || c.is_ascii_uppercase()) >= 16
-        {
-            return true;
-        }
-        if t.starts_with(b"-----BEGIN ") {
-            let from = i + 11;
-            let end = from + run_of(b, from, |c| c.is_ascii_uppercase() || c == b' ');
-            let key = b"PRIVATE KEY";
-            if end - from >= key.len() && b[..end].ends_with(key) && b[end..].starts_with(b"-----")
-            {
-                return true;
-            }
-        }
-    }
-    false
 }
 
 fn cycle_image(

@@ -3258,9 +3258,9 @@ Limits: 3 issues a run; no run files in a repository while
 `TEHAS_IMPROVE_MAX_OPEN` (10 by default) open issues there carry the label. The
 whole log of each cycle a finding names is gzipped and uploaded to the release
 `tehas-improve-logs`, in pieces of at most 5 MB (`ticket-<issue>-<time>.log.gz`,
-or `.log.1.gz`, `.log.2.gz`), masked first by `console --mask`. A log that
-still holds something shaped like a token, or that could not be masked, is not
-uploaded.
+or `.log.1.gz`, `.log.2.gz`), masked first as the console masks a line. A log
+that still holds something shaped like a token, or whose masked copy could not
+be written, is not uploaded.
 
 Exit 0 when the run finished, also with an analyst stopped at its bound that
 left a good file, there was nothing to read, the open issues are at their
@@ -3269,9 +3269,10 @@ Exit 1 when the analyst or GitHub failed: the records are kept and the next run
 reads them again. What a failed analyst printed is in
 `~/tehas/logs/improve-analyst-<stamp>.log`, one file per failed run, named by
 the time the run took the records. The run's line names it. Exit 64 on any
-argument, 78 on invalid settings, or when there are records to read and
-`tehas.slice` cannot be used: the records are kept. A second run while one is going leaves it to
-that one.
+argument, 78 on invalid settings, without a console in `~/tehas/libexec`, or
+when there are records to read and `tehas.slice` cannot be used: the records
+are kept. A second run while one is going leaves it to that one. The unit gives
+a run 90 minutes: the analyst's 60, one to kill it, and the uploads.
 
 Each run also removes the per-cycle files and the kept analyst output in
 `~/tehas/logs/`, and the records under `~/tehas/tmp/improve/`, older than seven
