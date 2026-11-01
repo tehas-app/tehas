@@ -1,8 +1,8 @@
 //! attach: the files attached to an issue, fetched and judged by a program and
 //! not by the shell, and what a cycle was given, said as text. lib/attachments.sh
-//! runs it as $TEHAS_HOME/libexec/attach for tehas work, tehas plan and tehas dev,
-//! and the console for tehasbot protolab. It reads no setting: the shell passes
-//! each as a flag, the approval word (rule 5) among them. Only `issue` and
+//! runs it as $TEHAS_HOME/libexec/attach for tehas work and tehas plan, and the
+//! console for tehas dev and tehasbot protolab. It reads no setting: the caller
+//! passes each as a flag, the approval word (rule 5) among them. Only `issue` and
 //! `answer` hold GH_TOKEN and reach the network, through curl and gh, and they
 //! read what was fetched through `sniff` and `unpack` run as a child with no
 //! environment (src/take.rs).
