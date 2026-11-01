@@ -1426,7 +1426,7 @@ given and left out is printed; nothing is said on the issue. Without
 | any  | The session's own exit status, as Docker reports it                                       |
 | 4    | With `--issue`: an image or file the issue links could not be fetched, or the issue or its label events could not be read; no container |
 | 64   | A wrong argument, a malformed author, no bot token or no git identity; no container       |
-| 78   | The instance settings are invalid, the clone's directory is not a clone, the clone's cargo target directory cannot be made or is not a directory of the user the session runs as, `tehas.slice` cannot be used, or `--issue` was given and the instance gives no images or files; no container |
+| 78   | The instance settings are invalid, the clone's directory is not a clone, another session of that clone holds its lock and none is given within five minutes, the clone's cargo target directory cannot be made or is not a directory of the user the session runs as, `tehas.slice` cannot be used, or `--issue` was given and the instance gives no images or files; no container |
 
 Arguments are checked before the settings are read, so `--help` works on a
 host with no instance and a mistyped argument makes no clone.
@@ -1434,7 +1434,12 @@ host with no instance and a mistyped argument makes no clone.
 The container is the one `tehas work` starts, with a terminal: the same image,
 the same limits in `tehas.slice`, mounts, token and settings, and a cargo target
 directory of its own besides (see below). It is named
-`tehas-dev-<name>`, so a clone has one session at a time. Before it starts, the
+`tehas-dev-<name>`, so a clone has one session at a time. Before the clone is
+made or the container started, the command takes the lock
+`~/tehas/state/dev/<name>.lock` and holds it for the whole session: a second
+`tehas dev` of the same clone waits for it up to five minutes and then says who
+holds it, and `tehasbot clean` asks the same lock and takes nothing of a clone
+whose session is open. Before it starts, the
 command prints how many more cycles the slice has room for, because the session
 takes room from them. The command does not take the dispatcher's lock and
 writes nothing under `~/tehas/live`. It needs a terminal; Docker refuses to
@@ -1466,17 +1471,20 @@ index's copy is.
 
 The command makes the directory before the container starts and refuses to start
 a session when it is not a directory of the user the session runs as. The
-cleaner walks no directory under `<name>.state` for build-output names, so this
-build output is the one on the host with no automated reclaim, and clearing it
-is a person's call:
+cleaner takes it when the disk is under `TEHAS_CLEAN_MIN_FREE` and it has not
+been written to for `TEHAS_CLEAN_AFTER` hours, of a clone that no session holds:
+see [clean](#tehasbot-clean). Nothing else under `<name>.state` is ever
+taken, so the clone, its memory, sessions, transcripts, code index, author and
+images stay whatever the disk does:
 
 ```
 du -sh ~/tehas/dev/*.state/target               # what the sessions have built
-rm -rf ~/tehas/dev/<name>.state/target          # clear one clone's build
+rm -rf ~/tehas/dev/<name>.state/target          # clear one clone's build by hand
+tehasbot clean                                  # or let the cleaner decide
 ```
 
-No `tehasbot clean --dry-run` line and no `tehas status` line reports it, so
-the first command is how an operator learns the size before the disk fills.
+Every `tehasbot clean`, and `--dry-run`, logs its size, which is how an operator
+sees it before the disk fills.
 
 ### From another account
 
@@ -3347,17 +3355,18 @@ journalctl --user -u tehas-clean
 
 Removes what the host can make again, of anything untouched for
 `TEHAS_CLEAN_AFTER` hours (24 by default), and keeps the logs and the state
-store in bounds. Six steps, and a step that fails
+store in bounds. Seven steps, and a step that fails
 is logged as a warning while the others still run. One exception to the age:
 when less than `TEHAS_CLEAN_MIN_FREE` (30g by default) is free on the file
 system of `~/tehas` or on the one Docker keeps its images on, whichever has
 less, steps 1 and 2 take build output and the build cache whatever their age -
 step 2 with `until=0h`, which prunes the whole cache - and the run opens with
 the line `clean: low on disk: <n> GiB free, under TEHAS_CLEAN_MIN_FREE=<value>:
-build output and build cache go whatever their age`. Steps 3, 4 and 5 keep the
-age, the free figure is read once for the whole run, and a figure that cannot
+build output and build cache go whatever their age`. Steps 3, 4, 5 and 6 keep the
+age, step 7 runs only then and keeps the age too, the free figure is read once for the whole run, and a figure that cannot
 be read changes nothing. The lock rule is not relaxed: a workspace whose lock a
-cycle holds is left alone low on disk or not. It sits above
+cycle holds, and a clone whose lock `tehas dev` holds, are left alone low on
+disk or not. It sits above
 `TEHAS_CYCLE_MIN_FREE`, so the cleaner frees space before the poll stops
 starting cycles:
 
@@ -3409,10 +3418,10 @@ starting cycles:
    which the dispatcher and the health page ask too, and answer the same as a lock
    a cycle holds: kept. A dangling link is not free, so nothing of the issue goes
    under it. The lock is taken
-   for the instant of each removal. A manual session's build output,
-   `~/tehas/dev/<name>.state/target`, is not in this step: the cleaner walks no
-   directory under `~/tehas/dev` for build-output names, and that tree is a
-   person's call (see [tehas dev](#tehas-dev)).
+   for the instant of each removal. The build output of a manual session is no
+   part of this step: the walk enters no directory under `~/tehas/dev` for
+   build-output names, and that tree belongs to step 7 (see
+   [tehas dev](#tehas-dev)).
 2. **Docker's build cache** of that age, with `docker builder prune -f --filter
    until=<N>h`, or `until=0h` for the whole cache when the host is low on disk.
    This is the build cache of the whole host's Docker daemon: tehas
@@ -3423,7 +3432,8 @@ starting cycles:
    `~/tehas/tmp/node-compile-cache`, `~/tehas/tmp/analytics-facts.*` and
    `~/tehas/tmp/health.*` files, and
    `~/tehas/tmp/tehas-test.*` directories, of that age. Nothing else under `~/tehas`, and nothing outside it: not
-   `~/tehas/dev`, so nothing under a manual session's `<name>.state` is walked.
+   `~/tehas/dev`, so nothing under a manual session's `<name>.state` is walked
+   here. Step 7 is the only step that names a path under `~/tehas/dev`.
 4. **Old sandbox images.** The dated tags of the sandbox image whose image was
    made before the age, taken one `docker rmi` at a time. The newest dated tag
    stays whatever its age, and so does any tag a container or a `uid` tag was
@@ -3447,6 +3457,27 @@ starting cycles:
    `store upkeep`, and says one line per log removed and then
    `clean: store upkeep: <answer>`. A dry run names the logs and leaves the
    store alone.
+7. **The build output of a manual session.** `<name>.state/target` of every
+   clone under `~/tehas/dev`, a plain directory of the account the cleaner runs
+   as and no link. Every run logs one line per clone with the size of it. It
+   goes only under `TEHAS_CLEAN_MIN_FREE` and once it has gone untouched for
+   `TEHAS_CLEAN_AFTER` hours; above that figure a clone keeps its build, so a
+   healthy host never loses one. Nothing else under `<name>.state` is
+   named: the clone, its memory, sessions, runs, transcripts, author and images
+   stay. A session is open when the lock `tehas dev` holds for its whole life,
+   `~/tehas/state/dev/<name>.lock`, is held, or when `docker ps` names the
+   session's container `tehas-dev-<name>`; the containers of the host are listed
+   once for the whole step, as the image steps list the host's images once. A
+   lock that is a link, a directory or a file no one can open is the same as
+   held, and so is a docker that will not say whether the container stands, on
+   the line `docker gave no answer for the session of clone <name>, so its build
+   output was kept, <n> bytes`: an unknown is never a reason to take a build
+   away. The cleaner holds the lock through the removal, so a session that starts
+   then waits and does not meet a target half removed. A kept clone says `kept
+   the build output of clone <name>: its session is open, <n> bytes`, `the disk
+   is not low, <n> bytes`, or `its target was written within <N> hours, <n>
+   bytes`, and a taken one
+   `removed <path>: the build output of clone <name>, <n> bytes`.
 
 A dry run measures what it names. Each path it would take is logged as
 `clean: would remove <path>: <what>, <n> bytes`, with the same figure

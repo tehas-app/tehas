@@ -9,7 +9,7 @@
 #
 # Only what has not been used for TEHAS_CLEAN_AFTER hours (24 by default)
 # goes. When the free disk is under TEHAS_CLEAN_MIN_FREE (30g by default),
-# steps 1 and 2 go whatever the age; a workspace whose lock a cycle holds is
+# steps 1 and 2 go whatever the age; a lock a cycle or a `tehas dev` holds is
 # still never touched.
 #
 #   1. build output in kept workspaces   directories named in TEHAS_CLEAN_DIRS
@@ -18,8 +18,7 @@
 #                                        cycle's worktrees, and the cycle's
 #                                        copy of the code index, under the
 #                                        issue's lock. No dot-name is entered
-#                                        and no symlink followed. Nothing
-#                                        under $TEHAS_HOME/dev.
+#                                        and no symlink followed.
 #   2. Docker's build cache              `docker builder prune` of that age,
 #                                        the whole host daemon's
 #   3. host scratch                      under $TEHAS_HOME/tmp: dl, node-
@@ -35,9 +34,13 @@
 #                                        stands on, each by its own name
 #   6. logs and the state store          `store upkeep`: old logs, a daily
 #                                        backup, prune
+#   7. a manual session's build output   <name>.state/target under
+#                                        $TEHAS_HOME/dev, of that age, only
+#                                        under the minimum free and with no
+#                                        session open, under the clone's lock
 #
-# The steps are the console's (console/src/clean.rs); this checks the settings
-# and names the two images.
+# The steps are the console's (console/src/clean.rs); this checks the settings,
+# reads the free disk and names the two images.
 #
 # Docker volumes are never touched, a person's call (see the host manual).
 #

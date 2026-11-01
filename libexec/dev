@@ -24,10 +24,10 @@
 #                no container was started.
 #             78 the instance settings are invalid, tehas.slice is not usable
 #                on this host, the clone's directory exists and is not a
-#                clone, the build output directory cannot be made or is not a
-#                directory of the user the container runs as, or --issue was
-#                given and the instance gives no images or files; no container
-#                was started.
+#                clone, its lock stayed held for five minutes, the build output
+#                directory cannot be made or is not a directory of the user the
+#                container runs as, or --issue was given and the instance gives
+#                no images or files; no container was started.
 #
 # The container is a cycle's container with a terminal: the same image, limits,
 # mounts and variables as a cycle is given, assembled by lib/sandbox.sh and
@@ -63,19 +63,20 @@
 # there again, not even to read it.
 #
 # Beside the clone is <name>.state, this clone's own: its memory, its Pi
-# sessions, its transcripts, its own code index and its cargo build output, a
-# directory this command makes and mounts as the session's CARGO_TARGET_DIR. It
+# sessions, its transcripts, its own code index and its cargo build output, made
+# by `console clean session` and mounted as the session's CARGO_TARGET_DIR. It
 # is kept with the clone, so a person resumes their sessions, keeps the index
 # their session built and does not build the workspace again from nothing,
 # and no cycle shares any of it. The host's index of the product is not copied
 # here: it is keyed to the path a cycle works at, which is not the path of this
-# clone. The cleaner walks no directory under <name>.state for build output
-# names, so clearing a clone's build is a person's call, by removing its target
-# directory.
+# clone. Its target is the one thing here the cleaner may take, under the
+# clone's lock, when the host is low on disk and the tree has gone unused; this
+# command holds that lock for the session's life.
 #
 # A session shares the model endpoint with a running cycle and does not hold
-# the queue, beyond the room its memory takes in the slice. One session per clone: docker refuses a second container of the
-# same name. It needs a terminal; docker refuses to start without one.
+# the queue, beyond the room its memory takes in the slice. One session per
+# clone: a second waits for the lock. It needs a terminal; docker refuses to
+# start without one.
 set -uo pipefail
 
 # The usage is this file's own header comment.
@@ -177,8 +178,7 @@ state=$devs/$name.state
 runs=$state/runs
 # Where the session's cargo build output lives, on the host and in the
 # container. The container's path comes from lib/sandbox.sh; no setting names
-# either. The host directory is made with the clone, before anything is fetched
-# or started.
+# either.
 target_host=$state/target
 target_container=$(tehas_sandbox_target_dir)
 
@@ -226,6 +226,20 @@ mkdir -p "$devs" || exit 78
 if [ -n "$author" ]; then
   printf '%s\n' "$author" >"$stored" || { echo "tehas dev: cannot write $stored" >&2; exit 78; }
 fi
+
+# The clone's lock, held on descriptor 9 for the session's life, so no session
+# meets a target half removed. `console clean session` makes the state and the
+# build output, refuses a wrong shape, and prints the lock's path.
+console=$here/console
+[ -x "$console" ] || { echo "tehas dev: no console beside this command at $console, run install.sh" >&2; exit 78; }
+lock=$("$console" clean session "$TEHAS_HOME" "$name" 300) ||
+  { echo "tehas dev: not starting a session of $name" >&2; exit 78; }
+exec 9>"$lock" || { echo "tehas dev: cannot open $lock, not starting a session" >&2; exit 78; }
+flock -w 300 9 || { echo "tehas dev: $lock is held, not starting a second session" >&2; exit 78; }
+# The cleaner may have taken it while this waited, and docker would make it root's.
+[ -d "$target_host" ] || mkdir "$target_host" ||
+  { echo "tehas dev: cannot make $target_host, not starting a session" >&2; exit 78; }
+
 if [ "$fresh" = 1 ]; then
   # Made beside its place and moved there whole. A clone that stopped halfway
   # has a .git directory too, and the next run would take it for a finished
@@ -235,31 +249,13 @@ if [ "$fresh" = 1 ]; then
   if ! { tehas_sandbox_clone "$TEHAS_WORK_REPO" "$making" "$branch" &&
     { [ ! -d "$tree" ] || rmdir "$tree"; } && mv "$making" "$tree"; }; then
     rm -rf "$making"
+    # Only empty ones: a state a person kept from an earlier clone stays.
+    rmdir "$target_host" "$state" 2>/dev/null
     echo "tehas dev: could not make the clone $tree, not starting a session" >&2
     exit 78
   fi
   echo "tehas dev: made $tree at the tip of $branch the product checkout last fetched"
 fi
-
-# Made after the clone, so a clone that could not be finished leaves no state
-# directory beside it, and before any attachment is fetched, so a host that
-# cannot hold the build output says so before it is asked for anything. A missing
-# mount source would come back root-owned from Docker, so this command makes it.
-# The state directory and the build output are made apart, and the build output
-# with a plain mkdir: a mkdir -p of one path makes the directory beside it too,
-# and then nothing left at that path by a hand could be refused as the shape it
-# is. The shape and the owner are asked on their own, not taken on trust from the
-# mkdir, because on a kept clone the directory is there already, which is the
-# normal path. A tree a hand or an earlier root mount left behind is refused here
-# rather than mounting into the session, where cargo would fail inside the
-# container and leave only the session's exit status to tell of it.
-mkdir -p "$state" ||
-  { echo "tehas dev: cannot make $target_host, not starting a session" >&2; exit 78; }
-mkdir "$target_host" 2>/dev/null ||
-  if [ ! -d "$target_host" ] || [ -L "$target_host" ] || [ "$(stat -c %u -- "$target_host")" != "$(id -u)" ]; then
-    echo "tehas dev: $target_host is not a directory of $(id -un), not starting a session" >&2
-    exit 78
-  fi
 
 image_opts=()
 if [ -n "$issue" ]; then
@@ -328,7 +324,7 @@ docker run --rm -it --init --name "tehas-dev-$name" \
   "${TEHAS_SLICE_LIMITS[@]}" "${sec[@]}" --user "$(id -u):$(id -g)" \
   -w "$tree" "${mounts[@]}" "${image_opts[@]}" \
   "${envs[@]}" -e TERM -e COLORTERM "${hosts[@]}" \
-  "$PI_ENSEMBLE_IMAGE" pi "${pi_args[@]}"
+  "$PI_ENSEMBLE_IMAGE" pi "${pi_args[@]}" 9>&-
 rc=$?
 
 # Pi leaves the terminal on its alternate screen with the cursor hidden when
