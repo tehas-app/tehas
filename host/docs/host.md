@@ -18,7 +18,7 @@ Preparing a fresh machine is on the [bootstrap page](/bootstrap).
 | Path                                 | Content                                                                 |
 | ------------------------------------ | ----------------------------------------------------------------------- |
 | `~/tehas/env.sh`                     | Environment for every tehas process, its tool directories taken from `lib/paths.sh`; sourced from `~/.bashrc`           |
-| `~/tehas/lib/config.sh`              | Loads and checks the instance settings; sourced by every command        |
+| `~/tehas/lib/config.sh`              | Asks `libexec/console` to load and check the instance settings; sourced by every command |
 | `~/tehas/lib/paths.sh`               | The home of each tool this host installs, and the `PATH` that finds them. `env.sh`, `bootstrap.sh` and `install.sh` all take the list from here |
 | `~/tehas/lib/sandbox.sh`             | The bash of a sandbox container: the reading of what `tehas-cycle sandbox` gives it; sourced by the work and plan scripts, and by dev for the check of Pi's files |
 | `~/tehas/lib/slice.sh`               | The way to `console slice`, for the poll and `tehas improve`: whether the slice is usable and the room left, and with no console it finds no slice. A command that starts a sandbox container asks `tehas-cycle sandbox limits`, which holds the same rules and makes the container's limits, and it starts nothing without a usable slice |
@@ -263,13 +263,18 @@ Rules that hold for every command:
 
 - `instance.env` wins. A setting of the same name in the environment is
   dropped. Only `TEHAS_HOME`, `TEHAS_INSTANCE_DIR`, the energy switches
-  `TEHAS_ENERGY` and `TEHAS_ENERGY_URL`, and seven hooks the tests use are
+  `TEHAS_ENERGY` and `TEHAS_ENERGY_URL`, and the hooks the tests use are
   taken from the environment.
 - A missing or malformed setting stops the command with exit 78 and one line
   naming the setting, before it calls GitHub, Docker or git.
 - Loading settings runs no git command, makes no network call and writes
-  nothing.
-- `instance.env` is shell, sourced as written. Keep it writable by the tehas
+  nothing. The rules are the console's (`console settings load`): with no
+  console that can run, a command stops with 78 and a line that says so, and a
+  login shell prints that line and goes on.
+- `instance.env` is shell, sourced as written, in a shell of its own with the
+  environment left after the sweep. What it exports is what the command gets.
+  A `cd` in it moves no command, an `exit` in it is a refusal, and what it
+  prints goes to standard error. Keep it writable by the tehas
   user only. `./install.sh --check` reports it if it is not, and reads the
   file no further once it has a finding: the owner and mode of the instance
   directory, of `instance.env` and of `sandbox.Dockerfile` are checked before
@@ -1589,7 +1594,7 @@ commit a host follows:
 
 For the sandbox build, any of these may go in the instance's `instance.env`, where
 it wins over the line in `versions.env`, and so may `PI_RUKAS_IMAGE_DIGEST` below.
-An instance that sets neither follows the line its tehas was shipped with. `lib/config.sh` checks `PI_RUKAS_FOLLOW` when the
+An instance that sets neither follows the line its tehas was shipped with. A load checks `PI_RUKAS_FOLLOW` when the
 settings load and stops the command with 78 naming it. `bootstrap.sh` reads only
 `versions.env`.
 
@@ -1775,7 +1780,8 @@ and every other theme the logo, which is also the favicon. The share card
 follows it, `share.png` for `pixel` and `share-logo.png` for the rest.
 
 A theme is one file in `host/fun/`, `theme-<name>.css`, that sets every token
-`theme-pixel.css` sets; its name is added to the list in `lib/config.sh`.
+`theme-pixel.css` sets; its name is added to the list in
+`console/core/src/settings/rules.rs`.
 `test/theme_test.sh` fails when a theme leaves a token out or a page names a
 colour or a typeface of its own.
 

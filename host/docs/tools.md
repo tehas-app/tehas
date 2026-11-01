@@ -272,7 +272,7 @@ like any other. It is given no input and nothing of the poll's environment but
 `PATH`. The poll reads only its exit status: whatever the command prints goes to
 `~/tehas/logs/low-gate.log`, rewritten by every ask, which is where a gate that
 closes for a reason says that reason. The gate is not a sandbox: it runs as the
-tehas user, and what bounds it is that `lib/config.sh` refuses a command under
+tehas user, and what bounds it is that a load refuses a command under
 `~/tehas` or the instance directory, the trees a merged pull request writes and
 `install.sh` fills. Changing `TEHAS_LOW_GATE` in a real instance directory is a
 security change. It gets no memory or CPU ceiling of its own: a cycle runs in
@@ -3940,7 +3940,7 @@ version to move to.
    no `minisign` on the host it stops (`sudo apt-get install minisign`);
 3. unpack it into `~/tehas/versions/<version>`, refusing a tarball that holds
    anything but files and directories under `tehas-<version>/`;
-4. check the instance against that version's own `lib/config.sh`. A setting it
+4. check the instance against that version's own console. A setting it
    requires and the instance lacks is named with the value of the release's
    `instances/example/instance.env`, and the update stops with 78 with nothing
    switched. A `TEHAS_` key in `instance.env` that the version never names is
@@ -3968,10 +3968,10 @@ An argument it does not know, or `--help` with another one, is refused with
 exit 64 before the settings are read. The settings are checked next against the required list in
 `lib/config.sh` (`tehas_require_instance_settings`), the same one install.sh and
 the dispatcher check, so an instance with a required line still commented out
-stops with 78 before git runs. After a fast-forward it checks them again with
-the library that came with the code it pulled: a change that adds a required
-setting stops with 78 before install.sh runs, rather than after the platform
-tree moved. The checkout must be on a branch and have nothing uncommitted, and
+stops with 78 before git runs. After a fast-forward the settings are checked
+by the code it pulled: a checkout has no console of its own yet, so install.sh
+builds it first and a change that adds a required setting stops with 78 there,
+before anything of the host changes. The checkout must be on a branch and have nothing uncommitted, and
 only a fast-forward is done: local commits of its own, or a branch that was
 rewritten on the remote, are left for a person. When the checkout sits on a
 branch that is not the remote's default, it says so and updates the branch it is
