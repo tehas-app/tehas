@@ -3,9 +3,8 @@
 # reading itself, its bounds and its figures are the console's and are tested
 # of console/src/disk.rs; what is tested here is the command and the run it
 # makes: that the settings of the instance name the file systems the answer
-# holds, that settings that are malformed stop the run before the host is
-# asked anything, and that a host whose console install.sh never put there is
-# refused.
+# holds, and that settings that are malformed stop the run before the host is
+# asked anything.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
@@ -149,14 +148,5 @@ t_run "TEHAS_INSTANCE_DIR=$T/no-instance $disk"
 t_eq "$t_rc" 78
 t_eq "$(t_calls df)" ""
 t_contains "$t_out" "could not be read"
-
-t_case "no console beside the command is 78 and says to install"
-reset
-mkdir -p "$T/no-console/libexec"
-cp "$T_ROOT/libexec/disk" "$T/no-console/libexec/disk"
-T_ENV=(TEHAS_CONSOLE=)
-t_run "unset TEHAS_CONSOLE; TEHAS_HOME=$th $T/no-console/libexec/disk"
-t_eq "$t_rc" 78
-t_contains "$t_out" "tehas disk: no console at $T/no-console/libexec/console: run install.sh"
 
 t_done

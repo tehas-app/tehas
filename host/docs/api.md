@@ -611,14 +611,13 @@ or a program that asked, decides when the file is refreshed. The
 and never runs the command, so the server asks the host's disk nothing.
 
 The reading, the bounds and the printing are the console's
-(`console/src/disk.rs`); `libexec/disk` loads the settings and gives it the
-home and the scratch disk, as `tehasbot health` gives the console the budget of
-the polls. The bound is `TEHAS_DISK_WAIT`, the one the dispatcher's hold and
+(`console/src/disk.rs`), which reads the home, the scratch disk and the bound
+from the instance's own file. The bound is `TEHAS_DISK_WAIT`, the one the dispatcher's hold and
 the previews' measure already read the host's space under: one outside call is
 given it, and one walk of a place twice it.
 
 Exit 0 when it printed, and with the file written; 1 when the published file
 could not be written, which leaves the last answer there; 64 on an argument the
 command does not know, which writes nothing; 78 when the settings are missing
-or malformed or no console is installed beside the command, before any `df`,
+or malformed, before any `df`,
 `docker` or walk.
