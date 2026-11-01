@@ -241,7 +241,7 @@
 # without looking at the stream first.
 #
 # With TEHAS_WORK_DESCRIBE=1 the model endpoint describes each image in words
-# first (lib/describe.sh), into images.md in the same directory, for the steps
+# first (tehas-cycle describe), into images.md in the same directory, for the steps
 # that are not shown the pixels. It is in the directory already mounted: no
 # mount and no variable more. A description that fails says so in the file and
 # stops nothing.
@@ -339,8 +339,6 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/slice.sh"
 # shellcheck source=lib/attachments.sh
 . "$here/../lib/attachments.sh"
-# shellcheck source=lib/describe.sh
-. "$here/../lib/describe.sh"
 # shellcheck source=lib/labels.sh
 . "$here/../lib/labels.sh"
 # shellcheck source=lib/millwright.sh
@@ -351,8 +349,6 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/improve.sh"
 # shellcheck source=lib/headless.sh
 . "$here/../lib/headless.sh"
-# shellcheck source=lib/private.sh
-. "$here/../lib/private.sh"
 # shellcheck source=lib/github-app.sh
 . "$here/../lib/github-app.sh"
 # shellcheck source=lib/sizing.sh
@@ -710,7 +706,7 @@ if [ "$give" = 1 ]; then
       echo "tehas work: the comment on #$issue failed" >&2
     exit 4
   fi
-  if [ "$TEHAS_WORK_DESCRIBE" = 1 ] && ! tehas_describe_images "$images"; then
+  if [ "$TEHAS_WORK_DESCRIBE" = 1 ] && ! "$here/tehas-cycle" describe "$images"; then
     echo "tehas work: the descriptions of the images could not be written, the cycle goes on without them" >&2
   fi
   { cp "$images/manifest.json" "$kept.new" && mv "$kept.new" "$kept"; } 2>/dev/null ||
@@ -920,11 +916,8 @@ rm -f "${console_now:?}"
 # The cycle does not depend on it: without a console it runs all the same,
 # and this says why the dashboard shows none.
 [ -x "$here/console" ] || echo "tehas work: no console at $here/console, so the dashboard shows none; run install.sh"
-# The names for the console to mask (lib/private.sh).
-private=()
-while IFS= read -r private_name; do
-  private+=(--private "$private_name")
-done < <(tehas_private_names "$agent/models.json" "$bot_email")
+# The names for the console to mask.
+mapfile -t private < <("$here/tehas-cycle" private "$agent/models.json" "$bot_email")
 "$here/console" --progress "$log" \
   --runs "$runs" --out "$console" --since "$((started - 5))" --now "$console_now" "${private[@]}" >/dev/null 2>"$log.console" &
 cpid=$!

@@ -10,6 +10,7 @@
 
 pub mod caps;
 pub mod clock;
+pub mod describe;
 pub mod facts;
 pub mod finish;
 pub mod host;
