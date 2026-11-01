@@ -40,6 +40,11 @@ t_stub systemctl
 # A first install makes the labels in the product repository.
 t_stub gh
 t_stub_cargo
+# What cargo stands in for is no program, and the labels and tehas api are verbs
+# of the console: these run the console of this checkout.
+# shellcheck disable=SC2154  # t_console_why is set by test/lib.sh
+t_console || t_bad "$t_console_why"
+T_ENV_ALWAYS+=(TEHAS_CONSOLE="$T_CONSOLE")
 
 # An instance directory with settings and a model list that matches them.
 # shellcheck disable=SC2120  # some parts never pass it settings
@@ -110,6 +115,7 @@ files="./.bashrc
 ./tehas/lib/improve.sh
 ./tehas/lib/issue-brief.md
 ./tehas/lib/labels.sh
+./tehas/lib/labels.tsv
 ./tehas/lib/park-fields.jq
 ./tehas/lib/limit.sh
 ./tehas/lib/live.sh
@@ -130,7 +136,6 @@ files="./.bashrc
 ./tehas/lib/update-steps.sh
 ./tehas/libexec/analytics
 ./tehas/libexec/analytics.stamp
-./tehas/libexec/api
 ./tehas/libexec/attach
 ./tehas/libexec/attach.stamp
 ./tehas/libexec/check-product
@@ -141,21 +146,18 @@ files="./.bashrc
 ./tehas/libexec/dev
 ./tehas/libexec/dev-login
 ./tehas/libexec/dispatch
-./tehas/libexec/drain
 ./tehas/libexec/export
 ./tehas/libexec/github-token
 ./tehas/libexec/history
 ./tehas/libexec/improve
 ./tehas/libexec/index
 ./tehas/libexec/init-product
-./tehas/libexec/labels
 ./tehas/libexec/mcp
 ./tehas/libexec/plan
 ./tehas/libexec/preview
 ./tehas/libexec/protolab
 ./tehas/libexec/refresh
 ./tehas/libexec/review
-./tehas/libexec/resume
 ./tehas/libexec/setup
 ./tehas/libexec/status
 ./tehas/libexec/stop
@@ -206,5 +208,5 @@ next_steps() {
     systemd/tehas-preview.timer systemd/tehas-preview-sweep.service systemd/tehas-preview-sweep.timer systemd/tehas-protolab.service systemd/tehas-protolab.timer systemd/tehas-refresh.service systemd/tehas-refresh.timer systemd/tehas-review.service systemd/tehas-review.timer systemd/tehas-top.service sandbox/Dockerfile sandbox/build.sh \
     sandbox/npm/playwright/package.json sandbox/npm/playwright/package-lock.json versions.env \
     edge/docs.Caddyfile edge/docs.compose.yaml edge/router.Caddyfile \
-    edge/router.compose.yaml libexec/labels
+    edge/router.compose.yaml labels.tsv
 }

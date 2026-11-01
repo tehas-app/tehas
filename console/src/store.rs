@@ -87,6 +87,15 @@ pub fn bounded(kill: &str, limit: &str, program: impl AsRef<std::ffi::OsStr>) ->
 
 /// One call of the store: its answer, or what it said instead.
 pub fn call(home: &Path, args: &[&str]) -> Result<Value, Refusal> {
+    answer(home, args).map(|(v, _)| v)
+}
+
+/// The same call, as the line the store printed, keys in its order.
+pub fn line(home: &Path, args: &[&str]) -> Result<String, Refusal> {
+    answer(home, args).map(|(_, line)| line)
+}
+
+fn answer(home: &Path, args: &[&str]) -> Result<(Value, String), Refusal> {
     let bin = home.join("libexec").join("store");
     let verb = args[0];
     let (rc, said) = merged(
@@ -105,7 +114,7 @@ pub fn call(home: &Path, args: &[&str]) -> Result<Value, Refusal> {
                 && v["ok"] == json!(true)
                 && v["verb"] == json!(verb)
             {
-                Ok(v)
+                Ok((v, said.to_string()))
             } else {
                 no(
                     78,

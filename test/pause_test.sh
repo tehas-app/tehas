@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for tehas pause and libexec/resume against a stub gh: what the flag
+# Tests for tehas pause and tehas resume against a stub gh: what the flag
 # holds and who can read it, what a second pause keeps, what resume removes,
 # and what resume says about the other switch, tehas:pause on the control issue.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
@@ -13,12 +13,12 @@ t_console || t_bad "$t_console_why"
 T_ENV_ALWAYS=(TEHAS_CONSOLE="$T_CONSOLE")
 
 pause="$T_ROOT/bin/tehas pause"
-resume="$T_ROOT/libexec/resume"
+resume="$T_ROOT/bin/tehas resume"
 flag=$T/home/tehas/state/pause.json
 
 t_stub gh '
 case "$1 $2" in
-  "issue view") cat "$T/labels.json" ;;
+  "api repos/acme/widget/issues/1") cat "$T/labels.json" ;;
   "api repos/acme/widget/issues/1/events?per_page=100") cat "$T/events.json" ;;
   "issue edit") exit 1 ;;
 esac'
@@ -28,7 +28,7 @@ reset() {
   rm -rf "$T/home/tehas/state"
   T_ENV=()
   t_instance "${T_MINIMAL[@]}"
-  echo false >"$T/labels.json"
+  echo '{"labels":[]}' >"$T/labels.json"
   echo '[]' >"$T/events.json"
 }
 # The control issue's pause events, newest last.
@@ -126,7 +126,7 @@ t_lacks "$(t_calls gh)" "issue edit"
 
 t_case "resume says when the label still holds the host"
 reset
-echo true >"$T/labels.json"
+echo '{"labels":[{"name":"tehas:pause"}]}' >"$T/labels.json"
 t_run "$pause x"
 t_run "$resume"
 t_eq "$t_rc" 0

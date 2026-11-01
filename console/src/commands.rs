@@ -8,13 +8,19 @@
 //!   console tehas pause [reason]
 //!   console tehas analytics report | export <file> [--json]
 //!   console tehas top [--once | --json] [--every <seconds>]
+//!   console tehas api [--json]
+//!   console tehas labels
+//!   console tehas resume
+//!   console tehas drain [--wait SECONDS] [--json]
 //!   console tehasbot health
 //!   console tehasbot top [--every]
 //!
 //! status, disk and top need no settings. The rest run under
 //! `libexec/with-settings`, which first asks `console check` with the same
 //! words: an argument that cannot be right is 64 with the usage, whatever the
-//! settings hold, and only then are they loaded.
+//! settings hold, and only then are they loaded. `console needs` with those
+//! words then names the settings the command cannot run without, for
+//! `tehas_require`, so the rules of a setting stay in `lib/config.sh`.
 //!
 //!   console usage <command>
 //!
@@ -22,7 +28,7 @@
 //!
 //! Exit: the status of the command; 64 usage.
 
-use crate::{disk, flags, health, state, status, top};
+use crate::{api, disk, flags, health, labels, state, status, top};
 use std::env;
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::process::CommandExt;
@@ -132,6 +138,10 @@ pub fn tehas(given: &[String]) -> u8 {
         "pause" => flag(pause_words(rest)),
         "analytics" => analytics(rest),
         "top" => top::view(rest),
+        "api" => api::main(rest),
+        "labels" => labels::main(rest),
+        "resume" => flags::resume(rest),
+        "drain" => flags::drain(rest),
         _ => {
             eprintln!("console tehas: no such command: {command}");
             64
@@ -159,17 +169,44 @@ pub fn check(given: &[String]) -> u8 {
         ["tehas", "limit"] => limit_words(rest).map(|_| ()),
         ["tehas", "pause"] => pause_words(rest).map(|_| ()),
         ["tehas", "analytics"] => analytics_words(rest),
+        ["tehas", "api"] => api::words(rest).map(|_| ()),
+        ["tehas", "labels"] => labels::words(rest),
+        ["tehas", "resume"] => flags::resume_words(rest),
+        ["tehas", "drain"] => flags::drain_words(rest).map(|_| ()),
         _ => Ok(()),
     };
     said.err().unwrap_or(0)
 }
 
+/// The settings a command cannot run without, on one line.
+fn required(given: &[String]) -> &'static [&'static str] {
+    let words: Vec<&str> = given.iter().take(2).map(String::as_str).collect();
+    match words[..] {
+        ["tehas", "api" | "labels"] => &["TEHAS_REPO"],
+        ["tehas", "resume"] => &[
+            "TEHAS_REPO",
+            "TEHAS_CONTROL_ISSUE",
+            "TEHAS_ALLOWED_LABELERS",
+        ],
+        _ => &[],
+    }
+}
+
+pub fn needs(given: &[String]) -> u8 {
+    println!("{}", required(given).join(" "));
+    0
+}
+
 fn text(command: &str) -> Option<&'static str> {
     Some(match command {
         "analytics" => include_str!("usage/analytics.txt"),
+        "api" => include_str!("usage/api.txt"),
         "disk" => include_str!("usage/disk.txt"),
+        "drain" => include_str!("usage/drain.txt"),
+        "labels" => include_str!("usage/labels.txt"),
         "limit" => include_str!("usage/limit.txt"),
         "pause" => include_str!("usage/pause.txt"),
+        "resume" => include_str!("usage/resume.txt"),
         "state" => include_str!("usage/state.txt"),
         "status" => include_str!("usage/status.txt"),
         "top" => include_str!("usage/top.txt"),
@@ -278,6 +315,12 @@ mod tests {
         assert_eq!(check(&words(&["tehas", "limit", "show"])), 64);
         assert_eq!(check(&words(&["tehas", "pause", "a", "b"])), 64);
         assert_eq!(check(&words(&["tehas", "analytics"])), 64);
+        assert_eq!(check(&words(&["tehas", "api", "--jsn"])), 64);
+        assert_eq!(check(&words(&["tehas", "api", "--json"])), 0);
+        assert_eq!(check(&words(&["tehas", "labels", "--force"])), 64);
+        assert_eq!(check(&words(&["tehas", "resume", "7"])), 64);
+        assert_eq!(check(&words(&["tehas", "drain", "--wait"])), 64);
+        assert_eq!(check(&words(&["tehas", "drain", "--wait", "1"])), 0);
         assert_eq!(check(&words(&["tehas", "limit", "set", "--bad"])), 0);
         assert_eq!(check(&words(&["tehas", "state", "bogus"])), 0);
         assert_eq!(check(&words(&["tehasbot", "health"])), 0);
@@ -285,8 +328,35 @@ mod tests {
     }
 
     #[test]
+    fn a_command_names_the_settings_it_cannot_run_without() {
+        assert_eq!(required(&words(&["tehas", "api"])), ["TEHAS_REPO"]);
+        assert_eq!(required(&words(&["tehas", "labels"])), ["TEHAS_REPO"]);
+        assert_eq!(
+            required(&words(&["tehas", "resume"])),
+            [
+                "TEHAS_REPO",
+                "TEHAS_CONTROL_ISSUE",
+                "TEHAS_ALLOWED_LABELERS"
+            ]
+        );
+        assert!(required(&words(&["tehas", "drain"])).is_empty());
+        assert!(required(&words(&["tehasbot", "health"])).is_empty());
+    }
+
+    #[test]
     fn every_command_has_a_text_that_names_it() {
-        for command in ["analytics", "disk", "limit", "pause", "state", "status"] {
+        for command in [
+            "analytics",
+            "api",
+            "disk",
+            "drain",
+            "labels",
+            "limit",
+            "pause",
+            "resume",
+            "state",
+            "status",
+        ] {
             let text = text(command).unwrap();
             assert!(text.contains(&format!("tehas {command}")), "{command}");
             assert!(text.ends_with('\n'), "{command}");

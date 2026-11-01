@@ -16,7 +16,7 @@ cp "$T_ROOT/bin/tehas" "$T_ROOT/bin/tehasbot" "$tree/bin/"
 # The settings library is there to be read, so that not reading it means something.
 cp "$T_ROOT/lib/config.sh" "$tree/lib/config.sh"
 # One line per call: the name, then each argument after a "|".
-for name in dispatch cycle work plan dev index setup update labels status console protolab preview improve refresh review clean resume stop api drain mcp with-settings console; do
+for name in dispatch cycle work plan dev index setup update status console protolab preview improve refresh review clean stop mcp with-settings console; do
   printf '%s\n' '#!/usr/bin/env bash' "# The text of $name." '#' "# Usage: $name" 'set -u' 'IFS="|"' \
     "printf '%s\\n' \"$name\${*:+|\$*}\" >>\"\$T/calls/libexec\"" 'exit "${RC:-0}"' >"$tree/libexec/$name"
   chmod +x "$tree/libexec/$name"
@@ -38,7 +38,7 @@ t_eq "$t_rc" 0
 t_eq "$(ran)" "dispatch|--dry-run
 work|7|--restart
 index
-labels"
+with-settings|tehas|labels"
 
 t_case "tehas dev passes on the name, the author and what follows --"
 reset
@@ -64,7 +64,7 @@ reset
 t_run "$tehas pause waiting for the gate && $tehas resume"
 t_eq "$t_rc" 0
 t_eq "$(ran)" "with-settings|tehas|pause|waiting|for|the|gate
-resume"
+with-settings|tehas|resume"
 
 t_case "tehas stop passes on the issue and --keep-workspace"
 reset
@@ -100,7 +100,7 @@ t_case "tehas status --json and tehas api --json pass the flag on"
 reset
 t_run "$tehas status --json && $tehas api --json"
 t_eq "$(ran)" "console|tehas|status|--json
-api|--json"
+with-settings|tehas|api|--json"
 
 t_case "tehas analytics runs the console's verb, not the program it calls"
 reset
@@ -113,7 +113,7 @@ t_case "tehas limit and tehas drain pass their arguments on"
 reset
 t_run "$tehas limit set --cycles 1 --reason 'a b' && $tehas drain --wait 5"
 t_eq "$(ran)" "with-settings|tehas|limit|set|--cycles|1|--reason|a b
-drain|--wait|5"
+with-settings|tehas|drain|--wait|5"
 
 t_case "tehas top is a verb of the console with what follows it"
 reset
