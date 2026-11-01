@@ -110,7 +110,7 @@ export function lineView({ status = null, lab = null, sample = null, nowMs = Dat
     const text = st.key === "stop" ? "See what stopped" : `All ${count} ${MORE[st.key]}`;
     return { key: st.key, label: st.label, count, items: these, first: st.first, later: st.later, none: st.none,
       more: (count || these.length) && href ? { text, href } : null };
-  }).filter((st) => st.key !== "plan" || st.count > 0);
+  }).filter((st) => !["proto", "plan"].includes(st.key) || st.count > 0);
   return {
     source,
     paused: Boolean(s && s.paused),
