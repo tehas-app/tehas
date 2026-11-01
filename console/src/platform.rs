@@ -120,7 +120,7 @@ fn release_repo(home: &Path) -> Option<String> {
             let text = fs::read_to_string(home.join("versions.env")).ok()?;
             text.lines()
                 .filter_map(|l| l.strip_prefix("TEHAS_RELEASE_REPO="))
-                .last()
+                .next_back()
                 .map(str::to_string)
         })?;
     let word = |w: &str| {

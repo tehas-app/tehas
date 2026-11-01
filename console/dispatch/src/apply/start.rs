@@ -21,7 +21,7 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 /// The name the status reads to know the poll ran it, and the value that means
-/// so. Read by libexec/status before its load, which sweeps `TEHAS_*`.
+/// so. It is one of the names the load of the settings keeps.
 const FROM_POLL: (&str, &str) = ("TEHAS_FROM_POLL", "1");
 
 /// What a start reads off the host and the settings.
@@ -42,8 +42,10 @@ pub struct Host {
     pub stop_cmd: Option<String>,
     /// TEHAS_CYCLE_START_WAIT.
     pub start_wait: Duration,
-    /// TEHAS_STATUS_CMD, run once the starts are done.
+    /// TEHAS_STATUS_CMD, run once the starts are done, or `with-settings
+    /// tehasbot status`.
     pub status_cmd: String,
+    pub status_args: Vec<String>,
     /// TEHAS_HEALTH_CMD, run after the poll wrote the demand.
     pub health_cmd: String,
     pub health_args: Vec<String>,
@@ -368,16 +370,17 @@ impl Writer {
     /// The token, when the poll holds one, goes to it in its environment
     /// alone: never an argument, never written, and the poll's log holds only
     /// what the command itself prints. It also gets `TEHAS_FROM_POLL=1`, the
-    /// one name of its own: the status reads it before its load and leaves
+    /// one name of its own: the status reads it and leaves
     /// `health.json` to the poll, which runs health a moment after this ends.
     /// The token cannot carry that word: a host with a machine-user token, or
     /// a poll whose token read failed, holds none, and the status would then
     /// run health and so would the poll.
     pub fn status(&mut self, printed: &mut Vec<String>) {
         let cmd = self.host.status_cmd.clone();
+        let args = self.host.status_args.clone();
         self.status_of_grace(
             &cmd,
-            &[],
+            &args,
             printed,
             &mut Vec::new(),
             &Term::HOST,
