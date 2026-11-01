@@ -557,7 +557,6 @@ for f in \
   status \
   stop \
   summary \
-  tidy \
   top \
   top-publish \
   update \
@@ -1210,8 +1209,8 @@ for f in "$TEHAS_HOME"/sandbox/sandbox-uid.Dockerfile \
   if [ "$check" = 1 ]; then note "stale: $f"; else rm -f "$f" && echo "removed: $f"; fi
 done
 
-# The commands of before bin/tehas, one file each in bin/, and the console of
-# before it was a compiled program. And the Protolab's server files of before the
+# The commands of before bin/tehas, one file each in bin/, the console of
+# before it was a compiled program, and scripts that became console verbs. And the Protolab's server files of before the
 # edge router. Found here, removed in step 5 once systemd has the new units.
 old=()
 for f in \
@@ -1225,6 +1224,7 @@ for f in \
   bin/tehas-test \
   bin/tehas-work \
   libexec/console.ts \
+  libexec/tidy \
   edge/protolab.Caddyfile \
   edge/protolab.compose.yaml; do
   to=$TEHAS_HOME/$f

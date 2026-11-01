@@ -177,7 +177,7 @@ flock -w 5 "$TEHAS_HOME/state/cycles/$1.lock" "$T/store-bin" cycle-start "$1" >>
 }
 default_start
 t_stub fake-status
-# Stands in for libexec/tidy, and notes whether a cycle had started before it.
+# Stands in for console tidy run, and notes whether a cycle had started before it.
 t_stub fake-tidy '[ ! -e "$T/calls/fake-start" ] || : >"$T/calls/tidy.after-start"'
 # Stands in for libexec/health, as these two commands are stood in for: a call
 # of health is recorded and it answers 0. The poll runs health once at its
@@ -214,7 +214,7 @@ t_real_timeout=$(command -v timeout || true)
 # probe, the store that never answers and the gate that stays up. None of them
 # stubs sleep, so each of those bounds holds. The others are the commands of
 # the host a poll reaches for under timeout - df and docker through lib/disk.sh
-# and lib/slice.sh, systemctl through lib/slice.sh, gh through libexec/tidy and
+# and lib/slice.sh, systemctl through lib/slice.sh, gh through console tidy run and
 # the poll's own branch check, the fetch of the checkout, the gate of rule 7,
 # the analytics program, the attachment checker and the store - which a case
 # would hang by some means other than sleep.
