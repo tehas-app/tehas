@@ -291,9 +291,15 @@ pub enum Stopped {
 
 /// The retries one `Calls` pays for, whatever the order of its reads. The
 /// poll of one snapshot holds one and gives it to every call it makes.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Budget {
     left: u32,
+}
+
+impl Default for Budget {
+    fn default() -> Budget {
+        Budget::new()
+    }
 }
 
 impl Budget {
@@ -704,6 +710,26 @@ mod tests {
         assert!(!got.gave_up(), "an answer the rule keeps is no retry owed");
         assert_eq!(got.ran.err, "gh could not be run");
         assert!(!owed_a_retry(&failed(137, "gh could not be run")));
+    }
+
+    #[test]
+    fn a_default_budget_is_the_whole_budget() {
+        assert_eq!(Budget::default(), Budget::new());
+        assert_eq!(Budget::default().left(), RETRIES_PER_CALLS);
+    }
+
+    // Spawning a path that is not there starts no process. This holds NOT_RUN
+    // to the words the real producer writes, which a literal in a case cannot.
+    #[test]
+    fn the_words_for_a_program_not_spawned_are_the_producers() {
+        let ran = crate::read::run::run(
+            "/nonexistent/tehas-retry-case",
+            &[],
+            std::time::Duration::from_secs(1),
+        );
+        assert!(ran.status.is_none());
+        assert!(ran.err.contains(NOT_RUN), "{}", ran.err);
+        assert!(!owed_a_retry(&ran));
     }
 
     #[test]
