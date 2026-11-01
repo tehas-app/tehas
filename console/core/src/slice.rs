@@ -76,7 +76,7 @@ impl Reading {
             "-p",
             "MemoryMax",
         ];
-        let show = ask(&wait, "systemctl", &show).filter(|out| !out.is_empty());
+        let show = ask(&wait, "systemctl", &show).filter(|out| !out.trim_end().is_empty());
         let show = show.map(|out| {
             let mut fields = Map::new();
             fields.insert("FragmentPath".into(), Value::from(""));
