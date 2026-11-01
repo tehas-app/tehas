@@ -175,6 +175,14 @@
 //!                                     make what the -v options name and print
 //!                                     them, NUL separated. Exit 1 with nothing
 //!                                     printed when it cannot
+//!   tehas-cycle sandbox table         the rows of the containers tehas work
+//!                                     starts, for the table of runs
+//!   tehas-cycle sandbox retry <host>  the provider retry a container's Pi runs
+//!                                     with, as one line
+//!   tehas-cycle sandbox clone <src> <tree> <branch>
+//!                                     make <tree>, a clone of <src>
+//!   tehas-cycle sandbox seed <state> <index>
+//!                                     give <state> the host's code index
 //!   tehas-cycle sandbox verify <limit words>
 //!                                     how many runs of the gate one container
 //!                                     runs at once. Exit 1 with nothing
@@ -192,6 +200,24 @@
 //!                                     file with GitHub's answer, an empty line
 //!                                     for a run by hand, or exit 4, said on
 //!                                     the issue
+//!   tehas-cycle prepare check <issue> --state <file> --record <file>
+//!       --caps-wait <s> --console <path> [--restart] -- <limit and security words>
+//!                                     the bot's identity, what the container
+//!                                     is given, what the image supports
+//!                                     (src/prepare.rs). Exit 64 or 78
+//!   tehas-cycle prepare tree <issue> --state <file> --branch <branch> --log <file>
+//!       --preflight-wait <s> --console <path>
+//!                                     a fresh workspace, the gate, the push
+//!                                     check, the code index and the mounts.
+//!                                     Exit 3 or 78
+//!   tehas-cycle prepare record <issue> --state <file> --log <file> --name <name>
+//!       --stop-wait <s> --text-wait <s> [--attempt <n>] [--gap <line>]
+//!       [-- <options of the images>]
+//!                                     the image and settings on the cycle's
+//!                                     record: the words of the docker run, NUL
+//!                                     separated. Exit 4 or 78
+//!   tehas-cycle settings <file> <count> [<docker options>...]
+//!                                     write what a cycle ran with to <file>
 //!   tehas-cycle watch <issue> --log <file> --runs <dir> --name <container>
 //!       --limit <s> --stall <s> --grace <s> --stop-wait <s> --console-wait <s>
 //!       --console <path> --models <file> --email <address> [--attempt <n>]
@@ -244,8 +270,8 @@ use tehas_cycle::after::{self, After};
 use tehas_cycle::host::Start;
 use tehas_cycle::last_attempt::{self, Action};
 use tehas_cycle::report::{last_attempts, to_json, Given};
-use tehas_cycle::{apply, finish, pin, progress, renew, report, shadow, start, watch, Facts};
-use tehas_cycle::{caps, clock, index, runner, sandbox};
+use tehas_cycle::{apply, finish, pin, prepare, progress, renew, report};
+use tehas_cycle::{caps, clock, improve, index, runner, sandbox, shadow, start, watch, Facts};
 
 fn usage() -> String {
     include_str!("main.rs")
@@ -412,6 +438,16 @@ fn main() {
         ["start-check", "text", n, rest @ ..] => {
             std::process::exit(start_text(&home, issue(n, &args), &args, rest))
         }
+        ["prepare", step, n, rest @ ..] => {
+            std::process::exit(prepare_verb(&home, step, issue(n, &args), &args, rest))
+        }
+        ["settings", file, count, options @ ..] => {
+            let words: Vec<String> = options.iter().map(|w| w.to_string()).collect();
+            let text = improve::settings(count, &words);
+            if std::fs::write(file, format!("{text}\n")).is_err() {
+                fail(format!("{file} cannot be written"));
+            }
+        }
         ["watch", n, rest @ ..] => watch_verb(&home, issue(n, &args), &args, rest),
         ["runner", "run", log, n] => match runner::run_log(Path::new(log), n) {
             Some(r) => println!("{}\n{}\n{}", r.step, r.branch, r.read),
@@ -436,6 +472,85 @@ fn main() {
             }
         }
         _ => wrong(&args),
+    }
+}
+
+/// The words of one step of `prepare`.
+fn prepare_verb(home: &Path, step: &str, n: u64, args: &[String], rest: &[&str]) -> i32 {
+    let (flags, words) = match rest.iter().position(|a| *a == "--") {
+        Some(at) => (&rest[..at], &rest[at + 1..]),
+        None => (rest, &rest[..0]),
+    };
+    let words: Vec<String> = words.iter().map(|w| w.to_string()).collect();
+    let (mut file, mut record, mut branch, mut log) =
+        (PathBuf::new(), String::new(), String::new(), PathBuf::new());
+    let (mut console, mut attempt, mut name, mut gap) =
+        (String::new(), String::new(), String::new(), String::new());
+    let (mut caps_wait, mut push_wait, mut stop_wait, mut text_wait) = (120, 300, 60, 60);
+    let mut restart = false;
+    let secs = |v: &str| v.parse::<u64>().unwrap_or_else(|_| wrong(args));
+    let mut it = flags.iter();
+    while let Some(flag) = it.next() {
+        if *flag == "--restart" {
+            restart = true;
+            continue;
+        }
+        let v = *it.next().unwrap_or_else(|| wrong(args));
+        match *flag {
+            "--state" => file = PathBuf::from(v),
+            "--record" => record = v.to_string(),
+            "--branch" => branch = v.to_string(),
+            "--log" => log = PathBuf::from(v),
+            "--console" => console = v.to_string(),
+            "--attempt" => attempt = v.to_string(),
+            "--name" => name = v.to_string(),
+            "--gap" => gap = v.to_string(),
+            "--caps-wait" => caps_wait = secs(v),
+            "--preflight-wait" => push_wait = v.parse().unwrap_or(300),
+            "--stop-wait" => stop_wait = v.parse().unwrap_or(60),
+            "--text-wait" => text_wait = secs(v),
+            _ => wrong(args),
+        }
+    }
+    if file.as_os_str().is_empty() {
+        wrong(args);
+    }
+    match step {
+        "check" => prepare::check(&prepare::Check {
+            issue: n,
+            file,
+            record,
+            restart,
+            caps_wait,
+            console,
+            words,
+        }),
+        "tree" => prepare::tree(
+            home,
+            &prepare::Tree {
+                issue: n,
+                file,
+                branch,
+                log,
+                push_wait,
+                console,
+            },
+        ),
+        "record" => prepare::record(
+            home,
+            &prepare::Record {
+                issue: n,
+                file,
+                attempt,
+                log,
+                name,
+                stop_wait,
+                text_wait,
+                gap,
+                images: words,
+            },
+        ),
+        _ => wrong(args),
     }
 }
 

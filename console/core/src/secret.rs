@@ -7,7 +7,7 @@ fn run_of(b: &[u8], from: usize, keep: impl Fn(u8) -> bool) -> usize {
         .map_or(0, |t| t.iter().take_while(|&&c| keep(c)).count())
 }
 
-/// The six shapes of `tehas_improve_secret` (lib/improve.sh).
+/// The six shapes of a token.
 pub fn secret(b: &[u8]) -> bool {
     let alnum = |c: u8| c.is_ascii_alphanumeric();
     for i in 0..b.len() {
