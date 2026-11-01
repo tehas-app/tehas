@@ -58,7 +58,7 @@ cd "$root" || exit 1
 # second, found beside the test binary. No manifest says so, so metadata cannot:
 # a change to the program needs those tests, and those tests need the program
 # built by the same cargo command, or they run a stale one. test/select_test.sh
-# holds this list to the crates that call current_exe.
+# holds this list to the crates that call current_exe to find a program.
 runs=(console:store tehas-dispatch:store)
 
 tests=() helpers=()
