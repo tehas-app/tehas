@@ -1,34 +1,39 @@
 #!/usr/bin/env bash
-# Tests for lib/github-app.sh and libexec/github-token: the GitHub App's
-# installation token, made from a signed JWT and kept until 10 minutes are
-# left. openssl and curl are stubs: no key is read, no network is asked.
+# Tests for lib/github-app.sh and libexec/github-token, with the console behind
+# it (console/src/github.rs): the GitHub App's installation token, made from a
+# signed JWT and kept until 10 minutes are left. openssl and curl are stubs: no
+# key is read, no network is asked.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
+
+t_console || t_bad "no console: $t_console_why"
+# A load clears TEHAS_CONSOLE and keeps TEHAS_CONSOLE_CMD: with-settings reads
+# the first, tehas_github_env the second.
+T_ENV_ALWAYS=(TEHAS_CONSOLE="$T_CONSOLE" TEHAS_CONSOLE_CMD="$T_CONSOLE")
 
 token_cmd="$T_ROOT/libexec/github-token"
 lib=". '$T_ROOT/lib/config.sh' && . '$T_ROOT/lib/github-app.sh' && tehas_load"
 kept=$T/home/tehas/state/github/token
 key=$T/home/.config/tehas/github-app.pem
 
-# openssl: base64 reads stdin and writes its base64; dgst signs with a fixed
-# signature, and records the key it was given.
+# openssl: dgst signs with a fixed signature; the stub records the key it was
+# given.
 t_stub openssl 'case "$1" in
-base64) base64 -w0 ;;
 dgst) cat >/dev/null; [ -z "${SIGN_FAILS:-}" ] || exit 1; printf "signature" ;;
 esac'
-# curl: the token exchange answers a token that runs out in an hour, unless
-# CURL_FAILS or CURL_ANSWER says otherwise; the repository list names
-# acme/widget. The answer of a case that wants to tell two of them apart is a
+# curl: its config on standard input, where the bearer goes, is kept apart from
+# the arguments the stub records. The token exchange answers a token that runs
+# out in an hour, unless CURL_FAILS or CURL_ANSWER says otherwise; the
+# repository list names acme/widget. The answer of a case that wants to tell two of them apart is a
 # word with a counter of its own on the end, which no other case sees.
-t_stub curl 'for a in "$@"; do case "$a" in *Authorization:*) printf "%s\n" "$a" >>"$T/calls/auth" ;; esac; done
+t_stub curl 'case " $* " in *" -K - "*) cat >>"$T/calls/auth" ;; esac
 [ -z "${CURL_FAILS:-}" ] || exit 22
 case "$*" in
 *access_tokens*) if [ -n "${CURL_ANSWER:-}" ]; then printf "%s" "$CURL_ANSWER"; else
   n=$(($(cat "$T/mints" 2>/dev/null || echo 0) + 1)); echo "$n" >"$T/mints"
   printf "{\"token\":\"ghs_fresh%s\",\"expires_at\":\"%s\"}" "$n" "$(date -u -d "+1 hour" +%FT%TZ)"; fi ;;
 *installation/repositories*) printf "{\"repositories\":[{\"full_name\":\"acme/widget\"}]}" ;;
-*/app) printf "%s" "${APP_ANSWER:-{\"slug\":\"tehas-app-bot\"\}}" ;;
 esac'
 
 app=(TEHAS_REPO=acme/widget TEHAS_GITHUB_APP_ID=5452597 TEHAS_GITHUB_APP_INSTALLATION=174742089 "TEHAS_BOT_LOGIN=tehas-app-bot[bot]")
@@ -75,25 +80,14 @@ done
 
 t_case "TEHAS_GITHUB_APP_KEY names the key and is kept from the environment; else the installed one"
 reset
-t_run "$lib && tehas_github_app_key"
-t_eq "$t_out" "$key"
-T_ENV=(TEHAS_GITHUB_APP_KEY=/elsewhere/app.pem)
-t_run "$lib && tehas_github_app_key"
-T_ENV=()
-t_eq "$t_out" "/elsewhere/app.pem"
-
-t_case "the slug is read from GET /app with the JWT; an answer with none is 1"
+t_run "$token_cmd"
+t_contains "$(t_calls openssl)" "dgst -sha256 -sign $key"
 reset
-t_run "$lib && tehas_github_app_slug"
-t_eq "$t_rc" 0
-t_eq "$t_out" "tehas-app-bot"
-t_contains "$(t_calls curl)" "https://api.github.com/app"
-t_contains "$(t_calls auth)" "Authorization: Bearer "
-T_ENV=("APP_ANSWER={}")
-t_run "$lib && tehas_github_app_slug"
+printf 'another key\n' >"$T/elsewhere.pem"
+T_ENV=(TEHAS_GITHUB_APP_KEY="$T/elsewhere.pem")
+t_run "$token_cmd"
 T_ENV=()
-t_eq "$t_rc" 1
-t_contains "$t_out" "held no slug"
+t_contains "$(t_calls openssl)" "dgst -sha256 -sign $T/elsewhere.pem"
 
 t_case "with no token kept, one is made, kept with mode 600, and printed"
 reset
@@ -104,7 +98,14 @@ t_eq "$(cat "$kept")" "$t_out"
 t_eq "$(stat -c %a "$kept")" 600
 t_contains "$(t_calls curl)" "-X POST"
 t_contains "$(t_calls curl)" "/app/installations/174742089/access_tokens"
+t_contains "$(t_calls curl)" "https://api.github.com/app/"
 t_eq "$(t_calls auth | wc -l)" 1
+
+t_case "the JWT goes to curl on standard input, never on its command line"
+t_contains "$(t_calls auth)" 'header = "Authorization: Bearer '
+t_lacks "$(t_calls curl)" "Bearer"
+t_lacks "$(t_calls curl)" "Authorization"
+t_lacks "$(t_calls openssl)" "Bearer"
 
 t_case "the JWT names the app and lasts at most ten minutes"
 payload=$(t_calls auth | sed -n 's/.*Bearer [^.]*\.\([^.]*\)\..*/\1/p' | tr '_-' '/+')
@@ -181,6 +182,8 @@ t_contains "$t_out" "acting as tehas-app-bot[bot]"
 t_contains "$t_out" "token good until 20"
 t_contains "$t_out" "it reaches acme/widget"
 t_lacks "$t_out" "ghs_"
+t_contains "$(t_calls auth)" 'header = "Authorization: Bearer ghs_fresh'
+t_lacks "$(t_calls curl)" "ghs_"
 
 t_case "--check of an installation that does not reach the repository is exit 1"
 reset
@@ -208,7 +211,8 @@ installed() {
   local h=$T/home/tehas
   mkdir -p "$h/lib" "$h/libexec" "$h/bin" "$h/shim"
   cp "$T_ROOT/lib/config.sh" "$T_ROOT/lib/github-app.sh" "$T_ROOT/lib/paths.sh" "$h/lib/"
-  cp "$T_ROOT/libexec/github-token" "$h/libexec/"
+  cp "$T_ROOT/libexec/github-token" "$T_ROOT/libexec/with-settings" "$h/libexec/"
+  ln -sf "$T_CONSOLE" "$h/libexec/console"
   cp "$T_ROOT/host/shim/gh" "$h/shim/gh"
   cp "$T_ROOT/host/env.sh" "$h/env.sh"
   printf '#!/usr/bin/env bash\necho "gh $* token=${GH_TOKEN:-none}"\n' >"$h/bin/gh"

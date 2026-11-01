@@ -69,7 +69,7 @@
 set -uo pipefail
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-from_poll=${TEHAS_GH_TOKEN:+yes} # read before the load, which unsets the name
+from_poll=${TEHAS_FROM_POLL:+yes} # read before the load, which unsets the name
 # shellcheck source=lib/config.sh
 . "$here/../lib/config.sh"
 # shellcheck source=lib/labels.sh
@@ -157,7 +157,7 @@ analytics_sessions() { analytics_publish sessions "$TEHAS_HOME/mcp/sessions.json
 # shellcheck disable=SC2329  # the EXIT trap below calls it
 analytics_outcomes() { analytics_publish outcomes "$TEHAS_HOME/mcp/outcomes.jsonl"; }
 # Write the report, and refresh health unless the poll ran this: it runs health next.
-trap 'analytics_report; analytics_sessions; analytics_outcomes; [ -n "$from_poll" ] || "$here/health" 2>/dev/null || true' EXIT
+trap 'analytics_report; analytics_sessions; analytics_outcomes; [ -n "$from_poll" ] || "$here/with-settings" tehasbot health 2>/dev/null || true' EXIT
 
 fetch_every=3600
 fetch_limit=60

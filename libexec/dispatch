@@ -11,7 +11,7 @@
 # before cycles start, as tehas-index.service, and the cycles start on the
 # poll after it. A systemd timer runs a poll every two minutes, whatever the
 # cycles are doing, and a cycle that ends starts one.
-# Every poll that gets past the bot's login ends by running libexec/tidy,
+# Every poll that gets past the bot's login ends by running console tidy run,
 # which takes tehas's state labels off closed issues, with --dry-run on a dry
 # run.
 #
@@ -187,7 +187,7 @@
 #      a state GitHub does not give holds it too, and the log says why.
 #      Alone, on an issue in no other flow, it approves as tehas:ready does.
 #      With TEHAS_SIZE_MAX_FILES set, the body the label approved is measured
-#      (lib/sizing.sh), and an issue whose body names more files than the
+#      (console/core/src/size.rs), and an issue whose body names more files than the
 #      setting is not started either: its tehas:ready comes off,
 #      needs-human-attention goes on, and the issue says the counts, the
 #      setting and the way out once. Unset, nothing here changes, and a refresh
@@ -259,7 +259,7 @@
 #   TEHAS_LOW_GATE_WAIT       seconds that command gets before its answer is a
 #                             closed gate, 1 to 600 [60]
 # From the environment, for tests: TEHAS_STATUS_CMD, TEHAS_INDEX_CMD,
-# TEHAS_TIDY_CMD (in place of libexec/tidy), TEHAS_PLAN_CMD, TEHAS_PLAN_START_CMD
+# TEHAS_TIDY_CMD (in place of console tidy run), TEHAS_PLAN_CMD, TEHAS_PLAN_START_CMD
 # and TEHAS_INDEX_START_CMD (in place of systemd-run: the first called with the
 # issue and the turn's command line, the second with the index run's),
 # TEHAS_CYCLE_START_CMD and TEHAS_CYCLE_STOP_CMD (in place of systemctl, with the

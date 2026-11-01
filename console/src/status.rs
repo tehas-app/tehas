@@ -11,17 +11,25 @@
 //!     The object of `tehas status --json`, one line. host/docs/api.md has
 //!     its fields; a field without a value is left out, never null.
 //!
+//!   console tehas status [--json]
+//!     The command a person types (`print`): the lines or the object of the
+//!     health file of this home, at this moment, with the poll line the store
+//!     gives. No network, no model, no instance settings, and it writes
+//!     nothing.
+//!
 //! <now> is epoch seconds. A health file older than ten minutes is not
 //! believed: its first line says stale.
 //!
 //! Exit: 0 the factory is taking work or is paused (pass, warn); 1 it is not
 //! (fail), the file is stale, or there is no health file with a status in it;
-//! 2 usage.
+//! 2 usage; 64 an argument of `tehas status` other than --json.
 
 use crate::flags::epoch;
 use crate::jq::{first, obj, J};
+use crate::store;
+use std::env;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// The age after which a health file is not believed.
 pub const MAX_AGE: i64 = 600;
@@ -49,6 +57,58 @@ pub fn main(given: &[String]) -> u8 {
             _ => return usage(),
         }
     }
+    match verb {
+        "show" => answer(file, now, Some((&poll, product.as_deref()))),
+        "json" => answer(file, now, None),
+        _ => usage(),
+    }
+}
+
+/// `tehas status [--json]`.
+pub fn print(given: &[String]) -> u8 {
+    let json = match given {
+        [] => false,
+        [flag] if flag == "--json" => true,
+        _ => {
+            eprintln!("usage: tehas status [--json]");
+            return 64;
+        }
+    };
+    let Some(home) = home() else {
+        eprintln!("tehas status: neither TEHAS_HOME nor HOME is set");
+        return 1;
+    };
+    let file = home.join("live/health.json").display().to_string();
+    let now = tehas_core::time::now();
+    if json {
+        return answer(&file, now, None);
+    }
+    let poll = poll_line(&home);
+    let product = home.join("state/check-product.json");
+    answer(&file, now, Some((&poll, product.to_str())))
+}
+
+/// The instance's home, as `lib/config.sh` resolves it.
+fn home() -> Option<PathBuf> {
+    let set = |name| {
+        env::var_os(name)
+            .filter(|v| !v.is_empty())
+            .map(PathBuf::from)
+    };
+    set("TEHAS_HOME").or_else(|| set("HOME").map(|h| h.join("tehas")))
+}
+
+/// The store's line for the last poll. No store, or none on record, is no line.
+fn poll_line(home: &Path) -> String {
+    store::call(home, &["poll-show"])
+        .ok()
+        .and_then(|v| v["line"].as_str().map(str::to_string))
+        .unwrap_or_default()
+}
+
+/// Print the health file: the object, or with `lines` (the poll line and the
+/// file of the product's check) the lines.
+fn answer(file: &str, now: i64, lines: Option<(&str, Option<&str>)>) -> u8 {
     let health = match fs::read_to_string(file).ok().and_then(|t| J::parse(&t)) {
         Some(h) if h.get("status").as_str().is_some() => h,
         _ => {
@@ -57,20 +117,19 @@ pub fn main(given: &[String]) -> u8 {
         }
     };
     let stale = stale(&health, now);
-    match verb {
-        "show" => {
-            let mut lines = state_lines(&health, now, stale, &poll);
+    match lines {
+        Some((poll, product)) => {
+            let mut lines = state_lines(&health, now, stale, poll);
             lines.extend(cycles(&health).iter().map(|c| cycle_line(c, now)));
             lines.extend(plan_lines(&health, now));
             lines.push(slice_line(&health, now));
             lines.extend(platform_line(&health, now));
-            lines.extend(product.and_then(|p| product_line(Path::new(&p), now)));
+            lines.extend(product.and_then(|p| product_line(Path::new(p), now)));
             for line in lines {
                 println!("{line}");
             }
         }
-        "json" => println!("{}", status_json(&health, now, stale).dump()),
-        _ => return usage(),
+        None => println!("{}", status_json(&health, now, stale).dump()),
     }
     u8::from(stale || health.get("status").as_str() == Some("fail"))
 }
