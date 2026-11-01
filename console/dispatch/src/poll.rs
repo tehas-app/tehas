@@ -60,7 +60,7 @@ fn secs(k: &str, default: u64) -> Duration {
 }
 
 /// The directory of this program, libexec: where the bash poll's `$here`
-/// finds health, status, tidy and plan.
+/// finds health, status, the console and plan.
 pub fn here(home: &Path) -> PathBuf {
     std::env::current_exe()
         .ok()
