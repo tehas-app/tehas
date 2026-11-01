@@ -190,14 +190,13 @@ host.
 | `lib/cycles.sh` | Which cycles are running, from the lock each one holds, and where a parked cycle's question is on record |
 | `lib/headless.sh` | What tehas reads of pi-rukas's headless runner: its `--capabilities` answer, its NDJSON progress and its `--json` result. Every check of a pi-rukas feature asks its `tehas_headless_mode` |
 | `lib/polyfill-<feature>.sh` | What tehas does itself for a pi-rukas feature no release has yet, until one has it. Each names the upstream issue and pull request. None today |
-| `lib/edge.sh` | What `tehasbot protolab` and `tehasbot preview` share: numbered sets under `~/tehas` and the previews' network |
 | `lib/improve.sh`, `lib/improve-prompt.md` | The improvement loop's shared parts, and the prompt its analyst reads |
 | `lib/labels.sh` | Who applied a label, read from the label events |
 | `lib/live.sh` | The live view of the cycles, put together from a file per cycle |
 | `lib/planning.sh`, `lib/questions.sh` | The steps of a planning session, and the questions the factory asks on an issue |
-| `lib/sandbox.sh` | What a sandbox container is given, for a cycle and for a session by hand, and the one name each of the sandbox's images is known by (the build and `tehasbot clean` both ask it; `tehas_base_image` needs `lib/rukas.sh` sourced beside it) |
-| `lib/slice.sh` | Reads `tehas.slice`: whether it is usable, the limits of a container, the room left |
-| `lib/status.sh`, `lib/top.sh` | The factory's state for `tehas status`, and the frame of `tehas top` |
+| `lib/sandbox.sh` | What a sandbox container is given, for a cycle and for a session by hand |
+| `lib/slice.sh` | The way to `console slice`: whether `tehas.slice` is usable, the limits of a container, the room left |
+| `lib/status.sh` | The factory's state for `tehas status` |
 | `api/` | A JSON Schema of `tehas status --json` and two samples the tests make from the code; a program that reads the object copies them into its own tests |
 | `lib/update-steps.sh` | The follow-up steps of an install, which `install.sh` asks for and `tehas update` runs, and the one wait both of them give `state/update.lock` |
 | `host/` | Everything else that is installed: units, the docs server, the sandbox image, the manual |

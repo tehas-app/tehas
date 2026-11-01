@@ -368,7 +368,7 @@ plan_no_later_parts() {
 # each issue a refining session filed, {at, source, filed, url}, so the
 # analytics report can follow what became of refined issues. Only a session
 # tehas:refine started counts. The ledger keeps the last 500 lines, as
-# tehas_size_record keeps sizes.jsonl: the report reads the file whole within a
+# console size record keeps sizes.jsonl: the report reads the file whole within a
 # bound, so a writer that never trims it eventually writes past what the report
 # can read. A line that cannot be written is the report's loss only, and says so.
 plan_refined() {

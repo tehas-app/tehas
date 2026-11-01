@@ -29,12 +29,12 @@ T_DISK_TREE=$T/disk-tree
 t_disk() { # the command, with the console of this checkout beside it
   [ -x "$T_DISK_TREE/libexec/console" ] && return 0
   t_console || return 1
-  mkdir -p "$T_DISK_TREE/libexec"
+  mkdir -p "$T_DISK_TREE/libexec" "$T_DISK_TREE/bin"
   ln -sfn "$T_ROOT/lib" "$T_DISK_TREE/lib"
-  cp "$T_ROOT/libexec/disk" "$T_DISK_TREE/libexec/disk"
+  cp "$T_ROOT/bin/tehas" "$T_DISK_TREE/bin/tehas"
   cp "$T_CONSOLE" "$T_DISK_TREE/libexec/console"
 }
-disk="$T_DISK_TREE/libexec/disk"
+disk="$T_DISK_TREE/bin/tehas disk"
 
 t_case "it prints the file systems of the host, one line each, and asks no more of df than one call each"
 t_disk || t_skip "no console: $t_console_why"
@@ -131,6 +131,29 @@ t_eq "$([ -e "$th/live/disk.json" ] && echo written)" ""
 # The refusals of the run: the settings are read by the console, so settings
 # that are malformed stop the run before the host is asked anything, and a
 # host where install.sh put no console says so and names the fix.
+t_case "an instance.env that starts with a comment still names the scratch disk"
+reset
+# Every real instance.env starts with the comments of the manual: the reader
+# that stops at the first line with no `=` sees no settings at all, so the
+# scratch disk is left out and a malformed value is never refused.
+t_instance "# Tehas instance settings. One host, one product repository." \
+  "TEHAS_REPO=acme/widget" "# the disk a cycle writes its temporary files to" \
+  "" "TEHAS_SCRATCH_DIR=$T/scratch"
+mkdir -p "$T/scratch"
+t_run "$disk --json"
+t_eq "$t_rc" 0
+t_eq "$(jq -r '[.filesystems[].paths[]] | @json' <<<"$t_out")" \
+  "[\"$th\",\"/var/lib/docker\",\"/tmp\",\"$T/scratch\"]"
+
+t_case "a malformed scratch disk in a commented file is 78 and the host is never asked anything"
+reset
+t_instance "# Tehas instance settings. One host, one product repository." \
+  "TEHAS_REPO=acme/widget" "# not an absolute path" "TEHAS_SCRATCH_DIR=scratch"
+t_run "$disk"
+t_eq "$t_rc" 78
+t_eq "$(t_calls df)" ""
+t_contains "$t_out" "TEHAS_SCRATCH_DIR is not an absolute path"
+
 t_case "malformed settings are 78 and the host is never asked anything"
 reset
 t_instance "${T_MINIMAL[@]}" TEHAS_SCRATCH_DIR=scratch

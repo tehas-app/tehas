@@ -42,7 +42,7 @@
 # there leaves the issue marked tehas:running.
 #
 # The cycle's outcome is the result of pi-rukas's headless runner, which tehas
-# work leaves in state/cycles/<issue>.result.json (lib/headless.sh reads it):
+# work leaves in state/cycles/<issue>.result.json (tehas-cycle runner reads it):
 # its status, the step it stopped in, its cap, branch, token usage and the
 # pi-rukas commit it ran (buildCommit). Nothing is read from the tree the
 # container wrote. The per-role usage, the reason of the last cap and the
@@ -217,8 +217,6 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/config.sh"
 # shellcheck source=lib/cycles.sh
 . "$here/../lib/cycles.sh"
-# shellcheck source=lib/headless.sh
-. "$here/../lib/headless.sh"
 # shellcheck source=lib/labels.sh
 . "$here/../lib/labels.sh"
 # shellcheck source=lib/millwright.sh
@@ -509,7 +507,7 @@ fi
 # reader of the poll's log wants the one line that says what could not be read.
 [ "$no_result" = 0 ] ||
   log "WARN: the result of #$issue holds nothing, so its step is read from its run log"
-outcome=$(tehas_headless_outcome "$result" "$issue") || outcome='{}'
+outcome=$("$TEHAS_HOME/libexec/tehas-cycle" runner outcome "$result" "$issue") || outcome='{}'
 # The result's fields in one read, kept apart until the steps below use them.
 # The handoff is this command's to post (tehas work gives a cycle
 # PI_ENSEMBLE_HANDOFF_CHANNEL=host); it loses pi-rukas's marker line, which goes
@@ -684,7 +682,7 @@ if [ -n "$ran_log" ]; then
   # whose steps stop at commit-pr, and a run that never got there all leave it
   # empty, so GitHub is asked about no branch of its own. tehas work writes no
   # branch of its own, so nothing else says it for a cycle that wrote no result.
-  { read -r log_step; read -r log_branch; read -r log_read; } < <(tehas_headless_run "$ran_log" "$issue")
+  { read -r log_step; read -r log_branch; read -r log_read; } < <("$TEHAS_HOME/libexec/tehas-cycle" runner run "$ran_log" "$issue")
   # A log the helper answered nothing at all for (no file, no number for the
   # issue) is no log whose words were read, and says nothing of the cycle. The
   # third line is the only place its answer says that, and the one word the
@@ -1062,7 +1060,7 @@ rm -f "$cycles/$issue.done"
 # refresh marked. A start by hand used none. An approval that cannot be read
 # leaves it unknown: the mark of a refresh is then the dispatcher's to clear.
 # A refresh is on record at the time the poll decided it: the person's approval
-# it rests on is the one named for it, as tehas_approval_shape names it.
+# it rests on is the one named for it, as approval-view names it.
 refreshed="" base_at="" base_by=""
 if tehas_store approval-current "$issue"; then
   read -r refreshed base_at base_by < <(jq -r --argjson a "$attempt" '.rests_on as $r
@@ -1394,5 +1392,5 @@ else end_rc=70
 fi
 [ -z "$shadow" ] || timeout 60 "$tc" compare "$issue" >/dev/null 2>&1 || log "WARN: the report's shadow of #$issue could not be compared"
 # What follows the end, each step's failure a WARN line (tehas-cycle after).
-"$tc" after "$issue" --attempt "$attempt" --started "$started" --rc "$rc" --status "$status" --step "$step" --cap "$cap" --park-reason "$park_reason" --failure-kind "$failure_kind" --failure-cause "$failure_cause" --provider "$provider" --parked "$parked_now" --pr "${pr:-}" --by "$start_by" --how "$start_how" --approved "$approved" --image "$image_id" --image-built "$image_built" --rukas-image "$image_rukas" --oom "$kills" --forks "$forks" --reason "$reason" --build "$build" --signalled "$signalled" --workdir "$workdir" --console "$console" --status-cmd "$status_cmd" || log "WARN: what follows the end of #$issue did not run"
+"$tc" after "$issue" < <(printf '%s\0' --attempt "$attempt" --started "$started" --rc "$rc" --status "$status" --step "$step" --cap "$cap" --park-reason "$park_reason" --failure-kind "$failure_kind" --failure-cause "$failure_cause" --provider "$provider" --parked "$parked_now" --pr "${pr:-}" --by "$start_by" --how "$start_how" --approved "$approved" --image "$image_id" --image-built "$image_built" --rukas-image "$image_rukas" --oom "$kills" --forks "$forks" --reason "$reason" --build "$build" --signalled "$signalled" --workdir "$workdir" --console "$console" --status-cmd "$status_cmd") || log "WARN: what follows the end of #$issue did not run"
 exit "${end_rc:-0}"

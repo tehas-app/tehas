@@ -81,7 +81,7 @@ fn last_of(of: &[&Event]) -> Option<super::LabelEvent> {
 ///
 /// The pause is the one reader of these rules that orders the tie the other
 /// way, so that a pause lifted in the second it was applied still holds the
-/// host. That term is `dispatch`'s `events::pause_holds`, which the last issue
+/// host. That term is [`crate::events::pause_holds`], which the last issue
 /// of #800 moves here; it is no term of this module today.
 pub(crate) fn event_order(a: &&Event, b: &&Event) -> Ordering {
     a.at.cmp(&b.at).then_with(|| rank(a).cmp(&rank(b)))

@@ -57,6 +57,7 @@ t_case "TEHAS_DISPATCHER=bash is the bash poll"
 reset
 dispatcher_unset
 t_instance "${unset_settings[@]}" TEHAS_DISPATCHER=bash
+bash_poll_console
 t_run "$dispatch --dry-run"
 t_eq "$t_rc" 0
 t_lacks "$t_out" "rust poll"
@@ -733,5 +734,39 @@ t_eq "$t_rc" 0
 t_lacks "$t_out" "older tehas"
 t_eq "$(t_calls fake-start)" "7"
 rm -rf "$T/home/tehas/state/imported-20261024" "$T"/home/tehas/state/plan-5.* "$T/home/tehas/state/refined.jsonl" "$T"/home/tehas/state/cycles/5.*.new "$T"/home/tehas/state/cycles/shadow-5.*
+
+# No TEHAS_TIDY_CMD and a console beside the command, as on a host of
+# TEHAS_DISPATCHER=bash. The last case of the file: T_BASH_POLL stays in T_MINIMAL.
+bash_poll_host() {
+  local v tree=$T/bash-poll-tree
+  # shellcheck disable=SC2154  # t_console_why is set by t_console (test/lib.sh)
+  t_console || t_bad "no console: $t_console_why"
+  mkdir -p "$tree/libexec"
+  ln -sfn "$T_ROOT/lib" "$tree/lib"
+  ln -sf "$T_ROOT"/libexec/* "$tree/libexec/"
+  rm -f "$tree/libexec/dispatch"
+  cp "$T_ROOT/libexec/dispatch" "$tree/libexec/dispatch"
+  cp "$T_CONSOLE" "$tree/libexec/console"
+  T_BASH_POLL=1 reset
+  local -a kept=()
+  for v in "${T_ENV[@]}"; do [[ $v == TEHAS_TIDY_CMD=* ]] || kept+=("$v"); done
+  T_ENV=("${kept[@]}")
+  echo '[{"number":44,"state":"CLOSED","labels":[{"name":"tehas:awaiting-merge"},{"name":"tehas:shipped"}]}]' >"$fx/closed.json"
+  bash_poll=$tree/libexec/dispatch
+}
+
+t_case "the bash poll runs the console's tidy on a host, and a dry run edits nothing"
+bash_poll_host
+t_run "$bash_poll --dry-run"
+t_eq "$t_rc" 0
+t_contains "$t_out" "tidy #44: would remove tehas:awaiting-merge"
+t_lacks "$t_out" "No such file"
+t_lacks "$(t_calls gh)" "issue edit"
+bash_poll_host
+t_run "$bash_poll"
+t_eq "$t_rc" 0
+t_contains "$t_out" "tidy #44: removed tehas:awaiting-merge"
+t_lacks "$t_out" "No such file"
+t_contains "$(t_calls gh)" "issue edit 44"
 
 t_done

@@ -5,6 +5,11 @@
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
 
+# The rules are the console's, which a checkout's libexec does not hold.
+# shellcheck disable=SC2154  # t_console_why is set by t_console (test/lib.sh)
+t_console || t_bad "no console: $t_console_why"
+T_ENV_ALWAYS+=(TEHAS_CONSOLE_CMD="$T_CONSOLE")
+
 GIB=1073741824
 MIB=1048576
 MAX=$((20 * GIB))
@@ -553,5 +558,24 @@ good
 slice_child "$a" $((500 * MIB)) 0 $((2 * GIB))
 t_run "$pre"'tehas_slice_ok; read -r room committed max reserve why < <(tehas_slice_room 2); echo "[$room] [$committed] [$max] [$reserve] [$why]"'
 t_eq "$t_out" "[1] [$((6 * GIB))] [$MAX] [$((2 * GIB))] []"
+
+# --- no console --------------------------------------------------------------
+t_case "with no console the slice is not ok, has no limits and no room, and says to install"
+good
+T_ENV_ALWAYS=()
+none="no console beside this command at $T_ROOT/libexec/console, run install.sh"
+t_run "$ok"'; tehas_slice_limits; echo "limits=$? ${#TEHAS_SLICE_LIMITS[@]}"; tehas_slice_cpus; echo "cpus=$?"; tehas_slice_room 1'
+t_eq "$t_out" "rc=1 max= active= ceiling= why=[$none]
+limits=1 0
+cpus=127
+0 0 0 0 unreadable $none"
+t_run "$pre"'tehas_slice_pressure; echo "rc=$? why=[$TEHAS_SLICE_WHY]"'
+t_eq "$t_out" "rc=1 why=[$none]"
+T_ENV_ALWAYS=(TEHAS_CONSOLE_CMD="$T_CONSOLE")
+
+t_case "a reserve that holds a quote comes back whole and runs nothing"
+good
+t_run "$pre"'TEHAS_CYCLE_RESERVE="'"2g'; echo ran; '"'"; tehas_slice_ok; echo "rc=$? [$TEHAS_SLICE_WHY]"'
+t_eq "$t_out" "rc=1 [TEHAS_CYCLE_RESERVE=2g'; echo ran; ' is not a size]"
 
 t_done
