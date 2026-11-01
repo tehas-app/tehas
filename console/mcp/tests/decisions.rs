@@ -1,5 +1,5 @@
 // factory_decisions: the dispatcher's last decisions from the end of
-// dispatch.log, as `grep -E ' (start|skip|wait|drop the refresh of) #' | tail -n N`
+// dispatch.log, as `grep -E ' (start|skip|wait|hold|drop the refresh of) #' | tail -n N`
 // shows.
 
 use mcp::tools::{list_scoped, Dirs, Output, Scope, ToolError};
@@ -48,9 +48,16 @@ impl Drop for Logs {
     }
 }
 
-// What the issue's grep and tail show of the fixture, as the four fields.
+// What the issue's grep and tail show of the fixture, as the four fields. The
+// words are those of `mcp::decisions::DECISIONS`, so the one list is checked
+// here and in the tool's schema.
 fn grep_tail(text: &str, n: usize) -> Vec<Value> {
-    let re = Regex::new(r" (start|skip|wait|drop the refresh of) #").unwrap();
+    let line_words = mcp::decisions::DECISIONS
+        .iter()
+        .map(|(_, w, _, _)| regex::escape(w))
+        .collect::<Vec<_>>()
+        .join("|");
+    let re = Regex::new(&format!(" ({line_words}) #")).unwrap();
     let hits: Vec<&str> = text.lines().filter(|l| re.is_match(l)).collect();
     hits[hits.len().saturating_sub(n)..]
         .iter()

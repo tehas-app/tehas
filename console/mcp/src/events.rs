@@ -609,6 +609,29 @@ mod tests {
     use super::*;
 
     #[test]
+    fn every_decision_line_of_the_table_is_a_kind() {
+        // The same sample lines `parse` is tested of, so the two readers of
+        // these words cannot drift apart on a word the dispatcher writes. A
+        // hold is no kind of its own: `kind_of` reads it as a wait, which is
+        // what a parked issue is, and every other word names its own kind.
+        let kind_of_word = |word: &str| {
+            let line = crate::decisions::DECISIONS
+                .iter()
+                .find(|(w, _, _, _)| *w == word)
+                .map(|(_, _, line, _)| *line)
+                .expect("every decision has a sample line");
+            kind_of("dispatch", line.split_once(' ').expect("a timed line").1)
+        };
+        for word in crate::decisions::WORDS {
+            assert!(KINDS.contains(&kind_of_word(word)), "{word}");
+            assert_eq!(
+                kind_of_word(word),
+                if word == "hold" { "wait" } else { word }
+            );
+        }
+    }
+
+    #[test]
     fn kinds_of_the_real_line_shapes() {
         let d = |t| kind_of("dispatch", t);
         assert_eq!(d("start #1022 (labelled by alice)"), "start");
@@ -633,6 +656,18 @@ mod tests {
         assert_eq!(d("wait #462: tehas:blocked holds it"), "wait");
         assert_eq!(d("holding: the limit allows 0 cycles at once"), "wait");
         assert_eq!(d("hold #688: its last cycle parked"), "wait");
+        assert_eq!(
+            d("hold #7: its text links an attachment and TEHAS_WORK_IMAGES is 1, but test-model does not declare image input in models.json"),
+            "wait"
+        );
+        assert_eq!(
+            d("hold #7: its text says SCREENSHOT GOES HERE and links no attachment"),
+            "wait"
+        );
+        assert_eq!(
+            d("hold #7: its last cycle parked on intent-park and the body has not changed since, and the fixer's comments could not be read"),
+            "wait"
+        );
         assert_eq!(d("released: cycles may start again"), "wait");
         assert_eq!(
             d("planning #1015 waits: the turn of #1014 is still running"),
