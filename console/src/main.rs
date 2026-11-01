@@ -189,6 +189,7 @@ mod forge;
 mod frame;
 mod github;
 mod health;
+mod history;
 mod improve;
 mod label;
 mod labels;
@@ -417,6 +418,13 @@ fn mask_stdin() -> io::Result<()> {
 }
 
 fn main() -> ExitCode {
+    // No command takes a word that is not text: `check` refuses it with the
+    // usage of the command it is asked about.
+    let words = std::env::args_os().skip(1);
+    let words: Vec<String> = words.map(|a| a.to_string_lossy().into_owned()).collect();
+    if words.first().is_some_and(|w| w == "check") {
+        return ExitCode::from(commands::check(&words[1..]));
+    }
     let given = std::env::args_os()
         .skip(1)
         .map(|a| a.into_string())
@@ -425,7 +433,6 @@ fn main() -> ExitCode {
     if let Ok(given) = &given {
         match given.first().map(String::as_str) {
             Some("check-product") => return ExitCode::from(product::check(&given[1..])),
-            Some("check") => return ExitCode::from(commands::check(&given[1..])),
             Some("needs") => return ExitCode::from(commands::needs(&given[1..])),
             Some("clean") => return ExitCode::from(clean::main(&given[1..])),
             Some("disk") => return ExitCode::from(disk::main(&given[1..])),

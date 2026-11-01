@@ -106,8 +106,6 @@ files="./.bashrc
 ./tehas/lib/millwright.sh
 ./tehas/lib/github-app.sh
 ./tehas/lib/history-lines.jq
-./tehas/lib/history-listing.jq
-./tehas/lib/history-repeats.jq
 ./tehas/lib/improve-prompt.md
 ./tehas/lib/issue-brief.md
 ./tehas/lib/labels.sh
@@ -136,7 +134,6 @@ files="./.bashrc
 ./tehas/libexec/dispatch
 ./tehas/libexec/export
 ./tehas/libexec/github-token
-./tehas/libexec/history
 ./tehas/libexec/improve
 ./tehas/libexec/index
 ./tehas/libexec/init-product
