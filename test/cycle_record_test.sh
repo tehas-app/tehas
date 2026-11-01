@@ -553,6 +553,18 @@ t_contains "$t_out" "WARN: what follows the end of #7 did not run"
 t_contains "$t_out" "done #7"
 t_eq "$(t_row cycle-show 7 -- '.cycle.ended_at != null')" true
 
+t_case "a step longer than one argument may be stops nothing that follows the end"
+reset
+ended failed develop
+printf 'x%.0s' $(seq 1 200000) >"$T/long"
+jq --rawfile step "$T/long" '.issues[0].failedStep = $step' "$fx/result.json" >"$T/long.json"
+mv "$T/long.json" "$fx/result.json"
+t_run "$cycle 7"
+t_eq "$(jq -r '.issues[0].failedStep | length' "$fx/result.json")" 200000
+t_lacks "$t_out" "did not run"
+t_eq "$(t_calls systemctl)" "--user start --no-block tehas-dispatch.service"
+t_eq "$([ -e "$T/home/tehas/state/dispatch.again" ] && echo there)" there
+
 t_case "a handoff whose pull request merged before the cycle ended is reported with it"
 reset
 ended handoff handoff feature/x

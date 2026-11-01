@@ -8,10 +8,13 @@
 //! `finish` opens a pull request from what a cycle that stopped left.
 //! `after` does what follows a cycle's record, and `improve` writes the
 //! record the improvement loop reads.
+//! `caps` reads what an image says its runner can do.
 
 pub mod after;
 pub mod apply;
+pub mod caps;
 pub mod clock;
+pub mod describe;
 pub mod facts;
 pub mod finish;
 pub mod host;

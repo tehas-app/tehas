@@ -1,13 +1,14 @@
 //! cycle-start, cycle-image, cycle-end, cycle-show, cycle-note and
 //! cycle-stop-asked.
 
-use crate::cycle::{secret, END_REASONS};
+use crate::cycle::END_REASONS;
 use crate::lock;
 use crate::verbs_tests::*;
 use serde_json::{json, Value};
 use std::fs::{self, File};
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
+use tehas_core::secret::secret;
 
 fn attempt_args(issue: i64, attempt: i64) -> (String, String) {
     (issue.to_string(), attempt.to_string())
@@ -1537,4 +1538,53 @@ fn cycle_note_and_stop_asked_state_their_preconditions() {
     ] {
         assert!(usage(args).starts_with("usage cycle-"), "{args:?}");
     }
+}
+
+#[test]
+fn settings_of_a_cycle_are_two_halves_and_the_count() {
+    let cycle =
+        json!({"settings": {"PI_ENSEMBLE_A": "1", "TEHAS_B": "2", "concurrentCycles": "4"}});
+    assert_eq!(
+        crate::cycle::settings_view_of(&cycle),
+        r#"{"container":{"PI_ENSEMBLE_A":"1"},"host":{"TEHAS_B":"2"},"concurrentCycles":4}"#
+    );
+    let cycle = json!({"settings": {"TEHAS_B": "2"}});
+    assert_eq!(
+        crate::cycle::settings_view_of(&cycle),
+        r#"{"container":{},"host":{"TEHAS_B":"2"},"concurrentCycles":null}"#
+    );
+    for none in [
+        json!({"settings": {}}),
+        json!({"settings": null}),
+        json!({}),
+    ] {
+        assert_eq!(crate::cycle::settings_view_of(&none), "null");
+    }
+}
+
+#[test]
+fn settings_view_answers_for_the_start_asked_about() {
+    let home = home("settings-view");
+    let none = ok(&home, &["settings-view", "7"]);
+    assert_eq!(
+        (&none["view"], &none["rukas_commit"]),
+        (&Value::Null, &Value::Null)
+    );
+    let (_lock, a) = start(&home, 7);
+    let settings = settings_file(
+        &home,
+        r#"{"container":{"PI_ENSEMBLE_A":"1"},"host":{},"concurrentCycles":2}"#,
+    );
+    image(&home, 7, a, &["--settings", &settings]).unwrap();
+    let v = ok(&home, &["settings-view", "7", "--attempt", "1"]);
+    assert_eq!(v["view"]["concurrentCycles"], 2);
+    assert_eq!(v["view"]["container"]["PI_ENSEMBLE_A"], "1");
+    let other = ok(&home, &["settings-view", "7", "--attempt", "2"]);
+    assert_eq!(
+        (&other["view"], &other["rukas_commit"]),
+        (&Value::Null, &Value::Null)
+    );
+    assert_eq!(ok(&home, &["settings-view", "7"])["view"], v["view"]);
+    let (rc, _) = call(&home, &["settings-view", "7", "--attempt", "0"]).unwrap_err();
+    assert_eq!(rc, 64);
 }

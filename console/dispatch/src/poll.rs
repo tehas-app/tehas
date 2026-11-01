@@ -60,7 +60,7 @@ fn secs(k: &str, default: u64) -> Duration {
 }
 
 /// The directory of this program, libexec: where the bash poll's `$here`
-/// finds health, status, tidy and plan.
+/// finds health, status, the console and plan.
 pub fn here(home: &Path) -> PathBuf {
     std::env::current_exe()
         .ok()
@@ -181,13 +181,35 @@ fn store_ready(home: &Path) -> bool {
     bin && db
 }
 
+/// The health command and its arguments: the one a test named, or
+/// `with-settings tehasbot health` beside this program.
+fn health_command(named: Option<String>, here: &Path) -> (String, Vec<String>) {
+    match named {
+        Some(cmd) => (cmd, Vec::new()),
+        None => (
+            here.join("with-settings").to_string_lossy().into_owned(),
+            vec!["tehasbot".to_string(), "health".to_string()],
+        ),
+    }
+}
+
 /// The writes of a poll, with the host's commands as the settings name them.
+/// The console takes a verb; a stand-in named by TEHAS_TIDY_CMD takes none.
+fn tidy_args(hook: bool) -> Vec<String> {
+    if hook {
+        Vec::new()
+    } else {
+        vec!["tidy".into(), "run".into()]
+    }
+}
+
 fn writer(home: &Path, settings: &Settings, bot: &str, poll_at: i64, before: i64) -> Writer {
     let libexec = home.join("libexec");
     let opt = |k: &str| Some(env(k)).filter(|v| !v.is_empty());
     let here = here(home);
     let or =
         |k: &str, d: &str| opt(k).unwrap_or_else(|| here.join(d).to_string_lossy().into_owned());
+    let health_cmd = health_command(opt("TEHAS_HEALTH_CMD"), &here);
     let analytics = libexec.join("analytics");
     let analytics = (env("TEHAS_ANALYTICS") == "on" && analytics.is_file())
         .then(|| analytics.to_string_lossy().into_owned());
@@ -227,9 +249,11 @@ fn writer(home: &Path, settings: &Settings, bot: &str, poll_at: i64, before: i64
             stop_cmd: opt("TEHAS_CYCLE_STOP_CMD"),
             start_wait: secs("TEHAS_CYCLE_START_WAIT", 30),
             status_cmd: or("TEHAS_STATUS_CMD", "status"),
-            health_cmd: or("TEHAS_HEALTH_CMD", "health"),
+            health_cmd: health_cmd.0,
+            health_args: health_cmd.1,
             console_cmd: or("TEHAS_CONSOLE_CMD", "console"),
-            tidy_cmd: or("TEHAS_TIDY_CMD", "tidy"),
+            tidy_cmd: or("TEHAS_TIDY_CMD", "console"),
+            tidy_args: tidy_args(opt("TEHAS_TIDY_CMD").is_some()),
             analytics,
             // tehas_analytics_wait: 1 to 999 seconds, else 5.
             analytics_wait: Duration::from_secs(
@@ -306,11 +330,10 @@ impl End<'_> {
     /// tidy, as this end sends it: with `--dry-run` only of a dry poll, which
     /// is how the bash's trap sends it too.
     fn runs_tidy(&self, w: &mut Writer, printed: &mut Vec<String>) {
-        let args: Vec<String> = if self.dry {
-            vec!["--dry-run".into()]
-        } else {
-            Vec::new()
-        };
+        let mut args = w.host.tidy_args.clone();
+        if self.dry {
+            args.push("--dry-run".into());
+        }
         w.status_of(&w.host.tidy_cmd.clone(), &args, printed);
     }
 
@@ -803,7 +826,24 @@ fn sweep_locks(w: &mut Writer, dry: bool) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn health_runs_under_with_settings_unless_a_test_names_a_command() {
+        let (cmd, args) = super::health_command(None, std::path::Path::new("/h/libexec"));
+        assert_eq!(cmd, "/h/libexec/with-settings");
+        assert_eq!(args, ["tehasbot", "health"]);
+        let named = Some("fake-health".to_string());
+        let (cmd, args) = super::health_command(named, std::path::Path::new("/h/libexec"));
+        assert_eq!(cmd, "fake-health");
+        assert!(args.is_empty());
+    }
+
     use super::*;
+
+    #[test]
+    fn the_console_is_told_the_verb_and_a_stand_in_is_told_nothing() {
+        assert_eq!(tidy_args(false), ["tidy", "run"]);
+        assert!(tidy_args(true).is_empty());
+    }
 
     /// A scratch home of this test, with `live/` in it. Each test has its own
     /// name, so the tests of the same file run side by side.

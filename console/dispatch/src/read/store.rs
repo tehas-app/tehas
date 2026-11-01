@@ -408,7 +408,7 @@ pub fn owed(calls: &mut Calls, which: &str) -> Value {
     }
 }
 
-/// tehas_approval_shape: the approval of the issue's latest start as the
+/// The shape of `store approval-view`: the approval of the issue's latest start as the
 /// readers of tehas_approval_view have it. Null for none.
 fn approval_shape(v: &Value) -> Option<Value> {
     let c = v.get("current")?;

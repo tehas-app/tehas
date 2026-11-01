@@ -925,6 +925,7 @@ Read the last lines of `~/tehas/logs/improve.log`.
 | --- | --- |
 | Nothing new for hours | The timer is not enabled: `systemctl --user list-timers tehas-improve.timer` |
 | `TEHAS_IMPROVE_REPO is not set` | The loop is off for this instance |
+| `no console at <path>` | `~/tehas/libexec/console` is missing, and a run stops with exit 78. Run `install.sh`, which builds it. The records wait |
 | `the improvement loop files in <repo>, the product repository` | `TEHAS_IMPROVE_REPO` or `TEHAS_IMPROVE_RUKAS_REPO` names `TEHAS_REPO`. Name a private repository for the findings instead; every command stops with exit 78 until then |
 | `cycles=0, nothing to read` | No cycle has ended since the last run. A cycle that stopped before Pi started leaves no record |
 | `waiting: 10 open issues carry tehas:improvement` | Every repository the loop files in is at the limit. Close some or build some, or raise `TEHAS_IMPROVE_MAX_OPEN` |
@@ -950,8 +951,8 @@ line.
 - `secret-shape=<cycle>`: the log holds something shaped like a token, so it
   was kept on the host. Read `~/tehas/logs/work-<cycle>.jsonl` there, and find
   out how a secret got into a log.
-- `not-masked=<cycle>`: `~/tehas/libexec/console` is missing or failed, so
-  the log could not be masked. Run `install.sh`, which builds it.
+- `not-masked=<cycle>`: the masked copy of the log could not be written under
+  `~/tehas/tmp/improve`. See how full that disk is.
 - `not-uploaded=<cycle>`: GitHub refused the release or the upload. The bot
   account needs write access to the repository.
 - `not-packed=<cycle>`: one line of the log is over 5 MB compressed.
@@ -1130,7 +1131,8 @@ docker system df
 docker image prune      # removes images with no tag that nothing uses
 ```
 
-A sandbox build removes date tags beyond its newest three itself. The cleaner
+A sandbox build removes date tags beyond its newest three itself; one run from a
+checkout has no console to ask what is held, and removes none. The cleaner
 prunes Docker's build cache every hour, of whatever has not been
 used for `TEHAS_CLEAN_AFTER` hours, and removes the build output of kept
 workspaces, old host scratch, the sandbox image's dated tags past that age

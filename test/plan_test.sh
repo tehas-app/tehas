@@ -17,6 +17,9 @@ mkdir -p "$shim/libexec"
 ln -s "$T_ROOT/libexec/plan" "$shim/libexec/plan"
 ln -s "$T_ROOT/lib" "$shim/lib"
 cp "$T_CONSOLE" "$shim/libexec/console"
+# shellcheck disable=SC2154  # t_cycle_why is set by t_cycle (test/lib.sh)
+t_cycle || t_bad "no tehas-cycle: $t_cycle_why"
+cp "$T_CYCLE" "$shim/libexec/tehas-cycle"
 plan=$shim/libexec/plan
 fx=$T/fx
 mkdir -p "$fx"
@@ -91,9 +94,9 @@ slice_good() {
 }
 limits="--cgroup-parent --memory --memory-swap --memory-reservation --cpus --pids-limit --cpu-shares"
 # The security options and the readers of a docker line come from
-# test/docker_args.sh, which takes the list from tehas_sandbox_security itself,
-# so the cycle, the turn, the session and the push check are all pinned against
-# one source and not against a copy kept in step by hand. docker_opts is the
+# test/docker_args.sh, which holds the list as a literal, so the cycle, the
+# turn, the session and the push check are all pinned against one list, and not
+# against the function under test. docker_opts is the
 # allow-list of unknown_options: the slice's options and the security ones, by
 # name, so an option added to either is allow-listed in all of them at once.
 # shellcheck source=test/docker_args.sh
@@ -275,7 +278,8 @@ rm -rf "$T/keep"
 # other verb with the noun first. A console that answers nothing for it stops
 # the turn before the container: the rules themselves are pinned in plan.rs.
 mv "$shim/libexec/console" "$T/console.kept"
-t_stub console '[ "$2" = descriptor ] || exit 0
+t_stub console '[ "$1" != slice ] || exec "$T/console.kept" "$@"
+[ "$2" = descriptor ] || exit 0
 exit 1'
 mv "$T/bin/console" "$shim/libexec/console"
 t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
@@ -420,7 +424,8 @@ jq -n '{contracts: {exitCodes: {version: 1}, resultSchema: {version: 5}, ndjson:
 # tehas work reads its approval from the state store: nothing on record, a run
 # by hand.
 t_store_home "$T/home/tehas"
-t_run "$T_ROOT/libexec/work 7"
+ln -s "$T_ROOT/libexec/work" "$shim/libexec/work"
+t_run "$shim/libexec/work 7"
 turn_args | options | without_cycle_only >"$T/work.options"
 t_eq "$(turn_args | grep -c -e '^PI_ENSEMBLE_HANDOFF_CHANNEL=host$' -e '^PI_ENSEMBLE_HANDOFF_TIMEOUT_MS=480000$' -e '^PI_ENSEMBLE_CYCLE_DEADLINE=' -e '^PI_ENSEMBLE_VERIFY_CONCURRENCY=')" 4
 t_eq "$([ -s "$T/work.options" ] && echo recorded)" recorded

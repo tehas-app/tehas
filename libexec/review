@@ -117,18 +117,13 @@ bot_email=$(git config --global user.email || true)
 [ -n "$bot_name" ] && [ -n "$bot_email" ] ||
   { echo "tehas review: git user.name and user.email are not set for $(id -un)" >&2; exit 64; }
 
-# The names the console hides (lib/private.sh) in the two files this run
+# The names the console hides in the two files this run
 # leaves in logs/. The host's aliases, the model endpoints and the bot's email:
 # what a review agent could print that belongs to the host and nobody else.
 # The filing is given the same list: a run's findings are read out of the same
 # document, and the store masks them with these names as the console masks the
 # file itself (store review-file --private).
-# shellcheck source=lib/private.sh
-. "$here/../lib/private.sh"
-private=()
-while IFS= read -r private_name; do
-  private+=(--private "$private_name")
-done < <(tehas_private_names "$(tehas_models_file)" "$bot_email")
+mapfile -t private < <("$here/tehas-cycle" private "$(tehas_models_file)" "$bot_email")
 
 # A review writes nothing to the tracker: no token (no-token), and none of the
 # names of a planning turn or of a cycle's gate.
@@ -192,7 +187,7 @@ if [ "$caps_rc" != 0 ]; then
   echo "tehas review: $image gave no --capabilities answer (exit $caps_rc), not starting" >&2
   exit 78
 fi
-tehas_headless_verb "$caps" lens-review "--since --json" || {
+"$here/tehas-cycle" caps verb lens-review "--since --json" <<<"$caps" || {
   echo "tehas review: $image runs no review (its --capabilities has no verbs lens-review), not starting" >&2
   exit 78
 }
