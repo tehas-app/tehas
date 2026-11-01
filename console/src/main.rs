@@ -104,10 +104,9 @@
 //!
 //! A stopped factory's state as one tar, see src/state.rs.
 //!
-//!   console protolab page|front|live|refs ...
+//!   console protolab run
 //!
-//! The pages of the Protolab and the links of a ticket, for libexec/protolab,
-//! see src/protolab.rs.
+//! One pass of the Protolab, for libexec/protolab, see src/protolab.rs.
 //!
 //!   console setup files ...
 //!
@@ -129,6 +128,11 @@
 //! The forge as a command bash can call: an issue's labels, the newest event of
 //! one label, who applied the label that lets a cycle start, and a label put on
 //! or taken off, asked of GitHub through tehas_core::forge, see src/forge.rs.
+//!
+//!   console slice ok|limits|cpus|verify|room|pressure ...
+//!
+//! tehas.slice for the commands that start a container, behind lib/slice.sh,
+//! see src/slice.rs.
 //!
 //!   console pr-title sync|poll ...
 //!
@@ -182,6 +186,7 @@ mod review;
 mod setup;
 mod shipped;
 mod size;
+mod slice;
 mod snapshot;
 mod state;
 mod status;
@@ -408,6 +413,7 @@ fn main() -> ExitCode {
             Some("preview") => return ExitCode::from(preview::main(&given[1..])),
             Some("setup") => return ExitCode::from(setup::main(&given[1..])),
             Some("size") => return ExitCode::from(size::main(&given[1..])),
+            Some("slice") => return ExitCode::from(slice::main(&given[1..])),
             Some("health") => return ExitCode::from(health::main(&given[1..])),
             Some("improve") => return ExitCode::from(improve::main(&given[1..])),
             Some("state") => return ExitCode::from(state::main(&given[1..])),
