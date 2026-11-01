@@ -22,16 +22,22 @@ cycles running, both marked unproven. Where a command needs the guest's
 agreement it needs the guest agent, `qemu-guest-agent`, running in the VM:
 check it with `systemctl status qemu-guest-agent` before you start.
 
-**Who this is for: a virtual machine host under libvirt.** Every step here
-needs a hypervisor: the XML, the `virsh` commands and the `libvirt-guests`
-unit are all outside the guest. A factory that is a container on an industry
-machine, as tehas-tehas is, has no hypervisor to ask: it cannot resize live
-and cannot be saved with `libvirt-guests`. Restarting the machine under a
-container host still means a drain first, or the running cycles are lost with
-it: see [Limit and drain](/operating#limit-and-drain).
+## Who this is for
 
-The one rule underneath all of it: **the maximum is the change that needs a
-restart, so set it once, high, and treat every change under it as a live one.**
+Every step here needs a hypervisor: the XML, the `virsh` commands and the
+`libvirt-guests` unit are all outside the guest. A factory that is a container
+on another project's machine, as tehas-tehas is, has no hypervisor to resize it
+live or save it with `libvirt-guests`; check with `systemd-detect-virt --vm`,
+which answers nothing on a host that is not a virtual machine
+([the `clock` step of `bootstrap.sh`](/bootstrap) uses the same test).
+Restarting the machine under it means a drain first: `tehas drain --wait 3600`
+exits 1 while cycles still run, so do not restart until they have ended, or end
+them with `tehas stop <issue>` for each. See
+[Limit and drain](/operating#limit-and-drain).
+
+The one rule underneath all of it, for a VM host: **the maximum is the change
+that needs a restart, so set it once, high, and treat every change under it as
+a live one.**
 
 ## Define the VM with headroom, once
 
@@ -173,6 +179,10 @@ and not the poll's record of it.
 
 ## Restart the hypervisor without a drain
 
+This section is for a VM host: a factory that is a container has no hypervisor
+to save it, so [who this is for](#who-this-is-for) still holds and the machine
+restarts with a drain.
+
 What restarts the machine under a factory is usually the hypervisor's own
 kernel. `libvirt-guests` is the unit that saves each running VM to disk and
 brings it back when the hypervisor boots again, and a VM saved that way comes
@@ -280,6 +290,9 @@ tehas drain --wait 3600     # start nothing new, wait for the running cycles
 # the work on the hypervisor
 tehas limit clear           # afterwards
 ```
+
+Exit 1 says cycles still ran at the end of the wait: do not restart the machine
+until they have ended, or end them with `tehas stop <issue>` for each.
 
 Drained means no poll can still start a cycle, and drain waits for the poll
 that is running before it says none is, so a cycle a poll had decided to start
