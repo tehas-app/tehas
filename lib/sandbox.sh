@@ -21,7 +21,6 @@
 #   tehas_index_dir                      where the host keeps the index
 #   tehas_git_github_host                the github.com host git authenticates to
 #   tehas_git_credential_helper_key      the config key of that host's helper
-#   tehas_sandbox_helper_command         the helper command a container's git runs
 #
 # Source lib/config.sh and call tehas_load first, and set here to the directory
 # of the command: the settings are read from the environment it leaves.
@@ -46,11 +45,6 @@ tehas_git_credential_helper_key() {
   h=$(tehas_git_github_host)
   printf '%s\n' "credential.https://$h.helper"
 }
-
-# The command a container's git runs to ask gh for a credential, read out of
-# GH_TOKEN. The host's gh is asked to write the same one; the test of that
-# write and the container's entry read it here.
-tehas_sandbox_helper_command() { printf '%s\n' '!gh auth git-credential'; }
 
 # Asked before a command calls Docker or git or writes anything. A command with
 # no tehas-cycle beside it goes on to tehas_sandbox_limits, which refuses it.

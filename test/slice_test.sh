@@ -38,8 +38,8 @@ good() {
   t_instance "${T_MINIMAL[@]}"
   T_ENV=(TEHAS_CGROUP_ROOT="$T_CGROUP")
 }
-# room <count> [<cid file>...]: what tehas_slice_room prints after a good probe.
-room() { t_run "$pre"'tehas_slice_ok || echo "not ok: $TEHAS_SLICE_WHY"; tehas_slice_room '"$*"; }
+# room <count> [<cid file>...]: what console slice room prints after a good probe.
+room() { t_run "$pre"'tehas_slice_ok || echo "not ok: $TEHAS_SLICE_WHY"; _tehas_slice room '"$*"; }
 
 # --- tehas_slice_ok ---------------------------------------------------------
 t_case "ok passes with a file, a numeric MemoryMax, systemd on v2 and the controllers"
@@ -222,7 +222,7 @@ t_eq "$t_out" "rc=1"
 t_run "$pre'$T_CYCLE' sandbox verify --cpus x --memory 2048m; "'echo "rc=$?"'
 t_eq "$t_out" "rc=1"
 
-# --- tehas_slice_room -------------------------------------------------------
+# --- console slice room -----------------------------------------------------
 t_case "an inactive slice with no directory and no cycle is empty"
 good
 systemd /etc/systemd/system/tehas.slice inactive "$MAX"
@@ -422,7 +422,7 @@ t_eq "$t_out" "4 0 $MAX $((2 * GIB))"
 
 t_case "the pressure is printed as the kernel wrote it"
 slice_state 3.41 55.00
-t_run "$pre"'tehas_slice_pressure; echo "rc=$?"'
+t_run "$pre"'_tehas_slice pressure; echo "rc=$?"'
 t_eq "$t_out" "3.41
 rc=0"
 
@@ -432,8 +432,9 @@ slice_child "$a" $((500 * MIB)) 0 $((2 * GIB))
 rm "$T_CGROUP/tehas.slice/memory.pressure"
 room 0
 t_eq "$t_out" "0 $((2 * GIB)) $MAX $((2 * GIB)) unreadable $T_CGROUP/tehas.slice/memory.pressure cannot be read"
-t_run "$pre"'tehas_slice_pressure; echo "rc=$? why=[$TEHAS_SLICE_WHY]"'
-t_eq "$t_out" "rc=1 why=[$T_CGROUP/tehas.slice/memory.pressure cannot be read]"
+t_run "$pre"'_tehas_slice pressure; echo "rc=$?"'
+t_eq "$t_out" "$T_CGROUP/tehas.slice/memory.pressure cannot be read
+rc=1"
 
 t_case "a memory.pressure with no full line is unreadable"
 good
@@ -500,7 +501,7 @@ t_eq "$t_out" "0 0 $MAX $((2 * GIB)) unreadable the count of cycles is not a num
 
 t_case "room without a probe is unreadable, with four numbers all the same"
 good
-t_run "$pre"'tehas_slice_room 0'
+t_run "$pre"'_tehas_slice room 0'
 t_eq "$t_out" "0 0 0 $((2 * GIB)) unreadable the slice was not probed"
 
 t_case "room makes no call and writes nothing"
@@ -515,25 +516,22 @@ t_eq "$(wc -l <"$T/calls/systemctl" | tr -d ' ') $(wc -l <"$T/calls/docker" | tr
 t_case "the reason after unreadable is read whole by the line the dispatcher uses"
 good
 rm "$T_CGROUP/tehas.slice/memory.pressure"
-t_run "$pre"'tehas_slice_ok; read -r room committed max reserve why note < <(tehas_slice_room 0); echo "[$room] [$why] [$note]"'
+t_run "$pre"'tehas_slice_ok; read -r room committed max reserve why note < <(_tehas_slice room 0); echo "[$room] [$why] [$note]"'
 t_eq "$t_out" "[0] [unreadable] [$T_CGROUP/tehas.slice/memory.pressure cannot be read]"
 
 t_case "the room is read by the line the dispatcher uses"
 good
 slice_child "$a" $((500 * MIB)) 0 $((2 * GIB))
-t_run "$pre"'tehas_slice_ok; read -r room committed max reserve why < <(tehas_slice_room 2); echo "[$room] [$committed] [$max] [$reserve] [$why]"'
+t_run "$pre"'tehas_slice_ok; read -r room committed max reserve why < <(_tehas_slice room 2); echo "[$room] [$committed] [$max] [$reserve] [$why]"'
 t_eq "$t_out" "[1] [$((6 * GIB))] [$MAX] [$((2 * GIB))] []"
 
 # --- no console --------------------------------------------------------------
-t_case "with no console the slice is not ok, has no room, and says to install"
+t_case "with no console the slice is not ok and says to install"
 good
 T_ENV_ALWAYS=()
 none="no console beside this command at $T_ROOT/libexec/console, run install.sh"
-t_run "$ok"'; tehas_slice_room 1'
-t_eq "$t_out" "rc=1 max= active= ceiling= why=[$none]
-0 0 0 0 unreadable $none"
-t_run "$pre"'tehas_slice_pressure; echo "rc=$? why=[$TEHAS_SLICE_WHY]"'
-t_eq "$t_out" "rc=1 why=[$none]"
+t_run "$ok"
+t_eq "$t_out" "rc=1 max= active= ceiling= why=[$none]"
 T_ENV_ALWAYS=(TEHAS_CONSOLE_CMD="$T_CONSOLE")
 
 t_case "a reserve that holds a quote comes back whole and runs nothing"

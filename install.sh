@@ -451,7 +451,6 @@ files=(
   "lib/refine-brief.md|$TEHAS_HOME/lib/refine-brief.md|644"
   "lib/issue-brief.md|$TEHAS_HOME/lib/issue-brief.md|644"
   "lib/millwright.sh|$TEHAS_HOME/lib/millwright.sh|644"
-  "lib/limit.sh|$TEHAS_HOME/lib/limit.sh|644"
   "lib/models.sh|$TEHAS_HOME/lib/models.sh|644"
   "lib/update-steps.sh|$TEHAS_HOME/lib/update-steps.sh|644"
   "lib/github-app.sh|$TEHAS_HOME/lib/github-app.sh|644"
@@ -1206,6 +1205,7 @@ for f in \
   libexec/analytics-cmd \
   libexec/api \
   libexec/console.ts \
+  lib/limit.sh \
   lib/live.sh \
   lib/headless.sh \
   lib/improve.sh \
