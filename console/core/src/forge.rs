@@ -7,7 +7,7 @@
 //! tehas wants to know, and one adapter that answers it from GitHub's labels
 //! the way `lib/labels.sh` and `libexec/dispatch` do today. Nothing calls it
 //! yet; the next issues of #800 give bash a command for it and move
-//! `libexec/tidy`, `libexec/status` and `lib/labels.sh` onto that command.
+//! `libexec/status` and `lib/labels.sh` onto that command.
 //!
 //! The terms are tehas's, not GitHub's: an issue's labels, the newest event of
 //! one label, who applied the label that lets a cycle start, and putting a
@@ -39,7 +39,7 @@ mod gh;
 
 /// The label whose latest application approves work. Named once in this
 /// module: the same string is still spelled out in `console/dispatch`,
-/// `console/cycle` and `libexec/labels`, and the issue that consolidates
+/// `console/cycle` and `host/labels.tsv`, and the issue that consolidates
 /// tehas's label names (#810) is where the other copies are gathered.
 const APPROVAL_LABEL: &str = "tehas:ready";
 
@@ -181,6 +181,10 @@ pub trait Forge {
     /// event of the issue carries it.
     fn label_state(&mut self, issue: u64, label: &str) -> Result<Option<LabelEvent>, ForgeError>;
 
+    /// Every label event of the issue, for a rule of the caller's to read, as
+    /// [`crate::events::pause_holds`] reads them.
+    fn label_events(&mut self, issue: u64) -> Result<Vec<crate::events::Event>, ForgeError>;
+
     /// The newest application of `label`, or None when no event applied it.
     /// Only an application answers it: a label taken off does not, whoever
     /// took it off, because authorisation is the account that applied the
@@ -282,6 +286,19 @@ impl Forge for GitHub {
 
     fn label_state(&mut self, issue: u64, label: &str) -> Result<Option<LabelEvent>, ForgeError> {
         Ok(gh::latest_event(&self.events(issue)?, label))
+    }
+
+    fn label_events(&mut self, issue: u64) -> Result<Vec<crate::events::Event>, ForgeError> {
+        Ok(self
+            .events(issue)?
+            .into_iter()
+            .map(|e| crate::events::Event {
+                event: e.event,
+                label: e.label,
+                actor: e.actor,
+                at: e.at,
+            })
+            .collect())
     }
 
     fn applied_by(&mut self, issue: u64, label: &str) -> Result<Option<Approval>, ForgeError> {

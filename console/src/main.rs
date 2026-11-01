@@ -115,14 +115,13 @@
 //!   console shipped page|query|answer|list|has|whole ...
 //!
 //! What closed an issue: the page and the GraphQL query of the read, and what its
-//! answer says, for tehas tidy and tehasbot status (each command makes the call
-//! to these verbs itself), see src/shipped.rs.
+//! answer says, for tehasbot status, which makes the call to these verbs itself,
+//! see src/shipped.rs.
 //!
-//!   console tidy states|plan ...
+//!   console tidy run [--dry-run]
 //!
-//! Which of tehas's state labels come off which closed issue, and which issue the
-//! read of what closed them is asked about, for tehas tidy (libexec/tidy makes the
-//! two searches and the edits), see src/tidy.rs.
+//! The poll's tidy of closed issues: their state labels come off, and tehas:shipped
+//! goes on the ones a merged pull request closed, see src/tidy.rs.
 //!
 //!   console forge labels|label-state|approval|add-label|remove-label ...
 //!
@@ -146,8 +145,8 @@
 //! The product against the contract, and the files it is missing proposed in a
 //! pull request, see src/product.rs.
 //!
-//!   console tehas status|disk|state|limit|pause|analytics|top ...
-//!   console tehasbot health|top
+//!   console tehas status|disk|state|limit|pause|analytics|top|api|labels|resume|drain|stop|mcp ...
+//!   console tehasbot health|top|mcp
 //!   console check tehas|tehasbot <command> ...
 //!   console usage <command>
 //!
@@ -158,6 +157,7 @@
 //! Exit: 0 stopped by a signal or masked, 1 the console file or standard
 //! output cannot be written, 2 usage.
 
+mod api;
 mod clean;
 mod commands;
 mod disk;
@@ -171,6 +171,8 @@ mod frame;
 mod health;
 mod improve;
 mod jq;
+mod labels;
+mod mcp;
 mod notice;
 mod now;
 mod plan;
@@ -187,6 +189,7 @@ mod slice;
 mod snapshot;
 mod state;
 mod status;
+mod stop;
 mod store;
 mod tail;
 mod tidy;
@@ -396,6 +399,7 @@ fn main() -> ExitCode {
         match given.first().map(String::as_str) {
             Some("check-product") => return ExitCode::from(product::check(&given[1..])),
             Some("check") => return ExitCode::from(commands::check(&given[1..])),
+            Some("needs") => return ExitCode::from(commands::needs(&given[1..])),
             Some("clean") => return ExitCode::from(clean::main(&given[1..])),
             Some("disk") => return ExitCode::from(disk::main(&given[1..])),
             Some("energy") => return ExitCode::from(energy::main(&given[1..])),
