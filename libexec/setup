@@ -1,60 +1,11 @@
 #!/usr/bin/env bash
-# tehas setup: write this host's instance and start the factory, once.
+# tehas setup: write this host's instance and start the factory, once. The text
+# is console/src/usage/setup.txt.
 #
-# Asks for what it is not given, when there is a terminal to ask on:
+# Usage: tehas setup [options], see tehas help setup
 #
-#   --repo <owner/name>        the product repository
-#   --labellers "<a> <b>"      the logins whose labels count; never the bot
-#   --token-file <file>|-      the bot's GitHub token, read from a file or
-#                              from standard input. Never on the command line
-#   --app-id <id>              the GitHub App the factory acts as, in place of
-#   --app-installation <id>    a token: its ID, its installation's ID and its
-#   --app-key-file <file>      private key. All three or none, and not with
-#                              --token-file
-#   --endpoint <url>           the model endpoint, OpenAI-compatible, with its
-#                              /v1: its models are read from <url>/models
-#   --model <id>               the model to use; needed when the endpoint
-#                              offers more than one and there is no terminal
-#   --model-key-file <file>|-  the endpoint's key, if it takes one
-#   --provider <name>          the provider's name in models.json (main)
-#   --control-issue <n>        the control issue; without it one is made
-#   --no-build                 leave out the sandbox image and the gates
-#   --force                    replace a setting that is there and differs
-#
-# Then, in this order, stopping at the first step that fails:
-#   1. checks the token can push to the repository, or that the app's
-#      installation lists it and may write its contents, issues and pull
-#      requests, checks the endpoint offers the model, and makes the control
-#      issue
-#   2. writes ~/.config/tehas (or the directory instance-dir names):
-#      instance.env with the required settings only, models.json, and the
-#      token and the model key in env, mode 600. With an app: the app's three
-#      settings in instance.env, the key in ~/.config/tehas/github-app.pem,
-#      mode 600, and no token; the later steps run gh through ~/tehas/shim/gh
-#   3. gives git gh's credential helper for github.com, unless git has one, and
-#      gives it the bot's name and noreply address, unless it has one. The
-#      helper is checked first: the identity is of no use on a host whose git
-#      cannot authenticate, and the two are read from two different programs
-#   4. clones the product to ~/tehas/repos/<name>; an app's first run installs first
-#   5. runs install.sh beside this command, then tehas labels
-#   6. builds the sandbox image unless it is there, and runs the product's
-#      gates in it with tehas check-product --sandbox where that is installed
-#   7. enables the dispatch timer and path, starts the docs server and
-#      prints the dashboard's address
-#
-# A second run changes nothing that is right. A setting that is there and
-# differs is never replaced without --force: the run stops with 78 before it
-# calls anything or writes anything. Steps 1 and 2 are the console's, and
-# what it says goes to standard error.
-#
-# Usage:
-#   tehas setup [options]
-#
-# Exit: 0 done; 1 a check or a step failed (a step's own status when it has
-# one); 64 an unknown option, or the app options given in part or with
-# --token-file; 78 a setting is missing, malformed, or differs
-# from the one there without --force, a git config file git could not open,
-# or there is no console and no checkout to build it from.
+# Exit: the console's; 1 the build failed; 78 there is no console and no
+# checkout to build it from.
 set -uo pipefail
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)

@@ -196,6 +196,24 @@ for words in "update --help" "update -h" "help update" "status --help"; do
 done
 T_ENV=()
 
+t_case "the text of setup on a checkout that has built no console is the source's"
+reset
+mkdir -p "$tree/console/src/usage"
+echo "The text in the source." >"$tree/console/src/usage/setup.txt"
+for words in "setup --help" "setup -h" "help setup"; do
+  T_ENV=(TEHAS_CONSOLE="$T/no-console")
+  t_run "$tehas $words"
+  t_eq "$t_rc" 0
+  t_eq "$t_out" "The text in the source."
+done
+t_case "the text of setup with no console and no source: 78, and what to do"
+rm -rf "$tree/console"
+t_run "$tehas setup --help"
+t_eq "$t_rc" 78
+t_contains "$t_out" "no console at $T/no-console, so no text to show: run install.sh"
+t_eq "$(ran)" ""
+T_ENV=()
+
 t_case "--help with another argument is the script's to judge"
 reset
 t_run "$tehas work --help 7"
