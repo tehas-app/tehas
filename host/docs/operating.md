@@ -870,8 +870,9 @@ dispatcher's log says so.
      text the plan replaced, folded. The plan is written with the bot's
      token. A plan whose own title or text says nothing of the issue is
      refused instead: the issue keeps the text it holds, the session stays
-     open, and the bot's comment names the rule the text failed. Reply to
-     change the plan, and the next turn drafts it again.
+     open, and the bot's comment names the rule the text failed, masked of
+     tokens, keys and the host's private addresses as the planner's other
+     words are. Reply to change the plan, and the next turn drafts it again.
    - A `tehas:refine` session also offers **File as a new issue**, which
      files the plan as shown as one new issue that replaces this one. A
      session files once.
