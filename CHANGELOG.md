@@ -17,6 +17,8 @@ empty one above it.
 - The report of a cycle is tehas-cycle's alone: libexec/cycle's bash report and the report's shadow are gone, and TEHAS_CYCLE_REPORT takes only rust.
 - `tehas work` runs in Rust as `tehas-cycle work`; `libexec/work` only loads the settings and holds the issue's lock.
 - A planning turn (`tehas plan`) runs in the console; libexec/plan is a path that execs it.
+- The libraries no command sources are gone (lib/attachments.sh, cycles.sh, labels.sh, millwright.sh, questions.sh, sandbox.sh, slice.sh, store.sh, history-lines.jq); install.sh removes a host's copies.
+- bin/tehas and bin/tehasbot are a few lines that run the console, which chooses the command; with no console every command but tehas setup stops with 78.
 
 ### Adopter action
 
