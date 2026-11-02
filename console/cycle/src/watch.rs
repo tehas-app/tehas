@@ -1009,6 +1009,7 @@ fn tell_the_end(w: &Watch, cap: &str) {
 mod tests {
     use super::*;
     use serde_json::json;
+    use tehas_core::testdir::TestDir;
 
     fn seen(rc: i32) -> Seen<'static> {
         Seen {
@@ -1024,11 +1025,8 @@ mod tests {
         }
     }
 
-    fn dir(name: &str) -> PathBuf {
-        let d = std::env::temp_dir().join(format!("tehas-watch-{name}-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&d);
-        fs::create_dir_all(&d).unwrap();
-        d
+    fn dir(name: &str) -> TestDir {
+        TestDir::new(&format!("watch-{name}"))
     }
 
     #[test]

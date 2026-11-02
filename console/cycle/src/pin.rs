@@ -113,10 +113,10 @@ fn link_tree(from: &Path, to: &Path) -> io::Result<()> {
 mod tests {
     use super::*;
     use std::os::unix::fs::MetadataExt;
+    use tehas_core::testdir::TestDir;
 
-    fn home(name: &str) -> PathBuf {
-        let h = std::env::temp_dir().join(format!("tehas-pin-{name}-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&h);
+    fn home(name: &str) -> TestDir {
+        let h = TestDir::new(&format!("pin-{name}"));
         for t in TREES {
             fs::create_dir_all(h.join(t)).unwrap();
         }
@@ -144,7 +144,6 @@ mod tests {
         assert!(!dir.join("libexec/cycle.new").exists());
         let mode = fs::metadata(h.join("run")).unwrap().mode() & 0o777;
         assert_eq!(mode, 0o700);
-        fs::remove_dir_all(&h).unwrap();
     }
 
     #[test]
@@ -162,7 +161,6 @@ mod tests {
             fs::read_to_string(h.join("libexec/work")).unwrap(),
             "new work"
         );
-        fs::remove_dir_all(&h).unwrap();
     }
 
     #[test]
@@ -181,7 +179,6 @@ mod tests {
         );
         assert!(h.join("run/plan-8-42").is_dir());
         assert!(h.join("run/other").is_dir());
-        fs::remove_dir_all(&h).unwrap();
     }
 
     #[test]
@@ -191,7 +188,6 @@ mod tests {
         let e = make(&h, "cycle", 7, 42).unwrap_err();
         assert!(e.contains("lib is not a directory"), "{e}");
         assert!(!h.join("run/cycle-7-42").exists());
-        fs::remove_dir_all(&h).unwrap();
     }
 
     #[test]
@@ -201,7 +197,6 @@ mod tests {
         fs::write(dir.join("libexec/stray"), "s").unwrap();
         let dir = make(&h, "cycle", 7, 42).unwrap();
         assert!(!dir.join("libexec/stray").exists());
-        fs::remove_dir_all(&h).unwrap();
     }
 
     #[test]

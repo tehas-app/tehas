@@ -588,7 +588,8 @@ mod tests {
 
     #[test]
     fn a_first_and_a_later_turn_are_read_and_the_last_flag_counts() {
-        let brief = env::temp_dir().join(format!("plan-start-{}", std::process::id()));
+        let dir = tehas_core::testdir::TestDir::new("plan-start");
+        let brief = dir.join("brief.md");
         fs::write(&brief, "# T\n").unwrap();
         let b = brief.display();
         let w = parse(&given(&format!(
@@ -607,12 +608,12 @@ mod tests {
             (w.session.as_str(), w.comment.as_str(), w.refine),
             ("abc-1", "12", false)
         );
-        fs::remove_file(&brief).unwrap();
     }
 
     #[test]
     fn words_that_are_no_turn_are_refused() {
-        let brief = env::temp_dir().join(format!("plan-start-bad-{}", std::process::id()));
+        let dir = tehas_core::testdir::TestDir::new("plan-start-bad");
+        let brief = dir.join("brief.md");
         fs::write(&brief, "# T\n").unwrap();
         let b = brief.display();
         for bad in [
@@ -635,7 +636,6 @@ mod tests {
         ] {
             assert_eq!(parse(&given(&bad)), None, "{bad}");
         }
-        fs::remove_file(&brief).unwrap();
     }
 
     #[test]
@@ -681,9 +681,7 @@ mod tests {
 
     #[test]
     fn only_a_tick_of_update_after_a_drafted_plan_updates_the_issue() {
-        let dir = env::temp_dir().join(format!("plan-start-update-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
+        let dir = tehas_core::testdir::TestDir::new("plan-start-update");
         let keep = dir.display().to_string();
         let answer = dir.join("answer.md").display().to_string();
         fs::write(&answer, "note\nalice chose: Update this issue\n").unwrap();
@@ -694,6 +692,5 @@ mod tests {
         fs::write(dir.join("exit"), "12\n").unwrap();
         fs::write(&answer, "alice chose: Update this issue, but\n").unwrap();
         assert!(!chose_update(&keep, &answer));
-        fs::remove_dir_all(&dir).unwrap();
     }
 }

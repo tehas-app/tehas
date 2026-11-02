@@ -100,10 +100,8 @@ pub(crate) fn spec() -> Value {
 mod tests {
     use super::*;
     use std::fs;
-    use std::path::{Path, PathBuf};
-    use std::sync::atomic::{AtomicU64, Ordering};
-
-    static ATOMIC: AtomicU64 = AtomicU64::new(0);
+    use std::path::Path;
+    use tehas_core::testdir::TestDir;
 
     fn dirs(live: &Path) -> Dirs {
         Dirs {
@@ -113,16 +111,8 @@ mod tests {
         }
     }
 
-    fn published(text: &str) -> PathBuf {
-        let dir: PathBuf = std::env::temp_dir().join(format!(
-            "mcp-disk-{}-{}",
-            std::process::id(),
-            // One directory per case: the tests of this file run side by side
-            // and would otherwise read and remove one another's file.
-            ATOMIC.fetch_add(1, Ordering::Relaxed)
-        ));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
+    fn published(text: &str) -> TestDir {
+        let dir = TestDir::new("mcp-disk");
         fs::write(dir.join(FILE), text).unwrap();
         dir
     }
@@ -177,20 +167,16 @@ mod tests {
                 "{forbidden} reached the answer: {said}"
             );
         }
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn no_published_file_is_the_error_that_says_so() {
-        let dir = std::env::temp_dir().join(format!("mcp-disk-none-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
+        let dir = TestDir::new("mcp-disk-none");
         let why = match call(&dirs(&dir)) {
             Err(ToolError::File { why, .. }) => why,
             other => panic!("a file that is not there is an error, not an answer: {other:?}"),
         };
         assert_eq!(why, "not published");
-        let _ = fs::remove_dir_all(&dir);
     }
 
     // A file that holds something which is not one object - half a write, or
@@ -208,7 +194,6 @@ mod tests {
                 said == "is not complete JSON" || said == "is not one object",
                 "{text:?} refused with {said:?}"
             );
-            let _ = fs::remove_dir_all(&dir);
         }
     }
 

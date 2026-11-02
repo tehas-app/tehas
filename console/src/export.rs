@@ -533,9 +533,8 @@ mod tests {
         given.iter().map(|w| w.to_string()).collect()
     }
 
-    fn scratch(name: &str) -> PathBuf {
-        let dir = env::temp_dir().join(format!("tehas-export-{}-{name}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
+    fn scratch(name: &str) -> tehas_core::testdir::TestDir {
+        let dir = tehas_core::testdir::TestDir::new(&format!("export-{name}"));
         fs::create_dir_all(dir.join("home/logs")).unwrap();
         dir
     }
@@ -624,7 +623,6 @@ mod tests {
         std::os::unix::fs::symlink(&home, &named).unwrap();
         let in_logs = home.join("logs");
         assert!(target(in_logs.to_str().unwrap(), &named).is_err());
-        fs::remove_dir_all(&top).unwrap();
     }
 
     #[test]
@@ -646,7 +644,6 @@ mod tests {
         fs::write(&file, "").unwrap();
         let no = target(file.to_str().unwrap(), &home).unwrap_err();
         assert!(no.starts_with("could not make"), "{no}");
-        fs::remove_dir_all(&top).unwrap();
     }
 
     #[test]
@@ -656,7 +653,6 @@ mod tests {
         assert_eq!(comes_to(&top.join("no/such")), Some(real.join("no/such")));
         std::os::unix::fs::symlink(top.join("home"), top.join("l")).unwrap();
         assert_eq!(comes_to(&top.join("l/x")), Some(real.join("home/x")));
-        fs::remove_dir_all(&top).unwrap();
     }
 
     /// Run alone with the settings a host would give, as the variables can
@@ -693,7 +689,6 @@ mod tests {
                 .env("PI_ENSEMBLE_MODEL_CODE_REVIEW_SPECIALIST", "m3")
                 .status()
                 .unwrap();
-            fs::remove_dir_all(&top).unwrap();
             assert!(done.success());
             return;
         };

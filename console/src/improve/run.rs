@@ -1233,20 +1233,10 @@ pub fn run(prompt: &str) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tehas_core::testdir::TestDir;
 
-    struct Dir(PathBuf);
-
-    impl Drop for Dir {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.0);
-        }
-    }
-
-    fn dir(name: &str) -> Dir {
-        let d = env::temp_dir().join(format!("improve-run-{name}-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&d);
-        fs::create_dir_all(&d).unwrap();
-        Dir(d)
+    fn dir(name: &str) -> TestDir {
+        TestDir::new(&format!("improve-run-{name}"))
     }
 
     #[test]
@@ -1277,7 +1267,7 @@ mod tests {
     #[test]
     fn a_cap_is_a_digit_from_one_to_five() {
         let d = dir("cap");
-        let f = d.0.join("cap");
+        let f = d.join("cap");
         assert_eq!(cap_of(&f), 5);
         for (text, cap) in [
             ("1\n", 1),
@@ -1326,29 +1316,29 @@ mod tests {
             ("[]".to_string(), (String::new(), String::new())),
             ("not json".to_string(), (String::new(), String::new())),
         ] {
-            fs::write(d.0.join("cycle.json"), &text).unwrap();
-            assert_eq!(ran(&d.0), want, "{text}");
+            fs::write(d.join("cycle.json"), &text).unwrap();
+            assert_eq!(ran(d.path()), want, "{text}");
         }
-        assert_eq!(ran(&d.0.join("none")), (String::new(), String::new()));
+        assert_eq!(ran(&d.join("none")), (String::new(), String::new()));
     }
 
     #[test]
     fn look_keeps_records_and_removes_other_directories_but_not_hidden_ones() {
         let d = dir("look");
         for name in ["7-261010-200140", "odd", ".hidden"] {
-            fs::create_dir_all(d.0.join(name)).unwrap();
+            fs::create_dir_all(d.join(name)).unwrap();
         }
-        fs::write(d.0.join("a-file"), "").unwrap();
-        assert_eq!(look(&d.0), ["7-261010-200140"]);
-        assert!(!d.0.join("odd").exists());
-        assert!(d.0.join(".hidden").exists());
-        assert!(d.0.join("a-file").exists());
+        fs::write(d.join("a-file"), "").unwrap();
+        assert_eq!(look(d.path()), ["7-261010-200140"]);
+        assert!(!d.join("odd").exists());
+        assert!(d.join(".hidden").exists());
+        assert!(d.join("a-file").exists());
     }
 
     #[test]
     fn give_back_returns_records_and_replaces_what_is_there() {
         let d = dir("back");
-        let (run, window) = (d.0.join("run-1"), d.0.join("window"));
+        let (run, window) = (d.join("run-1"), d.join("window"));
         let cycle = run.join("in/cycles/7-261010-200140");
         fs::create_dir_all(&cycle).unwrap();
         fs::write(cycle.join("cycle.json"), "new").unwrap();
@@ -1366,21 +1356,21 @@ mod tests {
     #[test]
     fn a_copy_that_cannot_be_written_is_no_copy() {
         let d = dir("mask");
-        let raw = d.0.join("work.jsonl");
+        let raw = d.join("work.jsonl");
         fs::write(&raw, "PASSWORD=hunter2-secret\n").unwrap();
-        fs::write(d.0.join("work.jsonl.err"), "stderr line\n").unwrap();
-        let to = d.0.join("masked");
+        fs::write(d.join("work.jsonl.err"), "stderr line\n").unwrap();
+        let to = d.join("masked");
         let text = masked_copy(&raw, &to).unwrap();
         assert_eq!(text, "PASSWORD=***\nstderr line\n");
         assert_eq!(fs::read_to_string(&to).unwrap(), text);
-        assert_eq!(masked_copy(&raw, &d.0.join("no/such/dir")), None);
+        assert_eq!(masked_copy(&raw, &d.join("no/such/dir")), None);
     }
 
     #[test]
     fn a_log_that_is_gone_masks_as_nothing_and_a_missing_err_is_no_matter() {
         let d = dir("nolog");
         assert_eq!(
-            masked_copy(&d.0.join("none"), &d.0.join("m")).as_deref(),
+            masked_copy(&d.join("none"), &d.join("m")).as_deref(),
             Some("")
         );
     }

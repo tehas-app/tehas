@@ -843,7 +843,7 @@ mod tests {
 
     #[test]
     fn the_seed_leaves_out_the_logs_and_what_a_stopped_run_left() {
-        let at = env::temp_dir().join(format!("sandbox-seed-{}", std::process::id()));
+        let at = crate::testdir::TestDir::new("sandbox-seed");
         let index = at.join("index");
         fs::create_dir_all(index.join("logs")).unwrap();
         for f in ["widget.db", "widget.db.stage.1", "other.tmp", "_config.db"] {
@@ -859,7 +859,6 @@ mod tests {
         got.sort();
         assert_eq!(got, ["_config.db", "widget.db"]);
         assert!(seed(&state, &at.join("no-index").display().to_string()));
-        fs::remove_dir_all(&at).unwrap();
     }
 
     #[test]

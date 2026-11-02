@@ -895,8 +895,7 @@ mod tests {
 
     #[test]
     fn a_tree_moved_aside_replaces_the_one_before_it() {
-        let d = std::env::temp_dir().join(format!("tehas-prepare-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&d);
+        let d = tehas_core::testdir::TestDir::new("prepare");
         fs::create_dir_all(d.join("w")).unwrap();
         fs::write(d.join("w/new"), "x").unwrap();
         fs::create_dir_all(d.join("w.before-retry")).unwrap();
@@ -908,6 +907,5 @@ mod tests {
         assert!(!d.join("w.before-retry/old").exists());
         assert!(aside(tree.to_str().unwrap()));
         assert!(d.join("w.before-retry/new").exists());
-        let _ = fs::remove_dir_all(&d);
     }
 }

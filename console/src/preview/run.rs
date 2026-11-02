@@ -610,23 +610,44 @@ pub fn main(sweep: bool) -> u8 {
     }
 }
 
+/// A preview whose home is a test's own directory.
 #[cfg(test)]
-impl Drop for Preview {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.home);
+pub struct Scratch {
+    preview: Preview,
+    _home: tehas_core::testdir::TestDir,
+}
+
+#[cfg(test)]
+impl std::ops::Deref for Scratch {
+    type Target = Preview;
+    fn deref(&self) -> &Preview {
+        &self.preview
     }
 }
 
 #[cfg(test)]
-pub fn scratch(name: &str) -> Preview {
-    let home = std::env::temp_dir().join(format!("preview-{name}-{}", std::process::id()));
-    let _ = fs::remove_dir_all(&home);
-    let mut preview = Preview::under(home, "acme/widget".into(), "example.org".into());
+impl std::ops::DerefMut for Scratch {
+    fn deref_mut(&mut self) -> &mut Preview {
+        &mut self.preview
+    }
+}
+
+#[cfg(test)]
+pub fn scratch(name: &str) -> Scratch {
+    let home = tehas_core::testdir::TestDir::new(&format!("preview-{name}"));
+    let mut preview = Preview::under(
+        home.to_path_buf(),
+        "acme/widget".into(),
+        "example.org".into(),
+    );
     preview.min_kb = 1024;
     for dir in [&preview.root, &preview.live, &preview.logs] {
         fs::create_dir_all(dir).unwrap();
     }
-    preview
+    Scratch {
+        preview,
+        _home: home,
+    }
 }
 
 #[cfg(test)]

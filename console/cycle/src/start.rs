@@ -348,12 +348,10 @@ mod tests {
     use super::*;
     use serde_json::json;
     use std::os::unix::fs::PermissionsExt;
+    use tehas_core::testdir::TestDir;
 
-    fn home(name: &str) -> PathBuf {
-        let d = std::env::temp_dir().join(format!("tehas-start-{name}-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&d);
-        fs::create_dir_all(&d).unwrap();
-        d
+    fn home(name: &str) -> TestDir {
+        TestDir::new(&format!("start-{name}"))
     }
 
     #[test]
