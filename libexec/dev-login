@@ -1,53 +1,12 @@
 #!/usr/bin/env bash
 # The way into "tehas dev" for another account on the host. sudo runs this as
-# the tehas user; nobody types it. The account types tehas dev, which is
-# host/login/tehas, installed for everyone by "sudo ./bootstrap.sh dev".
+# the tehas user; nobody types it. /etc/sudoers.d/tehas-dev and host/login/tehas
+# name this path, and a root step writes both. console/src/dev.rs is the rest.
 #
 # Usage: sudo -H -u <tehas user> dev-login "Name <email>" [-- <pi arguments>]
 #
-# It starts libexec/dev, beside this file, with two things decided here and
-# not by the caller:
-#   the clone   named after the account sudo was asked by (SUDO_USER, which
-#               sudo sets and the caller cannot), so nobody enters another
-#               account's clone
-#   the author  the one argument, which the account's own command read from
-#               its git configuration. A label, as in tehas dev: it is checked
-#               for its shape and against nothing else.
-# What follows -- goes to pi inside the container, and nowhere else.
-#
-# sudo starts this with a clean environment, so it loads the tehas user's
-# own, as the timers do.
-#
 # Exit: that of the session; 64 not started by sudo, an account whose name
 # cannot name a clone, or arguments other than the above. No container then.
-set -uo pipefail
-
-refuse() {
-  printf 'tehas dev: %s\n' "$1" >&2
-  exit 64
-}
-
-login=${SUDO_USER:-}
-[ -n "$login" ] || refuse "this is run by sudo for another account; type: tehas dev"
-case "$login" in
-  *[!A-Za-z0-9_-]* | [_-]*) refuse "the account name $login cannot name a clone (letters, digits, _ and -)" ;;
-esac
-
-[ "$#" -ge 1 ] || refuse "no author was given; type: tehas dev"
-author=$1
-shift
-if [ "$#" -gt 0 ]; then
-  [ "$1" = -- ] || refuse "unknown argument: $1"
-  shift
-fi
-
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-# The caller's directory is usually one the tehas user cannot read.
-cd "$HOME" 2>/dev/null || cd /
-if [ -r "$here/../env.sh" ]; then
-  set +u
-  # shellcheck source=host/env.sh
-  . "$here/../env.sh"
-  set -u
-fi
-exec "$here/dev" "$login" --author "$author" -- "$@"
+[ -x "$here/console" ] || { echo "tehas dev: no console beside this command at $here/console, run install.sh" >&2; exit 78; }
+exec "$here/console" tehas dev-login "$@"

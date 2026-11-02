@@ -24,7 +24,8 @@ fn allowed(login: &str) -> bool {
     )
 }
 
-fn is_allowed(issue: &str, label: &str) -> u8 {
+/// `console label allowed`, for a command of this program.
+pub fn allowed_issue(issue: &str, label: &str) -> u8 {
     let Ok(number) = issue.parse::<u64>() else {
         return 2;
     };
@@ -47,7 +48,7 @@ fn is_allowed(issue: &str, label: &str) -> u8 {
 pub fn main(given: &[String]) -> u8 {
     let words: Vec<&str> = given.iter().map(String::as_str).collect();
     match words.as_slice() {
-        ["allowed", issue, label] => is_allowed(issue, label),
+        ["allowed", issue, label] => allowed_issue(issue, label),
         _ => {
             eprintln!("{USAGE}");
             64

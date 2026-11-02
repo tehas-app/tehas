@@ -22,7 +22,7 @@ Preparing a fresh machine is on the [bootstrap page](/bootstrap).
 | `~/tehas/lib/paths.sh`               | The home of each tool this host installs, and the `PATH` that finds them. `env.sh`, `bootstrap.sh` and `install.sh` all take the list from here |
 | `~/tehas/lib/sandbox.sh`             | The bash of a sandbox container: the reading of what `tehas-cycle sandbox` gives it; sourced by the work and plan scripts, and by dev for the check of Pi's files |
 | `~/tehas/lib/slice.sh`               | The way to `console slice`, for the poll and `tehas improve`: whether the slice is usable and the room left, and with no console it finds no slice. A command that starts a sandbox container asks `tehas-cycle sandbox limits`, which holds the same rules and makes the container's limits, and it starts nothing without a usable slice |
-| `~/tehas/lib/attachments.sh`         | The way to `libexec/attach`, which holds which links of an issue are attached files, who may attach and how one is fetched. `tehas work`, `tehas plan` and `tehas dev` use it; the Protolab holds the same link rule in the console |
+| `~/tehas/lib/attachments.sh`         | The way to `libexec/attach`, which holds which links of an issue are attached files, who may attach and how one is fetched. `tehas work` and `tehas plan` use it; `tehas dev` and the Protolab reach the program from the console, and the Protolab holds the same link rule there |
 | `~/tehas/lib/questions.sh`            | The questions of a park. A cycle's report uses it |
 | `~/tehas/bin/`                       | The two commands on `PATH`: `tehas` for a person, `tehasbot` for the units. Plus `gh` |
 | `~/tehas/libexec/`                   | The scripts behind the two commands, one for each thing they do. Not on `PATH` |
