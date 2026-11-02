@@ -126,7 +126,7 @@ t_eq "$(approval "[.by, .how, .at, .body_sha256 == \"$WSUM\", .rests_on.by, .res
   '["alice","refresh","2026-10-01T00:00:00Z",true,"alice","label",1,0,50,true,true,"main"]'
 t_eq "$(approval '[.retry_context[] | {source, by}]')" '[{"source":"refresh","by":"tehas"}]'
 t_eq "$(approval '.retry_context[0].text')" \
-  'This pull request conflicts with `main`. Merge `main` into its branch, resolve the conflicts so the change still does what the issue asks, run the gate, and push to the same branch. Do no other work.'
+  'This pull request conflicts with `main`. Merge `main` into its branch, resolve the conflicts so the change still does what the issue asks, run the gate in `.pi/verify-cmd`, and push to the same branch. Do no other work.'
 
 t_case "the record was on disk before the issue was marked, and after the mark"
 t_eq "$(at_mark .how)" refresh

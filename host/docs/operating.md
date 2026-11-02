@@ -1909,7 +1909,7 @@ approval), `refresh_of` (`pr`, `head_sha`, `base_sha`, `branch`) and one
 
 > This pull request conflicts with `main`. Merge `main` into its branch,
 > resolve the conflicts so the change still does what the issue asks, run the
-> gate, and push to the same branch. Do no other work.
+> gate in `.pi/verify-cmd`, and push to the same branch. Do no other work.
 
 No comment text reaches the cycle this way. As with the millwright's note, it
 reaches `retry-context.md` only where the instance gives a cycle images or
