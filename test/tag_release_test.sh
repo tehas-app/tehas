@@ -226,6 +226,71 @@ t_eq "$t_rc" 1
 t_contains "$t_out" '"### Adopter action" heading'
 t_lacks "$(tags)" v0.2.0-rc.2
 
+# candidate <branch> <subject>: a branch of the remote from main's head, one
+# commit ahead of it.
+candidate() {
+  g -C "$T/up" checkout --quiet -B "$1" main &&
+    g -C "$T/up" commit --quiet --allow-empty -m "$2" &&
+    g -C "$T/up" push --quiet origin "$1" &&
+    g -C "$T/up" checkout --quiet main
+}
+
+t_case "--rc --from tags the head of a candidate branch that contains main's head"
+fresh
+commit second
+candidate candidate-v0.1.1 "waits on its proof"
+t_run "$work/scripts/tag-release.sh --rc --from candidate-v0.1.1 2>&1"
+t_eq "$t_rc" 0
+t_eq "$(tail -n 1 <<<"$t_out")" v0.1.1-rc.1
+t_contains "$t_out" "tagged candidate-v0.1.1 at"
+t_eq "$(head_of v0.1.1-rc.1)" "$(head_of candidate-v0.1.1)"
+t_eq "$(t_calls verify)" ran
+t_eq "$(git -C "$origin" log -1 --format=%s main)" second
+t_eq "$(git -C "$work" worktree list | wc -l)" 1
+
+t_case "--rc --from refuses a branch that does not contain main's head"
+commit third
+t_run "$work/scripts/tag-release.sh --rc --no-verify --from candidate-v0.1.1"
+t_eq "$t_rc" 1
+t_contains "$t_out" "candidate-v0.1.1 does not contain the head of main"
+t_eq "$(tags)" "v0.1.0 v0.1.1-rc.1 "
+
+t_case "--from needs --rc and a branch the remote has"
+t_run "$work/scripts/tag-release.sh --from candidate-v0.1.1"
+t_eq "$t_rc" 64
+t_contains "$t_out" "--from goes with --rc"
+t_run "$work/scripts/tag-release.sh --rc --from"
+t_eq "$t_rc" 64
+t_run "$work/scripts/tag-release.sh --rc --no-verify --from no-such-branch"
+t_eq "$t_rc" 1
+t_contains "$t_out" "origin has no branch no-such-branch"
+t_eq "$(tags)" "v0.1.0 v0.1.1-rc.1 "
+
+t_case "a plain release still tags main's head, not a candidate branch"
+candidate candidate-v0.1.1 "more"
+t_run "$work/scripts/tag-release.sh --no-verify 2>/dev/null"
+t_eq "$t_out" v0.1.1
+t_eq "$(head_of v0.1.1)" "$(head_of main)"
+
+# The workflow is not in the gate, so its tag check is read out of it and run.
+t_case "the release workflow takes a candidate tag and builds the tag pushed, on main or not"
+wf=$T_ROOT/.github/workflows/release.yml
+t_contains "$(cat "$wf")" "'v[0-9]+.[0-9]+.[0-9]+-rc.[0-9]+'"
+check=$(grep -F '[[ $TAG =~' "$wf" | sed 's/^ *//')
+t_contains "$check" "not a release tag"
+for tag in v0.22.0 v0.22.0-rc.1 v0.22.0-rc.10; do
+  t_run "TAG=$tag; $check"
+  t_eq "$t_rc" 0
+done
+for tag in v0.22.0-rc1 v0.22.0-beta.1 v0.22; do
+  t_run "TAG=$tag; $check"
+  t_eq "$t_rc" 1
+done
+# The checkout is of the pushed ref, the tag: nothing names a branch.
+t_lacks "$(cat "$wf")" "default_branch"
+t_lacks "$(cat "$wf")" "ref:"
+t_lacks "$(cat "$wf")" "merge-base"
+
 t_case "an unknown argument is refused before git runs"
 t_run "$work/scripts/tag-release.sh --bogus"
 t_eq "$t_rc" 64

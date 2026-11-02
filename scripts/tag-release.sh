@@ -36,19 +36,25 @@
 # The checks and the gate are the same; the CHANGELOG section is Unreleased,
 # which stays as it is. The release workflow publishes a candidate as a
 # prerelease, which a plain tehas update passes over. When the head already
-# carries the newest candidate, that is the answer.
+# carries the newest candidate, that is the answer. With --from <branch> the
+# candidate is the head of that branch of the remote instead, which must
+# contain the default branch's head: a candidate is the default branch and
+# more, such as pull requests that wait on its host proof, never behind it.
 #
 # The tag is the only line on stdout, so a script can take it:
 #   tag=$(scripts/tag-release.sh) || exit
 #
-# Usage: scripts/tag-release.sh [--patch|--minor|--major] [--rc]
-#                               [--message <text>] [--no-verify] [--dry-run]
-#                               [--remote <name>] [--rukas-caps <file>]
+# Usage: scripts/tag-release.sh [--patch|--minor|--major]
+#                               [--rc [--from <branch>]] [--message <text>]
+#                               [--no-verify] [--dry-run] [--remote <name>]
+#                               [--rukas-caps <file>]
 #   --patch      the default: v0.7.6 becomes v0.7.7
 #   --minor      v0.7.6 becomes v0.8.0
 #   --major      v0.7.6 becomes v1.0.0
 #   --rc         a release candidate of that version: v0.8.0-rc.1, then
 #                v0.8.0-rc.2
+#   --from       with --rc: tag the head of this branch of the remote, not
+#                the default branch's
 #   --message    the tag's message instead of the head's subject
 #   --no-verify  skip scripts/verify.sh
 #   --dry-run    check CHANGELOG.md and print the tag it would make; make none,
@@ -67,6 +73,7 @@ set -uo pipefail
 
 part="patch"
 rc=""
+from=""
 dry=""
 verify=1
 message=""
@@ -76,6 +83,11 @@ while [ "$#" -gt 0 ]; do
   case "$1" in
     --patch | --minor | --major) part=${1#--} ;;
     --rc) rc=1 ;;
+    --from)
+      [ "$#" -ge 2 ] && [ -n "$2" ] || { echo "tag-release: --from needs a branch" >&2; exit 64; }
+      from=$2
+      shift
+      ;;
     --dry-run) dry=1 ;;
     --no-verify) verify="" ;;
     --message)
@@ -99,6 +111,11 @@ while [ "$#" -gt 0 ]; do
   shift
 done
 
+[ -z "$from" ] || [ -n "$rc" ] || {
+  echo "tag-release: --from goes with --rc; a release is the head of the default branch" >&2
+  exit 64
+}
+
 cd "$(dirname "${BASH_SOURCE[0]}")/.." || exit 1
 
 if ! git fetch --quiet --tags --force "$remote"; then
@@ -116,6 +133,21 @@ if [ -z "$branch" ] || [ -z "$head" ]; then
   echo "tag-release: $remote did not name its default branch" >&2
   exit 1
 fi
+# What is tagged, as the messages name it: the default branch, or --from.
+at=$branch
+if [ -n "$from" ]; then
+  if ! git fetch --quiet "$remote" "refs/heads/$from" "refs/heads/$branch" 2>/dev/null ||
+    ! tip=$(git rev-parse --verify --quiet "FETCH_HEAD^{commit}"); then
+    echo "tag-release: $remote has no branch $from" >&2
+    exit 1
+  fi
+  if ! git merge-base --is-ancestor "$head" "$tip"; then
+    echo "tag-release: $from does not contain the head of $branch (${head:0:7}); a candidate is $branch and more. Merge $branch into it first; nothing was tagged" >&2
+    exit 1
+  fi
+  head=$tip
+  at=$from
+fi
 
 latest=$(git tag --list 'v*' --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1)
 if [ -n "$latest" ]; then
@@ -124,7 +156,7 @@ if [ -n "$latest" ]; then
     exit 1
   }
   if [ "$latest_commit" = "$head" ]; then
-    echo "tag-release: $branch at ${head:0:7} is already $latest" >&2
+    echo "tag-release: $at at ${head:0:7} is already $latest" >&2
     echo "$latest"
     exit 0
   fi
@@ -147,7 +179,7 @@ if [ -n "$rc" ]; then
     [[ ! $t =~ ^[0-9]+$ ]] || echo "$t"
   done | sort -n | tail -n 1)
   if [ -n "$n" ] && [ "$(git rev-parse --verify --quiet "$next-rc.$n^{commit}")" = "$head" ]; then
-    echo "tag-release: $branch at ${head:0:7} is already $next-rc.$n" >&2
+    echo "tag-release: $at at ${head:0:7} is already $next-rc.$n" >&2
     echo "$next-rc.$n"
     exit 0
   fi
@@ -184,7 +216,7 @@ fi
 
 count=$(git rev-list --count "${latest:+$latest..}$head")
 if [ -n "$dry" ]; then
-  echo "tag-release: would tag $branch at ${head:0:7} as $next ($count commits since ${latest:-the start})" >&2
+  echo "tag-release: would tag $at at ${head:0:7} as $next ($count commits since ${latest:-the start})" >&2
   echo "$next"
   exit 0
 fi
@@ -309,5 +341,5 @@ if ! git push --quiet "$remote" "refs/tags/$next"; then
   echo "tag-release: pushing $next to $remote failed; the local tag is removed" >&2
   exit 1
 fi
-echo "tag-release: tagged $branch at ${head:0:7} as $next ($count commits since ${latest:-the start})" >&2
+echo "tag-release: tagged $at at ${head:0:7} as $next ($count commits since ${latest:-the start})" >&2
 echo "$next"
