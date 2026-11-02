@@ -1173,6 +1173,9 @@ Most of the time you do not need it. The machine's CPUs and memory change while
 it runs, and a hypervisor restart saves the virtual machine with its cycles in
 it, so what runs goes on where it stopped: [Resize or restart the
 host](/resize) is that, and it names the four changes that still need a drain.
+That is a VM host: a factory that is a container on another project's machine
+has no hypervisor to save it, so a restart of the machine under it is always a
+drain.
 
 A program that drives factories uses the same commands: see
 [the factory API](/api).
@@ -1909,7 +1912,7 @@ approval), `refresh_of` (`pr`, `head_sha`, `base_sha`, `branch`) and one
 
 > This pull request conflicts with `main`. Merge `main` into its branch,
 > resolve the conflicts so the change still does what the issue asks, run the
-> gate, and push to the same branch. Do no other work.
+> gate in `.pi/verify-cmd`, and push to the same branch. Do no other work.
 
 No comment text reaches the cycle this way. As with the millwright's note, it
 reaches `retry-context.md` only where the instance gives a cycle images or

@@ -13,12 +13,7 @@ empty one above it.
 
 ### Changes
 
-- The console drops verbs nothing calls (label actor, label pause-holds, every shipped verb but page, `flags pause show` and `flags pause read`, so `console flags pause` takes only `set` and `clear`), keeps one copy of the host names and of the version compare, and bash loses four functions only tests called. `tehas pause`/`tehas resume` are unchanged.
-- `tehas history` runs in the console, in process, with its output unchanged; `libexec/history`, `lib/history-listing.jq` and `lib/history-repeats.jq` are gone, and an instance without a valid `TEHAS_REPO` now gets exit 78.
-- tehas export is a verb of the console and libexec/export is gone. An invalid TEHAS_REPO or an unreadable file of models now stops it with 78, it makes no directory on a refused argument or a link into the home, and it no longer takes a console from the PATH.
-- tehas setup runs in the console. libexec/setup is left with finding or building the console, and tehas setup --help reads the console's text.
-- `tehas dev` and its login start from the console; `libexec/dev` and `libexec/dev-login` are thin paths kept for the argv pin and the sudo rule. Nothing changes for a person.
-- `console run` is the one way into a command under the settings: libexec/with-settings, clean, preview, protolab, refresh and init-product and lib/disk.sh are gone, libexec/dispatch, review, improve, check-product and github-token are a line each, and an update restarts tehas-top.service.
+- `console flags pause` takes only `set` and `clear`: `show` and `read`, which nothing called, are gone (#1365). The dashboard's reader of the flag uses the same reading as the health file.
 
 ### Adopter action
 
@@ -26,6 +21,24 @@ empty one above it.
 which called one of them now gets 64 and the usage. The words of the flag are
 what `tehas status` prints, and the object is what `tehasbot status` publishes
 in `live/status.json` under `pause.flag`.
+
+## v0.22.0 (2026-11-02)
+
+### Changes
+
+- The console drops verbs nothing calls (label actor, label pause-holds, every shipped verb but page), keeps one copy of the host names and of the version compare, and bash loses four functions only tests called.
+- `tehas history` runs in the console, in process, with its output unchanged; `libexec/history`, `lib/history-listing.jq` and `lib/history-repeats.jq` are gone, and an instance without a valid `TEHAS_REPO` now gets exit 78.
+- tehas export is a verb of the console and libexec/export is gone. An invalid TEHAS_REPO or an unreadable file of models now stops it with 78, it makes no directory on a refused argument or a link into the home, and it no longer takes a console from the PATH.
+- tehas setup runs in the console. libexec/setup is left with finding or building the console, and tehas setup --help reads the console's text.
+- `tehas dev` and its login start from the console; `libexec/dev` and `libexec/dev-login` are thin paths kept for the argv pin and the sudo rule. Nothing changes for a person.
+- `console run` is the one way into a command under the settings: libexec/with-settings, clean, preview, protolab, refresh and init-product and lib/disk.sh are gone, libexec/dispatch, review, improve, check-product and github-token are a line each, and an update restarts tehas-top.service.
+- `factory_decisions` lists the dispatcher's `hold` decisions beside start, skip, wait and drop.
+- A refresh's brief tells its developer to run the gate in `.pi/verify-cmd`, not an unnamed gate.
+- The resize manual says it applies only to a host that is a virtual machine under libvirt; a container host needs a drain before a restart.
+
+### Adopter action
+
+None.
 
 ## v0.21.0 (2026-11-02)
 
@@ -442,7 +455,7 @@ it held a `[bot]` login can have it back.
   second of the last index write: its copy of the index keeps the index's
   time, so git checks that file again (#983).
 - Less bash: `tehas pause` and `tehas resume` hand the pause flag to the
-  console. `console flags pause set|clear` reads, validates, writes
+  console. `console flags pause show|set|clear|read` reads, validates, writes
   and prints `~/tehas/state/pause.json`, the same file in the same shape with
   the same words as before, and the two commands keep only their settings,
   their argument checks and the hand-off; `tehas resume` still reads the
