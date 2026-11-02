@@ -3,7 +3,7 @@ Description=Tehas: remove what the host can make again
 
 [Service]
 Type=oneshot
-# No redirect: libexec/clean is the one writer of logs/clean.log and prints
+# No redirect: tehasbot clean is the one writer of logs/clean.log and prints
 # each line as well, so a redirect into that file would write every line of a
 # run twice. A refusal before the log is opened (settings, the lock, an
 # unmade state directory) is printed only, so it reaches the journal and not

@@ -242,9 +242,9 @@ repo=$TEHAS_REPO
 # The cycle's workspace on the host; tehas work makes it under this name.
 workdir=$TEHAS_WORK_DIR-$issue
 work=${TEHAS_WORK_CMD:-$here/work}
-status_cmd=${TEHAS_STATUS_CMD:-$here/with-settings}
+status_cmd=${TEHAS_STATUS_CMD:-$here/../bin/tehasbot}
 status_args=()
-[ -n "${TEHAS_STATUS_CMD:-}" ] || status_args=(--status-arg tehasbot --status-arg status)
+[ -n "${TEHAS_STATUS_CMD:-}" ] || status_args=(--status-arg status)
 console=${TEHAS_CONSOLE_CMD:-$here/console}
 # A pinned cycle runs its own copy.
 tc=${TEHAS_CODE:-$TEHAS_HOME}/libexec/tehas-cycle

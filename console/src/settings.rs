@@ -21,6 +21,10 @@
 //!   console settings words <name>
 //!
 //! The words a setting takes, for what ships to be held against them.
+//!
+//! [`load_here`] and [`require`] are tehas_load and tehas_require for this
+//! program, `console run` their caller, and [`loaded`] both for a command with no
+//! shell before it.
 
 use std::env;
 use std::ffi::OsStr;
@@ -28,6 +32,7 @@ use std::fs::File;
 use std::io::{self, Read, Write};
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::process::{Command, Stdio};
+use tehas_core::sandbox;
 use tehas_core::settings::load::{self, Host, Sourced, Vars};
 use tehas_core::settings::rules::{self, Trees};
 
@@ -103,13 +108,32 @@ fn pairs(list: &[u8]) -> Vec<(Vec<u8>, Vec<u8>)> {
         .collect()
 }
 
-fn run_load(uid: &str, bash: &str) -> u8 {
-    let start = Vars::new(env::vars_os().map(|(k, v)| (k.into_vec(), v.into_vec())));
-    let mut vars = start.clone();
+/// The variables a load starts from.
+pub(crate) fn this_environment() -> Vars {
+    Vars::new(env::vars_os().map(|(k, v)| (k.into_vec(), v.into_vec())))
+}
+
+/// tehas_instance_dir.
+pub(crate) fn instance_dir(vars: &Vars) -> String {
+    let host = Real {
+        bash: String::new(),
+    };
+    load::instance_dir(vars, &host)
+}
+
+/// tehas_load on `vars`, for a program that runs what follows itself. Err is
+/// the line for standard error, without its `tehas: `.
+pub(crate) fn load_into(vars: &mut Vars, uid: &str, bash: &str) -> Result<(), String> {
     let mut host = Real {
         bash: bash.to_string(),
     };
-    let got = load::load(&mut vars, &mut host, uid);
+    load::load(vars, &mut host, uid)
+}
+
+fn run_load(uid: &str, bash: &str) -> u8 {
+    let start = this_environment();
+    let mut vars = start.clone();
+    let got = load_into(&mut vars, uid, bash);
     if io::stdout()
         .write_all(&load::script(&start, &vars))
         .is_err()
@@ -123,6 +147,63 @@ fn run_load(uid: &str, bash: &str) -> u8 {
             REFUSED
         }
     }
+}
+
+// tehas_require: the first of `names` that is not set, or holds no value of its
+// rule. A name set to spaces only counts as not set.
+fn refusal(names: &[&str], vars: &Vars) -> Option<String> {
+    let bad = load::bad(vars);
+    let dir = vars.text("TEHAS_INSTANCE_DIR");
+    let file = format!("{}/instance.env", if dir.is_empty() { "?" } else { &dir });
+    names.iter().find_map(|name| {
+        if vars.text(name).trim_matches(' ').is_empty() {
+            return Some(format!("tehas: {name} is not set (see {file})"));
+        }
+        let (_, reason) = bad.iter().find(|(bad, _)| bad == name)?;
+        Some(format!("tehas: {name} is not valid: {reason} (see {file})"))
+    })
+}
+
+/// tehas_load on this process's own environment, so all it starts is given the
+/// settings. Call it before any thread. Err is the status, 78, the line said on
+/// standard error. Ok is what was loaded, for [`require`].
+pub(crate) fn load_here(uid: &str, bash: &str) -> Result<Vars, u8> {
+    let start = this_environment();
+    let mut vars = start.clone();
+    let got = load_into(&mut vars, uid, bash);
+    let (dropped, set) = load::changes(&start, &vars);
+    for name in dropped {
+        env::remove_var(OsStr::from_bytes(name));
+    }
+    for (name, value) in set {
+        env::set_var(OsStr::from_bytes(name), OsStr::from_bytes(value));
+    }
+    match got {
+        Ok(()) => Ok(vars),
+        Err(line) => {
+            eprintln!("tehas: {line}");
+            Err(REFUSED)
+        }
+    }
+}
+
+/// tehas_require on what [`load_here`] loaded.
+pub(crate) fn require(names: &[&str], vars: &Vars) -> Result<(), u8> {
+    match refusal(names, vars) {
+        Some(line) => {
+            eprintln!("{line}");
+            Err(REFUSED)
+        }
+        None => Ok(()),
+    }
+}
+
+/// tehas_load then tehas_require, for a command with no shell before it to say
+/// who it runs as.
+pub fn loaded(names: &[&str]) -> Result<(), u8> {
+    let uid = sandbox::user();
+    let uid = uid.split(':').next().unwrap_or_default();
+    require(names, &load_here(uid, "bash")?)
 }
 
 fn why(name: &str, value: &str) -> Option<String> {
@@ -206,6 +287,31 @@ mod tests {
             ]
         );
         assert!(pairs(b"").is_empty());
+    }
+
+    #[test]
+    fn a_required_setting_is_set_and_holds_a_value_of_its_rule() {
+        let vars = |list: &[(&str, &str)]| {
+            Vars::new(
+                list.iter()
+                    .map(|(k, v)| (k.as_bytes().to_vec(), v.as_bytes().to_vec())),
+            )
+        };
+        let good = vars(&[("TEHAS_REPO", "acme/widget")]);
+        assert_eq!(refusal(&["TEHAS_REPO"], &good), None);
+        for empty in ["", "   "] {
+            assert_eq!(
+                refusal(&["TEHAS_REPO"], &vars(&[("TEHAS_REPO", empty)])).unwrap(),
+                "tehas: TEHAS_REPO is not set (see ?/instance.env)"
+            );
+        }
+        let bad = vars(&[("TEHAS_REPO", "no"), ("TEHAS_INSTANCE_DIR", "/i")]);
+        let said = refusal(&["TEHAS_REPO"], &bad).unwrap();
+        assert!(
+            said.starts_with("tehas: TEHAS_REPO is not valid: "),
+            "{said}"
+        );
+        assert!(said.ends_with(" (see /i/instance.env)"), "{said}");
     }
 
     #[test]

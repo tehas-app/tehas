@@ -54,11 +54,11 @@
 //!
 //! The lines and the object of tehas status, see src/status.rs.
 //!
-//!   console dev words|run <arguments> | table
+//!   console dev table
 //!   console review main|table
 //!
-//! What tehasbot review decides and how it runs its container, see
-//! src/review.rs.
+//! The row of the table of runs of a manual session, see src/dev.rs, and what
+//! tehasbot review decides and how it runs its container, see src/review.rs.
 //!
 //!   console clean run ...
 //!
@@ -97,25 +97,21 @@
 //! The flags under state/ of one instance: the limit tehas limit sets, see
 //! src/flags.rs.
 //!
-//!   console export run ...
-//!
-//! What tehas export copies, see src/export.rs.
-//!
 //!   console state pack|unpack ...
 //!
 //! A stopped factory's state as one tar, see src/state.rs.
 //!
 //!   console protolab run
 //!
-//! One pass of the Protolab, for libexec/protolab, see src/protolab.rs.
+//! One pass of the Protolab, for tehasbot protolab, see src/protolab.rs.
 //!
 //!   console settings load <euid> [<bash>] | valid [<name> <value>] | words <name>
 //!
 //! What tehas_load does and what a setting may hold, see src/settings.rs.
 //!
-//!   console setup files ...
+//!   console setup run <libexec dir> <euid> <bash> [options]...
 //!
-//! The settings, the checks and the files of tehas setup, see src/setup.rs.
+//! tehas setup, once libexec/setup has a console, see src/setup.rs.
 //!
 //!   console shipped page
 //!
@@ -159,14 +155,17 @@
 //! The product against the contract, and the files it is missing proposed in a
 //! pull request, see src/product.rs.
 //!
-//!   console tehas status|disk|state|limit|pause|analytics|top|api|labels|resume|drain|stop|mcp ...
+//!   console tehas status|disk|state|limit|pause|analytics|top|api|labels|resume|drain|history|export|stop|dev|dev-login|mcp ...
 //!   console tehasbot health|status|top|mcp
-//!   console check tehas|tehasbot <command> ...
 //!   console usage <command>
 //!
 //! The commands of bin/tehas and bin/tehasbot that are verbs of this program,
-//! the check libexec/with-settings makes before it loads the settings, and
-//! the text of tehas help, see src/commands.rs.
+//! and the text of tehas help, see src/commands.rs.
+//!
+//!   console run <libexec dir> <euid> <bash> tehas|tehasbot <command> ...
+//!
+//! A command under the instance's settings: its check, the load, what it
+//! requires, then the verb, see src/run.rs.
 //!
 //!   console update args|gate|prepare|api|finish|release|steps ...
 //!
@@ -176,6 +175,7 @@
 //! output cannot be written, 2 usage.
 
 mod api;
+mod attach;
 mod clean;
 mod commands;
 mod dev;
@@ -189,6 +189,7 @@ mod forge;
 mod frame;
 mod github;
 mod health;
+mod history;
 mod improve;
 mod label;
 mod labels;
@@ -206,6 +207,7 @@ mod publish;
 mod queue;
 mod render;
 mod review;
+mod run;
 mod settings;
 mod setup;
 mod shipped;
@@ -417,6 +419,14 @@ fn mask_stdin() -> io::Result<()> {
 }
 
 fn main() -> ExitCode {
+    // No command takes a word that is not text: `run` refuses it, with the usage
+    // of its command when that command has one.
+    let words = std::env::args_os().skip(1);
+    let words: Vec<String> = words.map(|a| a.to_string_lossy().into_owned()).collect();
+    if words.first().is_some_and(|w| w == "run") {
+        let text = std::env::args_os().all(|a| a.to_str().is_some());
+        return ExitCode::from(run::main(&words[1..], text));
+    }
     let given = std::env::args_os()
         .skip(1)
         .map(|a| a.into_string())
@@ -425,13 +435,10 @@ fn main() -> ExitCode {
     if let Ok(given) = &given {
         match given.first().map(String::as_str) {
             Some("check-product") => return ExitCode::from(product::check(&given[1..])),
-            Some("check") => return ExitCode::from(commands::check(&given[1..])),
-            Some("needs") => return ExitCode::from(commands::needs(&given[1..])),
             Some("clean") => return ExitCode::from(clean::main(&given[1..])),
             Some("disk") => return ExitCode::from(disk::main(&given[1..])),
             Some("energy") => return ExitCode::from(energy::main(&given[1..])),
             Some("epics") => return ExitCode::from(epics::main(&given[1..])),
-            Some("export") => return ExitCode::from(export::main(&given[1..])),
             Some("flags") => return ExitCode::from(flags::main(&given[1..])),
             Some("forge") => return ExitCode::from(forge::main(&given[1..])),
             Some("init-product") => return ExitCode::from(product::init(&given[1..])),

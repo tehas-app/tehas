@@ -1,7 +1,7 @@
 //! tehasbot refresh: the factory's own pull requests that conflict with the
 //! branch, each asked of the dispatcher in a file under state/refresh. What a
-//! run does and its statuses are in the header of libexec/refresh, which is
-//! also this command's --help.
+//! run does and its statuses are in console/src/usage/refresh.txt, this command's
+//! --help.
 
 use crate::decide::{hex40, iso_now, refresh_why};
 use crate::read::github;
@@ -13,19 +13,8 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-const WRAPPER: &str = include_str!("../../../libexec/refresh");
-
-fn usage() -> String {
-    WRAPPER
-        .lines()
-        .skip(1)
-        .take_while(|l| l.starts_with('#'))
-        .map(|l| {
-            let text = l.trim_start_matches('#');
-            text.strip_prefix(' ').unwrap_or(text)
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
+fn usage() -> &'static str {
+    include_str!("../../src/usage/refresh.txt").trim_end_matches('\n')
 }
 
 /// Whether a run goes ahead, given what `last-run` holds. A stamp from the
@@ -251,8 +240,8 @@ impl Run {
     }
 }
 
-/// `tehas-dispatch refresh [argument...]`, with libexec/refresh's settings in
-/// the environment. Returns the exit status.
+/// `tehas-dispatch refresh [argument...]`, with the settings `console run` loads
+/// in the environment. Returns the exit status.
 pub fn main(args: &[&str]) -> i32 {
     match args.first() {
         Some(&"-h" | &"--help") => {
@@ -275,7 +264,7 @@ pub fn main(args: &[&str]) -> i32 {
         number("TEHAS_REFRESH_EVERY"),
     ) else {
         eprintln!(
-            "tehas-dispatch: refresh needs the settings libexec/refresh loads (lib/config.sh, tehas_load)"
+            "tehas-dispatch: refresh needs the settings tehasbot refresh loads (lib/config.sh, tehas_load)"
         );
         return 78;
     };

@@ -42,8 +42,7 @@ pub struct Host {
     pub stop_cmd: Option<String>,
     /// TEHAS_CYCLE_START_WAIT.
     pub start_wait: Duration,
-    /// TEHAS_STATUS_CMD, run once the starts are done, or `with-settings
-    /// tehasbot status`.
+    /// TEHAS_STATUS_CMD, run once the starts are done, or `tehasbot status`.
     pub status_cmd: String,
     pub status_args: Vec<String>,
     /// TEHAS_HEALTH_CMD, run after the poll wrote the demand.
@@ -725,7 +724,7 @@ impl Writer {
                     .and_then(Value::as_str)
                     .unwrap_or("");
                 retry = json!({"links": [], "context": [{"source": "refresh", "by": "tehas", "at": iso(now() as u64),
-                    "text": format!("This pull request conflicts with `{b}`. Merge `{b}` into its branch, resolve the conflicts so the change still does what the issue asks, run the gate, and push to the same branch. Do no other work.")}]});
+                    "text": format!("This pull request conflicts with `{b}`. Merge `{b}` into its branch, resolve the conflicts so the change still does what the issue asks, run the gate in `.pi/verify-cmd`, and push to the same branch. Do no other work.")}]});
             }
         }
         if comments {

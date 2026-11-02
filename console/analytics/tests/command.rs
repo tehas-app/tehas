@@ -1,8 +1,8 @@
 //! `tehas analytics` against this program: the copy a person or a program
 //! fetches holds no token, no URL with a host and no address, and the command
-//! calls nothing outside the host. The real libexec/with-settings runs it. The
-//! console this crate cannot build stands in for the load of the settings and
-//! for its verb, which test/analytics_cmd_test.sh runs.
+//! calls nothing outside the host. The real bin/tehas runs it. The console this
+//! crate cannot build stands in for the load of the settings and for its verb,
+//! which test/analytics_cmd_test.sh runs.
 
 use rusqlite::{Connection, OpenFlags};
 use serde_json::{json, Value};
@@ -103,9 +103,8 @@ impl Host {
         let console = dir.join("console");
         fs::write(
             &console,
-            "#!/usr/bin/env bash\ncase $1 in check | needs) exit 0 ;; esac\n\
-             [ \"$1\" != settings ] || { echo _tehas_loaded=1; exit 0; }\n\
-             shift 2\nexec \"$TEHAS_HOME/libexec/analytics\" \"$@\" </dev/null\n",
+            "#!/usr/bin/env bash\nshift 6\n\
+             exec \"$TEHAS_HOME/libexec/analytics\" \"$@\" </dev/null\n",
         )
         .unwrap();
         fs::set_permissions(&console, fs::Permissions::from_mode(0o755)).unwrap();
@@ -125,8 +124,8 @@ impl Host {
     fn tehas(&self, args: &[&str]) -> (i32, String, String) {
         let path = format!("{}:{}", self.bin.display(), std::env::var("PATH").unwrap());
         let out = Command::new("bash")
-            .arg(root().join("libexec/with-settings"))
-            .args(["tehas", "analytics"])
+            .arg(root().join("bin/tehas"))
+            .arg("analytics")
             .args(args)
             .current_dir(&self.dir)
             .env_clear()

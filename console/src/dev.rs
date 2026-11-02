@@ -1,35 +1,46 @@
 //! `tehas dev`: an interactive Pi session on the factory host, in the sandbox
-//! image, in a clone of the product that is kept between sessions. libexec/dev
-//! loads the settings, gets the bot's token and fetches what `--issue` asks for;
+//! image, in a clone of the product that is kept between sessions.
 //! src/usage/dev.txt says what a person is told.
 //!
-//!   console dev words <arguments>  `<name> <issue>`, each `-` when not given
-//!   console dev ready <arguments>  every refusal of a session, so a fault stops
-//!                                  it before GitHub is called and before
-//!                                  anything is written; prints the slice it read
-//!   console dev run <arguments>    one session, of the slice in TEHAS_DEV_SLICE;
-//!                                  exits as that command says
-//!   console dev table              its row of the table of runs
+//!   console tehas dev <arguments>            one session; exits as that says
+//!   console tehas dev-login "Name <email>" [-- <pi arguments>]
+//!                                            the same for another account, as
+//!                                            the tehas user: libexec/dev-login
+//!   console dev table                        its row of the table of runs
+//!
+//! Every refusal that needs neither GitHub nor a write comes first. libexec/dev
+//! and libexec/dev-login are the paths of this, and each execs it, so the pid,
+//! the terminal and the signal dispositions are the caller's.
 //!
 //! The session is spawned, not exec'd: the terminal is put back after it. The
+//! docker client shares this program's stdio, so it has the real terminal. The
 //! clone's lock is held here for the session's life, on a file that closes on
 //! exec, so the docker client does not hold it past this program.
 
-use crate::clean;
+use crate::{attach, clean, github, label};
 use serde_json::Value;
 use std::env;
 use std::fs;
 use std::io::IsTerminal;
-use std::os::unix::process::ExitStatusExt;
+use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use tehas_core::lock;
 use tehas_core::models;
-use tehas_core::sandbox::{self, Identity, Kind, Paths};
+use tehas_core::sandbox::{self, Identity, Kind, Paths, Taken};
 use tehas_core::settings;
 use tehas_core::slice::{self, Host, Load, Reading};
+
+pub const USAGE: &str = include_str!("usage/dev.txt");
+
+/// What a session cannot start without.
+const NEEDS: [&str; 3] = [
+    "TEHAS_REPO",
+    "PI_ENSEMBLE_SUBAGENT_MODEL",
+    "PI_ENSEMBLE_SUBAGENT_PROVIDER",
+];
 
 /// What the words of the command ask for.
 #[derive(Debug, Default, PartialEq)]
@@ -129,31 +140,6 @@ fn parse(given: &[String]) -> Result<Option<Words>, String> {
         ));
     }
     Ok(Some(words))
-}
-
-/// The arguments of `tehas dev`, as `console check` asks. Err is the exit
-/// status: 99 when the help was printed.
-pub fn words(given: &[String], usage: &str) -> Result<(), u8> {
-    match parse(given) {
-        Ok(Some(_)) => Ok(()),
-        Ok(None) => {
-            print!("{usage}");
-            Err(99)
-        }
-        Err(why) => {
-            eprintln!("tehas dev: {why}");
-            eprint!("{usage}");
-            Err(64)
-        }
-    }
-}
-
-fn dash(s: &str) -> &str {
-    if s.is_empty() {
-        "-"
-    } else {
-        s
-    }
 }
 
 // The docker line of a session, in order.
@@ -408,61 +394,170 @@ fn fresh_clone(tree: &str) -> Result<bool, u8> {
     Ok(fresh)
 }
 
-// What `ready` hands `run`, so the host is asked once.
-fn slice_words(s: &slice::Usable) -> String {
-    format!("{} {} {} {}", s.max, s.active, s.ceiling_mb, s.cpus)
-}
-
-fn slice_of(words: &str) -> Option<slice::Usable> {
-    let mut w = words.split(' ');
-    let usable = slice::Usable {
-        max: slice::num(w.next()?)?,
-        active: w.next()?.to_string(),
-        ceiling_mb: slice::num(w.next()?)?,
-        cpus: slice::num(w.next()?)?,
-    };
-    w.next().is_none().then_some(usable)
-}
-
 // Every refusal that needs neither GitHub nor a write, in the order a session
-// meets them. Nothing here writes.
-fn ready(given: &Words) -> u8 {
+// meets them. Nothing here writes. Err is the exit status.
+fn ready(given: &Words) -> Result<Taken, u8> {
     // No container starts outside the slice, and none with half its limits.
     let taken = sandbox::take(&Host::here(), &Load::from_env(), "tehas dev", "a session");
-    let taken = match taken {
-        Ok(taken) => taken,
-        Err(line) => return refuse(line),
-    };
+    let taken = taken.map_err(refuse)?;
     let on = |k: &str| env::var(k).is_ok_and(|v| v == "1");
     if !given.issue.is_empty() && !on("TEHAS_WORK_IMAGES") && !on("TEHAS_WORK_FILES") {
-        return refuse(
+        return Err(refuse(
             "tehas dev: this instance gives no images or files (TEHAS_WORK_IMAGES, TEHAS_WORK_FILES), so --issue has nothing to give"
                 .to_string(),
-        );
+        ));
     }
     let devs = format!("{}/dev", env::var("TEHAS_HOME").unwrap_or_default());
     let name = &given.name;
-    if let Err(rc) = committer(given, &format!("{devs}/{name}.author")) {
-        return rc;
-    }
-    if let Err(rc) = fresh_clone(&format!("{devs}/{name}")) {
-        return rc;
-    }
-    println!("{}", slice_words(&taken.slice));
-    0
+    committer(given, &format!("{devs}/{name}.author"))?;
+    fresh_clone(&format!("{devs}/{name}"))?;
+    Ok(taken)
 }
 
-fn session(given: &Words) -> u8 {
+// tehas_github_env: an app's token goes in this environment, and from there by
+// name to what is started. It is never an argument.
+fn token() -> Result<(), u8> {
+    if !env::var("TEHAS_GITHUB_APP_ID").is_ok_and(|id| !id.is_empty()) {
+        return Ok(());
+    }
+    let Some(token) = github::for_a_container() else {
+        eprintln!("tehas dev: no GitHub token for the app");
+        return Err(1);
+    };
+    env::set_var("GH_TOKEN", token);
+    Ok(())
+}
+
+// The issue's images and files, by the rules a cycle is given them. Who applied
+// the label decides (rule 5). Err is the exit status.
+fn images(given: &Words) -> Result<(), u8> {
+    if given.issue.is_empty() {
+        return Ok(());
+    }
+    let devs = format!("{}/dev", env::var("TEHAS_HOME").unwrap_or_default());
+    fs::create_dir_all(&devs).map_err(|_| 78u8)?;
+    let dir = format!("{devs}/{}.images", given.name);
+    let approved = match label::allowed_issue(&given.issue, "tehas:ready") {
+        0 => Ok("approved"),
+        2 => Err("the issue's label events could not be read for its images".to_string()),
+        _ => Ok(""),
+    };
+    let got = approved.and_then(|word| attach::issue_images(&given.issue, &dir, word));
+    if let Err(why) = got {
+        let _ = fs::remove_dir_all(&dir);
+        eprintln!("tehas dev: {why}, not starting a session");
+        return Err(4);
+    }
+    let reads = attach::reads_images(&env::var("PI_ENSEMBLE_IMAGE").unwrap_or_default());
+    for line in attach::said(&dir, "session", &reads)
+        .iter()
+        .flat_map(|t| t.split('\n'))
+    {
+        println!("tehas dev: {line}");
+    }
+    Ok(())
+}
+
+// Up to the point the container's words can be made. Err is the exit status.
+fn prepared(given: &Words) -> Result<Taken, u8> {
+    crate::settings::loaded(&NEEDS)?;
+    sandbox::settings_ok().map_err(refuse)?;
+    settings::checkout().map_err(refuse)?;
+    settings::branch().map_err(refuse)?;
+    let taken = ready(given)?;
+    token()?;
+    if env::var("GH_TOKEN").unwrap_or_default().is_empty() {
+        eprintln!("tehas dev: GH_TOKEN is not set (source ~/tehas/env.sh)");
+        return Err(64);
+    }
+    images(given)?;
+    Ok(taken)
+}
+
+/// `tehas dev`.
+pub fn start(given: &[String]) -> u8 {
+    let words = match parse(given) {
+        Ok(Some(words)) => words,
+        Ok(None) => {
+            print!("{USAGE}");
+            return 0;
+        }
+        Err(why) => {
+            eprintln!("tehas dev: {why}");
+            eprint!("{USAGE}");
+            return 64;
+        }
+    };
+    match prepared(&words) {
+        Ok(taken) => session(&words, &taken),
+        Err(rc) => rc,
+    }
+}
+
+// What another account may ask for: its author and pi's arguments, nothing more.
+fn login_words<'a>(account: &str, given: &'a [String]) -> Result<(&'a str, &'a [String]), String> {
+    if account.is_empty() {
+        return Err("this is run by sudo for another account; type: tehas dev".to_string());
+    }
+    if !name_ok(account) {
+        return Err(format!(
+            "the account name {account} cannot name a clone (letters, digits, _ and -)"
+        ));
+    }
+    let Some((author, rest)) = given.split_first() else {
+        return Err("no author was given; type: tehas dev".to_string());
+    };
+    match rest.split_first() {
+        None => Ok((author, rest)),
+        Some((word, pi)) if word == "--" => Ok((author, pi)),
+        Some((word, _)) => Err(format!("unknown argument: {word}")),
+    }
+}
+
+// sudo cleared the environment, so the tehas user's own is loaded, as the timers
+// do. It is a shell file, and it exports what a command should have and keeps the
+// rest to itself. The shell ends in this program again.
+const ENTER: &str = r#"if [ -r "$0" ]; then . "$0"; fi; exec "$@""#;
+
+/// `tehas dev` for another account, as the tehas user. The clone is the account
+/// sudo was asked by (SUDO_USER, which the caller cannot set); the author is a
+/// label, checked for its shape. Exit: that of the session; 64 not started by
+/// sudo, an account whose name cannot name a clone, or other arguments.
+pub fn login(given: &[String]) -> u8 {
+    let account = env::var_os("SUDO_USER").unwrap_or_default();
+    let account = account.to_string_lossy();
+    let (author, pi) = match login_words(&account, given) {
+        Ok(words) => words,
+        Err(why) => {
+            eprintln!("tehas dev: {why}");
+            return 64;
+        }
+    };
+    let Some(program) = env::current_exe().ok() else {
+        return refuse("tehas dev: this program cannot find itself".to_string());
+    };
+    let Some(root) = program.parent().and_then(Path::parent) else {
+        return refuse(format!("tehas dev: no home above {}", program.display()));
+    };
+    // The caller's directory is usually one the tehas user cannot read.
+    let home = env::var_os("HOME").unwrap_or_default();
+    if env::set_current_dir(home).is_err() {
+        let _ = env::set_current_dir("/");
+    }
+    let failed = Command::new("bash")
+        .args(["-c", ENTER])
+        .arg(root.join("env.sh"))
+        .arg(&program)
+        .args(["tehas", "dev", &account, "--author", author, "--"])
+        .args(pi)
+        .exec();
+    refuse(format!("tehas dev: cannot run bash: {failed}"))
+}
+
+fn session(given: &Words, taken: &Taken) -> u8 {
     let var = |k: &str| env::var(k).unwrap_or_default();
     let name = given.name.as_str();
     let load = Load::from_env();
-    let Some(usable) = slice_of(&var("TEHAS_DEV_SLICE")) else {
-        return refuse("tehas dev: no reading of the slice, not starting a session".to_string());
-    };
-    let taken = match sandbox::taken(usable, &load, "tehas dev", "a session") {
-        Ok(taken) => taken,
-        Err(line) => return refuse(line),
-    };
     let branch = match settings::branch() {
         Ok(branch) => branch,
         Err(line) => return refuse(line),
@@ -585,28 +680,13 @@ fn session(given: &Words) -> u8 {
 }
 
 pub fn main(given: &[String]) -> u8 {
-    match given.split_first() {
-        Some((verb, rest)) if verb == "words" => match parse(rest) {
-            Ok(Some(w)) => {
-                println!("{} {}", dash(&w.name), dash(&w.issue));
-                0
-            }
-            _ => 64,
-        },
-        Some((verb, rest)) if verb == "ready" => match parse(rest) {
-            Ok(Some(w)) => ready(&w),
-            _ => 64,
-        },
-        Some((verb, rest)) if verb == "run" => match parse(rest) {
-            Ok(Some(w)) => session(&w),
-            _ => 64,
-        },
-        Some((verb, [])) if verb == "table" => {
+    match given {
+        [verb] if verb == "table" => {
             println!("{}", table());
             0
         }
         _ => {
-            eprintln!("console dev: usage: words|ready|run <arguments> | table");
+            eprintln!("console dev: usage: table");
             64
         }
     }
@@ -618,26 +698,6 @@ mod tests {
 
     fn given(w: &[&str]) -> Vec<String> {
         w.iter().map(|s| s.to_string()).collect()
-    }
-
-    #[test]
-    fn the_slice_ready_read_comes_back_whole_or_not_at_all() {
-        let usable = slice::Usable {
-            max: 34359738368,
-            active: "active".to_string(),
-            ceiling_mb: 8192,
-            cpus: 16,
-        };
-        assert_eq!(slice_of(&slice_words(&usable)), Some(usable));
-        for bad in [
-            "",
-            "1 active 2",
-            "1 active 2 3 4",
-            "x active 2 3",
-            "1 active 2 ",
-        ] {
-            assert_eq!(slice_of(bad), None, "{bad:?}");
-        }
     }
 
     #[test]
@@ -697,6 +757,29 @@ mod tests {
         ] {
             assert!(parse(&given(&bad)).is_err(), "{bad:?}");
         }
+    }
+
+    #[test]
+    fn an_account_gets_a_clone_of_its_own_name_and_gives_only_an_author() {
+        let alone = given(&["A <a@b>"]);
+        let (author, pi) = login_words("alice", &alone).unwrap();
+        assert_eq!((author, pi.len()), ("A <a@b>", 0));
+        let words = given(&["A <a@b>", "--", "-r", "--author", "x"]);
+        let (_, pi) = login_words("alice", &words).unwrap();
+        assert_eq!(pi, given(&["-r", "--author", "x"]));
+        let said = |account: &str, w: &[&str]| login_words(account, &given(w)).unwrap_err();
+        assert_eq!(
+            said("", &["A <a@b>"]),
+            "this is run by sudo for another account; type: tehas dev"
+        );
+        for bad in ["../main", "a.b", "-x", "_x", "a b"] {
+            assert_eq!(
+                said(bad, &["A <a@b>"]),
+                format!("the account name {bad} cannot name a clone (letters, digits, _ and -)")
+            );
+        }
+        assert_eq!(said("alice", &[]), "no author was given; type: tehas dev");
+        assert_eq!(said("alice", &["A <a@b>", "bob"]), "unknown argument: bob");
     }
 
     #[test]

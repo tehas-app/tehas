@@ -2,7 +2,7 @@
 # shellcheck disable=SC2154  # here is the sourcing command's
 # The bash of what a sandbox container is given.
 # Sourced by the commands that start one in bash: tehas work (a cycle) and tehas
-# plan (a planning turn), and by tehas dev for the check of Pi's files.
+# plan (a planning turn).
 # The docker options themselves are made in one
 # place, console/core/src/sandbox.rs, and reach bash through tehas-cycle
 # sandbox, which stands beside the command as "$here/tehas-cycle". The goldens
@@ -31,11 +31,8 @@
 tehas_index_dir() { printf '%s\n' "$TEHAS_HOME/state/index"; }
 
 # The github.com host, and the git config key that names its credential
-# helper. Two things read that key: the probe of tehas setup, which asks the
-# host's git whether it has a helper, and the environment-level config below,
-# which is what a container's git is given. A change here (another host,
-# another subsection spelling) moves both; no other github.com of the platform
-# is named by these.
+# helper, as console/core/src/sandbox.rs names them for the probe of tehas setup
+# and a container's git. test/work_caps_test.sh pins the spelling.
 tehas_git_github_host() { printf '%s\n' github.com; }
 tehas_git_credential_helper_key() {
   local h
