@@ -640,9 +640,7 @@ impl Calls {
         let args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
         let word = format!("ERROR: gh {} {} failed", args[0], args[1]);
         if !gh_reads(&args) {
-            return Err(GhFail::words(format!(
-                "{word}: refused, it is no read"
-            )));
+            return Err(GhFail::words(format!("{word}: refused, it is no read")));
         }
         let extra = gh_env(self.gh_token.as_deref());
         let outcome = self.retry.read(&word, &mut || {
@@ -823,7 +821,7 @@ impl Calls {
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use super::*;
 
     /// The cases of the poll's token read and write one environment variable,
@@ -964,7 +962,7 @@ mod tests {
     /// Wait until a script just written can run. A parallel test's fork holds
     /// it open for writing until that child's exec, and a run in that moment
     /// fails with ETXTBSY.
-    fn settled(script: &Path) {
+    pub(in crate::read) fn settled(script: &Path) {
         let until = std::time::Instant::now() + Duration::from_secs(5);
         while std::process::Command::new(script)
             .arg("settled")

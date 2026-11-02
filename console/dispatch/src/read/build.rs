@@ -1025,6 +1025,7 @@ esac"#,
     fn stub(bin: &Path, name: &str, body: &str) {
         let mut lines: Vec<String> = [
             "#!/bin/sh".to_string(),
+            "[ \"$1\" = settled ] && exit 0".to_string(),
             format!("here='{}'", bin.display()),
             "args=$(mktemp \"$here/{name}-args.XXXXXX\")".to_string(),
             "out=$(mktemp \"$here/{name}-out.XXXXXX\")".to_string(),
@@ -1049,6 +1050,7 @@ esac"#,
         lines.push("answer 0".to_string());
         std::fs::write(bin.join(name), lines.join("\n") + "\n").unwrap();
         std::fs::set_permissions(bin.join(name), std::fs::Permissions::from_mode(0o755)).unwrap();
+        crate::read::run::tests::settled(&bin.join(name));
     }
 
     /// The calls the stub of `name` recorded, in the order it wrote them.
