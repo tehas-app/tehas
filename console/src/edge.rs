@@ -313,11 +313,8 @@ mod tests {
         }
     }
 
-    fn scratch(name: &str) -> std::path::PathBuf {
-        let root = std::env::temp_dir().join(format!("edge-{name}-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&root);
-        fs::create_dir_all(&root).unwrap();
-        root
+    fn scratch(name: &str) -> tehas_core::testdir::TestDir {
+        tehas_core::testdir::TestDir::new(&format!("edge-{name}"))
     }
 
     #[test]
@@ -525,7 +522,6 @@ mod tests {
         // With a wait: a child another test is forking holds the file until it
         // has exec'd, and that outlives the drop.
         assert!(lock(&home, "demo", Some(Duration::from_secs(30))).is_some());
-        fs::remove_dir_all(home).unwrap();
     }
 
     #[test]
@@ -545,7 +541,6 @@ mod tests {
         fs::create_dir_all(taken.join("inside")).unwrap();
         assert!(put(&taken, b"x").is_err());
         assert!(!root.join("taken.new").exists());
-        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -573,7 +568,6 @@ mod tests {
         place(&first, &root.join("8")).unwrap();
         assert!(root.join("8").is_dir());
         assert!(place(&root.join("gone"), &root.join("9")).is_err());
-        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -586,6 +580,5 @@ mod tests {
         std::os::unix::fs::symlink(root.join("7"), root.join("8")).unwrap();
         assert_eq!(numbers(&root), ["007", "12", "7", "8"]);
         assert!(numbers(&root.join("nowhere")).is_empty());
-        fs::remove_dir_all(root).unwrap();
     }
 }

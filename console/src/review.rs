@@ -895,7 +895,7 @@ mod tests {
 
     #[test]
     fn a_workspace_goes_on_every_way_out_and_a_missing_directory_is_no_fault() {
-        let at = env::temp_dir().join(format!("review-workspace-{}", std::process::id()));
+        let at = tehas_core::testdir::TestDir::new("review-workspace");
         let (tree, state) = (at.join("tree"), at.join("tree.state"));
         fs::create_dir_all(tree.join("sub")).unwrap();
         fs::create_dir_all(&state).unwrap();
@@ -907,7 +907,6 @@ mod tests {
         let gone = name(&at.join("never"));
         assert_eq!(way_out(vec![name(&tree), gone, name(&state)]), 2);
         assert!(!tree.exists() && !state.exists());
-        fs::remove_dir_all(at).unwrap();
     }
 
     #[test]
@@ -998,8 +997,7 @@ mod tests {
 
     #[test]
     fn a_record_counts_only_with_a_full_commit() {
-        let dir = std::env::temp_dir().join(format!("review-record-{}", std::process::id()));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = tehas_core::testdir::TestDir::new("review-record");
         let file = dir.join("review.json");
         let path = file.to_str().unwrap();
         let full = "0123456789abcdef0123456789abcdef01234567";
@@ -1013,6 +1011,5 @@ mod tests {
             fs::write(&file, text).unwrap();
             assert_eq!(recorded(path), want);
         }
-        fs::remove_dir_all(&dir).unwrap();
     }
 }

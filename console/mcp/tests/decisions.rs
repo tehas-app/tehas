@@ -9,6 +9,7 @@ use std::collections::BTreeSet;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
+use tehas_core::testdir::TestDir;
 
 fn fixtures() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
@@ -26,28 +27,11 @@ fn call_in(logs: &Path, args: &Value) -> Result<Value, ToolError> {
     }
 }
 
-// A logs directory of its own, removed when dropped.
-struct Logs(PathBuf);
-
-impl Logs {
-    fn new(name: &str) -> Self {
-        let dir = std::env::temp_dir().join(format!("mcp-decisions-{name}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        Logs(dir)
-    }
-
-    fn with(name: &str, text: &str) -> Self {
-        let l = Self::new(name);
-        std::fs::write(l.0.join("dispatch.log"), text).unwrap();
-        l
-    }
-}
-
-impl Drop for Logs {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.0);
-    }
+// A logs directory with this dispatch.log.
+fn logs_with(name: &str, text: &str) -> TestDir {
+    let l = TestDir::new(&format!("mcp-decisions-{name}"));
+    std::fs::write(l.join("dispatch.log"), text).unwrap();
+    l
 }
 
 // What the issue's grep and tail show of the fixture, as the four fields. The
@@ -164,8 +148,8 @@ fn every_hold_line_a_host_writes_is_answered() {
         mcp::decisions::DECISIONS[3].sample,
     ]
     .join("\n");
-    let l = Logs::with("holds", &log);
-    let out = call_in(&l.0, &json!({})).unwrap();
+    let l = logs_with("holds", &log);
+    let out = call_in(&l, &json!({})).unwrap();
     let lines = out["decisions"].as_array().unwrap();
     assert_eq!(lines.len(), 5, "{out}");
     for (line, d) in log.lines().zip(lines) {
@@ -197,8 +181,8 @@ fn other_lines_are_not_decisions() {
         log.push('\n');
     }
     log.push_str("2026-10-20T10:00:06Z wait #6: its cycle is still running\n");
-    let l = Logs::with("other", &log);
-    let out = call_in(&l.0, &json!({})).unwrap();
+    let l = logs_with("other", &log);
+    let out = call_in(&l, &json!({})).unwrap();
     assert_eq!(
         out["decisions"],
         json!([{"time": "2026-10-20T10:00:06Z", "decision": "wait", "issue": 6,
@@ -212,14 +196,14 @@ fn a_reason_is_masked_then_cut() {
     // Built from parts: the lint refuses a private address written out.
     let address = ["10", "1", "2", "3"].join(".");
     let long = "x".repeat(1000);
-    let l = Logs::with(
+    let l = logs_with(
         "mask",
         &format!(
             "2026-10-20T10:00:00Z skip #1: fetch failed with {token} at {address}\n\
              2026-10-20T10:00:01Z skip #2: {long}\n"
         ),
     );
-    let out = call_in(&l.0, &json!({})).unwrap();
+    let out = call_in(&l, &json!({})).unwrap();
     let text = out.to_string();
     assert!(!text.contains(&token), "{text}");
     assert!(!text.contains(&address), "{text}");
@@ -238,8 +222,8 @@ fn a_reason_is_masked_then_cut() {
 // that older ones were not read.
 #[test]
 fn a_huge_log_is_read_from_its_end_only() {
-    let l = Logs::new("huge");
-    let path = l.0.join("dispatch.log");
+    let l = TestDir::new("mcp-decisions-huge");
+    let path = l.join("dispatch.log");
     let f = std::fs::File::create(&path).unwrap();
     f.set_len(1 << 40).unwrap();
     drop(f);
@@ -254,7 +238,7 @@ fn a_huge_log_is_read_from_its_end_only() {
     .unwrap();
     writeln!(f, "2026-10-20T10:00:01Z skip #2: kept").unwrap();
     drop(f);
-    let out = call_in(&l.0, &json!({})).unwrap();
+    let out = call_in(&l, &json!({})).unwrap();
     assert_eq!(out["whole"], false);
     assert_eq!(
         out["decisions"],
@@ -288,33 +272,33 @@ fn bad_arguments_are_a_tool_error() {
 
 #[test]
 fn a_missing_or_linked_log_is_a_file_error() {
-    let l = Logs::new("missing");
-    match call_in(&l.0, &json!({})) {
+    let l = TestDir::new("mcp-decisions-missing");
+    match call_in(&l, &json!({})) {
         Err(ToolError::File { file, .. }) => assert_eq!(file, "dispatch.log"),
         other => panic!("{other:?}"),
     }
-    let target = l.0.join("other.log");
+    let target = l.join("other.log");
     std::fs::write(&target, "2026-10-20T10:00:00Z skip #1: through a link\n").unwrap();
-    std::os::unix::fs::symlink(&target, l.0.join("dispatch.log")).unwrap();
-    match call_in(&l.0, &json!({})) {
+    std::os::unix::fs::symlink(&target, l.join("dispatch.log")).unwrap();
+    match call_in(&l, &json!({})) {
         Err(ToolError::File { file, why }) => {
             assert_eq!(file, "dispatch.log");
             assert!(why.contains("plain file"), "{why}");
         }
         other => panic!("{other:?}"),
     }
-    let d = Logs::new("dir");
-    std::fs::create_dir(d.0.join("dispatch.log")).unwrap();
+    let d = TestDir::new("mcp-decisions-dir");
+    std::fs::create_dir(d.join("dispatch.log")).unwrap();
     assert!(matches!(
-        call_in(&d.0, &json!({})),
+        call_in(&d, &json!({})),
         Err(ToolError::File { .. })
     ));
 }
 
 #[test]
 fn an_empty_log_has_no_decisions() {
-    let l = Logs::with("empty", "");
-    let out = call_in(&l.0, &json!({})).unwrap();
+    let l = logs_with("empty", "");
+    let out = call_in(&l, &json!({})).unwrap();
     assert_eq!(out["decisions"], json!([]));
     assert_eq!(out["whole"], true);
 }

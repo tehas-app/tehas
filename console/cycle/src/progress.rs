@@ -334,10 +334,9 @@ pub fn error_only(text: &str) -> bool {
 mod tests {
     use super::*;
     use std::path::PathBuf;
+    use tehas_core::testdir::TestDir;
 
-    fn file(name: &str, text: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("tehas-progress-{}", std::process::id()));
-        fs::create_dir_all(&dir).unwrap();
+    fn file(dir: &Path, name: &str, text: &str) -> PathBuf {
         let p = dir.join(name);
         fs::write(&p, text).unwrap();
         p
@@ -345,7 +344,9 @@ mod tests {
 
     #[test]
     fn the_stable_lines_are_counted_once_by_their_key() {
+        let d = TestDir::new("progress");
         let log = file(
+            &d,
             "a.jsonl",
             concat!(
                 r#"{"v":1,"kind":"dispatch-completed","key":"k1","event":{"role":"dev","usage":{"turns":2,"input":3,"output":"4"}}}"#,
@@ -371,7 +372,9 @@ mod tests {
 
     #[test]
     fn a_usage_that_is_no_object_leaves_the_lines_with_nothing() {
+        let d = TestDir::new("progress");
         let log = file(
+            &d,
             "b.jsonl",
             concat!(
                 r#"{"v":1,"kind":"dispatch-completed","key":"k","event":{"usage":7}}"#,
@@ -388,7 +391,9 @@ mod tests {
 
     #[test]
     fn the_evidence_of_a_cap_comes_before_a_failure_and_the_last_of_each_counts() {
+        let d = TestDir::new("progress");
         let log = file(
+            &d,
             "c.jsonl",
             concat!(
                 r#"{"v":1,"unstable":true,"kind":"dispatch-failed-provider","event":{"providerMessage":"first","errorTail":"tail"}}"#,
@@ -406,7 +411,9 @@ mod tests {
 
     #[test]
     fn a_failure_is_the_reason_when_no_cap_gives_one() {
+        let d = TestDir::new("progress");
         let log = file(
+            &d,
             "d.jsonl",
             concat!(
                 r#"{"v":1,"unstable":true,"kind":"dispatch-failed","event":{"errorTail":"boom"}}"#,
@@ -420,7 +427,9 @@ mod tests {
 
     #[test]
     fn a_result_gives_its_roles_in_its_own_order_and_its_failure() {
+        let d = TestDir::new("progress");
         let result = file(
+            &d,
             "r.json",
             concat!(
                 r#"{"schemaVersion":5,"issues":[{"issue":8},{"issue":7,"usage":{"byRole":"#,
@@ -428,7 +437,7 @@ mod tests {
                 r#""failure":{"kind":"provider","step":"dev elop","role":"r","cause":"c:1","message":"m","providerMessage":""}}]}"#
             ),
         );
-        let log = file("e.jsonl", "");
+        let log = file(&d, "e.jsonl", "");
         let s = summary(&log, Some((&result, 7)));
         assert_eq!(
             s,
@@ -443,12 +452,20 @@ mod tests {
 
     #[test]
     fn another_issue_another_schema_a_link_and_no_file_are_no_result() {
-        let log = file("f.jsonl", "");
-        let other = file("o.json", r#"{"schemaVersion":3,"issues":[{"issue":7}]}"#);
-        let link = other.with_file_name("link.json");
-        let _ = fs::remove_file(&link);
+        let d = TestDir::new("progress");
+        let log = file(&d, "f.jsonl", "");
+        let other = file(
+            &d,
+            "o.json",
+            r#"{"schemaVersion":3,"issues":[{"issue":7}]}"#,
+        );
+        let link = d.join("link.json");
         std::os::unix::fs::symlink(
-            file("g.json", r#"{"schemaVersion":5,"issues":[{"issue":7}]}"#),
+            file(
+                &d,
+                "g.json",
+                r#"{"schemaVersion":5,"issues":[{"issue":7}]}"#,
+            ),
             &link,
         )
         .unwrap();
@@ -459,7 +476,11 @@ mod tests {
         ] {
             assert!(summary(&log, Some((path, issue))).contains(r#""roles":"progress""#));
         }
-        let good = file("h.json", r#"{"schemaVersion":5,"issues":[{"issue":7}]}"#);
+        let good = file(
+            &d,
+            "h.json",
+            r#"{"schemaVersion":5,"issues":[{"issue":7}]}"#,
+        );
         assert!(summary(&log, Some((&good, 8))).contains(r#""roles":"progress""#));
         assert!(summary(&log, Some((&good, 7))).contains(r#""roles":"result""#));
     }

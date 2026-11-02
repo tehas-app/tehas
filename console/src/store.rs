@@ -179,16 +179,15 @@ pub fn try_call(home: &Path, tries: u32, args: &[&str]) -> Result<Value, Refusal
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
+    use tehas_core::testdir::TestDir;
 
-    struct Home(PathBuf);
+    struct Home(TestDir);
 
     impl Home {
         /// A home whose store says each line of `said` in turn, the last one
         /// from then on, and counts its calls.
         fn new(name: &str, said: &[&str]) -> Home {
-            let home = std::env::temp_dir().join(format!("store-{}-{name}", std::process::id()));
-            let _ = fs::remove_dir_all(&home);
+            let home = TestDir::new(&format!("store-{name}"));
             fs::create_dir_all(home.join("libexec")).unwrap();
             let mut script = String::from("#!/bin/sh\necho x >>\"$TEHAS_HOME/calls\"\n");
             script.push_str("case $(wc -l <\"$TEHAS_HOME/calls\") in\n");
@@ -212,12 +211,6 @@ mod tests {
                 .unwrap_or_default()
                 .lines()
                 .count()
-        }
-    }
-
-    impl Drop for Home {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.0);
         }
     }
 

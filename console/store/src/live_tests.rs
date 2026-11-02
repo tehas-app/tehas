@@ -57,7 +57,7 @@ fn publish(home: &Path, at: i64, extra: &[&str]) -> Result<Value, (u8, String)> 
 
 /// The rows behind the fixtures (tests/fixtures/live/README): the cycle files
 /// tehas_live_assemble read, made as heartbeats and ends.
-fn fixture_home() -> (PathBuf, Vec<File>) {
+fn fixture_home() -> (TestDir, Vec<File>) {
     let home = home("publish-fixture");
     let mut locks = Vec::new();
     for (issue, started, status, step, text, ended) in [

@@ -17,6 +17,18 @@ empty one above it.
 
 None.
 
+## v0.24.0 (2026-11-02)
+
+### Changes
+
+- `tehas-cycle cycle` reports every cycle: the report of `libexec/cycle` in bash is gone, and so is the cycle's shadow that compared the two. `TEHAS_CYCLE_REPORT` takes only `rust`, which changes nothing; `bash`, or any other value, is exit 78. Going back to the bash report means installing an earlier release (#1396).
+- The gate fails when `cargo test` leaves anything in its TMPDIR, and the workspace's tests make their directories with one guard that removes them (#1445).
+
+### Adopter action
+
+- An instance whose `instance.env` sets `TEHAS_CYCLE_REPORT=bash` starts no cycle after the update: take the line out, or set it to `rust`.
+- `~/tehas/state/cycle-shadow.on`, `~/tehas/state/cycle-shadow/` and `~/tehas/logs/cycle-shadow.log` are read by nothing now, and can be removed.
+
 ## v0.23.1 (2026-11-02)
 
 ### Changes

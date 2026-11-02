@@ -5,6 +5,7 @@ use mcp::tools::{list_scoped, Dirs, Output, Scope, ToolError};
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
+use tehas_core::testdir::TestDir;
 use tehas_core::time::{iso, now};
 
 fn live() -> PathBuf {
@@ -31,26 +32,14 @@ fn call(live: &Path, name: &str, args: &Value) -> Result<Value, ToolError> {
     }
 }
 
-// A copy of the fixtures to change, removed when dropped.
-struct Copy(PathBuf);
-
-impl Copy {
-    fn new(name: &str) -> Self {
-        let dir = std::env::temp_dir().join(format!("mcp-tools-{name}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        for e in std::fs::read_dir(live()).unwrap() {
-            let e = e.unwrap();
-            std::fs::copy(e.path(), dir.join(e.file_name())).unwrap();
-        }
-        Copy(dir)
+// A copy of the fixtures to change.
+fn copy(name: &str) -> TestDir {
+    let dir = TestDir::new(&format!("mcp-tools-{name}"));
+    for e in std::fs::read_dir(live()).unwrap() {
+        let e = e.unwrap();
+        std::fs::copy(e.path(), dir.join(e.file_name())).unwrap();
     }
-}
-
-impl Drop for Copy {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.0);
-    }
+    dir
 }
 
 fn paths(v: &Value, prefix: &str, out: &mut BTreeSet<String>) {
@@ -271,48 +260,48 @@ fn status_leaves_hold_out_when_nothing_holds() {
         ("no-why", json!({"hold": "holding: 5 cycles are running"})),
         ("not-json", json!("{")),
     ] {
-        let c = Copy::new(&format!("hold-{name}"));
-        std::fs::write(c.0.join("dispatch.json"), report.to_string()).unwrap();
-        let out = call(&c.0, "factory_status", &json!({})).unwrap();
+        let c = copy(&format!("hold-{name}"));
+        std::fs::write(c.join("dispatch.json"), report.to_string()).unwrap();
+        let out = call(&c, "factory_status", &json!({})).unwrap();
         assert!(out.get("hold").is_none(), "{name}: {}", out["hold"]);
         // The rest of the answer stands on its own.
         assert_eq!(out["queue"]["inLine"], 2, "{name}");
     }
     // No file at all: a host whose dispatcher never polled is answered.
-    let c = Copy::new("hold-gone");
-    std::fs::remove_file(c.0.join("dispatch.json")).unwrap();
-    let out = call(&c.0, "factory_status", &json!({})).unwrap();
+    let c = copy("hold-gone");
+    std::fs::remove_file(c.join("dispatch.json")).unwrap();
+    let out = call(&c, "factory_status", &json!({})).unwrap();
     assert!(out.get("hold").is_none());
     assert_eq!(out["status"], "pass");
     // A report of another shape is no report either: a link is not a regular
     // file, and a file over the bound of one poll's report is not read at all,
     // so no client can cost the answer more than a fixed number of bytes.
-    let c = Copy::new("hold-link");
-    let file = c.0.join("dispatch.json");
+    let c = copy("hold-link");
+    let file = c.join("dispatch.json");
     std::fs::remove_file(&file).unwrap();
-    std::fs::write(c.0.join("report.json"), r#"{""why":""}"#).unwrap();
-    std::os::unix::fs::symlink(c.0.join("report.json"), &file).unwrap();
-    let out = call(&c.0, "factory_status", &json!({})).unwrap();
+    std::fs::write(c.join("report.json"), r#"{""why":""}"#).unwrap();
+    std::os::unix::fs::symlink(c.join("report.json"), &file).unwrap();
+    let out = call(&c, "factory_status", &json!({})).unwrap();
     assert!(out.get("hold").is_none(), "a link is read");
-    let c = Copy::new("hold-huge");
+    let c = copy("hold-huge");
     let text = "x".repeat(64 * 1024 + 8);
     std::fs::write(
-        c.0.join("dispatch.json"),
+        c.join("dispatch.json"),
         format!(r#"{{"why":"count","hold":"{text}"}}"#),
     )
     .unwrap();
-    let out = call(&c.0, "factory_status", &json!({})).unwrap();
+    let out = call(&c, "factory_status", &json!({})).unwrap();
     assert!(out.get("hold").is_none(), "a file over the bound is read");
     // The same file, one byte under the bound, is a report and is answered, so
     // the bound is the file's size and not the length of the line.
-    let c = Copy::new("hold-under-bound");
+    let c = copy("hold-under-bound");
     let line = "y".repeat(64 * 1024 - 40);
     std::fs::write(
-        c.0.join("dispatch.json"),
+        c.join("dispatch.json"),
         format!(r#"{{"why":"count","hold":"{line}"}}"#),
     )
     .unwrap();
-    let out = call(&c.0, "factory_status", &json!({})).unwrap();
+    let out = call(&c, "factory_status", &json!({})).unwrap();
     assert_eq!(out["hold"]["why"], "count");
     assert_eq!(out["hold"]["text"].as_str().unwrap().chars().count(), 400);
 }
@@ -328,9 +317,9 @@ fn status_leaves_hold_out_when_nothing_holds() {
 // it cuts, is what says the mask ran.
 #[test]
 fn a_hold_is_masked_then_cut() {
-    let c = Copy::new("hold-masked");
+    let c = copy("hold-masked");
     std::fs::write(
-        c.0.join("dispatch.json"),
+        c.join("dispatch.json"),
         json!({
             "why": "limit",
             "hold": format!(
@@ -342,7 +331,7 @@ fn a_hold_is_masked_then_cut() {
         .to_string(),
     )
     .unwrap();
-    let out = call(&c.0, "factory_status", &json!({})).unwrap();
+    let out = call(&c, "factory_status", &json!({})).unwrap();
     let text = out["hold"]["text"].as_str().unwrap();
     // Masked: the token's secret half is gone, its prefix kept, as the mask
     // words it, and no line of the mask's own words is in the fixture.
@@ -365,15 +354,15 @@ fn a_hold_is_masked_then_cut() {
 // keys of the checkout it does not have.
 #[test]
 fn status_names_the_release_of_a_release_host() {
-    let dir = Copy::new("release-platform");
-    let file = dir.0.join("health.json");
+    let dir = copy("release-platform");
+    let file = dir.join("health.json");
     let mut health = std::fs::read_to_string(&file).unwrap();
     health = health.replace(
         "\"platform\":{\"commit\":\"9b1b7dc11b73b93f7296b5f3131fcc6ef6b964e9\",\"upstream\":\"origin/main\",\"behind\":0,",
         "\"platform\":{\"release\":\"v0.9.1\",\"newest\":\"v0.9.2\",\"upstream\":\"releases\",\"behind\":0,",
     );
     std::fs::write(&file, health).unwrap();
-    let out = call(&dir.0, "factory_status", &json!({})).unwrap();
+    let out = call(&dir, "factory_status", &json!({})).unwrap();
     assert_eq!(out["platform"]["release"], "v0.9.1");
     assert_eq!(out["platform"]["newest"], "v0.9.2");
     assert_eq!(out["platform"]["upstream"], "releases");
@@ -435,12 +424,12 @@ fn a_console_file_is_opened_only_by_its_own_name() {
         "/etc/passwd",
         "console-7.txt/..",
     ] {
-        let c = Copy::new("console");
-        let p = c.0.join("running.json");
+        let c = copy("console");
+        let p = c.join("running.json");
         let mut r: Value = serde_json::from_slice(&std::fs::read(&p).unwrap()).unwrap();
         r["cycles"][0]["console"] = json!(name);
         std::fs::write(&p, r.to_string()).unwrap();
-        let out = call(&c.0, "factory_console", &json!({"issue": 7})).unwrap();
+        let out = call(&c, "factory_console", &json!({"issue": 7})).unwrap();
         assert!(out.get("console").is_none(), "{name}");
         assert_eq!(out["step"], "develop");
     }
@@ -468,14 +457,14 @@ fn console_arguments_are_checked() {
 
 #[test]
 fn a_missing_or_broken_file_is_named() {
-    let c = Copy::new("files");
-    std::fs::remove_file(c.0.join("analytics.json")).unwrap();
-    match call(&c.0, "factory_stats", &json!({})) {
+    let c = copy("files");
+    std::fs::remove_file(c.join("analytics.json")).unwrap();
+    match call(&c, "factory_stats", &json!({})) {
         Err(ToolError::File { file, .. }) => assert_eq!(file, "analytics.json"),
         other => panic!("{other:?}"),
     }
-    std::fs::write(c.0.join("status.json"), "{\"repo\":").unwrap();
-    match call(&c.0, "factory_issues", &json!({})) {
+    std::fs::write(c.join("status.json"), "{\"repo\":").unwrap();
+    match call(&c, "factory_issues", &json!({})) {
         Err(ToolError::File { file, .. }) => assert_eq!(file, "status.json"),
         other => panic!("{other:?}"),
     }
@@ -506,16 +495,16 @@ fn factory_disk_is_listed_and_answers() {
         .collect();
     assert!(!dashboard.contains(&"factory_disk"), "{dashboard:?}");
 
-    let c = Copy::new("disk");
+    let c = copy("disk");
     std::fs::write(
-        c.0.join("disk.json"),
+        c.join("disk.json"),
         r#"{"api":1,"generatedAt":"2026-10-31T23:09:32Z","dockerRoot":"/var/lib/docker",
             "filesystems":[{"paths":["/home/boss/tehas"],"mount":"overlay","freeBytes":223,"totalBytes":307}],
             "full":{"places":[{"path":"/home/boss/tehas/logs","bytes":2048,"cut":"whole"}],
                     "stoppedContainers":2,"hostname":"a name no answer gives"}}"#,
     )
     .unwrap();
-    let out = call(&c.0, "factory_disk", &json!({})).unwrap();
+    let out = call(&c, "factory_disk", &json!({})).unwrap();
     assert_eq!(out["api"], 1);
     assert_eq!(out["generatedAt"], "2026-10-31T23:09:32Z");
     assert_eq!(out["dockerRoot"], "/var/lib/docker");
@@ -535,8 +524,8 @@ fn factory_disk_is_listed_and_answers() {
     }
 
     // No file is the tool error that says so, not an empty answer.
-    let c = Copy::new("disk-none");
-    match call(&c.0, "factory_disk", &json!({})) {
+    let c = copy("disk-none");
+    match call(&c, "factory_disk", &json!({})) {
         Err(ToolError::File { file, why }) => {
             assert_eq!(file, "disk.json");
             assert_eq!(why, "not published");
@@ -777,14 +766,14 @@ fn every_key_is_listed() {
         // and no newest: the answer of a release host adds those two, and the
         // commit it cannot show is in the answer above.
         if name == "factory_status" {
-            let c = Copy::new("status-keys-release");
-            let file = c.0.join("health.json");
+            let c = copy("status-keys-release");
+            let file = c.join("health.json");
             let health = std::fs::read_to_string(&file).unwrap().replace(
                 "\"commit\":\"9b1b7dc11b73b93f7296b5f3131fcc6ef6b964e9\",\"upstream\":\"origin/main\"",
                 "\"release\":\"v0.9.1\",\"newest\":\"v0.9.2\",\"upstream\":\"releases\"",
             );
             std::fs::write(&file, health).unwrap();
-            got.extend(key_paths(&call(&c.0, name, &args(name)).unwrap()));
+            got.extend(key_paths(&call(&c, name, &args(name)).unwrap()));
         }
         let want: BTreeSet<String> = keys.iter().map(|s| s.to_string()).collect();
         assert_eq!(got, want, "{name}");
@@ -822,14 +811,14 @@ fn schema_matches_output() {
         // commit, so those two are answered here from a health file of that
         // shape.
         if name == "factory_status" {
-            let c = Copy::new("status-release");
-            let file = c.0.join("health.json");
+            let c = copy("status-release");
+            let file = c.join("health.json");
             let health = std::fs::read_to_string(&file).unwrap().replace(
                 "\"commit\":\"9b1b7dc11b73b93f7296b5f3131fcc6ef6b964e9\",\"upstream\":\"origin/main\"",
                 "\"release\":\"v0.9.1\",\"newest\":\"v0.9.2\",\"upstream\":\"releases\"",
             );
             std::fs::write(&file, health).unwrap();
-            got.extend(key_paths(&call(&c.0, name, &args(name)).unwrap()));
+            got.extend(key_paths(&call(&c, name, &args(name)).unwrap()));
         }
         let mut want = BTreeSet::new();
         schema_paths(&schema_of(name), "", &mut want);
@@ -910,27 +899,25 @@ fn inputs_and_outputs_are_described() {
 // answered with its last bytes.
 #[test]
 fn a_huge_console_is_read_from_its_end_only() {
-    let c = Copy::new("huge");
+    let c = copy("huge");
     let f = std::fs::OpenOptions::new()
         .write(true)
-        .open(c.0.join("console-7.txt"))
+        .open(c.join("console-7.txt"))
         .unwrap();
     f.set_len(1 << 40).unwrap();
-    let out = call(&c.0, "factory_console", &json!({"issue": 7, "bytes": 100})).unwrap();
+    let out = call(&c, "factory_console", &json!({"issue": 7, "bytes": 100})).unwrap();
     assert_eq!(out["console"].as_str().unwrap().len(), 100);
 }
 
-// A directory with sessions.jsonl of these lines, removed when dropped.
-fn snapshot_dir(name: &str, lines: &[String]) -> Copy {
-    let dir = std::env::temp_dir().join(format!("mcp-snap-{name}-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
+// A directory with sessions.jsonl of these lines.
+fn snapshot_dir(name: &str, lines: &[String]) -> TestDir {
+    let dir = TestDir::new(&format!("mcp-snap-{name}"));
     let mut text = lines.join("\n");
     if !lines.is_empty() {
         text.push('\n');
     }
     std::fs::write(dir.join("sessions.jsonl"), text).unwrap();
-    Copy(dir)
+    dir
 }
 
 fn header(days: Value, generated: i64) -> String {
@@ -945,7 +932,8 @@ fn iso_is_the_form_the_files_use() {
 #[test]
 fn snapshot_missing_or_bad_is_a_tool_error() {
     let t = now();
-    let missing = std::env::temp_dir().join(format!("mcp-snap-none-{}", std::process::id()));
+    let gone = TestDir::new("mcp-snap-none");
+    let missing = gone.join("none");
     let empty = snapshot_dir("empty", &[]);
     let no_days = snapshot_dir(
         "nodays",
@@ -958,12 +946,12 @@ fn snapshot_missing_or_bad_is_a_tool_error() {
     );
     let not_object = snapshot_dir("array", &["[1]".to_string()]);
     for dir in [
-        &missing,
-        &empty.0,
-        &no_days.0,
-        &zero.0,
-        &other_api.0,
-        &not_object.0,
+        missing.as_path(),
+        empty.path(),
+        no_days.path(),
+        zero.path(),
+        other_api.path(),
+        not_object.path(),
     ] {
         match Snapshot::open(dir, t) {
             Err(ToolError::File { file, why }) => {
@@ -980,12 +968,12 @@ fn snapshot_missing_or_bad_is_a_tool_error() {
 fn snapshot_old_is_stale() {
     let t = now();
     let old = snapshot_dir("old", &[header(json!(30), t - 11 * 60)]);
-    let s = Snapshot::open(&old.0, t).unwrap();
+    let s = Snapshot::open(&old, t).unwrap();
     assert!(s.stale);
     assert_eq!(s.days, 30);
     assert_eq!(s.generated_at, iso(t - 11 * 60));
     let fresh = snapshot_dir("fresh", &[header(json!(30), t - 5 * 60)]);
-    assert!(!Snapshot::open(&fresh.0, t).unwrap().stale);
+    assert!(!Snapshot::open(&fresh, t).unwrap().stale);
 }
 
 #[test]
@@ -1003,12 +991,12 @@ fn snapshot_sessions_skip_bad_lines_and_the_old() {
     ];
     let dir = snapshot_dir("lines", &lines);
     // A line that is not UTF-8, then a session that must still come out.
-    let mut bytes = std::fs::read(dir.0.join("sessions.jsonl")).unwrap();
+    let mut bytes = std::fs::read(dir.join("sessions.jsonl")).unwrap();
     bytes.extend_from_slice(b"{\"id\": 5, \"x\": \"\xff\xfe\"}\n");
     bytes.extend_from_slice(run(6, t - 120).as_bytes());
     bytes.push(b'\n');
-    std::fs::write(dir.0.join("sessions.jsonl"), bytes).unwrap();
-    let ids: Vec<i64> = Snapshot::open(&dir.0, t)
+    std::fs::write(dir.join("sessions.jsonl"), bytes).unwrap();
+    let ids: Vec<i64> = Snapshot::open(&dir, t)
         .unwrap()
         .sessions()
         .map(|v| v["id"].as_i64().unwrap())

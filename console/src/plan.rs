@@ -305,15 +305,8 @@ pub fn update(session: &str, keep: &Path, was: &str) -> Result<String, String> {
 mod tests {
     use super::*;
 
-    fn keep() -> std::path::PathBuf {
-        let d = std::env::temp_dir().join(format!(
-            "tehas-plan-{}-{:?}",
-            std::process::id(),
-            std::thread::current().id()
-        ));
-        let _ = std::fs::remove_dir_all(&d);
-        std::fs::create_dir_all(&d).unwrap();
-        d
+    fn keep() -> tehas_core::testdir::TestDir {
+        tehas_core::testdir::TestDir::new("plan")
     }
 
     fn parsed(s: &str) -> Value {

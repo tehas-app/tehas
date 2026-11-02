@@ -178,9 +178,7 @@ mod tests {
 
     #[test]
     fn the_file_is_public_and_whole() {
-        let dir = std::env::temp_dir().join(format!("orders-test-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
+        let dir = tehas_core::testdir::TestDir::new("orders");
         let conn = db();
         run(&conn, "a", "work", 7, Some(600), [Some(1), None, None]);
         write(&dir, &conn, 0).unwrap();
@@ -201,6 +199,5 @@ mod tests {
             .filter(|n| n.ends_with(".new"))
             .collect();
         assert!(left.is_empty(), "{left:?}");
-        fs::remove_dir_all(&dir).unwrap();
     }
 }

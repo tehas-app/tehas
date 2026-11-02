@@ -762,18 +762,13 @@ mod tests {
     );
 
     fn guessed(files: &[(&str, &str)]) -> Guess {
-        static CASE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-        let n = CASE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let dir = std::env::temp_dir().join(format!("product-{}-{n}", process::id()));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = tehas_core::testdir::TestDir::new("product");
         for (name, text) in files {
             let file = dir.join(name);
             fs::create_dir_all(file.parent().unwrap()).unwrap();
             fs::write(file, text).unwrap();
         }
-        let said = guess(&dir);
-        fs::remove_dir_all(dir).unwrap();
-        said
+        guess(&dir)
     }
 
     #[test]

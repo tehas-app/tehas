@@ -13,19 +13,11 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use tehas_core::testdir::TestDir;
 
-/// The scratch root of one case: its name, the process, and a counter, so no two
-/// cases share a directory.
-fn root(name: &str) -> PathBuf {
-    static N: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-    let dir = std::env::temp_dir().join(format!(
-        "tehas-finish-{name}-{}-{}",
-        std::process::id(),
-        N.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
-    ));
-    let _ = fs::remove_dir_all(&dir);
-    fs::create_dir_all(&dir).unwrap();
-    dir
+/// The scratch root of one case.
+fn root(name: &str) -> TestDir {
+    TestDir::new(&format!("finish-{name}"))
 }
 
 /// What every git call of a case is given: one author, so a commit needs no
@@ -81,7 +73,7 @@ fn git_s(args: &[String]) -> String {
 /// The world of a case: the bare origin, the clone that makes the origin's
 /// branches, the home, and the kept workspace of issue 7.
 struct World {
-    dir: PathBuf,
+    dir: TestDir,
     origin: PathBuf,
     seed: PathBuf,
     home: PathBuf,
@@ -1101,13 +1093,12 @@ fn the_pins_of_a_call_are_its_own_words_and_no_call_of_git_goes_without_them() {
     assert_eq!(bare.status, None, "{bare:?}");
     assert!(bare.err.contains("without the pins"), "{bare:?}");
     assert_eq!(bare.out, "", "a refused call reads nothing: {bare:?}");
-    fs::remove_dir_all(&dir).unwrap();
 }
 
 #[test]
 fn the_scratch_of_a_run_is_its_own_directory_and_its_body() {
     let dir = root("scratch");
-    let s = Scratch::new(dir.clone(), "widget-7".to_string());
+    let s = Scratch::new(dir.to_path_buf(), "widget-7".to_string());
     let tree = s.dir().unwrap();
     assert!(tree.is_dir());
     assert!(tree
@@ -1124,7 +1115,6 @@ fn the_scratch_of_a_run_is_its_own_directory_and_its_body() {
     // A body that cannot be written is a refusal and not a partial file.
     let where_it_cannot = Scratch::new(PathBuf::from("/proc/tehas-nothing"), "x".to_string());
     assert!(where_it_cannot.write_body("x").is_err());
-    fs::remove_dir_all(&dir).unwrap();
 }
 
 #[test]
@@ -1195,7 +1185,6 @@ fn a_call_carries_what_the_program_printed_on_both_its_streams() {
         None,
         "a name that is no branch of the issue is no branch"
     );
-    fs::remove_dir_all(&dir).unwrap();
 }
 
 #[test]
@@ -1311,7 +1300,6 @@ fn a_run_asks_its_programs_by_their_names_and_the_host_decides_where_they_are() 
     );
     assert!(lines[0].ends_with("status"), "{names}");
     assert!(lines[1].ends_with("pr list"), "{names}");
-    fs::remove_dir_all(&dir).unwrap();
 }
 
 #[test]
@@ -1347,7 +1335,6 @@ fn a_program_busy_under_a_writer_is_asked_again_and_is_run() {
     );
     assert_eq!(got.out, "feature/issue-7-flaky\n", "{got:?}");
     let _ = holder.wait();
-    fs::remove_dir_all(&dir).unwrap();
 }
 
 #[test]
@@ -1370,7 +1357,6 @@ fn a_program_busy_past_its_bound_is_a_call_that_could_not_be_run() {
     assert!(got.err.contains("could not be run"), "{got:?}");
     assert_eq!(got.out, "", "a refused call reads nothing: {got:?}");
     drop(held);
-    fs::remove_dir_all(&dir).unwrap();
 }
 
 #[test]

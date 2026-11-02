@@ -623,20 +623,15 @@ mod tests {
     use std::fs;
     use std::os::unix::fs::PermissionsExt;
     use std::path::{Path, PathBuf};
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Once;
     use std::time::Duration;
+    use tehas_core::testdir::TestDir;
 
     /// The store of a case: the real store program of this build, so the four
     /// reads are the reads a host answers and `store batch` is the verb the poll
     /// asks. A home of the test's own, as the store's tests have theirs.
-    fn scratch(name: &str) -> PathBuf {
-        static N: AtomicUsize = AtomicUsize::new(0);
-        let root = std::env::temp_dir().join("tehas-dispatch-store");
-        let dir = root
-            .join(std::process::id().to_string())
-            .join(format!("{name}-{}", N.fetch_add(1, Ordering::SeqCst)));
-        let _ = fs::remove_dir_all(&dir);
+    fn scratch(name: &str) -> TestDir {
+        let dir = TestDir::new(&format!("dispatch-store-{name}"));
         fs::create_dir_all(dir.join("state/cycles")).unwrap();
         dir
     }
@@ -709,7 +704,7 @@ mod tests {
     /// A store that answers, with the calls it was made written under `count`
     /// so a case can count them.
     struct Host {
-        home: PathBuf,
+        home: TestDir,
         store: PathBuf,
     }
 
@@ -736,7 +731,7 @@ mod tests {
         let run = |args: &[&str]| {
             let r = std::process::Command::new(&bin)
                 .args(args)
-                .env("TEHAS_HOME", &home)
+                .env("TEHAS_HOME", home.path())
                 .output()
                 .unwrap();
             assert!(
@@ -834,7 +829,7 @@ printf 'store %s %s\\n' \"$*\" \"$(cat \"$0.request\")\" >>\"$0.calls\"\nexec {b
         let run = |args: &[&str]| {
             let r = std::process::Command::new(store_binary())
                 .args(args)
-                .env("TEHAS_HOME", &h.home)
+                .env("TEHAS_HOME", h.home.path())
                 .output()
                 .unwrap();
             assert!(
@@ -980,7 +975,7 @@ printf 'store %s %s\\n' \"$*\" \"$(cat \"$0.request\")\" >>\"$0.calls\"\nexec {b
         let alone = |args: &[&str]| {
             let r = std::process::Command::new(store_binary())
                 .args(args)
-                .env("TEHAS_HOME", &h.home)
+                .env("TEHAS_HOME", h.home.path())
                 .output()
                 .unwrap();
             assert!(
