@@ -1827,11 +1827,11 @@ impl Run {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tehas_core::testdir::TestDir;
 
     #[test]
     fn a_cycles_end_takes_the_build_output_of_every_tree_and_nothing_else() {
-        let root = std::env::temp_dir().join(format!("clean-ended-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&root);
+        let root = TestDir::new("clean-ended");
         let tree = root.join("widget-7");
         let retry = root.join("widget-7.before-retry");
         let worktree = tree.join(".runner/issue-7-default");
@@ -1871,7 +1871,6 @@ mod tests {
             .unwrap()
             .contains("build output of a cycle that ended"));
         assert_eq!(ended(&args), 0);
-        fs::remove_dir_all(&root).unwrap();
         assert_eq!(ended(&args[..2]), 64);
     }
 
@@ -1938,8 +1937,8 @@ mod tests {
 
     #[test]
     fn a_dry_run_names_the_bytes_it_would_free_and_removes_nothing() {
-        let root = std::env::temp_dir().join(format!("clean-dry-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&root);
+        let tmp = TestDir::new("clean-dry");
+        let root = tmp.join("root");
         let (mut run, known) = one_issue_tree(&root);
         let tree = root.join("work/widget-7");
         assert!(known > 0);
@@ -1986,13 +1985,12 @@ mod tests {
         );
         assert!(!tree.join("target").exists(), "a real run left it");
         assert!(tree.join("src/main.rs").exists());
-        fs::remove_dir_all(&root).unwrap();
     }
 
     #[test]
     fn a_cycles_scratch_is_made_empty_and_for_any_writer() {
-        let root = std::env::temp_dir().join(format!("clean-scratch-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&root);
+        let tmp = TestDir::new("clean-scratch");
+        let root = tmp.join("disk");
         let dir = root.display().to_string();
         let args = [dir.clone(), "widget-7".to_string()];
         assert_eq!(scratch_made(&args), 78, "the disk is not there");
@@ -2003,13 +2001,11 @@ mod tests {
         let mode = fs::metadata(&made).unwrap().permissions().mode();
         assert_eq!(mode & 0o7777, 0o1777);
         assert_eq!(scratch_made(&["scratch".to_string(), "w".to_string()]), 78);
-        fs::remove_dir_all(&root).unwrap();
     }
 
     #[test]
     fn a_clone_keeps_its_build_output_till_the_disk_or_the_age_says_otherwise() {
-        let root = std::env::temp_dir().join(format!("clean-clone-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&root);
+        let root = TestDir::new("clean-clone");
         let home = root.join("home");
         let devs = home.join("dev");
         let clone = |name: &str, age: bool| {
@@ -2114,13 +2110,11 @@ mod tests {
         dry.freed = 0;
         assert!(dry.clone_targets_among(None));
         assert_eq!(dry.freed, 0);
-        fs::remove_dir_all(&root).unwrap();
     }
 
     #[test]
     fn an_open_session_holds_a_clones_build_output() {
-        let root = std::env::temp_dir().join(format!("clean-clone-held-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&root);
+        let root = TestDir::new("clean-clone-held");
         let home = root.join("home");
         for name in ["alice", "bob"] {
             let target = home.join("dev").join(format!("{name}.state/target"));
@@ -2193,7 +2187,6 @@ mod tests {
         // A link is not taken, and a name of no plain word has no lock to hold.
         assert!(run.hold_clone("dave").is_none());
         assert!(run.hold_clone("a.b").is_none());
-        fs::remove_dir_all(&root).unwrap();
     }
 
     enum LockShape {
@@ -2247,7 +2240,8 @@ mod tests {
 
     #[test]
     fn a_lock_that_is_a_link_is_not_free() {
-        let root = std::env::temp_dir().join(format!("clean-link-lock-{}", std::process::id()));
+        let tmp = TestDir::new("clean-link-lock");
+        let root = tmp.join("root");
         // A lock is held by descriptor, so a link, a directory, or a lock no one
         // can open proves nothing about the file a cycle locked. Neither rule
         // may call such a lock free: the first keeps the issue's build output,
@@ -2266,7 +2260,6 @@ mod tests {
         let (running, free) = lock_rules(&root, LockShape::None);
         assert!(!running);
         assert!(free);
-        fs::remove_dir_all(&root).unwrap();
     }
 
     #[test]
@@ -2411,8 +2404,7 @@ mod tests {
 
     #[test]
     fn the_walk_skips_dot_names_and_links_and_takes_named_dirs() {
-        let t = std::env::temp_dir().join(format!("clean-walk-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&t);
+        let t = TestDir::new("clean-walk");
         for d in [
             "target/sub/target",
             ".git/target",
@@ -2439,6 +2431,5 @@ mod tests {
         assert!(remove(&t.join("target")));
         assert!(!t.join("target").exists());
         assert!(remove(&t.join("gone")));
-        fs::remove_dir_all(&t).unwrap();
     }
 }

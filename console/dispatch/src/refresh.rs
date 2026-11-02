@@ -288,19 +288,13 @@ pub fn main(args: &[&str]) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tehas_core::testdir::TestDir;
 
     const HEAD: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     const BASE: &str = "cccccccccccccccccccccccccccccccccccccccc";
 
-    fn scratch(name: &str) -> PathBuf {
-        let d = std::env::temp_dir().join(format!(
-            "tehas-refresh-{name}-{}-{:?}",
-            std::process::id(),
-            std::thread::current().id()
-        ));
-        let _ = fs::remove_dir_all(&d);
-        fs::create_dir_all(&d).unwrap();
-        d
+    fn scratch(name: &str) -> TestDir {
+        TestDir::new(&format!("refresh-{name}"))
     }
 
     /// One of the bot's pull requests that qualifies and conflicts.
@@ -427,7 +421,6 @@ mod tests {
         fs::create_dir(&held).unwrap();
         assert!(put(&held, "new").is_err());
         assert!(!d.join("8.json.new").exists());
-        let _ = fs::remove_dir_all(&d);
     }
 
     #[test]
@@ -466,7 +459,6 @@ mod tests {
                 "notes.json"
             ]
         );
-        let _ = fs::remove_dir_all(&d);
     }
 
     #[test]

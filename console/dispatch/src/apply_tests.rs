@@ -6,7 +6,8 @@ use crate::poll::End;
 use crate::read::run::{Calls, RetryPolicy};
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex, Weak};
+use tehas_core::testdir::TestDir;
 
 /// A stub answers each call, writes `<name> <args>` and its standard input
 /// to calls.log, and exits 1 when a line of fail-<name> is in its args. When
@@ -105,29 +106,37 @@ esac
 "#;
 
 struct World {
-    dir: PathBuf,
+    dir: TestDir,
+    _stub: Arc<TestDir>,
     w: Writer,
 }
 
 fn world() -> World {
-    static N: AtomicUsize = AtomicUsize::new(0);
-    let dir = std::env::temp_dir().join(format!(
-        "tehas-apply-{}-{}",
-        std::process::id(),
-        N.fetch_add(1, Ordering::SeqCst)
-    ));
-    let _ = fs::remove_dir_all(&dir);
+    let dir = TestDir::new("apply");
     fs::create_dir_all(dir.join("home/state/refresh")).unwrap();
-    // One stub file for the process, written before any test runs it, and
-    // a link to it in each world: a file written while another thread forks
-    // can be held open for writing and refuse to run.
-    static ONCE: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
-    let stub = ONCE.get_or_init(|| {
-        let p = std::env::temp_dir().join(format!("tehas-apply-stub-{}", std::process::id()));
-        fs::write(&p, STUB).unwrap();
-        fs::set_permissions(&p, fs::Permissions::from_mode(0o755)).unwrap();
-        p
-    });
+    // One stub file for the worlds alive at once, and a link to it in each
+    // world. A file written while another thread forks is held open for
+    // writing until that child's exec and refuses to run, so the stub is run
+    // once here before a world is given it.
+    static STUB_DIR: Mutex<Weak<TestDir>> = Mutex::new(Weak::new());
+    let held = {
+        let mut shared = STUB_DIR.lock().unwrap_or_else(|e| e.into_inner());
+        shared.upgrade().unwrap_or_else(|| {
+            let d = Arc::new(TestDir::new("apply-stub"));
+            let p = d.join("stub");
+            fs::write(&p, STUB).unwrap();
+            fs::set_permissions(&p, fs::Permissions::from_mode(0o755)).unwrap();
+            let until = std::time::Instant::now() + Duration::from_secs(5);
+            while std::process::Command::new(&p).status().is_err()
+                && std::time::Instant::now() < until
+            {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            *shared = Arc::downgrade(&d);
+            d
+        })
+    };
+    let stub = held.join("stub");
     for name in [
         "gh",
         "store",
@@ -140,7 +149,7 @@ fn world() -> World {
         "git",
         "systemctl",
     ] {
-        std::os::unix::fs::symlink(stub, dir.join(name)).unwrap();
+        std::os::unix::fs::symlink(&stub, dir.join(name)).unwrap();
     }
     let s = |n: &str| dir.join(n).to_string_lossy().into_owned();
     let w = Writer {
@@ -209,7 +218,11 @@ fn world() -> World {
         starts: 0,
         fetched: false,
     };
-    World { dir, w }
+    World {
+        dir,
+        _stub: held,
+        w,
+    }
 }
 
 impl World {

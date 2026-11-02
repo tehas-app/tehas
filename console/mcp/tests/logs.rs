@@ -7,9 +7,8 @@ use mcp::rpc::{handle, Request};
 use mcp::tools::{call, Dirs, Output, ToolError};
 use serde_json::{json, Value};
 use std::io::Read;
-use std::path::PathBuf;
-use std::sync::atomic::Ordering;
 use std::sync::{Mutex, MutexGuard};
+use tehas_core::testdir::TestDir;
 use tehas_core::time::{iso, now};
 
 // The number of logs being sent is one for the process: the tests take turns.
@@ -42,7 +41,7 @@ fn start() -> i64 {
 }
 
 struct Env {
-    root: PathBuf,
+    root: TestDir,
     dirs: Dirs,
 }
 
@@ -50,8 +49,7 @@ impl Env {
     // `logs` is (word, name, content) per file. A session with no files
     // still lists the words, so a test can plant a name.
     fn new(name: &str, kind: &str, issue: i64, logs: &[(&str, &str, &[u8])]) -> Env {
-        let root = std::env::temp_dir().join(format!("mcp-logs-{name}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&root);
+        let root = TestDir::new(&format!("mcp-logs-{name}"));
         let (live, snap, dir) = (root.join("live"), root.join("mcp"), root.join("logs"));
         for d in [&live, &snap, &dir] {
             std::fs::create_dir_all(d).unwrap();
@@ -114,16 +112,10 @@ impl Env {
     }
 }
 
-impl Drop for Env {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.root);
-    }
-}
-
 // A snapshot of the sessions of `sessions`, and a logs directory holding
 // `logs` by name: the ground the search is tried on, removed when dropped.
 struct Search {
-    root: PathBuf,
+    root: TestDir,
     dirs: Dirs,
 }
 
@@ -145,14 +137,7 @@ impl Search {
     }
 
     fn built(name: &str, served: &[Value], logs: &[(&str, &[u8])]) -> Search {
-        // The number of the environment is taken by the one call that gives it,
-        // so two environments built in parallel cannot read the same one and
-        // share a directory: the process id alone would let them, and the name
-        // of the test is unique only among the tests.
-        let n = SEARCH_NO.fetch_add(1, Ordering::SeqCst).to_string();
-        let root =
-            std::env::temp_dir().join(format!("mcp-search-{name}-{}-{n}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&root);
+        let root = TestDir::new(&format!("mcp-search-{name}"));
         let (live, snap, dir) = (root.join("live"), root.join("mcp"), root.join("logs"));
         for d in [&live, &snap, &dir] {
             std::fs::create_dir_all(d).unwrap();
@@ -403,14 +388,6 @@ impl Search {
             .collect();
         self.wrote(&lines);
         self.searched(a)
-    }
-}
-
-static SEARCH_NO: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-
-impl Drop for Search {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.root);
     }
 }
 

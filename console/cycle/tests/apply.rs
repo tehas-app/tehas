@@ -6,8 +6,9 @@ use serde_json::{json, Value};
 use std::fs;
 use std::io::Write;
 use std::os::unix::fs::PermissionsExt;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{Command, Output, Stdio};
+use tehas_core::testdir::TestDir;
 
 const STORE: &str = r#"#!/usr/bin/env bash
 d=$(dirname "$0")
@@ -44,13 +45,7 @@ esac
 "#;
 
 struct Host {
-    dir: PathBuf,
-}
-
-impl Drop for Host {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.dir);
-    }
+    dir: TestDir,
 }
 
 fn exe(p: &Path, text: &str) {
@@ -60,8 +55,7 @@ fn exe(p: &Path, text: &str) {
 
 impl Host {
     fn new(name: &str) -> Host {
-        let dir = std::env::temp_dir().join(format!("tehas-apply-{name}-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
+        let dir = TestDir::new(&format!("apply-{name}"));
         for d in ["libexec", "bin", "state/cycles", "logs", "work"] {
             fs::create_dir_all(dir.join(d)).unwrap();
         }
@@ -100,8 +94,8 @@ impl Host {
                     std::env::var("PATH").unwrap()
                 ),
             )
-            .env("TEHAS_HOME", &self.dir)
-            .env("HOME", &self.dir)
+            .env("TEHAS_HOME", self.dir.path())
+            .env("HOME", self.dir.path())
             .env("TEHAS_REPO", "a/b")
             .env("TEHAS_WORK_DIR", self.dir.join("work/widget"))
             .env("TEHAS_CYCLE_RETRY_WAIT", "0")
@@ -124,8 +118,8 @@ impl Host {
                     std::env::var("PATH").unwrap()
                 ),
             )
-            .env("TEHAS_HOME", &self.dir)
-            .env("HOME", &self.dir)
+            .env("TEHAS_HOME", self.dir.path())
+            .env("HOME", self.dir.path())
             .env("TEHAS_ANALYTICS", "on")
             .env("TEHAS_ANALYTICS_WAIT", "60")
             .env_remove("TEHAS_IMPROVE_REPO")
@@ -393,7 +387,7 @@ fn a_report_not_named_its_programs_is_refused() {
     let h = Host::new("no-programs");
     let o = Command::new(env!("CARGO_BIN_EXE_tehas-cycle"))
         .args(["report", "7", "--attempt", "1", "--console", "true"])
-        .env("TEHAS_HOME", &h.dir)
+        .env("TEHAS_HOME", h.dir.path())
         .output()
         .unwrap();
     assert_eq!(o.status.code(), Some(64), "{}", out(&o));

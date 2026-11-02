@@ -262,20 +262,13 @@ fn keep_or_remove(file: &Path) {
 mod tests {
     use super::*;
 
-    struct Host(PathBuf);
-
-    impl Drop for Host {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.0);
-        }
-    }
+    struct Host(tehas_core::testdir::TestDir);
 
     impl Host {
         /// A home whose program is the script `body`, which writes its
         /// arguments and TEHAS_HOME in calls.
         fn new(name: &str, body: &str) -> Host {
-            let home = env::temp_dir().join(format!("tehas-pub-{name}-{}", std::process::id()));
-            let _ = fs::remove_dir_all(&home);
+            let home = tehas_core::testdir::TestDir::new(&format!("pub-{name}"));
             fs::create_dir_all(home.join("libexec")).unwrap();
             let host = Host(home);
             host.program(body);
@@ -299,7 +292,7 @@ mod tests {
 
         fn analytics(&self, on: bool, wait: u64) -> Analytics {
             Analytics {
-                home: self.0.clone(),
+                home: self.0.to_path_buf(),
                 bin: self.0.join("libexec/analytics"),
                 wait,
                 on,
