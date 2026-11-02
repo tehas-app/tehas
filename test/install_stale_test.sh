@@ -46,6 +46,29 @@ done
 t_eq "$([ -e "$th/lib/history-lines.jq" ] && echo there)" "there"
 t_eq "$([ -e "$th/lib/park-fields.jq" ] && echo there)" "there"
 
+t_case "with-settings of before console run is named, then removed"
+fresh
+instance
+t_run "$install"
+rm -f "$th/state/update-pending"
+gone=$th/libexec/with-settings
+for f in $gone; do echo "# old" >"$f"; done
+t_run "$install --check"
+t_eq "$t_rc" 1
+for f in $gone; do t_contains "$t_out" "stale: $f"; done
+t_run "$install"
+t_eq "$t_rc" 0
+for f in $gone; do
+  t_contains "$t_out" "removed: $f"
+  t_eq "$([ -e "$f" ] && echo there)" ""
+done
+# tehasbot top of before this version runs with-settings at each mark, so the
+# unit has to start again.
+t_contains "$(cat "$th/state/update-pending")" "tehas-top.service"
+for f in dispatch github-token; do
+  t_eq "$([ -x "$th/libexec/$f" ] && echo there)" "there"
+done
+
 # A cycle used to leave one empty file per issue number in state/cycles/. It
 # read nothing and the flag it fed is gone, so a host that ran cycles then has
 # the files to lose. Only a name of digits alone is one of them.

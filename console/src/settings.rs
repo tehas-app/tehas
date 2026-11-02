@@ -22,8 +22,9 @@
 //!
 //! The words a setting takes, for what ships to be held against them.
 //!
-//! [`loaded`] is tehas_load and tehas_require for a command with no shell before
-//! it.
+//! [`load_here`] and [`require`] are tehas_load and tehas_require for this
+//! program, `console run` their caller, and [`loaded`] both for a command with no
+//! shell before it.
 
 use std::env;
 use std::ffi::OsStr;
@@ -163,18 +164,13 @@ fn refusal(names: &[&str], vars: &Vars) -> Option<String> {
     })
 }
 
-/// tehas_load then tehas_require on this process's own environment, so all it
-/// starts is given the settings. Call it before any thread. Err is the status,
-/// 78, the line said on standard error.
-pub fn loaded(names: &[&str]) -> Result<(), u8> {
-    let start = Vars::new(env::vars_os().map(|(k, v)| (k.into_vec(), v.into_vec())));
+/// tehas_load on this process's own environment, so all it starts is given the
+/// settings. Call it before any thread. Err is the status, 78, the line said on
+/// standard error. Ok is what was loaded, for [`require`].
+pub(crate) fn load_here(uid: &str, bash: &str) -> Result<Vars, u8> {
+    let start = this_environment();
     let mut vars = start.clone();
-    let mut host = Real {
-        bash: "bash".to_string(),
-    };
-    let uid = sandbox::user();
-    let uid = uid.split(':').next().unwrap_or_default();
-    let got = load::load(&mut vars, &mut host, uid);
+    let got = load_into(&mut vars, uid, bash);
     let (dropped, set) = load::changes(&start, &vars);
     for name in dropped {
         env::remove_var(OsStr::from_bytes(name));
@@ -182,17 +178,32 @@ pub fn loaded(names: &[&str]) -> Result<(), u8> {
     for (name, value) in set {
         env::set_var(OsStr::from_bytes(name), OsStr::from_bytes(value));
     }
-    if let Err(line) = got {
-        eprintln!("tehas: {line}");
-        return Err(REFUSED);
+    match got {
+        Ok(()) => Ok(vars),
+        Err(line) => {
+            eprintln!("tehas: {line}");
+            Err(REFUSED)
+        }
     }
-    match refusal(names, &vars) {
+}
+
+/// tehas_require on what [`load_here`] loaded.
+pub(crate) fn require(names: &[&str], vars: &Vars) -> Result<(), u8> {
+    match refusal(names, vars) {
         Some(line) => {
             eprintln!("{line}");
             Err(REFUSED)
         }
         None => Ok(()),
     }
+}
+
+/// tehas_load then tehas_require, for a command with no shell before it to say
+/// who it runs as.
+pub fn loaded(names: &[&str]) -> Result<(), u8> {
+    let uid = sandbox::user();
+    let uid = uid.split(':').next().unwrap_or_default();
+    require(names, &load_here(uid, "bash")?)
 }
 
 fn why(name: &str, value: &str) -> Option<String> {

@@ -95,13 +95,18 @@ pub(crate) fn steps_for(sources: &[String]) -> Vec<String> {
     let any = |test: &dyn Fn(&str) -> bool| sources.iter().any(|s| test(s));
     let mut steps = Vec::new();
     // bin/tehas-energy, libexec/energy and libexec/top-publish are loops of
-    // before the console: a running one moves on only when restarted. A running
+    // before the console: a running one moves on only when restarted. So is a
+    // tehasbot top that still runs libexec/with-settings each mark. A running
     // service keeps the environment env.sh gave it at its start.
     if any(&|s| {
         s.starts_with("systemd/")
             || matches!(
                 s,
-                "bin/tehas-energy" | "libexec/energy" | "libexec/top-publish" | "env.sh"
+                "bin/tehas-energy"
+                    | "libexec/energy"
+                    | "libexec/top-publish"
+                    | "libexec/with-settings"
+                    | "env.sh"
             )
     }) {
         steps.push(format!("units {}", UNITS.join(" ")));
@@ -425,6 +430,7 @@ mod tests {
             "bin/tehas-energy",
             "libexec/energy",
             "libexec/top-publish",
+            "libexec/with-settings",
             "env.sh",
         ] {
             assert_eq!(

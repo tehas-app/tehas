@@ -5,7 +5,7 @@
 //!   console tehas|tehasbot mcp serve
 //!   console tehas|tehasbot mcp key
 //!
-//! serve runs under `libexec/with-settings`; key needs no settings. The
+//! serve runs under `console run`; key needs no settings. The
 //! container is a security boundary: its arguments are pinned by
 //! test/mcp_test.sh, and keys reach it by name, never in an argument.
 //!

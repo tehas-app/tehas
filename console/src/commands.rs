@@ -23,11 +23,10 @@
 //!   console tehasbot github-token [--check]
 //!
 //! status, disk, top and mcp key need no settings, and dev loads its own. The
-//! rest run under `libexec/with-settings`, which first asks `console check`
-//! with the same words: an argument that cannot be right is 64 with the usage,
-//! whatever the settings hold, and only then are they loaded. `console needs` with those
-//! words then names the settings the command cannot run without, for
-//! `tehas_require`, so the rules of a setting stay in `lib/config.sh`.
+//! rest run under `console run` (src/run.rs), which first asks [`check`] with the
+//! same words: an argument that cannot be right is 64 with the usage, whatever
+//! the settings hold, and only then are they loaded. [`required`] then names the
+//! settings the command cannot run without.
 //!
 //!   console usage <command>
 //!
@@ -181,8 +180,8 @@ pub fn tehasbot(given: &[String]) -> u8 {
 }
 
 /// What `check` ends with when it was the whole answer, as a help text met
-/// among the arguments is: `libexec/with-settings` then ends 0 and loads nothing.
-const ANSWERED: u8 = 99;
+/// among the arguments is: `console run` then ends 0 and loads nothing.
+pub const ANSWERED: u8 = 99;
 
 /// What can be said of the arguments before the settings are loaded. A
 /// command with no check here passes.
@@ -210,7 +209,7 @@ pub fn check(given: &[String]) -> u8 {
     said.err().unwrap_or(0)
 }
 
-/// The settings a command cannot run without, on one line.
+/// The settings a command cannot run without.
 pub fn required(given: &[String]) -> &'static [&'static str] {
     let words: Vec<&str> = given.iter().take(2).map(String::as_str).collect();
     match words[..] {
@@ -222,11 +221,6 @@ pub fn required(given: &[String]) -> &'static [&'static str] {
         ],
         _ => &[],
     }
-}
-
-pub fn needs(given: &[String]) -> u8 {
-    println!("{}", required(given).join(" "));
-    0
 }
 
 fn text(command: &str) -> Option<&'static str> {
