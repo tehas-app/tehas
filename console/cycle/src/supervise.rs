@@ -14,9 +14,8 @@
 //! for each call to GitHub. The report is made even if a stop arrives during it:
 //! leaving tehas:running on the issue would park it for good.
 //!
-//! The report is `apply` where the instance sets TEHAS_CYCLE_REPORT=rust. Else
-//! libexec/cycle is run again with what it needs in TEHAS_CYCLE_ENDED. It goes by
-//! the settings of this environment and loads none: instance.env may have changed.
+//! The report is `apply`, in this process. It goes by the settings of this
+//! environment and loads none: instance.env may have changed during the cycle.
 
 use crate::after::log;
 use crate::apply;
@@ -57,8 +56,6 @@ pub struct Given {
     pub status_cmd: String,
     pub status_args: Vec<String>,
     pub console: String,
-    /// libexec/cycle, for the report in bash.
-    pub again: String,
 }
 
 /// What a number is, as GitHub answers for it. The factory works on open issues
@@ -334,27 +331,6 @@ fn supervise(
     }
 }
 
-/// The report in bash, with this process ignoring what comes while it runs.
-fn report_in_bash(g: &Given, s: &Start) -> i32 {
-    let ended = [
-        s.attempt.to_string(),
-        s.rc.to_string(),
-        s.started.to_string(),
-        u8::from(s.signalled).to_string(),
-        u8::from(s.requeued).to_string(),
-        s.by.clone(),
-        s.how.clone(),
-        s.approval_at.clone(),
-    ]
-    .join("|");
-    let done = Command::new(&g.again)
-        .arg(g.issue.to_string())
-        .env("TEHAS_CYCLE_ENDED", ended)
-        .stdin(Stdio::null())
-        .status();
-    done.map(exit_code).unwrap_or(127)
-}
-
 /// A cycle's start, its supervision and its report. Its exit status.
 pub fn run(home: &Path, g: &Given) -> i32 {
     let n = g.issue.to_string();
@@ -438,11 +414,7 @@ pub fn run(home: &Path, g: &Given) -> i32 {
         status_cmd: g.status_cmd.clone(),
         status_args: g.status_args.clone(),
     };
-    if std::env::var("TEHAS_CYCLE_REPORT").as_deref() == Ok("rust") {
-        apply::run(home, &start)
-    } else {
-        report_in_bash(g, &start)
-    }
+    apply::run(home, &start)
 }
 
 #[cfg(test)]

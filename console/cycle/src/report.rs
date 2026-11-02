@@ -1,11 +1,12 @@
-//! A cycle's report, decided: what libexec/cycle does once tehas work has
+//! A cycle's report, decided: what is done once tehas work has
 //! ended, from what the cycle left (`Facts`) and the questions it asks
 //! GitHub on the way (`Ask`). It writes nothing. Its answer is the lines it
 //! logs while it reads, the writes in their order, and what goes on the
 //! cycle's record, in the analytics and to the improvement loop.
 //!
-//! The order of the bash is kept, and so are its words: the report of the
-//! Rust and the report of the bash are compared line by line.
+//! The order of the bash report it replaced is kept, and so are its words:
+//! tests/fixtures holds the bash's reports, traced, and each is checked line by
+//! line.
 
 use crate::after::After;
 use crate::facts::{first_bytes, line, two_lines, words, Facts, File};
@@ -57,7 +58,7 @@ impl Ask for Given {
     }
 }
 
-/// The caps tehas sets for a stop of its own (tehas_own_caps).
+/// The caps tehas sets for a stop of its own, and no other command does.
 pub const OWN_CAPS: [&str; 3] = ["wall-clock", "stall", "runner-never-started"];
 
 /// What a label that could not be changed adds to a comment.
@@ -248,7 +249,7 @@ pub struct Report {
     pub status_run: bool,
     /// What GitHub was asked, in order: `prs <branch>`, `attention`.
     pub asked: Vec<String>,
-    /// Which arm of the report this cycle took, for the shadow's log.
+    /// Which arm of the report this cycle took, for the fixtures.
     pub arm: &'static str,
     /// What follows the end; the caller adds the approval and its programs.
     pub after: After,
@@ -335,9 +336,8 @@ fn repeat_line(step: &str, cap: &str) -> String {
     line + ". A retry on the same text will likely stop the same way and spend another slot: change the issue first, or ask for a smaller change with `tehas:plan`."
 }
 
-/// tehas_park_repeat, lib/park-fields.jq: whether the issue's last end is a
-/// park of this one's signature and no provider outage. Unreadable history
-/// says nothing.
+/// Whether the issue's last end is a park of this one's signature and no
+/// provider outage. Unreadable history says nothing.
 fn repeats(f: &Facts, sig: &str, step: &str) -> bool {
     let Some(rows) = f
         .history
