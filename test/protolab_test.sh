@@ -11,9 +11,7 @@
 
 # shellcheck disable=SC2154  # t_console_why is set by t_console (test/lib.sh)
 t_console || t_bad "no console: $t_console_why"
-# The command takes its console beside itself, and a `console' on the PATH is
-# the other way a checkout has one. t_run builds the PATH it runs with, so the
-# file names the directory in T_CONSOLE_DIR and t_run_names it below.
+# A checkout has no console beside the command: TEHAS_CONSOLE names a copy.
 T_CONSOLE_DIR=$T/console-for-protolab
 mkdir -p "$T_CONSOLE_DIR"
 cp "$T_CONSOLE" "$T_CONSOLE_DIR/console"
@@ -23,9 +21,7 @@ fx=$T/fx
 site=$T/home/tehas/protolab
 live=$T/home/tehas/live
 
-# The run of the command, with the console of this checkout on its PATH: t_run
-# builds the PATH it runs with, so a directory put on PATH above is not enough.
-t_protolab() { t_run "PATH=$T_CONSOLE_DIR:\$PATH $protolab"; }
+t_protolab() { t_run "TEHAS_CONSOLE=$T_CONSOLE_DIR/console $protolab"; }
 
 # gh answers from fixture files.
 t_stub gh '
@@ -634,12 +630,12 @@ t_protolab
 t_contains "$t_out" "#60: 0 files, 0 bytes, 0 left out"
 t_eq "$([ -e "$site/.work" ] && echo there)" ""
 
-t_case "with no console anywhere it says to install, before GitHub is asked"
+t_case "with no console it says to install, before GitHub is asked"
 reset
 rm -f "$T/calls/gh"
-t_run "PATH=/nonexistent:\$PATH $protolab"
+t_run "TEHAS_CONSOLE=$T/no-console $protolab"
 t_eq "$t_rc" 78
-t_contains "$t_out" "no console to build the pages with; run install.sh"
+t_contains "$t_out" "tehasbot: no console at $T/no-console: run install.sh"
 t_eq "$(t_calls gh)" ""
 
 t_case "the console run alone: a setting left empty stops it with 78 before it writes or asks"

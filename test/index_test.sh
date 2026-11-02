@@ -125,6 +125,22 @@ t_contains "$t_out" "not of acme/widget"
 t_eq "$(t_calls docker)" ""
 git -C "$checkout" remote set-url origin "$upstream"
 
+t_case "a checkout that does not say its default branch starts no container, and says both remedies"
+git -C "$checkout" remote set-head origin -d
+t_run "$index"
+t_eq "$t_rc" 78
+t_contains "$t_out" "the default branch of $checkout is unknown: run install.sh, or set TEHAS_BRANCH"
+t_eq "$(t_calls docker)" ""
+
+t_case "TEHAS_BRANCH wins over the checkout, and a branch it has not fetched starts no container"
+t_instance "${T_MINIMAL[@]}" TEHAS_BRANCH=release
+t_run "$index"
+t_eq "$t_rc" 78
+t_contains "$t_out" "tehas index: $checkout has no origin/release, nothing was indexed"
+t_eq "$(t_calls docker)" ""
+t_instance "${T_MINIMAL[@]}"
+git -C "$checkout" remote set-head origin -a >/dev/null
+
 t_case "without the sandbox image nothing is indexed and the build is named"
 T_ENV=(IMAGE_RC=1 "$root" "$wait")
 t_run "$index"
