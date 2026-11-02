@@ -13,11 +13,6 @@
 # The sandbox build, docker, systemctl, sudo and timeout are stubs that record
 # their arguments.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
-# shellcheck source=test/lib.sh
-# "next:" lines takes them from the console, so the fixture is the text install.sh
-# produces rather than a copy of it someone could keep out of step.
-# shellcheck source=lib/update-steps.sh
-. "$T_ROOT/lib/update-steps.sh"
 
 # The releases and the follow-ups are the console's, and it is no stub here.
 # shellcheck disable=SC2154  # t_console_why is set by t_console (test/lib.sh)
@@ -27,7 +22,7 @@ T_ENV_ALWAYS=(TEHAS_CONSOLE="$T_CONSOLE")
 update="$T_ROOT/libexec/update"
 th=$T/home/tehas
 checkout=$th/platform
-owed_file=$(TEHAS_HOME=$th tehas_pending_file)   # the path, from the one definition
+owed_file=$th/state/update-pending
 
 # bootstrap.sh dev writes two files outside any home, and install.sh reads them to
 # know whether this host lets other accounts start a session. Pointed at scratch in
@@ -127,7 +122,7 @@ platform() { # [behind] [install body] [bin of the host, where its tehas is put]
   # The libraries the checkout carries are this repository's own: after a
   # fast-forward, tehas update re-checks the instance with the settings rules
   # that came with the code it pulled.
-  cp "$T_ROOT/lib/config.sh" "$T_ROOT/lib/update-steps.sh" "$checkout/lib/"
+  cp "$T_ROOT/lib/config.sh" "$checkout/lib/"
   : >"$checkout/libexec/work"
   git init -q --initial-branch=main "$checkout"
   git -C "$checkout" config user.name test

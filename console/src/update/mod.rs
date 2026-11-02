@@ -10,7 +10,8 @@
 //!     --install-err <file> --install-rc <n>
 //!   console update release source|installed|newest|keep
 //!   console update release older|stale <version> <version>
-//!   console update steps ids|units|valid <line>|for <source>...|record <source>...
+//!   console update steps ids|units|valid <line>|owed|for <source>...|record <source>...
+//!   console update wait update|dispatch
 //!
 //! `args` judges the arguments before any setting is read, and answers --help.
 //! `gate` says, with the settings loaded and before the lock, whether this run
@@ -21,7 +22,8 @@
 //! the update ran, and the one left has to finish it. `finish` reads install.sh's
 //! answer and runs the follow-ups, see src/update/finish.rs. `release` answers
 //! one question about the releases, and `steps` names the steps and records them
-//! for install.sh, see src/update/steps.rs.
+//! for install.sh, see src/update/steps.rs. `wait` says how long a lock is waited
+//! for, see src/update/wait.rs.
 //!
 //! Every program is spawned by name from PATH, so a host's own tool, or a
 //! test's stub, answers. Each call outside goes through `timeout`, and only
@@ -34,6 +36,7 @@ mod checkout;
 mod finish;
 pub(crate) mod release;
 mod steps;
+mod wait;
 
 use std::env;
 use std::fs;
@@ -508,8 +511,9 @@ pub fn main(given: &[String]) -> u8 {
         Some((verb, rest)) if verb == "finish" => finish::main(rest),
         Some((verb, rest)) if verb == "release" => release::verb(rest),
         Some((verb, rest)) if verb == "steps" => steps::verb(rest),
+        Some((verb, rest)) if verb == "wait" => wait::verb(rest),
         _ => {
-            tell("console update: usage: args | gate | prepare | api | finish | release <question> | steps <question>");
+            tell("console update: usage: args | gate | prepare | api | finish | release <question> | steps <question> | wait update|dispatch");
             64
         }
     }
