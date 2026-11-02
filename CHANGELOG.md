@@ -17,6 +17,28 @@ empty one above it.
 
 None.
 
+## v0.22.1 (2026-11-02)
+
+### Changes
+
+- Dependencies updated: the workspace's crates within their versions; on the host Node 22.23.4, gh 2.103.3, bun 1.4.4, jq 1.8.2, parallel-cli 0.9.4, Rust 1.99.1, rustup 1.29.2 and codebase-memory-mcp 0.12.1, each by checksum or lockfile.
+- update's lock waits and its record of steps owed are read by the console; lib/update-steps.sh is gone.
+- The console workspace moves to rusqlite 0.41 (bundled SQLite 3.54.0), sha2 0.11 and signal-hook 0.4.
+- Pi on the host is 1.4.0, the version pi-rukas is verified against.
+- Playwright in the sandbox image is 1.64.1 (Chromium 156).
+- ctx7 on the host is 0.8.2.
+- Caddy 2.11.7 for the docs server, the router, the previews and the MCP server's container.
+- The resize page says what each exit of `tehas drain` means before a restart, and its live virtio-mem command uses `--live`.
+- factory_decisions answers an easy merge's start line, and its words are checked against the dispatcher's source.
+- CI checks out with actions/checkout v7.0.1.
+- Release candidates: `scripts/tag-release.sh --rc` tags `vX.Y.Z-rc.N`, published as a prerelease; `tehas update` never moves to one unless `--to` names it, and `tehas api` and `tehas status` read candidate versions.
+
+### Adopter action
+
+- After the update, run `./bootstrap.sh user` (the update's `later:` line
+  says so): it installs the new tools into `~/tehas/bin`. The update rebuilds
+  the sandbox image, since its jq, codebase-memory-mcp and Playwright pins are new.
+
 ## v0.22.0 (2026-11-02)
 
 ### Changes
