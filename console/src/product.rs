@@ -1,8 +1,8 @@
 //! The product contract, for `tehas check-product` and `tehas init-product`.
 //! The commands load the settings and hand over: this reads TEHAS_HOME,
 //! TEHAS_REPO, TEHAS_WORK_REPO, TEHAS_INSTANCE_DIR and PI_ENSEMBLE_IMAGE from
-//! the environment tehas_load left. What each does is in the header of its
-//! command, libexec/check-product and libexec/init-product.
+//! the environment `console run` left. What each does is its text,
+//! src/usage/check-product.txt and src/usage/init-product.txt.
 //!
 //!   console check-product [--sandbox]
 //!     The checks, one line each, and state/check-product.json. Exit 0 every

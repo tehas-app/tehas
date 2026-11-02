@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for libexec/clean: what it removes in a kept workspace, what it never
+# Tests for tehasbot clean: what it removes in a kept workspace, what it never
 # touches, the age rule, the lock, the dry run, the settings, the one docker
 # call, and what a failing docker leaves running.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
@@ -12,11 +12,11 @@
 # shellcheck disable=SC2154  # t_console_why is set by t_console (test/lib.sh)
 t_console || t_bad "no console: $t_console_why"
 shim=$T/tree
-mkdir -p "$shim/libexec"
-ln -s "$T_ROOT/libexec/clean" "$shim/libexec/clean"
+mkdir -p "$shim/libexec" "$shim/bin"
+ln -s "$T_ROOT/bin/tehasbot" "$shim/bin/tehasbot"
 ln -s "$T_ROOT/lib" "$shim/lib"
 cp "$T_CONSOLE" "$shim/libexec/console"
-clean=$shim/libexec/clean
+clean="$shim/bin/tehasbot clean"
 # Where the command's own environment is: the same $T/home/tehas the run gets
 # from the harness, named here so a case can put versions.env where the cleaner
 # reads it.

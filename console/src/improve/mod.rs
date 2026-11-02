@@ -7,8 +7,8 @@
 //!   console improve table
 //!
 //! `due` holds the lock for the sweep and says whether a run has anything to
-//! do. `run` is the run. libexec/improve calls them in that order with the
-//! slice check between them, so a run with nothing to read starts no container
+//! do. `run` is the run. `console run` (src/run.rs) calls them in that order with
+//! the slice check between them, so a run with nothing to read starts no container
 //! and asks no slice, and one without a usable slice stops before it calls
 //! GitHub. The console reads no slice of its own.
 //!
@@ -63,7 +63,7 @@
 //!              the per-cycle files and the kept analyst output in logs/, after
 //!              seven days
 //!
-//! Settings, all from the environment libexec/improve loaded:
+//! Settings, all from the environment `console run` loaded:
 //! TEHAS_IMPROVE_REPO, the repository issues are filed in.
 //! TEHAS_IMPROVE_RUKAS_REPO, optional, the repository for what only a change in
 //! pi-rukas can fix. TEHAS_IMPROVE_RUKAS_SKIP, 1 to file no such finding at all.

@@ -16,7 +16,7 @@ cp "$T_ROOT/bin/tehas" "$T_ROOT/bin/tehasbot" "$tree/bin/"
 # The settings library is there to be read, so that not reading it means something.
 cp "$T_ROOT/lib/config.sh" "$tree/lib/config.sh"
 # One line per call: the name, then each argument after a "|".
-for name in dispatch cycle work plan dev index setup update status console protolab preview improve refresh review clean console; do
+for name in dispatch cycle work plan dev index setup update status improve review check-product github-token console; do
   printf '%s\n' '#!/usr/bin/env bash' "# The text of $name." '#' "# Usage: $name" 'set -u' 'IFS="|"' \
     "printf '%s\\n' \"$name\${*:+|\$*}\" >>\"\$T/calls/libexec\"" 'exit "${RC:-0}"' >"$tree/libexec/$name"
   chmod +x "$tree/libexec/$name"
@@ -255,8 +255,8 @@ $(under)|tehasbot|status
 $(under)|tehasbot|health
 console|energy|--every
 $(under)|tehasbot|top|--every
-protolab
-preview
+$(under)|tehasbot|protolab
+$(under)|tehasbot|preview
 improve"
 
 t_case "tehasbot status writes the snapshot; it is not the script that prints"
@@ -320,7 +320,7 @@ for name in $names; do
   script=$name
   # The sampler is a verb of the console, built by install.sh.
   [ "$name" = energy ] && continue
-  case "$name" in health | status | top | mcp) continue ;; esac
+  case "$name" in health | status | top | mcp | protolab | preview | refresh | clean) continue ;; esac
   [ -x "$T_ROOT/libexec/$script" ] || missing="$missing $name"
 done
 t_eq "$missing" ""

@@ -46,12 +46,14 @@ done
 t_eq "$([ -e "$th/lib/history-lines.jq" ] && echo there)" "there"
 t_eq "$([ -e "$th/lib/park-fields.jq" ] && echo there)" "there"
 
-t_case "with-settings of before console run is named, then removed"
+t_case "the settings wrappers of before console run are named, then removed"
 fresh
 instance
 t_run "$install"
 rm -f "$th/state/update-pending"
-gone=$th/libexec/with-settings
+gone=""
+for f in clean init-product preview protolab refresh with-settings; do gone+=" $th/libexec/$f"; done
+gone+=" $th/lib/disk.sh"
 for f in $gone; do echo "# old" >"$f"; done
 t_run "$install --check"
 t_eq "$t_rc" 1
@@ -65,7 +67,7 @@ done
 # tehasbot top of before this version runs with-settings at each mark, so the
 # unit has to start again.
 t_contains "$(cat "$th/state/update-pending")" "tehas-top.service"
-for f in dispatch github-token; do
+for f in dispatch github-token review improve check-product; do
   t_eq "$([ -x "$th/libexec/$f" ] && echo there)" "there"
 done
 

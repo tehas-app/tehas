@@ -39,16 +39,20 @@ tehas help [command]             # this list, or the text of one command
 ```
 
 `tehas` is the one a person types. [`tehasbot`](#tehasbot) is what the timers
-and services run. Each of their commands is a script in `~/tehas/libexec`,
-installed from `libexec/` in the platform repository, or a verb of the console
-beside those scripts; the two commands only choose one and run it, and exit
-with its status. `tehas status` and `tehas disk` need no settings. `tehas
-state`, `limit`, `pause`, `analytics` and `stop` and `tehasbot health` run under
-`console run`, which checks the arguments, loads the settings and
-hands over to the console. A command neither of them knows is exit 64 with the list on standard error. `tehas <command> --help`
+and services run. Each of their commands is a verb of the console in
+`~/tehas/libexec`, or a script beside it, installed from `libexec/` in the
+platform repository; the two commands only choose one and run it, and exit
+with its status. `tehas status` and `tehas disk` need no settings. The verbs
+that do, `tehas state`, `limit`, `pause`, `analytics`, `stop`, `init-product` and
+`tehasbot health`, `clean`, `preview`, `protolab`, `refresh` among them, run
+under `console run`, which checks the arguments, loads the settings, requires
+what the command cannot run without and runs it (`console/src/run.rs`). A few
+paths stay as a line that calls `console run`: `libexec/dispatch`, `review`,
+`improve`, `check-product` and `github-token`. A command neither of them knows
+is exit 64 with the list on standard error. `tehas <command> --help`
 prints the same text as `tehas help <command>`.
 
-Every script that needs the instance settings loads them first and stops with
+Every command that needs the instance settings loads them first and stops with
 exit 78 and one line if a setting it needs is missing or malformed. See
 [The host](/host).
 
@@ -2860,7 +2864,7 @@ serves the file at `/health` and `/healthz` as `application/health+json`.
 `tehas status` prints the same file for a person. The whole run is the console
 beside the command (`console tehasbot health`, `console/src/health.rs`): it
 makes the five calls of the state store, the `systemctl --user --failed` read
-and the publish itself. `console run` runs it: the settings are
+and the publish itself. `console run` starts it: the settings are
 loaded first, so the budget it reads from `TEHAS_POLL_BUDGET` is the
 instance's and the load's 78 still fires on a malformed one, and it says so and
 exits 78 when no console stands beside it.
