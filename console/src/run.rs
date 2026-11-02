@@ -35,11 +35,18 @@ use crate::commands::{self, ANSWERED};
 use crate::{clean, disk, github, improve, preview, product, protolab, review, settings};
 use std::env;
 use std::ffi::OsString;
-use std::io::ErrorKind;
+use std::fs::File;
+use std::io::{ErrorKind, Read};
+use std::os::unix::fs::PermissionsExt;
 use std::os::unix::process::CommandExt;
+use std::path::Path;
 use std::process::Command;
 use tehas_core::settings as core_settings;
 use tehas_core::slice::{self, Host, Load};
+
+/// bash, not an exec of this program: glibc's exec gives a file the kernel
+/// refuses to /bin/sh, and a poll that is no program has to end 78.
+const POLL: &str = r#"shopt -s execfail; exec "$0" "$@"; echo "tehas: $0 cannot run (run install.sh)" >&2; exit 78"#;
 
 fn var(name: &str) -> String {
     env::var(name).unwrap_or_default()
@@ -53,6 +60,17 @@ fn dispatcher(libexec: &str) -> String {
     }
 }
 
+/// An executable file that starts as a program does. bash would run any other
+/// file as a script of its own, and an empty one is a poll that exits 0.
+fn a_program(path: &Path) -> bool {
+    let runs = path
+        .metadata()
+        .is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0);
+    let mut magic = Vec::new();
+    let read = File::open(path).and_then(|f| f.take(4).read_to_end(&mut magic));
+    runs && read.is_ok() && (magic == b"\x7fELF" || magic.starts_with(b"#!"))
+}
+
 /// tehas_checkout then tehas_branch. A cycle must never start from a guess, nor
 /// in a checkout of another repository.
 fn branch() -> Result<String, u8> {
@@ -62,6 +80,21 @@ fn branch() -> Result<String, u8> {
             eprintln!("{line}");
             78
         })
+}
+
+fn dispatch(bash: &str, libexec: &str, rest: &[String]) -> Result<u8, u8> {
+    branch()?;
+    let poll = dispatcher(libexec);
+    if !a_program(Path::new(&poll)) {
+        eprintln!("tehas: {poll} is not installed (run install.sh)");
+        return Ok(78);
+    }
+    let failed = Command::new(bash)
+        .args(["-c", POLL, &poll, "poll"])
+        .args(rest)
+        .exec();
+    eprintln!("tehas: {poll} cannot run (run install.sh): {failed}");
+    Ok(78)
 }
 
 /// tehas-dispatch's own refresh verb takes over, with the status a shell's exec
@@ -184,6 +217,7 @@ fn command(libexec: &str, uid: &str, bash: &str, words: &[String]) -> Result<u8,
         ["tehas", "init-product"] => init_product(rest)?,
         ["tehas", _] => commands::tehas(&words[1..]),
         ["tehasbot", "clean"] => clean_run(rest)?,
+        ["tehasbot", "dispatch"] => dispatch(bash, libexec, rest)?,
         ["tehasbot", "improve"] => improve_run(libexec),
         ["tehasbot", "preview"] => preview_run(rest, settle),
         ["tehasbot", "protolab"] => protolab_run(),
@@ -221,6 +255,47 @@ pub fn main(given: &[String], text: bool) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
+
+    fn scratch(name: &str) -> std::path::PathBuf {
+        let dir = env::temp_dir().join(format!("run-{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn file(dir: &Path, bytes: &[u8], mode: u32) -> std::path::PathBuf {
+        let path = dir.join("poll");
+        fs::write(&path, bytes).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(mode)).unwrap();
+        path
+    }
+
+    #[test]
+    fn a_poll_is_an_executable_file_that_starts_as_a_program_does() {
+        let dir = scratch("program");
+        for bytes in [
+            &b"\x7fELF"[..],
+            b"\x7fELF\x02\x01\x01",
+            b"#!/bin/sh\n",
+            b"#!",
+        ] {
+            assert!(a_program(&file(&dir, bytes, 0o755)), "{bytes:?}");
+        }
+        for bytes in [
+            &b""[..],
+            b"\n",
+            b"not a program\n",
+            b"\x01\x02\x03\x04",
+            b"\x7fEL",
+        ] {
+            assert!(!a_program(&file(&dir, bytes, 0o755)), "{bytes:?}");
+        }
+        assert!(!a_program(&file(&dir, b"#!/bin/sh\n", 0o644)));
+        assert!(!a_program(&dir));
+        assert!(!a_program(&dir.join("no-such")));
+        fs::remove_dir_all(&dir).unwrap();
+    }
 
     #[test]
     fn too_few_words_are_a_usage_error() {

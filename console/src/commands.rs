@@ -184,6 +184,31 @@ pub fn tehasbot(given: &[String]) -> u8 {
 /// among the arguments is: `console run` then ends 0 and loads nothing.
 pub const ANSWERED: u8 = 99;
 
+const DISPATCH: &str = include_str!("usage/dispatch.txt");
+
+/// A poll starts only from an argument it knows: a typo such as --dryrun is no
+/// poll. At most one argument: a second is refused, never combined with the
+/// first, so --dry-run --help cannot be read as two intents at once. An empty
+/// argument is an argument too.
+fn dispatch_words(given: &[String]) -> Result<(), u8> {
+    let first = given.first().map(String::as_str);
+    let help = matches!(first, Some("-h" | "--help"));
+    let unknown = match (first, given.get(1)) {
+        (Some(word), _) if !help && word != "--dry-run" => Some(word),
+        (_, Some(second)) => Some(second.as_str()),
+        _ => None,
+    };
+    if let Some(word) = unknown {
+        eprint!("tehas dispatch: unknown argument: {word}\n{DISPATCH}");
+        return Err(64);
+    }
+    if help {
+        say(DISPATCH);
+        return Err(ANSWERED);
+    }
+    Ok(())
+}
+
 fn clean_words(given: &[String]) -> Result<(), u8> {
     match given {
         [] => Ok(()),
@@ -251,6 +276,7 @@ pub fn check(given: &[String]) -> u8 {
             product_words(rest, "--dry-run", "tehas init-product [--dry-run]")
         }
         ["tehasbot", "clean"] => clean_words(rest),
+        ["tehasbot", "dispatch"] => dispatch_words(rest),
         ["tehasbot", "github-token"] => github::words(rest).map(|_| ()),
         ["tehasbot", "improve"] => improve_words(rest),
         ["tehasbot", "preview"] => preview_words(rest),
@@ -280,7 +306,7 @@ pub fn required(given: &[String]) -> &'static [&'static str] {
             "TEHAS_CONTROL_ISSUE",
             "TEHAS_ALLOWED_LABELERS",
         ],
-        ["tehasbot", "clean" | "refresh" | "review"] => &INSTANCE,
+        ["tehasbot", "clean" | "dispatch" | "refresh" | "review"] => &INSTANCE,
         ["tehasbot", "improve"] => &[
             "TEHAS_REPO",
             "PI_ENSEMBLE_SUBAGENT_MODEL",
@@ -302,6 +328,7 @@ fn text(command: &str) -> Option<&'static str> {
         "api" => include_str!("usage/api.txt"),
         "check-product" => include_str!("usage/check-product.txt"),
         "disk" => include_str!("usage/disk.txt"),
+        "dispatch" => DISPATCH,
         "drain" => include_str!("usage/drain.txt"),
         "history" => include_str!("usage/history.txt"),
         "init-product" => include_str!("usage/init-product.txt"),
@@ -450,6 +477,8 @@ mod tests {
             &["tehasbot", "clean"],
             &["tehasbot", "clean", ""],
             &["tehasbot", "clean", "--dry-run"],
+            &["tehasbot", "dispatch"],
+            &["tehasbot", "dispatch", "--dry-run"],
             &["tehasbot", "improve"],
             &["tehasbot", "preview"],
             &["tehasbot", "preview", ""],
@@ -469,6 +498,10 @@ mod tests {
             &["tehasbot", "clean", "--bad"],
             &["tehasbot", "clean", "--dry-run", "x"],
             &["tehasbot", "clean", "", "x"],
+            &["tehasbot", "dispatch", ""],
+            &["tehasbot", "dispatch", "--dryrun"],
+            &["tehasbot", "dispatch", "--dry-run", "--help"],
+            &["tehasbot", "dispatch", "--help", "--dry-run"],
             &["tehasbot", "improve", "x"],
             &["tehasbot", "preview", "--help"],
         ] {
@@ -477,6 +510,8 @@ mod tests {
         for help in [
             &["tehasbot", "clean", "-h"][..],
             &["tehasbot", "clean", "--help"],
+            &["tehasbot", "dispatch", "-h"],
+            &["tehasbot", "dispatch", "--help"],
         ] {
             assert_eq!(says(help), ANSWERED, "{help:?}");
         }
@@ -509,7 +544,7 @@ mod tests {
         ] {
             assert_eq!(required(&words(repo)), ["TEHAS_REPO"], "{repo:?}");
         }
-        for all in ["clean", "refresh", "review"] {
+        for all in ["clean", "dispatch", "refresh", "review"] {
             assert_eq!(required(&words(&["tehasbot", all])), INSTANCE, "{all}");
         }
         assert_eq!(
@@ -532,6 +567,7 @@ mod tests {
             "api",
             "check-product",
             "disk",
+            "dispatch",
             "drain",
             "history",
             "init-product",

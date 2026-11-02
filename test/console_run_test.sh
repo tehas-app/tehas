@@ -36,8 +36,8 @@ untouched() {
 commands=(
   "$tehas state pack -" "$tehas limit" "$tehas pause" "$tehas resume" "$tehas api" "$tehas labels"
   "$tehas analytics report" "$tehas drain" "$tehas history" "$tehas stop 7" "$tehas mcp serve"
-  "$tehas check-product" "$tehas init-product"
-  "$bot health" "$bot status" "$bot top" "$bot mcp serve" "$bot protolab"
+  "$tehas dispatch" "$tehas check-product" "$tehas init-product"
+  "$bot health" "$bot status" "$bot top" "$bot mcp serve" "$bot dispatch" "$bot protolab"
   "$bot preview" "$bot improve" "$bot refresh" "$bot review" "$bot clean" "$bot github-token"
 )
 for command in "${commands[@]}"; do
@@ -71,8 +71,8 @@ done
 # What each command cannot run without, and the name it stops on.
 needs=(
   "TEHAS_REPO|$tehas api" "TEHAS_REPO|$tehas labels" "TEHAS_REPO|$tehas history"
-  "TEHAS_REPO|$tehas resume" "TEHAS_REPO|$bot status"
-  "TEHAS_REPO|$tehas check-product" "TEHAS_REPO|$tehas init-product"
+  "TEHAS_REPO|$tehas resume" "TEHAS_REPO|$bot status" "TEHAS_REPO|$tehas dispatch"
+  "TEHAS_REPO|$bot dispatch" "TEHAS_REPO|$tehas check-product" "TEHAS_REPO|$tehas init-product"
   "TEHAS_REPO|$bot protolab" "TEHAS_REPO|$bot preview" "TEHAS_REPO|$bot review" "TEHAS_REPO|$bot clean"
 )
 for row in "${needs[@]}"; do
@@ -133,7 +133,7 @@ t_case "a check that refuses is its own status and the settings are not read"
 reset
 t_instance 'echo "settings were read" >&2; exit 9'
 for bad in "$tehas limit show" "$tehas pause a b" "$tehas stop" "$tehas check-product --what" "$tehas init-product --what" \
-  "$bot preview --what" "$bot improve x" "$bot clean --what" \
+  "$tehas dispatch --dryrun" "$bot dispatch --dry-run --help" "$bot preview --what" "$bot improve x" "$bot clean --what" \
   "$bot github-token --print" "$bot review --what" "$bot refresh --what"; do
   t_run "$bad"
   t_eq "$t_rc" 64
@@ -144,7 +144,7 @@ untouched
 t_case "a check that was the whole answer ends 0, and neither the settings nor the verb are reached"
 reset
 t_instance 'echo "settings were read" >&2; exit 9'
-for help in "$tehas stop 5 --help" "$bot clean -h" "$bot review --help" "$bot refresh --help"; do
+for help in "$tehas stop 5 --help" "$bot dispatch --help" "$bot clean -h" "$bot review --help" "$bot refresh --help"; do
   t_run "$help"
   t_eq "$t_rc" 0
   t_lacks "$t_out" "settings were read"
@@ -166,6 +166,29 @@ t_run "$tehas api --json"
 t_eq "$t_rc" 0
 t_run "$bot refresh --what"
 t_eq "$t_rc" 64
+
+# What a command starts has what a shell's load exports, no more and no fewer.
+t_stub env-of-a-child 'env -0 | sort -z | tr "\0" "\n" | grep -E "^(TEHAS|PI_ENSEMBLE|PI_RUKAS|GH_|GIT_)" | grep -v "^TEHAS_DISPATCH_CMD=" >"$T/child-env"'
+checkout=$home/repos/widget
+
+t_case "the poll is given what a shell's load exports, no more and no fewer"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_REFRESH_CONFLICTS=1 'SOMETHING_ELSE=x' TEHAS_WORK_REPO="$checkout"
+real_git=$(PATH=${PATH#"$T/bin:"} command -v git)
+mkdir -p "$checkout"
+"$real_git" -C "$checkout" init -q
+"$real_git" -C "$checkout" remote add origin https://github.com/acme/widget.git
+"$real_git" -C "$checkout" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main
+rm "$T/bin/git"
+T_ENV=(TEHAS_DISPATCH_CMD="$T/bin/env-of-a-child" TEHAS_STALE=old PI_ENSEMBLE_STALE=old)
+t_run "$tehas dispatch"
+t_eq "$t_rc" 0
+t_lacks "$(cat "$T/child-env")" "STALE"
+t_contains "$(cat "$T/child-env")" "TEHAS_REPO=acme/widget"
+t_contains "$(cat "$T/child-env")" "PI_ENSEMBLE_IMAGE="
+t_run ". '$T_ROOT/lib/config.sh'; tehas_load; env -0 | sort -z | tr '\\0' '\\n' | grep -E '^(TEHAS|PI_ENSEMBLE|PI_RUKAS|GH_|GIT_)' | grep -v '^TEHAS_DISPATCH_CMD=' >'$T/shell-env'"
+t_eq "$(diff "$T/shell-env" "$T/child-env" | grep -v '^[0-9]')" ""
+t_stub git 'exit 1'
 
 # The two the shell hands in, and the tree the console was told it stands in.
 recording() {
@@ -191,6 +214,13 @@ t_run "umask 077; $bot preview; $bot protolab; $bot clean"
 t_eq "$(cat "$T/calls/umask")" "0022
 0022
 0077"
+
+t_case "a reader that left before the text is no fault"
+reset
+t_run "(sleep 0.2; $tehas help dispatch; echo \$? >&2) | true"
+t_eq "$t_out" "0"
+t_run "(sleep 0.2; $bot dispatch --help; echo \$? >&2) | true"
+t_eq "$t_out" "0"
 
 t_case "no console is 78, names the command and the fix, and reads nothing"
 reset
