@@ -57,24 +57,30 @@
 //! - `at`: when it was written, `2026-10-17T14:05:00Z`, which must be a string
 //! - `reason`: one line of at most 200 characters, which must be a string
 //!
-//! The flag is read by `read_pause`, the one reader every command which
-//! honours the switch goes through: `state` is `none` when no file is there
-//! and `ok` when one holds a flag, and `unreadable` when something is there
-//! which is no flag - a file no reader can make sense of, which every reader
-//! counts as paused. A command which is told the file is no flag says so in
-//! the words its readers have always used for one.
+//! The reading of the flag, its fields and its words, is `read_pause`, and
+//! every command which writes the flag or publishes its state takes its answer
+//! from there: `tehas pause` itself, the health file, and the dashboard's pause
+//! line. Only the poll's own decision reads the file by its own rules, so it
+//! asks the same questions of it. `state` is `none` when no file is there and
+//! `ok` when one holds a flag, and `unreadable` when something is there which
+//! is no flag - a file no reader can make sense of, which every reader counts
+//! as paused. A command which is told the file is no flag says so in the words
+//! its readers have always used for one.
 //!
 //! `set` writes the flag with the account of this run and the moment of the
-//! write, and `clear` takes it off; `set` on a host already paused says what
-//! already is and leaves the flag alone. A flag is written through
+//! write, and prints `paused at <time> by <account>[: reason]`; on a host
+//! already paused it prints `already paused …` and leaves the flag alone.
+//! `clear` prints that the flag is gone, or that this host had none. A file
+//! which is no flag is named on standard error before `set` replaces it.
+//! A flag is written through
 //! `pause.json.new`, mode 0600, and put in place by a rename, so what is there
 //! is always a whole flag; `clear` takes that name away too, and takes away
 //! either name only when it holds a regular file of this account, so it never
 //! follows a link someone left under one of them.
 //!
-//! Exit: 0 for a pause set or cleared; 1 a file could not be written or removed, or
-//! a name of the flag is not this account's to remove; 64 a bad argument, which
-//! writes nothing.
+//! Exit: 0 for a verb of either flag which did its work; 1 a file could not be
+//! written or removed, or a name of the flag is not this account's to remove;
+//! 64 a bad argument, which writes nothing.
 
 use crate::forge::CALL_BOUND;
 use serde_json::Value;
@@ -355,10 +361,15 @@ pub fn main(given: &[String]) -> u8 {
     }
 }
 
+/// The second line of the usage: what the pause flag takes. Pinned, because it
+/// is what an operator on a stale host, or with a script from v0.16.2, is
+/// shown before the 64.
+const PAUSE_USAGE: &str = "       console flags pause set [--reason TEXT] | clear";
+
 fn usage(why: &str) -> u8 {
     eprintln!("console flags: {why}");
     eprintln!("usage: console flags limit show [--json] | set --cycles N [--plan on|off] [--for SECONDS | --until TIME] [--reason TEXT] | clear | read [--now <epoch seconds>]");
-    eprintln!("       console flags pause set [--reason TEXT] | clear");
+    eprintln!("{PAUSE_USAGE}");
     64
 }
 
@@ -2449,6 +2460,8 @@ mod tests {
         for bad in [
             args(&[]),
             args(&["bogus"]),
+            // The retired verbs are refused as unknown words: a script carried
+            // over from an older release gets 64, not a reading of the flag.
             args(&["show", "--json"]),
             args(&["read", "--line"]),
             args(&["set", "--reason"]),
@@ -2465,6 +2478,20 @@ mod tests {
         assert_eq!(pause_args(&args(&[])).unwrap(), "");
         assert_eq!(pause_args(&args(&["--reason", "one"])).unwrap(), "one");
         assert_eq!(pause_args(&args(&["--reason", ""])).unwrap(), "");
+    }
+
+    #[test]
+    fn the_usage_names_the_verbs_the_pause_flag_takes_and_no_other() {
+        // The verbs of the pause flag, as the operator of a stale host or a
+        // carried-over script is told them before the 64: the two which are
+        // there, and neither of the two which are not. The limit's line keeps
+        // its own verbs, `read` among them, which test/limit_test.sh runs.
+        assert_eq!(
+            PAUSE_USAGE,
+            "       console flags pause set [--reason TEXT] | clear"
+        );
+        assert!(!PAUSE_USAGE.contains("show"));
+        assert!(!PAUSE_USAGE.contains("read"));
     }
 
     #[test]
