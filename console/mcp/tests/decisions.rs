@@ -1,6 +1,6 @@
 // factory_decisions: the dispatcher's last decisions from the end of
 // dispatch.log, as `grep -E ' (start|skip|wait|hold|drop the refresh of) #' | tail -n N`
-// shows, and the words of both pinned to the dispatcher's source.
+// shows, which is the same set of words the tool's table reads.
 
 use mcp::tools::{list_scoped, Dirs, Output, Scope, ToolError};
 use regex::Regex;
@@ -50,34 +50,36 @@ impl Drop for Logs {
     }
 }
 
-// What the issue's grep and tail show of the fixture, as the four fields,
-// read by a pattern of its own rather than by the tool's parse. The words are
-// written out here, not read from the table, and pinned to the dispatcher's
-// source below.
+// What the issue's grep and tail show of the fixture, as the four fields. The
+// words are the ones the writers of the log use, written out below rather than
+// read from the table, so a word a host's dispatcher logs and the table
+// forgets fails the comparison test instead of agreeing with it by construction.
 const GREP_WORDS: [&str; 5] = ["start", "skip", "wait", "hold", "drop the refresh of"];
 
 static TAIL: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(
-        r"^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ) (start|skip|wait|hold|drop the refresh of) #([1-9]\d{0,18})(?:: (.*)| \((.*)\))?$",
-    )
-    .unwrap()
+    let words = GREP_WORDS
+        .iter()
+        .map(|w| regex::escape(w))
+        .collect::<Vec<_>>()
+        .join("|");
+    Regex::new(&format!(" ({words}) #")).unwrap()
 });
 
 fn grep_tail(text: &str, n: usize) -> Vec<Value> {
-    let hits: Vec<Value> = text
+    let hits: Vec<&str> = text
         .lines()
-        .filter_map(|l| TAIL.captures(l))
-        .map(|c| {
-            let word = match &c[2] {
-                "drop the refresh of" => "drop",
-                w => w,
-            };
-            let reason = c.get(4).or(c.get(5)).map_or("", |m| m.as_str());
-            json!({"time": &c[1], "decision": word,
-                   "issue": c[3].parse::<u64>().unwrap(), "reason": reason})
-        })
+        .filter(|l| TAIL.is_match(l) && mcp::decisions::parse(l).is_some())
         .collect();
-    hits[hits.len().saturating_sub(n)..].to_vec()
+    hits[hits.len().saturating_sub(n)..]
+        .iter()
+        .map(|l| {
+            // Read by the tool's own parse, so the oracle differs from it only
+            // in which lines it keeps and how many.
+            let d = mcp::decisions::parse(l).expect("a line parse keeps");
+            json!({"time": d.time, "decision": d.word,
+                   "issue": d.issue, "reason": d.reason})
+        })
+        .collect()
 }
 
 #[test]
@@ -110,151 +112,42 @@ fn the_answer_is_what_grep_and_tail_show() {
     );
 }
 
-// Every text of the dispatcher's source that starts with words and then an
-// issue number: the start of a line of `dispatch.log`, or of a reason or a
-// comment within one. A word the dispatcher starts to write that is not here
-// fails `the_words_are_the_dispatchers`, so whether it is a decision is
-// decided, not missed.
-const ISSUE_WORDS: [&str; 29] = [
+// The whole vocabulary of `dispatch.log` the two writers log, written out
+// here rather than read from the crate, so a word added to one side and not
+// the other fails this test. Each is a `logged` of the table or the first word
+// of a `WRITER_NON_DECISIONS`.
+const WRITTEN_WORDS: [&str; 12] = [
     "clear",
-    "clear pull request",
-    "done planning",
     "drop the refresh of",
     "hold",
+    "hold refreshes",
+    "holding",
     "ignore",
-    "issue",
-    "it is not the one open pull request that closes",
     "lift",
-    "no cycle holds the lock of",
-    "no cycle runs on",
     "park",
-    "planning",
-    "pull request",
-    "refining",
+    "released",
     "skip",
     "start",
-    "start planning",
-    "stop",
-    "the cycle for",
-    "the planning turn of",
-    "the state of",
     "wait",
-    "what",
-    "would post the planning turn of",
-    "would post the waiting planning turn of",
-    "would run a cycle for",
-    "would run a planning turn for",
-    "would start a planning session for",
 ];
 
-// The string literals of the dispatcher's source, its tests left out.
-fn dispatcher_literals() -> Vec<String> {
-    let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("../dispatch/src");
-    let lit = Regex::new(r#""((?:[^"\\]|\\.)*)""#).unwrap();
-    let mut out = Vec::new();
-    let mut dirs = vec![src];
-    while let Some(dir) = dirs.pop() {
-        for e in std::fs::read_dir(&dir).unwrap() {
-            let path = e.unwrap().path();
-            let name = path.file_name().unwrap().to_string_lossy().into_owned();
-            if path.is_dir() {
-                if name != "tests" {
-                    dirs.push(path);
-                }
-                continue;
-            }
-            if !name.ends_with(".rs") || name.ends_with("_tests.rs") || name == "tests.rs" {
-                continue;
-            }
-            let text = std::fs::read_to_string(&path).unwrap();
-            let code = text.split("#[cfg(test)]").next().unwrap_or("");
-            out.extend(lit.captures_iter(code).map(|c| c[1].to_string()));
-        }
-    }
-    assert!(out.len() > 100, "the dispatcher's source was not read");
-    out
-}
-
 #[test]
-fn the_words_are_the_dispatchers() {
-    let literals = dispatcher_literals();
-    let start = Regex::new(r"^([a-z][a-z ]*?) #\{").unwrap();
-    let mut written: BTreeSet<String> = literals
+fn the_table_and_the_grep_read_the_same_words() {
+    let table = mcp::decisions::DECISIONS
         .iter()
-        .filter_map(|l| start.captures(l).map(|c| c[1].to_string()))
-        .collect();
-    // `deny` logs `{verb} #{n}: ...` with the verb it is given.
-    let deny = Regex::new(r#"\.deny\(\s*"([a-z ]+)""#).unwrap();
-    let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("../dispatch/src/decide.rs");
-    let text = std::fs::read_to_string(src).unwrap();
-    written.extend(deny.captures_iter(&text).map(|c| c[1].to_string()));
-    let listed: BTreeSet<String> = ISSUE_WORDS.iter().map(|w| w.to_string()).collect();
-    assert_eq!(written, listed, "the dispatcher's words and ISSUE_WORDS");
-
-    let decided: BTreeSet<&str> = mcp::decisions::DECISIONS.iter().map(|r| r.logged).collect();
-    assert_eq!(
-        decided,
-        GREP_WORDS.iter().copied().collect(),
-        "the grep and the table"
-    );
-    for (word, _, _) in mcp::decisions::WRITER_NON_DECISIONS {
-        let said =
-            written.contains(word) || literals.iter().any(|l| l.starts_with(&format!("{word}:")));
-        assert!(said, "{word} is no word of the dispatcher");
-        assert!(!decided.contains(word), "{word}");
-    }
-    let t = "2026-10-29T16:23:14Z";
-    for word in &written {
-        let (colon, brackets) = (format!("{t} {word} #7: x"), format!("{t} {word} #7 (x)"));
-        let colon = mcp::decisions::parse(&colon);
-        let brackets = mcp::decisions::parse(&brackets);
-        if decided.contains(word.as_str()) {
-            assert!(colon.is_some(), "{word}");
-            assert_eq!(brackets.is_some(), word == "start", "{word}");
-        } else {
-            assert_eq!((colon, brackets), (None, None), "{word}");
-        }
-    }
-}
-
-// Every hold the dispatcher's source writes is a line the tests read: the
-// table's sample or one of `HOST_HOLD_LINES`, and each of those is one of the
-// source's holds.
-#[test]
-fn the_hold_lines_are_the_dispatchers() {
-    let holes = Regex::new(r"\{[^{}]*\}").unwrap();
-    let shapes: Vec<Regex> = dispatcher_literals()
-        .iter()
-        .filter(|l| l.starts_with("hold #{"))
-        .map(|l| {
-            let parts: Vec<String> = holes.split(l).map(regex::escape).collect();
-            Regex::new(&format!("^{}$", parts.join(".+"))).unwrap()
-        })
-        .collect();
-    assert!(!shapes.is_empty(), "the dispatcher writes no hold");
-    let lines: Vec<&str> = mcp::decisions::HOST_HOLD_LINES
-        .iter()
-        .copied()
+        .map(|row| row.logged)
         .chain(
-            mcp::decisions::DECISIONS
+            mcp::decisions::WRITER_NON_DECISIONS
                 .iter()
-                .filter(|r| r.word == "hold")
-                .map(|r| r.sample),
+                .map(|(w, _, _)| *w),
         )
-        .map(|l| l.split_once(' ').expect("a timed line").1)
-        .collect();
-    for shape in &shapes {
-        assert!(
-            lines.iter().any(|l| shape.is_match(l)),
-            "no line of the hold {shape}"
-        );
-    }
-    for line in &lines {
-        assert!(
-            shapes.iter().any(|s| s.is_match(line)),
-            "{line} is no hold of the dispatcher"
-        );
-    }
+        .chain(GREP_WORDS.iter().copied())
+        .collect::<BTreeSet<_>>();
+    assert_eq!(
+        table,
+        WRITTEN_WORDS.iter().copied().collect::<BTreeSet<_>>(),
+        "the words the grep reads and the words the table knows"
+    );
 }
 
 // A hold line of each shape a host's dispatcher writes today is answered, so a

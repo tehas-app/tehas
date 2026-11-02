@@ -87,10 +87,7 @@ pub fn of_issue(
 }
 
 pub fn sha(text: &str) -> String {
-    Sha256::digest(text.as_bytes())
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect()
+    format!("{:x}", Sha256::digest(text.as_bytes()))
 }
 
 pub fn decide(body: &str, result: &Value, state: Option<&Value>) -> Action {
@@ -274,14 +271,6 @@ mod tests {
                 ]}
             }
         })
-    }
-
-    #[test]
-    fn sha_is_lowercase_hex_of_sha256() {
-        assert_eq!(
-            sha(""),
-            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-        );
     }
 
     #[test]

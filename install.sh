@@ -851,11 +851,11 @@ versions_build_changed() {
   local host_file current kept line
   host_file=$TEHAS_HOME/versions.env
   [ -f "$host_file" ] || { echo 1; return 0; }
-  current=$(grep -E '^(SHELLCHECK|JQ|PLAYWRIGHT|CBM|PI_RUKAS|VIPUNE)_' "$host/versions.env") || current=""
+  current=$(grep -E '^(SHELLCHECK|JQ|PLAYWRIGHT|RUST|CBM|PI_RUKAS|VIPUNE)_' "$host/versions.env") || current=""
   # A file that names none of them cannot be compared with: the build reads what
   # it reads, so the build is owed rather than assumed already done.
   [ -n "$current" ] || { echo 1; return 0; }
-  kept=$(grep -E '^(SHELLCHECK|JQ|PLAYWRIGHT|CBM|PI_RUKAS|VIPUNE)_' "$host_file") || kept=""
+  kept=$(grep -E '^(SHELLCHECK|JQ|PLAYWRIGHT|RUST|CBM|PI_RUKAS|VIPUNE)_' "$host_file") || kept=""
   # A copy that holds none of them is a difference and not an agreement, for the
   # same reason.
   [ -n "$kept" ] || { echo 1; return 0; }
@@ -1273,7 +1273,6 @@ for f in \
   lib/history-repeats.jq \
   lib/models.sh \
   lib/park-fields.jq \
-  lib/update-steps.sh \
   lib/private.sh \
   libexec/analytics-cmd \
   libexec/api \

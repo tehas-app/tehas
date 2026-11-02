@@ -14,7 +14,7 @@
 //! else. The last list of releases answered is kept in state/platform-newest.
 
 use crate::jq::{obj, J};
-use crate::update::release::{candidate, older, stale, tag_ok};
+use crate::update::release::{older, stale, tag_ok};
 use std::env;
 use std::fs;
 use std::path::Path;
@@ -49,8 +49,8 @@ fn installed(home: &Path) -> Option<String> {
     Some(text.lines().next().unwrap_or_default().to_string())
 }
 
-/// The release list as GitHub answers it, published `vX.Y.Z` tags only, no
-/// release candidate: the newest by version, not by date. None when the answer is not such a list,
+/// The release list as GitHub answers it, published `vX.Y.Z` tags only: the
+/// newest by version, not by date. None when the answer is not such a list,
 /// which ends the read as a list that failed.
 fn newest_of(answer: &str) -> Option<String> {
     if answer.trim().is_empty() {
@@ -71,7 +71,7 @@ fn newest_of(answer: &str) -> Option<String> {
             continue;
         }
         let tag = item.get("tag_name").as_str()?;
-        if !tag_ok(tag) || candidate(tag) {
+        if !tag_ok(tag) {
             continue;
         }
         if newest.is_none_or(|n| !older(tag, n)) {
@@ -299,15 +299,12 @@ mod tests {
     fn the_newest_is_by_version_and_leaves_out_what_is_not_published() {
         let rel = |tag: &str, more: &str| format!(r#"{{"tag_name":"{tag}"{more}}}"#);
         let list = format!(
-            "[{},{},{},{},{},{},{}]",
+            "[{},{},{},{},{}]",
             rel("v0.9.0", ""),
             rel("v0.10.0", ""),
             rel("v0.11.0", r#","draft":true"#),
             rel("v0.12.0", r#","prerelease":true"#),
             rel("nightly", ""),
-            rel("v0.11.0-rc.1", r#","prerelease":true"#),
-            // A candidate is never the newest, flagged or not.
-            rel("v0.11.0-rc.2", ""),
         );
         assert_eq!(newest_of(&list).as_deref(), Some("v0.10.0"));
         assert_eq!(newest_of("[]"), None);

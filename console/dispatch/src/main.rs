@@ -172,7 +172,7 @@ fn main() {
     let snap = match snapshot(&mut src, &settings) {
         Ok(s) => s,
         Err(f) => {
-            eprintln!("{}", f.line);
+            eprintln!("{}", f.0);
             std::process::exit(1);
         }
     };

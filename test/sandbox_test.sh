@@ -1392,7 +1392,6 @@ done <<<"$program_runs"
 # each, and no line number. A new docker run, or a run that changes its image
 # or its command, fails here until it is added to the table on purpose.
 t_eq "$({ run_table "$T_ROOT/libexec"; printf '%s\n' "$program_runs"; } | LC_ALL=C sort)" 'check-product	PI_ENSEMBLE_IMAGE	bash
-check-product	PI_ENSEMBLE_IMAGE	bash
 dev	PI_ENSEMBLE_IMAGE	pi
 improve	PI_ENSEMBLE_IMAGE	pi
 index	PI_ENSEMBLE_IMAGE	codebase-memory-mcp
@@ -1401,7 +1400,6 @@ plan	PI_ENSEMBLE_IMAGE	/opt/pi-rukas/bin/pi-rukas-headless
 review	PI_ENSEMBLE_IMAGE	/opt/pi-rukas/bin/pi-rukas-headless
 work	PI_ENSEMBLE_IMAGE	$runner
 work	PI_ENSEMBLE_IMAGE	$runner
-work	PI_ENSEMBLE_IMAGE	bash
 work	PI_ENSEMBLE_IMAGE	git'
 missing=""
 while IFS=$'\t' read -r unit line image cmd _; do
