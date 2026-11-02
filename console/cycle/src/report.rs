@@ -808,6 +808,11 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
             .unwrap_or_default()
     };
     let mut pr = url_in("OPEN");
+    let pr_draft = !pr.is_empty()
+        && prs.iter().any(|p| {
+            p.get("url").and_then(Value::as_str) == Some(pr.as_str())
+                && p.get("isDraft").and_then(Value::as_bool) == Some(true)
+        });
     let merged_pr = url_in("MERGED");
     let closed_pr = url_in("CLOSED");
     let mine: Vec<bool> = prs
@@ -1201,8 +1206,21 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         } else {
             " The handoff of pi-rukas follows."
         };
+        let stopped = if pr.is_empty() {
+            "without a pull request".to_string()
+        } else {
+            let n = pr
+                .rsplit_once("/pull/")
+                .map(|(_, n)| n)
+                .filter(|n| re(r"^[1-9][0-9]{0,9}$", n));
+            let draft = if pr_draft { " (draft)" } else { "" };
+            match n {
+                Some(n) => format!("with pull request #{n} open{draft}"),
+                None => format!("with its pull request open{draft}"),
+            }
+        };
         let mut parked = format!(
-            "Tehas cycle stopped without a pull request: {summary} (runner exit {runner_rc}).{why}{handoff_said} {kept_said}; {log_where}.{killed}{open_pr}{foreign}"
+            "Tehas cycle stopped {stopped}: {summary} (runner exit {runner_rc}).{why}{handoff_said} {kept_said}; {log_where}.{killed}{open_pr}{foreign}"
         );
         let mut park_why = "";
         let mut auto = String::new();
