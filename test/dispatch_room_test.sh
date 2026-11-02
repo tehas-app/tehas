@@ -711,4 +711,12 @@ t_contains "$t_out" "models.json names TEHAS_MODEL_KEY_BACKUP and it is not set"
 t_eq "$(t_calls curl)$(t_calls fake-start)" ""
 mesh_curl
 
+t_case "providers given as a list stop the dispatcher: exit 78"
+reset
+printf '{"providers": [{"apiKey": "$GH_TOKEN"}]}\n' >"$T/home/.pi/agent/models.json"
+t_run "$dispatch"
+t_eq "$t_rc" 78
+t_contains "$t_out" "providers is not a map of provider names"
+t_eq "$(t_calls curl)$(t_calls fake-start)" ""
+
 t_done

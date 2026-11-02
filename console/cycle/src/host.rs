@@ -44,6 +44,7 @@ pub struct Start {
     /// The cycle's console and status programs, for the report.
     pub console: String,
     pub status_cmd: String,
+    pub status_args: Vec<String>,
 }
 
 /// A file as the facts hold it: its text, {"link": true}, or nothing.

@@ -797,20 +797,11 @@ hold 7
 hold 8
 t_stub flock "exec $(command -pv flock) \"\$@\""
 t_stub true
-t_run '. "$T_ROOT/lib/cycles.sh"; . "$T_ROOT/lib/store.sh"; tehas_cycles_running | tr "\n" " "'
-t_eq "$t_out" "7 8 "
-t_eq "$(t_calls flock)" ""
 t_run "$dispatch --dry-run"
 t_eq "$t_rc" 0
 t_eq "$(t_calls true)" ""
 probes=$(t_calls flock | wc -l)
 [ "$probes" -lt 20 ] || t_bad "the poll ran flock $probes times over 1,002 lock files"
-# Without a store the lock files are probed one by one, and a held one counts.
-rm -f "$T/home/tehas/libexec/store" "$T/calls/flock"
-t_run '. "$T_ROOT/lib/cycles.sh"; . "$T_ROOT/lib/store.sh"; tehas_cycles_running | tr "\n" " "'
-t_eq "$t_out" "7 8 "
-t_eq "$(t_calls flock | wc -l)" 1002
-t_eq "$(t_calls true)" ""
 release
 rm -f "$T/bin/flock" "$T/bin/true"
 

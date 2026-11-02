@@ -37,12 +37,12 @@ install_shim() {
 if [ -n "${SHOW_TOKEN:-}" ]; then printf "token=%s tehas=%s\n" "${GH_TOKEN:-none}" "${TEHAS_GH_TOKEN:-unset}"; fi
 [ -z "${GH_ERR:-}" ] || printf "%s\n" "$GH_ERR" >&2
 exit "${GH_RC:-0}"'
-  # libexec/github-token of this run with the two it needs beside it, which
-  # load the settings and print a token that has at least 10 minutes left;
+  # libexec/github-token of this run with the console beside it, which
+  # loads the settings and prints a token that has at least 10 minutes left;
   # the case keeps the one it wants
   # and the run notes here that the program was asked at all. openssl and curl
   # are never reached, because the kept token has its time left.
-  cp "$T_ROOT/libexec/github-token" "$T_ROOT/libexec/with-settings" "$h/libexec/"
+  cp "$T_ROOT/libexec/github-token" "$h/libexec/"
   chmod +x "$h/libexec/github-token"
   ln -sf "$T_CONSOLE" "$h/libexec/console"
   # t_instance writes the instance and names it in the runs that follow.

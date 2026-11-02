@@ -611,8 +611,15 @@ pub fn run(home: &Path, s: &Start) -> i32 {
             Action::Tidy { remove, warn } => {
                 if !warn.is_empty() {
                     log(warn);
-                } else if !remove.iter().fold(true, |ok, p| remove_all(p) && ok) {
-                    log(&format!("WARN: could not remove the workspace {workdir}"));
+                } else {
+                    // Every path is tried, whichever of them fails.
+                    let mut ok = true;
+                    for p in remove {
+                        ok &= remove_all(p);
+                    }
+                    if !ok {
+                        log(&format!("WARN: could not remove the workspace {workdir}"));
+                    }
                 }
             }
             Action::RefreshOff { pr } => w.refresh_off(pr),
@@ -629,6 +636,7 @@ pub fn run(home: &Path, s: &Start) -> i32 {
     a.approved = approved;
     a.console = s.console.clone();
     a.status_cmd = s.status_cmd.clone();
+    a.status_args = s.status_args.clone();
     a.workdir = workdir;
     after::after(home, &a);
     if on_record {

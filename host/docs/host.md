@@ -18,11 +18,11 @@ Preparing a fresh machine is on the [bootstrap page](/bootstrap).
 | Path                                 | Content                                                                 |
 | ------------------------------------ | ----------------------------------------------------------------------- |
 | `~/tehas/env.sh`                     | Environment for every tehas process, its tool directories taken from `lib/paths.sh`; sourced from `~/.bashrc`           |
-| `~/tehas/lib/config.sh`              | Loads and checks the instance settings; sourced by every command        |
+| `~/tehas/lib/config.sh`              | Asks `libexec/console` to load and check the instance settings; sourced by every command |
 | `~/tehas/lib/paths.sh`               | The home of each tool this host installs, and the `PATH` that finds them. `env.sh`, `bootstrap.sh` and `install.sh` all take the list from here |
 | `~/tehas/lib/sandbox.sh`             | The bash of a sandbox container: the reading of what `tehas-cycle sandbox` gives it; sourced by the work and plan scripts, and by dev for the check of Pi's files |
 | `~/tehas/lib/slice.sh`               | The way to `console slice`, for the poll and `tehas improve`: whether the slice is usable and the room left, and with no console it finds no slice. A command that starts a sandbox container asks `tehas-cycle sandbox limits`, which holds the same rules and makes the container's limits, and it starts nothing without a usable slice |
-| `~/tehas/lib/attachments.sh`         | Which links of an issue are attached files and how one is fetched. `tehas work` and `tehas plan` use it; the Protolab holds the same rules in the console |
+| `~/tehas/lib/attachments.sh`         | The way to `libexec/attach`, which holds which links of an issue are attached files, who may attach and how one is fetched. `tehas work` and `tehas plan` use it; `tehas dev` and the Protolab reach the program from the console, and the Protolab holds the same link rule there |
 | `~/tehas/lib/questions.sh`            | The questions of a park. A cycle's report uses it |
 | `~/tehas/bin/`                       | The two commands on `PATH`: `tehas` for a person, `tehasbot` for the units. Plus `gh` |
 | `~/tehas/libexec/`                   | The scripts behind the two commands, one for each thing they do. Not on `PATH` |
@@ -171,7 +171,7 @@ commands a person does.
 | The model gateway's `baseUrl` and key, when it uses one | `baseUrl` of the provider in `models.json`, with the token as `$TEHAS_MODEL_KEY_<NAME>` in `~/.config/tehas/env`. See [A backup model endpoint](#a-backup-model-endpoint) |
 | `TEHAS_ENERGY_URL`, when the model is behind a gateway | The energy sampler asks `<baseUrl>/v1/cluster` with the model's token. A gateway that does not pass that path through needs the cluster URL named here, asked with no token. See [`tehasbot energy`](/tools#tehasbot-energy) |
 | Disk for the sandbox image                     | What `docker image inspect --format '{{.Size}}' tehas/pi-rukas:uid$(id -u)` reports for the host's image, with room above that for the base a build pulls and the layers it writes, and room for one image of a rollback. Before the first build the image is not there to be measured, and its size is upstream's base plus these steps: [Bootstrap](/bootstrap#what-the-machine-needs). A second instance user of one host builds its own image for its own uid and shares the layers of the first: [What two instance users of one host share](#what-two-instance-users-of-one-host-share) |
-| Room to grow into, when the machine is a VM     | The host runs as one virtual machine on a hypervisor, so its CPUs and memory are set at its maximum once, with room above what the factory needs today: `<vcpu current='N'>MAX</vcpu>` and memory as a `virtio-mem` device. Everything under the maximum then changes while the machine runs, and a restart of the hypervisor saves the VM with its cycles in it. No tehas command takes part in any of it. See [Resize or restart the host](/resize) |
+| Room to grow into, when the machine is a VM     | The host runs as one virtual machine on a hypervisor, so its CPUs and memory are set at its maximum once, with room above what the factory needs today: `<vcpu current='N'>MAX</vcpu>` and memory as a `virtio-mem` device. Everything under the maximum then changes while the machine runs, and a restart of the hypervisor saves the VM with its cycles in it. No tehas command takes part in any of it. See [Resize or restart the host](/resize). The other shape is a factory that is a container on another project's machine, as tehas-tehas is: it gains that room, and loses the live resize and the save, so a restart of the machine under it needs a drain first |
 
 ## Installing a factory
 
@@ -263,13 +263,18 @@ Rules that hold for every command:
 
 - `instance.env` wins. A setting of the same name in the environment is
   dropped. Only `TEHAS_HOME`, `TEHAS_INSTANCE_DIR`, the energy switches
-  `TEHAS_ENERGY` and `TEHAS_ENERGY_URL`, and seven hooks the tests use are
+  `TEHAS_ENERGY` and `TEHAS_ENERGY_URL`, and the hooks the tests use are
   taken from the environment.
 - A missing or malformed setting stops the command with exit 78 and one line
   naming the setting, before it calls GitHub, Docker or git.
 - Loading settings runs no git command, makes no network call and writes
-  nothing.
-- `instance.env` is shell, sourced as written. Keep it writable by the tehas
+  nothing. The rules are the console's (`console settings load`): with no
+  console that can run, a command stops with 78 and a line that says so, and a
+  login shell prints that line and goes on.
+- `instance.env` is shell, sourced as written, in a shell of its own with the
+  environment left after the sweep. What it exports is what the command gets.
+  A `cd` in it moves no command, an `exit` in it is a refusal, and what it
+  prints goes to standard error. Keep it writable by the tehas
   user only. `./install.sh --check` reports it if it is not, and reads the
   file no further once it has a finding: the owner and mode of the instance
   directory, of `instance.env` and of `sandbox.Dockerfile` are checked before
@@ -413,7 +418,7 @@ The record is also the way to finish an install on a host that cannot run an
 update. A checkout at a release tag has no branch to fast-forward, and a remote
 that is a local path can stop answering, while the copies `install.sh` made are
 already in place. `tehas update --pending` reads that record, runs the steps it
-lists in the order `lib/update-steps.sh` gives them, and calls no git command and
+lists in the order they run, and calls no git command and
 no `install.sh`, so it needs no checkout and no remote and no hold to be removed.
 A program finishes an install with `install.sh` and then that command; see
 [tehas update](/tools#tehas-update).
@@ -496,18 +501,28 @@ health page and the cleaner ask).
 A real run builds each with `cargo` in the checkout and installs them as
 `~/tehas/libexec/console`, `~/tehas/libexec/analytics`,
 `~/tehas/libexec/tehas-mcp`, `~/tehas/libexec/store` and
-`~/tehas/libexec/attach`. The attachment checker reads the bytes of every file
-fetched for an issue, unpacks its zips, and composes what a cycle is told it was
-given (see [Tools](/tools)); without it a cycle given an issue's attachments
-does not start, a cycle given none says it could not read the record, and the
-Protolab leaves a zip out. A host installed from a release tarball has neither
+`~/tehas/libexec/attach`. The attachment checker fetches the files of an issue
+and of a planning reply, judges who may attach them and how much is given,
+reads their bytes, unpacks their zips, and composes what a cycle is told it was
+given (see [Tools](/tools)). It holds `GH_TOKEN` only to pass it to `gh` and to
+`curl`, on `curl`'s standard input; what was fetched is read by the same program
+run as a child with no environment but `PATH`. Without it a start or a planning
+reply that links a file stops, with a reason that names no host path, one that
+links nothing goes on with a manifest that gives nothing, a cycle given none says
+it could not read the record, and the Protolab leaves a zip out. A host installed from a release tarball has neither
 `cargo` nor `console/`: its programs are the ones the release packed
 ([Releases](/tools#releases)), and a release without a store installs only on a
 host that has one. On a host with none, `--check` says so on a `Store: REFUSED`
 line rather than as drift. Beside each, `<name>.stamp` holds two checksums:
 of the source it was built from and of the program. A program is built again
 only when its source has changed or the program on the host is not the one
-that was installed. The console's source is `console/` without its tests and
+that was installed. The console is the one exception: a real run asks `cargo`
+for it first of all, because it reads the settings, and `cargo` answers at once
+when nothing changed. That build comes after the proof of the home and before
+the update lock, whose directory is a write to the home and waits for the
+settings. It removes no earlier build, so a run the lock will refuse takes
+nothing from the run that holds it. A console that does not build stops the run
+with exit 1 before the settings are read. The console's source is `console/` without its tests and
 without `console/analytics/`, `console/mcp/` and `console/store/`, so a change
 to one of those alone builds that program alone. The store's source is
 `console/store/` without its tests, the workspace's `Cargo.toml` and
@@ -602,6 +617,10 @@ again:
 touch ~/tehas/state/update-hold     # tehas update refuses while this exists
 tehas update --to v0.8.0            # --to runs with the hold there
 ```
+
+`tehas update` needs a console that starts. A release whose console does not
+cannot update itself; the way back is the install.sh of a version still on the
+host, see [tehas update says the console does not answer](/troubleshooting#tehas-update-says-the-console-does-not-answer).
 
 `install.sh` keeps one `<name>.prev` beside each file it replaces, and only
 one: a second install that changes the file replaces it. Copying a `.prev`
@@ -1585,7 +1604,7 @@ commit a host follows:
 
 For the sandbox build, any of these may go in the instance's `instance.env`, where
 it wins over the line in `versions.env`, and so may `PI_RUKAS_IMAGE_DIGEST` below.
-An instance that sets neither follows the line its tehas was shipped with. `lib/config.sh` checks `PI_RUKAS_FOLLOW` when the
+An instance that sets neither follows the line its tehas was shipped with. A load checks `PI_RUKAS_FOLLOW` when the
 settings load and stops the command with 78 naming it. `bootstrap.sh` reads only
 `versions.env`.
 
@@ -1661,7 +1680,7 @@ that cycle ran.
 | Host snapshot publisher, optional | systemd user service `tehas-top.service`, every 5 s. It writes nothing unless `TEHAS_TOP=1` | `jq '.host.cpus, .host.load' ~/tehas/live/top.json` |
 | Protolab pages | systemd user timer `tehas-protolab.timer`, every 5 minutes | `tail ~/tehas/logs/protolab.log` |
 | Improvement loop, optional | systemd user timer `tehas-improve.timer`, every 3 hours. It does nothing unless `TEHAS_IMPROVE_REPO` is set | `tail ~/tehas/logs/improve.log` |
-| Cleaner | systemd user timer `tehas-clean.timer`, every hour, the first time 15 minutes after boot. It removes build output, Docker's build cache, host scratch, the sandbox image's old dated tags and the old `sha-` tags of the base repository, each removed by its own name. `install.sh` copies the unit; a person enables it. The unit prints; `libexec/clean` writes `clean.log` | `tail ~/tehas/logs/clean.log`, and `journalctl --user -u tehas-clean` for a run that wrote nothing there |
+| Cleaner | systemd user timer `tehas-clean.timer`, every hour, the first time 15 minutes after boot. It removes build output, Docker's build cache, host scratch, the sandbox image's old dated tags and the old `sha-` tags of the base repository, each removed by its own name. `install.sh` copies the unit; a person enables it. The unit prints; `tehasbot clean` writes `clean.log` | `tail ~/tehas/logs/clean.log`, and `journalctl --user -u tehas-clean` for a run that wrote nothing there |
 | Edge router | `docker compose -f ~/tehas/edge/router.compose.yaml up -d` | `curl -i http://tehas-tehas:8081/` |
 | Previews | systemd user timer `tehas-preview.timer`, every 5 minutes | `tail ~/tehas/logs/preview.log`, `jq . ~/tehas/live/previews.json` |
 | Preview sweep | systemd user timer `tehas-preview-sweep.timer`, every 3 hours | `jq .lastSweep ~/tehas/live/previews.json` |
@@ -1771,7 +1790,8 @@ and every other theme the logo, which is also the favicon. The share card
 follows it, `share.png` for `pixel` and `share-logo.png` for the rest.
 
 A theme is one file in `host/fun/`, `theme-<name>.css`, that sets every token
-`theme-pixel.css` sets; its name is added to the list in `lib/config.sh`.
+`theme-pixel.css` sets; its name is added to the list in
+`console/core/src/settings/rules.rs`.
 `test/theme_test.sh` fails when a theme leaves a token out or a page names a
 colour or a typeface of its own.
 

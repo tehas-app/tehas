@@ -70,7 +70,7 @@
 #                                    of HOW [label], or by hand when BY is -
 #   t_record HOME N JSON             on a fresh store, the approval JSON
 #                                    describes in the shape the record file had
-#                                    (tehas_approval_view's), used by a start of
+#                                    (approval-view's), used by a start of
 #                                    issue N: with the person's approval it rests
 #                                    on, and the fixer's and the refreshes'
 #                                    starts it counts, as ended starts before it
@@ -125,13 +125,13 @@
 #
 # Everything lives under $T, a scratch directory removed on exit. HOME and
 # TEHAS_HOME point into it, so a test cannot touch the real ones. On a factory
-# host env.sh exports the settings of lib/config.sh and GH_TOKEN, and
+# host env.sh exports the settings of tehas_load and GH_TOKEN, and
 # scripts/test.sh runs a test file with the caller's environment, so they are
 # dropped here: what reaches a test file is what the file itself sets. The
 # runner's own knobs (TEHAS_TEST_*, T_STORE_*, T_ATTACH_BIN) stay, because scripts/test.sh
 # names them and gives them to the file.
 set -uo pipefail
-# The two families lib/config.sh clears in tehas_load, the PI_RUKAS_* family it
+# The two families tehas_load clears, the PI_RUKAS_* family it
 # leaves alone, and the names outside them all.
 for t_leak in ${!TEHAS_@} ${!PI_ENSEMBLE_@} ${!PI_RUKAS_@} GH_TOKEN; do
   case $t_leak in
@@ -147,6 +147,15 @@ T_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 T=$(mktemp -d "${TMPDIR:-/tmp}/tehas-test.XXXXXX")
 trap 'rm -rf "$T"' EXIT
 mkdir -p "$T/bin" "$T/calls" "$T/home"
+# tehas_load asks the console, and a test's tree has none beside lib/config.sh:
+# every load of a test goes to the one of this run, which a test can stub apart
+# from TEHAS_CONSOLE_CMD. A file run alone builds it here, once, as t_console does.
+if [ -z "${T_CONSOLE_BIN:-}" ] && [ -z "${T_STORE_WHY:-}" ] && command -v cargo >/dev/null 2>&1 &&
+  cargo build --locked --offline --quiet --manifest-path "$T_ROOT/console/Cargo.toml" \
+    --target-dir "$T_ROOT/console/target/shell" -p console >"$T/console-build.log" 2>&1; then
+  export T_CONSOLE_BIN=$T_ROOT/console/target/shell/debug/console
+fi
+export TEHAS_SETTINGS_CMD=${T_CONSOLE_BIN:-}
 # The stubs name bash by its path: through /usr/bin/env a stub costs one more
 # process each call.
 T_BASH=$(command -v bash)
@@ -468,7 +477,8 @@ if [ "$pkg" = store ]; then
   exit 0
 fi
 if [ "$pkg" = console ] && [ -n "${CONSOLE_BIN:-}" ]; then
-  cp "$CONSOLE_BIN" "$CARGO_TARGET_DIR/${triple}release/console"
+  # As cargo does, a new file: an earlier build may still be there.
+  cp --remove-destination "$CONSOLE_BIN" "$CARGO_TARGET_DIR/${triple}release/console"
   exit 0
 fi
 if [ "$pkg" = tehas-cycle ] && [ -n "${CYCLE_BIN:-}" ]; then
@@ -668,7 +678,7 @@ t_console() {
   fi
   cp "$target/debug/console" "$T_CONSOLE"
 }
-# t_health: tehasbot health as a host runs it, with-settings beside the console
+# t_health: tehasbot health as a host runs it, bin/tehasbot above the console
 # that builds its report (console/src/health.rs), as the one command $T_HEALTH.
 # The console is beside it, as on a host. The commands are copies, not symlinks, so they find their
 # siblings beside themselves.
@@ -676,11 +686,11 @@ T_HEALTH=$T/health-tree/libexec/health
 t_health() {
   [ -x "$T_HEALTH" ] && return 0
   t_console || return 1
-  mkdir -p "$T/health-tree/libexec"
+  mkdir -p "$T/health-tree/libexec" "$T/health-tree/bin"
   ln -sfn "$T_ROOT/lib" "$T/health-tree/lib"
-  cp "$T_ROOT/libexec/with-settings" "$T/health-tree/libexec/with-settings"
+  cp "$T_ROOT/bin/tehasbot" "$T/health-tree/bin/tehasbot"
   # shellcheck disable=SC2016  # expanded when the command runs
-  printf '#!/usr/bin/env bash\nexec "$(dirname "$0")/with-settings" tehasbot health\n' >"$T_HEALTH"
+  printf '#!/usr/bin/env bash\nexec "$(dirname "$0")/../bin/tehasbot" health\n' >"$T_HEALTH"
   chmod +x "$T_HEALTH"
   cp "$T_CONSOLE" "$T/health-tree/libexec/console"
 }
@@ -1059,7 +1069,7 @@ t_run() {
   local -a instance_env=()
   [ -z "${TEHAS_INSTANCE_DIR:-}" ] || instance_env=(TEHAS_INSTANCE_DIR="$TEHAS_INSTANCE_DIR")
   t_out=$(env -i PATH="$T/bin:$PATH" HOME="$T/home" TEHAS_HOME="$T/home/tehas" T="$T" T_ROOT="$T_ROOT" \
-    CARGO_TARGET_DIR="$T/target" \
+    CARGO_TARGET_DIR="$T/target" TEHAS_SETTINGS_CMD="$TEHAS_SETTINGS_CMD" \
     "${instance_env[@]}" "${T_ENV[@]}" "${T_ENV_ALWAYS[@]}" \
     bash -c "$1" 2>&1)
   t_rc=$?

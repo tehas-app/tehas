@@ -13,7 +13,7 @@
 //! says so on any output. A caller that has already read the file says so with
 //! set_models, as it gives the names of the host with set_private.
 //!
-//! lib/models.sh refuses a literal apiKey that holds `$` or `!` at the load of
+//! models::keys_ok refuses a literal apiKey that holds `$` or `!` at the load of
 //! the commands that check it; the mask serves the programs that do not, so it
 //! keeps the `$` half of that rule. A word such as "unused" is a supported
 //! literal, and so is short: what keeps it out of the pattern is its length.
@@ -150,8 +150,8 @@ pub fn set_models(text: &str) {
 // The text of the host's file, given by a caller; None is "read it yourself".
 static MODELS: OnceLock<String> = OnceLock::new();
 
-// The name of the host's file under a home, as tehas_models_file in
-// lib/models.sh writes it: .pi/agent/models.json. console energy honours a
+// The name of the host's file under a home, as models::host_path
+// writes it: .pi/agent/models.json. console energy honours a
 // TEHAS_MODELS_FILE of its own; the mask keeps that one name, as the loader
 // does, and a program that reads the file another way passes its text with
 // set_models.
@@ -212,7 +212,7 @@ const LONGEST_KEY: usize = 512;
 /// a value that starts with `$` names a variable, whose value the environment
 /// already gives, and one that holds white space or a format character is a
 /// value the mask could never match in the whole, since it strips those
-/// characters first and the MCP server masks a log line by line. lib/models.sh
+/// characters first and the MCP server masks a log line by line. models::keys_ok
 /// refuses a value that holds `$` or `!` at the load of the commands that check
 /// it; this is the net for the programs that do not, and it keeps only the `$`
 /// half, because a short word such as "unused" is a supported literal.
@@ -328,7 +328,11 @@ fn names_of(
         .iter()
         .flat_map(|(p, _)| [file.url(p, "main"), file.url(p, "backup")])
         .collect();
-    names.extend(urls.iter().map(|u| url_host(u)));
+    names.extend(
+        urls.iter()
+            .flat_map(|u| u.split('\n'))
+            .map(|line| url_host(line.trim_matches([' ', '\t']))),
+    );
     names.push(email);
     names
         .into_iter()
@@ -956,9 +960,21 @@ mod host_name_tests {
             ("http://[::1]:8080/v1", "::1"),
             ("http://[2001:db8::1]/v1", "2001:db8::1"),
             ("models.lan:8086", "models.lan"),
+            ("https://a@b@models.lan:1/", "models.lan"),
+            ("", ""),
         ] {
             assert_eq!(url_host(url), host, "{url}");
         }
+    }
+
+    #[test]
+    fn every_line_of_an_endpoint_is_a_name() {
+        let file = ModelFile {
+            json: serde_json::json!({"providers": {
+                "p": {"baseUrl": "http://one.lan/v1\n\thttp://two.lan/v1 "}}}),
+        };
+        let used = [("p".to_string(), "a".to_string())];
+        assert_eq!(names_of("", &file, &used, ""), ["one.lan", "two.lan"]);
     }
 
     #[test]

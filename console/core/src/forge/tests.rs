@@ -150,7 +150,7 @@ fn a_label_added_and_then_removed_reads_as_unlabeled() {
 #[test]
 fn two_events_in_the_same_second_keep_their_order() {
     // Both in one second: the stamp cannot separate them, so the page's
-    // order and the kind decide, as lib/labels.sh reads them.
+    // order and the kind decide, as `console label` reads them.
     let at = Some("2026-01-01T00:00:00Z");
     // Of an application and a removal in one second the removal counts,
     // whichever order the page handed them back in.
@@ -680,7 +680,7 @@ fn an_event_whose_stamp_is_no_text_is_no_answer() {
     }
     // An answer that says nothing of the time, or says it as JSON null, is the
     // site's own and reads: an unstamped event is the oldest of the page, so
-    // the stamped one of alice answers, as `lib/labels.sh` reads it.
+    // the stamped one of alice answers, as `console label` reads it.
     let unstamped_of = |with_null: bool| {
         let mut mallory = serde_json::json!({
             "event": "labeled",

@@ -1,7 +1,7 @@
 //! `analytics run <issue> --facts <file>`: one work run, from the facts its
 //! caller gives and what the cycle left on the host, and its insert.
 //!
-//! The facts are one JSON object that lib/analytics.sh writes for the call, a
+//! The facts are one JSON object that tehas-cycle writes for the call, a
 //! claim read as the files below are:
 //!
 //! - line: tehas's line of history of this run, written by libexec/cycle

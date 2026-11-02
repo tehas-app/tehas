@@ -15,8 +15,8 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::OnceLock;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-/// The most bytes of an attachment file a record takes: lib/attachments.sh's
-/// tehas_manifest_bytes, which stays in bash. A test holds the two together.
+/// The most bytes of an attachment file a record takes. A manifest over it is
+/// left out whole, so both writers of one cap what they list to stay under it.
 pub const MANIFEST_BYTES: u64 = 262_144;
 
 const ATTACHMENTS: [&str; 3] = ["manifest.json", "images.md", "retry-context.md"];
@@ -500,20 +500,6 @@ mod tests {
         let line = format!(r#"{{"text":"{}"}}"#, "é".repeat(2001));
         let want = format!(r#"{{"text":"{} [cut]"}}"#, "é".repeat(2000));
         assert_eq!(condensed(&line).unwrap(), want);
-    }
-
-    #[test]
-    fn the_bound_of_an_attachment_is_the_one_bash_keeps() {
-        let lib = concat!(env!("CARGO_MANIFEST_DIR"), "/../../lib/attachments.sh");
-        let text = fs::read_to_string(lib).unwrap();
-        let body = text.split("tehas_manifest_bytes() {").nth(1).unwrap();
-        let n: u64 = body
-            .split_whitespace()
-            .nth(1)
-            .unwrap()
-            .parse()
-            .expect("tehas_manifest_bytes echoes a number");
-        assert_eq!(n, MANIFEST_BYTES);
     }
 
     #[test]

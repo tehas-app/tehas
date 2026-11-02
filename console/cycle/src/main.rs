@@ -54,8 +54,8 @@
 //!                                     "body": <the body to write>,
 //!                                     "say": <a repeat's words for the park>}
 //!                                     (src/last_attempt.rs)
-//!   tehas-cycle cycle <issue> --work <path> --status-cmd <path> --console <path>
-//!       --again <path>
+//!   tehas-cycle cycle <issue> --work <path> --status-cmd <path>
+//!       [--status-arg <word>]... --console <path> --again <path>
 //!                                     libexec/cycle execs this under the lock:
 //!                                     the start on record, what the number is,
 //!                                     tehas work to its end and the report
@@ -179,9 +179,13 @@
 //!                                     separated
 //!   tehas-cycle sandbox hosts         the --add-host options, NUL separated
 //!   tehas-cycle sandbox mounts <kind> <tree> <host> <state> <runs>
-//!                                     make what the -v options name and print
-//!                                     them, NUL separated. Exit 1 with nothing
-//!                                     printed when it cannot
+//!                                     make what the -v options name, write
+//!                                     <state>/models.json, the host's with each
+//!                                     provider on the endpoint picked now, and
+//!                                     <state>/endpoints, the providers on their
+//!                                     backup, and print the options, NUL
+//!                                     separated. Exit 1 with nothing printed
+//!                                     when it cannot
 //!   tehas-cycle sandbox table         the rows of the containers tehas work
 //!                                     starts, for the table of runs
 //!   tehas-cycle sandbox retry <host>  the provider retry a container's Pi runs
@@ -491,6 +495,7 @@ fn cycle_verb(home: &Path, n: u64, args: &[String], rest: &[&str]) -> ! {
         issue: n,
         work: String::new(),
         status_cmd: String::new(),
+        status_args: Vec::new(),
         console: String::new(),
         again: String::new(),
     };
@@ -500,6 +505,7 @@ fn cycle_verb(home: &Path, n: u64, args: &[String], rest: &[&str]) -> ! {
         match *flag {
             "--work" => g.work = v,
             "--status-cmd" => g.status_cmd = v,
+            "--status-arg" => g.status_args.push(v),
             "--console" => g.console = v,
             "--again" => g.again = v,
             _ => wrong(args),
@@ -694,6 +700,7 @@ fn start(n: u64, args: &[String], rest: &[&str]) -> Start {
         now: None,
         console: String::new(),
         status_cmd: String::new(),
+        status_args: Vec::new(),
     };
     let mut it = rest.iter();
     while let Some(flag) = it.next() {
@@ -711,6 +718,7 @@ fn start(n: u64, args: &[String], rest: &[&str]) -> Start {
             "--now" => start.now = Some(num(&v)),
             "--console" => start.console = v,
             "--status-cmd" => start.status_cmd = v,
+            "--status-arg" => start.status_args.push(v),
             _ => wrong(args),
         }
     }
@@ -760,6 +768,7 @@ fn after_verb(home: &Path, n: u64, args: &[String]) {
             "--workdir" => a.workdir = v,
             "--console" => a.console = v,
             "--status-cmd" => a.status_cmd = v,
+            "--status-arg" => a.status_args.push(v),
             _ => wrong(args),
         }
     }

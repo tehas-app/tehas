@@ -34,7 +34,7 @@ Exit status: 0 the review answered with no findings, 10, or 20 - the status
 
 Instance settings (lib/config.sh): TEHAS_REVIEW, 1 to let this command review
 anything; TEHAS_PLAN_TIMEOUT, the seconds before a review is given up, at the
-ceiling TEHAS_PLAN_TIMEOUT_MAX there, the bound of one headless turn which this
+ceiling a load takes, the bound of one headless turn which this
 is too; TEHAS_REVIEW_REPO, owner/name the findings go to, refused equal to
 TEHAS_REPO, the product; and those of tehas work for the checkout, the
 container and its limits.

@@ -458,4 +458,29 @@ t_contains "$t_out" "run install.sh"
 t_eq "$(t_calls gh)$(t_calls curl)" ""
 t_eq "$([ -e "$cfg" ] && echo written)" ""
 
+t_case "a checkout's first setup loads with the console it built, and install.sh is not given that console"
+fresh
+tree=$T/checkout
+mkdir -p "$tree/libexec" "$tree/console"
+cp "$T_ROOT/libexec/setup" "$tree/libexec/setup"
+cp -R "$T_ROOT/lib" "$tree/lib"
+: >"$tree/console/Cargo.toml"
+printf '#!/usr/bin/env bash\necho "install.sh hook=${TEHAS_SETTINGS_CMD:-none}" >>"$T/calls/steps"\n' >"$tree/install.sh"
+chmod +x "$tree/install.sh"
+t_stub cargo 'mkdir -p "$CARGO_TARGET_DIR/release" && cp "$T/plat/libexec/console" "$CARGO_TARGET_DIR/release/console"'
+t_run "unset TEHAS_SETTINGS_CMD; $tree/libexec/setup $(printf '%q ' "${args[@]}") --no-build </dev/null"
+t_eq "$t_rc" 0
+t_lacks "$t_out" "no console at"
+t_eq "$(t_calls steps)" "install.sh hook=none
+labels"
+
+t_case "a checkout's first setup with an app loads with the console it built too"
+fresh
+rm -f "$T/target/release/console"
+t_run "unset TEHAS_SETTINGS_CMD; $tree/libexec/setup $(printf '%q ' "${app_args[@]}") --no-build </dev/null"
+t_eq "$t_rc" 0
+t_lacks "$t_out" "no console at"
+t_eq "$(t_calls steps)" "install.sh hook=none
+labels"
+
 t_done

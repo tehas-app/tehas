@@ -143,7 +143,7 @@ fn free(given: &[String]) -> u8 {
 }
 
 /// The figure of `free` for a command of this program, bounded by
-/// TEHAS_DISK_WAIT as lib/disk.sh bounds it for a script.
+/// TEHAS_DISK_WAIT.
 pub fn free_kb(path: &str) -> Option<u64> {
     let wait = std::env::var("TEHAS_DISK_WAIT").unwrap_or_default();
     let wait = Duration::from_secs(free_wait(&wait));

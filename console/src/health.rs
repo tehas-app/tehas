@@ -1,6 +1,6 @@
 //! The factory's health file, live/health.json: pass, warn or fail, the one
 //! line that says why, and every check under `checks`. `tehasbot health` is
-//! `console tehasbot health`, which `libexec/with-settings` runs once the
+//! `console tehasbot health`, which `console run` runs once the
 //! settings are loaded, and which comes to `console health run`.
 //!
 //!   console health run <home>
@@ -1443,7 +1443,7 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
     let old_queue = queue_age.is_some_and(|a| a > QUEUE_MAX_AGE);
     let paused = !flag.is_null() || label || lifted;
     let limit_holds = in_list(limit.get("state"), &["expired", "unreadable"]);
-    let over_budget = !poll_cost.is_null() && poll_cost.get("over").len() > 0;
+    let over_budget = !poll_cost.is_null() && !poll_cost.get("over").is_empty();
     let old_backup = backup_known
         && (backup.is_null()
             || backup
@@ -1451,7 +1451,7 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
                 .cmp(&J::num(BACKUP_MAX_AGE))
                 .is_gt());
     let disk_low = !disk.is_null() && disk.get("low").truthy();
-    let has_units = units.as_ref().is_some_and(|u| u.len() > 0);
+    let has_units = units.as_ref().is_some_and(|u| !u.is_empty());
 
     let status = if queue.is_null() || failed {
         "fail"
@@ -1540,7 +1540,7 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
             joined(poll_cost.get("over")),
             poll_cost.get("budget").text()
         )
-    } else if running.len() > 0 {
+    } else if !running.is_empty() {
         let issues: Vec<String> = running
             .items()
             .iter()

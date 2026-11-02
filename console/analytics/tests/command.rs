@@ -1,8 +1,8 @@
 //! `tehas analytics` against this program: the copy a person or a program
 //! fetches holds no token, no URL with a host and no address, and the command
-//! calls nothing outside the host. The settings are loaded by the real
-//! libexec/with-settings. The console this crate cannot build stands in for
-//! its verb, which test/analytics_cmd_test.sh runs.
+//! calls nothing outside the host. The real bin/tehas runs it. The console this
+//! crate cannot build stands in for the load of the settings and for its verb,
+//! which test/analytics_cmd_test.sh runs.
 
 use rusqlite::{Connection, OpenFlags};
 use serde_json::{json, Value};
@@ -103,8 +103,8 @@ impl Host {
         let console = dir.join("console");
         fs::write(
             &console,
-            "#!/usr/bin/env bash\ncase $1 in check | needs) exit 0 ;; esac\n\
-             shift 2\nexec \"$TEHAS_HOME/libexec/analytics\" \"$@\" </dev/null\n",
+            "#!/usr/bin/env bash\nshift 6\n\
+             exec \"$TEHAS_HOME/libexec/analytics\" \"$@\" </dev/null\n",
         )
         .unwrap();
         fs::set_permissions(&console, fs::Permissions::from_mode(0o755)).unwrap();
@@ -124,8 +124,8 @@ impl Host {
     fn tehas(&self, args: &[&str]) -> (i32, String, String) {
         let path = format!("{}:{}", self.bin.display(), std::env::var("PATH").unwrap());
         let out = Command::new("bash")
-            .arg(root().join("libexec/with-settings"))
-            .args(["tehas", "analytics"])
+            .arg(root().join("bin/tehas"))
+            .arg("analytics")
             .args(args)
             .current_dir(&self.dir)
             .env_clear()
@@ -134,6 +134,7 @@ impl Host {
             .env("TEHAS_HOME", &self.home)
             .env("TEHAS_INSTANCE_DIR", &self.instance)
             .env("TEHAS_CONSOLE", self.dir.join("console"))
+            .env("TEHAS_SETTINGS_CMD", self.dir.join("console"))
             .output()
             .unwrap();
         (
@@ -203,7 +204,7 @@ impl Host {
             &json!({"generatedAt": iso(now), "totals": {"watts": 250.0}}).to_string(),
         );
         self.put("docs/version.txt", "v0.7.22+1234abc\n");
-        // The run's facts as lib/analytics.sh gives them: the history line,
+        // The run's facts as tehas-cycle gives them: the history line,
         // the approval, the settings snapshot as tehas-cycle writes it (a
         // model with dots, a provider word, and a host value it withheld) and
         // the image's commit.

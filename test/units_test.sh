@@ -36,12 +36,12 @@ t_lacks "$no_comments" "StandardError="
 
 t_case "the units with no redirect are the commands that write their own log"
 # The class read from the source as well as from the units, so a third
-# self-writing command under libexec/ has to be said here before the units are
-# believed. Today: libexec/clean opens logs/clean.log and libexec/refresh
+# self-writing command in console/src/run.rs has to be said here before the units
+# are believed. Today: tehasbot clean opens logs/clean.log and tehasbot refresh
 # opens logs/refresh.log. A command of this class prints each line it writes,
 # so the unit for it adds no redirect: the redirect would write each line of a
 # run into that file a second time.
-t_eq "$(grep -l 'logfile=' "$T_ROOT"/libexec/* | sed 's#.*/libexec/##' | LC_ALL=C sort | tr '\n' ' ')" \
+t_eq "$(grep -o 'logs/[a-z]*\.log' "$T_ROOT/console/src/run.rs" | sed 's#logs/##; s#\.log##' | LC_ALL=C sort -u | tr '\n' ' ')" \
   "$(printf '%s\n' "${self_writing[@]}" | LC_ALL=C sort | tr '\n' ' ')"
 for name in "${self_writing[@]}"; do
   unit=$units/tehas-$name.service
@@ -72,7 +72,7 @@ t_eq "$(sed -n 's/^PathExists=//p' "$units/tehas-dispatch.path")" "%h/tehas/stat
 
 t_case "every unit that redirects writes a log its command does not"
 # The same property as the two cases above, for the units that do keep a
-# redirect: each keeps one only while nothing under libexec opens that file.
+# redirect: each keeps one only while nothing it runs opens that file.
 # Comments, prose and a line the shell itself does not write are not a writer,
 # so the search takes the assignments where a command names its own log. A unit
 # with no redirect is not a violation, so the sweep needs no list to consult.
@@ -80,7 +80,7 @@ missing=""
 for unit in "$units"/*.service; do
   target=$(sed -n 's/^ExecStart=.* >> %h\/tehas\/logs\/\([a-z0-9.-]*\.log\) 2>&1"$/\1/p' "$unit")
   [ -n "$target" ] || continue
-  if grep -En "logs/$target\"?\$|logfile=.*$target" "$T_ROOT"/libexec/* >/dev/null 2>&1; then
+  if grep -En "logs/$target\"?\$|logfile=.*$target|logs/$target\"" "$T_ROOT"/libexec/* "$T_ROOT/console/src/run.rs" >/dev/null 2>&1; then
     missing="$missing ${unit##*/}:$target"
   fi
 done

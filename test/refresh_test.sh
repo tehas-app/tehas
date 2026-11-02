@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for libexec/refresh: which of the bot's pull requests get a refresh
+# Tests for tehasbot refresh: which of the bot's pull requests get a refresh
 # request, against a stub gh.
 # shellcheck disable=SC2016  # snippets are expanded by the shell under test
 # shellcheck source=test/lib.sh
@@ -7,8 +7,11 @@
 
 # shellcheck disable=SC2154  # t_dispatch_why is set by t_dispatch (test/lib.sh)
 t_dispatch || t_bad "no tehas-dispatch: $t_dispatch_why"
-refresh=$(dirname "$T_DISPATCH")/refresh
-cp "$T_ROOT/libexec/refresh" "$refresh"
+t_console || t_bad "no console: $t_console_why"
+mkdir -p "$(dirname "$T_DISPATCH")/../bin"
+cp "$T_ROOT/bin/tehasbot" "$(dirname "$T_DISPATCH")/../bin/tehasbot"
+cp "$T_CONSOLE" "$(dirname "$T_DISPATCH")/console"
+refresh="$(dirname "$T_DISPATCH")/../bin/tehasbot refresh"
 fx=$T/fx
 dir=$T/home/tehas/state/refresh
 logfile=$T/home/tehas/logs/refresh.log

@@ -36,7 +36,7 @@
 #
 # Instance settings (lib/config.sh; defaults in brackets):
 #   TEHAS_PLAN_TIMEOUT  seconds before a turn is given up [7200, the ceiling
-#                       TEHAS_PLAN_TIMEOUT_MAX in lib/config.sh]
+#                       in console/core/src/settings/rules.rs]
 #   and those of tehas work for the checkout and the container's limits.
 #
 # The container is given exactly what a cycle's container is given: the same

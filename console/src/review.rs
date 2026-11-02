@@ -1,7 +1,7 @@
 //! `tehasbot review`: what the default branch gained since the last reviewed
 //! commit, with pi-rukas's lens reviewer running headless in the sandbox image.
-//! libexec/review loads the settings, asks whether the loop is on and starts
-//! this; src/usage/review.txt says what a person is told.
+//! `console run` (src/run.rs) loads the settings, asks whether the loop is on and
+//! starts this; src/usage/review.txt says what a person is told.
 //!
 //!   console review main   one review, as that command's exit status says
 //!   console review table  its row of the table of runs
@@ -12,7 +12,6 @@
 //! console/store/src/review_issue.rs): this asks for the filing and says what it
 //! answered, and nothing else.
 
-use crate::improve::models;
 use crate::store;
 use serde_json::Value;
 use signal_hook::consts::{SIGHUP, SIGINT, SIGTERM};
@@ -26,7 +25,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
-use tehas_core::models::host_path;
+use tehas_core::models::{self, host_path};
 use tehas_core::sandbox::{self, Identity, Kind, Paths};
 use tehas_core::slice::{Host, Load};
 use tehas_core::{mask, settings, time};
@@ -133,7 +132,7 @@ fn table() -> String {
     format!("review\t{image}\t{entry}")
 }
 
-fn git_global(key: &str) -> String {
+pub fn git_global(key: &str) -> String {
     Command::new("git")
         .args(["config", "--global", key])
         .stderr(Stdio::null())
