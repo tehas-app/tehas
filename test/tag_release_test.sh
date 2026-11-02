@@ -176,6 +176,56 @@ t_eq "$t_rc" 0
 t_eq "$t_out" v0.1.1
 t_eq "$(tags)" "v0.1.0 v0.1.1 "
 
+t_case "--rc tags a release candidate of the next version and leaves CHANGELOG.md as it is"
+fresh
+commit second
+before=$(git -C "$origin" show main:CHANGELOG.md)
+t_run "$work/scripts/tag-release.sh --rc 2>/dev/null"
+t_eq "$t_rc" 0
+t_eq "$t_out" v0.1.1-rc.1
+t_eq "$(tags)" "v0.1.0 v0.1.1-rc.1 "
+t_eq "$(head_of v0.1.1-rc.1)" "$(head_of)"
+t_eq "$(git -C "$origin" cat-file -t v0.1.1-rc.1)" tag
+t_eq "$(t_calls verify)" ran
+t_eq "$(git -C "$origin" show main:CHANGELOG.md)" "$before"
+
+t_case "--rc on a head that carries the newest candidate is left as it is"
+t_run "$work/scripts/tag-release.sh --rc"
+t_eq "$t_rc" 0
+t_eq "$(tail -n 1 <<<"$t_out")" v0.1.1-rc.1
+t_contains "$t_out" "already v0.1.1-rc.1"
+t_eq "$(tags)" "v0.1.0 v0.1.1-rc.1 "
+
+t_case "the next candidate counts by number: rc.10 after rc.9"
+commit third
+t_run "$work/scripts/tag-release.sh --rc --no-verify 2>/dev/null"
+t_eq "$t_out" v0.1.1-rc.2
+g -C "$T/up" fetch --quiet --tags origin
+g -C "$T/up" tag v0.1.1-rc.9 && g -C "$T/up" push --quiet origin v0.1.1-rc.9
+commit fourth
+t_run "$work/scripts/tag-release.sh --rc --no-verify --dry-run"
+t_eq "$t_rc" 0
+t_eq "$(tail -n 1 <<<"$t_out")" v0.1.1-rc.10
+t_contains "$t_out" "would tag main"
+t_lacks "$(tags)" rc.10
+t_run "$work/scripts/tag-release.sh --rc --no-verify 2>/dev/null"
+t_eq "$t_out" v0.1.1-rc.10
+
+t_case "a release after its candidates is the plain version, and --minor --rc starts at rc.1"
+t_run "$work/scripts/tag-release.sh --no-verify 2>/dev/null"
+t_eq "$t_out" v0.1.1
+t_eq "$(head_of v0.1.1)" "$(head_of v0.1.1-rc.10)"
+commit fifth
+t_run "$work/scripts/tag-release.sh --minor --rc --no-verify 2>/dev/null"
+t_eq "$t_out" v0.2.0-rc.1
+
+t_case "a candidate needs the Adopter action under Unreleased, even when the version has a section"
+changelog '# Changelog\n\n## Unreleased\n\n### Changes\n\n- a\n\n## v0.2.0\n\n### Adopter action\n\nNone.\n'
+t_run "$work/scripts/tag-release.sh --minor --rc --no-verify"
+t_eq "$t_rc" 1
+t_contains "$t_out" '"### Adopter action" heading'
+t_lacks "$(tags)" v0.2.0-rc.2
+
 t_case "an unknown argument is refused before git runs"
 t_run "$work/scripts/tag-release.sh --bogus"
 t_eq "$t_rc" 64
