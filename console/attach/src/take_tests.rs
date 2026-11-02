@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::io::Write;
 use std::path::Path;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use tehas_core::testdir::TestDir;
 
 const PNG: &[u8] = b"\x89PNG\r\n\x1a\nPNGDATA";
 
@@ -67,13 +67,10 @@ impl Net for Fake {
     }
 }
 
-fn scratch() -> String {
-    static N: AtomicUsize = AtomicUsize::new(0);
-    let n = N.fetch_add(1, Ordering::SeqCst);
-    let dir = std::env::temp_dir().join(format!("attach-take-{}-{n}", std::process::id()));
-    let _ = fs::remove_dir_all(&dir);
-    fs::create_dir_all(&dir).unwrap();
-    dir.to_str().unwrap().to_string()
+fn scratch() -> (TestDir, String) {
+    let d = TestDir::new("attach-take");
+    let p = d.to_str().unwrap().to_string();
+    (d, p)
 }
 
 const ALL: Wants = Wants {
@@ -276,7 +273,7 @@ fn a_link_is_named_by_its_last_part_and_a_pasted_one_has_no_name() {
 
 #[test]
 fn no_name_of_a_link_reaches_the_disk() {
-    let dir = scratch();
+    let (_scratch, dir) = scratch();
     let evil = "https://github.com/user-attachments/files/1/..%2F..%2Fetc%2Fpasswd.md";
     let mut net = Fake::default();
     net.bytes.insert(evil.to_string(), b"text".to_vec());
@@ -302,7 +299,7 @@ fn a_comments_author_is_held_to_whole_logins() {
 
 #[test]
 fn who_may_attach() {
-    let dir = scratch();
+    let (_scratch, dir) = scratch();
     let net = Fake::default();
     let png = file(1, "a.png");
     let outsider = |approved, who| {
@@ -352,7 +349,7 @@ fn who_may_attach() {
 
 #[test]
 fn an_image_is_what_its_bytes_say_and_never_what_its_name_says() {
-    let dir = scratch();
+    let (_scratch, dir) = scratch();
     let (liar, jpg, unsaid) = (file(1, "a.png"), file(2, "b.gif"), file(3, "c.png"));
     let mut net = Fake::default();
     net.bytes.insert(liar.clone(), b"<html>".to_vec());
@@ -375,7 +372,7 @@ fn an_image_is_what_its_bytes_say_and_never_what_its_name_says() {
 
 #[test]
 fn at_most_eight_images_and_ten_mb() {
-    let dir = scratch();
+    let (_scratch, dir) = scratch();
     let links: Vec<Linked> = (0..10).map(|i| body(&file(i, "a.png"))).collect();
     let net = Fake::default();
     let mut t = take(&net, &dir, ALL);
@@ -389,7 +386,7 @@ fn at_most_eight_images_and_ten_mb() {
     let mut net = Fake::default();
     net.bytes.insert(a.clone(), nine.clone());
     net.bytes.insert(b.clone(), nine);
-    let dir = scratch();
+    let (_scratch, dir) = scratch();
     let mut t = take(&net, &dir, ALL);
     t.all(&[body(&a), body(&b), body(&c)]).unwrap();
     assert_eq!(t.images.len(), 2);
@@ -399,7 +396,7 @@ fn at_most_eight_images_and_ten_mb() {
 
 #[test]
 fn a_fetch_is_given_only_the_room_that_is_left() {
-    let dir = scratch();
+    let (_scratch, dir) = scratch();
     let (md, zip) = (file(1, "a.md"), file(2, "z.zip"));
     let mut net = Fake::default();
     net.bytes.insert(md.clone(), b"hi".to_vec());
@@ -413,7 +410,7 @@ fn a_fetch_is_given_only_the_room_that_is_left() {
 
 #[test]
 fn at_most_sixteen_files_one_mb_each_and_four_in_all() {
-    let dir = scratch();
+    let (_scratch, dir) = scratch();
     let links: Vec<Linked> = (0..18).map(|i| body(&file(i, "a.md"))).collect();
     let net_small = {
         let mut n = Fake::default();
@@ -435,7 +432,7 @@ fn at_most_sixteen_files_one_mb_each_and_four_in_all() {
     for l in &links[1..] {
         net.bytes.insert(l.link.clone(), full.clone());
     }
-    let dir = scratch();
+    let (_scratch, dir) = scratch();
     let mut t = take(&net, &dir, ALL);
     t.all(&links).unwrap();
     assert_eq!(t.files.len(), 4);
@@ -450,7 +447,7 @@ fn at_most_sixteen_files_one_mb_each_and_four_in_all() {
 
 #[test]
 fn text_is_held_to_its_bytes_and_the_rest_is_never_fetched() {
-    let dir = scratch();
+    let (_scratch, dir) = scratch();
     let (bin, pdf, svg) = (file(1, "a.md"), file(2, "a.pdf"), file(3, "a.svg"));
     let mut net = Fake::default();
     net.bytes.insert(bin.clone(), b"a\0b".to_vec());
@@ -471,7 +468,7 @@ fn text_is_held_to_its_bytes_and_the_rest_is_never_fetched() {
 
 #[test]
 fn a_fetch_that_fails_stops_the_start_and_says_which_link() {
-    let dir = scratch();
+    let (_scratch, dir) = scratch();
     let link = file(1, "a.md");
     let mut net = Fake::default();
     net.rc.insert(link.clone(), 22);
@@ -486,7 +483,7 @@ fn a_fetch_that_fails_stops_the_start_and_says_which_link() {
 
 #[test]
 fn an_archive_is_known_by_its_first_bytes_and_its_scratch_is_gone() {
-    let dir = scratch();
+    let (_scratch, dir) = scratch();
     let (fake, good) = (file(1, "a.zip"), file(2, "b.zip"));
     let mut net = Fake::default();
     net.bytes.insert(fake.clone(), b"not a zip".to_vec());
@@ -524,7 +521,7 @@ fn an_archive_is_known_by_its_first_bytes_and_its_scratch_is_gone() {
 
 #[test]
 fn at_most_two_archives_and_a_file_of_one_keeps_what_the_directory_holds() {
-    let dir = scratch();
+    let (_scratch, dir) = scratch();
     let links: Vec<Linked> = (0..3).map(|i| body(&file(i, "a.zip"))).collect();
     let mut net = Fake::default();
     for l in &links {
@@ -540,7 +537,7 @@ fn at_most_two_archives_and_a_file_of_one_keeps_what_the_directory_holds() {
 
 #[test]
 fn an_archive_pays_the_limits_of_what_it_holds() {
-    let dir = scratch();
+    let (_scratch, dir) = scratch();
     let zip = file(1, "a.zip");
     let entries: Vec<(String, &[u8])> = (0..4).map(|i| (format!("{i}.md"), &b"x"[..])).collect();
     let refs: Vec<(&str, &[u8])> = entries.iter().map(|(n, d)| (n.as_str(), *d)).collect();
@@ -557,7 +554,7 @@ fn an_archive_pays_the_limits_of_what_it_holds() {
 fn what_the_archive_did_is_left_out_and_what_the_host_did_stops_the_start() {
     let zip = file(1, "a.zip");
     let run = |word| {
-        let dir = scratch();
+        let (_scratch, dir) = scratch();
         let mut net = Fake {
             unpack: Some(Failure2(word)),
             ..Fake::default()
@@ -617,7 +614,7 @@ fn a_path_out_of_a_child_is_held_to_the_shape_of_a_cleaned_name() {
             )
         }
     }
-    let dir = scratch();
+    let (_scratch, dir) = scratch();
     let wants = ALL;
     let mut t = Take {
         net: &Lying,
@@ -638,7 +635,7 @@ fn a_path_out_of_a_child_is_held_to_the_shape_of_a_cleaned_name() {
 
 #[test]
 fn a_name_is_listed_as_it_stood_in_the_lines_it_was_read_from() {
-    let dir = scratch();
+    let (_scratch, dir) = scratch();
     let zip = file(1, "a.zip");
     let mut net = Fake::default();
     net.bytes
@@ -721,7 +718,7 @@ fn run_of<'a>(dir: &'a str, data: &'a str, record: &'a str) -> IssueRun<'a> {
 
 #[test]
 fn a_directory_is_remade_and_a_bad_answer_is_no_ground_to_fetch() {
-    let base = scratch();
+    let (_scratch, base) = scratch();
     let dir = format!("{base}/images");
     fs::create_dir_all(&dir).unwrap();
     fs::write(format!("{dir}/old"), "x").unwrap();
@@ -747,7 +744,7 @@ fn a_directory_is_remade_and_a_bad_answer_is_no_ground_to_fetch() {
 
 #[test]
 fn with_a_record_only_its_links_are_taken_and_it_is_named() {
-    let base = scratch();
+    let (_scratch, base) = scratch();
     let dir = format!("{base}/images");
     let record = format!("{base}/record.json");
     let link = file(1, "a.png");
@@ -786,7 +783,7 @@ fn with_a_record_only_its_links_are_taken_and_it_is_named() {
 
 #[test]
 fn a_reply_adds_to_the_session_and_a_failure_leaves_it_as_it_was() {
-    let base = scratch();
+    let (_scratch, base) = scratch();
     let dir = format!("{base}/images");
     fs::create_dir_all(&dir).unwrap();
     let first = file(1, "a.png");

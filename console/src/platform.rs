@@ -324,8 +324,7 @@ mod tests {
 
     #[test]
     fn the_stamp_holds_two_numbers_or_says_nothing() {
-        let dir = std::env::temp_dir().join(format!("tehas-stamp-{}", std::process::id()));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = tehas_core::testdir::TestDir::new("stamp");
         let f = dir.join("stamp");
         let read = |text: &str| {
             fs::write(&f, text).unwrap();
@@ -337,13 +336,13 @@ mod tests {
         assert_eq!(read("soon 7\n"), (0, "7".to_string()));
         assert_eq!(read("12 later\n"), (12, String::new()));
         assert_eq!(read("12 7 3\n"), (12, String::new()));
-        fs::remove_dir_all(&dir).unwrap();
+        drop(dir);
         assert_eq!(stamp_read(&f), (0, String::new()));
     }
 
     #[test]
     fn a_candidate_keeps_an_older_cached_newest() {
-        let home = std::env::temp_dir().join(format!("tehas-rc-{}", std::process::id()));
+        let home = tehas_core::testdir::TestDir::new("rc");
         let live = home.join("live");
         fs::create_dir_all(home.join("state")).unwrap();
         fs::create_dir_all(&live).unwrap();
@@ -356,7 +355,6 @@ mod tests {
         release(&home, &live, "v0.23.0");
         let file = J::parse(&fs::read_to_string(live.join("platform.json")).unwrap()).unwrap();
         assert!(file.get("newest").is_null());
-        fs::remove_dir_all(&home).unwrap();
     }
 
     #[test]

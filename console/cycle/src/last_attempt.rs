@@ -381,8 +381,7 @@ mod tests {
 
     #[test]
     fn the_state_file_is_read_only_through_no_link() {
-        let d = std::env::temp_dir().join(format!("tehas-last-attempt-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&d);
+        let d = tehas_core::testdir::TestDir::new("last-attempt");
         fs::create_dir_all(d.join("ws/.pi/work-state")).unwrap();
         fs::write(d.join("ws/.pi/work-state/7.json"), r#"{"eventLog":[]}"#).unwrap();
         assert!(state(&d.join("ws"), 7).is_some());
@@ -392,6 +391,5 @@ mod tests {
         std::os::unix::fs::symlink(d.join("other/.pi"), d.join("ws2/.pi")).unwrap();
         assert!(state(&d.join("ws2"), 8).is_none());
         assert!(state(&d.join("ws"), 9).is_none());
-        let _ = fs::remove_dir_all(&d);
     }
 }

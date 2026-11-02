@@ -6,7 +6,8 @@ use mcp::outcomes_schema;
 use mcp::tools::{list_scoped, Dirs, Output, Scope, ToolError};
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use tehas_core::testdir::TestDir;
 use tehas_core::time::{iso, now};
 
 const DAY: i64 = 86_400;
@@ -29,9 +30,8 @@ fn write(dir: &Path, by: &str, generated: i64, entries: &[Value]) {
     std::fs::write(dir.join("outcomes.jsonl"), text + "\n").unwrap();
 }
 
-fn dirs(name: &str) -> (PathBuf, Dirs) {
-    let root = std::env::temp_dir().join(format!("mcp-out-{name}-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&root);
+fn dirs(name: &str) -> (TestDir, Dirs) {
+    let root = TestDir::new(&format!("mcp-out-{name}"));
     let live = root.join("live");
     let mcp = root.join("mcp");
     std::fs::create_dir_all(&live).unwrap();
@@ -99,7 +99,7 @@ fn weeks_entries() -> Vec<Value> {
 
 #[test]
 fn the_counts_of_a_version_pair_come_the_most_runs_first() {
-    let (root, dir) = dirs("versions");
+    let (_root, dir) = dirs("versions");
     write(&dir.sessions, "version", now(), &version_entries());
     let out = ok(&dir, json!({}));
     assert_eq!(out["api"], 1);
@@ -113,12 +113,11 @@ fn the_counts_of_a_version_pair_come_the_most_runs_first() {
     assert_eq!(out["entries"][0]["runs"], 9);
     assert_eq!(out["entries"][0]["outcomes"]["parked"], 2);
     assert_eq!(out["entries"][0]["parkReasons"]["needs-human"], 2);
-    drop(root);
 }
 
 #[test]
 fn a_version_argument_keeps_one_pair() {
-    let (root, dir) = dirs("one-version");
+    let (_root, dir) = dirs("one-version");
     write(&dir.sessions, "version", now(), &version_entries());
     let out = ok(&dir, json!({"tehasVersion": "v0.14.1"}));
     assert_eq!(out["entries"].as_array().unwrap().len(), 1);
@@ -132,12 +131,11 @@ fn a_version_argument_keeps_one_pair() {
         json!({"tehasVersion": "v0.14.2", "rukasVersion": "r1"}),
     );
     assert_eq!(out["entries"].as_array().unwrap().len(), 1);
-    drop(root);
 }
 
 #[test]
 fn the_weeks_are_filtered_by_their_whole_week() {
-    let (root, dir) = dirs("weeks");
+    let (_root, dir) = dirs("weeks");
     write(&dir.sessions, "week", now(), &weeks_entries());
     // A day inside the older week keeps that week whole: it stands for seven
     // days, and a count cannot be split between them.
@@ -165,24 +163,22 @@ fn the_weeks_are_filtered_by_their_whole_week() {
     let out = ok(&dir, json!({"since": "2026-10-13", "by": "week"}));
     assert_eq!(out["entries"].as_array().unwrap().len(), 1);
     assert_eq!(out["entries"][0]["week"], "2026-10-12");
-    drop(root);
 }
 
 #[test]
 fn a_grouping_the_file_does_not_give_is_refused() {
-    let (root, dir) = dirs("wrong-by");
+    let (_root, dir) = dirs("wrong-by");
     write(&dir.sessions, "version", now(), &version_entries());
     let why = bad(&dir, json!({"by": "week"}));
     assert!(why.contains("version"), "{why}");
     // A day bound is read as its own day, and a full time as its instant.
     assert!(call(&dir, json!({"since": "2026-10-08"})).is_ok());
     assert!(call(&dir, json!({"until": "2026-10-08T09:30:00Z"})).is_ok());
-    drop(root);
 }
 
 #[test]
 fn bad_arguments_are_refused_and_named() {
-    let (root, dir) = dirs("bad");
+    let (_root, dir) = dirs("bad");
     write(&dir.sessions, "version", now(), &version_entries());
     for (args, part) in [
         (json!({"tehasVersion": "v1 v2"}), "tehasVersion"),
@@ -198,12 +194,11 @@ fn bad_arguments_are_refused_and_named() {
     // An argument the tool does not have is not an error: as in the other
     // tools, the schema refuses it and the call answers without it.
     assert!(call(&dir, json!({"issue": 6})).is_ok());
-    drop(root);
 }
 
 #[test]
 fn a_file_of_another_api_or_no_header_is_an_error() {
-    let (root, dir) = dirs("bad-header");
+    let (_root, dir) = dirs("bad-header");
     std::fs::create_dir_all(&dir.sessions).unwrap();
     std::fs::write(dir.sessions.join("outcomes.jsonl"), "not json\n").unwrap();
     assert!(matches!(call(&dir, json!({})), Err(ToolError::File { .. })));
@@ -258,12 +253,11 @@ fn a_file_of_another_api_or_no_header_is_an_error() {
         other => panic!("not a file error: {other:?}"),
     };
     assert!(why.contains("not written"), "{why}");
-    drop(root);
 }
 
 #[test]
 fn a_file_the_host_has_not_written_lately_is_marked_stale() {
-    let (root, dir) = dirs("stale");
+    let (_root, dir) = dirs("stale");
     write(
         &dir.sessions,
         "version",
@@ -275,12 +269,11 @@ fn a_file_the_host_has_not_written_lately_is_marked_stale() {
     assert_eq!(out["entries"].as_array().unwrap().len(), 2, "still counted");
     write(&dir.sessions, "version", now() - 3600, &version_entries());
     assert_eq!(ok(&dir, json!({}))["stale"], false);
-    drop(root);
 }
 
 #[test]
 fn a_line_that_is_not_an_entry_is_skipped() {
-    let (root, dir) = dirs("bad-lines");
+    let (_root, dir) = dirs("bad-lines");
     std::fs::create_dir_all(&dir.sessions).unwrap();
     let head = json!({
         "api": 1,
@@ -303,12 +296,11 @@ fn a_line_that_is_not_an_entry_is_skipped() {
     .unwrap();
     let out = ok(&dir, json!({}));
     assert_eq!(out["entries"].as_array().unwrap().len(), 2);
-    drop(root);
 }
 
 #[test]
 fn the_counts_hold_no_issue_number_or_cause() {
-    let (root, dir) = dirs("no-leak");
+    let (_root, dir) = dirs("no-leak");
     // What the writer would never put in the file, planted here to show the
     // tool could not serve it if it did: it copies only the keys it names.
     write(
@@ -338,7 +330,6 @@ fn the_counts_hold_no_issue_number_or_cause() {
         );
     }
     assert!(text.contains("tests"), "the kinds are served: {text}");
-    drop(root);
 }
 
 #[test]
@@ -366,7 +357,7 @@ fn the_tool_is_listed_with_a_schema_that_matches_the_answer() {
         2
     );
 
-    let (root, dir) = dirs("schema");
+    let (_root, dir) = dirs("schema");
     write(&dir.sessions, "version", now(), &version_entries());
     let out = ok(&dir, json!({}));
     let entry = &out["entries"][0];
@@ -406,12 +397,11 @@ fn the_tool_is_listed_with_a_schema_that_matches_the_answer() {
             assert!(v.as_u64().is_some(), "{map}.{k} is {v}, not a count");
         }
     }
-    drop(root);
 }
 
 #[test]
 fn a_count_of_another_shape_is_left_out_rather_than_served() {
-    let (root, dir) = dirs("bad-counts");
+    let (_root, dir) = dirs("bad-counts");
     // A map of counts whose values are not counts is no map of counts: the
     // schema of the tool promises integers, so pick serves none of it rather
     // than a string, a boolean or a fraction.
@@ -465,7 +455,6 @@ fn a_count_of_another_shape_is_left_out_rather_than_served() {
             "{forbidden:?} was served: {text}"
         );
     }
-    drop(root);
 }
 
 #[test]
