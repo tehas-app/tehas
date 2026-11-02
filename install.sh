@@ -1284,6 +1284,7 @@ for f in \
   lib/history-listing.jq \
   lib/history-repeats.jq \
   lib/models.sh \
+  lib/park-fields.jq \
   lib/private.sh \
   libexec/analytics-cmd \
   libexec/api \
