@@ -185,7 +185,6 @@ pub fn missing(said: &str) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::process::Command;
 
     fn blob(path: &str) -> String {
         format!("100644 blob 0000000000000000000000000000000000000000\t{path}\n")
@@ -262,50 +261,39 @@ mod tests {
         assert_eq!(named("# nothing\n\n"), None);
     }
 
-    fn sh(script: &str, dir: &std::path::Path, path: &str) -> std::process::Output {
-        Command::new("sh")
-            .args(["-c", script])
-            .current_dir(dir)
-            .env("PATH", path)
-            .output()
-            .unwrap()
-    }
-
+    // The script is run by the shell tests (test/check_product_test.sh): a test
+    // here that spawns a process would hold the descriptors of the tests beside
+    // it across a fork, a lock among them.
     #[test]
-    fn the_script_names_a_missing_tool_and_installs_nothing() {
-        let d = std::env::temp_dir().join(format!("tehas-install-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&d);
-        std::fs::create_dir_all(d.join("it's")).unwrap();
+    fn the_script_checks_every_tool_then_installs_in_each_directory() {
         let steps = [
             Step {
                 dir: "it's".to_string(),
-                tool: "sh".to_string(),
-                command: "pwd > ../ran".to_string(),
+                tool: "bun".to_string(),
+                command: "bun install".to_string(),
             },
             Step {
                 dir: String::new(),
-                tool: "tehas-no-such-tool".to_string(),
-                command: "true".to_string(),
+                tool: "bun".to_string(),
+                command: "make".to_string(),
+            },
+            Step {
+                dir: String::new(),
+                tool: String::new(),
+                command: "own".to_string(),
             },
         ];
-        let path = std::env::var("PATH").unwrap();
-        let out = sh(&script(&steps), &d, &path);
-        assert_eq!(out.status.code(), Some(MISSING));
-        let said = String::from_utf8_lossy(&out.stderr);
-        assert_eq!(missing(&said), ["tehas-no-such-tool"]);
-        assert!(!d.join("ran").exists());
-
-        let out = sh(&script(&steps[..1]), &d, &path);
-        assert!(out.status.success());
-        let ran = std::fs::read_to_string(d.join("ran")).unwrap();
-        assert!(ran.trim_end().ends_with("it's"));
-
-        let failing = [Step {
-            dir: String::new(),
-            tool: String::new(),
-            command: "exit 3".to_string(),
-        }];
-        assert_eq!(sh(&script(&failing), &d, &path).status.code(), Some(3));
-        let _ = std::fs::remove_dir_all(&d);
+        assert_eq!(
+            script(&steps),
+            "set -e\nmissing=\n\
+             command -v bun >/dev/null 2>&1 || { echo \"no bun in the sandbox image\" >&2; missing=1; }\n\
+             [ -z \"$missing\" ] || exit 69\n\
+             echo 'install it'\\''s/: bun install' >&2\n(cd 'it'\\''s' && bun install)\n\
+             echo 'install ./: make' >&2\n(cd . && make)\n\
+             echo 'install ./: own' >&2\n(cd . && own)\n"
+        );
+        let said =
+            "x\nno bun in the sandbox image\nno  in the sandbox\nno go in the sandbox image\n";
+        assert_eq!(missing(said), ["bun", "go"]);
     }
 }
