@@ -591,8 +591,9 @@ read_log_steps=$no_result
 # the container at the stall or the time limit. Read here, before the log is
 # opened, because the two files answer the question the log is read for: where
 # one of them names a step, the run log is not read at all, so a step of a log
-# cannot stand in for a step tehas work itself saw. The two files are read for
-# their seconds below, and for the step here, from the same lines.
+# cannot stand in for a step tehas work itself saw. Each file is read once,
+# here: its seconds go with its step, and the report of the stop below takes
+# both from here and does not read the file again.
 stall_step=""
 stall_secs=""
 stall_file=${cycles:?}/${issue:?}.stalled
@@ -600,15 +601,16 @@ if [ -f "$stall_file" ] && [ ! -L "$stall_file" ]; then
   { read -r stall_secs; read -r stall_step; } < <(head -c 100 "$stall_file" 2>/dev/null)
   stall_step=$(tr -cd 'A-Za-z0-9_.-' <<<"${stall_step:-}" | head -c 40)
   [ "$stall_step" != - ] || stall_step=""
+  [[ $stall_secs =~ ^(0|[1-9][0-9]{0,8})$ ]] || { stall_step=""; stall_secs=; }
 fi
-timed_step_file=""
-timed_secs=""
+timed_secs="" timed_by_file="" timed_step_file=""
 timed_file=${cycles:?}/${issue:?}.timed
 if [ -f "$timed_file" ] && [ ! -L "$timed_file" ]; then
   # Its one line: the limit, who stopped the cycle, the step it was in.
-  LC_ALL=C read -r -n 200 timed_secs _ timed_step_file _ 2>/dev/null <"$timed_file"
+  LC_ALL=C read -r -n 200 timed_secs timed_by_file timed_step_file _ 2>/dev/null <"$timed_file"
   [[ $timed_step_file =~ ^[A-Za-z0-9_.:-]{1,40}$ ]] && [ "$timed_step_file" != - ] ||
     timed_step_file=""
+  [[ $timed_secs =~ ^(0|[1-9][0-9]{0,8})$ ]] || { timed_step_file=""; timed_secs=; }
 fi
 # Whether a step is still wanted from the run log: the result names none, and
 # neither of tehas work's two files names one either. The files hold their step
@@ -626,8 +628,6 @@ step_wanted=1
 # answer, and it sits with them because a nostart cycle whose stop files name no
 # step is the only kind that reaches the pass at all.
 [ -z "$nostart_rc" ] || step_wanted=0
-[[ $stall_secs =~ ^(0|[1-9][0-9]{0,8})$ ]] || stall_step=""
-[[ $timed_secs =~ ^(0|[1-9][0-9]{0,8})$ ]] || timed_step_file=""
 [ -z "$stall_step" ] && [ -z "$timed_step_file" ] || step_wanted=0
 # The status of the runner itself, as tehas work saw it (libexec/work). This
 # command's own status is 2 for a runner that died however it died, so the
@@ -762,26 +762,12 @@ if [ -f "$forks_file" ] && [ ! -L "$forks_file" ]; then
   [[ $forks =~ ^(0|[1-9][0-9]{0,8})$ ]] || forks=0
 fi
 rm -f "${cycles:?}/${issue:?}.forks"
-# The stall file of tehas work: the seconds, and on a second line the step
-# that was in flight, which stands in for a step the result does not name.
-stop_secs=0 stop_step=""
-stop_read() { # <file>: set stop_secs and, when it names one, stop_step
-  local at=""
-  stop_secs=0
-  [ -f "$1" ] && [ ! -L "$1" ] || return 0
-  { read -r stop_secs; read -r at; } < <(head -c 100 "$1" 2>/dev/null)
-  [[ $stop_secs =~ ^(0|[1-9][0-9]{0,8})$ ]] || stop_secs=0
-  at=$(tr -cd 'A-Za-z0-9_.-' <<<"$at" | head -c 40)
-  [ "$stop_secs" = 0 ] || [ -z "$at" ] || [ "$at" = - ] || stop_step=$at
-}
-stall_file=${cycles:?}/${issue:?}.stalled
-stop_read "$stall_file"
-stalled=$stop_secs
-rm -f "$stall_file"
-# The step of the stall file stands in where the result and the log name none:
-# it was written by tehas work, which watched this cycle, so it is tehas work's
-# own word for what it saw in flight.
-[ "$step" != - ] || [ -z "$stop_step" ] || { step=$stop_step; step_from=stalled; }
+# The seconds of the two stop files came of the one read of each, above, with
+# their steps: a first word that is no count of seconds is no stop there and
+# here, so the report of the stop below cannot disagree with the step above.
+stalled=${stall_secs:-0}
+timed=${timed_secs:-0} timed_by=${timed_by_file-} timed_step=${timed_step_file-}
+rm -f "$stall_file" "$timed_file"
 # The image the container started from, as tehas work put it on this attempt's
 # record, its pi-rukas label and when that id was built. None without a record.
 image_id="" image_rukas="" image_built=""
@@ -802,14 +788,6 @@ fi
 # The cycle ended at its time limit: tehas work stopped a runner that did not
 # stop at it, or the runner stopped itself there. The file says the limit, who
 # stopped it and the step it was in, for a result that names none.
-timed=0 timed_by="" timed_step=""
-timed_file=${cycles:?}/${issue:?}.timed
-if [ -f "$timed_file" ] && [ ! -L "$timed_file" ]; then
-  LC_ALL=C read -r -n 200 timed timed_by timed_step _ 2>/dev/null <"$timed_file"
-  [[ $timed =~ ^(0|[1-9][0-9]{0,8})$ ]] || timed=0
-  [[ $timed_step =~ ^[A-Za-z0-9_.:-]{1,40}$ ]] && [ "$timed_step" != - ] || timed_step=""
-fi
-rm -f "$timed_file"
 if [ "$timed" != 0 ]; then
   case "$status" in running | unknown | interrupted) status=timeout ;; esac
   # The step of tehas work's own file stands in for a step the result names
