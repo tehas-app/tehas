@@ -13,7 +13,7 @@ empty one above it.
 
 ### Changes
 
-- `store prune` also removes the cycle and plan history of an issue whose cycle ended more than its window (90 days under `store upkeep`) ago, keeping that issue's last row of each of the two tables, so the state store and its daily copy no longer grow with every issue the factory has ever closed. `tehas history` still answers for a long-closed issue with the line it keeps, and an issue whose cycle ended without a history line of its own keeps all of its rows (#1414).
+- `store prune` also removes the cycle and plan history of an issue whose cycle ended more than its window ago, keeping that issue's last row of each of the two tables, so the state store no longer grows with every issue the factory has ever closed. `store upkeep`, what `tehasbot clean` calls once an hour, prunes with a window of 90 days (`PRUNE_DAYS` in `console/store/src/upkeep.rs`). `tehas history` still answers for a long-closed issue with the line it keeps, and an issue whose cycle ended without a history line of its own keeps all of its rows (#1414).
 
 ### Adopter action
 
