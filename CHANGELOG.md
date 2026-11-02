@@ -13,9 +13,14 @@ empty one above it.
 
 ### Changes
 
+- `tehas-cycle cycle` starts and supervises a cycle, and `libexec/cycle` loads the settings and holds the lock for it.
+- The report of a cycle is tehas-cycle's alone: libexec/cycle's bash report and the report's shadow are gone, and TEHAS_CYCLE_REPORT takes only rust.
+- `tehas work` runs in Rust as `tehas-cycle work`; `libexec/work` only loads the settings and holds the issue's lock.
+- A planning turn (`tehas plan`) runs in the console; libexec/plan is a path that execs it.
+
 ### Adopter action
 
-None.
+- Remove `~/tehas/state/cycle-shadow.on` if it is there: the shadow is gone.
 
 ## v0.22.1 (2026-11-02)
 
