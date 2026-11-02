@@ -76,7 +76,7 @@ in the platform repository has every one with a comment.
 | `TEHAS_ANALYTICS_COOKIE`        | `0`                                      | `1` adds `data-cookie="true"` to that script tag                |
 | `TEHAS_THEME`                   | `pixel`                                  | The look of every page: `pixel`, `paper`, `beesknees` or `beesknees26`. Another name stops every command with 78. See [The host](/host#themes-and-layouts) |
 | `TEHAS_LAYOUT`                  | `floor`                                  | The front page: `floor`, the game view, or `business`. Both are always at `/floor` and `/business`. Another name stops every command with 78. See [The host](/host#themes-and-layouts) |
-| `TEHAS_CYCLE_REPORT`            | `bash`                                   | Who reports a cycle: `bash`, `libexec/cycle`, or `rust`, `tehas-cycle report`. See [The report in Rust](/operating#the-report-in-rust). Any other value is exit 78 |
+| `TEHAS_CYCLE_REPORT`            | `rust`                                   | Who reports a cycle: `rust`, `tehas-cycle cycle`, the only value. The report in bash is gone: `bash`, or any other value, is exit 78. See [The report in Rust](/operating#the-report-in-rust) |
 | `TEHAS_ANALYTICS`               | `on`                                     | The factory's own analytics, not the visitor analytics above: 365 days of runs, issue events and poll samples in `~/tehas/state/analytics.db`. `off` stops every write and leaves the file as it is. Anything but `on` or `off` stops every command with 78 |
 | `TEHAS_PROTOLAB_URL`            | `https://lab.<domain>`, or port 8081     | Address people reach the Protolab at, when it is published elsewhere, as `https://lab.example`. The dashboard links to it. Without it: `https://lab.<domain>` when `TEHAS_DOMAIN` is set, else port 8081 of the dashboard's host |
 | `TEHAS_DOMAIN`                  | none                                     | The domain the edge's names are made under, as `tehas.app`: `uat-<pr>.` for a preview, `lab-<issue>.` for a ticket of the Protolab, `lab.` for its list |
@@ -709,8 +709,9 @@ from the workspace `~/tehas/work/<name>-<issue>`: the outcome is the runner's
 `--json` result, which goes to `~/tehas/state/cycles/<issue>.result.json`, and
 a copy beside the log. The contract is pi-rukas's `docs/headless.md`: exit
 codes v1, result schema 5, NDJSON progress with a stable subset. The last step
-of `tehas work` is `tehas-cycle watch`, which it execs: the same process and the
-same lock start the container, watch it to its end and leave the cycle's notes.
+of `tehas work` is the watch of `tehas-cycle work`, which `libexec/work` execs
+once it holds the issue's lock: the same process and the same lock start the
+container, watch it to its end and leave the cycle's notes.
 
 A start whose approval says driver `lean` stops first, with exit 78, the note
 `state/cycles/<issue>.lean-refused` and a line that says this tehas cannot run
@@ -835,6 +836,7 @@ account before it starts a cycle.
 | 64   | The issue is not a number, or no bot token or no git identity; no cycle was started |
 | 78   | The instance settings are invalid, the state store is not installed (`~/tehas/libexec/store` or `~/tehas/state/tehas.db` is missing), `tehas.slice` is missing, has no memory limit, or cannot be used (the message names `sudo ./bootstrap.sh slice` or the reason), the image does not support what the cycle is given, a workaround in `TEHAS_RUKAS_WORKAROUNDS` has expired, or the product names no gate in `.pi/verify-cmd` and its commit holds neither `package.json` nor `Cargo.toml`; no cycle was started, nothing was pushed, and the clone made for the cycle is left in place. A refusal for the gate is said on the command's error stream only, which under the unit is `~/tehas/logs/dispatch-work-<issue>.log`: the issue gets no comment for it, because no cycle of that issue ever began |
 | 137  | The container was killed while the cycle was running, and the runner wrote no result: out of memory, or stopped from outside. The cycle is `killed` |
+| 143  | A `TERM`, `INT` or `HUP` came before the container started: the start ended after the command it was in, said as `stopped, not going on with the start`. No container started |
 
 The runner's codes are its own only when it wrote a result for the issue, or a
 result with no issue entry at all (a refusal that carries only an error). A
@@ -2366,6 +2368,11 @@ made is said there as `#N runs from the install: its own copy could not be made
 (<why>)`, and the cycle runs from `~/tehas` as before. Each start removes the
 copies whose process has ended.
 
+`libexec/cycle` loads the settings, takes the lock and execs `tehas-cycle
+cycle`, which puts the start on record, asks what the number is, runs `tehas
+work` and sees to the report. A stop reaches it as the main process of the unit.
+With no `libexec/tehas-cycle` nothing starts: exit 78.
+
 **The clock a cycle is measured on.** `tehas-cycle clock` counts a cycle on a
 monotonic clock: the seconds since boot, read from the first number of
 `/proc/uptime`. The wall clock is not read at all, so the time a VM was saved
@@ -2380,7 +2387,7 @@ that would run backwards (a mark ahead of the clock, as after the boot was
 redone), prints `unknown` and exits 3: a caller stops nothing on a guess. The
 seconds are whole seconds since boot truncated down, and one mark file holds
 one number; a mark file of more than 32 bytes, or one that is not a regular
-file, is no mark. `tehas-cycle watch` asks the same clock in its own process.
+file, is no mark. The watch of `tehas-cycle work` asks the same clock in its own process.
 
 **The pull request of a stopped cycle.** `tehas-cycle finish <issue> --home
 <dir> --repo <owner/name> --default <branch> --reason <text>` takes what a

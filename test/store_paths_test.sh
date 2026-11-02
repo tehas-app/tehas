@@ -54,6 +54,7 @@ allow install.sh 'plan-(<n>|\[0-9\]\*)\.json\.keep|%\.json\.keep' \
   "install.sh moves a planning session's kept directory out of state/"
 
 # carrier <pattern> <sample> <files that may name it> <why it stays a file>
+# An empty list: no code this test reads names it. tehas-cycle reads it.
 c_re=()
 c_sample=()
 c_files=()
@@ -106,49 +107,49 @@ forbid "$p"'\.history\.jsonl\b' 'files=("$TEHAS_HOME/state/cycles/plan-$issue.hi
 forbid '\bplan_record_number\b' 'plan_record_number "$st" || continue'
 forbid '\btehas_plan_history_add\b' 'tehas_plan_history_add "$n" "$line"'
 carrier '\.runner_exit\b' 'runner_exit_file=$TEHAS_HOME/state/cycles/$issue.runner_exit' \
-  'lib/cycles.sh libexec/cycle console/src/stop.rs libexec/work' \
+  'lib/cycles.sh console/src/stop.rs' \
   "work tells the cycle how the runner ended"
 carrier "$n"'\.status\b' 'status_file=$TEHAS_HOME/state/cycles/$issue.status' \
-  'libexec/cycle' \
+  '' \
   "work tells the cycle the runner's status word"
 carrier '\.oom\b' 'oom_file=${cycles:?}/${issue:?}.oom' \
-  "lib/cycles.sh libexec/cycle console/src/stop.rs libexec/work $an/main.rs $an/run.rs $an/tests.rs" \
+  "lib/cycles.sh console/src/stop.rs $an/main.rs $an/run.rs $an/tests.rs" \
   "work counts the container's kills for memory for the cycle"
 carrier '\.forks\b' 'forks_file=$TEHAS_HOME/state/cycles/$issue.forks' \
-  "libexec/cycle console/src/stop.rs libexec/work $an/main.rs $an/run.rs" \
+  "console/src/stop.rs $an/main.rs $an/run.rs" \
   "work counts the container's refused forks for the cycle"
 carrier '\.stalled\b' 'stall_file=${cycles:?}/${issue:?}.stalled' \
-  'libexec/cycle console/src/stop.rs libexec/work' \
+  'console/src/stop.rs' \
   "work tells the cycle the container stalled"
 carrier '\.timed\b' 'timed_file=${cycles:?}/${issue:?}.timed' \
-  'libexec/cycle console/src/stop.rs libexec/work' \
+  'console/src/stop.rs' \
   "work tells the cycle the container ran out of time"
 carrier '\.nostart\b' 'nostart_file=$TEHAS_HOME/state/cycles/$issue.nostart' \
-  'lib/cycles.sh libexec/cycle console/src/stop.rs libexec/work' \
+  'lib/cycles.sh console/src/stop.rs' \
   "work tells the cycle the runner never started"
 carrier '\.result\.json\b' 'result=$TEHAS_HOME/state/cycles/$issue.result.json' \
-  "libexec/cycle console/src/export.rs console/src/stop.rs libexec/work $an/run.rs $an/sessions.rs $an/tests.rs" \
+  "console/src/export.rs console/src/stop.rs $an/run.rs $an/sessions.rs $an/tests.rs" \
   "the container's result, kept to the next start for tehas export"
 carrier '\.progress\.json\b' 'progress=$TEHAS_HOME/state/cycles/$issue.progress.json' \
-  "lib/cycles.sh libexec/cycle console/src/export.rs console/src/stop.rs libexec/work $an/run.rs $an/tests.rs" \
+  "lib/cycles.sh console/src/export.rs console/src/stop.rs $an/run.rs $an/tests.rs" \
   "the summary of the container's output, kept to the next start for tehas export"
 carrier "$n"'\.done\b' 'echo "$done_why" >"$TEHAS_HOME/state/cycles/$n.done"' \
-  'libexec/cycle' \
+  '' \
   "the dispatcher tells a running cycle why it is done"
 carrier "$n"'\.stopped\b' 'stopped_marker=$state/$n.stopped' \
-  'libexec/cycle console/src/stop.rs' \
+  'console/src/stop.rs' \
   "tehas stop tells a running cycle it was stopped"
 carrier '\.cid\b' 'cid_file=$TEHAS_HOME/state/cycles/$issue.cid' \
-  'console/src/dev.rs console/src/stop.rs libexec/work' \
+  'console/src/dev.rs console/src/stop.rs' \
   "the container's id, for docker"
 carrier '\.manifest\.json\b' 'kept=$TEHAS_HOME/state/cycles/$issue.manifest.json' \
-  'console/src/export.rs console/src/stop.rs libexec/work' \
+  'console/src/export.rs console/src/stop.rs' \
   "the images a container is given, mounted into it"
 carrier '\.images\.md\b' 'cp "$images/x" "$TEHAS_HOME/state/cycles/7.images.md"' \
-  'libexec/work' \
+  '' \
   "the list of images a container is given, mounted into it"
 carrier '\.retry-context\.md\b' 'cp "$images/x" "$TEHAS_HOME/state/cycles/7.retry-context.md"' \
-  'libexec/work' \
+  '' \
   "what a reviewer said before a retry, mounted into the container"
 carrier '\$\{?st\}?\.rc\b|\.json\.rc\b' 'rc=$(cat "$st.rc" 2>/dev/null)' \
   'console/src/health.rs' \

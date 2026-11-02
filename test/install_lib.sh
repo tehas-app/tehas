@@ -105,7 +105,6 @@ files="./.bashrc
 ./tehas/lib/issue-brief.md
 ./tehas/lib/labels.sh
 ./tehas/lib/labels.tsv
-./tehas/lib/park-fields.jq
 ./tehas/lib/paths.sh
 ./tehas/lib/questions.sh
 ./tehas/lib/refine-brief.md
