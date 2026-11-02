@@ -4,6 +4,6 @@
   "private": true,
   "description": "One pinned npm tree: parallel-cli at the version host/versions.env names, with every package in it fixed by hash in package-lock.json.",
   "dependencies": {
-    "parallel-web-cli": "0.9.3"
+    "parallel-web-cli": "0.9.4"
   }
 }

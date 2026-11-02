@@ -25,7 +25,9 @@ nap=$(command -pv sleep)
 # lines beside its file as the console does (console/src/now.rs), read from the
 # log it was given with --progress. A case that means two lines of its own
 # writes $T/now.step and $T/now.text, which the stub copies instead of the log;
-# a case that means no now file at all writes $T/now.off.
+# a case that means no now file at all writes $T/now.off. A case that means the
+# step of its log read whatever the load writes $T/now.wait: the stub waits up
+# to ten seconds for a step-started line in the log before it reads it.
 tree=$T/tree
 mkdir -p "$tree/libexec"
 ln -s "$T_ROOT/lib" "$tree/lib"
@@ -46,6 +48,11 @@ for a in "$@"; do
 done
 [ -n "${now:-}" ] || exit 0
 [ -e "$T/now.off" ] && exit 0
+i=0
+while [ -e "$T/now.wait" ] && [ "$i" -lt 200 ] && ! grep -qs step-started "$log"; do
+  command -p sleep 0.05
+  i=$((i + 1))
+done
 if [ -e "$T/now.step" ] || [ -e "$T/now.text" ]; then
   step=$(cat "$T/now.step" 2>/dev/null)
   text=$(cat "$T/now.text" 2>/dev/null)
@@ -171,6 +178,9 @@ case " $* " in
     [ ! -e "$T/push-hangs" ] || exec "$(command -pv sleep)" 30
     [ ! -e "$T/push-slow" ] || { : >"$T/slow-began"; "$(command -pv sleep)" 1; }
     [ "${PUSH_RC:-0}" = 0 ] || { echo "docker: could not read from remote repository" >&2; exit "$PUSH_RC"; } ;;
+  *" --entrypoint bash "*)
+    [ -z "${INSTALL_SAYS:-}" ] || echo "$INSTALL_SAYS" >&2
+    exit "${INSTALL_RC:-0}" ;;
   " rm -f "*)
     [ ! -e "$T/rm-slow" ] || { : >"$T/slow-began"; "$(command -pv sleep)" 1; } ;;
   " stop "*)
@@ -238,6 +248,9 @@ env_ok=(GH_TOKEN=test-token "TEHAS_CGROUP_ROOT=$T_CGROUP")
 runner=/opt/pi-rukas/bin/pi-rukas-headless
 # The arguments of the docker call that starts the cycle.
 cycle_args() { grep -l -x -e 'pi-rukas-headless' -e "$runner" "$T"/calls/docker.args.* 2>/dev/null | head -n 1 | xargs -r cat; }
+# The arguments of the docker call that installs the product before the cycle:
+# the one whose script starts with set -e.
+install_args() { grep -l -x -e 'set -e' "$T"/calls/docker.args.* 2>/dev/null | head -n 1 | xargs -r cat; }
 # The arguments of the docker call that checks the push before the cycle.
 preflight_args() { grep -l -x -e '--entrypoint' "$T"/calls/docker.args.* 2>/dev/null | head -n 1 | xargs -r cat; }
 # The security options and the readers of a docker line come from
@@ -328,7 +341,7 @@ gone='wait; exit 137'
 # container-default, holds that default for every case that names none).
 fresh() {
   local e t_keep=()
-  rm -rf "$T"/calls/* "$live/cycles" "$T/sleeper.pid" "$T/container.sh" "$T"/home/tehas/logs/work-7-*
+  rm -rf "$T"/calls/* "$live/cycles" "$T/sleeper.pid" "$T/container.sh" "$T/now.wait" "$T"/home/tehas/logs/work-7-*
   t_store_home "$T/home/tehas"
   # A fresh store has no start, so no attempt of one (under_cycle).
   for e in "${T_ENV[@]}"; do [[ $e == TEHAS_CYCLE_ATTEMPT=* ]] || t_keep+=("$e"); done
