@@ -2,18 +2,13 @@
 //! run, ask a model what could be better, and file one issue per finding that
 //! is not already in the issue stack.
 //!
-//!   console improve models <out> <endpoints>
-//!
-//! A container's own models.json on the endpoint picked now, and the providers
-//! on their backup, for `tehas-cycle prepare`.
-//!
 //!   console improve due <prompt file>
 //!   console improve run <prompt file>
 //!   console improve table
 //!
 //! `due` holds the lock for the sweep and says whether a run has anything to
-//! do. `run` is the run. libexec/improve calls them in that order with the
-//! slice check between them, so a run with nothing to read starts no container
+//! do. `run` is the run. `console run` (src/run.rs) calls them in that order with
+//! the slice check between them, so a run with nothing to read starts no container
 //! and asks no slice, and one without a usable slice stops before it calls
 //! GitHub. The console reads no slice of its own.
 //!
@@ -68,7 +63,7 @@
 //!              the per-cycle files and the kept analyst output in logs/, after
 //!              seven days
 //!
-//! Settings, all from the environment libexec/improve loaded:
+//! Settings, all from the environment `console run` loaded:
 //! TEHAS_IMPROVE_REPO, the repository issues are filed in.
 //! TEHAS_IMPROVE_RUKAS_REPO, optional, the repository for what only a change in
 //! pi-rukas can fix. TEHAS_IMPROVE_RUKAS_SKIP, 1 to file no such finding at all.
@@ -87,17 +82,11 @@
 
 mod body;
 mod check;
-pub mod models;
 mod pack;
 mod run;
 
 pub fn main(given: &[String]) -> u8 {
     match given {
-        [verb, out, endpoints] if verb == "models" => {
-            let (out, endpoints) = (std::path::Path::new(out), std::path::Path::new(endpoints));
-            let done = models::write_for_container(out, endpoints);
-            u8::from(done.is_none())
-        }
         [verb] if verb == "table" => {
             println!("{}", run::table());
             0
@@ -105,9 +94,7 @@ pub fn main(given: &[String]) -> u8 {
         [verb, prompt] if verb == "due" => run::due(prompt),
         [verb, prompt] if verb == "run" => run::run(prompt),
         _ => {
-            eprintln!(
-                "console improve: usage: due|run <prompt file> | models <out> <endpoints> | table"
-            );
+            eprintln!("console improve: usage: due|run <prompt file> | table");
             64
         }
     }

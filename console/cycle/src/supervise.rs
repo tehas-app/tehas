@@ -55,6 +55,7 @@ pub struct Given {
     pub issue: u64,
     pub work: String,
     pub status_cmd: String,
+    pub status_args: Vec<String>,
     pub console: String,
     /// libexec/cycle, for the report in bash.
     pub again: String,
@@ -435,6 +436,7 @@ pub fn run(home: &Path, g: &Given) -> i32 {
         now: None,
         console: g.console.clone(),
         status_cmd: g.status_cmd.clone(),
+        status_args: g.status_args.clone(),
     };
     if std::env::var("TEHAS_CYCLE_REPORT").as_deref() == Ok("rust") {
         apply::run(home, &start)

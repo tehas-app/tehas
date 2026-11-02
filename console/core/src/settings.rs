@@ -7,6 +7,9 @@ use std::env;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
+pub mod load;
+pub mod rules;
+
 /// A name set to nothing, or to spaces only, as `tehas_require` counts it.
 fn first_unset<'a>(names: &[&'a str], get: impl Fn(&str) -> String) -> Option<&'a str> {
     names

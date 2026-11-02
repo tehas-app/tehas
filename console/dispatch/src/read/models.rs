@@ -1,5 +1,5 @@
 //! What a snapshot asks of the model endpoints and the sandbox image, as
-//! libexec/dispatch asks it: mesh_check over lib/models.sh, image_ok's
+//! libexec/dispatch asks it: mesh_check over tehas_core::models, image_ok's
 //! image and model, and whether a refresh can continue. curl and docker do the
 //! asking, under the bash's bounds.
 

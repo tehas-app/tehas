@@ -144,7 +144,7 @@ case "$1 $2" in
     # the session as the store gives it.
     case "$*" in *"--add-label tehas:planning"*) TEHAS_HOME=$T/home/tehas "$T/store-bin" plan-show "$3" >"$T/calls/record.at-mark" 2>/dev/null ;; esac
     # And the approval on record at the moment an issue was marked as running,
-    # as tehas_approval_view shapes it: .approval the one waiting, .current the
+    # as approval-view shapes it: .approval the one waiting, .current the
     # one of the last start.
     case "$*" in *"--add-label tehas:running"*) TEHAS_HOME=$T/home/tehas "$T/store-bin" approval-current "$3" >"$T/calls/approved.at-mark" 2>/dev/null ;; esac
     [ ! -e "$T/fx/edit-fails" ] || exit 1
@@ -202,9 +202,9 @@ t_stub sleep '[ "$1" = 10 ] || PATH=/usr/bin:/bin exec sleep "$@"'
 # The real timeout, named once, for the stub of it below.
 t_real_timeout=$(command -v timeout || true)
 # Stands in for the real timeout, which sits around the calls of lib/store.sh,
-# lib/disk.sh, lib/slice.sh, lib/analytics.sh, lib/attachments.sh and
-# libexec/status, and around the poll's own git fetch, gh call, stop of a unit
-# and run of the low-priority gate. The commands a poll of these tests runs are
+# lib/disk.sh, lib/slice.sh, lib/attachments.sh and tehasbot status, and around
+# the poll's own git fetch, gh call, stop of a unit and run of the low-priority
+# gate. The commands a poll of these tests runs are
 # stubs, and a stub answers from a fixture: it runs no network, no daemon and
 # nothing that waits, so a bound around it guards nothing a test can hang on,
 # and the process that pays for that bound is the test's. Such a call is execed
@@ -643,11 +643,11 @@ past() {
 sorted() { jq -cS . <<<"$1"; }
 # approval [<jq filter> [<issue>]]: what the store has of the approvals of
 # issue 7 [.current, the one its last start used], in the shape
-# tehas_approval_view gives the readers (at as a time, rests_on, the inputs).
+# approval-view gives the readers (at as a time, rests_on, the inputs).
 approval() {
   local t_got
-  t_got=$(TEHAS_HOME=$T/home/tehas bash -c '. "$1"; f=$(tehas_approval_view "$2") && cat "$f" && rm -f "$f"' _ \
-    "$T_ROOT/lib/store.sh" "${2:-7}") || { echo none; return 0; }
+  t_got=$(TEHAS_HOME=$T/home/tehas "$T/home/tehas/libexec/store" approval-view "${2:-7}" </dev/null 2>/dev/null |
+    jq -ce '.view // empty') || { echo none; return 0; }
   jq -cr "${1:-.}" <<<"$t_got"
 }
 

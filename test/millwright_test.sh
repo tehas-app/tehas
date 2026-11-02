@@ -15,7 +15,10 @@ lib() { t_run '. "$T_ROOT/lib/config.sh"; . "$T_ROOT/lib/labels.sh"; . "$T_ROOT/
 record() { t_record "$home" "$1" "$2"; }
 # view <issue>: that approval as its readers have it, in a file; then <snippet>
 # with the path in $v.
-view() { lib "v=\$(tehas_approval_view $1) || { echo none; exit 0; }; $2"; }
+view() {
+  lib "tehas_store approval-view $1 || { echo none; exit 0; }; v=$T/view.json
+    jq -ce '.view // empty' <<<\"\$tehas_store_out\" >\"\$v\" || { echo none; exit 0; }; $2"
+}
 person() { echo "{\"at\":\"2026-10-01T00:00:00Z\",\"by\":\"${1:-alice}\",\"how\":\"label\",\"body_sha256\":\"$SUM\",\"links\":[]}"; }
 by_fixer() { # <starts> [<rests_on>]
   echo "{\"at\":\"2026-10-02T00:00:00Z\",\"by\":\"tehas-fixer\",\"how\":\"fixer\",\"body_sha256\":\"$SUM\",\"links\":[],\"fixer_starts\":$1,\"rests_on\":${2:-$(person)}}"
@@ -60,9 +63,8 @@ by_refresh() { # <refreshes> [<fixer starts>]
 t_case "the rules that read a record take one that names a driver, in each shape a start has"
 for shape in "$(person)" "$(by_fixer 1)" "$(by_refresh 1)"; do
   record 7 "$(jq -c '.driver = "lean"' <<<"$shape")"
-  view 7 '. "$T_ROOT/lib/attachments.sh"; jq -r .driver "$v"; jq "$(tehas_approval_record) record_ok" "$v"; tehas_millwright_base "$v" | jq -r .by'
+  view 7 'jq -r .driver "$v"; tehas_millwright_base "$v" | jq -r .by'
   t_eq "$t_out" 'lean
-true
 alice'
 done
 

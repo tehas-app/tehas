@@ -11,11 +11,11 @@
 # (console/src/preview.rs). The library is the checkout's own.
 # shellcheck disable=SC2154  # t_console_why is set by t_console (test/lib.sh)
 t_console || t_bad "no console: $t_console_why"
-mkdir -p "$T/tree/libexec"
-ln -sfn "$T_ROOT/libexec/preview" "$T/tree/libexec/preview"
+mkdir -p "$T/tree/libexec" "$T/tree/bin"
+ln -sfn "$T_ROOT/bin/tehasbot" "$T/tree/bin/tehasbot"
 ln -sfn "$T_ROOT/lib" "$T/tree/lib"
 cp "$T_CONSOLE" "$T/tree/libexec/console"
-preview="$T/tree/libexec/preview"
+preview="$T/tree/bin/tehasbot preview"
 fx=$T/fx
 root=$T/home/tehas/preview
 live=$T/home/tehas/live

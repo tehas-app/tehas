@@ -6,8 +6,8 @@
 //! Prints a token with at least 10 minutes left, making one when the kept one
 //! has less. --check says when the token runs out and whether it reaches
 //! TEHAS_REPO, and never prints the token. `libexec/github-token` is the path
-//! the gh shim, the poll and `tehas-cycle renew` ask: it loads the settings
-//! and comes here.
+//! the gh shim, the poll and `tehas-cycle renew` ask: `console run` loads the
+//! settings and comes here.
 //!
 //! The token is $TEHAS_HOME/state/github/token (mode 600), its expiry
 //! token.expires (epoch seconds) beside it. The directory, not the file, is
@@ -382,20 +382,34 @@ pub fn words(given: &[String]) -> Result<bool, u8> {
     }
 }
 
+const NEEDS: [&str; 4] = [
+    "TEHAS_HOME",
+    "TEHAS_GITHUB_APP_ID",
+    "TEHAS_GITHUB_APP_INSTALLATION",
+    "TEHAS_BOT_LOGIN",
+];
+
+fn kept_in() -> PathBuf {
+    PathBuf::from(env::var_os("TEHAS_HOME").unwrap_or_default()).join("state/github")
+}
+
+/// tehas_github_env, for a command that hands the token on to a container: a
+/// token with at least 10 minutes left. None when none could be had, said on
+/// standard error.
+pub fn for_a_container() -> Option<String> {
+    settings::require(&NEEDS).ok()?;
+    token(&App::loaded(), &kept_in())
+}
+
 pub fn main(given: &[String]) -> u8 {
     let checking = match words(given) {
         Ok(checking) => checking,
         Err(rc) => return rc,
     };
-    if let Err(rc) = settings::require(&[
-        "TEHAS_HOME",
-        "TEHAS_GITHUB_APP_ID",
-        "TEHAS_GITHUB_APP_INSTALLATION",
-        "TEHAS_BOT_LOGIN",
-    ]) {
+    if let Err(rc) = settings::require(&NEEDS) {
         return rc;
     }
-    let dir = PathBuf::from(env::var_os("TEHAS_HOME").unwrap_or_default()).join("state/github");
+    let dir = kept_in();
     let app = App::loaded();
     let Some(token) = token(&app, &dir) else {
         return 1;

@@ -1,17 +1,12 @@
-//! What `tehasbot clean` removes, for libexec/clean. The shell loads the
-//! settings and reads the free disk; this names the two images, takes the
-//! run's lock and runs the seven steps.
-//!
-//!   console clean image <PI_ENSEMBLE_IMAGE>
-//!     The sandbox image without its tag. Exit 78 when that names no image.
+//! What `tehasbot clean` removes. `console run` (src/run.rs) loads the settings
+//! and reads the free disk; this names the two images, takes the run's lock and
+//! runs the seven steps.
 //!
 //!   console clean run <dry 0|1> <home> <work dir> <after hours>
 //!     <min free MiB> <min free as set> <free KiB, or empty> <clean dirs>
 //!     <sandbox image> <log file> <scratch dir>
 //!     Exit 0 every step worked; 1 a step failed or the log could not be
 //!     written; 3 another run holds the lock; 64 a usage error.
-//!   console clean usage <the arguments of tehasbot clean>
-//!     The help text, or an unknown argument and exit 64.
 //!   console clean held <the image's tags, "<tag> <id>" per line>
 //!     The ids something holds, one per line, for the sandbox build. Exit 1
 //!     with nothing on stdout when docker would not say.
@@ -150,12 +145,6 @@ pub fn main(given: &[String]) -> u8 {
     if given.first().is_some_and(|v| v == "scratch") {
         return scratch_made(&given[1..]);
     }
-    if given.first().is_some_and(|v| v == "image") {
-        return image(&given[1..]);
-    }
-    if given.first().is_some_and(|v| v == "usage") {
-        return usage(&given[1..]);
-    }
     if given.first().is_some_and(|v| v == "held") {
         return held(&given[1..]);
     }
@@ -201,23 +190,18 @@ pub fn main(given: &[String]) -> u8 {
 }
 
 /// The sandbox image's name for the run, or 78 and what is wrong with it.
-fn image(given: &[String]) -> u8 {
-    let [image] = given else {
-        eprintln!("{USAGE}");
-        return 64;
-    };
-    let Some(repo) = image_repo(image) else {
+/// The sandbox image without its tag. Err is 78, said on standard error.
+pub fn sandbox_image(image: &str) -> Result<String, u8> {
+    image_repo(image).ok_or_else(|| {
         eprintln!("tehas: PI_ENSEMBLE_IMAGE={image} names no image docker can list");
         eprintln!("tehas clean: PI_ENSEMBLE_IMAGE={image} is not an image name");
-        return 78;
-    };
-    println!("{repo}");
-    0
+        78
+    })
 }
 
 /// The arguments the command does not run with: the help text when that is
 /// all that was asked, else the first word it does not know.
-fn usage(given: &[String]) -> u8 {
+pub fn usage(given: &[String]) -> u8 {
     if let [help] = given {
         if help == "-h" || help == "--help" {
             print!("{HELP}");
@@ -1988,8 +1972,9 @@ mod tests {
             "{said}"
         );
         assert!(tree.join("target/console").exists(), "a dry run removed");
-        // The same tree under a real run frees exactly that figure.
-        one_issue_tree(&root);
+        // The same tree under a real run frees exactly its figure, measured
+        // again: a directory's own size can change when it is written to.
+        let (_, known) = one_issue_tree(&root);
         run.dry = false;
         run.freed = 0;
         assert!(run.workspaces());

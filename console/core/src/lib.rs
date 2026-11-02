@@ -14,12 +14,12 @@ pub mod grammar;
 pub mod hold;
 #[cfg(feature = "mask")]
 pub mod journal;
+pub mod jq;
 pub mod lock;
 #[cfg(feature = "mask")]
 pub mod mask;
 pub mod models;
 pub mod plan;
-pub mod private;
 #[cfg(feature = "mask")]
 pub mod question;
 pub mod review;
@@ -31,4 +31,5 @@ pub mod settings;
 pub mod size;
 pub mod slice;
 pub mod slow;
+pub mod textcheck;
 pub mod time;

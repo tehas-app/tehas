@@ -924,7 +924,7 @@ fn a_refresh_in_a_view_names_the_person_s_approval() {
 }
 
 // Moved from test/store_lib_test.sh: a time that is no time was the shape's
-// refusal there, 2 from tehas_approval_view.
+// refusal there, 2 from a reader of approval-view.
 #[test]
 fn a_view_refuses_what_is_no_approval() {
     for current in [

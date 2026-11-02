@@ -168,4 +168,20 @@ t_eq "$t_rc" 1
 t_contains "$t_out" "this release has no libexec/console"
 t_eq "$(host_files | wc -l)" 0
 
+t_case "a release tree's own console names the steps, on a host with none"
+if [ "$(uname -m)" = x86_64 ]; then
+  cp "$T_CONSOLE" "$build/console"
+  pack_tree --store "$build/store"
+  fresh
+  instance
+  T_ENV_ALWAYS=()
+  t_run "'$tree/install.sh'"
+  t_eq "$t_rc" 0
+  t_contains "$t_out" "next: units tehas-dispatch.timer"
+  t_eq "$(cat "$th/state/update-pending")" "$(next_steps)"
+  T_ENV_ALWAYS=(TEHAS_CONSOLE="$T_CONSOLE")
+else
+  t_skip "the pack here wants an x86_64 console"
+fi
+
 t_done

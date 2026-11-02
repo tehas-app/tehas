@@ -2,7 +2,7 @@
 # shellcheck disable=SC2154  # here is the sourcing command's
 # The bash of what a sandbox container is given.
 # Sourced by the commands that start one in bash: tehas work (a cycle) and tehas
-# plan (a planning turn), and by tehas dev for the check of Pi's files.
+# plan (a planning turn).
 # The docker options themselves are made in one
 # place, console/core/src/sandbox.rs, and reach bash through tehas-cycle
 # sandbox, which stands beside the command as "$here/tehas-cycle". The goldens
@@ -25,20 +25,14 @@
 # Source lib/config.sh and call tehas_load first, and set here to the directory
 # of the command: the settings are read from the environment it leaves.
 
-# shellcheck source=lib/models.sh
-. "$(dirname "${BASH_SOURCE[0]}")/models.sh"
-
 # Where the host keeps the code index it gives to containers: the one directory
 # the indexer writes and every container is given a copy of. No container is
 # given it itself. Derived from TEHAS_HOME, not a setting.
 tehas_index_dir() { printf '%s\n' "$TEHAS_HOME/state/index"; }
 
 # The github.com host, and the git config key that names its credential
-# helper. Two things read that key: the probe of tehas setup, which asks the
-# host's git whether it has a helper, and the environment-level config below,
-# which is what a container's git is given. A change here (another host,
-# another subsection spelling) moves both; no other github.com of the platform
-# is named by these.
+# helper, as console/core/src/sandbox.rs names them for the probe of tehas setup
+# and a container's git. test/work_caps_test.sh pins the spelling.
 tehas_git_github_host() { printf '%s\n' github.com; }
 tehas_git_credential_helper_key() {
   local h
@@ -80,12 +74,6 @@ tehas_sandbox_limits() { # <command> <what>
   esac
 }
 
-# models.json is the container's own, <state>/models.json: the host's with each
-# provider on the endpoint picked now (lib/models.sh). <state>/endpoints says
-# which providers are on their backup. The options are held until that is
-# written, so a run that could not write it is given none.
-tehas_sandbox_mounts() { # <kind> <tree> <host> <state> <runs>
-  local opts
-  mapfile -d '' -t opts < <("$here/tehas-cycle" sandbox mounts "$@")
-  wait "$!" && tehas_models_resolve "$4/models.json" >"$4/endpoints" && printf '%s\0' "${opts[@]}"
-}
+# Writes <state>/models.json and <state>/endpoints too. The options come last,
+# so a run that could not write those is given none.
+tehas_sandbox_mounts() { "$here/tehas-cycle" sandbox mounts "$@"; }

@@ -1,6 +1,6 @@
 //! What the poll reads off an issue's own text: the hash an approval binds
 //! (tehas_core::approval), the files its body names (tehas_core::size), and the
-//! attachments it links or promises (lib/attachments.sh).
+//! attachments it links or promises (console/attach).
 
 use regex::Regex;
 use serde_json::{json, Value};
@@ -13,12 +13,12 @@ pub fn size_files(body: &str, max_bytes: usize, max_lines: usize) -> usize {
     tehas_core::size::measure(body.as_bytes(), max_bytes, max_lines).files
 }
 
-/// tehas_attachment_links: every attachment link in a text.
+/// Every attachment link in a text.
 pub fn links(text: &str) -> usize {
     link_list(text).len()
 }
 
-/// tehas_attachment_links' links, each once, in the order the text has them.
+/// The attachment links, each once, in the order the text has them.
 pub fn link_list(text: &str) -> Vec<String> {
     static LINKS: OnceLock<Regex> = OnceLock::new();
     let re = LINKS.get_or_init(|| {

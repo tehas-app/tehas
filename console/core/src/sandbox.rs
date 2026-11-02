@@ -28,9 +28,9 @@ pub const CACHE_DIR: &str = "/home/vscode/.tehas-cache";
 /// workspace, the read-write mount, so on the host's disk.
 pub const TARGET_DIR: &str = "/home/vscode/.tehas-target";
 
-// lib/sandbox.sh names the same key for tehas setup's probe of the host's git:
+// tehas setup asks the host's git for it too. lib/sandbox.sh names the same key:
 // tehas_git_credential_helper_key.
-const HELPER_KEY: &str = "credential.https://github.com.helper";
+pub const HELPER_KEY: &str = "credential.https://github.com.helper";
 const HELPER: &str = "!gh auth git-credential";
 
 const REVIEW_LEAVES_OUT: [&str; 7] = [
@@ -436,13 +436,12 @@ pub fn settings_ok() -> Result<(), String> {
             return Err(format!("tehas: no {agent}/{f}: run install.sh"));
         }
     }
-    let file = models::host_path();
-    models::keys_ok(&ModelFile::read(&file).json, &file, set).map_err(|e| format!("tehas: {e}"))
+    models::host_keys_ok().map_err(|e| format!("tehas: {e}"))
 }
 
 /// The -v options with what they name made on the host, because Docker would
 /// create a missing mount source as a root-owned directory. The caller makes
-/// <host> and writes <state>/models.json. Asks [`settings_ok`] again, and says
+/// <host>; `tehas-cycle sandbox mounts` writes <state>/models.json. Asks [`settings_ok`] again, and says
 /// why on Err.
 pub fn prepared_mounts(kind: Kind, p: &Paths) -> Result<Vec<String>, String> {
     if [p.tree, p.host, p.state, p.runs]
@@ -686,8 +685,7 @@ pub fn take(r: &impl Probe, load: &Load, who: &str, what: &str) -> Result<Taken,
     taken(slice, load, who, what)
 }
 
-/// [`take`], of a slice already read.
-pub fn taken(slice: Usable, load: &Load, who: &str, what: &str) -> Result<Taken, String> {
+fn taken(slice: Usable, load: &Load, who: &str, what: &str) -> Result<Taken, String> {
     let limits = slice::limits(&slice, load)
         .ok_or_else(|| format!("{who}: the container limits could not be made, not starting"))?;
     let security = security(slice.ceiling_mb).ok_or_else(|| {

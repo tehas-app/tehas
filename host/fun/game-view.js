@@ -9,7 +9,7 @@
     return e;
   };
 
-  // Stages follow the labels tehas itself puts on issues (see libexec/status).
+  // Stages follow the labels tehas itself puts on issues (see console/src/queue.rs).
   const STAGES = {
     ready: "IN LINE",
     running: "BUILDING",
@@ -34,7 +34,7 @@
     return "backlog";
   }
 
-  // The pause, as libexec/status writes it: {flag: {at, reason} or null, label}.
+  // The pause, as tehasbot status writes it: {flag: {at, reason} or null, label}.
   // Only the reason is shown, and only on the page: `by` is not in the snapshot.
   function pauseInfo(raw) {
     const p = raw && raw.pause;

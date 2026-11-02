@@ -365,7 +365,7 @@ tidies and adds the label in the call that strips their state labels, so the
 label says one thing, that a merge closed the issue, whatever the queue's list
 happened to hold. Two commands
 put the label from a merged closer, and both make the one read of
-`console shipped query` and go by the same rule (`console/src/shipped.rs`):
+the query of `console/src/shipped.rs` and go by the same rule:
 `console tidy run` in the edit that takes the state labels off, and
 `tehasbot status` from its own read of the list for any issue missing it.
 `console tidy run` is the one that says what it did in
@@ -464,7 +464,7 @@ store as it ends, however it ends. A dry run records nothing.
 - **CPU**: user and system time of the poll and of the commands it waited for,
   from bash's `times`, `console tidy run` among them.
 - **gh**: the calls the dispatcher made to `gh` itself. Calls of the commands it
-  runs, such as `libexec/status` and `console tidy run`, and a call under
+  runs, such as `tehasbot status` and `console tidy run`, and a call under
   `timeout`, are not counted.
 - **writes**: the lines of the host shim's write log,
   `~/tehas/state/github-writes.log` (see [GitHub App identity](/github-app)),
@@ -976,9 +976,11 @@ its own login stops there and does nothing else.
 
 ### The dispatcher in Rust
 
-Every poll is `~/tehas/libexec/tehas-dispatch poll`, handed to it once `libexec/dispatch` has checked
-the settings, the model keys and the checkout. `libexec/dispatch` has no poll
-of its own: when that program is not installed it stops with exit 78. A poll
+Every poll is `~/tehas/libexec/tehas-dispatch poll`, handed to it once `console run`
+has checked the settings and the checkout. A file that is no program counts as
+not installed, so an empty one is not a poll that exits 0, and either way
+`tehasbot dispatch` stops with exit 78. The poll checks the model keys before it
+acts. `tehas help dispatch` is the whole of the rules. A poll
 is, in order: the lock, the
 snapshot of the queue (one GraphQL query in pages of 25;
 GitHub can answer a large page with an issue's
@@ -1172,6 +1174,9 @@ Most of the time you do not need it. The machine's CPUs and memory change while
 it runs, and a hypervisor restart saves the virtual machine with its cycles in
 it, so what runs goes on where it stopped: [Resize or restart the
 host](/resize) is that, and it names the four changes that still need a drain.
+That is a VM host: a factory that is a container on another project's machine
+has no hypervisor to save it, so a restart of the machine under it is always a
+drain.
 
 A program that drives factories uses the same commands: see
 [the factory API](/api).
@@ -1908,7 +1913,7 @@ approval), `refresh_of` (`pr`, `head_sha`, `base_sha`, `branch`) and one
 
 > This pull request conflicts with `main`. Merge `main` into its branch,
 > resolve the conflicts so the change still does what the issue asks, run the
-> gate, and push to the same branch. Do no other work.
+> gate in `.pi/verify-cmd`, and push to the same branch. Do no other work.
 
 No comment text reaches the cycle this way. As with the millwright's note, it
 reaches `retry-context.md` only where the instance gives a cycle images or

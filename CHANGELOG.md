@@ -13,6 +13,21 @@ empty one above it.
 
 ### Changes
 
+- The console drops verbs nothing calls (label actor, label pause-holds, every shipped verb but page), keeps one copy of the host names and of the version compare, and bash loses four functions only tests called.
+- `tehas history` runs in the console, in process, with its output unchanged; `libexec/history`, `lib/history-listing.jq` and `lib/history-repeats.jq` are gone, and an instance without a valid `TEHAS_REPO` now gets exit 78.
+- tehas export is a verb of the console and libexec/export is gone. An invalid TEHAS_REPO or an unreadable file of models now stops it with 78, it makes no directory on a refused argument or a link into the home, and it no longer takes a console from the PATH.
+- tehas setup runs in the console. libexec/setup is left with finding or building the console, and tehas setup --help reads the console's text.
+- `tehas dev` and its login start from the console; `libexec/dev` and `libexec/dev-login` are thin paths kept for the argv pin and the sudo rule. Nothing changes for a person.
+- `console run` is the one way into a command under the settings: libexec/with-settings, clean, preview, protolab, refresh and init-product and lib/disk.sh are gone, libexec/dispatch, review, improve, check-product and github-token are a line each, and an update restarts tehas-top.service.
+
+### Adopter action
+
+None.
+
+## v0.21.0 (2026-11-02)
+
+### Changes
+
 - `tehas status`, `disk`, `state`, `limit`, `pause`, `analytics` and `tehasbot health` run the console directly, and seven wrapper scripts are gone.
 - The measure of an issue and the free-disk reading are the console's: `console size` and `console disk free` replace the jq and df in lib/sizing.sh and lib/disk.sh.
 - The cleaner's image names and the held set are the console's, and libexec/clean is a wrapper.
@@ -46,10 +61,33 @@ empty one above it.
 - The libraries lose the functions only the bash poll called.
 - The dispatcher's shadow is removed: the poll's unit appends to `logs/dispatch.log` and nothing else.
 - The bash left behind by the poll's removal is gone: `lib/limit.sh` and five functions only tests called.
+- `tehasbot status` is a verb of the console; libexec/status, lib/status.sh and lib/analytics.sh are gone.
+- The watch of a cycle is `tehas-cycle watch`, and `lib/headless.sh` is gone.
+- A start is approved, read and measured in `tehas-cycle start-check`, and `lib/sizing.sh` is gone.
+- The workspace, the push check and the image record of a cycle are `tehas-cycle prepare`, and `lib/improve.sh` is gone.
+- models.json is read by the programs; lib/models.sh is gone.
+- Who applied a label is read in one place, the console.
+- The files of an issue and of a reply are fetched and judged by libexec/attach; lib/attachments.sh is a thin wrapper.
+- `tehas_load` asks the console, and `lib/config.sh` is a thin loader. A load needs `libexec/console`; `install.sh` builds it first.
+- tehas update reads, checks and switches releases in the console; lib/update-release.sh is gone.
+- tehas update runs its follow-ups in the console; a --to to a version before this finishes with console.prev.
+- install.sh asks the console which steps a changed file owes.
+- libexec/update is a thin wrapper round the console; a console that does not start stops an update, and the manual says how to recover.
 
 ### Adopter action
 
-None.
+Remove `TEHAS_DISPATCHER=bash` from the settings if it is there: the bash poll is
+gone and that value stops every command with 78. `rust` and a blank value still
+load.
+
+Settings now need `libexec/console`, so a host needs its update to finish:
+`install.sh` builds or installs the console first, and a command with no console
+stops with 78. A `models.json` whose `providers` is not a map now stops the poll
+with 78.
+
+An update now runs in the console. If a release's console does not start, it
+cannot update itself: recover with `~/tehas/versions/<previous>/install.sh`, as
+the manual's troubleshooting page says.
 
 ## v0.20.1 (2026-11-01)
 

@@ -609,6 +609,27 @@ mod tests {
     use super::*;
 
     #[test]
+    fn every_decision_line_of_the_table_is_a_kind() {
+        // The same sample lines `parse` is tested of, so the two readers of
+        // these words cannot drift apart on a word the dispatcher writes. The
+        // kind each row is read as is named in the table itself.
+        for row in crate::decisions::DECISIONS {
+            let text = row.sample.split_once(' ').expect("a timed line").1;
+            let kind = kind_of("dispatch", text);
+            assert!(KINDS.contains(&kind), "{}", row.word);
+            assert_eq!(kind, row.kind, "{}", row.sample);
+        }
+        // The writers' own words for a line that is no decision of this tool
+        // are events all the same, each of a kind `factory_events` names.
+        for (word, line, kind) in crate::decisions::WRITER_NON_DECISIONS {
+            let text = line.split_once(' ').expect("a timed line").1;
+            let read = kind_of("dispatch", text);
+            assert!(KINDS.contains(&read), "{word}");
+            assert_eq!(read, kind, "{line}");
+        }
+    }
+
+    #[test]
     fn kinds_of_the_real_line_shapes() {
         let d = |t| kind_of("dispatch", t);
         assert_eq!(d("start #1022 (labelled by alice)"), "start");
@@ -633,6 +654,28 @@ mod tests {
         assert_eq!(d("wait #462: tehas:blocked holds it"), "wait");
         assert_eq!(d("holding: the limit allows 0 cycles at once"), "wait");
         assert_eq!(d("hold #688: its last cycle parked"), "wait");
+        // The release of a hold is no decision of `factory_decisions`, but it
+        // is an event; the poll's own words for its slots are a wait.
+        assert_eq!(
+            d("lift #7: its last cycle parked on intent-park and the body has not changed since, lifted on the fixer's guidance comment"),
+            "warn"
+        );
+        assert_eq!(
+            d("lift #7: its last cycle parked on intent-park and the body has not changed since, lifted on the fixer's guidance comment"),
+            "warn"
+        );
+        assert_eq!(
+            d("hold #7: its text links an attachment and TEHAS_WORK_IMAGES is 1, but test-model does not declare image input in models.json"),
+            "wait"
+        );
+        assert_eq!(
+            d("hold #7: its text says SCREENSHOT GOES HERE and links no attachment"),
+            "wait"
+        );
+        assert_eq!(
+            d("hold #7: its last cycle parked on intent-park and the body has not changed since, and the fixer's comments could not be read"),
+            "wait"
+        );
         assert_eq!(d("released: cycles may start again"), "wait");
         assert_eq!(
             d("planning #1015 waits: the turn of #1014 is still running"),
