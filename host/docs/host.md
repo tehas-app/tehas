@@ -341,6 +341,19 @@ branch in a temporary worktree, tags that commit as the next `vX.Y.Z` with an
 annotated tag, and pushes the tag. It refuses a commit whose `CHANGELOG.md`
 has no "Adopter action" for the release ([Releases](/tools#release-notes-and-the-adopter-action)).
 The pushed tag starts the release workflow, which publishes the signed tarball.
+With `--rc` it tags a release candidate of the next version instead,
+`vX.Y.Z-rc.N`, N one more than the newest candidate of that version: the same
+gate and checks, `CHANGELOG.md` left as it is. With `--from <branch>` it tags
+the head of that branch of the remote instead, so pull requests that wait on
+their host proof can be in a candidate before they reach the default branch.
+The branch must contain the default branch's head, or nothing is tagged. A
+plain release is always the default branch's head. The workflow publishes a
+candidate as a prerelease, which a plain `tehas update` passes over; a host
+moves to one only with `tehas update --to vX.Y.Z-rc.N`.
+
+```
+scripts/tag-release.sh --minor --rc --from candidate-v0.22.0   # v0.22.0-rc.1
+```
 When the head carries a polyfill that the newest pi-rukas no longer needs, it
 opens a pull request that removes it and tags nothing until that is merged
 ([Polyfills](/tools#polyfills-of-pi-rukas-features)).
@@ -1038,8 +1051,8 @@ edge router are outside the slice too.
 
 ### What a container may not do
 
-A cycle, a planning turn, a `tehas dev` session and the push check before a
-cycle all get the options below, from `security` in
+A cycle, a planning turn, a `tehas dev` session, and the push check and the
+product's install before a cycle all get the options below, from `security` in
 `console/core/src/sandbox.rs`, beside the mounts and the variables. The list is
 capability-shaped options and this round's bounded `/tmp`. The indexer and the
 analyst are not given them yet (issue #54 leaves them to a follow-up), so the
@@ -1175,6 +1188,7 @@ hold a slot for ever:
 | --- | --- | --- |
 | The image's `--capabilities` answer before a cycle | 120 s | `tehas work` exits 78, with `gave no --capabilities answer` |
 | The push check before a cycle | 300 s | `tehas work` exits 3, with `the push check did not end within 300s` |
+| The product's install before a cycle | 1800 s | `tehas work` exits 78, with `the install did not end within 1800s` in the `.preflight` file |
 | The clone of the cycle's workspace | 300 s | `tehas work` exits 78 |
 | `docker stop` at the end of a cycle, and on a signal | 60 s | `docker kill`, bounded the same way, and the line `docker stop of tehas-work-N did not end within 60s, killing it` |
 | The console at the end of a cycle | 3 s, then 30 s after it is asked to stop (`TEHAS_CONSOLE_WAIT`) | The console is killed, with `the console did not stop within 30s, killing it` |

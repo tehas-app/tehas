@@ -4,8 +4,8 @@
 name = "tehas-mcp"
 version = "0.1.0"
 edition = "2021"
-# The oldest compiler that knows what the source uses (Option::is_none_or).
-rust-version = "1.82"
+# The oldest compiler that builds it: tehas-core needs 1.89 (File::try_lock).
+rust-version = "1.89"
 publish = false
 # The one test target below is listed by hand and nothing else under tests/ is
 # discovered: each of the nine suite files is a module of tests/main.rs, and
@@ -32,5 +32,5 @@ path = "tests/main.rs"
 flate2 = "1"
 regex = "1"
 serde_json = "1"
-sha2 = "0.10"
+sha2 = "0.11"
 tehas-core = { path = "../core", features = ["mask"] }

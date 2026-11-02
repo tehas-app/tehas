@@ -213,6 +213,29 @@ pub fn push_check(
     w
 }
 
+/// The container that installs the product's dependencies in a cycle's
+/// workspace before the cycle starts: <script> is [`crate::install::script`].
+/// It has the cycle's limits and the workspace at the cycle's path, and none of
+/// the cycle's variables: an install runs code no one reviewed.
+pub fn install_run(
+    limits: &[String],
+    security: &[String],
+    user: &str,
+    tree: &str,
+    host: &str,
+    image: &str,
+    script: &str,
+) -> Vec<String> {
+    let mut w = words(&["docker", "run", "--rm"]);
+    w.extend_from_slice(limits);
+    w.extend_from_slice(security);
+    w.extend(words(&["--user", user, "-e", "HOME=/home/vscode"]));
+    w.extend(words(&["-w", tree, "-v", &format!("{host}:{tree}")]));
+    w.extend(words(&["--entrypoint", "bash", image]));
+    w.extend(words(&["-c", script]));
+    w
+}
+
 /// What a cycle's container is started from, beside its image.
 pub struct CycleRun<'a> {
     pub name: &'a str,
