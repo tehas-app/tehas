@@ -31,10 +31,9 @@ t_eq "$t_rc" 0
 t_contains "$t_out" "console   #12  console-12.txt  live"
 t_contains "$t_out" "[step develop] @developer ran the gate"
 
-# The frame is one jq program: the number of jq processes a redraw costs does not
-# grow with the number of lines the frame draws. The wrapper counts the calls and
-# then runs the real jq.
-t_case "a frame costs the same jq processes whatever it holds"
+# A redraw costs no jq process, whatever the frame draws. The wrapper counts the
+# calls and then runs the real jq.
+t_case "a frame costs no jq process whatever it holds"
 reset
 files
 energy
@@ -42,22 +41,17 @@ jqreal=$(command -v jq)
 t_stub jq 'printf "jq\n" >>"$T/calls/jqcount"; exec '"$jqreal"' "$@"'
 T_ENV=(TEHAS_CONSOLE="$T_CONSOLE" TEHAS_PROC_DIR="$proc1" COLUMNS=80 LINES=200)
 seq -f 'console line %g' 1 2 >"$live/console-12.txt"
-rm -f "$T/calls/jqcount"
 t_run "$top --once"
 t_eq "$t_rc" 0
 short_lines=$(printf '%s\n' "$t_out" | wc -l)
-short_calls=$(wc -l <"$T/calls/jqcount")
 seq -f 'console line %g' 1 60 >"$live/console-12.txt"
-rm -f "$T/calls/jqcount"
 t_run "$top --once"
 t_eq "$t_rc" 0
 long_lines=$(printf '%s\n' "$t_out" | wc -l)
-long_calls=$(wc -l <"$T/calls/jqcount")
 rm -f "$T/bin/jq"
-# The long frame really is 58 lines longer, and both cost the same jq.
+# The long frame really is 58 lines longer, and neither called jq.
 t_eq "$((long_lines - short_lines))" 58
-t_eq "$long_calls" "$short_calls"
-t_eq "$((long_lines > long_calls))" 1
+t_eq "$([ -e "$T/calls/jqcount" ] && echo called)" ""
 
 t_case "standard output that is not a terminal gets no escape codes"
 reset
@@ -107,6 +101,38 @@ t_eq "$t_rc" 64
 t_run "$top --every"
 t_contains "$t_out" "--every wants a whole number from 1 to 64"
 
+# The frame fills the height and is cut to the width, so the two say what size
+# it was drawn for. A long console takes the rows and a long title the width.
+drawn() { printf '%s\n' "$t_out" | awk 'length > w { w = length } END { print w "x" NR }'; }
+
+t_case "the size comes from COLUMNS and LINES, then the terminal, then 80 by 24"
+reset
+files "$(printf 'long title %.0s' $(seq 1 60))"
+seq -f 'console line %g' 1 300 >"$live/console-12.txt"
+t_stub stty 'printf "%s\n" "$*" >>"$T/calls/asked"; echo "30 100"'
+T_ENV=(TEHAS_CONSOLE="$T_CONSOLE" TEHAS_PROC_DIR="$proc1" COLUMNS=60 LINES=40)
+t_run "$top --once"
+t_eq "$(drawn)" "60x40"
+t_eq "$([ -e "$T/calls/asked" ] && echo asked)" ""
+# One of the two given: the terminal says the other, rows first.
+T_ENV=(TEHAS_CONSOLE="$T_CONSOLE" TEHAS_PROC_DIR="$proc1" COLUMNS=60 LINES=)
+t_run "$top --once"
+t_eq "$(drawn)" "60x30"
+T_ENV=(TEHAS_CONSOLE="$T_CONSOLE" TEHAS_PROC_DIR="$proc1" COLUMNS=abc LINES=40)
+t_run "$top --once"
+t_eq "$(drawn)" "100x40"
+t_eq "$(sort -u "$T/calls/asked")" "size"
+# A terminal that cannot be asked: 80 by 24.
+t_stub stty 'exit 1'
+T_ENV=(TEHAS_CONSOLE="$T_CONSOLE" TEHAS_PROC_DIR="$proc1" COLUMNS= LINES=)
+t_run "$top --once"
+t_eq "$(drawn)" "80x24"
+# Clamped both ways.
+T_ENV=(TEHAS_CONSOLE="$T_CONSOLE" TEHAS_PROC_DIR="$proc1" COLUMNS=5 LINES=1000)
+t_run "$top --once"
+t_eq "$(drawn)" "20x200"
+rm -f "$T/bin/stty"
+
 t_case "an unknown argument is exit 64 with one line"
 reset
 files
@@ -137,7 +163,7 @@ t_eq "$(cd "$live" && find . -maxdepth 1 -type f -printf '%f\n' | LC_ALL=C sort 
 t_case "the frame comes from the snapshot alone: a snapshot with nothing in it"
 reset
 printf '%s' '{"generatedAt":"2026-01-01T00:00:00Z"}' >"$T/snap"
-t_run '. "$T_ROOT/lib/top.sh"; tehas_top_frame "$(cat "$T/snap")" 80 24'
+t_run '"$TEHAS_CONSOLE" top frame 80 24 <"$T/snap"'
 t_eq "$t_rc" 0
 for line in "factory   no health file yet" "cycle     no cycle written yet" "host      no reading of /proc" \
   "units     systemctl --user gave no answer" "energy    no sample" "console   no console file"; do

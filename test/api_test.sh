@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
-# Tests for libexec/api: what this factory speaks, for a program to read first.
+# Tests for tehas api: what this factory speaks, for a program to read first.
 # shellcheck disable=SC2016  # snippets are expanded by the shell under test
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
 
-api="$T_ROOT/libexec/api"
+api="$T_ROOT/bin/tehas api"
+t_console || t_bad "$t_console_why"
+T_ENV_ALWAYS=(TEHAS_CONSOLE="$T_CONSOLE")
 t_stub gh
 t_stub git
 

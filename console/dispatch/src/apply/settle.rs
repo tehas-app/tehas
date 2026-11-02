@@ -3,10 +3,13 @@
 //! between two writes, is read again and settled from what GitHub says now.
 //! Never replayed: the poll that settles it decides afresh whether anything
 //! is still owed. A write never attempted made no call, and is abandoned.
-//! A row that does not describe itself is left open with one WARN.
+//! A row that does not describe itself is left open with one WARN. A row of
+//! a cycle whose lock is held is that cycle's own, and is left alone: a poll
+//! that abandoned it would have the cycle's write refused.
 
 use super::{text, word, Writer};
 use serde_json::{json, Value};
+use tehas_core::lock::{probe, Probe};
 
 /// How a fresh read settles one action.
 enum Found {
@@ -80,6 +83,26 @@ fn intended(a: &Value) -> bool {
     text(a, "state") == "intended"
 }
 
+fn sum_of(text: &str) -> String {
+    use sha2::{Digest, Sha256};
+    Sha256::digest(text.as_bytes())
+        .iter()
+        .map(|x| format!("{x:02x}"))
+        .collect()
+}
+
+/// Whether an action names a cycle that is still running. A lock no reader
+/// may read as free counts as held: the row waits for the next poll.
+fn live_cycle(home: &std::path::Path, a: &Value) -> bool {
+    let Some(n) = a.pointer("/args/cycle/issue").and_then(Value::as_u64) else {
+        return false;
+    };
+    matches!(
+        probe(&home.join(format!("state/cycles/{n}.lock"))),
+        Probe::Held | Probe::Unknown(_)
+    )
+}
+
 fn names(v: &Value) -> Vec<String> {
     v.get("labels")
         .and_then(Value::as_array)
@@ -145,6 +168,9 @@ impl Writer {
                     continue;
                 }
             };
+            if live_cycle(&self.home, &a) {
+                continue;
+            }
             let id = row.id.to_string();
             let n = row.issue;
             let age = now - a.get("intended_at").and_then(Value::as_i64).unwrap_or(now);
@@ -255,11 +281,7 @@ impl Writer {
                         .and_then(Value::as_str)
                         .unwrap_or("");
                     let body = c.get("body").and_then(Value::as_str).unwrap_or("");
-                    use sha2::{Digest, Sha256};
-                    let got: String = Sha256::digest(body.as_bytes())
-                        .iter()
-                        .map(|x| format!("{x:02x}"))
-                        .collect();
+                    let got = sum_of(body);
                     (bot.is_empty() || login.trim_end_matches("[bot]") == bot)
                         && c.get("created_at")
                             .and_then(Value::as_str)
@@ -315,8 +337,13 @@ impl Writer {
                     .unwrap_or("")
                     .replace('\r', "");
                 let title = v.get("title").and_then(Value::as_str);
+                let text = v.get("body").and_then(Value::as_str).unwrap_or("");
+                let sum = a.pointer("/args/input/sha256").and_then(Value::as_str);
                 if body.starts_with("Replaces #") {
                     Found::Done(json!({"replaces": true}))
+                } else if sum.is_some_and(|s| s == sum_of(text)) {
+                    // The note a cycle leaves in a body is its own text.
+                    Found::Done(json!({"body": sum}))
                 } else if after(&gh, "--title")
                     .first()
                     .is_some_and(|t| title == Some(*t))

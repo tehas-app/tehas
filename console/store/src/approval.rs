@@ -1,5 +1,5 @@
-//! The approval verbs: approval-record and approval-current. An issue has at
-//! most one unused approval; the current one is the used row with the highest
+//! The approval verbs: approval-record, approval-current and approval-view. An
+//! issue has at most one unused approval; the current one is the used row with the highest
 //! `used_by`. Order never depends on `at`, which mixes GitHub's clock with the
 //! host's.
 
@@ -13,6 +13,7 @@ pub enum Call {
     Record(Box<Record>),
     Undo { issue: i64, at: i64 },
     Current { issue: i64 },
+    View { issue: i64, want: Option<i64> },
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -127,6 +128,13 @@ pub fn parse(name: &str, rest: &[String]) -> Option<Result<Call, String>> {
         "approval-record" => record_args(rest),
         "approval-current" => Args::parse("approval-current", rest, &[], true)
             .and_then(|a| Ok(Call::Current { issue: a.issue()? })),
+        "approval-view" => Args::parse("approval-view", rest, &[("--attempt", Kind::Value)], true)
+            .and_then(|a| {
+                Ok(Call::View {
+                    issue: a.issue()?,
+                    want: a.strict("--attempt", "the number of a start", verbs::start_number)?,
+                })
+            }),
         _ => return None,
     })
 }
@@ -265,6 +273,7 @@ pub fn run(home: &Path, call: &Call) -> Result<String, Fail> {
         Call::Record(r) => record(home, r),
         Call::Undo { issue, at } => undo(home, *issue, *at),
         Call::Current { issue } => current(home, *issue),
+        Call::View { issue, want } => view(home, *issue, *want),
     }
 }
 
@@ -551,4 +560,110 @@ pub fn current(home: &Path, issue: i64) -> Result<String, Fail> {
             ],
         ))
     })
+}
+
+/// `approval-view <issue> [--attempt <n>]`: `view_of` of what approval-current
+/// answers.
+fn view(home: &Path, issue: i64, want: Option<i64>) -> Result<String, Fail> {
+    let answer = verbs::parsed(&current(home, issue)?)?;
+    Ok(line("approval-view", &[("view", view_of(&answer, want)?)]))
+}
+
+/// What a reader may take as no retry context: none, or nothing in it. A true
+/// is no list of anything.
+fn holds_nothing(v: &Value) -> Result<bool, Fail> {
+    match v {
+        Value::Null | Value::Bool(false) => Ok(true),
+        Value::Array(a) => Ok(a.is_empty()),
+        Value::Object(o) => Ok(o.is_empty()),
+        Value::String(s) => Ok(s.is_empty()),
+        Value::Number(n) => Ok(n.as_f64() == Some(0.0)),
+        Value::Bool(true) => Err(verbs::damaged("an approval's retry_context is true")),
+    }
+}
+
+/// The approval of an approval-current answer as the dispatcher wrote
+/// `.approved.json`: its inputs, the driver it bound, and for a millwright's or
+/// a refresh start the approval it rests on and the starts counted on that. A
+/// refresh names the person's approval: its own `at` is when the dispatcher
+/// decided (D5). With `want`, only the approval that start used. The word
+/// `fixer` and its keys are #686's alias: the readers of the view have the old
+/// words until part 5.
+pub fn view_of(answer: &Value, want: Option<i64>) -> Result<String, Fail> {
+    let c = &answer["current"];
+    if c.is_null() {
+        return Ok("null".to_string());
+    }
+    if !c.is_object() {
+        return Err(verbs::damaged("an approval on record is not an object"));
+    }
+    if want.is_some_and(|w| c["used_by"].as_i64() != Some(w)) {
+        return Ok("null".to_string());
+    }
+    let none = serde_json::Map::new();
+    let input = match verbs::given(&c["input"]) {
+        None => &none,
+        Some(Value::Object(m)) => m,
+        Some(_) => return Err(verbs::damaged("an approval's input is not an object")),
+    };
+    let at_input = |key: &str| input.get(key).unwrap_or(&Value::Null);
+    let base = &answer["rests_on"];
+    let base_at = match base.is_null() {
+        true => None,
+        false => Some(j(verbs::view_time(&base["at"])?)),
+    };
+    let rests_on = base_at.as_ref().map_or("null".to_string(), |at| {
+        obj(&[
+            ("at", at.clone()),
+            ("by", base["by"].to_string()),
+            ("how", base["how"].to_string()),
+            ("body_sha256", base["body_sha256"].to_string()),
+        ])
+    });
+    let starts = verbs::given(&answer["millwright_starts"])
+        .or(verbs::given(&answer["fixer_starts"]))
+        .map_or("0".to_string(), Value::to_string);
+    let how = match c["how"].as_str() {
+        Some(MILLWRIGHT) => FIXER,
+        Some(how) => how,
+        None => return Err(verbs::damaged("an approval on record has no how")),
+    };
+    let (at, by) = match (&base_at, how == "refresh") {
+        (Some(at), true) => (at.clone(), base["by"].to_string()),
+        _ => (j(verbs::view_time(&c["at"])?), c["by"].to_string()),
+    };
+    let mut p = vec![
+        ("at", at),
+        ("by", by),
+        ("how", j(how)),
+        ("body_sha256", c["body_sha256"].to_string()),
+        (
+            "links",
+            verbs::given(at_input("links")).map_or("[]".to_string(), Value::to_string),
+        ),
+    ];
+    if !c["title_sha256"].is_null() {
+        p.push(("title_sha256", c["title_sha256"].to_string()));
+    }
+    if let Some(v) = input.get("comment_links") {
+        p.push(("comment_links", v.to_string()));
+    }
+    if !at_input("driver").is_null() {
+        p.push(("driver", at_input("driver").to_string()));
+    }
+    if !holds_nothing(at_input("retry_context"))? {
+        p.push(("retry_context", at_input("retry_context").to_string()));
+    }
+    if let Some(v) = input.get("park_lifted") {
+        p.push(("park_lifted", v.to_string()));
+    }
+    if how == FIXER || how == "refresh" {
+        p.push(("rests_on", rests_on));
+        p.push(("fixer_starts", starts));
+    }
+    if how == "refresh" {
+        p.push(("refreshes", answer["refreshes"].to_string()));
+        p.push(("refresh_of", at_input("refresh_of").to_string()));
+    }
+    Ok(obj(&p))
 }

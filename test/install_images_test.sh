@@ -6,6 +6,7 @@
 . "$(dirname "$0")/lib.sh" || exit 1
 # shellcheck source=test/install_lib.sh
 . "$(dirname "$0")/install_lib.sh" || exit 1
+real_console
 
 # --- The images a cycle is given -------------------------------------------
 # TEHAS_WORK_IMAGES=1 promises a cycle the images of its issue. The sandbox

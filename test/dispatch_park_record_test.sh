@@ -181,9 +181,6 @@ comments 7 "$(park_body x ' ')" alice
 echo '{"number":7,"state":"closed"}' >"$fx/work-7.json"
 t_run "$dispatch"
 t_eq "$t_rc" 0
-# The bash poll's list and its read of the issue disagree; the Rust poll's one
-# page has no closed issue on it to skip.
-bash_reads && t_contains "$t_out" "skip #7: it is closed, and a closed issue is never taken"
 t_eq "$(t_calls fake-start)" ""
 t_lacks "$(t_calls gh)" "issue edit 7"
 t_lacks "$(t_calls gh)" "api -X PATCH"
@@ -197,10 +194,6 @@ ready 7
 echo '{"number":7,"state":"closed"}' >"$fx/work-7.json"
 t_run "$dispatch"
 t_eq "$t_rc" 0
-if bash_reads; then
-  t_eq "$(grep -c 'skip #7: it is closed, and a closed issue is never taken' <<<"$t_out")" 1
-  t_eq "$(t_calls gh | grep -c '^api repos/acme/widget/issues/7$')" 1
-fi
 t_eq "$(t_calls fake-start)" ""
 t_lacks "$(t_calls gh)" "issue edit 7"
 
@@ -292,8 +285,6 @@ for refused in "park-show 7" "question-known 7"; do
   t_contains "$t_out" "skip #7: its question on record could not be read (busy)"
   t_lacks "$(t_calls gh)" "api -X PATCH"
   t_lacks "$(t_calls gh)" "issue comment"
-  # The Rust poll reads the comments of every asking issue with its queue.
-  bash_reads && t_lacks "$(t_calls gh)" "comments(last"
 done
 
 t_case "a store that cannot be used for the question on record stops the poll at 78, and nothing is undone"

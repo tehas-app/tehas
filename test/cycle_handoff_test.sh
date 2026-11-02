@@ -215,7 +215,7 @@ t_case "a cycle that reached its deadline says so, and an intent park says its r
 reset
 ended handoff lens-fix feature/x deadline
 t_run "$cycle 7"
-t_contains "$(t_calls gh)" "It reached its deadline, a quarter of its time limit before the end, and started no new step."
+t_contains "$(t_calls gh)" "It reached its deadline before the time limit and started no new step."
 reset
 ended handoff explore "" intent-park
 jq '.issues[0].parkReason = "too-large"' "$fx/result.json" >"$fx/r" && mv "$fx/r" "$fx/result.json"

@@ -32,23 +32,16 @@ slice_good() {
 t_stub systemctl 'cat "$T/slice.show"'
 
 # --- A run -------------------------------------------------------------------
-# The script as a host has it, beside the console. The stub masks what the
-# tests call a secret; $T/fx/console.rc makes it fail. The limit is the real
-# console's to read.
+# The script as a host has it, beside the real console.
 # shellcheck disable=SC2154  # t_console_why is set by t_console (test/lib.sh)
 t_console || t_bad "no console: $t_console_why"
+# The slice is the real console's too, whatever a case does to the stub.
+T_ENV_ALWAYS+=(TEHAS_CONSOLE_CMD="$T_CONSOLE")
 tree=$T/tree
 mkdir -p "$tree/libexec"
 ln -s "$T_ROOT/lib" "$tree/lib"
 ln -s "$T_ROOT/libexec/improve" "$tree/libexec/improve"
-console_stub() {
-  t_stub console '[ "$1" = flags ] && exec "$T/console-bin" "$@"
-[ "$*" = --mask ] || exit 2
-[ -f "$T/fx/console.rc" ] && exit 1
-sed "s/hunter2-secret/***/g"'
-  mv "$T/bin/console" "$tree/libexec/console"
-}
-console_stub
+cp "$T_CONSOLE" "$tree/libexec/console"
 improve="$tree/libexec/improve"
 
 # docker leaves $T/fx/findings.json where the analyst would write, and keeps

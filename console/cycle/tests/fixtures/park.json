@@ -1,6 +1,6 @@
 [
  {
-  "case": "1793028890513680638",
+  "case": "a step that failed on a provider error is parked by a provider outage, and asks for one retry",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -12,8 +12,8 @@
    "before_retry_dir": false,
    "rc": 10,
    "signalled": false,
-   "started": 1793028890,
-   "now": 1793028890,
+   "started": 1793525961,
+   "now": 1793525961,
    "start": {
     "attempt": 1,
     "by": "alice",
@@ -23,7 +23,7 @@
    },
    "files": {
     "result.json": "{\n  \"schemaVersion\": 5,\n  \"issues\": [\n    {\n      \"issue\": 7,\n      \"status\": \"handoff\",\n      \"failedStep\": \"handoff\",\n      \"branch\": \"feature/issue-7-x\",\n      \"cap\": \"step-failed:adversarial\"\n    }\n  ]\n}\n",
-    "progress.json": "{\n  \"roles\": [],\n  \"reason\": \"Connection error.\"\n}\n"
+    "progress.json": "{\n  \"roles\": [],\n  \"reason\": \"Connection error.\",\n  \"failure\": {\n    \"kind\": \"provider\",\n    \"step\": \"adversarial\"\n  },\n  \"from\": {\n    \"roles\": \"result\",\n    \"failure\": \"result\"\n  }\n}\n"
    },
    "run_log": {
     "name": "/T/home/tehas/logs/work-7-261011-120000.jsonl",
@@ -38,12 +38,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028890
+     "seen_at": 1793525961
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028890,
+     "started_at": 1793525960,
      "started_by": "alice",
      "how": "label",
      "requeued": false,
@@ -82,9 +82,10 @@
      "comment_id": null,
      "refresh_pr": null,
      "refresh_head": null,
-     "used_at": 1793028890,
+     "used_at": 1793525960,
      "used_by": 1,
-     "input": null
+     "input": null,
+     "easy": false
     },
     "rests_on": {
      "at": 1760000000,
@@ -95,7 +96,8 @@
     },
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": []
@@ -129,6 +131,8 @@
     "feature/issue-7-x",
     "--cap",
     "step-failed:adversarial",
+    "--failure-kind",
+    "provider",
     "--provider",
     "--parked"
    ],
@@ -149,7 +153,7 @@
     ],
     [
      "question",
-     "Tehas cycle parked by a provider outage: status `handoff`, last step `handoff`, 0 min (runner exit 10), cap `step-failed:adversarial`: Connection error.; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. Tehas starts it again once on its own, when the model endpoint answers.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=handoff kind= provider=1 sig=28551b7c13b6fcb1b763d0f0d6da605ce11cbdd7989e0837ade4b1424c217140 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle parked by a provider outage: status `handoff`, last step `handoff`, 0 min (runner exit 10), cap `step-failed:adversarial`: Connection error.; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. Tehas starts it again once on its own, when the model endpoint answers.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=handoff kind=provider provider=1 sig=723036791d499aa6a70bb2f606b0671d45f0916156c95700ecc2d052049dc802 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -159,7 +163,7 @@
   }
  },
  {
-  "case": "1793028891234102838",
+  "case": "a failed dispatch is no outage, whatever its words say",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -171,8 +175,8 @@
    "before_retry_dir": false,
    "rc": 10,
    "signalled": false,
-   "started": 1793028891,
-   "now": 1793028891,
+   "started": 1793525966,
+   "now": 1793525966,
    "start": {
     "attempt": 1,
     "by": "",
@@ -182,7 +186,7 @@
    },
    "files": {
     "result.json": "{\n  \"schemaVersion\": 5,\n  \"issues\": [\n    {\n      \"issue\": 7,\n      \"status\": \"handoff\",\n      \"failedStep\": \"handoff\",\n      \"branch\": \"feature/issue-7-x\",\n      \"cap\": \"step-failed:develop\"\n    }\n  ]\n}\n",
-    "progress.json": "{\n  \"roles\": [],\n  \"reason\": \"request timed out after 600s\"\n}\n"
+    "progress.json": "{\n  \"roles\": [],\n  \"reason\": \"request timed out after 600s\",\n  \"failure\": {\n    \"kind\": \"dispatch-failed\"\n  },\n  \"from\": {\n    \"roles\": \"result\",\n    \"failure\": \"result\"\n  }\n}\n"
    },
    "record": {
     "api": 1,
@@ -193,12 +197,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028891
+     "seen_at": 1793525966
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028891,
+     "started_at": 1793525965,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -230,10 +234,17 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": []
+   },
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
    }
   },
   "met": {
@@ -264,7 +275,8 @@
     "feature/issue-7-x",
     "--cap",
     "step-failed:develop",
-    "--provider",
+    "--failure-kind",
+    "dispatch-failed",
     "--parked"
    ],
    "park": [
@@ -272,7 +284,7 @@
     "--attempt",
     "1",
     "--reason",
-    "provider-outage",
+    "step-failed:develop",
     "--step",
     "handoff"
    ],
@@ -284,7 +296,7 @@
     ],
     [
      "question",
-     "Tehas cycle parked by a provider outage: status `handoff`, last step `handoff`, 0 min (runner exit 10), cap `step-failed:develop`: request timed out after 600s; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. It was started by hand, so it waits for a person.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=handoff kind= provider=1 sig=9f7582d3a9b04c21ef1b55b6f9ad83e219436a74266350b2809392b9ea4faaa2 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped without a pull request: status `handoff`, last step `handoff`, 0 min (runner exit 10). pi-rukas stopped on the cap `step-failed:develop`. It failed: kind `dispatch-failed`: request timed out after 600s. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=handoff kind=dispatch-failed provider=0 sig=4a8f66ba0a356320352e0d74ebe5703dd9c1b8fb48b214a9c2ff4ea6cb72faf8 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -294,7 +306,7 @@
   }
  },
  {
-  "case": "1793028891800535862",
+  "case": "a failed dispatch is no outage, whatever its words say (2)",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -306,8 +318,8 @@
    "before_retry_dir": false,
    "rc": 10,
    "signalled": false,
-   "started": 1793028891,
-   "now": 1793028891,
+   "started": 1793525971,
+   "now": 1793525971,
    "start": {
     "attempt": 1,
     "by": "",
@@ -317,7 +329,7 @@
    },
    "files": {
     "result.json": "{\n  \"schemaVersion\": 5,\n  \"issues\": [\n    {\n      \"issue\": 7,\n      \"status\": \"handoff\",\n      \"failedStep\": \"handoff\",\n      \"branch\": \"feature/issue-7-x\",\n      \"cap\": \"step-failed:develop\"\n    }\n  ]\n}\n",
-    "progress.json": "{\n  \"roles\": [],\n  \"reason\": \"502 Bad Gateway\"\n}\n"
+    "progress.json": "{\n  \"roles\": [],\n  \"reason\": \"502 Bad Gateway\",\n  \"failure\": {\n    \"kind\": \"dispatch-failed\"\n  },\n  \"from\": {\n    \"roles\": \"result\",\n    \"failure\": \"result\"\n  }\n}\n"
    },
    "record": {
     "api": 1,
@@ -328,12 +340,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028891
+     "seen_at": 1793525971
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028891,
+     "started_at": 1793525970,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -365,10 +377,17 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": []
+   },
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
    }
   },
   "met": {
@@ -399,7 +418,8 @@
     "feature/issue-7-x",
     "--cap",
     "step-failed:develop",
-    "--provider",
+    "--failure-kind",
+    "dispatch-failed",
     "--parked"
    ],
    "park": [
@@ -407,7 +427,7 @@
     "--attempt",
     "1",
     "--reason",
-    "provider-outage",
+    "step-failed:develop",
     "--step",
     "handoff"
    ],
@@ -419,7 +439,7 @@
     ],
     [
      "question",
-     "Tehas cycle parked by a provider outage: status `handoff`, last step `handoff`, 0 min (runner exit 10), cap `step-failed:develop`: 502 Bad Gateway; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. It was started by hand, so it waits for a person.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=handoff kind= provider=1 sig=9f7582d3a9b04c21ef1b55b6f9ad83e219436a74266350b2809392b9ea4faaa2 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped without a pull request: status `handoff`, last step `handoff`, 0 min (runner exit 10). pi-rukas stopped on the cap `step-failed:develop`. It failed: kind `dispatch-failed`: 502 Bad Gateway. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=handoff kind=dispatch-failed provider=0 sig=4a8f66ba0a356320352e0d74ebe5703dd9c1b8fb48b214a9c2ff4ea6cb72faf8 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -429,7 +449,7 @@
   }
  },
  {
-  "case": "1793028892357845844",
+  "case": "an outage of a cycle started by hand owes no retry, and says it waits for a person",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -441,8 +461,8 @@
    "before_retry_dir": false,
    "rc": 10,
    "signalled": false,
-   "started": 1793028892,
-   "now": 1793028892,
+   "started": 1793525977,
+   "now": 1793525977,
    "start": {
     "attempt": 1,
     "by": "",
@@ -452,7 +472,7 @@
    },
    "files": {
     "result.json": "{\n  \"schemaVersion\": 5,\n  \"issues\": [\n    {\n      \"issue\": 7,\n      \"status\": \"handoff\",\n      \"failedStep\": \"handoff\",\n      \"branch\": \"feature/issue-7-x\",\n      \"cap\": \"step-failed:adversarial\"\n    }\n  ]\n}\n",
-    "progress.json": "{\n  \"roles\": [],\n  \"reason\": \"Connection error.\"\n}\n"
+    "progress.json": "{\n  \"roles\": [],\n  \"reason\": \"Connection error.\",\n  \"failure\": {\n    \"kind\": \"provider\",\n    \"step\": \"adversarial\"\n  },\n  \"from\": {\n    \"roles\": \"result\",\n    \"failure\": \"result\"\n  }\n}\n"
    },
    "record": {
     "api": 1,
@@ -463,12 +483,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028892
+     "seen_at": 1793525978
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028892,
+     "started_at": 1793525976,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -500,7 +520,8 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": []
@@ -534,6 +555,8 @@
     "feature/issue-7-x",
     "--cap",
     "step-failed:adversarial",
+    "--failure-kind",
+    "provider",
     "--provider",
     "--parked"
    ],
@@ -554,7 +577,7 @@
     ],
     [
      "question",
-     "Tehas cycle parked by a provider outage: status `handoff`, last step `handoff`, 0 min (runner exit 10), cap `step-failed:adversarial`: Connection error.; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. It was started by hand, so it waits for a person.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=handoff kind= provider=1 sig=28551b7c13b6fcb1b763d0f0d6da605ce11cbdd7989e0837ade4b1424c217140 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle parked by a provider outage: status `handoff`, last step `handoff`, 0 min (runner exit 10), cap `step-failed:adversarial`: Connection error.; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. It was started by hand, so it waits for a person.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=handoff kind=provider provider=1 sig=723036791d499aa6a70bb2f606b0671d45f0916156c95700ecc2d052049dc802 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -564,7 +587,7 @@
   }
  },
  {
-  "case": "1793028892963328439",
+  "case": "the retry tehas made on its own, parked by an outage again, waits for a person",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -576,8 +599,8 @@
    "before_retry_dir": false,
    "rc": 10,
    "signalled": false,
-   "started": 1793028893,
-   "now": 1793028893,
+   "started": 1793525982,
+   "now": 1793525982,
    "start": {
     "attempt": 1,
     "by": "alice",
@@ -587,7 +610,7 @@
    },
    "files": {
     "result.json": "{\n  \"schemaVersion\": 5,\n  \"issues\": [\n    {\n      \"issue\": 7,\n      \"status\": \"handoff\",\n      \"failedStep\": \"handoff\",\n      \"branch\": \"feature/issue-7-x\",\n      \"cap\": \"step-failed:adversarial\"\n    }\n  ]\n}\n",
-    "progress.json": "{\n  \"roles\": [],\n  \"reason\": \"Connection error.\"\n}\n"
+    "progress.json": "{\n  \"roles\": [],\n  \"reason\": \"Connection error.\",\n  \"failure\": {\n    \"kind\": \"provider\",\n    \"step\": \"adversarial\"\n  },\n  \"from\": {\n    \"roles\": \"result\",\n    \"failure\": \"result\"\n  }\n}\n"
    },
    "record": {
     "api": 1,
@@ -598,12 +621,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028893
+     "seen_at": 1793525982
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028892,
+     "started_at": 1793525981,
      "started_by": "alice",
      "how": "outage-retry",
      "requeued": true,
@@ -642,9 +665,10 @@
      "comment_id": null,
      "refresh_pr": null,
      "refresh_head": null,
-     "used_at": 1793028892,
+     "used_at": 1793525981,
      "used_by": 1,
-     "input": null
+     "input": null,
+     "easy": false
     },
     "rests_on": {
      "at": 1760000000,
@@ -655,7 +679,8 @@
     },
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": []
@@ -689,6 +714,8 @@
     "feature/issue-7-x",
     "--cap",
     "step-failed:adversarial",
+    "--failure-kind",
+    "provider",
     "--provider",
     "--parked"
    ],
@@ -709,7 +736,7 @@
     ],
     [
      "question",
-     "Tehas cycle parked by a provider outage: status `handoff`, last step `handoff`, 0 min (runner exit 10), cap `step-failed:adversarial`: Connection error.; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. It was the retry tehas made on its own after an outage, so it waits for a person.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=handoff kind= provider=1 sig=28551b7c13b6fcb1b763d0f0d6da605ce11cbdd7989e0837ade4b1424c217140 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle parked by a provider outage: status `handoff`, last step `handoff`, 0 min (runner exit 10), cap `step-failed:adversarial`: Connection error.; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. It was the retry tehas made on its own after an outage, so it waits for a person.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=handoff kind=provider provider=1 sig=723036791d499aa6a70bb2f606b0671d45f0916156c95700ecc2d052049dc802 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -719,7 +746,7 @@
   }
  },
  {
-  "case": "1793028893610271894",
+  "case": "a step that failed for another reason is parked as before, its cap on record and no retry",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -731,8 +758,8 @@
    "before_retry_dir": false,
    "rc": 10,
    "signalled": false,
-   "started": 1793028893,
-   "now": 1793028893,
+   "started": 1793525987,
+   "now": 1793525987,
    "start": {
     "attempt": 1,
     "by": "",
@@ -742,7 +769,7 @@
    },
    "files": {
     "result.json": "{\n  \"schemaVersion\": 5,\n  \"issues\": [\n    {\n      \"issue\": 7,\n      \"status\": \"handoff\",\n      \"failedStep\": \"handoff\",\n      \"branch\": \"feature/issue-7-x\",\n      \"cap\": \"step-failed:develop\"\n    }\n  ]\n}\n",
-    "progress.json": "{\n  \"roles\": [],\n  \"reason\": \"3 assertions failed in test/x\"\n}\n"
+    "progress.json": "{\n  \"roles\": [],\n  \"reason\": \"3 assertions failed in test/x\",\n  \"failure\": {\n    \"kind\": \"dispatch-failed\"\n  },\n  \"from\": {\n    \"roles\": \"result\",\n    \"failure\": \"result\"\n  }\n}\n"
    },
    "run_log": {
     "name": "/T/home/tehas/logs/work-7-261011-120000.jsonl",
@@ -757,12 +784,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028893
+     "seen_at": 1793525987
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028893,
+     "started_at": 1793525986,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -794,10 +821,17 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": []
+   },
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
    }
   },
   "met": {
@@ -828,6 +862,8 @@
     "feature/issue-7-x",
     "--cap",
     "step-failed:develop",
+    "--failure-kind",
+    "dispatch-failed",
     "--parked"
    ],
    "park": [
@@ -847,7 +883,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped without a pull request: status `handoff`, last step `handoff`, 0 min (runner exit 10). pi-rukas stopped on the cap `step-failed:develop`. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=handoff kind= provider=0 sig=9f7582d3a9b04c21ef1b55b6f9ad83e219436a74266350b2809392b9ea4faaa2 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped without a pull request: status `handoff`, last step `handoff`, 0 min (runner exit 10). pi-rukas stopped on the cap `step-failed:develop`. It failed: kind `dispatch-failed`: 3 assertions failed in test/x. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=handoff kind=dispatch-failed provider=0 sig=4a8f66ba0a356320352e0d74ebe5703dd9c1b8fb48b214a9c2ff4ea6cb72faf8 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -857,7 +893,7 @@
   }
  },
  {
-  "case": "1793028894363076963",
+  "case": "a cap whose progress names no failure is no outage and asks no reason",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -869,8 +905,8 @@
    "before_retry_dir": false,
    "rc": 10,
    "signalled": false,
-   "started": 1793028894,
-   "now": 1793028894,
+   "started": 1793525994,
+   "now": 1793525994,
    "start": {
     "attempt": 1,
     "by": "",
@@ -880,7 +916,7 @@
    },
    "files": {
     "result.json": "{\n  \"schemaVersion\": 5,\n  \"issues\": [\n    {\n      \"issue\": 7,\n      \"status\": \"handoff\",\n      \"failedStep\": \"handoff\",\n      \"branch\": \"feature/issue-7-x\",\n      \"cap\": \"step-failed:develop\"\n    }\n  ]\n}\n",
-    "progress.json": "{\n  \"roles\": [],\n  \"reason\": \"\"\n}\n"
+    "progress.json": "{\n  \"roles\": [],\n  \"reason\": \"\",\n  \"failure\": {\n    \"kind\": \"dispatch-failed\"\n  },\n  \"from\": {\n    \"roles\": \"result\",\n    \"failure\": \"result\"\n  }\n}\n"
    },
    "record": {
     "api": 1,
@@ -891,12 +927,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028894
+     "seen_at": 1793525994
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028894,
+     "started_at": 1793525994,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -928,10 +964,17 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": []
+   },
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
    }
   },
   "met": {
@@ -962,142 +1005,8 @@
     "feature/issue-7-x",
     "--cap",
     "step-failed:develop",
-    "--parked"
-   ],
-   "park": [
-    "7",
-    "--attempt",
-    "1",
-    "--reason",
-    "step-failed:develop",
-    "--step",
-    "handoff"
-   ],
-   "log": [
-    "WARN: #7 ended at step-failed:develop and no reason was found in its progress: an outage is not told from a failure (pi-rukas#1367)"
-   ],
-   "writes": [
-    [
-     "relabel",
-     "--remove-label tehas:running --add-label needs-human-attention"
-    ],
-    [
-     "question",
-     "Tehas cycle stopped without a pull request: status `handoff`, last step `handoff`, 0 min (runner exit 10). pi-rukas stopped on the cap `step-failed:develop`. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=handoff kind= provider=0 sig=9f7582d3a9b04c21ef1b55b6f9ad83e219436a74266350b2809392b9ea4faaa2 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
-    ],
-    [
-     "relabel",
-     "--add-label tehas:question"
-    ]
-   ]
-  }
- },
- {
-  "case": "1793028894950433628",
-  "facts": {
-   "issue": 7,
-   "repo": "acme/widget",
-   "home": "/T/home",
-   "hostname": "tehas-test",
-   "workdir": "/T/home/tehas/work/widget-7",
-   "workspaces_marked": false,
-   "workdir_dir": true,
-   "before_retry_dir": false,
-   "rc": 10,
-   "signalled": false,
-   "started": 1793028895,
-   "now": 1793028895,
-   "start": {
-    "attempt": 1,
-    "by": "",
-    "how": "hand",
-    "approval_at": null,
-    "requeued": false
-   },
-   "files": {
-    "result.json": "{\n  \"schemaVersion\": 5,\n  \"issues\": [\n    {\n      \"issue\": 7,\n      \"status\": \"handoff\",\n      \"failedStep\": \"handoff\",\n      \"branch\": \"feature/issue-7-x\",\n      \"cap\": \"step-failed:develop\"\n    }\n  ]\n}\n",
-    "progress.json": "{\n  \"roles\": [],\n  \"reason\": \"exit 1\"\n}\n"
-   },
-   "record": {
-    "api": 1,
-    "verb": "cycle-show",
-    "ok": true,
-    "issue": 7,
-    "lock": {
-     "state": "held",
-     "probe_rc": 1,
-     "file": true,
-     "seen_at": 1793028895
-    },
-    "cycle": {
-     "issue": 7,
-     "attempt": 1,
-     "started_at": 1793028894,
-     "started_by": null,
-     "how": "hand",
-     "requeued": false,
-     "rukas_commit": null,
-     "image": null,
-     "branch": null,
-     "end_reason": null,
-     "ended_at": null,
-     "oom_kills": null,
-     "forks_refused": null,
-     "stalled_seconds": null,
-     "timed_out": false,
-     "runner_exit": null,
-     "watched": false,
-     "host_saw": null,
-     "stop_asked_at": null,
-     "stop_said_times": 0,
-     "settings": {},
-     "quiet": null,
-     "heard_at": null
-    }
-   },
-   "approval": {
-    "api": 1,
-    "verb": "approval-current",
-    "ok": true,
-    "approval": null,
-    "current": null,
-    "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
-    "refreshes": 0
-   },
-   "github": {
-    "prs": []
-   }
-  },
-  "met": {
-   "recorded": true,
-   "posted": true,
-   "relabel": [
-    "ok",
-    "ok"
-   ]
-  },
-  "expect": {
-   "done": "done #7 rc=10 status=handoff step=handoff minutes=0 pr=none oom_kills=0 forks_refused=0",
-   "end": [
-    "7",
-    "--attempt",
-    "1",
-    "--status",
-    "handoff",
-    "--step",
-    "handoff",
-    "--rc",
-    "10",
-    "--oom",
-    "0",
-    "--forks",
-    "0",
-    "--branch",
-    "feature/issue-7-x",
-    "--cap",
-    "step-failed:develop",
+    "--failure-kind",
+    "dispatch-failed",
     "--parked"
    ],
    "park": [
@@ -1117,7 +1026,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped without a pull request: status `handoff`, last step `handoff`, 0 min (runner exit 10). pi-rukas stopped on the cap `step-failed:develop`. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=handoff kind= provider=0 sig=9f7582d3a9b04c21ef1b55b6f9ad83e219436a74266350b2809392b9ea4faaa2 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped without a pull request: status `handoff`, last step `handoff`, 0 min (runner exit 10). pi-rukas stopped on the cap `step-failed:develop`. It failed: kind `dispatch-failed`. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=handoff kind=dispatch-failed provider=0 sig=4a8f66ba0a356320352e0d74ebe5703dd9c1b8fb48b214a9c2ff4ea6cb72faf8 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -1127,7 +1036,7 @@
   }
  },
  {
-  "case": "1793028895515002053",
+  "case": "a cap whose progress names no failure is no outage and asks no reason (2)",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -1139,8 +1048,151 @@
    "before_retry_dir": false,
    "rc": 10,
    "signalled": false,
-   "started": 1793028895,
-   "now": 1793028895,
+   "started": 1793526001,
+   "now": 1793526001,
+   "start": {
+    "attempt": 1,
+    "by": "",
+    "how": "hand",
+    "approval_at": null,
+    "requeued": false
+   },
+   "files": {
+    "result.json": "{\n  \"schemaVersion\": 5,\n  \"issues\": [\n    {\n      \"issue\": 7,\n      \"status\": \"handoff\",\n      \"failedStep\": \"handoff\",\n      \"branch\": \"feature/issue-7-x\",\n      \"cap\": \"step-failed:develop\"\n    }\n  ]\n}\n",
+    "progress.json": "{\n  \"roles\": [],\n  \"reason\": \"exit 1\",\n  \"failure\": {\n    \"kind\": \"dispatch-failed\"\n  },\n  \"from\": {\n    \"roles\": \"result\",\n    \"failure\": \"result\"\n  }\n}\n"
+   },
+   "record": {
+    "api": 1,
+    "verb": "cycle-show",
+    "ok": true,
+    "issue": 7,
+    "lock": {
+     "state": "held",
+     "probe_rc": 1,
+     "file": true,
+     "seen_at": 1793526001
+    },
+    "cycle": {
+     "issue": 7,
+     "attempt": 1,
+     "started_at": 1793526001,
+     "started_by": null,
+     "how": "hand",
+     "requeued": false,
+     "rukas_commit": null,
+     "image": null,
+     "branch": null,
+     "end_reason": null,
+     "ended_at": null,
+     "oom_kills": null,
+     "forks_refused": null,
+     "stalled_seconds": null,
+     "timed_out": false,
+     "runner_exit": null,
+     "watched": false,
+     "host_saw": null,
+     "stop_asked_at": null,
+     "stop_said_times": 0,
+     "settings": {},
+     "quiet": null,
+     "heard_at": null
+    }
+   },
+   "approval": {
+    "api": 1,
+    "verb": "approval-current",
+    "ok": true,
+    "approval": null,
+    "current": null,
+    "rests_on": null,
+    "millwright_starts": 0,
+    "fixer_starts": 0,
+    "refreshes": 0,
+    "easy": false
+   },
+   "github": {
+    "prs": []
+   },
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
+  },
+  "met": {
+   "recorded": true,
+   "posted": true,
+   "relabel": [
+    "ok",
+    "ok"
+   ]
+  },
+  "expect": {
+   "done": "done #7 rc=10 status=handoff step=handoff minutes=0 pr=none oom_kills=0 forks_refused=0",
+   "end": [
+    "7",
+    "--attempt",
+    "1",
+    "--status",
+    "handoff",
+    "--step",
+    "handoff",
+    "--rc",
+    "10",
+    "--oom",
+    "0",
+    "--forks",
+    "0",
+    "--branch",
+    "feature/issue-7-x",
+    "--cap",
+    "step-failed:develop",
+    "--failure-kind",
+    "dispatch-failed",
+    "--parked"
+   ],
+   "park": [
+    "7",
+    "--attempt",
+    "1",
+    "--reason",
+    "step-failed:develop",
+    "--step",
+    "handoff"
+   ],
+   "log": [],
+   "writes": [
+    [
+     "relabel",
+     "--remove-label tehas:running --add-label needs-human-attention"
+    ],
+    [
+     "question",
+     "Tehas cycle stopped without a pull request: status `handoff`, last step `handoff`, 0 min (runner exit 10). pi-rukas stopped on the cap `step-failed:develop`. It failed: kind `dispatch-failed`: exit 1. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=handoff kind=dispatch-failed provider=0 sig=4a8f66ba0a356320352e0d74ebe5703dd9c1b8fb48b214a9c2ff4ea6cb72faf8 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+    ],
+    [
+     "relabel",
+     "--add-label tehas:question"
+    ]
+   ]
+  }
+ },
+ {
+  "case": "a failure of kind provider is an outage whatever the cap, and asks for one retry",
+  "facts": {
+   "issue": 7,
+   "repo": "acme/widget",
+   "home": "/T/home",
+   "hostname": "tehas-test",
+   "workdir": "/T/home/tehas/work/widget-7",
+   "workspaces_marked": false,
+   "workdir_dir": true,
+   "before_retry_dir": false,
+   "rc": 10,
+   "signalled": false,
+   "started": 1793526008,
+   "now": 1793526008,
    "start": {
     "attempt": 1,
     "by": "",
@@ -1161,12 +1213,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028895
+     "seen_at": 1793526009
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028895,
+     "started_at": 1793526007,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -1198,7 +1250,8 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": []
@@ -1264,7 +1317,7 @@
   }
  },
  {
-  "case": "1793028896118118591",
+  "case": "a failure of another kind is no outage, even when its words look like one",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -1276,8 +1329,8 @@
    "before_retry_dir": false,
    "rc": 10,
    "signalled": false,
-   "started": 1793028896,
-   "now": 1793028896,
+   "started": 1793526013,
+   "now": 1793526014,
    "start": {
     "attempt": 1,
     "by": "",
@@ -1298,12 +1351,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028896
+     "seen_at": 1793526014
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028896,
+     "started_at": 1793526013,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -1335,10 +1388,17 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": []
+   },
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
    }
   },
   "met": {
@@ -1400,7 +1460,7 @@
   }
  },
  {
-  "case": "1793028896677462056",
+  "case": "a failure of another kind is no outage, even when its words look like one (2)",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -1412,8 +1472,8 @@
    "before_retry_dir": false,
    "rc": 10,
    "signalled": false,
-   "started": 1793028896,
-   "now": 1793028896,
+   "started": 1793526019,
+   "now": 1793526019,
    "start": {
     "attempt": 1,
     "by": "",
@@ -1434,12 +1494,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028896
+     "seen_at": 1793526019
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028896,
+     "started_at": 1793526019,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -1471,10 +1531,17 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": []
+   },
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
    }
   },
   "met": {
@@ -1536,7 +1603,7 @@
   }
  },
  {
-  "case": "1793028897260231793",
+  "case": "a failure of another kind is no outage, even when its words look like one (3)",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -1548,8 +1615,8 @@
    "before_retry_dir": false,
    "rc": 10,
    "signalled": false,
-   "started": 1793028897,
-   "now": 1793028897,
+   "started": 1793526025,
+   "now": 1793526025,
    "start": {
     "attempt": 1,
     "by": "",
@@ -1570,12 +1637,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028897
+     "seen_at": 1793526025
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028897,
+     "started_at": 1793526025,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -1607,10 +1674,17 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": []
+   },
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
    }
   },
   "met": {
@@ -1672,7 +1746,7 @@
   }
  },
  {
-  "case": "1793028897850805745",
+  "case": "a failure of another kind is no outage, even when its words look like one (4)",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -1684,8 +1758,8 @@
    "before_retry_dir": false,
    "rc": 10,
    "signalled": false,
-   "started": 1793028897,
-   "now": 1793028897,
+   "started": 1793526030,
+   "now": 1793526030,
    "start": {
     "attempt": 1,
     "by": "",
@@ -1706,12 +1780,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028897
+     "seen_at": 1793526031
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028897,
+     "started_at": 1793526030,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -1743,10 +1817,17 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": []
+   },
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
    }
   },
   "met": {
@@ -1808,7 +1889,7 @@
   }
  },
  {
-  "case": "1793028898431787797",
+  "case": "a failure of another kind is no outage, even when its words look like one (5)",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -1820,8 +1901,8 @@
    "before_retry_dir": false,
    "rc": 10,
    "signalled": false,
-   "started": 1793028898,
-   "now": 1793028898,
+   "started": 1793526036,
+   "now": 1793526036,
    "start": {
     "attempt": 1,
     "by": "",
@@ -1842,12 +1923,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028898
+     "seen_at": 1793526036
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028898,
+     "started_at": 1793526035,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -1879,10 +1960,17 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": []
+   },
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
    }
   },
   "met": {
@@ -1944,7 +2032,7 @@
   }
  },
  {
-  "case": "1793028899062105645",
+  "case": "a cap the result names provider-outage is no outage park: that word is tehas's own",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -1956,8 +2044,8 @@
    "before_retry_dir": false,
    "rc": 10,
    "signalled": false,
-   "started": 1793028899,
-   "now": 1793028899,
+   "started": 1793526042,
+   "now": 1793526042,
    "start": {
     "attempt": 1,
     "by": "alice",
@@ -1978,12 +2066,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028899
+     "seen_at": 1793526043
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028899,
+     "started_at": 1793526042,
      "started_by": "alice",
      "how": "label",
      "requeued": false,
@@ -2022,9 +2110,10 @@
      "comment_id": null,
      "refresh_pr": null,
      "refresh_head": null,
-     "used_at": 1793028899,
+     "used_at": 1793526042,
      "used_by": 1,
-     "input": null
+     "input": null,
+     "easy": false
     },
     "rests_on": {
      "at": 1760000000,
@@ -2035,10 +2124,17 @@
     },
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": []
+   },
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
    }
   },
   "met": {
@@ -2100,7 +2196,7 @@
   }
  },
  {
-  "case": "1793028899671436269",
+  "case": "a cap the result names provider-outage is no outage park: that word is tehas's own (2)",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -2112,8 +2208,8 @@
    "before_retry_dir": false,
    "rc": 30,
    "signalled": false,
-   "started": 1793028899,
-   "now": 1793028899,
+   "started": 1793526048,
+   "now": 1793526048,
    "start": {
     "attempt": 1,
     "by": "alice",
@@ -2134,12 +2230,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028899
+     "seen_at": 1793526049
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028899,
+     "started_at": 1793526048,
      "started_by": "alice",
      "how": "label",
      "requeued": false,
@@ -2178,9 +2274,10 @@
      "comment_id": null,
      "refresh_pr": null,
      "refresh_head": null,
-     "used_at": 1793028899,
+     "used_at": 1793526048,
      "used_by": 1,
-     "input": null
+     "input": null,
+     "easy": false
     },
     "rests_on": {
      "at": 1760000000,
@@ -2191,10 +2288,17 @@
     },
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": []
+   },
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
    }
   },
   "met": {
@@ -2252,7 +2356,7 @@
   }
  },
  {
-  "case": "1793028900219296245",
+  "case": "the park comment names the result's failure, and not for a cap's own rule",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -2264,8 +2368,8 @@
    "before_retry_dir": false,
    "rc": 10,
    "signalled": false,
-   "started": 1793028900,
-   "now": 1793028900,
+   "started": 1793526054,
+   "now": 1793526054,
    "start": {
     "attempt": 1,
     "by": "",
@@ -2286,12 +2390,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028900
+     "seen_at": 1793526055
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028900,
+     "started_at": 1793526053,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -2323,10 +2427,17 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": []
+   },
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
    }
   },
   "met": {
@@ -2388,7 +2499,7 @@
   }
  },
  {
-  "case": "1793028900734311595",
+  "case": "the park comment names the result's failure, and not for a cap's own rule (2)",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -2400,8 +2511,8 @@
    "before_retry_dir": false,
    "rc": 10,
    "signalled": false,
-   "started": 1793028900,
-   "now": 1793028900,
+   "started": 1793526060,
+   "now": 1793526060,
    "start": {
     "attempt": 1,
     "by": "",
@@ -2422,12 +2533,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028900
+     "seen_at": 1793526060
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028900,
+     "started_at": 1793526059,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -2459,10 +2570,17 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": []
+   },
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
    }
   },
   "met": {
@@ -2524,7 +2642,7 @@
   }
  },
  {
-  "case": "1793028901293460822",
+  "case": "the park comment names the result's failure, and not for a cap's own rule (3)",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -2536,8 +2654,8 @@
    "before_retry_dir": false,
    "rc": 10,
    "signalled": false,
-   "started": 1793028901,
-   "now": 1793028901,
+   "started": 1793526065,
+   "now": 1793526065,
    "start": {
     "attempt": 1,
     "by": "",
@@ -2546,8 +2664,8 @@
     "requeued": false
    },
    "files": {
-    "result.json": "{\n  \"schemaVersion\": 5,\n  \"issues\": [\n    {\n      \"issue\": 7,\n      \"status\": \"handoff\",\n      \"failedStep\": \"handoff\",\n      \"branch\": \"feature/issue-7-x\",\n      \"cap\": \"step-failed:develop\"\n    }\n  ]\n}\n",
-    "progress.json": "{\n  \"roles\": [],\n  \"reason\": \"3 assertions failed\"\n}\n"
+    "result.json": "{\n  \"schemaVersion\": 5,\n  \"issues\": [\n    {\n      \"issue\": 7,\n      \"status\": \"handoff\",\n      \"failedStep\": \"handoff\",\n      \"branch\": \"feature/issue-7-x\",\n      \"cap\": \"round-cap\"\n    }\n  ]\n}\n",
+    "progress.json": "{\n  \"roles\": [],\n  \"reason\": \"the driver stopped\",\n  \"failure\": {\n    \"kind\": \"cap\",\n    \"step\": \"develop\",\n    \"role\": \"developer\",\n    \"cause\": \"\"\n  },\n  \"from\": {\n    \"roles\": \"result\",\n    \"failure\": \"result\"\n  }\n}\n"
    },
    "record": {
     "api": 1,
@@ -2558,12 +2676,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028901
+     "seen_at": 1793526065
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028901,
+     "started_at": 1793526064,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -2595,10 +2713,17 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": []
+   },
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
    }
   },
   "met": {
@@ -2628,7 +2753,9 @@
     "--branch",
     "feature/issue-7-x",
     "--cap",
-    "step-failed:develop",
+    "round-cap",
+    "--failure-kind",
+    "cap",
     "--parked"
    ],
    "park": [
@@ -2636,7 +2763,7 @@
     "--attempt",
     "1",
     "--reason",
-    "step-failed:develop",
+    "round-cap",
     "--step",
     "handoff"
    ],
@@ -2648,7 +2775,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped without a pull request: status `handoff`, last step `handoff`, 0 min (runner exit 10). pi-rukas stopped on the cap `step-failed:develop`. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=handoff kind= provider=0 sig=9f7582d3a9b04c21ef1b55b6f9ad83e219436a74266350b2809392b9ea4faaa2 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped without a pull request: status `handoff`, last step `handoff`, 0 min (runner exit 10). pi-rukas stopped on the cap `round-cap`. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=handoff kind=cap provider=0 sig=156cf1aa57f0ba8b0ece182c76b6f41c02f62b4b3190d5cf271ca408fa380bd4 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -2658,7 +2785,7 @@
   }
  },
  {
-  "case": "1793028901876120084",
+  "case": "a result that says it has no failure is no outage and no warning",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -2670,8 +2797,8 @@
    "before_retry_dir": false,
    "rc": 10,
    "signalled": false,
-   "started": 1793028901,
-   "now": 1793028901,
+   "started": 1793526070,
+   "now": 1793526070,
    "start": {
     "attempt": 1,
     "by": "",
@@ -2692,12 +2819,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028901
+     "seen_at": 1793526070
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028901,
+     "started_at": 1793526069,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -2729,10 +2856,17 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": []
+   },
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
    }
   },
   "met": {
@@ -2792,7 +2926,7 @@
   }
  },
  {
-  "case": "1793028902453851257",
+  "case": "the build commit of the result goes into the record, and only a full commit",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -2804,8 +2938,8 @@
    "before_retry_dir": false,
    "rc": 10,
    "signalled": false,
-   "started": 1793028902,
-   "now": 1793028902,
+   "started": 1793526076,
+   "now": 1793526076,
    "start": {
     "attempt": 1,
     "by": "",
@@ -2830,12 +2964,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028902
+     "seen_at": 1793526077
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028902,
+     "started_at": 1793526076,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -2867,10 +3001,17 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": []
+   },
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
    }
   },
   "met": {
@@ -2930,7 +3071,7 @@
   }
  },
  {
-  "case": "1793028903126582968",
+  "case": "the build commit of the result goes into the record, and only a full commit (2)",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -2942,8 +3083,8 @@
    "before_retry_dir": false,
    "rc": 10,
    "signalled": false,
-   "started": 1793028903,
-   "now": 1793028903,
+   "started": 1793526082,
+   "now": 1793526082,
    "start": {
     "attempt": 1,
     "by": "",
@@ -2968,12 +3109,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028903
+     "seen_at": 1793526082
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028903,
+     "started_at": 1793526081,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -3005,10 +3146,17 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": []
+   },
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
    }
   },
   "met": {
@@ -3068,7 +3216,7 @@
   }
  },
  {
-  "case": "1793028903779313262",
+  "case": "the cap and its reason are reduced before they are posted or recorded",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -3080,8 +3228,8 @@
    "before_retry_dir": false,
    "rc": 10,
    "signalled": false,
-   "started": 1793028903,
-   "now": 1793028903,
+   "started": 1793526089,
+   "now": 1793526089,
    "start": {
     "attempt": 1,
     "by": "",
@@ -3091,7 +3239,7 @@
    },
    "files": {
     "result.json": "{\n  \"schemaVersion\": 5,\n  \"issues\": [\n    {\n      \"issue\": 7,\n      \"status\": \"handoff\",\n      \"failedStep\": \"handoff\",\n      \"branch\": \"feature/issue-7-x\",\n      \"cap\": \"step-failed:adversarial`@x\"\n    }\n  ]\n}\n",
-    "progress.json": "{\n  \"roles\": [],\n  \"reason\": \"provider error `@alice` <!-- #5\\nnext line\"\n}\n"
+    "progress.json": "{\n  \"roles\": [],\n  \"reason\": \"provider error `@alice` <!-- #5\\nnext line\",\n  \"failure\": {\n    \"kind\": \"provider\"\n  },\n  \"from\": {\n    \"roles\": \"result\",\n    \"failure\": \"result\"\n  }\n}\n"
    },
    "record": {
     "api": 1,
@@ -3102,12 +3250,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028903
+     "seen_at": 1793526089
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028903,
+     "started_at": 1793526088,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -3139,7 +3287,8 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": []
@@ -3173,6 +3322,8 @@
     "feature/issue-7-x",
     "--cap",
     "step-failed:adversarialx",
+    "--failure-kind",
+    "provider",
     "--provider",
     "--parked"
    ],
@@ -3193,7 +3344,7 @@
     ],
     [
      "question",
-     "Tehas cycle parked by a provider outage: status `handoff`, last step `handoff`, 0 min (runner exit 10), cap `step-failed:adversarialx`: provider error alice -- 5 next line; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. It was started by hand, so it waits for a person.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=handoff kind= provider=1 sig=0e6931b26f328cebd716a22f35ad986ddda57fb0fe3a4fb7a1f1dcdb76dd6cc1 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle parked by a provider outage: status `handoff`, last step `handoff`, 0 min (runner exit 10), cap `step-failed:adversarialx`: provider error alice -- 5 next line; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. It was started by hand, so it waits for a person.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=handoff kind=provider provider=1 sig=a75933a171dc2cf101dd898c366020774ea9f44b663c10b27a1fc2da4a8ce03a -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -3203,7 +3354,7 @@
   }
  },
  {
-  "case": "1793028904351244723",
+  "case": "a park comment carries a marker with the park's facts, the sig of the history line's fields",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -3215,8 +3366,8 @@
    "before_retry_dir": false,
    "rc": 10,
    "signalled": false,
-   "started": 1793028904,
-   "now": 1793028904,
+   "started": 1793526095,
+   "now": 1793526096,
    "start": {
     "attempt": 1,
     "by": "",
@@ -3237,12 +3388,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028904
+     "seen_at": 1793526096
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028904,
+     "started_at": 1793526095,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -3274,10 +3425,17 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": []
+   },
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
    }
   },
   "met": {
@@ -3341,7 +3499,7 @@
   }
  },
  {
-  "case": "1793028904979621589",
+  "case": "the plain comment, when the boxes cannot be posted, carries the same marker",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -3353,8 +3511,8 @@
    "before_retry_dir": false,
    "rc": 10,
    "signalled": false,
-   "started": 1793028905,
-   "now": 1793028905,
+   "started": 1793526101,
+   "now": 1793526101,
    "start": {
     "attempt": 1,
     "by": "",
@@ -3375,12 +3533,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028905
+     "seen_at": 1793526102
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028905,
+     "started_at": 1793526101,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -3412,10 +3570,17 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": []
+   },
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
    }
   },
   "met": {
@@ -3478,7 +3643,7 @@
   }
  },
  {
-  "case": "1793028905559835912",
+  "case": "a park that repeats the issue's previous end says so, with the step and the cap",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -3490,8 +3655,8 @@
    "before_retry_dir": false,
    "rc": 10,
    "signalled": false,
-   "started": 1793028905,
-   "now": 1793028905,
+   "started": 1793526107,
+   "now": 1793526107,
    "start": {
     "attempt": 1,
     "by": "",
@@ -3512,12 +3677,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028905
+     "seen_at": 1793526107
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028905,
+     "started_at": 1793526106,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -3549,10 +3714,17 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": []
+   },
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
    }
   },
   "met": {
@@ -3616,7 +3788,7 @@
   }
  },
  {
-  "case": "1793028906085867052",
+  "case": "a park that repeats the issue's previous end says so, with the step and the cap (2)",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -3628,10 +3800,10 @@
    "before_retry_dir": false,
    "rc": 10,
    "signalled": false,
-   "started": 1793028906,
-   "now": 1793028906,
+   "started": 1793526111,
+   "now": 1793526112,
    "start": {
-    "attempt": 1,
+    "attempt": 2,
     "by": "",
     "how": "hand",
     "approval_at": null,
@@ -3650,12 +3822,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028906
+     "seen_at": 1793526112
     },
     "cycle": {
      "issue": 7,
-     "attempt": 1,
-     "started_at": 1793028906,
+     "attempt": 2,
+     "started_at": 1793526111,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -3687,10 +3859,39 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": []
+   },
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": [
+     {
+      "kind": "cycle",
+      "id": 1,
+      "issue": 7,
+      "attempt": 1,
+      "at": 1793526110,
+      "status": "handoff",
+      "step": "develop",
+      "by": null,
+      "how": "hand",
+      "pr": null,
+      "started_at": 1793526106,
+      "rc": 10,
+      "cap": "step-failed:develop",
+      "park_reason": null,
+      "failure_kind": "verify-failed",
+      "failure_cause": "exit-1",
+      "provider": false,
+      "parked": true,
+      "seq": 1
+     }
+    ]
    }
   },
   "met": {
@@ -3706,7 +3907,7 @@
    "end": [
     "7",
     "--attempt",
-    "1",
+    "2",
     "--status",
     "handoff",
     "--step",
@@ -3730,7 +3931,7 @@
    "park": [
     "7",
     "--attempt",
-    "1",
+    "2",
     "--reason",
     "step-failed:develop",
     "--step",
@@ -3744,7 +3945,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped without a pull request: status `handoff`, last step `develop`, 0 min (runner exit 10). pi-rukas stopped on the cap `step-failed:develop`. It failed: kind `verify-failed`, role `developer`, cause `exit-1`: 3 tests failed. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=develop kind=verify-failed provider=0 sig=1c3dc9704095bff1316ce50480ab77e9634fefa9c5b24e85c8a27c881cd08ae1 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped without a pull request: status `handoff`, last step `develop`, 0 min (runner exit 10). pi-rukas stopped on the cap `step-failed:develop`. It failed: kind `verify-failed`, role `developer`, cause `exit-1`: 3 tests failed. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. This park repeats the one before it: number 1 of the parks in a row that stopped at step `develop` on the cap `step-failed:develop`. A retry on the same text will likely stop the same way and spend another slot: change the issue first, or ask for a smaller change with `tehas:plan`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=develop kind=verify-failed provider=0 sig=1c3dc9704095bff1316ce50480ab77e9634fefa9c5b24e85c8a27c881cd08ae1 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -3754,7 +3955,7 @@
   }
  },
  {
-  "case": "1793028906693072157",
+  "case": "a park that does not repeat the end before it says nothing of a run",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -3766,8 +3967,8 @@
    "before_retry_dir": false,
    "rc": 10,
    "signalled": false,
-   "started": 1793028906,
-   "now": 1793028906,
+   "started": 1793526117,
+   "now": 1793526117,
    "start": {
     "attempt": 1,
     "by": "",
@@ -3788,12 +3989,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028906
+     "seen_at": 1793526118
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028906,
+     "started_at": 1793526117,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -3825,10 +4026,17 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": []
+   },
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
    }
   },
   "met": {
@@ -3892,7 +4100,7 @@
   }
  },
  {
-  "case": "1793028907296738863",
+  "case": "a park that does not repeat the end before it says nothing of a run (2)",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -3904,18 +4112,18 @@
    "before_retry_dir": false,
    "rc": 10,
    "signalled": false,
-   "started": 1793028907,
-   "now": 1793028907,
+   "started": 1793526122,
+   "now": 1793526122,
    "start": {
-    "attempt": 1,
+    "attempt": 2,
     "by": "",
     "how": "hand",
     "approval_at": null,
     "requeued": false
    },
    "files": {
-    "result.json": "{\n  \"schemaVersion\": 5,\n  \"issues\": [\n    {\n      \"issue\": 7,\n      \"status\": \"handoff\",\n      \"failedStep\": \"handoff\",\n      \"branch\": \"feature/issue-7-x\",\n      \"cap\": \"step-failed:adversarial\"\n    }\n  ]\n}\n",
-    "progress.json": "{\n  \"roles\": [],\n  \"reason\": \"Connection error.\"\n}\n"
+    "result.json": "{\n  \"schemaVersion\": 5,\n  \"issues\": [\n    {\n      \"issue\": 7,\n      \"status\": \"handoff\",\n      \"failedStep\": \"develop\",\n      \"branch\": \"feature/x\",\n      \"cap\": \"step-failed:develop\",\n      \"parkReason\": \"\"\n    }\n  ]\n}\n",
+    "progress.json": "{\"roles\":[],\"reason\":\"3 tests failed\",\"failure\":{\"kind\":\"verify-failed\",\"step\":\"develop\",\"role\":\"developer\",\"cause\":\"exit-1\"},\"from\":{\"roles\":\"result\",\"failure\":\"result\"}}\n"
    },
    "record": {
     "api": 1,
@@ -3926,12 +4134,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028907
+     "seen_at": 1793526122
     },
     "cycle": {
      "issue": 7,
-     "attempt": 1,
-     "started_at": 1793028907,
+     "attempt": 2,
+     "started_at": 1793526122,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -3963,7 +4171,1531 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
+   },
+   "github": {
+    "prs": []
+   },
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": [
+     {
+      "kind": "cycle",
+      "id": 1,
+      "issue": 7,
+      "attempt": 1,
+      "at": 1793526120,
+      "status": "handoff",
+      "step": "develop",
+      "by": null,
+      "how": "hand",
+      "pr": null,
+      "started_at": 1793526117,
+      "rc": 10,
+      "cap": "verify-failed:develop",
+      "park_reason": null,
+      "failure_kind": "verify-failed",
+      "failure_cause": "exit-1",
+      "provider": false,
+      "parked": true,
+      "seq": 1
+     }
+    ]
+   }
+  },
+  "met": {
+   "recorded": true,
+   "posted": true,
+   "relabel": [
+    "ok",
+    "ok"
+   ]
+  },
+  "expect": {
+   "done": "done #7 rc=10 status=handoff step=develop minutes=0 pr=none oom_kills=0 forks_refused=0",
+   "end": [
+    "7",
+    "--attempt",
+    "2",
+    "--status",
+    "handoff",
+    "--step",
+    "develop",
+    "--rc",
+    "10",
+    "--oom",
+    "0",
+    "--forks",
+    "0",
+    "--branch",
+    "feature/x",
+    "--cap",
+    "step-failed:develop",
+    "--failure-kind",
+    "verify-failed",
+    "--failure-cause",
+    "exit-1",
+    "--parked"
+   ],
+   "park": [
+    "7",
+    "--attempt",
+    "2",
+    "--reason",
+    "step-failed:develop",
+    "--step",
+    "develop"
+   ],
+   "log": [],
+   "writes": [
+    [
+     "relabel",
+     "--remove-label tehas:running --add-label needs-human-attention"
+    ],
+    [
+     "question",
+     "Tehas cycle stopped without a pull request: status `handoff`, last step `develop`, 0 min (runner exit 10). pi-rukas stopped on the cap `step-failed:develop`. It failed: kind `verify-failed`, role `developer`, cause `exit-1`: 3 tests failed. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=develop kind=verify-failed provider=0 sig=1c3dc9704095bff1316ce50480ab77e9634fefa9c5b24e85c8a27c881cd08ae1 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+    ],
+    [
+     "relabel",
+     "--add-label tehas:question"
+    ]
+   ]
+  }
+ },
+ {
+  "case": "a park that does not repeat the end before it says nothing of a run (3)",
+  "facts": {
+   "issue": 7,
+   "repo": "acme/widget",
+   "home": "/T/home",
+   "hostname": "tehas-test",
+   "workdir": "/T/home/tehas/work/widget-7",
+   "workspaces_marked": false,
+   "workdir_dir": true,
+   "before_retry_dir": false,
+   "rc": 10,
+   "signalled": false,
+   "started": 1793526127,
+   "now": 1793526127,
+   "start": {
+    "attempt": 3,
+    "by": "",
+    "how": "hand",
+    "approval_at": null,
+    "requeued": false
+   },
+   "files": {
+    "result.json": "{\n  \"schemaVersion\": 5,\n  \"issues\": [\n    {\n      \"issue\": 7,\n      \"status\": \"handoff\",\n      \"failedStep\": \"develop\",\n      \"branch\": \"feature/x\",\n      \"cap\": \"step-failed:develop\",\n      \"parkReason\": \"\"\n    }\n  ]\n}\n",
+    "progress.json": "{\"roles\":[],\"reason\":\"3 tests failed\",\"failure\":{\"kind\":\"verify-failed\",\"step\":\"develop\",\"role\":\"developer\",\"cause\":\"exit-1\"},\"from\":{\"roles\":\"result\",\"failure\":\"result\"}}\n"
+   },
+   "record": {
+    "api": 1,
+    "verb": "cycle-show",
+    "ok": true,
+    "issue": 7,
+    "lock": {
+     "state": "held",
+     "probe_rc": 1,
+     "file": true,
+     "seen_at": 1793526127
+    },
+    "cycle": {
+     "issue": 7,
+     "attempt": 3,
+     "started_at": 1793526126,
+     "started_by": null,
+     "how": "hand",
+     "requeued": false,
+     "rukas_commit": null,
+     "image": null,
+     "branch": null,
+     "end_reason": null,
+     "ended_at": null,
+     "oom_kills": null,
+     "forks_refused": null,
+     "stalled_seconds": null,
+     "timed_out": false,
+     "runner_exit": null,
+     "watched": false,
+     "host_saw": null,
+     "stop_asked_at": null,
+     "stop_said_times": 0,
+     "settings": {},
+     "quiet": null,
+     "heard_at": null
+    }
+   },
+   "approval": {
+    "api": 1,
+    "verb": "approval-current",
+    "ok": true,
+    "approval": null,
+    "current": null,
+    "rests_on": null,
+    "millwright_starts": 0,
+    "fixer_starts": 0,
+    "refreshes": 0,
+    "easy": false
+   },
+   "github": {
+    "prs": []
+   },
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": [
+     {
+      "kind": "cycle",
+      "id": 1,
+      "issue": 7,
+      "attempt": 1,
+      "at": 1793526120,
+      "status": "handoff",
+      "step": "develop",
+      "by": null,
+      "how": "hand",
+      "pr": null,
+      "started_at": 1793526117,
+      "rc": 10,
+      "cap": "verify-failed:develop",
+      "park_reason": null,
+      "failure_kind": "verify-failed",
+      "failure_cause": "exit-1",
+      "provider": false,
+      "parked": true,
+      "seq": 1
+     },
+     {
+      "kind": "cycle",
+      "id": 2,
+      "issue": 7,
+      "attempt": 2,
+      "at": 1793526125,
+      "status": "handoff",
+      "step": "develop",
+      "by": null,
+      "how": "hand",
+      "pr": null,
+      "started_at": 1793526122,
+      "rc": 10,
+      "cap": "step-failed:develop",
+      "park_reason": null,
+      "failure_kind": "verify-failed",
+      "failure_cause": "exit-1",
+      "provider": false,
+      "parked": true,
+      "seq": 2
+     }
+    ]
+   }
+  },
+  "met": {
+   "recorded": true,
+   "posted": true,
+   "relabel": [
+    "ok",
+    "ok"
+   ]
+  },
+  "expect": {
+   "done": "done #7 rc=10 status=handoff step=develop minutes=0 pr=none oom_kills=0 forks_refused=0",
+   "end": [
+    "7",
+    "--attempt",
+    "3",
+    "--status",
+    "handoff",
+    "--step",
+    "develop",
+    "--rc",
+    "10",
+    "--oom",
+    "0",
+    "--forks",
+    "0",
+    "--branch",
+    "feature/x",
+    "--cap",
+    "step-failed:develop",
+    "--failure-kind",
+    "verify-failed",
+    "--failure-cause",
+    "exit-1",
+    "--parked"
+   ],
+   "park": [
+    "7",
+    "--attempt",
+    "3",
+    "--reason",
+    "step-failed:develop",
+    "--step",
+    "develop"
+   ],
+   "log": [],
+   "writes": [
+    [
+     "relabel",
+     "--remove-label tehas:running --add-label needs-human-attention"
+    ],
+    [
+     "question",
+     "Tehas cycle stopped without a pull request: status `handoff`, last step `develop`, 0 min (runner exit 10). pi-rukas stopped on the cap `step-failed:develop`. It failed: kind `verify-failed`, role `developer`, cause `exit-1`: 3 tests failed. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. This park repeats the one before it: number 1 of the parks in a row that stopped at step `develop` on the cap `step-failed:develop`. A retry on the same text will likely stop the same way and spend another slot: change the issue first, or ask for a smaller change with `tehas:plan`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=develop kind=verify-failed provider=0 sig=1c3dc9704095bff1316ce50480ab77e9634fefa9c5b24e85c8a27c881cd08ae1 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+    ],
+    [
+     "relabel",
+     "--add-label tehas:question"
+    ]
+   ]
+  }
+ },
+ {
+  "case": "a park that does not repeat the end before it says nothing of a run (4)",
+  "facts": {
+   "issue": 7,
+   "repo": "acme/widget",
+   "home": "/T/home",
+   "hostname": "tehas-test",
+   "workdir": "/T/home/tehas/work/widget-7",
+   "workspaces_marked": false,
+   "workdir_dir": true,
+   "before_retry_dir": false,
+   "rc": 10,
+   "signalled": false,
+   "started": 1793526130,
+   "now": 1793526130,
+   "start": {
+    "attempt": 1,
+    "by": "",
+    "how": "hand",
+    "approval_at": null,
+    "requeued": false
+   },
+   "files": {
+    "result.json": "{\n  \"schemaVersion\": 5,\n  \"issues\": [\n    {\n      \"issue\": 7,\n      \"status\": \"handoff\",\n      \"failedStep\": \"develop\",\n      \"branch\": \"feature/x\",\n      \"cap\": \"step-failed:develop\",\n      \"parkReason\": \"\"\n    }\n  ]\n}\n",
+    "progress.json": "{\"roles\":[],\"reason\":\"3 tests failed\",\"failure\":{\"kind\":\"verify-failed\",\"step\":\"develop\",\"role\":\"developer\",\"cause\":\"exit-1\"},\"from\":{\"roles\":\"result\",\"failure\":\"result\"}}\n"
+   },
+   "record": {
+    "api": 1,
+    "verb": "cycle-show",
+    "ok": true,
+    "issue": 7,
+    "lock": {
+     "state": "held",
+     "probe_rc": 1,
+     "file": true,
+     "seen_at": 1793526130
+    },
+    "cycle": {
+     "issue": 7,
+     "attempt": 1,
+     "started_at": 1793526130,
+     "started_by": null,
+     "how": "hand",
+     "requeued": false,
+     "rukas_commit": null,
+     "image": null,
+     "branch": null,
+     "end_reason": null,
+     "ended_at": null,
+     "oom_kills": null,
+     "forks_refused": null,
+     "stalled_seconds": null,
+     "timed_out": false,
+     "runner_exit": null,
+     "watched": false,
+     "host_saw": null,
+     "stop_asked_at": null,
+     "stop_said_times": 0,
+     "settings": {},
+     "quiet": null,
+     "heard_at": null
+    }
+   },
+   "approval": {
+    "api": 1,
+    "verb": "approval-current",
+    "ok": true,
+    "approval": null,
+    "current": null,
+    "rests_on": null,
+    "millwright_starts": 0,
+    "fixer_starts": 0,
+    "refreshes": 0,
+    "easy": false
+   },
+   "github": {
+    "prs": []
+   },
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
+  },
+  "met": {
+   "recorded": true,
+   "posted": true,
+   "relabel": [
+    "ok",
+    "ok"
+   ]
+  },
+  "expect": {
+   "done": "done #7 rc=10 status=handoff step=develop minutes=0 pr=none oom_kills=0 forks_refused=0",
+   "end": [
+    "7",
+    "--attempt",
+    "1",
+    "--status",
+    "handoff",
+    "--step",
+    "develop",
+    "--rc",
+    "10",
+    "--oom",
+    "0",
+    "--forks",
+    "0",
+    "--branch",
+    "feature/x",
+    "--cap",
+    "step-failed:develop",
+    "--failure-kind",
+    "verify-failed",
+    "--failure-cause",
+    "exit-1",
+    "--parked"
+   ],
+   "park": [
+    "7",
+    "--attempt",
+    "1",
+    "--reason",
+    "step-failed:develop",
+    "--step",
+    "develop"
+   ],
+   "log": [],
+   "writes": [
+    [
+     "relabel",
+     "--remove-label tehas:running --add-label needs-human-attention"
+    ],
+    [
+     "question",
+     "Tehas cycle stopped without a pull request: status `handoff`, last step `develop`, 0 min (runner exit 10). pi-rukas stopped on the cap `step-failed:develop`. It failed: kind `verify-failed`, role `developer`, cause `exit-1`: 3 tests failed. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=develop kind=verify-failed provider=0 sig=1c3dc9704095bff1316ce50480ab77e9634fefa9c5b24e85c8a27c881cd08ae1 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+    ],
+    [
+     "relabel",
+     "--add-label tehas:question"
+    ]
+   ]
+  }
+ },
+ {
+  "case": "a park that does not repeat the end before it says nothing of a run (5)",
+  "facts": {
+   "issue": 7,
+   "repo": "acme/widget",
+   "home": "/T/home",
+   "hostname": "tehas-test",
+   "workdir": "/T/home/tehas/work/widget-7",
+   "workspaces_marked": false,
+   "workdir_dir": true,
+   "before_retry_dir": false,
+   "rc": 0,
+   "signalled": false,
+   "started": 1793526135,
+   "now": 1793526135,
+   "start": {
+    "attempt": 2,
+    "by": "",
+    "how": "hand",
+    "approval_at": null,
+    "requeued": false
+   },
+   "files": {
+    "result.json": "{\n  \"schemaVersion\": 5,\n  \"issues\": [\n    {\n      \"issue\": 7,\n      \"status\": \"merged\",\n      \"failedStep\": \"review\",\n      \"branch\": \"feature/x\"\n    }\n  ]\n}\n",
+    "progress.json": "{\"roles\":[],\"reason\":\"3 tests failed\",\"failure\":{\"kind\":\"verify-failed\",\"step\":\"develop\",\"role\":\"developer\",\"cause\":\"exit-1\"},\"from\":{\"roles\":\"result\",\"failure\":\"result\"}}\n"
+   },
+   "record": {
+    "api": 1,
+    "verb": "cycle-show",
+    "ok": true,
+    "issue": 7,
+    "lock": {
+     "state": "held",
+     "probe_rc": 1,
+     "file": true,
+     "seen_at": 1793526136
+    },
+    "cycle": {
+     "issue": 7,
+     "attempt": 2,
+     "started_at": 1793526135,
+     "started_by": null,
+     "how": "hand",
+     "requeued": false,
+     "rukas_commit": null,
+     "image": null,
+     "branch": null,
+     "end_reason": null,
+     "ended_at": null,
+     "oom_kills": null,
+     "forks_refused": null,
+     "stalled_seconds": null,
+     "timed_out": false,
+     "runner_exit": null,
+     "watched": false,
+     "host_saw": null,
+     "stop_asked_at": null,
+     "stop_said_times": 0,
+     "settings": {},
+     "quiet": null,
+     "heard_at": null
+    }
+   },
+   "approval": {
+    "api": 1,
+    "verb": "approval-current",
+    "ok": true,
+    "approval": null,
+    "current": null,
+    "rests_on": null,
+    "millwright_starts": 0,
+    "fixer_starts": 0,
+    "refreshes": 0,
+    "easy": false
+   },
+   "github": {
+    "prs": [
+     {
+      "url": "https://github.com/acme/widget/pull/9",
+      "state": "MERGED",
+      "body": "Fixes #7",
+      "headRefName": "feature/x"
+     }
+    ]
+   }
+  },
+  "met": {
+   "recorded": false,
+   "posted": false,
+   "relabel": [
+    "ok"
+   ]
+  },
+  "expect": {
+   "done": "done #7 rc=0 status=merged step=review minutes=0 pr=https://github.com/acme/widget/pull/9 oom_kills=0 forks_refused=0",
+   "end": [
+    "7",
+    "--attempt",
+    "2",
+    "--status",
+    "merged",
+    "--step",
+    "review",
+    "--rc",
+    "0",
+    "--oom",
+    "0",
+    "--forks",
+    "0",
+    "--branch",
+    "feature/x",
+    "--pr",
+    "9",
+    "--failure-kind",
+    "verify-failed",
+    "--failure-cause",
+    "exit-1"
+   ],
+   "park": null,
+   "log": [],
+   "writes": [
+    [
+     "relabel",
+     "--remove-label tehas:running"
+    ],
+    [
+     "comment",
+     "Tehas cycle finished: status `merged`, last step `review`, 0 min. The change was merged: https://github.com/acme/widget/pull/9"
+    ]
+   ]
+  }
+ },
+ {
+  "case": "a park that does not repeat the end before it says nothing of a run (6)",
+  "facts": {
+   "issue": 7,
+   "repo": "acme/widget",
+   "home": "/T/home",
+   "hostname": "tehas-test",
+   "workdir": "/T/home/tehas/work/widget-7",
+   "workspaces_marked": false,
+   "workdir_dir": true,
+   "before_retry_dir": false,
+   "rc": 10,
+   "signalled": false,
+   "started": 1793526138,
+   "now": 1793526138,
+   "start": {
+    "attempt": 3,
+    "by": "",
+    "how": "hand",
+    "approval_at": null,
+    "requeued": false
+   },
+   "files": {
+    "result.json": "{\n  \"schemaVersion\": 5,\n  \"issues\": [\n    {\n      \"issue\": 7,\n      \"status\": \"handoff\",\n      \"failedStep\": \"develop\",\n      \"branch\": \"feature/x\",\n      \"cap\": \"step-failed:develop\",\n      \"parkReason\": \"\"\n    }\n  ]\n}\n",
+    "progress.json": "{\"roles\":[],\"reason\":\"3 tests failed\",\"failure\":{\"kind\":\"verify-failed\",\"step\":\"develop\",\"role\":\"developer\",\"cause\":\"exit-1\"},\"from\":{\"roles\":\"result\",\"failure\":\"result\"}}\n"
+   },
+   "record": {
+    "api": 1,
+    "verb": "cycle-show",
+    "ok": true,
+    "issue": 7,
+    "lock": {
+     "state": "held",
+     "probe_rc": 1,
+     "file": true,
+     "seen_at": 1793526138
+    },
+    "cycle": {
+     "issue": 7,
+     "attempt": 3,
+     "started_at": 1793526137,
+     "started_by": null,
+     "how": "hand",
+     "requeued": false,
+     "rukas_commit": null,
+     "image": null,
+     "branch": null,
+     "end_reason": null,
+     "ended_at": null,
+     "oom_kills": null,
+     "forks_refused": null,
+     "stalled_seconds": null,
+     "timed_out": false,
+     "runner_exit": null,
+     "watched": false,
+     "host_saw": null,
+     "stop_asked_at": null,
+     "stop_said_times": 0,
+     "settings": {},
+     "quiet": null,
+     "heard_at": 1793526137
+    }
+   },
+   "approval": {
+    "api": 1,
+    "verb": "approval-current",
+    "ok": true,
+    "approval": null,
+    "current": null,
+    "rests_on": null,
+    "millwright_starts": 0,
+    "fixer_starts": 0,
+    "refreshes": 0,
+    "easy": false
+   },
+   "github": {
+    "prs": [
+     {
+      "url": "https://github.com/acme/widget/pull/9",
+      "state": "MERGED",
+      "body": "Fixes #7",
+      "headRefName": "feature/x"
+     }
+    ]
+   }
+  },
+  "met": {
+   "recorded": false,
+   "posted": false,
+   "relabel": [
+    "ok"
+   ]
+  },
+  "expect": {
+   "done": "done #7 rc=10 status=merged step=develop minutes=0 pr=https://github.com/acme/widget/pull/9 oom_kills=0 forks_refused=0",
+   "end": [
+    "7",
+    "--attempt",
+    "3",
+    "--status",
+    "merged",
+    "--step",
+    "develop",
+    "--rc",
+    "10",
+    "--oom",
+    "0",
+    "--forks",
+    "0",
+    "--branch",
+    "feature/x",
+    "--pr",
+    "9",
+    "--cap",
+    "step-failed:develop",
+    "--failure-kind",
+    "verify-failed",
+    "--failure-cause",
+    "exit-1"
+   ],
+   "park": null,
+   "log": [],
+   "writes": [
+    [
+     "relabel",
+     "--remove-label tehas:running"
+    ],
+    [
+     "comment",
+     "Tehas cycle ended: its pull request https://github.com/acme/widget/pull/9 was merged while the cycle ran (last step `develop`, 0 min, runner exit 10). Nothing more is needed here. The workspace is kept at `~/tehas/work/widget-7`."
+    ]
+   ]
+  }
+ },
+ {
+  "case": "a park of a provider outage never says it repeats a run",
+  "facts": {
+   "issue": 7,
+   "repo": "acme/widget",
+   "home": "/T/home",
+   "hostname": "tehas-test",
+   "workdir": "/T/home/tehas/work/widget-7",
+   "workspaces_marked": false,
+   "workdir_dir": true,
+   "before_retry_dir": false,
+   "rc": 10,
+   "signalled": false,
+   "started": 1793526141,
+   "now": 1793526141,
+   "start": {
+    "attempt": 2,
+    "by": "",
+    "how": "hand",
+    "approval_at": null,
+    "requeued": false
+   },
+   "files": {
+    "result.json": "{\n  \"schemaVersion\": 5,\n  \"issues\": [\n    {\n      \"issue\": 7,\n      \"status\": \"handoff\",\n      \"failedStep\": \"handoff\",\n      \"branch\": \"feature/issue-7-x\",\n      \"cap\": \"step-failed:adversarial\"\n    }\n  ]\n}\n",
+    "progress.json": "{\n  \"roles\": [],\n  \"reason\": \"Connection error.\",\n  \"failure\": {\n    \"kind\": \"provider\",\n    \"step\": \"adversarial\"\n  },\n  \"from\": {\n    \"roles\": \"result\",\n    \"failure\": \"result\"\n  }\n}\n"
+   },
+   "record": {
+    "api": 1,
+    "verb": "cycle-show",
+    "ok": true,
+    "issue": 7,
+    "lock": {
+     "state": "held",
+     "probe_rc": 1,
+     "file": true,
+     "seen_at": 1793526141
+    },
+    "cycle": {
+     "issue": 7,
+     "attempt": 2,
+     "started_at": 1793526141,
+     "started_by": null,
+     "how": "hand",
+     "requeued": false,
+     "rukas_commit": null,
+     "image": null,
+     "branch": null,
+     "end_reason": null,
+     "ended_at": null,
+     "oom_kills": null,
+     "forks_refused": null,
+     "stalled_seconds": null,
+     "timed_out": false,
+     "runner_exit": null,
+     "watched": false,
+     "host_saw": null,
+     "stop_asked_at": null,
+     "stop_said_times": 0,
+     "settings": {},
+     "quiet": null,
+     "heard_at": null
+    }
+   },
+   "approval": {
+    "api": 1,
+    "verb": "approval-current",
+    "ok": true,
+    "approval": null,
+    "current": {
+     "issue": 7,
+     "at": 1700000000,
+     "by": "alice",
+     "how": "label",
+     "label": "tehas:ready",
+     "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
+     "title_sha256": null,
+     "comment_id": null,
+     "refresh_pr": null,
+     "refresh_head": null,
+     "used_at": 1793526140,
+     "used_by": 1,
+     "input": null,
+     "easy": false
+    },
+    "rests_on": {
+     "at": 1700000000,
+     "by": "alice",
+     "how": "label",
+     "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
+     "used_by": 1
+    },
+    "millwright_starts": 0,
+    "fixer_starts": 0,
+    "refreshes": 0,
+    "easy": false
+   },
+   "github": {
+    "prs": []
+   }
+  },
+  "met": {
+   "recorded": true,
+   "posted": true,
+   "relabel": [
+    "ok",
+    "ok"
+   ]
+  },
+  "expect": {
+   "done": "done #7 rc=10 status=handoff step=handoff minutes=0 pr=none oom_kills=0 forks_refused=0",
+   "end": [
+    "7",
+    "--attempt",
+    "2",
+    "--status",
+    "handoff",
+    "--step",
+    "handoff",
+    "--rc",
+    "10",
+    "--oom",
+    "0",
+    "--forks",
+    "0",
+    "--branch",
+    "feature/issue-7-x",
+    "--cap",
+    "step-failed:adversarial",
+    "--failure-kind",
+    "provider",
+    "--provider",
+    "--parked"
+   ],
+   "park": [
+    "7",
+    "--attempt",
+    "2",
+    "--reason",
+    "provider-outage",
+    "--step",
+    "handoff"
+   ],
+   "log": [],
+   "writes": [
+    [
+     "relabel",
+     "--remove-label tehas:running --add-label needs-human-attention"
+    ],
+    [
+     "question",
+     "Tehas cycle parked by a provider outage: status `handoff`, last step `handoff`, 0 min (runner exit 10), cap `step-failed:adversarial`: Connection error.; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. It was started by hand, so it waits for a person.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=handoff kind=provider provider=1 sig=723036791d499aa6a70bb2f606b0671d45f0916156c95700ecc2d052049dc802 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+    ],
+    [
+     "relabel",
+     "--add-label tehas:question"
+    ]
+   ]
+  }
+ },
+ {
+  "case": "a history that cannot be read says nothing of a run, and the park goes on",
+  "facts": {
+   "issue": 7,
+   "repo": "acme/widget",
+   "home": "/T/home",
+   "hostname": "tehas-test",
+   "workdir": "/T/home/tehas/work/widget-7",
+   "workspaces_marked": false,
+   "workdir_dir": true,
+   "before_retry_dir": false,
+   "rc": 10,
+   "signalled": false,
+   "started": 1793526145,
+   "now": 1793526145,
+   "start": {
+    "attempt": 2,
+    "by": "",
+    "how": "hand",
+    "approval_at": null,
+    "requeued": false
+   },
+   "files": {
+    "result.json": "{\n  \"schemaVersion\": 5,\n  \"issues\": [\n    {\n      \"issue\": 7,\n      \"status\": \"handoff\",\n      \"failedStep\": \"develop\",\n      \"branch\": \"feature/x\",\n      \"cap\": \"step-failed:develop\",\n      \"parkReason\": \"\"\n    }\n  ]\n}\n",
+    "progress.json": "{\"roles\":[],\"reason\":\"3 tests failed\",\"failure\":{\"kind\":\"verify-failed\",\"step\":\"develop\",\"role\":\"developer\",\"cause\":\"exit-1\"},\"from\":{\"roles\":\"result\",\"failure\":\"result\"}}\n"
+   },
+   "record": {
+    "api": 1,
+    "verb": "cycle-show",
+    "ok": true,
+    "issue": 7,
+    "lock": {
+     "state": "held",
+     "probe_rc": 1,
+     "file": true,
+     "seen_at": 1793526145
+    },
+    "cycle": {
+     "issue": 7,
+     "attempt": 2,
+     "started_at": 1793526145,
+     "started_by": null,
+     "how": "hand",
+     "requeued": false,
+     "rukas_commit": null,
+     "image": null,
+     "branch": null,
+     "end_reason": null,
+     "ended_at": null,
+     "oom_kills": null,
+     "forks_refused": null,
+     "stalled_seconds": null,
+     "timed_out": false,
+     "runner_exit": null,
+     "watched": false,
+     "host_saw": null,
+     "stop_asked_at": null,
+     "stop_said_times": 0,
+     "settings": {},
+     "quiet": null,
+     "heard_at": null
+    }
+   },
+   "approval": {
+    "api": 1,
+    "verb": "approval-current",
+    "ok": true,
+    "approval": null,
+    "current": {
+     "issue": 7,
+     "at": 1700000000,
+     "by": "alice",
+     "how": "label",
+     "label": "tehas:ready",
+     "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
+     "title_sha256": null,
+     "comment_id": null,
+     "refresh_pr": null,
+     "refresh_head": null,
+     "used_at": 1793526143,
+     "used_by": 1,
+     "input": null,
+     "easy": false
+    },
+    "rests_on": {
+     "at": 1700000000,
+     "by": "alice",
+     "how": "label",
+     "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
+     "used_by": 1
+    },
+    "millwright_starts": 0,
+    "fixer_starts": 0,
+    "refreshes": 0,
+    "easy": false
+   },
+   "github": {
+    "prs": []
+   },
+   "history": {
+    "error": "garbled"
+   }
+  },
+  "met": {
+   "recorded": true,
+   "posted": true,
+   "relabel": [
+    "ok",
+    "ok"
+   ]
+  },
+  "expect": {
+   "done": "done #7 rc=10 status=handoff step=develop minutes=0 pr=none oom_kills=0 forks_refused=0",
+   "end": [
+    "7",
+    "--attempt",
+    "2",
+    "--status",
+    "handoff",
+    "--step",
+    "develop",
+    "--rc",
+    "10",
+    "--oom",
+    "0",
+    "--forks",
+    "0",
+    "--branch",
+    "feature/x",
+    "--cap",
+    "step-failed:develop",
+    "--failure-kind",
+    "verify-failed",
+    "--failure-cause",
+    "exit-1",
+    "--parked"
+   ],
+   "park": [
+    "7",
+    "--attempt",
+    "2",
+    "--reason",
+    "step-failed:develop",
+    "--step",
+    "develop"
+   ],
+   "log": [],
+   "writes": [
+    [
+     "relabel",
+     "--remove-label tehas:running --add-label needs-human-attention"
+    ],
+    [
+     "question",
+     "Tehas cycle stopped without a pull request: status `handoff`, last step `develop`, 0 min (runner exit 10). pi-rukas stopped on the cap `step-failed:develop`. It failed: kind `verify-failed`, role `developer`, cause `exit-1`: 3 tests failed. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=develop kind=verify-failed provider=0 sig=1c3dc9704095bff1316ce50480ab77e9634fefa9c5b24e85c8a27c881cd08ae1 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+    ],
+    [
+     "relabel",
+     "--add-label tehas:question"
+    ]
+   ]
+  }
+ },
+ {
+  "case": "two parks with the same facts have the same sig, a different cap a different one",
+  "facts": {
+   "issue": 7,
+   "repo": "acme/widget",
+   "home": "/T/home",
+   "hostname": "tehas-test",
+   "workdir": "/T/home/tehas/work/widget-7",
+   "workspaces_marked": false,
+   "workdir_dir": true,
+   "before_retry_dir": false,
+   "rc": 10,
+   "signalled": false,
+   "started": 1793526150,
+   "now": 1793526150,
+   "start": {
+    "attempt": 1,
+    "by": "",
+    "how": "hand",
+    "approval_at": null,
+    "requeued": false
+   },
+   "files": {
+    "result.json": "{\n  \"schemaVersion\": 5,\n  \"issues\": [\n    {\n      \"issue\": 7,\n      \"status\": \"handoff\",\n      \"failedStep\": \"develop\",\n      \"branch\": \"feature/x\",\n      \"cap\": \"step-failed:develop\",\n      \"parkReason\": \"\"\n    }\n  ]\n}\n",
+    "progress.json": "{\"roles\":[],\"reason\":\"3 tests failed\",\"failure\":{\"kind\":\"verify-failed\",\"step\":\"develop\",\"role\":\"developer\",\"cause\":\"exit-1\"},\"from\":{\"roles\":\"result\",\"failure\":\"result\"}}\n"
+   },
+   "record": {
+    "api": 1,
+    "verb": "cycle-show",
+    "ok": true,
+    "issue": 7,
+    "lock": {
+     "state": "held",
+     "probe_rc": 1,
+     "file": true,
+     "seen_at": 1793526151
+    },
+    "cycle": {
+     "issue": 7,
+     "attempt": 1,
+     "started_at": 1793526150,
+     "started_by": null,
+     "how": "hand",
+     "requeued": false,
+     "rukas_commit": null,
+     "image": null,
+     "branch": null,
+     "end_reason": null,
+     "ended_at": null,
+     "oom_kills": null,
+     "forks_refused": null,
+     "stalled_seconds": null,
+     "timed_out": false,
+     "runner_exit": null,
+     "watched": false,
+     "host_saw": null,
+     "stop_asked_at": null,
+     "stop_said_times": 0,
+     "settings": {},
+     "quiet": null,
+     "heard_at": null
+    }
+   },
+   "approval": {
+    "api": 1,
+    "verb": "approval-current",
+    "ok": true,
+    "approval": null,
+    "current": null,
+    "rests_on": null,
+    "millwright_starts": 0,
+    "fixer_starts": 0,
+    "refreshes": 0,
+    "easy": false
+   },
+   "github": {
+    "prs": []
+   },
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
+  },
+  "met": {
+   "recorded": true,
+   "posted": true,
+   "relabel": [
+    "ok",
+    "ok"
+   ]
+  },
+  "expect": {
+   "done": "done #7 rc=10 status=handoff step=develop minutes=0 pr=none oom_kills=0 forks_refused=0",
+   "end": [
+    "7",
+    "--attempt",
+    "1",
+    "--status",
+    "handoff",
+    "--step",
+    "develop",
+    "--rc",
+    "10",
+    "--oom",
+    "0",
+    "--forks",
+    "0",
+    "--branch",
+    "feature/x",
+    "--cap",
+    "step-failed:develop",
+    "--failure-kind",
+    "verify-failed",
+    "--failure-cause",
+    "exit-1",
+    "--parked"
+   ],
+   "park": [
+    "7",
+    "--attempt",
+    "1",
+    "--reason",
+    "step-failed:develop",
+    "--step",
+    "develop"
+   ],
+   "log": [],
+   "writes": [
+    [
+     "relabel",
+     "--remove-label tehas:running --add-label needs-human-attention"
+    ],
+    [
+     "question",
+     "Tehas cycle stopped without a pull request: status `handoff`, last step `develop`, 0 min (runner exit 10). pi-rukas stopped on the cap `step-failed:develop`. It failed: kind `verify-failed`, role `developer`, cause `exit-1`: 3 tests failed. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=develop kind=verify-failed provider=0 sig=1c3dc9704095bff1316ce50480ab77e9634fefa9c5b24e85c8a27c881cd08ae1 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+    ],
+    [
+     "relabel",
+     "--add-label tehas:question"
+    ]
+   ]
+  }
+ },
+ {
+  "case": "two parks with the same facts have the same sig, a different cap a different one (2)",
+  "facts": {
+   "issue": 7,
+   "repo": "acme/widget",
+   "home": "/T/home",
+   "hostname": "tehas-test",
+   "workdir": "/T/home/tehas/work/widget-7",
+   "workspaces_marked": false,
+   "workdir_dir": true,
+   "before_retry_dir": false,
+   "rc": 10,
+   "signalled": false,
+   "started": 1793526154,
+   "now": 1793526154,
+   "start": {
+    "attempt": 1,
+    "by": "",
+    "how": "hand",
+    "approval_at": null,
+    "requeued": false
+   },
+   "files": {
+    "result.json": "{\n  \"schemaVersion\": 5,\n  \"issues\": [\n    {\n      \"issue\": 7,\n      \"status\": \"handoff\",\n      \"failedStep\": \"develop\",\n      \"branch\": \"feature/x\",\n      \"cap\": \"step-failed:develop\",\n      \"parkReason\": \"\"\n    }\n  ]\n}\n",
+    "progress.json": "{\"roles\":[],\"reason\":\"3 tests failed\",\"failure\":{\"kind\":\"verify-failed\",\"step\":\"develop\",\"role\":\"developer\",\"cause\":\"exit-1\"},\"from\":{\"roles\":\"result\",\"failure\":\"result\"}}\n"
+   },
+   "record": {
+    "api": 1,
+    "verb": "cycle-show",
+    "ok": true,
+    "issue": 7,
+    "lock": {
+     "state": "held",
+     "probe_rc": 1,
+     "file": true,
+     "seen_at": 1793526154
+    },
+    "cycle": {
+     "issue": 7,
+     "attempt": 1,
+     "started_at": 1793526153,
+     "started_by": null,
+     "how": "hand",
+     "requeued": false,
+     "rukas_commit": null,
+     "image": null,
+     "branch": null,
+     "end_reason": null,
+     "ended_at": null,
+     "oom_kills": null,
+     "forks_refused": null,
+     "stalled_seconds": null,
+     "timed_out": false,
+     "runner_exit": null,
+     "watched": false,
+     "host_saw": null,
+     "stop_asked_at": null,
+     "stop_said_times": 0,
+     "settings": {},
+     "quiet": null,
+     "heard_at": null
+    }
+   },
+   "approval": {
+    "api": 1,
+    "verb": "approval-current",
+    "ok": true,
+    "approval": null,
+    "current": null,
+    "rests_on": null,
+    "millwright_starts": 0,
+    "fixer_starts": 0,
+    "refreshes": 0,
+    "easy": false
+   },
+   "github": {
+    "prs": []
+   },
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
+  },
+  "met": {
+   "recorded": true,
+   "posted": true,
+   "relabel": [
+    "ok",
+    "ok"
+   ]
+  },
+  "expect": {
+   "done": "done #7 rc=10 status=handoff step=develop minutes=0 pr=none oom_kills=0 forks_refused=0",
+   "end": [
+    "7",
+    "--attempt",
+    "1",
+    "--status",
+    "handoff",
+    "--step",
+    "develop",
+    "--rc",
+    "10",
+    "--oom",
+    "0",
+    "--forks",
+    "0",
+    "--branch",
+    "feature/x",
+    "--cap",
+    "step-failed:develop",
+    "--failure-kind",
+    "verify-failed",
+    "--failure-cause",
+    "exit-1",
+    "--parked"
+   ],
+   "park": [
+    "7",
+    "--attempt",
+    "1",
+    "--reason",
+    "step-failed:develop",
+    "--step",
+    "develop"
+   ],
+   "log": [],
+   "writes": [
+    [
+     "relabel",
+     "--remove-label tehas:running --add-label needs-human-attention"
+    ],
+    [
+     "question",
+     "Tehas cycle stopped without a pull request: status `handoff`, last step `develop`, 0 min (runner exit 10). pi-rukas stopped on the cap `step-failed:develop`. It failed: kind `verify-failed`, role `developer`, cause `exit-1`: 3 tests failed. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=develop kind=verify-failed provider=0 sig=1c3dc9704095bff1316ce50480ab77e9634fefa9c5b24e85c8a27c881cd08ae1 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+    ],
+    [
+     "relabel",
+     "--add-label tehas:question"
+    ]
+   ]
+  }
+ },
+ {
+  "case": "two parks with the same facts have the same sig, a different cap a different one (3)",
+  "facts": {
+   "issue": 7,
+   "repo": "acme/widget",
+   "home": "/T/home",
+   "hostname": "tehas-test",
+   "workdir": "/T/home/tehas/work/widget-7",
+   "workspaces_marked": false,
+   "workdir_dir": true,
+   "before_retry_dir": false,
+   "rc": 10,
+   "signalled": false,
+   "started": 1793526157,
+   "now": 1793526157,
+   "start": {
+    "attempt": 1,
+    "by": "",
+    "how": "hand",
+    "approval_at": null,
+    "requeued": false
+   },
+   "files": {
+    "result.json": "{\n  \"schemaVersion\": 5,\n  \"issues\": [\n    {\n      \"issue\": 7,\n      \"status\": \"handoff\",\n      \"failedStep\": \"develop\",\n      \"branch\": \"feature/x\",\n      \"cap\": \"verify-failed:develop\",\n      \"parkReason\": \"\"\n    }\n  ]\n}\n",
+    "progress.json": "{\"roles\":[],\"reason\":\"3 tests failed\",\"failure\":{\"kind\":\"verify-failed\",\"step\":\"develop\",\"role\":\"developer\",\"cause\":\"exit-1\"},\"from\":{\"roles\":\"result\",\"failure\":\"result\"}}\n"
+   },
+   "record": {
+    "api": 1,
+    "verb": "cycle-show",
+    "ok": true,
+    "issue": 7,
+    "lock": {
+     "state": "held",
+     "probe_rc": 1,
+     "file": true,
+     "seen_at": 1793526157
+    },
+    "cycle": {
+     "issue": 7,
+     "attempt": 1,
+     "started_at": 1793526157,
+     "started_by": null,
+     "how": "hand",
+     "requeued": false,
+     "rukas_commit": null,
+     "image": null,
+     "branch": null,
+     "end_reason": null,
+     "ended_at": null,
+     "oom_kills": null,
+     "forks_refused": null,
+     "stalled_seconds": null,
+     "timed_out": false,
+     "runner_exit": null,
+     "watched": false,
+     "host_saw": null,
+     "stop_asked_at": null,
+     "stop_said_times": 0,
+     "settings": {},
+     "quiet": null,
+     "heard_at": null
+    }
+   },
+   "approval": {
+    "api": 1,
+    "verb": "approval-current",
+    "ok": true,
+    "approval": null,
+    "current": null,
+    "rests_on": null,
+    "millwright_starts": 0,
+    "fixer_starts": 0,
+    "refreshes": 0,
+    "easy": false
+   },
+   "github": {
+    "prs": []
+   },
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
+  },
+  "met": {
+   "recorded": true,
+   "posted": true,
+   "relabel": [
+    "ok",
+    "ok"
+   ]
+  },
+  "expect": {
+   "done": "done #7 rc=10 status=handoff step=develop minutes=0 pr=none oom_kills=0 forks_refused=0",
+   "end": [
+    "7",
+    "--attempt",
+    "1",
+    "--status",
+    "handoff",
+    "--step",
+    "develop",
+    "--rc",
+    "10",
+    "--oom",
+    "0",
+    "--forks",
+    "0",
+    "--branch",
+    "feature/x",
+    "--cap",
+    "verify-failed:develop",
+    "--failure-kind",
+    "verify-failed",
+    "--failure-cause",
+    "exit-1",
+    "--parked"
+   ],
+   "park": [
+    "7",
+    "--attempt",
+    "1",
+    "--reason",
+    "verify-failed:develop",
+    "--step",
+    "develop"
+   ],
+   "log": [],
+   "writes": [
+    [
+     "relabel",
+     "--remove-label tehas:running --add-label needs-human-attention"
+    ],
+    [
+     "question",
+     "Tehas cycle stopped without a pull request: status `handoff`, last step `develop`, 0 min (runner exit 10). pi-rukas stopped on the cap `verify-failed:develop`. It failed: kind `verify-failed`, role `developer`, cause `exit-1`: 3 tests failed. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=develop kind=verify-failed provider=0 sig=350268f086eecdb9ab30183c08955a1e773c6548412e5067694d3003e3e2fbd8 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+    ],
+    [
+     "relabel",
+     "--add-label tehas:question"
+    ]
+   ]
+  }
+ },
+ {
+  "case": "a provider outage says so in the marker, with the kind of its failure",
+  "facts": {
+   "issue": 7,
+   "repo": "acme/widget",
+   "home": "/T/home",
+   "hostname": "tehas-test",
+   "workdir": "/T/home/tehas/work/widget-7",
+   "workspaces_marked": false,
+   "workdir_dir": true,
+   "before_retry_dir": false,
+   "rc": 10,
+   "signalled": false,
+   "started": 1793526160,
+   "now": 1793526160,
+   "start": {
+    "attempt": 1,
+    "by": "",
+    "how": "hand",
+    "approval_at": null,
+    "requeued": false
+   },
+   "files": {
+    "result.json": "{\n  \"schemaVersion\": 5,\n  \"issues\": [\n    {\n      \"issue\": 7,\n      \"status\": \"handoff\",\n      \"failedStep\": \"handoff\",\n      \"branch\": \"feature/issue-7-x\",\n      \"cap\": \"step-failed:adversarial\"\n    }\n  ]\n}\n",
+    "progress.json": "{\n  \"roles\": [],\n  \"reason\": \"Connection error.\",\n  \"failure\": {\n    \"kind\": \"provider\",\n    \"step\": \"adversarial\"\n  },\n  \"from\": {\n    \"roles\": \"result\",\n    \"failure\": \"result\"\n  }\n}\n"
+   },
+   "record": {
+    "api": 1,
+    "verb": "cycle-show",
+    "ok": true,
+    "issue": 7,
+    "lock": {
+     "state": "held",
+     "probe_rc": 1,
+     "file": true,
+     "seen_at": 1793526161
+    },
+    "cycle": {
+     "issue": 7,
+     "attempt": 1,
+     "started_at": 1793526160,
+     "started_by": null,
+     "how": "hand",
+     "requeued": false,
+     "rukas_commit": null,
+     "image": null,
+     "branch": null,
+     "end_reason": null,
+     "ended_at": null,
+     "oom_kills": null,
+     "forks_refused": null,
+     "stalled_seconds": null,
+     "timed_out": false,
+     "runner_exit": null,
+     "watched": false,
+     "host_saw": null,
+     "stop_asked_at": null,
+     "stop_said_times": 0,
+     "settings": {},
+     "quiet": null,
+     "heard_at": null
+    }
+   },
+   "approval": {
+    "api": 1,
+    "verb": "approval-current",
+    "ok": true,
+    "approval": null,
+    "current": null,
+    "rests_on": null,
+    "millwright_starts": 0,
+    "fixer_starts": 0,
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": []
@@ -3997,6 +5729,8 @@
     "feature/issue-7-x",
     "--cap",
     "step-failed:adversarial",
+    "--failure-kind",
+    "provider",
     "--provider",
     "--parked"
    ],
@@ -4017,7 +5751,7 @@
     ],
     [
      "question",
-     "Tehas cycle parked by a provider outage: status `handoff`, last step `handoff`, 0 min (runner exit 10), cap `step-failed:adversarial`: Connection error.; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. It was started by hand, so it waits for a person.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=handoff kind= provider=1 sig=28551b7c13b6fcb1b763d0f0d6da605ce11cbdd7989e0837ade4b1424c217140 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle parked by a provider outage: status `handoff`, last step `handoff`, 0 min (runner exit 10), cap `step-failed:adversarial`: Connection error.; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. It was started by hand, so it waits for a person.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=handoff kind=provider provider=1 sig=723036791d499aa6a70bb2f606b0671d45f0916156c95700ecc2d052049dc802 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -4027,7 +5761,7 @@
   }
  },
  {
-  "case": "1793028907868311260",
+  "case": "a newline or a comment end in the park's text does not break the marker",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -4039,8 +5773,8 @@
    "before_retry_dir": false,
    "rc": 10,
    "signalled": false,
-   "started": 1793028907,
-   "now": 1793028907,
+   "started": 1793526164,
+   "now": 1793526164,
    "start": {
     "attempt": 1,
     "by": "",
@@ -4061,12 +5795,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028907
+     "seen_at": 1793526164
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028907,
+     "started_at": 1793526164,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -4098,10 +5832,17 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": []
+   },
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
    }
   },
   "met": {
@@ -4167,7 +5908,7 @@
   }
  },
  {
-  "case": "1793028908535888103",
+  "case": "a cycle that left a pull request leaves no park on record, and an earlier one is not current",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -4179,8 +5920,8 @@
    "before_retry_dir": false,
    "rc": 10,
    "signalled": false,
-   "started": 1793028908,
-   "now": 1793028908,
+   "started": 1793526168,
+   "now": 1793526168,
    "start": {
     "attempt": 2,
     "by": "",
@@ -4201,12 +5942,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028908
+     "seen_at": 1793526168
     },
     "cycle": {
      "issue": 7,
      "attempt": 2,
-     "started_at": 1793028908,
+     "started_at": 1793526167,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -4226,7 +5967,7 @@
      "stop_said_times": 0,
      "settings": {},
      "quiet": null,
-     "heard_at": 1793028908
+     "heard_at": 1793526167
     }
    },
    "approval": {
@@ -4245,9 +5986,10 @@
      "comment_id": null,
      "refresh_pr": null,
      "refresh_head": null,
-     "used_at": 1793028908,
+     "used_at": 1793526167,
      "used_by": 1,
-     "input": null
+     "input": null,
+     "easy": false
     },
     "rests_on": {
      "at": 1700000000,
@@ -4258,7 +6000,8 @@
     },
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": [
@@ -4321,7 +6064,7 @@
   }
  },
  {
-  "case": "1793028909069121845",
+  "case": "a cycle that stops asks what to do next, with boxes",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -4333,8 +6076,8 @@
    "before_retry_dir": false,
    "rc": 0,
    "signalled": false,
-   "started": 1793028909,
-   "now": 1793028909,
+   "started": 1793526171,
+   "now": 1793526171,
    "start": {
     "attempt": 1,
     "by": "",
@@ -4354,12 +6097,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028909
+     "seen_at": 1793526171
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028909,
+     "started_at": 1793526171,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -4391,9 +6134,16 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
   },
   "met": {
    "recorded": true,
@@ -4450,7 +6200,7 @@
   }
  },
  {
-  "case": "1793028909688422489",
+  "case": "when the question cannot be posted the old comment is used and no question label is added",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -4462,8 +6212,8 @@
    "before_retry_dir": false,
    "rc": 0,
    "signalled": false,
-   "started": 1793028909,
-   "now": 1793028909,
+   "started": 1793526175,
+   "now": 1793526175,
    "start": {
     "attempt": 1,
     "by": "",
@@ -4483,12 +6233,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028909
+     "seen_at": 1793526175
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028909,
+     "started_at": 1793526174,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -4520,9 +6270,16 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
   },
   "met": {
    "recorded": true,
@@ -4578,7 +6335,7 @@
   }
  },
  {
-  "case": "1793028910351206367",
+  "case": "a park the store would not take asks no question: the plain comment, and no tehas:question",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -4590,8 +6347,8 @@
    "before_retry_dir": false,
    "rc": 0,
    "signalled": false,
-   "started": 1793028910,
-   "now": 1793028910,
+   "started": 1793526178,
+   "now": 1793526179,
    "start": {
     "attempt": 1,
     "by": "",
@@ -4611,12 +6368,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028910
+     "seen_at": 1793526179
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028910,
+     "started_at": 1793526178,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -4648,9 +6405,16 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
   },
   "met": {
    "recorded": false,
@@ -4702,7 +6466,7 @@
   }
  },
  {
-  "case": "1793028913020525797",
+  "case": "and so does a store that cannot be used",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -4714,8 +6478,8 @@
    "before_retry_dir": false,
    "rc": 0,
    "signalled": false,
-   "started": 1793028913,
-   "now": 1793028913,
+   "started": 1793526184,
+   "now": 1793526184,
    "start": {
     "attempt": 1,
     "by": "",
@@ -4735,12 +6499,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028913
+     "seen_at": 1793526185
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028913,
+     "started_at": 1793526184,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -4772,9 +6536,16 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
   },
   "met": {
    "recorded": false,
@@ -4826,7 +6597,7 @@
   }
  },
  {
-  "case": "1793028913604702642",
+  "case": "an outage park the store would not take does not say tehas starts it again",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -4838,8 +6609,8 @@
    "before_retry_dir": false,
    "rc": 10,
    "signalled": false,
-   "started": 1793028913,
-   "now": 1793028913,
+   "started": 1793526188,
+   "now": 1793526188,
    "start": {
     "attempt": 1,
     "by": "alice",
@@ -4849,7 +6620,7 @@
    },
    "files": {
     "result.json": "{\n  \"schemaVersion\": 5,\n  \"issues\": [\n    {\n      \"issue\": 7,\n      \"status\": \"handoff\",\n      \"failedStep\": \"handoff\",\n      \"branch\": \"feature/issue-7-x\",\n      \"cap\": \"step-failed:adversarial\"\n    }\n  ]\n}\n",
-    "progress.json": "{\n  \"roles\": [],\n  \"reason\": \"Connection error.\"\n}\n"
+    "progress.json": "{\n  \"roles\": [],\n  \"reason\": \"Connection error.\",\n  \"failure\": {\n    \"kind\": \"provider\",\n    \"step\": \"adversarial\"\n  },\n  \"from\": {\n    \"roles\": \"result\",\n    \"failure\": \"result\"\n  }\n}\n"
    },
    "record": {
     "api": 1,
@@ -4860,12 +6631,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028913
+     "seen_at": 1793526189
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028913,
+     "started_at": 1793526188,
      "started_by": "alice",
      "how": "label",
      "requeued": false,
@@ -4904,9 +6675,10 @@
      "comment_id": null,
      "refresh_pr": null,
      "refresh_head": null,
-     "used_at": 1793028913,
+     "used_at": 1793526188,
      "used_by": 1,
-     "input": null
+     "input": null,
+     "easy": false
     },
     "rests_on": {
      "at": 1760000000,
@@ -4917,7 +6689,8 @@
     },
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": []
@@ -4950,6 +6723,8 @@
     "feature/issue-7-x",
     "--cap",
     "step-failed:adversarial",
+    "--failure-kind",
+    "provider",
     "--provider",
     "--parked"
    ],
@@ -4970,13 +6745,13 @@
     ],
     [
      "comment",
-     "Tehas cycle parked by a provider outage: status `handoff`, last step `handoff`, 0 min (runner exit 10), cap `step-failed:adversarial`: Connection error.; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. Its park could not be recorded, so it waits for a person. To retry, apply `tehas:ready`.\n\n<!-- tehas:park issue=7 step=handoff kind= provider=1 sig=28551b7c13b6fcb1b763d0f0d6da605ce11cbdd7989e0837ade4b1424c217140 -->"
+     "Tehas cycle parked by a provider outage: status `handoff`, last step `handoff`, 0 min (runner exit 10), cap `step-failed:adversarial`: Connection error.; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. Its park could not be recorded, so it waits for a person. To retry, apply `tehas:ready`.\n\n<!-- tehas:park issue=7 step=handoff kind=provider provider=1 sig=723036791d499aa6a70bb2f606b0671d45f0916156c95700ecc2d052049dc802 -->"
     ]
    ]
   }
  },
  {
-  "case": "1793028916221269649",
+  "case": "a question the store would not take is posted, and the log says its boxes will not work",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -4988,8 +6763,8 @@
    "before_retry_dir": false,
    "rc": 0,
    "signalled": false,
-   "started": 1793028916,
-   "now": 1793028916,
+   "started": 1793526193,
+   "now": 1793526194,
    "start": {
     "attempt": 1,
     "by": "",
@@ -5009,12 +6784,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028916
+     "seen_at": 1793526194
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028916,
+     "started_at": 1793526193,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -5046,9 +6821,16 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
   },
   "met": {
    "recorded": true,
@@ -5105,7 +6887,7 @@
   }
  },
  {
-  "case": "1793028918867713201",
+  "case": "when the question label cannot be added the person is told the boxes do not work",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -5117,8 +6899,8 @@
    "before_retry_dir": false,
    "rc": 0,
    "signalled": false,
-   "started": 1793028918,
-   "now": 1793028918,
+   "started": 1793526199,
+   "now": 1793526199,
    "start": {
     "attempt": 1,
     "by": "",
@@ -5138,12 +6920,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028918
+     "seen_at": 1793526199
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028918,
+     "started_at": 1793526199,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -5175,9 +6957,16 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
   },
   "met": {
    "recorded": true,
@@ -5238,7 +7027,7 @@
   }
  },
  {
-  "case": "1793028919482131626",
+  "case": "when the question label is added nothing more is said",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -5250,8 +7039,8 @@
    "before_retry_dir": false,
    "rc": 0,
    "signalled": false,
-   "started": 1793028919,
-   "now": 1793028919,
+   "started": 1793526202,
+   "now": 1793526202,
    "start": {
     "attempt": 1,
     "by": "",
@@ -5271,12 +7060,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028919
+     "seen_at": 1793526202
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028919,
+     "started_at": 1793526202,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -5308,9 +7097,16 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
   },
   "met": {
    "recorded": true,
@@ -5367,7 +7163,7 @@
   }
  },
  {
-  "case": "1793028920068163887",
+  "case": "what the result says is reduced before it is posted, on the pull request path",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -5379,8 +7175,8 @@
    "before_retry_dir": false,
    "rc": 10,
    "signalled": false,
-   "started": 1793028920,
-   "now": 1793028920,
+   "started": 1793526205,
+   "now": 1793526205,
    "start": {
     "attempt": 1,
     "by": "",
@@ -5401,12 +7197,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028920
+     "seen_at": 1793526205
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028920,
+     "started_at": 1793526205,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -5438,7 +7234,8 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": [
@@ -5501,7 +7298,7 @@
   }
  },
  {
-  "case": "1793028920651076145",
+  "case": "a status that only contains handoff does not reach the pull request path",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -5513,8 +7310,8 @@
    "before_retry_dir": false,
    "rc": 10,
    "signalled": false,
-   "started": 1793028920,
-   "now": 1793028920,
+   "started": 1793526208,
+   "now": 1793526208,
    "start": {
     "attempt": 1,
     "by": "",
@@ -5535,12 +7332,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028920
+     "seen_at": 1793526209
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028920,
+     "started_at": 1793526208,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -5572,7 +7369,8 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": [
@@ -5583,6 +7381,12 @@
       "headRefName": "feature/x"
      }
     ]
+   },
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
    }
   },
   "met": {
@@ -5644,7 +7448,7 @@
   }
  },
  {
-  "case": "1793028921284107317",
+  "case": "a handoff that the runner did not exit as one does not reach the pull request path",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -5656,8 +7460,8 @@
    "before_retry_dir": false,
    "rc": 30,
    "signalled": false,
-   "started": 1793028921,
-   "now": 1793028921,
+   "started": 1793526212,
+   "now": 1793526212,
    "start": {
     "attempt": 1,
     "by": "",
@@ -5678,12 +7482,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028921
+     "seen_at": 1793526212
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028921,
+     "started_at": 1793526212,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -5715,7 +7519,8 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": [
@@ -5726,6 +7531,12 @@
       "headRefName": "feature/x"
      }
     ]
+   },
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
    }
   },
   "met": {
@@ -5789,7 +7600,7 @@
   }
  },
  {
-  "case": "1793028921920412418",
+  "case": "a clarification handoff with a pull request is waiting for a merge as any handoff is",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -5801,8 +7612,8 @@
    "before_retry_dir": false,
    "rc": 11,
    "signalled": false,
-   "started": 1793028921,
-   "now": 1793028921,
+   "started": 1793526216,
+   "now": 1793526216,
    "start": {
     "attempt": 1,
     "by": "",
@@ -5823,12 +7634,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028922
+     "seen_at": 1793526216
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028921,
+     "started_at": 1793526216,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -5860,7 +7671,8 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": [
@@ -5923,7 +7735,7 @@
   }
  },
  {
-  "case": "1793028922409679287",
+  "case": "a string in place of every usage number is not posted, on either path",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -5935,8 +7747,8 @@
    "before_retry_dir": false,
    "rc": 10,
    "signalled": false,
-   "started": 1793028922,
-   "now": 1793028922,
+   "started": 1793526219,
+   "now": 1793526219,
    "start": {
     "attempt": 1,
     "by": "",
@@ -5957,12 +7769,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028922
+     "seen_at": 1793526220
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028922,
+     "started_at": 1793526219,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -5994,7 +7806,8 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": [
@@ -6057,7 +7870,7 @@
   }
  },
  {
-  "case": "1793028922843473396",
+  "case": "a string in place of every usage number is not posted, on either path (2)",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -6069,8 +7882,8 @@
    "before_retry_dir": false,
    "rc": 10,
    "signalled": false,
-   "started": 1793028922,
-   "now": 1793028922,
+   "started": 1793526223,
+   "now": 1793526223,
    "start": {
     "attempt": 2,
     "by": "",
@@ -6091,12 +7904,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028922
+     "seen_at": 1793526223
     },
     "cycle": {
      "issue": 7,
      "attempt": 2,
-     "started_at": 1793028922,
+     "started_at": 1793526222,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -6116,7 +7929,7 @@
      "stop_said_times": 0,
      "settings": {},
      "quiet": null,
-     "heard_at": 1793028922
+     "heard_at": 1793526222
     }
    },
    "approval": {
@@ -6128,10 +7941,39 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": []
+   },
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": [
+     {
+      "kind": "cycle",
+      "id": 1,
+      "issue": 7,
+      "attempt": 1,
+      "at": 1793526222,
+      "status": "handoff",
+      "step": "commit-pr",
+      "by": null,
+      "how": "hand",
+      "pr": 9,
+      "started_at": 1793526219,
+      "rc": 10,
+      "cap": "awaiting-human-merge",
+      "park_reason": null,
+      "failure_kind": null,
+      "failure_cause": null,
+      "provider": false,
+      "parked": false,
+      "seq": 1
+     }
+    ]
    }
   },
   "met": {
@@ -6190,7 +8032,7 @@
   }
  },
  {
-  "case": "1793028923387156906",
+  "case": "a usage number that is not a number counts as nothing, on the pull request path",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -6202,8 +8044,8 @@
    "before_retry_dir": false,
    "rc": 10,
    "signalled": false,
-   "started": 1793028923,
-   "now": 1793028923,
+   "started": 1793526227,
+   "now": 1793526227,
    "start": {
     "attempt": 1,
     "by": "",
@@ -6224,12 +8066,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028923
+     "seen_at": 1793526228
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028923,
+     "started_at": 1793526227,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -6261,7 +8103,8 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": [
@@ -6324,7 +8167,7 @@
   }
  },
  {
-  "case": "1793028923914265472",
+  "case": "and in the park question, where only the factory's own boxes and marker are posted",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -6336,8 +8179,8 @@
    "before_retry_dir": false,
    "rc": 30,
    "signalled": false,
-   "started": 1793028923,
-   "now": 1793028923,
+   "started": 1793526231,
+   "now": 1793526231,
    "start": {
     "attempt": 1,
     "by": "",
@@ -6358,12 +8201,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028924
+     "seen_at": 1793526231
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028923,
+     "started_at": 1793526231,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -6395,10 +8238,17 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": []
+   },
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
    }
   },
   "met": {
@@ -6458,7 +8308,7 @@
   }
  },
  {
-  "case": "1793028924496034427",
+  "case": "and in the comment that is used when the question cannot be posted",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -6470,8 +8320,8 @@
    "before_retry_dir": false,
    "rc": 30,
    "signalled": false,
-   "started": 1793028924,
-   "now": 1793028924,
+   "started": 1793526236,
+   "now": 1793526236,
    "start": {
     "attempt": 1,
     "by": "",
@@ -6492,12 +8342,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028924
+     "seen_at": 1793526236
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028924,
+     "started_at": 1793526235,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -6529,10 +8379,17 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": []
+   },
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
    }
   },
   "met": {
@@ -6591,7 +8448,7 @@
   }
  },
  {
-  "case": "1793028925131792807",
+  "case": "a lean start tehas work refused is parked with what to do, and its approval goes",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -6601,10 +8458,10 @@
    "workspaces_marked": false,
    "workdir_dir": false,
    "before_retry_dir": false,
-   "rc": 4,
+   "rc": 78,
    "signalled": false,
-   "started": 1793028925,
-   "now": 1793028925,
+   "started": 1793526239,
+   "now": 1793526239,
    "start": {
     "attempt": 1,
     "by": "alice",
@@ -6613,7 +8470,8 @@
     "requeued": false
    },
    "files": {
-    "progress.json": "{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}\n"
+    "progress.json": "{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}\n",
+    "lean-refused": ""
    },
    "record": {
     "api": 1,
@@ -6624,12 +8482,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028925
+     "seen_at": 1793526240
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028925,
+     "started_at": 1793526239,
      "started_by": "alice",
      "how": "label",
      "requeued": false,
@@ -6668,9 +8526,13 @@
      "comment_id": null,
      "refresh_pr": null,
      "refresh_head": null,
-     "used_at": 1793028925,
+     "used_at": 1793526239,
      "used_by": 1,
-     "input": null
+     "input": {
+      "driver": "lean",
+      "links": []
+     },
+     "easy": false
     },
     "rests_on": {
      "at": 1767225600,
@@ -6681,9 +8543,651 @@
     },
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
+  },
+  "met": {
+   "recorded": true,
+   "posted": true,
+   "relabel": [
+    "ok",
+    "ok"
+   ]
+  },
+  "expect": {
+   "done": "done #7 rc=78 status=unknown step=- minutes=0 pr=none oom_kills=0 forks_refused=0",
+   "end": [
+    "7",
+    "--attempt",
+    "1",
+    "--status",
+    "unknown",
+    "--step",
+    "-",
+    "--rc",
+    "78",
+    "--oom",
+    "0",
+    "--forks",
+    "0",
+    "--parked",
+    "--never-ran"
+   ],
+   "park": [
+    "7",
+    "--attempt",
+    "1",
+    "--reason",
+    "unknown",
+    "--step",
+    "-"
+   ],
+   "log": [
+    "WARN: the result of #7 holds nothing, so its step is read from its run log"
+   ],
+   "writes": [
+    [
+     "relabel",
+     "--remove-label tehas:running --add-label needs-human-attention"
+    ],
+    [
+     "question",
+     "Tehas started no cycle: this start's approval says driver `lean`, and this tehas cannot run the lean driver yet (runner exit 78). It does not run classic in its place, and nothing of it ran. To run it on classic, take `tehas:lean` off, then retry; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+    ],
+    [
+     "relabel",
+     "--add-label tehas:question"
+    ]
+   ]
+  }
+ },
+ {
+  "case": "a 78 on a classic start stays a stopped cycle, with its approval on record",
+  "facts": {
+   "issue": 7,
+   "repo": "acme/widget",
+   "home": "/T/home",
+   "hostname": "tehas-test",
+   "workdir": "/T/home/tehas/work/widget-7",
+   "workspaces_marked": false,
+   "workdir_dir": false,
+   "before_retry_dir": false,
+   "rc": 78,
+   "signalled": false,
+   "started": 1793526244,
+   "now": 1793526244,
+   "start": {
+    "attempt": 1,
+    "by": "alice",
+    "how": "label",
+    "approval_at": 1767225600,
+    "requeued": false
+   },
+   "files": {
+    "progress.json": "{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}\n"
+   },
+   "record": {
+    "api": 1,
+    "verb": "cycle-show",
+    "ok": true,
+    "issue": 7,
+    "lock": {
+     "state": "held",
+     "probe_rc": 1,
+     "file": true,
+     "seen_at": 1793526244
+    },
+    "cycle": {
+     "issue": 7,
+     "attempt": 1,
+     "started_at": 1793526243,
+     "started_by": "alice",
+     "how": "label",
+     "requeued": false,
+     "rukas_commit": null,
+     "image": null,
+     "branch": null,
+     "end_reason": null,
+     "ended_at": null,
+     "oom_kills": null,
+     "forks_refused": null,
+     "stalled_seconds": null,
+     "timed_out": false,
+     "runner_exit": null,
+     "watched": false,
+     "host_saw": null,
+     "stop_asked_at": null,
+     "stop_said_times": 0,
+     "settings": {},
+     "quiet": null,
+     "heard_at": null
+    }
+   },
+   "approval": {
+    "api": 1,
+    "verb": "approval-current",
+    "ok": true,
+    "approval": null,
+    "current": {
+     "issue": 7,
+     "at": 1767225600,
+     "by": "alice",
+     "how": "label",
+     "label": "tehas:ready",
+     "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
+     "title_sha256": null,
+     "comment_id": null,
+     "refresh_pr": null,
+     "refresh_head": null,
+     "used_at": 1793526243,
+     "used_by": 1,
+     "input": null,
+     "easy": false
+    },
+    "rests_on": {
+     "at": 1767225600,
+     "by": "alice",
+     "how": "label",
+     "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
+     "used_by": 1
+    },
+    "millwright_starts": 0,
+    "fixer_starts": 0,
+    "refreshes": 0,
+    "easy": false
+   },
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
+  },
+  "met": {
+   "recorded": true,
+   "posted": true,
+   "relabel": [
+    "ok",
+    "ok"
+   ]
+  },
+  "expect": {
+   "done": "done #7 rc=78 status=unknown step=- minutes=0 pr=none oom_kills=0 forks_refused=0",
+   "end": [
+    "7",
+    "--attempt",
+    "1",
+    "--status",
+    "unknown",
+    "--step",
+    "-",
+    "--rc",
+    "78",
+    "--oom",
+    "0",
+    "--forks",
+    "0",
+    "--parked"
+   ],
+   "park": [
+    "7",
+    "--attempt",
+    "1",
+    "--reason",
+    "unknown",
+    "--step",
+    "-"
+   ],
+   "log": [
+    "WARN: the result of #7 holds nothing, so its step is read from its run log"
+   ],
+   "writes": [
+    [
+     "relabel",
+     "--remove-label tehas:running --add-label needs-human-attention"
+    ],
+    [
+     "question",
+     "Tehas cycle stopped without a pull request: status `unknown`, last step `-`, 0 min (runner exit 78). This cycle left no workspace on this host; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+    ],
+    [
+     "relabel",
+     "--add-label tehas:question"
+    ]
+   ]
+  }
+ },
+ {
+  "case": "a 78 on a lean start that tehas work did not say was lean's is a stopped cycle, with its approval on record",
+  "facts": {
+   "issue": 7,
+   "repo": "acme/widget",
+   "home": "/T/home",
+   "hostname": "tehas-test",
+   "workdir": "/T/home/tehas/work/widget-7",
+   "workspaces_marked": false,
+   "workdir_dir": false,
+   "before_retry_dir": false,
+   "rc": 78,
+   "signalled": false,
+   "started": 1793526247,
+   "now": 1793526247,
+   "start": {
+    "attempt": 1,
+    "by": "alice",
+    "how": "label",
+    "approval_at": 1767225600,
+    "requeued": false
+   },
+   "files": {
+    "progress.json": "{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}\n"
+   },
+   "record": {
+    "api": 1,
+    "verb": "cycle-show",
+    "ok": true,
+    "issue": 7,
+    "lock": {
+     "state": "held",
+     "probe_rc": 1,
+     "file": true,
+     "seen_at": 1793526248
+    },
+    "cycle": {
+     "issue": 7,
+     "attempt": 1,
+     "started_at": 1793526247,
+     "started_by": "alice",
+     "how": "label",
+     "requeued": false,
+     "rukas_commit": null,
+     "image": null,
+     "branch": null,
+     "end_reason": null,
+     "ended_at": null,
+     "oom_kills": null,
+     "forks_refused": null,
+     "stalled_seconds": null,
+     "timed_out": false,
+     "runner_exit": null,
+     "watched": false,
+     "host_saw": null,
+     "stop_asked_at": null,
+     "stop_said_times": 0,
+     "settings": {},
+     "quiet": null,
+     "heard_at": null
+    }
+   },
+   "approval": {
+    "api": 1,
+    "verb": "approval-current",
+    "ok": true,
+    "approval": null,
+    "current": {
+     "issue": 7,
+     "at": 1767225600,
+     "by": "alice",
+     "how": "label",
+     "label": "tehas:ready",
+     "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
+     "title_sha256": null,
+     "comment_id": null,
+     "refresh_pr": null,
+     "refresh_head": null,
+     "used_at": 1793526247,
+     "used_by": 1,
+     "input": {
+      "driver": "lean",
+      "links": []
+     },
+     "easy": false
+    },
+    "rests_on": {
+     "at": 1767225600,
+     "by": "alice",
+     "how": "label",
+     "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
+     "used_by": 1
+    },
+    "millwright_starts": 0,
+    "fixer_starts": 0,
+    "refreshes": 0,
+    "easy": false
+   },
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
+  },
+  "met": {
+   "recorded": true,
+   "posted": true,
+   "relabel": [
+    "ok",
+    "ok"
+   ]
+  },
+  "expect": {
+   "done": "done #7 rc=78 status=unknown step=- minutes=0 pr=none oom_kills=0 forks_refused=0",
+   "end": [
+    "7",
+    "--attempt",
+    "1",
+    "--status",
+    "unknown",
+    "--step",
+    "-",
+    "--rc",
+    "78",
+    "--oom",
+    "0",
+    "--forks",
+    "0",
+    "--parked"
+   ],
+   "park": [
+    "7",
+    "--attempt",
+    "1",
+    "--reason",
+    "unknown",
+    "--step",
+    "-"
+   ],
+   "log": [
+    "WARN: the result of #7 holds nothing, so its step is read from its run log"
+   ],
+   "writes": [
+    [
+     "relabel",
+     "--remove-label tehas:running --add-label needs-human-attention"
+    ],
+    [
+     "question",
+     "Tehas cycle stopped without a pull request: status `unknown`, last step `-`, 0 min (runner exit 78). This cycle left no workspace on this host; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+    ],
+    [
+     "relabel",
+     "--add-label tehas:question"
+    ]
+   ]
+  }
+ },
+ {
+  "case": "a refused lean start of an earlier cycle says nothing of this one",
+  "facts": {
+   "issue": 7,
+   "repo": "acme/widget",
+   "home": "/T/home",
+   "hostname": "tehas-test",
+   "workdir": "/T/home/tehas/work/widget-7",
+   "workspaces_marked": false,
+   "workdir_dir": false,
+   "before_retry_dir": false,
+   "rc": 78,
+   "signalled": false,
+   "started": 1793526250,
+   "now": 1793526250,
+   "start": {
+    "attempt": 1,
+    "by": "alice",
+    "how": "label",
+    "approval_at": 1767225600,
+    "requeued": false
+   },
+   "files": {
+    "progress.json": "{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}\n"
+   },
+   "record": {
+    "api": 1,
+    "verb": "cycle-show",
+    "ok": true,
+    "issue": 7,
+    "lock": {
+     "state": "held",
+     "probe_rc": 1,
+     "file": true,
+     "seen_at": 1793526251
+    },
+    "cycle": {
+     "issue": 7,
+     "attempt": 1,
+     "started_at": 1793526250,
+     "started_by": "alice",
+     "how": "label",
+     "requeued": false,
+     "rukas_commit": null,
+     "image": null,
+     "branch": null,
+     "end_reason": null,
+     "ended_at": null,
+     "oom_kills": null,
+     "forks_refused": null,
+     "stalled_seconds": null,
+     "timed_out": false,
+     "runner_exit": null,
+     "watched": false,
+     "host_saw": null,
+     "stop_asked_at": null,
+     "stop_said_times": 0,
+     "settings": {},
+     "quiet": null,
+     "heard_at": null
+    }
+   },
+   "approval": {
+    "api": 1,
+    "verb": "approval-current",
+    "ok": true,
+    "approval": null,
+    "current": {
+     "issue": 7,
+     "at": 1767225600,
+     "by": "alice",
+     "how": "label",
+     "label": "tehas:ready",
+     "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
+     "title_sha256": null,
+     "comment_id": null,
+     "refresh_pr": null,
+     "refresh_head": null,
+     "used_at": 1793526250,
+     "used_by": 1,
+     "input": {
+      "driver": "lean",
+      "links": []
+     },
+     "easy": false
+    },
+    "rests_on": {
+     "at": 1767225600,
+     "by": "alice",
+     "how": "label",
+     "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
+     "used_by": 1
+    },
+    "millwright_starts": 0,
+    "fixer_starts": 0,
+    "refreshes": 0,
+    "easy": false
+   },
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
+  },
+  "met": {
+   "recorded": true,
+   "posted": true,
+   "relabel": [
+    "ok",
+    "ok"
+   ]
+  },
+  "expect": {
+   "done": "done #7 rc=78 status=unknown step=- minutes=0 pr=none oom_kills=0 forks_refused=0",
+   "end": [
+    "7",
+    "--attempt",
+    "1",
+    "--status",
+    "unknown",
+    "--step",
+    "-",
+    "--rc",
+    "78",
+    "--oom",
+    "0",
+    "--forks",
+    "0",
+    "--parked"
+   ],
+   "park": [
+    "7",
+    "--attempt",
+    "1",
+    "--reason",
+    "unknown",
+    "--step",
+    "-"
+   ],
+   "log": [
+    "WARN: the result of #7 holds nothing, so its step is read from its run log"
+   ],
+   "writes": [
+    [
+     "relabel",
+     "--remove-label tehas:running --add-label needs-human-attention"
+    ],
+    [
+     "question",
+     "Tehas cycle stopped without a pull request: status `unknown`, last step `-`, 0 min (runner exit 78). This cycle left no workspace on this host; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+    ],
+    [
+     "relabel",
+     "--add-label tehas:question"
+    ]
+   ]
+  }
+ },
+ {
+  "case": "a start that never ran is parked as one that never ran, named from the record",
+  "facts": {
+   "issue": 7,
+   "repo": "acme/widget",
+   "home": "/T/home",
+   "hostname": "tehas-test",
+   "workdir": "/T/home/tehas/work/widget-7",
+   "workspaces_marked": false,
+   "workdir_dir": false,
+   "before_retry_dir": false,
+   "rc": 4,
+   "signalled": false,
+   "started": 1793526254,
+   "now": 1793526254,
+   "start": {
+    "attempt": 1,
+    "by": "alice",
+    "how": "label",
+    "approval_at": 1767225600,
+    "requeued": false
+   },
+   "files": {
+    "progress.json": "{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}\n"
+   },
+   "record": {
+    "api": 1,
+    "verb": "cycle-show",
+    "ok": true,
+    "issue": 7,
+    "lock": {
+     "state": "held",
+     "probe_rc": 1,
+     "file": true,
+     "seen_at": 1793526254
+    },
+    "cycle": {
+     "issue": 7,
+     "attempt": 1,
+     "started_at": 1793526253,
+     "started_by": "alice",
+     "how": "label",
+     "requeued": false,
+     "rukas_commit": null,
+     "image": null,
+     "branch": null,
+     "end_reason": null,
+     "ended_at": null,
+     "oom_kills": null,
+     "forks_refused": null,
+     "stalled_seconds": null,
+     "timed_out": false,
+     "runner_exit": null,
+     "watched": false,
+     "host_saw": null,
+     "stop_asked_at": null,
+     "stop_said_times": 0,
+     "settings": {},
+     "quiet": null,
+     "heard_at": null
+    }
+   },
+   "approval": {
+    "api": 1,
+    "verb": "approval-current",
+    "ok": true,
+    "approval": null,
+    "current": {
+     "issue": 7,
+     "at": 1767225600,
+     "by": "alice",
+     "how": "label",
+     "label": "tehas:ready",
+     "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
+     "title_sha256": null,
+     "comment_id": null,
+     "refresh_pr": null,
+     "refresh_head": null,
+     "used_at": 1793526253,
+     "used_by": 1,
+     "input": null,
+     "easy": false
+    },
+    "rests_on": {
+     "at": 1767225600,
+     "by": "alice",
+     "how": "label",
+     "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
+     "used_by": 1
+    },
+    "millwright_starts": 0,
+    "fixer_starts": 0,
+    "refreshes": 0,
+    "easy": false
+   },
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
   },
   "met": {
    "recorded": true,
@@ -6741,7 +9245,7 @@
   }
  },
  {
-  "case": "1793028925814738935",
+  "case": "a refresh that never ran names the person's approval it rests on, not the time the poll decided it",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -6753,8 +9257,8 @@
    "before_retry_dir": false,
    "rc": 4,
    "signalled": false,
-   "started": 1793028925,
-   "now": 1793028925,
+   "started": 1793526259,
+   "now": 1793526259,
    "start": {
     "attempt": 2,
     "by": "alice",
@@ -6774,12 +9278,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028925
+     "seen_at": 1793526259
     },
     "cycle": {
      "issue": 7,
      "attempt": 2,
-     "started_at": 1793028925,
+     "started_at": 1793526259,
      "started_by": "alice",
      "how": "refresh",
      "requeued": false,
@@ -6799,7 +9303,7 @@
      "stop_said_times": 0,
      "settings": {},
      "quiet": null,
-     "heard_at": 1793028925
+     "heard_at": null
     }
    },
    "approval": {
@@ -6818,9 +9322,10 @@
      "comment_id": null,
      "refresh_pr": 50,
      "refresh_head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-     "used_at": 1793028925,
+     "used_at": 1793526259,
      "used_by": 2,
-     "input": null
+     "input": null,
+     "easy": false
     },
     "rests_on": {
      "at": 1700000000,
@@ -6831,9 +9336,38 @@
     },
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 1
+    "refreshes": 1,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": [
+     {
+      "kind": "cycle",
+      "id": 1,
+      "issue": 7,
+      "attempt": 1,
+      "at": 1793526258,
+      "status": "handoff",
+      "step": null,
+      "by": "alice",
+      "how": "label",
+      "pr": null,
+      "started_at": 1793526257,
+      "rc": null,
+      "cap": null,
+      "park_reason": null,
+      "failure_kind": null,
+      "failure_cause": null,
+      "provider": false,
+      "parked": false,
+      "seq": 1
+     }
+    ]
+   }
   },
   "met": {
    "recorded": true,
@@ -6895,7 +9429,7 @@
   }
  },
  {
-  "case": "1793028926422657132",
+  "case": "the retry after an outage that never ran names no time of approval: the poll decided it",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -6907,8 +9441,8 @@
    "before_retry_dir": false,
    "rc": 4,
    "signalled": false,
-   "started": 1793028926,
-   "now": 1793028926,
+   "started": 1793526263,
+   "now": 1793526263,
    "start": {
     "attempt": 1,
     "by": "alice",
@@ -6928,12 +9462,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028926
+     "seen_at": 1793526263
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028926,
+     "started_at": 1793526262,
      "started_by": "alice",
      "how": "outage-retry",
      "requeued": true,
@@ -6972,9 +9506,10 @@
      "comment_id": null,
      "refresh_pr": null,
      "refresh_head": null,
-     "used_at": 1793028926,
+     "used_at": 1793526262,
      "used_by": 1,
-     "input": null
+     "input": null,
+     "easy": false
     },
     "rests_on": {
      "at": 1792843200,
@@ -6985,9 +9520,16 @@
     },
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
   },
   "met": {
    "recorded": true,
@@ -7045,7 +9587,7 @@
   }
  },
  {
-  "case": "1793028926964552116",
+  "case": "a start that never ran leaves no approval record, and its line of history still names how it was authorised",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -7057,8 +9599,8 @@
    "before_retry_dir": false,
    "rc": 4,
    "signalled": false,
-   "started": 1793028927,
-   "now": 1793028927,
+   "started": 1793526266,
+   "now": 1793526266,
    "start": {
     "attempt": 1,
     "by": "alice",
@@ -7078,12 +9620,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028927
+     "seen_at": 1793526267
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028926,
+     "started_at": 1793526266,
      "started_by": "alice",
      "how": "label",
      "requeued": false,
@@ -7122,9 +9664,10 @@
      "comment_id": null,
      "refresh_pr": null,
      "refresh_head": null,
-     "used_at": 1793028926,
+     "used_at": 1793526266,
      "used_by": 1,
-     "input": null
+     "input": null,
+     "easy": false
     },
     "rests_on": {
      "at": 1767225600,
@@ -7135,9 +9678,16 @@
     },
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
   },
   "met": {
    "recorded": true,
@@ -7195,7 +9745,7 @@
   }
  },
  {
-  "case": "1793028927533386069",
+  "case": "a cycle that ran keeps its approval record",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -7207,8 +9757,8 @@
    "before_retry_dir": false,
    "rc": 10,
    "signalled": false,
-   "started": 1793028927,
-   "now": 1793028927,
+   "started": 1793526271,
+   "now": 1793526271,
    "start": {
     "attempt": 1,
     "by": "alice",
@@ -7229,12 +9779,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028927
+     "seen_at": 1793526271
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028927,
+     "started_at": 1793526271,
      "started_by": "alice",
      "how": "label",
      "requeued": false,
@@ -7273,9 +9823,10 @@
      "comment_id": null,
      "refresh_pr": null,
      "refresh_head": null,
-     "used_at": 1793028927,
+     "used_at": 1793526271,
      "used_by": 1,
-     "input": null
+     "input": null,
+     "easy": false
     },
     "rests_on": {
      "at": 1767225600,
@@ -7286,7 +9837,8 @@
     },
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": [
@@ -7349,7 +9901,7 @@
   }
  },
  {
-  "case": "1793028928023225768",
+  "case": "a start that never ran with no record on this host says so, and still asks for the label",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -7361,8 +9913,8 @@
    "before_retry_dir": false,
    "rc": 4,
    "signalled": false,
-   "started": 1793028928,
-   "now": 1793028928,
+   "started": 1793526275,
+   "now": 1793526275,
    "start": {
     "attempt": 1,
     "by": "",
@@ -7382,12 +9934,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028928
+     "seen_at": 1793526275
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028928,
+     "started_at": 1793526274,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -7419,9 +9971,16 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
   },
   "met": {
    "recorded": true,
@@ -7479,7 +10038,7 @@
   }
  },
  {
-  "case": "1793028928540106251",
+  "case": "the park carries the body of the approval it started on",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -7491,8 +10050,8 @@
    "before_retry_dir": false,
    "rc": 30,
    "signalled": false,
-   "started": 1793028928,
-   "now": 1793028928,
+   "started": 1793526280,
+   "now": 1793526280,
    "start": {
     "attempt": 1,
     "by": "alice",
@@ -7512,12 +10071,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028928
+     "seen_at": 1793526280
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028928,
+     "started_at": 1793526279,
      "started_by": "alice",
      "how": "label",
      "requeued": false,
@@ -7556,9 +10115,10 @@
      "comment_id": null,
      "refresh_pr": null,
      "refresh_head": null,
-     "used_at": 1793028928,
+     "used_at": 1793526279,
      "used_by": 1,
-     "input": null
+     "input": null,
+     "easy": false
     },
     "rests_on": {
      "at": 1767225600,
@@ -7569,9 +10129,16 @@
     },
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
   },
   "met": {
    "recorded": true,
@@ -7628,7 +10195,7 @@
   }
  },
  {
-  "case": "1793028929018720441",
+  "case": "a park of a cycle started by hand names no body, not that of an earlier start",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -7640,8 +10207,8 @@
    "before_retry_dir": false,
    "rc": 30,
    "signalled": false,
-   "started": 1793028929,
-   "now": 1793028929,
+   "started": 1793526283,
+   "now": 1793526283,
    "start": {
     "attempt": 2,
     "by": "",
@@ -7661,12 +10228,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028929
+     "seen_at": 1793526283
     },
     "cycle": {
      "issue": 7,
      "attempt": 2,
-     "started_at": 1793028929,
+     "started_at": 1793526283,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -7705,9 +10272,10 @@
      "comment_id": null,
      "refresh_pr": null,
      "refresh_head": null,
-     "used_at": 1793028928,
+     "used_at": 1793526279,
      "used_by": 1,
-     "input": null
+     "input": null,
+     "easy": false
     },
     "rests_on": {
      "at": 1767225600,
@@ -7718,9 +10286,38 @@
     },
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": [
+     {
+      "kind": "cycle",
+      "id": 1,
+      "issue": 7,
+      "attempt": 1,
+      "at": 1793526282,
+      "status": "unknown",
+      "step": "-",
+      "by": "alice",
+      "how": "label",
+      "pr": null,
+      "started_at": 1793526279,
+      "rc": 30,
+      "cap": null,
+      "park_reason": null,
+      "failure_kind": null,
+      "failure_cause": null,
+      "provider": false,
+      "parked": true,
+      "seq": 1
+     }
+    ]
+   }
   },
   "met": {
    "recorded": true,
@@ -7768,6 +10365,813 @@
     [
      "question",
      "Tehas cycle stopped without a pull request: status `unknown`, last step `-`, 0 min (runner exit 30). This cycle left no workspace on this host; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+    ],
+    [
+     "relabel",
+     "--add-label tehas:question"
+    ]
+   ]
+  }
+ },
+ {
+  "case": "a develop timeout leaves a note of the attempt in the issue's body, and still offers a retry",
+  "facts": {
+   "issue": 7,
+   "repo": "acme/widget",
+   "home": "/T/home",
+   "hostname": "tehas-test",
+   "workdir": "/T/home/tehas/work/widget-7",
+   "workspaces_marked": false,
+   "workdir_dir": true,
+   "before_retry_dir": false,
+   "rc": 20,
+   "signalled": false,
+   "started": 1793526288,
+   "now": 1793526288,
+   "start": {
+    "attempt": 1,
+    "by": "",
+    "how": "hand",
+    "approval_at": null,
+    "requeued": false
+   },
+   "files": {
+    "result.json": "{\n  \"schemaVersion\": 5,\n  \"issues\": [\n    {\n      \"issue\": 7,\n      \"status\": \"aborted\",\n      \"failedStep\": \"develop\",\n      \"branch\": \"feature/issue-7-x\",\n      \"cap\": \"child-timeout:develop\",\n      \"failure\": {\n        \"errorTail\": \"[pi-rukas] killed after 5400000ms child-bound\"\n      }\n    }\n  ]\n}\n",
+    "progress.json": "{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}\n"
+   },
+   "record": {
+    "api": 1,
+    "verb": "cycle-show",
+    "ok": true,
+    "issue": 7,
+    "lock": {
+     "state": "held",
+     "probe_rc": 1,
+     "file": true,
+     "seen_at": 1793526288
+    },
+    "cycle": {
+     "issue": 7,
+     "attempt": 1,
+     "started_at": 1793526287,
+     "started_by": null,
+     "how": "hand",
+     "requeued": false,
+     "rukas_commit": null,
+     "image": null,
+     "branch": null,
+     "end_reason": null,
+     "ended_at": null,
+     "oom_kills": null,
+     "forks_refused": null,
+     "stalled_seconds": null,
+     "timed_out": false,
+     "runner_exit": null,
+     "watched": false,
+     "host_saw": null,
+     "stop_asked_at": null,
+     "stop_said_times": 0,
+     "settings": {},
+     "quiet": null,
+     "heard_at": null
+    }
+   },
+   "approval": {
+    "api": 1,
+    "verb": "approval-current",
+    "ok": true,
+    "approval": null,
+    "current": null,
+    "rests_on": null,
+    "millwright_starts": 0,
+    "fixer_starts": 0,
+    "refreshes": 0,
+    "easy": false
+   },
+   "github": {
+    "prs": [],
+    "issue": {
+     "number": 7,
+     "state": "open",
+     "body": "Fix the drain."
+    }
+   },
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   },
+   "work_state": {
+    "pipelineState": {
+     "normalisedSpec": {
+      "deliverables": [
+       {
+        "id": "d1",
+        "paths": [
+         "libexec/drain"
+        ]
+       }
+      ]
+     }
+    }
+   }
+  },
+  "met": {
+   "recorded": true,
+   "posted": true,
+   "relabel": [
+    "ok",
+    "ok"
+   ]
+  },
+  "expect": {
+   "done": "done #7 rc=20 status=aborted step=develop minutes=0 pr=none oom_kills=0 forks_refused=0",
+   "end": [
+    "7",
+    "--attempt",
+    "1",
+    "--status",
+    "aborted",
+    "--step",
+    "develop",
+    "--rc",
+    "20",
+    "--oom",
+    "0",
+    "--forks",
+    "0",
+    "--branch",
+    "feature/issue-7-x",
+    "--cap",
+    "child-timeout:develop",
+    "--parked"
+   ],
+   "park": [
+    "7",
+    "--attempt",
+    "1",
+    "--reason",
+    "child-timeout:develop",
+    "--step",
+    "develop"
+   ],
+   "log": [],
+   "writes": [
+    [
+     "relabel",
+     "--remove-label tehas:running --add-label needs-human-attention"
+    ],
+    [
+     "body_edit",
+     "repos/acme/widget/issues/7"
+    ],
+    [
+     "question",
+     "Tehas cycle stopped without a pull request: status `aborted`, last step `develop`, 0 min (runner exit 20). pi-rukas stopped on the cap `child-timeout:develop`. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=develop kind= provider=0 sig=de2fceabb5e0cd1c98840cb082d628986d515eaddd6a677d06b2824711d7e660 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+    ],
+    [
+     "relabel",
+     "--add-label tehas:question"
+    ]
+   ]
+  }
+ },
+ {
+  "case": "a second develop timeout on the same text writes nothing, offers no retry and names tehas:plan",
+  "facts": {
+   "issue": 7,
+   "repo": "acme/widget",
+   "home": "/T/home",
+   "hostname": "tehas-test",
+   "workdir": "/T/home/tehas/work/widget-7",
+   "workspaces_marked": false,
+   "workdir_dir": true,
+   "before_retry_dir": false,
+   "rc": 20,
+   "signalled": false,
+   "started": 1793526294,
+   "now": 1793526294,
+   "start": {
+    "attempt": 1,
+    "by": "",
+    "how": "hand",
+    "approval_at": null,
+    "requeued": false
+   },
+   "files": {
+    "result.json": "{\n  \"schemaVersion\": 5,\n  \"issues\": [\n    {\n      \"issue\": 7,\n      \"status\": \"aborted\",\n      \"failedStep\": \"develop\",\n      \"branch\": \"feature/issue-7-x\",\n      \"cap\": \"child-timeout:develop\",\n      \"failure\": {\n        \"errorTail\": \"[pi-rukas] killed after 5400000ms child-bound\"\n      }\n    }\n  ]\n}\n",
+    "progress.json": "{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}\n"
+   },
+   "record": {
+    "api": 1,
+    "verb": "cycle-show",
+    "ok": true,
+    "issue": 7,
+    "lock": {
+     "state": "held",
+     "probe_rc": 1,
+     "file": true,
+     "seen_at": 1793526295
+    },
+    "cycle": {
+     "issue": 7,
+     "attempt": 1,
+     "started_at": 1793526294,
+     "started_by": null,
+     "how": "hand",
+     "requeued": false,
+     "rukas_commit": null,
+     "image": null,
+     "branch": null,
+     "end_reason": null,
+     "ended_at": null,
+     "oom_kills": null,
+     "forks_refused": null,
+     "stalled_seconds": null,
+     "timed_out": false,
+     "runner_exit": null,
+     "watched": false,
+     "host_saw": null,
+     "stop_asked_at": null,
+     "stop_said_times": 0,
+     "settings": {},
+     "quiet": null,
+     "heard_at": null
+    }
+   },
+   "approval": {
+    "api": 1,
+    "verb": "approval-current",
+    "ok": true,
+    "approval": null,
+    "current": null,
+    "rests_on": null,
+    "millwright_starts": 0,
+    "fixer_starts": 0,
+    "refreshes": 0,
+    "easy": false
+   },
+   "github": {
+    "prs": [],
+    "issue": {
+     "number": 7,
+     "state": "open",
+     "body": "Fix the drain.\n\n<!-- tehas:last-attempt base=6ca7d08d4cf3742320882a59c2b9e95093a27665f9c600a81aa8dba21d6ee678 -->\n### The last attempt ran out of time\n\nThe last cycle on this text was stopped in develop: the developer ran past its time bound of 90 minutes. Its work was not pushed, and the next cycle starts from a clean checkout.\n\n- Its plan had 1 part(s) over 1 file(s):\n  - `libexec/drain`\n\nPlan a smaller change: finish one part well, or say in this issue what to leave out. This section is the factory's; edit or delete it as you like.\n<!-- /tehas:last-attempt -->"
+    }
+   },
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   },
+   "work_state": {
+    "pipelineState": {
+     "normalisedSpec": {
+      "deliverables": [
+       {
+        "id": "d1",
+        "paths": [
+         "libexec/drain"
+        ]
+       }
+      ]
+     }
+    }
+   }
+  },
+  "met": {
+   "recorded": true,
+   "posted": true,
+   "relabel": [
+    "ok",
+    "ok"
+   ]
+  },
+  "expect": {
+   "done": "done #7 rc=20 status=aborted step=develop minutes=0 pr=none oom_kills=0 forks_refused=0",
+   "end": [
+    "7",
+    "--attempt",
+    "1",
+    "--status",
+    "aborted",
+    "--step",
+    "develop",
+    "--rc",
+    "20",
+    "--oom",
+    "0",
+    "--forks",
+    "0",
+    "--branch",
+    "feature/issue-7-x",
+    "--cap",
+    "child-timeout:develop",
+    "--parked"
+   ],
+   "park": [
+    "7",
+    "--attempt",
+    "1",
+    "--reason",
+    "child-timeout:develop",
+    "--step",
+    "develop"
+   ],
+   "log": [],
+   "writes": [
+    [
+     "relabel",
+     "--remove-label tehas:running --add-label needs-human-attention"
+    ],
+    [
+     "question",
+     "Tehas cycle stopped without a pull request: status `aborted`, last step `develop`, 0 min (runner exit 20). pi-rukas stopped on the cap `child-timeout:develop`. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. It ran out of time in develop twice on the same text: split it with `tehas:plan`, or make the body smaller, then apply `tehas:ready`.\n\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=develop kind= provider=0 sig=de2fceabb5e0cd1c98840cb082d628986d515eaddd6a677d06b2824711d7e660 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+    ],
+    [
+     "relabel",
+     "--add-label tehas:question"
+    ]
+   ]
+  }
+ },
+ {
+  "case": "a timeout after the text changed outside the note writes a fresh note and offers a retry",
+  "facts": {
+   "issue": 7,
+   "repo": "acme/widget",
+   "home": "/T/home",
+   "hostname": "tehas-test",
+   "workdir": "/T/home/tehas/work/widget-7",
+   "workspaces_marked": false,
+   "workdir_dir": true,
+   "before_retry_dir": false,
+   "rc": 20,
+   "signalled": false,
+   "started": 1793526299,
+   "now": 1793526299,
+   "start": {
+    "attempt": 1,
+    "by": "",
+    "how": "hand",
+    "approval_at": null,
+    "requeued": false
+   },
+   "files": {
+    "result.json": "{\n  \"schemaVersion\": 5,\n  \"issues\": [\n    {\n      \"issue\": 7,\n      \"status\": \"aborted\",\n      \"failedStep\": \"develop\",\n      \"branch\": \"feature/issue-7-x\",\n      \"cap\": \"child-timeout:develop\",\n      \"failure\": {\n        \"errorTail\": \"[pi-rukas] killed after 5400000ms child-bound\"\n      }\n    }\n  ]\n}\n",
+    "progress.json": "{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}\n"
+   },
+   "record": {
+    "api": 1,
+    "verb": "cycle-show",
+    "ok": true,
+    "issue": 7,
+    "lock": {
+     "state": "held",
+     "probe_rc": 1,
+     "file": true,
+     "seen_at": 1793526300
+    },
+    "cycle": {
+     "issue": 7,
+     "attempt": 1,
+     "started_at": 1793526299,
+     "started_by": null,
+     "how": "hand",
+     "requeued": false,
+     "rukas_commit": null,
+     "image": null,
+     "branch": null,
+     "end_reason": null,
+     "ended_at": null,
+     "oom_kills": null,
+     "forks_refused": null,
+     "stalled_seconds": null,
+     "timed_out": false,
+     "runner_exit": null,
+     "watched": false,
+     "host_saw": null,
+     "stop_asked_at": null,
+     "stop_said_times": 0,
+     "settings": {},
+     "quiet": null,
+     "heard_at": null
+    }
+   },
+   "approval": {
+    "api": 1,
+    "verb": "approval-current",
+    "ok": true,
+    "approval": null,
+    "current": null,
+    "rests_on": null,
+    "millwright_starts": 0,
+    "fixer_starts": 0,
+    "refreshes": 0,
+    "easy": false
+   },
+   "github": {
+    "prs": [],
+    "issue": {
+     "number": 7,
+     "state": "open",
+     "body": "Fix only the drain's check.\n\n<!-- tehas:last-attempt base=6ca7d08d4cf3742320882a59c2b9e95093a27665f9c600a81aa8dba21d6ee678 -->\n### The last attempt ran out of time\n\nThe last cycle on this text was stopped in develop: the developer ran past its time bound of 90 minutes. Its work was not pushed, and the next cycle starts from a clean checkout.\n\n- Its plan had 1 part(s) over 1 file(s):\n  - `libexec/drain`\n\nPlan a smaller change: finish one part well, or say in this issue what to leave out. This section is the factory's; edit or delete it as you like.\n<!-- /tehas:last-attempt -->"
+    }
+   },
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   },
+   "work_state": {
+    "pipelineState": {
+     "normalisedSpec": {
+      "deliverables": [
+       {
+        "id": "d1",
+        "paths": [
+         "libexec/drain"
+        ]
+       }
+      ]
+     }
+    }
+   }
+  },
+  "met": {
+   "recorded": true,
+   "posted": true,
+   "relabel": [
+    "ok",
+    "ok"
+   ]
+  },
+  "expect": {
+   "done": "done #7 rc=20 status=aborted step=develop minutes=0 pr=none oom_kills=0 forks_refused=0",
+   "end": [
+    "7",
+    "--attempt",
+    "1",
+    "--status",
+    "aborted",
+    "--step",
+    "develop",
+    "--rc",
+    "20",
+    "--oom",
+    "0",
+    "--forks",
+    "0",
+    "--branch",
+    "feature/issue-7-x",
+    "--cap",
+    "child-timeout:develop",
+    "--parked"
+   ],
+   "park": [
+    "7",
+    "--attempt",
+    "1",
+    "--reason",
+    "child-timeout:develop",
+    "--step",
+    "develop"
+   ],
+   "log": [],
+   "writes": [
+    [
+     "relabel",
+     "--remove-label tehas:running --add-label needs-human-attention"
+    ],
+    [
+     "body_edit",
+     "repos/acme/widget/issues/7"
+    ],
+    [
+     "question",
+     "Tehas cycle stopped without a pull request: status `aborted`, last step `develop`, 0 min (runner exit 20). pi-rukas stopped on the cap `child-timeout:develop`. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=develop kind= provider=0 sig=de2fceabb5e0cd1c98840cb082d628986d515eaddd6a677d06b2824711d7e660 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+    ],
+    [
+     "relabel",
+     "--add-label tehas:question"
+    ]
+   ]
+  }
+ },
+ {
+  "case": "a note GitHub will not take is a warning, and the park is posted as before",
+  "facts": {
+   "issue": 7,
+   "repo": "acme/widget",
+   "home": "/T/home",
+   "hostname": "tehas-test",
+   "workdir": "/T/home/tehas/work/widget-7",
+   "workspaces_marked": false,
+   "workdir_dir": true,
+   "before_retry_dir": false,
+   "rc": 20,
+   "signalled": false,
+   "started": 1793526304,
+   "now": 1793526304,
+   "start": {
+    "attempt": 1,
+    "by": "",
+    "how": "hand",
+    "approval_at": null,
+    "requeued": false
+   },
+   "files": {
+    "result.json": "{\n  \"schemaVersion\": 5,\n  \"issues\": [\n    {\n      \"issue\": 7,\n      \"status\": \"aborted\",\n      \"failedStep\": \"develop\",\n      \"branch\": \"feature/issue-7-x\",\n      \"cap\": \"child-timeout:develop\",\n      \"failure\": {\n        \"errorTail\": \"[pi-rukas] killed after 5400000ms child-bound\"\n      }\n    }\n  ]\n}\n",
+    "progress.json": "{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}\n"
+   },
+   "record": {
+    "api": 1,
+    "verb": "cycle-show",
+    "ok": true,
+    "issue": 7,
+    "lock": {
+     "state": "held",
+     "probe_rc": 1,
+     "file": true,
+     "seen_at": 1793526304
+    },
+    "cycle": {
+     "issue": 7,
+     "attempt": 1,
+     "started_at": 1793526304,
+     "started_by": null,
+     "how": "hand",
+     "requeued": false,
+     "rukas_commit": null,
+     "image": null,
+     "branch": null,
+     "end_reason": null,
+     "ended_at": null,
+     "oom_kills": null,
+     "forks_refused": null,
+     "stalled_seconds": null,
+     "timed_out": false,
+     "runner_exit": null,
+     "watched": false,
+     "host_saw": null,
+     "stop_asked_at": null,
+     "stop_said_times": 0,
+     "settings": {},
+     "quiet": null,
+     "heard_at": null
+    }
+   },
+   "approval": {
+    "api": 1,
+    "verb": "approval-current",
+    "ok": true,
+    "approval": null,
+    "current": null,
+    "rests_on": null,
+    "millwright_starts": 0,
+    "fixer_starts": 0,
+    "refreshes": 0,
+    "easy": false
+   },
+   "github": {
+    "prs": [],
+    "issue": {
+     "number": 7,
+     "state": "open",
+     "body": "Fix the drain."
+    }
+   },
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   },
+   "work_state": {
+    "pipelineState": {
+     "normalisedSpec": {
+      "deliverables": [
+       {
+        "id": "d1",
+        "paths": [
+         "libexec/drain"
+        ]
+       }
+      ]
+     }
+    }
+   }
+  },
+  "met": {
+   "recorded": true,
+   "posted": true,
+   "relabel": [
+    "ok",
+    "ok"
+   ]
+  },
+  "expect": {
+   "done": "done #7 rc=20 status=aborted step=develop minutes=0 pr=none oom_kills=0 forks_refused=0",
+   "end": [
+    "7",
+    "--attempt",
+    "1",
+    "--status",
+    "aborted",
+    "--step",
+    "develop",
+    "--rc",
+    "20",
+    "--oom",
+    "0",
+    "--forks",
+    "0",
+    "--branch",
+    "feature/issue-7-x",
+    "--cap",
+    "child-timeout:develop",
+    "--parked"
+   ],
+   "park": [
+    "7",
+    "--attempt",
+    "1",
+    "--reason",
+    "child-timeout:develop",
+    "--step",
+    "develop"
+   ],
+   "log": [],
+   "writes": [
+    [
+     "relabel",
+     "--remove-label tehas:running --add-label needs-human-attention"
+    ],
+    [
+     "body_edit",
+     "repos/acme/widget/issues/7"
+    ],
+    [
+     "question",
+     "Tehas cycle stopped without a pull request: status `aborted`, last step `develop`, 0 min (runner exit 20). pi-rukas stopped on the cap `child-timeout:develop`. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=develop kind= provider=0 sig=de2fceabb5e0cd1c98840cb082d628986d515eaddd6a677d06b2824711d7e660 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+    ],
+    [
+     "relabel",
+     "--add-label tehas:question"
+    ]
+   ]
+  }
+ },
+ {
+  "case": "another cap leaves the body alone",
+  "facts": {
+   "issue": 7,
+   "repo": "acme/widget",
+   "home": "/T/home",
+   "hostname": "tehas-test",
+   "workdir": "/T/home/tehas/work/widget-7",
+   "workspaces_marked": false,
+   "workdir_dir": true,
+   "before_retry_dir": false,
+   "rc": 20,
+   "signalled": false,
+   "started": 1793526311,
+   "now": 1793526311,
+   "start": {
+    "attempt": 1,
+    "by": "",
+    "how": "hand",
+    "approval_at": null,
+    "requeued": false
+   },
+   "files": {
+    "result.json": "{\n  \"schemaVersion\": 5,\n  \"issues\": [\n    {\n      \"issue\": 7,\n      \"status\": \"aborted\",\n      \"failedStep\": \"develop\",\n      \"branch\": \"feature/issue-7-x\",\n      \"cap\": \"child-timeout:explore\",\n      \"failure\": {\n        \"errorTail\": \"[pi-rukas] killed after 5400000ms child-bound\"\n      }\n    }\n  ]\n}\n",
+    "progress.json": "{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}\n"
+   },
+   "record": {
+    "api": 1,
+    "verb": "cycle-show",
+    "ok": true,
+    "issue": 7,
+    "lock": {
+     "state": "held",
+     "probe_rc": 1,
+     "file": true,
+     "seen_at": 1793526311
+    },
+    "cycle": {
+     "issue": 7,
+     "attempt": 1,
+     "started_at": 1793526310,
+     "started_by": null,
+     "how": "hand",
+     "requeued": false,
+     "rukas_commit": null,
+     "image": null,
+     "branch": null,
+     "end_reason": null,
+     "ended_at": null,
+     "oom_kills": null,
+     "forks_refused": null,
+     "stalled_seconds": null,
+     "timed_out": false,
+     "runner_exit": null,
+     "watched": false,
+     "host_saw": null,
+     "stop_asked_at": null,
+     "stop_said_times": 0,
+     "settings": {},
+     "quiet": null,
+     "heard_at": null
+    }
+   },
+   "approval": {
+    "api": 1,
+    "verb": "approval-current",
+    "ok": true,
+    "approval": null,
+    "current": null,
+    "rests_on": null,
+    "millwright_starts": 0,
+    "fixer_starts": 0,
+    "refreshes": 0,
+    "easy": false
+   },
+   "github": {
+    "prs": []
+   },
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   },
+   "work_state": {
+    "pipelineState": {
+     "normalisedSpec": {
+      "deliverables": [
+       {
+        "id": "d1",
+        "paths": [
+         "libexec/drain"
+        ]
+       }
+      ]
+     }
+    }
+   }
+  },
+  "met": {
+   "recorded": true,
+   "posted": true,
+   "relabel": [
+    "ok",
+    "ok"
+   ]
+  },
+  "expect": {
+   "done": "done #7 rc=20 status=aborted step=develop minutes=0 pr=none oom_kills=0 forks_refused=0",
+   "end": [
+    "7",
+    "--attempt",
+    "1",
+    "--status",
+    "aborted",
+    "--step",
+    "develop",
+    "--rc",
+    "20",
+    "--oom",
+    "0",
+    "--forks",
+    "0",
+    "--branch",
+    "feature/issue-7-x",
+    "--cap",
+    "child-timeout:explore",
+    "--parked"
+   ],
+   "park": [
+    "7",
+    "--attempt",
+    "1",
+    "--reason",
+    "child-timeout:explore",
+    "--step",
+    "develop"
+   ],
+   "log": [],
+   "writes": [
+    [
+     "relabel",
+     "--remove-label tehas:running --add-label needs-human-attention"
+    ],
+    [
+     "question",
+     "Tehas cycle stopped without a pull request: status `aborted`, last step `develop`, 0 min (runner exit 20). pi-rukas stopped on the cap `child-timeout:explore`. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=develop kind= provider=0 sig=3fc56a50ed63c371dcfd91d5430f03d2c2c6e1fe2630fa514e39d9be1f9e3a88 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",

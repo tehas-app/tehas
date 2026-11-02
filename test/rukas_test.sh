@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
 # Tests for lib/rukas.sh: which pi-rukas commit a host follows, against a stub
-# git whose ls-remote prints $T/refs.
+# git whose ls-remote prints $T/refs. The console reads the same for tehasbot
+# clean, so every case of target asks it too and the two answers must be one.
 # shellcheck disable=SC2016  # snippets are expanded by the shell under test
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
 
+# shellcheck disable=SC2154  # t_console_why is set by t_console (test/lib.sh)
+t_console || t_bad "no console: $t_console_why"
 t_stub git '[ -e "$T/refs" ] || exit 2; cat "$T/refs"'
 a=$(printf 'a%.0s' {1..40})
 b=$(printf 'b%.0s' {1..40})
@@ -13,7 +16,14 @@ d=$(printf 'd%.0s' {1..40})
 target() { # <PI_RUKAS_FOLLOW>
   T_ENV=(PI_RUKAS_REPO=https://github.com/Up-Owner/pi-rukas.git "PI_RUKAS_FOLLOW=$1")
   rm -f "$T"/calls/*
+  t_run "\"$T_CONSOLE\" clean target \"\$PI_RUKAS_FOLLOW\" \"\$PI_RUKAS_REPO\""
+  local console_rc=$t_rc console_out=$t_out console_calls
+  console_calls=$(t_calls git)
+  rm -f "$T"/calls/*
   t_run '. "$T_ROOT/lib/rukas.sh"; tehas_rukas_target'
+  t_eq "$console_rc" "$t_rc"
+  t_eq "$console_out" "$t_out"
+  t_eq "$console_calls" "$(t_calls git)"
 }
 
 t_case "release takes the newest vX.Y.Z tag by version, not by name"

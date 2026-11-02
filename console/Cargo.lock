@@ -83,6 +83,7 @@ dependencies = [
  "serde_json",
  "signal-hook",
  "tehas-core",
+ "tehas-cycle",
 ]
 
 [[package]]

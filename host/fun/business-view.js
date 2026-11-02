@@ -28,7 +28,7 @@ export const STAGES = [
   { key: "ship", label: "Shipped", from: "completed", total: "completedCount", first: "Latest", later: "Shipped", search: "is:closed", none: "Nothing shipped yet." },
 ];
 // The figure of a stage that names a `total`: the field of the untrusted file,
-// its own and a whole number of issues above 0, as libexec/status publishes it.
+// its own and a whole number of issues above 0, as tehasbot status publishes it.
 const countOf = (s, name) => (Object.prototype.hasOwnProperty.call(s, name)
   && Number.isSafeInteger(s[name]) && s[name] > 0 ? s[name] : 0);
 const MORE = { proto: "in Protolab", line: "in line", plan: "in planning", build: "building", review: "in review", stop: "stopped", ship: "shipped" };

@@ -226,13 +226,29 @@ stopped net-internal
 echo false >"$fx/net-internal"
 t_run "$preview"
 t_contains "$t_out" "(it is not internal); nothing was built"
-t_eq "$(jq -c '.disk' "$live/previews.json")" '{"freeBytes":2147483648,"minFreeBytes":5368709120,"low":true}'
+t_eq "$(jq -cS '.disk' "$live/previews.json")" '{"freeBytes":2147483648,"low":true,"minFreeBytes":5368709120}'
 t_eq "$(t_calls gh | grep -c 'pulls?state')" 1
 
 t_case "a run that stops because Docker does not answer still writes the list, with no figure and not as healthy"
 stopped docker-down
 t_contains "$t_out" "Docker does not answer; nothing was built or removed"
-t_eq "$(jq -c '.disk' "$live/previews.json")" '{"freeBytes":null,"minFreeBytes":5368709120,"low":true}'
+t_eq "$(jq -cS '.disk' "$live/previews.json")" '{"freeBytes":null,"low":true,"minFreeBytes":5368709120}'
+
+t_case "one empty state stops no list: the run that stops early still writes it"
+reset
+a=$(commit feature)
+pulls "$(pull 12 "$a")"
+t_run "$preview"
+t_eq "$(state_of 12)" serving
+mkdir -p "$root/13"
+: >"$root/13/state.json"
+jq '.generatedAt = "then"' "$live/previews.json" >"$live/previews.json.new" && mv "$live/previews.json.new" "$live/previews.json"
+: >"$fx/docker-down"
+t_run "$preview"
+t_eq "$t_rc" 0
+t_contains "$t_out" "Docker does not answer; nothing was built or removed"
+t_eq "$(jq -r .generatedAt "$live/previews.json" | grep -c '^then$')" 0
+t_eq "$(jq -c '[.previews[].number]' "$live/previews.json")" "[12]"
 
 t_case "a container that never starts is said once, not at every retry"
 reset

@@ -225,7 +225,7 @@ struct Filed {
     url: String,
 }
 
-// state/refined.jsonl, as lib/planning.sh writes it, read by the same bounded
+// state/refined.jsonl, as the poll writes it, read by the same bounded
 // plain-file rule the report's own ledger reader uses: anything unreadable, a
 // link, or a line of another shape is no filed issue.
 fn ledger(home: &Path) -> Vec<Filed> {

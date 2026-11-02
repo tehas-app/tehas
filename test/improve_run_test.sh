@@ -71,6 +71,10 @@ t_lacks "$args" GH_TOKEN
 t_lacks "$args" .ssh
 t_lacks "$args" "$home/logs"
 
+t_case "the unit gives a run longer than the analyst's bound, its kill and the uploads"
+limit=$(sed -n 's/^TimeoutStartSec=\([0-9]*\)min$/\1/p' "$T_ROOT/host/systemd/tehas-improve.service")
+[ "${limit:-0}" -ge 75 ] || t_bad "TimeoutStartSec is ${limit:-not in minutes}"
+
 t_case "the analyst's container gets no option beyond these, and its limits are its own"
 # Every option up to the image that is not one this command is known to pass,
 # read the way docker reads them. See test/work_lib.sh.

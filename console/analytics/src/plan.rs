@@ -1,8 +1,8 @@
 //! `analytics plan <issue> --rc <rc> --facts <file>`: one planning turn, from
-//! its record as lib/planning.sh leaves it when the turn has ended and before
-//! plan_finish rewrites or removes it.
+//! its record as the poll leaves it when the turn has ended and before the
+//! poll rewrites or removes it.
 //!
-//! The facts are that record, which lib/analytics.sh writes for the call and
+//! The facts are that record, which the poll writes for the call and
 //! which is read as a host file is: {session, turns, running, startedAt,
 //! label, answers: [{turn, by, millwright}], ...} (an older record says
 //! fixer). A turn in flight is running,
@@ -22,8 +22,7 @@ use rusqlite::{params, Connection};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 
-/// What lib/planning.sh passes: how the turn's unit ended, as plan_finish
-/// has it (its exit status, interrupted, not-started or not-readable), the
+/// What the poll passes: how the turn's unit ended (its exit status, interrupted, not-started or not-readable), the
 /// sandbox image's id, build time and pi-rukas commit, and the facts file.
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct Given {

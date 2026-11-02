@@ -1,0 +1,18 @@
+tehas drain: start no new work, and wait for the running cycles to end.
+
+The same as `tehas limit set --cycles 0 --plan off --reason draining`: no cycle,
+planning turn or improvement run starts until tehas limit clear, and the limit
+does not expire. Running cycles are not stopped, and with --wait it waits up to
+that many seconds for them to end. Drained means no poll can start a cycle
+either: the poll's lock is taken before the count, so a poll already past its
+read of the limit is waited for and its cycles counted. For a reboot or a disk
+change, or before an upgrade or a move.
+
+Usage: tehas drain [--wait SECONDS] [--json], which prints one object: api 1,
+drained, running (the issues whose cycles still run) and limit as tehas limit
+--json prints it. Exit 0 no cycle is running; 1 some still are at the end of the
+wait, or a poll held its lock for the whole of it; 64 a bad argument, which
+writes nothing; 78 the instance settings are missing or malformed.
+
+  limit     0 cycles at once, planning off, until cleared: draining
+  drained: no poll can start a cycle, and none is running

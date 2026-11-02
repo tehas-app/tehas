@@ -173,9 +173,12 @@ fn world() -> World {
             stop_cmd: Some(s("start")),
             start_wait: Duration::from_secs(2),
             status_cmd: s("status"),
+            status_args: Vec::new(),
             health_cmd: s("health"),
+            health_args: Vec::new(),
             console_cmd: s("console"),
             tidy_cmd: s("tidy"),
+            tidy_args: vec!["tidy".into(), "run".into()],
             analytics: None,
             analytics_wait: Duration::from_secs(5),
             work_dir: dir.join("works/tehas-work").to_string_lossy().into_owned(),
@@ -381,7 +384,7 @@ fn the_poll_gives_its_host_commands_its_token() {
     assert!(t
         .calls()
         .iter()
-        .any(|c| c.starts_with(&format!("{tidy} --dry-run"))));
+        .any(|c| c.starts_with(&format!("{tidy} tidy run --dry-run"))));
 }
 
 #[test]
@@ -1573,6 +1576,33 @@ fn a_sweep_removes_an_issues_names_under_its_lock_and_no_other_issues() {
 }
 
 #[test]
+fn a_sweep_that_cannot_remove_a_name_says_so_and_not_that_the_issue_is_gone() {
+    let mut t = world();
+    let works = t.dir.join("works");
+    fs::create_dir_all(works.join("tehas-work-5")).unwrap();
+    fs::write(works.join(".tehas-workspaces"), "").unwrap();
+    let live = t.w.home.join("live");
+    fs::create_dir_all(&live).unwrap();
+    fs::write(live.join("console-5.txt"), "x").unwrap();
+    fs::create_dir_all(t.w.home.join("state/cycles")).unwrap();
+    fs::set_permissions(&live, fs::Permissions::from_mode(0o555)).unwrap();
+    // Root is not kept out of a directory by its mode.
+    if fs::write(live.join("probe"), "").is_ok() {
+        fs::remove_file(live.join("probe")).unwrap();
+        fs::set_permissions(&live, fs::Permissions::from_mode(0o755)).unwrap();
+        return;
+    }
+    let a = t.apply(json!([{"sweep": 5, "log": "removed what #5 left on this host"}]));
+    fs::set_permissions(&live, fs::Permissions::from_mode(0o755)).unwrap();
+    assert_eq!(
+        a.log,
+        vec!["WARN: could not remove live/console-5.txt of #5"]
+    );
+    assert!(!works.join("tehas-work-5").exists());
+    assert!(live.join("console-5.txt").exists());
+}
+
+#[test]
 fn a_sweep_whose_lock_a_cycle_holds_touches_nothing() {
     let mut t = world();
     fs::create_dir_all(t.w.home.join("state/cycles")).unwrap();
@@ -1705,6 +1735,20 @@ fn later_parts_of_none_and_of_something() {
     assert!(!no_later_parts("## Later parts\n- the rest"));
     assert!(!no_later_parts("no section at all"));
     assert!(no_later_parts("Later parts (if any): None"));
+    for (body, none) in [
+        ("No later parts here.\n## Later parts\n\n- none\n", true),
+        ("## Later parts\nNone.\n## Evidence\nx - a:1\n", true),
+        ("## Spec\nLater parts: none\n", true),
+        ("### Later parts\n1. Next\n## Evidence\n", false),
+        ("## Later Parts\n- Cache it\n", false),
+        ("**Later parts**\n- Cache it\n", false),
+        ("## Later parts:\n- Cache it\n", false),
+        ("### Later parts (not this issue)\n- Cache it\n", false),
+        ("Later parts: cache it\n", false),
+        ("## Deliverables\n1. All of it\n", false),
+    ] {
+        assert_eq!(no_later_parts(body), none, "{body}");
+    }
 }
 
 fn plan_row(t: &World, planning: Value) {
@@ -2367,6 +2411,64 @@ fn a_turns_end_tells_the_analytics_with_the_whole_view_in_a_private_file() {
         "600"
     );
     assert_eq!(fs::read_dir(t.w.home.join("tmp")).unwrap().count(), 0);
+}
+
+#[test]
+fn a_turns_end_gives_the_analytics_the_session_in_the_shape_its_record_had() {
+    let mut t = world();
+    t.w.host.analytics = Some(t.dir.join("analytics").to_string_lossy().into_owned());
+    plan_row(
+        &t,
+        json!({"turns": 1, "session": "s", "pending": false, "failed": false, "running": true,
+        "started_at": 1793000000, "by": "alice", "label": "tehas:refine",
+        "answers": [{"turn": 2, "by": "alice", "millwright": false}]}),
+    );
+    turn_ended(&t, 7, "0", json!({"session": "s", "text": "Q"}));
+    t.apply(json!([{"plan_collect": 7}]));
+    let facts: Value =
+        serde_json::from_str(&fs::read_to_string(t.dir.join("facts.json")).unwrap()).unwrap();
+    assert_eq!(
+        facts,
+        json!({"session": "s", "turns": 1, "options": [], "pending": false, "failed": false,
+        "running": true, "startedAt": "2026-10-26T07:33:20Z", "by": "alice", "label": "tehas:refine",
+        "answers": [{"turn": 2, "by": "alice", "fixer": false}]})
+    );
+    let events = fs::read_to_string(t.dir.join("events")).unwrap();
+    let path = events.split(' ').nth(3).unwrap();
+    let name = Path::new(path).file_name().unwrap().to_string_lossy();
+    assert!(name.starts_with("analytics-facts."), "{name}");
+    assert!(!Path::new(path).exists());
+}
+
+#[test]
+fn facts_that_cannot_be_written_are_one_warn_line_and_the_program_is_not_called() {
+    let mut t = world();
+    t.w.host.analytics = Some(t.dir.join("analytics").to_string_lossy().into_owned());
+    plan_row(
+        &t,
+        json!({"turns": 1, "session": "s", "running": true, "started_at": 1793000000}),
+    );
+    turn_ended(&t, 7, "0", json!({"session": "s", "text": "Q"}));
+    fs::write(t.w.home.join("tmp"), "").unwrap();
+    let a = t.apply(json!([{"plan_collect": 7}]));
+    assert!(a
+        .log
+        .contains(&"WARN analytics plan: no facts written".to_string()));
+    assert!(!t.dir.join("events").exists());
+}
+
+#[test]
+fn with_no_analytics_program_no_facts_are_made() {
+    let mut t = world();
+    t.w.host.analytics = None;
+    plan_row(
+        &t,
+        json!({"turns": 1, "session": "s", "running": true, "started_at": 1793000000}),
+    );
+    turn_ended(&t, 7, "0", json!({"session": "s", "text": "Q"}));
+    t.apply(json!([{"plan_collect": 7}]));
+    assert!(!t.dir.join("events").exists());
+    assert!(!t.dir.join("facts.json").exists());
 }
 
 #[test]
@@ -3686,4 +3788,76 @@ fn a_plans_issue_edit_is_settled_by_its_title() {
         "journal: action 3 (issue-edit on #7, 10s old) was done",
         "journal: action 4 (issue-edit on #7, 10s old) did not happen (its body does not say what it replaces); this poll decides it again",
     ]);
+}
+
+/// A lock of `t`'s home for the issue: held for as long as the file lives.
+fn cycle_lock(t: &World, n: u64) -> fs::File {
+    let dir = t.w.home.join("state/cycles");
+    fs::create_dir_all(&dir).unwrap();
+    let f = fs::File::create(dir.join(format!("{n}.lock"))).unwrap();
+    f.try_lock().unwrap();
+    f
+}
+
+#[test]
+fn an_open_action_of_a_cycle_whose_lock_is_held_is_left_alone() {
+    let mut t = world();
+    let held = cycle_lock(&t, 7);
+    let mut intended = open_label_add(3, 7, "intended");
+    intended["args"]["cycle"] = json!({"issue": 7, "attempt": 1});
+    let mut attempted = open_label_add(4, 7, "attempted");
+    attempted["args"]["cycle"] = json!({"issue": 7, "attempt": 1});
+    left_open(&t, json!([intended, attempted]));
+    let mut log = Vec::new();
+    t.w.settle(1000, &mut log);
+    assert!(log.is_empty(), "{log:?}");
+    assert!(settled(&t).is_empty());
+    assert!(!t.calls().iter().any(|c| c.starts_with("gh ")));
+    // The cycle is gone: its rows are read as any other's.
+    drop(held);
+    t.w.settle(1000, &mut log);
+    assert_eq!(
+        settled(&t)[0],
+        "store journal-settle --action 3 --abandoned"
+    );
+}
+
+#[test]
+fn an_open_action_of_a_cycle_that_has_no_lock_is_settled() {
+    let mut t = world();
+    let mut row = open_label_add(3, 7, "intended");
+    row["args"]["cycle"] = json!({"issue": 7, "attempt": 1});
+    left_open(&t, json!([row]));
+    let mut log = Vec::new();
+    t.w.settle(1000, &mut log);
+    assert_eq!(
+        settled(&t),
+        vec!["store journal-settle --action 3 --abandoned"]
+    );
+}
+
+#[test]
+fn a_body_written_whole_settles_as_done_by_its_sum() {
+    use sha2::{Digest, Sha256};
+    let mut t = world();
+    let body = "Fix the drain.\n\n<!-- tehas:last-attempt -->";
+    let sum: String = Sha256::digest(body.as_bytes())
+        .iter()
+        .map(|x| format!("{x:02x}"))
+        .collect();
+    let row = |id: u64, sum: &str| {
+        json!({"id": id, "kind": "issue-edit", "issue": 7, "state": "attempted",
+            "intended_at": 990, "attempted_at": 991,
+            "args": {"gh": ["api", "-X", "PATCH", "repos/r/issues/7", "--input", "-"],
+                     "input": {"sha256": sum, "bytes": body.len()}}})
+    };
+    left_open(&t, json!([row(3, &sum), row(4, "0000")]));
+    fs::write(t.dir.join("issue-7"), json!({"body": body}).to_string()).unwrap();
+    let mut log = Vec::new();
+    t.w.settle(1000, &mut log);
+    assert_eq!(
+        log[0],
+        "journal: action 3 (issue-edit on #7, 10s old) was done"
+    );
+    assert!(log[1].contains("did not happen"), "{log:?}");
 }

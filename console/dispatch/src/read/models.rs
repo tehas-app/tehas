@@ -1,23 +1,15 @@
 //! What a snapshot asks of the model endpoints and the sandbox image, as
-//! libexec/dispatch asks it: mesh_check over lib/models.sh, image_ok's
-//! image and model, and tehas_refresh_continues. curl and docker do the
+//! libexec/dispatch asks it: mesh_check over tehas_core::models, image_ok's
+//! image and model, and whether a refresh can continue. curl and docker do the
 //! asking, under the bash's bounds.
 
 use super::run::{run, run_input};
 use serde_json::{json, Value};
 use std::time::Duration;
-use tehas_core::models::{auth, host_path, ModelFile};
+use tehas_core::models::{self, auth, host_path, ModelFile};
 
 /// A png of one pixel, as libexec/dispatch's mesh_pixel.
 const PIXEL: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
-
-const ROLES: [&str; 5] = [
-    "DEVELOPER",
-    "OPS",
-    "EXPLORE",
-    "ADVERSARIAL_DEVELOPER",
-    "CODE_REVIEW_SPECIALIST",
-];
 
 /// The instance's providers and the models its agents use.
 pub struct Models {
@@ -35,22 +27,7 @@ fn env(k: &str) -> String {
 impl Models {
     pub fn read() -> Models {
         let file = ModelFile::read(&host_path());
-        let mut used: Vec<(String, String)> = Vec::new();
-        let mut pairs = vec![(
-            env("PI_ENSEMBLE_SUBAGENT_PROVIDER"),
-            env("PI_ENSEMBLE_SUBAGENT_MODEL"),
-        )];
-        for r in ROLES {
-            let m = env(&format!("PI_ENSEMBLE_MODEL_{r}"));
-            if !m.is_empty() {
-                pairs.push((env(&format!("PI_ENSEMBLE_PROVIDER_{r}")), m));
-            }
-        }
-        for p in pairs {
-            if !p.0.is_empty() && !p.1.is_empty() && !used.contains(&p) {
-                used.push(p);
-            }
-        }
+        let used = models::used();
         Models {
             file,
             used,
@@ -60,42 +37,11 @@ impl Models {
     }
 }
 
-/// tehas_endpoint_ask: Ok when the endpoint answers and offers every model,
-/// else the words the hold says.
-fn ask(url: &str, key: &str, models: &[String]) -> Result<(), String> {
-    let r = run_input(
-        "curl",
-        &[
-            "-fsS".into(),
-            "-K".into(),
-            "-".into(),
-            "-m".into(),
-            "10".into(),
-            format!("{url}/models"),
-        ],
-        Some(&auth(key)),
-        Duration::from_secs(15),
-    );
-    if !r.ok() {
-        return Err("does not answer".into());
-    }
-    let list: Value = serde_json::from_str(&r.out).unwrap_or(Value::Null);
-    let Some(data) = list
-        .get("data")
-        .and_then(Value::as_array)
-        .filter(|d| !d.is_empty())
-    else {
-        return Err("offers no models".into());
-    };
-    for m in models {
-        if !data
-            .iter()
-            .any(|x| x.get("id").and_then(Value::as_str) == Some(m))
-        {
-            return Err(format!("does not offer {m}"));
-        }
-    }
-    Ok(())
+fn ask(url: &str, key: &str, wanted: &[String]) -> Result<(), String> {
+    models::ask(url, key, wanted, &|args, input| {
+        let r = run_input("curl", args, Some(input), Duration::from_secs(15));
+        r.ok().then_some(r.out)
+    })
 }
 
 /// What mesh_check settles: the snapshot's endpoint ({hold, end, log}) and
@@ -254,7 +200,7 @@ pub fn images(m: &Models, url: &str, key: &str) -> Value {
     json!({"rukas": reads, "commit": commit, "declares": declares, "answers": answers})
 }
 
-/// tehas_refresh_continues: whether the image's pi-rukas takes --continue-pr
+/// Whether the image's pi-rukas takes --continue-pr
 /// natively.
 pub fn continues() -> bool {
     let wait = std::env::var("TEHAS_CAPS_WAIT")

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Tests for lib/headless.sh: what tehas reads of pi-rukas's headless runner.
+# Tests for what tehas reads of pi-rukas's headless runner: the caps and runner
+# verbs of tehas-cycle. The functions below ask the verbs.
 # The fixtures in test/fixtures/headless-0.12.80 are what the v0.12.80 runner
 # printed in a throwaway container with no model and no token: its
 # --capabilities answer, and the NDJSON progress and --json result of
@@ -16,10 +17,17 @@
 # documentation one.
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
-# shellcheck source=lib/cycles.sh
-. "$T_ROOT/lib/cycles.sh"
-# shellcheck source=lib/headless.sh
-. "$T_ROOT/lib/headless.sh"
+# shellcheck disable=SC2154  # t_cycle_why is set by t_cycle (test/lib.sh)
+t_cycle || t_bad "no tehas-cycle: $t_cycle_why"
+tehas_headless_unsupported() { "$T_CYCLE" caps unsupported "$2" "$3" "${4:-}" <<<"$1"; }
+tehas_headless_reads_images() { "$T_CYCLE" caps reads-images <<<"$1"; }
+tehas_headless_mode() { "$T_CYCLE" caps mode "$2" <<<"$1"; }
+tehas_headless_expired() { "$T_CYCLE" caps expired "$2" <<<"$1"; }
+tehas_headless_run() { "$T_CYCLE" runner run "$1" "$2"; }
+tehas_headless_outcome() { "$T_CYCLE" runner outcome "$1" "$2"; }
+tehas_headless_progress() { "$T_CYCLE" runner progress "$@"; }
+tehas_headless_error_only() { "$T_CYCLE" runner error-only "$1"; }
+tehas_headless_result=5
 fx=$T_ROOT/test/fixtures/headless-0.12.80
 caps=$(cat "$fx/capabilities.json")
 nx=$T_ROOT/test/fixtures/headless-1ca933e
@@ -32,6 +40,9 @@ given="PI_ENSEMBLE_SANDBOX_MODE PI_ENSEMBLE_WORKSPACE_ROOT PI_ENSEMBLE_MAX_WORKS
 
 t_case "the runner of v0.14.0, on result schema 5, supports what tehas gives a cycle"
 t_eq "$(tehas_headless_unsupported "$scaps" "--timeout 360 --json --restart" "$given PI_ENSEMBLE_EXTRA_IMAGE_DIRS")" ""
+
+t_case "the result schema the bash reads is the one tehas-cycle takes"
+t_eq "$(tehas_headless_unsupported "$(jq -c --argjson v "$tehas_headless_result" '.contracts.resultSchema.version = $v' <<<"$scaps")" "--json" "")" ""
 
 t_case "a runner on result schema 3 is refused for that alone"
 t_eq "$(tehas_headless_unsupported "$caps" "--timeout 360 --json --restart" "$given PI_ENSEMBLE_EXTRA_IMAGE_DIRS")" \
@@ -101,25 +112,27 @@ t_eq "$(tehas_headless_mode "$caps" planTurns)" off
 t_eq "$(tehas_headless_mode '{"features":{"planTurns":false}}' planTurns)" off
 t_eq "$(tehas_headless_mode '{"features":{"planTurns":"true"}}' planTurns)" off
 for bad in "" "not json" "[]" '{"features":[]}'; do
-  t_run ". '$T_ROOT/lib/headless.sh'; tehas_headless_mode '$bad' planTurns"
+  t_run "'$T_CYCLE' caps mode planTurns <<<'$bad'"
   t_eq "$t_out" error
   t_eq "$t_rc" 1
 done
 
 t_case "a feature the answer lacks is a polyfill where tehas carries one, and native wins over it"
-mkdir -p "$T/lib"
-cp "$T_ROOT/lib/headless.sh" "$T/lib/"
+# The polyfills are the ones beside the program's libexec/.
+mkdir -p "$T/lib" "$T/libexec"
+cp "$T_CYCLE" "$T/libexec/tehas-cycle"
+beside=$T/libexec/tehas-cycle
 : >"$T/lib/polyfill-someFeature.sh"
-t_run ". '$T/lib/headless.sh'; tehas_headless_mode '{\"features\":{}}' someFeature
-  tehas_headless_mode '{\"features\":{\"someFeature\":true}}' someFeature
-  tehas_headless_mode '{}' otherFeature"
+t_run "'$beside' caps mode someFeature <<<'{\"features\":{}}'
+  '$beside' caps mode someFeature <<<'{\"features\":{\"someFeature\":true}}'
+  '$beside' caps mode otherFeature <<<'{}'"
 t_eq "$t_out" "polyfill
 native
 off"
 
 t_case "an answer that cannot be read is error where tehas carries a polyfill, not polyfill"
 for bad in "" "not json" "[]" '{"features":[]}'; do
-  t_run ". '$T/lib/headless.sh'; tehas_headless_mode '$bad' someFeature"
+  t_run "'$beside' caps mode someFeature <<<'$bad'"
   t_eq "$t_out" error
   t_eq "$t_rc" 1
 done
@@ -127,7 +140,7 @@ done
 t_case "a name that is no feature name is off, with status 1, and names no file"
 : >"$T/lib/polyfill-.sh"
 for bad in "" "../x" "Plan" "a-b" "a b"; do
-  t_run ". '$T/lib/headless.sh'; tehas_headless_mode '{}' '$bad'"
+  t_run "'$beside' caps mode '$bad' <<<'{}'"
   t_eq "$t_out" off
   t_eq "$t_rc" 1
 done
@@ -204,7 +217,7 @@ t_case "a branch of another issue, one of no slug, and a step that is no branch"
 t_eq "$(run_of 7 commit-pr feature/issue-8-other)" "feature/issue-8-other||whole|"
 t_eq "$(run_of 7 commit-pr develop)" "develop||whole|"
 t_case "a step name over the bound of 100 characters is no step of a run"
-# The bound is the one tehas_headless_step_chars holds, and it is wider than the
+# The bound is the one tehas-cycle runner holds, and it is wider than the
 # grammar of tehas_branch_pattern in one way and narrower in another. A name of
 # 101 characters is no step at all, whatever its shape, so the run says only its
 # commit-pr. A name of the most characters a step may be, but with a slug past

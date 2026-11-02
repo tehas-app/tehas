@@ -17,6 +17,9 @@ mkdir -p "$shim/libexec"
 ln -s "$T_ROOT/libexec/plan" "$shim/libexec/plan"
 ln -s "$T_ROOT/lib" "$shim/lib"
 cp "$T_CONSOLE" "$shim/libexec/console"
+# shellcheck disable=SC2154  # t_cycle_why is set by t_cycle (test/lib.sh)
+t_cycle || t_bad "no tehas-cycle: $t_cycle_why"
+cp "$T_CYCLE" "$shim/libexec/tehas-cycle"
 plan=$shim/libexec/plan
 fx=$T/fx
 mkdir -p "$fx"
@@ -275,7 +278,8 @@ rm -rf "$T/keep"
 # other verb with the noun first. A console that answers nothing for it stops
 # the turn before the container: the rules themselves are pinned in plan.rs.
 mv "$shim/libexec/console" "$T/console.kept"
-t_stub console '[ "$2" = descriptor ] || exit 0
+t_stub console '[ "$1" != slice ] || exec "$T/console.kept" "$@"
+[ "$2" = descriptor ] || exit 0
 exit 1'
 mv "$T/bin/console" "$shim/libexec/console"
 t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
@@ -420,7 +424,8 @@ jq -n '{contracts: {exitCodes: {version: 1}, resultSchema: {version: 5}, ndjson:
 # tehas work reads its approval from the state store: nothing on record, a run
 # by hand.
 t_store_home "$T/home/tehas"
-t_run "$T_ROOT/libexec/work 7"
+ln -s "$T_ROOT/libexec/work" "$shim/libexec/work"
+t_run "$shim/libexec/work 7"
 turn_args | options | without_cycle_only >"$T/work.options"
 t_eq "$(turn_args | grep -c -e '^PI_ENSEMBLE_HANDOFF_CHANNEL=host$' -e '^PI_ENSEMBLE_HANDOFF_TIMEOUT_MS=480000$' -e '^PI_ENSEMBLE_CYCLE_DEADLINE=' -e '^PI_ENSEMBLE_VERIFY_CONCURRENCY=')" 4
 t_eq "$([ -s "$T/work.options" ] && echo recorded)" recorded
@@ -695,16 +700,17 @@ refused
 t_contains "$t_out" "tehas plan: TEHAS_CYCLE_RESERVE=3g is more than a container may use here (2048m"
 
 t_case "the fourteen words are all present or nothing starts"
-# The command beside a slice library that says yes and hands out a short list,
-# or a list that names another parent.
+# The command beside a tehas-cycle that says yes and hands out a short list, or
+# a list that names another parent.
 short=$T/short
-mkdir -p "$short/libexec" "$short/lib"
-cp "$T_ROOT"/lib/*.sh "$short/lib/"
+mkdir -p "$short/libexec"
+ln -s "$T_ROOT/lib" "$short/lib"
 ln -s "$plan" "$short/libexec/plan"
 for words in "--cgroup-parent tehas.slice --memory 2048m --memory-swap 2048m --memory-reservation 2g --cpus 3.75 --pids-limit 4096" \
   "--cgroup-parent other.slice --memory 2048m --memory-swap 2048m --memory-reservation 2g --cpus 3.75 --pids-limit 4096 --cpu-shares 1024" ""; do
   without
-  printf '%s\n' 'tehas_slice_ok() { return 0; }' "tehas_slice_limits() { TEHAS_SLICE_LIMITS=($words); }" >"$short/lib/slice.sh"
+  # shellcheck disable=SC2086  # the words are the list
+  t_fake_limits "$short/libexec" $words ${words:+$security_opts}
   t_run "$short/libexec/plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
   refused
   t_contains "$t_out" "tehas plan: the container limits could not be made, not starting"
@@ -712,42 +718,26 @@ done
 
 # The guard that stops a turn when the security options and the caller no
 # longer agree is what keeps AGENTS.md rule 4 honest, so it is tested the way
-# the fourteen words are: the command beside a slice library that says yes, and
-# a sandbox library that hands out something else. A shorter list, a longer one
-# with a second mount, and a list of ten words that are not the ten documented
-# ones (here the capabilities left in, which a count alone cannot see) all
-# refuse the turn with 78 and start nothing.
+# the fourteen words are: the command beside a tehas-cycle that hands out
+# something else. A shorter list, a longer one with a second mount, and a list of
+# ten words that are not the ten documented ones (here a capability dropped in
+# place of all of them, which a count alone cannot see) all refuse the turn with
+# 78 and start nothing.
+fourteen="--cgroup-parent tehas.slice --memory 2048m --memory-swap 2048m --memory-reservation 2g --cpus 3.75 --pids-limit 4096 --cpu-shares 1024"
 for bad in \
   '8|--cap-drop ALL --cap-add CHOWN --cap-add FOWNER --security-opt no-new-privileges:true' \
-  '12|--cap-drop ALL --cap-add CHOWN --cap-add FOWNER --security-opt no-new-privileges:true --tmpfs /tmp:rw --tmpfs /var/tmp:rw' \
-  '20|--tmpfs /tmp:rw,exec,nosuid,nodev,size=8g,mode=1777 --tmpfs /var/tmp:rw --tmpfs /dev/shm:rw --tmpfs /run:rw --tmpfs /mnt:rw --tmpfs /opt:rw --tmpfs /srv:rw --tmpfs /home:rw --tmpfs /boot:rw --tmpfs /usr:rw'; do
+  '10|--cap-drop ALL --cap-add CHOWN --cap-add FOWNER --security-opt no-new-privileges:true --tmpfs /tmp:rw --tmpfs /var/tmp:rw' \
+  '10|--tmpfs /tmp:rw,exec,nosuid,nodev,size=8g,mode=1777 --tmpfs /var/tmp:rw --tmpfs /dev/shm:rw --tmpfs /run:rw --tmpfs /mnt:rw --tmpfs /opt:rw --tmpfs /srv:rw --tmpfs /home:rw --tmpfs /boot:rw --tmpfs /usr:rw' \
+  '10|--cap-drop NET_RAW --cap-add CHOWN --cap-add FOWNER --security-opt no-new-privileges:true --tmpfs /tmp:rw,exec,nosuid,nodev,size=1024m,mode=1777'; do
   words=${bad%%|*}
-  opts=${bad#*|}
+  given=${bad#*|}
   without
-  printf '%s\n' 'tehas_slice_ok() { return 0; }' \
-    "tehas_slice_limits() { TEHAS_SLICE_LIMITS=(--cgroup-parent tehas.slice --memory 2048m --memory-swap 2048m --memory-reservation 2g --cpus 3.75 --pids-limit 4096 --cpu-shares 1024); }" \
-    >"$short/lib/slice.sh"
-  # A directory of its own: $short/lib belongs to the fourteen words above, and
-  # the slice library it left there is not the one this guard is to be run with.
-  secdir=$T/security
-  mkdir -p "$secdir"
-  # The library beside its own siblings, so it can be sourced alone, with the
-  # emitter of the list replaced by these words and its count asked of them: the
-  # count and the list are then a pair the guard has to judge, as on a host.
-  cp "$T_ROOT"/lib/*.sh "$secdir/"
-  cat "$T_ROOT/lib/sandbox.sh" >"$secdir/sandbox.sh"
-  printf '%s\n' "tehas_sandbox_security() { printf '%s\\0' $opts; }" \
-    "tehas_sandbox_security_count() { printf '%s\\n' $words; }" \
-    >>"$secdir/sandbox.sh"
-  # The guard the three commands ask, run against that library: it is the guard
-  # itself that has to refuse. The count is asked of the stubbed library first,
-  # so a list that drifted from the documented one is caught by the content
-  # check even when its length agrees.
-  t_run "set -uo pipefail; . '$secdir/sandbox.sh'; tehas_sandbox_security_take 'tehas plan' 'a turn' || exit 78"
-  t_eq "$t_rc" 78
-  t_contains "$t_out" "tehas plan: tehas_sandbox_security gave "
+  # shellcheck disable=SC2086  # the words are the list
+  t_fake_limits "$short/libexec" $fourteen $given
+  t_run "$short/libexec/plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
+  refused
+  t_contains "$t_out" "tehas plan: tehas_sandbox_security gave $words words, wants 10: not starting a turn"
 done
-rm -f "$short/lib/sandbox.sh"
 
 t_case "a missing token starts no container"
 reset
@@ -1111,6 +1101,23 @@ t_eq "$(jq -c '[(.images | length), (.leftOut | map([.link, .reason, .source]))]
   "[8,[[\"$A/0009\",\"More than 8 images.\",\"answer:4003\"]]]"
 t_contains "$(cat "$T/calls/gh.comments")" "Tehas left out of your reply:
 - $A/0009: More than 8 images."
+
+t_case "with no attachment checker a reply that links nothing runs its turn"
+first_turn
+mv "$T/home/tehas/libexec/attach" "$T/attach.away"
+reply_is "No link, only https://example.com/x.png"
+t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/answer.md --comment 4003"
+t_eq "$t_rc" 0
+t_contains "$(cat "$T/calls/answer.seen")" "No link"
+t_eq "$(cat "$T/calls/gh.comments" 2>/dev/null)" ""
+
+t_case "with no attachment checker a reply that links a file runs no turn, and no host path is said: exit 4"
+reply_is "![b]($A/2222)"
+t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/answer.md --comment 4003"
+t_eq "$t_rc" 4
+t_contains "$(cat "$T/calls/gh.comments")" "the issue's files could not be checked (the attachment checker is not installed)"
+t_lacks "$(cat "$T/calls/gh.comments")" "$T/"
+mv "$T/attach.away" "$T/home/tehas/libexec/attach"
 
 t_case "a reply's link that cannot be fetched runs no turn and leaves the session's images as they were: exit 4"
 first_turn

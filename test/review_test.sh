@@ -6,21 +6,21 @@
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
-# What lib/sandbox.sh gives a container: the mounts, the variables and the
+# What tehas-cycle sandbox gives a container: the mounts, the variables and the
 # security options. AGENTS.md rule 4. The review's container is pinned against
 # these lists, which name what the library gives and not what this command
 # happens to pass.
-# The security options, as lib/sandbox.sh prints them: the same ten words for
+# The security options, as tehas-cycle sandbox prints them: the same ten words for
 # a cycle, a planning turn, a manual session, the push check and a review.
 sandbox_security_words=("--cap-drop" "ALL" "--cap-add" "CHOWN" "--cap-add" "FOWNER" \
   "--security-opt" "no-new-privileges:true" "--tmpfs" "/tmp:rw,exec,nosuid,nodev,size=1024m,mode=1777")
 
-# Where lib/sandbox.sh gives a container its copy of the code index. Said here
+# Where a container is given its copy of the code index. Said here
 # as well, so a test that pins a mount names the path without reading the
 # library; test/sandbox_test.sh pins the two against each other.
 sandbox_cache_dir_value=/home/vscode/.tehas-cache
 
-# The variables of lib/sandbox.sh that are not the token and not one of the
+# The variables of a container that are not the token and not one of the
 # cycle's: its workspace root and code index, git's configuration and identity,
 # and the prompt that must not be asked. A PI_ENSEMBLE_* of the environment is
 # added to these by the library itself, so a test adds what its own run put
@@ -70,7 +70,7 @@ sandbox_unknown_options() { # <image> (reads the arguments on standard input)
     { print }'
 }
 
-# The mounts lib/sandbox.sh gives a container, with the four paths of its own
+# The mounts a container is given, with the four paths of its own
 # filled in: <host> the workspace on the host, <inside> the path the container
 # has it at, <state> the run's own directory beside it, <runs> its transcripts.
 # The same eight for every kind of container, so a command that mounts one more
@@ -121,6 +121,9 @@ mkdir -p "$shim/libexec"
 ln -s "$T_ROOT/libexec/review" "$shim/libexec/review"
 ln -s "$T_ROOT/lib" "$shim/lib"
 review=$shim/libexec/review
+# shellcheck disable=SC2154  # t_cycle_why is set by t_cycle (test/lib.sh)
+t_cycle || t_bad "no tehas-cycle: $t_cycle_why"
+cp "$T_CYCLE" "$shim/libexec/tehas-cycle"
 fx=$T/fx
 mkdir -p "$fx"
 checkout=$T/home/tehas/repos/widget
@@ -815,7 +818,7 @@ t_case "the review container gets the mounts of a planning turn, no more"
 reset
 t_run "$review"
 t_eq "$t_rc" 0
-# The eight mounts of lib/sandbox.sh, from the lists above, with this run's
+# The eight mounts of a container, from the lists above, with this run's
 # four paths in them. A mount the library adds now fails this case.
 t_eq "$(after -v | LC_ALL=C sort)" "$(sandbox_mounts "$T/home" "$tree" "$ws" "$state" \
   "$T/home/.pi/agent/ensemble-runs/review" | LC_ALL=C sort)"
@@ -933,7 +936,7 @@ read_options() { # <the file of the run>
     { print }' <"$1"
 }
 # What the review is not given: the token, and the three settings of its own
-# that lib/sandbox.sh gives a cycle, which no run that writes no code and runs
+# that a cycle is given, which no run that writes no code and runs
 # no gate asks for. What the planning turn is not given: nothing. Everything
 # else docker is handed is the same, which is the point of the case: the two
 # containers are one container, and a fourth copy of what a sandbox is given
@@ -1082,8 +1085,26 @@ t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
 kill "$holder" 2>/dev/null
 wait "$holder" 2>/dev/null
 
-# The two directories a run that never started made are removed by the trap the
-# command sets once it owns them, as libexec/index cleans its tree.
+# The two directories go on every way out: the signal comes while the clone is
+# made, and the run stops before it starts a container.
+t_case "a signal before the container starts leaves no workspace and no state behind"
+for signal in "TERM 143" "INT 130" "HUP 129"; do
+  read -r name status <<<"$signal"
+  reset
+  mkdir -p "$T/bin"
+  real_git=$(command -v git)
+  printf '%s\n' '#!/usr/bin/env bash' 'for a in "$@"; do' "  [ \"\$a\" = checkout ] && kill -$name \$PPID" 'done' \
+    'exec '"$real_git"' "$@"' >"$T/bin/git"
+  chmod +x "$T/bin/git"
+  t_run "$review"
+  t_eq "$t_rc" "$status"
+  t_lacks "$(t_calls docker)" "lens-review"
+  t_eq "$([ -e "$tree" ] && echo left)" ""
+  t_eq "$([ -e "$state" ] && echo left)" ""
+done
+rm -f "$T/bin/git"
+
+# The two directories a run that never started made are removed on the way out.
 t_case "a run that could not clone leaves no workspace and no state behind"
 reset
 mkdir -p "$T/bin"
@@ -1126,24 +1147,6 @@ t_eq "$t_rc" 78
 t_lacks "$(t_calls docker)" "run "
 t_contains "$t_out" "TEHAS_CYCLE_RESERVE=3g is more than a container may use here (2048m"
 
-t_case "the fourteen words are all present or nothing starts"
-# The command beside a slice library that says yes and hands out a short list,
-# or a list that names another parent.
-short=$T/short
-mkdir -p "$short/libexec" "$short/lib"
-cp "$T_ROOT"/lib/*.sh "$short/lib/"
-ln -s "$review" "$short/libexec/review"
-for words in "--cgroup-parent tehas.slice --memory 2048m --memory-swap 2048m --memory-reservation 2g --cpus 3.75 --pids-limit 4096" \
-  "--cgroup-parent other.slice --memory 2048m --memory-swap 2048m --memory-reservation 2g --cpus 3.75 --pids-limit 4096 --cpu-shares 1024" ""; do
-  t_case "the limits were '$words'"
-  reset
-  printf '%s\n' 'tehas_slice_ok() { return 0; }' "tehas_slice_limits() { TEHAS_SLICE_LIMITS=($words); }" >"$short/lib/slice.sh"
-  t_run "$short/libexec/review"
-  t_eq "$t_rc" 78
-  t_lacks "$(t_calls docker)" "run "
-  t_contains "$t_out" "tehas review: the container limits could not be made, not starting"
-done
-
 t_case "with a GitHub App the review is given neither the app's token nor its directory"
 # tehas plan and tehas work mount the directory the host keeps the app's token
 # in. A review is given no GH_TOKEN, so it is not given that directory either.
@@ -1159,22 +1162,6 @@ t_lacks "$(run_args)" "/run/tehas/github"
 t_lacks "$(run_args)" "$state_dir/github"
 t_lacks "$(run_args)" "ghs_app"
 t_eq "$(after -e | grep -c -x -e GH_TOKEN)" 0
-
-t_case "security options that are not the documented ones start no review"
-# The guard of lib/sandbox.sh, asked of a library whose list drifted: the eight
-# words a cycle was given before /tmp was bounded.
-drift=$T/drift
-mkdir -p "$drift/libexec" "$drift/lib"
-cp "$T_ROOT"/lib/*.sh "$drift/lib/"
-ln -s "$review" "$drift/libexec/review"
-printf '%s\n' "tehas_sandbox_security() { printf '%s\\0' --cap-drop ALL --cap-add CHOWN --cap-add FOWNER --security-opt no-new-privileges:true; }" \
-  >>"$drift/lib/sandbox.sh"
-reset
-t_run "$drift/libexec/review"
-t_eq "$t_rc" 78
-t_lacks "$(t_calls docker)" "lens-review"
-t_contains "$t_out" "tehas review: tehas_sandbox_security gave 8 words, wants 8: not starting a review"
-t_eq "$([ -e "$tree" ] && echo made)" ""
 
 t_case "a workspace directory tehas did not make is not touched"
 reset

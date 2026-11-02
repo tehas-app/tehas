@@ -50,7 +50,7 @@ t_case "a snapshot fed to the renderer gives the same frame as --once"
 reset
 files
 t_run "$top --json"
-t_run '. "$T_ROOT/lib/top.sh"; snapshot=$("$T_ROOT/libexec/top" --json); tehas_top_frame "$snapshot" 80 24 >"$T/by-snapshot"; "$T_ROOT/libexec/top" --once >"$T/by-files"'
+t_run '"$T_ROOT/bin/tehas" top --json | "$TEHAS_CONSOLE" top frame 80 24 >"$T/by-snapshot"; "$T_ROOT/bin/tehas" top --once >"$T/by-files"'
 t_eq "$t_rc" 0
 # The first line names the moment the snapshot was taken, which is later for
 # one of the two runs. The frame below it is the same.
@@ -199,7 +199,7 @@ reset
 files
 nosleep
 T_ENV=(TEHAS_CONSOLE="$T_CONSOLE" TEHAS_PROC_DIR="$proc1" PATH="$T/nosleep:$T/bin:$PATH")
-t_run '. "$T_ROOT/lib/top.sh"; tehas_top_snapshot 16 >"$T/one"'
+t_run '"$TEHAS_CONSOLE" top snapshot 16 >"$T/one"'
 t_eq "$t_rc" 0
 # Nothing to compare with: a pair of readings, and the second one a second on.
 t_eq "$(t_calls sleep | tr '\n' ' ')" "1 "
@@ -209,7 +209,7 @@ t_eq "$(jq -c '[.host.cpuPercent] + [.host.processes[].cpuPercent]' "$T/one")" \
 # Time passes, as it does between two frames of a view. The reading of the frame
 # before is handed to the next one, and that call takes no sleep at all.
 proc_ahead "$proc1"
-t_run '. "$T_ROOT/lib/top.sh"; tehas_top_snapshot 16 "$(jq -c .reading "$T/one")" >"$T/two"'
+t_run '"$TEHAS_CONSOLE" top snapshot 16 "$(jq -c .reading "$T/one")" >"$T/two"'
 t_eq "$t_rc" 0
 t_eq "$(t_calls sleep | tr '\n' ' ')" "1 "
 t_eq "$(jq -r '.reading.clock' "$T/two")" "1005.00"
@@ -221,7 +221,7 @@ t_eq "$(jq -c '.host.cpuPercent, [.host.processes[] | select(.name == "tehas-cyc
 t_eq "$(jq -r '[.host.processes[] | select(.name == "tehas-cycle") | .upSeconds] | .[0]' "$T/two")" "995"
 # The frame is drawn from the snapshot as it is: the extra key changes nothing
 # that is printed.
-t_run '. "$T_ROOT/lib/top.sh"; tehas_top_frame "$(cat "$T/two")" 80 24'
+t_run '"$TEHAS_CONSOLE" top frame 80 24 <"$T/two"'
 t_contains "$t_out" "host      2 cpus, load 0.10 0.20 0.30, cpu 50%, mem 32 of 64 MB"
 t_contains "$t_out" "tehas-cycle"
 
@@ -249,7 +249,7 @@ every_two() { # <earlier> <later>
 t_case "a snapshot given the reading of the frame before reports the difference"
 reset
 files
-# The two trees are read through the [dir] argument of tehas_host_reading, so
+# The two trees are read through the <dir> of console top reading, so
 # one case can hold a pair of them: the later is the tree named in
 # TEHAS_PROC_DIR and the earlier is asked for by path, which is how the reading
 # of the frame before reaches the next call. Swapping the two would change the
@@ -257,7 +257,7 @@ files
 # clock less the start ticks its pid gives it.
 every_two "$T/earlier" "$T/later"
 T_ENV=(TEHAS_CONSOLE="$T_CONSOLE" TEHAS_PROC_DIR="$T/later")
-t_run '. "$T_ROOT/lib/top.sh"; tehas_top_snapshot 16 "$(tehas_host_reading "$T/earlier")" >"$T/host"'
+t_run '"$TEHAS_CONSOLE" top snapshot 16 "$("$TEHAS_CONSOLE" top reading "$T/earlier")" >"$T/host"'
 t_eq "$t_rc" 0
 # The host over the window: 4000 ticks of use out of the 4000 the aggregate line
 # gained ((5000 - 1000) less the 4000 idle in both), and none of them idle - so
@@ -295,7 +295,7 @@ proc_files "$earlier" 1000 '1000 0 0 4000 0 0 0 0' '200 tehas-cycle 0 800' '500 
 proc_files "$later" 1100 '5500 0 0 4000 0 0 0 0' \
   '5000 tehas-cycle 4000 800' '500 p500 1100 10' '501 p501 1200 10'
 T_ENV=(TEHAS_CONSOLE="$T_CONSOLE" TEHAS_PROC_DIR="$later")
-t_run '. "$T_ROOT/lib/top.sh"; tehas_top_snapshot 16 "$(tehas_host_reading "$earlier")" >"$T/host"'
+t_run '"$TEHAS_CONSOLE" top snapshot 16 "$("$TEHAS_CONSOLE" top reading "$earlier")" >"$T/host"'
 t_eq "$t_rc" 0
 t_eq "$(jq -c '[.host.processes[].name] | sort' "$T/host")" '["p500","p501","tehas-cycle"]'
 # The rows that the earlier tree does not pair say nothing: p501 is under a pid
@@ -306,13 +306,4 @@ t_eq "$(jq -c '[.host.processes[] | select(.name != "p500") | .cpuPercent] | uni
   '[null]'
 t_eq "$(jq -r '.host.cpuPercent' "$T/host")" "null"
 
-t_case "the redrawing view hands the reading of one frame to the next"
-reset
-files
-# The live loop is the one thing a test cannot run here: it needs a terminal.
-# What it does with the reading is checked in the script it runs.
-t_contains "$(cat "$T_ROOT/libexec/top")" 'tehas_top_snapshot "$rows" "$prev"'
-t_contains "$(cat "$T_ROOT/libexec/top")" "jq -c '.reading // empty'"
-t_contains "$(cat "$T_ROOT/libexec/top")" "prev=''
-"
 t_done

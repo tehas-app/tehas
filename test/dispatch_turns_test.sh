@@ -111,15 +111,6 @@ t_run "$dispatch"
 t_eq "$(t_calls fake-start)" "7"
 t_eq "$(t_calls gh | grep -c -x -e 'issue edit 7 --repo acme/widget --add-label tehas:running --remove-label tehas:question --remove-label tehas:ready')" 1
 
-t_case "every list of issues is read to a thousand"
-reset
-t_run "$dispatch"
-# The bash poll's lists; the Rust poll reads them as one page of 100 at a time.
-if bash_reads; then
-  t_eq "$(t_calls gh | grep -c -e '^issue list .* --limit 1000 ')" 8
-  t_lacks "$(t_calls gh)" "--limit 100 "
-fi
-
 t_case "an answer on a question the session is not waiting on runs no turn"
 planning
 t_plan "$T/home/tehas" 7 '{"turns":1,"options":["Adopt all","Change some"],"comment":9999}'
