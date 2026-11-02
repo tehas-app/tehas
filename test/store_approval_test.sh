@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
-# Tests for lib/store.sh: how a shell command runs the state store, and what it
-# may read from the answer. The store is the real one, built from this
-# checkout; a failing store is t_store_answers or a script of the case's own at
-# the same path.
+# Tests for the store's approval verbs as a shell reads them: approval-view,
+# approval-current and plan-show, answered by the real store built from this
+# checkout. A planted answer is t_store_answers.
 # shellcheck disable=SC2016  # snippets are expanded when they run
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
@@ -11,21 +10,13 @@ home=$T/home/tehas
 SUM=$(printf 'a%.0s' {1..64})
 TSUM=$(printf 'b%.0s' {1..64})
 HEAD=$(printf 'c%.0s' {1..40})
-BUSY='store: busy the database'
 
-# lib <snippet>: run it with lib/store.sh sourced. In it, said <verb> [args]
-# runs the store and prints what the call returned and the word it set, and
-# view <issue> [<attempt>] prints the store's approval-view: 1 for none on
-# record, 2 when the store refused.
+# lib <snippet>: run it with two helpers. st <verb> [args] runs the installed
+# store; view <issue> [<attempt>] prints the store's approval-view: 1 for none
+# on record, 2 when the store refused.
 lib() {
-  t_run '. "$T_ROOT/lib/store.sh"; said() { tehas_store "$@"; echo "rc=$? word=$tehas_store_word"; }
-    view() { tehas_store approval-view "$1" ${2+--attempt "$2"} || return 2; jq -ce ".view // empty" <<<"$tehas_store_out" || return 1; }; '"$1"
-}
-# own_store <body>: a store of the case's own, a script at the installed path.
-own_store() {
-  rm -f "$home/libexec/store"
-  printf '%s\n' '#!/usr/bin/env bash' "$1" >"$home/libexec/store"
-  chmod 755 "$home/libexec/store"
+  t_run 'st() { "$TEHAS_HOME/libexec/store" "$@" </dev/null 2>/dev/null; }
+    view() { local out; out=$(st approval-view "$1" ${2+--attempt "$2"}) || return 2; jq -ce ".view // empty" <<<"$out" || return 1; }; '"$1"
 }
 # record <issue> <args...>: an approval on record, through the real store.
 record() {
@@ -45,187 +36,6 @@ start() {
 input() { printf '%s\n' "$1" >"$T/input.json"; }
 
 t_store_home "$home"
-
-# --- What a call returns -------------------------------------------------------
-t_case "an answer is 0, and only then is a field read"
-lib 'said cycle-show 7; tehas_store_get .issue; echo "line=$tehas_store_line"'
-t_eq "$t_out" "rc=0 word=
-7
-line="
-
-t_case "a 0 whose line is not JSON is 78 garbled, and nothing is read from it"
-t_store_answers check 0 'all is well'
-lib 'said check; tehas_store_get .ok || echo "no read"; echo "out=$tehas_store_out"'
-t_eq "$t_out" "rc=78 word=garbled
-no read
-out="
-
-t_case "a 0 whose line says it is not ok, or answers another verb or api, or is two lines, is 78 garbled"
-for line in '{"api":1,"verb":"check","ok":false}' '{"api":1,"verb":"cycle-show","ok":true}' \
-  '{"api":2,"verb":"check","ok":true}' '[1]' \
-  $'{"api":1,"verb":"check","ok":true}\n{"api":1,"verb":"check","ok":true}'; do
-  t_store_answers check 0 "$line"
-  lib 'said check; echo "out=$tehas_store_out"'
-  t_eq "$t_out" "rc=78 word=garbled
-out="
-done
-
-t_case "busy is 1 busy, with the store's line"
-t_store_answers check 1 "$BUSY"
-lib 'said check; echo "line=$tehas_store_line"; tehas_store_get .ok || echo "no read"'
-t_eq "$t_out" "rc=1 word=busy
-line=$BUSY
-no read"
-
-t_case "a refusal is 1 with the store's word"
-t_store_answers approval-record 1 'store: used #7: the approval at 1 started a cycle'
-lib 'said approval-record 7 --undo --at 1; echo "line=$tehas_store_line"'
-t_eq "$t_out" "rc=1 word=used
-line=store: used #7: the approval at 1 started a cycle"
-
-t_case "a constraint failure is 1 conflict, as the store words it"
-t_store_answers approval-record 1 'store: conflict: UNIQUE constraint failed: approvals.issue, approvals.at'
-lib 'said approval-record 7 --undo --at 1; echo "line=$tehas_store_line"'
-t_eq "$t_out" "rc=1 word=conflict
-line=store: conflict: UNIQUE constraint failed: approvals.issue, approvals.at"
-
-t_case "a call the store does not take is its 64"
-t_store_home "$home"
-lib 'said cycle-show'
-t_contains "$t_out" "rc=64 "
-
-t_case "a store that cannot be used is its 78, with its word"
-rm -f "$home/state/tehas.db"
-lib 'said cycle-show 7; echo "line=$tehas_store_line"'
-t_contains "$t_out" "rc=78 word=missing
-line=store: missing"
-t_store_home "$home"
-t_store_answers check 78 'store: corrupt the database: file is not a database'
-lib 'said check'
-t_eq "$t_out" "rc=78 word=corrupt"
-
-t_case "a 1 without the store's word, or a status the store never gives, is 78 garbled"
-t_store_answers check 1 'something broke'
-lib 'said check'
-t_eq "$t_out" "rc=78 word=garbled"
-t_store_answers check 101 "thread 'main' panicked"
-lib 'said check'
-t_eq "$t_out" "rc=78 word=garbled"
-
-t_case "a store that is missing, not executable or a directory is 78 absent, and runs nothing"
-t_store_home "$home"
-rm -f "$home/libexec/store"
-lib 'said check'
-t_eq "$t_out" "rc=78 word=absent"
-own_store 'echo ran >"$T/ran"'
-chmod 644 "$home/libexec/store"
-lib 'said check'
-t_eq "$t_out" "rc=78 word=absent"
-t_eq "$(cat "$T/ran" 2>/dev/null)" ""
-rm -f "$home/libexec/store"
-mkdir -p "$home/libexec/store"
-lib 'said check'
-t_eq "$t_out" "rc=78 word=absent"
-rmdir "$home/libexec/store"
-lib 'unset TEHAS_HOME; said check'
-t_eq "$t_out" "rc=78 word=absent"
-
-t_case "a store that does not answer in the bound is 1 timeout"
-t_store_home "$home"
-t_store_answers check hang ''
-t_start
-lib 'tehas_store_bound=1; said check'
-t_fast 6000
-t_eq "$t_out" "rc=1 word=timeout"
-
-t_case "the store's line is cut to 300 bytes"
-t_store_answers check 1 "store: busy $(printf 'x%.0s' {1..1000})"
-lib 'said check; echo "${#tehas_store_line}"'
-t_eq "$t_out" "rc=1 word=busy
-300"
-
-t_case "the store runs with fd 8 closed and nothing on its stdin"
-own_store '[ -e /proc/$$/fd/8 ] && e=open || e=closed
-echo "$e $(readlink /proc/$$/fd/0)" >"$T/fds"
-echo "{\"api\":1,\"verb\":\"check\",\"ok\":true}"'
-lib 'exec 8>"$T/eight"; said check </dev/zero; cat "$T/fds"'
-t_eq "$t_out" "rc=0 word=
-closed /dev/null"
-
-# --- Trying again ---------------------------------------------------------------
-t_case "tehas_store_try tries again while the store is busy"
-t_store_home "$home"
-t_store_answers check 1 "$BUSY" 2
-rm -f "$T/calls/store"
-lib 'tehas_store_try 3 check; echo "rc=$? word=$tehas_store_word"'
-t_eq "$t_out" "rc=0 word="
-t_eq "$(t_calls store | grep -c '^check')" 3
-
-t_case "tehas_store_try stops on a word that is not busy"
-t_store_answers approval-record 1 'store: used #7: the approval at 1792497600 started a cycle'
-rm -f "$T/calls/store"
-lib 'tehas_store_try 5 approval-record 7 --undo --at 1; echo "rc=$? word=$tehas_store_word"'
-t_eq "$t_out" "rc=1 word=used"
-t_eq "$(t_calls store | grep -c '^approval-record')" 1
-
-t_case "tehas_store_try gives up after its tries, busy or timed out"
-t_store_answers check 1 "$BUSY"
-rm -f "$T/calls/store"
-lib 'tehas_store_try 2 check; echo "rc=$? word=$tehas_store_word"'
-t_eq "$t_out" "rc=1 word=busy"
-t_eq "$(t_calls store | grep -c '^check')" 2
-t_store_answers check hang ''
-rm -f "$T/calls/store"
-lib 'tehas_store_bound=1; tehas_store_try 2 check; echo "rc=$? word=$tehas_store_word"'
-t_eq "$t_out" "rc=1 word=timeout"
-t_eq "$(t_calls store | grep -c '^check')" 2
-
-# --- Ready, and sourcing ----------------------------------------------------------
-t_case "tehas_store_ready: the binary and the database are there, and run nothing"
-t_store_home "$home"
-own_store 'echo ran >"$T/ran"'
-t_store_db "$home"
-rm -f "$T/ran"
-lib 'tehas_store_ready && echo ready'
-t_eq "$t_out" "ready"
-t_eq "$(cat "$T/ran" 2>/dev/null)" ""
-
-t_case "tehas_store_ready refuses a database that is a link, a directory or missing"
-mv "$home/state/tehas.db" "$T/tehas.db"
-ln -s "$T/tehas.db" "$home/state/tehas.db"
-lib 'tehas_store_ready || echo "not ready"'
-t_eq "$t_out" "not ready"
-rm -f "$home/state/tehas.db"
-mkdir "$home/state/tehas.db"
-lib 'tehas_store_ready || echo "not ready"'
-t_eq "$t_out" "not ready"
-rmdir "$home/state/tehas.db"
-lib 'tehas_store_ready || echo "not ready"'
-t_eq "$t_out" "not ready"
-
-t_case "tehas_store_ready refuses a binary that is missing or not executable"
-t_store_home "$home"
-# The installed store is a link to $T_STORE: a copy to change.
-rm -f "$home/libexec/store"
-cp "$T_STORE" "$home/libexec/store"
-chmod 644 "$home/libexec/store"
-lib 'tehas_store_ready || echo "not ready"'
-t_eq "$t_out" "not ready"
-rm -f "$home/libexec/store"
-lib 'tehas_store_ready || echo "not ready"'
-t_eq "$t_out" "not ready"
-
-t_case "sourcing lib/store.sh runs nothing and writes nothing"
-t_store_home "$home"
-own_store 'echo ran >"$T/ran"'
-for c in jq timeout mktemp mkdir sleep flock cat; do t_stub "$c"; done
-rm -rf "$home/tmp" "$T/ran" "$T"/calls/*
-t_run '. "$T_ROOT/lib/store.sh"; echo sourced'
-t_eq "$t_out" "sourced"
-t_eq "$(ls "$T/calls")" ""
-t_eq "$(cat "$T/ran" 2>/dev/null)" ""
-t_eq "$([ -e "$home/tmp" ] && echo made)" ""
-rm -f "$T"/bin/*
 
 # --- The approval, as .approved.json had it ------------------------------------------
 t_case "approval-view: the driver on record is in the view, and a record with none has no key"
@@ -327,7 +137,7 @@ record 7 --at 1792584000 --by tehas-fixer --how fixer --label tehas:ready --body
 start 7
 # The attempt is the one cycle-start gave it: an attempt is a cycle's row, not an
 # approval's, so the millwright's two starts number 1 and 2.
-lib 'tehas_store approval-current 7 >/dev/null; tehas_store_get .current.how; tehas_store_get .millwright_starts; tehas_store_get .fixer_starts'
+lib 'st approval-current 7 | jq -r ".current.how, .millwright_starts, .fixer_starts"'
 t_eq "$t_out" "millwright
 1
 1"
@@ -365,14 +175,14 @@ t_eq "$t_out" '{"at":"2026-10-20T12:00:00Z","by":"alice","how":"label","body_sha
 t_case "the shapes read what the store itself answers, key for key"
 # The contract across the boundary, read from a store-written answer and not
 # from a hand-built record: a dual key the store stopped answering breaks this
-# case, where the cases above would still pass on the shell's own fallback.
+# case.
 t_store_home "$home"
 record 7 --at 1792497600 --by alice --how label --label tehas:ready --body-sha "$SUM"
 record 7 --at 1792584000 --by tehas-fixer --how millwright --label tehas:ready --body-sha "$SUM"
 start 7
 # approval-current answers both start keys, and the shape reads them both: the
 # millwright's word in the store becomes the `fixer` of the record file.
-lib 'tehas_store approval-current 7 >/dev/null; tehas_store_get .millwright_starts; tehas_store_get .fixer_starts; tehas_store_get '"'"'.millwright_starts | type'"'"''
+lib 'st approval-current 7 | jq -r ".millwright_starts, .fixer_starts, (.millwright_starts | type)"'
 t_eq "$t_out" "1
 1
 number"
@@ -384,7 +194,7 @@ printf '# The brief\n' >"$T/plan-brief.md"
 TEHAS_HOME=$home "$T_STORE" plan-begin 8 --by alice --label tehas:plan --brief-file "$T/plan-brief.md" >/dev/null
 TEHAS_HOME=$home "$T_STORE" plan-end 8 --turn 1 --outcome finished --rc 0 --session s1 >/dev/null
 TEHAS_HOME=$home "$T_STORE" plan-answer 8 --turn 2 --by tehas-fixer --millwright --text-file "$T/plan-brief.md" >/dev/null
-lib 'tehas_store plan-show 8 >/dev/null; tehas_store_get .planning.answers[0].millwright; tehas_store_get .planning.answers[0].fixer; tehas_store_get '"'"'.planning.answers[0].fixer | type'"'"''
+lib 'st plan-show 8 | jq -r ".planning.answers[0].millwright, .planning.answers[0].fixer, (.planning.answers[0].fixer | type)"'
 t_eq "$t_out" "true
 true
 boolean"

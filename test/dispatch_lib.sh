@@ -201,8 +201,8 @@ real_health() { t_health || t_bad "no console: $t_console_why"; T_ENV_ALWAYS+=(T
 t_stub sleep '[ "$1" = 10 ] || PATH=/usr/bin:/bin exec sleep "$@"'
 # The real timeout, named once, for the stub of it below.
 t_real_timeout=$(command -v timeout || true)
-# Stands in for the real timeout, which sits around the calls of lib/store.sh,
-# lib/disk.sh, lib/slice.sh, lib/attachments.sh and tehasbot status, and around
+# Stands in for the real timeout, which sits around the calls of the store,
+# the slice probe, the attachment checker and tehasbot status, and around
 # the poll's own git fetch, gh call, stop of a unit and run of the low-priority
 # gate. The commands a poll of these tests runs are
 # stubs, and a stub answers from a fixture: it runs no network, no daemon and
@@ -217,7 +217,7 @@ t_real_timeout=$(command -v timeout || true)
 # probe, the store that never answers and the gate that stays up. None of them
 # stubs sleep, so each of those bounds holds. The others are the commands of
 # the host a poll reaches for under timeout - df and docker through console disk free
-# and lib/slice.sh, systemctl through lib/slice.sh, gh through console tidy run and
+# and the slice probe, systemctl through the slice probe, gh through console tidy run and
 # the poll's own branch check, the fetch of the checkout, the gate of rule 7,
 # the analytics program, the attachment checker and the store - which a case
 # would hang by some means other than sleep.
@@ -282,7 +282,7 @@ t_stub systemctl "$systemctl_stub"
 t_stub docker 'case "$1" in
   info) case "$*" in
       # The two questions the host asks Docker, both answered from
-      # $T/fx/docker.info: lib/slice.sh wants the cgroup driver and version,
+      # $T/fx/docker.info: the slice probe wants the cgroup driver and version,
       # the first line, and the disk hold wants the directory of the images,
       # the second line when a case wrote one. With $T/fx/docker-down the
       # question is not answered at all, which is a host without Docker: df is
@@ -465,13 +465,10 @@ comments_of() {
   jq --argjson id "$2" '.data.repository.issue.comments.nodes[0].databaseId = $id' "$fx/comments-$1.json" >"$fx/comments-$1.new" &&
     mv "$fx/comments-$1.new" "$fx/comments-$1.json"
 }
-# The body of a park comment, as q_render of lib/questions.sh writes it: the
-# three boxes of a park of this factory, the two retries between them and the
-# one to leave it, their text the pair of names in that file, which the polls
-# of both dispatchers read. It is sourced for those two names alone: nothing
-# here calls GitHub, as nothing of that file does.
-# shellcheck source=lib/questions.sh
-. "$T_ROOT/lib/questions.sh"
+# The body of a park comment, as q_render of console/core/src/question.rs
+# writes it: the three boxes of a park of this factory, the two retries between
+# them and the one to leave it, their text BOX_CLEAN and BOX_ALONE there, which
+# the poll reads.
 # park_body <clean-start box> <alone box> [<leave box>]: each is x or a space.
 # With no alone box the body is the shape a comment had before that box
 # existed: it holds no such line at all, so a poll that reads the old comments
@@ -489,11 +486,11 @@ park_body() {
     alone=
   fi
   b='Tehas cycle stopped.'
-  # One box line: the text lib/questions.sh names, ticked when its box is x.
-  b+=$'\n\n'$(park_box "$clean" "$Q_BOX_CLEAN")
+  # One box line, ticked when its box is x.
+  b+=$'\n\n'$(park_box "$clean" 'Retry from a clean start')
   # A comment written before the box for the issue alone existed holds no such
   # line at all, which is what an empty second argument stands for.
-  [ -z "$alone" ] || b+=$'\n'$(park_box "$alone" "$Q_BOX_ALONE")
+  [ -z "$alone" ] || b+=$'\n'$(park_box "$alone" 'Retry from the issue alone')
   b+=$'\n'$(park_box "$leave" 'Leave it parked')
   b+=$'\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->\n'
   printf '%s' "$b"

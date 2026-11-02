@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# The records on the state store are read and written through lib/store.sh,
-# not as files. This test fails when code that is installed or run names the
+# The records on the state store are read and written through the store
+# (libexec/store), not as files. This test fails when code that is installed or run names the
 # old file of a record that moved. The files that stay files, the carriers,
 # are signals between two processes, a container's mount or its output: each
 # is named only by the code that passes it on. Tests, the manual in host/docs/
@@ -107,13 +107,13 @@ forbid "$p"'\.history\.jsonl\b' 'files=("$TEHAS_HOME/state/cycles/plan-$issue.hi
 forbid '\bplan_record_number\b' 'plan_record_number "$st" || continue'
 forbid '\btehas_plan_history_add\b' 'tehas_plan_history_add "$n" "$line"'
 carrier '\.runner_exit\b' 'runner_exit_file=$TEHAS_HOME/state/cycles/$issue.runner_exit' \
-  'lib/cycles.sh console/src/stop.rs' \
+  'console/src/stop.rs' \
   "work tells the cycle how the runner ended"
 carrier "$n"'\.status\b' 'status_file=$TEHAS_HOME/state/cycles/$issue.status' \
   '' \
   "work tells the cycle the runner's status word"
 carrier '\.oom\b' 'oom_file=${cycles:?}/${issue:?}.oom' \
-  "lib/cycles.sh console/src/stop.rs $an/main.rs $an/run.rs $an/tests.rs" \
+  "console/src/stop.rs $an/main.rs $an/run.rs $an/tests.rs" \
   "work counts the container's kills for memory for the cycle"
 carrier '\.forks\b' 'forks_file=$TEHAS_HOME/state/cycles/$issue.forks' \
   "console/src/stop.rs $an/main.rs $an/run.rs" \
@@ -125,13 +125,13 @@ carrier '\.timed\b' 'timed_file=${cycles:?}/${issue:?}.timed' \
   'console/src/stop.rs' \
   "work tells the cycle the container ran out of time"
 carrier '\.nostart\b' 'nostart_file=$TEHAS_HOME/state/cycles/$issue.nostart' \
-  'lib/cycles.sh console/src/stop.rs' \
+  'console/src/stop.rs' \
   "work tells the cycle the runner never started"
 carrier '\.result\.json\b' 'result=$TEHAS_HOME/state/cycles/$issue.result.json' \
   "console/src/export.rs console/src/stop.rs $an/run.rs $an/sessions.rs $an/tests.rs" \
   "the container's result, kept to the next start for tehas export"
 carrier '\.progress\.json\b' 'progress=$TEHAS_HOME/state/cycles/$issue.progress.json' \
-  "lib/cycles.sh console/src/export.rs console/src/stop.rs $an/run.rs $an/tests.rs" \
+  "console/src/export.rs console/src/stop.rs $an/run.rs $an/tests.rs" \
   "the summary of the container's output, kept to the next start for tehas export"
 carrier "$n"'\.done\b' 'echo "$done_why" >"$TEHAS_HOME/state/cycles/$n.done"' \
   '' \
@@ -228,7 +228,7 @@ done
 t_case "the list covers the code that is installed and run"
 t_contains "$(code)" "libexec/work"
 t_contains "$(code)" "libexec/dispatch"
-t_contains "$(code)" "lib/store.sh"
+t_contains "$(code)" "lib/config.sh"
 t_contains "$(code)" "console/analytics/src/run.rs"
 t_contains "$(code)" "install.sh"
 

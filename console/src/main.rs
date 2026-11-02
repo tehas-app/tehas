@@ -131,8 +131,7 @@
 //!
 //!   console label actor|allowed|pause-holds ...
 //!
-//! Who applied a label, read from the label events, behind lib/labels.sh, see
-//! src/label.rs.
+//! Who applied a label, read from the label events, see src/label.rs.
 //!
 //!   console models keys-ok | pick <provider> | resolve <out>
 //!
@@ -141,8 +140,7 @@
 //!
 //!   console slice ok|limits|cpus|verify|room|pressure ...
 //!
-//! tehas.slice for the commands that start a container, behind lib/slice.sh,
-//! see src/slice.rs.
+//! tehas.slice as the shell reads it, see src/slice.rs.
 //!
 //!   console pr-title sync|poll ...
 //!
@@ -161,6 +159,11 @@
 //!
 //! The commands of bin/tehas and bin/tehasbot that are verbs of this program,
 //! and the text of tehas help, see src/commands.rs.
+//!
+//!   console front <libexec dir> <euid> <bash> tehas|tehasbot [words]
+//!
+//! What bin/tehas and bin/tehasbot exec: which command a word names, its text,
+//! and what runs it, see src/front.rs.
 //!
 //!   console run <libexec dir> <euid> <bash> tehas|tehasbot <command> ...
 //!
@@ -187,6 +190,7 @@ mod export;
 mod flags;
 mod forge;
 mod frame;
+mod front;
 mod github;
 mod health;
 mod history;
@@ -423,6 +427,10 @@ fn main() -> ExitCode {
     // of its command when that command has one.
     let words = std::env::args_os().skip(1);
     let words: Vec<String> = words.map(|a| a.to_string_lossy().into_owned()).collect();
+    if words.first().is_some_and(|w| w == "front") {
+        let given: Vec<std::ffi::OsString> = std::env::args_os().skip(2).collect();
+        return ExitCode::from(front::main(&given));
+    }
     if words.first().is_some_and(|w| w == "run") {
         let text = std::env::args_os().all(|a| a.to_str().is_some());
         return ExitCode::from(run::main(&words[1..], text));

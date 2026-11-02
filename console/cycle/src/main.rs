@@ -200,6 +200,11 @@
 //!                                     workspace, the container watched to its
 //!                                     end and the cycle's notes
 //!                                     (src/work.rs). Exits as tehas work does
+//!   tehas-cycle index [--before-cycle]
+//!                                     the same at the tip of the product's
+//!                                     branch the checkout last fetched; 78
+//!                                     for a checkout of another repository
+//!                                     or a branch it does not know
 //!   tehas-cycle index <branch> <commit> [--before-cycle]
 //!                                     one run of the code indexer at <commit>,
 //!                                     the tip of <branch>, under the lock
@@ -284,6 +289,8 @@ fn main() {
         ["-h" | "--help"] => println!("{}", usage()),
         ["report", file] => print_report(file),
         ["index", "table"] => println!("{}", index::table()),
+        ["index"] => std::process::exit(index::here(false).into()),
+        ["index", "--before-cycle"] => std::process::exit(index::here(true).into()),
         ["index", branch, base] => std::process::exit(index::main(branch, base, false).into()),
         ["index", branch, base, "--before-cycle"] => {
             std::process::exit(index::main(branch, base, true).into())

@@ -48,14 +48,14 @@ fi
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source=lib/config.sh
 . "$here/../lib/config.sh"
-# shellcheck source=lib/store.sh
-. "$here/../lib/store.sh"
 tehas_load || exit 78
 tehas_require TEHAS_REPO
 
 log() { TZ=UTC0 printf '%(%FT%TZ)T %s\n' -1 "$*"; }
 
-if ! tehas_store_ready; then
+# Before the lock is opened: the program and a database that is a file.
+store=$TEHAS_HOME/libexec/store db=$TEHAS_HOME/state/tehas.db
+if ! [ -f "$store" ] || ! [ -x "$store" ] || ! [ -f "$db" ] || [ -L "$db" ]; then
   log "ERROR: the state store is not installed (run install.sh)"
   exit 78
 fi

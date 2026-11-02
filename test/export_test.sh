@@ -325,7 +325,7 @@ reset
 cycle 12 "$T0" '{"kind":"work","rc":0,"status":"merged"}'
 rm -f "$T/bin/console"
 run_export --json --after $((T0 - 1))-12 "$out" 2>/dev/null
-t_eq "$t_rc" 1
+t_eq "$t_rc" 78
 t_eq "$(find "$out" -type f 2>/dev/null | wc -l)" 0
 
 t_case "export changes nothing in the factory"
