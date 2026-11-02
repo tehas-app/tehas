@@ -330,7 +330,7 @@ fn parse(given: &[String]) -> Result<Asked, u8> {
     }
     if !to.is_empty() && !release::tag_ok(&to) {
         tell(&format!(
-            "tehas update: --to takes a version vX.Y.Z, got: {to}"
+            "tehas update: --to takes a version vX.Y.Z or vX.Y.Z-rc.N, got: {to}"
         ));
         return Err(64);
     }

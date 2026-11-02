@@ -3904,6 +3904,7 @@ checkout.
 tehas update                  # the newest release, or pull the checkout;
                               # install, run the follow-ups that apply
 tehas update --to v0.8.1      # that release, an older one too
+tehas update --to v0.22.0-rc.1  # a release candidate, only when named
 tehas update --check          # report what would change; change nothing
 tehas update --pending        # run the follow-ups the record lists, no git
 tehas update --help           # print the usage of the command, touch nothing
@@ -3963,6 +3964,15 @@ with their image tags.
 
 `~/tehas/state/update-hold` stops a plain `tehas update`. `--to` names its
 version and runs with the hold there.
+
+A release candidate, `vX.Y.Z-rc.N`, is published as a prerelease. It is never
+the newest, so a plain `tehas update` passes it over; `--to` names it, and it
+is downloaded and checked like any release. A candidate comes before its
+version and after the version before it, and `rc.10` after `rc.9`. On a
+candidate, a plain `tehas update` stays until a newer release is out, then
+moves to it. The notes shown are those of the candidate or the release moved
+to, not of every candidate between. A draft is not published and cannot be
+named.
 
 ### From the checkout
 
@@ -4382,6 +4392,9 @@ It does not edit the file.
 `scripts/release-notes.sh <tag>` prints a section without its heading, and
 exits 1 when the file has none for that tag. The workflow makes the release's
 page from it, from the `Unreleased` section when the tag has none of its own.
+A release candidate, `vX.Y.Z-rc.N`, always reads `Unreleased`:
+`scripts/tag-release.sh --rc` tags one before the section is renamed, and
+checks the Adopter action there.
 
 A host moving from its platform checkout has no version installed, so its notes
 start at the newest `vX.Y.Z` tag at or before the checkout's HEAD, which
@@ -4390,8 +4403,8 @@ with no such tag it is shown every release.
 
 ### The release workflow
 
-`.github/workflows/release.yml` runs on the push of a `vX.Y.Z` tag, on the
-organisation's own runner as the gate does. It builds the console, the
+`.github/workflows/release.yml` runs on the push of a `vX.Y.Z` or a
+`vX.Y.Z-rc.N` tag, on the organisation's own runner as the gate does. It builds the console, the
 analytics program, the store and the MCP server (static, musl) with `cargo
 build --release --locked`, resolves the pins, runs
 the pack command above (which refuses any program whose e_machine is not the
@@ -4402,6 +4415,7 @@ above, its `.sha256` and `.minisig` beside it, and `install` with
 `install.minisig`.
 
 The release is made as a draft and published only when every file is on it.
+A release candidate is published as a prerelease and never marked the latest.
 The signing key is the Actions secret `MINISIGN_SECRET_KEY`, the whole secret
 key file, and its password, if it has one, is `MINISIGN_PASSWORD`. A run that
 cannot sign, or whose signature the key in the tree does not check, publishes
@@ -4418,7 +4432,8 @@ downloads:
 curl -fsSL https://github.com/tehas-app/tehas/releases/latest/download/install | sudo sh -s -- boss
 ```
 
-It downloads the newest release (or `--version vX.Y.Z`) of this machine: the
+It downloads the newest release (or `--version vX.Y.Z`, or a release
+candidate `--version vX.Y.Z-rc.N`) of this machine: the
 asset is `tehas-<version>-linux-<arch>.tar.gz`, `<arch>` the architecture
 `uname -m` answers, `x86_64` or `aarch64`, with `amd64` and `arm64` read as
 those. A machine whose `uname -m` says anything else stops before anything is
