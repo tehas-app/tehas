@@ -1,8 +1,6 @@
-//! A cycle's supervisor in Rust (#256). So far its report: `report` takes
-//! what an ended cycle left and the answers GitHub gives, and returns what
-//! libexec/cycle does with them, and `apply` does it, where the instance asks
-//! for it with TEHAS_CYCLE_REPORT. `shadow` decides beside the bash's report on
-//! a host and says where the two differ. `pin` gives a cycle its own copy of the code.
+//! A cycle's supervisor in Rust (#256). `report` takes what an ended cycle
+//! left and the answers GitHub gives, and returns what to do with them, and
+//! `apply` does it. `pin` gives a cycle its own copy of the code.
 //! `clock` measures a cycle on a clock that stops while the VM is saved.
 //! `renew` keeps a cycle's GitHub token fresh and says what went wrong.
 //! `finish` opens a pull request from what a cycle that stopped left.
@@ -37,7 +35,6 @@ pub mod renew;
 pub mod report;
 pub mod runner;
 pub mod sandbox;
-pub mod shadow;
 pub mod start;
 pub mod supervise;
 pub mod watch;

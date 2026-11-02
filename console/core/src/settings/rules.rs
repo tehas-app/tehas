@@ -231,7 +231,7 @@ pub const TABLE: &[Setting] = &[
     given_or("TEHAS_SIZE_MAX_FILES", Rule::Count, ""),
     given(
         "TEHAS_CYCLE_REPORT",
-        Rule::OneOf(&["bash", "rust"], "expected bash or rust"),
+        Rule::OneOf(&["rust"], "expected rust: the report in bash is gone"),
     ),
     given("TEHAS_SCRATCH_DIR", Rule::ScratchDir),
     given_or("TEHAS_ANALYTICS_SRC", Rule::ScriptAddress, ""),
@@ -707,7 +707,13 @@ mod tests {
         takes("TEHAS_UPDATE_FROM", "git");
         refuses("TEHAS_UPDATE_FROM", "tag", "expected git or release");
         takes("TEHAS_CYCLE_REPORT", "rust");
-        refuses("TEHAS_CYCLE_REPORT", "perl", "expected bash or rust");
+        for v in ["perl", "bash"] {
+            refuses(
+                "TEHAS_CYCLE_REPORT",
+                v,
+                "expected rust: the report in bash is gone",
+            );
+        }
     }
 
     #[test]
