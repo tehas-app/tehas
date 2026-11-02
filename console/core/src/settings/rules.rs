@@ -69,7 +69,7 @@ pub enum Rule {
     /// no quote, space or angle bracket may get through.
     ScriptAddress,
     SiteName,
-    /// The shape lib/slice.sh reads at every start: no leading zero, at most
+    /// The shape tehas_core::slice reads at every start: no leading zero, at most
     /// twelve digits of bytes or nine with a unit, and a size Docker takes:
     /// it refuses a memory value under 6m.
     ContainerSize,

@@ -5,7 +5,7 @@
 # session and the push check. Sourced by test/work_lib.sh (the cycle's tests)
 # and by test/plan_test.sh and test/dev_test.sh, so the documented security
 # options have one home in the tests: the literal below. It is not read from
-# tehas_sandbox_security, which is the function under test.
+# console/core/src/sandbox.rs, which is the code under test.
 #
 # Every helper reads the arguments of one docker call on standard input, one
 # argument per line, as the stub of docker records them (test/lib.sh).
@@ -20,9 +20,6 @@
 #   unknown_options <image> <options that take a value> <options that take none>
 #                      every option of the call that is not one the command is
 #                      known to pass, up to the image name
-T_ROOT=${T_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}
-# shellcheck source=lib/sandbox.sh
-. "$T_ROOT/lib/sandbox.sh"
 # The documented list, for the ceiling the stubbed slice gives a container
 # (--memory 2048m): /tmp is half of it. The names below are made from this
 # string. They are strings, not arrays: the suites that source this write their
@@ -111,7 +108,7 @@ unknown_options() { # <image> <options that take a value> <options that take non
 # The security options, in the words the manual's table of
 # "What a container may not do" in host/docs/host.md gives them: one row per
 # option, its value in the second cell. test/work_caps_test.sh compares what
-# tehas_sandbox_security prints with this, so the table and the container are
+# the container is given with this, so the table and the container are
 # pinned to the same list and one is not a copy of the other kept by hand.
 security_doc_rows() {
   printf '%s\n' '--cap-drop|ALL' '--cap-add|CHOWN' '--cap-add|FOWNER' \

@@ -138,7 +138,7 @@ pub fn branch_shaped(name: &str) -> bool {
         return false;
     }
     let ok = |c: u8| c.is_ascii_alphanumeric() || matches!(c, b'.' | b'_' | b'/' | b'-');
-    // The rules of `git check-ref-format --branch`, which lib/cycles.sh follows
+    // The rules of `git check-ref-format --branch`, which the cycle follows
     // for the name a cycle is given: no component begins or ends with a dot or a
     // dash, none ends in `.lock`, no `..` and no `//`, and no character outside
     // the set git allows. A name git itself rejects is no branch name, and a run
