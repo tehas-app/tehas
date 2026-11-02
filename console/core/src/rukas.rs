@@ -31,12 +31,11 @@ pub fn target(
             .map(|l| l.split('\t').next().unwrap_or(""))
             .collect();
         (one(commits)?, format!("the head of {name}"))
-    } else if let Some(commit) = follow.strip_prefix("commit:") {
+    } else {
         // Not looked up: a commit upstream never published has no image, and
         // the build says so.
+        let commit = follow.strip_prefix("commit:")?;
         (commit.to_string(), "pinned".to_string())
-    } else {
-        return None;
     };
     commit_shaped(&commit).then_some((commit, what))
 }
