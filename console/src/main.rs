@@ -427,9 +427,6 @@ fn main() -> ExitCode {
     // of its command when that command has one.
     let words = std::env::args_os().skip(1);
     let words: Vec<String> = words.map(|a| a.to_string_lossy().into_owned()).collect();
-    if words.first().is_some_and(|w| w == "check") {
-        return ExitCode::from(commands::check(&words[1..]));
-    }
     if words.first().is_some_and(|w| w == "run") {
         let text = std::env::args_os().all(|a| a.to_str().is_some());
         return ExitCode::from(run::main(&words[1..], text));

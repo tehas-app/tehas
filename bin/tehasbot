@@ -41,7 +41,16 @@ usage() {
 
 # under_settings <command> [arguments]: the command under the instance's settings.
 under_settings() {
-  [ -x "$console" ] || { echo "tehasbot $1: no console at $console: run install.sh" >&2; exit 78; }
+  if [ ! -x "$console" ]; then
+    case $1 in
+      clean) printf 'tehas clean: no console beside this command at %s, run install.sh\n' "$console" >&2 ;;
+      preview) echo "tehas: no console beside this command ($console), run install.sh" >&2 ;;
+      protolab) echo "tehasbot protolab: no console to build the pages with; run install.sh" >&2 ;;
+      refresh) echo "tehas: no console at $console to load the settings: run install.sh" >&2 ;;
+      *) echo "tehasbot $1: no console at $console: run install.sh" >&2 ;;
+    esac
+    exit 78
+  fi
   exec "$console" run "$libexec" "$EUID" "$BASH" tehasbot "$@"
 }
 
@@ -50,10 +59,22 @@ case "${1-help}" in
     usage
     exit 0
     ;;
-  health | status | top)
+  health | status | top | refresh | clean)
     under_settings "$@"
     ;;
-  dispatch | cycle | protolab | preview | improve | refresh | review | clean | github-token)
+  # The pages and the previews are served by another user.
+  preview)
+    umask 022
+    under_settings "$@"
+    ;;
+  # A checkout has no console built, so a `console' on the PATH is taken too, as
+  # tehas export does.
+  protolab)
+    umask 022
+    [ -x "$console" ] || console=$(command -v console 2>/dev/null) || console=$libexec/console
+    under_settings protolab
+    ;;
+  dispatch | cycle | improve | review | github-token)
     file=$libexec/$1
     shift
     exec "$file" "$@"

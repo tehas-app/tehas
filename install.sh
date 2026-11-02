@@ -670,8 +670,6 @@ files=(
   "lib/rukas.sh|$TEHAS_HOME/lib/rukas.sh|644"
   "lib/sandbox.sh|$TEHAS_HOME/lib/sandbox.sh|644"
   "lib/slice.sh|$TEHAS_HOME/lib/slice.sh|644"
-  # The free disk of the host, read by the dispatcher's hold and the previews'.
-  "lib/disk.sh|$TEHAS_HOME/lib/disk.sh|644"
   # The measure of an issue body, read by the dispatcher and the analytics.
   "lib/questions.sh|$TEHAS_HOME/lib/questions.sh|644"
   # How the commands run the state store, libexec/store.
@@ -723,7 +721,6 @@ for f in tehas tehasbot; do
 done
 for f in \
   check-product \
-  clean \
   cycle \
   dev \
   dev-login \
@@ -732,11 +729,7 @@ for f in \
   github-token \
   improve \
   index \
-  init-product \
   plan \
-  preview \
-  protolab \
-  refresh \
   review \
   setup \
   update \
@@ -1297,6 +1290,7 @@ for f in \
   lib/private.sh \
   libexec/analytics-cmd \
   libexec/api \
+  libexec/clean \
   libexec/console.ts \
   lib/limit.sh \
   lib/live.sh \
@@ -1311,10 +1305,14 @@ for f in \
   libexec/energy \
   libexec/health \
   libexec/history \
+  libexec/init-product \
   libexec/labels \
   libexec/limit \
   libexec/mcp \
   libexec/pause \
+  libexec/preview \
+  libexec/protolab \
+  libexec/refresh \
   libexec/resume \
   libexec/state \
   libexec/status \
@@ -1324,6 +1322,7 @@ for f in \
   libexec/top \
   libexec/top-publish \
   libexec/with-settings \
+  lib/disk.sh \
   lib/top.sh \
   lib/update-release.sh \
   edge/protolab.Caddyfile \

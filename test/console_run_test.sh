@@ -36,7 +36,9 @@ untouched() {
 commands=(
   "$tehas state pack -" "$tehas limit" "$tehas pause" "$tehas resume" "$tehas api" "$tehas labels"
   "$tehas analytics report" "$tehas drain" "$tehas history" "$tehas stop 7" "$tehas mcp serve"
-  "$bot health" "$bot status" "$bot top" "$bot mcp serve" "$bot github-token"
+  "$tehas check-product" "$tehas init-product"
+  "$bot health" "$bot status" "$bot top" "$bot mcp serve" "$bot protolab"
+  "$bot preview" "$bot improve" "$bot refresh" "$bot review" "$bot clean" "$bot github-token"
 )
 for command in "${commands[@]}"; do
   name=${command#"$tree"/bin/}
@@ -70,6 +72,8 @@ done
 needs=(
   "TEHAS_REPO|$tehas api" "TEHAS_REPO|$tehas labels" "TEHAS_REPO|$tehas history"
   "TEHAS_REPO|$tehas resume" "TEHAS_REPO|$bot status"
+  "TEHAS_REPO|$tehas check-product" "TEHAS_REPO|$tehas init-product"
+  "TEHAS_REPO|$bot protolab" "TEHAS_REPO|$bot preview" "TEHAS_REPO|$bot review" "TEHAS_REPO|$bot clean"
 )
 for row in "${needs[@]}"; do
   command=${row#*|}
@@ -83,12 +87,54 @@ for row in "${needs[@]}"; do
   untouched
 done
 
+t_case "a loop that is on stops on the settings it needs, and one that is off asks for none"
+reset
+t_instance TEHAS_CONTROL_ISSUE=1 TEHAS_ALLOWED_LABELERS=alice TEHAS_IMPROVE_REPO=acme/notes
+t_run "$bot improve"
+t_eq "$t_rc" 78
+t_contains "$t_out" "TEHAS_REPO is not set (see "
+untouched
+reset
+t_instance TEHAS_CONTROL_ISSUE=1 TEHAS_ALLOWED_LABELERS=alice TEHAS_REFRESH_CONFLICTS=1
+t_run "$bot refresh"
+t_eq "$t_rc" 78
+t_contains "$t_out" "TEHAS_REPO is not set (see "
+untouched
+reset
+t_instance TEHAS_CONTROL_ISSUE=1 TEHAS_ALLOWED_LABELERS=alice
+t_run "$bot improve"
+t_eq "$t_rc" 0
+t_eq "$t_out" "tehas improve: TEHAS_IMPROVE_REPO is not set, the improvement loop is off"
+t_run "$bot refresh"
+t_eq "$t_rc" 0
+t_eq "$t_out" ""
+untouched
+
+t_case "the review's gate sits below the settings it needs"
+reset
+t_run "$bot review"
+t_eq "$t_rc" 0
+t_eq "$t_out" ""
+untouched
+t_instance TEHAS_CONTROL_ISSUE=1 TEHAS_ALLOWED_LABELERS=alice
+t_run "$bot review"
+t_eq "$t_rc" 78
+t_contains "$t_out" "TEHAS_REPO is not set (see "
+
+t_case "an instance with previews off is 78 and says so"
+reset
+t_run "$bot preview"
+t_eq "$t_rc" 78
+t_eq "$t_out" "tehas: TEHAS_PREVIEWS is not 1: this instance has no previews"
+untouched
+
 # A bad argument is 64 and a text 0, whatever the settings hold.
 t_case "a check that refuses is its own status and the settings are not read"
 reset
 t_instance 'echo "settings were read" >&2; exit 9'
-for bad in "$tehas limit show" "$tehas pause a b" "$tehas stop" \
-  "$bot github-token --print"; do
+for bad in "$tehas limit show" "$tehas pause a b" "$tehas stop" "$tehas check-product --what" "$tehas init-product --what" \
+  "$bot preview --what" "$bot improve x" "$bot clean --what" \
+  "$bot github-token --print" "$bot review --what" "$bot refresh --what"; do
   t_run "$bad"
   t_eq "$t_rc" 64
   t_lacks "$t_out" "settings were read"
@@ -98,7 +144,7 @@ untouched
 t_case "a check that was the whole answer ends 0, and neither the settings nor the verb are reached"
 reset
 t_instance 'echo "settings were read" >&2; exit 9'
-for help in "$tehas stop 5 --help"; do
+for help in "$tehas stop 5 --help" "$bot clean -h" "$bot review --help" "$bot refresh --help"; do
   t_run "$help"
   t_eq "$t_rc" 0
   t_lacks "$t_out" "settings were read"
@@ -118,7 +164,7 @@ t_case "the status is the verb's"
 reset
 t_run "$tehas api --json"
 t_eq "$t_rc" 0
-t_run "$tehas api --what"
+t_run "$bot refresh --what"
 t_eq "$t_rc" 64
 
 # The two the shell hands in, and the tree the console was told it stands in.
@@ -131,11 +177,20 @@ t_case "tehas and tehasbot name their libexec, the uid and the bash, and every w
 reset
 recording "$T/other"
 T_ENV=(TEHAS_CONSOLE="$T/other")
-t_run "$tehas limit set --reason 'a b' && $bot top --every && echo \"\$EUID \$BASH\""
+t_run "$tehas limit set --reason 'a b' && $bot clean --dry-run && echo \"\$EUID \$BASH\""
 t_eq "$t_rc" 0
 say=${t_out##*$'\n'}
 t_eq "$(t_calls console)" "run $tree/libexec ${say% *} ${say#* } tehas limit set --reason a b
-run $tree/libexec ${say% *} ${say#* } tehasbot top --every"
+run $tree/libexec ${say% *} ${say#* } tehasbot clean --dry-run"
+
+t_case "the pages and the previews are written by a umask their server can read"
+reset
+recording "$T/other"
+T_ENV=(TEHAS_CONSOLE="$T/other")
+t_run "umask 077; $bot preview; $bot protolab; $bot clean"
+t_eq "$(cat "$T/calls/umask")" "0022
+0022
+0077"
 
 t_case "no console is 78, names the command and the fix, and reads nothing"
 reset
@@ -144,9 +199,9 @@ mv "$tree/libexec/console" "$T/held"
 t_run "$tehas limit show"
 t_eq "$t_rc" 78
 t_eq "$t_out" "tehas limit: no console at $tree/libexec/console: run install.sh"
-t_run "$bot health"
+t_run "$bot refresh"
 t_eq "$t_rc" 78
-t_eq "$t_out" "tehasbot health: no console at $tree/libexec/console: run install.sh"
+t_eq "$t_out" "tehas: no console at $tree/libexec/console to load the settings: run install.sh"
 mv "$T/held" "$tree/libexec/console"
 
 t_done
