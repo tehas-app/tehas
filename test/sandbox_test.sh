@@ -1352,17 +1352,17 @@ variable-in-another-file	1	unplaced		the image "$image" is assigned by no statem
 
 t_case "the scan places one record for every docker run the units hold"
 # The count is made by a rule the scan does not share, and the two must agree:
-# the count is what the units hold today: two for plan (the check of a runner and
-# the turn), the run of the comment that names docker run being read by neither.
-# The runs of the programs are the rows of the table below.
+# the count is what the units hold today, none: every container is started by
+# a program, whose runs are the rows of the table below. The run of a comment
+# that names docker run is read by neither.
 count=$(docker_run_count "$T_ROOT/libexec")
-t_eq "$count" 2
+t_eq "$count" 0
 # The account of the records is read off the records themselves, and not from
 # two totals that could drift together: the lines of the records are the runs
 # the scan made records for, so a record of anything at all answers one line of
 # the count, and no record answers two.
 records=$(records_of "$T_ROOT/libexec")
-t_eq "$(wc -l <<<"$records")" "$count"
+t_eq "$(grep -c . <<<"$records")" "$count"
 # The shape of a record carries its own account, so the two assertions above
 # cannot be met by a record that names neither an image nor a reason: a record
 # of a run the scan placed ends with the tab that tells an empty command from a
@@ -1370,7 +1370,7 @@ t_eq "$(wc -l <<<"$records")" "$count"
 # ends with the reason it gives. The scan keeps the two apart itself, and says
 # how many records it read as neither, which is what the account on the error
 # of the scan is asked for.
-t_eq "$(records_account "$T_ROOT/libexec")" "placed 2 unplaced 0 bad 0"
+t_eq "$(records_account "$T_ROOT/libexec")" "placed 0 unplaced 0 bad 0"
 # Any run the scan cannot place fails this case, and is named by the file and
 # the line it stands on. The units leave none today.
 unplaced=$(unplaced_of "$T_ROOT/libexec")
@@ -1384,7 +1384,7 @@ records=$(records_of "$T_ROOT/libexec")
 t_console || t_bad "no console: $t_console_why"
 # shellcheck disable=SC2154  # t_cycle_why is set by t_cycle (test/lib.sh)
 t_cycle || t_bad "no tehas-cycle: $t_cycle_why"
-program_runs=$("$T_CONSOLE" check-product table; "$T_CONSOLE" improve table; "$T_CONSOLE" review table; "$T_CONSOLE" dev table; "$T_CYCLE" index table; "$T_CYCLE" sandbox table)
+program_runs=$("$T_CONSOLE" check-product table; "$T_CONSOLE" improve table; "$T_CONSOLE" review table; "$T_CONSOLE" plan table; "$T_CONSOLE" dev table; "$T_CYCLE" index table; "$T_CYCLE" sandbox table)
 while IFS= read -r row; do
   records+=$'\n'"${row/$'\t'/$'\t0\t'}"$'\t'
 done <<<"$program_runs"
@@ -1395,8 +1395,8 @@ t_eq "$({ run_table "$T_ROOT/libexec"; printf '%s\n' "$program_runs"; } | LC_ALL
 dev	PI_ENSEMBLE_IMAGE	pi
 improve	PI_ENSEMBLE_IMAGE	pi
 index	PI_ENSEMBLE_IMAGE	codebase-memory-mcp
-plan	PI_ENSEMBLE_IMAGE	$runner
-plan	PI_ENSEMBLE_IMAGE	$runner
+plan	PI_ENSEMBLE_IMAGE	/opt/pi-rukas/bin/pi-rukas-headless
+plan	PI_ENSEMBLE_IMAGE	/opt/pi-rukas/bin/pi-rukas-headless
 review	PI_ENSEMBLE_IMAGE	/opt/pi-rukas/bin/pi-rukas-headless
 work	PI_ENSEMBLE_IMAGE	$runner
 work	PI_ENSEMBLE_IMAGE	$runner

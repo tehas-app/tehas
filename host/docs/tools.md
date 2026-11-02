@@ -1118,6 +1118,10 @@ Run by hand it removes and remakes the workspace that a planning turn of the
 same issue uses, and it does not take the dispatcher's lock, so do not run it
 for an issue whose session the factory is working on.
 
+`libexec/plan` is only a path: the console runs the turn
+(`console/src/plan/start.rs`), after `console run` has loaded the settings. A
+call that is no turn is refused with 64 before the settings are read.
+
 ```
 tehas plan 12 --out /tmp/turn.json --keep /tmp/turn.keep --brief brief.md
 tehas plan 12 --out /tmp/turn.json --keep /tmp/turn.keep --session <id> --answer answer.md [--comment <id>]
@@ -1145,8 +1149,7 @@ turn runs `plan "<descriptor>" --start --context <brief>`, with
 `--issue <n>` when the image lists that flag for `plan`, so the planner does not
 take the issue for a duplicate of itself (pi-rukas v0.14.28 and later). A later
 turn never passes it: the session keeps it. The descriptor is the issue's title,
-and the `console` beside the command makes it (`console plan descriptor <brief>
-<issue>`, `console/plan.rs`): the text after the `# ` of the brief's first line,
+and the console makes it (`descriptor` in `console/src/plan.rs`): the text after the `# ` of the brief's first line,
 trimmed. A brief whose first line is `Title: <text>`, as a drafted plan writes
 one, is named by `<text>` instead, so a half of a split is named for its own
 work and not for the whole issue it was split from; a `Title:` lower in the body

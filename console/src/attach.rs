@@ -152,6 +152,48 @@ pub fn issue_images(issue: &str, dir: &str, approved: &str) -> Result<(), String
     }
 }
 
+// The new files and what was left out, from what `attach answer` ended with.
+fn answer_said(rc: i32, out: &str) -> Result<(String, String), String> {
+    let doc = (rc == 0).then(|| answer(out, "answer")).flatten();
+    let Some(doc) = doc else {
+        return Err(format!(
+            "the issue's files could not be checked (attach: answer exited {rc})"
+        ));
+    };
+    match word(&doc, "why") {
+        why if why.is_empty() => Ok((word(&doc, "new"), word(&doc, "left"))),
+        why => Err(why),
+    }
+}
+
+/// tehas_answer_images: add to a planning session's `dir` what the reply in
+/// `text` links. Ok holds the new files and what was left out, Err why no turn
+/// may run. With no program a reply that links nothing gives nothing.
+pub fn answer_images(dir: &str, text: &str, id: &str) -> Result<(String, String), String> {
+    let Some(bin) = program() else {
+        let reply = fs::read(text).map_err(|_| NOT_INSTALLED.to_string())?;
+        if may_link(&String::from_utf8_lossy(&reply)) {
+            return Err(NOT_INSTALLED.to_string());
+        }
+        return Ok((String::new(), String::new()));
+    };
+    let done = Command::new(&bin)
+        .args(["answer", dir, text, id, "--attach"])
+        .arg(&bin)
+        .args(["--images", &or("TEHAS_WORK_IMAGES", "1")])
+        .args(["--files", &or("TEHAS_WORK_FILES", "0")])
+        .args(["--zips", &or("TEHAS_WORK_ZIPS", "0")])
+        .stdin(Stdio::null())
+        .stderr(Stdio::inherit())
+        .output();
+    let (rc, out) = done.map_or((127, Vec::new()), |o| {
+        let rc = o.status.code();
+        let rc = rc.unwrap_or_else(|| 128 + o.status.signal().unwrap_or(0));
+        (rc, o.stdout)
+    });
+    answer_said(rc, &String::from_utf8_lossy(&out))
+}
+
 fn label_said(line: &str) -> String {
     let images = line.lines().next().and_then(|l| l.split_once('|'));
     let images = images.map_or("", |(_, images)| images);
@@ -209,6 +251,29 @@ pub fn said(dir: &str, what: &str, reads: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_reply_gives_its_new_files_or_stops_the_turn() {
+        let good = r#"{"api":1,"ok":true,"verb":"answer","why":null,"new":"- image-2.png","left":"- x.zip: zips are off"}"#;
+        assert_eq!(
+            answer_said(0, good),
+            Ok(("- image-2.png".into(), "- x.zip: zips are off".into()))
+        );
+        let why = r#"{"api":1,"ok":true,"verb":"answer","why":"a link failed","new":"","left":""}"#;
+        assert_eq!(answer_said(0, why), Err("a link failed".into()));
+        for (rc, out) in [
+            (3, good),
+            (0, ""),
+            (0, r#"{"api":1,"ok":true,"verb":"issue","why":null}"#),
+        ] {
+            assert_eq!(
+                answer_said(rc, out),
+                Err(format!(
+                    "the issue's files could not be checked (attach: answer exited {rc})"
+                ))
+            );
+        }
+    }
 
     #[test]
     fn a_start_stops_on_what_the_program_says_and_on_no_answer() {
