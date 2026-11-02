@@ -13,6 +13,8 @@ empty one above it.
 
 ### Changes
 
+- The sandbox image builds with the Rust `RUST_VERSION` names in host/versions.env, with rustfmt and clippy, instead of the stable toolchain the pi-rukas base happened to carry; the build stops when rustc answers another version.
+
 ### Adopter action
 
 None.
