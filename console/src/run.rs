@@ -258,11 +258,8 @@ mod tests {
     use super::*;
     use std::fs;
 
-    fn scratch(name: &str) -> std::path::PathBuf {
-        let dir = env::temp_dir().join(format!("run-{name}-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
-        dir
+    fn scratch(name: &str) -> tehas_core::testdir::TestDir {
+        tehas_core::testdir::TestDir::new(&format!("run-{name}"))
     }
 
     fn file(dir: &Path, bytes: &[u8], mode: u32) -> std::path::PathBuf {
@@ -295,7 +292,6 @@ mod tests {
         assert!(!a_program(&file(&dir, b"#!/bin/sh\n", 0o644)));
         assert!(!a_program(&dir));
         assert!(!a_program(&dir.join("no-such")));
-        fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

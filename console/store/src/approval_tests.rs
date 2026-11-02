@@ -559,7 +559,7 @@ fn approval_record_refuses_an_input_file_it_cannot_take() {
     let cases: Vec<(PathBuf, &str)> = vec![
         (link, "not a regular file"),
         (home.join("none.json"), "not a regular file"),
-        (home.clone(), "not a regular file"),
+        (home.to_path_buf(), "not a regular file"),
         (big, "over 1 MiB"),
         (write_file(&home, "bytes.json", &[0xff, 0xfe]), "not UTF-8"),
         (write_file(&home, "text.json", b"links"), "not JSON"),

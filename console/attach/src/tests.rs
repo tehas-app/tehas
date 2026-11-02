@@ -7,8 +7,8 @@ use serde_json::Value;
 use std::fs;
 use std::io::Write;
 use std::os::unix::fs::{symlink, PermissionsExt};
-use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::path::Path;
+use tehas_core::testdir::TestDir;
 
 // --- An archive written here, entry by entry ---------------------------------
 
@@ -99,31 +99,6 @@ fn zip_counted(entries: &[E], total: Option<u16>) -> Vec<u8> {
     out.extend_from_slice(&cd_offset.to_le_bytes());
     out.extend_from_slice(&0u16.to_le_bytes());
     out
-}
-
-// --- A scratch directory per test ----------------------------------------------
-
-static N: AtomicUsize = AtomicUsize::new(0);
-
-struct Scratch(PathBuf);
-
-impl Scratch {
-    fn new() -> Scratch {
-        let p = std::env::temp_dir().join(format!(
-            "attach-test-{}-{}",
-            std::process::id(),
-            N.fetch_add(1, Ordering::SeqCst)
-        ));
-        let _ = fs::remove_dir_all(&p);
-        fs::create_dir_all(&p).unwrap();
-        Scratch(p)
-    }
-}
-
-impl Drop for Scratch {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.0);
-    }
 }
 
 fn run(zip: &[u8], dest: &Path, bytes: u64, files: i64) -> Vec<Value> {
@@ -271,12 +246,12 @@ fn the_kinds_are_the_labs_and_md() {
 
 #[test]
 fn files_are_written_with_what_their_bytes_say() {
-    let s = Scratch::new();
+    let s = TestDir::new("attach");
     let mut png = e("img/b.png", "");
     png.data = b"\x89PNG\r\n\x1a\nDATA".to_vec();
     png.deflate = true;
     let zip = zip_of(&[e("a.md", "# A\n"), png]);
-    let out = run(&zip, &s.0, MB, 16);
+    let out = run(&zip, &s, MB, 16);
     assert_eq!(names(&out), ["a.md", "img/b.png"]);
     assert_eq!(out[0]["kind"], "part");
     assert_eq!(out[0]["bytes"], 4);
@@ -285,8 +260,8 @@ fn files_are_written_with_what_their_bytes_say() {
     assert_eq!(out[1]["kind"], "image");
     assert_eq!(out[1]["image"], "png");
     assert_eq!(out[1]["text"], false);
-    assert_eq!(fs::read(s.0.join("a.md")).unwrap(), b"# A\n");
-    let mode = fs::metadata(s.0.join("img/b.png"))
+    assert_eq!(fs::read(s.join("a.md")).unwrap(), b"# A\n");
+    let mode = fs::metadata(s.join("img/b.png"))
         .unwrap()
         .permissions()
         .mode();
@@ -296,8 +271,8 @@ fn files_are_written_with_what_their_bytes_say() {
 
 #[test]
 fn a_path_out_of_the_directory_writes_nothing() {
-    let s = Scratch::new();
-    let dest = s.0.join("d");
+    let s = TestDir::new("attach");
+    let dest = s.join("d");
     let zip = zip_of(&[
         e("../escape.txt", "x"),
         e("/abs.txt", "x"),
@@ -310,12 +285,12 @@ fn a_path_out_of_the_directory_writes_nothing() {
     assert_eq!(names(&out), ["1/2/3/4/5/ok.txt"]);
     let why: Vec<_> = skips(&out).into_iter().map(|(_, r)| r).collect();
     assert_eq!(why, vec!["A path outside the archive."; 5]);
-    assert_eq!(files_under(&s.0), ["d/1/2/3/4/5/ok.txt"]);
+    assert_eq!(files_under(&s), ["d/1/2/3/4/5/ok.txt"]);
 }
 
 #[test]
 fn a_link_or_a_special_file_is_left_out_and_never_made() {
-    let s = Scratch::new();
+    let s = TestDir::new("attach");
     let mut link = e("link", "/etc/passwd");
     link.mode = Some(0o120777);
     let mut fifo = e("fifo.txt", "");
@@ -323,7 +298,7 @@ fn a_link_or_a_special_file_is_left_out_and_never_made() {
     let mut dir = e("folder/", "");
     dir.mode = Some(0o040755);
     let zip = zip_of(&[link, fifo, dir, e("ok.txt", "ok")]);
-    let out = run(&zip, &s.0, MB, 16);
+    let out = run(&zip, &s, MB, 16);
     assert_eq!(
         skips(&out),
         [
@@ -335,12 +310,12 @@ fn a_link_or_a_special_file_is_left_out_and_never_made() {
         ]
     );
     assert_eq!(names(&out), ["ok.txt"]);
-    assert_eq!(files_under(&s.0), ["ok.txt"]);
+    assert_eq!(files_under(&s), ["ok.txt"]);
 }
 
 #[test]
 fn an_entry_with_no_unix_type_is_a_file_and_a_folder_by_its_name_is_passed_over() {
-    let s = Scratch::new();
+    let s = TestDir::new("attach");
     let mut plain = e("plain.txt", "plain");
     plain.mode = Some(0o644);
     let mut dos = e("dos.txt", "dos");
@@ -350,14 +325,14 @@ fn an_entry_with_no_unix_type_is_a_file_and_a_folder_by_its_name_is_passed_over(
     let mut dosdir = e("other", "");
     dosdir.mode = None;
     dosdir.dos_dir = true;
-    let out = run(&zip_of(&[plain, dos, folder, dosdir]), &s.0, MB, 16);
+    let out = run(&zip_of(&[plain, dos, folder, dosdir]), &s, MB, 16);
     assert_eq!(names(&out), ["plain.txt", "dos.txt"]);
     assert!(skips(&out).is_empty());
 }
 
 #[test]
 fn a_locked_or_damaged_file_is_left_out_and_nothing_of_it_kept() {
-    let s = Scratch::new();
+    let s = TestDir::new("attach");
     let mut locked = e("locked.txt", "LOCKED");
     locked.locked = true;
     let mut bad = e("bad.txt", "BAD");
@@ -365,7 +340,7 @@ fn a_locked_or_damaged_file_is_left_out_and_nothing_of_it_kept() {
     let mut badz = e("badz.txt", "BAD BUT DEFLATED");
     badz.deflate = true;
     badz.bad_crc = true;
-    let out = run(&zip_of(&[locked, bad, badz]), &s.0, MB, 16);
+    let out = run(&zip_of(&[locked, bad, badz]), &s, MB, 16);
     assert_eq!(
         skips(&out),
         [
@@ -374,19 +349,19 @@ fn a_locked_or_damaged_file_is_left_out_and_nothing_of_it_kept() {
             ("badz.txt".to_string(), "Could not be unpacked.".to_string()),
         ]
     );
-    assert!(files_under(&s.0).is_empty());
+    assert!(files_under(&s).is_empty());
 }
 
 #[test]
 fn names_that_clean_to_one_keep_the_first() {
-    let s = Scratch::new();
+    let s = TestDir::new("attach");
     let out = run(
         &zip_of(&[
             e("a b.txt", "first"),
             e("a-b.txt", "second"),
             e("a b.txt", "third"),
         ]),
-        &s.0,
+        &s,
         MB,
         16,
     );
@@ -404,15 +379,15 @@ fn names_that_clean_to_one_keep_the_first() {
             ),
         ]
     );
-    assert_eq!(fs::read_to_string(s.0.join("a-b.txt")).unwrap(), "first");
+    assert_eq!(fs::read_to_string(s.join("a-b.txt")).unwrap(), "first");
 }
 
 #[test]
 fn a_file_where_a_folder_is_needed_leaves_the_second_out() {
-    let s = Scratch::new();
+    let s = TestDir::new("attach");
     let out = run(
         &zip_of(&[e("d.txt", "d"), e("d.txt/inner.txt", "inner")]),
-        &s.0,
+        &s,
         MB,
         16,
     );
@@ -428,10 +403,10 @@ fn a_file_where_a_folder_is_needed_leaves_the_second_out() {
 
 #[test]
 fn a_name_that_cleans_to_nothing_or_has_an_empty_part_is_left_out() {
-    let s = Scratch::new();
+    let s = TestDir::new("attach");
     let out = run(
         &zip_of(&[e("./a.txt", "x"), e("a//b.txt", "x"), e("...", "x")]),
-        &s.0,
+        &s,
         MB,
         16,
     );
@@ -444,14 +419,14 @@ fn a_name_that_cleans_to_nothing_or_has_an_empty_part_is_left_out() {
 
 #[test]
 fn a_name_that_is_not_utf8_is_cleaned_and_said_with_replacement_characters() {
-    let s = Scratch::new();
+    let s = TestDir::new("attach");
     let mut odd = e("", "x");
     odd.name = b"caf\xe9.txt".to_vec();
     let mut nul = e("", "y");
     nul.name = b"n\0l.txt".to_vec();
     let mut evil = e("", "z");
     evil.name = b"\xff/../x.txt".to_vec();
-    let out = run(&zip_of(&[odd, nul, evil]), &s.0, MB, 16);
+    let out = run(&zip_of(&[odd, nul, evil]), &s, MB, 16);
     assert_eq!(names(&out), ["caf-.txt", "n-l.txt"]);
     assert_eq!(
         skips(&out),
@@ -464,10 +439,10 @@ fn a_name_that_is_not_utf8_is_cleaned_and_said_with_replacement_characters() {
 
 #[test]
 fn only_the_types_the_lab_hosts_and_md() {
-    let s = Scratch::new();
+    let s = TestDir::new("attach");
     let out = run(
         &zip_of(&[e("notes.pdf", "%PDF"), e("x.CSS", "a{}"), e("noext", "x")]),
-        &s.0,
+        &s,
         MB,
         16,
     );
@@ -486,9 +461,9 @@ fn only_the_types_the_lab_hosts_and_md() {
 
 #[test]
 fn at_most_the_files_given() {
-    let s = Scratch::new();
+    let s = TestDir::new("attach");
     let entries: Vec<E> = (1..=5).map(|i| e(&format!("f{i}.txt"), "x")).collect();
-    let out = run(&zip_of(&entries), &s.0, MB, 3);
+    let out = run(&zip_of(&entries), &s, MB, 3);
     assert_eq!(names(&out), ["f1.txt", "f2.txt", "f3.txt"]);
     assert_eq!(
         skips(&out),
@@ -501,13 +476,13 @@ fn at_most_the_files_given() {
 
 #[test]
 fn a_bomb_is_held_to_the_bytes_written_not_to_what_it_claims() {
-    let s = Scratch::new();
+    let s = TestDir::new("attach");
     let mut bomb = e("big.txt", "");
     bomb.data = vec![0u8; 11 * MB as usize];
     bomb.deflate = true;
     let zip = zip_of(&[bomb, e("after.txt", "x")]);
     assert!(zip.len() < 64 * 1024);
-    let out = run(&zip, &s.0, 10 * MB, 40);
+    let out = run(&zip, &s, 10 * MB, 40);
     assert!(names(&out).is_empty());
     assert_eq!(
         skips(&out),
@@ -522,12 +497,12 @@ fn a_bomb_is_held_to_the_bytes_written_not_to_what_it_claims() {
             ),
         ]
     );
-    assert!(files_under(&s.0).is_empty());
+    assert!(files_under(&s).is_empty());
 }
 
 #[test]
 fn small_files_together_are_held_to_what_is_left() {
-    let s = Scratch::new();
+    let s = TestDir::new("attach");
     let entries: Vec<E> = ["a", "b", "c"]
         .iter()
         .map(|n| {
@@ -536,7 +511,7 @@ fn small_files_together_are_held_to_what_is_left() {
             x
         })
         .collect();
-    let out = run(&zip_of(&entries), &s.0, 9, 16);
+    let out = run(&zip_of(&entries), &s, 9, 16);
     assert_eq!(names(&out), ["a.txt", "b.txt"]);
     assert_eq!(
         skips(&out),
@@ -546,21 +521,21 @@ fn small_files_together_are_held_to_what_is_left() {
         )]
     );
     // Exactly the room left is taken.
-    let s2 = Scratch::new();
+    let s2 = TestDir::new("attach");
     assert_eq!(
-        names(&run(&zip_of(&entries), &s2.0, 8, 16)),
+        names(&run(&zip_of(&entries), &s2, 8, 16)),
         ["a.txt", "b.txt"]
     );
 }
 
 #[test]
 fn a_size_the_archive_lies_about_is_damage() {
-    let s = Scratch::new();
+    let s = TestDir::new("attach");
     let mut zip = zip_of(&[e("a.txt", "abcd")]);
     // The central record's uncompressed size, 4, said as 2.
     let cd = zip.windows(4).position(|w| w == b"PK\x01\x02").unwrap();
     zip[cd + 24] = 2;
-    let out = run(&zip, &s.0, MB, 16);
+    let out = run(&zip, &s, MB, 16);
     assert_eq!(
         skips(&out),
         [("a.txt".to_string(), "Could not be unpacked.".to_string())]
@@ -569,23 +544,23 @@ fn a_size_the_archive_lies_about_is_damage() {
 
 #[test]
 fn only_the_first_200_entries_are_read() {
-    let s = Scratch::new();
+    let s = TestDir::new("attach");
     let entries: Vec<E> = (1..=205).map(|i| e(&format!("e{i}.txt"), "x")).collect();
-    let out = run(&zip_of(&entries), &s.0, MB, 1000);
+    let out = run(&zip_of(&entries), &s, MB, 1000);
     assert_eq!(names(&out).len(), MAX_ENTRIES);
     assert_eq!(out.last().unwrap()["skip"], "...");
     assert_eq!(
         out.last().unwrap()["reason"],
         "More than 200 entries in the zip."
     );
-    assert!(!s.0.join("e201.txt").exists());
+    assert!(!s.join("e201.txt").exists());
 }
 
 #[test]
 fn nothing_is_written_through_a_link() {
-    let s = Scratch::new();
-    let dest = s.0.join("unz");
-    let outside = s.0.join("outside");
+    let s = TestDir::new("attach");
+    let dest = s.join("unz");
+    let outside = s.join("outside");
     fs::create_dir_all(&dest).unwrap();
     fs::create_dir_all(&outside).unwrap();
     symlink(&outside, dest.join("img")).unwrap();
@@ -609,7 +584,7 @@ fn nothing_is_written_through_a_link() {
     assert!(files_under(&outside).is_empty());
 
     // The directory given is a link: nothing is written at all.
-    let linked = s.0.join("linked");
+    let linked = s.join("linked");
     symlink(&outside, &linked).unwrap();
     let out = run(&zip, &linked, MB, 16);
     assert!(names(&out).is_empty());
@@ -644,10 +619,10 @@ fn every_cut_and_every_flipped_byte_of_an_archive_is_read_without_a_panic() {
     png.data = b"\x89PNG\r\n\x1a\n0123456789".to_vec();
     png.deflate = true;
     let good = zip_of(&[e("a.md", "# a"), png, e("dir/b.txt", "bbbb")]);
-    let s = Scratch::new();
+    let s = TestDir::new("attach");
     for cut in 0..good.len() {
         if let Ok(a) = Archive::open(&good[..cut]) {
-            let d = s.0.join(format!("c{cut}"));
+            let d = s.join(format!("c{cut}"));
             let _ = unpack(&a, &d, MB, 16);
         }
     }
@@ -656,7 +631,7 @@ fn every_cut_and_every_flipped_byte_of_an_archive_is_read_without_a_panic() {
             let mut z = good.clone();
             z[at] ^= flip;
             if let Ok(a) = Archive::open(&z) {
-                let d = s.0.join(format!("f{at}-{flip}"));
+                let d = s.join(format!("f{at}-{flip}"));
                 let _ = unpack(&a, &d, MB, 16);
             }
         }
@@ -699,8 +674,8 @@ fn entries_that_share_one_stream_are_damaged_and_never_inflated() {
     let zip = shared_bomb(200);
     assert!(zip.len() < 64 * 1024);
     let archive = Archive::open(&zip).unwrap();
-    let s = Scratch::new();
-    let out = unpack(&archive, &s.0, 10 * MB, 50).unwrap();
+    let s = TestDir::new("attach");
+    let out = unpack(&archive, &s, 10 * MB, 50).unwrap();
     assert!(names(&out).is_empty());
     assert_eq!(skips(&out).len(), 200);
     assert!(skips(&out)
@@ -728,8 +703,8 @@ fn damaged_entries_are_charged_what_they_inflated() {
     b.data = a.data.clone();
     b.deflate = true;
     b.bad_crc = true;
-    let s = Scratch::new();
-    let out = run(&zip_of(&[a, b, e("c.txt", "c")]), &s.0, 10 * MB, 50);
+    let s = TestDir::new("attach");
+    let out = run(&zip_of(&[a, b, e("c.txt", "c")]), &s, 10 * MB, 50);
     assert_eq!(
         skips(&out),
         [

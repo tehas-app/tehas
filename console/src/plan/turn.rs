@@ -651,17 +651,13 @@ fn finish(turn: &Turn, rc: i32, doc: &str, started: u64) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
-
-    struct Scratch(PathBuf);
+    struct Scratch(tehas_core::testdir::TestDir);
 
     impl Scratch {
         fn new(name: &str) -> Scratch {
-            let dir =
-                std::env::temp_dir().join(format!("tehas-plan-turn-{}-{name}", std::process::id()));
-            let _ = fs::remove_dir_all(&dir);
-            fs::create_dir_all(&dir).unwrap();
-            Scratch(dir)
+            Scratch(tehas_core::testdir::TestDir::new(&format!(
+                "plan-turn-{name}"
+            )))
         }
 
         fn at(&self, path: &str) -> String {
@@ -680,12 +676,6 @@ mod tests {
 
         fn has(&self, path: &str) -> bool {
             fs::symlink_metadata(self.0.join(path)).is_ok()
-        }
-    }
-
-    impl Drop for Scratch {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.0);
         }
     }
 

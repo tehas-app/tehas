@@ -1093,28 +1093,13 @@ mod tests {
     use serde_json::{json, Value};
     use std::fs;
     use std::os::unix::fs::{symlink, PermissionsExt};
-    use std::path::{Path, PathBuf};
-
-    struct Dir(PathBuf);
-
-    impl Drop for Dir {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.0);
-        }
-    }
+    use std::path::Path;
+    use tehas_core::testdir::TestDir;
 
     /// A scratch home of this case's own. Nothing here writes outside it, and
     /// nothing here removes anything of the host's.
-    fn dir(name: &str) -> Dir {
-        static N: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-        let d = std::env::temp_dir().join(format!(
-            "tehas-disk-{}-{name}-{}",
-            std::process::id(),
-            N.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
-        ));
-        let _ = fs::remove_dir_all(&d);
-        fs::create_dir_all(&d).unwrap();
-        Dir(d)
+    fn dir(name: &str) -> TestDir {
+        TestDir::new(&format!("disk-{name}"))
     }
 
     /// The host a reading is given, for a home this case made: the agent
@@ -1160,8 +1145,8 @@ mod tests {
     #[test]
     fn two_paths_of_one_file_system_are_one_entry_that_names_both() {
         let d = dir("same");
-        let home = d.0.join("tehas");
-        let scratch = d.0.join("scratch");
+        let home = d.join("tehas");
+        let scratch = d.join("scratch");
         fs::create_dir_all(&home).unwrap();
         fs::create_dir_all(&scratch).unwrap();
         let got = file_systems(&[home.clone(), scratch.clone()], &opts());
@@ -1184,9 +1169,9 @@ mod tests {
     #[test]
     fn a_path_that_cannot_be_told_is_its_own_entry_with_a_reason() {
         let d = dir("gone");
-        let there = d.0.join("tehas");
+        let there = d.join("tehas");
         fs::create_dir_all(&there).unwrap();
-        let gone = d.0.join("nothing");
+        let gone = d.join("nothing");
         let got = file_systems(&[there.clone(), gone.clone()], &opts());
         assert_eq!(got.len(), 2, "the unreadable one stands alone: {got:?}");
         assert_eq!(got[0].paths, vec![there.to_string_lossy()]);
@@ -1203,7 +1188,7 @@ mod tests {
     fn a_df_that_fails_is_no_figure_and_says_why() {
         // A path df cannot answer for: no such file, and nothing to stat.
         let d = dir("df-fails");
-        let gone = d.0.join("no-such-place");
+        let gone = d.join("no-such-place");
         let got = one(&gone, "/no/such/place", &opts());
         assert_eq!(got.free, None);
         assert_eq!(got.total, None);
@@ -1246,13 +1231,13 @@ mod tests {
     #[test]
     fn full_lists_a_clone_s_target_and_orders_by_size() {
         let d = dir("full");
-        let home = d.0.join("tehas");
+        let home = d.join("tehas");
         fs::create_dir_all(home.join("dev/alpha.state/target/debug")).unwrap();
         file(&home.join("dev/alpha.state/target/debug/lib.rmeta"), 4000);
         file(&home.join("logs"), 100);
         let host = Host {
             home: home.clone(),
-            agent: d.0.join("agent"),
+            agent: d.join("agent"),
         };
         // Wide bounds: this case is about which place is biggest, not about a
         // bound, and a place the bounds cut is not the whole of it.
@@ -1302,8 +1287,8 @@ mod tests {
             bounds: Bounds { wait: 2, walk: 0 },
             ..opts()
         };
-        file(&d.0.join("a/one"), 10);
-        let (bytes, cut) = du(&d.0.join("a"), &tight);
+        file(&d.join("a/one"), 10);
+        let (bytes, cut) = du(&d.join("a"), &tight);
         assert_eq!(cut, "time", "an over-bound walk says so");
         assert_eq!(bytes, None, "no part figure is called the whole");
         // Too many names, too deep, and a name that cannot be opened, each
@@ -1312,15 +1297,15 @@ mod tests {
             entries: 1,
             ..opts()
         };
-        file(&d.0.join("b/one"), 1);
-        file(&d.0.join("b/two"), 1);
-        assert_eq!(du(&d.0.join("b"), &few).1, "entries");
+        file(&d.join("b/one"), 1);
+        file(&d.join("b/two"), 1);
+        assert_eq!(du(&d.join("b"), &few).1, "entries");
         let shallow = Options { depth: 1, ..opts() };
-        file(&d.0.join("c/one/two"), 1);
-        assert_eq!(du(&d.0.join("c"), &shallow).1, "depth");
+        file(&d.join("c/one/two"), 1);
+        assert_eq!(du(&d.join("c"), &shallow).1, "depth");
         // A directory that cannot be opened is the bound of its parent's
         // reading, and says which one it is.
-        let blocked = d.0.join("blocked");
+        let blocked = d.join("blocked");
         fs::create_dir_all(&blocked).unwrap();
         fs::set_permissions(&blocked, fs::Permissions::from_mode(0o000)).unwrap();
         assert_eq!(du(&blocked, &opts()), (None, "unreadable"));
@@ -1332,16 +1317,16 @@ mod tests {
     #[test]
     fn a_walk_adds_the_regular_files_it_can_reach() {
         let d = dir("walk");
-        file(&d.0.join("a/one"), 30);
-        file(&d.0.join("a/b/two"), 70);
-        let (bytes, cut) = du(&d.0.join("a"), &opts());
+        file(&d.join("a/one"), 30);
+        file(&d.join("a/b/two"), 70);
+        let (bytes, cut) = du(&d.join("a"), &opts());
         assert_eq!(bytes, Some(100));
         assert_eq!(cut, "whole");
-        assert_eq!(du(&d.0.join("a/one"), &opts()), (Some(30), "whole"));
+        assert_eq!(du(&d.join("a/one"), &opts()), (Some(30), "whole"));
         // A link is named and not entered, so a tree that points at another
         // file system adds nothing of it, and a link whose target is gone does
         // not make the directory that holds it unreadable.
-        let link_dir = d.0.join("linkdir");
+        let link_dir = d.join("linkdir");
         fs::create_dir_all(&link_dir).unwrap();
         symlink("/nonexistent-outside-the-tree", link_dir.join("gone")).unwrap();
         symlink("/tmp", link_dir.join("other-disk")).unwrap();
@@ -1353,7 +1338,7 @@ mod tests {
         );
         // A link given as the place itself has no figure: it is named, not
         // followed, and nothing it points at is counted as bytes of this tree.
-        let outside = d.0.join("outside");
+        let outside = d.join("outside");
         symlink("/tmp", &outside).unwrap();
         assert_eq!(du(&outside, &opts()), (None, "unreadable"));
     }
@@ -1364,7 +1349,7 @@ mod tests {
     #[test]
     fn the_answer_is_one_object_with_its_api_and_one_entry_each() {
         let d = dir("answer");
-        let home = d.0.join("tehas");
+        let home = d.join("tehas");
         fs::create_dir_all(&home).unwrap();
         let opts = opts();
         let answer = read(&host(&home), &opts);
@@ -1403,7 +1388,7 @@ mod tests {
     #[test]
     fn a_home_that_is_not_there_has_no_figure_and_a_reason() {
         let d = dir("no-home");
-        let gone = d.0.join("no-home-at-all");
+        let gone = d.join("no-home-at-all");
         let answer = read(&host(&gone), &opts());
         let entries = answer["filesystems"].as_array().unwrap();
         let home = &entries[0];
@@ -1451,35 +1436,35 @@ mod tests {
     #[test]
     fn the_published_file_is_put_whole_and_a_failed_run_leaves_the_last_one() {
         let d = dir("publish");
-        let out = d.0.join("live/disk.json");
+        let out = d.join("live/disk.json");
         put(&out, &json!({"api": 1})).unwrap();
         assert_eq!(fs::read_to_string(&out).unwrap(), "{\"api\":1}\n");
         // A second run replaces it, and leaves no side file behind.
         put(&out, &json!({"api": 1, "x": 2})).unwrap();
         assert_eq!(fs::read_to_string(&out).unwrap(), "{\"api\":1,\"x\":2}\n");
-        assert_eq!(fs::read_dir(d.0.join("live")).unwrap().count(), 1);
+        assert_eq!(fs::read_dir(d.join("live")).unwrap().count(), 1);
         // An answer too big for the file is refused before anything is put,
         // and the file a reader may open at any moment is still the whole of
         // the last answer.
         let big = json!({"blob": "x".repeat(PUBLISH_BOUND as usize + 10)});
         assert!(put(&out, &big).is_err());
         assert_eq!(fs::read_to_string(&out).unwrap(), "{\"api\":1,\"x\":2}\n");
-        assert_eq!(fs::read_dir(d.0.join("live")).unwrap().count(), 1);
+        assert_eq!(fs::read_dir(d.join("live")).unwrap().count(), 1);
         // A name that holds a directory is no file: the run says so, and the
         // tree beside it is left as it was.
-        let as_dir = d.0.join("as-dir");
+        let as_dir = d.join("as-dir");
         fs::create_dir_all(&as_dir).unwrap();
-        fs::write(d.0.join("elsewhere"), "do not touch").unwrap();
+        fs::write(d.join("elsewhere"), "do not touch").unwrap();
         assert!(put(&as_dir, &json!({})).is_err());
         assert_eq!(
-            fs::read_to_string(d.0.join("elsewhere")).unwrap(),
+            fs::read_to_string(d.join("elsewhere")).unwrap(),
             "do not touch"
         );
         // A name that holds a link is not written through: the side file is
         // renamed over the name, so the answer becomes a file of this run's
         // own and the tree the link pointed at is left as it was.
-        let target = d.0.join("elsewhere");
-        let as_link = d.0.join("as-link");
+        let target = d.join("elsewhere");
+        let as_link = d.join("as-link");
         symlink(&target, &as_link).unwrap();
         assert!(put(&as_link, &json!({"api": 9})).is_ok());
         assert_eq!(fs::read_to_string(&target).unwrap(), "do not touch");
@@ -1496,7 +1481,7 @@ mod tests {
     #[test]
     fn the_published_answer_names_the_places_and_the_stopped_containers() {
         let d = dir("published");
-        let home = d.0.join("tehas");
+        let home = d.join("tehas");
         file(&home.join("logs/one.log"), 900);
         file(&home.join("dev/alpha.state/target/x"), 100);
         let published = published(&host(&home), &opts());
@@ -1529,8 +1514,8 @@ mod tests {
     #[test]
     fn the_scratch_disk_is_named_only_when_the_settings_name_one() {
         let d = dir("scratch");
-        let home = d.0.join("tehas");
-        let scratch = d.0.join("mnt/scratch");
+        let home = d.join("tehas");
+        let scratch = d.join("mnt/scratch");
         fs::create_dir_all(&home).unwrap();
         fs::create_dir_all(&scratch).unwrap();
         let named = Options {
@@ -1554,14 +1539,14 @@ mod tests {
         // A path that is not there is its own entry, with a reason and no
         // figure: a scratch disk that was never mounted is not a disk at all.
         let missing = Options {
-            scratch: Some(d.0.join("mnt/never-mounted")),
+            scratch: Some(d.join("mnt/never-mounted")),
             ..opts()
         };
         let entries = read(&host(&home), &missing)["filesystems".to_string()]
             .as_array()
             .unwrap()
             .clone();
-        let named = d.0.join("mnt/never-mounted");
+        let named = d.join("mnt/never-mounted");
         let gone = entries
             .iter()
             .find(|e| e["paths"][0] == named.to_string_lossy().as_ref())

@@ -640,9 +640,7 @@ impl Calls {
         let args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
         let word = format!("ERROR: gh {} {} failed", args[0], args[1]);
         if !gh_reads(&args) {
-            return Err(GhFail::words(format!(
-                "{word}: refused, it is no read"
-            )));
+            return Err(GhFail::words(format!("{word}: refused, it is no read")));
         }
         let extra = gh_env(self.gh_token.as_deref());
         let outcome = self.retry.read(&word, &mut || {
@@ -825,21 +823,11 @@ impl Calls {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tehas_core::testdir::TestDir;
 
     /// The cases of the poll's token read and write one environment variable,
     /// so one of them runs at a time.
     static TOKEN_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-    /// The next free name of a case's home under the temporary directory. The
-    /// name is a directory of its own, made and removed by the case that made it
-    /// and never nested under a root another case wipes: a stub program read
-    /// while some other case is clearing a directory above it is no program at
-    /// all, and the poll of the case reading it fails for the wrong reason.
-    fn a_case_dir(name: &str) -> String {
-        static NEXT: AtomicU64 = AtomicU64::new(0);
-        let n = NEXT.fetch_add(1, Ordering::Relaxed);
-        format!("tehas-{name}-{}-{n}", std::process::id())
-    }
 
     fn a(x: &[&str]) -> Vec<String> {
         x.iter().map(|s| s.to_string()).collect()
@@ -925,12 +913,8 @@ mod tests {
     /// beside it answers a read with the token it was given. `counter` asks for
     /// The program of a case that only fails it does not need.
     /// The directory is named by the case, so two cases never share a counter.
-    fn token_home(name: &str, counter: bool) -> Option<std::path::PathBuf> {
-        let dir = match std::fs::canonicalize(std::env::temp_dir()) {
-            Ok(d) => d.join(a_case_dir(name)),
-            Err(_) => return None,
-        };
-        let _ = std::fs::remove_dir_all(&dir);
+    fn token_home(name: &str, counter: bool) -> Option<TestDir> {
+        let dir = TestDir::new(name);
         if std::fs::create_dir_all(dir.join("libexec")).is_err() {
             return None;
         }
@@ -991,15 +975,8 @@ mod tests {
     /// `/bin/sh` script with no sleep in it, counting its own calls in a file the
     /// case reads to say how many processes a poll started. `settled` is the
     /// argument `settled` below runs it with to wait out a parallel test's fork.
-    fn failing_gh(name: &str, times: u32) -> Option<std::path::PathBuf> {
-        let dir = match std::fs::canonicalize(std::env::temp_dir()) {
-            Ok(d) => d.join(a_case_dir(name)),
-            Err(_) => return None,
-        };
-        let _ = std::fs::remove_dir_all(&dir);
-        if std::fs::create_dir_all(&dir).is_err() {
-            return None;
-        }
+    fn failing_gh(name: &str, times: u32) -> Option<TestDir> {
+        let dir = TestDir::new(name);
         use std::os::unix::fs::PermissionsExt;
         let gh = dir.join("gh");
         let count = dir.join("gh.count").to_string_lossy().into_owned();
@@ -1080,7 +1057,6 @@ printf '[{{"number":1}}]\n'
             "a read the retry cleared leaves no line: {:?}",
             calls.retry.taken()
         );
-        let _ = std::fs::remove_dir_all(&home);
     }
 
     #[test]
@@ -1128,7 +1104,6 @@ printf '[{{"number":1}}]\n'
             "and which bound stopped it: {}",
             err.line
         );
-        let _ = std::fs::remove_dir_all(&home);
     }
 
     /// One read of gh, answered with the token the stub was given.
@@ -1178,7 +1153,6 @@ printf '[{{"number":1}}]\n'
             .trim()
             .to_string();
         assert_eq!(n, "2", "the poll ran the token program once for its calls");
-        let _ = std::fs::remove_dir_all(&home);
 
         // A write of the poll is given the token in the same way.
         let home = match token_home("token-write", true) {
@@ -1198,7 +1172,6 @@ printf '[{{"number":1}}]\n'
         );
         assert!(r.ok());
         assert_eq!(r.out.trim(), "ghs_1");
-        let _ = std::fs::remove_dir_all(&home);
 
         // With no app named the poll takes nothing and gh is given nothing:
         // each call pays for a token of its own, as it did before.
@@ -1218,7 +1191,6 @@ printf '[{{"number":1}}]\n'
             !home.join("libexec/github-token.count").exists(),
             "no token program runs when the instance names no app"
         );
-        let _ = std::fs::remove_dir_all(&home);
     }
 
     #[test]
@@ -1255,6 +1227,5 @@ printf '[{{"number":1}}]\n'
             assert_eq!(given(&mut calls), "untouched");
         }
         std::env::remove_var("TEHAS_GITHUB_APP_ID");
-        let _ = std::fs::remove_dir_all(&home);
     }
 }

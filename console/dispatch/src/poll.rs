@@ -895,11 +895,9 @@ mod tests {
         assert!(tidy_args(true).is_empty());
     }
 
-    /// A scratch home of this test, with `live/` in it. Each test has its own
-    /// name, so the tests of the same file run side by side.
-    fn home_of(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("tehas-poll-{name}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
+    /// A scratch home of this test, with `live/` in it.
+    fn home_of(name: &str) -> tehas_core::testdir::TestDir {
+        let dir = tehas_core::testdir::TestDir::new(&format!("poll-{name}"));
         std::fs::create_dir_all(dir.join("live")).unwrap();
         dir
     }

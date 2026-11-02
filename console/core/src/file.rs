@@ -73,26 +73,12 @@ pub fn side_file(file: &Path, side: &str) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    struct Dir(PathBuf);
-
-    impl Drop for Dir {
-        fn drop(&mut self) {
-            let _ = std::fs::remove_dir_all(&self.0);
-        }
-    }
-
-    fn dir(name: &str) -> Dir {
-        let d = std::env::temp_dir().join(format!("tehas-core-{name}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&d);
-        std::fs::create_dir_all(&d).unwrap();
-        Dir(d)
-    }
+    use crate::testdir::TestDir;
 
     #[test]
     fn a_regular_file_is_read_whole() {
-        let d = dir("whole");
-        let p = d.0.join("f");
+        let d = TestDir::new("whole");
+        let p = d.join("f");
         std::fs::write(&p, "four").unwrap();
         let (bytes, m) = read_regular(&p, 4).unwrap();
         assert_eq!(bytes, b"four");
@@ -101,23 +87,26 @@ mod tests {
 
     #[test]
     fn a_file_over_the_bound_is_refused() {
-        let d = dir("bound");
-        let p = d.0.join("f");
+        let d = TestDir::new("bound");
+        let p = d.join("f");
         std::fs::write(&p, "five!").unwrap();
         assert!(matches!(read_regular(&p, 4), Err(ReadError::TooLarge)));
     }
 
     #[test]
     fn a_link_a_directory_and_a_missing_file_are_refused() {
-        let d = dir("refused");
-        let p = d.0.join("f");
+        let d = TestDir::new("refused");
+        let p = d.join("f");
         std::fs::write(&p, "x").unwrap();
-        let link = d.0.join("link");
+        let link = d.join("link");
         std::os::unix::fs::symlink(&p, &link).unwrap();
         assert!(matches!(read_regular(&link, 9), Err(ReadError::NotRegular)));
-        assert!(matches!(read_regular(&d.0, 9), Err(ReadError::NotRegular)));
         assert!(matches!(
-            read_regular(&d.0.join("gone"), 9),
+            read_regular(d.path(), 9),
+            Err(ReadError::NotRegular)
+        ));
+        assert!(matches!(
+            read_regular(&d.join("gone"), 9),
             Err(ReadError::Io(e)) if e.kind() == io::ErrorKind::NotFound
         ));
     }
