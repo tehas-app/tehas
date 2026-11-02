@@ -1,6 +1,6 @@
 //! `tehas export`: each cycle of the history after a cursor, masked, in a
 //! directory of its own. Its text is src/usage/export.txt, which says what is
-//! copied and every exit status. It runs under `libexec/with-settings`.
+//! copied and every exit status. It runs under `console run`.
 //!
 //! Every file goes through the mask, with the names of `mask::host_names`. A
 //! file of a Protolab page that is not UTF-8 is an image, a video or the like,

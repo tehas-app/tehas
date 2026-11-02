@@ -16,7 +16,7 @@ cp "$T_ROOT/bin/tehas" "$T_ROOT/bin/tehasbot" "$tree/bin/"
 # The settings library is there to be read, so that not reading it means something.
 cp "$T_ROOT/lib/config.sh" "$tree/lib/config.sh"
 # One line per call: the name, then each argument after a "|".
-for name in dispatch cycle work plan dev index setup update status console protolab preview improve refresh review clean with-settings console; do
+for name in dispatch cycle work plan dev index setup update status improve review check-product github-token console; do
   printf '%s\n' '#!/usr/bin/env bash' "# The text of $name." '#' "# Usage: $name" 'set -u' 'IFS="|"' \
     "printf '%s\\n' \"$name\${*:+|\$*}\" >>\"\$T/calls/libexec\"" 'exit "${RC:-0}"' >"$tree/libexec/$name"
   chmod +x "$tree/libexec/$name"
@@ -25,6 +25,9 @@ done
 sed -i '2a [ "${1-}" != usage ] || { echo "The text of $2."; exit 0; }' "$tree/libexec/console"
 tehas=$tree/bin/tehas
 bot=$tree/bin/tehasbot
+# The words of `console run` before those of its command: the uid and the bash
+# are the run's, and the tree is the one the command stands in.
+under() { printf 'console|run|%s|%s|%s' "$tree/libexec" "$(id -u)" "$T_BASH"; }
 ran() { cat "$T/calls/libexec" 2>/dev/null || true; }
 reset() {
   rm -f "$T"/calls/*
@@ -38,7 +41,7 @@ t_eq "$t_rc" 0
 t_eq "$(ran)" "dispatch|--dry-run
 work|7|--restart
 index
-with-settings|tehas|labels"
+$(under)|tehas|labels"
 
 t_case "tehas dev passes on the name, the author and what follows --"
 reset
@@ -63,15 +66,15 @@ t_case "tehas pause passes on the reason and tehas resume takes nothing"
 reset
 t_run "$tehas pause waiting for the gate && $tehas resume"
 t_eq "$t_rc" 0
-t_eq "$(ran)" "with-settings|tehas|pause|waiting|for|the|gate
-with-settings|tehas|resume"
+t_eq "$(ran)" "$(under)|tehas|pause|waiting|for|the|gate
+$(under)|tehas|resume"
 
 t_case "tehas stop passes on the issue and --keep-workspace"
 reset
 t_run "$tehas stop 7 && $tehas stop 7 --keep-workspace"
 t_eq "$t_rc" 0
-t_eq "$(ran)" "with-settings|tehas|stop|7
-with-settings|tehas|stop|7|--keep-workspace"
+t_eq "$(ran)" "$(under)|tehas|stop|7
+$(under)|tehas|stop|7|--keep-workspace"
 
 t_case "tehas status prints; it is not the script that writes the snapshot"
 reset
@@ -91,29 +94,29 @@ T_ENV=(TEHAS_CONSOLE="$T/other-console")
 t_run "$tehas status"
 t_eq "$(ran)" "other|tehas|status"
 
-t_case "tehas state runs under with-settings"
+t_case "tehas state runs under console run"
 reset
 t_run "$tehas state pack -"
-t_eq "$(ran)" "with-settings|tehas|state|pack|-"
+t_eq "$(ran)" "$(under)|tehas|state|pack|-"
 
 t_case "tehas status --json and tehas api --json pass the flag on"
 reset
 t_run "$tehas status --json && $tehas api --json"
 t_eq "$(ran)" "console|tehas|status|--json
-with-settings|tehas|api|--json"
+$(under)|tehas|api|--json"
 
 t_case "tehas analytics runs the console's verb, not the program it calls"
 reset
 t_run "$tehas analytics export copy.db --json && $tehas analytics report"
 t_eq "$t_rc" 0
-t_eq "$(ran)" "with-settings|tehas|analytics|export|copy.db|--json
-with-settings|tehas|analytics|report"
+t_eq "$(ran)" "$(under)|tehas|analytics|export|copy.db|--json
+$(under)|tehas|analytics|report"
 
 t_case "tehas limit and tehas drain pass their arguments on"
 reset
 t_run "$tehas limit set --cycles 1 --reason 'a b' && $tehas drain --wait 5"
-t_eq "$(ran)" "with-settings|tehas|limit|set|--cycles|1|--reason|a b
-with-settings|tehas|drain|--wait|5"
+t_eq "$(ran)" "$(under)|tehas|limit|set|--cycles|1|--reason|a b
+$(under)|tehas|drain|--wait|5"
 
 t_case "tehas top is a verb of the console with what follows it"
 reset
@@ -220,7 +223,7 @@ t_run "$tehas work --help 7"
 t_eq "$(ran)" "work|--help|7"
 reset
 t_run "$tehas limit --help 7"
-t_eq "$(ran)" "with-settings|tehas|limit|--help|7"
+t_eq "$(ran)" "$(under)|tehas|limit|--help|7"
 
 t_case "an unknown command is exit 64 on standard error and runs nothing"
 reset
@@ -248,18 +251,18 @@ t_run "$bot dispatch && $bot cycle 7 && $bot status && $bot health && $bot energ
 t_eq "$t_rc" 0
 t_eq "$(ran)" "dispatch
 cycle|7
-with-settings|tehasbot|status
-with-settings|tehasbot|health
+$(under)|tehasbot|status
+$(under)|tehasbot|health
 console|energy|--every
-with-settings|tehasbot|top|--every
-protolab
-preview
+$(under)|tehasbot|top|--every
+$(under)|tehasbot|protolab
+$(under)|tehasbot|preview
 improve"
 
 t_case "tehasbot status writes the snapshot; it is not the script that prints"
 reset
 t_run "$bot status"
-t_eq "$(ran)" "with-settings|tehasbot|status"
+t_eq "$(ran)" "$(under)|tehasbot|status"
 
 t_case "tehasbot alone and help print the usage; an unknown command is exit 64"
 reset
@@ -317,7 +320,7 @@ for name in $names; do
   script=$name
   # The sampler is a verb of the console, built by install.sh.
   [ "$name" = energy ] && continue
-  case "$name" in health | status | top | mcp) script=with-settings ;; esac
+  case "$name" in health | status | top | mcp | protolab | preview | refresh | clean) continue ;; esac
   [ -x "$T_ROOT/libexec/$script" ] || missing="$missing $name"
 done
 t_eq "$missing" ""
@@ -326,6 +329,7 @@ t_case "bin holds the two commands and nothing else"
 t_eq "$(cd "$T_ROOT/bin" && find . -type f | LC_ALL=C sort | tr '\n' ' ')" "./tehas ./tehasbot "
 
 t_case "every unit runs a command tehasbot knows"
+reset
 unknown=""
 while read -r name; do
   # shellcheck disable=SC2086  # a command and its verb

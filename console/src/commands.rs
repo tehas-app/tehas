@@ -24,11 +24,10 @@
 //!   console tehasbot github-token [--check]
 //!
 //! status, disk, top and mcp key need no settings, and dev loads its own. The
-//! rest run under `libexec/with-settings`, which first asks `console check`
-//! with the same words: an argument that cannot be right is 64 with the usage,
-//! whatever the settings hold, and only then are they loaded. `console needs` with those
-//! words then names the settings the command cannot run without, for
-//! `tehas_require`, so the rules of a setting stay in `lib/config.sh`.
+//! rest run under `console run` (src/run.rs), which first asks [`check`] with the
+//! same words: an argument that cannot be right is 64 with the usage, whatever
+//! the settings hold, and only then are they loaded. [`required`] then names the
+//! settings the command cannot run without.
 //!
 //!   console usage <command>
 //!
@@ -37,10 +36,11 @@
 //! Exit: the status of the command; 64 usage.
 
 use crate::{
-    api, dev, disk, export, flags, github, health, history, labels, mcp, queue, review, state,
-    status, stop, top,
+    api, clean, dev, disk, export, flags, github, health, history, labels, mcp, queue, review,
+    state, status, stop, top,
 };
 use std::env;
+use std::io::{self, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
@@ -183,8 +183,74 @@ pub fn tehasbot(given: &[String]) -> u8 {
 }
 
 /// What `check` ends with when it was the whole answer, as a help text met
-/// among the arguments is: `libexec/with-settings` then ends 0 and loads nothing.
-const ANSWERED: u8 = 99;
+/// among the arguments is: `console run` then ends 0 and loads nothing.
+pub const ANSWERED: u8 = 99;
+
+const DISPATCH: &str = include_str!("usage/dispatch.txt");
+
+/// A poll starts only from an argument it knows: a typo such as --dryrun is no
+/// poll. At most one argument: a second is refused, never combined with the
+/// first, so --dry-run --help cannot be read as two intents at once. An empty
+/// argument is an argument too.
+fn dispatch_words(given: &[String]) -> Result<(), u8> {
+    let first = given.first().map(String::as_str);
+    let help = matches!(first, Some("-h" | "--help"));
+    let unknown = match (first, given.get(1)) {
+        (Some(word), _) if !help && word != "--dry-run" => Some(word),
+        (_, Some(second)) => Some(second.as_str()),
+        _ => None,
+    };
+    if let Some(word) = unknown {
+        eprint!("tehas dispatch: unknown argument: {word}\n{DISPATCH}");
+        return Err(64);
+    }
+    if help {
+        say(DISPATCH);
+        return Err(ANSWERED);
+    }
+    Ok(())
+}
+
+fn clean_words(given: &[String]) -> Result<(), u8> {
+    match given {
+        [] => Ok(()),
+        [word] if word.is_empty() || word == "--dry-run" => Ok(()),
+        _ => Err(match clean::usage(given) {
+            0 => ANSWERED,
+            rc => rc,
+        }),
+    }
+}
+
+fn product_words(given: &[String], flag: &str, usage: &str) -> Result<(), u8> {
+    match given {
+        [] => Ok(()),
+        [word] if word == flag => Ok(()),
+        _ => {
+            eprintln!("usage: {usage}");
+            Err(64)
+        }
+    }
+}
+
+/// Only the first word counts, as it always has.
+fn preview_words(given: &[String]) -> Result<(), u8> {
+    match given.first().map(String::as_str) {
+        None | Some("" | "--sweep") => Ok(()),
+        _ => {
+            eprintln!("usage: tehasbot preview [--sweep]");
+            Err(64)
+        }
+    }
+}
+
+fn improve_words(given: &[String]) -> Result<(), u8> {
+    if given.is_empty() {
+        return Ok(());
+    }
+    eprintln!("usage: tehasbot improve");
+    Err(64)
+}
 
 /// What can be said of the arguments before the settings are loaded. A
 /// command with no check here passes.
@@ -206,40 +272,70 @@ pub fn check(given: &[String]) -> u8 {
             Ok(None) => Err(ANSWERED),
             Err(rc) => Err(rc),
         },
+        ["tehas", "check-product"] => {
+            product_words(rest, "--sandbox", "tehas check-product [--sandbox]")
+        }
+        ["tehas", "init-product"] => {
+            product_words(rest, "--dry-run", "tehas init-product [--dry-run]")
+        }
+        ["tehasbot", "clean"] => clean_words(rest),
+        ["tehasbot", "dispatch"] => dispatch_words(rest),
         ["tehasbot", "github-token"] => github::words(rest).map(|_| ()),
+        ["tehasbot", "improve"] => improve_words(rest),
+        ["tehasbot", "preview"] => preview_words(rest),
         ["tehasbot", "review"] => review::words(rest, include_str!("usage/review.txt")),
         _ => Ok(()),
     };
     said.err().unwrap_or(0)
 }
 
-/// The settings a command cannot run without, on one line.
+/// The settings an instance has to set itself, tehas_require_instance_settings.
+const INSTANCE: [&str; 5] = [
+    "TEHAS_REPO",
+    "TEHAS_CONTROL_ISSUE",
+    "TEHAS_ALLOWED_LABELERS",
+    "PI_ENSEMBLE_SUBAGENT_MODEL",
+    "PI_ENSEMBLE_SUBAGENT_PROVIDER",
+];
+
+/// The settings a command cannot run without.
 pub fn required(given: &[String]) -> &'static [&'static str] {
     let words: Vec<&str> = given.iter().take(2).map(String::as_str).collect();
     match words[..] {
-        ["tehas", "api" | "history" | "export" | "labels"] => &["TEHAS_REPO"],
+        ["tehas", "api" | "check-product" | "export" | "history" | "init-product" | "labels"]
+        | ["tehasbot", "preview"] => &["TEHAS_REPO"],
         ["tehas", "resume"] | ["tehasbot", "status"] => &[
             "TEHAS_REPO",
             "TEHAS_CONTROL_ISSUE",
             "TEHAS_ALLOWED_LABELERS",
         ],
+        ["tehasbot", "clean" | "dispatch" | "refresh" | "review"] => &INSTANCE,
+        ["tehasbot", "improve"] => &[
+            "TEHAS_REPO",
+            "PI_ENSEMBLE_SUBAGENT_MODEL",
+            "PI_ENSEMBLE_SUBAGENT_PROVIDER",
+        ],
+        ["tehasbot", "protolab"] => &["TEHAS_REPO", "TEHAS_ALLOWED_LABELERS"],
         _ => &[],
     }
 }
 
-pub fn needs(given: &[String]) -> u8 {
-    println!("{}", required(given).join(" "));
-    0
+// A reader that took what it wanted and left is no fault, as it was for sed.
+fn say(text: &str) {
+    let _ = io::stdout().write_all(text.as_bytes());
 }
 
 fn text(command: &str) -> Option<&'static str> {
     Some(match command {
         "analytics" => include_str!("usage/analytics.txt"),
         "api" => include_str!("usage/api.txt"),
+        "check-product" => include_str!("usage/check-product.txt"),
         "disk" => include_str!("usage/disk.txt"),
+        "dispatch" => DISPATCH,
         "drain" => include_str!("usage/drain.txt"),
         "export" => include_str!("usage/export.txt"),
         "history" => include_str!("usage/history.txt"),
+        "init-product" => include_str!("usage/init-product.txt"),
         "labels" => include_str!("usage/labels.txt"),
         "limit" => include_str!("usage/limit.txt"),
         "mcp" => include_str!("usage/mcp.txt"),
@@ -260,7 +356,7 @@ fn text(command: &str) -> Option<&'static str> {
 pub fn usage(given: &[String]) -> u8 {
     match given {
         [command] if text(command).is_some() => {
-            print!("{}", text(command).unwrap_or_default());
+            say(text(command).unwrap_or_default());
             0
         }
         _ => {
@@ -380,6 +476,57 @@ mod tests {
     }
 
     #[test]
+    fn check_judges_each_command_that_had_a_script_before_the_settings() {
+        let says = |given: &[&str]| check(&words(given));
+        for good in [
+            &["tehas", "check-product"][..],
+            &["tehas", "check-product", "--sandbox"],
+            &["tehas", "init-product"],
+            &["tehas", "init-product", "--dry-run"],
+            &["tehasbot", "clean"],
+            &["tehasbot", "clean", ""],
+            &["tehasbot", "clean", "--dry-run"],
+            &["tehasbot", "dispatch"],
+            &["tehasbot", "dispatch", "--dry-run"],
+            &["tehasbot", "improve"],
+            &["tehasbot", "preview"],
+            &["tehasbot", "preview", ""],
+            &["tehasbot", "preview", "--sweep"],
+            &["tehasbot", "preview", "--sweep", "kept"],
+            &["tehasbot", "protolab", "ignored"],
+            &["tehasbot", "refresh", "--help"],
+        ] {
+            assert_eq!(says(good), 0, "{good:?}");
+        }
+        for bad in [
+            &["tehas", "check-product", ""][..],
+            &["tehas", "check-product", "--sandbox", "x"],
+            &["tehas", "check-product", "--help"],
+            &["tehas", "init-product", ""],
+            &["tehas", "init-product", "--dry-run", "x"],
+            &["tehasbot", "clean", "--bad"],
+            &["tehasbot", "clean", "--dry-run", "x"],
+            &["tehasbot", "clean", "", "x"],
+            &["tehasbot", "dispatch", ""],
+            &["tehasbot", "dispatch", "--dryrun"],
+            &["tehasbot", "dispatch", "--dry-run", "--help"],
+            &["tehasbot", "dispatch", "--help", "--dry-run"],
+            &["tehasbot", "improve", "x"],
+            &["tehasbot", "preview", "--help"],
+        ] {
+            assert_eq!(says(bad), 64, "{bad:?}");
+        }
+        for help in [
+            &["tehasbot", "clean", "-h"][..],
+            &["tehasbot", "clean", "--help"],
+            &["tehasbot", "dispatch", "-h"],
+            &["tehasbot", "dispatch", "--help"],
+        ] {
+            assert_eq!(says(help), ANSWERED, "{help:?}");
+        }
+    }
+
+    #[test]
     fn a_command_names_the_settings_it_cannot_run_without() {
         assert_eq!(required(&words(&["tehas", "api"])), ["TEHAS_REPO"]);
         assert_eq!(required(&words(&["tehas", "labels"])), ["TEHAS_REPO"]);
@@ -399,6 +546,28 @@ mod tests {
         );
         assert!(required(&words(&["tehas", "drain"])).is_empty());
         assert!(required(&words(&["tehasbot", "health"])).is_empty());
+        assert!(required(&words(&["tehasbot", "github-token"])).is_empty());
+        for repo in [
+            &["tehas", "check-product"][..],
+            &["tehas", "init-product"],
+            &["tehasbot", "preview"],
+        ] {
+            assert_eq!(required(&words(repo)), ["TEHAS_REPO"], "{repo:?}");
+        }
+        for all in ["clean", "dispatch", "refresh", "review"] {
+            assert_eq!(required(&words(&["tehasbot", all])), INSTANCE, "{all}");
+        }
+        assert_eq!(
+            required(&words(&["tehasbot", "protolab"])),
+            ["TEHAS_REPO", "TEHAS_ALLOWED_LABELERS"]
+        );
+        assert_eq!(required(&words(&["tehasbot", "improve"])), {
+            [
+                "TEHAS_REPO",
+                "PI_ENSEMBLE_SUBAGENT_MODEL",
+                "PI_ENSEMBLE_SUBAGENT_PROVIDER",
+            ]
+        });
     }
 
     #[test]
@@ -406,10 +575,13 @@ mod tests {
         for command in [
             "analytics",
             "api",
+            "check-product",
             "disk",
+            "dispatch",
             "drain",
             "export",
             "history",
+            "init-product",
             "labels",
             "limit",
             "pause",

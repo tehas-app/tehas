@@ -124,12 +124,12 @@ t_eq "$t_rc" 78
 t_contains "$t_out" "TEHAS_TOP is not valid: expected 0 or 1"
 t_eq "$(published)" "gone"
 
-# What stands at $TEHAS_HOME/libexec when --every runs a child: the real one by
+# What stands at $TEHAS_HOME/bin when --every runs a child: the real one by
 # default, as an install leaves it.
 installed() {
-  mkdir -p "$T/home/tehas/libexec"
+  mkdir -p "$T/home/tehas/libexec" "$T/home/tehas/bin"
   [ -e "$T/home/tehas/lib" ] || ln -s "$T_ROOT/lib" "$T/home/tehas/lib"
-  cp "$T_ROOT/libexec/with-settings" "$T/home/tehas/libexec/with-settings"
+  cp "$T_ROOT/bin/tehasbot" "$T/home/tehas/bin/tehasbot"
 }
 
 # The loop re-runs the command, and the re-run loads the settings again. What
@@ -159,14 +159,14 @@ t_instance "${T_MINIMAL[@]}" TEHAS_TOP=1
 printf '%s\n' '#!/usr/bin/env bash' \
   'printf "%s\n" "$*" >>"$T/calls/child"' \
   '[ "$(wc -l <"$T/calls/child")" -ge 2 ] && exit 78' 'exit 1' \
-  >"$T/home/tehas/libexec/with-settings"
+  >"$T/home/tehas/bin/tehasbot"
 T_ENV=(TEHAS_CONSOLE="$T_CONSOLE" TEHAS_PROC_DIR="$proc1" T="$T")
 t_run "$publish --every"
 t_eq "$t_rc" 78
-t_eq "$(cat "$T/calls/child")" "tehasbot top
-tehasbot top"
+t_eq "$(cat "$T/calls/child")" "top
+top"
 T_ENV=(TEHAS_CONSOLE="$T_CONSOLE" TEHAS_PROC_DIR="$proc1")
-rm -rf "$T/home/tehas/libexec"
+rm -rf "$T/home/tehas/libexec" "$T/home/tehas/bin"
 
 t_case "the publisher takes no other argument"
 reset

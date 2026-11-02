@@ -8,7 +8,7 @@
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
 
-# The command as a host has it: with-settings beside the console, this
+# The command as a host has it: bin/tehasbot above the console, this
 # checkout's own build, which holds the command.
 # shellcheck disable=SC2154  # t_console_why is set by t_console (test/lib.sh)
 t_console || t_bad "no console: $t_console_why"
@@ -16,8 +16,9 @@ shim=$T/tree
 mkdir -p "$shim/libexec"
 ln -s "$T_ROOT/lib" "$shim/lib"
 cp "$T_CONSOLE" "$shim/libexec/console"
-ln -s "$T_ROOT/libexec/with-settings" "$shim/libexec/with-settings"
-status="$shim/libexec/with-settings tehasbot status"
+mkdir -p "$shim/bin"
+ln -s "$T_ROOT/bin/tehasbot" "$shim/bin/tehasbot"
+status="$shim/bin/tehasbot status"
 live=$T/home/tehas/live
 file=$live/analytics.json
 

@@ -678,7 +678,7 @@ t_console() {
   fi
   cp "$target/debug/console" "$T_CONSOLE"
 }
-# t_health: tehasbot health as a host runs it, with-settings beside the console
+# t_health: tehasbot health as a host runs it, bin/tehasbot above the console
 # that builds its report (console/src/health.rs), as the one command $T_HEALTH.
 # The console is beside it, as on a host. The commands are copies, not symlinks, so they find their
 # siblings beside themselves.
@@ -686,11 +686,11 @@ T_HEALTH=$T/health-tree/libexec/health
 t_health() {
   [ -x "$T_HEALTH" ] && return 0
   t_console || return 1
-  mkdir -p "$T/health-tree/libexec"
+  mkdir -p "$T/health-tree/libexec" "$T/health-tree/bin"
   ln -sfn "$T_ROOT/lib" "$T/health-tree/lib"
-  cp "$T_ROOT/libexec/with-settings" "$T/health-tree/libexec/with-settings"
+  cp "$T_ROOT/bin/tehasbot" "$T/health-tree/bin/tehasbot"
   # shellcheck disable=SC2016  # expanded when the command runs
-  printf '#!/usr/bin/env bash\nexec "$(dirname "$0")/with-settings" tehasbot health\n' >"$T_HEALTH"
+  printf '#!/usr/bin/env bash\nexec "$(dirname "$0")/../bin/tehasbot" health\n' >"$T_HEALTH"
   chmod +x "$T_HEALTH"
   cp "$T_CONSOLE" "$T/health-tree/libexec/console"
 }

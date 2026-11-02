@@ -1,8 +1,12 @@
-//! `tehas-dispatch poll`: one poll of the queue, as libexec/dispatch runs it
+//! `tehas-dispatch poll`: one poll of the queue, as tehasbot dispatch runs it
 //! once its settings are loaded. The dispatcher's lock, the checks before any
 //! call, the snapshot and its decision, what the poll publishes, the actions
 //! in the order of the lines between them, and the end every poll that held
 //! the lock has: tidy, its cost and the analytics.
+//!
+//! The rules of a poll, its settings, its seams for tests and its exit statuses
+//! are console/src/usage/dispatch.txt, which `tehas help dispatch` prints.
+//! `console run` (console/src/run.rs) loads the settings and starts this.
 //!
 //! The gates of a start (systemd's answer, the code index, the checkout), the
 //! journal settled first and the setting that chooses this poll are the next
@@ -182,13 +186,13 @@ fn store_ready(home: &Path) -> bool {
 }
 
 /// A verb of tehasbot and its arguments: the command a test named, or
-/// `with-settings tehasbot <verb>` beside this program.
+/// `tehasbot <verb>` of the install this program is in.
 fn tehasbot_command(named: Option<String>, here: &Path, verb: &str) -> (String, Vec<String>) {
     match named {
         Some(cmd) => (cmd, Vec::new()),
         None => (
-            here.join("with-settings").to_string_lossy().into_owned(),
-            vec!["tehasbot".to_string(), verb.to_string()],
+            here.join("../bin/tehasbot").to_string_lossy().into_owned(),
+            vec![verb.to_string()],
         ),
     }
 }
@@ -829,19 +833,19 @@ fn sweep_locks(w: &mut Writer, dry: bool) {
 #[cfg(test)]
 mod tests {
     #[test]
-    fn status_runs_under_with_settings_unless_a_test_names_a_command() {
+    fn status_runs_through_tehasbot_unless_a_test_names_a_command() {
         let (cmd, args) =
             super::tehasbot_command(None, std::path::Path::new("/h/libexec"), "status");
-        assert_eq!(cmd, "/h/libexec/with-settings");
-        assert_eq!(args, ["tehasbot", "status"]);
+        assert_eq!(cmd, "/h/libexec/../bin/tehasbot");
+        assert_eq!(args, ["status"]);
     }
 
     #[test]
-    fn health_runs_under_with_settings_unless_a_test_names_a_command() {
+    fn health_runs_through_tehasbot_unless_a_test_names_a_command() {
         let (cmd, args) =
             super::tehasbot_command(None, std::path::Path::new("/h/libexec"), "health");
-        assert_eq!(cmd, "/h/libexec/with-settings");
-        assert_eq!(args, ["tehasbot", "health"]);
+        assert_eq!(cmd, "/h/libexec/../bin/tehasbot");
+        assert_eq!(args, ["health"]);
         let named = Some("fake-health".to_string());
         let (cmd, args) =
             super::tehasbot_command(named, std::path::Path::new("/h/libexec"), "health");
