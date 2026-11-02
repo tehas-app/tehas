@@ -69,7 +69,10 @@ unknown() {
 
 # text <command>: print the text of a command and end.
 text() {
-  if verb "$1" || [ "$1" = update ]; then
+  # A checkout that has built no console still shows what setup will do.
+  local own=$libexec/../console/src/usage/setup.txt
+  [ "$1" != setup ] || [ -x "$console" ] || [ ! -r "$own" ] || exec cat "$own"
+  if verb "$1" || [ "$1" = update ] || [ "$1" = setup ]; then
     [ -x "$console" ] || { echo "tehas $1: no console at $console, so no text to show: run install.sh" >&2; exit 78; }
     exec "$console" usage "$1"
   fi
