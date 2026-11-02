@@ -1,4 +1,4 @@
-//! tehas-cycle: a cycle's report in Rust, beside libexec/cycle.
+//! tehas-cycle: a cycle's start, its supervision and its report.
 //!
 //! Usage:
 //!   tehas-cycle report <facts.json>   print the report of an ended cycle,
@@ -8,20 +8,11 @@
 //!   tehas-cycle report <issue> --attempt <n> --rc <n> --started <s>
 //!       --signalled 0|1 --by <login> --how <how> --approval-at <s>
 //!       --requeued 0|1 [--now <s>] --console <path> --status-cmd <path>
-//!                                     libexec/cycle execs this where the
-//!                                     instance sets TEHAS_CYCLE_REPORT=rust:
-//!                                     report the cycle, every GitHub write
-//!                                     through the action journal, then what
-//!                                     follows its end (src/apply.rs)
-//!   tehas-cycle shadow <issue> --attempt <n> --rc <n> --started <s>
-//!       --signalled 0|1 --by <login> --how <how> --approval-at <s>
-//!       --requeued 0|1 [--now <s>]
-//!                                     just before libexec/cycle reports:
-//!                                     decide the report from the host and
-//!                                     keep it in state/cycles/shadow-<issue>.json
-//!   tehas-cycle compare <issue>       after the report: set the bash's
-//!                                     beside it and add one line to
-//!                                     logs/cycle-shadow.log
+//!       [--status-arg <word>]...
+//!                                     report an ended cycle, every GitHub
+//!                                     write through the action journal, then
+//!                                     what follows its end (src/apply.rs), as
+//!                                     `cycle` does once tehas work is over
 //!   tehas-cycle approved <issue> <attempt>
 //!                                     print {at, how, driver} of the approval
 //!                                     that attempt used, or null: read
@@ -55,7 +46,7 @@
 //!                                     "say": <a repeat's words for the park>}
 //!                                     (src/last_attempt.rs)
 //!   tehas-cycle cycle <issue> --work <path> --status-cmd <path>
-//!       [--status-arg <word>]... --console <path> --again <path>
+//!       [--status-arg <word>]... --console <path>
 //!                                     libexec/cycle execs this under the lock:
 //!                                     the start on record, what the number is,
 //!                                     tehas work to its end and the report
@@ -245,10 +236,6 @@
 //!   tehas-cycle index table           its row of the table of runs
 //!   tehas-cycle -h|--help             print this text
 //!
-//! shadow and compare do nothing while $TEHAS_HOME/state/cycle-shadow.on is
-//! not there. They read $TEHAS_HOME, TEHAS_REPO and TEHAS_WORK_DIR from the
-//! environment, as tehas_load leaves them, and gh and the store.
-//!
 //! last-attempt reads what it is given and changes nothing.
 //!
 //! run hardlinks $TEHAS_HOME's bin/, libexec/ and lib/ into
@@ -257,8 +244,10 @@
 //! tehasbot runs instead. It returns only when neither could be run. pin plan
 //! does the same under $TEHAS_HOME/run/plan-<issue>-<pid>/.
 //!
-//! report <issue> reads what shadow and after read, and TEHAS_CYCLE_RETRY_WAIT
-//! and TEHAS_CYCLE_STOP_GH_WAIT.
+//! cycle and report <issue> read $TEHAS_HOME, TEHAS_REPO and TEHAS_WORK_DIR
+//! from the environment, as tehas_load leaves them, what after reads, and
+//! TEHAS_CYCLE_RETRY_WAIT and TEHAS_CYCLE_STOP_GH_WAIT; they call gh and the
+//! store.
 //!
 //! after and approved read $TEHAS_HOME, TEHAS_ANALYTICS, TEHAS_ANALYTICS_WAIT,
 //! TEHAS_IMPROVE_REPO, TEHAS_CLEAN_DIRS and TEHAS_SCRATCH_DIR.
@@ -282,9 +271,7 @@ use tehas_cycle::host::Start;
 use tehas_cycle::last_attempt::{self, Action};
 use tehas_cycle::report::{last_attempts, to_json, Given};
 use tehas_cycle::{apply, finish, pin, prepare, progress, renew, report};
-use tehas_cycle::{
-    caps, clock, improve, index, runner, sandbox, shadow, start, supervise, watch, Facts,
-};
+use tehas_cycle::{caps, clock, improve, index, runner, sandbox, start, supervise, watch, Facts};
 
 fn usage() -> String {
     include_str!("main.rs")
@@ -321,11 +308,10 @@ fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let a: Vec<&str> = args.iter().map(String::as_str).collect();
     let home = PathBuf::from(std::env::var("TEHAS_HOME").unwrap_or_default());
-    let on = || home.join("state/cycle-shadow.on").exists();
     match a.as_slice() {
         ["-h" | "--help"] => tehas_core::outln!("{}", usage()),
         ["report", file] => print_report(file),
-        ["index", "table"] => tehas_core::outln!("{}", index::table()),
+        ["index", "table"] => println!("{}", index::table()),
         ["index", branch, base] => std::process::exit(index::main(branch, base, false).into()),
         ["index", branch, base, "--before-cycle"] => {
             std::process::exit(index::main(branch, base, true).into())
@@ -343,7 +329,7 @@ fn main() {
                 .ok()
                 .filter(|a| *a > 0)
                 .unwrap_or_else(|| wrong(&args));
-            tehas_core::outln!("{}", after::approved(&home, issue(n, &args), attempt));
+            println!("{}", after::approved(&home, issue(n, &args), attempt));
         }
         ["after", n] => after_verb(&home, issue(n, &args), &args),
         ["report", n, rest @ ..] if !rest.is_empty() => {
@@ -352,12 +338,6 @@ fn main() {
                 wrong(&args);
             }
             std::process::exit(apply::run(&home, &start));
-        }
-        ["shadow", n, rest @ ..] => {
-            let start = start(issue(n, &args), &args, rest);
-            if on() {
-                shadow::begin(&home, &start).unwrap_or_else(|e| fail(e));
-            }
         }
         ["clock", "now"] => {
             if clock::print_now(clock::boot_seconds).is_none() {
@@ -386,7 +366,7 @@ fn main() {
                 wrong(&args)
             };
             let v = clock::check(Path::new(file), limit, stall, since, clock::boot_seconds);
-            tehas_core::outln!("{}", v.word());
+            println!("{}", v.word());
             std::process::exit(i32::from(v.exit()));
         }
         ["run", n] => {
@@ -429,10 +409,8 @@ fn main() {
         ["finish", n, rest @ ..] => finish_verb(issue(n, &args), &args, rest),
         ["caps", rest @ ..] => caps_verb(rest, &args),
         ["runner", "outcome", result, n] => outcome_verb(result, n),
-        ["runner", "progress", log] => {
-            tehas_core::outln!("{}", progress::summary(Path::new(log), None))
-        }
-        ["runner", "progress", log, result, n] => tehas_core::outln!(
+        ["runner", "progress", log] => println!("{}", progress::summary(Path::new(log), None)),
+        ["runner", "progress", log, result, n] => println!(
             "{}",
             progress::summary(
                 Path::new(log),
@@ -466,17 +444,9 @@ fn main() {
         }
         ["watch", n, rest @ ..] => watch_verb(&home, issue(n, &args), &args, rest),
         ["runner", "run", log, n] => match runner::run_log(Path::new(log), n) {
-            Some(r) => tehas_core::outln!("{}\n{}\n{}", r.step, r.branch, r.read),
+            Some(r) => println!("{}\n{}\n{}", r.step, r.branch, r.read),
             None => std::process::exit(1),
         },
-        ["compare", n] => {
-            let n = issue(n, &args);
-            if on() {
-                if let Some(line) = shadow::compare(&home, n).unwrap_or_else(|e| fail(e)) {
-                    tehas_core::outln!("{line}");
-                }
-            }
-        }
         ["describe", dir] => {
             if tehas_cycle::describe::describe(Path::new(dir)).is_err() {
                 std::process::exit(1);
@@ -484,7 +454,7 @@ fn main() {
         }
         ["private", models, email] => {
             for name in tehas_core::mask::host_names(models, email) {
-                tehas_core::outln!("--private\n{name}");
+                println!("--private\n{name}");
             }
         }
         _ => wrong(&args),
@@ -499,7 +469,6 @@ fn cycle_verb(home: &Path, n: u64, args: &[String], rest: &[&str]) -> ! {
         status_cmd: String::new(),
         status_args: Vec::new(),
         console: String::new(),
-        again: String::new(),
     };
     let mut it = rest.iter();
     while let Some(flag) = it.next() {
@@ -509,11 +478,10 @@ fn cycle_verb(home: &Path, n: u64, args: &[String], rest: &[&str]) -> ! {
             "--status-cmd" => g.status_cmd = v,
             "--status-arg" => g.status_args.push(v),
             "--console" => g.console = v,
-            "--again" => g.again = v,
             _ => wrong(args),
         }
     }
-    if g.work.is_empty() || g.status_cmd.is_empty() || g.console.is_empty() || g.again.is_empty() {
+    if g.work.is_empty() || g.status_cmd.is_empty() || g.console.is_empty() {
         wrong(args);
     }
     std::process::exit(supervise::run(home, &g));
@@ -791,13 +759,13 @@ fn caps_verb(rest: &[&str], args: &[String]) {
         ["unsupported", flags, names, features @ ..] if features.len() < 2 => {
             let features = features.first().copied().unwrap_or("");
             match caps::unsupported(&text, flags, names, features) {
-                Some(lines) => tehas_core::out!("{lines}"),
+                Some(lines) => print!("{lines}"),
                 None => std::process::exit(1),
             }
         }
         ["expired", workarounds] => {
             for line in caps::expired(&text, workarounds) {
-                tehas_core::outln!("{line}");
+                println!("{line}");
             }
         }
         ["mode", feature] => {
@@ -805,11 +773,11 @@ fn caps_verb(rest: &[&str], args: &[String]) {
                 .ok()
                 .and_then(|p| Some(p.parent()?.parent()?.join("lib")));
             let (word, code) = caps::mode(&text, feature, lib.as_deref());
-            tehas_core::outln!("{word}");
+            println!("{word}");
             std::process::exit(code);
         }
         ["verb", verb, flags] => std::process::exit(i32::from(!caps::verb(&text, verb, flags))),
-        ["reads-images"] => tehas_core::outln!("{}", u8::from(caps::reads_images(&text))),
+        ["reads-images"] => println!("{}", u8::from(caps::reads_images(&text))),
         _ => wrong(args),
     }
 }
@@ -823,7 +791,7 @@ fn outcome_verb(result: &str, n: &str) {
         std::process::exit(2)
     };
     match runner::outcome(&String::from_utf8_lossy(&bytes), n) {
-        Some(o) => tehas_core::outln!("{o}"),
+        Some(o) => println!("{o}"),
         None => std::process::exit(4),
     }
 }
@@ -877,7 +845,7 @@ fn finish_verb(n: u64, args: &[String], rest: &[&str]) -> ! {
         finish::say(n, &done.why);
         std::process::exit(1);
     }
-    tehas_core::outln!("{}", done.url);
+    println!("{}", done.url);
     std::process::exit(0);
 }
 
@@ -943,7 +911,7 @@ fn print_report(file: &str) {
     let mut gh = Given(v.get("github").cloned().unwrap_or(json!({})));
     let mut r = report(&facts, &mut gh);
     last_attempts(&mut r, &facts, &mut gh);
-    tehas_core::outln!("{}", to_json(&r, facts.issue));
+    println!("{}", to_json(&r, facts.issue));
 }
 
 fn last_attempt(n: u64, result: &str, workspace: &Path) {
@@ -961,7 +929,7 @@ fn last_attempt(n: u64, result: &str, workspace: &Path) {
                 "the issue or the result in {result} cannot be read"
             ))
         });
-    tehas_core::outln!(
+    println!(
         "{}",
         match action {
             Action::Nothing => json!({"action": "none"}),
