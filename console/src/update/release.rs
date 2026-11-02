@@ -114,7 +114,7 @@ pub fn older(a: &str, b: &str) -> bool {
 
 /// A kept newest version that cannot be said: no version, or older than the one
 /// the host runs, which no published list of that repository holds.
-fn stale(newest: &str, installed: &str) -> bool {
+pub(crate) fn stale(newest: &str, installed: &str) -> bool {
     !tag_ok(newest) || !tag_ok(installed) || older(newest, installed)
 }
 
@@ -126,13 +126,6 @@ pub(crate) struct Published {
 
 fn truthy(v: &Value) -> bool {
     !matches!(v, Value::Null | Value::Bool(false))
-}
-
-fn version_key(tag: &str) -> Vec<u128> {
-    tag.trim_start_matches('v')
-        .split('.')
-        .map(|p| p.parse().unwrap_or(u128::MAX))
-        .collect()
 }
 
 /// Published vX.Y.Z releases only, newest first by version, not by date. An
@@ -167,7 +160,7 @@ fn published(text: &str) -> Result<Vec<Published>, ()> {
             });
         }
     }
-    found.sort_by_key(|r| version_key(&r.tag));
+    found.sort_by(|a, b| version_order(a.tag.as_bytes(), b.tag.as_bytes()));
     found.reverse();
     Ok(found)
 }
@@ -1026,8 +1019,9 @@ mod tests {
             "v1..3",
             "V1.2.3",
             "v1.2.3-rc1",
+            "v1.2.3\n",
         ] {
-            assert!(!tag_ok(bad), "{bad}");
+            assert!(!tag_ok(bad), "{bad:?}");
         }
     }
 
@@ -1037,6 +1031,15 @@ mod tests {
         assert!(!older("v1.10.0", "v1.9.0"));
         assert!(older("v0.9.9", "v1.0.0"));
         assert!(older("v1.2.3", "v1.2.10"));
+        // Digits of any length.
+        assert!(older(
+            "v0.0.99999999999999999999999999999999999999999",
+            "v0.1.0"
+        ));
+        assert!(older(
+            "v0.0.99999999999999999999999999999999999999999",
+            "v0.0.100000000000000000000000000000000000000000"
+        ));
         assert!(!older("v1.2.3", "v1.2.3"));
         // What sort -V does with a version that is not one.
         assert!(older("v1.2.3", "v1.2.3a"));

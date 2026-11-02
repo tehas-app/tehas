@@ -466,21 +466,41 @@ mod tests {
         // The program of a case that fails at making one says its reason on the
         // error stream and ends non-zero, as libexec/github-token does.
         let body = if counter {
-            "#!/bin/sh\ncount=\"$0.count\"\nn=$(cat \"$count\" 2>/dev/null || echo 0)\n\
+            "#!/bin/sh\n[ \"$1\" = settled ] && exit 0\ncount=\"$0.count\"\n\
+             n=$(cat \"$count\" 2>/dev/null || echo 0)\n\
              n=$((n + 1)); echo \"$n\" >\"$count\"\nprintf 'ghs_%s\\n' \"$n\"\n"
         } else {
-            "#!/bin/sh\nprintf 'tehas: no GitHub App is set\\n' >&2\nexit 1\n"
+            "#!/bin/sh\n[ \"$1\" = settled ] && exit 0\n\
+             printf 'tehas: no GitHub App is set\\n' >&2\nexit 1\n"
         };
         std::fs::write(&token, body).ok()?;
         std::fs::set_permissions(&token, std::fs::Permissions::from_mode(0o755)).ok()?;
         let gh = dir.join("gh");
         std::fs::write(
             &gh,
-            "#!/bin/sh\nprintf '%s\\n' \"${TEHAS_GH_TOKEN:-untouched}\"\n",
+            "#!/bin/sh\n[ \"$1\" = settled ] && exit 0\n\
+             printf '%s\\n' \"${TEHAS_GH_TOKEN:-untouched}\"\n",
         )
         .ok()?;
         std::fs::set_permissions(&gh, std::fs::Permissions::from_mode(0o755)).ok()?;
+        settled(&token);
+        settled(&gh);
         Some(dir)
+    }
+
+    /// Wait until a script just written can run. A parallel test's fork holds
+    /// it open for writing until that child's exec, and a run in that moment
+    /// fails with ETXTBSY.
+    fn settled(script: &Path) {
+        let until = std::time::Instant::now() + Duration::from_secs(5);
+        while std::process::Command::new(script)
+            .arg("settled")
+            .status()
+            .is_err()
+            && std::time::Instant::now() < until
+        {
+            std::thread::sleep(Duration::from_millis(5));
+        }
     }
 
     /// The calls of a snapshot that asks its reads of the stub gh of `home`.
