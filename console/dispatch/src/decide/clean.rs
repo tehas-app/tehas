@@ -13,9 +13,19 @@ pub(crate) const QUIET_BOUND: u64 = 1200;
 const QUIET_RETRY: u64 = 600;
 pub(crate) const QUIET_ASKS: u64 = 6;
 
-/// date -u -d @<secs> +%FT%TZ.
+/// The last epoch seconds the dispatcher renders: an 11-digit value, so the
+/// stamp below is a 4-digit year. Past it, `date -u -d @<secs> +%FT%TZ`
+/// refuses, and so do we.
+const MAX_SECS: u64 = 99_999_999_999;
+
+/// date -u -d @<secs> +%FT%TZ, or an empty stamp for seconds a reader cannot
+/// date. Every consumer (`is_instant`, `epoch`) already treats an empty
+/// stamp as no instant, which is what a refused `date` prints.
 pub(crate) fn iso(secs: u64) -> String {
-    tehas_core::time::iso(i64::try_from(secs).unwrap_or(i64::MAX))
+    if secs > MAX_SECS {
+        return String::new();
+    }
+    tehas_core::time::iso(secs as i64)
 }
 
 /// What the poll does now about an episode asked about `times` times, last
@@ -513,6 +523,14 @@ mod tests {
         assert_eq!(iso(0), "1970-01-01T00:00:00Z");
         assert_eq!(iso(1_761_436_800), "2025-10-26T00:00:00Z");
         assert_eq!(iso(951_782_400 + 3661), "2000-02-29T01:01:01Z");
+        assert_eq!(iso(MAX_SECS), "5138-11-16T09:46:39Z");
+    }
+
+    #[test]
+    fn iso_refuses_seconds_it_cannot_date() {
+        // A corrupt store value must not read as the newest instant.
+        assert_eq!(iso(MAX_SECS + 1), "");
+        assert_eq!(iso(u64::MAX), "");
     }
 
     #[test]
