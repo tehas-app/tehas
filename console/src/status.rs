@@ -127,10 +127,10 @@ fn answer(file: &str, now: i64, lines: Option<(&str, Option<&str>)>) -> u8 {
             lines.extend(platform_line(&health, now));
             lines.extend(product.and_then(|p| product_line(Path::new(p), now)));
             for line in lines {
-                println!("{line}");
+                tehas_core::outln!("{line}");
             }
         }
-        None => println!("{}", status_json(&health, now, stale).dump()),
+        None => tehas_core::outln!("{}", status_json(&health, now, stale).dump()),
     }
     u8::from(stale || health.get("status").as_str() == Some("fail"))
 }

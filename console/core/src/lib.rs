@@ -20,6 +20,7 @@ pub mod lock;
 #[cfg(feature = "mask")]
 pub mod mask;
 pub mod models;
+pub mod out;
 pub mod plan;
 #[cfg(feature = "mask")]
 pub mod question;
