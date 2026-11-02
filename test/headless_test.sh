@@ -218,7 +218,7 @@ t_eq "$(run_of 7 commit-pr feature/issue-8-other)" "feature/issue-8-other||whole
 t_eq "$(run_of 7 commit-pr develop)" "develop||whole|"
 t_case "a step name over the bound of 100 characters is no step of a run"
 # The bound is the one tehas-cycle runner holds, and it is wider than the
-# grammar of tehas_branch_pattern in one way and narrower in another. A name of
+# grammar of a branch (runner::branch_of) in one way and narrower in another. A name of
 # 101 characters is no step at all, whatever its shape, so the run says only its
 # commit-pr. A name of the most characters a step may be, but with a slug past
 # 80, is a step and no branch of this issue, so GitHub is asked about nothing. A

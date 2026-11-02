@@ -423,9 +423,9 @@ pub fn execute(home: &Path, cmd: &Cmd, now: i64) -> Result<(), (u8, String)> {
         Cmd::Report | Cmd::ReportText => {
             let report = report::complete(&conn, home, now)?;
             if matches!(cmd, Cmd::Report) {
-                println!("{report}");
+                tehas_core::outln!("{report}");
             } else {
-                print!("{}", report::text(&report));
+                tehas_core::out!("{}", report::text(&report));
             }
             Ok(())
         }
@@ -435,7 +435,7 @@ pub fn execute(home: &Path, cmd: &Cmd, now: i64) -> Result<(), (u8, String)> {
                 None => {
                     let lines = sessions::lines(&conn, home, now)
                         .map_err(|e| (70, format!("the sessions could not be read: {e}")))?;
-                    println!("{}", lines.join("\n"));
+                    tehas_core::outln!("{}", lines.join("\n"));
                 }
                 // The host's snapshot: written here, so the host runs no
                 // writer of its own and reads the file no second time. When
@@ -459,7 +459,7 @@ pub fn execute(home: &Path, cmd: &Cmd, now: i64) -> Result<(), (u8, String)> {
                 None => {
                     let lines = outcomes::lines(&conn, now, f)
                         .map_err(|e| (70, format!("the outcomes could not be read: {e}")))?;
-                    println!("{}", lines.join("\n"));
+                    tehas_core::outln!("{}", lines.join("\n"));
                 }
                 // The host's file: written here, so what the reader checks is
                 // what this wrote, and the host runs no second reader of it.
@@ -478,7 +478,7 @@ pub fn execute(home: &Path, cmd: &Cmd, now: i64) -> Result<(), (u8, String)> {
         Cmd::Export(to, json) => {
             db::export(&conn, to).map_err(|e| (73, e))?;
             if *json {
-                println!("{}", db::copy_summary(to).map_err(|e| (70, e))?);
+                tehas_core::outln!("{}", db::copy_summary(to).map_err(|e| (70, e))?);
             }
             Ok(())
         }

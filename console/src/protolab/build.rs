@@ -728,11 +728,8 @@ fn read_attach(code: i32, out: &str) -> Unpacked {
 mod tests {
     use super::*;
 
-    fn scratch(name: &str) -> PathBuf {
-        let dir = env::temp_dir().join(format!("protolab-{}-{name}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
-        dir
+    fn scratch(name: &str) -> tehas_core::testdir::TestDir {
+        tehas_core::testdir::TestDir::new(&format!("protolab-{name}"))
     }
 
     #[test]
@@ -852,7 +849,6 @@ mod tests {
         assert_eq!(free_name(&dir, "same.html".to_string()), "3-same.html");
         fs::write(dir.join("3-a"), "").unwrap();
         assert_eq!(free_name(&dir, "3-a".to_string()), "2-a");
-        fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
@@ -903,7 +899,6 @@ mod tests {
         }
         let numbers: Vec<i64> = metas(&site).iter().map(number_of).collect();
         assert_eq!(numbers, [11, 3]);
-        fs::remove_dir_all(&site).unwrap();
     }
 
     #[test]

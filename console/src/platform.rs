@@ -14,7 +14,7 @@
 //! else. The last list of releases answered is kept in state/platform-newest.
 
 use crate::jq::{obj, J};
-use crate::update::release::{older, stale, tag_ok};
+use crate::update::release::{candidate, older, stale, tag_ok};
 use std::env;
 use std::fs;
 use std::path::Path;
@@ -49,8 +49,8 @@ fn installed(home: &Path) -> Option<String> {
     Some(text.lines().next().unwrap_or_default().to_string())
 }
 
-/// The release list as GitHub answers it, published `vX.Y.Z` tags only: the
-/// newest by version, not by date. None when the answer is not such a list,
+/// The release list as GitHub answers it, published `vX.Y.Z` tags only, no
+/// release candidate: the newest by version, not by date. None when the answer is not such a list,
 /// which ends the read as a list that failed.
 fn newest_of(answer: &str) -> Option<String> {
     if answer.trim().is_empty() {
@@ -71,7 +71,7 @@ fn newest_of(answer: &str) -> Option<String> {
             continue;
         }
         let tag = item.get("tag_name").as_str()?;
-        if !tag_ok(tag) {
+        if !tag_ok(tag) || candidate(tag) {
             continue;
         }
         if newest.is_none_or(|n| !older(tag, n)) {
@@ -166,7 +166,8 @@ fn put(live: &Path, file: &J) {
 /// A host that runs a release: the version current points at, the newest
 /// there is, and nothing of a checkout it may still hold. A cached newest
 /// that is no version, or older than the installed one, or beside an installed
-/// version that is none, goes, and the next read asks again.
+/// version that is none, goes, and the next read asks again. A candidate is
+/// ahead of the newest release, so an older newest stays beside one.
 fn release(home: &Path, live: &Path, installed: &str) {
     let stamp = home.join("state/platform-fetch");
     let cache = home.join("state/platform-newest");
@@ -174,7 +175,8 @@ fn release(home: &Path, live: &Path, installed: &str) {
     let (last, mut fetched) = stamp_read(&stamp);
     let cached = fs::read_to_string(&cache).unwrap_or_default();
     let mut newest = cached.lines().next().unwrap_or_default().to_string();
-    if !newest.is_empty() && stale(&newest, installed) {
+    if !newest.is_empty() && stale(&newest, installed) && !(candidate(installed) && tag_ok(&newest))
+    {
         let _ = fs::remove_file(&cache);
         newest.clear();
     }
@@ -299,12 +301,15 @@ mod tests {
     fn the_newest_is_by_version_and_leaves_out_what_is_not_published() {
         let rel = |tag: &str, more: &str| format!(r#"{{"tag_name":"{tag}"{more}}}"#);
         let list = format!(
-            "[{},{},{},{},{}]",
+            "[{},{},{},{},{},{},{}]",
             rel("v0.9.0", ""),
             rel("v0.10.0", ""),
             rel("v0.11.0", r#","draft":true"#),
             rel("v0.12.0", r#","prerelease":true"#),
             rel("nightly", ""),
+            rel("v0.11.0-rc.1", r#","prerelease":true"#),
+            // A candidate is never the newest, flagged or not.
+            rel("v0.11.0-rc.2", ""),
         );
         assert_eq!(newest_of(&list).as_deref(), Some("v0.10.0"));
         assert_eq!(newest_of("[]"), None);
@@ -319,8 +324,7 @@ mod tests {
 
     #[test]
     fn the_stamp_holds_two_numbers_or_says_nothing() {
-        let dir = std::env::temp_dir().join(format!("tehas-stamp-{}", std::process::id()));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = tehas_core::testdir::TestDir::new("stamp");
         let f = dir.join("stamp");
         let read = |text: &str| {
             fs::write(&f, text).unwrap();
@@ -332,8 +336,25 @@ mod tests {
         assert_eq!(read("soon 7\n"), (0, "7".to_string()));
         assert_eq!(read("12 later\n"), (12, String::new()));
         assert_eq!(read("12 7 3\n"), (12, String::new()));
-        fs::remove_dir_all(&dir).unwrap();
+        drop(dir);
         assert_eq!(stamp_read(&f), (0, String::new()));
+    }
+
+    #[test]
+    fn a_candidate_keeps_an_older_cached_newest() {
+        let home = tehas_core::testdir::TestDir::new("rc");
+        let live = home.join("live");
+        fs::create_dir_all(home.join("state")).unwrap();
+        fs::create_dir_all(&live).unwrap();
+        let now = time::now();
+        fs::write(home.join("state/platform-fetch"), format!("{now} {now}\n")).unwrap();
+        fs::write(home.join("state/platform-newest"), "v0.22.1\n").unwrap();
+        release(&home, &live, "v0.23.0-rc.2");
+        let file = J::parse(&fs::read_to_string(live.join("platform.json")).unwrap()).unwrap();
+        assert_eq!(file.get("newest").as_str(), Some("v0.22.1"));
+        release(&home, &live, "v0.23.0");
+        let file = J::parse(&fs::read_to_string(live.join("platform.json")).unwrap()).unwrap();
+        assert!(file.get("newest").is_null());
     }
 
     #[test]

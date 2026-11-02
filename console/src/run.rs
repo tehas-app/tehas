@@ -32,7 +32,7 @@
 //! settings are missing or malformed.
 
 use crate::commands::{self, ANSWERED};
-use crate::{clean, disk, github, improve, preview, product, protolab, review, settings};
+use crate::{clean, disk, github, improve, plan, preview, product, protolab, review, settings};
 use std::env;
 use std::ffi::OsString;
 use std::fs::File;
@@ -205,7 +205,9 @@ fn command(libexec: &str, uid: &str, bash: &str, words: &[String]) -> Result<u8,
     let vars = settings::load_here(uid, bash)?;
     match name[..] {
         ["tehasbot", "improve"] if var("TEHAS_IMPROVE_REPO").is_empty() => {
-            println!("tehas improve: TEHAS_IMPROVE_REPO is not set, the improvement loop is off");
+            tehas_core::outln!(
+                "tehas improve: TEHAS_IMPROVE_REPO is not set, the improvement loop is off"
+            );
             return Ok(0);
         }
         ["tehasbot", "refresh"] if var("TEHAS_REFRESH_CONFLICTS") != "1" => return Ok(0),
@@ -215,6 +217,7 @@ fn command(libexec: &str, uid: &str, bash: &str, words: &[String]) -> Result<u8,
     Ok(match name[..] {
         ["tehas", "check-product"] => product::check(rest),
         ["tehas", "init-product"] => init_product(rest)?,
+        ["tehas", "plan"] => plan::start(libexec, rest),
         ["tehas", _] => commands::tehas(&words[1..]),
         ["tehasbot", "clean"] => clean_run(rest)?,
         ["tehasbot", "dispatch"] => dispatch(bash, libexec, rest)?,
@@ -257,11 +260,8 @@ mod tests {
     use super::*;
     use std::fs;
 
-    fn scratch(name: &str) -> std::path::PathBuf {
-        let dir = env::temp_dir().join(format!("run-{name}-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
-        dir
+    fn scratch(name: &str) -> tehas_core::testdir::TestDir {
+        tehas_core::testdir::TestDir::new(&format!("run-{name}"))
     }
 
     fn file(dir: &Path, bytes: &[u8], mode: u32) -> std::path::PathBuf {
@@ -294,7 +294,6 @@ mod tests {
         assert!(!a_program(&file(&dir, b"#!/bin/sh\n", 0o644)));
         assert!(!a_program(&dir));
         assert!(!a_program(&dir.join("no-such")));
-        fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

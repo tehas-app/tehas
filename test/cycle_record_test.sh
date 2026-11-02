@@ -534,28 +534,18 @@ t_stub systemctl
 
 t_case "a cycle that runs from its own copy of the code runs that copy's tehas-cycle"
 reset
-mkdir -p "$T/copy/libexec"
-printf '%s\n' '#!/usr/bin/env bash' 'echo "$1" >>"$T/calls/copy"' "exec \"$T_CYCLE\" \"\$@\"" >"$T/copy/libexec/tehas-cycle"
-chmod +x "$T/copy/libexec/tehas-cycle"
+copy=$T/home/tehas/run/cycle-7-1
+mkdir -p "$copy/libexec"
+ln -s "$T_ROOT/lib" "$copy/lib"
+ln -s "$T_ROOT/libexec/cycle" "$copy/libexec/cycle"
+printf '%s\n' '#!/usr/bin/env bash' 'echo "$1" >>"$T/calls/copy"' "exec \"$T_CYCLE\" \"\$@\"" >"$copy/libexec/tehas-cycle"
+chmod +x "$copy/libexec/tehas-cycle"
 rm -f "$T/home/tehas/libexec/tehas-cycle"
-T_ENV+=("TEHAS_CODE=$T/copy")
-t_run "$cycle 7"
+t_run "$copy/libexec/cycle 7"
+rm -rf "$T/home/tehas/run"
 t_eq "$t_rc" 0
-if [ "${T_CYCLE_REPORT:-}" = rust ]; then
-  t_eq "$(tr '\n' ' ' <"$T/calls/copy")" "report "
-else
-  t_eq "$(tr '\n' ' ' <"$T/calls/copy")" "approved after "
-fi
+t_eq "$(tr '\n' ' ' <"$T/calls/copy")" "cycle "
 t_eq "$(t_calls systemctl)" "--user start --no-block tehas-dispatch.service"
-
-t_case "a tehas-cycle that cannot run is a warning, and the cycle is on record as ended"
-reset
-rm -f "$T/home/tehas/libexec/tehas-cycle"
-t_run "$cycle 7"
-t_eq "$t_rc" 0
-t_contains "$t_out" "WARN: what follows the end of #7 did not run"
-t_contains "$t_out" "done #7"
-t_eq "$(t_row cycle-show 7 -- '.cycle.ended_at != null')" true
 
 t_case "a step longer than one argument may be stops nothing that follows the end"
 reset
@@ -847,6 +837,7 @@ cp "$cycle" "$tree/libexec/cycle"
 cp "$T_ROOT"/lib/*.sh "$tree/lib/"
 cp "$T/bin/fake-work" "$tree/libexec/work"
 cp "$T/bin/fake-status" "$tree/bin/tehasbot"
+cp "$T_CYCLE" "$tree/libexec/tehas-cycle"
 for name in tehas tehasbot tehas-work tehas-status; do t_stub "$name"; done
 t_run "$tree/libexec/cycle 7"
 t_eq "$t_rc" 0

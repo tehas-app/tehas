@@ -869,11 +869,8 @@ mod tests {
         J::parse(text).unwrap()
     }
 
-    fn temp(name: &str) -> PathBuf {
-        let dir = env::temp_dir().join(format!("tehas-queue-{name}-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
-        dir
+    fn temp(name: &str) -> tehas_core::testdir::TestDir {
+        tehas_core::testdir::TestDir::new(&format!("queue-{name}"))
     }
 
     fn facts<'a>(issues: &'a J, every: &'a J, shipped: Vec<J>) -> Facts<'a> {
@@ -1168,7 +1165,6 @@ mod tests {
             pause("unlabeled", "alice")
         );
         assert!(lifted(&pages));
-        fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
@@ -1199,7 +1195,6 @@ mod tests {
         // No event applied it: nobody did.
         assert_eq!(switches(on, "[]", &f).0.all_hands, Some(false));
         assert_eq!(fs::read_to_string(&f).unwrap(), "\t\n");
-        fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
@@ -1223,7 +1218,6 @@ mod tests {
             assert!(held, "{bad}");
             assert_eq!(flag.dump(), damaged, "{bad}");
         }
-        fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
@@ -1251,7 +1245,6 @@ mod tests {
         ] {
             assert!(!says(bad), "{bad}");
         }
-        fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
@@ -1268,7 +1261,6 @@ mod tests {
             fs::write(&f, bad).unwrap();
             assert!(before(&f, NOW).is_null(), "{bad}");
         }
-        fs::remove_dir_all(dir).unwrap();
     }
 
     fn at(age: i64) -> String {

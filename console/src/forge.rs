@@ -1322,14 +1322,7 @@ mod tests {
         assert!(words.contains(&"--paginate".to_string()));
     }
 
-    /// A scratch directory of the case, under cargo's own place for test files.
-    fn scratch(name: &str) -> std::path::PathBuf {
-        let base = env::var("CARGO_TARGET_TMPDIR")
-            .map(std::path::PathBuf::from)
-            .unwrap_or_else(|_| env::temp_dir());
-        let dir = base.join(format!("forge-{name}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        dir
+    fn scratch(name: &str) -> tehas_core::testdir::TestDir {
+        tehas_core::testdir::TestDir::new(&format!("forge-{name}"))
     }
 }

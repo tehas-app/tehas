@@ -44,7 +44,21 @@ for f in $gone; do
   t_eq "$([ -e "$f" ] && echo there)" ""
 done
 t_eq "$([ -e "$th/lib/history-lines.jq" ] && echo there)" "there"
-t_eq "$([ -e "$th/lib/park-fields.jq" ] && echo there)" "there"
+
+t_case "the jq program of the bash report's repeat park is named, then removed"
+fresh
+instance
+t_run "$install"
+rm -f "$th/state/update-pending"
+f=$th/lib/park-fields.jq
+echo "# old" >"$f"
+t_run "$install --check"
+t_eq "$t_rc" 1
+t_contains "$t_out" "stale: $f"
+t_run "$install"
+t_eq "$t_rc" 0
+t_contains "$t_out" "removed: $f"
+t_eq "$([ -e "$f" ] && echo there)" ""
 
 t_case "the settings wrappers of before console run are named, then removed"
 fresh

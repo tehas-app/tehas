@@ -1,17 +1,17 @@
-//! `tehas-cycle start-check`: what a cycle's start is held to before anything of
-//! it is written. Two steps, because libexec/work asks the image what it
+//! What a cycle's start is held to before anything of it is written, in two
+//! steps of `tehas-cycle work` (src/work.rs), because it asks the image what it
 //! supports between them and each refusal keeps its place in that order.
 //!
-//! `record` reads the approval of this start into a private file and prints its
-//! path and, on a second line, why a start with no approval stops, if it does.
-//! It refuses driver lean with 78 and the note `<issue>.lean-refused`.
+//! [`record`] reads the approval of this start into a private file and gives
+//! its path and why a start with no approval stops, if it does. It refuses
+//! driver lean with 78 and the note `<issue>.lean-refused`.
 //!
-//! `text` reads the issue once, holds its words to the approval, and measures
+//! [`text`] reads the issue once, holds its words to the approval, and measures
 //! them into state/sizes.jsonl. It says why a start stopped on the issue and
-//! exits 4, or prints the path of a private file that holds GitHub's answer,
-//! which is the one read the images and files are fetched from too. By hand,
-//! with no record on this host, the run is its own approval: GitHub is asked for
-//! nothing and the line it prints is empty.
+//! gives 4, or gives a private file that holds GitHub's answer, which is the
+//! one read the images and files are fetched from too. By hand, with no record
+//! on this host, the run is its own approval: GitHub is asked for nothing and
+//! there is no file.
 //!
 //! Under tehasbot cycle only the approval the attempt used counts, and a store
 //! that cannot be read is never taken for a run by hand. Run on its own the
@@ -149,8 +149,13 @@ pub fn is_record(p: &str) -> bool {
     !p.is_empty() && fs::symlink_metadata(p).is_ok_and(|m| m.is_file())
 }
 
-/// The `record` step. Its exit status.
-pub fn record(home: &Path, issue: u64, attempt: &str) -> i32 {
+/// The `record` step: the approval's private file, if any, and why a start
+/// with none stops; or the exit status.
+pub fn record(
+    home: &Path,
+    issue: u64,
+    attempt: &str,
+) -> Result<(Option<PathBuf>, &'static str), i32> {
     let n = issue.to_string();
     let (file, why) = read_record(home, &n, attempt);
     if let Some(f) = &file {
@@ -160,12 +165,10 @@ pub fn record(home: &Path, issue: u64, attempt: &str) -> i32 {
             eprintln!(
                 "tehas work: this tehas cannot run the lean driver yet, not starting a cycle; take tehas:lean off #{n} to run it on classic"
             );
-            return 78;
+            return Err(78);
         }
     }
-    let path = file.map(|f| f.to_string_lossy().into_owned());
-    println!("{}\n{why}", path.unwrap_or_default());
-    0
+    Ok((file, why))
 }
 
 /// What the `text` step works with.
@@ -299,8 +302,9 @@ pub fn tell(issue: u64, repo: &str, wait: u64, why: &str) {
     }
 }
 
-/// The `text` step. Its exit status.
-pub fn text(home: &Path, t: &Text) -> i32 {
+/// The `text` step: the private file of GitHub's answer, none for a run by
+/// hand; or the exit status.
+pub fn text(home: &Path, t: &Text) -> Result<Option<PathBuf>, i32> {
     let stop = |why: &str, path: bool| {
         let shown = if path {
             format!("{why} ({})", t.record)
@@ -309,7 +313,7 @@ pub fn text(home: &Path, t: &Text) -> i32 {
         };
         eprintln!("tehas work: {shown}, not starting a cycle");
         tell(t.issue, &t.repo, t.wait, why);
-        4
+        Err(4)
     };
     if !t.why.is_empty() {
         return stop(&t.why, false);
@@ -319,8 +323,7 @@ pub fn text(home: &Path, t: &Text) -> i32 {
             "tehas work: no approval is recorded on this host for #{}; a run by hand is its own approval",
             t.issue
         );
-        println!();
-        return 0;
+        return Ok(None);
     }
     let answer = match read_issue(t) {
         Ok(a) => a,
@@ -332,13 +335,10 @@ pub fn text(home: &Path, t: &Text) -> i32 {
     };
     measure(home, t, &issue);
     match private_file(home, "issue", &answer) {
-        Some(f) => {
-            println!("{}", f.display());
-            0
-        }
+        Some(f) => Ok(Some(f)),
         None => {
             eprintln!("tehas work: the issue's answer could not be kept, not starting a cycle");
-            78
+            Err(78)
         }
     }
 }
@@ -348,12 +348,10 @@ mod tests {
     use super::*;
     use serde_json::json;
     use std::os::unix::fs::PermissionsExt;
+    use tehas_core::testdir::TestDir;
 
-    fn home(name: &str) -> PathBuf {
-        let d = std::env::temp_dir().join(format!("tehas-start-{name}-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&d);
-        fs::create_dir_all(&d).unwrap();
-        d
+    fn home(name: &str) -> TestDir {
+        TestDir::new(&format!("start-{name}"))
     }
 
     #[test]

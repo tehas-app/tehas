@@ -1,8 +1,6 @@
-//! A cycle's supervisor in Rust (#256). So far its report: `report` takes
-//! what an ended cycle left and the answers GitHub gives, and returns what
-//! libexec/cycle does with them, and `apply` does it, where the instance asks
-//! for it with TEHAS_CYCLE_REPORT. `shadow` decides beside the bash's report on
-//! a host and says where the two differ. `pin` gives a cycle its own copy of the code.
+//! A cycle's supervisor in Rust (#256). `report` takes what an ended cycle
+//! left and the answers GitHub gives, and returns what to do with them, and
+//! `apply` does it. `pin` gives a cycle its own copy of the code.
 //! `clock` measures a cycle on a clock that stops while the VM is saved.
 //! `renew` keeps a cycle's GitHub token fresh and says what went wrong.
 //! `finish` opens a pull request from what a cycle that stopped left.
@@ -12,10 +10,11 @@
 //! `index` builds the code index a cycle's agents search.
 //! `sandbox` prints the docker options of a container for the commands that
 //! keep their docker line in bash.
-//! `start` holds a start to its approval before anything of it is written.
-//! `prepare` makes what a container starts from.
-//! `watch` starts a cycle's container and sees it to its end, and `progress`
-//! summarises what the runner wrote.
+//! `work` is tehas work: `start` holds a start to its approval before anything
+//! of it is written, `gives` fetches what the issue links, `prepare` makes what
+//! a container starts from, and `watch` starts a cycle's container and sees it
+//! to its end. `progress` summarises what the runner wrote.
+//! `supervise` starts a cycle, runs tehas work and sees to its report.
 
 pub mod after;
 pub mod apply;
@@ -24,6 +23,7 @@ pub mod clock;
 pub mod describe;
 pub mod facts;
 pub mod finish;
+pub mod gives;
 pub mod host;
 pub mod improve;
 pub mod index;
@@ -36,9 +36,10 @@ pub mod renew;
 pub mod report;
 pub mod runner;
 pub mod sandbox;
-pub mod shadow;
 pub mod start;
+pub mod supervise;
 pub mod watch;
+pub mod work;
 
 pub use facts::Facts;
 pub use report::{report, Report};

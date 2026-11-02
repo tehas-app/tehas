@@ -49,7 +49,7 @@ fn key() -> u8 {
     let mut bytes = [0u8; 32];
     match File::open("/dev/urandom").and_then(|mut f| f.read_exact(&mut bytes)) {
         Ok(()) => {
-            println!("{}", base64url(&bytes));
+            tehas_core::outln!("{}", base64url(&bytes));
             0
         }
         Err(e) => {

@@ -21,7 +21,7 @@
 #
 # It copies files, and compiles seven: the console of a running cycle, the
 # analytics program, the MCP server, the state store, the attachment checker,
-# the dispatcher and the cycle's shadow, Rust programs in the Cargo
+# the dispatcher and the cycle's supervisor, Rust programs in the Cargo
 # workspace console/ (the other six in console/analytics, console/mcp,
 # console/store, console/attach, console/dispatch and console/cycle). A real
 # run builds each with cargo in this checkout (console/target, which git
@@ -157,11 +157,16 @@ suite=${TEHAS_TEST_SUITE:-}
 update_fd=${TEHAS_UPDATE_LOCK_FD:-}
 # The console that answers for the steps, when something names one. See section 3.
 steps_console=${TEHAS_CONSOLE:-}
-# Read before tehas_load, which drops every TEHAS_* it does not know: the one
-# rule for it is tehas_update_lock_wait, taken with lib/update-steps.sh below,
-# where tehas update takes it too. Set here so the file is defined before that
-# call reads it.
-lock_wait=
+# The waits for the update lock and the dispatcher's, asked of a console before
+# tehas_load drops their names: the one of the release tree, else the one
+# installed. A first install from a checkout has neither, and waits the defaults.
+early_console=$steps_console
+[ -n "$early_console" ] || early_console=$root/libexec/console
+[ -x "$early_console" ] || early_console=${TEHAS_HOME:-$HOME/tehas}/libexec/console
+lock_wait=$("$early_console" update wait update 2>/dev/null) || lock_wait=
+dispatch_wait=$("$early_console" update wait dispatch 2>/dev/null) || dispatch_wait=
+[[ $lock_wait =~ ^[0-9]+$ ]] || lock_wait=10
+[[ $dispatch_wait =~ ^[0-9]+$ ]] || dispatch_wait=900
 # The model endpoints' tokens, from the file env.sh reads them from. The shell
 # that runs this may not have them: a first install has no env.sh yet, and an
 # update runs under the loader of the version before, which may drop them.
@@ -180,12 +185,6 @@ fi
 
 # shellcheck source=lib/config.sh
 . "$root/lib/config.sh"
-# shellcheck source=lib/update-steps.sh
-. "$root/lib/update-steps.sh"
-# The waits for the update lock and the dispatcher's, read before tehas_load
-# below drops them.
-lock_wait=$(tehas_update_lock_wait)
-dispatch_wait=$(tehas_dispatch_lock_wait)
 # shellcheck source=lib/cycles.sh
 . "$root/lib/cycles.sh"
 # A partial checkout is named as the missing file it is, as every other
@@ -228,7 +227,7 @@ program_label() {
     store) echo "the store" ;;
     attach) echo "the attachment checker" ;;
     tehas-dispatch) echo "the dispatcher" ;;
-    tehas-cycle) echo "the cycle's shadow" ;;
+    tehas-cycle) echo "the cycle's supervisor" ;;
     *) echo "the $1 program" ;;
   esac
 }
@@ -658,14 +657,12 @@ files=(
   "lib/paths.sh|$TEHAS_HOME/lib/paths.sh|644"
   "lib/attachments.sh|$TEHAS_HOME/lib/attachments.sh|644"
   "lib/history-lines.jq|$TEHAS_HOME/lib/history-lines.jq|644"
-  "lib/park-fields.jq|$TEHAS_HOME/lib/park-fields.jq|644"
   "lib/cycles.sh|$TEHAS_HOME/lib/cycles.sh|644"
   "lib/labels.sh|$TEHAS_HOME/lib/labels.sh|644"
   "lib/improve-prompt.md|$TEHAS_HOME/lib/improve-prompt.md|644"
   "lib/refine-brief.md|$TEHAS_HOME/lib/refine-brief.md|644"
   "lib/issue-brief.md|$TEHAS_HOME/lib/issue-brief.md|644"
   "lib/millwright.sh|$TEHAS_HOME/lib/millwright.sh|644"
-  "lib/update-steps.sh|$TEHAS_HOME/lib/update-steps.sh|644"
   "lib/github-app.sh|$TEHAS_HOME/lib/github-app.sh|644"
   "lib/rukas.sh|$TEHAS_HOME/lib/rukas.sh|644"
   "lib/sandbox.sh|$TEHAS_HOME/lib/sandbox.sh|644"
@@ -1012,7 +1009,7 @@ else
   attach_source=$(source_sum \( \( -path './attach/*' ! -path './attach/src/tests.rs' ! -path './attach/target/*' \) \
     -o -path ./Cargo.toml -o -path ./Cargo.lock \)) ||
     { echo "tehas: could not read the attachment checker's source in $root/console" >&2; exit 1; }
-  # The dispatcher and the cycle's shadow each read their own directory, the
+  # The dispatcher and the cycle's supervisor each read their own directory, the
   # workspace's manifest and lock, and core/.
   dispatch_source=$(source_sum \( \( -path './dispatch/*' ! -path './dispatch/tests/*' ! -path './dispatch/target/*' \) \
     -o -path ./Cargo.toml -o -path ./Cargo.lock -o -path './core/*' \)) ||
@@ -1268,7 +1265,8 @@ done
 # before it was a compiled program. The libraries the bash poll sourced. And the
 # Protolab's server files of before the edge router. And the wrappers of what is
 # now a verb of the console, and the libraries of what is now a verb of
-# tehas-cycle. Found here, removed in step 5 once systemd has the new units.
+# tehas-cycle, and the jq program of the bash report. Found here, removed in
+# step 5 once systemd has the new units.
 old=()
 for f in \
   bin/tehas-console.ts \
@@ -1286,6 +1284,7 @@ for f in \
   lib/history-listing.jq \
   lib/history-repeats.jq \
   lib/models.sh \
+  lib/park-fields.jq \
   lib/private.sh \
   libexec/analytics-cmd \
   libexec/api \
@@ -1462,8 +1461,9 @@ if [ "$check" = 1 ]; then
   # still owed. Files matching is not enough to call a host current. A record
   # this account cannot open is not an answer of "nothing owed" either: it holds
   # steps, and this cannot say how many.
-  owed=$(tehas_pending_file)
-  if ! owed_lines=$(tehas_read_steps); then
+  owed=$TEHAS_HOME/state/update-pending
+  owed_lines=
+  if [ -e "$owed" ] && ! owed_lines=$("$steps_console" update steps owed); then
     echo "Follow-ups:   NOT DONE (the record $owed cannot be read)"
     rc=1
   elif [ -n "$owed_lines" ]; then
