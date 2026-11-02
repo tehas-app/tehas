@@ -230,6 +230,19 @@ t_contains "$(cat "$build")" '--build-arg CBM_INSTALLER_SHA256="$CBM_INSTALLER_S
 # ended with. With the error of the command thrown away, a binary that died
 # printing why answered "not there", and the build said nothing about the
 # failure. The error is read for a version and reaches the build's output.
+t_case "the image's Rust is the version versions.env names, not the base's stable"
+t_eq "$(grep -cE '^RUST_VERSION=[0-9]+\.[0-9]+\.[0-9]+$' "$versions")" 1
+rust_step=$(docker_runs "$dockerfile" | grep -m 1 'rustup toolchain install')
+[ -n "$rust_step" ] || t_bad "no RUN of the image installs the pinned toolchain"
+t_contains "$rust_step" 'rustup toolchain install "$RUST_VERSION" --profile minimal --component rustfmt,clippy'
+t_contains "$rust_step" 'rustup default "$RUST_VERSION"'
+t_contains "$rust_step" 'if [ "${found:-}" != "$RUST_VERSION" ]; then'
+# The pin is installed in the stage every instance user shares, above the uid.
+t_contains "$(awk 'index($0, "FROM shared") == 1 { exit } { print }' "$dockerfile")" 'rustup toolchain install "$RUST_VERSION"'
+# The cycle's own user finds that rustc first on its PATH.
+t_contains "$(docker_runs "$dockerfile" | grep -m 1 '^for tool in ')" '"rustc ${RUST_VERSION} "*)'
+t_contains "$(cat "$build")" '--build-arg RUST_VERSION="$RUST_VERSION"'
+
 t_case "the version read back from the code indexer keeps what the command printed"
 # The read-back is the joined RUN read as the build reads it, so that a comment
 # or a help text carrying the same words cannot answer for the step.
