@@ -859,9 +859,12 @@ mod tests {
     }
 
     /// The next name of a poll's directory: a case takes one, so no two cases of
-    /// a run share a host. The parent is cleared once, by the first case of a
-    /// run, so a run does not accumulate the hosts of the runs before it.
+    /// a run share a host.
     static NEXT_POLL: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+    /// The parent is cleared once a run, before any case makes its host in it,
+    /// so a run does not accumulate the hosts of the runs before it.
+    static CLEARED: std::sync::Once = std::sync::Once::new();
 
     /// The home of a case: a stub `gh` and a stub `store` that record the
     /// arguments they are given and answer the world. The world travels in files
@@ -889,14 +892,14 @@ mod tests {
     fn host(world: &Value, broken: &[u64]) -> Host {
         let root = std::env::temp_dir().join(format!("tehas-build-{}", std::process::id()));
         // Each case takes the next name of its own, so two cases of one run can
-        // exist at once instead of reaching into the same directory. The first
-        // case of a run clears the parent, so a run leaves nothing of the runs
-        // before it.
+        // exist at once instead of reaching into the same directory. The other
+        // cases wait while the first clears the parent: a clear after a case
+        // made its host took that host away under it.
+        CLEARED.call_once(|| {
+            let _ = std::fs::remove_dir_all(&root);
+        });
         let dir = {
             let n = NEXT_POLL.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            if n == 0 {
-                let _ = std::fs::remove_dir_all(&root);
-            }
             root.join(format!("poll-{n}"))
         };
         std::fs::create_dir_all(dir.join("bin")).unwrap();
