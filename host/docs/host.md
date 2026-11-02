@@ -343,6 +343,11 @@ branch in a temporary worktree, tags that commit as the next `vX.Y.Z` with an
 annotated tag, and pushes the tag. It refuses a commit whose `CHANGELOG.md`
 has no "Adopter action" for the release ([Releases](/tools#release-notes-and-the-adopter-action)).
 The pushed tag starts the release workflow, which publishes the signed tarball.
+With `--rc` it tags a release candidate of the next version instead,
+`vX.Y.Z-rc.N`, N one more than the newest candidate of that version: the same
+gate and checks, `CHANGELOG.md` left as it is. The workflow publishes a
+candidate as a prerelease, which a plain `tehas update` passes over; a host
+moves to one only with `tehas update --to vX.Y.Z-rc.N`.
 When the head carries a polyfill that the newest pi-rukas no longer needs, it
 opens a pull request that removes it and tags nothing until that is merged
 ([Polyfills](/tools#polyfills-of-pi-rukas-features)).

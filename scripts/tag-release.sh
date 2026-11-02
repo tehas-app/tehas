@@ -31,15 +31,24 @@
 # A merged pull request whose feature the answer still lacks is said and kept:
 # it is not released yet, or came under another name.
 #
+# With --rc it tags a release candidate of the next version instead,
+# vX.Y.Z-rc.N, N one more than the newest candidate of that version there is.
+# The checks and the gate are the same; the CHANGELOG section is Unreleased,
+# which stays as it is. The release workflow publishes a candidate as a
+# prerelease, which a plain tehas update passes over. When the head already
+# carries the newest candidate, that is the answer.
+#
 # The tag is the only line on stdout, so a script can take it:
 #   tag=$(scripts/tag-release.sh) || exit
 #
-# Usage: scripts/tag-release.sh [--patch|--minor|--major] [--message <text>]
-#                               [--no-verify] [--dry-run] [--remote <name>]
-#                               [--rukas-caps <file>]
+# Usage: scripts/tag-release.sh [--patch|--minor|--major] [--rc]
+#                               [--message <text>] [--no-verify] [--dry-run]
+#                               [--remote <name>] [--rukas-caps <file>]
 #   --patch      the default: v0.7.6 becomes v0.7.7
 #   --minor      v0.7.6 becomes v0.8.0
 #   --major      v0.7.6 becomes v1.0.0
+#   --rc         a release candidate of that version: v0.8.0-rc.1, then
+#                v0.8.0-rc.2
 #   --message    the tag's message instead of the head's subject
 #   --no-verify  skip scripts/verify.sh
 #   --dry-run    check CHANGELOG.md and print the tag it would make; make none,
@@ -57,6 +66,7 @@
 set -uo pipefail
 
 part="patch"
+rc=""
 dry=""
 verify=1
 message=""
@@ -65,6 +75,7 @@ rukas_caps=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --patch | --minor | --major) part=${1#--} ;;
+    --rc) rc=1 ;;
     --dry-run) dry=1 ;;
     --no-verify) verify="" ;;
     --message)
@@ -130,11 +141,24 @@ case "$part" in
   minor) next=v$major.$((minor + 1)).0 ;;
   patch) next=v$major.$minor.$((patch + 1)) ;;
 esac
+if [ -n "$rc" ]; then
+  n=$(git tag --list "$next-rc.*" | while read -r t; do
+    t=${t#"$next-rc."}
+    [[ ! $t =~ ^[0-9]+$ ]] || echo "$t"
+  done | sort -n | tail -n 1)
+  if [ -n "$n" ] && [ "$(git rev-parse --verify --quiet "$next-rc.$n^{commit}")" = "$head" ]; then
+    echo "tag-release: $branch at ${head:0:7} is already $next-rc.$n" >&2
+    echo "$next-rc.$n"
+    exit 0
+  fi
+  next=$next-rc.$((10#${n:-0} + 1))
+fi
 
 # An adopter reads what to do after an update from the release's section of
 # CHANGELOG.md, so a release is not tagged without one. The section is the
-# tag's own when a person has already renamed it, else Unreleased; it is read
-# from the commit that is tagged, not from this checkout.
+# tag's own when a person has already renamed it, else Unreleased (always
+# Unreleased for a candidate); it is read from the commit that is tagged, not
+# from this checkout.
 if ! changelog=$(git show "$head:CHANGELOG.md" 2>/dev/null); then
   echo "tag-release: ${head:0:7} has no CHANGELOG.md; nothing was tagged" >&2
   exit 1
