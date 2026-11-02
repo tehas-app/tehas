@@ -1,9 +1,8 @@
-//! tehas.slice for `tehas improve`, called through lib/slice.sh. The rules are
-//! `tehas_core::slice`, the same the commands that start a container ask
-//! through `tehas-cycle sandbox`. Every verb only reads, and both outside calls
-//! run under `timeout` so a silent one cannot block a command. Never called
-//! from lib/config.sh or a login shell. `room` and `pressure` have no caller on
-//! a host: test/slice_test.sh reaches the rules through them.
+//! tehas.slice as the shell reads it. The rules are `tehas_core::slice`, the
+//! same the commands that start a container ask through `tehas-cycle sandbox`.
+//! Every verb only reads, and both outside calls run under `timeout` so a
+//! silent one cannot block a command. No verb has a caller on a host:
+//! test/slice_test.sh reaches the rules through them.
 //!
 //!   console slice ok
 //!

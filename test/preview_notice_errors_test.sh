@@ -270,8 +270,7 @@ pulls "$(pull 12 "$a")"
 rm -f "$T/tree/libexec/console"
 t_run "$preview"
 t_eq "$t_rc" 78
-t_contains "$t_out" "no console beside this command"
-t_contains "$t_out" "run install.sh"
+t_contains "$t_out" "tehasbot: no console at $T/tree/libexec/console: run install.sh"
 t_eq "$(writes)" ""
 t_eq "$(find "$root" -name state.json 2>/dev/null | wc -l)" 0
 cp "$T_CONSOLE" "$T/tree/libexec/console"

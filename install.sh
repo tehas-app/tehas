@@ -185,8 +185,6 @@ fi
 
 # shellcheck source=lib/config.sh
 . "$root/lib/config.sh"
-# shellcheck source=lib/cycles.sh
-. "$root/lib/cycles.sh"
 # A partial checkout is named as the missing file it is, as every other
 # checkout file this script needs is named: sourcing it under set -e would stop
 # the run with a bare bash error and a status this header does not document.
@@ -655,22 +653,11 @@ files=(
   "shim/gh|$TEHAS_HOME/shim/gh|755"
   "lib/config.sh|$TEHAS_HOME/lib/config.sh|644"
   "lib/paths.sh|$TEHAS_HOME/lib/paths.sh|644"
-  "lib/attachments.sh|$TEHAS_HOME/lib/attachments.sh|644"
-  "lib/history-lines.jq|$TEHAS_HOME/lib/history-lines.jq|644"
-  "lib/cycles.sh|$TEHAS_HOME/lib/cycles.sh|644"
-  "lib/labels.sh|$TEHAS_HOME/lib/labels.sh|644"
   "lib/improve-prompt.md|$TEHAS_HOME/lib/improve-prompt.md|644"
   "lib/refine-brief.md|$TEHAS_HOME/lib/refine-brief.md|644"
   "lib/issue-brief.md|$TEHAS_HOME/lib/issue-brief.md|644"
-  "lib/millwright.sh|$TEHAS_HOME/lib/millwright.sh|644"
   "lib/github-app.sh|$TEHAS_HOME/lib/github-app.sh|644"
   "lib/rukas.sh|$TEHAS_HOME/lib/rukas.sh|644"
-  "lib/sandbox.sh|$TEHAS_HOME/lib/sandbox.sh|644"
-  "lib/slice.sh|$TEHAS_HOME/lib/slice.sh|644"
-  # The measure of an issue body, read by the dispatcher and the analytics.
-  "lib/questions.sh|$TEHAS_HOME/lib/questions.sh|644"
-  # How the commands run the state store, libexec/store.
-  "lib/store.sh|$TEHAS_HOME/lib/store.sh|644"
   # The key a release signature is checked with. It is here so the copy an
   # adopter verifies against is the one the repository holds and not one that
   # came inside the download it is checking.
@@ -1265,7 +1252,8 @@ done
 # before it was a compiled program. The libraries the bash poll sourced. And the
 # Protolab's server files of before the edge router. And the wrappers of what is
 # now a verb of the console, and the libraries of what is now a verb of
-# tehas-cycle, and the jq program of the bash report. Found here, removed in
+# tehas-cycle, and the jq program of the bash report. And the libraries whose
+# last callers moved into the console. Found here, removed in
 # step 5 once systemd has the new units.
 old=()
 for f in \
@@ -1325,6 +1313,15 @@ for f in \
   lib/disk.sh \
   lib/top.sh \
   lib/update-release.sh \
+  lib/attachments.sh \
+  lib/history-lines.jq \
+  lib/cycles.sh \
+  lib/labels.sh \
+  lib/millwright.sh \
+  lib/sandbox.sh \
+  lib/slice.sh \
+  lib/questions.sh \
+  lib/store.sh \
   edge/protolab.Caddyfile \
   edge/protolab.compose.yaml; do
   to=$TEHAS_HOME/$f
@@ -1360,10 +1357,12 @@ slice_state() {
 # Nothing when the setting is off, when the image reads them, or when there is
 # no image to ask.
 images_say() { # <check|run>
-  local mode=$1 status sentence
+  local mode=$1 status sentence labels
   if [ "$TEHAS_WORK_IMAGES" != 1 ]; then return 0; fi
   docker image inspect "$PI_ENSEMBLE_IMAGE" >/dev/null 2>&1 || return 0
-  case "$(tehas_rukas_reads_images)" in
+  labels=$(docker image inspect --format '{{index .Config.Labels "tehas.rukas"}}|{{index .Config.Labels "tehas.rukas.images"}}' \
+    "$PI_ENSEMBLE_IMAGE" 2>/dev/null) || labels=""
+  case "${labels#*|}" in
     1) return 0 ;;
     0)
       status="NOT READ"

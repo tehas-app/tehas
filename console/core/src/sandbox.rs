@@ -28,8 +28,8 @@ pub const CACHE_DIR: &str = "/home/vscode/.tehas-cache";
 /// workspace, the read-write mount, so on the host's disk.
 pub const TARGET_DIR: &str = "/home/vscode/.tehas-target";
 
-// tehas setup asks the host's git for it too. lib/sandbox.sh names the same key:
-// tehas_git_credential_helper_key.
+// tehas setup asks the host's git for it too, and lib/github-app.sh gives a
+// login shell's git the same key.
 pub const HELPER_KEY: &str = "credential.https://github.com.helper";
 const HELPER: &str = "!gh auth git-credential";
 

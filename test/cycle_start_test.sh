@@ -273,6 +273,18 @@ t_eq "$t_rc" 78
 t_contains "$t_out" "ERROR: the state store is not installed (run install.sh)"
 t_eq "$(t_calls gh)$(t_calls fake-work)" ""
 t_eq "$(find "$state" -name '7.lock' 2>/dev/null | wc -l)" 0
+# A database that is a link or a directory is no store either.
+for kind in link dir; do
+  reset
+  db=$T/home/tehas/state/tehas.db
+  mv "$db" "$T/tehas.db.kept"
+  if [ "$kind" = link ]; then ln -s "$T/tehas.db.kept" "$db"; else mkdir "$db"; fi
+  t_run "$cycle 7"
+  t_eq "$t_rc" 78
+  t_contains "$t_out" "ERROR: the state store is not installed (run install.sh)"
+  t_eq "$(find "$state" -name '7.lock' 2>/dev/null | wc -l)" 0
+  rm -rf "$db" && mv "$T/tehas.db.kept" "$db"
+done
 
 t_case "the account on record is the approval's, whatever is approved after the start"
 reset

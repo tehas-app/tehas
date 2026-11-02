@@ -498,7 +498,7 @@ for good_n in 2 6 16; do
   t_eq "$t_out" "[$good_n]"
 done
 # `auto` is the poll's word: the dispatcher answers it, but the cycle refuses
-# it (lib/slice.sh), so a cycle started under it parks. The loader refuses it
+# it (tehas_core::slice), so a cycle started under it parks. The loader refuses it
 # with the rest until the cycle can use the count the poll decided by.
 for bad in 1 0 17 06 1.5 -4 auto AUTO 99999999999999999999; do
   t_case "loading rejects TEHAS_SLICE_CONTAINERS=$bad"
@@ -901,21 +901,10 @@ t_run "$load"
 after=$(find "$T/home" "$T/instance" | sort)
 t_eq "$after" "$before"
 
-# --- tehas_branch -----------------------------------------------------------
+# --- A checkout -------------------------------------------------------------
 git init -q -b main "$T/upstream"
 git -C "$T/upstream" -c user.name=t -c user.email=t@example.com commit -q --allow-empty -m first
 git clone -q "$T/upstream" "$T/home/tehas/repos/widget"
-
-t_case "tehas_branch reads the default branch from origin/HEAD"
-t_instance "${T_MINIMAL[@]}"
-t_run "$load && tehas_branch"
-t_eq "$t_rc" 0
-t_eq "$t_out" "main"
-
-t_case "TEHAS_BRANCH wins over the checkout"
-t_instance "${T_MINIMAL[@]}" TEHAS_BRANCH=release
-t_run "$load && tehas_branch"
-t_eq "$t_out" "release"
 
 t_case "TEHAS_BRANCH_CHECK: unset is none, a name with spaces is kept"
 t_instance "${T_MINIMAL[@]}"
@@ -986,14 +975,6 @@ for bad in "601" "9999" "99999999999999999999"; do
   t_lacks "$t_out" "integer expression"
 done
 printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
-
-t_case "a checkout without origin/HEAD fails with both remedies"
-t_instance "${T_MINIMAL[@]}"
-git -C "$T/home/tehas/repos/widget" remote set-head origin -d
-t_run "$load && b=\$(tehas_branch); echo \"rc=\$? b=[\$b]\""
-t_contains "$t_out" "rc=78 b=[]"
-t_contains "$t_out" "TEHAS_BRANCH"
-t_contains "$t_out" "install.sh"
 
 t_case "the cycle's workspace is under the tehas tree and is not a setting"
 t_instance "${T_MINIMAL[@]}" TEHAS_WORK_DIR=/somewhere/else
@@ -1171,8 +1152,8 @@ t_run "$load && echo \"\$TEHAS_CYCLE_RESERVE\""
 t_eq "$t_out" "2g"
 T_ENV=()
 
-# 02g and 1000000000g are sizes to Docker but not to lib/slice.sh, which reads
-# the reserve at every start: what loads must be what the slice library reads.
+# 02g and 1000000000g are sizes to Docker but not to tehas_core::slice, which
+# reads the reserve at every start: what loads must be what the slice reads.
 for bad in lots 2gb 0 5m 6000k -1g 1.5g 02g 1000000000g; do
   t_case "a reserve that is not a size, or under 6m, is refused: $bad"
   t_instance "${T_MINIMAL[@]}" "TEHAS_CYCLE_RESERVE=$bad"
