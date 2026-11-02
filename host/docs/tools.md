@@ -334,7 +334,7 @@ names the issue in its text is on it. One further GraphQL
 search a poll answers that for all of them at once, and only when there is a
 label to give, and it is the same read
 [tehasbot status](#tehasbot-status-and-the-console) makes, and the same console
-verb decides its answer (`console shipped`, `console/src/shipped.rs`).
+code decides its answer (`console/src/shipped.rs`).
 The search is asked about at most a hundred issues, the page of that read: past
 it an issue is not named and keeps its labels for a later poll. An issue whose
 closer the read answered as a person or an unmerged pull request, and which
@@ -1710,10 +1710,11 @@ setting that is there and differs is never replaced without `--force`. The run
 names each one and stops with 78 before it calls GitHub or the endpoint and
 before it writes anything.
 
-Steps 1 and 2 are the console's (`console setup files`), and what they say
-goes to standard error. It writes `models.json` with its keys sorted. A release
-carries the console; from a checkout that has not built one, setup builds it
-with cargo first.
+The whole run is the console's (`console setup run`), and what steps 1 and 2
+say goes to standard error. It writes `models.json` with its keys sorted. A
+release carries the console; from a checkout that has not built one, setup
+builds it with cargo first, in the few lines of bash that are left of
+`libexec/setup`.
 
 Exit 0 when done, 1 when a check or a step failed (or the step's own status,
 such as 78 from `install.sh`), 64 on an unknown option, 78 for a setting that is
@@ -2651,8 +2652,8 @@ Completed means closed by a merged pull request, by the close event's closer or
 by a merged pull request GitHub lists as closing the issue when the close event
 names none. That list is what GitHub derives from the text and the links of the
 issue, not what the close event recorded. Whatever labels the issue was left
-with: the query and the acceptance rule are the console's (`console shipped`,
-`console/src/shipped.rs`), the ones `console tidy run` reads too, so
+with: the query and the acceptance rule are the console's
+(`console/src/shipped.rs`), the ones `console tidy run` reads too, so
 the two commands cannot disagree on what a merge closed. `tehasbot status` reads from the same answer which shipped
 issues lack the label, those whose labels do not hold it or could not be read,
 and gives each of them the label;

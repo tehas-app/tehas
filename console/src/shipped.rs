@@ -12,65 +12,6 @@
 //!     and the read carries one per issue, so a longer list is not truncated: it
 //!     is no answer at all.
 //!
-//!   console shipped label
-//!     The name of the label of a merge, on a line of its own: the one word the
-//!     two commands print when they add it, and the one word tidy compares, so
-//!     a rename reaches the add and the removal rule at once.
-//!
-//!   console shipped query
-//!     The query: the last closed event of each issue the search $q names,
-//!     whether its closer was a merged pull request, whether any of the pull
-//!     requests GitHub lists as closing the issue was merged, and the names of
-//!     the labels the issue holds. $q must name every issue asked for, and no
-//!     more than `page` of them.
-//!
-//!   console shipped answer <issue> <answer>
-//!     Prints what the answer says of <issue> and answers for it:
-//!       merged   a whole answer named the issue and a merged pull request
-//!                closed it - the label is earned;
-//!       closed   it named the issue and a merged pull request neither closed it
-//!                nor is listed as closing it - a closed issue, not a read that
-//!                failed, so nothing is added and the state labels still go;
-//!       nothing  it did not answer, or answered and said nothing of that issue,
-//!                which is no answer and not a negative one;
-//!       invalid  <issue> is not digits and nothing else, so the question was
-//!                not asked properly.
-//!     The exit is 0 for the first two, the ones a read gave, and 1 for the
-//!     others, so a caller may branch on either. A response that carries
-//!     top-level errors is never a whole answer, even when it holds data.
-//!
-//!   console shipped list [--control <number>]... [--numbers] [--lacking
-//!   <label>] <answer
-//!     The nodes of the answer that a merged pull request closed, one JSON
-//!     object on a line, most recently closed first, which is the order tehasbot
-//!     status lists them in. Each <number> given with --control is not work and is
-//!     left out, as both commands leave the control issue out of every list and
-//!     every count. `--numbers` prints the number of each node alone, which is
-//!     the cheaper line to read. `--lacking <label>`
-//!     keeps only the nodes that do not carry <label>, read as `has` reads it,
-//!     so labels the answer did not answer for count as lacking it; with
-//!     `--numbers` it prints the number of each of them, in the order above,
-//!     which is what tehasbot status asks for to know what to label. The answer
-//!     is read from standard input, so one read of a whole poll is asked once and
-//!     not once per issue. Nothing is printed and the exit is 1 when the answer is no answer at
-//!     all: it carries errors, or its nodes are no list. A read that named issues
-//!     and found no merged closer among them answers the empty list, which is a
-//!     whole answer that earns no label: 0 and no lines, the case tidy logs
-//!     as a closed issue rather than as a failed read.
-//!
-//!   console shipped has <label> <node>
-//!     Whether the node of the query carries <label>: it prints `yes`, `no` or
-//!     `unreadable` and exits 0, 1 or 2 in that order. A caller edits on the 2 as
-//!     on the 1, and never guesses that an issue it cannot read lacks the label.
-//!
-//!   console shipped whole <answer
-//!     Whether the answer is a reply of the read at all: 0 when it names a list of
-//!     nodes and 1 when it carries errors, names no list or is no JSON. Nothing is
-//!     printed. A caller that took the list above asks this to tell a page of
-//!     nothing from a failed read - the first is an answer and the second is not.
-//!     It is `list`'s own test of the answer, so a caller reads the rule once and
-//!     not twice.
-//!
 //! One answer, one rule: a merged pull request closed the issue, or none did.
 //! The closer of the last closed event is the authoritative field - it is what
 //! GitHub recorded at the close - and the references are the fallback that
@@ -92,10 +33,9 @@
 //! The name of a label reaches this program as one argument and is compared as
 //! text, so one of "*" is no pattern and one with a space is no two names.
 //!
-//! Exit: 0 an answer, and what was asked of it printed; 1 no answer; 2 usage.
+//! Exit: 0, or 2 for usage.
 
 use serde_json::Value;
-use std::io::Read;
 
 // How many issues one read of the search names: the page of the query and the
 // ceiling of the list a caller builds, in the one number.
@@ -111,9 +51,7 @@ pub const REFERENCES: usize = 20;
 // The label of a merge: the name tidy puts on in the edit that takes the
 // state labels off, and the name tehasbot status gives from its own read. It is
 // named here because both the comparison that earns it and the edit that writes
-// it read this one word - `console shipped label` prints it for the bash that
-// edits, which holds the name only as a fallback for a host whose console is
-// older than this verb.
+// it read this one word.
 pub const SHIPPED: &str = "tehas:shipped";
 
 // The document, in the lines the GitHub endpoint reads as one. $q is a GraphQL
@@ -129,120 +67,12 @@ pub const SHIPPED: &str = "tehas:shipped";
 pub const QUERY: &str = "query($q: String!) { search(type: ISSUE, query: $q, first: 100) { nodes { ... on Issue { number title url createdAt updatedAt closedAt labels(first: 100) { nodes { name } } closedByPullRequestsReferences(first: 20) { nodes { __typename merged } } timelineItems(itemTypes: [CLOSED_EVENT], last: 1) { nodes { ... on ClosedEvent { closer { ... on PullRequest { merged } } } } } } } } }";
 
 pub fn main(given: &[String]) -> u8 {
-    let Some(verb) = given.first().map(String::as_str) else {
-        return usage();
-    };
-    match (verb, &given[1..]) {
-        ("page", []) => {
-            println!("{PAGE}");
-            0
-        }
-        ("label", []) => {
-            println!("{SHIPPED}");
-            0
-        }
-        ("query", []) => {
-            println!("{QUERY}");
-            0
-        }
-        ("answer", [issue, answer]) => {
-            // A read that answered, however it answered, exits 0 and prints how:
-            // `merged` earns the label and `closed` does not, and both are reads
-            // that spoke. `nothing` and `invalid` are no read at all, which is the
-            // 1 a caller logs as a failed read rather than as a closed issue.
-            match verdict(issue, answer) {
-                (said, _) if said == "merged" || said == "closed" => {
-                    println!("{said}");
-                    0
-                }
-                (said, _) => {
-                    println!("{said}");
-                    1
-                }
-            }
-        }
-        ("list", rest) => {
-            let mut controls = Vec::new();
-            let mut numbers_only = false;
-            let mut lacking: Option<String> = None;
-            let mut rest = rest.iter();
-            while let Some(flag) = rest.next() {
-                match flag.as_str() {
-                    "--numbers" => numbers_only = true,
-                    "--control" => match rest.next() {
-                        Some(n) if digits(n) => controls.push(n.clone()),
-                        _ => return usage(),
-                    },
-                    "--lacking" => match rest.next() {
-                        Some(name) if !name.is_empty() && lacking.is_none() => {
-                            lacking = Some(name.clone());
-                        }
-                        _ => return usage(),
-                    },
-                    _ => return usage(),
-                }
-            }
-            if rest.next().is_some() {
-                return usage();
-            }
-            let mut answer = String::new();
-            if std::io::stdin().read_to_string(&mut answer).is_err() {
-                eprintln!("console shipped: the answer could not be read");
-                return 1;
-            }
-            match shipped_listed(&answer, &controls, lacking.as_deref()) {
-                Some(nodes) if !nodes.is_empty() => {
-                    for node in nodes {
-                        println!(
-                            "{}",
-                            if numbers_only {
-                                number_line(&node)
-                            } else {
-                                node.to_string()
-                            }
-                        );
-                    }
-                    0
-                }
-                // A read that named no shipped issue is the same failure to
-                // answer as one that named none at all: tidy has no label
-                // to earn and tehasbot status writes no snapshot either way.
-                _ => 1,
-            }
-        }
-        ("has", [label, node]) => {
-            let (said, rc) = has(label, node);
-            println!("{said}");
-            rc
-        }
-        ("whole", []) => {
-            let mut answer = String::new();
-            if std::io::stdin().read_to_string(&mut answer).is_err() {
-                eprintln!("console shipped: the answer could not be read");
-                return 1;
-            }
-            u8::from(nodes(&answer).is_none())
-        }
-        _ => usage(),
+    if given.iter().map(String::as_str).eq(["page"]) {
+        println!("{PAGE}");
+        return 0;
     }
-}
-
-fn usage() -> u8 {
-    eprintln!(
-        "console shipped: usage: page | label | query | answer <issue> <answer> \
-         | list [--control <number>]... [--numbers] [--lacking <label>] \
-         | has <label> <node> | whole"
-    );
+    eprintln!("console shipped: usage: page");
     2
-}
-
-/// Digits and nothing else: the number of an issue as GitHub named it. The test
-/// is done byte by byte and not with a pattern, so there is one reading of what
-/// a digit is, and the number reaches the comparison as text: `--argjson` would
-/// take any JSON number for the number of an issue, so "42.0" or "1e2" would be
-/// accepted. An empty argument is no number.
-fn digits(s: &str) -> bool {
-    !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit())
 }
 
 /// The nodes of a whole answer, or nothing when it is no answer at all: it
@@ -374,45 +204,6 @@ fn closed_at(node: &Value) -> String {
         .to_string()
 }
 
-/// What the answer says of one issue, as one word, and whether the label is
-/// earned by it. `merged` and `closed` are reads that answered; `nothing` and
-/// `invalid` are not, and a caller adds nothing on either and says so in its
-/// log - the two apart, so a factory that shipped nothing does not read like
-/// one whose search could not be read.
-pub fn verdict(issue: &str, answer: &str) -> (String, bool) {
-    // The question first, whatever the answer says. The number is digits and
-    // nothing else - " 42", "42.0", "1e2" and "42 43" are asked of no issue -
-    // and a leading zero is nothing to a number, so a padded form is no question
-    // about an issue either. 0 is no issue's number, and the digits of a number
-    // the read cannot hold as one number name no issue the answer can speak of.
-    if !digits(issue) || issue.starts_with('0') {
-        return ("invalid".to_string(), false);
-    }
-    // The largest number a read answers as one number: past it two spellings
-    // name the same issue, which no caller may be allowed to ask about.
-    let Ok(asked) = issue.parse::<u64>() else {
-        return ("invalid".to_string(), false);
-    };
-    if asked == 0 || asked > 9_007_199_254_740_992 {
-        return ("invalid".to_string(), false);
-    }
-    let Some(nodes) = nodes(answer) else {
-        return ("nothing".to_string(), false);
-    };
-    let named = nodes
-        .iter()
-        .filter(|n| number(n) == Some(asked))
-        .collect::<Vec<_>>();
-    if named.is_empty() {
-        // A read that never named this issue is no answer, not a negative one:
-        // the caller cannot be told the issue was closed by a person when the
-        // read in fact said nothing of it.
-        return ("nothing".to_string(), false);
-    }
-    let merged = named.into_iter().any(shipped);
-    (if merged { "merged" } else { "closed" }.to_string(), merged)
-}
-
 /// The nodes the answer names as shipped, most recently closed first, with every
 /// control number left out. A node the read gave no number for is no issue and
 /// is left out; the caller that lists them shows the rest of what it read.
@@ -442,38 +233,19 @@ pub fn numbers(answer: &str, controls: &[String]) -> Option<Vec<u64>> {
     Some(list(answer, controls)?.iter().filter_map(number).collect())
 }
 
-/// The number of a node on a line of its own, for the caller that asks with
-/// `--numbers`. A node the caller reached through `list` has one.
-fn number_line(node: &Value) -> String {
-    number(node).map(|n| n.to_string()).unwrap_or_default()
-}
-
-/// The shipped nodes of the answer that the caller is to act on: those the read
-/// keeps, of which only the ones that do not carry `lacking` when the caller
-/// named a label. One answer, one rule, so `--lacking` cannot disagree with the
-/// list it narrows.
-pub fn shipped_listed(
-    answer: &str,
-    controls: &[String],
-    lacking: Option<&str>,
-) -> Option<Vec<Value>> {
-    let nodes = list(answer, controls)?;
-    Some(match lacking {
-        Some(label) => nodes.into_iter().filter(|n| lacks(n, label)).collect(),
-        None => nodes,
-    })
-}
-
 /// The numbers of the shipped issues that do not carry `label`, for tehasbot
 /// status, which gives it to them. None of them when the answer is no answer.
 pub fn lacking(answer: &str, controls: &[String], label: &str) -> Vec<u64> {
-    let listed = shipped_listed(answer, controls, Some(label)).unwrap_or_default();
-    listed.iter().filter_map(number).collect()
+    let listed = list(answer, controls).unwrap_or_default();
+    listed
+        .iter()
+        .filter(|n| lacks(n, label))
+        .filter_map(number)
+        .collect()
 }
 
 /// The names a read gave under `labels`, or nothing when it named no list of
-/// them: no answer, and not the empty list of an issue that carries none. The
-/// one rule the node of `has` and the node of `list --lacking` read.
+/// them: no answer, and not the empty list of an issue that carries none.
 fn names_of(labels: &Value) -> Option<Vec<String>> {
     let list = labels.as_object()?.get("nodes")?.as_array()?;
     Some(
@@ -487,23 +259,7 @@ fn names_of(labels: &Value) -> Option<Vec<String>> {
     )
 }
 
-/// The names the node holds, or nothing when the read named no list of them:
-/// no answer, and not the empty list of an issue that carries none.
-fn names(node: &str) -> Option<Vec<String>> {
-    let doc = serde_json::from_str::<Value>(node).ok()?;
-    names_of(doc.get("labels")?)
-}
-
-fn has(label: &str, node: &str) -> (&'static str, u8) {
-    match names(node) {
-        None => ("unreadable", 2),
-        Some(names) if names.iter().any(|n| n == label) => ("yes", 0),
-        Some(_) => ("no", 1),
-    }
-}
-
-/// Whether the node of the read does not carry `label`: `has` answers `no` or
-/// `unreadable` for it. A node whose labels the read did not answer lacks the
+/// Whether the node of the read does not carry `label`. A node whose labels the read did not answer lacks the
 /// label, as a caller has always edited on that answer, so a poll that could
 /// not read them still asks for it.
 fn lacks(node: &Value, label: &str) -> bool {
@@ -571,9 +327,32 @@ mod tests {
         json!({"__typename": "PullRequest", "merged": merged})
     }
 
-    /// The numbers of a list, in its order, as `--numbers` prints them.
+    fn number_line(node: &Value) -> String {
+        number(node).map(|n| n.to_string()).unwrap_or_default()
+    }
+
+    /// The numbers of a list, in its order.
     fn numbers(nodes: &[Value]) -> Vec<String> {
         nodes.iter().map(number_line).collect()
+    }
+
+    /// What the answer says of one issue, as `true` when the label is earned.
+    /// `nothing` is a read that never named the issue, which is not a read that
+    /// named it and found no merge.
+    fn verdict(issue: &str, answer: &str) -> (String, bool) {
+        let asked = issue.parse::<u64>().unwrap();
+        let Some(nodes) = nodes(answer) else {
+            return ("nothing".to_string(), false);
+        };
+        let named: Vec<&Value> = nodes.iter().filter(|n| number(n) == Some(asked)).collect();
+        if named.is_empty() {
+            return ("nothing".to_string(), false);
+        }
+        if named.into_iter().any(shipped) {
+            ("merged".to_string(), true)
+        } else {
+            ("closed".to_string(), false)
+        }
     }
 
     /// The word the answer gives for one issue of it.
@@ -746,80 +525,6 @@ mod tests {
                 "{shape} is no answer"
             );
             assert_eq!(list(shape, &[]), None, "{shape} is no answer");
-        }
-    }
-
-    #[test]
-    fn an_issue_number_is_digits_and_nothing_else() {
-        let one = answer(&[merged(42)]);
-        for form in [
-            "",
-            " 42",
-            "42 ",
-            "42.0",
-            "4.2e1",
-            "1e2",
-            "-42",
-            "+42",
-            "42x",
-            "0x2a",
-            "42;",
-            "42 43",
-            "18446744073709551616",
-            "9007199254740993",
-            "42 42",
-            "4_2",
-        ] {
-            assert_eq!(
-                verdict(form, &one),
-                ("invalid".to_string(), false),
-                "\"{form}\" is no number"
-            );
-        }
-        // A leading zero is nothing to a number, so a padded form is no
-        // question about an issue and asks nothing of the answer.
-        for form in ["0", "042", "000042"] {
-            assert_eq!(
-                verdict(form, &one),
-                ("invalid".to_string(), false),
-                "\"{form}\" is no number"
-            );
-        }
-        // The plain form answers, so the gate above is a gate and not a refusal.
-        assert_eq!(verdict("42", &one), ("merged".to_string(), true));
-    }
-
-    #[test]
-    fn the_verdict_of_a_question_is_said_and_its_exit_is_the_read() {
-        // What the caller branches on: a read that answered exits 0 and says how
-        // it answered, and one that did not exits 1 with the word that says why.
-        // main takes the verb and the words after it, as main.rs hands them
-        // over by slicing its own argv.
-        let merged_one = answer(&[merged(7)]);
-        let closed_one = answer(&[closed_by_hand(7)]);
-        let none = answer(&[]);
-        let carries = json!({"labels": {"nodes": [{"name": "x"}]}}).to_string();
-        let carries_none = json!({"labels": {"nodes": []}}).to_string();
-        // One helper of its own for the words main is handed, since a case's
-        // list of them is written as text and main takes the strings of argv.
-        fn words(given: &[&str]) -> Vec<String> {
-            given.iter().map(|s| (*s).to_string()).collect()
-        }
-        let cases: [(Vec<String>, u8); 11] = [
-            (words(&["answer", "7", &merged_one]), 0),
-            (words(&["answer", "7", &closed_one]), 0),
-            (words(&["answer", "7", &none]), 1),
-            (words(&["answer", "x", &merged_one]), 1),
-            (words(&["answer", "7"]), 2),
-            (words(&["page"]), 0),
-            (words(&["query"]), 0),
-            (words(&["has", "x", &carries]), 0),
-            (words(&["has", "x", &carries_none]), 1),
-            (words(&["has", "x", "{}"]), 2),
-            (words(&["nope"]), 2),
-        ];
-        for (given, rc) in cases {
-            assert_eq!(main(&given), rc, "{given:?}");
         }
     }
 
@@ -1065,26 +770,6 @@ mod tests {
             .is_empty());
     }
 
-    #[test]
-    fn a_control_number_of_no_digits_is_a_usage_error() {
-        for bad in ["", " 1", "1.0", "-1", "1e2", "1x", "0x1"] {
-            let given: Vec<String> = ["list", "--control", bad]
-                .iter()
-                .map(|s| s.to_string())
-                .collect();
-            assert_eq!(main(&given), 2, "--control \"{bad}\" is no number");
-        }
-        let trailing: Vec<String> = ["list", "--control", "1", "extra"]
-            .iter()
-            .map(|s| s.to_string())
-            .collect();
-        assert_eq!(
-            main(&trailing),
-            2,
-            "an argument after the controls is no use"
-        );
-    }
-
     /// One shipped node closed at `at` that carries `names` as its labels.
     fn labelled(n: u64, at: &str, names: Value) -> Value {
         let mut node = by(n, json!(true));
@@ -1096,13 +781,11 @@ mod tests {
         node
     }
 
-    /// The numbers `--lacking <label>` keeps of the nodes, in the order of the
-    /// list: the same path the verb takes between `list` and `--numbers`.
+    /// The numbers `lacking` keeps of the nodes, in the order of the list.
     fn lacking(nodes: &[Value], label: &str, controls: &[String]) -> Vec<String> {
-        shipped_listed(&answer(nodes), controls, Some(label))
-            .unwrap()
+        super::lacking(&answer(nodes), controls, label)
             .iter()
-            .map(number_line)
+            .map(u64::to_string)
             .collect()
     }
 
@@ -1123,8 +806,8 @@ mod tests {
         assert_eq!(lacking(&[other], "tehas:shipped", &[]), ["21"]);
         let none = labelled(22, "2026-01-04T00:00:00Z", json!([]));
         assert_eq!(lacking(&[none], "tehas:shipped", &[]), ["22"]);
-        // Labels the read did not answer are taken for missing, as `has` answers
-        // `unreadable` and every caller has edited on that answer.
+        // Labels the read did not answer are taken for missing, as every caller
+        // has edited on that answer.
         let no_labels = json!({"number": 23, "closedAt": "2026-01-05T00:00:00Z",
           "timelineItems": {"nodes": [{"closer": {"merged": true}}]}});
         assert_eq!(lacking(&[no_labels], "tehas:shipped", &[]), ["23"]);
@@ -1177,65 +860,6 @@ mod tests {
             numbers(&list(&answer(&nodes), &[]).unwrap()),
             ["21", "22", "20"]
         );
-        assert_eq!(
-            numbers(&shipped_listed(&answer(&nodes), &[], None).unwrap()),
-            ["21", "22", "20"]
-        );
-    }
-
-    #[test]
-    fn a_lacking_flag_without_one_name_is_a_usage_error() {
-        for given in [
-            vec!["list", "--lacking"],
-            vec!["list", "--lacking", ""],
-            vec!["list", "--lacking", "a", "--lacking", "b"],
-            vec!["list", "--lacking", "a", "extra"],
-        ] {
-            let given: Vec<String> = given.iter().map(|s| s.to_string()).collect();
-            assert_eq!(main(&given), 2, "--lacking of {:?}", &given[1..]);
-        }
-    }
-
-    #[test]
-    fn a_label_of_the_node_is_carried_and_another_is_not() {
-        let node =
-            json!({"number": 7, "labels": {"nodes": [{"name": "tehas:shipped"}, {"name": "bug"}]}})
-                .to_string();
-        assert_eq!(has("tehas:shipped", &node), ("yes", 0));
-        assert_eq!(has("tehas:ready", &node), ("no", 1));
-        // The name is text and no pattern: "*" is the name "*" and nothing else,
-        // and a name with a space is no two names.
-        assert_eq!(has("*", &node), ("no", 1));
-        assert_eq!(has("tehas:shipped bug", &node), ("no", 1));
-        // A name GitHub gave as a number is still a name of a label.
-        let odd = json!({"labels": {"nodes": [{"name": 7}]}}).to_string();
-        assert_eq!(has("7", &odd), ("yes", 0));
-    }
-
-    #[test]
-    fn a_node_that_names_no_labels_is_no_answer() {
-        let shapes = [
-            json!({"number": 7}),
-            json!({"labels": []}),
-            json!({"labels": {}}),
-            json!({"labels": {"nodes": {"name": "x"}}}),
-            json!({"labels": {"nodes": null}}),
-            json!([]),
-        ];
-        for shape in shapes
-            .iter()
-            .map(Value::to_string)
-            .chain(["not json".to_string(), String::new()])
-        {
-            assert_eq!(
-                has("tehas:shipped", &shape),
-                ("unreadable", 2),
-                "{shape} names no list"
-            );
-        }
-        // The empty list of an issue that carries none is an answer, not a 2.
-        let empty = json!({"labels": {"nodes": []}}).to_string();
-        assert_eq!(has("tehas:shipped", &empty), ("no", 1));
     }
 
     #[test]
@@ -1281,9 +905,33 @@ mod tests {
     }
 
     #[test]
-    fn the_label_of_a_merge_is_the_one_word_the_callers_print() {
-        assert_eq!(SHIPPED, "tehas:shipped");
-        let given: Vec<String> = ["label"].iter().map(|s| s.to_string()).collect();
-        assert_eq!(main(&given), 0);
+    fn a_name_is_text_and_a_list_with_no_names_lacks_every_label() {
+        let node =
+            json!({"number": 7, "labels": {"nodes": [{"name": "tehas:shipped"}, {"name": "bug"}]}});
+        assert!(!lacks(&node, "tehas:shipped"));
+        assert!(lacks(&node, "tehas:ready"));
+        assert!(lacks(&node, "*"));
+        assert!(lacks(&node, "tehas:shipped bug"));
+        // A name GitHub gave as a number is still a name of a label.
+        assert!(!lacks(&json!({"labels": {"nodes": [{"name": 7}]}}), "7"));
+        for shape in [
+            json!({"number": 7}),
+            json!({"labels": []}),
+            json!({"labels": {}}),
+            json!({"labels": {"nodes": {"name": "x"}}}),
+            json!({"labels": {"nodes": null}}),
+            json!([]),
+        ] {
+            assert!(lacks(&shape, "tehas:shipped"), "{shape} names no list");
+        }
+    }
+
+    #[test]
+    fn the_verb_is_the_page() {
+        let given = |w: &[&str]| w.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert_eq!(main(&given(&["page"])), 0);
+        assert_eq!(main(&given(&[])), 2);
+        assert_eq!(main(&given(&["page", "x"])), 2);
+        assert_eq!(main(&given(&["query"])), 2);
     }
 }
