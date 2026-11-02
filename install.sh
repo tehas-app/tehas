@@ -21,7 +21,7 @@
 #
 # It copies files, and compiles seven: the console of a running cycle, the
 # analytics program, the MCP server, the state store, the attachment checker,
-# the dispatcher and the cycle's shadow, Rust programs in the Cargo
+# the dispatcher and the cycle's supervisor, Rust programs in the Cargo
 # workspace console/ (the other six in console/analytics, console/mcp,
 # console/store, console/attach, console/dispatch and console/cycle). A real
 # run builds each with cargo in this checkout (console/target, which git
@@ -228,7 +228,7 @@ program_label() {
     store) echo "the store" ;;
     attach) echo "the attachment checker" ;;
     tehas-dispatch) echo "the dispatcher" ;;
-    tehas-cycle) echo "the cycle's shadow" ;;
+    tehas-cycle) echo "the cycle's supervisor" ;;
     *) echo "the $1 program" ;;
   esac
 }
@@ -658,7 +658,6 @@ files=(
   "lib/paths.sh|$TEHAS_HOME/lib/paths.sh|644"
   "lib/attachments.sh|$TEHAS_HOME/lib/attachments.sh|644"
   "lib/history-lines.jq|$TEHAS_HOME/lib/history-lines.jq|644"
-  "lib/park-fields.jq|$TEHAS_HOME/lib/park-fields.jq|644"
   "lib/cycles.sh|$TEHAS_HOME/lib/cycles.sh|644"
   "lib/labels.sh|$TEHAS_HOME/lib/labels.sh|644"
   "lib/improve-prompt.md|$TEHAS_HOME/lib/improve-prompt.md|644"
@@ -1012,7 +1011,7 @@ else
   attach_source=$(source_sum \( \( -path './attach/*' ! -path './attach/src/tests.rs' ! -path './attach/target/*' \) \
     -o -path ./Cargo.toml -o -path ./Cargo.lock \)) ||
     { echo "tehas: could not read the attachment checker's source in $root/console" >&2; exit 1; }
-  # The dispatcher and the cycle's shadow each read their own directory, the
+  # The dispatcher and the cycle's supervisor each read their own directory, the
   # workspace's manifest and lock, and core/.
   dispatch_source=$(source_sum \( \( -path './dispatch/*' ! -path './dispatch/tests/*' ! -path './dispatch/target/*' \) \
     -o -path ./Cargo.toml -o -path ./Cargo.lock -o -path './core/*' \)) ||
@@ -1268,7 +1267,8 @@ done
 # before it was a compiled program. The libraries the bash poll sourced. And the
 # Protolab's server files of before the edge router. And the wrappers of what is
 # now a verb of the console, and the libraries of what is now a verb of
-# tehas-cycle. Found here, removed in step 5 once systemd has the new units.
+# tehas-cycle, and the jq program of the bash report. Found here, removed in
+# step 5 once systemd has the new units.
 old=()
 for f in \
   bin/tehas-console.ts \
@@ -1286,6 +1286,7 @@ for f in \
   lib/history-listing.jq \
   lib/history-repeats.jq \
   lib/models.sh \
+  lib/park-fields.jq \
   lib/private.sh \
   libexec/analytics-cmd \
   libexec/api \

@@ -131,7 +131,8 @@ fn outcome_of(r: &Value, issue: u64) -> Option<Value> {
     }))
 }
 
-/// tehas_branch_pattern of lib/cycles.sh: a branch pi-rukas makes for the issue.
+/// The one grammar for a branch pi-rukas makes for an issue: feature/issue-<n>
+/// with an optional slug of up to 80 characters.
 pub fn branch_of(issue: u64, b: &str) -> bool {
     let rest = match b.strip_prefix(&format!("feature/issue-{issue}")) {
         Some(r) => r,
@@ -498,6 +499,31 @@ mod tests {
             7
         )
         .is_none());
+    }
+
+    #[test]
+    fn a_branch_of_an_issue_is_its_number_and_a_slug_of_at_most_80() {
+        let slug = |n: usize| "y".repeat(n);
+        for b in [
+            "feature/issue-7".to_string(),
+            "feature/issue-7-a".to_string(),
+            "feature/issue-7-A.b_c-d".to_string(),
+            format!("feature/issue-7-{}", slug(80)),
+        ] {
+            assert!(branch_of(7, &b), "{b}");
+        }
+        for b in [
+            "feature/issue-70".to_string(),
+            "feature/issue-8-a".to_string(),
+            "feature/issue-7-".to_string(),
+            "feature/issue-7-a/b".to_string(),
+            "feature/issue-7-a b".to_string(),
+            "feature/issue-7x".to_string(),
+            "x/feature/issue-7".to_string(),
+            format!("feature/issue-7-{}", slug(81)),
+        ] {
+            assert!(!branch_of(7, &b), "{b}");
+        }
     }
 
     #[test]

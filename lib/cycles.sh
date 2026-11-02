@@ -1,8 +1,7 @@
 # shellcheck shell=bash
-# Which cycles are running, what a number on GitHub is, and what the sandbox
-# image says about itself. Sourced by the dispatcher, by tehasbot cycle, by
-# tehas index, by install.sh, and by the two commands that give a cycle its
-# issue's images.
+# Which cycles are running, which pull request is an issue's, and what the
+# sandbox image says about itself. Sourced by install.sh and by the two
+# commands that give a cycle its issue's images, tehas work and tehas plan.
 #
 # tehasbot cycle holds $TEHAS_HOME/state/cycles/<issue>.lock for as long as it
 # lives. A lock nobody holds is a cycle that ended, however it ended, so a
@@ -14,9 +13,6 @@
 #   tehas_cycle_running <issue>   0 if that issue's cycle holds its lock
 #   tehas_names_issue             print a jq definition, `mine`: whether a pull
 #                                 request of gh pr list names the issue $n
-#   tehas_branch_pattern <issue>  the one grammar for the branch pi-rukas makes
-#                                 for that issue, as an extended regular
-#                                 expression: ^feature/issue-<n>...$
 #   tehas_rukas_reads_images      whether that pi-rukas reads the issue image
 #                                 manifest: 1, 0, or nothing when the image
 #                                 does not say
@@ -69,18 +65,6 @@ tehas_cycle_running() {
 #   <issue>.lean-refused  tehas work's 78 was for driver lean, not another 78.
 #                         tehasbot cycle removes it before tehas work starts.
 
-# The caps tehas sets for a stop of its own making, and no other command does.
-# The one list: libexec/cycle both makes them and says who made them from it, so
-# a cap named here is a cap whose comment reads "tehas stopped the cycle", and
-# adding one to the list is the whole of adding it.
-tehas_own_caps="wall-clock stall runner-never-started"
-
-tehas_cycle_own_cap() { # <cap>: 0 when tehas itself set that cap
-  local c
-  for c in $tehas_own_caps; do [ "$c" = "$1" ] && return 0; done
-  return 1
-}
-
 # The sandbox image answers two questions about itself, in its labels, and one
 # docker call answers both. tehas.rukas is the pi-rukas commit it was built
 # with; tehas.rukas.images is whether that pi-rukas reads the issue image
@@ -110,16 +94,6 @@ tehas_rukas_ask() {
 tehas_rukas_reads_images() {
   tehas_rukas_ask
   printf '%s\n' "$tehas_rukas_images_label"
-}
-
-# The one grammar for a branch pi-rukas makes for an issue: feature/issue-<n>
-# with an optional slug of up to 80 characters. tehasbot cycle holds this
-# grammar before it asks GitHub about a branch. tehas-cycle runner holds it in
-# Rust (branch_of), for a name read out of a cycle's run log.
-tehas_branch_pattern() { # <issue>
-  local n=$1
-  [[ $n =~ ^[1-9][0-9]*$ ]] || return 1
-  printf '%s\n' "^feature/issue-$n(-[A-Za-z0-9._-]{1,80})?$"
 }
 
 # A pull request names an issue when its head is the issue's branch as pi-rukas
