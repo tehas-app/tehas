@@ -4,7 +4,8 @@
 # cycle for one issue against a stub gh, and what is reported about it.
 # The part has sourced test/lib.sh before this.
 
-cycle="$T_ROOT/libexec/cycle"
+# As a host has it: tehas-cycle beside the script, lib beside libexec.
+cycle="$T/home/tehas/libexec/cycle"
 fx=$T/fx
 mkdir -p "$fx"
 checkout=$T/home/tehas/repos/widget
@@ -185,6 +186,8 @@ reset() {
   t_cycle || t_bad "no tehas-cycle: $t_cycle_why"
   mkdir -p "$T/home/tehas/libexec"
   cp "$T_CYCLE" "$T/home/tehas/libexec/tehas-cycle"
+  ln -s "$T_ROOT/libexec/cycle" "$cycle"
+  ln -sfn "$T_ROOT/lib" "$T/home/tehas/lib"
   T_ENV=(TEHAS_WORK_CMD=fake-work TEHAS_STATUS_CMD=fake-status TEHAS_CONSOLE_CMD=fake-console TEHAS_CYCLE_RETRY_WAIT=0)
   t_instance "${T_MINIMAL[@]}"
 }

@@ -13,6 +13,7 @@
 //! `sandbox` prints the docker options of a container for the commands that
 //! keep their docker line in bash.
 //! `start` holds a start to its approval before anything of it is written.
+//! `supervise` starts a cycle, runs tehas work and sees to its report.
 //! `prepare` makes what a container starts from.
 //! `watch` starts a cycle's container and sees it to its end, and `progress`
 //! summarises what the runner wrote.
@@ -38,6 +39,7 @@ pub mod runner;
 pub mod sandbox;
 pub mod shadow;
 pub mod start;
+pub mod supervise;
 pub mod watch;
 
 pub use facts::Facts;
