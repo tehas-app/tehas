@@ -1,0 +1,40 @@
+Review what the default branch gained since the last reviewed commit, with
+pi-rukas's lens reviewer running headless in the sandbox image.
+
+One turn of `pi-rukas-headless lens-review --since <commit> --json` over a
+fresh clone of the default branch. TEHAS_REVIEW other than 1 exits 0 at once
+and calls nothing, so the weekly tehas-review.timer costs a host that left the
+loop off nothing. A run that ended with findings files them as one issue in
+TEHAS_REVIEW_REPO, or nowhere until the instance names one. The store does
+the filing whole -- the rule of the issue, the masking of the model's words,
+the open issue of the range and the GitHub calls (`store review-file`,
+console/store/src/review_issue.rs) -- so this command asks for the filing and
+says what it answered, and nothing else. The start is the commit in
+$TEHAS_HOME/state/review.json, else the commit 7 days back, else the root.
+Only exits 0, 10 and 20 move the record on, so a failed run leaves it and the
+next one reads the same range. What the container is given and where the logs
+go are in host/docs/tools.md. The console (console/src/review.rs) prepares the
+sandbox, reads the range, checks what the image is given, and runs and bounds
+the container.
+
+Usage:
+  tehasbot review             one review
+  tehasbot review -h|--help   print this text and exit 0
+
+Exit status: 0 the review answered with no findings, 10, or 20 - the status
+             the runner gave, which no filing changes (a filing that failed
+             is said on standard error and the record still moves on),
+            2 the runner failed, ran out of time, or its record could not be
+              written down,
+           64 an argument this command does not know, or no git identity for
+             the clone; nothing ran,
+           78 the instance settings are invalid, tehas.slice is not usable on
+              this host, the console is not installed beside this command, or
+              the image has no lens-review verb: nothing was cloned or run.
+
+Instance settings (lib/config.sh): TEHAS_REVIEW, 1 to let this command review
+anything; TEHAS_PLAN_TIMEOUT, the seconds before a review is given up, at the
+ceiling a load takes, the bound of one headless turn which this
+is too; TEHAS_REVIEW_REPO, owner/name the findings go to, refused equal to
+TEHAS_REPO, the product; and those of tehas work for the checkout, the
+container and its limits.

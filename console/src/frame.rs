@@ -254,7 +254,7 @@ pub fn frame(snapshot: &J, cols: usize, rows: usize) -> Vec<String> {
         items.push(text("cycle     no cycle written yet".to_string()));
     } else {
         let all = cycle.get("cycles");
-        let listed = if all.len() > 0 {
+        let listed = if !all.is_empty() {
             objects(all)
         } else {
             objects(&J::Arr(vec![cycle.get("last").clone()]))
@@ -283,7 +283,7 @@ pub fn frame(snapshot: &J, cols: usize, rows: usize) -> Vec<String> {
         J::Null => items.push(text(
             "units     systemctl --user gave no answer".to_string(),
         )),
-        u if u.len() == 0 => items.push(text("units     no tehas units".to_string())),
+        u if u.is_empty() => items.push(text("units     no tehas units".to_string())),
         u => {
             let active = u
                 .items()

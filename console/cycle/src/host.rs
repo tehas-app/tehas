@@ -2,13 +2,15 @@
 //! them for its report: the files of the protocol, the newest run log, the
 //! cycle's record and its approval on the state store, the workspace, and
 //! when docker says the image on the record was built.
-//! And GitHub's two answers, asked with gh as the bash asks them, once each.
+//! And GitHub's answers, asked with gh as the bash asks them, once each.
 
 use crate::report::Ask;
 use serde_json::{json, Map, Value};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::Duration;
+use tehas_core::call;
 
 /// The files of the protocol a report reads, state/cycles/<issue>.<name>.
 pub const FILES: [&str; 12] = [
@@ -37,6 +39,12 @@ pub struct Start {
     pub how: String,
     pub approval_at: String,
     pub requeued: bool,
+    /// When the report began, as libexec/cycle read it; None reads the clock.
+    pub now: Option<i64>,
+    /// The cycle's console and status programs, for the report.
+    pub console: String,
+    pub status_cmd: String,
+    pub status_args: Vec<String>,
 }
 
 /// A file as the facts hold it: its text, {"link": true}, or nothing.
@@ -52,26 +60,54 @@ fn file(p: &Path) -> Option<Value> {
     Some(Value::String(String::from_utf8_lossy(&b).into_owned()))
 }
 
+/// A failed call of the store: its word, and its line for a log.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Refused {
+    pub word: String,
+    pub line: String,
+}
+
+/// One verb of the state store, as lib/store.sh bounds it, its failure as
+/// tehas_core::call keeps it.
+pub fn store_value(home: &Path, args: &[&str]) -> Result<Value, Value> {
+    let program = home.join("libexec/store");
+    let program = program.to_string_lossy();
+    if !call::store_executable(&program) {
+        let line = format!("store: absent: {program} is not an executable file");
+        return Err(call::store_failed(78, "absent", &line));
+    }
+    let extra = [("TEHAS_HOME", home.to_str().unwrap_or(""))];
+    call::store(
+        &program,
+        args,
+        Duration::from_secs(20),
+        Duration::from_secs(2),
+        &extra,
+    )
+}
+
+fn refused(f: Value) -> Refused {
+    let word = |k: &str| f.get(k).and_then(Value::as_str).unwrap_or("").to_string();
+    Refused {
+        word: word("word"),
+        line: word("line"),
+    }
+}
+
 /// One verb of the state store, its JSON answer or the word of its failure.
 pub fn store(home: &Path, args: &[&str]) -> Result<Value, String> {
-    let out = Command::new("timeout")
-        .args(["-k", "2", "20"])
-        .arg(home.join("libexec/store"))
-        .args(args)
-        .env("TEHAS_HOME", home)
-        .output()
-        .map_err(|_| "absent".to_string())?;
-    if !out.status.success() {
-        let said = String::from_utf8_lossy(&out.stderr);
-        let word = said
-            .split_whitespace()
-            .nth(1)
-            .unwrap_or("unknown")
-            .trim_end_matches(':')
-            .to_string();
-        return Err(word);
-    }
-    serde_json::from_slice(&out.stdout).map_err(|_| "unreadable".to_string())
+    store_value(home, args).map_err(|f| refused(f).word)
+}
+
+/// One verb of the state store, the word and line of its failure.
+pub fn store_said(home: &Path, args: &[&str]) -> Result<Value, Refused> {
+    store_value(home, args).map_err(refused)
+}
+
+/// tehas_store_try: asked again, a second apart, while the store is busy or
+/// did not answer in time.
+pub fn store_try(home: &Path, tries: u32, args: &[&str]) -> Result<Value, Refused> {
+    call::store_try(tries, Duration::from_secs(1), || store_value(home, args)).map_err(refused)
 }
 
 /// The facts of the cycle `s`, read from the host under `home`.
@@ -102,7 +138,7 @@ pub fn facts(home: &Path, s: &Start) -> Value {
         "workdir_dir": is_dir(&workdir),
         "before_retry_dir": is_dir(&format!("{workdir}.before-retry")),
         "rc": s.rc, "signalled": s.signalled, "started": s.started,
-        "now": tehas_core::time::now(),
+        "now": s.now.unwrap_or_else(tehas_core::time::now),
         "start": {"attempt": s.attempt, "by": s.by, "how": s.how,
                   "approval_at": s.approval_at.parse::<i64>().ok(), "requeued": s.requeued},
         "files": files,
@@ -116,6 +152,12 @@ pub fn facts(home: &Path, s: &Start) -> Value {
     let n = issue.to_string();
     f["record"] = store(home, &["cycle-show", &n]).unwrap_or_else(|w| json!({"error": w}));
     f["approval"] = store(home, &["approval-current", &n]).unwrap_or_else(|w| json!({"error": w}));
+    f["history"] = store(home, &["history-show", &n]).unwrap_or_else(|w| json!({"error": w}));
+    if let Some(state) =
+        crate::last_attempt::state(Path::new(f["workdir"].as_str().unwrap_or("")), issue)
+    {
+        f["work_state"] = state;
+    }
     let (id, _) = crate::report::record_image(&f["record"], s.attempt);
     if !id.is_empty() {
         f["image_built"] = json!(built(&id));
@@ -211,6 +253,14 @@ impl Ask for Live {
             "attention".into(),
             got.map(Value::Bool).unwrap_or(Value::Null),
         );
+        got
+    }
+
+    fn issue(&mut self) -> Option<Value> {
+        let got = gh(&["api", &format!("repos/{}/issues/{}", self.repo, self.issue)])
+            .and_then(|o| serde_json::from_slice::<Value>(&o).ok());
+        self.said
+            .insert("issue".into(), got.clone().unwrap_or(Value::Null));
         got
     }
 }

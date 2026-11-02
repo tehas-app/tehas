@@ -28,16 +28,18 @@
 //! The mask alone: standard input to standard output, for libexec/work's own
 //! line on the dashboard, so that the mask is written in one place.
 //!
-//!   console preview tell ...
+//!   console preview run|sweep
 //!   console preview choose <repo> [max] <pull requests
+//!   console preview network check|create|ensure <network>
 //!
-//! The notice tehasbot preview keeps in a pull request's description, see
-//! src/notice.rs, and which open pull requests get a preview, see
-//! src/preview.rs.
+//! A preview of every open pull request and which ones get one, see
+//! src/preview.rs, and whether the previews' network keeps the host out, see
+//! src/edge.rs.
 //!
-//!   console plan outcome|update ...
+//!   console plan update|descriptor|workspace|give|place|turn|run ...
 //!
-//! What a planning turn of libexec/plan says, see src/plan.rs.
+//! What a planning turn of libexec/plan says and does on the host, see
+//! src/plan.rs and src/plan/turn.rs.
 //!
 //!   console top reading|snapshot|frame ...
 //!
@@ -52,14 +54,19 @@
 //!
 //! The lines and the object of tehas status, see src/status.rs.
 //!
-//!   console review since|refused|run ...
+//!   console dev table
+//!   console review main|table
 //!
-//! What tehasbot review decides and how it runs its container, see
-//! src/review.rs.
+//! The row of the table of runs of a manual session, see src/dev.rs, and what
+//! tehasbot review decides and how it runs its container, see src/review.rs.
 //!
 //!   console clean run ...
 //!
 //! What tehasbot clean removes, see src/clean.rs.
+//!
+//!   console improve due|run <prompt file> | table
+//!
+//! One run of the improvement loop, see src/improve/mod.rs.
 //!
 //!   console disk <home> [--full] [--json] [--publish]
 //!
@@ -71,44 +78,50 @@
 //! One sample of what the model mesh draws, live/energy.json, for tehasbot
 //! energy, see src/energy.rs.
 //!
+//!   console disk free <path> [<seconds>]
+//!
+//! The free kilobytes a command holds work on, see src/disk.rs.
+//!
+//!   console size measure | record <issue> <ledger>
+//!
+//! The measure of an issue body and the ledger of what approved starts
+//! measured, see src/size.rs.
+//!
 //!   console epics <owner/name> <out>
 //!
 //! The open epics and their sub-issues, live/epics.json, for tehasbot status,
-//! see src/epics.rs.
+//! see src/epics.rs. A run of tehasbot status calls this with a time limit.
 //!
 //!   console flags limit show|set|clear|read ...
 //!
 //! The flags under state/ of one instance: the limit tehas limit sets, see
 //! src/flags.rs.
 //!
-//!   console export run ...
-//!
-//! What tehas export copies, see src/export.rs.
-//!
 //!   console state pack|unpack ...
 //!
 //! A stopped factory's state as one tar, see src/state.rs.
 //!
-//!   console protolab page|front|live|refs ...
+//!   console protolab run
 //!
-//! The pages of the Protolab and the links of a ticket, for libexec/protolab,
-//! see src/protolab.rs.
+//! One pass of the Protolab, for tehasbot protolab, see src/protolab.rs.
 //!
-//!   console setup files ...
+//!   console settings load <euid> [<bash>] | valid [<name> <value>] | words <name>
 //!
-//! The settings, the checks and the files of tehas setup, see src/setup.rs.
+//! What tehas_load does and what a setting may hold, see src/settings.rs.
 //!
-//!   console shipped page|query|answer|list|has|whole ...
+//!   console setup run <libexec dir> <euid> <bash> [options]...
+//!
+//! tehas setup, once libexec/setup has a console, see src/setup.rs.
+//!
+//!   console shipped page
 //!
 //! What closed an issue: the page and the GraphQL query of the read, and what its
-//! answer says, for tehas tidy and tehasbot status (each command makes the call
-//! to these verbs itself), see src/shipped.rs.
+//! answer says, see src/shipped.rs.
 //!
-//!   console tidy states|plan ...
+//!   console tidy run [--dry-run]
 //!
-//! Which of tehas's state labels come off which closed issue, and which issue the
-//! read of what closed them is asked about, for tehas tidy (libexec/tidy makes the
-//! two searches and the edits), see src/tidy.rs.
+//! The poll's tidy of closed issues: their state labels come off, and tehas:shipped
+//! goes on the ones a merged pull request closed, see src/tidy.rs.
 //!
 //!   console forge labels|label-state|approval|add-label|remove-label ...
 //!
@@ -116,41 +129,99 @@
 //! one label, who applied the label that lets a cycle start, and a label put on
 //! or taken off, asked of GitHub through tehas_core::forge, see src/forge.rs.
 //!
+//!   console label actor|allowed|pause-holds ...
+//!
+//! Who applied a label, read from the label events, behind lib/labels.sh, see
+//! src/label.rs.
+//!
+//!   console models keys-ok | pick <provider> | resolve <out>
+//!
+//! The host's models.json: its keys, the endpoint of a provider, and the file
+//! a container is given, see src/models.rs.
+//!
+//!   console slice ok|limits|cpus|verify|room|pressure ...
+//!
+//! tehas.slice for the commands that start a container, behind lib/slice.sh,
+//! see src/slice.rs.
+//!
 //!   console pr-title sync|poll ...
 //!
 //! A factory pull request's title, kept true by the prefix of its state, see
 //! src/pr_title.rs.
 //!
+//!   console check-product [--sandbox] | table
+//!   console init-product <branch> [--dry-run]
+//!
+//! The product against the contract, and the files it is missing proposed in a
+//! pull request, see src/product.rs.
+//!
+//!   console tehas status|disk|state|limit|pause|analytics|top|api|labels|resume|drain|history|export|stop|dev|dev-login|mcp ...
+//!   console tehasbot health|status|top|mcp
+//!   console usage <command>
+//!
+//! The commands of bin/tehas and bin/tehasbot that are verbs of this program,
+//! and the text of tehas help, see src/commands.rs.
+//!
+//!   console run <libexec dir> <euid> <bash> tehas|tehasbot <command> ...
+//!
+//! A command under the instance's settings: its check, the load, what it
+//! requires, then the verb, see src/run.rs.
+//!
+//!   console update args|gate|prepare|api|finish|release|steps ...
+//!
+//! What tehas update decides and does, see src/update/mod.rs.
+//!
 //! Exit: 0 stopped by a signal or masked, 1 the console file or standard
 //! output cannot be written, 2 usage.
 
+mod api;
+mod attach;
 mod clean;
+mod commands;
+mod dev;
 mod disk;
+mod edge;
 mod energy;
 mod epics;
 mod export;
 mod flags;
 mod forge;
 mod frame;
+mod github;
 mod health;
-mod jq;
+mod history;
+mod improve;
+mod label;
+mod labels;
+mod mcp;
+mod models;
 mod notice;
 mod now;
 mod plan;
+mod platform;
 mod pr_title;
 mod preview;
+mod product;
 mod protolab;
+mod publish;
+mod queue;
 mod render;
 mod review;
+mod run;
+mod settings;
 mod setup;
 mod shipped;
+mod size;
+mod slice;
 mod snapshot;
 mod state;
 mod status;
+mod stop;
 mod store;
 mod tail;
 mod tidy;
 mod top;
+mod update;
 
 use render::Entry;
 use std::collections::HashSet;
@@ -162,6 +233,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread::sleep;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use tehas_core::jq;
 use tehas_core::mask;
 
 const POLL: Duration = Duration::from_millis(1500);
@@ -347,6 +419,14 @@ fn mask_stdin() -> io::Result<()> {
 }
 
 fn main() -> ExitCode {
+    // No command takes a word that is not text: `run` refuses it, with the usage
+    // of its command when that command has one.
+    let words = std::env::args_os().skip(1);
+    let words: Vec<String> = words.map(|a| a.to_string_lossy().into_owned()).collect();
+    if words.first().is_some_and(|w| w == "run") {
+        let text = std::env::args_os().all(|a| a.to_str().is_some());
+        return ExitCode::from(run::main(&words[1..], text));
+    }
     let given = std::env::args_os()
         .skip(1)
         .map(|a| a.into_string())
@@ -354,17 +434,25 @@ fn main() -> ExitCode {
         .map_err(|_| "console: an argument is not UTF-8".to_string());
     if let Ok(given) = &given {
         match given.first().map(String::as_str) {
+            Some("check-product") => return ExitCode::from(product::check(&given[1..])),
             Some("clean") => return ExitCode::from(clean::main(&given[1..])),
             Some("disk") => return ExitCode::from(disk::main(&given[1..])),
             Some("energy") => return ExitCode::from(energy::main(&given[1..])),
             Some("epics") => return ExitCode::from(epics::main(&given[1..])),
-            Some("export") => return ExitCode::from(export::main(&given[1..])),
             Some("flags") => return ExitCode::from(flags::main(&given[1..])),
             Some("forge") => return ExitCode::from(forge::main(&given[1..])),
+            Some("init-product") => return ExitCode::from(product::init(&given[1..])),
+            Some("dev") => return ExitCode::from(dev::main(&given[1..])),
             Some("review") => return ExitCode::from(review::main(&given[1..])),
             Some("preview") => return ExitCode::from(preview::main(&given[1..])),
+            Some("settings") => return ExitCode::from(settings::main(&given[1..])),
             Some("setup") => return ExitCode::from(setup::main(&given[1..])),
+            Some("size") => return ExitCode::from(size::main(&given[1..])),
+            Some("slice") => return ExitCode::from(slice::main(&given[1..])),
             Some("health") => return ExitCode::from(health::main(&given[1..])),
+            Some("improve") => return ExitCode::from(improve::main(&given[1..])),
+            Some("label") => return ExitCode::from(label::main(&given[1..])),
+            Some("models") => return ExitCode::from(models::main(&given[1..])),
             Some("state") => return ExitCode::from(state::main(&given[1..])),
             Some("status") => return ExitCode::from(status::main(&given[1..])),
             Some("shipped") => return ExitCode::from(shipped::main(&given[1..])),
@@ -372,7 +460,11 @@ fn main() -> ExitCode {
             Some("plan") => return ExitCode::from(plan::main(&given[1..])),
             Some("pr-title") => return ExitCode::from(pr_title::main(&given[1..])),
             Some("protolab") => return ExitCode::from(protolab::main(&given[1..])),
+            Some("tehas") => return ExitCode::from(commands::tehas(&given[1..])),
+            Some("tehasbot") => return ExitCode::from(commands::tehasbot(&given[1..])),
             Some("top") => return ExitCode::from(top::main(&given[1..])),
+            Some("update") => return ExitCode::from(update::main(&given[1..])),
+            Some("usage") => return ExitCode::from(commands::usage(&given[1..])),
             _ => {}
         }
     }

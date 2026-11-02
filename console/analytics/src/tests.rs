@@ -67,7 +67,7 @@ fn empty_buckets() -> Value {
     json!({"none": nothing(), "1-2": nothing(), "3-4": nothing(), "5+": nothing()})
 }
 
-/// Where a test's facts of the issue's run or turn are, as lib/analytics.sh
+/// Where a test's facts of the issue's run or turn are, as tehas-cycle
 /// writes them for a call.
 fn facts_path(home: &Path, issue: i64) -> PathBuf {
     home.join(format!("tmp/facts-{issue}.json"))
@@ -178,7 +178,7 @@ fn cycle(home: &Path, name: &str, started: i64, line: Value) {
 fn each_fixture_result_is_stored_with_what_the_outcome_drops() {
     // started and the end of the last step of each fixture, the runner's
     // durationMs, and the status, cap and exit tehas wrote: for schema 3
-    // lib/headless.sh reads no outcome, so the history says unknown.
+    // tehas-cycle reads no outcome, so the history says unknown.
     let cases = [
         (
             "headless-0.12.80",
@@ -2136,7 +2136,7 @@ fn run_reads_nothing_through_a_link() {
     assert_eq!(r.runner_ms, None);
 }
 
-// The live files of one poll, as libexec/status, libexec/dispatch and
+// The live files of one poll, as tehasbot status, libexec/dispatch and
 // console energy write them, at `at`.
 fn live(home: &Path, at: i64, why: &str, limit_room: Option<i64>) {
     fs::create_dir_all(home.join("live")).unwrap();
@@ -2367,7 +2367,7 @@ fn an_event_is_stored_at_the_time_given_and_one_ahead_of_now_is_refused() {
     );
 }
 
-// A planning turn of issue 7 in flight: its record as lib/planning.sh leaves
+// A planning turn of issue 7 in flight: its record as the poll leaves
 // it when the turn has ended, as facts, and what libexec/plan wrote beside it.
 fn turn(home: &Path, record: Value, out: Option<Value>) {
     fs::write(facts_path(home, 7), record.to_string()).unwrap();
@@ -5521,7 +5521,7 @@ fn out_of_two_calls_with_no_change_touches_nothing() {
     conn.execute("DELETE FROM runs", []).unwrap();
     one_ended_run(&conn, "work-1-a", now - 3600);
     drop(conn);
-    // A poll: the snapshot is asked for and then the counts, as libexec/status
+    // A poll: the snapshot is asked for and then the counts, as tehasbot status
     // asks them. Both are asked at a minute apart, so that an mtime of one poll
     // cannot be mistaken for that of the other.
     let poll = |at: i64| {

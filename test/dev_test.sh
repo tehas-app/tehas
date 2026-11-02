@@ -35,16 +35,19 @@ n=$((n + 1))
 printf "%s\n" "$n" >"$T/docker.n"
 printf "%s\n" "$@" >"$T/calls/docker.args.$n"'
 t_stub docker "$docker_stub"
-# The command beside the console, as a host has it: `clean session` is the
-# console's (console/src/clean.rs) and makes the clone's state, its build output
-# and the lock of the session, so a run that has no console refuses to start
-# rather than starting a session without its lock.
+# The command beside the console, as a host has it: the session is the console's
+# (console/src/dev.rs), and it makes the clone's state, its build output and the
+# lock of the session, so a run that has no console refuses to start rather than
+# starting a session without its lock.
 # shellcheck disable=SC2154  # t_console_why is set by t_console (test/lib.sh)
 t_console || t_bad "no console: $t_console_why"
 mkdir -p "$T/tree/libexec"
 ln -s "$dev" "$T/tree/libexec/dev"
 ln -s "$T_ROOT/lib" "$T/tree/lib"
 cp "$T_CONSOLE" "$T/tree/libexec/console"
+# shellcheck disable=SC2154  # t_cycle_why is set by t_cycle (test/lib.sh)
+t_cycle || t_bad "no tehas-cycle: $t_cycle_why"
+cp "$T_CYCLE" "$T/tree/libexec/tehas-cycle"
 dev_cmd=$T/tree/libexec/dev
 printf '[user]\n\tname = Test Bot\n\temail = bot@example.com\n' >"$T/home/.gitconfig"
 # Pi's settings as install.sh leaves them on a host.
@@ -74,10 +77,9 @@ limits="--cgroup-parent --memory --memory-swap --memory-reservation --cpus --pid
 . "$(dirname "$0")/docker_args.sh" || exit 1
 docker_opts="$limits --cap-drop --cap-add --security-opt --tmpfs"
 root="TEHAS_CGROUP_ROOT=$T_CGROUP"
-# The container path of the session's cargo build output, read from
-# tehas_sandbox_target_dir itself rather than copied here: the mount, the
-# variable and the manual name the path the container is given.
-target_container=$(tehas_sandbox_target_dir)
+# The container path of the session's cargo build output: the mount, the
+# variable and the manual name it.
+target_container=/home/vscode/.tehas-target
 
 # The arguments of the docker call that starts the session.
 session_args() { cat "$T"/calls/docker.args.* 2>/dev/null; }
@@ -524,7 +526,7 @@ t_case "a session whose build output docker would have to make is refused"
 # container, no directory. And the source is older than the record of the call,
 # so this command made it and Docker was not left to, which is what keeps a
 # missing source from coming back root-owned. The comparison is only as sharp as
-# the clock: tehas_sandbox_mounts makes the state directory's own children, so
+# the clock: tehas-cycle sandbox mounts makes the state directory's own children, so
 # the tree is put a minute behind before the run, since timestamps are whole
 # seconds and cannot tell two moments of one second apart.
 target_guard_stub='if [ "$1" = info ]; then cat "$T/docker.info"; exit; fi
@@ -599,25 +601,6 @@ t_run "$dev_cmd zed"
 refused
 t_contains "$t_out" "tehas dev: TEHAS_CYCLE_RESERVE=3g is more than a container may use here (2048m"
 t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
-
-t_case "the fourteen words are all present or nothing starts"
-# The command beside a slice library that says yes and hands out a short list,
-# or a list that names another parent.
-short=$T/short
-mkdir -p "$short/libexec" "$short/lib"
-cp "$T_ROOT"/lib/*.sh "$short/lib/"
-ln -s "$dev" "$short/libexec/dev"
-cp "$T_CONSOLE" "$short/libexec/console"
-for words in "--cgroup-parent tehas.slice --memory 2048m --memory-swap 2048m --memory-reservation 2g --cpus 3.75 --pids-limit 4096" \
-  "--cgroup-parent other.slice --memory 2048m --memory-swap 2048m --memory-reservation 2g --cpus 3.75 --pids-limit 4096 --cpu-shares 1024" ""; do
-  without
-  printf '%s\n' 'tehas_slice_ok() { return 0; }' "tehas_slice_limits() { TEHAS_SLICE_LIMITS=($words); }" \
-    'tehas_slice_room() { echo "4 0 0 0"; }' >"$short/lib/slice.sh"
-  t_run "$short/libexec/dev zed"
-  refused
-  t_contains "$t_out" "tehas dev: the container limits could not be made, not starting"
-done
-without
 
 # --- An issue's attachments ----------------------------------------------------
 A=https://github.com/user-attachments/assets
@@ -728,6 +711,33 @@ t_eq "$t_rc" 78
 t_eq "$(containers)" 0
 t_eq "$(t_calls gh)$(t_calls curl)" ""
 
+t_case "with --issue a fault stops before GitHub is called and before anything is written"
+nothing_fetched() {
+  t_eq "$t_rc" "$1"
+  t_eq "$(containers)" 0
+  t_eq "$(t_calls gh)$(t_calls curl)" ""
+  t_eq "$(find "$devs" -maxdepth 1 -name '*.images' | wc -l)" 0
+}
+attach_on
+printf '%s\n' FragmentPath= ActiveState=inactive MemoryMax=infinity >"$T/slice.show"
+t_run "$dev_cmd --issue 7"
+nothing_fetched 78
+t_contains "$t_out" "tehas dev: no slice file on this host (sudo ./bootstrap.sh slice)"
+attach_on
+slice_good
+mkdir -p "$devs/notes"
+echo keep >"$devs/notes/file.txt"
+t_run "$dev_cmd notes --issue 7"
+nothing_fetched 78
+t_contains "$t_out" "not a clone"
+rm -rf "$devs/notes"
+attach_on
+echo 'not an author' >"$devs/main.author"
+t_run "$dev_cmd --issue 7"
+nothing_fetched 64
+t_contains "$t_out" "main.author"
+rm -f "$devs/main.author"
+
 t_case "--issue without a number is refused"
 for bad in "--issue" "--issue x" "--issue 07" "--issue ''"; do
   attach_on
@@ -748,41 +758,36 @@ t_case "a clone whose lock another holds waits for it and then starts its sessio
 again
 t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
 # The case before this one took the git identity away, and the command asks for
-# it before it asks for the lock. T_ENV is the file's, not the case's: it is
-# emptied here, before the stub of flock whose body spans lines, so the words of
-# the run below are its own.
+# it before it asks for the lock.
 T_ENV=()
 slice_good
 printf '[user]\n\tname = Test Bot\n\temail = bot@example.com\n' >"$T/home/.gitconfig"
-# The stub waits for the figure a case names and then asks the real flock, by
-# its path: through the name it would answer itself forever. The wait is what a
-# session of a busy clone does, and the second case reads what follows a wait
-# that did not come to anything: the refusal, with the holder named.
-t_stub flock "if [ \"\${FLOCK_WHY:-}\" = held ]; then exit 1; fi
-if [ \"\$1\" = -w ]; then sleep \"\${FLOCK_WAIT:-0}\"; fi
-exec $(command -pv flock) \"\$@\""
 mkdir -p "$T/home/tehas/state/dev"
 lock=$T/home/tehas/state/dev/erin.lock
-# The holder is released before the run asks for the lock, so what the session
-# meets is a lock that came free while it waited: the three seconds of the wait
-# and then its own container.
+# The session's container says whether the lock is held while it runs.
+t_stub docker "$docker_stub
+flock -n '$lock' true || echo held >\"\$T/calls/docker.lock\""
+# What the session meets is a lock that comes free while it waits.
 t_hold "$lock"
-t_release
+("$(command -pv sleep)" 2; kill "$t_holder") &
+freed=$!
 start=$(date +%s)
-T_ENV=(FLOCK_WAIT=3 GH_TOKEN=test-token "$root")
+T_ENV=(GH_TOKEN=test-token "$root")
 t_run "$dev_cmd erin"
+wait "$freed"
 t_eq "$t_rc" 0
+t_contains "$t_out" "is held"
 # At least: a loaded host adds to the wait, and whole seconds round it.
-t_eq "$(($(date +%s) - start >= 3))" 1
+t_eq "$(($(date +%s) - start >= 1))" 1
 t_eq "$(containers)" 1
 t_contains "$(session_args)" "$devs/erin.state/target:$target_container"
 t_eq "$(find "$devs/erin.state/target" -mindepth 1 | wc -l)" 0
-# The lock of the session is the clone's own, named by its clone, and beside
-# the locks of the cycles rather than among them.
-t_eq "$(t_calls flock)" "-w 300 9"
+# The lock of the session is the clone's own, named by its clone, held for the
+# session's life, and beside the locks of the cycles rather than among them.
+t_eq "$(cat "$T/calls/docker.lock")" held
 t_eq "$([ -e "$T/home/tehas/state/cycles/erin.lock" ] && echo there)" ""
 t_release
-t_stub flock
+t_stub docker "$docker_stub"
 rm -rf "$devs/erin.state" "$devs/erin.author" "$devs/erin"
 
 t_case "the build output the cleaner took during the wait is made again, and docker is not given the lock"
@@ -790,55 +795,40 @@ again
 t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
 T_ENV=()
 slice_good
-# The removal happens between the console's answer and the shell's lock.
-t_stub flock "rmdir \"\$TARGET_GOES\"
-exec $(command -pv flock) \"\$@\""
 t_stub docker 'if [ "$1" = info ]; then cat "$T/docker.info"; exit; fi
 if [ "$1" = image ]; then cat "$T/image.label" 2>/dev/null; exit; fi
 [ ! -e /proc/self/fd/9 ] || echo open >"$T/calls/docker.fd9"
 printf "%s\n" "$@" >"$T/calls/docker.args.1"'
-T_ENV=("TARGET_GOES=$devs/frank.state/target" GH_TOKEN=test-token "$root")
+lock=$T/home/tehas/state/dev/frank.lock
+t_hold "$lock"
+# The removal happens while the command waits for the lock.
+(until [ -d "$devs/frank.state/target" ]; do "$(command -pv sleep)" 0.05; done
+  rmdir "$devs/frank.state/target"; kill "$t_holder") &
+freed=$!
+T_ENV=(GH_TOKEN=test-token "$root")
 t_run "$dev_cmd frank"
+wait "$freed"
 t_eq "$t_rc" 0
 t_eq "$(containers)" 1
 t_eq "$(stat -c %u "$devs/frank.state/target")" "$(id -u)"
 t_eq "$(cat "$T/calls/docker.fd9" 2>/dev/null)" ""
 T_ENV=()
+t_release
 t_stub docker "$docker_stub"
-t_stub flock
 rm -rf "$devs/frank.state" "$devs/frank.author" "$devs/frank"
-
-t_case "words of the console on standard error are no part of the lock's path"
-again
-slice_good
-printf '#!/bin/sh\necho "a warning of the console" >&2\nexec "%s" "$@"\n' "$T_CONSOLE" >"$T/tree/libexec/console"
-chmod +x "$T/tree/libexec/console"
-T_ENV=(GH_TOKEN=test-token "$root")
-t_run "$dev_cmd grace"
-t_eq "$t_rc" 0
-t_eq "$(containers)" 1
-t_eq "$(find "$T/home/tehas/state/dev" -name 'grace.lock' | wc -l)" 1
-T_ENV=()
-cp "$T_CONSOLE" "$T/tree/libexec/console"
-rm -rf "$devs/grace.state" "$devs/grace.author" "$devs/grace"
 
 t_case "a lock that is not free in five minutes starts no session and says who holds it"
 again
 t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
 T_ENV=()
-# The console of the case waits one second of the five minutes the command asks.
-printf '#!/bin/sh\nexec "%s" clean session "$3" "$4" 1\n' "$T_CONSOLE" >"$T/tree/libexec/console"
-chmod +x "$T/tree/libexec/console"
-t_stub flock "if [ \"\${FLOCK_WHY:-}\" = held ]; then exit 1; fi
-if [ \"\$1\" = -w ]; then sleep \"\${FLOCK_WAIT:-0}\"; fi
-exec $(command -pv flock) \"\$@\""
 slice_good
 # The holder is the sleep t_hold leaves behind, so the line names that account:
 # the person running the other session.
 mkdir -p "$T/home/tehas/state/dev"
 t_hold "$T/home/tehas/state/dev/erin.lock"
 sleep_holder=$(ps -o user= -p "$t_holder" | tr -d ' ')
-T_ENV=(FLOCK_WHY=held GH_TOKEN=test-token "$root")
+# The case waits one second of the five minutes the command asks.
+T_ENV=(TEHAS_DEV_LOCK_WAIT=1 GH_TOKEN=test-token "$root")
 t_run "$dev_cmd erin"
 t_eq "$t_rc" 78
 t_eq "$(containers)" 0
@@ -858,16 +848,14 @@ t_eq "$([ -e "$devs/erin" ] && echo there)" ""
 mkdir -p "$devs/erin"
 mkdir -p "$devs/erin.state/target/debug"
 echo built >"$devs/erin.state/target/debug/console"
-T_ENV=(FLOCK_WHY=held GH_TOKEN=test-token "$root")
+T_ENV=(TEHAS_DEV_LOCK_WAIT=1 GH_TOKEN=test-token "$root")
 t_run "$dev_cmd erin"
 t_eq "$t_rc" 78
 t_eq "$([ -d "$devs/erin/.git" ] && echo clone)" ""
 t_eq "$(cat "$devs/erin.state/target/debug/console")" built
 t_release
 rm -f "$T/home/tehas/state/dev/erin.lock"
-cp "$T_CONSOLE" "$T/tree/libexec/console"
 t_stub docker "$docker_stub"
-t_stub flock
 rm -rf "$devs/erin.state" "$devs/erin"
 
 t_done
