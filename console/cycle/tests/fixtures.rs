@@ -340,7 +340,12 @@ fn stop_with(prs: Value) -> String {
     let cases: Vec<Value> = serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap();
     let mut c = cases
         .into_iter()
-        .find(|c| c["case"].as_str().unwrap_or("").contains("ended as running"))
+        .find(|c| {
+            c["case"]
+                .as_str()
+                .unwrap_or("")
+                .contains("ended as running")
+        })
         .unwrap();
     c["facts"]["github"]["prs"] = prs;
     let facts = Facts::from_json(&c["facts"]).unwrap();
@@ -384,7 +389,9 @@ fn a_stop_with_a_draft_pull_request_says_it_is_a_draft() {
         "{said}"
     );
     assert!(
-        said.contains("Its branch has an open pull request: https://github.com/acme/widget/pull/67"),
+        said.contains(
+            "Its branch has an open pull request: https://github.com/acme/widget/pull/67"
+        ),
         "{said}"
     );
 }
@@ -401,7 +408,9 @@ fn a_stop_with_no_pull_request_says_so() {
 
 #[test]
 fn no_comment_says_without_a_pull_request_and_names_one() {
-    for suite in ["crash", "handoff", "park", "record", "result", "start", "stop"] {
+    for suite in [
+        "crash", "handoff", "park", "record", "result", "start", "stop",
+    ] {
         let path = format!("{}/tests/fixtures/{suite}.json", env!("CARGO_MANIFEST_DIR"));
         let cases: Vec<Value> = serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap();
         for c in cases {
