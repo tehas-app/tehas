@@ -1,7 +1,7 @@
 # shellcheck shell=bash
 # Which cycles are running, which pull request is an issue's, and what the
-# sandbox image says about itself. Sourced by install.sh and by the two
-# commands that give a cycle its issue's images, tehas work and tehas plan.
+# sandbox image says about itself. Sourced by install.sh and tehas plan; tehas
+# work asks the same in console/cycle/src/gives.rs.
 #
 # tehasbot cycle holds $TEHAS_HOME/state/cycles/<issue>.lock for as long as it
 # lives. A lock nobody holds is a cycle that ended, however it ended, so a
