@@ -1,0 +1,56 @@
+Run one turn of a pi-rukas planning session headless, in the sandbox image.
+
+A planning session is a conversation with pi-rukas's planner that ends in a
+filed issue. It asks its operator questions on the way. Nobody is at a
+terminal here, so each turn is one run of pi-rukas's headless runner,
+`pi-rukas-headless plan`, which exits when it has something for the
+operator: questions, or a drafted plan to confirm. This command writes what
+the turn said and asked to a file and stops. The dispatcher posts it on the
+issue and, when an answer has come, runs the next turn in the same session.
+A tick on "Update this issue" makes a drafted plan the issue's text. One with
+no open points may need no tick. A refine also offers "File as a new issue".
+
+Usage:
+  tehas plan <issue-number> --out <file> --keep <dir> --brief <file> [--kind refine]
+      First turn. <file> holds the approved title and body of the issue.
+  tehas plan <issue-number> --out <file> --keep <dir> --session <id> --answer <file> [--comment <id>] [--kind refine]
+      A later turn. --kind refine: the session is a tehas:refine one. <file>
+      holds the operator's answer. --comment names the reply it came from,
+      whose attachments the turn is given.
+
+<dir> is what the session carries from one turn to the next.
+console/src/plan/turn.rs says what it holds, what a turn runs and what the
+--out file holds. console/src/plan/start.rs prepares the turn, watches docker
+and ends the turn.
+
+Exit status: 0 the turn ended with something to say or ask, or it filed,
+             2 the runner failed, ran out of time, refused the turn, said
+               and asked nothing, its session is gone, or its outcome could
+               not be written down,
+             4 the instance gives images or files and one could not be
+               fetched, for a first turn or from a reply; said on the issue,
+               nothing ran,
+            64 a usage error, no bot token or no git identity; nothing ran,
+            78 the settings are invalid, the console is missing, tehas.slice
+               is not usable on this host, or the image runs no planning
+               turns (--capabilities has no features.planTurns); nothing ran.
+
+Instance settings (lib/config.sh; defaults in brackets):
+  TEHAS_PLAN_TIMEOUT  seconds before a turn is given up [7200, the ceiling
+                      in console/core/src/settings/rules.rs]
+  and those of tehas work for the checkout and the container's limits.
+
+The container is given exactly what a cycle's container is given: the same
+image, limits, mounts and variables, assembled by console/core/src/sandbox.rs
+and pinned by test/plan_test.sh, and the issue's images as a cycle gets them.
+It differs in its name, in its command and in having no cid file. Not the
+Docker socket, SSH keys or ~/.config/tehas. It runs in tehas.slice with a
+cycle's limits, so the dispatcher counts its memory with the cycles'. Without
+a usable slice nothing is cloned and nothing starts.
+
+The workspace is $TEHAS_HOME/work/<name>-plan-<issue>, a fresh clone made for
+every turn and removed when the turn is over. Inside the container it is at
+the path every cycle has its own, $TEHAS_HOME/work/<name>. The transcripts go
+to ~/.pi/agent/ensemble-runs/plan-<issue>, so a turn and a cycle see nothing
+of each other. Beside the workspace is <name>-plan-<issue>.state, the turn's
+own copy of the code index and its own memory, removed with the workspace.
