@@ -1008,7 +1008,7 @@ t_eq "$t_out" "20 $plan_max"
 
 # The two hand-copied defaults, the header of the command and the commented
 # example an operator copies, are pinned against the config.
-t_contains "$(grep 'TEHAS_PLAN_TIMEOUT  seconds' "$T_ROOT/libexec/plan")" "[$plan_max, the ceiling"
+t_contains "$(grep 'TEHAS_PLAN_TIMEOUT  seconds' "$T_ROOT/console/src/usage/plan.txt")" "[$plan_max, the ceiling"
 t_contains "$(grep 'TEHAS_PLAN_TIMEOUT        seconds' "$T_ROOT/console/src/usage/dispatch.txt")" "[$plan_max]"
 t_contains "$(grep '^#TEHAS_PLAN_TIMEOUT=' "$T_ROOT/instances/example/optional.env")" "$plan_max"
 
@@ -1045,15 +1045,15 @@ T_ENV=()
 t_case "the environment's update lock wait is used, and the loader drops the name"
 t_instance "${T_MINIMAL[@]}"
 T_ENV=(TEHAS_UPDATE_LOCK_WAIT=3)
-t_run '. "$T_ROOT/lib/config.sh"; . "$T_ROOT/lib/update-steps.sh"; a=$(tehas_update_lock_wait); tehas_load >/dev/null 2>&1; b=$(tehas_update_lock_wait); printf "before=%s after=%s\n" "$a" "$b"'
-t_eq "$t_out" "before=3 after=10"
+t_run '. "$T_ROOT/lib/config.sh"; a=${TEHAS_UPDATE_LOCK_WAIT:-unset}; tehas_load >/dev/null 2>&1; b=${TEHAS_UPDATE_LOCK_WAIT:-unset}; printf "before=%s after=%s\n" "$a" "$b"'
+t_eq "$t_out" "before=3 after=unset"
 T_ENV=()
 # tehas_load sources instance.env, so a line there reaches the environment, but
 # only after the two commands have read the wait: the instance does not set it.
 t_case "instance.env does not set the update lock's wait"
 t_instance "${T_MINIMAL[@]}" TEHAS_UPDATE_LOCK_WAIT=3
-t_run '. "$T_ROOT/lib/config.sh"; . "$T_ROOT/lib/update-steps.sh"; a=$(tehas_update_lock_wait); tehas_load >/dev/null 2>&1; b=${TEHAS_UPDATE_LOCK_WAIT:-}; printf "read=%s instance_line=%s\n" "$a" "$b"'
-t_eq "$t_out" "read=10 instance_line=3"
+t_run '. "$T_ROOT/lib/config.sh"; a=${TEHAS_UPDATE_LOCK_WAIT:-unset}; tehas_load >/dev/null 2>&1; b=${TEHAS_UPDATE_LOCK_WAIT:-}; printf "read=%s instance_line=%s\n" "$a" "$b"'
+t_eq "$t_out" "read=unset instance_line=3"
 
 # The host's CPU count is read with nproc; a stub makes the default the same
 # on every machine.
@@ -1509,7 +1509,7 @@ for name in "${names[@]}"; do
   for value in "${values[@]}"; do printf '%s\0%s\0' "$name" "$value"; done
 done >"$T/pairs"
 TEHAS_HOME=/h/tehas TEHAS_INSTANCE_DIR=/i/ TEHAS_WORK_REPO=/w "$T_CONSOLE" settings valid <"$T/pairs" >"$T/verb"
-t_eq "$(sha256sum <"$T/verb" | cut -d' ' -f1)" "91bda0bd5cce7b51322a48cf2dd5cc6ed4218976e5491db40f94fc734faeff1c"
+t_eq "$(sha256sum <"$T/verb" | cut -d' ' -f1)" "68b0dc5853620fe009242a9ca5f04f6752046047912baa590cfb88c8c3328a4d"
 
 t_stub nproc 'echo 8'
 t_case "each kind of instance leaves the environment and the words bash left"

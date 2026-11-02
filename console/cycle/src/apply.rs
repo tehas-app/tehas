@@ -1,16 +1,15 @@
 //! A cycle's report applied: the writes of `report`, in its order, with the
-//! tries and bounds of libexec/cycle. Every write to GitHub goes through the
+//! tries and bounds the bash report had. Every write to GitHub goes through the
 //! action journal, and each try is a row of its own. Nothing decides a report
 //! again and tehas:running left on an issue parks it for good, so a write the
 //! journal cannot record is made with no row. Then the end on the cycle's
-//! record, 5 tries, and what follows it. Run after tehas work with the signals
-//! the report ignores already ignored, and with the cycle's lock held.
+//! record, 5 tries, and what follows it. Run by `supervise` after tehas work,
+//! with the cycle's lock held; a signal then is a flag nobody reads.
 
 use crate::after::{self, log};
 use crate::facts::Facts;
 use crate::host::{self, Start};
 use crate::report::{report, Action, Ask, Park, Report};
-use crate::shadow::BOXES;
 use serde_json::{json, Value};
 use std::fs;
 use std::path::Path;
@@ -18,6 +17,9 @@ use std::process::Command;
 use std::time::Duration;
 use tehas_core::call::{run_full, store_try, GRACE};
 use tehas_core::journal::{Journal, Wrote};
+
+/// The comment a park posts when its question's label could not be added.
+pub const BOXES: &str = "The boxes above cannot be used: the label `tehas:question` could not be added (run `tehas labels` on the host). To retry, apply `tehas:ready`.";
 
 /// A gh call of the report: long past any answer. The bash had no bound.
 const GH_BOUND: Duration = Duration::from_secs(120);
@@ -122,7 +124,7 @@ impl Ask for Tried {
             "--state",
             "all",
             "--json",
-            "url,state,body,headRefName",
+            "url,state,body,headRefName,isDraft",
             "--limit",
             "20",
         ]

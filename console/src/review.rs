@@ -64,7 +64,7 @@ pub fn main(given: &[String]) -> u8 {
     match given {
         [verb] if verb == "main" => review(),
         [verb] if verb == "table" => {
-            println!("{}", table());
+            tehas_core::outln!("{}", table());
             0
         }
         _ => {
@@ -85,7 +85,7 @@ pub fn words(given: &[String], usage: &str) -> Result<(), u8> {
     match given {
         [] => Ok(()),
         [one] if one == "-h" || one == "--help" => {
-            print!("{usage}");
+            tehas_core::out!("{usage}");
             Err(99)
         }
         [one] if one.is_empty() => Ok(()),
@@ -147,7 +147,7 @@ pub fn git_global(key: &str) -> String {
         .unwrap_or_default()
 }
 
-fn account() -> String {
+pub(crate) fn account() -> String {
     Command::new("id")
         .arg("-un")
         .output()
@@ -157,7 +157,7 @@ fn account() -> String {
 
 // What the image's runner says it can do. Err is the status of the call, so a
 // docker that does not answer is said apart from an image with no verb.
-fn capabilities(image: &str) -> Result<String, i32> {
+pub(crate) fn capabilities(image: &str) -> Result<String, i32> {
     let wait = env::var("TEHAS_CAPS_WAIT").unwrap_or_default();
     let shape = !wait.is_empty()
         && wait.len() <= 4
@@ -895,7 +895,7 @@ mod tests {
 
     #[test]
     fn a_workspace_goes_on_every_way_out_and_a_missing_directory_is_no_fault() {
-        let at = env::temp_dir().join(format!("review-workspace-{}", std::process::id()));
+        let at = tehas_core::testdir::TestDir::new("review-workspace");
         let (tree, state) = (at.join("tree"), at.join("tree.state"));
         fs::create_dir_all(tree.join("sub")).unwrap();
         fs::create_dir_all(&state).unwrap();
@@ -907,7 +907,6 @@ mod tests {
         let gone = name(&at.join("never"));
         assert_eq!(way_out(vec![name(&tree), gone, name(&state)]), 2);
         assert!(!tree.exists() && !state.exists());
-        fs::remove_dir_all(at).unwrap();
     }
 
     #[test]
@@ -998,8 +997,7 @@ mod tests {
 
     #[test]
     fn a_record_counts_only_with_a_full_commit() {
-        let dir = std::env::temp_dir().join(format!("review-record-{}", std::process::id()));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = tehas_core::testdir::TestDir::new("review-record");
         let file = dir.join("review.json");
         let path = file.to_str().unwrap();
         let full = "0123456789abcdef0123456789abcdef01234567";
@@ -1013,6 +1011,5 @@ mod tests {
             fs::write(&file, text).unwrap();
             assert_eq!(recorded(path), want);
         }
-        fs::remove_dir_all(&dir).unwrap();
     }
 }

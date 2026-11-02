@@ -489,38 +489,9 @@ t_eq "$(printf '%s\n' "$t_out" | sed -n '15,24p' | tr '\n' ' ')" "$security_opts
 # beyond the two a gate needs: a wider list here is a change of the contract.
 t_eq "$(printf '%s\n' "$t_out" | sed -n 's/^--cap-add=//p')" ""
 
-# The guard of tehas_sandbox_limits (lib/sandbox.sh), which judges what the
-# program hands out before Docker is called: asked of the command, so a guard
-# that drifted from the list is a failure in this file and not a cycle that stops
-# on a host. The tables of the size are in console/core/src/sandbox.rs.
-t_case "a list the program hands out that is not the documented one starts no cycle"
-short=$T/short-caps
-mkdir -p "$short/libexec"
-ln -s "$T_ROOT/lib" "$short/lib"
-ln -s "$T_ROOT/libexec/work" "$short/libexec/work"
-fourteen="--cgroup-parent tehas.slice --memory 2048m --memory-swap 2048m --memory-reservation 2g --cpus 3.75 --pids-limit 4096 --cpu-shares 1024"
-for words in "--cgroup-parent tehas.slice --memory 2048m --memory-swap 2048m --memory-reservation 2g --cpus 3.75 --pids-limit 4096" \
-  "--cgroup-parent other.slice --memory 2048m --memory-swap 2048m --memory-reservation 2g --cpus 3.75 --pids-limit 4096 --cpu-shares 1024" \
-  "--memory 2048m --cgroup-parent tehas.slice --memory-swap 2048m --memory-reservation 2g --cpus 3.75 --pids-limit 4096 --cpu-shares 1024" ""; do
-  rm -f "$T"/calls/*
-  # shellcheck disable=SC2086  # the words are the list
-  t_fake_limits "$short/libexec" $words ${words:+$security_opts}
-  t_run "$short/libexec/work 7"
-  t_eq "$t_rc" 78
-  t_contains "$t_out" "tehas work: the container limits could not be made, not starting"
-  t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
-done
-for opts in "--cap-drop ALL --cap-add CHOWN --cap-add FOWNER --security-opt no-new-privileges:true" \
-  "--cap-drop NET_RAW --cap-add CHOWN --cap-add FOWNER --security-opt no-new-privileges:true --tmpfs /tmp:rw,exec,nosuid,nodev,size=1024m,mode=1777"; do
-  rm -f "$T"/calls/*
-  # shellcheck disable=SC2086  # the words are the list
-  t_fake_limits "$short/libexec" $fourteen $opts
-  t_run "$short/libexec/work 7"
-  t_eq "$t_rc" 78
-  t_contains "$t_out" "tehas_sandbox_security gave "
-  t_contains "$t_out" "wants 10: not starting a cycle"
-  t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
-done
+# The guard that judges the list the slice hands out before Docker is called is
+# tehas-cycle work's own (console/cycle/src/work.rs, misshaped), and its tests
+# beside it hold it to the drifted lists this file once gave a stand-in.
 
 # A cycle's /tmp is a tmpfs, whose pages count against --memory and cannot be
 # reclaimed: one as large as the ceiling ends in OOM kills, not ENOSPC. It is
@@ -583,5 +554,49 @@ t_eq "$(after -e | grep -c '^GIT_CONFIG_VALUE_0=$')" 1
 
 t_case "host aliases become --add-host entries"
 t_contains "$(cycle_args)" "--add-host=models:192.0.2.9"
+
+# --- The product's install ----------------------------------------------------
+# A lockfile on top of the product as the cases above left it, gate and all.
+mkdir -p "$upstream/extension"
+echo '{}' >"$upstream/extension/bun.lock"
+git -C "$upstream" add -f -- extension/bun.lock
+git -C "$upstream" -c user.name=t -c user.email=t@example.com commit -q -m lock
+git -C "$checkout" fetch -q "$upstream" +refs/heads/main:refs/remotes/origin/main
+
+t_case "a product with a lockfile is installed in its workspace, in the sandbox, before the cycle"
+caps_fresh
+T_ENV=("${env_ok[@]}")
+t_run "$work 7"
+t_contains "$t_out" "tehas work: install extension/: bun install --frozen-lockfile"
+t_contains "$(install_args)" "(cd 'extension' && bun install --frozen-lockfile)"
+t_contains "$(cycle_args)" "pi-rukas-headless"
+# The cycle's limits and security options, the workspace where the cycle has
+# it, and no variable but HOME: no token reaches the product's install.
+t_eq "$(install_args | awk 'prev == "--memory" { print } { prev = $0 }')" "2048m"
+t_eq "$(install_args | security_line)" "$security_opts "
+t_eq "$(install_args | awk 'prev == "-v" { print } { prev = $0 }')" "$ws:$inside"
+t_eq "$(install_args | awk 'prev == "-w" { print } { prev = $0 }')" "$inside"
+t_eq "$(install_args | awk 'prev == "-e" { print } { prev = $0 }')" "HOME=/home/vscode"
+t_lacks "$(install_args)" "GH_TOKEN"
+t_contains "$(cat "$T"/home/tehas/logs/work-7-*.jsonl.preflight)" "install extension/: bun install --frozen-lockfile"
+
+t_case "an install that fails starts no cycle: 78, with what it said"
+caps_fresh
+T_ENV=("${env_ok[@]}" INSTALL_RC=1 "INSTALL_SAYS=error: lockfile had changes")
+t_run "$work 7"
+t_eq "$t_rc" 78
+t_contains "$t_out" "the product's install failed (exit 1), not starting a cycle"
+t_contains "$t_out" "error: lockfile had changes"
+t_eq "$(cycle_args)" ""
+
+t_case "a tool the image lacks is named, and no cycle starts"
+caps_fresh
+T_ENV=("${env_ok[@]}" INSTALL_RC=69 "INSTALL_SAYS=no bun in the sandbox image")
+t_run "$work 7"
+t_eq "$t_rc" 78
+t_contains "$t_out" "tehas work: no bun in the sandbox image, which the product's install needs; not starting a cycle"
+t_lacks "$t_out" "install failed"
+t_eq "$(cycle_args)" ""
+T_ENV=("${env_ok[@]}")
 
 t_done

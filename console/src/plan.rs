@@ -1,16 +1,20 @@
-//! What a planning turn says, for libexec/plan: the runner's answer shaped
-//! as the dispatcher posts it, and a drafted plan the operator chose to make
-//! the issue's own text. The host's side of a turn is src/plan/turn.rs.
+//! What a planning turn says: the runner's answer shaped as the dispatcher
+//! posts it, and a drafted plan the operator chose to make the issue's own
+//! text. `tehas plan` is src/plan/start.rs, the host's side of a turn
+//! src/plan/turn.rs.
 //!
 //!   console plan update <session> <keep>
 //!       the issue's {title, body} on standard input, as gh issue view gives
 //!       them, and the draft in <keep>/draft.json.
 //!   console plan descriptor <brief> <issue>
-//!       the one line the first turn of libexec/plan plans, read from <brief>
+//!       the one line the first turn plans, read from <brief>
 //!       (what plan_brief writes: `# <title>`, a blank line, then the body)
 //!       and the issue's number. See descriptor for how the line is made.
 //!
-//! update prints the --out document of libexec/plan, descriptor its one line.
+//!   console plan table
+//!       this command's rows of the table of runs (test/sandbox_test.sh).
+//!
+//! update prints the --out document of a turn, descriptor its one line.
 //! Exit 0 printed, 1 nothing to print (why on standard error), 2 a usage
 //! error.
 //!
@@ -24,7 +28,12 @@ use std::io::Read;
 use std::path::Path;
 use tehas_core::plan::{checked, clip, made, refusal_document, text_of, APPLY_READY, CLIP};
 
+mod start;
 mod turn;
+
+pub use start::start;
+use start::table;
+pub use start::words as turn_words;
 
 /// pi-rukas keeps a plan's title to 72 characters in all, its prefix included,
 /// and its longest prefix, `research: `, is 10 of them.
@@ -41,15 +50,13 @@ const DRAFTED_REFINE: &str = "Tick Update this issue to make the plan, proposals
 const DUPLICATE: &str = "pi-rukas thinks this plan duplicates open work. Reply to say why it does not, or end the session.";
 
 pub fn main(given: &[String]) -> u8 {
-    if let Some(code) = turn::verb(given) {
-        return code;
-    }
     let mut input = String::new();
     let done = match given {
         [verb, session, keep] if verb == "update" => {
             let _ = std::io::stdin().read_to_string(&mut input);
             update(session, Path::new(keep), &input)
         }
+        [verb] if verb == "table" => Ok(table()),
         [verb, brief, issue] if verb == "descriptor" => {
             if issue.is_empty() || !issue.bytes().all(|b| b.is_ascii_digit()) {
                 return usage();
@@ -63,7 +70,7 @@ pub fn main(given: &[String]) -> u8 {
     };
     match done {
         Ok(said) => {
-            println!("{said}");
+            tehas_core::outln!("{said}");
             0
         }
         Err(why) => {
@@ -74,9 +81,7 @@ pub fn main(given: &[String]) -> u8 {
 }
 
 fn usage() -> u8 {
-    eprintln!(
-        "console plan: usage: update <session> <keep> | descriptor <brief> <issue> | workspace|give|place|turn|run ..."
-    );
+    eprintln!("console plan: usage: update <session> <keep> | descriptor <brief> <issue> | table");
     2
 }
 
@@ -97,7 +102,7 @@ fn filed_ok(url: &str) -> bool {
     }
 }
 
-/// The --out document, its keys in the order libexec/plan always wrote them.
+/// The --out document, its keys in the order a turn always wrote them.
 fn document(session: &str, text: &str, question: &Value, filed: &[String], more: &str) -> String {
     let mut out = format!(
         "{{\"session\":{},\"text\":{},\"question\":{}",
@@ -340,22 +345,8 @@ mod tests {
     use super::*;
     use tehas_core::plan::REFUSED;
 
-    fn keep() -> std::path::PathBuf {
-        keep_dir("")
-    }
-
-    /// A directory of this test's own, named below the shared one: the tests
-    /// of this file run side by side and each keeps its own draft, so one
-    /// test's `draft.json` cannot answer for another's.
-    fn keep_dir(name: &str) -> std::path::PathBuf {
-        let d = std::env::temp_dir().join(format!(
-            "tehas-plan-{name}-{}-{:?}",
-            std::process::id(),
-            std::thread::current().id()
-        ));
-        let _ = std::fs::remove_dir_all(&d);
-        std::fs::create_dir_all(&d).unwrap();
-        d
+    fn keep() -> tehas_core::testdir::TestDir {
+        tehas_core::testdir::TestDir::new("plan")
     }
 
     fn parsed(s: &str) -> Value {
@@ -765,7 +756,7 @@ mod tests {
     fn an_update_without_a_draft_or_the_issue_prints_nothing() {
         // A keep directory of its own: the tests of this file run side by side,
         // and a draft one of them kept would answer for this one.
-        let k = keep_dir("none");
+        let k = tehas_core::testdir::TestDir::new("plan-none");
         let good = r#"{"title":"t","spec":"The console reads the new key."}"#;
         // Nothing to print and the turn fails: no draft kept, a kept draft
         // that is no document, and no issue to read. A draft the check

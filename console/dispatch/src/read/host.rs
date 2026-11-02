@@ -451,47 +451,33 @@ pub fn leftovers(home: &Path, work_dir: &str, user_home: &Path, now: i64) -> Val
 mod tests {
     use super::*;
     use std::io::BufRead;
-    use std::path::PathBuf;
-
-    struct Dir(PathBuf);
-
-    impl Drop for Dir {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.0);
-        }
-    }
+    use tehas_core::testdir::TestDir;
 
     /// A home of this case's own, with its `state`.
-    fn home(name: &str) -> Dir {
-        static N: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-        let d = std::env::temp_dir().join(format!(
-            "tehas-dispatch-host-{}-{name}-{}",
-            std::process::id(),
-            N.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
-        ));
-        let _ = fs::remove_dir_all(&d);
+    fn home(name: &str) -> TestDir {
+        let d = TestDir::new(&format!("dispatch-host-{name}"));
         fs::create_dir_all(d.join("state")).unwrap();
-        Dir(d)
+        d
     }
 
     #[test]
     fn a_plans_record_is_there_or_not_and_what_cannot_be_read_counts_for_nothing() {
         let h = home("plan-start");
-        assert_eq!(plan_start(&h.0, 7), None);
-        fs::create_dir_all(h.0.join("state/plan-start")).unwrap();
-        assert_eq!(plan_start(&h.0, 7), None);
-        let file = plan_start_file(&h.0, 7);
+        assert_eq!(plan_start(&h, 7), None);
+        fs::create_dir_all(h.join("state/plan-start")).unwrap();
+        assert_eq!(plan_start(&h, 7), None);
+        let file = plan_start_file(&h, 7);
         fs::write(&file, r#"{"by":"alice"}"#).unwrap();
-        assert_eq!(plan_start(&h.0, 7), Some(json!({"by": "alice"})));
-        assert_eq!(plan_start(&h.0, 8), None);
+        assert_eq!(plan_start(&h, 7), Some(json!({"by": "alice"})));
+        assert_eq!(plan_start(&h, 8), None);
         fs::write(&file, "not json").unwrap();
-        assert_eq!(plan_start(&h.0, 7), Some(Value::Null));
+        assert_eq!(plan_start(&h, 7), Some(Value::Null));
         // A link is no record, whatever it points at.
         fs::remove_file(&file).unwrap();
-        let there = h.0.join("elsewhere.json");
+        let there = h.join("elsewhere.json");
         fs::write(&there, r#"{"by":"alice"}"#).unwrap();
         std::os::unix::fs::symlink(&there, &file).unwrap();
-        assert_eq!(plan_start(&h.0, 7), Some(Value::Null));
+        assert_eq!(plan_start(&h, 7), Some(Value::Null));
     }
 
     #[test]
@@ -504,7 +490,7 @@ mod tests {
     #[test]
     fn no_lock_and_one_the_probe_took_are_not_held() {
         let h = home("free");
-        let lock = h.0.join("state/plan-7.json.lock");
+        let lock = h.join("state/plan-7.json.lock");
         assert!(!held(&lock), "no lock file");
         fs::write(&lock, "").unwrap();
         assert!(!held(&lock), "a lock no one holds");
@@ -513,7 +499,7 @@ mod tests {
     #[test]
     fn a_directory_at_a_planning_lock_path_is_held() {
         let h = home("directory");
-        let lock = h.0.join("state/plan-7.json.lock");
+        let lock = h.join("state/plan-7.json.lock");
         fs::create_dir(&lock).unwrap();
         assert!(held(&lock), "a name that is no lock file");
     }
@@ -521,9 +507,9 @@ mod tests {
     #[test]
     fn a_link_at_a_planning_lock_path_is_held() {
         let h = home("link");
-        let target = h.0.join("elsewhere.lock");
+        let target = h.join("elsewhere.lock");
         fs::write(&target, "").unwrap();
-        let lock = h.0.join("state/plan-7.json.lock");
+        let lock = h.join("state/plan-7.json.lock");
         std::os::unix::fs::symlink(&target, &lock).unwrap();
         assert!(held(&lock), "a lock asked by a name of its own");
     }
@@ -531,7 +517,7 @@ mod tests {
     #[test]
     fn a_lock_held_by_another_process_is_held() {
         let h = home("held");
-        let lock = h.0.join("state/plan-7.json.lock");
+        let lock = h.join("state/plan-7.json.lock");
         fs::write(&lock, "").unwrap();
         // The holder is a process of its own, so the probe's open is not the one
         // that already holds the lock. It prints when it holds, waits for a line,

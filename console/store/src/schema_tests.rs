@@ -10,7 +10,6 @@ use rusqlite::Connection;
 use std::fs::{self, OpenOptions};
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::path::Path;
-use std::path::PathBuf;
 
 const V1: &str = include_str!("../tests/schema_v1.sql");
 
@@ -72,7 +71,7 @@ fn settings() -> Settings {
 
 /// A home whose store is the one main's install.sh made: schema 1, with
 /// `rows` written into it.
-fn v1_home(name: &str, rows: &str) -> PathBuf {
+fn v1_home(name: &str, rows: &str) -> TestDir {
     let home = scratch(name);
     let state = home.join("state");
     fs::DirBuilder::new().mode(0o700).create(&state).unwrap();
@@ -127,7 +126,7 @@ const TO_8: &str = db::STEP_8;
 /// release wrote, built by laying the steps to it as the released binaries did.
 /// `rows` are rows of schema 1 written into it and `later` is written after the
 /// steps.
-fn old_home(name: &str, at: i64, rows: &str, later: &str) -> PathBuf {
+fn old_home(name: &str, at: i64, rows: &str, later: &str) -> TestDir {
     let home = v1_home(name, rows);
     let c = conn(&home);
     for (to, sql) in [

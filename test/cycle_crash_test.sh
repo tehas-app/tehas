@@ -322,7 +322,7 @@ done
 exit 2
 EOS
 t_run "$cycle 7"
-t_contains "$(t_calls gh)" "Tehas cycle stopped without a pull request"
+t_contains "$(t_calls gh)" "Tehas cycle stopped with pull request #347 open"
 t_contains "$(t_calls gh)" "Its branch has an open pull request: https://github.com/acme/widget/pull/347"
 t_lacks "$(t_calls gh)" "handed off with its pull request open"
 t_lacks "$(t_calls gh)" "its review unfinished"

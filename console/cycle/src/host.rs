@@ -1,10 +1,8 @@
-//! The facts of an ended cycle read from the host, as libexec/cycle reads
-//! them for its report: the files of the protocol, the newest run log, the
-//! cycle's record and its approval on the state store, the workspace, and
-//! when docker says the image on the record was built.
-//! And GitHub's answers, asked with gh as the bash asks them, once each.
+//! The facts of an ended cycle read from the host for its report: the files
+//! of the protocol, the newest run log, the cycle's record and its approval on
+//! the state store, the workspace, and when docker says the image on the record
+//! was built.
 
-use crate::report::Ask;
 use serde_json::{json, Map, Value};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -192,75 +190,4 @@ fn newest_log(logs: &Path, issue: u64) -> Option<PathBuf> {
                 && fs::symlink_metadata(p).is_ok_and(|m| m.is_file())
         })
         .max()
-}
-
-/// GitHub asked with gh, once each, as the shadow asks it.
-pub struct Live {
-    pub repo: String,
-    pub issue: u64,
-    /// What GitHub answered, kept for the record of the shadow.
-    pub said: Map<String, Value>,
-}
-
-fn gh(args: &[&str]) -> Option<Vec<u8>> {
-    let out = Command::new("timeout")
-        .args(["-k", "5", "20", "gh"])
-        .args(args)
-        .output()
-        .ok()?;
-    out.status.success().then_some(out.stdout)
-}
-
-impl Ask for Live {
-    fn prs(&mut self, branch: &str) -> Option<Vec<Value>> {
-        let got = gh(&[
-            "pr",
-            "list",
-            "--repo",
-            &self.repo,
-            "--head",
-            branch,
-            "--author",
-            "@me",
-            "--state",
-            "all",
-            "--json",
-            "url,state,body,headRefName",
-            "--limit",
-            "20",
-        ])
-        .and_then(|o| serde_json::from_slice::<Value>(&o).ok())
-        .and_then(|v| v.as_array().cloned());
-        self.said.insert(
-            "prs".into(),
-            got.clone().map(Value::Array).unwrap_or(Value::Null),
-        );
-        got
-    }
-
-    fn attention(&mut self) -> Option<bool> {
-        let got = gh(&["api", &format!("repos/{}/issues/{}", self.repo, self.issue)])
-            .and_then(|o| serde_json::from_slice::<Value>(&o).ok())
-            .filter(Value::is_object)
-            .map(|v| {
-                v.get("labels").and_then(Value::as_array).is_some_and(|l| {
-                    l.iter().any(|x| {
-                        x.get("name").and_then(Value::as_str) == Some("needs-human-attention")
-                    })
-                })
-            });
-        self.said.insert(
-            "attention".into(),
-            got.map(Value::Bool).unwrap_or(Value::Null),
-        );
-        got
-    }
-
-    fn issue(&mut self) -> Option<Value> {
-        let got = gh(&["api", &format!("repos/{}/issues/{}", self.repo, self.issue)])
-            .and_then(|o| serde_json::from_slice::<Value>(&o).ok());
-        self.said
-            .insert("issue".into(), got.clone().unwrap_or(Value::Null));
-        got
-    }
 }

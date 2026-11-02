@@ -63,7 +63,7 @@ one. A request without a key gets 401.
 - `factory_failures`: the work runs of the last 30 days per tehas and pi-rukas version pair, with their most common causes; `by: image` splits a pair by the sandbox image build
 - `factory_outcomes`: how the factory has done further back than 30 days, as counts per tehas and pi-rukas version pair or per UTC week
 - `factory_park`: why an issue's last stopped run stopped: the step, the failure kind, the cap, the park signature, the runner's error and the failing check lines, masked
-- `factory_decisions`: the dispatcher's last decisions, start, skip, wait and drop (of a refresh request), each with its issue and reason
+- `factory_decisions`: the dispatcher's last decisions, start, skip, wait, hold and drop (of a refresh request), each with its issue and reason; a hold line says why a parked issue does not start
 
 To see what went wrong, call `factory_failures`, then `factory_sessions` with
 `outcome` set to `failed`, then `factory_session` for one of them, then
