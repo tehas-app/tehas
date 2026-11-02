@@ -14,6 +14,10 @@ fn a_closed_stdout_ends_141_without_a_panic() {
         .output()
         .unwrap();
     let said = String::from_utf8_lossy(&out.stderr);
-    assert_eq!(out.status.code(), Some(141), "tehas-dispatch --help: {said}");
+    assert_eq!(
+        out.status.code(),
+        Some(141),
+        "tehas-dispatch --help: {said}"
+    );
     assert!(said.is_empty(), "tehas-dispatch --help: {said}");
 }
