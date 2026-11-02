@@ -97,10 +97,6 @@
 //! The flags under state/ of one instance: the limit tehas limit sets, see
 //! src/flags.rs.
 //!
-//!   console export run ...
-//!
-//! What tehas export copies, see src/export.rs.
-//!
 //!   console state pack|unpack ...
 //!
 //! A stopped factory's state as one tar, see src/state.rs.
@@ -159,7 +155,7 @@
 //! The product against the contract, and the files it is missing proposed in a
 //! pull request, see src/product.rs.
 //!
-//!   console tehas status|disk|state|limit|pause|analytics|top|api|labels|resume|drain|stop|mcp ...
+//!   console tehas status|disk|state|limit|pause|analytics|top|api|labels|resume|drain|history|export|stop|mcp ...
 //!   console tehasbot health|status|top|mcp
 //!   console check tehas|tehasbot <command> ...
 //!   console usage <command>
@@ -438,7 +434,6 @@ fn main() -> ExitCode {
             Some("disk") => return ExitCode::from(disk::main(&given[1..])),
             Some("energy") => return ExitCode::from(energy::main(&given[1..])),
             Some("epics") => return ExitCode::from(epics::main(&given[1..])),
-            Some("export") => return ExitCode::from(export::main(&given[1..])),
             Some("flags") => return ExitCode::from(flags::main(&given[1..])),
             Some("forge") => return ExitCode::from(forge::main(&given[1..])),
             Some("init-product") => return ExitCode::from(product::init(&given[1..])),

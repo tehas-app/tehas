@@ -728,7 +728,6 @@ for f in \
   dev \
   dev-login \
   dispatch \
-  export \
   github-token \
   improve \
   index \
@@ -1310,6 +1309,7 @@ for f in \
   libexec/disk \
   libexec/drain \
   libexec/energy \
+  libexec/export \
   libexec/health \
   libexec/history \
   libexec/labels \

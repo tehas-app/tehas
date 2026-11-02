@@ -132,7 +132,6 @@ files="./.bashrc
 ./tehas/libexec/dev
 ./tehas/libexec/dev-login
 ./tehas/libexec/dispatch
-./tehas/libexec/export
 ./tehas/libexec/github-token
 ./tehas/libexec/improve
 ./tehas/libexec/index
