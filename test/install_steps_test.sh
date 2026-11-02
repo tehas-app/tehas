@@ -110,7 +110,7 @@ fresh
 instance
 t_run "$install"
 mkdir -p "$th/state"
-printf 'sandbox\ndocs\n' >"$(TEHAS_HOME=$th tehas_pending_file)"
+printf 'sandbox\ndocs\n' >"$th/state/update-pending"
 t_run "$install --check"
 t_eq "$t_rc" 1
 t_contains "$t_out" "Follow-ups:   NOT DONE (2 from an earlier run"
@@ -134,6 +134,25 @@ t_contains "$t_out" "Follow-ups:   NOT DONE (the record $th/state/update-pending
 chmod 644 "$th/state/update-pending"
 t_eq "$(cat "$th/state/update-pending")" "sandbox
 docs --force-recreate"
+
+# The record is read by the console. --check from a checkout on a host whose
+# console cannot answer still says the record is owed, and with no record it
+# says nothing.
+t_case "--check with no console that reads the record says it is not done"
+fresh
+instance
+t_run "$install"
+mkdir -p "$th/state"
+printf 'sandbox\n' >"$th/state/update-pending"
+t_stub no-console 'exit 64'
+T_ENV_ALWAYS=(TEHAS_CONSOLE="$T/bin/no-console")
+t_run "$install --check"
+t_eq "$t_rc" 1
+t_contains "$t_out" "Follow-ups:   NOT DONE (the record $th/state/update-pending cannot be read)"
+rm -f "$th/state/update-pending"
+t_run "$install --check"
+t_lacks "$t_out" "Follow-ups:"
+T_ENV_ALWAYS=(TEHAS_CONSOLE="$T_CONSOLE")
 
 t_case "an install will not record into a record it cannot read"
 fresh

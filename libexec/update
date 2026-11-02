@@ -21,10 +21,6 @@ set -uo pipefail
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 console=${TEHAS_CONSOLE:-$here/console}
 [ -x "$console" ] || { echo "tehas update: no console at $console: run install.sh" >&2; exit 78; }
-# Before lib/config.sh is loaded: tehas_load drops what it does not know.
-# shellcheck source=lib/update-steps.sh
-. "$here/../lib/update-steps.sh"
-lock_wait=$(tehas_update_lock_wait)
 
 "$console" update args "$@"
 rc=$?
@@ -37,6 +33,8 @@ case "$rc" in
     exit 1
     ;;
 esac
+# Before lib/config.sh is loaded: tehas_load drops what it does not know.
+lock_wait=$("$console" update wait update) || exit 1
 
 # shellcheck source=lib/config.sh
 . "$here/../lib/config.sh"
