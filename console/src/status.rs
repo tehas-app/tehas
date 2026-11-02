@@ -27,7 +27,7 @@
 use crate::flags::epoch;
 use crate::jq::{first, obj, J};
 use crate::store;
-use crate::update::release::{older, tag_ok};
+use crate::update::release::{candidate, older, tag_ok};
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -445,6 +445,8 @@ fn platform_line(h: &J, now: i64) -> Option<String> {
             "newest unknown".to_string()
         } else if newer(newest, release) {
             format!("{} is out", newest.text())
+        } else if newer(release, newest) && release.as_str().is_some_and(candidate) {
+            format!("newest {}, the candidate is newer", newest.text())
         } else {
             format!("newest {}", newest.text())
         };
@@ -785,6 +787,20 @@ mod tests {
             "platform  cb6912a, 19 commits behind origin/main since 2026-10-13, never fetched"
         );
         assert_eq!(platform_line(&h("{}"), NOW), None);
+    }
+
+    #[test]
+    fn a_candidate_ahead_of_the_newest_release_says_so() {
+        let rc = h(r#"{"checks":{"platform":{"release":"v0.23.0-rc.2","newest":"v0.22.1"}}}"#);
+        assert_eq!(
+            platform_line(&rc, NOW).unwrap(),
+            "platform  v0.23.0-rc.2, newest v0.22.1, the candidate is newer, never fetched"
+        );
+        let out = h(r#"{"checks":{"platform":{"release":"v0.23.0-rc.2","newest":"v0.23.0"}}}"#);
+        assert_eq!(
+            platform_line(&out, NOW).unwrap(),
+            "platform  v0.23.0-rc.2, v0.23.0 is out, never fetched"
+        );
     }
 
     #[test]
