@@ -1968,14 +1968,33 @@ fn a_plan_chosen_for_its_issue_is_written_onto_it_and_ends_the_session() {
     assert!(!t.w.home.join("state/plan-7.json.out").exists());
 }
 
+/// The draft kept for the poll's outcome: a plan of the shape the planner is
+/// asked for, which none of the checks of #1210 refuses. `plan_clear` writes
+/// the draft's own text, not the document's, so this is the text a case that
+/// reaches the write must hold.
 const PLAN_LABELLED: &str = "2026-10-01T00:00:00Z";
-const PLAN_DRAFT: &str = r###"{"title":"feat: faster search","spec":"## Outcome\n\nFast."}"###;
+/// A line of a plan that says something of the issue, which no check of
+/// #1210 refuses. The stub of the world records a body given on standard
+/// input as one line of its log per line of the text, so a case that names
+/// the write names the first line it holds.
+const PLAN_LINE: &str = "The p95 is under 100 ms.";
+const PLAN_BODY: &str = "## Outcome\n\nThe p95 is under 100 ms.\n\nThe gate is green.";
+/// A drafted plan of the shape the planner is asked for, which none of the
+/// checks of #1210 refuses: `plan_clear` writes the draft's own text, so a
+/// case that reaches the write names this one.
+const PLAN_TITLE: &str = "feat: search is fast";
+const PLAN_DRAFT: &str = r###"{"title":"feat: search is fast","spec":"## Outcome\n\nThe p95 is under 100 ms.\n\nThe gate is green."}"###;
 const LABEL_OFF: &str = "gh issue edit 7 --repo example-owner/example-product --remove-label tehas:question --remove-label tehas:planning --remove-label tehas:plan --remove-label needs-human-attention --add-label tehas:ready";
 
 /// The poll a drafted plan with no open points ends in, up to the store's
 /// `clear`: a session of `by`, its `tehas:plan` by `labeller`, the issue open
 /// and the draft kept.
 fn clear_plan(t: &World, session: Value, labeller: &str) {
+    clear_draft(t, session, labeller, PLAN_DRAFT);
+}
+
+/// The same poll with some other draft kept beside the session.
+fn clear_draft(t: &World, session: Value, labeller: &str, draft: &str) {
     plan_row(t, session);
     turn_ended(
         t,
@@ -1986,7 +2005,7 @@ fn clear_plan(t: &World, session: Value, labeller: &str) {
     );
     let keep = t.dir.join("works/tehas-work-plan-7.keep");
     fs::create_dir_all(&keep).unwrap();
-    fs::write(keep.join("draft.json"), PLAN_DRAFT).unwrap();
+    fs::write(keep.join("draft.json"), draft).unwrap();
     fs::write(
         t.dir.join("events-7"),
         json!([{"event": "labeled", "label": {"name": "tehas:plan"},
@@ -2033,7 +2052,13 @@ fn a_plan_with_no_open_points_from_an_allowed_account_updates_and_starts() {
     clear_plan(&t, alices_session(), "alice");
     let a = t.apply(json!([{"plan_collect": 7}]));
     let w = t.writes();
-    assert!(w.contains(&"gh issue edit 7 --repo example-owner/example-product --title feat: faster search --body-file - <<< ## Outcome".to_string()), "{w:?}");
+    assert!(w.iter().any(|c| {
+        c.starts_with(
+            "gh issue edit 7 --repo example-owner/example-product --title feat: search is fast --body-file - <<< ## Outcome",
+        )
+    }) && w.contains(&PLAN_LINE.to_string()),
+        "{w:?}"
+    );
     assert!(w.contains(&LABEL_OFF.to_string()), "{w:?}");
     assert!(w.contains(&"store plan-end 7 --close".to_string()), "{w:?}");
     assert!(
@@ -2051,7 +2076,7 @@ fn a_plan_with_no_open_points_from_an_allowed_account_updates_and_starts() {
     assert_eq!(
         record["sum"],
         crate::text::plan_sum(
-            &json!({"title": "feat: faster search", "body": "## Outcome\n\nFast."})
+            &json!({"title": PLAN_TITLE, "body": PLAN_BODY})
         )
     );
     use std::os::unix::fs::PermissionsExt as _;
@@ -2249,6 +2274,181 @@ fn a_draft_that_is_gone_asks() {
     fs::remove_file(t.dir.join("works/tehas-work-plan-7.keep/draft.json")).unwrap();
     t.apply(json!([{"plan_collect": 7}]));
     asks(&t);
+}
+
+/// A text of the planner's own, of which none of the checks of #1210 makes
+/// nothing: two lines, so the body of a plan is more than one line of words.
+const GOOD_SPEC: &str = "## Outcome\n\nThe p95 is under 100 ms.\n\nThe gate is green.";
+const GOOD_TITLE: &str = "feat: search is fast";
+
+/// The poll a person's tick on Update this issue ends in: the outcome the
+/// console wrote for it, with the draft kept beside the session. No `clear`,
+/// no label events to read, and no start to keep: the tick is the answer.
+fn chosen_draft(t: &World, title: &str, spec: &str) {
+    plan_row(t, alices_session());
+    turn_ended(
+        t,
+        7,
+        "0",
+        json!({"session": "s-1", "text": "This issue now holds the plan.", "question": null,
+               "update": {"title": title, "body": spec}}),
+    );
+    let keep = t.dir.join("works/tehas-work-plan-7.keep");
+    fs::create_dir_all(&keep).unwrap();
+    fs::write(keep.join("draft.json"), json!({"title": title, "spec": spec}).to_string()).unwrap();
+}
+
+#[test]
+fn a_clear_plan_that_fails_the_check_asks_and_starts_nothing() {
+    // The title a planner has published: one prefix and nothing but it.
+    for (what, title, spec) in [
+        ("prefixes", "EPIC: EPIC", GOOD_SPEC),
+        ("one word twice", "work work", GOOD_SPEC),
+        (
+            "the planner's brief",
+            GOOD_TITLE,
+            "Descriptor: what the issue is\n\n## Prior context inventory\n\n- the file",
+        ),
+        (
+            "nothing but the brief's markers",
+            GOOD_TITLE,
+            "[context param]\n\n[context param]",
+        ),
+    ] {
+        let mut t = world();
+        clear_draft(
+            &t,
+            alices_session(),
+            "alice",
+            &json!({"title": title, "spec": spec}).to_string(),
+        );
+        // What a refused plan must not do, made to fail if it is ever tried:
+        // write the issue, take the planning labels off as an ended session
+        // does, or close the session. The poll asks instead, so no case
+        // reaches any of them, and a line that says they were tried is a
+        // WARN the poll would log.
+        t.fail("gh", "--title");
+        t.fail("gh", "--remove-label tehas:plan ");
+        t.fail("store", "plan-end 7 --close");
+        let a = t.apply(json!([{"plan_collect": 7}]));
+        eprintln!("{what}");
+        assert!(
+            !a.log.iter().any(|l| l.starts_with("WARN")),
+            "{what}: {:?}",
+            a.log
+        );
+        asks(&t);
+        // Asked, not written. `asks` has the boxes posted, the issue back to
+        // `tehas:question`, no title written, no `tehas:ready` and no record
+        // of a start; nothing else of the plan was kept. The case below this
+        // one, with a draft the check lets through and the same session,
+        // writes the issue and starts the cycle.
+        // The person reads which rule the text failed: the poll says it in a
+        // comment of its own, before the question of the turn it was asked
+        // to post and the labels that follow it.
+        let w = t.writes();
+        let refusal = w.iter().position(|c| {
+            c.starts_with("gh issue comment 7")
+                && c.contains("Tehas did not make the drafted plan this issue's text")
+        });
+        assert!(refusal.is_some(), "{what}: {w:?}");
+        assert!(
+            refusal.unwrap() < w
+                .iter()
+                .position(|c| c.starts_with("gh api -X POST") && c.contains("issues/7/comments"))
+                .unwrap(),
+            "{what}: {w:?}"
+        );
+        assert!(
+            a.log.iter().any(|l| {
+                l.starts_with("planning #7 asks: Tehas did not make the drafted plan")
+            }),
+            "{what}: {:?}",
+            a.log
+        );
+    }
+}
+
+#[test]
+fn a_chosen_draft_that_fails_the_check_writes_nothing_and_ends_nothing() {
+    // The tick of a person, not a start: the same refusal, and here the
+    // session stays open for a reply rather than ending without a plan.
+    let mut t = world();
+    chosen_draft(&t, "EPIC: EPIC", GOOD_SPEC);
+    let a = t.apply(json!([{"plan_collect": 7}]));
+    let w = t.writes();
+    assert!(!w.iter().any(|c| c.starts_with("gh issue edit 7 --repo example-owner/example-product --title")), "{w:?}");
+    assert!(!w.iter().any(|c| c.starts_with("gh issue edit 7 --repo example-owner/example-product --body-file")), "{w:?}");
+    // Asked, not ended: no planning label comes off and no session closes.
+    assert!(w.contains(&"gh issue edit 7 --repo example-owner/example-product --remove-label tehas:planning --add-label tehas:question".to_string()), "{w:?}");
+    assert!(!w.iter().any(|c| c.contains("--remove-label tehas:plan ")), "{w:?}");
+    assert!(!w.contains(&"store plan-end 7 --close".to_string()), "{w:?}");
+    assert!(
+        w.iter().any(|c| c.starts_with("gh api -X POST")
+            && c.contains("issues/7/comments")
+            && c.contains("nothing but prefixes")),
+        "{w:?}"
+    );
+    assert!(
+        a.log
+            .iter()
+            .any(|l| l.starts_with("planning #7 asks: Tehas did not make")),
+        "{:?}",
+        a.log
+    );
+    assert!(!the_record(&t).exists());
+}
+
+#[test]
+fn a_chosen_draft_that_passes_the_check_is_written_as_it_was() {
+    let mut t = world();
+    chosen_draft(&t, PLAN_TITLE, PLAN_BODY);
+    let a = t.apply(json!([{"plan_collect": 7}]));
+    let w = t.writes();
+    // One call of `gh issue edit` carries the plan: its title in the
+    // arguments and its body on standard input, which the stub logs as the
+    // text it was given and then as one row per line of that text. A plan of
+    // two lines of words is two rows of the log after the call's own row,
+    // which is the shape of a plan the check lets through and the shape a
+    // refused draft never reaches.
+    let written: Vec<&String> = w
+        .iter()
+        .filter(|c| {
+            c.starts_with(
+                "gh issue edit 7 --repo example-owner/example-product --title feat: search is fast --body-file - <<< ## Outcome",
+            )
+        })
+        .collect();
+    assert_eq!(written.len(), 1, "{w:?}");
+    let after = w.iter().position(|c| c == written[0]).unwrap();
+    // The blank lines between the headings and their text are rows too, so
+    // the two lines of words of the plan sit at after+2 and after+4.
+    assert_eq!(
+        w.get(after + 2).map(String::as_str),
+        Some("The p95 is under 100 ms."),
+        "{w:?}"
+    );
+    assert_eq!(
+        w.get(after + 4).map(String::as_str),
+        Some("The gate is green."),
+        "{w:?}"
+    );
+    // A tick writes the plan; it does not approve a cycle, so the labels of
+    // planning come off and no `tehas:ready` is added.
+    assert!(
+        w.contains(
+            &"gh issue edit 7 --repo example-owner/example-product --remove-label tehas:question --remove-label tehas:planning --remove-label tehas:plan --remove-label needs-human-attention".to_string()
+        ),
+        "{w:?}"
+    );
+    assert!(
+        !w.iter().any(|c| c.contains("--add-label tehas:ready")),
+        "{w:?}"
+    );
+    assert_eq!(
+        a.log,
+        vec!["planning #7 ended", "done planning #7 turn=2 rc=0"]
+    );
 }
 
 #[test]
