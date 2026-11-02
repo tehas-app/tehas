@@ -10,7 +10,8 @@
 //!     --install-err <file> --install-rc <n>
 //!   console update release source|installed|newest|keep
 //!   console update release older|stale <version> <version>
-//!   console update steps ids|units|valid <line>|for <source>...|record <source>...
+//!   console update steps ids|units|valid <line>|owed|for <source>...|record <source>...
+//!   console update wait update|dispatch
 //!
 //! `args` judges the arguments before any setting is read, and answers --help.
 //! `gate` says, with the settings loaded and before the lock, whether this run
@@ -21,7 +22,8 @@
 //! the update ran, and the one left has to finish it. `finish` reads install.sh's
 //! answer and runs the follow-ups, see src/update/finish.rs. `release` answers
 //! one question about the releases, and `steps` names the steps and records them
-//! for install.sh, see src/update/steps.rs.
+//! for install.sh, see src/update/steps.rs. `wait` says how long a lock is waited
+//! for, see src/update/wait.rs.
 //!
 //! Every program is spawned by name from PATH, so a host's own tool, or a
 //! test's stub, answers. Each call outside goes through `timeout`, and only
@@ -34,6 +36,7 @@ mod checkout;
 mod finish;
 pub(crate) mod release;
 mod steps;
+mod wait;
 
 use std::env;
 use std::fs;
@@ -330,7 +333,7 @@ fn parse(given: &[String]) -> Result<Asked, u8> {
     }
     if !to.is_empty() && !release::tag_ok(&to) {
         tell(&format!(
-            "tehas update: --to takes a version vX.Y.Z, got: {to}"
+            "tehas update: --to takes a version vX.Y.Z or vX.Y.Z-rc.N, got: {to}"
         ));
         return Err(64);
     }
@@ -508,8 +511,9 @@ pub fn main(given: &[String]) -> u8 {
         Some((verb, rest)) if verb == "finish" => finish::main(rest),
         Some((verb, rest)) if verb == "release" => release::verb(rest),
         Some((verb, rest)) if verb == "steps" => steps::verb(rest),
+        Some((verb, rest)) if verb == "wait" => wait::verb(rest),
         _ => {
-            tell("console update: usage: args | gate | prepare | api | finish | release <question> | steps <question>");
+            tell("console update: usage: args | gate | prepare | api | finish | release <question> | steps <question> | wait update|dispatch");
             64
         }
     }
@@ -520,20 +524,13 @@ pub(crate) mod testing {
     use std::fs;
     use std::path::{Path, PathBuf};
 
-    /// A directory of a test's own, gone when the test ends.
-    pub struct Dir(pub PathBuf);
+    use tehas_core::testdir::TestDir;
 
-    impl Drop for Dir {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.0);
-        }
-    }
+    /// A directory of a test's own, gone when the test ends.
+    pub struct Dir(pub TestDir);
 
     pub fn dir(name: &str) -> Dir {
-        let dir = std::env::temp_dir().join(format!("tehas-update-{name}-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
-        Dir(dir)
+        Dir(TestDir::new(&format!("update-{name}")))
     }
 
     impl Dir {
@@ -624,7 +621,7 @@ mod tests {
 
     fn home(d: &testing::Dir) -> Host {
         Host {
-            home: d.0.clone(),
+            home: d.0.to_path_buf(),
             image: String::new(),
         }
     }

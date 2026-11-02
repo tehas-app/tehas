@@ -5,9 +5,9 @@
 # There is no factory behind it. The files in preview/live stand where a host
 # has its queue, its running cycle and its health, so the pages have something
 # to show. Nothing is fetched and nothing runs but the server.
-# caddy 2.8.4, named by digest so a moved tag cannot change what runs.
+# caddy 2.11.7, named by digest so a moved tag cannot change what runs.
 # host/versions.env records the version and this digest together.
-FROM caddy@sha256:226d1f059b75399fe19182893c7184591c07b97afc8dfcf44eeb80c9a77a530f
+FROM caddy@sha256:36c24ad91a7ff7bc4c87fe22bfa8df3c4b18da0773d73fc12ee2c52b98c0bb7e
 COPY host/edge/docs.Caddyfile /etc/caddy/Caddyfile
 COPY host/docs /srv/docs
 COPY host/fun /srv/fun

@@ -70,7 +70,7 @@ pub fn parse(given: &[String]) -> Result<Option<Asked>, u8> {
     for word in given {
         match word.as_str() {
             "-h" | "--help" => {
-                print!("{USAGE}");
+                tehas_core::out!("{USAGE}");
                 return Ok(None);
             }
             "--keep-workspace" => keep = true,
@@ -633,7 +633,7 @@ pub fn main(given: &[String]) -> u8 {
 mod tests {
     use super::*;
     use std::os::unix::fs::symlink;
-    use std::path::PathBuf;
+    use tehas_core::testdir::TestDir;
 
     fn words(given: &[&str]) -> Vec<String> {
         given.iter().map(|w| w.to_string()).collect()
@@ -649,25 +649,8 @@ mod tests {
         }
     }
 
-    struct Dir(PathBuf);
-
-    impl Dir {
-        fn new(name: &str) -> Dir {
-            let dir = env::temp_dir().join(format!("stop-{}-{name}", std::process::id()));
-            let _ = fs::remove_dir_all(&dir);
-            fs::create_dir_all(&dir).unwrap();
-            Dir(dir)
-        }
-
-        fn path(&self, name: &str) -> String {
-            self.0.join(name).to_string_lossy().into_owned()
-        }
-    }
-
-    impl Drop for Dir {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.0);
-        }
+    fn at(dir: &TestDir, name: &str) -> String {
+        dir.join(name).to_string_lossy().into_owned()
     }
 
     #[test]
@@ -778,8 +761,8 @@ mod tests {
 
     #[test]
     fn a_marker_that_cannot_land_leaves_no_name_of_its_write() {
-        let dir = Dir::new("marker");
-        let marker = dir.path("5.stopped");
+        let dir = TestDir::new("marker");
+        let marker = at(&dir, "5.stopped");
         fs::create_dir(&marker).unwrap();
         assert!(!write_marker(&marker));
         assert!(!Path::new(&format!("{marker}.new")).exists());
@@ -788,28 +771,28 @@ mod tests {
 
     #[test]
     fn only_a_plain_file_or_no_file_is_a_lock() {
-        let dir = Dir::new("lock");
-        let plain = dir.path("1.lock");
+        let dir = TestDir::new("lock");
+        let plain = at(&dir, "1.lock");
         fs::write(&plain, "").unwrap();
         assert!(plain_or_absent(&plain));
-        assert!(plain_or_absent(&dir.path("2.lock")));
-        let linked = dir.path("3.lock");
+        assert!(plain_or_absent(&at(&dir, "2.lock")));
+        let linked = at(&dir, "3.lock");
         symlink(&plain, &linked).unwrap();
         assert!(!plain_or_absent(&linked));
-        let dangling = dir.path("4.lock");
-        symlink(dir.path("nothing"), &dangling).unwrap();
+        let dangling = at(&dir, "4.lock");
+        symlink(at(&dir, "nothing"), &dangling).unwrap();
         assert!(!plain_or_absent(&dangling));
-        let directory = dir.path("5.lock");
+        let directory = at(&dir, "5.lock");
         fs::create_dir(&directory).unwrap();
         assert!(!plain_or_absent(&directory));
     }
 
     #[test]
     fn a_lock_file_is_never_opened_through_a_link() {
-        let dir = Dir::new("nofollow");
-        let target = dir.path("target");
+        let dir = TestDir::new("nofollow");
+        let target = at(&dir, "target");
         fs::write(&target, "a person reads this").unwrap();
-        let link = dir.path("6.lock");
+        let link = at(&dir, "6.lock");
         symlink(&target, &link).unwrap();
         assert!(take_lock_file(&link).is_err());
         assert_eq!(fs::read_to_string(&target).unwrap(), "a person reads this");
@@ -817,15 +800,15 @@ mod tests {
 
     #[test]
     fn a_link_is_removed_and_not_followed() {
-        let dir = Dir::new("remove");
-        let inside = dir.path("target");
+        let dir = TestDir::new("remove");
+        let inside = at(&dir, "target");
         fs::create_dir(&inside).unwrap();
-        fs::write(dir.path("target/kept"), "x").unwrap();
-        let link = dir.path("link");
+        fs::write(at(&dir, "target/kept"), "x").unwrap();
+        let link = at(&dir, "link");
         symlink(&inside, &link).unwrap();
         assert!(remove(&link));
         assert!(fs::symlink_metadata(&link).is_err());
-        assert!(Path::new(&dir.path("target/kept")).exists());
+        assert!(Path::new(&at(&dir, "target/kept")).exists());
         assert!(remove(&inside));
         assert!(!Path::new(&inside).exists());
         assert!(remove(&inside), "a name not there is gone already");

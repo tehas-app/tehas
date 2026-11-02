@@ -1,21 +1,9 @@
 use crate::given::*;
 use serde_json::{json, Value};
 use std::fs;
-use std::path::PathBuf;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use tehas_core::testdir::TestDir;
 
 const LINK: &str = "https://github.com/user-attachments/assets/1";
-
-fn scratch() -> PathBuf {
-    static N: AtomicUsize = AtomicUsize::new(0);
-    let dir = std::env::temp_dir().join(format!(
-        "attach-given-{}-{}",
-        std::process::id(),
-        N.fetch_add(1, Ordering::Relaxed)
-    ));
-    fs::create_dir_all(&dir).unwrap();
-    dir
-}
 
 fn record() -> Value {
     json!({"links": [LINK], "at": "2026-01-01T00:00:00Z", "by": "alice", "how": "label"})
@@ -179,7 +167,7 @@ fn a_record_of_another_shape_is_an_error_and_no_link_is_nothing() {
 
 #[test]
 fn an_earlier_manifest_of_the_approval_keeps_its_entries_in_its_order() {
-    let dir = scratch();
+    let dir = TestDir::new("attach-given");
     let file = dir.join("7.manifest.json");
     let rec = dir.join("record.json");
     fs::write(&rec, record().to_string()).unwrap();
@@ -197,12 +185,11 @@ fn an_earlier_manifest_of_the_approval_keeps_its_entries_in_its_order() {
     ));
     assert!(written.ends_with(",\"leftOutMore\":0,\"files\":[]}\n"));
     assert!(!dir.join("7.manifest.json.new").exists());
-    fs::remove_dir_all(dir).unwrap();
 }
 
 #[test]
 fn a_kept_manifest_that_is_no_json_is_a_refusal_and_stays() {
-    let dir = scratch();
+    let dir = TestDir::new("attach-given");
     let file = dir.join("7.manifest.json");
     let rec = dir.join("record.json");
     fs::write(&rec, record().to_string()).unwrap();
@@ -210,12 +197,11 @@ fn a_kept_manifest_that_is_no_json_is_a_refusal_and_stays() {
     let out = left_out("7", file.to_str().unwrap(), rec.to_str().unwrap(), "0", "1");
     assert_eq!(out.unwrap_err().0, "unreadable");
     assert_eq!(fs::read_to_string(&file).unwrap(), "{");
-    fs::remove_dir_all(dir).unwrap();
 }
 
 #[test]
 fn a_link_a_directory_or_a_cycle_given_attachments_writes_nothing() {
-    let dir = scratch();
+    let dir = TestDir::new("attach-given");
     let rec = dir.join("record.json");
     fs::write(&rec, record().to_string()).unwrap();
     let rec = rec.to_str().unwrap();
@@ -229,18 +215,16 @@ fn a_link_a_directory_or_a_cycle_given_attachments_writes_nothing() {
         left_out("7", inner.to_str().unwrap(), rec, "0", "0").unwrap(),
         None
     );
-    fs::remove_dir_all(dir).unwrap();
 }
 
 #[test]
 fn a_manifest_that_cannot_be_written_leaves_no_new_file_and_refuses() {
-    let dir = scratch();
+    let dir = TestDir::new("attach-given");
     let rec = dir.join("record.json");
     fs::write(&rec, record().to_string()).unwrap();
     let file = dir.join("missing/m.json");
     let out = left_out("7", file.to_str().unwrap(), rec.to_str().unwrap(), "0", "0");
     assert_eq!(out.unwrap_err().0, "unwritable");
-    fs::remove_dir_all(dir).unwrap();
 }
 
 #[test]

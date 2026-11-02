@@ -803,7 +803,8 @@ fn plan_end_states_its_preconditions_and_arguments() {
         ),
         (1, "turn".into())
     );
-    let outside = scratch("elsewhere").join("x.out");
+    let elsewhere = scratch("elsewhere");
+    let outside = elsewhere.join("x.out");
     let (code, line) = turn_end(
         &home,
         32,

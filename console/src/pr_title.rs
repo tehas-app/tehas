@@ -358,7 +358,7 @@ pub fn main(given: &[String]) -> u8 {
                 return 1;
             };
             for line in poll(&mut gh, &repo, &v) {
-                println!("{line}");
+                tehas_core::outln!("{line}");
             }
             0
         }

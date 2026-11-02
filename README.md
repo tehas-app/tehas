@@ -144,8 +144,10 @@ scripts/verify.sh --full     # plus the workspace's format and lints (rustfmt, c
 
 The gate needs bash, git, jq, shellcheck and cargo; the full gate also needs
 node. It uses no network and no sandbox image, except that cargo fetches the
-workspace's crates the first time. The rules for changes are in
-[`AGENTS.md`](AGENTS.md).
+workspace's crates the first time. A Rust test makes its scratch
+directories with `tehas_core::testdir::TestDir`, which removes them when the
+test ends; the gate fails when the workspace's tests leave anything in their
+TMPDIR. The rules for changes are in [`AGENTS.md`](AGENTS.md).
 
 GitHub Actions runs the fast gate, `scripts/verify.sh`, on every pull request
 and on every push to main: the `verify` check, from
@@ -165,7 +167,7 @@ scripts/tag-deploy.sh tehas-tehas   # run tehas update on that host, check it la
 Both run unattended. Both fetch the remote's tags by force, so a tag the remote
 re-points is taken rather than refused, and a fetch that fails says so. `tag-release.sh` runs the gate on the head of main before
 it tags, does nothing when the head is already tagged, and prints the tag on
-stdout; `--minor`, `--major`, `--message`, `--no-verify` and `--dry-run` are
+stdout; `--minor`, `--major`, `--rc` (a release candidate, `vX.Y.Z-rc.N`, published as a prerelease; `--from <branch>` tags a candidate branch that contains main), `--message`, `--no-verify` and `--dry-run` are
 there too. Before it tags, it removes the polyfills the newest pi-rukas no
 longer needs (`scripts/polyfills.sh`): it opens a pull request for that, exits
 2 and tags once that is merged. `tag-deploy.sh` refuses when main has
@@ -195,7 +197,6 @@ host.
 | `lib/sandbox.sh` | What a sandbox container is given, for a cycle and for a session by hand |
 | `lib/slice.sh` | The way to `console slice`: whether `tehas.slice` is usable, the limits of a container, the room left |
 | `api/` | A JSON Schema of `tehas status --json` and two samples the tests make from the code; a program that reads the object copies them into its own tests |
-| `lib/update-steps.sh` | What of the follow-up steps is read before the console can be asked: the record of steps owed, and the one wait `install.sh` and `tehas update` give `state/update.lock` |
 | `host/` | Everything else that is installed: units, the docs server, the sandbox image, the manual |
 | `preview/` | What `tehasbot preview` builds for a pull request of this repository |
 | `install.sh`, `bootstrap.sh` | Install tehas on a host, and prepare a host's tools |

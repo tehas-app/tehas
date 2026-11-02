@@ -1008,7 +1008,7 @@ t_eq "$t_out" "20 $plan_max"
 
 # The two hand-copied defaults, the header of the command and the commented
 # example an operator copies, are pinned against the config.
-t_contains "$(grep 'TEHAS_PLAN_TIMEOUT  seconds' "$T_ROOT/libexec/plan")" "[$plan_max, the ceiling"
+t_contains "$(grep 'TEHAS_PLAN_TIMEOUT  seconds' "$T_ROOT/console/src/usage/plan.txt")" "[$plan_max, the ceiling"
 t_contains "$(grep 'TEHAS_PLAN_TIMEOUT        seconds' "$T_ROOT/console/src/usage/dispatch.txt")" "[$plan_max]"
 t_contains "$(grep '^#TEHAS_PLAN_TIMEOUT=' "$T_ROOT/instances/example/optional.env")" "$plan_max"
 
@@ -1045,15 +1045,15 @@ T_ENV=()
 t_case "the environment's update lock wait is used, and the loader drops the name"
 t_instance "${T_MINIMAL[@]}"
 T_ENV=(TEHAS_UPDATE_LOCK_WAIT=3)
-t_run '. "$T_ROOT/lib/config.sh"; . "$T_ROOT/lib/update-steps.sh"; a=$(tehas_update_lock_wait); tehas_load >/dev/null 2>&1; b=$(tehas_update_lock_wait); printf "before=%s after=%s\n" "$a" "$b"'
-t_eq "$t_out" "before=3 after=10"
+t_run '. "$T_ROOT/lib/config.sh"; a=${TEHAS_UPDATE_LOCK_WAIT:-unset}; tehas_load >/dev/null 2>&1; b=${TEHAS_UPDATE_LOCK_WAIT:-unset}; printf "before=%s after=%s\n" "$a" "$b"'
+t_eq "$t_out" "before=3 after=unset"
 T_ENV=()
 # tehas_load sources instance.env, so a line there reaches the environment, but
 # only after the two commands have read the wait: the instance does not set it.
 t_case "instance.env does not set the update lock's wait"
 t_instance "${T_MINIMAL[@]}" TEHAS_UPDATE_LOCK_WAIT=3
-t_run '. "$T_ROOT/lib/config.sh"; . "$T_ROOT/lib/update-steps.sh"; a=$(tehas_update_lock_wait); tehas_load >/dev/null 2>&1; b=${TEHAS_UPDATE_LOCK_WAIT:-}; printf "read=%s instance_line=%s\n" "$a" "$b"'
-t_eq "$t_out" "read=10 instance_line=3"
+t_run '. "$T_ROOT/lib/config.sh"; a=${TEHAS_UPDATE_LOCK_WAIT:-unset}; tehas_load >/dev/null 2>&1; b=${TEHAS_UPDATE_LOCK_WAIT:-}; printf "read=%s instance_line=%s\n" "$a" "$b"'
+t_eq "$t_out" "read=unset instance_line=3"
 
 # The host's CPU count is read with nproc; a stub makes the default the same
 # on every machine.

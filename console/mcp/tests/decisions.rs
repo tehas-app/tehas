@@ -1,6 +1,6 @@
 // factory_decisions: the dispatcher's last decisions from the end of
 // dispatch.log, as `grep -E ' (start|skip|wait|hold|drop the refresh of) #' | tail -n N`
-// shows, which is the same set of words the tool's table reads.
+// shows, and the words of both pinned to the dispatcher's source.
 
 use mcp::tools::{list_scoped, Dirs, Output, Scope, ToolError};
 use regex::Regex;
@@ -9,6 +9,7 @@ use std::collections::BTreeSet;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
+use tehas_core::testdir::TestDir;
 
 fn fixtures() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
@@ -26,60 +27,41 @@ fn call_in(logs: &Path, args: &Value) -> Result<Value, ToolError> {
     }
 }
 
-// A logs directory of its own, removed when dropped.
-struct Logs(PathBuf);
-
-impl Logs {
-    fn new(name: &str) -> Self {
-        let dir = std::env::temp_dir().join(format!("mcp-decisions-{name}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        Logs(dir)
-    }
-
-    fn with(name: &str, text: &str) -> Self {
-        let l = Self::new(name);
-        std::fs::write(l.0.join("dispatch.log"), text).unwrap();
-        l
-    }
+// A logs directory with this dispatch.log.
+fn logs_with(name: &str, text: &str) -> TestDir {
+    let l = TestDir::new(&format!("mcp-decisions-{name}"));
+    std::fs::write(l.join("dispatch.log"), text).unwrap();
+    l
 }
 
-impl Drop for Logs {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.0);
-    }
-}
-
-// What the issue's grep and tail show of the fixture, as the four fields. The
-// words are the ones the writers of the log use, written out below rather than
-// read from the table, so a word a host's dispatcher logs and the table
-// forgets fails the comparison test instead of agreeing with it by construction.
+// What the issue's grep and tail show of the fixture, as the four fields,
+// read by a pattern of its own rather than by the tool's parse. The words are
+// written out here, not read from the table, and pinned to the dispatcher's
+// source below.
 const GREP_WORDS: [&str; 5] = ["start", "skip", "wait", "hold", "drop the refresh of"];
 
 static TAIL: LazyLock<Regex> = LazyLock::new(|| {
-    let words = GREP_WORDS
-        .iter()
-        .map(|w| regex::escape(w))
-        .collect::<Vec<_>>()
-        .join("|");
-    Regex::new(&format!(" ({words}) #")).unwrap()
+    Regex::new(
+        r"^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ) (start|skip|wait|hold|drop the refresh of) #([1-9]\d{0,18})(?:: (.*)| \((.*)\))?$",
+    )
+    .unwrap()
 });
 
 fn grep_tail(text: &str, n: usize) -> Vec<Value> {
-    let hits: Vec<&str> = text
+    let hits: Vec<Value> = text
         .lines()
-        .filter(|l| TAIL.is_match(l) && mcp::decisions::parse(l).is_some())
-        .collect();
-    hits[hits.len().saturating_sub(n)..]
-        .iter()
-        .map(|l| {
-            // Read by the tool's own parse, so the oracle differs from it only
-            // in which lines it keeps and how many.
-            let d = mcp::decisions::parse(l).expect("a line parse keeps");
-            json!({"time": d.time, "decision": d.word,
-                   "issue": d.issue, "reason": d.reason})
+        .filter_map(|l| TAIL.captures(l))
+        .map(|c| {
+            let word = match &c[2] {
+                "drop the refresh of" => "drop",
+                w => w,
+            };
+            let reason = c.get(4).or(c.get(5)).map_or("", |m| m.as_str());
+            json!({"time": &c[1], "decision": word,
+                   "issue": c[3].parse::<u64>().unwrap(), "reason": reason})
         })
-        .collect()
+        .collect();
+    hits[hits.len().saturating_sub(n)..].to_vec()
 }
 
 #[test]
@@ -112,42 +94,151 @@ fn the_answer_is_what_grep_and_tail_show() {
     );
 }
 
-// The whole vocabulary of `dispatch.log` the two writers log, written out
-// here rather than read from the crate, so a word added to one side and not
-// the other fails this test. Each is a `logged` of the table or the first word
-// of a `WRITER_NON_DECISIONS`.
-const WRITTEN_WORDS: [&str; 12] = [
+// Every text of the dispatcher's source that starts with words and then an
+// issue number: the start of a line of `dispatch.log`, or of a reason or a
+// comment within one. A word the dispatcher starts to write that is not here
+// fails `the_words_are_the_dispatchers`, so whether it is a decision is
+// decided, not missed.
+const ISSUE_WORDS: [&str; 29] = [
     "clear",
+    "clear pull request",
+    "done planning",
     "drop the refresh of",
     "hold",
-    "hold refreshes",
-    "holding",
     "ignore",
+    "issue",
+    "it is not the one open pull request that closes",
     "lift",
+    "no cycle holds the lock of",
+    "no cycle runs on",
     "park",
-    "released",
+    "planning",
+    "pull request",
+    "refining",
     "skip",
     "start",
+    "start planning",
+    "stop",
+    "the cycle for",
+    "the planning turn of",
+    "the state of",
     "wait",
+    "what",
+    "would post the planning turn of",
+    "would post the waiting planning turn of",
+    "would run a cycle for",
+    "would run a planning turn for",
+    "would start a planning session for",
 ];
 
+// The string literals of the dispatcher's source, its tests left out.
+fn dispatcher_literals() -> Vec<String> {
+    let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("../dispatch/src");
+    let lit = Regex::new(r#""((?:[^"\\]|\\.)*)""#).unwrap();
+    let mut out = Vec::new();
+    let mut dirs = vec![src];
+    while let Some(dir) = dirs.pop() {
+        for e in std::fs::read_dir(&dir).unwrap() {
+            let path = e.unwrap().path();
+            let name = path.file_name().unwrap().to_string_lossy().into_owned();
+            if path.is_dir() {
+                if name != "tests" {
+                    dirs.push(path);
+                }
+                continue;
+            }
+            if !name.ends_with(".rs") || name.ends_with("_tests.rs") || name == "tests.rs" {
+                continue;
+            }
+            let text = std::fs::read_to_string(&path).unwrap();
+            let code = text.split("#[cfg(test)]").next().unwrap_or("");
+            out.extend(lit.captures_iter(code).map(|c| c[1].to_string()));
+        }
+    }
+    assert!(out.len() > 100, "the dispatcher's source was not read");
+    out
+}
+
 #[test]
-fn the_table_and_the_grep_read_the_same_words() {
-    let table = mcp::decisions::DECISIONS
+fn the_words_are_the_dispatchers() {
+    let literals = dispatcher_literals();
+    let start = Regex::new(r"^([a-z][a-z ]*?) #\{").unwrap();
+    let mut written: BTreeSet<String> = literals
         .iter()
-        .map(|row| row.logged)
-        .chain(
-            mcp::decisions::WRITER_NON_DECISIONS
-                .iter()
-                .map(|(w, _, _)| *w),
-        )
-        .chain(GREP_WORDS.iter().copied())
-        .collect::<BTreeSet<_>>();
+        .filter_map(|l| start.captures(l).map(|c| c[1].to_string()))
+        .collect();
+    // `deny` logs `{verb} #{n}: ...` with the verb it is given.
+    let deny = Regex::new(r#"\.deny\(\s*"([a-z ]+)""#).unwrap();
+    let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("../dispatch/src/decide.rs");
+    let text = std::fs::read_to_string(src).unwrap();
+    written.extend(deny.captures_iter(&text).map(|c| c[1].to_string()));
+    let listed: BTreeSet<String> = ISSUE_WORDS.iter().map(|w| w.to_string()).collect();
+    assert_eq!(written, listed, "the dispatcher's words and ISSUE_WORDS");
+
+    let decided: BTreeSet<&str> = mcp::decisions::DECISIONS.iter().map(|r| r.logged).collect();
     assert_eq!(
-        table,
-        WRITTEN_WORDS.iter().copied().collect::<BTreeSet<_>>(),
-        "the words the grep reads and the words the table knows"
+        decided,
+        GREP_WORDS.iter().copied().collect(),
+        "the grep and the table"
     );
+    for (word, _, _) in mcp::decisions::WRITER_NON_DECISIONS {
+        let said =
+            written.contains(word) || literals.iter().any(|l| l.starts_with(&format!("{word}:")));
+        assert!(said, "{word} is no word of the dispatcher");
+        assert!(!decided.contains(word), "{word}");
+    }
+    let t = "2026-10-29T16:23:14Z";
+    for word in &written {
+        let (colon, brackets) = (format!("{t} {word} #7: x"), format!("{t} {word} #7 (x)"));
+        let colon = mcp::decisions::parse(&colon);
+        let brackets = mcp::decisions::parse(&brackets);
+        if decided.contains(word.as_str()) {
+            assert!(colon.is_some(), "{word}");
+            assert_eq!(brackets.is_some(), word == "start", "{word}");
+        } else {
+            assert_eq!((colon, brackets), (None, None), "{word}");
+        }
+    }
+}
+
+// Every hold the dispatcher's source writes is a line the tests read: the
+// table's sample or one of `HOST_HOLD_LINES`, and each of those is one of the
+// source's holds.
+#[test]
+fn the_hold_lines_are_the_dispatchers() {
+    let holes = Regex::new(r"\{[^{}]*\}").unwrap();
+    let shapes: Vec<Regex> = dispatcher_literals()
+        .iter()
+        .filter(|l| l.starts_with("hold #{"))
+        .map(|l| {
+            let parts: Vec<String> = holes.split(l).map(regex::escape).collect();
+            Regex::new(&format!("^{}$", parts.join(".+"))).unwrap()
+        })
+        .collect();
+    assert!(!shapes.is_empty(), "the dispatcher writes no hold");
+    let lines: Vec<&str> = mcp::decisions::HOST_HOLD_LINES
+        .iter()
+        .copied()
+        .chain(
+            mcp::decisions::DECISIONS
+                .iter()
+                .filter(|r| r.word == "hold")
+                .map(|r| r.sample),
+        )
+        .map(|l| l.split_once(' ').expect("a timed line").1)
+        .collect();
+    for shape in &shapes {
+        assert!(
+            lines.iter().any(|l| shape.is_match(l)),
+            "no line of the hold {shape}"
+        );
+    }
+    for line in &lines {
+        assert!(
+            shapes.iter().any(|s| s.is_match(line)),
+            "{line} is no hold of the dispatcher"
+        );
+    }
 }
 
 // A hold line of each shape a host's dispatcher writes today is answered, so a
@@ -164,8 +255,8 @@ fn every_hold_line_a_host_writes_is_answered() {
         mcp::decisions::DECISIONS[3].sample,
     ]
     .join("\n");
-    let l = Logs::with("holds", &log);
-    let out = call_in(&l.0, &json!({})).unwrap();
+    let l = logs_with("holds", &log);
+    let out = call_in(&l, &json!({})).unwrap();
     let lines = out["decisions"].as_array().unwrap();
     assert_eq!(lines.len(), 5, "{out}");
     for (line, d) in log.lines().zip(lines) {
@@ -197,8 +288,8 @@ fn other_lines_are_not_decisions() {
         log.push('\n');
     }
     log.push_str("2026-10-20T10:00:06Z wait #6: its cycle is still running\n");
-    let l = Logs::with("other", &log);
-    let out = call_in(&l.0, &json!({})).unwrap();
+    let l = logs_with("other", &log);
+    let out = call_in(&l, &json!({})).unwrap();
     assert_eq!(
         out["decisions"],
         json!([{"time": "2026-10-20T10:00:06Z", "decision": "wait", "issue": 6,
@@ -212,14 +303,14 @@ fn a_reason_is_masked_then_cut() {
     // Built from parts: the lint refuses a private address written out.
     let address = ["10", "1", "2", "3"].join(".");
     let long = "x".repeat(1000);
-    let l = Logs::with(
+    let l = logs_with(
         "mask",
         &format!(
             "2026-10-20T10:00:00Z skip #1: fetch failed with {token} at {address}\n\
              2026-10-20T10:00:01Z skip #2: {long}\n"
         ),
     );
-    let out = call_in(&l.0, &json!({})).unwrap();
+    let out = call_in(&l, &json!({})).unwrap();
     let text = out.to_string();
     assert!(!text.contains(&token), "{text}");
     assert!(!text.contains(&address), "{text}");
@@ -238,8 +329,8 @@ fn a_reason_is_masked_then_cut() {
 // that older ones were not read.
 #[test]
 fn a_huge_log_is_read_from_its_end_only() {
-    let l = Logs::new("huge");
-    let path = l.0.join("dispatch.log");
+    let l = TestDir::new("mcp-decisions-huge");
+    let path = l.join("dispatch.log");
     let f = std::fs::File::create(&path).unwrap();
     f.set_len(1 << 40).unwrap();
     drop(f);
@@ -254,7 +345,7 @@ fn a_huge_log_is_read_from_its_end_only() {
     .unwrap();
     writeln!(f, "2026-10-20T10:00:01Z skip #2: kept").unwrap();
     drop(f);
-    let out = call_in(&l.0, &json!({})).unwrap();
+    let out = call_in(&l, &json!({})).unwrap();
     assert_eq!(out["whole"], false);
     assert_eq!(
         out["decisions"],
@@ -288,33 +379,33 @@ fn bad_arguments_are_a_tool_error() {
 
 #[test]
 fn a_missing_or_linked_log_is_a_file_error() {
-    let l = Logs::new("missing");
-    match call_in(&l.0, &json!({})) {
+    let l = TestDir::new("mcp-decisions-missing");
+    match call_in(&l, &json!({})) {
         Err(ToolError::File { file, .. }) => assert_eq!(file, "dispatch.log"),
         other => panic!("{other:?}"),
     }
-    let target = l.0.join("other.log");
+    let target = l.join("other.log");
     std::fs::write(&target, "2026-10-20T10:00:00Z skip #1: through a link\n").unwrap();
-    std::os::unix::fs::symlink(&target, l.0.join("dispatch.log")).unwrap();
-    match call_in(&l.0, &json!({})) {
+    std::os::unix::fs::symlink(&target, l.join("dispatch.log")).unwrap();
+    match call_in(&l, &json!({})) {
         Err(ToolError::File { file, why }) => {
             assert_eq!(file, "dispatch.log");
             assert!(why.contains("plain file"), "{why}");
         }
         other => panic!("{other:?}"),
     }
-    let d = Logs::new("dir");
-    std::fs::create_dir(d.0.join("dispatch.log")).unwrap();
+    let d = TestDir::new("mcp-decisions-dir");
+    std::fs::create_dir(d.join("dispatch.log")).unwrap();
     assert!(matches!(
-        call_in(&d.0, &json!({})),
+        call_in(&d, &json!({})),
         Err(ToolError::File { .. })
     ));
 }
 
 #[test]
 fn an_empty_log_has_no_decisions() {
-    let l = Logs::with("empty", "");
-    let out = call_in(&l.0, &json!({})).unwrap();
+    let l = logs_with("empty", "");
+    let out = call_in(&l, &json!({})).unwrap();
     assert_eq!(out["decisions"], json!([]));
     assert_eq!(out["whole"], true);
 }

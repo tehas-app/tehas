@@ -25,6 +25,7 @@ use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::{self, Command, Stdio};
+use tehas_core::install::{self, Step};
 use tehas_core::{sandbox, time};
 
 const HEAD: &str = "tehas/init-product";
@@ -102,12 +103,14 @@ fn quiet(command: &mut Command) -> bool {
         .is_ok_and(|s| s.success())
 }
 
-// A clone made under $TEHAS_HOME/tmp. It goes when this ends, on a signal too.
+// A directory under $TEHAS_HOME/tmp/<product>, so no two products share one.
+// It goes when this ends, on a signal too.
 struct Scratch(String);
 
 impl Scratch {
-    fn new(home: &str, name: &str) -> Option<Scratch> {
-        let tmp = format!("{home}/tmp");
+    fn new(home: &str, repo: &str, name: &str) -> Option<Scratch> {
+        let product = repo.rsplit('/').next().unwrap_or(repo);
+        let tmp = format!("{home}/tmp/{product}");
         if let Err(e) = fs::create_dir_all(&tmp) {
             complain(&format!("tehas: {tmp}: {e}"));
             return None;
@@ -131,6 +134,10 @@ impl Scratch {
 impl Drop for Scratch {
     fn drop(&mut self) {
         let _ = fs::remove_dir_all(&self.0);
+        // The product's directory goes once nothing else is in it.
+        if let Some(parent) = Path::new(&self.0).parent() {
+            let _ = fs::remove_dir(parent);
+        }
     }
 }
 
@@ -141,6 +148,9 @@ fn remove_on_signal(path: PathBuf) {
     std::thread::spawn(move || {
         if let Some(signal) = signals.forever().next() {
             let _ = fs::remove_dir_all(&path);
+            if let Some(parent) = path.parent() {
+                let _ = fs::remove_dir(parent);
+            }
             process::exit(128 + signal);
         }
     });
@@ -233,14 +243,30 @@ fn checks(sandbox: bool) -> Result<u8, u8> {
             Ok(words) => run.pass("model", &words),
             Err(words) => run.fail("model", words),
         }
+        let install = install::steps(&repo, head);
+        match &install {
+            None => run.fail("install", format!("git could not list the files of {head}")),
+            Some(steps) if steps.is_empty() => {
+                run.pass(
+                    "install",
+                    "no lockfile and no .pi/install-cmd: nothing to install",
+                );
+            }
+            Some(steps) => {
+                for step in steps {
+                    run.pass("install", &step.line());
+                }
+            }
+        }
         if sandbox {
             let full = command_of(".pi/verify-cmd-full");
             let gates = Gates {
                 gate: if full.is_empty() { quick } else { full },
                 smoke: command_of(".pi/smoke-cmd"),
+                install: install.unwrap_or_default(),
                 setup: in_commit(&repo, head, ".pi/worktree-setup"),
             };
-            sandboxed = in_sandbox(&home, &repo, gates, &mut run)?;
+            sandboxed = in_sandbox(&home, &name, &repo, gates, &mut run)?;
         }
     }
 
@@ -345,20 +371,13 @@ fn model_check(
 struct Gates {
     gate: String,
     smoke: String,
+    install: Vec<Step>,
     setup: bool,
 }
 
-// The arguments of the container. test/check_product_test.sh pins them in
-// order, and table() reads this file's row of the table of runs off them.
-fn gates_run(tree: &str, image: &str, user: &str, gates: &Gates) -> Vec<String> {
-    let mut script = String::new();
-    if gates.setup {
-        script.push_str("sh .pi/worktree-setup && ");
-    }
-    script.push_str("sh -c \"$1\"");
-    if !gates.smoke.is_empty() {
-        script.push_str(" && sh -c \"$2\"");
-    }
+// A container of the check: <dir> mounted at its own path, <at> the directory
+// it starts in, bash its entrypoint.
+fn container(dir: &str, at: &str, image: &str, user: &str) -> Vec<String> {
     [
         "run",
         "--rm",
@@ -373,20 +392,40 @@ fn gates_run(tree: &str, image: &str, user: &str, gates: &Gates) -> Vec<String> 
         "-e",
         "HOME=/home/vscode",
         "-v",
-        &format!("{tree}:{tree}"),
+        &format!("{dir}:{dir}"),
         "-w",
-        tree,
+        at,
         "--entrypoint",
         "bash",
         image,
-        "-c",
-        &script,
-        "gates",
-        &gates.gate,
-        &gates.smoke,
     ]
     .map(String::from)
     .to_vec()
+}
+
+// The arguments of the gates' container. test/check_product_test.sh pins them
+// in order, and table() reads this file's rows of the table of runs off them.
+// <dir> holds the clone and the worktree of it the gates run in, as a cycle has
+// them.
+fn gates_run(dir: &str, image: &str, user: &str, gates: &Gates) -> Vec<String> {
+    let mut script = String::new();
+    if gates.setup {
+        script.push_str("sh .pi/worktree-setup && ");
+    }
+    script.push_str("sh -c \"$1\"");
+    if !gates.smoke.is_empty() {
+        script.push_str(" && sh -c \"$2\"");
+    }
+    let mut argv = container(dir, &format!("{dir}/tree"), image, user);
+    argv.extend(["-c", &script, "gates", &gates.gate, &gates.smoke].map(String::from));
+    argv
+}
+
+// The container of the product's install, at the root of the clone.
+fn install_run(dir: &str, image: &str, user: &str, steps: &[Step]) -> Vec<String> {
+    let mut argv = container(dir, &format!("{dir}/clone"), image, user);
+    argv.extend(["-c".to_string(), install::script(steps)]);
+    argv
 }
 
 fn table() -> String {
@@ -394,17 +433,70 @@ fn table() -> String {
     let gates = Gates {
         gate: String::new(),
         smoke: String::new(),
+        install: Vec::new(),
         setup: false,
     };
-    let argv = gates_run("", image, "", &gates);
-    let at = argv.iter().position(|a| a == "--entrypoint");
-    let entry = at.map_or("", |i| &argv[i + 1]);
-    format!("check-product\t{image}\t{entry}")
+    let rows = [
+        gates_run("", image, "", &gates),
+        install_run("", image, "", &[]),
+    ];
+    let rows = rows.iter().map(|argv| {
+        let at = argv.iter().position(|a| a == "--entrypoint");
+        let entry = at.map_or("", |i| &argv[i + 1]);
+        format!("check-product\t{image}\t{entry}")
+    });
+    rows.collect::<Vec<_>>().join("\n")
 }
 
-// The gates on a fresh clone in the image: whether they passed, or nothing
-// when there was no gate to run.
-fn in_sandbox(home: &str, repo: &str, gates: Gates, run: &mut Run) -> Result<Option<bool>, u8> {
+// The seconds the install may take: a cold package cache on a slow link.
+const INSTALL_WAIT: &str = "1800";
+
+// The product's install in the clone, in the image. Ok when it passed; else
+// the failures it is said as.
+fn installed(dir: &str, image: &str, user: &str, steps: &[Step]) -> Result<(), Vec<String>> {
+    let out = Command::new("timeout")
+        .args(["-k", "10", INSTALL_WAIT, "docker"])
+        .args(install_run(dir, image, user, steps))
+        .stdin(Stdio::null())
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::piped())
+        .output();
+    let Ok(out) = out else {
+        return Err(vec![
+            "docker could not be started for the install".to_string()
+        ]);
+    };
+    let said = String::from_utf8_lossy(&out.stderr);
+    eprint!("{said}");
+    let rc = out.status.code().unwrap_or(127);
+    if rc == 0 {
+        return Ok(());
+    }
+    let lacking = install::missing(&said);
+    if rc == install::MISSING && !lacking.is_empty() {
+        return Err(lacking
+            .iter()
+            .map(|tool| format!("no {tool} in the sandbox image"))
+            .collect());
+    }
+    if matches!(rc, 124 | 137) {
+        return Err(vec![format!(
+            "the install did not end within {INSTALL_WAIT}s"
+        )]);
+    }
+    Err(vec![format!("the install failed in {image} (exit {rc})")])
+}
+
+// The gates on a fresh clone in the image, run in a worktree of the clone as a
+// cycle runs them, after the product's install at the root of the clone:
+// whether they passed, or nothing when there was no gate to run.
+fn in_sandbox(
+    home: &str,
+    name: &str,
+    repo: &str,
+    gates: Gates,
+    run: &mut Run,
+) -> Result<Option<bool>, u8> {
     let image = setting("PI_ENSEMBLE_IMAGE")?;
     if gates.gate.is_empty() {
         run.fail("sandbox", "no gate to run in the sandbox".to_string());
@@ -417,7 +509,7 @@ fn in_sandbox(home: &str, repo: &str, gates: Gates, run: &mut Run) -> Result<Opt
         ));
         return Err(1);
     }
-    let tree = Scratch::new(home, "check-product").ok_or(1u8)?;
+    let dir = Scratch::new(home, name, "check-product").ok_or(1u8)?;
     let branch =
         read(git(repo).args(["symbolic-ref", "-q", "--short", "refs/remotes/origin/HEAD"]))
             .unwrap_or_default();
@@ -425,7 +517,9 @@ fn in_sandbox(home: &str, repo: &str, gates: Gates, run: &mut Run) -> Result<Opt
     // A cycle's gate runs on its work branch, ahead of the default branch. An
     // empty commit puts the clone there too, so a gate that diffs against
     // origin/main compares a proper ancestor and finds no change.
-    let path = tree.0.as_str();
+    let path = format!("{}/clone", dir.0);
+    let path = path.as_str();
+    let worktree = format!("{}/tree", dir.0);
     if !(sandbox::clone(repo, path, branch)
         && ran(git(path).args(["checkout", "-q", "-b", "tehas/check-product"]))
         && ran(git(path).args([
@@ -439,7 +533,8 @@ fn in_sandbox(home: &str, repo: &str, gates: Gates, run: &mut Run) -> Result<Opt
             "--no-verify",
             "-m",
             "tehas check-product: no change",
-        ])))
+        ]))
+        && ran(git(path).args(["worktree", "add", "-q", "--detach", &worktree])))
     {
         complain(&format!(
             "tehas check-product: could not clone {repo} into {path}"
@@ -451,7 +546,16 @@ fn in_sandbox(home: &str, repo: &str, gates: Gates, run: &mut Run) -> Result<Opt
         read(Command::new("id").arg("-u")).unwrap_or_default(),
         read(Command::new("id").arg("-g")).unwrap_or_default()
     );
-    let passed = ran(Command::new("docker").args(gates_run(path, &image, &user, &gates)));
+    if !gates.install.is_empty() {
+        if let Err(failures) = installed(&dir.0, &image, &user, &gates.install) {
+            for words in failures {
+                run.fail("install", words);
+            }
+            return Ok(Some(false));
+        }
+        run.pass("install", &format!("the install passed in {image}"));
+    }
+    let passed = ran(Command::new("docker").args(gates_run(&dir.0, &image, &user, &gates)));
     if passed {
         run.pass("sandbox", &format!("the gates passed in {image}"));
     } else {
@@ -521,7 +625,7 @@ fn propose(branch: &str, dry: bool) -> Result<u8, u8> {
     let name = setting("TEHAS_REPO")?;
     let src = setting("TEHAS_WORK_REPO")?;
 
-    let scratch = Scratch::new(&home, "init-product").ok_or(1u8)?;
+    let scratch = Scratch::new(&home, &name, "init-product").ok_or(1u8)?;
     let tree = scratch.0.as_str();
     let url = read(git(&src).args(["config", "--get", "remote.origin.url"])).unwrap_or_default();
     let tip = format!("refs/remotes/origin/{branch}");
@@ -762,18 +866,13 @@ mod tests {
     );
 
     fn guessed(files: &[(&str, &str)]) -> Guess {
-        static CASE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-        let n = CASE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let dir = std::env::temp_dir().join(format!("product-{}-{n}", process::id()));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = tehas_core::testdir::TestDir::new("product");
         for (name, text) in files {
             let file = dir.join(name);
             fs::create_dir_all(file.parent().unwrap()).unwrap();
             fs::write(file, text).unwrap();
         }
-        let said = guess(&dir);
-        fs::remove_dir_all(dir).unwrap();
-        said
+        guess(&dir)
     }
 
     #[test]
@@ -995,15 +1094,21 @@ mod tests {
         let gates = Gates {
             gate: "g".to_string(),
             smoke: String::new(),
+            install: Vec::new(),
             setup: true,
         };
         let said = gates_run("/t", "img", "1:2", &gates).join(" ");
         assert_eq!(
             said,
             "run --rm --cgroup-parent tehas.slice --memory 4g --memory-swap 4g --user 1:2 \
-             -e HOME=/home/vscode -v /t:/t -w /t --entrypoint bash img \
+             -e HOME=/home/vscode -v /t:/t -w /t/tree --entrypoint bash img \
              -c sh .pi/worktree-setup && sh -c \"$1\" gates g "
         );
-        assert_eq!(table(), "check-product\tPI_ENSEMBLE_IMAGE\tbash");
+        let said = install_run("/t", "img", "1:2", &[]).join(" ");
+        assert!(said.contains(" -v /t:/t -w /t/clone --entrypoint bash img -c set -e\n"));
+        assert_eq!(
+            table(),
+            "check-product\tPI_ENSEMBLE_IMAGE\tbash\ncheck-product\tPI_ENSEMBLE_IMAGE\tbash"
+        );
     }
 }
