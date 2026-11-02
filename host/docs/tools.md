@@ -1138,14 +1138,15 @@ dispatcher, which writes it onto the issue and ends the session. A plan with no
 open points may need no such answer: the dispatcher then reads the issue and
 `draft.json` itself and no turn runs, see
 [A plan with no open points](/operating#a-plan-with-no-open-points).
-Both writers of the draft's text go through `made` (`console/core/src/plan.rs`),
-which asks the one text check of #1210 (`console/core/src/textcheck.rs`): a
-title of nothing but a prefix, a word said twice, the planner's brief as the
-plan, or a text with no line of the issue's own in it is refused. A refusal
-writes nothing: the console's `update` answer comes back with the question and
-no `update` key, a draft the check refuses is never marked `clear`, and the
-dispatcher asks with the rule in the comment instead of ending the session or
-crediting a start.
+The one gate on the draft's text is `made` (`console/core/src/plan.rs`), which
+asks the text check of #1210 (`console/core/src/textcheck.rs`) of the draft's
+own title and text: a title of nothing but a prefix, a word said twice, the
+planner's brief as the plan, or a text with no line of the issue's own in it is
+refused, and a refusal writes nothing. Both writers of a plan go through it, and
+the dispatcher pre-checks the same function before it writes an `update` or
+credits a start, so a draft that says nothing of the issue asks instead: the
+console's `update` answer comes back with the question and no `update` key, and
+a draft the check refuses is never marked `clear`.
 Any other answer runs `--answer`. The first
 turn runs `plan "<descriptor>" --start --context <brief>`, with
 `--issue <n>` when the image lists that flag for `plan`, so the planner does not

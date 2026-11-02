@@ -538,23 +538,20 @@ t_case "a draft the text check refuses is shown, never marked clear, and its Upd
 # of one word said twice, the planner's brief copied as the plan, and a text
 # of nothing but the brief's marks. Each is drafted with no open points, so
 # only the check keeps it from being written onto the issue without a tick.
-for text in 'EPIC: EPIC' 'work work' 'Descriptor: what the issue is
+for pair in 'EPIC: EPIC|## Context
+
+Search is slow.' 'work work|## Context
+
+Search is slow.' 'Faster search|Descriptor: what the issue is
 
 ## Prior context inventory
 
-- the file' '[context param]
+- the file' 'Faster search|[context param]
 
 [context param]'; do
+  title=${pair%%|*}
+  spec=${pair#*|}
   reset
-  if [ "$text" = 'EPIC: EPIC' ] || [ "$text" = 'work work' ]; then
-    spec='## Context
-
-Search is slow.'
-    title="$text"
-  else
-    spec="$text"
-    title='Faster search'
-  fi
   turn_doc 12 "$(jq -n --arg title "$title" --arg spec "$spec" '{subcommand: "plan", mode: "turn", exitCode: 12, status: "shown",
     session: {id: "abc-123", turn: 2}, text: "Drafted.", title: $title, spec: $spec, questions: []}')"
   t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
@@ -568,8 +565,8 @@ Search is slow.'
   rm -f "$T"/calls/*
   t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/answer.md"
   t_eq "$t_rc" 0
-  # line. What the person reads is the same text as the question, as the
-  # comment the dispatcher posts holds one line of its own.
+  # The text is one line. What the person reads is the same text as the
+  # question, as the comment the dispatcher posts holds one line of its own.
   t_eq "$(jq -c '[.update // null, (.question.options | length), (.text | split("\n") | length)]' "$T/out.json")" '[null,0,1]'
   t_contains "$(jq -r .question.question "$T/out.json")" "Tehas did not make the drafted plan this issue's text"
   t_contains "$(jq -r .question.question "$T/out.json")" "Reply"
