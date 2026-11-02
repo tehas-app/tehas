@@ -13,6 +13,14 @@ empty one above it.
 
 ### Changes
 
+### Adopter action
+
+None.
+
+## v0.22.1 (2026-11-02)
+
+### Changes
+
 - Dependencies updated: the workspace's crates within their versions; on the host Node 22.23.4, gh 2.103.3, bun 1.4.4, jq 1.8.2, parallel-cli 0.9.4, Rust 1.99.1, rustup 1.29.2 and codebase-memory-mcp 0.12.1, each by checksum or lockfile.
 - update's lock waits and its record of steps owed are read by the console; lib/update-steps.sh is gone.
 - The console workspace moves to rusqlite 0.41 (bundled SQLite 3.54.0), sha2 0.11 and signal-hook 0.4.
