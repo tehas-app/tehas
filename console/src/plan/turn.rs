@@ -1,28 +1,18 @@
-//! The host's side of a planning turn, for libexec/plan: the keep directory,
+//! The host's side of a planning turn, for start.rs: the keep directory,
 //! the workspace around the clone, the runner's words, the container's time
-//! and the end of the turn. libexec/plan builds docker's argv, because what a
-//! container is given is assembled where test/plan_test.sh pins it, and hands
-//! it to `run`.
+//! and the end of the turn.
 //!
-//!   console plan workspace <works> <keep> [<brief> <issue-brief>]
-//!       the directory of the workspaces, marked as tehas's, and <keep>. With
-//!       a brief it is a first turn: <keep> is made anew.
-//!   console plan give <works> <images> <given> <0|1>
-//!       a fresh copy of <images> at <given> when 1 and there is a manifest.
-//!   console plan place <tree> <keep> <branch> [first]
-//!       the clone at <tree> made ready: the commit noted or put back, the
-//!       session carried in, the brief put in.
-//!   console plan turn first <keep> <what> <issue or nothing>
-//!   console plan turn later <keep> <session> <answer> <tree> <repo> <new files>
-//!       the words after the runner's name, each ended by a NUL. A later turn
-//!       writes what the runner reads as its answer. <issue> is given when
-//!       the runner takes --issue, which is asked of the image in bash.
-//!   console plan run <issue> <session> <kind> <out> <keep> <tree> <state>
-//!       <given> <limit> <log> <name> -- <docker argv>
-//!       starts docker and watches it, then ends the turn.
+//!   workspace   the directory of the workspaces, marked as tehas's, and
+//!               <keep>. With a brief it is a first turn: <keep> is made anew.
+//!   give        a fresh copy of the images when given and there is a manifest.
+//!   place       the clone made ready: the commit noted or put back, the
+//!               session carried in, the brief put in.
+//!   first, later  the words after the runner's name. A later turn writes
+//!               what the runner reads as its answer.
+//!   run         starts docker and watches it, then ends the turn.
 //!
-//! Each failure says why, on standard error. Exit 78 nothing may start, 2 a
-//! turn that ran failed, 0 as libexec/plan's header says.
+//! Each failure says why, on standard error. 78 nothing may start, 2 a turn
+//! that ran failed, 0 as src/usage/plan.txt says.
 //!
 //! <keep> is what the session carries from one turn to the next. The
 //! dispatcher gives $TEHAS_WORK_DIR-plan-<issue>.keep, beside the turn's
@@ -114,39 +104,6 @@ const STOP_ON_LIMIT: u32 = 20;
 const NOTHING_STARTS: u8 = 78;
 const FAILED: u8 = 2;
 
-/// None when these are not the words of a verb of this file.
-pub fn verb(given: &[String]) -> Option<u8> {
-    let words: Vec<&str> = given.iter().map(String::as_str).collect();
-    Some(match words[..] {
-        ["workspace", works, keep] => workspace(works, keep, None),
-        ["workspace", works, keep, brief, rules] => workspace(works, keep, Some((brief, rules))),
-        ["give", works, images, to, give] => self::give(works, images, to, give == "1"),
-        ["place", tree, keep, branch] => place(tree, keep, branch, false),
-        ["place", tree, keep, branch, "first"] => place(tree, keep, branch, true),
-        ["turn", "first", keep, what, issue] => first(keep, what, issue),
-        ["turn", "later", keep, session, answer, tree, repo, new] => {
-            later(keep, session, answer, tree, repo, new)
-        }
-        ["run", issue, session, kind, out, keep, tree, state, images, limit, log, name, "--", ref argv @ ..]
-            if !argv.is_empty() =>
-        {
-            let turn = Turn {
-                issue,
-                session,
-                refine: kind == "refine",
-                out,
-                keep,
-                tree,
-                state,
-                images,
-                log,
-            };
-            run(&turn, limit.parse().ok()?, name, argv)
-        }
-        _ => return None,
-    })
-}
-
 fn say(line: &str) {
     let _ = writeln!(io::stdout(), "{line}");
 }
@@ -209,7 +166,7 @@ fn mark(works: &str) -> io::Result<()> {
     File::create(format!("{works}/.tehas-workspaces")).map(|_| ())
 }
 
-fn workspace(works: &str, keep: &str, brief: Option<(&str, &str)>) -> u8 {
+pub(super) fn workspace(works: &str, keep: &str, brief: Option<(&str, &str)>) -> u8 {
     if Path::new(works).exists() && !Path::new(works).join(".tehas-workspaces").is_file() {
         return refuse(&format!(
             "{works} exists and was not made by tehas, not touching it"
@@ -242,7 +199,7 @@ fn keep_brief(keep: &str, brief: &str, rules: &str) -> io::Result<()> {
     fs::write(format!("{keep}/brief.md"), text)
 }
 
-fn give(works: &str, images: &str, to: &str, give: bool) -> u8 {
+pub(super) fn give(works: &str, images: &str, to: &str, give: bool) -> u8 {
     if mark(works).is_err() || remove(to).is_err() {
         return refuse(&format!("could not make {works}, not starting a turn"));
     }
@@ -298,7 +255,7 @@ fn carry_files(from: &Path, to: &Path) -> io::Result<()> {
     Ok(())
 }
 
-fn place(tree: &str, keep: &str, branch: &str, first: bool) -> u8 {
+pub(super) fn place(tree: &str, keep: &str, branch: &str, first: bool) -> u8 {
     if first {
         if note_commit(tree, keep).is_err() {
             return refuse(&format!(
@@ -381,19 +338,11 @@ fn put_brief(tree: &str, brief: &str) -> io::Result<()> {
     exclude.write_all(b"/.tehas/brief.md\n/.tehas/answer.md\n")
 }
 
-fn print_words(words: &[&str]) -> u8 {
-    let mut out = Vec::new();
-    for word in words {
-        out.extend_from_slice(word.as_bytes());
-        out.push(0);
-    }
-    match io::stdout().write_all(&out) {
-        Ok(()) => 0,
-        Err(_) => NOTHING_STARTS,
-    }
+fn owned(words: &[&str]) -> Vec<String> {
+    words.iter().map(|w| w.to_string()).collect()
 }
 
-fn first(keep: &str, what: &str, issue: &str) -> u8 {
+pub(super) fn first(keep: &str, what: &str, issue: &str) -> Vec<String> {
     let context = captured(fs::read(format!("{keep}/brief.md")).unwrap_or_default());
     let context = String::from_utf8_lossy(&context);
     let mut words = vec!["plan", what, "--start", "--context", &context];
@@ -402,7 +351,7 @@ fn first(keep: &str, what: &str, issue: &str) -> u8 {
         // duplicate check.
         words.extend(["--issue", issue]);
     }
-    print_words(&words)
+    owned(&words)
 }
 
 /// Whether an answer ticked filing the plan, on any of its lines.
@@ -412,19 +361,26 @@ fn chose_to_file(answer: &[u8]) -> bool {
     })
 }
 
-fn later(keep: &str, session: &str, answer: &str, tree: &str, repo: &str, new: &str) -> u8 {
+pub(super) fn later(
+    keep: &str,
+    session: &str,
+    answer: &str,
+    tree: &str,
+    repo: &str,
+    new: &str,
+) -> Result<Vec<String>, u8> {
     let answer = fs::read(answer).unwrap_or_default();
     let last = captured(fs::read(format!("{keep}/exit")).unwrap_or_default());
     if last == b"12" && chose_to_file(&answer) {
-        return print_words(&["plan", "--resume", session, "--confirm"]);
+        return Ok(owned(&["plan", "--resume", session, "--confirm"]));
     }
     if put_answer(tree, answer, new).is_err() {
-        return refuse(&format!(
+        return Err(refuse(&format!(
             "could not put the answer into {tree}, not starting a turn"
-        ));
+        )));
     }
     let file = format!("{repo}/.tehas/answer.md");
-    print_words(&["plan", "--resume", session, "--answer", &file])
+    Ok(owned(&["plan", "--resume", session, "--answer", &file]))
 }
 
 fn put_answer(tree: &str, answer: Vec<u8>, new: &str) -> io::Result<()> {
@@ -502,19 +458,19 @@ fn watch(child: &mut Child, limit: u64, signalled: &AtomicBool, stop: &dyn Fn(u3
 }
 
 /// What the turn needs when its container has ended.
-struct Turn<'a> {
-    issue: &'a str,
-    session: &'a str,
-    refine: bool,
-    out: &'a str,
-    keep: &'a str,
-    tree: &'a str,
-    state: &'a str,
-    images: &'a str,
-    log: &'a str,
+pub(super) struct Turn<'a> {
+    pub issue: &'a str,
+    pub session: &'a str,
+    pub refine: bool,
+    pub out: &'a str,
+    pub keep: &'a str,
+    pub tree: &'a str,
+    pub state: &'a str,
+    pub images: &'a str,
+    pub log: &'a str,
 }
 
-fn run(turn: &Turn, limit: u64, name: &str, argv: &[&str]) -> u8 {
+pub(super) fn run(turn: &Turn, limit: u64, name: &str, argv: &[&str]) -> u8 {
     let signalled = Arc::new(AtomicBool::new(false));
     for signal in [SIGTERM, SIGINT] {
         if signal_hook::flag::register(signal, Arc::clone(&signalled)).is_err() {
@@ -886,6 +842,31 @@ mod tests {
     }
 
     #[test]
+    fn a_first_turn_starts_with_the_brief_as_context_and_names_its_issue_only_when_asked() {
+        let s = Scratch::new("first");
+        fs::create_dir_all(s.0.join("keep")).unwrap();
+        s.write("keep/brief.md", "# T\n\nBody.\n\n");
+        let keep = s.at("keep");
+        let context = "# T\n\nBody.";
+        assert_eq!(
+            first(&keep, "T (issue #7)", ""),
+            owned(&["plan", "T (issue #7)", "--start", "--context", context])
+        );
+        assert_eq!(
+            first(&keep, "T (issue #7)", "7"),
+            owned(&[
+                "plan",
+                "T (issue #7)",
+                "--start",
+                "--context",
+                context,
+                "--issue",
+                "7"
+            ])
+        );
+    }
+
+    #[test]
     fn a_confirm_is_only_a_tick_after_a_drafted_plan() {
         assert!(chose_to_file(b"alice chose: File as a new issue\n"));
         assert!(chose_to_file(
@@ -900,10 +881,22 @@ mod tests {
         fs::create_dir_all(s.0.join("keep")).unwrap();
         let (keep, answer, tree) = (s.at("keep"), s.at("answer"), s.at("tree"));
         s.write("keep/exit", "12\n");
-        assert_eq!(later(&keep, "abc", &answer, &tree, "/w", ""), 0);
+        assert_eq!(
+            later(&keep, "abc", &answer, &tree, "/w", ""),
+            Ok(owned(&["plan", "--resume", "abc", "--confirm"]))
+        );
         assert!(!s.has("tree/.tehas/answer.md"));
         s.write("keep/exit", "11\n");
-        assert_eq!(later(&keep, "abc", &answer, &tree, "/w", ""), 0);
+        assert_eq!(
+            later(&keep, "abc", &answer, &tree, "/w", ""),
+            Ok(owned(&[
+                "plan",
+                "--resume",
+                "abc",
+                "--answer",
+                "/w/.tehas/answer.md"
+            ]))
+        );
         assert_eq!(
             s.read("tree/.tehas/answer.md"),
             "alice chose: File this plan\n"
@@ -927,7 +920,7 @@ mod tests {
         s.write("answer", "yes\n");
         s.write("tree", "a file, no directory");
         let (keep, answer, tree) = (s.at("keep"), s.at("answer"), s.at("tree"));
-        assert_eq!(later(&keep, "abc", &answer, &tree, "/w", ""), 78);
+        assert_eq!(later(&keep, "abc", &answer, &tree, "/w", ""), Err(78));
     }
 
     #[test]

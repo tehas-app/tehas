@@ -147,7 +147,7 @@ pub fn git_global(key: &str) -> String {
         .unwrap_or_default()
 }
 
-fn account() -> String {
+pub(crate) fn account() -> String {
     Command::new("id")
         .arg("-un")
         .output()
@@ -157,7 +157,7 @@ fn account() -> String {
 
 // What the image's runner says it can do. Err is the status of the call, so a
 // docker that does not answer is said apart from an image with no verb.
-fn capabilities(image: &str) -> Result<String, i32> {
+pub(crate) fn capabilities(image: &str) -> Result<String, i32> {
     let wait = env::var("TEHAS_CAPS_WAIT").unwrap_or_default();
     let shape = !wait.is_empty()
         && wait.len() <= 4
