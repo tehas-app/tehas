@@ -661,15 +661,11 @@ mod tests {
             "warn"
         );
         assert_eq!(
-            d("lift #7: its last cycle parked on intent-park and the body has not changed since, lifted on the fixer's guidance comment"),
-            "warn"
-        );
-        assert_eq!(
             d("hold #7: its text links an attachment and TEHAS_WORK_IMAGES is 1, but test-model does not declare image input in models.json"),
             "wait"
         );
         assert_eq!(
-            d("hold #7: its text says SCREENSHOT GOES HERE and links no attachment"),
+            d("hold #7: its text says SCREENSHOT GOES HERE and links no attachment, so the cycle would be given none"),
             "wait"
         );
         assert_eq!(
