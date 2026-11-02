@@ -13,6 +13,18 @@ empty one above it.
 
 ### Changes
 
+### Adopter action
+
+None.
+
+## v0.23.0 (2026-11-02)
+
+### Changes
+
+- `tehas-cycle cycle` starts and supervises a cycle, and `libexec/cycle` loads the settings and holds the lock for it.
+- A planning turn (`tehas plan`) runs in the console; libexec/plan is a path that execs it.
+- The poll tries a GitHub read that failed again, within the bounds of its retry rule, and logs gh's own words for a read that still fails (#943).
+- tehas-mcp and analytics declare the Rust 1.89 that tehas-core needs.
 - A product's dependencies are installed by the factory, in the sandbox, from the lockfiles at the root of its commit and one directory down (bun, npm, pnpm, yarn, cargo, uv, poetry, go, bundler, composer), or from `.pi/install-cmd` when the product names its own. `tehas work` runs the install in the cycle's workspace before the cycle starts; a failed install or a tool the image lacks starts no cycle (exit 78). `tehas check-product` lists the installs, and `--sandbox` runs them in its clone and the gates in a worktree of the clone, as in a cycle (#1404).
 - `tehas check-product` and `tehas init-product` work under `~/tehas/tmp/<name>`, the product's repository name.
 
