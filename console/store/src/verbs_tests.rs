@@ -8,8 +8,9 @@ use rusqlite::Connection;
 use serde_json::Value;
 use std::fs::{self, File, OpenOptions};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicI64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicI64, Ordering};
 use std::time::Duration;
+pub use tehas_core::testdir::TestDir;
 
 pub const NOW: i64 = 1_792_000_000;
 
@@ -17,38 +18,14 @@ pub const SHA: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 pub const SHA_B: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 pub const IMAGE: &str = "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
 
-/// This process's directory under one root in the temp dir. The first call
-/// removes the directories of test processes that have ended, so scratch homes
-/// do not pile up.
-pub fn scratch_root() -> PathBuf {
-    static ROOT: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
-    ROOT.get_or_init(|| {
-        let root = std::env::temp_dir().join("tehas-store-tests");
-        if let Ok(entries) = fs::read_dir(&root) {
-            for e in entries.flatten() {
-                let pid = e.file_name().to_string_lossy().into_owned();
-                if pid.parse::<u32>().is_ok() && !Path::new("/proc").join(&pid).exists() {
-                    let _ = fs::remove_dir_all(e.path());
-                }
-            }
-        }
-        root.join(std::process::id().to_string())
-    })
-    .clone()
-}
-
-pub fn scratch(name: &str) -> PathBuf {
-    static N: AtomicUsize = AtomicUsize::new(0);
-    let dir = scratch_root().join(format!("verbs-{}-{name}", N.fetch_add(1, Ordering::SeqCst)));
-    let _ = fs::remove_dir_all(&dir);
-    fs::create_dir_all(&dir).unwrap();
-    dir
+pub fn scratch(name: &str) -> TestDir {
+    TestDir::new(&format!("store-{name}"))
 }
 
 /// A home with an initialised store. Every test asks for the tests' short busy
 /// and lock bounds on its own thread first, so no test sits through the installed
 /// five seconds to prove a word the lock says.
-pub fn home(name: &str) -> PathBuf {
+pub fn home(name: &str) -> TestDir {
     short_bounds();
     let home = scratch(name);
     execute(

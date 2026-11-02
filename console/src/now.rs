@@ -148,11 +148,8 @@ pub fn write(path: &str, now: &Now) -> io::Result<()> {
 mod tests {
     use super::*;
 
-    fn dir(name: &str) -> std::path::PathBuf {
-        let at = std::env::temp_dir().join(format!("tehas-now-{}-{name}", std::process::id()));
-        let _ = fs::remove_dir_all(&at);
-        fs::create_dir_all(&at).unwrap();
-        at
+    fn dir(name: &str) -> tehas_core::testdir::TestDir {
+        tehas_core::testdir::TestDir::new(&format!("now-{name}"))
     }
 
     // The lines as the follower hands them over: whole, and without the end

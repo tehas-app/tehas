@@ -5,13 +5,13 @@ use mcp::snapshot::Snapshot;
 use mcp::tools::{list_scoped, Dirs, Output, Scope, ToolError};
 use serde_json::{json, Map, Value};
 use std::collections::BTreeSet;
-use std::path::PathBuf;
+use tehas_core::testdir::TestDir;
 use tehas_core::time::{iso, now};
 
 // A live dir and a sessions dir, removed when dropped. The logs dir is never
 // made: no tool here may open it.
 struct Env {
-    root: PathBuf,
+    _root: TestDir,
     dirs: Dirs,
 }
 
@@ -27,8 +27,7 @@ impl Env {
         stages: Option<&[(&str, Value)]>,
         running: Option<&[Value]>,
     ) -> Env {
-        let root = std::env::temp_dir().join(format!("mcp-sess-{name}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&root);
+        let root = TestDir::new(&format!("mcp-sess-{name}"));
         let (live, snap) = (root.join("live"), root.join("mcp"));
         std::fs::create_dir_all(&live).unwrap();
         std::fs::create_dir_all(&snap).unwrap();
@@ -59,7 +58,7 @@ impl Env {
             sessions: snap.clone(),
             logs: root.join("no-logs"),
         };
-        Env { root, dirs }
+        Env { _root: root, dirs }
     }
 
     fn call(&self, name: &str, args: Value) -> Result<Value, ToolError> {
@@ -67,12 +66,6 @@ impl Env {
             Output::Json(v) => Ok(v),
             other => panic!("{name} gave {other:?}"),
         }
-    }
-}
-
-impl Drop for Env {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.root);
     }
 }
 
@@ -1000,8 +993,7 @@ fn an_issue_with_only_runs() {
 // The numbers of the poll's plans, since status.json gives only a count.
 #[test]
 fn an_issue_being_planned() {
-    let root = std::env::temp_dir().join(format!("mcp-plan-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&root);
+    let root = TestDir::new("mcp-plan");
     let (live, snap) = (root.join("live"), root.join("mcp"));
     std::fs::create_dir_all(&live).unwrap();
     std::fs::create_dir_all(&snap).unwrap();
@@ -1032,7 +1024,6 @@ fn an_issue_being_planned() {
         Ok(Output::Json(v)) => v,
         other => panic!("not JSON: {other:?}"),
     };
-    std::fs::remove_dir_all(&root).unwrap();
     assert_eq!(out["stage"], "planning");
     assert_eq!(out["attempts"], json!([]));
     assert!(out.get("title").is_none(), "{out}");

@@ -152,21 +152,10 @@ fn trim(held: &[u8], ledger: &Path) -> Result<(), ()> {
 mod tests {
     use super::*;
     use std::os::unix::fs::{symlink, PermissionsExt};
-    use std::path::PathBuf;
+    use tehas_core::testdir::TestDir;
 
-    struct Dir(PathBuf);
-
-    impl Drop for Dir {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.0);
-        }
-    }
-
-    fn dir(name: &str) -> Dir {
-        let d = std::env::temp_dir().join(format!("tehas-size-{name}-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&d);
-        fs::create_dir_all(&d).unwrap();
-        Dir(d)
+    fn dir(name: &str) -> TestDir {
+        TestDir::new(&format!("size-{name}"))
     }
 
     const LINE: &str = "{\"at\":\"t\"}";
@@ -188,7 +177,7 @@ mod tests {
     #[test]
     fn a_first_line_makes_the_ledger_owner_only() {
         let d = dir("first");
-        let p = d.0.join("sizes.jsonl");
+        let p = d.join("sizes.jsonl");
         record(LINE, &p).unwrap();
         assert_eq!(fs::read_to_string(&p).unwrap(), format!("{LINE}\n"));
         let mode = fs::metadata(&p).unwrap().permissions().mode();
@@ -198,28 +187,28 @@ mod tests {
     #[test]
     fn a_ledger_that_is_a_link_or_a_directory_is_not_written() {
         let d = dir("link");
-        let target = d.0.join("target");
+        let target = d.join("target");
         fs::write(&target, "kept\n").unwrap();
-        let link = d.0.join("link");
+        let link = d.join("link");
         symlink(&target, &link).unwrap();
         assert!(record(LINE, &link).is_err());
         assert_eq!(fs::read_to_string(&target).unwrap(), "kept\n");
-        symlink(d.0.join("nothing"), d.0.join("dangling")).unwrap();
-        assert!(record(LINE, &d.0.join("dangling")).is_err());
-        assert!(!d.0.join("nothing").exists());
-        assert!(record(LINE, &d.0).is_err());
+        symlink(d.join("nothing"), d.join("dangling")).unwrap();
+        assert!(record(LINE, &d.join("dangling")).is_err());
+        assert!(!d.join("nothing").exists());
+        assert!(record(LINE, &d).is_err());
     }
 
     #[test]
     fn a_path_with_no_directory_is_no_ledger() {
         let d = dir("nodir");
-        assert!(record(LINE, &d.0.join("no/sizes.jsonl")).is_err());
+        assert!(record(LINE, &d.join("no/sizes.jsonl")).is_err());
     }
 
     #[test]
     fn a_file_with_no_last_newline_takes_the_line_and_says_it_did_not() {
         let d = dir("torn");
-        let p = d.0.join("sizes.jsonl");
+        let p = d.join("sizes.jsonl");
         fs::write(&p, "torn").unwrap();
         assert!(record(LINE, &p).is_err());
         assert_eq!(fs::read_to_string(&p).unwrap(), format!("torn{LINE}\n"));
@@ -228,7 +217,7 @@ mod tests {
     #[test]
     fn the_ledger_keeps_its_last_five_hundred_lines() {
         let d = dir("trim");
-        let p = d.0.join("sizes.jsonl");
+        let p = d.join("sizes.jsonl");
         let old: String = (1..=500).map(|i| format!("{i}\n")).collect();
         fs::write(&p, old).unwrap();
         record(LINE, &p).unwrap();
@@ -236,13 +225,13 @@ mod tests {
         assert_eq!(lines_in(text.as_bytes()), 500);
         assert!(text.starts_with("2\n3\n"));
         assert!(text.ends_with(&format!("500\n{LINE}\n")));
-        assert!(!d.0.join("sizes.jsonl.new").exists());
+        assert!(!d.join("sizes.jsonl.new").exists());
     }
 
     #[test]
     fn five_hundred_lines_are_left_as_they_are() {
         let d = dir("exact");
-        let p = d.0.join("sizes.jsonl");
+        let p = d.join("sizes.jsonl");
         let old: String = (1..=499).map(|i| format!("{i}\n")).collect();
         fs::write(&p, old).unwrap();
         record(LINE, &p).unwrap();
@@ -254,8 +243,8 @@ mod tests {
     #[test]
     fn a_trim_that_cannot_be_made_is_said_and_the_line_stays() {
         let d = dir("stuck");
-        let p = d.0.join("sizes.jsonl");
-        fs::create_dir(d.0.join("sizes.jsonl.new")).unwrap();
+        let p = d.join("sizes.jsonl");
+        fs::create_dir(d.join("sizes.jsonl.new")).unwrap();
         let old: String = (1..=500).map(|i| format!("{i}\n")).collect();
         fs::write(&p, old).unwrap();
         assert!(record(LINE, &p).is_err());

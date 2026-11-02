@@ -858,45 +858,15 @@ mod tests {
         !answer.starts_with('{')
     }
 
-    /// The next name of a poll's directory: a case takes one, so no two cases of
-    /// a run share a host.
-    static NEXT_POLL: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-
-    /// The parent is cleared once a run, before any case makes its host in it,
-    /// so a run does not accumulate the hosts of the runs before it.
-    static CLEARED: std::sync::Once = std::sync::Once::new();
-
-    /// The home of a case: a stub `gh` and a stub `store` that record the
-    /// arguments they are given and answer the world. The world travels in files
-    /// beside the programs, so no answer of a case is part of the source of a
-    /// program, and a poll is a directory of its own, so nothing of one case is
-    /// there for another to read. The directory is removed when the `Host` is
-    /// dropped, so a case that fails part way through leaves no stub behind.
-    struct Host {
-        dir: std::path::PathBuf,
-    }
-
-    impl Drop for Host {
-        fn drop(&mut self) {
-            let _ = std::fs::remove_dir_all(&self.dir);
-        }
-    }
-
     /// The home of a case. `broken` names issues whose comment read is refused,
-    /// which is how a case makes one read of the batch fail.
-    fn host(world: &Value, broken: &[u64]) -> Host {
-        let root = std::env::temp_dir().join(format!("tehas-build-{}", std::process::id()));
-        // Each case takes the next name of its own, so two cases of one run can
-        // exist at once instead of reaching into the same directory. The other
-        // cases wait while the first clears the parent: a clear after a case
-        // made its host took that host away under it.
-        CLEARED.call_once(|| {
-            let _ = std::fs::remove_dir_all(&root);
-        });
-        let dir = {
-            let n = NEXT_POLL.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            root.join(format!("poll-{n}"))
-        };
+    /// which is how a case makes one read of the batch fail. The file names the
+    /// status the read meets: `HTTP 500`, which the rule of `retry` keeps as the
+    /// answer rather than the `HTTP 502` it owes a retry to, so the case speaks of
+    /// the one call the poll refused and pays no retry for it. A case that wants
+    /// the retried class names a 5xx that is not a 500; the rule is the thing that
+    /// decides, and `retry.rs` says which status belongs to which class.
+    fn host(world: &Value, broken: &[u64]) -> tehas_core::testdir::TestDir {
+        let dir = tehas_core::testdir::TestDir::new("build-poll");
         std::fs::create_dir_all(dir.join("bin")).unwrap();
         std::fs::create_dir_all(dir.join("state/cycles")).unwrap();
         std::fs::create_dir_all(dir.join("state/refresh")).unwrap();
@@ -929,11 +899,15 @@ mod tests {
             );
             std::fs::write(dir.join(format!("w-{}", n + 1)), answer).unwrap();
         }
-        // A refused read of one issue is held in `broken-<n>`: the stub reads it
-        // before the answer and leaves 1, which is what a gh call GitHub refused
-        // looks like.
+        // A read of one issue that is refused is held in `broken-<n>`, whose
+        // single line the stub prints on the error stream before it leaves 1. The
+        // status it names and what the rule makes of it are `host`'s to say.
         for n in broken {
-            std::fs::write(dir.join(format!("broken-{n}")), "!").unwrap();
+            std::fs::write(
+                dir.join(format!("broken-{n}")),
+                "HTTP 500: Internal Server Error\n",
+            )
+            .unwrap();
         }
         fixture(&dir, "queue", &world["queue"]);
         fixture(&dir, "states", &world["states"]);
@@ -963,7 +937,7 @@ for word in $(cat "$here/../words"); do
         .*) key=$(printf '%s' "$line" | sed -n 's|.*/issues/\([0-9]*\)/events.*|\1|p')
             [ -n "$key" ] || key=$(printf '%s' "$line" | sed -n 's/.*number=\([0-9]*\).*/\1/p')
             f="$here/../$a$key"
-            [ -f "$here/../broken-$key" ] && { printf '{}' >"$out"; answer 1; }
+            [ -f "$here/../broken-$key" ] && { printf '%s' "$(cat "$here/../broken-$key")" >&2; printf '{}' >"$out"; answer 1; }
             [ -f "$f" ] || { printf '{}' >"$out"; answer 1; }
             cat "$f" >"$out" ;;
         *) printf '%s' "$a" >"$out" ;;
@@ -1004,7 +978,7 @@ printf '{}' >"$out""#,
   *) printf '%s' "{\"api\":1,\"ok\":true,\"verb\":\"$1\"}" >"$out" ;;
 esac"#,
         );
-        Host { dir }
+        dir
     }
 
     /// A stub program of `name` in `bin`. It records the arguments it is given
@@ -1073,18 +1047,13 @@ esac"#,
     /// as long as this call, so a case cannot leave it behind.
     fn poll(world: &Value, broken: &[u64]) -> (Value, Vec<String>, u32, Vec<String>) {
         let dir = host(world, broken);
-        let mut src = sources(&dir.dir);
+        let mut src = sources(&dir);
         let snap = match snapshot(&mut src, &settings()) {
             Ok(s) => s,
-            Err(f) => panic!("the stubs answer: {}", f.0),
+            Err(f) => panic!("the stubs answer: {}", f.line),
         };
         let gh = src.calls.gh_count;
-        (
-            snap,
-            calls_of(&dir.dir, "gh"),
-            gh,
-            calls_of(&dir.dir, "store"),
-        )
+        (snap, calls_of(&dir, "gh"), gh, calls_of(&dir, "store"))
     }
 
     fn sources(dir: &Path) -> Sources<'_> {
@@ -1098,6 +1067,7 @@ esac"#,
                 store: dir.join("bin").join("store").to_string_lossy().into_owned(),
                 gh_count: 0,
                 gh_token: None,
+                retry: run::RetryPolicy::default(),
             },
             systemctl: "true".into(),
             now: 1_793_404_800,
@@ -1215,15 +1185,15 @@ esac"#,
     #[test]
     fn a_candidate_is_given_the_record_of_its_plan_and_no_other_is() {
         let dir = host(&world(), &[]);
-        std::fs::create_dir_all(dir.dir.join("state/plan-start")).unwrap();
+        std::fs::create_dir_all(dir.join("state/plan-start")).unwrap();
         for n in [21, 99] {
             let body = format!(r#"{{"by":"alice","sum":"{n}"}}"#);
-            std::fs::write(host::plan_start_file(&dir.dir, n), body).unwrap();
+            std::fs::write(host::plan_start_file(&dir, n), body).unwrap();
         }
-        let mut src = sources(&dir.dir);
+        let mut src = sources(&dir);
         let snap = match snapshot(&mut src, &settings()) {
             Ok(s) => s,
-            Err(f) => panic!("the stubs answer: {}", f.0),
+            Err(f) => panic!("the stubs answer: {}", f.line),
         };
         let parsed = Snapshot::parse(&snap);
         assert_eq!(
@@ -1282,11 +1252,15 @@ esac"#,
             parsed.issues[&21].comments.is_some(),
             "the issues whose reads answered still have theirs"
         );
-        // One refused call did not cost the poll a second run of the read.
+        // The read of the issue whose call met a bad minute is tried once again,
+        // the one retry a call is owed, so the batch of three reads is asked five
+        // times: that one twice and the other two once each. The issue is still
+        // left with the failed answer, retry and all.
         assert_eq!(
             queries(&calls, COMMENT_MARK).len(),
-            3,
-            "each blocked issue is asked once, failure and all: {calls:?}"
+            5,
+            "each blocked issue is asked once, and the failure once again: \
+             {calls:?}"
         );
     }
 

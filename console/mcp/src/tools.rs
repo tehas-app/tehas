@@ -1491,6 +1491,7 @@ pub(crate) fn epoch(t: &str) -> Option<i64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tehas_core::testdir::TestDir;
 
     #[test]
     fn epoch_of_a_live_file_time() {
@@ -1724,33 +1725,22 @@ mod tests {
             ("array-line", json!({"why": "count", "hold": []}), None),
             ("null-line", json!({"why": "count", "hold": null}), None),
         ] {
-            let dir =
-                std::env::temp_dir().join(format!("mcp-hold-{}-{}", std::process::id(), name));
-            let _ = std::fs::remove_dir_all(&dir);
-            let _ = std::fs::create_dir_all(&dir);
+            let dir = TestDir::new(&format!("mcp-hold-{name}"));
             std::fs::write(dir.join(DISPATCH_FILE), report.to_string()).unwrap();
             let got = self::held(&dir).map(Held::into_value);
-            let _ = std::fs::remove_dir_all(&dir);
             assert_eq!(got, want, "{name}: {report}");
         }
         // Every word of the poll's own type is a reason the answer serves, so
         // the schema of `why`, which is built from the same type, names each
         // of them.
         for why in hold::Why::ALL {
-            let dir = std::env::temp_dir().join(format!(
-                "mcp-hold-{}-word-{}",
-                std::process::id(),
-                why.as_str()
-            ));
-            let _ = std::fs::remove_dir_all(&dir);
-            let _ = std::fs::create_dir_all(&dir);
+            let dir = TestDir::new(&format!("mcp-hold-word-{}", why.as_str()));
             std::fs::write(
                 dir.join(DISPATCH_FILE),
                 json!({ hold::KEY_WHY: why.as_str(), hold::KEY_HOLD: "a line" }).to_string(),
             )
             .unwrap();
             let got = self::held(&dir).map(Held::into_value);
-            let _ = std::fs::remove_dir_all(&dir);
             assert_eq!(
                 got,
                 Some(json!({"why": why.as_str(), "text": "a line"})),

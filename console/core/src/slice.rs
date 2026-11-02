@@ -1000,18 +1000,18 @@ mod tests {
 
     #[test]
     fn a_scope_gone_while_it_was_read_is_not_in_the_list() {
-        let dir = std::env::temp_dir().join(format!("tehas-slice-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
+        let d = crate::testdir::TestDir::new("slice");
+        let dir = d.path();
         fs::create_dir_all(dir.join("docker-b.scope")).unwrap();
         fs::create_dir_all(dir.join("docker-a.scope")).unwrap();
         fs::create_dir_all(dir.join("not-a-child")).unwrap();
         fs::write(dir.join("file.scope"), "").unwrap();
         fs::write(dir.join("docker-a.scope/memory.stat"), "anon 1\n").unwrap();
-        let listed = scopes(&dir).unwrap();
-        fs::remove_dir_all(&dir).unwrap();
+        let listed = scopes(dir).unwrap();
+        fs::remove_dir_all(dir).unwrap();
         let names: Vec<_> = listed.iter().map(|s| s.name.as_str()).collect();
         assert_eq!(names, ["docker-a.scope", "docker-b.scope"]);
         assert!(listed[0].stat.is_some() && listed[0].low.is_none());
-        assert_eq!(scopes(&dir).map(|s| s.len()), None);
+        assert_eq!(scopes(dir).map(|s| s.len()), None);
     }
 }

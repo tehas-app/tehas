@@ -11,16 +11,11 @@ use serde_json::{json, Value};
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
+use tehas_core::testdir::TestDir;
 
-fn scratch(name: &str) -> PathBuf {
-    static N: AtomicUsize = AtomicUsize::new(0);
-    let dir = crate::verbs_tests::scratch_root()
-        .join(format!("test-{}-{name}", N.fetch_add(1, Ordering::SeqCst)));
-    let _ = fs::remove_dir_all(&dir);
-    fs::create_dir_all(&dir).unwrap();
-    dir
+fn scratch(name: &str) -> TestDir {
+    TestDir::new(&format!("store-test-{name}"))
 }
 
 fn settings() -> Settings {
@@ -866,7 +861,7 @@ fn the_busy_report_is_one_line_per_wait_and_says_nothing_by_default() {
         let mut cmd = std::process::Command::new(&store);
         cmd.args([crate::BOUND_CHECK, db::path(&home).to_str().unwrap()])
             .env_clear()
-            .env("TEHAS_HOME", &home)
+            .env("TEHAS_HOME", home.path())
             .env(db::TEST_BUSY_REPORT, given);
         let out = cmd
             .output()
@@ -913,7 +908,7 @@ fn the_busy_report_is_one_line_per_wait_and_says_nothing_by_default() {
     let bad = std::process::Command::new(&store)
         .args([crate::BOUND_CHECK, db::path(&home).to_str().unwrap()])
         .env_clear()
-        .env("TEHAS_HOME", &home)
+        .env("TEHAS_HOME", home.path())
         .env(db::TEST_BUSY_REPORT, "soon")
         .output()
         .unwrap();
@@ -1111,7 +1106,8 @@ fn migrate_names_its_backup_in_json_whatever_its_path_holds() {
     // A home with a control character, a quote and a letter outside ASCII in
     // its path: JSON escapes the first two its own way, and Rust's Debug form
     // is not JSON.
-    let home = scratch("migrate-odd-name").join("ho\u{1b}me \"x\" \u{e4}");
+    let odd = scratch("migrate-odd-name");
+    let home = odd.join("ho\u{1b}me \"x\" \u{e4}");
     fs::create_dir(&home).unwrap();
     init(&home, false).unwrap();
     let state = home.join("state");
@@ -1127,7 +1123,8 @@ fn migrate_takes_a_backup_dir_in_a_home_reached_through_a_link() {
     // A TEHAS_HOME whose path goes through a link, as a home moved to another
     // disk is: the store's own state/ and state/backup/ are still its own.
     let real = scratch("linked-home-real");
-    let home = scratch("linked-home").join("tehas");
+    let linked = scratch("linked-home");
+    let home = linked.join("tehas");
     std::os::unix::fs::symlink(&real, &home).unwrap();
     init(&home, false).unwrap();
     let own = home.join("state").join("backup");
@@ -2362,7 +2359,8 @@ const REVIEW_DOC: &str = concat!(
 /// path of the call, which is where the cases of the filing put a stub of
 /// their own; `private` is the host's names, one per entry.
 struct Filing {
-    home: PathBuf,
+    home: TestDir,
+    _doc_dir: TestDir,
     doc: PathBuf,
     ask: review_issue::Ask,
 }
@@ -2378,6 +2376,7 @@ fn filing(name: &str, document: &str, private: &[&str]) -> Filing {
     fs::write(&doc, document).unwrap();
     Filing {
         home,
+        _doc_dir: dir,
         doc: doc.clone(),
         ask: review_issue::Ask {
             repo: "acme/backlog".to_string(),
@@ -3147,7 +3146,7 @@ fn a_batch_that_is_not_a_request_is_64_and_writes_nothing() {
             use std::process::{Command, Stdio};
             let mut c = Command::new(store_binary())
                 .arg("batch")
-                .env("TEHAS_HOME", &home)
+                .env("TEHAS_HOME", home.path())
                 .stdin(Stdio::piped())
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())

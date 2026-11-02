@@ -28,7 +28,9 @@
 # network, no sandbox image, no product checkout: except that cargo fetches the
 # workspace's crates the first time it builds it. The workspace's tests run at
 # the same time as the shell tests; each step's output is printed in the order
-# below. Prints one line per step.
+# below. Prints one line per step. The workspace's tests get an empty TMPDIR
+# of their own, and anything they leave in it fails the gate: a test makes
+# its directories with tehas_core::testdir::TestDir, which removes them.
 #
 # Every run keeps the whole output of its steps in a log of its own,
 # $TEHAS_VERIFY_LOGS/<mode>-<UTC time>-<pid>.log (default
@@ -155,9 +157,11 @@ if [ "${#crates[@]}" -gt 0 ]; then
   for f in "${crates[@]}"; do tested+=(-p "$f"); done
   cargo_step="the tests of ${crates[*]}"
 fi
-cargo_pid=
+# The tests run with a TMPDIR of their own, which must be empty after them.
+cargo_pid="" cargo_tmp=$tmp/cargo-tmp
 if has cargo && [ "$cargo_wanted" = 1 ]; then
-  cargo test --locked --quiet "${tested[@]}" >"$tmp/cargo" 2>&1 &
+  mkdir -p "$cargo_tmp"
+  TMPDIR=$cargo_tmp cargo test --locked --quiet "${tested[@]}" >"$tmp/cargo" 2>&1 &
   cargo_pid=$!
 fi
 
@@ -174,6 +178,10 @@ elif [ -n "$cargo_pid" ]; then
   rc=0
   wait "$cargo_pid" || rc=$?
   report "$cargo_step" "$rc" "$tmp/cargo"
+  find "$cargo_tmp" -mindepth 1 -maxdepth 1 >"$tmp/left" 2>&1
+  rc=0
+  [ ! -s "$tmp/left" ] || rc=1
+  report "nothing left in the TMPDIR of cargo test" "$rc" "$tmp/left"
 else
   echo "FAIL  $cargo_step (cargo is not installed)"
   failed=1

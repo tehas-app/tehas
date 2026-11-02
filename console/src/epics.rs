@@ -337,12 +337,10 @@ mod tests {
 
     #[test]
     fn the_file_is_put_whole() {
-        let dir = std::env::temp_dir().join(format!("epics-test-{}", std::process::id()));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = tehas_core::testdir::TestDir::new("epics");
         let out = dir.join("epics.json");
         put(&out, "{}\n").unwrap();
         assert_eq!(fs::read_to_string(&out).unwrap(), "{}\n");
         assert_eq!(fs::read_dir(&dir).unwrap().count(), 1);
-        fs::remove_dir_all(&dir).unwrap();
     }
 }
