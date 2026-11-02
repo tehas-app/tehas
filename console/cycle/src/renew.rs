@@ -204,12 +204,24 @@ mod tests {
         // must.
         writeln!(
             f,
-            "#!/bin/sh\nn=$(cat '{record}.count' 2>/dev/null || echo 0)\necho $((n + 1)) >'{record}.count'\nprintf 'ghs_secret\\n'\nexit {rc}",
+            "#!/bin/sh\n[ -z \"$PROBE\" ] || exit 0\nn=$(cat '{record}.count' 2>/dev/null || echo 0)\necho $((n + 1)) >'{record}.count'\nprintf 'ghs_secret\\n'\nexit {rc}",
             record = path.display(),
         )
         .unwrap();
         drop(f);
         fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+        // A fork in another thread holds this file open for writing until its
+        // exec, and a run in that moment fails with ETXTBSY. In a case with a
+        // frozen clock the loop would never ask again. Once one run starts,
+        // no such fork is left.
+        let ran = (0..200).any(|_| {
+            let ran = Command::new(&path).env("PROBE", "1").status().is_ok();
+            if !ran {
+                thread::sleep(STEP);
+            }
+            ran
+        });
+        assert!(ran, "{} never ran", path.display());
         Cmd {
             path,
             dir: dir.to_path_buf(),
@@ -319,12 +331,29 @@ mod tests {
         /// so a wait that is not over does not end, and the asks stop there.
         fn asked(&mut self, wanted: usize) -> bool {
             for _ in 0..100 {
-                if self.cmd.asks() >= wanted || self.stopped() {
+                // Once only: a command still asking empties the file each time.
+                if self.cmd.asks() >= wanted {
+                    return true;
+                }
+                if self.stopped() {
                     break;
                 }
                 thread::sleep(STEP);
             }
             self.cmd.asks() >= wanted
+        }
+
+        /// Waits for the loop to stand still on the clock. A command counts
+        /// its ask before it exits, so a case that moves the clock before the
+        /// loop has read its bound moves the bound with it.
+        fn standing(&mut self) -> bool {
+            (0..100).any(|_| {
+                let read = self.clock.reads() > 1;
+                if !read {
+                    thread::sleep(STEP);
+                }
+                read
+            })
         }
 
         /// Waits for the loop to have asked `wanted` times with the clock going
@@ -423,15 +452,14 @@ mod tests {
         // ask, and the clock read for every step of standing still.
         assert!(run.asked(1));
         assert_eq!(run.cmd.asks(), 1);
-        assert!(
-            run.clock.reads() > 1,
-            "the wait was not counted on the clock"
-        );
+        assert!(run.standing(), "the wait was not counted on the clock");
         // The clock comes to the end of the wait, and the ask follows.
+        assert!(run.standing());
         run.clock.advance_by(300);
         assert!(run.asked(2));
         // The clock goes on 30 s more, over the retry and short of the whole
         // of `every`: the wait is not over, so no third ask comes.
+        assert!(run.standing());
         run.clock.advance_by(30);
         assert!(!run.asked(3));
     }
@@ -443,6 +471,7 @@ mod tests {
         assert!(run.asked(1));
         // 30 s of the clock on, the retry is over and the loop asks again,
         // where a success would have waited 270 s more.
+        assert!(run.standing());
         run.clock.advance_by(30);
         assert!(run.asked(2));
     }
