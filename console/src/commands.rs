@@ -278,6 +278,7 @@ pub fn check(given: &[String]) -> u8 {
         ["tehas", "init-product"] => {
             product_words(rest, "--dry-run", "tehas init-product [--dry-run]")
         }
+        ["tehas", "plan"] => crate::plan::turn_words(rest).map(|_| ()),
         ["tehasbot", "clean"] => clean_words(rest),
         ["tehasbot", "dispatch"] => dispatch_words(rest),
         ["tehasbot", "github-token"] => github::words(rest).map(|_| ()),
@@ -310,7 +311,7 @@ pub fn required(given: &[String]) -> &'static [&'static str] {
             "TEHAS_ALLOWED_LABELERS",
         ],
         ["tehasbot", "clean" | "dispatch" | "refresh" | "review"] => &INSTANCE,
-        ["tehasbot", "improve"] => &[
+        ["tehas", "plan"] | ["tehasbot", "improve"] => &[
             "TEHAS_REPO",
             "PI_ENSEMBLE_SUBAGENT_MODEL",
             "PI_ENSEMBLE_SUBAGENT_PROVIDER",
@@ -341,6 +342,7 @@ fn text(command: &str) -> Option<&'static str> {
         "mcp" => include_str!("usage/mcp.txt"),
         "dev" => dev::USAGE,
         "pause" => include_str!("usage/pause.txt"),
+        "plan" => include_str!("usage/plan.txt"),
         "review" => include_str!("usage/review.txt"),
         "resume" => include_str!("usage/resume.txt"),
         "setup" => include_str!("usage/setup.txt"),
