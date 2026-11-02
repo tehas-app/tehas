@@ -410,7 +410,7 @@ fn limit(given: &[String]) -> u8 {
                 words = true;
             }
             let out = read(&file, now());
-            println!("{}", if words { api(out) } else { out.said() });
+            tehas_core::outln!("{}", if words { api(out) } else { out.said() });
             0
         }
         // read prints the object `tehas limit --json` prints, with no api: it
@@ -443,7 +443,7 @@ fn limit(given: &[String]) -> u8 {
                 None => now(),
             };
             let out = read(&file, when);
-            println!("{}", if line { out.said() } else { out.text() });
+            tehas_core::outln!("{}", if line { out.said() } else { out.text() });
             0
         }
         // --json prints the object with api first, the answer tehas limit
@@ -490,7 +490,7 @@ fn pause(given: &[String]) -> u8 {
                 words = true;
             }
             let out = read_pause(&file);
-            println!("{}", if words { api(out) } else { out.said() });
+            tehas_core::outln!("{}", if words { api(out) } else { out.said() });
             0
         }
         // read prints the object every command which honours the flag reads,
@@ -504,7 +504,7 @@ fn pause(given: &[String]) -> u8 {
                 line = true;
             }
             let out = read_pause(&file);
-            println!("{}", if line { out.said() } else { out.text() });
+            tehas_core::outln!("{}", if line { out.said() } else { out.text() });
             0
         }
         "set" => match pause_args(rest) {
@@ -572,7 +572,7 @@ fn pause_set(file: &Path, reason: &str) -> u8 {
                     .map(|(_, value)| value.trim_matches('"').to_string())
                     .unwrap_or_default()
             };
-            println!("{}", pause_kept(&of("at"), &of("by"), &of("reason"), file));
+            tehas_core::outln!("{}", pause_kept(&of("at"), &of("by"), &of("reason"), file));
             return 0;
         }
         Reading { state, fields, .. } => {
@@ -625,7 +625,7 @@ fn pause_set(file: &Path, reason: &str) -> u8 {
         eprintln!("tehas pause: could not write {}", file.display());
         return 1;
     }
-    println!(
+    tehas_core::outln!(
         "{}\nno new cycle starts on this host: {}",
         pause_written(&at, &by, &said),
         file.display()
@@ -661,7 +661,7 @@ fn pause_clear(file: &Path) -> u8 {
             }
         }
     }
-    println!(
+    tehas_core::outln!(
         "{}",
         if there {
             "resumed: the pause flag is gone"
@@ -741,7 +741,7 @@ pub fn resume(given: &[String]) -> u8 {
     let list = setting("TEHAS_ALLOWED_LABELERS");
     let allowed = |who: &str| !who.is_empty() && list.split(' ').any(|a| a == who);
     match other_switch(&mut forge, control, &allowed) {
-        Some(Ok(line)) => println!("{line}"),
+        Some(Ok(line)) => tehas_core::outln!("{line}"),
         Some(Err(line)) => eprintln!("{line}"),
         None => {}
     }
@@ -896,7 +896,7 @@ pub fn drain(given: &[String]) -> u8 {
         sleep(Duration::from_secs(1));
     };
     let limit = read(&file, now()).text();
-    println!("{}", drain_report(&said, &running, &limit, asked.json));
+    tehas_core::outln!("{}", drain_report(&said, &running, &limit, asked.json));
     u8::from(!running.is_empty())
 }
 
@@ -1094,7 +1094,7 @@ fn set(file: &Path, want: &Wanted) -> u8 {
     match write_limit(file, want) {
         Ok(()) => {
             let out = read(file, now());
-            println!("{}", if want.json { api(out) } else { out.said() });
+            tehas_core::outln!("{}", if want.json { api(out) } else { out.said() });
             0
         }
         Err(rc) => rc,
@@ -1165,7 +1165,7 @@ fn clear(file: &Path, json: bool) -> u8 {
         }
     }
     let out = read(file, now());
-    println!("{}", if json { api(out) } else { out.said() });
+    tehas_core::outln!("{}", if json { api(out) } else { out.said() });
     0
 }
 

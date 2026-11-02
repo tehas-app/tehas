@@ -453,7 +453,7 @@ fn images(given: &Words) -> Result<(), u8> {
         .iter()
         .flat_map(|t| t.split('\n'))
     {
-        println!("tehas dev: {line}");
+        tehas_core::outln!("tehas dev: {line}");
     }
     Ok(())
 }
@@ -479,7 +479,7 @@ pub fn start(given: &[String]) -> u8 {
     let words = match parse(given) {
         Ok(Some(words)) => words,
         Ok(None) => {
-            print!("{USAGE}");
+            tehas_core::out!("{USAGE}");
             return 0;
         }
         Err(why) => {
@@ -613,7 +613,9 @@ fn session(given: &Words, taken: &Taken) -> u8 {
                 "tehas dev: could not make the clone {tree}, not starting a session"
             ));
         }
-        println!("tehas dev: made {tree} at the tip of {branch} the product checkout last fetched");
+        tehas_core::outln!(
+            "tehas dev: made {tree} at the tip of {branch} the product checkout last fetched"
+        );
     }
 
     let who_git = Identity {
@@ -645,12 +647,12 @@ fn session(given: &Words, taken: &Taken) -> u8 {
     };
     let hosts = sandbox::hosts(&var("PI_ENSEMBLE_HOST_ALIASES"));
 
-    println!("tehas dev: {tree}, commits as {}", who.said);
+    tehas_core::outln!("tehas dev: {tree}, commits as {}", who.said);
     let view = fs::read_to_string(format!("{home}/live/running.json")).unwrap_or_default();
     if let Some(said) = running_said(&view) {
-        println!("tehas dev: {said}");
+        tehas_core::outln!("tehas dev: {said}");
     }
-    println!("{}", room_said(&home, &taken.slice, &load));
+    tehas_core::outln!("{}", room_said(&home, &taken.slice, &load));
 
     // Ctrl-C belongs to the session: it must not take the terminal's reset away.
     let interrupted = Arc::new(AtomicBool::new(false));
@@ -682,7 +684,7 @@ fn session(given: &Words, taken: &Taken) -> u8 {
 pub fn main(given: &[String]) -> u8 {
     match given {
         [verb] if verb == "table" => {
-            println!("{}", table());
+            tehas_core::outln!("{}", table());
             0
         }
         _ => {
