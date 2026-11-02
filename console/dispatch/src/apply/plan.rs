@@ -19,7 +19,7 @@ use std::path::PathBuf;
 use std::sync::OnceLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tehas_core::events::{plan_credit, Events};
-use tehas_core::plan::made;
+use tehas_core::plan::{made, text_of, REFUSED};
 use tehas_core::question::{self, Kind, MAX_OPTIONS};
 
 /// plan_filed_re: an address of an issue a turn filed.
@@ -594,10 +594,46 @@ impl Writer {
         let failed = p.get("failed") == Some(&json!(true));
         let label = text(&p, "label").to_string();
         let mut out = self.outcome(n);
+        // What `clear` decides is kept only when it made a plan: a refusal
+        // leaves the outcome the console wrote, so the poll asks the question
+        // of the turn instead of writing the draft onto the issue.
+        let kept = std::fs::read_to_string(self.st(n, ".out"))
+            .ok()
+            .and_then(|t| serde_json::from_str::<Value>(&t).ok())
+            .unwrap_or(Value::Null);
         if comment.is_empty() && out.get("clear") == Some(&json!(true)) {
             match self.plan_clear(n, &p, &out) {
                 Ok(next) => out = next,
-                Err(why) => log.push(format!("planning #{n} asks: {why}")),
+                Err(why) => {
+                    // The plan's text stays on the issue and nothing of it is
+                    // kept for a later poll: the outcome goes back to what
+                    // the console wrote, and the person is told which rule
+                    // the draft failed. The turn's own text and its boxes are
+                    // still what the console asked for, so the tick that led
+                    // here is not lost; the refusal is said on its own, since
+                    // the question of a turn that already posted one is not
+                    // posted twice.
+                    out = kept.clone();
+                    if self.say(n, &why, log) {
+                        log.push(format!("planning #{n} asks: {why}"));
+                    } else {
+                        log.push(format!(
+                            "WARN: the refusal of the drafted plan of #{n} could not be posted; the next poll tries again"
+                        ));
+                        return false;
+                    }
+                }
+            }
+        }
+        // A draft kept for the tick whose text says nothing of the issue is
+        // refused the same way, whatever asked for the write: the issue keeps
+        // its text, the session stays open, and the only answer that changes
+        // anything is a reply that changes the plan.
+        if comment.is_empty() && out.get("update").is_some_and(Value::is_object) {
+            if let Some(why) = self.draft_refused(n, &out) {
+                log.push(format!("planning #{n} asks: {why}"));
+                out = json!({"session": out.get("session"), "text": why,
+                    "question": {"question": why, "options": []}});
             }
         }
         let mut filed: Vec<&str> = out
@@ -672,6 +708,35 @@ impl Writer {
         true
     }
 
+    /// Why the `update` of `out` is refused, or nothing when its text may be
+    /// written. The kept draft is what `made` reads, so the check of #1210 is
+    /// one check for the tick and for a plan with no open points: a draft
+    /// whose title or text says nothing of the issue writes nothing, and the
+    /// reason is what the poll posts and logs. The line a person reads comes
+    /// from `made` itself, whose `said` is not read on this path. A draft that
+    /// is gone, or one that names no what the write would put on the issue,
+    /// says nothing here: the document is left as its writer made it.
+    fn draft_refused(&self, n: u64, out: &Value) -> Option<String> {
+        let title = s(out, "/update/title");
+        let body = s(out, "/update/body");
+        let draft = std::fs::read_to_string(self.keep(n).join("draft.json"))
+            .ok()
+            .and_then(|t| serde_json::from_str::<Value>(&t).ok())?;
+        // A draft that names no title or no text says nothing here either:
+        // the document is left as its writer made it. `text_of` reads the
+        // entry the way `made` will, so the two agree on what the draft says.
+        let named = |key: &str, said: &str| {
+            !draft.get(key).is_none_or(Value::is_null) && text_of(draft.get(key)) == said
+        };
+        if !named("title", title) || !named("spec", body) {
+            return None;
+        }
+        // `said` is not read on this path: the line the person reads is
+        // `Refused::line`, which holds `REFUSED` and the rule.
+        let refused = made(&draft, &json!({"title": title, "body": body}), REFUSED).err()?;
+        Some(refused.line())
+    }
+
     /// A drafted plan with no open points, in a plan session: the outcome that
     /// makes it the issue's text and starts it, kept for the poll that writes
     /// it, or why this one asks as any other does. What is decided here is
@@ -722,11 +787,18 @@ impl Writer {
             .ok()
             .and_then(|t| serde_json::from_str::<Value>(&t).ok())
             .ok_or("no drafted plan is kept")?;
+        // The title and the text the plan would put on the issue are what
+        // `made` reads, so a draft that says nothing of the issue is refused
+        // here too, before the start is kept or a cycle credited: it asks,
+        // with the rule the draft failed in the comment a person reads.
         let plan = made(
             &draft,
             &was,
             &format!("This issue now holds the plan, which has no open points. A cycle starts on @{by}'s `tehas:plan` when there is room. Take `tehas:ready` off to stop it."),
-        )?;
+        )
+        // The reason a person reads, so the line the poll logs and the line
+        // the poll posts say which rule the draft failed.
+        .map_err(|refused| refused.line())?;
         // tehas:plan approved the brief's links; the planner cannot add one.
         let approved = link_list(text(p, "brief"));
         if link_list(&plan.body).iter().any(|l| !approved.contains(l)) {

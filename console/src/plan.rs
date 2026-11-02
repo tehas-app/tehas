@@ -197,7 +197,11 @@ pub fn outcome(
                 options.push(json!({"label": "File as a new issue", "description": "file the plan above as one new issue"}));
                 DRAFTED_REFINE
             } else {
-                if clear(&d, &spec) {
+                // `clear` tells the dispatcher to write the draft onto the
+                // issue without another tick, so it is said only of a draft
+                // the checks of #1210 let through: one that says nothing of
+                // the issue is asked about, like any other draft.
+                if clear(&d, &spec) && made(&draft, &json!({}), APPLY_READY).is_ok() {
                     more = ",\"clear\":true";
                 }
                 DRAFTED
@@ -279,8 +283,10 @@ pub fn descriptor(brief: &str, issue: &str) -> String {
     }
 }
 
-/// The drafted plan as the issue's new text, and the comment that ends the
-/// session with the text it replaces, folded and quoted.
+/// A drafted plan the person chose to make the issue's text. One whose title
+/// or text says nothing of the issue is refused in the same document: the text
+/// names the rule, the question asks for the change, and there is no `update`
+/// key, so the dispatcher writes nothing and the session stays open.
 pub fn update(session: &str, keep: &Path, was: &str) -> Result<String, String> {
     let was: Value = serde_json::from_str(was)
         .map_err(|_| "the text of the issue could not be read".to_string())?;
@@ -288,7 +294,16 @@ pub fn update(session: &str, keep: &Path, was: &str) -> Result<String, String> {
         .ok()
         .and_then(|t| serde_json::from_str(&t).ok())
         .ok_or("no drafted plan is kept")?;
-    let plan = made(&draft, &was, APPLY_READY)?;
+    let plan = match made(&draft, &was, APPLY_READY) {
+        Ok(plan) => plan,
+        // Refused: the text of the issue stays as it is, and the person is
+        // asked for the change. No `update` key, so nothing is written.
+        Err(refused) => {
+            let why = refused.line();
+            let ask = json!({"question": why, "options": []});
+            return Ok(document(session, &why, &ask, &[], ""));
+        }
+    };
     let more = format!(
         ",\"update\":{}",
         json!({"title": plan.title, "body": plan.body})
@@ -390,6 +405,36 @@ mod tests {
             let v = parsed(&outcome(rc, "abc", &k, CLEAR, false).unwrap());
             assert!(v.get("clear").is_none(), "{rc}");
         }
+    }
+
+    /// A draft the text check refuses is never marked `clear`, so the
+    /// dispatcher cannot write it onto the issue or credit a start for it
+    /// without a person's tick: it is asked about as any other draft is.
+    #[test]
+    fn a_draft_the_check_refuses_is_never_clear() {
+        let k = keep();
+        let good = "## Outcome\n\nThe p95 is under 100 ms.";
+        let long = "work ".repeat(200) + "work";
+        for (title, spec) in [
+            ("EPIC: EPIC", good),
+            (&long[..40], good),
+            (
+                "feat: faster search",
+                "Descriptor: what the issue is\n\n## Prior context inventory\n\n- the file",
+            ),
+            ("feat: faster search", "[context param]\n\n[context param]"),
+        ] {
+            let doc = json!({"text": "Drafted.", "title": title, "spec": spec, "questions": []})
+                .to_string();
+            let v = parsed(&outcome(12, "abc", &k, &doc, false).unwrap());
+            assert!(v.get("clear").is_none(), "{doc}: {v}");
+            // Still shown with its box, so the person can tick it after they
+            // have read what the check said of it.
+            assert_eq!(v["question"]["options"][0]["label"], "Update this issue");
+        }
+        // The same document with a title and a text that hold says `clear`.
+        let v = parsed(&outcome(12, "abc", &k, CLEAR, false).unwrap());
+        assert_eq!(v["clear"], true);
     }
 
     #[test]
@@ -591,9 +636,11 @@ mod tests {
     #[test]
     fn an_update_carries_the_draft_and_the_text_it_replaces() {
         let k = keep();
+        // A plan of one line holds nothing a person wrote, so the check
+        // refuses it; a drafted plan is written in whole sentences.
         std::fs::write(
             k.join("draft.json"),
-            r###"{"title":"feat: fast","spec":"## Outcome"}"###,
+            r###"{"title":"feat: fast","spec":"## Outcome\n\nThe p95 is under 100 ms."}"###,
         )
         .unwrap();
         let out = update(
@@ -605,11 +652,17 @@ mod tests {
         let v = parsed(&out);
         assert_eq!(
             v["update"],
-            json!({"title": "feat: fast", "body": "## Outcome"})
+            json!({"title": "feat: fast", "body": "## Outcome\n\nThe p95 is under 100 ms."})
         );
         assert_eq!(v["question"], Value::Null);
         assert_eq!(v["text"], "This issue now holds the plan. Apply `tehas:ready` to build it.\n\n<details><summary>The text it replaced</summary>\n\n> # search\n> \n> make it fast\n> \n> really\n\n</details>");
-        std::fs::write(k.join("draft.json"), r#"{"title":"","spec":"x"}"#).unwrap();
+        // No title of its own: the issue keeps the one it has, which the draft
+        // cannot refuse.
+        std::fs::write(
+            k.join("draft.json"),
+            r#"{"title":"","spec":"The console reads the new key."}"#,
+        )
+        .unwrap();
         assert_eq!(
             parsed(&update("s", &k, r#"{"title":"search","body":null}"#).unwrap())["update"]
                 ["title"],
@@ -617,13 +670,79 @@ mod tests {
         );
     }
 
+    /// A draft that fails the text check: the document says why, asks for the
+    /// change, and holds no `update`, so nothing is written and the session
+    /// stays open.
+    #[test]
+    fn a_draft_that_fails_the_check_changes_nothing_and_says_why() {
+        let k = keep();
+        let refused = |draft: &str| {
+            std::fs::write(k.join("draft.json"), draft).unwrap();
+            parsed(&update("s", &k, r#"{"title":"search","body":"fast"}"#).unwrap())
+        };
+        let good = "## Outcome\n\nThe p95 is under 100 ms.";
+        let long = "work ".repeat(200) + "work";
+        // [draft, the rule it fails, what the person is told to do]
+        for (title, spec, why) in [
+            ("EPIC: EPIC", good, "nothing but prefixes"),
+            (&long[..40], good, "one word repeated"),
+            (
+                "feat: faster search",
+                "Descriptor: what the issue is\n\n## Prior context inventory\n\n- the file",
+                "the planner's brief",
+            ),
+            (
+                "feat: faster search",
+                "[context param]\n\n[context param]",
+                "markers",
+            ),
+            ("feat: faster search", "", "no text"),
+        ] {
+            let draft = json!({"title": title, "spec": spec}).to_string();
+            let v = refused(&draft);
+            assert!(v.get("update").is_none(), "{draft}: {v}");
+            assert_eq!(v["question"]["options"], json!([]));
+            let asked = v["question"]["question"].as_str().unwrap();
+            assert_eq!(asked, v["text"].as_str().unwrap());
+            assert!(
+                asked.starts_with("Tehas did not make the drafted plan"),
+                "{draft}: {asked}"
+            );
+            assert!(asked.contains(why), "{draft}: {asked}");
+            assert!(asked.contains("Reply"), "{draft}: {asked}");
+            // One line, so the comment that says it holds one line of its own.
+            assert_eq!(asked.lines().count(), 1, "{draft}: {asked}");
+        }
+        // A draft that passes is written as before, with its `update`.
+        let v = refused(&json!({"title": "feat: faster search", "spec": good}).to_string());
+        assert_eq!(
+            v["update"],
+            json!({"title": "feat: faster search", "body": good})
+        );
+        assert!(v["question"].is_null());
+    }
+
     #[test]
     fn an_update_without_a_draft_or_the_issue_prints_nothing() {
-        let k = keep();
+        // A keep directory of its own: the tests of this file run side by
+        // side, and a draft one of them kept would answer for this one.
+        let k = std::env::temp_dir().join(format!(
+            "tehas-plan-none-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&k);
+        std::fs::create_dir_all(&k).unwrap();
+        let good = r#"{"title":"t","spec":"The console reads the new key."}"#;
+        // Nothing to print and the turn fails: no draft kept, a kept draft
+        // that is no document, and no issue to read. A draft the check
+        // refuses, of which one holding no text is one, is an answer: it
+        // prints a document that says why.
         assert!(update("s", &k, r#"{"title":"t","body":""}"#).is_err());
-        std::fs::write(k.join("draft.json"), r#"{"title":"t","spec":""}"#).unwrap();
+        std::fs::write(k.join("draft.json"), "not a document").unwrap();
         assert!(update("s", &k, r#"{"title":"t","body":""}"#).is_err());
-        std::fs::write(k.join("draft.json"), r#"{"title":"t","spec":"x"}"#).unwrap();
+        std::fs::write(k.join("draft.json"), good).unwrap();
         assert!(update("s", &k, "").is_err());
+        let _ = std::fs::remove_dir_all(&k);
     }
 }
