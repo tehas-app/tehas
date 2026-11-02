@@ -34,6 +34,19 @@ t_lacks "$no_comments" ">>"
 t_lacks "$no_comments" "StandardOutput="
 t_lacks "$no_comments" "StandardError="
 
+t_case "the cleaner's unit publishes the disk reading after the clean, and no other step"
+# The reading factory_disk serves. Pinned as the whole line, and as the only
+# post step: a `-` prefix would let a publish that wrote nothing end the unit
+# 0, and a second ExecStartPost would put another writer of the host's figures
+# after the clean unseen. The publish opens no file of the clean's, so the two
+# cases above still read true of this unit: what it prints reaches the journal
+# and no log, and a redirect of it into clean.log would be the second destination
+# those cases refuse.
+t_eq "$(sed -n 's/^ExecStartPost=//p' "$units/tehas-clean.service")" \
+  "/bin/bash -c \". %h/tehas/env.sh && exec %h/tehas/bin/tehasbot disk --publish\""
+t_eq "$(grep -c '^ExecStartPost=' "$units/tehas-clean.service")" 1
+t_lacks "$no_comments" "tehasbot disk --publish >>"
+
 t_case "the units with no redirect are the commands that write their own log"
 # The class read from the source as well as from the units, so a third
 # self-writing command in console/src/run.rs has to be said here before the units

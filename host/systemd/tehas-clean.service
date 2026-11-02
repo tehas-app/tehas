@@ -12,4 +12,19 @@ Type=oneshot
 ExecStart=/bin/bash -c ". %h/tehas/env.sh && exec %h/tehas/bin/tehasbot clean"
 # Three steps: a walk of the kept workspaces, one docker prune, and the scratch
 # under tmp/. A host with a full disk is the slow case, and it is still minutes.
+# The bound is systemd's for the whole start phase, the post step below included;
+# the publish bounds every call and every walk of its own reading, so it adds
+# minutes of its own and never waits on a host that will not answer.
 TimeoutStartSec=30min
+# The disk reading the MCP server's factory_disk serves, published after the
+# clean so the file says what the clean left. It is read of the host and not of
+# the clean, so the reading does not depend on what the clean removed; only the
+# step is systemd's, a post step running after a main step that ended 0, which
+# leaves the last answer there when the clean failed. The publish is no step of
+# the clean: it opens no file of the clean's, so the no-sink rule above still
+# reads true (test/units_test.sh), and the reading it prints is the journal's,
+# beside the lines of the clean - the same figures factory_disk serves. It is
+# not prefixed with -, so a publish that wrote nothing fails the unit and is
+# read with journalctl --user -u tehas-clean; the clean it followed already
+# logged what it removed.
+ExecStartPost=/bin/bash -c ". %h/tehas/env.sh && exec %h/tehas/bin/tehasbot disk --publish"

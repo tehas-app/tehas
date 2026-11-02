@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# tehasbot: what the timers and services run. Nothing here is for a person to
-# type in daily use; the command for that is tehas, beside this file.
+# tehasbot: what the timers and services run; tehas, beside it, is for a person.
 #
 # Usage:
 #   tehasbot dispatch             one poll of the issue queue (the timer)
@@ -16,15 +15,10 @@
 #   tehasbot refresh              find the pull requests to refresh (the timer)
 #   tehasbot review               review the branch since the last review
 #   tehasbot clean                remove what the host can make again (the timer)
+#   tehasbot disk --publish       the reading for factory_disk (the timer)
 #   tehasbot mcp serve            the read-only MCP server (the service)
 #   tehasbot github-token [--check]  the GitHub App's token (the gh shim)
 #   tehasbot help                 this text
-#
-# Each command is a program in ../libexec or a verb of the console, and this
-# only chooses one and runs it with the remaining arguments: it loads no settings
-# and calls nothing else. `console run` loads them for a verb that needs them.
-# The scripts call each other by the path of their own directory, not through
-# this command.
 #
 # Exit: the status of the command that ran; 64 a command this does not know;
 # 78 no console for a command that needs one.
@@ -84,6 +78,10 @@ case "${1-help}" in
     exec "$console" tehasbot "$@"
     ;;
   energy) shift; exec "$libexec/console" energy "$@" ;;
+  disk) # factory_disk's reading: only --publish writes.
+    [ "${2-}${3:+x}" = --publish ] || { echo "tehasbot disk: usage: tehasbot disk --publish" >&2; exit 64; }
+    exec "$console" tehasbot "$@"
+    ;;
   *)
     printf 'tehasbot: unknown command: %s\n' "$1" >&2
     usage >&2
