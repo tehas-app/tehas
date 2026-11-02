@@ -1,7 +1,7 @@
 //! `analytics sample`: one row of samples, read from the live files of the
 //! dispatcher's poll. Under $TEHAS_HOME:
 //!
-//! - live/status.json (libexec/status, run at the start of every poll):
+//! - live/status.json (tehasbot status, run at the start of every poll):
 //!   {generatedAt, paused, queued: [..], running: [..], awaiting: [..],
 //!   stopped: [..], planning, ...}. in_line, running, awaiting and stopped
 //!   are the lengths of those lists; planning is the count of open issues
@@ -16,7 +16,7 @@
 //!   or the count the poll derived from the host when that setting is
 //!   `auto` — the dispatcher writes the count it decided by into free), or
 //!   count plus limitRoom where the limit of tehas limit is lower.
-//! - live/energy.json (libexec/energy): {generatedAt, totals: {watts}}.
+//! - live/energy.json (console energy): {generatedAt, totals: {watts}}.
 //!   watts is the mesh's draw, where it reports one.
 //!
 //! A file that is missing, a link, not JSON, or too old by its own time

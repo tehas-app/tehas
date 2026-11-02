@@ -1,7 +1,8 @@
 # A cycle's supervisor: what tehasbot cycle and tehas work do, in Rust (#256).
 # A member of the workspace in ../Cargo.toml. So far the binary, tehas-cycle,
 # starts a cycle from its own copy of the code, and decides a cycle's report
-# from what the cycle left; libexec/cycle is still the one that reports.
+# from what the cycle left. It applies the report where the instance asks for
+# that; libexec/cycle reports by default.
 [package]
 name = "tehas-cycle"
 version = "0.1.0"

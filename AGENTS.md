@@ -73,8 +73,9 @@ when a person pulls and runs `install.sh` there.
   spaces, `shellcheck -x` clean with no blanket disables. A header comment says
   what the command does, its usage and its exit statuses. Comments explain why.
 - Which language: the state store, the dispatcher and the cycle supervisor
-  are Rust, in the workspace under `console/`. Install, update, bootstrap, the
-  units and the glue between commands stay bash. Bash never writes SQL.
+  are Rust, in the workspace under `console/`, and so is the update. Install,
+  bootstrap, the units and the glue between commands stay bash. Bash never
+  writes SQL.
   New logic goes into Rust. Prefer Rust over bash for new work, and keep
   scripts to a minimum: as the tehas family grows, logic in bash is harder to
   test and to change safely. When you touch a script that holds logic,

@@ -1,7 +1,7 @@
 //! The flags one instance keeps under `state/`: the limit `tehas limit` sets
 //! and the pause `tehas pause` sets. Reading, validating, writing and printing
-//! them, for `libexec/limit`, `libexec/pause` and `libexec/resume`, so that
-//! every command which honours a flag reads it through one Rust function.
+//! them, for `tehas limit`, `tehas pause`, `tehas resume` and `tehas drain`, so
+//! that every command which honours a flag reads it through one Rust function.
 //!
 //!   console flags limit show [--json]
 //!   console flags limit set --cycles N [--plan on|off]
@@ -30,9 +30,8 @@
 //!   limit     1 cycle at once, planning off, until 2026-10-17T14:05:00Z: held for alpha
 //!   {"api":1,"state":"ok","cycles":1,"plan":false,"until":"...","reason":"..."}
 //!
-//! `read` prints the same reading as one object with no `api`: the answer
-//! `lib/limit.sh` gives the dispatcher, `tehasbot improve` and `tehasbot
-//! health`, and the object `tehas status --json` publishes, so it keeps
+//! `read` prints the same reading as one object with no `api`: the object
+//! `tehas status --json` publishes, so it keeps
 //! exactly the fields it has today; with `--line` it prints the words of that
 //! reading instead, which is how the shell prints the line of a limit it has
 //! just read. `state` is `none` when no file is there,
@@ -86,12 +85,18 @@
 //! a name of the flag is not this account's to remove; 64 a bad argument, which
 //! writes nothing.
 
+use crate::forge::CALL_BOUND;
 use serde_json::Value;
 use std::env;
-use std::fs::{self, OpenOptions};
+use std::fs::{self, OpenOptions, TryLockError};
 use std::io::Write;
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
+use std::thread::sleep;
+use std::time::{Duration, Instant};
+use tehas_core::events::{pause_holds, UNKNOWN_ACTOR};
+use tehas_core::forge::{Bounded, Forge, GitHub};
+use tehas_core::lock::{self, Probe};
 use tehas_core::time;
 
 /// The clock a run reads: the host's, or the whole number of seconds in
@@ -113,7 +118,7 @@ fn clock(given: Option<String>) -> i64 {
 }
 
 /// The longest reason the flag holds.
-const REASON: usize = 200;
+pub const REASON: usize = 200;
 /// The largest limit a person can set, and the widest `--for` in seconds: the
 /// bounds `tehas limit` has always checked its arguments against.
 const MAX_CYCLES: u64 = 9999;
@@ -258,7 +263,7 @@ impl Reading {
         }
     }
 
-    fn said(&self) -> String {
+    pub fn said(&self) -> String {
         if !self.line.is_empty() {
             return self.line.clone();
         }
@@ -306,7 +311,7 @@ impl Reading {
     }
 
     /// The reading as one compact object, `state` first: the order
-    /// `lib/limit.sh` printed, which `tehas status --json` republishes.
+    /// `tehas status --json` republishes.
     fn text(&self) -> String {
         let mut parts = vec![format!("\"state\":\"{}\"", self.state)];
         parts.extend(
@@ -543,7 +548,7 @@ fn uid() -> u32 {
 
 /// The account which wrote the flag, as `id -un` names it: the real uid, the
 /// name in passwd for it, and nothing for an account passwd does not name.
-fn account() -> String {
+pub(crate) fn account() -> String {
     let entry = unsafe { libc::getpwuid(uid()) };
     if entry.is_null() {
         return String::new();
@@ -665,6 +670,234 @@ fn pause_clear(file: &Path) -> u8 {
         }
     );
     0
+}
+
+/// 64 with the usage: `tehas resume` takes no argument.
+pub fn resume_words(given: &[String]) -> Result<(), u8> {
+    if given.is_empty() {
+        return Ok(());
+    }
+    eprintln!("usage: tehas resume");
+    Err(64)
+}
+
+/// What the other switch, tehas:pause on the control issue, says once the
+/// host's own is off: a line for standard output, one for standard error, or
+/// nothing when it holds nothing. Only an allowed account can lift the label
+/// (AGENTS.md rule 5).
+fn other_switch(
+    forge: &mut dyn Forge,
+    control: u64,
+    allowed: &dyn Fn(&str) -> bool,
+) -> Option<Result<String, String>> {
+    let Ok(labels) = forge.labels(control) else {
+        return Some(Err(format!(
+            "tehas resume: the labels of issue #{control} could not be read: check tehas:pause there yourself"
+        )));
+    };
+    if labels.iter().any(|l| l == "tehas:pause") {
+        return Some(Ok(format!(
+            "the factory stays paused: tehas:pause is still on issue #{control}"
+        )));
+    }
+    let Ok(events) = forge.label_events(control) else {
+        return Some(Err(format!(
+            "tehas resume: the label events of issue #{control} could not be read"
+        )));
+    };
+    let (kind, by) = pause_holds(&events, allowed)?;
+    Some(Ok(if kind == "unlabeled" {
+        let by = if by.is_empty() { UNKNOWN_ACTOR } else { &by };
+        format!(
+            "the factory stays paused: tehas:pause was taken off #{control} by '{by}', who may not authorise work here"
+        )
+    } else {
+        format!(
+            "the factory stays paused: tehas:pause is not on issue #{control}, but its last tehas:pause event only applied it"
+        )
+    }))
+}
+
+/// `tehas resume`: the host's own switch comes off first, whatever GitHub then
+/// says, and the exit status is that of the flag alone.
+pub fn resume(given: &[String]) -> u8 {
+    if let Err(rc) = resume_words(given) {
+        return rc;
+    }
+    let setting = |name: &str| env::var(name).unwrap_or_default();
+    let Ok(control) = setting("TEHAS_CONTROL_ISSUE").parse::<u64>() else {
+        eprintln!("tehas resume: TEHAS_CONTROL_ISSUE is no issue number");
+        return 78;
+    };
+    if pause(&["clear".to_string()]) != 0 {
+        return 1;
+    }
+    // gh of `PATH`: `host/env.sh` puts the shim first there where the instance
+    // has one, and a person's shell without it reads with their own gh.
+    let mut forge = GitHub::new(
+        setting("TEHAS_REPO"),
+        Box::new(Bounded::new("gh", CALL_BOUND)),
+    );
+    let list = setting("TEHAS_ALLOWED_LABELERS");
+    let allowed = |who: &str| !who.is_empty() && list.split(' ').any(|a| a == who);
+    match other_switch(&mut forge, control, &allowed) {
+        Some(Ok(line)) => println!("{line}"),
+        Some(Err(line)) => eprintln!("{line}"),
+        None => {}
+    }
+    0
+}
+
+/// What `tehas drain` was asked.
+#[derive(Debug, PartialEq)]
+pub struct Drain {
+    wait: Option<u64>,
+    json: bool,
+}
+
+/// The longest `--wait`, in digits, and the seconds a poll is waited for
+/// without one.
+const WAIT_DIGITS: usize = 7;
+const POLL_WAIT: u64 = 600;
+/// How often a lock another process holds is tried again.
+const LOCK_TRY: Duration = Duration::from_millis(50);
+
+fn wait_seconds(word: &str) -> Option<u64> {
+    let digits = !word.is_empty() && word.bytes().all(|c| c.is_ascii_digit());
+    let plain = word == "0" || !word.starts_with('0');
+    (digits && plain && word.len() <= WAIT_DIGITS)
+        .then(|| word.parse().ok())
+        .flatten()
+}
+
+pub fn drain_words(given: &[String]) -> Result<Drain, u8> {
+    let mut asked = Drain {
+        wait: None,
+        json: false,
+    };
+    let mut words = given.iter();
+    while let Some(word) = words.next() {
+        match word.as_str() {
+            "--wait" if asked.wait.is_none() => {
+                asked.wait = words.next().and_then(|w| wait_seconds(w));
+                if asked.wait.is_none() {
+                    eprintln!("usage: tehas drain [--wait SECONDS] [--json]");
+                    return Err(64);
+                }
+            }
+            "--json" if !asked.json => asked.json = true,
+            _ => {
+                eprintln!("usage: tehas drain [--wait SECONDS] [--json]");
+                return Err(64);
+            }
+        }
+    }
+    Ok(asked)
+}
+
+/// Take the poll's lock and give it back, within `wait` seconds. A poll past
+/// its read of the limit starts its cycles whatever the file says, so this
+/// comes before the count, and its cycles are in it.
+fn poll_passed(lock: &Path, wait: u64) -> bool {
+    let Ok(f) = OpenOptions::new().append(true).create(true).open(lock) else {
+        eprintln!("tehas drain: could not open {}", lock.display());
+        return false;
+    };
+    let deadline = Instant::now() + Duration::from_secs(wait);
+    loop {
+        match f.try_lock() {
+            Ok(()) => return true,
+            Err(TryLockError::WouldBlock) if Instant::now() < deadline => sleep(LOCK_TRY),
+            Err(_) => return false,
+        }
+    }
+}
+
+/// The issues whose cycles hold their locks, lowest first. A lock that cannot
+/// be probed counts as held: drained is never said on a guess.
+fn cycles_running(dir: &Path) -> Vec<u64> {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    let mut held: Vec<u64> = entries
+        .flatten()
+        .filter_map(|e| {
+            let path = e.path();
+            let issue: u64 = path
+                .file_name()?
+                .to_str()?
+                .strip_suffix(".lock")?
+                .parse()
+                .ok()?;
+            matches!(lock::probe(&path), Probe::Held | Probe::Unknown(_)).then_some(issue)
+        })
+        .collect();
+    held.sort_unstable();
+    held
+}
+
+fn drain_report(said: &str, running: &[u64], limit: &str, json: bool) -> String {
+    let numbers = |sep: &str, mark: &str| {
+        let each: Vec<String> = running.iter().map(|n| format!("{mark}{n}")).collect();
+        each.join(sep)
+    };
+    if json {
+        format!(
+            "{{\"api\":1,\"drained\":{},\"running\":[{}],\"limit\":{limit}}}",
+            running.is_empty(),
+            numbers(",", "")
+        )
+    } else if running.is_empty() {
+        format!(
+            "{said}
+drained: no cycle is running"
+        )
+    } else {
+        format!(
+            "{said}
+still running: {}",
+            numbers(", ", "#")
+        )
+    }
+}
+
+/// `tehas drain`: the limit of no new work, then the count of what still runs.
+pub fn drain(given: &[String]) -> u8 {
+    let asked = match drain_words(given) {
+        Ok(asked) => asked,
+        Err(rc) => return rc,
+    };
+    let Some(here) = home() else {
+        eprintln!("console flags: neither TEHAS_HOME nor HOME is set");
+        return 64;
+    };
+    let state = here.join("state");
+    let file = state.join("limit.json");
+    let words = ["--cycles", "0", "--plan", "off", "--reason", "draining"].map(String::from);
+    let Ok(want) = set_args(&words) else {
+        return 64;
+    };
+    if let Err(rc) = write_limit(&file, &want) {
+        return rc;
+    }
+    let said = read(&file, now()).said();
+    if !poll_passed(
+        &state.join("dispatch.lock"),
+        asked.wait.unwrap_or(POLL_WAIT),
+    ) {
+        return 1;
+    }
+    let deadline = Instant::now() + Duration::from_secs(asked.wait.unwrap_or(0));
+    let running = loop {
+        let running = cycles_running(&state.join("cycles"));
+        if running.is_empty() || Instant::now() >= deadline {
+            break running;
+        }
+        sleep(Duration::from_secs(1));
+    };
+    let limit = read(&file, now()).text();
+    println!("{}", drain_report(&said, &running, &limit, asked.json));
+    u8::from(!running.is_empty())
 }
 
 /// `tehas_pause_read`: the flag as every command which honours it reads it.
@@ -858,13 +1091,17 @@ fn api(out: Reading) -> String {
 }
 
 fn set(file: &Path, want: &Wanted) -> u8 {
-    let shown = |out: Reading| {
-        if want.json {
-            api(out)
-        } else {
-            out.said()
+    match write_limit(file, want) {
+        Ok(()) => {
+            let out = read(file, now());
+            println!("{}", if want.json { api(out) } else { out.said() });
+            0
         }
-    };
+        Err(rc) => rc,
+    }
+}
+
+fn write_limit(file: &Path, want: &Wanted) -> Result<(), u8> {
     let cycles = want.cycles.clone().unwrap_or_else(|| String::from("0"));
     let until = match (want.for_.as_deref(), want.until.as_deref()) {
         (Some(secs), _) => {
@@ -891,12 +1128,12 @@ fn set(file: &Path, want: &Wanted) -> u8 {
         Some(d) => d,
         None => {
             eprintln!("tehas limit: {} holds no directory", file.display());
-            return 1;
+            return Err(1);
         }
     };
     if let Err(e) = fs::create_dir_all(dir) {
         eprintln!("tehas limit: could not create {}: {e}", dir.display());
-        return 1;
+        return Err(1);
     }
     // The name is the one name, so a leftover of a run killed mid-write, or
     // something planted in state/ under it, is removed first and the new file
@@ -915,10 +1152,9 @@ fn set(file: &Path, want: &Wanted) -> u8 {
     if written.is_err() {
         let _ = fs::remove_file(&tmp);
         eprintln!("tehas limit: could not write {}", file.display());
-        return 1;
+        return Err(1);
     }
-    println!("{}", shown(read(file, now())));
-    0
+    Ok(())
 }
 
 fn clear(file: &Path, json: bool) -> u8 {
@@ -933,7 +1169,7 @@ fn clear(file: &Path, json: bool) -> u8 {
     0
 }
 
-/// tehas_limit_read: the limit as every command which honours it reads it.
+/// The limit as every command which honours it reads it.
 /// A file which is not there is no limit; anything else which is not a limit
 /// of version 1 is unreadable, never none, so a reader holds every start
 /// rather than finding no limit where a file is.
@@ -959,8 +1195,8 @@ fn parse(bytes: &[u8], now: i64) -> Reading {
         Ok(text) => text,
         Err(_) => return Reading::of("unreadable"),
     };
-    // The checks of tehas_limit_read, one jq select at a time, over the
-    // document it read. What an absent key reads as is part of the check:
+    // The checks of the limit, one jq select at a time, over the document
+    // read. What an absent key reads as is part of the check:
     // `.until == null` is true of a document with no until at all.
     let keys = match Skip::new(bytes).object() {
         Some(keys) => keys,
@@ -1229,21 +1465,16 @@ fn replaced(c: char) -> bool {
     matches!(c, '\u{1}'..='\u{1f}' | '\u{7f}'..='\u{9f}' | '\u{2028}' | '\u{2029}')
 }
 
-/// A reason as the health file holds it, the rule of `lib/status.sh` in
-/// words: a run of the characters jq replaces becomes one space, a run of
+/// A reason as the health file holds it: a run of the characters jq replaces becomes one space, a run of
 /// spaces stays as it was written, 200 characters is the most, counted as
 /// characters and cut before the ends, and the ends go last. The line
 /// `tehas status` prints is one fact, so a reason which carried a newline
 /// would otherwise print a line which is not there.
-fn oneline(s: &str) -> String {
-    // The rule of `tehas_pause_oneline` in `lib/status.sh`, which is the rule
-    // the shell has always applied to a reason: jq's `gsub` reads its pattern
-    // as POSIX basic regex, where the `+` after the class is one of the
-    // characters being replaced rather than a repeat, so each of them becomes
-    // a space of its own and a run of spaces which were written keeps every
-    // character of itself; 200 characters is the most, cut before the ends go,
-    // and only the spaces which touch the two ends of what is left go with
-    // them.
+pub fn oneline(s: &str) -> String {
+    // Each replaced character becomes a space of its own and a run of spaces
+    // which were written keeps every character of itself; 200 characters is
+    // the most, cut before the ends go, and only the spaces which touch the
+    // two ends of what is left go with them.
     let folded: String = s
         .chars()
         .map(|c| if replaced(c) { ' ' } else { c })
@@ -1291,6 +1522,8 @@ pub fn epoch(s: &str) -> Option<i64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
+    use std::fs::File;
     use std::os::unix::fs::symlink;
 
     struct Dir(PathBuf);
@@ -1679,6 +1912,34 @@ mod tests {
     }
 
     #[test]
+    fn what_a_reader_is_given_at_a_moment_of_its_own() {
+        let d = dir("reader");
+        let file = d.0.join("state/limit.json");
+        assert_eq!(read(&file, NOW).text(), r#"{"state":"none"}"#);
+        set_in(
+            &d,
+            &[
+                "--cycles",
+                "2",
+                "--plan",
+                "off",
+                "--until",
+                "2036-01-01T14:05:00Z",
+                "--reason",
+                "r",
+            ],
+        );
+        let until = epoch("2036-01-01T14:05:00Z").unwrap();
+        assert_eq!(
+            read(&file, until - 300).text(),
+            r#"{"state":"ok","cycles":2,"plan":false,"until":"2036-01-01T14:05:00Z","reason":"r"}"#
+        );
+        assert!(read(&file, until)
+            .text()
+            .starts_with(r#"{"state":"expired""#));
+    }
+
+    #[test]
     fn the_reading_keeps_its_own_field_order_whatever_the_file_s() {
         assert_eq!(
             of(r#"{"reason":"r","plan":false,"cycles":0,"v":1,"until":"2036-01-01T00:00:00Z"}"#),
@@ -1718,6 +1979,185 @@ mod tests {
             read(&file, NOW).text(),
             r#"{"state":"ok","cycles":1,"plan":true}"#
         );
+    }
+
+    struct Answers {
+        labels: Result<String, String>,
+        events: Result<String, String>,
+    }
+
+    impl tehas_core::forge::GhRunner for Answers {
+        fn run(&mut self, args: &[&str]) -> Result<String, String> {
+            if args[1].contains("/events") {
+                self.events.clone()
+            } else {
+                self.labels.clone()
+            }
+        }
+    }
+
+    fn other(
+        labels: Result<&str, &str>,
+        events: Result<&str, &str>,
+    ) -> Option<Result<String, String>> {
+        let owned = |r: Result<&str, &str>| r.map(String::from).map_err(String::from);
+        let runner = Answers {
+            labels: owned(labels),
+            events: owned(events),
+        };
+        let mut forge = GitHub::new("acme/widget", Box::new(runner));
+        other_switch(&mut forge, 1, &|who| who == "alice")
+    }
+
+    const NONE: &str = r#"{"labels":[]}"#;
+
+    fn pause_event(kind: &str, by: &str) -> String {
+        json!([{"event": kind, "label": {"name": "tehas:pause"}, "actor": {"login": by},
+                "created_at": "2026-01-02T00:00:00Z"}])
+        .to_string()
+    }
+
+    #[test]
+    fn the_label_on_the_issue_holds_the_factory() {
+        let on = r#"{"labels":[{"name":"bug"},{"name":"tehas:pause"}]}"#;
+        assert_eq!(
+            other(Ok(on), Err("not asked")),
+            Some(Ok(
+                "the factory stays paused: tehas:pause is still on issue #1".to_string()
+            ))
+        );
+    }
+
+    #[test]
+    fn who_took_the_label_off_decides() {
+        let stranger = pause_event("unlabeled", "mallory");
+        assert_eq!(
+            other(Ok(NONE), Ok(&stranger)),
+            Some(Ok("the factory stays paused: tehas:pause was taken off #1 by 'mallory', who may not authorise work here".to_string()))
+        );
+        let nobody =
+            json!([{"event": "unlabeled", "label": {"name": "tehas:pause"}, "actor": null}]);
+        assert_eq!(
+            other(Ok(NONE), Ok(&nobody.to_string())),
+            Some(Ok("the factory stays paused: tehas:pause was taken off #1 by 'unknown', who may not authorise work here".to_string()))
+        );
+        assert_eq!(
+            other(Ok(NONE), Ok(&pause_event("unlabeled", "alice"))),
+            None
+        );
+        assert_eq!(other(Ok(NONE), Ok("[]")), None);
+    }
+
+    #[test]
+    fn an_application_nothing_took_back_holds_the_factory_whoever_made_it() {
+        for by in ["mallory", "alice"] {
+            assert_eq!(
+                other(Ok(NONE), Ok(&pause_event("labeled", by))),
+                Some(Ok("the factory stays paused: tehas:pause is not on issue #1, but its last tehas:pause event only applied it".to_string()))
+            );
+        }
+    }
+
+    #[test]
+    fn an_answer_that_cannot_be_read_is_said_on_standard_error() {
+        assert_eq!(
+            other(Err("HTTP 502"), Ok("[]")),
+            Some(Err("tehas resume: the labels of issue #1 could not be read: check tehas:pause there yourself".to_string()))
+        );
+        assert_eq!(
+            other(Ok("{}"), Ok("[]")),
+            Some(Err("tehas resume: the labels of issue #1 could not be read: check tehas:pause there yourself".to_string()))
+        );
+        assert_eq!(
+            other(Ok(NONE), Err("HTTP 502")),
+            Some(Err(
+                "tehas resume: the label events of issue #1 could not be read".to_string()
+            ))
+        );
+        assert_eq!(
+            other(Ok(NONE), Ok("{}")),
+            Some(Err(
+                "tehas resume: the label events of issue #1 could not be read".to_string()
+            ))
+        );
+    }
+
+    #[test]
+    fn the_words_of_a_drain() {
+        assert_eq!(
+            drain_words(&args(&["--wait", "20", "--json"])),
+            Ok(Drain {
+                wait: Some(20),
+                json: true
+            })
+        );
+        assert_eq!(drain_words(&args(&["--wait", "0"])).unwrap().wait, Some(0));
+        assert_eq!(
+            drain_words(&args(&["--wait", "9999999"])).unwrap().wait,
+            Some(9_999_999)
+        );
+        for bad in [
+            &["--wait"][..],
+            &["--wait", "x"],
+            &["--wait", "-1"],
+            &["--wait", "01"],
+            &["--wait", ""],
+            &["--wait", "10000000"],
+            &["--wait", "1", "--wait", "2"],
+            &["--json", "--json"],
+            &["now"],
+            &[""],
+        ] {
+            assert_eq!(drain_words(&args(bad)), Err(64), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn a_drain_reports_as_it_always_has() {
+        let limit = r#"{"state":"ok"}"#;
+        assert_eq!(
+            drain_report("said", &[], limit, true),
+            r#"{"api":1,"drained":true,"running":[],"limit":{"state":"ok"}}"#
+        );
+        assert_eq!(
+            drain_report("said", &[7, 12], limit, true),
+            r#"{"api":1,"drained":false,"running":[7,12],"limit":{"state":"ok"}}"#
+        );
+        assert_eq!(
+            drain_report("said", &[], limit, false),
+            "said\ndrained: no cycle is running"
+        );
+        assert_eq!(
+            drain_report("said", &[7, 12], limit, false),
+            "said\nstill running: #7, #12"
+        );
+    }
+
+    #[test]
+    fn only_a_held_lock_of_an_issue_is_a_running_cycle() {
+        let d = dir("cycles");
+        assert_eq!(cycles_running(&d.0.join("none")), Vec::<u64>::new());
+        fs::write(d.0.join("5.lock"), "").unwrap();
+        let held = File::create(d.0.join("12.lock")).unwrap();
+        held.lock().unwrap();
+        let held2 = File::create(d.0.join("7.lock")).unwrap();
+        held2.lock().unwrap();
+        fs::write(d.0.join("x.lock"), "").unwrap();
+        fs::write(d.0.join("9.status"), "").unwrap();
+        assert_eq!(cycles_running(&d.0), vec![7, 12]);
+    }
+
+    #[test]
+    fn a_held_poll_lock_runs_out_its_wait_and_a_free_one_is_passed() {
+        let d = dir("poll");
+        let lock = d.0.join("dispatch.lock");
+        assert!(poll_passed(&lock, 0));
+        let held = File::open(&lock).unwrap();
+        held.lock().unwrap();
+        assert!(!poll_passed(&lock, 0));
+        drop(held);
+        assert!(poll_passed(&lock, 0));
+        assert!(!poll_passed(&d.0.join("no/such/dir"), 0));
     }
 
     #[test]

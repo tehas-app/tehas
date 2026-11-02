@@ -1,7 +1,7 @@
 //! `analytics run <issue> --facts <file>`: one work run, from the facts its
 //! caller gives and what the cycle left on the host, and its insert.
 //!
-//! The facts are one JSON object that lib/analytics.sh writes for the call, a
+//! The facts are one JSON object that tehas-cycle writes for the call, a
 //! claim read as the files below are:
 //!
 //! - line: tehas's line of history of this run, written by libexec/cycle
@@ -30,9 +30,9 @@
 //!   startedAt, endedAt}], exitCode, usage: {input, output, cacheRead,
 //!   cacheWrite, cost, turns, dispatches, byRole: {<role>: {...}}}, cap,
 //!   failedStep, parkReason, failure: {kind, step, role, cause}}]}. Read
-//!   whole: lib/headless.sh reads schema 4 only, but the fields read here are
-//!   the same in both. libexec/cycle removes it as the next cycle starts.
-//! - state/cycles/<n>.progress.json (libexec/work, tehas_headless_progress):
+//!   whole: tehas-cycle reads its RESULT_SCHEMA only, but the fields read here
+//!   are the same in both. libexec/cycle removes it as the next cycle starts.
+//! - state/cycles/<n>.progress.json (tehas-cycle, progress.rs):
 //!   {roles: [{role, dispatches, turns, input, output, cacheRead}], reason,
 //!   failure, reviewHeld, from}. reviewHeld, and the roles where the result
 //!   has no byRole (v0.12.80).
@@ -415,7 +415,7 @@ pub fn tehas_version(home: &Path) -> (Option<String>, Option<String>) {
     )
 }
 
-/// The issue's entry of the result: what tehas_headless_outcome drops too.
+/// The issue's entry of the result: what `tehas-cycle runner outcome` drops too.
 fn read_entry(run: &mut Run, e: &Map<String, Value>) {
     if run.status.is_none() || run.status.as_deref() == Some("unknown") {
         run.status = word(e, "status", 40).or(run.status.take());
@@ -733,7 +733,7 @@ fn stream_lines(log: &Path, issue: i64, ended: Option<i64>) -> (Vec<Step>, Vec<G
 }
 
 /// The newest logs/work-<issue>-*.jsonl written since the run started, as
-/// lib/improve.sh finds a cycle's log.
+/// tehas-cycle finds a cycle's log.
 fn work_log(home: &Path, issue: i64, started: i64) -> Option<PathBuf> {
     let prefix = format!("work-{issue}-");
     let mut found: Vec<PathBuf> = fs::read_dir(home.join("logs"))
@@ -848,9 +848,9 @@ fn pattern(p: &str) -> Regex {
 }
 
 // What the console's mask leaves and a failure cause may hold: the secret
-// shapes lib/improve.sh knows (tehas_improve_secret), JWTs, addresses with a
-// user, the host of a URL, IPv4 and IPv6 addresses, and host names. So no
-// column of the database names a host or holds a token.
+// shapes tehas_core::secret knows, JWTs, addresses with a user, the host of a
+// URL, IPv4 and IPv6 addresses, and host names. So no column of the database
+// names a host or holds a token.
 static PRIVATE_KEY: LazyLock<Regex> = LazyLock::new(|| {
     pattern(r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)")
 });
