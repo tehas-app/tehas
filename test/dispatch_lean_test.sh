@@ -24,49 +24,17 @@ lean_parked() { # <input of the last start, as JSON>
 }
 
 t_case "a retry tick reads the record of an issue that is no candidate, and keeps its driver"
-if bash_reads; then
-  t_skip "the bash poll does not read tehas:lean"
-else
-  lean_parked '{"links":[],"driver":"lean"}'
-  t_run "$dispatch"
-  t_eq "$t_rc" 0
-  t_eq "$(started)" "7 "
-  t_eq "$(approval .driver)" lean
-fi
+lean_parked '{"links":[],"driver":"lean"}'
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(started)" "7 "
+t_eq "$(approval .driver)" lean
 
 t_case "a retry tick of a classic start stays classic through the same read"
-if bash_reads; then
-  t_skip "the bash poll does not read tehas:lean"
-else
-  lean_parked '{"links":[]}'
-  t_run "$dispatch"
-  t_eq "$t_rc" 0
-  t_eq "$(started)" "7 "
-  t_eq "$(approval .driver)" null
-fi
-
-t_case "the bash poll starts nothing on an issue that carries tehas:lean"
-if ! bash_reads; then
-  t_skip "this run is the Rust poll's: T_BASH_POLL=1 runs the bash poll"
-else
-  reset
-  queue "7 tehas:lean"
-  label_events 7 tehas:lean=alice
-  t_run "$dispatch"
-  t_eq "$t_rc" 0
-  t_eq "$(started)" ""
-  t_contains "$t_out" "skip #7: it carries tehas:lean, which only the Rust poll reads; take it off to run it on classic"
-fi
-
-t_case "the bash poll starts no retry on an issue that carries tehas:lean"
-if ! bash_reads; then
-  t_skip "this run is the Rust poll's: T_BASH_POLL=1 runs the bash poll"
-else
-  lean_parked '{"links":[],"driver":"lean"}'
-  t_run "$dispatch"
-  t_eq "$t_rc" 0
-  t_eq "$(started)" ""
-  t_contains "$t_out" "skip #7: it carries tehas:lean, which only the Rust poll reads; take it off to run it on classic"
-fi
+lean_parked '{"links":[]}'
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(started)" "7 "
+t_eq "$(approval .driver)" null
 
 t_done

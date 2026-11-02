@@ -13,12 +13,111 @@ empty one above it.
 
 ### Changes
 
-- `scripts/verify.sh --changed` runs `cargo test -p` for the crates a change can
-  affect, not the whole workspace (#911).
+- The console drops verbs nothing calls (label actor, label pause-holds, every shipped verb but page), keeps one copy of the host names and of the version compare, and bash loses four functions only tests called.
+- `tehas history` runs in the console, in process, with its output unchanged; `libexec/history`, `lib/history-listing.jq` and `lib/history-repeats.jq` are gone, and an instance without a valid `TEHAS_REPO` now gets exit 78.
+- tehas export is a verb of the console and libexec/export is gone. An invalid TEHAS_REPO or an unreadable file of models now stops it with 78, it makes no directory on a refused argument or a link into the home, and it no longer takes a console from the PATH.
+- tehas setup runs in the console. libexec/setup is left with finding or building the console, and tehas setup --help reads the console's text.
+- `tehas dev` and its login start from the console; `libexec/dev` and `libexec/dev-login` are thin paths kept for the argv pin and the sudo rule. Nothing changes for a person.
+- `console run` is the one way into a command under the settings: libexec/with-settings, clean, preview, protolab, refresh and init-product and lib/disk.sh are gone, libexec/dispatch, review, improve, check-product and github-token are a line each, and an update restarts tehas-top.service.
 
 ### Adopter action
 
 None.
+
+## v0.21.0 (2026-11-02)
+
+### Changes
+
+- `tehas status`, `disk`, `state`, `limit`, `pause`, `analytics` and `tehasbot health` run the console directly, and seven wrapper scripts are gone.
+- The measure of an issue and the free-disk reading are the console's: `console size` and `console disk free` replace the jq and df in lib/sizing.sh and lib/disk.sh.
+- The cleaner's image names and the held set are the console's, and libexec/clean is a wrapper.
+- `tehasbot refresh` runs in tehas-dispatch; each GitHub call has a 30 s bound.
+- check-product and init-product run in the console.
+- tidy is a console verb, `console tidy run`; `libexec/tidy` is gone.
+- tehas top and tehasbot top run in the console; libexec/top, libexec/top-publish and lib/top.sh are gone, and an update restarts tehas-top.service.
+- tehas api, resume, drain and labels run in the console; the labels live in host/labels.tsv and the update's labels step follows that file.
+- tehas stop runs in the console; libexec/stop is gone.
+- `tehas mcp` runs in the console and `libexec/mcp` is gone; a new console no longer restarts `tehas-mcp.service`, a new server binary still does.
+- The store answers the approval, plan and settings views itself; lib/store.sh loses its jq shapes.
+- What an image says and what a runner left are read by tehas-cycle (`caps`, `runner`); sandbox/build.sh needs libexec/tehas-cycle beside it.
+- Image descriptions and the private names are verbs of tehas-cycle; lib/describe.sh and lib/private.sh are gone.
+- `tehasbot improve` runs in the console, and its unit allows 90 minutes, longer than the analyst's 60-minute bound.
+- The previews' network is checked and made by the console (`console preview network`); `install.sh` no longer sources `lib/edge.sh`.
+- A planning turn's preparation, docker wait and end moved from `libexec/plan` to `console plan`.
+- The GitHub App token is made in the console, and the JWT and the token reach curl on standard input, not on its command line.
+- The rules of `tehas.slice` are the console's: `console slice` answers for the commands and `lib/slice.sh` is wrappers.
+- `tehasbot protolab` runs in the console; every page rebuilds once, and each gh call of a pass is held to 30 s.
+- tehasbot preview runs in the console; libexec/preview only loads the settings, and lib/edge.sh is gone.
+- The docker options of every container come from one Rust builder (rule 4: nothing widens).
+- tehas index is a program.
+- tehasbot review is prepared by the console.
+- tehas dev starts its session from Rust.
+- What follows a cycle's record, from the live view to the next poll, is done by tehas-cycle; a pinned cycle runs its own copy of it.
+- The Rust report says a repeat park, a develop timeout's last attempt and a quiet stop, has no outage fallback, and the shadow's log names the arm.
+- A poll and a cycle can write to GitHub through one journal, and a poll's settle leaves the actions of a running cycle.
+- tehas-cycle can report a cycle through the action journal, with TEHAS_CYCLE_REPORT=rust; the deadline is the time limit less the handoff allowance.
+- The poll is tehas-dispatch alone: the bash poll is removed, `TEHAS_DISPATCHER=bash` stops with 78, and a missing program stops with 78.
+- `lib/planning.sh` and `lib/live.sh` are removed, and an install takes them off a host.
+- The libraries lose the functions only the bash poll called.
+- The dispatcher's shadow is removed: the poll's unit appends to `logs/dispatch.log` and nothing else.
+- The bash left behind by the poll's removal is gone: `lib/limit.sh` and five functions only tests called.
+- `tehasbot status` is a verb of the console; libexec/status, lib/status.sh and lib/analytics.sh are gone.
+- The watch of a cycle is `tehas-cycle watch`, and `lib/headless.sh` is gone.
+- A start is approved, read and measured in `tehas-cycle start-check`, and `lib/sizing.sh` is gone.
+- The workspace, the push check and the image record of a cycle are `tehas-cycle prepare`, and `lib/improve.sh` is gone.
+- models.json is read by the programs; lib/models.sh is gone.
+- Who applied a label is read in one place, the console.
+- The files of an issue and of a reply are fetched and judged by libexec/attach; lib/attachments.sh is a thin wrapper.
+- `tehas_load` asks the console, and `lib/config.sh` is a thin loader. A load needs `libexec/console`; `install.sh` builds it first.
+- tehas update reads, checks and switches releases in the console; lib/update-release.sh is gone.
+- tehas update runs its follow-ups in the console; a --to to a version before this finishes with console.prev.
+- install.sh asks the console which steps a changed file owes.
+- libexec/update is a thin wrapper round the console; a console that does not start stops an update, and the manual says how to recover.
+
+### Adopter action
+
+Remove `TEHAS_DISPATCHER=bash` from the settings if it is there: the bash poll is
+gone and that value stops every command with 78. `rust` and a blank value still
+load.
+
+Settings now need `libexec/console`, so a host needs its update to finish:
+`install.sh` builds or installs the console first, and a command with no console
+stops with 78. A `models.json` whose `providers` is not a map now stops the poll
+with 78.
+
+An update now runs in the console. If a release's console does not start, it
+cannot update itself: recover with `~/tehas/versions/<previous>/install.sh`, as
+the manual's troubleshooting page says.
+
+## v0.20.1 (2026-11-01)
+
+### Changes
+
+- The MCP tool `factory_disk` is served. v0.20.0 described it in the manual
+  only (#1200).
+- `tehas disk` reads `instance.env` past a comment or a blank line, so it now
+  includes `TEHAS_SCRATCH_DIR`. Disk and setup share one reader of the file
+  (#1201).
+- `libexec/status` is told when the poll ran it, and reports `from_poll=yes`
+  (#1202).
+- The energy sampler is `console energy`, and `libexec/energy` is gone. It no
+  longer falls back to `fleet` (#1225).
+- `libexec/attach` composes what a cycle is told it was given. A cycle given
+  nothing that has a record now says the record could not be read when attach
+  is missing, and a start stops when a kept manifest cannot be compared
+  (#1233).
+- `scripts/verify.sh --changed` runs `cargo test -p` for the crates a change can
+  affect, not the whole workspace (#911).
+- Golden files pin every container's whole argument list, in order (#1234).
+- A factory pull request whose issue carries `needs-human-attention` loses
+  `STUCK: ` when it is proven fine to merge: clean on GitHub, and the last
+  six-pass review is newer than its head and lists nothing above MEDIUM (#1305).
+
+### Adopter action
+
+Set `PI_ENSEMBLE_SUBAGENT_PROVIDER` or `TEHAS_ENERGY_URL` for the energy sampler,
+or set `TEHAS_ENERGY=off`. With none of them `console energy` exits 78 and its
+service retries every 15 s.
 
 ## v0.20.0 (2026-11-01)
 

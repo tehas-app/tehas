@@ -1,0 +1,28 @@
+The read-only MCP server: run it, or make a key for it.
+
+The server answers agents outside this host with what the dashboard publishes
+under live/, and the sessions of the last 30 days and their logs, behind the
+keys of two settings: TEHAS_MCP_KEYS gives every tool, TEHAS_MCP_DASHBOARD_KEYS
+the four that copy from live/ (a scope of the program, not the mounts). The
+binary install.sh builds as libexec/tehas-mcp runs in a container given only
+live/, mcp/ (the sessions snapshot) and logs/ read-only, and holding nothing
+else: no settings, token, socket or root, no route out of tehas-mcp, its
+network, which has no masquerade.
+
+TEHAS_MCP, TEHAS_MCP_KEYS and TEHAS_MCP_DASHBOARD_KEYS are host choices in
+~/.config/tehas/env, never in the instance directory, which is in a
+repository. TEHAS_MCP=1 turns the server on; unset or 0 removes a container
+left running and exits 0. Keys are space-separated, 32 characters of
+A-Za-z0-9_- at least, and reach the container by name. Port 8082 on
+TEHAS_HOST_ADDR, else the loopback.
+
+Usage: tehasbot mcp serve    run the server in the foreground (the service)
+       tehas mcp key         print a new key; writes nothing
+
+Exit: 0 the server ended, or it is off; or a key was printed;
+      1 the binary or the image's digest is missing (run install.sh), a
+        network named tehas-mcp exists that lets the container out, or
+        ~/tehas/mcp cannot be made;
+      64 an unknown argument;
+      78 the instance settings, TEHAS_MCP or the two lists of keys are
+         malformed: the line names the setting, never a key.

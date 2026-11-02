@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for libexec/analytics-cmd, tehas analytics: what it asks of the
+# Tests for tehas analytics: what it asks of the
 # analytics program, and what it refuses. The program is a stub here; its
 # Rust tests (console/analytics/tests/command.rs) run this command against
 # the real one.
@@ -7,7 +7,9 @@
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
 
-cmd="$T_ROOT/libexec/analytics-cmd"
+cmd="$T_ROOT/bin/tehas analytics"
+t_console || t_bad "no console: $t_console_why"
+T_ENV_ALWAYS=(TEHAS_CONSOLE="$T_CONSOLE")
 # Nothing it does may reach GitHub, Docker or git.
 for tool in gh docker git curl; do t_stub "$tool" 'exit 1'; done
 outside() { printf '%s' "$(t_calls gh)$(t_calls docker)$(t_calls git)$(t_calls curl)"; }
@@ -51,12 +53,15 @@ t_case "with TEHAS_ANALYTICS=off it says so, exits 69 and asks the program nothi
 reset
 t_instance "${T_MINIMAL[@]}" TEHAS_ANALYTICS=off
 t_stub_analytics
+before=$(cd "$T/home" && find . | LC_ALL=C sort)
 for args in report "export copy.db --json"; do
   t_run "$cmd $args"
   t_eq "$t_rc" 69
   t_contains "$t_out" "TEHAS_ANALYTICS=off"
 done
 t_eq "$(t_calls analytics)" ""
+t_eq "$(cd "$T/home" && find . | LC_ALL=C sort)" "$before"
+t_eq "$([ -e copy.db ] && echo written)" ""
 t_eq "$(outside)" ""
 
 t_case "a host without the program is exit 69 and says so"

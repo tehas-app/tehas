@@ -143,7 +143,7 @@ What the guest does by itself, with nothing typed in it:
 Nothing in tehas has to be told about the new size. The slice's limit is a
 percentage of the machine and each container's ceiling is the slice's limit
 over `TEHAS_SLICE_CONTAINERS`, read when that container starts
-([`lib/slice.sh`](/host#the-slice)), so the cycles that start after the growth
+([`console slice`](/host#the-slice)), so the cycles that start after the growth
 are the ones that see it. A cycle, a planning turn or a session that is already
 running keeps the limits it began with; its memory does not grow under it.
 

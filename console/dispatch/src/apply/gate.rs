@@ -139,7 +139,7 @@ impl Writer {
         true
     }
 
-    /// tehas_index_state: current when state/index.json names the commit and
+    /// Current when state/index.json names the commit and
     /// an index database is there, failed when the last run failed at it,
     /// else due.
     fn index_state(&self, base: &str) -> &'static str {

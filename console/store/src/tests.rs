@@ -1935,7 +1935,7 @@ fn checkpoint(file: &Path) {
 
 // --- the record writer's slow notices ---------------------------------------
 // The record of a cycle keeps the driver's `dispatch-slow` lines so a stuck
-// child is read without the console (tehas_core::slow, lib/improve.sh).
+// child is read without the console (tehas_core::slow).
 
 fn slow(home: &Path, stream: &str, name: &str) -> Result<String, (u8, String)> {
     let dir = scratch(name);

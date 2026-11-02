@@ -27,6 +27,64 @@ t_contains "$t_out" "removed: $th/edge/protolab.compose.yaml"
 t_eq "$([ -e "$th/edge/protolab.compose.yaml" ] && echo there)" ""
 t_eq "$(cat "$th/state/update-pending")" "edge --force-recreate"
 
+t_case "the script and the jq programs of tehas history of before the console are named, then removed"
+fresh
+instance
+t_run "$install"
+rm -f "$th/state/update-pending"
+gone="$th/libexec/history $th/lib/history-listing.jq $th/lib/history-repeats.jq"
+for f in $gone; do echo "# old" >"$f"; done
+t_run "$install --check"
+t_eq "$t_rc" 1
+for f in $gone; do t_contains "$t_out" "stale: $f"; done
+t_run "$install"
+t_eq "$t_rc" 0
+for f in $gone; do
+  t_contains "$t_out" "removed: $f"
+  t_eq "$([ -e "$f" ] && echo there)" ""
+done
+t_eq "$([ -e "$th/lib/history-lines.jq" ] && echo there)" "there"
+t_eq "$([ -e "$th/lib/park-fields.jq" ] && echo there)" "there"
+
+t_case "the settings wrappers of before console run are named, then removed"
+fresh
+instance
+t_run "$install"
+rm -f "$th/state/update-pending"
+gone=""
+for f in clean init-product preview protolab refresh with-settings; do gone+=" $th/libexec/$f"; done
+gone+=" $th/lib/disk.sh"
+for f in $gone; do echo "# old" >"$f"; done
+t_run "$install --check"
+t_eq "$t_rc" 1
+for f in $gone; do t_contains "$t_out" "stale: $f"; done
+t_run "$install"
+t_eq "$t_rc" 0
+for f in $gone; do
+  t_contains "$t_out" "removed: $f"
+  t_eq "$([ -e "$f" ] && echo there)" ""
+done
+# tehasbot top of before this version runs with-settings at each mark, so the
+# unit has to start again.
+t_contains "$(cat "$th/state/update-pending")" "tehas-top.service"
+for f in dispatch github-token review improve check-product; do
+  t_eq "$([ -x "$th/libexec/$f" ] && echo there)" "there"
+done
+
+t_case "the script of tehas export of before the console is named, then removed"
+fresh
+instance
+t_run "$install"
+rm -f "$th/state/update-pending"
+echo "# old" >"$th/libexec/export"
+t_run "$install --check"
+t_eq "$t_rc" 1
+t_contains "$t_out" "stale: $th/libexec/export"
+t_run "$install"
+t_eq "$t_rc" 0
+t_contains "$t_out" "removed: $th/libexec/export"
+t_eq "$([ -e "$th/libexec/export" ] && echo there)" ""
+
 # A cycle used to leave one empty file per issue number in state/cycles/. It
 # read nothing and the flag it fed is gone, so a host that ran cycles then has
 # the files to lose. Only a name of digits alone is one of them.

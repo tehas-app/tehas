@@ -43,7 +43,7 @@ die() { printf 'install: %s\n' "$*" >&2; exit 1; }
 usage() { sed -n '2,/^[^#]/s/^# \{0,1\}//p' "$0" >&2; exit 64; }
 
 # The architecture in the name of the asset: the same choice as
-# lib/update-release.sh, repeated because this script runs on a host that has
+# console/src/update/release.rs, repeated because this script runs on a host that has
 # nothing of tehas on it yet. Releases are published for x86_64 and aarch64
 # only, so another machine stops before anything is downloaded.
 release_arch() {

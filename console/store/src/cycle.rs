@@ -1,5 +1,5 @@
 //! The cycle verbs: cycle-start, cycle-image, cycle-end, cycle-show,
-//! cycle-note and cycle-stop-asked.
+//! settings-view, cycle-note and cycle-stop-asked.
 
 use crate::approval;
 use crate::lock::{self, Lock};
@@ -11,6 +11,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::Value;
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
+use tehas_core::secret::secret;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Call {
@@ -33,6 +34,10 @@ pub enum Call {
     },
     Show {
         issue: Option<i64>,
+    },
+    SettingsView {
+        issue: i64,
+        want: Option<i64>,
     },
     Note {
         issue: i64,
@@ -134,6 +139,13 @@ pub fn parse(name: &str, rest: &[String]) -> Option<Result<Call, String>> {
             .and_then(|a| {
                 Ok(Call::Show {
                     issue: a.target("--running")?,
+                })
+            }),
+        "settings-view" => Args::parse("settings-view", rest, &[("--attempt", Kind::Value)], true)
+            .and_then(|a| {
+                Ok(Call::SettingsView {
+                    issue: a.issue()?,
+                    want: a.strict("--attempt", "the number of a start", verbs::start_number)?,
                 })
             }),
         "cycle-note" => note_args(rest),
@@ -312,6 +324,7 @@ pub fn run(home: &Path, call: &Call, now: i64) -> Result<String, Fail> {
             End::Refused | End::Stopped => end_short(home, *issue, *attempt, end, now),
         },
         Call::Show { issue } => show(home, *issue, now),
+        Call::SettingsView { issue, want } => settings_view(home, *issue, *want),
         Call::Note { issue, said_for } => note(home, *issue, said_for, now),
         Call::StopAsked { issue, said_only } => stop_asked(home, *issue, *said_only, now),
     }
@@ -625,59 +638,6 @@ pub fn settings_of(bytes: &[u8]) -> SettingsIn {
         return SettingsIn::Secret;
     }
     SettingsIn::Good(rows)
-}
-
-fn run_of(b: &[u8], from: usize, keep: impl Fn(u8) -> bool) -> usize {
-    b.get(from..)
-        .map_or(0, |t| t.iter().take_while(|&&c| keep(c)).count())
-}
-
-/// The six shapes of `tehas_improve_secret` (lib/improve.sh).
-pub fn secret(b: &[u8]) -> bool {
-    let alnum = |c: u8| c.is_ascii_alphanumeric();
-    for i in 0..b.len() {
-        let t = &b[i..];
-        if t.len() >= 4
-            && t.starts_with(b"gh")
-            && b"pousr".contains(&t[2])
-            && t[3] == b'_'
-            && run_of(b, i + 4, alnum) >= 36
-        {
-            return true;
-        }
-        if t.starts_with(b"github_pat_") && run_of(b, i + 11, |c| alnum(c) || c == b'_') >= 22 {
-            return true;
-        }
-        if t.starts_with(b"sk-")
-            && (i == 0 || !alnum(b[i - 1]))
-            && run_of(b, i + 3, |c| alnum(c) || c == b'_' || c == b'-') >= 20
-        {
-            return true;
-        }
-        if t.len() >= 5
-            && t.starts_with(b"xox")
-            && b"abprs".contains(&t[3])
-            && t[4] == b'-'
-            && run_of(b, i + 5, |c| alnum(c) || c == b'-') >= 10
-        {
-            return true;
-        }
-        if t.starts_with(b"AKIA")
-            && run_of(b, i + 4, |c| c.is_ascii_digit() || c.is_ascii_uppercase()) >= 16
-        {
-            return true;
-        }
-        if t.starts_with(b"-----BEGIN ") {
-            let from = i + 11;
-            let end = from + run_of(b, from, |c| c.is_ascii_uppercase() || c == b' ');
-            let key = b"PRIVATE KEY";
-            if end - from >= key.len() && b[..end].ends_with(key) && b[end..].starts_with(b"-----")
-            {
-                return true;
-            }
-        }
-    }
-    false
 }
 
 fn cycle_image(
@@ -995,6 +955,51 @@ fn entry(
         ("cycle", cycle_json(c, issue)?),
     ]);
     Ok((l, s))
+}
+
+/// `settings-view <issue> [--attempt <n>]`: what the issue's latest start ran
+/// with, its settings as `settings_view_of` gives them and the pi-rukas noted
+/// for it; both null when that start is not the one asked about.
+fn settings_view(home: &Path, issue: i64, want: Option<i64>) -> Result<String, Fail> {
+    verbs::look(home, |c| {
+        let cycle = verbs::parsed(&cycle_json(c, issue)?)?;
+        let asked = want.is_none_or(|w| cycle["attempt"].as_i64() == Some(w));
+        let (view, rukas) = match asked && !cycle.is_null() {
+            true => (settings_view_of(&cycle), cycle["rukas_commit"].to_string()),
+            false => ("null".to_string(), "null".to_string()),
+        };
+        Ok(line(
+            "settings-view",
+            &[("view", view), ("rukas_commit", rukas)],
+        ))
+    })
+}
+
+/// A cycle's settings as the improvement record has them, null when it has
+/// none. The prefix of a name says which half it came from (cycle-image).
+pub fn settings_view_of(cycle: &Value) -> String {
+    let Some(s) = cycle["settings"].as_object().filter(|s| !s.is_empty()) else {
+        return "null".to_string();
+    };
+    let half = |prefix: &str| {
+        let keep: Vec<(&str, String)> = s
+            .iter()
+            .filter(|(k, _)| k.starts_with(prefix))
+            .map(|(k, v)| (k.as_str(), v.to_string()))
+            .collect();
+        obj(&keep)
+    };
+    let concurrent = s
+        .get("concurrentCycles")
+        .and_then(Value::as_str)
+        .and_then(|n| serde_json::from_str::<Value>(n).ok())
+        .filter(Value::is_number)
+        .unwrap_or(Value::Null);
+    obj(&[
+        ("container", half("PI_ENSEMBLE_")),
+        ("host", half("TEHAS_")),
+        ("concurrentCycles", concurrent.to_string()),
+    ])
 }
 
 fn show(home: &Path, issue: Option<i64>, now: i64) -> Result<String, Fail> {

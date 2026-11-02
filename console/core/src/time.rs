@@ -52,6 +52,19 @@ pub fn iso(t: i64) -> String {
     )
 }
 
+/// `date -u +%y%m%d-%H%M%S`, the stamp of a log's name.
+pub fn stamp(t: i64) -> String {
+    let (y, m, d) = civil_from_days(t.div_euclid(86_400));
+    let s = t.rem_euclid(86_400);
+    format!(
+        "{:02}{m:02}{d:02}-{:02}{:02}{:02}",
+        y.rem_euclid(100),
+        s / 3600,
+        s % 3600 / 60,
+        s % 60
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

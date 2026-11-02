@@ -60,6 +60,32 @@ pub fn strip(body: &str) -> (String, Option<String>) {
     (rest.trim().to_string(), base)
 }
 
+/// What a develop timeout does with the issue: GitHub's answer, the text of
+/// the result, and the run's state. None when either cannot be read.
+pub fn of_issue(
+    n: u64,
+    issue: &Value,
+    result: Option<&str>,
+    state: Option<&Value>,
+) -> Option<Action> {
+    let r: Value = serde_json::from_str(result?).ok()?;
+    let entry = r
+        .get("issues")
+        .and_then(Value::as_array)
+        .and_then(|l| {
+            l.iter()
+                .find(|e| e.get("issue").and_then(Value::as_u64) == Some(n))
+        })
+        .cloned()
+        .unwrap_or(Value::Null);
+    let body = match issue.get("body") {
+        Some(Value::String(b)) => b.as_str(),
+        Some(Value::Null) => "",
+        _ => return None,
+    };
+    Some(decide(body, &entry, state))
+}
+
 pub fn sha(text: &str) -> String {
     format!("{:x}", Sha256::digest(text.as_bytes()))
 }

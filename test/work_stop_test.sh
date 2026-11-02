@@ -216,4 +216,33 @@ t_eq "$(cycle_args)" ""
 t_eq "$(($(date +%s) - began < 20))" 1
 T_ENV=("${env_ok[@]}")
 
+# stop_in_prepare: TERM to the script once the stub of docker holds a step, then
+# wait for that step to see it.
+stop_in_prepare() {
+  rm -f "$T/slow-began"
+  t_run "$work 7 >\"\$T/work.out\" 2>&1 & pid=\$!
+for _ in \$(seq 100); do [ -e \"\$T/slow-began\" ] && break; \"\$(command -pv sleep)\" 0.1; done
+kill -TERM \$pid; wait \$pid
+for _ in \$(seq 50); do grep -q 'stopped, not going on' \"\$T/work.out\" && break; \"\$(command -pv sleep)\" 0.1; done"
+  t_contains "$(cat "$T/work.out")" "stopped, not going on with the start"
+  t_eq "$(cycle_args)" ""
+  [ ! -e "$T/home/tehas/state/cycles/7.prepared" ] || t_bad "the plan of the start outlived the stop"
+}
+
+t_case "a stop during the workspace step ends it after the command it is in"
+fresh
+: >"$T/push-slow"
+stop_in_prepare
+rm -f "$T/push-slow"
+[ ! -e "$state/models.json" ] || t_bad "the step went on after the stop"
+t_lacks "$(cat "$T/work.out")" "the code index"
+
+t_case "a stop during the record step ends it after the command it is in"
+fresh
+under_cycle
+: >"$T/rm-slow"
+stop_in_prepare
+rm -f "$T/rm-slow"
+t_lacks "$(t_calls docker)" "image inspect"
+
 t_done

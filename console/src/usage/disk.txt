@@ -1,0 +1,1 @@
+tehas disk [--full] [--json] [--publish]: how full this host is and what fills it. The console's (console/src/disk.rs). Exit: 0 printed, 1 not written, 64 usage, 78 settings.

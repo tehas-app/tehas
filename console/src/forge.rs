@@ -1,6 +1,6 @@
-//! The forge as a command: what `libexec/tidy`, `libexec/status` and
-//! `lib/labels.sh` ask of GitHub, asked through `tehas_core::forge`, so that
-//! bash holds no gh call, no REST path and no rule of its own (#800 part 2).
+//! The forge as a command: what `console label` asks of GitHub, asked through
+//! `tehas_core::forge`, so that bash holds no gh call, no REST path and no rule
+//! of its own (#800 part 2).
 //!
 //!   console forge labels <issue>
 //!     The labels the issue carries, one per line. It is the site's list, so a
@@ -9,9 +9,7 @@
 //!   console forge label-state <issue> <label>
 //!     `<kind>\t<account>\t<time>` of the newest `labeled` or `unlabeled` event
 //!     of the label. Account and time are empty when the event names none.
-//!     Where `tehas_label_state` of `lib/labels.sh` answers three empty fields
-//!     for a label no event carries, this prints nothing at all, so a caller
-//!     that migrates onto it reads the fields and not the line count.
+//!     For a label no event carries this prints nothing at all.
 //!     Authorisation stays the caller's (AGENTS.md rule 5): this says who,
 //!     never whether that account may start anything.
 //!   console forge approval <issue>
@@ -236,7 +234,7 @@ pub(crate) fn repo() -> Option<String> {
 /// Whether `file` is something that may be run: a regular file with a bit for
 /// someone to execute it. The same test `clean`'s `which` and the dispatcher's
 /// readers make of a program.
-fn runnable(path: &Path) -> bool {
+pub(crate) fn runnable(path: &Path) -> bool {
     std::fs::metadata(path).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
 }
 
@@ -279,7 +277,7 @@ enum Answer {
 /// The line of one answer: the fields of an event with tabs between them, the
 /// labels one to a line, and nothing at all for the answer of a term the site had
 /// nothing to say about. A tab and not a space: a caller reads the line the way
-/// `lib/labels.sh` writes one, with `IFS=$'\t' read`. Every arm names the pair it
+/// `console label` writes one, with `IFS=$'\t' read`. Every arm names the pair it
 /// prints, so a new term or a new answer fails to compile rather than print
 /// nothing.
 fn line_of(answer: &Answer) -> String {
@@ -702,9 +700,8 @@ mod tests {
     }
 
     #[test]
-    fn the_state_line_is_the_line_tehas_label_state_prints() {
-        // Kind, account and time with tabs between them, as the jq of
-        // lib/labels.sh writes them: a caller reads the line with IFS=tab.
+    fn the_state_line_is_kind_account_and_time() {
+        // Tabs between them: a caller reads the line with IFS=tab.
         let run = one(
             &["label-state", "7", "tehas:running"],
             Ok("unlabeled\tbot\t2026-01-02T00:00:00Z"),
