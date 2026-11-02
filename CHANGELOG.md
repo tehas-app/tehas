@@ -13,6 +13,8 @@ empty one above it.
 
 ### Changes
 
+- The console drops verbs nothing calls (label actor, label pause-holds, every shipped verb but page), keeps one copy of the host names and of the version compare, and bash loses four functions only tests called.
+
 ### Adopter action
 
 None.
