@@ -1,7 +1,7 @@
 //! `tehasbot review`: what the default branch gained since the last reviewed
 //! commit, with pi-rukas's lens reviewer running headless in the sandbox image.
-//! libexec/review loads the settings, asks whether the loop is on and starts
-//! this; src/usage/review.txt says what a person is told.
+//! `console run` (src/run.rs) loads the settings, asks whether the loop is on and
+//! starts this; src/usage/review.txt says what a person is told.
 //!
 //!   console review main   one review, as that command's exit status says
 //!   console review table  its row of the table of runs
@@ -132,7 +132,7 @@ fn table() -> String {
     format!("review\t{image}\t{entry}")
 }
 
-fn git_global(key: &str) -> String {
+pub fn git_global(key: &str) -> String {
     Command::new("git")
         .args(["config", "--global", key])
         .stderr(Stdio::null())

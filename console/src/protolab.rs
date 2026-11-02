@@ -6,8 +6,11 @@
 //!
 //!   console protolab run
 //!
-//! libexec/protolab keeps the settings and the GitHub App's token and runs
-//! this under them. A pass is in protolab/build.rs. This file holds what is
+//! `tehasbot protolab` loads the settings and the GitHub App's token
+//! (src/run.rs) and runs this under them: one line per ticket built or removed;
+//! exit 0 even when GitHub is down, what is there is then left in place; 78 the
+//! instance settings are invalid; 1 it cannot write. A pass is in
+//! protolab/build.rs. This file holds what is
 //! said: the page of a ticket, the lab's front page, live/protolab.json, and
 //! the attachment links of a ticket.
 //!

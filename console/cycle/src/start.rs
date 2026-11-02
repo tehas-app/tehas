@@ -77,7 +77,7 @@ pub enum View {
     Unread,
 }
 
-/// tehas_approval_view of lib/store.sh.
+/// The store's approval-view.
 fn view(home: &Path, issue: &str, attempt: Option<&str>) -> View {
     let mut args = vec!["approval-view", issue];
     if let Some(a) = attempt {

@@ -8,7 +8,7 @@
 . "$(dirname "$0")/lib.sh" || exit 1
 
 t_console || t_bad "no console: $t_console_why"
-# A load clears TEHAS_CONSOLE and keeps TEHAS_CONSOLE_CMD: with-settings reads
+# A load clears TEHAS_CONSOLE and keeps TEHAS_CONSOLE_CMD: libexec/github-token reads
 # the first, tehas_github_env the second.
 T_ENV_ALWAYS=(TEHAS_CONSOLE="$T_CONSOLE" TEHAS_CONSOLE_CMD="$T_CONSOLE")
 
@@ -211,7 +211,7 @@ installed() {
   local h=$T/home/tehas
   mkdir -p "$h/lib" "$h/libexec" "$h/bin" "$h/shim"
   cp "$T_ROOT/lib/config.sh" "$T_ROOT/lib/github-app.sh" "$T_ROOT/lib/paths.sh" "$h/lib/"
-  cp "$T_ROOT/libexec/github-token" "$T_ROOT/libexec/with-settings" "$h/libexec/"
+  cp "$T_ROOT/libexec/github-token" "$h/libexec/"
   ln -sf "$T_CONSOLE" "$h/libexec/console"
   cp "$T_ROOT/host/shim/gh" "$h/shim/gh"
   cp "$T_ROOT/host/env.sh" "$h/env.sh"

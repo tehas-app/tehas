@@ -127,10 +127,10 @@ carrier '\.nostart\b' 'nostart_file=$TEHAS_HOME/state/cycles/$issue.nostart' \
   'lib/cycles.sh libexec/cycle console/src/stop.rs libexec/work' \
   "work tells the cycle the runner never started"
 carrier '\.result\.json\b' 'result=$TEHAS_HOME/state/cycles/$issue.result.json' \
-  "libexec/cycle libexec/export console/src/export.rs console/src/stop.rs libexec/work $an/run.rs $an/sessions.rs $an/tests.rs" \
+  "libexec/cycle console/src/export.rs console/src/stop.rs libexec/work $an/run.rs $an/sessions.rs $an/tests.rs" \
   "the container's result, kept to the next start for tehas export"
 carrier '\.progress\.json\b' 'progress=$TEHAS_HOME/state/cycles/$issue.progress.json' \
-  "lib/cycles.sh libexec/cycle libexec/export console/src/export.rs console/src/stop.rs libexec/work $an/run.rs $an/tests.rs" \
+  "lib/cycles.sh libexec/cycle console/src/export.rs console/src/stop.rs libexec/work $an/run.rs $an/tests.rs" \
   "the summary of the container's output, kept to the next start for tehas export"
 carrier "$n"'\.done\b' 'echo "$done_why" >"$TEHAS_HOME/state/cycles/$n.done"' \
   'libexec/cycle' \
@@ -210,7 +210,7 @@ for line in 'jq -r .by <<<"$base"' '.branch // ""' 'tehas.rukas' '"$TEHAS_HOME/s
   '.planning.brief' "tehas_store_get '.planning.turn'" '"$keep/answer.md"' \
   "q=\$(tehas_store_get '.park.question // empty')" ".park // \"\" | strings" \
   'park_holds "$n"' 'park-show "$n"' '<!-- tehas:park issue=7 -->' \
-  'systemd-run --user --quiet --collect' 'quiet_running=$(tehas_cycles_running)' '.cycle.quiet'; do
+  'systemd-run --user --quiet --collect' '.cycle.quiet'; do
   for re in "${forbidden[@]}"; do
     grep -qE -- "$re" <<<"$line" && t_bad "the pattern $re finds: $line"
   done
