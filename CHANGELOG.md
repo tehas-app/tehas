@@ -103,6 +103,7 @@ None. A product whose `.pi/worktree-setup` links its dependencies from the main 
 - `factory_decisions` lists the dispatcher's `hold` decisions beside start, skip, wait and drop.
 - A refresh's brief tells its developer to run the gate in `.pi/verify-cmd`, not an unnamed gate.
 - The resize manual says it applies only to a host that is a virtual machine under libvirt; a container host needs a drain before a restart.
+- `tehas-clean.service` publishes the disk reading after the clean, with a new `tehasbot disk --publish` that reaches the console's disk verb, so `live/disk.json` - the file `factory_disk` reads - is under an hour old on a host that runs the timer. A reading that could not be written fails the unit and is seen in the journal.
 
 ### Adopter action
 

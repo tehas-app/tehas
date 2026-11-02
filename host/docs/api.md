@@ -609,8 +609,12 @@ of the disk.
 
 `--publish` also writes that object to `~/tehas/live/disk.json`, whole, through
 a side file renamed into place, so a reader sees a whole answer or the last
-one. It is the only form that writes anything, and no timer runs it: a person,
-or a program that asked, decides when the file is refreshed. The
+one. It is the only form that writes anything, and it prints the reading as
+well. On a host the cleaner's
+`tehas-clean.timer` runs it every hour after the clean, as
+[`tehasbot disk --publish`](/tools#tehasbot-disk), so the file is under
+an hour old there; a person or a program can ask for a reading at any moment.
+The
 [`factory_disk` tool](/mcp-server#the-tools) of the MCP server reads that file
 and never runs the command, so the server asks the host's disk nothing.
 
