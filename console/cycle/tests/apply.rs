@@ -388,6 +388,52 @@ fn a_merged_cycle_removes_its_workspace_and_its_notes() {
     assert!(h.calls()[end].contains("--pr 9"));
 }
 
+/// awaiting-human-merge did not occur once in 154 cycles on a host, so this is
+/// its proof: an open pull request of the bot, a handoff on that cap, and an
+/// issue without needs-human-attention wait for a person's merge.
+#[test]
+fn a_handoff_on_awaiting_human_merge_waits_for_a_merge() {
+    let h = Host::new("awaiting");
+    h.result("handoff", "ci", "feature/issue-7-x", "awaiting-human-merge");
+    fs::write(h.dir.join("state/cycles/7.runner_exit"), "10\n").unwrap();
+    let work = h.dir.join("work");
+    fs::write(work.join(".tehas-workspaces"), "").unwrap();
+    fs::create_dir_all(work.join("widget-7")).unwrap();
+    let prs: Value = json!([{"url": "https://github.com/a/b/pull/9", "state": "OPEN",
+        "body": "Fixes #7", "headRefName": "feature/issue-7-x"}]);
+    fs::write(h.dir.join("prs.json"), prs.to_string()).unwrap();
+    fs::write(
+        h.dir.join("issue.json"),
+        json!({"number": 7, "labels": [{"name": "tehas:running"}]}).to_string(),
+    )
+    .unwrap();
+    let o = h.report(10, false);
+    assert!(o.status.success(), "{}", out(&o));
+    let order = [
+        "gh issue edit 7 --repo a/b --remove-label tehas:running --add-label tehas:awaiting-merge",
+        "gh pr comment https://github.com/a/b/pull/9",
+        "store cycle-end 7 --attempt 1 --status handoff",
+    ];
+    let at: Vec<usize> = order.iter().map(|c| h.at(c)).collect();
+    assert!(at.windows(2).all(|w| w[0] < w[1]), "{:#?}", h.calls());
+    assert_eq!(h.count("store park"), 0, "{:#?}", h.calls());
+    assert_eq!(
+        h.count("gh issue edit 7 --repo a/b --add-label tehas:question"),
+        0
+    );
+    let calls = h.calls().join("\n");
+    assert!(!calls.contains("needs-human-attention"), "{calls}");
+    assert!(!work.join("widget-7").exists());
+    let end = h.at("store cycle-end");
+    assert!(h.calls()[end].contains("--pr 9"), "{}", h.calls()[end]);
+    assert!(
+        h.calls()[end].contains("--cap awaiting-human-merge"),
+        "{}",
+        h.calls()[end]
+    );
+    assert!(out(&o).contains("status=handoff"), "{}", out(&o));
+}
+
 #[test]
 fn a_report_not_named_its_programs_is_refused() {
     let h = Host::new("no-programs");
