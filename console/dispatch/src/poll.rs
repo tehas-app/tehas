@@ -81,13 +81,13 @@ fn now() -> u64 {
 
 /// A line of the poll's log, as log() prints it.
 fn say(line: &str) {
-    println!("{} {line}", iso_now());
+    tehas_core::outln!("{} {line}", iso_now());
 }
 
 /// What a command printed, as the bash poll lets it through.
 fn pass(lines: &[String]) {
     for l in lines {
-        println!("{l}");
+        tehas_core::outln!("{l}");
     }
 }
 
