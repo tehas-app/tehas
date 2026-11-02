@@ -79,7 +79,7 @@ const BOUND: u32 = 1800;
 const CONTAINER: &str = "tehas-index";
 
 fn say(line: &str) {
-    println!("tehas index: {line}");
+    tehas_core::outln!("tehas index: {line}");
 }
 
 fn warn(line: &str) {

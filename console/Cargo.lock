@@ -514,6 +514,7 @@ name = "tehas-merge"
 version = "0.1.0"
 dependencies = [
  "serde_json",
+ "tehas-core",
 ]
 
 [[package]]

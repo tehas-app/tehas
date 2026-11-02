@@ -87,7 +87,7 @@ fn run(given: &[String]) -> u8 {
     let dry = match arguments(given) {
         Ok(Some(dry)) => dry,
         Ok(None) => {
-            print!("{USAGE}");
+            tehas_core::out!("{USAGE}");
             return 0;
         }
         Err(word) => {

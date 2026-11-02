@@ -883,7 +883,7 @@ unread=0
 if [ -n "$branch" ]; then
   for ((try = 1; try <= tries; try++)); do
     if prs=$(gh_call pr list --repo "$repo" --head "$branch" --author "@me" --state all \
-      --json url,state,body,headRefName --limit 20 2>/dev/null) && jq -e 'type == "array"' >/dev/null 2>&1 <<<"$prs"; then
+      --json url,state,body,headRefName,isDraft --limit 20 2>/dev/null) && jq -e 'type == "array"' >/dev/null 2>&1 <<<"$prs"; then
       break
     fi
     prs="[]"
@@ -904,8 +904,9 @@ mapfile -d '' -t got < <(jq -j --arg n "$issue" "$one$names_issue"'
   def url_in($st): [.[] | select(type == "object" and ((.state // "") | ascii_upcase) == $st) | select(mine)
     | .url | strings | select(test("^https://[A-Za-z0-9./_-]+\\z"))] | first // "";
   (url_in("OPEN") | v), (url_in("MERGED") | v), (url_in("CLOSED") | v),
-  ([.[] | select(type == "object") | mine] | if any(not) and (any | not) then 1 else 0 end | v)' <<<"$prs" 2>/dev/null)
-pr=${got[0]-} merged_pr=${got[1]-} closed_pr=${got[2]-} foreign=""
+  ([.[] | select(type == "object") | mine] | if any(not) and (any | not) then 1 else 0 end | v),
+  (url_in("OPEN") as $o | [.[] | select(type == "object" and .url == $o and .isDraft == true)] | length | v)' <<<"$prs" 2>/dev/null)
+pr=${got[0]-} merged_pr=${got[1]-} closed_pr=${got[2]-} foreign="" draft=${got[4]-0}
 [ "${got[3]-}" != 1 ] ||
   foreign=" The branch \`${branch//[!A-Za-z0-9_.\/-]/}\` has a pull request of the bot that does not name this issue, so it is not taken as this cycle's."
 # Said in the comment when the label stayed: the issue then reads as running.
@@ -1174,7 +1175,13 @@ elif [ "$died_with_open_pr" = 1 ]; then
   # On record as the handoff it was reported as, with the pull request found.
   status=handoff
 else
-  parked="Tehas cycle stopped without a pull request: $summary (runner exit $runner_rc).$why${handoff:+ The handoff of pi-rukas follows.} $kept; $log_where.$killed${pr:+ Its branch has an open pull request: $pr}$foreign"
+  # The opening agrees with the pull request named at the end.
+  stopped="without a pull request" pr_n=${pr##*/pull/}
+  if [ -n "$pr" ]; then
+    [[ $pr_n =~ ^[1-9][0-9]{0,9}$ ]] && stopped="with pull request #$pr_n open" || stopped="with its pull request open"
+    [ "$draft" = 0 ] || stopped+=" (draft)"
+  fi
+  parked="Tehas cycle stopped $stopped: $summary (runner exit $runner_rc).$why${handoff:+ The handoff of pi-rukas follows.} $kept; $log_where.$killed${pr:+ Its branch has an open pull request: $pr}$foreign"
   if [ "$rc_start" = 4 ]; then
     # What is known of a cycle that never ran is the dispatcher's record of the
     # start, and the log tehas work wrote its reason into.
