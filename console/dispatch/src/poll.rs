@@ -21,7 +21,7 @@ use crate::apply::Writer;
 use crate::decide::{iso, iso_now};
 use crate::read::build::{fill, snapshot, Sources};
 use crate::read::host::hostname;
-use crate::read::run::{read_gh_token, run, Calls};
+use crate::read::run::{read_gh_token, run, Calls, RetryPolicy};
 use crate::{decide, Settings, Snapshot};
 use serde_json::{json, Value};
 use std::fs::{File, OpenOptions};
@@ -81,13 +81,13 @@ fn now() -> u64 {
 
 /// A line of the poll's log, as log() prints it.
 fn say(line: &str) {
-    println!("{} {line}", iso_now());
+    tehas_core::outln!("{} {line}", iso_now());
 }
 
 /// What a command printed, as the bash poll lets it through.
 fn pass(lines: &[String]) {
     for l in lines {
-        println!("{l}");
+        tehas_core::outln!("{l}");
     }
 }
 
@@ -207,7 +207,14 @@ fn tidy_args(hook: bool) -> Vec<String> {
     }
 }
 
-fn writer(home: &Path, settings: &Settings, bot: &str, poll_at: i64, before: i64) -> Writer {
+fn writer(
+    home: &Path,
+    settings: &Settings,
+    bot: &str,
+    poll_at: i64,
+    before: i64,
+    retry: &RetryPolicy,
+) -> Writer {
     let libexec = home.join("libexec");
     let opt = |k: &str| Some(env(k)).filter(|v| !v.is_empty());
     let here = here(home);
@@ -223,9 +230,10 @@ fn writer(home: &Path, settings: &Settings, bot: &str, poll_at: i64, before: i64
         home: home.to_path_buf(),
         gh: "gh".into(),
         docker: "docker".into(),
-        calls: Calls::idle(
+        calls: Calls::for_poll(
             secs("tehas_store_bound", 20),
             libexec.join("store").to_string_lossy().into_owned(),
+            retry,
         ),
         poll_at,
         // The poll asked for its row, and said nothing of it: both are the
@@ -537,7 +545,13 @@ pub fn run_poll(home: &Path, settings: &Settings, dry: bool) -> i32 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs_f64())
         .unwrap_or(0.0);
-    let mut w = writer(home, settings, "", 0, now() as i64);
+    // The poll's one budget of retries and its one queue of lines of failed
+    // reads. Made before the `Writer` so that every `Calls` of the poll is built
+    // with it: the writes of `Writer`, the snapshot's reads, and the settle and
+    // status reads that go through them are one poll and spend one budget, and
+    // `body` is handed the same value rather than copying a field afterwards.
+    let retry = RetryPolicy::default();
+    let mut w = writer(home, settings, "", 0, now() as i64, &retry);
     // The poll's GitHub token, kept in memory from before its first call: the
     // first gh of the poll asks the host's token program once, and every gh
     // process after it is given the token as TEHAS_GH_TOKEN, so the shim of a
@@ -559,7 +573,15 @@ pub fn run_poll(home: &Path, settings: &Settings, dry: bool) -> i32 {
         starts: 0,
         changed: Changed::default(),
     };
-    let rc = body(home, settings, dry, &token, &mut w, &mut end);
+    // The poll's one policy is already in both `Calls`: the writer's made above,
+    // the snapshot's made by `body` from the value `body` is given.
+    let rc = body(home, settings, dry, &token, &mut w, &mut end, &retry);
+    // The lines the poll's reads left, of both its `Calls`, said once here and
+    // nowhere else: `taken` empties the shared queue, so the drain of `body` and
+    // this one read disjoint buckets of the same queue and no line is said twice.
+    for n in w.calls.retry.taken() {
+        say(&n);
+    }
     end.gh += w.calls.gh_count + w.gh_writes;
     end.starts = w.starts;
     end.changed.queue = w.changed;
@@ -575,6 +597,7 @@ fn body(
     token: &PollToken,
     w: &mut Writer,
     end: &mut End,
+    retry: &RetryPolicy,
 ) -> i32 {
     // The journal first, before GitHub is read for the queue: what a poll
     // that died between two writes left is settled from fresh reads. One that
@@ -605,9 +628,10 @@ fn body(
     let now = w.before;
     let mut src = Sources {
         home,
-        calls: Calls::idle(
+        calls: Calls::for_poll(
             secs("tehas_store_bound", 20),
             home.join("libexec/store").to_string_lossy().into_owned(),
+            retry,
         ),
         systemctl: "systemctl".into(),
         now,
@@ -620,10 +644,20 @@ fn body(
     src.calls.gh_token = w.calls.gh_token.clone().or_else(|| token.get(home));
     let snap = snapshot(&mut src, settings);
     end.gh = src.calls.gh_count;
+    // Every gh read the poll could not make says why, in gh's own words: only the
+    // queue's failure reached the log before, because only the rules that cannot
+    // read a failure without it end a poll, and a read the rules take as
+    // {"failed": true} left no trace at all. A token is never part of a line:
+    // only the words of `gh_why`'s list reach one. The poll says each of them
+    // once, here and in `run_poll`: `taken` empties the shared queue, so the two
+    // drains read disjoint buckets and no line is said twice.
+    for n in src.calls.retry.taken() {
+        say(&n);
+    }
     let mut snap = match snap {
         Ok(s) => s,
         Err(f) => {
-            say(&f.0);
+            say(&f.line);
             return 1;
         }
     };

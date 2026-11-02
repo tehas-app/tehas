@@ -1,0 +1,6 @@
+# println! and print! panic when stdout's reader has gone (#1407). The
+# workspace prints with tehas_core::outln! and tehas_core::out! instead.
+disallowed-macros = [
+  { path = "std::println", reason = "panics on a closed stdout: use tehas_core::outln!" },
+  { path = "std::print", reason = "panics on a closed stdout: use tehas_core::out!" },
+]

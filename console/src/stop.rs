@@ -70,7 +70,7 @@ pub fn parse(given: &[String]) -> Result<Option<Asked>, u8> {
     for word in given {
         match word.as_str() {
             "-h" | "--help" => {
-                print!("{USAGE}");
+                tehas_core::out!("{USAGE}");
                 return Ok(None);
             }
             "--keep-workspace" => keep = true,

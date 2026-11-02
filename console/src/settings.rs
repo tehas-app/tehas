@@ -251,14 +251,14 @@ pub fn main(given: &[String]) -> u8 {
         ["valid"] => valid_stream(),
         ["valid", name, value] => match why(name, value) {
             Some(reason) => {
-                println!("{reason}");
+                tehas_core::outln!("{reason}");
                 1
             }
             None => 0,
         },
         ["words", name] => match rules::words(name) {
             Some(words) => {
-                println!("{}", words.join(" "));
+                tehas_core::outln!("{}", words.join(" "));
                 0
             }
             None => 1,
