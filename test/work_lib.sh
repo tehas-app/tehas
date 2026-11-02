@@ -246,7 +246,7 @@ preflight_args() { grep -l -x -e '--entrypoint' "$T"/calls/docker.args.* 2>/dev/
 # against the function under test.
 # shellcheck source=test/docker_args.sh
 . "$(dirname "$0")/docker_args.sh" || exit 1
-# The options of lib/slice.sh and of tehas_sandbox_security, by name, for the
+# The options of the slice limits and of the security list, by name, for the
 # allow-list of unknown_options: one pair of strings for every suite of a
 # cycle's container, so an option added to either is allow-listed in all of them
 # at once, and one taken away from the function is refused by every test.

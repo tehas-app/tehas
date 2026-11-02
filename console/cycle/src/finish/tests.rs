@@ -951,7 +951,7 @@ fn the_issue_s_branch_among_the_names_git_answers() {
         Some("feature/issue-7")
     );
     // A name ending in a dash is no name git can hold: a ref of that shape is
-    // rejected by the `check-ref-format` rules lib/cycles.sh follows, so the
+    // rejected by the `check-ref-format` rules src/finish/plan.rs follows, so the
     // filter is proven against the one name that carries the issue's number and
     // fails the grammar.
     assert_eq!(

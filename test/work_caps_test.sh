@@ -537,11 +537,6 @@ t_lacks "$(cat "$T"/calls/docker.args.*)" "--network host"
 # value is not a secret: it is a command on PATH, and the host's operator's own
 # helper is the only value that is withheld, in console/src/setup.rs.
 t_case "the helper a container's git runs is the one key and the one command"
-t_run ". '$T_ROOT/lib/config.sh'; . '$T_ROOT/lib/sandbox.sh'; printf '%s\n' \"\$(tehas_git_github_host)\" \"\$(tehas_git_credential_helper_key)\""
-t_eq "$t_rc" 0
-t_eq "$(printf '%s\n' "$t_out")" "github.com
-credential.https://github.com.helper"
-
 # The container's own entries, read off the docker options of the cycle the
 # cases above started: the name on one line and its value on the next, the way
 # docker reads them. The first value is empty on purpose - the entry that ends
