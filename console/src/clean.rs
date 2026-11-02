@@ -204,7 +204,7 @@ pub fn sandbox_image(image: &str) -> Result<String, u8> {
 pub fn usage(given: &[String]) -> u8 {
     if let [help] = given {
         if help == "-h" || help == "--help" {
-            print!("{HELP}");
+            tehas_core::out!("{HELP}");
             return 0;
         }
     }
@@ -228,7 +228,7 @@ fn held(given: &[String]) -> u8 {
         return 1;
     };
     for id in ids {
-        println!("{id}");
+        tehas_core::outln!("{id}");
     }
     0
 }
@@ -242,7 +242,7 @@ fn target(given: &[String]) -> u8 {
     };
     match rukas::target(follow, repo, ls_remote) {
         Some((commit, what)) => {
-            println!("{commit} {what}");
+            tehas_core::outln!("{commit} {what}");
             0
         }
         None => 1,

@@ -67,7 +67,7 @@ fn mounts(kind: Kind, p: &Paths) -> i32 {
 fn verify(words: &[String]) -> i32 {
     match slice::verify(words, &Load::from_env()) {
         Some(n) => {
-            println!("{n}");
+            tehas_core::outln!("{n}");
             0
         }
         None => 1,
@@ -144,11 +144,11 @@ pub fn main(args: &[String]) -> Option<i32> {
         ),
         ["verify", ..] => verify(&args[1..]),
         ["table"] => {
-            println!("{}", table());
+            tehas_core::outln!("{}", table());
             0
         }
         ["retry", host] => {
-            println!("{}", sandbox::retry_line(host));
+            tehas_core::outln!("{}", sandbox::retry_line(host));
             0
         }
         ["clone", src, tree, branch] => i32::from(!sandbox::clone(src, tree, branch)),
