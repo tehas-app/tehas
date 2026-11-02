@@ -489,38 +489,9 @@ t_eq "$(printf '%s\n' "$t_out" | sed -n '15,24p' | tr '\n' ' ')" "$security_opts
 # beyond the two a gate needs: a wider list here is a change of the contract.
 t_eq "$(printf '%s\n' "$t_out" | sed -n 's/^--cap-add=//p')" ""
 
-# The guard of tehas_sandbox_limits (lib/sandbox.sh), which judges what the
-# program hands out before Docker is called: asked of the command, so a guard
-# that drifted from the list is a failure in this file and not a cycle that stops
-# on a host. The tables of the size are in console/core/src/sandbox.rs.
-t_case "a list the program hands out that is not the documented one starts no cycle"
-short=$T/short-caps
-mkdir -p "$short/libexec"
-ln -s "$T_ROOT/lib" "$short/lib"
-ln -s "$T_ROOT/libexec/work" "$short/libexec/work"
-fourteen="--cgroup-parent tehas.slice --memory 2048m --memory-swap 2048m --memory-reservation 2g --cpus 3.75 --pids-limit 4096 --cpu-shares 1024"
-for words in "--cgroup-parent tehas.slice --memory 2048m --memory-swap 2048m --memory-reservation 2g --cpus 3.75 --pids-limit 4096" \
-  "--cgroup-parent other.slice --memory 2048m --memory-swap 2048m --memory-reservation 2g --cpus 3.75 --pids-limit 4096 --cpu-shares 1024" \
-  "--memory 2048m --cgroup-parent tehas.slice --memory-swap 2048m --memory-reservation 2g --cpus 3.75 --pids-limit 4096 --cpu-shares 1024" ""; do
-  rm -f "$T"/calls/*
-  # shellcheck disable=SC2086  # the words are the list
-  t_fake_limits "$short/libexec" $words ${words:+$security_opts}
-  t_run "$short/libexec/work 7"
-  t_eq "$t_rc" 78
-  t_contains "$t_out" "tehas work: the container limits could not be made, not starting"
-  t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
-done
-for opts in "--cap-drop ALL --cap-add CHOWN --cap-add FOWNER --security-opt no-new-privileges:true" \
-  "--cap-drop NET_RAW --cap-add CHOWN --cap-add FOWNER --security-opt no-new-privileges:true --tmpfs /tmp:rw,exec,nosuid,nodev,size=1024m,mode=1777"; do
-  rm -f "$T"/calls/*
-  # shellcheck disable=SC2086  # the words are the list
-  t_fake_limits "$short/libexec" $fourteen $opts
-  t_run "$short/libexec/work 7"
-  t_eq "$t_rc" 78
-  t_contains "$t_out" "tehas_sandbox_security gave "
-  t_contains "$t_out" "wants 10: not starting a cycle"
-  t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
-done
+# The guard that judges the list the slice hands out before Docker is called is
+# tehas-cycle work's own (console/cycle/src/work.rs, misshaped), and its tests
+# beside it hold it to the drifted lists this file once gave a stand-in.
 
 # A cycle's /tmp is a tmpfs, whose pages count against --memory and cannot be
 # reclaimed: one as large as the ceiling ends in OOM kills, not ENOSPC. It is

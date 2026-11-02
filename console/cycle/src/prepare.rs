@@ -1,7 +1,7 @@
-//! `tehas-cycle prepare`: what stands between an approved start and its
-//! container. Three steps, because libexec/work holds the issue's text, fetches
-//! its attachments and says what a cycle was not given in bash between them, and
-//! each refusal keeps its place in that order.
+//! What stands between an approved start and its container, in three steps of
+//! `tehas-cycle work` (src/work.rs). It holds the issue's text, fetches its
+//! attachments and says what a cycle was not given between them, and each
+//! refusal keeps its place in that order.
 //!
 //!   check   the bot's identity, the variables of the container, what the image
 //!           supports. Nothing is moved or fetched before it passes.
@@ -13,9 +13,8 @@
 //! What one step works out for the next is in state/cycles/<issue>.prepared,
 //! under the issue's lock. It holds names of variables, not their values.
 //!
-//! A stop ends libexec/work and not the step in its foreground. A step goes on
-//! with the command it is in, and starts no other once the script is gone
-//! ([`Caller`]), so a stop costs one command, as it did when bash ran them.
+//! A stop does not end the step in hand. It goes on with the command it is in
+//! and starts no other once a stop came ([`Stop`]), so a stop costs one command.
 //!
 //! The workspace is $TEHAS_HOME/work/<name>-<issue>, a fresh clone for every
 //! cycle. One a stopped cycle left may hold the only copy of commits that were
@@ -29,9 +28,10 @@ use serde_json::{json, Value};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::os::unix::fs::OpenOptionsExt;
-use std::os::unix::process::parent_id;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use tehas_core::install::{self, Step};
 use tehas_core::models;
 use tehas_core::sandbox::{self, Identity, Kind, Paths, HANDOFF_SECONDS};
@@ -84,24 +84,26 @@ fn git_identity(field: &str) -> String {
     printed(git)
 }
 
-/// The exit status of a step whose script was stopped: 128 plus TERM.
-const STOPPED: i32 = 143;
+/// The exit status of a start that was stopped: 128 plus TERM.
+pub const STOPPED: i32 = 143;
 
-/// The script that started this step.
-pub struct Caller(u32);
+/// A TERM, INT or HUP that came to tehas work, as its handlers set it.
+#[derive(Clone, Default)]
+pub struct Stop(Arc<AtomicBool>);
 
-impl Caller {
-    pub fn now() -> Self {
-        Self(parent_id())
+impl Stop {
+    /// The flag the signal handlers set and the watch reads.
+    pub fn flag(&self) -> Arc<AtomicBool> {
+        Arc::clone(&self.0)
     }
 
-    /// Whether the script has gone. An orphan has another parent.
-    fn gone(&self) -> bool {
-        let gone = parent_id() != self.0;
-        if gone {
+    /// Whether a stop came, said when it did.
+    pub fn came(&self) -> bool {
+        let came = self.0.load(Ordering::SeqCst);
+        if came {
             eprintln!("tehas work: stopped, not going on with the start");
         }
-        gone
+        came
     }
 }
 
@@ -182,7 +184,7 @@ pub struct Check {
     pub console: String,
     /// The limits and the security options of the slice.
     pub words: Vec<String>,
-    pub caller: Caller,
+    pub stop: Stop,
 }
 
 fn scratch(c: &Check, security: &mut Vec<String>) -> Option<()> {
@@ -326,7 +328,7 @@ pub fn check(c: &Check) -> i32 {
         );
         return 78;
     }
-    if c.caller.gone() {
+    if c.stop.came() {
         return STOPPED;
     }
     let state = json!({"limits": limits, "security": security, "env": vars,
@@ -346,7 +348,7 @@ pub struct Tree {
     pub log: PathBuf,
     pub push_wait: u64,
     pub console: String,
-    pub caller: Caller,
+    pub stop: Stop,
 }
 
 fn ran(cmd: &mut Command) -> bool {
@@ -571,7 +573,7 @@ pub fn tree(home: &Path, t: &Tree) -> i32 {
     };
     let tree = tree_of(t.issue);
     let state_dir = format!("{tree}.state");
-    if t.caller.gone() {
+    if t.stop.came() {
         return STOPPED;
     }
     if !make_tree(&tree, &state_dir, &t.branch) {
@@ -589,7 +591,7 @@ pub fn tree(home: &Path, t: &Tree) -> i32 {
         );
         return 78;
     }
-    if t.caller.gone() {
+    if t.stop.came() {
         return STOPPED;
     }
     let preflight = on(&t.log, ".preflight");
@@ -601,7 +603,7 @@ pub fn tree(home: &Path, t: &Tree) -> i32 {
         return rc;
     }
     if !steps.is_empty() {
-        if t.caller.gone() {
+        if t.stop.came() {
             return STOPPED;
         }
         for step in &steps {
@@ -613,7 +615,7 @@ pub fn tree(home: &Path, t: &Tree) -> i32 {
             return rc;
         }
     }
-    if t.caller.gone() {
+    if t.stop.came() {
         return STOPPED;
     }
     let retry = sandbox::retry_line(&tree);
@@ -627,7 +629,7 @@ pub fn tree(home: &Path, t: &Tree) -> i32 {
             "tehas work: the code index could not be copied into {state_dir}/cache, this cycle searches without one"
         ));
     }
-    if t.caller.gone() {
+    if t.stop.came() {
         return STOPPED;
     }
     let runs = format!("{}/.pi/agent/ensemble-runs/issue-{}", env("HOME"), t.issue);
@@ -645,7 +647,7 @@ pub fn tree(home: &Path, t: &Tree) -> i32 {
         let _ = append(&preflight, &line);
         say(&format!("tehas work: {line}"));
     }
-    if t.caller.gone() {
+    if t.stop.came() {
         return STOPPED;
     }
     if !write_state(&t.file, &state) {
@@ -667,7 +669,7 @@ pub struct Record {
     pub gap: String,
     /// The issue's images, as -v and -e options.
     pub images: Vec<String>,
-    pub caller: Caller,
+    pub stop: Stop,
 }
 
 /// How many cycles hold their lock, this one with them.
@@ -743,7 +745,7 @@ fn on_record(home: &Path, r: &Record, state: &Value) -> bool {
         return true;
     };
     // The record has moved on under a stop: nothing to tell the issue.
-    if r.caller.gone() {
+    if r.stop.came() {
         return false;
     }
     if matches!(refused.word.as_str(), "busy" | "timeout") {
@@ -766,17 +768,16 @@ fn on_record(home: &Path, r: &Record, state: &Value) -> bool {
     false
 }
 
-/// The third step. Its exit status. Prints the words of the docker run, each
-/// ended by a NUL.
-pub fn record(home: &Path, r: &Record) -> i32 {
+/// The third step: the words of the docker run, or the exit status.
+pub fn record(home: &Path, r: &Record) -> Result<Vec<String>, i32> {
     let Some(state) = read_state(&r.file) else {
         eprintln!("tehas work: could not prepare the sandbox, not starting a cycle");
-        return 78;
+        return Err(78);
     };
     let cycles = home.join("state/cycles");
     let file = |name: &str| cycles.join(format!("{}.{name}", r.issue));
-    if r.caller.gone() {
-        return STOPPED;
+    if r.stop.came() {
+        return Err(STOPPED);
     }
     // Docker refuses a cid file that is already there. One is left only by a
     // cycle that was killed outright, and so is a count of kills.
@@ -791,11 +792,11 @@ pub fn record(home: &Path, r: &Record) -> i32 {
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status();
-    if r.caller.gone() {
-        return STOPPED;
+    if r.stop.came() {
+        return Err(STOPPED);
     }
     if !r.attempt.is_empty() && !on_record(home, r, &state) {
-        return 4;
+        return Err(4);
     }
     // A log is named to the second, so a cycle of this issue can be given the
     // name one before it used: what err.txt of the record copies is only what
@@ -806,7 +807,7 @@ pub fn record(home: &Path, r: &Record) -> i32 {
         eprintln!("tehas work: could not write {}", err.display());
     }
     let cid = file("cid").to_string_lossy().into_owned();
-    let run = sandbox::cycle_run(&sandbox::CycleRun {
+    Ok(sandbox::cycle_run(&sandbox::CycleRun {
         name: &r.name,
         limits: &list(&state, "limits"),
         security: &list(&state, "security"),
@@ -820,14 +821,7 @@ pub fn record(home: &Path, r: &Record) -> i32 {
         image: &env("PI_ENSEMBLE_IMAGE"),
         issue: r.issue,
         flags: &list(&state, "flags"),
-    });
-    let mut out = std::io::stdout().lock();
-    for word in run {
-        if out.write_all(word.as_bytes()).is_err() || out.write_all(b"\0").is_err() {
-            return 78;
-        }
-    }
-    0
+    }))
 }
 
 #[cfg(test)]
@@ -881,16 +875,18 @@ mod tests {
             log: PathBuf::new(),
             push_wait: 1,
             console: String::new(),
-            caller: Caller::now(),
+            stop: Stop::default(),
         };
         let nowhere = Path::new("/nonexistent/tehas/work.jsonl.preflight");
         assert_eq!(push_check(&t, &json!({}), "/nonexistent", nowhere), Some(3));
     }
 
     #[test]
-    fn a_caller_with_another_pid_is_gone() {
-        assert!(!Caller::now().gone());
-        assert!(Caller(0).gone());
+    fn a_stop_is_the_flag_a_handler_sets() {
+        let stop = Stop::default();
+        assert!(!stop.came());
+        stop.flag().store(true, Ordering::SeqCst);
+        assert!(stop.came());
     }
 
     #[test]

@@ -1,9 +1,9 @@
-//! `tehas-cycle watch`: the end of tehas work. It starts the container it is
-//! given after `--`, keeps the cycle's console and heartbeat, stops a cycle that
-//! stalls or passes its time limit, and leaves the cycle's notes for tehasbot
-//! cycle. libexec/work execs it, so it holds the issue's lock as fd 9 and the
-//! docker client inherits it. What each file proves is in lib/cycles.sh, and the
-//! exit statuses in the header of libexec/work.
+//! The end of tehas work (src/work.rs). It starts the container it is given,
+//! keeps the cycle's console and heartbeat, stops a cycle that stalls or passes
+//! its time limit, and leaves the cycle's notes for tehasbot cycle. It runs in
+//! the process that holds the issue's lock as fd 9, and the docker client
+//! inherits it. What each file proves is in lib/cycles.sh, and the exit
+//! statuses in src/work.rs.
 //!
 //! The two bounds of the loop are counted on [`crate::clock`], not the wall
 //! clock, so a VM save and restore stops no cycle. Tests set TEHAS_WATCH_TICK
@@ -33,7 +33,7 @@ const DIAG_WIDTH: usize = 1000;
 /// The runner's own ends.
 const ENDS: [&str; 7] = ["0", "10", "11", "20", "21", "30", "40"];
 
-/// What libexec/work gives the watch.
+/// What tehas work gives the watch.
 pub struct Given {
     pub issue: u64,
     pub attempt: String,
@@ -757,15 +757,9 @@ fn start_console(g: &Given, live: &Path, started: i64, console_now: &Path) -> Op
         .ok()
 }
 
-/// A cycle's whole watch, its exit status at the end.
-pub fn run(home: &Path, g: &Given) -> i32 {
-    let stop = Arc::new(AtomicBool::new(false));
-    for sig in [signal_hook::consts::SIGTERM, signal_hook::consts::SIGINT] {
-        if signal_hook::flag::register(sig, Arc::clone(&stop)).is_err() {
-            eprintln!("tehas work: cannot listen for signal {sig}");
-            return 2;
-        }
-    }
+/// A cycle's whole watch, its exit status at the end. `stop` is the flag the
+/// handlers of TERM, INT and HUP set, which tehas work took before its start.
+pub fn run(home: &Path, g: &Given, stop: Arc<AtomicBool>) -> i32 {
     let live = home.join("live");
     let console_now = live.join(format!("console-{}.txt.now", g.issue));
     let mut w = Watch {
