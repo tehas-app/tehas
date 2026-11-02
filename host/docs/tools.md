@@ -1877,6 +1877,11 @@ nothing. A line it cannot read is left out, not an error. A store that does not
 answer prints nothing, never a listing without the cycles: exit 1 when it was
 busy, 78 when it is not installed or cannot be used.
 
+`store prune` removes the history of an issue whose cycle ended more than its
+window ago, keeping that issue's last row of each of the two tables, so a
+`tehas history` of a long-closed issue gives one line of it and `--after` still
+reads the lines it has not seen.
+
 `--after` takes the `next` the command printed before, so a program that keeps
 it reads each line once. `--issue` takes one issue's lines, its cycle and its
 planning turns together. Every field and the line it comes from are in
@@ -2525,7 +2530,8 @@ request by its number, the cap, park reason and failure, whether a provider
 outage stopped it and whether it parked, and the result and progress that
 `tehas work` left, each kept as a claim only when the store can read it (a
 link is refused, and progress older than the start is not kept). It writes one
-line of history per end, the last 50 of each issue. A store that does not take
+line of history per end, the last 50 of each issue, of which `store prune` takes
+those of an issue whose cycle ended more than its window ago bar the last. A store that does not take
 the end after five tries is `ERROR: the end of #N is not on record (...)` with
 every argument named; the record stays open, the issue's next start replaces
 it, and the cycle ends with exit 70 rather than 0, so the unit does not read as
@@ -3523,7 +3529,9 @@ starting cycles:
    `review-*.jsonl`) and the improvement loop's analyst (`improve-analyst*.log`)
    older than 7 days, whether or not the
    improvement loop is on. Then `store backup`, a copy a day of the state store
-   kept seven days, and `store prune --days 90` (see [Backups and
+   kept seven days, and `store prune --days 90`, which also removes the cycle and
+   plan history of issues whose cycle ended more than 90 days ago, each of them
+   keeping its last row of each history (see [Backups and
    restore](/operating#backups-and-restore)). All of it is one call,
    `store upkeep`, and says one line per log removed and then
    `clean: store upkeep: <answer>`. A dry run names the logs and leaves the

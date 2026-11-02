@@ -1579,8 +1579,11 @@ removes what has not been used for `TEHAS_CLEAN_AFTER` hours, 24 by default:
   loop is on. Long-lived logs such as `dispatch.log` and `clean.log` stay.
 - the state store's upkeep: a copy a day (see below), and rows past 90 days
   removed with `store prune --days 90`: cycle endings, settled actions of the
-  journal, and old heartbeats of cycles that have ended. A cycle's own record
-  stays.
+  journal, old heartbeats of cycles that have ended, and the cycle and plan
+  history of issues whose cycle ended that long ago. Each of those issues keeps
+  its last row of each history, so `tehas history` still says how it ended, and
+  the issue whose cycle ended without a history row of its own keeps all of them.
+  A cycle's own record stays.
 
 One line per removal and a closing line with the bytes freed go to
 `~/tehas/logs/clean.log`, and the same lines are printed, so a run by hand

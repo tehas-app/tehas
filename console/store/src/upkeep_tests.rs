@@ -163,6 +163,377 @@ fn prune_removes_old_ends_settled_actions_and_old_heartbeats_of_ended_cycles() {
     assert_eq!(count(&home, "cycles"), 2);
 }
 
+/// What a cycle of `issue` ran: `n` ends from its start at `start` to
+/// `cycle_end`, its cycle row left ending at `ended` (null for one still
+/// running).
+struct Cycle {
+    n: i64,
+    start: i64,
+    cycle_end: i64,
+    ended: Option<i64>,
+}
+
+/// What the plan of `issue` ran: `m` turns of one session from `plan_start` to
+/// `plan_end`.
+struct Plan {
+    m: i64,
+    plan_start: i64,
+    plan_end: i64,
+}
+
+/// The issue of a factory that ran the cycle and the plan it is given. Every row
+/// is written by the verb that writes it in a factory, so each carries the `at`,
+/// the `seq` and the place among the 50 newest of the issue that verb gives it:
+/// the cycle rows are dated between the two cycle instants and the plan rows
+/// between the two planning ones, so the newest row of either table is the one a
+/// test names by the attempt or the turn it is. A `cycle` of no ends is the issue
+/// whose cycle ended without a history row (`cycle-end --stopped` or `--refused`),
+/// and no `cycle` at all, given a start in the past that no verb wrote, is the
+/// issue the store has no cycle row for.
+fn history(home: &Path, issue: i64, cycle: Option<Cycle>, plan: Plan) {
+    let (n, start, cycle_end, ended) = match &cycle {
+        None => (0, plan.plan_start, plan.plan_start, None),
+        Some(c) => (c.n, c.start, c.cycle_end, c.ended),
+    };
+    let Plan {
+        m,
+        plan_start,
+        plan_end,
+    } = plan;
+    let n_s = issue.to_string();
+    conn(home)
+        .execute_batch(&format!(
+            "INSERT OR IGNORE INTO issues (issue, kind, kind_at, checked_at) VALUES ({issue}, 'closed', {start}, 0);"
+        ))
+        .unwrap();
+    if n > 0 {
+        let lock = hold(home, issue);
+        // The approval the first start is made from; a later attempt is started
+        // by hand, which needs none.
+        let at = (start - 6).to_string();
+        ok_at(
+            home,
+            start - 6,
+            &[
+                "approval-record",
+                &n_s,
+                "--at",
+                &at,
+                "--by",
+                "alice",
+                "--how",
+                "label",
+                "--label",
+                "tehas:ready",
+                "--body-sha",
+                SHA,
+            ],
+        );
+        ok_at(home, start, &["cycle-start", &n_s]);
+        let span = cycle_end - start;
+        for attempt in 1..=n {
+            let a = attempt.to_string();
+            ok_at(
+                home,
+                start + attempt * span / n,
+                &["cycle-end", &n_s, "--attempt", &a, "--status", "closed"],
+            );
+            if attempt < n {
+                let next = attempt + 1;
+                ok_at(
+                    home,
+                    start + next * span / n - 1,
+                    &["cycle-start", &n_s, "--by-hand"],
+                );
+            }
+        }
+        drop(lock);
+    }
+    let ended = match ended {
+        None => "NULL".to_string(),
+        Some(e) => e.to_string(),
+    };
+    conn(home)
+        .execute_batch(&format!(
+            "UPDATE cycles SET ended_at = {ended} WHERE issue = {issue};"
+        ))
+        .unwrap();
+    if m > 0 {
+        let b = write_file(home, "brief.md", b"the brief")
+            .to_str()
+            .unwrap()
+            .to_string();
+        ok_at(
+            home,
+            plan_start,
+            &[
+                "plan-begin",
+                &n_s,
+                "--by",
+                "alice",
+                "--label",
+                "tehas:plan",
+                "--brief-file",
+                &b,
+            ],
+        );
+        let span = plan_end - plan_start;
+        for turn in 1..=m {
+            let t = turn.to_string();
+            let at = plan_start + turn * span / m;
+            if turn > 1 {
+                ok_at(
+                    home,
+                    at,
+                    &["plan-answer", &n_s, "--turn", &t, "--by", "alice"],
+                );
+            }
+            ok_at(
+                home,
+                at,
+                &[
+                    "plan-end",
+                    &n_s,
+                    "--turn",
+                    &t,
+                    "--outcome",
+                    "finished",
+                    "--rc",
+                    "0",
+                    "--session",
+                    "s1",
+                ],
+            );
+        }
+    }
+}
+
+/// A row of one of the two histories, written with the `at` the test asks for:
+/// the row of an end the store recorded before this release could date it, so the
+/// pruner is asked about a row older than the issue's own end. `seq` is the
+/// store's to give, as the schema's trigger shows.
+fn row(home: &Path, cycle: bool, issue: i64, n: i64, at: i64) {
+    let sql = if cycle {
+        format!("INSERT INTO cycle_history (issue, attempt, at, status) VALUES ({issue}, {n}, {at}, 'closed');")
+    } else {
+        format!("INSERT INTO plan_history (issue, turn, at, outcome) VALUES ({issue}, {n}, {at}, 'finished');")
+    };
+    conn(home).execute_batch(&sql).unwrap();
+}
+
+#[test]
+fn prune_removes_the_history_of_issues_that_ended_long_ago_and_keeps_one_row() {
+    let home = home("prune-history");
+    let old = NOW - 100 * DAY;
+    let recent = NOW - DAY;
+    // Ended long ago: the old rows go and the last row of each table stays.
+    history(
+        &home,
+        30,
+        Some(Cycle {
+            n: 30,
+            start: old - 40,
+            cycle_end: old,
+            ended: Some(old),
+        }),
+        Plan {
+            m: 12,
+            plan_start: old - 40,
+            plan_end: old,
+        },
+    );
+    // Its cycle ended long ago and wrote no history of its own (`cycle-end
+    // --stopped` or `--refused`), an end a report reads from the issue's cycle row
+    // and its `endings` row: its plan rows are all the issue has, so they stay.
+    history(
+        &home,
+        31,
+        Some(Cycle {
+            n: 0,
+            start: old - 40,
+            cycle_end: old,
+            ended: Some(old),
+        }),
+        Plan {
+            m: 4,
+            plan_start: old - 40,
+            plan_end: old,
+        },
+    );
+    // Ended long ago, but its planning turned after the window, and one row of
+    // each table is older than its end, as a row of an old store can be: the last
+    // row of each table is kept, and the rows older than the window go.
+    history(
+        &home,
+        32,
+        Some(Cycle {
+            n: 4,
+            start: old - 40,
+            cycle_end: old - 30,
+            ended: Some(old),
+        }),
+        Plan {
+            m: 3,
+            plan_start: old - 40,
+            plan_end: recent,
+        },
+    );
+    row(&home, true, 32, 5, old - 35);
+    row(&home, false, 32, 6, old - 39);
+    // Ended since the window: every row stays whatever its age.
+    history(
+        &home,
+        33,
+        Some(Cycle {
+            n: 6,
+            start: old - 40,
+            cycle_end: old - 20,
+            ended: Some(recent),
+        }),
+        Plan {
+            m: 4,
+            plan_start: old - 40,
+            plan_end: old - 10,
+        },
+    );
+    // Still running: every row stays.
+    history(
+        &home,
+        34,
+        Some(Cycle {
+            n: 6,
+            start: old - 40,
+            cycle_end: old - 20,
+            ended: None,
+        }),
+        Plan {
+            m: 0,
+            plan_start: old,
+            plan_end: old,
+        },
+    );
+    // A plan of an issue with no cycle on record: nothing dates it, so nothing of
+    // it goes.
+    history(
+        &home,
+        35,
+        None,
+        Plan {
+            m: 5,
+            plan_start: old - 40,
+            plan_end: old - 10,
+        },
+    );
+
+    let v = ok(&home, &["prune", "--days", "90"]);
+    // The 29 old cycle rows of issue 30, the four of issue 32, and the three old
+    // plan rows of issue 31, whose cycle wrote no history of its own.
+    assert_eq!(v["cycle_history"], 33);
+    assert_eq!(v["plan_history"], 14);
+    assert_eq!(count(&home, "cycle_history WHERE issue = 30"), 1);
+    assert_eq!(count(&home, "plan_history WHERE issue = 30"), 1);
+    assert_eq!(
+        one::<i64>(&home, "SELECT attempt FROM cycle_history WHERE issue = 30"),
+        30
+    );
+    assert_eq!(
+        one::<i64>(&home, "SELECT turn FROM plan_history WHERE issue = 30"),
+        12
+    );
+    // The issue whose cycle wrote no history keeps all four of its plan rows.
+    assert_eq!(count(&home, "cycle_history WHERE issue = 31"), 0);
+    assert_eq!(count(&home, "plan_history WHERE issue = 31"), 4);
+    // Its planning row of the window is the one kept of that table, and its four
+    // old cycle rows went. Of those the oldest is kept too, being the end the
+    // issue's `endings` row names: prune takes that row from its table in the same
+    // call, so the two keep saying the same thing about the issue's last end.
+    assert_eq!(count(&home, "cycle_history WHERE issue = 32"), 1);
+    assert_eq!(count(&home, "plan_history WHERE issue = 32"), 1);
+    assert_eq!(
+        one::<i64>(&home, "SELECT at FROM cycle_history WHERE issue = 32"),
+        old - 30
+    );
+    assert_eq!(
+        one::<i64>(&home, "SELECT turn FROM plan_history WHERE issue = 32"),
+        3
+    );
+    // Not pruned: the issue that ended recently, the running cycle, and the issue
+    // with no cycle on record.
+    assert_eq!(count(&home, "cycle_history WHERE issue = 33"), 6);
+    assert_eq!(count(&home, "plan_history WHERE issue = 33"), 4);
+    assert_eq!(count(&home, "cycle_history WHERE issue = 34"), 6);
+    assert_eq!(count(&home, "plan_history WHERE issue = 35"), 5);
+
+    // The kept rows are the ones `history-show` answers with, and a repeat of the
+    // verb takes nothing more.
+    assert_eq!(
+        ok(&home, &["history-show", "30"])["rows"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+    let again = ok(&home, &["prune", "--days", "90"]);
+    assert_eq!(again["cycle_history"], 0);
+    assert_eq!(again["plan_history"], 0);
+}
+
+#[test]
+fn upkeep_prunes_the_history_and_history_still_answers() {
+    let home = home("upkeep-history");
+    let old = NOW - 120 * DAY;
+    history(
+        &home,
+        40,
+        Some(Cycle {
+            n: 20,
+            start: old - 40,
+            cycle_end: old,
+            ended: Some(old),
+        }),
+        Plan {
+            m: 8,
+            plan_start: old - 40,
+            plan_end: old,
+        },
+    );
+    // A recent issue: its cycle ended within the window, so all its rows stay.
+    history(
+        &home,
+        41,
+        Some(Cycle {
+            n: 3,
+            start: NOW - 2 * DAY,
+            cycle_end: NOW - DAY,
+            ended: Some(NOW - DAY),
+        }),
+        Plan {
+            m: 2,
+            plan_start: NOW - 2 * DAY,
+            plan_end: NOW - DAY,
+        },
+    );
+    let v = ok(&home, &["upkeep"]);
+    assert_eq!(v["prune"]["cycle_history"], 19);
+    assert_eq!(v["prune"]["plan_history"], 7);
+    // `tehas history` still answers for both: the two kept ends of the pruned
+    // issue, and all five lines of the recent one.
+    assert_eq!(
+        ok(&home, &["history-show", "40"])["rows"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+    assert_eq!(
+        ok(&home, &["history-show", "41"])["rows"]
+            .as_array()
+            .unwrap()
+            .len(),
+        5
+    );
+}
+
 #[test]
 fn prune_and_sweep_locks_refuse_bad_numbers() {
     assert!(usage(&["prune"]).contains("--days"));

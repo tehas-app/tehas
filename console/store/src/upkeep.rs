@@ -6,8 +6,11 @@
 //!   copy --to <file>  one consistent copy of the store at the absolute name
 //!                     given, by VACUUM INTO; reads the store, writes only that
 //!                     file, and refuses a name that is taken
-//!   prune --days N    endings, settled actions with their journal, and the
-//!                     heartbeats of ended cycles, older than N days. A cycle's
+//!   prune --days N    endings, settled actions with their journal, the
+//!                     heartbeats of ended cycles, and the cycle and plan
+//!                     history of issues that ended more than N days ago, older
+//!                     than N days. Of the history it keeps the last row of each
+//!                     issue, so `tehas history` still answers for it. A cycle's
 //!                     row is never removed
 //!   sweep-locks [--days N] [--max N] [--dry-run]
 //!                     removes state/cycles/<n>.lock when no one holds it and
@@ -234,6 +237,46 @@ fn prune(home: &Path, days: i64, now: i64) -> Result<String, Fail> {
     Ok(line("prune", &pruned(home, days, now)?))
 }
 
+/// The DELETE of one history table, `table`. What goes is the rows of an issue
+/// whose cycle ended before `?1`, and never a row a reader still asks for: the
+/// last row of the issue in each of the two tables, which `history-show` lists,
+/// which `park-show` reads as its park reason (its `PARK_SELECT` takes the newest
+/// row of the cycle history by `max(id)`) and whose plan history it asks whether
+/// the issue has any at all; and the newest row of the issue's cycle history older
+/// than the window, which is the end its `endings` row names and prune takes out of
+/// that table in the same call, so the two keep saying the same thing about how the
+/// issue last ended. Rows are told apart by `at` and `id`, the order the writers and
+/// their per-issue cap of the 50 newest use, not by `seq`, which each new end is
+/// given beyond the rows kept.
+///
+/// Three kinds of issue keep every row. One whose cycle is still running, or which
+/// ended since: its `tehas history` lines are recent. One whose cycle ended before
+/// the window but wrote no cycle history at all (`cycle-end --stopped` or
+/// `--refused`): its planning rows are the record of how the plan of that issue
+/// went, and the store has no count of ends of it to prune. And an issue the store
+/// has no cycle row for, which nothing dates.
+fn gone(table: &str) -> String {
+    // The last row of the issue in one table, of all its rows or of those the
+    // window has passed.
+    let last = |from: &str, older: bool| {
+        let where_ = if older { " AND h.at < ?1" } else { "" };
+        format!(
+            "(at, id) NOT IN
+             (SELECT at, id FROM {from} h WHERE h.issue = {table}.issue{where_}
+                ORDER BY at DESC, id DESC LIMIT 1)"
+        )
+    };
+    format!(
+        "DELETE FROM {table} WHERE
+           issue IN (SELECT issue FROM cycles WHERE ended_at < ?1)
+           AND issue IN (SELECT issue FROM cycle_history)
+           AND {} AND {} AND {}",
+        last(table, false),
+        last("cycle_history", false),
+        last("cycle_history", true)
+    )
+}
+
 fn pruned(home: &Path, days: i64, now: i64) -> Result<Vec<(&'static str, String)>, Fail> {
     let before = now - days * DAY;
     verbs::write(home, |c| {
@@ -281,6 +324,12 @@ fn pruned(home: &Path, days: i64, now: i64) -> Result<Vec<(&'static str, String)
                 r.get(0)
             })
             .q()?;
+        // The history of an issue that ended long ago goes with its endings row:
+        // the cap of the 50 newest per issue, in cycle-end and plan-end, bounds
+        // one issue but not the factory, so the two tables otherwise grow with the
+        // issues the factory has ever run.
+        let cycle_history = c.execute(&gone("cycle_history"), [before]).q()?;
+        let plan_history = c.execute(&gone("plan_history"), [before]).q()?;
         Ok(vec![
             ("before", j(before)),
             ("endings", j(endings)),
@@ -291,6 +340,8 @@ fn pruned(home: &Path, days: i64, now: i64) -> Result<Vec<(&'static str, String)
             ("poll_cost", j(poll_cost)),
             ("polls", j(polls)),
             ("polls_kept", j(polls_kept)),
+            ("cycle_history", j(cycle_history)),
+            ("plan_history", j(plan_history)),
         ])
     })
 }
