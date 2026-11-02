@@ -49,14 +49,14 @@ usage_of() {
 # script <command>: the file behind a command, or nothing.
 script() {
   case "$1" in
-    dispatch | work | plan | dev | index | setup | update | export | check-product) echo "$libexec/$1" ;;
+    dispatch | work | plan | dev | index | setup | update | check-product) echo "$libexec/$1" ;;
   esac
 }
 
 # verb <command>: whether the command is a verb of the console.
 verb() {
   case "$1" in
-    status | disk | state | limit | pause | analytics | top | api | labels | resume | drain | history | stop | mcp | init-product) ;;
+    status | disk | state | limit | pause | analytics | top | api | labels | resume | drain | history | export | stop | mcp | init-product) ;;
     *) return 1 ;;
   esac
 }
@@ -113,8 +113,9 @@ under_settings() {
 
 case "$1" in
   status | disk) exec "$console" tehas "$@" ;;
-  top)
-    [ -x "$console" ] || { echo "tehas top: no console at $console, run install.sh" >&2; exit 1; }
+  top | export)
+    [ -x "$console" ] || { echo "tehas $1: no console at $console, run install.sh" >&2; exit 1; }
+    [ "$1" = top ] || exec "$console" run "$libexec" "$EUID" "$BASH" tehas "$@"
     exec "$console" tehas "$@"
     ;;
   state | limit | pause | analytics | api | labels | resume | drain | history | stop | init-product) under_settings "$@" ;;

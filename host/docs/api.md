@@ -402,9 +402,9 @@ so the person who opens the archive can be someone else.
 
 Exit 0 when it copied, also when there was nothing to copy; 64 on a bad
 argument, an export into the factory's home, or a directory it cannot make,
-which copies nothing; 78 without an instance or when the state store is not
-installed or cannot be used, which copies nothing; 1 with no console to mask
-with, or when the store stayed busy for the history, which copies nothing.
+which copies nothing; 78 without an instance, without a valid `TEHAS_REPO`, or
+when the state store is not installed or cannot be used, which copies nothing;
+1 with no console to mask with, or when the store stayed busy for the history, which copies nothing.
 
 ## tehas state
 
