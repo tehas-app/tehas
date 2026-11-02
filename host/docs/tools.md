@@ -3994,8 +3994,9 @@ holds it waits for it, and if it is still held prints
 git, install.sh, Docker or systemd is called. The wait is
 `TEHAS_UPDATE_LOCK_WAIT` - a whole number of seconds, 10 by default, 0 to
 refuse at once, at most 300; anything else is the default. It is read from the
-environment, not from `instance.env`, and the rule for it is
-`tehas_update_lock_wait` in `lib/update-steps.sh`, which both commands call.
+environment, not from `instance.env`, and both commands ask the console for it
+(`console update wait update`). A first `install.sh` from a checkout has no
+console yet and waits 10.
 The update hands the lock to the install.sh it runs, and to nothing else; the
 wait covers a run started right after one that failed and left the lock held a
 moment by something it had started. `--check` takes no lock.
@@ -4204,8 +4205,9 @@ before its first copy until after the store has imported the old records, so no
 poll starts a cycle or a planning turn in between. A poll holds that lock for
 its whole run, so the run waits for it up to `TEHAS_DISPATCH_LOCK_WAIT` seconds:
 a whole number, 900 by default, 0 to refuse at once, at most 3600; anything else
-is the default. It is read from the environment, and the rule for it is
-`tehas_dispatch_lock_wait` in `lib/update-steps.sh`. A poll that holds the lock
+is the default. It is read from the environment and asked of the console
+(`console update wait dispatch`); a first install from a checkout has no console
+yet and waits 900. A poll that holds the lock
 longer stops the run with exit 1 and `a poll is running ...; nothing was
 installed`. A home installed before the marker `.tehas-home` came in gets it
 here, so its old records are judged too. Before the first copy the store the run installs judges the record
