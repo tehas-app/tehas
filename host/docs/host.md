@@ -1364,9 +1364,10 @@ the next container reads the new ceiling for itself. That is on
 
 `tehas/pi-rukas:uid<uid>`: the upstream pi-rukas image plus the in-container
 user remapped to the tehas user's id, shellcheck, tehas's jq (ahead of the
-base image's, the version the host runs), Playwright's Chromium with
-fonts, `file`, and a Python image library. The last two are in the container
-only: `bootstrap.sh` installs neither and its check does not look for them.
+base image's, the version the host runs), Rust at `RUST_VERSION` with rustfmt
+and clippy, Playwright's Chromium with fonts, `file`, and a Python image
+library. The last two are in the container only: `bootstrap.sh` installs
+neither and its check does not look for them.
 cargo's registry belongs to that user, so a gate that builds Rust can fetch its
 crates; they go with the container. The base is pinned by digest in
 `sandbox/Dockerfile`, shellcheck and jq by checksum, codebase-memory-mcp by the
@@ -1381,7 +1382,15 @@ image and gives the tag cycles run: see
 [the sandbox image](/new-project#5-the-sandbox-image). The platform's file stays
 as this checkout has it, because a changed one makes `tehas update` refuse.
 
-Two things the base carries are changed on purpose.
+Three things the base carries are changed on purpose.
+
+- Rust is put at `RUST_VERSION`, the version `bootstrap.sh` installs on the host
+  and CI builds with. The base carries the stable toolchain of the day upstream
+  built it, so the compiler a cycle's gate ran moved between builds. The build
+  installs the pinned toolchain with rustup, with rustfmt and clippy, and makes it
+  the default; the base's own toolchain stays beside it. rustup checks what it
+  downloads against the channel's checksums. The build stops when `rustc` does
+  not answer `RUST_VERSION`, and the tool gate asks it again as the cycle's user.
 
 - codebase-memory-mcp is put back at the version `versions.env` names, the one
   `bootstrap.sh` installs on the host. The base installs it from upstream's main,
@@ -1511,9 +1520,9 @@ belong to that uid, so what decides how much of the image two instance users
 share is where the uid enters the build.
 
 It enters late. `sandbox/Dockerfile` does everything the uid does not decide
-first - the base image, cargo's registry, the distribution packages, the code
-indexer, shellcheck, jq and the embedding model - and the file ends where the uid
-enters: a stage that takes the one above it as its base. `sandbox/build.sh` builds
+first - the base image, the Rust toolchain, cargo's registry, the distribution
+packages, the code indexer, shellcheck, jq and the embedding model - and the
+file ends where the uid enters: a stage that takes the one above it as its base. `sandbox/build.sh` builds
 from those lines as they stand, with the uid's own argument carried to the stage
 that reads it, so the remap, the read of the model as the cycle's own user, the
 browser install and the tool gate are the only steps built for one uid. The remap

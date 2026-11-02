@@ -2110,7 +2110,11 @@ that release and the newest there is, instead of a commit:
 platform  v0.9.0, newest v0.9.0, fetched 20 min ago
 platform  v0.9.0, v0.9.1 is out, fetched 20 min ago
 platform  v0.9.0, newest unknown, never fetched
+platform  v0.10.0-rc.1, newest v0.9.0, the candidate is newer, fetched 20 min ago
 ```
+
+A host on a release candidate keeps the newest release it last read, even
+though it is older than the candidate.
 
 It reads
 that one file and nothing else: no GitHub call, no instance settings, and it

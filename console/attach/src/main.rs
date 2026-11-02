@@ -98,7 +98,7 @@ fn answer(verb: &str, mut v: Value) {
     v["api"] = json!(1);
     v["verb"] = json!(verb);
     v["ok"] = json!(true);
-    println!("{v}");
+    tehas_core::outln!("{v}");
 }
 
 /// A regular file and not a link, opened for reading.

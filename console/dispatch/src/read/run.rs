@@ -361,7 +361,7 @@ impl Calls {
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use super::*;
 
     /// The cases of the poll's token read and write one environment variable,
@@ -491,7 +491,7 @@ mod tests {
     /// Wait until a script just written can run. A parallel test's fork holds
     /// it open for writing until that child's exec, and a run in that moment
     /// fails with ETXTBSY.
-    fn settled(script: &Path) {
+    pub(in crate::read) fn settled(script: &Path) {
         let until = std::time::Instant::now() + Duration::from_secs(5);
         while std::process::Command::new(script)
             .arg("settled")
