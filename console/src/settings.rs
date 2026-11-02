@@ -166,10 +166,11 @@ fn valid_stream() -> u8 {
     }
     let mut out = Vec::new();
     let words: Vec<&[u8]> = input.split(|b| *b == 0).collect();
-    for pair in words.chunks_exact(2) {
+    let (pairs, _) = words.as_chunks::<2>();
+    for [name, value] in pairs {
         let (name, value) = (
-            String::from_utf8_lossy(pair[0]),
-            String::from_utf8_lossy(pair[1]),
+            String::from_utf8_lossy(name),
+            String::from_utf8_lossy(value),
         );
         let answer = match why(&name, &value) {
             Some(reason) => format!("1\0{reason}\0"),

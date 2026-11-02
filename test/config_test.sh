@@ -1521,6 +1521,8 @@ while IFS='|' read -r -u 5 -a lines; do
   T_ENV=(TEHAS_REPO=other/thing TEHAS_INDEXING=1 PI_ENSEMBLE_DEBUG=1 TEHAS_WORK_CMD=fake EDITOR=ed)
   t_run "$load; echo rc=\$?; export -p"
   t_out=${t_out//$T/@T}
+  # Bash 5.3 names the command it was parsing here, and 5.2 does not.
+  t_out=$(sed -E "s/(unexpected end of file) from \`if' command on line [0-9]+/\1/" <<<"$t_out")
   grep -vE '^declare -x (PATH|PWD|OLDPWD|SHLVL|_|T|T_ROOT|TEHAS_SETTINGS_CMD)(=|$)' <<<"${t_out//uid$EUID/uid@}" >>"$T/loads"
 done 5<<'INSTANCES'
 
@@ -1612,7 +1614,7 @@ T_INSIDE=$TEHAS_INSTANCE_DIR/$HOME
 INSTANCES
 T_ENV=()
 t_instance "${T_MINIMAL[@]}"
-t_eq "$(sha256sum <"$T/loads" | cut -d' ' -f1)" "2e8a3e4b3abdb7dd5b323c6aaf6971793d2a5121162227f83c773581d11d345f"
+t_eq "$(sha256sum <"$T/loads" | cut -d' ' -f1)" "de299444672bfc0506c9462244ae554a503272172531f052f9030e7a99a453e0"
 t_contains "$(cat "$T/loads")" "rc=78"
 
 t_case "no instance.env keeps the environment as it was, as bash did"
