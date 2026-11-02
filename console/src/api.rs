@@ -4,6 +4,7 @@
 
 use crate::jq::{obj, J};
 use crate::store;
+use crate::update::release::tag_ok;
 use std::env;
 use std::fs::File;
 use std::io::Read;
@@ -55,17 +56,6 @@ fn version_text(file: &Path) -> String {
     text.split('\n').next().unwrap_or_default().to_string()
 }
 
-fn is_tag(v: &str) -> bool {
-    let Some(numbers) = v.strip_prefix('v') else {
-        return false;
-    };
-    let parts: Vec<&str> = numbers.split('.').collect();
-    parts.len() == 3
-        && parts
-            .iter()
-            .all(|p| !p.is_empty() && p.bytes().all(|c| c.is_ascii_digit()))
-}
-
 /// The release and the commit of a version text: `v0.8.0+cb6912a` both, a
 /// bare tag the release, anything else with no `+` the commit.
 fn split_version(v: &str) -> (Option<String>, Option<String>) {
@@ -73,7 +63,7 @@ fn split_version(v: &str) -> (Option<String>, Option<String>) {
         return (None, None);
     }
     let parts: Vec<&str> = v.split('+').collect();
-    if parts.len() == 1 && is_tag(v) {
+    if parts.len() == 1 && tag_ok(v) {
         return (Some(v.to_string()), None);
     }
     let tehas = (parts.len() == 2).then(|| parts[0].to_string());
@@ -179,6 +169,11 @@ mod tests {
     fn a_version_text_is_split_as_install_wrote_it() {
         assert_eq!(split_version("v0.8.0+cb6912a"), pair("v0.8.0", "cb6912a"));
         assert_eq!(split_version("v0.10.2"), pair("v0.10.2", "-"));
+        assert_eq!(split_version("v0.22.0-rc.1"), pair("v0.22.0-rc.1", "-"));
+        assert_eq!(
+            split_version("v0.22.0-rc.1+cb6912a"),
+            pair("v0.22.0-rc.1", "cb6912a")
+        );
         assert_eq!(split_version("cb6912a"), pair("-", "cb6912a"));
         assert_eq!(split_version(""), pair("-", "-"));
         assert_eq!(split_version("v1.2"), pair("-", "v1.2"));

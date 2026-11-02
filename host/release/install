@@ -17,7 +17,8 @@
 #
 # Usage: install [--version vX.Y.Z] [--from <dir>] [--repo owner/name]
 #                [--no-bootstrap] <user>
-#   --version       a release other than the newest
+#   --version       a release other than the newest, or a release candidate
+#                   vX.Y.Z-rc.N
 #   --from <dir>    the tarball, its .sha256 and its .minisig are in <dir>;
 #                   nothing is downloaded. Needs --version
 #   --repo          where the releases are, owner/name on GitHub
@@ -70,7 +71,7 @@ done
 case "$user" in root | -* | *[!a-z0-9_-]*) echo "install: not a user name for tehas: $user" >&2; exit 64 ;; esac
 case "$repo" in */*) ;; *) echo "install: --repo is owner/name: $repo" >&2; exit 64 ;; esac
 if [ -n "$version" ]; then
-  printf '%s\n' "$version" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$' || { echo "install: --version is vX.Y.Z: $version" >&2; exit 64; }
+  printf '%s\n' "$version" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$' || { echo "install: --version is vX.Y.Z or vX.Y.Z-rc.N: $version" >&2; exit 64; }
 fi
 [ -z "$from" ] || [ -n "$version" ] || { echo "install: --from needs --version" >&2; exit 64; }
 [ "$(id -u)" = 0 ] || { echo "install: run this as root (sudo sh -s -- $user)" >&2; exit 64; }
