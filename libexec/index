@@ -3,6 +3,7 @@
 # tehas-cycle's, and console/cycle/src/index.rs says what it does. This loads the
 # settings and takes the lock, because the indexer's docker client inherits the
 # descriptor on purpose: a client that outlives the run still writes the index.
+# It stays bash: clearing close-on-exec on the lock needs `unsafe`.
 #
 # Usage: tehas index                  build the index
 #        tehas index --before-cycle   what the dispatcher's unit runs: nothing

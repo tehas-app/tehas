@@ -9,7 +9,7 @@
 t_console || t_bad "no console: $t_console_why"
 T_ENV_ALWAYS+=(TEHAS_CONSOLE="$T_CONSOLE")
 
-# The command as a host has it: with-settings beside the console, this
+# The command as a host has it: bin/tehasbot above the console, this
 # checkout's own build, which holds the command.
 # shellcheck disable=SC2154  # t_console_why is set by t_console (test/lib.sh)
 t_console || t_bad "no console: $t_console_why"
@@ -17,8 +17,9 @@ shim=$T/tree
 mkdir -p "$shim/libexec"
 ln -s "$T_ROOT/lib" "$shim/lib"
 cp "$T_CONSOLE" "$shim/libexec/console"
-ln -s "$T_ROOT/libexec/with-settings" "$shim/libexec/with-settings"
-status="$shim/libexec/with-settings tehasbot status"
+mkdir -p "$shim/bin"
+ln -s "$T_ROOT/bin/tehasbot" "$shim/bin/tehasbot"
+status="$shim/bin/tehasbot status"
 health="$T_ROOT/bin/tehasbot health"
 summary="$T_ROOT/bin/tehas status"
 live=$T/home/tehas/live
@@ -871,15 +872,13 @@ reset
 # other run of this file is given is named by the file's T_ENV_ALWAYS, which
 # the case cannot empty, so the wrapper of this case is given the empty name by
 # its own command line and the run is called with env -i through t_run's PATH.
-mkdir -p "$T/no-console"
-cp "$T_ROOT/libexec/with-settings" "$T/no-console/with-settings"
-mkdir -p "$T/lib"
-cp "$T_ROOT/lib/config.sh" "$T/lib/config.sh"
+mkdir -p "$T/no-console/bin" "$T/no-console/libexec"
+cp "$T_ROOT/bin/tehasbot" "$T/no-console/bin/tehasbot"
 rm -f "$T/bin/console"
 T_ENV=(TEHAS_CONSOLE= TEHAS_CONSOLE= PATH=/usr/bin:/bin)
-t_run "unset TEHAS_CONSOLE; TEHAS_HOME=$T/home/tehas $T/no-console/with-settings tehasbot health"
+t_run "unset TEHAS_CONSOLE; TEHAS_HOME=$T/home/tehas $T/no-console/bin/tehasbot health"
 t_eq "$t_rc" 78
-t_contains "$t_out" "tehasbot health: no console at $T/no-console/console: run install.sh"
+t_contains "$t_out" "tehasbot health: no console at $T/no-console/libexec/console: run install.sh"
 t_eq "$([ -e "$live/health.json" ] && echo written)" ""
 
 t_case "summary: the last cycle failed and the cycle beside it started earlier: still failed"

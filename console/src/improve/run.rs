@@ -366,7 +366,7 @@ struct Ready {
 }
 
 impl Loop {
-    /// Fails closed: libexec/improve checked these, and a run without them
+    /// Fails closed: `console run` checked these, and a run without them
     /// does nothing.
     fn from_env(prompt: &str) -> Result<Loop, u8> {
         let need = |name: &str| match env::var(name) {

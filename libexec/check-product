@@ -1,51 +1,8 @@
 #!/usr/bin/env bash
-# tehas check-product: check the product checkout against the contract tehas
-# and pi-rukas read from it, and say what is missing.
+# tehas check-product: console/src/run.rs, console/src/usage/check-product.txt is
+# its text. Only a path: test/sandbox_argv_test.sh runs it.
 #
-# Usage:
-#   tehas check-product             check the checkout, one line per check
-#   tehas check-product --sandbox   the same, then run the product's gates on a
-#                                   fresh clone in the sandbox image
-#
-# The checks, on the commit origin's default branch points at, since a cycle
-# reads only what is committed there:
-#   origin    the checkout is a clone of TEHAS_REPO
-#   default   origin/HEAD is set, so the default branch is known locally
-#   agents    AGENTS.md is there
-#   gate      .pi/verify-cmd has a line that is not empty or a comment
-#   model     .pi/settings.json, when the product has one, names a model the
-#             instance's models.json lists
-#
-# --sandbox clones the checkout's origin/HEAD into $TEHAS_HOME/tmp and runs, in
-# the image as this user, .pi/worktree-setup when there is one, the first
-# command of .pi/verify-cmd-full (else .pi/verify-cmd) and, when there is one,
-# of .pi/smoke-cmd. The clone is made as a cycle's workspace is
-# (tehas-cycle sandbox clone): the default branch at origin's tip, with
-# origin/<default branch> and origin/HEAD set, then a work branch with one
-# empty commit, so a gate that diffs against origin/main finds its base and
-# a change of nothing. It is removed afterwards.
-#
-# It changes nothing in the product. The result is written to
-# $TEHAS_HOME/state/check-product.json, which tehas status reads.
-#
-# Exit: 0 every check passed; 1 the sandbox could not be run; 64 a wrong
-# argument; 78 the instance settings are missing or malformed, or a check
-# failed.
-#
-# Instance settings (lib/config.sh): TEHAS_REPO, required; TEHAS_WORK_REPO,
-# derived. --sandbox also uses PI_ENSEMBLE_IMAGE.
-set -uo pipefail
-
-case "$#:${1-}" in
-  0: | 1:--sandbox) ;;
-  *) echo "usage: tehas check-product [--sandbox]" >&2; exit 64 ;;
-esac
-
+# Exit: the command's; 78 no console.
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-# shellcheck source=lib/config.sh
-. "$here/../lib/config.sh"
-tehas_load || exit 78
-tehas_require TEHAS_REPO
-console=$here/console
-[ -x "$console" ] || { printf 'tehas check-product: no console beside this command at %s, run install.sh\n' "$console" >&2; exit 78; }
-exec "$console" check-product "$@"
+[ -x "$here/console" ] || { printf 'tehas check-product: no console beside this command at %s, run install.sh\n' "$here/console" >&2; exit 78; }
+exec "$here/console" run "$here" "$EUID" "$BASH" tehas check-product "$@"

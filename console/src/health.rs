@@ -1,6 +1,6 @@
 //! The factory's health file, live/health.json: pass, warn or fail, the one
 //! line that says why, and every check under `checks`. `tehasbot health` is
-//! `console tehasbot health`, which `libexec/with-settings` runs once the
+//! `console tehasbot health`, which `console run` runs once the
 //! settings are loaded, and which comes to `console health run`.
 //!
 //!   console health run <home>

@@ -658,8 +658,6 @@ files=(
   "lib/paths.sh|$TEHAS_HOME/lib/paths.sh|644"
   "lib/attachments.sh|$TEHAS_HOME/lib/attachments.sh|644"
   "lib/history-lines.jq|$TEHAS_HOME/lib/history-lines.jq|644"
-  "lib/history-listing.jq|$TEHAS_HOME/lib/history-listing.jq|644"
-  "lib/history-repeats.jq|$TEHAS_HOME/lib/history-repeats.jq|644"
   "lib/park-fields.jq|$TEHAS_HOME/lib/park-fields.jq|644"
   "lib/cycles.sh|$TEHAS_HOME/lib/cycles.sh|644"
   "lib/labels.sh|$TEHAS_HOME/lib/labels.sh|644"
@@ -672,8 +670,6 @@ files=(
   "lib/rukas.sh|$TEHAS_HOME/lib/rukas.sh|644"
   "lib/sandbox.sh|$TEHAS_HOME/lib/sandbox.sh|644"
   "lib/slice.sh|$TEHAS_HOME/lib/slice.sh|644"
-  # The free disk of the host, read by the dispatcher's hold and the previews'.
-  "lib/disk.sh|$TEHAS_HOME/lib/disk.sh|644"
   # The measure of an issue body, read by the dispatcher and the analytics.
   "lib/questions.sh|$TEHAS_HOME/lib/questions.sh|644"
   # How the commands run the state store, libexec/store.
@@ -725,25 +721,17 @@ for f in tehas tehasbot; do
 done
 for f in \
   check-product \
-  clean \
   cycle \
   dev \
   dev-login \
   dispatch \
-  export \
   github-token \
-  history \
   improve \
   index \
-  init-product \
   plan \
-  preview \
-  protolab \
-  refresh \
   review \
   setup \
   update \
-  with-settings \
   work; do
   files+=("libexec/$f|$TEHAS_HOME/libexec/$f|755")
 done
@@ -1295,10 +1283,13 @@ for f in \
   lib/analytics.sh \
   lib/describe.sh \
   lib/edge.sh \
+  lib/history-listing.jq \
+  lib/history-repeats.jq \
   lib/models.sh \
   lib/private.sh \
   libexec/analytics-cmd \
   libexec/api \
+  libexec/clean \
   libexec/console.ts \
   lib/limit.sh \
   lib/live.sh \
@@ -1311,11 +1302,17 @@ for f in \
   libexec/disk \
   libexec/drain \
   libexec/energy \
+  libexec/export \
   libexec/health \
+  libexec/history \
+  libexec/init-product \
   libexec/labels \
   libexec/limit \
   libexec/mcp \
   libexec/pause \
+  libexec/preview \
+  libexec/protolab \
+  libexec/refresh \
   libexec/resume \
   libexec/state \
   libexec/status \
@@ -1324,6 +1321,8 @@ for f in \
   libexec/tidy \
   libexec/top \
   libexec/top-publish \
+  libexec/with-settings \
+  lib/disk.sh \
   lib/top.sh \
   lib/update-release.sh \
   edge/protolab.Caddyfile \

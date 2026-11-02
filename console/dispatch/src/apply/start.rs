@@ -42,8 +42,7 @@ pub struct Host {
     pub stop_cmd: Option<String>,
     /// TEHAS_CYCLE_START_WAIT.
     pub start_wait: Duration,
-    /// TEHAS_STATUS_CMD, run once the starts are done, or `with-settings
-    /// tehasbot status`.
+    /// TEHAS_STATUS_CMD, run once the starts are done, or `tehasbot status`.
     pub status_cmd: String,
     pub status_args: Vec<String>,
     /// TEHAS_HEALTH_CMD, run after the poll wrote the demand.

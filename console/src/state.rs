@@ -4,7 +4,7 @@
 //!   console state pack [--rehearse] -    the tar on standard output
 //!   console state unpack [--rehearse] -  the tar on standard input
 //!
-//! The home is $TEHAS_HOME, which libexec/with-settings has loaded.
+//! The home is $TEHAS_HOME, which `console run` has loaded.
 //!
 //! The tar holds tehas-state.json first, {"api":1,"tag":...,"schema":...},
 //! then state/, repos/, live/ and mcp/ of the home where they exist. The

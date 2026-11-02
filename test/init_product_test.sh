@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for libexec/init-product: the missing contract files, proposed as a
+# Tests for tehas init-product: the missing contract files, proposed as a
 # pull request.
 # shellcheck disable=SC2016  # snippets are expanded by the shell under test
 # shellcheck source=test/lib.sh
@@ -8,11 +8,11 @@
 # The command as a host has it: beside the console, which does the work
 # (console/src/product.rs), and the tests of its parts are beside its source.
 t_console || t_bad "no console: $t_console_why"
-mkdir -p "$T/tree/libexec"
+mkdir -p "$T/tree/libexec" "$T/tree/bin"
 ln -s "$T_ROOT/lib" "$T/tree/lib"
-ln -s "$T_ROOT/libexec/init-product" "$T/tree/libexec/init-product"
+ln -s "$T_ROOT/bin/tehas" "$T/tree/bin/tehas"
 cp "$T_CONSOLE" "$T/tree/libexec/console"
-init=$T/tree/libexec/init-product
+init="$T/tree/bin/tehas init-product"
 origin=$T/acme/widget.git
 g() { git -c user.name=t -c user.email=t@example.invalid -c init.defaultBranch=main "$@"; }
 

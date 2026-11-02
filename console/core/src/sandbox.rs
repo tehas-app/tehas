@@ -28,9 +28,9 @@ pub const CACHE_DIR: &str = "/home/vscode/.tehas-cache";
 /// workspace, the read-write mount, so on the host's disk.
 pub const TARGET_DIR: &str = "/home/vscode/.tehas-target";
 
-// lib/sandbox.sh names the same key for tehas setup's probe of the host's git:
+// tehas setup asks the host's git for it too. lib/sandbox.sh names the same key:
 // tehas_git_credential_helper_key.
-const HELPER_KEY: &str = "credential.https://github.com.helper";
+pub const HELPER_KEY: &str = "credential.https://github.com.helper";
 const HELPER: &str = "!gh auth git-credential";
 
 const REVIEW_LEAVES_OUT: [&str; 7] = [
@@ -685,8 +685,7 @@ pub fn take(r: &impl Probe, load: &Load, who: &str, what: &str) -> Result<Taken,
     taken(slice, load, who, what)
 }
 
-/// [`take`], of a slice already read.
-pub fn taken(slice: Usable, load: &Load, who: &str, what: &str) -> Result<Taken, String> {
+fn taken(slice: Usable, load: &Load, who: &str, what: &str) -> Result<Taken, String> {
     let limits = slice::limits(&slice, load)
         .ok_or_else(|| format!("{who}: the container limits could not be made, not starting"))?;
     let security = security(slice.ceiling_mb).ok_or_else(|| {

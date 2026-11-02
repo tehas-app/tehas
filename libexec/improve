@@ -1,46 +1,9 @@
 #!/usr/bin/env bash
-# One run of the improvement loop: read the cycles that ended since the last
-# run, ask a model what could be better, and file one issue per finding that
-# is not already in the issue stack. The run is the console's, and
-# console/src/improve/mod.rs says what it does. This loads the settings and
-# asks whether tehas.slice can be used. It asks only when there are records to
-# read, and before the console calls GitHub: without a usable slice the records
-# wait.
+# tehasbot improve: console/src/run.rs and console/src/improve/mod.rs. Only a path:
+# test/sandbox_argv_test.sh runs it.
 #
-# Usage: tehasbot improve     (one line per run on standard output)
-#
-# Exit: 0 the run finished, also with an analyst stopped at its bound that left
-#         a good file, or there was nothing to do, or the loop is off, or a
-#         limit holds runs (tehas limit: planning off, expired or unreadable);
-#       1 the analyst or GitHub failed and the records were kept; what a
-#         failed analyst printed is in logs/improve-analyst-<stamp>.log;
-#      64 an argument, this command takes none;
-#      78 the instance settings are invalid, no console stands beside this
-#         file, or there are records to read and tehas.slice is not usable on
-#         this host; the records were kept.
-set -uo pipefail
-
-[ "$#" = 0 ] || { echo "usage: tehasbot improve" >&2; exit 64; }
-
+# Exit: the command's; 78 no console.
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-# Named before the load: tehas_load clears the TEHAS_* of the host.
 console=${TEHAS_CONSOLE:-$here/console}
-prompt=$here/../lib/improve-prompt.md
-# shellcheck source=lib/config.sh
-. "$here/../lib/config.sh"
-# shellcheck source=lib/slice.sh
-. "$here/../lib/slice.sh"
-tehas_load || exit 78
-if [ -z "$TEHAS_IMPROVE_REPO" ]; then
-  echo "tehas improve: TEHAS_IMPROVE_REPO is not set, the improvement loop is off"
-  exit 0
-fi
-tehas_require TEHAS_REPO PI_ENSEMBLE_SUBAGENT_MODEL PI_ENSEMBLE_SUBAGENT_PROVIDER
 [ -x "$console" ] || { echo "tehas improve: no console at $console: run install.sh" >&2; exit 78; }
-
-"$console" improve due "$prompt"
-rc=$?
-[ "$rc" != 10 ] || exit 0
-[ "$rc" = 0 ] || exit "$rc"
-tehas_slice_ok || { echo "tehas improve: $TEHAS_SLICE_WHY" >&2; exit 78; }
-exec "$console" improve run "$prompt"
+exec "$console" run "$here" "$EUID" "$BASH" tehasbot improve "$@"

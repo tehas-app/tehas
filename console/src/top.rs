@@ -4,7 +4,7 @@
 //!   console tehas top [--once | --json] [--every <seconds>]
 //!     The view of a person, see src/usage/top.txt. Loads no settings.
 //!   console tehasbot top [--every]
-//!     Writes $TEHAS_HOME/live/top.json, run under libexec/with-settings. The
+//!     Writes $TEHAS_HOME/live/top.json, run under `console run`. The
 //!     snapshot of the view, cut to the keys of PUBLISHED and nothing else:
 //!     the dashboard can be on the internet, and so is this file. TEHAS_TOP=1
 //!     turns it on; anything else removes the file. A file that cannot be
@@ -227,14 +227,12 @@ fn publish_once(home: &str) -> u8 {
 
 // A child per mark, by the installed path, so an update reaches the loop: the
 // unit is not restarted on a console change, and current_exe reads "(deleted)"
-// once an install has replaced the file. with-settings stands before the
-// console so that each mark reads the settings, as each run of the command does.
+// once an install has replaced the file. tehasbot stands before the console so
+// that each mark reads the settings, as each run of the command does.
 fn publish_every(home: &str) -> u8 {
-    let with_settings = format!("{home}/libexec/with-settings");
+    let tehasbot = format!("{home}/bin/tehasbot");
     loop {
-        let done = Command::new(&with_settings)
-            .args(["tehasbot", "top"])
-            .status();
+        let done = Command::new(&tehasbot).arg("top").status();
         if done.is_ok_and(|s| s.code() == Some(78)) {
             return 78;
         }
