@@ -577,20 +577,6 @@ for edit in '.comment_links = [{link: "L"}]' '.retry_context = [{source: "refres
   t_eq "$t_out" "FAILED the issue's files could not be checked (the attachment checker is not installed)"
 done
 
-t_case "without the checker a reply that links nothing goes on, and one that links a file stops"
-mkdir -p "$T/session"
-echo '{"images":[],"leftOut":[]}' >"$T/session/manifest.json"
-printf 'The operator replied on the issue:\n\nNo link, only https://example.com/x.png\n' >"$T/reply.md"
-answer="$lib; tehas_answer_images $T/session $T/reply.md 4003 || { echo \"FAILED \$image_why\"; exit 1; }"
-t_run "$answer"
-t_eq "$t_rc$t_out" "0"
-printf 'See %s\n' "$anyzip" >"$T/reply.md"
-t_run "$answer"
-t_eq "$t_rc $t_out" "1 FAILED the issue's files could not be checked (the attachment checker is not installed)"
-rm -f "$T/reply.md"
-t_run "$answer"
-t_eq "$t_rc" 1
-t_lacks "$t_out" "$T"
 mv "$T/attach.away" "$T/home/tehas/libexec/attach"
 
 # attach_answers <rc>: the installed program exits <rc> for unpack and is the

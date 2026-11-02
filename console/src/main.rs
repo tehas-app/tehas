@@ -36,10 +36,10 @@
 //! src/preview.rs, and whether the previews' network keeps the host out, see
 //! src/edge.rs.
 //!
-//!   console plan update|descriptor|workspace|give|place|turn|run ...
+//!   console plan update|descriptor ...
 //!
-//! What a planning turn of libexec/plan says and does on the host, see
-//! src/plan.rs and src/plan/turn.rs.
+//! What a planning turn says and does on the host, see src/plan.rs; `tehas
+//! plan` itself runs through `console run`.
 //!
 //!   console top reading|snapshot|frame ...
 //!

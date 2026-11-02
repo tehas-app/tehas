@@ -32,7 +32,7 @@
 //! settings are missing or malformed.
 
 use crate::commands::{self, ANSWERED};
-use crate::{clean, disk, github, improve, preview, product, protolab, review, settings};
+use crate::{clean, disk, github, improve, plan, preview, product, protolab, review, settings};
 use std::env;
 use std::ffi::OsString;
 use std::fs::File;
@@ -215,6 +215,7 @@ fn command(libexec: &str, uid: &str, bash: &str, words: &[String]) -> Result<u8,
     Ok(match name[..] {
         ["tehas", "check-product"] => product::check(rest),
         ["tehas", "init-product"] => init_product(rest)?,
+        ["tehas", "plan"] => plan::start(libexec, rest),
         ["tehas", _] => commands::tehas(&words[1..]),
         ["tehasbot", "clean"] => clean_run(rest)?,
         ["tehasbot", "dispatch"] => dispatch(bash, libexec, rest)?,
