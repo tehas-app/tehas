@@ -1583,7 +1583,8 @@ removes what has not been used for `TEHAS_CLEAN_AFTER` hours, 24 by default:
   history of issues whose cycle ended that long ago. Each of those issues keeps
   its last row of each history, so `tehas history` still says how it ended, and
   the issue whose cycle ended without a history row of its own keeps all of them.
-  A cycle's own record stays.
+  The 90 is `PRUNE_DAYS`, the window `store upkeep` prunes with. A cycle's own
+  record stays.
 
 One line per removal and a closing line with the bytes freed go to
 `~/tehas/logs/clean.log`, and the same lines are printed, so a run by hand

@@ -1,6 +1,6 @@
 //! backup, prune and sweep-locks.
 
-use crate::upkeep::{date, KEEP};
+use crate::upkeep::{date, history_delete, HistoryTable, KEEP};
 use crate::verbs_tests::*;
 use rusqlite::Connection;
 use serde_json::Value;
@@ -167,7 +167,7 @@ fn prune_removes_old_ends_settled_actions_and_old_heartbeats_of_ended_cycles() {
 /// `cycle_end`, its cycle row left ending at `ended` (null for one still
 /// running).
 struct Cycle {
-    n: i64,
+    n: usize,
     start: i64,
     cycle_end: i64,
     ended: Option<i64>,
@@ -176,87 +176,96 @@ struct Cycle {
 /// What the plan of `issue` ran: `m` turns of one session from `plan_start` to
 /// `plan_end`.
 struct Plan {
-    m: i64,
+    m: usize,
     plan_start: i64,
     plan_end: i64,
 }
 
-/// The issue of a factory that ran the cycle and the plan it is given. Every row
-/// is written by the verb that writes it in a factory, so each carries the `at`,
-/// the `seq` and the place among the 50 newest of the issue that verb gives it:
-/// the cycle rows are dated between the two cycle instants and the plan rows
-/// between the two planning ones, so the newest row of either table is the one a
-/// test names by the attempt or the turn it is. A `cycle` of no ends is the issue
-/// whose cycle ended without a history row (`cycle-end --stopped` or `--refused`),
-/// and no `cycle` at all, given a start in the past that no verb wrote, is the
-/// issue the store has no cycle row for.
+/// The issue of a factory that ran the cycle and the plan it is given. Rows are
+/// written by the verb that writes them in a factory, except where a case names
+/// a divergence on purpose: the `ended` instant a builder names, which the verbs
+/// leave to the end that ran, and what `row` writes. The cycle rows are
+/// dated between the two cycle instants and the plan rows between the two
+/// planning ones, so the newest row of either table is the one a test names by
+/// the attempt or the turn it is.
 fn history(home: &Path, issue: i64, cycle: Option<Cycle>, plan: Plan) {
-    let (n, start, cycle_end, ended) = match &cycle {
-        None => (0, plan.plan_start, plan.plan_start, None),
-        Some(c) => (c.n, c.start, c.cycle_end, c.ended),
+    let start = match &cycle {
+        Some(c) => c.start,
+        None => plan.plan_start,
+    };
+    let n_s = issue.to_string();
+    conn(home)
+        .execute(
+            "INSERT OR IGNORE INTO issues (issue, kind, kind_at, checked_at) VALUES (?1, 'closed', ?2, 0)",
+            rusqlite::params![issue, start],
+        )
+        .unwrap();
+    let ended = match cycle {
+        Some(Cycle {
+            n,
+            start,
+            cycle_end,
+            ended,
+        }) => {
+            if n > 0 {
+                let lock = hold(home, issue);
+                // The approval the first start is made from; a later attempt is
+                // started by hand, which needs none.
+                let at = (start - 6).to_string();
+                ok_at(
+                    home,
+                    start - 6,
+                    &[
+                        "approval-record",
+                        &n_s,
+                        "--at",
+                        &at,
+                        "--by",
+                        "alice",
+                        "--how",
+                        "label",
+                        "--label",
+                        "tehas:ready",
+                        "--body-sha",
+                        SHA,
+                    ],
+                );
+                ok_at(home, start, &["cycle-start", &n_s]);
+                let span = cycle_end - start;
+                let n = i64::try_from(n).unwrap();
+                for attempt in 1..=n {
+                    let a = attempt.to_string();
+                    ok_at(
+                        home,
+                        start + attempt * span / n,
+                        &["cycle-end", &n_s, "--attempt", &a, "--status", "closed"],
+                    );
+                    if attempt < n {
+                        let next = attempt + 1;
+                        ok_at(
+                            home,
+                            start + next * span / n - 1,
+                            &["cycle-start", &n_s, "--by-hand"],
+                        );
+                    }
+                }
+                drop(lock);
+            }
+            ended
+        }
+        // No cycle on record: nothing to date, nothing to end.
+        None => None,
     };
     let Plan {
         m,
         plan_start,
         plan_end,
     } = plan;
-    let n_s = issue.to_string();
     conn(home)
-        .execute_batch(&format!(
-            "INSERT OR IGNORE INTO issues (issue, kind, kind_at, checked_at) VALUES ({issue}, 'closed', {start}, 0);"
-        ))
-        .unwrap();
-    if n > 0 {
-        let lock = hold(home, issue);
-        // The approval the first start is made from; a later attempt is started
-        // by hand, which needs none.
-        let at = (start - 6).to_string();
-        ok_at(
-            home,
-            start - 6,
-            &[
-                "approval-record",
-                &n_s,
-                "--at",
-                &at,
-                "--by",
-                "alice",
-                "--how",
-                "label",
-                "--label",
-                "tehas:ready",
-                "--body-sha",
-                SHA,
-            ],
-        );
-        ok_at(home, start, &["cycle-start", &n_s]);
-        let span = cycle_end - start;
-        for attempt in 1..=n {
-            let a = attempt.to_string();
-            ok_at(
-                home,
-                start + attempt * span / n,
-                &["cycle-end", &n_s, "--attempt", &a, "--status", "closed"],
-            );
-            if attempt < n {
-                let next = attempt + 1;
-                ok_at(
-                    home,
-                    start + next * span / n - 1,
-                    &["cycle-start", &n_s, "--by-hand"],
-                );
-            }
-        }
-        drop(lock);
-    }
-    let ended = match ended {
-        None => "NULL".to_string(),
-        Some(e) => e.to_string(),
-    };
-    conn(home)
-        .execute_batch(&format!(
-            "UPDATE cycles SET ended_at = {ended} WHERE issue = {issue};"
-        ))
+        .execute(
+            "UPDATE cycles SET ended_at = ?1 WHERE issue = ?2",
+            rusqlite::params![ended, issue],
+        )
         .unwrap();
     if m > 0 {
         let b = write_file(home, "brief.md", b"the brief")
@@ -278,6 +287,7 @@ fn history(home: &Path, issue: i64, cycle: Option<Cycle>, plan: Plan) {
             ],
         );
         let span = plan_end - plan_start;
+        let m = i64::try_from(m).unwrap();
         for turn in 1..=m {
             let t = turn.to_string();
             let at = plan_start + turn * span / m;
@@ -312,60 +322,75 @@ fn history(home: &Path, issue: i64, cycle: Option<Cycle>, plan: Plan) {
 /// the row of an end the store recorded before this release could date it, so the
 /// pruner is asked about a row older than the issue's own end. `seq` is the
 /// store's to give, as the schema's trigger shows.
-fn row(home: &Path, cycle: bool, issue: i64, n: i64, at: i64) {
-    let sql = if cycle {
-        format!("INSERT INTO cycle_history (issue, attempt, at, status) VALUES ({issue}, {n}, {at}, 'closed');")
-    } else {
-        format!("INSERT INTO plan_history (issue, turn, at, outcome) VALUES ({issue}, {n}, {at}, 'finished');")
+fn row(home: &Path, name: HistoryTable, issue: i64, n: i64, at: i64) {
+    let (table, column) = table(name);
+    // One history's own writer gives the row its `seq`, its status or outcome
+    // and its place among the 50 newest; here only the `at` is the test's.
+    let (last, status) = match name {
+        HistoryTable::CycleHistory => ("status", "closed"),
+        HistoryTable::PlanHistory => ("outcome", "finished"),
     };
-    conn(home).execute_batch(&sql).unwrap();
+    conn(home)
+        .execute(
+            &format!("INSERT INTO {table} (issue, {column}, at, {last}) VALUES (?1, ?2, ?3, ?4)"),
+            rusqlite::params![issue, n, at, status],
+        )
+        .unwrap();
 }
 
-#[test]
-fn prune_removes_the_history_of_issues_that_ended_long_ago_and_keeps_one_row() {
-    let home = home("prune-history");
-    let old = NOW - 100 * DAY;
-    let recent = NOW - DAY;
-    // Ended long ago: the old rows go and the last row of each table stays.
+/// The issue's last end is `ago` seconds before the window's edge, with `n`
+/// cycle ends and `m` planning turns. The keep-rule of an issue that ended long
+/// ago applies to it.
+fn ended_long_ago(home: &Path, issue: i64, before_window: i64, n: usize, m: usize) {
+    let end = NOW - WINDOW - before_window;
     history(
-        &home,
-        30,
+        home,
+        issue,
         Some(Cycle {
-            n: 30,
-            start: old - 40,
-            cycle_end: old,
-            ended: Some(old),
+            n,
+            start: end - 40,
+            cycle_end: end,
+            ended: Some(end),
         }),
         Plan {
-            m: 12,
-            plan_start: old - 40,
-            plan_end: old,
+            m,
+            plan_start: end - 40,
+            plan_end: end,
         },
     );
-    // Its cycle ended long ago and wrote no history of its own (`cycle-end
-    // --stopped` or `--refused`), an end a report reads from the issue's cycle row
-    // and its `endings` row: its plan rows are all the issue has, so they stay.
+}
+
+/// Like `ended_long_ago`, but the cycle wrote no history row of its own, as
+/// `cycle-end --stopped` or `--refused` leaves it. The issue's planning rows are
+/// all the store holds of it.
+fn ended_without_history(home: &Path, issue: i64, m: usize) {
+    let end = NOW - WINDOW - 10;
     history(
-        &home,
-        31,
+        home,
+        issue,
         Some(Cycle {
             n: 0,
-            start: old - 40,
-            cycle_end: old,
-            ended: Some(old),
+            start: end - 40,
+            cycle_end: end,
+            ended: Some(end),
         }),
         Plan {
-            m: 4,
-            plan_start: old - 40,
-            plan_end: old,
+            m,
+            plan_start: end - 40,
+            plan_end: end,
         },
     );
-    // Ended long ago, but its planning turned after the window, and one row of
-    // each table is older than its end, as a row of an old store can be: the last
-    // row of each table is kept, and the rows older than the window go.
+}
+
+/// Its cycle ended long ago, its planning turned inside the window, and one row
+/// of each table is older than its last end, as a row of an old store can be.
+/// `row` writes the two old rows, so the pruner is asked about a row older than
+/// the issue's own end.
+fn ended_with_rows_of_the_window(home: &Path, issue: i64) {
+    let old = NOW - 100 * DAY;
     history(
-        &home,
-        32,
+        home,
+        issue,
         Some(Cycle {
             n: 4,
             start: old - 40,
@@ -375,63 +400,129 @@ fn prune_removes_the_history_of_issues_that_ended_long_ago_and_keeps_one_row() {
         Plan {
             m: 3,
             plan_start: old - 40,
-            plan_end: recent,
+            plan_end: NOW - DAY,
         },
     );
-    row(&home, true, 32, 5, old - 35);
-    row(&home, false, 32, 6, old - 39);
-    // Ended since the window: every row stays whatever its age.
+    row(home, HistoryTable::CycleHistory, issue, 5, old - 35);
+    row(home, HistoryTable::PlanHistory, issue, 6, old - 39);
+}
+
+/// Its cycle ended `ago` seconds ago, after the window opened, with `n` ends and
+/// `m` turns. Nothing of it is old enough to go.
+fn ended_recently(home: &Path, issue: i64, ago: i64, n: usize, m: usize) {
     history(
-        &home,
-        33,
+        home,
+        issue,
         Some(Cycle {
-            n: 6,
-            start: old - 40,
-            cycle_end: old - 20,
-            ended: Some(recent),
+            n,
+            start: NOW - ago - 20,
+            cycle_end: NOW - ago,
+            ended: Some(NOW - ago),
         }),
         Plan {
-            m: 4,
-            plan_start: old - 40,
-            plan_end: old - 10,
+            m,
+            plan_start: NOW - ago - 20,
+            plan_end: NOW - ago,
         },
     );
-    // Still running: every row stays.
+}
+
+/// A cycle of `n` ends that is still running, so its cycle row has no end. Every
+/// row stays whatever its age.
+fn still_running(home: &Path, issue: i64, n: usize) {
     history(
-        &home,
-        34,
+        home,
+        issue,
         Some(Cycle {
-            n: 6,
-            start: old - 40,
-            cycle_end: old - 20,
+            n,
+            start: NOW - 140 * DAY,
+            cycle_end: NOW - 120 * DAY,
             ended: None,
         }),
         Plan {
             m: 0,
-            plan_start: old,
-            plan_end: old,
+            plan_start: NOW - 120 * DAY,
+            plan_end: NOW - 120 * DAY,
         },
     );
-    // A plan of an issue with no cycle on record: nothing dates it, so nothing of
-    // it goes.
+}
+
+/// The planning of an issue the store has no cycle row for: nothing dates it, so
+/// nothing of it goes.
+fn no_cycle_row(home: &Path, issue: i64, m: usize) {
     history(
-        &home,
-        35,
+        home,
+        issue,
         None,
         Plan {
-            m: 5,
-            plan_start: old - 40,
-            plan_end: old - 10,
+            m,
+            plan_start: NOW - 140 * DAY,
+            plan_end: NOW - 110 * DAY,
         },
     );
+}
 
-    let v = ok(&home, &["prune", "--days", "90"]);
-    // The 29 old cycle rows of issue 30, the four of issue 32, and the three old
-    // plan rows of issue 31, whose cycle wrote no history of its own.
-    assert_eq!(v["cycle_history"], 33);
-    assert_eq!(v["plan_history"], 14);
-    assert_eq!(count(&home, "cycle_history WHERE issue = 30"), 1);
-    assert_eq!(count(&home, "plan_history WHERE issue = 30"), 1);
+/// The window of the `prune --days 90` the tests ask for.
+const WINDOW: i64 = 90 * DAY;
+
+/// The counts of the two histories `prune` answers with.
+fn pruned_rows(home: &Path) -> (i64, i64) {
+    let v = ok(home, &["prune", "--days", "90"]);
+    let of = |key: &str| {
+        v[key]
+            .as_i64()
+            .unwrap_or_else(|| panic!("prune answer has no {key} number: {v}"))
+    };
+    (of("cycle_history"), of("plan_history"))
+}
+
+/// One of the two histories, in the words a test names it by.
+fn table(name: HistoryTable) -> (&'static str, &'static str) {
+    match name {
+        HistoryTable::CycleHistory => ("cycle_history", "attempt"),
+        HistoryTable::PlanHistory => ("plan_history", "turn"),
+    }
+}
+
+/// How many rows one history of `issue` holds.
+fn rows(home: &Path, name: HistoryTable, issue: i64) -> i64 {
+    let (table, _) = table(name);
+    count(home, &format!("{table} WHERE issue = {issue}"))
+}
+
+/// What one history of `issue` still holds, as (attempt or turn, `at`) in the
+/// order the rows were written, so a case names the rows it expects to survive.
+fn kept(home: &Path, name: HistoryTable, issue: i64) -> Vec<(i64, i64)> {
+    let (table, column) = table(name);
+    let c = conn(home);
+    let mut q = c
+        .prepare(&format!(
+            "SELECT {column}, at FROM {table} WHERE issue = ?1 ORDER BY seq"
+        ))
+        .unwrap();
+    q.query_map([issue], |r| Ok((r.get(0)?, r.get(1)?)))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap()
+}
+
+/// How many lines `tehas history` still answers with for `issue`.
+fn history_lines(home: &Path, issue: i64) -> usize {
+    ok(home, &["history-show", &issue.to_string()])["rows"]
+        .as_array()
+        .unwrap_or_else(|| panic!("history-show answers with no rows array for {issue}"))
+        .len()
+}
+
+#[test]
+fn prune_keeps_the_last_row_of_each_history_of_an_issue_that_ended_long_ago() {
+    let home = home("prune-long-ago");
+    ended_long_ago(&home, 30, 10, 30, 12);
+
+    // 29 of the 30 cycle rows and 11 of the 12 plan rows; the last of each stays.
+    assert_eq!(pruned_rows(&home), (29, 11));
+    assert_eq!(rows(&home, HistoryTable::CycleHistory, 30), 1);
+    assert_eq!(rows(&home, HistoryTable::PlanHistory, 30), 1);
     assert_eq!(
         one::<i64>(&home, "SELECT attempt FROM cycle_history WHERE issue = 30"),
         30
@@ -440,98 +531,137 @@ fn prune_removes_the_history_of_issues_that_ended_long_ago_and_keeps_one_row() {
         one::<i64>(&home, "SELECT turn FROM plan_history WHERE issue = 30"),
         12
     );
-    // The issue whose cycle wrote no history keeps all four of its plan rows.
-    assert_eq!(count(&home, "cycle_history WHERE issue = 31"), 0);
-    assert_eq!(count(&home, "plan_history WHERE issue = 31"), 4);
-    // Its planning row of the window is the one kept of that table, and its four
-    // old cycle rows went. Of those the oldest is kept too, being the end the
-    // issue's `endings` row names: prune takes that row from its table in the same
-    // call, so the two keep saying the same thing about the issue's last end.
-    assert_eq!(count(&home, "cycle_history WHERE issue = 32"), 1);
-    assert_eq!(count(&home, "plan_history WHERE issue = 32"), 1);
-    assert_eq!(
-        one::<i64>(&home, "SELECT at FROM cycle_history WHERE issue = 32"),
-        old - 30
-    );
-    assert_eq!(
-        one::<i64>(&home, "SELECT turn FROM plan_history WHERE issue = 32"),
-        3
-    );
-    // Not pruned: the issue that ended recently, the running cycle, and the issue
-    // with no cycle on record.
-    assert_eq!(count(&home, "cycle_history WHERE issue = 33"), 6);
-    assert_eq!(count(&home, "plan_history WHERE issue = 33"), 4);
-    assert_eq!(count(&home, "cycle_history WHERE issue = 34"), 6);
-    assert_eq!(count(&home, "plan_history WHERE issue = 35"), 5);
+    assert_eq!(history_lines(&home, 30), 2);
+}
 
-    // The kept rows are the ones `history-show` answers with, and a repeat of the
-    // verb takes nothing more.
+#[test]
+fn prune_keeps_every_plan_row_of_an_issue_whose_cycle_wrote_no_history() {
+    let home = home("prune-no-history");
+    // `cycle-end --stopped` or `--refused`: the plan rows are the only record of
+    // how the plan of the issue went.
+    ended_without_history(&home, 31, 4);
+
+    assert_eq!(pruned_rows(&home), (0, 0));
+    assert_eq!(rows(&home, HistoryTable::CycleHistory, 31), 0);
+    assert_eq!(rows(&home, HistoryTable::PlanHistory, 31), 4);
+}
+
+/// The plan rows of an issue whose cycle ended long ago with no cycle history
+/// of its own, and one cycle history row of another issue: the guard is the only
+/// thing between those rows and the delete, so it is asked about with the rest
+/// of the table's rows eligible.
+#[test]
+fn prune_takes_no_plan_row_of_an_issue_whose_cycle_wrote_no_history() {
+    let home = home("prune-plan-record");
+    ended_without_history(&home, 31, 4);
+    // Another issue of the same store, ended long ago with its history on record.
+    ended_long_ago(&home, 30, 10, 5, 3);
+
+    let (cycle_history, plan_history) = pruned_rows(&home);
+    assert_eq!(cycle_history, 4);
+    // None of the four plan rows of issue 31 is among them, though its cycle
+    // ended as long ago as issue 30's.
+    assert_eq!(plan_history, 2);
+    assert_eq!(rows(&home, HistoryTable::PlanHistory, 31), 4);
+}
+
+#[test]
+fn prune_keeps_the_last_row_and_the_last_row_before_the_window() {
+    let home = home("prune-rows-of-window");
+    ended_with_rows_of_the_window(&home, 32);
+
+    // Of the five cycle rows the last of the issue's ends is kept and the other
+    // four go, the row older than its end among them. Of the four plan rows the
+    // last of the issue's turns is kept and the three older ones go.
+    assert_eq!(pruned_rows(&home), (4, 3));
+    assert_eq!(rows(&home, HistoryTable::CycleHistory, 32), 1);
+    assert_eq!(rows(&home, HistoryTable::PlanHistory, 32), 1);
     assert_eq!(
-        ok(&home, &["history-show", "30"])["rows"]
-            .as_array()
-            .unwrap()
-            .len(),
-        2
+        kept(&home, HistoryTable::CycleHistory, 32),
+        vec![(4, NOW - 100 * DAY - 30)]
     );
-    let again = ok(&home, &["prune", "--days", "90"]);
-    assert_eq!(again["cycle_history"], 0);
-    assert_eq!(again["plan_history"], 0);
+    assert_eq!(
+        kept(&home, HistoryTable::PlanHistory, 32),
+        vec![(3, NOW - DAY)]
+    );
+}
+
+#[test]
+fn prune_keeps_every_row_of_a_recent_or_running_issue_or_a_plan_of_no_cycle() {
+    let home = home("prune-kept");
+    ended_recently(&home, 33, DAY, 6, 4);
+    still_running(&home, 34, 6);
+    no_cycle_row(&home, 35, 5);
+
+    assert_eq!(pruned_rows(&home), (0, 0));
+    assert_eq!(rows(&home, HistoryTable::CycleHistory, 33), 6);
+    assert_eq!(rows(&home, HistoryTable::PlanHistory, 33), 4);
+    assert_eq!(rows(&home, HistoryTable::CycleHistory, 34), 6);
+    assert_eq!(rows(&home, HistoryTable::PlanHistory, 34), 0);
+    assert_eq!(rows(&home, HistoryTable::PlanHistory, 35), 5);
+}
+
+#[test]
+fn prune_of_the_six_issues_takes_their_old_rows_once_and_then_nothing() {
+    let home = home("prune-history");
+    ended_long_ago(&home, 30, 10, 30, 12);
+    ended_without_history(&home, 31, 4);
+    ended_with_rows_of_the_window(&home, 32);
+    ended_recently(&home, 33, DAY, 6, 4);
+    still_running(&home, 34, 6);
+    no_cycle_row(&home, 35, 5);
+
+    // 30 plus 5 cycle rows and 12 plus 4 plan rows to start with, of which the
+    // keeps leave 1 + 2 cycle rows and 1 + 1 plan rows: issue 31 wrote no cycle
+    // history and keeps all four of its plan rows, and nothing of issues 33, 34
+    // and 35 is old enough to ask about.
+    let (cycle_history, plan_history) = pruned_rows(&home);
+    assert_eq!(cycle_history, 33);
+    assert_eq!(plan_history, (12 + 4 + 4) - (1 + 1 + 4));
+
+    // A repeat of the verb takes nothing more.
+    assert_eq!(pruned_rows(&home), (0, 0));
+}
+
+#[test]
+fn prune_keeps_the_row_park_show_and_history_show_still_read() {
+    let home = home("prune-readers");
+    // The intent park of a cycle a label started, as `park_tests` makes one, of
+    // an issue whose cycle ended long ago: `park-show` reads the park reason from
+    // the issue's newest cycle history row by `max(id)`, and derives `refine`
+    // from it, so both rest on that row surviving prune.
+    intent_parked(&home, 36, NOW - WINDOW - 10);
+    let before = ok(&home, &["park-show", "36"]);
+    assert_eq!(before["park"]["park_reason"], "underspecified");
+    assert_eq!(before["park"]["refine"], true);
+
+    ok(&home, &["prune", "--days", "90"]);
+
+    // `park-show` still reads its park reason from the row prune kept, so `refine`
+    // still says the poll owes one, and `history-show` still names an end of it.
+    let after = ok(&home, &["park-show", "36"]);
+    assert_eq!(after["park"]["park_reason"], "underspecified");
+    assert_eq!(after["park"]["refine"], true);
+    assert_eq!(
+        kept(&home, HistoryTable::CycleHistory, 36),
+        vec![(1, NOW - WINDOW - 10)]
+    );
+    assert_eq!(history_lines(&home, 36), 1);
 }
 
 #[test]
 fn upkeep_prunes_the_history_and_history_still_answers() {
     let home = home("upkeep-history");
-    let old = NOW - 120 * DAY;
-    history(
-        &home,
-        40,
-        Some(Cycle {
-            n: 20,
-            start: old - 40,
-            cycle_end: old,
-            ended: Some(old),
-        }),
-        Plan {
-            m: 8,
-            plan_start: old - 40,
-            plan_end: old,
-        },
-    );
+    ended_long_ago(&home, 40, 30, 20, 8);
     // A recent issue: its cycle ended within the window, so all its rows stay.
-    history(
-        &home,
-        41,
-        Some(Cycle {
-            n: 3,
-            start: NOW - 2 * DAY,
-            cycle_end: NOW - DAY,
-            ended: Some(NOW - DAY),
-        }),
-        Plan {
-            m: 2,
-            plan_start: NOW - 2 * DAY,
-            plan_end: NOW - DAY,
-        },
-    );
+    ended_recently(&home, 41, DAY, 3, 2);
     let v = ok(&home, &["upkeep"]);
     assert_eq!(v["prune"]["cycle_history"], 19);
     assert_eq!(v["prune"]["plan_history"], 7);
     // `tehas history` still answers for both: the two kept ends of the pruned
     // issue, and all five lines of the recent one.
-    assert_eq!(
-        ok(&home, &["history-show", "40"])["rows"]
-            .as_array()
-            .unwrap()
-            .len(),
-        2
-    );
-    assert_eq!(
-        ok(&home, &["history-show", "41"])["rows"]
-            .as_array()
-            .unwrap()
-            .len(),
-        5
-    );
+    assert_eq!(history_lines(&home, 40), 2);
+    assert_eq!(history_lines(&home, 41), 5);
 }
 
 #[test]
@@ -747,4 +877,62 @@ fn copy_holds_a_row_that_is_still_in_the_wal() {
         .unwrap();
     assert_eq!(n, 1);
     drop(reader);
+}
+
+/// The intent park of a cycle of `issue` started at `start` and ended there
+/// parked with its reason underspecified, as the cycle's own attempt:
+/// `park-show` reads that reason from the issue's newest cycle history row and
+/// derives `refine` from it.
+fn intent_parked(home: &Path, issue: i64, start: i64) {
+    let (_lock, attempt) = start_by(home, issue, "alice", "label", start);
+    let n = issue.to_string();
+    let a = attempt.to_string();
+    ok_at(
+        home,
+        start,
+        &[
+            "cycle-end",
+            &n,
+            "--attempt",
+            &a,
+            "--status",
+            "parked",
+            "--cap",
+            "intent-park",
+            "--park-reason",
+            "underspecified",
+            "--parked",
+        ],
+    );
+    ok(
+        home,
+        &["park", &n, "--attempt", &a, "--reason", "intent-park"],
+    );
+}
+
+#[test]
+fn the_prune_delete_names_its_table_and_its_four_clauses() {
+    // The shape of the DELETE, pinned for both tables: what it deletes from, the
+    // two issue guards and the three keeps. A change here is a change to the
+    // keep-rule, not a reformatting.
+    for (table, name) in [
+        (HistoryTable::CycleHistory, "cycle_history"),
+        (HistoryTable::PlanHistory, "plan_history"),
+    ] {
+        let sql = history_delete(table);
+        let said = |what: &str| assert!(sql.contains(what), "{name}: no {what} in\n{sql}");
+        said(&format!("DELETE FROM {name} WHERE"));
+        said("issue IN (SELECT issue FROM cycles WHERE ended_at < ?1)");
+        // `cycle-end --stopped` and `--refused` write no cycle_history row, so
+        // this guard is the only thing keeping those issues' plan rows.
+        said("issue IN (SELECT issue FROM cycle_history)");
+        said(&format!(
+            "(at, id) NOT IN\n             (SELECT at, id FROM {name} h WHERE h.issue = {name}.issue\n                ORDER BY at DESC, id DESC LIMIT 1)"
+        ));
+        said("FROM cycle_history h WHERE h.issue = ");
+        said("AND h.at < ?1");
+        // The last three clauses are the keeps: own, cycle, cycle before window.
+        assert_eq!(sql.matches("(at, id) NOT IN").count(), 3, "{name}:\n{sql}");
+        assert_eq!(sql.matches("ORDER BY at DESC, id DESC LIMIT 1").count(), 3);
+    }
 }

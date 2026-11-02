@@ -1880,7 +1880,8 @@ busy, 78 when it is not installed or cannot be used.
 `store prune` removes the history of an issue whose cycle ended more than its
 window ago, keeping that issue's last row of each of the two tables, so a
 `tehas history` of a long-closed issue gives one line of it and `--after` still
-reads the lines it has not seen.
+reads the lines it has not seen. `store upkeep` runs it with the window
+`tehasbot clean` uses; see [Backups and restore](/operating#backups-and-restore).
 
 `--after` takes the `next` the command printed before, so a program that keeps
 it reads each line once. `--issue` takes one issue's lines, its cycle and its
@@ -2531,8 +2532,9 @@ outage stopped it and whether it parked, and the result and progress that
 `tehas work` left, each kept as a claim only when the store can read it (a
 link is refused, and progress older than the start is not kept). It writes one
 line of history per end, the last 50 of each issue, of which `store prune` takes
-those of an issue whose cycle ended more than its window ago bar the last. A store that does not take
-the end after five tries is `ERROR: the end of #N is not on record (...)` with
+those of an issue whose cycle ended more than its window ago, keeping that
+issue's last row of each history. A store that does not take the end after five
+tries is `ERROR: the end of #N is not on record (...)` with
 every argument named; the record stays open, the issue's next start replaces
 it, and the cycle ends with exit 70 rather than 0, so the unit does not read as
 a cycle that got its end on record. tehas work's files that carried these are
@@ -3529,10 +3531,10 @@ starting cycles:
    `review-*.jsonl`) and the improvement loop's analyst (`improve-analyst*.log`)
    older than 7 days, whether or not the
    improvement loop is on. Then `store backup`, a copy a day of the state store
-   kept seven days, and `store prune --days 90`, which also removes the cycle and
-   plan history of issues whose cycle ended more than 90 days ago, each of them
-   keeping its last row of each history (see [Backups and
-   restore](/operating#backups-and-restore)). All of it is one call,
+   kept seven days, and `store prune`, which also removes the history of issues
+   whose cycle ended more than its window ago, each of them keeping its last row
+   of each history. The window and what the rule keeps are under
+   [Backups and restore](/operating#backups-and-restore). All of it is one call,
    `store upkeep`, and says one line per log removed and then
    `clean: store upkeep: <answer>`. A dry run names the logs and leaves the
    store alone.
