@@ -100,6 +100,10 @@ Usage:
   tehas update             move to the newest release, or pull the checkout;
                            install, run the follow-ups that apply
   tehas update --to vX.Y.Z install that release, older ones included
+  tehas update --to vX.Y.Z-rc.N
+                           install that release candidate; a plain update
+                           never moves to one, and from one it moves to its
+                           release once that is out
   tehas update --check [--to vX.Y.Z]
                            from a release: the installed version, the newest,
                            and the notes of the releases between them with
@@ -155,7 +159,7 @@ Exit: 0 updated, or already up to date,
         only for a step that failed or timed out, for a step line this command
         does not know, and for a record it cannot read.
       64 --help with another argument, --to without a version or with one not
-        shaped vX.Y.Z, --to on a host that updates from its checkout, --pending
+        shaped vX.Y.Z or vX.Y.Z-rc.N, --to on a host that updates from its checkout, --pending
         with --check or with --to, or an argument this command does not know
       78 the instance settings are missing or malformed, no console stands
         beside this command, there is no platform checkout, the host has neither one nor ~/tehas/current and
