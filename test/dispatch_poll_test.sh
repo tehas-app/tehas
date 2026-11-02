@@ -187,7 +187,19 @@ t_case "a read the poll cannot make ends the poll with gh's own words"
 reset
 # The words come from the read of the queue (console/dispatch/src/read/run.rs,
 # gh and gh_all).
-t_gh_fail 1
+t_gh_fail 1 1 "HTTP 502: Bad Gateway"
+t_gh_fail 2 1 "HTTP 502: Bad Gateway"
+# The retry of read/retry.rs owes a 5xx the one second process it is given, so
+# both answers of the read of the queue are armed above and the poll ends on the
+# second of them. TEHAS_GH_RETRY_WAIT belongs to the shim of host/sandbox/gh-shim,
+# which reads gh's answer for a rate limit and asks once more in
+# TEHAS_GH_RETRY_WAIT (60) of its own: a 5xx is no rate limit to that read, so the
+# shim neither retries nor waits here, and the two names are given only so the
+# case cannot turn into a race with the host's shim - its rule is what
+# test/gh_shim_test.sh pins, and TEHAS_GH_BIN is its seam for naming the gh it
+# asks, which is the stub named below (test/lib.sh's t_run puts the scratch bin
+# first on PATH and the host's own after it).
+T_ENV+=(TEHAS_GH_BIN="$T/bin/gh" TEHAS_GH_RETRY_WAIT=0)
 # A host of the GitHub App, so the poll takes a token before its first call and
 # hands it to every gh child as TEHAS_GH_TOKEN. The kept token is ghs_poll and a
 # token the token program makes is ghs_fresh<n>, and neither is a word the poll
@@ -204,12 +216,14 @@ T_ENV+=(TEHAS_GITHUB_APP_ID=5452597 TEHAS_GITHUB_APP_INSTALLATION=174742089
 t_run "$rpoll"
 t_eq "$t_rc" 1
 t_contains "$t_out" "ERROR: gh api graphql failed: HTTP 502"
-# The outage was the call the case armed: the page of the queue is the poll's
-# first read, the stub was run for it once, and its count stands at one. Without
-# these the case reads as a pass on a poll that never met the outage at all.
+# The outage was the call the case armed, twice over: the page of the queue is
+# the poll's first read, and read/retry.rs owes a 5xx one retry, so the read is
+# made twice and both answers are armed. Without these the case reads as a pass
+# on a poll that never met the outage at all, or as a pass on a poll that gave up
+# after one call and never tried what the rule owes it.
 t_contains "$(t_calls gh)" "api graphql"
 t_eq "$(head -1 "$T/calls/gh" | cut -d' ' -f1-2)" "api graphql"
-t_eq "$(cat "$T/gh-n")" 1
+t_eq "$(cat "$T/gh-n")" 2
 t_lacks "$t_out" "ghs_poll"
 t_lacks "$t_out" "ghs_fresh"
 t_lacks "$t_out" "TEHAS_GH_TOKEN"

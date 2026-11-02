@@ -154,11 +154,13 @@ t_lacks "$t_out" "nothing to do"
 
 t_case "a failed call names gh's error by words of a fixed list"
 reset
-echo 'HTTP 502: Bad Gateway for query with a sk-secret-looking body' >"$fx/gh-stderr"
+# 500 and not 502: a 502 is retried by the rule of read/retry.rs and a 500 is
+# kept as the answer, so this case still speaks of the one call the stub failed.
+echo 'HTTP 500: Internal Server Error for query with a sk-secret-looking body' >"$fx/gh-stderr"
 : >"$fx/gh-stderr-fails"
 t_run "$dispatch"
 t_eq "$t_rc" 1
-t_contains "$t_out" "ERROR: gh api graphql failed: HTTP 502"
+t_contains "$t_out" "ERROR: gh api graphql failed: HTTP 500"
 t_lacks "$t_out" "sk-secret"
 rm -f "$fx/gh-stderr" "$fx/gh-stderr-fails"
 

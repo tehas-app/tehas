@@ -926,11 +926,18 @@ mod tests {
             );
             std::fs::write(dir.join(format!("w-{}", n + 1)), answer).unwrap();
         }
-        // A refused read of one issue is held in `broken-<n>`: the stub reads it
-        // before the answer and leaves 1, which is what a gh call GitHub refused
-        // looks like.
+        // A read of one issue that meets a bad minute is held in `broken-<n>`,
+        // whose single line the stub prints on the error stream before it leaves
+        // 1: gh's own words of a status the rule of `retry` keeps, so the read is
+        // made once and left as the failed answer it was before the rule existed.
+        // A 500 and not a 502 because a 502 is retried, and this case is about the
+        // one call the poll refused.
         for n in broken {
-            std::fs::write(dir.join(format!("broken-{n}")), "!").unwrap();
+            std::fs::write(
+                dir.join(format!("broken-{n}")),
+                "HTTP 500: Internal Server Error\n",
+            )
+            .unwrap();
         }
         fixture(&dir, "queue", &world["queue"]);
         fixture(&dir, "states", &world["states"]);
@@ -960,7 +967,7 @@ for word in $(cat "$here/../words"); do
         .*) key=$(printf '%s' "$line" | sed -n 's|.*/issues/\([0-9]*\)/events.*|\1|p')
             [ -n "$key" ] || key=$(printf '%s' "$line" | sed -n 's/.*number=\([0-9]*\).*/\1/p')
             f="$here/../$a$key"
-            [ -f "$here/../broken-$key" ] && { printf '{}' >"$out"; answer 1; }
+            [ -f "$here/../broken-$key" ] && { printf '%s' "$(cat "$here/../broken-$key")" >&2; printf '{}' >"$out"; answer 1; }
             [ -f "$f" ] || { printf '{}' >"$out"; answer 1; }
             cat "$f" >"$out" ;;
         *) printf '%s' "$a" >"$out" ;;
@@ -1093,6 +1100,7 @@ esac"#,
                 store: dir.join("bin").join("store").to_string_lossy().into_owned(),
                 gh_count: 0,
                 gh_token: None,
+                retry: run::RetryPolicy::default(),
             },
             systemctl: "true".into(),
             now: 1_793_404_800,
@@ -1277,11 +1285,15 @@ esac"#,
             parsed.issues[&21].comments.is_some(),
             "the issues whose reads answered still have theirs"
         );
-        // One refused call did not cost the poll a second run of the read.
+        // The read of the issue whose call met a bad minute is tried once again,
+        // the one retry a call is owed, so the batch of three reads is asked five
+        // times: that one twice and the other two once each. The issue is still
+        // left with the failed answer, retry and all.
         assert_eq!(
             queries(&calls, COMMENT_MARK).len(),
-            3,
-            "each blocked issue is asked once, failure and all: {calls:?}"
+            5,
+            "each blocked issue is asked once, and the failure once again: \
+             {calls:?}"
         );
     }
 
