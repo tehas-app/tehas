@@ -9,10 +9,8 @@
 //!   console flags limit clear [--json]
 //!   console flags limit read [--now <epoch seconds>] [--line]
 //!
-//!   console flags pause show [--json]
 //!   console flags pause set [--reason TEXT]
 //!   console flags pause clear
-//!   console flags pause read [--line]
 //!
 //! The home is `TEHAS_HOME`, or `$HOME/tehas` with no `TEHAS_HOME`, as
 //! `lib/config.sh` resolves it. The file is `$TEHAS_HOME/state/limit.json`,
@@ -59,19 +57,12 @@
 //! - `at`: when it was written, `2026-10-17T14:05:00Z`, which must be a string
 //! - `reason`: one line of at most 200 characters, which must be a string
 //!
-//! `show` prints the flag as it then is, in the words `tehas status` prints,
-//! or with `--json` the object `tehas status --json` publishes for the switch:
-//!
-//!   pause     flag, written at 2026-10-17T14:05:00Z: waiting for the gate
-//!   {"api":1,"state":"ok","by":"boss","at":"...","reason":"..."}
-//!
-//! `read` prints the same reading as one object with no `api`, so the readers
-//! which share the file share this answer too; with `--line` it prints the
-//! words instead. `state` is `none` when no file is there and `ok` when one
-//! holds a flag, and `unreadable` when something is there which is no flag -
-//! a file no reader can make sense of, which every reader counts as paused.
-//! A command which is told the file is no flag says so in the words its
-//! readers have always used for one.
+//! The flag is read by `read_pause`, the one reader every command which
+//! honours the switch goes through: `state` is `none` when no file is there
+//! and `ok` when one holds a flag, and `unreadable` when something is there
+//! which is no flag - a file no reader can make sense of, which every reader
+//! counts as paused. A command which is told the file is no flag says so in
+//! the words its readers have always used for one.
 //!
 //! `set` writes the flag with the account of this run and the moment of the
 //! write, and `clear` takes it off; `set` on a host already paused says what
@@ -81,7 +72,7 @@
 //! either name only when it holds a regular file of this account, so it never
 //! follows a link someone left under one of them.
 //!
-//! Exit: 0 shown, set or cleared; 1 a file could not be written or removed, or
+//! Exit: 0 for a pause set or cleared; 1 a file could not be written or removed, or
 //! a name of the flag is not this account's to remove; 64 a bad argument, which
 //! writes nothing.
 
@@ -367,9 +358,7 @@ pub fn main(given: &[String]) -> u8 {
 fn usage(why: &str) -> u8 {
     eprintln!("console flags: {why}");
     eprintln!("usage: console flags limit show [--json] | set --cycles N [--plan on|off] [--for SECONDS | --until TIME] [--reason TEXT] | clear | read [--now <epoch seconds>]");
-    eprintln!(
-        "       console flags pause show [--json] | set [--reason TEXT] | clear | read [--line]"
-    );
+    eprintln!("       console flags pause set [--reason TEXT] | clear");
     64
 }
 
@@ -475,38 +464,10 @@ fn pause(given: &[String]) -> u8 {
     };
     let (verb, rest) = match given.split_first() {
         Some((verb, rest)) => (verb.as_str(), rest),
-        None => return usage("show, set, clear or read is wanted"),
+        None => return usage("set or clear is wanted"),
     };
     let file = here.join("state/pause.json");
     match verb {
-        // show prints the words tehas pause prints, or the object with api
-        // first when asked for --json.
-        "show" => {
-            let mut words = false;
-            for arg in rest {
-                if arg != "--json" || words {
-                    return usage("--json, once, after show");
-                }
-                words = true;
-            }
-            let out = read_pause(&file);
-            println!("{}", if words { api(out) } else { out.said() });
-            0
-        }
-        // read prints the object every command which honours the flag reads,
-        // with no api, and the words of the reading with --line.
-        "read" => {
-            let mut line = false;
-            for arg in rest {
-                if arg != "--line" || line {
-                    return usage("--line, once, after read");
-                }
-                line = true;
-            }
-            let out = read_pause(&file);
-            println!("{}", if line { out.said() } else { out.text() });
-            0
-        }
         "set" => match pause_args(rest) {
             Ok(reason) => pause_set(&file, &reason),
             Err(bad) => usage(bad),
@@ -519,7 +480,7 @@ fn pause(given: &[String]) -> u8 {
             }
             pause_clear(&file)
         }
-        _ => usage("show, set, clear or read, not a word this command knows"),
+        _ => usage("set or clear, not a word this command knows"),
     }
 }
 
@@ -2488,10 +2449,8 @@ mod tests {
         for bad in [
             args(&[]),
             args(&["bogus"]),
-            args(&["show", "--json", "--json"]),
-            args(&["show", "--json", "extra"]),
-            args(&["read", "--line", "--line"]),
-            args(&["read", "--json"]),
+            args(&["show", "--json"]),
+            args(&["read", "--line"]),
             args(&["set", "--reason"]),
             args(&["set", "--reason", "one", "--reason", "two"]),
             args(&["set", "--cycles", "1"]),
