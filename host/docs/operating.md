@@ -975,9 +975,11 @@ its own login stops there and does nothing else.
 
 ### The dispatcher in Rust
 
-Every poll is `~/tehas/libexec/tehas-dispatch poll`, handed to it once `libexec/dispatch` has checked
-the settings, the model keys and the checkout. `libexec/dispatch` has no poll
-of its own: when that program is not installed it stops with exit 78. A poll
+Every poll is `~/tehas/libexec/tehas-dispatch poll`, handed to it once `console run`
+has checked the settings and the checkout. A file that is no program counts as
+not installed, so an empty one is not a poll that exits 0, and either way
+`tehasbot dispatch` stops with exit 78. The poll checks the model keys before it
+acts. `tehas help dispatch` is the whole of the rules. A poll
 is, in order: the lock, the
 snapshot of the queue (one GraphQL query in pages of 25;
 GitHub can answer a large page with an issue's

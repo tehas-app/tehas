@@ -72,9 +72,9 @@ text() {
   # A checkout that has built no console still shows these.
   local own=$libexec/../console/src/usage/$1.txt
   case $1 in
-    setup | check-product | init-product) [ -x "$console" ] || [ ! -r "$own" ] || exec cat "$own" ;;
+    setup | dispatch | check-product | init-product) [ -x "$console" ] || [ ! -r "$own" ] || exec cat "$own" ;;
   esac
-  if verb "$1" || [ "$1" = update ] || [ "$1" = setup ] || [ "$1" = check-product ]; then
+  if verb "$1" || [ "$1" = update ] || [ "$1" = setup ] || [ "$1" = dispatch ] || [ "$1" = check-product ]; then
     [ -x "$console" ] || { echo "tehas $1: no console at $console, so no text to show: run install.sh" >&2; exit 78; }
     exec "$console" usage "$1"
   fi

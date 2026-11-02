@@ -7,7 +7,7 @@
 //!   tehas-dispatch decide [--dry-run]   print the decision of a poll on it:
 //!                                       {exit, log, actions, picked, needs,
 //!                                       report, demand, gh_requests, seconds}
-//!   tehas-dispatch poll [--dry-run]     one poll, as libexec/dispatch runs it:
+//!   tehas-dispatch poll [--dry-run]     one poll, as tehasbot dispatch runs it:
 //!                                       it acts. 78 before it when models.json
 //!                                       names a bad or unset key
 //!   tehas-dispatch refresh              one run of tehasbot refresh: it

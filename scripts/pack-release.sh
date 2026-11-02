@@ -49,7 +49,7 @@
 #                so a host that has none fails a cycle that is given any
 #   --dispatch   the built tehas-dispatch, copied to libexec/tehas-dispatch:
 #                the poll; a host installed from a release packed without it
-#                polls nothing, libexec/dispatch stops with 78
+#                polls nothing, tehasbot dispatch stops with 78
 #   --cycle      the built tehas-cycle, copied to libexec/tehas-cycle: the
 #                cycle's shadow beside each report; a release packed without
 #                it installs without that shadow
