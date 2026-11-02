@@ -740,7 +740,6 @@ for f in \
   review \
   setup \
   update \
-  with-settings \
   work; do
   files+=("libexec/$f|$TEHAS_HOME/libexec/$f|755")
 done
@@ -1324,6 +1323,7 @@ for f in \
   libexec/tidy \
   libexec/top \
   libexec/top-publish \
+  libexec/with-settings \
   lib/top.sh \
   lib/update-release.sh \
   edge/protolab.Caddyfile \

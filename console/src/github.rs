@@ -6,8 +6,8 @@
 //! Prints a token with at least 10 minutes left, making one when the kept one
 //! has less. --check says when the token runs out and whether it reaches
 //! TEHAS_REPO, and never prints the token. `libexec/github-token` is the path
-//! the gh shim, the poll and `tehas-cycle renew` ask: it loads the settings
-//! and comes here.
+//! the gh shim, the poll and `tehas-cycle renew` ask: `console run` loads the
+//! settings and comes here.
 //!
 //! The token is $TEHAS_HOME/state/github/token (mode 600), its expiry
 //! token.expires (epoch seconds) beside it. The directory, not the file, is

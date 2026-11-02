@@ -842,16 +842,16 @@ t_case "without the test seams it runs the scripts beside it, not names on PATH"
 reset
 T_ENV=()
 tree=$T/tree
-mkdir -p "$tree/libexec" "$tree/lib"
+mkdir -p "$tree/libexec" "$tree/lib" "$tree/bin"
 cp "$cycle" "$tree/libexec/cycle"
 cp "$T_ROOT"/lib/*.sh "$tree/lib/"
 cp "$T/bin/fake-work" "$tree/libexec/work"
-cp "$T/bin/fake-status" "$tree/libexec/with-settings"
+cp "$T/bin/fake-status" "$tree/bin/tehasbot"
 for name in tehas tehasbot tehas-work tehas-status; do t_stub "$name"; done
 t_run "$tree/libexec/cycle 7"
 t_eq "$t_rc" 0
 t_eq "$(t_calls fake-work)" "7"
-t_eq "$(t_calls fake-status)" "tehasbot status"
+t_eq "$(t_calls fake-status)" "status"
 for name in tehas tehasbot tehas-work tehas-status; do t_eq "$(t_calls "$name")" ""; done
 
 t_done

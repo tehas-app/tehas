@@ -107,7 +107,7 @@
 //!
 //!   console protolab run
 //!
-//! One pass of the Protolab, for libexec/protolab, see src/protolab.rs.
+//! One pass of the Protolab, for tehasbot protolab, see src/protolab.rs.
 //!
 //!   console settings load <euid> [<bash>] | valid [<name> <value>] | words <name>
 //!
@@ -161,12 +161,15 @@
 //!
 //!   console tehas status|disk|state|limit|pause|analytics|top|api|labels|resume|drain|stop|dev|dev-login|mcp ...
 //!   console tehasbot health|status|top|mcp
-//!   console check tehas|tehasbot <command> ...
 //!   console usage <command>
 //!
 //! The commands of bin/tehas and bin/tehasbot that are verbs of this program,
-//! the check libexec/with-settings makes before it loads the settings, and
-//! the text of tehas help, see src/commands.rs.
+//! and the text of tehas help, see src/commands.rs.
+//!
+//!   console run <libexec dir> <euid> <bash> tehas|tehasbot <command> ...
+//!
+//! A command under the instance's settings: its check, the load, what it
+//! requires, then the verb, see src/run.rs.
 //!
 //!   console update args|gate|prepare|api|finish|release|steps ...
 //!
@@ -208,6 +211,7 @@ mod publish;
 mod queue;
 mod render;
 mod review;
+mod run;
 mod settings;
 mod setup;
 mod shipped;
@@ -419,12 +423,16 @@ fn mask_stdin() -> io::Result<()> {
 }
 
 fn main() -> ExitCode {
-    // No command takes a word that is not text: `check` refuses it with the
-    // usage of the command it is asked about.
+    // No command takes a word that is not text: `run` refuses it, with the usage
+    // of its command when that command has one.
     let words = std::env::args_os().skip(1);
     let words: Vec<String> = words.map(|a| a.to_string_lossy().into_owned()).collect();
     if words.first().is_some_and(|w| w == "check") {
         return ExitCode::from(commands::check(&words[1..]));
+    }
+    if words.first().is_some_and(|w| w == "run") {
+        let text = std::env::args_os().all(|a| a.to_str().is_some());
+        return ExitCode::from(run::main(&words[1..], text));
     }
     let given = std::env::args_os()
         .skip(1)
@@ -434,7 +442,6 @@ fn main() -> ExitCode {
     if let Ok(given) = &given {
         match given.first().map(String::as_str) {
             Some("check-product") => return ExitCode::from(product::check(&given[1..])),
-            Some("needs") => return ExitCode::from(commands::needs(&given[1..])),
             Some("clean") => return ExitCode::from(clean::main(&given[1..])),
             Some("disk") => return ExitCode::from(disk::main(&given[1..])),
             Some("energy") => return ExitCode::from(energy::main(&given[1..])),

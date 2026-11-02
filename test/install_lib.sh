@@ -152,7 +152,6 @@ files="./.bashrc
 ./tehas/libexec/tehas-mcp
 ./tehas/libexec/tehas-mcp.stamp
 ./tehas/libexec/update
-./tehas/libexec/with-settings
 ./tehas/libexec/work
 ./tehas/release/minisign.pub
 ./tehas/sandbox/Dockerfile

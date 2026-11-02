@@ -44,7 +44,7 @@ installed from `libexec/` in the platform repository, or a verb of the console
 beside those scripts; the two commands only choose one and run it, and exit
 with its status. `tehas status` and `tehas disk` need no settings. `tehas
 state`, `limit`, `pause`, `analytics` and `stop` and `tehasbot health` run under
-`libexec/with-settings`, which checks the arguments, loads the settings and
+`console run`, which checks the arguments, loads the settings and
 hands over to the console. A command neither of them knows is exit 64 with the list on standard error. `tehas <command> --help`
 prints the same text as `tehas help <command>`.
 
@@ -2860,7 +2860,7 @@ serves the file at `/health` and `/healthz` as `application/health+json`.
 `tehas status` prints the same file for a person. The whole run is the console
 beside the command (`console tehasbot health`, `console/src/health.rs`): it
 makes the five calls of the state store, the `systemctl --user --failed` read
-and the publish itself. `libexec/with-settings` runs it: the settings are
+and the publish itself. `console run` runs it: the settings are
 loaded first, so the budget it reads from `TEHAS_POLL_BUDGET` is the
 instance's and the load's 78 still fires on a malformed one, and it says so and
 exits 78 when no console stands beside it.
