@@ -13,6 +13,7 @@
 //!   console tehas resume
 //!   console tehas drain [--wait SECONDS] [--json]
 //!   console tehas history [--json] [--after CURSOR] [--issue N]
+//!   console tehas export [--json] --after CURSOR <dir>
 //!   console tehas stop <issue> [--keep-workspace]
 //!   console tehas|tehasbot mcp serve|key
 //!   console tehasbot health
@@ -34,8 +35,8 @@
 //! Exit: the status of the command; 64 usage.
 
 use crate::{
-    api, dev, disk, flags, github, health, history, labels, mcp, queue, review, state, status,
-    stop, top,
+    api, dev, disk, export, flags, github, health, history, labels, mcp, queue, review, state,
+    status, stop, top,
 };
 use std::env;
 use std::os::unix::fs::PermissionsExt;
@@ -151,6 +152,7 @@ pub fn tehas(given: &[String]) -> u8 {
         "resume" => flags::resume(rest),
         "drain" => flags::drain(rest),
         "history" => history::main(rest),
+        "export" => export::main(rest),
         "stop" => stop::main(rest),
         "mcp" => mcp::main(rest),
         _ => {
@@ -194,6 +196,7 @@ pub fn check(given: &[String]) -> u8 {
         ["tehas", "resume"] => flags::resume_words(rest),
         ["tehas", "drain"] => flags::drain_words(rest).map(|_| ()),
         ["tehas", "history"] => history::words(rest).map(|_| ()),
+        ["tehas", "export"] => export::words(rest).map(|_| ()),
         ["tehas", "stop"] => match stop::parse(rest) {
             Ok(Some(_)) => Ok(()),
             Ok(None) => Err(ANSWERED),
@@ -211,7 +214,7 @@ pub fn check(given: &[String]) -> u8 {
 pub fn required(given: &[String]) -> &'static [&'static str] {
     let words: Vec<&str> = given.iter().take(2).map(String::as_str).collect();
     match words[..] {
-        ["tehas", "api" | "history" | "labels"] => &["TEHAS_REPO"],
+        ["tehas", "api" | "history" | "export" | "labels"] => &["TEHAS_REPO"],
         ["tehas", "resume"] | ["tehasbot", "status"] => &[
             "TEHAS_REPO",
             "TEHAS_CONTROL_ISSUE",
@@ -232,6 +235,7 @@ fn text(command: &str) -> Option<&'static str> {
         "api" => include_str!("usage/api.txt"),
         "disk" => include_str!("usage/disk.txt"),
         "drain" => include_str!("usage/drain.txt"),
+        "export" => include_str!("usage/export.txt"),
         "history" => include_str!("usage/history.txt"),
         "labels" => include_str!("usage/labels.txt"),
         "limit" => include_str!("usage/limit.txt"),
@@ -358,6 +362,11 @@ mod tests {
         assert_eq!(check(&words(&["tehas", "drain", "--wait", "1"])), 0);
         assert_eq!(check(&words(&["tehas", "history", "--jsn"])), 64);
         assert_eq!(check(&words(&["tehas", "history", "--after", "1-1"])), 0);
+        assert_eq!(check(&words(&["tehas", "export", "--after", "1-1"])), 64);
+        assert_eq!(
+            check(&words(&["tehas", "export", "--after", "1-1", "/a"])),
+            0
+        );
         assert_eq!(check(&words(&["tehas", "limit", "set", "--bad"])), 0);
         assert_eq!(check(&words(&["tehas", "state", "bogus"])), 0);
         assert_eq!(check(&words(&["tehasbot", "health"])), 0);
@@ -371,6 +380,7 @@ mod tests {
         assert_eq!(required(&words(&["tehas", "api"])), ["TEHAS_REPO"]);
         assert_eq!(required(&words(&["tehas", "labels"])), ["TEHAS_REPO"]);
         assert_eq!(required(&words(&["tehas", "history"])), ["TEHAS_REPO"]);
+        assert_eq!(required(&words(&["tehas", "export"])), ["TEHAS_REPO"]);
         assert_eq!(
             required(&words(&["tehas", "resume"])),
             [
@@ -394,6 +404,7 @@ mod tests {
             "api",
             "disk",
             "drain",
+            "export",
             "history",
             "labels",
             "limit",
