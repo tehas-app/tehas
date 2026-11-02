@@ -1710,10 +1710,11 @@ setting that is there and differs is never replaced without `--force`. The run
 names each one and stops with 78 before it calls GitHub or the endpoint and
 before it writes anything.
 
-Steps 1 and 2 are the console's (`console setup files`), and what they say
-goes to standard error. It writes `models.json` with its keys sorted. A release
-carries the console; from a checkout that has not built one, setup builds it
-with cargo first.
+The whole run is the console's (`console setup run`), and what steps 1 and 2
+say goes to standard error. It writes `models.json` with its keys sorted. A
+release carries the console; from a checkout that has not built one, setup
+builds it with cargo first, in the few lines of bash that are left of
+`libexec/setup`.
 
 Exit 0 when done, 1 when a check or a step failed (or the step's own status,
 such as 78 from `install.sh`), 64 on an unknown option, 78 for a setting that is
