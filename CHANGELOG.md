@@ -17,6 +17,18 @@ empty one above it.
 
 None.
 
+## v0.23.1 (2026-11-02)
+
+### Changes
+
+- A program of the workspace whose standard output is closed early (`tehas status | head -1`) ends 141 without a panic, instead of 101 with "failed printing to stdout: Broken pipe".
+- The park comment of a cycle that stopped with its pull request open names it (`stopped with pull request #N open`, `(draft)` for a draft) instead of saying it stopped without one.
+- `tehas status` on a release candidate names the newest release and says the candidate is newer, instead of "newest unknown".
+
+### Adopter action
+
+None.
+
 ## v0.23.0 (2026-11-02)
 
 ### Changes
