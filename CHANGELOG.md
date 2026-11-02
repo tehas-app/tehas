@@ -19,10 +19,13 @@ empty one above it.
 - tehas setup runs in the console. libexec/setup is left with finding or building the console, and tehas setup --help reads the console's text.
 - `tehas dev` and its login start from the console; `libexec/dev` and `libexec/dev-login` are thin paths kept for the argv pin and the sudo rule. Nothing changes for a person.
 - `console run` is the one way into a command under the settings: libexec/with-settings, clean, preview, protolab, refresh and init-product and lib/disk.sh are gone, libexec/dispatch, review, improve, check-product and github-token are a line each, and an update restarts tehas-top.service.
+- Dependencies updated: the workspace's crates within their versions; on the host Node 22.23.4, gh 2.103.3, bun 1.4.4, jq 1.8.2, parallel-cli 0.9.4, Rust 1.99.1, rustup 1.29.2 and codebase-memory-mcp 0.12.1, each by checksum or lockfile.
 
 ### Adopter action
 
-None.
+- After the update, run `./bootstrap.sh user` (the update's `later:` line
+  says so): it installs the new tools into `~/tehas/bin`. The update rebuilds
+  the sandbox image, since its jq and codebase-memory-mcp pins are new.
 
 ## v0.21.0 (2026-11-02)
 
