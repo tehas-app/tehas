@@ -732,7 +732,7 @@ pub fn open(file: &Path, purpose: Purpose) -> Result<Connection, DbError> {
         .parent()
         .and_then(|d| fs::metadata(d).ok())
         .map(|m| m.permissions().mode());
-    let conn = Connection::open_with_flags(
+    let mut conn = Connection::open_with_flags(
         file,
         OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX,
     )
@@ -745,7 +745,7 @@ pub fn open(file: &Path, purpose: Purpose) -> Result<Connection, DbError> {
         )),
         _ => classify(e),
     })?;
-    prepare(&conn, purpose)?;
+    prepare(&mut conn, purpose)?;
     Ok(conn)
 }
 
@@ -801,12 +801,12 @@ pub fn open_look(file: &Path) -> Result<Connection, DbError> {
 }
 
 fn read_only(file: &Path, purpose: Purpose) -> Result<Connection, DbError> {
-    let conn = Connection::open_with_flags(
+    let mut conn = Connection::open_with_flags(
         file,
         OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
     )
     .map_err(classify)?;
-    prepare(&conn, purpose)?;
+    prepare(&mut conn, purpose)?;
     Ok(conn)
 }
 
@@ -851,12 +851,12 @@ pub fn create(file: &Path) -> Result<Connection, DbError> {
                 }
             })?;
     }
-    let conn = Connection::open_with_flags(
+    let mut conn = Connection::open_with_flags(
         file,
         OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX,
     )
     .map_err(classify)?;
-    prepare(&conn, Purpose::Write)?;
+    prepare(&mut conn, Purpose::Write)?;
     Ok(conn)
 }
 
@@ -865,7 +865,7 @@ pub fn create(file: &Path) -> Result<Connection, DbError> {
 /// BUSY_POLL, for up to BUSY_TIMEOUT (5 s) on a connection that writes and
 /// READ_WAIT (1 s) on one that reads, then the word `busy`. It replaces
 /// SQLite's busy_timeout, which then reads 0.
-fn prepare(conn: &Connection, purpose: Purpose) -> Result<(), DbError> {
+fn prepare(conn: &mut Connection, purpose: Purpose) -> Result<(), DbError> {
     conn.busy_handler(Some(handler(purpose)))
         .map_err(classify)?;
     let mode: String = conn
