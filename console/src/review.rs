@@ -132,7 +132,7 @@ fn table() -> String {
     format!("review\t{image}\t{entry}")
 }
 
-fn git_global(key: &str) -> String {
+pub fn git_global(key: &str) -> String {
     Command::new("git")
         .args(["config", "--global", key])
         .stderr(Stdio::null())

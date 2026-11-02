@@ -24,7 +24,7 @@ pub fn held(path: &Path) -> bool {
     )
 }
 
-/// tehas_cycles_running: the issues whose cycle holds its lock.
+/// The issues whose cycle holds its lock.
 pub fn running(home: &Path) -> Vec<u64> {
     let mut out: Vec<u64> = fs::read_dir(home.join("state/cycles"))
         .into_iter()

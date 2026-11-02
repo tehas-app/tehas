@@ -658,8 +658,6 @@ files=(
   "lib/paths.sh|$TEHAS_HOME/lib/paths.sh|644"
   "lib/attachments.sh|$TEHAS_HOME/lib/attachments.sh|644"
   "lib/history-lines.jq|$TEHAS_HOME/lib/history-lines.jq|644"
-  "lib/history-listing.jq|$TEHAS_HOME/lib/history-listing.jq|644"
-  "lib/history-repeats.jq|$TEHAS_HOME/lib/history-repeats.jq|644"
   "lib/park-fields.jq|$TEHAS_HOME/lib/park-fields.jq|644"
   "lib/cycles.sh|$TEHAS_HOME/lib/cycles.sh|644"
   "lib/labels.sh|$TEHAS_HOME/lib/labels.sh|644"
@@ -730,9 +728,7 @@ for f in \
   dev \
   dev-login \
   dispatch \
-  export \
   github-token \
-  history \
   improve \
   index \
   init-product \
@@ -1295,6 +1291,8 @@ for f in \
   lib/analytics.sh \
   lib/describe.sh \
   lib/edge.sh \
+  lib/history-listing.jq \
+  lib/history-repeats.jq \
   lib/models.sh \
   lib/private.sh \
   libexec/analytics-cmd \
@@ -1311,7 +1309,9 @@ for f in \
   libexec/disk \
   libexec/drain \
   libexec/energy \
+  libexec/export \
   libexec/health \
+  libexec/history \
   libexec/labels \
   libexec/limit \
   libexec/mcp \
