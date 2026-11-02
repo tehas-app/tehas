@@ -165,7 +165,7 @@ scripts/tag-deploy.sh tehas-tehas   # run tehas update on that host, check it la
 Both run unattended. Both fetch the remote's tags by force, so a tag the remote
 re-points is taken rather than refused, and a fetch that fails says so. `tag-release.sh` runs the gate on the head of main before
 it tags, does nothing when the head is already tagged, and prints the tag on
-stdout; `--minor`, `--major`, `--message`, `--no-verify` and `--dry-run` are
+stdout; `--minor`, `--major`, `--rc` (a release candidate, `vX.Y.Z-rc.N`, published as a prerelease; `--from <branch>` tags a candidate branch that contains main), `--message`, `--no-verify` and `--dry-run` are
 there too. Before it tags, it removes the polyfills the newest pi-rukas no
 longer needs (`scripts/polyfills.sh`): it opens a pull request for that, exits
 2 and tags once that is merged. `tag-deploy.sh` refuses when main has
@@ -195,7 +195,6 @@ host.
 | `lib/sandbox.sh` | What a sandbox container is given, for a cycle and for a session by hand |
 | `lib/slice.sh` | The way to `console slice`: whether `tehas.slice` is usable, the limits of a container, the room left |
 | `api/` | A JSON Schema of `tehas status --json` and two samples the tests make from the code; a program that reads the object copies them into its own tests |
-| `lib/update-steps.sh` | What of the follow-up steps is read before the console can be asked: the record of steps owed, and the one wait `install.sh` and `tehas update` give `state/update.lock` |
 | `host/` | Everything else that is installed: units, the docs server, the sandbox image, the manual |
 | `preview/` | What `tehasbot preview` builds for a pull request of this repository |
 | `install.sh`, `bootstrap.sh` | Install tehas on a host, and prepare a host's tools |

@@ -272,7 +272,7 @@ t_eq "$(t_calls npm)$(t_calls curl)" ""
 t_case "a pinned tree that names another version than its lockfile is refused"
 all_present
 dir=$(pin_checkout)
-sed 's/"ctx7": "0\.5\.14"/"ctx7": "0.5.13"/' "$dir/host/npm/ctx7/package.json" >"$dir/p2"
+jq '.dependencies.ctx7 = "0.5.13"' "$dir/host/npm/ctx7/package.json" >"$dir/p2"
 mv "$dir/p2" "$dir/host/npm/ctx7/package.json"
 rm -f "$T"/calls/*
 t_run "$dir/bootstrap.sh user"

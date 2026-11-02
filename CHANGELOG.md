@@ -13,12 +13,73 @@ empty one above it.
 
 ### Changes
 
+### Adopter action
+
+None.
+
+## v0.23.1 (2026-11-02)
+
+### Changes
+
+- A program of the workspace whose standard output is closed early (`tehas status | head -1`) ends 141 without a panic, instead of 101 with "failed printing to stdout: Broken pipe".
+- The park comment of a cycle that stopped with its pull request open names it (`stopped with pull request #N open`, `(draft)` for a draft) instead of saying it stopped without one.
+- `tehas status` on a release candidate names the newest release and says the candidate is newer, instead of "newest unknown".
+- The sandbox image builds with the Rust `RUST_VERSION` names in host/versions.env, with rustfmt and clippy, instead of the stable toolchain the pi-rukas base happened to carry; the build stops when rustc answers another version.
+
+### Adopter action
+
+None.
+
+## v0.23.0 (2026-11-02)
+
+### Changes
+
+- `tehas-cycle cycle` starts and supervises a cycle, and `libexec/cycle` loads the settings and holds the lock for it.
+- A planning turn (`tehas plan`) runs in the console; libexec/plan is a path that execs it.
+- The poll tries a GitHub read that failed again, within the bounds of its retry rule, and logs gh's own words for a read that still fails (#943).
+- tehas-mcp and analytics declare the Rust 1.89 that tehas-core needs.
+- A product's dependencies are installed by the factory, in the sandbox, from the lockfiles at the root of its commit and one directory down (bun, npm, pnpm, yarn, cargo, uv, poetry, go, bundler, composer), or from `.pi/install-cmd` when the product names its own. `tehas work` runs the install in the cycle's workspace before the cycle starts; a failed install or a tool the image lacks starts no cycle (exit 78). `tehas check-product` lists the installs, and `--sandbox` runs them in its clone and the gates in a worktree of the clone, as in a cycle (#1404).
+- `tehas check-product` and `tehas init-product` work under `~/tehas/tmp/<name>`, the product's repository name.
+
+### Adopter action
+
+None. A product whose `.pi/worktree-setup` links its dependencies from the main checkout now finds them there; one whose install the lockfiles cannot tell can name it in `.pi/install-cmd`.
+
+## v0.22.1 (2026-11-02)
+
+### Changes
+
+- Dependencies updated: the workspace's crates within their versions; on the host Node 22.23.4, gh 2.103.3, bun 1.4.4, jq 1.8.2, parallel-cli 0.9.4, Rust 1.99.1, rustup 1.29.2 and codebase-memory-mcp 0.12.1, each by checksum or lockfile.
+- update's lock waits and its record of steps owed are read by the console; lib/update-steps.sh is gone.
+- The console workspace moves to rusqlite 0.41 (bundled SQLite 3.54.0), sha2 0.11 and signal-hook 0.4.
+- Pi on the host is 1.4.0, the version pi-rukas is verified against.
+- Playwright in the sandbox image is 1.64.1 (Chromium 156).
+- ctx7 on the host is 0.8.2.
+- Caddy 2.11.7 for the docs server, the router, the previews and the MCP server's container.
+- The resize page says what each exit of `tehas drain` means before a restart, and its live virtio-mem command uses `--live`.
+- factory_decisions answers an easy merge's start line, and its words are checked against the dispatcher's source.
+- CI checks out with actions/checkout v7.0.1.
+- Release candidates: `scripts/tag-release.sh --rc` tags `vX.Y.Z-rc.N`, published as a prerelease; `tehas update` never moves to one unless `--to` names it, and `tehas api` and `tehas status` read candidate versions.
+
+### Adopter action
+
+- After the update, run `./bootstrap.sh user` (the update's `later:` line
+  says so): it installs the new tools into `~/tehas/bin`. The update rebuilds
+  the sandbox image, since its jq, codebase-memory-mcp and Playwright pins are new.
+
+## v0.22.0 (2026-11-02)
+
+### Changes
+
 - The console drops verbs nothing calls (label actor, label pause-holds, every shipped verb but page), keeps one copy of the host names and of the version compare, and bash loses four functions only tests called.
 - `tehas history` runs in the console, in process, with its output unchanged; `libexec/history`, `lib/history-listing.jq` and `lib/history-repeats.jq` are gone, and an instance without a valid `TEHAS_REPO` now gets exit 78.
 - tehas export is a verb of the console and libexec/export is gone. An invalid TEHAS_REPO or an unreadable file of models now stops it with 78, it makes no directory on a refused argument or a link into the home, and it no longer takes a console from the PATH.
 - tehas setup runs in the console. libexec/setup is left with finding or building the console, and tehas setup --help reads the console's text.
 - `tehas dev` and its login start from the console; `libexec/dev` and `libexec/dev-login` are thin paths kept for the argv pin and the sudo rule. Nothing changes for a person.
 - `console run` is the one way into a command under the settings: libexec/with-settings, clean, preview, protolab, refresh and init-product and lib/disk.sh are gone, libexec/dispatch, review, improve, check-product and github-token are a line each, and an update restarts tehas-top.service.
+- `factory_decisions` lists the dispatcher's `hold` decisions beside start, skip, wait and drop.
+- A refresh's brief tells its developer to run the gate in `.pi/verify-cmd`, not an unnamed gate.
+- The resize manual says it applies only to a host that is a virtual machine under libvirt; a container host needs a drain before a restart.
 
 ### Adopter action
 

@@ -190,44 +190,16 @@
 //!                                     runs at once. Exit 1 with nothing
 //!                                     printed when the words have no quota or
 //!                                     ceiling
-//!   tehas-cycle start-check record <issue> [--attempt <n>]
-//!                                     the approval of this start in a private
-//!                                     file: two lines, its path and why a
-//!                                     start with none stops. Exit 78 on driver
-//!                                     lean (src/start.rs)
-//!   tehas-cycle start-check text <issue> --record <file> --why <text>
-//!       --log <file> --text-wait <s> --console <path>
-//!                                     hold the issue's words to that approval
-//!                                     and measure them: the path of a private
-//!                                     file with GitHub's answer, an empty line
-//!                                     for a run by hand, or exit 4, said on
-//!                                     the issue
-//!   tehas-cycle prepare check <issue> --state <file> --record <file>
-//!       --caps-wait <s> --console <path> [--restart] -- <limit and security words>
-//!                                     the bot's identity, what the container
-//!                                     is given, what the image supports
-//!                                     (src/prepare.rs). Exit 64 or 78
-//!   tehas-cycle prepare tree <issue> --state <file> --branch <branch> --log <file>
-//!       --preflight-wait <s> --console <path>
-//!                                     a fresh workspace, the gate, the push
-//!                                     check, the code index and the mounts.
-//!                                     Exit 3 or 78
-//!   tehas-cycle prepare record <issue> --state <file> --log <file> --name <name>
-//!       --stop-wait <s> --text-wait <s> [--attempt <n>] [--gap <line>]
-//!       [-- <options of the images>]
-//!                                     the image and settings on the cycle's
-//!                                     record: the words of the docker run, NUL
-//!                                     separated. Exit 4 or 78
 //!   tehas-cycle settings <file> <count> [<docker options>...]
 //!                                     write what a cycle ran with to <file>
-//!   tehas-cycle watch <issue> --log <file> --runs <dir> --name <container>
-//!       --limit <s> --stall <s> --grace <s> --stop-wait <s> --console-wait <s>
-//!       --console <path> --models <file> --email <address> [--attempt <n>]
-//!       [--renewer <pid>] -- <docker run ...>
-//!                                     the end of tehas work, which execs it:
-//!                                     start the container, watch it to its end
-//!                                     and leave the cycle's notes
-//!                                     (src/watch.rs). Exits as tehas work does
+//!   tehas-cycle work <issue> --console <path> [--restart]
+//!                                     tehas work, which libexec/work execs
+//!                                     with the settings loaded and the
+//!                                     issue's lock as fd 9: the start held to
+//!                                     its approval, the issue's files, the
+//!                                     workspace, the container watched to its
+//!                                     end and the cycle's notes
+//!                                     (src/work.rs). Exits as tehas work does
 //!   tehas-cycle index <branch> <commit> [--before-cycle]
 //!                                     one run of the code indexer at <commit>,
 //!                                     the tip of <branch>, under the lock
@@ -270,8 +242,8 @@ use tehas_cycle::after::{self, After};
 use tehas_cycle::host::Start;
 use tehas_cycle::last_attempt::{self, Action};
 use tehas_cycle::report::{last_attempts, to_json, Given};
-use tehas_cycle::{apply, finish, pin, prepare, progress, renew, report};
-use tehas_cycle::{caps, clock, improve, index, runner, sandbox, start, supervise, watch, Facts};
+use tehas_cycle::{apply, finish, pin, progress, renew, report};
+use tehas_cycle::{caps, clock, improve, index, runner, sandbox, supervise, work, Facts};
 
 fn usage() -> String {
     include_str!("main.rs")
@@ -309,9 +281,9 @@ fn main() {
     let a: Vec<&str> = args.iter().map(String::as_str).collect();
     let home = PathBuf::from(std::env::var("TEHAS_HOME").unwrap_or_default());
     match a.as_slice() {
-        ["-h" | "--help"] => println!("{}", usage()),
+        ["-h" | "--help"] => tehas_core::outln!("{}", usage()),
         ["report", file] => print_report(file),
-        ["index", "table"] => println!("{}", index::table()),
+        ["index", "table"] => tehas_core::outln!("{}", index::table()),
         ["index", branch, base] => std::process::exit(index::main(branch, base, false).into()),
         ["index", branch, base, "--before-cycle"] => {
             std::process::exit(index::main(branch, base, true).into())
@@ -329,7 +301,7 @@ fn main() {
                 .ok()
                 .filter(|a| *a > 0)
                 .unwrap_or_else(|| wrong(&args));
-            println!("{}", after::approved(&home, issue(n, &args), attempt));
+            tehas_core::outln!("{}", after::approved(&home, issue(n, &args), attempt));
         }
         ["after", n] => after_verb(&home, issue(n, &args), &args),
         ["report", n, rest @ ..] if !rest.is_empty() => {
@@ -366,7 +338,7 @@ fn main() {
                 wrong(&args)
             };
             let v = clock::check(Path::new(file), limit, stall, since, clock::boot_seconds);
-            println!("{}", v.word());
+            tehas_core::outln!("{}", v.word());
             std::process::exit(i32::from(v.exit()));
         }
         ["run", n] => {
@@ -409,8 +381,10 @@ fn main() {
         ["finish", n, rest @ ..] => finish_verb(issue(n, &args), &args, rest),
         ["caps", rest @ ..] => caps_verb(rest, &args),
         ["runner", "outcome", result, n] => outcome_verb(result, n),
-        ["runner", "progress", log] => println!("{}", progress::summary(Path::new(log), None)),
-        ["runner", "progress", log, result, n] => println!(
+        ["runner", "progress", log] => {
+            tehas_core::outln!("{}", progress::summary(Path::new(log), None))
+        }
+        ["runner", "progress", log, result, n] => tehas_core::outln!(
             "{}",
             progress::summary(
                 Path::new(log),
@@ -422,19 +396,8 @@ fn main() {
             let only = progress::error_only(&String::from_utf8_lossy(&text));
             std::process::exit(i32::from(!only));
         }
-        ["start-check", "record", n] => {
-            std::process::exit(start::record(&home, issue(n, &args), ""))
-        }
-        ["start-check", "record", n, "--attempt", attempt] => {
-            std::process::exit(start::record(&home, issue(n, &args), attempt))
-        }
-        ["start-check", "text", n, rest @ ..] => {
-            std::process::exit(start_text(&home, issue(n, &args), &args, rest))
-        }
         ["cycle", n, rest @ ..] => cycle_verb(&home, issue(n, &args), &args, rest),
-        ["prepare", step, n, rest @ ..] => {
-            std::process::exit(prepare_verb(&home, step, issue(n, &args), &args, rest))
-        }
+        ["work", n, rest @ ..] => work_verb(&home, issue(n, &args), &args, rest),
         ["settings", file, count, options @ ..] => {
             let words: Vec<String> = options.iter().map(|w| w.to_string()).collect();
             let text = improve::settings(count, &words);
@@ -442,9 +405,8 @@ fn main() {
                 fail(format!("{file} cannot be written"));
             }
         }
-        ["watch", n, rest @ ..] => watch_verb(&home, issue(n, &args), &args, rest),
         ["runner", "run", log, n] => match runner::run_log(Path::new(log), n) {
-            Some(r) => println!("{}\n{}\n{}", r.step, r.branch, r.read),
+            Some(r) => tehas_core::outln!("{}\n{}\n{}", r.step, r.branch, r.read),
             None => std::process::exit(1),
         },
         ["describe", dir] => {
@@ -454,7 +416,7 @@ fn main() {
         }
         ["private", models, email] => {
             for name in tehas_core::mask::host_names(models, email) {
-                println!("--private\n{name}");
+                tehas_core::outln!("--private\n{name}");
             }
         }
         _ => wrong(&args),
@@ -487,172 +449,25 @@ fn cycle_verb(home: &Path, n: u64, args: &[String], rest: &[&str]) -> ! {
     std::process::exit(supervise::run(home, &g));
 }
 
-/// The words of one step of `prepare`.
-fn prepare_verb(home: &Path, step: &str, n: u64, args: &[String], rest: &[&str]) -> i32 {
-    let (flags, words) = match rest.iter().position(|a| *a == "--") {
-        Some(at) => (&rest[..at], &rest[at + 1..]),
-        None => (rest, &rest[..0]),
-    };
-    let words: Vec<String> = words.iter().map(|w| w.to_string()).collect();
-    let (mut file, mut record, mut branch, mut log) =
-        (PathBuf::new(), String::new(), String::new(), PathBuf::new());
-    let (mut console, mut attempt, mut name, mut gap) =
-        (String::new(), String::new(), String::new(), String::new());
-    let (mut caps_wait, mut push_wait, mut stop_wait, mut text_wait) = (120, 300, 60, 60);
-    let mut restart = false;
-    let secs = |v: &str| v.parse::<u64>().unwrap_or_else(|_| wrong(args));
-    let mut it = flags.iter();
-    while let Some(flag) = it.next() {
-        if *flag == "--restart" {
-            restart = true;
-            continue;
-        }
-        let v = *it.next().unwrap_or_else(|| wrong(args));
-        match *flag {
-            "--state" => file = PathBuf::from(v),
-            "--record" => record = v.to_string(),
-            "--branch" => branch = v.to_string(),
-            "--log" => log = PathBuf::from(v),
-            "--console" => console = v.to_string(),
-            "--attempt" => attempt = v.to_string(),
-            "--name" => name = v.to_string(),
-            "--gap" => gap = v.to_string(),
-            "--caps-wait" => caps_wait = secs(v),
-            "--preflight-wait" => push_wait = v.parse().unwrap_or(300),
-            "--stop-wait" => stop_wait = v.parse().unwrap_or(60),
-            "--text-wait" => text_wait = secs(v),
-            _ => wrong(args),
-        }
-    }
-    if file.as_os_str().is_empty() {
-        wrong(args);
-    }
-    let caller = prepare::Caller::now();
-    match step {
-        "check" => prepare::check(&prepare::Check {
-            issue: n,
-            file,
-            record,
-            restart,
-            caps_wait,
-            console,
-            words,
-            caller,
-        }),
-        "tree" => prepare::tree(
-            home,
-            &prepare::Tree {
-                issue: n,
-                file,
-                branch,
-                log,
-                push_wait,
-                console,
-                caller,
-            },
-        ),
-        "record" => prepare::record(
-            home,
-            &prepare::Record {
-                issue: n,
-                file,
-                attempt,
-                log,
-                name,
-                stop_wait,
-                text_wait,
-                gap,
-                images: words,
-                caller,
-            },
-        ),
-        _ => wrong(args),
-    }
-}
-
-/// The words of the text step of a start.
-fn start_text(home: &Path, n: u64, args: &[String], rest: &[&str]) -> i32 {
-    let mut t = start::Text {
+/// The words of tehas work.
+fn work_verb(home: &Path, n: u64, args: &[String], rest: &[&str]) -> ! {
+    let mut g = work::Given {
         issue: n,
-        repo: std::env::var("TEHAS_REPO").unwrap_or_default(),
-        record: String::new(),
-        why: String::new(),
-        log: PathBuf::new(),
-        wait: 60,
+        restart: false,
         console: String::new(),
     };
     let mut it = rest.iter();
     while let Some(flag) = it.next() {
-        let v = *it.next().unwrap_or_else(|| wrong(args));
         match *flag {
-            "--record" => t.record = v.to_string(),
-            "--why" => t.why = v.to_string(),
-            "--log" => t.log = PathBuf::from(v),
-            "--text-wait" => t.wait = v.parse().unwrap_or_else(|_| wrong(args)),
-            "--console" => t.console = v.to_string(),
+            "--restart" => g.restart = true,
+            "--console" => g.console = it.next().unwrap_or_else(|| wrong(args)).to_string(),
             _ => wrong(args),
         }
     }
-    if t.repo.is_empty() || t.log.as_os_str().is_empty() || t.console.is_empty() {
+    if g.console.is_empty() || !home.is_absolute() {
         wrong(args);
     }
-    start::text(home, &t)
-}
-
-/// The words of tehas work's watch.
-fn watch_verb(home: &Path, n: u64, args: &[String], rest: &[&str]) -> ! {
-    let Some(split) = rest.iter().position(|a| *a == "--") else {
-        wrong(args)
-    };
-    let (flags, docker) = (&rest[..split], &rest[split + 1..]);
-    let mut g = watch::Given {
-        issue: n,
-        attempt: String::new(),
-        log: PathBuf::new(),
-        runs: PathBuf::new(),
-        name: String::new(),
-        limit: 0,
-        stall: 0,
-        grace: 300,
-        stop_wait: 60,
-        console_wait: 30,
-        console: PathBuf::new(),
-        models: String::new(),
-        email: String::new(),
-        renewer: String::new(),
-        docker: docker.iter().map(|w| w.to_string()).collect(),
-    };
-    let secs = |v: &str| v.parse::<u64>().unwrap_or_else(|_| wrong(args));
-    let mut it = flags.iter();
-    while let Some(flag) = it.next() {
-        let v = *it.next().unwrap_or_else(|| wrong(args));
-        match *flag {
-            "--attempt" => g.attempt = v.to_string(),
-            "--log" => g.log = PathBuf::from(v),
-            "--runs" => g.runs = PathBuf::from(v),
-            "--name" => g.name = v.to_string(),
-            "--limit" => g.limit = secs(v),
-            "--stall" => g.stall = secs(v),
-            "--grace" => g.grace = v.parse().ok().filter(|s| *s < 100_000).unwrap_or(300),
-            "--stop-wait" => g.stop_wait = v.parse().unwrap_or(60),
-            "--console-wait" => {
-                g.console_wait = v
-                    .parse()
-                    .ok()
-                    .filter(|s| (1..10_000).contains(s))
-                    .unwrap_or(30)
-            }
-            "--console" => g.console = PathBuf::from(v),
-            "--models" => g.models = v.to_string(),
-            "--email" => g.email = v.to_string(),
-            "--renewer" => g.renewer = v.to_string(),
-            _ => wrong(args),
-        }
-    }
-    if g.log.as_os_str().is_empty() || g.name.is_empty() || g.docker.is_empty() {
-        wrong(args);
-    }
-    std::process::exit(watch::run(home, &g));
+    std::process::exit(work::run(home, &g));
 }
 
 /// The start and end of a cycle, as libexec/cycle holds them.
@@ -759,13 +574,13 @@ fn caps_verb(rest: &[&str], args: &[String]) {
         ["unsupported", flags, names, features @ ..] if features.len() < 2 => {
             let features = features.first().copied().unwrap_or("");
             match caps::unsupported(&text, flags, names, features) {
-                Some(lines) => print!("{lines}"),
+                Some(lines) => tehas_core::out!("{lines}"),
                 None => std::process::exit(1),
             }
         }
         ["expired", workarounds] => {
             for line in caps::expired(&text, workarounds) {
-                println!("{line}");
+                tehas_core::outln!("{line}");
             }
         }
         ["mode", feature] => {
@@ -773,11 +588,11 @@ fn caps_verb(rest: &[&str], args: &[String]) {
                 .ok()
                 .and_then(|p| Some(p.parent()?.parent()?.join("lib")));
             let (word, code) = caps::mode(&text, feature, lib.as_deref());
-            println!("{word}");
+            tehas_core::outln!("{word}");
             std::process::exit(code);
         }
         ["verb", verb, flags] => std::process::exit(i32::from(!caps::verb(&text, verb, flags))),
-        ["reads-images"] => println!("{}", u8::from(caps::reads_images(&text))),
+        ["reads-images"] => tehas_core::outln!("{}", u8::from(caps::reads_images(&text))),
         _ => wrong(args),
     }
 }
@@ -791,7 +606,7 @@ fn outcome_verb(result: &str, n: &str) {
         std::process::exit(2)
     };
     match runner::outcome(&String::from_utf8_lossy(&bytes), n) {
-        Some(o) => println!("{o}"),
+        Some(o) => tehas_core::outln!("{o}"),
         None => std::process::exit(4),
     }
 }
@@ -845,7 +660,7 @@ fn finish_verb(n: u64, args: &[String], rest: &[&str]) -> ! {
         finish::say(n, &done.why);
         std::process::exit(1);
     }
-    println!("{}", done.url);
+    tehas_core::outln!("{}", done.url);
     std::process::exit(0);
 }
 
@@ -911,7 +726,7 @@ fn print_report(file: &str) {
     let mut gh = Given(v.get("github").cloned().unwrap_or(json!({})));
     let mut r = report(&facts, &mut gh);
     last_attempts(&mut r, &facts, &mut gh);
-    println!("{}", to_json(&r, facts.issue));
+    tehas_core::outln!("{}", to_json(&r, facts.issue));
 }
 
 fn last_attempt(n: u64, result: &str, workspace: &Path) {
@@ -929,7 +744,7 @@ fn last_attempt(n: u64, result: &str, workspace: &Path) {
                 "the issue or the result in {result} cannot be read"
             ))
         });
-    println!(
+    tehas_core::outln!(
         "{}",
         match action {
             Action::Nothing => json!({"action": "none"}),

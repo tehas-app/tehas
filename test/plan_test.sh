@@ -271,27 +271,7 @@ t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
 t_eq "$t_rc" 0
 t_eq "$(tail_of)" "$image $runner plan the work in .tehas/brief.md (issue #7) --start --context $(with_brief "$T/brief.md" | tr '\n' ' ')"
 
-t_case "a console that gives no descriptor for the brief starts no turn: 78, named"
-reset
-rm -rf "$T/keep"
-# libexec/plan calls the console as `plan descriptor <brief> <issue>`, as every
-# other verb with the noun first. A console that answers nothing for it stops
-# the turn before the container: the rules themselves are pinned in plan.rs.
-mv "$shim/libexec/console" "$T/console.kept"
-t_stub console '[ "$1" != slice ] || exec "$T/console.kept" "$@"
-[ "$2" = descriptor ] || exit 0
-exit 1'
-mv "$T/bin/console" "$shim/libexec/console"
-t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
-t_eq "$t_rc" 78
-t_contains "$t_out" "the console gave no descriptor for the brief of #7"
-t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
-rm -f "$shim/libexec/console"
-mv "$T/console.kept" "$shim/libexec/console"
-rm -f "$T/bin/console"
-
-# The case above leaves no session behind: it stopped before the turn wrote
-# anything. These cases run the turn whose outcome they read.
+# These cases run the turn whose outcome they read.
 
 t_case "the runner's exit status is kept for the next turn"
 t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
@@ -430,7 +410,20 @@ turn_args | options | without_cycle_only >"$T/work.options"
 t_eq "$(turn_args | grep -c -e '^PI_ENSEMBLE_HANDOFF_CHANNEL=host$' -e '^PI_ENSEMBLE_HANDOFF_TIMEOUT_MS=480000$' -e '^PI_ENSEMBLE_CYCLE_DEADLINE=' -e '^PI_ENSEMBLE_VERIFY_CONCURRENCY=')" 4
 t_eq "$([ -s "$T/work.options" ] && echo recorded)" recorded
 t_contains "$(turn_args)" "--cidfile"
-t_eq "$(cat "$T/plan.options")" "$(cat "$T/work.options")"
+# Each -e that names a PI_ENSEMBLE_ variable without a value, sorted in place
+# of the run of them: a shell and the console keep the environment in different
+# orders, so the names are compared as a set.
+env_names_sorted() {
+  awk -v sorter='LC_ALL=C sort | tr " " "\n"' '
+    function flush() { if (held) { fflush(); close(sorter); held = 0 } }
+    want { want = 0
+      if ($0 ~ /^PI_ENSEMBLE_[A-Z0-9_]+$/) { print "-e " $0 | sorter; held = 1; next }
+      flush(); print "-e"; print; next }
+    /^-e$/ { want = 1; next }
+    { flush(); print }
+    END { if (want) print "-e"; flush() }'
+}
+t_eq "$(env_names_sorted <"$T/plan.options")" "$(env_names_sorted <"$T/work.options")"
 t_eq "$(tail_of)" "$image /opt/pi-rukas/bin/pi-rukas-headless work 7 --timeout 360 --json "
 
 t_case "a first turn names its issue with --issue when the runner takes it, so the issue is no duplicate of itself"
@@ -706,6 +699,7 @@ short=$T/short
 mkdir -p "$short/libexec"
 ln -s "$T_ROOT/lib" "$short/lib"
 ln -s "$plan" "$short/libexec/plan"
+cp "$T_CONSOLE" "$short/libexec/console"
 for words in "--cgroup-parent tehas.slice --memory 2048m --memory-swap 2048m --memory-reservation 2g --cpus 3.75 --pids-limit 4096" \
   "--cgroup-parent other.slice --memory 2048m --memory-swap 2048m --memory-reservation 2g --cpus 3.75 --pids-limit 4096 --cpu-shares 1024" ""; do
   without

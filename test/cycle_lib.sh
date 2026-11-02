@@ -91,14 +91,15 @@ case "$1 $2" in
     fi
     # pr.json is the whole answer. pr.txt is the address of one pull request
     # of the bot on the branch asked for, in the state pr-state says [OPEN],
-    # whose body is pr-body [Fixes #7].
+    # whose body is pr-body [Fixes #7], a draft when pr-draft is there.
     if [ -e "$T/fx/pr.json" ]; then cat "$T/fx/pr.json"
     elif [ -e "$T/fx/pr.txt" ]; then
       head=$(printf "%s\n" "$@" | sed -n "/^--head$/{n;p;}")
       jq -n --arg url "$(cat "$T/fx/pr.txt")" --arg head "$head" \
         --arg state "$(cat "$T/fx/pr-state" 2>/dev/null || echo OPEN)" \
         --arg body "$(cat "$T/fx/pr-body" 2>/dev/null || echo "Fixes #7")" \
-        "[{url: \$url, state: \$state, body: \$body, headRefName: \$head}]"
+        --argjson draft "$([ -e "$T/fx/pr-draft" ] && echo true || echo false)" \
+        "[{url: \$url, state: \$state, body: \$body, headRefName: \$head, isDraft: \$draft}]"
     else echo "[]"; fi ;;
   "issue edit") [ ! -e "$T/fx/edit-slow" ] || { : >"$T/calls/edit.started"; sleep 1; }
     # The first edits fail, as many as edit-fails-times says.

@@ -36,7 +36,7 @@ pub fn main(given: &[String]) -> u8 {
     match given {
         [verb] if verb == "measure" => {
             let size = read_body().map(|b| measured(&b)).unwrap_or_default();
-            println!("{{{}}}", size.fields());
+            tehas_core::outln!("{{{}}}", size.fields());
             0
         }
         [verb, issue, ledger] if verb == "record" => {
@@ -57,7 +57,7 @@ pub fn main(given: &[String]) -> u8 {
 }
 
 fn gave_up(word: &str) -> u8 {
-    println!("{word}");
+    tehas_core::outln!("{word}");
     1
 }
 

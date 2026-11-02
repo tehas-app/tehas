@@ -245,7 +245,7 @@ impl Run {
 pub fn main(args: &[&str]) -> i32 {
     match args.first() {
         Some(&"-h" | &"--help") => {
-            println!("{}", usage());
+            tehas_core::outln!("{}", usage());
             return 0;
         }
         Some(a) => {
