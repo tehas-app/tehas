@@ -1972,8 +1972,9 @@ mod tests {
             "{said}"
         );
         assert!(tree.join("target/console").exists(), "a dry run removed");
-        // The same tree under a real run frees exactly that figure.
-        one_issue_tree(&root);
+        // The same tree under a real run frees exactly its figure, measured
+        // again: a directory's own size can change when it is written to.
+        let (_, known) = one_issue_tree(&root);
         run.dry = false;
         run.freed = 0;
         assert!(run.workspaces());
