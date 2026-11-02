@@ -4,6 +4,8 @@
 name = "analytics"
 version = "0.1.0"
 edition = "2021"
+# The oldest compiler that builds it: tehas-core needs 1.89 (File::try_lock).
+rust-version = "1.89"
 publish = false
 
 [[bin]]
