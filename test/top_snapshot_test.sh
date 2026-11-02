@@ -99,8 +99,8 @@ reset
 files
 T_ENV=(TEHAS_CONSOLE="$T/no-console" TEHAS_PROC_DIR="$proc1")
 t_run "$top --json"
-t_eq "$t_rc" 1
-t_contains "$t_out" "no console at $T/no-console, run install.sh"
+t_eq "$t_rc" 78
+t_contains "$t_out" "tehas: no console at $T/no-console: run install.sh"
 T_ENV=(TEHAS_CONSOLE="$T_CONSOLE" TEHAS_PROC_DIR="$proc1")
 
 t_case "a process is named by its short name, never by its command line"

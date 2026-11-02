@@ -2,8 +2,8 @@
 //!
 //!   console run <libexec dir> <euid> <bash> tehas|tehasbot <command> [arguments]
 //!
-//! bin/tehas and bin/tehasbot call it, and the few paths a test or a shim still
-//! names. `<euid>` and `<bash>` are the shell's, as for `console settings load`:
+//! src/front.rs calls it for bin/tehas and bin/tehasbot, and the few paths a
+//! test or a shim still names. `<euid>` and `<bash>` are the shell's, as for `console settings load`:
 //! reading the uid here would need `unsafe`. Each run goes in this order:
 //!
 //!   1. `check` on the words: a bad argument is 64 and a help text 0 whatever the

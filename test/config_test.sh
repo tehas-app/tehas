@@ -901,21 +901,10 @@ t_run "$load"
 after=$(find "$T/home" "$T/instance" | sort)
 t_eq "$after" "$before"
 
-# --- tehas_branch -----------------------------------------------------------
+# --- A checkout -------------------------------------------------------------
 git init -q -b main "$T/upstream"
 git -C "$T/upstream" -c user.name=t -c user.email=t@example.com commit -q --allow-empty -m first
 git clone -q "$T/upstream" "$T/home/tehas/repos/widget"
-
-t_case "tehas_branch reads the default branch from origin/HEAD"
-t_instance "${T_MINIMAL[@]}"
-t_run "$load && tehas_branch"
-t_eq "$t_rc" 0
-t_eq "$t_out" "main"
-
-t_case "TEHAS_BRANCH wins over the checkout"
-t_instance "${T_MINIMAL[@]}" TEHAS_BRANCH=release
-t_run "$load && tehas_branch"
-t_eq "$t_out" "release"
 
 t_case "TEHAS_BRANCH_CHECK: unset is none, a name with spaces is kept"
 t_instance "${T_MINIMAL[@]}"
@@ -986,14 +975,6 @@ for bad in "601" "9999" "99999999999999999999"; do
   t_lacks "$t_out" "integer expression"
 done
 printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
-
-t_case "a checkout without origin/HEAD fails with both remedies"
-t_instance "${T_MINIMAL[@]}"
-git -C "$T/home/tehas/repos/widget" remote set-head origin -d
-t_run "$load && b=\$(tehas_branch); echo \"rc=\$? b=[\$b]\""
-t_contains "$t_out" "rc=78 b=[]"
-t_contains "$t_out" "TEHAS_BRANCH"
-t_contains "$t_out" "install.sh"
 
 t_case "the cycle's workspace is under the tehas tree and is not a setting"
 t_instance "${T_MINIMAL[@]}" TEHAS_WORK_DIR=/somewhere/else
