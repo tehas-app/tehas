@@ -295,27 +295,12 @@ mod tests {
     use super::*;
     use std::fs::OpenOptions;
     use std::io::Write;
-    use std::path::PathBuf;
     use std::time::Duration;
 
-    // A scratch directory of this test, removed when the test ends.
-    struct Scratch(PathBuf);
-    impl Scratch {
-        fn new(name: &str) -> Self {
-            let dir =
-                std::env::temp_dir().join(format!("tehas-console-{}-{name}", std::process::id()));
-            let _ = fs::remove_dir_all(&dir);
-            fs::create_dir_all(&dir).unwrap();
-            Scratch(dir)
-        }
-        fn path(&self, name: &str) -> String {
-            self.0.join(name).to_str().unwrap().to_string()
-        }
-    }
-    impl Drop for Scratch {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.0);
-        }
+    use tehas_core::testdir::TestDir;
+
+    fn at(dir: &TestDir, name: &str) -> String {
+        dir.join(name).to_str().unwrap().to_string()
     }
 
     fn append(path: &str, bytes: &[u8]) {
@@ -329,8 +314,8 @@ mod tests {
 
     #[test]
     fn only_new_complete_lines_are_given() {
-        let scratch = Scratch::new("lines");
-        let log = scratch.path("log");
+        let scratch = TestDir::new("lines");
+        let log = at(&scratch, "log");
         let mut follower = Follower::default();
         assert_eq!(follower.new_lines(&log), [] as [&str; 0]);
         append(&log, b"one\n\ntwo\nthr");
@@ -342,8 +327,8 @@ mod tests {
 
     #[test]
     fn a_character_written_in_two_parts_is_read_whole() {
-        let scratch = Scratch::new("utf8");
-        let log = scratch.path("log");
+        let scratch = TestDir::new("utf8");
+        let log = at(&scratch, "log");
         let mut follower = Follower::default();
         let line = "päivää\n".as_bytes();
         append(&log, &line[..2]);
@@ -354,8 +339,8 @@ mod tests {
 
     #[test]
     fn a_file_that_became_shorter_is_read_again_from_its_start() {
-        let scratch = Scratch::new("shorter");
-        let log = scratch.path("log");
+        let scratch = TestDir::new("shorter");
+        let log = at(&scratch, "log");
         let mut follower = Follower::default();
         append(&log, b"one\ntwo\nthr");
         assert_eq!(follower.new_lines(&log), ["one", "two"]);
@@ -367,8 +352,8 @@ mod tests {
 
     #[test]
     fn a_line_that_does_not_end_is_left_out_and_the_next_is_read() {
-        let scratch = Scratch::new("long");
-        let log = scratch.path("log");
+        let scratch = TestDir::new("long");
+        let log = at(&scratch, "log");
         let mut follower = Follower::default();
         append(&log, b"first\n");
         assert_eq!(follower.new_lines(&log), ["first"]);
@@ -384,8 +369,8 @@ mod tests {
 
     #[test]
     fn what_follows_the_last_line_of_a_pass_is_held_to_the_same_limit() {
-        let scratch = Scratch::new("rest");
-        let log = scratch.path("log");
+        let scratch = TestDir::new("rest");
+        let log = at(&scratch, "log");
         let mut follower = Follower::default();
         append(&log, b"first\n");
         append(&log, &vec![b'x'; MAX_LINE + 1]);
@@ -398,8 +383,8 @@ mod tests {
 
     #[test]
     fn what_all_transcripts_hold_is_bounded_and_a_gone_one_is_forgotten() {
-        let scratch = Scratch::new("held");
-        let runs = scratch.path("runs");
+        let scratch = TestDir::new("held");
+        let runs = at(&scratch, "runs");
         let day = day_before(SystemTime::now() + Duration::from_secs(86400));
         fs::create_dir_all(format!("{runs}/{day}")).unwrap();
         let over = 4;
@@ -429,8 +414,8 @@ mod tests {
 
     #[test]
     fn a_whole_line_over_the_limit_is_left_out_and_counted() {
-        let scratch = Scratch::new("whole");
-        let log = scratch.path("log");
+        let scratch = TestDir::new("whole");
+        let log = at(&scratch, "log");
         let mut follower = Follower::default();
         append(&log, b"one\n");
         append(&log, &vec![b'x'; MAX_LINE + 1]);
@@ -442,11 +427,11 @@ mod tests {
 
     #[test]
     fn a_link_and_a_pipe_are_not_read() {
-        let scratch = Scratch::new("odd");
+        let scratch = TestDir::new("odd");
         let (file, link, pipe) = (
-            scratch.path("file"),
-            scratch.path("link"),
-            scratch.path("pipe"),
+            at(&scratch, "file"),
+            at(&scratch, "link"),
+            at(&scratch, "pipe"),
         );
         append(&file, b"elsewhere\n");
         std::os::unix::fs::symlink(&file, &link).unwrap();
@@ -463,8 +448,8 @@ mod tests {
 
     #[test]
     fn transcripts_are_the_fresh_and_the_followed_files_in_name_order() {
-        let scratch = Scratch::new("runs");
-        let runs = scratch.path("runs");
+        let scratch = TestDir::new("runs");
+        let runs = at(&scratch, "runs");
         let mut follower = Follower::default();
         let paths = |follower: &mut Follower, since| -> Vec<String> {
             let found = follower.transcripts(&runs, since);
@@ -492,9 +477,9 @@ mod tests {
             format!("{runs}/{today}/b-1-coder.json"),
         ];
         // A day that is a link to a directory elsewhere is not entered.
-        fs::create_dir_all(scratch.path("elsewhere")).unwrap();
-        append(&scratch.path("elsewhere/c-1-coder.json"), b"{}\n");
-        std::os::unix::fs::symlink(scratch.path("elsewhere"), format!("{runs}/{tomorrow}"))
+        fs::create_dir_all(at(&scratch, "elsewhere")).unwrap();
+        append(&at(&scratch, "elsewhere/c-1-coder.json"), b"{}\n");
+        std::os::unix::fs::symlink(at(&scratch, "elsewhere"), format!("{runs}/{tomorrow}"))
             .unwrap();
         assert_eq!(paths(&mut follower, UNIX_EPOCH), all);
 
@@ -511,8 +496,8 @@ mod tests {
 
     #[test]
     fn a_directory_of_a_day_long_before_the_cycle_is_not_read() {
-        let scratch = Scratch::new("days");
-        let runs = scratch.path("runs");
+        let scratch = TestDir::new("days");
+        let runs = at(&scratch, "runs");
         for day in [
             "2026-10-08",
             "2026-10-09",

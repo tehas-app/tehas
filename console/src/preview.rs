@@ -407,12 +407,12 @@ pub fn choose_main(args: &[String]) -> u8 {
         Ok(pulls) => pulls,
         Err(why) => {
             eprintln!("console preview choose: {why}");
-            println!("nothing read");
+            tehas_core::outln!("nothing read");
             return 0;
         }
     };
     for line in lines_of(&choose(&pulls, repo, max)) {
-        println!("{line}");
+        tehas_core::outln!("{line}");
     }
     0
 }

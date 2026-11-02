@@ -76,7 +76,7 @@ in the platform repository has every one with a comment.
 | `TEHAS_ANALYTICS_COOKIE`        | `0`                                      | `1` adds `data-cookie="true"` to that script tag                |
 | `TEHAS_THEME`                   | `pixel`                                  | The look of every page: `pixel`, `paper`, `beesknees` or `beesknees26`. Another name stops every command with 78. See [The host](/host#themes-and-layouts) |
 | `TEHAS_LAYOUT`                  | `floor`                                  | The front page: `floor`, the game view, or `business`. Both are always at `/floor` and `/business`. Another name stops every command with 78. See [The host](/host#themes-and-layouts) |
-| `TEHAS_CYCLE_REPORT`            | `bash`                                   | Who reports a cycle: `bash`, `libexec/cycle`, or `rust`, `tehas-cycle report`. See [The report in Rust](/operating#the-report-in-rust). Any other value is exit 78 |
+| `TEHAS_CYCLE_REPORT`            | `rust`                                   | Who reports a cycle: `rust`, `tehas-cycle cycle`, the only value. The report in bash is gone: `bash`, or any other value, is exit 78. See [The report in Rust](/operating#the-report-in-rust) |
 | `TEHAS_ANALYTICS`               | `on`                                     | The factory's own analytics, not the visitor analytics above: 365 days of runs, issue events and poll samples in `~/tehas/state/analytics.db`. `off` stops every write and leaves the file as it is. Anything but `on` or `off` stops every command with 78 |
 | `TEHAS_PROTOLAB_URL`            | `https://lab.<domain>`, or port 8081     | Address people reach the Protolab at, when it is published elsewhere, as `https://lab.example`. The dashboard links to it. Without it: `https://lab.<domain>` when `TEHAS_DOMAIN` is set, else port 8081 of the dashboard's host |
 | `TEHAS_DOMAIN`                  | none                                     | The domain the edge's names are made under, as `tehas.app`: `uat-<pr>.` for a preview, `lab-<issue>.` for a ticket of the Protolab, `lab.` for its list |
@@ -709,8 +709,9 @@ from the workspace `~/tehas/work/<name>-<issue>`: the outcome is the runner's
 `--json` result, which goes to `~/tehas/state/cycles/<issue>.result.json`, and
 a copy beside the log. The contract is pi-rukas's `docs/headless.md`: exit
 codes v1, result schema 5, NDJSON progress with a stable subset. The last step
-of `tehas work` is `tehas-cycle watch`, which it execs: the same process and the
-same lock start the container, watch it to its end and leave the cycle's notes.
+of `tehas work` is the watch of `tehas-cycle work`, which `libexec/work` execs
+once it holds the issue's lock: the same process and the same lock start the
+container, watch it to its end and leave the cycle's notes.
 
 A start whose approval says driver `lean` stops first, with exit 78, the note
 `state/cycles/<issue>.lean-refused` and a line that says this tehas cannot run
@@ -835,6 +836,7 @@ account before it starts a cycle.
 | 64   | The issue is not a number, or no bot token or no git identity; no cycle was started |
 | 78   | The instance settings are invalid, the state store is not installed (`~/tehas/libexec/store` or `~/tehas/state/tehas.db` is missing), `tehas.slice` is missing, has no memory limit, or cannot be used (the message names `sudo ./bootstrap.sh slice` or the reason), the image does not support what the cycle is given, a workaround in `TEHAS_RUKAS_WORKAROUNDS` has expired, or the product names no gate in `.pi/verify-cmd` and its commit holds neither `package.json` nor `Cargo.toml`; no cycle was started, nothing was pushed, and the clone made for the cycle is left in place. A refusal for the gate is said on the command's error stream only, which under the unit is `~/tehas/logs/dispatch-work-<issue>.log`: the issue gets no comment for it, because no cycle of that issue ever began |
 | 137  | The container was killed while the cycle was running, and the runner wrote no result: out of memory, or stopped from outside. The cycle is `killed` |
+| 143  | A `TERM`, `INT` or `HUP` came before the container started: the start ended after the command it was in, said as `stopped, not going on with the start`. No container started |
 
 The runner's codes are its own only when it wrote a result for the issue, or a
 result with no issue entry at all (a refusal that carries only an error). A
@@ -866,8 +868,14 @@ failure, for `tehasbot cycle`. They come from the result (`usage.byRole` and
 v0.12.80, gives the usage of the stable `dispatch-completed` lines, each
 counted once by its key, and a reason read from lines the runner marks
 unstable, which may be empty.
-The time limit is `TEHAS_WORK_TIMEOUT`. The push check, the clone and every
-`docker stop` have bounds of their own, listed under
+Before the cycle's container, after the push check, `tehas work` installs the
+product's dependencies in the workspace, in a container of the sandbox image
+with the cycle's limits and security options, the workspace and no token (see
+[the contract](/new-project#what-the-product-repository-must-provide)). An
+install that fails, or a tool the image lacks, starts no cycle: exit 78, with
+the install's last lines, which are in the log's `.preflight` file too.
+The time limit is `TEHAS_WORK_TIMEOUT`. The push check, the install, the clone
+and every `docker stop` have bounds of their own, listed under
 [time limits](/host#time-limits). [The host](/host#limits-and-concurrency)
 has the limits in full.
 
@@ -1116,6 +1124,10 @@ Run by hand it removes and remakes the workspace that a planning turn of the
 same issue uses, and it does not take the dispatcher's lock, so do not run it
 for an issue whose session the factory is working on.
 
+`libexec/plan` is only a path: the console runs the turn
+(`console/src/plan/start.rs`), after `console run` has loaded the settings. A
+call that is no turn is refused with 64 before the settings are read.
+
 ```
 tehas plan 12 --out /tmp/turn.json --keep /tmp/turn.keep --brief brief.md
 tehas plan 12 --out /tmp/turn.json --keep /tmp/turn.keep --session <id> --answer answer.md [--comment <id>]
@@ -1152,8 +1164,7 @@ turn runs `plan "<descriptor>" --start --context <brief>`, with
 `--issue <n>` when the image lists that flag for `plan`, so the planner does not
 take the issue for a duplicate of itself (pi-rukas v0.14.28 and later). A later
 turn never passes it: the session keeps it. The descriptor is the issue's title,
-and the `console` beside the command makes it (`console plan descriptor <brief>
-<issue>`, `console/plan.rs`): the text after the `# ` of the brief's first line,
+and the console makes it (`descriptor` in `console/src/plan.rs`): the text after the `# ` of the brief's first line,
 trimmed. A brief whose first line is `Title: <text>`, as a drafted plan writes
 one, is named by `<text>` instead, so a half of a split is named for its own
 work and not for the whole issue it was split from; a `Title:` lower in the body
@@ -1774,12 +1785,17 @@ is committed there. One line per check, `ok` or `FAIL`:
 | `agents`  | `AGENTS.md` is there                                                                            |
 | `gate`    | `.pi/verify-cmd` has a line that is not empty or a comment                                      |
 | `model`   | `.pi/settings.json`, when the product has one, names a model the instance's `models.json` lists |
+| `install` | Always, with one line per install a cycle runs before it starts: the first command of `.pi/install-cmd`, else one for each lockfile at the root or one directory down (see [the contract](/new-project#what-the-product-repository-must-provide)) |
 
-With `--sandbox` it then clones that commit into `~/tehas/tmp` and runs, in the
-sandbox image as this user and in the slice, `.pi/worktree-setup` when there is
-one, the first command of `.pi/verify-cmd-full` (else `.pi/verify-cmd`) and the
-first command of `.pi/smoke-cmd` when there is one. The clone is removed
-afterwards.
+With `--sandbox` it then clones that commit into `~/tehas/tmp/<name>`, `<name>`
+the repository's name, and works in the sandbox image as this user and in the
+slice. It runs the installs at the root of the clone, then, in a worktree of the
+clone as pi-rukas makes one in a cycle, `.pi/worktree-setup` when there is one,
+the first command of `.pi/verify-cmd-full` (else `.pi/verify-cmd`) and the first
+command of `.pi/smoke-cmd` when there is one. An install that fails, or a tool
+the image lacks (`no pnpm in the sandbox image`), is a `FAIL install` line and
+no gate runs. The clone and its worktree are removed afterwards; the product's
+checkout gets no worktree and no branch.
 
 It changes nothing in the product. The result goes to
 `~/tehas/state/check-product.json`, which `tehas status` prints as its
@@ -2114,7 +2130,11 @@ that release and the newest there is, instead of a commit:
 platform  v0.9.0, newest v0.9.0, fetched 20 min ago
 platform  v0.9.0, v0.9.1 is out, fetched 20 min ago
 platform  v0.9.0, newest unknown, never fetched
+platform  v0.10.0-rc.1, newest v0.9.0, the candidate is newer, fetched 20 min ago
 ```
+
+A host on a release candidate keeps the newest release it last read, even
+though it is older than the candidate.
 
 It reads
 that one file and nothing else: no GitHub call, no instance settings, and it
@@ -2375,6 +2395,11 @@ made is said there as `#N runs from the install: its own copy could not be made
 (<why>)`, and the cycle runs from `~/tehas` as before. Each start removes the
 copies whose process has ended.
 
+`libexec/cycle` loads the settings, takes the lock and execs `tehas-cycle
+cycle`, which puts the start on record, asks what the number is, runs `tehas
+work` and sees to the report. A stop reaches it as the main process of the unit.
+With no `libexec/tehas-cycle` nothing starts: exit 78.
+
 **The clock a cycle is measured on.** `tehas-cycle clock` counts a cycle on a
 monotonic clock: the seconds since boot, read from the first number of
 `/proc/uptime`. The wall clock is not read at all, so the time a VM was saved
@@ -2389,7 +2414,7 @@ that would run backwards (a mark ahead of the clock, as after the boot was
 redone), prints `unknown` and exits 3: a caller stops nothing on a guess. The
 seconds are whole seconds since boot truncated down, and one mark file holds
 one number; a mark file of more than 32 bytes, or one that is not a regular
-file, is no mark. `tehas-cycle watch` asks the same clock in its own process.
+file, is no mark. The watch of `tehas-cycle work` asks the same clock in its own process.
 
 **The pull request of a stopped cycle.** `tehas-cycle finish <issue> --home
 <dir> --repo <owner/name> --default <branch> --reason <text>` takes what a
@@ -3913,6 +3938,7 @@ checkout.
 tehas update                  # the newest release, or pull the checkout;
                               # install, run the follow-ups that apply
 tehas update --to v0.8.1      # that release, an older one too
+tehas update --to v0.22.0-rc.1  # a release candidate, only when named
 tehas update --check          # report what would change; change nothing
 tehas update --pending        # run the follow-ups the record lists, no git
 tehas update --help           # print the usage of the command, touch nothing
@@ -3973,6 +3999,15 @@ with their image tags.
 `~/tehas/state/update-hold` stops a plain `tehas update`. `--to` names its
 version and runs with the hold there.
 
+A release candidate, `vX.Y.Z-rc.N`, is published as a prerelease. It is never
+the newest, so a plain `tehas update` passes it over; `--to` names it, and it
+is downloaded and checked like any release. A candidate comes before its
+version and after the version before it, and `rc.10` after `rc.9`. On a
+candidate, a plain `tehas update` stays until a newer release is out, then
+moves to it. The notes shown are those of the candidate or the release moved
+to, not of every candidate between. A draft is not published and cannot be
+named.
+
 ### From the checkout
 
 It runs, in order and one line per step: a `git fetch` and a fast-forward of
@@ -4003,8 +4038,9 @@ holds it waits for it, and if it is still held prints
 git, install.sh, Docker or systemd is called. The wait is
 `TEHAS_UPDATE_LOCK_WAIT` - a whole number of seconds, 10 by default, 0 to
 refuse at once, at most 300; anything else is the default. It is read from the
-environment, not from `instance.env`, and the rule for it is
-`tehas_update_lock_wait` in `lib/update-steps.sh`, which both commands call.
+environment, not from `instance.env`, and both commands ask the console for it
+(`console update wait update`). A first `install.sh` from a checkout has no
+console yet and waits 10.
 The update hands the lock to the install.sh it runs, and to nothing else; the
 wait covers a run started right after one that failed and left the lock held a
 moment by something it had started. `--check` takes no lock.
@@ -4213,8 +4249,9 @@ before its first copy until after the store has imported the old records, so no
 poll starts a cycle or a planning turn in between. A poll holds that lock for
 its whole run, so the run waits for it up to `TEHAS_DISPATCH_LOCK_WAIT` seconds:
 a whole number, 900 by default, 0 to refuse at once, at most 3600; anything else
-is the default. It is read from the environment, and the rule for it is
-`tehas_dispatch_lock_wait` in `lib/update-steps.sh`. A poll that holds the lock
+is the default. It is read from the environment and asked of the console
+(`console update wait dispatch`); a first install from a checkout has no console
+yet and waits 900. A poll that holds the lock
 longer stops the run with exit 1 and `a poll is running ...; nothing was
 installed`. A home installed before the marker `.tehas-home` came in gets it
 here, so its old records are judged too. Before the first copy the store the run installs judges the record
@@ -4391,6 +4428,9 @@ It does not edit the file.
 `scripts/release-notes.sh <tag>` prints a section without its heading, and
 exits 1 when the file has none for that tag. The workflow makes the release's
 page from it, from the `Unreleased` section when the tag has none of its own.
+A release candidate, `vX.Y.Z-rc.N`, always reads `Unreleased`:
+`scripts/tag-release.sh --rc` tags one before the section is renamed, and
+checks the Adopter action there.
 
 A host moving from its platform checkout has no version installed, so its notes
 start at the newest `vX.Y.Z` tag at or before the checkout's HEAD, which
@@ -4399,8 +4439,8 @@ with no such tag it is shown every release.
 
 ### The release workflow
 
-`.github/workflows/release.yml` runs on the push of a `vX.Y.Z` tag, on the
-organisation's own runner as the gate does. It builds the console, the
+`.github/workflows/release.yml` runs on the push of a `vX.Y.Z` or a
+`vX.Y.Z-rc.N` tag, on the organisation's own runner as the gate does. It builds the console, the
 analytics program, the store and the MCP server (static, musl) with `cargo
 build --release --locked`, resolves the pins, runs
 the pack command above (which refuses any program whose e_machine is not the
@@ -4411,6 +4451,7 @@ above, its `.sha256` and `.minisig` beside it, and `install` with
 `install.minisig`.
 
 The release is made as a draft and published only when every file is on it.
+A release candidate is published as a prerelease and never marked the latest.
 The signing key is the Actions secret `MINISIGN_SECRET_KEY`, the whole secret
 key file, and its password, if it has one, is `MINISIGN_PASSWORD`. A run that
 cannot sign, or whose signature the key in the tree does not check, publishes
@@ -4427,7 +4468,8 @@ downloads:
 curl -fsSL https://github.com/tehas-app/tehas/releases/latest/download/install | sudo sh -s -- boss
 ```
 
-It downloads the newest release (or `--version vX.Y.Z`) of this machine: the
+It downloads the newest release (or `--version vX.Y.Z`, or a release
+candidate `--version vX.Y.Z-rc.N`) of this machine: the
 asset is `tehas-<version>-linux-<arch>.tar.gz`, `<arch>` the architecture
 `uname -m` answers, `x86_64` or `aarch64`, with `amd64` and `arm64` read as
 those. A machine whose `uname -m` says anything else stops before anything is

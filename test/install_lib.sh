@@ -5,10 +5,6 @@
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
 # shellcheck disable=SC2034  # the variables here are read by the test files
 # The part has sourced test/lib.sh before this.
-# The record's path and the lock's wait; the steps are the console's, and a case
-# asks it, so it pins install.sh and tehas update to one table.
-# shellcheck source=lib/update-steps.sh
-. "$T_ROOT/lib/update-steps.sh"
 
 install="$T_ROOT/install.sh"
 home=$T/home
@@ -109,7 +105,6 @@ files="./.bashrc
 ./tehas/lib/issue-brief.md
 ./tehas/lib/labels.sh
 ./tehas/lib/labels.tsv
-./tehas/lib/park-fields.jq
 ./tehas/lib/paths.sh
 ./tehas/lib/questions.sh
 ./tehas/lib/refine-brief.md
@@ -118,7 +113,6 @@ files="./.bashrc
 ./tehas/lib/sandbox.sh
 ./tehas/lib/store.sh
 ./tehas/lib/slice.sh
-./tehas/lib/update-steps.sh
 ./tehas/libexec/analytics
 ./tehas/libexec/analytics.stamp
 ./tehas/libexec/attach

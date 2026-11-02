@@ -6,6 +6,7 @@ use std::net::TcpStream;
 use std::path::Path;
 use std::process::{Child, ChildStderr, Command, Stdio};
 use std::time::Duration;
+use tehas_core::testdir::TestDir;
 use tehas_core::time::iso;
 
 const BIN: &str = env!("CARGO_BIN_EXE_tehas-mcp");
@@ -1006,8 +1007,7 @@ fn every_method_and_tool_needs_a_key() {
 // The text factory_log serves of a transcript that names a host, from a
 // server given `extra` arguments.
 fn served_transcript(name: &str, extra: &[&str]) -> String {
-    let root = std::env::temp_dir().join(format!("mcp-serve-{name}-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&root);
+    let root = TestDir::new(&format!("mcp-serve-{name}"));
     let (live, snap, logs) = (root.join("live"), root.join("mcp"), root.join("logs"));
     for d in [&live, &snap, &logs] {
         std::fs::create_dir_all(d).unwrap();
@@ -1047,7 +1047,6 @@ fn served_transcript(name: &str, extra: &[&str]) -> String {
     let _ = c.read_to_string(&mut out);
     let status = out.split_whitespace().nth(1).unwrap_or_default();
     s.stop();
-    let _ = std::fs::remove_dir_all(&root);
     assert_eq!(status, "200", "{out}");
     let (_, body) = out.split_once("\r\n\r\n").unwrap();
     let v: serde_json::Value = serde_json::from_str(body).unwrap();
@@ -1076,8 +1075,7 @@ fn served_park(name: &str, extra: &[&str], issue: u64) -> Value {
 }
 
 fn served_park_of(name: &str, extra: &[&str], issue: u64, result: Option<&str>) -> Value {
-    let root = std::env::temp_dir().join(format!("mcp-serve-park-{name}-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&root);
+    let root = TestDir::new(&format!("mcp-serve-park-{name}"));
     let (live, snap, logs) = (root.join("live"), root.join("mcp"), root.join("logs"));
     for d in [&live, &snap, &logs] {
         std::fs::create_dir_all(d).unwrap();
@@ -1120,7 +1118,6 @@ fn served_park_of(name: &str, extra: &[&str], issue: u64, result: Option<&str>) 
     let mut out = String::new();
     let _ = c.read_to_string(&mut out);
     s.stop();
-    let _ = std::fs::remove_dir_all(&root);
     let (head, body) = out.split_once("\r\n\r\n").unwrap();
     assert!(head.starts_with("HTTP/1.1 200"), "{out}");
     serde_json::from_str::<Value>(body).unwrap()["result"].clone()
@@ -1190,12 +1187,7 @@ fn private_needs_a_name() {
 // The answer of one tool over HTTP with a key, from a snapshot of the rows of
 // fixtures/images, each started a minute apart before now.
 fn served_images(tool: &str, args: Value) -> Value {
-    let root = std::env::temp_dir().join(format!(
-        "mcp-serve-images-{tool}-{}-{}",
-        args.to_string().len(),
-        std::process::id()
-    ));
-    let _ = std::fs::remove_dir_all(&root);
+    let root = TestDir::new(&format!("mcp-serve-images-{tool}"));
     let (live, snap, logs) = (root.join("live"), root.join("mcp"), root.join("logs"));
     for d in [&live, &snap, &logs] {
         std::fs::create_dir_all(d).unwrap();
@@ -1241,7 +1233,6 @@ fn served_images(tool: &str, args: Value) -> Value {
     let mut out = String::new();
     let _ = c.read_to_string(&mut out);
     s.stop();
-    let _ = std::fs::remove_dir_all(&root);
     let (_, body) = out.split_once("\r\n\r\n").unwrap();
     serde_json::from_str(body).unwrap()
 }
@@ -1273,8 +1264,7 @@ fn served_sessions_name_their_image_and_failures_split_by_it() {
 // --private are hidden in a reason, as in a served log.
 #[test]
 fn served_decisions_mask_the_private_names_given() {
-    let root = std::env::temp_dir().join(format!("mcp-serve-decisions-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&root);
+    let root = TestDir::new("mcp-serve-decisions");
     let (live, snap, logs) = (root.join("live"), root.join("mcp"), root.join("logs"));
     for d in [&live, &snap, &logs] {
         std::fs::create_dir_all(d).unwrap();
@@ -1309,7 +1299,6 @@ fn served_decisions_mask_the_private_names_given() {
     let mut out = String::new();
     let _ = c.read_to_string(&mut out);
     s.stop();
-    let _ = std::fs::remove_dir_all(&root);
     let (_, body) = out.split_once("\r\n\r\n").unwrap();
     let v: serde_json::Value = serde_json::from_str(body).unwrap();
     assert_eq!(

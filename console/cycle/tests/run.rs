@@ -3,13 +3,13 @@
 
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
-use std::path::PathBuf;
+use std::path::Path;
 use std::process::Command;
+use tehas_core::testdir::TestDir;
 
 /// A home whose tehasbot prints where it runs from and what it was given.
-fn home(name: &str) -> PathBuf {
-    let h = std::env::temp_dir().join(format!("tehas-run-{name}-{}", std::process::id()));
-    let _ = fs::remove_dir_all(&h);
+fn home(name: &str) -> TestDir {
+    let h = TestDir::new(&format!("run-{name}"));
     for t in ["bin", "libexec", "lib"] {
         fs::create_dir_all(h.join(t)).unwrap();
     }
@@ -19,7 +19,7 @@ fn home(name: &str) -> PathBuf {
     h
 }
 
-fn run(h: &PathBuf) -> (String, String) {
+fn run(h: &Path) -> (String, String) {
     let out = Command::new(env!("CARGO_BIN_EXE_tehas-cycle"))
         .args(["run", "7"])
         .env("TEHAS_HOME", h)
@@ -49,7 +49,6 @@ fn the_cycle_runs_from_its_copy_named_for_its_pid() {
         "{err}"
     );
     assert!(!h.join("run/cycle-3-0").exists());
-    fs::remove_dir_all(&h).unwrap();
 }
 
 #[test]
@@ -65,7 +64,6 @@ fn a_copy_that_cannot_be_made_runs_the_install() {
         err.contains("#7 runs from the install: its own copy could not be made"),
         "{err}"
     );
-    fs::remove_dir_all(&h).unwrap();
 }
 
 #[test]
@@ -86,7 +84,7 @@ fn a_planning_turn_runs_its_program_from_its_copy() {
     fs::set_permissions(&plan, fs::Permissions::from_mode(0o755)).unwrap();
     let out = Command::new(env!("CARGO_BIN_EXE_tehas-cycle"))
         .args(["pin", "plan", "7", "plan", "7", "--out", "o"])
-        .env("TEHAS_HOME", &h)
+        .env("TEHAS_HOME", h.path())
         .output()
         .unwrap();
     assert!(out.status.success(), "{out:?}");
@@ -97,7 +95,6 @@ fn a_planning_turn_runs_its_program_from_its_copy() {
         out.trim(),
         format!("{}/libexec/plan 7 --out o pid={pid}", dir.display())
     );
-    fs::remove_dir_all(&h).unwrap();
 }
 
 #[test]

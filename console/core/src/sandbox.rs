@@ -213,6 +213,29 @@ pub fn push_check(
     w
 }
 
+/// The container that installs the product's dependencies in a cycle's
+/// workspace before the cycle starts: <script> is [`crate::install::script`].
+/// It has the cycle's limits and the workspace at the cycle's path, and none of
+/// the cycle's variables: an install runs code no one reviewed.
+pub fn install_run(
+    limits: &[String],
+    security: &[String],
+    user: &str,
+    tree: &str,
+    host: &str,
+    image: &str,
+    script: &str,
+) -> Vec<String> {
+    let mut w = words(&["docker", "run", "--rm"]);
+    w.extend_from_slice(limits);
+    w.extend_from_slice(security);
+    w.extend(words(&["--user", user, "-e", "HOME=/home/vscode"]));
+    w.extend(words(&["-w", tree, "-v", &format!("{host}:{tree}")]));
+    w.extend(words(&["--entrypoint", "bash", image]));
+    w.extend(words(&["-c", script]));
+    w
+}
+
 /// What a cycle's container is started from, beside its image.
 pub struct CycleRun<'a> {
     pub name: &'a str,
@@ -820,7 +843,7 @@ mod tests {
 
     #[test]
     fn the_seed_leaves_out_the_logs_and_what_a_stopped_run_left() {
-        let at = env::temp_dir().join(format!("sandbox-seed-{}", std::process::id()));
+        let at = crate::testdir::TestDir::new("sandbox-seed");
         let index = at.join("index");
         fs::create_dir_all(index.join("logs")).unwrap();
         for f in ["widget.db", "widget.db.stage.1", "other.tmp", "_config.db"] {
@@ -836,7 +859,6 @@ mod tests {
         got.sort();
         assert_eq!(got, ["_config.db", "widget.db"]);
         assert!(seed(&state, &at.join("no-index").display().to_string()));
-        fs::remove_dir_all(&at).unwrap();
     }
 
     #[test]

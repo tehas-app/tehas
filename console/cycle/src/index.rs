@@ -79,7 +79,7 @@ const BOUND: u32 = 1800;
 const CONTAINER: &str = "tehas-index";
 
 fn say(line: &str) {
-    println!("tehas index: {line}");
+    tehas_core::outln!("tehas index: {line}");
 }
 
 fn warn(line: &str) {
@@ -734,13 +734,13 @@ pub fn main(branch: &str, base: &str, before_cycle: bool) -> u8 {
 mod tests {
     use super::*;
     use std::time::{Duration, SystemTime};
+    use tehas_core::testdir::TestDir;
 
-    struct Dir(PathBuf);
+    struct Dir(TestDir);
 
     impl Dir {
         fn new(name: &str) -> Dir {
-            let at = env::temp_dir().join(format!("index-{name}-{}", std::process::id()));
-            let _ = fs::remove_dir_all(&at);
+            let at = TestDir::new(&format!("index-{name}"));
             fs::create_dir_all(at.join("index")).unwrap();
             fs::create_dir_all(at.join("tmp")).unwrap();
             Dir(at)
@@ -764,12 +764,6 @@ mod tests {
         }
         fn names(&self) -> Vec<String> {
             files(&self.index()).iter().map(|f| name(f)).collect()
-        }
-    }
-
-    impl Drop for Dir {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.0);
         }
     }
 

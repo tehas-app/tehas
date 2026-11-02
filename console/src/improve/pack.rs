@@ -101,21 +101,10 @@ pub fn pack(file: &Path, dir: &Path, name: &str, limit: u64) -> Option<Vec<Strin
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
+    use tehas_core::testdir::TestDir;
 
-    struct Dir(PathBuf);
-
-    impl Drop for Dir {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.0);
-        }
-    }
-
-    fn dir(name: &str) -> Dir {
-        let d = std::env::temp_dir().join(format!("improve-pack-{name}-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&d);
-        fs::create_dir_all(&d).unwrap();
-        Dir(d)
+    fn dir(name: &str) -> TestDir {
+        TestDir::new(&format!("improve-pack-{name}"))
     }
 
     // 300 lines that compress badly, so a small limit forces pieces.
@@ -143,9 +132,9 @@ mod tests {
     #[test]
     fn a_log_under_the_limit_is_one_file() {
         let d = dir("one");
-        let log = d.0.join("log");
+        let log = d.join("log");
         fs::write(&log, big_log()).unwrap();
-        let gz = d.0.join("gz");
+        let gz = d.join("gz");
         let names = pack(&log, &gz, "ticket-7.log", 1_000_000).unwrap();
         assert_eq!(names, ["ticket-7.log.gz"]);
         assert_eq!(unzip(&gz.join("ticket-7.log.gz")), big_log());
@@ -154,9 +143,9 @@ mod tests {
     #[test]
     fn a_log_over_the_limit_is_numbered_pieces_that_join_back_to_it() {
         let d = dir("pieces");
-        let log = d.0.join("log");
+        let log = d.join("log");
         fs::write(&log, big_log()).unwrap();
-        let gz = d.0.join("gz");
+        let gz = d.join("gz");
         let names = pack(&log, &gz, "ticket-7.log", 3000).unwrap();
         assert!(names.len() >= 2, "{names:?}");
         let mut joined = Vec::new();
@@ -173,11 +162,11 @@ mod tests {
     #[test]
     fn a_line_too_long_for_one_piece_leaves_no_pieces() {
         let d = dir("long");
-        let log = d.0.join("log");
+        let log = d.join("log");
         let mut text: Vec<u8> = big_log().into_iter().filter(|b| *b != b'\n').collect();
         text.extend_from_slice(b"\nsecond line\n");
         fs::write(&log, text).unwrap();
-        let gz = d.0.join("gz");
+        let gz = d.join("gz");
         assert_eq!(pack(&log, &gz, "ticket-7.log", 3000), None);
         assert_eq!(fs::read_dir(&gz).unwrap().count(), 0);
     }
@@ -185,6 +174,6 @@ mod tests {
     #[test]
     fn a_file_that_cannot_be_read_packs_nothing() {
         let d = dir("gone");
-        assert_eq!(pack(&d.0.join("none"), &d.0.join("gz"), "x", 3000), None);
+        assert_eq!(pack(&d.join("none"), &d.join("gz"), "x", 3000), None);
     }
 }

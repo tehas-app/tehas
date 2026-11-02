@@ -1,14 +1,12 @@
 #!/usr/bin/env bash
 # Tests for the follow-up steps: what install.sh and the console's own table must
 # agree on, the sources that call for each step through the verbs install.sh
-# calls, and the reader of the record that stays in lib/update-steps.sh. What
+# calls, and the reader of the record install.sh --check asks. What
 # counts as a step line, the order the steps run in and how the record is merged
 # are the Rust tests of console/src/update/steps.rs.
 # shellcheck disable=SC2016  # snippets are expanded by the shell under test
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
-# shellcheck source=lib/update-steps.sh
-. "$T_ROOT/lib/update-steps.sh"
 # shellcheck disable=SC2154  # t_console_why is set by t_console (test/lib.sh)
 t_console || t_bad "no console: $t_console_why"
 steps_for() { "$T_CONSOLE" update steps for "$@"; }
@@ -112,23 +110,18 @@ done < <(sed -n 's#^  "systemd/\([^"|]*\).*#\1#p' "$T_ROOT/install.sh")
 t_eq "$found" "$(find "$T_ROOT/host/systemd" -type f | wc -l)"
 t_eq "$missing" ""
 
-t_case "the unfinished steps of a run have one named place"
-T_ENV=("TEHAS_HOME=$T/home/tehas")
-t_run '. "$T_ROOT/lib/update-steps.sh"; tehas_pending_file'
+t_case "no record is an empty answer, not a failure"
+T_ENV=("TEHAS_HOME=$T/home/norecord" "TEHAS_CONSOLE=$T_CONSOLE")
+t_run '"$TEHAS_CONSOLE" update steps owed'
 t_eq "$t_rc" 0
-t_eq "$t_out" "$T/home/tehas/state/update-pending"
-
-t_case "naming the pending file changes nothing"
-T_ENV=("TEHAS_HOME=$T/home/nowhere")
-t_run '. "$T_ROOT/lib/update-steps.sh"; tehas_pending_file >/dev/null'
-t_eq "$t_rc" 0
-t_eq "$([ -e "$T/home/nowhere" ] && echo exists || echo none)" "none"
+t_eq "$t_out" ""
+t_eq "$([ -e "$T/home/norecord" ] && echo exists || echo none)" "none"
 
 t_case "recording steps writes the record, once each, in the order they run"
 T_ENV=("TEHAS_HOME=$T/home/record" "TEHAS_CONSOLE=$T_CONSOLE")
 t_run '"$TEHAS_CONSOLE" update steps record edge/docs.Caddyfile libexec/tehas-mcp
 "$TEHAS_CONSOLE" update steps record sandbox/Dockerfile edge/docs.compose.yaml
-. "$T_ROOT/lib/update-steps.sh"; tehas_read_steps'
+"$TEHAS_CONSOLE" update steps owed'
 t_eq "$t_rc" 0
 t_eq "$t_out" "units tehas-mcp.service
 sandbox
@@ -138,26 +131,24 @@ docs --force-recreate"
 # for it is how an update would come to write back only what it knew, and the steps
 # in it would be gone - so a failed read is a failure here, not an empty answer.
 t_case "a record that cannot be read is a failure, not an empty answer"
-T_ENV=("TEHAS_HOME=$T/home/record4")
-t_run '. "$T_ROOT/lib/update-steps.sh"
-f=$(tehas_pending_file)
+T_ENV=("TEHAS_HOME=$T/home/record4" "TEHAS_CONSOLE=$T_CONSOLE")
+t_run 'f=$TEHAS_HOME/state/update-pending
 mkdir -p "$(dirname "$f")"
 printf "sandbox\n" >"$f"
 chmod 000 "$f"
-if tehas_read_steps; then echo read-as-empty; else echo refused; fi'
+if "$TEHAS_CONSOLE" update steps owed; then echo read-as-empty; else echo refused; fi'
 t_eq "$t_rc" 0
 t_contains "$t_out" "cannot read the follow-up record"
 t_contains "$t_out" "refused"
 t_lacks "$t_out" "sandbox"
 
 t_case "an unreadable record is refused even when it looks empty"
-T_ENV=("TEHAS_HOME=$T/home/record5")
-t_run '. "$T_ROOT/lib/update-steps.sh"
-f=$(tehas_pending_file)
+T_ENV=("TEHAS_HOME=$T/home/record5" "TEHAS_CONSOLE=$T_CONSOLE")
+t_run 'f=$TEHAS_HOME/state/update-pending
 mkdir -p "$(dirname "$f")"
 : >"$f"
 chmod 000 "$f"
-if tehas_read_steps; then echo read-as-empty; else echo refused; fi'
+if "$TEHAS_CONSOLE" update steps owed; then echo read-as-empty; else echo refused; fi'
 t_eq "$t_rc" 0
 t_contains "$t_out" "refused"
 

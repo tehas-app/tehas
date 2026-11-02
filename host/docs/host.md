@@ -22,7 +22,7 @@ Preparing a fresh machine is on the [bootstrap page](/bootstrap).
 | `~/tehas/lib/paths.sh`               | The home of each tool this host installs, and the `PATH` that finds them. `env.sh`, `bootstrap.sh` and `install.sh` all take the list from here |
 | `~/tehas/lib/sandbox.sh`             | The bash of a sandbox container: the reading of what `tehas-cycle sandbox` gives it; sourced by the work and plan scripts, and by dev for the check of Pi's files |
 | `~/tehas/lib/slice.sh`               | The way to `console slice`, for the poll and `tehas improve`: whether the slice is usable and the room left, and with no console it finds no slice. A command that starts a sandbox container asks `tehas-cycle sandbox limits`, which holds the same rules and makes the container's limits, and it starts nothing without a usable slice |
-| `~/tehas/lib/attachments.sh`         | The way to `libexec/attach`, which holds which links of an issue are attached files, who may attach and how one is fetched. `tehas work` and `tehas plan` use it; `tehas dev` and the Protolab reach the program from the console, and the Protolab holds the same link rule there |
+| `~/tehas/lib/attachments.sh`         | The way to `libexec/attach`, which holds which links of an issue are attached files, who may attach and how one is fetched. `tehas work` uses it; `tehas plan`, `tehas dev` and the Protolab reach the program from the console, and the Protolab holds the same link rule there |
 | `~/tehas/lib/questions.sh`            | The questions of a park. A cycle's report uses it |
 | `~/tehas/bin/`                       | The two commands on `PATH`: `tehas` for a person, `tehasbot` for the units. Plus `gh` |
 | `~/tehas/libexec/`                   | The scripts behind the two commands, one for each thing they do. Not on `PATH` |
@@ -171,7 +171,7 @@ commands a person does.
 | The model gateway's `baseUrl` and key, when it uses one | `baseUrl` of the provider in `models.json`, with the token as `$TEHAS_MODEL_KEY_<NAME>` in `~/.config/tehas/env`. See [A backup model endpoint](#a-backup-model-endpoint) |
 | `TEHAS_ENERGY_URL`, when the model is behind a gateway | The energy sampler asks `<baseUrl>/v1/cluster` with the model's token. A gateway that does not pass that path through needs the cluster URL named here, asked with no token. See [`tehasbot energy`](/tools#tehasbot-energy) |
 | Disk for the sandbox image                     | What `docker image inspect --format '{{.Size}}' tehas/pi-rukas:uid$(id -u)` reports for the host's image, with room above that for the base a build pulls and the layers it writes, and room for one image of a rollback. Before the first build the image is not there to be measured, and its size is upstream's base plus these steps: [Bootstrap](/bootstrap#what-the-machine-needs). A second instance user of one host builds its own image for its own uid and shares the layers of the first: [What two instance users of one host share](#what-two-instance-users-of-one-host-share) |
-| Room to grow into, when the machine is a VM     | The host runs as one virtual machine on a hypervisor, so its CPUs and memory are set at its maximum once, with room above what the factory needs today: `<vcpu current='N'>MAX</vcpu>` and memory as a `virtio-mem` device. Everything under the maximum then changes while the machine runs, and a restart of the hypervisor saves the VM with its cycles in it. No tehas command takes part in any of it. See [Resize or restart the host](/resize) |
+| Room to grow into, when the machine is a VM     | The host runs as one virtual machine on a hypervisor, so its CPUs and memory are set at its maximum once, with room above what the factory needs today: `<vcpu current='N'>MAX</vcpu>` and memory as a `virtio-mem` device. Everything under the maximum then changes while the machine runs, and a restart of the hypervisor saves the VM with its cycles in it. No tehas command takes part in any of it. See [Resize or restart the host](/resize). The other shape is a factory that is a container on another project's machine, as tehas-tehas is: it gains that room, and loses the live resize and the save, so a restart of the machine under it needs a drain first |
 
 ## Installing a factory
 
@@ -343,6 +343,19 @@ branch in a temporary worktree, tags that commit as the next `vX.Y.Z` with an
 annotated tag, and pushes the tag. It refuses a commit whose `CHANGELOG.md`
 has no "Adopter action" for the release ([Releases](/tools#release-notes-and-the-adopter-action)).
 The pushed tag starts the release workflow, which publishes the signed tarball.
+With `--rc` it tags a release candidate of the next version instead,
+`vX.Y.Z-rc.N`, N one more than the newest candidate of that version: the same
+gate and checks, `CHANGELOG.md` left as it is. With `--from <branch>` it tags
+the head of that branch of the remote instead, so pull requests that wait on
+their host proof can be in a candidate before they reach the default branch.
+The branch must contain the default branch's head, or nothing is tagged. A
+plain release is always the default branch's head. The workflow publishes a
+candidate as a prerelease, which a plain `tehas update` passes over; a host
+moves to one only with `tehas update --to vX.Y.Z-rc.N`.
+
+```
+scripts/tag-release.sh --minor --rc --from candidate-v0.22.0   # v0.22.0-rc.1
+```
 When the head carries a polyfill that the newest pi-rukas no longer needs, it
 opens a pull request that removes it and tags nothing until that is merged
 ([Polyfills](/tools#polyfills-of-pi-rukas-features)).
@@ -1040,8 +1053,8 @@ edge router are outside the slice too.
 
 ### What a container may not do
 
-A cycle, a planning turn, a `tehas dev` session and the push check before a
-cycle all get the options below, from `security` in
+A cycle, a planning turn, a `tehas dev` session, and the push check and the
+product's install before a cycle all get the options below, from `security` in
 `console/core/src/sandbox.rs`, beside the mounts and the variables. The list is
 capability-shaped options and this round's bounded `/tmp`. The indexer and the
 analyst are not given them yet (issue #54 leaves them to a follow-up), so the
@@ -1177,6 +1190,7 @@ hold a slot for ever:
 | --- | --- | --- |
 | The image's `--capabilities` answer before a cycle | 120 s | `tehas work` exits 78, with `gave no --capabilities answer` |
 | The push check before a cycle | 300 s | `tehas work` exits 3, with `the push check did not end within 300s` |
+| The product's install before a cycle | 1800 s | `tehas work` exits 78, with `the install did not end within 1800s` in the `.preflight` file |
 | The clone of the cycle's workspace | 300 s | `tehas work` exits 78 |
 | `docker stop` at the end of a cycle, and on a signal | 60 s | `docker kill`, bounded the same way, and the line `docker stop of tehas-work-N did not end within 60s, killing it` |
 | The console at the end of a cycle | 3 s, then 30 s after it is asked to stop (`TEHAS_CONSOLE_WAIT`) | The console is killed, with `the console did not stop within 30s, killing it` |
@@ -1366,9 +1380,10 @@ the next container reads the new ceiling for itself. That is on
 
 `tehas/pi-rukas:uid<uid>`: the upstream pi-rukas image plus the in-container
 user remapped to the tehas user's id, shellcheck, tehas's jq (ahead of the
-base image's, the version the host runs), Playwright's Chromium with
-fonts, `file`, and a Python image library. The last two are in the container
-only: `bootstrap.sh` installs neither and its check does not look for them.
+base image's, the version the host runs), Rust at `RUST_VERSION` with rustfmt
+and clippy, Playwright's Chromium with fonts, `file`, and a Python image
+library. The last two are in the container only: `bootstrap.sh` installs
+neither and its check does not look for them.
 cargo's registry belongs to that user, so a gate that builds Rust can fetch its
 crates; they go with the container. The base is pinned by digest in
 `sandbox/Dockerfile`, shellcheck and jq by checksum, codebase-memory-mcp by the
@@ -1383,7 +1398,15 @@ image and gives the tag cycles run: see
 [the sandbox image](/new-project#5-the-sandbox-image). The platform's file stays
 as this checkout has it, because a changed one makes `tehas update` refuse.
 
-Two things the base carries are changed on purpose.
+Three things the base carries are changed on purpose.
+
+- Rust is put at `RUST_VERSION`, the version `bootstrap.sh` installs on the host
+  and CI builds with. The base carries the stable toolchain of the day upstream
+  built it, so the compiler a cycle's gate ran moved between builds. The build
+  installs the pinned toolchain with rustup, with rustfmt and clippy, and makes it
+  the default; the base's own toolchain stays beside it. rustup checks what it
+  downloads against the channel's checksums. The build stops when `rustc` does
+  not answer `RUST_VERSION`, and the tool gate asks it again as the cycle's user.
 
 - codebase-memory-mcp is put back at the version `versions.env` names, the one
   `bootstrap.sh` installs on the host. The base installs it from upstream's main,
@@ -1513,9 +1536,9 @@ belong to that uid, so what decides how much of the image two instance users
 share is where the uid enters the build.
 
 It enters late. `sandbox/Dockerfile` does everything the uid does not decide
-first - the base image, cargo's registry, the distribution packages, the code
-indexer, shellcheck, jq and the embedding model - and the file ends where the uid
-enters: a stage that takes the one above it as its base. `sandbox/build.sh` builds
+first - the base image, the Rust toolchain, cargo's registry, the distribution
+packages, the code indexer, shellcheck, jq and the embedding model - and the
+file ends where the uid enters: a stage that takes the one above it as its base. `sandbox/build.sh` builds
 from those lines as they stand, with the uid's own argument carried to the stage
 that reads it, so the remap, the read of the model as the cycle's own user, the
 browser install and the tool gate are the only steps built for one uid. The remap

@@ -436,6 +436,7 @@ pub fn private_file(dir: &Path, prefix: &str, text: &str) -> Option<PathBuf> {
 mod tests {
     use super::*;
     use std::process::{Command, Stdio};
+    use tehas_core::testdir::TestDir;
 
     /// The filter of the record as bash had it, for the stream held to jq.
     const JQ: &str = r#"fromjson? | select(type == "object" and .type != "message_update")
@@ -484,12 +485,10 @@ mod tests {
                 new
             })
             .collect();
-        let dir = std::env::temp_dir().join(format!("tehas-condense-{}", std::process::id()));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = TestDir::new("condense");
         fs::write(dir.join("raw"), format!("{text}\n")).unwrap();
         condense(&dir.join("raw"), &dir.join("out")).unwrap();
         let got = fs::read_to_string(dir.join("out")).unwrap();
-        let _ = fs::remove_dir_all(&dir);
         assert_eq!(got.lines().collect::<Vec<_>>(), want);
     }
 

@@ -22,8 +22,21 @@ cycles running, both marked unproven. Where a command needs the guest's
 agreement it needs the guest agent, `qemu-guest-agent`, running in the VM:
 check it with `systemctl status qemu-guest-agent` before you start.
 
-The one rule underneath all of it: **the maximum is the change that needs a
-restart, so set it once, high, and treat every change under it as a live one.**
+## Who this is for
+
+Every step here needs a hypervisor: the XML, the `virsh` commands and the
+`libvirt-guests` unit are all outside the guest. A factory that is a container
+on another project's machine, as tehas-tehas is, has no hypervisor to resize it
+live or save it with `libvirt-guests`; check with `systemd-detect-virt --vm`,
+which answers nothing on a host that is not a virtual machine
+([the `clock` step of `bootstrap.sh`](/bootstrap) uses the same test).
+Restarting the machine under it means a drain first, and a restart only once
+the drain says it is done: see [When a drain is still
+needed](#when-a-drain-is-still-needed) below for what its exit statuses mean.
+
+The one rule underneath all of it, for a VM host: **the maximum is the change
+that needs a restart, so set it once, high, and treat every change under it as
+a live one.**
 
 ## Define the VM with headroom, once
 
@@ -115,13 +128,13 @@ named `tehas-tehas`:
 
 ```
 virsh setvcpus tehas-tehas 12 --live          # 12 vCPUs now, booted at 8
-virsh update-memory-device tehas-tehas --config --requested-size 20G   # virtio-mem, live
+virsh update-memory-device tehas-tehas --live --config --requested-size 20G   # virtio-mem
 # or, for DIMMs:
 virsh setmem tehas-tehas 20G --live
 ```
 
-`--config` on the virtio-mem line is what `update-memory-device` takes for the
-request; it asks for the size and libvirt hot-adds the blocks. `setmaxmem`
+On the virtio-mem line `--live` asks the running VM for the size, and libvirt
+hot-adds the blocks; `--config` keeps the size for the next boot. `setmaxmem`
 changes only the maximum, which is a reboot's business, not a live one.
 
 `setvcpus --live` raises or lowers what the guest runs with now; `--config`
@@ -164,6 +177,10 @@ for the new ceiling with the `systemctl show` line above, which reads the slice
 and not the poll's record of it.
 
 ## Restart the hypervisor without a drain
+
+This section is for a VM host: a factory that is a container has no hypervisor
+to save it, so [who this is for](#who-this-is-for) still holds and the machine
+restarts with a drain.
 
 What restarts the machine under a factory is usually the hypervisor's own
 kernel. `libvirt-guests` is the unit that saves each running VM to disk and
@@ -272,6 +289,20 @@ tehas drain --wait 3600     # start nothing new, wait for the running cycles
 # the work on the hypervisor
 tehas limit clear           # afterwards
 ```
+
+Restart only after an exit 0, and read what the drain prints, not only its status:
+
+- **Exit 0**: no cycle holds its lock, and the last line says `drained: no cycle
+  is running`. A planning turn that had already started is not counted, and it
+  is not waited for: `tehas status` lists each planning turn in flight, so look
+  there too before the restart.
+- **Exit 1 with a `still running:` line**: those cycles still ran at the end of
+  the wait. Run the drain again with a longer wait (a cycle may run for
+  `TEHAS_WORK_TIMEOUT` seconds, six hours by default), or end one with `tehas
+  stop <issue> --keep-workspace`, which ends it unfinished and keeps its
+  workspace to read.
+- **Exit 1 and nothing printed**: a poll held its lock for the whole wait, so
+  nothing was counted. Run the drain again.
 
 Drained means no poll can still start a cycle, and drain waits for the poll
 that is running before it says none is, so a cycle a poll had decided to start

@@ -4,10 +4,12 @@
 # A section starts at a line "## <name>", with anything after the name, such as
 # the date, and ends before the next "## " line. The release workflow calls this
 # for the text of a release's page, and scripts/tag-release.sh calls it to check
-# that the release has an "### Adopter action" before it tags.
+# that the release has an "### Adopter action" before it tags. A release
+# candidate is tagged before Unreleased is renamed, so its section is Unreleased.
 #
 # Usage: scripts/release-notes.sh <tag> [<file>]
-#   <tag>    a vX.Y.Z tag, or Unreleased for the section at the top
+#   <tag>    a vX.Y.Z tag, a vX.Y.Z-rc.N tag, or Unreleased for the section at
+#            the top
 #   <file>   the changelog to read, default the CHANGELOG.md beside scripts/;
 #            - reads standard input
 #
@@ -24,10 +26,11 @@ esac
 [ "$#" -ge 1 ] && [ "$#" -le 2 ] || { echo "release-notes: usage: release-notes.sh <tag> [<file>]" >&2; exit 64; }
 name=$1
 file=${2:-$(dirname "${BASH_SOURCE[0]}")/../CHANGELOG.md}
-[[ $name =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || [ "$name" = Unreleased ] || {
-  echo "release-notes: the tag must be vX.Y.Z or Unreleased, got: $name" >&2
+[[ $name =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$ ]] || [ "$name" = Unreleased ] || {
+  echo "release-notes: the tag must be vX.Y.Z, vX.Y.Z-rc.N or Unreleased, got: $name" >&2
   exit 64
 }
+[[ $name != *-rc.* ]] || name=Unreleased
 where=$file
 if [ "$file" = - ]; then
   where="standard input"

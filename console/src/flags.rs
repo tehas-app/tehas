@@ -410,7 +410,7 @@ fn limit(given: &[String]) -> u8 {
                 words = true;
             }
             let out = read(&file, now());
-            println!("{}", if words { api(out) } else { out.said() });
+            tehas_core::outln!("{}", if words { api(out) } else { out.said() });
             0
         }
         // read prints the object `tehas limit --json` prints, with no api: it
@@ -443,7 +443,7 @@ fn limit(given: &[String]) -> u8 {
                 None => now(),
             };
             let out = read(&file, when);
-            println!("{}", if line { out.said() } else { out.text() });
+            tehas_core::outln!("{}", if line { out.said() } else { out.text() });
             0
         }
         // --json prints the object with api first, the answer tehas limit
@@ -490,7 +490,7 @@ fn pause(given: &[String]) -> u8 {
                 words = true;
             }
             let out = read_pause(&file);
-            println!("{}", if words { api(out) } else { out.said() });
+            tehas_core::outln!("{}", if words { api(out) } else { out.said() });
             0
         }
         // read prints the object every command which honours the flag reads,
@@ -504,7 +504,7 @@ fn pause(given: &[String]) -> u8 {
                 line = true;
             }
             let out = read_pause(&file);
-            println!("{}", if line { out.said() } else { out.text() });
+            tehas_core::outln!("{}", if line { out.said() } else { out.text() });
             0
         }
         "set" => match pause_args(rest) {
@@ -572,7 +572,7 @@ fn pause_set(file: &Path, reason: &str) -> u8 {
                     .map(|(_, value)| value.trim_matches('"').to_string())
                     .unwrap_or_default()
             };
-            println!("{}", pause_kept(&of("at"), &of("by"), &of("reason"), file));
+            tehas_core::outln!("{}", pause_kept(&of("at"), &of("by"), &of("reason"), file));
             return 0;
         }
         Reading { state, fields, .. } => {
@@ -625,7 +625,7 @@ fn pause_set(file: &Path, reason: &str) -> u8 {
         eprintln!("tehas pause: could not write {}", file.display());
         return 1;
     }
-    println!(
+    tehas_core::outln!(
         "{}\nno new cycle starts on this host: {}",
         pause_written(&at, &by, &said),
         file.display()
@@ -661,7 +661,7 @@ fn pause_clear(file: &Path) -> u8 {
             }
         }
     }
-    println!(
+    tehas_core::outln!(
         "{}",
         if there {
             "resumed: the pause flag is gone"
@@ -741,7 +741,7 @@ pub fn resume(given: &[String]) -> u8 {
     let list = setting("TEHAS_ALLOWED_LABELERS");
     let allowed = |who: &str| !who.is_empty() && list.split(' ').any(|a| a == who);
     match other_switch(&mut forge, control, &allowed) {
-        Some(Ok(line)) => println!("{line}"),
+        Some(Ok(line)) => tehas_core::outln!("{line}"),
         Some(Err(line)) => eprintln!("{line}"),
         None => {}
     }
@@ -896,7 +896,7 @@ pub fn drain(given: &[String]) -> u8 {
         sleep(Duration::from_secs(1));
     };
     let limit = read(&file, now()).text();
-    println!("{}", drain_report(&said, &running, &limit, asked.json));
+    tehas_core::outln!("{}", drain_report(&said, &running, &limit, asked.json));
     u8::from(!running.is_empty())
 }
 
@@ -1094,7 +1094,7 @@ fn set(file: &Path, want: &Wanted) -> u8 {
     match write_limit(file, want) {
         Ok(()) => {
             let out = read(file, now());
-            println!("{}", if want.json { api(out) } else { out.said() });
+            tehas_core::outln!("{}", if want.json { api(out) } else { out.said() });
             0
         }
         Err(rc) => rc,
@@ -1165,7 +1165,7 @@ fn clear(file: &Path, json: bool) -> u8 {
         }
     }
     let out = read(file, now());
-    println!("{}", if json { api(out) } else { out.said() });
+    tehas_core::outln!("{}", if json { api(out) } else { out.said() });
     0
 }
 
@@ -1525,30 +1525,16 @@ mod tests {
     use serde_json::json;
     use std::fs::File;
     use std::os::unix::fs::symlink;
+    use tehas_core::testdir::TestDir;
 
-    struct Dir(PathBuf);
-
-    impl Drop for Dir {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.0);
-        }
-    }
-
-    fn dir(name: &str) -> Dir {
-        let d = env::temp_dir().join(format!(
-            "tehas-flags-{name}-{}-{:?}",
-            std::process::id(),
-            std::thread::current().id(),
-        ));
-        let _ = fs::remove_dir_all(&d);
-        fs::create_dir_all(&d).unwrap();
-        Dir(d)
+    fn dir(name: &str) -> TestDir {
+        TestDir::new(&format!("flags-{name}"))
     }
 
     // The file of a home, with its state/ directory made.
-    fn written(d: &Dir) -> PathBuf {
-        fs::create_dir_all(d.0.join("state")).unwrap();
-        d.0.join("state/limit.json")
+    fn written(d: &TestDir) -> PathBuf {
+        fs::create_dir_all(d.join("state")).unwrap();
+        d.join("state/limit.json")
     }
 
     fn args(given: &[&str]) -> Vec<String> {
@@ -1572,7 +1558,7 @@ mod tests {
         read(&file, NOW).said()
     }
 
-    fn set_in(d: &Dir, given: &[&str]) -> (u8, String) {
+    fn set_in(d: &TestDir, given: &[&str]) -> (u8, String) {
         let file = written(d);
         let rc = set(&file, &set_args(&args(given)).unwrap());
         (rc, read(&file, NOW).text())
@@ -1724,7 +1710,7 @@ mod tests {
             assert!(set_args(&bad).is_err(), "{bad:?} was taken");
         }
         // A refused set never reaches the file, so nothing of it is written.
-        assert!(!d.0.join("state").exists());
+        assert!(!d.join("state").exists());
     }
 
     #[test]
@@ -1800,10 +1786,10 @@ mod tests {
     fn no_file_is_none_and_a_directory_is_unreadable() {
         let d = dir("none");
         assert_eq!(
-            read(&d.0.join("state/limit.json"), NOW).text(),
+            read(&d.join("state/limit.json"), NOW).text(),
             r#"{"state":"none"}"#
         );
-        let state = d.0.join("state");
+        let state = d.join("state");
         fs::create_dir_all(state.join("limit.json")).unwrap();
         assert_eq!(
             read(&state.join("limit.json"), NOW).text(),
@@ -1874,7 +1860,7 @@ mod tests {
     #[test]
     fn a_limit_behind_a_link_is_the_file_it_points_at() {
         let d = dir("link");
-        let real = d.0.join("elsewhere.json");
+        let real = d.join("elsewhere.json");
         fs::write(
             &real,
             r#"{"v":1,"cycles":2,"plan":true,"until":null,"reason":""}"#,
@@ -1914,7 +1900,7 @@ mod tests {
     #[test]
     fn what_a_reader_is_given_at_a_moment_of_its_own() {
         let d = dir("reader");
-        let file = d.0.join("state/limit.json");
+        let file = d.join("state/limit.json");
         assert_eq!(read(&file, NOW).text(), r#"{"state":"none"}"#);
         set_in(
             &d,
@@ -1950,8 +1936,8 @@ mod tests {
     #[test]
     fn set_refuses_a_directory_in_its_way() {
         let d = dir("dirblock");
-        fs::create_dir_all(d.0.join("state/limit.json")).unwrap();
-        let file = d.0.join("state/limit.json");
+        fs::create_dir_all(d.join("state/limit.json")).unwrap();
+        let file = d.join("state/limit.json");
         assert_eq!(set(&file, &set_args(&args(&["--cycles", "1"])).unwrap()), 1);
     }
 
@@ -2136,28 +2122,28 @@ mod tests {
     #[test]
     fn only_a_held_lock_of_an_issue_is_a_running_cycle() {
         let d = dir("cycles");
-        assert_eq!(cycles_running(&d.0.join("none")), Vec::<u64>::new());
-        fs::write(d.0.join("5.lock"), "").unwrap();
-        let held = File::create(d.0.join("12.lock")).unwrap();
+        assert_eq!(cycles_running(&d.join("none")), Vec::<u64>::new());
+        fs::write(d.join("5.lock"), "").unwrap();
+        let held = File::create(d.join("12.lock")).unwrap();
         held.lock().unwrap();
-        let held2 = File::create(d.0.join("7.lock")).unwrap();
+        let held2 = File::create(d.join("7.lock")).unwrap();
         held2.lock().unwrap();
-        fs::write(d.0.join("x.lock"), "").unwrap();
-        fs::write(d.0.join("9.status"), "").unwrap();
-        assert_eq!(cycles_running(&d.0), vec![7, 12]);
+        fs::write(d.join("x.lock"), "").unwrap();
+        fs::write(d.join("9.status"), "").unwrap();
+        assert_eq!(cycles_running(d.path()), vec![7, 12]);
     }
 
     #[test]
     fn a_held_poll_lock_runs_out_its_wait_and_a_free_one_is_passed() {
         let d = dir("poll");
-        let lock = d.0.join("dispatch.lock");
+        let lock = d.join("dispatch.lock");
         assert!(poll_passed(&lock, 0));
         let held = File::open(&lock).unwrap();
         held.lock().unwrap();
         assert!(!poll_passed(&lock, 0));
         drop(held);
         assert!(poll_passed(&lock, 0));
-        assert!(!poll_passed(&d.0.join("no/such/dir"), 0));
+        assert!(!poll_passed(&d.join("no/such/dir"), 0));
     }
 
     #[test]
@@ -2205,9 +2191,9 @@ mod tests {
         read_pause_bytes(doc.as_bytes()).said()
     }
 
-    fn pause_file(d: &Dir) -> PathBuf {
-        fs::create_dir_all(d.0.join("state")).unwrap();
-        d.0.join("state/pause.json")
+    fn pause_file(d: &TestDir) -> PathBuf {
+        fs::create_dir_all(d.join("state")).unwrap();
+        d.join("state/pause.json")
     }
 
     #[test]
@@ -2299,7 +2285,7 @@ mod tests {
     #[test]
     fn no_flag_is_none() {
         let d = dir("pause-none");
-        let file = d.0.join("state/pause.json");
+        let file = d.join("state/pause.json");
         assert_eq!(read_pause(&file).text(), r#"{"state":"none"}"#);
         assert_eq!(read_pause(&file).said(), "pause     none");
     }
@@ -2307,7 +2293,7 @@ mod tests {
     #[test]
     fn a_flag_behind_a_link_is_the_file_it_points_at() {
         let d = dir("pause-link");
-        let real = d.0.join("elsewhere.json");
+        let real = d.join("elsewhere.json");
         fs::write(
             &real,
             r#"{"by":"boss","at":"2026-10-15T10:00:00Z","reason":"r"}"#,
@@ -2403,7 +2389,7 @@ mod tests {
         // A directory in the way is reported and nothing is written: the one
         // case where the command names the file rather than the flag in it.
         let d = dir("pause-dir");
-        let file = d.0.join("state/pause.json");
+        let file = d.join("state/pause.json");
         fs::create_dir_all(&file).unwrap();
         assert_eq!(pause_set(&file, "x"), 1);
         assert!(file.is_dir());
@@ -2430,7 +2416,7 @@ mod tests {
         // does not report the flag as gone.
         let d = dir("pause-clear-symlink");
         let file = pause_file(&d);
-        let outside = d.0.join("victim");
+        let outside = d.join("victim");
         fs::create_dir_all(&outside).unwrap();
         symlink(&outside, file.with_extension("json.new")).unwrap();
         assert_eq!(pause_clear(&file), 1);
@@ -2440,7 +2426,7 @@ mod tests {
         // be following it: the same rule holds there.
         let d = dir("pause-clear-flag-symlink");
         let file = pause_file(&d);
-        let outside = d.0.join("keepme");
+        let outside = d.join("keepme");
         fs::write(&outside, "not a flag").unwrap();
         symlink(&outside, &file).unwrap();
         assert_eq!(pause_clear(&file), 1);
@@ -2457,9 +2443,9 @@ mod tests {
         let file = pause_file(&d);
         assert_eq!(pause_set(&file, "x"), 0);
         fs::write(file.with_extension("json.new"), "half a flag").unwrap();
-        fs::set_permissions(d.0.join("state"), fs::Permissions::from_mode(0o500)).unwrap();
+        fs::set_permissions(d.join("state"), fs::Permissions::from_mode(0o500)).unwrap();
         assert_eq!(pause_clear(&file), 1);
-        fs::set_permissions(d.0.join("state"), fs::Permissions::from_mode(0o700)).unwrap();
+        fs::set_permissions(d.join("state"), fs::Permissions::from_mode(0o700)).unwrap();
         assert!(file.exists() || file.with_extension("json.new").exists());
     }
 

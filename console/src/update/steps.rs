@@ -318,10 +318,10 @@ pub(crate) fn record_lines(home: &Path, lines: &[String]) -> Result<(), ()> {
     write_record(home, &owed)
 }
 
-/// `console update steps ids|units|valid <line>|for <source>...|record <source>...`:
+/// `console update steps ids|units|valid <line>|owed|for <source>...|record <source>...`:
 /// the tables, one name per line, whether a line is a step (0 yes, 1 no), the
-/// steps changed sources call for, and those steps added to the record. Exit:
-/// 1 the record could not be read or written.
+/// lines of the record, the steps changed sources call for, and those steps
+/// added to the record. Exit: 1 the record could not be read or written.
 pub fn verb(given: &[String]) -> u8 {
     if let Some((word, sources)) = given.split_first() {
         match word.as_str() {
@@ -338,6 +338,19 @@ pub fn verb(given: &[String]) -> u8 {
                 };
                 return u8::from(record_lines(&host.home, &steps_for(sources)).is_err());
             }
+            "owed" if sources.is_empty() => {
+                let host = match super::host_or_refuse() {
+                    Ok(host) => host,
+                    Err(rc) => return rc,
+                };
+                let Ok(lines) = read_record(&host.home) else {
+                    return 1;
+                };
+                for line in lines {
+                    say(&line);
+                }
+                return 0;
+            }
             _ => {}
         }
     }
@@ -348,7 +361,7 @@ pub fn verb(given: &[String]) -> u8 {
         ["valid", line] => return u8::from(!valid(line)),
         _ => {
             super::tell(
-                "console update steps: usage: ids | units | valid <line> | for <source>... | record <source>...",
+                "console update steps: usage: ids | units | valid <line> | owed | for <source>... | record <source>...",
             );
             return 64;
         }
