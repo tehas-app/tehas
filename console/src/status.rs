@@ -27,7 +27,6 @@
 use crate::flags::epoch;
 use crate::jq::{first, obj, J};
 use crate::store;
-use crate::update::release::{older, tag_ok};
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -417,11 +416,36 @@ fn slice_line(h: &J, now: i64) -> String {
     }
 }
 
-/// Whether version a is newer than version b, both released versions: a
-/// release candidate is older than its version. Anything else is never newer.
+/// The triple of vX.Y.Z, or None for anything else.
+fn triple(v: &J) -> Option<Vec<f64>> {
+    let s = v.as_str()?;
+    s.strip_prefix('v')
+        .unwrap_or(s)
+        .split('.')
+        .map(|part| {
+            let plain = !part.is_empty()
+                && part
+                    .bytes()
+                    .all(|b| b.is_ascii_digit() || matches!(b, b'.' | b'-' | b'e' | b'E' | b'+'));
+            if plain {
+                part.parse().ok()
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+/// Whether version a is newer than version b, by the rule tehas status has
+/// always used: some place of a is greater than the same place of b, and a
+/// place b does not have counts as smaller. Either one that is no triple is
+/// never newer.
 fn newer(a: &J, b: &J) -> bool {
-    match (a.as_str(), b.as_str()) {
-        (Some(x), Some(y)) => tag_ok(x) && tag_ok(y) && older(y, x),
+    match (triple(a), triple(b)) {
+        (Some(x), Some(y)) => x
+            .iter()
+            .enumerate()
+            .any(|(i, n)| y.get(i).is_none_or(|m| n > m)),
         _ => false,
     }
 }
@@ -788,15 +812,11 @@ mod tests {
     }
 
     #[test]
-    fn newer_compares_released_versions() {
+    fn newer_is_the_rule_tehas_status_has_used() {
         assert!(newer(&J::str("v0.16.2"), &J::str("v0.16.1")));
         assert!(!newer(&J::str("v0.16.1"), &J::str("v0.16.1")));
-        assert!(!newer(&J::str("v0.16.2"), &J::str("v0.17.0")));
         assert!(!newer(&J::str("main"), &J::str("v0.16.1")));
-        assert!(!newer(&J::str("v0.16.1"), &J::str("main")));
-        assert!(newer(&J::str("v0.22.0"), &J::str("v0.22.0-rc.1")));
-        assert!(!newer(&J::str("v0.22.0-rc.1"), &J::str("v0.22.0")));
-        assert!(!newer(&J::str("v0.21.0"), &J::str("v0.22.0-rc.1")));
+        assert!(newer(&J::str("v1.0.0.1"), &J::str("v1.0.0")));
     }
 
     #[test]

@@ -3,7 +3,7 @@
 
 use super::*;
 use crate::poll::End;
-use crate::read::run::{Calls, RetryPolicy};
+use crate::read::run::Calls;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -156,7 +156,6 @@ fn world() -> World {
             store: s("store"),
             gh_count: 0,
             gh_token: None,
-            retry: RetryPolicy::default(),
         },
         poll_at: 1000,
         row_not_begun: false,

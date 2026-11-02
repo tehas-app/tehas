@@ -22,4 +22,4 @@ mask = ["dep:regex", "dep:sha2"]
 [dependencies]
 regex = { version = "1", optional = true }
 serde_json = "1"
-sha2 = { version = "0.11", optional = true }
+sha2 = { version = "0.10", optional = true }
