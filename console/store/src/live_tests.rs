@@ -1,6 +1,6 @@
 //! cycle-heartbeat and publish.
 
-use crate::live::{text, KEEP, LOST_AFTER};
+use crate::live::{fail_writes, text, KEEP, LOST_AFTER};
 use crate::verbs_tests::*;
 use serde_json::Value;
 use std::fs::{self, File};
@@ -40,6 +40,8 @@ fn read(home: &Path, name: &str) -> String {
     fs::read_to_string(home.join("live").join(name)).unwrap()
 }
 
+/// The names under `live/<dir>`, temp files and all: what a publish left
+/// behind is part of what its tests judge.
 fn left(home: &Path, dir: &str) -> Vec<String> {
     let mut v: Vec<String> = fs::read_dir(home.join("live").join(dir))
         .unwrap()
@@ -280,6 +282,74 @@ fn a_rename_that_fails_fails_the_call_and_leaves_no_temp_file() {
     assert_eq!(code, 1);
     assert!(line.starts_with("write live/running.json"), "{line}");
     assert!(left(&home, "").iter().all(|n| !n.starts_with('.')));
+}
+
+/// A publish whose first write fails still removes the views of the ended
+/// cycles, and still exits non-zero.
+#[test]
+fn ends_of_a_finished_cycle_are_gone_when_a_write_fails() {
+    // #62 is the running cycle -- quiet since 1_000_250 but its lock held, so
+    // the lost rule does not touch it -- and the only cycle the rows keep. The
+    // views of #60 and #99 are two files no publish writes: #60 has a row and
+    // no heartbeat of the open attempt, and #99 has neither. Both are removals
+    // only, and they are what shows whether the removals ran before the writes
+    // or after them.
+    let home = home("publish-partial-write");
+    // A cycle of the store's record, ended or not, is a cycle the read finds
+    // only through a heartbeat of its open attempt: with none, it is no view at
+    // all, and its file is one publish must remove. The lock is what cycle-start
+    // asks for, and it is given up at once.
+    approve(&home, 60, "alice", "label");
+    let lock = hold(&home, 60);
+    ok_at(&home, 1_000_000, &["cycle-start", "60"]);
+    drop(lock);
+    // #62 is the running cycle, its lock held to the end of the test.
+    let (_held, _) = start_by(&home, 62, "alice", "label", 1_000_200);
+    beat(&home, 1_000_250, 62, true, "running", "build", "");
+    // The views a running cycle's publish left behind.
+    fs::create_dir_all(home.join("live/cycles")).unwrap();
+    for n in ["60", "62", "99"] {
+        fs::write(home.join(format!("live/cycles/{n}.json")), "{}\n").unwrap();
+    }
+    // The first write of the call is the report given with --dispatch, and it
+    // does not happen, so the call stops there. Were the removals still after
+    // the writes, as they were, these two views would be left in place and a
+    // reader would go on showing a run that ended and a cycle the store has no
+    // row for at all.
+    let files = scratch("publish-partial-write-files");
+    let dispatch = write_file(&files, "dispatch.json", b"{\"why\":\"idle\"}\n");
+    fail_writes(Some(1));
+    let (code, line) = publish(
+        &home,
+        1_000_300,
+        &["--dispatch", dispatch.to_str().unwrap()],
+    )
+    .unwrap_err();
+    assert_eq!(code, 1);
+    assert_eq!(line, "write live/dispatch.json: no space left on device");
+    // Both views the rows do not keep are gone, and of the files this call
+    // writes not one exists: dispatch.json, whose write failed, was never made,
+    // and endings.json and running.json were never reached. The one file left
+    // under live/cycles/ is #62's, still the `{}` this test wrote for it, since
+    // the call never got as far as writing it.
+    assert_eq!(left(&home, "cycles"), vec!["62.json".to_string()]);
+    assert!(read(&home, "cycles/62.json").starts_with("{}"));
+    for name in ["dispatch.json", "endings.json", "running.json"] {
+        assert!(!home.join("live").join(name).exists(), "{name}");
+    }
+    // No temp of any write is left in live/ or in live/cycles/.
+    assert!(left(&home, "").iter().all(|n| !n.starts_with('.')));
+    assert!(left(&home, "cycles").iter().all(|n| !n.starts_with('.')));
+    // The same store with nothing failed: the running cycle's view is written
+    // whole from the rows, and nothing of the two removals comes back -- they
+    // are already gone, so the answer names no removal this time.
+    let v = publish(&home, 1_000_400, &[]).unwrap();
+    assert_eq!(v["removed"], serde_json::json!([]));
+    assert_eq!(left(&home, "cycles"), vec!["62.json".to_string()]);
+    assert!(!read(&home, "cycles/62.json").starts_with("{}"));
+    let r: Value = serde_json::from_str(&read(&home, "running.json")).unwrap();
+    assert_eq!(r["cycles"][0]["issue"], 62);
+    assert_eq!(r["cycles"][0]["running"], true);
 }
 
 // --- cycle-heartbeat --------------------------------------------------------------
