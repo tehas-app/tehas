@@ -52,9 +52,6 @@
 #                                     link in place of the file. Returns 2 when
 #                                     a record is there but could not be read,
 #                                     or its manifest could not be written
-#   tehas_approval_record           print a jq definition, `record_ok`: the
-#                                     shape of the dispatcher's approval record,
-#                                     so its readers cannot drift apart
 #   tehas_issue_images_said <dir> <what> <reads>
 #                                     the comment that says what <what> (a
 #                                     cycle, a planning session) was given and
@@ -67,20 +64,6 @@
 #                                     out
 #
 # Sourcing it does nothing.
-
-# The dispatcher's approval of a start, as tehas_approval_view (lib/store.sh)
-# writes it from the state store for the readers here. at, by and how are asserted by shape, not only by
-# type: they are printed to an operator and published in a cycle's record, and
-# a value with a newline in it moves the fields of a manifest read back by
-# line.
-tehas_approval_record() {
-  # shellcheck disable=SC2016  # a jq program
-  printf '%s\n' 'def record_ok: type == "object" and (.links | type) == "array"
-    and (.at | type) == "string" and (.at | test("^[0-9T:.Z-]+\\z"))
-    and (.by | type) == "string" and (.by | test("^[A-Za-z0-9-]+\\z"))
-    and (.how | test("^(label|retry-tick|outage-retry|fixer|refresh)\\z"))
-    and (.comment_links == null or (.comment_links | type) == "array");'
-}
 
 # tehas_record_is_file <path>: what counts as the dispatcher's approval record,
 # said once. Every reader of an approval's view asks the same question, and a
