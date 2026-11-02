@@ -544,25 +544,8 @@ rm -f "$T/home/tehas/libexec/tehas-cycle"
 t_run "$copy/libexec/cycle 7"
 rm -rf "$T/home/tehas/run"
 t_eq "$t_rc" 0
-if [ "${T_CYCLE_REPORT:-}" = rust ]; then
-  t_eq "$(tr '\n' ' ' <"$T/calls/copy")" "cycle "
-else
-  t_eq "$(tr '\n' ' ' <"$T/calls/copy")" "cycle runner approved after "
-fi
+t_eq "$(tr '\n' ' ' <"$T/calls/copy")" "cycle "
 t_eq "$(t_calls systemctl)" "--user start --no-block tehas-dispatch.service"
-
-t_case "a tehas-cycle that cannot run what follows is a warning, and the cycle is on record as ended"
-if [ -z "${T_CYCLE_REPORT:-}" ]; then
-  reset
-  mv "$T/home/tehas/libexec/tehas-cycle" "$T/home/tehas/libexec/tehas-cycle.real"
-  printf '%s\n' '#!/usr/bin/env bash' '[ "$1" = cycle ] || exit 127' 'exec "$0.real" "$@"' >"$T/home/tehas/libexec/tehas-cycle"
-  chmod +x "$T/home/tehas/libexec/tehas-cycle"
-  t_run "$cycle 7"
-  t_eq "$t_rc" 0
-  t_contains "$t_out" "WARN: what follows the end of #7 did not run"
-  t_contains "$t_out" "done #7"
-  t_eq "$(t_row cycle-show 7 -- '.cycle.ended_at != null')" true
-fi
 
 t_case "a step longer than one argument may be stops nothing that follows the end"
 reset
