@@ -17,7 +17,7 @@ use crate::apply::Writer;
 use crate::decide::{iso, iso_now};
 use crate::read::build::{fill, snapshot, Sources};
 use crate::read::host::hostname;
-use crate::read::run::{read_gh_token, run, Calls};
+use crate::read::run::{read_gh_token, run, Calls, RetryPolicy};
 use crate::{decide, Settings, Snapshot};
 use serde_json::{json, Value};
 use std::fs::{File, OpenOptions};
@@ -555,7 +555,16 @@ pub fn run_poll(home: &Path, settings: &Settings, dry: bool) -> i32 {
         starts: 0,
         changed: Changed::default(),
     };
+    // The poll's own budget of retries and its own lines of failed reads: the
+    // poll asks its reads with several `Calls`, so they share one policy, and no
+    // older poll's lines are kept.
+    w.calls.retry = RetryPolicy::default();
     let rc = body(home, settings, dry, &token, &mut w, &mut end);
+    // The lines of the writes' reads, which the poll asked after the snapshot's
+    // were said: the same rule, the same one line each.
+    for n in w.calls.retry.taken() {
+        say(&n);
+    }
     end.gh += w.calls.gh_count + w.gh_writes;
     end.starts = w.starts;
     end.changed.queue = w.changed;
@@ -614,8 +623,20 @@ fn body(
     // The same token for the poll's reads as for its writes: what the shim of
     // every gh call would ask for anyway, asked once by the poll.
     src.calls.gh_token = w.calls.gh_token.clone().or_else(|| token.get(home));
+    // The snapshot's reads and the poll's writes are one poll: they share its
+    // budget of retries and its lines of failed reads.
+    src.calls.retry = w.calls.retry.clone();
     let snap = snapshot(&mut src, settings);
     end.gh = src.calls.gh_count;
+    // Every gh read the poll could not make says why, in gh's own words: only the
+    // queue's failure reached the log before, because only the rules that cannot
+    // read a failure without it end a poll, and a read the rules take as
+    // {"failed": true} left no trace at all. A token is never part of a line:
+    // only the words of `gh_why`'s list reach one, and the poll says each of them
+    // once, here, whatever its rules make of the answer.
+    for n in src.calls.retry.taken() {
+        say(&n);
+    }
     let mut snap = match snap {
         Ok(s) => s,
         Err(f) => {
