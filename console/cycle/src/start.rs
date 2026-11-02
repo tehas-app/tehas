@@ -164,7 +164,7 @@ pub fn record(home: &Path, issue: u64, attempt: &str) -> i32 {
         }
     }
     let path = file.map(|f| f.to_string_lossy().into_owned());
-    println!("{}\n{why}", path.unwrap_or_default());
+    tehas_core::outln!("{}\n{why}", path.unwrap_or_default());
     0
 }
 
@@ -319,7 +319,7 @@ pub fn text(home: &Path, t: &Text) -> i32 {
             "tehas work: no approval is recorded on this host for #{}; a run by hand is its own approval",
             t.issue
         );
-        println!();
+        tehas_core::outln!();
         return 0;
     }
     let answer = match read_issue(t) {
@@ -333,7 +333,7 @@ pub fn text(home: &Path, t: &Text) -> i32 {
     measure(home, t, &issue);
     match private_file(home, "issue", &answer) {
         Some(f) => {
-            println!("{}", f.display());
+            tehas_core::outln!("{}", f.display());
             0
         }
         None => {

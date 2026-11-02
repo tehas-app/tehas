@@ -225,7 +225,7 @@ impl Ask for Live {
             "--state",
             "all",
             "--json",
-            "url,state,body,headRefName",
+            "url,state,body,headRefName,isDraft",
             "--limit",
             "20",
         ])

@@ -166,7 +166,8 @@ fn put(live: &Path, file: &J) {
 /// A host that runs a release: the version current points at, the newest
 /// there is, and nothing of a checkout it may still hold. A cached newest
 /// that is no version, or older than the installed one, or beside an installed
-/// version that is none, goes, and the next read asks again.
+/// version that is none, goes, and the next read asks again. A candidate is
+/// ahead of the newest release, so an older newest stays beside one.
 fn release(home: &Path, live: &Path, installed: &str) {
     let stamp = home.join("state/platform-fetch");
     let cache = home.join("state/platform-newest");
@@ -174,7 +175,8 @@ fn release(home: &Path, live: &Path, installed: &str) {
     let (last, mut fetched) = stamp_read(&stamp);
     let cached = fs::read_to_string(&cache).unwrap_or_default();
     let mut newest = cached.lines().next().unwrap_or_default().to_string();
-    if !newest.is_empty() && stale(&newest, installed) {
+    if !newest.is_empty() && stale(&newest, installed) && !(candidate(installed) && tag_ok(&newest))
+    {
         let _ = fs::remove_file(&cache);
         newest.clear();
     }
@@ -336,6 +338,23 @@ mod tests {
         assert_eq!(read("12 7 3\n"), (12, String::new()));
         drop(dir);
         assert_eq!(stamp_read(&f), (0, String::new()));
+    }
+
+    #[test]
+    fn a_candidate_keeps_an_older_cached_newest() {
+        let home = tehas_core::testdir::TestDir::new("rc");
+        let live = home.join("live");
+        fs::create_dir_all(home.join("state")).unwrap();
+        fs::create_dir_all(&live).unwrap();
+        let now = time::now();
+        fs::write(home.join("state/platform-fetch"), format!("{now} {now}\n")).unwrap();
+        fs::write(home.join("state/platform-newest"), "v0.22.1\n").unwrap();
+        release(&home, &live, "v0.23.0-rc.2");
+        let file = J::parse(&fs::read_to_string(live.join("platform.json")).unwrap()).unwrap();
+        assert_eq!(file.get("newest").as_str(), Some("v0.22.1"));
+        release(&home, &live, "v0.23.0");
+        let file = J::parse(&fs::read_to_string(live.join("platform.json")).unwrap()).unwrap();
+        assert!(file.get("newest").is_null());
     }
 
     #[test]

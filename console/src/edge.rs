@@ -255,7 +255,7 @@ pub fn network_main(given: &[String]) -> u8 {
         _ => return usage(),
     };
     if let Some(why) = why {
-        println!("{why}");
+        tehas_core::outln!("{why}");
     }
     status
 }

@@ -160,9 +160,10 @@ fn update_issue(w: &Words) -> u8 {
     });
     match written {
         Ok(()) => {
-            println!(
+            tehas_core::outln!(
                 "tehas plan: issue={} session={} update=yes",
-                w.issue, w.session
+                w.issue,
+                w.session
             );
             0
         }
@@ -537,7 +538,7 @@ fn turn_of(libexec: &str, w: &Words) -> Result<u8, u8> {
     // The turn's own copy of the host's code index, asked for only once this
     // turn will start: a turn that never began leaves no copy behind.
     if !sandbox::seed(&container, &format!("{home}/state/index")) {
-        println!("tehas plan: the code index could not be copied into {container}/cache, this turn searches without one");
+        tehas_core::outln!("tehas plan: the code index could not be copied into {container}/cache, this turn searches without one");
     }
     // The mounts name directories that only exist now.
     let paths = Paths {

@@ -242,7 +242,7 @@ fn wait(
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.iter().any(|a| a == "-h" || a == "--help") {
-        println!("{}", usage());
+        tehas_core::outln!("{}", usage());
         return;
     }
     let mut v: Vec<(String, String)> = Vec::new();
@@ -349,7 +349,7 @@ fn main() {
         log: PathBuf::from(log),
     };
     let answer = report(&mut plan, &mut runner);
-    println!("{}", answer.json());
+    tehas_core::outln!("{}", answer.json());
     if !answer.outcome.ok() {
         std::process::exit(1);
     }

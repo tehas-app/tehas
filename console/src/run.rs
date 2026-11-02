@@ -205,7 +205,9 @@ fn command(libexec: &str, uid: &str, bash: &str, words: &[String]) -> Result<u8,
     let vars = settings::load_here(uid, bash)?;
     match name[..] {
         ["tehasbot", "improve"] if var("TEHAS_IMPROVE_REPO").is_empty() => {
-            println!("tehas improve: TEHAS_IMPROVE_REPO is not set, the improvement loop is off");
+            tehas_core::outln!(
+                "tehas improve: TEHAS_IMPROVE_REPO is not set, the improvement loop is off"
+            );
             return Ok(0);
         }
         ["tehasbot", "refresh"] if var("TEHAS_REFRESH_CONFLICTS") != "1" => return Ok(0),

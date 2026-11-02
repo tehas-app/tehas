@@ -70,7 +70,7 @@ pub fn main(given: &[String]) -> u8 {
     };
     match done {
         Ok(said) => {
-            println!("{said}");
+            tehas_core::outln!("{said}");
             0
         }
         Err(why) => {

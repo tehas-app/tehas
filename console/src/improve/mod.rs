@@ -88,7 +88,7 @@ mod run;
 pub fn main(given: &[String]) -> u8 {
     match given {
         [verb] if verb == "table" => {
-            println!("{}", run::table());
+            tehas_core::outln!("{}", run::table());
             0
         }
         [verb, prompt] if verb == "due" => run::due(prompt),

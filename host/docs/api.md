@@ -43,7 +43,10 @@ listed here when a release has it.
    says the field itself is `null` when unknown. A program accepts fields it
    does not know.
 5. **Exit statuses**: 0 done; 1 the command ran and the answer is "no" or "not
-   yet"; 64 a bad argument; 78 missing or malformed instance settings.
+   yet"; 64 a bad argument; 78 missing or malformed instance settings; 141
+   standard output closed before the command finished printing (as in
+   `tehas status | head -1`), with nothing on standard error, as a shell
+   command SIGPIPE ended would.
 6. **Reading makes no network call** and takes no lock a cycle holds, so a
    program can call it every few seconds. It reports what the dispatcher's
    last poll saw, with that poll's time.
