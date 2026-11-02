@@ -281,7 +281,7 @@
 # approval waiting at most, and an approval starts one cycle: the cycle's own
 # start uses it (cycle-start), and a second poll that finds the same approval
 # used starts nothing. tehas work and the cycle read it back in the shape
-# below (tehas_approval_view). With TEHAS_WORK_COMMENTS=1
+# below (the store's approval-view). With TEHAS_WORK_COMMENTS=1
 # it adds comment_links, [{link, source, by}]: the links in the issue's comments
 # that an allowed account wrote and nobody edited after the approval, source
 # "comment:<id>". On a retry tick it adds the links of the comments allowed

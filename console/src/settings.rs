@@ -107,13 +107,32 @@ fn pairs(list: &[u8]) -> Vec<(Vec<u8>, Vec<u8>)> {
         .collect()
 }
 
-fn run_load(uid: &str, bash: &str) -> u8 {
-    let start = Vars::new(env::vars_os().map(|(k, v)| (k.into_vec(), v.into_vec())));
-    let mut vars = start.clone();
+/// The variables a load starts from.
+pub(crate) fn this_environment() -> Vars {
+    Vars::new(env::vars_os().map(|(k, v)| (k.into_vec(), v.into_vec())))
+}
+
+/// tehas_instance_dir.
+pub(crate) fn instance_dir(vars: &Vars) -> String {
+    let host = Real {
+        bash: String::new(),
+    };
+    load::instance_dir(vars, &host)
+}
+
+/// tehas_load on `vars`, for a program that runs what follows itself. Err is
+/// the line for standard error, without its `tehas: `.
+pub(crate) fn load_into(vars: &mut Vars, uid: &str, bash: &str) -> Result<(), String> {
     let mut host = Real {
         bash: bash.to_string(),
     };
-    let got = load::load(&mut vars, &mut host, uid);
+    load::load(vars, &mut host, uid)
+}
+
+fn run_load(uid: &str, bash: &str) -> u8 {
+    let start = this_environment();
+    let mut vars = start.clone();
+    let got = load_into(&mut vars, uid, bash);
     if io::stdout()
         .write_all(&load::script(&start, &vars))
         .is_err()
@@ -198,10 +217,11 @@ fn valid_stream() -> u8 {
     }
     let mut out = Vec::new();
     let words: Vec<&[u8]> = input.split(|b| *b == 0).collect();
-    for pair in words.chunks_exact(2) {
+    let (pairs, _) = words.as_chunks::<2>();
+    for [name, value] in pairs {
         let (name, value) = (
-            String::from_utf8_lossy(pair[0]),
-            String::from_utf8_lossy(pair[1]),
+            String::from_utf8_lossy(name),
+            String::from_utf8_lossy(value),
         );
         let answer = match why(&name, &value) {
             Some(reason) => format!("1\0{reason}\0"),
