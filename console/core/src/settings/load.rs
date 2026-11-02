@@ -690,25 +690,42 @@ fn quote(out: &mut Vec<u8>, value: &[u8]) {
     out.push(b'\'');
 }
 
+/// A name and its value, as bytes.
+type Pair<'a> = (&'a [u8], &'a [u8]);
+
+/// What the load dropped from `start`, and what it set.
+pub fn changes<'a>(start: &'a Vars, vars: &'a Vars) -> (Vec<&'a [u8]>, Vec<Pair<'a>>) {
+    let dropped = start
+        .map
+        .keys()
+        .filter(|name| !vars.map.contains_key(*name) && is_name(name))
+        .map(Vec::as_slice)
+        .collect();
+    let set = vars
+        .set
+        .iter()
+        .filter(|name| is_name(name))
+        .filter_map(|name| Some((name.as_slice(), vars.map.get(name)?.as_slice())))
+        .collect();
+    (dropped, set)
+}
+
 /// The lines that take a shell from `start` to `vars`, for it to eval: what
 /// the load dropped, what it set, and `_tehas_bad`.
 pub fn script(start: &Vars, vars: &Vars) -> Vec<u8> {
     let mut out = Vec::new();
-    for name in start.map.keys() {
-        if !vars.map.contains_key(name) && is_name(name) {
-            out.extend_from_slice(b"unset -v ");
-            out.extend_from_slice(name);
-            out.push(b'\n');
-        }
+    let (dropped, set) = changes(start, vars);
+    for name in dropped {
+        out.extend_from_slice(b"unset -v ");
+        out.extend_from_slice(name);
+        out.push(b'\n');
     }
-    for name in &vars.set {
-        if let (true, Some(value)) = (is_name(name), vars.map.get(name)) {
-            out.extend_from_slice(b"export ");
-            out.extend_from_slice(name);
-            out.push(b'=');
-            quote(&mut out, value);
-            out.push(b'\n');
-        }
+    for (name, value) in set {
+        out.extend_from_slice(b"export ");
+        out.extend_from_slice(name);
+        out.push(b'=');
+        quote(&mut out, value);
+        out.push(b'\n');
     }
     out.extend_from_slice(b"declare -gA _tehas_bad\n_tehas_bad=(");
     for (name, why) in bad(vars) {
