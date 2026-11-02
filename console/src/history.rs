@@ -763,9 +763,8 @@ mod tests {
         }
     }
 
-    fn scratch(name: &str) -> PathBuf {
-        let dir = env::temp_dir().join(format!("tehas-history-{}-{name}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
+    fn scratch(name: &str) -> tehas_core::testdir::TestDir {
+        let dir = tehas_core::testdir::TestDir::new(&format!("history-{name}"));
         fs::create_dir_all(dir.join("libexec")).unwrap();
         fs::create_dir_all(dir.join("state")).unwrap();
         dir
@@ -816,6 +815,5 @@ mod tests {
         assert_eq!(listing(&home, "acme/widget", &query).unwrap_err().rc, 78);
         store_says(&home, "echo 'store: usage: no'; exit 64");
         assert_eq!(listing(&home, "acme/widget", &query).unwrap_err().rc, 78);
-        fs::remove_dir_all(&home).unwrap();
     }
 }

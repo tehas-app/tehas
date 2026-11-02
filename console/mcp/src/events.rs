@@ -661,15 +661,11 @@ mod tests {
             "warn"
         );
         assert_eq!(
-            d("lift #7: its last cycle parked on intent-park and the body has not changed since, lifted on the fixer's guidance comment"),
-            "warn"
-        );
-        assert_eq!(
             d("hold #7: its text links an attachment and TEHAS_WORK_IMAGES is 1, but test-model does not declare image input in models.json"),
             "wait"
         );
         assert_eq!(
-            d("hold #7: its text says SCREENSHOT GOES HERE and links no attachment"),
+            d("hold #7: its text says SCREENSHOT GOES HERE and links no attachment, so the cycle would be given none"),
             "wait"
         );
         assert_eq!(
@@ -722,9 +718,7 @@ mod tests {
 
     #[test]
     fn a_copy_cut_in_a_line_keeps_the_bound_of_lines() {
-        let dir = std::env::temp_dir().join(format!("mcp-events-keep-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = tehas_core::testdir::TestDir::new("mcp-events-keep");
         let log = dir.join("dispatch.log");
         std::fs::write(&log, "2026-10-29T10:00:00Z start #1\n").unwrap();
         let o = open_plain(&dir, "dispatch.log").unwrap().unwrap();
@@ -738,7 +732,6 @@ mod tests {
         std::fs::write(&log, lines).unwrap();
         let s = follow(&dir, "dispatch", "dispatch.log", &pos, 1).unwrap();
         assert_eq!(s.lines.len(), 1);
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

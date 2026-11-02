@@ -142,7 +142,7 @@ t_eq "$(core_files)" ""
 # a -n restored on either branch, or a wait the script never asked for, is a red
 # case here rather than a green one that refused at once. Whether that number is
 # the knob's value or the default of 10 is pinned elsewhere: install.sh echoes
-# what lib/update-steps.sh's tehas_update_lock_wait answered, and the refusal case
+# what the console's update wait answered, and the refusal case
 # above pins the 0 it echoes for the same knob. It runs on a home of its own: an
 # install that finished would leave the home below matching this checkout, and
 # "--check on a matching install reports six lines and exits 0" after it would

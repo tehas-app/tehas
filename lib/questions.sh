@@ -1,7 +1,8 @@
 # shellcheck shell=bash
 # Questions the factory asks on an issue, and the answers it accepts. Text in,
 # text out: nothing here calls GitHub, so every function can be tested with a
-# string. Sourced by libexec/cycle.
+# string. The cycle and the poll have these in Rust (tehas_core::question);
+# the tests of the dispatcher build their park bodies with q_render.
 #
 #   q_clean [max characters]         stdin to stdout: an agent's words, safe to
 #                                    post, cut at the limit [60000]
@@ -13,10 +14,6 @@
 #                                    of pi-rukas's handoff on top, a "park"
 #                                    marker above the question's own; <line> is
 #                                    the host's own, above the boxes
-#   q_park_repeat <count> [step] [cap]
-#                                    the host's line of a park that repeats the
-#                                    one before it, given as <line> of q_render.
-#                                    Nothing for a count of 0 or an unreadable one
 #
 # <kind> is plan (a planning turn) or park (a cycle that stopped).
 
@@ -111,19 +108,3 @@ q_render() {
   printf '<!-- tehas:question kind=%s issue=%s turn=%s -->\n' "$kind" "$issue" "$turn"
 }
 
-# The one line a repeating park says of itself, in the host's own words: the
-# count of the run, the step and the cap the cycle already has, each reduced as
-# the park marker reduces them, so nothing of a failure's free text reaches the
-# comment. It asks nothing: the tick of a retry stays the park's own ask.
-q_park_repeat() { # <count> [step] [cap]
-  local n=$1 step=${2:-} cap=${3:-} line tick
-  [[ $n =~ ^[1-9][0-9]{0,3}$ ]] || return 0
-  step=${step//[!a-z0-9-]/} cap=${cap//[!A-Za-z0-9_.:-]/}
-  step=${step:0:40} cap=${cap:0:80}
-  tick='`'
-  line=" This park repeats the one before it: number ${n} of the parks in a row that stopped"
-  [ -z "$step" ] || line+=" at step ${tick}${step}${tick}"
-  [ -z "$cap" ] || line+=" on the cap ${tick}${cap}${tick}"
-  printf '%s. A retry on the same text will likely stop the same way and spend another slot: change the issue first, or ask for a smaller change with %stehas:plan%s.\n' \
-    "$line" "$tick" "$tick"
-}

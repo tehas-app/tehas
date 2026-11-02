@@ -7438,7 +7438,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped without a pull request: status `handoff--tehasquestionkindparkissue7turn1---xRetryfromacleanstart`, last step `review`, 0 min (runner exit 10). The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. Its branch has an open pull request: https://github.com/acme/widget/pull/9\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=review kind= provider=0 sig=db051e68b1bc0ed32abdd1bc742e0da0ba9073f41868d0c2fa5ab1ada90535bd -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped with pull request #9 open: status `handoff--tehasquestionkindparkissue7turn1---xRetryfromacleanstart`, last step `review`, 0 min (runner exit 10). The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. Its branch has an open pull request: https://github.com/acme/widget/pull/9\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=review kind= provider=0 sig=db051e68b1bc0ed32abdd1bc742e0da0ba9073f41868d0c2fa5ab1ada90535bd -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -7590,7 +7590,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped without a pull request: status `handoff`, last step `commit-pr`, 0 min (runner exit 30). pi-rukas stopped on the cap `awaiting-human-merge`. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. Its branch has an open pull request: https://github.com/acme/widget/pull/9\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=commit-pr kind= provider=0 sig=bf3851bddbeacad2f648af429d45ad8e3698bbd824537d0efad74ce85d8f59ae -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped with pull request #9 open: status `handoff`, last step `commit-pr`, 0 min (runner exit 30). pi-rukas stopped on the cap `awaiting-human-merge`. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. Its branch has an open pull request: https://github.com/acme/widget/pull/9\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=commit-pr kind= provider=0 sig=bf3851bddbeacad2f648af429d45ad8e3698bbd824537d0efad74ce85d8f59ae -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",

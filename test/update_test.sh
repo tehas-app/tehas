@@ -14,16 +14,10 @@
 . "$(dirname "$0")/lib.sh" || exit 1
 # shellcheck source=test/update_lib.sh
 . "$(dirname "$0")/update_lib.sh" || exit 1
-# The one place the follow-ups are named. Every case that needs install.sh's
-# "next:" lines takes them from the console, so the fixture is the text install.sh
-# produces rather than a copy of it someone could keep out of step.
-# shellcheck source=lib/update-steps.sh
-. "$T_ROOT/lib/update-steps.sh"
-
 update="$T_ROOT/libexec/update"
 th=$T/home/tehas
 checkout=$th/platform
-owed_file=$(TEHAS_HOME=$th tehas_pending_file)   # the path, from the one definition
+owed_file=$th/state/update-pending
 
 # bootstrap.sh dev writes two files outside any home, and install.sh reads them to
 # know whether this host lets other accounts start a session. Pointed at scratch in
@@ -105,7 +99,7 @@ platform() { # [behind] [install body]
   # The libraries the checkout carries are this repository's own: after a
   # fast-forward, tehas update re-checks the instance with the settings rules
   # that came with the code it pulled.
-  cp "$T_ROOT/lib/config.sh" "$T_ROOT/lib/update-steps.sh" "$checkout/lib/"
+  cp "$T_ROOT/lib/config.sh" "$checkout/lib/"
   : >"$checkout/libexec/work"
   git init -q --initial-branch=main "$checkout"
   git -C "$checkout" config user.name test
@@ -432,54 +426,20 @@ t_fast 9000
 t_lacks "$t_out" "another update is running"
 t_eq "$(t_calls install)" "install "
 
-# The rule a held lock is measured by, read from the one place both commands get
-# it: what each form of the knob becomes, the default for the shapes it refuses,
-# and the ceiling both commands share. Asked of the rule itself, in one run, so
-# the range is asserted and not only inferred from a timing bound. libexec/update
-# reads the value through this same function, so the answers below are the wait
-# its flock -w gets.
-lock_default=$(sed -n 's/^tehas_update_lock_wait_default=//p' "$T_ROOT/lib/update-steps.sh")
-lock_max=$(sed -n 's/^tehas_update_lock_wait_max=//p' "$T_ROOT/lib/update-steps.sh")
-[ -n "$lock_default" ] && [ -n "$lock_max" ] ||
-  t_bad "lib/update-steps.sh names neither the default nor the ceiling of the wait"
-# Every value is asked in one snippet, each on its own line, so no earlier form
-# can leave the variable set for the next one.
-asks=()
-answers=''
-for asked in 0 1 5 45 "$lock_max" "$((lock_max + 1))" 9999 999999999999999999999 00 05 0000000009 -1 1.5 1e3 soon ''; do
-  # A whole number, no leading zero, of at most three digits and no more than
-  # the ceiling. Anything else is the default.
-  answer=$lock_default
-  case $asked in
-  0)
-    answer=0
-    ;;
-  [1-9] | [1-9][0-9] | [1-9][0-9][0-9])
-    [ "$asked" -le "$lock_max" ] && answer=$asked
-    ;;
-  esac
-  asks+=("$asked")
-  answers="$answers$answer
-"
-done
-t_case "the wait rule takes 0 through $lock_max and the $lock_default-second default"
-# Unset first: an inherited value of that name would answer for the empty one.
-# Each value is quoted on the child's command line, so a form the rule turns
-# into the default - or into nothing - is still one value asked, and none of them
-# is taken as shell text by the snippet.
-quoted=''
-for v in "${asks[@]}"; do quoted="$quoted '$v'"; done
-t_run "unset TEHAS_UPDATE_LOCK_WAIT; . '$T_ROOT/lib/update-steps.sh'
-for v in$quoted; do TEHAS_UPDATE_LOCK_WAIT=\$v tehas_update_lock_wait; done"
-# One answer a line, in the order asked: a rule that always answered the default
-# could not pass the assertions on the two ends of the range below.
-lines=$(printf '%s\n' "$t_out" | sed '/^$/d')
-t_eq "$lines" "${answers%$'\n'}"
-# The two ends of the range, so a rule that only ever answered the default could
-# not pass: 0 is the refuse-at-once value and the ceiling is still a wait.
-t_contains "$lines" "0"
-t_contains "$lines" "$lock_max"
-t_lacks "$lines" "$((lock_max + 1))"
+# The rule a held lock is measured by, asked of the console as libexec/update and
+# install.sh ask it, before tehas_load. Every form of the knob is in the Rust
+# tests of console/src/update/wait.rs; these are the two ends of the range and
+# a refused shape on each side.
+t_case "the wait rule takes 0 through 300 and is 10 otherwise"
+t_run "for v in 0 300 301 05 soon; do TEHAS_UPDATE_LOCK_WAIT=\$v '$T_CONSOLE' update wait update; done
+unset TEHAS_UPDATE_LOCK_WAIT; '$T_CONSOLE' update wait update"
+t_eq "$t_rc" 0
+t_eq "$t_out" "0
+300
+10
+10
+10
+10"
 
 t_case "install.sh is handed the lock the update holds"
 instance
@@ -1306,7 +1266,7 @@ t_eq "$(owed_steps)" ""
 
 # The labels of a product repository are the last thing an update touches, so a
 # step that follows one would run the containers before the labels existed. There
-# is no step after it in the order lib/update-steps.sh gives them.
+# is no step after it in the order console/src/update/steps.rs gives them.
 t_case "the labels step runs after the other steps, and a failing one keeps it owed"
 instance
 platform 0

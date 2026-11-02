@@ -380,26 +380,13 @@ mod tests {
     use super::{
         mask, model_key_values, models_of_home, read_models_of_home, secret_values, MODELS_BYTES,
     };
-    use std::path::{Path, PathBuf};
+    use crate::testdir::TestDir;
+    use std::path::Path;
 
     // The pattern of the secret values is a LazyLock, so HOME cannot be
     // repointed within a process: the tests of the file go through the same
     // builders the mask does, with the home as an argument, and the console's
     // own tests run it as a child with a HOME of its own.
-    fn scratch_home(name: &str) -> Home {
-        let d = std::env::temp_dir().join(format!("tehas-core-{name}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&d);
-        Home(d)
-    }
-
-    struct Home(PathBuf);
-
-    impl Drop for Home {
-        fn drop(&mut self) {
-            let _ = std::fs::remove_dir_all(&self.0);
-        }
-    }
-
     // Built here, not written out: scripts/check-generic.sh reads this file too.
     fn ip(parts: [u8; 4]) -> String {
         parts.map(|p| p.to_string()).join(".")
@@ -583,17 +570,17 @@ mod tests {
 
     #[test]
     fn a_literal_key_of_the_host_file_is_a_value_the_mask_hides() {
-        let home = scratch_home("host");
-        std::fs::create_dir_all(models_of_home(&home.0).parent().unwrap()).unwrap();
+        let home = TestDir::new("host");
+        std::fs::create_dir_all(models_of_home(&home).parent().unwrap()).unwrap();
         let (main, backup, kept) = (key(13), key(14), key(15));
         std::fs::write(
-            models_of_home(&home.0),
+            models_of_home(&home),
             models_with(&format!(
                 "{{\"main\": {{\"apiKey\": \"{main}\", \"backupApiKey\": \"{backup}\"}}, \"fleet\": {{\"apiKey\": \"{kept}\"}}}}"
             )),
         )
         .unwrap();
-        let read = read_models_of_home(&home.0).expect("the file of the host is read");
+        let read = read_models_of_home(&home).expect("the file of the host is read");
         let values = model_key_values(&read);
         let pattern = secret_values(std::iter::empty(), &values).expect("the keys are kept");
         assert_eq!(
@@ -601,49 +588,49 @@ mod tests {
             "printed: *** *** ***"
         );
         // No file at all is no error, and hides nothing beyond the environment.
-        let _ = std::fs::remove_dir_all(&home.0);
-        assert!(read_models_of_home(&home.0).is_none());
-        assert!(model_key_values(&read_models_of_home(&home.0).unwrap_or_default()).is_empty());
+        let _ = std::fs::remove_dir_all(&home);
+        assert!(read_models_of_home(&home).is_none());
+        assert!(model_key_values(&read_models_of_home(&home).unwrap_or_default()).is_empty());
     }
 
     #[test]
     fn a_file_that_is_no_file_a_link_or_over_the_bound_is_read_as_none() {
         // The failure of the read is none, and none is "nothing to add":
         // what the mask hides does not depend on the file being good.
-        let home = scratch_home("mask-refused");
-        assert!(read_models_of_home(&home.0).is_none());
-        write_models(&home.0, "not json at all");
+        let home = TestDir::new("mask-refused");
+        assert!(read_models_of_home(&home).is_none());
+        write_models(&home, "not json at all");
         assert_eq!(
-            read_models_of_home(&home.0).as_deref(),
+            read_models_of_home(&home).as_deref(),
             Some("not json at all")
         );
-        assert!(model_key_values(&read_models_of_home(&home.0).unwrap()).is_empty());
+        assert!(model_key_values(&read_models_of_home(&home).unwrap()).is_empty());
         // A link: the mask reads no file through one, whatever it holds. The
         // name of the host's file is taken from HOME, so the link sits where
         // the file would, and holds the keys of the host it points at.
-        let models = models_of_home(&home.0);
+        let models = models_of_home(&home);
         std::fs::remove_file(&models).unwrap();
-        let real = home.0.join("real.json");
+        let real = home.join("real.json");
         std::fs::write(
             &real,
             models_with(&format!("{{\"main\": {{\"apiKey\": \"{}\"}}}}", key(12))),
         )
         .unwrap();
         std::os::unix::fs::symlink(&real, &models).unwrap();
-        assert!(read_models_of_home(&home.0).is_none());
-        assert!(model_key_values(&read_models_of_home(&home.0).unwrap_or_default()).is_empty());
+        assert!(read_models_of_home(&home).is_none());
+        assert!(model_key_values(&read_models_of_home(&home).unwrap_or_default()).is_empty());
         // The directory in its place, and a file over the bound.
         std::fs::remove_file(&models).unwrap();
         std::fs::create_dir(&models).unwrap();
-        assert!(read_models_of_home(&home.0).is_none());
+        assert!(read_models_of_home(&home).is_none());
         std::fs::remove_dir(&models).unwrap();
         let f = std::fs::File::create(&models).unwrap();
         f.set_len(MODELS_BYTES + 1).unwrap();
         drop(f);
-        assert!(read_models_of_home(&home.0).is_none());
+        assert!(read_models_of_home(&home).is_none());
         // Bytes that are not text are no file, and not a mask that hides less.
         std::fs::write(&models, [0xff, 0xfe]).unwrap();
-        assert!(read_models_of_home(&home.0).is_none());
+        assert!(read_models_of_home(&home).is_none());
     }
 
     #[test]

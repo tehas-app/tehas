@@ -27,6 +27,7 @@
 use crate::flags::epoch;
 use crate::jq::{first, obj, J};
 use crate::store;
+use crate::update::release::{candidate, older, tag_ok};
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -126,10 +127,10 @@ fn answer(file: &str, now: i64, lines: Option<(&str, Option<&str>)>) -> u8 {
             lines.extend(platform_line(&health, now));
             lines.extend(product.and_then(|p| product_line(Path::new(p), now)));
             for line in lines {
-                println!("{line}");
+                tehas_core::outln!("{line}");
             }
         }
-        None => println!("{}", status_json(&health, now, stale).dump()),
+        None => tehas_core::outln!("{}", status_json(&health, now, stale).dump()),
     }
     u8::from(stale || health.get("status").as_str() == Some("fail"))
 }
@@ -416,36 +417,11 @@ fn slice_line(h: &J, now: i64) -> String {
     }
 }
 
-/// The triple of vX.Y.Z, or None for anything else.
-fn triple(v: &J) -> Option<Vec<f64>> {
-    let s = v.as_str()?;
-    s.strip_prefix('v')
-        .unwrap_or(s)
-        .split('.')
-        .map(|part| {
-            let plain = !part.is_empty()
-                && part
-                    .bytes()
-                    .all(|b| b.is_ascii_digit() || matches!(b, b'.' | b'-' | b'e' | b'E' | b'+'));
-            if plain {
-                part.parse().ok()
-            } else {
-                None
-            }
-        })
-        .collect()
-}
-
-/// Whether version a is newer than version b, by the rule tehas status has
-/// always used: some place of a is greater than the same place of b, and a
-/// place b does not have counts as smaller. Either one that is no triple is
-/// never newer.
+/// Whether version a is newer than version b, both released versions: a
+/// release candidate is older than its version. Anything else is never newer.
 fn newer(a: &J, b: &J) -> bool {
-    match (triple(a), triple(b)) {
-        (Some(x), Some(y)) => x
-            .iter()
-            .enumerate()
-            .any(|(i, n)| y.get(i).is_none_or(|m| n > m)),
+    match (a.as_str(), b.as_str()) {
+        (Some(x), Some(y)) => tag_ok(x) && tag_ok(y) && older(y, x),
         _ => false,
     }
 }
@@ -469,6 +445,8 @@ fn platform_line(h: &J, now: i64) -> Option<String> {
             "newest unknown".to_string()
         } else if newer(newest, release) {
             format!("{} is out", newest.text())
+        } else if newer(release, newest) && release.as_str().is_some_and(candidate) {
+            format!("newest {}, the candidate is newer", newest.text())
         } else {
             format!("newest {}", newest.text())
         };
@@ -812,11 +790,29 @@ mod tests {
     }
 
     #[test]
-    fn newer_is_the_rule_tehas_status_has_used() {
+    fn a_candidate_ahead_of_the_newest_release_says_so() {
+        let rc = h(r#"{"checks":{"platform":{"release":"v0.23.0-rc.2","newest":"v0.22.1"}}}"#);
+        assert_eq!(
+            platform_line(&rc, NOW).unwrap(),
+            "platform  v0.23.0-rc.2, newest v0.22.1, the candidate is newer, never fetched"
+        );
+        let out = h(r#"{"checks":{"platform":{"release":"v0.23.0-rc.2","newest":"v0.23.0"}}}"#);
+        assert_eq!(
+            platform_line(&out, NOW).unwrap(),
+            "platform  v0.23.0-rc.2, v0.23.0 is out, never fetched"
+        );
+    }
+
+    #[test]
+    fn newer_compares_released_versions() {
         assert!(newer(&J::str("v0.16.2"), &J::str("v0.16.1")));
         assert!(!newer(&J::str("v0.16.1"), &J::str("v0.16.1")));
+        assert!(!newer(&J::str("v0.16.2"), &J::str("v0.17.0")));
         assert!(!newer(&J::str("main"), &J::str("v0.16.1")));
-        assert!(newer(&J::str("v1.0.0.1"), &J::str("v1.0.0")));
+        assert!(!newer(&J::str("v0.16.1"), &J::str("main")));
+        assert!(newer(&J::str("v0.22.0"), &J::str("v0.22.0-rc.1")));
+        assert!(!newer(&J::str("v0.22.0-rc.1"), &J::str("v0.22.0")));
+        assert!(!newer(&J::str("v0.21.0"), &J::str("v0.22.0-rc.1")));
     }
 
     #[test]

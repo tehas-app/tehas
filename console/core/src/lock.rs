@@ -91,23 +91,9 @@ pub fn probe(file: &Path) -> Probe {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::testdir::TestDir;
     use std::os::unix::fs::PermissionsExt;
     use std::path::PathBuf;
-
-    struct Dir(PathBuf);
-
-    impl Drop for Dir {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.0);
-        }
-    }
-
-    fn dir(name: &str) -> Dir {
-        let d = std::env::temp_dir().join(format!("tehas-core-lock-{name}-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&d);
-        fs::create_dir_all(&d).unwrap();
-        Dir(d)
-    }
 
     /// The reason of an unknown answer.
     fn reason(p: &Probe) -> String {
@@ -118,15 +104,15 @@ mod tests {
     }
 
     /// A file of the issue's own name, made empty.
-    fn lock_file(d: &Dir, n: u64) -> PathBuf {
-        let p = d.0.join(format!("{n}.lock"));
+    fn lock_file(d: &TestDir, n: u64) -> PathBuf {
+        let p = d.join(format!("{n}.lock"));
         fs::write(&p, b"").unwrap();
         p
     }
 
     #[test]
     fn a_file_no_one_holds_is_free() {
-        let d = dir("free");
+        let d = TestDir::new("free");
         let p = lock_file(&d, 1);
         assert_eq!(probe(&p), Probe::Free);
         // The probe gave it back: the same file answers free again.
@@ -135,23 +121,23 @@ mod tests {
 
     #[test]
     fn a_missing_file_is_absent() {
-        let d = dir("absent");
-        assert_eq!(probe(&d.0.join("nope.lock")), Probe::Absent);
+        let d = TestDir::new("absent");
+        assert_eq!(probe(&d.join("nope.lock")), Probe::Absent);
         // Absent, though the directory of it is not there either.
-        assert_eq!(probe(&d.0.join("gone").join("nope.lock")), Probe::Absent);
+        assert_eq!(probe(&d.join("gone").join("nope.lock")), Probe::Absent);
     }
 
     #[test]
     fn the_probe_never_makes_a_file() {
-        let d = dir("creates");
-        assert_eq!(probe(&d.0.join("7.lock")), Probe::Absent);
-        assert!(!d.0.join("7.lock").exists());
-        assert_eq!(fs::read_dir(&d.0).unwrap().count(), 0);
+        let d = TestDir::new("creates");
+        assert_eq!(probe(&d.join("7.lock")), Probe::Absent);
+        assert!(!d.join("7.lock").exists());
+        assert_eq!(fs::read_dir(d.path()).unwrap().count(), 0);
     }
 
     #[test]
     fn a_lock_another_process_holds_is_held() {
-        let d = dir("held");
+        let d = TestDir::new("held");
         let p = lock_file(&d, 4);
         let f = fs::OpenOptions::new()
             .create(true)
@@ -169,8 +155,8 @@ mod tests {
 
     #[test]
     fn a_lock_that_is_a_directory_is_unknown() {
-        let d = dir("directory");
-        let p = d.0.join("6.lock");
+        let d = TestDir::new("directory");
+        let p = d.join("6.lock");
         fs::create_dir(&p).unwrap();
         assert_eq!(
             probe(&p),
@@ -180,11 +166,11 @@ mod tests {
 
     #[test]
     fn a_lock_that_is_a_link_to_a_free_file_is_unknown() {
-        let d = dir("link");
-        let target = d.0.join("elsewhere.lock");
+        let d = TestDir::new("link");
+        let target = d.join("elsewhere.lock");
         fs::write(&target, b"").unwrap();
         assert_eq!(probe(&target), Probe::Free);
-        let p = d.0.join("8.lock");
+        let p = d.join("8.lock");
         std::os::unix::fs::symlink(&target, &p).unwrap();
         assert_eq!(
             probe(&p),
@@ -194,9 +180,9 @@ mod tests {
 
     #[test]
     fn a_dangling_link_is_unknown() {
-        let d = dir("dangling");
-        let p = d.0.join("9.lock");
-        std::os::unix::fs::symlink(d.0.join("nothing"), &p).unwrap();
+        let d = TestDir::new("dangling");
+        let p = d.join("9.lock");
+        std::os::unix::fs::symlink(d.join("nothing"), &p).unwrap();
         assert_eq!(
             probe(&p),
             Probe::Unknown("9.lock is not a regular file".to_string())
@@ -205,7 +191,7 @@ mod tests {
 
     #[test]
     fn a_lock_of_mode_000_is_unknown_when_the_mode_keeps_us_out() {
-        let d = dir("mode");
+        let d = TestDir::new("mode");
         let p = lock_file(&d, 11);
         fs::set_permissions(&p, fs::Permissions::from_mode(0o000)).unwrap();
         if File::open(&p).is_ok() {
@@ -222,11 +208,11 @@ mod tests {
 
     #[test]
     fn each_reason_names_the_lock() {
-        let d = dir("reason");
-        let p = d.0.join("12.lock");
+        let d = TestDir::new("reason");
+        let p = d.join("12.lock");
         fs::create_dir(&p).unwrap();
         assert!(reason(&probe(&p)).starts_with("12.lock "));
-        std::os::unix::fs::symlink(d.0.join("nothing"), d.0.join("13.lock")).unwrap();
-        assert!(reason(&probe(&d.0.join("13.lock"))).starts_with("13.lock "));
+        std::os::unix::fs::symlink(d.join("nothing"), d.join("13.lock")).unwrap();
+        assert!(reason(&probe(&d.join("13.lock"))).starts_with("13.lock "));
     }
 }

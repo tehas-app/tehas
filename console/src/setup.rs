@@ -1221,11 +1221,8 @@ fn with_provider(mut models: Value, p: &str, url: &str, api_key: &str, model: &s
 mod tests {
     use super::*;
 
-    fn scratch(name: &str) -> PathBuf {
-        let d = std::env::temp_dir().join(format!("console-setup-{}-{name}", std::process::id()));
-        let _ = fs::remove_dir_all(&d);
-        fs::create_dir_all(&d).unwrap();
-        d
+    fn scratch(name: &str) -> tehas_core::testdir::TestDir {
+        tehas_core::testdir::TestDir::new(&format!("setup-{name}"))
     }
 
     #[test]

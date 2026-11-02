@@ -6,13 +6,13 @@ use crate::verbs_tests::*;
 use crate::{execute, Verb};
 use serde_json::Value;
 use std::fs::{self, File};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::{Duration, UNIX_EPOCH};
 
 const HEAD: &str = "0123456789abcdef0123456789abcdef01234567";
 
 /// A home with a store and the marker install.sh leaves.
-fn host(name: &str) -> PathBuf {
+fn host(name: &str) -> TestDir {
     let h = home(name);
     fs::write(h.join(".tehas-home"), "tehas\n").unwrap();
     h

@@ -290,7 +290,7 @@ fn main() -> ExitCode {
         // bounds are still the installed bounds.
         return match bound_check(Path::new(file)) {
             Ok(line) => {
-                println!("{line}");
+                tehas_core::outln!("{line}");
                 ExitCode::SUCCESS
             }
             Err((code, why)) => {
@@ -330,7 +330,7 @@ fn main() -> ExitCode {
         };
         return match execute(&home, &Verb::Batch(asked), now) {
             Ok(line) => {
-                println!("{line}");
+                tehas_core::outln!("{line}");
                 ExitCode::SUCCESS
             }
             Err((code, why)) => {
@@ -353,7 +353,7 @@ fn main() -> ExitCode {
     };
     match execute(&home, &verb, now) {
         Ok(line) => {
-            println!("{line}");
+            tehas_core::outln!("{line}");
             ExitCode::SUCCESS
         }
         Err((code, why)) => {

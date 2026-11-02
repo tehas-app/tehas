@@ -67,7 +67,7 @@ fn mounts(kind: Kind, p: &Paths) -> i32 {
 fn verify(words: &[String]) -> i32 {
     match slice::verify(words, &Load::from_env()) {
         Some(n) => {
-            println!("{n}");
+            tehas_core::outln!("{n}");
             0
         }
         None => 1,
@@ -93,6 +93,7 @@ pub fn table() -> String {
     let runs = [
         sandbox::capabilities(image),
         sandbox::push_check(&none, "", &none, "", "", image),
+        sandbox::install_run(&none, &none, "", "", "", image, ""),
         sandbox::cycle_run(&sandbox::CycleRun {
             name: "",
             limits: &none,
@@ -110,10 +111,10 @@ pub fn table() -> String {
         }),
     ];
     let rows = runs.iter().map(|run| {
-        let at = run.iter().position(|w| w == image).unwrap_or(0);
-        let cmd = match run.get(at + 1).map(String::as_str) {
+        let entry = run.iter().position(|w| w == "--entrypoint");
+        let at = entry.or_else(|| run.iter().position(|w| w == image));
+        let cmd = match at.and_then(|i| run.get(i + 1)).map(String::as_str) {
             Some(sandbox::RUNNER) => "$runner",
-            Some("push") => "git",
             Some(other) => other,
             None => "",
         };
@@ -143,11 +144,11 @@ pub fn main(args: &[String]) -> Option<i32> {
         ),
         ["verify", ..] => verify(&args[1..]),
         ["table"] => {
-            println!("{}", table());
+            tehas_core::outln!("{}", table());
             0
         }
         ["retry", host] => {
-            println!("{}", sandbox::retry_line(host));
+            tehas_core::outln!("{}", sandbox::retry_line(host));
             0
         }
         ["clone", src, tree, branch] => i32::from(!sandbox::clone(src, tree, branch)),

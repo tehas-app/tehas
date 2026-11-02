@@ -425,25 +425,15 @@ pub fn main(given: &[String]) -> u8 {
 mod tests {
     use super::*;
     use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    use tehas_core::testdir::TestDir;
 
-    struct Dir(PathBuf);
-
-    impl Drop for Dir {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.0);
-        }
+    fn dir(name: &str) -> TestDir {
+        TestDir::new(&format!("github-{name}"))
     }
 
-    fn dir(name: &str) -> Dir {
-        let d = env::temp_dir().join(format!("tehas-github-{name}-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&d);
-        fs::create_dir_all(&d).unwrap();
-        Dir(d)
-    }
-
-    fn put(d: &Dir, token: &str, until: &str) {
-        fs::write(d.0.join("token"), token).unwrap();
-        fs::write(d.0.join("token.expires"), until).unwrap();
+    fn put(d: &TestDir, token: &str, until: &str) {
+        fs::write(d.join("token"), token).unwrap();
+        fs::write(d.join("token.expires"), until).unwrap();
     }
 
     #[test]
@@ -521,10 +511,10 @@ mod tests {
     #[test]
     fn a_kept_token_lasts_until_the_time_asked_for() {
         let d = dir("kept");
-        assert_eq!(kept(&d.0, 100), None);
+        assert_eq!(kept(d.path(), 100), None);
         put(&d, "ghs_kept\n", "100\n");
-        assert_eq!(kept(&d.0, 100).as_deref(), Some("ghs_kept"));
-        assert_eq!(kept(&d.0, 101), None);
+        assert_eq!(kept(d.path(), 100).as_deref(), Some("ghs_kept"));
+        assert_eq!(kept(d.path(), 101), None);
     }
 
     #[test]
@@ -538,41 +528,41 @@ mod tests {
             ("\n", "100\n"),
         ] {
             put(&d, token, until);
-            assert_eq!(kept(&d.0, 0), None, "{token:?} {until:?}");
+            assert_eq!(kept(d.path(), 0), None, "{token:?} {until:?}");
         }
-        fs::remove_file(d.0.join("token")).unwrap();
-        fs::write(d.0.join("token.expires"), "100\n").unwrap();
-        assert_eq!(kept(&d.0, 0), None);
+        fs::remove_file(d.join("token")).unwrap();
+        fs::write(d.join("token.expires"), "100\n").unwrap();
+        assert_eq!(kept(d.path(), 0), None);
     }
 
     #[test]
     fn a_new_token_is_moved_over_the_old_with_mode_600() {
         let d = dir("keep");
         put(&d, "ghs_old\n", "1\n");
-        let old = fs::metadata(d.0.join("token")).unwrap().ino();
-        assert!(keep(&d.0, "ghs_new", 2_000_000_000));
-        assert_eq!(fs::read_to_string(d.0.join("token")).unwrap(), "ghs_new\n");
+        let old = fs::metadata(d.join("token")).unwrap().ino();
+        assert!(keep(d.path(), "ghs_new", 2_000_000_000));
+        assert_eq!(fs::read_to_string(d.join("token")).unwrap(), "ghs_new\n");
         assert_eq!(
-            fs::read_to_string(d.0.join("token.expires")).unwrap(),
+            fs::read_to_string(d.join("token.expires")).unwrap(),
             "2000000000\n"
         );
-        assert_ne!(fs::metadata(d.0.join("token")).unwrap().ino(), old);
+        assert_ne!(fs::metadata(d.join("token")).unwrap().ino(), old);
         for name in ["token", "token.expires"] {
-            let mode = fs::metadata(d.0.join(name)).unwrap().permissions().mode();
+            let mode = fs::metadata(d.join(name)).unwrap().permissions().mode();
             assert_eq!(mode & 0o777, 0o600, "{name}");
         }
-        assert!(!d.0.join("token.new").exists());
-        assert!(!d.0.join("token.expires.new").exists());
+        assert!(!d.join("token.new").exists());
+        assert!(!d.join("token.expires.new").exists());
     }
 
     #[test]
     fn a_token_that_cannot_be_moved_leaves_nothing_beside_it() {
         let d = dir("nomove");
-        fs::create_dir(d.0.join("token")).unwrap();
-        assert!(!keep(&d.0, "ghs_new", 2_000_000_000));
-        assert!(!d.0.join("token.new").exists());
-        assert!(!d.0.join("token.expires.new").exists());
-        assert!(!d.0.join("token.expires").exists());
+        fs::create_dir(d.join("token")).unwrap();
+        assert!(!keep(d.path(), "ghs_new", 2_000_000_000));
+        assert!(!d.join("token.new").exists());
+        assert!(!d.join("token.expires.new").exists());
+        assert!(!d.join("token.expires").exists());
     }
 
     #[test]
@@ -582,7 +572,7 @@ mod tests {
             OpenOptions::new()
                 .append(true)
                 .create(true)
-                .open(d.0.join("lock"))
+                .open(d.join("lock"))
                 .unwrap()
         };
         let (held, waiting) = (open(), open());

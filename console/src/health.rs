@@ -421,6 +421,7 @@ fn run_with(home: &Path, budget: String, systemctl: &Path) -> u8 {
 mod run_tests {
     use super::*;
     use std::process::Command;
+    use tehas_core::testdir::TestDir;
 
     const COMMIT: &str = "0123456789abcdef0123456789abcdef01234567";
 
@@ -432,7 +433,7 @@ mod run_tests {
     }
 
     struct Store {
-        home: PathBuf,
+        home: TestDir,
         real: PathBuf,
         /// The refusals the wrapper answers, one line for each call the case
         /// stands in for. Every call the run makes is written down.
@@ -461,9 +462,7 @@ mod run_tests {
     /// leans on the store's arithmetic.
     impl Store {
         fn new(name: &str) -> Self {
-            let home = std::env::temp_dir()
-                .join(format!("tehas-health-run-{}-{name}", std::process::id()));
-            let _ = fs::remove_dir_all(&home);
+            let home = TestDir::new(&format!("health-run-{name}"));
             fs::create_dir_all(home.join("libexec")).unwrap();
             fs::create_dir_all(home.join("state")).unwrap();
             fs::create_dir_all(home.join("bin")).unwrap();
@@ -501,7 +500,7 @@ mod run_tests {
                         "--repo",
                         "acme/widget",
                     ])
-                    .env("TEHAS_HOME", &s.home)
+                    .env("TEHAS_HOME", s.home.path())
                     .stdin(Stdio::null()),
             );
             assert_eq!(rc, 0, "the store's init said: {said}");
@@ -510,7 +509,7 @@ mod run_tests {
             let (rc, said) = merged(
                 Command::new(s.home.join("store.real"))
                     .args(["backup"])
-                    .env("TEHAS_HOME", &s.home)
+                    .env("TEHAS_HOME", s.home.path())
                     .stdin(Stdio::null()),
             );
             assert_eq!(rc, 0, "the store made no backup: {said}");
@@ -679,12 +678,6 @@ mod run_tests {
 
         fn run(&mut self) -> u8 {
             self.run_with("cpu=5,wall=30,writes=0")
-        }
-    }
-
-    impl Drop for Store {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.home);
         }
     }
 
@@ -902,7 +895,7 @@ pub fn main(given: &[String]) -> u8 {
             _ => return usage(),
         }
     }
-    println!("{}", report(home, &g, time::now()).pretty());
+    tehas_core::outln!("{}", report(home, &g, time::now()).pretty());
     0
 }
 
@@ -1653,22 +1646,15 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
 mod tests {
     use super::*;
     use std::fs::File;
-    use std::path::PathBuf;
+    use tehas_core::testdir::TestDir;
 
     const NOW: i64 = 1_792_245_620; // 2026-10-17T14:00:20Z
 
-    struct Home(PathBuf);
-
-    impl Drop for Home {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.0);
-        }
-    }
+    struct Home(TestDir);
 
     /// A home with a fresh queue snapshot and nothing else.
     fn home(name: &str) -> Home {
-        let dir = std::env::temp_dir().join(format!("tehas-health-{}-{name}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
+        let dir = TestDir::new(&format!("health-{name}"));
         fs::create_dir_all(dir.join("live")).unwrap();
         fs::create_dir_all(dir.join("state")).unwrap();
         let h = Home(dir);

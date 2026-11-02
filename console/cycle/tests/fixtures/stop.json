@@ -1094,7 +1094,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped without a pull request: status `failed`, last step `review`, 0 min (runner exit 30). The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. Its branch has an open pull request: https://github.com/acme/widget/pull/9\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=review kind= provider=0 sig=db051e68b1bc0ed32abdd1bc742e0da0ba9073f41868d0c2fa5ab1ada90535bd -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped with pull request #9 open: status `failed`, last step `review`, 0 min (runner exit 30). The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. Its branch has an open pull request: https://github.com/acme/widget/pull/9\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=review kind= provider=0 sig=db051e68b1bc0ed32abdd1bc742e0da0ba9073f41868d0c2fa5ab1ada90535bd -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -1244,7 +1244,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped without a pull request: status `aborted`, last step `review`, 0 min (runner exit 20). The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. Its branch has an open pull request: https://github.com/acme/widget/pull/9\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=review kind= provider=0 sig=db051e68b1bc0ed32abdd1bc742e0da0ba9073f41868d0c2fa5ab1ada90535bd -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped with pull request #9 open: status `aborted`, last step `review`, 0 min (runner exit 20). The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. Its branch has an open pull request: https://github.com/acme/widget/pull/9\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=review kind= provider=0 sig=db051e68b1bc0ed32abdd1bc742e0da0ba9073f41868d0c2fa5ab1ada90535bd -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -1394,7 +1394,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped without a pull request: status `unknown`, last step `review`, 0 min (runner exit 30). The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. Its branch has an open pull request: https://github.com/acme/widget/pull/9\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=review kind= provider=0 sig=db051e68b1bc0ed32abdd1bc742e0da0ba9073f41868d0c2fa5ab1ada90535bd -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped with pull request #9 open: status `unknown`, last step `review`, 0 min (runner exit 30). The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. Its branch has an open pull request: https://github.com/acme/widget/pull/9\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=review kind= provider=0 sig=db051e68b1bc0ed32abdd1bc742e0da0ba9073f41868d0c2fa5ab1ada90535bd -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -1544,7 +1544,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped without a pull request: status `running`, last step `review`, 0 min (runner exit 30). The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. Its branch has an open pull request: https://github.com/acme/widget/pull/9\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=review kind= provider=0 sig=db051e68b1bc0ed32abdd1bc742e0da0ba9073f41868d0c2fa5ab1ada90535bd -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped with pull request #9 open: status `running`, last step `review`, 0 min (runner exit 30). The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. Its branch has an open pull request: https://github.com/acme/widget/pull/9\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=review kind= provider=0 sig=db051e68b1bc0ed32abdd1bc742e0da0ba9073f41868d0c2fa5ab1ada90535bd -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",

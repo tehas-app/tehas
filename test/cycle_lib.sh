@@ -4,7 +4,8 @@
 # cycle for one issue against a stub gh, and what is reported about it.
 # The part has sourced test/lib.sh before this.
 
-cycle="$T_ROOT/libexec/cycle"
+# As a host has it: tehas-cycle beside the script, lib beside libexec.
+cycle="$T/home/tehas/libexec/cycle"
 fx=$T/fx
 mkdir -p "$fx"
 checkout=$T/home/tehas/repos/widget
@@ -90,14 +91,15 @@ case "$1 $2" in
     fi
     # pr.json is the whole answer. pr.txt is the address of one pull request
     # of the bot on the branch asked for, in the state pr-state says [OPEN],
-    # whose body is pr-body [Fixes #7].
+    # whose body is pr-body [Fixes #7], a draft when pr-draft is there.
     if [ -e "$T/fx/pr.json" ]; then cat "$T/fx/pr.json"
     elif [ -e "$T/fx/pr.txt" ]; then
       head=$(printf "%s\n" "$@" | sed -n "/^--head$/{n;p;}")
       jq -n --arg url "$(cat "$T/fx/pr.txt")" --arg head "$head" \
         --arg state "$(cat "$T/fx/pr-state" 2>/dev/null || echo OPEN)" \
         --arg body "$(cat "$T/fx/pr-body" 2>/dev/null || echo "Fixes #7")" \
-        "[{url: \$url, state: \$state, body: \$body, headRefName: \$head}]"
+        --argjson draft "$([ -e "$T/fx/pr-draft" ] && echo true || echo false)" \
+        "[{url: \$url, state: \$state, body: \$body, headRefName: \$head, isDraft: \$draft}]"
     else echo "[]"; fi ;;
   "issue edit") [ ! -e "$T/fx/edit-slow" ] || { : >"$T/calls/edit.started"; sleep 1; }
     # The first edits fail, as many as edit-fails-times says.
@@ -135,8 +137,6 @@ case "$1 $2" in
     [ ! -e "$T/fx/issue-fails" ] || exit 1
     if [ -e "$T/fx/issue-$n.json" ]; then cat "$T/fx/issue-$n.json"; else echo "{\"number\":$n,\"state\":\"open\"}"; fi ;;
 esac'
-# A file that asks for it runs every case with the report in Rust.
-[ -z "${T_CYCLE_REPORT:-}" ] || T_MINIMAL+=("TEHAS_CYCLE_REPORT=$T_CYCLE_REPORT")
 # The sandbox image has no label unless a case writes one: no commit is then
 # on record.
 t_stub docker '[ -e "$T/fx/image.label" ] || exit 1; cat "$T/fx/image.label"'
@@ -185,6 +185,8 @@ reset() {
   t_cycle || t_bad "no tehas-cycle: $t_cycle_why"
   mkdir -p "$T/home/tehas/libexec"
   cp "$T_CYCLE" "$T/home/tehas/libexec/tehas-cycle"
+  ln -s "$T_ROOT/libexec/cycle" "$cycle"
+  ln -sfn "$T_ROOT/lib" "$T/home/tehas/lib"
   T_ENV=(TEHAS_WORK_CMD=fake-work TEHAS_STATUS_CMD=fake-status TEHAS_CONSOLE_CMD=fake-console TEHAS_CYCLE_RETRY_WAIT=0)
   t_instance "${T_MINIMAL[@]}"
 }
