@@ -154,8 +154,10 @@ t_lacks "$t_out" "nothing to do"
 
 t_case "a failed call names gh's error by words of a fixed list"
 reset
-# 500 and not 502: a 502 is retried by the rule of read/retry.rs and a 500 is
-# kept as the answer, so this case still speaks of the one call the stub failed.
+# A status the rule of read/retry.rs keeps rather than retries, so the case still
+# speaks of the one call the stub failed: which status is which class is what
+# `console/dispatch/src/read/retry.rs` and the `broken` fixture of
+# `console/dispatch/src/read/build.rs` say.
 echo 'HTTP 500: Internal Server Error for query with a sk-secret-looking body' >"$fx/gh-stderr"
 : >"$fx/gh-stderr-fails"
 t_run "$dispatch"
