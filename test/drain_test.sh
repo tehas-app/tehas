@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for libexec/drain: set a limit of no new work, and wait for the
+# Tests for tehas drain: set a limit of no new work, and wait for the
 # running cycles to end.
 # shellcheck disable=SC2016  # snippets are expanded by the shell under test
 # shellcheck source=test/lib.sh
@@ -8,7 +8,7 @@
 t_console || t_bad "no console: $t_console_why"
 T_ENV_ALWAYS+=(TEHAS_CONSOLE="$T_CONSOLE")
 
-drain="$T_ROOT/libexec/drain"
+drain="$T_ROOT/bin/tehas drain"
 file=$T/home/tehas/state/limit.json
 cycles=$T/home/tehas/state/cycles
 home=$T/home/tehas
@@ -24,7 +24,9 @@ t_stub gh
 # one drain can miss, and only the take of the lock counts it. The cycle takes the
 # issue's lock in its own descriptor and outlives the poll, as a cycle does
 # (libexec/cycle does the same with its 9), so drain finds it once the poll is
-# gone. The poll takes the dispatcher's lock the same way, in a 9 of its own: a
+# gone. A poll ends only after its cycle said it started, which comes after the
+# cycle's lock, so here the issue's lock is taken before the poll's is let go. The
+# poll takes the dispatcher's lock the same way, in a 9 of its own: a
 # poll started here is a child of the shell that waits for it, and a lock it held
 # in an 8 would be a lock every drain of every later case inherits, which is the
 # one thing that makes a wait for a poll answer that no poll is running. The poll
@@ -37,7 +39,7 @@ poll_hold() { # <cycle-after> <hold> [<issue>]
   # that, in its own descriptor. Without an issue the poll starts nothing, which
   # the poll's own branch says, not a `true &` that would take the whole list with
   # it and let the poll end before the start was even tried.
-  printf '#!%s\nexec 9>>"%s" && flock 9\nsleep %s\nif [ -n "%s" ]; then\n  exec 9>"%s" && flock 9 && exec sleep 60\nfi\nsleep %s\n' \
+  printf '#!%s\nexec 9>>"%s" && flock 9\nsleep %s\nif [ -n "%s" ]; then\n  exec 7>"%s" && flock 7 && exec 9>&- && exec sleep 60\nfi\nsleep %s\n' \
     "$T_BASH" "$home/state/dispatch.lock" "$after" "$n" "$cycles/${n:-0}.lock" "$hold" >"$T/bin/held-poll"
   chmod +x "$T/bin/held-poll"
   env -i PATH="$T/bin:$PATH" HOME="$T/home" TEHAS_HOME="$home" T="$T" \

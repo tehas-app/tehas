@@ -1,0 +1,164 @@
+Bring this host up to date in one step, from a release or from the platform
+checkout.
+
+The three things an update takes - move to the new code, run install.sh, then
+finish each follow-up it asks for - in order, one line per step, stopping at
+the first failure.
+
+Where the new code comes from is TEHAS_UPDATE_FROM in instance.env. Without
+it, a host with ~/tehas/current updates from releases and one with a platform
+checkout from that checkout, so a host installed before the setting existed
+goes on as it did.
+
+From a release (TEHAS_UPDATE_FROM=release): the releases are read from
+TEHAS_RELEASE_REPO (versions.env carries the platform's own; the instance may
+name another), with gh when it is signed in, which reaches a private
+repository with the bot's token, and with curl from the public address
+otherwise. The tarball is checked against its .sha256 and its minisign
+signature with the key install.sh put in ~/tehas/release/minisign.pub, never a
+key from the download, and unpacked into ~/tehas/versions/<version>. The
+instance is checked against that version's own lib/config.sh, with the
+example value of any setting it is missing, and a TEHAS_ key that version
+never names is warned about. Only then is ~/tehas/current pointed at it, and
+install.sh runs from current, so the commands and the units are the copies it
+makes from that version. The sandbox image each version ran with keeps a tag,
+tehas/pi-rukas:release-<version>, so going back to it reuses the image. The
+version current names and the two switched to before it stay on disk, the
+rest are removed with their image tags.
+
+From the checkout (TEHAS_UPDATE_FROM=git), for a host that develops tehas: it
+fast-forwards the platform checkout. It changes nothing when the checkout
+has local changes or cannot be fast-forwarded.
+
+What it does not do: enable or start a systemd unit or a container that is
+not already running. A changed unit is restarted only when it was active, and a
+compose server is recreated only where its container is already up - recreated,
+because what changes is the config file it mounts and it reads that when its
+process starts. An instance with no edge router does not get one from an
+update.
+
+The follow-ups are named by id, never by command text. install.sh prints
+"next: <step line>" for the steps its changed files call for, and records the
+same lines in $TEHAS_HOME/state/update-pending as it copies each file. This
+command runs only the ids it defines, each as its own command
+with the arguments written on that line - and the arguments are part of the
+step: a docs or edge line without the --force-recreate those steps need is
+refused, because the weaker renewal would leave a running container serving the
+config it loaded at its start and still be counted as done. An id this command does
+not define is not run and is said out loud: a step this command cannot perform
+leaves the run red rather than green, and its line stays in the record, so
+install.sh --check keeps reporting it until a command that knows it runs. Steps
+owed in that record are finished too, and each one comes off the record only
+after it has run, so a run that stopped partway - or one whose install.sh knew a
+step this version does not - does not turn into a green "tehas is up to date".
+A record that exists but cannot be read stops the run too: answering "nothing
+is owed" for a file this account cannot open would let the next write replace
+steps somebody else recorded.
+
+pi-rukas is not pinned. Last, where the installed versions.env names a branch
+for it, the sandbox image is moved to that branch's head when the head is not
+the commit the image was built on, also when no file of tehas changed. A run
+that built the image already, or whose steps failed, skips this. --check only
+says whether the head moved. The host's clone of pi-rukas follows only when
+bootstrap.sh user runs, so a run that left the image on a commit the clone is
+not on prints the follow-up: one later: line naming that command, whether or
+not versions.env changed, and with no change to the exit status.
+
+A step line recorded as "protolab <flag>" by an earlier version is the edge
+step.
+
+Whether a service runs is a question put to Docker or to systemd, and only
+their answer means anything - never their exit status on its own. The units step
+asks systemd to reload its unit files before it restarts anything, because a
+copied unit file is not in effect until that has happened, and only silence next
+to exit 0 says it did: a reload that failed, or answered with text, stops the
+step and leaves it owed rather than report a changed unit as applied while
+systemd still holds the old definition. systemd is asked without --quiet so it
+names the state, and only its own state words are read: the active family
+restarts the unit, inactive, failed and unknown (no such unit on this host)
+leave it alone. When the question cannot be asked - no daemon, no compose
+plugin, no user bus, a systemctl wrapper that prints an error and exits 0 - this
+command stops with exit 1 rather than report the service as absent: on a host
+that does run it, a failed query read as "not running" would leave the changed
+file unapplied and the update green. Every call outside this command is bounded
+by a limit named in the message that reports it - install.sh's own run included
+- so a daemon or a remote that stops answering fails instead of hanging an
+update halfway through.
+
+The platform checkout is $TEHAS_HOME/platform, where the manual says a host
+keeps it. It has to be a git checkout - a clone, a worktree or a submodule -
+with an install.sh; without one this command stops rather than guess at
+another directory.
+
+While $TEHAS_HOME/state/update-hold exists an update refuses to run, with
+exit 1, and --check says the hold is there. A person who rolled the platform
+back makes that file, so the next update does not move it forward again.
+--to names its version and is not held, and neither is --pending: it moves
+nothing, so the hold keeps no step of its own from running.
+
+Usage:
+  tehas update             move to the newest release, or pull the checkout;
+                           install, run the follow-ups that apply
+  tehas update --to vX.Y.Z install that release, older ones included
+  tehas update --check [--to vX.Y.Z]
+                           from a release: the installed version, the newest,
+                           and the notes of the releases between them with
+                           their Adopter action; then install.sh --check of
+                           the version installed. It downloads nothing.
+  tehas update --check     report what would change and change no file of the
+                           checkout or of the host - including the follow-ups
+                           an earlier run left undone, which it reports and
+                           does not run. It does contact the remote, so the
+                           remote-tracking refs under origin/ are brought to
+                           what the remote has - origin/<branch> moves, and a
+                           branch the remote deleted stops being reported. It
+                           runs install.sh --check, which runs the tests.
+                           It asks upstream which pi-rukas commit to follow.
+                           Nothing is merged, installed, built or started, and
+                           it exits 1 when there is something to update.
+  tehas update --pending   run only the follow-ups $TEHAS_HOME/state/
+                           update-pending lists, in the order
+                           they run, and clear the record. It runs no git command and no install.sh,
+                           so it finishes an install on a checkout that is not
+                           on a branch, or whose remote is not reachable.
+                           Nothing is pulled, installed, built by install.sh
+                           or fetched, and a record with nothing in it is not
+                           a failure.
+  tehas update -h|--help   print this text and exit 0
+
+Exit: 0 updated, or already up to date,
+      1 another update is running (it holds $TEHAS_HOME/state/update.lock),
+        after waiting up to TEHAS_UPDATE_LOCK_WAIT seconds (10 by default) for
+        it, the checkout has local changes, is not on a branch, cannot be
+        fast-forwarded, has no commit yet, a step failed or timed out, install.sh
+        gave no answer within its limit, systemd did not reload the unit files, a
+        follow-up install.sh asked for is one this command does not know, or
+        --check found something to update (a checkout behind, steps left
+        over from an earlier run, or a pi-rukas head the image is not on) or
+        something an update does not fix (the host's tools, the slice, root's
+        copy of the command, the tests), each said apart, or the image could
+        not be moved to the pi-rukas head. A record of steps owed that exists but this
+        account cannot read is a failure too: reading it as "nothing is owed"
+        would let the next write replace steps somebody else recorded. A status
+        of install.sh that this command does not know (126 when its exec bit is
+        gone, say) is reported as 1 with its number named. A console that does not
+        answer is 1 too. Steps run in a fixed order - systemd first - so a step that fails after another one leaves
+        that one applied, and after install.sh copied files leaves those copies
+        in place; install.sh keeps each replaced file as <name>.prev. What was
+        asked for and did not run stays recorded for the next run, and so does
+        a step line this command does not know.
+        From a release, 1 also when the releases cannot be listed, the version
+        asked for is not published, or a download is missing a file, does
+        not match its .sha256 or is not signed by the installed key; nothing is
+        switched then.
+        --pending reads no checkout and no remote, so of these it answers 1
+        only for a step that failed or timed out, for a step line this command
+        does not know, and for a record it cannot read.
+      64 --help with another argument, --to without a version or with one not
+        shaped vX.Y.Z, --to on a host that updates from its checkout, --pending
+        with --check or with --to, or an argument this command does not know
+      78 the instance settings are missing or malformed, no console stands
+        beside this command, there is no platform checkout, the host has neither one nor ~/tehas/current and
+        no TEHAS_UPDATE_FROM, or the release to switch to asks for a setting
+        the instance does not have (nothing is switched). --pending asks for
+        the settings only: a host with no checkout and no current runs it.

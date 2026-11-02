@@ -5,9 +5,8 @@
 //! for those things themselves, each in its own shape, so the forge is welded
 //! in. This module is the first half of the seam: one trait that says what
 //! tehas wants to know, and one adapter that answers it from GitHub's labels
-//! the way `lib/labels.sh` and `libexec/dispatch` do today. Nothing calls it
-//! yet; the next issues of #800 give bash a command for it and move
-//! `libexec/tidy`, `libexec/status` and `lib/labels.sh` onto that command.
+//! the way `libexec/dispatch` does today. Nothing calls it
+//! yet; the next issues of #800 give bash a command for it.
 //!
 //! The terms are tehas's, not GitHub's: an issue's labels, the newest event of
 //! one label, who applied the label that lets a cycle start, and putting a
@@ -32,14 +31,14 @@
 //! thing here that starts a process, and it is what the next issues of #800
 //! build once, with the instance's shim as its program.
 //!
-//! The reading of gh's answers, and the rules of `lib/labels.sh` that decide
+//! The reading of gh's answers, and the rules that decide
 //! which of an issue's events answer a term, are in [`gh`].
 
 mod gh;
 
 /// The label whose latest application approves work. Named once in this
 /// module: the same string is still spelled out in `console/dispatch`,
-/// `console/cycle` and `libexec/labels`, and the issue that consolidates
+/// `console/cycle` and `host/labels.tsv`, and the issue that consolidates
 /// tehas's label names (#810) is where the other copies are gathered.
 const APPROVAL_LABEL: &str = "tehas:ready";
 
@@ -181,6 +180,10 @@ pub trait Forge {
     /// event of the issue carries it.
     fn label_state(&mut self, issue: u64, label: &str) -> Result<Option<LabelEvent>, ForgeError>;
 
+    /// Every label event of the issue, for a rule of the caller's to read, as
+    /// [`crate::events::pause_holds`] reads them.
+    fn label_events(&mut self, issue: u64) -> Result<Vec<crate::events::Event>, ForgeError>;
+
     /// The newest application of `label`, or None when no event applied it.
     /// Only an application answers it: a label taken off does not, whoever
     /// took it off, because authorisation is the account that applied the
@@ -204,6 +207,21 @@ pub trait Forge {
     /// in the state wanted, not an error. A name no label can have is refused
     /// without a call.
     fn remove_label(&mut self, issue: u64, label: &str) -> Result<(), ForgeError>;
+}
+
+/// gh's answer to the events call as [`crate::events`] reads events. Why not
+/// when it says nothing of them: an empty answer included.
+pub fn read_events(out: &str) -> Result<Vec<crate::events::Event>, String> {
+    Ok(gh::parse_events(out)?.into_iter().map(public).collect())
+}
+
+fn public(e: gh::Event) -> crate::events::Event {
+    crate::events::Event {
+        event: e.event,
+        label: e.label,
+        actor: e.actor,
+        at: e.at,
+    }
 }
 
 /// gh, behind a trait of its own, so the adapter's rules are read without gh,
@@ -282,6 +300,10 @@ impl Forge for GitHub {
 
     fn label_state(&mut self, issue: u64, label: &str) -> Result<Option<LabelEvent>, ForgeError> {
         Ok(gh::latest_event(&self.events(issue)?, label))
+    }
+
+    fn label_events(&mut self, issue: u64) -> Result<Vec<crate::events::Event>, ForgeError> {
+        Ok(self.events(issue)?.into_iter().map(public).collect())
     }
 
     fn applied_by(&mut self, issue: u64, label: &str) -> Result<Option<Approval>, ForgeError> {

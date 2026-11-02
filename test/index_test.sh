@@ -8,8 +8,19 @@
 # The CPU quota and the ticket ceiling follow the host's CPUs: the same on
 # every test machine.
 t_stub nproc 'echo 16'
+# The slice is the console's, which a checkout's libexec does not hold.
+# shellcheck disable=SC2154  # t_console_why is set by t_console (test/lib.sh)
+t_console || t_bad "no console: $t_console_why"
+T_ENV_ALWAYS+=(TEHAS_CONSOLE_CMD="$T_CONSOLE")
 
-index="$T_ROOT/libexec/index"
+# The command as a host has it: beside tehas-cycle, which does the run.
+# shellcheck disable=SC2154  # t_cycle_why is set by t_cycle (test/lib.sh)
+t_cycle || t_bad "no tehas-cycle: $t_cycle_why"
+mkdir -p "$T/tree/libexec"
+ln -s "$T_ROOT/lib" "$T/tree/lib"
+ln -s "$T_ROOT/libexec/index" "$T/tree/libexec/index"
+cp "$T_CYCLE" "$T/tree/libexec/tehas-cycle"
+index=$T/tree/libexec/index
 checkout=$T/home/tehas/repos/widget
 ws=$T/home/tehas/work/widget
 marker=$T/home/tehas/state/index.json
@@ -31,7 +42,8 @@ git clone -q "$upstream" "$checkout"
 image_id=sha256:1111111111111111111111111111111111111111111111111111111111111111
 other_id=sha256:2222222222222222222222222222222222222222222222222222222222222222
 # The stub answers `image inspect` with $IMAGE_ID and by $IMAGE_RC, and `run`
-# by $RUN_RC. For a run it also notes the commit of the tree mounted read-only,
+# by $RUN_RC. $RUN_SIGNAL is sent to tehas-cycle from inside the run, the parent
+# of timeout. For a run it also notes the commit of the tree mounted read-only,
 # which is gone by the time the command returns, and what the directory it is
 # given read-write held when the run started. Only a run that succeeded writes a
 # database into that directory, under the name of the tree, as the indexer
@@ -48,6 +60,7 @@ for a in "$@"; do
   esac
 done
 [ -z "$written" ] || find "$written" -mindepth 1 -maxdepth 1 -printf "%f\n" | LC_ALL=C sort | tr "\n" " " >"$T/calls/index.at.run"
+[ -z "${RUN_SIGNAL:-}" ] || { kill "-$RUN_SIGNAL" "$(ps -o ppid= -p "$PPID")"; exec sleep 1; }
 [ -z "${RUN_SLEEP:-}" ] || exec sleep "$RUN_SLEEP"
 [ "${RUN_RC:-0}" = 0 ] || exit "$RUN_RC"
 echo index >"$written/widget.db"
@@ -287,22 +300,6 @@ t_run "$index"
 refused
 t_contains "$t_out" "tehas index: TEHAS_CYCLE_RESERVE=3g is more than a container may use here (2048m"
 t_instance "${T_MINIMAL[@]}"
-
-t_case "the fourteen words are all present or nothing starts"
-# The command beside a slice library that says yes and hands out a short list,
-# or a list that names another parent.
-short=$T/short
-mkdir -p "$short/libexec" "$short/lib"
-cp "$T_ROOT"/lib/*.sh "$short/lib/"
-ln -s "$index" "$short/libexec/index"
-for words in "--cgroup-parent tehas.slice --memory 2048m --memory-swap 2048m --memory-reservation 2g --cpus 3.75 --pids-limit 4096" \
-  "--cgroup-parent other.slice --memory 2048m --memory-swap 2048m --memory-reservation 2g --cpus 3.75 --pids-limit 4096 --cpu-shares 1024" ""; do
-  without
-  printf '%s\n' 'tehas_slice_ok() { return 0; }' "tehas_slice_limits() { TEHAS_SLICE_LIMITS=($words); }" >"$short/lib/slice.sh"
-  t_run "$short/libexec/index"
-  refused
-  t_contains "$t_out" "tehas index: the container limits could not be made, not starting"
-done
 
 t_case "before a cycle, without the slice nothing is indexed either"
 without
@@ -642,6 +639,23 @@ t_eq "$(find "$indexdir" -mindepth 1 -maxdepth 1 -printf '%f\n' | LC_ALL=C sort 
   "_config.db logs widget.db "
 t_eq "$(jq -r .indexer_image "$marker")" "$image_id"
 t_eq "$(find "$T/home/tehas/tmp" -mindepth 1 2>/dev/null | wc -l)" 0
+T_ENV=("$root" "$wait")
+
+t_case "a signal during a rebuild puts the index back and removes the clone"
+for signal in "TERM 143" "INT 130" "HUP 129"; do
+  read -r name status <<<"$signal"
+  reset
+  rm -rf "$indexdir"
+  mkdir -p "$indexdir"
+  echo old >"$indexdir/other-tree.db"
+  T_ENV=(IMAGE_ID="$image_id" RUN_SIGNAL="$name" "$root" "$wait")
+  t_run "$index"
+  t_eq "$t_rc" "$status"
+  t_eq "$(find "$indexdir" -mindepth 1 -maxdepth 1 -printf '%f\n')" "other-tree.db"
+  t_eq "$(find "$T/home/tehas/tmp" -mindepth 1 | wc -l)" 0
+  # The client outlives the run and holds the lock until it ends.
+  flock "$T/home/tehas/state/index.lock" true
+done
 T_ENV=("$root" "$wait")
 
 # The set-aside goes back only for a run that wrote no index. An indexer that

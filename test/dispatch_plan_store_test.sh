@@ -150,12 +150,6 @@ reset
 # reads the open sessions again before #7 could start.
 open_read_fails_again
 t_run "$dispatch"
-# The Rust poll reads the sessions once, with the queue, and decides on that
-# read; it makes no second one to fail (host/docs/operating.md).
-if bash_reads; then
-  t_eq "$(t_calls fake-start)" ""
-  t_contains "$t_out" "skip #7: the open planning sessions could not be read (busy)"
-fi
 t_eq "$(t_row plan-show 9 -- '.planning.ended_at | type')" number
 
 t_case "the keep directory a turn is given is beside the workspace, not in the state directory"

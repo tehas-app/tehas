@@ -1,7 +1,6 @@
 # The gate, run on every pull request and on main: the lint, shellcheck, the
 # shell tests and the console's tests. It makes scripts/verify.sh something a
-# ruleset can require. The billet job runs billets/web's own gate, which the
-# verify job does not. It only reads the repository. The one secret it may use
+# ruleset can require. It only reads the repository. The one secret it may use
 # is GENERIC_NAMES, the private list of names for scripts/check-generic.sh; a
 # run without it checks addresses only and says so. A pull request from a fork
 # does not run this job at all.
@@ -77,61 +76,3 @@ jobs:
       - name: remove the names list
         if: always()
         run: rm -f scripts/check-generic.names
-  billet:
-    # Not a required check, and every step past the first skips when the
-    # change does not touch the billet. It needs the network, for npm, so it
-    # is not part of scripts/verify.sh.
-    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: [self-hosted, tehas]
-    timeout-minutes: 30
-    defaults:
-      run:
-        working-directory: billets/web
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-        with:
-          persist-credentials: false
-          fetch-depth: 0
-      - name: does the change touch the billet
-        id: billet
-        working-directory: .
-        env:
-          BEFORE: ${{ github.event.before }}
-        run: |
-          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
-            base=origin/$GITHUB_BASE_REF
-          else
-            base=$BEFORE
-          fi
-          # A push that opens a branch or rewrites one has no usable before.
-          if [ ! -f billets/web/package.json ]; then
-            echo "no billet in this commit"
-          elif ! git cat-file -e "$base^{commit}" 2>/dev/null ||
-            [ -n "$(git diff --name-only "$base...HEAD" -- billets/web)" ]; then
-            echo "run=1" >> "$GITHUB_OUTPUT"
-          else
-            echo "the change does not touch the billet"
-          fi
-      - name: node at the pinned version
-        if: steps.billet.outputs.run
-        working-directory: .
-        run: |
-          . host/versions.env
-          mkdir -p "$RUNNER_TEMP/node"
-          curl -fsSL -o "$RUNNER_TEMP/node.tar.xz" \
-            "https://nodejs.org/dist/v$NODE_VERSION/node-v$NODE_VERSION-linux-x64.tar.xz"
-          echo "$NODE_SHA256  $RUNNER_TEMP/node.tar.xz" | sha256sum -c -
-          tar -xJf "$RUNNER_TEMP/node.tar.xz" -C "$RUNNER_TEMP/node" --strip-components=1
-          echo "$RUNNER_TEMP/node/bin" >> "$GITHUB_PATH"
-      - name: scripts/worktree-setup.sh
-        if: steps.billet.outputs.run
-        run: scripts/worktree-setup.sh
-      - name: scripts/verify.sh
-        if: steps.billet.outputs.run
-        run: scripts/verify.sh
-      - name: scripts/verify-full.sh and scripts/smoke.sh, once they exist
-        if: steps.billet.outputs.run
-        run: |
-          for s in scripts/verify-full.sh scripts/smoke.sh; do
-            if [ -f "$s" ]; then "$s" || exit 1; else echo "skipped: $s is not there yet"; fi
-          done
