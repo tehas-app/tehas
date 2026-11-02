@@ -8,8 +8,10 @@
 #     host share those layers: the manual says why the split is where it is, in
 #     What two instance users of one host share (host/docs/host.md).
 #   - shellcheck, which gates commonly run (.pi/verify-cmd, .pi/smoke-cmd),
-#   - cargo's registry given to that user (the upstream image has Rust, and
-#     a registry only root can write, so a gate could not fetch a crate),
+#   - Rust at the version versions.env names, with rustfmt and clippy, rather
+#     than whatever stable the upstream image was built with,
+#   - cargo's registry given to that user (the upstream image has a registry
+#     only root can write, so a gate could not fetch a crate),
 #   - Playwright's Chromium with its system libraries and fonts, for a
 #     product's browser checks,
 #   - `file` and a Python image library, so a cycle can look at a picture,
@@ -48,6 +50,7 @@ ARG SHELLCHECK_VERSION
 ARG SHELLCHECK_SHA256
 ARG JQ_VERSION
 ARG JQ_SHA256
+ARG RUST_VERSION
 ARG PLAYWRIGHT_VERSION
 ARG PLAYWRIGHT_LOCK_SHA256
 ARG CBM_VERSION
@@ -59,6 +62,18 @@ ARG VIPUNE_MODEL_SHA256_ONNX
 ARG VIPUNE_MODEL_SHA256_TOKENIZER
 
 USER root
+
+# The base carries the stable toolchain of the day upstream built it, so the
+# Rust a cycle's gate ran moved between builds. This is the version the host and
+# CI build with (host/versions.env), made the default; the base's toolchain stays
+# beside it. rustup checks what it downloads against the channel's checksums.
+# rustfmt and clippy come with it, as they do in the base, since gates run both.
+RUN rustup toolchain install "$RUST_VERSION" --profile minimal --component rustfmt,clippy \
+ && rustup default "$RUST_VERSION" \
+ && found=$(rustc --version | grep -o -E '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1) \
+ && if [ "${found:-}" != "$RUST_VERSION" ]; then echo "sandbox: rustc is ${found:-not there}, versions.env names $RUST_VERSION" >&2; exit 1; fi \
+ && cargo fmt --version && cargo clippy --version \
+ && echo "sandbox: rustc $RUST_VERSION"
 
 # What a gate fetches stays in its own container and goes with it: a registry
 # kept between cycles would be code one cycle leaves for the next one's gate.
@@ -237,6 +252,7 @@ RUN for tool in bash cargo curl fd file find gh git jq node pi python3 rg shellc
     done \
  && python3 -c 'import PIL' \
  && if [ "$(jq --version)" != "jq-${JQ_VERSION}" ]; then echo "sandbox: a cycle finds $(jq --version), versions.env names jq-${JQ_VERSION}" >&2; exit 1; fi \
+ && case "$(rustc --version)" in "rustc ${RUST_VERSION} "*) ;; *) echo "sandbox: a cycle finds $(rustc --version), versions.env names rustc ${RUST_VERSION}" >&2; exit 1 ;; esac \
  && echo "sandbox: the tools a cycle reaches for are in the image"
 USER root
 
