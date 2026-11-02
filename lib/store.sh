@@ -26,12 +26,6 @@
 #   tehas_store_ready             0 when the binary is executable and
 #                                 state/tehas.db is a regular file and not a
 #                                 link: two tests, no process
-#   tehas_approval_view <issue> [<attempt>]
-#       The store's approval-view of the issue's latest start in a new 0600 file
-#       under $TEHAS_HOME/tmp; prints its path, and the caller removes it. With
-#       <attempt>, only the approval that start used. Returns 0 with a path, 1
-#       when there is none on record, 2 when the store could not answer (and
-#       prints nothing).
 #
 # The rule for every reader: read a field only after a 0, and read JSON null as
 # "none on record". After 1, 64 or 78 never use an empty value: take the branch
@@ -127,25 +121,3 @@ tehas_store_ready() {
   local bin=${TEHAS_HOME:-}/libexec/store db=${TEHAS_HOME:-}/state/tehas.db
   [ -n "${TEHAS_HOME:-}" ] && [ -f "$bin" ] && [ -x "$bin" ] && [ -f "$db" ] && [ ! -L "$db" ]
 }
-
-# The view of the last answer in a new file, as tehas_approval_view says.
-tehas_view_file() { # <name>
-  local dir=${TEHAS_HOME:-}/tmp view file
-  view=$(jq -c .view <<<"$tehas_store_out" 2>/dev/null) || return 2
-  [ -n "$view" ] || return 2
-  [ "$view" != null ] || return 1
-  [ -e "$dir" ] || mkdir -m 700 "$dir" 2>/dev/null
-  [ -d "$dir" ] && [ ! -L "$dir" ] || return 2
-  file=$(mktemp "$dir/$1.XXXXXX" 2>/dev/null) || return 2
-  printf '%s\n' "$view" >"$file" 2>/dev/null || {
-    rm -f "$file"
-    return 2
-  }
-  printf '%s\n' "$file"
-}
-
-tehas_approval_view() { # <issue> [<attempt>]
-  tehas_store approval-view "$1" ${2+--attempt "$2"} || return 2
-  tehas_view_file approval
-}
-
