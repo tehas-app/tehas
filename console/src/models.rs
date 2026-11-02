@@ -26,7 +26,7 @@ pub fn main(given: &[String]) -> u8 {
         },
         ["pick", provider] => {
             let file = ModelFile::read(&models::host_path());
-            println!(
+            tehas_core::outln!(
                 "{}",
                 models::pick(&file, provider, &models::used(), &models::curl)
             );
@@ -35,7 +35,7 @@ pub fn main(given: &[String]) -> u8 {
         ["resolve", out] => match models::write(Path::new(out)) {
             Some(written) => {
                 for name in written.moved {
-                    println!("{name} backup");
+                    tehas_core::outln!("{name} backup");
                 }
                 0
             }

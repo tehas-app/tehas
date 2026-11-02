@@ -36,6 +36,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "tehas-core",
 ]
 
 [[package]]
@@ -513,6 +514,7 @@ name = "tehas-merge"
 version = "0.1.0"
 dependencies = [
  "serde_json",
+ "tehas-core",
 ]
 
 [[package]]
