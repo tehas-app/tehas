@@ -1861,7 +1861,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped without a pull request: status `handoff`, last step `commit-pr`, 0 min (runner exit 2). pi-rukas stopped on the cap `review-incomplete`. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. Its branch has an open pull request: https://github.com/acme/widget/pull/9\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=commit-pr kind= provider=0 sig=c5c7e56515dfb3145435958c89059c41ad581ca0459ed389e03dd7681f33d4a2 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped with pull request #9 open: status `handoff`, last step `commit-pr`, 0 min (runner exit 2). pi-rukas stopped on the cap `review-incomplete`. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. Its branch has an open pull request: https://github.com/acme/widget/pull/9\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=commit-pr kind= provider=0 sig=c5c7e56515dfb3145435958c89059c41ad581ca0459ed389e03dd7681f33d4a2 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -3295,7 +3295,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped without a pull request: status `unknown`, last step `feature/issue-7-installed` read from its run log, 0 min (runner exit 134). The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. Its branch has an open pull request: https://github.com/acme/widget/pull/347\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=featureissue-7-installed kind= provider=0 sig=f5cfe2d3d8bbe3f93f75978e7d363b3d31cdf251a9b15dfc8f4b709ca1f418f1 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped with pull request #347 open: status `unknown`, last step `feature/issue-7-installed` read from its run log, 0 min (runner exit 134). The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. Its branch has an open pull request: https://github.com/acme/widget/pull/347\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=featureissue-7-installed kind= provider=0 sig=f5cfe2d3d8bbe3f93f75978e7d363b3d31cdf251a9b15dfc8f4b709ca1f418f1 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",

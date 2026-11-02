@@ -332,3 +332,93 @@ fn a_reason_that_reads_like_an_outage_is_no_outage_without_its_kind() {
     assert!(!r.end.contains(&"--provider".to_string()), "{:?}", r.end);
     assert_eq!(r.arm, "parked");
 }
+
+/// What the park of the stop case "ended as running" says, with the bot's
+/// pull requests on its branch as given.
+fn stop_with(prs: Value) -> String {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/stop.json");
+    let cases: Vec<Value> = serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap();
+    let mut c = cases
+        .into_iter()
+        .find(|c| c["case"].as_str().unwrap_or("").contains("ended as running"))
+        .unwrap();
+    c["facts"]["github"]["prs"] = prs;
+    let facts = Facts::from_json(&c["facts"]).unwrap();
+    let r = report(&facts, &mut Given(c["facts"]["github"].clone()));
+    assert_eq!(r.arm, "parked");
+    r.actions
+        .iter()
+        .find_map(|a| match a {
+            Action::Park(p) => Some(p.comment(false, true)),
+            _ => None,
+        })
+        .unwrap()
+}
+
+fn open_pr(draft: Option<bool>) -> Value {
+    let mut p = serde_json::json!({"url": "https://github.com/acme/widget/pull/67", "state": "OPEN", "body": "Fixes #7", "headRefName": "feature/x"});
+    if let Some(d) = draft {
+        p["isDraft"] = d.into();
+    }
+    serde_json::json!([p])
+}
+
+#[test]
+fn a_stop_with_an_open_pull_request_names_it() {
+    for draft in [None, Some(false)] {
+        let said = stop_with(open_pr(draft));
+        assert!(
+            said.contains("Tehas cycle stopped with pull request #67 open: status `running`"),
+            "{said}"
+        );
+        assert!(!said.contains("without a pull request"), "{said}");
+        assert!(!said.contains("(draft)"), "{said}");
+    }
+}
+
+#[test]
+fn a_stop_with_a_draft_pull_request_says_it_is_a_draft() {
+    let said = stop_with(open_pr(Some(true)));
+    assert!(
+        said.contains("Tehas cycle stopped with pull request #67 open (draft): status `running`"),
+        "{said}"
+    );
+    assert!(
+        said.contains("Its branch has an open pull request: https://github.com/acme/widget/pull/67"),
+        "{said}"
+    );
+}
+
+#[test]
+fn a_stop_with_no_pull_request_says_so() {
+    let said = stop_with(serde_json::json!([]));
+    assert!(
+        said.contains("Tehas cycle stopped without a pull request: status `running`"),
+        "{said}"
+    );
+    assert!(!said.contains("open pull request"), "{said}");
+}
+
+#[test]
+fn no_comment_says_without_a_pull_request_and_names_one() {
+    for suite in ["crash", "handoff", "park", "record", "result", "start", "stop"] {
+        let path = format!("{}/tests/fixtures/{suite}.json", env!("CARGO_MANIFEST_DIR"));
+        let cases: Vec<Value> = serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap();
+        for c in cases {
+            let facts = Facts::from_json(&c["facts"]).unwrap();
+            let r = report(&facts, &mut Given(c["facts"]["github"].clone()));
+            for a in &r.actions {
+                let said = match a {
+                    Action::Park(p) => p.comment(false, true),
+                    _ => continue,
+                };
+                assert!(
+                    !(said.contains("without a pull request")
+                        && said.contains("open pull request:")),
+                    "{suite}: {}: {said}",
+                    c["case"]
+                );
+            }
+        }
+    }
+}
