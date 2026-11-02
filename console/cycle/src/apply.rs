@@ -122,7 +122,7 @@ impl Ask for Tried {
             "--state",
             "all",
             "--json",
-            "url,state,body,headRefName",
+            "url,state,body,headRefName,isDraft",
             "--limit",
             "20",
         ]
