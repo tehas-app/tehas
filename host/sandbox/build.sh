@@ -27,9 +27,10 @@
 # sha-<first 12 characters>, or, when PI_RUKAS_IMAGE_DIGEST (sha256:<64 hex>)
 # is set, that digest: a release builds on the image it was packed with, not on
 # whatever the tag points at now. The commit becomes the label tehas.rukas.
-# Tool versions come from versions.env, one directory up, the code indexer
-# included: the image carries the same codebase-memory-mcp version bootstrap.sh
-# puts on the host, not the one the base image happened to install. The build
+# Tool versions come from versions.env, one directory up, the code indexer and
+# Rust included: the image carries the same codebase-memory-mcp and rustc
+# versions bootstrap.sh puts on the host, not the ones the base image happened
+# to install. The build
 # first asks the base image's runner what it supports (pi-rukas-headless
 # --capabilities) and builds nothing on a base whose contract tehas work cannot
 # use. Whether its pi-rukas reads the images a cycle is given is recorded in the
@@ -351,6 +352,7 @@ docker build \
   --build-arg SHELLCHECK_SHA256="$SHELLCHECK_SHA256" \
   --build-arg JQ_VERSION="$JQ_VERSION" \
   --build-arg JQ_SHA256="$JQ_SHA256" \
+  --build-arg RUST_VERSION="$RUST_VERSION" \
   --build-arg PLAYWRIGHT_VERSION="$PLAYWRIGHT_VERSION" \
   --build-arg PLAYWRIGHT_LOCK_SHA256="$PLAYWRIGHT_LOCK_SHA256" \
   --build-arg CBM_VERSION="$CBM_VERSION" \

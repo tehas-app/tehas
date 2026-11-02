@@ -154,7 +154,7 @@ pub fn check(start_mark: &Path, limit: u64, stall: u64, since: u64, now: Now) ->
 /// which is what makes the verb fail rather than print a line of its own.
 pub fn print_now(now: Now) -> Option<u64> {
     let s = now()?;
-    println!("{s}");
+    tehas_core::outln!("{s}");
     Some(s)
 }
 

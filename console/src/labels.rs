@@ -71,7 +71,7 @@ fn run(labels: &[Label], made: &mut dyn FnMut(&Label) -> bool) -> u8 {
     let mut rc = 0;
     for label in labels {
         if made(label) {
-            println!("label {}", label.name);
+            tehas_core::outln!("label {}", label.name);
         } else {
             eprintln!("tehas labels: could not make {}", label.name);
             rc = 1;

@@ -84,7 +84,7 @@ pub fn main(given: &[String]) -> u8 {
     match given {
         [verb, dir] if verb == "reading" => match reading(Path::new(dir)) {
             Some(text) => {
-                println!("{text}");
+                tehas_core::outln!("{text}");
                 0
             }
             None => 1,
@@ -92,7 +92,7 @@ pub fn main(given: &[String]) -> u8 {
         [verb, lines, was @ ..] if verb == "snapshot" && was.len() < 2 => match lines.parse() {
             Ok(lines) => {
                 let was = was.first().map_or("", String::as_str);
-                println!("{}", take(lines, was, second).0);
+                tehas_core::outln!("{}", take(lines, was, second).0);
                 0
             }
             _ => {
@@ -108,7 +108,7 @@ pub fn main(given: &[String]) -> u8 {
             match (cols.parse(), rows.parse(), snapshot) {
                 (Ok(cols), Ok(rows), Some(snapshot)) => {
                     for line in crate::frame::frame(&snapshot, cols, rows) {
-                        println!("{line}");
+                        tehas_core::outln!("{line}");
                     }
                     0
                 }

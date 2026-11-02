@@ -68,7 +68,7 @@ pub const QUERY: &str = "query($q: String!) { search(type: ISSUE, query: $q, fir
 
 pub fn main(given: &[String]) -> u8 {
     if given.iter().map(String::as_str).eq(["page"]) {
-        println!("{PAGE}");
+        tehas_core::outln!("{PAGE}");
         return 0;
     }
     eprintln!("console shipped: usage: page");

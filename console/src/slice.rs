@@ -111,27 +111,27 @@ pub fn main(given: &[String]) -> u8 {
             let load = Load::from_env();
             match slice::usable(&Host::here(), &load.reserve, &load.containers) {
                 Ok(u) => {
-                    print!("{}", assignments(Some(&u), ""));
+                    tehas_core::out!("{}", assignments(Some(&u), ""));
                     0
                 }
                 Err(why) => {
-                    print!("{}", assignments(None, &why));
+                    tehas_core::out!("{}", assignments(None, &why));
                     1
                 }
             }
         }
         Some("room") => {
             let count = given.get(1).map(String::as_str).unwrap_or("");
-            println!("{}", room(count, given.get(2..).unwrap_or(&[])));
+            tehas_core::outln!("{}", room(count, given.get(2..).unwrap_or(&[])));
             0
         }
         Some("pressure") => match pressure() {
             Ok(p) => {
-                println!("{p}");
+                tehas_core::outln!("{p}");
                 0
             }
             Err(why) => {
-                println!("{why}");
+                tehas_core::outln!("{why}");
                 1
             }
         },
