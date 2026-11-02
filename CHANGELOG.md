@@ -13,9 +13,12 @@ empty one above it.
 
 ### Changes
 
+- A product's dependencies are installed by the factory, in the sandbox, from the lockfiles at the root of its commit and one directory down (bun, npm, pnpm, yarn, cargo, uv, poetry, go, bundler, composer), or from `.pi/install-cmd` when the product names its own. `tehas work` runs the install in the cycle's workspace before the cycle starts; a failed install or a tool the image lacks starts no cycle (exit 78). `tehas check-product` lists the installs, and `--sandbox` runs them in its clone and the gates in a worktree of the clone, as in a cycle (#1404).
+- `tehas check-product` and `tehas init-product` work under `~/tehas/tmp/<name>`, the product's repository name.
+
 ### Adopter action
 
-None.
+None. A product whose `.pi/worktree-setup` links its dependencies from the main checkout now finds them there; one whose install the lockfiles cannot tell can name it in `.pi/install-cmd`.
 
 ## v0.22.1 (2026-11-02)
 
