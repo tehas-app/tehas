@@ -135,7 +135,7 @@ fn free(given: &[String]) -> u8 {
     let wait = Duration::from_secs(free_wait(wait));
     match tehas_core::disk::free_kb(path, |program, args| run(program, args, wait).ok()) {
         Some(kb) => {
-            println!("{kb}");
+            tehas_core::outln!("{kb}");
             0
         }
         None => 1,
@@ -237,10 +237,10 @@ pub fn main(given: &[String]) -> u8 {
     }
     let answer = read(&host, &opts);
     if opts.json {
-        println!("{answer}");
+        tehas_core::outln!("{answer}");
     } else {
         for line in lines(&answer) {
-            println!("{line}");
+            tehas_core::outln!("{line}");
         }
     }
     0

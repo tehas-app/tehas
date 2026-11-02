@@ -145,12 +145,12 @@ pub fn main(given: &[String]) -> u8 {
             .ok()
             .and_then(|text| J::parse(&text))
             .map_or(J::Null, |answer| poll_of(&answer));
-        println!("{}", object(&version, &repo, &login, poll).dump());
+        tehas_core::outln!("{}", object(&version, &repo, &login, poll).dump());
     } else {
         let poll = store::call(&home, &["poll-show"]).ok();
         let line = poll.as_ref().and_then(|v| v["line"].as_str()).unwrap_or("");
         for line in lines(&version, &repo, &login, line) {
-            println!("{line}");
+            tehas_core::outln!("{line}");
         }
     }
     0

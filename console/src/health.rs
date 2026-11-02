@@ -902,7 +902,7 @@ pub fn main(given: &[String]) -> u8 {
             _ => return usage(),
         }
     }
-    println!("{}", report(home, &g, time::now()).pretty());
+    tehas_core::outln!("{}", report(home, &g, time::now()).pretty());
     0
 }
 

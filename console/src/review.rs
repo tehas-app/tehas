@@ -64,7 +64,7 @@ pub fn main(given: &[String]) -> u8 {
     match given {
         [verb] if verb == "main" => review(),
         [verb] if verb == "table" => {
-            println!("{}", table());
+            tehas_core::outln!("{}", table());
             0
         }
         _ => {
@@ -85,7 +85,7 @@ pub fn words(given: &[String], usage: &str) -> Result<(), u8> {
     match given {
         [] => Ok(()),
         [one] if one == "-h" || one == "--help" => {
-            print!("{usage}");
+            tehas_core::out!("{usage}");
             Err(99)
         }
         [one] if one.is_empty() => Ok(()),

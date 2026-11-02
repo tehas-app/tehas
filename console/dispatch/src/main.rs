@@ -52,7 +52,7 @@ fn main() {
     let a: Vec<&str> = args.iter().map(String::as_str).collect();
     let (print_snapshot, dry, poll) = match a.as_slice() {
         ["-h" | "--help"] => {
-            println!("{}", usage());
+            tehas_core::outln!("{}", usage());
             return;
         }
         ["snapshot"] => (true, false, false),
@@ -177,7 +177,7 @@ fn main() {
         }
     };
     if print_snapshot {
-        println!("{snap}");
+        tehas_core::outln!("{snap}");
         return;
     }
     let mut snap = snap;
@@ -194,5 +194,5 @@ fn main() {
         "gh_requests": src.calls.gh_count,
         "seconds": (began.elapsed().as_millis() as f64 / 1000.0),
     });
-    println!("{out}");
+    tehas_core::outln!("{out}");
 }
