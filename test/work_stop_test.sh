@@ -50,6 +50,7 @@ t_eq "$(cat "$T/home/tehas/state/cycles/7.timed")" "1 runner develop"
 
 t_case "a runner that stops itself at the time limit with no result is a timeout at the last step it started"
 fresh
+touch "$T/now.wait"
 container "progress '{\"v\":1,\"kind\":\"step-started\",\"event\":{\"step\":\"adversarial\"}}'; \"\$nap\" 1.2; exit 30"
 t_run "$work 7"
 t_eq "$t_rc" 2
