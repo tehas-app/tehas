@@ -9,6 +9,32 @@ use tehas_core::question::box_line;
 use tehas_dispatch::text::{body_sha256, plan_sum};
 use tehas_dispatch::{decide, Settings, Snapshot};
 
+/// The lines a decision says the poll logs: its own, then the line each
+/// action logs once it has worked, in order.
+fn expected(decision: &Value) -> Vec<String> {
+    let mut out: Vec<String> = decision
+        .get("log")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .map(str::to_string)
+        .collect();
+    for a in decision
+        .get("actions")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        for k in ["first", "log"] {
+            if let Some(l) = a.get(k).and_then(Value::as_str) {
+                out.push(l.to_string());
+            }
+        }
+    }
+    out
+}
+
 const GIB: u64 = 1_073_741_824;
 /// The poll's clock: 2026-10-31T00:00:00Z.
 const NOW: u64 = 1_793_404_800;
@@ -574,10 +600,7 @@ fn run_suite(name: &str) {
         let d = decide(&Snapshot::parse(&snap), &Settings::parse(&settings), dry);
         let e = &c["expect"];
         let mut bad = Vec::new();
-        // As the shadow reads a decision: its lines, then those its actions
-        // log once they worked.
-        let log = tehas_dispatch::shadow::expected(&json!({"log": d.log, "actions": d.actions}))
-            .join("\n");
+        let log = expected(&json!({"log": d.log, "actions": d.actions})).join("\n");
         if let Some(x) = e.get("exit") {
             if x != &json!(d.exit) {
                 bad.push(format!("exit {} not {x}", d.exit));

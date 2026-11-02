@@ -152,7 +152,8 @@ t_contains "$(cat "$dockerfile")" 'LABEL tehas.rukas=$PI_RUKAS_COMMIT tehas.ruka
 t_contains "$(cat "$build")" '--build-arg TEHAS_RUKAS_IMAGES="$reads"'
 t_contains "$(cat "$dockerfile")" '/opt/pi-rukas/bin/pi-rukas-headless --capabilities'
 t_contains "$(cat "$dockerfile")" '.name == "PI_ENSEMBLE_ISSUE_IMAGES" and .manifestVersion == 1'
-t_contains "$(cat "$T_ROOT/lib/headless.sh")" '.name == "PI_ENSEMBLE_ISSUE_IMAGES" and .manifestVersion == 1'
+t_contains "$(cat "$T_ROOT/console/cycle/src/caps.rs")" '.and_then(Value::as_str) == Some("PI_ENSEMBLE_ISSUE_IMAGES")'
+t_contains "$(cat "$T_ROOT/console/cycle/src/caps.rs")" 'is_num(i.get("manifestVersion"), 1)'
 
 # --- What the image has to carry --------------------------------------------
 # A cycle reaches for the tools its instructions name. Each of these cases is
@@ -1194,7 +1195,7 @@ cat >"$T/scan/pipeline" <<'EOF'
 image=/opt/fixture/sandbox:tag
 docker run --rm --init "$image" one | grep one
 EOF
-# check-product asks a test of a name, and the run stands after it.
+# A unit may ask a test of a name, and the run stands after it.
 cat >"$T/scan/inside-case" <<'EOF'
 image=/opt/fixture/sandbox:tag
 case $x in a) docker run --rm --init "$image" one ;; esac
@@ -1351,12 +1352,11 @@ variable-in-another-file	1	unplaced		the image "$image" is assigned by no statem
 
 t_case "the scan places one record for every docker run the units hold"
 # The count is made by a rule the scan does not share, and the two must agree:
-# the count is what the units hold today, one run for each of the nine units
-# that start a container, three for work (the check of a runner, the check of a
-# push, and the cycle), and one for preview, the run of the comment that names
-# docker run being read by neither.
+# the count is what the units hold today: two for plan (the check of a runner and
+# the turn), the run of the comment that names docker run being read by neither.
+# The runs of the programs are the rows of the table below.
 count=$(docker_run_count "$T_ROOT/libexec")
-t_eq "$count" 12
+t_eq "$count" 2
 # The account of the records is read off the records themselves, and not from
 # two totals that could drift together: the lines of the records are the runs
 # the scan made records for, so a record of anything at all answers one line of
@@ -1370,36 +1370,37 @@ t_eq "$(wc -l <<<"$records")" "$count"
 # ends with the reason it gives. The scan keeps the two apart itself, and says
 # how many records it read as neither, which is what the account on the error
 # of the scan is asked for.
-t_eq "$(records_account "$T_ROOT/libexec")" "placed 10 unplaced 2 bad 0"
+t_eq "$(records_account "$T_ROOT/libexec")" "placed 2 unplaced 0 bad 0"
 # Any run the scan cannot place fails this case, and is named by the file and
-# the line it stands on. The two the units leave today are named by who and
-# where, and by no number that a third unplaced run could drift beside: one is
-# the preview of an image the unit builds itself, and one the server of a digest
-# install.sh wrote to a file. A run that joins them, or one of them leaving,
-# fails here rather than holding the count. They are compared by unit, so an
-# edit above them passes, and the failure names the lines.
+# the line it stands on. The units leave none today.
 unplaced=$(unplaced_of "$T_ROOT/libexec")
-[ "$(cut -d: -f1 <<<"$unplaced")" = $'mcp\npreview' ] ||
-  t_bad "the unplaced runs are not mcp and preview: $(tr '\n' ' ' <<<"$unplaced")"
+[ -z "$unplaced" ] || t_bad "a run the scan cannot place: $(tr '\n' ' ' <<<"$unplaced")"
 
 t_case "every container tehas starts runs an image and a command the image checks"
 records=$(records_of "$T_ROOT/libexec")
+# The runs the programs start have no line in a unit to scan: each row is read
+# off the arguments its run is started with. The rows join the table and the
+# check of the image below as a unit's would.
+t_console || t_bad "no console: $t_console_why"
+# shellcheck disable=SC2154  # t_cycle_why is set by t_cycle (test/lib.sh)
+t_cycle || t_bad "no tehas-cycle: $t_cycle_why"
+program_runs=$("$T_CONSOLE" check-product table; "$T_CONSOLE" improve table; "$T_CONSOLE" review table; "$T_CONSOLE" dev table; "$T_CYCLE" index table; "$T_CYCLE" sandbox table)
+while IFS= read -r row; do
+  records+=$'\n'"${row/$'\t'/$'\t0\t'}"$'\t'
+done <<<"$program_runs"
 # The table is every run the units start, with the image and the command of
 # each, and no line number. A new docker run, or a run that changes its image
 # or its command, fails here until it is added to the table on purpose.
-t_eq "$(run_table "$T_ROOT/libexec")" 'check-product	PI_ENSEMBLE_IMAGE	bash
+t_eq "$({ run_table "$T_ROOT/libexec"; printf '%s\n' "$program_runs"; } | LC_ALL=C sort)" 'check-product	PI_ENSEMBLE_IMAGE	bash
 dev	PI_ENSEMBLE_IMAGE	pi
 improve	PI_ENSEMBLE_IMAGE	pi
 index	PI_ENSEMBLE_IMAGE	codebase-memory-mcp
 plan	PI_ENSEMBLE_IMAGE	$runner
 plan	PI_ENSEMBLE_IMAGE	$runner
-review	PI_ENSEMBLE_IMAGE	$runner
+review	PI_ENSEMBLE_IMAGE	/opt/pi-rukas/bin/pi-rukas-headless
 work	PI_ENSEMBLE_IMAGE	$runner
 work	PI_ENSEMBLE_IMAGE	$runner
 work	PI_ENSEMBLE_IMAGE	git'
-# The two containers of the units the scan cannot place are the preview it builds
-# itself and the server of a digest install.sh chose: neither runs in the sandbox
-# image, so neither is a command the image would check.
 missing=""
 while IFS=$'\t' read -r unit line image cmd _; do
   [ -n "$unit" ] || continue

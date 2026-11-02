@@ -1,17 +1,22 @@
 #!/usr/bin/env bash
-# Tests for libexec/labels against a stub gh: which labels it makes, where,
+# Tests for tehas labels against a stub gh: which labels it makes, where,
 # and that it needs the repository and nothing else. And for
 # tehas_label_allowed in lib/labels.sh: who applied a label, asked of GitHub.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
 
-labels="$T_ROOT/libexec/labels"
+labels="$T_ROOT/bin/tehas labels"
+t_console || t_bad "$t_console_why"
+T_ENV_ALWAYS=(TEHAS_CONSOLE="$T_CONSOLE")
+table=$T/home/tehas/lib/labels.tsv
 t_stub gh 'case "$*" in *"${FAIL_ON:-no label fails}"*) exit 1 ;; esac'
 reset() {
   rm -f "$T"/calls/*
   T_ENV=()
   t_instance TEHAS_REPO=acme/widget
+  mkdir -p "${table%/*}"
+  cp "$T_ROOT/host/labels.tsv" "$table"
 }
 
 t_case "it needs only the repository, and makes the nineteen labels there"
@@ -61,6 +66,25 @@ t_eq "$t_rc" 64
 t_contains "$t_out" "usage: tehas labels"
 t_lacks "$t_out" "TEHAS_REPO"
 t_eq "$(t_calls gh)" ""
+
+t_case "a table that is missing or wrong makes nothing, exit 78"
+reset
+rm "$table"
+t_run "$labels"
+t_eq "$t_rc" 78
+t_contains "$t_out" "no table of labels at $table: run install.sh"
+t_eq "$(t_calls gh)" ""
+reset
+printf 'tehas:ready\t0e8a16\tfine\nno colour here\n' >"$table"
+t_run "$labels"
+t_eq "$t_rc" 78
+t_contains "$t_out" "$table line 2 is no label"
+t_eq "$(t_calls gh)" ""
+
+t_case "a label's description reaches gh as one argument, as the table has it"
+reset
+t_run "$labels"
+t_contains "$(t_calls gh)" "label create tehas:ready --repo acme/widget --color 0e8a16 --description Tehas: eligible for dispatch (apply by hand to authorize a cycle) --force"
 
 # --- tehas_label_allowed -------------------------------------------------------
 t_stub gh 'case "$*" in

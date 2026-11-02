@@ -2,10 +2,10 @@
 //! JSON in the shapes `gh`, the store and the files answer in. A field that a
 //! poll reads only when it needs it is None until it is read.
 
-use crate::events::Events;
 use crate::slice::{Reading, Scope};
 use serde_json::{Map, Value};
 use std::collections::BTreeMap;
+use tehas_core::events::Events;
 
 /// A list GitHub gave, or a call that failed.
 #[derive(Clone, Debug, Default)]
@@ -42,7 +42,7 @@ pub struct Issue {
     /// The issue's park on the state store (park-show's .park), or the store's
     /// word and exit status when it could not say.
     pub park: Option<Result<Option<Value>, StoreErr>>,
-    /// The approval of its latest start (tehas_approval_view), Err when the
+    /// The approval of its latest start (approval-view), Err when the
     /// store could not answer.
     pub approval: Option<Result<Option<Value>, ()>>,
     /// approval-current's .current, for the owner of a refresh.
@@ -53,7 +53,7 @@ pub struct Issue {
     pub question: Option<Result<Value, StoreErr>>,
     /// gh issue view --json state,labels, for a retry after an outage.
     pub view: Option<Value>,
-    /// The cycle history on record (tehas_cycle_history), Err when the store
+    /// The cycle history on record, Err when the store
     /// could not answer.
     pub history: Option<Result<Vec<Value>, ()>>,
     /// state/refresh/<n>.json, as written; and what <n>.said holds.
@@ -174,7 +174,7 @@ pub struct Snapshot {
     pub ready: Issues,
     pub blocked: Issues,
     pub awaiting: Option<Issues>,
-    /// tehas_limit_read's answer.
+    /// The limit as `flags limit read` reads it.
     pub limit: Value,
     pub slice: Reading,
     /// What the model endpoints answered: the hold, when both failed, and

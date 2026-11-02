@@ -1,6 +1,6 @@
 [
  {
-  "case": "1793029032333529887",
+  "case": "a stop is passed on to the runner, and the cycle is still reported",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -12,8 +12,8 @@
    "before_retry_dir": false,
    "rc": 2,
    "signalled": true,
-   "started": 1793029032,
-   "now": 1793029032,
+   "started": 1793525961,
+   "now": 1793525961,
    "start": {
     "attempt": 1,
     "by": "",
@@ -33,12 +33,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793029032
+     "seen_at": 1793525961
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793029032,
+     "started_at": 1793525961,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -70,9 +70,16 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
   },
   "met": {
    "recorded": true,
@@ -129,7 +136,7 @@
   }
  },
  {
-  "case": "1793029032971333641",
+  "case": "a stop that arrives while the report is made does not cut the report short",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -141,8 +148,8 @@
    "before_retry_dir": false,
    "rc": 0,
    "signalled": false,
-   "started": 1793029033,
-   "now": 1793029033,
+   "started": 1793525966,
+   "now": 1793525966,
    "start": {
     "attempt": 1,
     "by": "",
@@ -162,12 +169,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793029033
+     "seen_at": 1793525966
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793029032,
+     "started_at": 1793525966,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -199,9 +206,16 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
   },
   "met": {
    "recorded": true,
@@ -258,7 +272,7 @@
   }
  },
  {
-  "case": "1793029035555716869",
+  "case": "a stop while GitHub does not answer is reported with one bounded try a call, and no status refresh",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -270,8 +284,8 @@
    "before_retry_dir": false,
    "rc": 2,
    "signalled": true,
-   "started": 1793029035,
-   "now": 1793029035,
+   "started": 1793525973,
+   "now": 1793525973,
    "start": {
     "attempt": 1,
     "by": "",
@@ -292,12 +306,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793029035
+     "seen_at": 1793525973
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793029035,
+     "started_at": 1793525972,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -329,10 +343,17 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": null
+   },
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
    }
   },
   "met": {
@@ -391,7 +412,7 @@
   }
  },
  {
-  "case": "1793029040150018270",
+  "case": "a cycle that was not stopped still refreshes the status and tries three times",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -403,8 +424,8 @@
    "before_retry_dir": false,
    "rc": 0,
    "signalled": false,
-   "started": 1793029040,
-   "now": 1793029040,
+   "started": 1793525982,
+   "now": 1793525982,
    "start": {
     "attempt": 1,
     "by": "",
@@ -424,12 +445,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793029040
+     "seen_at": 1793525982
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793029040,
+     "started_at": 1793525981,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -461,9 +482,16 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
   },
   "met": {
    "recorded": true,
@@ -520,7 +548,7 @@
   }
  },
  {
-  "case": "1793029040741822970",
+  "case": "a hangup is a stop too: the cycle is still reported",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -532,8 +560,8 @@
    "before_retry_dir": false,
    "rc": 2,
    "signalled": true,
-   "started": 1793029040,
-   "now": 1793029040,
+   "started": 1793525987,
+   "now": 1793525987,
    "start": {
     "attempt": 1,
     "by": "",
@@ -553,12 +581,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793029040
+     "seen_at": 1793525987
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793029040,
+     "started_at": 1793525986,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -590,9 +618,16 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
   },
   "met": {
    "recorded": true,
@@ -649,7 +684,7 @@
   }
  },
  {
-  "case": "1793029041266659534",
+  "case": "a label change that GitHub refuses once is made again",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -661,8 +696,8 @@
    "before_retry_dir": false,
    "rc": 10,
    "signalled": false,
-   "started": 1793029041,
-   "now": 1793029041,
+   "started": 1793525997,
+   "now": 1793525997,
    "start": {
     "attempt": 1,
     "by": "",
@@ -683,12 +718,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793029041
+     "seen_at": 1793525997
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793029041,
+     "started_at": 1793525997,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -720,7 +755,8 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": [
@@ -783,7 +819,7 @@
   }
  },
  {
-  "case": "1793029041793526272",
+  "case": "after three refusals it gives up, says so in the log and still reports",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -795,8 +831,8 @@
    "before_retry_dir": false,
    "rc": 10,
    "signalled": false,
-   "started": 1793029041,
-   "now": 1793029041,
+   "started": 1793526003,
+   "now": 1793526003,
    "start": {
     "attempt": 1,
     "by": "",
@@ -817,12 +853,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793029041
+     "seen_at": 1793526003
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793029041,
+     "started_at": 1793526002,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -854,7 +890,8 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": [
@@ -917,7 +954,7 @@
   }
  },
  {
-  "case": "1793029042329946027",
+  "case": "a run that ended as failed is not said to wait for a merge, though a pull request is open",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -929,8 +966,8 @@
    "before_retry_dir": false,
    "rc": 30,
    "signalled": false,
-   "started": 1793029042,
-   "now": 1793029042,
+   "started": 1793526008,
+   "now": 1793526008,
    "start": {
     "attempt": 1,
     "by": "",
@@ -951,12 +988,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793029042
+     "seen_at": 1793526008
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793029042,
+     "started_at": 1793526007,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -988,7 +1025,8 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": [
@@ -999,6 +1037,12 @@
       "headRefName": "feature/x"
      }
     ]
+   },
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
    }
   },
   "met": {
@@ -1060,7 +1104,7 @@
   }
  },
  {
-  "case": "1793029042944753202",
+  "case": "a run that ended as aborted is not said to wait for a merge, though a pull request is open",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -1072,8 +1116,8 @@
    "before_retry_dir": false,
    "rc": 20,
    "signalled": false,
-   "started": 1793029042,
-   "now": 1793029043,
+   "started": 1793526014,
+   "now": 1793526014,
    "start": {
     "attempt": 1,
     "by": "",
@@ -1094,12 +1138,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793029043
+     "seen_at": 1793526015
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793029042,
+     "started_at": 1793526014,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -1131,7 +1175,8 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": [
@@ -1142,6 +1187,12 @@
       "headRefName": "feature/x"
      }
     ]
+   },
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
    }
   },
   "met": {
@@ -1203,7 +1254,7 @@
   }
  },
  {
-  "case": "1793029043536921574",
+  "case": "a run that ended as unknown is not said to wait for a merge, though a pull request is open",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -1215,8 +1266,8 @@
    "before_retry_dir": false,
    "rc": 30,
    "signalled": false,
-   "started": 1793029043,
-   "now": 1793029043,
+   "started": 1793526019,
+   "now": 1793526020,
    "start": {
     "attempt": 1,
     "by": "",
@@ -1237,12 +1288,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793029043
+     "seen_at": 1793526020
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793029043,
+     "started_at": 1793526019,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -1274,7 +1325,8 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": [
@@ -1285,6 +1337,12 @@
       "headRefName": "feature/x"
      }
     ]
+   },
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
    }
   },
   "met": {
@@ -1346,7 +1404,7 @@
   }
  },
  {
-  "case": "1793029044147260877",
+  "case": "a run that ended as running is not said to wait for a merge, though a pull request is open",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -1358,8 +1416,8 @@
    "before_retry_dir": false,
    "rc": 30,
    "signalled": false,
-   "started": 1793029044,
-   "now": 1793029044,
+   "started": 1793526025,
+   "now": 1793526025,
    "start": {
     "attempt": 1,
     "by": "",
@@ -1380,12 +1438,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793029044
+     "seen_at": 1793526026
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793029044,
+     "started_at": 1793526025,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -1417,7 +1475,8 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": [
@@ -1428,6 +1487,12 @@
       "headRefName": "feature/x"
      }
     ]
+   },
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
    }
   },
   "met": {
@@ -1489,7 +1554,7 @@
   }
  },
  {
-  "case": "1793029044747405539",
+  "case": "a comment that GitHub refuses once is posted on the second try",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -1501,8 +1566,8 @@
    "before_retry_dir": false,
    "rc": 10,
    "signalled": false,
-   "started": 1793029044,
-   "now": 1793029044,
+   "started": 1793526030,
+   "now": 1793526030,
    "start": {
     "attempt": 1,
     "by": "",
@@ -1523,12 +1588,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793029044
+     "seen_at": 1793526031
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793029044,
+     "started_at": 1793526030,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -1560,7 +1625,8 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": [
@@ -1623,7 +1689,7 @@
   }
  },
  {
-  "case": "1793029045277578646",
+  "case": "after three refusals the comment is said once, and the cycle still ends its record",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -1635,8 +1701,8 @@
    "before_retry_dir": false,
    "rc": 10,
    "signalled": false,
-   "started": 1793029045,
-   "now": 1793029045,
+   "started": 1793526036,
+   "now": 1793526036,
    "start": {
     "attempt": 1,
     "by": "",
@@ -1657,12 +1723,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793029045
+     "seen_at": 1793526036
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793029045,
+     "started_at": 1793526036,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -1694,10 +1760,287 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
+   },
+   "github": {
+    "prs": [
+     {
+      "url": "https://github.com/acme/widget/pull/9",
+      "state": "OPEN",
+      "body": "Fixes #7",
+      "headRefName": "feature/x"
+     }
+    ],
+    "attention": false
+   }
+  },
+  "met": {
+   "recorded": false,
+   "posted": false,
+   "relabel": [
+    "ok"
+   ]
+  },
+  "expect": {
+   "done": "done #7 rc=10 status=handoff step=commit-pr minutes=0 pr=https://github.com/acme/widget/pull/9 oom_kills=0 forks_refused=0",
+   "end": [
+    "7",
+    "--attempt",
+    "1",
+    "--status",
+    "handoff",
+    "--step",
+    "commit-pr",
+    "--rc",
+    "10",
+    "--oom",
+    "0",
+    "--forks",
+    "0",
+    "--branch",
+    "feature/x",
+    "--pr",
+    "9",
+    "--cap",
+    "awaiting-human-merge"
+   ],
+   "park": null,
+   "log": [],
+   "writes": [
+    [
+     "relabel",
+     "--remove-label tehas:running --add-label tehas:awaiting-merge"
+    ],
+    [
+     "comment",
+     "Tehas cycle finished: status `handoff`, last step `commit-pr`, 0 min. Pull request waiting for a human: https://github.com/acme/widget/pull/9"
+    ],
+    [
+     "pr_comment",
+     "https://github.com/acme/widget/pull/9\nTehas cycle for #7: status `handoff`, last step `commit-pr`, 0 min.\n\nNo token usage was recorded for this cycle."
+    ]
+   ]
+  }
+ },
+ {
+  "case": "a list of pull requests that GitHub refuses once is asked for again",
+  "facts": {
+   "issue": 7,
+   "repo": "acme/widget",
+   "home": "/T/home",
+   "hostname": "tehas-test",
+   "workdir": "/T/home/tehas/work/widget-7",
+   "workspaces_marked": false,
+   "workdir_dir": true,
+   "before_retry_dir": false,
+   "rc": 10,
+   "signalled": false,
+   "started": 1793526042,
+   "now": 1793526042,
+   "start": {
+    "attempt": 1,
+    "by": "",
+    "how": "hand",
+    "approval_at": null,
+    "requeued": false
+   },
+   "files": {
+    "result.json": "{\n  \"schemaVersion\": 5,\n  \"issues\": [\n    {\n      \"issue\": 7,\n      \"status\": \"handoff\",\n      \"failedStep\": \"commit-pr\",\n      \"branch\": \"feature/x\",\n      \"cap\": \"awaiting-human-merge\"\n    }\n  ]\n}\n",
+    "progress.json": "{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}\n"
+   },
+   "record": {
+    "api": 1,
+    "verb": "cycle-show",
+    "ok": true,
+    "issue": 7,
+    "lock": {
+     "state": "held",
+     "probe_rc": 1,
+     "file": true,
+     "seen_at": 1793526043
+    },
+    "cycle": {
+     "issue": 7,
+     "attempt": 1,
+     "started_at": 1793526042,
+     "started_by": null,
+     "how": "hand",
+     "requeued": false,
+     "rukas_commit": null,
+     "image": null,
+     "branch": null,
+     "end_reason": null,
+     "ended_at": null,
+     "oom_kills": null,
+     "forks_refused": null,
+     "stalled_seconds": null,
+     "timed_out": false,
+     "runner_exit": null,
+     "watched": false,
+     "host_saw": null,
+     "stop_asked_at": null,
+     "stop_said_times": 0,
+     "settings": {},
+     "quiet": null,
+     "heard_at": null
+    }
+   },
+   "approval": {
+    "api": 1,
+    "verb": "approval-current",
+    "ok": true,
+    "approval": null,
+    "current": null,
+    "rests_on": null,
+    "millwright_starts": 0,
+    "fixer_starts": 0,
+    "refreshes": 0,
+    "easy": false
+   },
+   "github": {
+    "prs": [
+     {
+      "url": "https://github.com/acme/widget/pull/9",
+      "state": "OPEN",
+      "body": "Fixes #7",
+      "headRefName": "feature/x"
+     }
+    ],
+    "attention": false
+   }
+  },
+  "met": {
+   "recorded": false,
+   "posted": false,
+   "relabel": [
+    "ok"
+   ]
+  },
+  "expect": {
+   "done": "done #7 rc=10 status=handoff step=commit-pr minutes=0 pr=https://github.com/acme/widget/pull/9 oom_kills=0 forks_refused=0",
+   "end": [
+    "7",
+    "--attempt",
+    "1",
+    "--status",
+    "handoff",
+    "--step",
+    "commit-pr",
+    "--rc",
+    "10",
+    "--oom",
+    "0",
+    "--forks",
+    "0",
+    "--branch",
+    "feature/x",
+    "--pr",
+    "9",
+    "--cap",
+    "awaiting-human-merge"
+   ],
+   "park": null,
+   "log": [],
+   "writes": [
+    [
+     "relabel",
+     "--remove-label tehas:running --add-label tehas:awaiting-merge"
+    ],
+    [
+     "comment",
+     "Tehas cycle finished: status `handoff`, last step `commit-pr`, 0 min. Pull request waiting for a human: https://github.com/acme/widget/pull/9"
+    ],
+    [
+     "pr_comment",
+     "https://github.com/acme/widget/pull/9\nTehas cycle for #7: status `handoff`, last step `commit-pr`, 0 min.\n\nNo token usage was recorded for this cycle."
+    ]
+   ]
+  }
+ },
+ {
+  "case": "after three refusals the cycle is parked as one whose pull request could not be looked up",
+  "facts": {
+   "issue": 7,
+   "repo": "acme/widget",
+   "home": "/T/home",
+   "hostname": "tehas-test",
+   "workdir": "/T/home/tehas/work/widget-7",
+   "workspaces_marked": false,
+   "workdir_dir": true,
+   "before_retry_dir": false,
+   "rc": 10,
+   "signalled": false,
+   "started": 1793526047,
+   "now": 1793526048,
+   "start": {
+    "attempt": 1,
+    "by": "",
+    "how": "hand",
+    "approval_at": null,
+    "requeued": false
+   },
+   "files": {
+    "result.json": "{\n  \"schemaVersion\": 5,\n  \"issues\": [\n    {\n      \"issue\": 7,\n      \"status\": \"handoff\",\n      \"failedStep\": \"commit-pr\",\n      \"branch\": \"feature/x\",\n      \"cap\": \"awaiting-human-merge\"\n    }\n  ]\n}\n",
+    "progress.json": "{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}\n"
+   },
+   "record": {
+    "api": 1,
+    "verb": "cycle-show",
+    "ok": true,
+    "issue": 7,
+    "lock": {
+     "state": "held",
+     "probe_rc": 1,
+     "file": true,
+     "seen_at": 1793526048
+    },
+    "cycle": {
+     "issue": 7,
+     "attempt": 1,
+     "started_at": 1793526047,
+     "started_by": null,
+     "how": "hand",
+     "requeued": false,
+     "rukas_commit": null,
+     "image": null,
+     "branch": null,
+     "end_reason": null,
+     "ended_at": null,
+     "oom_kills": null,
+     "forks_refused": null,
+     "stalled_seconds": null,
+     "timed_out": false,
+     "runner_exit": null,
+     "watched": false,
+     "host_saw": null,
+     "stop_asked_at": null,
+     "stop_said_times": 0,
+     "settings": {},
+     "quiet": null,
+     "heard_at": null
+    }
+   },
+   "approval": {
+    "api": 1,
+    "verb": "approval-current",
+    "ok": true,
+    "approval": null,
+    "current": null,
+    "rests_on": null,
+    "millwright_starts": 0,
+    "fixer_starts": 0,
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": null
+   },
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
    }
   },
   "met": {
@@ -1759,7 +2102,7 @@
   }
  },
  {
-  "case": "1793029045860451090",
+  "case": "the branch is on record with every end, and an earlier cycle's is not the next one's",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -1771,8 +2114,8 @@
    "before_retry_dir": false,
    "rc": 10,
    "signalled": false,
-   "started": 1793029045,
-   "now": 1793029045,
+   "started": 1793526054,
+   "now": 1793526054,
    "start": {
     "attempt": 2,
     "by": "",
@@ -1793,12 +2136,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793029045
+     "seen_at": 1793526055
     },
     "cycle": {
      "issue": 7,
      "attempt": 2,
-     "started_at": 1793029045,
+     "started_at": 1793526054,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -1818,7 +2161,7 @@
      "stop_said_times": 0,
      "settings": {},
      "quiet": null,
-     "heard_at": 1793029045
+     "heard_at": null
     }
    },
    "approval": {
@@ -1830,7 +2173,8 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": [
@@ -1893,7 +2237,7 @@
   }
  },
  {
-  "case": "1793029046308623436",
+  "case": "the branch is on record with every end, and an earlier cycle's is not the next one's (2)",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -1905,8 +2249,8 @@
    "before_retry_dir": false,
    "rc": 10,
    "signalled": false,
-   "started": 1793029046,
-   "now": 1793029046,
+   "started": 1793526060,
+   "now": 1793526060,
    "start": {
     "attempt": 3,
     "by": "",
@@ -1926,12 +2270,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793029046
+     "seen_at": 1793526060
     },
     "cycle": {
      "issue": 7,
      "attempt": 3,
-     "started_at": 1793029046,
+     "started_at": 1793526059,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -1951,7 +2295,7 @@
      "stop_said_times": 0,
      "settings": {},
      "quiet": null,
-     "heard_at": 1793029046
+     "heard_at": null
     }
    },
    "approval": {
@@ -1963,9 +2307,59 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": [
+     {
+      "kind": "cycle",
+      "id": 1,
+      "issue": 7,
+      "attempt": 1,
+      "at": 1793526051,
+      "status": "handoff",
+      "step": "commit-pr",
+      "by": null,
+      "how": "hand",
+      "pr": null,
+      "started_at": 1793526047,
+      "rc": 10,
+      "cap": "awaiting-human-merge",
+      "park_reason": null,
+      "failure_kind": null,
+      "failure_cause": null,
+      "provider": false,
+      "parked": true,
+      "seq": 1
+     },
+     {
+      "kind": "cycle",
+      "id": 2,
+      "issue": 7,
+      "attempt": 2,
+      "at": 1793526057,
+      "status": "handoff",
+      "step": "commit-pr",
+      "by": null,
+      "how": "hand",
+      "pr": 9,
+      "started_at": 1793526054,
+      "rc": 10,
+      "cap": "awaiting-human-merge",
+      "park_reason": null,
+      "failure_kind": null,
+      "failure_cause": null,
+      "provider": false,
+      "parked": false,
+      "seq": 2
+     }
+    ]
+   }
   },
   "met": {
    "recorded": true,
@@ -2022,7 +2416,7 @@
   }
  },
  {
-  "case": "1793029046863598875",
+  "case": "a branch name the container wrote is reduced before it is recorded",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -2034,8 +2428,8 @@
    "before_retry_dir": false,
    "rc": 10,
    "signalled": false,
-   "started": 1793029046,
-   "now": 1793029046,
+   "started": 1793526065,
+   "now": 1793526065,
    "start": {
     "attempt": 1,
     "by": "",
@@ -2056,12 +2450,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793029046
+     "seen_at": 1793526065
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793029046,
+     "started_at": 1793526064,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -2093,10 +2487,17 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": null
+   },
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
    }
   },
   "met": {
@@ -2158,7 +2559,7 @@
   }
  },
  {
-  "case": "1793029047508282836",
+  "case": "when the label cannot be changed the comment says so",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -2170,8 +2571,8 @@
    "before_retry_dir": false,
    "rc": 10,
    "signalled": false,
-   "started": 1793029047,
-   "now": 1793029047,
+   "started": 1793526070,
+   "now": 1793526071,
    "start": {
     "attempt": 1,
     "by": "",
@@ -2192,12 +2593,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793029047
+     "seen_at": 1793526071
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793029047,
+     "started_at": 1793526070,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -2229,7 +2630,8 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": [
@@ -2292,7 +2694,7 @@
   }
  },
  {
-  "case": "1793029048057000747",
+  "case": "and a comment after a label change that worked does not",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -2304,8 +2706,8 @@
    "before_retry_dir": false,
    "rc": 10,
    "signalled": false,
-   "started": 1793029048,
-   "now": 1793029048,
+   "started": 1793526077,
+   "now": 1793526077,
    "start": {
     "attempt": 1,
     "by": "",
@@ -2326,12 +2728,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793029048
+     "seen_at": 1793526078
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793029048,
+     "started_at": 1793526077,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -2363,7 +2765,8 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": [
@@ -2426,7 +2829,7 @@
   }
  },
  {
-  "case": "1793029048506825723",
+  "case": "the question label is tried three times",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -2438,8 +2841,8 @@
    "before_retry_dir": false,
    "rc": 0,
    "signalled": false,
-   "started": 1793029048,
-   "now": 1793029048,
+   "started": 1793526083,
+   "now": 1793526083,
    "start": {
     "attempt": 1,
     "by": "",
@@ -2459,12 +2862,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793029048
+     "seen_at": 1793526083
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793029048,
+     "started_at": 1793526082,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -2496,9 +2899,16 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
   },
   "met": {
    "recorded": true,
@@ -2554,6 +2964,276 @@
     [
      "comment",
      "The boxes above cannot be used: the label `tehas:question` could not be added (run `tehas labels` on the host). To retry, apply `tehas:ready`."
+    ]
+   ]
+  }
+ },
+ {
+  "case": "a cycle that parks takes the build output of its kept workspace as it ends",
+  "facts": {
+   "issue": 7,
+   "repo": "acme/widget",
+   "home": "/T/home",
+   "hostname": "tehas-test",
+   "workdir": "/T/home/tehas/work/widget-7",
+   "workspaces_marked": false,
+   "workdir_dir": true,
+   "before_retry_dir": false,
+   "rc": 30,
+   "signalled": false,
+   "started": 1793526089,
+   "now": 1793526089,
+   "start": {
+    "attempt": 1,
+    "by": "",
+    "how": "hand",
+    "approval_at": null,
+    "requeued": false
+   },
+   "files": {
+    "result.json": "{\n  \"schemaVersion\": 5,\n  \"issues\": [\n    {\n      \"issue\": 7,\n      \"status\": \"failed\",\n      \"failedStep\": \"develop\",\n      \"branch\": \"\"\n    }\n  ]\n}\n",
+    "progress.json": "{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}\n"
+   },
+   "record": {
+    "api": 1,
+    "verb": "cycle-show",
+    "ok": true,
+    "issue": 7,
+    "lock": {
+     "state": "held",
+     "probe_rc": 1,
+     "file": true,
+     "seen_at": 1793526089
+    },
+    "cycle": {
+     "issue": 7,
+     "attempt": 1,
+     "started_at": 1793526088,
+     "started_by": null,
+     "how": "hand",
+     "requeued": false,
+     "rukas_commit": null,
+     "image": null,
+     "branch": null,
+     "end_reason": null,
+     "ended_at": null,
+     "oom_kills": null,
+     "forks_refused": null,
+     "stalled_seconds": null,
+     "timed_out": false,
+     "runner_exit": null,
+     "watched": false,
+     "host_saw": null,
+     "stop_asked_at": null,
+     "stop_said_times": 0,
+     "settings": {},
+     "quiet": null,
+     "heard_at": null
+    }
+   },
+   "approval": {
+    "api": 1,
+    "verb": "approval-current",
+    "ok": true,
+    "approval": null,
+    "current": null,
+    "rests_on": null,
+    "millwright_starts": 0,
+    "fixer_starts": 0,
+    "refreshes": 0,
+    "easy": false
+   },
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
+  },
+  "met": {
+   "recorded": true,
+   "posted": true,
+   "relabel": [
+    "ok",
+    "ok"
+   ]
+  },
+  "expect": {
+   "done": "done #7 rc=30 status=failed step=develop minutes=0 pr=none oom_kills=0 forks_refused=0",
+   "end": [
+    "7",
+    "--attempt",
+    "1",
+    "--status",
+    "failed",
+    "--step",
+    "develop",
+    "--rc",
+    "30",
+    "--oom",
+    "0",
+    "--forks",
+    "0",
+    "--parked"
+   ],
+   "park": [
+    "7",
+    "--attempt",
+    "1",
+    "--reason",
+    "failed",
+    "--step",
+    "develop"
+   ],
+   "log": [],
+   "writes": [
+    [
+     "relabel",
+     "--remove-label tehas:running --add-label needs-human-attention"
+    ],
+    [
+     "question",
+     "Tehas cycle stopped without a pull request: status `failed`, last step `develop`, 0 min (runner exit 30). The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=develop kind= provider=0 sig=f25ff331a7f9960c458526d7b95b14f9fedd00ddfe504a1800921c36c4c7908c -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+    ],
+    [
+     "relabel",
+     "--add-label tehas:question"
+    ]
+   ]
+  }
+ },
+ {
+  "case": "and a failure to do so is a warning",
+  "facts": {
+   "issue": 7,
+   "repo": "acme/widget",
+   "home": "/T/home",
+   "hostname": "tehas-test",
+   "workdir": "/T/home/tehas/work/widget-7",
+   "workspaces_marked": false,
+   "workdir_dir": true,
+   "before_retry_dir": false,
+   "rc": 30,
+   "signalled": false,
+   "started": 1793526097,
+   "now": 1793526097,
+   "start": {
+    "attempt": 1,
+    "by": "",
+    "how": "hand",
+    "approval_at": null,
+    "requeued": false
+   },
+   "files": {
+    "result.json": "{\n  \"schemaVersion\": 5,\n  \"issues\": [\n    {\n      \"issue\": 7,\n      \"status\": \"failed\",\n      \"failedStep\": \"develop\",\n      \"branch\": \"\"\n    }\n  ]\n}\n",
+    "progress.json": "{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}\n"
+   },
+   "record": {
+    "api": 1,
+    "verb": "cycle-show",
+    "ok": true,
+    "issue": 7,
+    "lock": {
+     "state": "held",
+     "probe_rc": 1,
+     "file": true,
+     "seen_at": 1793526098
+    },
+    "cycle": {
+     "issue": 7,
+     "attempt": 1,
+     "started_at": 1793526096,
+     "started_by": null,
+     "how": "hand",
+     "requeued": false,
+     "rukas_commit": null,
+     "image": null,
+     "branch": null,
+     "end_reason": null,
+     "ended_at": null,
+     "oom_kills": null,
+     "forks_refused": null,
+     "stalled_seconds": null,
+     "timed_out": false,
+     "runner_exit": null,
+     "watched": false,
+     "host_saw": null,
+     "stop_asked_at": null,
+     "stop_said_times": 0,
+     "settings": {},
+     "quiet": null,
+     "heard_at": null
+    }
+   },
+   "approval": {
+    "api": 1,
+    "verb": "approval-current",
+    "ok": true,
+    "approval": null,
+    "current": null,
+    "rests_on": null,
+    "millwright_starts": 0,
+    "fixer_starts": 0,
+    "refreshes": 0,
+    "easy": false
+   },
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
+  },
+  "met": {
+   "recorded": true,
+   "posted": true,
+   "relabel": [
+    "ok",
+    "ok"
+   ]
+  },
+  "expect": {
+   "done": "done #7 rc=30 status=failed step=develop minutes=0 pr=none oom_kills=0 forks_refused=0",
+   "end": [
+    "7",
+    "--attempt",
+    "1",
+    "--status",
+    "failed",
+    "--step",
+    "develop",
+    "--rc",
+    "30",
+    "--oom",
+    "0",
+    "--forks",
+    "0",
+    "--parked"
+   ],
+   "park": [
+    "7",
+    "--attempt",
+    "1",
+    "--reason",
+    "failed",
+    "--step",
+    "develop"
+   ],
+   "log": [],
+   "writes": [
+    [
+     "relabel",
+     "--remove-label tehas:running --add-label needs-human-attention"
+    ],
+    [
+     "question",
+     "Tehas cycle stopped without a pull request: status `failed`, last step `develop`, 0 min (runner exit 30). The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=develop kind= provider=0 sig=f25ff331a7f9960c458526d7b95b14f9fedd00ddfe504a1800921c36c4c7908c -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+    ],
+    [
+     "relabel",
+     "--add-label tehas:question"
     ]
    ]
   }

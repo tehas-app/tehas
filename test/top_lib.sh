@@ -1,19 +1,19 @@
 # shellcheck shell=bash
 # shellcheck disable=SC2016,SC2034  # stub bodies are expanded when the stub runs; the parts read the variables
 # What the tests of tehas top share: test/top_*_test.sh source this. They
-# cover the snapshot in lib/top.sh, the frame drawn from it, the command in
-# libexec/top that wires the two, and the publisher in libexec/top-publish.
+# cover the snapshot, the frame drawn from it, the command that wires the two
+# and the publisher, all in the console (console/src/top.rs).
 # Everything runs against files written here under $TEHAS_HOME/live/ and a
 # tree of host numbers written here, with systemctl stubbed. Nothing here calls
 # GitHub, a model or Docker, and no case reads the machine that runs it.
 # The part has sourced test/lib.sh before this.
 
 # The console that reads the host (console/src/top.rs): this checkout's own,
-# named to the library in TEHAS_CONSOLE, since the checkout has none beside it.
+# named to the commands in TEHAS_CONSOLE, since the checkout has none beside it.
 # shellcheck disable=SC2154  # t_console_why is set by t_console (test/lib.sh)
 t_console || t_bad "no console: $t_console_why"
-top=$T_ROOT/libexec/top
-publish=$T_ROOT/libexec/top-publish
+top="$T_ROOT/bin/tehas top"
+publish="$T_ROOT/bin/tehasbot top"
 live=$T/home/tehas/live
 proc1=$T/proc1
 proc2=$T/proc2

@@ -14,7 +14,7 @@ fn home(name: &str) -> PathBuf {
         fs::create_dir_all(h.join(t)).unwrap();
     }
     let bot = h.join("bin/tehasbot");
-    fs::write(&bot, "#!/bin/sh\necho \"$0 $* code=$TEHAS_CODE pid=$$\"\n").unwrap();
+    fs::write(&bot, "#!/bin/sh\necho \"$0 $* pid=$$\"\n").unwrap();
     fs::set_permissions(&bot, fs::Permissions::from_mode(0o755)).unwrap();
     h
 }
@@ -42,11 +42,7 @@ fn the_cycle_runs_from_its_copy_named_for_its_pid() {
     let dir = h.join(format!("run/cycle-7-{pid}"));
     assert_eq!(
         out.trim(),
-        format!(
-            "{}/bin/tehasbot cycle 7 code={} pid={pid}",
-            dir.display(),
-            dir.display()
-        )
+        format!("{}/bin/tehasbot cycle 7 pid={pid}", dir.display())
     );
     assert!(
         err.contains(&format!("tehas-cycle: #7 runs from {}", dir.display())),
@@ -62,11 +58,7 @@ fn a_copy_that_cannot_be_made_runs_the_install() {
     fs::remove_dir_all(h.join("lib")).unwrap();
     let (out, err) = run(&h);
     assert!(
-        out.starts_with(&format!(
-            "{}/bin/tehasbot cycle 7 code={} ",
-            h.display(),
-            h.display()
-        )),
+        out.starts_with(&format!("{}/bin/tehasbot cycle 7 ", h.display())),
         "{out}"
     );
     assert!(
@@ -90,7 +82,7 @@ fn a_home_that_is_not_absolute_is_refused() {
 fn a_planning_turn_runs_its_program_from_its_copy() {
     let h = home("plan");
     let plan = h.join("libexec/plan");
-    fs::write(&plan, "#!/bin/sh\necho \"$0 $* code=$TEHAS_CODE pid=$$\"\n").unwrap();
+    fs::write(&plan, "#!/bin/sh\necho \"$0 $* pid=$$\"\n").unwrap();
     fs::set_permissions(&plan, fs::Permissions::from_mode(0o755)).unwrap();
     let out = Command::new(env!("CARGO_BIN_EXE_tehas-cycle"))
         .args(["pin", "plan", "7", "plan", "7", "--out", "o"])
@@ -103,11 +95,7 @@ fn a_planning_turn_runs_its_program_from_its_copy() {
     let dir = h.join(format!("run/plan-7-{pid}"));
     assert_eq!(
         out.trim(),
-        format!(
-            "{}/libexec/plan 7 --out o code={} pid={pid}",
-            dir.display(),
-            dir.display()
-        )
+        format!("{}/libexec/plan 7 --out o pid={pid}", dir.display())
     );
     fs::remove_dir_all(&h).unwrap();
 }

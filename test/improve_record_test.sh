@@ -1,14 +1,21 @@
 #!/usr/bin/env bash
-# Tests for the improvement loop: the record a cycle leaves (lib/improve.sh),
-# what a cycle ran with, and how a whole log is packed.
+# Tests for the improvement loop: the record a cycle leaves (tehas-cycle
+# after), what a cycle ran with (lib/improve.sh), and how a whole log is packed.
 # shellcheck disable=SC2016  # stub bodies and snippets are expanded when they run
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
 # shellcheck source=test/improve_lib.sh
 . "$(dirname "$0")/improve_lib.sh" || exit 1
 
+t_cycle || t_bad "no tehas-cycle: $t_cycle_why"
 # lib <snippet>: run it with the settings and the loop's library loaded.
-lib() { t_run '. "$T_ROOT/lib/config.sh"; . "$T_ROOT/lib/improve.sh"; tehas_load || exit 78; '"$1"; }
+# tehas_improve_record is the verb under the arguments of the function it
+# replaced.
+lib() {
+  t_run '. "$T_ROOT/lib/config.sh"; tehas_load || exit 78
+tehas_improve_record() { "$T/cycle-bin" after "$1" < <(printf "%s\0" --attempt 1 --started "$2" --rc "$3" --status "$4" --step "$5" --pr "${6:-}" --oom "${7:-0}" --image "${8:-}" --rukas-image "${9:-}" --cap "${10:-}" --reason "${11:-}" --build "${12:-}" --forks 0 --signalled 1 --workdir /nowhere --console true --status-cmd true); }
+'"$1"
+}
 
 # --- The record of a cycle ---------------------------------------------------
 started=$(($(date +%s) - 100))
@@ -53,7 +60,7 @@ t_eq "$(jq -r .rukas "$base/window/$REC/cycle.json")" fedcba9876543210fedcba9876
 
 t_case "a record that cannot be read gives null, whatever versions.env says"
 printf '%s\n' "PI_RUKAS_COMMIT=0123456789abcdef0123456789abcdef01234567" >"$home/versions.env"
-t_store_answers cycle-show 1 'store: busy #7: the database is locked'
+t_store_answers settings-view 1 'store: busy #7: the database is locked'
 cycle_log
 lib "tehas_improve_record 7 $started 0 handoff review"
 t_eq "$(jq -c '[.rukas, .settings]' "$base/window/$REC/cycle.json")" '[null,null]'
@@ -124,8 +131,9 @@ t_eq "$t_rc" 0
 t_case "no log since the cycle began: no record, and the caller is told"
 reset
 lib "tehas_improve_record 7 $started 0 handoff review"
-t_eq "$t_rc" 1
-t_contains "$t_out" "no log of issue 7"
+t_eq "$t_rc" 0
+t_contains "$t_out" "tehas: improve: no log of issue 7 since the cycle began, no record written"
+t_contains "$t_out" "WARN: no record of #7 for the improvement loop"
 [ -z "$(ls -A "$base/window" 2>/dev/null)" ] || t_bad "a record was written"
 
 t_case "an older log of the same issue is not taken for this cycle's"
@@ -133,7 +141,7 @@ reset
 cycle_log
 touch -d '2 hours ago' "$home/logs/work-$REC.jsonl"
 lib "tehas_improve_record 7 $started 0 handoff review"
-t_eq "$t_rc" 1
+t_contains "$t_out" "WARN: no record of #7 for the improvement loop"
 
 t_case "two cycles that end at once leave two whole records"
 reset
@@ -270,7 +278,7 @@ t_eq "$t_rc" 0
 t_eq "$(find "$base/window/$REC" -name slow.jsonl | wc -l)" 0
 
 # --- What a cycle ran with --------------------------------------------------
-settings() { lib "export $1; tehas_improve_settings \"\$TEHAS_HOME/s.json\" ${2:-3} ${3:-}"; }
+settings() { lib "export $1; \"\$T/cycle-bin\" settings \"\$TEHAS_HOME/s.json\" ${2:-3} ${3:-}"; }
 
 t_case "the settings a container is given, the TEHAS_* that shape a cycle, and how many cycles ran"
 reset
@@ -372,59 +380,4 @@ t_contains "$(cat "$T_ROOT/lib/improve-prompt.md")" "never guess it, never fill 
 t_contains "$(cat "$T_ROOT/lib/improve-prompt.md")" "\`boundary\` is for a problem with a half on each side"
 t_contains "$(cat "$T_ROOT/lib/improve-prompt.md")" "pi-rukas | console | gate | docs | boundary"
 
-# --- Packing a whole log -----------------------------------------------------
-# 300 lines that compress badly, so a small limit forces pieces.
-big_log() { for i in $(seq 1 300); do printf '%s\n' "$i" | sha256sum; done >"$1"; }
-
-t_case "a log under the limit is one file"
-reset
-big_log "$fx/log"
-lib 'tehas_improve_pack "$T/fx/log" "$T/fx/gz" ticket-7.log 1000000'
-t_eq "$t_rc" 0
-t_eq "$(ls "$fx/gz")" "ticket-7.log.gz"
-t_eq "$(zcat "$fx/gz/ticket-7.log.gz" | cksum)" "$(cksum <"$fx/log")"
-
-t_case "a log over the limit is numbered pieces that join back to it"
-reset
-big_log "$fx/log"
-lib 'tehas_improve_pack "$T/fx/log" "$T/fx/gz" ticket-7.log 3000'
-t_eq "$t_rc" 0
-n=$(find "$fx/gz" -name 'ticket-7.log.*.gz' | wc -l)
-[ "$n" -ge 2 ] || t_bad "expected pieces, got $n"
-[ ! -e "$fx/gz/ticket-7.log.gz" ] || t_bad "the whole file was left beside the pieces"
-t_eq "$(for i in $(seq 1 "$n"); do zcat "$fx/gz/ticket-7.log.$i.gz"; done | cksum)" "$(cksum <"$fx/log")"
-t_eq "$(find "$fx/gz" -name '*.gz' -size +3000c | wc -l)" 0
-t_eq "$(find "$fx/gz" -mindepth 1 ! -name '*.gz' | wc -l)" 0
-
-t_case "a line too long for one piece: no pieces are left"
-reset
-head -c 20000 /dev/urandom | base64 -w 0 >"$fx/log"
-echo >>"$fx/log"
-echo "second line" >>"$fx/log"
-lib 'tehas_improve_pack "$T/fx/log" "$T/fx/gz" ticket-7.log 3000'
-t_eq "$t_rc" 1
-t_eq "$(find "$fx/gz" -name '*.gz' | wc -l)" 0
-
-t_case "the shape of a token is seen"
-reset
-echo "push with ghp_$(printf 'a%.0s' $(seq 1 36)) failed" >"$fx/log"
-lib 'tehas_improve_secret "$T/fx/log"'
-t_eq "$t_rc" 0
-echo "-----BEGIN OPENSSH PRIVATE KEY-----" >"$fx/log"
-lib 'tehas_improve_secret "$T/fx/log"'
-t_eq "$t_rc" 0
-echo "{\"apiKey\":\"sk-$(printf 'b%.0s' $(seq 1 24))\"}" >"$fx/log"
-lib 'tehas_improve_secret "$T/fx/log"'
-t_eq "$t_rc" 0
-
-t_case "an ordinary log is not taken for a secret"
-reset
-big_log "$fx/log"
-{
-  echo "the ghp_ prefix and sk-short are words here"
-  echo "check disk-usage-of-the-container-first"
-  echo '{"branch":"task-1234-add-the-login-page"}'
-} >>"$fx/log"
-lib 'tehas_improve_secret "$T/fx/log"'
-t_eq "$t_rc" 1
 t_done

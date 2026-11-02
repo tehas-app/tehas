@@ -23,6 +23,30 @@ t_contains "$t_out" "TEHAS_PREVIEWS is not 1"
 t_eq "$(t_calls gh)$(t_calls docker)" ""
 t_eq "$(count "$T/home/tehas/preview" '*')" 0
 
+t_case "the console without the settings: exit 78, nothing asked, nothing written"
+reset
+t_run "$T/tree/libexec/console preview run; echo run=\$?; $T/tree/libexec/console preview sweep; echo sweep=\$?"
+t_contains "$t_out" "run=78"
+t_contains "$t_out" "sweep=78"
+t_eq "$(t_calls gh)$(t_calls docker)" ""
+t_eq "$(count "$T/home/tehas/preview" '*')" 0
+
+t_case "the console without a usable domain: exit 78, nothing asked, nothing written"
+reset
+settings="TEHAS_HOME=$T/home/tehas TEHAS_REPO=acme/widget TEHAS_PREVIEWS=1 TEHAS_PREVIEW_MAX=5 TEHAS_PREVIEW_MIN_FREE_MB=1"
+for domain in "" TEHAS_DOMAIN= TEHAS_DOMAIN=EXAMPLE.org TEHAS_DOMAIN=example TEHAS_DOMAIN=example.org/x TEHAS_DOMAIN=-a.example.org; do
+  t_run "env $settings $domain $T/tree/libexec/console preview run; echo run=\$?; env $settings $domain $T/tree/libexec/console preview sweep; echo sweep=\$?"
+  t_contains "$t_out" "run=78"
+  t_contains "$t_out" "sweep=78"
+  t_contains "$t_out" "TEHAS_DOMAIN"
+done
+t_eq "$(t_calls gh)$(t_calls docker)" ""
+t_eq "$(count "$T/home/tehas/preview" '*')" 0
+# The same call with a domain gets past the check, so the 78 above is the domain's.
+t_run "env $settings TEHAS_DOMAIN=example.org $T/tree/libexec/console preview run; echo run=\$?"
+t_lacks "$t_out" "run=78"
+t_contains "$(t_calls docker)" "info"
+
 t_case "an argument it does not know: exit 64"
 reset
 t_run "$preview --everything"
@@ -61,12 +85,9 @@ t_case "the list for the dashboard has the address"
 t_eq "$(jq -r '.previews[0] | "\(.number) \(.state) \(.address) \(.title)"' "$live/previews.json")" \
   "12 serving https://uat-12.example.org/ Change 12"
 
-t_case "the address in the list is the name tehas_edge_name makes"
-# jq cannot call a shell function, so write_list puts the name together itself.
-t_run '. "$T_ROOT/lib/config.sh"; tehas_load && tehas_edge_name uat 12'
-t_eq "$t_out" "uat-12.example.org"
-t_eq "$(jq -r '.previews[0].address' "$live/previews.json")" "https://$t_out/"
-t_contains "$(writes)" "https://$t_out/"
+t_case "the notice gives the address the list gives"
+t_eq "$(jq -r '.previews[0].address' "$live/previews.json")" "https://uat-12.example.org/"
+t_contains "$(writes)" "https://uat-12.example.org/"
 
 t_case "an unchanged commit builds nothing"
 rm -f "$T"/calls/docker*
@@ -226,6 +247,15 @@ rm -f "$T"/calls/docker*
 t_run "$preview"
 t_eq "$(t_calls docker | grep -n -e '^build ' -e 'Config.Volumes' -e '^rm ' -e '^run ' | sed 's/^[0-9]*:\([a-z]*\) .*/\1/' | tr '\n' ' ')" \
   "build image rm run "
+
+t_case "a log that cannot be written stops nothing"
+reset
+a=$(commit feature)
+pulls "$(pull 12 "$a")"
+t_run "$preview >/dev/full"
+t_eq "$t_rc" 0
+t_eq "$(state_of 12)" "serving"
+t_contains "$(writes)" "https://uat-12.example.org/"
 
 t_case "a commit without the recipe has no preview, and an older one of it stops"
 reset

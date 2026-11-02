@@ -1,5 +1,5 @@
 //! `analytics report --json`: the ten-day report the dashboard shows, as one
-//! JSON object. libexec/status writes it to live/analytics.json, which is
+//! JSON object. tehasbot status writes it to live/analytics.json, which is
 //! public, so it holds aggregates only: counts, durations, token sums,
 //! version strings and the vocabulary words of stop reasons and steps. No
 //! issue number, title, failure cause, account, model or provider.
@@ -19,13 +19,13 @@
 //! lead time of the refined ones. Counts only, no issue number.
 //!
 //! `sizes` says how issues of each size fare, read from state/sizes.jsonl
-//! (lib/sizing.sh) beside the database: the issues measured in the window in
+//! (console/src/size.rs) beside the database: the issues measured in the window in
 //! three buckets of the file count, how many of them shipped and the median
 //! lead time of those. Counts only, no issue number: the sizes are coarse and
 //! say nothing of what the issue asked for.
 //!
 //! `gate` says what the runs of the product's gate cost, and is the one section
-//! of the report a `tehasbot status` poll does not publish: `libexec/status`
+//! of the report a `tehasbot status` poll does not publish: `tehasbot status`
 //! names the keys it copies and this is not among them. Its figures are the
 //! median and p90 of one run of the gate, how many a work run made and their
 //! share of the runs' time, over the runs that recorded them, from the two gate
@@ -410,7 +410,7 @@ pub(crate) fn label(key: &str) -> &'static str {
         .unwrap_or_default()
 }
 
-/// One line of state/refined.jsonl (lib/planning.sh): when a refining session
+/// One line of state/refined.jsonl (the poll writes it): when a refining session
 /// filed an issue, and that issue's number.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Refined {
@@ -548,7 +548,7 @@ pub fn refine(conn: &Connection, refined: &[Refined], to: i64) -> rusqlite::Resu
     ]))
 }
 
-/// One line of state/sizes.jsonl (lib/sizing.sh): what an approved start
+/// One line of state/sizes.jsonl (console/src/size.rs): what an approved start
 /// measured of its issue's body, keyed with the time and the issue number.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Size {

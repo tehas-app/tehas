@@ -177,6 +177,10 @@ binary is static and needs nothing from it. The command makes `~/tehas/mcp`
 with mode 700 before it starts the container, so Docker never makes it as
 root.
 
+`tehas update` restarts the unit when the server's binary changed. The command
+is part of the console, and a new console does not restart the unit: a change
+to the container's arguments reaches a running server at its next restart.
+
 With `TEHAS_MCP` unset or `0` the command removes a container left running and
 exits 0, and the unit stays stopped.
 

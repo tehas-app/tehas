@@ -1,6 +1,6 @@
 // The Host section of the front page: the machine the factory runs on, read
-// from /live/top.json (the snapshot lib/top.sh builds, published by
-// libexec/top-publish when TEHAS_TOP is 1). See host/docs/tools.md.
+// from /live/top.json (the snapshot of tehas top, published by tehasbot top
+// when TEHAS_TOP is 1). See host/docs/tools.md.
 //
 // What that file means is worked out in host/fun/host-data.js, which the plain
 // dashboard draws from too. This file only puts the figures it gives into the

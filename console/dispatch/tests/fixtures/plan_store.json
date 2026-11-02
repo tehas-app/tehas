@@ -394,7 +394,7 @@
  ],
  "later": [],
  "not_ported": [
-  "B8 and D2, what a failed, lost or unrecorded turn leaves and how the next poll posts it once; the keep directory and a work directory tehas did not make; an answer whose turn the store will not begin; and what a replaced session keeps: lib/planning.sh and the store, the caller's",
+  "B8 and D2, what a failed, lost or unrecorded turn leaves and how the next poll posts it once; the keep directory and a work directory tehas did not make; an answer whose turn the store will not begin; and what a replaced session keeps: console/dispatch/src/apply/plan.rs and the store, the caller's",
   "A13: when the open sessions cannot be read again after a planning write: the second read is the caller's, after it writes"
  ]
 }

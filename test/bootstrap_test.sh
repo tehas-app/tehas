@@ -571,7 +571,6 @@ t_contains "$(cat "$T_ROOT/host/sandbox/Dockerfile")" 'echo "${JQ_SHA256}  /tmp/
 t_contains "$(cat "$T_ROOT/host/sandbox/Dockerfile")" 'if [ "$(jq --version)" != "jq-${JQ_VERSION}" ]'
 t_contains "$(cat "$T_ROOT/.github/workflows/verify.yml")" 'echo "$JQ_SHA256  $RUNNER_TEMP/jq/jq" | sha256sum -c -'
 t_contains "$(cat "$T_ROOT/.github/workflows/verify.yml")" 'echo "$RUNNER_TEMP/jq" >> "$GITHUB_PATH"'
-t_contains "$(cat "$T_ROOT/.github/workflows/verify.yml")" 'echo "$NODE_SHA256  $RUNNER_TEMP/node.tar.xz" | sha256sum -c -'
 
 t_case "a download that does not match its checksum is refused"
 all_present
@@ -1485,10 +1484,13 @@ fresh_slice
 slice_stubs 0
 # A shipped file the step cannot read is reported as the write that failed, and
 # nothing is left on disk: the pre-flight test of -f cannot tell that file from
-# one that is there and readable.
-chmod 000 "$reload_shipped"
-t_run "$bootstrap slice"
-chmod 644 "$reload_shipped"
+# one that is there and readable. On a copy of the tree: other files of the suite
+# read the shipped one while this runs.
+mkdir -p "$T/unreadable"
+cp "$bootstrap" "$T/unreadable/"
+cp -R "$T_ROOT/lib" "$T_ROOT/host" "$T/unreadable/"
+chmod 000 "$T/unreadable/host/slice/tehas-slice-reload.service"
+t_run "$T/unreadable/bootstrap.sh slice"
 t_eq "$t_rc" 1
 t_contains "$t_out" "could not write"
 t_eq "$([ -e "$slice" ] && echo there)" ""

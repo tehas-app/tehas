@@ -1,0 +1,31 @@
+Say what this factory speaks: the API version, the release and commit it
+was installed from, its repository, the features this release has, the
+millwright's login and what the polls cost. A program asks this first, before
+it relies on a feature. The old names, the feature fixer-grant and the field
+fixer, say the same as millwright-grant and millwright, and stay for as long
+as api 1.
+
+The release and commit are those install.sh wrote to
+$TEHAS_HOME/docs/version.txt: "v0.8.0+cb6912a" from a checkout, the bare tag
+"v0.10.2" from a release, or the bare commit from a checkout with no tag.
+Either is null when the install recorded only the other, and both when it
+recorded nothing. The poll comes from the state store, null when no poll is
+on record. No network and no git, and it writes nothing.
+
+Usage: tehas api [--json]
+
+Without --json, one line each; the last is the store's own words for the
+polls, and only while one is on record. With --json the same as one object,
+whose poll is {"last": {"at", "wallMs", "cpuMs", "gh", "writes", "starts",
+"kinds", "ageMin"}, "hour": {"polls", "cpuMs", "writes"}}, or null: see
+host/docs/api.md.
+
+  api         1
+  tehas       v0.8.0 (cb6912a)
+  repo        tehas-app/tehas
+  features    status millwright-grant fixer-grant all-hands limit drain history export refresh-conflicts analytics state-move pr-title mcp-dashboard-keys
+  millwright  none
+  poll        last 24 s wall, 1.5 s CPU, 12 gh; last hour 14 polls, 41 s CPU
+
+Exit: 0 printed; 64 an argument this command does not know; 78 instance
+settings are missing or malformed.

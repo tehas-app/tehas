@@ -179,7 +179,7 @@ impl Writer {
         }
     }
 
-    /// The names an issue has on this host, as libexec/stop builds them.
+    /// The names an issue has on this host, as console/src/stop.rs builds them.
     fn leftovers(&self, n: u64) -> Vec<PathBuf> {
         let work = Path::new(&self.host.work_dir);
         let mut out = Vec::new();

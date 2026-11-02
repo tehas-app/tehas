@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Tests for libexec/limit: setting, showing and clearing the factory's limit,
-# and lib/limit.sh, which reads it for everything that honours it.
+# Tests for tehas limit: setting, showing and clearing the factory's limit,
+# and the console's reading of it for everything that honours it.
 # shellcheck disable=SC2016  # snippets are expanded by the shell under test
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
 
-limit="$T_ROOT/libexec/limit"
+limit="$T_ROOT/bin/tehas limit"
 file=$T/home/tehas/state/limit.json
 t_stub gh
 
@@ -21,8 +21,8 @@ reset() {
   t_instance "${T_MINIMAL[@]}"
 }
 show() { t_run "$limit --json"; }
-# The limit as lib/limit.sh reads it, at <now> epoch seconds or now.
-read_limit() { t_run ". '$T_ROOT/lib/status.sh'; . '$T_ROOT/lib/limit.sh'; tehas_limit_read ${1:-}"; }
+# The limit as the console reads it, at <now> epoch seconds or now.
+read_limit() { t_run "'$T_CONSOLE' flags limit read ${1:+--now $1}"; }
 in_secs() { date -u -d "@$(($(date +%s) + $1))" +%FT%TZ; }
 
 t_case "no limit: none, in words and as JSON"
@@ -135,7 +135,7 @@ mkdir -p "$file"
 show
 t_eq "$t_out" '{"api":1,"state":"unreadable"}'
 
-t_case "lib/limit.sh: what a reader is given"
+t_case "flags limit read: what a reader is given"
 reset
 read_limit
 t_eq "$t_out" '{"state":"none"}'

@@ -1,0 +1,70 @@
+tehas stop <issue>: end a cycle by hand and clear what it left on this host.
+
+A cycle that outlived its work takes six steps to clear by hand: stop the
+unit, remove the container, take away the lock and the markers that make this
+host think a cycle still runs, remove the workspace, its transcripts and its
+console file, and take tehas:running off the issue. This does the host's half
+at once, then the issue's: when it stopped or removed something here and
+nothing of that failed, it reads the issue's labels and takes tehas:running
+off when it is there and no cycle of this issue holds its lock again. It adds
+no other label and writes no comment. A run that found nothing to do on this
+host asks GitHub for nothing, so a second run is a no-op twice.
+
+What goes is only what says a cycle runs, is owed, or is parked:
+
+  state/cycles/<issue>.lock .cid .done .stalled .timed .oom
+                 .forks .nostart .nostart.new .lean-refused .progress.json .result.json
+  state/cycles/<issue>.stopped .stopped.new, left by an earlier stop
+  the issue's current park on the state store asks for nothing more: its
+                 question is taken off the record (its boxes start nothing)
+                 and its one retry is spent, so the dispatcher does not start
+                 the issue again on its own after a provider outage
+  live/console-<issue>.txt
+  ~/.pi/agent/ensemble-runs/issue-<issue>
+  work/<repo>-<issue>, with its .state, .before-retry and .images beside it,
+                 unless --keep-workspace
+
+Before the unit is asked to stop, one line goes to state/cycles/<issue>.stopped:
+the time and the account. tehasbot cycle reads it and says in the record that
+a person stopped the cycle. When it cannot be written, the stop goes through
+and says so on stderr.
+
+The park is cleared after that, before the lock file goes, and a park that
+cannot be cleared leaves everything where it is, says so, and exits 1. A
+park that still asks for something counts as something to stop; a park
+itself stays on record, with the cycle's history.
+
+A cycle killed outright never reports, and its record on the state store
+stays open. Once the unit is gone and the lock is free, this ends that record
+as stopped (cycle-end --stopped), before the lock file goes: an open record
+with no lock file reads as a cycle whose lock cannot be probed. A record that
+cannot be ended leaves the lock file and everything else where it is, says
+so, and exits 1: run it again. An open record counts as something to stop.
+
+What stays is the cycle's record and every log: its record, history and
+approval on the state store, state/cycles/<issue>.json, .manifest.json,
+.runner_exit and .status, and everything under logs/. A cycle stopped by hand
+did not end well, and nothing here records its pi-rukas as proven.
+
+Usage:
+  tehas stop <issue>                    end the cycle, take its workspace too
+  tehas stop <issue> --keep-workspace   end it and keep the workspace to read
+  tehas stop -h|--help                  print this text and exit 0
+
+Each path is built from TEHAS_HOME, the repository name in the settings and
+the issue number, never from a glob: stopping #5 touches nothing of #51 or
+#55. Nothing is removed while a cycle holds that issue's lock, and the lock is
+held for as long as the removals take, so no cycle starts among them.
+
+Exit: 0 the cycle is stopped and its leftovers are gone, or there was nothing
+to do, which makes a second run safe; 1 the cycle still holds its lock after
+the stop, or a stop or a removal failed, or tehas:running could not be read
+off the issue or taken off it, or a cycle of that issue took its lock again
+before the label was read, or the state store could not be read, did not
+end the open record or did not clear the park; 64 no issue number, an issue that is not a positive
+number, or an argument this does not know; 78 the instance settings are
+missing or malformed, or the state store is not installed or cannot be used,
+which changes nothing.
+
+Instance settings (lib/config.sh): TEHAS_REPO, for the name libexec/work gives
+the workspace and for the issue this reads its labels from and relabels.

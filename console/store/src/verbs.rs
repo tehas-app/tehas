@@ -277,6 +277,11 @@ pub fn number(s: &str) -> Option<i64> {
     digits(s, 10, false)
 }
 
+/// The number of a start: as the shell took it, never 0 and at most 9 digits.
+pub fn start_number(s: &str) -> Option<i64> {
+    digits(s, 9, false)
+}
+
 pub fn unix(s: &str) -> Option<i64> {
     digits(s, 11, false)
 }
@@ -419,6 +424,28 @@ pub fn row_json(
         });
     }
     Ok(out)
+}
+
+/// The value, unless it is null or false: what a reader takes as none on record.
+pub fn given(v: &Value) -> Option<&Value> {
+    Some(v).filter(|v| !v.is_null() && *v != &Value::Bool(false))
+}
+
+/// A view's refusal of what the store itself answered: it is damage.
+pub fn damaged(what: &str) -> Fail {
+    crate::line(crate::db::DbError::Corrupt(what.to_string()))
+}
+
+/// One of this store's own answers, as a view reads it.
+pub fn parsed(answer: &str) -> Result<Value, Fail> {
+    serde_json::from_str(answer).map_err(|_| damaged("an answer of the store is not JSON"))
+}
+
+/// A time on record, as the record files wrote it.
+pub fn view_time(v: &Value) -> Result<String, Fail> {
+    v.as_i64()
+        .map(tehas_core::time::iso)
+        .ok_or_else(|| damaged("a time on record is not a time"))
 }
 
 pub fn line(verb: &str, pairs: &[(&str, String)]) -> String {
