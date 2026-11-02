@@ -880,7 +880,12 @@ mod tests {
     }
 
     /// The home of a case. `broken` names issues whose comment read is refused,
-    /// which is how a case makes one read of the batch fail.
+    /// which is how a case makes one read of the batch fail. The file names the
+    /// status the read meets: `HTTP 500`, which the rule of `retry` keeps as the
+    /// answer rather than the `HTTP 502` it owes a retry to, so the case speaks of
+    /// the one call the poll refused and pays no retry for it. A case that wants
+    /// the retried class names a 5xx that is not a 500; the rule is the thing that
+    /// decides, and `retry.rs` says which status belongs to which class.
     fn host(world: &Value, broken: &[u64]) -> Host {
         let root = std::env::temp_dir().join(format!("tehas-build-{}", std::process::id()));
         // Each case takes the next name of its own, so two cases of one run can
@@ -926,12 +931,9 @@ mod tests {
             );
             std::fs::write(dir.join(format!("w-{}", n + 1)), answer).unwrap();
         }
-        // A read of one issue that meets a bad minute is held in `broken-<n>`,
-        // whose single line the stub prints on the error stream before it leaves
-        // 1: gh's own words of a status the rule of `retry` keeps, so the read is
-        // made once and left as the failed answer it was before the rule existed.
-        // A 500 and not a 502 because a 502 is retried, and this case is about the
-        // one call the poll refused.
+        // A read of one issue that is refused is held in `broken-<n>`, whose
+        // single line the stub prints on the error stream before it leaves 1. The
+        // status it names and what the rule makes of it are `host`'s to say.
         for n in broken {
             std::fs::write(
                 dir.join(format!("broken-{n}")),
@@ -1078,7 +1080,7 @@ esac"#,
         let mut src = sources(&dir.dir);
         let snap = match snapshot(&mut src, &settings()) {
             Ok(s) => s,
-            Err(f) => panic!("the stubs answer: {}", f.0),
+            Err(f) => panic!("the stubs answer: {}", f.line),
         };
         let gh = src.calls.gh_count;
         (
@@ -1226,7 +1228,7 @@ esac"#,
         let mut src = sources(&dir.dir);
         let snap = match snapshot(&mut src, &settings()) {
             Ok(s) => s,
-            Err(f) => panic!("the stubs answer: {}", f.0),
+            Err(f) => panic!("the stubs answer: {}", f.line),
         };
         let parsed = Snapshot::parse(&snap);
         assert_eq!(
