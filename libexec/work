@@ -481,8 +481,8 @@ if [ "$give" = 1 ]; then
   image_opts=(-v "$images:$images_inside:ro" -e "PI_ENSEMBLE_EXTRA_IMAGE_DIRS=$images_inside")
 fi
 
-# A fresh workspace for this cycle, the gate it runs, the check that it can push,
-# its copy of the code index and its mounts.
+# A fresh workspace, the gate it runs, the push check, the product's install
+# step, the copy of the code index and the mounts.
 "$here/tehas-cycle" prepare tree "$issue" --state "$prepared" --branch "$branch" --log "$log" \
   --preflight-wait "$preflight_wait" --console "${TEHAS_CONSOLE_CMD:-$here/console}" || exit $?
 
