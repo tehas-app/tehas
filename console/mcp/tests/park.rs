@@ -5,6 +5,7 @@ use serde_json::{json, Value};
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use tehas_core::question::park_sig;
+use tehas_core::testdir::TestDir;
 use tehas_core::time::{iso, now};
 
 const RESULT: &str = "work-7-261029-085206.jsonl.result.json";
@@ -18,14 +19,13 @@ fn fixture() -> PathBuf {
 }
 
 struct Env {
-    root: PathBuf,
+    _root: TestDir,
     dirs: Dirs,
 }
 
 impl Env {
     fn new(name: &str, sessions: &[Value]) -> Env {
-        let root = std::env::temp_dir().join(format!("mcp-park-{name}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&root);
+        let root = TestDir::new(&format!("mcp-park-{name}"));
         let (live, snap, logs) = (root.join("live"), root.join("mcp"), root.join("logs"));
         for d in [&live, &snap, &logs] {
             std::fs::create_dir_all(d).unwrap();
@@ -42,7 +42,7 @@ impl Env {
         }
         std::fs::write(snap.join("sessions.jsonl"), text + "\n").unwrap();
         Env {
-            root,
+            _root: root,
             dirs: Dirs {
                 live,
                 sessions: snap,
@@ -60,12 +60,6 @@ impl Env {
 
     fn write_log(&self, name: &str, text: &str) {
         std::fs::write(self.dirs.logs.join(name), text).unwrap();
-    }
-}
-
-impl Drop for Env {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.root);
     }
 }
 

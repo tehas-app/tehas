@@ -8,6 +8,7 @@ use mcp::tools::{call, Dirs, Output, ToolError};
 use serde_json::{json, Value};
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use tehas_core::testdir::TestDir;
 use tehas_core::time::iso;
 
 const T0: i64 = 1792485967;
@@ -26,14 +27,13 @@ fn fixture_dirs() -> Dirs {
 }
 
 struct Env {
-    root: PathBuf,
+    root: TestDir,
     dirs: Dirs,
 }
 
 impl Env {
     fn new(name: &str) -> Env {
-        let root = std::env::temp_dir().join(format!("mcp-events-{name}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&root);
+        let root = TestDir::new(&format!("mcp-events-{name}"));
         let dirs = Dirs {
             live: root.join("live"),
             sessions: root.join("mcp"),
@@ -56,12 +56,6 @@ impl Env {
             .open(self.path(name))
             .unwrap();
         f.write_all(text.as_bytes()).unwrap();
-    }
-}
-
-impl Drop for Env {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.root);
     }
 }
 

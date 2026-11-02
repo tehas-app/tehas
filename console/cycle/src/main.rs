@@ -281,7 +281,7 @@ fn main() {
     let a: Vec<&str> = args.iter().map(String::as_str).collect();
     let home = PathBuf::from(std::env::var("TEHAS_HOME").unwrap_or_default());
     match a.as_slice() {
-        ["-h" | "--help"] => println!("{}", usage()),
+        ["-h" | "--help"] => tehas_core::outln!("{}", usage()),
         ["report", file] => print_report(file),
         ["index", "table"] => println!("{}", index::table()),
         ["index", branch, base] => std::process::exit(index::main(branch, base, false).into()),

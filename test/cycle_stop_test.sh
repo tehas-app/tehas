@@ -114,7 +114,30 @@ for st in failed aborted unknown running; do
   t_lacks "$(t_calls gh)" "tehas:awaiting-merge"
   t_contains "$(t_calls gh)" "--remove-label tehas:running --add-label needs-human-attention"
   t_contains "$(t_calls gh)" "Its branch has an open pull request: https://github.com/acme/widget/pull/9"
+  t_contains "$(t_calls gh)" "Tehas cycle stopped with pull request #9 open: status \`$st\`"
+  t_lacks "$(t_calls gh)" "without a pull request"
 done
+
+t_case "a stop at commit-pr with its draft pull request open names it as a draft"
+reset
+ended running commit-pr feature/x
+echo "https://github.com/acme/widget/pull/67" >"$fx/pr.txt"
+: >"$fx/pr-draft"
+t_run "$cycle 7"
+t_eq "$t_rc" 0
+t_contains "$(t_calls gh)" "pr list --repo acme/widget --head feature/x --author @me --state all --json url,state,body,headRefName,isDraft"
+t_contains "$(t_calls gh)" "Tehas cycle stopped with pull request #67 open (draft): status \`running\`, last step \`commit-pr\`"
+t_contains "$(t_calls gh)" "--remove-label tehas:running --add-label needs-human-attention"
+t_lacks "$(t_calls gh)" "without a pull request"
+
+t_case "a stop at commit-pr with no pull request says it has none"
+reset
+ended running commit-pr feature/x
+echo "[]" >"$fx/pr.json"
+t_run "$cycle 7"
+t_eq "$t_rc" 0
+t_contains "$(t_calls gh)" "Tehas cycle stopped without a pull request: status \`running\`, last step \`commit-pr\`"
+t_lacks "$(t_calls gh)" "open pull request"
 
 t_case "a comment that GitHub refuses once is posted on the second try"
 reset

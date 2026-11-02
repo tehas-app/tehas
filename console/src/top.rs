@@ -84,7 +84,7 @@ pub fn main(given: &[String]) -> u8 {
     match given {
         [verb, dir] if verb == "reading" => match reading(Path::new(dir)) {
             Some(text) => {
-                println!("{text}");
+                tehas_core::outln!("{text}");
                 0
             }
             None => 1,
@@ -92,7 +92,7 @@ pub fn main(given: &[String]) -> u8 {
         [verb, lines, was @ ..] if verb == "snapshot" && was.len() < 2 => match lines.parse() {
             Ok(lines) => {
                 let was = was.first().map_or("", String::as_str);
-                println!("{}", take(lines, was, second).0);
+                tehas_core::outln!("{}", take(lines, was, second).0);
                 0
             }
             _ => {
@@ -108,7 +108,7 @@ pub fn main(given: &[String]) -> u8 {
             match (cols.parse(), rows.parse(), snapshot) {
                 (Ok(cols), Ok(rows), Some(snapshot)) => {
                     for line in crate::frame::frame(&snapshot, cols, rows) {
-                        println!("{line}");
+                        tehas_core::outln!("{line}");
                     }
                     0
                 }
@@ -1118,8 +1118,7 @@ mod tests {
 
     #[test]
     fn a_tree_is_read_as_the_files_say() {
-        let dir = std::env::temp_dir().join(format!("top-reading-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
+        let dir = tehas_core::testdir::TestDir::new("top-reading");
         fs::create_dir_all(dir.join("42")).unwrap();
         fs::create_dir_all(dir.join("notapid")).unwrap();
         fs::write(dir.join("uptime"), "1000.00 5.0\n").unwrap();
@@ -1148,6 +1147,5 @@ mod tests {
         );
         fs::remove_file(dir.join("uptime")).unwrap();
         assert!(super::reading(&dir).is_none());
-        fs::remove_dir_all(&dir).unwrap();
     }
 }

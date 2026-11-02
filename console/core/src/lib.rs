@@ -12,6 +12,7 @@ pub mod file;
 pub mod forge;
 pub mod grammar;
 pub mod hold;
+pub mod install;
 #[cfg(feature = "mask")]
 pub mod journal;
 pub mod jq;
@@ -19,6 +20,7 @@ pub mod lock;
 #[cfg(feature = "mask")]
 pub mod mask;
 pub mod models;
+pub mod out;
 pub mod plan;
 #[cfg(feature = "mask")]
 pub mod question;
@@ -31,5 +33,6 @@ pub mod settings;
 pub mod size;
 pub mod slice;
 pub mod slow;
+pub mod testdir;
 pub mod textcheck;
 pub mod time;

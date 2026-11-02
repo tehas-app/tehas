@@ -1,7 +1,6 @@
 # shellcheck shell=bash
 # The millwright's account and the person's approval a record rests on.
-# No command sources it now: tehas work's rules are console/cycle/src/gives.rs.
-# Needs lib/labels.sh.
+# Sourced by libexec/work. Needs lib/labels.sh.
 #
 # The millwright is an account of its own, TEHAS_MILLWRIGHT_LOGIN, that decides
 # on parked issues from outside this factory: whatever runs as that account, the

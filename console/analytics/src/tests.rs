@@ -8,18 +8,12 @@ use serde_json::{json, Value};
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use tehas_core::testdir::TestDir;
 
 const DAY: i64 = 86_400;
 
-fn scratch(name: &str) -> PathBuf {
-    static N: AtomicUsize = AtomicUsize::new(0);
-    let dir = std::env::temp_dir().join(format!(
-        "analytics-test-{}-{}-{name}",
-        std::process::id(),
-        N.fetch_add(1, Ordering::SeqCst)
-    ));
-    let _ = fs::remove_dir_all(&dir);
+fn scratch(name: &str) -> TestDir {
+    let dir = TestDir::new(&format!("analytics-{name}"));
     fs::create_dir_all(dir.join("state/cycles")).unwrap();
     fs::create_dir_all(dir.join("logs")).unwrap();
     fs::create_dir_all(dir.join("docs")).unwrap();
@@ -4260,12 +4254,13 @@ fn sessions_carry_steps_roles_and_camel_case() {
     assert!(!line.to_string().contains("null"));
 }
 
-fn logs_dir(name: &str, files: &[&str]) -> PathBuf {
+fn logs_dir(name: &str, files: &[&str]) -> (TestDir, PathBuf) {
     let home = scratch(name);
     for f in files {
         fs::write(home.join("logs").join(f), "abc").unwrap();
     }
-    home.join("logs")
+    let logs = home.join("logs");
+    (home, logs)
 }
 
 fn run_logs(
@@ -4282,7 +4277,7 @@ fn run_logs(
 
 #[test]
 fn log_files_match_the_stamp_window() {
-    let logs = logs_dir(
+    let (_home, logs) = logs_dir(
         "logs-window",
         &[
             "work-7-261020-100000.jsonl",
@@ -4305,7 +4300,7 @@ fn log_files_match_the_stamp_window() {
 
 #[test]
 fn log_files_take_only_the_latest_stamp_in_the_window() {
-    let logs = logs_dir(
+    let (_home, logs) = logs_dir(
         "logs-two-stamps",
         &[
             "work-7-261020-095900.jsonl",
@@ -4329,7 +4324,7 @@ fn log_files_take_only_the_latest_stamp_in_the_window() {
 
 #[test]
 fn log_files_skip_links_and_other_issues() {
-    let logs = logs_dir("logs-links", &["work-77-261020-100000.jsonl", "target"]);
+    let (_home, logs) = logs_dir("logs-links", &["work-77-261020-100000.jsonl", "target"]);
     std::os::unix::fs::symlink("target", logs.join("work-7-261020-100000.jsonl")).unwrap();
     let started = secs("2026-10-20T10:00:30Z");
     let got = run_logs(&logs, "work", 7, started, None, started + 3600);
@@ -4338,7 +4333,7 @@ fn log_files_skip_links_and_other_issues() {
 
 #[test]
 fn plan_log_words() {
-    let logs = logs_dir(
+    let (_home, logs) = logs_dir(
         "logs-plan",
         &["plan-5-261020-100000.jsonl", "plan-5-261020-100000.json"],
     );
@@ -5453,7 +5448,7 @@ fn file_and_mtime(dir: &Path, name: &str) -> (Vec<u8>, std::time::SystemTime) {
 
 /// A scratch home of one ended run, made at `at`, with both files and both
 /// lines already written by a call of the same time.
-fn home_of_one_ended_run(name: &str, at: i64) -> (PathBuf, PathBuf) {
+fn home_of_one_ended_run(name: &str, at: i64) -> (TestDir, PathBuf) {
     let home = scratch(name);
     let (conn, _) = db::open(&db::path(&home), at).unwrap();
     one_ended_run(&conn, "work-1-a", at - 3600);

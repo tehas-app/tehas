@@ -615,6 +615,13 @@ comment names the runner's own exit, not the exit of `tehas work`, and says the
 step was read from the log. See [the runner died and wrote no
 result](/troubleshooting).
 
+A cycle that stops with the bot's pull request of its branch open, say at
+`commit-pr` after it opened a draft, is parked with the comment `Tehas cycle
+stopped with pull request #<N> open`, and `(draft)` after it when GitHub lists
+the pull request as a draft. The comment ends with its address. Read it before
+you retry: the work in it is not lost. A cycle with no open pull request of its
+branch says `Tehas cycle stopped without a pull request`.
+
 An issue never ends a cycle with both labels.
 
 A cycle that reaches its deadline parks with the cap `deadline`. tehas gives

@@ -1,5 +1,5 @@
 # shellcheck shell=bash
-# Files attached to an issue, for tehas plan: the way
+# Files attached to an issue, for tehas work: the way
 # to the program $TEHAS_HOME/libexec/attach (console/attach). It holds which
 # links count, who may attach, how much an issue is given and what a file is,
 # and it fetches. Here are the settings it is passed and what a caller reads.
@@ -19,17 +19,9 @@
 #                                     the dispatcher's approval record, the
 #                                     links are the record's, and only while
 #                                     the body has the hash it approved (see
-#                                     console/cycle/src/start.rs). With <issue>, the
+#                                     tehas-cycle start-check). With <issue>, the
 #                                     answer the caller already read for the
 #                                     issue, it is not read a second time
-#   tehas_answer_images <dir> <answer file> <comment id>
-#                                     add to a planning session's <dir> what
-#                                     the reply in <answer file> links, source
-#                                     "answer:<id>"; the new files are listed
-#                                     in $answer_new, what was left out in
-#                                     $answer_left. Returns 1, with
-#                                     $image_why, and <dir> as it was, when a
-#                                     link could not be fetched
 #   tehas_record_is_file <path>     a plain file at <path>, not a link and not
 #                                     a directory: what counts as the record
 #   tehas_issue_images_changed <kept manifest> <dir>
@@ -144,29 +136,13 @@ _tehas_gives_nothing() { # <issue> <dir> [record] [issue]
     "$files" "$1" "$approval" >"$2/manifest.json" && chmod 644 "$2/manifest.json"
 }
 
-# The links as the approval saw them. The caller held the words of this answer
-# to that approval before this was called.
+# The links as the approval saw them. tehas-cycle start-check held the words of
+# this answer to that approval before this was called.
 tehas_issue_images() { # <issue> <dir> [approved] [record] [issue]
   _tehas_has_attach || { _tehas_gives_nothing "$1" "$2" "${4:-}" "${5:-}"; return; }
   _tehas_take issue "$1" "$2" --approved "${3:-}" --record "${4:-}" --repo "${TEHAS_REPO:-}" \
     --comments "${TEHAS_WORK_COMMENTS:-0}" --allowed "${TEHAS_ALLOWED_LABELERS:-}" \
     --millwright "${TEHAS_MILLWRIGHT_LOGIN:-}" <<<"${5:-}"
-}
-
-# shellcheck disable=SC2034  # the caller reads what this sets
-tehas_answer_images() { # <dir> <answer file> <comment id>
-  local reply
-  answer_new=""
-  answer_left=""
-  if ! _tehas_has_attach; then
-    image_why=$tehas_no_attach
-    reply=$(cat -- "$2" 2>/dev/null) || return 1
-    ! _tehas_may_link "$reply"
-    return
-  fi
-  _tehas_take answer "$1" "$2" "$3" </dev/null || return 1
-  answer_new=$(jq -r .new <<<"$tehas_take_out")
-  answer_left=$(jq -r .left <<<"$tehas_take_out")
 }
 
 # What a cycle was given, said by the program: console/attach/src/given.rs.

@@ -87,7 +87,10 @@ pub fn of_issue(
 }
 
 pub fn sha(text: &str) -> String {
-    format!("{:x}", Sha256::digest(text.as_bytes()))
+    Sha256::digest(text.as_bytes())
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
 }
 
 pub fn decide(body: &str, result: &Value, state: Option<&Value>) -> Action {
@@ -274,6 +277,14 @@ mod tests {
     }
 
     #[test]
+    fn sha_is_lowercase_hex_of_sha256() {
+        assert_eq!(
+            sha(""),
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        );
+    }
+
+    #[test]
     fn another_cap_writes_nothing() {
         let r = json!({"cap": "child-timeout:explore"});
         assert_eq!(decide("Text.", &r, None), Action::Nothing);
@@ -370,8 +381,7 @@ mod tests {
 
     #[test]
     fn the_state_file_is_read_only_through_no_link() {
-        let d = std::env::temp_dir().join(format!("tehas-last-attempt-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&d);
+        let d = tehas_core::testdir::TestDir::new("last-attempt");
         fs::create_dir_all(d.join("ws/.pi/work-state")).unwrap();
         fs::write(d.join("ws/.pi/work-state/7.json"), r#"{"eventLog":[]}"#).unwrap();
         assert!(state(&d.join("ws"), 7).is_some());
@@ -381,6 +391,5 @@ mod tests {
         std::os::unix::fs::symlink(d.join("other/.pi"), d.join("ws2/.pi")).unwrap();
         assert!(state(&d.join("ws2"), 8).is_none());
         assert!(state(&d.join("ws"), 9).is_none());
-        let _ = fs::remove_dir_all(&d);
     }
 }

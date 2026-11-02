@@ -118,6 +118,7 @@ mod tests {
     use std::sync::atomic::AtomicUsize;
     use std::sync::{Arc, Mutex};
     use std::thread;
+    use tehas_core::testdir::TestDir;
 
     /// A clock a case winds: the seconds it reads, and how many times it has
     /// been read. The loop reads it and counts its steps on it; the case winds
@@ -163,13 +164,12 @@ mod tests {
         }
     }
 
-    /// A command of the tests, alone in a directory of its own, emptied first
-    /// so nothing of a past run of the file is read as this case's. It keeps
+    /// A command of the tests, alone in a directory of its own. It keeps
     /// its own count of its calls in a file there, so a case reads the
     /// command's account and not the loop's, and so does a thread of the case.
     struct Cmd {
         path: PathBuf,
-        dir: PathBuf,
+        _dir: Option<TestDir>,
     }
 
     /// The name of the case: Rust names each test's thread after the test,
@@ -180,18 +180,10 @@ mod tests {
     }
 
     fn command(rc: u8) -> Cmd {
-        // A directory of the case's own name with the process in front of it,
-        // emptied first so nothing of a past run of the file is read as this
-        // case's.
-        let dir = std::env::temp_dir().join(format!(
-            "renew-{}-{}-{}-cmd",
-            std::process::id(),
-            NEXT.fetch_add(1, Ordering::Relaxed),
-            case_name().replace([':', ' '], "_")
-        ));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
-        new_command(&dir, "cmd", rc)
+        let dir = TestDir::new(&format!("renew-{}", case_name().replace([':', ' '], "_")));
+        let mut cmd = new_command(&dir, "cmd", rc);
+        cmd._dir = Some(dir);
+        cmd
     }
 
     /// A command at `name` in `dir`, of the same shape as the one above, so a
@@ -222,10 +214,7 @@ mod tests {
             ran
         });
         assert!(ran, "{} never ran", path.display());
-        Cmd {
-            path,
-            dir: dir.to_path_buf(),
-        }
+        Cmd { path, _dir: None }
     }
 
     impl Cmd {
@@ -237,10 +226,6 @@ mod tests {
                 .unwrap_or(0)
         }
     }
-
-    /// The number of the command of the case, so no two commands of a run
-    /// share a directory, whatever name they are asked under.
-    static NEXT: AtomicUsize = AtomicUsize::new(0);
 
     /// The clocks of the waits that run, by the name of the thread each wait
     /// runs on. The verb takes a plain `fn`, which captures nothing, so a
@@ -316,7 +301,7 @@ mod tests {
         Loop {
             cmd: Cmd {
                 path: cmd.path.clone(),
-                dir: cmd.dir.clone(),
+                _dir: None,
             },
             clock,
             stop,
@@ -491,13 +476,7 @@ mod tests {
         // the ask of a command that is not there does, and it is a failure
         // like any other, so the loop goes on asking with the retry's wait
         // between asks and does not end for want of a command.
-        let dir = std::env::temp_dir().join(format!(
-            "renew-{}-{}-missing",
-            std::process::id(),
-            NEXT.fetch_add(1, Ordering::Relaxed)
-        ));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
+        let dir = TestDir::new("renew-missing");
         // There of name but not of mode, so the ask of it is refused.
         let cannot = new_command(&dir, "cmd", 0);
         fs::set_permissions(&cannot.path, fs::Permissions::from_mode(0o644)).unwrap();

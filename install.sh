@@ -157,11 +157,16 @@ suite=${TEHAS_TEST_SUITE:-}
 update_fd=${TEHAS_UPDATE_LOCK_FD:-}
 # The console that answers for the steps, when something names one. See section 3.
 steps_console=${TEHAS_CONSOLE:-}
-# Read before tehas_load, which drops every TEHAS_* it does not know: the one
-# rule for it is tehas_update_lock_wait, taken with lib/update-steps.sh below,
-# where tehas update takes it too. Set here so the file is defined before that
-# call reads it.
-lock_wait=
+# The waits for the update lock and the dispatcher's, asked of a console before
+# tehas_load drops their names: the one of the release tree, else the one
+# installed. A first install from a checkout has neither, and waits the defaults.
+early_console=$steps_console
+[ -n "$early_console" ] || early_console=$root/libexec/console
+[ -x "$early_console" ] || early_console=${TEHAS_HOME:-$HOME/tehas}/libexec/console
+lock_wait=$("$early_console" update wait update 2>/dev/null) || lock_wait=
+dispatch_wait=$("$early_console" update wait dispatch 2>/dev/null) || dispatch_wait=
+[[ $lock_wait =~ ^[0-9]+$ ]] || lock_wait=10
+[[ $dispatch_wait =~ ^[0-9]+$ ]] || dispatch_wait=900
 # The model endpoints' tokens, from the file env.sh reads them from. The shell
 # that runs this may not have them: a first install has no env.sh yet, and an
 # update runs under the loader of the version before, which may drop them.
@@ -180,12 +185,6 @@ fi
 
 # shellcheck source=lib/config.sh
 . "$root/lib/config.sh"
-# shellcheck source=lib/update-steps.sh
-. "$root/lib/update-steps.sh"
-# The waits for the update lock and the dispatcher's, read before tehas_load
-# below drops them.
-lock_wait=$(tehas_update_lock_wait)
-dispatch_wait=$(tehas_dispatch_lock_wait)
 # shellcheck source=lib/cycles.sh
 . "$root/lib/cycles.sh"
 # A partial checkout is named as the missing file it is, as every other
@@ -664,7 +663,6 @@ files=(
   "lib/refine-brief.md|$TEHAS_HOME/lib/refine-brief.md|644"
   "lib/issue-brief.md|$TEHAS_HOME/lib/issue-brief.md|644"
   "lib/millwright.sh|$TEHAS_HOME/lib/millwright.sh|644"
-  "lib/update-steps.sh|$TEHAS_HOME/lib/update-steps.sh|644"
   "lib/github-app.sh|$TEHAS_HOME/lib/github-app.sh|644"
   "lib/rukas.sh|$TEHAS_HOME/lib/rukas.sh|644"
   "lib/sandbox.sh|$TEHAS_HOME/lib/sandbox.sh|644"
@@ -1463,8 +1461,9 @@ if [ "$check" = 1 ]; then
   # still owed. Files matching is not enough to call a host current. A record
   # this account cannot open is not an answer of "nothing owed" either: it holds
   # steps, and this cannot say how many.
-  owed=$(tehas_pending_file)
-  if ! owed_lines=$(tehas_read_steps); then
+  owed=$TEHAS_HOME/state/update-pending
+  owed_lines=
+  if [ -e "$owed" ] && ! owed_lines=$("$steps_console" update steps owed); then
     echo "Follow-ups:   NOT DONE (the record $owed cannot be read)"
     rc=1
   elif [ -n "$owed_lines" ]; then
