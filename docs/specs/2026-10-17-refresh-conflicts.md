@@ -124,7 +124,8 @@ taken from any comment:
 
 > This pull request conflicts with `<branch>`. Merge `<branch>` into its
 > branch, resolve the conflicts so the change still does what the issue
-> asks, run the gate, and push to the same branch. Do no other work.
+> asks, run the gate in `.pi/verify-cmd`, and push to the same branch. Do no
+> other work.
 
 The start comment on the issue says it is a refresh, names the pull request
 and whose approval it rests on.

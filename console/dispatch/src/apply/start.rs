@@ -724,7 +724,7 @@ impl Writer {
                     .and_then(Value::as_str)
                     .unwrap_or("");
                 retry = json!({"links": [], "context": [{"source": "refresh", "by": "tehas", "at": iso(now() as u64),
-                    "text": format!("This pull request conflicts with `{b}`. Merge `{b}` into its branch, resolve the conflicts so the change still does what the issue asks, run the gate, and push to the same branch. Do no other work.")}]});
+                    "text": format!("This pull request conflicts with `{b}`. Merge `{b}` into its branch, resolve the conflicts so the change still does what the issue asks, run the gate in `.pi/verify-cmd`, and push to the same branch. Do no other work.")}]});
             }
         }
         if comments {
