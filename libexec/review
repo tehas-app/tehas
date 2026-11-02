@@ -1,23 +1,8 @@
 #!/usr/bin/env bash
-# tehasbot review: what the default branch gained since the last reviewed commit.
-# The run is the console's, and console/src/usage/review.txt is the usage, its
-# exit statuses and its settings. This loads the settings and stops a host that
-# left the loop off. An agent runs here on a timer with no person in front of
-# it, so the gate sits below the check of the settings it needs: a weekly run
-# says 78 for an instance that could not review rather than exiting 0 on it.
-set -uo pipefail
-
+# tehasbot review: console/src/run.rs, console/src/usage/review.txt is its text.
+# Only a path: test/sandbox_argv_test.sh runs it.
+#
+# Exit: the command's; 78 no console.
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-console=$here/console
-[ -x "$console" ] || { echo "tehas review: no console beside this command ($console), run install.sh" >&2; exit 78; }
-"$console" check tehasbot review "$@"
-rc=$?
-[ "$rc" != 99 ] || exit 0
-[ "$rc" = 0 ] || exit "$rc"
-
-# shellcheck source=lib/config.sh
-. "$here/../lib/config.sh"
-tehas_load || exit 78
-tehas_require_instance_settings
-[ "${TEHAS_REVIEW:-0}" = 1 ] || exit 0
-exec "$console" review main
+[ -x "$here/console" ] || { echo "tehas review: no console beside this command ($here/console), run install.sh" >&2; exit 78; }
+exec "$here/console" run "$here" "$EUID" "$BASH" tehasbot review "$@"

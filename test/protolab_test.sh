@@ -18,14 +18,14 @@ T_CONSOLE_DIR=$T/console-for-protolab
 mkdir -p "$T_CONSOLE_DIR"
 cp "$T_CONSOLE" "$T_CONSOLE_DIR/console"
 
-protolab="$T_ROOT/libexec/protolab"
+protolab="$T_ROOT/bin/tehasbot protolab"
 fx=$T/fx
 site=$T/home/tehas/protolab
 live=$T/home/tehas/live
 
 # The run of the command, with the console of this checkout on its PATH: t_run
 # builds the PATH it runs with, so a directory put on PATH above is not enough.
-t_protolab() { t_run "PATH=$T_CONSOLE_DIR:\$PATH \"$protolab\""; }
+t_protolab() { t_run "PATH=$T_CONSOLE_DIR:\$PATH $protolab"; }
 
 # gh answers from fixture files.
 t_stub gh '
@@ -637,7 +637,7 @@ t_eq "$([ -e "$site/.work" ] && echo there)" ""
 t_case "with no console anywhere it says to install, before GitHub is asked"
 reset
 rm -f "$T/calls/gh"
-t_run "PATH=/nonexistent:\$PATH \"$protolab\""
+t_run "PATH=/nonexistent:\$PATH $protolab"
 t_eq "$t_rc" 78
 t_contains "$t_out" "no console to build the pages with; run install.sh"
 t_eq "$(t_calls gh)" ""

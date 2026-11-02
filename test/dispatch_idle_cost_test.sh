@@ -67,7 +67,7 @@ log=$T/home/tehas/state/github-writes.log
 t_console || t_bad "no console: $t_console_why"
 printf '#!%s\nexec "%s" tidy run "$@"\n' "$T_BASH" "$T_CONSOLE" >"$T/real-tidy"
 chmod +x "$T/real-tidy"
-printf '#!%s\nTEHAS_CONSOLE="%s" exec "%s/libexec/with-settings" tehasbot status\n' "$T_BASH" "$T_CONSOLE" "$T_ROOT" >"$T/real-status"
+printf '#!%s\nTEHAS_CONSOLE="%s" exec "%s/bin/tehasbot" status\n' "$T_BASH" "$T_CONSOLE" "$T_ROOT" >"$T/real-status"
 chmod +x "$T/real-status"
 
 # The world of a host that has been running: <locks> lock files of issues this

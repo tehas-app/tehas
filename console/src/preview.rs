@@ -7,8 +7,14 @@
 //!   console preview choose <repo> [max] <pull requests
 //!   console preview network check|create|ensure <network>
 //!
-//! `libexec/preview` loads the settings and starts `run` or `sweep`, under a
-//! lock of their own: `run` gives up when it is held, `sweep` waits.
+//! `tehasbot preview [--sweep]` loads the settings (src/run.rs) and starts `run`
+//! or `sweep`, under a lock of their own: `run` gives up when it is held, `sweep`
+//! waits.
+//!
+//! Exit of the command: 0 done, or GitHub or Docker did not answer and what runs
+//! was left running; 1 it cannot write under $TEHAS_HOME; 64 a wrong argument; 78
+//! the instance settings are invalid, TEHAS_PREVIEWS is not 1, or the console is
+//! not installed beside this command.
 //!
 //!   which ones      Open pull requests whose head branch is in the product
 //!                   repository itself, opened by an owner, member or

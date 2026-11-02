@@ -17,13 +17,13 @@ bare_tree() {
   T_ENV=("$slice_env")
   tree=$T/tree
   rm -rf "$tree"
-  mkdir -p "$tree/libexec" "$tree/lib"
+  mkdir -p "$tree/libexec" "$tree/lib" "$tree/bin"
   cp "$dispatch" "$tree/libexec/dispatch"
   cp "$T_ROOT"/lib/*.sh "$tree/lib/"
   for name in index plan; do cp "$T/bin/fake-$name" "$tree/libexec/$name"; done
-  # The poll runs its status through with-settings.
-  printf '%s\n' '#!/usr/bin/env bash' "[ \"\$2\" != status ] || exec '$T/bin/fake-status'" >"$tree/libexec/with-settings"
-  chmod +x "$tree/libexec/with-settings"
+  # The poll runs its status through tehasbot.
+  printf '%s\n' '#!/usr/bin/env bash' "[ \"\$1\" != status ] || exec '$T/bin/fake-status'" >"$tree/bin/tehasbot"
+  chmod +x "$tree/bin/tehasbot"
   for name in tehas tehasbot tehas-work tehas-status tehas-index tehas-plan; do t_stub "$name"; done
   # The Rust poll finds them beside its own program, as on a host.
   cp "$T_DISPATCH" "$tree/libexec/tehas-dispatch"

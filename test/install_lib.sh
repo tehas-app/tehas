@@ -102,7 +102,6 @@ files="./.bashrc
 ./tehas/lib/attachments.sh
 ./tehas/lib/config.sh
 ./tehas/lib/cycles.sh
-./tehas/lib/disk.sh
 ./tehas/lib/millwright.sh
 ./tehas/lib/github-app.sh
 ./tehas/lib/history-lines.jq
@@ -125,7 +124,6 @@ files="./.bashrc
 ./tehas/libexec/attach
 ./tehas/libexec/attach.stamp
 ./tehas/libexec/check-product
-./tehas/libexec/clean
 ./tehas/libexec/console
 ./tehas/libexec/console.stamp
 ./tehas/libexec/cycle
@@ -135,11 +133,7 @@ files="./.bashrc
 ./tehas/libexec/github-token
 ./tehas/libexec/improve
 ./tehas/libexec/index
-./tehas/libexec/init-product
 ./tehas/libexec/plan
-./tehas/libexec/preview
-./tehas/libexec/protolab
-./tehas/libexec/refresh
 ./tehas/libexec/review
 ./tehas/libexec/setup
 ./tehas/libexec/store
@@ -151,7 +145,6 @@ files="./.bashrc
 ./tehas/libexec/tehas-mcp
 ./tehas/libexec/tehas-mcp.stamp
 ./tehas/libexec/update
-./tehas/libexec/with-settings
 ./tehas/libexec/work
 ./tehas/release/minisign.pub
 ./tehas/sandbox/Dockerfile

@@ -1,6 +1,6 @@
 //! One pass of `tehasbot protolab`: which tickets are at the stage, what each
 //! one holds, and the order of the work. Settings come from the environment
-//! libexec/protolab loaded.
+//! `console run` loaded.
 
 use super::{front_page, live_file, number_of, refs, ticket_page};
 use crate::edge;

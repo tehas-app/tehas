@@ -1009,7 +1009,7 @@ t_eq "$t_out" "20 $plan_max"
 # The two hand-copied defaults, the header of the command and the commented
 # example an operator copies, are pinned against the config.
 t_contains "$(grep 'TEHAS_PLAN_TIMEOUT  seconds' "$T_ROOT/libexec/plan")" "[$plan_max, the ceiling"
-t_contains "$(grep 'TEHAS_PLAN_TIMEOUT        seconds' "$T_ROOT/libexec/dispatch")" "[$plan_max]"
+t_contains "$(grep 'TEHAS_PLAN_TIMEOUT        seconds' "$T_ROOT/console/src/usage/dispatch.txt")" "[$plan_max]"
 t_contains "$(grep '^#TEHAS_PLAN_TIMEOUT=' "$T_ROOT/instances/example/optional.env")" "$plan_max"
 
 t_case "a planning limit set empty takes its default"
