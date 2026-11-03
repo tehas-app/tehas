@@ -1876,6 +1876,113 @@ fn a_failed_turn_whose_output_says_nothing_reads_as_before() {
         .writes()
         .iter()
         .any(|c| c.contains("This planning turn did not finish: it exited with status 1.")));
+    // A reason that is there but says nothing, in either shape the reader
+    // takes, is the same comment: no trailing colon.
+    for why in [json!(""), json!(7)] {
+        let mut t = world();
+        plan_row(
+            &t,
+            json!({"turns": 2, "session": "s-1", "label": "tehas:plan", "failed": true}),
+        );
+        turn_ended(&t, 7, "1", json!({"session": "s-1", "why": why}));
+        let a = t.apply(json!([{"plan_collect": 7}]));
+        assert_eq!(a.log, vec!["done planning #7 turn=3 rc=1"]);
+        assert!(t
+            .writes()
+            .iter()
+            .any(|c| c.contains("This planning turn did not finish: it exited with status 1.")));
+    }
+}
+
+#[test]
+fn the_reason_of_a_failed_turn_is_scrubbed_before_the_comment() {
+    let mut t = world();
+    plan_row(
+        &t,
+        json!({"turns": 2, "session": "s-1", "label": "tehas:plan", "failed": true}),
+    );
+    // The reason is the runner's own words: they come out of the container,
+    // so a token, a private address, a mention or a comment opener in them
+    // must not reach the issue as they stand.
+    turn_ended(
+        &t,
+        7,
+        "1",
+        json!({"session": "s-1", "why": "the provider refused ghp_ABCDEFGHIJKLMNOPQRSTUVWX and 10.0.0.5, pinged @admin <!-- x -->"}),
+    );
+    let a = t.apply(json!([{"plan_collect": 7}]));
+    assert_eq!(a.log, vec!["done planning #7 turn=3 rc=1"]);
+    let said = t
+        .writes()
+        .into_iter()
+        .find(|c| c.contains("This planning turn did not finish"))
+        .expect("the comment of the failed turn");
+    assert!(said.contains("the provider refused"));
+    assert!(!said.contains("ABCDEFGHIJKLMNOPQRSTUVWX"));
+    assert!(!said.contains("10.0.0.5"));
+    assert!(!said.contains("@admin"));
+    assert!(said.contains("<\\!--"));
+}
+
+#[test]
+fn a_stale_reason_of_an_earlier_turn_is_read_for_a_status_that_cannot_be_read() {
+    let mut t = world();
+    plan_row(
+        &t,
+        json!({"turns": 6, "session": "s-1", "label": "tehas:plan", "failed": true}),
+    );
+    // plan_ended takes the status off and leaves the outcome, so this is the
+    // window where a reason of an earlier turn is read for a turn that wrote
+    // nothing of its own.
+    turn_ended(
+        &t,
+        7,
+        "",
+        json!({"session": "s-1", "why": "the runner exited 40"}),
+    );
+    let a = t.apply(json!([{"plan_collect": 7}]));
+    assert_eq!(a.log, vec!["done planning #7 turn=7 rc=not readable"]);
+    assert!(t
+        .writes()
+        .iter()
+        .any(|c| c.starts_with("store plan-end 7 --turn 7 --outcome not-readable")));
+    assert!(t.writes().iter().any(|c| c.contains(
+        "This planning turn did not finish: it left an exit status that cannot be read: the runner exited 40."
+    )));
+}
+
+#[test]
+fn a_turn_cut_off_has_no_reason_to_overlay_its_own() {
+    let mut t = world();
+    plan_row(
+        &t,
+        json!({"turns": 1, "session": "s-1", "label": "tehas:plan", "failed": true}),
+    );
+    // No status file at all: the poll reaps the container and recovers the
+    // turn. A reason of an earlier turn stands beside it, and the reaper
+    // removes it before the turn is finished, so the comment says only that
+    // the turn was cut off.
+    fs::write(
+        t.w.home.join("state/plan-7.json.out"),
+        json!({"session": "s-1", "why": "the runner exited 40"}).to_string(),
+    )
+    .unwrap();
+    let a = t.apply(json!([{"plan_collect": 7}]));
+    assert_eq!(
+        a.log,
+        vec![
+            "removed the container tehas-plan-7: the planning turn of #7 was cut off",
+            "planning #7: a turn was cut off",
+            "done planning #7 turn=2 rc=interrupted"
+        ]
+    );
+    let said = t
+        .writes()
+        .into_iter()
+        .find(|c| c.contains("This planning turn did not finish"))
+        .expect("the comment of the turn that was cut off");
+    assert!(said.contains("it was cut off, for example by a restart of the host."));
+    assert!(!said.contains("the runner exited 40"));
 }
 
 #[test]

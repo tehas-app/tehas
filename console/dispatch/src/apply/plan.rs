@@ -22,6 +22,12 @@ use tehas_core::events::{plan_credit, Events};
 use tehas_core::plan::made;
 use tehas_core::question::{self, Kind, MAX_OPTIONS};
 
+/// How much of the runner's reason the comment of a failed turn carries. The
+/// turn cuts its own words to this length (`console/src/plan/turn.rs`); the
+/// bound is held here too, at the site that prints them, because the file
+/// beside this reader is state a person can edit.
+const WHY_MAX: usize = 500;
+
 /// plan_filed_re: an address of an issue a turn filed.
 fn filed_re() -> &'static Regex {
     static R: OnceLock<Regex> = OnceLock::new();
@@ -493,12 +499,18 @@ impl Writer {
             }
             self.plan_brief_rm(n);
             // The turn's own words, when it left any: the runner's reason is
-            // what a person needs to fix, not the exit status.
-            let said = match out.get("why").and_then(Value::as_str) {
-                Some(reason) if !reason.is_empty() => format!("{why}: {reason}"),
-                _ => why.clone(),
+            // what a person needs to fix, not the exit status. It came out of
+            // the container, so it passes the same boundary as every other
+            // agent string this file posts.
+            let reason = s(&out, "/why").replace(['\r', '\n'], " ");
+            let reason = tehas_core::jq::first(&reason, WHY_MAX);
+            let said = if reason.is_empty() {
+                why
+            } else {
+                format!("{why}: {}", question::q_clean(&reason, WHY_MAX))
             };
-            let said = json!({"text": format!("This planning turn did not finish: it {said}. The log is `~/tehas/logs/dispatch-plan-{n}.log` on `{host}`. Reply in a comment to run the turn again with your reply as the next message, or end the session and apply `tehas:plan` to start a new one."), "question": null});
+            let text = format!("This planning turn did not finish: it {said}. The log is `~/tehas/logs/dispatch-plan-{n}.log` on `{host}`. Reply in a comment to run the turn again with your reply as the next message, or end the session and apply `tehas:plan` to start a new one.");
+            let said = json!({"text": text, "question": null});
             let _ = std::fs::write(self.st(n, ".out"), format!("{said}\n"));
             self.plan_post(n, log);
             log.push(format!("done planning #{n} turn={turns} rc={rc}"));
