@@ -11,6 +11,30 @@ use std::time::Duration;
 use tehas_core::call;
 
 /// The files of the protocol a report reads, state/cycles/<issue>.<name>.
+/// tehas work writes them and tehasbot cycle reads and removes them; a cycle
+/// killed outright leaves them for the next cycle of the issue, and both clear
+/// them before they start. What each is proof of:
+///
+///   runner_exit   0 when tehas work watched the container to its end, and the
+///                 runner's own exit status for the comment. Its existence, not
+///                 its content, is the proof: an empty file still says the run
+///                 was watched.
+///   status        the one word `killed`, only when tehas work saw the
+///                 container end with 137. The only account of the end when the
+///                 runner wrote no result: a payload read for its word.
+///   progress.json the summary tehas work made of the run's NDJSON. It says the
+///                 run log of the issue is this cycle's: tehas work writes no
+///                 other file after the container ended, so one no older than
+///                 the cycle's start was written by this cycle. An older one is
+///                 a cycle that never reported, and its log is read for nothing.
+///   nostart       one line: the container's exit status, 1 to 999, plain
+///                 digits. Anything else is no note. Left only when the
+///                 container was watched to its end, wrote neither a result nor
+///                 a line of its stream, and nobody stopped it. It says no runner
+///                 started, as opposed to one that died part way; tehasbot cycle
+///                 makes the cap runner-never-started of it. Memory kills are
+///                 counted in `oom`, as for every other end.
+///   lean-refused  tehas work's 78 was for driver lean, not another 78.
 pub const FILES: [&str; 12] = [
     "result.json",
     "progress.json",
@@ -65,7 +89,7 @@ pub struct Refused {
     pub line: String,
 }
 
-/// One verb of the state store, as lib/store.sh bounds it, its failure as
+/// One verb of the state store, bounded and with its failure as
 /// tehas_core::call keeps it.
 pub fn store_value(home: &Path, args: &[&str]) -> Result<Value, Value> {
     let program = home.join("libexec/store");

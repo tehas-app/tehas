@@ -30,8 +30,7 @@
 #                               [--commit <40 hex>]
 #                               [--rukas-commit <40 hex>]
 #                               [--rukas-digest sha256:<64 hex>]
-#   <tag>        the release tag, in the form vX.Y.Z or vX.Y.Z-rc.N that
-#                tag-release.sh makes
+#   <tag>        the release tag, in the form vX.Y.Z that tag-release.sh makes
 #   <out dir>    where the tarball and its .sha256 go; it is created
 #   --arch       the architecture the release is for, x86_64 (the default) or
 #                aarch64: it names the tarball and says which e_machine every
@@ -156,8 +155,8 @@ while [ "$#" -gt 0 ]; do
 done
 
 [ -n "$tag" ] || { echo "pack-release: name the tag" >&2; exit 64; }
-[[ $tag =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$ ]] || {
-  echo "pack-release: the tag must be vX.Y.Z or vX.Y.Z-rc.N, got: $tag" >&2
+[[ $tag =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+  echo "pack-release: the tag must be vX.Y.Z, got: $tag" >&2
   exit 64
 }
 [ -n "$out_dir" ] || { echo "pack-release: name the output directory" >&2; exit 64; }

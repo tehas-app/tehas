@@ -16,6 +16,7 @@ empty one above it.
 - `console flags pause` takes only `set` and `clear`: `show` and `read`, which nothing called, are gone (#1365). The dashboard's reader of the flag uses the same reading as the health file.
 - A factory pull request that waits for a person is titled `HALT: ` instead of `STUCK: `. The next poll renames the open ones.
 - `tehas drain` prints its answer when a poll holds its lock for the whole wait: `not drained:`, or `drained: false` with `--json`. It printed nothing, which stopped `industry factory upgrade` with `unreadable factory answer`.
+- The libraries no command sources are gone: `lib/attachments.sh`, `cycles.sh`, `labels.sh`, `millwright.sh`, `questions.sh`, `sandbox.sh`, `slice.sh`, `store.sh` and `history-lines.jq`. What still had a caller is in the console or the store now, and `install.sh` removes a host's copies in its stale-file step.
 - `store prune` also removes the cycle and plan history of an issue whose cycle ended more than its window ago, keeping that issue's last row of each of the two tables, so the state store no longer grows with every issue the factory has ever closed. `store upkeep`, what `tehasbot clean` calls once an hour, prunes with a window of 90 days (`PRUNE_DAYS` in `console/store/src/upkeep.rs`). `tehas history` still answers for a long-closed issue with the line it keeps, and an issue whose cycle ended without a history line of its own keeps all of its rows (#1414).
 
 ### Adopter action

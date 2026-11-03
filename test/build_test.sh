@@ -67,8 +67,7 @@ install_host_toolchain() {
   home=$T/home/tehas/sandbox
   mkdir -p "$home" "$T/home/tehas/lib"
   cp "$build" "$dockerfile" "$home/"
-  cp "$T_ROOT"/lib/rukas.sh "$T_ROOT"/lib/config.sh \
-    "$T_ROOT"/lib/sandbox.sh "$T/home/tehas/lib/"
+  cp "$T_ROOT"/lib/rukas.sh "$T_ROOT"/lib/config.sh "$T/home/tehas/lib/"
   cp "$T_ROOT/host/versions.env" "$T/home/tehas/"
 }
 # The build runs from the checkout here, which has no console and no
@@ -304,8 +303,7 @@ install_host_toolchain
 for_stage=$T/home/no-stage
 mkdir -p "$for_stage/sandbox" "$for_stage/lib"
 cp "$build" "$dockerfile" "$for_stage/sandbox/"
-cp "$T_ROOT"/lib/rukas.sh "$T_ROOT"/lib/config.sh \
-  "$T_ROOT"/lib/sandbox.sh "$for_stage/lib/"
+cp "$T_ROOT"/lib/rukas.sh "$T_ROOT"/lib/config.sh "$for_stage/lib/"
 cp "$T_ROOT/host/versions.env" "$for_stage/"
 # The name the staging would have used is made first, owned by the case, so the
 # refusal is asked of a copy the run would have replaced: the run takes nothing

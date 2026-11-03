@@ -263,7 +263,7 @@ impl Net for Children<'_> {
     }
 }
 
-/// `tehas_attach` of lib/attachments.sh, for a child that holds nothing: only
+/// One verb that fetches nothing, for a child that holds nothing: only
 /// PATH, to find timeout and the program.
 fn run_attach(program: &str, verb: &str, args: &[String]) -> Result<Value, Failure> {
     let can_run =

@@ -11,16 +11,12 @@
 #   install, install.minisig                   the installer, when the tag
 #                                              has host/release/install
 #
-# A release candidate vX.Y.Z-rc.N gets the same assets and checks. It is
-# published as a prerelease, never the latest, with the CHANGELOG's Unreleased
-# section as its notes, so a host moves to it only with tehas update --to.
-#
 # Secrets: MINISIGN_SECRET_KEY, the whole secret key file; MINISIGN_PASSWORD,
 # its password, only when the key has one.
 name: release
 on:
   push:
-    tags: ['v[0-9]+.[0-9]+.[0-9]+', 'v[0-9]+.[0-9]+.[0-9]+-rc.[0-9]+']
+    tags: ['v[0-9]+.[0-9]+.[0-9]+']
 permissions:
   contents: write
 defaults:
@@ -38,13 +34,13 @@ jobs:
     env:
       TAG: ${{ github.ref_name }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
       - name: the runner builds for linux x86_64
         run: |
           [ "$(uname -s) $(uname -m)" = "Linux x86_64" ] || { echo "not a linux x86_64 runner: $(uname -sm)" >&2; exit 1; }
-          [[ $TAG =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$ ]] || { echo "not a release tag: $TAG" >&2; exit 1; }
+          [[ $TAG =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "not a release tag: $TAG" >&2; exit 1; }
           # The runner context is not available in the job's env, so DIST is set here.
           echo "DIST=$RUNNER_TEMP/dist" >>"$GITHUB_ENV"
       - name: minisign at a pinned version
@@ -108,14 +104,10 @@ jobs:
             echo "CHANGELOG.md of $TAG has no section for it" >&2
             exit 1
           }
-          # A candidate is a prerelease, which the newest-release listing of
-          # tehas update passes over, and never the latest.
-          pre=false latest=true
-          if [[ $TAG == *-rc.* ]]; then pre=true latest=false; fi
           api=https://api.github.com/repos/$REPO
           auth=(-H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json")
-          body=$(jq -n --arg tag "$TAG" --arg notes "$notes" --argjson pre "$pre" \
-            '{tag_name: $tag, name: $tag, body: $notes, draft: true, prerelease: $pre}')
+          body=$(jq -n --arg tag "$TAG" --arg notes "$notes" \
+            '{tag_name: $tag, name: $tag, body: $notes, draft: true}')
           # Made a draft and published only once every asset is on it, so no
           # one downloads a release that is missing its signature.
           release=$(curl -fsS "${auth[@]}" -X POST "$api/releases" -d "$body") || {
@@ -128,5 +120,5 @@ jobs:
               "https://uploads.github.com/repos/$REPO/releases/$id/assets?name=$(basename "$f")" >/dev/null
             echo "uploaded $(basename "$f")"
           done
-          curl -fsS "${auth[@]}" -X PATCH "$api/releases/$id" -d "{\"draft\": false, \"make_latest\": \"$latest\"}" |
+          curl -fsS "${auth[@]}" -X PATCH "$api/releases/$id" -d '{"draft": false, "make_latest": "true"}' |
             jq -r .html_url
