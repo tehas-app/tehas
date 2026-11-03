@@ -14,6 +14,7 @@ empty one above it.
 ### Changes
 
 - `console flags pause` takes only `set` and `clear`: `show` and `read`, which nothing called, are gone (#1365). The dashboard's reader of the flag uses the same reading as the health file.
+- The console's cycle report reads the stalled and timed stop files once each, so a file whose first word is no count of seconds names neither a stop nor a step (#1207). Before, the two reads of one file could disagree and report a stalled cycle with a step of an unreadable file.
 
 ### Adopter action
 
