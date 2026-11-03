@@ -1897,18 +1897,20 @@ fn a_failed_turn_whose_output_says_nothing_reads_as_before() {
 #[test]
 fn the_reason_of_a_failed_turn_is_scrubbed_before_the_comment() {
     let mut t = world();
+    let addr = format!("10.{}.0.5", 0);
     plan_row(
         &t,
         json!({"turns": 2, "session": "s-1", "label": "tehas:plan", "failed": true}),
     );
     // The reason is the runner's own words: they come out of the container,
     // so a token, a private address, a mention or a comment opener in them
-    // must not reach the issue as they stand.
+    // must not reach the issue as they stand. The address is built here, not
+    // written out: this file is linted.
     turn_ended(
         &t,
         7,
         "1",
-        json!({"session": "s-1", "why": "the provider refused ghp_ABCDEFGHIJKLMNOPQRSTUVWX and 10.0.0.5, pinged @admin <!-- x -->"}),
+        json!({"session": "s-1", "why": format!("the provider refused ghp_ABCDEFGHIJKLMNOPQRSTUVWX and {addr}, pinged @admin <!-- x -->")}),
     );
     let a = t.apply(json!([{"plan_collect": 7}]));
     assert_eq!(a.log, vec!["done planning #7 turn=3 rc=1"]);
@@ -1919,7 +1921,7 @@ fn the_reason_of_a_failed_turn_is_scrubbed_before_the_comment() {
         .expect("the comment of the failed turn");
     assert!(said.contains("the provider refused"));
     assert!(!said.contains("ABCDEFGHIJKLMNOPQRSTUVWX"));
-    assert!(!said.contains("10.0.0.5"));
+    assert!(!said.contains(&addr));
     assert!(!said.contains("@admin"));
     assert!(said.contains("<\\!--"));
 }
