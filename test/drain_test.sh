@@ -157,4 +157,15 @@ t_eq "$t_out" '{"api":1,"drained":true,"running":[],"limit":{"state":"ok","cycle
 t_eq "$(( $(date +%s) - start < 4 ))" 1
 poll_end
 
+t_case "a poll that holds its lock through the wait: exit 1, and still one answer"
+reset
+poll_hold 0 30
+t_run "$drain --wait 1 --json"
+t_eq "$t_rc" 1
+t_eq "$(jq -c '[.drained, .running, .limit.reason]' <<<"$t_out")" '[false,[],"draining"]'
+t_run "$drain --wait 1"
+poll_end
+t_eq "$t_rc" 1
+t_contains "$t_out" "not drained: a poll held its lock for the whole wait"
+
 t_done
