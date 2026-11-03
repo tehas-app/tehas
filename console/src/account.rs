@@ -27,9 +27,10 @@ fn word(flag: &str) -> Option<String> {
 }
 
 /// The account which wrote a flag, as `id -un` names it: nothing for an
-/// account `id` does not name.
+/// account `id` does not name. Kept after the first ask, like the uid.
 pub(crate) fn name() -> String {
-    word("-un").unwrap_or_default()
+    static NAME: OnceLock<String> = OnceLock::new();
+    NAME.get_or_init(|| word("-un").unwrap_or_default()).clone()
 }
 
 /// The uid of this run, kept after the first ask. None when `id` does not
