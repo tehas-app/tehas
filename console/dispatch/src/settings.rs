@@ -64,6 +64,10 @@ pub struct Settings {
     /// cycles so started may run at once.
     pub millwright_feed: bool,
     pub millwright_max_feeds: i64,
+    /// TEHAS_MILLWRIGHT_EPICS: a person's tehas:ready on an epic approves its
+    /// open sub-issues, so the millwright's tehas:ready or tehas:plan on one
+    /// stands on that person's approval.
+    pub millwright_epics: bool,
     /// Where the poll's libexec is, as the refine brief's path names it.
     pub libexec: String,
 }
@@ -131,6 +135,7 @@ impl Settings {
             fixer_max_plan_answers: n("TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS", 3),
             millwright_feed: s("TEHAS_MILLWRIGHT_FEED", "0") == "1",
             millwright_max_feeds: n("TEHAS_MILLWRIGHT_MAX_FEEDS", 2),
+            millwright_epics: s("TEHAS_MILLWRIGHT_EPICS", "0") == "1",
             libexec: s("libexec", "/home/tehas/tehas/libexec"),
         }
     }
@@ -223,6 +228,13 @@ mod tests {
         assert_eq!((on.millwright_feed, on.millwright_max_feeds), (true, 3));
         let other = Settings::parse(&json!({"TEHAS_MILLWRIGHT_FEED": "yes"}));
         assert!(!other.millwright_feed);
+    }
+
+    #[test]
+    fn epics_are_off_unless_it_is_1() {
+        assert!(!Settings::parse(&json!({})).millwright_epics);
+        assert!(Settings::parse(&json!({"TEHAS_MILLWRIGHT_EPICS": "1"})).millwright_epics);
+        assert!(!Settings::parse(&json!({"TEHAS_MILLWRIGHT_EPICS": "yes"})).millwright_epics);
     }
 
     #[test]
