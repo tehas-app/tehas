@@ -155,8 +155,14 @@ Rules, in order:
      the start. needs-human-attention stays: the cycle passes --restart,
      and pi-rukas takes it off. Every start takes tehas:ready off, so a label that is there was
      applied after the last start. An issue that an open pull request
-     closes, as GitHub links them, is work already done: the poll takes
-     tehas:ready off and says so once on the issue. With TEHAS_WORK_IMAGES=1
+     closes is work already done: the poll takes
+     tehas:ready off and says so once on the issue. GitHub links the two when
+     the pull request says Closes #N (or Fixes or Resolves) and targets the
+     default branch; a pull request of another branch, stacked on another, is
+     linked by nothing, so the poll reads the open pull requests' own bodies
+     from the queue's page and holds an issue one of them names with a closing
+     keyword, whatever branch it targets. The wait line names the pull request.
+     With TEHAS_WORK_IMAGES=1
      an issue whose text links an attachment waits while the model does not
      read images; the rest start. An issue whose text says a file goes there
      ("SCREENSHOT GOES HERE", "IMAGE_GOES_HERE") while its text and its

@@ -56,10 +56,13 @@ const PAGE: &str = r#"query($owner: String!, $name: String!, $cursor: String) {
 }"#;
 
 /// The open pull requests, on the first page alone: the titles need no call of
-/// their own. Last in the page, and small, for the budget `ISSUE_PAGE` names.
+/// their own, and neither does the hold of rule 6 that reads a body for a
+/// closing keyword. Last in the page, and small, for the budget `ISSUE_PAGE`
+/// names. `body` is read whole, and it is the one field of the page that a
+/// description can make long.
 const OPEN_PULLS: &str = r#"
     openPulls: pullRequests(states: OPEN, first: 100, orderBy: {field: CREATED_AT, direction: DESC}) {
-      nodes { number title headRefName author { login } labels(first: 20) { nodes { name } } }
+      nodes { number title body headRefName author { login } labels(first: 20) { nodes { name } } }
     }"#;
 
 // The page above names `tehas:running` inside a GraphQL string, where the
@@ -115,6 +118,9 @@ pub struct Queue {
     pub open: Vec<Open>,
     pub closed_running: Vec<u64>,
     pub open_pulls: Option<Value>,
+    /// Whether the page named `openPulls` at all: only the first page asks
+    /// for it, and a page after the first says nothing about the list.
+    pub open_pulls_read: bool,
 }
 
 fn names(v: Option<&Value>) -> Vec<String> {
@@ -141,6 +147,7 @@ pub fn queue(calls: &mut Calls, repo: &str) -> Result<Queue, GhFail> {
         open: Vec::new(),
         closed_running: Vec::new(),
         open_pulls: None,
+        open_pulls_read: false,
     };
     let mut cursor: Option<String> = None;
     loop {
@@ -175,6 +182,7 @@ pub fn queue(calls: &mut Calls, repo: &str) -> Result<Queue, GhFail> {
             });
         }
         if cursor.is_none() {
+            q.open_pulls_read = r.get("openPulls").is_some();
             q.open_pulls = r.pointer("/openPulls/nodes").cloned();
             q.closed_running = r
                 .pointer("/closedRunning/nodes")

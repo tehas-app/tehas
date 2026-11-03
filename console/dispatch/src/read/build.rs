@@ -5,6 +5,7 @@
 
 use super::run::{self, Calls, GhFail};
 use super::{github, host, models, store};
+use crate::decide::closing_numbers;
 use crate::decide::has;
 use crate::settings::Settings;
 use serde_json::{json, Map, Value};
@@ -151,6 +152,46 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
             .map(|o| (o.number.to_string(), json!(o.labels)))
             .collect::<Map<_, _>>()
             .into();
+        // What rule 6 holds an issue on out of an open pull request's body:
+        // every open pull request that names it with a closing keyword, by
+        // number, whatever base it targets. Held beside the nodes above,
+        // which `console pr-title poll` takes as they are. The page of a poll
+        // that ran out of GitHub's nested budget answers no `openPulls` at
+        // all: then nothing is written here, and the hold reads no name.
+        if q.open_pulls_read {
+            // A body is read once per keyword it holds, not once per open
+            // issue: a page of 25 issues over 100 bodies is 2500 matches
+            // otherwise, and most descriptions hold no keyword at all.
+            let mentions: BTreeMap<u64, Vec<u64>> = pulls
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|p| {
+                    let pr = p.get("number").and_then(Value::as_u64)?;
+                    let body = match p.get("body") {
+                        // No body, or one of no shape a rule reads: a
+                        // description that closes nothing.
+                        Some(Value::String(s)) => s.as_str(),
+                        _ => "",
+                    };
+                    Some((pr, closing_numbers(body)))
+                })
+                .collect();
+            let mut names: Map<String, Value> = Map::new();
+            for o in &q.open {
+                let hits: Vec<u64> = mentions
+                    .iter()
+                    .filter(|(pr, hits)| **pr != o.number && hits.contains(&o.number))
+                    .map(|(pr, _)| *pr)
+                    .collect();
+                if !hits.is_empty() {
+                    names.insert(o.number.to_string(), json!(hits));
+                }
+            }
+            if !names.is_empty() {
+                s["pulls_name"] = Value::Object(names);
+            }
+        }
     }
     let open: BTreeSet<u64> = q.open.iter().map(|o| o.number).collect();
     let mut issues = Map::new();
@@ -764,6 +805,8 @@ mod tests {
                 "closedByPullRequestsReferences": {"nodes": []}
             })
         };
+        // The page answers no open pull request here, so a world's poll holds
+        // nothing on a body; `openPulls` is written beside the nodes below.
         let comment = |body: &str| {
             json!({"data": {"repository": {"issue": {"comments": {"nodes": [
                 {"databaseId": 500, "author": {"login": "tehas-bot"}, "body": body,
@@ -780,7 +823,11 @@ mod tests {
                 "nameWithOwner": "acme/widget",
                 "issues": {"pageInfo": {"hasNextPage": false, "endCursor": null},
                            "nodes": [node(21), node(22), node(23)]},
-                "closedRunning": {"nodes": []}
+                "closedRunning": {"nodes": []},
+                // The page's own list of open pull requests, empty here so a
+                // world's poll holds nothing on a body. A case that wants one
+                // writes `openPulls` into its own `queue`.
+                "openPulls": {"nodes": []}
             }}},
             // The three issues are the candidates of rule 6. The control issue
             // is not in the page, so its labels and its events are read by name,
@@ -1366,5 +1413,62 @@ esac"#,
             parsed.issues.keys().collect::<Vec<_>>()
         );
         assert_eq!(snap["issues"].get("23"), None);
+    }
+
+    /// A pull request node of the page as GitHub gives it, its body the field
+    /// the hold of rule 6 reads.
+    fn pull(n: u64, body: &str) -> Value {
+        json!({"number": n, "title": format!("pull {n}"), "body": body,
+               "headRefName": format!("feature/other-{n}"),
+               "author": {"login": "alice"}, "labels": {"nodes": []}})
+    }
+
+    /// The page's own bodies are what hold an issue a pull request into another
+    /// branch closes: GitHub records a closing reference only for a pull
+    /// request into the default branch, so an issue whose
+    /// `closedByPullRequestsReferences` is empty is held by the body alone,
+    /// and `Snapshot::parse` carries the numbers to `pulls_name` for rule 6.
+    #[test]
+    fn an_open_pull_request_naming_the_issue_in_its_body_is_written_as_holding_it() {
+        let mut w = world();
+        w["queue"]["data"]["repository"]["openPulls"]["nodes"] = json!([
+            pull(90, "Closes #21. Fixes #22."),
+            // A body that names no keyword, one that names a number with a
+            // colon but is not one of the closing words, one that names a
+            // longer number, and one of no body at all: none holds anything.
+            pull(91, "See #21 and issue 22 for background"),
+            pull(92, "Resolves #212, which is not #21"),
+            {"number": 93, "title": "no body", "headRefName": "x",
+             "author": {"login": "alice"}, "labels": {"nodes": []}},
+        ]);
+        let (snap, _, _, _) = poll(&w, &[]);
+        assert_eq!(
+            snap["pulls_name"],
+            json!({"21": [90], "22": [90]}),
+            "the bodies name #21 and #22, and no other number"
+        );
+        let parsed = Snapshot::parse(&snap);
+        assert_eq!(parsed.pulls_name[&21], vec![90]);
+        assert_eq!(parsed.pulls_name[&22], vec![90]);
+        assert!(
+            !parsed.pulls_name.contains_key(&23),
+            "an issue no body names is absent: {:?}",
+            parsed.pulls_name
+        );
+    }
+
+    /// The hold reads only the open pull requests the page answered: a page
+    /// GitHub cut before `openPulls` writes no names, so no issue is held by a
+    /// body no poll read.
+    #[test]
+    fn a_page_that_answered_no_open_pull_requests_writes_no_names() {
+        let mut w = world();
+        w["queue"]["data"]["repository"]
+            .as_object_mut()
+            .unwrap()
+            .remove("openPulls");
+        let (snap, _, _, _) = poll(&w, &[]);
+        assert_eq!(snap.get("pulls_name"), None);
+        assert!(Snapshot::parse(&snap).pulls_name.is_empty());
     }
 }
