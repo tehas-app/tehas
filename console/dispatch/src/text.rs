@@ -5,7 +5,8 @@
 use regex::Regex;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use std::sync::OnceLock;
+use std::collections::BTreeSet;
+use std::sync::{LazyLock, OnceLock};
 pub use tehas_core::approval::{body_sha256, title_sha256};
 
 /// The files count of the measure of a body.
@@ -48,6 +49,79 @@ pub fn plan_sum(issue: &Value) -> String {
     };
     let sum = Sha256::digest(json!([part("title"), part("body")]).to_string().as_bytes());
     sum.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// The numbers a text names with a closing keyword: `Closes`, `Fixes` or
+/// `Resolves` (any case, colon or none) in front of `#N`, and the references
+/// that keyword carries on: `Closes #21 and #22` names both. A number is read
+/// whole, so `#210` names 210 and never 21.
+///
+/// The dispatcher's own reading, and wider than the single-reference one the
+/// cycle and the apply step match (`console/cycle/src/runner.rs`,
+/// `console/dispatch/src/apply/start.rs`, `lib/cycles.sh`): it also reads a run
+/// of references behind one keyword. Only a hold is read here, never a start,
+/// so the two cannot start work twice on one pull request.
+pub fn closing_numbers(body: &str) -> Vec<u64> {
+    // The keyword and the reference it names: `Closes`, `Fixes` or `Resolves`
+    // (any case, colon or none) in front of `#` and a number. The `\b` before
+    // the digits reaches into the reference's own `#`, and the `\b` after them
+    // reads the number whole: `#210` is one reference and never `#21` with a
+    // `0` left after it, and `#7and` is one word that names nothing at all.
+    static KEYWORD: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"(?i)\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?):?\s+#([0-9]{1,18})\b").unwrap()
+    });
+    // A separator between two references of one keyword: the white space and
+    // commas they are held together by, and the words of a list, nothing else.
+    // `(?i)` because the keyword above is any case.
+    static SEPARATORS: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r"(?is)^(?:[\s,]+|\s*(?:and|or)\s*)+").unwrap());
+    // The next reference of a run, where the separators left the text.
+    static REFERENCE: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r"(?s)^#([0-9]{1,18})\b").unwrap());
+    let mut out: Vec<u64> = Vec::new();
+    // A number named twice, by two keywords of one body, is named once.
+    let mut seen: BTreeSet<u64> = BTreeSet::new();
+    for c in KEYWORD.captures_iter(body) {
+        let Some(m) = c.get(1) else {
+            continue;
+        };
+        // A reference too long for the type names no issue, and a reference
+        // GitHub cannot link names nothing: neither ends the run.
+        if let Ok(n) = m.as_str().parse() {
+            if seen.insert(n) {
+                out.push(n);
+            }
+        }
+        // The references the same keyword carries on: the `#22` of
+        // `Closes #21 and #22`. The keyword's own number is already pushed, so
+        // the run starts after the whole match: separators, then a reference at
+        // once, until the text is not that shape any more.
+        let mut rest = &body[m.end()..];
+        while let Some(sep) = SEPARATORS.find(rest) {
+            let tail = &rest[sep.end()..];
+            let Some(n) = REFERENCE.captures(tail) else {
+                break;
+            };
+            let Some(num) = n.get(1) else {
+                break;
+            };
+            // A reference too long for the type names no issue, and ends no run.
+            if let Ok(y) = num.as_str().parse() {
+                if seen.insert(y) {
+                    out.push(y);
+                }
+            }
+            // A reference of 19 digits or more is no number's: it names nothing
+            // and ends the run, for the text after it is no separator.
+            if tail[num.end()..].starts_with(|c: char| c.is_ascii_digit())
+                || num.end() >= tail.len()
+            {
+                break;
+            }
+            rest = &tail[num.end()..];
+        }
+    }
+    out
 }
 
 /// The first unfilled placeholder of a text.
@@ -238,6 +312,47 @@ mod tests {
         ] {
             assert_eq!(promise(&v), None, "{v}");
         }
+    }
+
+    #[test]
+    fn a_body_names_every_issue_its_closing_keywords_name() {
+        assert_eq!(closing_numbers("Closes #9"), [9]);
+        assert_eq!(closing_numbers("Closes #9 and #8, fixes #7"), [9, 8, 7]);
+        assert_eq!(closing_numbers("Resolves: #91"), [91]);
+        // A longer number is no shorter one's, and a bare reference names
+        // nothing.
+        assert_eq!(closing_numbers("Closes #90"), [90]);
+        assert!(closing_numbers("See #9").is_empty());
+        assert!(closing_numbers("").is_empty());
+    }
+
+    #[test]
+    fn a_run_of_references_behind_one_keyword_names_them_all() {
+        assert_eq!(closing_numbers("Closes #7, #8, #9"), [7, 8, 9]);
+        assert_eq!(
+            closing_numbers("Closes #7 and #8 and #9 and #10"),
+            [7, 8, 9, 10]
+        );
+        // `Closes #7, #8 and then #9`: the word ends the run, but a reference
+        // already read is read, so the last one is not the keyword's.
+        assert_eq!(closing_numbers("Closes #7, #8 and then #9"), [7, 8]);
+        // `Closes #7and #8`: `#7and` is one word, so the keyword names no
+        // number of its own and the run holds nothing: 7 is named by nothing.
+        assert!(closing_numbers("Closes #7and #8").is_empty());
+        // A reference too long for the type names no issue and ends nothing:
+        // the rest of the run is still read. A reference of 19 digits or more
+        // is no number's at all: the keyword that leads it names nothing, and
+        // what follows it is no run of that keyword's.
+        assert_eq!(
+            closing_numbers("Closes #21 and #99999999999999999999"),
+            [21]
+        );
+        assert!(
+            closing_numbers("Closes #99999999999999999999 and #21").is_empty(),
+            "a keyword whose own number is too long names nothing"
+        );
+        // Non-ASCII digits are no reference at all: u64 refuses them.
+        assert!(closing_numbers("Closes #٧ and #8").is_empty());
     }
 
     #[test]

@@ -594,12 +594,16 @@ the pull request targets the default branch, or when a person links them by
 hand. A pull request of another branch, stacked on another, earns no such
 reference, so the poll reads the open pull requests' own descriptions from the
 queue's page and holds an issue one of them names with a closing keyword,
-whatever branch it targets. The poll asks once, for an issue it would
+whatever branch it targets: a keyword and the references held to it by commas
+or the words `and` and `or`, so `Closes #7, #8 and #9` holds three issues. The
+text is a description nobody has reviewed, from any author: all it can do is
+hold an issue back, never start one. The poll asks once, for an issue it would
 otherwise take, takes `tehas:ready` off and says on the issue which pull
 request it is. The log line is `skip #N: pull request <url> is open and closes
 it`, the same whether GitHub linked the two or the description says so. A
 merged or closed pull request holds nothing back. A
-call that fails, or an answer that cannot be read, ends the poll with exit 1.
+page that answered no list of open pull requests holds nothing on a body, and
+a call that fails, or an answer that cannot be read, ends the poll with exit 1.
 
 A `tehas:ready` from any other account asks for nothing, so it comes off the
 issue with a comment naming who

@@ -47,20 +47,6 @@ pub(crate) fn quiet_due(times: u64, asked: u64, now: u64) -> &'static str {
     }
 }
 
-/// The keyword that closes an issue, any case: `Closes`, `Fixes` or
-/// `Resolves`, with or without a colon, holding the number it names in its
-/// first group. A keyword may be shared by a run of references, so the numbers
-/// that follow it are read by `closing_numbers` too.
-pub(crate) fn closing_keyword() -> Option<Regex> {
-    Regex::new(r"(?i)\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?):?\s+#(\d+)").ok()
-}
-
-/// What may stand between two references of one keyword: spaces, commas and
-/// the words of a list, and nothing else. A number is read whole, so `#210` is
-/// one reference and never `#21` with a `0` left after it.
-static RUN: std::sync::LazyLock<Regex> =
-    std::sync::LazyLock::new(|| Regex::new(r"^\s*(?:(?:and|or|,)\s+)?#(\d+)\s*").unwrap());
-
 /// tehas_names_issue: a pull request of issue `n` by its branch or its body.
 fn names_issue(pr: &Value, n: u64) -> bool {
     let text = |k: &str| match pr.get(k) {
@@ -74,42 +60,7 @@ fn names_issue(pr: &Value, n: u64) -> bool {
         return true;
     }
     let body = text("body");
-    closing_numbers(&body).contains(&n)
-}
-
-/// Every number an open pull request's body names with a closing keyword. A
-/// keyword may be shared by a run of references, so the numbers that follow it
-/// up to the next keyword count too: `Closes #21 and #22` names both.
-/// `#210` names 210 and never 21: a number that runs on is no shorter one's.
-pub(crate) fn closing_numbers(body: &str) -> Vec<u64> {
-    closing_keyword()
-        .map(|re| {
-            let mut out: Vec<u64> = Vec::new();
-            for c in re.captures_iter(body) {
-                let Some(m) = c.get(1) else {
-                    continue;
-                };
-                match m.as_str().parse() {
-                    Ok(x) => out.push(x),
-                    Err(_) => continue,
-                }
-                // The references the same keyword carries on: the `#22` of
-                // `Closes #21 and #22`. The run holds nothing but the
-                // separators and the references, so a word of anything else
-                // ends it.
-                for n in RUN.captures_iter(&body[m.end()..]) {
-                    let Some(x) = n.get(1) else {
-                        break;
-                    };
-                    match x.as_str().parse() {
-                        Ok(x) => out.push(x),
-                        Err(_) => break,
-                    }
-                }
-            }
-            out
-        })
-        .unwrap_or_default()
+    crate::text::closing_numbers(&body).contains(&n)
 }
 
 impl Poll<'_> {
@@ -593,17 +544,5 @@ mod tests {
         assert!(!names_issue(&pr("", "Closes #91 and #90"), 9));
         // No keyword, no name: a number pointed at is nothing.
         assert!(!names_issue(&pr("", "See #9 and #8 for background"), 9));
-    }
-
-    #[test]
-    fn a_body_names_every_issue_its_closing_keywords_name() {
-        assert_eq!(closing_numbers("Closes #9"), [9]);
-        assert_eq!(closing_numbers("Closes #9 and #8, fixes #7"), [9, 8, 7]);
-        assert_eq!(closing_numbers("Resolves: #91"), [91]);
-        // A longer number is no shorter one's, and a bare reference names
-        // nothing.
-        assert_eq!(closing_numbers("Closes #90"), [90]);
-        assert!(closing_numbers("See #9").is_empty());
-        assert!(closing_numbers("").is_empty());
     }
 }

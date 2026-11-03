@@ -117,10 +117,11 @@ pub struct Queue {
     pub repo: Option<String>,
     pub open: Vec<Open>,
     pub closed_running: Vec<u64>,
+    /// The nodes of `openPulls` as the first page gave them: None when the page
+    /// answered no such list, which is how a page cut short of GitHub's nested
+    /// budget reads as nothing known rather than nothing open. Only the first
+    /// page asks for the list, so a page after the first says nothing about it.
     pub open_pulls: Option<Value>,
-    /// Whether the page named `openPulls` at all: only the first page asks
-    /// for it, and a page after the first says nothing about the list.
-    pub open_pulls_read: bool,
 }
 
 fn names(v: Option<&Value>) -> Vec<String> {
@@ -147,7 +148,6 @@ pub fn queue(calls: &mut Calls, repo: &str) -> Result<Queue, GhFail> {
         open: Vec::new(),
         closed_running: Vec::new(),
         open_pulls: None,
-        open_pulls_read: false,
     };
     let mut cursor: Option<String> = None;
     loop {
@@ -182,8 +182,7 @@ pub fn queue(calls: &mut Calls, repo: &str) -> Result<Queue, GhFail> {
             });
         }
         if cursor.is_none() {
-            q.open_pulls_read = r.get("openPulls").is_some();
-            q.open_pulls = r.pointer("/openPulls/nodes").cloned();
+            q.open_pulls = r.get("openPulls").and_then(|v| v.get("nodes")).cloned();
             q.closed_running = r
                 .pointer("/closedRunning/nodes")
                 .and_then(Value::as_array)
