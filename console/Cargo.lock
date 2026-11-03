@@ -25,6 +25,7 @@ dependencies = [
  "rusqlite",
  "serde_json",
  "tehas-core",
+ "tehas-mcp",
 ]
 
 [[package]]
