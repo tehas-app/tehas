@@ -1,9 +1,9 @@
 //! A factory pull request's title says its state: `WIP: ` while a cycle works
-//! on it, `STUCK: ` when it waits for a person, no prefix when it is ok to
-//! merge. A pull request whose issue waits for a person loses `STUCK: ` only
-//! when it is proven fine to merge, see `fine_to_merge`. Only a pull request
-//! from a `feature/issue-<n>` branch by the factory's login is touched, and
-//! only when its title differs. A state that cannot be read writes nothing.
+//! on it, `HALT: ` when it waits for a person, no prefix when it is ok to
+//! merge. A pull request whose issue waits for a person loses `HALT: ` only
+//! when it is proven fine to merge, see `fine_to_merge`. The old `STUCK: `
+//! comes off like the others. Only a pull request from a `feature/issue-<n>`
+//! branch by the factory's login is touched, and only when its title differs. A state that cannot be read writes nothing.
 //!
 //!   console pr-title sync <pr>
 //!     Read one pull request and its linked issue and set the title, for the
@@ -33,12 +33,14 @@ const REFRESHING: &str = "tehas:refreshing";
 const ATTENTION: &str = "needs-human-attention";
 const REVIEW_MARK: &str = "<!-- pi-rukas:lens-residuals ";
 const COMMENTS_PAGE: usize = 100;
+/// What `HALT: ` was called before; it comes off and is never written.
+const OLD_HALT: &str = "STUCK: ";
 const USAGE: &str = "usage: console pr-title sync <pr> | poll <file>";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum State {
     Wip,
-    Stuck,
+    Halt,
     Clear,
 }
 
@@ -46,7 +48,7 @@ impl State {
     fn prefix(self) -> &'static str {
         match self {
             State::Wip => "WIP: ",
-            State::Stuck => "STUCK: ",
+            State::Halt => "HALT: ",
             State::Clear => "",
         }
     }
@@ -54,7 +56,7 @@ impl State {
     fn word(self) -> &'static str {
         match self {
             State::Wip => "WIP",
-            State::Stuck => "STUCK",
+            State::Halt => "HALT",
             State::Clear => "without a prefix",
         }
     }
@@ -65,7 +67,7 @@ fn state(pull: &[String], issue: &[String]) -> State {
     if on(issue, RUNNING) || on(pull, REFRESHING) {
         State::Wip
     } else if on(issue, ATTENTION) {
-        State::Stuck
+        State::Halt
     } else {
         State::Clear
     }
@@ -137,7 +139,8 @@ fn titled(title: &str, state: State) -> String {
     let mut bare = title;
     while let Some(rest) = bare
         .strip_prefix(State::Wip.prefix())
-        .or_else(|| bare.strip_prefix(State::Stuck.prefix()))
+        .or_else(|| bare.strip_prefix(State::Halt.prefix()))
+        .or_else(|| bare.strip_prefix(OLD_HALT))
     {
         bare = rest;
     }
@@ -229,7 +232,7 @@ fn keep(
     bot: &str,
 ) -> Result<Option<State>, String> {
     let mut wanted = state(&pull.labels, issue);
-    if wanted == State::Stuck && fine_to_merge(gh, repo, pull.number, bot)? {
+    if wanted == State::Halt && fine_to_merge(gh, repo, pull.number, bot)? {
         wanted = State::Clear;
     }
     let title = titled(&pull.title, wanted);
@@ -414,15 +417,15 @@ mod tests {
     #[test]
     fn each_state_on_a_plain_title() {
         assert_eq!(titled("a", State::Wip), "WIP: a");
-        assert_eq!(titled("a", State::Stuck), "STUCK: a");
+        assert_eq!(titled("a", State::Halt), "HALT: a");
         assert_eq!(titled("a", State::Clear), "a");
     }
 
     #[test]
     fn each_state_on_a_title_with_either_prefix() {
-        for title in ["WIP: a", "STUCK: a"] {
+        for title in ["WIP: a", "HALT: a", "STUCK: a"] {
             assert_eq!(titled(title, State::Wip), "WIP: a");
-            assert_eq!(titled(title, State::Stuck), "STUCK: a");
+            assert_eq!(titled(title, State::Halt), "HALT: a");
             assert_eq!(titled(title, State::Clear), "a");
         }
     }
@@ -430,7 +433,7 @@ mod tests {
     #[test]
     fn a_title_with_the_same_prefix_comes_back_unchanged() {
         assert_eq!(titled("WIP: a", State::Wip), "WIP: a");
-        assert_eq!(titled("STUCK: a", State::Stuck), "STUCK: a");
+        assert_eq!(titled("HALT: a", State::Halt), "HALT: a");
         assert_eq!(
             titled("chore(work): a", State::Clear),
             "chore(work): a",
@@ -440,7 +443,7 @@ mod tests {
 
     #[test]
     fn a_prefix_is_never_doubled_and_only_the_start_counts() {
-        assert_eq!(titled("WIP: STUCK: WIP: a", State::Stuck), "STUCK: a");
+        assert_eq!(titled("WIP: HALT: STUCK: a", State::Halt), "HALT: a");
         assert_eq!(
             titled("chore(work): WIP: a", State::Wip),
             "WIP: chore(work): WIP: a"
@@ -458,7 +461,7 @@ mod tests {
             state(&none, &labels(&["tehas:awaiting-merge"])),
             State::Clear
         );
-        assert_eq!(state(&none, &attention), State::Stuck);
+        assert_eq!(state(&none, &attention), State::Halt);
         assert_eq!(state(&none, &running), State::Wip);
         assert_eq!(state(&labels(&[REFRESHING]), &none), State::Wip);
         // WIP wins while a cycle runs.
@@ -596,9 +599,9 @@ mod tests {
     }
 
     #[test]
-    fn poll_clears_stuck_from_a_pull_that_is_fine_and_keeps_the_label_alone() {
+    fn poll_clears_halt_from_a_pull_that_is_fine_and_keeps_the_label_alone() {
         let given = json!({"bot": BOT,
-            "pulls": [node(9, "STUCK: a", "feature/issue-7-a", "tehas-app-bot")],
+            "pulls": [node(9, "HALT: a", "feature/issue-7-a", "tehas-app-bot")],
             "issues": {"7": [ATTENTION]}});
         let clean = merge_read(false, json!(true), "clean");
         let comments = json!([review(BOT, AFTER, "- [LOW] a.rs:1 — x")]).to_string();
@@ -611,9 +614,9 @@ mod tests {
     }
 
     #[test]
-    fn poll_keeps_stuck_on_open_high_findings_and_writes_nothing() {
+    fn poll_keeps_halt_on_open_high_findings_and_writes_nothing() {
         let given = json!({"bot": BOT,
-            "pulls": [node(9, "STUCK: a", "feature/issue-7-a", "tehas-app-bot")],
+            "pulls": [node(9, "HALT: a", "feature/issue-7-a", "tehas-app-bot")],
             "issues": {"7": [ATTENTION]}});
         let clean = merge_read(false, json!(true), "clean");
         let comments = json!([review(BOT, AFTER, "- [HIGH] a.rs:1 — x")]).to_string();
@@ -633,9 +636,9 @@ mod tests {
     }
 
     #[test]
-    fn a_read_that_fails_leaves_a_stuck_title_as_it_is() {
+    fn a_read_that_fails_leaves_a_halt_title_as_it_is() {
         let given = json!({"bot": BOT,
-            "pulls": [node(9, "STUCK: a", "feature/issue-7-a", "tehas-app-bot")],
+            "pulls": [node(9, "HALT: a", "feature/issue-7-a", "tehas-app-bot")],
             "issues": {"7": [ATTENTION]}});
         let mut gh = Fake::of(vec![Err("HTTP 502")]);
         assert_eq!(
@@ -684,7 +687,7 @@ mod tests {
                 "api repos/acme/widget/pulls/9".to_string(),
                 "api repos/acme/widget/issues/7".to_string(),
                 "api repos/acme/widget/pulls/9".to_string(),
-                format!("{WRITE} title=STUCK: chore(work): a"),
+                format!("{WRITE} title=HALT: chore(work): a"),
             ]
         );
     }
