@@ -120,7 +120,7 @@
 #                                    it; a failure when the case made none
 #   t_after                          a command run as each case ends, by
 #                                    t_case and t_done
-#   slice_state / slice_child / slice_id   a scratch cgroup tree for lib/slice.sh
+#   slice_state / slice_child / slice_id   a scratch cgroup tree for the slice probe
 #   t_done                           print the tally, exit 1 if anything failed
 #
 # Everything lives under $T, a scratch directory removed on exit. HOME and
@@ -638,7 +638,7 @@ t_cycle() {
 }
 # t_fake_limits <dir> [<word>...]: a tehas-cycle in <dir> that hands out these
 # words for `sandbox limits` and is the real one for every other verb: the seam
-# of the guard in tehas_sandbox_limits (lib/sandbox.sh), which judges what the
+# of the guard in tehas plan (console/src/plan/start.rs), which judges what the
 # program hands out. Needs t_cycle first.
 t_fake_limits() {
   local dir=$1
@@ -1016,7 +1016,7 @@ t_no_old_state() { # <home>
   done
 }
 
-# A scratch cgroup tree for lib/slice.sh, under $T_CGROUP. A test that uses
+# A scratch cgroup tree for the slice probe, under $T_CGROUP. A test that uses
 # it puts TEHAS_CGROUP_ROOT=$T_CGROUP in T_ENV and stubs systemctl and docker
 # itself. All sizes are bytes.
 #

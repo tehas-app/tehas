@@ -98,6 +98,7 @@ in the platform repository has every one with a comment.
 | `TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS` | `3`                                  | How many planning questions the millwright may answer in one session. It never answers two in a row (see [the millwright's grant](/operating#the-millwrights-grant)) |
 | `TEHAS_MILLWRIGHT_FEED`        | `0`                                      | 1 lets the millwright's `tehas:ready` start the first cycle of an issue a person wrote (see [the millwright's grant](/operating#the-millwrights-grant)). Anything but 0 or 1 stops every command with 78 |
 | `TEHAS_MILLWRIGHT_MAX_FEEDS`   | `2`                                      | How many cycles the feed started may run at once. A positive whole number |
+| `TEHAS_MILLWRIGHT_EPICS`       | `0`                                      | 1 lets a person's `tehas:ready` on an epic approve its open sub-issues for the millwright (see [the millwright's grant](/operating#the-millwrights-grant)). Anything but 0 or 1 stops every command with 78 |
 | `TEHAS_REFRESH_CONFLICTS`      | `0`                                      | 1 has the factory resolve conflicts in its own pull requests that wait for a merge (see [refreshes](/operating#refreshes)). Anything but 0 or 1 stops every command with 78 |
 | `TEHAS_REFRESH_MAX`            | `2`                                      | Refreshes of one pull request since the person's approval its cycle rests on. A positive whole number |
 | `TEHAS_REFRESH_EVERY`          | `10`                                     | Minutes between two runs of `tehasbot refresh`, from 1 to 1440 |
@@ -671,15 +672,16 @@ linked issue. A person's pull request is never touched.
 | The title starts with | When |
 | --- | --- |
 | `WIP: ` | The linked issue carries `tehas:running`, or the pull request carries `tehas:refreshing` |
-| `STUCK: ` | No cycle runs, the linked issue carries `needs-human-attention`, and the pull request is not proven fine to merge |
+| `HALT: ` | No cycle runs, the linked issue carries `needs-human-attention`, and the pull request is not proven fine to merge |
 | nothing | Anything else: it is ok to merge. A person clearing the label clears the prefix |
 
 A pull request is proven fine to merge when all of these hold: it is not a
 draft, GitHub reports it mergeable with the state `clean`, and the factory's
 last six-pass review comment is newer than its head commit and lists no
-finding above MEDIUM. `STUCK: ` stays when any of them cannot be shown, also
+finding above MEDIUM. `HALT: ` stays when any of them cannot be shown, also
 when no review comment exists. Clearing the prefix leaves the label on the
 issue. `WIP: ` is never cleared this way: a running cycle may still push.
+`HALT: ` was `STUCK: ` up to v0.24.0; a poll replaces an old `STUCK: `.
 
 Each poll sets the title from what it read already, through
 `console pr-title poll`, and a cycle's end sets it once with
@@ -868,14 +870,8 @@ failure, for `tehasbot cycle`. They come from the result (`usage.byRole` and
 v0.12.80, gives the usage of the stable `dispatch-completed` lines, each
 counted once by its key, and a reason read from lines the runner marks
 unstable, which may be empty.
-Before the cycle's container, after the push check, `tehas work` installs the
-product's dependencies in the workspace, in a container of the sandbox image
-with the cycle's limits and security options, the workspace and no token (see
-[the contract](/new-project#what-the-product-repository-must-provide)). An
-install that fails, or a tool the image lacks, starts no cycle: exit 78, with
-the install's last lines, which are in the log's `.preflight` file too.
-The time limit is `TEHAS_WORK_TIMEOUT`. The push check, the install, the clone
-and every `docker stop` have bounds of their own, listed under
+The time limit is `TEHAS_WORK_TIMEOUT`. The push check, the clone and every
+`docker stop` have bounds of their own, listed under
 [time limits](/host#time-limits). [The host](/host#limits-and-concurrency)
 has the limits in full.
 
@@ -1150,6 +1146,15 @@ dispatcher, which writes it onto the issue and ends the session. A plan with no
 open points may need no such answer: the dispatcher then reads the issue and
 `draft.json` itself and no turn runs, see
 [A plan with no open points](/operating#a-plan-with-no-open-points).
+The one gate on the draft's text is `made` (`console/core/src/plan.rs`), which
+asks the text check of #1210 (`console/core/src/textcheck.rs`) of the draft's
+own title and text: a title of nothing but a prefix, a word said twice, the
+planner's brief as the plan, or a text with no line of the issue's own in it is
+refused, and a refusal writes nothing. Both writers of a plan go through it, and
+the dispatcher pre-checks the same function before it writes an `update` or
+credits a start, so a draft that says nothing of the issue asks instead: the
+console's `update` answer comes back with the question and no `update` key, and
+a draft the check refuses is never marked `clear`.
 Any other answer runs `--answer`. The first
 turn runs `plan "<descriptor>" --start --context <brief>`, with
 `--issue <n>` when the image lists that flag for `plan`, so the planner does not
@@ -1776,17 +1781,12 @@ is committed there. One line per check, `ok` or `FAIL`:
 | `agents`  | `AGENTS.md` is there                                                                            |
 | `gate`    | `.pi/verify-cmd` has a line that is not empty or a comment                                      |
 | `model`   | `.pi/settings.json`, when the product has one, names a model the instance's `models.json` lists |
-| `install` | Always, with one line per install a cycle runs before it starts: the first command of `.pi/install-cmd`, else one for each lockfile at the root or one directory down (see [the contract](/new-project#what-the-product-repository-must-provide)) |
 
-With `--sandbox` it then clones that commit into `~/tehas/tmp/<name>`, `<name>`
-the repository's name, and works in the sandbox image as this user and in the
-slice. It runs the installs at the root of the clone, then, in a worktree of the
-clone as pi-rukas makes one in a cycle, `.pi/worktree-setup` when there is one,
-the first command of `.pi/verify-cmd-full` (else `.pi/verify-cmd`) and the first
-command of `.pi/smoke-cmd` when there is one. An install that fails, or a tool
-the image lacks (`no pnpm in the sandbox image`), is a `FAIL install` line and
-no gate runs. The clone and its worktree are removed afterwards; the product's
-checkout gets no worktree and no branch.
+With `--sandbox` it then clones that commit into `~/tehas/tmp` and runs, in the
+sandbox image as this user and in the slice, `.pi/worktree-setup` when there is
+one, the first command of `.pi/verify-cmd-full` (else `.pi/verify-cmd`) and the
+first command of `.pi/smoke-cmd` when there is one. The clone is removed
+afterwards.
 
 It changes nothing in the product. The result goes to
 `~/tehas/state/check-product.json`, which `tehas status` prints as its
@@ -1861,8 +1861,9 @@ tehas drain [--wait SECONDS] [--json]
 
 Sets the limit `--cycles 0 --plan off --reason draining`, which does not
 expire, then with `--wait` waits up to that long for the running cycles to
-end. Exit 0 when none is running, 1 when some still are. `tehas limit clear`
-ends it.
+end. Exit 0 when none is running, 1 when some still are or a poll held its
+lock for the whole wait (`not drained:`, `drained: false` with `--json`). Each
+exit 0 or 1 prints the answer. `tehas limit clear` ends it.
 
 ## tehas history
 
@@ -3929,7 +3930,6 @@ checkout.
 tehas update                  # the newest release, or pull the checkout;
                               # install, run the follow-ups that apply
 tehas update --to v0.8.1      # that release, an older one too
-tehas update --to v0.22.0-rc.1  # a release candidate, only when named
 tehas update --check          # report what would change; change nothing
 tehas update --pending        # run the follow-ups the record lists, no git
 tehas update --help           # print the usage of the command, touch nothing
@@ -3989,15 +3989,6 @@ with their image tags.
 
 `~/tehas/state/update-hold` stops a plain `tehas update`. `--to` names its
 version and runs with the hold there.
-
-A release candidate, `vX.Y.Z-rc.N`, is published as a prerelease. It is never
-the newest, so a plain `tehas update` passes it over; `--to` names it, and it
-is downloaded and checked like any release. A candidate comes before its
-version and after the version before it, and `rc.10` after `rc.9`. On a
-candidate, a plain `tehas update` stays until a newer release is out, then
-moves to it. The notes shown are those of the candidate or the release moved
-to, not of every candidate between. A draft is not published and cannot be
-named.
 
 ### From the checkout
 
@@ -4419,9 +4410,6 @@ It does not edit the file.
 `scripts/release-notes.sh <tag>` prints a section without its heading, and
 exits 1 when the file has none for that tag. The workflow makes the release's
 page from it, from the `Unreleased` section when the tag has none of its own.
-A release candidate, `vX.Y.Z-rc.N`, always reads `Unreleased`:
-`scripts/tag-release.sh --rc` tags one before the section is renamed, and
-checks the Adopter action there.
 
 A host moving from its platform checkout has no version installed, so its notes
 start at the newest `vX.Y.Z` tag at or before the checkout's HEAD, which
@@ -4430,8 +4418,8 @@ with no such tag it is shown every release.
 
 ### The release workflow
 
-`.github/workflows/release.yml` runs on the push of a `vX.Y.Z` or a
-`vX.Y.Z-rc.N` tag, on the organisation's own runner as the gate does. It builds the console, the
+`.github/workflows/release.yml` runs on the push of a `vX.Y.Z` tag, on the
+organisation's own runner as the gate does. It builds the console, the
 analytics program, the store and the MCP server (static, musl) with `cargo
 build --release --locked`, resolves the pins, runs
 the pack command above (which refuses any program whose e_machine is not the
@@ -4442,7 +4430,6 @@ above, its `.sha256` and `.minisig` beside it, and `install` with
 `install.minisig`.
 
 The release is made as a draft and published only when every file is on it.
-A release candidate is published as a prerelease and never marked the latest.
 The signing key is the Actions secret `MINISIGN_SECRET_KEY`, the whole secret
 key file, and its password, if it has one, is `MINISIGN_PASSWORD`. A run that
 cannot sign, or whose signature the key in the tree does not check, publishes
@@ -4459,8 +4446,7 @@ downloads:
 curl -fsSL https://github.com/tehas-app/tehas/releases/latest/download/install | sudo sh -s -- boss
 ```
 
-It downloads the newest release (or `--version vX.Y.Z`, or a release
-candidate `--version vX.Y.Z-rc.N`) of this machine: the
+It downloads the newest release (or `--version vX.Y.Z`) of this machine: the
 asset is `tehas-<version>-linux-<arch>.tar.gz`, `<arch>` the architecture
 `uname -m` answers, `x86_64` or `aarch64`, with `amd64` and `arm64` read as
 those. A machine whose `uname -m` says anything else stops before anything is
@@ -4624,7 +4610,7 @@ is its own because `scripts/verify.sh` runs the workspace's `cargo test` in
 `console/target` at the same time, and cargo holds that directory's lock while
 it builds (the workspace's dev profile keeps line tables and no incremental
 data, so that directory stays under 1 GB). The tests of the commands that run the store (`test/dispatch_*`,
-`test/cycle_*`, `test/work_*` and `test/store_lib_test.sh`) install it in
+`test/cycle_*`, `test/work_*` and `test/store_approval_test.sh`) install it in
 their scratch home and fail without it, so they need cargo too; the build needs the
 workspace's crates in cargo's cache, as the gate's own `cargo test` does. When
 the offline build fails, the runner fetches the locked crates once and builds

@@ -160,6 +160,33 @@ struct Start {
     extra: Map<String, Value>,
 }
 
+/// What an issue's epic says of the millwright's label on the issue, under
+/// TEHAS_MILLWRIGHT_EPICS.
+enum EpicPart {
+    /// No epic a person made ready stands over it.
+    None,
+    /// One stands, and the issue may not run on it: why.
+    Refused(String),
+    /// It stands: the person's approval of the epic.
+    Granted(EpicGrant),
+}
+
+#[derive(Clone)]
+struct EpicGrant {
+    by: String,
+    at: String,
+    epic: u64,
+}
+
+/// The labels that keep the millwright from starting an issue on no
+/// approval of the issue itself.
+const MILLWRIGHT_HELD: [&str; 4] = [
+    "tehas:improvement",
+    "cross-project",
+    "needs-human-attention",
+    "tehas:millwright-escalated",
+];
+
 struct Poll<'a> {
     s: &'a Snapshot,
     c: &'a Settings,
@@ -1260,7 +1287,9 @@ impl<'a> Poll<'a> {
         let ev = self.events(n)?;
         let (who, at) = label_actor(&ev, label);
         if !self.c.allowed(&who) {
-            if label != "tehas:ready" || !self.c.is_millwright(&who) {
+            // The millwright's labels are answered by its grant.
+            let granted = matches!(label, "tehas:ready" | "tehas:plan" | "tehas:refine");
+            if !granted || !self.c.is_millwright(&who) {
                 self.deny("skip", n, label, &who);
             }
             return Ok(Err(or_unknown(&who).to_string()));
@@ -1570,10 +1599,149 @@ impl<'a> Poll<'a> {
             self.act(json!({
                 "issue": n, "remove": [ask],
                 "fail": Self::label_fail(n, &[ask], &[]),
-                "say": format!("Tehas took `{ask}` off this issue and started nothing. It has {open} {word} open, so it is an epic: a plan, not a change. An epic is never started. Apply `tehas:ready` to one of its sub-issues instead."),
+                "say": format!("Tehas took `{ask}` off this issue and started nothing. It has {open} {word} open, so it is an epic: a plan, not a change. An epic is never started. {}", self.epic_next(n, ask)),
             }));
         }
         false
+    }
+
+    /// What the comment on an epic's taken label says to do next: with
+    /// TEHAS_MILLWRIGHT_EPICS and a person's tehas:ready, the millwright
+    /// takes the sub-issues.
+    fn epic_next(&self, n: u64, ask: &str) -> &'static str {
+        let by = match self.s.issues.get(&n).map(|i| &i.events) {
+            Some(Events::Read(ev)) => label_actor(ev, ask).0,
+            _ => String::new(),
+        };
+        if ask == "tehas:ready"
+            && self.c.millwright_epics
+            && !self.c.millwright.is_empty()
+            && self.c.allowed(&by)
+        {
+            "Its open sub-issues are approved for the millwright, which plans each one that needs it and applies `tehas:ready` to it. To take that back, close this issue or put `needs-human-attention` on it."
+        } else {
+            "Apply `tehas:ready` to one of its sub-issues instead."
+        }
+    }
+
+    /// epic_stands: the person's tehas:ready on epic `p`, open with open
+    /// sub-issues and without needs-human-attention. The poll's page has
+    /// every open issue, so a closed epic is not in it.
+    fn epic_stands(&self, p: u64) -> Option<(String, String)> {
+        let i = self.s.issues.get(&p)?;
+        let w = i.work.as_ref()?;
+        if w.get("state").and_then(Value::as_str) != Some("open") {
+            return None;
+        }
+        let sum = w.get("sub_issues_summary")?;
+        let count = |k: &str| sum.get(k).and_then(Value::as_u64);
+        if count("total")? <= count("completed")? {
+            return None;
+        }
+        let held = w
+            .get("labels")
+            .and_then(Value::as_array)?
+            .iter()
+            .any(|l| l.get("name").and_then(Value::as_str) == Some("needs-human-attention"));
+        if held {
+            return None;
+        }
+        let Events::Read(ev) = &i.events else {
+            return None;
+        };
+        let (by, at) = label_actor(ev, "tehas:ready");
+        (self.c.allowed(&by) && !at.is_empty()).then_some((by, at))
+    }
+
+    /// epic_part: whether the millwright's label on `n` stands on a person's
+    /// tehas:ready on its epic. The issue's text must be written and last
+    /// changed by an allowed account or by tehas itself, whose planner writes
+    /// a sub-issue's plan.
+    fn epic_part(&mut self, n: u64) -> Step<EpicPart> {
+        if !self.c.millwright_epics || self.c.millwright.is_empty() {
+            return Ok(EpicPart::None);
+        }
+        let Some(p) = self.work(n).get("parent").and_then(Value::as_u64) else {
+            return Ok(EpicPart::None);
+        };
+        let Some((by, at)) = self.epic_stands(p) else {
+            return Ok(EpicPart::None);
+        };
+        let labels: Vec<String> = self
+            .work(n)
+            .get("labels")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|l| l.get("name").and_then(Value::as_str).map(str::to_string))
+            .collect();
+        let refuse = |why: String| {
+            Ok(EpicPart::Refused(format!(
+                "its epic #{p} is approved, but {why}"
+            )))
+        };
+        if let Some(l) = MILLWRIGHT_HELD.into_iter().find(|l| has(&labels, l)) {
+            return refuse(format!("it carries `{l}`"));
+        }
+        let ev = self.events(n)?;
+        let c = self.c;
+        let bot = account(&self.d.bot).to_string();
+        let ours = |w: &str| c.allowed(w) || (!bot.is_empty() && account(w) == bot);
+        let t = self.text(n);
+        let login = |k: &str| {
+            t.pointer(&format!("/{k}/login"))
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string()
+        };
+        let author = login("author");
+        if !ours(&author) {
+            return refuse(format!(
+                "its author {} is neither tehas nor named in `TEHAS_ALLOWED_LABELERS`",
+                or_unknown(&author)
+            ));
+        }
+        let edited = t.get("lastEditedAt").is_some_and(|v| !v.is_null());
+        let editor = login("editor");
+        if edited && !ours(&editor) {
+            return refuse(format!(
+                "its text was last changed by {}",
+                or_unknown(&editor)
+            ));
+        }
+        if let Some(who) = first_unallowed_rename(&ev, "", &ours) {
+            return refuse(format!("its title was changed by {who}"));
+        }
+        Ok(EpicPart::Granted(EpicGrant { by, at, epic: p }))
+    }
+
+    /// epic_ready: the millwright's tehas:ready, applied at `at`, on the
+    /// first cycle of an approved epic's sub-issue. None when no epic stands
+    /// over it or a cycle of it was approved before, which the fixer's grant
+    /// decides as for any issue; Some(None) with the label off and the
+    /// reason said.
+    fn epic_ready(&mut self, n: u64, at: &str) -> Step<Option<Option<EpicGrant>>> {
+        if !matches!(self.s.issues.get(&n), Some(i) if matches!(i.approval, Some(Ok(None)))) {
+            return Ok(None);
+        }
+        match self.epic_part(n)? {
+            EpicPart::None => Ok(None),
+            EpicPart::Refused(why) => {
+                self.fixer_refused(n, &why);
+                Ok(Some(None))
+            }
+            EpicPart::Granted(g) => {
+                if !self.unchanged_since(
+                    n,
+                    at,
+                    "the fixer applied tehas:ready",
+                    "the fixer or a person applies it again",
+                )? {
+                    return Ok(Some(None));
+                }
+                Ok(Some(Some(g)))
+            }
+        }
     }
 
     /// size_ok: with TEHAS_SIZE_MAX_FILES, a body that names more files is
@@ -1871,14 +2039,7 @@ impl<'a> Poll<'a> {
             .and_then(Value::as_str)
             .unwrap_or("")
             .to_string();
-        let held = [
-            "tehas:improvement",
-            "cross-project",
-            "needs-human-attention",
-            "tehas:millwright-escalated",
-        ]
-        .into_iter()
-        .find(|l| has(labels, l));
+        let held = MILLWRIGHT_HELD.into_iter().find(|l| has(labels, l));
         let ev = self.events(n)?;
         let c = self.c;
         let undone = ev
@@ -2146,6 +2307,7 @@ impl<'a> Poll<'a> {
                 "tehas:blocked"
             };
             let mut fixer = None;
+            let mut epic: Option<EpicGrant> = None;
             let mut planned = false;
             let (who, at) = match self.plan_start(n, ask)? {
                 Planned::Refused => continue,
@@ -2162,11 +2324,21 @@ impl<'a> Poll<'a> {
                         {
                             let ev = self.events(n)?;
                             let (_, at) = label_actor(&ev, "tehas:ready");
-                            match self.fixer_ok(n, &at, &labels)? {
-                                Some(grant) => fixer = Some(grant),
-                                None => continue,
+                            match self.epic_ready(n, &at)? {
+                                Some(Some(g)) => {
+                                    let by = g.by.clone();
+                                    epic = Some(g);
+                                    (by, at)
+                                }
+                                Some(None) => continue,
+                                None => {
+                                    match self.fixer_ok(n, &at, &labels)? {
+                                        Some(grant) => fixer = Some(grant),
+                                        None => continue,
+                                    }
+                                    (refused, at)
+                                }
                             }
-                            (refused, at)
                         } else {
                             if ask == "tehas:ready" && !refused.is_empty() {
                                 self.clear_unauthorised(n, "tehas:ready", &refused);
@@ -2278,6 +2450,16 @@ impl<'a> Poll<'a> {
                     st.park_lifted = Some(note);
                 }
                 st.fixer = Some((base, count));
+            }
+            // The start is recorded as the person's label: their tehas:ready
+            // on the epic approved this issue, and a retry of the fixer's
+            // rests on it as on any person's approval.
+            if let Some(g) = &epic {
+                st.verb = format!("approved on epic #{}, labelled by the fixer,", g.epic);
+                st.how = format!(
+                    "`tehas:ready` label on epic #{} at {}, which the fixer carried to this sub-issue",
+                    g.epic, g.at
+                );
             }
             if planned {
                 st.verb = "planned".into();

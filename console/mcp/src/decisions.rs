@@ -16,18 +16,19 @@ pub const FILE: &str = "dispatch.log";
 /// The most decisions one answer holds.
 pub const LIMIT_MAX: u64 = 200;
 const LIMIT_DEFAULT: u64 = 50;
-/// The most of the log's end one call reads. A decision line a host writes
-/// today is at most a few hundred bytes, so this holds far more than
-/// `LIMIT_MAX` of them.
+/// The most of the log's end one call reads. The longest decision line a host
+/// writes today is about 250 bytes, so this holds far more than `LIMIT_MAX`
+/// of them.
 pub const TAIL_BYTES: u64 = 1024 * 1024;
 /// A reason is cut to this many characters.
 const REASON_MAX: usize = 400;
-/// Where a decision's reason sits in its line: after `: `, or for a start in
-/// brackets after the issue (who labelled it) or after `: ` (an easy merge).
-/// A `skip` is the one decision that may be logged without its reason at all.
+/// Where a decision's reason sits in its line: in brackets after the issue,
+/// as only a start's is, or after `: `. A line of the second shape with no
+/// reason after the issue is no decision the dispatcher made, except a start,
+/// which has no reason to give: it says who labelled the issue. A `skip` is
+/// the one decision that may be logged without its reason at all.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum ReasonStyle {
-    /// `start #9 (labelled by alice)` or `start #9: easy merge of PR #10`.
     Brackets,
     /// The reason may be absent: a bare `skip #9` is a decision with none.
     Bare,
@@ -105,6 +106,26 @@ pub const DECISIONS: [DecisionKind; 5] = [
     },
 ];
 
+/// The words the writers of `dispatch.log` use today, each a `logged` of
+/// `DECISIONS` or the first word of a `WRITER_NON_DECISIONS`. A word either
+/// writer logs that is in neither list, or a list that keeps a word no writer
+/// logs, fails the comparison in `tests/decisions.rs` rather than leaving a
+/// line of the log quietly unanswered.
+pub const WRITER_WORDS: [&str; 12] = [
+    "clear",
+    "drop the refresh of",
+    "hold",
+    "hold refreshes",
+    "holding",
+    "ignore",
+    "lift",
+    "park",
+    "released",
+    "skip",
+    "start",
+    "wait",
+];
+
 /// A word the writers of `dispatch.log` log today that this tool answers as no
 /// decision, each with its line and the kind `kind_of` in `events` reads such
 /// a line as, so the vocabulary is pinned on both sides of the log: a `lift`
@@ -148,18 +169,19 @@ pub const WRITER_NON_DECISIONS: [(&str, &str, &str); 7] = [
     ),
 ];
 
-/// A line of each hold the dispatcher writes besides the table's sample, so
-/// both readers are tested of the same lines: `parse` in its own tests,
-/// `kind_of` in `events`, and the tool in `tests/decisions.rs`, which also
-/// checks that every hold line of the dispatcher's source is one of them.
+// The words a host's dispatcher writes for a hold, in the words it logs today,
+// kept beside the table so both readers are tested of the same lines: `parse`
+// in its own tests, `kind_of` in `events`, and the integration oracle of
+// `tests/decisions.rs` through the fixture's log. The three long reasons of a
+// hold are written once, here.
 pub const HOST_HOLD_LINES: [&str; 3] = [
     "2026-10-29T16:23:14Z hold #7: its text links an attachment and TEHAS_WORK_IMAGES is 1, but test-model does not declare image input in models.json",
-    "2026-10-29T16:23:14Z hold #7: its text says SCREENSHOT GOES HERE and links no attachment, so the cycle would be given none; attach the file or write out what it shows, before applying `tehas:ready`",
+    "2026-10-29T16:23:14Z hold #7: its text says SCREENSHOT GOES HERE and links no attachment",
     "2026-10-29T16:23:14Z hold #7: its last cycle parked on intent-park and the body has not changed since, and the fixer's comments could not be read",
 ];
 
 /// One decision line, as the dispatcher writes it:
-/// `<time> start #<n> (<reason>)`, `<time> start|skip|wait|hold #<n>: <reason>` or
+/// `<time> start #<n> (<reason>)`, `<time> skip|wait|hold #<n>: <reason>` or
 /// `<time> drop the refresh of #<n>: <reason>`.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Decision<'a> {
@@ -183,10 +205,7 @@ pub fn parse(line: &str) -> Option<Decision<'_>> {
     let issue = rest[..digits].parse::<u64>().ok().filter(|n| *n > 0)?;
     let tail = &rest[digits..];
     let reason = match kind.style {
-        ReasonStyle::Brackets => match tail.strip_prefix(" (") {
-            Some(t) => t.strip_suffix(')')?,
-            None => tail.strip_prefix(": ")?,
-        },
+        ReasonStyle::Brackets => tail.strip_prefix(" (")?.strip_suffix(')')?,
         ReasonStyle::Bare => match tail {
             "" => "",
             _ => tail.strip_prefix(": ")?,
@@ -384,10 +403,6 @@ mod tests {
             d(t, "start", 12, "labelled by alice")
         );
         assert_eq!(
-            parse(&format!("{t} start #12: easy merge of PR #13")),
-            d(t, "start", 12, "easy merge of PR #13")
-        );
-        assert_eq!(
             parse(&format!("{t} wait #5: tehas:blocked holds it: #4 is open")),
             d(t, "wait", 5, "tehas:blocked holds it: #4 is open")
         );
@@ -421,8 +436,6 @@ mod tests {
             format!("{t} skip #: none"),
             format!("{t} skip #7x: glued"),
             format!("{t} start #7 (open"),
-            format!("{t} start #7 open"),
-            format!("{t} start #7"),
             format!("{t} hold #7 open"),
             format!("{t} skip #99999999999999999999999: too long"),
             "2026-10-29 16:23:14 skip #7: no T".to_string(),

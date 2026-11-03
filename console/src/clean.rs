@@ -1499,7 +1499,7 @@ impl Run {
     // --- 5. the old base images: `sha-` tags of the base's repository alone.
     fn base_images(&mut self) -> bool {
         if self.pulled.is_empty() {
-            self.warn(&format!("kept the base: the host's pins name no base to prune (PI_RUKAS_REPO, PI_RUKAS_FOLLOW or PI_RUKAS_IMAGE_DIGEST in {}/versions.env or the instance's instance.env, or lib/rukas.sh is not sourced beside lib/sandbox.sh)", self.home.display()));
+            self.warn(&format!("kept the base: the host's pins name no base to prune (PI_RUKAS_REPO, PI_RUKAS_FOLLOW or PI_RUKAS_IMAGE_DIGEST in {}/versions.env or the instance's instance.env)", self.home.display()));
             return true;
         }
         let repo = repo_of(&self.pulled).to_string();
