@@ -225,14 +225,23 @@ fn control(
     }
 }
 
-/// The host's own switch, read without asking GitHub anything: the flag and
-/// whether it holds the factory. A flag that cannot be read counts as paused
-/// and has nothing to say for itself beyond that.
-fn pause_flag(file: &Path) -> (J, bool) {
+/// The host's own switch, read without asking GitHub anything. Whether the
+/// file is a flag at all is `read_pause`'s answer, so a file which is no flag
+/// for the health file is no flag for the dashboard either; the fields then
+/// keep this reader's own folding of the reason, which collapses a run of
+/// control characters to one space where the reading gives each a space of its
+/// own, and the page has always read it that way. A flag that cannot be read
+/// counts as paused and has nothing to say for itself beyond that. `by` stays
+/// out: the page can be public.
+fn host_pause_flag(file: &Path) -> (J, bool) {
     if !file.exists() {
         return (J::Null, false);
     }
-    let unreadable = || obj(vec![("at", J::Null), ("reason", J::Null)]);
+    // Read as no flag by the one reading of the file: it holds the factory and
+    // says nothing more.
+    if crate::flags::read_pause(file).state() != "ok" {
+        return (obj(vec![("at", J::Null), ("reason", J::Null)]), true);
+    }
     let text = fs::read(file).ok().and_then(|b| String::from_utf8(b).ok());
     let flag = text.as_deref().and_then(J::parse);
     match flag.as_ref().map(|f| (f.get("at"), f.get("reason"))) {
@@ -246,7 +255,7 @@ fn pause_flag(file: &Path) -> (J, bool) {
             ]),
             true,
         ),
-        _ => (unreadable(), true),
+        _ => (obj(vec![("at", J::Null), ("reason", J::Null)]), true),
     }
 }
 
@@ -747,7 +756,7 @@ fn queue(home: &Path, live: &Path, analytics: &Analytics, stop: &AtomicBool) {
     if stopped() {
         return;
     }
-    let (flag, flag_paused) = pause_flag(&home.join("state/pause.json"));
+    let (flag, flag_paused) = host_pause_flag(&home.join("state/pause.json"));
     let now = time::now();
     let on = env::var("TEHAS_ANALYTICS").as_deref() == Ok("on");
     let was = if on {
@@ -895,7 +904,12 @@ mod tests {
                 ("reason", J::str(written.to_string())),
             ]);
             fs::write(&f, flag.dump()).unwrap();
-            pause_flag(&f).0.get("reason").as_str().unwrap().to_string()
+            host_pause_flag(&f)
+                .0
+                .get("reason")
+                .as_str()
+                .unwrap()
+                .to_string()
         };
         assert_eq!(reason("a\n\n\tb"), "a b");
         assert_eq!(reason("a  b"), "a  b");
@@ -1187,9 +1201,9 @@ mod tests {
     fn the_flag_never_publishes_who_wrote_it_and_a_damaged_one_holds() {
         let dir = temp("flag");
         let f = dir.join("pause.json");
-        assert_eq!(pause_flag(&f), (J::Null, false));
+        assert_eq!(host_pause_flag(&f), (J::Null, false));
         fs::write(&f, r#"{"by":"boss","at":"T","reason":"a\nb"}"#).unwrap();
-        let (flag, held) = pause_flag(&f);
+        let (flag, held) = host_pause_flag(&f);
         assert!(held);
         assert_eq!(flag.dump(), r#"{"at":"T","reason":"a b"}"#);
         let damaged = r#"{"at":null,"reason":null}"#;
@@ -1200,7 +1214,7 @@ mod tests {
             r#"{"at":1,"reason":"r"}"#,
         ] {
             fs::write(&f, bad).unwrap();
-            let (flag, held) = pause_flag(&f);
+            let (flag, held) = host_pause_flag(&f);
             assert!(held, "{bad}");
             assert_eq!(flag.dump(), damaged, "{bad}");
         }
