@@ -1862,8 +1862,9 @@ tehas drain [--wait SECONDS] [--json]
 
 Sets the limit `--cycles 0 --plan off --reason draining`, which does not
 expire, then with `--wait` waits up to that long for the running cycles to
-end. Exit 0 when none is running, 1 when some still are. `tehas limit clear`
-ends it.
+end. Exit 0 when none is running, 1 when some still are or a poll held its
+lock for the whole wait (`not drained:`, `drained: false` with `--json`). Each
+exit 0 or 1 prints the answer. `tehas limit clear` ends it.
 
 ## tehas history
 
