@@ -248,12 +248,26 @@ t_stub fake-plan 'TEHAS_HOME=$T/home/tehas "$T/store-bin" plan-show "$1" >"$T/ca
 [ ! -e "$T/fx/image.during" ] || mv "$T/fx/image.during" "$T/fx/image.label"
 [ ! -e "/proc/$$/fd/8" ] || : >"$T/calls/plan.fd8"
 out=""
-while [ "$#" -gt 0 ]; do [ "$1" = --out ] && out=$2; shift; done
+keep=""
+while [ "$#" -gt 0 ]; do
+  [ "$1" = --out ] && out=${2-}
+  [ "$1" = --keep ] && keep=${2-}
+  shift
+done
 if [ -e "$T/fx/plan-fails" ]; then
   [ ! -s "$T/fx/plan-fails" ] || cp "$T/fx/plan-fails" "$out"
   exit 2
 fi
-cp "$T/fx/plan-result.json" "$out"'
+cp "$T/fx/plan-result.json" "$out"
+# As `console plan` does: the outcome that names an update is made from the
+# draft the turn kept beside the session, in a directory of workspaces the turn
+# made. A result with no update keeps none.
+if [ -n "$keep" ] && grep -q '"update"' "$T/fx/plan-result.json"; then
+  works=${keep%/*}
+  mkdir -p "$works" && : >"$works/.tehas-workspaces"
+  mkdir -p "$keep"
+  jq -c "{title: .update.title, spec: .update.body}" "$T/fx/plan-result.json" >"$keep/draft.json"
+fi'
 # Runs the turn at once, as a unit that ends before the poll looks again, unless
 # the fixture leaves it running: then it starts nothing, and systemctl says the
 # unit is active.
