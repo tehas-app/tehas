@@ -22,11 +22,9 @@ How far this is proven:
 - The steps for the domain, the certificate and the proxy, 1 to 6 below, were
   carried out and checked from outside on 10 October 2026, on Ubuntu 26.04 LTS
   with Caddy 2.11 as a system service.
-- The router's configuration was run in Caddy 2.8.4 with a container on an
-  internal Docker network, and every route answered as this page says. On
-  2 November 2026 it was run again in Caddy 2.11.7, the version its container
-  uses now, and every route answered as in 2.8.4. Both were on a development
-  machine.
+- The router's configuration was run in Caddy 2.8.4, the version its container
+  uses, with a container on an internal Docker network, and every route
+  answered as this page says. That was on a development machine.
 - The preview image of this repository was built and run with the options a
   preview gets, and served the front page, the dashboard and `/health`.
 - `tehasbot preview` is covered by the shell tests. On the tehas-tehas host

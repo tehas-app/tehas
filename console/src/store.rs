@@ -1,5 +1,5 @@
-//! The state store, $TEHAS_HOME/libexec/store, called as lib/store.sh calls
-//! it, and the two ways of running a command that call needs.
+//! The state store, $TEHAS_HOME/libexec/store, called as tehas_core::call
+//! calls it, and the two ways of running a command that call needs.
 
 use serde_json::{json, Value};
 use std::fs;
@@ -11,7 +11,7 @@ use std::process::{Command, ExitStatus, Stdio};
 use std::thread::sleep;
 use std::time::Duration;
 
-/// What a call that did not answer said, as lib/store.sh sets it: the status
+/// What a call that did not answer said: the status
 /// (1 refused, busy or timeout; 64 usage; 78 unusable), the store's word or
 /// ours (timeout, absent, garbled), and the first line, as `said` keeps it for
 /// a log: no control bytes and at most 300 bytes.

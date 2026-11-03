@@ -23,7 +23,7 @@
 # that execs the store at once, because a stub answers from a fixture and has
 # nothing to wait for, and the store's answer is read with no jq of its own -
 # a store that cannot answer is the store's own contract, tested by name in
-# test/store_lib_test.sh, not by a bound here. A command that can wait for
+# console/core/src/call.rs, not by a bound here. A command that can wait for
 # something outside the test keeps the real bound: test/dispatch_lib.sh names
 # the programs whose bound a case checks. #736.
 # The ceiling sits a fifth above the figure, so a poll that starts one command

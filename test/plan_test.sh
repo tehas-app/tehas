@@ -526,6 +526,46 @@ t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/an
 t_eq "$t_rc" 2
 t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
 
+t_case "a draft the text check refuses is shown, never marked clear, and its Update this issue writes nothing"
+# The four texts #1210 refuses: a title of nothing but its prefix, a title
+# of one word said twice, the planner's brief copied as the plan, and a text
+# of nothing but the brief's marks. Each is drafted with no open points, so
+# only the check keeps it from being written onto the issue without a tick.
+for pair in 'EPIC: EPIC|## Context
+
+Search is slow.' 'work work|## Context
+
+Search is slow.' 'Faster search|Descriptor: what the issue is
+
+## Prior context inventory
+
+- the file' 'Faster search|[context param]
+
+[context param]'; do
+  title=${pair%%|*}
+  spec=${pair#*|}
+  reset
+  turn_doc 12 "$(jq -n --arg title "$title" --arg spec "$spec" '{subcommand: "plan", mode: "turn", exitCode: 12, status: "shown",
+    session: {id: "abc-123", turn: 2}, text: "Drafted.", title: $title, spec: $spec, questions: []}')"
+  t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
+  t_eq "$t_rc" 0
+  # Asked, as any draft with a person in it is: the box is there to tick
+  # after the person has read what the check said, and no clear is said.
+  t_eq "$(jq -c '[.clear, .question.options[].label]' "$T/out.json")" '[null,"Update this issue"]'
+  printf 'alice chose: Update this issue\n' >"$T/answer.md"
+  t_stub gh 'printf "%s\n" "$*" >>"$T/calls/gh.args"; cat "$T/fx/view.json"'
+  printf '%s\n' '{"title":"search","body":"make it fast"}' >"$fx/view.json"
+  rm -f "$T"/calls/*
+  t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/answer.md"
+  t_eq "$t_rc" 0
+  # The text is one line. What the person reads is the same text as the
+  # question, as the comment the dispatcher posts holds one line of its own.
+  t_eq "$(jq -c '[.update // null, (.question.options | length), (.text | split("\n") | length)]' "$T/out.json")" '[null,0,1]'
+  t_contains "$(jq -r .question.question "$T/out.json")" "Tehas did not make the drafted plan this issue's text"
+  t_contains "$(jq -r .question.question "$T/out.json")" "Reply"
+  t_eq "$(jq -r .question.question "$T/out.json")" "$(jq -r .text "$T/out.json")"
+done
+
 t_case "a plan longer than a comment holds is cut, and says so"
 reset
 turn_doc 12 "$(jq -n --arg spec "$(head -c 50000 /dev/zero | tr '\0' x)" '{session: {id: "abc-123"}, text: "Drafted.", title: "Big", spec: $spec, questions: []}')"

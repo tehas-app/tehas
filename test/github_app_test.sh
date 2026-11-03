@@ -8,8 +8,7 @@
 . "$(dirname "$0")/lib.sh" || exit 1
 
 t_console || t_bad "no console: $t_console_why"
-# A load clears TEHAS_CONSOLE and keeps TEHAS_CONSOLE_CMD: libexec/github-token reads
-# the first, tehas_github_env the second.
+# The console the commands under test run.
 T_ENV_ALWAYS=(TEHAS_CONSOLE="$T_CONSOLE" TEHAS_CONSOLE_CMD="$T_CONSOLE")
 
 token_cmd="$T_ROOT/libexec/github-token"
@@ -230,24 +229,11 @@ t_eq "$t_out" "token=none
 $T/home/tehas/shim
 2|credential.https://github.com.helper||credential.https://github.com.helper|!$T/home/tehas/shim/gh auth git-credential"
 
-t_case "the helper key is the one lib/sandbox.sh names for a container"
-t_run ". '$T_ROOT/lib/sandbox.sh' && tehas_git_credential_helper_key"
-t_eq "$t_out" "credential.https://github.com.helper"
-
-t_case "without an app, tehas_github_app_env and tehas_github_env change nothing"
+t_case "without an app, tehas_github_app_env changes nothing"
 reset
 t_instance TEHAS_REPO=acme/widget
-t_run "GH_TOKEN=ghp_user; before=\$PATH; $lib && tehas_github_app_env && tehas_github_env && echo \"\$GH_TOKEN \${GIT_CONFIG_COUNT:-unset} \$([ \"\$PATH\" = \"\$before\" ] && echo same)\""
+t_run "GH_TOKEN=ghp_user; before=\$PATH; $lib && tehas_github_app_env && echo \"\$GH_TOKEN \${GIT_CONFIG_COUNT:-unset} \$([ \"\$PATH\" = \"\$before\" ] && echo same)\""
 t_eq "$t_out" "ghp_user unset same"
-
-t_case "tehas_github_env exports the app's token, and fails when there is none"
-reset
-t_run "$lib && tehas_github_env && echo \"\$GH_TOKEN\""
-t_contains "$t_out" "ghs_fresh"
-reset
-T_ENV=(CURL_FAILS=1)
-t_run "$lib && tehas_github_env || echo failed"
-t_contains "$t_out" "failed"
 
 t_case "the shim gives gh the app's token, and each call asks for one"
 reset
@@ -353,30 +339,5 @@ printf 'GH_TOKEN=ghp_user\n' >"$T/home/.config/tehas/env"
 t_run ". $T/home/tehas/env.sh; command -v gh; echo \"token=\${GH_TOKEN:-none}\""
 t_eq "$t_out" "$T/home/tehas/bin/gh
 token=ghp_user"
-
-t_case "the renewer is tehas-cycle renew, starts at once, and stops when killed"
-reset
-mkdir -p "$T/home/tehas/libexec"
-cat >"$T/home/tehas/libexec/tehas-cycle" <<STUB
-#!/bin/bash
-printf '%s\n' "\$*" >"$T/renew.args"
-exec sleep 20
-STUB
-chmod 755 "$T/home/tehas/libexec/tehas-cycle"
-start=$SECONDS
-t_run "$lib && pid=\$(tehas_github_renew 2>/dev/null); echo \"\$pid\""
-t_eq "$(((SECONDS - start) < 10))" "1"
-pid=$t_out
-for _ in $(seq 1 50); do [ -s "$T/renew.args" ] && break; sleep 0.1; done
-t_eq "$(cat "$T/renew.args")" "renew --cmd $T/home/tehas/libexec/github-token --every 300 --retry 30"
-kill "$pid" 2>/dev/null
-sleep 0.3
-t_eq "$(kill -0 "$pid" 2>/dev/null && echo alive || echo stopped)" "stopped"
-
-t_case "without an app the renewer starts nothing"
-reset
-t_instance TEHAS_REPO=acme/widget
-t_run "$lib && pid=\$(tehas_github_renew); echo \"[\$pid]\""
-t_eq "$t_out" "[]"
 
 t_done
