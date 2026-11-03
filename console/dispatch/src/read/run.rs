@@ -15,7 +15,7 @@ pub use tehas_core::call::{
 };
 
 #[cfg(test)]
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Mutex;
 
 /// The reading of the host's own clock, which is what `poll_now` gives when no
@@ -41,8 +41,37 @@ static CASE_NOW: AtomicU64 = AtomicU64::new(HOST_CLOCK);
 
 /// The cases that write the clock of `poll_now`, and so must not run at once:
 /// a reading of the clock belongs to the process, not to the case that set it.
+/// `no_case_clock` below holds it for every case of the workspace that takes no
+/// clock of its own, because a case that sets it while a read of another case
+/// is in flight is read in that read.
 #[cfg(test)]
 static CASE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// Whether the clock of `poll_now` answers nothing, for the one case that holds
+/// it: `unmeasured` below. A host's clock is always readable, so the case says
+/// the host's clock is not there rather than giving `poll_now` a reading no host
+/// could give, and `held` still reports no case clock, so the case sleeps none
+/// of the rule's waits. Test-only, like the `Case` that writes it, and read by
+/// `poll_now` alone.
+#[cfg(test)]
+static NO_CLOCK: AtomicBool = AtomicBool::new(false);
+
+/// The clock of every case of the workspace that is not one of the retry cases
+/// below: the host's own, held from `CASE_LOCK` so that none of them runs while
+/// a case of `Case` keeps a clock of its own. Such a case asks for no reading
+/// of the clock, but the reads of its `Calls` still go through `poll_now`, and
+/// a case of `Case` that set the clock during one of them is read in that read:
+/// the `Outcome` then says the read was refused by a clock the poll never
+/// lacked, and a case of another file fails for the clock of this one. A case
+/// that runs a read takes this and holds it for the read; the cases of
+/// `read/build.rs` that build a host take it for the whole host.
+#[cfg(test)]
+pub(in crate::read) fn no_case_clock() -> std::sync::MutexGuard<'static, ()> {
+    // The same recovery as every other lock of this module: a case that panics
+    // while it holds the clock leaves the guard poisoned, the clock itself
+    // restored by `Drop`, and the next case is not to abort for it.
+    CASE_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+}
 
 /// Whether a case of a retry holds the clock, and the reading it set: nothing
 /// when the host's own clock stands, which is what `HOST_CLOCK` means. The one
@@ -58,11 +87,20 @@ fn held() -> Option<u64> {
 
 /// The clock the rule of `retry` measures its waits against, and the clock the
 /// rule itself reads. Whole seconds, as the rule's `WAITS` are whole seconds; the
-/// host's own whenever no case holds one.
+/// host's own whenever no case holds one; and nothing at all for one case, which
+/// is `unmeasured` below: a poll on a host always reads its own clock, so a case
+/// that wants the clock to be unreadable says so rather than reaching for a
+/// reading no host could give.
 fn poll_now() -> Option<u64> {
     #[cfg(test)]
     if let Some(at) = held() {
         return Some(at);
+    }
+    // The one reading of the host's clock, asked only when no case holds one:
+    // `unmeasured` holds the host's sentinel, which means no clock at all here.
+    #[cfg(test)]
+    if NO_CLOCK.load(Ordering::Relaxed) {
+        return None;
     }
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -76,9 +114,11 @@ fn poll_now() -> Option<u64> {
 /// workspace either starts a process or waits on a retry it did not ask for.
 fn sleep_out(waited: u64) {
     // A case that holds the clock waits for none of them; a poll sleeps all of
-    // them on the thread that made the call.
+    // them on the thread that made the call. The case of `unmeasured` below
+    // holds the lock with no clock readable, and sleeps nothing either: no host
+    // stops reading its clock, so that state belongs to a case alone.
     #[cfg(test)]
-    if held().is_some() {
+    if held().is_some() || NO_CLOCK.load(Ordering::Relaxed) {
         return;
     }
     std::thread::sleep(Duration::from_secs(waited));
@@ -173,10 +213,11 @@ fn line(word: &str, note: &Note) -> String {
         Some(why) => format!("{word}: {why}"),
         None => word.to_string(),
     };
-    // A failure the rule kept was a failure it owed no retry to, so on this path
-    // `stopped` stands whenever an attempt was refused: the two halves of the
-    // line cannot disagree, and one test pins them together.
-    if note.attempts > 1 {
+    // A refusal and the reason for it are said whatever the count is: the rule
+    // refuses the first retry too, when the poll has no clock to measure the
+    // wait or its retries are spent, and a line of one attempt that dropped the
+    // reason told the operator nothing.
+    if note.attempts > 1 || note.stopped.is_some() {
         out.push_str(&format!(" (tried {} times", note.attempts));
         if let Some(stopped) = note.stopped {
             out.push_str(&format!(", stopped {}", stopped_words(stopped)));
@@ -328,7 +369,17 @@ impl Case {
         // aborting for a panic it did not cause.
         let held = CASE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         CASE_NOW.store(at, Ordering::Relaxed);
+        NO_CLOCK.store(false, Ordering::Relaxed);
         Case { held }
+    }
+
+    /// Take the clock of one case and make it answer nothing: the same lock as
+    /// `hold`, and `poll_now` gives None while it stands. `Drop` puts the host's
+    /// clock back, so no later case finds the clock unreadable.
+    fn hold_no_clock() -> Case {
+        let case = Self::hold(HOST_CLOCK);
+        NO_CLOCK.store(true, Ordering::Relaxed);
+        case
     }
 }
 
@@ -339,6 +390,7 @@ impl Drop for Case {
         // host in `drop` and the field's guard is given back only afterwards, so
         // no second case can set the clock while this one is still putting the
         // host's back.
+        NO_CLOCK.store(false, Ordering::Relaxed);
         CASE_NOW.store(HOST_CLOCK, Ordering::Relaxed);
     }
 }
@@ -970,6 +1022,15 @@ pub(super) mod tests {
         Case::hold(TEST_CLOCK)
     }
 
+    /// The clock of a case that needs the rule to find none: a sibling of
+    /// `measured` that leaves `poll_now` answering None, so the rule refuses its
+    /// first retry as `NoClock`, and the case waits for nothing while it holds
+    /// the lock. `Case::hold` stays private: this is the only way a case asks
+    /// for no clock, and it names no reading of its own either.
+    fn unmeasured() -> Case {
+        Case::hold_no_clock()
+    }
+
     /// A `gh` of one case: its first `times` calls fail as GitHub does on a bad
     /// minute and every call after them answers the read with one issue. One
     /// `/bin/sh` script with no sleep in it, counting its own calls in a file the
@@ -1102,6 +1163,91 @@ printf '[{{"number":1}}]\n'
         assert!(
             err.line.contains("stopped at the bound of one call"),
             "and which bound stopped it: {}",
+            err.line
+        );
+    }
+
+    /// A `Calls` of one case whose retries are already spent: the same calls as
+    /// `calls_of`, and a policy that has paid all `RETRIES_PER_CALLS` of them.
+    fn spent_calls_of(home: &Path) -> Calls {
+        let mut calls = calls_of(home);
+        let policy = RetryPolicy::default();
+        {
+            let mut budget = policy.budget.lock().unwrap_or_else(|e| e.into_inner());
+            while budget.spend() {}
+        }
+        calls.retry = policy;
+        calls
+    }
+
+    #[test]
+    fn a_read_that_gives_up_at_its_first_attempt_says_why() {
+        // The retry rule refuses the first retry when no clock measures its
+        // wait, so the read runs once and `attempts` is 1. Before this the
+        // reason was printed only past one attempt and the line was bare.
+        let _unmeasured = unmeasured();
+        let _tokens = TOKEN_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let home = match failing_gh("stopped-no-clock", 9) {
+            Some(d) => d,
+            None => return,
+        };
+        let mut calls = calls_of(&home);
+        let err = calls
+            .gh(&["api", "user"])
+            .expect_err("a gh that always fails answers nothing");
+        assert_eq!(stub_calls(&home), 1, "no clock, so no second attempt");
+        let lines = calls.retry.taken();
+        assert_eq!(lines.len(), 1, "one line for one failed read: {lines:?}");
+        assert_eq!(err.line, lines[0], "the poll logs what the caller is given");
+        assert!(
+            err.line.starts_with("ERROR: gh api user failed: HTTP 502"),
+            "gh's words of the list, not its body: {}",
+            err.line
+        );
+        assert!(
+            err.line.contains("tried 1 times"),
+            "the one attempt it made is said: {}",
+            err.line
+        );
+        assert!(
+            err.line
+                .contains("stopped with no clock to measure the wait"),
+            "the reason a one-attempt read gave up: {}",
+            err.line
+        );
+    }
+
+    #[test]
+    fn a_read_refused_for_a_spent_budget_says_so_at_one_attempt() {
+        // The other refusal of the first retry: the poll's retries are spent, so
+        // the rule runs one attempt and stops. The line says which bound refused
+        // it, not only that the read failed.
+        let _measured = measured();
+        let _tokens = TOKEN_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let home = match failing_gh("stopped-no-budget", 9) {
+            Some(d) => d,
+            None => return,
+        };
+        let mut calls = spent_calls_of(&home);
+        let err = calls
+            .gh(&["api", "user"])
+            .expect_err("a gh that always fails answers nothing");
+        assert_eq!(
+            stub_calls(&home),
+            1,
+            "a spent budget buys no second attempt"
+        );
+        let lines = calls.retry.taken();
+        assert_eq!(lines.len(), 1, "one line for one failed read: {lines:?}");
+        assert_eq!(err.line, lines[0], "the poll logs what the caller is given");
+        assert!(
+            err.line.contains("tried 1 times"),
+            "the one attempt it made is said: {}",
+            err.line
+        );
+        assert!(
+            err.line.contains("stopped with the poll's retries spent"),
+            "the reason a one-attempt read gave up: {}",
             err.line
         );
     }
