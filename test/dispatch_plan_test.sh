@@ -29,12 +29,12 @@ t_eq "$(t_calls fake-start)" ""
 t_case "a turn that hands back a plan for its issue writes it there and ends the session, said once"
 to_plan
 jq -n '{session: "abc-123", text: "This issue now holds the plan.\n\n> # Faster search", question: null,
-  update: {title: "feat: faster search", body: "## Outcome\n\nFast."}}' >"$fx/plan-result.json"
+  update: {title: "feat: faster search", body: "## Outcome\n\nSearch returns results faster."}}' >"$fx/plan-result.json"
 t_run "$dispatch"
 t_eq "$t_rc" 0
 t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --title feat: faster search --body ## Outcome
 
-Fast."
+Search returns results faster."
 t_contains "$(t_calls gh)" "--remove-label tehas:question --remove-label tehas:planning --remove-label tehas:plan --remove-label needs-human-attention"
 t_eq "$(t_calls gh | grep -c 'This issue now holds the plan.')" 1
 t_lacks "$(t_calls gh)" "tehas:question kind=plan"
@@ -44,7 +44,7 @@ t_eq "$([ -e "$record.out" ] && echo left)" ""
 t_case "a plan that cannot be written onto its issue is written by the next poll, and the session ends then"
 to_plan
 jq -n '{session: "abc-123", text: "This issue now holds the plan.", question: null,
-  update: {title: "feat: faster search", body: "Fast."}}' >"$fx/plan-result.json"
+  update: {title: "feat: faster search", body: "Search returns results faster."}}' >"$fx/plan-result.json"
 echo "--title feat: faster search" >"$fx/edit-fails-on"
 t_run "$dispatch"
 t_contains "$t_out" "WARN: the plan could not be written onto #7; the next poll tries again"
@@ -54,7 +54,7 @@ t_eq "$(rec_open)" open
 echo '[]' >"$fx/plans.json"
 rm -f "$fx/edit-fails-on" "$T/calls/gh"
 t_run "$dispatch"
-t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --title feat: faster search --body Fast."
+t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --title feat: faster search --body Search returns results faster."
 t_eq "$(t_calls gh | grep -c 'This issue now holds the plan.')" 1
 t_eq "$(rec_open)" none
 

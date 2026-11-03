@@ -739,21 +739,6 @@ impl Writer {
             self.outcome_said(n, &kept);
             out = refused_document(&said, out.get("session"));
         }
-        // A draft whose text says nothing of the issue writes nothing, whether
-        // it was kept for the tick or for a start with no open points: the
-        // issue keeps its text, the session stays open, and the only answer
-        // that changes anything is a reply that changes the plan. The document
-        // on disk goes back to what the console wrote, so the plan stays there
-        // to tick once the person's reply has changed it, and the question of
-        // the turn is asked of the document the runner made. The rule is said
-        // once, in the comment above, so the document's own question holds
-        // nothing of it and no box: the tick this refusal stopped is gone.
-        if comment.is_empty() && why.is_some() {
-            let said = question::q_clean(why.as_deref().unwrap(), 4000);
-            log.push(format!("planning #{n} asks: {said}"));
-            self.outcome_said(n, &kept);
-            out = refused_document(&said, out.get("session"));
-        }
         let mut filed: Vec<&str> = out
             .get("filed")
             .and_then(Value::as_array)
