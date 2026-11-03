@@ -71,14 +71,14 @@ pub struct Start {
     pub status_args: Vec<String>,
 }
 
-/// The most of a protocol file the facts hold. `tehas work` writes these
-/// small: one line, or the summary of a run. A bigger one is not what this
-/// cycle wrote, and holding it would put it in the report's memory while the
-/// issue lock is held.
-const FILE_MAX: u64 = 1 << 20;
-
-/// A file as the facts hold it: its text, {"link": true}, {"too_big": true}
-/// for one over `FILE_MAX`, or nothing.
+/// A file as the facts hold it: its text, {"link": true}, or nothing.
+///
+/// A protocol file is read whole, and its size decides nothing. A file is
+/// seen or not seen, as `[ -f ]` sees it: the result of a multi-issue run, with
+/// the handoff bodies of each issue, is the cycle's own account of its end, and
+/// reading it as absent would report a handoff as a cycle that wrote nothing.
+/// The one file of a cycle with no ceiling is its run log, and that is read at
+/// `runner::LOG_TAIL`.
 fn file(p: &Path) -> Option<Value> {
     let m = fs::symlink_metadata(p).ok()?;
     if m.file_type().is_symlink() {
@@ -86,9 +86,6 @@ fn file(p: &Path) -> Option<Value> {
     }
     if !m.is_file() {
         return None;
-    }
-    if m.len() > FILE_MAX {
-        return Some(json!({"too_big": true}));
     }
     let b = fs::read(p).ok()?;
     Some(Value::String(String::from_utf8_lossy(&b).into_owned()))
@@ -255,14 +252,23 @@ mod tests {
     }
 
     #[test]
-    fn a_protocol_file_past_the_bound_is_not_read_and_says_too_big() {
-        let d = TestDir::new("host-file-bound");
+    fn a_protocol_file_is_held_whole_and_its_size_decides_nothing() {
+        let d = TestDir::new("host-file-whole");
         let small = d.join("7.progress.json");
         fs::write(&small, "{\"roles\":[]}\n").unwrap();
         assert_eq!(file(&small), Some(Value::String("{\"roles\":[]}\n".into())));
+        // The result of a multi-issue run with a long handoff body: bigger than
+        // the run log tehas reads only its end of. It is the cycle's own
+        // account of its end, not a file that is not there.
+        let body = "y".repeat(1 << 20);
         let big = d.join("7.result.json");
-        fs::write(&big, "y".repeat(FILE_MAX as usize + 1)).unwrap();
-        assert_eq!(file(&big), Some(json!({"too_big": true})));
+        fs::write(&big, format!("{{\"handoffBody\":\"{body}\"}}\n")).unwrap();
+        assert!(fs::metadata(&big).unwrap().len() > LOG_TAIL);
+        let held = file(&big).expect("a big result is not held as an absent one");
+        assert_eq!(
+            held.as_str().unwrap(),
+            format!("{{\"handoffBody\":\"{body}\"}}\n")
+        );
         assert_eq!(file(&d.join("7.stopped")), None);
     }
 

@@ -4,8 +4,7 @@
 //! state of its workspace. One JSON object; `report` decides from it.
 //!
 //! A file is a string (a regular file and what it holds), {"link": true} (a
-//! link, which is never read), {"too_big": true} (one bigger than tehas reads,
-//! which is not read either), or absent. The run log is {"name", "text"}, with
+//! link, which is never read), or absent. The run log is {"name", "text"}, with
 //! {"truncated": true} when only its end is held, or {"name", "unreadable":
 //! true} for one that could not be read.
 
@@ -20,8 +19,6 @@ pub enum File {
     Absent,
     Link,
     Text(String),
-    /// Bigger than the size tehas reads a protocol file at, so not read.
-    TooBig,
 }
 
 impl File {
@@ -29,7 +26,6 @@ impl File {
         match v {
             Some(Value::String(s)) => File::Text(s.clone()),
             Some(Value::Object(o)) if o.get("link") == Some(&Value::Bool(true)) => File::Link,
-            Some(Value::Object(o)) if o.get("too_big") == Some(&Value::Bool(true)) => File::TooBig,
             _ => File::Absent,
         }
     }
@@ -190,16 +186,6 @@ impl Facts {
     /// A file of the protocol, state/cycles/<issue>.<name>.
     pub fn file(&self, name: &str) -> &File {
         self.files.get(name).unwrap_or(&File::Absent)
-    }
-
-    /// The protocol files this cycle left that are bigger than tehas reads,
-    /// in the order the report names them.
-    pub fn files_too_big(&self) -> Vec<&'static str> {
-        crate::host::FILES
-            .iter()
-            .filter(|n| self.file(n) == &File::TooBig)
-            .copied()
-            .collect()
     }
 }
 
