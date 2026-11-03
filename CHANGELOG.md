@@ -17,6 +17,17 @@ empty one above it.
 
 None.
 
+## v0.24.5 (2026-11-03)
+
+### Changes
+
+- `tehas-cycle`'s report reads each stop file of a cycle once, so a file whose first word is no count of seconds can no longer name a stop in one read and a step in another (#1388).
+- A test of `tehas-cycle`'s watch waits until the script it wrote can run. On a loaded host it failed now and then, which stopped `tehas setup`'s sandbox gate (#1470). The wider fix is #1471.
+
+### Adopter action
+
+None.
+
 ## v0.24.4 (2026-11-03)
 
 ### Changes
