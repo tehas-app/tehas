@@ -5,9 +5,9 @@
 
 use super::run::{self, Calls, GhFail};
 use super::{github, host, models, store};
-use crate::decide::closing_numbers;
 use crate::decide::has;
 use crate::settings::Settings;
+use crate::text::closing_numbers;
 use serde_json::{json, Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -155,43 +155,8 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
         // What rule 6 holds an issue on out of an open pull request's body:
         // every open pull request that names it with a closing keyword, by
         // number, whatever base it targets. Held beside the nodes above,
-        // which `console pr-title poll` takes as they are. The page of a poll
-        // that ran out of GitHub's nested budget answers no `openPulls` at
-        // all: then nothing is written here, and the hold reads no name.
-        if q.open_pulls_read {
-            // A body is read once per keyword it holds, not once per open
-            // issue: a page of 25 issues over 100 bodies is 2500 matches
-            // otherwise, and most descriptions hold no keyword at all.
-            let mentions: BTreeMap<u64, Vec<u64>> = pulls
-                .as_array()
-                .into_iter()
-                .flatten()
-                .filter_map(|p| {
-                    let pr = p.get("number").and_then(Value::as_u64)?;
-                    let body = match p.get("body") {
-                        // No body, or one of no shape a rule reads: a
-                        // description that closes nothing.
-                        Some(Value::String(s)) => s.as_str(),
-                        _ => "",
-                    };
-                    Some((pr, closing_numbers(body)))
-                })
-                .collect();
-            let mut names: Map<String, Value> = Map::new();
-            for o in &q.open {
-                let hits: Vec<u64> = mentions
-                    .iter()
-                    .filter(|(pr, hits)| **pr != o.number && hits.contains(&o.number))
-                    .map(|(pr, _)| *pr)
-                    .collect();
-                if !hits.is_empty() {
-                    names.insert(o.number.to_string(), json!(hits));
-                }
-            }
-            if !names.is_empty() {
-                s["pulls_name"] = Value::Object(names);
-            }
-        }
+        // which `console pr-title poll` takes as they are.
+        names_from_bodies(&mut s, pulls, &q.open);
     }
     let open: BTreeSet<u64> = q.open.iter().map(|o| o.number).collect();
     let mut issues = Map::new();
@@ -723,6 +688,43 @@ fn closed(issues: &mut Map<String, Value>, n: u64) {
         if i.get(k).is_none() {
             i[k.as_str()] = v.clone();
         }
+    }
+}
+
+/// Which open pull requests name an open issue with a closing keyword in their
+/// own description, written to `pulls_name` of the snapshot by issue number.
+///
+/// A body is read once per keyword it holds, not once per open issue: a page of
+/// 25 issues over 100 bodies is 2500 matches otherwise, and most descriptions
+/// hold no keyword at all. The nodes are what the page answered: a list of no
+/// shape a rule reads holds nothing, and no issue is held on a body no poll read.
+fn names_from_bodies(s: &mut Value, pulls: &Value, open: &[github::Open]) {
+    let Some(nodes) = pulls.as_array() else {
+        return;
+    };
+    let mentions: BTreeMap<u64, Vec<u64>> = nodes
+        .iter()
+        .filter_map(|p| {
+            let pr = p.get("number").and_then(Value::as_u64)?;
+            // A body of no shape a rule reads, none or absent, is a description
+            // that closes nothing.
+            let body = p.get("body").and_then(Value::as_str).unwrap_or("");
+            Some((pr, closing_numbers(body)))
+        })
+        .collect();
+    let mut names: Map<String, Value> = Map::new();
+    for o in open {
+        let hits: Vec<u64> = mentions
+            .iter()
+            .filter(|(pr, hits)| **pr != o.number && hits.contains(&o.number))
+            .map(|(pr, _)| *pr)
+            .collect();
+        if !hits.is_empty() {
+            names.insert(o.number.to_string(), json!(hits));
+        }
+    }
+    if !names.is_empty() {
+        s["pulls_name"] = Value::Object(names);
     }
 }
 
@@ -1418,6 +1420,13 @@ esac"#,
     /// A pull request node of the page as GitHub gives it, its body the field
     /// the hold of rule 6 reads.
     fn pull(n: u64, body: &str) -> Value {
+        pull_body(n, json!(body))
+    }
+
+    /// The same with a body of any shape, for a page that answers something
+    /// other than a string: GitHub gives null for a pull request with no
+    /// description at all.
+    fn pull_body(n: u64, body: Value) -> Value {
         json!({"number": n, "title": format!("pull {n}"), "body": body,
                "headRefName": format!("feature/other-{n}"),
                "author": {"login": "alice"}, "labels": {"nodes": []}})
@@ -1470,5 +1479,92 @@ esac"#,
         let (snap, _, _, _) = poll(&w, &[]);
         assert_eq!(snap.get("pulls_name"), None);
         assert!(Snapshot::parse(&snap).pulls_name.is_empty());
+    }
+
+    /// A body of no shape a rule reads closes nothing: a description that is
+    /// null, a number, a list or an object is no text with a keyword in it, and
+    /// none of them holds an issue.
+    #[test]
+    fn a_body_of_no_shape_a_rule_reads_closes_nothing() {
+        for body in [
+            Value::Null,
+            json!(7),
+            json!(["Closes #21"]),
+            json!({"x": "Closes #21"}),
+            json!(true),
+        ] {
+            let mut w = world();
+            w["queue"]["data"]["repository"]["openPulls"]["nodes"] =
+                json!([pull_body(90, body.clone())]);
+            let (snap, _, _, _) = poll(&w, &[]);
+            assert_eq!(
+                snap.get("pulls_name"),
+                None,
+                "a body of {body} names nothing"
+            );
+            assert!(
+                Snapshot::parse(&snap).pulls_name.is_empty(),
+                "a body of {body} holds nothing"
+            );
+        }
+    }
+
+    /// A page whose `openPulls` answers no list of nodes is a list nothing is
+    /// known of: no body is read, so no issue is held on one.
+    #[test]
+    fn a_page_whose_pull_requests_are_no_list_writes_no_names() {
+        for nodes in [Value::Null, json!(7), json!({"number": 90})] {
+            let mut w = world();
+            w["queue"]["data"]["repository"]["openPulls"] = json!({"nodes": nodes});
+            let (snap, _, _, _) = poll(&w, &[]);
+            assert_eq!(
+                snap.get("pulls_name"),
+                None,
+                "nodes of {nodes} name nothing"
+            );
+            assert!(
+                Snapshot::parse(&snap).pulls_name.is_empty(),
+                "nodes of {nodes} hold nothing"
+            );
+        }
+    }
+
+    /// The numbers of `pulls_name` are read the way every other number of the
+    /// snapshot is: a key or a hit of a numeric string reads as the number it
+    /// is, and one of no shape a reader takes is dropped with its own entry,
+    /// never counted as a pull request that holds the issue.
+    #[test]
+    fn the_numbers_of_pulls_name_read_as_the_snapshot_reads_a_number() {
+        let snap = json!({"pulls_name": {
+            "7": [90.5, "91", 92],
+            "8": ["93"],
+            "9": [],
+            "x": [94],
+            "10": "93",
+            "11": ["not a number"],
+        }});
+        let parsed = Snapshot::parse(&snap);
+        assert_eq!(
+            parsed.pulls_name[&7],
+            vec![91, 92],
+            "a hit that is no number is dropped, the rest of the entry is read"
+        );
+        assert_eq!(parsed.pulls_name[&8], vec![93], "a hit of a string");
+        assert_eq!(
+            parsed.pulls_name.get(&9),
+            None,
+            "an entry of no pull requests holds an issue on nothing"
+        );
+        assert_eq!(parsed.pulls_name.get(&10), None, "hits of no list");
+        assert_eq!(
+            parsed.pulls_name.get(&11),
+            None,
+            "an entry whose every hit is unreadable"
+        );
+        assert!(
+            !parsed.pulls_name.contains_key(&0),
+            "a key of no number names no issue: {:?}",
+            parsed.pulls_name
+        );
     }
 }

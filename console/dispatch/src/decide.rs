@@ -18,7 +18,7 @@ mod clean;
 mod plan;
 mod retry;
 
-pub(crate) use clean::{closing_numbers, iso, quiet_due, QUIET_ASKS, QUIET_BOUND};
+pub(crate) use clean::{iso, quiet_due, QUIET_ASKS, QUIET_BOUND};
 pub(crate) use plan::shape;
 pub(crate) use retry::{hex40, refresh_why};
 
@@ -1528,7 +1528,9 @@ impl<'a> Poll<'a> {
     /// is what holds its issue. The lowest number decides, so the line is the
     /// same on every poll while two of them name the issue.
     fn named_pr(&self, n: u64) -> Option<String> {
-        let repo = self.s.repo.as_deref().unwrap_or("");
+        // The address comes from the repository the page answered, the way
+        // `open_pr` reads GitHub's own url: no repository, no address, no hold.
+        let repo = self.s.repo.as_deref().filter(|r| !r.is_empty())?;
         self.s
             .pulls_name
             .get(&n)

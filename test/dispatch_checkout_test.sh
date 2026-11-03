@@ -240,15 +240,14 @@ t_eq "$(t_calls fake-start)" "7"
 t_contains "$(t_calls gh)" "closedByPullRequestsReferences"
 
 # The open pull requests the queue's page answers, one per argument:
-# <number>|<title>|<head>|<author>|<label>|<body>. GitHub's page holds the
-# body, which is what a pull request into another branch closes an issue with.
-# The open pull requests the queue's page answers, one per argument:
 # <number>|<title>|<head>|<author>|<label>|<body>. The page holds the body, and
 # the body is what a pull request into another branch closes an issue with.
+# A body of `-` is the null GitHub gives for a pull request with no description.
 open_pulls() { # <number>|<title>|<head>|<author>|<label>|<body>...
   printf '%s\n' "$@" | jq -Rn '[inputs | split("|") | {number: (.[0] | tonumber), title: .[1],
     headRefName: .[2], author: {login: .[3]},
-    labels: {nodes: ([.[4] // empty | select(. != "")] | map({name: .}))}, body: (.[5] // "")}]' \
+    labels: {nodes: ([.[4] // empty | select(. != "")] | map({name: .}))},
+    body: (if .[5] == "-" then null else (.[5] // "") end)}]' \
     >"$fx/pulls.json"
 }
 
@@ -289,6 +288,16 @@ closing_prs 7
 # The page answers only the open ones, so a closed pull request is simply
 # absent from it: nothing of the bodies holds the issue.
 open_pulls '91|Another issue|feature/other|alice||Fixes #8'
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" "7"
+t_lacks "$t_out" "is open and closes it"
+
+t_case "a pull request whose page answers no body holds nothing back"
+reset
+closing_prs 7
+# GitHub answers null for a pull request with no description: the poll reads no
+# keyword in it, so the issue starts.
+open_pulls '90|No description|feature/issue-7-stack|tehas-bot||-'
 t_run "$dispatch"
 t_eq "$(t_calls fake-start)" "7"
 t_lacks "$t_out" "is open and closes it"

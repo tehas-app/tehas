@@ -232,7 +232,9 @@ pub struct Snapshot {
     /// keyword, by issue: `pulls_name` of the snapshot, from the page's own
     /// read of the bodies. GitHub links a closing keyword only for a pull
     /// request into the default branch, so this is how a stacked one holds its
-    /// issue. A number the page named nobody is absent.
+    /// issue. A number the page named nobody is absent, and so is one whose
+    /// list of pull requests held nothing a reader could use: an entry of no
+    /// numbers would hold an issue back on nothing.
     pub pulls_name: BTreeMap<u64, Vec<u64>>,
     pub leftovers: Option<Vec<Leftover>>,
 }
@@ -587,10 +589,12 @@ impl Snapshot {
                 .map(|m| {
                     m.iter()
                         .filter_map(|(k, hits)| {
-                            Some((
-                                k.parse().ok()?,
-                                hits.as_array()?.iter().filter_map(Value::as_u64).collect(),
-                            ))
+                            let n = number(&Value::String(k.clone()))?;
+                            let hits: Vec<u64> = hits
+                                .as_array()
+                                .map(|a| a.iter().filter_map(number).collect())
+                                .unwrap_or_default();
+                            (!hits.is_empty()).then_some((n, hits))
                         })
                         .collect()
                 })
