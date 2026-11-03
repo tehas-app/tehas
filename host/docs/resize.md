@@ -301,8 +301,9 @@ Restart only after an exit 0, and read what the drain prints, not only its statu
   `TEHAS_WORK_TIMEOUT` seconds, six hours by default), or end one with `tehas
   stop <issue> --keep-workspace`, which ends it unfinished and keeps its
   workspace to read.
-- **Exit 1 and nothing printed**: a poll held its lock for the whole wait, so
-  nothing was counted. Run the drain again.
+- **Exit 1 with a `not drained:` line**: a poll held its lock for the whole
+  wait, so a cycle it starts may not be counted. With `--json` that is
+  `drained: false`. Run the drain again.
 
 Drained means no poll can still start a cycle, and drain waits for the poll
 that is running before it says none is, so a cycle a poll had decided to start

@@ -671,15 +671,16 @@ linked issue. A person's pull request is never touched.
 | The title starts with | When |
 | --- | --- |
 | `WIP: ` | The linked issue carries `tehas:running`, or the pull request carries `tehas:refreshing` |
-| `STUCK: ` | No cycle runs, the linked issue carries `needs-human-attention`, and the pull request is not proven fine to merge |
+| `HALT: ` | No cycle runs, the linked issue carries `needs-human-attention`, and the pull request is not proven fine to merge |
 | nothing | Anything else: it is ok to merge. A person clearing the label clears the prefix |
 
 A pull request is proven fine to merge when all of these hold: it is not a
 draft, GitHub reports it mergeable with the state `clean`, and the factory's
 last six-pass review comment is newer than its head commit and lists no
-finding above MEDIUM. `STUCK: ` stays when any of them cannot be shown, also
+finding above MEDIUM. `HALT: ` stays when any of them cannot be shown, also
 when no review comment exists. Clearing the prefix leaves the label on the
 issue. `WIP: ` is never cleared this way: a running cycle may still push.
+`HALT: ` was `STUCK: ` up to v0.24.0; a poll replaces an old `STUCK: `.
 
 Each poll sets the title from what it read already, through
 `console pr-title poll`, and a cycle's end sets it once with
@@ -1870,8 +1871,9 @@ tehas drain [--wait SECONDS] [--json]
 
 Sets the limit `--cycles 0 --plan off --reason draining`, which does not
 expire, then with `--wait` waits up to that long for the running cycles to
-end. Exit 0 when none is running, 1 when some still are. `tehas limit clear`
-ends it.
+end. Exit 0 when none is running, 1 when some still are or a poll held its
+lock for the whole wait (`not drained:`, `drained: false` with `--json`). Each
+exit 0 or 1 prints the answer. `tehas limit clear` ends it.
 
 ## tehas history
 
