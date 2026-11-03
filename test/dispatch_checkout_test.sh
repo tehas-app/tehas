@@ -239,6 +239,70 @@ t_run "$dispatch"
 t_eq "$(t_calls fake-start)" "7"
 t_contains "$(t_calls gh)" "closedByPullRequestsReferences"
 
+# The open pull requests the queue's page answers, one per argument:
+# <number>|<title>|<head>|<author>|<label>|<body>. GitHub's page holds the
+# body, which is what a pull request into another branch closes an issue with.
+# The open pull requests the queue's page answers, one per argument:
+# <number>|<title>|<head>|<author>|<label>|<body>. The page holds the body, and
+# the body is what a pull request into another branch closes an issue with.
+open_pulls() { # <number>|<title>|<head>|<author>|<label>|<body>...
+  printf '%s\n' "$@" | jq -Rn '[inputs | split("|") | {number: (.[0] | tonumber), title: .[1],
+    headRefName: .[2], author: {login: .[3]},
+    labels: {nodes: ([.[4] // empty | select(. != "")] | map({name: .}))}, body: (.[5] // "")}]' \
+    >"$fx/pulls.json"
+}
+
+t_case "an open pull request into another branch whose body closes it starts nothing, and loses tehas:ready"
+reset
+# No closing reference: GitHub records one only for a pull request into the
+# default branch, and this one is stacked on another.
+closing_prs 7
+open_pulls '90|Stacked work|feature/issue-7-stack|tehas-bot||Closes #7'
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start)" ""
+t_contains "$t_out" "skip #7: pull request https://github.com/acme/widget/pull/90 is open and closes it"
+t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --remove-label tehas:ready"
+t_lacks "$(t_calls gh)" "--add-label tehas:running"
+t_contains "$(t_calls gh)" "issue comment 7 --repo acme/widget --body Tehas took \`tehas:ready\` off this issue and started nothing: https://github.com/acme/widget/pull/90 is open and closes it."
+
+t_case "a body of another pull request that names no closing keyword starts the issue"
+reset
+closing_prs 7
+open_pulls '90|Someone else work|feature/other|alice||See issue #7 and #70 for background' \
+  '91|Nothing to close|feature/other-2|alice||'
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" "7"
+t_lacks "$t_out" "is open and closes it"
+
+t_case "a pull request whose body closes #70 does not hold issue #7"
+reset
+closing_prs 7
+open_pulls '90|Another issue|feature/other|alice||Closes #70'
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" "7"
+t_lacks "$t_out" "is open and closes it"
+
+t_case "a closed pull request of the page whose body closes it holds nothing back"
+reset
+closing_prs 7
+# The page answers only the open ones, so a closed pull request is simply
+# absent from it: nothing of the bodies holds the issue.
+open_pulls '91|Another issue|feature/other|alice||Fixes #8'
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" "7"
+t_lacks "$t_out" "is open and closes it"
+
+t_case "a dry run of a pull request into another branch says it would take the label off"
+reset
+closing_prs 7
+open_pulls '90|Stacked work|feature/issue-7-stack|tehas-bot||fixes: #7.'
+t_run "$dispatch --dry-run"
+t_contains "$t_out" "skip #7: pull request https://github.com/acme/widget/pull/90 is open and closes it"
+t_lacks "$t_out" "would run a cycle"
+t_lacks "$(t_calls gh)" "issue edit"
+t_lacks "$(t_calls gh)" "issue comment"
+
 t_case "an open pull request does not hold up the issue behind it"
 reset
 ready 7 8

@@ -587,12 +587,18 @@ closed issue is never taken`, or `skip #N: it is a pull request, not an issue
 the factory works on`). An answer that cannot be read ends the poll with exit
 1.
 
-An issue that an open pull request closes, as GitHub links them (`Closes #N`
-in its description, or a link made by hand), is not taken: a cycle would find
-the work done after paying for its explore and plan. The poll asks once, for
-an issue it would otherwise take, takes `tehas:ready` off and says on the
-issue which pull request it is. The log line is `skip #N: pull request <url>
-is open and closes it`. A merged or closed pull request holds nothing back. A
+An issue that an open pull request closes is not taken: a cycle would find
+the work done after paying for its explore and plan. GitHub links the two when
+the pull request's description says `Closes #N` (or `Fixes` or `Resolves`) and
+the pull request targets the default branch, or when a person links them by
+hand. A pull request of another branch, stacked on another, earns no such
+reference, so the poll reads the open pull requests' own descriptions from the
+queue's page and holds an issue one of them names with a closing keyword,
+whatever branch it targets. The poll asks once, for an issue it would
+otherwise take, takes `tehas:ready` off and says on the issue which pull
+request it is. The log line is `skip #N: pull request <url> is open and closes
+it`, the same whether GitHub linked the two or the description says so. A
+merged or closed pull request holds nothing back. A
 call that fails, or an answer that cannot be read, ends the poll with exit 1.
 
 A `tehas:ready` from any other account asks for nothing, so it comes off the

@@ -155,7 +155,9 @@ Run `tehas dispatch --dry-run` and read what it prints.
   The line says why, and the session asks as it does for any plan. See
   [A plan with no open points](/operating#a-plan-with-no-open-points).
 - `skip #N: pull request <url> is open and closes it`: the work is in that
-  pull request already. The dispatcher took `tehas:ready` off and said so on
+  pull request already, whether GitHub links the two or the pull request's own
+  description says `Closes #N` into a branch other than the default one. The
+  dispatcher took `tehas:ready` off and said so on
   the issue. Merge or close the pull request, then apply `tehas:ready` if work
   is still needed.
 - `ignore #N: tehas:urgent was applied by ...`: the label came from an account
