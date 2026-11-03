@@ -3336,7 +3336,8 @@ days, read or not.
 
 ```
 tehasbot refresh            # one run; one line in ~/tehas/logs/refresh.log
-tehasbot refresh --json     # one run; the same counts as one JSON object too
+tehasbot refresh --json     # one run; the same counts as one JSON object on
+                            # standard output, and nothing when there was no run
 systemctl --user enable --now tehas-refresh.timer
 tail ~/tehas/logs/refresh.log
 ```
@@ -3344,12 +3345,19 @@ tail ~/tehas/logs/refresh.log
 Finds the factory's own pull requests that conflict with the branch and
 writes a request for each, `~/tehas/state/refresh/<issue>.json`, for the
 dispatcher to start (see [refreshes](/operating#refreshes)). Deterministic, no
-model, no container. The line names the counts of the sweep, so 0 conflicts is
-said only when none of the pull requests read is `CONFLICTING` or `UNKNOWN`:
-`read 6 pull requests: 1 conflict, 2 unknown, 1 not ours to refresh, wrote 1
-requests`, where the three counts sum to the number read. `--json` answers the
-same counts as one object on standard output, beside the line. `tehas-refresh.timer`
-starts it every minute, the first
+model, no container. The line splits the bot's pull requests that qualify
+three ways and names the requests it wrote, so 0 conflict is only said when
+none of them is `CONFLICTING` or `UNKNOWN`:
+
+```
+read 4 pull requests: 1 conflict, 2 unknown, 1 not ours to refresh, wrote 1 requests
+```
+
+The three counts sum to `read N`, which is that number and not the size of the
+page read from GitHub: pull requests that are not ours to refresh are counted
+nowhere. `--json` answers the same counts as one object on standard output,
+beside the line, and nothing at all when the setting is off or the interval
+has not elapsed. `tehas-refresh.timer` starts it every minute, the first
 time 15 minutes after boot, and a run goes ahead only when the last one began
 `TEHAS_REFRESH_EVERY` minutes ago or more (`~/tehas/state/refresh/last-run`,
 written as a run begins, so a failed run counts too). With
