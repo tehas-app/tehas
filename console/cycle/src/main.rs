@@ -283,7 +283,7 @@ fn main() {
     match a.as_slice() {
         ["-h" | "--help"] => tehas_core::outln!("{}", usage()),
         ["report", file] => print_report(file),
-        ["index", "table"] => println!("{}", index::table()),
+        ["index", "table"] => tehas_core::outln!("{}", index::table()),
         ["index", branch, base] => std::process::exit(index::main(branch, base, false).into()),
         ["index", branch, base, "--before-cycle"] => {
             std::process::exit(index::main(branch, base, true).into())
@@ -301,7 +301,7 @@ fn main() {
                 .ok()
                 .filter(|a| *a > 0)
                 .unwrap_or_else(|| wrong(&args));
-            println!("{}", after::approved(&home, issue(n, &args), attempt));
+            tehas_core::outln!("{}", after::approved(&home, issue(n, &args), attempt));
         }
         ["after", n] => after_verb(&home, issue(n, &args), &args),
         ["report", n, rest @ ..] if !rest.is_empty() => {
@@ -338,7 +338,7 @@ fn main() {
                 wrong(&args)
             };
             let v = clock::check(Path::new(file), limit, stall, since, clock::boot_seconds);
-            println!("{}", v.word());
+            tehas_core::outln!("{}", v.word());
             std::process::exit(i32::from(v.exit()));
         }
         ["run", n] => {
@@ -381,8 +381,10 @@ fn main() {
         ["finish", n, rest @ ..] => finish_verb(issue(n, &args), &args, rest),
         ["caps", rest @ ..] => caps_verb(rest, &args),
         ["runner", "outcome", result, n] => outcome_verb(result, n),
-        ["runner", "progress", log] => println!("{}", progress::summary(Path::new(log), None)),
-        ["runner", "progress", log, result, n] => println!(
+        ["runner", "progress", log] => {
+            tehas_core::outln!("{}", progress::summary(Path::new(log), None))
+        }
+        ["runner", "progress", log, result, n] => tehas_core::outln!(
             "{}",
             progress::summary(
                 Path::new(log),
@@ -404,7 +406,7 @@ fn main() {
             }
         }
         ["runner", "run", log, n] => match runner::run_log(Path::new(log), n) {
-            Some(r) => println!("{}\n{}\n{}", r.step, r.branch, r.read),
+            Some(r) => tehas_core::outln!("{}\n{}\n{}", r.step, r.branch, r.read),
             None => std::process::exit(1),
         },
         ["describe", dir] => {
@@ -414,7 +416,7 @@ fn main() {
         }
         ["private", models, email] => {
             for name in tehas_core::mask::host_names(models, email) {
-                println!("--private\n{name}");
+                tehas_core::outln!("--private\n{name}");
             }
         }
         _ => wrong(&args),
@@ -572,13 +574,13 @@ fn caps_verb(rest: &[&str], args: &[String]) {
         ["unsupported", flags, names, features @ ..] if features.len() < 2 => {
             let features = features.first().copied().unwrap_or("");
             match caps::unsupported(&text, flags, names, features) {
-                Some(lines) => print!("{lines}"),
+                Some(lines) => tehas_core::out!("{lines}"),
                 None => std::process::exit(1),
             }
         }
         ["expired", workarounds] => {
             for line in caps::expired(&text, workarounds) {
-                println!("{line}");
+                tehas_core::outln!("{line}");
             }
         }
         ["mode", feature] => {
@@ -586,11 +588,11 @@ fn caps_verb(rest: &[&str], args: &[String]) {
                 .ok()
                 .and_then(|p| Some(p.parent()?.parent()?.join("lib")));
             let (word, code) = caps::mode(&text, feature, lib.as_deref());
-            println!("{word}");
+            tehas_core::outln!("{word}");
             std::process::exit(code);
         }
         ["verb", verb, flags] => std::process::exit(i32::from(!caps::verb(&text, verb, flags))),
-        ["reads-images"] => println!("{}", u8::from(caps::reads_images(&text))),
+        ["reads-images"] => tehas_core::outln!("{}", u8::from(caps::reads_images(&text))),
         _ => wrong(args),
     }
 }
@@ -604,7 +606,7 @@ fn outcome_verb(result: &str, n: &str) {
         std::process::exit(2)
     };
     match runner::outcome(&String::from_utf8_lossy(&bytes), n) {
-        Some(o) => println!("{o}"),
+        Some(o) => tehas_core::outln!("{o}"),
         None => std::process::exit(4),
     }
 }
@@ -658,7 +660,7 @@ fn finish_verb(n: u64, args: &[String], rest: &[&str]) -> ! {
         finish::say(n, &done.why);
         std::process::exit(1);
     }
-    println!("{}", done.url);
+    tehas_core::outln!("{}", done.url);
     std::process::exit(0);
 }
 
@@ -724,7 +726,7 @@ fn print_report(file: &str) {
     let mut gh = Given(v.get("github").cloned().unwrap_or(json!({})));
     let mut r = report(&facts, &mut gh);
     last_attempts(&mut r, &facts, &mut gh);
-    println!("{}", to_json(&r, facts.issue));
+    tehas_core::outln!("{}", to_json(&r, facts.issue));
 }
 
 fn last_attempt(n: u64, result: &str, workspace: &Path) {
@@ -742,7 +744,7 @@ fn last_attempt(n: u64, result: &str, workspace: &Path) {
                 "the issue or the result in {result} cannot be read"
             ))
         });
-    println!(
+    tehas_core::outln!(
         "{}",
         match action {
             Action::Nothing => json!({"action": "none"}),
