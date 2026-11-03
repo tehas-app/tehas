@@ -170,11 +170,63 @@ t_lacks "$t_out" "#65: swept"
 t_eq "$(count "$root" 65)" 1
 t_eq "$(jq -r '.removed' "$root/sweep.json")" 0
 
-t_case "sweep: an untagged image left by a rebuild is removed"
+t_case "sweep: an image the host lists with no tag is removed, and a rebuild leaves none to find"
 reset
 echo "sha256:dangling <none>:<none>" >"$fx/extra-images"
 t_run "$preview --sweep"
 t_contains "$(t_calls docker)" "image rm sha256:dangling"
+# The premise of the line above, which the stub of a rebuild must match: on a
+# host `docker image ls` answers only with what has a tag, so the image a rebuild
+# left untagged is not listed and the sweep does not name it. A rebuild is a
+# second build of one preview: the first gives it its image, the second moves the
+# tag off what it held.
+a=$(commit one)
+pulls "$(pull 66 "$a")"
+t_run "$preview"
+t_run "$preview"    # the build of this commit
+a2=$(commit feature)
+pulls "$(pull 66 "$a2")"
+t_run "$preview"    # its start; the image before it is now left with no tag
+a3=$(commit feature)
+pulls "$(pull 66 "$a3")"
+t_run "$preview"    # the rebuild: the tag moves again, and its image goes by id
+left=$(untagged 66)
+[ -n "$left" ] || t_bad "the rebuild left no image behind"
+rm -f "$T"/calls/docker*
+t_run "$preview --sweep"
+t_eq "$(t_calls docker | { grep -c "image rm $left" || true; } | tr -d '[:space:]')" 0
+
+t_case "sweep: a build of a stopped commit names its image alone, and the sweep names no image of it"
+reset
+a=$(commit one)
+pulls "$(pull 67 "$a")"
+t_run "$preview"
+a2=$(commit feature)
+pulls "$(pull 67 "$a2")"
+stopped=$(image_of "$a2")
+echo "false 0" >"$fx/settle"
+t_run "$preview"   # its build made an image and its container stopped at once
+# What the build of the stopped commit is told to remove: its own image, by its
+# id, and nothing else. Were it ever to name another image, the sweep would be
+# told about one it should leave alone.
+t_eq "$(t_calls docker | { grep -c "^image rm " || true; } | tr -d '[:space:]')" 1
+t_eq "$(t_calls docker | grep '^image rm')" "image rm $stopped"
+# The sweep of a preview whose container stopped at once names no image of it
+# at all: the one its build made is gone, and the earlier image, which the tag
+# moved off, is left with none and is not in what `docker image ls` answers
+# with. The host keeps it until a person prunes.
+left=$(untagged 67)
+[ -n "$left" ] || t_bad "the stopped build left the image before it behind"
+[ "$(image_id 67)" = "" ] || t_bad "the stopped build left its own image behind"
+rm -f "$T"/calls/docker*
+t_run "$preview --sweep"
+t_eq "$(t_calls docker | { grep -c '^image rm' || true; } | tr -d '[:space:]')" 0
+# What would take that image away, named in a listing, is taken: which is what
+# makes the line above say something, rather than nothing.
+echo "$left <none>:<none>" >"$fx/extra-images"
+rm -f "$T"/calls/docker*
+t_run "$preview --sweep"
+t_contains "$(t_calls docker)" "image rm $left"
 
 t_case "sweep: nothing to remove writes a zero and no line about removing"
 reset

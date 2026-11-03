@@ -389,10 +389,24 @@ impl Preview {
             let tail = ["logs", "--tail", "40", &name];
             logged(Command::new("docker").args(tail), &log);
             docker_quiet(&["rm", "-f", "-v", &name]);
+            // The image of the stopped container goes with it, asked for by its
+            // id and not by the tag: a stopped container holds the image under
+            // the tag until it is gone, so the tag cannot be removed at this
+            // point, and by the tag Docker would be told about whatever image
+            // the tag holds when the container is off it.
+            let built = image_id();
+            if let Some(built) = built.as_ref().filter(|built| !built.is_empty()) {
+                docker_quiet(&["image", "rm", built]);
+            }
             let reason = format!(
                 "The container started and stopped. See \"docker logs\" in logs/preview-{n}.log on the host."
             );
-            self.start_failed(n, &sha, tries, &reason);
+            // The container ran and then quit, which is the commit and not a
+            // host that hiccuped: one that was never created is the host's
+            // affair and is tried again. So this commit is marked and left
+            // until a new one: it was built, it ran, and its image went with
+            // the container, so nothing here is worth trying a second time.
+            self.mark(n, &sha, "build-failed", &reason);
             return;
         }
         let now = image_id();
