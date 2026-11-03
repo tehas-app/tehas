@@ -809,6 +809,11 @@ log and asked GitHub for the bot's pull request of the branch that
 - The comment names the pull request when GitHub lists one. Read it: the change
   is up for review, and a clean retry redoes what it already holds. That
   comment has no retry boxes, and the issue carries `needs-human-attention`.
+- A run log longer than the 200 KB tehas reads is read from its end, and only
+  what that end says is known. Such a cycle is not handed off: tehas cannot say
+  that nothing came after the step its log's end names, so the issue is parked
+  with the retry boxes, and the comment still names the pull request GitHub
+  lists on the branch. Read `~/tehas/logs/work-<N>-*.jsonl` for the rest.
 - The comment says no pull request was found when GitHub lists none. The
   change is then either unpushed or pushed without a pull request. The
   commits are in the cycle's workspace, on the local branch
