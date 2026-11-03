@@ -445,6 +445,14 @@ printf '%s\n' "${T_MINIMAL[@]}" TEHAS_MILLWRIGHT_LOGIN=tehas-fixer TEHAS_MILLWRI
 t_run "$load && echo \"[\$TEHAS_MILLWRIGHT_FEED][\$TEHAS_MILLWRIGHT_MAX_FEEDS]\""
 t_eq "$t_out" "[1][4]"
 
+t_case "the millwright's epics are off unless the instance turns them on"
+printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load && set -u && echo \"[\$TEHAS_MILLWRIGHT_EPICS]\""
+t_eq "$t_out" "[0]"
+printf '%s\n' "${T_MINIMAL[@]}" TEHAS_MILLWRIGHT_LOGIN=tehas-fixer TEHAS_MILLWRIGHT_EPICS=1 >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load && echo \"[\$TEHAS_MILLWRIGHT_EPICS]\""
+t_eq "$t_out" "[1]"
+
 t_case "refreshes are off unless the instance turns them on, two of one pull request and every 10 minutes by default"
 t_instance "${T_MINIMAL[@]}"
 t_run "$load && set -u && echo \"[\$TEHAS_REFRESH_CONFLICTS][\$TEHAS_REFRESH_MAX][\$TEHAS_REFRESH_EVERY][\$TEHAS_REFRESH_SLOTS]\""
@@ -552,7 +560,8 @@ t_eq "$t_out" "[999999999]"
 
 for bad in "TEHAS_MILLWRIGHT_LOGIN=two words" "TEHAS_MILLWRIGHT_LOGIN=-x" "TEHAS_MILLWRIGHT_MAX_RETRIES=0" "TEHAS_MILLWRIGHT_MAX_RETRIES=many" \
   "TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS=0" "TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS=-1" "TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS=lots" \
-  "TEHAS_MILLWRIGHT_FEED=yes" "TEHAS_MILLWRIGHT_FEED=2" "TEHAS_MILLWRIGHT_MAX_FEEDS=0" "TEHAS_MILLWRIGHT_MAX_FEEDS=many"; do
+  "TEHAS_MILLWRIGHT_FEED=yes" "TEHAS_MILLWRIGHT_FEED=2" "TEHAS_MILLWRIGHT_MAX_FEEDS=0" "TEHAS_MILLWRIGHT_MAX_FEEDS=many" \
+  "TEHAS_MILLWRIGHT_EPICS=yes" "TEHAS_MILLWRIGHT_EPICS=2"; do
   t_case "loading rejects $bad"
   t_instance "${T_MINIMAL[@]}" "${bad%%=*}='${bad#*=}'"
   t_run "$load; echo rc=\$?"
@@ -1498,7 +1507,7 @@ names=(PI_ENSEMBLE_MODEL_ PI_ENSEMBLE_PROVIDER_ PI_ENSEMBLE_SUBAGENT_MODEL PI_EN
   TEHAS_CYCLE_RESERVE TEHAS_DOMAIN TEHAS_EASY_MERGE TEHAS_GITHUB_APP_ID TEHAS_GITHUB_APP_INSTALLATION TEHAS_HOME
   TEHAS_HOST_ADDR TEHAS_IMPROVE_MAX_OPEN TEHAS_IMPROVE_REPO TEHAS_IMPROVE_RUKAS_REPO TEHAS_IMPROVE_RUKAS_SKIP
   TEHAS_INDEXING TEHAS_INSTANCE_DIR TEHAS_LAYOUT TEHAS_LOW_GATE TEHAS_LOW_GATE_WAIT TEHAS_MAX_AWAITING
-  TEHAS_MILLWRIGHT_FEED TEHAS_MILLWRIGHT_LOGIN TEHAS_MILLWRIGHT_MAX_FEEDS TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS
+  TEHAS_MILLWRIGHT_EPICS TEHAS_MILLWRIGHT_FEED TEHAS_MILLWRIGHT_LOGIN TEHAS_MILLWRIGHT_MAX_FEEDS TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS
   TEHAS_MILLWRIGHT_MAX_RETRIES TEHAS_PLAN_MAX_TURNS TEHAS_PLAN_TIMEOUT TEHAS_POLL_BUDGET TEHAS_PREVIEWS TEHAS_PREVIEW_MAX
   TEHAS_PREVIEW_MIN_FREE TEHAS_PROTOLAB_URL TEHAS_REFRESH_CONFLICTS TEHAS_REFRESH_EVERY TEHAS_REFRESH_MAX
   TEHAS_REFRESH_SLOTS TEHAS_RELEASE_REPO TEHAS_REPO TEHAS_REVIEW TEHAS_REVIEW_REPO TEHAS_RUKAS_WORKAROUNDS
@@ -1509,7 +1518,7 @@ for name in "${names[@]}"; do
   for value in "${values[@]}"; do printf '%s\0%s\0' "$name" "$value"; done
 done >"$T/pairs"
 TEHAS_HOME=/h/tehas TEHAS_INSTANCE_DIR=/i/ TEHAS_WORK_REPO=/w "$T_CONSOLE" settings valid <"$T/pairs" >"$T/verb"
-t_eq "$(sha256sum <"$T/verb" | cut -d' ' -f1)" "68b0dc5853620fe009242a9ca5f04f6752046047912baa590cfb88c8c3328a4d"
+t_eq "$(sha256sum <"$T/verb" | cut -d' ' -f1)" "5ca5fc55644837dcd8ad6189b6a757c6e7010bd284cc5c367b74088a432aa9fe"
 
 t_stub nproc 'echo 8'
 t_case "each kind of instance leaves the environment and the words bash left"
@@ -1614,7 +1623,7 @@ T_INSIDE=$TEHAS_INSTANCE_DIR/$HOME
 INSTANCES
 T_ENV=()
 t_instance "${T_MINIMAL[@]}"
-t_eq "$(sha256sum <"$T/loads" | cut -d' ' -f1)" "de299444672bfc0506c9462244ae554a503272172531f052f9030e7a99a453e0"
+t_eq "$(sha256sum <"$T/loads" | cut -d' ' -f1)" "5c77573be0952a1a205ea69c57a1abf22812c80519befceb5a6eaf99190316d7"
 t_contains "$(cat "$T/loads")" "rc=78"
 
 t_case "no instance.env keeps the environment as it was, as bash did"
