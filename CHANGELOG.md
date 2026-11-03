@@ -13,10 +13,53 @@ empty one above it.
 
 ### Changes
 
+### Adopter action
+
+None.
+
+## v0.24.4 (2026-11-03)
+
+### Changes
+
+- `tehas-cycle` writes its standard output as the workspace's other programs do, so `scripts/verify.sh --full` passes its lints again. v0.24.3 failed them, which stopped `tehas setup` at `check-product --sandbox` on a host whose product is tehas.
+
+### Adopter action
+
+None.
+
+## v0.24.3 (2026-11-03)
+
+### Changes
+
+- With `TEHAS_MILLWRIGHT_EPICS=1`, an allowed labeller's `tehas:ready` on an epic approves its open sub-issues for the millwright, which may then plan and start them on that approval (#1465). Off unless set.
+- A plan draft that fails the text check changes nothing on the issue (#1394).
+- A GitHub read that gives up at its first attempt says why it stopped in the poll's log (#1464).
+- The libraries no command sources are gone: `lib/attachments.sh`, `cycles.sh`, `labels.sh`, `millwright.sh`, `questions.sh`, `sandbox.sh`, `slice.sh`, `store.sh` and `history-lines.jq`. What still had a caller is in the console or the store now, and `install.sh` removes a host's copies in its stale-file step (#1400).
+
+### Adopter action
+
+None. To let a person's `tehas:ready` on an epic approve its parts for the
+millwright, set `TEHAS_MILLWRIGHT_EPICS=1` (see `instances/example/optional.env`).
+
+v0.24.3 fails `tehas setup` on a host whose product is tehas: use v0.24.4.
+
+## v0.24.2 (2026-11-03)
+
+### Changes
+
+- `tehas drain` prints its answer when a poll holds its lock for the whole wait: `not drained:`, or `drained: false` with `--json`. It printed nothing, which stopped `industry factory upgrade` with `unreadable factory answer` (#1456).
+
+### Adopter action
+
+None.
+
+## v0.24.1 (2026-11-03)
+
+### Changes
+
 - `console flags pause` takes only `set` and `clear`: `show` and `read`, which nothing called, are gone (#1365). The dashboard's reader of the flag uses the same reading as the health file.
-- A factory pull request that waits for a person is titled `HALT: ` instead of `STUCK: `. The next poll renames the open ones.
-- `tehas drain` prints its answer when a poll holds its lock for the whole wait: `not drained:`, or `drained: false` with `--json`. It printed nothing, which stopped `industry factory upgrade` with `unreadable factory answer`.
-- The libraries no command sources are gone: `lib/attachments.sh`, `cycles.sh`, `labels.sh`, `millwright.sh`, `questions.sh`, `sandbox.sh`, `slice.sh`, `store.sh` and `history-lines.jq`. What still had a caller is in the console or the store now, and `install.sh` removes a host's copies in its stale-file step.
+- A factory pull request that waits for a person is titled `HALT: ` instead of `STUCK: `. The next poll renames the open ones (#1455).
+- `tehas-cycle work` runs a cycle's start, and `libexec/work` keeps only the settings and the issue's lock. The container's mounts and environment do not change (#1446).
 
 ### Adopter action
 
