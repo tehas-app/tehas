@@ -342,7 +342,10 @@ impl Writer {
                 .filter(|x| !x.is_empty())
             {
                 Some(auto) => format!("Tehas planning session started on `{host}` at {when} UTC to refine this issue: its cycle parked as `{auto}`, and the start of that cycle by @{by} authorizes one refine. Each turn ends in a comment here. Answer by ticking a box or by replying. To stop it, take `tehas:question` off while a question waits, or close the issue."),
-                None => format!("Tehas planning session started on `{host}` at {when} UTC (authorized by @{by}'s `{label}` label). Each turn ends in a comment here. Answer by ticking a box or by replying."),
+                None => match a.get("epic").and_then(Value::as_u64) {
+                    Some(e) => format!("Tehas planning session started on `{host}` at {when} UTC (authorized by @{by}'s `tehas:ready` label on epic #{e}, which the millwright carried to this sub-issue with `{label}`). Each turn ends in a comment here. Answer by ticking a box or by replying."),
+                    None => format!("Tehas planning session started on `{host}` at {when} UTC (authorized by @{by}'s `{label}` label). Each turn ends in a comment here. Answer by ticking a box or by replying."),
+                },
             };
             self.say(n, &said, log);
             args = vec!["--brief".into(), path];
