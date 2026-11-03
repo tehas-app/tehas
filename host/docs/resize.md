@@ -291,8 +291,20 @@ tehas drain --wait 3600     # start nothing new, wait for the running cycles
 tehas limit clear           # afterwards
 ```
 
-Exit 1 says cycles still ran at the end of the wait: do not restart the machine
-until they have ended, or end them with `tehas stop <issue>` for each.
+Restart only after an exit 0, and read what the drain prints, not only its status:
+
+- **Exit 0**: no cycle holds its lock, and the last line says `drained: no cycle
+  is running`. A planning turn that had already started is not counted, and it
+  is not waited for: `tehas status` lists each planning turn in flight, so look
+  there too before the restart.
+- **Exit 1 with a `still running:` line**: those cycles still ran at the end of
+  the wait. Run the drain again with a longer wait (a cycle may run for
+  `TEHAS_WORK_TIMEOUT` seconds, six hours by default), or end one with `tehas
+  stop <issue> --keep-workspace`, which ends it unfinished and keeps its
+  workspace to read.
+- **Exit 1 with a `not drained:` line**: a poll held its lock for the whole
+  wait, so a cycle it starts may not be counted. With `--json` that is
+  `drained: false`. Run the drain again.
 
 Drained means no poll can still start a cycle, and drain waits for the poll
 that is running before it says none is, so a cycle a poll had decided to start
