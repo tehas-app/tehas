@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Tests for tehas labels against a stub gh: which labels it makes, where,
-# and that it needs the repository and nothing else. And for
-# tehas_label_allowed in lib/labels.sh: who applied a label, asked of GitHub.
+# and that it needs the repository and nothing else. And for console label
+# allowed: who applied a label, asked of GitHub.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
@@ -86,13 +86,13 @@ reset
 t_run "$labels"
 t_contains "$(t_calls gh)" "label create tehas:ready --repo acme/widget --color 0e8a16 --description Tehas: eligible for dispatch (apply by hand to authorize a cycle) --force"
 
-# --- tehas_label_allowed -------------------------------------------------------
+# --- console label allowed -----------------------------------------------------
 t_stub gh 'case "$*" in
   "api repos/acme/widget/issues/7/events?per_page=100 --paginate")
     [ ! -e "$T/events-fail" ] || exit 1
     cat "$T/events.json" ;;
 esac'
-allowed=". $T_ROOT/lib/labels.sh; TEHAS_REPO=acme/widget TEHAS_ALLOWED_LABELERS='alice bob'; tehas_label_allowed 7 tehas:ready"
+allowed="TEHAS_REPO=acme/widget TEHAS_ALLOWED_LABELERS='alice bob' '$T_CONSOLE' label allowed 7 tehas:ready"
 labelled() { # <login>...: each applies tehas:ready in turn
   local i=0 login
   for login in "$@"; do

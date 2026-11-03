@@ -14,22 +14,15 @@ reads only what is committed there:
   gate      .pi/verify-cmd has a line that is not empty or a comment
   model     .pi/settings.json, when the product has one, names a model the
             instance's models.json lists
-  install   what a cycle installs before it starts: the first command of
-            .pi/install-cmd, else one install for each lockfile at the root
-            or one directory down (bun.lock, package-lock.json, Cargo.lock
-            and the others of tehas_core::install). Never a failure here
 
---sandbox clones the checkout's origin/HEAD into $TEHAS_HOME/tmp/<name>, the
-repository name of TEHAS_REPO. The clone is made as a cycle's workspace is
+--sandbox clones the checkout's origin/HEAD into $TEHAS_HOME/tmp and runs, in
+the image as this user, .pi/worktree-setup when there is one, the first
+command of .pi/verify-cmd-full (else .pi/verify-cmd) and, when there is one,
+of .pi/smoke-cmd. The clone is made as a cycle's workspace is
 (tehas-cycle sandbox clone): the default branch at origin's tip, with
 origin/<default branch> and origin/HEAD set, then a work branch with one
-empty commit, so a gate that diffs against origin/main finds its base and a
-change of nothing. In the image, as this user, it runs the install at the
-root of the clone, then, in a worktree of the clone as pi-rukas makes one,
-.pi/worktree-setup when there is one, the first command of
-.pi/verify-cmd-full (else .pi/verify-cmd) and, when there is one, of
-.pi/smoke-cmd. An install that fails, or a tool the image lacks, fails the
-install check and runs no gate. All of it is removed afterwards.
+empty commit, so a gate that diffs against origin/main finds its base and
+a change of nothing. It is removed afterwards.
 
 It changes nothing in the product. The result is written to
 $TEHAS_HOME/state/check-product.json, which tehas status reads.
