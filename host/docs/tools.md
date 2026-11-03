@@ -671,15 +671,16 @@ linked issue. A person's pull request is never touched.
 | The title starts with | When |
 | --- | --- |
 | `WIP: ` | The linked issue carries `tehas:running`, or the pull request carries `tehas:refreshing` |
-| `STUCK: ` | No cycle runs, the linked issue carries `needs-human-attention`, and the pull request is not proven fine to merge |
+| `HALT: ` | No cycle runs, the linked issue carries `needs-human-attention`, and the pull request is not proven fine to merge |
 | nothing | Anything else: it is ok to merge. A person clearing the label clears the prefix |
 
 A pull request is proven fine to merge when all of these hold: it is not a
 draft, GitHub reports it mergeable with the state `clean`, and the factory's
 last six-pass review comment is newer than its head commit and lists no
-finding above MEDIUM. `STUCK: ` stays when any of them cannot be shown, also
+finding above MEDIUM. `HALT: ` stays when any of them cannot be shown, also
 when no review comment exists. Clearing the prefix leaves the label on the
 issue. `WIP: ` is never cleared this way: a running cycle may still push.
+`HALT: ` was `STUCK: ` up to v0.24.0; a poll replaces an old `STUCK: `.
 
 Each poll sets the title from what it read already, through
 `console pr-title poll`, and a cycle's end sets it once with
