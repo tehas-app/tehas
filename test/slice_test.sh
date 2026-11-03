@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for lib/slice.sh: whether the slice on this host is usable and how much
+# Tests for console slice: whether the slice on this host is usable and how much
 # room it has left, and for the limits a container is started with, which
 # tehas-cycle sandbox limits makes from the same reading. The tables of the
 # limits are beside the source, in console/core/src/slice.rs.
@@ -15,8 +15,13 @@ T_ENV_ALWAYS+=(TEHAS_CONSOLE_CMD="$T_CONSOLE")
 GIB=1073741824
 MIB=1048576
 MAX=$((20 * GIB))
-pre='. "$T_ROOT/lib/config.sh"; . "$T_ROOT/lib/slice.sh"; tehas_load || exit 9; '
-ok="$pre"'tehas_slice_ok; echo "rc=$? max=$TEHAS_SLICE_MAX active=$TEHAS_SLICE_ACTIVE ceiling=$TEHAS_SLICE_CEILING_MB why=[$TEHAS_SLICE_WHY]"'
+# slice_verb runs a verb of console slice with what slice_ok read, as the
+# dispatcher hands it on; slice_ok evals the assignments `console slice ok` prints.
+pre='. "$T_ROOT/lib/config.sh"; tehas_load || exit 9
+slice_verb() { TEHAS_SLICE_MAX=${TEHAS_SLICE_MAX:-} TEHAS_SLICE_ACTIVE=${TEHAS_SLICE_ACTIVE:-} TEHAS_SLICE_CEILING_MB=${TEHAS_SLICE_CEILING_MB:-} "$TEHAS_CONSOLE_CMD" slice "$@" 2>/dev/null; }
+slice_ok() { local out rc=0; out=$(slice_verb ok) || rc=1; eval "$out"; return "$rc"; }
+'
+ok="$pre"'slice_ok; echo "rc=$? max=$TEHAS_SLICE_MAX active=$TEHAS_SLICE_ACTIVE ceiling=$TEHAS_SLICE_CEILING_MB why=[$TEHAS_SLICE_WHY]"'
 # shellcheck disable=SC2154  # t_cycle_why is set by t_cycle (test/lib.sh)
 t_cycle || t_bad "no tehas-cycle: $t_cycle_why"
 # The words the program hands a command, one line: the fourteen of the limits,
@@ -39,9 +44,9 @@ good() {
   T_ENV=(TEHAS_CGROUP_ROOT="$T_CGROUP")
 }
 # room <count> [<cid file>...]: what console slice room prints after a good probe.
-room() { t_run "$pre"'tehas_slice_ok || echo "not ok: $TEHAS_SLICE_WHY"; _tehas_slice room '"$*"; }
+room() { t_run "$pre"'slice_ok || echo "not ok: $TEHAS_SLICE_WHY"; slice_verb room '"$*"; }
 
-# --- tehas_slice_ok ---------------------------------------------------------
+# --- slice_ok ---------------------------------------------------------
 t_case "ok passes with a file, a numeric MemoryMax, systemd on v2 and the controllers"
 good
 t_run "$ok"
@@ -168,13 +173,13 @@ t_contains "$t_out" "ceiling=2048 "
 
 t_case "a failed probe leaves nothing from the one before it"
 good
-t_run "$pre"'tehas_slice_ok; rm "$TEHAS_CGROUP_ROOT/cgroup.controllers"; tehas_slice_ok; echo "rc=$? max=[$TEHAS_SLICE_MAX] ceiling=[$TEHAS_SLICE_CEILING_MB]"'
+t_run "$pre"'slice_ok; rm "$TEHAS_CGROUP_ROOT/cgroup.controllers"; slice_ok; echo "rc=$? max=[$TEHAS_SLICE_MAX] ceiling=[$TEHAS_SLICE_CEILING_MB]"'
 t_eq "$t_out" "rc=1 max=[] ceiling=[]"
 
 # --- tehas-cycle sandbox limits ---------------------------------------------
 t_case "ok counts the host's CPUs"
 good
-t_run "$pre"'tehas_slice_ok; echo "rc=$? cpus=$TEHAS_SLICE_CPUS"'
+t_run "$pre"'slice_ok; echo "rc=$? cpus=$TEHAS_SLICE_CPUS"'
 t_eq "$t_out" "rc=0 cpus=8"
 
 t_case "a host whose CPUs cannot be counted is refused"
@@ -422,7 +427,7 @@ t_eq "$t_out" "4 0 $MAX $((2 * GIB))"
 
 t_case "the pressure is printed as the kernel wrote it"
 slice_state 3.41 55.00
-t_run "$pre"'_tehas_slice pressure; echo "rc=$?"'
+t_run "$pre"'slice_verb pressure; echo "rc=$?"'
 t_eq "$t_out" "3.41
 rc=0"
 
@@ -432,7 +437,7 @@ slice_child "$a" $((500 * MIB)) 0 $((2 * GIB))
 rm "$T_CGROUP/tehas.slice/memory.pressure"
 room 0
 t_eq "$t_out" "0 $((2 * GIB)) $MAX $((2 * GIB)) unreadable $T_CGROUP/tehas.slice/memory.pressure cannot be read"
-t_run "$pre"'_tehas_slice pressure; echo "rc=$?"'
+t_run "$pre"'slice_verb pressure; echo "rc=$?"'
 t_eq "$t_out" "$T_CGROUP/tehas.slice/memory.pressure cannot be read
 rc=1"
 
@@ -501,7 +506,7 @@ t_eq "$t_out" "0 0 $MAX $((2 * GIB)) unreadable the count of cycles is not a num
 
 t_case "room without a probe is unreadable, with four numbers all the same"
 good
-t_run "$pre"'_tehas_slice room 0'
+t_run "$pre"'slice_verb room 0'
 t_eq "$t_out" "0 0 0 $((2 * GIB)) unreadable the slice was not probed"
 
 t_case "room makes no call and writes nothing"
@@ -516,27 +521,18 @@ t_eq "$(wc -l <"$T/calls/systemctl" | tr -d ' ') $(wc -l <"$T/calls/docker" | tr
 t_case "the reason after unreadable is read whole by the line the dispatcher uses"
 good
 rm "$T_CGROUP/tehas.slice/memory.pressure"
-t_run "$pre"'tehas_slice_ok; read -r room committed max reserve why note < <(_tehas_slice room 0); echo "[$room] [$why] [$note]"'
+t_run "$pre"'slice_ok; read -r room committed max reserve why note < <(slice_verb room 0); echo "[$room] [$why] [$note]"'
 t_eq "$t_out" "[0] [unreadable] [$T_CGROUP/tehas.slice/memory.pressure cannot be read]"
 
 t_case "the room is read by the line the dispatcher uses"
 good
 slice_child "$a" $((500 * MIB)) 0 $((2 * GIB))
-t_run "$pre"'tehas_slice_ok; read -r room committed max reserve why < <(_tehas_slice room 2); echo "[$room] [$committed] [$max] [$reserve] [$why]"'
+t_run "$pre"'slice_ok; read -r room committed max reserve why < <(slice_verb room 2); echo "[$room] [$committed] [$max] [$reserve] [$why]"'
 t_eq "$t_out" "[1] [$((6 * GIB))] [$MAX] [$((2 * GIB))] []"
-
-# --- no console --------------------------------------------------------------
-t_case "with no console the slice is not ok and says to install"
-good
-T_ENV_ALWAYS=()
-none="no console beside this command at $T_ROOT/libexec/console, run install.sh"
-t_run "$ok"
-t_eq "$t_out" "rc=1 max= active= ceiling= why=[$none]"
-T_ENV_ALWAYS=(TEHAS_CONSOLE_CMD="$T_CONSOLE")
 
 t_case "a reserve that holds a quote comes back whole and runs nothing"
 good
-t_run "$pre"'TEHAS_CYCLE_RESERVE="'"2g'; echo ran; '"'"; tehas_slice_ok; echo "rc=$? [$TEHAS_SLICE_WHY]"'
+t_run "$pre"'TEHAS_CYCLE_RESERVE="'"2g'; echo ran; '"'"; slice_ok; echo "rc=$? [$TEHAS_SLICE_WHY]"'
 t_eq "$t_out" "rc=1 [TEHAS_CYCLE_RESERVE=2g'; echo ran; ' is not a size]"
 
 t_done

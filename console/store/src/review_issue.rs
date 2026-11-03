@@ -121,7 +121,7 @@ pub struct Ask {
 /// what makes the line read `store: review-issue: ...`.
 fn refuse(verb: &str, path: &Path, why: &str) -> (u8, String) {
     // The word names the verb that refused: the store's reader reads it and
-    // holds the caller to the answer of the verb it asked (lib/store.sh).
+    // holds the caller to the answer of the verb it asked (tehas_core::call).
     (64, format!("{verb}: {} {why}", path.display()))
 }
 
