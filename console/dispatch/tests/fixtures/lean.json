@@ -50,7 +50,7 @@
     ]
    },
    "spec": {
-    "7": "Words."
+    "7": "Words.\n\n```pi-spec v1\n{\"intent\":\"faster search\"}\n```"
    }
   },
   {
@@ -233,7 +233,7 @@
     ]
    },
    "spec": {
-    "7": "Words."
+    "7": "Words.\n\n```pi-spec v1\n{\"intent\":\"faster search\"}\n```"
    }
   },
   {
@@ -2112,7 +2112,7 @@
     ]
    },
    "spec": {
-    "7": "Words."
+    "7": "Words.\n\n```pi-spec v1\n{\"intent\":\"faster search\"}\n```"
    }
   },
   {
