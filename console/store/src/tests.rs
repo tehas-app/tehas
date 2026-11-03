@@ -3349,11 +3349,13 @@ fn a_read_of_a_batch_is_the_answer_of_the_same_call_alone() {
 }
 
 #[test]
-fn the_four_reads_answer_on_the_connection_of_the_batch() {
-    // look_many opens the store once and hands that connection to each read, so
-    // the borrow checker keeps the opening alive while they run and no read
-    // holds one after it. The write after the batch is the proof: the next read
-    // opens the store again and answers from what the write left.
+fn the_four_reads_answer_on_the_connection_and_snapshot_of_the_batch() {
+    // What this case proves is its answers: each read gives what the same call
+    // alone gives; the batch answers from its own snapshot, since a write after
+    // it shows in the next read and not in the line the batch printed; and that
+    // write answers at all, so nothing of the batch still holds the store open.
+    // That no read outlives the opening is the borrow checker's, not something a
+    // run can see.
     let home = crate::verbs_tests::home("look-many-connection");
     asked(&home, 12, 4001);
     let calls = [
@@ -3380,7 +3382,10 @@ fn the_four_reads_answer_on_the_connection_of_the_batch() {
     crate::verbs_tests::ok(&home, &["park-retry", "12"]);
     let after = crate::verbs_tests::ok(&home, &["park-show", "12"]);
     let in_batch: Value = serde_json::from_str(&got[1].1).unwrap();
-    assert_ne!(in_batch, after, "a read of the batch outlived it");
+    assert_ne!(
+        in_batch, after,
+        "the batch answered from a later state of the store"
+    );
 }
 
 #[test]
