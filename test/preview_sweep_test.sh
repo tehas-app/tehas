@@ -170,31 +170,37 @@ t_lacks "$t_out" "#65: swept"
 t_eq "$(count "$root" 65)" 1
 t_eq "$(jq -r '.removed' "$root/sweep.json")" 0
 
-t_case "sweep: an image the host lists with no tag is removed, and a rebuild leaves none to find"
+t_case "sweep: an image the host lists with no tag is removed"
 reset
 echo "sha256:dangling <none>:<none>" >"$fx/extra-images"
 t_run "$preview --sweep"
 t_contains "$(t_calls docker)" "image rm sha256:dangling"
-# The premise of the line above, which the stub of a rebuild must match: on a
-# host `docker image ls` answers only with what has a tag, so the image a rebuild
-# left untagged is not listed and the sweep does not name it. A rebuild is a
-# second build of one preview: the first gives it its image, the second moves the
-# tag off what it held.
+
+t_case "sweep: a rebuild leaves an image behind, and names no image for the sweep"
+reset
+# On a host `docker image ls` answers only with what has a tag, so the image a
+# rebuild leaves untagged is never listed and the sweep cannot name it. A rebuild
+# is asked for by hand: with the state and the container of the commit taken
+# away, the next run finds the same commit again and builds it, which is what a
+# rebuild is. The first build is what gives the preview its image; the second
+# moves the tag off it.
 a=$(commit one)
 pulls "$(pull 66 "$a")"
 t_run "$preview"
-t_run "$preview"    # the build of this commit
-a2=$(commit feature)
-pulls "$(pull 66 "$a2")"
-t_run "$preview"    # its start; the image before it is now left with no tag
-a3=$(commit feature)
-pulls "$(pull 66 "$a3")"
-t_run "$preview"    # the rebuild: the tag moves again, and its image goes by id
+rm -rf "$root/66"
+rm -f "$fx/docker/container-66"
+t_run "$preview"   # built again from the same commit, and the tag moves off it
+t_eq "$(state_of 66)" "serving"
 left=$(untagged 66)
 [ -n "$left" ] || t_bad "the rebuild left no image behind"
+first=$(image_of "$a") || t_bad "no archive for that commit"
+[ "$left" = "$first" ] || t_bad "the image left behind is not the first one"
 rm -f "$T"/calls/docker*
 t_run "$preview --sweep"
-t_eq "$(t_calls docker | { grep -c "image rm $left" || true; } | tr -d '[:space:]')" 0
+t_eq "$(image_rm_calls "$left")" 0
+# The sweep did run, and asked about images: were it to die before that, the
+# line above would read the same as one that named nothing at all.
+t_contains "$(t_calls docker)" "image ls --filter label=tehas.preview"
 
 t_case "sweep: a build of a stopped commit names its image alone, and the sweep names no image of it"
 reset
@@ -203,14 +209,15 @@ pulls "$(pull 67 "$a")"
 t_run "$preview"
 a2=$(commit feature)
 pulls "$(pull 67 "$a2")"
-stopped=$(image_of "$a2")
+stopped=$(image_of "$a2") || t_bad "no archive for that commit"
 echo "false 0" >"$fx/settle"
 t_run "$preview"   # its build made an image and its container stopped at once
 # What the build of the stopped commit is told to remove: its own image, by its
 # id, and nothing else. Were it ever to name another image, the sweep would be
 # told about one it should leave alone.
-t_eq "$(t_calls docker | { grep -c "^image rm " || true; } | tr -d '[:space:]')" 1
+t_eq "$(image_rm_calls)" 1
 t_eq "$(t_calls docker | grep '^image rm')" "image rm $stopped"
+t_eq "$(image_rm_unexpected)" ""
 # The sweep of a preview whose container stopped at once names no image of it
 # at all: the one its build made is gone, and the earlier image, which the tag
 # moved off, is left with none and is not in what `docker image ls` answers
@@ -220,7 +227,10 @@ left=$(untagged 67)
 [ "$(image_id 67)" = "" ] || t_bad "the stopped build left its own image behind"
 rm -f "$T"/calls/docker*
 t_run "$preview --sweep"
-t_eq "$(t_calls docker | { grep -c '^image rm' || true; } | tr -d '[:space:]')" 0
+t_eq "$(image_rm_calls)" 0
+# The sweep ran, so the line above is about what it saw and not about a run that
+# never got to the images.
+t_contains "$(t_calls docker)" "image ls --filter label=tehas.preview"
 # What would take that image away, named in a listing, is taken: which is what
 # makes the line above say something, rather than nothing.
 echo "$left <none>:<none>" >"$fx/extra-images"

@@ -14,6 +14,18 @@ const BUILD_LIMIT: u64 = 900;
 /// What a preview has in memory. A declared volume anywhere else is on the disk.
 const IN_MEMORY: [&str; 3] = ["/tmp", "/config", "/data"];
 
+/// Only such an id is handed to "docker image rm", which would take anything
+/// else as a name or an option. The answer of an inspect is text of the image
+/// that was pulled, so it is checked the way the sweep checks an id of a
+/// listing it got from Docker: "sha256:" and lowercase hex after it, and no
+/// whitespace, which would carry a second word into the command.
+fn is_image_id(word: &str) -> bool {
+    let Some(hex) = word.strip_prefix("sha256:") else {
+        return false;
+    };
+    !hex.is_empty() && hex.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+}
+
 /// The failed starts of a commit, as the retry marker holds them: the marker
 /// is "<commit> <failed starts so far>".
 fn tries_of(marker: &str, sha: &str) -> u32 {
@@ -395,7 +407,7 @@ impl Preview {
             // point, and by the tag Docker would be told about whatever image
             // the tag holds when the container is off it.
             let built = image_id();
-            if let Some(built) = built.as_ref().filter(|built| !built.is_empty()) {
+            if let Some(built) = built.as_ref().filter(|built| is_image_id(built)) {
                 docker_quiet(&["image", "rm", built]);
             }
             let reason = format!(
@@ -493,6 +505,27 @@ mod tests {
             "abc 2",
         ] {
             assert_eq!(tries_of(marker, "abc"), 0, "{marker:?}");
+        }
+    }
+
+    #[test]
+    fn only_an_image_id_of_docker_is_removed_by_id() {
+        assert!(is_image_id(&format!("sha256:{}", "a".repeat(64))));
+        assert!(is_image_id("sha256:2c26b46b1464"));
+        for word in [
+            "",
+            "sha256:",
+            "sha256:1 ",
+            "sha256:1\n",
+            "sha256:1 -f",
+            "--force",
+            "sha256:ABC",
+            "sha256:g",
+            "tehas-preview:12",
+            "2c26b46b1464",
+            "",
+        ] {
+            assert!(!is_image_id(word), "{word:?}");
         }
     }
 
