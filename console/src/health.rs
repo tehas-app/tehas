@@ -443,17 +443,66 @@ mod run_tests {
 
     /// The store of this build, as the store's own cases find it: the harness
     /// is built with the binaries, so the store is in it, or one directory up.
+    ///
+    /// A run of a package of its own builds only that package, so the sibling
+    /// `store` of the profile under test is not there at all. An absent store
+    /// is built, not skipped: these cases are honest about the program a host
+    /// runs only when they run the real one.
     fn store_of_this_build() -> PathBuf {
         let deps = std::env::current_exe()
             .unwrap()
             .parent()
             .unwrap()
             .to_path_buf();
-        let here = deps.join("store");
-        if here.is_file() {
-            return here;
+        let dirs = [deps.to_path_buf(), deps.parent().unwrap().to_path_buf()];
+        for dir in &dirs {
+            let here = dir.join("store");
+            if here.is_file() {
+                return here;
+            }
         }
-        deps.parent().unwrap().join("store")
+        build_store();
+        for dir in &dirs {
+            let here = dir.join("store");
+            if here.is_file() {
+                return here;
+            }
+        }
+        panic!("the store of this build is beside the test binary");
+    }
+
+    /// One build of the store for the whole harness, into the directory the
+    /// harness's own profile uses. `Once` because the cases run in parallel and
+    /// cargo's lock makes a second build wait for the first anyway; the build's
+    /// own words are kept for the panic.
+    fn build_store() {
+        static BUILT: std::sync::Once = std::sync::Once::new();
+        let mut outcome: Option<Result<(), String>> = None;
+        BUILT.call_once(|| {
+            let manifest = Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
+            // cargo names the directory when it was asked for one of its own;
+            // the workspace's default is the one this manifest's target dir is.
+            let target = std::env::var_os("CARGO_TARGET_DIR")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("target"));
+            let built = std::process::Command::new("cargo")
+                .arg("build")
+                .args(["--locked", "--offline", "--quiet", "--manifest-path"])
+                .arg(&manifest)
+                .args(["--target-dir"])
+                .arg(&target)
+                .args(["-p", "store"])
+                .args((!cfg!(debug_assertions)).then_some("--release"))
+                .output();
+            outcome = Some(match built {
+                Ok(out) if out.status.success() => Ok(()),
+                Ok(out) => Err(String::from_utf8_lossy(&out.stderr).trim().to_string()),
+                Err(e) => Err(format!("cargo: {e}")),
+            });
+        });
+        if let Some(Err(words)) = outcome.as_ref() {
+            panic!("the store of this build could not be built: {words}");
+        }
     }
 
     /// The store of a home: the store of this build, in a wrapper that writes
@@ -1299,14 +1348,54 @@ fn written_once(text: &str) -> bool {
     false
 }
 
-/// A cycle that ended without failing the factory: its work shipped, it is
-/// waiting for review, or its issue closed while it ran (rc 2), which usually
+/// Whether an ending's status is an end that went well: its work shipped, it
+/// waits for review, or its issue closed while it ran (rc 2), which usually
 /// means the pull request merged first or a person closed the issue by hand.
 fn ended_well(c: &J) -> bool {
     in_list(
         c.get("status").or(&J::str("")),
         &["merged", "handoff", "closed"],
     )
+}
+
+/// Whether a cycle of this status counts as having ended at all. `running` is
+/// what the runner's heartbeat carries while a cycle works, and the empty word
+/// is the heartbeat of a cycle that never sent one: an ending that says either
+/// never ended, so health names it rather than call the run a failure that is
+/// still going. The store's own writer maps both (`NOT_ENDS` in
+/// `console/store/src/cycle.rs`); this is the reading of a file written before
+/// that, or one a person wrote by hand.
+fn ended(c: &J) -> bool {
+    match c.get("status").as_str() {
+        Some(w) => !NOT_AN_ENDS.contains(&w),
+        None => false,
+    }
+}
+
+/// Whether a row of the last ten counts for `checks.failed`: an object that
+/// ended as anything but well, or whose status says it never ended at all.
+fn a_failed_ending(e: &J) -> bool {
+    matches!(e, J::Obj(_)) && !ended_well(e)
+}
+
+/// The status words of an ending that say no end was reported, the two the
+/// store's writer maps to `unknown`: the word of a cycle still at work, and
+/// the empty word.
+const NOT_AN_ENDS: [&str; 2] = ["running", ""];
+
+/// What the health file names the status of an ending whose status is not an
+/// end: a word the store wrote before its writer mapped them, or one a file
+/// under `live/` carries by hand.
+const NOT_AN_END: &str = "not an end";
+
+/// One entry of `checks.failed`: the status of an ending that ended, and
+/// `not an end` for one whose status says it did not.
+fn failed_status(e: &J) -> J {
+    if ended(e) {
+        e.get("status").clone()
+    } else {
+        J::str(NOT_AN_END)
+    }
 }
 
 /// One cycle as the health file lists it.
@@ -1470,7 +1559,13 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
         format!(
             "The last cycle failed: #{} ended as {}.",
             last.get("issue").text(),
-            last.get("status").text()
+            // The word of an ending that never ended is named as such, as it
+            // is in `checks.failed`.
+            if ended(&last) {
+                last.get("status").text()
+            } else {
+                NOT_AN_END.to_string()
+            }
         )
     } else if old_queue {
         format!(
@@ -1571,10 +1666,7 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
     if !last.is_null() {
         ends.push(last.clone());
     }
-    let mut ends: Vec<J> = ends
-        .into_iter()
-        .filter(|e| matches!(e, J::Obj(_)) && !ended_well(e))
-        .collect();
+    let mut ends: Vec<J> = ends.into_iter().filter(a_failed_ending).collect();
     let key = |e: &J| J::Arr(vec![e.get("issue").clone(), e.get("startedAt").clone()]);
     ends.sort_by(|a, b| key(a).cmp(&key(b)));
     ends.dedup_by(|b, a| key(a).cmp(&key(b)).is_eq());
@@ -1585,7 +1677,7 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
             .map(|e| {
                 obj(vec![
                     ("issue", e.get("issue").clone()),
-                    ("status", e.get("status").clone()),
+                    ("status", failed_status(e)),
                     ("step", e.get("step").clone()),
                     ("startedAt", iso(e.get("startedAt"))),
                     ("time", iso(e.get("updatedAt"))),
@@ -2349,6 +2441,57 @@ mod tests {
         assert_eq!(h.report(&g).at(&["checks", "plans"]).dump(), in_flight);
         h.write("state/plan-7.json.rc", "0");
         assert_eq!(h.report(&g).at(&["checks", "plans"]).len(), 0);
+    }
+
+    #[test]
+    fn an_ending_that_never_ended_is_named_as_not_an_end() {
+        let h = home("not-an-end");
+        h.write(
+            "live/endings.json",
+            r#"[{"issue":1,"status":"running","startedAt":10,"updatedAt":20},
+               {"issue":2,"status":"","startedAt":10,"updatedAt":20},
+               {"issue":3,"startedAt":10,"updatedAt":20},
+               {"issue":4,"status":"failed","startedAt":10,"updatedAt":20},
+               {"issue":5,"status":"aborted","startedAt":10,"updatedAt":20}]"#,
+        );
+        let got: Vec<(String, String)> = h
+            .report(&Given::default())
+            .at(&["checks", "failed"])
+            .items()
+            .iter()
+            .map(|e| (e.get("issue").text(), e.get("status").text()))
+            .collect();
+        assert_eq!(
+            got,
+            [
+                ("5".into(), "aborted".into()),
+                ("4".into(), "failed".into()),
+                ("3".into(), "not an end".into()),
+                ("2".into(), "not an end".into()),
+                ("1".into(), "not an end".into()),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_last_cycle_still_running_is_not_reported_as_ended_as_running() {
+        let h = home("last-running");
+        h.write(
+            "live/running.json",
+            r#"{"cycles":[],"last":{"issue":9,"running":false,"status":"running","step":"develop","startedAt":100,"updatedAt":200}}"#,
+        );
+        let r = h.report(&Given::default());
+        assert_eq!(
+            said(&r),
+            (
+                "fail".into(),
+                "The last cycle failed: #9 ended as not an end.".into()
+            )
+        );
+        // The same row in `checks.failed`, listed by the same word.
+        let failed = r.at(&["checks", "failed"]);
+        assert_eq!(failed.len(), 1);
+        assert_eq!(failed.items()[0].get("status").text(), "not an end");
     }
 
     #[test]

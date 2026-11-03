@@ -14,6 +14,7 @@ empty one above it.
 ### Changes
 
 - `console flags pause` takes only `set` and `clear`: `show` and `read`, which nothing called, are gone (#1365). The dashboard's reader of the flag uses the same reading as the health file.
+- An ending never carries a word that says the cycle is still at work. `store cycle-end` records `running` or an empty status as `unknown` in `endings`, and the health page names such a row, from a file written before this, as `not an end` instead of listing a finished run as a failure that is still running (#1417).
 
 ### Adopter action
 
