@@ -812,11 +812,12 @@ fn an_unknown_status_word_ends_as_unknown() {
 }
 
 #[test]
-fn an_ending_never_keeps_a_word_that_is_not_an_end() {
+fn an_ending_maps_a_word_that_is_not_an_end_to_unknown() {
     // The word a heartbeat carries while a cycle runs, and the empty word of a
-    // cycle that never sent one: a cycle whose end is on record is not still
-    // running, so neither reaches the ten ends (`ending_status`, the writer of
-    // the endings table). Any other word is kept as it was given.
+    // cycle that never sent one: the ten ends never hold either, and neither
+    // does the heartbeat the end writes, which is the row publish answers from.
+    // The set and its mapping are `NOT_ENDS` and `ending_status` in
+    // `tehas_core::grammar`, health's reader of the same file beside them.
     for word in ["running", ""] {
         let home = home(&format!("end-word-{word}"));
         let (_l, a) = start(&home, 46);
@@ -824,18 +825,14 @@ fn an_ending_never_keeps_a_word_that_is_not_an_end() {
         assert_eq!(
             one::<String>(&home, "SELECT status FROM endings"),
             "unknown",
-            "{word:?}"
+            "endings of {word:?}"
+        );
+        assert_eq!(
+            one::<String>(&home, "SELECT status FROM heartbeats"),
+            "unknown",
+            "heartbeat of {word:?}"
         );
     }
-    // A word that names no end the store knows is an end the caller reported,
-    // not a cycle still at work: `aborted` is the runner's own.
-    let kept = home("end-word-aborted");
-    let (_l, a) = start(&kept, 48);
-    end(&kept, 48, a, "aborted");
-    assert_eq!(
-        one::<String>(&kept, "SELECT status FROM endings"),
-        "aborted"
-    );
     // What publish writes for such an end: the file the page reads.
     let home = home("end-word-published");
     let (_l, a) = start(&home, 47);
@@ -844,6 +841,24 @@ fn an_ending_never_keeps_a_word_that_is_not_an_end() {
     let text = fs::read_to_string(home.join("live/endings.json")).unwrap();
     let e: Value = serde_json::from_str(&text).unwrap();
     assert_eq!(e[0]["status"], "unknown");
+}
+
+#[test]
+fn an_ending_keeps_a_word_the_caller_reported() {
+    // A word that names no end the store knows is an end the caller reported,
+    // not a cycle still at work: `aborted` is the runner's own, and the history
+    // keeps the word it was given whatever it is.
+    let home = home("end-word-aborted");
+    let (_l, a) = start(&home, 48);
+    end(&home, 48, a, "aborted");
+    assert_eq!(
+        one::<String>(&home, "SELECT status FROM endings"),
+        "aborted"
+    );
+    assert_eq!(
+        one::<String>(&home, "SELECT status FROM heartbeats"),
+        "aborted"
+    );
 }
 
 #[test]

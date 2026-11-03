@@ -2972,16 +2972,19 @@ read it. [`tehas status --json`](/api#tehas-status---json) is built from these.
 
 `checks.failed` lists the cycles among the last ten that ended, newest first,
 that ended as anything but `merged` or `handoff`: `issue`, `status`, `step`,
-`startedAt` and `time`. The `status` of an ending whose status is not an end at
-all (`running`, or none) is `not an end`, which `output` says of the last cycle
-as "ended as not an end". It does not change the status. An abort
-that a merge overtook ten seconds later leaves the status `pass`, and is still
-in `checks.failed` until ten more cycles have ended. A monitor that polls less
-often than cycles end reads it to see every failure. The ten endings are kept on
-the state store and published in `live/endings.json`. The store writes an
-ending with the word the cycle reported, except for the two that say it did not
-end at all (`running`, empty), which it records as `unknown` so a finished run
-never reads as one still in flight.
+`startedAt` and `time`. The `status` of an ending whose status names no end at
+all (`running`, or none) is `not an end`, and `output` says of the last cycle
+that it "ended as not an end". health does not change the overall status. An
+abort that a merge overtook ten seconds later leaves the status `pass`, and is
+still in `checks.failed` until ten more cycles have ended. A monitor that polls
+less often than cycles end reads it to see every failure. The ten endings are
+kept on the state store and published in `live/endings.json`.
+
+The store records an ending with the word the cycle reported, except for the two
+that say it did not end at all (`running`, and the empty word of a cycle that
+never sent a heartbeat): those become `unknown`, in the ending and in the
+heartbeat of the end that publish answers from, so a finished run never reads as
+one still in flight.
 
 `checks.disk` has the free and the required bytes and `low`, as `tehasbot
 preview` last wrote them to `live/previews.json`. It is `null` on a host
