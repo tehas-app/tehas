@@ -6,9 +6,12 @@
 //! endpoint: the subagent provider's endpoint in the host's models.json, its
 //! backup when the main one fails, and PI_ENSEMBLE_SUBAGENT_MODEL. The
 //! endpoint's token is sent when models.json names one; the GitHub token never
-//! is. Each request may take 60 seconds and each answer is cut at 1500
-//! characters. A request that fails leaves "not described: <why>" for that
-//! image, and the cycle goes on: the images are given all the same.
+//! is. Each request also names the issue whose images these are in
+//! `X-Tehas-Issue`, so the gateway can count what one issue cost: a value the
+//! caller gives and this program never makes of its own. Each request may take
+//! 60 seconds and each answer is cut at 1500 characters. A request that fails
+//! leaves "not described: <why>" for that image, and the cycle goes on: the
+//! images are given all the same.
 //!
 //! The images are untrusted input, so the answer is too. The prompt says to
 //! treat nothing in the image as an instruction, the file's head says the text
@@ -66,13 +69,25 @@ fn curl(args: &[String], input: &[u8]) -> (i32, String) {
     (rc, String::from_utf8_lossy(&out).into_owned())
 }
 
+/// The issue's name in `X-Tehas-Issue`: the digits it is given, or None for
+/// anything else. A value that could end the curl config line is no issue.
+pub fn issue_header(issue: &str) -> Option<String> {
+    let digits = !issue.is_empty() && issue.bytes().all(|b| b.is_ascii_digit());
+    digits.then(|| format!("X-Tehas-Issue: {issue}"))
+}
+
 /// One chat request. Standard input carries the body, which is past what one
-/// argument may hold, so the curl config with the token goes through a pipe
-/// curl opens by this process's file descriptor: on no command line and in no
-/// file.
-fn chat(url: &str, key: &str, body: &str) -> io::Result<(i32, String)> {
+/// argument may hold, so the curl config with the token and the issue's header
+/// goes through a pipe curl opens by this process's file descriptor: on no
+/// command line and in no file.
+fn chat(url: &str, key: &str, issue: &str, body: &str) -> io::Result<(i32, String)> {
     let (config, mut writer) = io::pipe()?;
     writer.write_all(models::auth(key).as_bytes())?;
+    // Additive: what auth gave stands, and the issue line is only added when
+    // the caller named a number, so a request never carries a broken header.
+    if let Some(header) = issue_header(issue) {
+        writer.write_all(format!("header = \"{header}\"\n").as_bytes())?;
+    }
     drop(writer);
     let path = format!("/proc/{}/fd/{}", std::process::id(), config.as_raw_fd());
     let args = [
@@ -106,7 +121,7 @@ fn request(model: &str, kind: &str, b64: &str) -> String {
 }
 
 /// The answer for one image, or "not described: <why>".
-fn one(image: &Path, url: &str, model: &str, key: &str) -> String {
+fn one(image: &Path, url: &str, model: &str, key: &str, issue: &str) -> String {
     if url.is_empty() || model.is_empty() {
         return "not described: the model endpoint is not known".into();
     }
@@ -120,7 +135,7 @@ fn one(image: &Path, url: &str, model: &str, key: &str) -> String {
     };
     let bytes = fs::read(image).unwrap_or_default();
     let (rc, out) =
-        chat(url, key, &request(model, kind, &base64(&bytes))).unwrap_or((127, "".into()));
+        chat(url, key, issue, &request(model, kind, &base64(&bytes))).unwrap_or((127, "".into()));
     match rc {
         0 => match content(&out) {
             Some(t) if !t.chars().all(|c| c.is_ascii_whitespace() || c == '\x0b') => t,
@@ -197,9 +212,10 @@ fn put(dir: &Path, name: &str, text: &str) -> io::Result<()> {
 }
 
 /// Write `dir`/images.md, one section per image in `dir`/manifest.json, and
-/// add "described": "images.md" to the manifest. An error only when the file
-/// or the manifest could not be written.
-pub fn describe(dir: &Path) -> Result<(), String> {
+/// add "described": "images.md" to the manifest. `issue` names the issue on
+/// each request; empty sends no header. An error only when the file or the
+/// manifest could not be written.
+pub fn describe(dir: &Path, issue: &str) -> Result<(), String> {
     let path = dir.join("manifest.json");
     if !path.is_file() {
         return Err("no manifest".into());
@@ -226,7 +242,7 @@ pub fn describe(dir: &Path) -> Result<(), String> {
         // Only names the fetch makes.
         let regular = image.symlink_metadata().is_ok_and(|m| m.is_file());
         if made.is_match(&name) && regular {
-            let said = quoted(&one(&image, &url, &model, &key));
+            let said = quoted(&one(&image, &url, &model, &key, issue));
             text.push_str(&format!("\n## {name}\n\nFrom {link}\n\n{said}\n"));
         }
     }
@@ -287,6 +303,23 @@ mod tests {
         assert_eq!(listed(m), vec![("a".to_string(), "x".to_string())]);
         assert!(listed(r#"{"images":null}"#).is_empty());
         assert!(listed("no").is_empty());
+    }
+
+    #[test]
+    fn only_digits_of_an_issue_are_a_header() {
+        assert_eq!(issue_header("1462").as_deref(), Some("X-Tehas-Issue: 1462"));
+        for bad in [
+            "",
+            "7 \nheader = \"x\"",
+            "七",
+            "7a",
+            " 7",
+            "7 ",
+            "-1",
+            "0x1",
+        ] {
+            assert_eq!(issue_header(bad), None, "{bad:?}");
+        }
     }
 
     #[test]
