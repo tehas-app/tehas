@@ -11,7 +11,8 @@ change, or before an upgrade or a move.
 Usage: tehas drain [--wait SECONDS] [--json], which prints one object: api 1,
 drained, running (the issues whose cycles still run) and limit as tehas limit
 --json prints it. Exit 0 no cycle is running; 1 some still are at the end of the
-wait, or a poll held its lock for the whole of it; 64 a bad argument, which
+wait, or a poll held its lock for the whole of it, which still prints the
+object, drained false; 64 a bad argument, which
 writes nothing; 78 the instance settings are missing or malformed.
 
   limit     0 cycles at once, planning off, until cleared: draining
