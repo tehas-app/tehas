@@ -808,29 +808,30 @@ fn cycles_running(dir: &Path) -> Vec<u64> {
     held
 }
 
-fn drain_report(said: &str, running: &[u64], limit: &str, json: bool) -> String {
+/// The answer of a drain. `passed` is false when a poll held its lock for the
+/// whole wait: its cycles may not be counted, so nothing is drained.
+fn drain_report(said: &str, running: &[u64], passed: bool, limit: &str, json: bool) -> String {
     let numbers = |sep: &str, mark: &str| {
         let each: Vec<String> = running.iter().map(|n| format!("{mark}{n}")).collect();
         each.join(sep)
     };
     if json {
-        format!(
+        return format!(
             "{{\"api\":1,\"drained\":{},\"running\":[{}],\"limit\":{limit}}}",
-            running.is_empty(),
+            passed && running.is_empty(),
             numbers(",", "")
-        )
-    } else if running.is_empty() {
-        format!(
-            "{said}
-drained: no cycle is running"
-        )
-    } else {
-        format!(
-            "{said}
-still running: {}",
-            numbers(", ", "#")
-        )
+        );
     }
+    let mut out = said.to_string();
+    if !passed {
+        out += "\nnot drained: a poll held its lock for the whole wait";
+    }
+    if !running.is_empty() {
+        out += &format!("\nstill running: {}", numbers(", ", "#"));
+    } else if passed {
+        out += "\ndrained: no cycle is running";
+    }
+    out
 }
 
 /// `tehas drain`: the limit of no new work, then the count of what still runs.
@@ -853,23 +854,24 @@ pub fn drain(given: &[String]) -> u8 {
         return rc;
     }
     let said = read(&file, now()).said();
-    if !poll_passed(
+    let passed = poll_passed(
         &state.join("dispatch.lock"),
         asked.wait.unwrap_or(POLL_WAIT),
-    ) {
-        return 1;
-    }
+    );
     let deadline = Instant::now() + Duration::from_secs(asked.wait.unwrap_or(0));
     let running = loop {
         let running = cycles_running(&state.join("cycles"));
-        if running.is_empty() || Instant::now() >= deadline {
+        if !passed || running.is_empty() || Instant::now() >= deadline {
             break running;
         }
         sleep(Duration::from_secs(1));
     };
     let limit = read(&file, now()).text();
-    tehas_core::outln!("{}", drain_report(&said, &running, &limit, asked.json));
-    u8::from(!running.is_empty())
+    tehas_core::outln!(
+        "{}",
+        drain_report(&said, &running, passed, &limit, asked.json)
+    );
+    u8::from(!passed || !running.is_empty())
 }
 
 /// `tehas_pause_read`: the flag as every command which honours it reads it.
@@ -2074,20 +2076,37 @@ mod tests {
     fn a_drain_reports_as_it_always_has() {
         let limit = r#"{"state":"ok"}"#;
         assert_eq!(
-            drain_report("said", &[], limit, true),
+            drain_report("said", &[], true, limit, true),
             r#"{"api":1,"drained":true,"running":[],"limit":{"state":"ok"}}"#
         );
         assert_eq!(
-            drain_report("said", &[7, 12], limit, true),
+            drain_report("said", &[7, 12], true, limit, true),
             r#"{"api":1,"drained":false,"running":[7,12],"limit":{"state":"ok"}}"#
         );
         assert_eq!(
-            drain_report("said", &[], limit, false),
+            drain_report("said", &[], true, limit, false),
             "said\ndrained: no cycle is running"
         );
         assert_eq!(
-            drain_report("said", &[7, 12], limit, false),
+            drain_report("said", &[7, 12], true, limit, false),
             "said\nstill running: #7, #12"
+        );
+    }
+
+    #[test]
+    fn a_poll_that_kept_its_lock_is_not_drained_and_still_answered() {
+        let limit = r#"{"state":"ok"}"#;
+        assert_eq!(
+            drain_report("said", &[], false, limit, true),
+            r#"{"api":1,"drained":false,"running":[],"limit":{"state":"ok"}}"#
+        );
+        assert_eq!(
+            drain_report("said", &[], false, limit, false),
+            "said\nnot drained: a poll held its lock for the whole wait"
+        );
+        assert_eq!(
+            drain_report("said", &[7], false, limit, false),
+            "said\nnot drained: a poll held its lock for the whole wait\nstill running: #7"
         );
     }
 
