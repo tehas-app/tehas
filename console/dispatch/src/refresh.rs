@@ -38,32 +38,44 @@ struct Conflict {
     base: String,
 }
 
-/// The conflicts of a run, and the issues whose requests stay.
+/// What one sweep read: the conflicts it asks to refresh, the issues whose
+/// requests stay, and the counts the run says. `unknown` and `skipped` count
+/// only the bot's pull requests that qualified for a refresh: `read N` is then
+/// the sum of the conflicts, the unknowns and the skipped ones, so a 0 beside
+/// conflict is a fact, not a gap in the count.
 #[derive(Debug, Default, PartialEq)]
 struct Found {
     conflicts: Vec<Conflict>,
+    unknown: usize,
+    skipped: usize,
     keep: BTreeSet<u64>,
 }
 
 /// UNKNOWN keeps a request and asks for none: GitHub computes the state
-/// lazily and the next run reads it again.
+/// lazily and the next run reads it again. A pull request that qualifies and
+/// cannot be placed in one of the three states is counted as skipped: it is
+/// read again next run, and a 0 conflicts on an answer that holds a conflicting
+/// pull request is the failure this count exists to avoid.
 fn found(nodes: &[Value], bot: &str, repo: &str, control: u64) -> Found {
     let mut f = Found::default();
     for node in nodes {
+        // Not the bot's, a fork, a branch of elsewhere, no draft state, no
+        // single issue it closes: none of them is ours to refresh, so none of
+        // them is counted.
         if !refresh_why(node, bot, repo, control).is_empty() {
             continue;
         }
         let (head, base) = (node.get("headRefOid"), node.get("baseRefOid"));
-        if !hex40(head) || !hex40(base) {
-            continue;
-        }
         let number = |v: Option<&Value>| v.and_then(Value::as_u64);
-        let (Some(issue), Some(pr)) = (
-            number(node.pointer("/closingIssuesReferences/nodes/0/number")),
-            number(node.get("number")),
-        ) else {
+        let issue = number(node.pointer("/closingIssuesReferences/nodes/0/number"));
+        let (Some(issue), Some(pr)) = (issue, number(node.get("number"))) else {
+            f.skipped += 1;
             continue;
         };
+        if !hex40(head) || !hex40(base) {
+            f.skipped += 1;
+            continue;
+        }
         match node.get("mergeable").and_then(Value::as_str) {
             Some("CONFLICTING") => {
                 f.keep.insert(issue);
@@ -75,9 +87,10 @@ fn found(nodes: &[Value], bot: &str, repo: &str, control: u64) -> Found {
                 });
             }
             Some("UNKNOWN") => {
+                f.unknown += 1;
                 f.keep.insert(issue);
             }
-            _ => {}
+            _ => f.skipped += 1,
         }
     }
     f
@@ -146,6 +159,9 @@ struct Run {
     control: u64,
     every: u64,
     bot: String,
+    /// `--json`: the counts also go to stdout as one object, for a reader that
+    /// does not read the log.
+    json: bool,
 }
 
 impl Run {
@@ -231,10 +247,22 @@ impl Run {
             }
         }
         sweep(&self.dir, &f.keep);
+        // One object on standard output for a reader that does not read the
+        // log, and the same counts in the line: a 0 conflicts is then said
+        // only when none of the pull requests read is CONFLICTING or UNKNOWN.
+        let counts = json!({
+            "read": nodes.len(),
+            "conflict": f.conflicts.len(),
+            "unknown": f.unknown,
+            "skipped": f.skipped,
+            "wrote": wrote,
+        });
+        if self.json {
+            tehas_core::outln!("{counts}");
+        }
         self.line(&format!(
-            "read {} pull requests, {} conflict, wrote {wrote} requests",
-            nodes.len(),
-            f.conflicts.len()
+            "read {} pull requests: {} conflict, {} unknown, {} not ours to refresh, wrote {wrote} requests",
+            counts["read"], counts["conflict"], counts["unknown"], counts["skipped"]
         ));
         0
     }
@@ -248,12 +276,18 @@ pub fn main(args: &[&str]) -> i32 {
             tehas_core::outln!("{}", usage());
             return 0;
         }
+        Some(&"--json") => return run(true),
         Some(a) => {
             eprintln!("tehasbot refresh: unknown argument: {a}\n{}", usage());
             return 64;
         }
         None => {}
     }
+    run(false)
+}
+
+/// The body of the verb: the settings it cannot run without, then one run.
+fn run(json: bool) -> i32 {
     let set = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
     let number = |k: &str| set(k).and_then(|v| v.parse::<u64>().ok());
     let (Some(home), Some(log), Some(repo), Some(control), Some(every)) = (
@@ -276,6 +310,7 @@ pub fn main(args: &[&str]) -> i32 {
         control,
         every,
         bot: set("TEHAS_BOT_LOGIN").unwrap_or_default(),
+        json,
     };
     let store = home.join("libexec/store").to_string_lossy().into_owned();
     let mut calls = Calls::idle(Duration::from_secs(20), store);
@@ -306,6 +341,18 @@ mod tests {
                 "number": issue, "state": "OPEN",
                 "labels": {"nodes": [{"name": "tehas:awaiting-merge"}]},
                 "closedByPullRequestsReferences": {"nodes": [{"number": pr, "state": "OPEN"}]}}]}})
+    }
+
+    /// The bot's, that qualifies, and whose head and base are two shas a
+    /// refresh can ask for, so that it counts as one of the ones read and not as
+    /// one that cannot be placed.
+    fn clean(pr: u64, issue: u64) -> Value {
+        let mut p = pull(pr, issue);
+        p["mergeable"] = json!("MERGEABLE");
+        p["headRefOid"] = json!(BASE);
+        p["closingIssuesReferences"]["nodes"][0]["closedByPullRequestsReferences"]["nodes"][0]
+            ["number"] = json!(pr);
+        p
     }
 
     fn of(nodes: &[Value]) -> Found {
@@ -344,6 +391,7 @@ mod tests {
             }]
         );
         assert_eq!(f.keep, BTreeSet::from([7]));
+        assert_eq!((f.unknown, f.skipped), (0, 0));
     }
 
     #[test]
@@ -357,6 +405,57 @@ mod tests {
         let f = of(&[unknown, clean, gone]);
         assert!(f.conflicts.is_empty());
         assert_eq!(f.keep, BTreeSet::from([7]));
+        assert_eq!((f.unknown, f.skipped), (1, 2));
+    }
+
+    #[test]
+    fn a_pull_request_whose_shas_cannot_be_read_is_skipped() {
+        // The bot's that qualifies, with one sha that is no sha: it was read,
+        // and it is counted, not left out of the count.
+        for field in ["headRefOid", "baseRefOid"] {
+            let mut p = clean(50, 7);
+            p["mergeable"] = json!("UNKNOWN");
+            p[field] = json!("abc");
+            assert_eq!(
+                of(&[p]),
+                Found {
+                    skipped: 1,
+                    ..Default::default()
+                },
+                "{field}"
+            );
+        }
+    }
+
+    /// What was read of the bot's pull requests that qualify is counted in
+    /// exactly one of conflict, unknown and skipped, so 0 conflicts is said
+    /// only when none of them is CONFLICTING or UNKNOWN. Another account's
+    /// pull request is not ours to refresh and is counted nowhere.
+    #[test]
+    fn every_pull_request_that_was_read_lands_in_one_count() {
+        let mut unknown = pull(53, 10);
+        unknown["mergeable"] = json!("UNKNOWN");
+        let mut foreign = clean(55, 12);
+        foreign["author"]["login"] = json!("alice");
+        let mut fork = clean(56, 13);
+        fork["isCrossRepository"] = json!(true);
+        let nodes = [
+            pull(50, 7),
+            pull(51, 8),
+            unknown,
+            clean(54, 11),
+            clean(55, 12),
+            foreign,
+            fork,
+        ];
+        let f = of(&nodes);
+        assert_eq!(f.conflicts.len(), 2);
+        assert_eq!((f.unknown, f.skipped), (1, 2));
+        assert_eq!(
+            f.conflicts.len() + f.unknown + f.skipped,
+            nodes.len() - 2,
+            "a pull request counted nowhere"
+        );
     }
 
     #[test]
@@ -366,7 +465,14 @@ mod tests {
                 let mut p = pull(50, 7);
                 p["mergeable"] = json!(state);
                 p[field] = json!("abc");
-                assert_eq!(of(&[p]), Found::default(), "{field} {state}");
+                assert_eq!(
+                    of(&[p]),
+                    Found {
+                        skipped: 1,
+                        ..Default::default()
+                    },
+                    "{field} {state}"
+                );
             }
         }
     }

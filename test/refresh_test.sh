@@ -65,7 +65,7 @@ t_run "$refresh"
 t_eq "$t_rc" 0
 t_eq "$(jq -c '{pr, head_sha, base_sha}' "$dir/7.json")" "{\"pr\":50,\"head_sha\":\"$head_a\",\"base_sha\":\"$base_c\"}"
 t_contains "$(jq -r .at "$dir/7.json")" "T"
-t_contains "$(cat "$logfile")" "read 1 pull requests, 1 conflict, wrote 1 requests"
+t_contains "$(cat "$logfile")" "read 1 pull requests: 1 conflict, 0 unknown, 0 not ours to refresh, wrote 1 requests"
 
 t_case "a request for the same head keeps its time; a moved head gets a new one"
 reset
@@ -80,13 +80,41 @@ t_run "$refresh"
 t_lacks "$(jq -r .at "$dir/7.json")" "2026-01-01"
 t_eq "$(jq -r .head_sha "$dir/7.json")" "$head_b"
 
-t_case "MERGEABLE and UNKNOWN get no request"
+t_case "MERGEABLE and UNKNOWN get no request, and each is counted"
 reset
 prs "$(pr 50 7 '.mergeable = "MERGEABLE"')" "$(pr 51 8 '.mergeable = "UNKNOWN"')"
 t_run "$refresh"
 t_eq "$t_rc" 0
 t_eq "$(requests)" ""
-t_contains "$(cat "$logfile")" "read 2 pull requests, 0 conflict, wrote 0 requests"
+t_contains "$(cat "$logfile")" "read 2 pull requests: 0 conflict, 1 unknown, 1 not ours to refresh, wrote 0 requests"
+
+t_case "a mix of conflicting, unknown and skipped pull requests says each count"
+reset
+prs "$(pr 50 7)" "$(pr 51 8 '.mergeable = "UNKNOWN"')" "$(pr 52 9 '.mergeable = "MERGEABLE"')" \
+  "$(pr 53 10 '.author.login = "alice"')" "$(pr 54 11 '.mergeable = "MERGEABLE"')" \
+  "$(pr 55 12 '.isCrossRepository = true')"
+t_run "$refresh"
+t_eq "$t_rc" 0
+t_eq "$(requests)" "7.json"
+t_contains "$(cat "$logfile")" "read 6 pull requests: 1 conflict, 1 unknown, 2 not ours to refresh, wrote 1 requests"
+
+t_case "--json answers the same counts as one object, and still writes the line"
+reset
+prs "$(pr 50 7)" "$(pr 51 8 '.mergeable = "UNKNOWN"')" "$(pr 52 9 '.mergeable = "MERGEABLE"')" \
+  "$(pr 53 10 '.author.login = "alice"')" "$(pr 54 11 '.mergeable = "MERGEABLE"')" \
+  "$(pr 55 12 '.isCrossRepository = true')"
+t_run "$refresh --json"
+t_eq "$t_rc" 0
+t_eq "$(echo "$t_out" | jq -c .)" '{"conflict":1,"read":6,"skipped":2,"unknown":1,"wrote":1}'
+t_eq "$(wc -l <"$logfile")" 1
+t_contains "$(cat "$logfile")" "read 6 pull requests: 1 conflict, 1 unknown, 2 not ours to refresh, wrote 1 requests"
+
+t_case "without --json nothing is printed on standard output"
+reset
+prs "$(pr 50 7)"
+t_run "$refresh"
+t_eq "$t_rc" 0
+t_eq "$t_out" ""
 
 t_case "UNKNOWN keeps a request it had; MERGEABLE removes it"
 reset
@@ -221,11 +249,13 @@ t_run "$refresh"
 t_eq "$t_rc" 0
 t_eq "$(t_calls gh)" ""
 
-t_case "an unknown argument is refused with 64, and --help answers"
+t_case "an unknown argument is refused with 64 and calls nothing, and --help answers"
 reset
-t_run "$refresh --now"
-t_eq "$t_rc" 64
-t_eq "$(t_calls gh)" ""
+for bad in --now "--json --now" "--now --json" "--json --json"; do
+  t_run "$refresh $bad"
+  t_eq "$t_rc" 64
+  t_eq "$(t_calls gh)" ""
+done
 t_run "$refresh --help"
 t_eq "$t_rc" 0
 t_contains "$t_out" "tehasbot refresh"
@@ -235,7 +265,7 @@ reset
 t_no_instance
 t_run "$refresh --now"
 t_eq "$t_rc" 64
-t_contains "$t_out" "tehasbot refresh: unknown argument: --now"
+t_contains "$t_out" "usage: tehasbot refresh [--json]"
 t_run "$refresh --help"
 t_eq "$t_rc" 0
 t_contains "$t_out" "Usage:"

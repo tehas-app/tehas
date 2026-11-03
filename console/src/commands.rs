@@ -187,6 +187,11 @@ pub fn tehasbot(given: &[String]) -> u8 {
 /// among the arguments is: `console run` then ends 0 and loads nothing.
 pub const ANSWERED: u8 = 99;
 
+/// The text of `tehas help <command>`, from src/usage/<command>.txt. tehasbot
+/// refresh has its own text in the same directory, which `tehasbot refresh
+/// --help` answers with (refresh_words), as the verb's copy is the file.
+pub const REFRESH_USAGE: &str = include_str!("usage/refresh.txt");
+
 const DISPATCH: &str = include_str!("usage/dispatch.txt");
 
 /// A poll starts only from an argument it knows: a typo such as --dryrun is no
@@ -245,6 +250,25 @@ fn preview_words(given: &[String]) -> Result<(), u8> {
     }
 }
 
+/// What `tehasbot refresh` takes: nothing, --json, or one of -h|--help, and
+/// never two words at once. --json has the verb answer the counts of the sweep
+/// as one object beside the log line; -h|--help are answered here with the
+/// verb's own text, before the settings, as they always were.
+fn refresh_words(given: &[String]) -> Result<(), u8> {
+    match given {
+        [] => Ok(()),
+        [word] if word == "--json" => Ok(()),
+        [word] if word == "-h" || word == "--help" => {
+            say(REFRESH_USAGE);
+            Err(ANSWERED)
+        }
+        _ => {
+            eprintln!("usage: tehasbot refresh [--json]");
+            Err(64)
+        }
+    }
+}
+
 fn improve_words(given: &[String]) -> Result<(), u8> {
     if given.is_empty() {
         return Ok(());
@@ -285,6 +309,7 @@ pub fn check(given: &[String]) -> u8 {
         ["tehasbot", "github-token"] => github::words(rest).map(|_| ()),
         ["tehasbot", "improve"] => improve_words(rest),
         ["tehasbot", "preview"] => preview_words(rest),
+        ["tehasbot", "refresh"] => refresh_words(rest),
         ["tehasbot", "review"] => review::words(rest, include_str!("usage/review.txt")),
         _ => Ok(()),
     };
@@ -488,7 +513,8 @@ mod tests {
             &["tehasbot", "preview", "--sweep"],
             &["tehasbot", "preview", "--sweep", "kept"],
             &["tehasbot", "protolab", "ignored"],
-            &["tehasbot", "refresh", "--help"],
+            &["tehasbot", "refresh"],
+            &["tehasbot", "refresh", "--json"],
         ] {
             assert_eq!(says(good), 0, "{good:?}");
         }
@@ -507,14 +533,29 @@ mod tests {
             &["tehasbot", "dispatch", "--help", "--dry-run"],
             &["tehasbot", "improve", "x"],
             &["tehasbot", "preview", "--help"],
+            &["tehasbot", "refresh", ""],
+            &["tehasbot", "refresh", "--jsn"],
+            &["tehasbot", "refresh", "--json", "--json"],
+            &["tehasbot", "refresh", "--json", "now"],
         ] {
             assert_eq!(says(bad), 64, "{bad:?}");
+        }
+        for two in [
+            &["tehasbot", "refresh", "--json", "--help"][..],
+            &["tehasbot", "refresh", "--help", "--json"],
+            &["tehasbot", "refresh", "--json", "x"],
+        ] {
+            assert_eq!(says(two), 64, "{two:?}");
         }
         for help in [
             &["tehasbot", "clean", "-h"][..],
             &["tehasbot", "clean", "--help"],
             &["tehasbot", "dispatch", "-h"],
             &["tehasbot", "dispatch", "--help"],
+            // The refresh's text lives with the dispatcher's verb, so the
+            // check answers it rather than loading settings to ask for it.
+            &["tehasbot", "refresh", "-h"],
+            &["tehasbot", "refresh", "--help"],
         ] {
             assert_eq!(says(help), ANSWERED, "{help:?}");
         }

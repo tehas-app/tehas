@@ -99,7 +99,9 @@ fn dispatch(bash: &str, libexec: &str, rest: &[String]) -> Result<u8, u8> {
 }
 
 /// tehas-dispatch's own refresh verb takes over, with the status a shell's exec
-/// would have ended with when it cannot.
+/// would have ended with when it cannot. `log` names the file the run's line
+/// goes to, which only the settings know: a hand-off before the load, which is
+/// what an argument is, has none to give.
 fn hand_to_dispatcher(libexec: &str, rest: &[String], log: Option<String>) -> u8 {
     let program = dispatcher(libexec);
     let mut refresh = Command::new(&program);
@@ -197,8 +199,11 @@ fn init_product(rest: &[String]) -> Result<u8, u8> {
 fn command(libexec: &str, uid: &str, bash: &str, words: &[String]) -> Result<u8, u8> {
     let rest = words.get(2..).unwrap_or_default();
     let name: Vec<&str> = words.iter().take(2).map(String::as_str).collect();
-    // Before the settings, so that --help and a refusal need none.
-    if name == ["tehasbot", "refresh"] && !rest.is_empty() {
+    // Before the settings, so that a refusal needs none. Of the words the
+    // check lets through, only --json goes on: it is a run, so it goes over
+    // below, after the load, which is where the log it writes is named. An
+    // empty argument is an argument, so it is refused rather than run.
+    if name == ["tehasbot", "refresh"] && !rest.iter().all(|w| w == "--json") {
         return Ok(hand_to_dispatcher(libexec, rest, None));
     }
     // The load drops every TEHAS_ name it does not keep.
@@ -227,7 +232,7 @@ fn command(libexec: &str, uid: &str, bash: &str, words: &[String]) -> Result<u8,
         ["tehasbot", "protolab"] => protolab_run(),
         ["tehasbot", "refresh"] => {
             let log = format!("{}/logs/refresh.log", var("TEHAS_HOME"));
-            hand_to_dispatcher(libexec, &[], Some(log))
+            hand_to_dispatcher(libexec, rest, Some(log))
         }
         ["tehasbot", "review"] if var("TEHAS_REVIEW") != "1" => 0,
         ["tehasbot", "review"] => review::main(&["main".to_string()]),
