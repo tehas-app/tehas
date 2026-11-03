@@ -2348,7 +2348,18 @@ fn an_event_is_stored_at_the_time_given_and_one_ahead_of_now_is_refused() {
     execute(&home, &Cmd::Event(8, "ready".into(), Some(now - 3600)), now).unwrap();
     execute(&home, &Cmd::Event(8, "started".into(), None), now).unwrap();
     execute(&home, &Cmd::Event(9, "ready".into(), Some(now + 60)), now).unwrap();
-    let err = execute(&home, &Cmd::Event(10, "ready".into(), Some(now + 61)), now).unwrap_err();
+    execute(
+        &home,
+        &Cmd::Event(10, "ready".into(), Some(now + 3600)),
+        now,
+    )
+    .unwrap();
+    let err = execute(
+        &home,
+        &Cmd::Event(11, "ready".into(), Some(now + 3601)),
+        now,
+    )
+    .unwrap_err();
     assert_eq!(err.0, 64);
     let conn = Connection::open(db::path(&home)).unwrap();
     assert_eq!(
@@ -2357,7 +2368,65 @@ fn an_event_is_stored_at_the_time_given_and_one_ahead_of_now_is_refused() {
             "SELECT group_concat(issue || ':' || event || ':' || (at - 1792000000), ' ')
              FROM (SELECT * FROM issue_events ORDER BY issue, event)"
         ),
-        "8:ready:-3600 8:started:0 9:ready:60"
+        "8:ready:-3600 8:started:0 9:ready:0 10:ready:0"
+    );
+}
+
+// The clamp: an --at ahead of now within AT_AHEAD is recorded at now and
+// said on standard error, and one beyond it is refused with the row left out.
+#[test]
+fn an_event_ahead_of_now_is_clamped_to_now_and_the_clamp_is_noted() {
+    let home = scratch("event-at-clamp");
+    let now = 1_792_000_000;
+    // A few minutes ahead: the row is kept, at now.
+    execute(&home, &Cmd::Event(4, "ready".into(), Some(now + 240)), now).unwrap();
+    let conn = Connection::open(db::path(&home)).unwrap();
+    assert_eq!(
+        one::<String>(
+            &conn,
+            "SELECT issue || ':' || event || ':' || (at - 1792000000) FROM issue_events"
+        ),
+        "4:ready:0"
+    );
+    // One ahead by less than a minute, which the old rule accepted: the row
+    // is kept too, and clamped.
+    execute(&home, &Cmd::Event(4, "started".into(), Some(now + 30)), now).unwrap();
+    assert_eq!(
+        one::<String>(
+            &conn,
+            "SELECT event || ':' || (at - 1792000000) FROM issue_events WHERE issue = 4
+             AND event = 'started'"
+        ),
+        "started:0"
+    );
+    // The refusal of a far future time keeps no row and its message names the
+    // window.
+    let err = execute(&home, &Cmd::Event(5, "ready".into(), Some(now + 7200)), now).unwrap_err();
+    assert_eq!(err.0, 64);
+    assert!(
+        err.1.contains("3600"),
+        "the refusal names the window: {}",
+        err.1
+    );
+    assert_eq!(one::<i64>(&conn, "SELECT count(*) FROM issue_events"), 2);
+}
+
+// Times that need no clamp keep their own seconds: the row of an event at now
+// or in the past is as its caller asked.
+#[test]
+fn an_event_at_now_or_in_the_past_is_not_clamped_and_says_nothing() {
+    let home = scratch("event-at-kept");
+    let now = 1_792_000_000;
+    execute(&home, &Cmd::Event(6, "ready".into(), Some(now)), now).unwrap();
+    execute(&home, &Cmd::Event(6, "started".into(), Some(now - 1)), now).unwrap();
+    let conn = Connection::open(db::path(&home)).unwrap();
+    assert_eq!(
+        one::<String>(
+            &conn,
+            "SELECT group_concat(event || ':' || (at - 1792000000), ' ')
+             FROM (SELECT * FROM issue_events ORDER BY event)"
+        ),
+        "ready:0 started:-1"
     );
 }
 

@@ -19,8 +19,10 @@
 //!     Records an event of the issue, the first time only. The events are
 //!     ready, started, ended, awaiting, merged, closed and stopped. --at is
 //!     when it happened, now when not given: the dispatcher records ready at
-//!     the start, with the time tehas:ready was accepted. A time more than a
-//!     minute ahead of now is a usage error.
+//!     the start, with the time tehas:ready was accepted. A time a little
+//!     ahead of now (the host's clock and GitHub's differ) is recorded at now,
+//!     said on standard error; a time further ahead than an hour is a usage
+//!     error.
 //!   analytics plan <issue> --rc <rc> --facts <file> [--rukas-image <commit>]
 //!                  [--image <id>] [--image-built <time>]
 //!     Records the planning turn of the issue that ended: its row in runs,
@@ -276,8 +278,12 @@ fn epoch(s: &str) -> Option<i64> {
         .flatten()
 }
 
-/// How far ahead of now an event's --at may be: clocks differ a little.
-const AT_AHEAD: i64 = 60;
+/// How far ahead of now an event's --at may be before it is refused. The
+/// dispatcher passes the time GitHub recorded for the approving label, so a
+/// host whose clock runs a little behind must keep the row rather than lose
+/// it: a time inside this window is clamped to now. A time beyond it is a
+/// usage error.
+const AT_AHEAD: i64 = 3600;
 
 // The path of --facts: not empty and not an option.
 fn facts(v: &str) -> Option<PathBuf> {
@@ -376,13 +382,22 @@ pub fn execute(home: &Path, cmd: &Cmd, now: i64) -> Result<(), (u8, String)> {
             return Err((73, format!("{} exists already", to.display())));
         }
     }
-    if let Cmd::Event(_, _, Some(at)) = cmd {
-        if *at > now + AT_AHEAD {
+    // The --at of an event: now when none was given or the time given was
+    // ahead, that time otherwise. A time past AT_AHEAD is refused below.
+    let mut at = None;
+    if let Cmd::Event(_, _, Some(wanted)) = cmd {
+        if *wanted > now + AT_AHEAD {
             return Err((
                 64,
-                format!("--at {at} is more than {AT_AHEAD}s ahead of now"),
+                format!("--at {wanted} is more than {AT_AHEAD}s ahead of now"),
             ));
         }
+        at = Some(if *wanted > now {
+            eprintln!("analytics: --at {wanted} is ahead of now; recorded at {now}");
+            now
+        } else {
+            *wanted
+        });
     }
     let file = db::path(home);
     let (conn, moved) = db::open(&file, now).map_err(|e| (70, e))?;
@@ -407,7 +422,7 @@ pub fn execute(home: &Path, cmd: &Cmd, now: i64) -> Result<(), (u8, String)> {
             }
             db::prune(&conn, now).map_err(db_err)
         }
-        Cmd::Event(issue, event, at) => {
+        Cmd::Event(issue, event, _) => {
             db::event(&conn, *issue, event, at.unwrap_or(now)).map_err(db_err)?;
             db::prune(&conn, now).map_err(db_err)
         }
