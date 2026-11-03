@@ -1837,10 +1837,22 @@ Those GitHub says are `CONFLICTING` get a request,
 request whose pull request no longer qualifies goes. `tehas-refresh.timer`
 starts it every minute, and it goes ahead only when the last run began that
 many minutes ago, by `~/tehas/state/refresh/last-run`. A run that failed
-counts. Each run writes one line to `~/tehas/logs/refresh.log`:
+counts. Each run writes one line to `~/tehas/logs/refresh.log`, with the
+counts of the sweep: how many pull requests it read, how many of the bot's
+that qualify conflict, how many are still `UNKNOWN`, how many qualify and are
+neither, and how many requests it wrote. `read N` is the sum of the three
+first counts, so 0 conflicts is said only when none of the pull requests read
+is `CONFLICTING` or `UNKNOWN`:
 
 ```
-2026-10-18T09:00:00Z read 6 pull requests, 1 conflict, wrote 1 requests
+2026-10-18T09:00:00Z read 6 pull requests: 1 conflict, 2 unknown, 1 not ours to refresh, wrote 1 requests
+```
+
+With `--json` the same counts also go to standard output as one object, beside
+the line:
+
+```
+{"read":6,"conflict":1,"unknown":2,"skipped":1,"wrote":1}
 ```
 
 **When it starts.** The dispatcher checks each request again at the start,
