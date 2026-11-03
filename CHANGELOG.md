@@ -17,6 +17,7 @@ empty one above it.
 - A factory pull request that waits for a person is titled `HALT: ` instead of `STUCK: `. The next poll renames the open ones.
 - `tehas drain` prints its answer when a poll holds its lock for the whole wait: `not drained:`, or `drained: false` with `--json`. It printed nothing, which stopped `industry factory upgrade` with `unreadable factory answer`.
 - The libraries no command sources are gone: `lib/attachments.sh`, `cycles.sh`, `labels.sh`, `millwright.sh`, `questions.sh`, `sandbox.sh`, `slice.sh`, `store.sh` and `history-lines.jq`. What still had a caller is in the console or the store now, and `install.sh` removes a host's copies in its stale-file step.
+- The host's pinned tools are back to what v0.24.x released: Node 22.23.4, gh 2.103.3, bun 1.4.4, jq 1.8.2, Pi 1.4.0, ctx7 0.8.2, parallel-cli 0.9.4, Playwright 1.64.1, Rust 1.99.1, rustup 1.29.2, codebase-memory-mcp 0.12.1, Caddy 2.11.7 and CI's actions/checkout v7.0.1, each with its checksum, digest or lockfile. A merge had put the earlier pins back in `host/versions.env`, the npm trees beside it, the Caddy digests and the two workflows.
 
 ### Adopter action
 
