@@ -2,10 +2,15 @@
 //! a check of who owns a file compares against.
 //!
 //! Both come from `id`. Asking the kernel instead needs libc's `getuid` and
-//! `getpwuid`, which are `unsafe` (AGENTS.md allows no `unsafe` in Rust), and
-//! `id` is already what `console dev` and `console review` ask for a name. The
-//! uid is the effective one, the same number `bin/tehas` hands the console as
-//! `<euid>`.
+//! `getpwuid`, which are `unsafe`, and AGENTS.md allows no `unsafe`.
+//!
+//! The uid is the effective one. It used to be the real one, from
+//! `libc::getuid`. The rest of the family already hands the console the
+//! effective number: `bin/tehas` and `bin/tehasbot` give `$EUID` to
+//! `console run` and `lib/config.sh` gives it to `console settings load`, so a
+//! check of who owns a file compares against the number the run was started
+//! with. No tehas program is setuid (host/docs/host.md), so on a host today the
+//! two answers are the same number.
 
 use std::process::{Command, Stdio};
 use std::sync::OnceLock;
