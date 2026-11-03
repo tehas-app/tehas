@@ -607,18 +607,21 @@ turn_doc 41 '{"subcommand":"plan","exitCode":41,"status":"lost","lost":true}'
 t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/brief.md"
 t_eq "$t_rc" 2
 t_contains "$t_out" "the session abc-123 is gone: the runner has no record of it"
-t_eq "$(jq -c . "$T/out.json")" '{"session":"abc-123","lost":true,"why":"the session abc-123 is gone: the runner has no record of it"}'
+# jq prints the keys of an object sorted, which is the order the document is
+# written in: a BTreeMap under serde_json, which has no `preserve_order`
+# feature here. The tests of plan/turn.rs and this file pin that order.
+t_eq "$(jq -c . "$T/out.json")" '{"lost":true,"session":"abc-123","why":"the session abc-123 is gone: the runner has no record of it"}'
 
 t_case "a refused or failed turn is exit 2, says why, and keeps the session for a retry"
-for doc in '40|{"exitCode":40,"error":{"code":"session-busy","message":"another run holds the session"}}|the runner exited 40 (session-busy: another run holds the session)' \
+for row in '40|{"exitCode":40,"error":{"code":"session-busy","message":"another run holds the session"}}|the runner exited 40 (session-busy: another run holds the session)' \
   '40|{"exitCode":40,"status":"failed","session":{"id":"abc-123"},"failure":{"reason":"empty-url"}}|the runner exited 40 (empty-url)' '30||the runner exited 30'; do
   first_turn_ran
-  turn_doc "${doc%%|*}" "$(printf '%s\n' "$doc" | cut -d'|' -f2)"
-  expected="$(printf '%s\n' "$doc" | cut -d'|' -f3)"
+  IFS='|' read -r rc body expected <<<"$row"
+  turn_doc "$rc" "$body"
   t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/brief.md"
   t_eq "$t_rc" 2
-  t_contains "$t_out" "the runner exited ${doc%%|*}"
-  t_eq "$(jq -c . "$T/out.json")" "{\"session\":\"abc-123\",\"why\":\"${expected}\"}"
+  t_contains "$t_out" "the runner exited $rc"
+  t_eq "$(jq -c . "$T/out.json")" "{\"session\":\"abc-123\",\"why\":\"$expected\"}"
 done
 t_contains "$t_out" "the runner exited 30, see"
 

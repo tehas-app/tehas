@@ -84,7 +84,7 @@
 //! with "why" and no "session", which is no session for the caller.
 
 use super::outcome;
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
 use signal_hook::consts::{SIGINT, SIGTERM};
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, ErrorKind, Write};
@@ -548,12 +548,6 @@ fn runner_why(d: &Value) -> String {
         .join(": ")
 }
 
-/// What the turn's output keeps as `why`: the words of the reason, cut on
-/// character boundaries so a multi-byte reason cannot be split.
-fn short_why(what: &str) -> String {
-    what.chars().take(WHY_MAX).collect()
-}
-
 /// The turn failed. The session, when it is known, and what went wrong are
 /// all that is left for the caller; `lost` says the session is gone, so the
 /// caller ends it. The reason goes in the output too, so the dispatcher can
@@ -565,26 +559,32 @@ fn give_up(turn: &Turn, sid: &str, what: &str, lost: bool) -> u8 {
         "tehas plan: issue={} {what}, see {}",
         turn.issue, turn.log
     ));
-    let mut doc = String::from("{");
+    // serde builds the document: the shape three readers parse is one the
+    // type system knows, and "nothing to say" is an empty map, not a byte
+    // count of a buffer.
+    let mut doc = Map::new();
     if !sid.is_empty() {
-        doc += &format!("\n  \"session\": {}", json!(sid));
+        doc.insert("session".to_string(), json!(sid));
         if lost {
-            doc += ",\n  \"lost\": true";
+            doc.insert("lost".to_string(), json!(true));
         }
     }
-    let why = short_why(what);
+    let why = tehas_core::jq::first(what, WHY_MAX);
     if !why.is_empty() {
-        if !sid.is_empty() {
-            doc += ",";
-        }
-        doc += &format!("\n  \"why\": {}", json!(why));
+        doc.insert("why".to_string(), json!(why));
     }
-    if doc.len() == 1 {
+    if doc.is_empty() {
         return FAILED;
     }
-    doc.push_str("\n}\n");
-    if write_out(turn.out, &doc).is_err() {
-        warn(&format!("tehas plan: could not write {}", turn.out));
+    let doc = match serde_json::to_string_pretty(&doc) {
+        Ok(doc) => format!("{doc}\n"),
+        Err(e) => {
+            warn(&format!("tehas plan: could not write {}: {e}", turn.out));
+            return FAILED;
+        }
+    };
+    if let Err(e) = write_out(turn.out, &doc) {
+        warn(&format!("tehas plan: could not write {}: {e}", turn.out));
     }
     FAILED
 }
@@ -1052,11 +1052,20 @@ mod tests {
         let doc = format!(r#"{{"exitCode":40,"failure":{{"reason":"{long}"}}}}"#);
         let (s, code) = ended("why-cut", 40, &doc, "abc-123");
         assert_eq!(code, 2);
-        let said: Value = serde_json::from_str(&s.read("out.json")).unwrap();
-        let why = said["why"].as_str().unwrap();
-        assert_eq!(why.chars().count(), 500);
+        let text = s.read("out.json");
+        let said: Value = serde_json::from_str(&text).expect("the outcome is json");
+        let why = said["why"].as_str().expect("the reason is a string");
+        assert_eq!(why.chars().count(), WHY_MAX);
         assert!(why.starts_with("the runner exited 40 ("));
         assert!(why.ends_with('x'));
+        // The same document, byte for byte, as its readers receive it.
+        let cut = "x".repeat(WHY_MAX - "the runner exited 40 (".len());
+        assert_eq!(
+            text,
+            format!(
+                "{{\n  \"session\": \"abc-123\",\n  \"why\": \"the runner exited 40 ({cut}\"\n}}\n"
+            )
+        );
     }
 
     #[test]
@@ -1064,8 +1073,9 @@ mod tests {
         let (s, code) = ended("lost", 41, r#"{"lost":true}"#, "abc-123");
         assert_eq!(code, 2);
         assert_eq!(
+            // serde_json's Map here is a BTreeMap, so the keys print sorted.
             s.read("out.json"),
-            "{\n  \"session\": \"abc-123\",\n  \"lost\": true,\n  \"why\": \"the session abc-123 is gone: the runner has no record of it\"\n}\n"
+            "{\n  \"lost\": true,\n  \"session\": \"abc-123\",\n  \"why\": \"the session abc-123 is gone: the runner has no record of it\"\n}\n"
         );
     }
 
@@ -1100,6 +1110,55 @@ mod tests {
             "{\n  \"session\": \"abc-123\",\n  \"why\": \"the turn said and asked nothing\"\n}\n"
         );
         assert!(!s.has("out.json.new"));
+    }
+
+    #[test]
+    fn a_refused_turn_that_says_nothing_still_keeps_its_session() {
+        // The runner gave no `error` and no `failure`, so its own words are
+        // empty and the document holds only what the turn knows: the status
+        // it exited with, and the session. A missing `why` means it said naught.
+        let (s, code) = ended("no-why", 40, "", "abc-123");
+        assert_eq!(code, 2);
+        assert_eq!(
+            s.read("out.json"),
+            "{\n  \"session\": \"abc-123\",\n  \"why\": \"the runner exited 40\"\n}\n"
+        );
+    }
+
+    #[test]
+    fn every_document_a_turn_gives_up_with_is_parsable() {
+        // The keys are optional and serde writes them, so the shape a reader
+        // gets is a document, in every combination of them.
+        for (name, rc, doc, sid, want) in [
+            (
+                "both",
+                41,
+                r#"{"lost":true}"#,
+                "abc-123",
+                r#"{"lost":true,"session":"abc-123","why":"the session abc-123 is gone: the runner has no record of it"}"#,
+            ),
+            (
+                "session",
+                40,
+                r#"{"error":{"code":"busy"}}"#,
+                "abc-123",
+                r#"{"session":"abc-123","why":"the runner exited 40 (busy)"}"#,
+            ),
+            ("reason", 30, "", "", r#"{"why":"the runner exited 30"}"#),
+        ] {
+            let (s, code) = ended(name, rc, doc, sid);
+            assert_eq!(code, 2, "{name}: a turn that gave up exits 2");
+            let text = s.read("out.json");
+            let said: Value = serde_json::from_str(&text).unwrap_or_else(|e| panic!("{name}: {e}"));
+            let want: Value = serde_json::from_str(want).unwrap();
+            assert_eq!(said, want, "{name}");
+            // The bytes on disk are exactly that document, pretty printed.
+            assert_eq!(
+                text,
+                format!("{}\n", serde_json::to_string_pretty(&want).unwrap()),
+                "{name}"
+            );
+        }
     }
 
     fn spawned(script: &str) -> Child {
