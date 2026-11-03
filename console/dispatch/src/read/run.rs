@@ -396,12 +396,12 @@ fn parse(out: &str) -> Value {
 /// The calls of one snapshot, and how many went to GitHub.
 pub struct Calls {
     /// The instance's home, which `TEHAS_HOME` gives every store call: the
-    /// store names its own database from it. lib/store.sh passes it explicitly;
+    /// store names its own database from it. Every caller passes it explicitly;
     /// a `Calls` built by a test that means a store of its own sets it, and one
     /// that names no home has no store to ask.
     pub home: Option<String>,
     pub bound: Duration,
-    /// lib/store.sh's tehas_store_bound.
+    /// The bound of one store call, as tehas_core::call has it.
     pub store_bound: Duration,
     pub gh: String,
     pub store: String,
@@ -705,7 +705,7 @@ impl Calls {
         )
         .to_string();
         // The program is tested before it runs, and the home is given to the
-        // child, both as lib/store.sh does for every verb: one that is not an
+        // child, both as tehas_core::call does for every verb: one that is not an
         // executable file is `absent`, which is the answer a poll whose store was
         // never installed gives, and the only one it can give.
         if !store_executable(&self.store) {
@@ -813,7 +813,7 @@ impl Calls {
             .collect())
     }
 
-    /// The store's answer to a read verb, or its failure as lib/store.sh
+    /// The store's answer to a read verb, or its failure as tehas_core::call
     /// keeps it: {failed, word, rc, line}.
     pub fn store(&mut self, args: &[&str]) -> Result<Value, Value> {
         call::store(&self.store, args, self.store_bound, GRACE, &[])

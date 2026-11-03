@@ -3,7 +3,7 @@
 # console's, and console/src/usage/dev.txt is the usage and its exit statuses.
 # This loads the settings, asks the console whether a session can start, gets
 # the bot's token and, with --issue, the issue's images and files, which
-# lib/attachments.sh fetches. A fault stops before GitHub is called and before
+# libexec/attach fetches. A fault stops before GitHub is called and before
 # anything is written.
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # A path bin/tehas and test/sandbox_argv_test.sh name; the rest is console/src/dev.rs.

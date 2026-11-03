@@ -18,7 +18,7 @@
 //!   With none, it acts with GH_TOKEN from ~/.config/tehas/env.
 //! - TEHAS_MILLWRIGHT_LOGIN names the millwright: an account whose tehas:ready
 //!   and planning answers the dispatcher takes within a narrower grant than a
-//!   person's (lib/millwright.sh). Unset means there is none. An App's
+//!   person's (console/dispatch/src/decide.rs). Unset means there is none. An App's
 //!   <slug>[bot] (REST) and <slug> (GraphQL) are one account, never the bot nor
 //!   an allowed labeller. A TEHAS_FIXER_* name stops the load.
 //! - TEHAS_LOW_GATE names a command the dispatcher runs before it starts the

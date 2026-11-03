@@ -146,8 +146,7 @@ t_eq "${t_out//$T/@T}" "ok    origin   @T/home/tehas/repos/widget is a clone of 
 ok    default  origin/HEAD is origin/main
 FAIL  agents   no AGENTS.md: tehas init-product proposes one
 FAIL  gate     no command in .pi/verify-cmd: tehas init-product proposes one
-FAIL  model    .pi/settings.json is not valid JSON
-ok    install  no lockfile and no .pi/install-cmd: nothing to install"
+FAIL  model    .pi/settings.json is not valid JSON"
 t_eq "$(sed '/"at":/d' "$result")" '{
   "v": 1,
   "ok": false,
@@ -186,13 +185,13 @@ t_contains "${t_out//$T/@T}" "FAIL  origin   @T/home/tehas/repos/widget is a che
 
 t_case "golden: the docker call of --sandbox, one argument a line, and its order"
 product "${good[@]}" ".pi/verify-cmd-full=make full" ".pi/smoke-cmd=make smoke" ".pi/worktree-setup=true"
-t_stub docker 'case $1 in image) printf "%s\n" "$@" >"$T/calls/inspect"; exit 0 ;; run) printf "%s\n" "$@" >"$T/calls/argv"; git -C "${@: -9:1}" log --format="%an %ae %s" -1 >"$T/calls/tip"; git -C "${@: -9:1}/../clone" branch --show-current >>"$T/calls/tip" ;; esac'
+t_stub docker 'case $1 in image) printf "%s\n" "$@" >"$T/calls/inspect"; exit 0 ;; run) printf "%s\n" "$@" >"$T/calls/argv"; git -C "${@: -9:1}" log --format="%an %ae %s" -1 >"$T/calls/tip"; git -C "${@: -9:1}" branch --show-current >>"$T/calls/tip" ;; esac'
 t_run "$check --sandbox"
 t_eq "$t_rc" 0
 t_eq "$(cat "$T/calls/inspect")" "image
 inspect
 tehas/pi-rukas:uid$(id -u)"
-t_eq "$(sed -E "s#$T/home/tehas/tmp/widget/check-product\.[A-Za-z0-9]{6}#@DIR#g" "$T/calls/argv")" "run
+t_eq "$(sed -E "s#$T/home/tehas/tmp/check-product\.[A-Za-z0-9]{6}#@TREE#g" "$T/calls/argv")" "run
 --rm
 --cgroup-parent
 tehas.slice
@@ -205,9 +204,9 @@ $(id -u):$(id -g)
 -e
 HOME=/home/vscode
 -v
-@DIR:@DIR
+@TREE:@TREE
 -w
-@DIR/tree
+@TREE
 --entrypoint
 bash
 tehas/pi-rukas:uid$(id -u)
@@ -259,78 +258,6 @@ wait \$pid
 echo status \$?"
 t_eq "$t_out" "status 143"
 t_eq "$(find "$T/home/tehas/tmp" -mindepth 1 | wc -l)" 0
-
-# What stands in for the image: the container's command runs here, in the
-# directory given with -w, and finds only the programs of $T/img, so a tool the
-# image lacks is one that is not there. Where each container started is
-# recorded, one line each.
-mkdir -p "$T/img"
-for c in bash sh git ln dirname mkdir test cat grep rm ls readlink env sed; do
-  ln -sf "$(command -v "$c")" "$T/img/$c"
-done
-image_stub() {
-  t_stub docker 'case $1 in image) exit 0 ;; run)
-  w=""; c=0; i=0; prev=""
-  for a in "$@"; do i=$((i + 1)); [ "$prev" != -w ] || w=$a; [ "$c" != 0 ] || [ "$a" != -c ] || c=$i; prev=$a; done
-  printf "%s\n" "$w" >>"$T/calls/where"
-  cd "$w" && PATH=$T/img exec bash "${@:c}" ;; esac'
-}
-# bun as pi-rukas's install leaves it: a tree in the directory it ran in.
-printf '#!%s\nmkdir -p node_modules && echo "$PWD" >node_modules/done\nexit "${BUN_RC:-0}"\n' "$T_BASH" >"$T/img/bun"
-chmod +x "$T/img/bun"
-# pi-rukas's .pi/worktree-setup, cut down: the tree comes from the main
-# checkout, found from the worktree with --git-common-dir.
-linker='root=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)"); ln -s "$root/extension/node_modules" extension/node_modules'
-
-t_case "a lockfile at the root or one down is the install, each in its directory"
-product "${good[@]}" "extension/bun.lock=x" "Cargo.lock=x" "node_modules/x/package-lock.json=x"
-t_run "$check"
-t_eq "$t_rc" 0
-t_eq "$(grep '^ok    install' <<<"$t_out")" "ok    install  ./: cargo fetch --locked
-ok    install  extension/: bun install --frozen-lockfile"
-
-t_case ".pi/install-cmd is run in place of what the lockfiles say"
-product "${good[@]}" "extension/bun.lock=x" ".pi/install-cmd=# ours
-make deps"
-t_run "$check"
-t_eq "$t_rc" 0
-t_eq "$(grep '^ok    install' <<<"$t_out")" "ok    install  ./: make deps"
-
-t_case "--sandbox installs at the root of its clone, then runs the gates in a worktree of it"
-product "${good[@]}" "extension/bun.lock=x" ".pi/verify-cmd-full=test -f extension/node_modules/done" ".pi/worktree-setup=$linker"
-image_stub
-t_run "$check --sandbox"
-t_eq "$t_rc" 0
-t_contains "$t_out" "ok    install  extension/: bun install --frozen-lockfile"
-t_contains "$t_out" "ok    install  the install passed in tehas/pi-rukas:uid$(id -u)"
-t_contains "$t_out" "ok    sandbox  the gates passed"
-t_eq "$(sed -E "s#$T/home/tehas/tmp/widget/check-product\.[A-Za-z0-9]{6}#@DIR#" "$T/calls/where")" "@DIR/clone
-@DIR/tree"
-# The product checkout keeps no worktree and no branch of the check.
-t_eq "$(git -C "$T/home/tehas/repos/widget" worktree list | wc -l)" 1
-t_eq "$(git -C "$T/home/tehas/repos/widget" branch --list 'tehas/*')" ""
-t_eq "$(find "$T/home/tehas/tmp" -mindepth 1 | wc -l)" 0
-t_eq "$(jq .sandbox "$result")" true
-
-t_case "--sandbox: an install that fails is a failure, and no gate runs"
-T_ENV=(BUN_RC=4)
-rm -f "$T/calls/where"
-t_run "$check --sandbox"
-t_eq "$t_rc" 78
-t_contains "$t_out" "FAIL  install  the install failed in tehas/pi-rukas:uid$(id -u) (exit 4)"
-t_lacks "$t_out" "sandbox  the gates"
-t_eq "$(wc -l <"$T/calls/where")" 1
-t_eq "$(jq .sandbox "$result")" false
-
-t_case "--sandbox: a tool the image lacks is named, and nothing is installed"
-product "${good[@]}" "extension/bun.lock=x" "composer.lock=x"
-image_stub
-t_run "$check --sandbox"
-t_eq "$t_rc" 78
-t_contains "$t_out" "FAIL  install  no composer in the sandbox image"
-t_lacks "$t_out" "the install failed"
-t_lacks "$t_out" "sandbox  the gates"
-t_eq "$(jq -c .failures "$result")" '["no composer in the sandbox image"]'
 
 t_case "a host with no console beside the command starts nothing: 78, and says to install"
 rm "$T/tree/libexec/console"
