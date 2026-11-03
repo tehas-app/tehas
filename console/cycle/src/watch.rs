@@ -2,7 +2,7 @@
 //! keeps the cycle's console and heartbeat, stops a cycle that stalls or passes
 //! its time limit, and leaves the cycle's notes for tehasbot cycle. It runs in
 //! the process that holds the issue's lock as fd 9, and the docker client
-//! inherits it. What each file proves is in lib/cycles.sh, and the exit
+//! inherits it. What each file proves is in src/host.rs, and the exit
 //! statuses in src/work.rs.
 //!
 //! The two bounds of the loop are counted on [`crate::clock`], not the wall

@@ -4,7 +4,7 @@
 //!
 //! The decisions are here and nothing else: `libexec/easy-merge` is the few
 //! lines that start this in the sandbox container, and the container is given
-//! what a cycle is given (lib/sandbox.sh), so no mount or variable is added
+//! what a cycle is given (console/core/src/sandbox.rs), so no mount or variable is added
 //! here. The pull request's CI is the gate: this command runs none of the
 //! product's own.
 //!

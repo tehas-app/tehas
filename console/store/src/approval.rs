@@ -49,7 +49,7 @@ pub const FIXER: &str = tehas_core::grammar::MILLWRIGHT_WORDS[1];
 /// pair's own case in `core`'s `grammar`.
 ///
 /// What part 5 of #686 drops is the aliases `Args::word` takes, the words of
-/// the two `lib/store.sh` shapes and the old keys a read still answers. Every
+/// the two shapes of the shell of before and the old keys a read still answers. Every
 /// one of them says `part 5 of #686`; the two schema CHECK lists take both
 /// words too and are named at their sites in `db.rs`.
 pub const MILLWRIGHT_WORDS: [&str; 2] = tehas_core::grammar::MILLWRIGHT_WORDS;

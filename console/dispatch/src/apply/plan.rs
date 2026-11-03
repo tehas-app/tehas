@@ -6,6 +6,15 @@
 //! turn cut off (plan_recover) or a session Pi lost (plan_lost), and a
 //! session ended (plan_end, plan_close). The start of a turn is the next
 //! part of #254.
+//!
+//! The text of a drafted plan is checked by `tehas_core::plan`: `made` is the
+//! authority that refuses what says nothing of the issue, and the two calls
+//! this file makes (`plan_clear` of the draft, and `draft_refused` of the
+//! outcome kept for a poll) are pre-checks of it, not the gate. A poll may
+//! still read `state/plan-<n>.json.out` and `<keep>/draft.json` for an
+//! `update` outcome; when the draft cannot be read, or holds neither of the
+//! two strings the outcome would write, the pre-check has no answer and the
+//! `update` is not written.
 
 use super::{text, word, Writer, Wrote};
 use crate::decide::{iso, shape};
@@ -19,7 +28,10 @@ use std::path::PathBuf;
 use std::sync::OnceLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tehas_core::events::{plan_credit, Events};
-use tehas_core::plan::made;
+use tehas_core::plan::{
+    carries_update, clear_plan, draft_holds, is_refusal, refusal_document, refused_by_draft,
+    says_refusal, Refused,
+};
 use tehas_core::question::{self, Kind, MAX_OPTIONS};
 
 /// plan_filed_re: an address of an issue a turn filed.
@@ -43,6 +55,17 @@ fn s<'a>(v: &'a Value, path: &str) -> &'a str {
 /// q_render for a planning turn: the body of its question comment.
 pub fn q_render(issue: u64, turn: u64, out: &Value, line: &str) -> String {
     question::q_render(Kind::Plan, issue, turn, out, line)
+}
+
+/// The outcome of a poll that refused the drafted plan: `why` is the line the
+/// person reads, said once, in the comment the poll posted before it asks
+/// anything; the question of the turn holds none of it again, so
+/// [`tehas_core::plan::refusal_document`] is asked for nothing there. There is
+/// no `update` for a later poll to write, and no box for a person to tick: the
+/// tick of Update this issue is the write the refusal stopped, so the answer
+/// that moves the session on is a reply.
+fn refused_document(why: &str, session: Option<&Value>) -> Value {
+    refusal_document(why, "", session)
 }
 
 /// True only when the plan has a Later parts section
@@ -134,6 +157,27 @@ fn now() -> u64 {
         .unwrap_or(0)
 }
 
+/// Why a poll will not write the `update` of its outcome. Both refusals leave
+/// the session open for a reply; they differ in what the person is told. The
+/// outcome this reads is always a document that carries an `update` of two
+/// strings: `plan_post` asks nothing of one that does not, as it holds no text
+/// for the write and the pre-check has nothing to refuse.
+enum DraftCheck {
+    /// The draft behind the document holds text the check lets through.
+    Write,
+    /// The rule the draft's own text failed, in a [`Refused`] whose line the
+    /// poll posts as its own comment. The document keeps the `update` it
+    /// holds on disk, as `plan_clear` leaves the outcome for a clear draft it
+    /// refused, so the plan is there to tick again after the reply.
+    Refused(Refused),
+    /// No answer: the kept draft is gone, is no document, or holds neither of
+    /// the strings this outcome would write, so its text is not what the write
+    /// would put on the issue. The document came from a writer this poll
+    /// cannot see the text of, so the `update` goes and the question of the
+    /// turn asks; the reason is for the log, not the issue.
+    Unknown(String),
+}
+
 impl Writer {
     pub(super) fn st(&self, n: u64, end: &str) -> PathBuf {
         self.home.join(format!("state/plan-{n}.json{end}"))
@@ -150,11 +194,17 @@ impl Writer {
             .unwrap_or(Value::Null)
     }
 
-    /// plan-show: the session on record, or the warning that it could not
-    /// be read.
-    fn plan_show(&mut self, n: u64, log: &mut Vec<String>) -> Option<Value> {
+    /// plan_show: the session on record, or the warning that it could not be
+    /// read. The outcome file is read beside it: the two belong to one turn,
+    /// and a caller that took the trouble to read the session has seen the
+    /// document the turn left with it, so a later read of the file cannot pick
+    /// up what a refusal rewrote.
+    fn plan_show(&mut self, n: u64, log: &mut Vec<String>) -> Option<(Value, Value)> {
         match self.calls.store(&["plan-show", &n.to_string()]) {
-            Ok(v) => Some(v),
+            Ok(v) => {
+                let out = self.outcome(n);
+                Some((v, out))
+            }
             Err(f) => {
                 log.push(format!(
                     "WARN: the planning record of #{n} could not be read ({}); the next poll tries again",
@@ -230,7 +280,7 @@ impl Writer {
         } else {
             "not readable".to_string()
         };
-        let Some(show) = self.plan_show(n, log) else {
+        let Some(show) = self.plan_show(n, log).map(|(show, _)| show) else {
             return;
         };
         let turns = show
@@ -243,7 +293,7 @@ impl Writer {
 
     fn plan_recover(&mut self, n: u64, log: &mut Vec<String>) {
         let _ = std::fs::remove_file(self.st(n, ".out"));
-        let Some(show) = self.plan_show(n, log) else {
+        let Some(show) = self.plan_show(n, log).map(|(show, _)| show) else {
             return;
         };
         if show.pointer("/planning/lost") == Some(&json!(true)) {
@@ -377,7 +427,7 @@ impl Writer {
         log: &mut Vec<String>,
     ) -> bool {
         let turns = turns0 + 1;
-        let Some(show) = self.plan_show(n, log) else {
+        let Some(show) = self.plan_show(n, log).map(|(show, _)| show) else {
             return false;
         };
         let label = s(&show, "/planning/label").to_string();
@@ -578,10 +628,22 @@ impl Writer {
         }
     }
 
-    /// The plan_post action, and the post after a turn: its question, then
-    /// its labels, then the record.
+    /// The plan_post action, and the post after a turn: the refusal of a
+    /// drafted plan if it holds one, then its question, then its labels, then
+    /// the record. Each of those is a write of its own that can end the poll
+    /// and leave the rest to the next one, so a poll that fails after the
+    /// refusal comment and before the question says the refusal again and
+    /// posts no question twice.
+    /// plan_post: the refusal of a drafted plan if its outcome holds one, then
+    /// its question, then its labels, then the record. Each is a write of its
+    /// own that can end the poll and leave the rest to the next one, so a poll
+    /// that fails after the refusal comment and before the question says the
+    /// refusal again and posts no question twice. The outcome is the document
+    /// `plan_show` read with the session, so one read of the file serves the
+    /// poll and a refusal that rewrites it cannot be read back as the outcome
+    /// of the poll that made it.
     pub(super) fn plan_post(&mut self, n: u64, log: &mut Vec<String>) -> bool {
-        let Some(show) = self.plan_show(n, log) else {
+        let Some((show, kept)) = self.plan_show(n, log) else {
             return false;
         };
         let p = show.get("planning").cloned().unwrap_or(Value::Null);
@@ -593,12 +655,89 @@ impl Writer {
         };
         let failed = p.get("failed") == Some(&json!(true));
         let label = text(&p, "label").to_string();
-        let mut out = self.outcome(n);
-        if comment.is_empty() && out.get("clear") == Some(&json!(true)) {
-            match self.plan_clear(n, &p, &out) {
-                Ok(next) => out = next,
-                Err(why) => log.push(format!("planning #{n} asks: {why}")),
+        // What `plan_clear` and a refusal of a draft may both rewrite. The
+        // outcome a poll leaves for a refused draft goes back to this, so the
+        // question of the turn is asked of the document the runner's answer
+        // made, and the plan a person can tick again stays in the file.
+        let mut out = kept.clone();
+        // The refusal of the draft's own text, which the check of #1210 gives
+        // for the document this poll holds. It is taken once, here: the two
+        // guards below answer for the same draft, and the line a person reads
+        // is said once, whichever of them refused it.
+        let mut why = if comment.is_empty() && carries_update(&out) {
+            match self.draft_refused(n, &out) {
+                DraftCheck::Write => None,
+                DraftCheck::Refused(refused) => Some(refused.line()),
+                DraftCheck::Unknown(why) => {
+                    // No write, and no comment of its own either: the question
+                    // of the turn asks, and the log says why the check could
+                    // not answer for this document. The `update` goes with the
+                    // document, so the next poll cannot reach the write either.
+                    log.push(format!(
+                        "WARN: the drafted plan of #{n} was not checked before its write ({why})"
+                    ));
+                    out = Value::Null;
+                    None
+                }
             }
+        } else {
+            None
+        };
+        if comment.is_empty() && out.get("clear") == Some(&json!(true)) {
+            // A clear draft whose text the check refuses is read again by
+            // `plan_clear` through `clear_plan`, which holds its own refusal
+            // and does not let the poll read it as anything but its reason, so
+            // that is the one whose line is said: the pre-check asked the same
+            // function of the same draft, and the rule is said once either way
+            // — masked as every other planner-authored string that reaches
+            // GitHub is, since it quotes the title the planner wrote.
+            // An operational reason (`plan_clear` gives a few of them) is for
+            // the log, as it was before this check.
+            match self.plan_clear(n, &p, &out) {
+                Ok(next) => {
+                    out = next;
+                    why = None;
+                }
+                Err(reason) => {
+                    // The plan's text stays on the issue and nothing of it is
+                    // kept for a later poll: the outcome goes back to what the
+                    // console wrote, and the person is told which rule the
+                    // draft failed. The turn's own text and its boxes are still
+                    // what the console asked for, so the tick that led here is
+                    // not lost.
+                    out = kept.clone();
+                    // The pre-check above refused this draft too, and both
+                    // read the same `made`, so their lines are one line; the
+                    // reason is taken either way, since `plan_clear` is the
+                    // guard that read the draft with the issue before it.
+                    let text = why.take().unwrap_or(reason);
+                    if says_refusal(&text) {
+                        why = Some(text.clone());
+                        if !self.say(n, &question::q_clean(&text, 4000), log) {
+                            log.push(format!(
+                                "WARN: the refusal of the drafted plan of #{n} could not be posted; the next poll tries again"
+                            ));
+                            return false;
+                        }
+                    }
+                    log.push(format!("planning #{n} asks: {text}"));
+                }
+            }
+        }
+        // A draft whose text says nothing of the issue writes nothing, whether
+        // it was kept for the tick or for a start with no open points: the
+        // issue keeps its text, the session stays open, and the only answer
+        // that changes anything is a reply that changes the plan. The document
+        // on disk goes back to what the console wrote, so the plan stays there
+        // to tick once the person's reply has changed it, and the question of
+        // the turn is asked of the document the runner made. The rule is said
+        // once, in the comment above, so the document's own question holds
+        // nothing of it and no box: the tick this refusal stopped is gone.
+        if comment.is_empty() && why.is_some() {
+            let said = question::q_clean(why.as_deref().unwrap(), 4000);
+            log.push(format!("planning #{n} asks: {said}"));
+            self.outcome_said(n, &kept);
+            out = refused_document(&said, out.get("session"));
         }
         let mut filed: Vec<&str> = out
             .get("filed")
@@ -672,6 +811,40 @@ impl Writer {
         true
     }
 
+    /// What the check of #1210 says about the `update` of `out`, read from the
+    /// draft kept beside the session. The draft is what [`tehas_core::plan`]
+    /// checks, so the tick and a plan with no open points are one check, and
+    /// the rule a person reads is `Refused::line`. This pre-check is not the
+    /// gate: `made` still refuses the same draft at the write. `plan_clear`
+    /// asks `made` of the same draft earlier in the same poll, and when it
+    /// refuses, the outcome this reads holds no `update` at all.
+    fn draft_refused(&self, n: u64, out: &Value) -> DraftCheck {
+        // A draft this poll cannot read is no answer: the write would go
+        // unchecked, so the `update` does not happen.
+        let Some(draft) = std::fs::read_to_string(self.keep(n).join("draft.json"))
+            .ok()
+            .and_then(|t| serde_json::from_str::<Value>(&t).ok())
+        else {
+            return DraftCheck::Unknown("no drafted plan is kept for it".to_string());
+        };
+        // The draft must hold one of the two strings the poll would write, or
+        // what it says is no answer for this document: it came from a writer
+        // this poll cannot see the text of.
+        if !draft_holds(out, &draft, false) {
+            return DraftCheck::Unknown("no kept draft holds its text".to_string());
+        }
+        // The check itself answers only for a document whose draft holds both
+        // of its strings; a document that fails that came from a writer whose
+        // text this poll cannot read, so its write does not happen.
+        if !draft_holds(out, &draft, true) {
+            return DraftCheck::Unknown("no kept draft holds all of its text".to_string());
+        }
+        match refused_by_draft(out, &draft) {
+            Some(refused) => DraftCheck::Refused(refused),
+            None => DraftCheck::Write,
+        }
+    }
+
     /// A drafted plan with no open points, in a plan session: the outcome that
     /// makes it the issue's text and starts it, kept for the poll that writes
     /// it, or why this one asks as any other does. What is decided here is
@@ -722,11 +895,18 @@ impl Writer {
             .ok()
             .and_then(|t| serde_json::from_str::<Value>(&t).ok())
             .ok_or("no drafted plan is kept")?;
-        let plan = made(
+        // The title and the text the plan would put on the issue are what
+        // `made` reads, so a draft that says nothing of the issue is refused
+        // here too, before the start is kept or a cycle credited: it asks,
+        // with the rule the draft failed in the comment a person reads.
+        let plan = clear_plan(
             &draft,
             &was,
             &format!("This issue now holds the plan, which has no open points. A cycle starts on @{by}'s `tehas:plan` when there is room. Take `tehas:ready` off to stop it."),
-        )?;
+        )
+        // The reason a person reads, so the line the poll logs and the line
+        // the poll posts say which rule the draft failed.
+        .map_err(|refused| refused.line())?;
         // tehas:plan approved the brief's links; the planner cannot add one.
         let approved = link_list(text(p, "brief"));
         if link_list(&plan.body).iter().any(|l| !approved.contains(l)) {
@@ -735,11 +915,7 @@ impl Writer {
         let update = json!({"title": plan.title, "body": plan.body});
         let next = json!({"session": out.get("session"), "text": plan.text, "question": null,
             "update": update, "start": {"by": by, "sum": plan_sum(&update)}});
-        let new = self.st(n, ".out.new");
-        let moved = std::fs::write(&new, format!("{next}\n"))
-            .and_then(|()| std::fs::rename(&new, self.st(n, ".out")));
-        if moved.is_err() {
-            let _ = std::fs::remove_file(&new);
+        if !self.outcome_said(n, &next) {
             return Err("the plan could not be kept for the next poll".into());
         }
         Ok(next)
@@ -854,7 +1030,22 @@ impl Writer {
             }
             self.plan_text_said(n, out);
         }
-        let body = q_render(n, turn, out, line);
+        // The document of the refusal is what the person is left with: the
+        // line of the rule as its text, and no `update` for a later poll to
+        // write. The question of a refusal is asked of a reply, not of a tick
+        // (the tick of Update this issue is the write the refusal stopped, and
+        // the person has just read the rule in the comment above this one), so
+        // it holds no boxes. The console's own question for a draft it only
+        // shows is left as it stands: it holds no `update`, so it asks nothing
+        // a refusal has stopped.
+        let refused = is_refusal(out);
+        let rest = if refused {
+            json!({"session": out.get("session"), "text": s(out, "/text"),
+                   "question": {"question": "", "options": []}})
+        } else {
+            out.clone()
+        };
+        let body = q_render(n, turn, &rest, line);
         let args = vec![
             "api".into(),
             "-X".into(),
@@ -875,16 +1066,25 @@ impl Writer {
     }
 
     /// The outcome without its text, so a poll that posts the question again
-    /// does not say the plan twice.
-    fn plan_text_said(&self, n: u64, out: &Value) {
+    /// does not say the plan twice. False when the file could not be written.
+    fn plan_text_said(&self, n: u64, out: &Value) -> bool {
         let mut rest = out.clone();
         rest["text"] = json!("");
+        self.outcome_said(n, &rest)
+    }
+
+    /// The outcome kept as `doc` holds it, written whole and moved into place
+    /// so a poll that reads it sees one document or the other. False when the
+    /// file could not be written, which leaves what was in it for the next
+    /// poll to answer again.
+    fn outcome_said(&self, n: u64, doc: &Value) -> bool {
         let new = self.st(n, ".out.new");
-        let moved = std::fs::write(&new, format!("{rest}\n"))
+        let moved = std::fs::write(&new, format!("{doc}\n"))
             .and_then(|()| std::fs::rename(&new, self.st(n, ".out")));
         if moved.is_err() {
             let _ = std::fs::remove_file(&new);
         }
+        moved.is_ok()
     }
 
     /// plan_replace: a refine that filed replaces its issue. The mark on the

@@ -167,7 +167,7 @@ scripts/tag-deploy.sh tehas-tehas   # run tehas update on that host, check it la
 Both run unattended. Both fetch the remote's tags by force, so a tag the remote
 re-points is taken rather than refused, and a fetch that fails says so. `tag-release.sh` runs the gate on the head of main before
 it tags, does nothing when the head is already tagged, and prints the tag on
-stdout; `--minor`, `--major`, `--rc` (a release candidate, `vX.Y.Z-rc.N`, published as a prerelease; `--from <branch>` tags a candidate branch that contains main), `--message`, `--no-verify` and `--dry-run` are
+stdout; `--minor`, `--major`, `--message`, `--no-verify` and `--dry-run` are
 there too. Before it tags, it removes the polyfills the newest pi-rukas no
 longer needs (`scripts/polyfills.sh`): it opens a pull request for that, exits
 2 and tags once that is merged. `tag-deploy.sh` refuses when main has
@@ -188,14 +188,11 @@ host.
 | `libexec/` | The scripts behind them, all bash. Installed to `~/tehas/libexec` |
 | `console/` | The console of a running cycle, a Rust program. `install.sh` builds it and installs it as `~/tehas/libexec/console` |
 | `lib/config.sh` | Loads and checks the instance settings |
-| `lib/attachments.sh` | Files attached to an issue: the way to `libexec/attach`, which fetches and judges them |
-| `lib/cycles.sh` | Which cycles are running, from the lock each one holds, and where a parked cycle's question is on record |
 | `lib/polyfill-<feature>.sh` | What tehas does itself for a pi-rukas feature no release has yet, until one has it. Each names the upstream issue and pull request. None today |
 | `lib/improve-prompt.md` | The prompt the improvement loop's analyst reads |
-| `lib/labels.sh` | Who applied a label, read from the label events |
-| `lib/questions.sh` | The questions the factory asks on an issue |
-| `lib/sandbox.sh` | What a sandbox container is given, for a cycle and for a session by hand |
-| `lib/slice.sh` | The way to `console slice`: whether `tehas.slice` is usable, the limits of a container, the room left |
+| `lib/paths.sh` | The home of each tool a host installs, and the `PATH` that finds them |
+| `lib/github-app.sh` | A login shell as the factory's GitHub App |
+| `lib/rukas.sh` | Which pi-rukas commit a host follows, for the sandbox build and bootstrap |
 | `api/` | A JSON Schema of `tehas status --json` and two samples the tests make from the code; a program that reads the object copies them into its own tests |
 | `host/` | Everything else that is installed: units, the docs server, the sandbox image, the manual |
 | `preview/` | What `tehasbot preview` builds for a pull request of this repository |

@@ -2,7 +2,7 @@
 //! way to $TEHAS_HOME/libexec/attach (console/attach), which holds which links
 //! count, who may attach, how much an issue is given and what a file is, and
 //! fetches. Here are the settings it is passed and what a start reads of its
-//! answers. lib/attachments.sh is the same way for tehas plan. Who approved is
+//! answers. console/src/attach.rs is the same way for tehas plan. Who approved is
 //! the caller's word: who applied the label (AGENTS.md rule 5).
 //!
 //! A reason here may be put on the issue, so it names no host path.
@@ -161,8 +161,15 @@ fn array_or_none<'a>(v: &'a Value, key: &str) -> Option<&'a [Value]> {
 
 /// With no program: <dir> with a manifest that gives nothing, when there is
 /// nothing to give. A record's links and the words of a retry are what a start
-/// with one is given, else the links of the issue's text.
-fn gives_nothing(issue: u64, dir: &Path, record: &str, data: &str) -> Result<(), String> {
+/// with one is given, else the links of the issue's text. `files` is whether the
+/// instance gives a cycle files (TEHAS_WORK_FILES=1).
+fn gives_nothing(
+    issue: u64,
+    dir: &Path,
+    record: &str,
+    data: &str,
+    files: bool,
+) -> Result<(), String> {
     let approval = if !record.is_empty() {
         let r = record_value(Path::new(record)).ok_or(NO_ATTACH)?;
         let mut given = 0;
@@ -203,11 +210,7 @@ fn gives_nothing(issue: u64, dir: &Path, record: &str, data: &str) -> Result<(),
         }
         "null".to_string()
     };
-    let files = if env("TEHAS_WORK_FILES") == "1" {
-        "  \"files\": [],\n"
-    } else {
-        ""
-    };
+    let files = if files { "  \"files\": [],\n" } else { "" };
     let unmade = "the directory for the issue's images could not be made";
     let _ = fs::remove_dir_all(dir);
     fs::create_dir_all(dir).map_err(|_| unmade)?;
@@ -235,7 +238,7 @@ pub fn issue_images(
     data: &str,
 ) -> Result<(), String> {
     let Some(bin) = attach(home) else {
-        return gives_nothing(issue, dir, record, data);
+        return gives_nothing(issue, dir, record, data, env("TEHAS_WORK_FILES") == "1");
     };
     let args: Vec<String> = [
         issue.to_string(),
@@ -516,5 +519,172 @@ mod tests {
         let mut short = person("alice");
         short["body_sha256"] = json!("abc");
         assert!(base(&short, "alice").is_none());
+    }
+
+    /// A scratch directory of its own, with no program in it: a home with no
+    /// libexec/attach.
+    fn scratch(name: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("tehas-gives-{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&d);
+        fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    fn manifest(dir: &Path) -> Value {
+        serde_json::from_str(&fs::read_to_string(dir.join("manifest.json")).unwrap()).unwrap()
+    }
+
+    #[test]
+    fn with_no_program_an_issue_that_links_nothing_gets_a_manifest_that_gives_nothing() {
+        let d = scratch("nothing");
+        let dir = d.join("images");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("old.png"), "x").unwrap();
+        let body = r#"{"body":"No link here, and https://github.com/acme/widget/pull/3 is no attachment"}"#;
+        assert_eq!(issue_images(&d, 7, &dir, "approved", "", body), Ok(()));
+        let names: Vec<_> = fs::read_dir(&dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        assert_eq!(names, ["manifest.json"]);
+        assert_eq!(
+            manifest(&dir),
+            json!({"images": [], "leftOut": [], "issue": 7, "approval": null, "leftOutMore": 0})
+        );
+        // An instance that gives files is given an empty list of them.
+        gives_nothing(7, &dir, "", body, true).unwrap();
+        let keys: Vec<_> = manifest(&dir)
+            .as_object()
+            .unwrap()
+            .keys()
+            .cloned()
+            .collect();
+        assert!(keys.contains(&"files".to_string()));
+        assert_eq!(manifest(&dir)["files"], json!([]));
+        // Nothing was given, so the comment of what was given says nothing.
+        assert_eq!(said(&d, &dir, "cycle", "1"), "");
+        let _ = fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn with_no_program_every_shape_of_a_link_stops_the_start() {
+        let d = scratch("links");
+        let dir = d.join("images");
+        for link in [
+            "https://github.com/user-attachments/assets/1",
+            "https://github.com/user-attachments/files/2/a.md",
+            "https://github.com/acme/widget/assets/3/a.png",
+            "https://github.com/acme/widget/files/4/a.zip",
+            "https://user-images.githubusercontent.com/5/a.png",
+        ] {
+            let body = json!({"body": format!("See {link}")}).to_string();
+            assert_eq!(
+                issue_images(&d, 7, &dir, "approved", "", &body),
+                Err(NO_ATTACH.to_string()),
+                "{link}"
+            );
+        }
+        // The reason may be put on the issue: it names no path of the host.
+        assert!(!NO_ATTACH.contains('/'));
+        let _ = fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn with_no_program_an_issue_that_cannot_be_read_stops_the_start() {
+        let d = scratch("unread");
+        let dir = d.join("images");
+        for data in ["[1]", "nonsense", r#"{"body":7}"#] {
+            assert_eq!(
+                gives_nothing(7, &dir, "", data, false),
+                Err("the issue could not be read for its images".to_string()),
+                "{data}"
+            );
+        }
+        let _ = fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn with_no_program_a_record_decides_what_there_is_to_give_not_the_body() {
+        let d = scratch("record");
+        let dir = d.join("images");
+        let record = d.join("record.json");
+        let path = record.to_string_lossy().into_owned();
+        let mut r = json!({"at": "2026-10-14T00:00:00Z", "by": "alice", "how": "label",
+            "body_sha256": "a".repeat(64), "links": ["https://github.com/user-attachments/assets/1111"]});
+        fs::write(&record, r.to_string()).unwrap();
+        assert_eq!(
+            issue_images(&d, 7, &dir, "approved", &path, r#"{"body":"no link"}"#),
+            Err(NO_ATTACH.to_string())
+        );
+        r["links"] = json!([]);
+        fs::write(&record, r.to_string()).unwrap();
+        let linked = r#"{"body":"https://github.com/user-attachments/files/9/any.zip"}"#;
+        assert_eq!(issue_images(&d, 7, &dir, "approved", &path, linked), Ok(()));
+        assert_eq!(
+            manifest(&dir)["approval"],
+            json!({"at": "2026-10-14T00:00:00Z", "by": "alice", "how": "label"})
+        );
+        // Comment links, the words of a retry, or a record of another shape.
+        for edit in [
+            json!({"comment_links": [{"link": "L"}]}),
+            json!({"retry_context": [{"source": "refresh", "text": "t"}]}),
+            json!({"links": 7}),
+        ] {
+            let mut e = r.clone();
+            for (k, v) in edit.as_object().unwrap() {
+                e[k] = v.clone();
+            }
+            fs::write(&record, e.to_string()).unwrap();
+            assert_eq!(
+                issue_images(&d, 7, &dir, "approved", &path, "{}"),
+                Err(NO_ATTACH.to_string()),
+                "{edit}"
+            );
+        }
+        let _ = fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn with_no_program_a_kept_manifest_is_held_only_where_something_was_given() {
+        let d = scratch("changed");
+        let dir = d.join("images");
+        let kept = d.join("kept.json");
+        gives_nothing(7, &dir, "", "{}", false).unwrap();
+        fs::write(&kept, r#"{"images":[{"link":"L","sha256":"aa"}]}"#).unwrap();
+        // Nothing given has no bytes to hold to the kept manifest.
+        assert_eq!(changed(&d, &kept, &dir), Ok(()));
+        // Something given, and no program to hold it to its bytes: the start
+        // stops, and the reason names no path.
+        fs::write(
+            dir.join("manifest.json"),
+            r#"{"images":[{"file":"image-1.png","link":"L","sha256":"aa"}],"leftOut":[]}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            changed(&d, &kept, &dir),
+            Err("the kept manifest could not be compared".to_string())
+        );
+        // No kept manifest: nothing to compare.
+        fs::remove_file(&kept).unwrap();
+        assert_eq!(changed(&d, &kept, &dir), Ok(()));
+        let _ = fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn with_no_program_a_record_that_is_there_is_one_that_could_not_be_read() {
+        let d = scratch("left-out");
+        let record = d.join("record.json");
+        fs::write(&record, "{}").unwrap();
+        let file = d.join("left.json");
+        assert!(matches!(
+            left_out(&d, 7, &file, &record.to_string_lossy()),
+            Gap::Unread
+        ));
+        let none = d.join("no-such-record");
+        assert!(matches!(
+            left_out(&d, 7, &file, &none.to_string_lossy()),
+            Gap::Nothing
+        ));
+        let _ = fs::remove_dir_all(&d);
     }
 }
