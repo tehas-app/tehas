@@ -837,7 +837,11 @@ dispatcher's log says so.
      included, the issue's title and text, and ends the session. No
      container runs for it. The bot's last comment says so and holds the
      text the plan replaced, folded. The plan is written with the bot's
-     token.
+     token. A plan whose own title or text says nothing of the issue is
+     refused instead: the issue keeps the text it holds, the session stays
+     open, and the bot's comment names the rule the text failed, masked of
+     tokens, keys and the host's private addresses as the planner's other
+     words are. Reply to change the plan, and the next turn drafts it again.
    - A `tehas:refine` session also offers **File as a new issue**, which
      files the plan as shown as one new issue that replaces this one. A
      session files once.
@@ -866,7 +870,13 @@ The session asks, as in step 5, when:
 - the label events do not name the allowed account the session is on record
   for, or cannot be read;
 - the issue is closed or carries `tehas:ready`;
-- the plan links an attachment the issue's text did not.
+- the plan links an attachment the issue's text did not;
+- the checks of [the text of an issue](#1-write-an-issue-tehas-can-build)
+  refuse the plan's own title or text: a title of nothing but a prefix, a
+  word said twice, the planner's brief copied as the plan, or a text with no
+  line of the issue's own in it. The session is not ended and no cycle is
+  credited, so a reply that changes the plan is the only answer that moves it
+  on.
 
 The poll logs `planning #N asks:` with the reason.
 
