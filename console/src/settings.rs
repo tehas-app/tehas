@@ -22,6 +22,12 @@
 //!
 //! The words a setting takes, for what ships to be held against them.
 //!
+//!   console settings required
+//!
+//! The settings an instance has to set itself, one name per line: what
+//! tehas_require_instance_settings checks, and what tehas_load hands a shell as
+//! _tehas_required. test/config_test.sh holds the two side by side.
+//!
 //! [`load_here`] and [`require`] are tehas_load and tehas_require for this
 //! program, `console run` their caller, and [`loaded`] both for a command with no
 //! shell before it.
@@ -35,6 +41,7 @@ use std::process::{Command, Stdio};
 use tehas_core::sandbox;
 use tehas_core::settings::load::{self, Host, Sourced, Vars};
 use tehas_core::settings::rules::{self, Trees};
+use tehas_core::settings::INSTANCE_SETTINGS;
 
 const REFUSED: u8 = 78;
 
@@ -263,9 +270,15 @@ pub fn main(given: &[String]) -> u8 {
             }
             None => 1,
         },
+        ["required"] => {
+            for name in INSTANCE_SETTINGS {
+                tehas_core::outln!("{name}");
+            }
+            0
+        }
         _ => {
             eprintln!(
-                "usage: console settings load <euid> [<bash>] | valid [<name> <value>] | words <name>"
+                "usage: console settings load <euid> [<bash>] | valid [<name> <value>] | words <name> | required"
             );
             64
         }

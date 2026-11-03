@@ -326,8 +326,18 @@ t_run "$load && tehas_require_instance_settings && echo ok"
 t_eq "$t_rc" 0
 t_contains "$t_out" "ok"
 
-for missing in TEHAS_REPO TEHAS_CONTROL_ISSUE TEHAS_ALLOWED_LABELERS \
-  PI_ENSEMBLE_SUBAGENT_MODEL PI_ENSEMBLE_SUBAGENT_PROVIDER; do
+# The list is the console's: tehas_load hands it over as _tehas_required, and
+# `console settings required` answers the same names. A copy of the list in
+# lib/config.sh, or a load that stopped handing it over, fails this case.
+t_case "the list tehas_require_instance_settings checks is the console's"
+t_instance "${T_MINIMAL[@]}"
+t_run "$load && printf '%s\n' \"\${_tehas_required[@]}\""
+instance_settings=$t_out
+t_run "\"$T_CONSOLE\" settings required"
+t_eq "$t_out" "$instance_settings"
+
+read -ra required_names <<<"$instance_settings"
+for missing in "${required_names[@]}"; do
   t_case "tehas_require_instance_settings stops an instance without $missing"
   t_instance "${T_MINIMAL[@]}"
   grep -v "^$missing=" "$TEHAS_INSTANCE_DIR/instance.env" >"$T/instance.env"

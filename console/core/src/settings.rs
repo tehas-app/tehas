@@ -10,6 +10,31 @@ use std::process::{Command, Stdio};
 pub mod load;
 pub mod rules;
 
+/// The settings an instance has to set itself, because nothing here can give
+/// them a default. Every command that checks the settings before it calls
+/// GitHub, Docker or git or writes a file checks this one list: `tehas_load`
+/// hands it to a shell as `_tehas_required`, so lib/config.sh, install.sh,
+/// `console run` and tehas setup hold no copy of it.
+pub const INSTANCE_SETTINGS: [&str; 5] = [
+    "TEHAS_REPO",
+    "TEHAS_CONTROL_ISSUE",
+    "TEHAS_ALLOWED_LABELERS",
+    "PI_ENSEMBLE_SUBAGENT_MODEL",
+    "PI_ENSEMBLE_SUBAGENT_PROVIDER",
+];
+
+/// What tehas-dispatch checks on top of [`INSTANCE_SETTINGS`]. A poll reads its
+/// settings from the environment with no shell before it that loaded them, so
+/// these three are named here rather than in the poll: without TEHAS_HOME it
+/// has no libexec/store and no state directory to read, TEHAS_INSTANCE_DIR is
+/// the file every refusal names, and TEHAS_TICKET_CONCURRENCY is a load's
+/// derivation from the host, not a count a poll may guess.
+pub const DISPATCHER_ALSO: [&str; 3] = [
+    "TEHAS_HOME",
+    "TEHAS_INSTANCE_DIR",
+    "TEHAS_TICKET_CONCURRENCY",
+];
+
 /// A name set to nothing, or to spaces only, as `tehas_require` counts it.
 fn first_unset<'a>(names: &[&'a str], get: impl Fn(&str) -> String) -> Option<&'a str> {
     names
