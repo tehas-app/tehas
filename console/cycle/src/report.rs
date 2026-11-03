@@ -718,7 +718,8 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         };
     } else if stalled_secs != "0" && (cap.is_empty() || status == "stalled") {
         own = "stall";
-        stop_why = format!("tehas work stopped the container when no log changed for {stalled_secs}s");
+        stop_why =
+            format!("tehas work stopped the container when no log changed for {stalled_secs}s");
     } else if stopped_by_person && cap.is_empty() {
         let tail = if reason.is_empty() {
             String::new()
@@ -1458,7 +1459,10 @@ mod tests {
     /// left beside it. `notes` are the files of state/cycles/<issue>.*.
     fn notes(notes: Vec<(&str, &str)>) -> Report {
         let mut files = serde_json::Map::new();
-        files.insert("progress.json".into(), json!("{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}\n"));
+        files.insert(
+            "progress.json".into(),
+            json!("{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}\n"),
+        );
         for (name, text) in notes {
             files.insert(name.into(), json!(text));
         }
@@ -1504,11 +1508,7 @@ mod tests {
         let r = notes(vec![("stalled", "1800\nstall-step\n")]);
         assert_eq!(stalled_arg(&r), Some("1800"));
         assert!(r.done.contains("status=stalled"), "{}", r.done);
-        assert!(
-            r.improve.iter().any(|a| a == "stalled"),
-            "{:?}",
-            r.improve
-        );
+        assert!(r.improve.iter().any(|a| a == "stalled"), "{:?}", r.improve);
         assert!(
             comments(&r)
                 .iter()
@@ -1527,9 +1527,7 @@ mod tests {
         assert_eq!(stalled_arg(&r), None, "{:?}", r.end);
         assert!(!r.done.contains("status=stalled"), "{}", r.done);
         assert!(
-            comments(&r)
-                .iter()
-                .all(|c| !c.contains("stall-step")),
+            comments(&r).iter().all(|c| !c.contains("stall-step")),
             "{:?}",
             comments(&r)
         );
@@ -1542,9 +1540,7 @@ mod tests {
         assert_eq!(stalled_arg(&r), None, "{:?}", r.end);
         assert!(!r.done.contains("status=stalled"), "{}", r.done);
         assert!(
-            comments(&r)
-                .iter()
-                .any(|c| c.contains("stall-step")),
+            comments(&r).iter().any(|c| c.contains("stall-step")),
             "{:?}",
             comments(&r)
         );
@@ -1556,9 +1552,7 @@ mod tests {
         assert!(!r.end.iter().any(|a| a == "--timed"), "{:?}", r.end);
         assert!(!r.done.contains("status=timeout"), "{}", r.done);
         assert!(
-            comments(&r)
-                .iter()
-                .all(|c| !c.contains("timed-step")),
+            comments(&r).iter().all(|c| !c.contains("timed-step")),
             "{:?}",
             comments(&r)
         );
@@ -1597,6 +1591,10 @@ mod tests {
         let r = report(&f, &mut Given(facts["github"].clone()));
         assert_eq!(stalled_arg(&r), None, "{:?}", r.end);
         assert!(!r.end.iter().any(|a| a == "--timed"), "{:?}", r.end);
-        assert!(!r.done.contains("stalled") && !r.done.contains("timeout"), "{}", r.done);
+        assert!(
+            !r.done.contains("stalled") && !r.done.contains("timeout"),
+            "{}",
+            r.done
+        );
     }
 }
