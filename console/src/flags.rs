@@ -2523,14 +2523,45 @@ mod tests {
         // owns what it points at, and an absent name is nothing to remove.
         assert!(!owned_regular(&home.join("state"), account::uid()));
         symlink(&mine, home.join("state/link.json")).unwrap();
-        assert!(!owned_regular(&home.join("state/link.json"), account::uid()));
-        assert!(!owned_regular(&home.join("state/gone.json"), account::uid()));
-        // A file of another account is not ours to remove. Under uid 0 every
-        // file on the host is owned by the run, so the case is asked only of a
-        // run that is not root.
-        if account::uid().is_some_and(|me| me != 0) {
-            let other = Path::new("/etc/hostname");
-            assert!(!owned_regular(other, account::uid()), "{} is not ours", other.display());
+        assert!(!owned_regular(
+            &home.join("state/link.json"),
+            account::uid()
+        ));
+        assert!(!owned_regular(
+            &home.join("state/gone.json"),
+            account::uid()
+        ));
+        // A file of another account is not ours to remove. The file is made
+        // here, so the case does not lean on what the host happens to hold.
+        // Only a run under uid 0 can hand a file to another account, and the
+        // rest are told the case was skipped instead of left to pass unseen.
+        let other = home.join("state/other.json");
+        fs::write(&other, "x").unwrap();
+        if account::uid() == Some(0) {
+            let said = std::process::Command::new("chown")
+                .arg("1")
+                .arg(&other)
+                .output()
+                .expect("chown");
+            assert!(
+                said.status.success(),
+                "could not give {} to uid 1: {}",
+                other.display(),
+                String::from_utf8_lossy(&said.stderr)
+            );
+            assert!(
+                !owned_regular(&other, Some(0)),
+                "{} is not ours",
+                other.display()
+            );
+        } else {
+            eprintln!("skipped: only a run under uid 0 can give a file to another account");
         }
+        // The same refusal every run can answer: an uid which is not the
+        // owner's owns nothing, and no uid owns anything.
+        if let Some(me) = account::uid() {
+            assert!(!owned_regular(&mine, Some(me.wrapping_add(1))));
+        }
+        assert!(!owned_regular(&mine, None));
     }
 }
