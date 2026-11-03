@@ -1843,7 +1843,12 @@ fn a_failed_turn_of_a_session_can_be_run_again() {
         &t,
         json!({"turns": 2, "session": "s-1", "label": "tehas:plan", "failed": true}),
     );
-    turn_ended(&t, 7, "1", json!({}));
+    turn_ended(
+        &t,
+        7,
+        "1",
+        json!({"session": "s-1", "why": "the runner exited 40 (draft-invalid)"}),
+    );
     let a = t.apply(json!([{"plan_collect": 7}]));
     assert_eq!(a.log, vec!["done planning #7 turn=3 rc=1"]);
     let w = t.writes();
@@ -1853,8 +1858,24 @@ fn a_failed_turn_of_a_session_can_be_run_again() {
             .starts_with("store plan-end 7 --turn 3 --outcome failed --rc 1 --session s-1 --out")));
     assert!(w
         .iter()
-        .any(|c| c.contains("This planning turn did not finish: it exited with status 1.")));
+        .any(|c| c.contains("This planning turn did not finish: it exited with status 1: the runner exited 40 (draft-invalid).")));
     assert!(w.contains(&"gh issue edit 7 --repo example-owner/example-product --remove-label tehas:planning --add-label tehas:question --add-label needs-human-attention".to_string()));
+}
+
+#[test]
+fn a_failed_turn_whose_output_says_nothing_reads_as_before() {
+    let mut t = world();
+    plan_row(
+        &t,
+        json!({"turns": 2, "session": "s-1", "label": "tehas:plan", "failed": true}),
+    );
+    turn_ended(&t, 7, "1", json!({"session": "s-1"}));
+    let a = t.apply(json!([{"plan_collect": 7}]));
+    assert_eq!(a.log, vec!["done planning #7 turn=3 rc=1"]);
+    assert!(t
+        .writes()
+        .iter()
+        .any(|c| c.contains("This planning turn did not finish: it exited with status 1.")));
 }
 
 #[test]

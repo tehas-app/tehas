@@ -492,7 +492,13 @@ impl Writer {
                 return false;
             }
             self.plan_brief_rm(n);
-            let said = json!({"text": format!("This planning turn did not finish: it {why}. The log is `~/tehas/logs/dispatch-plan-{n}.log` on `{host}`. Reply in a comment to run the turn again with your reply as the next message, or end the session and apply `tehas:plan` to start a new one."), "question": null});
+            // The turn's own words, when it left any: the runner's reason is
+            // what a person needs to fix, not the exit status.
+            let said = match out.get("why").and_then(Value::as_str) {
+                Some(reason) if !reason.is_empty() => format!("{why}: {reason}"),
+                _ => why.clone(),
+            };
+            let said = json!({"text": format!("This planning turn did not finish: it {said}. The log is `~/tehas/logs/dispatch-plan-{n}.log` on `{host}`. Reply in a comment to run the turn again with your reply as the next message, or end the session and apply `tehas:plan` to start a new one."), "question": null});
             let _ = std::fs::write(self.st(n, ".out"), format!("{said}\n"));
             self.plan_post(n, log);
             log.push(format!("done planning #{n} turn={turns} rc={rc}"));

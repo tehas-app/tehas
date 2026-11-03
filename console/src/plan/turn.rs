@@ -76,10 +76,12 @@
 //! "update" is the drafted plan an answer chose to make the issue's text; the
 //! dispatcher writes it there and ends the session with "text", which holds
 //! the issue's text before it.
-//! On exit 2 it holds only {"session": "<id>"} when the session is known, and
+//! On exit 2 it holds {"session": "<id>"} when the session is known, and
 //! {"session": "<id>", "lost": true} when the runner says the session is gone
-//! (exit 41): the session cannot go on. When no session is known, nothing is
-//! written.
+//! (exit 41): the session cannot go on. Alongside them it holds "why", what
+//! the turn says went wrong, cut to 500 characters, so the dispatcher can put
+//! it on the issue. A turn that failed with no session known writes a document
+//! with "why" and no "session", which is no session for the caller.
 
 use super::outcome;
 use serde_json::{json, Value};
@@ -103,6 +105,8 @@ const STOP_ON_SIGNAL: u32 = 10;
 const STOP_ON_LIMIT: u32 = 20;
 const NOTHING_STARTS: u8 = 78;
 const FAILED: u8 = 2;
+/// How much of what went wrong a turn's output keeps for the dispatcher.
+const WHY_MAX: usize = 500;
 
 fn say(line: &str) {
     let _ = writeln!(io::stdout(), "{line}");
@@ -544,19 +548,43 @@ fn runner_why(d: &Value) -> String {
         .join(": ")
 }
 
-/// The turn failed. The session, when it is known, is all that is left for the
-/// caller; `lost` says it is gone, so the caller ends it.
+/// What the turn's output keeps as `why`: the words of the reason, cut on
+/// character boundaries so a multi-byte reason cannot be split.
+fn short_why(what: &str) -> String {
+    what.chars().take(WHY_MAX).collect()
+}
+
+/// The turn failed. The session, when it is known, and what went wrong are
+/// all that is left for the caller; `lost` says the session is gone, so the
+/// caller ends it. The reason goes in the output too, so the dispatcher can
+/// put it on the issue and a person need not open the log. With no session
+/// known the document holds only the reason, which is no session for the
+/// caller.
 fn give_up(turn: &Turn, sid: &str, what: &str, lost: bool) -> u8 {
     say(&format!(
         "tehas plan: issue={} {what}, see {}",
         turn.issue, turn.log
     ));
+    let mut doc = String::from("{");
     if !sid.is_empty() {
-        let lost = if lost { ",\n  \"lost\": true" } else { "" };
-        let doc = format!("{{\n  \"session\": {}{lost}\n}}\n", json!(sid));
-        if write_out(turn.out, &doc).is_err() {
-            warn(&format!("tehas plan: could not write {}", turn.out));
+        doc += &format!("\n  \"session\": {}", json!(sid));
+        if lost {
+            doc += ",\n  \"lost\": true";
         }
+    }
+    let why = short_why(what);
+    if !why.is_empty() {
+        if !sid.is_empty() {
+            doc += ",";
+        }
+        doc += &format!("\n  \"why\": {}", json!(why));
+    }
+    if doc.len() == 1 {
+        return FAILED;
+    }
+    doc.push_str("\n}\n");
+    if write_out(turn.out, &doc).is_err() {
+        warn(&format!("tehas plan: could not write {}", turn.out));
     }
     FAILED
 }
@@ -1008,10 +1036,27 @@ mod tests {
 
     #[test]
     fn a_failed_turn_gives_up_keeping_the_session_as_jq_wrote_it() {
-        let (s, code) = ended("give-up", 124, "", "abc-123");
+        let doc = r#"{"exitCode":40,"error":{"code":"draft-invalid","message":"the Acceptance criteria section is the fallback placeholder"}}"#;
+        let (s, code) = ended("give-up", 40, doc, "abc-123");
         assert_eq!(code, 2);
-        assert_eq!(s.read("out.json"), "{\n  \"session\": \"abc-123\"\n}\n");
-        assert_eq!(s.read("keep/exit"), "124\n");
+        assert_eq!(
+            s.read("out.json"),
+            "{\n  \"session\": \"abc-123\",\n  \"why\": \"the runner exited 40 (draft-invalid: the Acceptance criteria section is the fallback placeholder)\"\n}\n"
+        );
+        assert_eq!(s.read("keep/exit"), "40\n");
+    }
+
+    #[test]
+    fn the_why_of_a_failed_turn_is_cut_to_five_hundred_characters() {
+        let long = "x".repeat(600);
+        let doc = format!(r#"{{"exitCode":40,"failure":{{"reason":"{long}"}}}}"#);
+        let (s, code) = ended("why-cut", 40, &doc, "abc-123");
+        assert_eq!(code, 2);
+        let said: Value = serde_json::from_str(&s.read("out.json")).unwrap();
+        let why = said["why"].as_str().unwrap();
+        assert_eq!(why.chars().count(), 500);
+        assert!(why.starts_with("the runner exited 40 ("));
+        assert!(why.ends_with('x'));
     }
 
     #[test]
@@ -1020,18 +1065,25 @@ mod tests {
         assert_eq!(code, 2);
         assert_eq!(
             s.read("out.json"),
-            "{\n  \"session\": \"abc-123\",\n  \"lost\": true\n}\n"
+            "{\n  \"session\": \"abc-123\",\n  \"lost\": true,\n  \"why\": \"the session abc-123 is gone: the runner has no record of it\"\n}\n"
         );
     }
 
     #[test]
-    fn with_no_session_known_nothing_is_written() {
+    fn with_no_session_known_only_the_reason_is_written() {
         let (s, code) = ended("no-session", 11, r#"{"text":"Hm."}"#, "");
         assert_eq!(code, 2);
-        assert!(!s.has("out.json"));
+        assert_eq!(
+            s.read("out.json"),
+            "{\n  \"why\": \"the session id is unknown\"\n}\n"
+        );
+        assert!(!s.read("out.json").contains("\"session\""));
         let (s, code) = ended("too-long", 30, "", "");
         assert_eq!(code, 2);
-        assert!(!s.has("out.json"));
+        assert_eq!(
+            s.read("out.json"),
+            "{\n  \"why\": \"the runner exited 30\"\n}\n"
+        );
     }
 
     #[test]
@@ -1043,7 +1095,10 @@ mod tests {
             "",
         );
         assert_eq!(code, 2);
-        assert_eq!(s.read("out.json"), "{\n  \"session\": \"abc-123\"\n}\n");
+        assert_eq!(
+            s.read("out.json"),
+            "{\n  \"session\": \"abc-123\",\n  \"why\": \"the turn said and asked nothing\"\n}\n"
+        );
         assert!(!s.has("out.json.new"));
     }
 
