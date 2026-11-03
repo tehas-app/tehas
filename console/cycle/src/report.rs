@@ -492,45 +492,57 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
     }
     let nostart_seen = !nostart_rc.is_empty();
     let read_log_steps = no_result && watched && progress_seen;
-    // The step of tehas work's stall file and of its timed file.
+    // The two stop files of tehas work, each read ONCE: its seconds go with
+    // its step, so the step below and the stop below cannot disagree. A first
+    // word that is no count of seconds is no stop there and here, so neither
+    // the step nor the stop of that file counts.
     let secs = |s: &str| re(r"^(0|[1-9][0-9]{0,8})$", s);
-    let (stall_secs, mut stall_step) = match f.file("stalled").text() {
+    let stalled = match f.file("stalled").text() {
         Some(t) => {
             let (a, b) = two_lines(t);
-            let mut s = cut(
+            let at = cut(
                 &kept(&b, |c| c.is_ascii_alphanumeric() || "_.-".contains(c)),
                 40,
             );
-            if s == "-" {
-                s.clear();
+            if !secs(&a) {
+                ("0".to_string(), String::new())
+            } else {
+                let s = if at.is_empty() || at == "-" {
+                    String::new()
+                } else {
+                    at
+                };
+                (a, s)
             }
-            (a, s)
         }
-        None => (String::new(), String::new()),
+        None => ("0".into(), String::new()),
     };
-    let (timed_secs, mut timed_step_file) = match f.file("timed").text() {
+    let timed = match f.file("timed").text() {
         Some(t) => {
             let ws = words(t, Some(200));
-            let s = ws.get(2).cloned().unwrap_or_default();
-            let ok = re(r"^[A-Za-z0-9_.:-]{1,40}$", &s) && s != "-";
-            (
-                ws.first().cloned().unwrap_or_default(),
-                if ok { s } else { String::new() },
-            )
+            let n = ws.first().cloned().unwrap_or_default();
+            let by = ws.get(1).cloned().unwrap_or_default();
+            let at = ws.get(2).cloned().unwrap_or_default();
+            if !secs(&n) {
+                ("0".to_string(), String::new(), String::new())
+            } else {
+                let s = if re(r"^[A-Za-z0-9_.:-]{1,40}$", &at) && at != "-" {
+                    at
+                } else {
+                    String::new()
+                };
+                (n, by, s)
+            }
         }
-        None => (String::new(), String::new()),
+        None => ("0".into(), String::new(), String::new()),
     };
+    let (stalled_secs, stalled_step) = &stalled;
+    let (timed_secs, timed_by, timed_step) = &timed;
     let mut step_wanted = step == "-";
     if !nostart_rc.is_empty() {
         step_wanted = false;
     }
-    if !secs(&stall_secs) {
-        stall_step.clear();
-    }
-    if !secs(&timed_secs) {
-        timed_step_file.clear();
-    }
-    if !stall_step.is_empty() || !timed_step_file.is_empty() {
+    if !stalled_step.is_empty() || !timed_step.is_empty() {
         step_wanted = false;
     }
     // The runner's own status, as tehas work saw it.
@@ -583,8 +595,8 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         step = "no-step".into();
         step_from = "nostart";
     }
-    if step == "-" && !stall_step.is_empty() {
-        step = stall_step.clone();
+    if step == "-" && !stalled_step.is_empty() {
+        step = stalled_step.clone();
         step_from = "stalled";
     }
     if f.rc == 137 && !watched && (status == "running" || status == "unknown") {
@@ -608,29 +620,6 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         killed = format!(" {kills} processes were killed for memory in its container.");
     }
     let forks = count("forks");
-    // The stall file read again for its stop: the seconds, and the step only
-    // with a stop of its own.
-    let (stalled, stop_step) = match f.file("stalled").text() {
-        Some(t) => {
-            let (a, b) = two_lines(t);
-            let n = if secs(&a) { a } else { "0".into() };
-            let at = cut(
-                &kept(&b, |c| c.is_ascii_alphanumeric() || "_.-".contains(c)),
-                40,
-            );
-            let s = if n != "0" && !at.is_empty() && at != "-" {
-                at
-            } else {
-                String::new()
-            };
-            (n, s)
-        }
-        None => ("0".into(), String::new()),
-    };
-    if step == "-" && !stop_step.is_empty() {
-        step = stop_step;
-        step_from = "stalled";
-    }
     let (mut image_id, mut image_rukas) = (String::new(), String::new());
     match &f.record {
         Ok(rec) => (image_id, image_rukas) = record_image(rec, f.attempt),
@@ -640,30 +629,17 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         ),
     }
     let s60 = |s: &str| s.parse::<i64>().unwrap_or(0) / 60;
-    if stalled != "0" {
+    if stalled_secs != "0" {
         if ["running", "unknown", "interrupted"].contains(&status.as_str()) {
             status = "stalled".into();
         }
         killed += &format!(
             " None of its logs changed for {} min at step `{step}`, so tehas stopped it before its time limit.",
-            s60(&stalled)
+            s60(stalled_secs)
         );
     }
-    // The time limit.
-    let (mut timed, mut timed_by, mut timed_step) = ("0".to_string(), String::new(), String::new());
-    if let Some(t) = f.file("timed").text() {
-        let ws = words(t, Some(200));
-        timed = ws.first().cloned().unwrap_or_default();
-        timed_by = ws.get(1).cloned().unwrap_or_default();
-        timed_step = ws.get(2).cloned().unwrap_or_default();
-        if !secs(&timed) {
-            timed = "0".into();
-        }
-        if !(re(r"^[A-Za-z0-9_.:-]{1,40}$", &timed_step) && timed_step != "-") {
-            timed_step.clear();
-        }
-    }
-    if timed != "0" {
+    // The time limit, from the one read of the timed file above.
+    if timed_secs != "0" {
         if ["running", "unknown", "interrupted"].contains(&status.as_str()) {
             status = "timeout".into();
         }
@@ -674,12 +650,12 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         if timed_by == "runner" {
             killed += &format!(
                 " It reached its time limit of {} min at step `{step}`, and the runner stopped there.",
-                s60(&timed)
+                s60(timed_secs)
             );
         } else {
             killed += &format!(
                 " It ran past its time limit of {} min at step `{step}`, and the runner did not stop on its own, so tehas stopped it.",
-                s60(&timed)
+                s60(timed_secs)
             );
         }
     }
@@ -733,16 +709,16 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
     if nostart_seen && no_result {
         own = "runner-never-started";
         stop_why = format!("the container ended with the exit status {nostart_rc} and wrote no line of its stream, so the driver wrote no event and no step started");
-    } else if timed != "0" && (cap.is_empty() || status == "timeout") {
+    } else if timed_secs != "0" && (cap.is_empty() || status == "timeout") {
         own = "wall-clock";
         stop_why = if timed_by == "runner" {
-            format!("the cycle reached its time limit, TEHAS_WORK_TIMEOUT={timed}s, at step {step}")
+            format!("the cycle reached its time limit, TEHAS_WORK_TIMEOUT={timed_secs}s, at step {step}")
         } else {
-            format!("tehas work stopped the container at the time limit of {timed}s")
+            format!("tehas work stopped the container at the time limit of {timed_secs}s")
         };
-    } else if stalled != "0" && (cap.is_empty() || status == "stalled") {
+    } else if stalled_secs != "0" && (cap.is_empty() || status == "stalled") {
         own = "stall";
-        stop_why = format!("tehas work stopped the container when no log changed for {stalled}s");
+        stop_why = format!("tehas work stopped the container when no log changed for {stalled_secs}s");
     } else if stopped_by_person && cap.is_empty() {
         let tail = if reason.is_empty() {
             String::new()
@@ -1311,10 +1287,10 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
     if work_status == "killed" {
         end.extend(["--host-saw".into(), "killed".into()]);
     }
-    if stalled != "0" {
-        end.extend(["--stalled".into(), stalled.clone()]);
+    if stalled_secs != "0" {
+        end.extend(["--stalled".into(), stalled_secs.clone()]);
     }
-    if timed != "0" {
+    if timed_secs != "0" {
         end.push("--timed".into());
     }
     if !branch.is_empty() {
@@ -1471,4 +1447,156 @@ pub fn to_json(r: &Report, issue: u64) -> Value {
         "history": r.history, "analytics": r.analytics, "improve": r.improve,
         "status_run": r.status_run, "asked": r.asked, "arm": r.arm,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    /// A cycle that wrote no result: the report reads only what tehas work
+    /// left beside it. `notes` are the files of state/cycles/<issue>.*.
+    fn notes(notes: Vec<(&str, &str)>) -> Report {
+        let mut files = serde_json::Map::new();
+        files.insert("progress.json".into(), json!("{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}\n"));
+        for (name, text) in notes {
+            files.insert(name.into(), json!(text));
+        }
+        let facts = json!({
+            "issue": 7,
+            "repo": "acme/widget",
+            "home": "/home/tehas",
+            "rc": 2,
+            "started": 1000,
+            "now": 4600,
+            "start": { "attempt": 1 },
+            "files": files,
+            "record": { "cycle": { "attempt": 1 } },
+            "github": { "prs": [], "attention": false },
+        });
+        let f = Facts::from_json(&facts).expect("the facts read");
+        report(&f, &mut Given(facts["github"].clone()))
+    }
+
+    /// The value of `--stalled` in the store's arguments, if it is there.
+    fn stalled_arg(r: &Report) -> Option<&str> {
+        r.end
+            .iter()
+            .position(|a| a == "--stalled")
+            .and_then(|i| r.end.get(i + 1))
+            .map(String::as_str)
+    }
+
+    /// What the report asks GitHub to write, in order.
+    fn comments(r: &Report) -> Vec<String> {
+        r.actions
+            .iter()
+            .filter_map(|a| match a {
+                Action::Comment { ok, .. } => Some(ok.clone()),
+                Action::Park(p) => Some(p.text.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_stall_file_of_its_own_names_the_stop_and_the_step_of_one_read() {
+        let r = notes(vec![("stalled", "1800\nstall-step\n")]);
+        assert_eq!(stalled_arg(&r), Some("1800"));
+        assert!(r.done.contains("status=stalled"), "{}", r.done);
+        assert!(
+            r.improve.iter().any(|a| a == "stalled"),
+            "{:?}",
+            r.improve
+        );
+        assert!(
+            comments(&r)
+                .iter()
+                .any(|c| c.contains("last step `stall-step` tehas work saw in flight")),
+            "{:?}",
+            comments(&r)
+        );
+    }
+
+    // #1207: the two reads of a stop file disagreed when its seconds were no
+    // count, so the report said a stalled cycle whose step came of the same
+    // unreadable file. One read settles both.
+    #[test]
+    fn a_stall_file_of_no_count_of_seconds_names_neither_stop_nor_step() {
+        let r = notes(vec![("stalled", "nope\nstall-step\n")]);
+        assert_eq!(stalled_arg(&r), None, "{:?}", r.end);
+        assert!(!r.done.contains("status=stalled"), "{}", r.done);
+        assert!(
+            comments(&r)
+                .iter()
+                .all(|c| !c.contains("stall-step")),
+            "{:?}",
+            comments(&r)
+        );
+        assert!(!r.improve.iter().any(|a| a == "stalled"), "{:?}", r.improve);
+    }
+
+    #[test]
+    fn a_stall_file_of_zero_seconds_names_no_stop_and_keeps_its_step() {
+        let r = notes(vec![("stalled", "0\nstall-step\n")]);
+        assert_eq!(stalled_arg(&r), None, "{:?}", r.end);
+        assert!(!r.done.contains("status=stalled"), "{}", r.done);
+        assert!(
+            comments(&r)
+                .iter()
+                .any(|c| c.contains("stall-step")),
+            "{:?}",
+            comments(&r)
+        );
+    }
+
+    #[test]
+    fn a_timed_file_of_no_count_of_seconds_names_neither_stop_nor_step() {
+        let r = notes(vec![("timed", "nope tehas timed-step\n")]);
+        assert!(!r.end.iter().any(|a| a == "--timed"), "{:?}", r.end);
+        assert!(!r.done.contains("status=timeout"), "{}", r.done);
+        assert!(
+            comments(&r)
+                .iter()
+                .all(|c| !c.contains("timed-step")),
+            "{:?}",
+            comments(&r)
+        );
+    }
+
+    #[test]
+    fn a_timed_file_of_its_own_names_the_stop_and_the_step_of_one_read() {
+        let r = notes(vec![("timed", "21600 runner timed-step\n")]);
+        assert!(r.end.iter().any(|a| a == "--timed"), "{:?}", r.end);
+        assert!(r.done.contains("status=timeout"), "{}", r.done);
+        assert!(
+            comments(&r)
+                .iter()
+                .any(|c| c.contains("last step `timed-step` tehas work saw in flight")),
+            "{:?}",
+            comments(&r)
+        );
+    }
+
+    #[test]
+    fn a_stop_file_that_is_a_link_is_no_stop_and_no_step() {
+        // Facts::from_json gives a link no text, as the reads of the bash did
+        // for a file that is not a regular one.
+        let facts = json!({
+            "issue": 7,
+            "repo": "acme/widget",
+            "rc": 2,
+            "started": 1000,
+            "now": 4600,
+            "start": { "attempt": 1 },
+            "files": { "stalled": { "link": true }, "timed": { "link": true } },
+            "record": { "cycle": { "attempt": 1 } },
+            "github": { "prs": [], "attention": false },
+        });
+        let f = Facts::from_json(&facts).expect("the facts read");
+        let r = report(&f, &mut Given(facts["github"].clone()));
+        assert_eq!(stalled_arg(&r), None, "{:?}", r.end);
+        assert!(!r.end.iter().any(|a| a == "--timed"), "{:?}", r.end);
+        assert!(!r.done.contains("stalled") && !r.done.contains("timeout"), "{}", r.done);
+    }
 }
