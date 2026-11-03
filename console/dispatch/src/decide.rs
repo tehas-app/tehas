@@ -13,6 +13,7 @@ use tehas_core::events::{
     Event, Events, UNKNOWN_ACTOR,
 };
 use tehas_core::hold::{Report, Why};
+use tehas_core::plan::SPEC_INFO;
 
 mod clean;
 mod plan;
@@ -1160,6 +1161,72 @@ impl<'a> Poll<'a> {
         }
     }
 
+    /// The body a start reads its text from: the issue's own, as the page of
+    /// the queue gave it. `edit` is the record an approval binds and `work`
+    /// the REST issue; both hold the same text, and a start that is not a
+    /// retry has no record to follow, so the issue's own answer is asked of.
+    fn body(&self, n: u64) -> String {
+        self.s
+            .issues
+            .get(&n)
+            .and_then(|i| i.edit.as_ref())
+            .and_then(|e| e.get("body"))
+            .and_then(Value::as_str)
+            .or_else(|| {
+                self.s
+                    .issues
+                    .get(&n)
+                    .and_then(|i| i.work.as_ref())
+                    .and_then(|w| w.get("body"))
+                    .and_then(Value::as_str)
+            })
+            .unwrap_or("")
+            .to_string()
+    }
+
+    /// spec_ok: the last hold of a lean start. The driver reads only the
+    /// issue's `pi-spec v1` block, so an issue without one is asked for it
+    /// here rather than started and declined by lean: nothing starts, the
+    /// labels that asked for the cycle come off, and the reason is said once.
+    /// `tehas:lean` stays on, or the next `tehas:ready` would run classic in
+    /// its place. Classic is asked nothing of the block, and a start that
+    /// follows a record on purpose runs the driver of that record: a tick, an
+    /// outage retry, the fixer's `tehas:ready` and a refresh ask nothing new
+    /// of the body. Only a start that asks for a cycle is asked this question,
+    /// so `ask` is the label that asked it and always sits on the issue here:
+    /// it comes off with `tehas:blocked` if that is on too, which is what keeps
+    /// the reason said once.
+    fn spec_ok(&mut self, n: u64, ask: &str, labels: &[String], retry: bool) -> bool {
+        if retry || text::has_spec(&self.body(n)) {
+            return true;
+        }
+        let why = text::no_spec_said(ask);
+        self.log(format!("skip #{n}: {why}"));
+        let mut off = vec![ask.to_string()];
+        if ask != "tehas:blocked" && has(labels, "tehas:blocked") {
+            off.push("tehas:blocked".to_string());
+        }
+        let given: Vec<&str> = off.iter().map(|l| l.as_str()).collect();
+        let names = given
+            .iter()
+            .map(|l| format!("`{l}`"))
+            .collect::<Vec<_>>()
+            .join(" and ");
+        if self.dry {
+            self.log(format!(
+                "would take {} off #{n}: its text holds no {SPEC_INFO} block",
+                given.join(" and ")
+            ));
+        } else {
+            self.act(json!({
+                "issue": n, "remove": off,
+                "fail": Self::label_fail(n, &given, &[]),
+                "say": format!("Tehas took {names} off this issue and started nothing: {why}"),
+            }));
+        }
+        false
+    }
+
     /// lean_taken_off: who took tehas:lean off, when an allowed account's
     /// choice went and that account may not take it. An issue whose events
     /// were not read names nobody: each start reads them itself.
@@ -2223,6 +2290,7 @@ impl<'a> Poll<'a> {
                     self.lean_refused(n, ask, &labels, &s);
                     continue;
                 }
+                Driver::Lean if !self.spec_ok(n, ask, &labels, fixer.is_some()) => continue,
                 d => d,
             };
             self.d.picked.push(n);

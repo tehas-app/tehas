@@ -259,6 +259,102 @@ pub fn refusal_document(why: &str, said: &str, session: Option<&Value>) -> Value
     json!({"session": session, "text": why, "question": {"question": said, "options": []}})
 }
 
+/// The info string of the block lean reads its spec from, as pi-rukas writes it
+/// on the first line of its fence: `pi-spec v1`. tehas asks only that one such
+/// block is there and holds valid JSON; the fields are pi-rukas's to judge.
+pub const SPEC_INFO: &str = "pi-spec v1";
+
+/// The `pi-spec v1` block of a body, fenced whole, or nothing when the body
+/// holds none it can read: none at all, more than one, or one whose contents
+/// are no JSON document. A line of dashes or stars right after the info string
+/// is the table rule pi-rukas writes and its own reader drops.
+///
+/// The only place either side asks what such a block is, so what an update
+/// keeps and what a poll refuses cannot disagree.
+pub fn spec_block(body: &str) -> Option<String> {
+    let mut found: Option<String> = None;
+    // Every fence of the body that closes, in order: its info string and its
+    // lines. A fence line opens no block while one is already open, so a
+    // `pi-spec v1` line inside a fenced example names no block of its own.
+    let mut fences: Vec<(String, Vec<&str>)> = Vec::new();
+    let mut open: Option<(String, Vec<&str>)> = None;
+    for line in body.lines() {
+        // A fence line of CommonMark: up to three spaces, three or more
+        // backticks, and nothing but spaces after it, or after its info
+        // string when it opens a block.
+        let t = line.trim_start_matches([' ', '\t']);
+        if !t.starts_with("```") {
+            if let Some((_, inner)) = open.as_mut() {
+                inner.push(line);
+            }
+            continue;
+        }
+        let rest = &t[3..];
+        match (open.take(), rest.chars().all(|c| c == '`')) {
+            // The line closes the open block, whether or not it names one.
+            (Some(block), _) => fences.push(block),
+            // A named fence opens a block; a closing one with none open is
+            // the tail of something this does not read, and opens nothing.
+            (None, false) => open = Some((rest.trim().to_string(), Vec::new())),
+            (None, true) => {}
+        }
+    }
+    // A body with more than one block named for it has no single block to read.
+    let named: Vec<&(String, Vec<&str>)> = fences
+        .iter()
+        .filter(|(info, _)| info == SPEC_INFO)
+        .collect();
+    if named.len() == 1 {
+        let text = block_text(&named[0].1);
+        if serde_json::from_str::<Value>(&text).is_ok() {
+            found = Some(format!("```{SPEC_INFO}\n{text}\n```"));
+        }
+    }
+    found
+}
+
+/// A block's lines with a table rule right after the info string taken off,
+/// and the blank lines at its ends trimmed.
+fn block_text(lines: &[&str]) -> String {
+    let mut from = 0;
+    if lines.first().is_some_and(|l| {
+        let t = l.trim();
+        t.len() >= 3 && t.chars().all(|c| c == '-' || c == '*')
+    }) {
+        from = 1;
+    }
+    let mut to = lines.len();
+    while to > from && lines[to - 1].trim().is_empty() {
+        to -= 1;
+    }
+    while from < to && lines[from].trim().is_empty() {
+        from += 1;
+    }
+    lines[from..to].join("\n")
+}
+
+/// The body tehas writes over an issue: `new`, with the `pi-spec v1` block
+/// `was` holds put back at the top when `new` brings none of its own. A draft
+/// never carries a block, so a plan written over a person's issue keeps the
+/// spec lean reads; a body that brings its own block is written as it stands,
+/// and one with no block anywhere is written as it always was.
+pub fn keep_spec(new: &str, was: &str) -> String {
+    if spec_block(new).is_some() {
+        return new.to_string();
+    }
+    match spec_block(was) {
+        Some(block) => {
+            let new = new.trim_end_matches(['\n', '\r']);
+            if new.is_empty() {
+                block
+            } else {
+                format!("{block}\n\n{new}")
+            }
+        }
+        None => new.to_string(),
+    }
+}
+
 /// A plan of no open points the dispatcher can write without another tick:
 /// its draft, the issue as `gh issue view` gives it, and the comment that
 /// ends the session, or why it asks as any other draft does. `checked` is the
@@ -299,7 +395,8 @@ pub fn made(draft: &Value, was: &Value, said: &str) -> Result<Made, Refused> {
         .join("\n");
     Ok(Made {
         title,
-        body: clip(&spec, "the plan"),
+        // A person's spec block survives the write, at the top.
+        body: keep_spec(&clip(&spec, "the plan"), &text_of(was.get("body"))),
         text: format!(
             "{said}\n\n<details><summary>The text it replaced</summary>\n\n{quoted}\n\n</details>"
         ),
@@ -310,6 +407,53 @@ pub fn made(draft: &Value, was: &Value, said: &str) -> Result<Made, Refused> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// A body of the shape pi-rukas writes: the block at the top, its table
+    /// rule after the info string.
+    fn spec_body(rest: &str) -> String {
+        format!("```pi-spec v1\n---\n{{\"intent\":\"faster search\"}}\n```\n\n{rest}")
+    }
+
+    #[test]
+    fn a_spec_block_is_only_a_lone_fence_of_valid_json() {
+        assert!(spec_block(&spec_body("## Outcome\n\nDo it.")).is_some());
+        // Indentation, no rule, and a document that is no object all read.
+        assert!(spec_block("```pi-spec v1\n[1,2]\n```").is_some());
+        assert!(spec_block("  ```pi-spec v1\n\n{\"a\":1}\n\n  ```").is_some());
+        // None at all, no JSON, and more than one block are all no block.
+        assert!(spec_block("## Outcome\n\nDo it.").is_none());
+        assert!(spec_block("").is_none());
+        assert!(spec_block("```pi-spec v1\nnot json\n```").is_none());
+        assert!(spec_block(&format!("{}\n\n{}", spec_body("a"), spec_body("b"))).is_none());
+        // Another info string, a prefix of it, and an unterminated fence.
+        assert!(spec_block("```json\n{\"a\":1}\n```").is_none());
+        assert!(spec_block("```pi-spec\n{\"a\":1}\n```").is_none());
+        assert!(spec_block("```pi-spec v1x\n{\"a\":1}\n```").is_none());
+        assert!(spec_block("```pi-spec v1\n{\"a\":1}").is_none());
+        // The fence of an indented example is not a fence: it closes the
+        // example, so the `pi-spec v1` line inside it names no block and the
+        // body has no block to read.
+        assert!(spec_block("```markdown\n```pi-spec v1\n{\"a\":1}\n```\n```").is_none());
+        // A rule alone is no JSON, and a block of nothing is no block.
+        assert!(spec_block("```pi-spec v1\n---\n```").is_none());
+    }
+
+    #[test]
+    fn a_body_written_over_an_issue_keeps_its_spec_block_at_the_top() {
+        let was = spec_body("## Outcome\n\nWhat the person wrote.");
+        let block = spec_block(&was).unwrap();
+        let kept = keep_spec("## Plan\n\nDo it.", &was);
+        assert_eq!(kept, format!("{block}\n\n## Plan\n\nDo it."));
+        assert!(kept.starts_with("```pi-spec v1"));
+        // A new body of its own is written as it stands, and one with no block
+        // anywhere is written as today.
+        let mine = spec_body("## Plan\n\nDo it.");
+        assert_eq!(keep_spec(&mine, &was), mine);
+        assert_eq!(keep_spec("## Plan", "no block here"), "## Plan");
+        assert_eq!(keep_spec("## Plan", ""), "## Plan");
+        // Nothing to put under the block: the block alone.
+        assert_eq!(keep_spec("\n\n", &was), block);
+    }
 
     #[test]
     fn a_plan_with_no_title_keeps_the_issues() {
