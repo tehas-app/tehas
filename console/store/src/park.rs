@@ -427,7 +427,7 @@ fn park(home: &Path, call: &Call, now: i64) -> Result<String, Fail> {
 /// `park-show <issue>`, or the parks owed a start (`--automatic`) or a refine
 /// (`--refine`). The single call reads it through `verbs::look`; `verbs::look_many`
 /// hands it the connection of the batch.
-pub fn show(c: &Connection, issue: Option<i64>, refine: bool) -> Result<String, Fail> {
+pub(crate) fn show(c: &Connection, issue: Option<i64>, refine: bool) -> Result<String, Fail> {
     let owed = if refine { "refine" } else { "automatic" };
     match issue {
         Some(issue) => Ok(line("park-show", &[("park", park_json(c, issue)?)])),
@@ -597,7 +597,7 @@ pub fn on_record(c: &Connection, issue: i64, id: i64) -> Result<bool, Fail> {
 /// `question-known <issue> --id <id>`: whether the comment is the question the
 /// host has on record for the issue. The single call reads it through
 /// `verbs::look`; `verbs::look_many` hands it the connection of the batch.
-pub fn known(c: &Connection, issue: i64, id: i64) -> Result<String, Fail> {
+pub(crate) fn known(c: &Connection, issue: i64, id: i64) -> Result<String, Fail> {
     let row: Option<(String, Option<i64>)> = c
         .query_row(
             "SELECT kind, answered_at FROM questions WHERE id = ?1 AND issue = ?2",

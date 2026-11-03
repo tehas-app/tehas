@@ -877,7 +877,7 @@ fn close(home: &Path, issue: i64, now: i64) -> Result<String, Fail> {
 /// `plan-show <issue>` or `plan-show --open`: the row of one issue, or the
 /// list. The single call reads it through `verbs::look`; `verbs::look_many`
 /// hands it the connection of the batch.
-pub fn show(c: &Connection, issue: Option<i64>) -> Result<String, Fail> {
+pub(crate) fn show(c: &Connection, issue: Option<i64>) -> Result<String, Fail> {
     match issue {
         Some(issue) => Ok(line("plan-show", &[("planning", planning_json(c, issue)?)])),
         None => {
