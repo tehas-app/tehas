@@ -470,8 +470,20 @@ impl Poll<'_> {
                 }
                 Some(_) => {}
             }
+            let mut on_epic = String::new();
+            let mut epic = None;
             let who = match self.approval(n, label)? {
                 Ok((who, _)) => who,
+                Err(refused) if !refused.is_empty() && self.c.is_millwright(&refused) => {
+                    match self.epic_plan(n, label, &refused)? {
+                        Some((who, said, e)) => {
+                            on_epic = said;
+                            epic = Some(e);
+                            who
+                        }
+                        None => continue,
+                    }
+                }
                 Err(refused) => {
                     if !refused.is_empty() {
                         self.clear_unauthorised(n, label, &refused);
@@ -492,6 +504,7 @@ impl Poll<'_> {
                 continue;
             }
             let to = if refine { ", to refine it" } else { "" };
+            let to = format!("{on_epic}{to}");
             if self.dry {
                 self.log(format!(
                     "would start a planning session for #{n} (labelled by {who}{to})"
@@ -506,10 +519,58 @@ impl Poll<'_> {
             if refine {
                 a["brief_extra"] = json!(self.refine_path());
             }
+            if let Some(e) = epic {
+                a["epic"] = json!(e);
+            }
             self.act(a);
             return Err(End(0));
         }
         Ok(())
+    }
+
+    /// epic_plan: the millwright's planning label on a sub-issue of an epic
+    /// a person made ready, under TEHAS_MILLWRIGHT_EPICS. The session is on
+    /// record as that person's, as the start of a cycle on the epic's
+    /// approval is, so the millwright answers its questions within its
+    /// grant. The person, what the log says of the label and the epic, or
+    /// None with the label off and the reason said.
+    fn epic_plan(
+        &mut self,
+        n: u64,
+        label: &str,
+        fixer: &str,
+    ) -> Step<Option<(String, String, u64)>> {
+        match self.epic_part(n)? {
+            super::EpicPart::Granted(g) => {
+                let ev = self.events(n)?;
+                let (_, at) = super::label_actor(&ev, label);
+                if !self.unchanged_since(
+                    n,
+                    &at,
+                    &format!("the fixer applied {label}"),
+                    "the fixer or a person applies it again",
+                )? {
+                    return Ok(None);
+                }
+                let said = format!(
+                    " as the fixer, on {}'s `tehas:ready` on epic #{} at {}",
+                    g.by, g.epic, g.at
+                );
+                Ok(Some((g.by, said, g.epic)))
+            }
+            super::EpicPart::Refused(why) => {
+                self.log(format!(
+                    "skip #{n}: {label} from the fixer starts nothing: {why}"
+                ));
+                self.clear_unauthorised(n, label, fixer);
+                Ok(None)
+            }
+            super::EpicPart::None => {
+                self.deny("skip", n, label, fixer);
+                self.clear_unauthorised(n, label, fixer);
+                Ok(None)
+            }
+        }
     }
 
     /// Rule 5a: a park the store says is owed a refine starts one, unless a
