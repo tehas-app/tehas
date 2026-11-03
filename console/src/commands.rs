@@ -189,8 +189,9 @@ pub const ANSWERED: u8 = 99;
 
 /// The text of `tehas help <command>`, from src/usage/<command>.txt. tehasbot
 /// refresh has its own text in the same directory, which `tehasbot refresh
-/// --help` answers with (refresh_words), as the verb's copy is the file.
-pub const REFRESH_USAGE: &str = include_str!("usage/refresh.txt");
+/// --help` answers with here (refresh_words), and which tehas-dispatch's copy
+/// of the verb `include_str!`s too: two owners of one file, and no more.
+const REFRESH_USAGE: &str = include_str!("usage/refresh.txt");
 
 const DISPATCH: &str = include_str!("usage/dispatch.txt");
 
@@ -251,19 +252,28 @@ fn preview_words(given: &[String]) -> Result<(), u8> {
 }
 
 /// What `tehasbot refresh` takes: nothing, --json, or one of -h|--help, and
-/// never two words at once. --json has the verb answer the counts of the sweep
-/// as one object beside the log line; -h|--help are answered here with the
-/// verb's own text, before the settings, as they always were.
+/// never two words at once. The set is the verb's own `words` in
+/// console/dispatch/src/refresh.rs, matched here by the same expressions - the
+/// console is one program and cannot name the dispatcher's crate, so the pair
+/// is pinned by `one_parse_decides_the_verb_39s_arguments` there and by the
+/// refusal cases of `test/refresh_test.sh` here. -h|--help are answered here,
+/// before the settings, as they always were.
 fn refresh_words(given: &[String]) -> Result<(), u8> {
+    let run_of = |word: &str| word == "--json";
+    let help_of = |word: &str| word == "-h" || word == "--help";
     match given {
         [] => Ok(()),
-        [word] if word == "--json" => Ok(()),
-        [word] if word == "-h" || word == "--help" => {
+        [word] if run_of(word) => Ok(()),
+        [word] if help_of(word) => {
             say(REFRESH_USAGE);
             Err(ANSWERED)
         }
-        _ => {
-            eprintln!("usage: tehasbot refresh [--json]");
+        [word] => {
+            eprintln!("usage: tehasbot refresh [--json]: unknown argument: {word}");
+            Err(64)
+        }
+        [_, second, ..] => {
+            eprintln!("usage: tehasbot refresh [--json]: unknown argument: {second}");
             Err(64)
         }
     }
@@ -492,6 +502,41 @@ mod tests {
         assert_eq!(check(&words(&["tehasbot", "github-token", "--check"])), 0);
         assert_eq!(check(&words(&["tehasbot", "github-token", "--print"])), 64);
         assert_eq!(check(&[]), 0);
+    }
+
+    #[test]
+    fn the_refresh_s_refusal_names_the_word_and_the_pages_do_not_disagree() {
+        // The rule of `tehasbot refresh`'s line, stated once here and quoted in
+        // host/docs and console/src/usage/refresh.txt, and the counts of the
+        // sample line those three show. The shell pins the emitted words.
+        let text = REFRESH_USAGE;
+        assert!(
+            text.contains("The three\ncounts sum to that number"),
+            "{text}"
+        );
+        assert!(text.contains("are not ours to refresh; those are counted nowhere"));
+        assert!(text.contains(
+            "read 4 pull requests: 1 conflict, 2 unknown, 1 not ours to refresh, wrote 1 requests"
+        ));
+        assert!(
+            text.contains("{\"read\":4,\"conflict\":1,\"unknown\":2,\"skipped\":1,\"wrote\":1}")
+        );
+        let manual = |path: &str| {
+            let page = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(path);
+            std::fs::read_to_string(page).unwrap()
+        };
+        for page in ["../host/docs/operating.md", "../host/docs/tools.md"] {
+            let doc = manual(page);
+            // The same sample, so the manual cannot state a run the verb does not say.
+            assert!(
+                doc.contains("1 conflict, 2 unknown, 1 not ours to refresh, wrote 1 requests"),
+                "{page} repeats a run this command no longer says"
+            );
+            assert!(
+                !doc.contains("sum of the three") && !doc.contains("sum to the number read"),
+                "{page} states the sum rule the code does not hold"
+            );
+        }
     }
 
     #[test]

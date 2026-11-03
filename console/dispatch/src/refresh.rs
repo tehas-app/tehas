@@ -38,11 +38,12 @@ struct Conflict {
     base: String,
 }
 
-/// What one sweep read: the conflicts it asks to refresh, the issues whose
-/// requests stay, and the counts the run says. `unknown` and `skipped` count
-/// only the bot's pull requests that qualified for a refresh: `read N` is then
-/// the sum of the conflicts, the unknowns and the skipped ones, so a 0 beside
-/// conflict is a fact, not a gap in the count.
+/// The bot's pull requests that qualified for a refresh, split three ways:
+/// the conflicts it asks to refresh, the ones still `UNKNOWN`, and the ones
+/// that are neither. `qualifying()` is the number read in this line; the page
+/// the sweep read also holds pull requests that are not ours to refresh, which
+/// are counted nowhere. A 0 beside conflict is then a fact about every pull
+/// request the line counts.
 #[derive(Debug, Default, PartialEq)]
 struct Found {
     conflicts: Vec<Conflict>,
@@ -51,11 +52,18 @@ struct Found {
     keep: BTreeSet<u64>,
 }
 
+impl Found {
+    /// How many of the pull requests read were the bot's that qualified: the
+    /// three counts, which partition that set by construction.
+    fn qualifying(&self) -> usize {
+        self.conflicts.len() + self.unknown + self.skipped
+    }
+}
+
 /// UNKNOWN keeps a request and asks for none: GitHub computes the state
 /// lazily and the next run reads it again. A pull request that qualifies and
 /// cannot be placed in one of the three states is counted as skipped: it is
-/// read again next run, and a 0 conflicts on an answer that holds a conflicting
-/// pull request is the failure this count exists to avoid.
+/// read again next run.
 fn found(nodes: &[Value], bot: &str, repo: &str, control: u64) -> Found {
     let mut f = Found::default();
     for node in nodes {
@@ -161,7 +169,7 @@ struct Run {
     bot: String,
     /// `--json`: the counts also go to stdout as one object, for a reader that
     /// does not read the log.
-    json: bool,
+    json_out: bool,
 }
 
 impl Run {
@@ -247,43 +255,77 @@ impl Run {
             }
         }
         sweep(&self.dir, &f.keep);
-        // One object on standard output for a reader that does not read the
-        // log, and the same counts in the line: a 0 conflicts is then said
-        // only when none of the pull requests read is CONFLICTING or UNKNOWN.
-        let counts = json!({
-            "read": nodes.len(),
-            "conflict": f.conflicts.len(),
-            "unknown": f.unknown,
-            "skipped": f.skipped,
-            "wrote": wrote,
-        });
-        if self.json {
-            tehas_core::outln!("{counts}");
+        // The same counts in the line and in the object, both from `f`.
+        let (read, conflict) = (f.qualifying(), f.conflicts.len());
+        if self.json_out {
+            tehas_core::outln!(
+                "{}",
+                json!({
+                    "read": read,
+                    "conflict": conflict,
+                    "unknown": f.unknown,
+                    "skipped": f.skipped,
+                    "wrote": wrote,
+                })
+            );
         }
         self.line(&format!(
-            "read {} pull requests: {} conflict, {} unknown, {} not ours to refresh, wrote {wrote} requests",
-            counts["read"], counts["conflict"], counts["unknown"], counts["skipped"]
+            "read {read} pull requests: {conflict} conflict, {} unknown, {} not ours to refresh, wrote {wrote} requests",
+            f.unknown, f.skipped
         ));
         0
     }
 }
 
-/// `tehas-dispatch refresh [argument...]`, with the settings `console run` loads
-/// in the environment. Returns the exit status.
-pub fn main(args: &[&str]) -> i32 {
-    match args.first() {
-        Some(&"-h" | &"--help") => {
-            tehas_core::outln!("{}", usage());
-            return 0;
-        }
-        Some(&"--json") => return run(true),
-        Some(a) => {
-            eprintln!("tehasbot refresh: unknown argument: {a}\n{}", usage());
-            return 64;
-        }
-        None => {}
+/// What `tehasbot refresh` was asked to do, as the verb's own `words` reads it:
+/// one of these three for any argument list, so the partition of the arguments
+/// is checked by the match on this type rather than by a caller's patterns.
+#[derive(Debug, PartialEq)]
+pub enum Words {
+    /// Print the verb's text and end 0.
+    Help,
+    /// One run; `json` says whether its counts also go to stdout.
+    Run { json: bool },
+    /// An argument the verb does not know, with the word that was wrong.
+    Refusal(String),
+}
+
+/// The one parse of the verb's arguments. At most one argument: a second is
+/// refused, never combined with the first, so `--json --help` cannot be read as
+/// two intents at once. An empty argument is an argument, so it is refused
+/// rather than run.
+pub fn words(given: &[&str]) -> Words {
+    match given {
+        [] => Words::Run { json: false },
+        [word] if *word == "--json" => Words::Run { json: true },
+        [word] if *word == "-h" || *word == "--help" => Words::Help,
+        [word] => Words::Refusal((*word).to_string()),
+        [_, second, ..] => Words::Refusal(second.to_string()),
     }
-    run(false)
+}
+
+/// `tehas-dispatch refresh [argument...]`, with the settings `console run` loads
+/// in the environment. Returns the exit status. The argument set here is the one
+/// `console run`'s check of `tehasbot refresh` matches too (console/src/commands.rs,
+/// `refresh_words`): a new argument is added in both, and the refusal words the
+/// same in each, which `test/refresh_test.sh` pins on both paths.
+pub fn main(args: &[&str]) -> i32 {
+    match words(args) {
+        Words::Help => {
+            tehas_core::outln!("{}", usage());
+            0
+        }
+        Words::Run { json } => run(json),
+        // The same one-line refusal `console run`'s check gives, and the verb's
+        // own text besides it, because this path has no `tehas help` to ask.
+        Words::Refusal(word) => {
+            eprintln!(
+                "usage: tehasbot refresh [--json]: unknown argument: {word}\n{}",
+                usage()
+            );
+            64
+        }
+    }
 }
 
 /// The body of the verb: the settings it cannot run without, then one run.
@@ -310,7 +352,7 @@ fn run(json: bool) -> i32 {
         control,
         every,
         bot: set("TEHAS_BOT_LOGIN").unwrap_or_default(),
-        json,
+        json_out: json,
     };
     let store = home.join("libexec/store").to_string_lossy().into_owned();
     let mut calls = Calls::idle(Duration::from_secs(20), store);
@@ -343,12 +385,11 @@ mod tests {
                 "closedByPullRequestsReferences": {"nodes": [{"number": pr, "state": "OPEN"}]}}]}})
     }
 
-    /// The bot's, that qualifies, and whose head and base are two shas a
-    /// refresh can ask for, so that it counts as one of the ones read and not as
-    /// one that cannot be placed.
-    fn clean(pr: u64, issue: u64) -> Value {
+    /// The bot's, that qualifies, whose head and base are two shas a refresh
+    /// can ask for, and which conflicts unless the caller says `mergeable`:
+    /// the fixture for a node of the qualifying set.
+    fn qualifying(pr: u64, issue: u64) -> Value {
         let mut p = pull(pr, issue);
-        p["mergeable"] = json!("MERGEABLE");
         p["headRefOid"] = json!(BASE);
         p["closingIssuesReferences"]["nodes"][0]["closedByPullRequestsReferences"]["nodes"][0]
             ["number"] = json!(pr);
@@ -413,7 +454,7 @@ mod tests {
         // The bot's that qualifies, with one sha that is no sha: it was read,
         // and it is counted, not left out of the count.
         for field in ["headRefOid", "baseRefOid"] {
-            let mut p = clean(50, 7);
+            let mut p = qualifying(50, 7);
             p["mergeable"] = json!("UNKNOWN");
             p[field] = json!("abc");
             assert_eq!(
@@ -428,32 +469,41 @@ mod tests {
     }
 
     /// What was read of the bot's pull requests that qualify is counted in
-    /// exactly one of conflict, unknown and skipped, so 0 conflicts is said
-    /// only when none of them is CONFLICTING or UNKNOWN. Another account's
-    /// pull request is not ours to refresh and is counted nowhere.
+    /// exactly one of conflict, unknown and skipped. The nodes that are not the
+    /// bot's, or not of the repository, are counted nowhere: they are named
+    /// here rather than subtracted, so the set that must partition is the set
+    /// the fixtures built.
     #[test]
     fn every_pull_request_that_was_read_lands_in_one_count() {
+        let conflict_a = pull(50, 7);
+        let conflict_b = pull(51, 8);
         let mut unknown = pull(53, 10);
         unknown["mergeable"] = json!("UNKNOWN");
-        let mut foreign = clean(55, 12);
+        let neither = {
+            let mut p = qualifying(54, 11);
+            p["mergeable"] = json!("MERGEABLE");
+            p
+        };
+        let unreadable = {
+            let mut p = qualifying(52, 9);
+            p["mergeable"] = json!("MERGEABLE");
+            p["headRefOid"] = json!("abc");
+            p
+        };
+        let mut foreign = qualifying(55, 12);
         foreign["author"]["login"] = json!("alice");
-        let mut fork = clean(56, 13);
+        let mut fork = qualifying(56, 13);
         fork["isCrossRepository"] = json!(true);
-        let nodes = [
-            pull(50, 7),
-            pull(51, 8),
-            unknown,
-            clean(54, 11),
-            clean(55, 12),
-            foreign,
-            fork,
-        ];
+        let ours = [conflict_a, conflict_b, unknown, neither, unreadable];
+        let not_ours = [foreign, fork];
+        let nodes = [ours.as_slice(), not_ours.as_slice()].concat();
+
         let f = of(&nodes);
         assert_eq!(f.conflicts.len(), 2);
         assert_eq!((f.unknown, f.skipped), (1, 2));
         assert_eq!(
-            f.conflicts.len() + f.unknown + f.skipped,
-            nodes.len() - 2,
+            f.qualifying(),
+            ours.len(),
             "a pull request counted nowhere"
         );
     }
@@ -573,5 +623,32 @@ mod tests {
         assert!(text.starts_with("Find the factory's own pull requests"));
         assert!(text.contains("\n\nUsage:\n  tehasbot refresh "));
         assert!(text.ends_with("removed."));
+        // The rule the manual repeats, pinned where the verb's copy lives.
+        assert!(text.contains("the bot's pull requests that qualify"));
+        assert!(text.contains("\"read\":4,\"conflict\":1,\"unknown\":2,\"skipped\":1,\"wrote\":1"));
+    }
+
+    #[test]
+    fn one_parse_decides_the_verb_39s_arguments() {
+        let run = |given: &[&str]| match words(given) {
+            Words::Run { json } => Some(json),
+            _ => None,
+        };
+        assert_eq!(run(&[]), Some(false));
+        assert_eq!(run(&["--json"]), Some(true));
+        assert!(matches!(words(&["-h"]), Words::Help));
+        assert!(matches!(words(&["--help"]), Words::Help));
+        for bad in ["", "--now", "--jsn"] {
+            assert_eq!(words(&[bad]), Words::Refusal(bad.to_string()), "{bad:?}");
+        }
+        // Never two words at once, whatever the first.
+        for two in [
+            ["--json", "--json"].as_slice(),
+            &["--json", "--help"],
+            &["--help", "--json"],
+            &["--json", "x"],
+        ] {
+            assert_eq!(words(two), Words::Refusal(two[1].to_string()), "{two:?}");
+        }
     }
 }
