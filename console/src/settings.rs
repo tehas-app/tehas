@@ -28,6 +28,11 @@
 //! tehas_require_instance_settings checks, and what tehas_load hands a shell as
 //! _tehas_required. test/config_test.sh holds the two side by side.
 //!
+//!   console settings checkout | branch
+//!
+//! tehas_checkout and tehas_branch, as tehas_core holds them: 0, or 78 with the
+//! line. The same test file holds them against lib/config.sh.
+//!
 //! [`load_here`] and [`require`] are tehas_load and tehas_require for this
 //! program, `console run` their caller, and [`loaded`] both for a command with no
 //! shell before it.
@@ -276,9 +281,28 @@ pub fn main(given: &[String]) -> u8 {
             }
             0
         }
+        // The checkout and the branch, as tehas_core holds them, for
+        // test/config_test.sh to hold against lib/config.sh.
+        ["checkout"] => match tehas_core::settings::checkout() {
+            Ok(()) => 0,
+            Err(line) => {
+                eprintln!("{line}");
+                REFUSED
+            }
+        },
+        ["branch"] => match tehas_core::settings::branch() {
+            Ok(name) => {
+                tehas_core::outln!("{name}");
+                0
+            }
+            Err(line) => {
+                eprintln!("{line}");
+                REFUSED
+            }
+        },
         _ => {
             eprintln!(
-                "usage: console settings load <euid> [<bash>] | valid [<name> <value>] | words <name> | required"
+                "usage: console settings load <euid> [<bash>] | valid [<name> <value>] | words <name> | required | checkout | branch"
             );
             64
         }
