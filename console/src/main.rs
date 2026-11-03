@@ -131,8 +131,7 @@
 //!
 //!   console label actor|allowed|pause-holds ...
 //!
-//! Who applied a label, read from the label events, behind lib/labels.sh, see
-//! src/label.rs.
+//! Who applied a label, read from the label events, see src/label.rs.
 //!
 //!   console models keys-ok | pick <provider> | resolve <out>
 //!
@@ -141,8 +140,7 @@
 //!
 //!   console slice ok|limits|cpus|verify|room|pressure ...
 //!
-//! tehas.slice for the commands that start a container, behind lib/slice.sh,
-//! see src/slice.rs.
+//! tehas.slice as the shell reads it, see src/slice.rs.
 //!
 //!   console pr-title sync|poll ...
 //!

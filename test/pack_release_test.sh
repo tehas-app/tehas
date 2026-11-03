@@ -302,17 +302,10 @@ t_eq "$t_rc" 1
 t_contains "$t_out" "no section for v1.2.4"
 t_run "'$notes' v1.2 '$changelog'"
 t_eq "$t_rc" 64
-t_run "'$notes' v1.2.3-rc1 '$changelog'"
-t_eq "$t_rc" 64
 t_run "'$notes'"
 t_eq "$t_rc" 64
 t_run "'$notes' v1.2.3 '$T/no-such-file'"
 t_eq "$t_rc" 1
-
-t_case "release-notes reads Unreleased for a release candidate, even of a version with a section"
-t_run "'$notes' v1.2.3-rc.2 '$changelog'"
-t_eq "$t_rc" 0
-t_eq "$t_out" "$(printf '%s\n' '### Adopter action' '' 'None.')"
 
 t_case "the checkout's CHANGELOG.md has an Unreleased section with an Adopter action"
 t_run "'$notes' Unreleased"
@@ -324,12 +317,6 @@ t_pack_reset
 t_pack
 t_eq "$t_rc" 0
 t_eq "$(tar -xzf "$dist/$tar_gz" -O tehas-v9.9.9/VERSION)" "v9.9.9"
-
-t_case "a release candidate is packed under its own name"
-t_pack_reset
-t_run "TEHAS_PACK_ROOT='$T_ROOT' \"$pack\" v9.9.9-rc.1 '$dist' --console '$stub'"
-t_eq "$t_rc" 0
-t_eq "$(tar -xzf "$dist/tehas-v9.9.9-rc.1-linux-x86_64.tar.gz" -O tehas-v9.9.9-rc.1/VERSION)" "v9.9.9-rc.1"
 
 t_case "the tree of the working directory is the tree it packs"
 # The default a person gets with no TEHAS_PACK_ROOT, and the one --help and the
@@ -512,13 +499,11 @@ t_contains "$packed" "PI_RUKAS_IMAGE_DIGEST=$digest"
 t_eq "$(grep -c '^LAST_LINE_WITHOUT_A_NEWLINE=x$' <<<"$packed")" 1
 t_eq "$(tail -n 1 <<<"$packed")" "PI_RUKAS_IMAGE_DIGEST=$digest"
 
-t_case "the tag must be vX.Y.Z or vX.Y.Z-rc.N, and the arguments it needs are named"
+t_case "the tag must be vX.Y.Z, and the arguments it needs are named"
 t_pack_reset
 t_run "\"$pack\" release-v9.9.9 '$dist' --console '$stub'"
 t_eq "$t_rc" 64
 t_contains "$t_out" "must be vX.Y.Z"
-t_run "\"$pack\" v9.9.9-rc1 '$dist' --console '$stub'"
-t_eq "$t_rc" 64
 t_run "'$pack' --console '$stub'"
 t_eq "$t_rc" 64
 t_contains "$t_out" "name the tag"

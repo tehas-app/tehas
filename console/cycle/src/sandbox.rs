@@ -93,7 +93,6 @@ pub fn table() -> String {
     let runs = [
         sandbox::capabilities(image),
         sandbox::push_check(&none, "", &none, "", "", image),
-        sandbox::install_run(&none, &none, "", "", "", image, ""),
         sandbox::cycle_run(&sandbox::CycleRun {
             name: "",
             limits: &none,
@@ -111,10 +110,10 @@ pub fn table() -> String {
         }),
     ];
     let rows = runs.iter().map(|run| {
-        let entry = run.iter().position(|w| w == "--entrypoint");
-        let at = entry.or_else(|| run.iter().position(|w| w == image));
-        let cmd = match at.and_then(|i| run.get(i + 1)).map(String::as_str) {
+        let at = run.iter().position(|w| w == image).unwrap_or(0);
+        let cmd = match run.get(at + 1).map(String::as_str) {
             Some(sandbox::RUNNER) => "$runner",
+            Some("push") => "git",
             Some(other) => other,
             None => "",
         };

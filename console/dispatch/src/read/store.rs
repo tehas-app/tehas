@@ -1,5 +1,5 @@
 //! What a snapshot asks of the state store, through its read verbs, and the
-//! shapes lib/store.sh gives the answers before the poll reads them.
+//! shapes the answers are given before the poll reads them.
 //!
 //! Four of these reads are asked of each issue the rules decide about:
 //! `plan-show`, `park-show`, `question-known` and `approval-current`. A poll on
