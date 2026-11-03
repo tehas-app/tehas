@@ -122,7 +122,8 @@ The rules behind each column:
   attachment while the setting stands; the other issues start. The steps
   after plan read the plan, not the pictures. With `TEHAS_WORK_DESCRIBE=1`
   the model also describes each image in words, into `images.md` beside
-  them; with `TEHAS_WORK_FILES=1` the text files come too. pi-rukas reads
+  them, and names the issue in `X-Tehas-Issue` on each of those requests; with
+  `TEHAS_WORK_FILES=1` the text files come too. pi-rukas reads
   neither yet. `TEHAS_WORK_COMMENTS=1` adds the attachments of comments, by
   the rule in the table.
 - **A zip** reaches a cycle with `TEHAS_WORK_ZIPS=1`, and needs

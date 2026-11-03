@@ -1027,6 +1027,45 @@ t_eq "$(after -v | grep -c -x "$tree.images:$ws.images:ro")" 1
 t_eq "$(after -e | sed 's/=.*//' | LC_ALL=C sort)" "$(printf '%s\n' "$want" PI_ENSEMBLE_EXTRA_IMAGE_DIRS PI_ENSEMBLE_PLAN_ISSUE | LC_ALL=C sort)"
 t_eq "$(turn_args | unknown_options "$image" "--name $docker_opts --user -w -v -e" "--rm --init")" ""
 
+t_case "with descriptions on each chat request names the issue in curl's config, and on no command line"
+rm -f "$T"/calls/* "$T/calls/curl-config"
+# The stub of the file keeps what curl was given on standard input beside the
+# address, and the file descriptor of the config a model request hands over.
+t_stub curl '
+out="" url="" conf=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -o) out=$2; shift ;;
+    -H | --max-filesize | --proto | --proto-redir | --max-redirs | --max-time | -w) shift ;;
+    -K) conf=$2; shift ;;
+    https://*) url=$1 ;;
+  esac
+  shift
+done
+# curl opens the config of a chat request by a file descriptor of this process.
+case "$conf" in /proc/*/fd/*) cat "$conf" >>"$T/calls/curl-config" ;; esac
+# A chat request (no -o) is piped in: read it all first, as curl does, so jq
+# writing it never meets a closed pipe (jq exits 2 then, which reads as curl 2).
+[ -n "$out" ] || cat >/dev/null
+key=$(printf %s "$url" | tr -c "A-Za-z0-9" _)
+printf "%s\n" "$url" >>"$T/calls/curl.urls"
+[ -f "$T/fx/net/$key" ] || exit 22
+# A request with no -o is a chat request to the model: the answer is printed.
+[ -n "$out" ] || { cat "$T/fx/net/$key"; exit 0; }
+cp "$T/fx/net/$key" "$out"
+printf application/octet-stream'
+images_on
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_IMAGES=1 TEHAS_WORK_DESCRIBE=1
+mkdir -p "$T/home/.pi/agent"
+echo '{"providers": {"test-provider": {"baseUrl": "https://models.test/v1"}}}' >"$T/home/.pi/agent/models.json"
+net "$A/1111" '\x89PNG\r\n\x1a\nPNGDATA'
+net https://models.test/v1/chat/completions '{"choices": [{"message": {"content": "A dialog."}}]}'
+issue_is "Look ![shot]($A/1111)"
+t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
+t_eq "$t_rc" 0
+t_eq "$(cat "$T/calls/curl-config")" 'header = "X-Tehas-Issue: 7"'
+t_lacks "$(t_calls curl)" "X-Tehas-Issue"
+
 t_case "a later turn describes nothing again"
 runner_keeps '{"turn":1}'
 t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
