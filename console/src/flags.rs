@@ -82,6 +82,7 @@
 //! written or removed, or a name of the flag is not this account's to remove;
 //! 64 a bad argument, which writes nothing.
 
+use crate::account;
 use crate::forge::CALL_BOUND;
 use serde_json::Value;
 use std::env;
@@ -512,23 +513,6 @@ fn pause_args(rest: &[String]) -> Result<String, &'static str> {
     Ok(reason.unwrap_or_default())
 }
 
-/// The account of this run: the real uid, and the name passwd gives for it.
-fn uid() -> u32 {
-    // SAFETY: getuid takes no argument and has no preconditions.
-    unsafe { libc::getuid() }
-}
-
-/// The account which wrote the flag, as `id -un` names it: the real uid, the
-/// name in passwd for it, and nothing for an account passwd does not name.
-pub(crate) fn account() -> String {
-    let entry = unsafe { libc::getpwuid(uid()) };
-    if entry.is_null() {
-        return String::new();
-    }
-    let name = unsafe { std::ffi::CStr::from_ptr((*entry).pw_name) };
-    name.to_string_lossy().into_owned()
-}
-
 /// `tehas pause`: the first pause wins. A host already paused says what already
 /// is and its flag is kept as it was; a file which is no flag holds no flag to
 /// keep, so it is replaced with one which can be read.
@@ -571,7 +555,7 @@ fn pause_set(file: &Path, reason: &str) -> u8 {
         return 1;
     }
     let said = oneline(reason);
-    let (by, at) = (account(), time::iso(now()));
+    let (by, at) = (account::name(), time::iso(now()));
     let held = |text: &str| Value::String(text.to_string()).to_string();
     let doc = format!(
         "{{\"by\":{},\"at\":{},\"reason\":{}}}\n",
@@ -1246,9 +1230,9 @@ fn parse(bytes: &[u8], now: i64) -> Reading {
 /// name is ours to remove only when it holds our own regular file, not one
 /// planted under it or left there by a container which ran as another account.
 fn owned_regular(path: &Path) -> bool {
-    match fs::symlink_metadata(path) {
-        Ok(meta) => meta.file_type().is_file() && meta.uid() == uid(),
-        Err(_) => false,
+    match (fs::symlink_metadata(path), account::uid()) {
+        (Ok(meta), Some(me)) => meta.file_type().is_file() && meta.uid() == me,
+        _ => false,
     }
 }
 
@@ -2309,7 +2293,7 @@ mod tests {
             fs::read_to_string(&file).unwrap(),
             format!(
                 "{{\"by\":\"{}\",\"at\":\"{}\",\"reason\":\"waiting for the gate\"}}\n",
-                account(),
+                account::name(),
                 time::iso(now()),
             )
         );
@@ -2335,7 +2319,7 @@ mod tests {
             fs::read_to_string(&file).unwrap(),
             format!(
                 "{{\"by\":\"{}\",\"at\":\"{}\",\"reason\":\"\"}}\n",
-                account(),
+                account::name(),
                 time::iso(now()),
             )
         );
@@ -2344,7 +2328,7 @@ mod tests {
             read_pause(&file).text(),
             format!(
                 "{{\"state\":\"ok\",\"by\":\"{}\",\"at\":\"{}\"}}",
-                account(),
+                account::name(),
                 time::iso(now()),
             )
         );
@@ -2501,14 +2485,35 @@ mod tests {
 
     #[test]
     fn the_name_of_the_account_which_writes_the_flag_is_its_name() {
-        // The same name id -un prints: the real uid of the run, and the name
-        // passwd gives for it. An empty name would be a flag which says
-        // nothing about who wrote it.
-        assert!(!account().is_empty());
+        // The same name id -un prints. An empty name would be a flag which
+        // says nothing about who wrote it.
+        assert!(!account::name().is_empty());
         let out = std::process::Command::new("id")
             .arg("-un")
             .output()
             .expect("id -un");
-        assert_eq!(account(), String::from_utf8_lossy(&out.stdout).trim());
+        assert_eq!(account::name(), String::from_utf8_lossy(&out.stdout).trim());
+    }
+
+    #[test]
+    fn only_a_regular_file_of_this_run_is_ours_to_remove() {
+        let home = dir("owned-regular");
+        fs::create_dir_all(home.join("state")).unwrap();
+        let mine = home.join("state/pause.json");
+        fs::write(&mine, "{}").unwrap();
+        assert!(owned_regular(&mine));
+        // A directory is no flag to take off, a link is not ours whoever
+        // owns what it points at, and an absent name is nothing to remove.
+        assert!(!owned_regular(&home.join("state")));
+        symlink(&mine, home.join("state/link.json")).unwrap();
+        assert!(!owned_regular(&home.join("state/link.json")));
+        assert!(!owned_regular(&home.join("state/gone.json")));
+        // A file of another account is not ours to remove. Under uid 0 every
+        // file on the host is owned by the run, so the case is asked only of a
+        // run that is not root.
+        if account::uid().is_some_and(|me| me != 0) {
+            let other = Path::new("/etc/hostname");
+            assert!(!owned_regular(other), "{} is not ours", other.display());
+        }
     }
 }

@@ -172,6 +172,7 @@
 //! Exit: 0 stopped by a signal or masked, 1 the console file or standard
 //! output cannot be written, 2 usage.
 
+mod account;
 mod api;
 mod attach;
 mod clean;
