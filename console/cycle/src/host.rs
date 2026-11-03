@@ -71,7 +71,14 @@ pub struct Start {
     pub status_args: Vec<String>,
 }
 
-/// A file as the facts hold it: its text, {"link": true}, or nothing.
+/// The most of a protocol file the facts hold. `tehas work` writes these
+/// small: one line, or the summary of a run. A bigger one is not what this
+/// cycle wrote, and holding it would put it in the report's memory while the
+/// issue lock is held.
+const FILE_MAX: u64 = 1 << 20;
+
+/// A file as the facts hold it: its text, {"link": true}, {"too_big": true}
+/// for one over `FILE_MAX`, or nothing.
 fn file(p: &Path) -> Option<Value> {
     let m = fs::symlink_metadata(p).ok()?;
     if m.file_type().is_symlink() {
@@ -79,6 +86,9 @@ fn file(p: &Path) -> Option<Value> {
     }
     if !m.is_file() {
         return None;
+    }
+    if m.len() > FILE_MAX {
+        return Some(json!({"too_big": true}));
     }
     let b = fs::read(p).ok()?;
     Some(Value::String(String::from_utf8_lossy(&b).into_owned()))
@@ -242,6 +252,18 @@ mod tests {
     /// so the steps after it are still whole lines.
     fn written(n: usize) -> String {
         "y".repeat(n) + "\n"
+    }
+
+    #[test]
+    fn a_protocol_file_past_the_bound_is_not_read_and_says_too_big() {
+        let d = TestDir::new("host-file-bound");
+        let small = d.join("7.progress.json");
+        fs::write(&small, "{\"roles\":[]}\n").unwrap();
+        assert_eq!(file(&small), Some(Value::String("{\"roles\":[]}\n".into())));
+        let big = d.join("7.result.json");
+        fs::write(&big, "y".repeat(FILE_MAX as usize + 1)).unwrap();
+        assert_eq!(file(&big), Some(json!({"too_big": true})));
+        assert_eq!(file(&d.join("7.stopped")), None);
     }
 
     #[test]

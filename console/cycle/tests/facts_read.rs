@@ -1,7 +1,9 @@
-//! Which arm a report takes for a runner that wrote no result and left the
-//! bot's pull request open on its branch: `died-with-pr` when its run log was
-//! read whole, the park with its retry boxes when only its end was read. The
-//! facts are those of the crash case of the same shape.
+//! What the facts hold of an ended cycle's files, and what the report decides
+//! from it. For a runner that wrote no result and left the bot's pull request
+//! open on its branch: `died-with-pr` when its run log was read whole, the park
+//! with its retry boxes when only its end was read. A protocol file too big to
+//! hold is not read, and is said of. The facts are those of the crash case of
+//! the same shape.
 
 use serde_json::{json, Value};
 use std::fs;
@@ -67,4 +69,24 @@ fn a_run_log_past_the_bound_tehas_reads_is_parked_though_its_branch_has_an_open_
     assert!(park.text.contains("pull/347"), "{}", park.text);
     let (_, body) = park.question(7, false);
     assert!(body.contains("Retry from a clean start"), "{body}");
+}
+
+#[test]
+fn a_protocol_file_past_the_bound_is_said_and_reads_as_one_that_is_not_there() {
+    let mut c = case();
+    let github = c["facts"]["github"].clone();
+    c["facts"]["files"]["result.json"] = json!({"too_big": true});
+    let facts = Facts::from_json(&c["facts"]).unwrap();
+    let r = report(&facts, &mut Given(github));
+    assert!(
+        r.log.contains(
+            &"WARN: the result.json of #7 is bigger than tehas reads, so it is not read"
+                .to_string()
+        ),
+        "{:?}",
+        r.log
+    );
+    // Nothing is known of a file that is not read: this is the cycle whose
+    // runner wrote no result, and its step comes from its run log.
+    assert_eq!(r.arm, "died-with-pr");
 }

@@ -923,7 +923,9 @@ there when this command watched the run and holds the runner's own exit,
 of the run is this cycle's own and may be read for its steps, and `nostart` says
 no step of the driver was ever seen, which is the one end whose step is not read
 from a log. Each is written by a name beside it and moved into
-place, so the cycle sees a file whole or does not see it.
+place, so the cycle sees a file whole or does not see it. A file of the
+protocol bigger than the 1 MB tehas reads one at is not read at all: the report
+says so in its log and decides as it does when that file is not there.
 
 The bot's git identity is the tehas user's global `user.name` and `user.email`
 on the host.

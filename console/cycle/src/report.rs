@@ -406,6 +406,15 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
     let warn = |r: &mut Report, s: String| r.log.push(format!("WARN: {s}"));
     let mins = (f.now - f.started) / 60;
 
+    // A protocol file bigger than tehas reads is not read at all: it is said
+    // of here, and otherwise reads as a file that is not there.
+    for name in f.files_too_big() {
+        warn(
+            &mut r,
+            format!("the {name} of #{issue} is bigger than tehas reads, so it is not read"),
+        );
+    }
+
     // The runner's result and its progress. Not through a link.
     let mut result = f.file("result.json").clone();
     if result == File::Link {
