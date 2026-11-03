@@ -318,13 +318,13 @@ titled_pr() { # <title> <issue's labels as JSON> [<author>]
 }
 title_write="api -X PATCH repos/acme/widget/pulls/9 -f title="
 
-t_case "a handoff on a cap leaves STUCK: on the pull request's title"
+t_case "a handoff on a cap leaves HALT: on the pull request's title"
 reset
 ended handoff lens-review feature/issue-7-x review-incomplete
 titled_pr "chore(work): a change" '[{"name":"needs-human-attention"}]'
 t_run "$cycle 7"
 t_eq "$t_rc" 0
-t_contains "$(t_calls gh)" "${title_write}STUCK: chore(work): a change"
+t_contains "$(t_calls gh)" "${title_write}HALT: chore(work): a change"
 
 t_case "awaiting-human-merge leaves no prefix on the pull request's title"
 reset
