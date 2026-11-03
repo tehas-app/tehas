@@ -768,6 +768,11 @@ fn approval() {
 }
 
 #[test]
+fn epic() {
+    run_suite("epic");
+}
+
+#[test]
 fn finish() {
     run_suite("finish");
 }
