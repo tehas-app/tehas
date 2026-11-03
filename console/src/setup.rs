@@ -33,7 +33,10 @@ use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
 use tehas_core::sandbox::HELPER_KEY;
-use tehas_core::settings::{load::{self, Vars}, INSTANCE_SETTINGS};
+use tehas_core::settings::{
+    load::{self, Vars},
+    INSTANCE_SETTINGS,
+};
 
 const USAGE: &str = "usage: tehas setup [--repo owner/name] [--labellers \"a b\"] [--token-file f|- | --app-id id --app-installation id --app-key-file f] [--endpoint url] [--model id] [--model-key-file f|-] [--provider name] [--control-issue n] [--no-build] [--force]";
 
