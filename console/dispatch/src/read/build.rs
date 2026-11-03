@@ -1044,8 +1044,12 @@ esac"#,
 
     /// The whole poll of a world: the snapshot, the calls the stubs recorded, what
     /// the poll counted of them, and what it asked the store. The host lives only
-    /// as long as this call, so a case cannot leave it behind.
+    /// as long as this call, so a case cannot leave it behind. The clock of
+    /// `run.rs` is held for the whole of it: the poll's reads are measured against
+    /// that clock, and a retry case of `run.rs` that set it while one of them ran
+    /// would be the reason the read gave up.
     fn poll(world: &Value, broken: &[u64]) -> (Value, Vec<String>, u32, Vec<String>) {
+        let _clock = crate::read::run::no_case_clock();
         let dir = host(world, broken);
         let mut src = sources(&dir);
         let snap = match snapshot(&mut src, &settings()) {
@@ -1184,6 +1188,9 @@ esac"#,
     /// each its own, and it reaches the type the rule reads.
     #[test]
     fn a_candidate_is_given_the_record_of_its_plan_and_no_other_is() {
+        // The clock of `run.rs` stands for the reads of this host, as it does for
+        // every poll of these cases.
+        let _clock = crate::read::run::no_case_clock();
         let dir = host(&world(), &[]);
         std::fs::create_dir_all(dir.join("state/plan-start")).unwrap();
         for n in [21, 99] {
