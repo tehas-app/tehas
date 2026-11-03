@@ -21,8 +21,8 @@
 //!     when it happened, now when not given: the dispatcher records ready at
 //!     the start, with the time tehas:ready was accepted. A time a little
 //!     ahead of now (the host's clock and GitHub's differ) is recorded at now,
-//!     said on standard error; a time further ahead than an hour is a usage
-//!     error.
+//!     said on standard error; a time more than an hour ahead is a usage
+//!     error. The hour is AT_AHEAD.
 //!   analytics plan <issue> --rc <rc> --facts <file> [--rukas-image <commit>]
 //!                  [--image <id>] [--image-built <time>]
 //!     Records the planning turn of the issue that ended: its row in runs,
@@ -283,7 +283,29 @@ fn epoch(s: &str) -> Option<i64> {
 /// host whose clock runs a little behind must keep the row rather than lose
 /// it: a time inside this window is clamped to now. A time beyond it is a
 /// usage error.
-const AT_AHEAD: i64 = 3600;
+pub(crate) const AT_AHEAD: i64 = 3600;
+
+/// The time an event's --at is stored at: the time itself when it is now or
+/// in the past, now when it is ahead of now but still inside AT_AHEAD, and
+/// nothing when no --at was given, which is now too. A time beyond AT_AHEAD is
+/// the Err, which its caller reports as a usage error and stores no row for.
+/// A `now` that is not a plausible clock (tehas_core's now returns 0 for a
+/// clock before 1970) is no clock: the time given stands, unjudged.
+fn event_at(wanted: i64, now: i64) -> Result<i64, String> {
+    if now <= 0 {
+        return Ok(wanted);
+    }
+    if wanted > now + AT_AHEAD {
+        return Err(format!(
+            "--at {wanted} is more than {AT_AHEAD}s ahead of now"
+        ));
+    }
+    if wanted > now {
+        eprintln!("analytics: --at {wanted} is ahead of now; recorded at {now}");
+        return Ok(now);
+    }
+    Ok(wanted)
+}
 
 // The path of --facts: not empty and not an option.
 fn facts(v: &str) -> Option<PathBuf> {
@@ -382,23 +404,11 @@ pub fn execute(home: &Path, cmd: &Cmd, now: i64) -> Result<(), (u8, String)> {
             return Err((73, format!("{} exists already", to.display())));
         }
     }
-    // The --at of an event: now when none was given or the time given was
-    // ahead, that time otherwise. A time past AT_AHEAD is refused below.
-    let mut at = None;
-    if let Cmd::Event(_, _, Some(wanted)) = cmd {
-        if *wanted > now + AT_AHEAD {
-            return Err((
-                64,
-                format!("--at {wanted} is more than {AT_AHEAD}s ahead of now"),
-            ));
-        }
-        at = Some(if *wanted > now {
-            eprintln!("analytics: --at {wanted} is ahead of now; recorded at {now}");
-            now
-        } else {
-            *wanted
-        });
-    }
+    // An --at beyond AT_AHEAD is refused here, before the database is opened.
+    let at = match cmd {
+        Cmd::Event(_, _, Some(wanted)) => Some(event_at(*wanted, now).map_err(|e| (64, e))?),
+        _ => None,
+    };
     let file = db::path(home);
     let (conn, moved) = db::open(&file, now).map_err(|e| (70, e))?;
     if let Some(to) = moved {
@@ -423,6 +433,8 @@ pub fn execute(home: &Path, cmd: &Cmd, now: i64) -> Result<(), (u8, String)> {
             db::prune(&conn, now).map_err(db_err)
         }
         Cmd::Event(issue, event, _) => {
+            // The stored time is the one normalised above; the flag's own
+            // value was judged there and is not used again.
             db::event(&conn, *issue, event, at.unwrap_or(now)).map_err(db_err)?;
             db::prune(&conn, now).map_err(db_err)
         }
