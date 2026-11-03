@@ -135,9 +135,25 @@ case "$1" in
         echo "$out" ;;
     esac ;;
   build)
+    # A build makes the image the tag is left pointing at. The id is made from
+    # the bytes of the archive this build was given, so that the image of a
+    # commit has one id however often it is built. What the tag held before is
+    # kept as untagged-<n>, which is what a rebuild leaves on the host until
+    # something prunes it.
     cat >"$d/context.tar"
     [ ! -e "$T/fx/build-fails" ] || { echo "step 2 failed" ; exit 1; }
-    tag=$(after -t "$@"); echo "sha256:$(date +%s%N)" >"$d/image-${tag#tehas-preview:}" ;;
+    tag=$(after -t "$@"); n=${tag#tehas-preview:}
+    # Each build makes its own image, as it does on a host: a new commit is a
+    # new archive and a new id, and the image the tag held is left with none,
+    # which is what a rebuild does to the image before it. The hash is of the
+    # whole file and read before anything is written: the handler of a build is
+    # on the pipe that takes the archive in, so a command of it that ran in a
+    # subshell of that pipe would lose the directory this stub keeps its answers
+    # in, which is a name the main shell made.
+    id="sha256:$(sha256sum <"$d/context.tar" | cut -c1-12)"
+    [ ! -e "$d/image-$n" ] || cp "$d/image-$n" "$d/untagged-$n"
+    echo "$id" >"$d/image-$n"
+    echo "$id" ;;
   run)
     [ ! -e "$T/fx/run-fails" ] || exit 1
     name=$(after --name "$@")
@@ -201,7 +217,22 @@ case "$1" in
           n=${f##*/image-}; echo "$(cat "$f") tehas-preview:$n"
         done
         cat "$T/fx/extra-images" 2>/dev/null ;;
-      rm) for a in "$@"; do case "$a" in tehas-preview:*) rm -f "$d/image-${a#tehas-preview:}" ;; esac; done ;;
+      # An image goes by its tag or by its id: the second is how a build whose
+      # container stopped takes its own image away, and how the sweep takes an
+      # image of a preview that is gone. Only the image the tag holds is named
+      # this way: the copy of the one before it, kept under untagged-<n> for a
+      # case that asks what a rebuild left behind, is what `docker image ls` does
+      # not answer with, so nothing of the platform is told about it and nothing
+      # of a test may take it away.
+      rm) for a in "$@"; do
+           case "$a" in
+             tehas-preview:*) rm -f "$d/image-${a#tehas-preview:}" ;;
+             sha256:*) for f in "$d"/image-*; do
+               [ "$a" = "$(cat "$f" 2>/dev/null)" ] || continue
+               rm -f "${f%"$a"}"
+             done ;;
+           esac
+         done ;;
     esac ;;
 esac
 exit 0'
@@ -307,10 +338,38 @@ block() {
 told() { cat "$T/fx/desc-$1" 2>/dev/null; }
 # bytes <file> <count>: the last bytes of a file, as one line of hex.
 bytes() { tail -c "$2" "$1" | od -An -tx1 | tr -d ' \n'; }
+# image_id <number>: the id of the image the tag of that preview holds. Empty
+# when the preview has no image.
+image_id() {
+  cat "$T/fx/docker/image-$1" 2>/dev/null
+}
+# untagged <number>: the id of the image the last rebuild of that preview left
+# with no tag, which is what nothing but a prune ever takes. Empty when the build
+# made the preview's first image. Two builds are needed to make one: the first
+# gives the preview its image, and the second moves the tag off what it held.
+# The run of a container that stopped removes the image its own build made, so
+# that one is not what is found here.
+untagged() {
+  cat "$T/fx/docker/untagged-$1" 2>/dev/null
+}
+# docker_archive_id <file>: the id of the image a build of that archive is
+# given, as the docker stub makes it: the bytes of the archive, hashed.
+docker_archive_id() {
+  echo "sha256:$(cat "$1" | sha256sum | cut -c1-12)"
+}
+# image_of <commit>: the id the stub gives the image built from that commit. The
+# build reads the commit as an archive, and the archive of one commit always has
+# the same bytes, so a case can name the id of a build before it runs.
+image_of() {
+  local tar="$T/fx/image-of.tar"
+  rm -f "$tar"
+  git -C "$upstream" archive "$1" >"$tar" 2>/dev/null || return
+  docker_archive_id "$tar"
+}
 # count <directory> <name pattern>: how many entries of that name it has.
 count() { find "$1" -mindepth 1 -maxdepth 1 -name "$2" 2>/dev/null | wc -l; }
-runs() { find "$T/calls" -name 'docker.run.*' | wc -l; }
-builds() { t_calls docker | grep -c '^build ' || true; }
+builds() { t_calls docker | { grep -c '^build ' || true; } | tr -d '[:space:]'; }
+runs() { find "$T/calls" -name 'docker.run.*' | wc -l | tr -d '[:space:]'; }
 writes() { cat "$T/calls/gh-writes" 2>/dev/null || true; }
 # stub_gh: the gh of the fixtures at the top of this file, for a case that needs
 # it after another case replaced it with its own. It answers the repository, the
