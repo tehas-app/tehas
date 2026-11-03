@@ -539,12 +539,6 @@ pub fn write<T>(home: &Path, f: impl FnOnce(&Connection) -> Result<T, Fail>) -> 
 /// A read with a bounded wait and no write, in one transaction so that every
 /// query of the verb sees the same snapshot.
 pub fn look<T>(home: &Path, f: impl FnOnce(&Connection) -> Result<T, Fail>) -> Result<T, Fail> {
-    // Inside a batch the store is open already, in the transaction that gives
-    // every call of the batch one snapshot; the batch's reads run their queries
-    // on it and ask for no transaction of their own.
-    if let Some(conn) = reading() {
-        return schema(conn).and_then(|()| f(conn));
-    }
     let file = db::path(home);
     not_empty(&file)?;
     let conn = db::open_look(&file).map_err(crate::line)?;
@@ -567,43 +561,36 @@ pub fn look<T>(home: &Path, f: impl FnOnce(&Connection) -> Result<T, Fail>) -> R
 ///
 /// The calls arrive parsed by `parse_read`, which answers only `READS`, so
 /// nothing this function runs can be a write: it holds no `Call` of the
-/// argument grammar at all. Each read is run by the same verb the single call
-/// runs, with one difference: the `look` of that verb finds this thread inside
-/// a read and answers from this connection instead of opening the file again.
-/// A call that fails is answered with its own exit and its own line and the
-/// batch goes on, because one issue whose row is damaged is no reason for a
-/// poll to lose the other reads.
+/// argument grammar at all. Each read is the same verb the single call runs,
+/// with one difference: it is given this connection and asks for no transaction
+/// of its own. A call that fails is answered with its own exit and its own line
+/// and the batch goes on, because one issue whose row is damaged is no reason
+/// for a poll to lose the other reads.
 pub fn look_many(home: &Path, calls: &[ReadCall]) -> Result<Vec<(i64, String)>, Fail> {
     let file = db::path(home);
     not_empty(&file)?;
     let conn = db::open_look(&file).map_err(crate::line)?;
     conn.execute_batch("BEGIN").q()?;
     // The schema first, as `look` reads it: one answer of a store nobody
-    // migrated, not one per call. The window in which `look` answers from this
-    // connection is the scope of the `Reading` made below: whatever the reads
-    // do, and however they leave it, the thread is outside a read again once
-    // that value is gone.
-    let started = schema(&conn).map(|()| {
-        let reading = Reading::new(&conn);
-        let answers = calls
+    // migrated, not one per call. Every read below borrows `conn`, so the
+    // borrow checker keeps the opening alive for all of them and no read can
+    // outlive the transaction it answers from.
+    let answers = schema(&conn).map(|()| {
+        calls
             .iter()
             .map(|call| match call {
-                ReadCall::PlanShow(n) => plan::show(home, Some(*n)),
-                ReadCall::ParkShow(n) => park::show(home, Some(*n), false),
-                ReadCall::QuestionKnown(n, id) => park::known(home, *n, *id),
-                ReadCall::ApprovalCurrent(n) => approval::current(home, *n),
+                ReadCall::PlanShow(n) => plan::show(&conn, Some(*n)),
+                ReadCall::ParkShow(n) => park::show(&conn, Some(*n), false),
+                ReadCall::QuestionKnown(n, id) => park::known(&conn, *n, *id),
+                ReadCall::ApprovalCurrent(n) => approval::current(&conn, *n),
             })
             .map(|r: Result<String, Fail>| match r {
                 Ok(line) => (0i64, line),
                 Err((rc, why)) => (i64::from(rc), why),
             })
-            .collect::<Vec<_>>();
-        // Given up before the transaction closes: no verb is left holding a
-        // connection that has been committed.
-        drop(reading);
-        answers
+            .collect::<Vec<_>>()
     });
-    let done = started.and_then(|answers| conn.execute_batch("COMMIT").q().map(|()| answers));
+    let done = answers.and_then(|answers| conn.execute_batch("COMMIT").q().map(|()| answers));
     match done {
         Ok(answers) => Ok(answers),
         Err(e) => {
@@ -715,47 +702,6 @@ fn args_issue(args: &[String]) -> i64 {
         .filter(|a| a.bytes().all(|b| b.is_ascii_digit()))
         .and_then(|a| a.parse().ok())
         .unwrap_or(0)
-}
-
-// The connection of the read this thread is inside, held by the `Reading` of
-// the batch that set it. A thread with no `Reading` reads the store the way it
-// always did, by opening it.
-thread_local! {
-    static READING: std::cell::Cell<Option<*const Connection>> = const {
-        std::cell::Cell::new(None)
-    };
-}
-
-/// The window in which `look` answers from a connection that is open already.
-/// Setting is done by `new` and clearing by `Drop`, so the window is the scope
-/// of the value and a read that leaves it early -- by a `?` or a panic -- still
-/// leaves the thread outside a read.
-struct Reading<'a> {
-    _bound: std::marker::PhantomData<&'a Connection>,
-}
-
-impl<'a> Reading<'a> {
-    fn new(conn: &'a Connection) -> Reading<'a> {
-        // The borrow checker keeps `conn` alive for as long as the value does,
-        // which is the whole of the window; the cell holds the address rather
-        // than the reference because a thread-local cannot own one.
-        READING.with(|cell| cell.set(Some(conn as *const Connection)));
-        Reading {
-            _bound: std::marker::PhantomData,
-        }
-    }
-}
-
-impl Drop for Reading<'_> {
-    fn drop(&mut self) {
-        READING.with(|cell| cell.set(None));
-    }
-}
-
-/// Whether this thread is inside a batch's read, and so whether `look` must
-/// open the store again or has it already.
-fn reading() -> Option<&'static Connection> {
-    READING.with(|cell| cell.get().map(|p| unsafe { &*p }))
 }
 
 /// The row every record table references, made when the issue has none. An

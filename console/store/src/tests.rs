@@ -3349,6 +3349,41 @@ fn a_read_of_a_batch_is_the_answer_of_the_same_call_alone() {
 }
 
 #[test]
+fn the_four_reads_answer_on_the_connection_of_the_batch() {
+    // look_many opens the store once and hands that connection to each read, so
+    // the borrow checker keeps the opening alive while they run and no read
+    // holds one after it. The write after the batch is the proof: the next read
+    // opens the store again and answers from what the write left.
+    let home = crate::verbs_tests::home("look-many-connection");
+    asked(&home, 12, 4001);
+    let calls = [
+        crate::verbs::ReadCall::PlanShow(12),
+        crate::verbs::ReadCall::ParkShow(12),
+        crate::verbs::ReadCall::QuestionKnown(12, 4001),
+        crate::verbs::ReadCall::ApprovalCurrent(12),
+    ];
+    let got = crate::verbs::look_many(&home, &calls).expect("the four reads answer");
+    let alone = [
+        crate::verbs_tests::ok(&home, &["plan-show", "12"]),
+        crate::verbs_tests::ok(&home, &["park-show", "12"]),
+        crate::verbs_tests::ok(&home, &["question-known", "12", "--id", "4001"]),
+        crate::verbs_tests::ok(&home, &["approval-current", "12"]),
+    ];
+    for ((rc, out), want) in got.iter().zip(alone) {
+        assert_eq!(*rc, 0, "{out}");
+        let v: Value = serde_json::from_str(out).unwrap_or_else(|e| panic!("{e} of {out:?}"));
+        assert_eq!(
+            v, want,
+            "a read given the batch's connection is not the single call's"
+        );
+    }
+    crate::verbs_tests::ok(&home, &["park-retry", "12"]);
+    let after = crate::verbs_tests::ok(&home, &["park-show", "12"]);
+    let in_batch: Value = serde_json::from_str(&got[1].1).unwrap();
+    assert_ne!(in_batch, after, "a read of the batch outlived it");
+}
+
+#[test]
 fn a_batch_writes_nothing_however_its_calls_are_mixed() {
     // The claim the whole design rests on: a batch reads. The refusals are
     // answered without the store, the reads run inside one transaction that is

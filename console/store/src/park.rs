@@ -219,7 +219,7 @@ fn answered_args(rest: &[String]) -> Result<Call, String> {
 pub fn run(home: &Path, call: &Call, now: i64) -> Result<String, Fail> {
     match call {
         Call::Park { .. } => park(home, call, now),
-        Call::Show { issue, refine } => show(home, *issue, *refine),
+        Call::Show { issue, refine } => verbs::look(home, |c| show(c, *issue, *refine)),
         Call::Retry { issue } => retry(home, *issue),
         Call::Told { issue } => told(home, *issue, now),
         Call::Asked {
@@ -229,7 +229,7 @@ pub fn run(home: &Path, call: &Call, now: i64) -> Result<String, Fail> {
             attempt,
             body_sha,
         } => asked(home, *issue, *id, kind, *attempt, body_sha.as_deref(), now),
-        Call::Known { issue, id } => known(home, *issue, *id),
+        Call::Known { issue, id } => verbs::look(home, |c| known(c, *issue, *id)),
         Call::Answered { issue, id, by } => answered(home, *issue, *id, by.as_deref(), now),
     }
 }
@@ -425,10 +425,11 @@ fn park(home: &Path, call: &Call, now: i64) -> Result<String, Fail> {
 }
 
 /// `park-show <issue>`, or the parks owed a start (`--automatic`) or a refine
-/// (`--refine`). Also the read `store batch` makes through `verbs::look_many`.
-pub fn show(home: &Path, issue: Option<i64>, refine: bool) -> Result<String, Fail> {
+/// (`--refine`). The single call reads it through `verbs::look`; `verbs::look_many`
+/// hands it the connection of the batch.
+pub fn show(c: &Connection, issue: Option<i64>, refine: bool) -> Result<String, Fail> {
     let owed = if refine { "refine" } else { "automatic" };
-    verbs::look(home, |c| match issue {
+    match issue {
         Some(issue) => Ok(line("park-show", &[("park", park_json(c, issue)?)])),
         None => {
             let mut q = c.prepare(&format!("{PARK_SELECT} ORDER BY p.issue")).q()?;
@@ -444,7 +445,7 @@ pub fn show(home: &Path, issue: Option<i64>, refine: bool) -> Result<String, Fai
                 .collect();
             Ok(line("park-show", &[("parks", list(&parks))]))
         }
-    })
+    }
 }
 
 fn retry(home: &Path, issue: i64) -> Result<String, Fail> {
@@ -594,29 +595,27 @@ pub fn on_record(c: &Connection, issue: i64, id: i64) -> Result<bool, Fail> {
 }
 
 /// `question-known <issue> --id <id>`: whether the comment is the question the
-/// host has on record for the issue. Also the read `store batch` makes through
-/// `verbs::look_many`.
-pub fn known(home: &Path, issue: i64, id: i64) -> Result<String, Fail> {
-    verbs::look(home, |c| {
-        let row: Option<(String, Option<i64>)> = c
-            .query_row(
-                "SELECT kind, answered_at FROM questions WHERE id = ?1 AND issue = ?2",
-                params![id, issue],
-                |r| Ok((r.get(0)?, r.get(1)?)),
-            )
-            .optional()
-            .q()?;
-        let known = on_record(c, issue, id)?;
-        Ok(line(
-            "question-known",
-            &[
-                ("known", j(known)),
-                ("kind", j(row.as_ref().map(|r| r.0.clone()))),
-                ("recorded", j(row.is_some())),
-                ("answered", j(row.is_some_and(|r| r.1.is_some()))),
-            ],
-        ))
-    })
+/// host has on record for the issue. The single call reads it through
+/// `verbs::look`; `verbs::look_many` hands it the connection of the batch.
+pub fn known(c: &Connection, issue: i64, id: i64) -> Result<String, Fail> {
+    let row: Option<(String, Option<i64>)> = c
+        .query_row(
+            "SELECT kind, answered_at FROM questions WHERE id = ?1 AND issue = ?2",
+            params![id, issue],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()
+        .q()?;
+    let known = on_record(c, issue, id)?;
+    Ok(line(
+        "question-known",
+        &[
+            ("known", j(known)),
+            ("kind", j(row.as_ref().map(|r| r.0.clone()))),
+            ("recorded", j(row.is_some())),
+            ("answered", j(row.is_some_and(|r| r.1.is_some()))),
+        ],
+    ))
 }
 
 fn answered(home: &Path, issue: i64, id: i64, by: Option<&str>, now: i64) -> Result<String, Fail> {

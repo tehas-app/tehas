@@ -377,7 +377,7 @@ pub fn run(home: &Path, call: &Call, now: i64) -> Result<String, Fail> {
         Call::End(e) => end(home, e, now),
         Call::Posted { issue } => posted(home, *issue),
         Call::Close { issue } => close(home, *issue, now),
-        Call::Show { issue } => show(home, *issue),
+        Call::Show { issue } => verbs::look(home, |c| show(c, *issue)),
         Call::View { issue, open } => view(home, *issue, *open),
         Call::Note { issue, kind, id } => note(home, *issue, kind, *id, now),
     }
@@ -875,9 +875,10 @@ fn close(home: &Path, issue: i64, now: i64) -> Result<String, Fail> {
 }
 
 /// `plan-show <issue>` or `plan-show --open`: the row of one issue, or the
-/// list. Also the read `store batch` makes through `verbs::look_many`.
-pub fn show(home: &Path, issue: Option<i64>) -> Result<String, Fail> {
-    verbs::look(home, |c| match issue {
+/// list. The single call reads it through `verbs::look`; `verbs::look_many`
+/// hands it the connection of the batch.
+pub fn show(c: &Connection, issue: Option<i64>) -> Result<String, Fail> {
+    match issue {
         Some(issue) => Ok(line("plan-show", &[("planning", planning_json(c, issue)?)])),
         None => {
             let mut q = c
@@ -894,7 +895,7 @@ pub fn show(home: &Path, issue: Option<i64>) -> Result<String, Fail> {
                 .collect::<Result<Vec<_>, _>>()?;
             Ok(line("plan-show", &[("sessions", list(&sessions))]))
         }
-    })
+    }
 }
 
 /// `plan-view <issue> [--open]`: `view_of` of the issue's session, the open one
