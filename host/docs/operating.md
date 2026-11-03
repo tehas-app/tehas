@@ -455,6 +455,11 @@ choice.
   nothing of the block. Tehas checks only that the block is there and reads as
   JSON; what it holds is the driver's to judge. A plan written over an issue by
   `Update this issue` keeps the block the issue had, at the top.
+- The block is the only text the lean driver reads, so the words a person adds
+  to the issue plan nothing: what goes inside the fence is the whole brief, and
+  its fields are pi-rukas's to define. pi-rukas's `/plan` writes one, and
+  [Troubleshooting](/troubleshooting#what-a-park-says) says what to do when the
+  block is missing. A second block, or one that is no JSON, counts as none.
 
 ### What a poll costs
 

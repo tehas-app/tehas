@@ -446,8 +446,9 @@ See [choosing the driver](/operating#choosing-the-driver).
 The same happens to a new lean start whose issue has no `pi-spec v1` block, or
 one that is not the single block of valid JSON the driver reads: the poll takes
 `tehas:ready` off and says so once, and no cycle starts. Write that block, and
-apply `tehas:ready` again. The block is what pi-rukas's lean driver plans from;
-pi-rukas's `/plan` writes one.
+apply `tehas:ready` again. The block is the only text pi-rukas's lean driver
+plans from, and its `/plan` writes one; [Choosing the
+driver](/operating#choosing-the-driver) says what the block must look like.
 
 The caps this factory has posted are explained one by one in the next
 section.

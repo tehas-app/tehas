@@ -26,7 +26,9 @@
 use serde_json::{json, Value};
 use std::io::Read;
 use std::path::Path;
-use tehas_core::plan::{checked, clip, made, refusal_document, text_of, APPLY_READY, CLIP};
+use tehas_core::plan::{
+    checked, clip, keep_spec, made, refusal_document, text_of, APPLY_READY, CLIP,
+};
 
 mod start;
 mod turn;
@@ -315,7 +317,13 @@ pub fn update(session: &str, keep: &Path, was: &str) -> Result<String, String> {
     };
     let more = format!(
         ",\"update\":{}",
-        json!({"title": plan.title, "body": plan.body})
+        json!({
+            "title": plan.title,
+            // The person's spec block goes back on top here, and nowhere
+            // earlier: the document the tick writes holds it, and nothing else
+            // reads this body.
+            "body": keep_spec(&plan.body, &text_of(was.get("body")))
+        })
     );
     Ok(document(session, &plan.text, &Value::Null, &[], &more))
 }

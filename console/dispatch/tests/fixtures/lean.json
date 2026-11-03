@@ -49,8 +49,8 @@
      }
     ]
    },
-   "body": {
-    "7": "Words.\n\n```pi-spec v1\n{\"intent\":\"faster search\"}\n```"
+   "spec": {
+    "7": "Words."
    }
   },
   {
@@ -232,8 +232,8 @@
      }
     ]
    },
-   "body": {
-    "7": "Words.\n\n```pi-spec v1\n{\"intent\":\"faster search\"}\n```"
+   "spec": {
+    "7": "Words."
    }
   },
   {
@@ -2052,8 +2052,8 @@
      }
     ]
    },
-   "body": {
-    "7": "Words.\n\n```pi-spec v1\n{\"intent\":\"faster search\"}\n```"
+   "spec": {
+    "7": "Words."
    }
   },
   {
@@ -2083,8 +2083,8 @@
      }
     ]
    },
-   "body": {
-    "7": "Words.\n\n```pi-spec v1\n{\"intent\":\"faster search\"}\n```"
+   "spec": {
+    "7": "Words."
    }
   },
   {
@@ -2111,8 +2111,8 @@
      }
     ]
    },
-   "body": {
-    "7": "Words.\n\n```pi-spec v1\n{\"intent\":\"faster search\"}\n```"
+   "spec": {
+    "7": "Words."
    }
   },
   {
@@ -2370,6 +2370,82 @@
    }
   },
   {
+   "note": "The gate reads the body of `edit`, the record an approval binds, and falls back to `work` only when that record gave no body. The read of the queue puts one node's text in both, so a case has to write the two apart to say they differ.",
+   "case": "tehas:lean reads the block of the edit record, not the REST issue's",
+   "queue": [
+    "7 tehas:lean"
+   ],
+   "label_events": {
+    "7": [
+     "tehas:lean=alice"
+    ]
+   },
+   "body": {
+    "7": "A plain body with no block."
+   },
+   "work": {
+    "7": {
+     "body": "```pi-spec v1\n{\"intent\":\"faster search\"}\n```"
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "actions": [
+     {
+      "issue": 7,
+      "remove": [
+       "tehas:ready"
+      ]
+     }
+    ],
+    "no_actions": [
+     {
+      "start": 7
+     }
+    ]
+   }
+  },
+  {
+   "case": "tehas:lean reads the block of the edit record when the REST issue holds none",
+   "queue": [
+    "7 tehas:lean"
+   ],
+   "label_events": {
+    "7": [
+     "tehas:lean=alice"
+    ]
+   },
+   "body": {
+    "7": "```pi-spec v1\n{\"intent\":\"faster search\"}\n```"
+   },
+   "work": {
+    "7": {
+     "body": "A plain body with no block."
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ],
+    "actions": [
+     {
+      "start": 7,
+      "driver": "lean"
+     }
+    ],
+    "no_actions": [
+     {
+      "issue": 7,
+      "remove": [
+       "tehas:ready"
+      ]
+     }
+    ]
+   }
+  },
+  {
    "case": "tehas:lean with no block takes tehas:blocked off with the ask, so a blocked issue is told once",
    "queue": [
     "7 tehas:blocked tehas:lean"
@@ -2465,6 +2541,90 @@
       "add": [
        "needs-human-attention"
       ]
+     }
+    ]
+   }
+  },
+  {
+   "note": "A millwright's feed is the one fixer start that rests on no sum check: `feed_ok` credits the issue's author rather than comparing the body with a record, so `fixer` is Some while nothing has bound the text to an approval. It is therefore asked for its block like any other new start: the exemption `spec_ok` gives a start that follows a record is earned by a sum check, not by the flag alone.",
+   "case": "a millwright's fed lean start with no block is asked for it: the feed checks no sum",
+   "settings": {
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
+    "TEHAS_MILLWRIGHT_FEED": "1"
+   },
+   "snapshot": {
+    "ready": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       },
+       {
+        "name": "tehas:lean"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "tehas-fixer"
+        },
+        "created_at": "2026-10-02T00:00:00Z"
+       },
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:lean"
+        },
+        "actor": {
+         "login": "alice"
+        },
+        "created_at": "2026-10-01T00:00:00Z"
+       }
+      ]
+     }
+    },
+    "fed": 0
+   },
+   "body": {
+    "7": "A plain body with no block."
+   },
+   "after": {
+    "issues": {
+     "7": {
+      "edit": {
+       "createdAt": "2026-09-30T00:00:00Z",
+       "author": {
+        "login": "alice"
+       },
+       "lastEditedAt": null,
+       "editor": null
+      }
+     }
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "actions": [
+     {
+      "issue": 7,
+      "remove": [
+       "tehas:ready"
+      ]
+     }
+    ],
+    "no_actions": [
+     {
+      "start": 7
      }
     ]
    }

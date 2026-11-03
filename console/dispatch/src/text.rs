@@ -36,11 +36,12 @@ pub fn link_list(text: &str) -> Vec<String> {
     out
 }
 
-/// The `pi-spec v1` block a lean start needs, asked of an issue's body: the
-/// one test the poll makes and the one an update keeps, so the two cannot
-/// disagree about the same body. tehas asks only that one such block is there
-/// and holds valid JSON; the fields are pi-rukas's to judge, and lean's own
-/// `ready` step still runs.
+/// The `pi-spec v1` block a lean start needs, asked of an issue's body. The
+/// reader itself is [`tehas_core::plan::spec_block`], the one function the poll
+/// and the writer of a plan both ask, so the two cannot disagree about the same
+/// body; this is the poll's name for its question. tehas asks only that one such
+/// block is there and holds valid JSON; the fields are pi-rukas's to judge, and
+/// lean's own `ready` step still runs.
 pub fn has_spec(body: &str) -> bool {
     tehas_core::plan::spec_block(body).is_some()
 }
