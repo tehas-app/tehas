@@ -13,9 +13,14 @@ empty one above it.
 
 ### Changes
 
+- `console flags pause` takes only `set` and `clear`: `show` and `read`, which nothing called, are gone (#1365). The dashboard's reader of the flag uses the same reading as the health file.
+
 ### Adopter action
 
-None.
+`console flags pause show` and `console flags pause read` are gone: a script
+which called one of them now gets 64 and the usage. The words of the flag are
+what `tehas status` prints, and the object is what `tehasbot status` publishes
+in `live/status.json` under `pause.flag`.
 
 ## v0.24.0 (2026-11-02)
 
