@@ -780,6 +780,26 @@ fn steps(t: &World) -> Vec<String> {
 }
 
 #[test]
+fn a_start_on_an_epics_approval_is_recorded_as_the_persons_label() {
+    let mut t = world();
+    let mut st = start_of(7, "label");
+    st["verb"] = json!("approved on epic #5, labelled by the fixer,");
+    st["how"] = json!("`tehas:ready` label on epic #5 at 2026-10-25T09:00:00Z, which the fixer carried to this sub-issue");
+    let a = t.apply(json!([st]));
+    assert_eq!(a.exit, None);
+    assert_eq!(
+        a.log,
+        vec!["start #7 (approved on epic #5, labelled by the fixer, by alice)"]
+    );
+    let c = t.writes();
+    assert!(c[0].contains("approval-record 7 --at 1793008800 --by alice --how label"));
+    assert!(c[0].contains("--label tehas:ready"));
+    assert!(c[4].contains(
+        "(authorized by @alice's `tehas:ready` label on epic #5 at 2026-10-25T09:00:00Z, which the fixer carried to this sub-issue)."
+    ));
+}
+
+#[test]
 fn a_start_records_marks_says_and_starts_in_that_order() {
     let mut t = world();
     let a = t.apply(json!([start_of(7, "label")]));
@@ -3067,6 +3087,20 @@ fn a_first_turn_writes_its_brief_begins_marks_says_and_starts_its_unit() {
     assert!(unit.contains("/state/plan-7.json.lock /opt/plan 7 --out "));
     assert!(unit.contains("-plan-7.keep --brief "));
     assert!(!unit.contains("--kind refine"));
+}
+
+#[test]
+fn a_first_turn_on_an_epics_approval_says_whose_epic_authorized_it() {
+    let mut t = world();
+    let mut turn = first_turn(7);
+    turn["epic"] = json!(5);
+    let a = t.apply(json!([turn]));
+    assert_eq!(a.exit, None);
+    let w = t.writes();
+    assert!(w[0].starts_with("store plan-begin 7 --by alice --label tehas:plan --brief-file "));
+    assert!(w[2].contains(
+        "(authorized by @alice's `tehas:ready` label on epic #5, which the millwright carried to this sub-issue with `tehas:plan`)."
+    ));
 }
 
 #[test]
