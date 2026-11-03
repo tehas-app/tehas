@@ -9,10 +9,8 @@
 //!   console flags limit clear [--json]
 //!   console flags limit read [--now <epoch seconds>] [--line]
 //!
-//!   console flags pause show [--json]
 //!   console flags pause set [--reason TEXT]
 //!   console flags pause clear
-//!   console flags pause read [--line]
 //!
 //! The home is `TEHAS_HOME`, or `$HOME/tehas` with no `TEHAS_HOME`, as
 //! `lib/config.sh` resolves it. The file is `$TEHAS_HOME/state/limit.json`,
@@ -59,31 +57,30 @@
 //! - `at`: when it was written, `2026-10-17T14:05:00Z`, which must be a string
 //! - `reason`: one line of at most 200 characters, which must be a string
 //!
-//! `show` prints the flag as it then is, in the words `tehas status` prints,
-//! or with `--json` the object `tehas status --json` publishes for the switch:
-//!
-//!   pause     flag, written at 2026-10-17T14:05:00Z: waiting for the gate
-//!   {"api":1,"state":"ok","by":"boss","at":"...","reason":"..."}
-//!
-//! `read` prints the same reading as one object with no `api`, so the readers
-//! which share the file share this answer too; with `--line` it prints the
-//! words instead. `state` is `none` when no file is there and `ok` when one
-//! holds a flag, and `unreadable` when something is there which is no flag -
-//! a file no reader can make sense of, which every reader counts as paused.
-//! A command which is told the file is no flag says so in the words its
-//! readers have always used for one.
+//! The reading of the flag, its fields and its words, is `read_pause`, and
+//! every command which writes the flag or publishes its state takes its answer
+//! from there: `tehas pause` itself, the health file, and the dashboard's pause
+//! line. Only the poll's own decision reads the file by its own rules, so it
+//! asks the same questions of it. `state` is `none` when no file is there and
+//! `ok` when one holds a flag, and `unreadable` when something is there which
+//! is no flag - a file no reader can make sense of, which every reader counts
+//! as paused. A command which is told the file is no flag says so in the words
+//! its readers have always used for one.
 //!
 //! `set` writes the flag with the account of this run and the moment of the
-//! write, and `clear` takes it off; `set` on a host already paused says what
-//! already is and leaves the flag alone. A flag is written through
+//! write, and prints `paused at <time> by <account>[: reason]`; on a host
+//! already paused it prints `already paused …` and leaves the flag alone.
+//! `clear` prints that the flag is gone, or that this host had none. A file
+//! which is no flag is named on standard error before `set` replaces it.
+//! A flag is written through
 //! `pause.json.new`, mode 0600, and put in place by a rename, so what is there
 //! is always a whole flag; `clear` takes that name away too, and takes away
 //! either name only when it holds a regular file of this account, so it never
 //! follows a link someone left under one of them.
 //!
-//! Exit: 0 shown, set or cleared; 1 a file could not be written or removed, or
-//! a name of the flag is not this account's to remove; 64 a bad argument, which
-//! writes nothing.
+//! Exit: 0 for a verb of either flag which did its work; 1 a file could not be
+//! written or removed, or a name of the flag is not this account's to remove;
+//! 64 a bad argument, which writes nothing.
 
 use crate::forge::CALL_BOUND;
 use serde_json::Value;
@@ -364,12 +361,15 @@ pub fn main(given: &[String]) -> u8 {
     }
 }
 
+/// The second line of the usage: what the pause flag takes. Pinned, because it
+/// is what an operator on a stale host, or with a script from v0.16.2, is
+/// shown before the 64.
+const PAUSE_USAGE: &str = "       console flags pause set [--reason TEXT] | clear";
+
 fn usage(why: &str) -> u8 {
     eprintln!("console flags: {why}");
     eprintln!("usage: console flags limit show [--json] | set --cycles N [--plan on|off] [--for SECONDS | --until TIME] [--reason TEXT] | clear | read [--now <epoch seconds>]");
-    eprintln!(
-        "       console flags pause show [--json] | set [--reason TEXT] | clear | read [--line]"
-    );
+    eprintln!("{PAUSE_USAGE}");
     64
 }
 
@@ -475,38 +475,10 @@ fn pause(given: &[String]) -> u8 {
     };
     let (verb, rest) = match given.split_first() {
         Some((verb, rest)) => (verb.as_str(), rest),
-        None => return usage("show, set, clear or read is wanted"),
+        None => return usage("set or clear is wanted"),
     };
     let file = here.join("state/pause.json");
     match verb {
-        // show prints the words tehas pause prints, or the object with api
-        // first when asked for --json.
-        "show" => {
-            let mut words = false;
-            for arg in rest {
-                if arg != "--json" || words {
-                    return usage("--json, once, after show");
-                }
-                words = true;
-            }
-            let out = read_pause(&file);
-            tehas_core::outln!("{}", if words { api(out) } else { out.said() });
-            0
-        }
-        // read prints the object every command which honours the flag reads,
-        // with no api, and the words of the reading with --line.
-        "read" => {
-            let mut line = false;
-            for arg in rest {
-                if arg != "--line" || line {
-                    return usage("--line, once, after read");
-                }
-                line = true;
-            }
-            let out = read_pause(&file);
-            tehas_core::outln!("{}", if line { out.said() } else { out.text() });
-            0
-        }
         "set" => match pause_args(rest) {
             Ok(reason) => pause_set(&file, &reason),
             Err(bad) => usage(bad),
@@ -519,7 +491,7 @@ fn pause(given: &[String]) -> u8 {
             }
             pause_clear(&file)
         }
-        _ => usage("show, set, clear or read, not a word this command knows"),
+        _ => usage("set or clear, not a word this command knows"),
     }
 }
 
@@ -836,29 +808,30 @@ fn cycles_running(dir: &Path) -> Vec<u64> {
     held
 }
 
-fn drain_report(said: &str, running: &[u64], limit: &str, json: bool) -> String {
+/// The answer of a drain. `passed` is false when a poll held its lock for the
+/// whole wait: its cycles may not be counted, so nothing is drained.
+fn drain_report(said: &str, running: &[u64], passed: bool, limit: &str, json: bool) -> String {
     let numbers = |sep: &str, mark: &str| {
         let each: Vec<String> = running.iter().map(|n| format!("{mark}{n}")).collect();
         each.join(sep)
     };
     if json {
-        format!(
+        return format!(
             "{{\"api\":1,\"drained\":{},\"running\":[{}],\"limit\":{limit}}}",
-            running.is_empty(),
+            passed && running.is_empty(),
             numbers(",", "")
-        )
-    } else if running.is_empty() {
-        format!(
-            "{said}
-drained: no cycle is running"
-        )
-    } else {
-        format!(
-            "{said}
-still running: {}",
-            numbers(", ", "#")
-        )
+        );
     }
+    let mut out = said.to_string();
+    if !passed {
+        out += "\nnot drained: a poll held its lock for the whole wait";
+    }
+    if !running.is_empty() {
+        out += &format!("\nstill running: {}", numbers(", ", "#"));
+    } else if passed {
+        out += "\ndrained: no cycle is running";
+    }
+    out
 }
 
 /// `tehas drain`: the limit of no new work, then the count of what still runs.
@@ -881,23 +854,24 @@ pub fn drain(given: &[String]) -> u8 {
         return rc;
     }
     let said = read(&file, now()).said();
-    if !poll_passed(
+    let passed = poll_passed(
         &state.join("dispatch.lock"),
         asked.wait.unwrap_or(POLL_WAIT),
-    ) {
-        return 1;
-    }
+    );
     let deadline = Instant::now() + Duration::from_secs(asked.wait.unwrap_or(0));
     let running = loop {
         let running = cycles_running(&state.join("cycles"));
-        if running.is_empty() || Instant::now() >= deadline {
+        if !passed || running.is_empty() || Instant::now() >= deadline {
             break running;
         }
         sleep(Duration::from_secs(1));
     };
     let limit = read(&file, now()).text();
-    tehas_core::outln!("{}", drain_report(&said, &running, &limit, asked.json));
-    u8::from(!running.is_empty())
+    tehas_core::outln!(
+        "{}",
+        drain_report(&said, &running, passed, &limit, asked.json)
+    );
+    u8::from(!passed || !running.is_empty())
 }
 
 /// `tehas_pause_read`: the flag as every command which honours it reads it.
@@ -2102,20 +2076,37 @@ mod tests {
     fn a_drain_reports_as_it_always_has() {
         let limit = r#"{"state":"ok"}"#;
         assert_eq!(
-            drain_report("said", &[], limit, true),
+            drain_report("said", &[], true, limit, true),
             r#"{"api":1,"drained":true,"running":[],"limit":{"state":"ok"}}"#
         );
         assert_eq!(
-            drain_report("said", &[7, 12], limit, true),
+            drain_report("said", &[7, 12], true, limit, true),
             r#"{"api":1,"drained":false,"running":[7,12],"limit":{"state":"ok"}}"#
         );
         assert_eq!(
-            drain_report("said", &[], limit, false),
+            drain_report("said", &[], true, limit, false),
             "said\ndrained: no cycle is running"
         );
         assert_eq!(
-            drain_report("said", &[7, 12], limit, false),
+            drain_report("said", &[7, 12], true, limit, false),
             "said\nstill running: #7, #12"
+        );
+    }
+
+    #[test]
+    fn a_poll_that_kept_its_lock_is_not_drained_and_still_answered() {
+        let limit = r#"{"state":"ok"}"#;
+        assert_eq!(
+            drain_report("said", &[], false, limit, true),
+            r#"{"api":1,"drained":false,"running":[],"limit":{"state":"ok"}}"#
+        );
+        assert_eq!(
+            drain_report("said", &[], false, limit, false),
+            "said\nnot drained: a poll held its lock for the whole wait"
+        );
+        assert_eq!(
+            drain_report("said", &[7], false, limit, false),
+            "said\nnot drained: a poll held its lock for the whole wait\nstill running: #7"
         );
     }
 
@@ -2474,10 +2465,10 @@ mod tests {
         for bad in [
             args(&[]),
             args(&["bogus"]),
-            args(&["show", "--json", "--json"]),
-            args(&["show", "--json", "extra"]),
-            args(&["read", "--line", "--line"]),
-            args(&["read", "--json"]),
+            // The retired verbs are refused as unknown words: a script carried
+            // over from an older release gets 64, not a reading of the flag.
+            args(&["show", "--json"]),
+            args(&["read", "--line"]),
             args(&["set", "--reason"]),
             args(&["set", "--reason", "one", "--reason", "two"]),
             args(&["set", "--cycles", "1"]),
@@ -2492,6 +2483,20 @@ mod tests {
         assert_eq!(pause_args(&args(&[])).unwrap(), "");
         assert_eq!(pause_args(&args(&["--reason", "one"])).unwrap(), "one");
         assert_eq!(pause_args(&args(&["--reason", ""])).unwrap(), "");
+    }
+
+    #[test]
+    fn the_usage_names_the_verbs_the_pause_flag_takes_and_no_other() {
+        // The verbs of the pause flag, as the operator of a stale host or a
+        // carried-over script is told them before the 64: the two which are
+        // there, and neither of the two which are not. The limit's line keeps
+        // its own verbs, `read` among them, which test/limit_test.sh runs.
+        assert_eq!(
+            PAUSE_USAGE,
+            "       console flags pause set [--reason TEXT] | clear"
+        );
+        assert!(!PAUSE_USAGE.contains("show"));
+        assert!(!PAUSE_USAGE.contains("read"));
     }
 
     #[test]
