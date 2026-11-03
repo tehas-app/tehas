@@ -60,6 +60,7 @@
 //! store's upkeep), and says so. A dry run takes no issue's lock: it removes
 //! nothing, so it holds nothing.
 
+use crate::account;
 use crate::store::{self, bounded, merged};
 use serde_json::json;
 use std::collections::HashSet;
@@ -378,7 +379,7 @@ pub fn open_session(home: &str, name: &str, wait: u64) -> Result<File, ()> {
         && made(&state)
         && fs::symlink_metadata(&state).is_ok_and(|m| m.is_dir())
         && made(&target)
-        && fs::symlink_metadata(&target).is_ok_and(|m| m.is_dir() && m.uid() == the_uid());
+        && own_dir(&target);
     if !prepared {
         eprintln!(
             "tehas clean: {} is not a directory of this account, or could not be made",
@@ -659,11 +660,11 @@ fn repo_of(pulled: &str) -> &str {
     r.rsplit_once(':').map_or(r, |(a, _)| a)
 }
 
-/// The account of this run: what `stat -c %u` answers and what a directory of
-/// the session's own user carries.
-fn the_uid() -> u32 {
-    // SAFETY: getuid takes no argument and has no preconditions.
-    unsafe { libc::getuid() }
+/// Whether a path holds a directory of this run's own account. A directory of
+/// another account, or one whose uid is not known, is not this command's.
+fn own_dir(p: &Path) -> bool {
+    account::uid()
+        .is_some_and(|me| fs::symlink_metadata(p).is_ok_and(|m| m.is_dir() && m.uid() == me))
 }
 
 fn is_link(p: &Path) -> bool {
@@ -1745,7 +1746,6 @@ impl Run {
             .filter(|n| !n.starts_with('.'))
             .collect();
         names.sort();
-        let me = the_uid();
         let mut ok = true;
         for name in names {
             let Some(shown_name) = name.strip_suffix(".state") else {
@@ -1758,7 +1758,7 @@ impl Run {
             // and is not taken, and no link is walked, of the state or the target.
             let state = devs.join(&name);
             let target = state.join("target");
-            let owned = fs::symlink_metadata(&target).is_ok_and(|m| m.is_dir() && m.uid() == me);
+            let owned = own_dir(&target);
             if !real_dir(&state) || !real_dir(&target) || !owned {
                 continue;
             }
