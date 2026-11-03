@@ -710,7 +710,9 @@ pub fn changes<'a>(start: &'a Vars, vars: &'a Vars) -> (Vec<&'a [u8]>, Vec<Pair<
 }
 
 /// The lines that take a shell from `start` to `vars`, for it to eval: what
-/// the load dropped, what it set, and `_tehas_bad`.
+/// the load dropped, what it set, `_tehas_bad`, and `_tehas_required`: the
+/// settings an instance has to set itself, so no command of the shell holds a
+/// copy of them.
 pub fn script(start: &Vars, vars: &Vars) -> Vec<u8> {
     let mut out = Vec::new();
     let (dropped, set) = changes(start, vars);
@@ -730,6 +732,12 @@ pub fn script(start: &Vars, vars: &Vars) -> Vec<u8> {
     for (name, why) in bad(vars) {
         out.extend_from_slice(format!("[{name}]=").as_bytes());
         quote(&mut out, why.as_bytes());
+        out.push(b' ');
+    }
+    out.extend_from_slice(b")\n");
+    out.extend_from_slice(b"_tehas_required=(");
+    for name in super::INSTANCE_SETTINGS {
+        out.extend_from_slice(name.as_bytes());
         out.push(b' ');
     }
     out.extend_from_slice(b")\n_tehas_loaded=1\n");
@@ -1298,8 +1306,24 @@ mod tests {
         let text = script(&before, &vars);
         assert_eq!(
             String::from_utf8_lossy(&text),
-            "declare -gA _tehas_bad\n_tehas_bad=()\n_tehas_loaded=1\n"
+            "declare -gA _tehas_bad\n_tehas_bad=()\n_tehas_required=(TEHAS_REPO TEHAS_CONTROL_ISSUE TEHAS_ALLOWED_LABELERS PI_ENSEMBLE_SUBAGENT_MODEL PI_ENSEMBLE_SUBAGENT_PROVIDER )\n_tehas_loaded=1\n"
         );
+    }
+
+    #[test]
+    fn the_script_hands_the_shell_the_settings_an_instance_has_to_set() {
+        let text = String::from_utf8_lossy(&script(&start(&[]), &start(&[]))).into_owned();
+        let line = text
+            .lines()
+            .find(|l| l.starts_with("_tehas_required=("))
+            .unwrap();
+        let names: Vec<&str> = line
+            .trim_start_matches("_tehas_required=(")
+            .trim_end_matches(')')
+            .split(' ')
+            .filter(|n| !n.is_empty())
+            .collect();
+        assert_eq!(names, crate::settings::INSTANCE_SETTINGS, "{text}");
     }
 
     #[test]

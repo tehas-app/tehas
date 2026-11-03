@@ -76,24 +76,20 @@ fn main() {
         .and_then(Value::as_str)
         .unwrap_or("")
         .to_string();
-    // What lib/config.sh's tehas_load always leaves set: a run without one
-    // has no settings to decide by, and stops before any call (rule 2).
+    // The settings an instance has to set itself, and the three a load always
+    // leaves set that a poll cannot act by without: a run with neither has no
+    // settings to decide by, and stops before any call (rule 2). tehas_core
+    // names both lists, so the poll holds no copy of either.
     let set = |k: &str| {
         env.get(k)
             .and_then(Value::as_str)
             .is_some_and(|v| !v.is_empty())
     };
-    let missing: Vec<&str> = [
-        "TEHAS_HOME",
-        "TEHAS_REPO",
-        "TEHAS_INSTANCE_DIR",
-        "TEHAS_CONTROL_ISSUE",
-        "TEHAS_ALLOWED_LABELERS",
-        "TEHAS_TICKET_CONCURRENCY",
-    ]
-    .into_iter()
-    .filter(|k| !set(k))
-    .collect();
+    let missing: Vec<&str> = tehas_core::settings::INSTANCE_SETTINGS
+        .into_iter()
+        .chain(tehas_core::settings::DISPATCHER_ALSO)
+        .filter(|k| !set(k))
+        .collect();
     if !missing.is_empty() {
         eprintln!(
             "tehas-dispatch: {} not set: load the instance's settings first (lib/config.sh, tehas_load)",

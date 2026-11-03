@@ -304,7 +304,8 @@ which `tehasbot status` fetches at most once an hour, and `/health` says
 asks for by name (`units`, `sandbox`, `docs`, `edge`, `labels`: see
 [Commands](/tools)).
 One line per step, and it stops at the first failure. It checks the instance
-settings against the required list in `lib/config.sh`, the same one install.sh
+settings against the one required list, tehas-core's, which `tehas_load` hands
+`lib/config.sh` and `tehas_require_instance_settings` checks: the same install.sh
 checks, before it calls git. It changes nothing when the checkout has local
 changes or cannot be fast-forwarded, and it never enables a unit or starts a
 container the host was not already running: a changed unit is reloaded and
