@@ -518,7 +518,7 @@ fn easy_had(c: &Connection, issue: i64, floor: i64) -> Result<bool, Fail> {
 /// `approval-current <issue>`: the approval of the issue's latest start. The
 /// single call reads it through `verbs::look`; `verbs::look_many` hands it the
 /// connection of the batch.
-pub fn current(c: &Connection, issue: i64) -> Result<String, Fail> {
+pub(crate) fn current(c: &Connection, issue: i64) -> Result<String, Fail> {
     let unused = approval_json(
         c,
         "issue = ?1 AND used_at IS NULL ORDER BY at DESC",
