@@ -778,6 +778,104 @@ fn cleaned_options_never_fail_a_turn() {
 }
 
 #[test]
+fn plan_end_refuses_an_option_that_is_a_json_list() {
+    let home = home("plan-options-json");
+    begin(&home, 32);
+    // The whole list where one label belongs: the boxes would be unreadable.
+    for given in [
+        r#"["Yes","No"]"#,
+        r#"{"options":["Yes"]}"#,
+        r#" [ "a" , "b" ] "#,
+    ] {
+        let (code, word) = refused(
+            &home,
+            &[
+                "plan-end",
+                "32",
+                "--turn",
+                "1",
+                "--outcome",
+                "finished",
+                "--rc",
+                "0",
+                "--session",
+                "s",
+                "--option",
+                "Yes",
+                "--option",
+                given,
+            ],
+        );
+        assert_eq!(code, 64, "{given}");
+        assert_eq!(word, "usage", "{given}");
+    }
+    // A refusal at the arguments is usage 64 and writes nothing: the turn is
+    // still running and holds the options it had.
+    assert_eq!(show(&home, 32)["running"], true);
+    assert_eq!(show(&home, 32)["options"], json!([]));
+    // Brackets in a sentence, and text that is no JSON at all, stay labels.
+    let v = turn_end(
+        &home,
+        32,
+        1,
+        &[
+            "--outcome",
+            "finished",
+            "--rc",
+            "0",
+            "--session",
+            "s",
+            "--option",
+            "use [Yes] or {No}",
+            "--option",
+            "{not json",
+        ],
+    )
+    .unwrap();
+    assert_eq!(v["cleaned"], json!([]));
+    assert_eq!(
+        v["planning"]["options"],
+        json!(["use [Yes] or {No}", "{not json"])
+    );
+}
+
+#[test]
+fn plan_show_reports_options_it_cannot_read() {
+    for held in ["not json", "{\"a\":1}", "\"Yes\"", "1", "true", "null"] {
+        let home = home("plan-options-damaged");
+        begin(&home, 33);
+        finished(&home, 33, 1);
+        // A row the store itself would not have written: written behind its
+        // back, as an outage or a hand edit leaves it.
+        conn(&home)
+            .execute(
+                "UPDATE planning SET options_json = ?1 WHERE issue = 33",
+                [held],
+            )
+            .unwrap();
+        // The read of the value is damage, never a question with no options.
+        for args in [&["plan-show", "33"][..], &["plan-show", "--open"][..]] {
+            let (code, line) = call(&home, args).expect_err("the read was answered");
+            assert_eq!(code, 78, "{held} {args:?}: {line}");
+            assert!(line.starts_with("corrupt "), "{held} {args:?}: {line}");
+            assert!(
+                line.contains("a planning session's options are not"),
+                "{held} {args:?}: {line}"
+            );
+        }
+        // A value that does parse as a list is read again, so the refusal
+        // belongs to the value and not to the row.
+        conn(&home)
+            .execute(
+                "UPDATE planning SET options_json = '[\"Yes\"]' WHERE issue = 33",
+                [],
+            )
+            .unwrap();
+        assert_eq!(show(&home, 33)["options"], json!(["Yes"]));
+    }
+}
+
+#[test]
 fn plan_end_states_its_preconditions_and_arguments() {
     let home = home("plan-end-pre");
     assert_eq!(
