@@ -28,8 +28,8 @@ pub const CACHE_DIR: &str = "/home/vscode/.tehas-cache";
 /// workspace, the read-write mount, so on the host's disk.
 pub const TARGET_DIR: &str = "/home/vscode/.tehas-target";
 
-// tehas setup asks the host's git for it too. lib/sandbox.sh names the same key:
-// tehas_git_credential_helper_key.
+// tehas setup asks the host's git for it too, and lib/github-app.sh gives a
+// login shell's git the same key.
 pub const HELPER_KEY: &str = "credential.https://github.com.helper";
 const HELPER: &str = "!gh auth git-credential";
 
@@ -210,29 +210,6 @@ pub fn push_check(
     w.extend(words(&["--entrypoint", "git", image]));
     w.extend(words(&["push", "--dry-run", "origin"]));
     w.push("HEAD:refs/heads/tehas-preflight".to_string());
-    w
-}
-
-/// The container that installs the product's dependencies in a cycle's
-/// workspace before the cycle starts: <script> is [`crate::install::script`].
-/// It has the cycle's limits and the workspace at the cycle's path, and none of
-/// the cycle's variables: an install runs code no one reviewed.
-pub fn install_run(
-    limits: &[String],
-    security: &[String],
-    user: &str,
-    tree: &str,
-    host: &str,
-    image: &str,
-    script: &str,
-) -> Vec<String> {
-    let mut w = words(&["docker", "run", "--rm"]);
-    w.extend_from_slice(limits);
-    w.extend_from_slice(security);
-    w.extend(words(&["--user", user, "-e", "HOME=/home/vscode"]));
-    w.extend(words(&["-w", tree, "-v", &format!("{host}:{tree}")]));
-    w.extend(words(&["--entrypoint", "bash", image]));
-    w.extend(words(&["-c", script]));
     w
 }
 

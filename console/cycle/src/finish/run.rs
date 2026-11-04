@@ -132,7 +132,7 @@ pub fn run(plan: &Plan, h: &mut dyn Host) -> Finished {
 }
 
 /// The kept workspace's branch: `feature/issue-<n>`, with the optional slug
-/// pi-rukas gives it, as the grammar of `lib/cycles.sh` reads it. Ok(None) is a
+/// pi-rukas gives it, as the grammar of src/finish/plan.rs reads it. Ok(None) is a
 /// workspace that holds no branch of this issue.
 fn kept_branch(plan: &Plan, h: &mut dyn Host, workspace: &Path) -> Result<Option<String>, Why> {
     let out = git(
@@ -331,7 +331,7 @@ pub fn pull_for_issue(out: &str, n: u64) -> Option<String> {
 }
 
 /// Whether a pull request's body closes the issue: a word of closing, the
-/// reference, and no longer number after it. The reading `lib/cycles.sh` gives a
+/// reference, and no longer number after it. The reading the shell gave a
 /// jq program, held to the ASCII words the factory's own bodies use. `#70` does
 /// not name 7, and a bare `#7` names nothing.
 pub fn closes_issue(text: &str, reference: &str) -> bool {

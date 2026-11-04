@@ -148,26 +148,29 @@ colours the original chipset could show.
 
 ## Themes
 
-This file describes the pixel theme, the default. The pages are drawn from
-role tokens, and a theme is the file that gives them values:
-`host/fun/theme-<name>.css`, served as `/fun/theme.css` for the theme the
-instance names in `TEHAS_THEME`. The stylesheets, the scripts and the markup
-name no colour, typeface or shadow of their own; `test/theme_test.sh` holds
-them to that. Paper keeps the layout, the two text sizes and the sprites and changes the
-rest: the system typeface, 1px rules, light screens and soft shadows.
-Beesknees is a business look, drawn for the business page
-(`host/fun/business.html`, `TEHAS_LAYOUT=business`): near-black and muted
-green on white, thin rules, no motion, and a dark set where the viewer's
-system asks. Beesknees26 is its 2026 redraw and will replace it: the business
-page was rebuilt on that drawing, with IBM Plex (bundled, under the OFL), a
-light top bar, and a dark set only where the viewer picks it with the page's
-mode button (`--modes` names the sets a theme has). The business page takes
-its colours from the theme (`--text-faint` is the third text level, `--bar-*`
-the top bar, `--stage-*` the stages), and its sizes and corners too: the
-drawing's sizes raised to `--type-small` and `--type-big`, corners in
-multiples of `--radius`. So pixel draws it in Topaz at 16px and 32px with
-square corners. The rules below that are about pixels (Topaz, the
-Twelve Bit Rule, no blur, stepped lifts) bind the pixel theme only.
+The site is two frontends, and each names its own theme file. The front page,
+the factory floor at `/` and `/floor`, names `host/fun/theme-pixel.css`.
+Every other page, `/business`, `/dashboard`, the manual and the Protolab, names
+`host/fun/theme-beesknees26.css`. There is no setting for the look and neither
+server rewrites a stylesheet path.
+
+This file describes the pixel frontend, and the rules below it bind that
+frontend. The pages are drawn from role tokens, and a theme is the file that
+gives them values. The stylesheets, the scripts and the markup name no colour,
+typeface or shadow of their own; `test/theme_test.sh` holds them to that, and
+holds each page to the theme of its frontend.
+
+Beesknees26 is the business look: ink and one muted green on a near-white
+ground, white panels with soft shadows, IBM Plex (bundled, under the OFL), a
+light top bar, no motion, and a dark set only where the viewer picks it with
+the business page's mode button (`--modes` names the sets a theme has). The
+business page takes its colours from the theme (`--text-faint` is the third
+text level, `--bar-*` the top bar, `--stage-*` the stages), and its sizes and
+corners too: the drawing's sizes raised to `--type-small` and `--type-big`,
+corners in multiples of `--radius`. The manual, the plain dashboard and the
+Protolab still draw their header and footer from `game-view.css`, which is the
+floor's drawing of a page; redrawing that chrome from the business drawing is
+the open follow-up.
 
 The colours below by the role token that carries them:
 
@@ -408,7 +411,8 @@ A Steel band that stays at the top of the window: the factory sprite and
 wordmark, the data source tag (Brass for sample data or a stale queue, Bone
 for a loaded export, absent while the page shows the fresh live queue), the
 section menu ending in an underlined link to the project on GitHub, over a
-Brass stripe. Every theme but pixel shows the logo in place of the sprite.
+Brass stripe. The floor shows the animated factory sprite; the manual and the
+Protolab show the logo.
 Below 1280px the
 menu takes a row of its own: on the factory floor its links wrap into as many
 rows as they need, where the manual and Protolab headers, which hold four
