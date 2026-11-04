@@ -102,7 +102,23 @@ t_stub docker 'case "$1" in
   image)
     if [ "$2" = inspect ] && [ -n "${LABEL:-}" ]; then echo "$LABEL"; else awk "!seen[\$1]++" "$T/images"; fi ;;
   rmi) [ "$2" != "${RMI_FAILS:-}" ] || exit 1 ;;
-  run) if [ -n "${CAPS:-}" ]; then echo "$CAPS"; else cat "$T_ROOT/test/fixtures/headless-c5ddc0a/capabilities.json"; fi ;;
+  run)
+    # The smoke run the build starts in the image it made is asked of bash,
+    # and the answer that lets the tag move is a step that started. Every
+    # case of this file builds an image that passes: test/sandbox_build_test
+    # .sh is where a refusal of the smoke run is checked.
+    if [ "${SMOKE:-}" = silent ]; then exit 0; fi
+    for a in "$@"; do
+      if [ "$a" = --entrypoint ]; then
+        # A stable line of the NDJSON the runner prints, which is the answer
+        # that lets the uid tag move. It is read from a file rather than written
+        # here: this stub body stands between single quotes, and the characters
+        # that quote the keys of a JSON object have no place inside them.
+        cat "$T_ROOT/test/fixtures/smoke-started.json"
+        exit 0
+      fi
+    done
+    if [ -n "${CAPS:-}" ]; then echo "$CAPS"; else cat "$T_ROOT/test/fixtures/headless-c5ddc0a/capabilities.json"; fi ;;
 esac'
 # Six builds before this one, the oldest first, each its own image. The last
 # also carried the uid tag, which the build moves to the new image.
