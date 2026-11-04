@@ -1194,8 +1194,7 @@ impl<'a> Poll<'a> {
     /// record that cannot be read, is no record: the question falls back to
     /// whatever the body itself answers.
     fn bound_to_a_record(&self, n: u64) -> bool {
-        let Some(Some(Ok(Some(record)))) = self.s.issues.get(&n).map(|i| i.approval.clone())
-        else {
+        let Some(Some(Ok(Some(record)))) = self.s.issues.get(&n).map(|i| i.approval.clone()) else {
             return false;
         };
         // The one rule of `fixer_base`, so the two cannot disagree about which

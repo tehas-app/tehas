@@ -177,7 +177,7 @@ if [ -r "$HOME/.config/tehas/env" ]; then
     export "${kv?}"
   done < <(
     set -a
-    # shellcheck disable=SC1091
+    # shellcheck source=/dev/null
     . "$HOME/.config/tehas/env" >/dev/null 2>&1
     for v in ${!TEHAS_MODEL_KEY_@}; do printf '%s=%s\0' "$v" "${!v}"; done
   )
