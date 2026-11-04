@@ -272,7 +272,7 @@ pub fn run(home: &Path, call: &Call) -> Result<String, Fail> {
     match call {
         Call::Record(r) => record(home, r),
         Call::Undo { issue, at } => undo(home, *issue, *at),
-        Call::Current { issue } => current(home, *issue),
+        Call::Current { issue } => verbs::look(home, |c| current(c, *issue)),
         Call::View { issue, want } => view(home, *issue, *want),
     }
 }
@@ -515,57 +515,56 @@ fn easy_had(c: &Connection, issue: i64, floor: i64) -> Result<bool, Fail> {
     .q()
 }
 
-/// `approval-current <issue>`: the approval of the issue's latest start. Also
-/// the read `store batch` makes through `verbs::look_many`.
-pub fn current(home: &Path, issue: i64) -> Result<String, Fail> {
-    verbs::look(home, |c| {
-        let unused = approval_json(
-            c,
-            "issue = ?1 AND used_at IS NULL ORDER BY at DESC",
-            [issue],
-        )?;
-        let cur = approval_json(
-            c,
-            "issue = ?1 AND used_by IS NOT NULL ORDER BY used_by DESC",
-            [issue],
-        )?;
-        let base = rests_on(c, issue)?;
-        let floor = base.as_ref().map_or(0, |b| b.4);
-        let (millwright_starts, refreshes) = starts(c, issue, floor)?;
-        let easy = easy_had(c, issue, floor)?;
-        let base = base.map_or("null".to_string(), |(at, by, how, sha, used_by)| {
-            obj(&[
-                ("at", j(at)),
-                ("by", j(by)),
-                ("how", j(how)),
-                ("body_sha256", j(sha)),
-                ("used_by", j(used_by)),
-            ])
-        });
-        Ok(line(
-            "approval-current",
-            &[
-                ("approval", unused),
-                ("current", cur),
-                ("rests_on", base),
-                ("millwright_starts", j(millwright_starts)),
-                // #686: the old key, the same number, until part 5 moves the
-                // shell's readers to the new one.
-                ("fixer_starts", j(millwright_starts)),
-                ("refreshes", j(refreshes)),
-                // Whether the one easy merge of this approval has been had:
-                // 1 when a refresh start on it ran as one. The read the
-                // dispatcher asks before it starts a second easy merge.
-                ("easy", j(easy)),
-            ],
-        ))
-    })
+/// `approval-current <issue>`: the approval of the issue's latest start. The
+/// single call reads it through `verbs::look`; `verbs::look_many` hands it the
+/// connection of the batch.
+pub(crate) fn current(c: &Connection, issue: i64) -> Result<String, Fail> {
+    let unused = approval_json(
+        c,
+        "issue = ?1 AND used_at IS NULL ORDER BY at DESC",
+        [issue],
+    )?;
+    let cur = approval_json(
+        c,
+        "issue = ?1 AND used_by IS NOT NULL ORDER BY used_by DESC",
+        [issue],
+    )?;
+    let base = rests_on(c, issue)?;
+    let floor = base.as_ref().map_or(0, |b| b.4);
+    let (millwright_starts, refreshes) = starts(c, issue, floor)?;
+    let easy = easy_had(c, issue, floor)?;
+    let base = base.map_or("null".to_string(), |(at, by, how, sha, used_by)| {
+        obj(&[
+            ("at", j(at)),
+            ("by", j(by)),
+            ("how", j(how)),
+            ("body_sha256", j(sha)),
+            ("used_by", j(used_by)),
+        ])
+    });
+    Ok(line(
+        "approval-current",
+        &[
+            ("approval", unused),
+            ("current", cur),
+            ("rests_on", base),
+            ("millwright_starts", j(millwright_starts)),
+            // #686: the old key, the same number, until part 5 moves the
+            // shell's readers to the new one.
+            ("fixer_starts", j(millwright_starts)),
+            ("refreshes", j(refreshes)),
+            // Whether the one easy merge of this approval has been had: 1 when
+            // a refresh start on it ran as one. The read the dispatcher asks
+            // before it starts a second easy merge.
+            ("easy", j(easy)),
+        ],
+    ))
 }
 
 /// `approval-view <issue> [--attempt <n>]`: `view_of` of what approval-current
 /// answers.
 fn view(home: &Path, issue: i64, want: Option<i64>) -> Result<String, Fail> {
-    let answer = verbs::parsed(&current(home, issue)?)?;
+    let answer = verbs::parsed(&verbs::look(home, |c| current(c, issue))?)?;
     Ok(line("approval-view", &[("view", view_of(&answer, want)?)]))
 }
 

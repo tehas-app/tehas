@@ -13,10 +13,15 @@ empty one above it.
 
 ### Changes
 
+- `scripts/verify.sh` checks the workspace's format and lints on every run, not only with `--full`; in CI a missing rustfmt or clippy fails. `tehas setup` runs `--full` on a factory that builds tehas, so unformatted code that passed CI stopped setup three times. `console/dispatch` is formatted again.
+- A cycle that hands off on `lens-fix-reposition` with its pull request open and its review not held waits for a merge (`tehas:awaiting-merge`) instead of parking. The branch already holds the first review round's fix; only the second round's could not be laid on it. It was the most common park from 2026-10-31.
 - `console flags pause` takes only `set` and `clear`: `show` and `read`, which nothing called, are gone (#1365). The dashboard's reader of the flag uses the same reading as the health file.
+- The console's cycle report reads the stalled and timed stop files once each, so a file whose first word is no count of seconds names neither a stop nor a step (#1207). Before, the two reads of one file could disagree and report a stalled cycle with a step of an unreadable file.
 - A factory pull request that waits for a person is titled `HALT: ` instead of `STUCK: `. The next poll renames the open ones.
 - `tehas drain` prints its answer when a poll holds its lock for the whole wait: `not drained:`, or `drained: false` with `--json`. It printed nothing, which stopped `industry factory upgrade` with `unreadable factory answer`.
 - The libraries no command sources are gone: `lib/attachments.sh`, `cycles.sh`, `labels.sh`, `millwright.sh`, `questions.sh`, `sandbox.sh`, `slice.sh`, `store.sh` and `history-lines.jq`. What still had a caller is in the console or the store now, and `install.sh` removes a host's copies in its stale-file step.
+- The host's pinned tools are back to what v0.24.x released: Node 22.23.4, gh 2.103.3, bun 1.4.4, jq 1.8.2, Pi 1.4.0, ctx7 0.8.2, parallel-cli 0.9.4, Playwright 1.64.1, Rust 1.99.1, rustup 1.29.2, codebase-memory-mcp 0.12.1, Caddy 2.11.7 and CI's actions/checkout v7.0.1, each with its checksum, digest or lockfile. A merge had put the earlier pins back in `host/versions.env`, the npm trees beside it, the Caddy digests and the two workflows.
+- The site is two frontends with two pinned looks. The front page (`/`, `/floor`) names `theme-pixel.css` and every other page names `theme-beesknees26.css`, each with its own logo and share card, so no server rewrites a look. `TEHAS_THEME` and `TEHAS_LAYOUT` are retired, the `paper` and `beesknees` themes are gone, the front page is always the factory floor and `/business` is always the business page. The footers no longer link from one frontend to the other.
 - `analytics event --at <t>` keeps the row when the time is a little ahead of the host's clock: within an hour it is stored at now and said on standard error, because the dispatcher passes the time GitHub recorded for the label. Beyond the hour it is still a usage error and no row is written.
 - The `sizes` figures count no lead for a ship whose `merged` is stamped before the `ready` behind it, as `refine` already counts it; a negative median lead no longer reaches the report.
 
@@ -29,6 +34,14 @@ in `live/status.json` under `pause.flag`.
 
 A filter, script or search that looks for `STUCK: ` in pull request titles
 now looks for `HALT: `.
+
+Take `TEHAS_THEME` and `TEHAS_LAYOUT` out of `instance.env`. A line that asks
+for what this version does anyway (`TEHAS_THEME=pixel`, `TEHAS_LAYOUT=floor`,
+or an empty value) loads and is dropped; any other value stops every tehas
+command with 78 and names the line. A host that had `TEHAS_LAYOUT=business`
+now has the factory floor at `/` and the business page at `/business`. Run the
+two `docker compose ... up -d` lines again: neither server is given those
+settings now.
 
 ## v0.24.0 (2026-11-02)
 
