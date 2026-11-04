@@ -13,6 +13,7 @@ empty one above it.
 
 ### Changes
 
+- Health says when the cleaner's hourly upkeep failed to make a backup: `There is no backup of the state store: the last upkeep failed at <time>: <word>.`, and `checks.upkeep` carries the last upkeep's time, result and the store's word. The cleaner records it in `state/upkeep.json`. Before, health told the reader to wait for the cleaner that was already failing (#1419).
 - `scripts/verify.sh` checks the workspace's format and lints on every run, not only with `--full`; in CI a missing rustfmt or clippy fails. `tehas setup` runs `--full` on a factory that builds tehas, so unformatted code that passed CI stopped setup three times. `console/dispatch` is formatted again.
 - A cycle that hands off on `lens-fix-reposition` with its pull request open and its review not held waits for a merge (`tehas:awaiting-merge`) instead of parking. The branch already holds the first review round's fix; only the second round's could not be laid on it. It was the most common park from 2026-10-31.
 - `console flags pause` takes only `set` and `clear`: `show` and `read`, which nothing called, are gone (#1365). The dashboard's reader of the flag uses the same reading as the health file.

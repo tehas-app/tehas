@@ -1654,7 +1654,8 @@ mode, and the newest rows can be in `tehas.db-wal`. The cleaner makes a
 consistent copy once a day with `store backup`, as
 `~/tehas/state/backup/tehas-<YYYYMMDD>.db` (mode 0600), and keeps the newest
 seven. `tehasbot health` warns (`checks.backup`) when there is none or the
-newest is more than two days old. The copies `install.sh` makes before a
+newest is more than two days old, and says when the last upkeep failed and the
+store's word for why (`checks.upkeep`). The copies `install.sh` makes before a
 migration, `tehas-<schema>-<time>.db`, are kept beside them and never removed.
 
 **To restore** a copy:
