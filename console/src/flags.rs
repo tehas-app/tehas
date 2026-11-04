@@ -82,6 +82,7 @@
 //! written or removed, or a name of the flag is not this account's to remove;
 //! 64 a bad argument, which writes nothing.
 
+use crate::account;
 use crate::forge::CALL_BOUND;
 use serde_json::Value;
 use std::env;
@@ -489,7 +490,7 @@ fn pause(given: &[String]) -> u8 {
             if !rest.is_empty() {
                 return usage("clear takes no argument");
             }
-            pause_clear(&file)
+            pause_clear(&file, account::uid())
         }
         _ => usage("set or clear, not a word this command knows"),
     }
@@ -510,23 +511,6 @@ fn pause_args(rest: &[String]) -> Result<String, &'static str> {
         i += 2;
     }
     Ok(reason.unwrap_or_default())
-}
-
-/// The account of this run: the real uid, and the name passwd gives for it.
-fn uid() -> u32 {
-    // SAFETY: getuid takes no argument and has no preconditions.
-    unsafe { libc::getuid() }
-}
-
-/// The account which wrote the flag, as `id -un` names it: the real uid, the
-/// name in passwd for it, and nothing for an account passwd does not name.
-pub(crate) fn account() -> String {
-    let entry = unsafe { libc::getpwuid(uid()) };
-    if entry.is_null() {
-        return String::new();
-    }
-    let name = unsafe { std::ffi::CStr::from_ptr((*entry).pw_name) };
-    name.to_string_lossy().into_owned()
 }
 
 /// `tehas pause`: the first pause wins. A host already paused says what already
@@ -571,7 +555,7 @@ fn pause_set(file: &Path, reason: &str) -> u8 {
         return 1;
     }
     let said = oneline(reason);
-    let (by, at) = (account(), time::iso(now()));
+    let (by, at) = (account::name(), time::iso(now()));
     let held = |text: &str| Value::String(text.to_string()).to_string();
     let doc = format!(
         "{{\"by\":{},\"at\":{},\"reason\":{}}}\n",
@@ -609,8 +593,10 @@ fn pause_set(file: &Path, reason: &str) -> u8 {
 /// pause writes through goes too, so a leftover of it cannot outlive the flag.
 /// Each of the two names is ours only when we can take it: what is left of
 /// another uid's run, or planted under one of them, is reported and keeps the
-/// command from saying the host resumed.
-fn pause_clear(file: &Path) -> u8 {
+/// command from saying the host resumed. <me> is the uid of this run, asked
+/// once by the caller: a case which wants a run that does not know its own uid
+/// gives None.
+fn pause_clear(file: &Path, me: Option<u32>) -> u8 {
     let tmp = file.with_extension("json.new");
     let there = file.symlink_metadata().is_ok() || tmp.symlink_metadata().is_ok();
     // A name is ours to remove only when it holds a regular file of this run.
@@ -618,7 +604,7 @@ fn pause_clear(file: &Path) -> u8 {
     // link stays where whoever made it left it. The flag path reads through a
     // symlink, so the same rule holds there.
     for name in [file, &tmp] {
-        if name.symlink_metadata().is_ok() && !owned_regular(name) {
+        if name.symlink_metadata().is_ok() && !owned_regular(name, me) {
             eprintln!("tehas resume: {} is not ours to remove", name.display());
             return 1;
         }
@@ -1242,13 +1228,14 @@ fn parse(bytes: &[u8], now: i64) -> Reading {
     out
 }
 
-/// Whether a path is a regular file of this run. A symlink is never ours: the
-/// name is ours to remove only when it holds our own regular file, not one
-/// planted under it or left there by a container which ran as another account.
-fn owned_regular(path: &Path) -> bool {
-    match fs::symlink_metadata(path) {
-        Ok(meta) => meta.file_type().is_file() && meta.uid() == uid(),
-        Err(_) => false,
+/// Whether a path is a regular file of <me>. A symlink is never ours: the name
+/// is ours to remove only when it holds our own regular file, not one planted
+/// under it or left there by a container which ran as another account. No uid
+/// owns anything: a run whose `id` does not answer removes nothing of its own.
+fn owned_regular(path: &Path, me: Option<u32>) -> bool {
+    match (fs::symlink_metadata(path), me) {
+        (Ok(meta), Some(me)) => meta.file_type().is_file() && meta.uid() == me,
+        _ => false,
     }
 }
 
@@ -2309,7 +2296,7 @@ mod tests {
             fs::read_to_string(&file).unwrap(),
             format!(
                 "{{\"by\":\"{}\",\"at\":\"{}\",\"reason\":\"waiting for the gate\"}}\n",
-                account(),
+                account::name(),
                 time::iso(now()),
             )
         );
@@ -2335,7 +2322,7 @@ mod tests {
             fs::read_to_string(&file).unwrap(),
             format!(
                 "{{\"by\":\"{}\",\"at\":\"{}\",\"reason\":\"\"}}\n",
-                account(),
+                account::name(),
                 time::iso(now()),
             )
         );
@@ -2344,7 +2331,7 @@ mod tests {
             read_pause(&file).text(),
             format!(
                 "{{\"state\":\"ok\",\"by\":\"{}\",\"at\":\"{}\"}}",
-                account(),
+                account::name(),
                 time::iso(now()),
             )
         );
@@ -2410,7 +2397,7 @@ mod tests {
         let outside = d.join("victim");
         fs::create_dir_all(&outside).unwrap();
         symlink(&outside, file.with_extension("json.new")).unwrap();
-        assert_eq!(pause_clear(&file), 1);
+        assert_eq!(pause_clear(&file, account::uid()), 1);
         assert!(outside.is_dir());
         assert!(file.with_extension("json.new").symlink_metadata().is_ok());
         // The flag path reads through a symlink, so taking the link off would
@@ -2420,7 +2407,7 @@ mod tests {
         let outside = d.join("keepme");
         fs::write(&outside, "not a flag").unwrap();
         symlink(&outside, &file).unwrap();
-        assert_eq!(pause_clear(&file), 1);
+        assert_eq!(pause_clear(&file, account::uid()), 1);
         assert!(outside.exists());
         assert!(file.symlink_metadata().is_ok());
     }
@@ -2435,7 +2422,7 @@ mod tests {
         assert_eq!(pause_set(&file, "x"), 0);
         fs::write(file.with_extension("json.new"), "half a flag").unwrap();
         fs::set_permissions(d.join("state"), fs::Permissions::from_mode(0o500)).unwrap();
-        assert_eq!(pause_clear(&file), 1);
+        assert_eq!(pause_clear(&file, account::uid()), 1);
         fs::set_permissions(d.join("state"), fs::Permissions::from_mode(0o700)).unwrap();
         assert!(file.exists() || file.with_extension("json.new").exists());
     }
@@ -2444,7 +2431,7 @@ mod tests {
     fn resume_takes_the_flag_and_its_temporary_off() {
         let d = dir("pause-clear");
         let file = pause_file(&d);
-        assert_eq!(pause_clear(&file), 0);
+        assert_eq!(pause_clear(&file, account::uid()), 0);
         assert_eq!(pause_set(&file, "x"), 0);
         // A leftover of a run killed mid-write goes with the flag, so it
         // cannot outlive it.
@@ -2453,11 +2440,25 @@ mod tests {
             r#"{"by":"b","at":"2026-10-15T10:00:00Z","reason":""}"#,
         )
         .unwrap();
-        assert_eq!(pause_clear(&file), 0);
+        assert_eq!(pause_clear(&file, account::uid()), 0);
         assert!(!file.exists());
         assert!(!file.with_extension("json.new").exists());
         // Clearing a host which is not paused succeeds and says so.
-        assert_eq!(pause_clear(&file), 0);
+        assert_eq!(pause_clear(&file, account::uid()), 0);
+    }
+
+    #[test]
+    fn resume_removes_nothing_when_the_run_does_not_know_its_uid() {
+        // The failure mode of the ownership check: with no uid nothing can be
+        // told apart from something planted on the name of a flag, so both the
+        // flag and its temporary stay and the host is not reported resumed.
+        let d = dir("pause-clear-no-uid");
+        let file = pause_file(&d);
+        assert_eq!(pause_set(&file, "x"), 0);
+        fs::write(file.with_extension("json.new"), "half a flag").unwrap();
+        assert_eq!(pause_clear(&file, None), 1);
+        assert!(file.exists());
+        assert!(file.with_extension("json.new").exists());
     }
 
     #[test]
@@ -2501,14 +2502,66 @@ mod tests {
 
     #[test]
     fn the_name_of_the_account_which_writes_the_flag_is_its_name() {
-        // The same name id -un prints: the real uid of the run, and the name
-        // passwd gives for it. An empty name would be a flag which says
-        // nothing about who wrote it.
-        assert!(!account().is_empty());
+        // The same name id -un prints. An empty name would be a flag which
+        // says nothing about who wrote it.
+        assert!(!account::name().is_empty());
         let out = std::process::Command::new("id")
             .arg("-un")
             .output()
             .expect("id -un");
-        assert_eq!(account(), String::from_utf8_lossy(&out.stdout).trim());
+        assert_eq!(account::name(), String::from_utf8_lossy(&out.stdout).trim());
+    }
+
+    #[test]
+    fn only_a_regular_file_of_this_run_is_ours_to_remove() {
+        let home = dir("owned-regular");
+        fs::create_dir_all(home.join("state")).unwrap();
+        let mine = home.join("state/pause.json");
+        fs::write(&mine, "{}").unwrap();
+        assert!(owned_regular(&mine, account::uid()));
+        // A directory is no flag to take off, a link is not ours whoever
+        // owns what it points at, and an absent name is nothing to remove.
+        assert!(!owned_regular(&home.join("state"), account::uid()));
+        symlink(&mine, home.join("state/link.json")).unwrap();
+        assert!(!owned_regular(
+            &home.join("state/link.json"),
+            account::uid()
+        ));
+        assert!(!owned_regular(
+            &home.join("state/gone.json"),
+            account::uid()
+        ));
+        // A file of another account is not ours to remove. The file is made
+        // here, so the case does not lean on what the host happens to hold.
+        // Only a run under uid 0 can hand a file to another account, and the
+        // rest are told the case was skipped instead of left to pass unseen.
+        let other = home.join("state/other.json");
+        fs::write(&other, "x").unwrap();
+        if account::uid() == Some(0) {
+            let said = std::process::Command::new("chown")
+                .arg("1")
+                .arg(&other)
+                .output()
+                .expect("chown");
+            assert!(
+                said.status.success(),
+                "could not give {} to uid 1: {}",
+                other.display(),
+                String::from_utf8_lossy(&said.stderr)
+            );
+            assert!(
+                !owned_regular(&other, Some(0)),
+                "{} is not ours",
+                other.display()
+            );
+        } else {
+            eprintln!("skipped: only a run under uid 0 can give a file to another account");
+        }
+        // The same refusal every run can answer: an uid which is not the
+        // owner's owns nothing, and no uid owns anything.
+        if let Some(me) = account::uid() {
+            assert!(!owned_regular(&mine, Some(me.wrapping_add(1))));
+        }
+        assert!(!owned_regular(&mine, None));
     }
 }
