@@ -150,10 +150,10 @@
 //!                                     three lines of a run log: the last
 //!                                     step started, the branch of its last
 //!                                     push when it is the issue's, and
-//!                                     `whole` or, past 200 KB, `truncated`.
-//!                                     Exits 1 with nothing printed when
-//!                                     <issue> is no number or the log is no
-//!                                     file it can read
+//!                                     `whole` or, past 200 KB read from its
+//!                                     end, `truncated`. Exits 1 with nothing
+//!                                     printed when <issue> is no number or
+//!                                     the log is no file it can read
 //!   tehas-cycle sandbox ok            Pi's settings.json and models.json are
 //!                                     there and the tokens models.json names
 //!                                     are set, else one line on standard
