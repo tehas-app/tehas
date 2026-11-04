@@ -16,7 +16,7 @@ cp "$T_ROOT/bin/tehas" "$T_ROOT/bin/tehasbot" "$tree/bin/"
 # The settings library is there to be read, so that not reading it means something.
 cp "$T_ROOT/lib/config.sh" "$tree/lib/config.sh"
 # One line per call: the name, then each argument after a "|".
-for name in dispatch cycle work plan dev index setup update status improve review check-product github-token console disk; do
+for name in dispatch cycle work plan dev index setup update status improve review check-product github-token console; do
   printf '%s\n' '#!/usr/bin/env bash' "# The text of $name." '#' "# Usage: $name" 'set -u' 'IFS="|"' \
     "printf '%s\\n' \"$name\${*:+|\$*}\" >>\"\$T/calls/libexec\"" 'exit "${RC:-0}"' >"$tree/libexec/$name"
   chmod +x "$tree/libexec/$name"
@@ -264,25 +264,6 @@ reset
 t_run "$bot status"
 t_eq "$(ran)" "$(under)|tehasbot|status"
 
-t_case "tehasbot disk publishes the reading; the console's disk verb is the only thing it runs"
-reset
-# The one form of disk that writes anything, and the one the cleaner's unit
-# runs. Anything else is refused before the console is execed: a unit cannot ask
-# for a reading it did not ask to have written, and the rest of `console disk`
-# is a person's, through `tehas disk`. The console's own arm of the same guard
-# is pinned by the words passed to it below and by the Rust test beside it, so a
-# caller that names the console itself is refused where the arguments are read.
-for words in "disk" "disk --json" "disk --full" "disk --publish --json" "disk --publish --full" \
-  "disk --publish free /tmp" "disk free /tmp" "disk --quiet"; do
-  t_run "$bot $words"
-  t_eq "$t_rc" 64
-  t_contains "$t_out" "tehasbot disk: usage: tehasbot disk --publish"
-done
-t_eq "$(ran)" ""
-t_run "$bot disk --publish"
-t_eq "$t_rc" 0
-t_eq "$(ran)" "console|tehasbot|disk|--publish"
-
 t_case "tehasbot alone and help print the usage; an unknown command is exit 64"
 reset
 t_run "$bot"
@@ -332,15 +313,13 @@ done
 
 t_case "every command in the usage of tehasbot has an executable script"
 names=$("$T_ROOT/bin/tehasbot" help | sed -n 's/^  tehasbot \([a-z-]*\).*/\1/p' | grep -v -x help | tr '\n' ' ')
-t_eq "$names" "dispatch cycle status health energy top protolab preview improve refresh review clean disk mcp github-token "
+t_eq "$names" "dispatch cycle status health energy top protolab preview improve refresh review clean mcp github-token "
 missing=""
 for name in $names; do
   # health, status and top are verbs of the console.
   script=$name
   # The sampler is a verb of the console, built by install.sh.
   [ "$name" = energy ] && continue
-  # So is the publisher of the disk reading, which needs no settings.
-  [ "$name" = disk ] && continue
   case "$name" in health | status | top | mcp | protolab | preview | refresh | clean) continue ;; esac
   [ -x "$T_ROOT/libexec/$script" ] || missing="$missing $name"
 done
@@ -353,8 +332,6 @@ t_case "every unit runs a command tehasbot knows"
 reset
 unknown=""
 while read -r name; do
-  # The publisher of the disk reading is run with the one argument it takes.
-  [ "$name" = "disk" ] && name="disk --publish"
   # shellcheck disable=SC2086  # a command and its verb
   t_run "$bot $name"
   [ "$t_rc" = 0 ] || unknown="$unknown $name"

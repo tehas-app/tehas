@@ -20,32 +20,32 @@ t_case "the cleaner's unit is the run with no sink of its own"
 # The member the cleaner's own suite cannot see. Pinned as the whole line: an
 # empty grep, a spaced-out `ExecStart =`, or a commented directive cannot leave
 # the case to read as a pass.
-t_eq "$(sed -n 's/^ExecStart=//p' "$units/tehas-clean.service")" \
-  "/bin/bash -c \". %h/tehas/env.sh && exec %h/tehas/bin/tehasbot clean\""
+# The first of its two steps; the - lets the disk reading after it run when the
+# clean failed.
+t_eq "$(sed -n 's/^ExecStart=//p' "$units/tehas-clean.service" | head -n 1)" \
+  "-/bin/bash -c \". %h/tehas/env.sh && exec %h/tehas/bin/tehasbot clean\""
 
 t_case "the cleaner's unit opens no file and sets no sink"
 # Not just the ExecStart: StandardOutput=append:, StandardError=append: or a
-# second ExecStart would give the run a second destination and write each line
-# of it twice. Comments are left out, so the prose beside the directive can
-# name the log without tripping the case, and no directive can hide in it.
+# redirect in either step would give the run a second destination and write
+# each line of it twice. Comments are left out, so the prose beside the
+# directive can name the log without tripping the case, and no directive can
+# hide in it.
 no_comments=$(grep -v '^#' "$units/tehas-clean.service")
 t_lacks "$no_comments" "logs/"
 t_lacks "$no_comments" ">>"
 t_lacks "$no_comments" "StandardOutput="
 t_lacks "$no_comments" "StandardError="
 
-t_case "the cleaner's unit publishes the disk reading after the clean, and no other step"
-# The reading factory_disk serves. Pinned as the whole line, and as the only
-# post step: a `-` prefix would let a publish that wrote nothing end the unit
-# 0, and a second ExecStartPost would put another writer of the host's figures
-# after the clean unseen. The publish opens no file of the clean's, so the two
-# cases above still read true of this unit: what it prints reaches the journal
-# and no log, and a redirect of it into clean.log would be the second destination
-# those cases refuse.
-t_eq "$(sed -n 's/^ExecStartPost=//p' "$units/tehas-clean.service")" \
-  "/bin/bash -c \". %h/tehas/env.sh && exec %h/tehas/bin/tehasbot disk --publish\""
-t_eq "$(grep -c '^ExecStartPost=' "$units/tehas-clean.service")" 1
-t_lacks "$no_comments" "tehasbot disk --publish >>"
+t_case "the cleaner's unit publishes the disk reading after the clean, failed or not"
+# The reading factory_disk serves, from the console directly. A second ExecStart
+# and no post step: systemd runs neither after a step that failed, so the clean
+# carries the - and the reading does not. Pinned as the whole line, and as the
+# last of exactly two steps; the two cases above still read true of it.
+t_eq "$(sed -n 's/^ExecStart=//p' "$units/tehas-clean.service" | sed -n 2p)" \
+  "/bin/bash -c \". %h/tehas/env.sh && exec %h/tehas/libexec/console disk %h/tehas --publish\""
+t_eq "$(grep -c '^ExecStart=' "$units/tehas-clean.service")" 2
+t_eq "$(grep -c '^ExecStartPost=' "$units/tehas-clean.service")" 0
 
 t_case "the units with no redirect are the commands that write their own log"
 # The class read from the source as well as from the units, so a third
@@ -59,8 +59,10 @@ t_eq "$(grep -o 'logs/[a-z]*\.log' "$T_ROOT/console/src/run.rs" | sed 's#logs/##
 for name in "${self_writing[@]}"; do
   unit=$units/tehas-$name.service
   [ -f "$unit" ] || { t_bad "$unit is not there"; continue; }
-  t_eq "$(sed -n 's/^ExecStart=//p' "$unit")" \
-    "/bin/bash -c \". %h/tehas/env.sh && exec %h/tehas/bin/tehasbot $name\""
+  # The cleaner's own step is its first, and carries the - of the case above.
+  want=""; [ "$name" = clean ] && want=-
+  t_eq "$(sed -n 's/^ExecStart=//p' "$unit" | head -n 1)" \
+    "$want/bin/bash -c \". %h/tehas/env.sh && exec %h/tehas/bin/tehasbot $name\""
 done
 
 t_case "a cycle's unit starts the cycle from its own copy of the code"
