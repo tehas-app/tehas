@@ -105,7 +105,9 @@ pub fn kept_note_kind(kind: &str) -> Option<&'static str> {
         .map(|(w, _)| w)
 }
 pub const MAX_OPTIONS: usize = 20;
-const OPTION_BYTES: usize = 300;
+/// The bytes of one `--option` label, and the bound the guard of a document
+/// takes as its own: a longer argument is no value this store would hold.
+pub const OPTION_BYTES: usize = 300;
 
 /// An option's label as the store keeps it: no control characters, at most
 /// OPTION_BYTES bytes on a character boundary, and `-` for an empty one.
@@ -122,15 +124,45 @@ pub fn option_label(label: &str) -> String {
     v
 }
 
-/// One option that parses as a JSON list or object: the shape of a document,
-/// not of the label of one box. The only writer of `options_json` is `plan-end
-/// --option`, which takes one label per flag, so a whole list that arrives as
-/// one label is the caller's mistake. A label with brackets in a sentence, or
-/// one that is no JSON at all, stays the text it is.
+/// Whether `text` holds a JSON list or object, and so is the shape of a
+/// document rather than the text of one box. The store writes its list columns
+/// with `j`, so the text is already UTF-8. Nothing longer than one label can be
+/// a value the store keeps, so the bound is asked first and an argument of any
+/// size is not parsed in full; past it, `holds_a_document` asks the question of
+/// the cut the store would have kept instead.
+fn is_document(text: &str) -> bool {
+    text.len() <= OPTION_BYTES
+        && serde_json::from_str::<Value>(text.trim()).is_ok_and(|v| v.is_array() || v.is_object())
+}
+
+/// One `--option` that holds a JSON list or object: the shape of a document,
+/// not of the label of one box. Behind this grammar the only writer of
+/// `options_json` is `plan-end --option`, which takes one label per flag (rows
+/// brought in from the record files are written by `store import`), so a whole
+/// list that arrives as one label is the caller's mistake. A label with
+/// brackets in a sentence, or one that is no JSON at all, stays the text it is:
+/// this guard is only the early word. `planning_json` is the backstop that
+/// refuses a value it cannot read back, so a label that is a truncated or
+/// malformed document is stored as the text it is and the read has its say. An
+/// argument too long to be one label is asked the same question of the text the
+/// store would have kept, so a list cut to the bound is refused too.
 fn holds_a_document(label: &str) -> bool {
-    let t = label.trim();
-    (t.starts_with('[') || t.starts_with('{'))
-        && serde_json::from_str::<Value>(t).is_ok_and(|v| v.is_array() || v.is_object())
+    if is_document(label) {
+        return true;
+    }
+    if label.len() <= OPTION_BYTES {
+        return false;
+    }
+    let mut cut = label
+        .chars()
+        .filter(|ch| !ch.is_control())
+        .collect::<String>();
+    let mut end = cut.len().min(OPTION_BYTES);
+    while !cut.is_char_boundary(end) {
+        end -= 1;
+    }
+    cut.truncate(end);
+    is_document(&cut)
 }
 
 /// The arguments of `plan-show` as the read of `store batch` takes them: the
@@ -334,8 +366,9 @@ fn end_args(rest: &[String]) -> Result<Call, String> {
     let session = c.whole("--session", a.value("--session"), session_ok);
     let given = a.values("--option");
     // A whole list in place of one label is refused with a word, not cleaned:
-    // cleaning would still record boxes nobody asked for.
-    if let Some(word) = given.iter().find(|s| holds_a_document(s)) {
+    // cleaning would still record boxes nobody asked for. No mark: the call
+    // writes nothing, and a 64 carries no `cleaned` field to name.
+    if let Some(word) = given.iter().copied().find(|s| holds_a_document(s)) {
         return Err(a.usage("--option", &format!("is JSON: {}", verbs::shown(word))));
     }
     if given.len() > MAX_OPTIONS {
@@ -438,21 +471,19 @@ pub fn planning_json(c: &Connection, issue: i64) -> Result<String, Fail> {
     let Some((mut p, options)) = row else {
         return Ok("null".to_string());
     };
-    // Written by this store as a JSON list; one that does not parse, or parses
-    // as anything else, is damage: the question would go out with no boxes and
-    // nobody would say the value was refused.
+    // `plan-end --option` and `store import` write the column with `j`, so it
+    // holds a JSON list or nothing. A NULL and a stored `[]` answer alike, as
+    // `plan-begin`'s `'[]'` contract requires. A value that does not parse as a
+    // list is damage: the question would go out with no boxes and nobody would
+    // say the value was refused. The elements are not read for their type here:
+    // a non-text one prints as the empty label the poll shows for it, as a row
+    // the store itself would not have written deserves.
     let options = match options {
         None => Value::Array(Vec::new()),
-        Some(t) => {
-            let v = serde_json::from_str::<Value>(&t)
-                .map_err(|_| verbs::damaged("a planning session's options are not JSON"))?;
-            if !v.is_array() {
-                return Err(verbs::damaged(
-                    "a planning session's options are not a JSON list",
-                ));
-            }
-            v
-        }
+        Some(t) => serde_json::from_str::<Value>(&t)
+            .ok()
+            .filter(Value::is_array)
+            .ok_or_else(|| verbs::damaged("a planning session's options are not a JSON list"))?,
     };
     p.insert(3, ("options", options.to_string()));
     let mut q = c
