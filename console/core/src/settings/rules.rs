@@ -41,7 +41,6 @@ pub const ROLES: [&str; 5] = [
 pub const CLEAN_DIRS: &str =
     "target node_modules __pycache__ .venv .pytest_cache .mypy_cache .next .turbo .gradle";
 
-const THEMES: &str = "expected pixel, paper, beesknees or beesknees26";
 const SWITCH: Rule = Rule::OneOf(&["0", "1"], "expected 0 or 1");
 const LOGIN_MILLWRIGHT: &str =
     "expected one GitHub login, such as tehas-millwright or tehas-millwright[bot]";
@@ -153,16 +152,6 @@ const fn required(name: &'static str, rule: Rule) -> Setting {
 /// told about first. An optional setting left out is checked only when it is
 /// there, as TEHAS_BUILD_TIMEOUT is: its default belongs to install.sh.
 pub const TABLE: &[Setting] = &[
-    always(
-        "TEHAS_THEME",
-        Rule::OneOf(&["pixel", "paper", "beesknees", "beesknees26"], THEMES),
-        "pixel",
-    ),
-    always(
-        "TEHAS_LAYOUT",
-        Rule::OneOf(&["floor", "business"], "expected floor or business"),
-        "floor",
-    ),
     always("TEHAS_INDEXING", SWITCH, "0"),
     always("TEHAS_WORK_IMAGES", SWITCH, "0"),
     always("TEHAS_WORK_DESCRIBE", SWITCH, "0"),
@@ -699,10 +688,6 @@ mod tests {
 
     #[test]
     fn a_word_setting_takes_its_words() {
-        takes("TEHAS_THEME", "beesknees26");
-        refuses("TEHAS_THEME", "../pixel", THEMES);
-        takes("TEHAS_LAYOUT", "business");
-        refuses("TEHAS_LAYOUT", "game", "expected floor or business");
         takes("TEHAS_ANALYTICS", "off");
         refuses("TEHAS_ANALYTICS", "On", "expected on or off");
         takes("TEHAS_UPDATE_FROM", "git");

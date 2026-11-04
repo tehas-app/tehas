@@ -35,7 +35,7 @@ done
 
 t_case "a report goes by the settings the cycle started with, whatever instance.env says by then"
 changes=(
-  'echo TEHAS_THEME=nothing-this-version-knows >>"$TEHAS_INSTANCE_DIR/instance.env"'
+  'echo TEHAS_INDEXING=yes >>"$TEHAS_INSTANCE_DIR/instance.env"'
   'echo "this is ( not shell" >>"$TEHAS_INSTANCE_DIR/instance.env"'
   'echo TEHAS_REPO=other/place >>"$TEHAS_INSTANCE_DIR/instance.env"'
   'echo TEHAS_CYCLE_REPORT=bash >>"$TEHAS_INSTANCE_DIR/instance.env"'
