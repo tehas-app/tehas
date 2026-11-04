@@ -21,6 +21,7 @@ empty one above it.
 - `tehas drain` prints its answer when a poll holds its lock for the whole wait: `not drained:`, or `drained: false` with `--json`. It printed nothing, which stopped `industry factory upgrade` with `unreadable factory answer`.
 - The libraries no command sources are gone: `lib/attachments.sh`, `cycles.sh`, `labels.sh`, `millwright.sh`, `questions.sh`, `sandbox.sh`, `slice.sh`, `store.sh` and `history-lines.jq`. What still had a caller is in the console or the store now, and `install.sh` removes a host's copies in its stale-file step.
 - The host's pinned tools are back to what v0.24.x released: Node 22.23.4, gh 2.103.3, bun 1.4.4, jq 1.8.2, Pi 1.4.0, ctx7 0.8.2, parallel-cli 0.9.4, Playwright 1.64.1, Rust 1.99.1, rustup 1.29.2, codebase-memory-mcp 0.12.1, Caddy 2.11.7 and CI's actions/checkout v7.0.1, each with its checksum, digest or lockfile. A merge had put the earlier pins back in `host/versions.env`, the npm trees beside it, the Caddy digests and the two workflows.
+- The site is two frontends with two pinned looks. The front page (`/`, `/floor`) names `theme-pixel.css` and every other page names `theme-beesknees26.css`, each with its own logo and share card, so no server rewrites a look. `TEHAS_THEME` and `TEHAS_LAYOUT` are retired, the `paper` and `beesknees` themes are gone, the front page is always the factory floor and `/business` is always the business page. The footers no longer link from one frontend to the other.
 
 ### Adopter action
 
@@ -31,6 +32,14 @@ in `live/status.json` under `pause.flag`.
 
 A filter, script or search that looks for `STUCK: ` in pull request titles
 now looks for `HALT: `.
+
+Take `TEHAS_THEME` and `TEHAS_LAYOUT` out of `instance.env`. A line that asks
+for what this version does anyway (`TEHAS_THEME=pixel`, `TEHAS_LAYOUT=floor`,
+or an empty value) loads and is dropped; any other value stops every tehas
+command with 78 and names the line. A host that had `TEHAS_LAYOUT=business`
+now has the factory floor at `/` and the business page at `/business`. Run the
+two `docker compose ... up -d` lines again: neither server is given those
+settings now.
 
 ## v0.24.0 (2026-11-02)
 

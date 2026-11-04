@@ -42,14 +42,14 @@
     <meta property="og:title" content="{{ $title }} - Tehas">
     <meta property="og:description" content="{{ $description }}">
     <meta property="og:url" content="{{ $base }}/{{ $path }}">
-    <meta property="og:image" content="{{ $base }}/fun/share.png">
+    <meta property="og:image" content="{{ $base }}/fun/share-logo.png">
     <meta property="og:image:type" content="image/png">
     <meta property="og:image:width" content="1200">
     <meta property="og:image:height" content="630">
-    <meta property="og:image:alt" content="{{ if eq (env "TEHAS_THEME") "pixel" }}A pixel art factory with a wind turbine{{ else }}The tehas logo, a white factory on a green square,{{ end }} beside the word TEHAS">
+    <meta property="og:image:alt" content="The tehas logo, a white factory on a green square, beside the word TEHAS">
     <meta name="twitter:card" content="summary_large_image">
     <link rel="icon" type="image/svg+xml" href="/fun/favicon.svg">
-    <link rel="stylesheet" href="/fun/theme.css">
+    <link rel="stylesheet" href="/fun/theme-beesknees26.css">
     <link rel="stylesheet" href="/fun/game-view.css">
     <link rel="stylesheet" href="/fun/manual.css">
     {{- /* Visitor analytics, only on an instance that names a script and a site. */}}
@@ -62,7 +62,7 @@
 
     <header class="topbar topbar-short">
       <a class="brand" href="/" aria-label="Tehas factory floor">
-        <img src="/fun/factory.svg" width="100" height="50" alt="">
+        <img src="/fun/favicon.svg" width="50" height="50" alt="">
         <span>TEHAS</span>
       </a>
       <nav class="menu" aria-label="Site">
@@ -116,7 +116,6 @@
 
     <footer class="footer">
       <p class="footer-links">
-        <a href="/">FACTORY FLOOR</a>
         <a href="/agents">AGENTS</a>
         <a href="/llms.txt">LLMS.TXT</a>
       </p>
