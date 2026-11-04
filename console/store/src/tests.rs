@@ -3349,6 +3349,46 @@ fn a_read_of_a_batch_is_the_answer_of_the_same_call_alone() {
 }
 
 #[test]
+fn the_four_reads_answer_on_the_connection_and_snapshot_of_the_batch() {
+    // What this case proves is its answers: each read gives what the same call
+    // alone gives; the batch answers from its own snapshot, since a write after
+    // it shows in the next read and not in the line the batch printed; and that
+    // write answers at all, so nothing of the batch still holds the store open.
+    // That no read outlives the opening is the borrow checker's, not something a
+    // run can see.
+    let home = crate::verbs_tests::home("look-many-connection");
+    asked(&home, 12, 4001);
+    let calls = [
+        crate::verbs::ReadCall::PlanShow(12),
+        crate::verbs::ReadCall::ParkShow(12),
+        crate::verbs::ReadCall::QuestionKnown(12, 4001),
+        crate::verbs::ReadCall::ApprovalCurrent(12),
+    ];
+    let got = crate::verbs::look_many(&home, &calls).expect("the four reads answer");
+    let alone = [
+        crate::verbs_tests::ok(&home, &["plan-show", "12"]),
+        crate::verbs_tests::ok(&home, &["park-show", "12"]),
+        crate::verbs_tests::ok(&home, &["question-known", "12", "--id", "4001"]),
+        crate::verbs_tests::ok(&home, &["approval-current", "12"]),
+    ];
+    for ((rc, out), want) in got.iter().zip(alone) {
+        assert_eq!(*rc, 0, "{out}");
+        let v: Value = serde_json::from_str(out).unwrap_or_else(|e| panic!("{e} of {out:?}"));
+        assert_eq!(
+            v, want,
+            "a read given the batch's connection is not the single call's"
+        );
+    }
+    crate::verbs_tests::ok(&home, &["park-retry", "12"]);
+    let after = crate::verbs_tests::ok(&home, &["park-show", "12"]);
+    let in_batch: Value = serde_json::from_str(&got[1].1).unwrap();
+    assert_ne!(
+        in_batch, after,
+        "the batch answered from a later state of the store"
+    );
+}
+
+#[test]
 fn a_batch_writes_nothing_however_its_calls_are_mixed() {
     // The claim the whole design rests on: a batch reads. The refusals are
     // answered without the store, the reads run inside one transaction that is
