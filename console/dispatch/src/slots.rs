@@ -186,8 +186,8 @@ fn count(s: &str) -> Option<u64> {
 }
 
 /// The bytes one container is given: a valid Docker size, never zero, never
-/// below the 6m Docker takes for a memory value. The rule is lib/slice.sh's for
-/// the reserve and `tehas work` reads that file's answer at every start; the
+/// below the 6m Docker takes for a memory value. The rule is tehas_core::slice's
+/// for the reserve and `tehas work` reads its answer at every start; the
 /// poll holds it here too, so a size that cannot name a container is answered
 /// with no reading - the floor of 2 containers - rather than a huge count.
 fn size(s: &str) -> Option<u64> {

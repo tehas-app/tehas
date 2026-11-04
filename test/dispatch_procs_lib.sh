@@ -41,9 +41,9 @@ t_stub_procs() {
   done
 }
 
-# The store, which lib/store.sh runs by name, so no PATH shim sees it: the shim
-# of the installed binary notes the store and the two processes lib/store.sh
-# puts around every call - the timeout that bounds it and the jq that reads its
+# The store, which is run by name, so no PATH shim sees it: the shim
+# of the installed binary notes the store and the two processes the shell
+# put around every call - the timeout that bounds it and the jq that reads its
 # answer - and then runs the real store beside the call t_stub already noted. A
 # poll pays for all of them, so a ceiling that left them out would be worth
 # nothing. The binary t_store_home installs is a hard link to the build of the

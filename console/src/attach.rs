@@ -1,7 +1,7 @@
 //! Files attached to an issue, for a command of this program: the way to
-//! $TEHAS_HOME/libexec/attach (console/attach), as lib/attachments.sh is for the
-//! commands still in bash. The approved word stays with the caller: it is who
-//! applied the label (rule 5).
+//! $TEHAS_HOME/libexec/attach (console/attach), as cycle/src/gives.rs is for
+//! tehas work. The approved word stays with the caller: it is who applied the
+//! label (rule 5).
 
 use serde_json::Value;
 use std::env;

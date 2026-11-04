@@ -53,7 +53,7 @@ CREATE INDEX issues_checked ON issues (checked_at);
 -- the cycle refused. A run by hand has how 'hand' and no started_by.
 -- 'millwright' (v4) is the new name of 'fixer'; both are accepted until the
 -- verbs write only the new one. #686: part 5 drops 'fixer' from this list, with
--- the aliases in console/store and the two lines of lib/store.sh.
+-- the aliases in console/store.
 CREATE TABLE cycles (
   issue          INTEGER PRIMARY KEY REFERENCES issues (issue) ON DELETE CASCADE,
   attempt        INTEGER NOT NULL DEFAULT 1,

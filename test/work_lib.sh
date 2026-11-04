@@ -49,7 +49,7 @@ done
 [ -n "${now:-}" ] || exit 0
 [ -e "$T/now.off" ] && exit 0
 i=0
-while [ -e "$T/now.wait" ] && [ "$i" -lt 200 ] && ! grep -qs step-started "$log"; do
+while [ -e "$T/now.wait" ] && [ "$i" -lt 200 ] && ! grep -qs step-started "${log:-}"; do
   command -p sleep 0.05
   i=$((i + 1))
 done
@@ -178,9 +178,6 @@ case " $* " in
     [ ! -e "$T/push-hangs" ] || exec "$(command -pv sleep)" 30
     [ ! -e "$T/push-slow" ] || { : >"$T/slow-began"; "$(command -pv sleep)" 1; }
     [ "${PUSH_RC:-0}" = 0 ] || { echo "docker: could not read from remote repository" >&2; exit "$PUSH_RC"; } ;;
-  *" --entrypoint bash "*)
-    [ -z "${INSTALL_SAYS:-}" ] || echo "$INSTALL_SAYS" >&2
-    exit "${INSTALL_RC:-0}" ;;
   " rm -f "*)
     [ ! -e "$T/rm-slow" ] || { : >"$T/slow-began"; "$(command -pv sleep)" 1; } ;;
   " stop "*)
@@ -248,9 +245,6 @@ env_ok=(GH_TOKEN=test-token "TEHAS_CGROUP_ROOT=$T_CGROUP")
 runner=/opt/pi-rukas/bin/pi-rukas-headless
 # The arguments of the docker call that starts the cycle.
 cycle_args() { grep -l -x -e 'pi-rukas-headless' -e "$runner" "$T"/calls/docker.args.* 2>/dev/null | head -n 1 | xargs -r cat; }
-# The arguments of the docker call that installs the product before the cycle:
-# the one whose script starts with set -e.
-install_args() { grep -l -x -e 'set -e' "$T"/calls/docker.args.* 2>/dev/null | head -n 1 | xargs -r cat; }
 # The arguments of the docker call that checks the push before the cycle.
 preflight_args() { grep -l -x -e '--entrypoint' "$T"/calls/docker.args.* 2>/dev/null | head -n 1 | xargs -r cat; }
 # The security options and the readers of a docker line come from
@@ -259,7 +253,7 @@ preflight_args() { grep -l -x -e '--entrypoint' "$T"/calls/docker.args.* 2>/dev/
 # against the function under test.
 # shellcheck source=test/docker_args.sh
 . "$(dirname "$0")/docker_args.sh" || exit 1
-# The options of lib/slice.sh and of tehas_sandbox_security, by name, for the
+# The options of the slice limits and of the security list, by name, for the
 # allow-list of unknown_options: one pair of strings for every suite of a
 # cycle's container, so an option added to either is allow-listed in all of them
 # at once, and one taken away from the function is refused by every test.

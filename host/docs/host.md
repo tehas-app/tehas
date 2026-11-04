@@ -20,10 +20,8 @@ Preparing a fresh machine is on the [bootstrap page](/bootstrap).
 | `~/tehas/env.sh`                     | Environment for every tehas process, its tool directories taken from `lib/paths.sh`; sourced from `~/.bashrc`           |
 | `~/tehas/lib/config.sh`              | Asks `libexec/console` to load and check the instance settings; sourced by every command |
 | `~/tehas/lib/paths.sh`               | The home of each tool this host installs, and the `PATH` that finds them. `env.sh`, `bootstrap.sh` and `install.sh` all take the list from here |
-| `~/tehas/lib/sandbox.sh`             | The bash of a sandbox container: the reading of what `tehas-cycle sandbox` gives it; sourced by the work and plan scripts, and by dev for the check of Pi's files |
-| `~/tehas/lib/slice.sh`               | The way to `console slice`, for the poll and `tehas improve`: whether the slice is usable and the room left, and with no console it finds no slice. A command that starts a sandbox container asks `tehas-cycle sandbox limits`, which holds the same rules and makes the container's limits, and it starts nothing without a usable slice |
-| `~/tehas/lib/attachments.sh`         | The way to `libexec/attach`, which holds which links of an issue are attached files, who may attach and how one is fetched. `tehas work` uses it; `tehas plan`, `tehas dev` and the Protolab reach the program from the console, and the Protolab holds the same link rule there |
-| `~/tehas/lib/questions.sh`            | The questions of a park. A cycle's report uses it |
+| `~/tehas/lib/github-app.sh`          | With a GitHub App: puts the `gh` shim first on `PATH` and gives git its credential helper; sourced by `env.sh` |
+| `~/tehas/lib/rukas.sh`               | Which pi-rukas commit the host follows; sourced by the sandbox build |
 | `~/tehas/bin/`                       | The two commands on `PATH`: `tehas` for a person, `tehasbot` for the units. Plus `gh` |
 | `~/tehas/libexec/`                   | The scripts behind the two commands, one for each thing they do. Not on `PATH` |
 | `~/tehas/run/`                       | One copy of `bin/`, `libexec/` and `lib/` for each running cycle (`cycle-<issue>-<pid>`) and planning turn (`plan-<issue>-<pid>`), as hardlinks, so an update leaves the code of what runs as it started. The next start removes the copies whose process has ended |
@@ -306,7 +304,8 @@ which `tehasbot status` fetches at most once an hour, and `/health` says
 asks for by name (`units`, `sandbox`, `docs`, `edge`, `labels`: see
 [Commands](/tools)).
 One line per step, and it stops at the first failure. It checks the instance
-settings against the required list in `lib/config.sh`, the same one install.sh
+settings against the one required list, tehas-core's, which `tehas_load` hands
+`lib/config.sh` and `tehas_require_instance_settings` checks: the same install.sh
 checks, before it calls git. It changes nothing when the checkout has local
 changes or cannot be fast-forwarded, and it never enables a unit or starts a
 container the host was not already running: a changed unit is reloaded and
@@ -343,19 +342,6 @@ branch in a temporary worktree, tags that commit as the next `vX.Y.Z` with an
 annotated tag, and pushes the tag. It refuses a commit whose `CHANGELOG.md`
 has no "Adopter action" for the release ([Releases](/tools#release-notes-and-the-adopter-action)).
 The pushed tag starts the release workflow, which publishes the signed tarball.
-With `--rc` it tags a release candidate of the next version instead,
-`vX.Y.Z-rc.N`, N one more than the newest candidate of that version: the same
-gate and checks, `CHANGELOG.md` left as it is. With `--from <branch>` it tags
-the head of that branch of the remote instead, so pull requests that wait on
-their host proof can be in a candidate before they reach the default branch.
-The branch must contain the default branch's head, or nothing is tagged. A
-plain release is always the default branch's head. The workflow publishes a
-candidate as a prerelease, which a plain `tehas update` passes over; a host
-moves to one only with `tehas update --to vX.Y.Z-rc.N`.
-
-```
-scripts/tag-release.sh --minor --rc --from candidate-v0.22.0   # v0.22.0-rc.1
-```
 When the head carries a polyfill that the newest pi-rukas no longer needs, it
 opens a pull request that removes it and tags nothing until that is merged
 ([Polyfills](/tools#polyfills-of-pi-rukas-features)).
@@ -688,7 +674,7 @@ its question (`tehasbot cycle`, the dispatcher); and each planning session,
 with its brief, its answers, the issues it filed, its open question and the
 last 50 lines of history of its turns (the dispatcher). What a planning turn
 carries between turns is a directory beside its workspace,
-`~/tehas/work/<name>-plan-<issue>.keep`. The commands run the store through `~/tehas/lib/store.sh`;
+`~/tehas/work/<name>-plan-<issue>.keep`. The commands run the store, `~/tehas/libexec/store`;
 `tehas dispatch`, `tehasbot cycle`, `tehas work`, `tehas stop`, `tehas history`,
 `tehas export` and `tehasbot health` stop with exit 78 before anything else
 when it is not installed.
@@ -1053,8 +1039,8 @@ edge router are outside the slice too.
 
 ### What a container may not do
 
-A cycle, a planning turn, a `tehas dev` session, and the push check and the
-product's install before a cycle all get the options below, from `security` in
+A cycle, a planning turn, a `tehas dev` session and the push check before a
+cycle all get the options below, from `security` in
 `console/core/src/sandbox.rs`, beside the mounts and the variables. The list is
 capability-shaped options and this round's bounded `/tmp`. The indexer and the
 analyst are not given them yet (issue #54 leaves them to a follow-up), so the
@@ -1074,7 +1060,7 @@ as that user it skips the drop. The image is built with the tehas user's uid
 | `--cap-add` | `CHOWN` | `npm install` drops a package to its owner with `chown(2)`, and Playwright's install of Chromium copies a cache tree that way. Both run in a gate of the product. Without it the gate fails with `EPERM` |
 | `--cap-add` | `FOWNER` | `npm` moves its staging directory onto its destination with `rename`, which is refused for a file one does not own even when the directory is writable. `tar`'s unpack, `cargo install` of a built crate and a gate's own `mv` do the same |
 | `--security-opt` | `no-new-privileges:true` | No process in the container gains rights through its mode bits or file capabilities, whatever it runs |
-| `--tmpfs` | `/tmp:rw,exec,nosuid,nodev,size=<half of --memory>m,mode=1777` | A `/tmp` that counts against the container's memory instead of the host's disk, where the writable layer it replaces sits on the host's root disk with no limit. The host keeps its own scratch under `$TEHAS_HOME/tmp` and sets `TMPDIR` there for its own commands, and `TMPDIR` is not among the variables given to a container, so a tool inside one that honours `TMPDIR` writes to this bounded tmpfs. The size is half the container's ceiling (`--memory`, from `lib/slice.sh`), in MiB: about 2.7 GiB on tehas-tehas. Its pages count against `--memory` and cannot be reclaimed, so a tmpfs as large as the ceiling fills memory first and the kernel kills the agents, which frees nothing (cycle #353 on 2026-10-24, issue #761). At half, a full `/tmp` gives its writer `ENOSPC` and leaves the other half to the processes. A command with no usable ceiling gets no options and starts no container. Nothing prunes it during a cycle, and `tehasbot clean` reclaims the host's scratch and nothing of a running container's, so what a long cycle leaves there is what it runs out of. It stays `exec` because Docker's own default for a tmpfs is `noexec` and a product's gate is expected to write and run helpers there through npm, cargo and Playwright; no host of ours has been seen to need the bit, so that reason is an expectation, not an observation. With `TEHAS_SCRATCH_DIR` set, a cycle gets `<dir>/tehas-<issue>` bind-mounted at `/tmp` in place of this tmpfs: the tools write to the same path, the data is on disk and takes no memory, and the cycle removes it when it ends (the hourly cleaner takes what a killed cycle left). The host decides what is behind the path, normally a file system of its own at `/mnt/scratch`, mounted `nosuid,nodev`. Nothing limits a cycle's size inside it, so on the host's root disk a runaway cycle would fill the factory's disk. A planning turn and a `tehas dev` session keep the tmpfs |
+| `--tmpfs` | `/tmp:rw,exec,nosuid,nodev,size=<half of --memory>m,mode=1777` | A `/tmp` that counts against the container's memory instead of the host's disk, where the writable layer it replaces sits on the host's root disk with no limit. The host keeps its own scratch under `$TEHAS_HOME/tmp` and sets `TMPDIR` there for its own commands, and `TMPDIR` is not among the variables given to a container, so a tool inside one that honours `TMPDIR` writes to this bounded tmpfs. The size is half the container's ceiling (`--memory`, from `tehas-cycle sandbox limits`), in MiB: about 2.7 GiB on tehas-tehas. Its pages count against `--memory` and cannot be reclaimed, so a tmpfs as large as the ceiling fills memory first and the kernel kills the agents, which frees nothing (cycle #353 on 2026-10-24, issue #761). At half, a full `/tmp` gives its writer `ENOSPC` and leaves the other half to the processes. A command with no usable ceiling gets no options and starts no container. Nothing prunes it during a cycle, and `tehasbot clean` reclaims the host's scratch and nothing of a running container's, so what a long cycle leaves there is what it runs out of. It stays `exec` because Docker's own default for a tmpfs is `noexec` and a product's gate is expected to write and run helpers there through npm, cargo and Playwright; no host of ours has been seen to need the bit, so that reason is an expectation, not an observation. With `TEHAS_SCRATCH_DIR` set, a cycle gets `<dir>/tehas-<issue>` bind-mounted at `/tmp` in place of this tmpfs: the tools write to the same path, the data is on disk and takes no memory, and the cycle removes it when it ends (the hourly cleaner takes what a killed cycle left). The host decides what is behind the path, normally a file system of its own at `/mnt/scratch`, mounted `nosuid,nodev`. Nothing limits a cycle's size inside it, so on the host's root disk a runaway cycle would fill the factory's disk. A planning turn and a `tehas dev` session keep the tmpfs |
 
 What is left off the list on purpose: `SETUID` and `SETGID`, because nothing a
 cycle runs becomes another user (the image has no `sudo`, the container runs as
@@ -1190,7 +1176,6 @@ hold a slot for ever:
 | --- | --- | --- |
 | The image's `--capabilities` answer before a cycle | 120 s | `tehas work` exits 78, with `gave no --capabilities answer` |
 | The push check before a cycle | 300 s | `tehas work` exits 3, with `the push check did not end within 300s` |
-| The product's install before a cycle | 1800 s | `tehas work` exits 78, with `the install did not end within 1800s` in the `.preflight` file |
 | The clone of the cycle's workspace | 300 s | `tehas work` exits 78 |
 | `docker stop` at the end of a cycle, and on a signal | 60 s | `docker kill`, bounded the same way, and the line `docker stop of tehas-work-N did not end within 60s, killing it` |
 | The console at the end of a cycle | 3 s, then 30 s after it is asked to stop (`TEHAS_CONSOLE_WAIT`) | The console is killed, with `the console did not stop within 30s, killing it` |
@@ -1770,28 +1755,34 @@ same `docker compose ... up -d` applies after a change.
 
 ### Themes and layouts
 
-Every page, the factory floor, the business page, the manual and the Protolab,
-takes its look from one theme: its colours, typefaces, sizes, outlines and
-shadows, and the colours the canvases paint with. `TEHAS_THEME` in
-`instance.env` names it:
+The site is two frontends with two looks, and no setting picks either. Their
+colours, typefaces, sizes, outlines and shadows come from a theme file, and the
+file each page asks for is fixed:
 
-| Theme       | Look                                                                    |
-| ----------- | ----------------------------------------------------------------------- |
-| `pixel`     | The default: the factory as a 16-bit game, in the Topaz bitmap typeface |
-| `paper`     | Plain type on a light page, thin rules and light screens                |
-| `beesknees` | A business application: near-black and muted green on white, thin rules, no motion. Dark where the viewer's system is |
-| `beesknees26` | The 2026 redraw of beesknees, which it will replace: ink and muted green on a near-white ground, white panels with soft shadows, IBM Plex, no motion. Light; the business page has a button for a dark set, kept in the viewer's browser |
+| Look          | Where                                                      | Its file                |
+| ------------- | ---------------------------------------------------------- | ----------------------- |
+| `pixel`       | The front page: `/` and `/floor`, the factory floor        | `theme-pixel.css`       |
+| `beesknees26` | `/business`, `/dashboard`, every manual page, the Protolab | `theme-beesknees26.css` |
 
-`TEHAS_LAYOUT` names what the front page is:
+`pixel` is the factory as a 16-bit game, in the Topaz bitmap typeface.
+`beesknees26` is ink and one muted green on a near-white ground, white panels
+with soft shadows, IBM Plex, and no motion: light, with a dark set only where
+the viewer picks it with the business page's mode button, kept in their browser.
 
-| Layout     | Front page                                                                          |
-| ---------- | ----------------------------------------------------------------------------------- |
-| `floor`    | The default: the factory floor, the game view                                       |
-| `business` | The business page: live power and tokens, the production line to shipped on one row, with Prototypes while there are any and a Planning stage while work is being planned, the last 10 days, the issue board and the console of the running cycles |
+Each page names its own logo and share card too, so neither server rewrites a
+look. The floor asks for `factory.svg` and `share.png`; every other page asks
+for `favicon.svg` and `share-logo.png`. The sprites and scenes are pictures and
+stay the same in both.
 
-Both pages are always there, at `/floor` and `/business`, in whatever theme
-the instance has; the setting only picks the one at `/`. The business page was
-drawn for beesknees, and the floor for pixel. The business page reads the
+`TEHAS_THEME` and `TEHAS_LAYOUT` are retired. A line that asks for what this
+version does anyway, `TEHAS_THEME=pixel`, `TEHAS_LAYOUT=floor` or an empty
+value, loads and is dropped. Any other value stops every tehas command with 78
+and names the line to take out of `instance.env`. A host that had
+`TEHAS_LAYOUT=business` has the floor at `/` now, and the business page at
+`/business`.
+
+Both pages are always there, at `/floor` and `/business`. The business page
+reads the
 same files as the floor: `live/status.json`, `live/running.json` and the
 cycles' consoles, `live/protolab.json`, `live/analytics.json`,
 `live/epics.json` and `live/energy.json`. Its console follows the running cycle's output, with a tab
@@ -1804,19 +1795,16 @@ sub-issues, open or closed, each linked, and a link to the epic. The panel
 shows only where the file is there.
 Its live charts cover the last 30 minutes, which is what `energy.json` holds.
 
-A page asks for `/fun/theme.css`, and the docs server and the edge router
-answer with `~/tehas/fun/theme-<name>.css`. Both read the settings when their
-container is created: run the two `docker compose ... up -d` lines again after
-changing either. The sprites and scenes are pictures and stay the same in every
-theme. The header picture is the exception: `pixel` shows the animated factory,
-and every other theme the logo, which is also the favicon. The share card
-follows it, `share.png` for `pixel` and `share-logo.png` for the rest.
+A page asks for its theme by name, `~/tehas/fun/theme-<name>.css`, and the docs
+server and the edge router answer with that file: nothing is rewritten, so
+neither server is given a setting about looks. The docs server still reads
+`TEHAS_INDEXING` and the analytics settings when its container is created: run
+its `docker compose ... up -d` line again after changing either.
 
 A theme is one file in `host/fun/`, `theme-<name>.css`, that sets every token
-`theme-pixel.css` sets; its name is added to the list in
-`console/core/src/settings/rules.rs`.
-`test/theme_test.sh` fails when a theme leaves a token out or a page names a
-colour or a typeface of its own.
+`theme-pixel.css` sets. `test/theme_test.sh` fails when a theme leaves a token
+out, when a page names a colour or a typeface of its own, and when a page asks
+for the look of the other frontend.
 
 ## Secrets and trust
 

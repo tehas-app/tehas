@@ -11,11 +11,14 @@ tehas.slice
 -e
 HOME=/home/vscode
 -v
-@T@/home/tehas/tmp/widget/check-product.@RANDOM@:@T@/home/tehas/tmp/widget/check-product.@RANDOM@
+@T@/home/tehas/tmp/check-product.@RANDOM@:@T@/home/tehas/tmp/check-product.@RANDOM@
 -w
-@T@/home/tehas/tmp/widget/check-product.@RANDOM@/clone
+@T@/home/tehas/tmp/check-product.@RANDOM@
 --entrypoint
 bash
 tehas/pi-rukas:uid@UID@
 -c
-set -e\nmissing=\ncommand -v bun >/dev/null 2>&1 || { echo "no bun in the sandbox image" >&2; missing=1; }\n[ -z "$missing" ] || exit 69\necho 'install extension/: bun install --frozen-lockfile' >&2\n(cd 'extension' && bun install --frozen-lockfile)\n
+sh .pi/worktree-setup && sh -c "$1" && sh -c "$2"
+gates
+make full
+make smoke

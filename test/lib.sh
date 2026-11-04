@@ -120,7 +120,7 @@
 #                                    it; a failure when the case made none
 #   t_after                          a command run as each case ends, by
 #                                    t_case and t_done
-#   slice_state / slice_child / slice_id   a scratch cgroup tree for lib/slice.sh
+#   slice_state / slice_child / slice_id   a scratch cgroup tree for the slice probe
 #   t_done                           print the tally, exit 1 if anything failed
 #
 # Everything lives under $T, a scratch directory removed on exit. HOME and
@@ -189,6 +189,11 @@ t_gh_reset() {
 }
 t_case() {
   [ "$t_count" = 0 ] || [ -z "$t_after" ] || eval "$t_after"
+  # The jail of the case that just ended is no jail for this one: a run of the
+  # next case must not find a name the earlier case held out of it, so the
+  # planted directory is built again from the file's list. T_ENV is left alone,
+  # because a file owns it and sets it for its own cases.
+  [ "$t_count" = 0 ] || T_PLANT_RESET
   t_gh_reset
   t_name=$1
   t_count=$((t_count + 1))
@@ -309,6 +314,42 @@ FAIL
   chmod +x "$T/bin/$name"
 }
 t_calls() { cat "$T/calls/$1" 2>/dev/null || true; }
+
+# t_unstub NAME...: take a stub away, and leave nothing for the run to find in
+# its place. A case removes a stub to stand for a host that has no such command,
+# but the PATH of a run ends with the host's own, so deleting $T/bin/NAME only
+# uncovers whatever the host has: the probe of a clock case comes back as kvm,
+# and the tool a part really needs is answered from outside the case. The case
+# asks for the run's PATH to be the stubs and the planted directory of t_plant
+# and nothing else, so a name this helper is given is gone and a name of that
+# list is there. The ask belongs to the case: the case that wants it asks, and
+# the next one sets its own environment, as every file here already does.
+t_unstub() {
+  local name
+  for name in "$@"; do
+    rm -f "$T/bin/$name"
+  done
+  T_PLANT_RESET
+  T_ENV=(${T_ENV[@]+"${T_ENV[@]}"} "PATH=$T/bin:$T/planted" T_PATH_JAIL=1)
+}
+
+# T_PLANT: the names a file's jailed runs must really have. A part asks for a
+# command the case did not stub, and a run with no command of the host in its
+# PATH would not find it either. The list belongs to the file, beside T_PATH.
+T_PLANT=()
+
+# The planted directory, made from T_PLANT and nothing else. A case that jails
+# its run calls this through t_unstub; a case that leaves one behind is followed
+# by t_case, which builds it again from the file's list so a name of an earlier
+# case cannot be found by a later run.
+T_PLANT_RESET() {
+  local name
+  rm -rf "$T/planted"
+  mkdir -p "$T/planted"
+  for name in ${T_PLANT[@]+"${T_PLANT[@]}"}; do
+    ln -s "$(command -v -- "$name")" "$T/planted/$name"
+  done
+}
 # t_gh_fail <n> [<rc>] [<message>]: the <n>-th gh call of the current case -
 # counting from 1, every call the t_stub gh stub records - prints <message>
 # [HTTP 502: Bad Gateway] on stderr and ends with <rc> [1], as GitHub does on a
@@ -638,7 +679,7 @@ t_cycle() {
 }
 # t_fake_limits <dir> [<word>...]: a tehas-cycle in <dir> that hands out these
 # words for `sandbox limits` and is the real one for every other verb: the seam
-# of the guard in tehas_sandbox_limits (lib/sandbox.sh), which judges what the
+# of the guard in tehas plan (console/src/plan/start.rs), which judges what the
 # program hands out. Needs t_cycle first.
 t_fake_limits() {
   local dir=$1
@@ -1016,7 +1057,7 @@ t_no_old_state() { # <home>
   done
 }
 
-# A scratch cgroup tree for lib/slice.sh, under $T_CGROUP. A test that uses
+# A scratch cgroup tree for the slice probe, under $T_CGROUP. A test that uses
 # it puts TEHAS_CGROUP_ROOT=$T_CGROUP in T_ENV and stubs systemctl and docker
 # itself. All sizes are bytes.
 #
@@ -1068,8 +1109,27 @@ t_run() {
   # resolved from the scratch TEHAS_HOME, as the caller of a run would.
   local -a instance_env=()
   [ -z "${TEHAS_INSTANCE_DIR:-}" ] || instance_env=(TEHAS_INSTANCE_DIR="$TEHAS_INSTANCE_DIR")
-  t_out=$(env -i PATH="$T/bin:$PATH" HOME="$T/home" TEHAS_HOME="$T/home/tehas" T="$T" T_ROOT="$T_ROOT" \
-    CARGO_TARGET_DIR="$T/target" TEHAS_SETTINGS_CMD="$TEHAS_SETTINGS_CMD" \
+  # A case that plants what its run must find names a PATH of its own in T_ENV
+  # and asks for it with T_PATH_JAIL=1: env keeps the first setting of a name, so
+  # a PATH carried among the entries below would be overridden by the one just
+  # after env, and the host's own commands would answer a case that asked for
+  # none of them. The jail therefore goes first, where it is the only PATH the
+  # run sees. A file that names a PATH without the ask keeps today's meaning: the
+  # stubs first and the host's own after, which is what the parts of a check or a
+  # slice case ask for.
+  local -a jail=()
+  local pair jailed=0
+  for pair in ${T_ENV[@]+"${T_ENV[@]}"}; do
+    [ "$pair" = T_PATH_JAIL=1 ] && jailed=1
+  done
+  if [ "$jailed" = 1 ]; then
+    for pair in ${T_ENV[@]+"${T_ENV[@]}"}; do
+      case $pair in PATH=*) jail+=("$pair") ;; esac
+    done
+    jail+=('T_PATH_JAIL=1')
+  fi
+  t_out=$(env -i "${jail[@]}" PATH="$T/bin:$PATH" HOME="$T/home" TEHAS_HOME="$T/home/tehas" \
+    T="$T" T_ROOT="$T_ROOT" CARGO_TARGET_DIR="$T/target" TEHAS_SETTINGS_CMD="$TEHAS_SETTINGS_CMD" \
     "${instance_env[@]}" "${T_ENV[@]}" "${T_ENV_ALWAYS[@]}" \
     bash -c "$1" 2>&1)
   t_rc=$?
