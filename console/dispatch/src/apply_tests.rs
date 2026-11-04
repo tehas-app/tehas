@@ -2169,7 +2169,7 @@ fn an_issue_s_spec_block_survives_the_plan_and_is_in_the_sum_the_ready_must_matc
         json!({"title": "search",
                "body": format!("{SPEC_BLOCK}\n\nmake it fast"),
                "state": "OPEN", "labels": []})
-            .to_string(),
+        .to_string(),
     )
     .unwrap();
     t.apply(json!([{"plan_collect": 7}]));
@@ -2189,10 +2189,8 @@ fn an_issue_s_spec_block_survives_the_plan_and_is_in_the_sum_the_ready_must_matc
     let record: Value = serde_json::from_str(&fs::read_to_string(the_record(&t)).unwrap()).unwrap();
     assert_eq!(
         record["sum"],
-        crate::text::plan_sum(
-            &json!({"title": PLAN_TITLE,
-                    "body": format!("{SPEC_BLOCK}\n\n{PLAN_BODY}")})
-        )
+        crate::text::plan_sum(&json!({"title": PLAN_TITLE,
+                    "body": format!("{SPEC_BLOCK}\n\n{PLAN_BODY}")}))
     );
     assert_ne!(
         record["sum"],
@@ -2222,7 +2220,7 @@ fn a_plan_that_links_a_new_attachment_is_refused_whether_or_not_the_block_links_
         json!({"title": "search",
                "body": format!("```pi-spec v1\n{{\"link\":\"{held}\"}}\n```\n\nmake it fast"),
                "state": "OPEN", "labels": []})
-            .to_string(),
+        .to_string(),
     )
     .unwrap();
     t.apply(json!([{"plan_collect": 7}]));
