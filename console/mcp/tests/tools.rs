@@ -218,6 +218,42 @@ fn status_says_the_queue_and_that_an_old_poll_is_stale() {
     );
 }
 
+// The queue snapshot can lag the health file: a poll that could not read the
+// queue still writes the health file. The answer is stale when the health
+// file's `time`, the `queue.time` it counted from, or the snapshot's
+// `generatedAt` is more than ten minutes old.
+#[test]
+fn status_is_stale_when_the_queue_snapshot_is_old_and_the_health_file_is_not() {
+    let dir = copy("stale-snapshot");
+    let set = |file: &str, key: &[&str], at: i64| {
+        let path = dir.join(file);
+        let mut v: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        let (last, parents) = key.split_last().unwrap();
+        let mut at_key = &mut v;
+        for k in parents {
+            at_key = &mut at_key[*k];
+        }
+        at_key[*last] = json!(iso(at));
+        std::fs::write(&path, v.to_string()).unwrap();
+    };
+    let stale = || call(&dir, "factory_status", &json!({})).unwrap()["stale"].clone();
+    let t = now();
+    set("health.json", &["time"], t - 30);
+    set("health.json", &["checks", "queue", "time"], t - 60);
+    set("status.json", &["generatedAt"], t - 60);
+    assert_eq!(stale(), false);
+    // The case of the report: the health file a minute old, the snapshot
+    // served beside it twelve.
+    set("status.json", &["generatedAt"], t - 12 * 60);
+    assert_eq!(stale(), true);
+    set("status.json", &["generatedAt"], t - 60);
+    set("health.json", &["checks", "queue", "time"], t - 12 * 60);
+    assert_eq!(stale(), true);
+    set("health.json", &["checks", "queue", "time"], t - 60);
+    set("health.json", &["time"], t - 11 * 60);
+    assert_eq!(stale(), true);
+}
+
 // "why is nothing starting" is the most useful thing to say to someone
 // waiting, and dispatch.json is published already: the hold of the poll is
 // copied from it, in its two keys.

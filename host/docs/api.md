@@ -58,7 +58,8 @@ listed here when a release has it.
 1. Ask [`tehas api --json`](#tehas-api) once: the API version, and whether
    this release has the feature the program needs.
 2. Poll [`tehas status --json`](#tehas-status---json) every minute or so.
-   `stale: true` means the dispatcher has not reported for ten minutes.
+   `stale: true` means the dispatcher has not reported for ten minutes:
+   what it says may be that old.
 3. Share model time with [`tehas limit set`](#tehas-limit), always with an
    expiry (`--for`), and set it again before it runs out. If the program
    stops, the limit expires and the factory starts nothing, rather than
@@ -227,6 +228,13 @@ tehas status --json
 | `room.slots.container.ceiling` | `TEHAS_CYCLE_CEILING` as written, or its default |
 | `room.slots.container.floored` | `true` when the memory or the size was no reading and 2 containers are in force |
 | `room` | `null` when no poll got as far as the room check in the last ten minutes, as while the factory is paused |
+
+Everything in the object is as the health file wrote it at `time`, and is
+`age` seconds old. The dispatcher writes it at each poll, every two minutes,
+and when a cycle ends, so `running` and `room` can miss a cycle that started
+since: it is in neither until the next poll. They can be up to ten minutes
+old before `stale` is true. A program that acts on a free slot or an idle
+issue reads `age` first.
 
 `demand.waiting` is not the exact count of what would start: the poll still
 checks, at a start, that the text is unchanged since the label, that no open
