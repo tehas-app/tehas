@@ -122,6 +122,17 @@ pub fn option_label(label: &str) -> String {
     v
 }
 
+/// One option that parses as a JSON list or object: the shape of a document,
+/// not of the label of one box. The only writer of `options_json` is `plan-end
+/// --option`, which takes one label per flag, so a whole list that arrives as
+/// one label is the caller's mistake. A label with brackets in a sentence, or
+/// one that is no JSON at all, stays the text it is.
+fn holds_a_document(label: &str) -> bool {
+    let t = label.trim();
+    (t.starts_with('[') || t.starts_with('{'))
+        && serde_json::from_str::<Value>(t).is_ok_and(|v| v.is_array() || v.is_object())
+}
+
 /// The arguments of `plan-show` as the read of `store batch` takes them: the
 /// issue of the row, refused by the verb's own grammar when the call asked for
 /// the list instead or named nothing. The line of a refusal is the one the
@@ -322,6 +333,11 @@ fn end_args(rest: &[String]) -> Result<Call, String> {
     let mut c = Cleaned::default();
     let session = c.whole("--session", a.value("--session"), session_ok);
     let given = a.values("--option");
+    // A whole list in place of one label is refused with a word, not cleaned:
+    // cleaning would still record boxes nobody asked for.
+    if let Some(word) = given.iter().find(|s| holds_a_document(s)) {
+        return Err(a.usage("--option", &format!("is JSON: {}", verbs::shown(word))));
+    }
     if given.len() > MAX_OPTIONS {
         c.mark("--option");
     }
@@ -422,9 +438,22 @@ pub fn planning_json(c: &Connection, issue: i64) -> Result<String, Fail> {
     let Some((mut p, options)) = row else {
         return Ok("null".to_string());
     };
-    let options = options
-        .and_then(|o| serde_json::from_str::<Value>(&o).ok())
-        .unwrap_or(Value::Array(Vec::new()));
+    // Written by this store as a JSON list; one that does not parse, or parses
+    // as anything else, is damage: the question would go out with no boxes and
+    // nobody would say the value was refused.
+    let options = match options {
+        None => Value::Array(Vec::new()),
+        Some(t) => {
+            let v = serde_json::from_str::<Value>(&t)
+                .map_err(|_| verbs::damaged("a planning session's options are not JSON"))?;
+            if !v.is_array() {
+                return Err(verbs::damaged(
+                    "a planning session's options are not a JSON list",
+                ));
+            }
+            v
+        }
+    };
     p.insert(3, ("options", options.to_string()));
     let mut q = c
         // The mark is one column and two names: the column is selected twice
