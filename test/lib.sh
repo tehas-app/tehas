@@ -5,11 +5,16 @@
 #   t_case "what is being checked"   start a case; later failures name it
 #   t_run '<bash snippet>'           run it in a clean environment; sets t_out, t_rc
 #   t_run_path '<bash snippet>'      the same, with the host's own command
-#                                    directories off the run's PATH
+#                                    directories off the run's PATH; the run
+#                                    finds only the stubs and the names t_jail
+#                                    gave, so name every tool the program runs.
+#                                    Its PATH is built here and its shell is
+#                                    named by path: a PATH of T_ENV does not
+#                                    reach it
 #   t_jail NAME...                   give a run of t_run_path the real program
 #                                    of NAME, read from the host, into the jail
-#   t_unstub NAME                    take a stub away and print what answers the
-#                                    name now, or nothing
+#   t_unstub NAME                    take a stub away and print what the host
+#                                    would answer for the name, or nothing
 #   t_eq / t_contains / t_lacks      assertions, they record a failure and go on
 #   t_skip <reason>                  say a case ran only in part, and count it
 #   t_instance KEY=VALUE...          write a scratch instance directory
@@ -152,7 +157,7 @@ unset t_leak
 T_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 T=$(mktemp -d "${TMPDIR:-/tmp}/tehas-test.XXXXXX")
 trap 'rm -rf "$T"' EXIT
-mkdir -p "$T/bin" "$T/calls" "$T/home"
+mkdir -p "$T/bin" "$T/calls" "$T/home" "$T/jail"
 # tehas_load asks the console, and a test's tree has none beside lib/config.sh:
 # every load of a test goes to the one of this run, which a test can stub apart
 # from TEHAS_CONSOLE_CMD. A file run alone builds it here, once, as t_console does.
@@ -1071,28 +1076,31 @@ T_ENV=()
 t_started=0
 # What every run of a test file is given, whatever its cases set T_ENV to.
 T_ENV_ALWAYS=()
-# The programs t_jail gave to the runs, so t_case can take them away again.
-# An associative array: a tool's name is no number, and bash reads an unquoted
-# subscript of a plain array as an arithmetic expression.
+# The names t_jail linked for this case; t_case calls t_unjailed, so the next
+# case starts with an empty jail.
 declare -A T_LINKED=()
 # t_unjailed: every program t_jail gave is gone, so the next case starts with an
-# empty jail and not with the tools of the case before it.
+# empty jail and not with the tools of the case before it. The jail is cleared on
+# entry to a case and not on exit, so the last case's links go with $T.
 t_unjailed() {
   local t_linked
-  for t_linked in ${T_LINKED[@]+"${T_LINKED[@]}"}; do rm -f "$T/jail/$t_linked"; done
+  # shellcheck disable=SC2068 # ${!T_LINKED[@]} expands the keys, one per word
+  for t_linked in ${!T_LINKED[@]}; do rm -f "$T/jail/$t_linked"; done
   T_LINKED=()
 }
 run_instance_env() {
   # The instance of t_instance goes with the run, and nothing else does: the
   # sweep above took the host's, so a file that names none has the instance
-  # resolved from the scratch TEHAS_HOME, as the caller of a run would.
+  # resolved from the scratch TEHAS_HOME, as the caller of a run would. The
+  # array is the caller's local: run_env is named local by both entry points and
+  # written here.
   run_env=()
   [ -z "${TEHAS_INSTANCE_DIR:-}" ] || run_env=(TEHAS_INSTANCE_DIR="$TEHAS_INSTANCE_DIR")
 }
 t_run() {
   local -a run_env=()
   run_instance_env
-  t_out=$(env -i PATH="$T/bin:$PATH" HOME="$T/home" TEHAS_HOME="$T/home/tehas" T="$T" T_ROOT="$T_ROOT" \
+  t_out=$(env -i PATH="$T/bin:$T_HOST_PATH" HOME="$T/home" TEHAS_HOME="$T/home/tehas" T="$T" T_ROOT="$T_ROOT" \
     CARGO_TARGET_DIR="$T/target" TEHAS_SETTINGS_CMD="$TEHAS_SETTINGS_CMD" \
     "${run_env[@]}" "${T_ENV[@]}" "${T_ENV_ALWAYS[@]}" \
     bash -c "$1" 2>&1)
@@ -1103,41 +1111,52 @@ t_run() {
 # what t_run puts behind the stubs, and what t_run_path takes away. One name, so
 # the jail and the ordinary run are built from the same words.
 T_HOST_PATH=$PATH
+# The PATH of a jailed run: the jail answers a name before the stubs do, so a
+# case that jails a name must not stub it as well.
+T_JAIL_PATH="$T/jail:$T/bin"
 
 # t_run_path <snippet>: t_run with the host's own command directories off the
-# PATH. The run's PATH is the jail of $T/jail and the stubs of $T/bin, and it is
-# given last of all, after T_ENV and T_ENV_ALWAYS, because env reads the
-# assignment that comes last: a file that names a PATH of its own in T_ENV is
-# overridden here as well, and that name is exactly how the host's directories
-# reach a run otherwise - test/bootstrap_test.sh gives every run $T/bin:/usr/bin:
-# /bin. What a jailed run finds is the stubs and the programs t_jail put in the
-# jail, and nothing the machine that runs the tests installed. A case that means
-# the part to run a real tool of the host names it with t_jail.
+# PATH, and two more differences a caller must know: the PATH is built here,
+# after T_ENV and T_ENV_ALWAYS, so a PATH a file names in T_ENV does not reach
+# the run; and the shell is named by its own path and not looked up, so the run
+# needs no PATH to start. The run's PATH is the jail of $T/jail and the stubs of
+# $T/bin, given last of all because env reads the assignment that comes last -
+# and that name is exactly how the host's directories reach a run otherwise:
+# test/bootstrap_test.sh gives every run $T/bin:/usr/bin:/bin. What a jailed run
+# finds is the stubs and the programs t_jail put in the jail, and nothing the
+# machine that runs the tests installed. A case that means the part to run a real
+# tool of the host names it with t_jail.
 t_run_path() {
   local -a run_env=()
   run_instance_env
-  # The shell of the run is named by its path and not looked up, so the run
-  # starts on a PATH that holds nothing but the jail and the stubs. The jail
-  # holds the programs the case asked for with t_jail, and the shell of the
-  # tests beside them: a stub's shebang, and a snippet that runs bash again,
-  # both find the one the tests run on, which is the same on every host.
-  t_jail "$T_BASH"
+  # The jail holds the programs the case asked for with t_jail, and the shell of
+  # the tests beside them: a stub's shebang, and a snippet that runs bash again,
+  # both find the one the tests run on, which is the same on every host. A jail
+  # that could not be built stops the run here, where the reason is named.
+  t_jail "$T_BASH" || return
   t_out=$(env -i HOME="$T/home" TEHAS_HOME="$T/home/tehas" T="$T" T_ROOT="$T_ROOT" \
     CARGO_TARGET_DIR="$T/target" TEHAS_SETTINGS_CMD="$TEHAS_SETTINGS_CMD" \
     "${run_env[@]}" "${T_ENV[@]}" "${T_ENV_ALWAYS[@]}" \
-    PATH="$T/jail:$T/bin" \
+    PATH="$T_JAIL_PATH" \
     "$T_BASH" -c "$1" 2>&1)
   t_rc=$?
 }
 
 # t_jail <name-or-path>...: the programs a jailed run must be able to find. A
 # name is read outside the run, while the caller's PATH still stands; a path is
-# taken as it is given. Either is linked into the jail under its own base name
-# and named into the list t_case clears. A case of t_run_path asks for what the
-# part it runs needs; the names of a case before it are gone, so a run finds no
-# tool the case did not ask for.
+# linked under its own last component, whatever holds it. Every name is resolved
+# and checked before any link is made, so a host that lacks one of them leaves
+# the jail as it was. A case of t_run_path asks for what the part it runs needs;
+# the names of a case before it are gone, so a run finds no tool the case did not
+# ask for. The jail is the only route a host binary takes into a run: a jailed run
+# finds a name in the jail, in the stubs, or nowhere. A jailed name answers before
+# a stub of that name, so a case never does both - t_jail refuses the pair, and
+# t_unstub takes both away.
 t_jail() { # <name-or-path>...
   local want name src
+  [ "$#" -gt 0 ] || { t_bad "t_jail: no program named"; return 1; }
+  # The jail holds either the program of a name the host has, or a path the case
+  # names; nothing else reaches a jailed run's PATH.
   for want in "$@"; do
     case $want in
       /*) src=$want ;;
@@ -1145,26 +1164,37 @@ t_jail() { # <name-or-path>...
     esac
     [ -n "$src" ] || { t_bad "t_jail: no $want on this host to give the run"; return 1; }
     [ -x "$src" ] || { t_bad "t_jail: $src is not executable"; return 1; }
-    name=${want##*/}
-    [ -n "${T_LINKED["$name"]:-}" ] || T_LINKED["$name"]=1
-    mkdir -p "$T/jail"
+    [ -e "$T/bin/${want##*/}" ] && { t_bad "t_jail: $want is stubbed; t_unstub it, or the stub answers and not the jail"; return 1; }
+  done
+  for want in "$@"; do
+    case $want in
+      /*) src=$want ;;
+      *) src=$(PATH="$T_HOST_PATH" command -v "$want") ;;
+    esac
+    name=${src##*/}
+    T_LINKED["$name"]=1
     ln -sfn "$src" "$T/jail/$name"
   done
 }
 
-# t_unstub <name>: take a stub away, and print what answers the name now. The
-# stub of $T/bin goes, with the program t_jail gave for the name and the name's
-# record of calls, which is the case's to clear. Then the name is looked for
-# where both kinds of run would look - the jail, the stubs, and the host's own
-# directories that t_run puts behind them - and the path of what answers is
-# printed for the case to judge, or nothing when no program of that name is to
-# be found. Under t_run a binary of the host answers for such a name, so the
-# case that means the tool to be absent reads this answer and runs with
-# t_run_path, whose PATH holds only the jail and the stubs.
+# t_unstub <name>: take a stub away, and print what the host would answer for
+# the name. The stub of $T/bin goes, with the program t_jail gave for the name,
+# its record of calls and its record in the jail's list, so a name the case
+# means to be absent stands in neither place afterwards. What is printed is read
+# from the host's own directories: it is what t_run would find for the name, and
+# never what a jailed run finds, so a case must not assert on it or t_jail it.
+# The absence a jailed run sees is what t_run_path proves with command -v.
 t_unstub() { # <name>
-  local name=$1
+  local name=${1:-}
+  [ -n "$name" ] || { t_bad "t_unstub: no name given"; return 1; }
+  # The tool is removed from the stubs, from the calls and from the jail, which
+  # is what a jailed run of the same case then finds missing. A caller that only
+  # wants it gone sends the answer it prints away.
   rm -f "$T/bin/$name" "$T/calls/$name" "$T/jail/$name"
-  PATH="$T/jail:$T/bin:$T_HOST_PATH" command -v "$name"
+  unset 'T_LINKED["$name"]'
+  # The jail's PATH first, then the host's own directories: what the caller of
+  # the file would have answered for the name, which a jailed run never sees.
+  PATH="$T_JAIL_PATH:$T_HOST_PATH" command -v "$name" || return 0
 }
 
 # A wall-clock bound, in the one place the two timed cases and the one of the
@@ -1190,7 +1220,9 @@ t_done() {
   local line
   [ "$t_count" = 0 ] || [ -z "$t_after" ] || eval "$t_after"
   # The last case's answers and count go with the file: a run of a body by hand,
-  # or a file that stubs gh after t_done, reads none of them.
+  # or a file that stubs gh after t_done, reads none of them. The jail is not
+  # cleared here: it goes on entry to a case, and the last case's links go with
+  # $T.
   t_gh_reset
   line="$(basename "$0"): $t_count cases, "
   [ "$t_skipped" = 0 ] || line=$line"$t_skipped skipped, "
