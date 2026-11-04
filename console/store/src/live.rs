@@ -362,16 +362,13 @@ fn put(dir: &Path, name: &str, bytes: &[u8], n: &mut u32) -> Result<(), Fail> {
     let base = Path::new(name)
         .file_name()
         .map_or_else(String::new, |s| s.to_string_lossy().into_owned());
-    // The test's seam: the nth write of this thread's publish does not happen,
-    // with the name of the file that failed and no temp of it made. The seam is
-    // spent by the write that consults it, so a test cannot leave a later call
-    // failing by accident.
+    // The test's seam (`fail_writes`): `n` counts the writes this call has made
+    // so far, so the nth write fails here, with no temp of it made.
     #[cfg(test)]
-    if let Some(nth) = FAILS.with(|fails| fails.take()) {
-        if *n as usize + 1 == nth {
-            let e = std::io::Error::new(ErrorKind::StorageFull, "no space left on device");
-            return Err(write_failed(name, e));
-        }
+    if FAILS.with(std::cell::Cell::get) == Some(*n as usize + 1) {
+        FAILS.with(|fails| fails.set(None));
+        let e = std::io::Error::new(ErrorKind::StorageFull, "no space left on device");
+        return Err(write_failed(name, e));
     }
     let to = dir.join(name);
     let parent = to.parent().unwrap_or(dir);
@@ -394,9 +391,6 @@ fn put(dir: &Path, name: &str, bytes: &[u8], n: &mut u32) -> Result<(), Fail> {
     })
 }
 
-// The nth write of this thread's publish that does not happen, 1 for the
-// first; `fail_writes` is the test's seam for it, and no call of a build a
-// host runs has one.
 #[cfg(test)]
 thread_local! {
     static FAILS: std::cell::Cell<Option<usize>> = const {
@@ -404,17 +398,25 @@ thread_local! {
     };
 }
 
-/// Fails the nth write of `publish` on this thread, 1 for the first, so a test
-/// can watch what a publish that cannot write leaves behind. The seam is spent
-/// by the write it names, so the file is not made and nothing of it is left
-/// behind, and the same setting cannot fail a later call. The files the earlier
-/// writes of the same call renamed into place stay, each whole, as they do for
-/// any failed write. Every other write goes through, which is what a real call
-/// does: the name is compiled out of the build a host runs, as the seam above
-/// is.
+/// Fails the nth write of the next `publish` on this thread, 1 for the first,
+/// so a test can watch what a publish that cannot write leaves behind. The
+/// files the earlier writes renamed into place stay, each whole. The setting
+/// lasts one call: it is cleared when that call returns, whether or not it got
+/// as far as the nth write. Compiled out of the build a host runs.
 #[cfg(test)]
-pub fn fail_writes(n: Option<usize>) {
+pub(crate) fn fail_writes(n: Option<usize>) {
     FAILS.with(|fails| fails.set(n));
+}
+
+/// Clears `fail_writes` when the publish that holds it returns.
+#[cfg(test)]
+struct OneCall;
+
+#[cfg(test)]
+impl Drop for OneCall {
+    fn drop(&mut self) {
+        fail_writes(None);
+    }
 }
 
 /// The removal pass: every live/cycles/<number>.json of a cycle not in `keep`
@@ -509,6 +511,8 @@ fn publish(
     health: Option<&Path>,
     now: i64,
 ) -> Result<String, Fail> {
+    #[cfg(test)]
+    let _one_call = OneCall;
     let dispatch = dispatch.map(|p| report(p, "--dispatch")).transpose()?;
     let health = health
         .map(|p| {
