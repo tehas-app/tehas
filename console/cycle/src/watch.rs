@@ -2,7 +2,7 @@
 //! keeps the cycle's console and heartbeat, stops a cycle that stalls or passes
 //! its time limit, and leaves the cycle's notes for tehasbot cycle. It runs in
 //! the process that holds the issue's lock as fd 9, and the docker client
-//! inherits it. What each file proves is in lib/cycles.sh, and the exit
+//! inherits it. What each file proves is in src/host.rs, and the exit
 //! statuses in src/work.rs.
 //!
 //! The two bounds of the loop are counted on [`crate::clock`], not the wall
@@ -1441,6 +1441,17 @@ mod tests {
         .unwrap();
         let chmod = Command::new("chmod").arg("+x").arg(&p).status().unwrap();
         assert!(chmod.success());
+        // A fork in another thread can hold the new script open for writing
+        // until its exec, and an exec in that moment fails with ETXTBSY.
+        // Once one run starts, no such fork is left.
+        let ran = (0..200).any(|_| {
+            let ran = Command::new(&p).status().is_ok();
+            if !ran {
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            ran
+        });
+        assert!(ran, "{} never ran", p.display());
         let c = Clock::Program(p.to_string_lossy().into_owned());
         assert_eq!(c.now(), Some(42));
         assert!(c.mark(&d.join("m")));

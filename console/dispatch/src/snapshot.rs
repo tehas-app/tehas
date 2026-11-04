@@ -100,7 +100,7 @@ pub struct Session {
 }
 
 /// A call to the state store that failed: its word, exit status and first
-/// line, as lib/store.sh keeps them.
+/// line, as tehas_core::call keeps them.
 #[derive(Clone, Debug, Default)]
 pub struct StoreErr {
     pub word: String,

@@ -266,19 +266,20 @@ issue_with 13 tehas:awaiting-merge
 pulls '31|chore(work): running|feature/issue-11-a|tehas-bot' \
   '32|chore(work): handed off|feature/issue-12-b|tehas-bot' \
   '33|STUCK: chore(work): awaiting|feature/issue-13-c|tehas-bot'
+# 33 carries the old name of HALT: it comes off too.
 t_run "$rpoll"
 t_eq "$t_rc" 0
 t_contains "$(t_calls gh)" "$(title_of 31 'WIP: chore(work): running')"
-t_contains "$(t_calls gh)" "$(title_of 32 'STUCK: chore(work): handed off')"
+t_contains "$(t_calls gh)" "$(title_of 32 'HALT: chore(work): handed off')"
 t_contains "$(t_calls gh)" "$(title_of 33 'chore(work): awaiting')"
 
-t_case "STUCK comes off a pull request proven fine to merge, and stays on open HIGH findings"
+t_case "HALT comes off a pull request proven fine to merge, and stays on open HIGH findings"
 reset
 titles
 echo '[]' >"$fx/ready.json"
 issue_with 12 needs-human-attention
 issue_with 13 needs-human-attention
-pulls '32|STUCK: fine|feature/issue-12-a|tehas-bot' '33|STUCK: high|feature/issue-13-b|tehas-bot'
+pulls '32|HALT: fine|feature/issue-12-a|tehas-bot' '33|HALT: high|feature/issue-13-b|tehas-bot'
 for n in 32 33; do
   echo '{"draft":false,"mergeable":true,"mergeable_state":"clean","head":{"sha":"abc"}}' >"$fx/pull-$n.json"
 done
@@ -294,14 +295,14 @@ t_eq "$t_rc" 0
 t_contains "$(t_calls gh)" "$(title_of 32 'fine')"
 t_lacks "$(t_calls gh)" "pulls/33 -f title"
 
-t_case "tehas:refreshing on the pull request is WIP, and WIP wins over STUCK"
+t_case "tehas:refreshing on the pull request is WIP, and WIP wins over HALT"
 reset
 titles
 echo '[]' >"$fx/ready.json"
 issue_with 12 needs-human-attention
 jq -n '{number: 13, state: "open", labels: [{name: "tehas:running"}, {name: "needs-human-attention"}]}' >"$fx/work-13.json"
 pulls '32|handed off|feature/issue-12-b|tehas-bot|tehas:refreshing' \
-  '33|STUCK: both|feature/issue-13-c|tehas-bot'
+  '33|HALT: both|feature/issue-13-c|tehas-bot'
 t_run "$rpoll"
 t_contains "$(t_calls gh)" "$(title_of 32 'WIP: handed off')"
 t_contains "$(t_calls gh)" "$(title_of 33 'WIP: both')"
@@ -347,7 +348,7 @@ titles
 echo '[]' >"$fx/ready.json"
 echo '{"number":21,"state":"closed","labels":[]}' >"$fx/work-21.json"
 : >"$fx/work-22-fails"
-pulls '41|STUCK: closed|feature/issue-21-a|tehas-bot' '42|STUCK: unread|feature/issue-22-b|tehas-bot'
+pulls '41|HALT: closed|feature/issue-21-a|tehas-bot' '42|HALT: unread|feature/issue-22-b|tehas-bot'
 t_run "$rpoll"
 t_eq "$t_rc" 0
 t_contains "$(t_calls gh)" "$(title_of 41 'closed')"

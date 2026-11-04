@@ -30,10 +30,7 @@ echo rules >"$upstream/AGENTS.md"
 echo 'make full' >"$upstream/.pi/verify-cmd-full"
 echo 'make smoke' >"$upstream/.pi/smoke-cmd"
 echo true >"$upstream/.pi/worktree-setup"
-# A lockfile, so the install container of a cycle and of the check is pinned.
-mkdir -p "$upstream/extension"
-echo '{}' >"$upstream/extension/bun.lock"
-git -C "$upstream" add -f -- AGENTS.md .pi extension
+git -C "$upstream" add -f -- AGENTS.md .pi
 git -C "$upstream" -c user.name=t -c user.email=t@example.com commit -q -m product
 git -C "$checkout" fetch -q "$upstream" +refs/heads/main:refs/remotes/origin/main
 git -C "$checkout" checkout -q -B main origin/main
@@ -145,7 +142,7 @@ normalised() { # <file of one call>
     -e "s|tehas/pi-rukas:uid$(id -u)|tehas/pi-rukas:uid@UID@|" \
     -e "s|^$(id -u):$(id -g)$|@UID@:@GID@|" \
     -e 's/\b[0-9a-f]{40}\b/@COMMIT@/g' \
-    -e 's|(/tmp/([a-z-]+/)?[a-z-]+\.)[A-Za-z0-9]{6}\b|\1@RANDOM@|g' \
+    -e 's|(/tmp/[a-z-]+\.)[A-Za-z0-9]{6}\b|\1@RANDOM@|g' \
     -e 's|/run-[0-9]{6}-[0-9]{6}/|/run-@STAMP@/|' \
     -e 's/^(PI_ENSEMBLE_CYCLE_DEADLINE=)[0-9]+$/\1@MS@/' "$1" | sort_env_block
 }
