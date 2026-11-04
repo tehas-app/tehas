@@ -1441,6 +1441,17 @@ mod tests {
         .unwrap();
         let chmod = Command::new("chmod").arg("+x").arg(&p).status().unwrap();
         assert!(chmod.success());
+        // A fork in another thread can hold the new script open for writing
+        // until its exec, and an exec in that moment fails with ETXTBSY.
+        // Once one run starts, no such fork is left.
+        let ran = (0..200).any(|_| {
+            let ran = Command::new(&p).status().is_ok();
+            if !ran {
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            ran
+        });
+        assert!(ran, "{} never ran", p.display());
         let c = Clock::Program(p.to_string_lossy().into_owned());
         assert_eq!(c.now(), Some(42));
         assert!(c.mark(&d.join("m")));

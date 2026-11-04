@@ -780,6 +780,26 @@ fn steps(t: &World) -> Vec<String> {
 }
 
 #[test]
+fn a_start_on_an_epics_approval_is_recorded_as_the_persons_label() {
+    let mut t = world();
+    let mut st = start_of(7, "label");
+    st["verb"] = json!("approved on epic #5, labelled by the fixer,");
+    st["how"] = json!("`tehas:ready` label on epic #5 at 2026-10-25T09:00:00Z, which the fixer carried to this sub-issue");
+    let a = t.apply(json!([st]));
+    assert_eq!(a.exit, None);
+    assert_eq!(
+        a.log,
+        vec!["start #7 (approved on epic #5, labelled by the fixer, by alice)"]
+    );
+    let c = t.writes();
+    assert!(c[0].contains("approval-record 7 --at 1793008800 --by alice --how label"));
+    assert!(c[0].contains("--label tehas:ready"));
+    assert!(c[4].contains(
+        "(authorized by @alice's `tehas:ready` label on epic #5 at 2026-10-25T09:00:00Z, which the fixer carried to this sub-issue)."
+    ));
+}
+
+#[test]
 fn a_start_records_marks_says_and_starts_in_that_order() {
     let mut t = world();
     let a = t.apply(json!([start_of(7, "label")]));
@@ -2133,6 +2153,90 @@ fn the_plan_goes_on_with_the_issues_words_folded_as_the_tick_does() {
     assert!(all.contains("> make it fast"), "{all}");
 }
 
+/// The `pi-spec v1` block of a person's issue survives the write of a plan, at
+/// the top: the lean driver reads nothing else, and the draft of a plan holds
+/// none of its own. The block is put back by the writer, not by `made`, so the
+/// links and the sum below are asked of the text the issue will actually hold.
+const SPEC_BLOCK: &str = "```pi-spec v1\n{\"intent\":\"faster search\"}\n```";
+
+#[test]
+fn an_issue_s_spec_block_survives_the_plan_and_is_in_the_sum_the_ready_must_match() {
+    let mut t = world();
+    clear_plan(&t, alices_session(), "alice");
+    // The issue as `gh issue view` answers it, with the block at the top.
+    fs::write(
+        t.dir.join("view-7"),
+        json!({"title": "search",
+               "body": format!("{SPEC_BLOCK}\n\nmake it fast"),
+               "state": "OPEN", "labels": []})
+            .to_string(),
+    )
+    .unwrap();
+    t.apply(json!([{"plan_collect": 7}]));
+    let w = t.writes();
+    // The write holds the block above the plan's own text.
+    assert!(
+        w.iter().any(|c| {
+            c.starts_with(
+                "gh issue edit 7 --repo example-owner/example-product --title feat: search is fast --body-file - <<< ```pi-spec v1",
+            )
+        }),
+        "{w:?}"
+    );
+    assert!(w.contains(&PLAN_LINE.to_string()), "{w:?}");
+    // The sum the bot's `tehas:ready` is matched against is the sum of that
+    // body: the record binds what GitHub holds, block included.
+    let record: Value = serde_json::from_str(&fs::read_to_string(the_record(&t)).unwrap()).unwrap();
+    assert_eq!(
+        record["sum"],
+        crate::text::plan_sum(
+            &json!({"title": PLAN_TITLE,
+                    "body": format!("{SPEC_BLOCK}\n\n{PLAN_BODY}")})
+        )
+    );
+    assert_ne!(
+        record["sum"],
+        crate::text::plan_sum(&json!({"title": PLAN_TITLE, "body": PLAN_BODY}))
+    );
+}
+
+/// A plan whose own text names a link the issue's brief did not is refused,
+/// and the check asks the body with the person's block on top of it: a link
+/// that came from the block is the issue's own, so it is no new link for the
+/// planner to have added. This is the same refusal of #1210's sibling, asked of
+/// the text the write would put on the issue rather than the draft's alone.
+#[test]
+fn a_plan_that_links_a_new_attachment_is_refused_whether_or_not_the_block_links_it() {
+    let added = "https://github.com/user-attachments/assets/added-by-the-planner";
+    let held = "https://github.com/user-attachments/assets/held-by-the-person";
+    let mut t = world();
+    clear_draft(
+        &t,
+        alices_session(),
+        "alice",
+        &json!({"title": PLAN_TITLE,
+                "spec": format!("{PLAN_BODY}\n\nSee {added}")}),
+    );
+    fs::write(
+        t.dir.join("view-7"),
+        json!({"title": "search",
+               "body": format!("```pi-spec v1\n{{\"link\":\"{held}\"}}\n```\n\nmake it fast"),
+               "state": "OPEN", "labels": []})
+            .to_string(),
+    )
+    .unwrap();
+    t.apply(json!([{"plan_collect": 7}]));
+    let w = t.writes();
+    // Nothing was written over the issue: the plan named a link of its own.
+    assert!(
+        !w.iter().any(|c| {
+            c.starts_with("gh issue edit 7 --repo example-owner/example-product --title")
+        }),
+        "{w:?}"
+    );
+    assert!(!the_record(&t).exists());
+}
+
 #[test]
 fn a_plan_that_could_not_be_written_is_written_by_the_next_poll_on_the_same_terms() {
     let mut t = world();
@@ -3067,6 +3171,20 @@ fn a_first_turn_writes_its_brief_begins_marks_says_and_starts_its_unit() {
     assert!(unit.contains("/state/plan-7.json.lock /opt/plan 7 --out "));
     assert!(unit.contains("-plan-7.keep --brief "));
     assert!(!unit.contains("--kind refine"));
+}
+
+#[test]
+fn a_first_turn_on_an_epics_approval_says_whose_epic_authorized_it() {
+    let mut t = world();
+    let mut turn = first_turn(7);
+    turn["epic"] = json!(5);
+    let a = t.apply(json!([turn]));
+    assert_eq!(a.exit, None);
+    let w = t.writes();
+    assert!(w[0].starts_with("store plan-begin 7 --by alice --label tehas:plan --brief-file "));
+    assert!(w[2].contains(
+        "(authorized by @alice's `tehas:ready` label on epic #5, which the millwright carried to this sub-issue with `tehas:plan`)."
+    ));
 }
 
 #[test]

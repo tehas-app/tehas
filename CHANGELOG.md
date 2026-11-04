@@ -14,6 +14,7 @@ empty one above it.
 ### Changes
 
 - `console flags pause` takes only `set` and `clear`: `show` and `read`, which nothing called, are gone (#1365). The dashboard's reader of the flag uses the same reading as the health file.
+- The console's cycle report reads the stalled and timed stop files once each, so a file whose first word is no count of seconds names neither a stop nor a step (#1207). Before, the two reads of one file could disagree and report a stalled cycle with a step of an unreadable file.
 - A factory pull request that waits for a person is titled `HALT: ` instead of `STUCK: `. The next poll renames the open ones.
 - `tehas drain` prints its answer when a poll holds its lock for the whole wait: `not drained:`, or `drained: false` with `--json`. It printed nothing, which stopped `industry factory upgrade` with `unreadable factory answer`.
 - The libraries no command sources are gone: `lib/attachments.sh`, `cycles.sh`, `labels.sh`, `millwright.sh`, `questions.sh`, `sandbox.sh`, `slice.sh`, `store.sh` and `history-lines.jq`. What still had a caller is in the console or the store now, and `install.sh` removes a host's copies in its stale-file step.
