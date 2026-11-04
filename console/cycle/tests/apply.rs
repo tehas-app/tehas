@@ -382,6 +382,91 @@ fn a_merged_cycle_removes_its_workspace_and_its_notes() {
     assert!(h.calls()[end].contains("--pr 9"));
 }
 
+#[test]
+fn a_lean_cycle_keeps_the_driver_record_before_it_clears_the_workspace() {
+    let h = Host::new("lean-kept");
+    h.result("handoff", "verify", "feature/issue-7-x", "build-blocked");
+    let work = h.dir.join("work");
+    fs::write(work.join(".tehas-workspaces"), "").unwrap();
+    fs::create_dir_all(work.join("widget-7/.pi/lean-state")).unwrap();
+    fs::write(
+        work.join("widget-7/.pi/lean-state/7.json"),
+        r#"{"schema":1,"issue":7,"steps":[{"state":"ready","startedAt":1},
+            {"state":"verify","startedAt":2}]}"#,
+    )
+    .unwrap();
+    // The approval of the start bound the lean driver.
+    let kept = h.dir.join("state/cycles/7.lean-state.json");
+    assert!(!kept.exists());
+    let store = h.dir.join("libexec/store");
+    let body = fs::read_to_string(&store).unwrap().replace(
+        "  approval-current) echo '{\"api\":1,\"verb\":\"approval-current\",\"ok\":true,\"current\":null}' ;;",
+        "  approval-current) echo '{\"api\":1,\"verb\":\"approval-current\",\"ok\":true,\"current\":{\"at\":\"900\",\"how\":\"label\",\"input\":{\"driver\":\"lean\"}}}' ;;",
+    );
+    exe(&store, &body);
+    let o = h.report(10, false);
+    assert!(o.status.success(), "{}", out(&o));
+    // The workspace is left for a person and the record of the driver is with
+    // the run, which is what the copy is for: the driver's file goes with what
+    // the cleaner may take away.
+    let held: Value = serde_json::from_str(&fs::read_to_string(&kept).unwrap()).unwrap();
+    assert_eq!(held["steps"].as_array().unwrap().len(), 2);
+    assert_eq!(
+        fs::metadata(&kept).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+}
+
+#[test]
+fn a_classic_cycle_keeps_no_lean_record_and_a_lean_one_of_no_file_is_no_warning() {
+    let h = Host::new("lean-none");
+    h.result("handoff", "verify", "feature/issue-7-x", "build-blocked");
+    let work = h.dir.join("work");
+    fs::write(work.join(".tehas-workspaces"), "").unwrap();
+    fs::create_dir_all(work.join("widget-7")).unwrap();
+    // Classic: no copy, whatever the workspace holds.
+    fs::create_dir_all(work.join("widget-7/.pi/lean-state")).unwrap();
+    fs::write(
+        work.join("widget-7/.pi/lean-state/7.json"),
+        r#"{"schema":1,"steps":[{"state":"ready","startedAt":1}]}"#,
+    )
+    .unwrap();
+    let o = h.report(10, false);
+    assert!(o.status.success(), "{}", out(&o));
+    assert!(!h.dir.join("state/cycles/7.lean-state.json").exists());
+    assert!(!out(&o).contains("WARN"), "{}", out(&o));
+}
+
+#[test]
+fn a_lean_run_whose_record_cannot_be_kept_is_one_warning() {
+    let h = Host::new("lean-blocked");
+    h.result("handoff", "verify", "feature/issue-7-x", "build-blocked");
+    let work = h.dir.join("work");
+    fs::write(work.join(".tehas-workspaces"), "").unwrap();
+    fs::create_dir_all(work.join("widget-7/.pi/lean-state")).unwrap();
+    fs::write(
+        work.join("widget-7/.pi/lean-state/7.json"),
+        r#"{"schema":1,"steps":[{"state":"ready","startedAt":1}]}"#,
+    )
+    .unwrap();
+    let store = h.dir.join("libexec/store");
+    let body = fs::read_to_string(&store).unwrap().replace(
+        "  approval-current) echo '{\"api\":1,\"verb\":\"approval-current\",\"ok\":true,\"current\":null}' ;;",
+        "  approval-current) echo '{\"api\":1,\"verb\":\"approval-current\",\"ok\":true,\"current\":{\"at\":\"900\",\"how\":\"label\",\"input\":{\"driver\":\"lean\"}}}' ;;",
+    );
+    exe(&store, &body);
+    // The notes directory cannot hold the copy.
+    fs::remove_dir_all(h.dir.join("state/cycles")).unwrap();
+    fs::write(h.dir.join("state/cycles"), "").unwrap();
+    let o = h.report(10, false);
+    assert!(o.status.success(), "{}", out(&o));
+    assert!(
+        out(&o).contains("the lean record of #7 is not with its run"),
+        "{}",
+        out(&o)
+    );
+}
+
 /// awaiting-human-merge did not occur once in 154 cycles on a host, so this is
 /// its proof: an open pull request of the bot, a handoff on that cap, and an
 /// issue without needs-human-attention wait for a person's merge.

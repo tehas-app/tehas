@@ -102,8 +102,10 @@ attempt the state store gave its start, and from the state store `at`, `how`
 and `driver` of the approval that start used, read before the end goes on record
 because a start that never ran takes its approval with it, the run's `settings`
 snapshot and the image's pi-rukas commit. It reads the rest from the host: the
-headless runner's result, `progress.json`, the preflight log and
-`docs/version.txt`. A run that has no result (killed, stalled, timed out) is
+headless runner's result, `progress.json`, the preflight log,
+`state/cycles/<n>.lean-state.json` for a lean run, and `docs/version.txt`. The
+lean note is the cycle's copy of the driver's own record, and only a cycle whose
+analytics are on keeps one; the next cycle of the issue removes it as it starts. A run that has no result (killed, stalled, timed out) is
 stored with tehas's status and its times. A planning turn takes its session
 on the state store as its facts, in the shape its record file had before the
 store (running, turns, `startedAt`, label, answers), read before the turn's
@@ -316,18 +318,38 @@ the published report](/tools#tehasbot-status-and-the-console)).
 
 `tehas analytics report` has a `drivers` key, and the terminal a `Drivers` table,
 that compare the drivers over the same ten days of work runs. It has one object
-for `classic` and one for `lean`, both always there. A run with no driver on
-record is classic. Each object gives:
+for `classic` and one for `lean`, both always there, and each holds one entry per
+pi-rukas version its runs recorded, keyed by the version (`0.14.50`) or `none`
+for a run that recorded none. Two releases of one driver never pool into one
+figure, so a comparison of a driver across an upgrade shows the two versions
+apart. A run with no driver on record is classic. Each entry gives:
 
 | Key | What it says |
 | --- | --- |
-| `n` | The work runs of the driver, refused and stopped ones with them |
+| `n` | The work runs of the pair, refused and stopped ones with them |
 | `ran` | Those of `n` that ran: not refused, not stopped. Neither says anything of the driver |
 | `prShare` | The share of `ran` that ended in a pull request a person could merge: outcome `pr` or `merged` |
 | `parkedShare` | The share of `ran` handed to a person: outcome `handoff` or `parked`, as `handoffRate` counts them, since a run tehas parks with its pull request open has outcome `handoff` |
 | `minutes` | `n` runs of `ran` with a length, their `total` and `median`, whole minutes |
 | `tokens` | `n` runs that reported usage, their `total` and `median` (input, output and cache read) |
 | `pullRequests` | `n` issues whose runs reached a pull request, how many of them `merged`, and that `share` |
+
+A lean entry adds two figures of the driver's own record, which the cycle copies
+out of the workspace to `state/cycles/<n>.lean-state.json` before it cleans the
+workspace, and the next cycle of the issue removes as it starts, so a run's steps
+are never read as a later run's (see
+[what is recorded, and when](#what-is-recorded-and-when)). A pair whose
+runs kept no record has neither figure: no record is no figure, not a zero. A
+kept record always holds at least one step, so the runs of the two figures are
+the same set.
+
+| Key | What it says |
+| --- | --- |
+| `handBack` | One object per step the runs of the pair reached, in the order the driver ran them, each with `n` runs that reached it, `passed` of them that went on to another step, and that `share`. The last step of a run that reached no pull request is where it handed the work back; the step runs hand back at most often is first |
+| `oneAttempt` | Of the runs whose cycle kept the driver's record, `n`, `first` of them that were their issue's first attempt, and that `share`. A run is not one when the driver's record says it resumed from an earlier attempt's state, or when tehas recorded an attempt later than the first |
+
+The terminal prints the pair's version in its own column, and under a lean entry
+one line per step handed back and one for the first-attempt share.
 
 A figure with nothing to work from is left out. An empty token column is not a
 zero: lean reports no usage yet, so its `tokens` is `{"n": 0}` and the terminal
