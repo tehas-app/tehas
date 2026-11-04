@@ -352,6 +352,86 @@ fn ends_of_a_finished_cycle_are_gone_when_a_write_fails() {
     assert_eq!(r["cycles"][0]["running"], true);
 }
 
+/// The store of `ends_of_a_finished_cycle_are_gone_when_a_write_fails`: #62
+/// running with its lock held, #60 a cycle with no heartbeat of its open
+/// attempt, and a view under live/cycles/ for each of 60, 62 and 99.
+fn partial_home(name: &str) -> (TestDir, File) {
+    let home = home(name);
+    approve(&home, 60, "alice", "label");
+    let lock = hold(&home, 60);
+    ok_at(&home, 1_000_000, &["cycle-start", "60"]);
+    drop(lock);
+    let (held, _) = start_by(&home, 62, "alice", "label", 1_000_200);
+    beat(&home, 1_000_250, 62, true, "running", "build", "");
+    fs::create_dir_all(home.join("live/cycles")).unwrap();
+    for n in ["60", "62", "99"] {
+        fs::write(home.join(format!("live/cycles/{n}.json")), "{}\n").unwrap();
+    }
+    (home, held)
+}
+
+/// The second write fails: the first, dispatch.json, stays whole, the ended
+/// views are gone, and the call exits 1 naming the write that failed.
+#[test]
+fn a_publish_whose_second_write_fails_keeps_the_first_and_the_removals() {
+    let (home, _held) = partial_home("publish-second-write");
+    let files = scratch("publish-second-write-files");
+    let dispatch = write_file(&files, "dispatch.json", b"{\"why\":\"idle\"}\n");
+    fail_writes(Some(2));
+    let (code, line) = publish(
+        &home,
+        1_000_300,
+        &["--dispatch", dispatch.to_str().unwrap()],
+    )
+    .unwrap_err();
+    assert_eq!(code, 1);
+    assert_eq!(line, "write live/cycles/62.json: no space left on device");
+    assert_eq!(read(&home, "dispatch.json"), "{\"why\":\"idle\"}\n");
+    assert_eq!(left(&home, "cycles"), vec!["62.json".to_string()]);
+    assert_eq!(read(&home, "cycles/62.json"), "{}\n");
+    for name in ["endings.json", "running.json"] {
+        assert!(!home.join("live").join(name).exists(), "{name}");
+    }
+    assert!(left(&home, "").iter().all(|n| !n.starts_with('.')));
+    assert!(left(&home, "cycles").iter().all(|n| !n.starts_with('.')));
+}
+
+/// A removal that fails fails the call before any write, and a write failure
+/// set for that call does not carry over to the next one.
+#[test]
+fn a_removal_that_fails_fails_the_call_before_any_write() {
+    let (home, _held) = partial_home("publish-remove-fails");
+    // A directory where a view is: unlink refuses it, as root too.
+    fs::remove_file(home.join("live/cycles/99.json")).unwrap();
+    fs::create_dir_all(home.join("live/cycles/99.json/x")).unwrap();
+    let files = scratch("publish-remove-fails-files");
+    let dispatch = write_file(&files, "dispatch.json", b"{\"why\":\"idle\"}\n");
+    fail_writes(Some(1));
+    let (code, line) = publish(
+        &home,
+        1_000_300,
+        &["--dispatch", dispatch.to_str().unwrap()],
+    )
+    .unwrap_err();
+    assert_eq!(code, 1);
+    assert!(line.starts_with("remove live/cycles/99.json: "), "{line}");
+    for name in ["dispatch.json", "endings.json", "running.json"] {
+        assert!(!home.join("live").join(name).exists(), "{name}");
+    }
+    assert_eq!(read(&home, "cycles/62.json"), "{}\n");
+    fs::remove_dir_all(home.join("live/cycles/99.json")).unwrap();
+    let v = publish(
+        &home,
+        1_000_400,
+        &["--dispatch", dispatch.to_str().unwrap()],
+    )
+    .unwrap();
+    assert_eq!(v["down"], Value::Null);
+    assert_eq!(read(&home, "dispatch.json"), "{\"why\":\"idle\"}\n");
+    assert_eq!(left(&home, "cycles"), vec!["62.json".to_string()]);
+    assert_ne!(read(&home, "cycles/62.json"), "{}\n");
+}
+
 // --- cycle-heartbeat --------------------------------------------------------------
 
 #[test]
