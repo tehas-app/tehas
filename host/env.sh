@@ -16,7 +16,7 @@ if [ -r "$TEHAS_HOME/lib/paths.sh" ]; then
 fi
 # Bot credentials (GH_TOKEN) and the model endpoints' tokens (TEHAS_MODEL_KEY_*,
 # named by models.json). File is chmod 600 and stays outside the tehas tree.
-# shellcheck disable=SC1091
+# shellcheck source=/dev/null
 if [ -r "$HOME/.config/tehas/env" ]; then set -a; . "$HOME/.config/tehas/env"; set +a; fi
 # Instance settings: the served repository, who may label, limits, the model
 # for every pi-rukas role, the sandbox image. A broken instance.env prints one

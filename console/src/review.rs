@@ -12,6 +12,7 @@
 //! console/store/src/review_issue.rs): this asks for the filing and says what it
 //! answered, and nothing else.
 
+use crate::account;
 use crate::store;
 use serde_json::Value;
 use signal_hook::consts::{SIGHUP, SIGINT, SIGTERM};
@@ -147,14 +148,6 @@ pub fn git_global(key: &str) -> String {
         .unwrap_or_default()
 }
 
-pub(crate) fn account() -> String {
-    Command::new("id")
-        .arg("-un")
-        .output()
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim_end().to_string())
-        .unwrap_or_default()
-}
-
 // What the image's runner says it can do. Err is the status of the call, so a
 // docker that does not answer is said apart from an image with no verb.
 pub(crate) fn capabilities(image: &str) -> Result<String, i32> {
@@ -263,7 +256,7 @@ fn review() -> u8 {
     if name.is_empty() || email.is_empty() {
         warn(&format!(
             "git user.name and user.email are not set for {}",
-            account()
+            account::name()
         ));
         return 64;
     }
