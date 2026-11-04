@@ -19,7 +19,7 @@
 //!
 //! Exit: see src/usage/stop.txt.
 
-use crate::{flags, store};
+use crate::{account, store};
 use std::env;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, ErrorKind, Write as _};
@@ -128,7 +128,7 @@ fn write_marker(marker: &str) -> bool {
     let at = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| d.as_secs());
-    let wrote = fs::write(&new, format!("{at} {}\n", flags::account())).is_ok()
+    let wrote = fs::write(&new, format!("{at} {}\n", account::name())).is_ok()
         && fs::rename(&new, marker).is_ok()
         && fs::read_to_string(marker).is_ok_and(|text| marker_reads(&text));
     if !wrote {

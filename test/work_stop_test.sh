@@ -11,7 +11,11 @@ t_case "a runner that does not stop at its own limit is stopped after the grace,
 fresh
 t_instance "${T_MINIMAL[@]}" TEHAS_WORK_TIMEOUT=1 TEHAS_CHILD_TIMEOUT=1
 T_ENV=("${env_ok[@]}" TEHAS_WORK_GRACE=0)
-container "progress '{\"v\":1,\"kind\":\"step-started\",\"event\":{\"step\":\"lens-review\"}}'; $hold; $gone"
+# The step is on record only once the console has read it, which under load can
+# be after the limit: the console waits for the line, the container for the step.
+touch "$T/now.wait"
+seen="i=0; until grep -qs lens-review '$live/console-7.txt.now' || [ \$i -ge 200 ]; do \"\$nap\" 0.05; i=\$((i + 1)); done"
+container "progress '{\"v\":1,\"kind\":\"step-started\",\"event\":{\"step\":\"lens-review\"}}'; $hold; $seen; $gone"
 t_run "$work 7"
 t_eq "$t_rc" 2
 t_contains "$t_out" "time limit of 1s passed"
@@ -46,6 +50,7 @@ t_eq "$(cat "$T/home/tehas/state/cycles/7.timed")" "1 runner develop"
 
 t_case "a runner that stops itself at the time limit with no result is a timeout at the last step it started"
 fresh
+touch "$T/now.wait"
 container "progress '{\"v\":1,\"kind\":\"step-started\",\"event\":{\"step\":\"adversarial\"}}'; \"\$nap\" 1.2; exit 30"
 t_run "$work 7"
 t_eq "$t_rc" 2

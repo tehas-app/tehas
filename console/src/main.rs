@@ -105,7 +105,7 @@
 //!
 //! One pass of the Protolab, for tehasbot protolab, see src/protolab.rs.
 //!
-//!   console settings load <euid> [<bash>] | valid [<name> <value>] | words <name>
+//!   console settings load <euid> [<bash>] | valid [<name> <value>] | words <name> | required
 //!
 //! What tehas_load does and what a setting may hold, see src/settings.rs.
 //!
@@ -172,6 +172,7 @@
 //! Exit: 0 stopped by a signal or masked, 1 the console file or standard
 //! output cannot be written, 2 usage.
 
+mod account;
 mod api;
 mod attach;
 mod clean;

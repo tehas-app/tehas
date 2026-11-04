@@ -40,6 +40,7 @@ const PAGE: &str = r#"query($owner: String!, $name: String!, $cursor: String) {
         number title body createdAt author { login } lastEditedAt editor { login }
         labels(first: 50) { nodes { name } }
         subIssuesSummary { total completed }
+        parent { number }
         timelineItems(itemTypes: [LABELED_EVENT, UNLABELED_EVENT, RENAMED_TITLE_EVENT], last: 100) {
           nodes {
             __typename
@@ -325,6 +326,9 @@ pub fn issue(o: &Open) -> Map<String, Value> {
     if let Some(s) = n.get("subIssuesSummary").filter(|s| s.is_object()) {
         work["sub_issues_summary"] = s.clone();
     }
+    if let Some(p) = n.pointer("/parent/number").filter(|p| p.is_u64()) {
+        work["parent"] = p.clone();
+    }
     let mut m = Map::new();
     m.insert("work".into(), work);
     m.insert(
@@ -470,6 +474,22 @@ mod tests {
             format!("query={PULLS}"),
         ];
         assert!(crate::read::run::gh_reads(&args));
+    }
+
+    #[test]
+    fn an_issue_names_its_epic_and_the_page_asks_for_it() {
+        assert!(PAGE.contains("parent { number }"));
+        let o = |node: Value| Open {
+            number: 7,
+            labels: vec![],
+            node,
+        };
+        let part = issue(&o(
+            json!({"title": "t", "body": "b", "parent": {"number": 5}}),
+        ));
+        assert_eq!(part["work"]["parent"], json!(5));
+        let alone = issue(&o(json!({"title": "t", "body": "b", "parent": null})));
+        assert!(alone["work"].get("parent").is_none());
     }
 
     /// A label event's kind. An unlisted kind does not compile, so a case

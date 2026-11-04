@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 # Tests for libexec/work: what the cycle's container is given, its mounts,
 # variables, limits and console, and that nothing starts without a usable
-# slice.
+# slice. That the limit and security words are the documented ones is decided in
+# Rust: tehas_core::slice::limits makes them and misshaped in
+# console/cycle/src/work.rs refuses a list that is not it, both tested beside
+# themselves. The words are pinned by test/slice_test.sh, test/docker_args.sh and
+# the goldens of test/sandbox_argv_test.sh, and read off the docker line below.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
@@ -414,24 +418,6 @@ t_run "$work 7"
 refused
 t_contains "$t_out" "tehas work: TEHAS_CYCLE_RESERVE=3g is more than a container may use here (2048m, tehas.slice's MemoryMax over TEHAS_SLICE_CONTAINERS=4); the host needs about 16 GiB"
 t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
-
-t_case "the fourteen words are all present or nothing starts"
-# The command beside a slice library that says yes and hands out a short list,
-# or a list that names another parent.
-short=$T/short
-mkdir -p "$short/libexec" "$short/lib"
-cp "$T_ROOT"/lib/*.sh "$short/lib/"
-ln -s "$T_ROOT/libexec/work" "$short/libexec/work"
-for words in "--cgroup-parent tehas.slice --memory 2048m --memory-swap 2048m --memory-reservation 2g --cpus 3.75 --pids-limit 4096" \
-  "--cgroup-parent other.slice --memory 2048m --memory-swap 2048m --memory-reservation 2g --cpus 3.75 --pids-limit 4096 --cpu-shares 1024" \
-  "--memory 2048m --cgroup-parent tehas.slice --memory-swap 2048m --memory-reservation 2g --cpus 3.75 --pids-limit 4096 --cpu-shares 1024" ""; do
-  without
-  printf '%s\n' 'tehas_slice_ok() { return 0; }' "tehas_slice_limits() { TEHAS_SLICE_LIMITS=($words); }" >"$short/lib/slice.sh"
-  t_run "$short/libexec/work 7"
-  refused
-  t_contains "$t_out" "tehas work: the container limits could not be made, not starting"
-done
-without
 
 t_case "a checkout of another repository starts no container"
 rm -f "$T"/calls/*
