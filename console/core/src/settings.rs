@@ -314,8 +314,20 @@ mod tests {
             .output()
             .unwrap();
         assert!(done.status.success());
+        // The identity is named for the commit too: a runner with no git
+        // config of its own has nothing to commit with otherwise.
         let done = Command::new("git")
-            .args(["commit", "-q", "--allow-empty", "-m", "first"])
+            .args([
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@example.com",
+                "commit",
+                "-q",
+                "--allow-empty",
+                "-m",
+                "first",
+            ])
             .current_dir(upstream.path())
             .stdin(Stdio::null())
             .stderr(Stdio::null())
