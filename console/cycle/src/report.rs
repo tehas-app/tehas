@@ -566,7 +566,10 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
             match &l.text {
                 Some(t) => {
                     let run = runner::run(t, issue);
-                    log_read = run.read.clone();
+                    // The host read the log, so it says whether it holds the
+                    // whole of it: only a whole log can say there is no later
+                    // step than the one its end names.
+                    log_read = runner::read_word(l.whole()).to_string();
                     log_words = true;
                     if step_wanted && !run.step.is_empty() {
                         step = run.step;

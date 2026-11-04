@@ -4,11 +4,14 @@
 //! state of its workspace. One JSON object; `report` decides from it.
 //!
 //! A file is a string (a regular file and what it holds), {"link": true} (a
-//! link, which is never read), or absent. The run log is {"name", "text"}, or
-//! {"name", "unreadable": true} for one that could not be read.
+//! link, which is never read), or absent. The run log is {"name", "text"}, with
+//! {"truncated": true} when only its end is held, or {"name", "unreadable":
+//! true} for one that could not be read.
 
 use serde_json::Value;
 use std::collections::HashMap;
+
+use crate::runner::LOG_TAIL;
 
 /// A file of the cycle's protocol, as `[ -f ] && [ ! -L ]` sees it.
 #[derive(Clone, Debug, PartialEq)]
@@ -36,12 +39,27 @@ impl File {
     }
 }
 
-/// The newest run log of the issue, logs/work-<issue>-*.jsonl.
+/// The newest run log of the issue, logs/work-<issue>-*.jsonl. Of a log longer
+/// than the bound the host holds its end and says `truncated`.
 #[derive(Clone, Debug)]
 pub struct RunLog {
     pub name: String,
     /// None for a log that could not be read.
     pub text: Option<String>,
+    /// Whether only the end of the log is held.
+    pub truncated: bool,
+}
+
+impl RunLog {
+    /// Whether tehas holds the whole of the log: the host read all of it, and
+    /// what the facts hold is no longer than the bound a log is read at. A log
+    /// that could not be read at all is not held whole.
+    pub fn whole(&self) -> bool {
+        match &self.text {
+            Some(t) => !self.truncated && t.len() <= LOG_TAIL as usize,
+            None => false,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -135,6 +153,7 @@ impl Facts {
                 .unwrap_or("")
                 .to_string(),
             text: o.get("text").and_then(Value::as_str).map(str::to_string),
+            truncated: o.get("truncated") == Some(&Value::Bool(true)),
         });
         Ok(Facts {
             issue,
