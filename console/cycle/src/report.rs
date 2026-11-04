@@ -1103,7 +1103,7 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
     } else if (rc == 10 || rc == 11)
         && status == "handoff"
         && !pr.is_empty()
-        && cap == "awaiting-human-merge"
+        && waits_only_for_a_merge(&cap)
         && review_held == "false"
         && {
             r.asked.push("attention".into());
@@ -1448,6 +1448,15 @@ pub fn to_json(r: &Report, issue: u64) -> Value {
         "history": r.history, "analytics": r.analytics, "improve": r.improve,
         "status_run": r.status_run, "asked": r.asked, "arm": r.arm,
     })
+}
+
+/// The caps of a handoff whose open pull request waits only for a merge.
+/// `lens-fix-reposition` is a second review round whose fix could not be laid
+/// on the branch: the branch already holds the first round's fix, reviewed and
+/// pushed, so a park there threw a finished pull request back to a person. It
+/// was the top cap from 2026-10-31, 32 parks, all with the pull request open.
+fn waits_only_for_a_merge(cap: &str) -> bool {
+    matches!(cap, "awaiting-human-merge" | "lens-fix-reposition")
 }
 
 #[cfg(test)]
