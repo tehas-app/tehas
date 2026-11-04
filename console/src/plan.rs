@@ -26,7 +26,9 @@
 use serde_json::{json, Value};
 use std::io::Read;
 use std::path::Path;
-use tehas_core::plan::{checked, clip, made, refusal_document, text_of, APPLY_READY, CLIP};
+use tehas_core::plan::{
+    checked, clip, keep_spec, made, refusal_document, text_of, APPLY_READY, CLIP,
+};
 
 mod start;
 mod turn;
@@ -315,7 +317,13 @@ pub fn update(session: &str, keep: &Path, was: &str) -> Result<String, String> {
     };
     let more = format!(
         ",\"update\":{}",
-        json!({"title": plan.title, "body": plan.body})
+        json!({
+            "title": plan.title,
+            // The person's spec block goes back on top here, and nowhere
+            // earlier: the document the tick writes holds it, and nothing else
+            // reads this body.
+            "body": keep_spec(&plan.body, &text_of(was.get("body")))
+        })
     );
     Ok(document(session, &plan.text, &Value::Null, &[], &more))
 }
@@ -694,6 +702,60 @@ mod tests {
                 ["title"],
             "search"
         );
+    }
+
+    /// A person's `pi-spec v1` block survives the write of a plan: the lean
+    /// driver reads only that block, and the draft of a plan holds none of its
+    /// own, so the issue's block goes back on top of the text (`keep_spec`).
+    #[test]
+    fn an_update_keeps_the_issue_spec_block_at_the_top() {
+        let k = keep();
+        // A plan the check lets through, written over a person's issue that
+        // holds the block lean reads.
+        let draft = json!({"title": "feat: fast",
+                           "spec": "## Outcome\n\nThe p95 is under 100 ms."});
+        let plan = json!("## Outcome\n\nThe p95 is under 100 ms.");
+        std::fs::write(k.join("draft.json"), draft.to_string()).unwrap();
+        let was = json!({
+            "title": "search",
+            "body": "```pi-spec v1\n---\n{\"intent\":\"faster search\"}\n```\n\nWhat the person wrote."
+        });
+        let v = parsed(&update("s", &k, &was.to_string()).unwrap());
+        // The block is put back fenced whole, its table rule off: JSON is
+        // what lean reads, and the rule is what pi-rukas drops of its own.
+        assert_eq!(
+            v["update"]["body"],
+            json!("```pi-spec v1\n{\"intent\":\"faster search\"}\n```\n\n## Outcome\n\nThe p95 is under 100 ms.")
+        );
+        // A body that brings a block of its own keeps that one and loses the
+        // issue's, and one with no block anywhere is written as today.
+        let mine = json!({"title": "feat: fast",
+                          "spec": "```pi-spec v1\n{\"intent\":\"new\"}\n```\n\n## Outcome\n\nThe p95 is under 100 ms."});
+        std::fs::write(k.join("draft.json"), mine.to_string()).unwrap();
+        let v = parsed(&update("s", &k, &was.to_string()).unwrap());
+        assert_eq!(v["update"]["body"], mine["spec"]);
+        std::fs::write(k.join("draft.json"), draft.to_string()).unwrap();
+        let v = parsed(
+            &update(
+                "s",
+                &k,
+                &json!({"title": "t", "body": "no block here"}).to_string(),
+            )
+            .unwrap(),
+        );
+        assert_eq!(v["update"]["body"], plan);
+        // Two blocks, or one that is no JSON, are no block to keep.
+        for was in [
+            json!({"title": "t", "body": "```pi-spec v1\n{\"a\":1}\n```\n\n```pi-spec v1\n{\"b\":2}\n```"}),
+            json!({"title": "t", "body": "```pi-spec v1\nnot json\n```"}),
+        ] {
+            let v = parsed(&update("s", &k, &was.to_string()).unwrap());
+            assert_eq!(
+                v["update"]["body"],
+                json!("## Outcome\n\nThe p95 is under 100 ms."),
+                "{was}"
+            );
+        }
     }
 
     /// A draft that fails the text check: the document says why, asks for the
