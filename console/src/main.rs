@@ -105,7 +105,7 @@
 //!
 //! One pass of the Protolab, for tehasbot protolab, see src/protolab.rs.
 //!
-//!   console settings load <euid> [<bash>] | valid [<name> <value>] | words <name>
+//!   console settings load <euid> [<bash>] | valid [<name> <value>] | words <name> | required
 //!
 //! What tehas_load does and what a setting may hold, see src/settings.rs.
 //!

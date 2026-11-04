@@ -326,8 +326,18 @@ t_run "$load && tehas_require_instance_settings && echo ok"
 t_eq "$t_rc" 0
 t_contains "$t_out" "ok"
 
-for missing in TEHAS_REPO TEHAS_CONTROL_ISSUE TEHAS_ALLOWED_LABELERS \
-  PI_ENSEMBLE_SUBAGENT_MODEL PI_ENSEMBLE_SUBAGENT_PROVIDER; do
+# The list is the console's: tehas_load hands it over as _tehas_required, and
+# `console settings required` answers the same names. A copy of the list in
+# lib/config.sh, or a load that stopped handing it over, fails this case.
+t_case "the list tehas_require_instance_settings checks is the console's"
+t_instance "${T_MINIMAL[@]}"
+t_run "$load && printf '%s\n' \"\${_tehas_required[@]}\""
+instance_settings=$t_out
+t_run "\"$T_CONSOLE\" settings required"
+t_eq "$t_out" "$instance_settings"
+
+read -ra required_names <<<"$instance_settings"
+for missing in "${required_names[@]}"; do
   t_case "tehas_require_instance_settings stops an instance without $missing"
   t_instance "${T_MINIMAL[@]}"
   grep -v "^$missing=" "$TEHAS_INSTANCE_DIR/instance.env" >"$T/instance.env"
@@ -916,6 +926,35 @@ t_instance "${T_MINIMAL[@]}"
 t_run "$load && tehas_branch"
 t_eq "$t_rc" 0
 t_eq "$t_out" "main"
+
+# lib/config.sh and tehas_core hold one rule for the checkout and the branch
+# (console/core/src/settings.rs), so the two answers are held side by side the
+# way test/rukas_test.sh holds lib/rukas.sh against console/core/src/rukas.rs.
+both() { # <name> <verb> [<KEY=VALUE>...]
+  local name=$1 verb=$2
+  shift 2
+  t_case "tehas_$verb and the console's $verb answer one thing: $name"
+  t_instance "${T_MINIMAL[@]}" "$@"
+  t_run "$load && tehas_$verb"
+  local bash_rc=$t_rc bash_out=$t_out
+  t_run "$load >/dev/null 2>&1; \"$T_CONSOLE\" settings $verb"
+  t_eq "$t_rc" "$bash_rc"
+  t_eq "$t_out" "$bash_out"
+}
+
+git init -q -b main "$T/other"
+git -C "$T/other" remote add origin https://github.com/acme/other.git
+git init -q -b main "$T/asrepo"
+git -C "$T/asrepo" remote add origin "git@github.com:acme/widget.git"
+
+both "the scratch checkout, a clone of a local path" checkout
+both "the checkout of another repository" checkout "TEHAS_WORK_REPO=$T/other"
+both "origin named as acme/widget" checkout "TEHAS_WORK_REPO=$T/asrepo"
+both "the checkout's default branch" branch
+both "TEHAS_BRANCH given" branch TEHAS_BRANCH=release
+git -C "$T/home/tehas/repos/widget" remote set-head origin -d
+both "a checkout with no origin/HEAD" branch
+git -C "$T/home/tehas/repos/widget" remote set-head origin main
 
 t_case "TEHAS_BRANCH wins over the checkout"
 t_instance "${T_MINIMAL[@]}" TEHAS_BRANCH=release
