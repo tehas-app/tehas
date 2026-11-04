@@ -460,6 +460,20 @@ choice.
   its fields are pi-rukas's to define. pi-rukas's `/plan` writes one, and
   [Troubleshooting](/troubleshooting#what-a-park-says) says what to do when the
   block is missing. A second block, or one that is no JSON, counts as none.
+- The driver keeps its own record of the steps it ran, in
+  `.pi/lean-state/<issue>.json` in the workspace. Before the cycle's report
+  clears what the container wrote, `tehas-cycle report` copies it to
+  `~/tehas/state/cycles/<issue>.lean-state.json`, where `tehas analytics run`
+  reads it for the [lean figures of the drivers
+  table](/analytics#drivers): the step each run handed the work back at, and the
+  share of runs that were the issue's first attempt. A classic cycle keeps no
+  such file, nor does a cycle of a host with `TEHAS_ANALYTICS=off`: the note
+  exists only to feed that program. A lean cycle whose copy could not be written
+  says so once and records the run with no lean figures. The copy is a plain
+  file of the workspace, no link on the way, and of no more than 4 MiB; the
+  reader keeps the first part of it, up to a bound of its own. The next cycle of
+  the issue takes the copy as it starts, along with the cycle's other notes, so a
+  run's steps are never read as a later run's.
 
 ### What a poll costs
 

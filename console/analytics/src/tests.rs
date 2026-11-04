@@ -2130,6 +2130,65 @@ fn run_reads_nothing_through_a_link() {
     assert_eq!(r.runner_ms, None);
 }
 
+// The record the driver wrote in its workspace, which the cycle keeps beside the
+// run: the steps the report counts for a lean run.
+#[test]
+fn a_kept_lean_record_gives_the_steps_and_the_share_of_resumed_runs() {
+    let home = scratch("lean-record");
+    let started = secs("2026-10-18T10:16:39Z");
+    cycle(
+        &home,
+        "headless-316134e",
+        started,
+        json!({"at": iso(started + 30), "started": started, "rc": 0, "status": "merged"}),
+    );
+    let steps = |home: &Path, n: i64, v: Value| {
+        put(
+            home,
+            &format!("state/cycles/{n}.lean-state.json"),
+            &json!({"schema": 1, "issue": n, "steps": v}).to_string(),
+        );
+    };
+    // The approval bound the lean driver, which is what makes a record read.
+    fact(
+        &home,
+        7,
+        "approval",
+        json!({"at": iso(started - 90), "how": "label", "driver": "lean"}),
+    );
+    // The driver's own word for a resumed run, in the field it names it with.
+    // The word is read as the whole field, so the two are told apart below.
+    steps(
+        &home,
+        7,
+        json!([{"state": "ready", "startedAt": 1},
+               {"state": "verify", "reason": "resume"}]),
+    );
+    let r = run::read(&home, 7, &given(&home, 7)).unwrap();
+    assert_eq!(r.lean.as_ref().unwrap().steps, ["ready", "verify"]);
+    assert!(r.lean.as_ref().unwrap().resumed);
+    // A step that merely says the word inside a longer sentence, or is itself
+    // named for a resume, is no resume: a first attempt stays the first.
+    steps(
+        &home,
+        7,
+        json!([{"state": "resume-check"},
+               {"state": "ready", "reason": "resumed from the last attempt"}]),
+    );
+    let r = run::read(&home, 7, &given(&home, 7)).unwrap();
+    assert!(!r.lean.as_ref().unwrap().resumed);
+    // A record that says nothing of a resume is read as a first attempt, and a
+    // record of nothing but other types is no steps.
+    steps(&home, 7, json!([{"state": "ready"}, {"state": 3}]));
+    let r = run::read(&home, 7, &given(&home, 7)).unwrap();
+    assert_eq!(r.lean.as_ref().unwrap().steps, ["ready"]);
+    assert!(!r.lean.as_ref().unwrap().resumed);
+    // No file is no lean run: the report says so rather than counting zero steps.
+    fs::remove_file(home.join("state/cycles/7.lean-state.json")).unwrap();
+    let r = run::read(&home, 7, &given(&home, 7)).unwrap();
+    assert!(r.lean.is_none());
+}
+
 // The live files of one poll, as tehasbot status, libexec/dispatch and
 // console energy write them, at `at`.
 fn live(home: &Path, at: i64, why: &str, limit_room: Option<i64>) {
@@ -2649,7 +2708,7 @@ fn the_refine_figures_follow_the_refined_issues_and_compare_them_with_the_rest()
                "leadTime": {"n": 1, "median": 7200, "p90": 7200},
                "others": {"n": 2, "started": 2, "shipped": 1, "shippedShare": 0.5}})
     );
-    let mut report = crate::report::build(&conn, to).unwrap();
+    let mut report = crate::report::build(&conn, &home, to).unwrap();
     report["refine"] = got;
     let text = crate::report::text(&report);
     assert!(
@@ -2839,7 +2898,7 @@ fn the_report_command_adds_the_refine_and_size_figures() {
     );
     assert!(got["refine"].is_object());
     // build() alone holds neither: the keys belong to the command.
-    let bare = crate::report::build(&conn, to).unwrap();
+    let bare = crate::report::build(&conn, &home, to).unwrap();
     assert!(bare.get("sizes").is_none() && bare.get("refine").is_none());
     // A ledger that is a link is read no more than a ledger that is no file:
     // the figures are four buckets of nothing.
@@ -3007,7 +3066,7 @@ fn the_text_report_prints_one_row_for_every_section_of_the_report() {
     let to = day0 + 9 * DAY + 43_200;
     let (conn, _) = db::open(&db::path(&home), day0).unwrap();
     report_data(&conn, day0, to);
-    let built = crate::report::build(&conn, to).unwrap();
+    let built = crate::report::build(&conn, &home, to).unwrap();
     let full = crate::report::complete(&conn, &home, to).unwrap();
     let keys = |v: &Value| {
         v.as_object()
@@ -3481,7 +3540,7 @@ fn the_report_gives_the_figures_of_a_known_data_set() {
     let to = day0 + 9 * DAY + 43_200;
     let (conn, _) = db::open(&db::path(&home), day0).unwrap();
     report_data(&conn, day0, to);
-    let got = crate::report::build(&conn, to).unwrap();
+    let got = crate::report::build(&conn, &home, to).unwrap();
     let day = |d: &str, shipped: i64, runs: i64, failed: i64, minutes: i64| json!({"day": d, "shipped": shipped, "runs": runs, "failed": failed, "minutes": minutes});
     let mut trend: Vec<Value> = (15..=24)
         .map(|d| json!({"day": format!("2026-10-{d}")}))
@@ -3546,13 +3605,21 @@ fn the_report_gives_the_figures_of_a_known_data_set() {
             {"tehas": "v2", "n": 1},
             {"tehas": "v2", "rukas": "0.13.0", "n": 1},
         ],
+        // The drivers split by pi-rukas version, so two releases never pool:
+        // the five runs of 0.13.0 are a, b, c, d and f; e reported no version
+        // and reads `none`. The comparison of two versions is its own test.
         "drivers": {
-            "classic": {"n": 6, "ran": 5, "prShare": 0.4, "parkedShare": 0.2,
-                        "minutes": {"n": 5, "total": 80, "median": 15},
-                        "tokens": {"n": 4, "total": 6650, "median": 1750},
-                        "pullRequests": {"n": 2, "merged": 2, "share": 1.0}},
-            "lean": {"n": 0, "ran": 0, "minutes": {"n": 0}, "tokens": {"n": 0},
-                     "pullRequests": {"n": 0, "merged": 0}},
+            "classic": {
+                "0.13.0": {"n": 5, "ran": 4, "prShare": 0.5, "parkedShare": 0.25,
+                           "minutes": {"n": 4, "total": 65, "median": 15},
+                           "tokens": {"n": 3, "total": 6500, "median": 2500},
+                           "pullRequests": {"n": 2, "merged": 2, "share": 1.0}},
+                "none": {"n": 1, "ran": 1, "prShare": 0.0, "parkedShare": 0.0,
+                         "minutes": {"n": 1, "total": 15, "median": 15},
+                         "tokens": {"n": 1, "total": 150, "median": 150},
+                         "pullRequests": {"n": 0, "merged": 0}},
+            },
+            "lean": {},
         },
     });
     assert_eq!(got, want, "{}", serde_json::to_string_pretty(&got).unwrap());
@@ -3568,7 +3635,7 @@ fn the_gate_line_of_the_report_gives_its_figures_in_text_and_json() {
     let to = day0 + 9 * DAY + 43_200;
     let (conn, _) = db::open(&db::path(&home), day0).unwrap();
     report_data(&conn, day0, to);
-    let report = crate::report::build(&conn, to).unwrap();
+    let report = crate::report::build(&conn, &home, to).unwrap();
     // The four gate rows of the window, read back as the report worked them
     // out: 300 s and 300 s in c, 540 s in e and 60 s in f.
     assert_eq!(
@@ -3600,7 +3667,7 @@ fn the_gate_line_of_the_report_gives_its_figures_in_text_and_json() {
     .unwrap();
     conn.execute("UPDATE runs SET gate_runs = 2 WHERE id = 'e'", [])
         .unwrap();
-    let again = crate::report::build(&conn, to).unwrap();
+    let again = crate::report::build(&conn, &home, to).unwrap();
     assert_eq!(again["gate"]["n"], json!(3));
     assert_eq!(again["gate"]["median"], json!(270));
     assert_eq!(again["gate"]["p90"], json!(300));
@@ -3652,18 +3719,18 @@ fn the_report_splits_by_driver_and_counts_a_null_row_as_classic() {
     driver_run(&conn, "f", 6, day0, "pr", None, Some("lean"));
     driver_run(&conn, "g", 7, day0, "parked", None, Some("lean"));
     db::event(&conn, 5, "merged", day0 + 3600).unwrap();
-    let got = crate::report::build(&conn, to).unwrap();
+    let got = crate::report::build(&conn, &home, to).unwrap();
     assert_eq!(
         got["drivers"],
         json!({
-            "classic": {"n": 4, "ran": 4, "prShare": 0.5, "parkedShare": 0.25,
-                        "minutes": {"n": 4, "total": 40, "median": 10},
-                        "tokens": {"n": 4, "total": 1000, "median": 250},
-                        "pullRequests": {"n": 2, "merged": 1, "share": 0.5}},
-            "lean": {"n": 3, "ran": 3, "prShare": 0.667, "parkedShare": 0.333,
-                     "minutes": {"n": 3, "total": 30, "median": 10},
-                     "tokens": {"n": 0},
-                     "pullRequests": {"n": 2, "merged": 1, "share": 0.5}},
+            "classic": {"none": {"n": 4, "ran": 4, "prShare": 0.5, "parkedShare": 0.25,
+                                 "minutes": {"n": 4, "total": 40, "median": 10},
+                                 "tokens": {"n": 4, "total": 1000, "median": 250},
+                                 "pullRequests": {"n": 2, "merged": 1, "share": 0.5}}},
+            "lean": {"none": {"n": 3, "ran": 3, "prShare": 0.667, "parkedShare": 0.333,
+                              "minutes": {"n": 3, "total": 30, "median": 10},
+                              "tokens": {"n": 0},
+                              "pullRequests": {"n": 2, "merged": 1, "share": 0.5}}},
         })
     );
     let text = crate::report::text(&got);
@@ -3673,8 +3740,8 @@ fn the_report_splits_by_driver_and_counts_a_null_row_as_classic() {
             .map(|l| l.split_whitespace().collect::<Vec<_>>().join(" "))
             .unwrap()
     };
-    assert_eq!(row("classic"), "classic 4 4 50% 25% 40 1000 2 1");
-    assert_eq!(row("lean"), "lean 3 3 66.7% 33.3% 30 - (n=0) 2 1");
+    assert_eq!(row("classic"), "classic none 4 4 50% 25% 40 1000 2 1");
+    assert_eq!(row("lean"), "lean none 3 3 66.7% 33.3% 30 - (n=0) 2 1");
 }
 
 #[test]
@@ -3686,8 +3753,8 @@ fn a_drivers_shares_are_of_its_runs_that_ran() {
     driver_run(&conn, "b", 2, day0, "failed", None, Some("lean"));
     driver_run(&conn, "c", 3, day0, "refused", None, Some("lean"));
     driver_run(&conn, "d", 4, day0, "stopped", None, Some("lean"));
-    let got = crate::report::build(&conn, day0 + DAY).unwrap();
-    let lean = &got["drivers"]["lean"];
+    let got = crate::report::build(&conn, &home, day0 + DAY).unwrap();
+    let lean = &got["drivers"]["lean"]["none"];
     assert_eq!(lean["n"], 4);
     assert_eq!(lean["ran"], 2);
     assert_eq!(lean["prShare"], 0.5);
@@ -3700,8 +3767,8 @@ fn a_driver_with_only_refused_runs_has_no_shares() {
     let day0 = 1_792_022_400;
     let (conn, _) = db::open(&db::path(&home), day0).unwrap();
     driver_run(&conn, "a", 1, day0, "refused", None, Some("lean"));
-    let got = crate::report::build(&conn, day0 + DAY).unwrap();
-    let lean = &got["drivers"]["lean"];
+    let got = crate::report::build(&conn, &home, day0 + DAY).unwrap();
+    let lean = &got["drivers"]["lean"]["none"];
     assert_eq!((&lean["n"], &lean["ran"]), (&json!(1), &json!(0)));
     assert_eq!(lean.get("prShare"), None);
     assert_eq!(lean.get("parkedShare"), None);
@@ -3716,8 +3783,8 @@ fn a_run_handed_off_to_a_person_counts_as_parked_for_its_driver() {
     driver_run(&conn, "b", 2, day0, "parked", None, Some("lean"));
     driver_run(&conn, "c", 3, day0, "pr", None, Some("lean"));
     driver_run(&conn, "d", 4, day0, "pr", None, Some("lean"));
-    let got = crate::report::build(&conn, day0 + DAY).unwrap();
-    assert_eq!(got["drivers"]["lean"]["parkedShare"], 0.5);
+    let got = crate::report::build(&conn, &home, day0 + DAY).unwrap();
+    assert_eq!(got["drivers"]["lean"]["none"]["parkedShare"], 0.5);
     assert_eq!(got["handoffRate"]["share"], 0.5);
 }
 
@@ -3726,8 +3793,9 @@ fn a_shipped_issue_whose_runs_reported_no_usage_is_no_zero_in_tokens_per_shipped
     let home = scratch("report-per-shipped");
     let day0 = 1_792_022_400;
     let (conn, _) = db::open(&db::path(&home), day0).unwrap();
-    let tokens =
-        |conn: &Connection| crate::report::build(conn, day0 + DAY).unwrap()["tokens"].clone();
+    let tokens = |conn: &Connection| {
+        crate::report::build(conn, &home, day0 + DAY).unwrap()["tokens"].clone()
+    };
     driver_run(&conn, "a", 1, day0, "merged", Some(1_000_000), None);
     driver_run(&conn, "b", 2, day0, "pr", None, Some("lean"));
     db::event(&conn, 2, "merged", day0 + 3600).unwrap();
@@ -3747,11 +3815,11 @@ fn a_driver_of_no_runs_has_counts_and_no_figures() {
     let home = scratch("report-no-drivers");
     let to = 1_792_022_400;
     let (conn, _) = db::open(&db::path(&home), to).unwrap();
-    let none = json!({"n": 0, "ran": 0, "minutes": {"n": 0}, "tokens": {"n": 0},
-                      "pullRequests": {"n": 0, "merged": 0}});
+    // A driver with no run has no entry: the versions are those of the runs, and
+    // it has none. `text` prints no line for it.
     assert_eq!(
-        crate::report::build(&conn, to).unwrap()["drivers"],
-        json!({"classic": none, "lean": none})
+        crate::report::build(&conn, &home, to).unwrap()["drivers"],
+        json!({"classic": {}, "lean": {}})
     );
 }
 
@@ -3763,10 +3831,10 @@ fn empty_tokens_are_left_out_of_a_drivers_sum_and_not_counted() {
     driver_run(&conn, "a", 1, day0, "pr", Some(0), Some("lean"));
     driver_run(&conn, "b", 2, day0, "pr", Some(400), Some("lean"));
     driver_run(&conn, "c", 3, day0, "pr", None, Some("lean"));
-    let got = crate::report::build(&conn, day0 + DAY).unwrap();
+    let got = crate::report::build(&conn, &home, day0 + DAY).unwrap();
     // A reported 0 is a figure; an empty run is not in the median either.
     assert_eq!(
-        got["drivers"]["lean"]["tokens"],
+        got["drivers"]["lean"]["none"]["tokens"],
         json!({"n": 2, "total": 400, "median": 200})
     );
     assert!(crate::report::text(&got).contains("400 (n=2)"));
@@ -3792,7 +3860,7 @@ fn a_pull_request_counts_once_and_only_a_merge_after_it_was_reached() {
     driver_run(&conn, "e", 4, day0, "failed", None, Some("lean"));
     db::event(&conn, 4, "merged", day0 + 2000).unwrap();
     assert_eq!(
-        crate::report::build(&conn, to).unwrap()["drivers"]["lean"]["pullRequests"],
+        crate::report::build(&conn, &home, to).unwrap()["drivers"]["lean"]["none"]["pullRequests"],
         json!({"n": 3, "merged": 1, "share": 0.333})
     );
 }
@@ -3812,13 +3880,13 @@ fn a_merge_is_of_the_driver_that_last_reached_a_pull_request_before_it() {
     driver_run(&conn, "d", 2, day0 + 1000, "pr", None, Some("lean"));
     db::event(&conn, 2, "merged", day0 + 2000).unwrap();
     driver_run(&conn, "e", 2, day0 + 3000, "pr", None, None);
-    let report = crate::report::build(&conn, to).unwrap();
+    let report = crate::report::build(&conn, &home, to).unwrap();
     assert_eq!(
-        report["drivers"]["lean"]["pullRequests"],
+        report["drivers"]["lean"]["none"]["pullRequests"],
         json!({"n": 2, "merged": 1, "share": 0.5})
     );
     assert_eq!(
-        report["drivers"]["classic"]["pullRequests"],
+        report["drivers"]["classic"]["none"]["pullRequests"],
         json!({"n": 2, "merged": 1, "share": 0.5})
     );
 }
@@ -3831,12 +3899,359 @@ fn a_refused_run_is_in_no_minutes_of_its_driver() {
     driver_run(&conn, "a", 1, day0, "pr", None, Some("lean"));
     driver_run(&conn, "b", 2, day0, "refused", None, Some("lean"));
     driver_run(&conn, "c", 3, day0, "stopped", None, Some("lean"));
-    let report = crate::report::build(&conn, day0 + DAY).unwrap();
-    assert_eq!(report["drivers"]["lean"]["n"], json!(3));
+    let report = crate::report::build(&conn, &home, day0 + DAY).unwrap();
+    assert_eq!(report["drivers"]["lean"]["none"]["n"], json!(3));
     assert_eq!(
-        report["drivers"]["lean"]["minutes"],
+        report["drivers"]["lean"]["none"]["minutes"],
         json!({"n": 1, "total": 10, "median": 10})
     );
+}
+
+/// A lean run's record, as the cycle kept it beside the run: the driver's own
+/// step log. `resumed` gives it the event a resumed run's log holds.
+fn lean_state(home: &Path, issue: i64, steps: &[impl AsRef<str>], resumed: bool) {
+    let log: Vec<Value> = steps
+        .iter()
+        .map(|s| json!({"key": format!("{issue}:{}:1", s.as_ref()), "state": s.as_ref(), "startedAt": 1}))
+        .collect();
+    let mut v = json!({"schema": 1, "issue": issue, "steps": log});
+    if resumed {
+        v["steps"][0]["reason"] = json!("resume");
+    }
+    put(
+        home,
+        &format!("state/cycles/{issue}.lean-state.json"),
+        &v.to_string(),
+    );
+}
+
+/// A lean work run of one pi-rukas version, for the per-version table.
+fn lean_run(conn: &Connection, id: &str, issue: i64, started: i64, outcome: &str, version: &str) {
+    conn.execute(
+        "INSERT INTO runs (id, kind, issue, started, ended, seconds, outcome, driver, rukas_version)
+         VALUES (?1, 'work', ?2, ?3, ?3 + 600, 600, ?4, 'lean', ?5)",
+        rusqlite::params![id, issue, started, outcome, version],
+    )
+    .unwrap();
+}
+
+/// The `text` table reads the drivers section by its keys, so a rename is a row
+/// of dashes rather than a failure. The shape is pinned once here instead.
+#[test]
+fn each_drivers_entry_carries_the_keys_the_terminal_prints() {
+    let home = scratch("report-drivers-shape");
+    let day0 = 1_792_022_400;
+    let (conn, _) = db::open(&db::path(&home), day0).unwrap();
+    lean_run(&conn, "a", 1, day0, "pr", "0.14.50");
+    // A classic run of the same version that reached a pull request.
+    conn.execute(
+        "INSERT INTO runs (id, kind, issue, started, ended, seconds, outcome, rukas_version)
+         VALUES ('c', 'work', 2, ?1, ?1 + 600, 600, 'pr', '0.14.50')",
+        rusqlite::params![day0],
+    )
+    .unwrap();
+    lean_state(&home, 1, &["ready", "verify"], false);
+    let got = crate::report::build(&conn, &home, day0 + DAY).unwrap();
+    for driver in crate::run::DRIVERS {
+        let entries = got["drivers"][driver]
+            .as_object()
+            .unwrap_or_else(|| panic!("{driver} is an object of its versions"));
+        assert!(!entries.is_empty(), "{driver} holds the runs of the window");
+        for (version, e) in entries {
+            for key in ["n", "ran", "minutes", "tokens", "pullRequests"] {
+                assert!(e.get(key).is_some(), "{driver} {version} holds {key}: {e}");
+            }
+            // A figure the report cannot work out is left out, never null: a
+            // key that is there holds a value of the shape `text` prints.
+            assert!(
+                e.get("prShare").is_none_or(Value::is_number),
+                "{driver} {version}"
+            );
+            assert!(
+                e.get("parkedShare").is_none_or(Value::is_number),
+                "{driver} {version}"
+            );
+            assert!(e["minutes"]["n"].is_number(), "{driver} {version}");
+            assert!(
+                e["minutes"].get("total").is_none_or(Value::is_number),
+                "{driver} {version}"
+            );
+            assert!(e["tokens"]["n"].is_number(), "{driver} {version}");
+            assert!(
+                e["tokens"].get("total").is_none_or(Value::is_number),
+                "{driver} {version}"
+            );
+            assert!(e["pullRequests"]["n"].is_number(), "{driver} {version}");
+            assert!(
+                e["pullRequests"]["merged"].is_number(),
+                "{driver} {version}"
+            );
+        }
+    }
+    // And the two lean figures hold what their lines print.
+    let e = &got["drivers"]["lean"]["0.14.50"];
+    assert!(e["oneAttempt"]["first"].is_number() && e["oneAttempt"]["n"].is_number());
+    let back = e["handBack"].as_array().unwrap();
+    assert!(back[0]["step"].is_string() && back[0]["n"].is_number());
+    assert!(back[0]["passed"].is_number() && back[0]["share"].is_number());
+}
+
+#[test]
+fn the_drivers_section_never_pools_two_pi_rukas_versions() {
+    let home = scratch("report-drivers-versions");
+    let day0 = 1_792_022_400;
+    let (conn, _) = db::open(&db::path(&home), day0).unwrap();
+    lean_run(&conn, "a", 1, day0, "pr", "0.14.49");
+    lean_run(&conn, "b", 2, day0, "pr", "0.14.49");
+    lean_run(&conn, "c", 3, day0, "parked", "0.14.49");
+    // The next release, one run: it stands on its own with its own count.
+    lean_run(&conn, "d", 4, day0, "pr", "0.14.50");
+    let got = crate::report::build(&conn, &home, day0 + DAY).unwrap();
+    let lean = &got["drivers"]["lean"];
+    assert_eq!(lean["0.14.49"]["n"], json!(3));
+    assert_eq!(lean["0.14.49"]["prShare"], json!(0.667));
+    assert_eq!(lean["0.14.50"]["n"], json!(1));
+    assert_eq!(lean["0.14.50"]["prShare"], json!(1.0));
+    // The terminal prints one line per pair, the version in its own column.
+    let text = crate::report::text(&got);
+    assert!(text.contains("0.14.49"), "{text}");
+    assert!(text.contains("0.14.50"), "{text}");
+}
+
+#[test]
+fn the_lean_section_gives_the_hand_back_by_step_and_the_one_attempt_share() {
+    let home = scratch("report-drivers-lean");
+    let day0 = 1_792_022_400;
+    let (conn, _) = db::open(&db::path(&home), day0).unwrap();
+    // Three lean runs of one version: two reached a pull request, one stopped in
+    // verify. The run the driver resumed is not the issue's first attempt.
+    lean_run(&conn, "a", 1, day0, "pr", "0.14.50");
+    lean_run(&conn, "b", 2, day0, "pr", "0.14.50");
+    lean_run(&conn, "c", 3, day0, "parked", "0.14.50");
+    lean_state(
+        &home,
+        1,
+        &["ready", "specify", "build", "verify", "publish"],
+        false,
+    );
+    lean_state(
+        &home,
+        2,
+        &["ready", "specify", "build", "verify", "publish"],
+        true,
+    );
+    lean_state(&home, 3, &["ready", "specify", "build", "verify"], false);
+    let got = crate::report::build(&conn, &home, day0 + DAY).unwrap();
+    let lean = got["drivers"]["lean"]["0.14.50"].clone();
+    assert_eq!(
+        lean["handBack"],
+        json!([
+            {"step": "ready", "n": 3, "passed": 3, "share": 1.0},
+            {"step": "specify", "n": 3, "passed": 3, "share": 1.0},
+            {"step": "build", "n": 3, "passed": 3, "share": 1.0},
+            {"step": "verify", "n": 3, "passed": 2, "share": 0.667},
+            {"step": "publish", "n": 2, "passed": 2, "share": 1.0},
+        ])
+    );
+    assert_eq!(
+        lean["oneAttempt"],
+        json!({"n": 3, "first": 2, "share": 0.667})
+    );
+    let text = crate::report::text(&got);
+    assert!(text.contains("handed back at verify"), "{text}");
+    assert!(text.contains("first attempt 2 of 3 (66.7%)"), "{text}");
+}
+
+#[test]
+fn a_run_of_a_later_or_an_unreadable_attempt_is_no_first_of_its_own() {
+    // One pair of the report, three runs of one version, each with the driver's
+    // record kept: the population of `oneAttempt`. tehas writes `attempt` 1 for
+    // the first run of an issue, so a row of the pair holds one unless a case
+    // below names what it holds instead.
+    let pair = |name: &str| {
+        let home = scratch(name);
+        let day0 = 1_792_022_400;
+        let (conn, _) = db::open(&db::path(&home), day0).unwrap();
+        lean_run(&conn, "a", 1, day0, "pr", "0.14.50");
+        lean_run(&conn, "b", 2, day0, "pr", "0.14.50");
+        lean_run(&conn, "c", 3, day0, "pr", "0.14.50");
+        conn.execute("UPDATE runs SET attempt = 1", []).unwrap();
+        for n in 1..=3 {
+            lean_state(&home, n, &["ready", "verify"], false);
+        }
+        (home, day0, conn)
+    };
+    let one = |home: &Path, day0: i64, conn: &Connection| {
+        crate::report::build(conn, home, day0 + DAY).unwrap()["drivers"]["lean"]["0.14.50"]
+            ["oneAttempt"]
+            .clone()
+    };
+    // All three are of the first attempt.
+    let (home, day0, conn) = pair("report-drivers-attempt-first");
+    assert_eq!(
+        one(&home, day0, &conn),
+        json!({"n": 3, "first": 3, "share": 1.0})
+    );
+    // The second attempt of an issue is no first of its own.
+    let (home, day0, conn) = pair("report-drivers-attempt-later");
+    conn.execute("UPDATE runs SET attempt = 2 WHERE id = 'b'", [])
+        .unwrap();
+    assert_eq!(
+        one(&home, day0, &conn),
+        json!({"n": 3, "first": 2, "share": 0.667})
+    );
+    // A number tehas would never write is no attempt at all, so it is no first
+    // either: the figure cannot be read, and is not guessed at. The row is still
+    // in the population of the figure, which is the runs whose cycle kept the
+    // driver's record.
+    let (home, day0, conn) = pair("report-drivers-attempt-absurd");
+    conn.execute("UPDATE runs SET attempt = 101 WHERE id = 'a'", [])
+        .unwrap();
+    assert_eq!(
+        one(&home, day0, &conn),
+        json!({"n": 3, "first": 2, "share": 0.667})
+    );
+    // A zero is one of those numbers: tehas counts from 1.
+    let (home, day0, conn) = pair("report-drivers-attempt-zero");
+    conn.execute("UPDATE runs SET attempt = 0 WHERE id = 'a'", [])
+        .unwrap();
+    assert_eq!(
+        one(&home, day0, &conn),
+        json!({"n": 3, "first": 2, "share": 0.667})
+    );
+    // The last attempt tehas is willing to record is a real one: `MAX_ATTEMPT`
+    // itself is a number tehas writes, so it is read as a later try, not as a
+    // figure that cannot be read. One past it is the other way about.
+    let (home, day0, conn) = pair("report-drivers-attempt-bound");
+    conn.execute("UPDATE runs SET attempt = 100 WHERE id = 'a'", [])
+        .unwrap();
+    assert_eq!(
+        one(&home, day0, &conn),
+        json!({"n": 3, "first": 2, "share": 0.667})
+    );
+    // Nothing of the pair is a first now, and the share says so rather than the
+    // figure going.
+    let (home, day0, conn) = pair("report-drivers-attempt-none");
+    conn.execute("UPDATE runs SET attempt = 101", []).unwrap();
+    assert_eq!(
+        one(&home, day0, &conn),
+        json!({"n": 3, "first": 0, "share": 0.0})
+    );
+    // A run recorded before the column has no attempt to read, and is read as
+    // the first it most likely was: a figure that dropped every one of them
+    // would say no run was one, which is not what the absence of a column means.
+    let (home, day0, conn) = pair("report-drivers-attempt-null");
+    conn.execute("UPDATE runs SET attempt = NULL", []).unwrap();
+    assert_eq!(
+        one(&home, day0, &conn),
+        json!({"n": 3, "first": 3, "share": 1.0})
+    );
+}
+
+/// The bound of the driver's record is a guard, not a figure the report reads:
+/// a record of `MAX_LEAN_STEPS` steps gives them all, and one of more gives the
+/// bound and no more.
+#[test]
+fn the_steps_of_a_kept_record_are_kept_up_to_the_bound_and_cut_at_it() {
+    let home = scratch("report-drivers-step-bound");
+    let day0 = 1_792_022_400;
+    let (conn, _) = db::open(&db::path(&home), day0).unwrap();
+    lean_run(&conn, "a", 1, day0, "pr", "0.14.50");
+    let many =
+        |n: usize| -> Vec<String> { (0..n).map(|i| format!("step-{i:03}")).collect::<Vec<_>>() };
+    lean_state(&home, 1, &many(crate::run::MAX_LEAN_STEPS), false);
+    let got = crate::report::build(&conn, &home, day0 + DAY).unwrap();
+    // The steps of the record, all of them: the report prints the first 12, so
+    // the figure is read from the JSON and not from the printed rows.
+    let kept = crate::run::lean_state(&home, 1).unwrap();
+    assert_eq!(kept.steps.len(), crate::run::MAX_LEAN_STEPS);
+    let back = got["drivers"]["lean"]["0.14.50"]["handBack"]
+        .as_array()
+        .unwrap();
+    assert_eq!(back[0]["n"], json!(1));
+    // One step past the bound is the same figure: the extra step is not kept,
+    // and the ones before it are untouched.
+    lean_state(&home, 1, &many(crate::run::MAX_LEAN_STEPS + 1), false);
+    let again = crate::run::lean_state(&home, 1).unwrap();
+    assert_eq!(again.steps.len(), crate::run::MAX_LEAN_STEPS);
+    assert_eq!(again.steps, kept.steps);
+    assert_eq!(
+        crate::report::build(&conn, &home, day0 + DAY).unwrap()["drivers"]["lean"]["0.14.50"]
+            ["handBack"],
+        got["drivers"]["lean"]["0.14.50"]["handBack"]
+    );
+}
+
+/// Two rejected versions of one driver are one entry, since the report calls
+/// both `other`: their runs are counted together rather than one replacing the
+/// other.
+#[test]
+fn two_versions_the_report_cannot_name_are_one_other_entry_whose_runs_are_summed() {
+    let home = scratch("report-drivers-other");
+    let day0 = 1_792_022_400;
+    let (conn, _) = db::open(&db::path(&home), day0).unwrap();
+    // One past the length a version may hold, and one with a word no release
+    // carries: both are rejected, and both are the same entry.
+    lean_run(&conn, "a", 1, day0, "pr", &"0".repeat(41));
+    lean_run(&conn, "b", 2, day0, "parked", "v0.14.50$");
+    let got = crate::report::build(&conn, &home, day0 + DAY).unwrap();
+    let lean = got["drivers"]["lean"].clone();
+    let other = lean["other"].clone();
+    // Both runs, not the last one alone.
+    assert_eq!(other["n"], json!(2));
+    assert_eq!(other["ran"], json!(2));
+    assert_eq!(other["pullRequests"]["n"], json!(1));
+}
+
+#[test]
+fn a_lean_pair_with_no_kept_record_has_no_lean_figures() {
+    let home = scratch("report-drivers-no-state");
+    let day0 = 1_792_022_400;
+    let (conn, _) = db::open(&db::path(&home), day0).unwrap();
+    lean_run(&conn, "a", 1, day0, "pr", "0.14.50");
+    let lean = crate::report::build(&conn, &home, day0 + DAY).unwrap()["drivers"]["lean"]
+        ["0.14.50"]
+        .clone();
+    // The run figures stand on their own: no record is no figure, not a zero.
+    assert_eq!(lean["n"], json!(1));
+    assert_eq!(lean.get("handBack"), None);
+    assert_eq!(lean.get("oneAttempt"), None);
+}
+
+#[test]
+fn a_kept_record_of_no_steps_or_of_another_shape_is_no_lean_figure() {
+    let home = scratch("report-drivers-bad-state");
+    let day0 = 1_792_022_400;
+    let (conn, _) = db::open(&db::path(&home), day0).unwrap();
+    lean_run(&conn, "a", 1, day0, "pr", "0.14.50");
+    lean_run(&conn, "b", 2, day0, "pr", "0.14.50");
+    put(
+        &home,
+        "state/cycles/1.lean-state.json",
+        r#"{"schema":1,"issue":1,"steps":[]}"#,
+    );
+    put(&home, "state/cycles/2.lean-state.json", "{not json");
+    let lean = crate::report::build(&conn, &home, day0 + DAY).unwrap()["drivers"]["lean"]
+        ["0.14.50"]
+        .clone();
+    assert_eq!(lean.get("handBack"), None);
+    assert_eq!(lean.get("oneAttempt"), None);
+    // A link is no record: the copy is read by the rule every host file has.
+    put(
+        &home,
+        "state/cycles/elsewhere.json",
+        r#"{"schema":1,"steps":[{"state":"ready","startedAt":1}]}"#,
+    );
+    fs::remove_file(home.join("state/cycles/1.lean-state.json")).unwrap();
+    std::os::unix::fs::symlink(
+        home.join("state/cycles/elsewhere.json"),
+        home.join("state/cycles/1.lean-state.json"),
+    )
+    .unwrap();
+    let lean = crate::report::build(&conn, &home, day0 + DAY).unwrap()["drivers"]["lean"]
+        ["0.14.50"]
+        .clone();
+    assert_eq!(lean.get("handBack"), None);
 }
 
 #[test]
@@ -3846,10 +4261,10 @@ fn a_migrated_run_reads_classic_in_the_report() {
     let now = 1_792_022_400;
     drop(schema_2_database(&file, now));
     let (conn, _) = db::open(&file, now).unwrap();
-    let got = crate::report::build(&conn, now).unwrap();
-    assert_eq!(got["drivers"]["classic"]["n"], 1);
-    assert_eq!(got["drivers"]["classic"]["prShare"], 1.0);
-    assert_eq!(got["drivers"]["lean"]["n"], 0);
+    let got = crate::report::build(&conn, &home, now).unwrap();
+    assert_eq!(got["drivers"]["classic"]["none"]["n"], 1);
+    assert_eq!(got["drivers"]["classic"]["none"]["prShare"], 1.0);
+    assert_eq!(got["drivers"]["lean"], json!({}));
 }
 
 #[test]
@@ -3858,7 +4273,7 @@ fn a_run_with_no_usage_is_no_zero_in_a_version_pairs_median() {
     let day0 = 1_792_022_400;
     let (conn, _) = db::open(&db::path(&home), day0).unwrap();
     let pair = |conn: &Connection| {
-        let got = crate::report::build(conn, day0 + DAY).unwrap();
+        let got = crate::report::build(conn, &home, day0 + DAY).unwrap();
         let row = &got["versions"][0];
         (row["medianTokens"].clone(), row["tokensN"].clone())
     };
@@ -3902,8 +4317,9 @@ fn a_version_pair_reaches_its_figures_at_three_runs() {
     let home = scratch("report-floor");
     let day0 = 1_792_022_400;
     let (conn, _) = db::open(&db::path(&home), day0).unwrap();
-    let pair =
-        |conn: &Connection| crate::report::build(conn, day0 + DAY).unwrap()["versions"][0].clone();
+    let pair = |conn: &Connection| {
+        crate::report::build(conn, &home, day0 + DAY).unwrap()["versions"][0].clone()
+    };
     for (i, outcome) in ["pr", "failed", "pr"].iter().enumerate() {
         conn.execute(
             "INSERT INTO runs (id, kind, issue, started, ended, seconds, outcome, input,
@@ -3932,7 +4348,7 @@ fn an_empty_database_reports_counts_of_nothing_and_leaves_out_what_has_no_value(
     let home = scratch("report-empty");
     let to = 1_792_022_400 + 3600;
     let (conn, _) = db::open(&db::path(&home), to).unwrap();
-    let got = crate::report::build(&conn, to).unwrap();
+    let got = crate::report::build(&conn, &home, to).unwrap();
     let keys: Vec<&str> = got
         .as_object()
         .unwrap()
@@ -4032,7 +4448,7 @@ fn ten_days_of_data_report_well_inside_the_time_limit() {
     let got = execute(&home, &Cmd::Report, to);
     let took = t.elapsed();
     assert_eq!(got, Ok(()));
-    let report = crate::report::build(&conn, to).unwrap();
+    let report = crate::report::build(&conn, &home, to).unwrap();
     assert!(report["runs"]["n"].as_i64().unwrap() > 800);
     assert!(report["shipped"]["n"].as_i64().unwrap() > 400);
     // The limit is 5 s; an unoptimised build on a busy machine is well
@@ -4084,7 +4500,7 @@ fn the_text_report_says_the_figures_with_their_counts() {
     let to = day0 + 9 * DAY + 43_200;
     let (conn, _) = db::open(&db::path(&home), day0).unwrap();
     report_data(&conn, day0, to);
-    let text = crate::report::text(&crate::report::build(&conn, to).unwrap());
+    let text = crate::report::text(&crate::report::build(&conn, &home, to).unwrap());
     // The Size line comes only with the key, which the report command adds.
     assert!(!text.contains("Size"));
     for want in [
@@ -4117,7 +4533,7 @@ fn the_text_report_of_an_empty_database_says_none() {
     let home = scratch("report-text-empty");
     let to = 1_792_022_400 + 3600;
     let (conn, _) = db::open(&db::path(&home), to).unwrap();
-    let text = crate::report::text(&crate::report::build(&conn, to).unwrap());
+    let text = crate::report::text(&crate::report::build(&conn, &home, to).unwrap());
     for want in [
         "\nShipped            0 issues\n",
         "\nPlanned            -\n",
@@ -4166,7 +4582,7 @@ fn a_factory_whose_cycles_run_is_available_whatever_holds_the_next_start() {
         )
         .unwrap();
     }
-    let report = crate::report::build(&conn, to).unwrap();
+    let report = crate::report::build(&conn, &home, to).unwrap();
     assert_eq!(
         report["availability"],
         json!({"n": 5, "seconds": 3000, "share": 0.4})
