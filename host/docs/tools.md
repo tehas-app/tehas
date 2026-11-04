@@ -3995,10 +3995,14 @@ It runs, in order and one line per step: a `git fetch` and a fast-forward of
 the platform checkout (`$TEHAS_HOME/platform`, in the example
 `~/tehas/platform`), then `install.sh`, then the follow-ups install.sh asks for.
 An argument it does not know, or `--help` with another one, is refused with
-exit 64 before the settings are read. The settings are checked next against the required list in
-`lib/config.sh` (`tehas_require_instance_settings`), the same one install.sh and
-the dispatcher check, so an instance with a required line still commented out
-stops with 78 before git runs. After a fast-forward the settings are checked
+exit 64 before the settings are read. The settings are checked next against the
+one required list, which tehas-core holds (`console/core/src/settings.rs`):
+`tehas_load` hands it to `lib/config.sh` as `_tehas_required`, and
+`tehas_require_instance_settings` checks it. install.sh, `console run`, tehas
+setup and the dispatcher check the same five. A poll adds the three a load
+always leaves set that it cannot act by without - `TEHAS_HOME`,
+`TEHAS_INSTANCE_DIR` and `TEHAS_TICKET_CONCURRENCY` - and names them too, so an
+instance with a required line still commented out stops with 78 before git runs. After a fast-forward the settings are checked
 by the code it pulled: a checkout has no console of its own yet, so install.sh
 builds it first and a change that adds a required setting stops with 78 there,
 before anything of the host changes. The checkout must be on a branch and have nothing uncommitted, and
