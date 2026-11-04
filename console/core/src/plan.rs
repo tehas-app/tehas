@@ -259,6 +259,182 @@ pub fn refusal_document(why: &str, said: &str, session: Option<&Value>) -> Value
     json!({"session": session, "text": why, "question": {"question": said, "options": []}})
 }
 
+/// The info string of the block lean reads its spec from, as pi-rukas writes it
+/// on the first line of its fence: `pi-spec v1`. tehas asks only that one such
+/// block is there and holds valid JSON; the fields are pi-rukas's to judge.
+pub const SPEC_INFO: &str = "pi-spec v1";
+
+/// The `pi-spec v1` block of a body, fenced whole, or nothing when the body
+/// holds none it can read. Three rules say what one is: the body holds exactly
+/// one fence with that info string and no more (two are none, not the first),
+/// that fence closes, and what sits inside it parses as one JSON document of
+/// any shape - an object, an array or a scalar all read, because the fields
+/// are pi-rukas's to judge and its `ready` step is the one that refuses a
+/// document it cannot plan from. A line of dashes or stars right after the
+/// info string is the table rule pi-rukas writes and its own reader drops.
+///
+/// The one function both sides ask, so what an update keeps and what a poll
+/// refuses cannot disagree. The walk of the fences is tehas's own and follows
+/// CommonMark, as pi-rukas's reader does: at most three spaces of indent, a run
+/// of three or more backticks, and a closing run of the same character at least
+/// as long as its opener and with no info string of its own. Those two rules
+/// are what keep the quoted example honest - a four-backtick wrapper holds a
+/// three-backtick `pi-spec v1` line as prose, so it names no block - and
+/// pi-rukas renames a drafted `pi-spec v1` fence to `pi-spec-example v1` on the
+/// way into an example, which is what makes the exact info string safe to ask
+/// for. A fence line opens no block while one is already open. Tilde fences are
+/// read as prose: pi-rukas writes a spec with backticks, and a `pi-spec v1`
+/// line inside a `~~~` region names no block here or to its reader.
+pub fn spec_block(body: &str) -> Option<String> {
+    // The lines of the block seen so far, and whether a second one has been
+    // seen (in which case there is no block and the walk ends there).
+    let mut found: Option<(Vec<&str>, bool)> = None;
+    // The fence now open: its character, the length of its run, its info
+    // string, and the lines so far.
+    let mut open: Option<(u8, usize, String, Vec<&str>)> = None;
+    for line in body.lines() {
+        match fence_line(line) {
+            None => {
+                if let Some((_, _, _, inner)) = open.as_mut() {
+                    inner.push(line);
+                }
+            }
+            // A run of the same character, at least as long, and with no info
+            // string of its own: the line closes the open block.
+            Some((ch, run, rest)) if rest.is_empty() => match open.take() {
+                Some((ch0, len, info, inner)) if ch == ch0 && run >= len => {
+                    if info != SPEC_INFO {
+                        continue;
+                    }
+                    // A second block named for it is no block at all.
+                    if found.is_some() {
+                        return None;
+                    }
+                    found = Some((inner, false));
+                }
+                // A closing run that does not match the open fence is a line
+                // of that block's text; one with none open is the tail of
+                // something this does not read.
+                Some(block) => open = Some(block),
+                None => {}
+            },
+            // A named fence opens a block, and only when none is open: the
+            // line of a fence inside one is prose.
+            Some((ch, run, rest)) if open.is_none() => {
+                open = Some((ch, run, rest, Vec::new()));
+            }
+            Some(_) => {}
+        }
+    }
+    let (lines, _) = found?;
+    let text = block_text(&lines);
+    // Any one JSON document reads: the shape of it is lean's question, not
+    // this one's.
+    serde_json::from_str::<Value>(&text)
+        .ok()
+        .map(|_| format!("```{SPEC_INFO}\n{text}\n```"))
+}
+
+/// The fence line of a body: the character and length of its run and what
+/// stands after it, or nothing when the line is not one. At most three spaces
+/// of indent count as indent - a tab is not one, so a tab-indented line is
+/// prose - and the run must be one character repeated.
+fn fence_line(line: &str) -> Option<(u8, usize, String)> {
+    let t = line
+        .strip_prefix("   ")
+        .or_else(|| line.strip_prefix("  "))
+        .or_else(|| line.strip_prefix(' '))
+        .unwrap_or(line);
+    let bytes = t.as_bytes();
+    let ch = *bytes.first()?;
+    if ch != b'`' && ch != b'~' {
+        return None;
+    }
+    let run = bytes.iter().take_while(|b| **b == ch).count();
+    if run < 3 {
+        return None;
+    }
+    Some((ch, run, t[run..].trim().to_string()))
+}
+
+/// A block's lines with a table rule right after the info string taken off,
+/// and the blank lines at its ends trimmed.
+fn block_text(lines: &[&str]) -> String {
+    let mut from = 0;
+    if lines.first().is_some_and(|l| {
+        let t = l.trim();
+        t.len() >= 3 && t.chars().all(|c| c == '-' || c == '*')
+    }) {
+        from = 1;
+    }
+    let mut to = lines.len();
+    while to > from && lines[to - 1].trim().is_empty() {
+        to -= 1;
+    }
+    while from < to && lines[from].trim().is_empty() {
+        from += 1;
+    }
+    lines[from..to].join("\n")
+}
+
+/// The note `clip` leaves at the end of a body it cut, without its leading
+/// blank line: the length `keep_spec` has to leave room for on top of the
+/// block it puts back.
+const NOTE: &str = "(cut: the plan is longer than a comment holds)";
+
+/// The body tehas writes over an issue: `new`, with the `pi-spec v1` block
+/// `was` holds put back at the top when `new` brings none of its own. A draft
+/// never carries a block, so a plan written over a person's issue keeps the
+/// spec lean reads.
+///
+/// This is the writer's own step, not part of [`made`]: the two callers of
+/// `made` each apply it once, at the point where they put text on the issue, so
+/// every check a caller makes of a body it is about to write is a check of the
+/// same text GitHub will hold. The dispatcher's plan write asks the links and
+/// the sum of the body before it calls this, and so approves only what the
+/// person was shown; the console's `update` calls it here and writes the result
+/// straight out.
+///
+/// The block is kept inside the length `clip` holds a body to, not on top of
+/// it: `new` is cut to what is left under the block first, so what is written
+/// never passes CLIP and the note of the cut keeps its place at the end.
+pub fn keep_spec(new: &str, was: &str) -> String {
+    let Some(block) = spec_block(was) else {
+        return new.to_string();
+    };
+    if spec_block(new).is_some() {
+        return new.to_string();
+    }
+    // What the block, the blank line under it, the line break before a cut's
+    // note and the note itself cost, and the room the plan has left. A body
+    // that reaches `clip` at the ceiling leaves it 46 over, its note added
+    // after the cut, so the note is paid for twice: once from the ceiling and
+    // once from what the ceiling may become. Nothing written here passes CLIP.
+    let overhead = block.chars().count() + 3 + 2 * NOTE.len();
+    // No room at all is no plan: the block stands on its own, without the
+    // empty body and the note of a cut that would follow it.
+    if CLIP <= overhead {
+        return block;
+    }
+    let new = clip(new.trim_end_matches(['\n', '\r']), "the plan");
+    let new = match new.char_indices().nth(CLIP - overhead) {
+        Some((at, _)) => format!(
+            "{}\n\n(cut: the plan is longer than a comment holds)",
+            &new[..at]
+        ),
+        None => new,
+    };
+    if new.is_empty() {
+        return block;
+    }
+    let candidate = format!("{block}\n\n{new}");
+    // A body of two blocks is no body: the plan stands on its own.
+    if spec_block(&candidate).is_none() {
+        return new;
+    }
+    candidate
+}
+
 /// A plan of no open points the dispatcher can write without another tick:
 /// its draft, the issue as `gh issue view` gives it, and the comment that
 /// ends the session, or why it asks as any other draft does. `checked` is the
@@ -280,7 +456,6 @@ pub fn made(draft: &Value, was: &Value, said: &str) -> Result<Made, Refused> {
     // One check for every writer, so the dispatcher's pre-check and this write
     // cannot disagree about the same draft.
     checked(draft)?;
-    let spec = text_of(draft.get("spec"));
     let named = text_of(draft.get("title"));
     let title = if named.is_empty() {
         text_of(was.get("title"))
@@ -299,7 +474,11 @@ pub fn made(draft: &Value, was: &Value, said: &str) -> Result<Made, Refused> {
         .join("\n");
     Ok(Made {
         title,
-        body: clip(&spec, "the plan"),
+        // The body as the draft wrote it. Each writer puts a person's spec
+        // block back on top when it is ready to write: the checks a dispatcher
+        // makes of this body are then the checks of the text the draft made,
+        // not of what the issue already held. `keep_spec` clips as it goes.
+        body: clip(&text_of(draft.get("spec")), "the plan"),
         text: format!(
             "{said}\n\n<details><summary>The text it replaced</summary>\n\n{quoted}\n\n</details>"
         ),
@@ -310,6 +489,137 @@ pub fn made(draft: &Value, was: &Value, said: &str) -> Result<Made, Refused> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// A body of the shape pi-rukas writes: the block at the top, its table
+    /// rule after the info string.
+    fn spec_body(rest: &str) -> String {
+        format!("```pi-spec v1\n---\n{{\"intent\":\"faster search\"}}\n```\n\n{rest}")
+    }
+
+    #[test]
+    fn a_spec_block_is_only_a_lone_fence_of_valid_json() {
+        assert!(spec_block(&spec_body("## Outcome\n\nDo it.")).is_some());
+        // Indentation, no rule, and a document that is no object all read.
+        assert!(spec_block("```pi-spec v1\n[1,2]\n```").is_some());
+        assert!(spec_block("  ```pi-spec v1\n\n{\"a\":1}\n\n  ```").is_some());
+        // None at all, no JSON, and more than one block are all no block.
+        assert!(spec_block("## Outcome\n\nDo it.").is_none());
+        assert!(spec_block("").is_none());
+        assert!(spec_block("```pi-spec v1\nnot json\n```").is_none());
+        assert!(spec_block(&format!("{}\n\n{}", spec_body("a"), spec_body("b"))).is_none());
+        // Another info string, a prefix of it, and an unterminated fence.
+        assert!(spec_block("```json\n{\"a\":1}\n```").is_none());
+        assert!(spec_block("```pi-spec\n{\"a\":1}\n```").is_none());
+        assert!(spec_block("```pi-spec v1x\n{\"a\":1}\n```").is_none());
+        assert!(spec_block("```pi-spec v1\n{\"a\":1}").is_none());
+        // The fence of an indented example is not a fence: it closes the
+        // example, so the `pi-spec v1` line inside it names no block and the
+        // body has no block to read.
+        assert!(spec_block("```markdown\n```pi-spec v1\n{\"a\":1}\n```\n```").is_none());
+        // A rule alone is no JSON, and a block of nothing is no block.
+        assert!(spec_block("```pi-spec v1\n---\n```").is_none());
+    }
+
+    /// The fence rules of CommonMark, which pi-rukas's `fencedBlocks` follows
+    /// and a loose reader does not: the shapes where the two answer
+    /// differently. Each row is the verdict the driver's reader gives too.
+    #[test]
+    fn a_fence_closes_only_on_a_run_at_least_as_long_as_its_opener() {
+        // The shape pi-rukas writes for an example: a drafted spec fence
+        // renamed `pi-spec-example v1` inside a longer wrapper, next to the
+        // block of the body, which reads. The wrapper is closed by the longer
+        // run, exactly as pi-rukas closes it, and the example's own fence
+        // names nothing either way.
+        assert!(spec_block(
+            "````\n```pi-spec-example v1\nnope\n```\n````\n\n```pi-spec v1\n{\"a\":1}\n```"
+        )
+        .is_some());
+        // A four-backtick opener is not closed by a three-backtick line, so
+        // its JSON never stands in a closed block of its own.
+        assert!(spec_block("````pi-spec v1\n{\"a\":1}\n```").is_none());
+        // A longer run closes a shorter one, as CommonMark says: the dangling
+        // run of the loose reading names nothing.
+        assert!(spec_block("```pi-spec v1\n{\"a\":1}\n````").is_some());
+        // Four spaces of indent is an indented code block, not a fence, so
+        // neither line of this block is a fence line at all.
+        assert!(spec_block("```pi-spec v1\n{\"a\":1}\n    ```").is_none());
+        // Three spaces of indent are still a fence, opener and closer alike.
+        assert!(spec_block("   ```pi-spec v1\n{\"a\":1}\n   ```").is_some());
+        // A tab is not indent: nothing here is a fence.
+        assert!(spec_block("\t```pi-spec v1\n{\"a\":1}\n\t```").is_none());
+        // A `pi-spec v1` line quoted inside a `~~~` region: the inner run of
+        // backticks opens and closes a block of its own there, as CommonMark
+        // and pi-rukas both read it, and that block is the body's one. A
+        // reader that held the region shut would name no block at all here.
+        assert!(spec_block("~~~\n```pi-spec v1\n{\"a\":1}\n```\n~~~").is_some());
+        // A `~~~` run cannot close a backtick block, so this one never ends.
+        assert!(spec_block("```pi-spec v1\n{\"a\":1}\n~~~").is_none());
+        // A closing run that carries an info string closes nothing: this is
+        // one block of text, not JSON.
+        assert!(spec_block("```pi-spec v1\n{\"a\":1}\n```json").is_none());
+        // Scalars of any shape read: the type of the document is lean's
+        // question, not this one's.
+        assert!(spec_block("```pi-spec v1\nnull\n```").is_some());
+        assert!(spec_block("```pi-spec v1\n42\n```").is_some());
+    }
+
+    #[test]
+    fn a_body_written_over_an_issue_keeps_its_spec_block_at_the_top() {
+        let was = spec_body("## Outcome\n\nWhat the person wrote.");
+        let block = spec_block(&was).unwrap();
+        let kept = keep_spec("## Plan\n\nDo it.", &was);
+        assert_eq!(kept, format!("{block}\n\n## Plan\n\nDo it."));
+        assert!(kept.starts_with("```pi-spec v1"));
+        // A new body of its own is written as it stands, and one with no block
+        // anywhere is written as today.
+        let mine = spec_body("## Plan\n\nDo it.");
+        assert_eq!(keep_spec(&mine, &was), mine);
+        assert_eq!(keep_spec("## Plan", "no block here"), "## Plan");
+        assert_eq!(keep_spec("## Plan", ""), "## Plan");
+        // Nothing to put under the block: the block alone.
+        assert_eq!(keep_spec("\n\n", &was), block);
+    }
+
+    /// What is written never passes the length a comment holds, and a body
+    /// that would end up with two blocks keeps neither of the two it did not
+    /// choose.
+    #[test]
+    fn a_kept_block_stays_inside_the_length_a_comment_holds() {
+        let was = spec_body("What the person wrote.");
+        let block = spec_block(&was).unwrap();
+        let long = "x".repeat(CLIP);
+        let kept = keep_spec(&long, &was);
+        assert!(kept.starts_with(&block));
+        // The note of the cut keeps its place at the end of the body: the
+        // block plus the cut body, with the blank line between them, are all
+        // inside what a comment holds, and so is the line break before the
+        // note (the one character `clip` itself does not count).
+        assert!(kept.ends_with(NOTE));
+        assert!(kept.chars().count() <= CLIP, "{}", kept.chars().count());
+        // The block alone is what is written when there is no room left under
+        // it: the filler is a JSON array of `"x"` whose last element is written
+        // apart from the rest to keep its comma out of the JSON, and at 39907
+        // characters the block leaves nothing of the ceiling for a plan. What
+        // comes back is the block as `spec_block` writes it, with no note of a
+        // cut under it.
+        let fat = format!("```pi-spec v1\n[{}]\n```", "\"x\",".repeat(9971));
+        let fat = fat.replacen("]", "\"x\"]", 1);
+        let whole = spec_block(&fat).expect("a block of the ceiling");
+        assert!(whole.chars().count() <= CLIP, "{}", whole.chars().count());
+        assert_eq!(keep_spec("anything", &fat), whole);
+        assert_eq!(keep_spec("a plan of its own", &fat), whole);
+        // A plan that fills the room a block leaves is written whole, and the
+        // line above the ceiling is cut: the room is what `keep_spec` cuts at.
+        let fits = "x".repeat(CLIP - (block.chars().count() + 3 + 2 * NOTE.len()));
+        assert_eq!(keep_spec(&fits, &was), format!("{block}\n\n{fits}"));
+        let over = keep_spec(&format!("{}x", fits), &was);
+        assert!(over.ends_with(NOTE));
+        // The pair no writer reaches today, checked rather than assumed: a
+        // `new` that holds none of its own but would end up beside the kept
+        // block twice is not a body, so the plan stands as it is.
+        let both = "```pi-spec v1\n{\"a\":1}\n```\nx";
+        assert_eq!(keep_spec(both, "```pi-spec v1\n{\"b\":2}\n```"), both);
+    }
 
     #[test]
     fn a_plan_with_no_title_keeps_the_issues() {
