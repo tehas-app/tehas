@@ -45,6 +45,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
+use tehas_core::settings::INSTANCE_SETTINGS;
 
 fn strings(words: &[&str], rest: &[String]) -> Vec<String> {
     words
@@ -290,15 +291,6 @@ pub fn check(given: &[String]) -> u8 {
     said.err().unwrap_or(0)
 }
 
-/// The settings an instance has to set itself, tehas_require_instance_settings.
-const INSTANCE: [&str; 5] = [
-    "TEHAS_REPO",
-    "TEHAS_CONTROL_ISSUE",
-    "TEHAS_ALLOWED_LABELERS",
-    "PI_ENSEMBLE_SUBAGENT_MODEL",
-    "PI_ENSEMBLE_SUBAGENT_PROVIDER",
-];
-
 /// The settings a command cannot run without.
 pub fn required(given: &[String]) -> &'static [&'static str] {
     let words: Vec<&str> = given.iter().take(2).map(String::as_str).collect();
@@ -310,7 +302,7 @@ pub fn required(given: &[String]) -> &'static [&'static str] {
             "TEHAS_CONTROL_ISSUE",
             "TEHAS_ALLOWED_LABELERS",
         ],
-        ["tehasbot", "clean" | "dispatch" | "refresh" | "review"] => &INSTANCE,
+        ["tehasbot", "clean" | "dispatch" | "refresh" | "review"] => &INSTANCE_SETTINGS,
         ["tehas", "plan"] | ["tehasbot", "improve"] => &[
             "TEHAS_REPO",
             "PI_ENSEMBLE_SUBAGENT_MODEL",
@@ -557,7 +549,11 @@ mod tests {
             assert_eq!(required(&words(repo)), ["TEHAS_REPO"], "{repo:?}");
         }
         for all in ["clean", "dispatch", "refresh", "review"] {
-            assert_eq!(required(&words(&["tehasbot", all])), INSTANCE, "{all}");
+            assert_eq!(
+                required(&words(&["tehasbot", all])),
+                INSTANCE_SETTINGS,
+                "{all}"
+            );
         }
         assert_eq!(
             required(&words(&["tehasbot", "protolab"])),

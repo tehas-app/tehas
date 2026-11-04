@@ -304,7 +304,8 @@ which `tehasbot status` fetches at most once an hour, and `/health` says
 asks for by name (`units`, `sandbox`, `docs`, `edge`, `labels`: see
 [Commands](/tools)).
 One line per step, and it stops at the first failure. It checks the instance
-settings against the required list in `lib/config.sh`, the same one install.sh
+settings against the one required list, tehas-core's, which `tehas_load` hands
+`lib/config.sh` and `tehas_require_instance_settings` checks: the same install.sh
 checks, before it calls git. It changes nothing when the checkout has local
 changes or cannot be fast-forwarded, and it never enables a unit or starts a
 container the host was not already running: a changed unit is reloaded and
@@ -1754,28 +1755,34 @@ same `docker compose ... up -d` applies after a change.
 
 ### Themes and layouts
 
-Every page, the factory floor, the business page, the manual and the Protolab,
-takes its look from one theme: its colours, typefaces, sizes, outlines and
-shadows, and the colours the canvases paint with. `TEHAS_THEME` in
-`instance.env` names it:
+The site is two frontends with two looks, and no setting picks either. Their
+colours, typefaces, sizes, outlines and shadows come from a theme file, and the
+file each page asks for is fixed:
 
-| Theme       | Look                                                                    |
-| ----------- | ----------------------------------------------------------------------- |
-| `pixel`     | The default: the factory as a 16-bit game, in the Topaz bitmap typeface |
-| `paper`     | Plain type on a light page, thin rules and light screens                |
-| `beesknees` | A business application: near-black and muted green on white, thin rules, no motion. Dark where the viewer's system is |
-| `beesknees26` | The 2026 redraw of beesknees, which it will replace: ink and muted green on a near-white ground, white panels with soft shadows, IBM Plex, no motion. Light; the business page has a button for a dark set, kept in the viewer's browser |
+| Look          | Where                                                      | Its file                |
+| ------------- | ---------------------------------------------------------- | ----------------------- |
+| `pixel`       | The front page: `/` and `/floor`, the factory floor        | `theme-pixel.css`       |
+| `beesknees26` | `/business`, `/dashboard`, every manual page, the Protolab | `theme-beesknees26.css` |
 
-`TEHAS_LAYOUT` names what the front page is:
+`pixel` is the factory as a 16-bit game, in the Topaz bitmap typeface.
+`beesknees26` is ink and one muted green on a near-white ground, white panels
+with soft shadows, IBM Plex, and no motion: light, with a dark set only where
+the viewer picks it with the business page's mode button, kept in their browser.
 
-| Layout     | Front page                                                                          |
-| ---------- | ----------------------------------------------------------------------------------- |
-| `floor`    | The default: the factory floor, the game view                                       |
-| `business` | The business page: live power and tokens, the production line to shipped on one row, with Prototypes while there are any and a Planning stage while work is being planned, the last 10 days, the issue board and the console of the running cycles |
+Each page names its own logo and share card too, so neither server rewrites a
+look. The floor asks for `factory.svg` and `share.png`; every other page asks
+for `favicon.svg` and `share-logo.png`. The sprites and scenes are pictures and
+stay the same in both.
 
-Both pages are always there, at `/floor` and `/business`, in whatever theme
-the instance has; the setting only picks the one at `/`. The business page was
-drawn for beesknees, and the floor for pixel. The business page reads the
+`TEHAS_THEME` and `TEHAS_LAYOUT` are retired. A line that asks for what this
+version does anyway, `TEHAS_THEME=pixel`, `TEHAS_LAYOUT=floor` or an empty
+value, loads and is dropped. Any other value stops every tehas command with 78
+and names the line to take out of `instance.env`. A host that had
+`TEHAS_LAYOUT=business` has the floor at `/` now, and the business page at
+`/business`.
+
+Both pages are always there, at `/floor` and `/business`. The business page
+reads the
 same files as the floor: `live/status.json`, `live/running.json` and the
 cycles' consoles, `live/protolab.json`, `live/analytics.json`,
 `live/epics.json` and `live/energy.json`. Its console follows the running cycle's output, with a tab
@@ -1788,19 +1795,16 @@ sub-issues, open or closed, each linked, and a link to the epic. The panel
 shows only where the file is there.
 Its live charts cover the last 30 minutes, which is what `energy.json` holds.
 
-A page asks for `/fun/theme.css`, and the docs server and the edge router
-answer with `~/tehas/fun/theme-<name>.css`. Both read the settings when their
-container is created: run the two `docker compose ... up -d` lines again after
-changing either. The sprites and scenes are pictures and stay the same in every
-theme. The header picture is the exception: `pixel` shows the animated factory,
-and every other theme the logo, which is also the favicon. The share card
-follows it, `share.png` for `pixel` and `share-logo.png` for the rest.
+A page asks for its theme by name, `~/tehas/fun/theme-<name>.css`, and the docs
+server and the edge router answer with that file: nothing is rewritten, so
+neither server is given a setting about looks. The docs server still reads
+`TEHAS_INDEXING` and the analytics settings when its container is created: run
+its `docker compose ... up -d` line again after changing either.
 
 A theme is one file in `host/fun/`, `theme-<name>.css`, that sets every token
-`theme-pixel.css` sets; its name is added to the list in
-`console/core/src/settings/rules.rs`.
-`test/theme_test.sh` fails when a theme leaves a token out or a page names a
-colour or a typeface of its own.
+`theme-pixel.css` sets. `test/theme_test.sh` fails when a theme leaves a token
+out, when a page names a colour or a typeface of its own, and when a page asks
+for the look of the other frontend.
 
 ## Secrets and trust
 

@@ -92,7 +92,7 @@ const KEPT: &[&str] = &[
 /// The names an earlier version read are refused, not ignored: a line that
 /// does nothing in an instance file is a mistake the operator sees. The order
 /// picks which of two retired lines is reported.
-const RETIRED: [&str; 7] = [
+const RETIRED: [&str; 9] = [
     "TEHAS_FIXER_LOGIN",
     "TEHAS_FIXER_MAX_RETRIES",
     "TEHAS_FIXER_MAX_PLAN_ANSWERS",
@@ -100,6 +100,8 @@ const RETIRED: [&str; 7] = [
     "TEHAS_WORK_CPUS",
     "TEHAS_WORK_MEMORY",
     "TEHAS_DISPATCHER",
+    "TEHAS_THEME",
+    "TEHAS_LAYOUT",
 ];
 
 /// What the shell of the source sets for itself. BASH_ENV is not given to it:
@@ -321,7 +323,10 @@ fn retired_names(vars: &mut Vars, file: &str) -> Result<(), String> {
         let value = vars.text(name);
         if matches!(
             (name, value.as_str()),
-            ("TEHAS_CLONES", "0" | "") | ("TEHAS_DISPATCHER", "rust" | "")
+            ("TEHAS_CLONES", "0" | "")
+                | ("TEHAS_DISPATCHER", "rust" | "")
+                | ("TEHAS_THEME", "pixel" | "")
+                | ("TEHAS_LAYOUT", "floor" | "")
         ) {
             vars.unset(name.as_bytes());
             continue;
@@ -336,6 +341,8 @@ fn retired_names(vars: &mut Vars, file: &str) -> Result<(), String> {
                 format!("is set and this version of tehas has no memory budget to set: {SLICE}")
             }
             "TEHAS_DISPATCHER" => "is set and this version of tehas has no bash poll: every poll is tehas-dispatch, so take the line out".to_string(),
+            "TEHAS_THEME" => "is no longer read: the front page is pixel and every other page is beesknees26, so take the line out".to_string(),
+            "TEHAS_LAYOUT" => "is no longer read: the front page is always the factory floor and /business is always the business page, so take the line out".to_string(),
             _ => format!(
                 "is no longer read: rename it TEHAS_MILLWRIGHT_{}",
                 name.strip_prefix("TEHAS_FIXER_").unwrap_or(name)
@@ -710,7 +717,9 @@ pub fn changes<'a>(start: &'a Vars, vars: &'a Vars) -> (Vec<&'a [u8]>, Vec<Pair<
 }
 
 /// The lines that take a shell from `start` to `vars`, for it to eval: what
-/// the load dropped, what it set, and `_tehas_bad`.
+/// the load dropped, what it set, `_tehas_bad`, and `_tehas_required`: the
+/// settings an instance has to set itself, so no command of the shell holds a
+/// copy of them.
 pub fn script(start: &Vars, vars: &Vars) -> Vec<u8> {
     let mut out = Vec::new();
     let (dropped, set) = changes(start, vars);
@@ -730,6 +739,12 @@ pub fn script(start: &Vars, vars: &Vars) -> Vec<u8> {
     for (name, why) in bad(vars) {
         out.extend_from_slice(format!("[{name}]=").as_bytes());
         quote(&mut out, why.as_bytes());
+        out.push(b' ');
+    }
+    out.extend_from_slice(b")\n");
+    out.extend_from_slice(b"_tehas_required=(");
+    for name in super::INSTANCE_SETTINGS {
+        out.extend_from_slice(name.as_bytes());
         out.push(b' ');
     }
     out.extend_from_slice(b")\n_tehas_loaded=1\n");
@@ -869,11 +884,11 @@ mod tests {
         let vars = loads(&[
             "TEHAS_PLAN_TIMEOUT=",
             "TEHAS_CHILD_TIMEOUT=",
-            "TEHAS_THEME=",
+            "TEHAS_INDEXING=",
         ]);
         assert_eq!(vars.text("TEHAS_PLAN_TIMEOUT"), "7200");
         assert_eq!(vars.text("TEHAS_CHILD_TIMEOUT"), "7200");
-        assert_eq!(vars.text("TEHAS_THEME"), "pixel");
+        assert_eq!(vars.text("TEHAS_INDEXING"), "0");
     }
 
     #[test]
@@ -1014,7 +1029,7 @@ mod tests {
             "/i/instance.env could not be read as shell"
         );
         assert_eq!(vars.text("TEHAS_REPO"), "acme/widget");
-        assert!(!vars.is_set("TEHAS_THEME"));
+        assert!(!vars.is_set("TEHAS_INDEXING"));
     }
 
     #[test]
@@ -1105,15 +1120,34 @@ mod tests {
             "TEHAS_CLONES=0",
             "TEHAS_DISPATCHER=",
             "TEHAS_DISPATCHER=rust",
+            "TEHAS_THEME=",
+            "TEHAS_THEME=pixel",
+            "TEHAS_LAYOUT=",
+            "TEHAS_LAYOUT=floor",
         ] {
             let vars = loads(&[line]);
             assert!(!vars.is_set(line.split('=').next().unwrap()));
+        }
+        for (line, why) in [
+            (
+                "TEHAS_THEME=beesknees26",
+                "is no longer read: the front page is pixel and every other page is beesknees26, so take the line out",
+            ),
+            (
+                "TEHAS_LAYOUT=business",
+                "is no longer read: the front page is always the factory floor and /business is always the business page, so take the line out",
+            ),
+        ] {
+            assert_eq!(
+                refused(&[line]),
+                format!("{} {} (see {FILE})", line.split('=').next().unwrap(), why)
+            );
         }
     }
 
     #[test]
     fn the_first_setting_of_the_table_is_the_one_told() {
-        assert!(refused(&["TEHAS_THEME=neon", "TEHAS_TOP=9"]).starts_with("TEHAS_THEME"));
+        assert!(refused(&["TEHAS_INDEXING=2", "TEHAS_TOP=9"]).starts_with("TEHAS_INDEXING"));
         assert!(refused(&["TEHAS_TOP=9", "TEHAS_BRANCH=a b"]).starts_with("TEHAS_TOP"));
     }
 
@@ -1265,7 +1299,7 @@ mod tests {
         ]));
         assert!(got.is_err());
         assert_eq!(vars.text("TEHAS_GITHUB_APP_ID"), "7");
-        assert_eq!(vars.text("TEHAS_THEME"), "pixel");
+        assert_eq!(vars.text("TEHAS_INDEXING"), "0");
         assert!(!vars.is_set("TEHAS_CYCLE_MIN_FREE_MB"));
     }
 
@@ -1298,8 +1332,24 @@ mod tests {
         let text = script(&before, &vars);
         assert_eq!(
             String::from_utf8_lossy(&text),
-            "declare -gA _tehas_bad\n_tehas_bad=()\n_tehas_loaded=1\n"
+            "declare -gA _tehas_bad\n_tehas_bad=()\n_tehas_required=(TEHAS_REPO TEHAS_CONTROL_ISSUE TEHAS_ALLOWED_LABELERS PI_ENSEMBLE_SUBAGENT_MODEL PI_ENSEMBLE_SUBAGENT_PROVIDER )\n_tehas_loaded=1\n"
         );
+    }
+
+    #[test]
+    fn the_script_hands_the_shell_the_settings_an_instance_has_to_set() {
+        let text = String::from_utf8_lossy(&script(&start(&[]), &start(&[]))).into_owned();
+        let line = text
+            .lines()
+            .find(|l| l.starts_with("_tehas_required=("))
+            .unwrap();
+        let names: Vec<&str> = line
+            .trim_start_matches("_tehas_required=(")
+            .trim_end_matches(')')
+            .split(' ')
+            .filter(|n| !n.is_empty())
+            .collect();
+        assert_eq!(names, crate::settings::INSTANCE_SETTINGS, "{text}");
     }
 
     #[test]

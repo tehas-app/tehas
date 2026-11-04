@@ -313,7 +313,7 @@ Up to 20 numbers, separated by commas and no spaces. The newest such comment amo
 
 An issue labelled `tehas:improvement` and `cross-project` together is not started: the finding says the change belongs in another repository of the stack as well as this one, so one cycle here cannot make it, and a cycle on it spends a slot and its tokens before it parks. The dispatcher starts nothing and the log says why; it takes no label off and writes no comment, because the issue is a proposal the loop filed and a person decides what becomes of it. Read the `Names` line, which says the other repositories the loop read, and either work on both sides yourself or close it. Either label alone starts a cycle as any other issue would: `cross-project` on an issue the loop did not file is a person's label and means nothing to the dispatcher, and a finding that names no other repository is worked on here. The hold is on `tehas:ready` and on a ticked retry alike; a `tehas:plan` session on such an issue is allowed, since planning where the change goes on each side is what it is for.
 
-An epic is never started: an issue with open sub-issues is a plan broken into issues, not a change one cycle can make, and a cycle on it spends a slot and its tokens before it parks as too large. When `tehas:ready` is applied to such an issue, the dispatcher takes the label off, says so in one comment and starts nothing; a retry ticked on one starts nothing and the log says why. The count comes from the issue GitHub already answers for, so a GitHub without sub-issues is unaffected. Read the plan and apply `tehas:ready` to one of its sub-issues instead; a sub-issue with no open sub-issues of its own is started as any other issue. A `tehas:plan` session on an epic is allowed: planning an epic is what it is for.
+An epic is never started: an issue with open sub-issues is a plan broken into issues, not a change one cycle can make, and a cycle on it spends a slot and its tokens before it parks as too large. When `tehas:ready` is applied to such an issue, the dispatcher takes the label off, says so in one comment and starts nothing; a retry ticked on one starts nothing and the log says why. The count comes from the issue GitHub already answers for, so a GitHub without sub-issues is unaffected. Read the plan and apply `tehas:ready` to one of its sub-issues instead; a sub-issue with no open sub-issues of its own is started as any other issue. A `tehas:plan` session on an epic is allowed: planning an epic is what it is for. With `TEHAS_MILLWRIGHT_EPICS=1` and a millwright, your `tehas:ready` on an epic is not lost: it approves the epic's open sub-issues for [the millwright](#the-millwrights-grant), which plans each one that needs it and applies `tehas:ready` to it, and the comment says so. Close the epic, or put `needs-human-attention` on it, to take that back.
 
 With `TEHAS_SIZE_MAX_FILES` set on the instance, an issue whose own body names more files than that number is not started either. The dispatcher reads the count off the approved text itself: a path is what stands between two ticks and holds a `/` or ends in `.sh`, `.rs`, `.md`, `.json`, `.toml` or `.yml`, and one path counts once however often it is written. Such an issue is a stack of changes wearing the shape of one issue, and a cycle on it spends its explore and its plan before it parks. The dispatcher takes `tehas:ready` off, puts `needs-human-attention` on, and says the count, the setting and the way out in one comment: narrow the issue to the part one cycle can make, or split it into issues of that size, then apply `tehas:ready` to one of them. The hold belongs to `tehas:ready` alone, so it holds nothing else back: a ticked retry, a refresh of the bot's own pull request and a `tehas:plan` session start as they did. Unset, the dispatcher never asks, and a wide issue starts as any other.
 
@@ -448,6 +448,18 @@ choice.
   nothing until a person applies `tehas:ready` again. A person's `tehas:ready`
   that a park holds counts too: the ticked box then reads the label.
 - With the label off, the next start is classic, retry or not.
+- A new lean start also needs a `pi-spec v1` block in the issue's text: one
+  fence with that info string, holding valid JSON. With none the poll starts
+  nothing, takes `tehas:ready` off and says why once, as for a label from an
+  outside account; a retry runs the driver of the start it follows and asks
+  nothing of the block. Tehas checks only that the block is there and reads as
+  JSON; what it holds is the driver's to judge. A plan written over an issue by
+  `Update this issue` keeps the block the issue had, at the top.
+- The block is the only text the lean driver reads, so the words a person adds
+  to the issue plan nothing: what goes inside the fence is the whole brief, and
+  its fields are pi-rukas's to define. pi-rukas's `/plan` writes one, and
+  [Troubleshooting](/troubleshooting#what-a-park-says) says what to do when the
+  block is missing. A second block, or one that is no JSON, counts as none.
 
 ### What a poll costs
 
@@ -1714,6 +1726,25 @@ the new names.
   waits too. A fed cycle rests on no person's approval, so once it ends the
   millwright's grant cannot retry it: a person approves the next cycle. The
   other checks of any start still apply: epics, the size limit, the slots.
+- **With epics, it may start and plan an epic's parts.** Optional, off
+  unless `TEHAS_MILLWRIGHT_EPICS=1`. An allowed labeller's `tehas:ready` on an
+  epic (an issue with open sub-issues) approves its open sub-issues while the
+  epic stays open, keeps open sub-issues and carries no
+  `needs-human-attention`. The approval is read from the epic's own label
+  events on every poll; nothing else keeps it. On a sub-issue of such an epic,
+  the millwright's `tehas:ready` starts the first cycle, and its `tehas:plan`
+  or `tehas:refine` starts a planning session, when an allowed account or
+  tehas itself wrote the issue and last changed its title and text (tehas's
+  planner writes a sub-issue's plan as tehas), nobody else changed them
+  since the millwright's label, and the issue carries none of
+  `tehas:improvement`, `cross-project`, `needs-human-attention` and
+  `tehas:millwright-escalated`. Otherwise the label comes off and the issue
+  says why. The start is recorded as the person's label on the epic, `how:
+  "label"` by that person, and the session as theirs, so the millwright
+  answers its questions within its grant and retries the cycle as it would
+  any a person approved. These starts are not fed cycles: they do not count
+  against `TEHAS_MILLWRIGHT_MAX_FEEDS`. The other checks of any start still
+  apply.
 - **The approval record says so.** A millwright start has `how: "millwright"`,
   `rests_on`, the person's approval it rests on, and `millwright_starts`. A
   person's start counts again from none. Its other limits are the

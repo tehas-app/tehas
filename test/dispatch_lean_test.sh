@@ -37,4 +37,32 @@ t_eq "$t_rc" 0
 t_eq "$(started)" "7 "
 t_eq "$(approval .driver)" null
 
+t_case "a lean start whose body holds no pi-spec block starts nothing and says why once"
+reset
+echo '[{"number":7,"labels":[{"name":"tehas:ready"},{"name":"tehas:lean"}]}]' >"$fx/ready.json"
+label_events 7 tehas:lean=alice
+echo '{"title":"Faster search","body":"Make it fast, with no block."}' >"$fx/issue-7.json"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(started)" ""
+# The ask comes off, so this is said once, and tehas:lean stays: with it off
+# the next tehas:ready would run classic in lean's place. The comment goes out
+# as `--body-file -`, and the stub of test/lib.sh rewrites that to `--body`
+# with the text the poll put on standard input, so the whole sentence below is
+# the text a person reads.
+t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --remove-label tehas:ready"
+t_contains "$(t_calls gh)" "issue comment 7 --repo acme/widget --body Tehas took \`tehas:ready\` off this issue and started nothing: its text holds no \`pi-spec v1\` block for the lean driver to read: it is not there, or it is not the one block of valid JSON lean needs. A person writes that block, and applies \`tehas:ready\` again."
+t_eq "$(t_calls gh | grep -c '^issue comment 7 ')" 1
+
+t_case "a lean start whose body holds the block is started"
+reset
+echo '[{"number":7,"labels":[{"name":"tehas:ready"},{"name":"tehas:lean"}]}]' >"$fx/ready.json"
+label_events 7 tehas:lean=alice
+jq -n '{title: "Faster search",
+        body: "```pi-spec v1\n{\"intent\":\"faster search\"}\n```\n\nMake it fast."}' >"$fx/issue-7.json"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(started)" "7 "
+t_eq "$(t_calls gh | grep -c '^issue comment 7 ')" 1
+
 t_done
