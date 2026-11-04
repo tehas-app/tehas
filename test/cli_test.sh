@@ -356,7 +356,6 @@ while read -r name; do
   # The publisher of the disk reading is run with the one argument it takes.
   [ "$name" = "disk" ] && name="disk --publish"
   # shellcheck disable=SC2086  # a command and its verb
-  # shellcheck disable=SC2086  # a command and its verb
   t_run "$bot $name"
   [ "$t_rc" = 0 ] || unknown="$unknown $name"
 done < <(grep -h -o 'bin/tehasbot [a-z ]*' "$T_ROOT"/host/systemd/*.service | sed 's/^bin.tehasbot //')
