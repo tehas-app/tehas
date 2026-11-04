@@ -21,7 +21,6 @@
 //!   console tehasbot health
 //!   console tehasbot status
 //!   console tehasbot top [--every]
-//!   console tehasbot disk --publish
 //!   console tehasbot github-token [--check]
 //!
 //! status, disk, top and mcp key need no settings, and dev loads its own. The
@@ -172,26 +171,11 @@ pub fn tehasbot(given: &[String]) -> u8 {
         Some("health") => health::loaded(),
         Some("status") => queue::main(),
         Some("top") => top::publish(&given[1..]),
-        // The publisher of the reading factory_disk serves. It is reached by the
-        // one word `--publish` and nothing beside it, so a unit of the host has
-        // no way to ask the console for a reading it did not ask to have
-        // written: `--publish --json`, say, is refused here and by the wrapper of
-        // bin/tehasbot before it. What the run reads of the host goes to the file
-        // and to standard output, as `tehas disk --publish` prints it; the unit of
-        // the cleaner writes no log of its own, so those lines are the journal's.
-        // The rest of `console disk` is a person's, through `tehas disk`.
-        Some("disk") if given.len() == 2 && given[1] == "--publish" => {
-            disk::main(&["--publish".to_string()])
-        }
-        Some("disk") => {
-            eprintln!("tehasbot disk: usage: tehasbot disk --publish");
-            64
-        }
         Some("mcp") => mcp::main(&given[1..]),
         Some("github-token") => github::main(&given[1..]),
         _ => {
             eprintln!(
-                "console tehasbot: usage: health | status | top [--every] | disk --publish | mcp | github-token [--check]"
+                "console tehasbot: usage: health | status | top [--every] | mcp | github-token [--check]"
             );
             64
         }
@@ -586,47 +570,6 @@ mod tests {
                 "PI_ENSEMBLE_SUBAGENT_PROVIDER",
             ]
         });
-    }
-
-    #[test]
-    fn tehasbot_disk_is_the_published_reading_alone() {
-        let home = std::env::temp_dir().join(format!("tehas-commands-disk-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&home);
-        std::fs::create_dir_all(home.join("live")).unwrap();
-        // The one form the unit runs: it writes the file factory_disk reads.
-        env::set_var("TEHAS_HOME", &home);
-        env::set_var("TEHAS_INSTANCE_DIR", &home);
-        std::fs::write(home.join("instance.env"), "TEHAS_HOME=x\n").unwrap();
-        let published = home.join("live/disk.json");
-        assert_eq!(tehasbot(&words(&["disk", "--publish"])), 0);
-        assert!(published.is_file(), "the hourly publisher wrote the file");
-        // One whole object on its own line, which is the one answer factory_disk
-        // reads: no side file and no second line of anything else.
-        let answer = std::fs::read_to_string(&published).unwrap();
-        assert_eq!(answer.lines().count(), 1, "{answer}");
-        assert!(
-            serde_json::from_str::<serde_json::Value>(&answer).is_ok(),
-            "{answer}"
-        );
-        // Any other words are 64 and write nothing. The guard reads the whole
-        // argument list and not its second word alone, so a form that reaches
-        // past `--publish` is not normalised into the sanctioned one: these are
-        // the words the wrapper of bin/tehasbot refuses too, and a caller that
-        // names the console itself is refused here, where they are read.
-        let _ = std::fs::remove_file(&published);
-        for given in [
-            words(&["disk"]),
-            words(&["disk", "--json"]),
-            words(&["disk", "--full"]),
-            words(&["disk", "--publish", "--json"]),
-            words(&["disk", "--publish", "--full"]),
-            words(&["disk", "--publish", "free", "/tmp"]),
-            words(&["disk", "free", "/tmp"]),
-        ] {
-            assert_eq!(tehasbot(&given), 64, "{given:?}");
-            assert!(!published.exists(), "a refused form writes nothing");
-        }
-        let _ = std::fs::remove_dir_all(&home);
     }
 
     #[test]

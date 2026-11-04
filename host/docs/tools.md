@@ -2175,7 +2175,7 @@ settings are missing or malformed.
 tehas disk                 # one line per file system
 tehas disk --json          # the same as one object
 tehas disk --full          # and what fills them, biggest first
-tehas disk --publish       # also write live/disk.json, and print the reading
+tehas disk --publish       # also write live/disk.json
 ```
 
 ```
@@ -2208,12 +2208,14 @@ a hand full of `rm` calls should take.
 
 `--publish` also writes the answer to `~/tehas/live/disk.json`, whole, through
 a side file renamed into place, so a reader sees a whole answer or the last
-one. It is the only form that writes anything, and it prints the reading as
-well: the file is not a substitute for the answer. The
-`tehas-clean.timer` of the cleaner runs the publisher through
-[`tehasbot disk --publish`](#tehasbot-disk)
-after every hourly clean, so on a host the file is under an hour old; a person
-can run it too. The
+one. It is the only form that writes anything. `tehas-clean.service` runs it
+every hour after the clean, as a second `ExecStart` that calls the console
+directly (`%h/tehas/libexec/console disk %h/tehas --publish`), so on a host that
+runs the cleaner's timer the file is under an hour old; a person can run it at
+any moment too. The clean's own step is prefixed with `-`, so a clean that
+failed still leaves a fresh reading - a full disk is the case the clean is
+likeliest to fail in - and a reading that could not be written fails the unit,
+seen in `journalctl --user -u tehas-clean`. The
 [`factory_disk`](/mcp-server#the-tools) tool of the MCP server reads that file
 and so asks the host's disk nothing. The reading, the bounds and the printing
 are the console's (`~/tehas/libexec/console disk`, `console/src/disk.rs`);
@@ -2358,7 +2360,6 @@ tehasbot improve              # one run of the improvement loop; what tehas-impr
 tehasbot refresh              # ask for refreshes of conflicting pull requests; what tehas-refresh.timer runs
 tehasbot review               # one review of the branch; what tehas-review.timer runs
 tehasbot clean                # remove what the host can make again; what tehas-clean.timer runs
-tehasbot disk --publish       # publish the disk reading for factory_disk; what tehas-clean.timer runs after the clean
 tehasbot github-token [--check]  # the GitHub App's token, or a check of it
 ```
 
@@ -2368,7 +2369,7 @@ as a cycle ends), `tehas-energy.service`, `tehas-top.service`,
 `tehas-preview-sweep.timer`, the improvement loop's `tehas-improve.timer`, the refreshes'
 `tehas-refresh.timer`, the review loop's `tehas-review.timer` (weekly, and a
 run does nothing unless `TEHAS_REVIEW=1`), the cleaner's `tehas-clean.timer` (installed, and enabled
-by a person, and the unit that also publishes the disk reading), and one `tehas-cycle@<issue>.service` per running
+by a person), and one `tehas-cycle@<issue>.service` per running
 cycle. A cycle's container is `tehas-work-<issue>`.
 
 ## tehasbot cycle
@@ -3593,38 +3594,6 @@ redirect of its own, so a timer run's output is in the journal. The exits that
 happen before the log can be opened - 78, 1 and the 3 of a held lock - are said
 on stderr only: `journalctl --user -u tehas-clean` is where a timer run that
 left nothing in `clean.log` explains itself.
-
-## tehasbot disk
-
-```
-tehasbot disk --publish      # one reading; writes ~/tehas/live/disk.json and prints it
-```
-
-The publisher of the disk reading that [`factory_disk`](/mcp-server#the-tools)
-serves: the one form of `console disk` that writes anything, and the one the
-cleaner's unit runs. `tehas-clean.service` runs it as its post step, after the
-clean and from the same hourly `tehas-clean.timer`, so the file says what the
-clean left and is under an hour old on a host that runs the timer. It is no
-step of the clean: it opens no file of the clean's, and the unit adds no
-redirect, so the reading it prints is read in
-`journalctl --user -u tehas-clean` beside the lines of the clean - the figures
-are the same ones `factory_disk` serves, and the hourly run is what keeps them
-there. The step is not prefixed with `-`, so a reading that could not be
-written ends the unit non-zero and is seen in the same place; the clean it
-followed has already logged what it removed. systemd runs a post step only after
-a clean that ended 0, so a clean that failed leaves the last answer there, and
-the file is never written in two halves: the publisher puts it through a side
-file renamed into place.
-
-Any other argument is 64 and reaches nothing, a `--publish` with another word
-beside it included: the command of the units has no form that answers with the
-reading alone and no file, which is the reading's own
-[`tehas disk`](#tehas-disk). The reading, its bounds and the file it writes are
-the console's (`console/src/disk.rs`); it reads the instance's own file for the
-home, the scratch disk and `TEHAS_DISK_WAIT`, so nothing is loaded for it. See
-[`tehas disk`](/api#tehas-disk) for the object and its exits: 0 written, 1 the
-file could not be written, which leaves the last answer there, 64 an argument
-this does not know, 78 settings that are missing or malformed.
 
 ## tehasbot preview
 
