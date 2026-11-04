@@ -68,7 +68,7 @@
         "waiting": {"type": "integer", "minimum": 0},
         "oldestWait": {"type": "integer", "minimum": 0},
         "refreshHold": {"type": "string"},
-        "labelAlone": {"type": "array", "maxItems": 50, "items": {"type": "integer", "minimum": 1}}
+        "labelAlone": {"type": "array", "items": {"type": "integer", "minimum": 1}}
       }
     },
     "hold": {
