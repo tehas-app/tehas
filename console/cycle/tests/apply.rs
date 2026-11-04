@@ -428,6 +428,34 @@ fn a_handoff_on_awaiting_human_merge_waits_for_a_merge() {
     assert!(out(&o).contains("status=handoff"), "{}", out(&o));
 }
 
+/// The second review round's fix could not be laid on the branch, which holds
+/// the first round's: the pull request is finished and waits for a merge.
+#[test]
+fn a_handoff_on_lens_fix_reposition_waits_for_a_merge() {
+    let h = Host::new("reposition");
+    h.result(
+        "handoff",
+        "lens-fix",
+        "feature/issue-7-x",
+        "lens-fix-reposition",
+    );
+    fs::write(h.dir.join("state/cycles/7.runner_exit"), "10\n").unwrap();
+    let prs: Value = json!([{"url": "https://github.com/a/b/pull/9", "state": "OPEN",
+        "body": "Fixes #7", "headRefName": "feature/issue-7-x"}]);
+    fs::write(h.dir.join("prs.json"), prs.to_string()).unwrap();
+    fs::write(
+        h.dir.join("issue.json"),
+        json!({"number": 7, "labels": [{"name": "tehas:running"}]}).to_string(),
+    )
+    .unwrap();
+    let o = h.report(10, false);
+    assert!(o.status.success(), "{}", out(&o));
+    h.at(
+        "gh issue edit 7 --repo a/b --remove-label tehas:running --add-label tehas:awaiting-merge",
+    );
+    assert_eq!(h.count("store park"), 0, "{:#?}", h.calls());
+}
+
 #[test]
 fn a_report_not_named_its_programs_is_refused() {
     let h = Host::new("no-programs");
