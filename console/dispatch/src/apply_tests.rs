@@ -2616,6 +2616,126 @@ fn a_refused_draft_is_refused_once_however_often_the_poll_comes_back() {
 }
 
 #[test]
+fn a_refusal_whose_outcome_cannot_be_kept_ends_the_poll_and_says_it() {
+    // The poll refused the drafted plan and cannot keep the document that tells
+    // a later poll so. It ends on the warning naming the issue and posts
+    // nothing of the turn: the question, the labels and the record of an asked
+    // question all wait for the next poll, which finds the same document in the
+    // file and refuses the same draft again.
+    let mut t = world();
+    plan_row(&t, alices_session());
+    // The document the console wrote for the tick: its `update` is the write
+    // the check of #1210 refuses, and its `question` is what the next poll asks
+    // once the refusal has been kept.
+    turn_ended(
+        &t,
+        7,
+        "0",
+        json!({"session": "s-1", "text": "This issue now holds the plan.",
+               "question": {"question": "Tick.", "options": [{"label": "Update this issue"}]},
+               "update": {"title": "EPIC: EPIC", "body": PLAN_BODY}}),
+    );
+    let keep = t.dir.join("works/tehas-work-plan-7.keep");
+    fs::create_dir_all(&keep).unwrap();
+    fs::write(
+        keep.join("draft.json"),
+        json!({"title": "EPIC: EPIC", "spec": PLAN_BODY}).to_string(),
+    )
+    .unwrap();
+    // The document the failed keep would have replaced: the console's own,
+    // with the `update` of the plan the check refused.
+    let before: Value =
+        serde_json::from_str(&fs::read_to_string(t.w.home.join("state/plan-7.json.out")).unwrap())
+            .unwrap();
+    assert!(before.get("update").is_some(), "{before}");
+    // The sibling `outcome_said` writes and renames: a directory of its name
+    // stops the write for any user, which a mode of the directory alone does
+    // not when the tests run as root.
+    fs::create_dir_all(t.w.home.join("state/plan-7.json.out.new")).unwrap();
+    let a = t.apply(json!([{"plan_post": 7}]));
+    assert!(
+        a.log
+            .iter()
+            .any(|l| l == "WARN: the refusal of the drafted plan of #7 could not be kept; the next poll tries again"),
+        "{:?}",
+        a.log
+    );
+    assert!(
+        a.log
+            .iter()
+            .any(|l| l.starts_with("planning #7 asks: Tehas did not make")),
+        "{:?}",
+        a.log
+    );
+    // Nothing of the turn went out: the keep is the first write this branch
+    // attempts, and the poll ends on it.
+    let w = t.writes();
+    assert!(
+        !w.iter().any(|c| c.starts_with("gh issue comment 7")),
+        "{w:?}"
+    );
+    assert!(
+        !w.iter()
+            .any(|c| c.starts_with("gh api -X POST") && c.contains("issues/7/comments")),
+        "{w:?}"
+    );
+    assert!(
+        !w.iter()
+            .any(|c| c.starts_with("gh issue edit 7 --repo example-owner/example-product --title")),
+        "{w:?}"
+    );
+    assert!(
+        !w.iter()
+            .any(|c| c.contains("--remove-label tehas:planning")),
+        "{w:?}"
+    );
+    assert!(!w.iter().any(|c| c.contains("question-asked")), "{w:?}");
+    // The keep made no `.out`: the file still holds what the console wrote, and
+    // the sibling it could not move into place is gone with the failed write.
+    let kept: Value =
+        serde_json::from_str(&fs::read_to_string(t.w.home.join("state/plan-7.json.out")).unwrap())
+            .unwrap();
+    assert_eq!(kept, before);
+    fs::remove_dir(t.w.home.join("state/plan-7.json.out.new")).unwrap();
+    // The same poll with the file it can write: the refusal is kept, the
+    // question of the turn is asked of the document the refusal left, and the
+    // person is left a reply to make rather than the tick that was stopped.
+    let a = t.apply(json!([{"plan_post": 7}]));
+    assert!(!a.log.iter().any(|l| l.starts_with("WARN")), "{:?}", a.log);
+    let w = t.writes();
+    assert_eq!(
+        w.iter()
+            .filter(|c| c.starts_with("gh issue comment 7") && c.contains("Tehas did not make"))
+            .count(),
+        1,
+        "{w:?}"
+    );
+    assert!(
+        w.iter().any(|c| {
+            c.starts_with("gh api -X POST")
+                && c.contains("issues/7/comments")
+                && !c.contains("Update this issue")
+        }),
+        "{w:?}"
+    );
+    assert!(
+        !w.iter()
+            .any(|c| c.starts_with("gh issue edit 7 --repo example-owner/example-product --title")),
+        "{w:?}"
+    );
+    assert!(
+        w.contains(
+            &"gh issue edit 7 --repo example-owner/example-product --remove-label tehas:planning --add-label tehas:question".to_string()
+        ),
+        "{w:?}"
+    );
+    assert!(
+        w.contains(&"store plan-end 7 --posted".to_string()),
+        "{w:?}"
+    );
+}
+
+#[test]
 fn a_chosen_draft_that_passes_the_check_is_written_as_it_was() {
     let mut t = world();
     chosen_draft(&t, PLAN_TITLE, PLAN_BODY);

@@ -736,7 +736,16 @@ impl Writer {
         if comment.is_empty() && why.is_some() {
             let said = question::q_clean(why.as_deref().unwrap(), 4000);
             log.push(format!("planning #{n} asks: {said}"));
-            self.outcome_said(n, &kept);
+            // The kept document is what a later poll answers instead of the
+            // draft, so it is what stops the rule being said twice. A keep
+            // that did not land leaves the turn's own document in the file,
+            // so the poll ends rather than claim a keep it did not make.
+            if !self.outcome_said(n, &kept) {
+                log.push(format!(
+                    "WARN: the refusal of the drafted plan of #{n} could not be kept; the next poll tries again"
+                ));
+                return false;
+            }
             out = refused_document(&said, out.get("session"));
         }
         let mut filed: Vec<&str> = out
