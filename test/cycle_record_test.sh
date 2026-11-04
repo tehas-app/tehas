@@ -339,6 +339,35 @@ t_eq "$(park_of .reason)" wall-clock
 t_contains "$(t_calls gh)" 'tehas stopped the cycle: the cap `wall-clock`.'
 t_lacks "$(t_calls gh)" 'pi-rukas stopped on the cap'
 
+# #1207: the seconds of a stop file and its step come of one read, so a first
+# word that is no count of seconds is no stop and no step. The report of before
+# read the file twice and the two reads disagreed: the cycle was said stalled
+# with a step of the same unreadable file.
+t_case "a stop file of no count of seconds is no stalled status and no stalled step"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
+ended aborted develop
+printf "%s\n" 'echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"; printf "nope\nstall-step\n" >"$TEHAS_HOME/state/cycles/7.stalled"; exit 2' >"$fx/work.sh"
+t_run "$cycle 7"
+rec=$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json
+t_eq "$(jq -c '[.status, .step, .cap]' "$rec")" '["aborted","develop",null]'
+t_lacks "$t_out" "status=stalled"
+t_lacks "$(t_calls gh)" "stall-step"
+t_lacks "$(t_calls gh)" "None of its logs changed"
+t_eq "$(find "$state/7.stalled" 2>/dev/null | wc -l)" 0
+
+t_case "a stop file of no count of seconds is no timeout and no step of the time limit"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
+ended aborted develop
+printf "%s\n" 'echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"; echo "nope tehas timed-step" >"$TEHAS_HOME/state/cycles/7.timed"; exit 2' >"$fx/work.sh"
+t_run "$cycle 7"
+rec=$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json
+t_eq "$(jq -c '[.status, .step, .cap]' "$rec")" '["aborted","develop",null]'
+t_lacks "$t_out" "status=timeout"
+t_lacks "$(t_calls gh)" "timed-step"
+t_eq "$(find "$state/7.timed" 2>/dev/null | wc -l)" 0
+
 t_case "a stall names the step in flight and is tehas's cap over a runner's mid-step cap"
 reset
 t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory

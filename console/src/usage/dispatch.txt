@@ -180,7 +180,7 @@ Rules, in order:
      allowed. The one exception is TEHAS_MILLWRIGHT_LOGIN, which is never the bot:
      its tehas:ready starts a cycle on an issue an allowed account approved
      before, whose body is still the body that account approved, at most
-     TEHAS_MILLWRIGHT_MAX_RETRIES times since (lib/millwright.sh). Otherwise the poll
+     TEHAS_MILLWRIGHT_MAX_RETRIES times since. Otherwise the poll
      takes its label off and says why. A start takes tehas:millwright-escalated
      off, whoever made it.
      An issue that carries tehas:blocked waits while any issue it names is
@@ -273,7 +273,7 @@ TEHAS_CYCLE_DONE_WAIT (seconds the stop of a finished cycle may take
 (seconds the read of TEHAS_BRANCH_CHECK may take [30]).
 
 Before a start changes any label, the poll records what it rests on in the
-state store (lib/store.sh, approval-record): who approved and when, by the
+state store (libexec/store, approval-record): who approved and when, by the
 label or a retry tick, how, a sha256 of the body that approval was checked
 against (carriage returns dropped), a sha256 of the issue's title held the
 same way, and as the start's inputs the links to GitHub's attachment storage

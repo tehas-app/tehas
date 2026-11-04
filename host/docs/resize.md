@@ -30,9 +30,10 @@ on another project's machine, as tehas-tehas is, has no hypervisor to resize it
 live or save it with `libvirt-guests`; check with `systemd-detect-virt --vm`,
 which answers nothing on a host that is not a virtual machine
 ([the `clock` step of `bootstrap.sh`](/bootstrap) uses the same test).
-Restarting the machine under it means a drain first, and a restart only once
-the drain says it is done: see [When a drain is still
-needed](#when-a-drain-is-still-needed) below for what its exit statuses mean.
+Restarting the machine under it means a drain first: `tehas drain --wait 3600`
+exits 1 while cycles still run, so do not restart until they have ended, or end
+them with `tehas stop <issue>` for each. See
+[Limit and drain](/operating#limit-and-drain).
 
 The one rule underneath all of it, for a VM host: **the maximum is the change
 that needs a restart, so set it once, high, and treat every change under it as
@@ -128,13 +129,13 @@ named `tehas-tehas`:
 
 ```
 virsh setvcpus tehas-tehas 12 --live          # 12 vCPUs now, booted at 8
-virsh update-memory-device tehas-tehas --live --config --requested-size 20G   # virtio-mem
+virsh update-memory-device tehas-tehas --config --requested-size 20G   # virtio-mem, live
 # or, for DIMMs:
 virsh setmem tehas-tehas 20G --live
 ```
 
-On the virtio-mem line `--live` asks the running VM for the size, and libvirt
-hot-adds the blocks; `--config` keeps the size for the next boot. `setmaxmem`
+`--config` on the virtio-mem line is what `update-memory-device` takes for the
+request; it asks for the size and libvirt hot-adds the blocks. `setmaxmem`
 changes only the maximum, which is a reboot's business, not a live one.
 
 `setvcpus --live` raises or lowers what the guest runs with now; `--config`
@@ -301,8 +302,9 @@ Restart only after an exit 0, and read what the drain prints, not only its statu
   `TEHAS_WORK_TIMEOUT` seconds, six hours by default), or end one with `tehas
   stop <issue> --keep-workspace`, which ends it unfinished and keeps its
   workspace to read.
-- **Exit 1 and nothing printed**: a poll held its lock for the whole wait, so
-  nothing was counted. Run the drain again.
+- **Exit 1 with a `not drained:` line**: a poll held its lock for the whole
+  wait, so a cycle it starts may not be counted. With `--json` that is
+  `drained: false`. Run the drain again.
 
 Drained means no poll can still start a cycle, and drain waits for the poll
 that is running before it says none is, so a cycle a poll had decided to start

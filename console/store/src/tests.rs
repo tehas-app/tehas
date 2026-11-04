@@ -2119,7 +2119,7 @@ fn review_issue_answers_the_title_and_body_as_one_line() {
 fn review_issue_escapes_an_answer_whose_body_holds_newlines_and_quotes() {
     // The words of a finding are the model's. The answer is still one line,
     // and parses back with the newlines and the quotes of the body preserved:
-    // what the store's reader in lib/store.sh requires of every verb.
+    // what every reader of the store requires of every verb.
     let home = scratch("review-escaped");
     let document = "{\"findings\":[{\"severity\":\"HIGH\",\"lens\":\"security\",\
                     \"path\":\"a\\\"b.rs\",\"line\":7,\"title\":\"says \\\"no\\\" and \\\\n more\"}]}";

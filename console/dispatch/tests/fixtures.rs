@@ -355,8 +355,9 @@ fn expand(c: &Value, snap: &mut Value) {
             json!({"FragmentPath": "", "ActiveState": "inactive", "MemoryMax": "infinity"});
     }
     // work: what gh api repos/<repo>/issues/<n> answers, over an open issue.
-    // body: the body of the edit record, the text an approval binds.
-    for (key, field) in [("work", "work"), ("body", "edit")] {
+    // body: the body of the edit record, the text an approval binds. spec: the
+    // same field, named for the pi-spec v1 block a lean case puts in the body.
+    for (key, field) in [("work", "work"), ("body", "edit"), ("spec", "edit")] {
         if let Some(m) = c.get(key).and_then(Value::as_object) {
             let mut is = issues(snap);
             for (n, x) in m {
@@ -765,6 +766,11 @@ fn lean() {
 #[test]
 fn approval() {
     run_suite("approval");
+}
+
+#[test]
+fn epic() {
+    run_suite("epic");
 }
 
 #[test]

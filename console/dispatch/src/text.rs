@@ -8,6 +8,9 @@ use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
 use std::sync::{LazyLock, OnceLock};
 pub use tehas_core::approval::{body_sha256, title_sha256};
+/// The info string of the block, the one name the reader of a body and the
+/// writer of one both use.
+pub use tehas_core::plan::SPEC_INFO;
 
 /// The files count of the measure of a body.
 pub fn size_files(body: &str, max_bytes: usize, max_lines: usize) -> usize {
@@ -32,6 +35,23 @@ pub fn link_list(text: &str) -> Vec<String> {
         }
     }
     out
+}
+
+/// The `pi-spec v1` block a lean start needs, asked of an issue's body. The
+/// reader itself is [`tehas_core::plan::spec_block`], the one function the poll
+/// and the writer of a plan both ask, so the two cannot disagree about the same
+/// body; this is the poll's name for its question. tehas asks only that one such
+/// block is there and holds valid JSON; the fields are pi-rukas's to judge, and
+/// lean's own `ready` step still runs.
+pub fn has_spec(body: &str) -> bool {
+    tehas_core::plan::spec_block(body).is_some()
+}
+
+/// What the poll says on an issue it will not start lean for the want of its
+/// `pi-spec v1` block: the reason, and what a person does next. One sentence
+/// for the log and the comment both.
+pub fn no_spec_said(ask: &str) -> String {
+    format!("its text holds no `{SPEC_INFO}` block for the lean driver to read: it is not there, or it is not the one block of valid JSON lean needs. A person writes that block, and applies `{ask}` again.")
 }
 
 /// What a plan's start binds: the title and the body together, without the
@@ -353,6 +373,26 @@ mod tests {
         );
         // Non-ASCII digits are no reference at all: u64 refuses them.
         assert!(closing_numbers("Closes #٧ and #8").is_empty());
+    }
+
+    #[test]
+    fn a_lean_start_needs_the_one_spec_block_of_valid_json() {
+        assert!(has_spec("```pi-spec v1\n{\"intent\":\"x\"}\n```"));
+        assert!(has_spec(
+            "```pi-spec v1\n---\n{\"intent\":\"x\"}\n```\n\nPart."
+        ));
+        // None, two, and one that is no JSON all refuse the start.
+        assert!(!has_spec("A plain body."));
+        assert!(!has_spec(""));
+        assert!(!has_spec("```pi-spec v1\nnot json\n```"));
+        assert!(!has_spec(
+            "```pi-spec v1\n{\"a\":1}\n```\n\n```pi-spec v1\n{\"b\":2}\n```"
+        ));
+        // A block of another name is no block, and the comment a person is
+        // given names the ask they apply again.
+        assert!(!has_spec("```json\n{\"a\":1}\n```"));
+        assert!(no_spec_said("tehas:ready").contains("`tehas:ready`"));
+        assert!(no_spec_said("tehas:ready").contains(SPEC_INFO));
     }
 
     #[test]

@@ -4647,7 +4647,7 @@
   }
  },
  {
-  "case": "a handoff on a cap leaves STUCK: on the pull request's title",
+  "case": "a handoff on a cap leaves HALT: on the pull request's title",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",

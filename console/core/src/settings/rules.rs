@@ -69,7 +69,7 @@ pub enum Rule {
     /// no quote, space or angle bracket may get through.
     ScriptAddress,
     SiteName,
-    /// The shape lib/slice.sh reads at every start: no leading zero, at most
+    /// The shape tehas_core::slice reads at every start: no leading zero, at most
     /// twelve digits of bytes or nine with a unit, and a size Docker takes:
     /// it refuses a memory value under 6m.
     ContainerSize,
@@ -198,6 +198,7 @@ pub const TABLE: &[Setting] = &[
     always("TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS", Rule::Count, "3"),
     always("TEHAS_MILLWRIGHT_FEED", SWITCH, "0"),
     always("TEHAS_MILLWRIGHT_MAX_FEEDS", Rule::Count, "2"),
+    always("TEHAS_MILLWRIGHT_EPICS", SWITCH, "0"),
     always("TEHAS_REFRESH_CONFLICTS", SWITCH, "0"),
     always("TEHAS_REFRESH_MAX", Rule::Count, "2"),
     always("TEHAS_REFRESH_EVERY", Rule::RefreshEvery, "10"),
@@ -718,7 +719,12 @@ mod tests {
 
     #[test]
     fn a_switch_is_0_or_1() {
-        for name in ["TEHAS_INDEXING", "TEHAS_PREVIEWS", "TEHAS_MILLWRIGHT_FEED"] {
+        for name in [
+            "TEHAS_INDEXING",
+            "TEHAS_PREVIEWS",
+            "TEHAS_MILLWRIGHT_FEED",
+            "TEHAS_MILLWRIGHT_EPICS",
+        ] {
             takes(name, "1");
             refuses(name, "2", "expected 0 or 1");
         }
