@@ -1093,7 +1093,11 @@ for signal in "TERM 143" "INT 130" "HUP 129"; do
   reset
   mkdir -p "$T/bin"
   real_git=$(command -v git)
-  printf '%s\n' '#!/usr/bin/env bash' 'for a in "$@"; do' "  [ \"\$a\" = checkout ] && kill -$name \$PPID" 'done' \
+  # The signal goes to the process that started the git: the host's git call is
+  # bounded, so this stub's git is a child of `timeout` and $PPID names the
+  # wrapper. The grandparent is the command under test, as $PPID was before the
+  # call was bounded.
+  printf '%s\n' '#!/usr/bin/env bash' 'target=$(ps -o ppid= -p "$PPID" | tr -d " ")' 'for a in "$@"; do' "  [ \"\$a\" = checkout ] && kill -$name \"\$target\"" 'done' \
     'exec '"$real_git"' "$@"' >"$T/bin/git"
   chmod +x "$T/bin/git"
   t_run "$review"
