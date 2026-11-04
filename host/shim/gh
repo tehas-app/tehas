@@ -40,11 +40,6 @@ elif [ -n "${TEHAS_GITHUB_APP_ID:-}" ]; then
   export GH_TOKEN
 fi
 
-# Where the name of a GraphQL operation ends: at a quote or a bracket, which is
-# where the document itself begins. The two quotes are named by their octal
-# codes, because a pattern of them cannot be written between quotes of its own.
-doc_ends=$'["\042\047[{(]*'
-
 # The kind of a write, and the repository and number it names, from the
 # arguments alone. A call this does not recognise as a write is a read, so
 # nothing unknown is charged as a write and no read pays for the copy of stderr
@@ -95,10 +90,11 @@ api)
     q=${q//$'\r'/ }
     # The two words before the document, and nothing of the document itself.
     # The set the word ends at is split off once and thrown away, so a word of
-    # the body cannot reach the second reading.
+    # the body cannot reach the second reading. The pattern names where the
+    # document begins: a quote or a bracket, its quotes escaped because the
+    # pattern sits inside a quoted word.
     set -f
-    # shellcheck disable=SC2295
-    read -r first second _ <<<"${q%%$doc_ends}"
+    read -r first second _ <<<"${q%%[\"\'[{(]*}"
     set +f
     case " ${first,,} ${second,,} " in
     *" mutation "*) kind="api POST" ;;

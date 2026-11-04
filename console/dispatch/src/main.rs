@@ -76,24 +76,20 @@ fn main() {
         .and_then(Value::as_str)
         .unwrap_or("")
         .to_string();
-    // What lib/config.sh's tehas_load always leaves set: a run without one
-    // has no settings to decide by, and stops before any call (rule 2).
+    // The settings an instance has to set itself, and the three a load always
+    // leaves set that a poll cannot act by without: a run with neither has no
+    // settings to decide by, and stops before any call (rule 2). tehas_core
+    // names both lists, so the poll holds no copy of either.
     let set = |k: &str| {
         env.get(k)
             .and_then(Value::as_str)
             .is_some_and(|v| !v.is_empty())
     };
-    let missing: Vec<&str> = [
-        "TEHAS_HOME",
-        "TEHAS_REPO",
-        "TEHAS_INSTANCE_DIR",
-        "TEHAS_CONTROL_ISSUE",
-        "TEHAS_ALLOWED_LABELERS",
-        "TEHAS_TICKET_CONCURRENCY",
-    ]
-    .into_iter()
-    .filter(|k| !set(k))
-    .collect();
+    let missing: Vec<&str> = tehas_core::settings::INSTANCE_SETTINGS
+        .into_iter()
+        .chain(tehas_core::settings::DISPATCHER_ALSO)
+        .filter(|k| !set(k))
+        .collect();
     if !missing.is_empty() {
         eprintln!(
             "tehas-dispatch: {} not set: load the instance's settings first (lib/config.sh, tehas_load)",
@@ -108,33 +104,17 @@ fn main() {
         }
     }
     let mut env = Value::Object(env);
-    // tehas_branch: the setting, or the checkout's origin/HEAD.
+    // tehas_branch: the setting, or the checkout's origin/HEAD. tehas_core
+    // holds the rule, with the bound on the git read and the line lib/config.sh
+    // and tehas work give.
     if !set_in(&env, "TEHAS_BRANCH") {
-        let checkout = env["TEHAS_WORK_REPO"]
-            .as_str()
-            .unwrap_or("/nonexistent")
-            .to_string();
-        let r = tehas_dispatch::read::run::run(
-            "git",
-            &[
-                "-C".into(),
-                checkout.clone(),
-                "symbolic-ref".into(),
-                "-q".into(),
-                "--short".into(),
-                "refs/remotes/origin/HEAD".into(),
-            ],
-            Duration::from_secs(30),
-        );
-        let b = r.out.trim().trim_start_matches("origin/").to_string();
-        if !r.ok() || b.is_empty() {
-            eprintln!(
-                "tehas-dispatch: the default branch of {checkout} is unknown: run install.sh, or set TEHAS_BRANCH in {}/instance.env",
-                env["TEHAS_INSTANCE_DIR"].as_str().unwrap_or("?")
-            );
-            std::process::exit(78);
+        match tehas_core::settings::branch() {
+            Ok(b) => env["TEHAS_BRANCH"] = json!(b),
+            Err(line) => {
+                eprintln!("{line}");
+                std::process::exit(78);
+            }
         }
-        env["TEHAS_BRANCH"] = json!(b);
     }
     // The poll's own libexec, which the refine brief's path is named by.
     env["libexec"] = json!(tehas_dispatch::poll::here(Path::new(&home)));
