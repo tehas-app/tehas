@@ -1024,6 +1024,23 @@ esac"
   t_stub apt-get
 }
 fresh_clock() { rm -rf "$etc/chrony" "$T"/calls/*; }
+# The programs of the machine a jailed clock run needs, named in the order the
+# part and the script that holds it ask for them. dirname and basename belong to
+# the script of its own, which finds its root with the first and names a file
+# with the second; the other four are what do_clock runs and no case of this
+# section stubs. They stand in $T/jail and not on the host's PATH, so a jailed
+# run is answered by the machine's program of that name or by nothing, and never
+# by an accident of the directory the tests happen to run in.
+clock_jailed_programs=(dirname basename install cp chmod uname)
+# clock_jail: give a jailed clock run those programs. It ends 1 when the host
+# has none of a name the case needs, which is a host that could not run the part
+# at all; the case then says what it did not check.
+clock_jail() {
+  local clock_program
+  for clock_program in "${clock_jailed_programs[@]}"; do
+    t_jail "$clock_program" || return 1
+  done
+}
 T_ENV=(BOOTSTRAP_ETC="$etc" BOOTSTRAP_OS_RELEASE="$T/os-ubuntu" PATH="$T_PATH")
 
 t_case "clock on a VM installs and enables the guest agent and writes the drop-in"
@@ -1119,8 +1136,12 @@ stat -c "%n %a" "${conf}.prev" "$conf" "${conf%/*}" | LC_ALL=C sort
 # A host with no systemd-detect-virt to ask: the part takes that as bare metal
 # and goes on, rather than stopping without a word about the clock. The probe is
 # stubbed by every case above, because the host running the tests may well have
-# the real program and would answer for the case otherwise; here it is taken
-# away again.
+# the real program and would answer for the case otherwise; here the stub is
+# taken away and the run is jailed, so no binary of the host can answer for the
+# name. The two assertions inside the run are the case's proof that this is a
+# host with no probe: they are asked of the jailed run itself, so a container
+# that happens to hold no systemd-detect-virt is not mistaken for the host the
+# case means, and a host that does hold one cannot answer the run.
 t_case "clock on a host without the probe goes on as on bare metal"
 for answer in none none; do
   fresh_clock
@@ -1128,10 +1149,22 @@ for answer in none none; do
   # so that the word 'none' reaches the helper as one argument of its own.
   # shellcheck disable=SC2086
   clock_stubs 0 $answer
-  # rm, and not t_stub: no systemd-detect-virt on the PATH at all is the host
-  # this case is about, and the host running the tests may well have one.
-  rm -f "$T/bin/systemd-detect-virt"
-  t_run "$bootstrap clock"
+  # t_unstub, and not t_stub: no systemd-detect-virt on the PATH at all is the
+  # host this case is about. What it prints is the path of the host's own probe
+  # where the machine has one; that path is no name the jailed run can see, and
+  # the two questions below are what says so, whether or not the host has one.
+  t_unstub systemd-detect-virt >/dev/null
+  # The tools the part runs, and the two the script of its own runs, come from
+  # the jail.
+  clock_jail
+  # The probe is absent where the run looks, and asking it ends 127: the status
+  # of a command the shell could not find, which is the part's sign of a host
+  # with nothing to ask.
+  t_run_path 'command -v systemd-detect-virt; echo rc=$?'
+  t_eq "$t_out" "rc=1"
+  t_run_path 'systemd-detect-virt --vm 2>/dev/null || echo "nothing to ask: rc=$?"'
+  t_eq "$t_out" "nothing to ask: rc=127"
+  t_run_path "$bootstrap clock"
   t_eq "$t_rc" 0
   t_contains "$t_out" "qemu-guest-agent: none on bare metal"
   t_eq "$(t_calls apt-get)" ""
@@ -1287,14 +1320,38 @@ t_eq "$([ -e "$conf.prev" ] && echo there)" ""
 # file there and its directory; this case asks what it says when it cannot make
 # them. t_run builds the run's environment with env -i, so the name has to be
 # taken away inside the line the run reads, and not only from T_ENV.
+#
+# The run is jailed, so the part reaches no real /etc at all: no install of the
+# host answers for the missing directory, and no file of the test user is made
+# there whatever the rights over /etc happen to be. A host with no install to
+# link is a host that could not run this part at all, so the case says which
+# half of itself it did not check instead of passing on the host's absence.
 t_case "clock on a host that gives no BOOTSTRAP_ETC says it cannot make the file"
 fresh_clock
 clock_stubs 0 '' chrony
-t_run "unset BOOTSTRAP_ETC; $bootstrap clock"
-t_eq "$t_rc" 1
-t_contains "$t_out" "cannot create directory '/etc/chrony"
-t_eq "$([ -e "$conf" ] && echo there)" ""
-t_eq "$([ -e "${conf}.prev" ] && echo there)" ""
+if ! clock_jail; then
+  t_skip "no install on this host to give the jailed run: the part could not make the directory here either"
+else
+  # This run has no BOOTSTRAP_ETC at all, so the part names its file under the
+  # real /etc, where the case then looks.
+  # The path the part would have written, with the name of this run's scratch
+  # directory in it: a file left at that second path was written by this run,
+  # and an earlier run of the same file had another $T and leaves nothing there.
+  run_conf=/etc/chrony/conf.d/$(basename "$T")/tehas.conf
+  t_run_path "unset BOOTSTRAP_ETC; $bootstrap clock"
+  t_eq "$t_rc" 1
+  # The words are a prefix and not the whole path: install names the parent it
+  # could not make, which is /etc/chrony where that exists and is not the test
+  # user's to write in, and the drop-in's own directory where nothing of
+  # chrony's is installed (157b2542 loosened this line for the same reason).
+  # What the case does not leave to the host is that the run ends 1 saying it,
+  # and that no file of this run stands under the real /etc afterwards.
+  t_contains "$t_out" "cannot create directory '/etc/chrony"
+  t_eq "$([ -e "$conf" ] && echo there)" ""
+  t_eq "$([ -e "${conf}.prev" ] && echo there)" ""
+  t_eq "$([ -e "${run_conf%/*}" ] && echo there)" ""
+  t_eq "$([ -e "$run_conf" ] && echo there)" ""
+fi
 
 t_case "clock writes under BOOTSTRAP_ETC and nowhere else"
 fresh_clock
