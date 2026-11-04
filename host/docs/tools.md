@@ -393,7 +393,8 @@ endpoint has been settled, the subagent provider's endpoint as one word
 gets past the settings and the bot's login, a paused one too, writes
 `~/tehas/live/demand.json`: how many issues would start if there were room,
 and when the oldest of them was accepted, refresh requests included, with
-`refreshHold` when refreshes are held. It reads the `tehas:ready` list and
+`refreshHold` when refreshes are held, and `labelAlone`, the issues
+`tehas:blocked` holds with no comment that names their blockers. It reads the `tehas:ready` list and
 who labelled each issue for that, apart from what a start rests on. The holds are listed
 under [Troubleshooting](/troubleshooting). Log:
 `~/tehas/logs/dispatch.log` when run by systemd, the terminal otherwise. Each
@@ -2106,6 +2107,13 @@ waiting:
 
 ```
 refresh   held: the pi-rukas in the sandbox image tehas/pi-rukas:uid1000 does not take --continue-pr
+```
+
+While [`tehas:blocked`](/operating#3-what-happens-next) holds issues by the
+label alone, with no comment that names their blockers (up to 50 numbers):
+
+```
+blocked   by the label alone, no blockers named: #7, #9. Each waits until an allowed account comments a `<!-- tehas:blocked by=N -->` marker on it or a person takes tehas:blocked off
 ```
 
 And while [`tehas:all-hands`](/operating#all-hands) holds:
