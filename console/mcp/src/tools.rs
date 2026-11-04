@@ -166,7 +166,7 @@ fn status_schema() -> Value {
             "stale",
             prop(
                 "boolean",
-                "True when it has not reported for ten minutes. Left out without a readable time.",
+                "True when time, queue.time or generatedAt is more than ten minutes old: the counts and the cycles can be that old. Left out when none of the three can be read.",
             ),
         ),
         (
@@ -811,7 +811,7 @@ fn build_entries() -> Value {
     let mut tools = json!([
         {
             "name": "factory_status",
-            "description": "Whether the factory is working, paused or failing, its queue counts, the running cycles and their steps, the demand waiting, and the platform it runs: the release, or the checkout's commit. Stale is true when the dispatcher has not reported for ten minutes.",
+            "description": "Whether the factory is working, paused or failing, its queue counts, the running cycles and their steps, the demand waiting, and the platform it runs: the release, or the checkout's commit. Stale is true when the dispatcher has not reported for ten minutes, or the queue snapshot is that old.",
             "inputSchema": none,
             "outputSchema": status_schema(),
         },
@@ -1243,7 +1243,20 @@ fn status(live: &Path) -> Result<Map<String, Value>, ToolError> {
             &spec_of_keys(&["generatedAt", "repo", "paused", "planning"]),
         ),
     );
-    if let Some(t) = health["time"].as_str().and_then(epoch) {
+    // The three times are of three writes: the health file, the queue
+    // snapshot it counted `queue` from, and the snapshot served beside it. A
+    // poll that could not read the queue still writes the health file, so a
+    // fresh `time` says nothing of the counts: the answer is as old as the
+    // oldest of them, and stale when that one is.
+    let oldest = [
+        &health["time"],
+        &checks["queue"]["time"],
+        &st["generatedAt"],
+    ]
+    .into_iter()
+    .filter_map(|t| t.as_str().and_then(epoch))
+    .min();
+    if let Some(t) = oldest {
         out.insert("stale".into(), json!(now() - t > STALE_SECS));
     }
     put(&mut out, "limit", pick(&checks["limit"], &spec["limit"]));
