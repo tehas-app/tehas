@@ -1024,21 +1024,34 @@ esac"
   t_stub apt-get
 }
 fresh_clock() { rm -rf "$etc/chrony" "$T"/calls/*; }
-# The programs of the machine a jailed clock run needs, named in the order the
-# part and the script that holds it ask for them. dirname and basename belong to
-# the script of its own, which finds its root with the first and names a file
-# with the second; the other four are what do_clock runs and no case of this
-# section stubs. They stand in $T/jail and not on the host's PATH, so a jailed
-# run is answered by the machine's program of that name or by nothing, and never
-# by an accident of the directory the tests happen to run in.
+# The programs of the machine a jailed clock run needs. dirname is what the
+# script of its own runs to find its root, and basename what its check part runs
+# to name a file; install, cp, chmod and uname are what do_clock and the guard
+# above it run, and no case of this section stubs cp but the two that mean it.
+# They stand in $T/jail and not on the host's PATH, so a jailed run is answered
+# by the machine's program of that name or by nothing, and never by an accident
+# of the directory the tests happen to run in. clock_tools above names the stubs
+# of this section; a new tool of the clock run belongs to exactly one of them.
 clock_jailed_programs=(dirname basename install cp chmod uname)
 # clock_jail: give a jailed clock run those programs. It ends 1 when the host
 # has none of a name the case needs, which is a host that could not run the part
-# at all; the case then says what it did not check.
+# at all; the case then says what it did not check. A name of the list that
+# stands as a stub is taken away first with clock_unstub, which the case with no
+# probe does for its own name: a jailed name answers before a stub of it, so the
+# two cannot both stand.
 clock_jail() {
   local clock_program
   for clock_program in "${clock_jailed_programs[@]}"; do
     t_jail "$clock_program" || return 1
+  done
+}
+# clock_unstub: take a name out of the way of the jail. The stubs stand behind
+# the jail on a jailed run's PATH, so a name the section has stubbed has to go
+# before the jail can answer for it.
+clock_unstub() {
+  local clock_program
+  for clock_program in "$@"; do
+    t_unstub "$clock_program" >/dev/null
   done
 }
 T_ENV=(BOOTSTRAP_ETC="$etc" BOOTSTRAP_OS_RELEASE="$T/os-ubuntu" PATH="$T_PATH")
@@ -1149,27 +1162,38 @@ for answer in none none; do
   # so that the word 'none' reaches the helper as one argument of its own.
   # shellcheck disable=SC2086
   clock_stubs 0 $answer
-  # t_unstub, and not t_stub: no systemd-detect-virt on the PATH at all is the
-  # host this case is about. What it prints is the path of the host's own probe
-  # where the machine has one; that path is no name the jailed run can see, and
-  # the two questions below are what says so, whether or not the host has one.
-  t_unstub systemd-detect-virt >/dev/null
-  # The tools the part runs, and the two the script of its own runs, come from
-  # the jail.
-  clock_jail
+  # No systemd-detect-virt and no uname of the earlier sections anywhere the
+  # jailed run looks: uname is stubbed above, and a jailed name answers before a
+  # stub of it. The two questions below assert the probe's absence for themselves,
+  # whether or not the host has one.
+  clock_unstub systemd-detect-virt uname
+  # The tools of the run come from the jail; a host with none of them could not
+  # run the part at all, so the case says what it did not check.
+  if ! clock_jail; then
+    t_skip "no clock tool on this host to give the jailed run: the part could not run here either"
+    continue
+  fi
   # The probe is absent where the run looks, and asking it ends 127: the status
   # of a command the shell could not find, which is the part's sign of a host
-  # with nothing to ask.
-  t_run_path 'command -v systemd-detect-virt; echo rc=$?'
-  t_eq "$t_out" "rc=1"
-  t_run_path 'systemd-detect-virt --vm 2>/dev/null || echo "nothing to ask: rc=$?"'
-  t_eq "$t_out" "nothing to ask: rc=127"
+  # with nothing to ask. One run answers both, so the pair is the case's
+  # precondition and not behaviour under test.
+  t_run_path 'command -v systemd-detect-virt; echo rc=$?; systemd-detect-virt --vm 2>/dev/null || echo "nothing to ask: rc=$?"'
+  t_eq "$t_out" "rc=1
+nothing to ask: rc=127"
   t_run_path "$bootstrap clock"
   t_eq "$t_rc" 0
   t_contains "$t_out" "qemu-guest-agent: none on bare metal"
   t_eq "$(t_calls apt-get)" ""
   t_eq "$(tail -n 1 "$conf")" "makestep 1 -1"
 done
+
+# The jail belongs to one case and not to the file. The case above gives its run
+# uname; this one jails no tool at all, so the host's uname must not answer for
+# the name a run of this case asks for. A jail that outlived its case would
+# satisfy the assertion below with the tool of the case before it.
+t_case "the jail of a clock case does not reach the case after it"
+t_run_path 'command -v uname; echo rc=$?'
+t_eq "$t_out" "rc=1"
 
 # The other name of the unit, on the distributions whose package calls it
 # chronyd: the part asks chrony first and, told no, asks chronyd. The helper's
@@ -1329,23 +1353,23 @@ t_eq "$([ -e "$conf.prev" ] && echo there)" ""
 t_case "clock on a host that gives no BOOTSTRAP_ETC says it cannot make the file"
 fresh_clock
 clock_stubs 0 '' chrony
+clock_unstub uname
 if ! clock_jail; then
   t_skip "no install on this host to give the jailed run: the part could not make the directory here either"
 else
   # This run has no BOOTSTRAP_ETC at all, so the part names its file under the
-  # real /etc, where the case then looks.
-  # The path the part would have written, with the name of this run's scratch
-  # directory in it: a file left at that second path was written by this run,
-  # and an earlier run of the same file had another $T and leaves nothing there.
-  run_conf=/etc/chrony/conf.d/$(basename "$T")/tehas.conf
+  # real /etc, where the case then looks. run_conf names this run's scratch
+  # directory, so a file left there was written by this run and not by an
+  # earlier one, which had another $T.
+  run_conf=/etc/chrony/conf.d/${T##*/}/tehas.conf
   t_run_path "unset BOOTSTRAP_ETC; $bootstrap clock"
   t_eq "$t_rc" 1
   # The words are a prefix and not the whole path: install names the parent it
   # could not make, which is /etc/chrony where that exists and is not the test
   # user's to write in, and the drop-in's own directory where nothing of
-  # chrony's is installed (157b2542 loosened this line for the same reason).
-  # What the case does not leave to the host is that the run ends 1 saying it,
-  # and that no file of this run stands under the real /etc afterwards.
+  # chrony's is installed. What the case does not leave to the host is that the
+  # run ends 1 saying it, and that no file of this run stands under the real
+  # /etc afterwards.
   t_contains "$t_out" "cannot create directory '/etc/chrony"
   t_eq "$([ -e "$conf" ] && echo there)" ""
   t_eq "$([ -e "${conf}.prev" ] && echo there)" ""
