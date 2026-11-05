@@ -15,6 +15,9 @@ pub const MAX_OPTIONS: usize = 20;
 /// share one string.
 pub const BOX_CLEAN: &str = "Retry from a clean start";
 pub const BOX_ALONE: &str = "Retry from the issue alone";
+/// The reason on record of a park over a lean start tehas work refused: a
+/// retry of it waits while the issue carries `tehas:lean`.
+pub const LEAN_REFUSED: &str = "lean-refused";
 
 /// The `sig` of a park marker: the hash of the park's fields, its free text
 /// in the hash only. The cycle writes it, the MCP server's `factory_park`
