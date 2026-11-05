@@ -9,9 +9,16 @@
 #
 # The commit it tags must have a CHANGELOG.md whose section for the new tag,
 # or else its Unreleased section, has an "### Adopter action" heading with at
-# least one line under it. Only the move of the pinned tools below edits
-# CHANGELOG.md: a person renames Unreleased to the version in the release's
-# pull request, or leaves it.
+# least one line under it, the lines of its changelog fragments
+# (changelog.d/*.md) counted. Only the collection of those fragments and the
+# move of the pinned tools below edit CHANGELOG.md: a person renames Unreleased
+# to the version in the release's pull request, or leaves it.
+#
+# When the head has changelog fragments, it moves their lines into that
+# section and deletes them (scripts/collect-changelog.sh), runs the gate,
+# pushes a branch changelog-<tag>, opens a pull request, and tags nothing: the
+# tag waits for a person to merge it. An open pull request from such a branch
+# holds the tag the same way. The pinned tools move on the next run.
 #
 # The tag is annotated: "Release <tag> - <message>", the message being the
 # subject of the head commit unless --message gives one.
@@ -54,8 +61,9 @@
 #   --major      v0.7.6 becomes v1.0.0
 #   --message    the tag's message instead of the head's subject
 #   --no-verify  skip scripts/verify.sh
-#   --dry-run    check CHANGELOG.md and print the tag it would make; make none,
-#                run no gate and check no polyfill
+#   --dry-run    check CHANGELOG.md and print the tag it would make, and the
+#                section with the fragments collected when there are any; make
+#                none, run no gate and check no polyfill
 #   --remote     the remote to read and push to, default origin
 #   --rukas-caps the --capabilities answer of that pi-rukas, from a file,
 #                instead of asking its image
@@ -65,9 +73,10 @@
 #       remote, GitHub or docker failed, the newest tag is not on the branch,
 #       CHANGELOG.md has no Adopter action for the release, a polyfill it keeps
 #       has no live upstream issue and pull request, a pinned tool could not be
-#       moved, or the gate failed; 2 nothing tagged: a pull request, named on
-#       stderr, removes polyfills or moves the pinned tools first; 64 a bad
-#       argument
+#       moved, the fragments could not be collected, or the gate failed;
+#       2 nothing tagged: a pull request, named on stderr, removes polyfills,
+#       collects the changelog fragments or moves the pinned tools first;
+#       64 a bad argument
 set -uo pipefail
 
 part="patch"
@@ -151,13 +160,26 @@ esac
 # CHANGELOG.md, so a release is not tagged without one. The section is the
 # tag's own when a person has already renamed it, else Unreleased; it is read
 # from the commit that is tagged, not from this checkout.
-if ! changelog=$(git show "$head:CHANGELOG.md" 2>/dev/null); then
+# The changelog fragments of that commit count as lines of the section they
+# will be collected into.
+scratch=$(mktemp -d "${TMPDIR:-/tmp}/tag-release.XXXXXX") || exit 1
+tree=$scratch/tree
+trap 'git worktree remove --force "$tree" >/dev/null 2>&1; rm -rf "$scratch"' EXIT
+mkdir "$scratch/notes" || exit 1
+if ! git show "$head:CHANGELOG.md" >"$scratch/notes/CHANGELOG.md" 2>/dev/null; then
   echo "tag-release: ${head:0:7} has no CHANGELOG.md; nothing was tagged" >&2
   exit 1
 fi
+if git cat-file -e "$head:changelog.d" 2>/dev/null &&
+  ! git archive "$head" changelog.d | tar -x -C "$scratch/notes"; then
+  echo "tag-release: cannot read the changelog fragments of ${head:0:7}" >&2
+  exit 1
+fi
+fragments=$(find "$scratch/notes/changelog.d" -maxdepth 1 -name '*.md' -type f 2>/dev/null | wc -l)
 section=""
 for name in "$next" Unreleased; do
-  section=$(scripts/release-notes.sh "$name" - <<<"$changelog" 2>/dev/null) && break
+  changelog=$(scripts/collect-changelog.sh --print --section "$name" "$scratch/notes/CHANGELOG.md" 2>/dev/null) &&
+    section=$(scripts/release-notes.sh "$name" - <<<"$changelog" 2>/dev/null) && break
   section=""
 done
 if [ -z "$section" ]; then
@@ -176,6 +198,10 @@ fi
 
 count=$(git rev-list --count "${latest:+$latest..}$head")
 if [ -n "$dry" ]; then
+  if [ "$fragments" -gt 0 ]; then
+    echo "tag-release: would collect $fragments changelog fragments into the $name section of CHANGELOG.md:" >&2
+    printf '%s\n' "$section" | sed 's/^/    /' >&2
+  fi
   echo "tag-release: would tag $branch at ${head:0:7} as $next ($count commits since ${latest:-the start})" >&2
   echo "$next"
   exit 0
@@ -183,10 +209,7 @@ fi
 
 # The head, checked out for the polyfills and the gate. A commit that removes
 # polyfills is made here too and pushed from here: no local branch is made.
-scratch=$(mktemp -d "${TMPDIR:-/tmp}/tag-release.XXXXXX") || exit 1
-tree=$scratch/tree
 fix=remove-polyfills-$next
-trap 'git worktree remove --force "$tree" >/dev/null 2>&1; rm -rf "$scratch"' EXIT
 if ! git worktree add --quiet --detach "$tree" "$head"; then
   echo "tag-release: cannot check out ${head:0:7}" >&2
   exit 1
@@ -291,6 +314,32 @@ if [ -n "$carried" ]; then
     echo "tag-release: $url removes them; merge it, then tag. Nothing was tagged" >&2
     exit 2
   fi
+fi
+
+if [ "$fragments" -gt 0 ]; then
+  open=$(open_pr changelog-) || {
+    echo "tag-release: cannot list the open pull requests" >&2
+    exit 1
+  }
+  if [ -n "$open" ]; then
+    echo "tag-release: $open collects the changelog fragments; merge it, then tag. Nothing was tagged" >&2
+    exit 2
+  fi
+  if ! collected=$(scripts/collect-changelog.sh --section "$name" "$tree/CHANGELOG.md"); then
+    echo "tag-release: the changelog fragments could not be collected; nothing was tagged" >&2
+    exit 1
+  fi
+  if [ -n "$verify" ] && ! (cd "$tree" && scripts/verify.sh) >&2; then
+    echo "tag-release: the gate failed with the changelog fragments collected; nothing was pushed or tagged" >&2
+    exit 1
+  fi
+  body="The lines of the changelog fragments, moved into the $name section of CHANGELOG.md, and the fragments deleted:"$'\n\n'
+  mapfile -t paths <<<"${collected//$tree\//}"
+  body+=$(printf -- '- %s\n' "${paths[@]}")$'\n\n'
+  body+="Opened by scripts/tag-release.sh, which tags $next once this is merged."
+  url=$(propose "changelog-$next" "Collect the changelog fragments into CHANGELOG.md" "$body") || exit 1
+  echo "tag-release: $url collects them; merge it, then tag. Nothing was tagged" >&2
+  exit 2
 fi
 
 if [ -n "$pins" ] && [ -x "$tree/scripts/pins.sh" ]; then

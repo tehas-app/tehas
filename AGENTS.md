@@ -115,6 +115,26 @@ its output. Do not run the whole gate yourself: the driver runs it on your
 work when you finish, and in a cycle's container it takes many minutes.
 Working by hand, run the whole gate once on the final state.
 
+## Changelog
+
+A change that a person running tehas would notice gets a line in the
+changelog. Do not edit `CHANGELOG.md`: add `changelog.d/<issue>.md` (named
+after the branch when there is no issue) with `### Changes` and, when an
+adopter has something to do after updating, `### Adopter action`:
+
+```
+### Changes
+
+- What changed, in the words of someone who runs tehas (#<issue>).
+
+### Adopter action
+
+What to do after updating, or leave the section out.
+```
+
+`scripts/release-notes.sh Unreleased` shows the Unreleased section with the
+fragments in it, and the release moves them into `CHANGELOG.md`.
+
 ## Commits
 
 One logical change per commit. Subject in the imperative or as a short
