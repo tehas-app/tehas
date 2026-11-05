@@ -19,7 +19,9 @@
 //! workspace and out of the state directory, and writes a later turn's answer
 //! there as answer.md. The first turn makes it anew; the caller removes it
 //! when the session ends. It holds:
-//!   brief.md        the approved text of the issue, then lib/issue-brief.md.
+//!   brief.md        the approved text of the issue, the ACCEPTANCE CRITERIA
+//!                   block of its pi-spec v1 criteria when it has them
+//!                   (`criteria_directive`), then lib/issue-brief.md.
 //!                   Every turn's workspace has it as .tehas/brief.md. The
 //!                   first turn gives it to the planner whole as the context,
 //!                   and its title, as `descriptor` reads it, as what to plan.
@@ -97,7 +99,7 @@ use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use tehas_core::plan::WHY_MAX;
+use tehas_core::plan::{criteria_directive, WHY_MAX};
 
 /// `find ! -size +1024k`: a carried file is at most this long.
 const CARRIED: u64 = tehas_core::file::READ_BOUND;
@@ -196,9 +198,14 @@ pub(super) fn workspace(works: &str, keep: &str, brief: Option<(&str, &str)>) ->
     0
 }
 
-/// Every session is told what a good issue is, after the text it plans.
+/// Every session is told what a good issue is, after the text it plans. The
+/// criteria of the request's `pi-spec v1` block go between the two, as the
+/// block pi-rukas reads criteria from: it reads none inside a fence.
 fn keep_brief(keep: &str, brief: &str, rules: &str) -> io::Result<()> {
     let mut text = fs::read(brief)?;
+    if let Some(criteria) = criteria_directive(&String::from_utf8_lossy(&text)) {
+        text.extend_from_slice(format!("\n\n{criteria}").as_bytes());
+    }
     text.extend_from_slice(b"\n\n---\n\n");
     text.extend(fs::read(rules)?);
     fs::write(format!("{keep}/brief.md"), text)
@@ -347,10 +354,16 @@ fn owned(words: &[&str]) -> Vec<String> {
     words.iter().map(|w| w.to_string()).collect()
 }
 
-pub(super) fn first(keep: &str, what: &str, issue: &str) -> Vec<String> {
+/// The first turn's words: what to plan, the brief as its context, the type
+/// the title's own type names (`descriptor`), so pi-rukas does not guess it
+/// from the words left, and the issue when the runner takes it.
+pub(super) fn first(keep: &str, what: &str, kind: Option<&str>, issue: &str) -> Vec<String> {
     let context = captured(fs::read(format!("{keep}/brief.md")).unwrap_or_default());
     let context = String::from_utf8_lossy(&context);
     let mut words = vec!["plan", what, "--start", "--context", &context];
+    if let Some(kind) = kind {
+        words.extend(["--type", kind]);
+    }
     if !issue.is_empty() {
         // pi-rukas 0.14.28 and later keep the issue itself out of the
         // duplicate check.
@@ -815,6 +828,16 @@ mod tests {
         assert_eq!(workspace(&works, &keep, briefs), 0);
         assert!(!s.has("keep/left-over"));
         assert_eq!(s.read("keep/brief.md"), "# Fast\n\n\n---\n\nrules\n");
+        // A request whose criteria are in its spec block has them said again
+        // where pi-rukas reads criteria, before the rules.
+        let spec =
+            "```pi-spec v1\n{\"criteria\": [{\"id\": \"AC1\", \"text\": \"It works.\"}]}\n```\n";
+        s.write("brief", &format!("# Fast\n\n{spec}"));
+        assert_eq!(workspace(&works, &keep, briefs), 0);
+        assert_eq!(
+            s.read("keep/brief.md"),
+            format!("# Fast\n\n{spec}\n\nACCEPTANCE CRITERIA:\n- AC1: It works.\n\n---\n\nrules\n")
+        );
     }
 
     #[test]
@@ -868,17 +891,32 @@ mod tests {
         let keep = s.at("keep");
         let context = "# T\n\nBody.";
         assert_eq!(
-            first(&keep, "T (issue #7)", ""),
+            first(&keep, "T (issue #7)", None, ""),
             owned(&["plan", "T (issue #7)", "--start", "--context", context])
         );
         assert_eq!(
-            first(&keep, "T (issue #7)", "7"),
+            first(&keep, "T (issue #7)", None, "7"),
             owned(&[
                 "plan",
                 "T (issue #7)",
                 "--start",
                 "--context",
                 context,
+                "--issue",
+                "7"
+            ])
+        );
+        // The type the title named goes to the planner, before the issue.
+        assert_eq!(
+            first(&keep, "T (issue #7)", Some("chore"), "7"),
+            owned(&[
+                "plan",
+                "T (issue #7)",
+                "--start",
+                "--context",
+                context,
+                "--type",
+                "chore",
                 "--issue",
                 "7"
             ])
