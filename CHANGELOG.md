@@ -13,6 +13,7 @@ empty one above it.
 
 ### Changes
 
+- A start whose approval says driver `lean` (`tehas:lean`) runs `pi-rukas-headless work-lean` instead of being refused, and `tehas work <issue> --driver lean|classic` picks the driver by hand. The image is checked for the `work-lean` flags, `leanHandoffHost`, `leanDeadline` and `workLeanResultSchema` 5; one without them, or a lean restart or refresh, is 78 and parks, and classic never runs in lean's place. `.pi/lean-state/` is excluded in a cycle's workspace.
 - The health file has `checks.mcp`: whether the MCP server is on, installed and answers a `POST /mcp` with no key (#1418). A server that is on and does not answer makes the health `warn`, so `/health` tells a stopped MCP server from a factory that is gone.
 - An allowed account is its login and its GitHub user id, not the login alone. `install.sh` and `tehas update` record the id of each login of `TEHAS_ALLOWED_LABELERS` and `TEHAS_MILLWRIGHT_LOGIN` in `~/tehas/state/account-ids`, and a label, retry tick, planning answer or comment counts only when its account carries that id. A login that was renamed and registered by someone else authorises nothing. A login that does not resolve, or whose id changed, stops both with 78 and names it; `tehas update --accept-id <login>` records the new id (#1493).
 - `bin/tehas` and `bin/tehasbot` are a few lines that run the console, which chooses the command, prints the usage and refuses an unknown one. With no console every command but `tehas setup` stops with 78 and one line, `tehas: no console at <path>: run install.sh`; `tehas top` and `tehas export` ended 1 there before. `tehas index` asks `tehas-cycle` for the checkout and the branch, and `lib/config.sh` loses `tehas_checkout` and `tehas_branch` (#1346).
@@ -20,8 +21,13 @@ empty one above it.
 - The dispatcher reads blockers from GitHub's native blocked-by links (#811). An issue with an open blocked-by link is not started, whatever label asks for it, and the log says `wait #N: a blocked-by link holds it`. A link only holds: once every blocker is closed the issue starts under the usual approval rules, so it still needs `tehas:ready` from an allowed labeller. The `<!-- tehas:blocked by=N -->` marked comment keeps working for this release beside the links; a forge answer without the field holds nothing by links. See [Ordering the queue](/operating).
 - `TEHAS_PRIORITY_FIELD` (unset) lets an organisation's single-select issue field order the queue in place of `tehas:urgent` and `tehas:next` (#812): `Urgent` counts as `tehas:urgent` when an allowed account made the newest change to the field, and `High` as `tehas:next` when an allowed account or the millwright did. On a repository of a personal account, which has no issue fields, the labels order the queue as before. A field an organisation does not have stops the poll with 78. Unset, the labels order the queue as before.
 - The manual: [The forge interface](/forge), what tehas asks of the site its issues live on, as a contract for a second adapter: each term of the trait, its GitHub mapping, and what a forge must offer at minimum (#815).
+
+- The business page's header shows the logo (`/fun/favicon.svg`), as the manual's header does, in place of the old mark it still drew beside the new favicon.
+- A new optional setting, `TEHAS_OWNER`: one person's GitHub login. When the dispatcher marks an issue `tehas:running` for a cycle, the same call assigns the issue to that account, so GitHub shows it as taken (#806). An assign GitHub refuses does not fail the claim: the issue is marked running without it and `logs/dispatch.log` says so. A bot's login or more than one login stops every command with 78, and `tehas setup` refuses a login GitHub cannot assign on `TEHAS_REPO`. Unset, nobody is assigned, as before.
 - A cycle's scratch has a size limit (#1547). With `TEHAS_SCRATCH_DIR` set, tehas work measures the cycle's scratch every 10 seconds and stops the cycle when it holds more than `TEHAS_SCRATCH_MAX` (20g by default), or when the scratch's file system has less than `TEHAS_CYCLE_STOP_FREE` free (5g by default) and this cycle's scratch is the largest there. The cycle ends `stopped` at the cap `disk`, and its report says which bound it passed. Before, one cycle that copied its container's root into its scratch filled the host's disk and stopped the dispatcher and the other cycles.
 - `tehas status`, `tehas status --json` (`held`) and the MCP `factory_status` answer (`held`) name each ready issue the dispatcher holds on its own, with the reason and what clears it: for now, an issue whose last cycle parked and whose body has not changed since (#1437). When every issue in line is held that way and no cycle runs, the health line is a `warn` that names them instead of "Idle, taking work.". Before, a factory whose one ready issue was held reported `pass` and taking work for hours.
+- The shell tests use the workspace's build, in `CARGO_TARGET_DIR` or `console/target`, instead of a second one in `console/target/shell`, which `scripts/test.sh` now removes. Each checkout's build is about 170 MB smaller (#1360).
+
 - An open issue whose title starts with an epic marker (`EPIC: ...`, `[Epic] ...`) gets the new `epic` label at each poll. tehas only adds it, and a person's removal is final. The label is for people: sub-issue links still make an epic for the dispatcher and the panel. `live/epics.json` gains `unlinked`, and `tehasbot health` warns about an open issue labelled `epic` with no sub-issues (`checks.epics`).
 - `scripts/verify.sh` checks the workspace's format and lints on every run, not only with `--full`; in CI a missing rustfmt or clippy fails. `tehas setup` runs `--full` on a factory that builds tehas, so unformatted code that passed CI stopped setup three times. `console/dispatch` is formatted again (#1486).
 - A cycle that hands off on `lens-fix-reposition` with its pull request open and its review not held waits for a merge (`tehas:awaiting-merge`) instead of parking. The branch already holds the first review round's fix; only the second round's could not be laid on it. It was the most common park from 2026-10-31.
@@ -46,6 +52,17 @@ empty one above it.
 
 ### Adopter action
 
+To run lean, rebuild the sandbox image on pi-rukas v0.14.47 or later. A
+lean start on an older image parks with what the image lacks.
+
+`console flags pause show` and `console flags pause read` are gone: a script
+which called one of them now gets 64 and the usage. The words of the flag are
+what `tehas status` prints, and the object is what `tehasbot status` publishes
+in `live/status.json` under `pause.flag`.
+
+A filter, script or search that looks for `STUCK: ` in pull request titles
+now looks for `HALT: `.
+
 Run `tehas update` (or `./install.sh`) once with GitHub reachable: until the
 user ids are recorded, no label, tick, answer or comment of an allowed account
 counts, and the poll says so on standard error. If it stops with 78 on a login
@@ -53,6 +70,8 @@ whose id changed, check that the account is still the person you mean, then
 run `tehas update --accept-id <login>`, or take the login out of the settings.
 
 Name an issue's blockers with GitHub's blocked-by links from now on. The `<!-- tehas:blocked by=N -->` comment still counts in this release and stops counting after it.
+
+To have claimed issues assigned, set `TEHAS_OWNER` in `instance.env` to a person's login with access to the repository. Nothing to do otherwise.
 
 `console flags pause show` and `console flags pause read` are gone: a script
 which called one of them now gets 64 and the usage. The words of the flag are

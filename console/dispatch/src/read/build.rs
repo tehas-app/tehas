@@ -506,25 +506,27 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
         return Ok(s);
     }
 
-    // The questions waiting for an answer.
-    let read = github::comments_of(calls, &c.repo, &asking);
+    // The questions waiting for an answer and the blocked candidates read their
+    // comments in one read of the whole list rather than of one issue at a
+    // time: one aliased query a chunk answers every asking issue and every
+    // blocked candidate the question read does not cover (#1198), and one call
+    // reads the states of the blockers the whole queue names (#1161).
+    let blocked = blocked_list(&q, &candidates, &asking);
+    let wanted: Vec<u64> = asking.iter().chain(&blocked).copied().collect();
+    let mut read = github::comments_of(calls, &c.repo, &wanted).into_iter();
     let mut asked_of: BTreeMap<u64, Value> = BTreeMap::new();
-    for (n, comments) in asking.iter().zip(read) {
+    for (n, comments) in asking.iter().zip(read.by_ref()) {
         let question = store::question(&asked, *n);
         let i = entry(&mut issues, *n);
         i["question"] = question;
         i["comments"] = comments.clone();
         asked_of.insert(*n, comments);
     }
-
-    // The blocked candidates read their comments and their blockers too, and
-    // both reads are asked of the whole list rather than of one issue at a
-    // time: one run of the comment read answers every blocked candidate, and
-    // one call reads the states of the blockers the whole queue names (#1161).
-    let (comments, states) = blocked_reads(calls, &c.repo, &q, &candidates, &asked_of);
+    let comments: BTreeMap<u64, Value> = blocked.into_iter().zip(read).collect();
+    let states = blocker_reads(calls, &c.repo, &q, &candidates, &comments, &asked_of);
 
     // The candidates of rule 6: what their start rests on. Membership of the
-    // blocked batch is decided once, in `blocked_reads`, and the rule's own test
+    // blocked batch is decided once, in `blocked_list`, and the rule's own test
     // is the same predicate, so the two cannot disagree about an issue.
     for n in candidates {
         let park = store::park(&asked, n);
@@ -545,7 +547,7 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
             continue;
         }
         // The comments are the batch's, or the question read's when that read
-        // answered the issue first; `blocked_reads` paid for the one it did not.
+        // answered the issue first; the one read paid for both.
         let read = comments.get(&n).cloned();
         let held = issues
             .get(&n.to_string())
@@ -614,69 +616,58 @@ fn is_blocked(q: &github::Queue, n: u64) -> bool {
         .any(|o| o.number == n && has(&o.labels, crate::decide::BLOCKED))
 }
 
-/// The blocked candidates of rule 6, and the two reads they cost: the comments
-/// of each, and the states of the blockers those comments name (#1161).
+/// The blocked candidates of rule 6 whose comments the poll reads beside the
+/// questions': each blocked one the question read does not already cover.
 ///
 /// Membership is decided once, by `is_blocked`, so the batch and the rule that
-/// consumes it cannot disagree about which issue is blocked.
+/// consumes it cannot disagree about which issue is blocked. The page is the
+/// one source of labels; an issue it did not answer for is not a blocked
+/// candidate. An asking issue is read once, by the question read, but it stays
+/// a candidate of rule 6: the rule writes its comments and its blockers from
+/// the answer it already has.
+fn blocked_list(q: &github::Queue, candidates: &[u64], asking: &[u64]) -> Vec<u64> {
+    candidates
+        .iter()
+        .copied()
+        .filter(|n| is_blocked(q, *n) && !asking.contains(n))
+        .collect()
+}
+
+/// The states of the blockers the blocked candidates' comments name, in one
+/// call for the union of them (#1161).
 ///
-/// An issue the question read already answered keeps that answer and pays no
-/// second call for it; the rule reads its comments out of the issue. The
-/// comment read answers every number it was given, in order, so a missing
-/// answer is a broken contract rather than a value to paper over. A queue that
-/// names no blocker is a list of none, and the poll pays no call for it.
-fn blocked_reads(
+/// The comment read answers every number it was given, in order, so a missing
+/// answer is a broken contract rather than a value to paper over. The union
+/// covers what the whole queue names, including the issues whose comments the
+/// question read gave. A queue that names no blocker is a list of none, and
+/// the poll pays no call for it.
+fn blocker_reads(
     calls: &mut Calls,
     repo: &str,
     q: &github::Queue,
     candidates: &[u64],
+    comments: &BTreeMap<u64, Value>,
     asked_of: &BTreeMap<u64, Value>,
-) -> (BTreeMap<u64, Value>, BTreeMap<u64, String>) {
-    let blocked: Vec<u64> = candidates
-        .iter()
-        .copied()
-        .filter(|n| {
-            // The page is the one source of labels; an issue it did not answer
-            // for is not a blocked candidate. An issue the question read already
-            // gave its comments is not asked again either, but it stays a
-            // candidate of rule 6: the rule writes its comments and its blockers
-            // from the answer it already has.
-            is_blocked(q, *n) && !asked_of.contains_key(n)
-        })
-        .collect();
-    let read = github::comments_of(calls, repo, &blocked);
-    let mut comments: BTreeMap<u64, Value> = BTreeMap::new();
+) -> BTreeMap<u64, String> {
     let mut union: Vec<u64> = Vec::new();
-    for (n, answer) in blocked.into_iter().zip(read) {
-        comments.insert(n, answer);
-    }
-    // The union covers what the whole queue names, including the issues whose
-    // comments the question read gave: their blockers are named from that
-    // answer, so no second call is paid for their comments but their blocker
-    // states are still read in this one call.
     for n in candidates {
         if !is_blocked(q, *n) {
             continue;
         }
-        let answer = match comments.get(n) {
-            Some(c) => c.clone(),
-            None => match asked_of.get(n) {
-                Some(c) => c.clone(),
-                None => continue,
-            },
+        let Some(answer) = comments.get(n).or_else(|| asked_of.get(n)) else {
+            continue;
         };
-        union.extend(crate::decide::named_blockers(&answer));
+        union.extend(crate::decide::named_blockers(answer));
     }
     union.sort_unstable();
     union.dedup();
     // The states arrive by number, so an issue's map is built from the typed
     // answer rather than from stringified JSON: a number GitHub did not answer
     // is simply absent, which is what decide reads as "unreadable".
-    let states: BTreeMap<u64, String> = github::blocker_states(calls, repo, &union)
+    github::blocker_states(calls, repo, &union)
         .into_iter()
         .filter_map(|(k, v)| Some((k.parse().ok()?, v.as_str()?.to_string())))
-        .collect();
-    (comments, states)
+        .collect()
 }
 
 /// Whether the poll stops at the pause, as decide's pause_flag and
@@ -1038,7 +1029,20 @@ for word in $(cat "$here/../words"); do
   case "$line" in
     *"$word"*)
       case "$a" in
-        .*) key=$(printf '%s' "$line" | sed -n 's|.*/issues/\([0-9]*\)/events.*|\1|p')
+        .*) keys=$(printf '%s' "$line" | grep -o 'i[0-9]*: issue(number:' | sed 's/^i\([0-9]*\):.*/\1/')
+            if [ -n "$keys" ]; then
+              # A chunk of the comment read: one alias an issue, and a refused
+              # issue refuses the whole chunk, as GitHub refuses the one query.
+              acc='{}'
+              for key in $keys; do
+                [ -f "$here/../broken-$key" ] && { printf '%s' "$(cat "$here/../broken-$key")" >&2; printf '{}' >"$out"; answer 1; }
+                [ -f "$here/../$a$key" ] || { printf '{}' >"$out"; answer 1; }
+                acc=$(jq -c --arg k "i$key" --argjson acc "$acc" '$acc + {($k): .data.repository.issue}' "$here/../$a$key")
+              done
+              printf '{"data":{"repository":%s}}' "$acc" >"$out"
+              answer 0
+            fi
+            key=$(printf '%s' "$line" | sed -n 's|.*/issues/\([0-9]*\)/events.*|\1|p')
             [ -n "$key" ] || key=$(printf '%s' "$line" | sed -n 's/.*number=\([0-9]*\).*/\1/p')
             f="$here/../$a$key"
             [ -f "$here/../broken-$key" ] && { printf '%s' "$(cat "$here/../broken-$key")" >&2; printf '{}' >"$out"; answer 1; }
@@ -1130,6 +1134,87 @@ esac"#,
         lines.extend(body.lines().map(str::to_string));
         lines.push("answer 0".to_string());
         tehas_core::testing::write_exe(bin.join(name), lines.join("\n") + "\n").unwrap();
+    }
+
+    /// Whether a comment call asks for the comments of #n: its alias in the
+    /// chunk's one query.
+    fn asks(call: &str, n: u64) -> bool {
+        call.contains(&format!("i{n}: issue(number: {n})"))
+    }
+
+    /// The blocked world widened to `count` issues from #21, each named by the
+    /// page, labelled blocked and held by #11: enough of them to fill more than
+    /// one chunk of the comment read.
+    fn wide_world(count: u64) -> Value {
+        let mut w = world();
+        let template = w["queue"]["data"]["repository"]["issues"]["nodes"][0].clone();
+        let comment = w["comments"]["21"].clone();
+        let labeled = w["events"]["21"].clone();
+        let numbers: Vec<u64> = (21..21 + count).collect();
+        w["queue"]["data"]["repository"]["issues"]["nodes"] = numbers
+            .iter()
+            .map(|n| {
+                let mut node = template.clone();
+                node["number"] = json!(n);
+                node["title"] = json!(format!("issue {n}"));
+                node
+            })
+            .collect();
+        w["blocked"] = numbers
+            .iter()
+            .map(|n| json!({"number": n, "labels": [{"name": crate::decide::BLOCKED}]}))
+            .collect();
+        w["events"] = numbers
+            .iter()
+            .map(|n| (n.to_string(), labeled.clone()))
+            .collect::<serde_json::Map<String, Value>>()
+            .into();
+        w["comments"] = numbers
+            .iter()
+            .map(|n| (n.to_string(), comment.clone()))
+            .collect::<serde_json::Map<String, Value>>()
+            .into();
+        w
+    }
+
+    /// A world whose blocked issues all could start: the control issue's events
+    /// are read, and every blocker is closed.
+    fn startable(mut w: Value) -> Value {
+        w["events"]["1"] = json!([]);
+        // The markers are an allowed account's, so the rule trusts them.
+        for (_, c) in w["comments"].as_object_mut().into_iter().flatten() {
+            c["data"]["repository"]["issue"]["comments"]["nodes"][0]["author"]["login"] =
+                json!("alice");
+        }
+        w["states"] = json!({"data": {"repository": {
+            "b11": {"state": "CLOSED"}, "b12": {"state": "CLOSED"},
+            "b13": {"state": "CLOSED"}}}});
+        w
+    }
+
+    /// A snapshot given the room of a quiet host, as the fixtures' world has it:
+    /// a slice with nothing in it and disk to spare, so what the rules decide
+    /// rests on the issues alone.
+    fn roomy(mut snap: Value) -> Value {
+        const GIB: u64 = 1_073_741_824;
+        snap["slice"] = json!({
+            "show": {"FragmentPath": "/etc/systemd/system/tehas.slice", "ActiveState": "active",
+                     "MemoryMax": (20 * GIB).to_string()},
+            "docker": "systemd 2",
+            "controllers": "cpuset cpu io memory hugetlb pids rdma misc",
+            "cpus": "8",
+            "root": "/sys/fs/cgroup",
+            "scopes": {},
+            "pressure": "some avg10=0.00 avg60=0.00 avg300=0.00 total=0\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=0",
+        });
+        snap["disk_kb"] = json!(40 * 1_048_576u64);
+        // The store stub answers no batch, so each issue's store records are
+        // the quiet ones the fixtures give: no park and no approval.
+        for (_, i) in snap["issues"].as_object_mut().into_iter().flatten() {
+            i["park"] = Value::Null;
+            i["approval"] = Value::Null;
+        }
+        snap
     }
 
     /// The calls the stub of `name` recorded, in the order it wrote them.
@@ -1236,22 +1321,27 @@ esac"#,
         let blocked_len = w["blocked"].as_array().unwrap().len();
         let (snap, calls, gh_count, store) = poll(&w, &[]);
 
-        // One run of the comment read stood for the whole list, and it asked
-        // only of the blocked issues: a per-issue read pays `blocked_len` calls,
-        // and a batch widened past the list carries a number no rule reads.
+        // One aliased query stood for the whole list, and it asked only of the
+        // blocked issues: a per-issue read pays `blocked_len` calls, and a batch
+        // widened past the list carries a number no rule reads (#1198).
         let comment_calls = queries(&calls, COMMENT_MARK);
         assert_eq!(
             comment_calls.len(),
-            blocked_len,
-            "one comment call per blocked issue, none for any other: {calls:?}"
+            1,
+            "one comment call for the {blocked_len} blocked issues: {calls:?}"
         );
         for n in 21..=23 {
-            let mine: Vec<&String> = comment_calls
-                .iter()
-                .filter(|c| c.contains(&format!("number={n}")))
-                .collect();
-            assert_eq!(mine.len(), 1, "issue {n} is asked for its comments once");
+            assert!(
+                asks(&comment_calls[0], n),
+                "issue {n} is asked for its comments: {}",
+                comment_calls[0]
+            );
         }
+        assert_eq!(
+            comment_calls[0].matches(": issue(number:").count(),
+            blocked_len,
+            "the query asks of the blocked issues and of no other"
+        );
         // The states of every blocker are one call. #23 names #13, which no
         // other issue names, so a read of the same list one issue at a time
         // costs three calls here, not one.
@@ -1447,34 +1537,135 @@ esac"#,
         assert_eq!(snap["issues"]["21"]["comments"], world["comments"]["21"]);
     }
 
-    /// A blocked issue whose comment read GitHub refused is a failed read, not
-    /// an empty one: the snapshot holds `{"failed": true}`, which
-    /// `Snapshot::parse` turns into no comments at all, and decide ends the
-    /// poll on it rather than reading the issue as one that names no blocker.
+    /// A chunk whose comment query GitHub refused is a failed read for every
+    /// issue of it, not an empty one: the snapshot holds `{"failed": true}` for
+    /// each, which `Snapshot::parse` turns into no comments at all, and decide
+    /// ends the poll on it rather than reading an issue as one that names no
+    /// blocker, so a hold stays a hold and nothing starts.
     #[test]
-    fn a_blocked_issue_whose_comment_read_failed_is_a_failed_read() {
-        let w = world();
+    fn a_failed_chunk_holds_every_issue_of_it_and_starts_nothing() {
+        let w = startable(world());
+        // With every read answered, the poll goes as far as a start.
+        let (snap, _, _, _) = poll(&w, &[]);
+        let d = crate::decide::decide(&Snapshot::parse(&roomy(snap)), &settings(), true);
+        assert!(
+            !d.picked.is_empty(),
+            "the answered world starts: {:?}",
+            d.log
+        );
+        // #22's read is refused, and #22 shares its chunk with #21 and #23.
         let (snap, calls, _, _) = poll(&w, &[22]);
-        assert_eq!(snap["issues"]["22"]["comments"], json!({"failed": true}));
         let parsed = Snapshot::parse(&snap);
-        assert!(
-            parsed.issues[&22].comments.is_none(),
-            "the issue whose read failed has no comments to decide on"
-        );
-        assert!(
-            parsed.issues[&21].comments.is_some(),
-            "the issues whose reads answered still have theirs"
-        );
-        // The read of the issue whose call met a bad minute is tried once again,
-        // the one retry a call is owed, so the batch of three reads is asked five
-        // times: that one twice and the other two once each. The issue is still
-        // left with the failed answer, retry and all.
+        for n in 21..=23 {
+            assert_eq!(
+                snap["issues"][n.to_string()]["comments"],
+                json!({"failed": true}),
+                "issue {n} shares the refused chunk"
+            );
+            assert!(
+                parsed.issues[&n].comments.is_none(),
+                "issue {n} has no comments to decide on"
+            );
+        }
+        // The chunk met an HTTP 500, which the rule of `retry` owes its retries
+        // to: the one query is asked again whole, never one issue at a time, so
+        // every comment call of the poll is that same chunk.
+        let comment_calls = queries(&calls, COMMENT_MARK);
         assert_eq!(
-            queries(&calls, COMMENT_MARK).len(),
-            5,
-            "each blocked issue is asked once, and the failure once again: \
-             {calls:?}"
+            comment_calls.len(),
+            3,
+            "the chunk and its two retries: {calls:?}"
         );
+        assert!(
+            comment_calls.iter().all(|c| c == &comment_calls[0]),
+            "a retry asks the chunk again whole: {comment_calls:?}"
+        );
+        let d = crate::decide::decide(&Snapshot::parse(&roomy(snap.clone())), &settings(), true);
+        assert!(d.picked.is_empty(), "nothing starts: {:?}", d.picked);
+        assert_ne!(d.exit, 0, "the poll ends on the failed read: {:?}", d.log);
+        assert!(
+            d.log.iter().any(|l| l.starts_with("ERROR:")),
+            "the poll says the read failed: {:?}",
+            d.log
+        );
+    }
+
+    /// The comment read asks ten issues a query: twelve blocked issues are two
+    /// chunks, each issue asked once. A chunk that failed holds its own issues
+    /// and spoils none of the other chunk's answers.
+    #[test]
+    fn the_comment_read_asks_ten_issues_a_query_and_a_failed_chunk_spoils_only_its_own() {
+        let w = startable(wide_world(12));
+        assert_eq!(github::COMMENT_CHUNK, 10, "the chunk this case is cut to");
+        let (snap, calls, _, _) = poll(&w, &[]);
+        let comment_calls = queries(&calls, COMMENT_MARK);
+        assert_eq!(comment_calls.len(), 2, "two chunks: {calls:?}");
+        for n in 21..=32 {
+            assert_eq!(
+                comment_calls.iter().filter(|c| asks(c, n)).count(),
+                1,
+                "issue {n} is asked once"
+            );
+            assert_eq!(
+                snap["issues"][n.to_string()]["comments"],
+                w["comments"][n.to_string()]
+            );
+        }
+        let sizes: Vec<usize> = comment_calls
+            .iter()
+            .map(|c| c.matches(": issue(number:").count())
+            .collect();
+        assert_eq!(sizes.iter().max(), Some(&10), "{sizes:?}");
+        assert_eq!(sizes.iter().sum::<usize>(), 12, "{sizes:?}");
+
+        // #32 is refused: its chunk is #31 and #32.
+        let (snap, _, _, _) = poll(&w, &[32]);
+        for n in 21..=30 {
+            assert_eq!(
+                snap["issues"][n.to_string()]["comments"],
+                w["comments"][n.to_string()],
+                "issue {n} keeps the answer of its own chunk"
+            );
+        }
+        for n in [31u64, 32] {
+            assert_eq!(
+                snap["issues"][n.to_string()]["comments"],
+                json!({"failed": true})
+            );
+        }
+        // The answered chunk's issues start as they would have; the refused
+        // chunk's are held.
+        let d = crate::decide::decide(&Snapshot::parse(&roomy(snap.clone())), &settings(), true);
+        assert!(
+            !d.picked.is_empty(),
+            "the answered chunk starts: {:?}",
+            d.log
+        );
+        assert!(
+            !d.picked.iter().any(|n| [31, 32].contains(n)),
+            "the refused chunk's issues are held: {:?}",
+            d.picked
+        );
+
+        // #21 is refused: its chunk is #21 to #30, which the rule reaches first.
+        let (snap, _, _, _) = poll(&w, &[21]);
+        for n in 21..=30 {
+            assert_eq!(
+                snap["issues"][n.to_string()]["comments"],
+                json!({"failed": true}),
+                "issue {n} shares the refused chunk"
+            );
+        }
+        for n in [31u64, 32] {
+            assert_eq!(
+                snap["issues"][n.to_string()]["comments"],
+                w["comments"][n.to_string()],
+                "issue {n} keeps the answer of its own chunk"
+            );
+        }
+        let d = crate::decide::decide(&Snapshot::parse(&roomy(snap.clone())), &settings(), true);
+        assert!(d.picked.is_empty(), "nothing starts: {:?}", d.picked);
+        assert_ne!(d.exit, 0, "the poll ends on the failed chunk: {:?}", d.log);
     }
 
     /// A merged blocker call that answers nothing leaves every blocked issue
@@ -1516,17 +1707,15 @@ esac"#,
         w["asking"] = json!([{"number": 22, "labels": [{"name": "tehas:question"}]}]);
         let (snap, calls, _, _) = poll(&w, &[]);
         let comment_calls = queries(&calls, COMMENT_MARK);
-        // Three blocked issues, one of them already answered by the question
-        // read: the poll pays for two, not three.
+        // The question read and the blocked read are one query: the asking
+        // issue is in it once, beside the two blocked issues it does not cover.
+        assert_eq!(comment_calls.len(), 1, "{calls:?}");
         assert_eq!(
-            comment_calls
-                .iter()
-                .filter(|c| c.contains("number=22"))
-                .count(),
+            comment_calls[0].matches("i22: issue(number: 22)").count(),
             1,
             "the double-labelled issue is asked for its comments once: {calls:?}"
         );
-        assert_eq!(comment_calls.len(), 3, "{calls:?}");
+        assert_eq!(comment_calls[0].matches(": issue(number:").count(), 3);
         assert_eq!(
             snap["issues"]["22"]["comments"], w["comments"]["22"],
             "the issue keeps the answer the question read gave"
@@ -1554,9 +1743,10 @@ esac"#,
         ]);
         let (snap, calls, _, _) = poll(&w, &[]);
         let comment_calls = queries(&calls, COMMENT_MARK);
-        assert_eq!(comment_calls.len(), 2, "{calls:?}");
+        assert_eq!(comment_calls.len(), 1, "{calls:?}");
+        assert!(asks(&comment_calls[0], 21) && asks(&comment_calls[0], 22));
         assert!(
-            !comment_calls.iter().any(|c| c.contains("number=23")),
+            !comment_calls.iter().any(|c| asks(c, 23)),
             "an issue off the page is not asked: {calls:?}"
         );
         // Its blockers are not asked of the merged call either: the union holds
