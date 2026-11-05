@@ -33,7 +33,9 @@
 //!                   Only plain files are carried, at most 1 MB each. Nothing
 //!                   new is mounted and the container is given nothing new.
 //!   exit            the runner's exit status of the last turn.
-//!   draft.json      the title and spec of the last drafted plan (exit 12).
+//!   draft.json      the title and spec of the last drafted plan (exit 12),
+//!                   and "block": the `pi-spec v1` block pi-rukas placed at
+//!                   the top of the spec, when it placed one.
 //!   images/         the issue's images, with TEHAS_WORK_IMAGES=1, and its
 //!                   text files, with TEHAS_WORK_FILES=1: fetched on the first
 //!                   turn as tehas work fetches a cycle's. Each turn is given
@@ -98,7 +100,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tehas_core::plan::WHY_MAX;
 
 /// `find ! -size +1024k`: a carried file is at most this long.
-const CARRIED: u64 = 1024 * 1024;
+const CARRIED: u64 = tehas_core::file::READ_BOUND;
 const POLL: Duration = Duration::from_millis(250);
 /// Where pi-rukas keeps a session, inside the clone.
 const SESSIONS: &str = ".git/pi-plan-sessions";

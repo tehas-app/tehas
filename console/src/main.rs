@@ -36,6 +36,11 @@
 //! src/preview.rs, and whether the previews' network keeps the host out, see
 //! src/edge.rs.
 //!
+//!   console pins check|move --root <dir> ...
+//!
+//! The release's move of the pinned tools to the newest minor and patch of
+//! their major, see src/pins/mod.rs.
+//!
 //!   console plan update|descriptor ...
 //!
 //! What a planning turn says and does on the host, see src/plan.rs; `tehas
@@ -161,6 +166,11 @@
 //! The commands of bin/tehas and bin/tehasbot that are verbs of this program,
 //! and the text of tehas help, see src/commands.rs.
 //!
+//!   console front <libexec dir> <euid> <bash> tehas|tehasbot [words]
+//!
+//! What bin/tehas and bin/tehasbot exec: which command a word names, its text,
+//! and what runs it, see src/front.rs.
+//!
 //!   console run <libexec dir> <euid> <bash> tehas|tehasbot <command> ...
 //!
 //! A command under the instance's settings: its check, the load, what it
@@ -187,9 +197,11 @@ mod export;
 mod flags;
 mod forge;
 mod frame;
+mod front;
 mod github;
 mod health;
 mod history;
+mod ids;
 mod improve;
 mod label;
 mod labels;
@@ -197,6 +209,7 @@ mod mcp;
 mod models;
 mod notice;
 mod now;
+mod pins;
 mod plan;
 mod platform;
 mod pr_title;
@@ -423,6 +436,10 @@ fn main() -> ExitCode {
     // of its command when that command has one.
     let words = std::env::args_os().skip(1);
     let words: Vec<String> = words.map(|a| a.to_string_lossy().into_owned()).collect();
+    if words.first().is_some_and(|w| w == "front") {
+        let given: Vec<std::ffi::OsString> = std::env::args_os().skip(2).collect();
+        return ExitCode::from(front::main(&given));
+    }
     if words.first().is_some_and(|w| w == "run") {
         let text = std::env::args_os().all(|a| a.to_str().is_some());
         return ExitCode::from(run::main(&words[1..], text));
@@ -451,12 +468,14 @@ fn main() -> ExitCode {
             Some("slice") => return ExitCode::from(slice::main(&given[1..])),
             Some("health") => return ExitCode::from(health::main(&given[1..])),
             Some("improve") => return ExitCode::from(improve::main(&given[1..])),
+            Some("ids") => return ExitCode::from(ids::main(&given[1..])),
             Some("label") => return ExitCode::from(label::main(&given[1..])),
             Some("models") => return ExitCode::from(models::main(&given[1..])),
             Some("state") => return ExitCode::from(state::main(&given[1..])),
             Some("status") => return ExitCode::from(status::main(&given[1..])),
             Some("shipped") => return ExitCode::from(shipped::main(&given[1..])),
             Some("tidy") => return ExitCode::from(tidy::main(&given[1..])),
+            Some("pins") => return ExitCode::from(pins::main(&given[1..])),
             Some("plan") => return ExitCode::from(plan::main(&given[1..])),
             Some("pr-title") => return ExitCode::from(pr_title::main(&given[1..])),
             Some("protolab") => return ExitCode::from(protolab::main(&given[1..])),

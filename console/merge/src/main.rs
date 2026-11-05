@@ -34,7 +34,7 @@ const BOUND: Duration = Duration::from_secs(900);
 
 /// The most of one stream a command may write. What the merge reads is names
 /// and lines.
-const KEPT: usize = 1 << 20;
+const KEPT: usize = tehas_core::file::READ_BOUND_LEN;
 
 const SCRUBBED: [&str; 15] = [
     "GIT_DIR",

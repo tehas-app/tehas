@@ -58,7 +58,8 @@ listed here when a release has it.
 1. Ask [`tehas api --json`](#tehas-api) once: the API version, and whether
    this release has the feature the program needs.
 2. Poll [`tehas status --json`](#tehas-status---json) every minute or so.
-   `stale: true` means the dispatcher has not reported for ten minutes.
+   `stale: true` means the dispatcher has not reported for ten minutes:
+   what it says may be that old.
 3. Share model time with [`tehas limit set`](#tehas-limit), always with an
    expiry (`--for`), and set it again before it runs out. If the program
    stops, the limit expires and the factory starts nothing, rather than
@@ -193,7 +194,7 @@ tehas status --json
 | `allHands` | `tehas:all-hands` holds on the control issue: it is on the issue and an allowed account applied it. It changes nothing in this factory. Left out when the last snapshot could not read it or is more than ten minutes old |
 | `limit` | The limit, as [`tehas limit --json`](#tehas-limit) prints it without `api` and `reason`: `{"state": "none"}` when none is set |
 | `running` | The running cycles: `issue`, `since` (when it started) and `step` (left out when not known yet) |
-| `planning` | The planning turns in flight: `issue`, `turn` (the session's turn that runs, from 1) and `since` (when it started; left out for a turn started before this was kept) |
+| `planning` | The planning turns in flight: `issue`, `turn` (the session's turn that runs, from 1) and `since` (when it started; left out for a turn started before this was kept). A session whose last turn ended in error and waits for a person is not in flight and is not here; the text summary has a line for it |
 | `demand.waiting` | Open issues that would start if there were room: `tehas:ready` applied last by an account in `TEHAS_ALLOWED_LABELERS` or the millwright, with no cycle and no planning session open, and the refresh requests waiting, unless refreshes are held |
 | `demand.oldestWait` | Seconds since the oldest of them was labelled or asked for; left out when none waits |
 | `demand.labelAlone` | The issues `tehas:blocked` holds by the label alone, by number, at most 50: the label counts, and no comment of an allowed labeller or the millwright names their blockers, so they never start until one does or a person takes the label off. A marker in the issue's body is not read. Left out when there are none |
@@ -234,6 +235,13 @@ tehas status --json
 | `room.slots.container.ceiling` | `TEHAS_CYCLE_CEILING` as written, or its default |
 | `room.slots.container.floored` | `true` when the memory or the size was no reading and 2 containers are in force |
 | `room` | `null` when no poll got as far as the room check in the last ten minutes, as while the factory is paused |
+
+Everything in the object is as the health file wrote it at `time`, and is
+`age` seconds old. The dispatcher writes it at each poll, every two minutes,
+and when a cycle ends, so `running` and `room` can miss a cycle that started
+since: it is in neither until the next poll. They can be up to ten minutes
+old before `stale` is true. A program that acts on a free slot or an idle
+issue reads `age` first.
 
 `demand.waiting` is not the exact count of what would start: the poll still
 checks, at a start, that the text is unchanged since the label, that no open
@@ -414,9 +422,10 @@ so the person who opens the archive can be someone else.
 
 Exit 0 when it copied, also when there was nothing to copy; 64 on a bad
 argument, an export into the factory's home, or a directory it cannot make,
-which copies nothing; 78 without an instance, without a valid `TEHAS_REPO`, or
-when the state store is not installed or cannot be used, which copies nothing;
-1 with no console to mask with, or when the store stayed busy for the history, which copies nothing.
+which copies nothing; 78 without an instance, without a valid `TEHAS_REPO`,
+with no console to mask with, or when the state store is not installed or
+cannot be used, which copies nothing; 1 when the store stayed busy for the
+history, which copies nothing.
 
 ## tehas state
 
