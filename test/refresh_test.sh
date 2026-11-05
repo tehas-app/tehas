@@ -65,7 +65,7 @@ t_run "$refresh"
 t_eq "$t_rc" 0
 t_eq "$(jq -c '{pr, head_sha, base_sha}' "$dir/7.json")" "{\"pr\":50,\"head_sha\":\"$head_a\",\"base_sha\":\"$base_c\"}"
 t_contains "$(jq -r .at "$dir/7.json")" "T"
-t_contains "$(cat "$logfile")" "read 1 pull requests, 1 conflict, wrote 1 requests"
+t_contains "$(cat "$logfile")" "read 1 pull requests: 1 conflict, 0 unknown, 0 not ours to refresh, wrote 1 requests"
 
 t_case "a request for the same head keeps its time; a moved head gets a new one"
 reset
@@ -86,7 +86,20 @@ prs "$(pr 50 7 '.mergeable = "MERGEABLE"')" "$(pr 51 8 '.mergeable = "UNKNOWN"')
 t_run "$refresh"
 t_eq "$t_rc" 0
 t_eq "$(requests)" ""
-t_contains "$(cat "$logfile")" "read 2 pull requests, 0 conflict, wrote 0 requests"
+t_contains "$(cat "$logfile")" "read 2 pull requests: 0 conflict, 1 unknown, 0 not ours to refresh, wrote 0 requests"
+
+t_case "a mix of conflicting, unknown and not ours says each count of the page"
+reset
+# Nine read: one conflict, two UNKNOWN, three not ours (another account's, a
+# fork, a draft the rule rejects) and three of the bot's that do not conflict.
+prs "$(pr 50 7)" "$(pr 51 8 '.mergeable = "UNKNOWN"')" "$(pr 52 9 '.mergeable = "UNKNOWN"')" \
+  "$(pr 53 10 '.author.login = "alice"')" "$(pr 54 11 '.isCrossRepository = true')" \
+  "$(pr 55 12 '.isDraft = true | .closingIssuesReferences.nodes[0].labels.nodes = [{name: "tehas:running"}]')" \
+  "$(pr 56 13 '.mergeable = "MERGEABLE"')" "$(pr 57 14 '.mergeable = "MERGEABLE"')" "$(pr 58 15 '.mergeable = null')"
+t_run "$refresh"
+t_eq "$t_rc" 0
+t_eq "$(requests)" "7.json"
+t_contains "$(cat "$logfile")" "read 9 pull requests: 1 conflict, 2 unknown, 3 not ours to refresh, wrote 1 requests"
 
 t_case "UNKNOWN keeps a request it had; MERGEABLE removes it"
 reset

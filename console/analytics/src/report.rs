@@ -698,10 +698,14 @@ pub fn sizes(conn: &Connection, ledger: &[Size], to: i64) -> rusqlite::Result<Va
             // the window shipped nothing.
             if *merged >= s.at {
                 a.shipped += 1;
-                // The view's lead is its own `merged - ready`, so it is never
-                // negative; a row with no ready behind it holds none at all.
+                // A lead is `merged - ready`, and a merge stamped before the
+                // ready behind it gives a negative one: the issue shipped, but
+                // it brings no lead, counted as `refine` counts it. A row with
+                // no ready behind it holds none at all.
                 if let Some(l) = lead {
-                    a.leads.push(*l);
+                    if *l >= 0 {
+                        a.leads.push(*l);
+                    }
                 }
             }
         }

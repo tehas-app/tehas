@@ -230,7 +230,9 @@ before schema 2 holds no rows, and the report prints no `Gate` line for it.
 
 The key is `(issue, event)`: the first time only. Lead time runs from the
 first accepted `ready` to the merge. An issue whose `ready` is older than ten
-days has no lead time here.
+days has no lead time here. A recorded time ahead of the host's clock keeps its
+row: within an hour of now it is stored at now, and the command says so; a time
+further ahead is refused and nothing is stored.
 
 ### samples
 
@@ -412,7 +414,9 @@ the measured start counts as one, so an issue reopened and measured again after
 an earlier cycle of it merged is not a ship of this window. The view's own
 window is the wider one, so an issue whose first accepted `ready` lies before
 these ten days ships without a lead time: where a bucket's `leadTime.n` falls
-short of its `shipped`, that many ships brought no lead. Read the median only
+short of its `shipped`, that many ships brought no lead. A ship whose `merged`
+is stamped before the `ready` behind it brings no lead either: its negative
+seconds are left out, as `refine` leaves them out. Read the median only
 where the two counts agree.
 
 The key belongs to the report a person reads, not to the file the dashboard
