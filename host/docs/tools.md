@@ -4542,7 +4542,7 @@ with the commit when it was given, `CHANGELOG.md`,
 and `host/versions.env`. `install.sh` run from such a tree has no `console/` to
 build from: it installs the programs the release carries as they are, with
 `release <sha256>` as the stamp, asks cargo nothing, and keeps the installed
-copy of a program the release does not carry. The list is `lib/release.sh`, the one place it is written
+copy of a program the release does not carry. The list is `lib/release.list`, the one place it is written
 down, and the gate checks the script and the test against it. An adopter
 unpacks it and runs `./install.sh` from inside, as they would from a checkout.
 `console/`, the instance directories and the git record are not packed: there
@@ -4709,7 +4709,7 @@ The pack script is in the fast gate, with `test/pack_release_test.sh`: it packs
 from the test's own tree with a stub console and checks the file list, `VERSION`,
 the pin lines, that the `.sha256` passes `sha256sum -c`, what a bad argument
 costs, that a tree holding a symbolic link is refused, that the sources
-`install.sh` reads are covered by `lib/release.sh`, and that the command line
+`install.sh` reads are covered by `lib/release.list`, and that the command line
 above is a command that works. `test/tag_release_test.sh` checks the Adopter
 action rule and `test/pack_release_test.sh` the release notes. The release
 workflow is not run by the gate and is not written by a work cycle: CI files are
