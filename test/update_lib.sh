@@ -20,6 +20,9 @@ t_console || t_bad "no console: $t_console_why"
 T_ENV_ALWAYS=(TEHAS_CONSOLE="$T_CONSOLE")
 
 update="$T_ROOT/libexec/update"
+# The update and install.sh ask GitHub for the user ids of the allowed accounts;
+# the stub gives each its t_uid. A case that stubs gh again keeps that answer.
+t_stub gh
 th=$T/home/tehas
 checkout=$th/platform
 owed_file=$th/state/update-pending
@@ -119,6 +122,8 @@ platform() { # [behind] [install body] [bin of the host, where its tehas is put]
   docker_up
   bound_calls
   mkdir -p "$checkout/libexec" "$checkout/lib" "$th/sandbox" "$th/edge"
+  # The ids an install recorded, so an update that finds them current writes none.
+  t_ids "$th"
   write_install "$body"
   # The host's own `tehas`, as the labels step runs it: by the path
   # $TEHAS_HOME/bin/tehas, and not by name. A stub on PATH would be shadowed by

@@ -109,6 +109,28 @@ jq -n --arg h "$rhead" --arg b "$rbase" '{at: "2026-10-17T10:00:00Z", pr: 50, he
 t_run "$dispatch"
 t_eq "$(t_calls gh | grep -c 'issue comment 7 .*does not refresh')" 1
 
+t_case "after a parked refresh, tehas:ready does what the park said: nothing while the pull request is open, a cycle once it is closed"
+refresh_setup
+refresh_record 1 parked
+t_run "$dispatch"
+t_contains "$(t_calls gh)" "issue comment 7 --repo acme/widget --body Tehas does not refresh this issue's pull request on its own: a refresh of it since alice approved it parked. It conflicts with the branch: a person resolves the conflict, or closes the pull request and then applies \`tehas:ready\` to start a fresh cycle."
+# A person applies tehas:ready with pull request 50 still open.
+issue7 tehas:ready
+echo '[{"number":7,"labels":[{"name":"tehas:awaiting-merge"},{"name":"tehas:ready"}]}]' >"$fx/ready.json"
+echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"alice"},"created_at":"2026-10-17T11:00:00Z"}]' >"$fx/events-7.json"
+jq -nc '{data: {repository: {issue: {closedByPullRequestsReferences: {nodes: [{url: "https://github.com/acme/widget/pull/50", state: "OPEN"}]}}}}}' >"$fx/prs-7.json"
+t_run "$dispatch"
+t_eq "$(started)" ""
+t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --remove-label tehas:ready"
+t_contains "$(t_calls gh)" "issue comment 7 --repo acme/widget --body Tehas took \`tehas:ready\` off this issue and started nothing: https://github.com/acme/widget/pull/50 is open and closes it. Merge or close that pull request, then apply \`tehas:ready\` if work is still needed."
+# The person closes pull request 50, as the park said, then applies tehas:ready.
+jq -nc '{data: {repository: {issue: {closedByPullRequestsReferences: {nodes: [{url: "https://github.com/acme/widget/pull/50", state: "CLOSED"}]}}}}}' >"$fx/prs-7.json"
+pull '.state = "CLOSED"'
+rm -f "$refresh_dir/7.json"
+t_run "$dispatch"
+t_eq "$(started)" "7 "
+t_eq "$(t_calls gh | grep -c 'issue comment 7 .*does not refresh')" 1
+
 t_case "a park of a cycle that was no refresh does not hold one"
 refresh_setup
 t_store_db "$T/home/tehas"

@@ -233,6 +233,10 @@ compute on the issue.
   permission per label: any account that can write to
   the repository can apply any label, so the list is enforced here, at the
   next poll, and not by GitHub.
+- An allowed account is its login and its GitHub user id, as `install.sh`
+  and `tehas update` recorded them. A label from the login with another id,
+  after the login changed hands, counts as nobody's; so do a tick, an answer
+  and a comment. See [Accounts by user id](/tools#accounts-by-user-id).
 - Add **`tehas:urgent`** as well to move it ahead of other ready issues. It is
   checked like `tehas:ready`: only one applied by an allowed account moves the
   issue; one applied by the bot or anyone else is ignored and logged.
@@ -460,6 +464,10 @@ choice.
   nothing until a person applies `tehas:ready` again. A person's `tehas:ready`
   that a park holds counts too: the ticked box then reads the label.
 - With the label off, the next start is classic, retry or not.
+- The park of a refused lean start asks for the label to come off first. A
+  Retry ticked there while `tehas:lean` is on starts nothing: the poll logs
+  that it waits for the label, and the tick stays. Once the label is off, that
+  tick starts the cycle on classic.
 - A new lean start also needs a `pi-spec v1` block in the issue's text: one
   fence with that info string, holding valid JSON. With none the poll starts
   nothing, takes `tehas:ready` off and says why once, as for a label from an
@@ -1911,8 +1919,10 @@ approval it rests on after the millwright):
 
 A request that fails a check goes, and the dispatcher's log says why. At the
 cap or after a parked refresh the bot says so on the issue, once: a person
-resolves the conflict or applies `tehas:ready`. A pull request that carries
-`tehas:refreshing` waits.
+resolves the conflict, or closes the pull request and then applies
+`tehas:ready`. While the pull request is open, `tehas:ready` starts nothing: it
+is taken off, as for any issue whose open pull request closes it. A pull
+request that carries `tehas:refreshing` waits.
 
 **The refresh lane.** Refreshes run in a lane of their own, so a conflicting
 pull request is refreshed while every cycle slot is busy. At most

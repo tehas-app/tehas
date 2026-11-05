@@ -1048,6 +1048,15 @@ if [ -z "$steps_console" ]; then
   done
 fi
 
+# --- 2c. The ids of the accounts that may authorise work ----------------------
+# Each login of TEHAS_ALLOWED_LABELERS and TEHAS_MILLWRIGHT_LOGIN, and its
+# GitHub user id, in state/account-ids: a label, tick, answer or comment counts
+# only from the recorded pair (console/src/ids.rs). A login that does not
+# resolve, or whose id changed, stops the run before the first copy.
+if [ "$check" != 1 ]; then
+  "$steps_console" ids record || { echo "tehas: nothing was installed" >&2; exit 78; }
+fi
+
 # --- 3a. The old records and the dispatcher's lock ----------------------------
 # The store keeps the host's records; an older tehas kept them as files under
 # state/, and store_db below imports them (store import). From here until after
