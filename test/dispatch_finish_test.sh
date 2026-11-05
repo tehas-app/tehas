@@ -23,8 +23,9 @@ bare_tree() {
   cp "$T/bin/fake-index" "$tree/libexec/index"
   # The poll runs its status and a planning turn through tehasbot and tehas.
   mv "$tree/bin/tehasbot" "$tree/bin/tehasbot.real"
+  # Only the poll itself is the real one: the health it runs did nothing here before.
   printf '%s\n' '#!/usr/bin/env bash' "[ \"\$1\" != status ] || exec '$T/bin/fake-status'" \
-    'exec "$(dirname "$0")/tehasbot.real" "$@"' >"$tree/bin/tehasbot"
+    '[ "$1" != dispatch ] || exec "$(dirname "$0")/tehasbot.real" "$@"' >"$tree/bin/tehasbot"
   mv "$tree/bin/tehas" "$tree/bin/tehas.real"
   printf '%s\n' '#!/usr/bin/env bash' "[ \"\$1\" != plan ] || exec '$T/bin/fake-plan' \"\${@:2}\"" \
     'exec "$(dirname "$0")/tehas.real" "$@"' >"$tree/bin/tehas"

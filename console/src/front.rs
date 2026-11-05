@@ -160,6 +160,15 @@ fn text(libexec: &str, command: &str) -> u8 {
     }
 }
 
+/// The words `console run` is given. `tehas dispatch` is the poll the units
+/// run as `tehasbot dispatch`: one command under two names.
+fn as_run(mut lossy: Vec<String>) -> Vec<String> {
+    if lossy.get(3..5) == Some(&["tehas".to_string(), "dispatch".to_string()][..]) {
+        lossy[3] = "tehasbot".into();
+    }
+    lossy
+}
+
 pub fn main(given: &[OsString]) -> u8 {
     let lossy: Vec<String> = given
         .iter()
@@ -196,7 +205,7 @@ pub fn main(given: &[OsString]) -> u8 {
         Go::Energy => energy::main(rest()),
         Go::Run => {
             let text = given.iter().all(|w| w.to_str().is_some());
-            run::main(&lossy, text)
+            run::main(&as_run(lossy), text)
         }
     }
 }
@@ -361,6 +370,24 @@ mod tests {
             }
         }
         assert!(seen >= 10, "{seen} units run tehasbot");
+    }
+
+    #[test]
+    fn tehas_dispatch_runs_as_the_poll_of_tehasbot() {
+        let run = |w: &[&str]| as_run(words(w));
+        assert_eq!(
+            run(&["/l", "1", "/bin/bash", "tehas", "dispatch", "--dry-run"]),
+            words(&["/l", "1", "/bin/bash", "tehasbot", "dispatch", "--dry-run"])
+        );
+        let plan = ["/l", "1", "/bin/bash", "tehas", "plan", "7"];
+        assert_eq!(run(&plan), words(&plan));
+    }
+
+    #[test]
+    fn the_old_wrappers_texts_are_the_consoles() {
+        for c in ["dispatch", "plan", "dev", "check-product"] {
+            assert!(commands::text(c).is_some(), "{c}");
+        }
     }
 
     #[test]
