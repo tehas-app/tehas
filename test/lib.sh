@@ -611,7 +611,7 @@ t_console_source() {
   local member
   mkdir -p "$1/console"
   cp -R "$T_ROOT/console/Cargo.toml" "$T_ROOT/console/Cargo.lock" "$T_ROOT/console/src" "$1/console/"
-  for member in analytics attach core cycle dispatch mcp merge store; do
+  for member in analytics attach core cycle dispatch mcp merge store xtask; do
     mkdir -p "$1/console/$member"
     cp -R "$T_ROOT/console/$member/Cargo.toml" "$T_ROOT/console/$member/src" "$1/console/$member/"
   done
