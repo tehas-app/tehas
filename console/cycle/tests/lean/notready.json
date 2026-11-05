@@ -1,0 +1,52 @@
+{
+  "buildCommit": null,
+  "buildVersion": "0.14.53",
+  "subcommand": "work-lean",
+  "issue": 7,
+  "exitCode": 11,
+  "state": "not-ready",
+  "summary": "work-lean #7: not-ready (exit 11)",
+  "steps": 2,
+  "schemaVersion": 5,
+  "issues": [
+    {
+      "issue": 7,
+      "status": "aborted",
+      "stateFile": ".pi/lean-state/7.json",
+      "durationMs": 90000,
+      "steps": [
+        {
+          "step": "ready",
+          "startedAt": "2026-11-01T09:51:20.000Z",
+          "endedAt": "2026-11-01T09:51:50.000Z"
+        },
+        {
+          "step": "decline",
+          "startedAt": "2026-11-01T09:52:20.000Z",
+          "endedAt": "2026-11-01T09:52:50.000Z"
+        }
+      ],
+      "exitCode": 11,
+      "resumable": false,
+      "usage": {
+        "input": 0,
+        "output": 0,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "cost": 0,
+        "turns": 0,
+        "dispatches": 0,
+        "byRole": {}
+      },
+      "branch": "lean/issue-7",
+      "prState": "none",
+      "handoff": {
+        "channel": "host",
+        "marker": "<!-- pi-rukas:handoff issue=7 cap=none -->",
+        "labelApplied": false,
+        "labelSkipped": "host-channel",
+        "body": "<!-- pi-rukas:handoff issue=7 cap=none -->\n\nno pi-spec v1 block"
+      }
+    }
+  ]
+}

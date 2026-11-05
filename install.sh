@@ -663,7 +663,7 @@ files=(
   # came inside the download it is checking.
   "release/minisign.pub|$TEHAS_HOME/release/minisign.pub|644"
   # What a release packs, so the list is on a host as it is in a checkout.
-  "lib/release.sh|$TEHAS_HOME/lib/release.sh|644"
+  "lib/release.list|$TEHAS_HOME/lib/release.list|644"
   "versions.env|$TEHAS_HOME/versions.env|644"
   "sandbox/Dockerfile|$TEHAS_HOME/sandbox/Dockerfile|644"
   "sandbox/build.sh|$TEHAS_HOME/sandbox/build.sh|755"
@@ -1234,7 +1234,8 @@ done
 # Protolab's server files of before the edge router. And the wrappers of what is
 # now a verb of the console, and the libraries of what is now a verb of
 # tehas-cycle, and the jq program of the bash report. And the libraries whose
-# last callers moved into the console. Found here, removed in
+# last callers moved into the console, and the release list of before it was a
+# plain file (lib/release.list). Found here, removed in
 # step 5 once systemd has the new units.
 old=()
 for f in \
@@ -1293,6 +1294,7 @@ for f in \
   lib/disk.sh \
   lib/top.sh \
   lib/update-release.sh \
+  lib/release.sh \
   lib/attachments.sh \
   lib/history-lines.jq \
   lib/cycles.sh \
@@ -1391,6 +1393,16 @@ if [ "$check" = 1 ]; then
   esac
 
   images_say check
+
+  # The image cycles run against the pi-rukas the host follows, as the factory's
+  # health last read it (checks.rukas, which tehasbot status reads from docker
+  # and upstream). The clone is the Dependencies line's; this is the image.
+  behind=$(jq -r '.checks.rukas | select(.behind == true) | "\(.imageVersion // .image) \(.targetVersion // .target)"' \
+    "$TEHAS_HOME/live/health.json" 2>/dev/null) || behind=""
+  if [ -n "$behind" ]; then
+    echo "Sandbox:      BEHIND (the image runs pi-rukas ${behind% *}, the host follows ${behind#* }; tehas update builds it)"
+    rc=1
+  fi
 
   # The last tehas check-product, read and not run: the product is not this
   # host's install, so it does not change the exit status.
