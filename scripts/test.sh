@@ -72,8 +72,8 @@ asked() { [ "$given" = " " ] || [[ $given == *" $1 "* ]]; }
 
 files=()
 for f in "$root"/bin/* "$root"/libexec/* "$root"/lib/*.sh "$root"/scripts/*.sh "$root"/test/*.sh \
-  "$root/install.sh" "$root/bootstrap.sh" "$root/host/env.sh" "$root/host/sandbox/build.sh" "$root/host/login/tehas" \
-  "$root/host/release/install"; do
+  "$root/install.sh" "$root/bootstrap.sh" "$root/host/env.sh" "$root/host/shim/gh" "$root/host/sandbox/build.sh" \
+  "$root/host/sandbox/gh-shim" "$root/host/login/tehas" "$root/host/release/install"; do
   [ -f "$f" ] || continue
   # publish-lib.sh is a vendored copy, checked where it is kept.
   case "$f" in */scripts/publish-lib.sh) continue ;; esac

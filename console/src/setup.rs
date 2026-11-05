@@ -33,7 +33,10 @@ use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
 use tehas_core::sandbox::HELPER_KEY;
-use tehas_core::settings::load::{self, Vars};
+use tehas_core::settings::{
+    load::{self, Vars},
+    INSTANCE_SETTINGS,
+};
 
 const USAGE: &str = "usage: tehas setup [--repo owner/name] [--labellers \"a b\"] [--token-file f|- | --app-id id --app-installation id --app-key-file f] [--endpoint url] [--model id] [--model-key-file f|-] [--provider name] [--control-issue n] [--no-build] [--force]";
 
@@ -41,15 +44,6 @@ const CONTROL_BODY: &str = "The control issue of this repository's tehas factory
 
 /// The host git authenticates to; HELPER_KEY is its helper's config key.
 const GIT_HOST: &str = "github.com";
-
-/// tehas_require_instance_settings.
-const INSTANCE_SETTINGS: [&str; 5] = [
-    "TEHAS_REPO",
-    "TEHAS_CONTROL_ISSUE",
-    "TEHAS_ALLOWED_LABELERS",
-    "PI_ENSEMBLE_SUBAGENT_MODEL",
-    "PI_ENSEMBLE_SUBAGENT_PROVIDER",
-];
 
 enum Fail {
     Usage,

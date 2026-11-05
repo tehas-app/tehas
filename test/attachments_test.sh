@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
-# Tests for lib/attachments.sh and the program behind it: which links of an
-# issue or an answer are the files a cycle is given, where the token goes when a
-# file is fetched, and the archives a cycle may be given.
+# Tests for libexec/attach (console/attach): which links of an issue are the
+# files a cycle is given, where the token goes when a file is fetched, and the
+# archives a cycle may be given. The cases call the program as tehas work does
+# (console/cycle/src/gives.rs); what a start does with no program at all is
+# pinned beside that file, in its Rust tests.
 # A stub curl records its arguments and what it is given on standard input, and
 # hands out the bytes a case put at the address of a fetch, so a case says what
 # one link of an issue is and every other link of it stays the png below.
@@ -9,7 +11,32 @@
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
 
-lib=". $T_ROOT/lib/attachments.sh"
+# The program called with the arguments and settings tehas work passes it.
+# take <issue> <dir> [approved] [record] [issue answer]: 1, with the reason in
+# $image_why, when nothing may start. said <dir> <what> [reads]: the comment.
+# held <kept manifest> <dir>: 1, printing the link, when a link of the same
+# approval gave other bytes.
+lib='a=$TEHAS_HOME/libexec/attach
+take() {
+  local out
+  out=$(GH_TOKEN=${GH_TOKEN:-} "$a" issue "$1" "$2" --approved "${3:-}" --record "${4:-}" --repo "${TEHAS_REPO:-}" \
+    --comments 0 --allowed "" --millwright "" --attach "$a" --images "${TEHAS_WORK_IMAGES:-1}" \
+    --files "${TEHAS_WORK_FILES:-0}" --zips "${TEHAS_WORK_ZIPS:-0}" <<<"${5:-}") ||
+    { image_why="attach: issue exited $?"; return 1; }
+  image_why=$(jq -r ".why // \"\"" <<<"$out")
+  [ -z "$image_why" ]
+}
+said() {
+  local out
+  out=$("$a" said "$1" "$2" --reads "${3:-}" --build "$TEHAS_HOME/sandbox/build.sh") || return 1
+  jq -r ".text // empty" <<<"$out"
+}
+held() {
+  local out link
+  out=$("$a" changed "$1" "$2/manifest.json") || { echo "attach: changed exited $?"; return 1; }
+  link=$(jq -r ".link // empty" <<<"$out")
+  [ -z "$link" ] || { echo "$link"; return 1; }
+}'
 # The bytes of what is fetched are read by the real attachment checker.
 t_attach_home "$T/home/tehas" || exit 1
 att=$T/home/tehas/libexec/attach
@@ -95,15 +122,9 @@ stub_dir "$fx"
 # stub_dir <directory>: where the bytes kept by the address of a link live. The
 # path is one this file makes under $T, so a slash is the only separator it holds.
 
-t_case "sourcing it prints nothing and writes nothing"
-before=$(find "$T" | LC_ALL=C sort)
-t_run "$lib"
-t_eq "$t_rc$t_out" "0"
-t_eq "$(find "$T" | LC_ALL=C sort)" "$before"
-
 # gh answers for issue 7 from a file; curl hands out a png.
 t_stub gh 'case "$*" in "api repos/acme/widget/issues/7") cat "$T/issue.json" ;; esac'
-images="TEHAS_REPO=acme/widget GH_TOKEN=tok; $lib; tehas_issue_images 7 $T/images"
+images="TEHAS_REPO=acme/widget GH_TOKEN=tok; $lib; take 7 $T/images"
 owned() { jq -n --arg b "$1" '{number: 7, author_association: "OWNER", body: $b}' >"$T/issue.json"; }
 
 t_case "only links to GitHub's attachment storage are taken, in the order written"
@@ -121,7 +142,7 @@ https://user-images.githubusercontent.com/9/shot.png"
 t_case "a fetch is https only, limited in size and redirects, and asks for the content type"
 owned 'https://github.com/user-attachments/assets/1'
 rm -f "$T"/calls/*
-t_run "TEHAS_REPO=acme/widget GH_TOKEN=sekret-token; $lib; tehas_issue_images 7 $T/images"
+t_run "TEHAS_REPO=acme/widget GH_TOKEN=sekret-token; $lib; take 7 $T/images"
 t_eq "$t_rc" 0
 t_eq "$(t_calls curl)" "-sSfL --proto =https --proto-redir =https --max-redirs 3 --max-time 120 --max-filesize 10485760 -o $T/images/.part -w %{content_type} -H @- https://github.com/user-attachments/assets/1"
 
@@ -132,10 +153,10 @@ t_lacks "$(t_calls curl)" "sekret-token"
 t_case "no other host is sent the token, and without one none is sent"
 owned 'https://user-images.githubusercontent.com/9/shot.png'
 rm -f "$T"/calls/*
-t_run "TEHAS_REPO=acme/widget GH_TOKEN=sekret-token; $lib; tehas_issue_images 7 $T/images"
+t_run "TEHAS_REPO=acme/widget GH_TOKEN=sekret-token; $lib; take 7 $T/images"
 owned 'https://github.com/user-attachments/assets/1'
-t_run "TEHAS_REPO=acme/widget; unset GH_TOKEN; $lib; tehas_issue_images 7 $T/images"
-t_run "TEHAS_REPO=acme/widget GH_TOKEN=; $lib; tehas_issue_images 7 $T/images"
+t_run "TEHAS_REPO=acme/widget; unset GH_TOKEN; $lib; take 7 $T/images"
+t_run "TEHAS_REPO=acme/widget GH_TOKEN=; $lib; take 7 $T/images"
 t_eq "$(find "$T/calls" -name curl-stdin | wc -l)" 0
 t_lacks "$(t_calls curl)" "-H"
 
@@ -179,7 +200,7 @@ t_run "$images"
 t_eq "$(taken)" '[["image-1.png"],[]]'
 
 t_case "the comment says the images were given only when the sandbox image reads them"
-said=". $T_ROOT/lib/attachments.sh; tehas_issue_images_said $T/images cycle"
+said="$lib; said $T/images cycle"
 t_run "$said 1"
 t_eq "$(head -n 1 <<<"$t_out")" "Tehas gave this cycle 1 image from the issue text."
 t_run "$said 0"
@@ -224,19 +245,16 @@ t_case "the same link of the same approval must give the same bytes"
 record "See ![shot](https://github.com/user-attachments/assets/1111)"
 t_run "$images approved $T/record.json"
 cp "$T/images/manifest.json" "$T/kept.json"
-changed="$lib; tehas_issue_images_changed $T/kept.json $T/images || { echo \"\$image_why\"; exit 1; }"
+changed="$lib; held $T/kept.json $T/images"
 t_run "$changed"
 t_eq "$t_rc$t_out" "0"
 jq '.images[0].sha256 = "0000"' "$T/images/manifest.json" >"$T/kept.json"
 t_run "$changed"
-t_eq "$t_rc $t_out" "1 https://github.com/user-attachments/assets/1111 gave other bytes than when this approval was first fetched"
+t_eq "$t_rc $t_out" "1 https://github.com/user-attachments/assets/1111"
 jq '.images[0].sha256 = "0000" | .approval.at = "2026-10-15T00:00:00Z"' "$T/images/manifest.json" >"$T/kept.json"
 t_run "$changed"
 t_eq "$t_rc$t_out" "0"
 jq '.images[0].sha256 = "0000" | .approval = null' "$T/images/manifest.json" >"$T/kept.json"
-t_run "$changed"
-t_eq "$t_rc$t_out" "0"
-rm -f "$T/kept.json"
 t_run "$changed"
 t_eq "$t_rc$t_out" "0"
 
@@ -244,18 +262,6 @@ t_case "a kept manifest that is no JSON holds nothing to compare"
 echo '{' >"$T/kept.json"
 t_run "$changed"
 t_eq "$t_rc$t_out" "0"
-
-t_case "with no program to hold a link to its bytes the start stops, and no path is said"
-cp "$T/images/manifest.json" "$T/kept.json"
-t_run "TEHAS_HOME=$T/nowhere; $changed"
-t_eq "$t_rc $t_out" "1 the kept manifest could not be compared"
-rm -f "$T/kept.json"
-
-t_case "with no program a record that is there is one that could not be read"
-t_run "TEHAS_HOME=$T/nowhere; $lib; export TEHAS_WORK_IMAGES=0 TEHAS_WORK_FILES=0; tehas_issue_images_left_out 7 $T/left.json $T/record.json"
-t_eq "$t_rc" "2"
-t_run "TEHAS_HOME=$T/nowhere; $lib; tehas_issue_images_left_out 7 $T/left.json $T/no-such-record"
-t_eq "$t_rc" "1"
 
 t_case "text is valid UTF-8 with no NUL byte"
 printf 'caf\xc3\xa9\n' >"$T/ok.txt"
@@ -276,21 +282,21 @@ t_contains "$t_out" "attach: unreadable: $T/no-such-file"
 t_case "the comment names images and files apart, and the hash of each"
 mkdir -p "$T/both"
 jq -n '{images: [{file: "image-1.png", link: "L1", sha256: "aa"}], files: [{file: "file-1.md", link: "L2", sha256: "bb"}, {file: "file-2.txt", link: "L3", sha256: "cc"}], leftOut: []}' >"$T/both/manifest.json"
-t_run "$lib; tehas_issue_images_said $T/both cycle 0"
+t_run "$lib; said $T/both cycle 0"
 t_eq "$t_out" "Tehas fetched 1 image from the issue text and mounted it read-only in the container of this cycle. The pi-rukas in the sandbox image does not read them, so no agent was shown one. Tehas fetched 2 files from the issue text for this cycle and lists them in its manifest. The pi-rukas in the sandbox image does not read them yet: its agents are not shown them.
 
 - L1: image-1.png, sha256 aa
 - L2: file-1.md, sha256 bb
 - L3: file-2.txt, sha256 cc"
 jq '.images = []' "$T/both/manifest.json" >"$T/m" && mv "$T/m" "$T/both/manifest.json"
-t_run "$lib; tehas_issue_images_said $T/both cycle"
+t_run "$lib; said $T/both cycle"
 t_eq "$(head -n 1 <<<"$t_out")" "Tehas fetched 2 files from the issue text for this cycle and lists them in its manifest. The pi-rukas in the sandbox image does not read them yet: its agents are not shown them."
 
 t_case "a file of the same approval is held to its bytes as an image is"
 jq '.approval = {at: "t", by: "alice", how: "label"}' "$T/both/manifest.json" >"$T/m" && mv "$T/m" "$T/both/manifest.json"
 jq '.files[1].sha256 = "dd"' "$T/both/manifest.json" >"$T/kept.json"
-t_run "$lib; tehas_issue_images_changed $T/kept.json $T/both || echo \"\$image_why\""
-t_eq "$t_out" "L3 gave other bytes than when this approval was first fetched"
+t_run "$lib; held $T/kept.json $T/both"
+t_eq "$t_rc $t_out" "1 L3"
 
 
 # --- An archive the issue links ----------------------------------------------
@@ -423,7 +429,7 @@ zip_case() {
       *) [ -n "$file_bytes" ] && cp "$file_bytes" "$fx/net/$key" ;;
     esac
   done
-  t_run "$lib; tehas_issue_images 7 $dir approved || echo \"FAILED \$image_why\""
+  t_run "$lib; take 7 $dir approved || echo \"FAILED \$image_why\""
   T_ENV=()
   return 0
 }
@@ -438,7 +444,7 @@ big_body="[big.zip]($bigzip)"
 # The files of a directory, in order, as one line.
 ls_imgs() { (cd "$1" && find . -mindepth 1 | LC_ALL=C sort | tr '\n' ' '); }
 # unpack <zip> <dir> <most files>: the checker's entries, one to a line.
-unpack() { t_run "$lib; tehas_attach unpack '$1' '$2' --max-bytes 1048576 --max-files $3; jq -c '.entries[]' <<<\"\$tehas_attach_out\""; }
+unpack() { t_run "$lib; out=\$(\"\$a\" unpack '$1' '$2' --max-bytes 1048576 --max-files $3) && jq -c '.entries[]' <<<\"\$out\""; }
 
 t_case "a zip is known by its first bytes, and a file named .zip that is not one is not"
 printf 'not a zip at all\n' >"$T/fake.zip"
@@ -521,63 +527,6 @@ unpack "$T/kinds.zip" "$T/kinds" 100
 got=$(jq -r 'if .name then "\(.name | sub("^x[.]"; "")):\(.kind)" else "\(.skip | sub("^x[.]"; "")):-" end' <<<"$t_out" | tr '\n' ' ')
 t_eq "$got" "png:image jpg:image jpeg:image gif:image webp:image svg:image avif:image mp4:video webm:video mov:video html:app htm:app css:part js:part mjs:part json:part txt:part md:part zip:- pdf:- csv:- yaml:- "
 
-t_case "without the attachment checker a cycle given an issue's files does not start"
-mv "$T/home/tehas/libexec/attach" "$T/attach.away"
-rm -f "$T"/calls/*
-NET_ZIP=$zips/good.zip zip_case "$zipdir" "$zip_body"
-t_eq "$t_out" "FAILED the issue's files could not be checked (the attachment checker is not installed)"
-t_lacks "$t_out" "$T"
-t_eq "$(t_calls curl)" ""
-
-t_case "without the checker an issue that links nothing gets a manifest that gives nothing"
-zip_case "$zipdir" "No link here, and https://github.com/acme/widget/pull/3 is no attachment"
-t_eq "$t_out" ""
-t_eq "$(cd "$zipdir" && find . -mindepth 1)" "./manifest.json"
-t_eq "$(jq -c . "$zipdir/manifest.json")" '{"images":[],"files":[],"leftOut":[],"issue":7,"approval":null,"leftOutMore":0}'
-t_run "$lib; tehas_issue_images_said $zipdir cycle 1"
-t_eq "$t_rc$t_out" "1"
-
-t_case "without the checker an instance that gives no files is given no files list"
-zip_case "$zipdir" "No link here" TEHAS_WORK_FILES=0
-t_eq "$t_out" ""
-t_eq "$(jq -c 'keys_unsorted' "$zipdir/manifest.json")" '["images","leftOut","issue","approval","leftOutMore"]'
-
-t_case "without the checker every shape of a link stops the start"
-for link in "https://github.com/user-attachments/assets/1" "https://github.com/user-attachments/files/2/a.md" \
-  "https://github.com/acme/widget/assets/3/a.png" "https://github.com/acme/widget/files/4/a.zip" \
-  "https://user-images.githubusercontent.com/5/a.png"; do
-  zip_case "$zipdir" "See $link"
-  t_eq "$t_out" "FAILED the issue's files could not be checked (the attachment checker is not installed)"
-done
-
-t_case "without the checker an issue that cannot be read stops the start"
-t_run "$lib; TEHAS_REPO=acme/widget tehas_issue_images 7 $zipdir approved '' '[1]' || echo \"FAILED \$image_why\""
-t_eq "$t_out" "FAILED the issue could not be read for its images"
-
-t_case "without the checker a record decides what there is to give, not the body"
-record "no link"
-t_run "$lib; tehas_issue_images 7 $zipdir approved $T/record.json '{\"body\":\"no link\"}' || echo \"FAILED \$image_why\""
-t_eq "$t_out" "FAILED the issue's files could not be checked (the attachment checker is not installed)"
-jq '.links = []' "$T/record.json" >"$T/m" && mv "$T/m" "$T/record.json"
-t_run "$lib; tehas_issue_images 7 $zipdir approved $T/record.json '{\"body\":\"$anyzip\"}' || echo \"FAILED \$image_why\""
-t_eq "$t_out" ""
-t_eq "$(jq -c .approval "$zipdir/manifest.json")" '{"at":"2026-10-14T00:00:00Z","by":"alice","how":"label"}'
-
-t_case "without the checker a kept manifest has nothing to compare with an issue that gives nothing"
-cp "$zipdir/manifest.json" "$T/kept.json"
-jq '.images = [{link: "L", sha256: "aa"}]' "$zipdir/manifest.json" >"$T/kept.json"
-t_run "$lib; tehas_issue_images_changed $T/kept.json $zipdir || echo \"FAILED \$image_why\""
-t_eq "$t_rc$t_out" "0"
-rm -f "$T/kept.json"
-
-t_case "without the checker a record with comment links or the words of a retry stops the start"
-for edit in '.comment_links = [{link: "L"}]' '.retry_context = [{source: "refresh", text: "t"}]' 'del(.at) | .links = 7'; do
-  jq "$edit" "$T/record.json" >"$T/edited.json"
-  t_run "$lib; tehas_issue_images 7 $zipdir approved $T/edited.json '{}' || echo \"FAILED \$image_why\""
-  t_eq "$t_out" "FAILED the issue's files could not be checked (the attachment checker is not installed)"
-done
-
-mv "$T/attach.away" "$T/home/tehas/libexec/attach"
 
 # attach_answers <rc>: the installed program exits <rc> for unpack and is the
 # real one for every other verb.

@@ -443,6 +443,13 @@ A `tehas:ready` that comes off with a comment that `tehas:lean` was applied or
 taken off by another account is no park: the choice of driver was not an allowed account's.
 See [choosing the driver](/operating#choosing-the-driver).
 
+The same happens to a new lean start whose issue has no `pi-spec v1` block, or
+one that is not the single block of valid JSON the driver reads: the poll takes
+`tehas:ready` off and says so once, and no cycle starts. Write that block, and
+apply `tehas:ready` again. The block is the only text pi-rukas's lean driver
+plans from, and its `/plan` writes one; [Choosing the
+driver](/operating#choosing-the-driver) says what the block must look like.
+
 The caps this factory has posted are explained one by one in the next
 section.
 
@@ -809,6 +816,11 @@ log and asked GitHub for the bot's pull request of the branch that
 - The comment names the pull request when GitHub lists one. Read it: the change
   is up for review, and a clean retry redoes what it already holds. That
   comment has no retry boxes, and the issue carries `needs-human-attention`.
+- A run log longer than the 200 KB tehas reads is read from its end, and only
+  what that end says is known. Such a cycle is not handed off: tehas cannot say
+  that nothing came after the step its log's end names, so the issue is parked
+  with the retry boxes, and the comment still names the pull request GitHub
+  lists on the branch. Read `~/tehas/logs/work-<N>-*.jsonl` for the rest.
 - The comment says no pull request was found when GitHub lists none. The
   change is then either unpushed or pushed without a pull request. The
   commits are in the cycle's workspace, on the local branch

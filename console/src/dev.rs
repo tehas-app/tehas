@@ -17,7 +17,7 @@
 //! clone's lock is held here for the session's life, on a file that closes on
 //! exec, so the docker client does not hold it past this program.
 
-use crate::{attach, clean, github, label};
+use crate::{account, attach, clean, github, label};
 use serde_json::Value;
 use std::env;
 use std::fs;
@@ -222,14 +222,6 @@ fn git_global(key: &str) -> String {
         .unwrap_or_default()
 }
 
-fn account() -> String {
-    Command::new("id")
-        .arg("-un")
-        .output()
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim_end().to_string())
-        .unwrap_or_default()
-}
-
 fn split_author(author: &str) -> (String, String) {
     let name = author.rsplit_once(" <").map_or(author, |(n, _)| n);
     let mail = author.rsplit_once('<').map_or(author, |(_, m)| m);
@@ -367,7 +359,7 @@ fn committer(given: &Words, stored: &str) -> Result<Committer, u8> {
     if name.is_empty() || email.is_empty() {
         eprintln!(
             "tehas dev: git user.name and user.email are not set for {}, and {} has no --author",
-            account(),
+            account::name(),
             given.name
         );
         return Err(64);

@@ -165,14 +165,11 @@ run_shim "pr view 7"
 t_eq "$t_rc" 7
 
 t_case "shellcheck -s sh reads the shim"
-# scripts/test.sh lints the shell scripts of bin/, lib/, libexec/ and test/, and
-# this one is none of them, so the shim is linted here as the sh it is.
-if ! command -v shellcheck >/dev/null 2>&1; then
-  t_skip "no shellcheck on this host: the gate's own run covers a real lint"
-else
-  t_run "shellcheck -s sh '$shim'"
-  t_eq "$t_rc" 0
-  t_eq "$t_out" ""
-fi
+# scripts/test.sh lints this shim and host/shim/gh with shellcheck -x, which
+# takes the shell from the shebang. Here the shell is named by hand: the shim is
+# written in sh, and a bash-only construct is what -s sh says something about.
+t_run "shellcheck -s sh '$shim'"
+t_eq "$t_rc" 0
+t_eq "$t_out" ""
 
 t_done
