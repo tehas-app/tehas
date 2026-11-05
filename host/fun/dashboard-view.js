@@ -5,7 +5,7 @@
 // program write under /live/. The fragment holds the markup; this module draws
 // into it, after console-tabs.js, which the fragment loads before it.
 //
-// The page half runs only where the fragment's markup is, so node can import
+// The page starts only where the fragment's markup is, so node can import
 // the file (test/dashboard_view_test.mjs, test/dashboard_host_test.mjs).
 
 // The figures of the host section, and the words that say how old a reading is:
@@ -18,7 +18,10 @@ import { analyticsView, dueToRead as dueAnalytics } from "./analytics-data.js";
 // The id of the element whose presence says the dashboard's markup is on the page.
 globalThis.TEHAS_DASHBOARD = { probe: "state" };
 
-if (typeof document !== "undefined" && document.getElementById(globalThis.TEHAS_DASHBOARD.probe)) (() => {
+// Draws one page. Every piece of the page's state lives in this call, so two
+// pages that share one copy of the module share nothing else
+// (test/dashboard_host_test.mjs renders two from one import).
+export function start() {
   const MAX = 10;
   const $ = (id) => document.getElementById(id);
   const el = (tag, cls, text) => {
@@ -417,4 +420,6 @@ if (typeof document !== "undefined" && document.getElementById(globalThis.TEHAS_
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden) { hostMissedAt = 0; refreshHost(); analyticsReadAt = 0; refreshAnalytics(); }
   });
-})();
+}
+
+if (typeof document !== "undefined" && document.getElementById(globalThis.TEHAS_DASHBOARD.probe)) start();
