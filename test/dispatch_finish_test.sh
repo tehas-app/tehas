@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for libexec/dispatch: running without the test seams, filling the
+# Tests for tehasbot dispatch: running without the test seams, filling the
 # slots, stopping finished cycles, and the retry after a provider outage.
 # shellcheck disable=SC2016  # snippets are expanded by the shell under test
 # shellcheck source=test/lib.sh
@@ -17,13 +17,19 @@ bare_tree() {
   T_ENV=("$slice_env")
   tree=$T/tree
   rm -rf "$tree"
-  mkdir -p "$tree/libexec" "$tree/lib" "$tree/bin"
-  cp "$dispatch" "$tree/libexec/dispatch"
+  mkdir -p "$tree/lib"
   cp "$T_ROOT"/lib/*.sh "$tree/lib/"
-  for name in index plan; do cp "$T/bin/fake-$name" "$tree/libexec/$name"; done
-  # The poll runs its status through tehasbot.
-  printf '%s\n' '#!/usr/bin/env bash' "[ \"\$1\" != status ] || exec '$T/bin/fake-status'" >"$tree/bin/tehasbot"
-  chmod +x "$tree/bin/tehasbot"
+  t_front "$tree"
+  cp "$T/bin/fake-index" "$tree/libexec/index"
+  # The poll runs its status and a planning turn through tehasbot and tehas.
+  mv "$tree/bin/tehasbot" "$tree/bin/tehasbot.real"
+  # Only the poll itself is the real one: the health it runs did nothing here before.
+  printf '%s\n' '#!/usr/bin/env bash' "[ \"\$1\" != status ] || exec '$T/bin/fake-status'" \
+    '[ "$1" != dispatch ] || exec "$(dirname "$0")/tehasbot.real" "$@"' >"$tree/bin/tehasbot"
+  mv "$tree/bin/tehas" "$tree/bin/tehas.real"
+  printf '%s\n' '#!/usr/bin/env bash' "[ \"\$1\" != plan ] || exec '$T/bin/fake-plan' \"\${@:2}\"" \
+    'exec "$(dirname "$0")/tehas.real" "$@"' >"$tree/bin/tehas"
+  chmod +x "$tree/bin/tehasbot" "$tree/bin/tehas"
   for name in tehas tehasbot tehas-work tehas-status tehas-index tehas-plan; do t_stub "$name"; done
   # The Rust poll finds them beside its own program, as on a host.
   cp "$T_DISPATCH" "$tree/libexec/tehas-dispatch"
@@ -43,7 +49,7 @@ t_stub systemctl 'case "$1 $2" in
     n=${n%.service}
     flock -w 5 "$TEHAS_HOME/state/cycles/$n.lock" "$T/store-bin" cycle-start "$n" >/dev/null ;;
 esac'
-t_run "$tree/libexec/dispatch"
+t_run "$tree/bin/tehasbot dispatch"
 t_eq "$t_rc" 0
 t_eq "$(t_calls systemctl)" "show tehas.slice -p FragmentPath -p ActiveState -p MemoryMax
 --user show -p LoadState --value tehas-cycle@7.service
@@ -65,7 +71,7 @@ for name in tehas tehasbot tehas-work tehas-status tehas-index tehas-plan; do t_
 t_case "without the test seams a planning turn runs the script beside it too"
 to_plan
 bare_tree
-t_run "$tree/libexec/dispatch"
+t_run "$tree/bin/tehasbot dispatch"
 t_eq "$t_rc" 0
 t_contains "$(plan_calls)" "7 --out $record.out --keep $keep --brief $T/home/tehas/tmp/plan-7.brief."
 # The unit of a turn is the whole limit plus the grace of apply/turn.rs; the
@@ -81,7 +87,7 @@ t_stub systemctl 'case "$1 $2" in
   "show tehas.slice") cat "$T/fx/slice.show" ;;
   "--user show") echo not-found ;;
 esac'
-t_run "$tree/libexec/dispatch"
+t_run "$tree/bin/tehasbot dispatch"
 t_eq "$t_rc" 1
 t_contains "$t_out" "ERROR: systemd cannot load tehas-cycle@.service (LoadState: not-found): run install.sh and its units step, and run tehas dispatch as the tehas user's own session"
 t_lacks "$(t_calls gh)" "issue edit"
@@ -96,7 +102,7 @@ t_stub systemctl 'case "$1 $2" in
   "show tehas.slice") cat "$T/fx/slice.show" ;;
   "--user show") exit 1 ;;
 esac'
-t_run "$tree/libexec/dispatch"
+t_run "$tree/bin/tehasbot dispatch"
 t_eq "$t_rc" 1
 t_contains "$t_out" "ERROR: systemd cannot load tehas-cycle@.service (LoadState: no answer): run install.sh"
 t_lacks "$(t_calls gh)" "issue edit"

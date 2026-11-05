@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for libexec/dispatch: the answers to a planning session. The options a
+# Tests for tehasbot dispatch: the answers to a planning session. The options a
 # turn posts, what it filed, ticks and replies, and how a session ends.
 # shellcheck disable=SC2016  # snippets are expanded by the shell under test
 # shellcheck source=test/lib.sh

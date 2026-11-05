@@ -56,10 +56,10 @@
 //!                                     copy the install's code for this
 //!                                     cycle and run tehasbot cycle from the
 //!                                     copy (src/pin.rs)
-//!   tehas-cycle pin plan <issue> <program> [args...]
+//!   tehas-cycle pin plan <issue> <command> [args...]
 //!                                     what the dispatcher starts a planning
 //!                                     turn with: the same copy, and run
-//!                                     libexec/<program> of it with the args
+//!                                     bin/tehas <command> of it with the args
 //!   tehas-cycle clock now             print the seconds of the monotonic
 //!                                     clock: seconds since boot, read from
 //!                                     the first number of /proc/uptime
@@ -92,9 +92,10 @@
 //!                                     the names a mask hides, two lines each:
 //!                                     `--private` and the name, for a command
 //!                                     to read into its arguments
-//!   tehas-cycle renew --cmd <path> --every <s> --retry <s>
+//!   tehas-cycle renew --cmd <path> [--arg <word>]... --every <s> --retry <s>
 //!                                     the renewer of a cycle's GitHub token:
-//!                                     run <path> with its output discarded,
+//!                                     run <path> with the words of --arg, in
+//!                                     their order, with its output discarded,
 //!                                     wait --every seconds after a success
 //!                                     and --retry after a failure, and say
 //!                                     one line on standard error for each
@@ -374,10 +375,13 @@ fn main() {
             if program.is_empty() || program.contains('/') || program.starts_with('.') {
                 wrong(&args);
             }
-            pinned(&home, "plan", n, &format!("libexec/{program}"), rest)
+            let mut words = vec![*program];
+            words.extend_from_slice(rest);
+            pinned(&home, "plan", n, "bin/tehas", &words)
         }
         ["renew", rest @ ..] => {
             let mut cmd = None;
+            let mut words = Vec::new();
             let mut every = None;
             let mut retry = None;
             let secs = |v: &str| v.parse::<u64>().unwrap_or_else(|_| wrong(&args));
@@ -386,6 +390,7 @@ fn main() {
                 let v = it.next().unwrap_or_else(|| wrong(&args));
                 match *flag {
                     "--cmd" => cmd = Some(PathBuf::from(v)),
+                    "--arg" => words.push(v.to_string()),
                     "--every" => every = Some(secs(v)),
                     "--retry" => retry = Some(secs(v)),
                     _ => wrong(&args),
@@ -394,7 +399,7 @@ fn main() {
             let (Some(cmd), Some(every), Some(retry)) = (cmd, every, retry) else {
                 wrong(&args)
             };
-            renew_verb(&cmd, every, retry);
+            renew_verb(&cmd, &words, every, retry);
         }
         ["finish", n, rest @ ..] => finish_verb(issue(n, &args), &args, rest),
         ["caps", rest @ ..] => caps_verb(rest, &args),
@@ -693,20 +698,20 @@ fn finish_verb(n: u64, args: &[String], rest: &[&str]) -> ! {
 /// The renewer of a cycle's GitHub token: it runs to the end of the cycle and
 /// ends 0 when a signal asks it to stop. The flag is what `renew` counts its
 /// waits against, as `console`'s review does.
-fn renew_verb(cmd: &Path, every: u64, retry: u64) -> ! {
+fn renew_verb(cmd: &Path, words: &[String], every: u64, retry: u64) -> ! {
     let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
     for signal in [signal_hook::consts::SIGTERM, signal_hook::consts::SIGINT] {
         if signal_hook::flag::register(signal, Arc::clone(&stop)).is_err() {
             fail(format!("cannot listen for signal {signal}"));
         }
     }
-    renew::renew(cmd, every, retry, &stop, renew::epoch_seconds);
+    renew::renew(cmd, words, every, retry, &stop, renew::epoch_seconds);
     std::process::exit(0);
 }
 
 /// Runs `program` of the copy of the install made for this `kind` of `n`,
 /// or the install's own when the copy cannot be made: `bin/tehasbot` for a
-/// cycle, a program of libexec/ for a planning turn.
+/// cycle, `bin/tehas` and a command of it for a planning turn.
 fn pinned(home: &Path, kind: &str, n: u64, program: &str, args: &[&str]) -> ! {
     use std::os::unix::process::CommandExt;
     let say = |s: String| {

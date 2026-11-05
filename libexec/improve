@@ -1,9 +1,0 @@
-#!/usr/bin/env bash
-# tehasbot improve: console/src/run.rs and console/src/improve/mod.rs. Only a path:
-# test/sandbox_argv_test.sh runs it.
-#
-# Exit: the command's; 78 no console.
-here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-console=${TEHAS_CONSOLE:-$here/console}
-[ -x "$console" ] || { echo "tehas improve: no console at $console: run install.sh" >&2; exit 78; }
-exec "$console" run "$here" "$EUID" "$BASH" tehasbot improve "$@"
