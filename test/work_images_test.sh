@@ -298,9 +298,34 @@ t_eq "$(cycle_args | unknown_options "$image" \
   "--name $docker_opts --user --cidfile -w -v -e" "--rm -i --init")" ""
 t_eq "$(cycle_args | count_of --tmpfs)" "1"
 
-t_case "the model is asked once per image, with no token"
+t_case "the model is asked once per image, with no token, but with the issue's number"
 t_eq "$(t_calls curl | grep -c -e "$chat")" 2
 t_lacks "$(grep -e "$chat" "$T/calls/curl-headers")" "Authorization"
+# The issue's number goes with each request. The stub of the file reads curl's
+# config from the file descriptor a model request hands it and keeps what it
+# held: with no token in models.json the issue's line is the only one, once per
+# request. Nothing of it stands on the command line.
+t_eq "$(t_calls curl | grep -c -e '-K /proc/')" 2
+t_eq "$(cat "$T/calls/curl-config" 2>/dev/null | tr -d '\r' | LC_ALL=C sort | uniq -c | sed 's/^ *//' | tr '\n' '|')" '2 header = "X-Tehas-Issue: 7"|'
+t_lacks "$(t_calls curl)" "X-Tehas-Issue"
+t_lacks "$(cat "$T/calls/curl-config" 2>/dev/null)" "Authorization"
+
+t_case "with descriptions on, the token goes in the config beside the issue, and neither is on a command line"
+rm -f "$T"/calls/* "$T/calls/curl-config"
+describe_on
+jq -n '{providers: {"test-provider": {baseUrl: "https://models.test/v1", apiKey: "$TEHAS_MODEL_KEY_MAIN"}}}' >"$T/home/.pi/agent/models.json"
+net "$A/1111" "$png"
+net "$A/2222" "$jpg"
+net "$chat" '{"choices": [{"message": {"content": "A chart with three bars."}}]}'
+issue_is "![a]($A/1111) ![b]($A/2222)"
+# What a start is given, plus the model's own key: the names images_on chose
+# stand, so the run is a start of the host and not one refused for a setting.
+T_ENV+=(TEHAS_MODEL_KEY_MAIN=main-secret)
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_eq "$(cat "$T/calls/curl-config" | tr -d '\r' | LC_ALL=C sort | uniq -c | sed 's/^ *//' | tr '\n' '|')" '2 header = "Authorization: Bearer main-secret"|2 header = "X-Tehas-Issue: 7"|'
+t_lacks "$(t_calls curl)" "X-Tehas-Issue"
+t_lacks "$(t_calls curl)" "main-secret"
 
 t_case "a model that does not answer is said in the file, and the cycle starts"
 describe_on
