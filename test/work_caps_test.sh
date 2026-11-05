@@ -547,6 +547,9 @@ t_eq "$(after -e | sed -n 's/^GIT_CONFIG_KEY_1=//p')" "credential.https://github
 t_eq "$(after -e | sed -n 's/^GIT_CONFIG_VALUE_1=//p')" "!gh auth git-credential"
 t_eq "$(after -e | grep -c '^GIT_CONFIG_VALUE_0=$')" 1
 
+t_case "host aliases become --add-host entries"
+t_contains "$(cycle_args)" "--add-host=models:192.0.2.9"
+
 # --- The product's install ----------------------------------------------------
 # A lockfile on top of the product as the cases above left it, gate and all.
 mkdir -p "$upstream/extension"
@@ -579,6 +582,15 @@ t_run "$work 7"
 t_eq "$t_rc" 78
 t_contains "$t_out" "the product's install failed (exit 1), not starting a cycle"
 t_contains "$t_out" "error: lockfile had changes"
+t_eq "$(cycle_args)" ""
+
+t_case "a silent install that fails shows none of the log's earlier lines as its own"
+caps_fresh
+T_ENV=("${env_ok[@]}" INSTALL_RC=1)
+t_run "$work 7"
+t_eq "$t_rc" 78
+t_contains "$t_out" "the product's install failed (exit 1), not starting a cycle"
+t_lacks "$t_out" "    install extension/"
 t_eq "$(cycle_args)" ""
 
 t_case "a tool the image lacks is named, and no cycle starts"

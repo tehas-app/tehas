@@ -1803,7 +1803,7 @@ is committed there. One line per check, `ok` or `FAIL`:
 | `agents`  | `AGENTS.md` is there                                                                            |
 | `gate`    | `.pi/verify-cmd` has a line that is not empty or a comment                                      |
 | `model`   | `.pi/settings.json`, when the product has one, names a model the instance's `models.json` lists |
-| `install` | Always, with one line per install a cycle runs before it starts: the first command of `.pi/install-cmd`, else one for each lockfile at the root or one directory down (see [the contract](/new-project#what-the-product-repository-must-provide)) |
+| `install` | One line per install a cycle runs before it starts: the first command of `.pi/install-cmd`, else one for each lockfile at the root or one directory down (see [the contract](/new-project#what-the-product-repository-must-provide)) |
 
 With `--sandbox` it then clones that commit into `~/tehas/tmp/<name>`, `<name>`
 the repository's name, and works in the sandbox image as this user and in the

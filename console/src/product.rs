@@ -22,7 +22,7 @@ use serde_json::Value;
 use signal_hook::consts::{SIGHUP, SIGINT, SIGTERM};
 use signal_hook::iterator::Signals;
 use std::fs;
-use std::io::{self, Write};
+use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
 use std::process::{self, Command, Stdio};
 use tehas_core::install::{self, Step};
@@ -448,31 +448,38 @@ fn table() -> String {
     rows.collect::<Vec<_>>().join("\n")
 }
 
-// The seconds the install may take: a cold package cache on a slow link.
-const INSTALL_WAIT: &str = "1800";
-
 // The product's install in the clone, in the image. Ok when it passed; else
-// the failures it is said as.
+// the failures it is said as. Its error stream goes to ours line by line, and
+// only the lines that name a missing tool are kept.
 fn installed(dir: &str, image: &str, user: &str, steps: &[Step]) -> Result<(), Vec<String>> {
-    let out = Command::new("timeout")
-        .args(["-k", "10", INSTALL_WAIT, "docker"])
+    let wait = install::WAIT.to_string();
+    let child = Command::new("timeout")
+        .args(["-k", "10", &wait, "docker"])
         .args(install_run(dir, image, user, steps))
         .stdin(Stdio::null())
         .stdout(Stdio::inherit())
         .stderr(Stdio::piped())
-        .output();
-    let Ok(out) = out else {
+        .spawn();
+    let Ok(mut child) = child else {
         return Err(vec![
             "docker could not be started for the install".to_string()
         ]);
     };
-    let said = String::from_utf8_lossy(&out.stderr);
-    eprint!("{said}");
-    let rc = out.status.code().unwrap_or(127);
+    let mut lacking = Vec::new();
+    if let Some(err) = child.stderr.take() {
+        for line in io::BufReader::new(err).split(b'\n').map_while(Result::ok) {
+            let line = String::from_utf8_lossy(&line);
+            eprintln!("{line}");
+            lacking.extend(install::missing(&line));
+        }
+    }
+    let Ok(status) = child.wait() else {
+        return Err(vec!["the install could not be waited for".to_string()]);
+    };
+    let rc = status.code().unwrap_or(127);
     if rc == 0 {
         return Ok(());
     }
-    let lacking = install::missing(&said);
     if rc == install::MISSING && !lacking.is_empty() {
         return Err(lacking
             .iter()
@@ -480,9 +487,7 @@ fn installed(dir: &str, image: &str, user: &str, steps: &[Step]) -> Result<(), V
             .collect());
     }
     if matches!(rc, 124 | 137) {
-        return Err(vec![format!(
-            "the install did not end within {INSTALL_WAIT}s"
-        )]);
+        return Err(vec![format!("the install did not end within {wait}s")]);
     }
     Err(vec![format!("the install failed in {image} (exit {rc})")])
 }
