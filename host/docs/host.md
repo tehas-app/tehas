@@ -1040,8 +1040,8 @@ edge router are outside the slice too.
 
 ### What a container may not do
 
-A cycle, a planning turn, a `tehas dev` session and the push check before a
-cycle all get the options below, from `security` in
+A cycle, a planning turn, a `tehas dev` session, and the push check and the
+product's install before a cycle all get the options below, from `security` in
 `console/core/src/sandbox.rs`, beside the mounts and the variables. The list is
 capability-shaped options and this round's bounded `/tmp`. The indexer and the
 analyst are not given them yet (issue #54 leaves them to a follow-up), so the
@@ -1177,6 +1177,7 @@ hold a slot for ever:
 | --- | --- | --- |
 | The image's `--capabilities` answer before a cycle | 120 s | `tehas work` exits 78, with `gave no --capabilities answer` |
 | The push check before a cycle | 300 s | `tehas work` exits 3, with `the push check did not end within 300s` |
+| The product's install before a cycle | 1800 s | `tehas work` exits 78, with `the install did not end within 1800s` in the `.preflight` file |
 | The clone of the cycle's workspace | 300 s | `tehas work` exits 78 |
 | `docker stop` at the end of a cycle, and on a signal | 60 s | `docker kill`, bounded the same way, and the line `docker stop of tehas-work-N did not end within 60s, killing it` |
 | The console at the end of a cycle | 3 s, then 30 s after it is asked to stop (`TEHAS_CONSOLE_WAIT`) | The console is killed, with `the console did not stop within 30s, killing it` |
@@ -1482,6 +1483,24 @@ beside a cycle's images, is recorded as the label `tehas.rukas.images`. The
 Dockerfile asks the base it stands on again and stops when the two disagree. `tehas work`, `tehas plan`, the
 dispatcher and `install.sh` read the label; an image built without build.sh
 carries `unknown`, which tehas reads as "not said" rather than as an answer.
+
+A base that answers `--capabilities` can still start no run, which is what a
+build cannot see from an answer alone: pi-rukas v0.14.30 to v0.14.40 passed the
+check above and every `work` run on it ended at once, three cycles on
+one host before anyone saw it. So before the uid tag moves onto an image this
+build made, or onto the instance's layer above it, the build smoke-runs that
+image: one `work` turn started inside it, in a container with no network
+(`--network none`), no token and no model, small memory and pids bounds of its
+own, and at most 40 seconds. A good image prints a `step-started` line within a
+few seconds, the run ends there, and the tag moves; an image that prints no
+such line, or a result that says its runner crashed, is refused, the build
+exits 1 and the uid tag stays where it was, as for a layer that does not
+build. A build with an instance layer smoke-runs both images. The run's words
+and the decision on its output are `tehas-cycle sandbox smoke` and
+`tehas-cycle sandbox smoke-verdict`, in `console/cycle/src/sandbox.rs`;
+`build.sh` only runs docker and passes it the output. A smoke run starts no
+cycle and reaches no model, so it costs the build
+a few seconds, and it is not one of the containers a cycle is given.
 
 An image that says its pi-rukas does not read them holds every issue whose
 text links an attachment while `TEHAS_WORK_IMAGES=1` stands; other issues
