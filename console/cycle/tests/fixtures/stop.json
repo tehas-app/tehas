@@ -126,7 +126,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped without a pull request: status `unknown`, last step `-`, 0 min (runner exit 2). This cycle left no workspace on this host; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped without a pull request: status `unknown`, last step `-`, 0 min (runner exit 2). This cycle left no workspace on this host; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nThe retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -262,7 +262,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped without a pull request: status `unknown`, last step `-`, 0 min (runner exit 0). This cycle left no workspace on this host; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped without a pull request: status `unknown`, last step `-`, 0 min (runner exit 0). This cycle left no workspace on this host; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nThe retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -402,7 +402,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped, and its pull request could not be looked up: GitHub did not list the pull requests of the branch `feature/x` (status `running`, last step `develop`, 0 min, runner exit 2). Look for one there before you retry. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. The label of this issue could not be changed. The next poll of the dispatcher hands it to a human.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=develop kind= provider=0 sig=f25ff331a7f9960c458526d7b95b14f9fedd00ddfe504a1800921c36c4c7908c -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped, and its pull request could not be looked up: GitHub did not list the pull requests of the branch `feature/x` (status `running`, last step `develop`, 0 min, runner exit 2). Look for one there before you retry. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. The label of this issue could not be changed. The next poll of the dispatcher hands it to a human.\n\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nThe retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=develop kind= provider=0 sig=f25ff331a7f9960c458526d7b95b14f9fedd00ddfe504a1800921c36c4c7908c -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "comment",
@@ -538,7 +538,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped without a pull request: status `unknown`, last step `-`, 0 min (runner exit 0). This cycle left no workspace on this host; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. The label of this issue could not be changed. The next poll of the dispatcher hands it to a human.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped without a pull request: status `unknown`, last step `-`, 0 min (runner exit 0). This cycle left no workspace on this host; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. The label of this issue could not be changed. The next poll of the dispatcher hands it to a human.\n\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nThe retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -674,7 +674,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped without a pull request: status `unknown`, last step `-`, 0 min (runner exit 2). This cycle left no workspace on this host; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped without a pull request: status `unknown`, last step `-`, 0 min (runner exit 2). This cycle left no workspace on this host; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nThe retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -1094,7 +1094,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped with pull request #9 open: status `failed`, last step `review`, 0 min (runner exit 30). The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. Its branch has an open pull request: https://github.com/acme/widget/pull/9\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=review kind= provider=0 sig=db051e68b1bc0ed32abdd1bc742e0da0ba9073f41868d0c2fa5ab1ada90535bd -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped with pull request #9 open: status `failed`, last step `review`, 0 min (runner exit 30). The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. Its branch has an open pull request: https://github.com/acme/widget/pull/9\n\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nThe retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=review kind= provider=0 sig=db051e68b1bc0ed32abdd1bc742e0da0ba9073f41868d0c2fa5ab1ada90535bd -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -1244,7 +1244,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped with pull request #9 open: status `aborted`, last step `review`, 0 min (runner exit 20). The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. Its branch has an open pull request: https://github.com/acme/widget/pull/9\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=review kind= provider=0 sig=db051e68b1bc0ed32abdd1bc742e0da0ba9073f41868d0c2fa5ab1ada90535bd -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped with pull request #9 open: status `aborted`, last step `review`, 0 min (runner exit 20). The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. Its branch has an open pull request: https://github.com/acme/widget/pull/9\n\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nThe retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=review kind= provider=0 sig=db051e68b1bc0ed32abdd1bc742e0da0ba9073f41868d0c2fa5ab1ada90535bd -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -1394,7 +1394,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped with pull request #9 open: status `unknown`, last step `review`, 0 min (runner exit 30). The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. Its branch has an open pull request: https://github.com/acme/widget/pull/9\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=review kind= provider=0 sig=db051e68b1bc0ed32abdd1bc742e0da0ba9073f41868d0c2fa5ab1ada90535bd -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped with pull request #9 open: status `unknown`, last step `review`, 0 min (runner exit 30). The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. Its branch has an open pull request: https://github.com/acme/widget/pull/9\n\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nThe retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=review kind= provider=0 sig=db051e68b1bc0ed32abdd1bc742e0da0ba9073f41868d0c2fa5ab1ada90535bd -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -1544,7 +1544,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped with pull request #9 open: status `running`, last step `review`, 0 min (runner exit 30). The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. Its branch has an open pull request: https://github.com/acme/widget/pull/9\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=review kind= provider=0 sig=db051e68b1bc0ed32abdd1bc742e0da0ba9073f41868d0c2fa5ab1ada90535bd -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped with pull request #9 open: status `running`, last step `review`, 0 min (runner exit 30). The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. Its branch has an open pull request: https://github.com/acme/widget/pull/9\n\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nThe retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=review kind= provider=0 sig=db051e68b1bc0ed32abdd1bc742e0da0ba9073f41868d0c2fa5ab1ada90535bd -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -2092,7 +2092,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped, and its pull request could not be looked up: GitHub did not list the pull requests of the branch `feature/x` (status `handoff`, last step `commit-pr`, 0 min, runner exit 10). Look for one there before you retry. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=commit-pr kind= provider=0 sig=bf3851bddbeacad2f648af429d45ad8e3698bbd824537d0efad74ce85d8f59ae -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped, and its pull request could not be looked up: GitHub did not list the pull requests of the branch `feature/x` (status `handoff`, last step `commit-pr`, 0 min, runner exit 10). Look for one there before you retry. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nThe retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=commit-pr kind= provider=0 sig=bf3851bddbeacad2f648af429d45ad8e3698bbd824537d0efad74ce85d8f59ae -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -2406,7 +2406,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped without a pull request: status `unknown`, last step `-`, 0 min (runner exit 10). The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped without a pull request: status `unknown`, last step `-`, 0 min (runner exit 10). The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nThe retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -2549,7 +2549,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped, and its pull request could not be looked up: GitHub did not list the pull requests of the branch `feature/xyz` (status `handoff`, last step `commit-pr`, 0 min, runner exit 10). Look for one there before you retry. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=commit-pr kind= provider=0 sig=bf3851bddbeacad2f648af429d45ad8e3698bbd824537d0efad74ce85d8f59ae -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped, and its pull request could not be looked up: GitHub did not list the pull requests of the branch `feature/xyz` (status `handoff`, last step `commit-pr`, 0 min, runner exit 10). Look for one there before you retry. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nThe retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=commit-pr kind= provider=0 sig=bf3851bddbeacad2f648af429d45ad8e3698bbd824537d0efad74ce85d8f59ae -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -2955,7 +2955,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped without a pull request: status `unknown`, last step `-`, 0 min (runner exit 0). This cycle left no workspace on this host; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped without a pull request: status `unknown`, last step `-`, 0 min (runner exit 0). This cycle left no workspace on this host; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nThe retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -3094,7 +3094,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped without a pull request: status `failed`, last step `develop`, 0 min (runner exit 30). The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=develop kind= provider=0 sig=f25ff331a7f9960c458526d7b95b14f9fedd00ddfe504a1800921c36c4c7908c -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped without a pull request: status `failed`, last step `develop`, 0 min (runner exit 30). The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nThe retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=develop kind= provider=0 sig=f25ff331a7f9960c458526d7b95b14f9fedd00ddfe504a1800921c36c4c7908c -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -3229,7 +3229,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped without a pull request: status `failed`, last step `develop`, 0 min (runner exit 30). The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=develop kind= provider=0 sig=f25ff331a7f9960c458526d7b95b14f9fedd00ddfe504a1800921c36c4c7908c -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped without a pull request: status `failed`, last step `develop`, 0 min (runner exit 30). The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nThe retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=develop kind= provider=0 sig=f25ff331a7f9960c458526d7b95b14f9fedd00ddfe504a1800921c36c4c7908c -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",

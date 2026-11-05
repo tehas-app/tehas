@@ -260,6 +260,83 @@ pub fn issue_images(
     take(&bin, "issue", &args, &format!("{data}\n"))
 }
 
+/// Whether the approval record gives the cycle comments: its retry_context
+/// holds an entry, which console/attach makes comments.json of.
+pub fn comments_given(record: &str) -> bool {
+    is_record(record)
+        && record_value(Path::new(record))
+            .and_then(|r| {
+                r.get("retry_context")
+                    .and_then(Value::as_array)
+                    .map(|a| !a.is_empty())
+            })
+            .unwrap_or(false)
+}
+
+/// Whether the record is a comments retry's: a retry tick that gives comments.
+pub fn comments_retry(record: &str) -> bool {
+    comments_given(record)
+        && record_value(Path::new(record))
+            .is_some_and(|r| r.get("how").and_then(Value::as_str) == Some("retry-tick"))
+}
+
+/// <dir> remade with the record's comments.json and a manifest that lists no
+/// file, for an instance that gives a cycle no images and no files. Err is
+/// why nothing may start.
+pub fn comments_only(home: &Path, issue: u64, dir: &Path, record: &str) -> Result<(), String> {
+    let unwritten =
+        "the issue's comments could not be given (the attachment checker is not installed)";
+    if attach(home).is_none() {
+        return Err(unwritten.to_string());
+    }
+    let args = [
+        issue.to_string(),
+        dir.to_string_lossy().into_owned(),
+        "--record".into(),
+        record.to_string(),
+        "--repo".into(),
+        env("TEHAS_REPO"),
+        "--millwright".into(),
+        env("TEHAS_MILLWRIGHT_LOGIN"),
+    ];
+    let Some(answer) = ask(home, "comments", &args) else {
+        return Err("the issue's comments could not be written".to_string());
+    };
+    match word(&answer, "why") {
+        why if why.is_empty() => Ok(()),
+        why => Err(why),
+    }
+}
+
+/// Whether the sandbox image carries the issue-comments polyfill: its
+/// `tehas.rukas.polyfills` label names issue-comments@<version>. With an image
+/// whose runner lists issueComments (trail-openers/pi-rukas#2020) the polyfill
+/// is not asked about.
+pub fn polyfill_label(image: &str) -> bool {
+    let out = Command::new("docker")
+        .args([
+            "image",
+            "inspect",
+            "--format",
+            "{{index .Config.Labels \"tehas.rukas.polyfills\"}}",
+            image,
+        ])
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output();
+    out.ok()
+        .filter(|o| o.status.success())
+        .is_some_and(|o| polyfilled(&String::from_utf8_lossy(&o.stdout)))
+}
+
+/// Whether a `tehas.rukas.polyfills` label names the issue-comments polyfill.
+fn polyfilled(label: &str) -> bool {
+    label.split([' ', ',', '\n']).any(|w| {
+        w.strip_prefix("issue-comments@")
+            .is_some_and(|v| !v.is_empty())
+    })
+}
+
 /// Err, with the reason, when the kept manifest and <dir>'s are of the same
 /// approval and a link gave other bytes this time. A program that cannot
 /// answer has not held the link to its bytes, so the start stops.
@@ -437,6 +514,22 @@ fn base(r: &Value, allowed: &str) -> Option<Value> {
 mod tests {
     use super::*;
     use tehas_core::testdir::TestDir;
+
+    #[test]
+    fn only_a_versioned_issue_comments_entry_is_the_polyfill() {
+        assert!(polyfilled("issue-comments@0.1.0"));
+        assert!(polyfilled("other@1 issue-comments@0.1.0\n"));
+        assert!(polyfilled("other@1,issue-comments@2"));
+        for no in [
+            "",
+            "<no value>",
+            "issue-comments",
+            "issue-comments@",
+            "my-issue-comments@1",
+        ] {
+            assert!(!polyfilled(no), "{no}");
+        }
+    }
 
     #[test]
     fn a_link_to_an_attachment_may_be_one() {
