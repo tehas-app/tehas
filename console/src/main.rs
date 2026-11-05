@@ -196,6 +196,7 @@ mod mcp;
 mod models;
 mod notice;
 mod now;
+mod panel;
 mod plan;
 mod platform;
 mod pr_title;
