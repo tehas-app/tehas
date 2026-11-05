@@ -65,6 +65,10 @@ const BRIEF_INVENTORY: &str = "prior context inventory";
 /// own. A body of nothing but these and blanks is a form nobody filled in.
 const UNFILLED: &str = "[context param]";
 
+/// What pi-rukas writes as the Acceptance criteria when it has none
+/// (`AC_FALLBACK` in its `plan-validate.ts`).
+const NO_CRITERIA: &str = "derive the testable outcomes from the investigation findings";
+
 /// Why a title or a body says nothing. The set is closed: a writer that
 /// answers differently for one of these matches on it, and the words a person
 /// reads come from [`Reason::as_str`].
@@ -80,16 +84,23 @@ pub enum Reason {
     Briefed,
     /// The body holds nothing but the brief's unfilled markers, or nothing.
     Unfilled,
+    /// A line of the body is a line of the planner's context echoed back,
+    /// with `[context param]` after it: the request, or tehas's own brief.
+    Echoed,
+    /// The Acceptance criteria are the planner's placeholder for none.
+    Placeholder,
 }
 
 impl Reason {
     /// Every reason, in the order the rules ask.
-    pub const ALL: [Reason; 5] = [
+    pub const ALL: [Reason; 7] = [
         Reason::EmptyTitle,
         Reason::OnlyPrefix,
         Reason::Repeated,
         Reason::Briefed,
         Reason::Unfilled,
+        Reason::Echoed,
+        Reason::Placeholder,
     ];
 
     /// The title's refusals, in the order `check_title` asks them, so a writer
@@ -106,6 +117,8 @@ impl Reason {
             Reason::Repeated => "the title is one word repeated",
             Reason::Briefed => "the body is the planner's brief: it holds both `Descriptor:` and a `Prior context inventory`",
             Reason::Unfilled => "the body is nothing but `[context param]` markers",
+            Reason::Echoed => "the body echoes the planner's context: it holds lines that end in `[context param]`",
+            Reason::Placeholder => "the Acceptance criteria are the planner's placeholder, not criteria",
         }
     }
 
@@ -419,7 +432,43 @@ pub fn check_body(body: &str) -> Result<(), Refusal> {
         return Err(Refusal::of_body(Reason::Unfilled));
     }
 
+    // The request and tehas's brief echoed back line by line, as pi-rukas lists
+    // its context. A marker on a line of its own is the form's, read above.
+    if left
+        .iter()
+        .any(|l| l.len() > UNFILLED.len() && l.ends_with(UNFILLED))
+    {
+        return Err(Refusal::of_body(Reason::Echoed));
+    }
+
+    // The placeholder is read only under the heading it stands in for, so a
+    // plan that quotes it elsewhere still stands.
+    if criteria_section(&left).contains(NO_CRITERIA) {
+        return Err(Refusal::of_body(Reason::Placeholder));
+    }
+
     Ok(())
+}
+
+/// The text under the markdown headings named Acceptance criteria, in lower
+/// case with its spaces made single, up to the next heading.
+fn criteria_section(lines: &[String]) -> String {
+    let mut under = false;
+    let mut said: Vec<String> = Vec::new();
+    for line in lines {
+        if line.starts_with('#') {
+            let name = line.trim_start_matches('#').trim().to_ascii_lowercase();
+            under = name.starts_with("acceptance criteria");
+            continue;
+        }
+        if under {
+            said.push(line.to_ascii_lowercase());
+        }
+    }
+    said.join(" ")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 #[cfg(test)]
@@ -517,6 +566,40 @@ mod tests {
         assert_eq!(refused_body("\r"), Reason::Unfilled);
         // One line of the issue's own text makes it a body.
         assert!(check_body("[context param]\n\nThe console reads the new key.").is_ok());
+    }
+
+    #[test]
+    fn a_body_that_echoes_the_context_is_refused() {
+        let plan = "## Deliverables\n\n1. The console reads the new key.\n\n";
+        let echoed = format!(
+            "{plan}## Prior context inventory\n\n- ## How to plan this: tehas refine [context param]\n"
+        );
+        assert_eq!(refused_body(&echoed), Reason::Echoed);
+        // Without its inventory heading, and with only one line echoed.
+        let one = format!("{plan}- Make it fast. [context param]\n");
+        assert_eq!(refused_body(&one), Reason::Echoed);
+        // Naming the marker in a sentence is no echo.
+        let named = format!("{plan}The planner marks each line with [context param] today.\n");
+        assert!(check_body(&named).is_ok());
+    }
+
+    #[test]
+    fn placeholder_criteria_are_refused_and_a_quote_of_them_is_not() {
+        let placeholder = "## Acceptance criteria\n\n- _derive the testable outcomes from the investigation findings before /work_\n";
+        let plan = "## Deliverables\n\n1. The console reads the new key.\n\n";
+        assert_eq!(
+            refused_body(&format!("{plan}{placeholder}")),
+            Reason::Placeholder
+        );
+        // Broken over two lines, under a heading of another depth.
+        let broken = "### Acceptance Criteria\n- derive the testable outcomes\n  from the investigation findings\n";
+        assert_eq!(
+            refused_body(&format!("{plan}{broken}")),
+            Reason::Placeholder
+        );
+        // Real criteria, and the phrase quoted in another section, stand.
+        let real = "## Acceptance criteria\n\n- `cargo test` covers the new key.\n\n## Evidence\n\n- pi-rukas writes \"derive the testable outcomes from the investigation findings\" when it has none.\n";
+        assert!(check_body(&format!("{plan}{real}")).is_ok());
     }
 
     // --- the shapes that used to pass unseen ---------------------------------
