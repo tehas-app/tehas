@@ -91,7 +91,9 @@ CREATE TABLE cycle_locks (
 -- One row per cycle per tick of the supervisor's 10-second write, the newest
 -- 100 of an issue. Was live/cycles/<n>.json, whose mtime was the heartbeat.
 -- text (v3) is the driver's last notice after the console's mask, which the
--- published view shows.
+-- published view shows. step_number, step_total, round, round_limit and
+-- step_since (v10) say where the step is, as the driver said it; null is not
+-- known.
 CREATE TABLE heartbeats (
   issue      INTEGER NOT NULL REFERENCES cycles (issue) ON DELETE CASCADE,
   at         INTEGER NOT NULL,
@@ -99,6 +101,11 @@ CREATE TABLE heartbeats (
   step       TEXT,
   status     TEXT,
   text       TEXT,
+  step_number INTEGER,
+  step_total INTEGER,
+  round      INTEGER,
+  round_limit INTEGER,
+  step_since INTEGER,
   PRIMARY KEY (issue, at)
 );
 CREATE INDEX heartbeats_at ON heartbeats (at);
@@ -264,7 +271,8 @@ CREATE INDEX questions_issue ON questions (issue, posted_at);
 -- 3.8 the histories, one row per end, the 50 newest per issue kept. Were the
 -- three JSONL ledgers the shell commands parsed. The runner's words (cap,
 -- park_reason, failure_kind, failure_cause) are claims, stored only cleaned to
--- a fixed set and bound.
+-- a fixed set and bound. step_number, step_total and round (v10) are where the
+-- step the cycle ended in was, from its last heartbeat of that step.
 CREATE TABLE cycle_history (
   id INTEGER PRIMARY KEY,
   issue INTEGER NOT NULL, attempt INTEGER NOT NULL, at INTEGER NOT NULL,
@@ -272,7 +280,8 @@ CREATE TABLE cycle_history (
   started_at INTEGER, rc INTEGER, cap TEXT, park_reason TEXT,
   failure_kind TEXT, failure_cause TEXT,
   provider INTEGER NOT NULL DEFAULT 0, parked INTEGER NOT NULL DEFAULT 0,
-  seq INTEGER
+  seq INTEGER,
+  step_number INTEGER, step_total INTEGER, round INTEGER
 );
 CREATE INDEX cycle_history_issue ON cycle_history (issue, at);
 CREATE TABLE plan_history (

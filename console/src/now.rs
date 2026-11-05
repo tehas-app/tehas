@@ -1,16 +1,24 @@
-//! The two lines the dashboard's status is read from, for libexec/work.
+//! The lines the dashboard's status is read from, for libexec/work.
 //!
 //! The watch loop of `tehas work` wants the cycle's current step and the
 //! driver's last notice every ten seconds. Reading them from the log is seven
 //! processes a tick; the console beside the log already reads it every 1.5
-//! seconds, so it writes them here instead and the loop reads two lines.
+//! seconds, so it writes them here instead and the loop reads the lines.
 //!
 //! The step is the step of the last stable `step-started` line; the notice is
 //! the first line of the last stable `log` message that is not a driver-event
 //! line. Both are masked and hold no control character but the tab, as every
 //! other line of the console does.
+//!
+//! A third line, when anything of it is known, says where the step is:
+//! `stepNumber=5 stepTotal=9 round=2 roundLimit=3 stepSince=1760700000`, each
+//! pair left out when not known. The number, the count and the limit are the
+//! driver's, read from the `step-started` line when it carries them. The round
+//! is the line's own, else how many times this run has started the step, said
+//! only from the second time on. The time is the line's.
 
 use crate::render;
+use std::collections::BTreeMap;
 use std::fs;
 use std::io;
 use std::os::unix::fs::OpenOptionsExt;
@@ -20,12 +28,29 @@ use tehas_core::mask::{is_format, mask};
 /// The prefix of the driver's own lines, which are not what the page shows.
 const DRIVER_EVENT: &str = "pi-rukas:driver-event";
 
-/// The two lines as the file holds them: no control character but the tab, so
+/// The largest step number, count, round or limit believed.
+const MOST: u64 = 1000;
+
+/// The lines as the file holds them: no control character but the tab, so
 /// `read` of a shell gives back what was written.
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, Default, Clone, PartialEq)]
 pub struct Now {
     pub step: String,
     pub text: String,
+    /// Where the last step started is, as its line said it.
+    pub at: Progress,
+    /// How many times this run has started each step.
+    pub starts: BTreeMap<String, u64>,
+}
+
+/// What a `step-started` line said of where the step is.
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct Progress {
+    pub number: Option<u64>,
+    pub total: Option<u64>,
+    pub round: Option<u64>,
+    pub limit: Option<u64>,
+    pub since: Option<i64>,
 }
 
 /// The text as the file holds it: masked, and of the control characters only
@@ -43,23 +68,61 @@ fn said(s: &str) -> String {
         .collect()
 }
 
-// The two lines of one progress line: the step it starts, or the notice it
-// says. Nothing for any other line, and for a line that is not JSON.
-fn of(line: &str) -> Option<(Option<String>, Option<String>)> {
+fn count(v: &serde_json::Value) -> Option<u64> {
+    v.as_u64().filter(|n| (1..=MOST).contains(n))
+}
+
+/// Unix seconds of a time as the driver writes one: milliseconds, or
+/// YYYY-MM-DDTHH:MM:SS with or without a fraction, in UTC.
+fn seconds(v: &serde_json::Value) -> Option<i64> {
+    // 2020 to 2100.
+    let plausible = |t: i64| (1_577_836_800..4_102_444_800).contains(&t);
+    if let Some(ms) = v.as_f64() {
+        return Some((ms / 1000.0).floor() as i64).filter(|t| plausible(*t));
+    }
+    let s = v.as_str()?.strip_suffix('Z')?;
+    let whole = s.get(..19)?;
+    let rest = &s[19..];
+    if !(rest.is_empty()
+        || rest
+            .strip_prefix('.')
+            .is_some_and(|f| f.bytes().all(|b| b.is_ascii_digit())))
+    {
+        return None;
+    }
+    crate::snapshot::epoch(&format!("{whole}Z")).filter(|t| plausible(*t))
+}
+
+enum Said {
+    Step(String, Progress),
+    Notice(String),
+}
+
+// What one progress line says: the step it starts, or the notice. Nothing for
+// any other line, and for a line that is not JSON.
+fn of(line: &str) -> Option<Said> {
     let r: serde_json::Value = serde_json::from_str(line).ok()?;
     if r["v"].as_u64() != Some(render::NDJSON_VERSION) || r["unstable"] == true {
         return None;
     }
     match r["kind"].as_str()? {
-        "step-started" => match &r["event"]["step"] {
-            serde_json::Value::String(step) => Some((Some(step.clone()), None)),
-            _ => None,
-        },
+        "step-started" => {
+            let e = &r["event"];
+            let step = e["step"].as_str()?.to_string();
+            let at = Progress {
+                number: count(&e["stepNumber"]),
+                total: count(&e["stepTotal"]),
+                round: count(&e["round"]),
+                limit: count(&e["roundLimit"]),
+                since: seconds(&e["at"]).or_else(|| seconds(&r["at"])),
+            };
+            Some(Said::Step(step, at))
+        }
         "log" => match &r["message"] {
             serde_json::Value::String(message) => message
                 .lines()
                 .find(|line| !line.is_empty() && !line.starts_with(DRIVER_EVENT))
-                .map(|line| (None, Some(line.to_string()))),
+                .map(|line| Said::Notice(line.to_string())),
             _ => None,
         },
         _ => None,
@@ -72,9 +135,14 @@ fn of(line: &str) -> Option<(Option<String>, Option<String>)> {
 pub fn read(lines: &[String]) -> Now {
     let mut now = Now::default();
     for line in lines {
-        if let Some((step, text)) = of(line) {
-            now.step = step.unwrap_or(now.step);
-            now.text = text.unwrap_or(now.text);
+        match of(line) {
+            Some(Said::Step(step, at)) => {
+                *now.starts.entry(step.clone()).or_default() += 1;
+                now.step = step;
+                now.at = at;
+            }
+            Some(Said::Notice(text)) => now.text = text,
+            None => {}
         }
     }
     now.step = said(&now.step);
@@ -84,27 +152,55 @@ pub fn read(lines: &[String]) -> Now {
 
 /// The later of two: every line one of them names, and of each kind the later
 /// one. Of two empties, an empty, so a pass that added nothing leaves what the
-/// run has said so far standing.
+/// run has said so far standing. The starts of the two are added up.
 impl Now {
     pub fn later(&self, other: &Now) -> Now {
+        let mut starts = self.starts.clone();
+        for (step, n) in &other.starts {
+            *starts.entry(step.clone()).or_default() += n;
+        }
+        let (step, at) = if other.step.is_empty() {
+            (self.step.clone(), self.at.clone())
+        } else {
+            (other.step.clone(), other.at.clone())
+        };
         Now {
-            step: if other.step.is_empty() {
-                self.step.clone()
-            } else {
-                other.step.clone()
-            },
+            step,
             text: if other.text.is_empty() {
                 self.text.clone()
             } else {
                 other.text.clone()
             },
+            at,
+            starts,
         }
+    }
+
+    /// The third line: where the step is, empty when nothing of it is known.
+    pub fn progress(&self) -> String {
+        let started = self.starts.get(&self.step).copied().unwrap_or(0);
+        let round = self.at.round.or((started > 1).then_some(started));
+        let pairs = [
+            ("stepNumber", self.at.number.map(|n| n as i64)),
+            ("stepTotal", self.at.total.map(|n| n as i64)),
+            ("round", round.map(|n| n.min(MOST) as i64)),
+            ("roundLimit", self.at.limit.map(|n| n as i64)),
+            ("stepSince", self.at.since),
+        ];
+        pairs
+            .iter()
+            .filter_map(|(k, v)| v.map(|v| format!("{k}={v}")))
+            .collect::<Vec<_>>()
+            .join(" ")
     }
 }
 
-/// The two lines, as the file holds them.
+/// The lines, as the file holds them: the third only when it says something.
 pub fn content(now: &Now) -> String {
-    format!("{}\n{}\n", now.step, now.text)
+    match now.progress() {
+        p if p.is_empty() => format!("{}\n{}\n", now.step, now.text),
+        p => format!("{}\n{}\n{p}\n", now.step, now.text),
+    }
 }
 
 /// Write the two lines, through a name beside them and a rename, so a reader
@@ -158,6 +254,60 @@ mod tests {
         of.iter().map(|s| s.to_string()).collect()
     }
 
+    impl Now {
+        fn two(&self) -> (&str, &str) {
+            (&self.step, &self.text)
+        }
+    }
+
+    fn step(event: &str) -> String {
+        format!("{{\"v\":1,\"kind\":\"step-started\",\"event\":{event}}}")
+    }
+
+    #[test]
+    fn the_third_line_says_where_the_step_is_as_the_driver_said_it() {
+        let now = read(&[step(
+            r#"{"step":"lens-review","stepNumber":7,"stepTotal":9,"round":2,"roundLimit":3,"at":1760700000123}"#,
+        )]);
+        assert_eq!(
+            content(&now),
+            "lens-review\n\nstepNumber=7 stepTotal=9 round=2 roundLimit=3 stepSince=1760700000\n"
+        );
+        // The time of the line when the event has none, with or without a
+        // fraction; a number out of bounds, or of another kind, is not known.
+        let now = read(&[format!(
+            "{{\"v\":1,\"kind\":\"step-started\",\"at\":\"2025-10-17T11:20:00.512Z\",\"event\":{}}}",
+            r#"{"step":"ci","stepNumber":0,"stepTotal":"9","round":1001}"#
+        )]);
+        assert_eq!(now.progress(), "stepSince=1760700000");
+        assert_eq!(
+            read(&[step(r#"{"step":"ci","at":"yesterday"}"#)]).progress(),
+            ""
+        );
+    }
+
+    #[test]
+    fn a_step_started_again_is_counted_in_rounds_across_passes() {
+        let develop = step(r#"{"step":"develop"}"#);
+        let review = step(r#"{"step":"adversarial"}"#);
+        let first = read(&[develop.clone(), review.clone()]);
+        // The first time a step runs says no round.
+        assert_eq!(first.progress(), "");
+        let second = first.later(&read(std::slice::from_ref(&develop)));
+        assert_eq!(second.progress(), "round=2");
+        let third = second.later(&read(std::slice::from_ref(&review)));
+        assert_eq!(
+            (third.step.as_str(), third.progress()),
+            ("adversarial", "round=2".to_string())
+        );
+        // A pass that adds no step keeps the count and the round.
+        let quiet = third.later(&read(&[]));
+        assert_eq!(quiet, third);
+        // The round the line says stands over the count.
+        let said = quiet.later(&read(&[step(r#"{"step":"adversarial","round":5}"#)]));
+        assert_eq!(said.progress(), "round=5");
+    }
+
     #[test]
     fn the_step_and_the_notice_come_from_the_last_lines_of_each_kind() {
         assert_eq!(
@@ -168,11 +318,9 @@ mod tests {
                 "{\"v\":1,\"kind\":\"step-started\",\"event\":{\"step\":\"develop\"}}",
                 "{\"v\":1,\"kind\":\"log\",\"message\":\"the driver's notice\"}",
                 "{\"v\":1,\"kind\":\"dispatch-started\",\"event\":{\"role\":\"ops\"}}",
-            ])),
-            Now {
-                step: "develop".to_string(),
-                text: "the driver's notice".to_string(),
-            }
+            ]))
+            .two(),
+            ("develop", "the driver's notice")
         );
     }
 
@@ -190,6 +338,7 @@ mod tests {
             Now {
                 step: String::new(),
                 text: "said".to_string(),
+                ..Now::default()
             }
         );
     }
@@ -243,6 +392,7 @@ mod tests {
         let said = Now {
             step: "develop".to_string(),
             text: "the notice".to_string(),
+            ..Now::default()
         };
         // A pass of lines that name neither: a step-started that is unstable,
         // and a log line of the driver itself.
@@ -255,13 +405,7 @@ mod tests {
         let next = read(&lines(&[
             "{\"v\":1,\"kind\":\"step-started\",\"event\":{\"step\":\"review\"}}",
         ]));
-        assert_eq!(
-            said.later(&next),
-            Now {
-                step: "review".to_string(),
-                text: "the notice".to_string(),
-            }
-        );
+        assert_eq!(said.later(&next).two(), ("review", "the notice"));
     }
 
     #[test]
@@ -271,6 +415,7 @@ mod tests {
             Now {
                 step: String::new(),
                 text: String::new(),
+                ..Now::default()
             }
         );
     }
@@ -281,6 +426,7 @@ mod tests {
         let now = Now {
             step: "develop".to_string(),
             text: "the notice".to_string(),
+            ..Now::default()
         };
         write(at.join("console-7.txt.now").to_str().unwrap(), &now).unwrap();
         assert_eq!(
@@ -297,6 +443,7 @@ mod tests {
         let now = Now {
             step: String::new(),
             text: "one\n".to_string(),
+            ..Now::default()
         };
         write(at.join("a.now").to_str().unwrap(), &now).unwrap();
         assert_eq!(fs::read_to_string(at.join("a.now")).unwrap(), "\none\n\n");
