@@ -98,9 +98,10 @@ issue text.
 | What                                        | A cycle | A planning session | The Protolab |
 | ------------------------------------------- | ------- | ------------------ | ------------ |
 | The issue's title and body                  | Read | Read, at the start | The title |
-| Comments on the issue                       | Not given | Replies by an allowed account to its question, as answers | Not shown |
+| Comments on the issue                       | Not given, except on a retry with comments (below) | Replies by an allowed account to its question, as answers | Not shown |
 | A png, jpg, webp or gif linked in the body  | Fetched and mounted with `TEHAS_WORK_IMAGES=1`; shown to explore and plan when the sandbox image says its pi-rukas reads them | The same | Shown |
 | The same image linked in a comment          | With `TEHAS_WORK_COMMENTS=1`, when an allowed account wrote it before the label or the retry tick and nobody edited it since | When a reply to its question links it | Shown |
+| The text of comments, on a retry with comments | `comments.json` beside the images, when `Retry with the issue and all its comments` was ticked: what allowed accounts that may write said on the issue and its pull requests up to the tick. Read by the sandbox image's pi-rukas or its polyfill | Not given | Not shown |
 | md, txt, csv, json, yaml, log, html, css or js linked in the body | Fetched and mounted with `TEHAS_WORK_FILES=1`; pi-rukas does not read them yet | The same | html, css, js, json and txt shown, html in a frame |
 | svg, avif, a video                          | Not given | Not given | Shown |
 | A zip                                       | Unpacked with `TEHAS_WORK_ZIPS=1`, its files given as above | The same | Unpacked, its files shown as above |
@@ -690,18 +691,41 @@ pi-rukas a deadline the handoff's 8 minutes before the end of
 `TEHAS_WORK_TIMEOUT`: after it, the cycle starts no new step and hands off with its branch and pull request, instead of being stopped in the
 middle of one.
 
-To try again after fixing the cause (often: make the issue clearer), tick
-`Retry from a clean start` in the bot's comment. Tick `Leave it parked` to
-take the question away and keep the issue as it is. With
-`TEHAS_WORK_COMMENTS=1`, what an allowed account wrote on the cycle's pull
-request between the park and the tick goes with the retry: its text as
-`retry-context.md` beside the images, and its images and files by the usual
-rules. The box between the two, `Retry from the issue alone`, starts the same
-cycle from the same rules and asks for none of that: its approval names no
-comment of the issue or of the pull request, so the cycle is given the approved
-body and the links of that body alone, with no `retry-context.md` and no image
-linked only from a comment. Neither poll reads the issue's comments or its pull
-request for such a start. A label works as well: apply `tehas:ready`.
+To try again after fixing the cause (often: make the issue clearer), tick a
+retry box in the bot's comment. Tick `Leave it parked` to take the question
+away and keep the issue as it is. Both retries start over in a new workspace.
+
+- `Retry with the issue and all its comments` gives the cycle what allowed
+  accounts wrote on the issue and on the bot's pull requests for it up to the
+  tick: issue comments, pull request comments, review bodies and inline review
+  comments. A comment counts when its author is in `TEHAS_ALLOWED_LABELERS`
+  and may write to the repository at the tick (write, maintain or admin, asked
+  of GitHub once per author), and nobody edited it after the tick. The bot's
+  own comments are left out. An author whose permission cannot be read is left
+  out with a warning in the log, and the start comment names them. The
+  dispatcher records the comments at the tick; `tehas work` writes them to
+  `comments.json` beside the images, each cut at 4,000 characters and the
+  whole at 64 KB with the oldest dropped and counted, and mounts that
+  directory even when the instance gives a cycle no images or files. It needs
+  no setting: the tick is the opt-in. With `TEHAS_WORK_COMMENTS=1` the images
+  and files those comments link come too, by the usual rules.
+- `Retry with the issue text only` gives the cycle the title and body, nothing
+  else: its approval names no comment of the issue or of the pull request, so
+  the cycle is given the approved body and the links of that body alone. Neither
+  poll reads the issue's comments or its pull request for such a start.
+
+The comments box is offered only when the sandbox image gives a cycle the
+comments: its pi-rukas lists `issueComments` in `--capabilities`
+(trail-openers/pi-rukas#2020), or its `tehas.rukas.polyfills` label carries
+`issue-comments@<version>` (tehas-app/tehas-polyfill). Otherwise the comment
+offers the text-only retry and `Leave it parked`. On the polyfill alone a
+comments retry runs with `PI_ENSEMBLE_REPEAT_PARK=0` where the image takes it,
+since the polyfill's comments do not reach the repeat-park guard, and the end
+comment says the comments were given to the cycle's agents. With the native
+reader it says how many the runner read, or that it did not and why. A
+comment posted before this release has the old boxes, `Retry from a clean
+start` and `Retry from the issue alone`: they still count, as the comments
+retry and the text-only retry. A label works as well: apply `tehas:ready`.
 `needs-human-attention` does not have to be removed first. A cycle started
 that way takes `tehas:question` off the issue, and the old boxes no longer do
 anything.
@@ -734,7 +758,7 @@ hash of the body that cycle's approval bound, as the state store keeps it for
 the park, with the issue's text now, and when they are equal and the park was
 not a provider outage it starts no cycle, leaves the park and the labels as
 they are, and says so in the poll's log. Once per park it also posts one
-comment: edit the body, or tick `Retry from a clean start`. The tick is the
+comment: edit the body, or tick a retry box. The tick is the
 park's own ask and is never held, so a retry on the same text starts as it
 did, and so does a start after any change to the body. A park of a provider
 outage is held by its own rule instead, and a park of a cycle started by hand,
@@ -745,7 +769,7 @@ The millwright's own `tehas:ready` is the one label a park lets through without
 a change to the body, when its comment says the next run is not the run that
 stopped. The hold is lifted when the label came from `TEHAS_MILLWRIGHT_LOGIN`,
 the instance gives a cycle images or files (`TEHAS_WORK_IMAGES=1` or
-`TEHAS_WORK_FILES=1`, since the note reaches a cycle nowhere else), and the note
+`TEHAS_WORK_FILES=1`), and the note
 the record would take from that account is one carrying `<!-- tehas:millwright
 issue=<n> action=change -->`: its newest marked comment of the ten minutes
 before the label, saved by nobody after the label and by no other account. A
@@ -1851,12 +1875,12 @@ the new names.
 - **Its comment reaches the cycle.** The millwright's newest comment on the issue
   that starts with `<!-- tehas:millwright issue=<n> action=retry -->` or
   `action=change`, written in the ten minutes before its label and edited by
-  nobody after, goes into the record as `retry_context`. Where the instance
-  gives a cycle images or files, `tehas work` writes it to
-  `retry-context.md` beside them, quoted, under a head that says a model
-  wrote it. No mount and no variable more: elsewhere it reaches no cycle. The
-  park's hold is lifted by the `action=change` one of them alone, which is why
-  [parking](#5-when-a-cycle-stops) asks for that setting too.
+  nobody after, goes into the record as `retry_context`. `tehas work` writes
+  it to `comments.json`, source `fixer`, in the directory it mounts for the
+  cycle's attachments, mounted for it alone where the instance gives a cycle
+  no images or files. The park's hold is lifted by the `action=change` one of
+  them alone, and only where the instance gives a cycle images or files, as
+  [parking](#5-when-a-cycle-stops) says.
 - **It may answer a planning question**, by a tick or a reply, only when
   no person has answered the same question: a person's tick or reply wins,
   whichever came first. And only in a session an allowed account's
@@ -2030,8 +2054,7 @@ approval), `refresh_of` (`pr`, `head_sha`, `base_sha`, `branch`) and one
 > gate in `.pi/verify-cmd`, and push to the same branch. Do no other work.
 
 No comment text reaches the cycle this way. As with the millwright's note, it
-reaches `retry-context.md` only where the instance gives a cycle images or
-files. `tehas work` passes `--continue-pr` for a refresh, and refuses a refresh
+reaches the cycle in `comments.json`, source `refresh`. `tehas work` passes `--continue-pr` for a refresh, and refuses a refresh
 with 78 on an image that does not take it. Nothing else about the container
 changes. The outcome is read as any cycle's: a refresh that pushed goes back to
 `tehas:awaiting-merge` with the same pull request, one that parks parks the
