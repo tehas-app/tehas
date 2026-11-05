@@ -106,6 +106,7 @@ be ignored for a first install.
 - [Resize or restart the host]({{ $base }}/resize.md): changing a host VM's CPUs and memory, and restarting its hypervisor, without a drain: what a person does on the hypervisor, in libvirt
 - [Previews and the Protolab on the internet]({{ $base }}/edge.md): a preview of every pull request, and how the names were published
 - [Commands]({{ $base }}/tools.md): `tehas`, `tehasbot` and what each of their commands does
+- [The forge interface]({{ $base }}/forge.md): what tehas asks of the site its issues live on, for writing an adapter other than GitHub's
 - [The factory API]({{ $base }}/api.md): the commands a program drives a factory with, and their JSON
 - [Analytics]({{ $base }}/analytics.md): the factory's 365 days of runs in SQLite, its schema, and how to fetch a copy
 - [The MCP server]({{ $base }}/mcp-server.md): a read-only view of the factory for agents outside the host, behind API keys
