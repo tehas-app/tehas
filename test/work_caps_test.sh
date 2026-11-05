@@ -272,6 +272,28 @@ caps_refused
 t_contains "$t_out" "the flag --continue-pr"
 t_store_db "$T/home/tehas"
 
+t_case "a lean refresh is 78 before anything moves, though the image takes --continue-pr for work"
+caps_fresh
+caps_continue
+jq '.verbs["work-lean"] = {flags: ["--json", "--timeout"]}
+  | .features += {workLeanResultSchema: 5, leanDeadline: true, leanHandoffHost: true}' \
+  "$T/caps.json" >"$T/caps.new" && mv "$T/caps.new" "$T/caps.json"
+mkdir -p "$fx/net" "$T/home/tehas/state/cycles"
+issue_is "" NONE
+t_store_db "$T/home/tehas"
+printf '{"links":[],"driver":"lean"}' >"$T/lean-input.json"
+t_approve "$T/home/tehas" 7 alice refresh "$(date -u -d 2026-10-01T00:00:00Z +%s)" \
+  --body-sha "$(jq -n '{body: ""}' | tehas_body_sha256)" --input-file "$T/lean-input.json" \
+  --refresh-pr 50 --refresh-head "$(printf 'a%.0s' {1..40})"
+t_started "$T/home/tehas" 7
+t_run "$work 7"
+caps_refused
+t_contains "$t_out" "the flag --continue-pr"
+t_contains "$t_out" "driver lean, work-lean"
+rm -f "$T/home/tehas/state/cycles/7.lean-refused"
+t_store_db "$T/home/tehas"
+caps_good
+
 for how in label retry-tick outage-retry fixer; do
   t_case "a start of how $how never passes --continue-pr, also when the image takes it"
   caps_fresh
@@ -549,5 +571,58 @@ t_eq "$(after -e | grep -c '^GIT_CONFIG_VALUE_0=$')" 1
 
 t_case "host aliases become --add-host entries"
 t_contains "$(cycle_args)" "--add-host=models:192.0.2.9"
+
+# --- The product's install ----------------------------------------------------
+# A lockfile on top of the product as the cases above left it, gate and all.
+mkdir -p "$upstream/extension"
+echo '{}' >"$upstream/extension/bun.lock"
+git -C "$upstream" add -f -- extension/bun.lock
+git -C "$upstream" -c user.name=t -c user.email=t@example.com commit -q -m lock
+git -C "$checkout" fetch -q "$upstream" +refs/heads/main:refs/remotes/origin/main
+
+t_case "a product with a lockfile is installed in its workspace, in the sandbox, before the cycle"
+caps_fresh
+T_ENV=("${env_ok[@]}")
+t_run "$work 7"
+t_contains "$t_out" "tehas work: install extension/: bun install --frozen-lockfile"
+t_contains "$(install_args)" "(cd 'extension' && bun install --frozen-lockfile)"
+t_contains "$(cycle_args)" "pi-rukas-headless"
+# The cycle's limits and security options, the workspace where the cycle has
+# it, and no variable but HOME: no token reaches the product's install.
+t_eq "$(install_args | awk 'prev == "--memory" { print } { prev = $0 }')" "2048m"
+t_eq "$(install_args | security_line)" "$security_opts "
+t_eq "$(install_args | awk 'prev == "-v" { print } { prev = $0 }')" "$ws:$inside"
+t_eq "$(install_args | awk 'prev == "-w" { print } { prev = $0 }')" "$inside"
+t_eq "$(install_args | awk 'prev == "-e" { print } { prev = $0 }')" "HOME=/home/vscode"
+t_lacks "$(install_args)" "GH_TOKEN"
+t_contains "$(cat "$T"/home/tehas/logs/work-7-*.jsonl.preflight)" "install extension/: bun install --frozen-lockfile"
+
+t_case "an install that fails starts no cycle: 78, with what it said"
+caps_fresh
+T_ENV=("${env_ok[@]}" INSTALL_RC=1 "INSTALL_SAYS=error: lockfile had changes")
+t_run "$work 7"
+t_eq "$t_rc" 78
+t_contains "$t_out" "the product's install failed (exit 1), not starting a cycle"
+t_contains "$t_out" "error: lockfile had changes"
+t_eq "$(cycle_args)" ""
+
+t_case "a silent install that fails shows none of the log's earlier lines as its own"
+caps_fresh
+T_ENV=("${env_ok[@]}" INSTALL_RC=1)
+t_run "$work 7"
+t_eq "$t_rc" 78
+t_contains "$t_out" "the product's install failed (exit 1), not starting a cycle"
+t_lacks "$t_out" "    install extension/"
+t_eq "$(cycle_args)" ""
+
+t_case "a tool the image lacks is named, and no cycle starts"
+caps_fresh
+T_ENV=("${env_ok[@]}" INSTALL_RC=69 "INSTALL_SAYS=no bun in the sandbox image")
+t_run "$work 7"
+t_eq "$t_rc" 78
+t_contains "$t_out" "tehas work: no bun in the sandbox image, which the product's install needs; not starting a cycle"
+t_lacks "$t_out" "install failed"
+t_eq "$(cycle_args)" ""
+T_ENV=("${env_ok[@]}")
 
 t_done

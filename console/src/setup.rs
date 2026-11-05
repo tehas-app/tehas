@@ -54,6 +54,8 @@ enum Fail {
 }
 use Fail::{Bad, Die, Stop};
 
+mod product;
+
 fn say(what: &str) {
     eprintln!("tehas setup: {what}");
 }
@@ -991,9 +993,35 @@ fn missing_setting(vars: &Vars) -> Option<String> {
     })
 }
 
+/// TEHAS_OWNER, when set, is a login GitHub assigns on the repository:
+/// GET repos/{repo}/assignees/{login} answers 204 for one, 404 for others.
+fn unassignable_owner(vars: &Vars) -> Option<String> {
+    let owner = vars.text("TEHAS_OWNER");
+    if owner.is_empty() {
+        return None;
+    }
+    let repo = vars.text("TEHAS_REPO");
+    let asked = program(vars, "gh")
+        .args([
+            "api",
+            &format!("repos/{repo}/assignees/{owner}"),
+            "--silent",
+        ])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+    let dir = vars.text("TEHAS_INSTANCE_DIR");
+    (status_of(asked) != 0).then(|| {
+        format!(
+            "TEHAS_OWNER is not valid: GitHub does not say {owner} can be assigned issues in {repo} (see {dir}/instance.env)"
+        )
+    })
+}
+
 fn clone_the_product(vars: &Vars) -> Result<(), Fail> {
     let (repo, work) = (vars.text("TEHAS_REPO"), vars.text("TEHAS_WORK_REPO"));
     if Path::new(&work).join(".git").is_dir() {
+        tell(&product::fast_forward(vars, &work));
         return Ok(());
     }
     if let Some(parent) = Path::new(&work).parent() {
@@ -1053,7 +1081,7 @@ fn steps(libexec: &Path, shell: &Shell, vars: &mut Vars, done: &Written) -> Resu
     give_git_an_identity(vars, &login, &id)?;
 
     shell.load(vars)?;
-    if let Some(line) = missing_setting(vars) {
+    if let Some(line) = missing_setting(vars).or_else(|| unassignable_owner(vars)) {
         eprintln!("tehas: {line}");
         return Err(Stop(78));
     }

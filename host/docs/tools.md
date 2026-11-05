@@ -13,7 +13,7 @@ There are two commands on `PATH`, both in `~/tehas/bin`:
 
 ```
 tehas dispatch [--dry-run]       # one poll of the issue queue, by hand
-tehas work <issue> [--restart]   # one cycle for an issue, by hand
+tehas work <issue> [--restart] [--driver lean|classic]   # one cycle for an issue, by hand
 tehas plan <issue> ...           # one turn of a planning session, by hand
 tehas dev [<name>]               # an interactive session on the host, by hand
 tehas index                      # build the code index the agents search
@@ -65,7 +65,7 @@ in the platform repository has every one with a comment.
 | ------------------------------- | ---------------------------------------- | --------------------------------------------------------------- |
 | `TEHAS_REPO`                    | required                                 | `owner/name` of the repository whose issues are the queue       |
 | `TEHAS_CONTROL_ISSUE`           | required                                 | Issue that carries `tehas:pause`                                |
-| `TEHAS_ALLOWED_LABELERS`        | required                                 | Logins whose labels count, space separated: `tehas:ready`, `tehas:plan`, `tehas:urgent`, `tehas:next`, `tehas:blocked` and `tehas:lean` for the dispatcher, `tehas:prototype` for the Protolab |
+| `TEHAS_ALLOWED_LABELERS`        | required                                 | Logins whose labels count, space separated: `tehas:ready`, `tehas:plan`, `tehas:urgent`, `tehas:next`, `tehas:blocked` and `tehas:lean` for the dispatcher, `tehas:prototype` for the Protolab. Each counts only with the GitHub user id `install.sh` and `tehas update` recorded for it, see [Accounts by user id](#accounts-by-user-id) |
 | `PI_ENSEMBLE_SUBAGENT_MODEL`    | required                                 | Model for every subagent role without one of its own            |
 | `PI_ENSEMBLE_SUBAGENT_PROVIDER` | required                                 | Its provider, as named in `models.json`                         |
 | `PI_ENSEMBLE_MODEL_<ROLE>`      | `PI_ENSEMBLE_SUBAGENT_MODEL`             | Model for one role: `EXPLORE`, `DEVELOPER`, `ADVERSARIAL_DEVELOPER`, `CODE_REVIEW_SPECIALIST` (the six lens reviewers) or `OPS`. Another name is refused. See [A model per role](/host#a-model-per-role) |
@@ -88,10 +88,11 @@ in the platform repository has every one with a comment.
 | `TEHAS_IMPROVE_MAX_OPEN`        | `10`                                     | How many issues labelled `tehas:improvement` may be open in one repository before the loop files no more there |
 | `TEHAS_REVIEW_REPO`             | empty                                    | Optional. `owner/name` of the repository [tehasbot review](#tehasbot-review) files the findings of a run in, as one issue a person triages. Empty: a run that found something says it filed nothing. Never `TEHAS_REPO`: the findings are a model's, and a person triages them into tickets of the product first, so loading refuses it with exit 78 |
 | `TEHAS_REVIEW`                  | `0`                                      | `1` lets [tehasbot review](#tehasbot-review) review anything: `tehas-review.timer` starts it once a week and a run that is off exits 0 at once and calls nothing. Anything but `0` or `1` stops every command with 78 (see [the review loop](/operating#the-review-loop)) |
-| `TEHAS_MILLWRIGHT_LOGIN`        | empty                                    | Optional. The account whose `tehas:ready`, and whose answer to a planning question, the dispatcher takes on [the millwright's grant](/operating#the-millwrights-grant). A GitHub App's login works with or without `[bot]`, such as `tehas-millwright[bot]`. Never the bot and never one of `TEHAS_ALLOWED_LABELERS`, in either form. Empty: no millwright |
+| `TEHAS_MILLWRIGHT_LOGIN`        | empty                                    | Optional. The account whose `tehas:ready`, and whose answer to a planning question, the dispatcher takes on [the millwright's grant](/operating#the-millwrights-grant). A GitHub App's login works with or without `[bot]`, such as `tehas-millwright[bot]`. Never the bot and never one of `TEHAS_ALLOWED_LABELERS`, in either form. Counts only with its recorded user id, as the allowed logins do. Empty: no millwright |
 | `TEHAS_GITHUB_APP_ID`           | empty                                    | Optional. The ID of the GitHub App the factory acts as ([tehasbot github-token](#tehasbot-github-token)). Set with `TEHAS_GITHUB_APP_INSTALLATION` and `TEHAS_BOT_LOGIN`, or none of the three |
 | `TEHAS_GITHUB_APP_INSTALLATION` | empty                                    | Optional. The ID of the app's installation that reaches `TEHAS_REPO`: the number at the end of the installation's settings page |
 | `TEHAS_BOT_LOGIN`               | empty                                    | Optional. The app's login, `<slug>[bot]` |
+| `TEHAS_OWNER`                   | empty                                    | Optional. One person's GitHub login. When the dispatcher marks an issue `tehas:running` for a cycle it also assigns the issue to this account, so GitHub shows it as taken (see [what happens next](/operating#3-what-happens-next)). A bot's login, `[bot]`, or more than one login stops every command with 78, and `tehas setup` refuses a login GitHub does not let be assigned on `TEHAS_REPO`. Empty: nobody is assigned |
 | `TEHAS_MILLWRIGHT_MAX_RETRIES`  | `2`                                      | How many cycles the millwright may start on one issue since a person last approved it |
 | `TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS` | `3`                                  | How many planning questions the millwright may answer in one session. It never answers two in a row (see [the millwright's grant](/operating#the-millwrights-grant)) |
 | `TEHAS_MILLWRIGHT_FEED`        | `0`                                      | 1 lets the millwright's `tehas:ready` start the first cycle of an issue a person wrote (see [the millwright's grant](/operating#the-millwrights-grant)). Anything but 0 or 1 stops every command with 78 |
@@ -105,9 +106,12 @@ in the platform repository has every one with a comment.
 | `TEHAS_CLEAN_AFTER`            | `24`                                     | Hours a thing must have gone unused before `tehasbot clean` removes it: build output in a kept workspace, Docker's build cache and host scratch. A whole number of at least 1, else every command stops with 78 (see [tehasbot clean](#tehasbot-clean)) |
 | `TEHAS_DISK_WAIT`              | `10`                                     | The seconds one read of the host's space may take: `df`, `docker info` and `docker ps`, and one walk of `tehas disk --full` over one place at twice that. A call not answered in the time is no answer, and its figure is null with the reason rather than a command that stops; a tree that stopped answering is no figure and its place says `cut: time`. A whole number from 1 to 99. The dispatcher's hold, the previews' measure and `tehas disk` read under it (see [`tehas disk`](/api#tehas-disk)) |
 | `TEHAS_CLEAN_MIN_FREE`          | `30g`                                    | Free disk space below which `tehasbot clean` takes the build output of a kept workspace and Docker's build cache whatever their age, instead of waiting for `TEHAS_CLEAN_AFTER` hours: the smaller of the file system of `~/tehas` and the one Docker keeps its images on, read with `df`. Space that cannot be read changes nothing, and a lock a cycle holds is never removed under. Host scratch and the old images keep the age. It sits above `TEHAS_CYCLE_MIN_FREE`, so space goes before the poll stops starting cycles. A size such as `512m` or `30g`, else every command stops with 78 (see [tehasbot clean](#tehasbot-clean)) |
+| `TEHAS_CYCLE_STOP_FREE`         | `5g`                                     | Free disk space below which a running cycle is stopped, read with `df` on the file system of `TEHAS_SCRATCH_DIR` every 10 seconds by tehas work. Only the cycle whose scratch is the largest there stops, at the cap `disk`; the others go on. No figure stops nothing. Only with `TEHAS_SCRATCH_DIR`. A size such as `512m` or `5g`, else every command stops with 78 |
+| `TEHAS_SCRATCH_MAX`             | `20g`                                    | What one cycle's scratch under `TEHAS_SCRATCH_DIR` may hold, measured every 10 seconds by tehas work; a cycle whose scratch holds more is stopped at the cap `disk`. Only with `TEHAS_SCRATCH_DIR`. A size such as `512m` or `20g`, else every command stops with 78 |
 | `TEHAS_CLEAN_DIRS`             | `target node_modules __pycache__ .venv .pytest_cache .mypy_cache .next .turbo .gradle` | The directory names `tehasbot clean` removes anywhere in a kept workspace, separated by single spaces. Names, not paths: one with a `/`, a bare `.` or `..`, or a dot-name in the family of the two a workspace keeps, stops every command with 78 (see [tehasbot clean](#tehasbot-clean)) |
 | `TEHAS_BRANCH_CHECK`           | empty                                    | Optional. The name of a check that runs on every push to `TEHAS_BRANCH`, as `verify`. While it failed on the branch's head commit no new cycle starts (see [Limits that hold work back](/operating#limits-that-hold-work-back)). Words of letters, digits and `._()/-` separated by single spaces, else every command stops with 78. Empty: the poll does not ask |
 | `TEHAS_LOW_GATE`               | empty                                    | Optional. A command the dispatcher asks before it starts an issue it puts on neither the urgent list nor the `tehas:next` list. An absolute path of `/`, letters, digits and `._-` with no empty or dot segment, and not under `~/tehas` or the instance directory, else every command stops with 78. Empty: there is no gate, and every ready issue is started as before (see [tehas dispatch](#tehas-dispatch)) |
+| `TEHAS_PRIORITY_FIELD`         | empty                                    | Optional. One word: the organisation's single-select issue field, such as `Priority`, whose value `Urgent` orders the queue as `tehas:urgent` does and `High` as `tehas:next` does. With it set, those two labels order nothing. On a repository of a personal account, which has no issue fields, the labels order the queue as before. A field the organisation does not have stops each poll with 78. Empty: the labels order the queue (see [tehas dispatch](#tehas-dispatch)) |
 | `TEHAS_LOW_GATE_WAIT`          | `60`                                     | Optional. Seconds `TEHAS_LOW_GATE` gets before its answer is a closed gate. A whole number from 1 to 600, else every command stops with 78. The poll holds `~/tehas/state/dispatch.lock` while it waits, so a long value delays every later poll (see [tehas dispatch](#tehas-dispatch)) |
 | `TEHAS_WORK_REPO`               | `~/tehas/repos/<name>`                   | The product checkout cycles are cloned from. Must be a clone of `TEHAS_REPO`. A cycle works in `~/tehas/work/<name>-<issue>`, which is not a setting |
 | `TEHAS_BRANCH`                  | the checkout's `origin/HEAD`             | Branch cycles start from and pull requests target               |
@@ -140,7 +144,7 @@ the check out in silence (see [What a poll costs](/operating#what-a-poll-costs))
 | `TEHAS_PLAN_MAX_TURNS`          | `20`                                     | Turns a planning session may take before it is ended            |
 | `TEHAS_PLAN_TIMEOUT`            | `7200`                                   | Seconds before one planning turn is given up. At most 7200, 2 hours: the unit of a turn runs to that limit plus a quarter of an hour (see [the host manual](/host#time-limits)) |
 | `PI_ENSEMBLE_HOST_ALIASES`      | empty                                    | `name:address` pairs the sandbox must resolve, comma separated  |
-| `PI_ENSEMBLE_REVIEW_THRESHOLD`  | unset                                    | Optional. The code-review severity that blocks a change in a cycle: `CRITICAL`, `HIGH`, `MEDIUM` or `LOW`. Read by pi-rukas, not by tehas, and it wins over the severity the product's doctrine (`AGENTS.md` or `CLAUDE.md`) states. Unset, or anything other than those four words: pi-rukas ignores it and uses the severity that doctrine states, and MEDIUM when it states none. tehas does not check this value and does not stop with 78 over it. A `CRITICAL` finding blocks whatever this says |
+| `PI_ENSEMBLE_REVIEW_THRESHOLD`  | unset                                    | Optional. The code-review severity that blocks a change in a cycle: `CRITICAL`, `HIGH`, `MEDIUM` or `LOW`. Read by pi-rukas, not by tehas, and it wins over the severity the product's doctrine (`AGENTS.md` or `CLAUDE.md`) states. Unset, or anything other than those four words: pi-rukas ignores it and uses the severity that doctrine states, and when it states none pi-rukas's default: MEDIUM up to v0.14.49, HIGH from v0.14.50. tehas does not check this value and does not stop with 78 over it. A `CRITICAL` finding blocks whatever this says |
 | `PI_ENSEMBLE_IMAGE`             | `tehas/pi-rukas:uid<uid>`                | The sandbox image. Only its tag is the instance's to change: `sandbox/build.sh` tags what it builds under the default repository, and `tehasbot clean` takes the dated tags of that name, so a setting with another repository leaves the build's dated tags uncleaned |
 
 A line named `PI_ENSEMBLE_*` reaches a cycle's container as it is, except for
@@ -255,7 +259,14 @@ it takes a pull request out of awaiting merge as it starts. A `tehas:urgent`
 counts only when an allowed account applied it most recently: one applied by
 the bot or anyone else is ignored and logged, and the issue keeps its place by
 number. A `tehas:next` counts when its latest event applies it and is by an
-allowed account or the millwright. The urgent and next checks run for every ready
+allowed account or the millwright. With `TEHAS_PRIORITY_FIELD` set, the issue
+field orders the queue in place of those two labels: `Urgent` counts as
+`tehas:urgent` when an allowed account made the newest change to the field,
+and `High` as `tehas:next` when an allowed account or the millwright did. A
+value that does not count is logged as `ignore #N: Priority Urgent was set by
+'...', not an allowed account`, and the issue keeps its place by number. The
+poll reads the account from the field's change events: a change it cannot
+read, or one with no account, counts for nothing. The urgent and next checks run for every ready
 issue that carries the label and this poll could still start, before the free
 slots cut the queue; who applied `tehas:ready` is read at the decision, when
 the issue is picked. A `tehas:blocked` with no `tehas:ready` beside it
@@ -393,7 +404,8 @@ endpoint has been settled, the subagent provider's endpoint as one word
 gets past the settings and the bot's login, a paused one too, writes
 `~/tehas/live/demand.json`: how many issues would start if there were room,
 and when the oldest of them was accepted, refresh requests included, with
-`refreshHold` when refreshes are held. It reads the `tehas:ready` list and
+`refreshHold` when refreshes are held, and `labelAlone`, the issues
+`tehas:blocked` holds with no comment that names their blockers. It reads the `tehas:ready` list and
 who labelled each issue for that, apart from what a start rests on. The holds are listed
 under [Troubleshooting](/troubleshooting). Log:
 `~/tehas/logs/dispatch.log` when run by systemd, the terminal otherwise. Each
@@ -463,7 +475,11 @@ changes anything in the turn.
 A planning session is on the state store (`plan-show`): its turns, the
 options of its open question, who started it and with which label, the
 approved text, each answer with who gave it, the issues it filed and the
-comments the poll spoke about once. Each change is one write: `plan-begin` as
+comments the poll spoke about once. An option is one label, kept as its
+text: `plan-end` writes the options as a JSON list of the labels it was
+given, and a stored options value that is not a JSON list of labels is
+damage, refused by every read and write of the session with `corrupt` and
+78, never shown as a question with no boxes. Each change is one write: `plan-begin` as
 a session starts, `plan-answer` as an answer begins a turn, `plan-end` as a
 turn ends, as its outcome is posted, and as the session ends. A turn's end the
 store would not take keeps the turn's exit status, and the next poll takes it
@@ -707,12 +723,17 @@ The preview page shows the prefix too, as it shows the title.
 One pi-rukas `/work` cycle, headless, in the sandbox image.
 
 ```
-tehas work <issue> [--restart]
+tehas work <issue> [--restart] [--driver lean|classic]
 ```
 
 The container's command is pi-rukas's one-shot runner,
 `/opt/pi-rukas/bin/pi-rukas-headless work <issue> --timeout <minutes> --json`,
-with `--restart` added for `--restart`. The runner is given
+with `--restart` added for `--restart`. On driver lean the verb is `work-lean`
+in place of `work`, with the same flags, mounts and variables. The driver is
+the one the start's approval binds (`tehas:lean`, see
+[Choosing the driver](/operating#choosing-the-driver)), else classic.
+`--driver` names it by hand and wins over the approval's; any other word is
+exit 64. The runner is given
 `TEHAS_WORK_TIMEOUT` in whole minutes and stops itself there; a runner that
 has not stopped `TEHAS_WORK_GRACE` seconds (300) later is stopped with
 `docker stop`. `tehas work` waits for the runner to exit and reads nothing
@@ -724,12 +745,14 @@ of `tehas work` is the watch of `tehas-cycle work`, which `libexec/work` execs
 once it holds the issue's lock: the same process and the same lock start the
 container, watch it to its end and leave the cycle's notes.
 
-A start whose approval says driver `lean` stops first, with exit 78, the note
-`state/cycles/<issue>.lean-refused` and a line that says this tehas cannot run
-the lean driver yet and to take `tehas:lean` off. It starts no container, moves
-nothing and does not run classic in its place. `tehasbot cycle` reads the note
-and parks the issue as a start that never ran: its approval goes with the
-report, so nothing starts it again on its own. Any other 78 is a stopped cycle.
+A lean start on an image that cannot run it as asked stops with exit 78, the
+note `state/cycles/<issue>.lean-refused` and the lines below, which end
+`(driver lean, work-lean; it does not run classic in its place)`. It starts no
+container and moves nothing. `tehasbot cycle` reads the note and parks the
+issue as a start that never ran: its approval goes with the report, so nothing
+starts it again on its own. Any other 78 is a stopped cycle. A lean run is
+bounded by the same `TEHAS_WORK_TIMEOUT` and deadline as classic; its `ci`
+step waits on the pull request's checks inside that limit.
 
 Before anything is moved or fetched, it asks the image what it supports,
 `pi-rukas-headless --capabilities`. The cycle starts only when the image speaks
@@ -739,7 +762,11 @@ is an input the image lists for a host to set (scope `cycle` or `sandbox`; a
 family such as `PI_ENSEMBLE_MODEL_<ROLE>` covers the members the image lists
 for it, or any name when it lists none, as v0.12.80 does), and the answer's
 `features` say `true` for `handoffChannel`, for `cycleDeadline` when the cycle
-has a deadline and for `restartClearsAttention` with `--restart`. Anything else
+has a deadline and for `restartClearsAttention` with `--restart`. On driver
+lean the flags are checked against the `work-lean` verb, the features are
+`leanHandoffHost` and `leanDeadline`, and `workLeanResultSchema` must be 5. A
+lean `--restart` or refresh (`--continue-pr`) is refused unless the image lists
+the flag for `work-lean`, which v0.14.47 to v0.14.53 do not. Anything else
 is exit 78, with what is not supported named:
 
 ```
@@ -859,7 +886,12 @@ and no end, or with no result; it keeps its own exit status. In both cases
 `~/tehas/state/cycles/<issue>.timed` holds the limit's seconds, who stopped
 the cycle (`tehas` or `runner`) and the step it was in. `tehasbot cycle` says
 it on the issue, records the cap `wall-clock` with that step, and removes the
-file.
+file. A `TERM`, `INT` or `HUP` that stops the container leaves
+`~/tehas/state/cycles/<issue>.signal`: the signal's name (`-` when not known)
+and the step in flight. A run of the gate it cut short gets a `verify-aborted`
+line in the cycle's stream, and the live console a last line. `tehasbot cycle`
+records the cap `signal` of it when the runner named none and no person ran
+`tehas stop`, and removes the file.
 
 The container runs in `tehas.slice` and gets the bot token and the
 `PI_ENSEMBLE_*` settings, a memory ceiling of the slice over `TEHAS_SLICE_CONTAINERS` with no
@@ -879,8 +911,14 @@ failure, for `tehasbot cycle`. They come from the result (`usage.byRole` and
 v0.12.80, gives the usage of the stable `dispatch-completed` lines, each
 counted once by its key, and a reason read from lines the runner marks
 unstable, which may be empty.
-The time limit is `TEHAS_WORK_TIMEOUT`. The push check, the clone and every
-`docker stop` have bounds of their own, listed under
+Before the cycle's container, after the push check, `tehas work` installs the
+product's dependencies in the workspace, in a container of the sandbox image
+with the cycle's limits and security options, the workspace and no token (see
+[the contract](/new-project#what-the-product-repository-must-provide)). An
+install that fails, or a tool the image lacks, starts no cycle: exit 78, with
+the install's last lines, which are in the log's `.preflight` file too.
+The time limit is `TEHAS_WORK_TIMEOUT`. The push check, the install, the clone
+and every `docker stop` have bounds of their own, listed under
 [time limits](/host#time-limits). [The host](/host#limits-and-concurrency)
 has the limits in full.
 
@@ -1730,6 +1768,13 @@ In order, stopping at the first step that fails:
    files say. If `gh auth setup-git` fails, the run stops with 1 before the
    identity is checked.
 4. It clones the product to `~/tehas/repos/<name>` when there is no checkout.
+   A checkout it finds, such as one `tehas state unpack` brought from another
+   host, it fetches from origin and fast-forwards on the branch it is on, with
+   `--no-build` too, so the gates run on origin's code. A checkout with local
+   changes, commits of its own, a detached HEAD, or a fetch that fails or takes
+   over 120 seconds is left as it is: the run names the path and the reason in
+   a line `no fast-forward of the product checkout <path> (<why>); the checkout
+   was left as it is`, and goes on with its status unchanged.
 5. It runs `install.sh` from the same tree as the command, then
    [tehas labels](#tehas-labels).
 6. Unless `--no-build`: it builds the sandbox image when there is none
@@ -1796,12 +1841,17 @@ is committed there. One line per check, `ok` or `FAIL`:
 | `agents`  | `AGENTS.md` is there                                                                            |
 | `gate`    | `.pi/verify-cmd` has a line that is not empty or a comment                                      |
 | `model`   | `.pi/settings.json`, when the product has one, names a model the instance's `models.json` lists |
+| `install` | One line per install a cycle runs before it starts: the first command of `.pi/install-cmd`, else one for each lockfile at the root or one directory down (see [the contract](/new-project#what-the-product-repository-must-provide)) |
 
-With `--sandbox` it then clones that commit into `~/tehas/tmp` and runs, in the
-sandbox image as this user and in the slice, `.pi/worktree-setup` when there is
-one, the first command of `.pi/verify-cmd-full` (else `.pi/verify-cmd`) and the
-first command of `.pi/smoke-cmd` when there is one. The clone is removed
-afterwards.
+With `--sandbox` it then clones that commit into `~/tehas/tmp/<name>`, `<name>`
+the repository's name, and works in the sandbox image as this user and in the
+slice. It runs the installs at the root of the clone, then, in a worktree of the
+clone as pi-rukas makes one in a cycle, `.pi/worktree-setup` when there is one,
+the first command of `.pi/verify-cmd-full` (else `.pi/verify-cmd`) and the first
+command of `.pi/smoke-cmd` when there is one. An install that fails, or a tool
+the image lacks (`no pnpm in the sandbox image`), is a `FAIL install` line and
+no gate runs. The clone and its worktree are removed afterwards; the product's
+checkout gets no worktree and no branch.
 
 It changes nothing in the product. The result goes to
 `~/tehas/state/check-product.json`, which `tehas status` prints as its
@@ -2021,7 +2071,7 @@ Ends a cycle by hand and clears what it left on this host. It asks
 of its lock, and removes the container `tehas-work-12` when it is still there.
 Then it removes what says a cycle runs, owes something, or is parked:
 `~/tehas/state/cycles/12.lock` with `.cid`, `.done`, `.stalled`,
-`.timed`, `.oom`, `.forks`, `.nostart`, `.lean-refused`, `.progress.json` and
+`.timed`, `.signal`, `.oom`, `.forks`, `.nostart`, `.lean-refused`, `.progress.json` and
 `.result.json`, `~/tehas/live/console-12.txt`, `~/.pi/agent/ensemble-runs/issue-12`, and the
 workspace `~/tehas/work/<name>-12` with its `.state`, `.before-retry` and
 `.images` beside it. `--keep-workspace` keeps the workspace for you to read.
@@ -2128,6 +2178,27 @@ waiting:
 
 ```
 refresh   held: the pi-rukas in the sandbox image tehas/pi-rukas:uid1000 does not take --continue-pr
+```
+
+For each ready issue the last poll held on its own while it had room, such as
+one whose last cycle parked on the body it still has:
+
+```
+held      #21: its last cycle parked on `intent-park` and the body has not changed since; edit the body, or tick Retry in the park comment
+```
+
+When every issue in line is held that way and no cycle runs, the factory line
+is a `warn` that names them instead of `Idle, taking work.`:
+
+```
+factory   warn: #21 is held: its last cycle parked on `intent-park` and the body has not changed since. Edit the body, or tick Retry in the park comment. (40 s ago)
+```
+
+While [`tehas:blocked`](/operating#3-what-happens-next) holds issues by the
+label alone, with no comment that names their blockers (up to 50 numbers):
+
+```
+blocked   by the label alone, no blockers named: #7, #9. Each waits until an allowed account comments a `<!-- tehas:blocked by=N -->` marker on it or a person takes tehas:blocked off
 ```
 
 And while [`tehas:all-hands`](/operating#all-hands) holds:
@@ -2662,7 +2733,8 @@ recorded as `cap:provider-outage`, as only tehas names an outage), and with the 
 record for the improvement loop as `cap` and `capReason`, reduced to plain
 characters. A cycle that ended at tehas's own bound gets tehas's cap:
 `wall-clock` for the time limit, `stall` for the stall, `runner-never-started`
-for the container that ended before the driver wrote its first event, and a
+for the container that ended before the driver wrote its first event, `signal`
+for a container stopped on a `TERM`, `INT` or `HUP`, and a
 `capReason` that names the bound and the step. A cap the runner named mid-step goes into
 the reason; a cap of an end it reached before the stop is kept. Where the result gives a failure of another kind than `cap`, the
 park comment names its kind, role, cause and message. The record also holds `buildCommit`, the pi-rukas commit the
@@ -2940,19 +3012,25 @@ file is served.
 | `status` | Meaning                                                                                  | HTTP |
 | -------- | ---------------------------------------------------------------------------------------- | ---- |
 | `pass`   | Taking work, idle or in a cycle                                                          | 200  |
-| `warn`   | The queue snapshot is more than ten minutes old: GitHub did not answer the last polls, and `output` says how old. Or paused (the pause flag on this host, `tehas:pause` on the control issue, or a pause no allowed account took off), or the dispatcher holds everything because the slice is missing or cannot be read, or there are no resources (the model endpoint does not answer or does not offer the model), or too low on disk to build previews, or the free space could not be read, or the platform checkout has been behind origin's default branch for more than a day (`output` says how many commits; run `tehas update`), or the state store has no daily backup or the newest is more than two days old, or an idle poll cost more than its budget (`TEHAS_POLL_BUDGET`, `checks.poll_cost`), or systemd gave up on a tehas unit (`checks.units`, null when that read did not answer) | 200  |
+| `warn`   | The queue snapshot is more than ten minutes old: GitHub did not answer the last polls, and `output` says how old. Or paused (the pause flag on this host, `tehas:pause` on the control issue, or a pause no allowed account took off), or the dispatcher holds everything because the slice is missing or cannot be read, or there are no resources (the model endpoint does not answer or does not offer the model), or too low on disk to build previews, or the free space could not be read, or the platform checkout has been behind origin's default branch for more than a day (`output` says how many commits; run `tehas update`), or the state store has no daily backup or the newest is more than two days old, or an idle poll cost more than its budget (`TEHAS_POLL_BUDGET`, `checks.poll_cost`)| `warn`   | The queue snapshot is more than ten minutes old: GitHub did not answer the last polls, and `output` says how old. Or paused (the pause flag on this host, `tehas:pause` on the control issue, or a pause no allowed account took off), or the dispatcher holds everything because the slice is missing or cannot be read, or there are no resources (the model endpoint does not answer or does not offer the model), or too low on disk to build previews, or the free space could not be read, or the platform checkout has been behind origin's default branch for more than a day (`output` says how many commits; run `tehas update`), or the state store has no daily backup or the newest is more than two days old, or an idle poll cost more than its budget (`TEHAS_POLL_BUDGET`, `checks.poll_cost`), or systemd gave up on a tehas unit (`checks.units`, null when that read did not answer), or no cycle runs and the last poll held every issue in line on its own (`checks.slice.held`: issue, why, text, clear), as one whose last cycle parked on the body it still has, or the MCP server is on and does not answer (`checks.mcp`) | 200  |
 | `fail`   | The last cycle ended as anything but `merged` or `handoff` and no cycle has started since (a running cycle with no `startedAt` counts as started since), or there is no queue snapshot | 503  |
 
 `output` says the same in a sentence. `checks.queue` has the snapshot time and
 the counts in line, building, in review and stopped. `checks.cycles` has the
 issue, status, step and times of every running cycle; `checks.cycle` is the
 first of them, or the cycle that finished last when none is running.
-`checks.plans` has the issue, the turn and `startedAt` of every planning turn
-in flight: a session the state store has running (`plan-show --open`) whose
-lock (`state/plan-<issue>.json.lock`) its unit holds. The page asks the one
-probe, so a lock it cannot open, or a name at that path that is no lock file, is
-a turn in flight too: the page reads a probe it could not make as a turn that has
-not ended, never as one that has. A store that does not
+`checks.plans` has the issue, the turn, `startedAt` and `state` of every
+planning turn in flight and of every open session whose last turn ended in
+error. `state` is `running` for a session the state store has running
+(`plan-show --open`) whose lock (`state/plan-<issue>.json.lock`) its unit holds.
+The page asks the one probe, so a lock it cannot open, or a name at that path
+that is no lock file, is a turn in flight too: the page reads a probe it could
+not make as a turn that has not ended, never as one that has. `state` is
+`failed` for a session still open whose last turn ended in error and waits for
+a person: the store has it failed, or it is running on record beside an exit
+status (`state/plan-<issue>.json.rc`) other than 0 that the next poll posts. A
+session that is over, one whose turn finished, and one whose turn was cut off
+are left out. A store that does not
 answer writes no health file: `tehasbot health` exits 1 when it was busy, 78
 when it is not installed or cannot be used. The publish of the report is tried
 three times while the store is busy, within 30 s of its own, so that a store
@@ -2978,6 +3056,15 @@ checkout of a host that has one. It is `null` on a host with neither.
 ageSeconds}`, or `null` when there is none (see [Backups and
 restore](/operating#backups-and-restore)).
 
+`checks.upkeep` is the cleaner's last `store upkeep`, the step that makes the
+backup: `{time, ok, word}`, where `word` is the store's word when it failed
+(`busy`, `corrupt`, `absent` when the store is not installed, ...) and `null`
+when it went well. It is `null` when no upkeep has run yet. The cleaner keeps it
+in `state/upkeep.json`, with the store's whole line. When the backup is missing
+or old and the last upkeep failed, `output` says when and the word: `There is no
+backup of the state store: the last upkeep failed at <time>: <word>.` A failed
+upkeep with a backup of under two days is no warning of its own.
+
 `checks.poll_cost` is the cost of the polls of the last hour that started no
 cycle, measured against `TEHAS_POLL_BUDGET` by
 [`store poll-idle --budget`](/operating#what-a-poll-costed): `{over, budget}`,
@@ -2993,6 +3080,16 @@ failed; the same shape as `checks.poll_cost`. A failed `tehas-dispatch.path`
 starts no poll when a cycle ends, so a slot waits for the timer. It stays failed
 until `systemctl --user reset-failed` and a start, which `install.sh` does.
 
+`checks.mcp` says whether the [MCP server](/mcp-server) answers. With
+`TEHAS_MCP` unset or `0` it is `{"on": false}` and nothing is asked. With
+`TEHAS_MCP=1` it is `{on, installed, answers}`, and `reason` when it does not
+answer: `installed` is whether `~/tehas/libexec/tehas-mcp` is there, and
+`answers` whether a `POST /mcp` with no key, to port 8082 on `TEHAS_HOST_ADDR`
+(or the loopback), got the server's 401. Connecting and the answer are each
+bounded at 2 s. A refused connection, no answer in time, or any other status,
+such as a proxy's 502, is `answers: false`, and the status is `warn`. A run
+of `console health report` that is given no `--mcp` leaves it `null`.
+
 `checks.allHands` is the snapshot's `allHands`: true while
 [`tehas:all-hands`](/operating#all-hands) holds, false when it does not, and
 `null` when the snapshot is older than ten minutes or could not read it.
@@ -3006,11 +3103,19 @@ read it. [`tehas status --json`](/api#tehas-status---json) is built from these.
 
 `checks.failed` lists the cycles among the last ten that ended, newest first,
 that ended as anything but `merged` or `handoff`: `issue`, `status`, `step`,
-`startedAt` and `time`. It does not change the status. An abort that a merge
-overtook ten seconds later leaves the status `pass`, and is still in
-`checks.failed` until ten more cycles have ended. A monitor that polls less
-often than cycles end reads it to see every failure. The ten endings are kept
-on the state store and published in `live/endings.json`.
+`startedAt` and `time`. The `status` of an ending whose status names no end at
+all (`running`, or none) is `not an end`, and `output` says of the last cycle
+that it "ended as not an end". health does not change the overall status. An
+abort that a merge overtook ten seconds later leaves the status `pass`, and is
+still in `checks.failed` until ten more cycles have ended. A monitor that polls
+less often than cycles end reads it to see every failure. The ten endings are
+kept on the state store and published in `live/endings.json`.
+
+The store records an ending with the word the cycle reported, except for the two
+that say it did not end at all (`running`, and the empty word of a cycle that
+never sent a heartbeat): those become `unknown`, in the ending and in the
+heartbeat of the end that publish answers from, so a finished run never reads as
+one still in flight.
 
 `checks.disk` has the free and the required bytes and `low`, as `tehasbot
 preview` last wrote them to `live/previews.json`. It is `null` on a host
@@ -3295,8 +3400,10 @@ written inside the container and swept with the workspace. The record keeps the
 last 20 of them and never over 64 KiB. Its `cycle.json`
 names the image the cycle's container started from (`image`, its id) and the
 pi-rukas commit of that image's label (`rukas`), which `tehas work` reads as
-the container starts and puts on the cycle's record in the state store. A
-rebuild while the cycle runs does not change them. Without an image on record
+the container starts and puts on the cycle's record in the state store. The
+container is started from that id, not the tag, so a rebuild between the two
+cannot start an image the record does not name. A rebuild while the cycle runs
+does not change them. Without an image on record
 the commit is the one the cycle noted at its start. A comment on an issue the loop
 filed, when the issue is worked on again, names both. When the cycle was given
 the issue's images or files, or given none though its issue linked some, the
@@ -3376,7 +3483,9 @@ tail ~/tehas/logs/refresh.log
 
 Finds the factory's own pull requests that conflict with the branch and
 writes a request for each, `~/tehas/state/refresh/<issue>.json`, for the
-dispatcher to start (see [refreshes](/operating#refreshes)). Deterministic, no
+dispatcher to start (see [refreshes](/operating#refreshes)). The poll reads a
+request of up to 4096 bytes; a larger file is not read, counts as an unreadable
+request, and the poll's log names it with a `WARN:` line. Deterministic, no
 model, no container. `tehas-refresh.timer` starts it every minute, the first
 time 15 minutes after boot, and a run goes ahead only when the last one began
 `TEHAS_REFRESH_EVERY` minutes ago or more (`~/tehas/state/refresh/last-run`,
@@ -3975,6 +4084,7 @@ tehas update                  # the newest release, or pull the checkout;
 tehas update --to v0.8.1      # that release, an older one too
 tehas update --check          # report what would change; change nothing
 tehas update --pending        # run the follow-ups the record lists, no git
+tehas update --accept-id janit  # as tehas update, and record janit's new user id
 tehas update --help           # print the usage of the command, touch nothing
 ```
 
@@ -4032,6 +4142,34 @@ with their image tags.
 
 `~/tehas/state/update-hold` stops a plain `tehas update`. `--to` names its
 version and runs with the hold there.
+
+### Accounts by user id
+
+A GitHub login can be renamed, and a login that was freed can be registered by
+someone else. So a login alone does not say who applied a label. Before
+anything moves, `tehas update` asks GitHub for the user id of each login of
+`TEHAS_ALLOWED_LABELERS` and `TEHAS_MILLWRIGHT_LOGIN` (`GET /users/<login>`)
+and records the pairs in `~/tehas/state/account-ids`, one `<login> <id>` a
+line. `install.sh` does the same before its first copy. The pair of a login
+taken off the list stays, so the login, listed again, must still be the same
+account.
+
+From then on a label, a retry tick, an answer to a planning question and a
+comment count only when the account that made them carries the recorded id
+(`user.id`, `actor.id`, or GraphQL's `databaseId`). An account with the
+login and another id, or with no id at all, does not count: the dispatcher
+reads it as `<login>#<id>`, which no list matches, and says why on standard
+error. With no id recorded for a login, nothing of it counts until
+`tehas update` records one.
+
+- A login that does not resolve stops `install.sh` and `tehas update` with 78
+  and names it. Take it out of the settings or correct it.
+- A login whose id is not the recorded one stops them with 78 and names both
+  ids. If the account was renamed and is still the person the settings mean,
+  `tehas update --accept-id <login>` records the new id. If not, take the login
+  out of the settings.
+- GitHub that cannot be asked stops them with 78 as well, before anything is
+  installed.
 
 ### From the checkout
 
@@ -4452,7 +4590,7 @@ the release's pull request.
 `scripts/tag-release.sh` reads `CHANGELOG.md` from the commit it is about to
 tag, `--dry-run` too, and refuses with exit 1 when the section for the new tag,
 or else `Unreleased`, has no `### Adopter action` heading with a line under it.
-It does not edit the file.
+It edits the file only to name the moves of the pinned tools, below.
 
 `scripts/release-notes.sh <tag>` prints a section without its heading, and
 exits 1 when the file has none for that tag. The workflow makes the release's
@@ -4462,6 +4600,37 @@ A host moving from its platform checkout has no version installed, so its notes
 start at the newest `vX.Y.Z` tag at or before the checkout's HEAD, which
 `tehas update` reads with `git describe` from what the repository already has;
 with no such tag it is shown every release.
+
+### Pinned tools move with the release
+
+Every tool in `host/versions.env` and in the npm trees beside it
+(`host/npm/`, `host/sandbox/npm/`) is pinned to an exact version, and
+`bootstrap.sh` installs only what the file says. `scripts/tag-release.sh`
+moves the pins before it tags, through `scripts/pins.sh move` (`console pins`):
+each to the newest release of the major version it has, taken from the tool's
+own source: nodejs.org, GitHub releases (gh, bun, shellcheck, jq, Rust,
+codebase-memory-mcp) or tags (rustup), npm, crates.io (vipune, oo) and Docker
+Hub (Caddy). Each version moves with what the header of `versions.env` pairs
+with it: the publisher's checksum or the hash of the download, the lockfile
+of an npm tree (npm locks it again; a version younger than npm's
+`min-release-age` is not taken) and its `_LOCK_SHA256`, Caddy's digest in the
+three files that name it, and vipune's model at the revision the new vipune
+asks for, with its two hashes from Hugging Face. pi-rukas is not pinned and is
+left alone.
+
+Under 0.x a minor release can break, so "same major" moves vipune from 0.15 to
+0.20. A later major version is never taken. The release's section of
+`CHANGELOG.md` names each move under `### Changes` and each major held back
+under `### Held back`, for a person to decide.
+
+When anything moved, the script runs the gate there, pushes a branch
+`pins-<tag>`, opens a pull request and exits 2 without tagging: verify.yml runs
+on that commit, a person merges it, and the next run tags. While such a pull
+request is open the script names it and exits 2. A source that cannot be read,
+or a move that fails, stops the release with 1, before any factory installs the
+tool. `--no-pins` tags without moving them. `scripts/pins.sh check` prints each
+pin and what it would move to, and changes nothing. A factory takes the new
+tools when its tag moves, on its next `bootstrap.sh user`.
 
 ### The release workflow
 
@@ -4647,16 +4816,16 @@ next task waits for one to end, and one task always runs. The timeouts below
 then measure a file's own time, not a queue.
 
 Before the pool starts, it builds the state store (`console/store`) once,
-offline, into `console/target/shell`, and tells every test file where the
-program is (`T_STORE_BIN`) or why there is none (`T_STORE_WHY`). The build is
-asked for no debug info (`CARGO_PROFILE_DEV_DEBUG=0` on that one command),
-because those binaries are run and not debugged: debug info is most of what
-the directory holds. The variable is not exported, so the gate's `cargo test`
-in `console/target` keeps its debug info. The directory
-is its own because `scripts/verify.sh` runs the workspace's `cargo test` in
-`console/target` at the same time, and cargo holds that directory's lock while
-it builds (the workspace's dev profile keeps line tables and no incremental
-data, so that directory stays under 1 GB). The tests of the commands that run the store (`test/dispatch_*`,
+offline, into the workspace's own target directory (`CARGO_TARGET_DIR`, or
+`console/target`) with the workspace's dev profile, and tells every test file
+where the program is (`T_STORE_BIN`) or why there is none (`T_STORE_WHY`).
+The gate's `cargo test`, which `scripts/verify.sh` starts at the same time,
+builds the same crates there: cargo holds the directory's lock only while it
+builds, so one build waits for the other and reuses what it made, and the
+tests of each run side by side. One tree instead of two takes about 170 MB
+off every checkout (#1360); the dev profile keeps line tables and no
+incremental data, so the tree stays under 750 MB. A `console/target/shell`
+left by an earlier runner is removed. The tests of the commands that run the store (`test/dispatch_*`,
 `test/cycle_*`, `test/work_*` and `test/store_approval_test.sh`) install it in
 their scratch home and fail without it, so they need cargo too; the build needs the
 workspace's crates in cargo's cache, as the gate's own `cargo test` does. When

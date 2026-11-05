@@ -219,7 +219,7 @@ pub fn modes_bind() -> bool {
     let d = scratch("mode-probe");
     fs::set_permissions(&d, fs::Permissions::from_mode(0o000)).unwrap();
     let bound = fs::read_dir(&d).is_err();
-    fs::set_permissions(&d, fs::Permissions::from_mode(0o700)).unwrap();
+    fs::set_permissions(&d, fs::Permissions::from_mode(0o700)).unwrap(); // a directory
     bound
 }
 

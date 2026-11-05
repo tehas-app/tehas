@@ -878,7 +878,7 @@ rm -f "$T/bin/console"
 T_ENV=(TEHAS_CONSOLE= TEHAS_CONSOLE= PATH=/usr/bin:/bin)
 t_run "unset TEHAS_CONSOLE; TEHAS_HOME=$T/home/tehas $T/no-console/bin/tehasbot health"
 t_eq "$t_rc" 78
-t_contains "$t_out" "tehasbot health: no console at $T/no-console/libexec/console: run install.sh"
+t_contains "$t_out" "tehasbot: no console at $T/no-console/libexec/console: run install.sh"
 t_eq "$([ -e "$live/health.json" ] && echo written)" ""
 
 t_case "summary: the last cycle failed and the cycle beside it started earlier: still failed"
@@ -1361,6 +1361,17 @@ t_eq "$(jq "$shape" <<<"$t_out")" true
 t_run "$status && $summary"
 t_contains "$t_out" "refresh   held: the pi-rukas in the sandbox image does not take --continue-pr"
 
+t_case "status: issues tehas:blocked holds by the label alone are in the demand and in the text"
+reset
+demand 0
+jq '. + {labelAlone: [7, 9]}' "$live/demand.json" >"$live/demand.new" &&
+  mv "$live/demand.new" "$live/demand.json"
+t_run "$status && $summary --json"
+t_eq "$(jq -c .demand.labelAlone <<<"$t_out")" "[7,9]"
+t_eq "$(jq "$shape" <<<"$t_out")" true
+t_run "$status && $summary"
+t_contains "$t_out" "blocked   by the label alone, no blockers named: #7, #9."
+
 t_case "status: no hold on refreshes, no line and no field"
 reset
 demand 0
@@ -1368,6 +1379,7 @@ t_run "$status && $summary"
 t_lacks "$t_out" "refresh   "
 t_run "$summary --json"
 t_eq "$(jq -c '.demand | has("refreshHold")' <<<"$t_out")" false
+t_eq "$(jq -c '.demand | has("labelAlone")' <<<"$t_out")" false
 
 t_case "status --json: no demand from the last ten minutes is null"
 reset

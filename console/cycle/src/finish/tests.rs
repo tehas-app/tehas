@@ -10,10 +10,10 @@ use super::{finish, Finished};
 use crate::finish::cmd::{asked, asked_of_git, Done, Live};
 use crate::finish::Host;
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use tehas_core::testdir::TestDir;
+use tehas_core::testing::write_exe;
 
 /// The scratch root of one case.
 fn root(name: &str) -> TestDir {
@@ -332,7 +332,7 @@ impl World {
     /// GitHub's nothing and a file of `fail` a refusal of the call. The body file
     /// of a create is copied so a case can read what the draft said.
     fn stub(&self, list: &str, create: &str) {
-        fs::write(
+        write_exe(
             &self.gh,
             r#"#!/bin/sh
 # The gh of finish's cases. It records every call and answers pr list and pr
@@ -366,7 +366,6 @@ exit 0
 "#,
         )
         .unwrap();
-        fs::set_permissions(&self.gh, fs::Permissions::from_mode(0o755)).unwrap();
         if !list.is_empty() {
             fs::write(self.dir.join("list.answer"), format!("{list}\n")).unwrap();
         }
@@ -383,12 +382,11 @@ exit 0
         let dir = self.workspace.join(".git/hooks");
         fs::create_dir_all(&dir).unwrap();
         let hook = dir.join(name);
-        fs::write(
+        write_exe(
             &hook,
             format!("#!/bin/sh\ntouch '{touch}'\nexit {status}\n"),
         )
         .unwrap();
-        fs::set_permissions(&hook, fs::Permissions::from_mode(0o700)).unwrap();
     }
 
     /// What the stub was asked, one call per line.
@@ -799,8 +797,7 @@ fn a_push_the_remote_refuses_is_not_tried_again() {
     w.kept("feature/issue-7-default", &[("a.txt", "x\n")]);
     // The remote's own answer to a push, its hook: the run cannot know why.
     let hook = w.origin.join("hooks/pre-receive");
-    fs::write(&hook, "#!/bin/sh\nexit 1\n").unwrap();
-    fs::set_permissions(&hook, fs::Permissions::from_mode(0o755)).unwrap();
+    write_exe(&hook, "#!/bin/sh\nexit 1\n").unwrap();
     w.stub("", "https://github.com/acme/widget/pull/1");
     let mut h = w.host();
     let got = finish(&w.plan(), &mut h);
@@ -1080,8 +1077,7 @@ fn the_pins_of_a_call_are_its_own_words_and_no_call_of_git_goes_without_them() {
     assert!(!asked_of_git(&["status".to_string()]));
     assert!(!asked_of_git(&["-c".to_string(), "x=y".to_string()]));
     let says = dir.join("says");
-    fs::write(&says, "#!/bin/sh\nprintf 'x\\n'\n").unwrap();
-    fs::set_permissions(&says, fs::Permissions::from_mode(0o755)).unwrap();
+    write_exe(&says, "#!/bin/sh\nprintf 'x\\n'\n").unwrap();
     let mut h = live(&says, &says);
     // A call without them prints nothing and is not run: a run cannot decide
     // from an empty stream, and a git of the workspace run that way would
@@ -1155,12 +1151,10 @@ fn a_call_carries_what_the_program_printed_on_both_its_streams() {
     // streams were not taken from the child prints nothing and this refuses.
     let dir = root("streams");
     let says = dir.join("says");
-    fs::write(
+    write_exe(
         &says,
         "#!/bin/sh\n# One call of the case: what it prints on each stream and the\n# status it ends with, all three from the words it was given.\nprintf 'feature/issue-7-flaky\\n'\nprintf 'a word of its own\\n' >&2\nexit 0\n",
-    )
-    .unwrap();
-    fs::set_permissions(&says, fs::Permissions::from_mode(0o755)).unwrap();
+    ).unwrap();
     let mut h = live(&says, &says);
     let got = h.run("git", &asked(vec!["for-each-ref".to_string()]), &dir);
     assert_eq!(got.status, Some(0), "{got:?}");
@@ -1175,8 +1169,7 @@ fn a_call_carries_what_the_program_printed_on_both_its_streams() {
         "the name the program printed is the issue's branch"
     );
     let quiet = dir.join("quiet");
-    fs::write(&quiet, "#!/bin/sh\nprintf 'nothing of an issue\\n'\n").unwrap();
-    fs::set_permissions(&quiet, fs::Permissions::from_mode(0o755)).unwrap();
+    write_exe(&quiet, "#!/bin/sh\nprintf 'nothing of an issue\\n'\n").unwrap();
     let mut h = live(&quiet, &quiet);
     let said = h.run("git", &asked(vec!["for-each-ref".to_string()]), &dir);
     assert_eq!(said.out, "nothing of an issue\n", "{said:?}");
@@ -1208,14 +1201,9 @@ fn a_hook_of_the_workspace_outside_the_tree_is_not_run_either() {
     // is what answers it and not where the hooks happen to stand.
     let outside = w.dir.join("outside-hooks");
     fs::create_dir_all(&outside).unwrap();
-    fs::write(
+    write_exe(
         outside.join("post-checkout"),
         format!("#!/bin/sh\ntouch '{}'\n", w.dir.join("ran-path").display()),
-    )
-    .unwrap();
-    fs::set_permissions(
-        outside.join("post-checkout"),
-        fs::Permissions::from_mode(0o700),
     )
     .unwrap();
     git_in(
@@ -1284,8 +1272,7 @@ fn a_run_asks_its_programs_by_their_names_and_the_host_decides_where_they_are() 
         "#!/bin/sh\nprintf '%s %s\\n' \"$0\" \"$*\" >>\"{}\"\n",
         seen.display()
     );
-    fs::write(&says, script).unwrap();
-    fs::set_permissions(&says, fs::Permissions::from_mode(0o755)).unwrap();
+    write_exe(&says, script).unwrap();
     let mut h = live(&says, &says);
     h.run("git", &asked(vec!["status".to_string()]), &dir);
     h.run("gh", &["pr".to_string(), "list".to_string()], &dir);
@@ -1313,8 +1300,7 @@ fn a_program_busy_under_a_writer_is_asked_again_and_is_run() {
     // its copy of it. The run must still read what the program printed.
     let dir = root("busy");
     let says = dir.join("says");
-    fs::write(&says, "#!/bin/sh\nprintf 'feature/issue-7-flaky\\n'\n").unwrap();
-    fs::set_permissions(&says, fs::Permissions::from_mode(0o755)).unwrap();
+    write_exe(&says, "#!/bin/sh\nprintf 'feature/issue-7-flaky\\n'\n").unwrap();
     // A copy of the write descriptor, handed to a child by the fork alone: the
     // child is the writer that outlives the write, as the test harness does to
     // its children. The exec below is refused until the child leaves.
@@ -1346,8 +1332,7 @@ fn a_program_busy_past_its_bound_is_a_call_that_could_not_be_run() {
     // as a name, a count or a URL.
     let dir = root("busy-forever");
     let says = dir.join("says");
-    fs::write(&says, "#!/bin/sh\nprintf 'x\\n'\n").unwrap();
-    fs::set_permissions(&says, fs::Permissions::from_mode(0o755)).unwrap();
+    write_exe(&says, "#!/bin/sh\nprintf 'x\\n'\n").unwrap();
     let held = fs::OpenOptions::new().write(true).open(&says).unwrap();
     // No child is forked, so this process itself is the writer and stays one for
     // the whole call: the asks run out and the call is refused.

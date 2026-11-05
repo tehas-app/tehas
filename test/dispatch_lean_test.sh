@@ -9,7 +9,7 @@
 
 # Issue 7 parked with its Retry box ticked by alice. Its last start named the
 # driver given, and it carries tehas:lean from alice.
-lean_parked() { # <input of the last start, as JSON>
+lean_parked() { # <input of the last start, as JSON> [<reason of the park>]
   reset
   echo '[]' >"$fx/ready.json"
   echo '[{"number":7,"labels":[{"name":"needs-human-attention"},{"name":"tehas:question"},{"name":"tehas:lean"}]}]' >"$fx/asking.json"
@@ -18,7 +18,7 @@ lean_parked() { # <input of the last start, as JSON>
   t_started "$T/home/tehas" 7
   TEHAS_HOME=$T/home/tehas flock -w 5 "$T/home/tehas/state/cycles/7.lock" "$T_STORE" cycle-end 7 --attempt 1 \
     --status failed --parked >/dev/null || t_bad "the store refused the end of #7"
-  t_park "$T/home/tehas" 7 failed 4001
+  t_park "$T/home/tehas" 7 "${2:-failed}" 4001
   label_events 7 tehas:lean=alice
   comments 7 "$(park_body x ' ')" alice
 }
@@ -32,6 +32,24 @@ t_eq "$(approval .driver)" lean
 
 t_case "a retry tick of a classic start stays classic through the same read"
 lean_parked '{"links":[]}'
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(started)" "7 "
+t_eq "$(approval .driver)" null
+
+t_case "a retry tick on the park of a refused lean start waits while tehas:lean is on, and the tick stays"
+lean_parked '{"links":[],"driver":"lean"}' lean-refused
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(started)" ""
+t_contains "$t_out" "wait #7: a retry was ticked on the park of a lean start this tehas cannot run; take tehas:lean off first"
+t_lacks "$(t_calls gh)" "api -X PATCH"
+t_lacks "$(t_calls gh)" "issue comment 7"
+
+t_case "the same tick starts the cycle on classic once tehas:lean is off"
+echo '[{"number":7,"labels":[{"name":"needs-human-attention"},{"name":"tehas:question"}]}]' >"$fx/asking.json"
+label_events 7 tehas:lean=alice -tehas:lean=alice
+rm -f "$T"/calls/*
 t_run "$dispatch"
 t_eq "$t_rc" 0
 t_eq "$(started)" "7 "
