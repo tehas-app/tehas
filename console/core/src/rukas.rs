@@ -1,14 +1,13 @@
 //! Which pi-rukas commit a host follows, and the base image named for it.
 //!
-//! `lib/rukas.sh` keeps the same reading for what runs before a console
-//! exists, bootstrap.sh and scripts/tag-release.sh. test/rukas_test.sh runs
-//! the two side by side, so they cannot drift apart.
+//! The one reading of it: the sandbox build, bootstrap.sh and
+//! scripts/tag-release.sh ask `console rukas`, and tehasbot clean reads it here.
 //!
 //! The call upstream is the caller's: this holds the rules, and a call that
 //! gets no answer is `None`.
 
-/// The commit `follow` names in `repo`, and what it is, in the words of
-/// `tehas_rukas_target`. `ls_remote` is given the arguments of `git ls-remote`.
+/// The commit `follow` names in `repo`, and what it is: "release v1.2.3",
+/// "the head of main" or "pinned". `ls_remote` is given the arguments of `git ls-remote`.
 /// `release` takes the newest vX.Y.Z tag, `release:<line>` the newest of that
 /// line, `branch:<name>` the head of that branch, and `commit:<40 hex>` that
 /// commit with no call upstream. `None` when upstream does not answer, has no
@@ -38,6 +37,28 @@ pub fn target(
         (commit.to_string(), "pinned".to_string())
     };
     commit_shaped(&commit).then_some((commit, what))
+}
+
+/// The image upstream publishes for `commit` of `repo`:
+/// `ghcr.io/<owner>/<name>:sha-<first 12>`, lower case. `None` when `repo` is
+/// not `https://github.com/<owner>/<name>` or `commit` is not 40 hex digits.
+pub fn image(repo: &str, commit: &str) -> Option<String> {
+    let word = |w: &str| {
+        !w.is_empty()
+            && w.bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.' | b'-'))
+    };
+    let path = repo.strip_prefix("https://github.com/")?;
+    let (owner, name) = path.split_once('/')?;
+    if !word(owner) || !word(name) || !commit_shaped(commit) {
+        return None;
+    }
+    let path = path.strip_suffix(".git").unwrap_or(path);
+    Some(format!(
+        "ghcr.io/{}:sha-{}",
+        path.to_ascii_lowercase(),
+        &commit[..12]
+    ))
 }
 
 /// The base image of the sandbox build, from the text of versions.env: the
@@ -243,6 +264,61 @@ mod tests {
         assert_eq!(follow("release:0.14", &refs).unwrap().0, b);
         assert_eq!(follow("release:0.15", &refs).unwrap().0, c);
         assert_eq!(follow("release:0.16", &refs), None);
+    }
+
+    #[test]
+    fn release_0_takes_every_minor_before_1_0_and_not_1_0() {
+        let (a, b, c) = (hex('a'), hex('b'), hex('c'));
+        let refs = tags(&[(&a, "v0.14.1"), (&b, "v0.16.0"), (&c, "v1.0.0")]);
+        let got = follow("release:0", &refs).unwrap();
+        assert_eq!(got, (b, "release v0.16.0".to_string()));
+    }
+
+    #[test]
+    fn a_line_with_no_tag_on_it_gives_nothing() {
+        let a = hex('a');
+        assert_eq!(follow("release:0.14", &tags(&[(&a, "v0.15.0")])), None);
+    }
+
+    #[test]
+    fn a_line_asks_for_the_tags_of_the_repository() {
+        let mut asked = Vec::new();
+        target("release:0.14", REPO, |args| {
+            asked = args.iter().map(|a| a.to_string()).collect();
+            None
+        });
+        assert_eq!(asked, ["--tags", REPO]);
+    }
+
+    #[test]
+    fn the_image_of_a_commit_is_upstreams_by_twelve_digits_lower_case() {
+        assert_eq!(
+            image(REPO, &hex('a')).as_deref(),
+            Some("ghcr.io/up-owner/pi-rukas:sha-aaaaaaaaaaaa")
+        );
+        assert_eq!(
+            image("https://github.com/up-owner/pi-rukas", &hex('b')).as_deref(),
+            Some("ghcr.io/up-owner/pi-rukas:sha-bbbbbbbbbbbb")
+        );
+    }
+
+    #[test]
+    fn no_image_is_named_off_github_or_for_a_commit_that_is_not_40_hex() {
+        let a = hex('a');
+        for (repo, commit) in [
+            ("https://example.com/up-owner/pi-rukas.git", a.clone()),
+            ("git@github.com:up-owner/pi-rukas.git", a.clone()),
+            ("https://github.com/up-owner", a.clone()),
+            ("https://github.com/up-owner/pi-rukas/extra", a.clone()),
+            ("https://github.com//pi-rukas", a.clone()),
+            (
+                "https://github.com/up-owner/pi-rukas.git",
+                "abc".to_string(),
+            ),
+            ("https://github.com/up-owner/pi-rukas.git", a.to_uppercase()),
+        ] {
+            assert_eq!(image(repo, &commit), None, "{repo} {commit}");
+        }
     }
 
     #[test]

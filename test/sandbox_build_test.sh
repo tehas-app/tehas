@@ -16,9 +16,10 @@ cp "$T_ROOT/host/sandbox/build.sh" "$home/sandbox/"
 # too: without it the build stops at the file it cannot read and asks docker
 # nothing.
 cp "$T_ROOT/host/sandbox/Dockerfile" "$home/sandbox/"
-cp "$T_ROOT/lib/rukas.sh" "$T_ROOT/lib/config.sh" "$home/lib/"
+cp "$T_ROOT/lib/config.sh" "$home/lib/"
 cp "$T_ROOT/host/versions.env" "$home/"
-# The sweep of old dated tags asks the console what is held.
+# The console names the commit followed and its image, and tells the sweep of
+# old dated tags what is held.
 # shellcheck disable=SC2154  # t_console_why is set by t_console (test/lib.sh)
 t_console || t_bad "no console: $t_console_why"
 mkdir -p "$home/libexec"
@@ -200,13 +201,13 @@ t_eq "$t_rc" 1
 t_contains "$t_out" "could not be run to be asked (docker said 125)"
 t_lacks "$(t_calls docker)" "build --build-arg"
 
-t_case "without libexec/tehas-cycle, lib/rukas.sh or lib/config.sh beside it nothing is asked or built"
-for f in libexec/tehas-cycle lib/rukas.sh lib/config.sh; do
+t_case "without libexec/tehas-cycle, libexec/console or lib/config.sh beside it nothing is asked or built"
+for f in libexec/tehas-cycle libexec/console lib/config.sh; do
   reset
   mv "$home/$f" "$T/held"
   t_run "$build"
   t_eq "$t_rc" 1
-  t_contains "$t_out" "no libexec/tehas-cycle, lib/rukas.sh and lib/config.sh"
+  t_contains "$t_out" "no libexec/tehas-cycle, libexec/console and lib/config.sh"
   t_eq "$(t_calls git)$(t_calls docker)" ""
   mv "$T/held" "$home/$f"
 done
@@ -643,19 +644,6 @@ printf '%s\n' "uid$uid sha256:1" >"$fx/containers"
 t_run "$build"
 t_eq "$t_rc" 0
 t_contains "$t_out" "kept tehas/pi-rukas:261009-1000: a container or a uid tag uses it"
-
-t_case "a build with no console beside it removes no dated tag, and says so"
-reset
-fx_ids
-: >"$fx/no-containers"
-printf '%s\n' "uid$uid sha256:1" "261009-1000 sha256:1" "261009-1000-product sha256:2" \
-  "261010-1000 sha256:3" "261011-1000 sha256:4" >"$fx/images"
-mv "$home/libexec/console" "$T/console-aside"
-t_run "$build"
-mv "$T/console-aside" "$home/libexec/console"
-t_eq "$t_rc" 0
-t_lacks "$(t_calls docker)" "rmi"
-t_contains "$t_out" "warning: no console at $home/sandbox/../lib/../libexec/console, no old tehas/pi-rukas tag was removed"
 
 t_case "an instance directory with no sandbox.Dockerfile in it is no second build"
 reset
