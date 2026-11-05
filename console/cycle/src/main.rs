@@ -189,14 +189,12 @@
 //!                                     make <tree>, a clone of <src>
 //!   tehas-cycle sandbox seed <state> <index>
 //!                                     give <state> the host's code index
-//!   tehas-cycle sandbox smoke <image> the words of `docker run` for one offline
-//!                                     work turn in <image>, NUL separated:
-//!                                     `host/sandbox/build.sh` runs it before it
-//!                                     moves the uid tag
-//!   tehas-cycle sandbox smoke-verdict the output of that run comes on standard
-//!                                     input, and `started`, `crashed` or
-//!                                     `silent` is printed. Exit 0 only for a
-//!                                     stable `step-started` line
+//!   tehas-cycle sandbox smoke-run <image>
+//!                                     one offline work turn in <image>, at
+//!                                     most 40 s, for `host/sandbox/build.sh`
+//!                                     before it moves the uid tag. Prints
+//!                                     `started`, `crashed` or `silent`. Exit 0
+//!                                     only for a stable `step-started` line
 //!   tehas-cycle sandbox verify <limit words>
 //!                                     how many runs of the gate one container
 //!                                     runs at once. Exit 1 with nothing
