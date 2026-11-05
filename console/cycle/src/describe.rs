@@ -71,9 +71,8 @@ fn curl(args: &[String], input: &[u8]) -> (i32, String) {
 
 /// The issue's name in `X-Tehas-Issue`: the digits it is given, or None for
 /// anything else. A value that could end the curl config line is no issue.
-pub fn issue_header(issue: &str) -> Option<String> {
-    let digits = !issue.is_empty() && issue.bytes().all(|b| b.is_ascii_digit());
-    digits.then(|| format!("X-Tehas-Issue: {issue}"))
+fn issue_header(issue: &str) -> Option<String> {
+    tehas_core::grammar::digits(issue, 9, false).map(|n| format!("X-Tehas-Issue: {n}"))
 }
 
 /// One chat request. Standard input carries the body, which is past what one
@@ -317,6 +316,9 @@ mod tests {
             "7 ",
             "-1",
             "0x1",
+            "007",
+            "0",
+            "1234567890",
         ] {
             assert_eq!(issue_header(bad), None, "{bad:?}");
         }
