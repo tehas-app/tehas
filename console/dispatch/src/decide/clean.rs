@@ -59,10 +59,8 @@ fn names_issue(pr: &Value, n: u64) -> bool {
     if head == branch || head.starts_with(&format!("{branch}-")) {
         return true;
     }
-    Regex::new(&format!(
-        r"(?i)\b(close[sd]?|fix(e[sd])?|resolve[sd]?):?\s+#{n}([^0-9]|$)"
-    ))
-    .is_ok_and(|r| r.is_match(&text("body")))
+    let body = text("body");
+    crate::text::closing_numbers(&body).contains(&n)
 }
 
 impl Poll<'_> {
@@ -541,5 +539,10 @@ mod tests {
         assert!(names_issue(&pr("", "Fixes #9"), 9));
         assert!(!names_issue(&pr("", "Fixes #91"), 9));
         assert!(names_issue(&pr("", "closes: #9."), 9));
+        // A keyword shared by a run of references holds each of them.
+        assert!(names_issue(&pr("", "Closes #8 and #9"), 9));
+        assert!(!names_issue(&pr("", "Closes #91 and #90"), 9));
+        // No keyword, no name: a number pointed at is nothing.
+        assert!(!names_issue(&pr("", "See #9 and #8 for background"), 9));
     }
 }
