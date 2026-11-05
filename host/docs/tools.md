@@ -92,6 +92,7 @@ in the platform repository has every one with a comment.
 | `TEHAS_GITHUB_APP_ID`           | empty                                    | Optional. The ID of the GitHub App the factory acts as ([tehasbot github-token](#tehasbot-github-token)). Set with `TEHAS_GITHUB_APP_INSTALLATION` and `TEHAS_BOT_LOGIN`, or none of the three |
 | `TEHAS_GITHUB_APP_INSTALLATION` | empty                                    | Optional. The ID of the app's installation that reaches `TEHAS_REPO`: the number at the end of the installation's settings page |
 | `TEHAS_BOT_LOGIN`               | empty                                    | Optional. The app's login, `<slug>[bot]` |
+| `TEHAS_OWNER`                   | empty                                    | Optional. One person's GitHub login. When the dispatcher marks an issue `tehas:running` for a cycle it also assigns the issue to this account, so GitHub shows it as taken (see [what happens next](/operating#3-what-happens-next)). A bot's login, `[bot]`, or more than one login stops every command with 78, and `tehas setup` refuses a login GitHub does not let be assigned on `TEHAS_REPO`. Empty: nobody is assigned |
 | `TEHAS_MILLWRIGHT_MAX_RETRIES`  | `2`                                      | How many cycles the millwright may start on one issue since a person last approved it |
 | `TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS` | `3`                                  | How many planning questions the millwright may answer in one session. It never answers two in a row (see [the millwright's grant](/operating#the-millwrights-grant)) |
 | `TEHAS_MILLWRIGHT_FEED`        | `0`                                      | 1 lets the millwright's `tehas:ready` start the first cycle of an issue a person wrote (see [the millwright's grant](/operating#the-millwrights-grant)). Anything but 0 or 1 stops every command with 78 |
@@ -885,7 +886,12 @@ and no end, or with no result; it keeps its own exit status. In both cases
 `~/tehas/state/cycles/<issue>.timed` holds the limit's seconds, who stopped
 the cycle (`tehas` or `runner`) and the step it was in. `tehasbot cycle` says
 it on the issue, records the cap `wall-clock` with that step, and removes the
-file.
+file. A `TERM`, `INT` or `HUP` that stops the container leaves
+`~/tehas/state/cycles/<issue>.signal`: the signal's name (`-` when not known)
+and the step in flight. A run of the gate it cut short gets a `verify-aborted`
+line in the cycle's stream, and the live console a last line. `tehasbot cycle`
+records the cap `signal` of it when the runner named none and no person ran
+`tehas stop`, and removes the file.
 
 The container runs in `tehas.slice` and gets the bot token and the
 `PI_ENSEMBLE_*` settings, a memory ceiling of the slice over `TEHAS_SLICE_CONTAINERS` with no
@@ -2065,7 +2071,7 @@ Ends a cycle by hand and clears what it left on this host. It asks
 of its lock, and removes the container `tehas-work-12` when it is still there.
 Then it removes what says a cycle runs, owes something, or is parked:
 `~/tehas/state/cycles/12.lock` with `.cid`, `.done`, `.stalled`,
-`.timed`, `.oom`, `.forks`, `.nostart`, `.lean-refused`, `.progress.json` and
+`.timed`, `.signal`, `.oom`, `.forks`, `.nostart`, `.lean-refused`, `.progress.json` and
 `.result.json`, `~/tehas/live/console-12.txt`, `~/.pi/agent/ensemble-runs/issue-12`, and the
 workspace `~/tehas/work/<name>-12` with its `.state`, `.before-retry` and
 `.images` beside it. `--keep-workspace` keeps the workspace for you to read.
@@ -2727,7 +2733,8 @@ recorded as `cap:provider-outage`, as only tehas names an outage), and with the 
 record for the improvement loop as `cap` and `capReason`, reduced to plain
 characters. A cycle that ended at tehas's own bound gets tehas's cap:
 `wall-clock` for the time limit, `stall` for the stall, `runner-never-started`
-for the container that ended before the driver wrote its first event, and a
+for the container that ended before the driver wrote its first event, `signal`
+for a container stopped on a `TERM`, `INT` or `HUP`, and a
 `capReason` that names the bound and the step. A cap the runner named mid-step goes into
 the reason; a cap of an end it reached before the stop is kept. Where the result gives a failure of another kind than `cap`, the
 park comment names its kind, role, cause and message. The record also holds `buildCommit`, the pi-rukas commit the
@@ -4809,16 +4816,16 @@ next task waits for one to end, and one task always runs. The timeouts below
 then measure a file's own time, not a queue.
 
 Before the pool starts, it builds the state store (`console/store`) once,
-offline, into `console/target/shell`, and tells every test file where the
-program is (`T_STORE_BIN`) or why there is none (`T_STORE_WHY`). The build is
-asked for no debug info (`CARGO_PROFILE_DEV_DEBUG=0` on that one command),
-because those binaries are run and not debugged: debug info is most of what
-the directory holds. The variable is not exported, so the gate's `cargo test`
-in `console/target` keeps its debug info. The directory
-is its own because `scripts/verify.sh` runs the workspace's `cargo test` in
-`console/target` at the same time, and cargo holds that directory's lock while
-it builds (the workspace's dev profile keeps line tables and no incremental
-data, so that directory stays under 1 GB). The tests of the commands that run the store (`test/dispatch_*`,
+offline, into the workspace's own target directory (`CARGO_TARGET_DIR`, or
+`console/target`) with the workspace's dev profile, and tells every test file
+where the program is (`T_STORE_BIN`) or why there is none (`T_STORE_WHY`).
+The gate's `cargo test`, which `scripts/verify.sh` starts at the same time,
+builds the same crates there: cargo holds the directory's lock only while it
+builds, so one build waits for the other and reuses what it made, and the
+tests of each run side by side. One tree instead of two takes about 170 MB
+off every checkout (#1360); the dev profile keeps line tables and no
+incremental data, so the tree stays under 750 MB. A `console/target/shell`
+left by an earlier runner is removed. The tests of the commands that run the store (`test/dispatch_*`,
 `test/cycle_*`, `test/work_*` and `test/store_approval_test.sh`) install it in
 their scratch home and fail without it, so they need cargo too; the build needs the
 workspace's crates in cargo's cache, as the gate's own `cargo test` does. When

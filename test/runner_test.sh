@@ -708,7 +708,7 @@ with_console() {
 
 # The stub records its arguments; the environment of its call is what a case
 # about a variable has to echo itself, into the same file t_calls reads.
-t_case "the store, the attachment checker, tehas-dispatch, tehas-cycle and the console are built once, offline, into a target of its own, and named to every test file"
+t_case "the store, the attachment checker, tehas-dispatch, tehas-cycle and the console are built once, offline, into the workspace's target with its profile, and named to every test file"
 fresh
 with_console
 t_stub cargo 'prev=""
@@ -720,11 +720,28 @@ saw_store b_test.sh
 run
 t_eq "$t_rc" 0
 # The line of the environment is the last of the call, so the arguments still
-# read as one line: the binary is run, not debugged, so no debug info.
-t_eq "$(t_calls cargo)" "build --locked --offline --quiet --manifest-path $repo/console/Cargo.toml --target-dir $repo/console/target/shell -p store -p attach -p tehas-dispatch -p tehas-cycle -p console
-debug=0"
-t_contains "$t_out" "a_test.sh bin=$repo/console/target/shell/debug/store why="$'\n'
-t_contains "$t_out" "b_test.sh bin=$repo/console/target/shell/debug/store why="$'\n'
+# read as one line. CARGO_TARGET_DIR is the one t_run gives, as CI gives one:
+# the gate's cargo test builds there too, with the same profile (#1360).
+t_eq "$(t_calls cargo)" "build --locked --offline --quiet --manifest-path $repo/console/Cargo.toml --target-dir $T/target -p store -p attach -p tehas-dispatch -p tehas-cycle -p console
+debug=absent"
+t_contains "$t_out" "a_test.sh bin=$T/target/debug/store why="$'\n'
+t_contains "$t_out" "b_test.sh bin=$T/target/debug/store why="$'\n'
+
+t_case "without CARGO_TARGET_DIR the build is the workspace's console/target, and the second tree of before is removed"
+fresh
+with_console
+mkdir -p "$repo/console/target/shell/debug"
+t_stub cargo 'prev=""
+for a in "$@"; do [ "$prev" != --target-dir ] || td=$a; prev=$a; done
+mkdir -p "$td/debug" && echo store >"$td/debug/store"'
+saw_store a_test.sh
+T_ENV=(TEHAS_TEST_JOBS=1 TMPDIR="$recs" CARGO_TARGET_DIR=)
+run
+T_ENV=(TEHAS_TEST_JOBS=1 TMPDIR="$recs")
+t_eq "$t_rc" 0
+t_contains "$(t_calls cargo)" "--target-dir $repo/console/target -p store"
+t_contains "$t_out" "a_test.sh bin=$repo/console/target/debug/store why="$'\n'
+t_eq "$(ls "$repo/console/target")" "debug"
 
 t_case "a store that does not build is named to the test files, which still run"
 fresh
@@ -756,7 +773,7 @@ rm -f "$T/fetched"
 t_eq "$t_rc" 0
 t_eq "$(t_calls cargo | awk '{print $1}' | tr '\n' ' ')" "build fetch build "
 t_contains "$(t_calls cargo)" "fetch --locked --quiet --manifest-path $repo/console/Cargo.toml"
-t_contains "$t_out" "a_test.sh bin=$repo/console/target/shell/debug/store why="$'\n'
+t_contains "$t_out" "a_test.sh bin=$T/target/debug/store why="$'\n'
 
 t_case "a checkout without the console, or a host without cargo, builds nothing"
 fresh
