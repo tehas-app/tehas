@@ -21,7 +21,9 @@ cp "$T_CONSOLE" "$tree/libexec/console"
 # The settings library is there to be read, so that not reading it means something.
 cp "$T_ROOT/lib/config.sh" "$tree/lib/config.sh"
 # One line per call: the name, then each argument after a "|".
-for name in cycle work index setup update dispatch plan dev improve review check-product github-token; do
+# tehas-cycle stands for itself: tehasbot cycle, tehas work and tehas index are
+# its verbs, which the console runs under the settings.
+for name in cycle work index setup update dispatch plan dev improve review check-product github-token tehas-cycle; do
   printf '%s\n' '#!/usr/bin/env bash' "# The text of $name." '#' "# Usage: $name" 'set -u' 'IFS="|"' \
     "printf '%s\\n' \"$name\${*:+|\$*}\" >>\"\$T/calls/libexec\"" 'exit "${RC:-0}"' >"$tree/libexec/$name"
   chmod +x "$tree/libexec/$name"
@@ -36,11 +38,54 @@ reset() {
 
 t_case "tehas runs the script of each command with the remaining arguments"
 reset
-t_run "$tehas work 7 --restart && $tehas index && $tehas update --check"
+t_run "$tehas update --check"
 t_eq "$t_rc" 0
-t_eq "$(ran)" "work|7|--restart
-index
-update|--check"
+t_eq "$(ran)" "update|--check"
+
+t_case "tehas work, tehas index and tehasbot cycle run tehas-cycle under the settings"
+reset
+t_instance "${T_MINIMAL[@]}"
+t_run "$tehas work 7 --restart && $tehas index && $tehas index --before-cycle && $bot cycle 7"
+t_eq "$t_rc" 0
+t_eq "$(ran)" "tehas-cycle|work|7|--console|$tree/libexec/console|--restart
+tehas-cycle|index
+tehas-cycle|index|--before-cycle
+tehas-cycle|cycle|7|--work|$tree/libexec/../bin/tehas|--work-arg|work|--status-cmd|$tree/libexec/../bin/tehasbot|--status-arg|status|--console|$tree/libexec/console"
+T_ENV=(TEHAS_WORK_CMD=fake-work TEHAS_STATUS_CMD=fake-status TEHAS_CONSOLE_CMD=fake-console)
+rm -f "$T"/calls/*
+t_run "$bot cycle 7"
+t_eq "$(ran)" "tehas-cycle|cycle|7|--work|fake-work|--status-cmd|fake-status|--console|fake-console"
+T_ENV=(RC=3)
+t_run "$tehas index"
+t_eq "$t_rc" 3
+t_no_instance
+
+t_case "tehas work, tehas index and tehasbot cycle stop with 78 on a missing setting, and 64 on a bad word first"
+reset
+t_instance TEHAS_CONTROL_ISSUE=1
+for words in "$tehas work 7" "$tehas index" "$bot cycle 7"; do
+  t_run "$words"
+  t_eq "$t_rc" 78
+  t_contains "$t_out" "TEHAS_REPO is not set"
+done
+t_instance "${T_MINIMAL[@]/PI_ENSEMBLE_SUBAGENT_MODEL=*/}"
+t_run "$tehas work 7"
+t_eq "$t_rc" 78
+t_contains "$t_out" "PI_ENSEMBLE_SUBAGENT_MODEL is not set"
+for words in "$tehas work" "$tehas work 07" "$tehas work x" "$tehas index --now" "$tehas index --before-cycle x" \
+  "$bot cycle" "$bot cycle 0" "$bot cycle 7 8" "$bot cycle --help"; do
+  t_run "$words"
+  t_eq "$t_rc" 64
+  t_contains "$t_out" "usage:"
+done
+t_eq "$(ran)" ""
+mv "$tree/libexec/tehas-cycle" "$T/tehas-cycle.kept"
+t_instance "${T_MINIMAL[@]}"
+t_run "$tehas work 7"
+t_eq "$t_rc" 78
+t_contains "$t_out" "tehas work: no tehas-cycle at $tree/libexec/tehas-cycle (run install.sh)"
+mv "$T/tehas-cycle.kept" "$tree/libexec/tehas-cycle"
+t_no_instance
 
 t_case "the commands the console runs itself run no script of libexec"
 reset
@@ -52,15 +97,13 @@ t_eq "$(ran)" ""
 
 t_case "an argument with a space, or empty, reaches the script as one argument"
 reset
-t_run "$tehas work 'a b' '' c"
-t_eq "$(ran)" "work|a b||c"
+t_run "$tehas update 'a b' '' c"
+t_eq "$(ran)" "update|a b||c"
 
 t_case "the exit status is the script's"
 reset
 T_ENV=(RC=3)
-t_run "$tehas index"
-t_eq "$t_rc" 3
-t_run "$bot cycle 7"
+t_run "$tehas update"
 t_eq "$t_rc" 3
 
 t_case "tehas alone, help, -h and --help print the usage and run nothing"
@@ -73,13 +116,12 @@ for arg in "" help -h --help "help help"; do
 done
 t_eq "$(ran)" ""
 
-t_case "tehas help <command> prints the header of that command's script"
+t_case "tehas help work prints the console's text of it"
 reset
 t_run "$tehas help work"
 t_eq "$t_rc" 0
-t_eq "$t_out" "The text of work.
-
-Usage: work"
+t_eq "$t_out" "$("$T_CONSOLE" usage work)"
+t_contains "$t_out" "Usage: tehas work <issue-number>"
 t_eq "$(ran)" ""
 
 t_case "tehas help <verb> prints the console's text of it"
@@ -99,10 +141,14 @@ for name in dispatch work plan dev index setup update labels status disk state a
 done
 t_eq "$(ran)" ""
 
-t_case "--help with another argument is the script's to judge"
+t_case "--help with another argument is the script's to judge, or the console's"
 reset
+t_run "$tehas update --help 7"
+t_eq "$(ran)" "update|--help|7"
+rm -f "$T"/calls/*
 t_run "$tehas work --help 7"
-t_eq "$(ran)" "work|--help|7"
+t_eq "$t_rc" 64
+t_eq "$(ran)" ""
 
 t_case "an unknown command is exit 64 on standard error and runs nothing"
 reset
@@ -124,12 +170,6 @@ for name in health energy protolab preview improve summary console cycle ../bin/
 done
 t_eq "$(ran)" ""
 
-t_case "tehasbot runs the script of cycle with the remaining arguments"
-reset
-t_run "$bot cycle 7"
-t_eq "$t_rc" 0
-t_eq "$(ran)" "cycle|7"
-
 t_case "tehasbot alone and help print the usage; an unknown command is exit 64"
 reset
 for arg in "" help -h --help; do
@@ -150,7 +190,7 @@ t_eq "$(ran)" ""
 t_case "neither command reads the instance settings to choose"
 reset
 t_instance 'echo "settings were read" >&2; exit 9'
-t_run "$tehas index && $tehas help status && $bot cycle 7 && $bot help"
+t_run "$tehas update && $tehas help status && $bot help"
 t_eq "$t_rc" 0
 t_lacks "$t_out" "settings were read"
 
@@ -207,9 +247,6 @@ for name in $names; do
   t_eq "$t_rc" 0
   t_contains "$t_out" "tehas $name"
 done
-
-t_case "the script tehasbot runs is executable"
-t_eq "$([ -x "$T_ROOT/libexec/cycle" ] && echo yes)" "yes"
 
 t_case "bin holds the two commands and nothing else"
 t_eq "$(cd "$T_ROOT/bin" && find . -type f | LC_ALL=C sort | tr '\n' ' ')" "./tehas ./tehasbot "

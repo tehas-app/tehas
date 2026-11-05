@@ -1,4 +1,4 @@
-# The console of a running cycle: libexec/work starts it, install.sh builds
+# The console of a running cycle: tehas work starts it, install.sh builds
 # it and installs the binary as ~/tehas/libexec/console. It is also the root
 # of the workspace, so the gate's cargo commands on this manifest cover the
 # analytics program in analytics/, the store in store/, the MCP server in

@@ -525,6 +525,9 @@ fn live_file(tickets: &[Value], now: &str, url: &str, domain: &str, limit: i64) 
             row.insert("url".into(), Value::from(text_of(item, "url")));
             row.insert("files".into(), Value::from(count_of(item)));
             row.insert("bytes".into(), Value::from(bytes_of(item)));
+            if let Some(built) = item["builtAt"].as_str() {
+                row.insert("builtAt".into(), Value::from(built));
+            }
             row.insert(
                 "address".into(),
                 if domain.is_empty() {
@@ -931,6 +934,14 @@ mod tests {
         assert_eq!(read["limitBytes"], LIMIT);
         assert_eq!(read["generatedAt"], "2026-10-28T09:00:00Z");
         assert_eq!(read["tickets"][0]["address"], "https://lab-7.example.org/");
+        // When the page was built, as the pass read it off the page.
+        let built = lines(
+            r#"{"number":7,"title":"Map","url":"u","files":[],"bytes":0,"builtAt":"2026-10-28T08:00:00Z"}"#,
+        );
+        let read: Value =
+            serde_json::from_str(&live_file(&built, "2026-10-28T09:00:00Z", "", "", LIMIT))
+                .unwrap();
+        assert_eq!(read["tickets"][0]["builtAt"], "2026-10-28T08:00:00Z");
     }
 
     #[test]

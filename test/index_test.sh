@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for libexec/index: what the indexing container is given, which tree
+# Tests for tehas index: what the indexing container is given, which tree
 # it reads, and that nothing is started when it should not be. A stub docker
 # records its arguments, one per line, and answers as the indexer would.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
@@ -18,9 +18,9 @@ T_ENV_ALWAYS+=(TEHAS_CONSOLE_CMD="$T_CONSOLE")
 t_cycle || t_bad "no tehas-cycle: $t_cycle_why"
 mkdir -p "$T/tree/libexec"
 ln -s "$T_ROOT/lib" "$T/tree/lib"
-ln -s "$T_ROOT/libexec/index" "$T/tree/libexec/index"
 cp "$T_CYCLE" "$T/tree/libexec/tehas-cycle"
 index=$T/tree/libexec/index
+t_verb "$index" tehas index
 checkout=$T/home/tehas/repos/widget
 ws=$T/home/tehas/work/widget
 marker=$T/home/tehas/state/index.json

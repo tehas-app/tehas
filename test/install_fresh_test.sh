@@ -323,9 +323,9 @@ t_eq "$(install_list_report "$(sorted "$files")" "$(core_files)")" \
 # longer extra, and the report says nothing.
 t_eq "$(install_list_report "$(sorted "$files" ./tehas/libexec/stray-probe)" "$(core_files)")" ""
 # The other half: a name the list promises and the home does not hold.
-rm -f "$th/libexec/stray-probe" "$th/libexec/work"
+rm -f "$th/libexec/stray-probe" "$th/libexec/setup"
 t_eq "$(install_list_report "$(sorted "$files")" "$(core_files)")" \
-  "missing installed file ./tehas/libexec/work: install.sh does not copy it into the home"
+  "missing installed file ./tehas/libexec/setup: install.sh does not copy it into the home"
 
 # The page the host gets, not a copy of the checkout's: a page planted beside
 # the installed ones, or one that has gone stale, is red here. Each sentence is
