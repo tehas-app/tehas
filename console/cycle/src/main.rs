@@ -195,7 +195,7 @@
 //!                                     ceiling
 //!   tehas-cycle settings <file> <count> [<docker options>...]
 //!                                     write what a cycle ran with to <file>
-//!   tehas-cycle work <issue> --console <path> [--restart]
+//!   tehas-cycle work <issue> --console <path> [--restart] [--driver lean|classic]
 //!                                     tehas work, which libexec/work execs
 //!                                     with the settings loaded and the
 //!                                     issue's lock as fd 9: the start held to
@@ -246,7 +246,7 @@ use tehas_cycle::host::Start;
 use tehas_cycle::last_attempt::{self, Action};
 use tehas_cycle::report::{last_attempts, to_json, Given};
 use tehas_cycle::{apply, finish, pin, progress, renew, report};
-use tehas_cycle::{caps, clock, improve, index, runner, sandbox, supervise, work, Facts};
+use tehas_cycle::{caps, clock, improve, index, runner, sandbox, start, supervise, work, Facts};
 
 fn usage() -> String {
     include_str!("main.rs")
@@ -457,12 +457,20 @@ fn work_verb(home: &Path, n: u64, args: &[String], rest: &[&str]) -> ! {
     let mut g = work::Given {
         issue: n,
         restart: false,
+        driver: None,
         console: String::new(),
     };
     let mut it = rest.iter();
     while let Some(flag) = it.next() {
         match *flag {
             "--restart" => g.restart = true,
+            "--driver" => {
+                let word = it.next().unwrap_or_else(|| wrong(args));
+                g.driver = Some(start::Driver::named(word).unwrap_or_else(|| {
+                    eprintln!("tehas work: --driver takes lean or classic, not {word}");
+                    std::process::exit(64)
+                }));
+            }
             "--console" => g.console = it.next().unwrap_or_else(|| wrong(args)).to_string(),
             _ => wrong(args),
         }
@@ -576,7 +584,7 @@ fn caps_verb(rest: &[&str], args: &[String]) {
     match rest {
         ["unsupported", flags, names, features @ ..] if features.len() < 2 => {
             let features = features.first().copied().unwrap_or("");
-            match caps::unsupported(&text, flags, names, features) {
+            match caps::unsupported(&text, "work", flags, names, features) {
                 Some(lines) => tehas_core::out!("{lines}"),
                 None => std::process::exit(1),
             }

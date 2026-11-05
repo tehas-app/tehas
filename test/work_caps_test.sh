@@ -272,6 +272,28 @@ caps_refused
 t_contains "$t_out" "the flag --continue-pr"
 t_store_db "$T/home/tehas"
 
+t_case "a lean refresh is 78 before anything moves, though the image takes --continue-pr for work"
+caps_fresh
+caps_continue
+jq '.verbs["work-lean"] = {flags: ["--json", "--timeout"]}
+  | .features += {workLeanResultSchema: 5, leanDeadline: true, leanHandoffHost: true}' \
+  "$T/caps.json" >"$T/caps.new" && mv "$T/caps.new" "$T/caps.json"
+mkdir -p "$fx/net" "$T/home/tehas/state/cycles"
+issue_is "" NONE
+t_store_db "$T/home/tehas"
+printf '{"links":[],"driver":"lean"}' >"$T/lean-input.json"
+t_approve "$T/home/tehas" 7 alice refresh "$(date -u -d 2026-10-01T00:00:00Z +%s)" \
+  --body-sha "$(jq -n '{body: ""}' | tehas_body_sha256)" --input-file "$T/lean-input.json" \
+  --refresh-pr 50 --refresh-head "$(printf 'a%.0s' {1..40})"
+t_started "$T/home/tehas" 7
+t_run "$work 7"
+caps_refused
+t_contains "$t_out" "the flag --continue-pr"
+t_contains "$t_out" "driver lean, work-lean"
+rm -f "$T/home/tehas/state/cycles/7.lean-refused"
+t_store_db "$T/home/tehas"
+caps_good
+
 for how in label retry-tick outage-retry fixer; do
   t_case "a start of how $how never passes --continue-pr, also when the image takes it"
   caps_fresh
