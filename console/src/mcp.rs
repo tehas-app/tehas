@@ -13,16 +13,20 @@
 
 use std::env;
 use std::fs::{self, File};
-use std::io::Read;
+use std::io::{Read, Write};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, TcpStream, ToSocketAddrs};
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
 use tehas_core::mask;
 use tehas_core::models;
 use tehas_core::settings;
 
 const NAME: &str = "tehas-mcp";
+/// The port the container publishes on TEHAS_HOST_ADDR.
+pub const PORT: u16 = 8082;
 const MASQUERADE: &str = "com.docker.network.bridge.enable_ip_masquerade";
 
 fn say(line: &str) {
@@ -211,7 +215,7 @@ fn run_args(run: &Run) -> Vec<String> {
         "--pids-limit",
         "64",
         "-p",
-        &format!("{}:8082:8082", run.addr),
+        &format!("{}:{PORT}:{PORT}", run.addr),
         "-v",
         &format!("{home}/live:/live:ro"),
         "-v",
@@ -234,7 +238,7 @@ fn run_args(run: &Run) -> Vec<String> {
         "--logs",
         "/logs",
         "--listen",
-        "0.0.0.0:8082",
+        &format!("0.0.0.0:{PORT}"),
         "--server-version",
         &run.version,
     ]
@@ -295,6 +299,105 @@ fn prepare(home: &str) -> Result<Run, (u8, String)> {
         version,
         private: mask::host_names(&models::host_path(), &email),
     })
+}
+
+/// What the health page says of the server: off, or on and whether it is
+/// installed and answers.
+#[derive(Debug, PartialEq)]
+pub enum Liveness {
+    Off,
+    NotInstalled,
+    Answers,
+    Silent(String),
+}
+
+/// The health page's look at the server, with no key: `TEHAS_MCP` as the
+/// settings gave it, the binary install.sh puts in libexec/, and a `POST /mcp`
+/// to <addr>:<port>. A server that is up refuses a request with no key with
+/// 401 before it reads a byte of the body, so a 401 is the one answer that
+/// says the server is there; a proxy's 502 or a stranger's 200 is not it.
+/// Connecting and the answer are each bounded at <bound>.
+pub fn liveness(home: &Path, on: &str, addr: &str, port: u16, bound: Duration) -> Liveness {
+    match on {
+        "" | "0" => return Liveness::Off,
+        "1" => {}
+        _ => return Liveness::Silent("TEHAS_MCP is not 0 or 1".to_string()),
+    }
+    if !is_program(&home.join("libexec/tehas-mcp")) {
+        return Liveness::NotInstalled;
+    }
+    let target = probe_addr(addr, port);
+    let Some(target) = target else {
+        return Liveness::Silent(format!("TEHAS_HOST_ADDR {addr} names no address"));
+    };
+    match status_of(target, bound) {
+        Ok(401) => Liveness::Answers,
+        Ok(status) => Liveness::Silent(format!("POST /mcp on {target} answered {status}")),
+        Err(e) => Liveness::Silent(format!("POST /mcp on {target}: {e}")),
+    }
+}
+
+/// Where the published port is reached from this host: TEHAS_HOST_ADDR, the
+/// loopback when it is empty, and the loopback too for an address of every
+/// interface, which is no address to connect to.
+fn probe_addr(addr: &str, port: u16) -> Option<SocketAddr> {
+    let host = addr.trim_start_matches('[').trim_end_matches(']');
+    match host.parse::<IpAddr>() {
+        Ok(ip) if ip == IpAddr::V4(Ipv4Addr::UNSPECIFIED) => {
+            Some(SocketAddr::new(Ipv4Addr::LOCALHOST.into(), port))
+        }
+        Ok(ip) if ip == IpAddr::V6(Ipv6Addr::UNSPECIFIED) => {
+            Some(SocketAddr::new(Ipv6Addr::LOCALHOST.into(), port))
+        }
+        Ok(ip) => Some(SocketAddr::new(ip, port)),
+        Err(_) if host.is_empty() => Some(SocketAddr::new(Ipv4Addr::LOCALHOST.into(), port)),
+        Err(_) => (host, port).to_socket_addrs().ok()?.next(),
+    }
+}
+
+/// The status of the answer to one `POST /mcp` with no key and no body.
+fn status_of(target: SocketAddr, bound: Duration) -> Result<u16, String> {
+    let mut stream = TcpStream::connect_timeout(&target, bound).map_err(|e| e.to_string())?;
+    let deadline = Instant::now() + bound;
+    let _ = stream.set_write_timeout(Some(bound));
+    stream
+        .write_all(
+            b"POST /mcp HTTP/1.1\r\nHost: localhost\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+        )
+        .map_err(|e| e.to_string())?;
+    let mut head = Vec::new();
+    let mut chunk = [0u8; 256];
+    while !head.windows(2).any(|w| w == b"\r\n") && head.len() < 1024 {
+        let left = deadline
+            .checked_duration_since(Instant::now())
+            .filter(|d| !d.is_zero())
+            .ok_or_else(|| format!("no answer within {} s", bound.as_secs()))?;
+        let _ = stream.set_read_timeout(Some(left));
+        match stream.read(&mut chunk) {
+            Ok(0) => break,
+            Ok(n) => head.extend_from_slice(&chunk[..n]),
+            Err(e)
+                if matches!(
+                    e.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                ) =>
+            {
+                return Err(format!("no answer within {} s", bound.as_secs()));
+            }
+            Err(e) => return Err(e.to_string()),
+        }
+    }
+    let line = head.split(|b| *b == b'\r').next().unwrap_or_default();
+    let line = String::from_utf8_lossy(line);
+    let mut words = line.split(' ');
+    match (
+        words.next(),
+        words.next().and_then(|s| s.parse::<u16>().ok()),
+    ) {
+        (Some(proto), Some(status)) if proto.starts_with("HTTP/1.") => Ok(status),
+        _ if head.is_empty() => Err("the connection closed with no answer".to_string()),
+        _ => Err("the answer is not HTTP".to_string()),
+    }
 }
 
 fn serve() -> u8 {
@@ -425,5 +528,125 @@ mod tests {
             ]
         );
         assert_eq!(args[args.len() - 2..], ["--private", "gpu1"]);
+    }
+
+    /// A home with the binary install.sh puts in libexec/.
+    fn installed(name: &str) -> tehas_core::testdir::TestDir {
+        let home = tehas_core::testdir::TestDir::new(&format!("mcp-live-{name}"));
+        fs::create_dir_all(home.join("libexec")).unwrap();
+        let bin = home.join("libexec/tehas-mcp");
+        fs::write(&bin, "").unwrap();
+        fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
+        home
+    }
+
+    /// A server on the loopback that reads one request and answers <said>,
+    /// or holds the connection open and says nothing when it is None.
+    fn server(said: Option<&'static str>) -> u16 {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            let (mut c, _) = listener.accept().unwrap();
+            let mut buf = [0u8; 512];
+            let _ = c.read(&mut buf);
+            match said {
+                Some(text) => {
+                    let _ = c.write_all(text.as_bytes());
+                }
+                None => std::thread::sleep(Duration::from_secs(2)),
+            }
+        });
+        port
+    }
+
+    fn look(home: &Path, port: u16) -> Liveness {
+        liveness(home, "1", "127.0.0.1", port, Duration::from_millis(500))
+    }
+
+    #[test]
+    fn a_server_that_is_off_is_not_probed() {
+        let home = tehas_core::testdir::TestDir::new("mcp-live-off");
+        assert_eq!(liveness(&home, "", "", 1, Duration::ZERO), Liveness::Off);
+        assert_eq!(liveness(&home, "0", "", 1, Duration::ZERO), Liveness::Off);
+        assert_eq!(
+            liveness(&home, "yes", "", 1, Duration::ZERO),
+            Liveness::Silent("TEHAS_MCP is not 0 or 1".to_string())
+        );
+    }
+
+    #[test]
+    fn a_server_on_with_no_binary_is_not_installed() {
+        let home = tehas_core::testdir::TestDir::new("mcp-live-none");
+        assert_eq!(look(&home, 1), Liveness::NotInstalled);
+    }
+
+    #[test]
+    fn a_401_to_no_key_is_a_server_that_answers() {
+        let home = installed("401");
+        let port = server(Some(
+            "HTTP/1.1 401 Unauthorized\r\nWWW-Authenticate: Bearer\r\nContent-Length: 0\r\n\r\n",
+        ));
+        assert_eq!(look(&home, port), Liveness::Answers);
+    }
+
+    #[test]
+    fn any_other_answer_is_not_the_server() {
+        let home = installed("502");
+        let port = server(Some("HTTP/1.1 502 Bad Gateway\r\n\r\n"));
+        assert_eq!(
+            look(&home, port),
+            Liveness::Silent(format!("POST /mcp on 127.0.0.1:{port} answered 502"))
+        );
+        let port = server(Some("SSH-2.0-OpenSSH\r\n"));
+        assert_eq!(
+            look(&home, port),
+            Liveness::Silent(format!(
+                "POST /mcp on 127.0.0.1:{port}: the answer is not HTTP"
+            ))
+        );
+        let port = server(Some(""));
+        assert_eq!(
+            look(&home, port),
+            Liveness::Silent(format!(
+                "POST /mcp on 127.0.0.1:{port}: the connection closed with no answer"
+            ))
+        );
+    }
+
+    #[test]
+    fn a_stopped_or_silent_server_does_not_answer() {
+        let home = installed("stopped");
+        let port = {
+            let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            l.local_addr().unwrap().port()
+        };
+        match look(&home, port) {
+            Liveness::Silent(why) => {
+                assert!(
+                    why.starts_with(&format!("POST /mcp on 127.0.0.1:{port}: ")),
+                    "{why}"
+                );
+            }
+            other => panic!("{other:?}"),
+        }
+        let port = server(None);
+        let started = Instant::now();
+        assert_eq!(
+            liveness(&home, "1", "", port, Duration::from_secs(1)),
+            Liveness::Silent(format!(
+                "POST /mcp on 127.0.0.1:{port}: no answer within 1 s"
+            ))
+        );
+        assert!(started.elapsed() < Duration::from_secs(2));
+    }
+
+    #[test]
+    fn the_probe_reaches_the_address_the_port_is_published_on() {
+        let at = |a: &str| probe_addr(a, 8082).map(|s| s.to_string());
+        assert_eq!(at("").as_deref(), Some("127.0.0.1:8082"));
+        assert_eq!(at("0.0.0.0").as_deref(), Some("127.0.0.1:8082"));
+        assert_eq!(at("::").as_deref(), Some("[::1]:8082"));
+        assert_eq!(at("192.0.2.9").as_deref(), Some("192.0.2.9:8082"));
+        assert_eq!(at("fe80::1").as_deref(), Some("[fe80::1]:8082"));
     }
 }

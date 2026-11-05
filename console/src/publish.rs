@@ -277,17 +277,12 @@ mod tests {
 
         fn program(&self, body: &str) {
             let bin = self.0.join("libexec/analytics");
-            // Written beside and renamed: a test process forking at the wrong
-            // moment holds a file open for writing, and exec then fails.
-            let new = self.0.join("libexec/analytics.new");
             let calls = self.0.join("calls");
             let script = format!(
                 "#!/bin/sh\necho \"$* $TEHAS_HOME\" >>{}\n{body}\n",
                 calls.display()
             );
-            fs::write(&new, script).unwrap();
-            fs::set_permissions(&new, fs::Permissions::from_mode(0o755)).unwrap();
-            fs::rename(&new, bin).unwrap();
+            tehas_core::testing::write_exe(bin, script).unwrap();
         }
 
         fn analytics(&self, on: bool, wait: u64) -> Analytics {

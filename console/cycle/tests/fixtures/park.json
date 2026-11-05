@@ -8586,7 +8586,7 @@
     "--attempt",
     "1",
     "--reason",
-    "unknown",
+    "lean-refused",
     "--step",
     "-"
    ],
@@ -8600,7 +8600,7 @@
     ],
     [
      "question",
-     "Tehas started no cycle: this start's driver is `lean`, and the sandbox image cannot run it as this start asks (runner exit 78). It does not run classic in its place, and nothing of it ran. The log names what the image lacks. To run it on classic, take `tehas:lean` off, then retry; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas started no cycle: this start's driver is `lean`, and the sandbox image cannot run it as this start asks (runner exit 78). It does not run classic in its place, and nothing of it ran. The log names what the image lacks. To run it on classic, take `tehas:lean` off, then retry; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\nTake `tehas:lean` off this issue, then tick a box.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",

@@ -393,6 +393,24 @@ impl<'a> Poll<'a> {
                 78,
             ));
         }
+        if !c.priority_field.is_empty() && !s.personal_owner {
+            let field = &c.priority_field;
+            match &s.issue_fields {
+                None => {
+                    return Err(self.fail(
+                        format!("ERROR: the issue fields of {}'s owner could not be read", c.repo),
+                        1,
+                    ))
+                }
+                Some(f) if !f.contains(field) => {
+                    return Err(self.fail(
+                        format!("ERROR: TEHAS_PRIORITY_FIELD names {field}, which is no single-select issue field of {}'s owner: name one in {}/instance.env, or leave it out for the tehas:urgent and tehas:next labels", c.repo, c.instance_dir),
+                        78,
+                    ))
+                }
+                Some(_) => {}
+            }
+        }
         self.d.tidy = true;
         self.d.bot = bot.clone();
         if let Err((word, rc)) = &s.plan_open {
@@ -1546,6 +1564,30 @@ impl<'a> Poll<'a> {
         }));
     }
 
+    /// links_ok: whether the issue's native blocked-by links let it start.
+    /// An open blocker holds it, whatever label asks. A link only holds: once
+    /// every blocker is closed the issue starts on its approval alone, as it
+    /// would with no link, and a link never stands in for one. A forge answer
+    /// without the field holds nothing, so the marked comment of `blocked_ok`
+    /// is all that names blockers there.
+    fn links_ok(&mut self, n: u64) -> bool {
+        let open = self
+            .work(n)
+            .pointer("/issue_dependencies_summary/blocked_by")
+            .and_then(Value::as_u64)
+            .unwrap_or(0);
+        if open == 0 {
+            return true;
+        }
+        let count = if open == 1 {
+            "1 blocker is open".to_string()
+        } else {
+            format!("{open} blockers are open")
+        };
+        self.log(format!("wait #{n}: a blocked-by link holds it: {count}"));
+        false
+    }
+
     /// blocked_ok: whether tehas:blocked lets the issue start.
     fn blocked_ok(&mut self, n: u64) -> Step<bool> {
         if !self.order_label(n, "tehas:blocked")? {
@@ -2356,15 +2398,8 @@ impl<'a> Poll<'a> {
         true
     }
 
-    /// 6 and 7: the candidates in their order, cut to the room.
-    fn candidates(&mut self, room: Room) -> Step {
-        let Room {
-            want,
-            want_all,
-            want_refresh,
-            ..
-        } = room;
-        let ready = self.ready()?;
+    /// The urgent and the next lists, read of `tehas:urgent` and `tehas:next`.
+    fn order_by_labels(&mut self, ready: &[Listed], want: i64) -> Step<(Vec<u64>, Vec<u64>)> {
         let mut urgent = Vec::new();
         for i in ready.iter().filter(|i| has(&i.labels, "tehas:urgent")) {
             let Some(n) = i.number else { continue };
@@ -2395,6 +2430,58 @@ impl<'a> Poll<'a> {
                 next.push(n);
             }
         }
+        Ok((urgent, next))
+    }
+
+    /// The urgent and the next lists, read of the issue field
+    /// TEHAS_PRIORITY_FIELD: Urgent as `tehas:urgent` counts, from an allowed
+    /// account, and High as `tehas:next`, from an allowed account or the
+    /// millwright. The labels count for nothing here.
+    fn order_by_field(&mut self, ready: &[Listed], want: i64) -> (Vec<u64>, Vec<u64>) {
+        let (mut urgent, mut next) = (Vec::new(), Vec::new());
+        for i in ready {
+            let Some(n) = i.number else { continue };
+            if want <= 0 {
+                break;
+            }
+            if self.plan_open(n) || self.running(n) {
+                continue;
+            }
+            let Some((value, by)) = self.s.issues.get(&n).and_then(|i| i.priority.clone()) else {
+                continue;
+            };
+            let (list, stands) = match value.as_str() {
+                "Urgent" => (&mut urgent, self.c.allowed(&by)),
+                "High" => (&mut next, self.c.allowed(&by) || self.c.is_millwright(&by)),
+                _ => continue,
+            };
+            if stands {
+                list.push(n);
+            } else {
+                let field = self.c.priority_field.clone();
+                self.log(format!(
+                    "ignore #{n}: {field} {value} was set by '{}', not an allowed account",
+                    or_unknown(&by)
+                ));
+            }
+        }
+        (urgent, next)
+    }
+
+    /// 6 and 7: the candidates in their order, cut to the room.
+    fn candidates(&mut self, room: Room) -> Step {
+        let Room {
+            want,
+            want_all,
+            want_refresh,
+            ..
+        } = room;
+        let ready = self.ready()?;
+        let (urgent, next) = if self.c.priority_field.is_empty() || self.s.personal_owner {
+            self.order_by_labels(&ready, want)?
+        } else {
+            self.order_by_field(&ready, want)
+        };
         let mut order: Vec<(char, u64)> = Vec::new();
         let numbers: Vec<u64> = ready.iter().filter_map(|i| i.number).collect();
         order.extend(
@@ -2525,6 +2612,9 @@ impl<'a> Poll<'a> {
                     }
                 },
             };
+            if !self.links_ok(n) {
+                continue;
+            }
             if has(&labels, "tehas:blocked") && !self.blocked_ok(n)? {
                 continue;
             }

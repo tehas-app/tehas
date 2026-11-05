@@ -282,6 +282,14 @@ PI_ENSEMBLE_VERIFY_TIMEOUT_MS
 PI_ENSEMBLE_WORKSPACE_ROOT"
 t_eq "$(after -e | sed 's/=.*//' | LC_ALL=C sort)" "$(printf '%s\n' "$want" | LC_ALL=C sort)"
 
+t_case "the poll's token, which the load keeps, is not passed in"
+T_ENV=("${env_ok[@]}" TEHAS_GH_TOKEN=ghs_poll)
+rm -f "$T"/calls/*
+t_run "$work 7"
+t_eq "$(after -e | sed 's/=.*//' | LC_ALL=C sort)" "$(printf '%s\n' "$want" | LC_ALL=C sort)"
+t_lacks "$(cycle_args)" "ghs_poll"
+T_ENV=("${env_ok[@]}")
+
 t_case "the child bound is tehas', not the instance's, and takes its default when the case names none"
 t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_SPAWN_TIMEOUT_MS=60000 TEHAS_CHILD_TIMEOUT=5400
 rm -f "$T"/calls/*

@@ -163,6 +163,14 @@ Run `tehas dispatch --dry-run` and read what it prints.
 - `ignore #N: tehas:urgent was applied by ...`: the label came from an account
   that is not allowed, so it moves nothing: the issue keeps its place by
   number. It is said at every poll until someone removes the label.
+- `ignore #N: Priority Urgent was set by ...`: with `TEHAS_PRIORITY_FIELD`,
+  the newest change to the issue field came from an account that does not
+  count, or the poll could not read who made it. Set the field again from an
+  allowed account.
+- `ERROR: TEHAS_PRIORITY_FIELD names ...`: the organisation that owns the
+  repository has no single-select issue field of that name. The poll stops
+  with 78. Name the field as the organisation
+  spells it, or remove the setting.
 - `holding: <n> of <free> free slots start: ...`: some cycles started, fewer
   than there are free slots and issues waiting. The rest of the line is the
   one limit that cut it: issues awaiting merge (`TEHAS_MAX_AWAITING`), or the
@@ -438,8 +446,9 @@ The common ones:
 | review round cap                    | The review kept finding problems                    | Read the review on the pull request                      |
 | developer timeout                   | An agent ran out of time                            | Usually model endpoint capacity; retry later             |
 | `wall-clock`, `stall`               | tehas ended the cycle: its time limit `TEHAS_WORK_TIMEOUT`, or no log moved for `TEHAS_WORK_STALL` | Read the run log the comment names; see [a cycle stops at a cap](#a-cycle-stops-at-a-cap) |
+| `process-limit:<step>`              | The container reached its `--pids-limit` and refused starts of a process, and the run named no other cap. The comment says how many were refused | Read the run log the comment names for what ran at that step. The limit follows the container's share of the slice, `TEHAS_SLICE_CONTAINERS` |
 | `runner-never-started`              | The container ended before the driver wrote its first event: no step ran and the record would hold nothing but an exit status | Look for a host-side fault: the image, the slice, the model endpoint. See [`runner-never-started`](#runner-never-started) below |
-| `the sandbox image cannot run it as this start asks` | The issue carries [`tehas:lean`](/operating#choosing-the-driver) and the sandbox image cannot run `work-lean` as asked: its pi-rukas is older than v0.14.47, or the start was a restart or a refresh, which `work-lean` does not take. The run log names what the image lacks. `tehas work` stopped with exit 78: no container ran, nothing moved, classic did not run in its place. The start's approval is gone, so nothing starts it again on its own | Rebuild the sandbox image on a newer pi-rukas and tick Retry, or take `tehas:lean` off, then tick Retry. The issue runs classic |
+| `the sandbox image cannot run it as this start asks` | The issue carries [`tehas:lean`](/operating#choosing-the-driver) and the sandbox image cannot run `work-lean` as asked: its pi-rukas is older than v0.14.47, or the start was a restart or a refresh, which `work-lean` does not take. The run log names what the image lacks. `tehas work` stopped with exit 78: no container ran, nothing moved, classic did not run in its place. The start's approval is gone, so nothing starts it again on its own | Take `tehas:lean` off, then tick Retry. The issue runs classic. A Retry ticked with the label still on waits for it to come off. For lean, rebuild the sandbox image on a newer pi-rukas before the next lean start |
 | `lean found this issue not ready to build from` | A lean run read the issue's `pi-spec v1` block and refused it (runner exit 11). The rules it failed follow in the comment | Fix the block, or run pi-rukas's `/plan` to write it, then apply `tehas:ready` |
 | `Lean left its pull request a draft` | A lean run handed back with a draft pull request: its gate did not clear the head it pushed. A draft never waits for a merge | Read the reason in the comment and the pull request before you retry |
 | `` Lean says its pull request is `<state>`, not `ready` `` | A lean run handed back a pull request that its own result does not call `ready`: its gate never cleared the head it pushed, the pull request's checks were red twice (lean builds once more on the first red), or a `manual` or unrun `command` criterion holds it a draft. It does not wait for a merge | Read lean's reason that follows in the comment, then fix the pull request by hand or retry from a clean start |
