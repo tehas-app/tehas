@@ -771,7 +771,6 @@ mod tests {
     use super::*;
     use crate::read::models::Models;
     use crate::snapshot::Snapshot;
-    use std::os::unix::fs::PermissionsExt;
 
     /// What separates two calls in a stub's record: a word of nothing that no
     /// argument of a real gh or store call contains, named once so that neither
@@ -1042,7 +1041,6 @@ esac"#,
     fn stub(bin: &Path, name: &str, body: &str) {
         let mut lines: Vec<String> = [
             "#!/bin/sh".to_string(),
-            "[ \"$1\" = settled ] && exit 0".to_string(),
             format!("here='{}'", bin.display()),
             "args=$(mktemp \"$here/{name}-args.XXXXXX\")".to_string(),
             "out=$(mktemp \"$here/{name}-out.XXXXXX\")".to_string(),
@@ -1065,9 +1063,7 @@ esac"#,
         .to_vec();
         lines.extend(body.lines().map(str::to_string));
         lines.push("answer 0".to_string());
-        std::fs::write(bin.join(name), lines.join("\n") + "\n").unwrap();
-        std::fs::set_permissions(bin.join(name), std::fs::Permissions::from_mode(0o755)).unwrap();
-        crate::read::run::tests::settled(&bin.join(name));
+        tehas_core::testing::write_exe(bin.join(name), lines.join("\n") + "\n").unwrap();
     }
 
     /// The calls the stub of `name` recorded, in the order it wrote them.

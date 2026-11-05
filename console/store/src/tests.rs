@@ -1092,7 +1092,7 @@ fn migrate_writes_into_state_backup_made_0700_and_refuses_a_link_there() {
     assert_eq!(mode(&own), 0o700);
     assert_eq!(mode(&copy), 0o600);
     assert!(db::is_database(&copy));
-    fs::set_permissions(&own, fs::Permissions::from_mode(0o755)).unwrap();
+    fs::set_permissions(&own, fs::Permissions::from_mode(0o755)).unwrap(); // a directory
     migrate_at(&home, &own, 1_792_000_060).unwrap();
     assert_eq!(mode(&own), 0o700, "a state/backup/ at 0755 is settled");
 
@@ -1158,7 +1158,7 @@ fn migrate_brings_an_empty_file_to_the_schema_and_the_rows_it_lacks() {
     fs::create_dir_all(home.join("state")).unwrap();
     fs::write(db::path(&home), b"").unwrap();
     fs::set_permissions(db::path(&home), fs::Permissions::from_mode(0o644)).unwrap();
-    fs::set_permissions(home.join("state"), fs::Permissions::from_mode(0o755)).unwrap();
+    fs::set_permissions(home.join("state"), fs::Permissions::from_mode(0o755)).unwrap(); // a directory
     let line = migrate(&home, &home.join("state")).unwrap();
     let value: serde_json::Value = serde_json::from_str(&line).unwrap();
     assert_eq!(value["from"], 0, "{line}");
@@ -2487,8 +2487,7 @@ fi
 [ "$kind" = list ] && { echo '[]'; exit 0; }
 exit 0
 "#;
-    fs::write(&bin, body).unwrap();
-    fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
+    tehas_core::testing::write_exe(&bin, body).unwrap();
     bin
 }
 
