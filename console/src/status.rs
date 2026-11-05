@@ -233,6 +233,14 @@ pub fn state_lines(h: &J, now: i64, stale: bool, poll: &str) -> Vec<String> {
     if let Some(held) = checks.at(&["demand", "refreshHold"]).as_str() {
         lines.push(format!("refresh   held: {held}"));
     }
+    for h in checks.at(&["slice", "held"]).items() {
+        lines.push(format!(
+            "held      #{}: {}; {}",
+            h.get("issue").text(),
+            oneline_of(h.get("text")),
+            oneline_of(h.get("clear"))
+        ));
+    }
     let alone = label_alone(checks.at(&["demand", "labelAlone"]));
     if !alone.is_empty() {
         let list: Vec<String> = alone.iter().map(|n| format!("#{n}")).collect();
@@ -368,20 +376,32 @@ pub fn cycle_line(c: &J, now: i64) -> String {
     }
 }
 
-/// A line for each planning turn in flight.
+/// A line for each planning turn in flight, and for each open session whose
+/// last turn ended in error and waits for a person.
 fn plan_lines(h: &J, now: i64) -> Vec<String> {
     h.at(&["checks", "plans"])
         .items()
         .iter()
         .map(|p| {
+            let what = if in_flight(p) {
+                "running"
+            } else {
+                "ended in error, waits for a person"
+            };
             format!(
-                "plan      #{} turn {} running, started {}",
+                "plan      #{} turn {} {what}, started {}",
                 p.get("issue").text(),
                 p.get("turn").text(),
                 age(p.get("startedAt"), now)
             )
         })
         .collect()
+}
+
+/// Whether a session of health's `plans` is a turn in flight: `running`, or
+/// no state at all in a report written before sessions had one.
+fn in_flight(p: &J) -> bool {
+    matches!(p.get("state"), J::Null) || p.get("state").as_str() == Some("running")
 }
 
 /// The slots of the last poll: the counts a factory whose settings say
@@ -564,6 +584,7 @@ pub fn status_json(h: &J, now: i64, stale: bool) -> J {
         .get("plans")
         .items()
         .iter()
+        .filter(|c| in_flight(c))
         .map(|c| {
             let mut f = vec![
                 ("issue", c.get("issue").clone()),
@@ -618,6 +639,20 @@ pub fn status_json(h: &J, now: i64, stale: bool) -> J {
     } else {
         J::Null
     };
+    let held = J::Arr(
+        s.get("held")
+            .items()
+            .iter()
+            .map(|h| {
+                obj(vec![
+                    ("issue", h.get("issue").clone()),
+                    ("why", h.get("why").clone()),
+                    ("text", J::Str(oneline_of(h.get("text")))),
+                    ("clear", J::Str(oneline_of(h.get("clear")))),
+                ])
+            })
+            .collect(),
+    );
     let room = if s.is_null() {
         J::Null
     } else {
@@ -659,6 +694,7 @@ pub fn status_json(h: &J, now: i64, stale: bool) -> J {
         ("planning", J::Arr(planning)),
         ("demand", demand),
         ("hold", hold),
+        ("held", held),
         ("room", room),
     ];
     fields.retain(|(k, v)| !matches!(*k, "allHands" | "limit") || !v.is_null());
@@ -673,6 +709,29 @@ mod tests {
 
     fn h(text: &str) -> J {
         J::parse(text).unwrap()
+    }
+
+    #[test]
+    fn a_planning_session_that_failed_has_its_line_and_is_no_turn_in_flight() {
+        let health = h(
+            r#"{"status":"pass","time":"2026-10-17T14:00:00Z","checks":{"plans":[
+              {"issue":7,"turn":2,"startedAt":"2026-10-17T13:48:20Z","state":"running"},
+              {"issue":8,"turn":1,"startedAt":"2026-10-17T13:00:20Z","state":"failed"},
+              {"issue":9,"turn":3,"startedAt":"2026-10-17T13:58:20Z"}]}}"#,
+        );
+        assert_eq!(
+            plan_lines(&health, NOW),
+            [
+                "plan      #7 turn 2 running, started 12 min ago",
+                "plan      #8 turn 1 ended in error, waits for a person, started 60 min ago",
+                "plan      #9 turn 3 running, started 2 min ago",
+            ]
+        );
+        // The API's planning is the turns in flight: a failed session is not.
+        assert_eq!(
+            status_json(&health, NOW, false).get("planning").dump(),
+            r#"[{"issue":7,"turn":2,"since":"2026-10-17T13:48:20Z"},{"issue":9,"turn":3,"since":"2026-10-17T13:58:20Z"}]"#
+        );
     }
 
     #[test]
@@ -718,7 +777,8 @@ mod tests {
           "checks":{"queue":{"inLine":2,"building":0,"review":1,"stopped":0,"paused":true,"time":"2026-10-17T14:00:00Z"},
           "pause":{"flag":{"at":"2026-10-17T13:00:20Z","reason":"a\nb"},"label":true,"lifted":false},
           "limit":{"state":"ok","cycles":1,"plan":false,"reason":"night"},
-          "demand":{"refreshHold":"two in review"},"allHands":true}}"#,
+          "demand":{"refreshHold":"two in review"},"allHands":true,
+          "slice":{"why":"","held":[{"issue":7,"why":"parked","text":"its last cycle parked on `gate`","clear":"edit the body"}]}}}"#,
         );
         assert_eq!(
             state_lines(&health, NOW, false, "poll      last 1 s"),
@@ -730,6 +790,7 @@ mod tests {
                 "pause     label: tehas:pause on the control issue",
                 "limit     1 cycle at once, planning off, until cleared: night",
                 "refresh   held: two in review",
+                "held      #7: its last cycle parked on `gate`; edit the body",
                 "all-hands tehas:all-hands is on the control issue, applied by an allowed account",
             ]
         );
@@ -867,7 +928,7 @@ mod tests {
             h(r#"{"status":"pass","output":"Idle.","time":"2026-10-17T14:00:00Z","checks":{}}"#);
         assert_eq!(
             status_json(&health, NOW, false).dump(),
-            r#"{"api":1,"time":"2026-10-17T14:00:00Z","age":20,"stale":false,"state":"pass","reasons":[],"paused":{"local":false,"label":false},"running":[],"planning":[],"demand":null,"hold":null,"room":null}"#
+            r#"{"api":1,"time":"2026-10-17T14:00:00Z","age":20,"stale":false,"state":"pass","reasons":[],"paused":{"local":false,"label":false},"running":[],"planning":[],"demand":null,"hold":null,"held":[],"room":null}"#
         );
     }
 

@@ -516,7 +516,6 @@ fn text_line(line: &J) -> String {
 mod tests {
     use super::*;
     use std::fs;
-    use std::os::unix::fs::PermissionsExt;
 
     // Outputs in this file were captured from the jq of v0.21.0.
     const ROWS: &str = r#"{"api":1,"ok":true,"verb":"history-show","rows":[
@@ -749,8 +748,7 @@ mod tests {
 
     fn store_says(home: &Path, script: &str) {
         let store = home.join("libexec/store");
-        fs::write(&store, format!("#!/bin/sh\n{script}\n")).unwrap();
-        fs::set_permissions(&store, fs::Permissions::from_mode(0o755)).unwrap();
+        tehas_core::testing::write_exe(&store, format!("#!/bin/sh\n{script}\n")).unwrap();
         fs::write(home.join("state/tehas.db"), "").unwrap();
     }
 

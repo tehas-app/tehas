@@ -7,6 +7,7 @@ use crate::read::run::{Calls, RetryPolicy};
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::sync::{Arc, Mutex, Weak};
+use tehas_core::plan::REFUSED;
 use tehas_core::testdir::TestDir;
 
 /// A stub answers each call, writes `<name> <args>` and its standard input
@@ -115,23 +116,14 @@ fn world() -> World {
     let dir = TestDir::new("apply");
     fs::create_dir_all(dir.join("home/state/refresh")).unwrap();
     // One stub file for the worlds alive at once, and a link to it in each
-    // world. A file written while another thread forks is held open for
-    // writing until that child's exec and refuses to run, so the stub is run
-    // once here before a world is given it.
+    // world.
     static STUB_DIR: Mutex<Weak<TestDir>> = Mutex::new(Weak::new());
     let held = {
         let mut shared = STUB_DIR.lock().unwrap_or_else(|e| e.into_inner());
         shared.upgrade().unwrap_or_else(|| {
             let d = Arc::new(TestDir::new("apply-stub"));
             let p = d.join("stub");
-            fs::write(&p, STUB).unwrap();
-            fs::set_permissions(&p, fs::Permissions::from_mode(0o755)).unwrap();
-            let until = std::time::Instant::now() + Duration::from_secs(5);
-            while std::process::Command::new(&p).status().is_err()
-                && std::time::Instant::now() < until
-            {
-                std::thread::sleep(Duration::from_millis(5));
-            }
+            tehas_core::testing::write_exe(&p, STUB).unwrap();
             *shared = Arc::downgrade(&d);
             d
         })
@@ -1518,7 +1510,7 @@ fn a_quiet_stop_that_cannot_write_its_reason_still_stops_the_unit() {
     fs::create_dir_all(&cycles).unwrap();
     fs::set_permissions(&cycles, fs::Permissions::from_mode(0o500)).unwrap();
     let a = t.apply(json!([quiet_of(7)]));
-    fs::set_permissions(&cycles, fs::Permissions::from_mode(0o700)).unwrap();
+    fs::set_permissions(&cycles, fs::Permissions::from_mode(0o700)).unwrap(); // a directory
     let said: Vec<&str> = a.log.iter().map(String::as_str).collect();
     assert!(
         said.contains(&"WARN: could not write the reason for #7"),
@@ -1623,11 +1615,11 @@ fn a_sweep_that_cannot_remove_a_name_says_so_and_not_that_the_issue_is_gone() {
     // Root is not kept out of a directory by its mode.
     if fs::write(live.join("probe"), "").is_ok() {
         fs::remove_file(live.join("probe")).unwrap();
-        fs::set_permissions(&live, fs::Permissions::from_mode(0o755)).unwrap();
+        fs::set_permissions(&live, fs::Permissions::from_mode(0o755)).unwrap(); // a directory
         return;
     }
     let a = t.apply(json!([{"sweep": 5, "log": "removed what #5 left on this host"}]));
-    fs::set_permissions(&live, fs::Permissions::from_mode(0o755)).unwrap();
+    fs::set_permissions(&live, fs::Permissions::from_mode(0o755)).unwrap(); // a directory
     assert_eq!(
         a.log,
         vec!["WARN: could not remove live/console-5.txt of #5"]
@@ -2249,6 +2241,12 @@ const PLAN_BODY: &str = "## Outcome\n\nThe p95 is under 100 ms.\n\nThe gate is g
 /// case that reaches the write names this one. Built from the two lines above
 /// so the fixture of a plan and the fixture of its draft cannot drift.
 const PLAN_TITLE: &str = "feat: search is fast";
+/// A title the check of #1210 refuses: one that is nothing but prefixes. Used
+/// with [`PLAN_BODY`] as the draft no poll may write.
+const REFUSED_TITLE: &str = "EPIC: EPIC";
+/// The box that writes the drafted plan, which the refusal of a draft takes
+/// off the question of the turn.
+const TICK: &str = "Update this issue";
 fn plan_draft() -> String {
     json!({"title": PLAN_TITLE, "spec": PLAN_BODY}).to_string()
 }
@@ -2274,7 +2272,7 @@ fn clear_draft(t: &World, session: Value, labeller: &str, draft: &Value) {
         7,
         "0",
         json!({"session": "s-2", "text": "Drafted.", "clear": true,
-            "question": {"question": "Tick.", "options": [{"label": "Update this issue"}]}}),
+            "question": {"question": "Tick.", "options": [{"label": TICK}]}}),
     );
     let keep = t.dir.join("works/tehas-work-plan-7.keep");
     fs::create_dir_all(&keep).unwrap();
@@ -2484,7 +2482,7 @@ fn a_plan_with_open_points_asks() {
         7,
         "0",
         json!({"session": "s-2", "text": "Drafted.",
-            "question": {"question": "Open points.", "options": [{"label": "Update this issue"}]}}),
+            "question": {"question": "Open points.", "options": [{"label": TICK}]}}),
     );
     t.apply(json!([{"plan_collect": 7}]));
     asks(&t);
@@ -2633,12 +2631,18 @@ fn a_draft_that_is_gone_asks() {
 /// console wrote for it, with the draft kept beside the session. No `clear`,
 /// no label events to read, and no start to keep: the tick is the answer.
 fn chosen_draft(t: &World, title: &str, spec: &str) {
+    chosen_draft_asked(t, title, spec, &Value::Null);
+}
+
+/// The same poll with a question of its own on the outcome the console wrote,
+/// which is what a refusal of the draft takes the boxes off.
+fn chosen_draft_asked(t: &World, title: &str, spec: &str, question: &Value) {
     plan_row(t, alices_session());
     turn_ended(
         t,
         7,
         "0",
-        json!({"session": "s-1", "text": "This issue now holds the plan.", "question": null,
+        json!({"session": "s-1", "text": "This issue now holds the plan.", "question": question,
                "update": {"title": title, "body": spec}}),
     );
     let keep = t.dir.join("works/tehas-work-plan-7.keep");
@@ -2650,6 +2654,46 @@ fn chosen_draft(t: &World, title: &str, spec: &str) {
     .unwrap();
 }
 
+/// The boxes of a refused draft's question: they ask, and hold no tick —
+/// writing the drafted plan is the answer this refusal stopped, so the answer
+/// that moves the session on is a reply.
+fn asks_without_the_tick(t: &World) {
+    let w = t.writes();
+    assert!(
+        w.iter().any(|c| {
+            c.starts_with("gh api -X POST") && c.contains("issues/7/comments") && !c.contains(TICK)
+        }),
+        "{w:?}"
+    );
+}
+
+/// A poll that posted nothing of its plan: no comment of its own, no question,
+/// no title written, the planning label still on, and no record of an asked
+/// question.
+fn asks_nothing(t: &World) {
+    let w = t.writes();
+    assert!(
+        !w.iter().any(|c| c.starts_with("gh issue comment 7")),
+        "{w:?}"
+    );
+    assert!(
+        !w.iter()
+            .any(|c| c.starts_with("gh api -X POST") && c.contains("issues/7/comments")),
+        "{w:?}"
+    );
+    assert!(
+        !w.iter()
+            .any(|c| c.starts_with("gh issue edit 7 --repo example-owner/example-product --title")),
+        "{w:?}"
+    );
+    assert!(
+        !w.iter()
+            .any(|c| c.contains("--remove-label tehas:planning")),
+        "{w:?}"
+    );
+    assert!(!w.iter().any(|c| c.contains("question-asked")), "{w:?}");
+}
+
 #[test]
 fn a_clear_plan_that_fails_the_check_asks_and_starts_nothing() {
     // The four texts #1210 refuses. The outcome beside each is what
@@ -2657,7 +2701,7 @@ fn a_clear_plan_that_fails_the_check_asks_and_starts_nothing() {
     // by hand here: the check that refuses the draft is what is under test, so
     // it cannot be the fixture of the document too.
     for (what, title, spec) in [
-        ("prefixes", "EPIC: EPIC", PLAN_BODY),
+        ("prefixes", REFUSED_TITLE, PLAN_BODY),
         ("one word twice", "work work", PLAN_BODY),
         (
             "the planner's brief",
@@ -2702,10 +2746,9 @@ fn a_clear_plan_that_fails_the_check_asks_and_starts_nothing() {
         // comment of its own, before the question of the turn it was asked
         // to post and the labels that follow it.
         let w = t.writes();
-        let refusal = w.iter().position(|c| {
-            c.starts_with("gh issue comment 7")
-                && c.contains("Tehas did not make the drafted plan this issue's text")
-        });
+        let refusal = w
+            .iter()
+            .position(|c| c.starts_with("gh issue comment 7") && c.contains(REFUSED));
         assert!(refusal.is_some(), "{what}: {w:?}");
         assert!(
             refusal.unwrap() < w
@@ -2715,9 +2758,9 @@ fn a_clear_plan_that_fails_the_check_asks_and_starts_nothing() {
             "{what}: {w:?}"
         );
         assert!(
-            a.log.iter().any(|l| {
-                l.starts_with("planning #7 asks: Tehas did not make the drafted plan")
-            }),
+            a.log
+                .iter()
+                .any(|l| { l.starts_with(&format!("planning #7 asks: {REFUSED}")) }),
             "{what}: {:?}",
             a.log
         );
@@ -2729,7 +2772,7 @@ fn a_chosen_draft_that_fails_the_check_writes_nothing_and_ends_nothing() {
     // The tick of a person, not a start: the same refusal, and here the
     // session stays open for a reply rather than ending without a plan.
     let mut t = world();
-    chosen_draft(&t, "EPIC: EPIC", PLAN_BODY);
+    chosen_draft(&t, REFUSED_TITLE, PLAN_BODY);
     let a = t.apply(json!([{"plan_collect": 7}]));
     let w = t.writes();
     assert!(
@@ -2761,16 +2804,11 @@ fn a_chosen_draft_that_fails_the_check_writes_nothing_and_ends_nothing() {
     // The question of the turn holds none of it again: the person has just
     // read the rule in the comment above, and the tick this refusal stopped is
     // gone from the boxes, so the answer that moves the session on is a reply.
-    assert!(
-        w.iter().any(|c| c.starts_with("gh api -X POST")
-            && c.contains("issues/7/comments")
-            && !c.contains("Update this issue")),
-        "{w:?}"
-    );
+    asks_without_the_tick(&t);
     assert!(
         a.log
             .iter()
-            .any(|l| l.starts_with("planning #7 asks: Tehas did not make")),
+            .any(|l| l.starts_with(&format!("planning #7 asks: {REFUSED}"))),
         "{:?}",
         a.log
     );
@@ -2784,7 +2822,7 @@ fn a_refused_draft_is_refused_once_however_often_the_poll_comes_back() {
     // turn that left its exit status, answers the document it finds and does
     // not say the rule again.
     let mut t = world();
-    chosen_draft(&t, "EPIC: EPIC", PLAN_BODY);
+    chosen_draft(&t, REFUSED_TITLE, PLAN_BODY);
     let a = t.apply(json!([{"plan_collect": 7}]));
     assert!(
         a.log.iter().any(|l| l.starts_with("planning #7 asks:")),
@@ -2796,7 +2834,7 @@ fn a_refused_draft_is_refused_once_however_often_the_poll_comes_back() {
     let said = t.writes();
     let once = said
         .iter()
-        .filter(|c| c.starts_with("gh issue comment 7") && c.contains("Tehas did not make"))
+        .filter(|c| c.starts_with("gh issue comment 7") && c.contains(REFUSED))
         .count();
     assert_eq!(once, 1, "{said:?}");
     // The question is on record, so the next poll posts nothing of the plan
@@ -2824,14 +2862,169 @@ fn a_refused_draft_is_refused_once_however_often_the_poll_comes_back() {
         !second.iter().any(|c| c.starts_with("gh api -X POST")),
         "{w:?}"
     );
+    assert!(!a.log.iter().any(|l| l.contains(REFUSED)), "{:?}", a.log);
     assert!(
-        !a.log.iter().any(|l| l.contains("Tehas did not make")),
+        !w.iter()
+            .any(|c| c.starts_with("gh issue edit 7 --repo example-owner/example-product --title")),
+        "{w:?}"
+    );
+}
+
+#[test]
+fn a_clear_refusal_whose_outcome_cannot_be_kept_posts_it_once() {
+    // The clear route: `plan_clear` refuses the draft and the poll says so in
+    // a comment of its own. The keep comes before that comment, so a keep that
+    // fails posts nothing, and the poll that can keep it posts the refusal
+    // once: a comment journaled ahead of a failed keep would be posted again
+    // on every poll for as long as the keep failed.
+    let mut t = world();
+    clear_draft(
+        &t,
+        alices_session(),
+        "alice",
+        &json!({"title": REFUSED_TITLE, "spec": PLAN_BODY}),
+    );
+    let file = t.w.home.join("state/plan-7.json.out");
+    // A directory of the sibling's name stops the write for any user.
+    let new = t.w.home.join("state/plan-7.json.out.new");
+    fs::create_dir_all(&new).unwrap();
+    for a in [
+        t.apply(json!([{"plan_collect": 7}])),
+        t.apply(json!([{"plan_post": 7}])),
+    ] {
+        assert!(
+            a.log.iter().any(|l| l.starts_with(
+                "WARN: the refusal of the drafted plan of #7 could not be kept (plan-7.json.out.new:"
+            )),
+            "{:?}",
+            a.log
+        );
+    }
+    asks_nothing(&t);
+    // The console's document is still the file, `clear` and all, so the poll
+    // that can keep it reaches the same refusal.
+    let before: Value = serde_json::from_str(&fs::read_to_string(&file).unwrap()).unwrap();
+    assert_eq!(before.get("clear"), Some(&json!(true)), "{before}");
+    fs::remove_dir(&new).unwrap();
+    let a = t.apply(json!([{"plan_post": 7}]));
+    assert!(!a.log.iter().any(|l| l.starts_with("WARN")), "{:?}", a.log);
+    asks(&t);
+    let said = |t: &World| {
+        t.writes()
+            .iter()
+            .filter(|c| c.starts_with("gh issue comment 7") && c.contains(REFUSED))
+            .count()
+    };
+    let once = said(&t);
+    assert!(once > 0, "{:?}", t.writes());
+    // And the poll after it posts nothing more of the turn.
+    t.apply(json!([{"plan_post": 7}]));
+    assert_eq!(said(&t), once, "{:?}", t.writes());
+    let w = t.writes();
+    assert_eq!(
+        w.iter()
+            .filter(|c| c.starts_with("gh api -X POST") && c.contains("issues/7/comments"))
+            .count(),
+        1,
+        "{w:?}"
+    );
+    assert!(
+        w.contains(&"store plan-end 7 --posted".to_string()),
+        "{w:?}"
+    );
+}
+
+#[test]
+fn a_refusal_whose_outcome_cannot_be_kept_ends_the_poll_and_says_it() {
+    // The poll refused the drafted plan and cannot keep the document that tells
+    // a later poll so. It ends on the warning naming the issue and posts
+    // nothing of the turn: the question, the labels and the record of an asked
+    // question all wait for the next poll, which finds the same document in the
+    // file and refuses the same draft again.
+    let mut t = world();
+    chosen_draft_asked(
+        &t,
+        REFUSED_TITLE,
+        PLAN_BODY,
+        &json!({"question": "Tick.", "options": [{"label": TICK}]}),
+    );
+    // The document the failed keep would have replaced: the console's own,
+    // with the `update` of the plan the check refused.
+    let file = t.w.home.join("state/plan-7.json.out");
+    let before: Value = serde_json::from_str(&fs::read_to_string(&file).unwrap()).unwrap();
+    assert!(before.get("update").is_some(), "{before}");
+    // The sibling `outcome_said` writes and renames: a directory of its name
+    // stops the write for any user, which a mode of the directory alone does
+    // not when the tests run as root.
+    let new = t.w.home.join("state/plan-7.json.out.new");
+    fs::create_dir_all(&new).unwrap();
+    let a = t.apply(json!([{"plan_post": 7}]));
+    assert!(
+        a.log
+            .iter()
+            .any(|l| l.starts_with("WARN: the refusal of the drafted plan of #7 could not be kept")),
         "{:?}",
         a.log
     );
     assert!(
+        a.log
+            .iter()
+            .any(|l| l.starts_with(&format!("planning #7 asks: {REFUSED}"))),
+        "{:?}",
+        a.log
+    );
+    // Nothing of the turn went out: the keep is the first write this branch
+    // attempts, and the poll ends on it.
+    // The warning names what failed, since the poll's log is the only record
+    // of it and the two writes of a keep are diagnosed differently.
+    assert!(
+        a.log.iter().any(|l| {
+            l.starts_with("WARN: the refusal of the drafted plan of #7 could not be kept (plan-7.json.out.new:")
+                && l.contains("the next poll tries again")
+        }),
+        "{:?}",
+        a.log
+    );
+    asks_nothing(&t);
+    // The keep made no `.out`: the file still holds what the console wrote, so
+    // a later poll reads an outcome and not the draft, and the sibling it could
+    // not move into place is gone with the failed write.
+    let kept: Value = serde_json::from_str(&fs::read_to_string(&file).unwrap()).unwrap();
+    assert_eq!(kept, before);
+    assert!(kept.get("update").is_some() && kept.get("question").is_some());
+    fs::remove_dir(&new).unwrap();
+    // The same poll with the two files it can write: the refusal is kept, the
+    // question of the turn is asked of the document the refusal left, and the
+    // person is left a reply to make rather than the tick that was stopped.
+    // `plan_collect` reaches this guard the same way, through `plan_finish`,
+    // and ends its turn on it whatever it is asked to post: the case above,
+    // where the keep does land, is that route.
+    let a = t.apply(json!([{"plan_post": 7}]));
+    assert!(!a.log.iter().any(|l| l.starts_with("WARN")), "{:?}", a.log);
+    let w = t.writes();
+    assert_eq!(
+        w.iter()
+            .filter(|c| c.starts_with("gh issue comment 7") && c.contains(REFUSED))
+            .count(),
+        1,
+        "{w:?}"
+    );
+    asks_without_the_tick(&t);
+    assert!(
         !w.iter()
             .any(|c| c.starts_with("gh issue edit 7 --repo example-owner/example-product --title")),
+        "{w:?}"
+    );
+    // The turn's own writes followed the keep: the question, the labels and
+    // the record of an asked question.
+    assert!(
+        w.contains(
+            &"gh issue edit 7 --repo example-owner/example-product --remove-label tehas:planning --add-label tehas:question".to_string()
+        ),
+        "{w:?}"
+    );
+    assert!(
+        w.contains(&"store plan-end 7 --posted".to_string()),
         "{w:?}"
     );
 }
@@ -3831,7 +4024,7 @@ fn a_due_index_is_launched_and_holds_and_one_that_ran_lets_the_starts_go() {
     let mut t = world();
     t.w.host.systemctl = t.dir.join("systemctl").to_string_lossy().into_owned();
     let script = t.dir.join("index-start");
-    fs::write(
+    tehas_core::testing::write_exe(
         &script,
         format!(
             "#!/bin/sh\necho 1 >{}\n",
@@ -3839,7 +4032,6 @@ fn a_due_index_is_launched_and_holds_and_one_that_ran_lets_the_starts_go() {
         ),
     )
     .unwrap();
-    fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
     t.w.host.index_start_cmd = Some(script.to_string_lossy().into_owned());
     fs::write(t.w.home.join("state/dispatch.again"), "").unwrap();
     let a = t.apply(gates(7, json!([])));

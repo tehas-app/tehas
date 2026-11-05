@@ -33,8 +33,8 @@ use super::rules::{self, Trees, When, ROLES, TABLE};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// The names of the two families the environment may give: the home, the
-/// instance directory, the tests' hooks, the poll's word to tehasbot status,
-/// the two words a cycle hands down (tehas-cycle@.service, tehasbot cycle to
+/// instance directory, the tests' hooks, the poll's word to tehasbot status
+/// and its token to the gh of the commands it runs (#965), the two words a cycle hands down (tehas-cycle@.service, tehasbot cycle to
 /// tehas work), and what the host chooses in ~/.config/tehas/env, which env.sh
 /// reads before a load.
 const KEPT: &[&str] = &[
@@ -77,6 +77,7 @@ const KEPT: &[&str] = &[
     "TEHAS_TIDY_WAIT",
     "TEHAS_ANALYTICS_WAIT",
     "TEHAS_FROM_POLL",
+    "TEHAS_GH_TOKEN",
     "TEHAS_GITHUB_API",
     "TEHAS_GITHUB_APP_KEY",
     "TEHAS_GITHUB_RENEW_EVERY",
@@ -618,6 +619,8 @@ fn last(vars: &mut Vars) {
         "TEHAS_PREVIEW_MIN_FREE",
         "TEHAS_CYCLE_MIN_FREE",
         "TEHAS_CLEAN_MIN_FREE",
+        "TEHAS_CYCLE_STOP_FREE",
+        "TEHAS_SCRATCH_MAX",
     ] {
         let mb = rules::mem_mb(&vars.text(name)).unwrap_or_default();
         vars.set(&format!("{name}_MB"), mb);
@@ -872,6 +875,8 @@ mod tests {
             ("TEHAS_PREVIEW_MIN_FREE_MB", "5120"),
             ("TEHAS_CYCLE_MIN_FREE_MB", "10240"),
             ("TEHAS_CLEAN_MIN_FREE_MB", "30720"),
+            ("TEHAS_CYCLE_STOP_FREE_MB", "5120"),
+            ("TEHAS_SCRATCH_MAX_MB", "20480"),
         ] {
             assert_eq!(vars.text(name), value, "{name}");
         }
@@ -943,6 +948,16 @@ mod tests {
         assert!(!text.contains("TEHAS_WORK_CMD"), "{text}");
         assert!(!text.contains("SHLVL"), "{text}");
         assert!(!text.contains("export _="), "{text}");
+    }
+
+    #[test]
+    fn the_polls_token_survives_the_sweep() {
+        let mut vars = start(&[("TEHAS_GH_TOKEN", "ghs_poll")]);
+        let before = vars.clone();
+        assert_eq!(load(&mut vars, &mut Fake::with(&[]), "1"), Ok(()));
+        assert_eq!(vars.text("TEHAS_GH_TOKEN"), "ghs_poll");
+        let text = String::from_utf8(script(&before, &vars)).unwrap();
+        assert!(!text.contains("TEHAS_GH_TOKEN"), "{text}");
     }
 
     #[test]

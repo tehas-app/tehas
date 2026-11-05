@@ -11,6 +11,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::Value;
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
+use tehas_core::grammar::ending_status;
 use tehas_core::secret::secret;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -100,7 +101,7 @@ pub const END_REASONS: [&str; 12] = [
 ];
 
 const RESULT_BOUND: u64 = 16 << 20;
-const PROGRESS_BOUND: u64 = 1 << 20;
+const PROGRESS_BOUND: u64 = tehas_core::file::READ_BOUND;
 const SETTINGS_BOUND: u64 = 64 << 10;
 const SETTING_VALUE_MAX: usize = 4096;
 
@@ -831,9 +832,13 @@ fn end_report(home: &Path, issue: i64, attempt: i64, r: &Report, now: i64) -> Re
             Some(other) => j(other.word().unwrap_or("unreadable")),
         };
         c.execute(
+            // The word the heartbeat last carried is not the end: an ending
+            // that said `running` names a finished run as one still in flight.
+            // `tehas_core::grammar::ending_status` is the one mapping of those
+            // words, read here, at the heartbeat below and by health.
             "INSERT OR REPLACE INTO endings (issue, started_at, ended_at, status, step)
              VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![issue, row.started_at, now, r.status, r.step],
+            params![issue, row.started_at, now, ending_status(&r.status), r.step],
         )
         .q()?;
         c.execute(
@@ -844,14 +849,16 @@ fn end_report(home: &Path, issue: i64, attempt: i64, r: &Report, now: i64) -> Re
         .q()?;
         c.execute(
             // The step and the notice the cycle last gave, when the end
-            // names none, so the page keeps showing them.
+            // names none, so the page keeps showing them. The status is mapped
+            // as the ending above is: publish copies this row into the file the
+            // page reads, so an ended cycle answers with one word in both.
             "INSERT OR REPLACE INTO heartbeats (issue, at, running, step, status, text)
              SELECT ?1, ?2, 0,
                coalesce(?3, (SELECT step FROM heartbeats WHERE issue = ?1 AND at >= ?5
                              ORDER BY at DESC LIMIT 1)),
                ?4, (SELECT text FROM heartbeats WHERE issue = ?1 AND at >= ?5
                     ORDER BY at DESC LIMIT 1)",
-            params![issue, now, r.step, r.status, row.started_at],
+            params![issue, now, r.step, ending_status(&r.status), row.started_at],
         )
         .q()?;
         c.execute(
