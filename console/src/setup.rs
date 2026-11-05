@@ -54,6 +54,8 @@ enum Fail {
 }
 use Fail::{Bad, Die, Stop};
 
+mod product;
+
 fn say(what: &str) {
     eprintln!("tehas setup: {what}");
 }
@@ -1019,6 +1021,7 @@ fn unassignable_owner(vars: &Vars) -> Option<String> {
 fn clone_the_product(vars: &Vars) -> Result<(), Fail> {
     let (repo, work) = (vars.text("TEHAS_REPO"), vars.text("TEHAS_WORK_REPO"));
     if Path::new(&work).join(".git").is_dir() {
+        tell(&product::fast_forward(vars, &work));
         return Ok(());
     }
     if let Some(parent) = Path::new(&work).parent() {

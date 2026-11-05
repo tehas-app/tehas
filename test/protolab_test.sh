@@ -98,6 +98,7 @@ reset() {
   mkdir -p "$fx/net"
   # A zip is unpacked by the real attachment checker.
   t_attach_home "$T/home/tehas"
+  t_ids "$T/home/tehas"
   T_ENV=(GH_TOKEN=sekret-token)
   t_instance "${T_MINIMAL[@]}"
 }

@@ -404,7 +404,9 @@ t_contains "$(cat "$th/state/update-pending")" "units tehas-dispatch.timer"
 t_case "a console that cannot record the steps stops the run at the first copy"
 rm -f "$th/state/update-pending"
 echo "# another change" >>"$th/env.sh"
-t_stub no-console 'exit 1'
+# It records the ids of the accounts, which come before the first copy, and
+# nothing else.
+t_stub no-console '[ "$1" = ids ] && exit 0; exit 1'
 T_ENV_ALWAYS=(TEHAS_CONSOLE="$T/bin/no-console")
 t_run "$install"
 t_eq "$t_rc" 1

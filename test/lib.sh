@@ -308,12 +308,69 @@ FAIL
     else
       printf '%s\n' "printf '%s\\n' \"\$*\" >>\"$T/calls/$name\""
     fi
-    [ -n "$body" ] && echo "$body"
+    if [ "$name" = gh ]; then
+      # GitHub gives every account its user id. The body runs in a subshell of
+      # its own, so one that execs or exits still has its answer read, and a
+      # login it names with no id is given the test's one, t_uid, so the check
+      # of the recorded pair (console/core/src/accounts.rs) sees what GitHub
+      # sends. A fixture with "id": null stands for an account that carries
+      # none. The user id install.sh and tehas update ask for (src/ids.rs) is
+      # t_uid's too, unless the body answers it.
+      echo 't_answer() {'
+      [ -z "$body" ] || echo "$body"
+      [ -n "$body" ] || echo ':'
+      cat <<'IDS'
+}
+t_got=$T/gh-out.$$
+# In the background, so a signal to this stub ends it at once, as it did when a
+# body that execs was the stub itself, and writing to files, so a body killed
+# with the stub holds no pipe of the caller open.
+exec 3<&0
+( t_answer "$@" ) <&3 3<&- >"$t_got" 2>"$t_got.e" &
+t_pid=$!
+exec 3<&-
+trap 'kill -TERM "$t_pid" 2>/dev/null; command -p cat "$t_got.e" >&2; command -p rm -f "$t_got" "$t_got.e"; exit 143' TERM INT
+wait "$t_pid"
+t_rc=$?
+command -p cat "$t_got.e" >&2
+if [ "$t_rc" = 0 ] && [ ! -s "$t_got" ]; then
+  case "$1 $2 $3 $4" in
+    "api users/"*" --jq .id") jq -rn --arg l "${2#users/}" '$l | sub("\\[bot\\]$"; "") | explode | add' >"$t_got" ;;
+  esac
+fi
+if command -p grep -q '"login"' "$t_got" &&
+  jq -c 'walk(if type == "object" and has("login") and (has("id") or has("databaseId") | not)
+    then . + {id: (.login | tostring | sub("\\[bot\\]$"; "") | explode | add)} else . end)' "$t_got" >"$t_got.j" 2>/dev/null; then
+  command -p cat "$t_got.j"
+else
+  command -p cat "$t_got"
+fi
+command -p rm -f "$t_got" "$t_got.j" "$t_got.e"
+exit "$t_rc"
+IDS
+    else
+      [ -n "$body" ] && echo "$body"
+    fi
     :
   } >"$T/bin/$name"
   chmod +x "$T/bin/$name"
 }
 t_calls() { cat "$T/calls/$1" 2>/dev/null || true; }
+
+# t_uid <login>: the GitHub user id of a login in a test, the sum of its
+# characters, as the gh stub gives it. A GitHub App's login with or without
+# [bot] is one account.
+t_uid() { jq -rn --arg l "$1" '$l | sub("\\[bot\\]$"; "") | explode | add'; }
+# t_ids <home> [<login>...]: the user ids install.sh and tehas update record,
+# in <home>/state/account-ids, of every login the tests list unless named.
+T_LOGINS=(alice bob bob-2 carol boss tehas-fixer tehas-mill millbot mill-bot acme-millwright acme-app-millwright)
+t_ids() {
+  local home=$1 l
+  shift
+  [ "$#" -gt 0 ] || set -- "${T_LOGINS[@]}"
+  mkdir -p "$home/state"
+  for l in "$@"; do printf '%s %s\n' "${l%\[bot\]}" "$(t_uid "$l")"; done >"$home/state/account-ids"
+}
 
 # t_unstub NAME...: take a stub away, and leave nothing for the run to find in
 # its place. A case removes a stub to stand for a host that has no such command,
@@ -770,6 +827,8 @@ t_store_home() {
   t_store_db "$1" || t_bad "the store's init failed in $1"
   # A command that runs the store reads an issue's attachments in the same home.
   t_attach_home "$1"
+  # And counts an account as install.sh left its ids.
+  t_ids "$1"
 }
 # t_row <verb> <args...> -- <jq filter>: what the store has on record, through
 # its read verbs only. On a refusal it prints the store's own line and

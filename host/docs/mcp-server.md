@@ -184,6 +184,11 @@ to the container's arguments reaches a running server at its next restart.
 With `TEHAS_MCP` unset or `0` the command removes a container left running and
 exits 0, and the unit stays stopped.
 
+The [health file](/tools#tehasbot-health) says whether the server answers, in
+`checks.mcp`: each run of `tehasbot health` sends it a `POST /mcp` with no key
+and expects the 401. A server that is on and does not answer makes `/health`
+`warn`, so a monitor tells a stopped MCP server from a factory that is gone.
+
 ## How an agent connects
 
 | | |
@@ -243,7 +248,7 @@ the same JSON as text.
 
 | Tool | Arguments | Returns |
 | --- | --- | --- |
-| `factory_status` | none | `status` (pass, warn, fail), `output`, `time`, `stale` (no report for ten minutes), `generatedAt`, `repo`, `paused`, `planning`, `limit.state`, `queue` (`inLine`, `building`, `review`, `stopped`, `time`), `cycles` (issue, running, status, step, startedAt, time), `demand` (waiting, oldest, time), `platform` (commit, behind, upstream, fetchedAt), `hold` (`why`, `text`) when something holds, `held` (`issue`, `why`, `text`, `clear`) for each ready issue the last poll held on its own |
+| `factory_status` | none | `status` (pass, warn, fail), `output`, `time`, `stale` (the answer may be more than ten minutes old, below), `generatedAt`, `repo`, `paused`, `planning`, `limit.state`, `queue` (`inLine`, `building`, `review`, `stopped`, `time`), `cycles` (issue, running, status, step, startedAt, time), `demand` (waiting, oldest, time), `platform` (commit, behind, upstream, fetchedAt), `hold` (`why`, `text`) when something holds, `held` (`issue`, `why`, `text`, `clear`) for each ready issue the last poll held on its own |
 | `factory_issues` | `stage`, optional: `queued`, `planning`, `running`, `awaiting`, `stopped` or `completed` | Per stage, the issues the dashboard lists: number, title, url, updatedAt, and closedAt when closed. `planning` is a count and issue numbers, without titles |
 | `factory_endings` | none | `endings`, the cycles that ended last (issue, status, step, startedAt, updatedAt), and `failed`, the failed ones among them (issue, status, step, startedAt, time) |
 | `factory_console` | `issue`, and `bytes` from 1 to 65536 | One running cycle's issue, step, status, statusText, startedAt, updatedAt, and the last `bytes` of its console, 64 KB without it. Only those bytes are read, however large the console |
@@ -267,6 +272,18 @@ for on each poll and which `analytics` leaves alone when nothing a poll could
 answer for has changed (see [Sessions](/analytics#sessions)); `stale` is true
 when it is more than ten minutes old. A
 session older than 30 days, or an id that is not in it, is a tool error.
+
+`factory_status` is built from three writes, and is as old as the oldest of
+them: `time` is when the health file was written, `queue.time` when the queue
+snapshot it counted `queue` from was written, and `generatedAt` when the
+snapshot served beside it was. The dispatcher writes them each poll, every two
+minutes, but a poll that cannot read GitHub still writes the health file, so a
+fresh `time` can sit beside counts from an older snapshot. `stale` is true when
+any of the three is more than ten minutes ago, and left out when none can be
+read. `cycles` comes from the health file and `queue.building` from the
+snapshot: a cycle that started after `time` is in neither, so a program that
+acts on a free slot or an idle issue checks these times first, or reads
+`factory_events` for starts since.
 
 `factory_status` answers `hold` from `live/dispatch.json`, the poll's own
 report, which the dashboard publishes already: `why` is the one reason the poll
