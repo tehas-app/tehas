@@ -3034,7 +3034,7 @@ minutes old, which is what a failed read leaves, and then it warns of nothing.
 | `status` | Meaning                                                                                  | HTTP |
 | -------- | ---------------------------------------------------------------------------------------- | ---- |
 | `pass`   | Taking work, idle or in a cycle                                                          | 200  |
-| `warn`   | The queue snapshot is more than ten minutes old: GitHub did not answer the last polls, and `output` says how old. Or paused (the pause flag on this host, `tehas:pause` on the control issue, or a pause no allowed account took off), or the dispatcher holds everything because the slice is missing or cannot be read, or there are no resources (the model endpoint does not answer or does not offer the model), or too low on disk to build previews, or the free space could not be read, or the platform checkout has been behind origin's default branch for more than a day (`output` says how many commits; run `tehas update`), or the state store has no daily backup or the newest is more than two days old, or an idle poll cost more than its budget (`TEHAS_POLL_BUDGET`, `checks.poll_cost`), or systemd gave up on a tehas unit (`checks.units`, null when that read did not answer), or no cycle runs and the last poll held every issue in line on its own (`checks.slice.held`: issue, why, text, clear), as one whose last cycle parked on the body it still has, or an open issue labelled `epic` has no sub-issues (`checks.epics`; `output` names up to five and says to link their parts as sub-issues), or the MCP server is on and does not answer (`checks.mcp`) | 200  |
+| `warn`   | The queue snapshot is more than ten minutes old: GitHub did not answer the last polls, and `output` says how old. Or paused (the pause flag on this host, `tehas:pause` on the control issue, or a pause no allowed account took off), or the dispatcher holds everything because the slice is missing or cannot be read, or there are no resources (the model endpoint does not answer or does not offer the model), or too low on disk to build previews, or the free space could not be read, or the platform checkout has been behind origin's default branch for more than a day (`output` says how many commits; run `tehas update`), or the state store has no daily backup or the newest is more than two days old, or an idle poll cost more than its budget (`TEHAS_POLL_BUDGET`, `checks.poll_cost`), or systemd gave up on a tehas unit (`checks.units`, null when that read did not answer), or no cycle runs and the last poll held every issue in line on its own (`checks.slice.held`: issue, why, text, clear), as one whose last cycle parked on the body it still has, or an open issue labelled `epic` has no sub-issues (`checks.epics`; `output` names up to five and says to link their parts as sub-issues), or the MCP server is on and does not answer (`checks.mcp`), or the sandbox image is behind the pi-rukas the host follows (`checks.rukas.behind`; run `tehas update`) | 200  |
 | `fail`   | The last cycle ended as anything but `merged` or `handoff` and no cycle has started since (a running cycle with no `startedAt` counts as started since), or there is no queue snapshot | 503  |
 
 `output` says the same in a sentence. `checks.queue` has the snapshot time and
@@ -3073,6 +3073,25 @@ recorded as ended with the status `lost`, which is a failure. While
 
 `checks.platform` is `live/platform.json`: the release a host runs, or the
 checkout of a host that has one. It is `null` on a host with neither.
+
+`checks.rukas` is `live/rukas.json`, which `tehasbot status` writes: the
+pi-rukas the sandbox image runs against the one the host follows. `follow` is
+`PI_RUKAS_FOLLOW` (the instance's over `versions.env`), `target` the commit it
+names now and `targetVersion` its release (asked upstream at most once an
+hour), `image` the `tehas.rukas` label of `PI_ENSEMBLE_IMAGE`, which is what
+cycles run, `imageVersion` what that image's `pi-rukas-headless --capabilities`
+answers (asked once per image), and `clone` the commit of
+`~/tehas/repos/pi-rukas`. `behind` is true when the image is not on the target
+commit, and makes the health `warn` with `The sandbox image runs pi-rukas
+<image> and the host follows <target>: run tehas update.`; `install.sh --check`
+reports it as `Sandbox: BEHIND`. A value that could not be read is `null` and
+decides nothing. `checks.rukas` is `null` on a host with no pi-rukas.
+
+`checks.industry` is `{version}` of the tehas-industry that runs this factory,
+from `TEHAS_INDUSTRY_VERSION` in `~/.config/tehas/env`, which industry writes.
+A factory that runs on its own has no `checks.industry`, and its status is
+decided as before. A value that is not `vX.Y.Z`, with an optional `-<suffix>`
+of letters, digits and dots, is left out the same way, and nothing fails.
 
 `checks.backup` is the newest daily copy of the state store, `{time,
 ageSeconds}`, or `null` when there is none (see [Backups and
@@ -4545,7 +4564,7 @@ with the commit when it was given, `CHANGELOG.md`,
 and `host/versions.env`. `install.sh` run from such a tree has no `console/` to
 build from: it installs the programs the release carries as they are, with
 `release <sha256>` as the stamp, asks cargo nothing, and keeps the installed
-copy of a program the release does not carry. The list is `lib/release.sh`, the one place it is written
+copy of a program the release does not carry. The list is `lib/release.list`, the one place it is written
 down, and the gate checks the script and the test against it. An adopter
 unpacks it and runs `./install.sh` from inside, as they would from a checkout.
 `console/`, the instance directories and the git record are not packed: there
@@ -4712,7 +4731,7 @@ The pack script is in the fast gate, with `test/pack_release_test.sh`: it packs
 from the test's own tree with a stub console and checks the file list, `VERSION`,
 the pin lines, that the `.sha256` passes `sha256sum -c`, what a bad argument
 costs, that a tree holding a symbolic link is refused, that the sources
-`install.sh` reads are covered by `lib/release.sh`, and that the command line
+`install.sh` reads are covered by `lib/release.list`, and that the command line
 above is a command that works. `test/tag_release_test.sh` checks the Adopter
 action rule and `test/pack_release_test.sh` the release notes. The release
 workflow is not run by the gate and is not written by a work cycle: CI files are

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Build the tehas sandbox image on this host, on the pi-rukas commit
 # PI_RUKAS_FOLLOW names: the newest release tag, the head of a branch, or one
-# commit (lib/rukas.sh). A value in the instance's instance.env wins over the
+# commit (console rukas target). A value in the instance's instance.env wins over the
 # one in versions.env.
 #
 # Tags the result both as the name PI_ENSEMBLE_IMAGE points at by default
@@ -119,13 +119,15 @@ esac
 # lib/ is beside sandbox/ on a host, and two up in the checkout.
 lib=""
 for d in "$here/../lib" "$here/../../lib"; do
-  [ -f "$d/rukas.sh" ] && [ -f "$d/config.sh" ] && { lib=$d; break; }
+  [ -f "$d/config.sh" ] && { lib=$d; break; }
 done
-# What reads the base's --capabilities. Read before tehas_load clears the name.
-# A checkout has no libexec/tehas-cycle: a build there names one.
+# What reads the base's --capabilities, and what names the commit followed and
+# says what the date sweep must keep. Read before tehas_load clears the names.
+# A checkout has neither: a build there names them.
 cycle=${TEHAS_CYCLE_BIN:-$lib/../libexec/tehas-cycle}
-if [ -z "$lib" ] || [ ! -x "$cycle" ]; then
-  echo "sandbox: no libexec/tehas-cycle, lib/rukas.sh and lib/config.sh beside $here, the base cannot be checked" >&2
+console=${TEHAS_CONSOLE:-$lib/../libexec/console}
+if [ -z "$lib" ] || [ ! -x "$cycle" ] || [ ! -x "$console" ]; then
+  echo "sandbox: no libexec/tehas-cycle, libexec/console and lib/config.sh beside $here, the base cannot be checked" >&2
   exit 1
 fi
 # The recipe the image is made from goes with lib/: a toolchain that lacks it
@@ -147,11 +149,6 @@ if [ "$(grep -cxF -- 'FROM shared' "$dockerfile")" != 1 ] ||
   echo "sandbox: $dockerfile does not hold one 'FROM shared' stage and one 'ARG TEHAS_UID=' line, so the shared layers cannot be cut" >&2
   exit 1
 fi
-# What asks the date sweep below what is held. Read before tehas_load clears the
-# name. A checkout has no console, so a build there keeps every tag and says so.
-console=${TEHAS_CONSOLE:-$lib/../libexec/console}
-# shellcheck source=lib/rukas.sh
-. "$lib/rukas.sh"
 # The instance directory, resolved as every command resolves it: loading
 # settings has no side effects (AGENTS.md rule 3), so sourcing the library is
 # safe here and reaches the `instance-dir` pointer that only tehas_load would
@@ -223,32 +220,15 @@ if [ "${#left[@]}" != 0 ] && ! rm -f -- "${left[@]}" 2>/dev/null; then
   exit 1
 fi
 
-if ! target=$(tehas_rukas_target); then
+if ! target=$("$console" rukas target "${PI_RUKAS_FOLLOW:-}" "${PI_RUKAS_REPO:-}"); then
   echo "build: no pi-rukas commit for PI_RUKAS_FOLLOW=${PI_RUKAS_FOLLOW:-} in $PI_RUKAS_REPO" >&2
   exit 1
 fi
 head=${target%% *} what=${target#* }
 
-# The pi-rukas version beside the pages, as v<version> in fun/rukas-version.txt,
-# for their footers. Only on a host, where fun/ is beside sandbox/: a build run
-# from the checkout writes nothing. An answer with no version removes the file.
-rukas_version() { # <capabilities answer>
-  local to=$here/../fun/rukas-version.txt v
-  [ "$lib" = "$here/../lib" ] && [ -d "$here/../fun" ] || return 0
-  v=$(jq -r '.version | strings' 2>/dev/null <<<"$1") || v=""
-  if [[ ! $v =~ ^[0-9]{1,6}(\.[0-9]{1,6}){1,3}$ ]]; then
-    rm -f "$to"
-  elif [ "$(cat "$to" 2>/dev/null)" != "v$v" ]; then
-    { echo "v$v" >"$to.new" && mv -f "$to.new" "$to"; } || rm -f "$to.new"
-  fi
-}
-
 if [ "$mode" != build ]; then
   have=$(docker image inspect --format '{{index .Config.Labels "tehas.rukas"}}' "$current" 2>/dev/null) || have=""
   if [ "$have" = "$head" ]; then
-    if [ "$mode" = if-moved ]; then
-      rukas_version "$(docker run --rm --init "$current" /opt/pi-rukas/bin/pi-rukas-headless --capabilities 2>/dev/null)"
-    fi
     echo "pi-rukas: $current is on $head, $what"
     exit 0
   fi
@@ -258,7 +238,7 @@ if [ "$mode" != build ]; then
   fi
 fi
 
-upstream=$(tehas_rukas_image "$head") || {
+upstream=$("$console" rukas image "${PI_RUKAS_REPO:-}" "$head") || {
   echo "build: PI_RUKAS_REPO is not a GitHub repository, so upstream's image cannot be named" >&2
   exit 1
 }
@@ -397,7 +377,6 @@ docker build \
   -f "$uid_recipe" "$here"
 smoke_image "$image:$stamp"
 docker tag "$image:$stamp" "$current"
-rukas_version "$caps"
 # The uid tag names the image cycles run, so the instance's own layer above
 # moves it onto itself when there is one, and a layer that does not build or does
 # not stand on this build's image leaves the tag where this line put it: the host
@@ -515,8 +494,4 @@ prune_dated() {
     fi
   done < <(grep -E '^[0-9]{6}-[0-9]{4}(-product)? ' <<<"$tags" | LC_ALL=C sort -r)
 }
-if [ ! -x "$console" ]; then
-  echo "warning: no console at $console, no old $image tag was removed" >&2
-else
-  prune_dated || echo "warning: docker did not list its images or containers, no old $image tag was removed" >&2
-fi
+prune_dated || echo "warning: docker did not list its images or containers, no old $image tag was removed" >&2

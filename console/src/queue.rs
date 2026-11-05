@@ -12,7 +12,8 @@
 //! title and no issue number. Without an answer to that call the snapshot is
 //! written with no words, and the page counts the tickets it does list.
 //!
-//! The run also writes live/platform.json (src/platform.rs), live/epics.json
+//! The run also writes live/platform.json (src/platform.rs), live/rukas.json
+//! (src/rukas.rs), live/epics.json
 //! (src/epics.rs) and what the analytics program publishes (src/publish.rs),
 //! and it refreshes the health file unless the poll ran it: the poll sets
 //! TEHAS_FROM_POLL and runs health a moment later. Those last two happen at
@@ -59,6 +60,7 @@ use crate::flags::{epoch, REASON};
 use crate::jq::{obj, J};
 use crate::platform;
 use crate::publish::{log, Analytics};
+use crate::rukas;
 use crate::shipped;
 use crate::status::oneline;
 use serde_json::Value;
@@ -664,6 +666,7 @@ fn queue(home: &Path, live: &Path, analytics: &Analytics, stop: &AtomicBool) {
     let issue = issue.as_str();
     let controls = [issue.to_string()];
     platform::write(home, live);
+    rukas::write(home, live);
 
     let Some(issues) = gh(&[
         "issue",
