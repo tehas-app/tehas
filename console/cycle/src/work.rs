@@ -342,7 +342,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::Duration;
-use tehas_core::{sandbox, slice, time};
+use tehas_core::{self, sandbox, slice, time};
 
 /// What libexec/work gives this.
 pub struct Given {
@@ -394,89 +394,28 @@ fn store_ready(home: &Path) -> bool {
 }
 
 /// The product checkout is there and is TEHAS_REPO's. Docker would make a
-/// missing mount source as a root-owned directory.
+/// missing mount source as a root-owned directory. tehas_core::settings holds
+/// the rule, with the same line lib/config.sh gives.
 fn checkout_ok() -> bool {
-    let dir = env("TEHAS_WORK_REPO");
-    let repo = env("TEHAS_REPO");
-    let instance = env("TEHAS_INSTANCE_DIR");
-    let instance = if instance.is_empty() { "?" } else { &instance };
-    if dir.is_empty() || !Path::new(&dir).join(".git").is_dir() {
-        let shown = if dir.is_empty() { "(unset)" } else { &dir };
-        eprintln!("tehas: no product checkout at {shown}: clone {repo} there, or set TEHAS_WORK_REPO in {instance}/instance.env");
-        return false;
+    match tehas_core::settings::checkout() {
+        Ok(()) => true,
+        Err(line) => {
+            eprintln!("{line}");
+            false
+        }
     }
-    let out = Command::new("git")
-        .args(["-C", &dir, "config", "--get", "remote.origin.url"])
-        .stdin(Stdio::null())
-        .stderr(Stdio::null())
-        .output();
-    let url = out
-        .ok()
-        .filter(|o| o.status.success())
-        .map(|o| {
-            String::from_utf8_lossy(&o.stdout)
-                .trim_end_matches('\n')
-                .to_string()
-        })
-        .unwrap_or_default();
-    let url = url.strip_suffix('/').unwrap_or(&url);
-    let url = url.strip_suffix(".git").unwrap_or(url);
-    if url.ends_with(&format!("/{repo}")) || url.ends_with(&format!(":{repo}")) {
-        return true;
-    }
-    let shown = if url.is_empty() { "nothing" } else { url };
-    eprintln!("tehas: {dir} is a checkout of {shown}, not of {repo}");
-    false
 }
 
 /// The branch cycles start from: TEHAS_BRANCH, else the checkout's
 /// origin/HEAD, which install.sh sets. Never looked up here.
 fn branch() -> Option<String> {
-    let set = env("TEHAS_BRANCH");
-    if !set.is_empty() {
-        return Some(set);
+    match tehas_core::settings::branch() {
+        Ok(name) => Some(name),
+        Err(line) => {
+            eprintln!("{line}");
+            None
+        }
     }
-    let dir = env("TEHAS_WORK_REPO");
-    let dir = if dir.is_empty() {
-        "/nonexistent".to_string()
-    } else {
-        dir
-    };
-    let out = Command::new("git")
-        .args([
-            "-C",
-            &dir,
-            "symbolic-ref",
-            "-q",
-            "--short",
-            "refs/remotes/origin/HEAD",
-        ])
-        .stdin(Stdio::null())
-        .stderr(Stdio::null())
-        .output();
-    let b = out
-        .ok()
-        .filter(|o| o.status.success())
-        .map(|o| {
-            String::from_utf8_lossy(&o.stdout)
-                .trim_end_matches('\n')
-                .to_string()
-        })
-        .unwrap_or_default();
-    let b = b.strip_prefix("origin/").unwrap_or(&b).to_string();
-    if b.is_empty() {
-        let instance = env("TEHAS_INSTANCE_DIR");
-        let instance = if instance.is_empty() { "?" } else { &instance };
-        let repo = env("TEHAS_WORK_REPO");
-        let repo = if repo.is_empty() {
-            "the product checkout"
-        } else {
-            &repo
-        };
-        eprintln!("tehas: the default branch of {repo} is unknown: run install.sh, or set TEHAS_BRANCH in {instance}/instance.env");
-        return None;
-    }
-    Some(b)
 }
 
 /// Why the limits and security options a slice gave are not the documented
@@ -713,6 +652,7 @@ fn fetch(f: &Files, answer: &str, console: &str, stop: &Stop) -> Result<Vec<Stri
             Command::new(me)
                 .arg("describe")
                 .arg(f.dir)
+                .arg(n.to_string())
                 .stdin(Stdio::null())
                 .spawn()
         };

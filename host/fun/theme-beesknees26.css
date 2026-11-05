@@ -5,9 +5,9 @@
    the drawing's own: text and quiet text are at least 4.5:1 on their grounds,
    the faint labels about 3.4:1.
 
-   Sets the same tokens as pixel.css, which says what each one is for. It will
-   replace beesknees. IBM Plex is under the SIL Open Font License, in
-   IBMPlex-OFL.txt beside this file. */
+   Sets the same tokens as pixel.css, which says what each one is for. Every
+   page but the front page names this file. IBM Plex is under the SIL Open Font
+   License, in IBMPlex-OFL.txt beside this file. */
 
 @font-face { font-family: "IBM Plex Sans"; font-weight: 400; font-display: swap; src: url("/fun/IBMPlexSans-400.woff2") format("woff2"); }
 @font-face { font-family: "IBM Plex Sans"; font-weight: 500; font-display: swap; src: url("/fun/IBMPlexSans-500.woff2") format("woff2"); }

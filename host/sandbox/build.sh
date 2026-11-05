@@ -94,8 +94,8 @@ uid_recipe=$here/sandbox-uid.Dockerfile
 # characters, and the sweep, the check below, .gitignore and the cleaner's pick
 # in console/src/clean.rs all read it as six. Bracket classes, not bare ?: under
 # failglob a bare ? matches a dot and would name a hidden file of the directory.
-# A pattern held in a variable is not globbed, so the sweep and the case below
-# expand $temp_glob unquoted and say what they match with it.
+# A pattern held in a variable is not globbed, so the sweep and the check below
+# match against $temp_glob with it unquoted, as the pattern it is.
 temp_glob='sandbox-uid.Dockerfile.[0-9A-Za-z][0-9A-Za-z][0-9A-Za-z][0-9A-Za-z][0-9A-Za-z][0-9A-Za-z]'
 # The instance's own addition to the image, beside the settings this host loads.
 # Written by a person, built by no one else: absent is normal. Resolved the way
@@ -203,9 +203,11 @@ fi
 # what carries the name of one and is not a plain file is refused with it rather
 # than removed, since a sweep names a file, it does not prove who wrote it.
 left=()
-# shellcheck disable=SC2086  # the six classes of $temp_glob are the pattern here
-for f in "$here"/$temp_glob; do
-  [ -e "$f" ] || [ -L "$f" ] || continue
+# Every entry of the directory is read and matched against the shape. With
+# nothing to sweep the glob word stands as itself, names no shape, and is
+# passed over.
+for f in "$here"/*; do
+  [[ $f == "$here"/$temp_glob ]] || continue
   if [ -f "$f" ] && [ ! -L "$f" ]; then
     left+=("$f")
   else
@@ -358,14 +360,10 @@ fi
 # The temporary is beside the name it ends at and owns nothing else's: a mktemp
 # that read TMPDIR elsewhere, or made a name of another shape, is this run's
 # mistake and not a file to keep. Same pattern the sweep above matches with.
-# shellcheck disable=SC2254  # $temp_glob is the pattern of the case item here
-case $stage in
-  "$here"/$temp_glob) ;;
-  *)
-    echo "sandbox: $stage is not the temporary this build made beside $here" >&2
-    exit 1
-    ;;
-esac
+[[ $stage == "$here"/$temp_glob ]] || {
+  echo "sandbox: $stage is not the temporary this build made beside $here" >&2
+  exit 1
+}
 {
   awk 'index($0, "FROM shared") == 1 { exit } { print }' "$dockerfile"
   echo 'FROM shared'

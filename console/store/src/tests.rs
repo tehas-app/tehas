@@ -399,8 +399,12 @@ fn every_counted_table_exists_and_every_table_of_the_schema_is_counted() {
     );
 }
 
+/// What the line of a failed integrity check says after the word, and the
+/// quick_check of an open does not.
+const INTEGRITY_FAILED: &str = "integrity check failed: ";
+
 #[test]
-fn check_says_what_failed_and_exits_1_without_moving_the_file() {
+fn check_names_a_failed_integrity_check_corrupt_and_exits_78_without_moving_the_file() {
     let home = scratch("integrity");
     init(&home, false).unwrap();
     let file = db::path(&home);
@@ -425,8 +429,8 @@ fn check_says_what_failed_and_exits_1_without_moving_the_file() {
     // offset the page has no bytes at, that row is gone from the table and its
     // entries in issues_checked remain -- the one disagreement quick_check does
     // not compare and integrity_check does. The file then opens, answers, and
-    // is ill, and no byte of it reads as malformed: the case the exit of 1 is
-    // for, as distinct from the 78 of a file no open gets through. Most leaves
+    // is ill, and no byte of it reads as malformed: only `check` sees it, and
+    // it answers 78 `corrupt` as the open of a malformed file does. Most leaves
     // of the file answer for their own damage at the quick_check of every open
     // -- a fragment or a freeblock the page never counted, which is the shape
     // of the file and the word `corrupt` -- so each leaf is asked in turn and
@@ -462,15 +466,14 @@ fn check_says_what_failed_and_exits_1_without_moving_the_file() {
         tried[entry + 1] = 0x01;
         fs::write(&file, &tried).unwrap();
         match check(&home) {
-            Err((1, err)) => {
-                assert!(err.starts_with("integrity "), "{err}");
-                assert_ne!(err, "integrity ok", "{err}");
+            Err((78, err)) if err.contains(INTEGRITY_FAILED) => {
                 bytes = tried;
                 damaged = Some(page);
                 break;
             }
-            // Some other structure of the page answered first, or nothing did:
-            // put the page back as it was and ask the next one.
+            // Some other structure of the page answered first (the quick_check
+            // of the open, which says `corrupt` without naming the integrity
+            // check), or nothing did: put the page back and ask the next one.
             Err((78, _)) | Ok(_) => fs::write(&file, &base).unwrap(),
             Err((code, err)) => panic!("unexpected {code}: {err}"),
         }
@@ -484,9 +487,13 @@ fn check_says_what_failed_and_exits_1_without_moving_the_file() {
     // file and not a lucky leftover of the search.
     fs::write(&file, &bytes).unwrap();
     match check(&home) {
-        Err((1, err)) => {
-            assert!(err.starts_with("integrity "), "{err}");
-            assert_ne!(err, "integrity ok", "{err}");
+        // 78 and the word `corrupt` first, as every database the store cannot
+        // use says, then what the integrity check found and the file.
+        Err((78, err)) => {
+            assert!(err.starts_with("corrupt the database: "), "{err}");
+            assert!(err.contains(INTEGRITY_FAILED), "{err}");
+            assert!(!err.contains("integrity check failed: ok"), "{err}");
+            assert!(err.contains(&file.display().to_string()), "{err}");
         }
         Err((code, err)) => panic!("unexpected {code}: {err}"),
         Ok(line) => panic!("the damage went unnoticed: {line}"),
@@ -3345,6 +3352,46 @@ fn a_read_of_a_batch_is_the_answer_of_the_same_call_alone() {
             .starts_with("usage park-show: "),
         "{}",
         answers[0]
+    );
+}
+
+#[test]
+fn the_four_reads_answer_on_the_connection_and_snapshot_of_the_batch() {
+    // What this case proves is its answers: each read gives what the same call
+    // alone gives; the batch answers from its own snapshot, since a write after
+    // it shows in the next read and not in the line the batch printed; and that
+    // write answers at all, so nothing of the batch still holds the store open.
+    // That no read outlives the opening is the borrow checker's, not something a
+    // run can see.
+    let home = crate::verbs_tests::home("look-many-connection");
+    asked(&home, 12, 4001);
+    let calls = [
+        crate::verbs::ReadCall::PlanShow(12),
+        crate::verbs::ReadCall::ParkShow(12),
+        crate::verbs::ReadCall::QuestionKnown(12, 4001),
+        crate::verbs::ReadCall::ApprovalCurrent(12),
+    ];
+    let got = crate::verbs::look_many(&home, &calls).expect("the four reads answer");
+    let alone = [
+        crate::verbs_tests::ok(&home, &["plan-show", "12"]),
+        crate::verbs_tests::ok(&home, &["park-show", "12"]),
+        crate::verbs_tests::ok(&home, &["question-known", "12", "--id", "4001"]),
+        crate::verbs_tests::ok(&home, &["approval-current", "12"]),
+    ];
+    for ((rc, out), want) in got.iter().zip(alone) {
+        assert_eq!(*rc, 0, "{out}");
+        let v: Value = serde_json::from_str(out).unwrap_or_else(|e| panic!("{e} of {out:?}"));
+        assert_eq!(
+            v, want,
+            "a read given the batch's connection is not the single call's"
+        );
+    }
+    crate::verbs_tests::ok(&home, &["park-retry", "12"]);
+    let after = crate::verbs_tests::ok(&home, &["park-show", "12"]);
+    let in_batch: Value = serde_json::from_str(&got[1].1).unwrap();
+    assert_ne!(
+        in_batch, after,
+        "the batch answered from a later state of the store"
     );
 }
 
