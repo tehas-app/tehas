@@ -26,6 +26,7 @@ esac'
 reset() {
   rm -f "$T"/calls/* "$flag"
   rm -rf "$T/home/tehas/state"
+  t_ids "$T/home/tehas"
   T_ENV=()
   t_instance "${T_MINIMAL[@]}"
   echo '{"labels":[]}' >"$T/labels.json"
@@ -194,6 +195,7 @@ t_eq "$([ -e "$flag" ] && echo there)" ""
 t_case "without instance settings nothing is written, exit 78"
 reset
 t_no_instance
+rm -rf "$T/home/tehas/state"
 t_run "$pause why"
 t_eq "$t_rc" 78
 t_contains "$t_out" "no instance.env"

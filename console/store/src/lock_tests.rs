@@ -96,7 +96,7 @@ fn listed_names_only_issue_lock_files() {
     if modes_bind() {
         fs::set_permissions(&d, fs::Permissions::from_mode(0o000)).unwrap();
         assert!(lock::listed(&home).is_err());
-        fs::set_permissions(&d, fs::Permissions::from_mode(0o700)).unwrap();
+        fs::set_permissions(&d, fs::Permissions::from_mode(0o700)).unwrap(); // a directory
     }
 }
 

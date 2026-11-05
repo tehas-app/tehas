@@ -302,6 +302,18 @@ t_eq "$(at_mark '.comment_links')" "$(sorted "[{\"link\":\"$A/7171\",\"source\":
 t_eq "$(at_mark '.retry_context | length')" 1
 t_contains "$(at_mark '.retry_context[0].text')" "The button goes here"
 
+t_case "a comment by a listed login with another user id is not carried"
+commented
+parked
+reviewed clean
+jq '.[0].user.id = 99' "$fx/icomments-30.json" >"$fx/icomments-30.new" && mv "$fx/icomments-30.new" "$fx/icomments-30.json"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start)" "7"
+t_contains "$t_out" "tehas: alice acted with the user id 99, not the recorded $(t_uid alice), so it does not count"
+t_eq "$(at_mark '.comment_links | length')" 0
+t_eq "$(at_mark '.retry_context | length')" 0
+
 t_case "a start by the issue-alone box names no comment link and no retry context"
 commented
 parked
