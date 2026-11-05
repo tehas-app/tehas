@@ -621,7 +621,6 @@ mod tests {
     use super::*;
     use crate::read::run::Calls;
     use std::fs;
-    use std::os::unix::fs::PermissionsExt;
     use std::path::{Path, PathBuf};
     use std::sync::Once;
     use std::time::Duration;
@@ -716,7 +715,7 @@ mod tests {
         let bin = store_binary().display().to_string();
 
         let store = home.join("store");
-        fs::write(
+        tehas_core::testing::write_exe(
             &store,
             // One line per run: the verb and the store's own arguments, then the
             // request the poll wrote on its standard input. The store reads that
@@ -727,7 +726,6 @@ mod tests {
             wrapper(&bin, None),
         )
         .unwrap();
-        fs::set_permissions(&store, fs::Permissions::from_mode(0o755)).unwrap();
         let run = |args: &[&str]| {
             let r = std::process::Command::new(&bin)
                 .args(args)
@@ -1168,8 +1166,7 @@ printf 'store %s %s\\n' \"$*\" \"$(cat \"$0.request\")\" >>\"$0.calls\"\nexec {b
             &store_binary().display().to_string(),
             Some("[\"plan-show\",\"7\"]"),
         );
-        std::fs::write(&h.store, body).unwrap();
-        std::fs::set_permissions(&h.store, std::fs::Permissions::from_mode(0o755)).unwrap();
+        tehas_core::testing::write_exe(&h.store, body).unwrap();
         let mut calls = calls_of(&h);
         let mut asked = Asked::empty();
         super::gather(
