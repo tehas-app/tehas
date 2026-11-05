@@ -3,13 +3,14 @@
 //!
 //!   console tehas status [--json]
 //!   console tehas disk [...]
-//!   console tehas state pack|unpack ...
+//!   console tehas state pack|unpack ... | check [--json]
 //!   console tehas limit [--json] | set ... | clear
 //!   console tehas pause [reason]
 //!   console tehas analytics report | export <file> [--json]
 //!   console tehas top [--once | --json] [--every <seconds>]
 //!   console tehas api [--json]
 //!   console tehas labels
+//!   console tehas panel [--json] | set <id> ... | clear <id>
 //!   console tehas resume
 //!   console tehas drain [--wait SECONDS] [--json]
 //!   console tehas history [--json] [--after CURSOR] [--issue N]
@@ -36,8 +37,8 @@
 //! Exit: the status of the command; 64 usage.
 
 use crate::{
-    api, clean, dev, disk, export, flags, github, health, history, labels, mcp, queue, review,
-    state, status, stop, top,
+    api, clean, dev, disk, export, flags, github, health, history, labels, mcp, panel, queue,
+    review, state, status, stop, top,
 };
 use std::env;
 use std::io::{self, Write};
@@ -152,6 +153,7 @@ pub fn tehas(given: &[String]) -> u8 {
         "top" => top::view(rest),
         "api" => api::main(rest),
         "labels" => labels::main(rest),
+        "panel" => panel::main(rest),
         "resume" => flags::resume(rest),
         "drain" => flags::drain(rest),
         "history" => history::main(rest),
@@ -264,6 +266,7 @@ pub fn check(given: &[String]) -> u8 {
         ["tehas", "analytics"] => analytics_words(rest),
         ["tehas", "api"] => api::words(rest).map(|_| ()),
         ["tehas", "labels"] => labels::words(rest),
+        ["tehas", "panel"] => panel::words(rest).map(|_| ()),
         ["tehas", "resume"] => flags::resume_words(rest),
         ["tehas", "drain"] => flags::drain_words(rest).map(|_| ()),
         ["tehas", "history"] => history::words(rest).map(|_| ()),
@@ -333,6 +336,7 @@ pub fn text(command: &str) -> Option<&'static str> {
         "limit" => include_str!("usage/limit.txt"),
         "mcp" => include_str!("usage/mcp.txt"),
         "dev" => dev::USAGE,
+        "panel" => include_str!("usage/panel.txt"),
         "pause" => include_str!("usage/pause.txt"),
         "plan" => include_str!("usage/plan.txt"),
         "review" => include_str!("usage/review.txt"),
@@ -451,6 +455,8 @@ mod tests {
         assert_eq!(check(&words(&["tehas", "api", "--jsn"])), 64);
         assert_eq!(check(&words(&["tehas", "api", "--json"])), 0);
         assert_eq!(check(&words(&["tehas", "labels", "--force"])), 64);
+        assert_eq!(check(&words(&["tehas", "panel", "show"])), 64);
+        assert_eq!(check(&words(&["tehas", "panel", "--json"])), 0);
         assert_eq!(check(&words(&["tehas", "resume", "7"])), 64);
         assert_eq!(check(&words(&["tehas", "drain", "--wait"])), 64);
         assert_eq!(check(&words(&["tehas", "drain", "--wait", "1"])), 0);
@@ -582,6 +588,7 @@ mod tests {
             "init-product",
             "labels",
             "limit",
+            "panel",
             "pause",
             "resume",
             "setup",

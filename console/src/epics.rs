@@ -8,7 +8,7 @@
 //! <out>, live/epics.json:
 //!
 //!   {generatedAt, repo, epics: [{number, title, url, total, completed, more,
-//!     subIssues: [{number, title, url, state}]}]}
+//!     subIssues: [{number, title, url, state}]}], unlinked: [number]}
 //!
 //! Newest epic first; the sub-issues in the order the epic gives them, with
 //! `state` "open" or "closed". `total` and `completed` are GitHub's count of
@@ -16,6 +16,10 @@
 //! hundred: `more` is how many of the count are not, so a sub-issue elsewhere,
 //! perhaps in a private repository, is never named on the public page. A closed
 //! epic is not read, so it leaves the file at the next run.
+//!
+//! `unlinked` is the open issues labelled `epic` with no sub-issues, newest
+//! first: the label is a person's word or the poll's (dispatch/src/decide/epic.rs),
+//! the links are what makes the epic, and `tehasbot health` warns about these.
 //!
 //! The file is written whole or not at all. A read that fails, or an answer
 //! with errors or without the list, writes nothing and leaves the file there.
@@ -38,6 +42,7 @@ const QUERY: &str = r#"query($owner: String!, $name: String!, $cursor: String) {
       pageInfo { hasNextPage endCursor }
       nodes {
         number title url
+        labels(first: 50) { nodes { name } }
         subIssuesSummary { total completed }
         subIssues(first: 100) { nodes { number title url state repository { nameWithOwner } } }
       }
@@ -177,7 +182,28 @@ fn epics(repo: &str, nodes: &[Value], now: &str) -> Value {
         })
         .collect();
     list.sort_by_key(|e| std::cmp::Reverse(count(e, "number")));
-    json!({"generatedAt": now, "repo": repo, "epics": list})
+    let mut unlinked: Vec<u64> = nodes
+        .iter()
+        .filter(|n| {
+            let total = n.get("subIssuesSummary").map_or(0, |s| count(s, "total"));
+            total == 0 && labelled(n, EPIC_LABEL)
+        })
+        .filter_map(|n| n.get("number").and_then(Value::as_u64))
+        .collect();
+    unlinked.sort_unstable_by(|a, b| b.cmp(a));
+    json!({"generatedAt": now, "repo": repo, "epics": list, "unlinked": unlinked})
+}
+
+/// The label that says an issue is an epic, for people.
+const EPIC_LABEL: &str = "epic";
+
+fn labelled(n: &Value, label: &str) -> bool {
+    n.pointer("/labels/nodes")
+        .and_then(Value::as_array)
+        .is_some_and(|l| {
+            l.iter()
+                .any(|x| x.get("name").and_then(Value::as_str) == Some(label))
+        })
 }
 
 /// Writes the file whole: a side file renamed into place. The edge serves no
@@ -235,6 +261,35 @@ mod tests {
                 {"number": 12, "title": "Sub 12", "url": "https://github.com/acme/widget/issues/12", "state": "open"},
             ])
         );
+    }
+
+    #[test]
+    fn an_issue_labelled_epic_with_no_sub_issues_is_unlinked() {
+        let epic = |mut n: Value| {
+            n["labels"] = json!({"nodes": [{"name": "bug"}, {"name": "epic"}]});
+            n
+        };
+        let mut no_summary = epic(issue(4, 0, 0, vec![]));
+        no_summary
+            .as_object_mut()
+            .unwrap()
+            .remove("subIssuesSummary");
+        let nodes = [
+            epic(issue(10, 1, 0, vec![sub(11, "OPEN")])),
+            epic(issue(13, 0, 0, vec![])),
+            issue(14, 0, 0, vec![]),
+            no_summary,
+        ];
+        let f = epics(REPO, &nodes, "t");
+        assert_eq!(f["unlinked"], json!([13, 4]));
+        let listed: Vec<_> = f["epics"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| e["number"].clone())
+            .collect();
+        assert_eq!(listed, [json!(10)], "the label puts no issue on the panel");
+        assert_eq!(epics(REPO, &[], "t")["unlinked"], json!([]));
     }
 
     #[test]

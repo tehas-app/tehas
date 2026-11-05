@@ -92,6 +92,7 @@ pub fn probe(file: &Path) -> Probe {
 mod tests {
     use super::*;
     use crate::testdir::TestDir;
+    use std::io::BufRead;
     use std::os::unix::fs::PermissionsExt;
     use std::path::PathBuf;
 
@@ -139,17 +140,30 @@ mod tests {
     fn a_lock_another_process_holds_is_held() {
         let d = TestDir::new("held");
         let p = lock_file(&d, 4);
-        let f = fs::OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .write(true)
-            .open(&p)
+        // The holder is a process of its own. A lock this process took would
+        // belong to its open file description, which a child another test forks
+        // in the meantime shares until it execs, so the lock could outlive its
+        // drop here. The holder prints when it holds, waits for a line, and
+        // gives the lock up when the pipe closes.
+        let mut child = std::process::Command::new("flock")
+            .arg("-x")
+            .arg(&p)
+            .arg("-c")
+            .arg("echo held; read _")
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .spawn()
             .unwrap();
-        f.lock().unwrap();
+        let mut said = String::new();
+        std::io::BufReader::new(child.stdout.take().unwrap())
+            .read_line(&mut said)
+            .unwrap();
+        assert_eq!(said.trim(), "held", "the holder never took the lock");
         // Contention is the one answer with no reason beside it: another
         // process holds the lock, which is what was asked.
         assert_eq!(probe(&p), Probe::Held);
-        drop(f);
+        drop(child.stdin.take().unwrap());
+        child.wait().unwrap();
         assert_eq!(probe(&p), Probe::Free);
     }
 

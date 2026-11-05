@@ -58,6 +58,87 @@ impl Ask for Given {
     }
 }
 
+/// Whether the image this cycle ran gives a retry the comments, as tehas work
+/// wrote it in `<issue>.comments`. No note offers no comments retry.
+pub fn comments_box(f: &Facts) -> bool {
+    matches!(
+        f.file("comments").text().map(str::trim),
+        Some("native" | "polyfill")
+    )
+}
+
+/// What the end comment says of the comments a comments retry was given: the
+/// runner's own count from its result's `comments` field, or that the
+/// polyfill gave them to the cycle's agents. Nothing for any other start.
+pub fn comments_said(f: &Facts) -> String {
+    let given = f
+        .approval
+        .as_ref()
+        .ok()
+        .and_then(|a| a.get("current"))
+        .is_some_and(|c| {
+            c.get("used_by").and_then(Value::as_u64) == Some(f.attempt)
+                && c.get("how").and_then(Value::as_str) == Some("retry-tick")
+                && c.pointer("/input/retry_context")
+                    .and_then(Value::as_array)
+                    .is_some_and(|a| !a.is_empty())
+        });
+    if !given {
+        return String::new();
+    }
+    let mode = f.file("comments").text().map(str::trim).unwrap_or("");
+    if mode == "polyfill" {
+        return " The comments of the issue and its pull requests were given to the cycle's agents.".into();
+    }
+    if mode != "native" {
+        return " The sandbox image's runner does not read comments, so the cycle did not see the comments it was given.".into();
+    }
+    let read = f
+        .file("result.json")
+        .text()
+        .and_then(runner::values)
+        .and_then(|all| {
+            all.iter().rev().find_map(|r| {
+                let per_issue = r.get("issues").and_then(|is| match is {
+                    Value::Array(a) => a
+                        .iter()
+                        .find(|e| e.get("issue").and_then(Value::as_u64) == Some(f.issue))
+                        .and_then(|e| e.get("comments")),
+                    _ => None,
+                });
+                per_issue
+                    .or_else(|| r.get("comments"))
+                    .filter(|c| c.is_object())
+                    .cloned()
+            })
+        });
+    let Some(c) = read else {
+        return " The cycle's runner did not say whether it read the comments it was given.".into();
+    };
+    let n = |k: &str| c.get(k).and_then(Value::as_u64).unwrap_or(0);
+    if c.get("read") == Some(&Value::Bool(true)) {
+        let dropped = match n("dropped") {
+            0 => String::new(),
+            d => format!(", {d} older ones left out for room"),
+        };
+        return format!(
+            " The cycle was given {} comments of the issue and its pull requests{dropped}.",
+            n("count")
+        );
+    }
+    let reason = c
+        .get("reason")
+        .and_then(Value::as_str)
+        .map(|r| {
+            kept(&first_bytes(r, 200), |ch| {
+                ch.is_ascii_alphanumeric() || " _.,:-".contains(ch)
+            })
+        })
+        .filter(|r| !r.is_empty())
+        .unwrap_or_else(|| "no reason given".to_string());
+    format!(" The cycle's runner did not read the comments it was given: {reason}.")
+}
+
 /// The caps tehas sets for a stop of its own, and no other command does.
 pub const OWN_CAPS: [&str; 5] = [
     "wall-clock",
@@ -96,6 +177,8 @@ pub struct Park {
     /// What that read decided: no retry box and these words, or this body
     /// for the issue.
     pub no_retry: bool,
+    /// The image gives a retry the comments: the park offers that retry.
+    pub comments: bool,
     pub say: String,
     pub edit: Option<String>,
     /// The host's line above the boxes of its question.
@@ -133,7 +216,8 @@ impl Park {
             self.usage
         );
         let out = json!({"text": text, "question": null, "marker": self.marker,
-                         "park": self.park_marker, "retry": !self.no_retry});
+                         "park": self.park_marker, "retry": !self.no_retry,
+                         "comments": self.comments});
         let body = q_render(Kind::Park, issue, 1, &out, &self.lead);
         (text, body)
     }
@@ -675,6 +759,7 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
     if kills != "0" {
         killed = format!(" {kills} processes were killed for memory in its container.");
     }
+    killed += &comments_said(f);
     let forks = count("forks");
     let (mut image_id, mut image_rukas) = (String::new(), String::new());
     match &f.record {
@@ -1077,6 +1162,7 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
             String::new()
         },
         develop: cap == "child-timeout:develop" && !f.signalled,
+        comments: comments_box(f),
         ..Park::default()
     };
     // park_args: the record of a park, by tehas's word for it or else the
@@ -1295,7 +1381,7 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         r.actions.push(comment(&|s| {
             format!(
                 "{marker_line}{}",
-                q_clean(&format!("Tehas cycle handed off with its pull request open and its review unfinished: {summary} (runner exit {runner_rc}). Its runner wrote no result, so tehas read its run log for the step it was in and GitHub for the bot's pull request on its branch: {pr}. Read the pull request before you retry: a clean start redoes what it already holds. {kept_said}; {log_where}.{killed}{s}"), 60000)
+                q_clean(&format!("Tehas cycle handed off with its pull request open and its review unfinished: {summary} (runner exit {runner_rc}). Its runner wrote no result, so tehas read its run log for the step it was in and GitHub for the bot's pull request on its branch: {pr}. Read the pull request before you retry: a retry starts over and redoes what it already holds. {kept_said}; {log_where}.{killed}{s}"), 60000)
             )
         }));
         status = "handoff".into();

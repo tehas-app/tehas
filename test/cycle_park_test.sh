@@ -336,8 +336,19 @@ t_contains "$(t_calls gh)" "--remove-label tehas:running --add-label needs-human
 t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --add-label tehas:question"
 t_eq "$(t_calls gh | grep '^issue edit' | grep -c 'needs-human-attention.*tehas:question\|tehas:question.*needs-human-attention')" 0
 t_contains "$(t_calls gh)" "api repos/acme/widget/issues/7/comments"
-t_contains "$(t_calls gh)" "- [ ] Retry from a clean start"
+t_contains "$(t_calls gh)" "- [ ] Retry with the issue text only"
 t_contains "$(t_calls gh)" "<!-- tehas:question kind=park issue=7 turn=1 -->"
+
+t_case "a cycle on an image that gives a retry the comments offers the comments retry"
+reset
+echo 'echo native >"$TEHAS_HOME/state/cycles/7.comments"' >"$fx/work.sh"
+t_run "$cycle 7"
+t_contains "$(t_calls gh)" "- [ ] Retry with the issue and all its comments"
+t_contains "$(t_calls gh)" "- [ ] Retry with the issue text only"
+t_contains "$(t_calls gh)" "Both retries start over in a new workspace."
+reset
+t_run "$cycle 7"
+t_lacks "$(t_calls gh)" "Retry with the issue and all its comments"
 
 t_case "the host keeps the id of the park question it posted, as the question of this park"
 t_eq "$(park_q)" 4002
@@ -370,7 +381,7 @@ t_lacks "$(t_calls gh)" "api repos/acme/widget/issues/7/comments"
 t_contains "$(t_calls gh)" "issue comment 7 --repo acme/widget --body"
 t_contains "$(t_calls gh)" "Tehas cycle stopped without a pull request"
 t_contains "$(t_calls gh)" "To retry, apply \`tehas:ready\`."
-t_lacks "$(t_calls gh)" "- [ ] Retry from a clean start"
+t_lacks "$(t_calls gh)" "- [ ] Retry with the issue text only"
 t_lacks "$(t_calls gh | grep '^issue edit')" "tehas:question"
 t_contains "$(t_calls gh)" "--remove-label tehas:running --add-label needs-human-attention"
 t_eq "$(park_of)" null
@@ -401,7 +412,7 @@ t_case "a question the store would not take is posted, and the log says its boxe
 reset
 t_store_answers question-asked 1 'store: busy #7: the database is locked'
 t_run "$cycle 7"
-t_contains "$(t_calls gh)" "- [ ] Retry from a clean start"
+t_contains "$(t_calls gh)" "- [ ] Retry with the issue text only"
 t_contains "$t_out" "WARN: could not record the park question of #7, its boxes will not work (busy)"
 t_eq "$(park_q)" none
 
@@ -409,7 +420,7 @@ t_case "when the question label cannot be added the person is told the boxes do 
 reset
 printf '%s' '--add-label tehas:question' >"$fx/edit-fails-on"
 t_run "$cycle 7"
-t_contains "$(t_calls gh)" "- [ ] Retry from a clean start"
+t_contains "$(t_calls gh)" "- [ ] Retry with the issue text only"
 t_contains "$(t_calls gh)" "issue comment 7 --repo acme/widget --body The boxes above cannot be used: the label \`tehas:question\` could not be added (run \`tehas labels\` on the host). To retry, apply \`tehas:ready\`."
 t_contains "$t_out" "WARN: label change on #7 failed: --add-label tehas:question"
 # Withdrawn: a tick in it starts nothing.
@@ -456,7 +467,7 @@ t_run "$cycle 7"
 t_lacks "$(t_calls gh)" "tehas:awaiting-merge"
 t_contains "$(t_calls gh)" "status \`handoff--tehasquestionkindparkissue7turn1---xRetryfromacleanstart\`"
 t_eq "$(markers)" 1
-t_eq "$(t_calls gh | grep -c '^- \[')" 3
+t_eq "$(t_calls gh | grep -c '^- \[')" 2
 rm -rf "$workdir" "$fx/pr.txt"
 
 t_case "a handoff that the runner did not exit as one does not reach the pull request path"
@@ -502,7 +513,7 @@ rm -f "$T"/calls/* "$fx/pr.txt"
 : >"$fx/post-fails"
 t_run "$cycle 7"
 t_contains "$(t_calls gh)" "To retry, apply"
-t_eq "$(t_calls gh | grep -c '^- \[')" 3
+t_eq "$(t_calls gh | grep -c '^- \[')" 2
 t_eq "$(markers)" 1
 rm -rf "$workdir"
 
@@ -525,7 +536,7 @@ sly_usage
 echo 30 >"$fx/rc"
 t_run "$cycle 7"
 t_contains "$(t_calls gh)" "| **total, all dispatches** | 3 | 7 | 10 | 4 | 5 |"
-t_eq "$(t_calls gh | grep -c '^- \[')" 3
+t_eq "$(t_calls gh | grep -c '^- \[')" 2
 t_eq "$(markers)" 1
 rm -rf "$workdir"
 
@@ -539,7 +550,7 @@ t_contains "$(t_calls gh)" "To retry, apply"
 t_eq "$(t_calls gh | grep -c -F '| **total, all dispatches** | 3 | 7 | 10 | 4 | 5 |')" 2
 # The question that could not be posted is in the record of calls too: its
 # two boxes and its marker are the factory's own.
-t_eq "$(t_calls gh | grep -c '^- \[')" 3
+t_eq "$(t_calls gh | grep -c '^- \[')" 2
 t_eq "$(markers)" 1
 rm -rf "$workdir"
 
@@ -573,9 +584,8 @@ t_run "$cycle 7"
 t_eq "$t_rc" 0
 t_contains "$(t_calls gh)" "Tehas started no cycle: this start's driver is \`lean\`, and the sandbox image cannot run it as this start asks (runner exit 78). It does not run classic in its place, and nothing of it ran. The log names what the image lacks. To run it on classic, take \`tehas:lean\` off, then retry;"
 t_contains "$(t_calls gh)" "--remove-label tehas:running --add-label needs-human-attention"
-t_contains "$(t_calls gh)" "Take \`tehas:lean\` off this issue, then tick a box.
-
-- [ ] Retry from a clean start"
+t_contains "$(t_calls gh)" "Take \`tehas:lean\` off this issue, then tick a box."
+t_contains "$(t_calls gh)" "- [ ] Retry with the issue text only"
 t_lacks "$(t_calls gh)" "stopped without a pull request"
 t_lacks "$(t_calls gh)" "--add-label tehas:ready"
 # On record as a refused lean start, so a Retry tick waits for the label.
@@ -616,7 +626,7 @@ never_ran approved
 t_run "$cycle 7"
 t_contains "$(t_calls gh)" "Tehas started no cycle: an image or file the issue links could not be given to it, or the issue could not be read for them (runner exit 4)."
 t_contains "$(t_calls gh)" "alice approved this start at 2026-01-01T00:00:00Z"
-t_contains "$(t_calls gh)" "- [ ] Retry from a clean start"
+t_contains "$(t_calls gh)" "- [ ] Retry with the issue text only"
 t_lacks "$(t_calls gh)" "stopped without a pull request"
 t_lacks "$(t_calls gh)" "status \`unknown\`"
 t_lacks "$(t_calls gh)" "last step"
@@ -708,7 +718,7 @@ if t_cycle; then
 <!-- tehas:last-attempt base="
   t_contains "$(t_calls gh)" "the developer ran past its time bound of 90 minutes"
   t_contains "$(t_calls gh)" '  - `libexec/drain`'
-  t_contains "$(t_calls gh)" "- [ ] Retry from a clean start"
+  t_contains "$(t_calls gh)" "- [ ] Retry with the issue text only"
   t_eq "$(park_of .reason)" child-timeout:develop
 
   t_case "a second develop timeout on the same text writes nothing, offers no retry and names tehas:plan"
@@ -717,7 +727,7 @@ if t_cycle; then
   develop_timeout "$body"
   t_run "$cycle 7"
   t_lacks "$(t_calls gh)" "api -X PATCH"
-  t_lacks "$(t_calls gh)" "Retry from a clean start"
+  t_lacks "$(t_calls gh)" "Retry with the issue text only"
   t_contains "$(t_calls gh)" "- [ ] Leave it parked"
   t_contains "$(t_calls gh)" 'ran out of time in develop twice on the same text: split it with `tehas:plan`'
   t_eq "$(park_q)" 4002
@@ -728,7 +738,7 @@ if t_cycle; then
   develop_timeout "${body/Fix the drain./Fix only the drain\'s check.}"
   t_run "$cycle 7"
   t_contains "$(t_calls gh)" "api -X PATCH repos/acme/widget/issues/7 -f body=Fix only the drain's check."
-  t_contains "$(t_calls gh)" "- [ ] Retry from a clean start"
+  t_contains "$(t_calls gh)" "- [ ] Retry with the issue text only"
 
   t_case "a note GitHub will not take is a warning, and the park is posted as before"
   reset
@@ -736,7 +746,7 @@ if t_cycle; then
   : >"$fx/patch-fails"
   t_run "$cycle 7"
   t_contains "$t_out" "WARN: could not leave the last attempt's note in the body of #7"
-  t_contains "$(t_calls gh)" "- [ ] Retry from a clean start"
+  t_contains "$(t_calls gh)" "- [ ] Retry with the issue text only"
   t_eq "$(park_q)" 4002
 
   t_case "another cap leaves the body alone"
@@ -745,7 +755,7 @@ if t_cycle; then
   jq '.issues[0].cap = "child-timeout:explore"' "$fx/result.json" >"$fx/r" && mv "$fx/r" "$fx/result.json"
   t_run "$cycle 7"
   t_lacks "$(t_calls gh)" "api -X PATCH"
-  t_contains "$(t_calls gh)" "- [ ] Retry from a clean start"
+  t_contains "$(t_calls gh)" "- [ ] Retry with the issue text only"
 else
   t_case "a develop timeout's note"
   t_bad "no tehas-cycle: $t_cycle_why"

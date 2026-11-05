@@ -14,6 +14,9 @@ empty one above it.
 ### Changes
 
 - `tehas status --json` says where each running cycle's step is: `stepNumber`, `stepTotal`, `round`, `roundLimit` and `stepSince` on each item of `running`, each left out when not known (#1579). The round is counted from the step's `step-started` lines when the driver gives none; the number, the count and the limit appear once the driver puts them on those lines. A line of `tehas history --json` carries `stepNumber`, `stepTotal` and `round` of the step the cycle ended in, and `prototypes` lists the issues with a Protolab page and when each was built. The state store is at schema 10: `store migrate`, which `install.sh` runs, adds the columns.
+- `tehas state check [--json]` prints the state store's schema, integrity check and rows of each table, with `--json` the store's own object, and `tehas api` lists the feature `state-check`. A program that moves a factory read it from `~/tehas/libexec/store check`, a path under the home that may change in any release.
+- A planning turn no longer offers a drafted plan that the checks of the issue's text refuse (#1553). The comment still shows the plan, and the question names the rule and lists the open points, with only **End this planning session** to tick. Two rules are new: a plan with lines that end in `[context param]` (the request or tehas's briefs echoed back) and a plan whose Acceptance criteria are pi-rukas's placeholder are refused, on the tick of **Update this issue** and for a plan with no open points too. The planner is given the issue's title without its conventional-commit type, so a drafted title no longer reads `chore: chore:`, with the type given as the planner's `--type` (`chore: ...` is planned as a chore, `research: ...` as a spike), and the `criteria` of a request's `pi-spec v1` block as an `ACCEPTANCE CRITERIA:` block, which pi-rukas carries into the draft.
+- The retry boxes of a park say what a retry is given: `Retry with the issue and all its comments` and `Retry with the issue text only`, with a line on what each means. A tick of the comments retry records the text of every comment on the issue and on the bot's pull requests for it (conversation comments, review bodies, inline review comments) up to the tick, by an account of `TEHAS_ALLOWED_LABELERS` that may write to the repository then, the bot's own left out; `tehas work` writes them to `comments.json` in the format of trail-openers/pi-rukas#2020 and mounts it even with images and files off. It no longer needs `TEHAS_WORK_COMMENTS`, and `retry-context.md`, which nothing read, is gone. The comments box is offered only when the sandbox image lists `issueComments` or carries the issue-comments polyfill. The old labels still count on comments posted before; they go two releases from now (#1492).
 - A start whose approval says driver `lean` (`tehas:lean`) runs `pi-rukas-headless work-lean` instead of being refused, and `tehas work <issue> --driver lean|classic` picks the driver by hand. The image is checked for the `work-lean` flags, `leanHandoffHost`, `leanDeadline` and `workLeanResultSchema` 5; one without them, or a lean restart or refresh, is 78 and parks, and classic never runs in lean's place. `.pi/lean-state/` is excluded in a cycle's workspace.
 - The health file has `checks.mcp`: whether the MCP server is on, installed and answers a `POST /mcp` with no key (#1418). A server that is on and does not answer makes the health `warn`, so `/health` tells a stopped MCP server from a factory that is gone.
 - An allowed account is its login and its GitHub user id, not the login alone. `install.sh` and `tehas update` record the id of each login of `TEHAS_ALLOWED_LABELERS` and `TEHAS_MILLWRIGHT_LOGIN` in `~/tehas/state/account-ids`, and a label, retry tick, planning answer or comment counts only when its account carries that id. A login that was renamed and registered by someone else authorises nothing. A login that does not resolve, or whose id changed, stops both with 78 and names it; `tehas update --accept-id <login>` records the new id (#1493).
@@ -28,6 +31,8 @@ empty one above it.
 - A cycle's scratch has a size limit (#1547). With `TEHAS_SCRATCH_DIR` set, tehas work measures the cycle's scratch every 10 seconds and stops the cycle when it holds more than `TEHAS_SCRATCH_MAX` (20g by default), or when the scratch's file system has less than `TEHAS_CYCLE_STOP_FREE` free (5g by default) and this cycle's scratch is the largest there. The cycle ends `stopped` at the cap `disk`, and its report says which bound it passed. Before, one cycle that copied its container's root into its scratch filled the host's disk and stopped the dispatcher and the other cycles.
 - `tehas status`, `tehas status --json` (`held`) and the MCP `factory_status` answer (`held`) name each ready issue the dispatcher holds on its own, with the reason and what clears it: for now, an issue whose last cycle parked and whose body has not changed since (#1437). When every issue in line is held that way and no cycle runs, the health line is a `warn` that names them instead of "Idle, taking work.". Before, a factory whose one ready issue was held reported `pass` and taking work for hours.
 - The shell tests use the workspace's build, in `CARGO_TARGET_DIR` or `console/target`, instead of a second one in `console/target/shell`, which `scripts/test.sh` now removes. Each checkout's build is about 170 MB smaller (#1360).
+
+- An open issue whose title starts with an epic marker (`EPIC: ...`, `[Epic] ...`) gets the new `epic` label at each poll. tehas only adds it, and a person's removal is final. The label is for people: sub-issue links still make an epic for the dispatcher and the panel. `live/epics.json` gains `unlinked`, and `tehasbot health` warns about an open issue labelled `epic` with no sub-issues (`checks.epics`).
 - `scripts/verify.sh` checks the workspace's format and lints on every run, not only with `--full`; in CI a missing rustfmt or clippy fails. `tehas setup` runs `--full` on a factory that builds tehas, so unformatted code that passed CI stopped setup three times. `console/dispatch` is formatted again (#1486).
 - A cycle that hands off on `lens-fix-reposition` with its pull request open and its review not held waits for a merge (`tehas:awaiting-merge`) instead of parking. The branch already holds the first review round's fix; only the second round's could not be laid on it. It was the most common park from 2026-10-31.
 - `console flags pause` takes only `set` and `clear`: `show` and `read`, which nothing called, are gone (#1365). The dashboard's reader of the flag uses the same reading as the health file.
@@ -46,10 +51,18 @@ empty one above it.
 - `analytics event --at <t>` keeps the row when the time is a little ahead of the host's clock: within an hour it is stored at now and said on standard error, because the dispatcher passes the time GitHub recorded for the label. Beyond the hour it is still a usage error and no row is written.
 - The `sizes` figures count no lead for a ship whose `merged` is stamped before the `ready` behind it, as `refine` already counts it; a negative median lead no longer reaches the report.
 - `store prune` also removes the cycle and plan history of an issue whose cycle ended more than its window ago, keeping that issue's last row of each of the two tables, so the state store no longer grows with every issue the factory has ever closed. `store upkeep`, what `tehasbot clean` calls once an hour, prunes with a window of 90 days (`PRUNE_DAYS` in `console/store/src/upkeep.rs`). `tehas history` still answers for a long-closed issue with the line it keeps, and an issue whose cycle ended without a history line of its own keeps all of its rows (#1414).
+- `tehas panel set <id> --label TEXT --url URL` names a page of the project, such as a support chat or a status page, and both front pages show it: an item in the menu opens it in a sandboxed frame in a dock at the side. Up to four, published to `live/panels.json`; `tehas api --json` lists the feature `panels`.
 
 - `scripts/tag-release.sh` moves every pinned tool to the newest minor and patch of its major before it tags: `host/versions.env`, `host/npm/` and `host/sandbox/npm/`, each with its checksum, digest or lockfile, from the tool's own source (`scripts/pins.sh`, `console pins`). When anything moves it opens a pull request on `pins-<tag>` and tags after that is merged; a later major is listed under `### Held back` for a person. A move that fails stops the release; `--no-pins` skips it. The release that makes the move needs cargo, curl, tar and npm where it runs.
 
 ### Adopter action
+
+A park's comment offers the comments retry only on a sandbox image whose
+pi-rukas reads the comments blob (trail-openers/pi-rukas#2020) or that carries
+the issue-comments polyfill; until then it offers `Retry with the issue text
+only` and `Leave it parked`. Nothing to set. A comments retry now asks GitHub
+for each author's permission on the repository, which the bot's token already
+may read.
 
 To run lean, rebuild the sandbox image on pi-rukas v0.14.47 or later. A
 lean start on an older image parks with what the image lacks.
@@ -79,6 +92,10 @@ in `live/status.json` under `pause.flag`.
 
 A filter, script or search that looks for `STUCK: ` in pull request titles
 now looks for `HALT: `.
+
+The `epic` label is new in `host/labels.tsv`, so an update runs its `labels`
+step; a host that skips it runs `tehas labels` once. Until the label exists,
+the poll's write of it fails with a `WARN:` line and nothing else changes.
 
 On a host that sets `TEHAS_SCRATCH_DIR`, a cycle whose scratch holds more
 than 20g, or that has the largest scratch when its disk has less than 5g free,

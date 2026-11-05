@@ -17,3 +17,4 @@ tehas:next	bfd4f2	Tehas: dispatch after urgent issues, before the rest
 tehas:blocked	e4e669	Tehas: started once every issue it names is closed
 tehas:refreshing	1d76db	Tehas: a cycle is refreshing this pull request; do not merge or push now
 tehas:all-hands	b60205	Tehas: on the control issue, asks for all hands on this project (reported only)
+epic	3e4b9e	Tehas: an epic; its parts are its sub-issues (added to a title that starts with Epic)

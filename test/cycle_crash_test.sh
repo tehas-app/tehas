@@ -27,7 +27,7 @@ t_contains "$(t_calls gh)" "last step \`$BRANCH\` read from its run log"
 t_contains "$(t_calls gh)" "https://github.com/acme/widget/pull/347"
 t_contains "$(t_calls gh)" "--remove-label tehas:running --add-label needs-human-attention"
 # Not a park's question: no boxes, and nothing on record for the poll to read.
-t_lacks "$(t_calls gh)" "Retry from a clean start"
+t_lacks "$(t_calls gh)" "Retry with the issue text only"
 t_lacks "$(t_calls gh)" "tehas:question"
 t_lacks "$(t_calls gh)" "stopped without a pull request"
 t_eq "$(park_q)" none
@@ -49,7 +49,7 @@ t_run "$cycle 7"
 t_eq "$t_rc" 0
 t_contains "$(t_calls gh)" "pr list --repo acme/widget --head $BRANCH --author @me --state all"
 t_contains "$(t_calls gh)" "Tehas cycle stopped without a pull request"
-t_contains "$(t_calls gh)" "- [ ] Retry from a clean start"
+t_contains "$(t_calls gh)" "- [ ] Retry with the issue text only"
 t_contains "$(t_calls gh)" "--remove-label tehas:running --add-label needs-human-attention"
 t_lacks "$(t_calls gh)" "handed off with its pull request open"
 
@@ -162,7 +162,7 @@ open_pr
 t_run "$cycle 7"
 t_contains "$(t_calls gh)" "Tehas cycle handed off with its pull request open and its review unfinished"
 t_contains "$(t_calls gh)" "killed"
-t_lacks "$(t_calls gh)" "Retry from a clean start"
+t_lacks "$(t_calls gh)" "Retry with the issue text only"
 
 t_case "a runner killed before commit-pr is reported as killed and parked"
 reset
