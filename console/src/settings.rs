@@ -22,11 +22,16 @@
 //!
 //! The words a setting takes, for what ships to be held against them.
 //!
+//!   console settings require <euid> [<bash>]
+//!
+//! tehas_require_instance_settings: a load as above, then exit 78 with one line
+//! on standard error unless every setting an instance has to set itself is set
+//! and valid. Nothing goes to standard output.
+//!
 //!   console settings required
 //!
 //! The settings an instance has to set itself, one name per line: what
-//! tehas_require_instance_settings checks, and what tehas_load hands a shell as
-//! _tehas_required. test/config_test.sh holds the two side by side.
+//! `require` checks, and what tehas_load hands a shell as _tehas_required.
 //!
 //!   console settings checkout | branch
 //!
@@ -161,6 +166,18 @@ fn run_load(uid: &str, bash: &str) -> u8 {
     }
 }
 
+fn run_require(uid: &str, bash: &str) -> u8 {
+    let mut vars = this_environment();
+    if let Err(line) = load_into(&mut vars, uid, bash) {
+        eprintln!("tehas: {line}");
+        return REFUSED;
+    }
+    match require(&INSTANCE_SETTINGS, &vars) {
+        Ok(()) => 0,
+        Err(rc) => rc,
+    }
+}
+
 // tehas_require: the first of `names` that is not set, or holds no value of its
 // rule. A name set to spaces only counts as not set.
 pub(crate) fn refusal(names: &[&str], vars: &Vars) -> Option<String> {
@@ -260,6 +277,8 @@ pub fn main(given: &[String]) -> u8 {
     match words.as_slice() {
         ["load", uid] => run_load(uid, "bash"),
         ["load", uid, bash] => run_load(uid, bash),
+        ["require", uid] => run_require(uid, "bash"),
+        ["require", uid, bash] => run_require(uid, bash),
         ["valid"] => valid_stream(),
         ["valid", name, value] => match why(name, value) {
             Some(reason) => {
@@ -302,7 +321,7 @@ pub fn main(given: &[String]) -> u8 {
         },
         _ => {
             eprintln!(
-                "usage: console settings load <euid> [<bash>] | valid [<name> <value>] | words <name> | required | checkout | branch"
+                "usage: console settings load <euid> [<bash>] | require <euid> [<bash>] | valid [<name> <value>] | words <name> | required | checkout | branch"
             );
             64
         }
