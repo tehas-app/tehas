@@ -2423,6 +2423,7 @@ mod tests {
         fs::write(file.with_extension("json.new"), "half a flag").unwrap();
         fs::set_permissions(d.join("state"), fs::Permissions::from_mode(0o500)).unwrap();
         assert_eq!(pause_clear(&file, account::uid()), 1);
+        // The state directory, given back its mode.
         fs::set_permissions(d.join("state"), fs::Permissions::from_mode(0o700)).unwrap();
         assert!(file.exists() || file.with_extension("json.new").exists());
     }

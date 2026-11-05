@@ -595,6 +595,7 @@ fn propose(branch: &str, dry: bool) -> Result<u8, u8> {
     }
     let setup = Path::new(tree).join(".pi/worktree-setup");
     if setup.is_file() {
+        // The mode git records for the product's hook; this process never runs it.
         ran(Command::new("chmod").arg("+x").arg(&setup));
     }
     let body = format!(

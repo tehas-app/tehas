@@ -115,23 +115,14 @@ fn world() -> World {
     let dir = TestDir::new("apply");
     fs::create_dir_all(dir.join("home/state/refresh")).unwrap();
     // One stub file for the worlds alive at once, and a link to it in each
-    // world. A file written while another thread forks is held open for
-    // writing until that child's exec and refuses to run, so the stub is run
-    // once here before a world is given it.
+    // world.
     static STUB_DIR: Mutex<Weak<TestDir>> = Mutex::new(Weak::new());
     let held = {
         let mut shared = STUB_DIR.lock().unwrap_or_else(|e| e.into_inner());
         shared.upgrade().unwrap_or_else(|| {
             let d = Arc::new(TestDir::new("apply-stub"));
             let p = d.join("stub");
-            fs::write(&p, STUB).unwrap();
-            fs::set_permissions(&p, fs::Permissions::from_mode(0o755)).unwrap();
-            let until = std::time::Instant::now() + Duration::from_secs(5);
-            while std::process::Command::new(&p).status().is_err()
-                && std::time::Instant::now() < until
-            {
-                std::thread::sleep(Duration::from_millis(5));
-            }
+            tehas_core::testing::write_exe(&p, STUB).unwrap();
             *shared = Arc::downgrade(&d);
             d
         })
@@ -1518,7 +1509,7 @@ fn a_quiet_stop_that_cannot_write_its_reason_still_stops_the_unit() {
     fs::create_dir_all(&cycles).unwrap();
     fs::set_permissions(&cycles, fs::Permissions::from_mode(0o500)).unwrap();
     let a = t.apply(json!([quiet_of(7)]));
-    fs::set_permissions(&cycles, fs::Permissions::from_mode(0o700)).unwrap();
+    fs::set_permissions(&cycles, fs::Permissions::from_mode(0o700)).unwrap(); // a directory
     let said: Vec<&str> = a.log.iter().map(String::as_str).collect();
     assert!(
         said.contains(&"WARN: could not write the reason for #7"),
@@ -1623,11 +1614,11 @@ fn a_sweep_that_cannot_remove_a_name_says_so_and_not_that_the_issue_is_gone() {
     // Root is not kept out of a directory by its mode.
     if fs::write(live.join("probe"), "").is_ok() {
         fs::remove_file(live.join("probe")).unwrap();
-        fs::set_permissions(&live, fs::Permissions::from_mode(0o755)).unwrap();
+        fs::set_permissions(&live, fs::Permissions::from_mode(0o755)).unwrap(); // a directory
         return;
     }
     let a = t.apply(json!([{"sweep": 5, "log": "removed what #5 left on this host"}]));
-    fs::set_permissions(&live, fs::Permissions::from_mode(0o755)).unwrap();
+    fs::set_permissions(&live, fs::Permissions::from_mode(0o755)).unwrap(); // a directory
     assert_eq!(
         a.log,
         vec!["WARN: could not remove live/console-5.txt of #5"]
@@ -3610,7 +3601,7 @@ fn a_due_index_is_launched_and_holds_and_one_that_ran_lets_the_starts_go() {
     let mut t = world();
     t.w.host.systemctl = t.dir.join("systemctl").to_string_lossy().into_owned();
     let script = t.dir.join("index-start");
-    fs::write(
+    tehas_core::testing::write_exe(
         &script,
         format!(
             "#!/bin/sh\necho 1 >{}\n",
@@ -3618,7 +3609,6 @@ fn a_due_index_is_launched_and_holds_and_one_that_ran_lets_the_starts_go() {
         ),
     )
     .unwrap();
-    fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
     t.w.host.index_start_cmd = Some(script.to_string_lossy().into_owned());
     fs::write(t.w.home.join("state/dispatch.again"), "").unwrap();
     let a = t.apply(gates(7, json!([])));
