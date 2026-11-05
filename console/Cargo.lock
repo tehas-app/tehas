@@ -91,6 +91,7 @@ name = "console"
 version = "0.1.0"
 dependencies = [
  "libc",
+ "rustix",
  "serde_json",
  "sha2 0.10.9",
  "signal-hook",

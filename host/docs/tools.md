@@ -4259,9 +4259,9 @@ The update hands the lock to the install.sh it runs, and to nothing else; the
 wait covers a run started right after one that failed and left the lock held a
 moment by something it had started. `--check` takes no lock.
 
-`libexec/update` is a thin script: it holds that lock and runs install.sh, and
-the console does the rest. A console that does not start stops an update with
-exit 1, see [tehas update says the console does not answer](/troubleshooting#tehas-update-says-the-console-does-not-answer).
+The console does all of the update, the lock and install.sh included:
+`libexec/update` asks it whether it answers and execs it. A console that does
+not start stops an update with exit 1, see [tehas update says the console does not answer](/troubleshooting#tehas-update-says-the-console-does-not-answer).
 
 That pre-check covers the required settings only. The rest of the instance
 contract - `models.json` readable, valid JSON, listing the models the settings
