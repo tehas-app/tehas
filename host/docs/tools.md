@@ -4072,12 +4072,14 @@ keeps no new log.
 
 `--changed` takes the paths changed since the merge base with `origin/main`,
 uncommitted and untracked files included, and hands them to
-`scripts/select-tests.sh`. A changed test file runs itself; another path runs
+`scripts/select-tests.sh`, which runs the selection in the workspace's
+`console/xtask` (`cargo run -p tehas-xtask`, offline; a selection that cannot
+build runs the whole gate). A changed test file runs itself; another path runs
 the test files that name it (`libexec/update`, `tehas update`, a test file
 named `update_*`). A path under `console/` also runs `cargo test -p` for the
 crate it is in and the crates that depend on it, from `cargo metadata`. The
 tests of the console and the dispatcher run the store's program, which no
-manifest says, so `scripts/select-tests.sh` lists that link: they run with the
+manifest says, so `console/xtask/src/select.rs` lists that link: they run with the
 store, and a change to the store runs them. A path in `console/core/`, a
 manifest, `console/Cargo.lock`, a path in no crate, or metadata that cannot be
 read runs the whole workspace's tests.
@@ -4085,7 +4087,8 @@ The heavy integration files, `test/install_*`, `test/update_*`,
 `test/pack_release_test.sh` and `test/bootstrap_test.sh`, run only when the
 change touches what they test directly, and a `note` line names the ones left
 to the whole gate. A change to `test/lib.sh`, `scripts/test.sh`,
-`scripts/verify.sh` or the selector, a path no test names, or a checkout
+`scripts/verify.sh` or the selector (`scripts/select-tests.sh` and
+`console/xtask/`), a path no test names, or a checkout
 without `origin/main` runs the whole gate. Records under `docs/` and the
 top-level notes that no test names need no test. The selection is by name, so
 a test that builds a file's name at run time is missed: the whole gate after it
