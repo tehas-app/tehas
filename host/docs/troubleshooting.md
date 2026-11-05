@@ -258,7 +258,7 @@ Run `tehas dispatch --dry-run` and read what it prints.
   in the state store, and the store was busy or did not answer in time. That
   passes on its own: a later poll asks. A store that cannot be used ends the
   poll with `ERROR: the state store cannot be used: ...` instead; look at it
-  with `TEHAS_HOME=~/tehas ~/tehas/libexec/store check`. Meanwhile, stop the
+  with `tehas state check`. Meanwhile, stop the
   cycle with `tehas stop N`.
 - `WARN: the cycle for #N holds its lock but has not been heard from since
   <time>, more than 1200s, and the state store has no open record of it, so
