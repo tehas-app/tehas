@@ -896,32 +896,6 @@ pub fn execute(home: &Path, verb: &Verb, now: i64) -> Result<String, (u8, String
     }
 }
 
-/// `migrate --backup <dir>`: the copy first, then the steps forward.
-///
-/// The order is the deliverable. The database is opened for writing so that a
-/// lock another verb holds is met before anything is decided, the backup is
-/// written from that connection while nothing else can change the file, and
-/// only then do the steps run. So a backup that cannot be written leaves the
-/// schema version exactly as it was: the verb has not touched the store, and
-/// the failure is the ordinary one of the store's four words.
-///
-/// The copy written first is the one the answer names, taken under the version
-/// the store ends at. A copy taken after the step is not a guard: when it fails
-/// the store has already been migrated, and the caller is left with an error and
-/// no name to restore from. So the reported name is on disk before the step can
-/// commit, and where the two names differ -- a database below this binary's
-/// version -- the copy under the version the file came with is written beside it
-/// before the step too.
-///
-/// `dir` is the argument the caller gave, and `backup_dir` below is the only
-/// reader of it: the copy is written in `state/` or in `state/backup/`, where the
-/// 0700 of the directory and the 0600 of the store keep a copy of the host's
-/// approvals as unreadable as the store itself. A directory off the command line
-/// is a person's -- it could be a link, it could walk out of the home with a
-/// `..`, it could be 0755 -- and the store was never given leave to write a copy
-/// of itself there. So the answer a wrong `<dir>` gets is the same refusal
-/// whatever it names, and it comes before the copy: the verb cannot be made to
-/// put a copy of the store in a place the host did not agree to read.
 /// An issue's body is at most 65536 characters on GitHub, and the files one
 /// branch changes are a few hundred lines. This is far above both, and bounds
 /// what `paths-overlap` is ever asked to read.
@@ -959,6 +933,32 @@ fn paths_overlap(body: &Path, changed: &Path) -> Result<String, (u8, String)> {
     ))
 }
 
+/// `migrate --backup <dir>`: the copy first, then the steps forward.
+///
+/// The order is the deliverable. The database is opened for writing so that a
+/// lock another verb holds is met before anything is decided, the backup is
+/// written from that connection while nothing else can change the file, and
+/// only then do the steps run. So a backup that cannot be written leaves the
+/// schema version exactly as it was: the verb has not touched the store, and
+/// the failure is the ordinary one of the store's four words.
+///
+/// The copy written first is the one the answer names, taken under the version
+/// the store ends at. A copy taken after the step is not a guard: when it fails
+/// the store has already been migrated, and the caller is left with an error and
+/// no name to restore from. So the reported name is on disk before the step can
+/// commit, and where the two names differ -- a database below this binary's
+/// version -- the copy under the version the file came with is written beside it
+/// before the step too.
+///
+/// `dir` is the argument the caller gave, and `backup_dir` below is the only
+/// reader of it: the copy is written in `state/` or in `state/backup/`, where the
+/// 0700 of the directory and the 0600 of the store keep a copy of the host's
+/// approvals as unreadable as the store itself. A directory off the command line
+/// is a person's -- it could be a link, it could walk out of the home with a
+/// `..`, it could be 0755 -- and the store was never given leave to write a copy
+/// of itself there. So the answer a wrong `<dir>` gets is the same refusal
+/// whatever it names, and it comes before the copy: the verb cannot be made to
+/// put a copy of the store in a place the host did not agree to read.
 fn migrate(file: &Path, dir: &Path, settings: &Settings, now: i64) -> Result<String, (u8, String)> {
     // The write lock first, before the version is read: a verb that writes the
     // store meets a lock another verb holds before it has decided anything, and
