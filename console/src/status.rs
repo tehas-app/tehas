@@ -343,20 +343,32 @@ pub fn cycle_line(c: &J, now: i64) -> String {
     }
 }
 
-/// A line for each planning turn in flight.
+/// A line for each planning turn in flight, and for each open session whose
+/// last turn ended in error and waits for a person.
 fn plan_lines(h: &J, now: i64) -> Vec<String> {
     h.at(&["checks", "plans"])
         .items()
         .iter()
         .map(|p| {
+            let what = if in_flight(p) {
+                "running"
+            } else {
+                "ended in error, waits for a person"
+            };
             format!(
-                "plan      #{} turn {} running, started {}",
+                "plan      #{} turn {} {what}, started {}",
                 p.get("issue").text(),
                 p.get("turn").text(),
                 age(p.get("startedAt"), now)
             )
         })
         .collect()
+}
+
+/// Whether a session of health's `plans` is a turn in flight: `running`, or
+/// no state at all in a report written before sessions had one.
+fn in_flight(p: &J) -> bool {
+    matches!(p.get("state"), J::Null) || p.get("state").as_str() == Some("running")
 }
 
 /// The slots of the last poll: the counts a factory whose settings say
@@ -539,6 +551,7 @@ pub fn status_json(h: &J, now: i64, stale: bool) -> J {
         .get("plans")
         .items()
         .iter()
+        .filter(|c| in_flight(c))
         .map(|c| {
             let mut f = vec![
                 ("issue", c.get("issue").clone()),
@@ -641,6 +654,29 @@ mod tests {
 
     fn h(text: &str) -> J {
         J::parse(text).unwrap()
+    }
+
+    #[test]
+    fn a_planning_session_that_failed_has_its_line_and_is_no_turn_in_flight() {
+        let health = h(
+            r#"{"status":"pass","time":"2026-10-17T14:00:00Z","checks":{"plans":[
+              {"issue":7,"turn":2,"startedAt":"2026-10-17T13:48:20Z","state":"running"},
+              {"issue":8,"turn":1,"startedAt":"2026-10-17T13:00:20Z","state":"failed"},
+              {"issue":9,"turn":3,"startedAt":"2026-10-17T13:58:20Z"}]}}"#,
+        );
+        assert_eq!(
+            plan_lines(&health, NOW),
+            [
+                "plan      #7 turn 2 running, started 12 min ago",
+                "plan      #8 turn 1 ended in error, waits for a person, started 60 min ago",
+                "plan      #9 turn 3 running, started 2 min ago",
+            ]
+        );
+        // The API's planning is the turns in flight: a failed session is not.
+        assert_eq!(
+            status_json(&health, NOW, false).get("planning").dump(),
+            r#"[{"issue":7,"turn":2,"since":"2026-10-17T13:48:20Z"},{"issue":9,"turn":3,"since":"2026-10-17T13:58:20Z"}]"#
+        );
     }
 
     #[test]
