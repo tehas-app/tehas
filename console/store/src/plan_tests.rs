@@ -810,141 +810,42 @@ fn cleaned_options_never_fail_a_turn() {
 }
 
 #[test]
-fn plan_end_refuses_an_option_that_holds_a_json_document() {
+fn an_option_that_reads_as_json_stays_one_label() {
     let home = home("plan-options-json");
     begin(&home, 32);
-    // The whole list where one label belongs: the boxes would be unreadable.
-    for given in [
+    // The dispatcher hands a label that is no text over as its JSON text, so a
+    // turn that answered `{"label": ["Yes","No"]}` ends with that text as the
+    // label of one box. The turn ends, the label is kept as it was given and
+    // nothing is cleaned: an option never fails the end of a turn, and the
+    // column is a JSON list of labels however each label reads.
+    let given = [
         r#"["Yes","No"]"#,
-        r#"{"options":["Yes"]}"#,
+        r#"{"text":"Yes"}"#,
         r#" [ "a" , "b" ] "#,
-        // Of anything: the boxes are labels, so a list of them that is not
-        // labels is the caller's mistake as much as a list of labels is.
         "[1,2]",
-        "[{\"a\":1}]",
-    ] {
-        let (code, word) = refused(
-            &home,
-            &[
-                "plan-end",
-                "32",
-                "--turn",
-                "1",
-                "--outcome",
-                "finished",
-                "--rc",
-                "0",
-                "--session",
-                "s",
-                "--option",
-                "Yes",
-                "--option",
-                given,
-            ],
-        );
-        assert_eq!(code, 64, "{given}");
-        assert_eq!(word, "usage", "{given}");
+        "use [Yes] or {No}",
+        "{not json",
+        "[1,2",
+    ];
+    let mut args = Vec::new();
+    for g in given {
+        args.extend(["--option", g]);
     }
-    // One byte past the bound of a label, a document is refused as the
-    // document it is: the length is asked before the text. The whole text of
-    // this argument is no JSON, for the tab is no separator of it; the text the
-    // store would have kept is a well-formed object, so the cut alone would
-    // answer the turn with the boxes of a document nobody handed over. The
-    // length is what refuses it.
-    let tab = char::from(0x09);
-    let head = "{\"a\":1";
-    let tail = "}";
-    let over = format!(
-        "{head}{tab}{}{tail}",
-        "1".repeat(OPTION_BYTES - head.len() - tail.len())
-    );
-    assert_eq!(over.len(), OPTION_BYTES + 1);
-    let (code, word) = refused(
-        &home,
-        &[
-            "plan-end",
-            "32",
-            "--turn",
-            "1",
-            "--outcome",
-            "finished",
-            "--rc",
-            "0",
-            "--session",
-            "s",
-            "--option",
-            &over,
-        ],
-    );
-    assert_eq!((code, word.as_str()), (64, "usage"), "{over}");
-    // The line names the flag and the value, as every other refusal of the
-    // store's arguments does.
-    assert_eq!(
-        usage(&[
-            "plan-end",
-            "1",
-            "--turn",
-            "1",
-            "--outcome",
-            "finished",
-            "--rc",
-            "0",
-            "--session",
-            "s",
-            "--option",
-            r#"["Yes","No"]"#,
-        ]),
-        "usage plan-end: --option is JSON: \"[\\\"Yes\\\",\\\"No\\\"]\"",
-    );
-    // A refusal at the arguments is usage 64 and writes nothing: the turn is
-    // still running and holds the options it had.
-    assert_eq!(show(&home, 32)["running"], true);
-    assert_eq!(show(&home, 32)["options"], json!([]));
-}
-
-#[test]
-fn brackets_in_an_option_stay_the_label() {
-    let home = home("plan-options-labels");
+    let v = end_with(&home, 32, 1, &args).unwrap();
+    assert_eq!(v["cleaned"], json!([]));
+    assert_eq!(v["planning"]["running"], false);
+    assert_eq!(v["planning"]["options"], json!(given));
+    assert_eq!(held_options(&home, 32), (Some(json!(given).to_string()), 1));
+    // A label too long for one box is cut and marked, whatever it reads as
+    // once cut.
     begin(&home, 37);
-    // Brackets in a sentence, text that is no JSON and a document that does not
-    // parse are the label of one box, kept as the text it is and not cleaned. A
-    // label too long for one is a different pair: a document that is no list on
-    // its own is kept, cut, and the cut is what `cleaned` names, while a
-    // document that is one is refused by the guard before the cut of it is
-    // asked anything. The bound is what tells the two apart.
     let long = format!("ab{}", "1".repeat(OPTION_BYTES));
     let list = format!("[1,2]{}", "1".repeat(OPTION_BYTES));
-    let v = end_with(
-        &home,
-        37,
-        1,
-        &[
-            "--option",
-            "use [Yes] or {No}",
-            "--option",
-            "{not json",
-            "--option",
-            "[1,2",
-            "--option",
-            "array: [1,2]",
-            "--option",
-            &long,
-            "--option",
-            &list,
-        ],
-    )
-    .unwrap();
+    let v = end_with(&home, 37, 1, &["--option", &long, "--option", &list]).unwrap();
     assert_eq!(v["cleaned"], json!(["--option"]));
     assert_eq!(
         v["planning"]["options"],
-        json!([
-            "use [Yes] or {No}",
-            "{not json",
-            "[1,2",
-            "array: [1,2]",
-            long[..OPTION_BYTES],
-            list[..OPTION_BYTES]
-        ])
+        json!([&long[..OPTION_BYTES], &list[..OPTION_BYTES]])
     );
 }
 
