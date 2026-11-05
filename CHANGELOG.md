@@ -13,6 +13,7 @@ empty one above it.
 
 ### Changes
 
+- The dispatcher reads blockers from GitHub's native blocked-by links (#811). An issue with an open blocked-by link is not started, whatever label asks for it, and the log says `wait #N: a blocked-by link holds it`. A link only holds: once every blocker is closed the issue starts under the usual approval rules, so it still needs `tehas:ready` from an allowed labeller. The `<!-- tehas:blocked by=N -->` marked comment keeps working for this release beside the links; a forge answer without the field holds nothing by links. See [Ordering the queue](/operating).
 - `tehas status`, `tehas status --json` (`held`) and the MCP `factory_status` answer (`held`) name each ready issue the dispatcher holds on its own, with the reason and what clears it: for now, an issue whose last cycle parked and whose body has not changed since (#1437). When every issue in line is held that way and no cycle runs, the health line is a `warn` that names them instead of "Idle, taking work.". Before, a factory whose one ready issue was held reported `pass` and taking work for hours.
 - `scripts/verify.sh` checks the workspace's format and lints on every run, not only with `--full`; in CI a missing rustfmt or clippy fails. `tehas setup` runs `--full` on a factory that builds tehas, so unformatted code that passed CI stopped setup three times. `console/dispatch` is formatted again.
 - A cycle that hands off on `lens-fix-reposition` with its pull request open and its review not held waits for a merge (`tehas:awaiting-merge`) instead of parking. The branch already holds the first review round's fix; only the second round's could not be laid on it. It was the most common park from 2026-10-31.
@@ -28,6 +29,8 @@ empty one above it.
 - `store prune` also removes the cycle and plan history of an issue whose cycle ended more than its window ago, keeping that issue's last row of each of the two tables, so the state store no longer grows with every issue the factory has ever closed. `store upkeep`, what `tehasbot clean` calls once an hour, prunes with a window of 90 days (`PRUNE_DAYS` in `console/store/src/upkeep.rs`). `tehas history` still answers for a long-closed issue with the line it keeps, and an issue whose cycle ended without a history line of its own keeps all of its rows (#1414).
 
 ### Adopter action
+
+Name an issue's blockers with GitHub's blocked-by links from now on. The `<!-- tehas:blocked by=N -->` comment still counts in this release and stops counting after it.
 
 `console flags pause show` and `console flags pause read` are gone: a script
 which called one of them now gets 64 and the usage. The words of the flag are
