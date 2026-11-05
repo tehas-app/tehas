@@ -23,6 +23,16 @@
 # layer that does not build, or a build stopped partway, leaves the tag where it
 # was.
 #
+# Before the tag moves, each image that would take it is smoke-run: one offline
+# work turn started in it, with no token, model or network, and the output
+# handed to tehas-cycle sandbox smoke-verdict, which decides. An image that
+# prints no step-started line within 20 s, or prints a result that says its
+# runner crashed, is refused: the build ends 1 and the tag stays where it was,
+# as for a layer that does not build (a base that answered --capabilities and
+# died at every work run: pi-rukas v0.14.30 to v0.14.40). What the three
+# answers mean is in console/cycle/src/sandbox.rs, not here: this command runs
+# docker and passes it the output.
+#
 # The base is the image upstream publishes for each commit, tagged
 # sha-<first 12 characters>, or, when PI_RUKAS_IMAGE_DIGEST (sha256:<64 hex>)
 # is set, that digest: a release builds on the image it was packed with, not on
@@ -57,7 +67,8 @@
 #
 # Exit: 0 built, or nothing to do; 1 the commit moved (--check), or the commit,
 #       the base image or the build could not be had, or the base does not
-#       support what tehas work needs; 64 usage; 78 the instance's settings
+#       support what tehas work needs, or a smoke run of the new image started
+#       no step; 64 usage; 78 the instance's settings
 #       do not load, PI_RUKAS_IMAGE_DIGEST is not sha256:<64 hex>, or the uid of
 #       this account is not a number
 set -euo pipefail
@@ -291,6 +302,27 @@ if [ -n "$unsupported" ]; then
 fi
 reads=$("$cycle" caps reads-images <<<"$caps")
 
+# One offline work turn inside an image that would take the uid tag, and the
+# decision on what it printed (console/cycle/src/sandbox.rs: `sandbox smoke`
+# gives the words of the run, `sandbox smoke-verdict` reads its output and ends
+# 0 only on a step-started line). The run is no row of `sandbox table`: its
+# image is the one this build has just made. The turn bounds itself at 20 s and
+# ends at its first step; the 20 over it are the container's own start.
+smoke_image() { # <image>
+  local words=() word
+  mapfile -td '' words < <("$cycle" sandbox smoke "$1")
+  if [ "${#words[@]}" -lt 8 ] || [ "${words[0]}" != run ]; then
+    echo "sandbox: tehas-cycle gave no words for a smoke run, so $1 cannot be smoke-run" >&2
+    exit 1
+  fi
+  if ! word=$({ timeout -k 5 40 docker "${words[@]}" 2>&1 || true; } |
+    "$cycle" sandbox smoke-verdict); then
+    echo "sandbox: $1 started no step of an offline work run (${word:-no answer}), so $current is left as it was" >&2
+    exit 1
+  fi
+  echo "smoke-ran $1"
+}
+
 stamp=$(date -u +%y%m%d-%H%M)
 # The recipe the build is handed, written from the tracked file just before the
 # build so the two cannot drift: everything up to the line that reads exactly
@@ -363,6 +395,7 @@ docker build \
   --build-arg TEHAS_RUKAS_IMAGES="$reads" \
   -t "$image:$stamp" \
   -f "$uid_recipe" "$here"
+smoke_image "$image:$stamp"
 docker tag "$image:$stamp" "$current"
 rukas_version "$caps"
 # The uid tag names the image cycles run, so the instance's own layer above
@@ -458,6 +491,7 @@ if [ -f "$instance_file" ]; then
   # not a place to leave a host after a build that has just made a new image. The
   # layer that passed the check above takes the tag, and the platform image keeps
   # its own dated tag beside it, so a rollback is one docker tag away either way.
+  smoke_image "$image:$stamp-product"
   docker tag "$image:$stamp-product" "$current"
   echo "built $image:$stamp-product from $instance_file, also tagged $current"
 fi

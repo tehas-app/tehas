@@ -618,6 +618,8 @@ fn last(vars: &mut Vars) {
         "TEHAS_PREVIEW_MIN_FREE",
         "TEHAS_CYCLE_MIN_FREE",
         "TEHAS_CLEAN_MIN_FREE",
+        "TEHAS_CYCLE_STOP_FREE",
+        "TEHAS_SCRATCH_MAX",
     ] {
         let mb = rules::mem_mb(&vars.text(name)).unwrap_or_default();
         vars.set(&format!("{name}_MB"), mb);
@@ -872,6 +874,8 @@ mod tests {
             ("TEHAS_PREVIEW_MIN_FREE_MB", "5120"),
             ("TEHAS_CYCLE_MIN_FREE_MB", "10240"),
             ("TEHAS_CLEAN_MIN_FREE_MB", "30720"),
+            ("TEHAS_CYCLE_STOP_FREE_MB", "5120"),
+            ("TEHAS_SCRATCH_MAX_MB", "20480"),
         ] {
             assert_eq!(vars.text(name), value, "{name}");
         }
