@@ -74,7 +74,8 @@ pub fn plan_sum(issue: &Value) -> String {
 /// The numbers a text names with a closing keyword: `Closes`, `Fixes` or
 /// `Resolves` (any case, colon or none) in front of `#N`, and the references
 /// that keyword carries on: `Closes #21 and #22` names both. A number is read
-/// whole, so `#210` names 210 and never 21.
+/// whole, so `#210` names 210 and never 21, and a keyword the words before it
+/// deny names nothing: `does not fix #7` holds no issue.
 ///
 /// The dispatcher's own reading, and wider than the single-reference one the
 /// cycle and the apply step match (`console/cycle/src/runner.rs`,
@@ -105,6 +106,11 @@ pub fn closing_numbers(body: &str) -> Vec<u64> {
         let Some(m) = c.get(1) else {
             continue;
         };
+        // A keyword the words before it deny names nothing, and neither does
+        // its run: `does not fix #7` says the pull request leaves 7 open.
+        if c.get(0).is_some_and(|k| denied(&body[..k.start()])) {
+            continue;
+        }
         // A reference too long for the type names no issue, and a reference
         // GitHub cannot link names nothing: neither ends the run.
         if let Ok(n) = m.as_str().parse() {
@@ -142,6 +148,22 @@ pub fn closing_numbers(body: &str) -> Vec<u64> {
         }
     }
     out
+}
+
+/// Whether the words before a closing keyword deny it: `not`, `no` or `never`
+/// one or two words back, or a word with `n't` on its end. The reading of
+/// `negated` in `console/cycle/src/finish/run.rs`, which the cycle's finish
+/// reads a body with: `does not fix #7`, `no test fixes #7`, `doesn't fix #7`
+/// and `never fixed #7` name no issue. A negation further back is another
+/// clause's: `nothing here, but it fixes #7` names 7.
+fn denied(before: &str) -> bool {
+    const NO: [&str; 3] = ["not", "no", "never"];
+    before
+        .trim_end()
+        .to_ascii_lowercase()
+        .rsplit(char::is_whitespace)
+        .take(2)
+        .any(|word| NO.contains(&word) || word.ends_with("n't"))
 }
 
 /// The first unfilled placeholder of a text.
@@ -344,6 +366,25 @@ mod tests {
         assert_eq!(closing_numbers("Closes #90"), [90]);
         assert!(closing_numbers("See #9").is_empty());
         assert!(closing_numbers("").is_empty());
+    }
+
+    #[test]
+    fn a_keyword_the_words_before_it_deny_names_nothing() {
+        // The negatives the cycle's finish reads (console/cycle's `negated`),
+        // so a body the finish does not call the issue's holds nothing either.
+        for body in [
+            "This does not fix #7",
+            "No test fixes #7",
+            "It never fixed #7",
+            "This doesn't fix #7",
+            "Does NOT close #7 and #8",
+        ] {
+            assert!(closing_numbers(body).is_empty(), "{body}");
+        }
+        // A negation further back is another clause's.
+        assert_eq!(closing_numbers("Nothing here, but it fixes #7"), [7]);
+        // One denied keyword leaves the next one standing.
+        assert_eq!(closing_numbers("Does not fix #7. Closes #8"), [8]);
     }
 
     #[test]
