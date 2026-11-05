@@ -354,10 +354,16 @@ fn owned(words: &[&str]) -> Vec<String> {
     words.iter().map(|w| w.to_string()).collect()
 }
 
-pub(super) fn first(keep: &str, what: &str, issue: &str) -> Vec<String> {
+/// The first turn's words: what to plan, the brief as its context, the type
+/// the title's own type names (`descriptor`), so pi-rukas does not guess it
+/// from the words left, and the issue when the runner takes it.
+pub(super) fn first(keep: &str, what: &str, kind: Option<&str>, issue: &str) -> Vec<String> {
     let context = captured(fs::read(format!("{keep}/brief.md")).unwrap_or_default());
     let context = String::from_utf8_lossy(&context);
     let mut words = vec!["plan", what, "--start", "--context", &context];
+    if let Some(kind) = kind {
+        words.extend(["--type", kind]);
+    }
     if !issue.is_empty() {
         // pi-rukas 0.14.28 and later keep the issue itself out of the
         // duplicate check.
@@ -885,17 +891,32 @@ mod tests {
         let keep = s.at("keep");
         let context = "# T\n\nBody.";
         assert_eq!(
-            first(&keep, "T (issue #7)", ""),
+            first(&keep, "T (issue #7)", None, ""),
             owned(&["plan", "T (issue #7)", "--start", "--context", context])
         );
         assert_eq!(
-            first(&keep, "T (issue #7)", "7"),
+            first(&keep, "T (issue #7)", None, "7"),
             owned(&[
                 "plan",
                 "T (issue #7)",
                 "--start",
                 "--context",
                 context,
+                "--issue",
+                "7"
+            ])
+        );
+        // The type the title named goes to the planner, before the issue.
+        assert_eq!(
+            first(&keep, "T (issue #7)", Some("chore"), "7"),
+            owned(&[
+                "plan",
+                "T (issue #7)",
+                "--start",
+                "--context",
+                context,
+                "--type",
+                "chore",
                 "--issue",
                 "7"
             ])

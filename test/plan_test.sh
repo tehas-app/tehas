@@ -438,6 +438,24 @@ t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
 t_eq "$t_rc" 0
 t_eq "$(tail_of)" "$image $runner plan Faster search (issue #7) --start --context $(with_brief "$T/brief.md" | tr '\n' ' ')--issue 7 "
 
+t_case "a first turn gives the title's own type with --type when the runner takes it, and plans the rest"
+# pi-rukas reads no type off a descriptor without chore's word in it and plans
+# a feature, so the type the title is taken off goes over by itself.
+reset
+jq -n '{contract: "0.14.0", features: {planTurns: true},
+  verbs: {plan: {flags: ["--start", "--context", "--resume", "--answer", "--confirm", "--type"]}}}' >"$T/caps.json"
+runner_keeps '{"turn":1}'
+printf '# chore: Give the sync captured_logs a bound of its own\n\nBody.\n' >"$T/brief.md"
+t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
+t_eq "$t_rc" 0
+t_eq "$(tail_of)" "$image $runner plan Give the sync captured_logs a bound of its own --start --context $(with_brief "$T/brief.md" | tr '\n' ' ')--type chore "
+# A runner that takes no --type finds chore in the words: the type stays there.
+reset
+printf '# chore: Give the sync captured_logs a bound of its own\n\nBody.\n' >"$T/brief.md"
+t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
+t_eq "$t_rc" 0
+t_eq "$(tail_of)" "$image $runner plan chore: Give the sync captured_logs a bound of its own --start --context $(with_brief "$T/brief.md" | tr '\n' ' ')"
+
 t_case "a resumed turn never passes --issue: the session keeps it and the runner refuses it there"
 first_turn_ran
 caps_issue

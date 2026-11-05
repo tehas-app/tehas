@@ -524,13 +524,14 @@ fn turn_of(libexec: &str, w: &Words) -> Result<u8, u8> {
                 "tehas plan: the brief of #{issue} could not be read, not starting a turn"
             )));
         }
-        let what = descriptor(&text, issue);
+        let typed = tehas_cycle::caps::verb(&caps, "plan", "--type");
+        let (what, kind) = descriptor(&text, issue, typed);
         let named = if tehas_cycle::caps::verb(&caps, "plan", "--issue") {
             issue
         } else {
             ""
         };
-        turn::first(&w.keep, &what, named)
+        turn::first(&w.keep, &what, kind, named)
     } else {
         turn::later(&w.keep, &w.session, &w.answer, &tree, &repo, &new)?
     };

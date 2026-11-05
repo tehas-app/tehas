@@ -1084,7 +1084,13 @@ starts with its classification as a conventional-commit type, `feat:`, `fix:`,
 has; pi-rukas gives the cycle's pull request the same type, where a title
 without one becomes `chore(work):`. The issue's title is handed to the planner
 as what to plan without its type (`feat: `, `fix(dispatch): `), so the drafted
-title does not carry it twice. When the issue's text has a `pi-spec v1` block
+title does not carry it twice, and the type goes to the planner as its own
+`--type`: `feat` is a feature, `fix` and `bug` a bug, `chore` and `refactor` a
+chore, `research` a spike and `EPIC` an epic. A type with none of these
+(`docs:`, `perf:`) leaves the planner to read the kind of work from the title's
+words, as a title with no type does. A planner image that takes no `--type`
+keeps `chore`, `refactor`, `research` and `EPIC` in the title, where it finds
+them. When the issue's text has a `pi-spec v1` block
 with `criteria` and no Acceptance criteria heading of its own, the planner is
 also given those criteria under `ACCEPTANCE CRITERIA:`, one bullet each, which
 is where pi-rukas reads the request's criteria from: it reads none inside the
