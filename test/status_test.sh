@@ -148,6 +148,19 @@ t_eq "$(jq -c '[.repo, (.epics | map(.number))]' "$live/epics.json")" '["acme/wi
 t_eq "$(jq -c '.epics[0].subIssues | map([.number, .state])' "$live/epics.json")" '[[8,"closed"],[9,"open"]]'
 t_eq "$(jq -c '.epics[0] | [.total, .completed, .more]' "$live/epics.json")" '[2,1,0]'
 
+t_case "an open issue labelled epic with no sub-issues is listed apart and the health file warns of it"
+reset
+epics_page '{"number":7,"title":"An epic","url":"u7","labels":{"nodes":[{"name":"epic"}]},"subIssuesSummary":{"total":1,"completed":0},
+  "subIssues":{"nodes":[{"number":8,"title":"To do","url":"u8","state":"OPEN","repository":{"nameWithOwner":"acme/widget"}}]}}' \
+  '{"number":5,"title":"EPIC: Unlinked","url":"u5","labels":{"nodes":[{"name":"epic"}]},"subIssuesSummary":{"total":0,"completed":0},"subIssues":{"nodes":[]}}' \
+  '{"number":3,"title":"Plain","url":"u3","labels":{"nodes":[]},"subIssuesSummary":{"total":0,"completed":0},"subIssues":{"nodes":[]}}'
+t_run "$status"
+t_eq "$t_rc" 0
+t_eq "$(jq -c '[(.epics | map(.number)), .unlinked]' "$live/epics.json")" '[[7],[5]]'
+t_eq "$(jq -r .status "$live/health.json")" warn
+t_eq "$(jq -c .checks.epics.unlinked "$live/health.json")" '[5]'
+t_contains "$(jq -r .output "$live/health.json")" "Labelled epic with no sub-issues: #5."
+
 t_case "a read of the epics that fails leaves the file as it was and the snapshot is still written"
 reset
 mkdir -p "$live"
@@ -156,6 +169,8 @@ touch "$T/epics-down"
 t_run "$status"
 t_eq "$t_rc" 0
 t_eq "$(jq -c .epics "$live/epics.json")" '"before"'
+t_eq "$(jq -c .checks.epics "$live/health.json")" null
+t_eq "$(jq -r .status "$live/health.json")" pass
 t_eq "$(jq -r '.queued | length' "$live/status.json")" 2
 t_eq "$(find "$live" -name 'epics.json.*' | wc -l)" 0
 
