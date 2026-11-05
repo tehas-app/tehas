@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for lib/github-app.sh and libexec/github-token, with the console behind
+# Tests for lib/github-app.sh and tehasbot github-token, with the console behind
 # it (console/src/github.rs): the GitHub App's installation token, made from a
 # signed JWT and kept until 10 minutes are left. openssl and curl are stubs: no
 # key is read, no network is asked.
@@ -11,7 +11,7 @@ t_console || t_bad "no console: $t_console_why"
 # The console the commands under test run.
 T_ENV_ALWAYS=(TEHAS_CONSOLE="$T_CONSOLE" TEHAS_CONSOLE_CMD="$T_CONSOLE")
 
-token_cmd="$T_ROOT/libexec/github-token"
+token_cmd="$T_ROOT/bin/tehasbot github-token"
 lib=". '$T_ROOT/lib/config.sh' && . '$T_ROOT/lib/github-app.sh' && tehas_load"
 kept=$T/home/tehas/state/github/token
 key=$T/home/.config/tehas/github-app.pem
@@ -210,12 +210,12 @@ installed() {
   local h=$T/home/tehas
   mkdir -p "$h/lib" "$h/libexec" "$h/bin" "$h/shim"
   cp "$T_ROOT/lib/config.sh" "$T_ROOT/lib/github-app.sh" "$T_ROOT/lib/paths.sh" "$h/lib/"
-  cp "$T_ROOT/libexec/github-token" "$h/libexec/"
+  cp "$T_ROOT/bin/tehasbot" "$h/bin/"
   ln -sf "$T_CONSOLE" "$h/libexec/console"
   cp "$T_ROOT/host/shim/gh" "$h/shim/gh"
   cp "$T_ROOT/host/env.sh" "$h/env.sh"
   printf '#!/usr/bin/env bash\necho "gh $* token=${GH_TOKEN:-none}"\n' >"$h/bin/gh"
-  chmod +x "$h/bin/gh" "$h/shim/gh" "$h/libexec/github-token"
+  chmod +x "$h/bin/gh" "$h/shim/gh" "$h/bin/tehasbot"
 }
 
 t_case "tehas_github_app_env drops GH_TOKEN, puts the shim first and gives git the shim's helper"

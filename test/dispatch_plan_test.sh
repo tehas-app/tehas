@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for libexec/dispatch: planning sessions, their turns and answers.
+# Tests for tehasbot dispatch: planning sessions, their turns and answers.
 # shellcheck disable=SC2016  # snippets are expanded by the shell under test
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
@@ -245,10 +245,11 @@ rm -rf "$short"
 mkdir -p "$short/libexec" "$short/lib"
 cp "$T_ROOT"/lib/*.sh "$short/lib/"
 cp "$T_ROOT"/libexec/* "$short/libexec/"
+t_front "$short"
 # The Rust poll finds the brief beside its own program, as on a host.
 cp "$T_DISPATCH" "$short/libexec/tehas-dispatch"
 T_ENV_ALWAYS=()
-t_run "$short/libexec/dispatch"
+t_run "$short/bin/tehasbot dispatch"
 t_eq "$(plan_calls)" ""
 t_contains "$t_out" "ERROR: no refine brief at $short/libexec/../lib/refine-brief.md, not refining #7"
 

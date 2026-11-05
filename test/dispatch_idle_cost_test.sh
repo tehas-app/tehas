@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for libexec/dispatch: the cost of a poll that starts nothing, on a host
+# Tests for tehasbot dispatch: the cost of a poll that starts nothing, on a host
 # the size of a working one. The fixture has 500 old lock files, 50 shipped
 # issues and 5 blocked ones; the poll starts no cycle. Two figures are pinned:
 # it makes no write to GitHub, and it starts fewer processes than the ceiling

@@ -1,9 +1,0 @@
-#!/usr/bin/env bash
-# tehas plan: one turn of a planning session. console/src/plan/start.rs runs
-# it, console/src/usage/plan.txt is its text. A path the dispatcher, bin/tehas
-# and test/sandbox_argv_test.sh name.
-#
-# Exit: the command's; 78 no console.
-here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-[ -x "$here/console" ] || { echo "tehas plan: no console beside this command at $here/console, run install.sh" >&2; exit 78; }
-exec "$here/console" run "$here" "$EUID" "$BASH" tehas plan "$@"
