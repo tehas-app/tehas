@@ -192,30 +192,6 @@ fi
 # shellcheck source=lib/paths.sh
 . "$root/lib/paths.sh"
 
-# Every apiKey of a models.json is a word or a set TEHAS_MODEL_KEY_ name; else
-# one line, and 78. The rule of console/core/src/models.rs, here in jq because
-# this runs before a console is built or copied.
-model_keys_ok() { # <file>
-  local bad name
-  bad=$(jq -r '.providers // {} | to_entries[] | .key as $p | .value
-    | (.apiKey, .backupApiKey) | strings
-    | select(test("^[$][{]?TEHAS_MODEL_KEY_[A-Z0-9_]+[}]?$") or (test("[$!]") | not) | not)
-    | $p' "$1" 2>/dev/null | head -n 1)
-  if [ -n "$bad" ]; then
-    tehas_err "models.json: provider $bad has an apiKey that is neither a word nor \$TEHAS_MODEL_KEY_<NAME> (see $1)"
-    return 78
-  fi
-  while read -r name; do
-    [ -n "$name" ] || continue
-    if [ -z "${!name:-}" ]; then
-      tehas_err "models.json names $name and it is not set: put it in ~/.config/tehas/env"
-      return 78
-    fi
-  done < <(jq -r '.providers // {} | .[] | (.apiKey, .backupApiKey) | strings
-    | select(startswith("$")) | ltrimstr("$") | ltrimstr("{") | rtrimstr("}")' "$1" 2>/dev/null | sort -u)
-  return 0
-}
-
 note() { if [ "$check" = 1 ]; then report+=("$1"); else echo "$1"; fi; }
 # program_label <name>: how a message names it.
 program_label() {
@@ -274,8 +250,8 @@ cache_miss() {
 # unsafe_tool_dir: a tool directory this run would take its compiler from that
 # is not the running user's own, or nothing. tehas_tool_paths puts those
 # directories first on PATH and the programs cargo builds here are installed in
-# libexec, where every cycle and the dispatcher run them. Only a directory that is there is judged, by the rule instance_findings
-# applies to the settings files.
+# libexec, where every cycle and the dispatcher run them. Only a directory that is there is judged, by the rule the console's
+# `update findings` applies to the settings files.
 unsafe_tool_dir() {
   local dir mode owner group
   for dir in "$TEHAS_HOME/bin" "$TEHAS_HOME/tools/node/bin" "$NPM_CONFIG_PREFIX/bin" \
@@ -476,65 +452,27 @@ if [ -d "$root/console" ] && [ -z "${TEHAS_SETTINGS_CMD:-}" ]; then
 fi
 
 # --- 1. Instance settings ---------------------------------------------------
-# Every finding is one line. Any finding stops a real run before it changes
-# anything.
+# Every finding is one line, and any finding stops a real run before it changes
+# anything. The console names them (console/src/update/findings.rs): settings
+# another account can write, judged before instance.env is sourced, then the
+# load, the settings an instance has to set, and models.json against the models
+# the agents and the product's session use. What the instance's own shell
+# prints while it is sourced counts too, as it did when this was tehas_load.
 instance_findings() {
-  local dir file models product_model mode owner group provider model
-  # The settings are shell that every command runs: nobody else may write them.
-  # A group-writable file is accepted only for the user's own primary group.
-  # Checked before tehas_load, which sources instance.env: a file another
-  # account can write is refused, not run.
-  dir=$(tehas_instance_dir)
-  # Only a file that exists has permissions to check: a missing directory or a
-  # missing instance.env is tehas_load's to name. A file that is there is
-  # judged here, before anything is sourced. The instance's own
-  # sandbox.Dockerfile is among them: its bytes are built into the image every
-  # cycle runs, so they are as trusted as the platform's Dockerfile and only
-  # the tehas user may write them.
-  for file in "$dir" "$dir/instance.env" "$dir/sandbox.Dockerfile"; do
-    [ -e "$file" ] || [ -L "$file" ] || continue
-    # -L: a symlink is judged by the file it points at.
-    mode=$(stat -L -c %a "$file" 2>/dev/null) || mode=0
-    owner=$(stat -L -c %u "$file" 2>/dev/null) || owner=-1
-    group=$(stat -L -c %g "$file" 2>/dev/null) || group=-1
-    if [ "$owner" != "$(id -u)" ]; then
-      echo "tehas: $file is not owned by $(id -un)"
-      return 0
-    elif [ $((8#$mode & 2)) != 0 ]; then
-      echo "tehas: $file is writable by everyone (chmod o-w)"
-      return 0
-    elif [ $((8#$mode & 16)) != 0 ] && [ "$group" != "$(id -g)" ]; then
-      echo "tehas: $file is writable by another group (chmod g-w)"
-      return 0
-    fi
-  done
-  tehas_load 2>&1 || return 0
-  (tehas_require_instance_settings 2>&1) || return 0
-  models=$dir/models.json
-  if [ ! -r "$models" ]; then
-    echo "tehas: no models.json in $dir"
-  elif ! jq -e . "$models" >/dev/null 2>&1; then
-    echo "tehas: $models is not valid JSON"
-  else
-    while read -r provider model; do
-      jq -e --arg p "$provider" --arg m "$model" \
-        '.providers[$p].models // [] | any(.id == $m)' "$models" >/dev/null ||
-        echo "tehas: models.json does not list model $model under provider $provider"
-    done < <(tehas_models)
-    # A token is named, never written: models.json is in a repository.
-    model_keys_ok "$models" 2>&1
-    # The session's model is named by the product, not the instance.
-    if [ -r "$TEHAS_WORK_REPO/.pi/settings.json" ]; then
-      product_model=$(jq -r '"\(.defaultProvider // "")/\(.defaultModel // "")"' "$TEHAS_WORK_REPO/.pi/settings.json" 2>/dev/null || echo "/")
-      if [ "$product_model" != "/" ]; then
-        jq -e --arg p "${product_model%%/*}" --arg m "${product_model#*/}" \
-          '.providers[$p].models // [] | any(.id == $m)' "$models" >/dev/null ||
-          echo "tehas: models.json does not list the product's session model $product_model (from $TEHAS_WORK_REPO/.pi/settings.json)"
-      fi
-    fi
-  fi
+  local console rc=0
+  console=$(_tehas_settings_console)
+  [ -x "$console" ] || { echo "tehas: no console at $console to load the settings: run install.sh"; return 0; }
+  (export "${!TEHAS_@}" "${!PI_ENSEMBLE_@}" "${!PI_RUKAS_@}"; "$console" update findings "$EUID" "$BASH" </dev/null) 2>&1 || rc=$?
+  case $rc in
+    0 | 78) ;;
+    *) echo "tehas: the console at $console cannot judge the settings (status $rc); a real run of install.sh builds the one this tree needs" ;;
+  esac
 }
 
+# The home tehas_load would take, set here as it sets it, so the console that
+# judges the settings sees the same one.
+: "${TEHAS_HOME:=$HOME/tehas}"
+export TEHAS_HOME
 findings=$(instance_findings)
 if [ -n "$findings" ]; then
   if [ "$check" = 1 ]; then
