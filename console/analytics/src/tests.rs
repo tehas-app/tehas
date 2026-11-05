@@ -1296,7 +1296,7 @@ fn a_database_that_cannot_be_written_is_an_error_and_stays() {
     let state = home.join("state");
     fs::set_permissions(&state, fs::Permissions::from_mode(0o500)).unwrap();
     let err = execute(&home, &Cmd::Event(2, "ready".into(), None), now);
-    fs::set_permissions(&state, fs::Permissions::from_mode(0o700)).unwrap();
+    fs::set_permissions(&state, fs::Permissions::from_mode(0o700)).unwrap(); // a directory
     assert_eq!(err.unwrap_err().0, 70);
     assert!(file.is_file());
     assert!(!home.join("state/analytics.db.broken").exists());

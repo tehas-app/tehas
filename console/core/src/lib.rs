@@ -33,5 +33,6 @@ pub mod size;
 pub mod slice;
 pub mod slow;
 pub mod testdir;
+pub mod testing;
 pub mod textcheck;
 pub mod time;

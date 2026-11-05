@@ -73,7 +73,7 @@ fn backup_keeps_the_newest_seven_and_no_other_name_is_touched() {
     let home = home("backup-keep");
     let dir = home.join("state/backup");
     fs::create_dir_all(&dir).unwrap();
-    fs::set_permissions(&dir, fs::Permissions::from_mode(0o700)).unwrap();
+    fs::set_permissions(&dir, fs::Permissions::from_mode(0o700)).unwrap(); // a directory
     for d in 1..=8 {
         fs::write(dir.join(format!("tehas-202610{d:02}.db")), b"old").unwrap();
     }

@@ -1309,6 +1309,7 @@ mod tests {
         fs::create_dir_all(&blocked).unwrap();
         fs::set_permissions(&blocked, fs::Permissions::from_mode(0o000)).unwrap();
         assert_eq!(du(&blocked, &opts()), (None, "unreadable"));
+        // A directory, given back its mode so the case's guard can remove it.
         fs::set_permissions(&blocked, fs::Permissions::from_mode(0o755)).unwrap();
     }
 
