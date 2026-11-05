@@ -591,6 +591,27 @@ fn allowlist() {
     assert_eq!(one["session"]["filed"][0]["issue"], 20);
 }
 
+#[test]
+fn a_summary_and_an_attempt_name_fields_of_the_contract() {
+    // The two subsets are named in the crate; the fields they name are the
+    // contract in `tehas_core::snapshot`, which the analytics writer reads
+    // too. A name left stale there would answer nothing for that field and
+    // fail nowhere, so every one of them is checked against the one list.
+    let fields: BTreeSet<&str> = tehas_core::snapshot::RUN_FIELDS
+        .iter()
+        .map(|f| f.0)
+        .collect();
+    for k in mcp::sessions::SUMMARY
+        .iter()
+        .chain(mcp::sessions::ATTEMPT_KEYS.iter())
+    {
+        assert!(fields.contains(k), "{k}");
+    }
+    // It is the one field only a full session answers.
+    assert!(!mcp::sessions::SUMMARY.contains(&"concurrent"));
+    assert!(!mcp::sessions::ATTEMPT_KEYS.contains(&"concurrent"));
+}
+
 fn schema_of(name: &str) -> Value {
     list_scoped(Scope::Full)
         .as_array()

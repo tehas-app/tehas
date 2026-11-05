@@ -233,6 +233,22 @@ pub fn state_lines(h: &J, now: i64, stale: bool, poll: &str) -> Vec<String> {
     if let Some(held) = checks.at(&["demand", "refreshHold"]).as_str() {
         lines.push(format!("refresh   held: {held}"));
     }
+    for h in checks.at(&["slice", "held"]).items() {
+        lines.push(format!(
+            "held      #{}: {}; {}",
+            h.get("issue").text(),
+            oneline_of(h.get("text")),
+            oneline_of(h.get("clear"))
+        ));
+    }
+    let alone = label_alone(checks.at(&["demand", "labelAlone"]));
+    if !alone.is_empty() {
+        let list: Vec<String> = alone.iter().map(|n| format!("#{n}")).collect();
+        lines.push(format!(
+            "blocked   by the label alone, no blockers named: {}. Each waits until an allowed account comments a `<!-- tehas:blocked by=N -->` marker on it or a person takes tehas:blocked off",
+            list.join(", ")
+        ));
+    }
     if checks.get("allHands").is_true() {
         lines.push(
             "all-hands tehas:all-hands is on the control issue, applied by an allowed account"
@@ -240,6 +256,23 @@ pub fn state_lines(h: &J, now: i64, stale: bool, poll: &str) -> Vec<String> {
         );
     }
     lines
+}
+
+/// The issues the health file lists as held by `tehas:blocked` alone: its
+/// issue numbers, at most 50, and nothing when it lists anything else.
+fn label_alone(v: &J) -> Vec<u64> {
+    let n: Vec<u64> = v
+        .items()
+        .iter()
+        .filter_map(|x| match x {
+            J::Num(t) => t.parse::<u64>().ok().filter(|n| *n > 0),
+            _ => None,
+        })
+        .collect();
+    if n.len() != v.items().len() {
+        return Vec::new();
+    }
+    n.into_iter().take(50).collect()
 }
 
 /// What holds the factory paused, one line for each switch that is set:
@@ -560,6 +593,13 @@ pub fn status_json(h: &J, now: i64, stale: bool) -> J {
             if !d.get("refreshHold").is_null() {
                 f.push(("refreshHold", J::Str(oneline_of(d.get("refreshHold")))));
             }
+            let alone = label_alone(d.get("labelAlone"));
+            if !alone.is_empty() {
+                f.push((
+                    "labelAlone",
+                    J::Arr(alone.iter().map(|n| J::Num(n.to_string())).collect()),
+                ));
+            }
             obj(f)
         }
     };
@@ -586,6 +626,20 @@ pub fn status_json(h: &J, now: i64, stale: bool) -> J {
     } else {
         J::Null
     };
+    let held = J::Arr(
+        s.get("held")
+            .items()
+            .iter()
+            .map(|h| {
+                obj(vec![
+                    ("issue", h.get("issue").clone()),
+                    ("why", h.get("why").clone()),
+                    ("text", J::Str(oneline_of(h.get("text")))),
+                    ("clear", J::Str(oneline_of(h.get("clear")))),
+                ])
+            })
+            .collect(),
+    );
     let room = if s.is_null() {
         J::Null
     } else {
@@ -627,6 +681,7 @@ pub fn status_json(h: &J, now: i64, stale: bool) -> J {
         ("planning", J::Arr(planning)),
         ("demand", demand),
         ("hold", hold),
+        ("held", held),
         ("room", room),
     ];
     fields.retain(|(k, v)| !matches!(*k, "allHands" | "limit") || !v.is_null());
@@ -661,6 +716,20 @@ mod tests {
     }
 
     #[test]
+    fn issues_held_by_the_label_alone_are_one_line_of_what_to_do() {
+        let health = h(
+            r#"{"status":"pass","output":"Idle.","time":"2026-10-17T14:00:00Z",
+          "checks":{"demand":{"waiting":0,"labelAlone":[7,9]}}}"#,
+        );
+        let lines = state_lines(&health, NOW, false, "poll      last 1 s");
+        assert!(lines.contains(&"blocked   by the label alone, no blockers named: #7, #9. Each waits until an allowed account comments a `<!-- tehas:blocked by=N -->` marker on it or a person takes tehas:blocked off".to_string()), "{lines:?}");
+        let many: Vec<String> = (1..=80).map(|n| n.to_string()).collect();
+        assert_eq!(label_alone(&h(&format!("[{}]", many.join(",")))).len(), 50);
+        assert!(label_alone(&h(r#"[7,"9"]"#)).is_empty());
+        assert!(label_alone(&J::Null).is_empty());
+    }
+
+    #[test]
     fn a_reason_is_one_line() {
         assert_eq!(oneline("  a\n\n\tb\u{2028}c  "), "a b c");
     }
@@ -672,7 +741,8 @@ mod tests {
           "checks":{"queue":{"inLine":2,"building":0,"review":1,"stopped":0,"paused":true,"time":"2026-10-17T14:00:00Z"},
           "pause":{"flag":{"at":"2026-10-17T13:00:20Z","reason":"a\nb"},"label":true,"lifted":false},
           "limit":{"state":"ok","cycles":1,"plan":false,"reason":"night"},
-          "demand":{"refreshHold":"two in review"},"allHands":true}}"#,
+          "demand":{"refreshHold":"two in review"},"allHands":true,
+          "slice":{"why":"","held":[{"issue":7,"why":"parked","text":"its last cycle parked on `gate`","clear":"edit the body"}]}}}"#,
         );
         assert_eq!(
             state_lines(&health, NOW, false, "poll      last 1 s"),
@@ -684,6 +754,7 @@ mod tests {
                 "pause     label: tehas:pause on the control issue",
                 "limit     1 cycle at once, planning off, until cleared: night",
                 "refresh   held: two in review",
+                "held      #7: its last cycle parked on `gate`; edit the body",
                 "all-hands tehas:all-hands is on the control issue, applied by an allowed account",
             ]
         );
@@ -821,7 +892,7 @@ mod tests {
             h(r#"{"status":"pass","output":"Idle.","time":"2026-10-17T14:00:00Z","checks":{}}"#);
         assert_eq!(
             status_json(&health, NOW, false).dump(),
-            r#"{"api":1,"time":"2026-10-17T14:00:00Z","age":20,"stale":false,"state":"pass","reasons":[],"paused":{"local":false,"label":false},"running":[],"planning":[],"demand":null,"hold":null,"room":null}"#
+            r#"{"api":1,"time":"2026-10-17T14:00:00Z","age":20,"stale":false,"state":"pass","reasons":[],"paused":{"local":false,"label":false},"running":[],"planning":[],"demand":null,"hold":null,"held":[],"room":null}"#
         );
     }
 
