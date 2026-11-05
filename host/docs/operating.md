@@ -465,6 +465,16 @@ lean without the label ([tehas work](/tools#tehas-work)).
   its fields are pi-rukas's to define. pi-rukas's `/plan` writes one, and
   [Troubleshooting](/troubleshooting#what-a-park-says) says what to do when the
   block is missing. A second block, or one that is no JSON, counts as none.
+- Once lean runs, `tehasbot cycle` reads how it ended from its result, as it
+  does for classic, and its end comment names the driver: ``driver `lean` ``. Exit 0 with a
+  merged pull request takes the cycle's labels off. A green pull request that
+  lean says is `ready` goes to `tehas:awaiting-merge`; a draft, a red run or a
+  run with no pull request parks with lean's reason. Exit 11, not ready, parks
+  and asks for a `pi-spec v1` block lean accepts. Tehas posts the one comment:
+  when lean posted its own report on the issue, tehas does not repeat it. Lean
+  writes no step lines to its stream, so the console of a running lean cycle
+  shows no steps, and a lean runner that died is looked up on its branch
+  `lean/issue-<N>`.
 
 ### What a poll costs
 
