@@ -1,6 +1,6 @@
 # shellcheck shell=bash
 # shellcheck disable=SC2016,SC2034  # stub bodies are expanded when the stub runs; the parts read the variables
-# What the tests of libexec/work share: test/work_*_test.sh source this. A
+# What the tests of tehas work share: test/work_*_test.sh source this. A
 # stub docker records its arguments, one per line, and exits at once, so no
 # cycle runs. It answers --capabilities from $T/caps.json.
 # The part has sourced test/lib.sh before this.
@@ -31,7 +31,6 @@ nap=$(command -pv sleep)
 tree=$T/tree
 mkdir -p "$tree/libexec"
 ln -s "$T_ROOT/lib" "$tree/lib"
-ln -s "$T_ROOT/libexec/work" "$tree/libexec/work"
 # The measure of a start is the real console's: a size verb goes to it.
 # shellcheck disable=SC2154  # t_console_why is set by t_console (test/lib.sh)
 t_console || t_bad "no console: $t_console_why"
@@ -115,7 +114,10 @@ T_ENV_ALWAYS+=(TEHAS_WATCH_CLOCK="$tree/libexec/tehas-cycle")
 # shellcheck disable=SC2154  # t_cycle_why is set by t_cycle (test/lib.sh)
 t_cycle || t_bad "no tehas-cycle: $t_cycle_why"
 cp "$T_CYCLE" "$tree/libexec/tehas-cycle.real"
+# tehas work as bin/tehas runs it: the console loads the settings and execs
+# the tehas-cycle beside it.
 work="$tree/libexec/work"
+t_verb "$work" tehas work
 checkout=$T/home/tehas/repos/widget
 # The workspace of issue 7 on the host, and the path every cycle has it at
 # inside its container.
