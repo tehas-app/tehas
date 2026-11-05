@@ -423,9 +423,16 @@ pub fn gh_reads(args: &[String]) -> bool {
     }
 }
 
+/// gh's output as JSON, with each account vouched for (tehas_core::accounts).
+fn parse(out: &str) -> Value {
+    let mut v = parse_raw(out);
+    tehas_core::accounts::vouch(&mut v);
+    v
+}
+
 /// gh's output as JSON. --paginate prints one array a page, one after
 /// another: they are one list, as `jq -s add` makes them.
-fn parse(out: &str) -> Value {
+fn parse_raw(out: &str) -> Value {
     if let Ok(v) = serde_json::from_str(out) {
         return v;
     }
@@ -706,7 +713,13 @@ impl Calls {
                 ran: Some(outcome.ran),
             });
         }
-        Ok(parse(&outcome.ran.out))
+        // Who the token is acts for nobody: the guard that refuses a bot on
+        // the allowed list reads its login as GitHub gives it.
+        Ok(if args == ["api", "user"] {
+            parse_raw(&outcome.ran.out)
+        } else {
+            parse(&outcome.ran.out)
+        })
     }
 
     /// gh's output as JSON, whatever its exit status: the bash reads some
@@ -719,7 +732,9 @@ impl Calls {
         self.gh_count += 1;
         let extra = gh_env(self.gh_token.as_deref());
         let r = run_input_env(&self.gh, &args, None, self.bound, &extra);
-        serde_json::from_str(&r.out).ok()
+        let mut v = serde_json::from_str(&r.out).ok()?;
+        tehas_core::accounts::vouch(&mut v);
+        Some(v)
     }
 
     /// The answers of several store reads, asked in one run of the store
