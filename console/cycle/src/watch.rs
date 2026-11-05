@@ -12,7 +12,7 @@
 
 use crate::clock;
 use crate::start::attempt_shaped;
-use crate::{host, progress, runner};
+use crate::{host, progress, runner, scratch};
 use serde_json::Value;
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
@@ -51,6 +51,8 @@ pub struct Given {
     pub renewer: String,
     /// The whole command that starts the container.
     pub docker: Vec<String>,
+    /// What the cycle's scratch may take of the disk.
+    pub scratch: scratch::Bounds,
 }
 
 /// The cycle's clock: the boot's, or the test's program.
@@ -283,6 +285,8 @@ pub struct Seen<'a> {
     pub interrupted: bool,
     pub stalled: bool,
     pub timed: bool,
+    /// This command stopped the cycle for disk (src/scratch.rs).
+    pub disk: bool,
     /// This command stopped a container that was still running.
     pub stopped: bool,
     /// The time limit had passed when the container ended.
@@ -326,6 +330,9 @@ pub fn decide(s: &Seen) -> Decided {
             if s.timed && stopped_word(&status) {
                 status = "timeout".to_string();
             }
+            if s.disk && stopped_word(&status) {
+                status = "stopped".to_string();
+            }
         }
         None => {
             if s.interrupted {
@@ -337,6 +344,9 @@ pub fn decide(s: &Seen) -> Decided {
             if s.timed {
                 status = "timeout".to_string();
             }
+            if s.disk {
+                status = "stopped".to_string();
+            }
         }
     }
     // The runner stops itself at the --timeout it is given. Its result then
@@ -344,6 +354,7 @@ pub fn decide(s: &Seen) -> Decided {
     let mut ran_out = false;
     if !s.timed
         && !s.stalled
+        && !s.disk
         && !s.interrupted
         && s.rc != 137
         && s.at_limit
@@ -366,6 +377,7 @@ pub fn decide(s: &Seen) -> Decided {
         && !s.timed
         && !ran_out
         && !s.stalled
+        && !s.disk
         && s.rc != 137
         && (1..=999).contains(&s.rc)
         && s.log_empty;
@@ -383,7 +395,7 @@ pub fn exit_of(s: &Seen, d: &Decided) -> i32 {
     if d.killed {
         return 137;
     }
-    if s.stalled || s.timed {
+    if s.stalled || s.timed || s.disk {
         return 2;
     }
     let own = s.rc.to_string();
@@ -441,6 +453,7 @@ struct Files {
     forks: PathBuf,
     stalled: PathBuf,
     timed: PathBuf,
+    disk: PathBuf,
     result: PathBuf,
     progress: PathBuf,
     runner_exit: PathBuf,
@@ -458,6 +471,7 @@ impl Files {
             forks: f("forks"),
             stalled: f("stalled"),
             timed: f("timed"),
+            disk: f("disk"),
             result: f("result.json"),
             progress: f("progress.json"),
             runner_exit: f("runner_exit"),
@@ -805,6 +819,7 @@ pub fn run(home: &Path, g: &Given, stop: Arc<AtomicBool>) -> i32 {
     w.now_file(true, "running");
 
     let (mut stalled, mut timed, mut stopped) = (false, false, false);
+    let mut disk: Option<scratch::Over> = None;
     let mut seen = started;
     let mut last = clock.now();
     while !w.interrupted && docker.alive() {
@@ -839,6 +854,11 @@ pub fn run(home: &Path, g: &Given, stop: Arc<AtomicBool>) -> i32 {
                 break;
             }
             _ => {}
+        }
+        if let Some(over) = scratch::check(&g.scratch) {
+            say(&over.line());
+            disk = Some(over);
+            break;
         }
     }
 
@@ -881,6 +901,7 @@ pub fn run(home: &Path, g: &Given, stop: Arc<AtomicBool>) -> i32 {
         interrupted: w.interrupted,
         stalled,
         timed,
+        disk: disk.is_some(),
         stopped,
         at_limit: time::now() - started >= g.limit as i64,
         log_empty,
@@ -897,6 +918,10 @@ pub fn run(home: &Path, g: &Given, stop: Arc<AtomicBool>) -> i32 {
     if stalled {
         let words = format!("{}\n{step_in_flight}\n", g.stall);
         w.write_or_say(&w.files.stalled, &words);
+    }
+    if let Some(over) = &disk {
+        let words = format!("{}\n{step_in_flight}\n", over.note());
+        w.write_or_say(&w.files.disk, &words);
     }
     if decided.killed {
         // The only account of the end when the runner wrote no result: lost, it
@@ -941,7 +966,7 @@ pub fn run(home: &Path, g: &Given, stop: Arc<AtomicBool>) -> i32 {
     if step.is_empty() {
         step = "-".to_string();
     }
-    if step == "-" && (timed || stalled || decided.ran_out) {
+    if step == "-" && (timed || stalled || disk.is_some() || decided.ran_out) {
         step = step_in_flight;
     }
     w.now_file(false, &status);
@@ -954,6 +979,7 @@ pub fn run(home: &Path, g: &Given, stop: Arc<AtomicBool>) -> i32 {
     match status.as_str() {
         "timeout" => cap = "wall-clock".to_string(),
         "stalled" => cap = "stall".to_string(),
+        "stopped" if disk.is_some() => cap = "disk".to_string(),
         _ => {}
     }
     say(&format!(
@@ -967,6 +993,7 @@ pub fn run(home: &Path, g: &Given, stop: Arc<AtomicBool>) -> i32 {
     if !decided.killed
         && !stalled
         && !timed
+        && disk.is_none()
         && outcome.is_some()
         && empty_err
         && (!cap.is_empty() || status == "aborted")
@@ -1013,6 +1040,7 @@ mod tests {
             interrupted: false,
             stalled: false,
             timed: false,
+            disk: false,
             stopped: false,
             at_limit: false,
             log_empty: false,
@@ -1073,6 +1101,36 @@ mod tests {
             };
             assert_eq!(exit_of(&s, &decide(&s)), want);
         }
+    }
+
+    #[test]
+    fn a_disk_stop_is_stopped_and_2() {
+        let o = json!({"status": "interrupted", "exitCode": 21});
+        for s in [
+            Seen {
+                outcome: Some(&o),
+                disk: true,
+                stopped: true,
+                ..seen(21)
+            },
+            Seen {
+                disk: true,
+                stopped: true,
+                ..seen(137)
+            },
+        ] {
+            let d = decide(&s);
+            assert_eq!(d.status, "stopped");
+            assert!(!d.killed && !d.ran_out && !d.nostart);
+            assert_eq!(exit_of(&s, &d), 2);
+        }
+        let o = json!({"status": "merged"});
+        let s = Seen {
+            outcome: Some(&o),
+            disk: true,
+            ..seen(0)
+        };
+        assert_eq!(decide(&s).status, "merged");
     }
 
     #[test]
@@ -1401,6 +1459,7 @@ mod tests {
             email: String::new(),
             renewer: String::new(),
             docker: vec![],
+            scratch: scratch::Bounds::default(),
         };
         let w = Watch {
             home: &home,
