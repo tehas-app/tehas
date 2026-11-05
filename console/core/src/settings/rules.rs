@@ -242,6 +242,7 @@ pub const TABLE: &[Setting] = &[
     given_or("TEHAS_RUKAS_WORKAROUNDS", Rule::Workarounds, ""),
     given_or("TEHAS_BRANCH_CHECK", Rule::BranchCheck, ""),
     given_or("TEHAS_LOW_GATE", Rule::LowGate, ""),
+    given("TEHAS_PRIORITY_FIELD", Rule::OneWord),
     given_or("TEHAS_CLEAN_DIRS", Rule::CleanDirs, CLEAN_DIRS),
     required("TEHAS_REPO", Rule::Repo),
     required("TEHAS_CONTROL_ISSUE", Rule::Count),
