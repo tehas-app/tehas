@@ -281,7 +281,8 @@ and one row per tehas and pi-rukas version pair. Every figure says its count as
 `n=`: ten days make small numbers. A pair with fewer than three runs shows its
 count only. The section is hidden where there is no file, and the page reads it
 at most once a minute. What the file means is worked out by one module,
-`host/fun/analytics-data.js`.
+`host/fun/analytics-data.js`; the plain dashboard's module,
+`host/fun/dashboard-view.js`, draws it.
 
 Optional, and only when the model backend is a [viiwork](https://github.com/janit/viiwork) mesh with
 `tehas-energy.service` enabled: the factory floor also has a section
