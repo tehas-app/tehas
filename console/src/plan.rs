@@ -9,7 +9,8 @@
 //!   console plan descriptor <brief> <issue>
 //!       the one line the first turn plans, read from <brief>
 //!       (what plan_brief writes: `# <title>`, a blank line, then the body)
-//!       and the issue's number. See descriptor for how the line is made.
+//!       and the issue's number, for a planner that takes `plan --type`.
+//!       See descriptor for how the line is made.
 //!
 //!   console plan table
 //!       this command's rows of the table of runs (test/sandbox_test.sh).
@@ -49,7 +50,11 @@ const MAX_SUFFIX: usize = 13;
 const NO_TITLE: &str = "the work in .tehas/brief.md";
 const DRAFTED: &str = "Tick Update this issue to make the plan, proposals included, this issue's text, or reply to change it.";
 const DRAFTED_REFINE: &str = "Tick Update this issue to make the plan, proposals included, this issue's text, File as a new issue to file it as its own issue, or reply to change it.";
-const DUPLICATE: &str = "pi-rukas thinks this plan duplicates open work. Reply to say why it does not, or end the session.";
+/// What a drafted plan the check refuses is asked, around the rule it failed.
+const WITHHELD: &str = "Tehas does not offer this plan as the text of an issue";
+const WITHHELD_NEXT: &str =
+    "Reply to change the plan, and the next turn drafts it again, or end the session.";
+const DUPLICATE: &str ="pi-rukas thinks this plan duplicates open work. Reply to say why it does not, or end the session.";
 
 pub fn main(given: &[String]) -> u8 {
     let mut input = String::new();
@@ -64,7 +69,7 @@ pub fn main(given: &[String]) -> u8 {
                 return usage();
             }
             match std::fs::read_to_string(brief) {
-                Ok(text) => Ok(descriptor(&text, issue)),
+                Ok(text) => Ok(descriptor(&text, issue, true).0),
                 Err(_) => return usage(),
             }
         }
@@ -207,6 +212,18 @@ pub fn outcome(
             } else {
                 format!("Open points, with the planner's proposals:\n\n{numbered}\n\n")
             };
+            // A draft the check refuses is never offered: the tick would be
+            // refused anyway, and filing it would put the same text on a new
+            // issue. The person reads why and replies, or ends the session.
+            if let Err(refused) = checked(&draft) {
+                return Ok(document(
+                    session,
+                    &format!("{said}\n\n### {title}\n\n{}", clip(&spec, "the plan")),
+                    &json!({"question": format!("{open}{WITHHELD}: {}. {WITHHELD_NEXT}", refused.line), "options": []}),
+                    &[],
+                    "",
+                ));
+            }
             let mut options = vec![
                 json!({"label": "Update this issue", "description": "make the plan above the text of this issue"}),
             ];
@@ -218,7 +235,7 @@ pub fn outcome(
                 // issue without another tick, so it is said only of a draft
                 // the checks of #1210 let through: one that says nothing of
                 // the issue is asked about, like any other draft.
-                if clear(&d, &spec) && checked(&draft).is_ok() {
+                if clear(&d, &spec) {
                     more = ",\"clear\":true";
                 }
                 DRAFTED
@@ -274,29 +291,79 @@ fn words(s: &str) -> usize {
     s.split_whitespace().count()
 }
 
+/// The leading types of a title that tehas takes off: each with the type
+/// pi-rukas plans it as (`plan --type`), when there is one, and whether
+/// pi-rukas's own trigger words (`classifyPlanType`) find that type in the
+/// word itself. pi-rukas puts its own type before the title it drafts.
+const TYPES: [(&str, Option<&str>, bool); 13] = [
+    ("feat", Some("feature"), false),
+    ("fix", Some("bug"), false),
+    ("bug", Some("bug"), false),
+    ("chore", Some("chore"), true),
+    ("refactor", Some("chore"), true),
+    ("research", Some("spike"), true),
+    ("epic", Some("epic"), true),
+    ("docs", None, false),
+    ("test", None, false),
+    ("perf", None, false),
+    ("build", None, false),
+    ("ci", None, false),
+    ("style", None, false),
+];
+
+/// `title` without a leading conventional-commit type (`feat: `,
+/// `fix(dispatch): `, `feat!: `), which pi-rukas adds to its draft again, and
+/// the type pi-rukas is to plan it as. A planner that takes no `--type`
+/// (`typed` false) works the type out from the descriptor's words, so a type
+/// it finds that way (`chore`, `research`) stays in the title.
+fn untyped(title: &str, typed: bool) -> (&str, Option<&'static str>) {
+    let Some((head, rest)) = title.split_once(':') else {
+        return (title, None);
+    };
+    let head = head.strip_suffix('!').unwrap_or(head);
+    let kind = match head.split_once('(') {
+        Some((kind, scope)) => match scope.strip_suffix(')') {
+            Some(scope) if !scope.contains(['(', ')']) => kind,
+            _ => return (title, None),
+        },
+        None => head,
+    };
+    let rest = rest.trim_start();
+    match TYPES.iter().find(|(t, _, _)| t.eq_ignore_ascii_case(kind)) {
+        Some(_) if rest.is_empty() => (title, None),
+        Some((_, Some(plan), _)) if typed => (rest, Some(*plan)),
+        Some((_, _, true)) => (title, None),
+        Some(_) => (rest, None),
+        None => (title, None),
+    }
+}
+
 /// What the first turn of `tehas plan` plans, on one line: the issue's title,
 /// or the drafted plan's own `Title:` line when the brief opens with one, so a
-/// half of a split is named for its own work and not its parent's. The issue's
+/// half of a split is named for its own work and not its parent's, without a
+/// leading type, which the drafted title gets from pi-rukas. The issue's
 /// number goes on only when the name is too short for pi-rukas to plan from
 /// (MIN_WORDS) and still fits what pi-rukas keeps of a title (TITLE_BUDGET).
-pub fn descriptor(brief: &str, issue: &str) -> String {
+/// With it, the type the title's own type maps to, for `plan --type`, when
+/// the planner takes one (`typed`); see `untyped`.
+pub fn descriptor(brief: &str, issue: &str, typed: bool) -> (String, Option<&'static str>) {
     let named = named(brief).unwrap_or("").trim();
     let heading = heading(brief).unwrap_or("").trim();
-    let said = if !named.is_empty() {
-        named
+    let (said, kind) = if !named.is_empty() {
+        untyped(named, typed)
     } else if !heading.is_empty() {
-        heading
+        untyped(heading, typed)
     } else {
-        NO_TITLE
+        (NO_TITLE, None)
     };
     let suffix = format!(" (issue #{issue})");
     // Sized off the longest suffix and not this one: a short number here must
     // not let a long one through when the same brief names a later issue.
     let room = said.chars().count() + MAX_SUFFIX <= TITLE_BUDGET;
     if words(said) < MIN_WORDS && room {
-        format!("{said}{suffix}")
+        (format!("{said}{suffix}"), kind)
     } else {
-        said.to_string()
+        (said.to_string(), kind)
     }
 }
 
@@ -516,11 +583,11 @@ mod tests {
         }
     }
 
-    /// A draft the text check refuses is never marked `clear`, so the
-    /// dispatcher cannot write it onto the issue or credit a start for it
-    /// without a person's tick: it is asked about as any other draft is.
+    /// A draft the text check refuses is never marked `clear` and never
+    /// offered: the question says the rule, shows the open points and has no
+    /// box but the end of the session, in a plan or a refine session alike.
     #[test]
-    fn a_draft_the_check_refuses_is_never_clear() {
+    fn a_draft_the_check_refuses_is_never_clear_nor_offered() {
         let k = keep();
         let good = "## Outcome\n\nThe p95 is under 100 ms.";
         // A title of one word written twice, long enough to be no summary of
@@ -535,15 +602,43 @@ mod tests {
                 "Descriptor: what the issue is\n\n## Prior context inventory\n\n- the file",
             ),
             ("feat: faster search", "[context param]\n\n[context param]"),
+            (
+                "feat: faster search",
+                "## Deliverables\n\n1. Search is faster.\n\n- # Faster search [context param]",
+            ),
+            (
+                "feat: faster search",
+                "## Deliverables\n\n1. Search is faster.\n\n## Acceptance criteria\n\n- derive the testable outcomes from the investigation findings before /work",
+            ),
         ] {
-            let doc = json!({"text": "Drafted.", "title": title, "spec": spec, "questions": []})
-                .to_string();
-            let v = parsed(&outcome(12, "abc", &k, &doc, false).unwrap());
-            assert!(v.get("clear").is_none(), "{doc}: {v}");
-            // Still shown with its box, so the person can tick it after they
-            // have read what the check said of it.
-            assert_eq!(v["question"]["options"][0]["label"], "Update this issue");
+            let doc = json!({"text": "Drafted.", "title": title, "spec": spec,
+                "questions": [{"question": "Which index?", "resolution": "The code index."}]})
+            .to_string();
+            for refine in [false, true] {
+                let v = parsed(&outcome(12, "abc", &k, &doc, refine).unwrap());
+                assert!(v.get("clear").is_none(), "{doc}: {v}");
+                assert_eq!(v["question"]["options"], json!([]), "{doc}: {v}");
+                let asked = v["question"]["question"].as_str().unwrap();
+                assert!(asked.starts_with("Open points, with the planner's proposals:\n\n1. Which index?\n   Proposed: The code index.\n\n"), "{asked}");
+                assert!(asked.contains(&format!("{WITHHELD}: the ")), "{asked}");
+                assert!(asked.ends_with(WITHHELD_NEXT), "{asked}");
+                // The plan is still shown, so the person sees what was refused.
+                assert!(v["text"].as_str().unwrap().contains(spec), "{v}");
+                // And kept, so a hand-written tick is refused by update too.
+                assert!(k.join("draft.json").is_file());
+            }
         }
+        let doc = json!({"text": "Drafted.", "title": "feat: faster search",
+            "spec": "## Deliverables\n\n1. Search is faster.\n\n- # Faster search [context param]"})
+        .to_string();
+        let asked = parsed(&outcome(12, "abc", &k, &doc, false).unwrap())["question"]["question"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        assert_eq!(
+            asked,
+            format!("{WITHHELD}: the body echoes the planner's context: it holds lines that end in `[context param]`. {WITHHELD_NEXT}")
+        );
         // The same document with a title and a text that hold says `clear`.
         let v = parsed(&outcome(12, "abc", &k, CLEAR, false).unwrap());
         assert_eq!(v["clear"], true);
@@ -654,33 +749,138 @@ mod tests {
         let title = "Implement a Rust renderer for the review issue comment bod";
         assert_eq!(title.chars().count(), 58);
         assert_eq!(words(title), 10);
-        assert_eq!(descriptor(&format!("# {title}\n\nBody.\n"), "883"), title);
+        assert_eq!(plans(&format!("# {title}\n\nBody.\n"), "883"), title);
     }
 
     #[test]
     fn a_short_descriptor_names_the_issue_and_a_title_later_says_nothing() {
         assert_eq!(
-            descriptor("# Faster search\n\nMake it fast.\n", "7"),
+            plans("# Faster search\n\nMake it fast.\n", "7"),
             "Faster search (issue #7)"
         );
         // A Title: line that is not the first line is the plan's own text.
         assert_eq!(
-            descriptor("# Faster search\n\nTitle: Something else\n", "7"),
+            plans("# Faster search\n\nTitle: Something else\n", "7"),
             "Faster search (issue #7)"
         );
         // Five words still asks for the number, and the room is measured off
         // the longest suffix, so a small number here is not a licence for a
         // large one: 21 + 13 is 34, well inside the budget.
         assert_eq!(
-            descriptor("# Make it fast now then\n", "12345"),
+            plans("# Make it fast now then\n", "12345"),
             "Make it fast now then (issue #12345)"
         );
+    }
+
+    /// The line a planner that takes `--type` is given.
+    fn plans(brief: &str, issue: &str) -> String {
+        descriptor(brief, issue, true).0
+    }
+
+    #[test]
+    fn a_descriptor_leaves_out_the_type_the_draft_gets_again() {
+        let long = "Give the sync captured_logs a bound of its own today";
+        for typed in [
+            "chore: ",
+            "chore:",
+            "Feat: ",
+            "fix(dispatch): ",
+            "feat!: ",
+            "refactor(plan)!: ",
+            "docs: ",
+        ] {
+            let brief = format!("# {typed}{long}\n\nBody.\n");
+            assert_eq!(plans(&brief, "1253"), long, "{typed:?}");
+            let named = format!("Title: {typed}{long}\n");
+            assert_eq!(plans(&named, "1253"), long, "{typed:?}");
+        }
+        // Short once its type is off: the number goes on.
+        assert_eq!(
+            plans("# feat: Faster search\n", "7"),
+            "Faster search (issue #7)"
+        );
+        // Not a type: a word that is none, a colon later on, a scope that is
+        // no scope, or a type and nothing after it.
+        for kept in [
+            "Note: the renderer for the review issue comment body",
+            "The renderer: for the review issue comment body now",
+            "fix(a(b)): the renderer for the review issue comment",
+            "fix (dispatch): the renderer for the review issue",
+        ] {
+            assert_eq!(
+                descriptor(&format!("# {kept}\n"), "7", true),
+                (kept.to_string(), None)
+            );
+        }
+        assert_eq!(plans("# feat:\n", "7"), "feat: (issue #7)");
+    }
+
+    #[test]
+    fn the_type_a_title_leaves_out_is_the_type_the_planner_is_given() {
+        // pi-rukas reads the type from the descriptor's words when it is given
+        // none (`classifyPlanType`), and a feature by default: the request's
+        // own type goes with --type, as one of pi-rukas's PLAN_TYPES.
+        let long = "Give the sync captured_logs a bound of its own today";
+        for (typed, kind) in [
+            ("feat: ", Some("feature")),
+            ("feat!: ", Some("feature")),
+            ("fix(dispatch): ", Some("bug")),
+            ("Bug: ", Some("bug")),
+            ("chore: ", Some("chore")),
+            ("refactor(plan)!: ", Some("chore")),
+            ("research: ", Some("spike")),
+            ("EPIC: ", Some("epic")),
+            // A type pi-rukas has none of: its words decide, as before.
+            ("docs: ", None),
+            ("perf: ", None),
+        ] {
+            let brief = format!("# {typed}{long}\n\nBody.\n");
+            assert_eq!(
+                descriptor(&brief, "1553", true),
+                (long.to_string(), kind),
+                "{typed:?}"
+            );
+            let named = format!("Title: {typed}{long}\n\n# fix: The parent\n");
+            assert_eq!(
+                descriptor(&named, "1553", true),
+                (long.to_string(), kind),
+                "{typed:?}"
+            );
+        }
+        // No type in the title: none is given, and pi-rukas reads the words.
+        assert_eq!(
+            descriptor(&format!("# {long}\n"), "7", true),
+            (long.to_string(), None)
+        );
+    }
+
+    #[test]
+    fn a_planner_with_no_type_flag_keeps_a_type_its_words_find() {
+        // Without --type, pi-rukas finds chore, refactor, research and epic in
+        // the descriptor's words, so those stay; feat and fix it never finds,
+        // and they come off as before.
+        let long = "Give the sync captured_logs a bound of its own today";
+        for typed in ["chore: ", "refactor(plan)!: ", "research: ", "EPIC: "] {
+            let title = format!("{typed}{long}");
+            assert_eq!(
+                descriptor(&format!("# {title}\n"), "7", false),
+                (title.clone(), None),
+                "{typed:?}"
+            );
+        }
+        for typed in ["feat: ", "fix(dispatch): ", "docs: "] {
+            assert_eq!(
+                descriptor(&format!("# {typed}{long}\n"), "7", false),
+                (long.to_string(), None),
+                "{typed:?}"
+            );
+        }
     }
 
     #[test]
     fn a_title_line_of_a_draft_names_the_issue_it_is_filed_for() {
         assert_eq!(
-            descriptor(
+            plans(
                 "Title: A Rust renderer of the review issue\n\n# The parent\n\nBody.\n",
                 "883"
             ),
@@ -688,7 +888,7 @@ mod tests {
         );
         // Named, yet short: the number still goes with it.
         assert_eq!(
-            descriptor("Title: Faster search\n", "7"),
+            plans("Title: Faster search\n", "7"),
             "Faster search (issue #7)"
         );
     }
@@ -700,12 +900,12 @@ mod tests {
         assert_eq!(NO_TITLE.chars().count() + MAX_SUFFIX, 40);
         assert_eq!(words(NO_TITLE), 4);
         let named = "the work in .tehas/brief.md (issue #7)";
-        assert_eq!(descriptor("\nMake it fast.\n", "7"), named);
-        assert_eq!(descriptor("#\n\nBody.\n", "7"), named);
-        assert_eq!(descriptor("# \t\n\nBody.\n", "7"), named);
-        assert_eq!(descriptor("", "7"), named);
+        assert_eq!(plans("\nMake it fast.\n", "7"), named);
+        assert_eq!(plans("#\n\nBody.\n", "7"), named);
+        assert_eq!(plans("# \t\n\nBody.\n", "7"), named);
+        assert_eq!(plans("", "7"), named);
         assert_eq!(
-            descriptor("#\n", "12345"),
+            plans("#\n", "12345"),
             "the work in .tehas/brief.md (issue #12345)"
         );
     }
@@ -719,14 +919,14 @@ mod tests {
         let wide = "the renderer for the review issue comment body no more";
         assert_eq!(words(wide), 10);
         assert_eq!(wide.chars().count(), 54);
-        assert_eq!(descriptor(&format!("# {wide}\n"), "7"), wide);
-        assert_eq!(descriptor(&format!("# {wide}\n"), "12345"), wide);
+        assert_eq!(plans(&format!("# {wide}\n"), "7"), wide);
+        assert_eq!(plans(&format!("# {wide}\n"), "12345"), wide);
         // The suffix is never invented for a title of its own right: a Title:
         // line too short to plan from and too long for the number keeps its
         // text, and the heading under it names nothing.
         let named = "Title: the renderer for the review issue comment body no more";
         assert_eq!(words(named) - 1, 10);
-        assert_eq!(descriptor(&format!("{named}\n\n# The parent\n"), "7"), wide);
+        assert_eq!(plans(&format!("{named}\n\n# The parent\n"), "7"), wide);
         // Five words with room for the longest suffix: 28 + 13 is 41, so the
         // number goes with them.
         let few = "the renderer for this review";
@@ -735,14 +935,14 @@ mod tests {
         assert!(words(few) < MIN_WORDS);
         assert_eq!(few.chars().count(), 28);
         assert_eq!(
-            descriptor(&format!("# {few}\n"), "7"),
+            plans(&format!("# {few}\n"), "7"),
             "the renderer for this review (issue #7)"
         );
         // Seven words is enough to plan from on its own: the same title, with
         // two words more, is handed over as it is.
         let said = "the renderer for this review today now and then";
         assert_eq!(words(said), 9);
-        assert_eq!(descriptor(&format!("# {said}\n"), "7"), said);
+        assert_eq!(plans(&format!("# {said}\n"), "7"), said);
     }
 
     #[test]

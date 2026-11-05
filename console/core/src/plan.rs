@@ -342,6 +342,60 @@ pub fn spec_block(body: &str) -> Option<String> {
         .map(|_| format!("```{SPEC_INFO}\n{text}\n```"))
 }
 
+/// The heading pi-rukas reads as the operator's acceptance criteria in a
+/// planning turn's context (`plan-directives.ts`): its bullets become the
+/// draft's Acceptance criteria section as they are written.
+const CRITERIA_DIRECTIVE: &str = "ACCEPTANCE CRITERIA:";
+
+/// Whether a line is an Acceptance criteria heading as pi-rukas reads one:
+/// any case, with markdown's `#`, `*` or `=` around it or not, and then a
+/// colon, a parenthesis or nothing. A sentence that opens with the words is
+/// prose.
+fn criteria_heading(line: &str) -> bool {
+    let marks = ['#', '*', '=', ' ', '\t'];
+    let t = line.trim().trim_start_matches(marks);
+    let (Some(head), Some(rest)) = (t.get(..19), t.get(19..)) else {
+        return false;
+    };
+    let rest = rest.trim_start_matches(marks);
+    head.eq_ignore_ascii_case("acceptance criteria")
+        && (rest.is_empty() || rest.starts_with([':', '(']))
+}
+
+/// The `ACCEPTANCE CRITERIA` block a first planning turn adds to its context
+/// for a request whose criteria pi-rukas does not read: the `criteria` of the
+/// request's `pi-spec v1` block, one bullet each, `<id>: <text>` on one line.
+/// Nothing when the request has no block with criteria, or has an Acceptance
+/// criteria heading of its own, which pi-rukas reads already.
+pub fn criteria_directive(request: &str) -> Option<String> {
+    if request.lines().any(criteria_heading) {
+        return None;
+    }
+    let block = spec_block(request)?;
+    let lines: Vec<&str> = block.lines().collect();
+    let inner = lines.get(1..lines.len().saturating_sub(1))?.join("\n");
+    let spec: Value = serde_json::from_str(&inner).ok()?;
+    let one_line = |v: Option<&Value>| text_of(v).split_whitespace().collect::<Vec<_>>().join(" ");
+    let items: Vec<String> = spec
+        .get("criteria")?
+        .as_array()?
+        .iter()
+        .filter_map(|c| {
+            let text = one_line(c.get("text"));
+            let id = one_line(c.get("id"));
+            match (id.is_empty(), text.is_empty()) {
+                (_, true) => None,
+                (true, false) => Some(format!("- {text}")),
+                (false, false) => Some(format!("- {id}: {text}")),
+            }
+        })
+        .collect();
+    if items.is_empty() {
+        return None;
+    }
+    Some(format!("{CRITERIA_DIRECTIVE}\n{}", items.join("\n")))
+}
+
 /// The fence line of a body: the character and length of its run and what
 /// stands after it, or nothing when the line is not one. At most three spaces
 /// of indent count as indent - a tab is not one, so a tab-indented line is
@@ -568,6 +622,46 @@ mod tests {
         // question, not this one's.
         assert!(spec_block("```pi-spec v1\nnull\n```").is_some());
         assert!(spec_block("```pi-spec v1\n42\n```").is_some());
+    }
+
+    #[test]
+    fn the_criteria_of_a_requests_spec_block_become_a_directive() {
+        let spec = r#"{"problem": "p", "criteria": [
+            {"id": "AC1", "text": "A hit with the flag\n  writes `is_dps`.", "verify": "test"},
+            {"id": "", "text": "No id is kept as text."},
+            {"id": "AC3", "text": "  "},
+            "no object"
+        ]}"#;
+        let request = format!("# chore: Give it\n\nWhy.\n\n```pi-spec v1\n{spec}\n```\n");
+        assert_eq!(
+            criteria_directive(&request).unwrap(),
+            "ACCEPTANCE CRITERIA:\n- AC1: A hit with the flag writes `is_dps`.\n- No id is kept as text."
+        );
+        // A heading of the request's own is read by pi-rukas already.
+        for heading in [
+            "## Acceptance criteria",
+            "**Acceptance Criteria:**",
+            "ACCEPTANCE CRITERIA",
+        ] {
+            let own = format!("{request}\n{heading}\n- It works.\n");
+            assert_eq!(criteria_directive(&own), None, "{heading}");
+        }
+        // No block, a block of no criteria, or criteria of no text say nothing.
+        let prose = format!("{request}\nAcceptance criteria are in the block above.\n");
+        assert!(criteria_directive(&prose).is_some());
+        assert_eq!(criteria_directive("# T\n\nBody.\n"), None);
+        assert_eq!(
+            criteria_directive("```pi-spec v1\n{\"criteria\": []}\n```"),
+            None
+        );
+        assert_eq!(
+            criteria_directive("```pi-spec v1\n{\"problem\": \"p\"}\n```"),
+            None
+        );
+        assert_eq!(
+            criteria_directive("```pi-spec v1\n{\"criteria\": [{\"id\": \"AC1\"}]}\n```"),
+            None
+        );
     }
 
     #[test]
