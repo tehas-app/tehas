@@ -480,29 +480,6 @@ t_eq "$t_rc" 78
 t_eq "$(cycle_args)" ""
 t_eq "$(preflight_args)" ""
 
-t_case "a record that says driver lean is refused before anything moves: 78, no container, and no classic run"
-t_instance "${T_MINIMAL[@]}"
-T_ENV=("${env_ok[@]}")
-rm -rf "$T/home/tehas/work"
-mkdir -p "$T/home/tehas/work"
-: >"$T/home/tehas/work/.tehas-workspaces"
-mkdir -p "$T/home/tehas/work/widget-7"
-echo keep >"$T/home/tehas/work/widget-7/notes.txt"
-record_is alice "Words only."
-record_edit '.driver = "lean"'
-rm -f "$T"/calls/*
-t_run "$work 7"
-t_eq "$t_rc" 78
-t_contains "$t_out" "this tehas cannot run the lean driver yet, not starting a cycle; take tehas:lean off #7 to run it on classic"
-t_eq "$([ -f "$T/home/tehas/state/cycles/7.lean-refused" ] && echo left)" left
-t_lacks "$(t_calls docker)" "run "
-t_eq "$(cycle_args)" ""
-t_eq "$(preflight_args)" ""
-t_eq "$(t_calls gh)" ""
-t_eq "$(cat "$T/home/tehas/work/widget-7/notes.txt")" keep
-t_eq "$(find "$T/home/tehas/work" -maxdepth 1 -name '*.before-retry' | wc -l)" 0
-rm -rf "$T/home/tehas/work"
-
 t_case "the watch loop stops a cycle by the cycle clock, not the wall clock"
 fresh
 # The wall clock stands still and the cycle clock goes forward past the stall
@@ -593,5 +570,92 @@ fresh
 t_run "$work 7"
 t_eq "$(after -e | sed -n 's/^PI_ENSEMBLE_CYCLE_DEADLINE=//p' | awk '{print ($1 > 0 && $1 % 1000 == 0)}')" "1"
 t_eq "$(cat "$T/home/tehas/state/cycles/7.clock" | tr -cd 0-9 | wc -c | tr -d ' ' | awk '{print ($1 > 0)}')" "1"
+
+# --- The driver --------------------------------------------------------------
+# The verb and what follows it on the line of the cycle's container.
+verb_line() { cycle_args | sed -n "/^$(printf '%s' "tehas/pi-rukas:uid$(id -u)" | sed 's/[\/.]/\\&/g')\$/,\$p" | tr '\n' ' '; }
+# What a runner that can run lean answers: work-lean with its own flags, the
+# schema 5 result and its named features.
+caps_lean() {
+  caps_good
+  jq '.verbs["work-lean"] = {flags: ["--json", "--timeout"]}
+    | .features += {workLeanResultSchema: 5, leanDeadline: true, leanHandoffHost: true}' \
+    "$T/caps.json" >"$T/caps.new" && mv "$T/caps.new" "$T/caps.json"
+}
+lean_fresh() {
+  fresh
+  rm -rf "$ws" "$ws.state" "$ws.before-retry" "$T/home/tehas/state/cycles/7.lean-refused"
+  mkdir -p "$fx/net"
+  issue_is "Words only."
+}
+stub_github
+
+t_case "a record with no driver runs classic work"
+lean_fresh
+caps_lean
+record_is alice "Words only."
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_eq "$(verb_line)" "tehas/pi-rukas:uid$(id -u) $runner work 7 --timeout 360 --json "
+
+t_case "a record that says driver lean runs work-lean, bounded by the same limit and deadline"
+lean_fresh
+caps_lean
+record_is alice "Words only."
+record_edit '.driver = "lean"'
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_eq "$(verb_line)" "tehas/pi-rukas:uid$(id -u) $runner work-lean 7 --timeout 360 --json "
+t_eq "$(after -e | sed -n 's/^PI_ENSEMBLE_CYCLE_DEADLINE=//p' | awk '{print ($1 > 0)}')" "1"
+t_contains "$(after -e)" "PI_ENSEMBLE_HANDOFF_CHANNEL=host"
+t_eq "$(grep -c -x '/.pi/lean-state/' "$ws/.git/info/exclude")" 1
+t_eq "$([ -e "$T/home/tehas/state/cycles/7.lean-refused" ] && echo left)" ""
+
+t_case "--driver lean by hand runs work-lean, and --driver classic runs work"
+lean_fresh
+caps_lean
+t_run "$work 7 --driver lean"
+t_eq "$t_rc" 2
+t_eq "$(verb_line)" "tehas/pi-rukas:uid$(id -u) $runner work-lean 7 --timeout 360 --json "
+lean_fresh
+record_is alice "Words only."
+record_edit '.driver = "lean"'
+t_run "$work 7 --driver classic"
+t_eq "$(verb_line)" "tehas/pi-rukas:uid$(id -u) $runner work 7 --timeout 360 --json "
+
+t_case "--driver other is 64 and starts nothing"
+lean_fresh
+t_run "$work 7 --driver other"
+t_eq "$t_rc" 64
+t_contains "$t_out" "--driver takes lean or classic, not other"
+t_eq "$(t_calls docker)" ""
+t_run "$work 7 --driver"
+t_eq "$t_rc" 64
+t_eq "$(t_calls docker)" ""
+
+t_case "a lean start on an image with no lean is 78, starts no container and does not run classic"
+lean_fresh
+caps_good
+record_is alice "Words only."
+record_edit '.driver = "lean"'
+t_run "$work 7"
+t_eq "$t_rc" 78
+t_contains "$t_out" "the feature workLeanResultSchema 5"
+t_contains "$t_out" "the feature leanHandoffHost"
+t_contains "$t_out" "(driver lean, work-lean; it does not run classic in its place)"
+t_eq "$([ -e "$T/home/tehas/state/cycles/7.lean-refused" ] && echo left)" left
+t_eq "$(cycle_args)" ""
+t_eq "$(preflight_args)" ""
+t_eq "$(find "$ws" -maxdepth 0 2>/dev/null | wc -l)" 0
+
+t_case "a lean restart on an image that lists no --restart for work-lean is 78 and starts nothing"
+lean_fresh
+caps_lean
+t_run "$work 7 --driver lean --restart"
+t_eq "$t_rc" 78
+t_contains "$t_out" "the flag --restart"
+t_eq "$(cycle_args)" ""
+
+caps_good
 
 t_done

@@ -2,12 +2,17 @@
 
 What each release of tehas changes, and what an adopter must do after
 updating to it. Newest first. A release's section is `## vX.Y.Z (YYYY-MM-DD)`
-with `### Changes` and `### Adopter action`; "None." is a valid action.
+with `### Changes` and `- A start whose approval says driver `lean` (`tehas:lean`) runs `pi-rukas-headless work-lean` instead of being refused, and `tehas work <issue> --driver lean|classic` picks the driver by hand. The image is checked for the `work-lean` flags, `leanHandoffHost`, `leanDeadline` and `workLeanResultSchema` 5; one without them, or a lean restart or refresh, is 78 and parks, and classic never runs in lean's place. `.pi/lean-state/` is excluded in a cycle's workspace.
+
+### Adopter action`; "None." is a valid action.
 `scripts/tag-release.sh` refuses to tag without an Adopter action, and the
 release workflow takes the release's page from its section
 (`scripts/release-notes.sh`). Work in progress goes under `## Unreleased`; a
 person renames it to the version in the release's pull request and starts a new
 empty one above it.
+
+To run lean, rebuild the sandbox image on pi-rukas v0.14.47 or later. A
+lean start on an older image parks with what the image lacks.
 
 ## Unreleased
 

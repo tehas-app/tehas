@@ -105,6 +105,7 @@ pub fn table() -> String {
             env: &none,
             hosts: &none,
             image,
+            verb: "work",
             issue: 1,
             flags: &none,
         }),
