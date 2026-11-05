@@ -122,7 +122,8 @@ The rules behind each column:
   attachment while the setting stands; the other issues start. The steps
   after plan read the plan, not the pictures. With `TEHAS_WORK_DESCRIBE=1`
   the model also describes each image in words, into `images.md` beside
-  them; with `TEHAS_WORK_FILES=1` the text files come too. pi-rukas reads
+  them, and names the issue in `X-Tehas-Issue` on each of those requests; with
+  `TEHAS_WORK_FILES=1` the text files come too. pi-rukas reads
   neither yet. `TEHAS_WORK_COMMENTS=1` adds the attachments of comments, by
   the rule in the table.
 - **A zip** reaches a cycle with `TEHAS_WORK_ZIPS=1`, and needs
@@ -1601,8 +1602,12 @@ removes what has not been used for `TEHAS_CLEAN_AFTER` hours, 24 by default:
   loop is on. Long-lived logs such as `dispatch.log` and `clean.log` stay.
 - the state store's upkeep: a copy a day (see below), and rows past 90 days
   removed with `store prune --days 90`: cycle endings, settled actions of the
-  journal, and old heartbeats of cycles that have ended. A cycle's own record
-  stays.
+  journal, old heartbeats of cycles that have ended, and the cycle and plan
+  history of issues whose cycle ended that long ago. Each of those issues keeps
+  its last row of each history, so `tehas history` still says how it ended, and
+  the issue whose cycle ended without a history row of its own keeps all of them.
+  The 90 is `PRUNE_DAYS`, the window `store upkeep` prunes with. A cycle's own
+  record stays.
 
 One line per removal and a closing line with the bytes freed go to
 `~/tehas/logs/clean.log`, and the same lines are printed, so a run by hand
@@ -1837,10 +1842,15 @@ Those GitHub says are `CONFLICTING` get a request,
 request whose pull request no longer qualifies goes. `tehas-refresh.timer`
 starts it every minute, and it goes ahead only when the last run began that
 many minutes ago, by `~/tehas/state/refresh/last-run`. A run that failed
-counts. Each run writes one line to `~/tehas/logs/refresh.log`:
+counts. Each run writes one line to `~/tehas/logs/refresh.log`: the open
+pull requests it read, and of those how many conflict, how many GitHub still
+has `UNKNOWN`, and how many are not ours to refresh (another account's, a
+fork, one the rule rejects, or one whose head or base is no sha). The rest are
+the bot's that do not conflict, so `0 conflict` beside `2 unknown` is not yet
+a fact:
 
 ```
-2026-10-18T09:00:00Z read 6 pull requests, 1 conflict, wrote 1 requests
+2026-10-18T09:00:00Z read 9 pull requests: 1 conflict, 2 unknown, 3 not ours to refresh, wrote 1 requests
 ```
 
 **When it starts.** The dispatcher checks each request again at the start,
