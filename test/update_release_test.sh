@@ -45,7 +45,6 @@ asset_of() { # <tag>
 # A release as pack-release.sh makes it, small: the real lib/ (the target's
 # rules are what is checked), the example instance, a VERSION and an install.sh
 # that records it ran. Then its .sha256 and a signature the minisign stub takes.
-# PRE=1 publishes it as a prerelease, DRAFT=1 as a draft.
 make_release() { # <tag> [<body>] [<machine>]
   local tag=$1 body=${2:-} src=$T/src/tehas-$1 out=$rel/$1 machine=${3:-$(uname -m)} name
   name=tehas-$tag-linux-$(arch_of "$machine").tar.gz || return 1
@@ -63,8 +62,7 @@ make_release() { # <tag> [<body>] [<machine>]
   jq -n --arg t "$tag" --arg b "${body:-### Changes
 - $tag
 ### Adopter action
-None.}" --arg pre "${PRE:-}" --arg draft "${DRAFT:-}" \
-    '{tag_name: $t, body: $b, draft: ($draft == "1"), prerelease: ($pre == "1")}' >"$out/release.json"
+None.}" '{tag_name: $t, body: $b, draft: false, prerelease: false}' >"$out/release.json"
   jq -s '.' "$rel"/*/release.json >"$rel/list.json"
 }
 
@@ -248,7 +246,11 @@ fi
 t_case "a release that asks for a setting the instance lacks is not switched to, and its example value is named"
 stubs
 make_release v1.3.0
-sed -i 's/^  tehas_require TEHAS_REPO /  tehas_require TEHAS_NEW_KNOB TEHAS_REPO /' "$T/src/tehas-v1.3.0/lib/config.sh"
+# The target's own require line names the console's list. Give it a name no
+# instance has, and say so when the line is not there to change.
+sed -i 's/^  tehas_require /  tehas_require TEHAS_NEW_KNOB /' "$T/src/tehas-v1.3.0/lib/config.sh"
+grep -q 'tehas_require TEHAS_NEW_KNOB' "$T/src/tehas-v1.3.0/lib/config.sh" ||
+  t_bad "v1.3.0 names no setting to require"
 mkdir -p "$T/src/tehas-v1.3.0/instances/example"
 echo 'TEHAS_NEW_KNOB=42' >>"$T/src/tehas-v1.3.0/instances/example/instance.env"
 (cd "$T/src" && tar -czf "$rel/v1.3.0/$(asset_of v1.3.0)" tehas-v1.3.0)
@@ -300,12 +302,10 @@ t_eq "$t_rc" 1
 t_contains "$t_out" "there is no published release v9.9.9"
 t_eq "$(readlink "$th/current")" versions/v1.0.0
 
-t_case "--to needs a version shaped vX.Y.Z or vX.Y.Z-rc.N"
+t_case "--to needs a version shaped vX.Y.Z"
 t_run "$update --to latest"
 t_eq "$t_rc" 64
-t_contains "$t_out" "--to takes a version vX.Y.Z or vX.Y.Z-rc.N"
-t_run "$update --to v1.3.0-rc1"
-t_eq "$t_rc" 64
+t_contains "$t_out" "--to takes a version vX.Y.Z"
 t_run "$update --to"
 t_eq "$t_rc" 64
 
@@ -506,67 +506,5 @@ t_eq "$t_rc" 1
 t_contains "$t_out" "holds what a release does not: outside"
 t_eq "$(ls "$th/versions")" v1.0.0
 rm -rf "$rel/v1.2.0" && mv "$T/good" "$rel/v1.2.0"
-
-t_case "a release candidate is never the newest: a plain update passes it over"
-stubs
-uname_home
-instance
-host_at v1.0.0
-PRE=1 make_release v1.3.0-rc.1 '### Changes
-- the candidate
-### Adopter action
-None.'
-t_run "$update --check"
-t_contains "$t_out" "release: installed v1.0.0, newest v1.2.0"
-t_lacks "$t_out" "== v1.3.0-rc.1"
-t_run "$update"
-t_eq "$t_rc" 0
-t_eq "$(readlink "$th/current")" versions/v1.2.0
-t_run "$T_CONSOLE update release newest"
-t_eq "$t_out" v1.2.0
-
-t_case "--to a release candidate downloads it with both checks and switches to it"
-t_run "$update --to v1.3.0-rc.1"
-t_eq "$t_rc" 0
-t_contains "$t_out" "== v1.3.0-rc.1"
-t_contains "$t_out" "- the candidate"
-t_contains "$t_out" "release: v1.3.0-rc.1 downloaded, checked against its .sha256 and its signature"
-t_contains "$t_out" "release: current is v1.3.0-rc.1, was v1.2.0"
-t_contains "$(t_calls gh)" "release download v1.3.0-rc.1 --repo tehas-app/tehas"
-t_eq "$(cat "$th/versions/v1.3.0-rc.1/VERSION")" v1.3.0-rc.1
-
-t_case "on a candidate a plain update stays until its release is out"
-t_run "$update"
-t_eq "$t_rc" 0
-t_contains "$t_out" "release: v1.3.0-rc.1 is newer than the newest release"
-t_eq "$(readlink "$th/current")" versions/v1.3.0-rc.1
-
-t_case "--to the next candidate shows its notes only"
-PRE=1 make_release v1.3.0-rc.2 '### Changes
-- the second candidate
-### Adopter action
-None.'
-t_run "$update --to v1.3.0-rc.2"
-t_eq "$t_rc" 0
-t_contains "$t_out" "== v1.3.0-rc.2"
-t_lacks "$t_out" "== v1.3.0-rc.1"
-t_eq "$(readlink "$th/current")" versions/v1.3.0-rc.2
-
-t_case "a draft candidate is not published"
-DRAFT=1 PRE=1 make_release v1.3.0-rc.3
-t_run "$update --to v1.3.0-rc.3"
-t_eq "$t_rc" 1
-t_contains "$t_out" "there is no published release v1.3.0-rc.3"
-t_eq "$(readlink "$th/current")" versions/v1.3.0-rc.2
-
-t_case "from a candidate a plain update moves to its release, with its notes only"
-make_release v1.3.0
-t_run "$update"
-t_eq "$t_rc" 0
-t_contains "$t_out" "release: installed v1.3.0-rc.2, newest v1.3.0"
-t_contains "$t_out" "== v1.3.0"
-t_lacks "$t_out" "== v1.3.0-rc"
-t_contains "$t_out" "release: current is v1.3.0, was v1.3.0-rc.2"
-rm -rf "$rel"/v1.3.0* && jq -s '.' "$rel"/*/release.json >"$rel/list.json"
 
 t_done

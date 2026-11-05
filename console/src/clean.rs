@@ -60,6 +60,7 @@
 //! store's upkeep), and says so. A dry run takes no issue's lock: it removes
 //! nothing, so it holds nothing.
 
+use crate::account;
 use crate::store::{self, bounded, merged};
 use serde_json::json;
 use std::collections::HashSet;
@@ -378,7 +379,7 @@ pub fn open_session(home: &str, name: &str, wait: u64) -> Result<File, ()> {
         && made(&state)
         && fs::symlink_metadata(&state).is_ok_and(|m| m.is_dir())
         && made(&target)
-        && fs::symlink_metadata(&target).is_ok_and(|m| m.is_dir() && m.uid() == the_uid());
+        && own_dir(&target, account::uid());
     if !prepared {
         eprintln!(
             "tehas clean: {} is not a directory of this account, or could not be made",
@@ -659,11 +660,10 @@ fn repo_of(pulled: &str) -> &str {
     r.rsplit_once(':').map_or(r, |(a, _)| a)
 }
 
-/// The account of this run: what `stat -c %u` answers and what a directory of
-/// the session's own user carries.
-fn the_uid() -> u32 {
-    // SAFETY: getuid takes no argument and has no preconditions.
-    unsafe { libc::getuid() }
+/// Whether a path holds a directory of <me>. A directory of another account,
+/// or one whose uid is not known, is not this command's.
+fn own_dir(p: &Path, me: Option<u32>) -> bool {
+    me.is_some_and(|me| fs::symlink_metadata(p).is_ok_and(|m| m.is_dir() && m.uid() == me))
 }
 
 fn is_link(p: &Path) -> bool {
@@ -1499,7 +1499,7 @@ impl Run {
     // --- 5. the old base images: `sha-` tags of the base's repository alone.
     fn base_images(&mut self) -> bool {
         if self.pulled.is_empty() {
-            self.warn(&format!("kept the base: the host's pins name no base to prune (PI_RUKAS_REPO, PI_RUKAS_FOLLOW or PI_RUKAS_IMAGE_DIGEST in {}/versions.env or the instance's instance.env, or lib/rukas.sh is not sourced beside lib/sandbox.sh)", self.home.display()));
+            self.warn(&format!("kept the base: the host's pins name no base to prune (PI_RUKAS_REPO, PI_RUKAS_FOLLOW or PI_RUKAS_IMAGE_DIGEST in {}/versions.env or the instance's instance.env)", self.home.display()));
             return true;
         }
         let repo = repo_of(&self.pulled).to_string();
@@ -1731,10 +1731,10 @@ impl Run {
         // every clone's build, as it keeps an image no container has been
         // named for.
         let containers = self.container_names();
-        self.clone_targets_among(containers.as_ref())
+        self.clone_targets_among(containers.as_ref(), account::uid())
     }
 
-    fn clone_targets_among(&mut self, containers: Option<&Vec<String>>) -> bool {
+    fn clone_targets_among(&mut self, containers: Option<&Vec<String>>, me: Option<u32>) -> bool {
         let devs = self.home.join("dev");
         let Ok(entries) = fs::read_dir(&devs) else {
             return true;
@@ -1745,7 +1745,6 @@ impl Run {
             .filter(|n| !n.starts_with('.'))
             .collect();
         names.sort();
-        let me = the_uid();
         let mut ok = true;
         for name in names {
             let Some(shown_name) = name.strip_suffix(".state") else {
@@ -1758,7 +1757,7 @@ impl Run {
             // and is not taken, and no link is walked, of the state or the target.
             let state = devs.join(&name);
             let target = state.join("target");
-            let owned = fs::symlink_metadata(&target).is_ok_and(|m| m.is_dir() && m.uid() == me);
+            let owned = own_dir(&target, me);
             if !real_dir(&state) || !real_dir(&target) || !owned {
                 continue;
             }
@@ -2044,7 +2043,7 @@ mod tests {
         // asks a docker.
         let none: Vec<String> = Vec::new();
         // Above the minimum nothing goes, of any age, and the size is logged.
-        assert!(run.clone_targets_among(Some(&none)));
+        assert!(run.clone_targets_among(Some(&none), account::uid()));
         let said = fs::read_to_string(&run.logfile).unwrap();
         assert!(run.home.join("dev/alice.state/target").exists(), "{said}");
         assert!(
@@ -2060,7 +2059,7 @@ mod tests {
         run.build_after = 0;
         fs::remove_file(&run.logfile).unwrap();
         assert!(
-            run.clone_targets_among(Some(&none)),
+            run.clone_targets_among(Some(&none), account::uid()),
             "{}",
             fs::read_to_string(&run.logfile).unwrap()
         );
@@ -2093,7 +2092,7 @@ mod tests {
         };
         clone("carol", true);
         fs::remove_file(&dry.logfile).unwrap();
-        assert!(dry.clone_targets_among(Some(&none)));
+        assert!(dry.clone_targets_among(Some(&none), account::uid()));
         assert!(dry.home.join("dev/carol.state/target").exists());
         assert!(aside.join("target/lib").exists(), "a link was followed");
         let said = fs::read_to_string(&dry.logfile).unwrap();
@@ -2108,8 +2107,41 @@ mod tests {
         // A docker that will not answer keeps every build.
         fs::remove_file(&dry.logfile).unwrap();
         dry.freed = 0;
-        assert!(dry.clone_targets_among(None));
+        assert!(dry.clone_targets_among(None, account::uid()));
         assert_eq!(dry.freed, 0);
+    }
+
+    #[test]
+    fn a_run_without_its_uid_walks_into_no_clone_build_output() {
+        // Step 7 asks who owns a state target before it counts or removes it.
+        // A run whose `id` does not answer owns nothing, so an old build output
+        // stays even with the disk low and no age kept.
+        let root = TestDir::new("clean-clone-no-uid");
+        let home = root.join("home");
+        let target = home.join("dev/alice.state/target");
+        fs::create_dir_all(target.join("console")).unwrap();
+        fs::write(target.join("console/lib"), vec![b'x'; 4096]).unwrap();
+        age_tree(&target, 72);
+        let mut run = Run {
+            dry: false,
+            home,
+            works: String::new(),
+            base: "widget".to_string(),
+            after: 24,
+            build_after: 24,
+            low: true,
+            dirs: Vec::new(),
+            sandbox: String::new(),
+            pulled: String::new(),
+            logfile: root.join("clean.log"),
+            tmp_disk: String::new(),
+            freed: 0,
+            rc: 0,
+        };
+        let none: Vec<String> = Vec::new();
+        assert!(run.clone_targets_among(Some(&none), None));
+        assert!(target.join("console/lib").exists());
+        assert_eq!(run.freed, 0);
     }
 
     #[test]

@@ -9,6 +9,7 @@
 
 use regex::Regex;
 use serde_json::{json, Map, Value};
+use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 
 /// The result schema this reads.
@@ -146,12 +147,17 @@ pub fn branch_of(issue: u64, b: &str) -> bool {
         })
 }
 
+/// The most of a run log tehas reads. Of a longer one it reads its end, which
+/// is where the step a runner died in and the branch of its last push are.
+pub const LOG_TAIL: u64 = 200_000;
+
 /// What the step-started lines of a run log say of the run.
 #[derive(Debug, Default, PartialEq)]
 pub struct Run {
     pub step: String,
     pub branch: String,
-    /// `whole`, or `truncated` for a log over 200 KB.
+    /// `whole`, or `truncated` for a log over `LOG_TAIL`. Said by whoever read
+    /// the log, which is the only one that knows whether it held all of it.
     pub read: String,
 }
 
@@ -176,10 +182,10 @@ fn stable(text: &str) -> impl Iterator<Item = Value> + '_ {
     })
 }
 
-/// A run log at `path`, read as `run` reads it, or None when `issue` is not a
-/// number or the path is no regular file. A log whose runner died is all tehas
-/// has of the step it was in and the branch it pushed. `read` counts the bytes
-/// of the file.
+/// A run log at `path`, or None when `issue` is not a number or the path is no
+/// regular file. A log whose runner died is all tehas has of the step it was
+/// in and the branch it pushed. Of a log longer than `LOG_TAIL` only its last
+/// `LOG_TAIL` bytes are read, and `read` says `truncated` for that.
 pub fn run_log(path: &Path, issue: &str) -> Option<Run> {
     if !issue.starts_with(|c: char| ('1'..='9').contains(&c))
         || !issue.bytes().all(|c| c.is_ascii_digit())
@@ -187,27 +193,45 @@ pub fn run_log(path: &Path, issue: &str) -> Option<Run> {
         return None;
     }
     let n = issue.parse().ok()?;
-    if !path.symlink_metadata().ok()?.is_file() {
-        return None;
-    }
-    let bytes = std::fs::read(path).ok()?;
+    let (bytes, whole) = log_tail(path)?;
     let mut r = run(&String::from_utf8_lossy(&bytes), n);
-    r.read = read_of(bytes.len()).to_string();
+    r.read = read_word(whole).to_string();
     Some(r)
 }
 
-fn read_of(size: usize) -> &'static str {
-    if size <= 200_000 {
+/// The bytes of the run log at `path` to read, and whether they are the whole
+/// of it: None when it is no regular file or cannot be read, and of a log over
+/// `LOG_TAIL` only its last `LOG_TAIL`, sought rather than read past.
+pub fn log_tail(path: &Path) -> Option<(Vec<u8>, bool)> {
+    let m = path.symlink_metadata().ok()?;
+    if !m.is_file() {
+        return None;
+    }
+    if m.len() <= LOG_TAIL {
+        return Some((std::fs::read(path).ok()?, true));
+    }
+    let mut f = std::fs::File::open(path).ok()?;
+    let mut bytes = Vec::new();
+    f.seek(SeekFrom::Start(m.len() - LOG_TAIL)).ok()?;
+    f.take(LOG_TAIL).read_to_end(&mut bytes).ok()?;
+    Some((bytes, false))
+}
+
+/// How a run log was read, in the one word the report and the helper's third
+/// line say it in: `whole`, or `truncated` for a log read only from its end.
+pub fn read_word(whole: bool) -> &'static str {
+    if whole {
         "whole"
     } else {
         "truncated"
     }
 }
 
-/// The last step a log says was started, the branch of its last commit-pr
-/// when it is the issue's, and whether it was read whole.
+/// The last step a log's text says was started and the branch of its last
+/// commit-pr when it is the issue's. Of a text that is the end of a longer
+/// log, this finds only what that end says: `Run::read` is said by whoever
+/// read the log.
 pub fn run(text: &str, issue: u64) -> Run {
-    let read = read_of(text.len()).to_string();
     let mut steps = vec![];
     for v in stable(text) {
         if v.get("kind").and_then(Value::as_str) != Some("step-started") {
@@ -237,7 +261,7 @@ pub fn run(text: &str, issue: u64) -> Run {
     Run {
         step: steps.last().cloned().unwrap_or_default(),
         branch,
-        read,
+        ..Run::default()
     }
 }
 
@@ -477,6 +501,19 @@ pub fn names_issue(pr: &Value, issue: u64) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
+    use tehas_core::testdir::TestDir;
+
+    /// One step-started line of a run log.
+    fn started(s: &str) -> String {
+        format!("{{\"v\":1,\"kind\":\"step-started\",\"event\":{{\"step\":\"{s}\"}}}}\n")
+    }
+
+    /// At least `n` bytes of what a runner writes between its steps: one line,
+    /// so the steps after it are still whole lines.
+    fn written(n: usize) -> String {
+        "y".repeat(n) + "\n"
+    }
 
     #[test]
     fn an_outcome_is_the_issues_entry() {
@@ -528,9 +565,7 @@ mod tests {
 
     #[test]
     fn a_log_names_its_last_step_and_the_branch_of_its_last_push() {
-        let l = |s: &str| {
-            format!("{{\"v\":1,\"kind\":\"step-started\",\"event\":{{\"step\":\"{s}\"}}}}\n")
-        };
+        let l = started;
         let log = [
             l("plan"),
             l("commit-pr"),
@@ -546,13 +581,66 @@ mod tests {
             Run {
                 step: "ci".into(),
                 branch: "feature/issue-7-b".into(),
-                read: "whole".into()
+                ..Run::default()
             }
         );
         assert_eq!(run(&(l("commit-pr") + &l("feature/issue-8")), 7).branch, "");
         assert_eq!(run(&l("commit-pr"), 7).branch, "");
         let bad = l("plan") + "{\"v\":1,\"kind\":\"step-started\",\"event\":\"x\"}\n";
         assert_eq!(run(&bad, 7).step, "");
+    }
+
+    #[test]
+    fn a_run_log_of_at_most_the_bound_is_read_whole_and_says_whole() {
+        let d = TestDir::new("runner-log-whole");
+        let p = d.join("work-7-261101-093921.jsonl");
+        let log = started("explore") + &started("commit-pr") + &started("feature/issue-7-checks");
+        fs::write(&p, &log).unwrap();
+        assert_eq!(
+            run_log(&p, "7"),
+            Some(Run {
+                step: "feature/issue-7-checks".into(),
+                branch: "feature/issue-7-checks".into(),
+                read: "whole".into(),
+            })
+        );
+    }
+
+    #[test]
+    fn a_run_log_past_the_bound_is_read_from_its_end_and_says_truncated() {
+        let d = TestDir::new("runner-log-tail");
+        let p = d.join("work-7-261101-093921.jsonl");
+        let log = written(LOG_TAIL as usize + 1)
+            + &started("commit-pr")
+            + &started("feature/issue-7-late");
+        fs::write(&p, &log).unwrap();
+        assert!(p.metadata().unwrap().len() > LOG_TAIL);
+        assert_eq!(
+            run_log(&p, "7"),
+            Some(Run {
+                step: "feature/issue-7-late".into(),
+                branch: "feature/issue-7-late".into(),
+                read: "truncated".into(),
+            })
+        );
+    }
+
+    #[test]
+    fn a_step_only_in_the_head_of_a_long_run_log_is_not_said() {
+        let d = TestDir::new("runner-log-head");
+        let p = d.join("work-7-261101-093921.jsonl");
+        // explore and plan are past the end tehas reads, so of this run only
+        // its last push is known.
+        let log = started("explore")
+            + &started("plan")
+            + &written(LOG_TAIL as usize)
+            + &started("commit-pr")
+            + &started("feature/issue-7-late");
+        fs::write(&p, &log).unwrap();
+        let r = run_log(&p, "7").unwrap();
+        assert_eq!(r.step, "feature/issue-7-late");
+        assert_eq!(r.branch, "feature/issue-7-late");
+        assert_eq!(r.read, "truncated");
     }
 
     #[test]

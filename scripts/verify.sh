@@ -4,11 +4,11 @@
 #   scripts/verify.sh          the lint for product and host names, the
 #                              ceiling on bash lines, shellcheck,
 #                              every shell test, the tests of the cargo
-#                              workspace and, where node is installed, the
+#                              workspace, its format and lints (rustfmt,
+#                              clippy) and, where node is installed, the
 #                              tests of the front page
-#   scripts/verify.sh --full   the above, plus the format and the lints of the
-#                              workspace (rustfmt, clippy), and the front page's
-#                              tests even where node is missing
+#   scripts/verify.sh --full   the above, and the front page's tests even
+#                              where node is missing
 #   scripts/verify.sh --changed  only what the change since the merge base with
 #                              origin/main can affect, uncommitted and untracked
 #                              files included: the name lint and the bash
@@ -24,7 +24,8 @@
 # Needs bash, git, jq, shellcheck and cargo; --full also needs node. Without
 # cargo the gate fails, fast or full: the dispatcher's rules are Rust tests. A
 # missing node is a "skip" line in the fast gate and a failure in the full one;
-# rustfmt and clippy, which not every toolchain holds, are "skip" lines. No
+# rustfmt and clippy, which not every toolchain holds, are "skip" lines
+# except in CI and with --full, where they fail. No
 # network, no sandbox image, no product checkout: except that cargo fetches the
 # workspace's crates the first time it builds it. The workspace's tests run at
 # the same time as the shell tests; each step's output is printed in the order
@@ -198,17 +199,27 @@ elif [ "$full" = 1 ]; then
 else
   echo "skip  the front page's tests (node is not installed; --full needs it)"
 fi
-if [ "$full" = 1 ]; then
-  if has cargo && cargo fmt --version >/dev/null 2>&1; then
-    step "the workspace's format" cargo fmt --check --manifest-path console/Cargo.toml --all
-  else
-    echo "skip  the workspace's format (rustfmt is not installed)"
-  fi
-  if has cargo && cargo clippy --version >/dev/null 2>&1; then
-    step "the workspace's lints" cargo clippy --locked --quiet --all-targets "${workspace[@]}" -- -D warnings
-  else
-    echo "skip  the workspace's lints (clippy is not installed)"
-  fi
+# Format and lints run on every gate, not only --full: tehas setup's product
+# check runs --full, so a change that passed a shorter gate stopped setup on
+# every factory that builds tehas (#1468, #1473, and again on 2026-11-04). In CI or
+# with --full a missing rustfmt or clippy fails rather than skips.
+strict=$full
+[ -n "${CI:-}" ] && strict=1
+if has cargo && cargo fmt --version >/dev/null 2>&1; then
+  step "the workspace's format" cargo fmt --check --manifest-path console/Cargo.toml --all
+elif [ "$strict" = 1 ]; then
+  echo "FAIL  the workspace's format (rustfmt is not installed)"
+  failed=1
+else
+  echo "skip  the workspace's format (rustfmt is not installed)"
+fi
+if has cargo && cargo clippy --version >/dev/null 2>&1; then
+  step "the workspace's lints" cargo clippy --locked --quiet --all-targets "${workspace[@]}" -- -D warnings
+elif [ "$strict" = 1 ]; then
+  echo "FAIL  the workspace's lints (clippy is not installed)"
+  failed=1
+else
+  echo "skip  the workspace's lints (clippy is not installed)"
 fi
 logs=${TEHAS_VERIFY_LOGS:-${TMPDIR:-/tmp}/tehas-verify}
 log=$logs/$mode-$(date -u +%Y%m%dT%H%M%SZ)-$$.log

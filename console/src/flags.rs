@@ -9,10 +9,8 @@
 //!   console flags limit clear [--json]
 //!   console flags limit read [--now <epoch seconds>] [--line]
 //!
-//!   console flags pause show [--json]
 //!   console flags pause set [--reason TEXT]
 //!   console flags pause clear
-//!   console flags pause read [--line]
 //!
 //! The home is `TEHAS_HOME`, or `$HOME/tehas` with no `TEHAS_HOME`, as
 //! `lib/config.sh` resolves it. The file is `$TEHAS_HOME/state/limit.json`,
@@ -59,32 +57,32 @@
 //! - `at`: when it was written, `2026-10-17T14:05:00Z`, which must be a string
 //! - `reason`: one line of at most 200 characters, which must be a string
 //!
-//! `show` prints the flag as it then is, in the words `tehas status` prints,
-//! or with `--json` the object `tehas status --json` publishes for the switch:
-//!
-//!   pause     flag, written at 2026-10-17T14:05:00Z: waiting for the gate
-//!   {"api":1,"state":"ok","by":"boss","at":"...","reason":"..."}
-//!
-//! `read` prints the same reading as one object with no `api`, so the readers
-//! which share the file share this answer too; with `--line` it prints the
-//! words instead. `state` is `none` when no file is there and `ok` when one
-//! holds a flag, and `unreadable` when something is there which is no flag -
-//! a file no reader can make sense of, which every reader counts as paused.
-//! A command which is told the file is no flag says so in the words its
-//! readers have always used for one.
+//! The reading of the flag, its fields and its words, is `read_pause`, and
+//! every command which writes the flag or publishes its state takes its answer
+//! from there: `tehas pause` itself, the health file, and the dashboard's pause
+//! line. Only the poll's own decision reads the file by its own rules, so it
+//! asks the same questions of it. `state` is `none` when no file is there and
+//! `ok` when one holds a flag, and `unreadable` when something is there which
+//! is no flag - a file no reader can make sense of, which every reader counts
+//! as paused. A command which is told the file is no flag says so in the words
+//! its readers have always used for one.
 //!
 //! `set` writes the flag with the account of this run and the moment of the
-//! write, and `clear` takes it off; `set` on a host already paused says what
-//! already is and leaves the flag alone. A flag is written through
+//! write, and prints `paused at <time> by <account>[: reason]`; on a host
+//! already paused it prints `already paused …` and leaves the flag alone.
+//! `clear` prints that the flag is gone, or that this host had none. A file
+//! which is no flag is named on standard error before `set` replaces it.
+//! A flag is written through
 //! `pause.json.new`, mode 0600, and put in place by a rename, so what is there
 //! is always a whole flag; `clear` takes that name away too, and takes away
 //! either name only when it holds a regular file of this account, so it never
 //! follows a link someone left under one of them.
 //!
-//! Exit: 0 shown, set or cleared; 1 a file could not be written or removed, or
-//! a name of the flag is not this account's to remove; 64 a bad argument, which
-//! writes nothing.
+//! Exit: 0 for a verb of either flag which did its work; 1 a file could not be
+//! written or removed, or a name of the flag is not this account's to remove;
+//! 64 a bad argument, which writes nothing.
 
+use crate::account;
 use crate::forge::CALL_BOUND;
 use serde_json::Value;
 use std::env;
@@ -364,12 +362,15 @@ pub fn main(given: &[String]) -> u8 {
     }
 }
 
+/// The second line of the usage: what the pause flag takes. Pinned, because it
+/// is what an operator on a stale host, or with a script from v0.16.2, is
+/// shown before the 64.
+const PAUSE_USAGE: &str = "       console flags pause set [--reason TEXT] | clear";
+
 fn usage(why: &str) -> u8 {
     eprintln!("console flags: {why}");
     eprintln!("usage: console flags limit show [--json] | set --cycles N [--plan on|off] [--for SECONDS | --until TIME] [--reason TEXT] | clear | read [--now <epoch seconds>]");
-    eprintln!(
-        "       console flags pause show [--json] | set [--reason TEXT] | clear | read [--line]"
-    );
+    eprintln!("{PAUSE_USAGE}");
     64
 }
 
@@ -475,38 +476,10 @@ fn pause(given: &[String]) -> u8 {
     };
     let (verb, rest) = match given.split_first() {
         Some((verb, rest)) => (verb.as_str(), rest),
-        None => return usage("show, set, clear or read is wanted"),
+        None => return usage("set or clear is wanted"),
     };
     let file = here.join("state/pause.json");
     match verb {
-        // show prints the words tehas pause prints, or the object with api
-        // first when asked for --json.
-        "show" => {
-            let mut words = false;
-            for arg in rest {
-                if arg != "--json" || words {
-                    return usage("--json, once, after show");
-                }
-                words = true;
-            }
-            let out = read_pause(&file);
-            tehas_core::outln!("{}", if words { api(out) } else { out.said() });
-            0
-        }
-        // read prints the object every command which honours the flag reads,
-        // with no api, and the words of the reading with --line.
-        "read" => {
-            let mut line = false;
-            for arg in rest {
-                if arg != "--line" || line {
-                    return usage("--line, once, after read");
-                }
-                line = true;
-            }
-            let out = read_pause(&file);
-            tehas_core::outln!("{}", if line { out.said() } else { out.text() });
-            0
-        }
         "set" => match pause_args(rest) {
             Ok(reason) => pause_set(&file, &reason),
             Err(bad) => usage(bad),
@@ -517,9 +490,9 @@ fn pause(given: &[String]) -> u8 {
             if !rest.is_empty() {
                 return usage("clear takes no argument");
             }
-            pause_clear(&file)
+            pause_clear(&file, account::uid())
         }
-        _ => usage("show, set, clear or read, not a word this command knows"),
+        _ => usage("set or clear, not a word this command knows"),
     }
 }
 
@@ -538,23 +511,6 @@ fn pause_args(rest: &[String]) -> Result<String, &'static str> {
         i += 2;
     }
     Ok(reason.unwrap_or_default())
-}
-
-/// The account of this run: the real uid, and the name passwd gives for it.
-fn uid() -> u32 {
-    // SAFETY: getuid takes no argument and has no preconditions.
-    unsafe { libc::getuid() }
-}
-
-/// The account which wrote the flag, as `id -un` names it: the real uid, the
-/// name in passwd for it, and nothing for an account passwd does not name.
-pub(crate) fn account() -> String {
-    let entry = unsafe { libc::getpwuid(uid()) };
-    if entry.is_null() {
-        return String::new();
-    }
-    let name = unsafe { std::ffi::CStr::from_ptr((*entry).pw_name) };
-    name.to_string_lossy().into_owned()
 }
 
 /// `tehas pause`: the first pause wins. A host already paused says what already
@@ -599,7 +555,7 @@ fn pause_set(file: &Path, reason: &str) -> u8 {
         return 1;
     }
     let said = oneline(reason);
-    let (by, at) = (account(), time::iso(now()));
+    let (by, at) = (account::name(), time::iso(now()));
     let held = |text: &str| Value::String(text.to_string()).to_string();
     let doc = format!(
         "{{\"by\":{},\"at\":{},\"reason\":{}}}\n",
@@ -637,8 +593,10 @@ fn pause_set(file: &Path, reason: &str) -> u8 {
 /// pause writes through goes too, so a leftover of it cannot outlive the flag.
 /// Each of the two names is ours only when we can take it: what is left of
 /// another uid's run, or planted under one of them, is reported and keeps the
-/// command from saying the host resumed.
-fn pause_clear(file: &Path) -> u8 {
+/// command from saying the host resumed. <me> is the uid of this run, asked
+/// once by the caller: a case which wants a run that does not know its own uid
+/// gives None.
+fn pause_clear(file: &Path, me: Option<u32>) -> u8 {
     let tmp = file.with_extension("json.new");
     let there = file.symlink_metadata().is_ok() || tmp.symlink_metadata().is_ok();
     // A name is ours to remove only when it holds a regular file of this run.
@@ -646,7 +604,7 @@ fn pause_clear(file: &Path) -> u8 {
     // link stays where whoever made it left it. The flag path reads through a
     // symlink, so the same rule holds there.
     for name in [file, &tmp] {
-        if name.symlink_metadata().is_ok() && !owned_regular(name) {
+        if name.symlink_metadata().is_ok() && !owned_regular(name, me) {
             eprintln!("tehas resume: {} is not ours to remove", name.display());
             return 1;
         }
@@ -836,29 +794,30 @@ fn cycles_running(dir: &Path) -> Vec<u64> {
     held
 }
 
-fn drain_report(said: &str, running: &[u64], limit: &str, json: bool) -> String {
+/// The answer of a drain. `passed` is false when a poll held its lock for the
+/// whole wait: its cycles may not be counted, so nothing is drained.
+fn drain_report(said: &str, running: &[u64], passed: bool, limit: &str, json: bool) -> String {
     let numbers = |sep: &str, mark: &str| {
         let each: Vec<String> = running.iter().map(|n| format!("{mark}{n}")).collect();
         each.join(sep)
     };
     if json {
-        format!(
+        return format!(
             "{{\"api\":1,\"drained\":{},\"running\":[{}],\"limit\":{limit}}}",
-            running.is_empty(),
+            passed && running.is_empty(),
             numbers(",", "")
-        )
-    } else if running.is_empty() {
-        format!(
-            "{said}
-drained: no cycle is running"
-        )
-    } else {
-        format!(
-            "{said}
-still running: {}",
-            numbers(", ", "#")
-        )
+        );
     }
+    let mut out = said.to_string();
+    if !passed {
+        out += "\nnot drained: a poll held its lock for the whole wait";
+    }
+    if !running.is_empty() {
+        out += &format!("\nstill running: {}", numbers(", ", "#"));
+    } else if passed {
+        out += "\ndrained: no cycle is running";
+    }
+    out
 }
 
 /// `tehas drain`: the limit of no new work, then the count of what still runs.
@@ -881,23 +840,24 @@ pub fn drain(given: &[String]) -> u8 {
         return rc;
     }
     let said = read(&file, now()).said();
-    if !poll_passed(
+    let passed = poll_passed(
         &state.join("dispatch.lock"),
         asked.wait.unwrap_or(POLL_WAIT),
-    ) {
-        return 1;
-    }
+    );
     let deadline = Instant::now() + Duration::from_secs(asked.wait.unwrap_or(0));
     let running = loop {
         let running = cycles_running(&state.join("cycles"));
-        if running.is_empty() || Instant::now() >= deadline {
+        if !passed || running.is_empty() || Instant::now() >= deadline {
             break running;
         }
         sleep(Duration::from_secs(1));
     };
     let limit = read(&file, now()).text();
-    tehas_core::outln!("{}", drain_report(&said, &running, &limit, asked.json));
-    u8::from(!running.is_empty())
+    tehas_core::outln!(
+        "{}",
+        drain_report(&said, &running, passed, &limit, asked.json)
+    );
+    u8::from(!passed || !running.is_empty())
 }
 
 /// `tehas_pause_read`: the flag as every command which honours it reads it.
@@ -1268,13 +1228,14 @@ fn parse(bytes: &[u8], now: i64) -> Reading {
     out
 }
 
-/// Whether a path is a regular file of this run. A symlink is never ours: the
-/// name is ours to remove only when it holds our own regular file, not one
-/// planted under it or left there by a container which ran as another account.
-fn owned_regular(path: &Path) -> bool {
-    match fs::symlink_metadata(path) {
-        Ok(meta) => meta.file_type().is_file() && meta.uid() == uid(),
-        Err(_) => false,
+/// Whether a path is a regular file of <me>. A symlink is never ours: the name
+/// is ours to remove only when it holds our own regular file, not one planted
+/// under it or left there by a container which ran as another account. No uid
+/// owns anything: a run whose `id` does not answer removes nothing of its own.
+fn owned_regular(path: &Path, me: Option<u32>) -> bool {
+    match (fs::symlink_metadata(path), me) {
+        (Ok(meta), Some(me)) => meta.file_type().is_file() && meta.uid() == me,
+        _ => false,
     }
 }
 
@@ -2102,20 +2063,37 @@ mod tests {
     fn a_drain_reports_as_it_always_has() {
         let limit = r#"{"state":"ok"}"#;
         assert_eq!(
-            drain_report("said", &[], limit, true),
+            drain_report("said", &[], true, limit, true),
             r#"{"api":1,"drained":true,"running":[],"limit":{"state":"ok"}}"#
         );
         assert_eq!(
-            drain_report("said", &[7, 12], limit, true),
+            drain_report("said", &[7, 12], true, limit, true),
             r#"{"api":1,"drained":false,"running":[7,12],"limit":{"state":"ok"}}"#
         );
         assert_eq!(
-            drain_report("said", &[], limit, false),
+            drain_report("said", &[], true, limit, false),
             "said\ndrained: no cycle is running"
         );
         assert_eq!(
-            drain_report("said", &[7, 12], limit, false),
+            drain_report("said", &[7, 12], true, limit, false),
             "said\nstill running: #7, #12"
+        );
+    }
+
+    #[test]
+    fn a_poll_that_kept_its_lock_is_not_drained_and_still_answered() {
+        let limit = r#"{"state":"ok"}"#;
+        assert_eq!(
+            drain_report("said", &[], false, limit, true),
+            r#"{"api":1,"drained":false,"running":[],"limit":{"state":"ok"}}"#
+        );
+        assert_eq!(
+            drain_report("said", &[], false, limit, false),
+            "said\nnot drained: a poll held its lock for the whole wait"
+        );
+        assert_eq!(
+            drain_report("said", &[7], false, limit, false),
+            "said\nnot drained: a poll held its lock for the whole wait\nstill running: #7"
         );
     }
 
@@ -2318,7 +2296,7 @@ mod tests {
             fs::read_to_string(&file).unwrap(),
             format!(
                 "{{\"by\":\"{}\",\"at\":\"{}\",\"reason\":\"waiting for the gate\"}}\n",
-                account(),
+                account::name(),
                 time::iso(now()),
             )
         );
@@ -2344,7 +2322,7 @@ mod tests {
             fs::read_to_string(&file).unwrap(),
             format!(
                 "{{\"by\":\"{}\",\"at\":\"{}\",\"reason\":\"\"}}\n",
-                account(),
+                account::name(),
                 time::iso(now()),
             )
         );
@@ -2353,7 +2331,7 @@ mod tests {
             read_pause(&file).text(),
             format!(
                 "{{\"state\":\"ok\",\"by\":\"{}\",\"at\":\"{}\"}}",
-                account(),
+                account::name(),
                 time::iso(now()),
             )
         );
@@ -2419,7 +2397,7 @@ mod tests {
         let outside = d.join("victim");
         fs::create_dir_all(&outside).unwrap();
         symlink(&outside, file.with_extension("json.new")).unwrap();
-        assert_eq!(pause_clear(&file), 1);
+        assert_eq!(pause_clear(&file, account::uid()), 1);
         assert!(outside.is_dir());
         assert!(file.with_extension("json.new").symlink_metadata().is_ok());
         // The flag path reads through a symlink, so taking the link off would
@@ -2429,7 +2407,7 @@ mod tests {
         let outside = d.join("keepme");
         fs::write(&outside, "not a flag").unwrap();
         symlink(&outside, &file).unwrap();
-        assert_eq!(pause_clear(&file), 1);
+        assert_eq!(pause_clear(&file, account::uid()), 1);
         assert!(outside.exists());
         assert!(file.symlink_metadata().is_ok());
     }
@@ -2444,7 +2422,7 @@ mod tests {
         assert_eq!(pause_set(&file, "x"), 0);
         fs::write(file.with_extension("json.new"), "half a flag").unwrap();
         fs::set_permissions(d.join("state"), fs::Permissions::from_mode(0o500)).unwrap();
-        assert_eq!(pause_clear(&file), 1);
+        assert_eq!(pause_clear(&file, account::uid()), 1);
         fs::set_permissions(d.join("state"), fs::Permissions::from_mode(0o700)).unwrap();
         assert!(file.exists() || file.with_extension("json.new").exists());
     }
@@ -2453,7 +2431,7 @@ mod tests {
     fn resume_takes_the_flag_and_its_temporary_off() {
         let d = dir("pause-clear");
         let file = pause_file(&d);
-        assert_eq!(pause_clear(&file), 0);
+        assert_eq!(pause_clear(&file, account::uid()), 0);
         assert_eq!(pause_set(&file, "x"), 0);
         // A leftover of a run killed mid-write goes with the flag, so it
         // cannot outlive it.
@@ -2462,11 +2440,25 @@ mod tests {
             r#"{"by":"b","at":"2026-10-15T10:00:00Z","reason":""}"#,
         )
         .unwrap();
-        assert_eq!(pause_clear(&file), 0);
+        assert_eq!(pause_clear(&file, account::uid()), 0);
         assert!(!file.exists());
         assert!(!file.with_extension("json.new").exists());
         // Clearing a host which is not paused succeeds and says so.
-        assert_eq!(pause_clear(&file), 0);
+        assert_eq!(pause_clear(&file, account::uid()), 0);
+    }
+
+    #[test]
+    fn resume_removes_nothing_when_the_run_does_not_know_its_uid() {
+        // The failure mode of the ownership check: with no uid nothing can be
+        // told apart from something planted on the name of a flag, so both the
+        // flag and its temporary stay and the host is not reported resumed.
+        let d = dir("pause-clear-no-uid");
+        let file = pause_file(&d);
+        assert_eq!(pause_set(&file, "x"), 0);
+        fs::write(file.with_extension("json.new"), "half a flag").unwrap();
+        assert_eq!(pause_clear(&file, None), 1);
+        assert!(file.exists());
+        assert!(file.with_extension("json.new").exists());
     }
 
     #[test]
@@ -2474,10 +2466,10 @@ mod tests {
         for bad in [
             args(&[]),
             args(&["bogus"]),
-            args(&["show", "--json", "--json"]),
-            args(&["show", "--json", "extra"]),
-            args(&["read", "--line", "--line"]),
-            args(&["read", "--json"]),
+            // The retired verbs are refused as unknown words: a script carried
+            // over from an older release gets 64, not a reading of the flag.
+            args(&["show", "--json"]),
+            args(&["read", "--line"]),
             args(&["set", "--reason"]),
             args(&["set", "--reason", "one", "--reason", "two"]),
             args(&["set", "--cycles", "1"]),
@@ -2495,15 +2487,81 @@ mod tests {
     }
 
     #[test]
+    fn the_usage_names_the_verbs_the_pause_flag_takes_and_no_other() {
+        // The verbs of the pause flag, as the operator of a stale host or a
+        // carried-over script is told them before the 64: the two which are
+        // there, and neither of the two which are not. The limit's line keeps
+        // its own verbs, `read` among them, which test/limit_test.sh runs.
+        assert_eq!(
+            PAUSE_USAGE,
+            "       console flags pause set [--reason TEXT] | clear"
+        );
+        assert!(!PAUSE_USAGE.contains("show"));
+        assert!(!PAUSE_USAGE.contains("read"));
+    }
+
+    #[test]
     fn the_name_of_the_account_which_writes_the_flag_is_its_name() {
-        // The same name id -un prints: the real uid of the run, and the name
-        // passwd gives for it. An empty name would be a flag which says
-        // nothing about who wrote it.
-        assert!(!account().is_empty());
+        // The same name id -un prints. An empty name would be a flag which
+        // says nothing about who wrote it.
+        assert!(!account::name().is_empty());
         let out = std::process::Command::new("id")
             .arg("-un")
             .output()
             .expect("id -un");
-        assert_eq!(account(), String::from_utf8_lossy(&out.stdout).trim());
+        assert_eq!(account::name(), String::from_utf8_lossy(&out.stdout).trim());
+    }
+
+    #[test]
+    fn only_a_regular_file_of_this_run_is_ours_to_remove() {
+        let home = dir("owned-regular");
+        fs::create_dir_all(home.join("state")).unwrap();
+        let mine = home.join("state/pause.json");
+        fs::write(&mine, "{}").unwrap();
+        assert!(owned_regular(&mine, account::uid()));
+        // A directory is no flag to take off, a link is not ours whoever
+        // owns what it points at, and an absent name is nothing to remove.
+        assert!(!owned_regular(&home.join("state"), account::uid()));
+        symlink(&mine, home.join("state/link.json")).unwrap();
+        assert!(!owned_regular(
+            &home.join("state/link.json"),
+            account::uid()
+        ));
+        assert!(!owned_regular(
+            &home.join("state/gone.json"),
+            account::uid()
+        ));
+        // A file of another account is not ours to remove. The file is made
+        // here, so the case does not lean on what the host happens to hold.
+        // Only a run under uid 0 can hand a file to another account, and the
+        // rest are told the case was skipped instead of left to pass unseen.
+        let other = home.join("state/other.json");
+        fs::write(&other, "x").unwrap();
+        if account::uid() == Some(0) {
+            let said = std::process::Command::new("chown")
+                .arg("1")
+                .arg(&other)
+                .output()
+                .expect("chown");
+            assert!(
+                said.status.success(),
+                "could not give {} to uid 1: {}",
+                other.display(),
+                String::from_utf8_lossy(&said.stderr)
+            );
+            assert!(
+                !owned_regular(&other, Some(0)),
+                "{} is not ours",
+                other.display()
+            );
+        } else {
+            eprintln!("skipped: only a run under uid 0 can give a file to another account");
+        }
+        // The same refusal every run can answer: an uid which is not the
+        // owner's owns nothing, and no uid owns anything.
+        if let Some(me) = account::uid() {
+            assert!(!owned_regular(&mine, Some(me.wrapping_add(1))));
+        }
+        assert!(!owned_regular(&mine, None));
     }
 }
