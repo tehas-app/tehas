@@ -195,6 +195,7 @@ mod front;
 mod github;
 mod health;
 mod history;
+mod ids;
 mod improve;
 mod label;
 mod labels;
@@ -460,6 +461,7 @@ fn main() -> ExitCode {
             Some("slice") => return ExitCode::from(slice::main(&given[1..])),
             Some("health") => return ExitCode::from(health::main(&given[1..])),
             Some("improve") => return ExitCode::from(improve::main(&given[1..])),
+            Some("ids") => return ExitCode::from(ids::main(&given[1..])),
             Some("label") => return ExitCode::from(label::main(&given[1..])),
             Some("models") => return ExitCode::from(models::main(&given[1..])),
             Some("state") => return ExitCode::from(state::main(&given[1..])),
