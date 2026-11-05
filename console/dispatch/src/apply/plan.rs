@@ -19,14 +19,8 @@ use std::path::PathBuf;
 use std::sync::OnceLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tehas_core::events::{plan_credit, Events};
-use tehas_core::plan::made;
+use tehas_core::plan::{made, WHY_MAX};
 use tehas_core::question::{self, Kind, MAX_OPTIONS};
-
-/// How much of the runner's reason the comment of a failed turn carries. The
-/// turn cuts its own words to this length (`console/src/plan/turn.rs`); the
-/// bound is held here too, at the site that prints them, because the file
-/// beside this reader is state a person can edit.
-const WHY_MAX: usize = 500;
 
 /// plan_filed_re: an address of an issue a turn filed.
 fn filed_re() -> &'static Regex {
@@ -502,12 +496,14 @@ impl Writer {
             // what a person needs to fix, not the exit status. It came out of
             // the container, so it passes the same boundary as every other
             // agent string this file posts.
+            // The scrub runs on the whole reason and the cut after it, so a
+            // secret that straddles the bound is masked, not left half shown.
             let reason = s(&out, "/why").replace(['\r', '\n'], " ");
-            let reason = tehas_core::jq::first(&reason, WHY_MAX);
+            let reason = question::q_clean(&reason, WHY_MAX);
             let said = if reason.is_empty() {
                 why
             } else {
-                format!("{why}: {}", question::q_clean(&reason, WHY_MAX))
+                format!("{why}: {reason}")
             };
             let text = format!("This planning turn did not finish: it {said}. The log is `~/tehas/logs/dispatch-plan-{n}.log` on `{host}`. Reply in a comment to run the turn again with your reply as the next message, or end the session and apply `tehas:plan` to start a new one.");
             let said = json!({"text": text, "question": null});

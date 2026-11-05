@@ -1927,6 +1927,97 @@ fn the_reason_of_a_failed_turn_is_scrubbed_before_the_comment() {
 }
 
 #[test]
+fn a_secret_across_the_bound_of_the_reason_is_scrubbed_not_cut() {
+    let mut t = world();
+    plan_row(
+        &t,
+        json!({"turns": 2, "session": "s-1", "label": "tehas:plan", "failed": true}),
+    );
+    // Padding puts the token across the bound: cut first, its head would be
+    // too short for the scrubber to know it and would reach the issue.
+    let pad = "x".repeat(tehas_core::plan::WHY_MAX - 10);
+    turn_ended(
+        &t,
+        7,
+        "1",
+        json!({"session": "s-1", "why": format!("{pad} ghp_ABCDEFGHIJKLMNOPQRSTUVWX")}),
+    );
+    t.apply(json!([{"plan_collect": 7}]));
+    let said = t
+        .writes()
+        .into_iter()
+        .find(|c| c.contains("This planning turn did not finish"))
+        .expect("the comment of the failed turn");
+    assert!(said.contains(&pad));
+    assert!(!said.contains("ghp_A"));
+}
+
+#[test]
+fn a_failed_turn_whose_comment_did_not_land_is_posted_by_the_next_poll() {
+    let mut t = world();
+    plan_row(
+        &t,
+        json!({"turns": 2, "session": "s-1", "label": "tehas:plan", "failed": true}),
+    );
+    turn_ended(
+        &t,
+        7,
+        "1",
+        json!({"session": "s-1", "why": "the runner exited 40"}),
+    );
+    t.fail("gh", "issue comment 7");
+    let a = t.apply(json!([{"plan_collect": 7}]));
+    assert!(a.log.contains(
+        &"WARN: the planning turn of #7 could not be posted; the next poll tries again".to_string()
+    ));
+    // The comment the turn left is kept for the poll that posts it, and it
+    // is a comment, not an outcome a later turn could be read as.
+    let out = t.w.home.join("state/plan-7.json.out");
+    let kept: Value = serde_json::from_str(&fs::read_to_string(&out).unwrap()).unwrap();
+    assert!(kept["text"]
+        .as_str()
+        .unwrap()
+        .contains("it exited with status 1: the runner exited 40."));
+    assert!(kept.get("session").is_none());
+    fs::remove_file(t.dir.join("fail-gh")).unwrap();
+    t.apply(json!([{"plan_post": 7}]));
+    assert!(t
+        .writes()
+        .contains(&"store plan-end 7 --posted".to_string()));
+    assert!(!out.exists());
+}
+
+#[test]
+fn a_next_turn_starts_with_no_outcome_of_an_earlier_one() {
+    let mut t = world();
+    plan_row(
+        &t,
+        json!({"turns": 2, "session": "s-1", "label": "tehas:plan"}),
+    );
+    fs::write(
+        t.dir.join("answered"),
+        json!({"api": 1, "verb": "plan-answer", "ok": true, "planning": {"answer": "Do A.\n"}})
+            .to_string(),
+    )
+    .unwrap();
+    fs::create_dir_all(t.dir.join("works")).unwrap();
+    fs::write(t.dir.join("works/.tehas-workspaces"), "").unwrap();
+    // A failed turn's comment that a poll could not post: the next turn's
+    // runner may write nothing, and what it left must not be read as its own.
+    let out = t.w.home.join("state/plan-7.json.out");
+    fs::write(
+        &out,
+        json!({"text": "This planning turn did not finish", "question": null}).to_string(),
+    )
+    .unwrap();
+    t.apply(
+        json!([{"plan_turn": 7, "kind": "next", "answer": "Do A.", "by": "alice",
+        "log": "planning #7 continues (answer from alice)"}]),
+    );
+    assert!(!out.exists());
+}
+
+#[test]
 fn a_stale_reason_of_an_earlier_turn_is_read_for_a_status_that_cannot_be_read() {
     let mut t = world();
     plan_row(
