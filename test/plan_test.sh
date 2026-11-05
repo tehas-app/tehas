@@ -526,7 +526,7 @@ t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/an
 t_eq "$t_rc" 2
 t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
 
-t_case "a draft the text check refuses is shown, never marked clear, and its Update this issue writes nothing"
+t_case "a draft the text check refuses is shown, never marked clear nor offered, and a typed Update this issue writes nothing"
 # The four texts #1210 refuses: a title of nothing but its prefix, a title
 # of one word said twice, the planner's brief copied as the plan, and a text
 # of nothing but the brief's marks. Each is drafted with no open points, so
@@ -549,9 +549,9 @@ Search is slow.' 'Faster search|Descriptor: what the issue is
     session: {id: "abc-123", turn: 2}, text: "Drafted.", title: $title, spec: $spec, questions: []}')"
   t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
   t_eq "$t_rc" 0
-  # Asked, as any draft with a person in it is: the box is there to tick
-  # after the person has read what the check said, and no clear is said.
-  t_eq "$(jq -c '[.clear, .question.options[].label]' "$T/out.json")" '[null,"Update this issue"]'
+  # Shown with the rule it failed and no box to tick, and no clear is said.
+  t_eq "$(jq -c '[.clear, .question.options[].label]' "$T/out.json")" '[null]'
+  t_contains "$(jq -r .question.question "$T/out.json")" "Tehas does not offer this plan as the text of an issue"
   printf 'alice chose: Update this issue\n' >"$T/answer.md"
   t_stub gh 'printf "%s\n" "$*" >>"$T/calls/gh.args"; cat "$T/fx/view.json"'
   printf '%s\n' '{"title":"search","body":"make it fast"}' >"$fx/view.json"
@@ -568,7 +568,8 @@ done
 
 t_case "a plan longer than a comment holds is cut, and says so"
 reset
-turn_doc 12 "$(jq -n --arg spec "$(head -c 50000 /dev/zero | tr '\0' x)" '{session: {id: "abc-123"}, text: "Drafted.", title: "Big", spec: $spec, questions: []}')"
+# Words, so the text check lets the plan be offered.
+turn_doc 12 "$(jq -n --arg spec "$(yes 'Search reads the index. ' | head -c 50000)" '{session: {id: "abc-123"}, text: "Drafted.", title: "Big", spec: $spec, questions: []}')"
 t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
 t_eq "$t_rc" 0
 t_contains "$(jq -r .text "$T/out.json")" "(cut: the plan is longer than a comment holds)"
