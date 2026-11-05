@@ -34,7 +34,10 @@ Then, in this order, stopping at the first step that fails:
      gives it the bot's name and noreply address, unless it has one. The
      helper is checked first: the identity is of no use on a host whose git
      cannot authenticate, and the two are read from two different programs
-  4. clones the product to ~/tehas/repos/<name>; an app's first run installs first
+  4. clones the product to ~/tehas/repos/<name>; an app's first run installs
+     first. A checkout that is there is fetched and fast-forwarded on its
+     branch; one with local work, or a fetch that fails, is left as it is and
+     named, and the run goes on
   5. runs install.sh beside this command, then tehas labels
   6. builds the sandbox image unless it is there, and runs the product's
      gates in it with tehas check-product --sandbox where that is installed

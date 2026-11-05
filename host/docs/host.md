@@ -344,7 +344,10 @@ has no "Adopter action" for the release ([Releases](/tools#release-notes-and-the
 The pushed tag starts the release workflow, which publishes the signed tarball.
 When the head carries a polyfill that the newest pi-rukas no longer needs, it
 opens a pull request that removes it and tags nothing until that is merged
-([Polyfills](/tools#polyfills-of-pi-rukas-features)).
+([Polyfills](/tools#polyfills-of-pi-rukas-features)). Before it tags, it moves
+every pinned tool to the newest minor and patch of its major version, and when
+anything moved it opens a pull request for that and tags nothing until it is
+merged ([Pinned tools](/tools#pinned-tools-move-with-the-release)).
 `scripts/tag-deploy.sh tehas-tehas` refuses
 unless the newest tag is the head of that branch, runs
 `. ~/tehas/env.sh && tehas update` on the host over ssh, then checks that the
@@ -1139,6 +1142,10 @@ tehas work: this cycle's container reached its limit of processes, 41 starts wer
 A cycle whose container is at that limit can run no command, so its gate does
 not run and its handoff may not be posted. The comment that reports the cycle
 says the count, and the dispatcher's `done` line has it as `forks_refused`.
+When the run named no cap of its own and no person stopped it, the cycle goes
+on record with the cap `process-limit:<step>` (`process-limit` when no step
+is known) and a reason that carries the count, so `tehas history`, the park
+comment and the analytics row name it. A cap the run named stays.
 
 A container that ends with 137 while the cycle was still running is reported
 as `killed`: `tehas work` exits 137, and the issue is parked with

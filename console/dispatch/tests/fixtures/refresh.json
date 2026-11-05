@@ -5767,7 +5767,7 @@
      {
       "issue": 7,
       "refresh_said": "cap 2026-10-01T00:00:00Z 2",
-      "say": "Tehas does not refresh this issue's pull request on its own: it was refreshed 2 times since alice approved it, the limit. It conflicts with the branch, and a person resolves it or applies `tehas:ready` to start a fresh cycle."
+      "say": "Tehas does not refresh this issue's pull request on its own: it was refreshed 2 times since alice approved it, the limit. It conflicts with the branch: a person resolves the conflict, or closes the pull request and then applies `tehas:ready` to start a fresh cycle."
      }
     ]
    }
