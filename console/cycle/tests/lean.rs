@@ -224,7 +224,11 @@ fn a_classic_cycle_names_no_driver() {
 #[test]
 fn a_lean_runner_that_died_is_looked_up_on_lean_s_branch() {
     let r = read("died", "", 137, pr("OPEN", false), "lean");
-    assert!(r.asked.contains(&"prs lean/issue-7".to_string()), "{:?}", r.asked);
+    assert!(
+        r.asked.contains(&"prs lean/issue-7".to_string()),
+        "{:?}",
+        r.asked
+    );
     let (_, comment) = said(&r);
     assert!(comment.contains("with pull request #41 open"), "{comment}");
 }
