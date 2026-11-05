@@ -647,33 +647,37 @@ turn_doc 41 '{"subcommand":"plan","exitCode":41,"status":"lost","lost":true}'
 t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/brief.md"
 t_eq "$t_rc" 2
 t_contains "$t_out" "the session abc-123 is gone: the runner has no record of it"
-t_eq "$(jq -c . "$T/out.json")" '{"session":"abc-123","lost":true}'
+# jq prints the keys of an object sorted, which is the order the document is
+# written in: a BTreeMap under serde_json, which has no `preserve_order`
+# feature here. The tests of plan/turn.rs and this file pin that order.
+t_eq "$(jq -c . "$T/out.json")" '{"lost":true,"session":"abc-123","why":"the session abc-123 is gone: the runner has no record of it"}'
 
 t_case "a refused or failed turn is exit 2, says why, and keeps the session for a retry"
-for doc in '40|{"exitCode":40,"error":{"code":"session-busy","message":"another run holds the session"}}' \
-  '40|{"exitCode":40,"status":"failed","session":{"id":"abc-123"},"failure":{"reason":"empty-url"}}' '30|'; do
+for row in '40|{"exitCode":40,"error":{"code":"session-busy","message":"another run holds the session"}}|the runner exited 40 (session-busy: another run holds the session)' \
+  '40|{"exitCode":40,"status":"failed","session":{"id":"abc-123"},"failure":{"reason":"empty-url"}}|the runner exited 40 (empty-url)' '30||the runner exited 30'; do
   first_turn_ran
-  turn_doc "${doc%%|*}" "${doc#*|}"
+  IFS='|' read -r rc body expected <<<"$row"
+  turn_doc "$rc" "$body"
   t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/brief.md"
   t_eq "$t_rc" 2
-  t_contains "$t_out" "the runner exited ${doc%%|*}"
-  t_eq "$(jq -c . "$T/out.json")" '{"session":"abc-123"}'
+  t_contains "$t_out" "the runner exited $rc"
+  t_eq "$(jq -c . "$T/out.json")" "{\"session\":\"abc-123\",\"why\":\"$expected\"}"
 done
 t_contains "$t_out" "the runner exited 30, see"
 
-t_case "a first turn whose runner names no session writes nothing; one that says and asks nothing fails"
+t_case "a first turn whose runner names no session writes only the reason; one that says and asks nothing fails"
 reset
 turn_doc 11 '{"text":"Hm.","questions":[]}'
 t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
 t_eq "$t_rc" 2
 t_contains "$t_out" "the session id is unknown"
-t_eq "$([ -e "$T/out.json" ] && echo written)" ""
+t_eq "$(jq -c . "$T/out.json")" '{"why":"the session id is unknown"}'
 reset
 turn_doc 11 '{"session":{"id":"abc-123"},"text":"","questions":[]}'
 t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
 t_eq "$t_rc" 2
 t_contains "$t_out" "the turn said and asked nothing"
-t_eq "$(jq -c . "$T/out.json")" '{"session":"abc-123"}'
+t_eq "$(jq -c . "$T/out.json")" '{"session":"abc-123","why":"the turn said and asked nothing"}'
 
 t_case "a session id longer than the store keeps is no session"
 reset
@@ -693,7 +697,7 @@ t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/br
 t_eq "$t_rc" 2
 t_contains "$t_out" "time limit of 1s passed"
 t_contains "$t_out" "the turn ran out of time"
-t_eq "$(jq -c . "$T/out.json")" '{"session":"abc-123"}'
+t_eq "$(jq -c . "$T/out.json")" '{"session":"abc-123","why":"the turn ran out of time"}'
 t_eq "$(grep -l -x stop "$T"/calls/docker.args.* | wc -l)" 1
 t_eq "$(cat "$T/keep/exit")" 124
 rm -f "$fx/live"
