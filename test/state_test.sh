@@ -101,7 +101,7 @@ reset
 pack
 t_eq "$t_rc" 0
 t_eq "$(tar -tf "$tar_file" | head -n 1)" tehas-state.json
-t_eq "$(tar -xOf "$tar_file" tehas-state.json)" '{"api":1,"schema":9,"tag":"v0.17.0"}'
+t_eq "$(tar -xOf "$tar_file" tehas-state.json)" '{"api":1,"schema":10,"tag":"v0.17.0"}'
 list=$(names "$tar_file")
 t_contains "$list" "state/ledger.txt"
 t_contains "$list" "repos/product/main.c"
@@ -154,14 +154,14 @@ before=$(whole)
 unpack "$T/bad.tar"
 t_eq "$t_rc" 1
 t_contains "$t_out" "schema 8"
-t_contains "$t_out" "schema 9"
+t_contains "$t_out" "schema 10"
 t_eq "$(whole)" "$before"
 
 t_case "unpack refuses a manifest that is missing, not first or of an unknown api"
 reset
 pack
 before=$(whole)
-retar '{"api":2,"tag":"v0.17.0","schema":9}'
+retar '{"api":2,"tag":"v0.17.0","schema":10}'
 unpack "$T/bad.tar"
 t_eq "$t_rc" 1
 t_contains "$t_out" manifest
@@ -461,7 +461,7 @@ before=$(fingerprint "$dst")
 t_run "$state check --json 2>/dev/null"
 t_eq "$t_rc" 0
 t_eq "$t_out" "$(TEHAS_HOME=$dst "$dst/libexec/store" check)"
-t_eq "$(jq -c '[.api, .verb, .integrity, .schema, .rows.cycles]' <<<"$t_out")" '[1,"check","ok",9,2]'
+t_eq "$(jq -c '[.api, .verb, .integrity, .schema, .rows.cycles]' <<<"$t_out")" '[1,"check","ok",10,2]'
 t_eq "$(fingerprint "$dst")" "$before"
 
 t_case "check prints the schema, the integrity and a line per table for a person"
@@ -469,7 +469,7 @@ reset
 t_ended "$dst" 5 -
 t_run "$state check"
 t_eq "$t_rc" 0
-t_contains "$t_out" "schema      9"
+t_contains "$t_out" "schema      10"
 t_contains "$t_out" "integrity   ok"
 t_contains "$t_out" "rows        cycles 1"
 
