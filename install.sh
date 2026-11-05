@@ -134,8 +134,8 @@
 # holds `..`: the loader takes TEHAS_HOME from the environment as it is, and
 # this script removes what it takes for stale under it, so a wrong path would
 # lose files that were never tehas's. A home that already has env.sh and
-# libexec/dispatch is taken as one installed before the marker, and gets it on
-# this run.
+# libexec/dispatch, which installs of then left, is taken as one installed
+# before the marker, and gets it on this run.
 #
 # Exit: 0 done or nothing to report, 1 --check found something, a step failed,
 # the console that reads the settings did not build (nothing can judge them
@@ -657,13 +657,12 @@ files=(
   "lib/refine-brief.md|$TEHAS_HOME/lib/refine-brief.md|644"
   "lib/issue-brief.md|$TEHAS_HOME/lib/issue-brief.md|644"
   "lib/github-app.sh|$TEHAS_HOME/lib/github-app.sh|644"
-  "lib/rukas.sh|$TEHAS_HOME/lib/rukas.sh|644"
   # The key a release signature is checked with. It is here so the copy an
   # adopter verifies against is the one the repository holds and not one that
   # came inside the download it is checking.
   "release/minisign.pub|$TEHAS_HOME/release/minisign.pub|644"
   # What a release packs, so the list is on a host as it is in a checkout.
-  "lib/release.sh|$TEHAS_HOME/lib/release.sh|644"
+  "lib/release.list|$TEHAS_HOME/lib/release.list|644"
   "versions.env|$TEHAS_HOME/versions.env|644"
   "sandbox/Dockerfile|$TEHAS_HOME/sandbox/Dockerfile|644"
   "sandbox/build.sh|$TEHAS_HOME/sandbox/build.sh|755"
@@ -704,19 +703,9 @@ for f in tehas tehasbot; do
   files+=("bin/$f|$TEHAS_HOME/bin/$f|755")
 done
 for f in \
-  check-product \
-  cycle \
-  dev \
   dev-login \
-  dispatch \
-  github-token \
-  improve \
-  index \
-  plan \
-  review \
   setup \
-  update \
-  work; do
+  update; do
   files+=("libexec/$f|$TEHAS_HOME/libexec/$f|755")
 done
 # What tehas labels makes. A change here owes the labels step.
@@ -968,48 +957,20 @@ if [ ! -d "$root/console" ] && [ -f "$root/VERSION" ]; then
   done
 else
   [ -d "$root/console" ] || { echo "tehas: $root/console is missing from this checkout" >&2; exit 1; }
-  # source_sum <find tests>: one checksum of the files under console/ that the
-  # tests select, the build's own output left out.
-  source_sum() {
-    (cd "$root/console" && find . -type f ! -path './target/*' ! -path './analytics/target/*' "$@" -print0 |
-      LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1)
-  }
-  # The console's source is all of console/ but its tests, analytics/, mcp/,
-  # store/, attach/, dispatch/ and cycle/'s tests, so a change to one of those
-  # alone does not build the console again. It links the tehas-cycle library.
-  # analytics reads its own directory, the workspace's manifest and lock, and the
-  # shared library in core/, and so do the MCP server and the store.
-  console_source=$(source_sum ! -path './tests/*' ! -path './analytics/*' ! -path './mcp/*' ! -path './store/*' \
-    ! -path './attach/*' ! -path './dispatch/*' ! -path './cycle/tests/*' ! -path './cycle/target/*') ||
-    { echo "tehas: could not read the console's source in $root/console" >&2; exit 1; }
-  analytics_source=$(source_sum \( \( -path './analytics/*' ! -path './analytics/tests/*' \) \
-    -o -path ./Cargo.toml -o -path ./Cargo.lock -o -path './core/*' \)) ||
-    { echo "tehas: could not read the analytics program's source in $root/console" >&2; exit 1; }
-  mcp_source=$(source_sum \( \( -path './mcp/*' ! -path './mcp/tests/*' ! -path './mcp/target/*' \) \
-    -o -path ./Cargo.toml -o -path ./Cargo.lock -o -path './core/*' \)) ||
-    { echo "tehas: could not read the MCP server's source in $root/console" >&2; exit 1; }
-  store_source=$(source_sum \( \( -path './store/*' ! -path './store/src/tests.rs' ! -path './store/target/*' \) \
-    -o -path ./Cargo.toml -o -path ./Cargo.lock -o -path './core/*' \)) ||
-    { echo "tehas: could not read the store's source in $root/console" >&2; exit 1; }
-  # The attachment checker reads its own directory and the workspace's manifest
-  # and lock.
-  attach_source=$(source_sum \( \( -path './attach/*' ! -path './attach/src/tests.rs' ! -path './attach/target/*' \) \
-    -o -path ./Cargo.toml -o -path ./Cargo.lock \)) ||
-    { echo "tehas: could not read the attachment checker's source in $root/console" >&2; exit 1; }
-  # The dispatcher and the cycle's supervisor each read their own directory, the
-  # workspace's manifest and lock, and core/.
-  dispatch_source=$(source_sum \( \( -path './dispatch/*' ! -path './dispatch/tests/*' ! -path './dispatch/target/*' \) \
-    -o -path ./Cargo.toml -o -path ./Cargo.lock -o -path './core/*' \)) ||
-    { echo "tehas: could not read the dispatcher's source in $root/console" >&2; exit 1; }
-  cycle_source=$(source_sum \( \( -path './cycle/*' ! -path './cycle/tests/*' ! -path './cycle/target/*' \) \
-    -o -path ./Cargo.toml -o -path ./Cargo.lock -o -path './core/*' \)) ||
-    { echo "tehas: could not read the cycle's source in $root/console" >&2; exit 1; }
+  # The checksum of each program's source, from the console that read the
+  # settings: the one built from this tree, or in --check the one an earlier
+  # build left or the one installed. It reads the workspace's members and what
+  # each takes by path (console/src/update/sources.rs).
+  sources_console=${built_console:-${TEHAS_SETTINGS_CMD:-$TEHAS_HOME/libexec/console}}
+  sources=$("$sources_console" update sources "$root/console" console analytics tehas-mcp store attach \
+    tehas-dispatch tehas-cycle) ||
+    { echo "tehas: $sources_console could not read the programs' source in $root/console" >&2; exit 1; }
   program_sum() { sha256sum <"$1" | cut -d' ' -f1; }
   due=()
-  for entry in "console $console_source" "analytics $analytics_source" "tehas-mcp $mcp_source" \
-    "store $store_source" "attach $attach_source" "tehas-dispatch $dispatch_source" \
-    "tehas-cycle $cycle_source"; do
+  while IFS= read -r entry; do
     read -r prog sum <<<"$entry"
+    [[ $sum =~ ^[0-9a-f]{64}$ ]] ||
+      { echo "tehas: $sources_console gave no checksum for ${prog:-a program}: $entry" >&2; exit 1; }
     to=$TEHAS_HOME/libexec/$prog
     [ ! -x "$to" ] || [ "$(cat "$to.stamp" 2>/dev/null)" != "$sum $(program_sum "$to")" ] || continue
     if [ "$check" = 1 ]; then
@@ -1018,7 +979,7 @@ else
     else
       due+=("$entry")
     fi
-  done
+  done <<<"$sources"
   if [ "${#due[@]}" != 0 ]; then
     build_ready "${due[0]%% *}"
     for entry in "${due[@]}"; do
@@ -1257,13 +1218,23 @@ for f in "$TEHAS_HOME"/sandbox/sandbox-uid.Dockerfile \
   if [ "$check" = 1 ]; then note "stale: $f"; else rm -f "$f" && echo "removed: $f"; fi
 done
 
+a_cycle_runs() { # true while a cycle holds its lock
+  local lock
+  for lock in "$TEHAS_HOME"/state/cycles/*.lock; do
+    [ -e "$lock" ] && ! { flock -n 8; } 8<"$lock" && return 0
+  done
+  return 1
+}
+
 # The commands of before bin/tehas, one file each in bin/, and the console of
 # before it was a compiled program. The libraries the bash poll sourced. And the
 # Protolab's server files of before the edge router. And the wrappers of what is
 # now a verb of the console, and the libraries of what is now a verb of
 # tehas-cycle, and the jq program of the bash report. And the libraries whose
-# last callers moved into the console. Found here, removed in
-# step 5 once systemd has the new units.
+# last callers moved into the console, the scripts that only exec'd it, the
+# release list of before it was a plain file (lib/release.list), and the
+# scripts that took a lock for tehas-cycle, which takes it itself. Found here,
+# removed in step 5 once systemd has the new units.
 old=()
 for f in \
   bin/tehas-console.ts \
@@ -1285,8 +1256,16 @@ for f in \
   lib/private.sh \
   libexec/analytics-cmd \
   libexec/api \
+  libexec/check-product \
   libexec/clean \
+  libexec/dev \
+  libexec/dispatch \
+  libexec/github-token \
+  libexec/improve \
+  libexec/plan \
+  libexec/review \
   libexec/console.ts \
+  libexec/cycle \
   lib/limit.sh \
   lib/live.sh \
   lib/headless.sh \
@@ -1301,6 +1280,7 @@ for f in \
   libexec/export \
   libexec/health \
   libexec/history \
+  libexec/index \
   libexec/init-product \
   libexec/labels \
   libexec/limit \
@@ -1318,9 +1298,11 @@ for f in \
   libexec/top \
   libexec/top-publish \
   libexec/with-settings \
+  libexec/work \
   lib/disk.sh \
   lib/top.sh \
   lib/update-release.sh \
+  lib/release.sh \
   lib/attachments.sh \
   lib/history-lines.jq \
   lib/cycles.sh \
@@ -1330,10 +1312,16 @@ for f in \
   lib/slice.sh \
   lib/questions.sh \
   lib/store.sh \
+  lib/rukas.sh \
   edge/protolab.Caddyfile \
   edge/protolab.compose.yaml; do
   to=$TEHAS_HOME/$f
   [ -e "$to" ] || continue
+  # A cycle that started before this update renews its token by this path.
+  if [ "$f" = libexec/github-token ] && a_cycle_runs; then
+    echo "later: ./install.sh again when no cycle runs   ($to stays: a running cycle renews its token through it)"
+    continue
+  fi
   old+=("$to")
   changed+=("$f")
   # A running sampler or publisher is the old file calling itself; only a
@@ -1419,6 +1407,16 @@ if [ "$check" = 1 ]; then
   esac
 
   images_say check
+
+  # The image cycles run against the pi-rukas the host follows, as the factory's
+  # health last read it (checks.rukas, which tehasbot status reads from docker
+  # and upstream). The clone is the Dependencies line's; this is the image.
+  behind=$(jq -r '.checks.rukas | select(.behind == true) | "\(.imageVersion // .image) \(.targetVersion // .target)"' \
+    "$TEHAS_HOME/live/health.json" 2>/dev/null) || behind=""
+  if [ -n "$behind" ]; then
+    echo "Sandbox:      BEHIND (the image runs pi-rukas ${behind% *}, the host follows ${behind#* }; tehas update builds it)"
+    rc=1
+  fi
 
   # The last tehas check-product, read and not run: the product is not this
   # host's install, so it does not change the exit status.

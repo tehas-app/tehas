@@ -18,8 +18,8 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
-/// What libexec/update gives install.sh. It runs it; this says so.
-const INSTALL_LIMIT: u32 = 1800;
+/// What `run` gives install.sh. It runs it; this says so.
+pub(super) const INSTALL_LIMIT: u32 = 1800;
 /// docker ps and docker compose up.
 const COMPOSE_LIMIT: u32 = 180;
 /// systemctl daemon-reload, is-active and restart.
@@ -75,12 +75,15 @@ fn says(line: &str, label: &str, words: &[&str]) -> bool {
     value.len() < rest.len() && words.iter().any(|w| value.starts_with(w))
 }
 
-/// install.sh --check answers 1 when it found something. Files that differ and
-/// steps owed are what an update fixes; the host's tools, the slice, root's copy
+/// install.sh --check answers 1 when it found something. Files that differ,
+/// steps owed and a sandbox image behind its pi-rukas are what an update fixes; the host's tools, the slice, root's copy
 /// of the command and the tests are not.
 fn found_to_update(out: &str) -> bool {
-    out.lines()
-        .any(|l| says(l, "Installed:", &["DRIFT"]) || says(l, "Follow-ups:", &["NOT DONE"]))
+    out.lines().any(|l| {
+        says(l, "Installed:", &["DRIFT"])
+            || says(l, "Follow-ups:", &["NOT DONE"])
+            || says(l, "Sandbox:", &["BEHIND"])
+    })
 }
 
 fn found_not_to_fix(out: &str) -> bool {
@@ -593,8 +596,7 @@ mod tests {
     #[test]
     fn the_script_and_this_console_agree() {
         let script = include_str!("../../../libexec/update");
-        assert!(script.contains(&format!("timeout {INSTALL_LIMIT} \"${{run[@]}}\"")));
-        assert!(script.contains(&format!("7>&-)\" != {} ]", super::super::API)));
+        assert!(script.contains(r#"exec "$console" update run "$console" "$@""#));
     }
 
     #[test]
@@ -608,6 +610,9 @@ mod tests {
         assert!(!says("  Installed:    DRIFT", "Installed:", &["DRIFT"]));
         assert!(found_to_update("x\nFollow-ups:   NOT DONE (1)\n"));
         assert!(!found_to_update("Installed:    OK\n"));
+        assert!(found_to_update(
+            "Sandbox:      BEHIND (the image runs pi-rukas v0.14.53, the host follows v0.14.54; tehas update builds it)\n"
+        ));
         for line in [
             "Dependencies: NOT OK",
             "Slice:        MISSING (sudo)",

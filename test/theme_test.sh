@@ -140,8 +140,15 @@ done
 
 t_case "the business page reads the dispatcher's files and loads its sample first"
 order=$(grep -oE 'src="/fun/[a-z-]+\.js"' "$fun/business.html" | sed 's/src="\/fun\///; s/"//' | xargs)
-t_eq "$order" "mode.js sample-issues.js console-tabs.js business-view.js epics-view.js panels.js"
+t_eq "$order" "mode.js sample-issues.js console-tabs.js business-view.js epics-view.js versions.js panels.js"
 t_contains "$(cat "$fun/business.html")" '<script type="module" src="/fun/business-view.js">'
 t_eq "$(grep -oE '"/live/[a-z]+\.json"' "$fun/business-view.js" | tr -d '"' | sort -u | xargs)" '/live/analytics.json /live/energy.json /live/protolab.json /live/running.json /live/status.json'
+
+t_case "the plain dashboard loads the tabs before its module, which holds the page's script"
+frag=$T_ROOT/host/docs/dashboard.frag
+order=$(grep -oE 'src="/fun/[a-z-]+\.js"' "$frag" | sed 's/src="\/fun\///; s/"//' | xargs)
+t_eq "$order" "console-tabs.js dashboard-view.js"
+t_contains "$(cat "$frag")" '<script type="module" src="/fun/dashboard-view.js"></script>'
+t_eq "$(grep -c '<script type="module">' "$frag")" 0
 
 t_done

@@ -91,6 +91,8 @@ struct Given {
     poll_over: Option<String>,
     poll_budget: Option<String>,
     mcp: Option<String>,
+    /// TEHAS_INDUSTRY_VERSION: the tehas-industry that runs this factory.
+    industry: Option<String>,
 }
 
 /// Where the run looks for the MCP server: `TEHAS_MCP` and `TEHAS_HOST_ADDR`
@@ -352,6 +354,7 @@ fn checks(home: &Path, budget: &str, systemctl: &Path, mcp: &Mcp) -> Result<Give
         poll_over: over,
         poll_budget,
         mcp: Some(mcp_check(&mcp).dump()),
+        industry: env::var("TEHAS_INDUSTRY_VERSION").ok(),
     })
 }
 
@@ -1058,7 +1061,7 @@ pub fn main(given: &[String]) -> u8 {
     }
     let usage = || {
         eprintln!(
-            "console health: usage: run <home> | report <home> [--sessions <json>] [--units <text>] [--backup <json>] [--poll-over <json> --poll-budget <spec>] [--mcp <json>]"
+            "console health: usage: run <home> | report <home> [--sessions <json>] [--units <text>] [--backup <json>] [--poll-over <json> --poll-budget <spec>] [--mcp <json>] [--industry <version>]"
         );
         2
     };
@@ -1079,6 +1082,7 @@ pub fn main(given: &[String]) -> u8 {
             "--poll-over" => g.poll_over = Some(v),
             "--poll-budget" => g.poll_budget = Some(v),
             "--mcp" => g.mcp = Some(v),
+            "--industry" => g.industry = Some(v),
             _ => return usage(),
         }
     }
@@ -1194,6 +1198,40 @@ fn platform(live: &Path) -> J {
         Some(p @ J::Obj(_)) if matches!(p.get("behind"), J::Num(_)) => p,
         _ => J::Null,
     }
+}
+
+/// The pi-rukas the sandbox image runs against the one the host follows, as
+/// tehasbot status last read it (src/rukas.rs).
+fn rukas(live: &Path) -> J {
+    match read(&live.join("rukas.json")) {
+        Some(r @ J::Obj(_)) if matches!(r.get("behind"), J::Bool(_)) => J::Obj(get_fields(
+            &r,
+            &[
+                "follow",
+                "target",
+                "targetVersion",
+                "image",
+                "imageVersion",
+                "clone",
+                "behind",
+            ],
+        )),
+        _ => J::Null,
+    }
+}
+
+/// `{version}` of the tehas-industry that runs this factory. None for a
+/// factory with none, and for a value that is no version: either way health
+/// and the footer say nothing of an industry.
+fn industry(given: Option<&str>) -> Option<J> {
+    let v = given?;
+    let rest = v.strip_prefix('v')?;
+    let (core, pre) = rest.split_once('-').unwrap_or((rest, ""));
+    let parts: Vec<&str> = core.split('.').collect();
+    let digits = |p: &&str| (1..=6).contains(&p.len()) && p.bytes().all(|b| b.is_ascii_digit());
+    let pre_ok = pre.len() <= 32 && pre.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'.');
+    let shaped = parts.len() == 3 && parts.iter().all(digits) && pre_ok && !v.ends_with('-');
+    shaped.then(|| obj(vec![("version", J::str(v))]))
 }
 
 /// The slice as the last poll left it, when that poll is young enough. The
@@ -1696,6 +1734,7 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
     let view = snapshot(&live.join("running.json"));
     let disk = disk(&live, now);
     let platform = platform(&live);
+    let rukas = rukas(&live);
     let slice = slice(&live, now);
     let demand = demand(&live, now);
     let epics = epics(&live, now);
@@ -1785,6 +1824,7 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
                 .and_then(epoch)
                 .unwrap_or(0)
             > BEHIND_FOR;
+    let rukas_behind = rukas.get("behind").is_true();
     let queue_age = (!queue.is_null()).then(|| {
         now - queue
             .get("generatedAt")
@@ -1832,6 +1872,7 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
         || has_units
         || disk_low
         || behind
+        || rukas_behind
         || old_backup
         || over_budget
         || !unlinked.is_empty()
@@ -1900,6 +1941,16 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
             platform.get("behind").text(),
             platform.get("upstream").text(),
             first(&platform.get("behindSince").text_or_empty(), 10)
+        )
+    } else if rukas_behind {
+        let named = |version: &str, commit: &str| match rukas.get(version).as_str() {
+            Some(v) => v.to_string(),
+            None => first(&rukas.get(commit).text_or_empty(), 8),
+        };
+        format!(
+            "The sandbox image runs pi-rukas {} and the host follows {}: run tehas update.",
+            named("imageVersion", "image"),
+            named("targetVersion", "target")
         )
     } else if old_backup {
         let why = if upkeep_failed {
@@ -2030,33 +2081,35 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
         ])
     };
 
+    let mut checks = vec![
+        ("queue", queue_check),
+        ("cycle", cycle),
+        ("cycles", cycles),
+        ("plans", plans),
+        ("failed", failed_list),
+        ("disk", disk_check),
+        ("slice", slice),
+        ("demand", demand),
+        ("limit", limit),
+        ("allHands", all_hands),
+        ("pause", pause),
+        ("platform", platform),
+        ("rukas", rukas),
+        ("units", units.unwrap_or(J::Null)),
+        ("backup", backup_check),
+        ("upkeep", upkeep),
+        ("poll_cost", poll_cost),
+        ("epics", epics),
+        ("mcp", mcp),
+    ];
+    if let Some(i) = industry(g.industry.as_deref()) {
+        checks.push(("industry", i));
+    }
     obj(vec![
         ("status", J::str(status)),
         ("time", J::Str(time::iso(now))),
         ("output", J::Str(output)),
-        (
-            "checks",
-            obj(vec![
-                ("queue", queue_check),
-                ("cycle", cycle),
-                ("cycles", cycles),
-                ("plans", plans),
-                ("failed", failed_list),
-                ("disk", disk_check),
-                ("slice", slice),
-                ("demand", demand),
-                ("limit", limit),
-                ("allHands", all_hands),
-                ("pause", pause),
-                ("platform", platform),
-                ("units", units.unwrap_or(J::Null)),
-                ("backup", backup_check),
-                ("upkeep", upkeep),
-                ("poll_cost", poll_cost),
-                ("epics", epics),
-                ("mcp", mcp),
-            ]),
-        ),
+        ("checks", obj(checks)),
     ])
 }
 
@@ -2858,6 +2911,99 @@ mod tests {
             said(&h.report(&Given::default())).1,
             "The platform is 3 commits behind origin/main since 2026-10-15: run tehas update."
         );
+    }
+
+    #[test]
+    fn an_image_behind_the_pi_rukas_the_host_follows_warns_and_says_both() {
+        let h = home("rukas");
+        let a = "a".repeat(40);
+        let b = "b".repeat(40);
+        h.write(
+            "live/rukas.json",
+            &format!(
+                r#"{{"follow":"release:0","target":"{b}","targetVersion":"v0.14.54","image":"{a}","imageVersion":"v0.14.53","clone":"{b}","behind":true,"generatedAt":"x"}}"#
+            ),
+        );
+        let r = h.report(&Given::default());
+        assert_eq!(
+            said(&r),
+            (
+                "warn".into(),
+                "The sandbox image runs pi-rukas v0.14.53 and the host follows v0.14.54: run tehas update.".into()
+            )
+        );
+        let c = r.at(&["checks", "rukas"]);
+        assert_eq!(c.get("image").text(), a);
+        assert_eq!(c.get("clone").text(), b);
+        assert!(c.get("generatedAt").is_null());
+        // No version known: the commits are named.
+        h.write(
+            "live/rukas.json",
+            &format!(r#"{{"target":"{b}","image":"{a}","behind":true}}"#),
+        );
+        assert_eq!(
+            said(&h.report(&Given::default())).1,
+            "The sandbox image runs pi-rukas aaaaaaaa and the host follows bbbbbbbb: run tehas update."
+        );
+        // Current: a pass, the block still there.
+        h.write(
+            "live/rukas.json",
+            &format!(
+                r#"{{"target":"{b}","imageVersion":"v0.14.54","image":"{b}","behind":false}}"#
+            ),
+        );
+        let r = h.report(&Given::default());
+        assert_eq!(said(&r), ("pass".into(), "Idle, taking work.".into()));
+        assert_eq!(
+            r.at(&["checks", "rukas", "imageVersion"]).text(),
+            "v0.14.54"
+        );
+        // A file of another shape is no check.
+        h.write("live/rukas.json", r#"{"behind":"yes"}"#);
+        let r = h.report(&Given::default());
+        assert!(r.at(&["checks", "rukas"]).is_null());
+        assert_eq!(said(&r).0, "pass");
+    }
+
+    #[test]
+    fn an_industry_version_is_reported_and_none_or_a_bad_one_is_left_out() {
+        let h = home("industry");
+        let with = |v: Option<&str>| {
+            h.report(&Given {
+                industry: v.map(str::to_string),
+                ..Given::default()
+            })
+        };
+        let r = with(Some("v0.9.0"));
+        assert_eq!(r.at(&["checks", "industry", "version"]).text(), "v0.9.0");
+        assert_eq!(said(&r), ("pass".into(), "Idle, taking work.".into()));
+        assert_eq!(
+            with(Some("v1.2.3-rc.1"))
+                .at(&["checks", "industry", "version"])
+                .text(),
+            "v1.2.3-rc.1"
+        );
+        // A standalone factory: no block at all, and the status as before.
+        for none in [
+            None,
+            Some(""),
+            Some("0.9.0"),
+            Some("v0.9"),
+            Some("v0.9.0 x"),
+            Some("v0.9.0-"),
+            Some("<b>"),
+        ] {
+            let r = with(none);
+            let J::Obj(checks) = r.get("checks") else {
+                panic!("no checks")
+            };
+            assert!(!checks.iter().any(|(k, _)| k == "industry"), "{none:?}");
+            assert_eq!(
+                said(&r),
+                ("pass".into(), "Idle, taking work.".into()),
+                "{none:?}"
+            );
+        }
     }
 
     #[test]

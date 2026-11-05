@@ -14,6 +14,13 @@ empty one above it.
 ### Changes
 
 - `tehas status --json` says where each running cycle's step is: `stepNumber`, `stepTotal`, `round`, `roundLimit` and `stepSince` on each item of `running`, each left out when not known (#1579). The round is counted from the step's `step-started` lines when the driver gives none; the number, the count and the limit appear once the driver puts them on those lines. A line of `tehas history --json` carries `stepNumber`, `stepTotal` and `round` of the step the cycle ended in, and `prototypes` lists the issues with a Protolab page and when each was built. The state store is at schema 10: `store migrate`, which `install.sh` runs, adds the columns.
+- `tehasbot cycle`, `tehas work` and `tehas index` have no script of their own: the console loads the settings and execs `tehas-cycle`, which takes the lock (`state/cycles/<issue>.lock`, `state/index.lock`) and hands it down to the programs it starts, the docker client among them, with rustix's safe `fcntl_setfd` (#1587, #1588). The waits and exit statuses are as before: a second cycle of an issue waits 5 seconds and exits 3, a second `tehas work` exits 5, a second index run exits 3. The dispatcher starts the index as `bin/tehas index --before-cycle`. `install.sh` removes `libexec/cycle`, `libexec/work` and `libexec/index`.
+- `tehas dispatch`, `plan`, `dev`, `check-product` and `tehasbot dispatch`, `review`, `improve`, `github-token` go from `bin/tehas` and `bin/tehasbot` straight to the console. Their seven scripts in `libexec/` are gone and `install.sh` removes them; `libexec/github-token` stays until no cycle that started before the update runs, since such a cycle renews its token through it. The gh shim, the poll and a cycle's token renewer run `bin/tehasbot github-token`, and a planning turn runs `bin/tehas plan` from its copy of the code. `libexec/dev-login` stays: the sudo rule of `bootstrap.sh dev` names that one file (#1586).
+- `install.sh` asks the console for the checksum of each program's source (`console update sources`), read from the workspace's members and what each takes by path, in place of seven `find | sha256sum` blocks with their own filters (#1592). The attachment checker is now built again when `console/core/` changes, which it links. The first install after this builds each program once, since `tests/` and `src/tests.rs` of every crate are now left out of its source.
+- What a release packs is the plain list `lib/release.list` (sections `[dirs]`, `[plain]`, `[extra]`), read by `scripts/pack-release.sh`, in place of the bash library `lib/release.sh`. `install.sh` installs the list and removes an installed `lib/release.sh` (#1585).
+- The health file has `checks.rukas`: the pi-rukas commit the sandbox image runs (its `tehas.rukas` label) and its version, the commit the host follows and its release, the commit of the host's pi-rukas clone, and `behind` (#1534). An image behind the commit followed makes the health `warn`, and `install.sh --check` says `Sandbox: BEHIND`. `bootstrap.sh user` on an installed host ends with `sandbox/build.sh --if-moved`, so moving the clone moves the image. Before, a host on `PI_RUKAS_FOLLOW=release:0` could move its clone to a new release while cycles kept the old image, and nothing said so.
+- The health file has `checks.industry` when the factory is run by tehas-industry, from `TEHAS_INDUSTRY_VERSION` in `~/.config/tehas/env`. A factory without it, or with a value that is no version, has no block and is decided as before. The MCP `factory_status` answer carries `rukas` and `industry` too.
+- The footers of the two front pages read their versions from the health file (`tehas v0.24.6 · pi-rukas v0.14.54 · industry v0.9.0`), not from `fun/version.txt` and `fun/rukas-version.txt`. The image build no longer writes `rukas-version.txt`.
 - `tehas state check [--json]` prints the state store's schema, integrity check and rows of each table, with `--json` the store's own object, and `tehas api` lists the feature `state-check`. A program that moves a factory read it from `~/tehas/libexec/store check`, a path under the home that may change in any release.
 - A planning turn no longer offers a drafted plan that the checks of the issue's text refuse (#1553). The comment still shows the plan, and the question names the rule and lists the open points, with only **End this planning session** to tick. Two rules are new: a plan with lines that end in `[context param]` (the request or tehas's briefs echoed back) and a plan whose Acceptance criteria are pi-rukas's placeholder are refused, on the tick of **Update this issue** and for a plan with no open points too. The planner is given the issue's title without its conventional-commit type, so a drafted title no longer reads `chore: chore:`, with the type given as the planner's `--type` (`chore: ...` is planned as a chore, `research: ...` as a spike), and the `criteria` of a request's `pi-spec v1` block as an `ACCEPTANCE CRITERIA:` block, which pi-rukas carries into the draft.
 - The retry boxes of a park say what a retry is given: `Retry with the issue and all its comments` and `Retry with the issue text only`, with a line on what each means. A tick of the comments retry records the text of every comment on the issue and on the bot's pull requests for it (conversation comments, review bodies, inline review comments) up to the tick, by an account of `TEHAS_ALLOWED_LABELERS` that may write to the repository then, the bot's own left out; `tehas work` writes them to `comments.json` in the format of trail-openers/pi-rukas#2020 and mounts it even with images and files off. It no longer needs `TEHAS_WORK_COMMENTS`, and `retry-context.md`, which nothing read, is gone. The comments box is offered only when the sandbox image lists `issueComments` or carries the issue-comments polyfill. The old labels still count on comments posted before; they go two releases from now (#1492).
@@ -54,6 +61,7 @@ empty one above it.
 - `tehas panel set <id> --label TEXT --url URL` names a page of the project, such as a support chat or a status page, and both front pages show it: an item in the menu opens it in a sandboxed frame in a dock at the side. Up to four, published to `live/panels.json`; `tehas api --json` lists the feature `panels`.
 
 - `scripts/tag-release.sh` moves every pinned tool to the newest minor and patch of its major before it tags: `host/versions.env`, `host/npm/` and `host/sandbox/npm/`, each with its checksum, digest or lockfile, from the tool's own source (`scripts/pins.sh`, `console pins`). When anything moves it opens a pull request on `pins-<tag>` and tags after that is merged; a later major is listed under `### Held back` for a person. A move that fails stops the release; `--no-pins` skips it. The release that makes the move needs cargo, curl, tar and npm where it runs.
+- `tehas update` runs in the console from start to end: `console update run` holds `state/update.lock`, runs install.sh with the lock's descriptor (still named by `TEHAS_UPDATE_LOCK_FD`), and has the console install.sh left, or `libexec/console.prev`, finish the run. `libexec/update` only checks that the console answers and execs it. The verbs the script of the release before calls one by one (`update args|wait|gate|prepare|api|finish`) keep working for this release (#1589).
 
 ### Adopter action
 
@@ -63,6 +71,10 @@ the issue-comments polyfill; until then it offers `Retry with the issue text
 only` and `Leave it parked`. Nothing to set. A comments retry now asks GitHub
 for each author's permission on the repository, which the bot's token already
 may read.
+
+None for the pi-rukas and industry blocks: `tehasbot status` writes
+`live/rukas.json` at its next run. A `~/tehas/fun/rukas-version.txt` an older
+build left can be removed by hand.
 
 To run lean, rebuild the sandbox image on pi-rukas v0.14.47 or later. A
 lean start on an older image parks with what the image lacks.
@@ -84,14 +96,6 @@ run `tehas update --accept-id <login>`, or take the login out of the settings.
 Name an issue's blockers with GitHub's blocked-by links from now on. The `<!-- tehas:blocked by=N -->` comment still counts in this release and stops counting after it.
 
 To have claimed issues assigned, set `TEHAS_OWNER` in `instance.env` to a person's login with access to the repository. Nothing to do otherwise.
-
-`console flags pause show` and `console flags pause read` are gone: a script
-which called one of them now gets 64 and the usage. The words of the flag are
-what `tehas status` prints, and the object is what `tehasbot status` publishes
-in `live/status.json` under `pause.flag`.
-
-A filter, script or search that looks for `STUCK: ` in pull request titles
-now looks for `HALT: `.
 
 The `epic` label is new in `host/labels.tsv`, so an update runs its `labels`
 step; a host that skips it runs `tehas labels` once. Until the label exists,

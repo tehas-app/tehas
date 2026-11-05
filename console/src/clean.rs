@@ -7,12 +7,11 @@
 //!     <sandbox image> <log file> <scratch dir>
 //!     Exit 0 every step worked; 1 a step failed or the log could not be
 //!     written; 3 another run holds the lock; 64 a usage error.
-//!   console clean held <the image's tags, "<tag> <id>" per line>
-//!     The ids something holds, one per line, for the sandbox build. Exit 1
-//!     with nothing on stdout when docker would not say.
-//!   console clean target <PI_RUKAS_FOLLOW> <PI_RUKAS_REPO>
-//!     "<commit> <what it is>", as tehas_rukas_target of lib/rukas.sh prints
-//!     it. Exit 1 with nothing printed when there is no answer.
+//!   console clean dated <image> <keep>
+//!     The sandbox build's sweep: of the `<date>` and `<date>-product` tags of
+//!     <image>, newest first, the first <keep> stay, and an older one is
+//!     removed unless a container or a uid tag holds its image. Exit 1, nothing
+//!     removed, when docker would not list its images or containers.
 //!
 //! Only what has not been used for <after> hours goes. When the free disk is
 //! under the minimum, steps 1 and 2 take build output and the build cache
@@ -73,7 +72,7 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, Instant, SystemTime};
 use tehas_core::{rukas, time};
 
-const USAGE: &str = "usage: console clean run <dry 0|1> <home> <work dir> <after hours> <min free MiB> <min free> <free KiB> <dirs> <sandbox image> <log file> <scratch dir>\n       console clean image <PI_ENSEMBLE_IMAGE>\n       console clean usage <arguments>\n       console clean held <tags>\n       console clean target <follow> <repo>\n       console clean ended <workspace> <dirs> <log file> <scratch of the cycle>\n       console clean scratch <scratch dir> <name>";
+const USAGE: &str = "usage: console clean run <dry 0|1> <home> <work dir> <after hours> <min free MiB> <min free> <free KiB> <dirs> <sandbox image> <log file> <scratch dir>\n       console clean image <PI_ENSEMBLE_IMAGE>\n       console clean usage <arguments>\n       console clean dated <image> <keep>\n       console clean ended <workspace> <dirs> <log file> <scratch of the cycle>\n       console clean scratch <scratch dir> <name>";
 
 /// What `tehasbot clean --help` prints.
 const HELP: &str = r#"Remove what the host can make again: build output in kept workspaces,
@@ -146,11 +145,8 @@ pub fn main(given: &[String]) -> u8 {
     if given.first().is_some_and(|v| v == "scratch") {
         return scratch_made(&given[1..]);
     }
-    if given.first().is_some_and(|v| v == "held") {
-        return held(&given[1..]);
-    }
-    if given.first().is_some_and(|v| v == "target") {
-        return target(&given[1..]);
+    if given.first().is_some_and(|v| v == "dated") {
+        return sweep_dated(&given[1..]);
     }
     let [verb, dry, home, work, after, min_mb, min_word, free_kb, dirs, sandbox, logfile, tmp_disk] =
         given
@@ -218,58 +214,71 @@ pub fn usage(given: &[String]) -> u8 {
     64
 }
 
-/// `images_held` for the sandbox build, so the two cannot drift apart on what
-/// is safe to remove.
-fn held(given: &[String]) -> u8 {
-    let [tags] = given else {
+/// The sandbox build's sweep of its dated tags. What is held is `images_held`,
+/// the cleaner's own answer, so the two cannot drift apart on what is safe to
+/// remove.
+fn sweep_dated(given: &[String]) -> u8 {
+    let [image, keep] = given else {
         eprintln!("{USAGE}");
         return 64;
     };
-    let Some(ids) = images_held(tags) else {
+    let Ok(keep) = keep.parse::<usize>() else {
+        eprintln!("{USAGE}");
+        return 64;
+    };
+    let list = [
+        "image",
+        "ls",
+        "--no-trunc",
+        "--format",
+        "{{.Tag}} {{.ID}}",
+        image,
+    ];
+    let Some(tags) = docker_list(&list) else {
         return 1;
     };
-    for id in ids {
-        tehas_core::outln!("{id}");
+    let Some(held) = images_held(&tags) else {
+        return 1;
+    };
+    for (tag, id) in dated_past(&tags, keep) {
+        let name = format!("{image}:{tag}");
+        if held.iter().any(|h| h == id) {
+            tehas_core::outln!("kept {name}: a container or a uid tag uses it");
+            continue;
+        }
+        let gone = Command::new("docker")
+            .args(["rmi", &name])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .status()
+            .is_ok_and(|s| s.success());
+        if gone {
+            tehas_core::outln!("removed {name}");
+        } else {
+            eprintln!("warning: could not remove {name}");
+        }
     }
     0
 }
 
-/// `rukas::target` on the real upstream, for test/rukas_test.sh to hold beside
-/// lib/rukas.sh.
-fn target(given: &[String]) -> u8 {
-    let [follow, repo] = given else {
-        eprintln!("{USAGE}");
-        return 64;
-    };
-    match rukas::target(follow, repo, ls_remote) {
-        Some((commit, what)) => {
-            tehas_core::outln!("{commit} {what}");
-            0
-        }
-        None => 1,
-    }
-}
-
-/// `git ls-remote`, bounded: the cleaner runs unattended on a timer and may
-/// not wait on a network that does not answer.
-fn ls_remote(args: &[&str]) -> Option<String> {
-    let said = bounded("5", "30", "git")
-        .arg("ls-remote")
-        .args(args)
-        .stdin(Stdio::null())
-        .stderr(Stdio::null())
-        .output()
-        .ok()?;
-    said.status
-        .success()
-        .then(|| String::from_utf8_lossy(&said.stdout).into_owned())
+/// The dated tags of <tags> ("<tag> <id>" per line) past the newest <keep>,
+/// newest first, with their ids, as `LC_ALL=C sort -r` puts the lines: a
+/// `-product` comes just before the date it stands on.
+fn dated_past(tags: &str, keep: usize) -> Vec<(&str, &str)> {
+    let mut lines: Vec<&str> = tags.split('\n').filter(|l| dated(l)).collect();
+    lines.sort_by(|a, b| b.as_bytes().cmp(a.as_bytes()));
+    lines
+        .into_iter()
+        .skip(keep)
+        .filter_map(|l| l.split_once(' '))
+        .collect()
 }
 
 /// The base image the host's pins name. The build pulls the same name, and
 /// `home`'s versions.env is the one file read: an unreadable file names no base.
 fn pulled_base(home: &Path) -> Option<String> {
     let versions = fs::read(home.join("versions.env")).ok()?;
-    rukas::base_image(&String::from_utf8_lossy(&versions), ls_remote)
+    rukas::base_image(&String::from_utf8_lossy(&versions), crate::rukas::ls_remote)
 }
 
 /// The name the build tags and the dated tags are listed under: `image`
@@ -1685,7 +1694,7 @@ impl Run {
     /// nowhere among the locks of the cycles: `state/dev` holds what `tehas dev`
     /// takes, `state/cycles` what a cycle takes, so no reader of a cycle's lock
     /// ever asks about one of these. The path is the contract with
-    /// `libexec/dev`, which holds it for a session's life, so a test of the rule
+    /// `tehas dev`, which holds it for a session's life, so a test of the rule
     /// is a test of the path. A name of no plain word has no lock of its own and
     /// answers nothing.
     fn clone_lock(&self, name: &str) -> Option<PathBuf> {
@@ -1848,6 +1857,29 @@ impl Run {
 mod tests {
     use super::*;
     use tehas_core::testdir::TestDir;
+
+    #[test]
+    fn the_dated_tags_past_the_newest_three_are_the_sweeps() {
+        let tags = "uid1000 sha256:6\n261009-1000 sha256:1\n261012-1000 sha256:4\n\
+            261010-1000 sha256:2\n261013-1000 sha256:5\n261011-1000 sha256:3\n\
+            261014-1000 sha256:6\nlatest sha256:9\n<none> sha256:8";
+        assert_eq!(
+            dated_past(tags, 3),
+            [
+                ("261011-1000", "sha256:3"),
+                ("261010-1000", "sha256:2"),
+                ("261009-1000", "sha256:1"),
+            ]
+        );
+        assert!(dated_past(tags, 6).is_empty());
+    }
+
+    #[test]
+    fn an_instance_layer_counts_with_the_date_tags() {
+        let tags = "uid1000 sha256:1\n261009-1000 sha256:1\n261009-1000-product sha256:2\n\
+            261010-1000 sha256:3\n261011-1000 sha256:4";
+        assert_eq!(dated_past(tags, 3), [("261009-1000", "sha256:1")]);
+    }
 
     #[test]
     fn a_cycles_end_takes_the_build_output_of_every_tree_and_nothing_else() {

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for libexec/work: what the cycle's container is given, its mounts,
+# Tests for tehas work: what the cycle's container is given, its mounts,
 # variables, limits and console, and that nothing starts without a usable
 # slice. That the limit and security words are the documented ones is decided in
 # Rust: tehas_core::slice::limits makes them and misshaped in

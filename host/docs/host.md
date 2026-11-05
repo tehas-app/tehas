@@ -21,7 +21,6 @@ Preparing a fresh machine is on the [bootstrap page](/bootstrap).
 | `~/tehas/lib/config.sh`              | Asks `libexec/console` to load and check the instance settings; sourced by every command |
 | `~/tehas/lib/paths.sh`               | The home of each tool this host installs, and the `PATH` that finds them. `env.sh`, `bootstrap.sh` and `install.sh` all take the list from here |
 | `~/tehas/lib/github-app.sh`          | With a GitHub App: puts the `gh` shim first on `PATH` and gives git its credential helper; sourced by `env.sh` |
-| `~/tehas/lib/rukas.sh`               | Which pi-rukas commit the host follows; sourced by the sandbox build |
 | `~/tehas/bin/`                       | The two commands on `PATH`: `tehas` for a person, `tehasbot` for the units, each a few lines that run the console's front (`console/src/front.rs`), which chooses the command. Without a console both stop with exit 78, except `tehas setup`, which builds one. Plus `gh` |
 | `~/tehas/libexec/`                   | The scripts behind the two commands, one for each thing they do. Not on `PATH` |
 | `~/tehas/run/`                       | One copy of `bin/`, `libexec/` and `lib/` for each running cycle (`cycle-<issue>-<pid>`) and planning turn (`plan-<issue>-<pid>`), as hardlinks, so an update leaves the code of what runs as it started. The next start removes the copies whose process has ended |
@@ -393,7 +392,7 @@ Instance:     /home/boss/tehas/platform/instances/tehas-tehas OK
 Dependencies: OK
 Slice:        MISSING (sudo ./bootstrap.sh slice)
 Installed:    DRIFT (1 files)
-  differs: /home/boss/tehas/libexec/dispatch
+  differs: /home/boss/tehas/libexec/work
 Follow-ups:   NOT DONE (2 from an earlier run, see /home/boss/tehas/state/update-pending)
 Tests:        not run (./install.sh --check --tests runs them)
 ```
@@ -488,10 +487,14 @@ file it was copying as it was.
 One file is written, not copied: `version.txt`, beside the pages in
 `~/tehas/docs` and `~/tehas/fun`. It holds the newest tag of the checkout and
 the commit it was at when `install.sh` last ran, as `v0.1.1+11b669d`, and the
-footer of every page shows it. `--check` does not look at it. Beside it in
-`~/tehas/fun`, `rukas-version.txt` holds the pi-rukas version of the sandbox
-image, as `v0.14.29`, which the footers of the front pages show too. The image
-build writes it, not `install.sh`, which leaves it where it is.
+footer of every manual page shows it. `--check` does not look at it. The
+footers of the two front pages read their versions from the factory's health
+instead (`/live/health.json`, by `fun/versions.js`): tehas from
+`checks.platform`, the pi-rukas the sandbox image runs from `checks.rukas`, and
+the tehas-industry that runs the factory from `checks.industry` when there is
+one, as `tehas v0.24.6 · pi-rukas v0.14.54 · industry v0.9.0`. A
+`rukas-version.txt` an older image build left in `~/tehas/fun` is no longer
+read; `install.sh` leaves it where it is.
 
 Five installed files are compiled, not copied: the console of a running cycle,
 the analytics program, the MCP server, the state store and the attachment
@@ -524,14 +527,14 @@ when nothing changed. That build comes after the proof of the home and before
 the update lock, whose directory is a write to the home and waits for the
 settings. It removes no earlier build, so a run the lock will refuse takes
 nothing from the run that holds it. A console that does not build stops the run
-with exit 1 before the settings are read. The console's source is `console/` without its tests and
-without `console/analytics/`, `console/mcp/` and `console/store/`, so a change
-to one of those alone builds that program alone. The store's source is
-`console/store/` without its tests, the workspace's `Cargo.toml` and
-`Cargo.lock`, and `console/core/`. The analytics source and the MCP server's
-are their own directory without its tests, the workspace's `Cargo.toml` and
-`Cargo.lock`, and `console/core/`. So a change to `console/core/` builds all
-four. Each build asks `cargo` for
+with exit 1 before the settings are read. A program's source is read from the workspace's manifests by
+`console update sources`: its own directory, the workspace's `Cargo.toml` and
+`Cargo.lock`, and the directory of every crate it takes by `path`, without
+`target/`, `tests/` and `src/tests.rs`. The console's own directory is
+`console/` without the members' directories. So a change to one program alone
+builds that program alone, a change to `console/cycle/` builds the cycle's
+supervisor and the console, which links it, and a change to `console/core/`
+builds all seven. Each build asks `cargo` for
 `--offline` first, so a host that has fetched once installs with no network.
 The build that fetches is the slow one and takes a minute or two: analytics
 compiles SQLite. When cargo says a crate is missing from its cache the build
@@ -1468,8 +1471,8 @@ the cycles run: see [Rolling back pi-rukas](#rolling-back-pi-rukas)).
 Each image is several gigabytes, with Chromium and Rust in it. After a build
 `build.sh` keeps the newest three dated tags, the new one among them (with the
 instance's `<date>-product` counted as one of them), and
-removes older ones. It keeps an older tag whose image a container, running or
-stopped, was made from, or that a `uid` tag names. On a host that builds
+removes older ones (`console clean dated`). It keeps an older tag whose image
+a container, running or stopped, was made from, or that a `uid` tag names. On a host that builds
 often the images then take about three times the size of one, plus those
 still in use. `tehasbot clean` is what takes the rest: the dated tags past
 `TEHAS_CLEAN_AFTER` hours, keeping the newest, and then the old `sha-` tags of
@@ -1502,10 +1505,9 @@ own, and at most 40 seconds. A good image prints a `step-started` line within a
 few seconds, the run ends there, and the tag moves; an image that prints no
 such line, or a result that says its runner crashed, is refused, the build
 exits 1 and the uid tag stays where it was, as for a layer that does not
-build. A build with an instance layer smoke-runs both images. The run's words
-and the decision on its output are `tehas-cycle sandbox smoke` and
-`tehas-cycle sandbox smoke-verdict`, in `console/cycle/src/sandbox.rs`;
-`build.sh` only runs docker and passes it the output. A smoke run starts no
+build. A build with an instance layer smoke-runs both images. The run and the
+decision on its output are `tehas-cycle sandbox smoke-run`, in
+`console/cycle/src/sandbox.rs`. A smoke run starts no
 cycle and reaches no model, so it costs the build
 a few seconds, and it is not one of the containers a cycle is given.
 
@@ -1519,9 +1521,9 @@ the image, and the dispatch log names each issue it holds.
 The build takes pi-rukas at the commit `PI_RUKAS_FOLLOW` names, as described
 under [pi-rukas comes from upstream](#pi-rukas-comes-from-upstream).
 `build.sh --if-moved` builds only when that is not the commit the current
-image was built on, and `build.sh --check` only says whether it moved. A build,
-and a `--if-moved` that finds nothing to build, write the image's pi-rukas
-version to `~/tehas/fun/rukas-version.txt` for the footers of the front pages. The
+image was built on, and `build.sh --check` only says whether it moved. The
+factory's health reports the same comparison (`checks.rukas`), and the footers
+of the front pages show the version the image runs from there. The
 contract test proves the product's gates run inside the image, as the unprivileged user,
 with nothing mounted but a clone:
 
@@ -1643,6 +1645,11 @@ An instance that sets neither follows the line its tehas was shipped with. A loa
 settings load and stops the command with 78 naming it. `bootstrap.sh` reads only
 `versions.env`.
 
+One reading of these values serves the sandbox build, `bootstrap.sh`,
+`tehasbot clean` and the release script: the console's, `console rukas target
+<follow> <repo>` and `console rukas image <repo> <commit>`
+(`console/core/src/rukas.rs`).
+
 What follows from it:
 
 - `tehas update` moves the sandbox image to that commit whenever it is not
@@ -1656,9 +1663,18 @@ What follows from it:
   so; the next update tries again. `tehas update --check` says whether the commit
   moved.
 - `./bootstrap.sh user` moves the host's clone in `~/tehas/repos/pi-rukas` to
-  that commit and runs its installer. That clone is what `tehas dev` and an
+  that commit and runs its installer, once a console is there to name the
+  commit: a release's own, or the one `install.sh` puts in `~/tehas/libexec`. That clone is what `tehas dev` and an
   interactive Pi session on the host load. Cycles run the pi-rukas inside the
-  sandbox image.
+  sandbox image, so on an installed host it then runs `sandbox/build.sh
+  --if-moved`, which builds only when the image is not on that commit. A
+  failed build stops it with the command to run again.
+- The health of the factory (`checks.rukas`) names the commit the image runs,
+  the one the host follows and the clone's, and says `warn` while the image is
+  behind. With `PI_RUKAS_FOLLOW=release:0` the line of `versions.env` stays the
+  same from one pi-rukas release to the next, so no `install.sh` owes a build;
+  `tehas update` runs `build.sh --if-moved` on every update, and health is what
+  says a host that has not run one is behind.
 
 The shell tests check that every argument the Dockerfile reads comes from
 `versions.env`, except the ones `sandbox/build.sh` works out: the base, the

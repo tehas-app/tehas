@@ -1,7 +1,8 @@
-//! `tehas-cycle cycle`: a cycle's start and its supervision. libexec/cycle holds
-//! the issue's lock as fd 9 and execs this, so the unit's stop reaches it as the
-//! main process. fd 9 stays open: Rust's children inherit it, and a cycle killed
-//! outright keeps its place until tehas work and the docker client are gone too.
+//! `tehas-cycle cycle`: a cycle's start and its supervision. `console run` loads
+//! the settings and execs this, so the unit's stop reaches it as the main
+//! process. It takes the issue's lock first (src/main.rs) and hands it down
+//! (src/lock.rs): every child inherits it, and a cycle killed outright keeps its
+//! place until tehas work and the docker client are gone too.
 //!
 //! The start goes on record under the lock. The new attempt is what the
 //! dispatcher waits for to know its unit came up, and a cycle that goes on to
@@ -52,10 +53,12 @@ const NOTES: [&str; 16] = [
     "status",
 ];
 
-/// What libexec/cycle gives this.
+/// What tehasbot cycle gives this.
 pub struct Given {
     pub issue: u64,
+    /// tehas work: the program and the words before the issue's number.
     pub work: String,
+    pub work_args: Vec<String>,
     pub status_cmd: String,
     pub status_args: Vec<String>,
     pub console: String,
@@ -307,7 +310,7 @@ fn supervise(
         return (1, stop.load(Ordering::SeqCst));
     };
     let mut work = Command::new(&g.work);
-    work.arg(g.issue.to_string());
+    work.args(&g.work_args).arg(g.issue.to_string());
     if restart {
         work.arg("--restart");
     }

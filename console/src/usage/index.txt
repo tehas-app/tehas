@@ -1,0 +1,23 @@
+Build the code index that a cycle's agents search, or refresh it. The run is
+tehas-cycle's, and console/cycle/src/index.rs says what it does. It takes
+state/index.lock and hands it down to the indexer's docker client on
+purpose: a client that outlives the run still writes the index.
+
+Usage: tehas index                  build the index
+       tehas index --before-cycle   what the dispatcher's unit runs: nothing
+                                    is done when the index directory already
+                                    holds the branch's tip, or when the
+                                    indexer failed at that tip before
+
+Exit status: 0 the index was built, or was already current,
+             1 the sandbox image is missing or the indexer failed, did not
+               finish in time, or what another sandbox image wrote could not
+               be set aside, or, before a cycle, failed at this tip before
+             3 a cycle is running, another index run holds its lock, or a
+               poll held the dispatcher's lock for the whole wait; nothing
+               was done.
+            64 an argument this command does not know.
+            78 the instance settings are invalid, the checkout is no clone of
+               TEHAS_REPO or its branch is unknown, tehas.slice is not usable
+               on this host, or no tehas-cycle stands beside the console;
+               nothing was done.
