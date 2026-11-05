@@ -487,10 +487,14 @@ file it was copying as it was.
 One file is written, not copied: `version.txt`, beside the pages in
 `~/tehas/docs` and `~/tehas/fun`. It holds the newest tag of the checkout and
 the commit it was at when `install.sh` last ran, as `v0.1.1+11b669d`, and the
-footer of every page shows it. `--check` does not look at it. Beside it in
-`~/tehas/fun`, `rukas-version.txt` holds the pi-rukas version of the sandbox
-image, as `v0.14.29`, which the footers of the front pages show too. The image
-build writes it, not `install.sh`, which leaves it where it is.
+footer of every manual page shows it. `--check` does not look at it. The
+footers of the two front pages read their versions from the factory's health
+instead (`/live/health.json`, by `fun/versions.js`): tehas from
+`checks.platform`, the pi-rukas the sandbox image runs from `checks.rukas`, and
+the tehas-industry that runs the factory from `checks.industry` when there is
+one, as `tehas v0.24.6 · pi-rukas v0.14.54 · industry v0.9.0`. A
+`rukas-version.txt` an older image build left in `~/tehas/fun` is no longer
+read; `install.sh` leaves it where it is.
 
 Five installed files are compiled, not copied: the console of a running cycle,
 the analytics program, the MCP server, the state store and the attachment
@@ -1518,9 +1522,9 @@ the image, and the dispatch log names each issue it holds.
 The build takes pi-rukas at the commit `PI_RUKAS_FOLLOW` names, as described
 under [pi-rukas comes from upstream](#pi-rukas-comes-from-upstream).
 `build.sh --if-moved` builds only when that is not the commit the current
-image was built on, and `build.sh --check` only says whether it moved. A build,
-and a `--if-moved` that finds nothing to build, write the image's pi-rukas
-version to `~/tehas/fun/rukas-version.txt` for the footers of the front pages. The
+image was built on, and `build.sh --check` only says whether it moved. The
+factory's health reports the same comparison (`checks.rukas`), and the footers
+of the front pages show the version the image runs from there. The
 contract test proves the product's gates run inside the image, as the unprivileged user,
 with nothing mounted but a clone:
 
@@ -1663,7 +1667,15 @@ What follows from it:
   that commit and runs its installer, once a console is there to name the
   commit: a release's own, or the one `install.sh` puts in `~/tehas/libexec`. That clone is what `tehas dev` and an
   interactive Pi session on the host load. Cycles run the pi-rukas inside the
-  sandbox image.
+  sandbox image, so on an installed host it then runs `sandbox/build.sh
+  --if-moved`, which builds only when the image is not on that commit. A
+  failed build stops it with the command to run again.
+- The health of the factory (`checks.rukas`) names the commit the image runs,
+  the one the host follows and the clone's, and says `warn` while the image is
+  behind. With `PI_RUKAS_FOLLOW=release:0` the line of `versions.env` stays the
+  same from one pi-rukas release to the next, so no `install.sh` owes a build;
+  `tehas update` runs `build.sh --if-moved` on every update, and health is what
+  says a host that has not run one is behind.
 
 The shell tests check that every argument the Dockerfile reads comes from
 `versions.env`, except the ones `sandbox/build.sh` works out: the base, the

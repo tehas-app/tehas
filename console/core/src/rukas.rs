@@ -6,8 +6,8 @@
 //! The call upstream is the caller's: this holds the rules, and a call that
 //! gets no answer is `None`.
 
-/// The commit `follow` names in `repo`, and what it is, in the words of
-/// `tehas_rukas_target`. `ls_remote` is given the arguments of `git ls-remote`.
+/// The commit `follow` names in `repo`, and what it is: "release v1.2.3",
+/// "the head of main" or "pinned". `ls_remote` is given the arguments of `git ls-remote`.
 /// `release` takes the newest vX.Y.Z tag, `release:<line>` the newest of that
 /// line, `branch:<name>` the head of that branch, and `commit:<40 hex>` that
 /// commit with no call upstream. `None` when upstream does not answer, has no
@@ -90,6 +90,12 @@ pub fn base_image(
     }
     let (commit, _) = target(follow, repo, ls_remote)?;
     Some(format!("ghcr.io/{path}:sha-{}", &commit[..12]))
+}
+
+/// `PI_RUKAS_FOLLOW` or `PI_RUKAS_REPO` as the text of versions.env sets it,
+/// the last line of a usable shape, empty when there is none.
+pub fn pinned<'a>(versions: &'a str, name: &str) -> &'a str {
+    pin(versions, name, path_shaped)
 }
 
 /// The value of the last line of `name` whose value has the right shape,

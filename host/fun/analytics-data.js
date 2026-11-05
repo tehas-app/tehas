@@ -1,5 +1,5 @@
 // The ten-day report as data: live/analytics.json in, what the plain
-// dashboard's "Last 10 days" section draws out (host/docs/dashboard.frag).
+// dashboard's "Last 10 days" section draws out (host/fun/dashboard-view.js).
 // The file is written by tehasbot status from `analytics report --json`; its
 // keys are in host/docs/tools.md.
 //

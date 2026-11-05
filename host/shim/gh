@@ -12,16 +12,10 @@
 # The real gh is $TEHAS_HOME/bin/gh, where bootstrap.sh installs it.
 #
 # Writes are measured before anything is throttled (#649 part 1): a call that
-# writes to GitHub runs without exec and appends one line to
-# $TEHAS_HOME/state/github-writes.log - the time in UTC, the kind (`api POST`,
-# `issue comment`, ...), the repository, the issue or PR number, gh's exit
-# status, and 403 or 429 when gh's error stream says so, else `-`. Fields are
-# tab-separated and carry nothing else: not the token, not a body, not a field
-# value. A read is never logged and still execs, so it costs no extra process.
-# `gh api graphql` sends POST whatever it asks for, so it is told by the
-# operation at the start of its query and not by its method: a query is a read
-# and a mutation a write of kind `api POST` (#792).
-# The log has no bound and no rotation: the report that reads it is #649 part 2.
+# writes to GitHub appends one line to $TEHAS_HOME/state/github-writes.log, the
+# time, the kind, the repository, the number, gh's status and 403 or 429. The
+# console decides which call that is and writes the line: see `console gh`.
+# A read is never logged and goes straight to gh.
 #
 # Exit: gh's own; 1 when no token could be had (tehasbot github-token says why).
 set -uo pipefail
@@ -40,178 +34,12 @@ elif [ -n "${TEHAS_GITHUB_APP_ID:-}" ]; then
   export GH_TOKEN
 fi
 
-# The kind of a write, and the repository and number it names, from the
-# arguments alone. A call this does not recognise as a write is a read, so
-# nothing unknown is charged as a write and no read pays for the copy of stderr
-# below. Only `gh api` reads a repository or a number out of its path.
-kind="" repo="" number=""
-
-case "${1:-}" in
-api)
-  # gh decides its own method: -X wins, a call with fields and no method posts,
-  # a call with neither is a read. The -XPOST and --method=POST forms count.
-  # graphql is the exception to all of that: gh always posts it, so its method
-  # says nothing and the operation at the start of its query says everything
-  # (#792). The document is the value of the field named query as -f gives it:
-  # -F gives a variable of that name, which is no document, and a search string
-  # of q= is none either.
-  path="" method="" fields=0 graphql=0 query="" given="" prev=""
-  for a in "$@"; do
-    case $prev in
-    -R | --repo) repo=$a ;;
-    -X | --method) method=$a ;;
-    -f | --field | --raw-field) given=$a ;;
-    *) given="" ;;
-    esac
-    prev=$a
-    case $a in
-    -X[A-Za-z]*) method=${a#-X} ;;
-    --method=*) method=${a#--method=} ;;
-    -R=* | --repo=*) repo=${a#*=} ;;
-    graphql) [ "$a" = "${2:-}" ] && graphql=1 ;;
-    -f | -F | --field | --raw-field | --input) fields=1 ;;
-    query=*) [ -n "$given" ] && query=${a#query=} ;;
-    [A-Za-z]*/*) [ -n "$path" ] || path=$a ;;
-    esac
-  done
-  if [ "$graphql" = 1 ]; then
-    # The operation is the first word of the document, or its second when the
-    # first is the name the operation carries: `AddLabel mutation` is one
-    # mutation, not a name and a query. The document begins at its first quote
-    # or bracket, so a word of it - a field, an alias or a string that reads
-    # `mutation` - never stands as the operation, and `mutation($n: Int!)` is
-    # read whole, as the operation it is. Each word is read whole, so a word
-    # that only reads like the operation, `mutations` or `addMutation`, is
-    # never taken for it. A mutation is a write of kind `api POST`; a query, a
-    # fragment, or a document that names neither asks for something and is a
-    # read.
-    q=${query//$'\t'/ }
-    q=${q//$'\n'/ }
-    q=${q//$'\r'/ }
-    # The two words before the document, and nothing of the document itself.
-    # The set the word ends at is split off once and thrown away, so a word of
-    # the body cannot reach the second reading. The pattern names where the
-    # document begins: a quote or a bracket, its quotes escaped because the
-    # pattern sits inside a quoted word.
-    set -f
-    read -r first second _ <<<"${q%%[\"\'[{(]*}"
-    set +f
-    case " ${first,,} ${second,,} " in
-    *" mutation "*) kind="api POST" ;;
-    *) kind="" ;;
-    esac
-    method=""
-    path=""
-  else
-    method=${method^^}
-    case $method in
-    '') [ "$fields" = 1 ] && kind="api POST" ;;
-    *) kind="api $method" ;;
-    esac
-  fi
-  if [ -n "$kind" ]; then
-    # repos/<owner>/<name> as one field: the two words after it are the owner
-    # and the name. The number is the word after issues/ or pulls/. A query
-    # string says nothing and is cut off before the path is read; a leading
-    # slash names no segment.
-    p=${path#/}
-    p=${p%%\?*}
-    IFS=/ read -ra segs <<<"$p"
-    k=0
-    for s in "${segs[@]}"; do
-      if [ -z "$repo" ] && [ "$s" = repos ] && [ "${#segs[@]}" -ge $((k + 3)) ]; then
-        repo="${segs[k + 1]}/${segs[k + 2]}"
-      fi
-      if [ -z "$number" ] && [ "$k" -gt 0 ]; then
-        case ${segs[k - 1]} in
-        issues | pulls) [[ $s =~ ^[0-9]+$ ]] && number=$s ;;
-        esac
-      fi
-      k=$((k + 1))
-    done
-  fi
-  ;;
-issue | pr | label)
-  # The verb is the word after the command, and the number the first bare one
-  # after it. A verb that is not a write (view, list, status, diff, get) is a
-  # read, and so is a label call that is not create, edit or delete. The three
-  # write verbs of label are the whole of what it does, so one list of them is
-  # enough: `label delete` is a kind of its own and no issue or PR verb of
-  # theirs is ever a label call.
-  case "${2:-}" in
-  comment | edit | create | close | reopen | ready | merge | delete)
-    kind="$1 ${2}"
-    prev=""
-    for a in "${@:3}"; do
-      case $prev in
-      -R | --repo) repo=$a ;;
-      esac
-      prev=$a
-      case $a in
-      -R=* | --repo=*) repo=${a#*=} ;;
-      esac
-      # The first word of only digits is the number, which is what `gh issue
-      # comment 12` and `gh pr ready 44` give before any flag. A label names no
-      # issue or PR, so it never carries the field.
-      if [ "$1" != label ] && [ -z "$number" ]; then
-        case $a in
-        -*) ;;
-        *[!0-9]) ;;
-        ?*) number=$a ;;
-        esac
-      fi
-    done
-    ;;
-  esac
-  ;;
-esac
-
-if [ -z "$kind" ]; then
-  exec "$home/bin/gh" "$@"
-fi
-
-[ -n "$repo" ] || repo=-
-[ -n "$number" ] || number=-
-
-# A write keeps gh's stderr, which is where GitHub's HTTP status is said, so
-# the line can name it. stdout and stderr go to the caller's as they came and
-# the status is gh's own; a log that cannot be written changes neither.
+# Which call is a write and the line it leaves are the console's (`console gh`,
+# console/src/gh_shim.rs): a read execs gh from there at once. A console that
+# is missing or cannot be run still leaves gh working, with the token above
+# and no line in the log, so a host that needs repair keeps its gh.
+shopt -s execfail
+console=$home/libexec/console
 log=${TEHAS_GITHUB_WRITES_LOG:-$home/state/github-writes.log}
-out=$(mktemp "${TMPDIR:-/tmp}/tehas-gh-stdout.XXXXXX") || out=/dev/null
-err=$(mktemp "${TMPDIR:-/tmp}/tehas-gh-stderr.XXXXXX") || err=/dev/null
-"$home/bin/gh" "$@" >"$out" 2>"$err"
-rc=$?
-marker=-
-if grep -q 'HTTP 403' "$err" 2>/dev/null; then
-  marker=403
-elif grep -q 'HTTP 429' "$err" 2>/dev/null; then
-  marker=429
-fi
-mkdir -p "${log%/*}" 2>/dev/null
-# A field the arguments gave is a word: no tab or newline of an odd -R value
-# takes a line of its own into the log. What gh wrote is read for the marker
-# and never put in the line, so neither a body nor a token can reach it. The
-# time is the one format the report of #649 part 2 reads.
-for f in repo number; do
-  v=${!f//$'\t'/ }
-  printf -v "$f" '%s' "${v//$'\n'/ }"
-done
-# The whole log is one write, asked of tee: a redirection this shell could not
-# open is a fault the shell itself reports, and 2>/dev/null on the command does
-# not silence that word. tee says nothing and ends non-zero, which is what a
-# log that cannot be written is: measured, said in one word of its own, and no
-# part of gh's result.
-log_failed=0
-printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$kind" \
-  "$repo" "$number" "$rc" "$marker" 2>/dev/null |
-  tee -a "$log" >/dev/null 2>/dev/null || log_failed=1
-# gh's own streams and status, as a caller of an exec would have had them: the
-# one word about the log comes after them, so it is what a caller of gh reads
-# last and nothing of what gh said.
-log_word=""
-[ "$log_failed" = 0 ] || log_word="gh: the write log $log could not be written"
-cat "$out"
-cat "$err" >&2
-rm -f "$out" "$err"
-[ -z "$log_word" ] || echo "$log_word" >&2
-exit "$rc"
+[ ! -x "$console" ] || exec "$console" gh "$home/bin/gh" "$log" "$@"
+exec "$home/bin/gh" "$@"

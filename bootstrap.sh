@@ -19,7 +19,9 @@
 #                                     once a console is there to name its commit:
 #                                     a release's, or the one install.sh puts in
 #                                     ~/tehas/libexec, so a checkout runs it again
-#                                     after install.sh
+#                                     after install.sh; on an installed host, also
+#                                     the sandbox image moved to that pi-rukas
+#                                     (sandbox/build.sh --if-moved)
 #   sudo ./bootstrap.sh dev <user> [<login>...]
 #                                     let other accounts on the host start a
 #                                     session with "tehas dev", run as <user>
@@ -801,6 +803,13 @@ do_user() {
     2) echo "bootstrap: pi-rukas waits for install.sh, then run ./bootstrap.sh user again" ;;
     *) die "$rukas_want" ;;
   esac
+  # The image cycles run follows the clone, or health says it is behind: built
+  # only when it is not on the commit followed. A first bootstrap has no
+  # install yet, so no build.sh, and install.sh builds it.
+  if [ "$rc" = 0 ] && [ -x "$TEHAS_HOME/sandbox/build.sh" ]; then
+    "$TEHAS_HOME/sandbox/build.sh" --if-moved ||
+      die "the sandbox image did not follow pi-rukas to $rukas_want; run $TEHAS_HOME/sandbox/build.sh --if-moved when the lines above are dealt with"
+  fi
   echo "bootstrap: user part done"
 }
 
@@ -812,7 +821,7 @@ case "${1:-}" in
   clock) shift; do_clock "$@" ;;
   check) do_check ;;
   *)
-    sed -n '2,32p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,35p' "$0" | sed 's/^# \{0,1\}//'
     exit 64
     ;;
 esac

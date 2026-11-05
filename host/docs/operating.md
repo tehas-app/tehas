@@ -281,7 +281,8 @@ and one row per tehas and pi-rukas version pair. Every figure says its count as
 `n=`: ten days make small numbers. A pair with fewer than three runs shows its
 count only. The section is hidden where there is no file, and the page reads it
 at most once a minute. What the file means is worked out by one module,
-`host/fun/analytics-data.js`.
+`host/fun/analytics-data.js`; the plain dashboard's module,
+`host/fun/dashboard-view.js`, draws it.
 
 Optional, and only when the model backend is a [viiwork](https://github.com/janit/viiwork) mesh with
 `tehas-energy.service` enabled: the factory floor also has a section
@@ -492,6 +493,16 @@ lean without the label ([tehas work](/tools#tehas-work)).
   its fields are pi-rukas's to define. pi-rukas's `/plan` writes one, and
   [Troubleshooting](/troubleshooting#what-a-park-says) says what to do when the
   block is missing. A second block, or one that is no JSON, counts as none.
+- Once lean runs, `tehasbot cycle` reads how it ended from its result, as it
+  does for classic, and its end comment names the driver: ``driver `lean` ``. Exit 0 with a
+  merged pull request takes the cycle's labels off. A green pull request that
+  lean says is `ready` goes to `tehas:awaiting-merge`; a draft, a red run or a
+  run with no pull request parks with lean's reason. Exit 11, not ready, parks
+  and asks for a `pi-spec v1` block lean accepts. Tehas posts the one comment:
+  when lean posted its own report on the issue, tehas does not repeat it. Lean
+  writes no step lines to its stream, so the console of a running lean cycle
+  shows no steps, and a lean runner that died is looked up on its branch
+  `lean/issue-<N>`.
 - The driver keeps its own record of the steps it ran, in
   `.pi/lean-state/<issue>.json` in the workspace. Before the cycle's report
   clears what the container wrote, `tehas-cycle report` copies it to
@@ -930,6 +941,14 @@ dispatcher's log says so.
    - A `tehas:refine` session also offers **File as a new issue**, which
      files the plan as shown as one new issue that replaces this one. A
      session files once.
+   - A plan the checks of the issue's text refuse is not offered at all: the
+     comment still shows it, and the question names the rule it failed and
+     lists its open points, with no box but **End this planning session**.
+     Besides the checks under [A plan with no open points](#a-plan-with-no-open-points),
+     a plan is refused whose text has lines that end in `[context param]`,
+     the request or the briefs echoed back, or whose Acceptance criteria are
+     pi-rukas's placeholder for none ("derive the testable outcomes from the
+     investigation findings"). Reply to change the plan, or end the session.
 
    After either box nothing is started on its own: read the plan and apply
    `tehas:ready` to the issue you want built. The label approves the text as
@@ -958,8 +977,9 @@ The session asks, as in step 5, when:
 - the plan links an attachment the issue's text did not;
 - the checks of [the text of an issue](#1-write-an-issue-tehas-can-build)
   refuse the plan's own title or text: a title of nothing but a prefix, a
-  word said twice, the planner's brief copied as the plan, or a text with no
-  line of the issue's own in it. The session is not ended and no cycle is
+  word said twice, the planner's brief copied as the plan, a text with no
+  line of the issue's own in it, lines of the planner's context echoed back
+  with `[context param]`, or placeholder Acceptance criteria. The session is not ended and no cycle is
   credited, so a reply that changes the plan is the only answer that moves it
   on.
 
@@ -1099,7 +1119,19 @@ nothing under `.github/` or `.pi/`, and no inventory of the request. Its title
 starts with its classification as a conventional-commit type, `feat:`, `fix:`,
 `chore:`, `docs:`, `test:` or `refactor:`, keeping one the request already
 has; pi-rukas gives the cycle's pull request the same type, where a title
-without one becomes `chore(work):`.
+without one becomes `chore(work):`. The issue's title is handed to the planner
+as what to plan without its type (`feat: `, `fix(dispatch): `), so the drafted
+title does not carry it twice, and the type goes to the planner as its own
+`--type`: `feat` is a feature, `fix` and `bug` a bug, `chore` and `refactor` a
+chore, `research` a spike and `EPIC` an epic. A type with none of these
+(`docs:`, `perf:`) leaves the planner to read the kind of work from the title's
+words, as a title with no type does. A planner image that takes no `--type`
+keeps `chore`, `refactor`, `research` and `EPIC` in the title, where it finds
+them. When the issue's text has a `pi-spec v1` block
+with `criteria` and no Acceptance criteria heading of its own, the planner is
+also given those criteria under `ACCEPTANCE CRITERIA:`, one bullet each, which
+is where pi-rukas reads the request's criteria from: it reads none inside the
+block.
 
 `tehas:refine` starts the same planning session with one difference: between
 the issue's text and the issue brief, the planner is given the refine brief,

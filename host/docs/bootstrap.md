@@ -334,7 +334,9 @@ version, edit `host/versions.env` (the version and, for an archive, its
 checksum; for an npm tool, the SHA-256 of its lockfile, regenerated with
 `npm install --package-lock-only --ignore-scripts` in that directory under
 `host/npm`), run `./bootstrap.sh user`, rebuild the sandbox image and rerun the
-contract test before a cycle uses it.
+contract test before a cycle uses it. On an installed host `bootstrap.sh user`
+ends with `sandbox/build.sh --if-moved`, so the image follows the pi-rukas
+clone it just moved; a tool version the image takes still needs the rebuild.
 
 An update that brings a changed `versions.env` to a host prints
 `later: .../bootstrap.sh user`. Neither `install.sh` nor `tehas update` runs
