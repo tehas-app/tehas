@@ -195,6 +195,7 @@ tehas status --json
 | `planning` | The planning turns in flight: `issue`, `turn` (the session's turn that runs, from 1) and `since` (when it started; left out for a turn started before this was kept) |
 | `demand.waiting` | Open issues that would start if there were room: `tehas:ready` applied last by an account in `TEHAS_ALLOWED_LABELERS` or the millwright, with no cycle and no planning session open, and the refresh requests waiting, unless refreshes are held |
 | `demand.oldestWait` | Seconds since the oldest of them was labelled or asked for; left out when none waits |
+| `demand.labelAlone` | The issues `tehas:blocked` holds by the label alone, by number, at most 50: the label counts, and no comment of an allowed labeller or the millwright names their blockers, so they never start until one does or a person takes the label off. A marker in the issue's body is not read. Left out when there are none |
 | `demand.refreshHold` | Why refresh requests start nothing on this host, for a person: refreshes are off, or the sandbox image cannot continue a pull request. Left out when nothing holds them or there are none |
 | `demand` | `null` when no poll counted it in the last ten minutes, or the last poll could not read the queue |
 | `hold.why` | One word for what holds new cycles back: `pause`, `slice`, `unreadable`, `resources`, `limit`, `red`, `count`, `awaiting`, `pressure`, `room` or `full`. Treat it as an open list: later releases add words |
@@ -268,6 +269,8 @@ it then is, and `--json` works with the show form only.
 - **An expired or unreadable limit holds every start**: no cycle, planning
   turn, answer or improvement run. `tehas status` warns and says why. A file
   that cannot be read never counts as no limit. The poll still cleans up.
+- **One reading.** `tehas status`, the dispatcher and the health page read the
+  file the same way. A file that names a key twice is `unreadable`.
 - **Running cycles are never stopped.** A lower limit only holds new starts.
 - **Pause is separate.** A paused factory stays paused under any limit.
 - `set` replaces the whole limit. The same arguments twice leave the same
