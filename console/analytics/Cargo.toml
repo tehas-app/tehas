@@ -15,3 +15,9 @@ regex = "1"
 rusqlite = { version = "0.38", features = ["bundled"] }
 serde_json = "1"
 tehas-core = { path = "../core", features = ["mask"] }
+
+# The cross-boundary case of `tests.rs` runs the sessions writer and the MCP
+# server's reader over the same lines, so the reader is a test dependency of
+# the writer rather than a fixture the writer imagines.
+[dev-dependencies]
+tehas-mcp = { path = "../mcp" }

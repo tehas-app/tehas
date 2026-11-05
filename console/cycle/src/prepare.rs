@@ -40,12 +40,13 @@ use tehas_core::{lock, time};
 /// The words of the limits, then of the security options, as the slice gave them.
 const LIMIT_WORDS: usize = 14;
 
-const PROTOCOL: [&str; 13] = [
+const PROTOCOL: [&str; 14] = [
     "cid",
     "oom",
     "forks",
     "stalled",
     "timed",
+    "disk",
     "result.json",
     "progress.json",
     "runner_exit",
