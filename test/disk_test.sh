@@ -58,8 +58,8 @@ t_run "$disk --json"
 t_eq "$t_rc" 0
 t_eq "$(jq -s length <<<"$t_out")" 1
 t_eq "$(jq -r '.api' <<<"$t_out")" 1
-t_eq "$(jq -r '[.filesystems[].paths[]] | @json' <<<"$t_out")" \
-  "[\"$th\",\"/var/lib/docker\",\"/tmp\",\"$T/scratch\"]"
+t_eq "$(jq -r '[.filesystems[].paths[]] | sort | @json' <<<"$t_out")" \
+  "$(jq -cn --args '$ARGS.positional | sort' "$th" /var/lib/docker /tmp "$T/scratch")"
 
 # The scratch disk of the instance is the fourth file system, and it is named
 # only when the settings name one: the same reading with no TEHAS_SCRATCH_DIR
@@ -67,18 +67,30 @@ t_eq "$(jq -r '[.filesystems[].paths[]] | @json' <<<"$t_out")" \
 t_case "with no scratch disk in the settings the answer has no entry for one"
 reset
 t_run "$disk --json"
-t_eq "$(jq -r '[.filesystems[].paths[]] | @json' <<<"$t_out")" \
-  "[\"$th\",\"/var/lib/docker\",\"/tmp\"]"
+t_eq "$(jq -r '[.filesystems[].paths[]] | sort | @json' <<<"$t_out")" \
+  "$(jq -cn --args '$ARGS.positional | sort' "$th" /var/lib/docker /tmp)"
 
 # A figure that cannot be read is no figure and a reason, never 0: a person
 # who reads 0 of a file system would read plenty where there is no reading.
+# How many entries the answer holds is the test host's: the console folds the
+# watched paths on their device, so the home, the docker root, /tmp and the
+# scratch disk are one entry or four as the mount table makes them. Every
+# expectation is read off the answer, never a count of devices.
 t_case "a df that answers nothing leaves that file system with no figure and a reason"
 reset
+t_instance "${T_MINIMAL[@]}" TEHAS_SCRATCH_DIR="$T"/scratch
+mkdir -p "$T/scratch"
 t_stub df 'exit 1'
 t_run "$disk --json"
 t_eq "$t_rc" 0
-t_eq "$(jq -r '[.filesystems[].freeBytes] | @json' <<<"$t_out")" '[null,null,null]'
-t_eq "$(jq -r '[.filesystems[].why | type] | @json' <<<"$t_out")" '["string","string","string"]'
+n=$(jq -r '.filesystems | length' <<<"$t_out")
+t_eq "$([ "${n:-0}" -ge 1 ] && echo entries)" entries
+# Each watched name stands in some entry, whichever entry holds it.
+for p in "$th" /var/lib/docker /tmp "$T/scratch"; do
+  t_eq "$(jq -r --arg p "$p" '[.filesystems[].paths[]] | index($p) != null' <<<"$t_out")" true
+done
+# Every entry, however many there are, has no figure and a reason.
+t_eq "$(jq -r '[.filesystems[] | select(.freeBytes == null and (.why | type) == "string")] | length' <<<"$t_out")" "$n"
 
 # --full is the reading of what fills them, biggest first, and it is the form
 # that asks the daemon the extra questions. The places are the entries of the
@@ -142,8 +154,8 @@ t_instance "# Tehas instance settings. One host, one product repository." \
 mkdir -p "$T/scratch"
 t_run "$disk --json"
 t_eq "$t_rc" 0
-t_eq "$(jq -r '[.filesystems[].paths[]] | @json' <<<"$t_out")" \
-  "[\"$th\",\"/var/lib/docker\",\"/tmp\",\"$T/scratch\"]"
+t_eq "$(jq -r '[.filesystems[].paths[]] | sort | @json' <<<"$t_out")" \
+  "$(jq -cn --args '$ARGS.positional | sort' "$th" /var/lib/docker /tmp "$T/scratch")"
 
 t_case "a malformed scratch disk in a commented file is 78 and the host is never asked anything"
 reset
