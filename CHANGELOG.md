@@ -14,18 +14,96 @@ empty one above it.
 ### Changes
 
 - `tehas status`, `tehas status --json` (`held`) and the MCP `factory_status` answer (`held`) name each ready issue the dispatcher holds on its own, with the reason and what clears it: for now, an issue whose last cycle parked and whose body has not changed since (#1437). When every issue in line is held that way and no cycle runs, the health line is a `warn` that names them instead of "Idle, taking work.". Before, a factory whose one ready issue was held reported `pass` and taking work for hours.
-- `scripts/verify.sh` checks the workspace's format and lints on every run, not only with `--full`; in CI a missing rustfmt or clippy fails. `tehas setup` runs `--full` on a factory that builds tehas, so unformatted code that passed CI stopped setup three times. `console/dispatch` is formatted again.
+- `scripts/verify.sh` checks the workspace's format and lints on every run, not only with `--full`; in CI a missing rustfmt or clippy fails. `tehas setup` runs `--full` on a factory that builds tehas, so unformatted code that passed CI stopped setup three times. `console/dispatch` is formatted again (#1486).
 - A cycle that hands off on `lens-fix-reposition` with its pull request open and its review not held waits for a merge (`tehas:awaiting-merge`) instead of parking. The branch already holds the first review round's fix; only the second round's could not be laid on it. It was the most common park from 2026-10-31.
 - `console flags pause` takes only `set` and `clear`: `show` and `read`, which nothing called, are gone (#1365). The dashboard's reader of the flag uses the same reading as the health file.
 - The console's cycle report reads the stalled and timed stop files once each, so a file whose first word is no count of seconds names neither a stop nor a step (#1207). Before, the two reads of one file could disagree and report a stalled cycle with a step of an unreadable file.
 - A factory pull request that waits for a person is titled `HALT: ` instead of `STUCK: `. The next poll renames the open ones.
 - `tehas drain` prints its answer when a poll holds its lock for the whole wait: `not drained:`, or `drained: false` with `--json`. It printed nothing, which stopped `industry factory upgrade` with `unreadable factory answer`.
 - The libraries no command sources are gone: `lib/attachments.sh`, `cycles.sh`, `labels.sh`, `millwright.sh`, `questions.sh`, `sandbox.sh`, `slice.sh`, `store.sh` and `history-lines.jq`. What still had a caller is in the console or the store now, and `install.sh` removes a host's copies in its stale-file step.
-- The host's pinned tools are back to what v0.24.x released: Node 22.23.4, gh 2.103.3, bun 1.4.4, jq 1.8.2, Pi 1.4.0, ctx7 0.8.2, parallel-cli 0.9.4, Playwright 1.64.1, Rust 1.99.1, rustup 1.29.2, codebase-memory-mcp 0.12.1, Caddy 2.11.7 and CI's actions/checkout v7.0.1, each with its checksum, digest or lockfile. A merge had put the earlier pins back in `host/versions.env`, the npm trees beside it, the Caddy digests and the two workflows.
-- The site is two frontends with two pinned looks. The front page (`/`, `/floor`) names `theme-pixel.css` and every other page names `theme-beesknees26.css`, each with its own logo and share card, so no server rewrites a look. `TEHAS_THEME` and `TEHAS_LAYOUT` are retired, the `paper` and `beesknees` themes are gone, the front page is always the factory floor and `/business` is always the business page. The footers no longer link from one frontend to the other.
+- The host's pinned tools are back to what v0.24.x released: Node 22.23.4, gh 2.103.3, bun 1.4.4, jq 1.8.2, Pi 1.4.0, ctx7 0.8.2, parallel-cli 0.9.4, Playwright 1.64.1, Rust 1.99.1, rustup 1.29.2, codebase-memory-mcp 0.12.1, Caddy 2.11.7 and CI's actions/checkout v7.0.1, each with its checksum, digest or lockfile. A merge had put the earlier pins back in `host/versions.env`, the npm trees beside it, the Caddy digests and the two workflows (#1475).
+- The site is two frontends with two pinned looks. The front page (`/`, `/floor`) names `theme-pixel.css` and every other page names `theme-beesknees26.css`, each with its own logo and share card, so no server rewrites a look. `TEHAS_THEME` and `TEHAS_LAYOUT` are retired, the `paper` and `beesknees` themes are gone, the front page is always the factory floor and `/business` is always the business page. The footers no longer link from one frontend to the other (#1488).
 - `analytics event --at <t>` keeps the row when the time is a little ahead of the host's clock: within an hour it is stored at now and said on standard error, because the dispatcher passes the time GitHub recorded for the label. Beyond the hour it is still a usage error and no row is written.
 - The `sizes` figures count no lead for a ship whose `merged` is stamped before the `ready` behind it, as `refine` already counts it; a negative median lead no longer reaches the report.
 - `store prune` also removes the cycle and plan history of an issue whose cycle ended more than its window ago, keeping that issue's last row of each of the two tables, so the state store no longer grows with every issue the factory has ever closed. `store upkeep`, what `tehasbot clean` calls once an hour, prunes with a window of 90 days (`PRUNE_DAYS` in `console/store/src/upkeep.rs`). `tehas history` still answers for a long-closed issue with the line it keeps, and an issue whose cycle ended without a history line of its own keeps all of its rows (#1414).
+
+### Adopter action
+
+Take `TEHAS_THEME` and `TEHAS_LAYOUT` out of `instance.env`. A line that asks
+for what this version does anyway (`TEHAS_THEME=pixel`, `TEHAS_LAYOUT=floor`,
+or an empty value) loads and is dropped; any other value stops every tehas
+command with 78 and names the line. A host that had `TEHAS_LAYOUT=business`
+now has the factory floor at `/` and the business page at `/business`. Run the
+two `docker compose ... up -d` lines again: neither server is given those
+settings now.
+
+## v0.24.6 (2026-11-04)
+
+### Changes
+
+- A cycle that hands off on `lens-fix-reposition` with its pull request open and its review not held waits for a merge (`tehas:awaiting-merge`) instead of parking. The branch already holds the first review round's fix; only the second round's could not be laid on it. It was the most common park from 2026-10-31 (#1482).
+- A cycle's run log past 200 KB is read from its last 200 KB, and the report says what was left out. Such a cycle is parked with its retry boxes rather than handed off, since a log read from its end cannot say nothing came after its last step (#1474).
+- A plan that writes over an issue's body keeps the issue's `pi-spec v1` block. A new `tehas:lean` start whose issue has no single valid `pi-spec v1` block starts no cycle: the poll takes `tehas:ready` off and says why once (#1463).
+
+### Adopter action
+
+None. An issue labelled `tehas:lean` needs its `pi-spec v1` block before
+`tehas:ready` starts a cycle.
+
+## v0.24.5 (2026-11-03)
+
+### Changes
+
+- `tehas-cycle`'s report reads each stop file of a cycle once, so a file whose first word is no count of seconds can no longer name a stop in one read and a step in another (#1388).
+- A test of `tehas-cycle`'s watch waits until the script it wrote can run. On a loaded host it failed now and then, which stopped `tehas setup`'s sandbox gate (#1470). The wider fix is #1471.
+
+### Adopter action
+
+None.
+
+## v0.24.4 (2026-11-03)
+
+### Changes
+
+- `tehas-cycle` writes its standard output as the workspace's other programs do, so `scripts/verify.sh --full` passes its lints again. v0.24.3 failed them, which stopped `tehas setup` at `check-product --sandbox` on a host whose product is tehas.
+
+### Adopter action
+
+None.
+
+## v0.24.3 (2026-11-03)
+
+### Changes
+
+- With `TEHAS_MILLWRIGHT_EPICS=1`, an allowed labeller's `tehas:ready` on an epic approves its open sub-issues for the millwright, which may then plan and start them on that approval (#1465). Off unless set.
+- A plan draft that fails the text check changes nothing on the issue (#1394).
+- A GitHub read that gives up at its first attempt says why it stopped in the poll's log (#1464).
+- The libraries no command sources are gone: `lib/attachments.sh`, `cycles.sh`, `labels.sh`, `millwright.sh`, `questions.sh`, `sandbox.sh`, `slice.sh`, `store.sh` and `history-lines.jq`. What still had a caller is in the console or the store now, and `install.sh` removes a host's copies in its stale-file step (#1400).
+
+### Adopter action
+
+None. To let a person's `tehas:ready` on an epic approve its parts for the
+millwright, set `TEHAS_MILLWRIGHT_EPICS=1` (see `instances/example/optional.env`).
+
+v0.24.3 fails `tehas setup` on a host whose product is tehas: use v0.24.4.
+
+## v0.24.2 (2026-11-03)
+
+### Changes
+
+- `tehas drain` prints its answer when a poll holds its lock for the whole wait: `not drained:`, or `drained: false` with `--json`. It printed nothing, which stopped `industry factory upgrade` with `unreadable factory answer` (#1456).
+
+### Adopter action
+
+None.
+
+## v0.24.1 (2026-11-03)
+
+### Changes
+
+- `console flags pause` takes only `set` and `clear`: `show` and `read`, which nothing called, are gone (#1365). The dashboard's reader of the flag uses the same reading as the health file.
+- A factory pull request that waits for a person is titled `HALT: ` instead of `STUCK: `. The next poll renames the open ones (#1455).
+- `tehas-cycle work` runs a cycle's start, and `libexec/work` keeps only the settings and the issue's lock. The container's mounts and environment do not change (#1446).
 
 ### Adopter action
 
@@ -36,14 +114,6 @@ in `live/status.json` under `pause.flag`.
 
 A filter, script or search that looks for `STUCK: ` in pull request titles
 now looks for `HALT: `.
-
-Take `TEHAS_THEME` and `TEHAS_LAYOUT` out of `instance.env`. A line that asks
-for what this version does anyway (`TEHAS_THEME=pixel`, `TEHAS_LAYOUT=floor`,
-or an empty value) loads and is dropped; any other value stops every tehas
-command with 78 and names the line. A host that had `TEHAS_LAYOUT=business`
-now has the factory floor at `/` and the business page at `/business`. Run the
-two `docker compose ... up -d` lines again: neither server is given those
-settings now.
 
 ## v0.24.0 (2026-11-02)
 
