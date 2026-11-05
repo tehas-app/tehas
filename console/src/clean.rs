@@ -1628,6 +1628,7 @@ impl Run {
             fs::metadata(&bin).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0);
         if !runnable || !plain_file(&db) {
             self.warn("the state store is not installed: no logs removed, no backup");
+            self.upkept(Some(("absent", "the state store is not installed")));
             return false;
         }
         let args: &[&str] = if self.dry {
@@ -1639,9 +1640,11 @@ impl Run {
             Ok(v) => v,
             Err(no) => {
                 self.warn(&format!("store upkeep failed ({}): {}", no.word, no.line));
+                self.upkept(Some((&no.word, &no.line)));
                 return false;
             }
         };
+        self.upkept(None);
         let act = if self.dry { "would remove" } else { "removed" };
         for n in v["logs"].as_array().into_iter().flatten() {
             let n = n.as_str().map_or_else(|| n.to_string(), String::from);
@@ -1658,6 +1661,24 @@ impl Run {
             self.log(&format!("store upkeep: {kept}"));
         }
         true
+    }
+
+    /// `state/upkeep.json`: when the last upkeep ran and, when it failed, the
+    /// store's word and line. Health reads it to say why there is no new
+    /// backup. A dry run made no backup and records nothing.
+    fn upkept(&mut self, failed: Option<(&str, &str)>) {
+        if self.dry {
+            return;
+        }
+        let mut v = json!({"at": time::now(), "ok": failed.is_none()});
+        if let Some((word, line)) = failed {
+            v["word"] = json!(word);
+            v["line"] = json!(line);
+        }
+        let file = self.home.join("state").join("upkeep.json");
+        if let Err(e) = crate::edge::put(&file, format!("{v}\n").as_bytes()) {
+            self.warn(&format!("could not write {}: {e}", file.display()));
+        }
     }
 
     /// The lock of one clone's manual session, beside the tree of clones and
@@ -1932,6 +1953,45 @@ mod tests {
             rc: 0,
         };
         (run, bytes_of(&d.join("target")))
+    }
+
+    #[test]
+    fn the_last_upkeep_is_recorded_for_health_with_the_stores_word_when_it_failed() {
+        let tmp = TestDir::new("clean-upkept");
+        let root = tmp.join("root");
+        let (mut run, _) = one_issue_tree(&root);
+        let record = run.home.join("state/upkeep.json");
+        let said = || -> serde_json::Value {
+            serde_json::from_str(&fs::read_to_string(&record).unwrap()).unwrap()
+        };
+        // A dry run made no backup, so it says nothing of the last upkeep.
+        assert!(!run.upkeep());
+        assert!(!record.exists());
+        run.dry = false;
+        // No store in this home.
+        assert!(!run.upkeep());
+        assert_eq!(said()["ok"], json!(false));
+        assert_eq!(said()["word"], json!("absent"));
+        let bin = run.home.join("libexec/store");
+        fs::create_dir_all(bin.parent().unwrap()).unwrap();
+        fs::write(run.home.join("state/tehas.db"), "").unwrap();
+        let store = |body: &str| {
+            fs::write(&bin, format!("#!/bin/sh\n{body}\n")).unwrap();
+            fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
+        };
+        store("echo 'store: busy: the lock is held'; exit 1");
+        let before = time::now();
+        assert!(!run.upkeep());
+        let v = said();
+        assert_eq!(v["ok"], json!(false));
+        assert_eq!(v["word"], json!("busy"));
+        assert_eq!(v["line"], json!("store: busy: the lock is held"));
+        assert!(v["at"].as_i64().unwrap() >= before);
+        store(r#"echo '{"api":1,"ok":true,"verb":"upkeep","logs":[],"backup":null,"prune":null}'"#);
+        assert!(run.upkeep());
+        let v = said();
+        assert_eq!(v["ok"], json!(true));
+        assert!(v.get("word").is_none());
     }
 
     #[test]
