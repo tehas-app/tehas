@@ -74,7 +74,7 @@ pub const KEEP: i64 = 100;
 /// another value.
 pub const LOCK_WAIT: Duration = Duration::from_secs(5);
 /// The largest --dispatch or --health file read.
-const REPORT_BOUND: u64 = 1 << 20;
+const REPORT_BOUND: u64 = tehas_core::file::READ_BOUND;
 const TEXT_MAX: usize = 300;
 /// How many ends endings.json holds.
 const ENDINGS: usize = 10;

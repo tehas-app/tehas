@@ -3357,8 +3357,10 @@ written inside the container and swept with the workspace. The record keeps the
 last 20 of them and never over 64 KiB. Its `cycle.json`
 names the image the cycle's container started from (`image`, its id) and the
 pi-rukas commit of that image's label (`rukas`), which `tehas work` reads as
-the container starts and puts on the cycle's record in the state store. A
-rebuild while the cycle runs does not change them. Without an image on record
+the container starts and puts on the cycle's record in the state store. The
+container is started from that id, not the tag, so a rebuild between the two
+cannot start an image the record does not name. A rebuild while the cycle runs
+does not change them. Without an image on record
 the commit is the one the cycle noted at its start. A comment on an issue the loop
 filed, when the issue is worked on again, names both. When the cycle was given
 the issue's images or files, or given none though its issue linked some, the
@@ -3438,7 +3440,9 @@ tail ~/tehas/logs/refresh.log
 
 Finds the factory's own pull requests that conflict with the branch and
 writes a request for each, `~/tehas/state/refresh/<issue>.json`, for the
-dispatcher to start (see [refreshes](/operating#refreshes)). Deterministic, no
+dispatcher to start (see [refreshes](/operating#refreshes)). The poll reads a
+request of up to 4096 bytes; a larger file is not read, counts as an unreadable
+request, and the poll's log names it with a `WARN:` line. Deterministic, no
 model, no container. `tehas-refresh.timer` starts it every minute, the first
 time 15 minutes after boot, and a run goes ahead only when the last one began
 `TEHAS_REFRESH_EVERY` minutes ago or more (`~/tehas/state/refresh/last-run`,
