@@ -77,9 +77,9 @@ pub const OUTCOMES: [&str; 6] = [
     "lost",
 ];
 
-const BRIEF_BOUND: u64 = 1 << 20;
+const BRIEF_BOUND: u64 = tehas_core::file::READ_BOUND;
 // A GitHub comment is up to 65,536 characters of up to four bytes each.
-const TEXT_BOUND: u64 = 1 << 20;
+const TEXT_BOUND: u64 = tehas_core::file::READ_BOUND;
 
 /// The kinds of `plan-note`, each with the key plan-show lists it under and,
 /// for the refused class, the old name #686 takes beside it.
@@ -105,7 +105,8 @@ pub fn kept_note_kind(kind: &str) -> Option<&'static str> {
         .map(|(w, _)| w)
 }
 pub const MAX_OPTIONS: usize = 20;
-const OPTION_BYTES: usize = 300;
+/// The bytes the store keeps of one option label.
+pub(crate) const OPTION_BYTES: usize = 300;
 
 /// An option's label as the store keeps it: no control characters, at most
 /// OPTION_BYTES bytes on a character boundary, and `-` for an empty one.
@@ -321,6 +322,10 @@ fn end_args(rest: &[String]) -> Result<Call, String> {
     }
     let mut c = Cleaned::default();
     let session = c.whole("--session", a.value("--session"), session_ok);
+    // Each `--option` is one label, kept as its text whatever it reads as:
+    // the column is built from labels, so it is a JSON list of text by
+    // construction, and an option that is cleaned is marked, never a refusal
+    // of the turn.
     let given = a.values("--option");
     if given.len() > MAX_OPTIONS {
         c.mark("--option");
@@ -422,9 +427,24 @@ pub fn planning_json(c: &Connection, issue: i64) -> Result<String, Fail> {
     let Some((mut p, options)) = row else {
         return Ok("null".to_string());
     };
-    let options = options
-        .and_then(|o| serde_json::from_str::<Value>(&o).ok())
-        .unwrap_or(Value::Array(Vec::new()));
+    // `plan-end --option` and `store import` write the column with `j`, from
+    // labels, so it holds a JSON list of text or nothing. A NULL and a stored
+    // `[]` answer alike, as `plan-begin`'s `'[]'` contract requires. Anything
+    // else is damage, named as it is: a question would go out with boxes
+    // nobody can tick and nothing would say the value was refused.
+    let options = match options {
+        None => Value::Array(Vec::new()),
+        Some(t) => {
+            let v = serde_json::from_str::<Value>(&t)
+                .map_err(|_| verbs::damaged("a planning session's options are not JSON"))?;
+            if !v.as_array().is_some_and(|a| a.iter().all(Value::is_string)) {
+                return Err(verbs::damaged(
+                    "a planning session's options are not a JSON list of labels",
+                ));
+            }
+            v
+        }
+    };
     p.insert(3, ("options", options.to_string()));
     let mut q = c
         // The mark is one column and two names: the column is selected twice

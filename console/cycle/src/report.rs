@@ -59,7 +59,10 @@ impl Ask for Given {
 }
 
 /// The caps tehas sets for a stop of its own, and no other command does.
-pub const OWN_CAPS: [&str; 3] = ["wall-clock", "stall", "runner-never-started"];
+pub const OWN_CAPS: [&str; 4] = ["wall-clock", "stall", "disk", "runner-never-started"];
+
+/// The label that chooses the lean driver.
+const LEAN: &str = "tehas:lean";
 
 /// What a label that could not be changed adds to a comment.
 pub const STUCK: &str =
@@ -89,6 +92,8 @@ pub struct Park {
     pub no_retry: bool,
     pub say: String,
     pub edit: Option<String>,
+    /// The host's line above the boxes of its question.
+    pub lead: String,
 }
 
 impl Park {
@@ -123,7 +128,7 @@ impl Park {
         );
         let out = json!({"text": text, "question": null, "marker": self.marker,
                          "park": self.park_marker, "retry": !self.no_retry});
-        let body = q_render(Kind::Park, issue, 1, &out, "");
+        let body = q_render(Kind::Park, issue, 1, &out, &self.lead);
         (text, body)
     }
 
@@ -549,9 +554,28 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         }
         None => ("0".into(), String::new(), String::new()),
     };
+    // The disk stop (src/scratch.rs): `cap <held> <max>` or
+    // `floor <held> <free> <floor>`, then the step in flight.
+    let disk: Option<(String, Vec<u64>, String)> = f.file("disk").text().and_then(|t| {
+        let (a, b) = two_lines(t);
+        let ws: Vec<&str> = a.split(' ').collect();
+        let figures: Option<Vec<u64>> = ws.iter().skip(1).map(|w| w.parse().ok()).collect();
+        let figures = figures?;
+        let shaped = matches!((ws[0], figures.len()), ("cap", 2) | ("floor", 3));
+        let at = cut(
+            &kept(&b, |c| c.is_ascii_alphanumeric() || "_.-".contains(c)),
+            40,
+        );
+        let at = if at == "-" { String::new() } else { at };
+        shaped.then(|| (ws[0].to_string(), figures, at))
+    });
     let (stalled_secs, stalled_step) = &stalled;
     let (timed_secs, timed_by, timed_step) = &timed;
+    let disk_step = disk.as_ref().map_or("", |d| d.2.as_str());
     let mut step_wanted = step == "-";
+    if !disk_step.is_empty() {
+        step_wanted = false;
+    }
     if !nostart_rc.is_empty() {
         step_wanted = false;
     }
@@ -675,6 +699,30 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
             );
         }
     }
+    let mib = |b: u64| b >> 20;
+    let disk_why = disk.as_ref().map(|(word, n, _)| match word.as_str() {
+        "cap" => format!(
+            "its scratch held {} MiB, over TEHAS_SCRATCH_MAX of {} MiB",
+            mib(n[0]),
+            mib(n[1])
+        ),
+        _ => format!(
+            "the scratch's disk had {} MiB free, under TEHAS_CYCLE_STOP_FREE of {} MiB, and its scratch was the largest there ({} MiB)",
+            mib(n[1]),
+            mib(n[2]),
+            mib(n[0])
+        ),
+    });
+    if let Some(why) = &disk_why {
+        if ["running", "unknown", "interrupted"].contains(&status.as_str()) {
+            status = "stopped".into();
+        }
+        if step == "-" && !disk_step.is_empty() {
+            step = disk_step.to_string();
+            step_from = "disk";
+        }
+        killed += &format!(" At step `{step}` {why}, so tehas stopped it.");
+    }
     // The marker of `tehas stop`.
     let mut stopped_by = String::new();
     let mut stopped_at_shown = String::new();
@@ -740,6 +788,12 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         own = "stall";
         stop_why =
             format!("tehas work stopped the container when no log changed for {stalled_secs}s");
+    } else if let Some(why) = disk_why
+        .as_ref()
+        .filter(|_| cap.is_empty() || status == "stopped")
+    {
+        own = "disk";
+        stop_why = format!("tehas work stopped the container: {why}");
     } else if stopped_by_person && cap.is_empty() {
         let tail = if reason.is_empty() {
             String::new()
@@ -765,6 +819,31 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         };
         reason = cut_bytes(&format!("{stop_why}{tail}"), 200);
         cap = own.to_string();
+    }
+    // #1411: refused starts of a process are the cause of a stop that names
+    // none. A cap the run had, and a person's stop, come first.
+    let process_limit = cap.is_empty() && forks != "0" && !stopped_by_person;
+    if process_limit {
+        let at = kept(&step, |c| c.is_ascii_alphanumeric() || "_.-".contains(c));
+        cap = if at.is_empty() || at == "-" {
+            "process-limit".to_string()
+        } else {
+            cut(&format!("process-limit:{at}"), 80)
+        };
+        let tail = if reason.is_empty() {
+            String::new()
+        } else {
+            format!("; {reason}")
+        };
+        let in_flight = if step == "-" {
+            String::new()
+        } else {
+            format!(", step {step} in flight")
+        };
+        reason = cut_bytes(
+            &format!("its container reached its limit of processes and refused {forks} starts of a process{in_flight}{tail}"),
+            200,
+        );
     }
     let (usage, unreadable) = runner::usage(&outcome, progress);
     if unreadable {
@@ -832,7 +911,7 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
             "log" => {
                 summary = format!("status `{status}`, last step `{step}` read from its run log, {mins} min")
             }
-            "stalled" | "timed" => {
+            "stalled" | "timed" | "disk" => {
                 summary = format!("status `{status}`, last step `{step}` tehas work saw in flight, {mins} min")
             }
             "nostart" => {
@@ -847,6 +926,8 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
     let mut why = String::new();
     if OWN_CAPS.contains(&cap.as_str()) {
         why = format!(" tehas stopped the cycle: the cap `{cap}`.");
+    } else if process_limit {
+        why = format!(" Its cause is recorded as the cap `{cap}`.");
     } else if !cap.is_empty() {
         let pr_why = if park_reason.is_empty() {
             String::new()
@@ -1247,6 +1328,7 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         );
         let mut park_why = "";
         let mut auto = String::new();
+        let mut lead = String::new();
         r.arm = "parked";
         if never_started {
             r.arm = "never-ran";
@@ -1274,6 +1356,8 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
             parked = format!("Tehas started no cycle: an image or file the issue links could not be given to it, or the issue could not be read for them (runner exit {runner_rc}). Nothing of it ran: no workspace, no container, no step, no usage.{said} The comment before this one names it; {log_where}.");
             if rc != 4 {
                 parked = format!("Tehas started no cycle: this start's approval says driver `lean`, and this tehas cannot run the lean driver yet (runner exit {runner_rc}). It does not run classic in its place, and nothing of it ran. To run it on classic, take `tehas:lean` off, then retry; {log_where}.");
+                park_why = tehas_core::question::LEAN_REFUSED;
+                lead = format!("Take `{LEAN}` off this issue, then tick a box.");
             }
         } else if provider {
             r.arm = "provider";
@@ -1294,11 +1378,11 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
             }
         }
         parked_now = true;
-        r.actions.push(park(
-            park_args(park_why, &cap, &status, &step, &pr),
-            parked,
-            auto,
-        ));
+        let mut p = park(park_args(park_why, &cap, &status, &step, &pr), parked, auto);
+        if let Action::Park(b) = &mut p {
+            b.lead = lead;
+        }
+        r.actions.push(p);
     }
     if !refreshed.is_empty() {
         r.actions.push(Action::RefreshOff {
@@ -1548,6 +1632,39 @@ mod tests {
         report(&f, &mut Given(facts["github"].clone()))
     }
 
+    fn cap_disk(r: &Report) -> bool {
+        r.end.windows(2).any(|w| w[0] == "--cap" && w[1] == "disk")
+    }
+
+    #[test]
+    fn a_disk_stop_is_its_own_cap() {
+        let g = 1u64 << 30;
+        let r = notes(vec![(
+            "disk",
+            &format!("cap {} {}\nverify\n", 21 * g, 20 * g),
+        )]);
+        assert!(r.done.contains("status=stopped"), "{}", r.done);
+        assert!(cap_disk(&r), "{:?}", r.end);
+        let said = comments(&r).join("\n");
+        assert!(
+            said.contains("over TEHAS_SCRATCH_MAX of 20480 MiB"),
+            "{said}"
+        );
+        assert!(said.contains("`verify`"), "{said}");
+        let r = notes(vec![(
+            "disk",
+            &format!("floor {} {} {}\n-\n", 3 * g, g, 5 * g),
+        )]);
+        assert!(cap_disk(&r), "{:?}", r.end);
+        let said = comments(&r).join("\n");
+        assert!(said.contains("1024 MiB free"), "{said}");
+        // A note of another shape is no stop.
+        for bad in ["cap 1\n", "floor 1 2\n", "cap x 2\n", "full 1 2\n", "\n"] {
+            let r = notes(vec![("disk", bad)]);
+            assert!(!cap_disk(&r), "{bad}: {:?}", r.end);
+        }
+    }
+
     /// The value of `--stalled` in the store's arguments, if it is there.
     fn stalled_arg(r: &Report) -> Option<&str> {
         r.end
@@ -1662,5 +1779,107 @@ mod tests {
             "{}",
             r.done
         );
+    }
+
+    /// A cycle that handed off at `commit` with a draft pull request open,
+    /// its runner exit 30, after its container refused `forks` starts.
+    fn refused(forks: &str, cap: Option<&str>) -> Report {
+        let mut entry = json!({"issue": 7, "status": "handoff", "failedStep": "commit", "branch": "feature/x", "handoff": {"body": "The review roles did not run."}});
+        if let Some(c) = cap {
+            entry["cap"] = json!(c);
+        }
+        let result = json!({"schemaVersion": runner::RESULT_SCHEMA, "issues": [entry]});
+        let pr = json!({"url": "https://github.com/acme/widget/pull/9", "state": "OPEN", "isDraft": true,
+                        "body": "Fixes #7", "title": "x", "headRefName": "feature/x"});
+        let facts = json!({
+            "issue": 7,
+            "repo": "acme/widget",
+            "home": "/home/tehas",
+            "rc": 10,
+            "started": 1000,
+            "now": 2620,
+            "start": { "attempt": 1 },
+            "files": {
+                "result.json": result.to_string(),
+                "progress.json": "{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}\n",
+                "runner_exit": "30\n",
+                "forks": forks,
+            },
+            "record": { "cycle": { "attempt": 1 } },
+            "github": { "prs": [pr], "attention": false },
+        });
+        let f = Facts::from_json(&facts).expect("the facts read");
+        report(&f, &mut Given(facts["github"].clone()))
+    }
+
+    fn end_cap(r: &Report) -> Option<&str> {
+        r.end
+            .iter()
+            .position(|a| a == "--cap")
+            .and_then(|i| r.end.get(i + 1))
+            .map(String::as_str)
+    }
+
+    // #1411: a stop on the process limit read like a review park, `cap=-`.
+    #[test]
+    fn refused_starts_with_no_cap_are_the_cause_of_the_stop() {
+        let r = refused("6\n", None);
+        assert!(r.done.contains("forks_refused=6"), "{}", r.done);
+        assert_eq!(end_cap(&r), Some("process-limit:commit"), "{:?}", r.end);
+        assert_eq!(r.history["cap"], "process-limit:commit", "{}", r.history);
+        assert_eq!(r.after.ended.cap, "process-limit:commit");
+        assert!(
+            r.after
+                .ended
+                .reason
+                .contains("refused 6 starts of a process, step commit in flight"),
+            "{}",
+            r.after.ended.reason
+        );
+        let park = r
+            .actions
+            .iter()
+            .find_map(|a| match a {
+                Action::Park(p) => Some(p.clone()),
+                _ => None,
+            })
+            .expect("a park");
+        assert!(
+            park.args
+                .windows(2)
+                .any(|w| w == ["--reason", "process-limit:commit"]),
+            "{:?}",
+            park.args
+        );
+        assert!(
+            park.marker.contains("cap=process-limit:commit"),
+            "{}",
+            park.marker
+        );
+        assert!(
+            park.text
+                .contains("Its cause is recorded as the cap `process-limit:commit`."),
+            "{}",
+            park.text
+        );
+    }
+
+    #[test]
+    fn a_cap_the_run_named_stays_with_refused_starts() {
+        let r = refused("6\n", Some("awaiting-human-merge"));
+        assert_eq!(end_cap(&r), Some("awaiting-human-merge"), "{:?}", r.end);
+        assert_eq!(r.history["cap"], "awaiting-human-merge");
+        assert!(
+            !r.after.ended.reason.contains("limit of processes"),
+            "{}",
+            r.after.ended.reason
+        );
+    }
+
+    #[test]
+    fn no_refused_starts_name_no_process_limit() {
+        let r = refused("0\n", None);
+        assert_eq!(end_cap(&r), None, "{:?}", r.end);
+        assert!(r.history.get("cap").is_none(), "{}", r.history);
     }
 }

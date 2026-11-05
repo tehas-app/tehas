@@ -60,7 +60,7 @@ pub const MILLWRIGHT_WORDS: [&str; 2] = tehas_core::grammar::MILLWRIGHT_WORDS;
 /// written only when it is `DRIVER`: no driver means classic, which is every
 /// record written before it existed.
 const INPUT_LISTS: [&str; 3] = ["links", "comment_links", "retry_context"];
-const INPUT_BOUND: u64 = 1 << 20;
+const INPUT_BOUND: u64 = tehas_core::file::READ_BOUND;
 const DRIVER: &str = "lean";
 
 /// The one note that lifted a park's hold off a start (#1130), as a
