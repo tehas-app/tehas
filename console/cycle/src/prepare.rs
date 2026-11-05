@@ -30,7 +30,7 @@ use std::io::Write;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use tehas_core::install::{self, Step};
 use tehas_core::models;
@@ -41,12 +41,13 @@ use tehas_core::{lock, time};
 /// The words of the limits, then of the security options, as the slice gave them.
 const LIMIT_WORDS: usize = 14;
 
-const PROTOCOL: [&str; 14] = [
+const PROTOCOL: [&str; 15] = [
     "cid",
     "oom",
     "forks",
     "stalled",
     "timed",
+    "signal",
     "disk",
     "result.json",
     "progress.json",
@@ -88,14 +89,20 @@ fn git_identity(field: &str) -> String {
 /// The exit status of a start that was stopped: 128 plus TERM.
 pub const STOPPED: i32 = 143;
 
-/// A TERM, INT or HUP that came to tehas work, as its handlers set it.
+/// A TERM, INT or HUP that came to tehas work, as its handlers set it, and
+/// the number of the last one.
 #[derive(Clone, Default)]
-pub struct Stop(Arc<AtomicBool>);
+pub struct Stop(Arc<AtomicBool>, Arc<AtomicUsize>);
 
 impl Stop {
     /// The flag the signal handlers set and the watch reads.
     pub fn flag(&self) -> Arc<AtomicBool> {
         Arc::clone(&self.0)
+    }
+
+    /// The number of the signal that came last, 0 before one.
+    pub fn which(&self) -> Arc<AtomicUsize> {
+        Arc::clone(&self.1)
     }
 
     /// Whether a stop came, said when it did.
@@ -869,7 +876,7 @@ mod tests {
             text_wait: 1,
             gap: String::new(),
             images: Vec::new(),
-            stop: Stop(Arc::new(AtomicBool::new(false))),
+            stop: Stop(Arc::new(AtomicBool::new(false)), Arc::default()),
         };
         let tag = "tehas-sandbox:latest";
         // The image is the word before the runner, as the table of runs reads it.
