@@ -461,6 +461,17 @@ choice.
   its fields are pi-rukas's to define. pi-rukas's `/plan` writes one, and
   [Troubleshooting](/troubleshooting#what-a-park-says) says what to do when the
   block is missing. A second block, or one that is no JSON, counts as none.
+- The driver keeps its own record of the steps it ran, in
+  `.pi/lean-state/<issue>.json` in the workspace. Before the cycle's report
+  clears what the container wrote, `tehas-cycle report` copies it to
+  `~/tehas/state/cycles/<issue>.lean-state.json`, and `tehas analytics run`
+  takes its steps as the run's steps, which the
+  [drivers table](/analytics#drivers) reads for the hand-back by step. A classic
+  cycle keeps no such file, nor does a cycle of a host with
+  `TEHAS_ANALYTICS=off`: the note exists only to feed that program. A lean cycle
+  whose copy could not be written says so once, and its run keeps the steps of
+  its stream. The copy is a plain file of the workspace, no link on the way, of
+  no more than 4 MiB. The next cycle of the issue removes the copy as it starts.
 
 ### What a poll costs
 
@@ -562,14 +573,17 @@ started from, so a cycle cannot lower its own bar mid-run. For this repository
 the bar is MEDIUM and above, decided in the platform repository's
 `docs/adr/0002-review-severity-policy.md`, a record in the source rather than a
 file on a host. A finding at the bar or above sends the change back to a fix
-step and the review runs again, up to three rounds. Only LOW findings may be
+step and the review runs again, up to two rounds from pi-rukas v0.14.49 (three
+before it). Only LOW findings may be
 deferred: they are notes on the pull request and start no fix round. A CRITICAL
 finding blocks whatever the bar says.
 
 `AGENTS.md` of this repository does not state the bar yet, because rule 7 gives
 that file to a person, so a cycle's log still records the verdict as `unstated`
-and takes pi-rukas's default, which is the same MEDIUM. Once a person adds the
-sentence the log names the bar it quoted and no cycle behaves differently. The
+and takes pi-rukas's default. That default is MEDIUM up to pi-rukas v0.14.49 and
+HIGH from v0.14.50, so on v0.14.50 a cycle here blocks at HIGH, not at the
+MEDIUM the record decided, until a person adds the sentence. Once the sentence
+is there the log names the bar it quoted, whatever the release's default. The
 sentence has to be one pi-rukas can read: one sentence that names the bar with a
 relation, `This repository blocks at MEDIUM severity and above.` pi-rukas takes
 the severity out of the sentence the judge quotes and checks that sentence
@@ -580,10 +594,14 @@ An instance can set the bar itself with `PI_ENSEMBLE_REVIEW_THRESHOLD`, which
 wins over what the product says (see [Commands](/tools#instance-settings)).
 tehas passes that line through without checking it, and pi-rukas honours it only
 when it reads as one of the four severities: a value that is not one of them is
-ignored, not refused with 78. With neither, MEDIUM.
+ignored, not refused with 78. With neither, pi-rukas's default: MEDIUM up to
+v0.14.49, HIGH from v0.14.50. Because the default moved, the
+[drivers table](/analytics#drivers) gives each pi-rukas version its own entry,
+so runs of the two bars are never read as one figure.
 
-Three rounds is the most a review takes. A CRITICAL finding parks the cycle. A
-round cap reached with only MEDIUM and HIGH findings left, an approving
+Two rounds is the most a review takes from pi-rukas v0.14.49, three before it.
+A CRITICAL finding parks the cycle. A round cap reached with only MEDIUM and
+HIGH findings left, an approving
 adversarial review, and those findings posted as a comment on the pull request,
 carries on to the gate with the findings named on the pull request instead of
 parking; a post that fails parks. A review that runs out of its time budget
