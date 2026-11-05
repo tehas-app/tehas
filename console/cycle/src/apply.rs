@@ -559,6 +559,7 @@ fn clear_notes(home: &Path, issue: u64) {
         "forks",
         "stalled",
         "timed",
+        "signal",
         "disk",
         "stopped",
         "nostart",

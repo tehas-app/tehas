@@ -250,6 +250,8 @@ pub struct CycleRun<'a> {
     pub env: &'a [String],
     pub hosts: &'a [String],
     pub image: &'a str,
+    /// The runner's verb: `work`, or `work-lean` for driver lean.
+    pub verb: &'a str,
     pub issue: u64,
     pub flags: &'a [String],
 }
@@ -273,7 +275,7 @@ pub fn cycle_run(c: &CycleRun) -> Vec<String> {
     w.extend_from_slice(c.images);
     w.extend_from_slice(c.env);
     w.extend_from_slice(c.hosts);
-    w.extend(words(&[c.image, RUNNER, "work", &c.issue.to_string()]));
+    w.extend(words(&[c.image, RUNNER, c.verb, &c.issue.to_string()]));
     w.extend_from_slice(c.flags);
     w
 }
