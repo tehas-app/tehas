@@ -107,7 +107,6 @@ t_stub docker 'case "$1" in
     # and the answer that lets the tag move is a step that started. Every
     # case of this file builds an image that passes: test/sandbox_build_test
     # .sh is where a refusal of the smoke run is checked.
-    if [ "${SMOKE:-}" = silent ]; then exit 0; fi
     for a in "$@"; do
       if [ "$a" = --entrypoint ]; then
         # A stable line of the NDJSON the runner prints, which is the answer

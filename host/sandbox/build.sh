@@ -24,13 +24,14 @@
 # was.
 #
 # Before the tag moves, each image that would take it is smoke-run: one offline
-# work turn started in it, with no token, model or network, and the output handed
-# to tehas-cycle smoke, which decides. An image that prints no step-started line
-# within 20 s, or prints a result that says its runner crashed, is refused: the
-# build ends 1 and the tag stays where it was, as for a layer that does not build
-# (a base that answered --capabilities and died at every work run: pi-rukas
-# v0.14.30 to v0.14.40). What the three answers mean is in console/cycle/src/
-# sandbox.rs, not here: this command runs docker and passes it the output.
+# work turn started in it, with no token, model or network, and the output
+# handed to tehas-cycle sandbox smoke-verdict, which decides. An image that
+# prints no step-started line within 20 s, or prints a result that says its
+# runner crashed, is refused: the build ends 1 and the tag stays where it was,
+# as for a layer that does not build (a base that answered --capabilities and
+# died at every work run: pi-rukas v0.14.30 to v0.14.40). What the three
+# answers mean is in console/cycle/src/sandbox.rs, not here: this command runs
+# docker and passes it the output.
 #
 # The base is the image upstream publishes for each commit, tagged
 # sha-<first 12 characters>, or, when PI_RUKAS_IMAGE_DIGEST (sha256:<64 hex>)
@@ -302,35 +303,20 @@ fi
 reads=$("$cycle" caps reads-images <<<"$caps")
 
 # One offline work turn inside an image that would take the uid tag, and the
-# decision on what it printed: tehas-cycle smoke reads the output and ends 0 on
-# a step-started line, 1 on a crash or on nothing (console/cycle/src/sandbox.rs).
-# The turn needs no token, model or network, so an image whose runner died at
-# every work run is caught here and not by the cycles that follow. The words of
-# the run are tehas-cycle's, not this script's (`sandbox smoke`, NUL separated,
-# and the row of `sandbox table`), so the one table of runs holds this run too.
-# The container is bounded at 30 s: the turn gives itself 20, and the 10 over it
-# is the container's own start, which is why an image that answers nothing at
-# all is refused rather than waited on.
+# decision on what it printed (console/cycle/src/sandbox.rs: `sandbox smoke`
+# gives the words of the run, `sandbox smoke-verdict` reads its output and ends
+# 0 only on a step-started line). The run is no row of `sandbox table`: its
+# image is the one this build has just made. The turn bounds itself at 20 s and
+# ends at its first step; the 20 over it are the container's own start.
 smoke_image() { # <image>
-  local words=() out said word
-  # The program prints its words NUL separated, as every sandbox verb does: the
-  # separator is the character, not the empty string, which mapfile reads as the
-  # end of its input and would leave one word of the whole list.
-  mapfile -td $'\0' words < <("$cycle" sandbox smoke "$1")
-  if [ "${#words[@]}" -lt 8 ] || [ "${words[0]}" != run ] ||
-    [ "${words[3]}" != --entrypoint ] || [ "${words[4]}" != bash ] ||
-    [ "${words[6]}" != -c ]; then
+  local words=() word
+  mapfile -td '' words < <("$cycle" sandbox smoke "$1")
+  if [ "${#words[@]}" -lt 8 ] || [ "${words[0]}" != run ]; then
     echo "sandbox: tehas-cycle gave no words for a smoke run, so $1 cannot be smoke-run" >&2
     exit 1
   fi
-  out=$(timeout 30 docker "${words[@]}" 2>/dev/null) || true
-  # The three words the verb prints, and the status it ended with, read in one
-  # substitution: `x=$(cmd) || …` cannot be used, because the `local` above makes
-  # the assignment itself end 0 whatever the command answered, and the refusal
-  # would be read as no answer at all.
-  said=$("$cycle" smoke <<<"$out" 2>/dev/null; echo "rc=$?")
-  word=${said%$'\n'rc=*}
-  if [ "${said##*rc=}" != 0 ] || [ "$word" != started ]; then
+  if ! word=$({ timeout -k 5 40 docker "${words[@]}" 2>&1 || true; } |
+    "$cycle" sandbox smoke-verdict); then
     echo "sandbox: $1 started no step of an offline work run (${word:-no answer}), so $current is left as it was" >&2
     exit 1
   fi
