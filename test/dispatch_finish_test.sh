@@ -20,10 +20,11 @@ bare_tree() {
   mkdir -p "$tree/libexec" "$tree/lib" "$tree/bin"
   cp "$dispatch" "$tree/libexec/dispatch"
   cp "$T_ROOT"/lib/*.sh "$tree/lib/"
-  for name in index plan; do cp "$T/bin/fake-$name" "$tree/libexec/$name"; done
-  # The poll runs its status through tehasbot.
+  cp "$T/bin/fake-plan" "$tree/libexec/plan"
+  # The poll runs its status through tehasbot, and the index unit tehas index.
   printf '%s\n' '#!/usr/bin/env bash' "[ \"\$1\" != status ] || exec '$T/bin/fake-status'" >"$tree/bin/tehasbot"
-  chmod +x "$tree/bin/tehasbot"
+  printf '%s\n' '#!/usr/bin/env bash' "[ \"\$1\" != index ] || { shift; exec '$T/bin/fake-index' \"\$@\"; }" >"$tree/bin/tehas"
+  chmod +x "$tree/bin/tehasbot" "$tree/bin/tehas"
   for name in tehas tehasbot tehas-work tehas-status tehas-index tehas-plan; do t_stub "$name"; done
   # The Rust poll finds them beside its own program, as on a host.
   cp "$T_DISPATCH" "$tree/libexec/tehas-dispatch"
