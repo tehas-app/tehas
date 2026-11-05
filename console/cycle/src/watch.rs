@@ -198,17 +198,54 @@ fn field(line: &str) -> String {
     line.trim_matches([' ', '\t']).to_string()
 }
 
-/// The step and the notice from the two lines the console keeps beside its
-/// file. A second line counts only after a first that was ended.
-fn now_lines(file: &Path) -> (String, String) {
+/// The step and the notice from the lines the console keeps beside its file. A
+/// second line counts only after a first that was ended, a third after a
+/// second.
+fn now_lines(file: &Path) -> (String, String, String) {
     let Ok(bytes) = fs::read(file) else {
-        return (String::new(), String::new());
+        return (String::new(), String::new(), String::new());
     };
     let text = String::from_utf8_lossy(&bytes);
-    match text.split_once('\n') {
-        Some((a, rest)) => (field(a), field(rest.split('\n').next().unwrap_or(""))),
-        None => (field(&text), String::new()),
+    let mut lines = text.split('\n');
+    let step = field(lines.next().unwrap_or(""));
+    let ended = text.contains('\n');
+    let note = if ended {
+        lines.next().unwrap_or("")
+    } else {
+        ""
+    };
+    let third = if text.matches('\n').count() >= 2 {
+        lines.next().unwrap_or("")
+    } else {
+        ""
+    };
+    (step, field(note), field(third))
+}
+
+/// The flags of `store cycle-heartbeat` for the console's third line: each pair
+/// it knows, of a value of digits alone.
+fn progress_flags(line: &str) -> Vec<String> {
+    let mut flags = Vec::new();
+    for pair in line.split(' ') {
+        let Some((k, v)) = pair.split_once('=') else {
+            continue;
+        };
+        let flag = match k {
+            "stepNumber" => "--step-number",
+            "stepTotal" => "--step-total",
+            "round" => "--round",
+            "roundLimit" => "--round-limit",
+            "stepSince" => "--step-since",
+            _ => continue,
+        };
+        if v.is_empty() || v.len() > 12 || !v.bytes().all(|b| b.is_ascii_digit()) {
+            continue;
+        }
+        if !flags.iter().any(|f| f == flag) {
+            flags.extend([flag.to_string(), v.to_string()]);
+        }
     }
+    flags
 }
 
 /// The newest change to any file under `paths`, in whole seconds of mtime. Links
@@ -623,7 +660,7 @@ impl Watch<'_> {
 
     /// The step and status on the store, which publishes the live view.
     fn now_file(&mut self, running: bool, status: &str) {
-        let (mut step, note) = now_lines(&self.console_now);
+        let (mut step, note, progress) = now_lines(&self.console_now);
         if step.is_empty() {
             step = "starting".to_string();
         }
@@ -635,6 +672,8 @@ impl Watch<'_> {
         }
         args.extend([if running { "--running" } else { "--ended" }]);
         args.extend(["--status", status, "--step", &step, "--text", &note]);
+        let progress = progress_flags(&progress);
+        args.extend(progress.iter().map(String::as_str));
         if let Err(r) = host::store_said(self.home, &args) {
             if !self.beat_said {
                 eprintln!(
@@ -1522,11 +1561,49 @@ mod tests {
     fn the_two_lines_of_the_console() {
         let d = dir("now");
         let now = d.join("now");
-        assert_eq!(now_lines(&now), (String::new(), String::new()));
-        fs::write(&now, "  develop \n a notice\nmore\n").unwrap();
-        assert_eq!(now_lines(&now), ("develop".into(), "a notice".into()));
+        let none = || (String::new(), String::new(), String::new());
+        assert_eq!(now_lines(&now), none());
+        fs::write(&now, "  develop \n a notice\n").unwrap();
+        assert_eq!(
+            now_lines(&now),
+            ("develop".into(), "a notice".into(), String::new())
+        );
         fs::write(&now, "develop").unwrap();
-        assert_eq!(now_lines(&now), ("develop".into(), String::new()));
+        assert_eq!(
+            now_lines(&now),
+            ("develop".into(), String::new(), String::new())
+        );
+        fs::write(&now, "ci\n\nround=2 stepSince=1760700000\n").unwrap();
+        assert_eq!(now_lines(&now).2, "round=2 stepSince=1760700000");
+        fs::write(&now, "ci\nnotice\nround=2").unwrap();
+        assert_eq!(now_lines(&now).2, "round=2");
+        fs::write(&now, "ci\nnotice").unwrap();
+        assert_eq!(now_lines(&now).2, "");
+    }
+
+    #[test]
+    fn the_third_line_gives_the_heartbeat_its_progress_flags() {
+        assert_eq!(
+            progress_flags("stepNumber=7 stepTotal=9 round=2 roundLimit=3 stepSince=1760700000"),
+            [
+                "--step-number",
+                "7",
+                "--step-total",
+                "9",
+                "--round",
+                "2",
+                "--round-limit",
+                "3",
+                "--step-since",
+                "1760700000"
+            ]
+        );
+        // What it does not know, a value not of digits and a second of a pair
+        // are left out.
+        assert_eq!(
+            progress_flags("eta=5 round=-1 round=x stepTotal=9 stepTotal=8 stepNumber= junk"),
+            ["--step-total", "9"]
+        );
     }
 
     #[test]

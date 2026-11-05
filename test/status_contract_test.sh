@@ -2,7 +2,8 @@
 # Tests for the contract of tehas status --json. api/status.schema.json says
 # what the object holds. The samples beside it, api/status.busy.json and
 # api/status.quiet.json, are what console status json (console/src/status.rs) makes of
-# the health files in test/fixtures/status-json/, at a fixed time. A program
+# the health files in test/fixtures/status-json/, with the Protolab's list beside
+# one of them, at a fixed time. A program
 # that reads the object copies the samples into its own tests, so a change
 # here is a change for it: docs/specs/2026-10-24-status-json-contract.md.
 #
@@ -59,6 +60,9 @@ t_case "tehas status --json prints what the sample holds, but for the clock"
 mkdir -p "$T/home/tehas/live"
 for name in "${samples[@]}"; do
   cp "$fixtures/$name.health.json" "$T/home/tehas/live/health.json"
+  rm -f "$T/home/tehas/live/protolab.json"
+  [ ! -e "$fixtures/$name.protolab.json" ] ||
+    cp "$fixtures/$name.protolab.json" "$T/home/tehas/live/protolab.json"
   t_run "$T_ROOT/bin/tehas status --json"
   # The health file is days old: stale, so the exit status is 1.
   t_eq "$t_rc" 1
