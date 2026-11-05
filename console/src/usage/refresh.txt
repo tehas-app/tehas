@@ -19,7 +19,12 @@ $TEHAS_HOME/state/refresh/<issue>.json:
 {at, pr, head_sha, base_sha}. A request for the same pull request at the
 same head keeps its time. UNKNOWN is skipped this run, and a request it has
 stays: GitHub computes the state lazily and the next run reads it again. Any
-other request is removed. One line per run goes to logs/refresh.log.
+other request is removed. One line per run goes to logs/refresh.log: how
+many open pull requests it read, and of those how many conflict, how many
+are still UNKNOWN and how many are not ours to refresh (another account's, a
+fork, one the rule rejects, or one whose head or base is no sha), and how
+many requests it wrote. The rest of the read are the bot's that do not
+conflict.
 
 It decides only that a pull request conflicts. Whether a refresh starts is
 the dispatcher's, which checks each request again at the start.
