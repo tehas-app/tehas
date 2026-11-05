@@ -4827,6 +4827,15 @@ Each task is stopped after `TEHAS_TEST_FILE_TIMEOUT` seconds (300 by default)
 and counts as a failure, named with `timed out`. A file that hangs therefore
 costs the timeout and nothing more, and the run still prints its block.
 
+Each run keeps everything under one root of its own,
+`${TMPDIR:-/tmp}/tehas-tests/run.*`, and gives it to the test files as their
+`TMPDIR`, so each file's scratch directory and the run's records are there.
+The run removes the root when it ends. It holds a lock in the root, and so does
+every process it starts, which inherits the descriptor: a root whose lock no
+process holds is one a killed run left, and the next run removes it when it
+starts. A file the timeout stopped before its own cleanup therefore leaves
+nothing past the run.
+
 Each file's output is printed whole, in name order, once all the tasks have
 ended. The run then says what it covered, the total number of cases over all
 the files and the five slowest of them with their times, and ends with a block
