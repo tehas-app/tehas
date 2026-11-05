@@ -960,48 +960,20 @@ if [ ! -d "$root/console" ] && [ -f "$root/VERSION" ]; then
   done
 else
   [ -d "$root/console" ] || { echo "tehas: $root/console is missing from this checkout" >&2; exit 1; }
-  # source_sum <find tests>: one checksum of the files under console/ that the
-  # tests select, the build's own output left out.
-  source_sum() {
-    (cd "$root/console" && find . -type f ! -path './target/*' ! -path './analytics/target/*' "$@" -print0 |
-      LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1)
-  }
-  # The console's source is all of console/ but its tests, analytics/, mcp/,
-  # store/, attach/, dispatch/ and cycle/'s tests, so a change to one of those
-  # alone does not build the console again. It links the tehas-cycle library.
-  # analytics reads its own directory, the workspace's manifest and lock, and the
-  # shared library in core/, and so do the MCP server and the store.
-  console_source=$(source_sum ! -path './tests/*' ! -path './analytics/*' ! -path './mcp/*' ! -path './store/*' \
-    ! -path './attach/*' ! -path './dispatch/*' ! -path './cycle/tests/*' ! -path './cycle/target/*') ||
-    { echo "tehas: could not read the console's source in $root/console" >&2; exit 1; }
-  analytics_source=$(source_sum \( \( -path './analytics/*' ! -path './analytics/tests/*' \) \
-    -o -path ./Cargo.toml -o -path ./Cargo.lock -o -path './core/*' \)) ||
-    { echo "tehas: could not read the analytics program's source in $root/console" >&2; exit 1; }
-  mcp_source=$(source_sum \( \( -path './mcp/*' ! -path './mcp/tests/*' ! -path './mcp/target/*' \) \
-    -o -path ./Cargo.toml -o -path ./Cargo.lock -o -path './core/*' \)) ||
-    { echo "tehas: could not read the MCP server's source in $root/console" >&2; exit 1; }
-  store_source=$(source_sum \( \( -path './store/*' ! -path './store/src/tests.rs' ! -path './store/target/*' \) \
-    -o -path ./Cargo.toml -o -path ./Cargo.lock -o -path './core/*' \)) ||
-    { echo "tehas: could not read the store's source in $root/console" >&2; exit 1; }
-  # The attachment checker reads its own directory and the workspace's manifest
-  # and lock.
-  attach_source=$(source_sum \( \( -path './attach/*' ! -path './attach/src/tests.rs' ! -path './attach/target/*' \) \
-    -o -path ./Cargo.toml -o -path ./Cargo.lock \)) ||
-    { echo "tehas: could not read the attachment checker's source in $root/console" >&2; exit 1; }
-  # The dispatcher and the cycle's supervisor each read their own directory, the
-  # workspace's manifest and lock, and core/.
-  dispatch_source=$(source_sum \( \( -path './dispatch/*' ! -path './dispatch/tests/*' ! -path './dispatch/target/*' \) \
-    -o -path ./Cargo.toml -o -path ./Cargo.lock -o -path './core/*' \)) ||
-    { echo "tehas: could not read the dispatcher's source in $root/console" >&2; exit 1; }
-  cycle_source=$(source_sum \( \( -path './cycle/*' ! -path './cycle/tests/*' ! -path './cycle/target/*' \) \
-    -o -path ./Cargo.toml -o -path ./Cargo.lock -o -path './core/*' \)) ||
-    { echo "tehas: could not read the cycle's source in $root/console" >&2; exit 1; }
+  # The checksum of each program's source, from the console that read the
+  # settings: the one built from this tree, or in --check the one an earlier
+  # build left or the one installed. It reads the workspace's members and what
+  # each takes by path (console/src/update/sources.rs).
+  sources_console=${built_console:-${TEHAS_SETTINGS_CMD:-$TEHAS_HOME/libexec/console}}
+  sources=$("$sources_console" update sources "$root/console" console analytics tehas-mcp store attach \
+    tehas-dispatch tehas-cycle) ||
+    { echo "tehas: $sources_console could not read the programs' source in $root/console" >&2; exit 1; }
   program_sum() { sha256sum <"$1" | cut -d' ' -f1; }
   due=()
-  for entry in "console $console_source" "analytics $analytics_source" "tehas-mcp $mcp_source" \
-    "store $store_source" "attach $attach_source" "tehas-dispatch $dispatch_source" \
-    "tehas-cycle $cycle_source"; do
+  while IFS= read -r entry; do
     read -r prog sum <<<"$entry"
+    [[ $sum =~ ^[0-9a-f]{64}$ ]] ||
+      { echo "tehas: $sources_console gave no checksum for ${prog:-a program}: $entry" >&2; exit 1; }
     to=$TEHAS_HOME/libexec/$prog
     [ ! -x "$to" ] || [ "$(cat "$to.stamp" 2>/dev/null)" != "$sum $(program_sum "$to")" ] || continue
     if [ "$check" = 1 ]; then
@@ -1010,7 +982,7 @@ else
     else
       due+=("$entry")
     fi
-  done
+  done <<<"$sources"
   if [ "${#due[@]}" != 0 ]; then
     build_ready "${due[0]%% *}"
     for entry in "${due[@]}"; do
