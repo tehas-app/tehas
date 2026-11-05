@@ -136,7 +136,10 @@ async function page(opt = {}) {
       for (const [k, v] of Object.entries(real)) globalThis[k] = v;
     }
   };
-  await turn(() => view.start());
+  // A case can load the page the way the browser does instead: a fresh copy of
+  // the module imported with the stubs in place, so only its own last line,
+  // the probe-guarded start(), can draw it.
+  await turn(() => (opt.entry ? import("../host/fun/dashboard-view.js?entry=" + opt.entry) : view.start()));
   // A page that ran none of the module fails here, whatever its case asserts:
   // the module set up its tabs once and asked for the queue.
   assert.equal(keyed, 1, "the module did not start on this page");
@@ -180,6 +183,13 @@ test("the plain dashboard lists the host it is given", async () => {
   assert.deepEqual([p.text("n-host"), p.text("n-units")], ["(3)", "(2)"]);
   assert.deepEqual(p.text("host-note"),
     "4 CPUs, load 0.10 0.20 0.30, 12.5% of the cpus in use, memory 1600 of 6400 MB, snapshot written just now.");
+});
+
+test("importing the module on its page draws the page with no call of start()", async () => {
+  const p = await page({ entry: "auto" });
+  assert.deepEqual(p.errors, []);
+  assert.equal(p.topReads(), 1);
+  assert.equal(p.items("host-list").length, 3);
 });
 
 test("a host that publishes no snapshot has no host section", async () => {
