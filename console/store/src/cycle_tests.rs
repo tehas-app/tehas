@@ -1107,7 +1107,10 @@ fn cycle_end_does_not_store_progress_older_than_the_start() {
     // Too large and unreadable.
     let (_l2, b) = start(&home, 59);
     let big = home.join("big-progress.json");
-    File::create(&big).unwrap().set_len((1 << 20) + 1).unwrap();
+    File::create(&big)
+        .unwrap()
+        .set_len(tehas_core::file::READ_BOUND + 1)
+        .unwrap();
     let (n, at) = attempt_args(59, b);
     let v = ok(
         &home,

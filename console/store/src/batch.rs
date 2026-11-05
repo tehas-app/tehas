@@ -27,7 +27,7 @@ use std::path::Path;
 /// in practice the count is the bound that bites and the bytes are defence
 /// against a writer that is not the poll. A request over it is the usage error
 /// it is, and the store is not opened for it.
-pub const MAX_BYTES: u64 = 1 << 20;
+pub const MAX_BYTES: u64 = tehas_core::file::READ_BOUND;
 
 /// The most calls in one batch, counted in elements of the JSON array. The
 /// poll's list is the four reads of each issue it would decide about -- four

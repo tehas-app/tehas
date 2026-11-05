@@ -95,7 +95,7 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 /// `find ! -size +1024k`: a carried file is at most this long.
-const CARRIED: u64 = 1024 * 1024;
+const CARRIED: u64 = tehas_core::file::READ_BOUND;
 const POLL: Duration = Duration::from_millis(250);
 /// Where pi-rukas keeps a session, inside the clone.
 const SESSIONS: &str = ".git/pi-plan-sessions";
