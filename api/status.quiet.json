@@ -16,5 +16,6 @@
   "planning": [],
   "demand": null,
   "hold": null,
+  "held": [],
   "room": null
 }

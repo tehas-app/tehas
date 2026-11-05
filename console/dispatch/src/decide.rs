@@ -12,7 +12,7 @@ use tehas_core::events::{
     first_unallowed_rename, label_actor, label_state, pause_holds, plan_credit, sole_application,
     Event, Events, UNKNOWN_ACTOR,
 };
-use tehas_core::hold::{Report, Why};
+use tehas_core::hold::{Held, Report, Why, HELD_PARKED, HELD_TEXT_MAX};
 
 mod clean;
 mod plan;
@@ -950,6 +950,7 @@ impl<'a> Poll<'a> {
                 refresh_room: lane,
                 endpoint: (!s.endpoint.is_empty()).then(|| s.endpoint.clone()),
                 slots: self.slots.report(),
+                held: Vec::new(),
             });
             self.d.reported_at = Some((self.d.actions.len(), self.d.log.len()));
         }
@@ -2028,6 +2029,7 @@ impl<'a> Poll<'a> {
                 self.log(format!(
                     "hold #{n}: its last cycle parked on {cap} and the body has not changed since, and the fixer's comments could not be read"
                 ));
+                self.held_parked(n, &cap);
                 return Ok(true);
             };
             if let Some(note) = found {
@@ -2048,7 +2050,26 @@ impl<'a> Poll<'a> {
         self.log(format!(
             "hold #{n}: its last cycle parked on {cap} and the body has not changed since"
         ));
+        self.held_parked(n, &cap);
         Ok(true)
+    }
+
+    /// The park's hold of `n` goes into the poll's report, so status names
+    /// the issue the queue would otherwise show as next.
+    fn held_parked(&mut self, n: u64, cap: &str) {
+        let Some(r) = self.d.report.as_mut() else {
+            return;
+        };
+        if r.held.iter().any(|h| h.issue == n) {
+            return;
+        }
+        let text = format!("its last cycle parked on `{cap}` and the body has not changed since");
+        r.held.push(Held {
+            issue: n,
+            why: HELD_PARKED,
+            text: text.chars().take(HELD_TEXT_MAX).collect(),
+            clear: "edit the body, or tick Retry in the park comment".into(),
+        });
     }
 
     /// fixer_ok: the fixer's tehas:ready, applied at `at`. The person's

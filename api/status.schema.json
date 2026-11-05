@@ -4,7 +4,7 @@
   "title": "tehas status --json",
   "description": "The object tehas status --json prints, version 1. host/docs/api.md says what each field means. Every object is closed, so a field tehas adds must be added here too; a program that reads the object still accepts fields it does not know. test/status_contract_test.sh checks the samples beside this file against it.",
   "type": "object",
-  "required": ["api", "time", "age", "stale", "state", "reasons", "paused", "limit", "running", "planning", "demand", "hold", "room"],
+  "required": ["api", "time", "age", "stale", "state", "reasons", "paused", "limit", "running", "planning", "demand", "hold", "held", "room"],
   "additionalProperties": false,
   "properties": {
     "api": {"const": 1},
@@ -77,6 +77,20 @@
       "properties": {
         "why": {"type": "string"},
         "text": {"type": "string"}
+      }
+    },
+    "held": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["issue", "why", "text", "clear"],
+        "additionalProperties": false,
+        "properties": {
+          "issue": {"type": "integer", "minimum": 1},
+          "why": {"type": "string"},
+          "text": {"type": "string"},
+          "clear": {"type": "string"}
+        }
       }
     },
     "room": {
