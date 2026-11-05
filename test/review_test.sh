@@ -520,7 +520,7 @@ t_case "with the loop off the settings the command needs are still checked"
 # The gate sits below tehas_require_instance_settings, so a host whose instance
 # could not run a review is told 78 by the weekly unit and not only by a command a
 # person typed. The name below is one the review requires, and invalid rather
-# than missing: tehas_require stops on the first name that is not set, so a
+# than missing: the check stops on the first name that is not set, so a
 # missing one would answer 78 wherever the gate sat.
 reset
 t_instance "${T_MINIMAL[@]}" TEHAS_CONTROL_ISSUE=abc

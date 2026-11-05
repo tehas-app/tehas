@@ -246,11 +246,12 @@ fi
 t_case "a release that asks for a setting the instance lacks is not switched to, and its example value is named"
 stubs
 make_release v1.3.0
-# The target's own require line names the console's list. Give it a name no
-# instance has, and say so when the line is not there to change.
-sed -i 's/^  tehas_require /  tehas_require TEHAS_NEW_KNOB /' "$T/src/tehas-v1.3.0/lib/config.sh"
-grep -q 'tehas_require TEHAS_NEW_KNOB' "$T/src/tehas-v1.3.0/lib/config.sh" ||
-  t_bad "v1.3.0 names no setting to require"
+# The target's own lib/config.sh asks for a name no instance has.
+cat >>"$T/src/tehas-v1.3.0/lib/config.sh" <<'EOF'
+tehas_require_instance_settings() {
+  [ -n "${TEHAS_NEW_KNOB:-}" ] || { tehas_err "TEHAS_NEW_KNOB is not set (see $TEHAS_INSTANCE_DIR/instance.env)"; exit 78; }
+}
+EOF
 mkdir -p "$T/src/tehas-v1.3.0/instances/example"
 echo 'TEHAS_NEW_KNOB=42' >>"$T/src/tehas-v1.3.0/instances/example/instance.env"
 (cd "$T/src" && tar -czf "$rel/v1.3.0/$(asset_of v1.3.0)" tehas-v1.3.0)

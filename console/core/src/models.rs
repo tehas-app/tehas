@@ -24,15 +24,7 @@ use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
-const ROLES: [&str; 5] = [
-    "DEVELOPER",
-    "OPS",
-    "EXPLORE",
-    "ADVERSARIAL_DEVELOPER",
-    "CODE_REVIEW_SPECIALIST",
-];
-
-/// tehas_models: (provider, model), the subagent's first, each pair once.
+/// `console models used`: (provider, model), the subagent's first, each pair once.
 pub fn used() -> Vec<(String, String)> {
     used_from(|k| std::env::var(k).unwrap_or_default())
 }
@@ -44,7 +36,7 @@ pub fn used_from(env: impl Fn(&str) -> String) -> Vec<(String, String)> {
         env("PI_ENSEMBLE_SUBAGENT_PROVIDER"),
         env("PI_ENSEMBLE_SUBAGENT_MODEL"),
     )];
-    for r in ROLES {
+    for r in crate::settings::rules::ROLES {
         let m = env(&format!("PI_ENSEMBLE_MODEL_{r}"));
         if !m.is_empty() {
             pairs.push((env(&format!("PI_ENSEMBLE_PROVIDER_{r}")), m));

@@ -20,7 +20,7 @@
 //! 2. The settings load (tehas_load), and every setting an instance has to set
 //!    itself is set and valid (tehas_require_instance_settings).
 //! 3. The instance's models.json is there and holds JSON. It lists every model
-//!    the agents use (tehas_models) under the provider each uses, every key it
+//!    the agents use (`console models used`) under the provider each uses, every key it
 //!    names is a word or a set token (tehas_core::models::keys_ok), and it lists
 //!    the session model the product's `.pi/settings.json` names, when it names
 //!    one.
