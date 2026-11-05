@@ -106,40 +106,21 @@ pub fn kept_note_kind(kind: &str) -> Option<&'static str> {
 }
 pub const MAX_OPTIONS: usize = 20;
 /// The bytes the store keeps of one option label.
-pub const OPTION_BYTES: usize = 300;
+pub(crate) const OPTION_BYTES: usize = 300;
 
-/// The text the store keeps of an option: no control characters, at most
-/// OPTION_BYTES bytes on a character boundary. Built char by char, so an
-/// argument of any size costs no more than one label.
-fn kept_text(label: &str) -> String {
-    let mut v = String::new();
-    for ch in label.chars().filter(|ch| !ch.is_control()) {
-        if v.len() + ch.len_utf8() > OPTION_BYTES {
-            break;
-        }
-        v.push(ch);
+/// An option's label as the store keeps it: no control characters, at most
+/// OPTION_BYTES bytes on a character boundary, and `-` for an empty one.
+pub fn option_label(label: &str) -> String {
+    let mut v: String = label.chars().filter(|ch| !ch.is_control()).collect();
+    let mut end = v.len().min(OPTION_BYTES);
+    while !v.is_char_boundary(end) {
+        end -= 1;
+    }
+    v.truncate(end);
+    if v.is_empty() {
+        v = "-".to_string();
     }
     v
-}
-
-/// An option's label as the store keeps it: its kept text, and `-` for an
-/// empty one.
-pub fn option_label(label: &str) -> String {
-    let v = kept_text(label);
-    if v.is_empty() {
-        "-".to_string()
-    } else {
-        v
-    }
-}
-
-/// Whether the text the store would keep of one `--option` is a JSON list or
-/// object: a whole document handed over where one label belongs. The question
-/// is asked of the kept text, the one rule `option_label` also keeps by, so a
-/// document cut to the bound is refused and a long label that is no document
-/// once cut is kept as text.
-fn holds_a_document(label: &str) -> bool {
-    serde_json::from_str::<Value>(&kept_text(label)).is_ok_and(|v| v.is_array() || v.is_object())
 }
 
 /// The arguments of `plan-show` as the read of `store batch` takes them: the
@@ -341,13 +322,11 @@ fn end_args(rest: &[String]) -> Result<Call, String> {
     }
     let mut c = Cleaned::default();
     let session = c.whole("--session", a.value("--session"), session_ok);
+    // Each `--option` is one label, kept as its text whatever it reads as:
+    // the column is built from labels, so it is a JSON list of text by
+    // construction, and an option that is cleaned is marked, never a refusal
+    // of the turn.
     let given = a.values("--option");
-    // A whole list in place of one label is refused with a word, not cleaned:
-    // cleaning would still record boxes nobody asked for. No mark: the call
-    // writes nothing, and a 64 carries no `cleaned` field to name.
-    if let Some(word) = given.iter().copied().find(|s| holds_a_document(s)) {
-        return Err(a.usage("--option", &format!("is JSON: {}", verbs::shown(word))));
-    }
     if given.len() > MAX_OPTIONS {
         c.mark("--option");
     }

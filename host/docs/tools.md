@@ -464,10 +464,10 @@ changes anything in the turn.
 A planning session is on the state store (`plan-show`): its turns, the
 options of its open question, who started it and with which label, the
 approved text, each answer with who gave it, the issues it filed and the
-comments the poll spoke about once. An option is one label: `plan-end`
-refuses an `--option` that holds a JSON list or object with usage 64 and
-writes nothing, and a stored options value that is not a JSON list of labels
-is damage, refused by every read and write of the session with `corrupt` and
+comments the poll spoke about once. An option is one label, kept as its
+text: `plan-end` writes the options as a JSON list of the labels it was
+given, and a stored options value that is not a JSON list of labels is
+damage, refused by every read and write of the session with `corrupt` and
 78, never shown as a question with no boxes. Each change is one write: `plan-begin` as
 a session starts, `plan-answer` as an answer begins a turn, `plan-end` as a
 turn ends, as its outcome is posted, and as the session ends. A turn's end the
