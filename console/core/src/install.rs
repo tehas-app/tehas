@@ -4,7 +4,12 @@
 //! place of the detection. check-product and a cycle run the script of the
 //! steps in the sandbox, at the root of their clone, before the gate.
 
+use std::collections::HashSet;
 use std::process::{Command, Stdio};
+
+/// The seconds an install may take, in a cycle and in check-product: a cold
+/// package cache on a slow link.
+pub const WAIT: u64 = 1800;
 
 /// The exit status of the script when a tool is not in the image. Nothing is
 /// installed then; the script names each missing tool on its error stream.
@@ -58,7 +63,7 @@ const NOT_OURS: &[&str] = &["node_modules", "vendor", "target"];
 /// The steps of a listing as `git ls-tree -r <rev>` prints it. A submodule is
 /// a commit in it, not a tree, so nothing under one is listed.
 pub fn detect(listing: &str) -> Vec<Step> {
-    let mut files: Vec<(&str, &str)> = Vec::new();
+    let mut files: HashSet<(&str, &str)> = HashSet::new();
     for line in listing.lines() {
         let Some((meta, path)) = line.split_once('\t') else {
             continue;
@@ -74,7 +79,7 @@ pub fn detect(listing: &str) -> Vec<Step> {
         if NOT_OURS.contains(&dir) {
             continue;
         }
-        files.push((dir, name));
+        files.insert((dir, name));
     }
     let mut dirs: Vec<&str> = files.iter().map(|(d, _)| *d).collect();
     dirs.sort_unstable();

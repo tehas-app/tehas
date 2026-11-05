@@ -17,7 +17,8 @@ reads only what is committed there:
   install   what a cycle installs before it starts: the first command of
             .pi/install-cmd, else one install for each lockfile at the root
             or one directory down (bun.lock, package-lock.json, Cargo.lock
-            and the others of tehas_core::install). Never a failure here
+            and the others of tehas_core::install). Never a failure without
+            --sandbox
 
 --sandbox clones the checkout's origin/HEAD into $TEHAS_HOME/tmp/<name>, the
 repository name of TEHAS_REPO. The clone is made as a cycle's workspace is

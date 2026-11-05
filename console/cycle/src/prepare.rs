@@ -429,9 +429,6 @@ fn git_out(tree: &str, args: &[&str]) -> String {
         .unwrap_or_default()
 }
 
-/// The seconds an install step may take: a cold package cache on a slow link.
-const INSTALL_WAIT: u64 = 1800;
-
 /// The product's dependencies, installed in the workspace in the sandbox
 /// before the cycle starts, so a worktree pi-rukas makes there finds them in
 /// its main checkout. None when they were; else the status to exit with.
@@ -445,6 +442,9 @@ fn install(state: &Value, tree: &str, steps: &[Step], preflight: &Path) -> Optio
         &env("PI_ENSEMBLE_IMAGE"),
         &install::script(steps),
     );
+    // What the install says is read back from where it starts, so a failure is
+    // told by its own lines and not the push check's before it.
+    let start = fs::metadata(preflight).map_or(0, |m| m.len());
     let opened = OpenOptions::new()
         .append(true)
         .create(true)
@@ -452,7 +452,7 @@ fn install(state: &Value, tree: &str, steps: &[Step], preflight: &Path) -> Optio
         .and_then(|log| Ok((log.try_clone()?, log)));
     let rc = match opened {
         Ok((err, log)) => code(
-            bounded(10, INSTALL_WAIT, &words)
+            bounded(10, install::WAIT, &words)
                 .stdout(log)
                 .stderr(err)
                 .status(),
@@ -463,7 +463,8 @@ fn install(state: &Value, tree: &str, steps: &[Step], preflight: &Path) -> Optio
         return None;
     }
     let text = fs::read(preflight).unwrap_or_default();
-    let text = String::from_utf8_lossy(&text);
+    let own = usize::try_from(start).map_or(&[][..], |at| text.get(at..).unwrap_or(&[]));
+    let text = String::from_utf8_lossy(own);
     let lacking = install::missing(&text);
     if rc == install::MISSING && !lacking.is_empty() {
         for tool in lacking {
@@ -474,7 +475,7 @@ fn install(state: &Value, tree: &str, steps: &[Step], preflight: &Path) -> Optio
         return Some(78);
     }
     if matches!(rc, 124 | 137) {
-        let line = format!("the install did not end within {INSTALL_WAIT}s");
+        let line = format!("the install did not end within {}s", install::WAIT);
         let _ = append(preflight, &line);
     }
     say(&format!(
