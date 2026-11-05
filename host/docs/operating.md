@@ -889,6 +889,14 @@ dispatcher's log says so.
    - A `tehas:refine` session also offers **File as a new issue**, which
      files the plan as shown as one new issue that replaces this one. A
      session files once.
+   - A plan the checks of the issue's text refuse is not offered at all: the
+     comment still shows it, and the question names the rule it failed and
+     lists its open points, with no box but **End this planning session**.
+     Besides the checks under [A plan with no open points](#a-plan-with-no-open-points),
+     a plan is refused whose text has lines that end in `[context param]`,
+     the request or the briefs echoed back, or whose Acceptance criteria are
+     pi-rukas's placeholder for none ("derive the testable outcomes from the
+     investigation findings"). Reply to change the plan, or end the session.
 
    After either box nothing is started on its own: read the plan and apply
    `tehas:ready` to the issue you want built. The label approves the text as
@@ -917,8 +925,9 @@ The session asks, as in step 5, when:
 - the plan links an attachment the issue's text did not;
 - the checks of [the text of an issue](#1-write-an-issue-tehas-can-build)
   refuse the plan's own title or text: a title of nothing but a prefix, a
-  word said twice, the planner's brief copied as the plan, or a text with no
-  line of the issue's own in it. The session is not ended and no cycle is
+  word said twice, the planner's brief copied as the plan, a text with no
+  line of the issue's own in it, lines of the planner's context echoed back
+  with `[context param]`, or placeholder Acceptance criteria. The session is not ended and no cycle is
   credited, so a reply that changes the plan is the only answer that moves it
   on.
 
@@ -1058,7 +1067,13 @@ nothing under `.github/` or `.pi/`, and no inventory of the request. Its title
 starts with its classification as a conventional-commit type, `feat:`, `fix:`,
 `chore:`, `docs:`, `test:` or `refactor:`, keeping one the request already
 has; pi-rukas gives the cycle's pull request the same type, where a title
-without one becomes `chore(work):`.
+without one becomes `chore(work):`. The issue's title is handed to the planner
+as what to plan without its type (`feat: `, `fix(dispatch): `), so the drafted
+title does not carry it twice. When the issue's text has a `pi-spec v1` block
+with `criteria` and no Acceptance criteria heading of its own, the planner is
+also given those criteria under `ACCEPTANCE CRITERIA:`, one bullet each, which
+is where pi-rukas reads the request's criteria from: it reads none inside the
+block.
 
 `tehas:refine` starts the same planning session with one difference: between
 the issue's text and the issue brief, the planner is given the refine brief,
