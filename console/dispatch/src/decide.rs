@@ -1546,6 +1546,30 @@ impl<'a> Poll<'a> {
         }));
     }
 
+    /// links_ok: whether the issue's native blocked-by links let it start.
+    /// An open blocker holds it, whatever label asks. A link only holds: once
+    /// every blocker is closed the issue starts on its approval alone, as it
+    /// would with no link, and a link never stands in for one. A forge answer
+    /// without the field holds nothing, so the marked comment of `blocked_ok`
+    /// is all that names blockers there.
+    fn links_ok(&mut self, n: u64) -> bool {
+        let open = self
+            .work(n)
+            .pointer("/issue_dependencies_summary/blocked_by")
+            .and_then(Value::as_u64)
+            .unwrap_or(0);
+        if open == 0 {
+            return true;
+        }
+        let count = if open == 1 {
+            "1 blocker is open".to_string()
+        } else {
+            format!("{open} blockers are open")
+        };
+        self.log(format!("wait #{n}: a blocked-by link holds it: {count}"));
+        false
+    }
+
     /// blocked_ok: whether tehas:blocked lets the issue start.
     fn blocked_ok(&mut self, n: u64) -> Step<bool> {
         if !self.order_label(n, "tehas:blocked")? {
@@ -2525,6 +2549,9 @@ impl<'a> Poll<'a> {
                     }
                 },
             };
+            if !self.links_ok(n) {
+                continue;
+            }
             if has(&labels, "tehas:blocked") && !self.blocked_ok(n)? {
                 continue;
             }
