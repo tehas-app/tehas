@@ -41,6 +41,10 @@ pub struct Settings {
     pub branch_check: String,
     pub branch: String,
     pub low_gate: String,
+    /// TEHAS_PRIORITY_FIELD: the owner's single-select issue field whose
+    /// Urgent and High order the queue in place of `tehas:urgent` and
+    /// `tehas:next`. Empty: the labels order it.
+    pub priority_field: String,
     pub fixer_max_retries: i64,
     /// TEHAS_SIZE_MAX_FILES, None when unset, and the measure's bounds.
     pub size_max_files: Option<u64>,
@@ -120,6 +124,7 @@ impl Settings {
             branch_check: s("TEHAS_BRANCH_CHECK", ""),
             branch: s("TEHAS_BRANCH", "main"),
             low_gate: s("TEHAS_LOW_GATE", ""),
+            priority_field: s("TEHAS_PRIORITY_FIELD", ""),
             fixer_max_retries: n("TEHAS_MILLWRIGHT_MAX_RETRIES", 2),
             size_max_files: v
                 .get("TEHAS_SIZE_MAX_FILES")
