@@ -15,7 +15,31 @@ t_eq "$(t_calls fake-start)" "7"
 t_contains "$(t_calls gh)" "Tehas cycle started on"
 t_contains "$(t_calls gh)" "authorized by @alice"
 
+t_case "with no owner the claim assigns nobody"
+t_lacks "$(t_calls gh)" "--add-assignee"
+
+t_case "with an owner the claim assigns the issue to the owner in the same call"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1 TEHAS_OWNER=carol
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --add-label tehas:running --remove-label tehas:ready --add-assignee carol"
+t_eq "$(t_calls fake-start)" "7"
+
+t_case "an assign GitHub refuses still marks the issue running and starts it, and the log says so"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1 TEHAS_OWNER=carol
+echo "--add-assignee carol" >"$fx/edit-fails-on"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_contains "$t_out" "WARN: could not assign #7 to carol, marking it running without an assignee"
+t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --add-label tehas:running --remove-label tehas:ready
+"
+t_eq "$(t_calls fake-start)" "7"
+
 t_case "the poll's lock is not passed on to the cycle it starts"
+reset
+t_run "$dispatch"
 t_eq "$(find "$T/calls/start.fd8" 2>/dev/null | wc -l)" 0
 
 t_case "the status is refreshed before the poll and after the start"
