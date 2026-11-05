@@ -49,8 +49,7 @@ struct Host {
 }
 
 fn exe(p: &Path, text: &str) {
-    fs::write(p, text).unwrap();
-    fs::set_permissions(p, fs::Permissions::from_mode(0o755)).unwrap();
+    tehas_core::testing::write_exe(p, text).unwrap();
 }
 
 impl Host {

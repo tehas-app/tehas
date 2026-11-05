@@ -1661,24 +1661,11 @@ mod tests {
     fn a_clock_of_a_program_answers_as_the_verbs_do() {
         let d = dir("clock");
         let p = d.join("clock");
-        fs::write(
+        tehas_core::testing::write_exe(
             &p,
             "#!/bin/sh\ncase \"$2\" in now) echo 42 ;; check) echo stalled ;; mark) : >\"$3\" ;; esac\n",
         )
         .unwrap();
-        let chmod = Command::new("chmod").arg("+x").arg(&p).status().unwrap();
-        assert!(chmod.success());
-        // A fork in another thread can hold the new script open for writing
-        // until its exec, and an exec in that moment fails with ETXTBSY.
-        // Once one run starts, no such fork is left.
-        let ran = (0..200).any(|_| {
-            let ran = Command::new(&p).status().is_ok();
-            if !ran {
-                std::thread::sleep(std::time::Duration::from_millis(10));
-            }
-            ran
-        });
-        assert!(ran, "{} never ran", p.display());
         let c = Clock::Program(p.to_string_lossy().into_owned());
         assert_eq!(c.now(), Some(42));
         assert!(c.mark(&d.join("m")));
