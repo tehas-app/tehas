@@ -53,6 +53,7 @@ printf '[user]\n\tname = Test Bot\n\temail = bot@example.com\n' >"$T/home/.gitco
 # Pi's settings as install.sh leaves them on a host.
 # An issue's attachments are read by the real attachment checker.
 t_attach_home "$T/home/tehas"
+t_ids "$T/home/tehas"
 mkdir -p "$T/home/.pi/agent"
 echo '{"retry":{"provider":{"timeoutMs":600000,"maxRetries":8,"maxRetryDelayMs":60000}}}' >"$T/home/.pi/agent/settings.json"
 echo '{"providers":{}}' >"$T/home/.pi/agent/models.json"

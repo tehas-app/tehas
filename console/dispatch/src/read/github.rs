@@ -37,7 +37,7 @@ const PAGE: &str = r#"query($owner: String!, $name: String!, $cursor: String) {
     issues(states: OPEN, first: {ISSUE_PAGE}, after: $cursor) {
       pageInfo { hasNextPage endCursor }
       nodes {
-        number title body createdAt author { login } lastEditedAt editor { login }
+        number title body createdAt author { login ...on User { databaseId } ...on Bot { databaseId } } lastEditedAt editor { login ...on User { databaseId } ...on Bot { databaseId } }
         labels(first: 50) { nodes { name } }
         subIssuesSummary { total completed }
         issueDependenciesSummary { blockedBy }
@@ -45,9 +45,9 @@ const PAGE: &str = r#"query($owner: String!, $name: String!, $cursor: String) {
         timelineItems(itemTypes: [LABELED_EVENT, UNLABELED_EVENT, RENAMED_TITLE_EVENT], last: 100) {
           nodes {
             __typename
-            ... on LabeledEvent { createdAt actor { login } label { name } }
-            ... on UnlabeledEvent { createdAt actor { login } label { name } }
-            ... on RenamedTitleEvent { createdAt actor { login } }
+            ... on LabeledEvent { createdAt actor { login ...on User { databaseId } ...on Bot { databaseId } } label { name } }
+            ... on UnlabeledEvent { createdAt actor { login ...on User { databaseId } ...on Bot { databaseId } } label { name } }
+            ... on RenamedTitleEvent { createdAt actor { login ...on User { databaseId } ...on Bot { databaseId } } }
           }
         }
         closedByPullRequestsReferences(first: 20) { nodes { url state } }{FIELDS}
@@ -64,7 +64,7 @@ const PAGE: &str = r#"query($owner: String!, $name: String!, $cursor: String) {
 /// description can make long.
 const OPEN_PULLS: &str = r#"
     openPulls: pullRequests(states: OPEN, first: 100, orderBy: {field: CREATED_AT, direction: DESC}) {
-      nodes { number title body headRefName author { login } labels(first: 20) { nodes { name } } }
+      nodes { number title body headRefName author { login ...on User { databaseId } ...on Bot { databaseId } } labels(first: 20) { nodes { name } } }
     }"#;
 
 // The page above names `tehas:running` inside a GraphQL string, where the
@@ -104,14 +104,14 @@ fn page_query(first: bool, fields: bool) -> String {
 
 const COMMENTS: &str = r#"query($owner: String!, $name: String!, $number: Int!) {
       repository(owner: $owner, name: $name) { issue(number: $number) {
-        comments(last: 100) { nodes { databaseId id author { login } body createdAt lastEditedAt editor { login }
-          userContentEdits(last: 100) { totalCount nodes { editor { login } } } } } } } }"#;
+        comments(last: 100) { nodes { databaseId id author { login ...on User { databaseId } ...on Bot { databaseId } } body createdAt lastEditedAt editor { login ...on User { databaseId } ...on Bot { databaseId } }
+          userContentEdits(last: 100) { totalCount nodes { editor { login ...on User { databaseId } ...on Bot { databaseId } } } } } } } } }"#;
 
 /// What the refresh rule reads of a pull request and of the issue it closes.
 macro_rules! pull_fields {
     () => {
         r#"number url isDraft isCrossRepository headRefOid baseRefName baseRefOid mergeable
-        author { login } headRepository { nameWithOwner } labels(first: 50) { nodes { name } }
+        author { login ...on User { databaseId } ...on Bot { databaseId } } headRepository { nameWithOwner } labels(first: 50) { nodes { name } }
         closingIssuesReferences(first: 5) { totalCount nodes { number state labels(first: 50) { nodes { name } }
           closedByPullRequestsReferences(first: 10) { nodes { number state } } } }"#
     };
@@ -586,6 +586,25 @@ mod tests {
             format!("query={PULLS}"),
         ];
         assert!(crate::read::run::gh_reads(&args));
+    }
+
+    #[test]
+    fn every_account_a_query_reads_comes_with_its_user_id() {
+        // tehas_core::accounts counts a listed login only with its recorded id.
+        let with_id = "{ login ...on User { databaseId } ...on Bot { databaseId } }";
+        for q in [
+            page_query(true),
+            COMMENTS.to_string(),
+            PULL.to_string(),
+            PULLS.to_string(),
+        ] {
+            assert_eq!(
+                q.matches("login").count(),
+                q.matches(with_id).count(),
+                "{q}"
+            );
+            assert!(q.contains(with_id), "{q}");
+        }
     }
 
     #[test]

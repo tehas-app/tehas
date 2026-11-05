@@ -1,0 +1,19 @@
+tehasbot: what the timers and services run. The command for a person is tehas.
+
+Usage:
+  tehasbot dispatch             one poll of the issue queue (the timer)
+  tehasbot cycle <issue>        one cycle and its report (tehas-cycle@<issue>.service)
+  tehasbot status               write the queue snapshot, live/status.json
+  tehasbot health               write the health file, live/health.json
+  tehasbot energy [--every]     sample the model mesh's power (the service)
+  tehasbot top [--every]        publish the host section for the dashboard
+                                (the service)
+  tehasbot protolab             build the Protolab pages (the timer)
+  tehasbot preview [--sweep]    keep the previews of pull requests (the timers)
+  tehasbot improve              one run of the improvement loop (the timer)
+  tehasbot refresh              find the pull requests to refresh (the timer)
+  tehasbot review               review the branch since the last review
+  tehasbot clean                remove what the host can make again (the timer)
+  tehasbot mcp serve            the read-only MCP server (the service)
+  tehasbot github-token [--check]  the GitHub App's token (the gh shim)
+  tehasbot help                 this text

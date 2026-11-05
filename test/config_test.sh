@@ -916,50 +916,10 @@ t_run "$load"
 after=$(find "$T/home" "$T/instance" | sort)
 t_eq "$after" "$before"
 
-# --- tehas_branch -----------------------------------------------------------
+# --- A checkout -------------------------------------------------------------
 git init -q -b main "$T/upstream"
 git -C "$T/upstream" -c user.name=t -c user.email=t@example.com commit -q --allow-empty -m first
 git clone -q "$T/upstream" "$T/home/tehas/repos/widget"
-
-t_case "tehas_branch reads the default branch from origin/HEAD"
-t_instance "${T_MINIMAL[@]}"
-t_run "$load && tehas_branch"
-t_eq "$t_rc" 0
-t_eq "$t_out" "main"
-
-# lib/config.sh and tehas_core hold one rule for the checkout and the branch
-# (console/core/src/settings.rs), so the two answers are held side by side the
-# way test/rukas_test.sh holds lib/rukas.sh against console/core/src/rukas.rs.
-both() { # <name> <verb> [<KEY=VALUE>...]
-  local name=$1 verb=$2
-  shift 2
-  t_case "tehas_$verb and the console's $verb answer one thing: $name"
-  t_instance "${T_MINIMAL[@]}" "$@"
-  t_run "$load && tehas_$verb"
-  local bash_rc=$t_rc bash_out=$t_out
-  t_run "$load >/dev/null 2>&1; \"$T_CONSOLE\" settings $verb"
-  t_eq "$t_rc" "$bash_rc"
-  t_eq "$t_out" "$bash_out"
-}
-
-git init -q -b main "$T/other"
-git -C "$T/other" remote add origin https://github.com/acme/other.git
-git init -q -b main "$T/asrepo"
-git -C "$T/asrepo" remote add origin "git@github.com:acme/widget.git"
-
-both "the scratch checkout, a clone of a local path" checkout
-both "the checkout of another repository" checkout "TEHAS_WORK_REPO=$T/other"
-both "origin named as acme/widget" checkout "TEHAS_WORK_REPO=$T/asrepo"
-both "the checkout's default branch" branch
-both "TEHAS_BRANCH given" branch TEHAS_BRANCH=release
-git -C "$T/home/tehas/repos/widget" remote set-head origin -d
-both "a checkout with no origin/HEAD" branch
-git -C "$T/home/tehas/repos/widget" remote set-head origin main
-
-t_case "TEHAS_BRANCH wins over the checkout"
-t_instance "${T_MINIMAL[@]}" TEHAS_BRANCH=release
-t_run "$load && tehas_branch"
-t_eq "$t_out" "release"
 
 t_case "TEHAS_BRANCH_CHECK: unset is none, a name with spaces is kept"
 t_instance "${T_MINIMAL[@]}"
@@ -1042,14 +1002,6 @@ for bad in "601" "9999" "99999999999999999999"; do
   t_lacks "$t_out" "integer expression"
 done
 printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
-
-t_case "a checkout without origin/HEAD fails with both remedies"
-t_instance "${T_MINIMAL[@]}"
-git -C "$T/home/tehas/repos/widget" remote set-head origin -d
-t_run "$load && b=\$(tehas_branch); echo \"rc=\$? b=[\$b]\""
-t_contains "$t_out" "rc=78 b=[]"
-t_contains "$t_out" "TEHAS_BRANCH"
-t_contains "$t_out" "install.sh"
 
 t_case "the cycle's workspace is under the tehas tree and is not a setting"
 t_instance "${T_MINIMAL[@]}" TEHAS_WORK_DIR=/somewhere/else

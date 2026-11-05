@@ -188,18 +188,8 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
         .filter(|o| github::dropped_events(o, &[github::RUNNING]))
         .map(|o| o.number)
         .collect();
-    let reads: Vec<Vec<String>> = dropped
-        .iter()
-        .map(|n| {
-            vec![
-                "api".into(),
-                format!("repos/{}/issues/{n}/events?per_page=100", c.repo),
-                "--paginate".into(),
-            ]
-        })
-        .collect();
-    for (n, r) in dropped.iter().zip(calls.gh_all(&reads)) {
-        issues[&n.to_string()]["events"] = r.unwrap_or_else(|_| json!({"failed": true}));
+    for (n, r) in dropped.iter().zip(events_all(calls, &c.repo, &dropped)) {
+        issues[&n.to_string()]["events"] = r;
     }
     match q.open.iter().find(|o| o.number == c.control) {
         Some(o) => {
@@ -406,16 +396,19 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
             ],
         );
     }
-    for pr in s["refreshing"]
-        .as_array()
-        .cloned()
-        .unwrap_or_default()
+    // The events of the refreshing pull requests are read side by side, 8 at a
+    // time, as the issues that lost the mark are read above (#1423).
+    let refreshing = numbers(&s["refreshing"]);
+    for (pr, r) in refreshing
         .iter()
-        .filter_map(|p| p["number"].as_u64())
+        .zip(events_all(calls, &c.repo, &refreshing))
     {
-        entry(&mut issues, pr)["events"] = rest_events(calls, &c.repo, pr);
+        entry(&mut issues, *pr)["events"] = r;
     }
-    let requests = host::requests(home);
+    let (requests, refresh_warn) = host::requests(home);
+    if !refresh_warn.is_empty() {
+        s["refresh_warn"] = json!(refresh_warn);
+    }
     want(
         &mut per_issue,
         requests.iter().map(|(n, _)| store::Read::Approval(*n)),
@@ -751,6 +744,26 @@ pub fn rest_events(calls: &mut Calls, repo: &str, n: u64) -> Value {
         .unwrap_or_else(|_| json!({"failed": true}))
 }
 
+/// `rest_events` for several issues or pull requests, read side by side through
+/// `Calls::gh_all`: one answer per number, in the order given.
+fn events_all(calls: &mut Calls, repo: &str, ns: &[u64]) -> Vec<Value> {
+    let reads: Vec<Vec<String>> = ns
+        .iter()
+        .map(|n| {
+            vec![
+                "api".into(),
+                format!("repos/{repo}/issues/{n}/events?per_page=100"),
+                "--paginate".into(),
+            ]
+        })
+        .collect();
+    calls
+        .gh_all(&reads)
+        .into_iter()
+        .map(|r| r.unwrap_or_else(|_| json!({"failed": true})))
+        .collect()
+}
+
 fn bot(s: &Value) -> String {
     s.pointer("/user/login")
         .and_then(Value::as_str)
@@ -785,7 +798,6 @@ mod tests {
     use super::*;
     use crate::read::models::Models;
     use crate::snapshot::Snapshot;
-    use std::os::unix::fs::PermissionsExt;
 
     /// What separates two calls in a stub's record: a word of nothing that no
     /// argument of a real gh or store call contains, named once so that neither
@@ -914,6 +926,11 @@ mod tests {
             fixture: "queue",
             fails: false,
         },
+        Read {
+            word: "tehas:refreshing",
+            fixture: "refreshing",
+            fails: false,
+        },
     ];
 
     /// Whether a table entry names a file to read rather than holding its bytes.
@@ -941,7 +958,7 @@ mod tests {
         // space (`issue view`) or a `?`, so the shell sees the list as one word
         // per line and never splits it further.
         let words: Vec<&'static str> = READS.iter().map(|r| r.word).collect();
-        assert_eq!(words.len(), 6, "the stub's list holds one word a read");
+        assert_eq!(words.len(), 7, "the stub's list holds one word a read");
         // One word a line; the stub reads it with IFS set to the newline alone,
         // so a word that holds a space stays one word.
         std::fs::write(dir.join("words"), words.join("\n")).unwrap();
@@ -975,6 +992,16 @@ mod tests {
         fixture(&dir, "queue", &world["queue"]);
         fixture(&dir, "states", &world["states"]);
         fixture(&dir, "control", &world["control"]);
+        if let Some(r) = world.get("refreshing") {
+            fixture(&dir, "refreshing", r);
+        }
+        // The events reads named in `together` wait, each, until every one of
+        // them has started: they answer only when they run side by side, and
+        // a read of them one at a time gives up and is refused. The wait is
+        // for the count, bounded well inside the call's own bound.
+        for n in world["together"].as_array().into_iter().flatten() {
+            std::fs::write(dir.join(format!("together-{n}")), "").unwrap();
+        }
         for (n, events) in world["events"].as_object().into_iter().flatten() {
             fixture(&dir, &format!("events-{n}"), events);
         }
@@ -1001,6 +1028,16 @@ for word in $(cat "$here/../words"); do
             [ -n "$key" ] || key=$(printf '%s' "$line" | sed -n 's/.*number=\([0-9]*\).*/\1/p')
             f="$here/../$a$key"
             [ -f "$here/../broken-$key" ] && { printf '%s' "$(cat "$here/../broken-$key")" >&2; printf '{}' >"$out"; answer 1; }
+            if [ -n "$key" ] && [ -f "$here/../together-$key" ]; then
+              : >"$here/../started-$key"
+              want=$(ls "$here/.." | grep -c '^together-')
+              tries=0
+              while [ "$(ls "$here/.." | grep -c '^started-')" -lt "$want" ]; do
+                tries=$((tries + 1))
+                [ "$tries" -le 100 ] || { printf 'alone' >&2; printf '{}' >"$out"; answer 1; }
+                sleep 0.05
+              done
+            fi
             [ -f "$f" ] || { printf '{}' >"$out"; answer 1; }
             cat "$f" >"$out" ;;
         *) printf '%s' "$a" >"$out" ;;
@@ -1056,7 +1093,6 @@ esac"#,
     fn stub(bin: &Path, name: &str, body: &str) {
         let mut lines: Vec<String> = [
             "#!/bin/sh".to_string(),
-            "[ \"$1\" = settled ] && exit 0".to_string(),
             format!("here='{}'", bin.display()),
             "args=$(mktemp \"$here/{name}-args.XXXXXX\")".to_string(),
             "out=$(mktemp \"$here/{name}-out.XXXXXX\")".to_string(),
@@ -1079,9 +1115,7 @@ esac"#,
         .to_vec();
         lines.extend(body.lines().map(str::to_string));
         lines.push("answer 0".to_string());
-        std::fs::write(bin.join(name), lines.join("\n") + "\n").unwrap();
-        std::fs::set_permissions(bin.join(name), std::fs::Permissions::from_mode(0o755)).unwrap();
-        crate::read::run::tests::settled(&bin.join(name));
+        tehas_core::testing::write_exe(bin.join(name), lines.join("\n") + "\n").unwrap();
     }
 
     /// The calls the stub of `name` recorded, in the order it wrote them.
@@ -1112,10 +1146,19 @@ esac"#,
     /// that clock, and a retry case of `run.rs` that set it while one of them ran
     /// would be the reason the read gave up.
     fn poll(world: &Value, broken: &[u64]) -> (Value, Vec<String>, u32, Vec<String>) {
+        poll_with(world, broken, &settings())
+    }
+
+    /// `poll`, under settings of the case's own.
+    fn poll_with(
+        world: &Value,
+        broken: &[u64],
+        c: &Settings,
+    ) -> (Value, Vec<String>, u32, Vec<String>) {
         let _clock = crate::read::run::no_case_clock();
         let dir = host(world, broken);
         let mut src = sources(&dir);
-        let snap = match snapshot(&mut src, &settings()) {
+        let snap = match snapshot(&mut src, c) {
             Ok(s) => s,
             Err(f) => panic!("the stubs answer: {}", f.line),
         };
@@ -1244,6 +1287,51 @@ esac"#,
             store.iter().filter(|c| c.starts_with("batch")).count(),
             1,
             "the per-issue reads are one run of the store"
+        );
+    }
+
+    /// The refreshing sweep reads the events of its pull requests side by side,
+    /// as the read of the issues that lost the mark does (#1423): the stub
+    /// answers the events of #31, #32 and #33 only once all three have started,
+    /// so a sweep that reads them one at a time is refused, and each pull
+    /// request keeps its own answer. A refused read is `{"failed": true}`.
+    #[test]
+    fn the_refreshing_sweep_reads_the_events_of_its_pull_requests_side_by_side() {
+        let mut w = world();
+        let labeled = |n: u64| {
+            json!([{"event": "labeled", "label": {"name": "tehas:refreshing"},
+                    "actor": {"login": "tehas-bot"}, "created_at": format!("2026-10-0{}T00:00:00Z", n - 30)}])
+        };
+        w["refreshing"] = json!([31, 32, 33, 34].map(|n| json!({"number": n,
+            "labels": [{"name": "tehas:refreshing"}]})));
+        for n in 31..=33u64 {
+            w["events"][n.to_string()] = labeled(n);
+        }
+        w["together"] = json!([31, 32, 33]);
+        // #34 has no events to give, so its read is refused.
+        let mut s = settings();
+        s.refresh_conflicts = true;
+        let (snap, calls, gh_count, _) = poll_with(&w, &[], &s);
+
+        for n in 31..=33u64 {
+            assert_eq!(
+                snap["issues"][n.to_string()]["events"],
+                labeled(n),
+                "pull request {n} keeps its own events: {calls:?}"
+            );
+        }
+        assert_eq!(snap["issues"]["34"]["events"], json!({"failed": true}));
+        for n in 31..=34u64 {
+            let path = format!("repos/acme/widget/issues/{n}/events?per_page=100");
+            assert!(
+                calls.iter().any(|c| c.contains(&path)),
+                "pull request {n} has its events read: {calls:?}"
+            );
+        }
+        assert_eq!(
+            gh_count as usize,
+            calls.len(),
+            "the poll counted every gh call it made"
         );
     }
 

@@ -112,7 +112,6 @@ fn stand_still(seconds: u64, stop: &AtomicBool, now: Now) {
 mod tests {
     use super::*;
     use std::fs;
-    use std::io::Write;
     use std::os::unix::fs::PermissionsExt;
     use std::path::PathBuf;
     use std::sync::atomic::AtomicUsize;
@@ -190,30 +189,17 @@ mod tests {
     /// case may put one there and leave another path in the directory empty.
     fn new_command(dir: &Path, name: &str, rc: u8) -> Cmd {
         let path = dir.join(name);
-        let mut f = fs::File::create(&path).unwrap();
         // The command counts its calls in a file of its own name, so a path
         // with nothing at it counts nothing, as a command that is not there
         // must.
-        writeln!(
-            f,
-            "#!/bin/sh\n[ -z \"$PROBE\" ] || exit 0\nn=$(cat '{record}.count' 2>/dev/null || echo 0)\necho $((n + 1)) >'{record}.count'\nprintf 'ghs_secret\\n'\nexit {rc}",
-            record = path.display(),
+        tehas_core::testing::write_exe(
+            &path,
+            format!(
+                "#!/bin/sh\nn=$(cat '{record}.count' 2>/dev/null || echo 0)\necho $((n + 1)) >'{record}.count'\nprintf 'ghs_secret\\n'\nexit {rc}\n",
+                record = path.display(),
+            ),
         )
         .unwrap();
-        drop(f);
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
-        // A fork in another thread holds this file open for writing until its
-        // exec, and a run in that moment fails with ETXTBSY. In a case with a
-        // frozen clock the loop would never ask again. Once one run starts,
-        // no such fork is left.
-        let ran = (0..200).any(|_| {
-            let ran = Command::new(&path).env("PROBE", "1").status().is_ok();
-            if !ran {
-                thread::sleep(STEP);
-            }
-            ran
-        });
-        assert!(ran, "{} never ran", path.display());
         Cmd { path, _dir: None }
     }
 

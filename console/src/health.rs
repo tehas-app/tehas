@@ -57,10 +57,10 @@ const QUEUE_MAX_AGE: i64 = 600;
 /// The last poll's slice and demand are not believed after this.
 const POLL_MAX_AGE: i64 = 600;
 /// The largest poll file the page reads. The store bounds the same files at
-/// 1 MiB when it publishes them (`REPORT_BOUND` in console/store/src/live.rs);
-/// the read here is the parser's only other door, and our parser is slower on
+/// the same `READ_BOUND` when it publishes them (`REPORT_BOUND` in
+/// console/store/src/live.rs); the read here is the parser's only other door, and our parser is slower on
 /// a big object than the store's, so the bound is kept on this side too.
-const POLL_FILE_BOUND: u64 = 1 << 20;
+const POLL_FILE_BOUND: u64 = tehas_core::file::READ_BOUND;
 /// The previews' measure of the disk is not believed after this.
 const DISK_MAX_AGE: i64 = 1800;
 /// A platform this long behind is news.
@@ -423,6 +423,7 @@ mod run_tests {
     use super::*;
     use std::process::Command;
     use tehas_core::testdir::TestDir;
+    use tehas_core::testing::{copy_exe, write_exe};
 
     const COMMIT: &str = "0123456789abcdef0123456789abcdef01234567";
 
@@ -540,7 +541,7 @@ mod run_tests {
             fs::write(home.join(".tehas-home"), format!("{}\n", home.display())).unwrap();
             // The store itself is kept under a name of its own, because the
             // home's `libexec/store` is the wrapper every call is recorded in.
-            fs::copy(&real, home.join("store.real")).unwrap();
+            copy_exe(&real, home.join("store.real")).unwrap();
             let mut s = Store {
                 home,
                 real,
@@ -607,12 +608,7 @@ mod run_tests {
                 "#!/usr/bin/env bash\n{record}\n{body}\nexec '{real}' \"$@\"\n",
                 real = self.home.join("store.real").display(),
             );
-            fs::write(self.home.join("libexec/store"), &wrapper).unwrap();
-            fs::set_permissions(
-                self.home.join("libexec/store"),
-                fs::Permissions::from_mode(0o755),
-            )
-            .unwrap();
+            write_exe(self.home.join("libexec/store"), &wrapper).unwrap();
         }
 
         /// The refusals the wrapper answers, one for each call the case stands
@@ -706,8 +702,7 @@ mod run_tests {
             } else {
                 format!("printf '%s\n' '{text}'")
             };
-            fs::write(self.systemctl(), format!("#!/usr/bin/env bash\n{said}\n")).unwrap();
-            fs::set_permissions(self.systemctl(), fs::Permissions::from_mode(0o755)).unwrap();
+            write_exe(self.systemctl(), format!("#!/usr/bin/env bash\n{said}\n")).unwrap();
         }
 
         /// The stub systemd of this home, named by the run rather than read
@@ -2375,7 +2370,7 @@ mod tests {
             "live/dispatch.json",
             &format!(
                 "{{\"time\":\"2026-10-17T14:00:00Z\",\"why\":\"\",\"fill\":\"{}\"}}",
-                "x".repeat(1 << 20)
+                "x".repeat(tehas_core::file::READ_BOUND_LEN)
             ),
         );
         let r = h.report(&Given::default());
@@ -2384,7 +2379,10 @@ mod tests {
         // The demand check is read by the same function and is bounded too.
         h.write(
             "live/demand.json",
-            &format!("{{\"waiting\":1,\"fill\":\"{}\"}}", "y".repeat(1 << 20)),
+            &format!(
+                "{{\"waiting\":1,\"fill\":\"{}\"}}",
+                "y".repeat(tehas_core::file::READ_BOUND_LEN)
+            ),
         );
         assert_eq!(
             h.report(&Given::default()).at(&["checks", "demand"]),
