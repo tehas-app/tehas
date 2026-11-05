@@ -13,6 +13,7 @@ empty one above it.
 
 ### Changes
 
+- `bin/tehas` and `bin/tehasbot` are a few lines that run the console, which chooses the command, prints the usage and refuses an unknown one. With no console every command but `tehas setup` stops with 78 and one line, `tehas: no console at <path>: run install.sh`; `tehas top` and `tehas export` ended 1 there before. `tehas index` asks `tehas-cycle` for the checkout and the branch, and `lib/config.sh` loses `tehas_checkout` and `tehas_branch` (#1346).
 - `scripts/verify.sh` checks the workspace's format and lints on every run, not only with `--full`; in CI a missing rustfmt or clippy fails. `tehas setup` runs `--full` on a factory that builds tehas, so unformatted code that passed CI stopped setup three times. `console/dispatch` is formatted again.
 - A cycle that hands off on `lens-fix-reposition` with its pull request open and its review not held waits for a merge (`tehas:awaiting-merge`) instead of parking. The branch already holds the first review round's fix; only the second round's could not be laid on it. It was the most common park from 2026-10-31.
 - `console flags pause` takes only `set` and `clear`: `show` and `read`, which nothing called, are gone (#1365). The dashboard's reader of the flag uses the same reading as the health file.
