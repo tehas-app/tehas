@@ -495,7 +495,7 @@ t_hold() {
     exec 9>"$1" && flock 9 && exec sleep 600
   ) &
   t_holder=$!
-  while flock -n "$1" true; do command -p sleep 0.02; done
+  while kill -0 "$t_holder" 2>/dev/null && flock -n "$1" true; do command -p sleep 0.02; done
 }
 t_release() {
   kill "$t_holder" 2>/dev/null

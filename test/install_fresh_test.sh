@@ -127,7 +127,7 @@ mkdir -p "$th/state"
 # not reach install.sh is red here. no_wait is named beside t_run in test/lib.sh.
 t_start
 t_run "$no_wait ( exec 6>>'$lock'; flock -n 6 && : >'$T/held' && exec sleep 20 ) &
-while [ ! -e '$T/held' ]; do sleep 0.1; done
+n=0; while [ ! -e '$T/held' ] && kill -0 \$! 2>/dev/null && [ \$((n += 1)) -le 300 ]; do sleep 0.1; done
 exec 8>>'$lock'; TEHAS_UPDATE_LOCK_FD=8 '$install'; rc=\$?; kill \$!; wait; exit \$rc"
 rm -f "$T/held"
 t_eq "$t_rc" 1
