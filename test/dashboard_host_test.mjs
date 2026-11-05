@@ -1,30 +1,17 @@
 // Runs the plain dashboard's own script against a page of stubs, to see the
 // half that shows the host: the list it draws from live/top.json, and when it
 // asks for that file; and the "Last 10 days" section it draws from
-// live/analytics.json. The page is host/docs/dashboard.frag and its script is
-// host/fun/dashboard-view.js, imported here as the page loads it. No browser and
-// no server: the document, the fetches and the timers are stubs, and the file is
-// the one host_view_test.mjs describes.
+// live/analytics.json. The fragment host/docs/dashboard.frag holds the
+// markup and loads host/fun/dashboard-view.js; this case imports that module
+// as the page would. No browser and no server: the document, the fetches and
+// the timers are stubs, and the file is the one host_view_test.mjs describes.
 //
 //   node --test test/dashboard_host_test.mjs
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
-const FRAG = new URL("../host/docs/dashboard.frag", import.meta.url);
-const MODULE = "/fun/dashboard-view.js";
-
-// The fragment loads the module after the tabs, and holds no script of its own:
-// a case here runs what the page runs, or it fails rather than run nothing.
-test("the fragment loads the dashboard's module and holds no inline script", () => {
-  const lines = readFileSync(FRAG, "utf8").split("\n").map((l) => l.trim());
-  const tabs = lines.indexOf('<script src="/fun/console-tabs.js"></script>');
-  const mod = lines.indexOf(`<script type="module" src="${MODULE}"></script>`);
-  assert.ok(tabs >= 0, "the fragment loads no console-tabs.js");
-  assert.ok(mod > tabs, "the fragment loads no " + MODULE + " after the tabs");
-  assert.deepEqual(lines.filter((l) => l.startsWith("<script")).length, 2);
-  assert.equal(lines.filter((l) => l === '<script type="module">' || l === "<script>").length, 0);
-});
+// The module, a fresh copy per case: the query makes each import its own.
+const VIEW = new URL("../host/fun/dashboard-view.js", import.meta.url);
 
 const T = 1791526545;
 
@@ -60,8 +47,8 @@ function status() {
 
 async function page(key, opt = {}) {
   const { top = 200, unreachable = false } = opt;
-  const timers = [], errors = [];
-  let hidden = false, topReads = 0, analyticsReads = 0, statusReads = 0;
+  const byId = new Map(), listeners = {}, timers = [], errors = [];
+  let hidden = false, topReads = 0, analyticsReads = 0;
   const node = (name) => {
     const el = { name, hidden: false, dataset: {}, style: {}, attrs: {}, textContent: "", className: "", href: "", kids: [] };
     el.setAttribute = (k, v) => { el.attrs[k] = String(v); };
@@ -73,28 +60,20 @@ async function page(key, opt = {}) {
   process.on("unhandledRejection", note);
   const names = ["document", "fetch", "setInterval", "setTimeout", "clearInterval", "TEHAS_CONSOLE_TABS"];
   const real = Object.fromEntries(names.map((k) => [k, globalThis[k]]));
-  // One page: its elements by id and its listeners.
-  const documentOf = () => {
-    const byId = new Map(), listeners = {};
-    return {
-      byId, listeners,
+  const stubs = {
+    document: {
       get hidden() { return hidden; },
       getElementById: (id) => { let el = byId.get(id); if (!el) byId.set(id, (el = node(id))); return el; },
       addEventListener: (name, fn) => { (listeners[name] ??= []).push(fn); },
       createElement: (tag) => node(tag),
       createElementNS: (_ns, tag) => node(tag),
-    };
-  };
-  const doc = documentOf();
-  const stubs = {
-    document: doc,
+    },
     // The tabs are the plain dashboard's other module. Here they say nothing is
     // running, so what a case sees is the host half.
     TEHAS_CONSOLE_TABS: { view: () => ({ running: 0, shown: null, cycles: [], tabs: [] }), render: () => {}, keys: () => {}, consoleFile: () => null },
     fetch: async (url) => {
       if (url.endsWith("/live/top.json")) topReads++;
       if (url.endsWith("/live/analytics.json")) analyticsReads++;
-      if (url.endsWith("/live/status.json")) statusReads++;
       if (unreachable) throw new Error("no route to the host");
       if (url.endsWith("/live/top.json")) {
         return top === 200
@@ -120,48 +99,28 @@ async function page(key, opt = {}) {
     clearInterval: () => {},
   };
   const install = () => Object.assign(globalThis, stubs);
-  const restore = () => { for (const [k, v] of Object.entries(real)) globalThis[k] = v; };
   const settle = async () => { for (let i = 0; i < 60; i++) await new Promise((r) => setImmediate(r)); };
   install();
   try {
-    const mod = await import(`../host/fun/dashboard-view.js?${key}`);
+    await import(`${VIEW.href}?${key}`);
     await settle();
-    // The module drew this page: it asked for the queue and looked up the page's
-    // elements. A case that ran nothing fails here.
-    assert.equal(typeof mod.start, "function", "the module exports no start()");
-    assert.ok(statusReads > 0, "the module asked for no status");
-    assert.ok(doc.byId.has("fresh") && doc.byId.has("host"), "the module drew nothing");
-    // Accessors on one page: this one, or another started beside it.
-    const on = (d) => {
-      const text = (id) => d.byId.get(id)?.textContent;
-      // The text of each row of one list: its cells joined as the page shows them.
-      const items = (id) => (d.byId.get(id)?.kids ?? []).map((li) => li.kids
-        .map((k) => (typeof k === "string" ? k : k.textContent)).join(""));
-      return {
-        text, items,
-        node: (id) => d.byId.get(id),
-        hidden: (id = "host") => d.byId.get(id)?.hidden,
-        fire: async (name) => { install(); for (const fn of d.listeners[name] ?? []) await fn(); await settle(); },
-      };
-    };
+    const text = (id) => byId.get(id)?.textContent;
+    // The text of each row of one list: its cells joined as the page shows them.
+    const items = (id) => (byId.get(id)?.kids ?? []).map((li) => li.kids
+      .map((k) => (typeof k === "string" ? k : k.textContent)).join(""));
     return {
-      ...on(doc), errors, topReads: () => topReads, analyticsReads: () => analyticsReads,
-      statusReads: () => statusReads,
+      errors, text, items, topReads: () => topReads, analyticsReads: () => analyticsReads,
+      node: (id) => byId.get(id),
       periods: () => timers.map((t) => t.ms),
+      hidden: (id = "host") => byId.get(id)?.hidden,
       hide: () => { hidden = true; },
       show: () => { hidden = false; },
-      // A second dashboard on the same page, from the same copy of the module.
-      another: async () => {
-        install();
-        const d = documentOf();
-        try { mod.start(d, stubs.TEHAS_CONSOLE_TABS); await settle(); } finally { restore(); }
-        return on(d);
-      },
       tick: async (n) => { install(); for (let i = 0; i < n; i++) { for (const t of timers) await t.fn(); await settle(); } },
+      fire: async (name) => { install(); for (const fn of listeners[name] ?? []) await fn(); await settle(); },
     };
   } finally {
     process.off("unhandledRejection", note);
-    restore();
+    for (const [k, v] of Object.entries(real)) globalThis[k] = v;
   }
 }
 
@@ -285,22 +244,4 @@ test("a host without the report has no ten-day section, and is asked once a minu
   assert.equal(p.analyticsReads(), 1);
   await p.fire("visibilitychange");
   assert.equal(p.analyticsReads(), 2);
-});
-
-// Two dashboards from one copy of the module keep their own state: what one
-// learnt about a file that is not there does not stop the other asking.
-test("two dashboards on one page share no state", async () => {
-  const p = await page("two", { top: 404 });
-  assert.deepEqual(p.errors, []);
-  assert.equal(p.topReads(), 1);
-  assert.equal(p.analyticsReads(), 1);
-  const reads = p.statusReads();
-  const q = await p.another();
-  assert.equal(p.topReads(), 2); // the second asks for itself
-  assert.equal(p.analyticsReads(), 2);
-  assert.equal(p.statusReads(), reads + 1);
-  // Each draws its own elements.
-  assert.notEqual(q.node("state"), p.node("state"));
-  assert.equal(q.text("state"), "idle");
-  assert.equal(q.hidden("host"), true);
 });

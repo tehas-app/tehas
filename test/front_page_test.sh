@@ -696,7 +696,7 @@ t_case "a page that publishes nothing is not asked for every five seconds"
 t_contains "$hostdata_text" 'export const MISS_RETRY = 60;'
 t_contains "$hostdata_text" 'if (hidden) return false;'
 t_contains "$hostjs_text" 'if (!dueToRead({ hidden: document.hidden, missedAt }, Date.now())) return;'
-t_contains "$dashjs_text" 'if (!dueToRead({ hidden: doc.hidden, missedAt: hostMissedAt })) return;'
+t_contains "$dashjs_text" 'if (!dueToRead({ hidden: document.hidden, missedAt: hostMissedAt })) return;'
 # The plain dashboard notices a publisher that was turned on: coming back to the
 # page asks again at once.
 t_contains "$dashjs_text" 'hostMissedAt = 0; refreshHost();'
@@ -718,8 +718,8 @@ t_contains "$frag_text" '<section id="host" hidden>'
 t_case "a paused factory is said as paused, and as finishing the issue it has"
 t_contains "$board_text" 'FACTORY PAUSED, FINISHING #'
 t_contains "$board_text" ', still finishing #'
-t_contains "$dashjs_text" 'if (s.paused) pill = { className: "pill pause", text: finishing.length ? "paused, finishing #"'
-t_lacks "$dashjs_text" 'else if (s.paused) pill = { className: "pill pause", text: "paused" };'
+t_contains "$dashjs_text" 'if (s.paused) { pill.className = "pill pause"; pill.textContent = finishing.length ? "paused, finishing #"'
+t_lacks "$dashjs_text" 'else if (s.paused) { pill.className = "pill pause"; pill.textContent = "paused"; }'
 t_contains "$manual_text" 'paused and, while a cycle is still running, that it is finishing that issue'
 t_contains "$features_text" 'not proven that a cycle finishes while the factory is paused'
 

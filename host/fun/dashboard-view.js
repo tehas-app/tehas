@@ -1,17 +1,12 @@
-// The plain dashboard: host/docs/dashboard.frag holds the markup, this file
-// draws it. It reads /live/status.json and /live/running.json for the queue and
-// the cycles, a cycle's console, and where a host publishes them
-// /live/previews.json, /live/top.json and /live/analytics.json.
+// The plain dashboard (host/docs/dashboard.frag, the docs server's front page
+// under the plain layout): the factory's state, the issue lists, the previews,
+// the host, the last ten days and the console of the running cycles, from the
+// files tehasbot status, tehasbot preview, tehasbot top and the analytics
+// program write under /live/. The fragment holds the markup; this module draws
+// into it, after console-tabs.js, which the fragment loads before it.
 //
-// What a file means is worked out by pure functions with no side effects:
-// view() and the ones below it here, host/fun/host-data.js for the host,
-// host/fun/analytics-data.js for the last ten days and host/fun/console-tabs.js
-// for the tabs. test/dashboard_view_test.mjs runs them with no document at all.
-// start() draws one page and keeps that page's state in its own closure, so two
-// pages share none; test/dashboard_host_test.mjs runs it against a page of stubs.
-//
-// Issue titles, process names and preview reasons are untrusted text: they
-// only ever reach the page through textContent.
+// The page half runs only where the fragment's markup is, so node can import
+// the file (test/dashboard_view_test.mjs, test/dashboard_host_test.mjs).
 
 // The figures of the host section, and the words that say how old a reading is:
 // one module, shared with the panel on the factory floor (host/fun/host-view.js).
@@ -20,119 +15,75 @@ import { agoText, dueToRead, layout } from "./host-data.js";
 // module (host/fun/analytics-data.js); here it is drawn.
 import { analyticsView, dueToRead as dueAnalytics } from "./analytics-data.js";
 
-export const MAX = 10;
-const SVG = "http://www.w3.org/2000/svg";
+// The id of the element whose presence says the dashboard's markup is on the page.
+globalThis.TEHAS_DASHBOARD = { probe: "state" };
 
-export const ago = (iso, nowMs) => agoText((nowMs - new Date(iso).getTime()) / 1000);
-export const dur = (secs) => {
-  const m = Math.floor(secs / 60), h = Math.floor(m / 60);
-  return h > 0 ? h + " h " + (m % 60) + " min" : m + " min";
-};
-
-// One list of issues: at most MAX rows, and a link to the rest on GitHub.
-export function issueRows(items, whenKey, nowMs) {
-  const rows = items.slice(0, MAX).map((it) => ({
-    number: it.number, title: it.title, url: it.url, when: ago(it[whenKey] || it.updatedAt, nowMs),
-  }));
-  return { count: items.length, rows, more: items.length > MAX ? items.length : 0 };
-}
-
-// Previews of pull requests: /live/previews.json, written by tehasbot
-// preview. A host without previews has no such file and the section stays
-// hidden. Titles are untrusted text and the address is checked before it
-// becomes a link.
-const PREVIEW_STATES = Object.freeze({
-  building: "building",
-  "no-recipe": "no preview/Dockerfile in the commit",
-  "build-failed": "unable to create",
-  "no-space": "unable to create",
-  "over-limit": "over the limit of previews",
-});
-// What a preview that does not serve says about itself. The state, and for
-// the states that can fail in several ways the reason the run wrote into its
-// state file: a recipe whose volume was refused, a build that failed, a
-// container that stopped at once and a host low on disk are not the same
-// thing, and only the reason tells them apart. The reason is text this
-// command wrote. For a refused volume it says only that the recipe declares a
-// volume outside /tmp, /config and /data; the path of that volume, cut to 80
-// characters with its control characters gone, is in that pull request's
-// build log on the host.
-export function previewWhy(it) {
-  const label = Object.hasOwn(PREVIEW_STATES, it.state) ? PREVIEW_STATES[it.state] : "not serving";
-  const reason = typeof it.reason === "string" ? it.reason.trim() : "";
-  return reason ? label + ": " + reason : label;
-}
-
-// The state pill and the shown cycle's heading, from the status file and what
-// console-tabs.js made of the running file. nowSec is the time in seconds.
-export function view(s, v, nowSec) {
-  // A paused factory still finishes the cycle it has. Saying "working" alone
-  // would hide the pause; saying "paused" alone would hide the cycle.
-  const finishing = v.tabs.filter((t) => t.running).map((t) => t.issue);
-  let pill;
-  if (s.paused) pill = { className: "pill pause", text: finishing.length ? "paused, finishing #" + finishing.join(", #") : "paused" };
-  else if (v.running) pill = { className: "pill run", text: v.running > 1 ? "working on " + v.running : "working" };
-  else if (s.noResources) pill = { className: "pill pause", text: "no resources" };
-  else pill = { className: "pill idle", text: "idle" };
-  // Reported only: all-hands changes nothing in this factory.
-  const out = { pill, allHands: s.allHands === true, running: null, shown: null, title: "", step: "" };
-  const tab = v.shown;
-  if (!tab) return out;
-  const shown = tab.cycle, running = tab.running ? shown : null;
-  const issue = [...s.running, ...s.queued, ...s.stopped, ...s.awaiting, ...s.completed]
-    .find((i) => i.number === shown.issue);
-  const elapsed = (running ? nowSec : shown.updatedAt) - shown.startedAt;
-  return {
-    ...out, running, shown,
-    title: (running ? "Working on #" : "Last cycle: #") + shown.issue + (issue ? "  " + issue.title : ""),
-    step: running
-      ? (shown.statusText || "step " + shown.step) + "   (" + dur(elapsed) + " so far)"
-      : "ended as " + shown.status + " at step " + shown.step + " after " + dur(elapsed),
-  };
-}
-
-// Puts the children make() gives into node, only when key is not the one it
-// was drawn with: a refresh that changes nothing leaves the nodes alone.
-export function render(node, key, make) {
-  if (node.dataset.key === key) return false;
-  node.dataset.key = key;
-  node.replaceChildren(...make());
-  return true;
-}
-
-// Draws one dashboard on doc, with the tabs module of that page.
-export function start(doc, TABS) {
-  const $ = (id) => doc.getElementById(id);
+if (typeof document !== "undefined" && document.getElementById(globalThis.TEHAS_DASHBOARD.probe)) (() => {
+  const MAX = 10;
+  const $ = (id) => document.getElementById(id);
   const el = (tag, cls, text) => {
-    const e = doc.createElement(tag);
+    const e = document.createElement(tag);
     if (cls) e.className = cls;
     if (text !== undefined) e.textContent = text;
     return e;
   };
+  const ago = (iso) => agoText((Date.now() - new Date(iso).getTime()) / 1000);
+  const dur = (secs) => {
+    const m = Math.floor(secs / 60), h = Math.floor(m / 60);
+    return h > 0 ? h + " h " + (m % 60) + " min" : m + " min";
+  };
 
+  // Issue titles are untrusted text: only ever set through textContent.
   function list(id, items, moreUrl, emptyText, whenKey) {
-    const v = issueRows(items, whenKey, Date.now());
-    $("n-" + id).textContent = v.count ? "(" + v.count + ")" : "";
-    render($(id), JSON.stringify([v, moreUrl, emptyText]), () => {
-      if (!v.count) return [el("li", "empty", emptyText)];
-      const out = v.rows.map((it) => {
-        const li = el("li");
-        const a = el("a", null, it.title);
-        a.href = it.url;
-        li.append(el("span", "num", "#" + it.number), a, " ", el("span", "when", it.when));
-        return li;
-      });
-      if (v.more) {
-        const li = el("li", "empty");
-        const a = el("a", "more", "all " + v.more + " on GitHub");
-        a.href = moreUrl;
-        li.append(a);
-        out.push(li);
-      }
-      return out;
-    });
+    const ul = $(id);
+    ul.replaceChildren();
+    $("n-" + id).textContent = items.length ? "(" + items.length + ")" : "";
+    if (!items.length) {
+      ul.append(el("li", "empty", emptyText));
+      return;
+    }
+    for (const it of items.slice(0, MAX)) {
+      const li = el("li");
+      const a = el("a", null, it.title);
+      a.href = it.url;
+      li.append(el("span", "num", "#" + it.number), a, " ", el("span", "when", ago(it[whenKey] || it.updatedAt)));
+      ul.append(li);
+    }
+    if (items.length > MAX) {
+      const li = el("li", "empty");
+      const a = el("a", "more", "all " + items.length + " on GitHub");
+      a.href = moreUrl;
+      li.append(a);
+      ul.append(li);
+    }
   }
 
+  // Previews of pull requests: /live/previews.json, written by tehasbot
+  // preview. A host without previews has no such file and the section stays
+  // hidden. Titles are untrusted text and the address is checked before it
+  // becomes a link.
+  const PREVIEW_STATES = {
+    building: "building",
+    "no-recipe": "no preview/Dockerfile in the commit",
+    "build-failed": "unable to create",
+    "no-space": "unable to create",
+    "over-limit": "over the limit of previews",
+  };
+  // What a preview that does not serve says about itself. The state, and for
+  // the states that can fail in several ways the reason the run wrote into its
+  // state file: a recipe whose volume was refused, a build that failed, a
+  // container that stopped at once and a host low on disk are not the same
+  // thing, and only the reason tells them apart. The reason is text this
+  // command wrote. For a refused volume it says only that the recipe declares a
+  // volume outside /tmp, /config and /data; the path of that volume, cut to 80
+  // characters with its control characters gone, is in that pull request's
+  // build log on the host. Text only ever reaches these nodes, through
+  // textContent.
+  function previewWhy(it) {
+    const label = PREVIEW_STATES[it.state] || "not serving";
+    const reason = typeof it.reason === "string" ? it.reason.trim() : "";
+    return reason ? label + ": " + reason : label;
+  }
   async function refreshPreviews() {
     let p = null;
     try {
@@ -152,7 +103,7 @@ export function start(doc, TABS) {
         : "The host is low on disk: previews are not being built.");
     }
     if (typeof p.generatedAt === "string" && !Number.isNaN(Date.parse(p.generatedAt))) {
-      note.push("List written " + ago(p.generatedAt, Date.now()) + ".");
+      note.push("List written " + ago(p.generatedAt) + ".");
     }
     $("previews-note").textContent = note.join(" ");
     const ul = $("preview-list");
@@ -186,12 +137,13 @@ export function start(doc, TABS) {
   // words for how old a reading is, how many rows to draw - is worked out by the
   // same function the panel on the factory floor uses (host/fun/host-data.js);
   // here it is a plain list. A host that does not publish it has no such file
-  // and the section stays hidden. Process names come from /proc.
+  // and the section stays hidden. Process names come from /proc and are
+  // untrusted text: they reach the page through textContent only.
   let hostMissedAt = 0;
   async function refreshHost() {
     // Nothing on screen wants a fresh answer while the page is hidden, and a
     // file that was not there is not asked for again at every refresh.
-    if (!dueToRead({ hidden: doc.hidden, missedAt: hostMissedAt })) return;
+    if (!dueToRead({ hidden: document.hidden, missedAt: hostMissedAt })) return;
     let t = null, servedAt = null;
     try {
       const r = await fetch("/live/top.json", { cache: "no-store" });
@@ -250,10 +202,12 @@ export function start(doc, TABS) {
   // The factory's ten-day report: /live/analytics.json, written by tehasbot
   // status at every poll unless TEHAS_ANALYTICS is off. A host without it has
   // no file and the section stays hidden. It changes once a poll, so it is
-  // read at most once a minute.
+  // read at most once a minute. Every word in it reaches the page through
+  // textContent only.
   let analyticsReadAt = 0;
+  const SVG = "http://www.w3.org/2000/svg";
   async function refreshAnalytics() {
-    if (!dueAnalytics({ hidden: doc.hidden, readAt: analyticsReadAt })) return;
+    if (!dueAnalytics({ hidden: document.hidden, readAt: analyticsReadAt })) return;
     analyticsReadAt = Date.now();
     let a = null;
     try {
@@ -299,12 +253,12 @@ export function start(doc, TABS) {
       chart.append(col);
     }
     if (v.chart.length) {
-      const svg = doc.createElementNS(SVG, "svg");
+      const svg = document.createElementNS(SVG, "svg");
       svg.setAttribute("class", "an-line");
       svg.setAttribute("viewBox", "0 0 " + v.chart.length * 10 + " 100");
       svg.setAttribute("preserveAspectRatio", "none");
       svg.setAttribute("aria-hidden", "true");
-      const line = doc.createElementNS(SVG, "polyline");
+      const line = document.createElementNS(SVG, "polyline");
       line.setAttribute("points", v.chart.map((d, i) => (i * 10 + 5) + "," + (100 - d.minutesHeight * 100).toFixed(1)).join(" "));
       line.setAttribute("vector-effect", "non-scaling-stroke");
       svg.append(line);
@@ -345,6 +299,7 @@ export function start(doc, TABS) {
 
   // Several cycles can run side by side: console-tabs.js says which there are
   // and which one is shown. running is the shown cycle while it runs.
+  const TABS = globalThis.TEHAS_CONSOLE_TABS;
   let consoleFile = null, offset = 0, tailing = false, running = null, selected = null, lastStatus = null, lastNow = null;
 
   async function refresh() {
@@ -365,7 +320,7 @@ export function start(doc, TABS) {
     }
     lastStatus = s;
     lastNow = now;
-    $("fresh").textContent = "queue read " + ago(s.generatedAt, Date.now());
+    $("fresh").textContent = "queue read " + ago(s.generatedAt);
     $("all").href = s.links.all;
 
     list("queued", s.queued, s.links.queued, "Nothing is waiting. Label an issue tehas:ready.", "updatedAt");
@@ -385,19 +340,32 @@ export function start(doc, TABS) {
     const s = lastStatus;
     if (!s) return;
     const v = TABS.view(lastNow, selected);
-    const page = view(s, v, Date.now() / 1000);
     const pill = $("state");
-    pill.className = page.pill.className;
-    pill.textContent = page.pill.text;
-    $("allhands").hidden = !page.allHands;
+    // A paused factory still finishes the cycle it has. Saying "working" alone
+    // would hide the pause; saying "paused" alone would hide the cycle.
+    const finishing = v.tabs.filter((t) => t.running).map((t) => t.issue);
+    if (s.paused) { pill.className = "pill pause"; pill.textContent = finishing.length ? "paused, finishing #" + finishing.join(", #") : "paused"; }
+    else if (v.running) { pill.className = "pill run"; pill.textContent = v.running > 1 ? "working on " + v.running : "working"; }
+    else if (s.noResources) { pill.className = "pill pause"; pill.textContent = "no resources"; }
+    else { pill.className = "pill idle"; pill.textContent = "idle"; }
+    // Reported only: all-hands changes nothing in this factory.
+    $("allhands").hidden = s.allHands !== true;
 
     TABS.render($("tabs"), v, select);
-    running = page.running;
-    $("now").hidden = !page.shown;
-    if (!page.shown) return;
-    $("now-title").textContent = page.title;
-    $("now-step").textContent = page.step;
-    const file = TABS.consoleFile(page.shown);
+    const tab = v.shown;
+    running = tab && tab.running ? tab.cycle : null;
+    $("now").hidden = !tab;
+    if (!tab) return;
+    const shown = tab.cycle;
+    const issue = [...s.running, ...s.queued, ...s.stopped, ...s.awaiting, ...s.completed]
+      .find((i) => i.number === shown.issue);
+    $("now-title").textContent = (running ? "Working on #" : "Last cycle: #") + shown.issue +
+      (issue ? "  " + issue.title : "");
+    const elapsed = (running ? Date.now() / 1000 : shown.updatedAt) - shown.startedAt;
+    $("now-step").textContent = running
+      ? (shown.statusText || "step " + shown.step) + "   (" + dur(elapsed) + " so far)"
+      : "ended as " + shown.status + " at step " + shown.step + " after " + dur(elapsed);
+    const file = TABS.consoleFile(shown);
     if (file !== consoleFile) {
       consoleFile = file;
       offset = 0;
@@ -446,10 +414,7 @@ export function start(doc, TABS) {
   setTimeout(tail, 600);
   // Coming back to the page asks for the host file again at once, whatever the
   // last answer was.
-  doc.addEventListener("visibilitychange", () => {
-    if (!doc.hidden) { hostMissedAt = 0; refreshHost(); analyticsReadAt = 0; refreshAnalytics(); }
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) { hostMissedAt = 0; refreshHost(); analyticsReadAt = 0; refreshAnalytics(); }
   });
-}
-
-// Only the dashboard's page draws; a test imports the functions above.
-if (typeof document !== "undefined" && document.getElementById("now")) start(document, globalThis.TEHAS_CONSOLE_TABS);
+})();

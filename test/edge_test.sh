@@ -129,17 +129,17 @@ t_eq "$(grep -c -F '#previews h2' "$css")" 1
 t_eq "$(grep -c -F '<section id="previews" hidden>' "$T_ROOT/host/docs/dashboard.frag")" 1
 
 t_case "the dashboard says when the list of previews was written"
-t_eq "$(grep -c -F 'note.push("List written " + ago(p.generatedAt, Date.now()) + ".");' "$T_ROOT/host/fun/dashboard-view.js")" 1
+t_eq "$(grep -c -F 'note.push("List written " + ago(p.generatedAt) + ".");' "$T_ROOT/host/fun/dashboard-view.js")" 1
 
 # A refused volume and a build that failed are both "build-failed": only the
 # reason the run wrote into the state says which. The reason is text this
 # command wrote, never the pull request's.
 t_case "the dashboard says why a preview is not serving, with the reason from its state"
-frag=$(cat "$T_ROOT/host/fun/dashboard-view.js")
+view=$(cat "$T_ROOT/host/fun/dashboard-view.js")
 t_eq "$(grep -c -F '"build-failed": "unable to create: the build failed"' "$T_ROOT/host/fun/dashboard-view.js")" 0
-t_contains "$frag" 'const reason = typeof it.reason === "string" ? it.reason.trim() : "";'
-t_contains "$frag" 'return reason ? label + ": " + reason : label;'
-t_contains "$frag" 'el("span", "when", previewWhy(it))'
+t_contains "$view" 'const reason = typeof it.reason === "string" ? it.reason.trim() : "";'
+t_contains "$view" 'return reason ? label + ": " + reason : label;'
+t_contains "$view" 'el("span", "when", previewWhy(it))'
 t_eq "$(grep -c -F 'el("span", "when", PREVIEW_STATES[it.state]' "$T_ROOT/host/fun/dashboard-view.js")" 0
 
 t_case "the pages take an address only with a number of one to nine digits and no leading zero"
