@@ -888,6 +888,7 @@ jq -n --argjson lists "$lists" --argjson items "$items" --argjson control "$(rea
             else labels($i.n) + [($i.w.labels // [])[] | .name? // . | strings] end)
           + (if any($locked[]; . == $i.n) then ["tehas:running"] else [] end)) | unique | .[] | {name: .}]},
         subIssuesSummary: (.w.sub_issues_summary // null),
+        issueDependenciesSummary: (if .w.issue_dependencies_summary then {blockedBy: .w.issue_dependencies_summary.blocked_by} else null end),
         # Parenthesised: jq 1.7, as in the sandbox image, takes no + in an object value.
         timelineItems: {nodes: ([.ev[] | select($dropped | not) | {__typename: (if .event == "labeled" then "LabeledEvent"
             elif .event == "unlabeled" then "UnlabeledEvent" else "RenamedTitleEvent" end),

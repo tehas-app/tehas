@@ -40,6 +40,7 @@ const PAGE: &str = r#"query($owner: String!, $name: String!, $cursor: String) {
         number title body createdAt author { login } lastEditedAt editor { login }
         labels(first: 50) { nodes { name } }
         subIssuesSummary { total completed }
+        issueDependenciesSummary { blockedBy }
         parent { number }
         timelineItems(itemTypes: [LABELED_EVENT, UNLABELED_EVENT, RENAMED_TITLE_EVENT], last: 100) {
           nodes {
@@ -336,6 +337,15 @@ pub fn issue(o: &Open) -> Map<String, Value> {
     if let Some(p) = n.pointer("/parent/number").filter(|p| p.is_u64()) {
         work["parent"] = p.clone();
     }
+    // The open blockers of its native blocked-by links, in the REST answer's
+    // shape: `blocked_by` counts the open ones, the closed ones hold nothing.
+    // A forge that answers no such field leaves it out, and nothing is held.
+    if let Some(b) = n
+        .pointer("/issueDependenciesSummary/blockedBy")
+        .filter(|b| b.is_u64())
+    {
+        work["issue_dependencies_summary"] = json!({"blocked_by": b});
+    }
     let mut m = Map::new();
     m.insert("work".into(), work);
     m.insert(
@@ -497,6 +507,37 @@ mod tests {
         assert_eq!(part["work"]["parent"], json!(5));
         let alone = issue(&o(json!({"title": "t", "body": "b", "parent": null})));
         assert!(alone["work"].get("parent").is_none());
+    }
+
+    /// The page asks how many open issues block each one through a native
+    /// blocked-by link, and the issue's REST-shaped answer carries the count.
+    /// A forge answer without the field, or with one that is no count, carries
+    /// nothing, so no link holds the issue.
+    #[test]
+    fn an_issue_carries_its_open_blocked_by_links_and_the_page_asks_for_them() {
+        assert!(PAGE.contains("issueDependenciesSummary { blockedBy }"));
+        let o = |node: Value| Open {
+            number: 7,
+            labels: vec![],
+            node,
+        };
+        let held = issue(&o(json!({"title": "t", "body": "b",
+            "issueDependenciesSummary": {"blockedBy": 2}})));
+        assert_eq!(
+            held["work"]["issue_dependencies_summary"],
+            json!({"blocked_by": 2})
+        );
+        for node in [
+            json!({"title": "t", "body": "b"}),
+            json!({"title": "t", "body": "b", "issueDependenciesSummary": null}),
+            json!({"title": "t", "body": "b", "issueDependenciesSummary": {"blockedBy": "2"}}),
+        ] {
+            let none = issue(&o(node.clone()));
+            assert!(
+                none["work"].get("issue_dependencies_summary").is_none(),
+                "{node}"
+            );
+        }
     }
 
     /// A label event's kind. An unlisted kind does not compile, so a case
