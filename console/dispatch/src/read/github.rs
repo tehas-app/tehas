@@ -79,9 +79,9 @@ const FIELDS: &str = r#"
         fieldEvents: timelineItems(itemTypes: [ISSUE_FIELD_ADDED_EVENT, ISSUE_FIELD_CHANGED_EVENT, ISSUE_FIELD_REMOVED_EVENT], last: 20) {
           nodes {
             __typename
-            ... on IssueFieldAddedEvent { createdAt actor { login } value issueField { ... on IssueFieldSingleSelect { name } } }
-            ... on IssueFieldChangedEvent { createdAt actor { login } newValue issueField { ... on IssueFieldSingleSelect { name } } }
-            ... on IssueFieldRemovedEvent { createdAt actor { login } issueField { ... on IssueFieldSingleSelect { name } } }
+            ... on IssueFieldAddedEvent { createdAt actor { login ...on User { databaseId } ...on Bot { databaseId } } value issueField { ... on IssueFieldSingleSelect { name } } }
+            ... on IssueFieldChangedEvent { createdAt actor { login ...on User { databaseId } ...on Bot { databaseId } } newValue issueField { ... on IssueFieldSingleSelect { name } } }
+            ... on IssueFieldRemovedEvent { createdAt actor { login ...on User { databaseId } ...on Bot { databaseId } } issueField { ... on IssueFieldSingleSelect { name } } }
           }
         }"#;
 
@@ -593,7 +593,7 @@ mod tests {
         // tehas_core::accounts counts a listed login only with its recorded id.
         let with_id = "{ login ...on User { databaseId } ...on Bot { databaseId } }";
         for q in [
-            page_query(true),
+            page_query(true, true),
             COMMENTS.to_string(),
             PULL.to_string(),
             PULLS.to_string(),
