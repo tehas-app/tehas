@@ -125,7 +125,7 @@ use tehas_core::time::now;
 /// the other does. Both writers keep 500 lines of a few small counts --
 /// `console size record` trims `sizes.jsonl` and `plan_refined` trims
 /// `refined.jsonl` -- so no ledger of their own making comes near the bound.
-pub const LEDGER_MAX_BYTES: u64 = 1 << 20;
+pub const LEDGER_MAX_BYTES: u64 = tehas_core::file::READ_BOUND;
 pub const LEDGER_MAX_LINE: usize = 100_000;
 
 const USAGE: &str = "usage: analytics run <issue> --facts <file> [--image <id>] [--image-built <time>] [--rukas-image <commit>] [--oom <n>] [--forks <n>] | plan <issue> --rc <rc> --facts <file> [--rukas-image <commit>] [--image <id>] [--image-built <time>] | event <issue> <event> [--at <epoch seconds>] | sample | prune | report [--json] | orders | sessions [--out <directory>] | outcomes [--tehas <version>] [--rukas <version>] [--since <day or time>] [--until <day or time>] [--by version|week] [--out <directory>] | export <file> [--json]";
