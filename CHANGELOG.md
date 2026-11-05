@@ -57,6 +57,7 @@ empty one above it.
 - `tehas panel set <id> --label TEXT --url URL` names a page of the project, such as a support chat or a status page, and both front pages show it: an item in the menu opens it in a sandboxed frame in a dock at the side. Up to four, published to `live/panels.json`; `tehas api --json` lists the feature `panels`.
 
 - `scripts/tag-release.sh` moves every pinned tool to the newest minor and patch of its major before it tags: `host/versions.env`, `host/npm/` and `host/sandbox/npm/`, each with its checksum, digest or lockfile, from the tool's own source (`scripts/pins.sh`, `console pins`). When anything moves it opens a pull request on `pins-<tag>` and tags after that is merged; a later major is listed under `### Held back` for a person. A move that fails stops the release; `--no-pins` skips it. The release that makes the move needs cargo, curl, tar and npm where it runs.
+- `tehas update` runs in the console from start to end: `console update run` holds `state/update.lock`, runs install.sh with the lock's descriptor (still named by `TEHAS_UPDATE_LOCK_FD`), and has the console install.sh left, or `libexec/console.prev`, finish the run. `libexec/update` only checks that the console answers and execs it. The verbs the script of the release before calls one by one (`update args|wait|gate|prepare|api|finish`) keep working for this release (#1589).
 
 ### Adopter action
 

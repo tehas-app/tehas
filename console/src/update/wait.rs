@@ -50,6 +50,11 @@ fn seconds(wait: &Wait, value: Option<&str>) -> u64 {
         .unwrap_or(wait.default)
 }
 
+/// The seconds `console update run` waits for state/update.lock.
+pub(super) fn update() -> u64 {
+    seconds(&UPDATE, env::var(UPDATE.name).ok().as_deref())
+}
+
 /// `console update wait update|dispatch`: the seconds, one line.
 pub fn verb(given: &[String]) -> u8 {
     let wait = match given {
