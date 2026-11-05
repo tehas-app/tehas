@@ -1627,16 +1627,26 @@ fn failed_word(e: &J) -> String {
     }
 }
 
-/// One cycle as the health file lists it.
+/// One cycle as the health file lists it. Where its step is, only as far as
+/// the view knows it.
 fn brief(c: &J) -> J {
-    obj(vec![
+    let mut f = vec![
         ("issue", c.get("issue").clone()),
         ("running", c.get("running").or(&J::Bool(false)).clone()),
         ("status", c.get("status").clone()),
         ("step", c.get("step").clone()),
         ("startedAt", iso(c.get("startedAt"))),
         ("time", iso(c.get("updatedAt"))),
-    ])
+    ];
+    for k in ["stepNumber", "stepTotal", "round", "roundLimit"] {
+        if matches!(c.get(k), J::Num(_)) {
+            f.push((k, c.get(k).clone()));
+        }
+    }
+    if matches!(c.get("stepSince"), J::Num(_)) {
+        f.push(("stepSince", iso(c.get("stepSince"))));
+    }
+    obj(f)
 }
 
 fn joined(v: &J) -> String {
@@ -2136,6 +2146,29 @@ mod tests {
             r.at(&["checks", "cycle", "startedAt"]).text(),
             "1970-01-01T00:05:00Z"
         );
+    }
+
+    #[test]
+    fn a_running_cycle_keeps_where_its_step_is() {
+        let h = home("step-at");
+        h.write(
+            "live/running.json",
+            r#"{"cycles":[{"issue":8,"running":true,"step":"ci","startedAt":300,"stepNumber":8,"stepTotal":9,"round":2,"stepSince":360},{"issue":9,"running":true,"startedAt":300,"round":"2"}],"last":null}"#,
+        );
+        let r = h.report(&Given::default());
+        let c = r.at(&["checks", "cycles"]).items();
+        assert_eq!(
+            [
+                &c[0].get("stepNumber"),
+                &c[0].get("stepTotal"),
+                &c[0].get("round")
+            ]
+            .map(|v| v.text()),
+            ["8", "9", "2"]
+        );
+        assert_eq!(c[0].get("stepSince").text(), "1970-01-01T00:06:00Z");
+        assert!(c[0].get("roundLimit").is_null());
+        assert!(c[1].get("round").is_null());
     }
 
     #[test]

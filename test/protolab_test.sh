@@ -156,6 +156,9 @@ t_contains "$(cat "$site/index.html")" "1 PROTOTYPE<"
 t_eq "$(jq -c '.tickets | map([.number, .files, .bytes, .url])' "$live/protolab.json")" \
   '[[7,4,32,"https://github.com/acme/widget/issues/7"]]'
 t_eq "$(jq -r '[.url, .limitBytes] | @tsv' "$live/protolab.json")" "	10485760"
+# When the page was built: the time of the page itself.
+t_eq "$(jq -r '.tickets[0].builtAt' "$live/protolab.json")" \
+  "$(date -u -d "@$(stat -c %Y "$site/7/index.html")" +%Y-%m-%dT%H:%M:%SZ)"
 
 t_case "nothing is left behind that is not a page or a file"
 t_eq "$(cd "$site" && find . -mindepth 1 ! -path './7/files/*' | LC_ALL=C sort | tr '\n' ' ')" \

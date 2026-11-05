@@ -173,12 +173,14 @@ tehas status --json
   "paused": {"local": true, "label": false},
   "allHands": false,
   "limit": {"state": "none"},
-  "running": [{"issue": 12, "since": "2026-10-17T11:20:00Z", "step": "review"}],
+  "running": [{"issue": 12, "since": "2026-10-17T11:20:00Z", "step": "lens-review",
+               "stepNumber": 7, "stepTotal": 9, "round": 2, "stepSince": "2026-10-17T13:41:00Z"}],
   "planning": [{"issue": 7, "turn": 2, "since": "2026-10-17T13:47:00Z"}],
   "demand": {"waiting": 2, "oldestWait": 5400},
   "hold": {"why": "pause", "text": "paused by the flag tehas pause wrote: weekend"},
   "held": [],
-  "room": {"cycles": 0, "slice": 2}
+  "room": {"cycles": 0, "slice": 2},
+  "prototypes": [{"issue": 21, "builtAt": "2026-10-17T09:12:00Z"}]
 }
 ```
 
@@ -193,7 +195,7 @@ tehas status --json
 | `paused.label` | `tehas:pause` holds the factory from the control issue: it is on the issue, or an account that may not lift it took it off |
 | `allHands` | `tehas:all-hands` holds on the control issue: it is on the issue and an allowed account applied it. It changes nothing in this factory. Left out when the last snapshot could not read it or is more than ten minutes old |
 | `limit` | The limit, as [`tehas limit --json`](#tehas-limit) prints it without `api` and `reason`: `{"state": "none"}` when none is set |
-| `running` | The running cycles: `issue`, `since` (when it started) and `step` (left out when not known yet) |
+| `running` | The running cycles: `issue`, `since` (when it started) and `step`, and where the step is: `stepNumber` (the step the cycle is on, from 1, as the driver counts it), `stepTotal` (how many steps the cycle has), `round` (the round of a step that has run before in this cycle, from 2, or the round the driver gave), `roundLimit` (the most rounds the step may run, when the driver gives a limit) and `stepSince` (when the step started). Each is left out when not known yet. `stepNumber`, `stepTotal` and `roundLimit` are there only when the driver puts them on its `step-started` lines |
 | `planning` | The planning turns in flight: `issue`, `turn` (the session's turn that runs, from 1) and `since` (when it started; left out for a turn started before this was kept). A session whose last turn ended in error and waits for a person is not in flight and is not here; the text summary has a line for it |
 | `demand.waiting` | Open issues that would start if there were room: `tehas:ready` applied last by an account in `TEHAS_ALLOWED_LABELERS` or the millwright, with no cycle and no planning session open, and the refresh requests waiting, unless refreshes are held |
 | `demand.oldestWait` | Seconds since the oldest of them was labelled or asked for; left out when none waits |
@@ -235,6 +237,9 @@ tehas status --json
 | `room.slots.container.ceiling` | `TEHAS_CYCLE_CEILING` as written, or its default |
 | `room.slots.container.floored` | `true` when the memory or the size was no reading and 2 containers are in force |
 | `room` | `null` when no poll got as far as the room check in the last ten minutes, as while the factory is paused |
+| `prototypes` | The issues with a [Protolab](/tools#tehasbot-protolab) page, from `live/protolab.json` as the Protolab last wrote it. Left out when there is no such list, as on a host that does not run the Protolab |
+| `prototypes.issue` | The issue number |
+| `prototypes.builtAt` | When its page was last built; left out for a page whose time cannot be read |
 
 Everything in the object is as the health file wrote it at `time`, and is
 `age` seconds old. The dispatcher writes it at each poll, every two minutes,
@@ -322,7 +327,8 @@ tehas history [--json] [--after CURSOR] [--issue N]
    {"cursor": "1760700000-12-41", "kind": "work", "issue": 12,
     "started": "2026-10-17T11:20:00Z", "ended": "2026-10-17T13:20:00Z",
     "status": 10, "outcome": "handoff", "pr": "https://github.com/acme/widget/pull/9",
-    "step": "review", "cap": "awaiting-human-merge", "parkReason": "merge",
+    "step": "review", "stepNumber": 9, "stepTotal": 9,
+    "cap": "awaiting-human-merge", "parkReason": "merge",
     "failureKind": "review", "failureCause": "findings open",
     "provider": false, "parked": true, "repeat": 1, "by": "alice", "how": "label"},
    {"cursor": "1760700300-7-42", "kind": "plan", "issue": 7,
@@ -335,7 +341,9 @@ tehas history [--json] [--after CURSOR] [--issue N]
 What has ended, oldest first: one line for each cycle and each planning turn,
 in the order the state store wrote them.
 `kind` is `work` for a cycle and `plan` for a planning turn, so a program reads
-the two the same way. `repeat` is on the park of a run of parks only: the parks
+the two the same way. `stepNumber`, `stepTotal` and `round` say where the step
+a cycle ended in was, as its last heartbeat at that step said, and are left out
+when it is not known, as `running` of `tehas status --json` leaves them out. `repeat` is on the park of a run of parks only: the parks
 in a row that stopped exactly as this one did, this one not counted, so 1 on the
 first repeat. A line of a listing that begins partway through a run counts only
 the parks the listing holds. It reads the history of both from the state store,

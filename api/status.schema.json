@@ -43,7 +43,12 @@
         "properties": {
           "issue": {"type": "integer", "minimum": 1},
           "since": {"type": "string", "format": "date-time"},
-          "step": {"type": "string"}
+          "step": {"type": "string"},
+          "stepNumber": {"type": "integer", "minimum": 1},
+          "stepTotal": {"type": "integer", "minimum": 1},
+          "round": {"type": "integer", "minimum": 1},
+          "roundLimit": {"type": "integer", "minimum": 1},
+          "stepSince": {"type": "string", "format": "date-time"}
         }
       }
     },
@@ -91,6 +96,18 @@
           "why": {"type": "string"},
           "text": {"type": "string"},
           "clear": {"type": "string"}
+        }
+      }
+    },
+    "prototypes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["issue"],
+        "additionalProperties": false,
+        "properties": {
+          "issue": {"type": "integer", "minimum": 1},
+          "builtAt": {"type": "string", "format": "date-time"}
         }
       }
     },

@@ -3317,7 +3317,9 @@ systemctl --user enable --now tehas-protolab.timer
 Builds the Protolab in `~/tehas/protolab`: a page for every open issue
 labelled `tehas:prototype` by an account in `TEHAS_ALLOWED_LABELERS`, with the
 files attached to it, and the list
-`~/tehas/live/protolab.json` that the dashboard links from. The timer runs it
+`~/tehas/live/protolab.json` that the dashboard and `prototypes` of
+[`tehas status --json`](/api#tehas-status--json) read, each ticket with `builtAt`, the
+time of its page. The timer runs it
 every five minutes; the log is `~/tehas/logs/protolab.log`.
 
 The pass is the console's (`~/tehas/libexec/console protolab run`,
