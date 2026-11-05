@@ -975,10 +975,22 @@ fn plan_show_reports_options_it_cannot_read() {
     // it is read: the refusal is about the shape and not about emptiness.
     assert_eq!(show(&home, 33)["options"], json!([]));
     // One row for all of them, damaged once per value: a fresh store per value
-    // would prove nothing more about the value. The reason says what a list is
-    // not, so a value of another shape and one that is no JSON at all are named
-    // by one word: 78 and `corrupt` are what a caller reads.
-    for held in ["not json", "{\"a\":1}", "\"Yes\"", "1", "true", "null"] {
+    // would prove nothing more about the value. The reason names the damage:
+    // no JSON at all, or JSON that is not a list of labels.
+    let not_json = "a planning session's options are not JSON";
+    let not_labels = "a planning session's options are not a JSON list of labels";
+    for (held, why) in [
+        ("not json", not_json),
+        ("[\"Yes\",", not_json),
+        ("{\"a\":1}", not_labels),
+        ("\"Yes\"", not_labels),
+        ("1", not_labels),
+        ("true", not_labels),
+        ("null", not_labels),
+        ("[1,2]", not_labels),
+        ("[{\"a\":1}]", not_labels),
+        ("[\"Yes\",null]", not_labels),
+    ] {
         conn(&home)
             .execute(
                 "UPDATE planning SET options_json = ?1 WHERE issue = 33",
@@ -990,10 +1002,7 @@ fn plan_show_reports_options_it_cannot_read() {
             let (code, line) = call(&home, args).expect_err("the read was answered");
             assert_eq!(code, 78, "{held} {args:?}: {line}");
             assert!(line.starts_with("corrupt "), "{held} {args:?}: {line}");
-            assert!(
-                line.contains("a planning session's options are not"),
-                "{held} {args:?}: {line}"
-            );
+            assert!(line.ends_with(why), "{held} {args:?}: {line}");
         }
         // The writes of the session refuse the value too, and leave the row as
         // it found it: the answer is rendered after the statements, so the 78
@@ -1006,27 +1015,8 @@ fn plan_show_reports_options_it_cannot_read() {
             assert_eq!(count(&home, "planning_notes"), 0);
         }
     }
-    // A list whose elements are not labels is what the write side refuses at
-    // the flag and what the read side lets through as it stands: `plan-show`
-    // answers the value as it is, and the poll of such a row prints the label
-    // `as_str` gives it, which is none, so the box is empty. Pinned as it is.
-    for held in ["[1,2]", "[{\"a\":1}]"] {
-        let value = serde_json::from_str::<Value>(held).unwrap();
-        conn(&home)
-            .execute(
-                "UPDATE planning SET options_json = ?1 WHERE issue = 33",
-                [held],
-            )
-            .unwrap();
-        let v =
-            call(&home, &["plan-show", "33"]).unwrap_or_else(|e| panic!("{held} plan-show: {e:?}"));
-        assert_eq!(v["planning"]["options"], value, "{held}");
-        let v = call(&home, &["plan-show", "--open"])
-            .unwrap_or_else(|e| panic!("{held} plan-show --open: {e:?}"));
-        assert_eq!(v["sessions"][0]["options"], value, "{held}");
-    }
-    // A value that does parse as a list is read again, so the refusal belongs
-    // to the value and not to the row.
+    // A list of labels is read again, so the refusal belongs to the value and
+    // not to the row.
     conn(&home)
         .execute(
             "UPDATE planning SET options_json = '[\"Yes\"]' WHERE issue = 33",
