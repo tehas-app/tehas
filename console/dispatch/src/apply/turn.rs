@@ -364,7 +364,7 @@ impl Writer {
         self.refresh_checkout(log);
         let _ = std::fs::remove_file(&out);
         let _ = std::fs::remove_file(self.st(n, ".rc"));
-        // The install's libexec/plan is run from the turn's own copy of the
+        // The install's `tehas plan` is run from the turn's own copy of the
         // code, so an update during the turn leaves its code as it started.
         let mut cmd = match &self.host.pin_cmd {
             Some(pin) => vec![
@@ -374,7 +374,7 @@ impl Writer {
                 n.to_string(),
                 "plan".into(),
             ],
-            None => vec![self.host.plan_cmd.clone()],
+            None => self.host.plan_cmd.clone(),
         };
         cmd.extend([
             n.to_string(),

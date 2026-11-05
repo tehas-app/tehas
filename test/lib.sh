@@ -606,15 +606,15 @@ esac
 EOF
 }
 # The source of the workspace's crates without what a build here left beside
-# it.
+# it: every member, so install.sh reads the workspace as a checkout has it.
 t_console_source() {
-  mkdir -p "$1/console/analytics" "$1/console/attach" "$1/console/core" "$1/console/mcp" "$1/console/store"
+  local member
+  mkdir -p "$1/console"
   cp -R "$T_ROOT/console/Cargo.toml" "$T_ROOT/console/Cargo.lock" "$T_ROOT/console/src" "$1/console/"
-  cp -R "$T_ROOT/console/analytics/Cargo.toml" "$T_ROOT/console/analytics/src" "$1/console/analytics/"
-  cp -R "$T_ROOT/console/attach/Cargo.toml" "$T_ROOT/console/attach/src" "$1/console/attach/"
-  cp -R "$T_ROOT/console/core/Cargo.toml" "$T_ROOT/console/core/src" "$1/console/core/"
-  cp -R "$T_ROOT/console/mcp/Cargo.toml" "$T_ROOT/console/mcp/src" "$1/console/mcp/"
-  cp -R "$T_ROOT/console/store/Cargo.toml" "$T_ROOT/console/store/src" "$1/console/store/"
+  for member in analytics attach core cycle dispatch mcp merge store; do
+    mkdir -p "$1/console/$member"
+    cp -R "$T_ROOT/console/$member/Cargo.toml" "$T_ROOT/console/$member/src" "$1/console/$member/"
+  done
   t_tree_commit "$1"
 }
 # A scratch tree is no git checkout, so it names its commit as a release does,
@@ -771,6 +771,16 @@ t_console() {
     return 1
   fi
   cp "$T_TARGET/debug/console" "$T_CONSOLE"
+}
+# t_front <tree>: bin/tehas and bin/tehasbot of this checkout in <tree>/bin,
+# with the console in <tree>/libexec and lib/ beside them, as a host has them:
+# `$tree/bin/tehasbot dispatch` then runs with <tree>/libexec as its own.
+t_front() {
+  t_console || return 1
+  mkdir -p "$1/bin" "$1/libexec"
+  [ -e "$1/lib" ] || ln -s "$T_ROOT/lib" "$1/lib"
+  cp "$T_ROOT/bin/tehas" "$T_ROOT/bin/tehasbot" "$1/bin/"
+  cp "$T_CONSOLE" "$1/libexec/console"
 }
 # t_health: tehasbot health as a host runs it, bin/tehasbot above the console
 # that builds its report (console/src/health.rs), as the one command $T_HEALTH.

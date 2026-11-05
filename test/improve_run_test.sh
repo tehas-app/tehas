@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for libexec/improve: a run, what holds or refuses it, and the findings
+# Tests for tehasbot improve: a run, what holds or refuses it, and the findings
 # file the analyst leaves.
 # shellcheck disable=SC2016  # stub bodies and snippets are expanded when they run
 # shellcheck source=test/lib.sh

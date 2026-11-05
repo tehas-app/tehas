@@ -1,8 +1,0 @@
-#!/usr/bin/env bash
-# tehasbot review: console/src/run.rs, console/src/usage/review.txt is its text.
-# Only a path: test/sandbox_argv_test.sh runs it.
-#
-# Exit: the command's; 78 no console.
-here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-[ -x "$here/console" ] || { echo "tehas review: no console beside this command ($here/console), run install.sh" >&2; exit 78; }
-exec "$here/console" run "$here" "$EUID" "$BASH" tehasbot review "$@"

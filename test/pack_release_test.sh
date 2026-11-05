@@ -96,7 +96,6 @@ make_tree() {
   cp "$T_ROOT/lib/release.list" "$tree/lib/"
   cp "$T_ROOT/host/versions.env" "$tree/host/"
   cp "$T_ROOT/bin/tehas" "$tree/bin/"
-  cp "$T_ROOT/libexec/dispatch" "$tree/libexec/"
   cp "$T_ROOT/libexec/work" "$tree/libexec/"
   cp "$T_ROOT/lib/config.sh" "$tree/lib/"
   cp "$T_ROOT/host/sandbox/build.sh" "$tree/host/sandbox/"
@@ -137,7 +136,7 @@ for d in "${want_dirs[@]}"; do
   done
 done
 # Named by hand: the files an adopter's install and its host depend on.
-for want in tehas-v9.9.9/bin/tehas tehas-v9.9.9/bin/tehasbot tehas-v9.9.9/libexec/dispatch \
+for want in tehas-v9.9.9/bin/tehas tehas-v9.9.9/bin/tehasbot \
   tehas-v9.9.9/libexec/work tehas-v9.9.9/libexec/console tehas-v9.9.9/lib/config.sh \
   tehas-v9.9.9/VERSION tehas-v9.9.9/host/versions.env \
   tehas-v9.9.9/host/sandbox/build.sh tehas-v9.9.9/host/docs/tools.md \
