@@ -41,6 +41,7 @@ git clone <the platform repository> ~/tehas/platform
 cd ~/tehas/platform
 sudo ./bootstrap.sh root boss     # 1. as root, naming the tehas user; runs step 2 as boss too
 ./bootstrap.sh check              # 3. as the tehas user: one line per tool, and one each for the slice, its rule and its reload unit
+./bootstrap.sh user               # 4. in a checkout, after its first ./install.sh: pi-rukas, which needs the console
 sudo ./bootstrap.sh slice         # only if step 1 could not install the slice, or it changed
 sudo ./bootstrap.sh dev boss alice   # optional: let the account alice type "tehas dev"
 sudo ./bootstrap.sh clock         # optional, for a host that is a VM: see below
@@ -283,6 +284,14 @@ tree" after the version it finds on the `PATH`, since `user` would replace it.
 The last step runs pi-rukas's own installer, which links its
 extension and skills into `~/.pi/agent/` and pulls its own `latest` image. It is
 run without `PI_ENSEMBLE_IMAGE`, so it never touches the tehas sandbox image.
+
+The commit it installs is named by the console, the one reading of
+`PI_RUKAS_FOLLOW` the sandbox build uses too. A release carries its console in
+`libexec/`, so its first `user` run installs pi-rukas. A checkout has no console
+until `install.sh` has built one into `~/tehas/libexec`: its first `user` run
+prints `bootstrap: pi-rukas waits for install.sh, then run ./bootstrap.sh user
+again` and finishes, and `check` reports pi-rukas as `after install.sh`. Run
+`./bootstrap.sh user` once more after the first `install.sh`.
 
 pi-rukas comes from the repository named in `versions.env`, at the head of the
 branch named there. It is not pinned: each run moves the clone to the head,
