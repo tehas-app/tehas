@@ -178,7 +178,8 @@ pub(crate) fn parse_events(out: &str) -> Result<Vec<Event>, String> {
     }?;
     let mut events = Vec::new();
     for page in pages {
-        let page = page.map_err(|_| NO_EVENTS.to_string())?;
+        let mut page = page.map_err(|_| NO_EVENTS.to_string())?;
+        crate::accounts::vouch(&mut page);
         events.append(&mut page_events(&page)?);
     }
     Ok(events)
