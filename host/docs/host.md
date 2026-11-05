@@ -1138,6 +1138,10 @@ tehas work: this cycle's container reached its limit of processes, 41 starts wer
 A cycle whose container is at that limit can run no command, so its gate does
 not run and its handoff may not be posted. The comment that reports the cycle
 says the count, and the dispatcher's `done` line has it as `forks_refused`.
+When the run named no cap of its own and no person stopped it, the cycle goes
+on record with the cap `process-limit:<step>` (`process-limit` when no step
+is known) and a reason that carries the count, so `tehas history`, the park
+comment and the analytics row name it. A cap the run named stays.
 
 A container that ends with 137 while the cycle was still running is reported
 as `killed`: `tehas work` exits 137, and the issue is parked with
