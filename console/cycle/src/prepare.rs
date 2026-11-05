@@ -876,7 +876,7 @@ mod tests {
             text_wait: 1,
             gap: String::new(),
             images: Vec::new(),
-            stop: Stop(Arc::new(AtomicBool::new(false))),
+            stop: Stop(Arc::new(AtomicBool::new(false)), Arc::default()),
         };
         let tag = "tehas-sandbox:latest";
         // The image is the word before the runner, as the table of runs reads it.
