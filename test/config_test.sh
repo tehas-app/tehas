@@ -326,8 +326,18 @@ t_run "$load && tehas_require_instance_settings && echo ok"
 t_eq "$t_rc" 0
 t_contains "$t_out" "ok"
 
-for missing in TEHAS_REPO TEHAS_CONTROL_ISSUE TEHAS_ALLOWED_LABELERS \
-  PI_ENSEMBLE_SUBAGENT_MODEL PI_ENSEMBLE_SUBAGENT_PROVIDER; do
+# The list is the console's: tehas_load hands it over as _tehas_required, and
+# `console settings required` answers the same names. A copy of the list in
+# lib/config.sh, or a load that stopped handing it over, fails this case.
+t_case "the list tehas_require_instance_settings checks is the console's"
+t_instance "${T_MINIMAL[@]}"
+t_run "$load && printf '%s\n' \"\${_tehas_required[@]}\""
+instance_settings=$t_out
+t_run "\"$T_CONSOLE\" settings required"
+t_eq "$t_out" "$instance_settings"
+
+read -ra required_names <<<"$instance_settings"
+for missing in "${required_names[@]}"; do
   t_case "tehas_require_instance_settings stops an instance without $missing"
   t_instance "${T_MINIMAL[@]}"
   grep -v "^$missing=" "$TEHAS_INSTANCE_DIR/instance.env" >"$T/instance.env"
@@ -351,7 +361,7 @@ done
 for bad in "TEHAS_CONCURRENCY=auto" "TEHAS_CONCURRENCY=0" "TEHAS_TICKET_CONCURRENCY=0" "TEHAS_TICKET_CONCURRENCY=two" "TEHAS_MAX_AWAITING=-1" "TEHAS_WORK_TIMEOUT=soon" "TEHAS_WORK_STALL=0" "TEHAS_WORK_STALL=1h" "TEHAS_HOST_ADDR=not an address" \
   "TEHAS_BRANCH=two words" "TEHAS_INDEXING=yes" "TEHAS_WORK_IMAGES=yes" "TEHAS_WORK_IMAGES=2" "TEHAS_WORK_ZIPS=yes" "TEHAS_WORK_ZIPS=2" "TEHAS_WORK_DESCRIBE=yes" "TEHAS_WORK_FILES=yes" "TEHAS_WORK_FILES=2" "TEHAS_WORK_COMMENTS=yes" "TEHAS_TOP=yes" "TEHAS_TOP=2" "TEHAS_ANALYTICS_SRC=http://plain.example/ea.js" \
   "TEHAS_ANALYTICS_SRC=https://a.example/x.js\" onload=\"x" "TEHAS_ANALYTICS_SITE=two words" \
-  "TEHAS_ANALYTICS_COOKIE=yes" "TEHAS_THEME=neon" "TEHAS_THEME=../pixel" "TEHAS_LAYOUT=game" "TEHAS_LAYOUT=../business" "TEHAS_PROTOLAB_URL=https://lab.example/" "TEHAS_PROTOLAB_URL=lab.example" \
+  "TEHAS_ANALYTICS_COOKIE=yes" "TEHAS_PROTOLAB_URL=https://lab.example/" "TEHAS_PROTOLAB_URL=lab.example" \
   "TEHAS_PLAN_MAX_TURNS=0" "TEHAS_PLAN_TIMEOUT=1h" "TEHAS_VERIFY_TIMEOUT=30m" "TEHAS_VERIFY_TIMEOUT=0" \
   "TEHAS_CHILD_TIMEOUT=30m" "TEHAS_CHILD_TIMEOUT=0" "TEHAS_CHILD_TIMEOUT=-1" "TEHAS_CHILD_TIMEOUT= \t" \
   "TEHAS_BUILD_TIMEOUT=30m" "TEHAS_BUILD_TIMEOUT=0" \
@@ -633,34 +643,30 @@ printf '%s\n' "${T_MINIMAL[@]}" "TEHAS_ANALYTICS_SRC=https://stats.example/ea.js
 t_run "$load && echo \"[\$TEHAS_ANALYTICS_SRC][\$TEHAS_ANALYTICS_SITE][\$TEHAS_ANALYTICS_COOKIE]\""
 t_eq "$t_out" "[https://stats.example/ea.js][widget][1]"
 
-t_case "the pages are pixel unless the instance names another theme"
-printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
-t_run "$load && echo \"[\$TEHAS_THEME]\""
-t_eq "$t_out" "[pixel]"
-printf '%s\n' "${T_MINIMAL[@]}" TEHAS_THEME=paper >"$TEHAS_INSTANCE_DIR/instance.env"
-t_run "$load && echo \"[\$TEHAS_THEME]\""
-t_eq "$t_out" "[paper]"
-
-t_case "the front page is the floor unless the instance names the business layout"
-printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
-t_run "$load && echo \"[\$TEHAS_LAYOUT]\""
-t_eq "$t_out" "[floor]"
-printf '%s\n' "${T_MINIMAL[@]}" TEHAS_LAYOUT=business TEHAS_THEME=beesknees26 >"$TEHAS_INSTANCE_DIR/instance.env"
-t_run "$load && echo \"[\$TEHAS_LAYOUT][\$TEHAS_THEME]\""
-t_eq "$t_out" "[business][beesknees26]"
-
-t_case "every layout the settings accept has a page"
-layouts=$("$T_CONSOLE" settings words TEHAS_LAYOUT)
-t_contains "$layouts" floor
-t_contains "$layouts" business
-for l in $layouts; do
-  case "$l" in floor) page=index.html ;; *) page=$l.html ;; esac
-  [ -f "$T_ROOT/host/fun/$page" ] || t_bad "layout $l has no host/fun/$page"
+t_case "a retired theme or layout line stops every command, with its reason"
+for pair in "TEHAS_THEME=beesknees26|the front page is pixel and every other page is beesknees26, so take the line out" \
+  "TEHAS_LAYOUT=business|the front page is always the factory floor and /business is always the business page, so take the line out"; do
+  line=${pair%%|*}
+  why=${pair#*|}
+  t_instance "${T_MINIMAL[@]}" "$line"
+  t_run "$load; echo rc=\$?"
+  t_contains "$t_out" "tehas: ${line%%=*} is no longer read: $why (see $T/instance/instance.env)"
+  t_contains "$t_out" "rc=78"
 done
+t_instance "${T_MINIMAL[@]}"
 
-t_case "every theme the settings accept ships, and every theme that ships is accepted"
-t_eq "$("$T_CONSOLE" settings words TEHAS_THEME | tr ' ' '\n' | sort | xargs)" \
-  "$(for f in "$T_ROOT"/host/fun/theme-*.css; do f=${f##*/theme-}; echo "${f%.css}"; done | sort | xargs)"
+t_case "a theme or layout line that asks for what this version does loads, and is gone after it"
+for line in "TEHAS_THEME=" "TEHAS_THEME=pixel" "TEHAS_LAYOUT=" "TEHAS_LAYOUT=floor"; do
+  t_instance "${T_MINIMAL[@]}" "$line"
+  t_run "$load; echo rc=\$? \"[\${${line%%=*}:-}]\""
+  t_eq "$t_out" "rc=0 []"
+done
+t_instance "${T_MINIMAL[@]}"
+
+t_case "each frontend has its page in the tree"
+for page in index.html business.html; do
+  [ -f "$T_ROOT/host/fun/$page" ] || t_bad "host/fun/$page is missing"
+done
 
 t_case "an analytics script without a site is refused"
 printf '%s\n' "${T_MINIMAL[@]}" "TEHAS_ANALYTICS_SRC=https://stats.example/ea.js" >"$TEHAS_INSTANCE_DIR/instance.env"
@@ -920,6 +926,35 @@ t_instance "${T_MINIMAL[@]}"
 t_run "$load && tehas_branch"
 t_eq "$t_rc" 0
 t_eq "$t_out" "main"
+
+# lib/config.sh and tehas_core hold one rule for the checkout and the branch
+# (console/core/src/settings.rs), so the two answers are held side by side the
+# way test/rukas_test.sh holds lib/rukas.sh against console/core/src/rukas.rs.
+both() { # <name> <verb> [<KEY=VALUE>...]
+  local name=$1 verb=$2
+  shift 2
+  t_case "tehas_$verb and the console's $verb answer one thing: $name"
+  t_instance "${T_MINIMAL[@]}" "$@"
+  t_run "$load && tehas_$verb"
+  local bash_rc=$t_rc bash_out=$t_out
+  t_run "$load >/dev/null 2>&1; \"$T_CONSOLE\" settings $verb"
+  t_eq "$t_rc" "$bash_rc"
+  t_eq "$t_out" "$bash_out"
+}
+
+git init -q -b main "$T/other"
+git -C "$T/other" remote add origin https://github.com/acme/other.git
+git init -q -b main "$T/asrepo"
+git -C "$T/asrepo" remote add origin "git@github.com:acme/widget.git"
+
+both "the scratch checkout, a clone of a local path" checkout
+both "the checkout of another repository" checkout "TEHAS_WORK_REPO=$T/other"
+both "origin named as acme/widget" checkout "TEHAS_WORK_REPO=$T/asrepo"
+both "the checkout's default branch" branch
+both "TEHAS_BRANCH given" branch TEHAS_BRANCH=release
+git -C "$T/home/tehas/repos/widget" remote set-head origin -d
+both "a checkout with no origin/HEAD" branch
+git -C "$T/home/tehas/repos/widget" remote set-head origin main
 
 t_case "TEHAS_BRANCH wins over the checkout"
 t_instance "${T_MINIMAL[@]}" TEHAS_BRANCH=release
@@ -1491,7 +1526,7 @@ t_instance "${T_MINIMAL[@]}"
 t_case "every value of every setting gets the verdict and the reason bash gave it"
 # shellcheck disable=SC2054  # a comma is part of a budget
 values=('' ' ' 0 1 2 6 16 17 99 100 600 601 1440 1441 123456 999999999 1000000000 99999999999999999999 01 auto AUTO on off
-  yes git release bash rust pixel floor business beesknees26 'two words' 'alice  bob' 'alice bob-2' alice- -alice
+  yes git release bash rust 'two words' 'alice  bob' 'alice bob-2' alice- -alice
   'alice[bot]' '[bot]' acme/widget a/b/c /a/b /a/./b /a/../b /a//b /a/ /h/tehas/gate /i/gate /i /w/gate a..b
   5g 5G 5m 6m 512m 6000k 6144k 1048576 1048576b 010g 08m 00 2gb 1.5g -1g 1000000000g 17179869184g
   example.org Example.org -a.org a-.org localhost a.b https://a.example/x.js https://a.example http://a.example/x.js
@@ -1506,19 +1541,19 @@ names=(PI_ENSEMBLE_MODEL_ PI_ENSEMBLE_PROVIDER_ PI_ENSEMBLE_SUBAGENT_MODEL PI_EN
   TEHAS_CLEAN_MIN_FREE TEHAS_CONCURRENCY TEHAS_CONTAINER_MEMORY TEHAS_CONTROL_ISSUE TEHAS_CYCLE_MIN_FREE TEHAS_CYCLE_REPORT
   TEHAS_CYCLE_RESERVE TEHAS_DOMAIN TEHAS_EASY_MERGE TEHAS_GITHUB_APP_ID TEHAS_GITHUB_APP_INSTALLATION TEHAS_HOME
   TEHAS_HOST_ADDR TEHAS_IMPROVE_MAX_OPEN TEHAS_IMPROVE_REPO TEHAS_IMPROVE_RUKAS_REPO TEHAS_IMPROVE_RUKAS_SKIP
-  TEHAS_INDEXING TEHAS_INSTANCE_DIR TEHAS_LAYOUT TEHAS_LOW_GATE TEHAS_LOW_GATE_WAIT TEHAS_MAX_AWAITING
+  TEHAS_INDEXING TEHAS_INSTANCE_DIR TEHAS_LOW_GATE TEHAS_LOW_GATE_WAIT TEHAS_MAX_AWAITING
   TEHAS_MILLWRIGHT_EPICS TEHAS_MILLWRIGHT_FEED TEHAS_MILLWRIGHT_LOGIN TEHAS_MILLWRIGHT_MAX_FEEDS TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS
   TEHAS_MILLWRIGHT_MAX_RETRIES TEHAS_PLAN_MAX_TURNS TEHAS_PLAN_TIMEOUT TEHAS_POLL_BUDGET TEHAS_PREVIEWS TEHAS_PREVIEW_MAX
   TEHAS_PREVIEW_MIN_FREE TEHAS_PROTOLAB_URL TEHAS_REFRESH_CONFLICTS TEHAS_REFRESH_EVERY TEHAS_REFRESH_MAX
   TEHAS_REFRESH_SLOTS TEHAS_RELEASE_REPO TEHAS_REPO TEHAS_REVIEW TEHAS_REVIEW_REPO TEHAS_RUKAS_WORKAROUNDS
-  TEHAS_SCRATCH_DIR TEHAS_SIZE_MAX_BYTES TEHAS_SIZE_MAX_FILES TEHAS_SIZE_MAX_LINES TEHAS_SLICE_CONTAINERS TEHAS_THEME
+  TEHAS_SCRATCH_DIR TEHAS_SIZE_MAX_BYTES TEHAS_SIZE_MAX_FILES TEHAS_SIZE_MAX_LINES TEHAS_SLICE_CONTAINERS
   TEHAS_TICKET_CONCURRENCY TEHAS_TOP TEHAS_UPDATE_FROM TEHAS_VERIFY_TIMEOUT TEHAS_WORK_COMMENTS TEHAS_WORK_DESCRIBE
   TEHAS_WORK_FILES TEHAS_WORK_IMAGES TEHAS_WORK_REPO TEHAS_WORK_STALL TEHAS_WORK_TIMEOUT TEHAS_WORK_ZIPS)
 for name in "${names[@]}"; do
   for value in "${values[@]}"; do printf '%s\0%s\0' "$name" "$value"; done
 done >"$T/pairs"
 TEHAS_HOME=/h/tehas TEHAS_INSTANCE_DIR=/i/ TEHAS_WORK_REPO=/w "$T_CONSOLE" settings valid <"$T/pairs" >"$T/verb"
-t_eq "$(sha256sum <"$T/verb" | cut -d' ' -f1)" "5ca5fc55644837dcd8ad6189b6a757c6e7010bd284cc5c367b74088a432aa9fe"
+t_eq "$(sha256sum <"$T/verb" | cut -d' ' -f1)" "3c69cf93dd4f99543525657941b6070c482eccccf96fab511c10a28b3c046d4b"
 
 t_stub nproc 'echo 8'
 t_case "each kind of instance leaves the environment and the words bash left"
@@ -1623,7 +1658,7 @@ T_INSIDE=$TEHAS_INSTANCE_DIR/$HOME
 INSTANCES
 T_ENV=()
 t_instance "${T_MINIMAL[@]}"
-t_eq "$(sha256sum <"$T/loads" | cut -d' ' -f1)" "5c77573be0952a1a205ea69c57a1abf22812c80519befceb5a6eaf99190316d7"
+t_eq "$(sha256sum <"$T/loads" | cut -d' ' -f1)" "849c8cb84c603e41c4e3dc086fcf93311d12daa559805af4e56c1225e92904e4"
 t_contains "$(cat "$T/loads")" "rc=78"
 
 t_case "no instance.env keeps the environment as it was, as bash did"

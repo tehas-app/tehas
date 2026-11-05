@@ -13,9 +13,32 @@ empty one above it.
 
 ### Changes
 
+- `scripts/verify.sh` checks the workspace's format and lints on every run, not only with `--full`; in CI a missing rustfmt or clippy fails. `tehas setup` runs `--full` on a factory that builds tehas, so unformatted code that passed CI stopped setup three times. `console/dispatch` is formatted again (#1486).
+- The host's pinned tools are back to what v0.24.x released: Node 22.23.4, gh 2.103.3, bun 1.4.4, jq 1.8.2, Pi 1.4.0, ctx7 0.8.2, parallel-cli 0.9.4, Playwright 1.64.1, Rust 1.99.1, rustup 1.29.2, codebase-memory-mcp 0.12.1, Caddy 2.11.7 and CI's actions/checkout v7.0.1, each with its checksum, digest or lockfile. A merge had put the earlier pins back in `host/versions.env`, the npm trees beside it, the Caddy digests and the two workflows (#1475).
+- The site is two frontends with two pinned looks. The front page (`/`, `/floor`) names `theme-pixel.css` and every other page names `theme-beesknees26.css`, each with its own logo and share card, so no server rewrites a look. `TEHAS_THEME` and `TEHAS_LAYOUT` are retired, the `paper` and `beesknees` themes are gone, the front page is always the factory floor and `/business` is always the business page. The footers no longer link from one frontend to the other (#1488).
+
 ### Adopter action
 
-None.
+Take `TEHAS_THEME` and `TEHAS_LAYOUT` out of `instance.env`. A line that asks
+for what this version does anyway (`TEHAS_THEME=pixel`, `TEHAS_LAYOUT=floor`,
+or an empty value) loads and is dropped; any other value stops every tehas
+command with 78 and names the line. A host that had `TEHAS_LAYOUT=business`
+now has the factory floor at `/` and the business page at `/business`. Run the
+two `docker compose ... up -d` lines again: neither server is given those
+settings now.
+
+## v0.24.6 (2026-11-04)
+
+### Changes
+
+- A cycle that hands off on `lens-fix-reposition` with its pull request open and its review not held waits for a merge (`tehas:awaiting-merge`) instead of parking. The branch already holds the first review round's fix; only the second round's could not be laid on it. It was the most common park from 2026-10-31 (#1482).
+- A cycle's run log past 200 KB is read from its last 200 KB, and the report says what was left out. Such a cycle is parked with its retry boxes rather than handed off, since a log read from its end cannot say nothing came after its last step (#1474).
+- A plan that writes over an issue's body keeps the issue's `pi-spec v1` block. A new `tehas:lean` start whose issue has no single valid `pi-spec v1` block starts no cycle: the poll takes `tehas:ready` off and says why once (#1463).
+
+### Adopter action
+
+None. An issue labelled `tehas:lean` needs its `pi-spec v1` block before
+`tehas:ready` starts a cycle.
 
 ## v0.24.5 (2026-11-03)
 

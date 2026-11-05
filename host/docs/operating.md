@@ -448,6 +448,18 @@ choice.
   nothing until a person applies `tehas:ready` again. A person's `tehas:ready`
   that a park holds counts too: the ticked box then reads the label.
 - With the label off, the next start is classic, retry or not.
+- A new lean start also needs a `pi-spec v1` block in the issue's text: one
+  fence with that info string, holding valid JSON. With none the poll starts
+  nothing, takes `tehas:ready` off and says why once, as for a label from an
+  outside account; a retry runs the driver of the start it follows and asks
+  nothing of the block. Tehas checks only that the block is there and reads as
+  JSON; what it holds is the driver's to judge. A plan written over an issue by
+  `Update this issue` keeps the block the issue had, at the top.
+- The block is the only text the lean driver reads, so the words a person adds
+  to the issue plan nothing: what goes inside the fence is the whole brief, and
+  its fields are pi-rukas's to define. pi-rukas's `/plan` writes one, and
+  [Troubleshooting](/troubleshooting#what-a-park-says) says what to do when the
+  block is missing. A second block, or one that is no JSON, counts as none.
 
 ### What a poll costs
 
