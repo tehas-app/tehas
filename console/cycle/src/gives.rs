@@ -308,14 +308,11 @@ pub fn comments_only(home: &Path, issue: u64, dir: &Path, record: &str) -> Resul
     }
 }
 
-/// How the sandbox image gives a cycle the comments of a retry: `native` when
-/// its runner lists issueComments (trail-openers/pi-rukas#2020), `polyfill`
-/// when its `tehas.rukas.polyfills` label carries issue-comments@<version>,
-/// `off` otherwise. Only then does a park offer the comments retry.
-pub fn comments_mode(caps: &str, image: &str) -> &'static str {
-    if crate::caps::mode(caps, "issueComments", None).0 == "native" {
-        return "native";
-    }
+/// Whether the sandbox image carries the issue-comments polyfill: its
+/// `tehas.rukas.polyfills` label names issue-comments@<version>. With an image
+/// whose runner lists issueComments (trail-openers/pi-rukas#2020) the polyfill
+/// is not asked about.
+pub fn polyfill_label(image: &str) -> bool {
     let out = Command::new("docker")
         .args([
             "image",
@@ -327,16 +324,9 @@ pub fn comments_mode(caps: &str, image: &str) -> &'static str {
         .stdin(Stdio::null())
         .stderr(Stdio::null())
         .output();
-    let label = out
-        .ok()
+    out.ok()
         .filter(|o| o.status.success())
-        .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
-        .unwrap_or_default();
-    if polyfilled(&label) {
-        "polyfill"
-    } else {
-        "off"
-    }
+        .is_some_and(|o| polyfilled(&String::from_utf8_lossy(&o.stdout)))
 }
 
 /// Whether a `tehas.rukas.polyfills` label names the issue-comments polyfill.

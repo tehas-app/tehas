@@ -50,7 +50,7 @@ t_contains "$(t_calls gh)" "Nothing of it ran: no workspace, no container, no st
 t_lacks "$(t_calls gh)" "last step"
 t_lacks "$(t_calls gh)" "min,"
 t_lacks "$(t_calls gh)" "total, all dispatches"
-t_contains "$(t_calls gh)" "- [ ] Retry from a clean start"
+t_contains "$(t_calls gh)" "- [ ] Retry with the issue text only"
 # The approval goes with the report: no later start, the fixer's or a
 # refresh, rests on an approval that started nothing.
 t_eq "$(t_row approval-current 7 -- '[.approval, .current, .rests_on] | tostring')" '[null,null,null]'
@@ -130,7 +130,7 @@ t_contains "$(t_calls gh)" "--remove-label tehas:running --add-label needs-human
 t_contains "$(t_calls gh)" 'Tehas cycle handed off with its pull request open'
 t_contains "$(t_calls gh)" 'pi-rukas stopped on the cap `review-incomplete`.'
 t_contains "$(t_calls gh)" "Read the pull request before you retry: https://github.com/acme/widget/pull/9"
-t_contains "$(t_calls gh)" "- [ ] Retry from a clean start"
+t_contains "$(t_calls gh)" "- [ ] Retry with the issue text only"
 t_eq "$(park_of '[.reason, .pr]')" '["review-incomplete",9]'
 
 t_case "a handoff with its pull request open and no cap is parked"
@@ -197,7 +197,8 @@ t_contains "$body" '- ☑ Retry from a clean start'
 t_contains "$body" '<\!-- tehas:question kind=park issue=7 turn=1 -->'
 t_lacks "$body" "@someone"
 t_eq "$(grep -c 'pi-rukas:handoff' <<<"$body")" 1
-t_eq "$(grep -c '^- \[ \] Retry from a clean start' <<<"$body")" 1
+t_eq "$(grep -c '^- \[ \] Retry with the issue text only' <<<"$body")" 1
+t_eq "$(grep -c '^- \[.\] Retry from a clean start' <<<"$body")" 0
 
 t_case "a waiting merge posts pi-rukas's handoff on the pull request with the usage"
 reset

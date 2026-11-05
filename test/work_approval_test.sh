@@ -610,6 +610,29 @@ t_eq "$(manifest '[.images, .leftOut, .issue, .approval.how, .comments.file]')" 
 t_eq "$(after -v | LC_ALL=C sort)" "$(printf '%s\n' "$mounts_off" "$imgs:$inside.images:ro" | LC_ALL=C sort)"
 t_eq "$(after -e | sed 's/=.*//' | LC_ALL=C sort)" "$(printf '%s\n' "$want" PI_ENSEMBLE_EXTRA_IMAGE_DIRS | LC_ALL=C sort)"
 
+t_case "the image's word on comments is noted for the park, and a comments retry on the polyfill runs without the repeat-park guard"
+images_off
+rm -f "$T/image.label"
+issue_is "Words." NONE
+record_is alice "Words."
+record_edit '.how = "retry-tick" | .retry_context = [{source: "issue-comment", id: 1, by: "alice", at: "2026-01-01T00:20:00Z", url: "u", text: "x"}]'
+t_run "$work 7"
+t_eq "$(cat "$T/home/tehas/state/cycles/7.comments")" off
+t_lacks "$(after -e)" "PI_ENSEMBLE_REPEAT_PARK"
+echo 'issue-comments@0.1.0' >"$T/image.label"
+jq '.inputs += [{name: "PI_ENSEMBLE_REPEAT_PARK", scope: "cycle"}]' "$T/caps.json" >"$T/caps.new" && mv "$T/caps.new" "$T/caps.json"
+rm -f "$T"/calls/*
+t_run "$work 7"
+t_eq "$(cat "$T/home/tehas/state/cycles/7.comments")" polyfill
+t_contains "$(after -e)" "PI_ENSEMBLE_REPEAT_PARK=0"
+jq '.features.issueComments = true' "$T/caps.json" >"$T/caps.new" && mv "$T/caps.new" "$T/caps.json"
+rm -f "$T"/calls/*
+t_run "$work 7"
+t_eq "$(cat "$T/home/tehas/state/cycles/7.comments")" native
+t_lacks "$(after -e)" "PI_ENSEMBLE_REPEAT_PARK"
+rm -f "$T/image.label"
+caps_good
+
 # A start the fixer made rests on a person's approval: record_is <by> <body>
 # turned into the fixer's record of that start.
 fixer_record() { # <rests_on by>
