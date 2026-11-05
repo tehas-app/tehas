@@ -267,31 +267,15 @@ pub fn check(c: &Check) -> i32 {
     }
     let last = last.map(|s| s * 1000);
     vars.extend(sandbox::cycle_variables(&verify.to_string(), child, last));
-    // Whether the image gives a cycle a retry's comments, for the boxes of a
-    // park of this cycle. The polyfill does not reach the repeat-park guard,
-    // so a comments retry it alone carries runs without the guard.
-    let comments = if caps_rc == 0 {
-        crate::gives::comments_mode(&answer, &image)
-    } else {
-        "off"
-    };
-    let note = c.file.with_file_name(format!("{}.comments", c.issue));
-    if fs::write(&note, format!("{comments}\n")).is_err() {
-        eprintln!(
-            "tehas work: could not write {}, a park of this cycle offers no comments retry",
-            note.display()
-        );
-    }
-    if comments == "polyfill" && crate::gives::comments_retry(&c.record) {
-        let guard = "PI_ENSEMBLE_REPEAT_PARK";
-        if caps::unsupported(&answer, "", guard, "").as_deref() == Some("") {
-            vars.push(format!("{guard}=0"));
-        } else {
-            say(&format!(
-                "tehas work: the image does not take {guard}, so the repeat-park guard of this comments retry does not see its comments"
-            ));
-        }
-    }
+    // Whether the image's runner reads a retry's comments, for the boxes of a
+    // park of this cycle; the polyfill's label is read with the record. The
+    // polyfill does not reach the repeat-park guard, so a comments retry it
+    // alone carries runs without the guard where the image takes that input.
+    let native = caps_rc == 0 && caps::mode(&answer, "issueComments", None).0 == "native";
+    let guard = "PI_ENSEMBLE_REPEAT_PARK";
+    let unguard = !native
+        && crate::gives::comments_retry(&c.record)
+        && caps::unsupported(&answer, "", guard, "").as_deref() == Some("");
     let tree = tree_of(c.issue);
     let works = Path::new(&tree).parent().unwrap_or(Path::new(""));
     if works.exists() && !works.join(".tehas-workspaces").is_file() {
@@ -359,7 +343,7 @@ pub fn check(c: &Check) -> i32 {
         return STOPPED;
     }
     let state = json!({"limits": limits, "security": security, "env": vars,
-        "hosts": hosts, "flags": flags});
+        "hosts": hosts, "flags": flags, "comments": {"native": native, "unguard": unguard}});
     if !write_state(&c.file, &state) {
         eprintln!("tehas work: could not prepare the sandbox, not starting a cycle");
         return 78;
@@ -748,6 +732,20 @@ pub fn record(home: &Path, r: &Record) -> Result<Vec<String>, i32> {
     if !r.attempt.is_empty() && !on_record(home, r, &state) {
         return Err(4);
     }
+    let mut env_words = list(&state, "env");
+    let mode = if state.pointer("/comments/native") == Some(&Value::Bool(true)) {
+        "native"
+    } else if crate::gives::polyfill_label(&env("PI_ENSEMBLE_IMAGE")) {
+        "polyfill"
+    } else {
+        "off"
+    };
+    if fs::write(file("comments"), format!("{mode}\n")).is_err() {
+        eprintln!("tehas work: could not write the image's word on comments, a park of this cycle offers no comments retry");
+    }
+    if mode == "polyfill" && state.pointer("/comments/unguard") == Some(&Value::Bool(true)) {
+        env_words.extend(["-e".to_string(), "PI_ENSEMBLE_REPEAT_PARK=0".to_string()]);
+    }
     // A log is named to the second, so a cycle of this issue can be given the
     // name one before it used: what err.txt of the record copies is only what
     // this cycle writes into it. The line of the attachments' gap is one of them.
@@ -766,7 +764,7 @@ pub fn record(home: &Path, r: &Record) -> Result<Vec<String>, i32> {
         tree: &env("TEHAS_WORK_DIR"),
         mounts: &list(&state, "mounts"),
         images: &r.images,
-        env: &list(&state, "env"),
+        env: &env_words,
         hosts: &list(&state, "hosts"),
         image: &env("PI_ENSEMBLE_IMAGE"),
         issue: r.issue,
