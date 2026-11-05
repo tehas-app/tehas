@@ -647,33 +647,37 @@ turn_doc 41 '{"subcommand":"plan","exitCode":41,"status":"lost","lost":true}'
 t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/brief.md"
 t_eq "$t_rc" 2
 t_contains "$t_out" "the session abc-123 is gone: the runner has no record of it"
-t_eq "$(jq -c . "$T/out.json")" '{"session":"abc-123","lost":true}'
+# jq prints the keys of an object sorted, which is the order the document is
+# written in: a BTreeMap under serde_json, which has no `preserve_order`
+# feature here. The tests of plan/turn.rs and this file pin that order.
+t_eq "$(jq -c . "$T/out.json")" '{"lost":true,"session":"abc-123","why":"the session abc-123 is gone: the runner has no record of it"}'
 
 t_case "a refused or failed turn is exit 2, says why, and keeps the session for a retry"
-for doc in '40|{"exitCode":40,"error":{"code":"session-busy","message":"another run holds the session"}}' \
-  '40|{"exitCode":40,"status":"failed","session":{"id":"abc-123"},"failure":{"reason":"empty-url"}}' '30|'; do
+for row in '40|{"exitCode":40,"error":{"code":"session-busy","message":"another run holds the session"}}|the runner exited 40 (session-busy: another run holds the session)' \
+  '40|{"exitCode":40,"status":"failed","session":{"id":"abc-123"},"failure":{"reason":"empty-url"}}|the runner exited 40 (empty-url)' '30||the runner exited 30'; do
   first_turn_ran
-  turn_doc "${doc%%|*}" "${doc#*|}"
+  IFS='|' read -r rc body expected <<<"$row"
+  turn_doc "$rc" "$body"
   t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/brief.md"
   t_eq "$t_rc" 2
-  t_contains "$t_out" "the runner exited ${doc%%|*}"
-  t_eq "$(jq -c . "$T/out.json")" '{"session":"abc-123"}'
+  t_contains "$t_out" "the runner exited $rc"
+  t_eq "$(jq -c . "$T/out.json")" "{\"session\":\"abc-123\",\"why\":\"$expected\"}"
 done
 t_contains "$t_out" "the runner exited 30, see"
 
-t_case "a first turn whose runner names no session writes nothing; one that says and asks nothing fails"
+t_case "a first turn whose runner names no session writes only the reason; one that says and asks nothing fails"
 reset
 turn_doc 11 '{"text":"Hm.","questions":[]}'
 t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
 t_eq "$t_rc" 2
 t_contains "$t_out" "the session id is unknown"
-t_eq "$([ -e "$T/out.json" ] && echo written)" ""
+t_eq "$(jq -c . "$T/out.json")" '{"why":"the session id is unknown"}'
 reset
 turn_doc 11 '{"session":{"id":"abc-123"},"text":"","questions":[]}'
 t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
 t_eq "$t_rc" 2
 t_contains "$t_out" "the turn said and asked nothing"
-t_eq "$(jq -c . "$T/out.json")" '{"session":"abc-123"}'
+t_eq "$(jq -c . "$T/out.json")" '{"session":"abc-123","why":"the turn said and asked nothing"}'
 
 t_case "a session id longer than the store keeps is no session"
 reset
@@ -693,7 +697,7 @@ t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/br
 t_eq "$t_rc" 2
 t_contains "$t_out" "time limit of 1s passed"
 t_contains "$t_out" "the turn ran out of time"
-t_eq "$(jq -c . "$T/out.json")" '{"session":"abc-123"}'
+t_eq "$(jq -c . "$T/out.json")" '{"session":"abc-123","why":"the turn ran out of time"}'
 t_eq "$(grep -l -x stop "$T"/calls/docker.args.* | wc -l)" 1
 t_eq "$(cat "$T/keep/exit")" 124
 rm -f "$fx/live"
@@ -1026,6 +1030,45 @@ t_eq "$(after -v | grep -c images)" 1
 t_eq "$(after -v | grep -c -x "$tree.images:$ws.images:ro")" 1
 t_eq "$(after -e | sed 's/=.*//' | LC_ALL=C sort)" "$(printf '%s\n' "$want" PI_ENSEMBLE_EXTRA_IMAGE_DIRS PI_ENSEMBLE_PLAN_ISSUE | LC_ALL=C sort)"
 t_eq "$(turn_args | unknown_options "$image" "--name $docker_opts --user -w -v -e" "--rm --init")" ""
+
+t_case "with descriptions on each chat request names the issue in curl's config, and on no command line"
+rm -f "$T"/calls/* "$T/calls/curl-config"
+# The stub of the file keeps what curl was given on standard input beside the
+# address, and the file descriptor of the config a model request hands over.
+t_stub curl '
+out="" url="" conf=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -o) out=$2; shift ;;
+    -H | --max-filesize | --proto | --proto-redir | --max-redirs | --max-time | -w) shift ;;
+    -K) conf=$2; shift ;;
+    https://*) url=$1 ;;
+  esac
+  shift
+done
+# curl opens the config of a chat request by a file descriptor of this process.
+case "$conf" in /proc/*/fd/*) cat "$conf" >>"$T/calls/curl-config" ;; esac
+# A chat request (no -o) is piped in: read it all first, as curl does, so jq
+# writing it never meets a closed pipe (jq exits 2 then, which reads as curl 2).
+[ -n "$out" ] || cat >/dev/null
+key=$(printf %s "$url" | tr -c "A-Za-z0-9" _)
+printf "%s\n" "$url" >>"$T/calls/curl.urls"
+[ -f "$T/fx/net/$key" ] || exit 22
+# A request with no -o is a chat request to the model: the answer is printed.
+[ -n "$out" ] || { cat "$T/fx/net/$key"; exit 0; }
+cp "$T/fx/net/$key" "$out"
+printf application/octet-stream'
+images_on
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_IMAGES=1 TEHAS_WORK_DESCRIBE=1
+mkdir -p "$T/home/.pi/agent"
+echo '{"providers": {"test-provider": {"baseUrl": "https://models.test/v1"}}}' >"$T/home/.pi/agent/models.json"
+net "$A/1111" '\x89PNG\r\n\x1a\nPNGDATA'
+net https://models.test/v1/chat/completions '{"choices": [{"message": {"content": "A dialog."}}]}'
+issue_is "Look ![shot]($A/1111)"
+t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
+t_eq "$t_rc" 0
+t_eq "$(cat "$T/calls/curl-config")" 'header = "X-Tehas-Issue: 7"'
+t_lacks "$(t_calls curl)" "X-Tehas-Issue"
 
 t_case "a later turn describes nothing again"
 runner_keeps '{"turn":1}'

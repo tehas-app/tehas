@@ -2,7 +2,7 @@
 
 use crate::db;
 use crate::run::{self, iso_ms, Given};
-use crate::{execute, parse, Cmd};
+use crate::{execute, parse, Cmd, AT_AHEAD};
 use rusqlite::Connection;
 use serde_json::{json, Value};
 use std::fs;
@@ -105,6 +105,13 @@ fn record(home: &Path, issue: i64, now: i64) -> Connection {
 
 fn one<T: rusqlite::types::FromSql>(conn: &Connection, sql: &str) -> T {
     conn.query_row(sql, [], |r| r.get(0)).unwrap()
+}
+
+// `one` with the offsets of an --at case bound, so a test compares `at` to the
+// `now` it passed rather than to a literal epoch.
+fn one_at<T: rusqlite::types::FromSql>(conn: &Connection, sql: &str, now: i64) -> T {
+    conn.query_row(sql, rusqlite::params![now], |r| r.get(0))
+        .unwrap()
 }
 
 fn steps(conn: &Connection) -> Vec<(String, i64, i64, i64, i64)> {
@@ -2349,7 +2356,18 @@ fn an_event_is_stored_at_the_time_given_and_one_ahead_of_now_is_refused() {
     execute(&home, &Cmd::Event(8, "ready".into(), Some(now - 3600)), now).unwrap();
     execute(&home, &Cmd::Event(8, "started".into(), None), now).unwrap();
     execute(&home, &Cmd::Event(9, "ready".into(), Some(now + 60)), now).unwrap();
-    let err = execute(&home, &Cmd::Event(10, "ready".into(), Some(now + 61)), now).unwrap_err();
+    execute(
+        &home,
+        &Cmd::Event(10, "ready".into(), Some(now + AT_AHEAD)),
+        now,
+    )
+    .unwrap();
+    let err = execute(
+        &home,
+        &Cmd::Event(11, "ready".into(), Some(now + AT_AHEAD + 1)),
+        now,
+    )
+    .unwrap_err();
     assert_eq!(err.0, 64);
     let conn = Connection::open(db::path(&home)).unwrap();
     assert_eq!(
@@ -2358,7 +2376,162 @@ fn an_event_is_stored_at_the_time_given_and_one_ahead_of_now_is_refused() {
             "SELECT group_concat(issue || ':' || event || ':' || (at - 1792000000), ' ')
              FROM (SELECT * FROM issue_events ORDER BY issue, event)"
         ),
-        "8:ready:-3600 8:started:0 9:ready:60"
+        "8:ready:-3600 8:started:0 9:ready:0 10:ready:0"
+    );
+}
+
+// The clamp: an --at ahead of now within AT_AHEAD is recorded at now and said
+// on standard error, and one beyond it is refused with the row left out. A
+// sibling of the same issue in the past keeps its own seconds: the clamp is
+// conditional on the sign, not on how near now+AT_AHEAD the value is.
+#[test]
+fn an_event_ahead_of_now_is_clamped_to_now_and_the_clamp_is_noted() {
+    let home = scratch("event-at-clamp");
+    let now = 1_792_000_000;
+    // A few minutes ahead of now, beside one a few minutes behind it.
+    execute(&home, &Cmd::Event(4, "ready".into(), Some(now + 240)), now).unwrap();
+    execute(&home, &Cmd::Event(4, "closed".into(), Some(now - 240)), now).unwrap();
+    let conn = Connection::open(db::path(&home)).unwrap();
+    assert_eq!(
+        one_at::<String>(
+            &conn,
+            "SELECT group_concat(event || ':' || (at - ?1), ' ')
+             FROM (SELECT * FROM issue_events ORDER BY event)",
+            now,
+        ),
+        "closed:-240 ready:0"
+    );
+    // One ahead by less than a minute, which the old rule accepted: the row
+    // is kept too, and clamped.
+    execute(&home, &Cmd::Event(4, "started".into(), Some(now + 30)), now).unwrap();
+    assert_eq!(
+        one_at::<String>(
+            &conn,
+            "SELECT event || ':' || (at - ?1) FROM issue_events WHERE issue = 4
+             AND event = 'started'",
+            now,
+        ),
+        "started:0"
+    );
+    // The whole window is a clamp and the second past it is a refusal whose
+    // message names the window, and keeps no row.
+    execute(
+        &home,
+        &Cmd::Event(5, "ready".into(), Some(now + AT_AHEAD)),
+        now,
+    )
+    .unwrap();
+    let err = execute(
+        &home,
+        &Cmd::Event(5, "merged".into(), Some(now + AT_AHEAD + 1)),
+        now,
+    )
+    .unwrap_err();
+    assert_eq!(err.0, 64);
+    assert!(
+        err.1
+            .contains(&format!("more than {AT_AHEAD}s ahead of now")),
+        "the refusal names the window: {}",
+        err.1
+    );
+    assert_eq!(
+        one_at::<String>(
+            &conn,
+            "SELECT event || ':' || (at - ?1) FROM issue_events WHERE issue = 5",
+            now
+        ),
+        "ready:0"
+    );
+    assert_eq!(one::<i64>(&conn, "SELECT count(*) FROM issue_events"), 4);
+}
+
+// A time that needs no clamp keeps its own seconds, and the whole window up
+// to AT_AHEAD is a clamp. A sibling of one issue at the same distance either
+// side of now is what tells clamp from keep.
+#[test]
+fn an_event_at_now_or_in_the_past_is_not_clamped_and_says_nothing() {
+    let home = scratch("event-at-kept");
+    let now = 1_792_000_000;
+    execute(&home, &Cmd::Event(6, "ready".into(), Some(now)), now).unwrap();
+    execute(&home, &Cmd::Event(6, "started".into(), Some(now - 1)), now).unwrap();
+    execute(
+        &home,
+        &Cmd::Event(7, "ready".into(), Some(now - AT_AHEAD)),
+        now,
+    )
+    .unwrap();
+    execute(
+        &home,
+        &Cmd::Event(7, "closed".into(), Some(now + AT_AHEAD)),
+        now,
+    )
+    .unwrap();
+    let conn = Connection::open(db::path(&home)).unwrap();
+    assert_eq!(
+        one_at::<String>(
+            &conn,
+            "SELECT group_concat(issue || ':' || event || ':' || (at - ?1), ' ')
+             FROM (SELECT * FROM issue_events ORDER BY issue, event)",
+            now,
+        ),
+        "6:ready:0 6:started:-1 7:closed:0 7:ready:-3600"
+    );
+}
+
+// A `now` that is no clock at all (tehas_core's now returns 0 for a clock
+// before 1970) judges nothing: every --at is stored as its caller asked
+// rather than refused, which is the loss the clamp exists to prevent.
+#[test]
+fn an_event_with_no_clock_keeps_the_time_given_rather_than_being_refused() {
+    let home = scratch("event-at-no-clock");
+    for (issue, wanted) in [
+        (1, 0),
+        (2, 1_792_003_601),
+        (3, 1_792_000_000 - AT_AHEAD - 1),
+    ] {
+        for now in [0, -1] {
+            execute(&home, &Cmd::Event(issue, "ready".into(), Some(wanted)), now).unwrap();
+        }
+    }
+    let conn = Connection::open(db::path(&home)).unwrap();
+    assert_eq!(one::<i64>(&conn, "SELECT count(*) FROM issue_events"), 3);
+    assert_eq!(
+        one::<String>(
+            &conn,
+            "SELECT group_concat(issue || ':' || at, ' ')
+             FROM (SELECT * FROM issue_events ORDER BY issue)"
+        ),
+        "1:0 2:1792003601 3:1791996399"
+    );
+}
+
+// An --at far behind now is stored as given: the bound is on the ahead side
+// only. The far row is older than prune's cutoff, so it is gone by the time
+// the near row of the same call is written, which is what the counts say.
+#[test]
+fn an_event_far_in_the_past_is_stored_as_given() {
+    let home = scratch("event-at-past");
+    let now = 1_792_000_000;
+    let far = now - db::RETENTION_DAYS * 86_400 - 1;
+    execute(&home, &Cmd::Event(12, "ready".into(), Some(far)), now).unwrap();
+    execute(
+        &home,
+        &Cmd::Event(13, "ready".into(), Some(now + AT_AHEAD)),
+        now,
+    )
+    .unwrap();
+    let conn = Connection::open(db::path(&home)).unwrap();
+    assert_eq!(
+        one_at::<String>(
+            &conn,
+            "SELECT group_concat(issue || ':' || (at - ?1), ' ') FROM (SELECT * FROM issue_events WHERE issue = 13 ORDER BY issue)",
+            now,
+        ),
+        "13:0"
+    );
+    assert_eq!(
+        one::<i64>(&conn, "SELECT count(*) FROM issue_events WHERE issue = 12"),
+        0
     );
 }
 
@@ -2853,6 +3026,38 @@ fn the_report_command_adds_the_refine_and_size_figures() {
     // The Size line says the buckets by name.
     assert!(
         crate::report::text(&got).contains("none: 0 shipped 0, lead - | 1-2: 0 shipped 0, lead - | 3-4: 0 shipped 0, lead - | 5+: 0 shipped 0, lead -"),
+    );
+}
+
+// A lead the view computes backwards is no lead: an issue whose merge is
+// stamped before the ready behind it ships, but its negative seconds are not
+// counted, as `refine` leaves them out.
+#[test]
+fn a_ship_whose_merge_precedes_its_ready_contributes_no_lead() {
+    let home = scratch("report-sizes-negative-lead");
+    let day0 = 1_792_022_400;
+    let to = day0 + 9 * DAY + 43_200;
+    let (conn, _) = db::open(&db::path(&home), day0).unwrap();
+    std::fs::create_dir_all(home.join("state")).unwrap();
+    conn.execute(
+        "INSERT OR IGNORE INTO issue_events (at, issue, event) VALUES (?1, ?2, ?3)",
+        rusqlite::params![day0 + 2000, 1, "ready"],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT OR IGNORE INTO issue_events (at, issue, event) VALUES (?1, ?2, ?3)",
+        rusqlite::params![day0 + 1000, 1, "merged"],
+    )
+    .unwrap();
+    put(
+        &home,
+        "state/sizes.jsonl",
+        &ledger(&[json!({"at": iso(day0 + 900), "issue": 1, "files": 2})]),
+    );
+    let got = crate::report::sizes(&conn, &crate::report::read_sizes(&home), to).unwrap();
+    assert_eq!(
+        got["1-2"],
+        json!({"n": 1, "shipped": 1, "leadTime": {"n": 0}})
     );
 }
 
