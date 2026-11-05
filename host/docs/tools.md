@@ -2913,12 +2913,18 @@ file is served.
 the counts in line, building, in review and stopped. `checks.cycles` has the
 issue, status, step and times of every running cycle; `checks.cycle` is the
 first of them, or the cycle that finished last when none is running.
-`checks.plans` has the issue, the turn and `startedAt` of every planning turn
-in flight: a session the state store has running (`plan-show --open`) whose
-lock (`state/plan-<issue>.json.lock`) its unit holds. The page asks the one
-probe, so a lock it cannot open, or a name at that path that is no lock file, is
-a turn in flight too: the page reads a probe it could not make as a turn that has
-not ended, never as one that has. A store that does not
+`checks.plans` has the issue, the turn, `startedAt` and `state` of every
+planning turn in flight and of every open session whose last turn ended in
+error. `state` is `running` for a session the state store has running
+(`plan-show --open`) whose lock (`state/plan-<issue>.json.lock`) its unit holds.
+The page asks the one probe, so a lock it cannot open, or a name at that path
+that is no lock file, is a turn in flight too: the page reads a probe it could
+not make as a turn that has not ended, never as one that has. `state` is
+`failed` for a session still open whose last turn ended in error and waits for
+a person: the store has it failed, or it is running on record beside an exit
+status (`state/plan-<issue>.json.rc`) other than 0 that the next poll posts. A
+session that is over, one whose turn finished, and one whose turn was cut off
+are left out. A store that does not
 answer writes no health file: `tehasbot health` exits 1 when it was busy, 78
 when it is not installed or cannot be used. The publish of the report is tried
 three times while the store is busy, within 30 s of its own, so that a store
