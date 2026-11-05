@@ -25,7 +25,9 @@ nap=$(command -pv sleep)
 # lines beside its file as the console does (console/src/now.rs), read from the
 # log it was given with --progress. A case that means two lines of its own
 # writes $T/now.step and $T/now.text, which the stub copies instead of the log;
-# a case that means no now file at all writes $T/now.off.
+# a case that means no now file at all writes $T/now.off. A case that means the
+# step of its log read whatever the load writes $T/now.wait: the stub waits up
+# to ten seconds for a step-started line in the log before it reads it.
 tree=$T/tree
 mkdir -p "$tree/libexec"
 ln -s "$T_ROOT/lib" "$tree/lib"
@@ -46,6 +48,11 @@ for a in "$@"; do
 done
 [ -n "${now:-}" ] || exit 0
 [ -e "$T/now.off" ] && exit 0
+i=0
+while [ -e "$T/now.wait" ] && [ "$i" -lt 200 ] && ! grep -qs step-started "${log:-}"; do
+  command -p sleep 0.05
+  i=$((i + 1))
+done
 if [ -e "$T/now.step" ] || [ -e "$T/now.text" ]; then
   step=$(cat "$T/now.step" 2>/dev/null)
   text=$(cat "$T/now.text" 2>/dev/null)
@@ -334,7 +341,7 @@ gone='wait; exit 137'
 # container-default, holds that default for every case that names none).
 fresh() {
   local e t_keep=()
-  rm -rf "$T"/calls/* "$live/cycles" "$T/sleeper.pid" "$T/container.sh" "$T"/home/tehas/logs/work-7-*
+  rm -rf "$T"/calls/* "$live/cycles" "$T/sleeper.pid" "$T/container.sh" "$T/now.wait" "$T"/home/tehas/logs/work-7-*
   t_store_home "$T/home/tehas"
   # A fresh store has no start, so no attempt of one (under_cycle).
   for e in "${T_ENV[@]}"; do [[ $e == TEHAS_CYCLE_ATTEMPT=* ]] || t_keep+=("$e"); done
@@ -361,16 +368,22 @@ case "$1 $2" in
   "issue comment") [ ! -e "$T/fx/comment-fails" ] || exit 1 ;;
 esac'
 t_stub curl '
-out="" url="" max=0 header=0
+out="" url="" max=0 header=0 conf=""
 while [ $# -gt 0 ]; do
   case "$1" in
     -o) out=$2; shift ;;
     --max-filesize) max=$2; shift ;;
     -H) header=1; shift ;;
+    -K) conf=$2; shift ;;
     https://*) url=$1 ;;
   esac
   shift
 done
+# A model request gives curl its headers in a config file opened by a file
+# descriptor of this process (console/cycle/src/describe.rs reads the bytes and
+# hands over the descriptor). The stub reads it before it reads the body, so a
+# case can name both of them.
+case "$conf" in /proc/*/fd/*) cat "$conf" >>"$T/calls/curl-config" ;; esac
 key=$(printf %s "$url" | tr -c "A-Za-z0-9" _)
 [ "$header" = 1 ] && { printf "%s " "$url"; cat; } >>"$T/calls/curl-headers"
 [ -f "$T/fx/net/$key.rc" ] && exit "$(cat "$T/fx/net/$key.rc")"

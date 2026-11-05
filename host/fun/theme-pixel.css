@@ -3,8 +3,8 @@
 
    A theme is one file, theme-<name>.css beside this one, that sets every token
    below; nothing else on the site names a colour, a typeface or a shadow. The
-   instance picks one with TEHAS_THEME (lib/config.sh lists the names), and the
-   servers answer /fun/theme.css with it.
+   front page names this file and every other page names
+   theme-beesknees26.css: no server picks a look.
    test/theme_test.sh checks that every theme sets the same tokens and that the
    pages use no others. Every colour here is twelve bits (#RGB). */
 

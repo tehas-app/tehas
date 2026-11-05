@@ -12,11 +12,12 @@ use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
+use tehas_core::snapshot::{API, OUTCOMES_SHAPE};
 use tehas_core::time::{civil_from_days, days_from_civil, week_start_of_day};
 
 /// The shape of the entries, which the analytics program writes and this
-/// reader checks: the one number it holds is `outcomes::shape` on both sides.
-const OUTCOMES: i64 = 1;
+/// reader checks: `tehas_core::snapshot` holds the one number both sides use.
+const OUTCOMES: i64 = OUTCOMES_SHAPE;
 /// How far back the counts reach is the file's own `days`, which the reader
 /// answers with. The writer holds the figure: it is the retention it applies.
 const DAY: i64 = 86_400;
@@ -126,7 +127,7 @@ impl File_ {
             .read_line(&mut first)
             .map_err(|_| bad_file("could not be read"))?;
         let head: Value = serde_json::from_str(&first).map_err(|_| bad_file("has no header"))?;
-        if head["api"] != 1 {
+        if head["api"] != API {
             return Err(bad_file("has a header of another api"));
         }
         // The header says what the file holds, as the snapshot's does: the

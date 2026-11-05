@@ -30,7 +30,10 @@ images() {
   done
   printf '{"images":[%s],"leftOut":[],"issue":7,"approval":null}\n' "$(IFS=,; echo "${list[*]}")" >"$dir/manifest.json"
 }
-describe="export PI_ENSEMBLE_SUBAGENT_PROVIDER=test-provider PI_ENSEMBLE_SUBAGENT_MODEL=test-model; '$T_CYCLE' describe $dir"
+describe="export PI_ENSEMBLE_SUBAGENT_PROVIDER=test-provider PI_ENSEMBLE_SUBAGENT_MODEL=test-model; '$T_CYCLE' describe $dir 7"
+# What each chat request was given in its curl config, in the order curl read
+# it: the token line and the issue line for one request, a pair per image.
+chat_headers() { grep -e '^header = ' "$T/calls/curl-config" 2>/dev/null; }
 sections() { grep -c '^## ' "$dir/images.md"; }
 
 t_case "a directory with no manifest returns 1, prints nothing and writes nothing"
@@ -49,7 +52,11 @@ t_eq "$t_rc$t_out" "0"
 t_eq "$(t_calls curl | sed 's#-K /proc/[0-9]*/fd/[0-9]* ##' | sort -u)" "-fsS -m 60 -H Content-Type: application/json -d @- http://models.test:8080/v1/chat/completions"
 t_eq "$(t_calls curl | wc -l)" 2
 t_lacks "$(t_calls curl)" "Authorization"
-t_eq "$(cat "$T/calls/curl-config" 2>/dev/null)" ""
+# The token is the secret this case is about. The issue's header goes with a
+# request even when no endpoint is named, and the case that names the token
+# below pins the two lines together.
+t_eq "$(chat_headers | tr '\n' '|')" 'header = "X-Tehas-Issue: 7"|header = "X-Tehas-Issue: 7"|'
+t_eq "$(cat "$T/calls/curl" | wc -l)" 2
 
 t_case "the request names the model, carries the fixed prompt and the image's bytes"
 req=$T/calls/request.1
@@ -159,7 +166,19 @@ t_case "the endpoint's token goes in the curl config, not on the command line"
 jq -n '{providers: {"test-provider": {baseUrl: "http://models.test:8080/v1", apiKey: "$TEHAS_MODEL_KEY_MAIN"}}}' >"$T/home/.pi/agent/models.json"
 images 1
 t_run "export TEHAS_MODEL_KEY_MAIN=main-secret; $describe"
-t_eq "$(cat "$T/calls/curl-config")" 'header = "Authorization: Bearer main-secret"'
+t_eq "$(cat "$T/calls/curl-config")" $'header = "Authorization: Bearer main-secret"\nheader = "X-Tehas-Issue: 7"'
 t_lacks "$(t_calls curl)" "secret"
+t_lacks "$(t_calls curl)" "Bearer"
+
+t_case "the issue's number is on every chat request, beside the token, and never on a command line"
+images 2
+t_run "export TEHAS_MODEL_KEY_MAIN=main-secret; $describe"
+t_eq "$(chat_headers | tr '\n' '|')" $'header = "Authorization: Bearer main-secret"|header = "X-Tehas-Issue: 7"|header = "Authorization: Bearer main-secret"|header = "X-Tehas-Issue: 7"|'
+t_lacks "$(t_calls curl)" "X-Tehas-Issue"
+
+t_case "an issue that is no number sends no header, and the token is sent all the same"
+images 1
+t_run "export TEHAS_MODEL_KEY_MAIN=main-secret; ${describe% 7} not-a-number"
+t_eq "$(chat_headers)" 'header = "Authorization: Bearer main-secret"'
 
 t_done
