@@ -38,23 +38,31 @@ struct Conflict {
     base: String,
 }
 
-/// The conflicts of a run, and the issues whose requests stay.
+/// The conflicts of a run, the issues whose requests stay, and the counts the
+/// run's line gives beside the conflicts: the pull requests GitHub still has
+/// `UNKNOWN`, and the ones that are not ours to refresh.
 #[derive(Debug, Default, PartialEq)]
 struct Found {
     conflicts: Vec<Conflict>,
+    unknown: usize,
+    not_ours: usize,
     keep: BTreeSet<u64>,
 }
 
 /// UNKNOWN keeps a request and asks for none: GitHub computes the state
-/// lazily and the next run reads it again.
+/// lazily and the next run reads it again. A pull request the rule rejects,
+/// or whose head or base is no sha, is not ours to refresh. What is left of
+/// the page is the bot's that GitHub says do not conflict.
 fn found(nodes: &[Value], bot: &str, repo: &str, control: u64) -> Found {
     let mut f = Found::default();
     for node in nodes {
         if !refresh_why(node, bot, repo, control).is_empty() {
+            f.not_ours += 1;
             continue;
         }
         let (head, base) = (node.get("headRefOid"), node.get("baseRefOid"));
         if !hex40(head) || !hex40(base) {
+            f.not_ours += 1;
             continue;
         }
         let number = |v: Option<&Value>| v.and_then(Value::as_u64);
@@ -62,6 +70,7 @@ fn found(nodes: &[Value], bot: &str, repo: &str, control: u64) -> Found {
             number(node.pointer("/closingIssuesReferences/nodes/0/number")),
             number(node.get("number")),
         ) else {
+            f.not_ours += 1;
             continue;
         };
         match node.get("mergeable").and_then(Value::as_str) {
@@ -75,6 +84,7 @@ fn found(nodes: &[Value], bot: &str, repo: &str, control: u64) -> Found {
                 });
             }
             Some("UNKNOWN") => {
+                f.unknown += 1;
                 f.keep.insert(issue);
             }
             _ => {}
@@ -232,9 +242,11 @@ impl Run {
         }
         sweep(&self.dir, &f.keep);
         self.line(&format!(
-            "read {} pull requests, {} conflict, wrote {wrote} requests",
+            "read {} pull requests: {} conflict, {} unknown, {} not ours to refresh, wrote {wrote} requests",
             nodes.len(),
-            f.conflicts.len()
+            f.conflicts.len(),
+            f.unknown,
+            f.not_ours
         ));
         0
     }
@@ -344,6 +356,7 @@ mod tests {
             }]
         );
         assert_eq!(f.keep, BTreeSet::from([7]));
+        assert_eq!((f.unknown, f.not_ours), (0, 0));
     }
 
     #[test]
@@ -357,6 +370,26 @@ mod tests {
         let f = of(&[unknown, clean, gone]);
         assert!(f.conflicts.is_empty());
         assert_eq!(f.keep, BTreeSet::from([7]));
+        // The bot's that do not conflict are neither unknown nor not ours.
+        assert_eq!((f.unknown, f.not_ours), (1, 0));
+    }
+
+    #[test]
+    fn what_the_rule_rejects_is_counted_as_not_ours_to_refresh() {
+        let conflict = pull(50, 7);
+        let mut unknown = pull(51, 8);
+        unknown["mergeable"] = json!("UNKNOWN");
+        let mut clean = pull(52, 9);
+        clean["mergeable"] = json!("MERGEABLE");
+        let mut foreign = pull(53, 10);
+        foreign["author"]["login"] = json!("alice");
+        let mut fork = pull(54, 11);
+        fork["isCrossRepository"] = json!(true);
+        let mut no_sha = pull(55, 12);
+        no_sha["headRefOid"] = json!("abc");
+        let f = of(&[conflict, unknown, clean, foreign, fork, no_sha, json!(null)]);
+        assert_eq!(f.conflicts.len(), 1);
+        assert_eq!((f.unknown, f.not_ours), (1, 4));
     }
 
     #[test]
@@ -366,7 +399,11 @@ mod tests {
                 let mut p = pull(50, 7);
                 p["mergeable"] = json!(state);
                 p[field] = json!("abc");
-                assert_eq!(of(&[p]), Found::default(), "{field} {state}");
+                let not_ours = Found {
+                    not_ours: 1,
+                    ..Found::default()
+                };
+                assert_eq!(of(&[p]), not_ours, "{field} {state}");
             }
         }
     }
@@ -377,7 +414,10 @@ mod tests {
         other["author"]["login"] = json!("alice");
         assert_eq!(
             of(&[other, json!(null), json!("x"), pull(51, 1)]),
-            Found::default()
+            Found {
+                not_ours: 4,
+                ..Found::default()
+            }
         );
     }
 
