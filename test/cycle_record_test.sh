@@ -585,7 +585,7 @@ reset
 copy=$T/home/tehas/run/cycle-7-1
 mkdir -p "$copy/libexec"
 ln -s "$T_ROOT/lib" "$copy/lib"
-ln -s "$T_ROOT/libexec/cycle" "$copy/libexec/cycle"
+ln -s "$cycle" "$copy/libexec/cycle"
 printf '%s\n' '#!/usr/bin/env bash' 'echo "$1" >>"$T/calls/copy"' "exec \"$T_CYCLE\" \"\$@\"" >"$copy/libexec/tehas-cycle"
 chmod +x "$copy/libexec/tehas-cycle"
 rm -f "$T/home/tehas/libexec/tehas-cycle"
@@ -883,13 +883,13 @@ tree=$T/tree
 mkdir -p "$tree/libexec" "$tree/lib" "$tree/bin"
 cp "$cycle" "$tree/libexec/cycle"
 cp "$T_ROOT"/lib/*.sh "$tree/lib/"
-cp "$T/bin/fake-work" "$tree/libexec/work"
+cp "$T/bin/fake-work" "$tree/bin/tehas"
 cp "$T/bin/fake-status" "$tree/bin/tehasbot"
 cp "$T_CYCLE" "$tree/libexec/tehas-cycle"
 for name in tehas tehasbot tehas-work tehas-status; do t_stub "$name"; done
 t_run "$tree/libexec/cycle 7"
 t_eq "$t_rc" 0
-t_eq "$(t_calls fake-work)" "7"
+t_eq "$(t_calls fake-work)" "work 7"
 t_eq "$(t_calls fake-status)" "status"
 for name in tehas tehasbot tehas-work tehas-status; do t_eq "$(t_calls "$name")" ""; done
 

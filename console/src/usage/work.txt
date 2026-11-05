@@ -1,0 +1,16 @@
+tehas work: one pi-rukas /work cycle, run headless in the sandbox image, to
+its end. The cycle is `tehas-cycle work` (console/cycle/src/work.rs), which
+says what the container is given and what every exit status means.
+
+The console loads the settings and execs it. It takes
+state/cycles/<issue>.lock and hands it down to every program of the cycle,
+the docker client among them. Under tehasbot cycle the lock comes down
+already held, and is taken as it is.
+
+Usage: tehas work <issue-number> [--restart] [--driver lean|classic]
+The driver is the approval's, or classic; --driver wins over it.
+
+Exit: 64 the argument is not an issue number, or tehas-cycle refuses the
+options after it; 78 the settings are missing or malformed, or there is no
+tehas-cycle beside the console; 5 a cycle for this issue is running, nothing
+was touched; else tehas-cycle work's.

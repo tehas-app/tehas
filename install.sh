@@ -703,12 +703,9 @@ for f in tehas tehasbot; do
   files+=("bin/$f|$TEHAS_HOME/bin/$f|755")
 done
 for f in \
-  cycle \
   dev-login \
-  index \
   setup \
-  update \
-  work; do
+  update; do
   files+=("libexec/$f|$TEHAS_HOME/libexec/$f|755")
 done
 # What tehas labels makes. A change here owes the labels step.
@@ -1234,9 +1231,10 @@ a_cycle_runs() { # true while a cycle holds its lock
 # Protolab's server files of before the edge router. And the wrappers of what is
 # now a verb of the console, and the libraries of what is now a verb of
 # tehas-cycle, and the jq program of the bash report. And the libraries whose
-# last callers moved into the console, the scripts that only exec'd it, and
-# the release list of before it was a plain file (lib/release.list). Found
-# here, removed in step 5 once systemd has the new units.
+# last callers moved into the console, the scripts that only exec'd it, the
+# release list of before it was a plain file (lib/release.list), and the
+# scripts that took a lock for tehas-cycle, which takes it itself. Found here,
+# removed in step 5 once systemd has the new units.
 old=()
 for f in \
   bin/tehas-console.ts \
@@ -1267,6 +1265,7 @@ for f in \
   libexec/plan \
   libexec/review \
   libexec/console.ts \
+  libexec/cycle \
   lib/limit.sh \
   lib/live.sh \
   lib/headless.sh \
@@ -1281,6 +1280,7 @@ for f in \
   libexec/export \
   libexec/health \
   libexec/history \
+  libexec/index \
   libexec/init-product \
   libexec/labels \
   libexec/limit \
@@ -1298,6 +1298,7 @@ for f in \
   libexec/top \
   libexec/top-publish \
   libexec/with-settings \
+  libexec/work \
   lib/disk.sh \
   lib/top.sh \
   lib/update-release.sh \

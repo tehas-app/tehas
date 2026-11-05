@@ -209,10 +209,15 @@ fn tehasbot_command(named: Option<String>, here: &Path, verb: &str) -> (String, 
 /// The writes of a poll, with the host's commands as the settings name them.
 /// The console takes a verb; a stand-in named by TEHAS_TIDY_CMD takes none.
 fn tidy_args(hook: bool) -> Vec<String> {
+    own_words(hook, &["tidy", "run"])
+}
+
+/// The words of the install's own command, none for a test's hook.
+fn own_words(hook: bool, words: &[&str]) -> Vec<String> {
     if hook {
         Vec::new()
     } else {
-        vec!["tidy".into(), "run".into()]
+        words.iter().map(|w| w.to_string()).collect()
     }
 }
 
@@ -313,7 +318,9 @@ fn writer(
             checkout: env("TEHAS_WORK_REPO"),
             branch: settings.branch.clone(),
             git: "git".into(),
-            index_cmd: or("TEHAS_INDEX_CMD", "index"),
+            // The unit has none of the poll's settings: bin/tehas loads them.
+            index_cmd: or("TEHAS_INDEX_CMD", "../bin/tehas"),
+            index_args: own_words(opt("TEHAS_INDEX_CMD").is_some(), &["index"]),
             index_start_cmd: opt("TEHAS_INDEX_START_CMD"),
             // timeout's 0 is no bound.
             fetch_wait: match env("TEHAS_FETCH_WAIT").parse::<u64>() {
@@ -922,6 +929,8 @@ mod tests {
     fn the_console_is_told_the_verb_and_a_stand_in_is_told_nothing() {
         assert_eq!(tidy_args(false), ["tidy", "run"]);
         assert!(tidy_args(true).is_empty());
+        assert_eq!(own_words(false, &["index"]), ["index"]);
+        assert!(own_words(true, &["index"]).is_empty());
     }
 
     /// A scratch home of this test, with `live/` in it.

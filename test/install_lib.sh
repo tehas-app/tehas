@@ -109,9 +109,7 @@ files="./.bashrc
 ./tehas/libexec/attach.stamp
 ./tehas/libexec/console
 ./tehas/libexec/console.stamp
-./tehas/libexec/cycle
 ./tehas/libexec/dev-login
-./tehas/libexec/index
 ./tehas/libexec/setup
 ./tehas/libexec/store
 ./tehas/libexec/store.stamp
@@ -122,7 +120,6 @@ files="./.bashrc
 ./tehas/libexec/tehas-mcp
 ./tehas/libexec/tehas-mcp.stamp
 ./tehas/libexec/update
-./tehas/libexec/work
 ./tehas/release/minisign.pub
 ./tehas/sandbox/Dockerfile
 ./tehas/sandbox/build.sh
