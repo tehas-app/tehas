@@ -1,0 +1,19 @@
+# The development tasks of this repository: the logic of the scripts in
+# scripts/ that a person or the gate runs, each script left as a short exec of
+# `cargo run -p tehas-xtask`. Nothing here is installed on a host. A member of
+# the workspace in ../Cargo.toml.
+[package]
+name = "tehas-xtask"
+version = "0.1.0"
+edition = "2021"
+# The oldest compiler that builds the workspace's members.
+rust-version = "1.89"
+publish = false
+
+[[bin]]
+name = "xtask"
+path = "src/main.rs"
+
+[dependencies]
+serde_json = "1"
+tehas-core = { path = "../core" }
