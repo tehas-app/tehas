@@ -4545,9 +4545,12 @@ pi-rukas leaves both off. The digest is written as `sha256:` and 64 hex digits.
 The tree it packs is the working directory, or `TEHAS_PACK_ROOT` when that names
 one, so a workflow that checks a tag out into its own workspace points the
 script at the checkout rather than at the runner's copy of the script. It reads
-that tree and its arguments and nothing else: no network, no git, no cargo. It
+that tree and its arguments and nothing else: no network, no git. The work is
+`xtask pack-release` in the workspace's `console/xtask`
+(`console/xtask/src/pack.rs`), which the script builds offline with cargo, or
+the build `TEHAS_XTASK` names; the release runner holds cargo already. It
 builds no console of its own; the workflow compiles it for linux x86_64 and
-hands the binary over, which is why the pack script needs no toolchain. Which
+hands the binary over. Which
 architecture the binaries are is read from the programs themselves, from the
 two bytes of e_machine at offset 18 of each ELF header, so a release is not
 packed on what whoever ran the workflow believed.

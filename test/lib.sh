@@ -651,6 +651,27 @@ t_store() {
   fi
   cp "$T_TARGET/debug/store" "$T_STORE"
 }
+# t_xtask: the development tasks of this checkout (console/xtask), in
+# $T_XTASK, built once per file offline into $T_TARGET. The scripts that exec
+# it (scripts/pack-release.sh) take it from TEHAS_XTASK, which every later run
+# of the file is given. Returns 1 with the reason in $t_xtask_why.
+T_XTASK=$T/xtask-bin
+t_xtask_why=""
+t_xtask() {
+  [ -x "$T_XTASK" ] && return 0
+  if ! command -v cargo >/dev/null 2>&1; then
+    t_xtask_why="cargo is not installed"
+    return 1
+  fi
+  if ! cargo build --locked --offline --quiet --manifest-path "$T_ROOT/console/Cargo.toml" \
+    --target-dir "$T_TARGET" -p tehas-xtask >"$T/xtask-build.log" 2>&1; then
+    t_xtask_why="the xtask did not build offline: $(tail -n 1 "$T/xtask-build.log")"
+    return 1
+  fi
+  cp "$T_TARGET/debug/xtask" "$T_XTASK" || return 1
+  export TEHAS_XTASK=$T_XTASK
+  T_ENV_ALWAYS+=(TEHAS_XTASK="$T_XTASK")
+}
 # t_attach: the attachment checker of this checkout, in $T_ATTACH, as t_store
 # gets the store: from T_ATTACH_BIN, or built here when the file runs alone.
 T_ATTACH=$T/attach-bin

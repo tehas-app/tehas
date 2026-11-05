@@ -14,18 +14,16 @@ T_ENV=(PATH="$T/bin:/usr/bin:/bin" TEHAS_TEST_JOBS=1 TMPDIR="$T")
 
 # The task, built once. The scratch checkout has no workspace, so its
 # select-tests.sh runs this build over the checkout.
-if ! command -v cargo >/dev/null 2>&1 || ! cargo build --locked --offline --quiet --manifest-path "$T_ROOT/console/Cargo.toml" \
-  --target-dir "$T_TARGET" -p tehas-xtask >"$T/xtask-build.log" 2>&1; then
-  echo "FAIL: the xtask did not build offline: $(tail -n 1 "$T/xtask-build.log" 2>/dev/null)"
+t_xtask || {
+  echo "FAIL: $t_xtask_why"
   exit 1
-fi
-cp "$T_TARGET/debug/xtask" "$T/xtask"
+}
 
 fresh() {
   rm -rf "$repo"
   mkdir -p "$repo/scripts" "$repo/test/fixtures/headless-x" "$repo/lib" "$repo/libexec" "$repo/docs" "$repo/host/fun"
   cp "$T_ROOT/scripts/test.sh" "$T_ROOT/scripts/verify.sh" "$repo/scripts/"
-  printf '#!/usr/bin/env bash\nexec "%s" select-tests --root "$(cd "$(dirname "$0")/.." && pwd)" "$@"\n' "$T/xtask" >"$repo/scripts/select-tests.sh"
+  printf '#!/usr/bin/env bash\nexec "%s" select-tests --root "$(cd "$(dirname "$0")/.." && pwd)" "$@"\n' "$T_XTASK" >"$repo/scripts/select-tests.sh"
   chmod +x "$repo/scripts/select-tests.sh"
   printf '#!/usr/bin/env bash\nexit 0\n' >"$repo/scripts/check-generic.sh"
   printf '#!/usr/bin/env bash\nexit 0\n' >"$repo/scripts/check-bash-lines.sh"
