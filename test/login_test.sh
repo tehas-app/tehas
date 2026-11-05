@@ -104,7 +104,6 @@ rm -f "$T/bin/id" "$T/bin/getent" "$T/bin/sudo"
 t_console || t_bad "no console: $t_console_why"
 mkdir -p "$T/tree/libexec"
 ln -s "$T_ROOT/libexec/dev-login" "$T/tree/libexec/dev-login"
-ln -s "$T_ROOT/libexec/dev" "$T/tree/libexec/dev"
 ln -s "$T_ROOT/lib" "$T/tree/lib"
 cp "$T_CONSOLE" "$T/tree/libexec/console"
 # shellcheck disable=SC2154  # t_cycle_why is set by t_cycle (test/lib.sh)

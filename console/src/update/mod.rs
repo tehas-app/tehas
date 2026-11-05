@@ -1,7 +1,8 @@
-//! What `tehas update` decides and does. libexec/update holds the lock, because
-//! install.sh of any version takes it as an inherited descriptor, and runs
-//! install.sh between the verbs here; everything else of an update is in them.
+//! What `tehas update` decides and does. libexec/update execs `run`, which does
+//! the whole of it; the other verbs are its steps, which an older libexec/update
+//! runs one by one, and the questions install.sh asks.
 //!
+//!   console update run <console> <arguments>
 //!   console update args <arguments>
 //!   console update gate <arguments>
 //!   console update prepare --plan <file> <arguments>
@@ -10,9 +11,11 @@
 //!     --install-err <file> --install-rc <n>
 //!   console update release source|installed|newest|keep
 //!   console update release older|stale <version> <version>
+//!   console update sources <workspace> <package>...
 //!   console update steps ids|units|valid <line>|owed|for <source>...|record <source>...
 //!   console update wait update|dispatch
 //!
+//! `run` is in src/update/run.rs and holds the lock, src/update/lock.rs.
 //! `args` judges the arguments before any setting is read, and answers --help.
 //! `gate` says, with the settings loaded and before the lock, whether this run
 //! may go on. `prepare` runs under the lock: it reads the steps an earlier run
@@ -22,7 +25,8 @@
 //! the update ran, and the one left has to finish it. `finish` reads install.sh's
 //! answer and runs the follow-ups, see src/update/finish.rs. `release` answers
 //! one question about the releases, and `steps` names the steps and records them
-//! for install.sh, see src/update/steps.rs. `wait` says how long a lock is waited
+//! for install.sh, see src/update/steps.rs. `sources` gives install.sh the
+//! checksum of each program's source, see src/update/sources.rs. `wait` says how long a lock is waited
 //! for, see src/update/wait.rs.
 //!
 //! Every program is spawned by name from PATH, so a host's own tool, or a
@@ -34,7 +38,10 @@
 
 mod checkout;
 mod finish;
+mod lock;
 pub(crate) mod release;
+mod run;
+mod sources;
 mod steps;
 mod wait;
 
@@ -47,8 +54,9 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-/// What `console update api` answers. libexec/update passes this plan and these
-/// arguments to `finish`; a console that answers anything else cannot finish it.
+/// What `console update api` answers. `run`, and an older libexec/update, pass
+/// this plan and these arguments to `finish`; a console that answers anything
+/// else cannot finish it.
 const API: u8 = 1;
 
 /// This verb was the whole of the run, and it went well.
@@ -109,7 +117,7 @@ pub(crate) struct Plan {
 
 impl Plan {
     fn text(&self) -> String {
-        // The script reads the first two lines.
+        // An older libexec/update reads the first two lines.
         let mut text = format!(
             "tree={}\nmode={}\nfrom={}\nfound={}\nreused={}\n",
             self.tree,
@@ -519,6 +527,7 @@ fn prepare(given: &[String]) -> u8 {
 
 pub fn main(given: &[String]) -> u8 {
     match given.split_first() {
+        Some((verb, rest)) if verb == "run" => run::main(rest),
         Some((verb, rest)) if verb == "args" => args(rest),
         Some((verb, rest)) if verb == "gate" => gate(rest),
         Some((verb, rest)) if verb == "prepare" => prepare(rest),
@@ -528,10 +537,11 @@ pub fn main(given: &[String]) -> u8 {
         }
         Some((verb, rest)) if verb == "finish" => finish::main(rest),
         Some((verb, rest)) if verb == "release" => release::verb(rest),
+        Some((verb, rest)) if verb == "sources" => sources::verb(rest),
         Some((verb, rest)) if verb == "steps" => steps::verb(rest),
         Some((verb, rest)) if verb == "wait" => wait::verb(rest),
         _ => {
-            tell("console update: usage: args | gate | prepare | api | finish | release <question> | steps <question> | wait update|dispatch");
+            tell("console update: usage: run <console> <arguments> | args | gate | prepare | api | finish | release <question> | sources <workspace> <package>... | steps <question> | wait update|dispatch");
             64
         }
     }

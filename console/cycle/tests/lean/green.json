@@ -1,0 +1,105 @@
+{
+  "buildCommit": null,
+  "buildVersion": "0.14.53",
+  "subcommand": "work-lean",
+  "issue": 7,
+  "exitCode": 10,
+  "state": "handed-back",
+  "summary": "work-lean #7: handed-back (exit 10)",
+  "steps": 9,
+  "schemaVersion": 5,
+  "issues": [
+    {
+      "issue": 7,
+      "status": "handoff",
+      "stateFile": ".pi/lean-state/7.json",
+      "durationMs": 510000,
+      "steps": [
+        {
+          "step": "ready",
+          "startedAt": "2026-11-01T09:32:20.000Z",
+          "endedAt": "2026-11-01T09:32:50.000Z"
+        },
+        {
+          "step": "specify",
+          "startedAt": "2026-11-01T09:33:20.000Z",
+          "endedAt": "2026-11-01T09:33:50.000Z"
+        },
+        {
+          "step": "build",
+          "startedAt": "2026-11-01T09:34:20.000Z",
+          "endedAt": "2026-11-01T09:34:50.000Z"
+        },
+        {
+          "step": "verify",
+          "startedAt": "2026-11-01T09:35:20.000Z",
+          "endedAt": "2026-11-01T09:35:50.000Z"
+        },
+        {
+          "step": "publish",
+          "startedAt": "2026-11-01T09:36:20.000Z",
+          "endedAt": "2026-11-01T09:36:50.000Z"
+        },
+        {
+          "step": "review",
+          "startedAt": "2026-11-01T09:37:20.000Z",
+          "endedAt": "2026-11-01T09:37:50.000Z"
+        },
+        {
+          "step": "ci",
+          "startedAt": "2026-11-01T09:38:20.000Z",
+          "endedAt": "2026-11-01T09:38:50.000Z"
+        },
+        {
+          "step": "land",
+          "startedAt": "2026-11-01T09:39:20.000Z",
+          "endedAt": "2026-11-01T09:39:50.000Z"
+        },
+        {
+          "step": "handback",
+          "startedAt": "2026-11-01T09:40:20.000Z",
+          "endedAt": "2026-11-01T09:40:50.000Z"
+        }
+      ],
+      "exitCode": 10,
+      "resumable": false,
+      "usage": {
+        "input": 2400,
+        "output": 600,
+        "cacheRead": 100,
+        "cacheWrite": 0,
+        "cost": 0,
+        "turns": 12,
+        "dispatches": 2,
+        "byRole": {
+          "developer": {
+            "input": 2400,
+            "output": 600,
+            "cacheRead": 100,
+            "cacheWrite": 0,
+            "cost": 0,
+            "turns": 12,
+            "dispatches": 2
+          }
+        }
+      },
+      "branch": "lean/issue-7",
+      "prState": "ready",
+      "cap": "awaiting-human-merge",
+      "failure": {
+        "kind": "process",
+        "message": "autoMerge is not true in .pi/work.json at the run's base (the config was read, and it did not grant the merge)",
+        "step": "handoff",
+        "role": "developer"
+      },
+      "prUrl": "https://github.com/acme/widget/pull/41",
+      "handoff": {
+        "channel": "host",
+        "marker": "<!-- pi-rukas:handoff issue=7 cap=awaiting-human-merge -->",
+        "labelApplied": false,
+        "labelSkipped": "host-channel",
+        "body": "<!-- pi-rukas:handoff issue=7 cap=awaiting-human-merge -->\n\nThe pull request https://github.com/acme/widget/pull/41 is green and waits for a person to merge it."
+      }
+    }
+  ]
+}

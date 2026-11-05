@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Tests for the gh shim's write log (host/shim/gh): which calls it counts as
-# writes, the six fields of the line it appends, and that a write keeps gh's
-# own stdout, stderr and exit status whatever the log does. The real gh is a
+# Tests for the gh shim's write log (host/shim/gh and `console gh` behind it):
+# which calls it counts as writes, the six fields of the line it appends, that
+# a write keeps gh's own stdout, stderr and exit status whatever the log does,
+# and that gh still works when the console does not. The real gh is a
 # stub (t_stub) that answers what GH_OUT, GH_ERR and GH_RC name: no network,
 # and no GitHub asked of anything.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
@@ -13,8 +14,8 @@ log=$T/home/tehas/state/github-writes.log
 
 # The poll's token (#938), measured on the same installed shim. The dispatcher
 # gives every gh child of a poll TEHAS_GH_TOKEN, and the shim then exports it
-# as GH_TOKEN and runs no libexec/github-token. A token program of the case's
-# stands under libexec and says on a file of its own that it ran, so the one
+# as GH_TOKEN and runs no tehasbot github-token. A tehasbot of the case's
+# stands under bin and says on a file of its own that it ran, so the one
 # thing gh's arguments cannot say - that it was not run at all - is seen.
 install_shim() {
   local h=$T/home/tehas
@@ -23,7 +24,7 @@ install_shim() {
   cp "$T_ROOT/host/shim/gh" "$h/shim/gh"
   chmod +x "$h/shim/gh"
   # The two lines lib/config.sh and lib/github-app.sh, from the source of this
-  # run: the token program of libexec is asked in the environment of the run,
+  # run: tehasbot github-token is asked in the environment of the run,
   # so it must be able to load its settings as the host's does.
   mkdir -p "$h/lib"
   cp "$T_ROOT/lib/config.sh" "$T_ROOT/lib/github-app.sh" "$T_ROOT/lib/paths.sh" "$h/lib/"
@@ -37,13 +38,13 @@ install_shim() {
 if [ -n "${SHOW_TOKEN:-}" ]; then printf "token=%s tehas=%s\n" "${GH_TOKEN:-none}" "${TEHAS_GH_TOKEN:-unset}"; fi
 [ -z "${GH_ERR:-}" ] || printf "%s\n" "$GH_ERR" >&2
 exit "${GH_RC:-0}"'
-  # libexec/github-token of this run with the console beside it, which
+  # bin/tehasbot of this run with the console beside it, whose github-token
   # loads the settings and prints a token that has at least 10 minutes left;
   # the case keeps the one it wants
   # and the run notes here that the program was asked at all. openssl and curl
   # are never reached, because the kept token has its time left.
-  cp "$T_ROOT/libexec/github-token" "$h/libexec/"
-  chmod +x "$h/libexec/github-token"
+  mkdir -p "$h/bin"
+  cp "$T_ROOT/bin/tehasbot" "$h/bin/"
   ln -sf "$T_CONSOLE" "$h/libexec/console"
   # t_instance writes the instance and names it in the runs that follow.
   t_instance TEHAS_REPO=acme/widget TEHAS_GITHUB_APP_ID=5452597 \
@@ -52,18 +53,18 @@ exit "${GH_RC:-0}"'
   printf 'a key\n' >"$T/home/.config/tehas/github-app.pem"
   chmod 600 "$T/home/.config/tehas/github-app.pem"
   # The note of a run, beside the kept token of the case, with an hour left.
-  # The real program stays under libexec, where its own directory finds the two
-  # lines of lib/ above; a case says whether it was asked by what it leaves on
+  # The real command stays under bin, where its own directory finds the
+  # console; a case says whether it was asked by what it leaves on
   # $T/token-runs.
   mkdir -p "$h/state/github"
   printf '%s\n' "${TOKEN_ANSWER:-ghs_token}" >"$h/state/github/token"
   echo $(($(date +%s) + 3600)) >"$h/state/github/token.expires"
   {
     printf '%s\n' "printf x >>\"$T/token-runs\""
-    cat "$h/libexec/github-token"
-  } >"$h/libexec/github-token.new"
-  mv "$h/libexec/github-token.new" "$h/libexec/github-token"
-  chmod 755 "$h/libexec/github-token"
+    cat "$h/bin/tehasbot"
+  } >"$h/bin/tehasbot.new"
+  mv "$h/bin/tehasbot.new" "$h/bin/tehasbot"
+  chmod 755 "$h/bin/tehasbot"
   mv "$T/bin/gh" "$h/bin/gh"
   chmod +x "$h/bin/gh"
 }
@@ -331,7 +332,7 @@ t_eq "$(lines | wc -l)" 1
 
 # The poll's token (#938): the dispatcher gives every gh child of a poll the
 # token it took at its start as TEHAS_GH_TOKEN, and the shim hands it to gh as
-# GH_TOKEN and runs no libexec/github-token. The token program of the home says
+# GH_TOKEN and runs no tehasbot github-token. The tehasbot of the home says
 # on a file of its own that it ran, so a case sees both that gh was given the
 # token and that the program was not run for the call.
 t_case "with TEHAS_GH_TOKEN set the shim gives gh that token and runs no token program"
@@ -375,5 +376,34 @@ t_eq "$t_rc" 0
 t_eq "$t_out" "gh api repos/o/r
 token=ghs_poll tehas=ghs_poll"
 t_eq "$(cat "$T/token-runs" 2>/dev/null | wc -c | tr -d '[:space:]' | head -n 1)" 0
+
+t_case "with no console the shim still runs gh, with its token, and logs nothing"
+reset
+# A host that needs repair: the console is gone or cannot be run. Reads and
+# writes reach gh as they came, and the token is still given.
+rm -f "$T/home/tehas/libexec/console"
+T_ENV=(TEHAS_GH_TOKEN=ghs_poll SHOW_TOKEN=1)
+shim issue comment 12 -R o/r --body secret
+t_eq "$t_rc" 0
+t_eq "$t_out" "gh issue comment 12 -R o/r --body secret
+token=ghs_poll tehas=ghs_poll"
+shim issue view 12
+t_eq "$t_rc" 0
+t_contains "$t_out" "gh issue view 12"
+printf 'not a program\n' >"$T/home/tehas/libexec/console"
+chmod 644 "$T/home/tehas/libexec/console"
+T_ENV=(GH_RC=3)
+shim pr merge 5 --repo o/r
+t_eq "$t_rc" 3
+t_eq "$t_out" "gh pr merge 5 --repo o/r"
+t_eq "$(lines)" ""
+
+t_case "a write whose gh cannot be run says so and logs nothing"
+reset
+rm -f "$T/home/tehas/bin/gh"
+shim issue comment 12 -R o/r
+t_eq "$t_rc" 127
+t_contains "$t_out" "bin/gh"
+t_eq "$(lines)" ""
 
 t_done

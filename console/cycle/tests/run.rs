@@ -78,8 +78,8 @@ fn a_home_that_is_not_absolute_is_refused() {
 #[test]
 fn a_planning_turn_runs_its_program_from_its_copy() {
     let h = home("plan");
-    let plan = h.join("libexec/plan");
-    write_exe(&plan, "#!/bin/sh\necho \"$0 $* pid=$$\"\n").unwrap();
+    let tehas = h.join("bin/tehas");
+    write_exe(&tehas, "#!/bin/sh\necho \"$0 $* pid=$$\"\n").unwrap();
     let out = Command::new(env!("CARGO_BIN_EXE_tehas-cycle"))
         .args(["pin", "plan", "7", "plan", "7", "--out", "o"])
         .env("TEHAS_HOME", h.path())
@@ -91,12 +91,12 @@ fn a_planning_turn_runs_its_program_from_its_copy() {
     let dir = h.join(format!("run/plan-7-{pid}"));
     assert_eq!(
         out.trim(),
-        format!("{}/libexec/plan 7 --out o pid={pid}", dir.display())
+        format!("{}/bin/tehas plan 7 --out o pid={pid}", dir.display())
     );
 }
 
 #[test]
-fn a_planning_turn_names_a_program_of_libexec_only() {
+fn a_planning_turn_names_a_command_of_tehas_only() {
     for program in ["../bin/tehasbot", "", ".hidden"] {
         let out = Command::new(env!("CARGO_BIN_EXE_tehas-cycle"))
             .args(["pin", "plan", "7", program])

@@ -468,7 +468,7 @@ pub struct Calls {
     /// The GitHub App's token, taken once at the poll's first gh call and kept
     /// here. Every gh process of the poll gets it as `TEHAS_GH_TOKEN`, which
     /// host/shim/gh hands to gh as `GH_TOKEN` instead of asking
-    /// libexec/github-token for one of its own. The poll holds it in memory
+    /// `tehasbot github-token` for one of its own. The poll holds it in memory
     /// only: it is never logged, written, or put in the poll's record, and a
     /// poll with no app named has nothing here.
     pub gh_token: Option<String>,
@@ -532,7 +532,7 @@ impl Calls {
 const BATCH_BOUND: u64 = tehas_core::file::READ_BOUND;
 
 /// The token of the host's GitHub App, asked for once by the poll that first
-/// needs it: `$TEHAS_HOME/libexec/github-token` with the poll's own environment,
+/// needs it: `$TEHAS_HOME/bin/tehasbot github-token` with the poll's own environment,
 /// as the bash runs it, printing the token and nothing else. Only when
 /// `TEHAS_GITHUB_APP_ID` names an app. When the program could not be run or
 /// answered nothing, this gives nothing and the poll's gh calls go on as they
@@ -544,11 +544,8 @@ pub fn read_gh_token(home: &Path, bound: Duration) -> Option<String> {
     {
         return None;
     }
-    let program = home
-        .join("libexec/github-token")
-        .to_string_lossy()
-        .into_owned();
-    let r = run(&program, &[], bound);
+    let program = home.join("bin/tehasbot").to_string_lossy().into_owned();
+    let r = run(&program, &["github-token".to_string()], bound);
     let token = r.out.lines().next().unwrap_or("").trim();
     if r.ok() && !token.is_empty() {
         Some(token.to_string())
@@ -975,21 +972,21 @@ pub(super) mod tests {
         assert_eq!(parse("not json"), serde_json::json!("not json"));
     }
 
-    /// A host of one's own for a case of the token: `libexec/github-token` of
+    /// A host of one's own for a case of the token: `bin/tehasbot` of
     /// the home counts its runs and answers a token of its own, and the stub gh
     /// beside it answers a read with the token it was given. `counter` asks for
     /// The program of a case that only fails it does not need.
     /// The directory is named by the case, so two cases never share a counter.
     fn token_home(name: &str, counter: bool) -> Option<TestDir> {
         let dir = TestDir::new(name);
-        if std::fs::create_dir_all(dir.join("libexec")).is_err() {
+        if std::fs::create_dir_all(dir.join("bin")).is_err() {
             return None;
         }
-        let token = dir.join("libexec/github-token");
+        let token = dir.join("bin/tehasbot");
         // The program of a case that fails at making one says its reason on the
-        // error stream and ends non-zero, as libexec/github-token does.
+        // error stream and ends non-zero, as `tehasbot github-token` does.
         let body = if counter {
-            "#!/bin/sh\ncount=\"$0.count\"\n\
+            "#!/bin/sh\n[ \"$*\" = github-token ] || exit 64\ncount=\"$0.count\"\n\
              n=$(cat \"$count\" 2>/dev/null || echo 0)\n\
              n=$((n + 1)); echo \"$n\" >\"$count\"\nprintf 'ghs_%s\\n' \"$n\"\n"
         } else {
@@ -1280,7 +1277,7 @@ printf '[{{"number":1}}]\n'
             read_gh_token(&home, Duration::from_secs(5)).as_deref(),
             Some("ghs_2")
         );
-        let n = std::fs::read_to_string(home.join("libexec/github-token.count"))
+        let n = std::fs::read_to_string(home.join("bin/tehasbot.count"))
             .unwrap_or_default()
             .trim()
             .to_string();
@@ -1320,7 +1317,7 @@ printf '[{{"number":1}}]\n'
         assert_eq!(calls.gh_token, None);
         assert_eq!(calls.gh_count, 3);
         assert!(
-            !home.join("libexec/github-token.count").exists(),
+            !home.join("bin/tehasbot.count").exists(),
             "no token program runs when the instance names no app"
         );
     }
@@ -1332,7 +1329,7 @@ printf '[{{"number":1}}]\n'
             Some(d) => d,
             None => return,
         };
-        let program = home.join("libexec/github-token");
+        let program = home.join("bin/tehasbot");
         std::env::set_var("TEHAS_GITHUB_APP_ID", "5452597");
         let mut calls = calls_of(&home);
 

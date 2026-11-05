@@ -1687,10 +1687,30 @@ mod tests {
         let d = dir("poll");
         let lock = d.join("dispatch.lock");
         assert!(poll_passed(&lock, 0));
-        let held = File::open(&lock).unwrap();
-        held.lock().unwrap();
+        // The holder is a process of its own, as in lock::tests. A lock this
+        // process took would belong to its open file description, which a
+        // child another test forks in the meantime shares until it execs, so
+        // the lock could outlive its drop here. The holder prints when it
+        // holds and gives the lock up when its stdin closes.
+        let mut holder = std::process::Command::new("flock")
+            .arg("-x")
+            .arg(&lock)
+            .arg("-c")
+            .arg("echo held; read _")
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut said = String::new();
+        std::io::BufRead::read_line(
+            &mut std::io::BufReader::new(holder.stdout.take().unwrap()),
+            &mut said,
+        )
+        .unwrap();
+        assert_eq!(said.trim(), "held", "the holder never took the lock");
         assert!(!poll_passed(&lock, 0));
-        drop(held);
+        drop(holder.stdin.take().unwrap());
+        holder.wait().unwrap();
         assert!(poll_passed(&lock, 0));
         assert!(!poll_passed(&d.join("no/such/dir"), 0));
     }

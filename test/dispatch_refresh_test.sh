@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for libexec/dispatch: refreshes of pull requests that conflict, how one
+# Tests for tehasbot dispatch: refreshes of pull requests that conflict, how one
 # starts and what drops it.
 # shellcheck disable=SC2016  # snippets are expanded by the shell under test
 # shellcheck source=test/lib.sh

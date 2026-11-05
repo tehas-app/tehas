@@ -13,7 +13,7 @@
 . "$(dirname "$0")/lib.sh" || exit 1
 
 pack=$T_ROOT/scripts/pack-release.sh
-manifest=$T_ROOT/lib/release.sh
+manifest=$T_ROOT/lib/release.list
 dist=$T/dist
 build=$T/build
 tree=$T/tree
@@ -39,8 +39,12 @@ padding='\000\000\000\000\000\000\000\000\000\000\000\000\000\000'
 machine_x86_64_hex=3e00
 machine_aarch64_hex=b700
 # The packed file list, read from the one place it is written down.
-mapfile -t want_dirs < <(. "$manifest" && tehas_release_dirs)
-mapfile -t want_plain < <(. "$manifest" && tehas_release_plain)
+# The entries of one [section] of the list, read as pack-release.sh reads it.
+release_list() { # release_list <section> [list file]
+  awk -v want="[$1]" '/^#/ || NF == 0 { next } /^\[/ { on = ($0 == want); next } on' "${2:-$manifest}"
+}
+mapfile -t want_dirs < <(release_list dirs)
+mapfile -t want_plain < <(release_list plain)
 
 # A console is needed by almost every run, and the out dir is written fresh
 # each time, so both are set up before the cases start.
@@ -89,11 +93,10 @@ make_tree() {
     cp "$T_ROOT/$f" "$tree/$f"
   done
   cp "$T_ROOT/install.sh" "$tree/"
-  cp "$T_ROOT/lib/release.sh" "$tree/lib/"
+  cp "$T_ROOT/lib/release.list" "$tree/lib/"
   cp "$T_ROOT/host/versions.env" "$tree/host/"
   cp "$T_ROOT/bin/tehas" "$tree/bin/"
-  cp "$T_ROOT/libexec/dispatch" "$tree/libexec/"
-  cp "$T_ROOT/libexec/work" "$tree/libexec/"
+  cp "$T_ROOT/libexec/setup" "$tree/libexec/"
   cp "$T_ROOT/lib/config.sh" "$tree/lib/"
   cp "$T_ROOT/host/sandbox/build.sh" "$tree/host/sandbox/"
   mkdir -p "$tree/instances"
@@ -133,8 +136,8 @@ for d in "${want_dirs[@]}"; do
   done
 done
 # Named by hand: the files an adopter's install and its host depend on.
-for want in tehas-v9.9.9/bin/tehas tehas-v9.9.9/bin/tehasbot tehas-v9.9.9/libexec/dispatch \
-  tehas-v9.9.9/libexec/work tehas-v9.9.9/libexec/console tehas-v9.9.9/lib/config.sh \
+for want in tehas-v9.9.9/bin/tehas tehas-v9.9.9/bin/tehasbot \
+  tehas-v9.9.9/libexec/setup tehas-v9.9.9/libexec/console tehas-v9.9.9/lib/config.sh \
   tehas-v9.9.9/VERSION tehas-v9.9.9/host/versions.env \
   tehas-v9.9.9/host/sandbox/build.sh tehas-v9.9.9/host/docs/tools.md \
   tehas-v9.9.9/host/release/minisign.pub; do
@@ -146,6 +149,18 @@ done
 # One top directory, so unpacking leaves tehas-v9.9.9/ and nothing beside it.
 t_eq "$(cut -d/ -f1 <<<"$list" | LC_ALL=C sort -u | tr '\n' ' ')" "tehas-v9.9.9 "
 
+t_case "the list packs what lib/release.sh did, and the tarball carries the list"
+# The sections hold what the three functions of lib/release.sh printed, in the
+# same order, so a tarball packed from the list holds the same files as before
+# it was a plain file, but for the list itself.
+t_eq "$(release_list dirs | tr '\n' ' ')" "bin libexec lib host "
+t_eq "$(release_list plain | tr '\n' ' ')" "install.sh bootstrap.sh LICENSE NOTICE AGENTS.md CHANGELOG.md "
+t_eq "$(release_list extra | tr '\n' ' ')" "instances/example "
+t_contains "$list" "tehas-v9.9.9/lib/release.list"
+case $list in
+  *"tehas-v9.9.9/lib/release.sh"*) t_bad "the retired lib/release.sh is in the tarball" ;;
+esac
+
 # Two statements in one list would read as a guard that holds, so they are
 # apart: what the pack script never copies at all, and what the tree it copies
 # carries that must not come along.
@@ -155,7 +170,7 @@ t_pack
 t_eq "$t_rc" 0
 list=$(tar -tzf "$dist/$tar_gz" | LC_ALL=C sort)
 # These sit under the repository root, which is not among the directories
-# lib/release.sh names, so no copy could bring them: named to say so.
+# lib/release.list names, so no copy could bring them: named to say so.
 for absent in console/ preview/ docs/; do
   case $list in
     *"tehas-v9.9.9/$absent"*) t_bad "$absent is in the tarball" ;;
@@ -347,13 +362,11 @@ tar -xzf "$dist/$tar_gz" -C "$T"
 t_eq "$(sed -n 2p "$T/tehas-v9.9.9/libexec/console")" "console built by the workflow"
 
 t_case "a tree whose list names nothing is refused, and writes nothing"
-# Two empty lists pass every existence check below them, so a manifest whose
-# functions print nothing has to be a refusal rather than a release of nothing.
+# Two empty lists pass every existence check below them, so a list whose
+# sections hold nothing has to be a refusal rather than a release of nothing.
 t_pack_reset
 make_tree
-printf '%s\n' '# shellcheck shell=bash' \
-  'tehas_release_dirs() { :; }' \
-  'tehas_release_plain() { :; }' >"$tree/lib/release.sh"
+printf '%s\n' '# nothing to pack' '[dirs]' '' '[plain]' '# install.sh' >"$tree/lib/release.list"
 TEHAS_PACK_ROOT=$tree t_pack
 t_eq "$t_rc" 1
 t_contains "$t_out" "names nothing to pack"
@@ -376,13 +389,13 @@ TEHAS_PACK_ROOT=$tree t_pack
 t_eq "$t_rc" 0
 t_eq "$(tar -tzf "$dist/$tar_gz" | grep -c '^tehas-v9.9.9/host/escape$')" 0
 
-# What lib/release.sh promises: every file install.sh reads from the tree is
+# What lib/release.list promises: every file install.sh reads from the tree is
 # among the packed ones, so a release cannot be missing one install.sh wants.
 # Read from install.sh itself rather than copied here, which is the drift this
 # checks for.
 t_case "every source install.sh reads is covered by the list the pack uses"
 # Read from install.sh rather than copied into this file: the drift between what
-# install.sh reads and what lib/release.sh names is what a broken release is,
+# install.sh reads and what lib/release.list names is what a broken release is,
 # and a second hand-written list could not see it.
 cases=0
 check_sources() { # <lines of source paths>: each has to be covered by the lists
@@ -421,7 +434,7 @@ check_sources() { # <lines of source paths>: each has to be covered by the lists
         printf '%s\n' "${want_plain[@]}" | grep -qx "host/$src" ||
           printf '%s\n' "${want_plain[@]}" | grep -qx "$src" ||
           [ -f "$T_ROOT/host/$src" ] ||
-          t_bad "$src: install.sh reads it and neither list of lib/release.sh has it"
+          t_bad "$src: install.sh reads it and neither list of lib/release.list has it"
         ;;
     esac
   done
@@ -669,10 +682,10 @@ t_eq "$(find "$dist" -maxdepth 1 -type f 2>/dev/null | wc -l)" 0
 t_case "a tree without the list to pack is refused, and names itself"
 t_pack_reset
 make_tree
-rm -f "$tree/lib/release.sh"
+rm -f "$tree/lib/release.list"
 TEHAS_PACK_ROOT=$tree t_pack
 t_eq "$t_rc" 1
-t_contains "$t_out" "lib/release.sh is missing from $tree"
+t_contains "$t_out" "lib/release.list is missing from $tree"
 
 t_case "that same tree with the file it was missing packs"
 make_tree

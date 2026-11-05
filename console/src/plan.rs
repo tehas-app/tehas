@@ -338,7 +338,7 @@ fn untyped(title: &str, typed: bool) -> (&str, Option<&'static str>) {
     }
 }
 
-/// What the first turn of libexec/plan plans, on one line: the issue's title,
+/// What the first turn of `tehas plan` plans, on one line: the issue's title,
 /// or the drafted plan's own `Title:` line when the brief opens with one, so a
 /// half of a split is named for its own work and not its parent's, without a
 /// leading type, which the drafted title gets from pi-rukas. The issue's

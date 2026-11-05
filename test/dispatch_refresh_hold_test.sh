@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for libexec/dispatch: what holds a refresh, the refresh lane, and the
+# Tests for tehasbot dispatch: what holds a refresh, the refresh lane, and the
 # tehas:refreshing mark.
 # shellcheck disable=SC2016  # snippets are expanded by the shell under test
 # shellcheck source=test/lib.sh

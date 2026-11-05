@@ -83,6 +83,7 @@ const KEPT: &[&str] = &[
     "TEHAS_GITHUB_RENEW_EVERY",
     "TEHAS_ENERGY",
     "TEHAS_ENERGY_URL",
+    "TEHAS_INDUSTRY_VERSION",
     "TEHAS_MCP",
     "TEHAS_MCP_KEYS",
     "TEHAS_MCP_DASHBOARD_KEYS",
@@ -934,6 +935,7 @@ mod tests {
             ("TEHAS_WORK_CMD", "fake-work"),
             ("TEHAS_MODEL_KEY_FLEET", "t0"),
             ("PI_RUKAS_FOLLOW", "release"),
+            ("TEHAS_INDUSTRY_VERSION", "v0.9.0"),
         ]);
         let before = vars.clone();
         assert_eq!(load(&mut vars, &mut Fake::with(&[]), "1"), Ok(()));
@@ -943,6 +945,7 @@ mod tests {
         assert_eq!(vars.text("TEHAS_WORK_CMD"), "fake-work");
         assert_eq!(vars.text("TEHAS_MODEL_KEY_FLEET"), "t0");
         assert_eq!(vars.text("PI_RUKAS_FOLLOW"), "release");
+        assert_eq!(vars.text("TEHAS_INDUSTRY_VERSION"), "v0.9.0");
         let text = String::from_utf8(script(&before, &vars)).unwrap();
         assert!(text.contains("unset -v PI_ENSEMBLE_DEBUG\n"), "{text}");
         assert!(!text.contains("TEHAS_WORK_CMD"), "{text}");

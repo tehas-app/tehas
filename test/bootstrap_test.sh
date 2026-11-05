@@ -24,8 +24,11 @@ T_ENV=(BOOTSTRAP_OS_RELEASE="$T/os-ubuntu" PATH="$T_PATH")
 # that jails its run is given these and nothing else out there.
 T_PLANT=(bash cat chmod chown cp date dirname grep head install ln mkdir mv rm sed stat uname)
 
-# The commit of pi-rukas's newest release tag, as git ls-remote answers it.
+# The commit of pi-rukas's newest release tag, as git ls-remote answers it,
+# asked through the console install.sh puts in the home.
 rukas_head=$(printf 'e%.0s' {1..40})
+# shellcheck disable=SC2154  # t_console_why is set by t_console (test/lib.sh)
+t_console || t_bad "no console: $t_console_why"
 
 # Every tool at its expected version, the npm ones installed from their pinned
 # tree: what a host has after one run of `user` with nothing to change.
@@ -50,6 +53,8 @@ all_present() {
   t_stub jq "[ \"\${1:-}\" = --version ] && { echo jq-$JQ_VERSION; exit 0; }; exec $jq_real \"\$@\""
   mkdir -p "$T/home/.pi/agent/extensions"
   ln -sfn "$T" "$T/home/.pi/agent/extensions/pi-rukas"
+  mkdir -p "$T/home/tehas/libexec"
+  cp "$T_CONSOLE" "$T/home/tehas/libexec/console"
   pin_trees_in_place
 }
 
@@ -232,7 +237,6 @@ pin_checkout() { # -> the directory holding the copy
   rm -rf "$dir"
   mkdir -p "$dir/host" "$dir/lib"
   cp "$bootstrap" "$dir/bootstrap.sh"
-  cp "$T_ROOT/lib/rukas.sh" "$dir/lib/rukas.sh"
   cp "$T_ROOT/lib/paths.sh" "$dir/lib/paths.sh"
   cp "$T_ROOT/host/versions.env" "$dir/host/versions.env"
   cp -R "$T_ROOT/host/npm" "$dir/host/npm"
@@ -536,6 +540,34 @@ t_contains "$t_out" "no pi-rukas commit for PI_RUKAS_FOLLOW=$PI_RUKAS_FOLLOW in 
 t_lacks "$(t_calls git)" "fetch"
 behind_head
 
+t_case "with no console yet the user part leaves pi-rukas for after install.sh"
+all_present
+behind_head
+rm "$T/home/tehas/libexec/console"
+rm -f "$T"/calls/*
+t_run "$bootstrap user"
+t_eq "$t_rc" 0
+t_contains "$t_out" "pi-rukas waits for install.sh, then run ./bootstrap.sh user again"
+t_contains "$t_out" "user part done"
+t_lacks "$(t_calls git)" "ls-remote"
+t_lacks "$(t_calls git)" "checkout"
+t_run "$bootstrap check"
+t_eq "$t_rc" 1
+t_contains "$(grep '^pi-rukas ' <<<"$t_out")" "after install.sh: no console names the commit"
+t_contains "$(grep '^pi-rukas ' <<<"$t_out")" "DIFFERS"
+
+t_case "the console a release carries names the commit before any install"
+all_present
+rm "$T/home/tehas/libexec/console"
+dir=$(pin_checkout)
+mkdir -p "$dir/libexec"
+cp "$T_CONSOLE" "$dir/libexec/console"
+t_run "$dir/bootstrap.sh check"
+t_contains "$(grep '^pi-rukas ' <<<"$t_out")" "$rukas_head"
+t_lacks "$(grep '^pi-rukas ' <<<"$t_out")" "DIFFERS"
+all_present
+behind_head
+
 t_case "pi-rukas's installer is not given the sandbox image's name"
 # It would pull that name, fail, and build upstream's image over the tag.
 printf '#!/bin/sh\necho "image=${PI_ENSEMBLE_IMAGE-unset}" >"$T/installer-env"\n' >"$T/home/tehas/repos/pi-rukas/install.sh"
@@ -544,6 +576,36 @@ t_run "$bootstrap user"
 T_ENV=(BOOTSTRAP_OS_RELEASE="$T/os-ubuntu" PATH="$T_PATH")
 t_eq "$(cat "$T/installer-env")" "image=unset"
 rm -rf "$T/home/tehas/repos/pi-rukas"
+
+# The clone moved without the image is the case health calls behind: an
+# installed host builds it then, and a first bootstrap, with no build.sh yet,
+# leaves it to install.sh.
+t_case "user moves the sandbox image after pi-rukas on an installed host"
+all_present
+mkdir -p "$T/home/tehas/sandbox"
+printf '#!/bin/sh\necho "$*" >>"$T/build-calls"; exit "${BUILD_RC:-0}"\n' >"$T/home/tehas/sandbox/build.sh"
+chmod +x "$T/home/tehas/sandbox/build.sh"
+rm -f "$T/build-calls"
+t_run "$bootstrap user"
+t_eq "$t_rc" 0
+t_eq "$(cat "$T/build-calls")" "--if-moved"
+t_contains "$t_out" "bootstrap: user part done"
+
+t_case "an image that does not follow stops user and says how to try again"
+rm -f "$T/build-calls"
+T_ENV+=(BUILD_RC=1)
+t_run "$bootstrap user"
+T_ENV=(BOOTSTRAP_OS_RELEASE="$T/os-ubuntu" PATH="$T_PATH")
+t_eq "$t_rc" 1
+t_contains "$t_out" "the sandbox image did not follow pi-rukas to $rukas_head"
+t_lacks "$t_out" "user part done"
+rm -rf "$T/home/tehas/sandbox"
+
+t_case "a first bootstrap, with no build.sh, builds nothing"
+rm -f "$T/build-calls"
+t_run "$bootstrap user"
+t_eq "$t_rc" 0
+t_eq "$(test -e "$T/build-calls" && echo there)" ""
 
 t_case "check reports a jq at another version than versions.env pins"
 all_present
