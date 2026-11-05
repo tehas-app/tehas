@@ -1020,6 +1020,7 @@ mod tests {
             )
         };
         let here = gh.display().to_string();
+        // No gh of this case is run: it asks only what the mode makes of it.
         std::fs::write(&gh, "#!/bin/sh\nexit 0\n").unwrap();
         std::fs::set_permissions(&gh, PermissionsExt::from_mode(0o755)).unwrap();
         assert_eq!(
@@ -1067,6 +1068,7 @@ mod tests {
         let shim = dir.join("shim");
         std::fs::create_dir_all(&shim).unwrap();
         let gh = shim.join("gh");
+        // No gh of this case is run: it asks only what the mode makes of it.
         std::fs::write(&gh, "#!/bin/sh\nexit 0\n").unwrap();
         std::fs::set_permissions(&gh, PermissionsExt::from_mode(0o755)).unwrap();
         let home = dir.display().to_string();

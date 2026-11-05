@@ -167,7 +167,8 @@ the first step that fails, it:
 3. gives git gh's credential helper for github.com, unless git has one, and
    gives it the bot's name and noreply address, unless it has one; with an app
    the bot is `<slug>[bot]`;
-4. clones the product to `~/tehas/repos/<name>`;
+4. clones the product to `~/tehas/repos/<name>`, or fast-forwards the checkout
+   that is there;
 5. runs `install.sh` from the release, then `tehas labels`;
 6. builds the sandbox image and runs the product's gates in it with
    `tehas check-product --sandbox`;
