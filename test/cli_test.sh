@@ -12,7 +12,8 @@
 t_console || t_bad "no console: $t_console_why"
 
 # A scratch tree: the two commands, the console, and a libexec/ whose scripts
-# record their name and arguments and exit with $RC.
+# record their name and arguments and exit with $RC. The names of the scripts
+# that once only exec'd the console are there too, so a run of one is seen.
 tree=$T/tree
 mkdir -p "$tree/bin" "$tree/libexec" "$tree/lib"
 cp "$T_ROOT/bin/tehas" "$T_ROOT/bin/tehasbot" "$tree/bin/"
@@ -22,7 +23,7 @@ cp "$T_ROOT/lib/config.sh" "$tree/lib/config.sh"
 # One line per call: the name, then each argument after a "|".
 # tehas-cycle stands for itself: tehasbot cycle, tehas work and tehas index are
 # its verbs, which the console runs under the settings.
-for name in dispatch plan dev setup update improve review check-product github-token tehas-cycle; do
+for name in cycle work index setup update dispatch plan dev improve review check-product github-token tehas-cycle; do
   printf '%s\n' '#!/usr/bin/env bash' "# The text of $name." '#' "# Usage: $name" 'set -u' 'IFS="|"' \
     "printf '%s\\n' \"$name\${*:+|\$*}\" >>\"\$T/calls/libexec\"" 'exit "${RC:-0}"' >"$tree/libexec/$name"
   chmod +x "$tree/libexec/$name"
@@ -37,11 +38,9 @@ reset() {
 
 t_case "tehas runs the script of each command with the remaining arguments"
 reset
-t_run "$tehas dispatch --dry-run && $tehas update --check && $tehas check-product --sandbox"
+t_run "$tehas update --check"
 t_eq "$t_rc" 0
-t_eq "$(ran)" "dispatch|--dry-run
-update|--check
-check-product|--sandbox"
+t_eq "$(ran)" "update|--check"
 
 t_case "tehas work, tehas index and tehasbot cycle run tehas-cycle under the settings"
 reset
@@ -88,25 +87,23 @@ t_contains "$t_out" "tehas work: no tehas-cycle at $tree/libexec/tehas-cycle (ru
 mv "$T/tehas-cycle.kept" "$tree/libexec/tehas-cycle"
 t_no_instance
 
-t_case "tehas dev and tehas plan pass on their arguments"
+t_case "the commands the console runs itself run no script of libexec"
 reset
-t_run "$tehas dev alice --author 'A B <a@b.example>' -- -r && $tehas dev && $tehas plan 7 --out /tmp/o --session abc-1"
-t_eq "$t_rc" 0
-t_eq "$(ran)" "dev|alice|--author|A B <a@b.example>|--|-r
-dev
-plan|7|--out|/tmp/o|--session|abc-1"
+for words in "tehas dispatch --dry-run" "tehas plan 7 --out /tmp/o" "tehas check-product --sandbox" \
+  "tehasbot dispatch" "tehasbot improve" "tehasbot review" "tehasbot github-token --check"; do
+  t_run "$tree/bin/$words"
+done
+t_eq "$(ran)" ""
 
 t_case "an argument with a space, or empty, reaches the script as one argument"
 reset
-t_run "$tehas dev 'a b' '' c"
-t_eq "$(ran)" "dev|a b||c"
+t_run "$tehas update 'a b' '' c"
+t_eq "$(ran)" "update|a b||c"
 
 t_case "the exit status is the script's"
 reset
 T_ENV=(RC=3)
-t_run "$tehas dev"
-t_eq "$t_rc" 3
-t_run "$bot dispatch"
+t_run "$tehas update"
 t_eq "$t_rc" 3
 
 t_case "tehas alone, help, -h and --help print the usage and run nothing"
@@ -146,8 +143,8 @@ t_eq "$(ran)" ""
 
 t_case "--help with another argument is the script's to judge, or the console's"
 reset
-t_run "$tehas dev --help 7"
-t_eq "$(ran)" "dev|--help|7"
+t_run "$tehas update --help 7"
+t_eq "$(ran)" "update|--help|7"
 rm -f "$T"/calls/*
 t_run "$tehas work --help 7"
 t_eq "$t_rc" 64
@@ -173,15 +170,6 @@ for name in health energy protolab preview improve summary console cycle ../bin/
 done
 t_eq "$(ran)" ""
 
-t_case "tehasbot runs the script of each command with the remaining arguments"
-reset
-t_run "$bot dispatch && $bot improve && $bot review && $bot github-token --check"
-t_eq "$t_rc" 0
-t_eq "$(ran)" "dispatch
-improve
-review
-github-token|--check"
-
 t_case "tehasbot alone and help print the usage; an unknown command is exit 64"
 reset
 for arg in "" help -h --help; do
@@ -202,7 +190,7 @@ t_eq "$(ran)" ""
 t_case "neither command reads the instance settings to choose"
 reset
 t_instance 'echo "settings were read" >&2; exit 9'
-t_run "$tehas dev && $tehas help status && $bot dispatch && $bot help"
+t_run "$tehas update && $tehas help status && $bot help"
 t_eq "$t_rc" 0
 t_lacks "$t_out" "settings were read"
 
@@ -259,13 +247,6 @@ for name in $names; do
   t_eq "$t_rc" 0
   t_contains "$t_out" "tehas $name"
 done
-
-t_case "every script tehasbot runs is executable"
-missing=""
-for name in dispatch improve review github-token; do
-  [ -x "$T_ROOT/libexec/$name" ] || missing="$missing $name"
-done
-t_eq "$missing" ""
 
 t_case "bin holds the two commands and nothing else"
 t_eq "$(cd "$T_ROOT/bin" && find . -type f | LC_ALL=C sort | tr '\n' ' ')" "./tehas ./tehasbot "

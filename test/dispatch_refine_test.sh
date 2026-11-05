@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for libexec/dispatch: a cycle parked as underspecified or too-large is
+# Tests for tehasbot dispatch: a cycle parked as underspecified or too-large is
 # refined once on its own (rule 5a), and what a refine that files does to the
 # original issue and the filed one.
 # shellcheck disable=SC2016  # snippets are expanded by the shell under test

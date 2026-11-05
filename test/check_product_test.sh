@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for libexec/check-product: the product checkout against the contract.
+# Tests for tehas check-product: the product checkout against the contract.
 # shellcheck disable=SC2016  # snippets are expanded by the shell under test
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
@@ -7,11 +7,8 @@
 # The command as a host has it: beside the console, which does the work
 # (console/src/product.rs), and the tests of its parts are beside its source.
 t_console || t_bad "no console: $t_console_why"
-mkdir -p "$T/tree/libexec"
-ln -s "$T_ROOT/lib" "$T/tree/lib"
-ln -s "$T_ROOT/libexec/check-product" "$T/tree/libexec/check-product"
-cp "$T_CONSOLE" "$T/tree/libexec/console"
-check=$T/tree/libexec/check-product
+t_front "$T/tree"
+check="$T/tree/bin/tehas check-product"
 result=$T/home/tehas/state/check-product.json
 g() { git -c user.name=t -c user.email=t@example.invalid -c init.defaultBranch=main "$@"; }
 
@@ -337,7 +334,7 @@ t_case "a host with no console beside the command starts nothing: 78, and says t
 rm "$T/tree/libexec/console"
 t_run "$check"
 t_eq "$t_rc" 78
-t_contains "$t_out" "no console beside this command"
+t_contains "$t_out" "tehas: no console at $T/tree/libexec/console: run install.sh"
 cp "$T_CONSOLE" "$T/tree/libexec/console"
 
 t_case "a wrong argument is 64"

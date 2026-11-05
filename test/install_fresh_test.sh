@@ -70,7 +70,7 @@ t_eq "$t_rc" 0
 t_eq "$(install_list_report "$(sorted "$files")" "$(core_files)")" ""
 # The console's loader is installed beside the other commands, ready to run, and
 # the table of labels beside the libraries.
-t_eq "$([ -x "$th/libexec/github-token" ] && cmp -s "$T_ROOT/host/labels.tsv" "$th/lib/labels.tsv" && echo both)" "both"
+t_eq "$([ -x "$th/libexec/console" ] && cmp -s "$T_ROOT/host/labels.tsv" "$th/lib/labels.tsv" && echo both)" "both"
 # Every script in libexec/ is installed: a command bin/tehas knows has its script.
 missing=""
 for f in "$T_ROOT"/libexec/*; do [ -x "$th/libexec/${f##*/}" ] || missing="$missing ${f##*/}"; done
@@ -323,9 +323,9 @@ t_eq "$(install_list_report "$(sorted "$files")" "$(core_files)")" \
 # longer extra, and the report says nothing.
 t_eq "$(install_list_report "$(sorted "$files" ./tehas/libexec/stray-probe)" "$(core_files)")" ""
 # The other half: a name the list promises and the home does not hold.
-rm -f "$th/libexec/stray-probe" "$th/libexec/plan"
+rm -f "$th/libexec/stray-probe" "$th/libexec/setup"
 t_eq "$(install_list_report "$(sorted "$files")" "$(core_files)")" \
-  "missing installed file ./tehas/libexec/plan: install.sh does not copy it into the home"
+  "missing installed file ./tehas/libexec/setup: install.sh does not copy it into the home"
 
 # The page the host gets, not a copy of the checkout's: a page planted beside
 # the installed ones, or one that has gone stale, is red here. Each sentence is

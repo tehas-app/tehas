@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for libexec/plan: one turn of a planning session. A stub docker
+# Tests for tehas plan: one turn of a planning session. A stub docker
 # records its arguments and answers as pi-rukas's headless runner does: one
 # JSON document on stdout and an exit status, so no model runs.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
@@ -13,14 +13,11 @@ t_stub nproc 'echo 16'
 # says (console/src/plan.rs) and is a compiled program a checkout does not hold.
 t_console || t_bad "no console: $t_console_why"
 shim=$T/tree
-mkdir -p "$shim/libexec"
-ln -s "$T_ROOT/libexec/plan" "$shim/libexec/plan"
-ln -s "$T_ROOT/lib" "$shim/lib"
-cp "$T_CONSOLE" "$shim/libexec/console"
+t_front "$shim"
 # shellcheck disable=SC2154  # t_cycle_why is set by t_cycle (test/lib.sh)
 t_cycle || t_bad "no tehas-cycle: $t_cycle_why"
 cp "$T_CYCLE" "$shim/libexec/tehas-cycle"
-plan=$shim/libexec/plan
+plan="$shim/bin/tehas plan"
 fx=$T/fx
 mkdir -p "$fx"
 checkout=$T/home/tehas/repos/widget
@@ -188,7 +185,7 @@ reset
 mv "$shim/libexec/console" "$T/console.kept"
 t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
 t_eq "$t_rc" 78
-t_contains "$t_out" "no console beside this command at $shim/libexec/console"
+t_contains "$t_out" "tehas: no console at $shim/libexec/console: run install.sh"
 t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
 mv "$T/console.kept" "$shim/libexec/console"
 
@@ -759,16 +756,13 @@ t_case "the fourteen words are all present or nothing starts"
 # The command beside a tehas-cycle that says yes and hands out a short list, or
 # a list that names another parent.
 short=$T/short
-mkdir -p "$short/libexec"
-ln -s "$T_ROOT/lib" "$short/lib"
-ln -s "$plan" "$short/libexec/plan"
-cp "$T_CONSOLE" "$short/libexec/console"
+t_front "$short"
 for words in "--cgroup-parent tehas.slice --memory 2048m --memory-swap 2048m --memory-reservation 2g --cpus 3.75 --pids-limit 4096" \
   "--cgroup-parent other.slice --memory 2048m --memory-swap 2048m --memory-reservation 2g --cpus 3.75 --pids-limit 4096 --cpu-shares 1024" ""; do
   without
   # shellcheck disable=SC2086  # the words are the list
   t_fake_limits "$short/libexec" $words ${words:+$security_opts}
-  t_run "$short/libexec/plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
+  t_run "$short/bin/tehas plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
   refused
   t_contains "$t_out" "tehas plan: the container limits could not be made, not starting"
 done
@@ -791,7 +785,7 @@ for bad in \
   without
   # shellcheck disable=SC2086  # the words are the list
   t_fake_limits "$short/libexec" $fourteen $given
-  t_run "$short/libexec/plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
+  t_run "$short/bin/tehas plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
   refused
   t_contains "$t_out" "tehas plan: tehas_sandbox_security gave $words words, wants 10: not starting a turn"
 done

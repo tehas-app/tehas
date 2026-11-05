@@ -213,7 +213,7 @@ fi
 # these files was installed, which is not where the release is.
 root=${TEHAS_PACK_ROOT:-$PWD}
 if [ ! -f "$root/install.sh" ] || [ ! -f "$root/bin/tehas" ] ||
-  [ ! -f "$root/lib/config.sh" ] || [ ! -f "$root/libexec/dispatch" ]; then
+  [ ! -f "$root/lib/config.sh" ] || [ ! -f "$root/libexec/setup" ]; then
   # More than install.sh: the tree has to answer to tehas, since this command is
   # the documented way to make a release by hand and packs what it is pointed at.
   echo "pack-release: not a tehas tree to pack: $root" >&2

@@ -204,11 +204,11 @@ T_ENV+=(TEHAS_GH_BIN="$T/bin/gh" TEHAS_GH_RETRY_WAIT=0)
 # may print: its lines go to logs/dispatch.log, which
 # tehasbot clean keeps, so a failure that echoed gh's own error through would
 # keep a token in a log. This is the first case to send gh's stderr into them.
-mkdir -p "$home/libexec" "$home/state/github"
+mkdir -p "$home/bin" "$home/state/github"
 printf 'ghs_poll\n' >"$home/state/github/token"
 echo $(($(date +%s) + 3000)) >"$home/state/github/token.expires"
-printf '#!%s\nprintf "%%s\\n" ghs_poll\n' "$T_BASH" >"$home/libexec/github-token"
-chmod +x "$home/libexec/github-token"
+printf '#!%s\n[ "$*" = github-token ] || exit 64\nprintf "%%s\\n" ghs_poll\n' "$T_BASH" >"$home/bin/tehasbot"
+chmod +x "$home/bin/tehasbot"
 T_ENV+=(TEHAS_GITHUB_APP_ID=5452597 TEHAS_GITHUB_APP_INSTALLATION=174742089
   "TEHAS_BOT_LOGIN=tehas-app-bot[bot]")
 t_run "$rpoll"
@@ -239,8 +239,8 @@ cp "$T_ROOT/host/shim/gh" "$home/shim/gh"
 ln -sf "$T/bin/gh" "$home/bin/gh"
 printf 'ghs_poll\n' >"$home/state/github/token"
 echo $(($(date +%s) + 3000)) >"$home/state/github/token.expires"
-printf '#!%s\necho run >>%q\nprintf "%%s\\n" ghs_poll\n' "$T_BASH" "$T/token-runs" >"$home/libexec/github-token"
-chmod +x "$home/libexec/github-token"
+printf '#!%s\n[ "$*" = github-token ] || exit 64\necho run >>%q\nprintf "%%s\\n" ghs_poll\n' "$T_BASH" "$T/token-runs" >"$home/bin/tehasbot"
+chmod +x "$home/bin/tehasbot"
 rm -f "$T/token-runs"
 printf '#!/usr/bin/env bash\nexec %q tidy run\n' "$T_CONSOLE" >"$T/real-tidy"
 # shellcheck disable=SC2016  # expanded when the command runs

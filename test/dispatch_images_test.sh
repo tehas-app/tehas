@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for libexec/dispatch: issues that link images, and how holds are
+# Tests for tehasbot dispatch: issues that link images, and how holds are
 # logged.
 # shellcheck disable=SC2016  # snippets are expanded by the shell under test
 # shellcheck source=test/lib.sh

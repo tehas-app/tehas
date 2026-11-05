@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for libexec/dispatch: the question on a parked issue, retry and leave
+# Tests for tehasbot dispatch: the question on a parked issue, retry and leave
 # it parked.
 # shellcheck disable=SC2016  # snippets are expanded by the shell under test
 # shellcheck source=test/lib.sh
