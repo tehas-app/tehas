@@ -327,7 +327,7 @@ With `TEHAS_SIZE_MAX_FILES` set on the instance, an issue whose own body names m
 | Label on the issue      | Meaning                           | Your move                                |
 | ----------------------- | --------------------------------- | ---------------------------------------- |
 | `tehas:ready`           | Queued                            | Wait, or remove the label to withdraw it |
-| `tehas:running`         | A cycle owns it                   | Leave the issue and its branch alone     |
+| `tehas:running`         | A cycle owns it; with `TEHAS_OWNER` set, the issue is assigned to that account too | Leave the issue and its branch alone     |
 | `tehas:awaiting-merge`  | Pull request open, only the merge left | Review and merge                    |
 | `tehas:shipped`         | A merged pull request closed it, or GitHub's own list of pull requests closing it holds a merged one   | Nothing; `tehas tidy` and `tehasbot status` give it |
 | `needs-human-attention` | The cycle stopped                 | Read the comment; see below              |
@@ -344,6 +344,17 @@ With `TEHAS_SIZE_MAX_FILES` set on the instance, an issue whose own body names m
 | `tehas:lean`            | The lean driver is chosen for it. See [Choosing the driver](#choosing-the-driver) | Take it off to run the issue on classic |
 | `tehas:blocked`         | Started once every blocker it names is closed | Close the blockers; swap it for `tehas:ready` to start it now |
 | `tehas:refreshing`      | On a pull request: a [refresh](#refreshes) works on it | Do not merge or push to it now; it comes off when the cycle ends |
+
+With `TEHAS_OWNER` set on the instance, the call that marks an issue
+`tehas:running` for a cycle also assigns it to that account, so GitHub shows
+the issue as taken and nobody starts on it by accident. GitHub assigns no
+app's bot, which is why the owner is a person. The owner is never unassigned:
+a closed issue's assignee does not matter, and a parked one is with the person
+who acts on it. A refresh does not assign again, and neither does a planning
+turn. When GitHub refuses the assign, the dispatcher marks the issue running
+without it, starts the cycle, and says so in `logs/dispatch.log`:
+`WARN: could not assign #N to <owner>, marking it running without an assignee`.
+Unset, nobody is assigned.
 
 `tehas:ready` from an allowed labeller starts a fresh cycle whatever else the
 issue carries. So does one from [the millwright](#the-millwrights-grant), within its grant. tehas's labels of the earlier outcome go when the cycle starts.

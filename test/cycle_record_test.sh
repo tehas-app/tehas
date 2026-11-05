@@ -285,6 +285,25 @@ t_contains "$(t_calls gh)" 'pi-rukas:handoff issue=7 cap=wall-clock -->'
 t_eq "$(jq -c '[.status, .step, .cap, .capReason]' "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" \
   '["timeout","develop","wall-clock","tehas work stopped the container at the time limit of 21600s, step develop in flight"]'
 
+t_case "a cycle a signal stopped inside a gate is on record with the cap signal and its gate closed"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
+ended interrupted develop
+echo '{}' >"$fx/progress.json"
+# The stream and the note as tehas work leaves them for a TERM in the gate of
+# step develop: the gate's start, the line that closes it, and the signal.
+jq -nc '{v: 1, kind: "verify-started", issue: 7, event: {kind: "verify-started", step: "develop", command: "make test"}}' >"$fx/stream"
+jq -nc '{v: 1, kind: "verify-aborted", issue: 7, by: "tehas", event: {kind: "verify-aborted", step: "develop", command: "make test", status: "aborted", signal: "TERM"}}' >>"$fx/stream"
+echo 'cp "$T/fx/stream" "$TEHAS_HOME/logs/work-7-261011-120000.jsonl"; echo TERM develop >"$TEHAS_HOME/state/cycles/7.signal"; exit 21' >"$fx/work.sh"
+t_run "$cycle 7"
+rec=$T/home/tehas/tmp/improve/window/7-261011-120000
+t_eq "$(jq -c '[.status, .step, .cap, .capReason]' "$rec/cycle.json")" \
+  '["interrupted","develop","signal","SIGTERM came to tehas work and it stopped the container, step develop in flight"]'
+t_eq "$(jq -c 'select(.kind == "verify-aborted") | [.event.step, .event.status]' "$rec/stream.jsonl")" '["develop","aborted"]'
+t_contains "$(t_calls gh)" 'tehas stopped the cycle: the cap `signal`.'
+# The note is read once and gone.
+t_eq "$(find "$state/7.signal" 2>/dev/null | wc -l)" 0
+
 t_case "a runner that stopped itself at the time limit with no result is on record as wall-clock at the step it was in, not running"
 reset
 t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
