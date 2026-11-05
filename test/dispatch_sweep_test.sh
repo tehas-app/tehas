@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for libexec/dispatch: the workspaces, transcripts and console file a
+# Tests for tehasbot dispatch: the workspaces, transcripts and console file a
 # cycle leaves that are removed, and cycles that have gone quiet.
 # shellcheck disable=SC2016  # snippets are expanded by the shell under test
 # shellcheck source=test/lib.sh

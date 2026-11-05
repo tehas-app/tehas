@@ -5,7 +5,7 @@
 //!
 //! Prints a token with at least 10 minutes left, making one when the kept one
 //! has less. --check says when the token runs out and whether it reaches
-//! TEHAS_REPO, and never prints the token. `libexec/github-token` is the path
+//! TEHAS_REPO, and never prints the token. `tehasbot github-token` is what
 //! the gh shim, the poll and `tehas-cycle renew` ask: `console run` loads the
 //! settings and comes here.
 //!

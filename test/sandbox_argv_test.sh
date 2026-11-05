@@ -45,10 +45,8 @@ t_console || t_bad "no console: $t_console_why"
 shim=$T/shim
 mkdir -p "$shim/libexec"
 ln -s "$T_ROOT/lib" "$shim/lib"
-for c in plan review index dev check-product improve; do
-  ln -s "$T_ROOT/libexec/$c" "$shim/libexec/$c"
-done
-cp "$T_CONSOLE" "$shim/libexec/console"
+ln -s "$T_ROOT/libexec/index" "$shim/libexec/index"
+t_front "$shim"
 # shellcheck disable=SC2154  # t_cycle_why is set by t_cycle (test/lib.sh)
 t_cycle || t_bad "no tehas-cycle: $t_cycle_why"
 cp "$T_CYCLE" "$shim/libexec/tehas-cycle"
@@ -178,19 +176,19 @@ compare work
 
 t_case "a planning turn that starts a session"
 clean
-t_run "$shim/libexec/plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
+t_run "$shim/bin/tehas plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
 t_eq "$t_rc" 0
 compare plan-start
 
 t_case "a planning turn that resumes the session"
 rm -f "$T"/calls/argv.* "$T/docker.n"
-t_run "$shim/libexec/plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/answer.md"
+t_run "$shim/bin/tehas plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/answer.md"
 t_eq "$t_rc" 0
 compare plan-resume
 
 t_case "a review"
 clean
-t_run "$shim/libexec/review"
+t_run "$shim/bin/tehasbot review"
 t_eq "$t_rc" 0
 compare review
 
@@ -202,7 +200,7 @@ compare index
 
 t_case "a manual session"
 clean
-t_run "$shim/libexec/dev"
+t_run "$shim/bin/tehas dev"
 t_eq "$t_rc" 0
 compare dev
 
@@ -210,7 +208,7 @@ t_case "the product's gates in the sandbox"
 clean
 echo '{"providers":{"lab":{"models":[{"id":"big"}]}}}' >"$TEHAS_INSTANCE_DIR/models.json"
 git -C "$checkout" config remote.origin.url https://github.com/acme/widget.git
-t_run "$shim/libexec/check-product --sandbox"
+t_run "$shim/bin/tehas check-product --sandbox"
 git -C "$checkout" config remote.origin.url "$upstream"
 t_eq "$t_rc" 0
 compare check-product
@@ -222,7 +220,7 @@ mkdir -p "$T/home/tehas/tmp/improve/window/$rec"
 echo '{"issue":7}' >"$T/home/tehas/tmp/improve/window/$rec/cycle.json"
 mkdir -p "$T/home/tehas/logs"
 echo '{"type":"agent_end"}' >"$T/home/tehas/logs/work-$rec.jsonl"
-t_run "$shim/libexec/improve"
+t_run "$shim/bin/tehasbot improve"
 t_eq "$t_rc" 0
 compare improve
 

@@ -227,7 +227,7 @@ done
 
 t_case "the list covers the code that is installed and run"
 t_contains "$(code)" "libexec/work"
-t_contains "$(code)" "libexec/dispatch"
+t_contains "$(code)" "libexec/index"
 t_contains "$(code)" "lib/config.sh"
 t_contains "$(code)" "console/analytics/src/run.rs"
 t_contains "$(code)" "install.sh"

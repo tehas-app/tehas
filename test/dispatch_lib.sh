@@ -1,10 +1,12 @@
 # shellcheck shell=bash
 # shellcheck disable=SC2016,SC2034  # snippets are expanded by the shell under test; the parts read the variables
-# Shared setup of the dispatch_*_test.sh files: libexec/dispatch against a stub
+# Shared setup of the dispatch_*_test.sh files: tehasbot dispatch against a stub
 # gh and a scratch checkout whose default branch is main. Sourced, not run.
 # The part has sourced test/lib.sh before this.
 
-dispatch="$T_ROOT/libexec/dispatch"
+# shellcheck disable=SC2154  # t_console_why is set by t_console (test/lib.sh)
+t_front "$T/front" || t_bad "no console: $t_console_why"
+dispatch="$T/front/bin/tehasbot dispatch"
 fx=$T/fx
 mkdir -p "$fx"
 checkout=$T/home/tehas/repos/widget
@@ -437,7 +439,7 @@ reset() {
   # The control issue has never been paused: no tehas:pause event to read.
   echo '[]' >"$fx/events-1.json"
   T_ENV=(TEHAS_CYCLE_START_CMD=fake-start TEHAS_CYCLE_START_WAIT=2 TEHAS_STATUS_CMD=fake-status TEHAS_TIDY_CMD=fake-tidy TEHAS_INDEX_CMD=fake-index TEHAS_INDEX_START_CMD=fake-index-start TEHAS_PLAN_CMD=fake-plan TEHAS_PLAN_START_CMD=fake-plan-start "$slice_env")
-  # Every poll of the case runs in Rust, as on a host: libexec/dispatch hands
+  # Every poll of the case runs in Rust, as on a host: tehasbot dispatch hands
   # it to tehas-dispatch.
   # shellcheck disable=SC2154  # t_dispatch_why is set by t_dispatch (test/lib.sh)
   t_dispatch || t_bad "no tehas-dispatch: $t_dispatch_why"

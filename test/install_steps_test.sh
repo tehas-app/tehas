@@ -177,7 +177,7 @@ t_run "$install </dev/null"
 t_eq "$t_rc" 0
 # The report of a real run: one line per thing it did, and the follow-ups it
 # leaves for tehas update. None of it asks for anything.
-t_contains "$t_out" "installed: $th/libexec/dispatch"
+t_contains "$t_out" "installed: $th/libexec/work"
 t_contains "$t_out" "next: units"
 
 t_case "the machine reads back as one JSON object, with no secret in it"

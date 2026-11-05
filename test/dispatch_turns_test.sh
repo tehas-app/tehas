@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for libexec/dispatch: labels on parked and planning issues, planning
+# Tests for tehasbot dispatch: labels on parked and planning issues, planning
 # turns run as units, and a bot account in the allowed list.
 # shellcheck disable=SC2016  # snippets are expanded by the shell under test
 # shellcheck source=test/lib.sh

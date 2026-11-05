@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for libexec/dispatch: starting a cycle, the poll's own lock, issues
+# Tests for tehasbot dispatch: starting a cycle, the poll's own lock, issues
 # marked as running with no cycle, left containers and start markers.
 # shellcheck disable=SC2016  # snippets are expanded by the shell under test
 # shellcheck source=test/lib.sh

@@ -12,7 +12,8 @@
 t_console || t_bad "no console: $t_console_why"
 
 # A scratch tree: the two commands, the console, and a libexec/ whose scripts
-# record their name and arguments and exit with $RC.
+# record their name and arguments and exit with $RC. The names of the scripts
+# that once only exec'd the console are there too, so a run of one is seen.
 tree=$T/tree
 mkdir -p "$tree/bin" "$tree/libexec" "$tree/lib"
 cp "$T_ROOT/bin/tehas" "$T_ROOT/bin/tehasbot" "$tree/bin/"
@@ -20,7 +21,7 @@ cp "$T_CONSOLE" "$tree/libexec/console"
 # The settings library is there to be read, so that not reading it means something.
 cp "$T_ROOT/lib/config.sh" "$tree/lib/config.sh"
 # One line per call: the name, then each argument after a "|".
-for name in dispatch cycle work plan dev index setup update improve review check-product github-token; do
+for name in cycle work index setup update dispatch plan dev improve review check-product github-token; do
   printf '%s\n' '#!/usr/bin/env bash' "# The text of $name." '#' "# Usage: $name" 'set -u' 'IFS="|"' \
     "printf '%s\\n' \"$name\${*:+|\$*}\" >>\"\$T/calls/libexec\"" 'exit "${RC:-0}"' >"$tree/libexec/$name"
   chmod +x "$tree/libexec/$name"
@@ -35,21 +36,19 @@ reset() {
 
 t_case "tehas runs the script of each command with the remaining arguments"
 reset
-t_run "$tehas dispatch --dry-run && $tehas work 7 --restart && $tehas index && $tehas update --check && $tehas check-product --sandbox"
+t_run "$tehas work 7 --restart && $tehas index && $tehas update --check"
 t_eq "$t_rc" 0
-t_eq "$(ran)" "dispatch|--dry-run
-work|7|--restart
+t_eq "$(ran)" "work|7|--restart
 index
-update|--check
-check-product|--sandbox"
+update|--check"
 
-t_case "tehas dev and tehas plan pass on their arguments"
+t_case "the commands the console runs itself run no script of libexec"
 reset
-t_run "$tehas dev alice --author 'A B <a@b.example>' -- -r && $tehas dev && $tehas plan 7 --out /tmp/o --session abc-1"
-t_eq "$t_rc" 0
-t_eq "$(ran)" "dev|alice|--author|A B <a@b.example>|--|-r
-dev
-plan|7|--out|/tmp/o|--session|abc-1"
+for words in "tehas dispatch --dry-run" "tehas plan 7 --out /tmp/o" "tehas check-product --sandbox" \
+  "tehasbot dispatch" "tehasbot improve" "tehasbot review" "tehasbot github-token --check"; do
+  t_run "$tree/bin/$words"
+done
+t_eq "$(ran)" ""
 
 t_case "an argument with a space, or empty, reaches the script as one argument"
 reset
@@ -61,7 +60,7 @@ reset
 T_ENV=(RC=3)
 t_run "$tehas index"
 t_eq "$t_rc" 3
-t_run "$bot dispatch"
+t_run "$bot cycle 7"
 t_eq "$t_rc" 3
 
 t_case "tehas alone, help, -h and --help print the usage and run nothing"
@@ -125,15 +124,11 @@ for name in health energy protolab preview improve summary console cycle ../bin/
 done
 t_eq "$(ran)" ""
 
-t_case "tehasbot runs the script of each command with the remaining arguments"
+t_case "tehasbot runs the script of cycle with the remaining arguments"
 reset
-t_run "$bot dispatch && $bot cycle 7 && $bot improve && $bot review && $bot github-token --check"
+t_run "$bot cycle 7"
 t_eq "$t_rc" 0
-t_eq "$(ran)" "dispatch
-cycle|7
-improve
-review
-github-token|--check"
+t_eq "$(ran)" "cycle|7"
 
 t_case "tehasbot alone and help print the usage; an unknown command is exit 64"
 reset
@@ -155,7 +150,7 @@ t_eq "$(ran)" ""
 t_case "neither command reads the instance settings to choose"
 reset
 t_instance 'echo "settings were read" >&2; exit 9'
-t_run "$tehas index && $tehas help status && $bot dispatch && $bot help"
+t_run "$tehas index && $tehas help status && $bot cycle 7 && $bot help"
 t_eq "$t_rc" 0
 t_lacks "$t_out" "settings were read"
 
@@ -213,12 +208,8 @@ for name in $names; do
   t_contains "$t_out" "tehas $name"
 done
 
-t_case "every script tehasbot runs is executable"
-missing=""
-for name in dispatch cycle improve review github-token; do
-  [ -x "$T_ROOT/libexec/$name" ] || missing="$missing $name"
-done
-t_eq "$missing" ""
+t_case "the script tehasbot runs is executable"
+t_eq "$([ -x "$T_ROOT/libexec/cycle" ] && echo yes)" "yes"
 
 t_case "bin holds the two commands and nothing else"
 t_eq "$(cd "$T_ROOT/bin" && find . -type f | LC_ALL=C sort | tr '\n' ' ')" "./tehas ./tehasbot "
