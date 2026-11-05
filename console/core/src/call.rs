@@ -291,7 +291,7 @@ pub fn trim(line: &str) -> String {
         .collect()
 }
 
-/// The first word of the store's line, as lib/store.sh's one regex takes it:
+/// The first word of the store's line, as every caller takes it:
 /// the text after `store: `, of lowercase letters, digits of the alphabet, `_`
 /// and `-`. Nothing when the line is not the store's own, which is the case a
 /// refusal of rc 1 turns into `garbled` rather than a word of nothing.
@@ -307,11 +307,10 @@ pub fn word_of(line: &str) -> Option<&str> {
 }
 
 /// What one run of the store gave: the exit and the word and line to report,
-/// for the answer of a single call and of a batch alike. lib/store.sh's case
-/// statement is the contract -- its 124 and 137 are the timeout, its 126 and
-/// 127 the program that is not there, and a refusal of 1 always names its word
-/// -- and this is the one place that reads it, so a new exit of the bash is one
-/// edit here rather than two. `what` is the verb, or `batch`, in the lines.
+/// for the answer of a single call and of a batch alike. 124 and 137 are the
+/// timeout, 126 and 127 the program that is not there, and a refusal of 1
+/// always names its word. This is the one place that reads it. `what` is the
+/// verb, or `batch`, in the lines.
 pub fn store_failure(
     what: &str,
     r: &Ran,
@@ -364,8 +363,8 @@ pub fn store_failure(
     }
 }
 
-/// Whether the program of the store is an executable file, as lib/store.sh's
-/// `-f` and `-x` tests read it: the answer of a poll whose store was never
+/// Whether the program of the store is an executable file, as `-f` and `-x`
+/// read it: the answer of a poll whose store was never
 /// installed is `absent`, and nothing else.
 pub fn store_executable(store: &str) -> bool {
     std::fs::metadata(store).is_ok_and(|m| {
@@ -374,13 +373,12 @@ pub fn store_executable(store: &str) -> bool {
     })
 }
 
-/// The failure of a store call as lib/store.sh keeps it: {failed, word, rc, line}.
+/// The failure of a store call: {failed, word, rc, line}.
 pub fn store_failed(rc: i32, word: &str, line: &str) -> Value {
     json!({"failed": true, "rc": rc, "word": word, "line": trim(line)})
 }
 
-/// The store's answer to one verb, or its failure as lib/store.sh keeps it:
-/// {failed, word, rc, line}.
+/// The store's answer to one verb, or its failure: {failed, word, rc, line}.
 pub fn store(
     program: &str,
     args: &[&str],

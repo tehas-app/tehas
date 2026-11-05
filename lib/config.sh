@@ -84,12 +84,12 @@ tehas_require() {
   done
 }
 
-# The settings an instance has to set itself, because nothing here can give them
-# a sensible default: install.sh, tehas-dispatch and tehas update each check this
-# one list before they call GitHub, Docker, git or write a file.
+# The settings an instance has to set itself: the console's one list, which
+# tehas_load hands over as _tehas_required. install.sh, tehas-dispatch and tehas
+# update each check it before they call GitHub, Docker, git or write a file.
 tehas_require_instance_settings() {
-  tehas_require TEHAS_REPO TEHAS_CONTROL_ISSUE TEHAS_ALLOWED_LABELERS \
-    PI_ENSEMBLE_SUBAGENT_MODEL PI_ENSEMBLE_SUBAGENT_PROVIDER
+  [ -n "${_tehas_required[*]+x}" ] || { tehas_err "the load named no required setting: run install.sh"; exit 78; }
+  tehas_require "${_tehas_required[@]}"
 }
 
 # Every provider and model pair the agents use, one "provider model" line

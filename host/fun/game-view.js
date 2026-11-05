@@ -1,5 +1,11 @@
 // The tehas game view. Read-only: it shows tickets from the bundled sample or
-// from a JSON export the viewer loads, and never talks to the factory.
+// from a JSON export the viewer loads, and never talks to the factory. What a
+// file means is in game-data.js, which a test reaches without a browser
+// (test/game_view_test.mjs): the stage a ticket stands at, how a pause reads,
+// how much of a ticket's text is taken. This file polls, draws and answers
+// clicks.
+import { DEFAULT_KW, LINE, STAGES, ago, finishingIssues, normalize } from "./game-data.js";
+
 (() => {
   const $ = (id) => document.getElementById(id);
   const el = (tag, cls, text) => {
@@ -9,118 +15,12 @@
     return e;
   };
 
-  // Stages follow the labels tehas itself puts on issues (see console/src/queue.rs).
-  const STAGES = {
-    ready: "IN LINE",
-    running: "BUILDING",
-    review: "REVIEW",
-    stopped: "STOPPED",
-    backlog: "NOT ON THE LINE",
-    shipped: "SHIPPED",
-  };
-  const LINE = ["ready", "running", "review", "shipped"];
-  // Energy is estimated, not measured: time spent multiplied by an assumed draw
-  // for the machines doing the work. An export can replace the assumption with
-  // "assumedKw", or give a measured "kWh" per issue.
-  const DEFAULT_KW = 0.5;
   const STORAGE_KEY = "tehas-game-view-export-v1";
-
-  function stageOf(labels, closed) {
-    if (closed) return "shipped";
-    if (labels.includes("needs-human-attention")) return "stopped";
-    if (labels.includes("tehas:awaiting-merge")) return "review";
-    if (labels.includes("tehas:running")) return "running";
-    if (labels.includes("tehas:ready")) return "ready";
-    return "backlog";
-  }
-
-  // The pause, as tehasbot status writes it: {flag: {at, reason} or null, label}.
-  // Only the reason is shown, and only on the page: `by` is not in the snapshot.
-  function pauseInfo(raw) {
-    const p = raw && raw.pause;
-    if (!p || typeof p !== "object") return null;
-    const flag = p.flag && typeof p.flag === "object" ? p.flag : null;
-    const reason = flag && typeof flag.reason === "string" ? flag.reason.slice(0, 200) : "";
-    return { reason, flag: Boolean(flag), label: p.label === true };
-  }
-
-  // Ticket text is untrusted: it is only ever set through textContent.
-  function normalize(raw) {
-    const list = Array.isArray(raw) ? raw : raw && Array.isArray(raw.issues) ? raw.issues : null;
-    if (!list) throw new Error("Expected an issues array");
-    const shippedList = raw && Array.isArray(raw.shippedIssues) ? raw.shippedIssues : [];
-    const seen = new Set();
-    const tickets = [];
-    const add = (item, forceClosed) => {
-      const number = Number(item && item.number);
-      if (!item || item.pull_request || !Number.isSafeInteger(number) || number <= 0) return;
-      if (typeof item.title !== "string" || seen.has(number)) return;
-      seen.add(number);
-      const labels = (Array.isArray(item.labels) ? item.labels : [])
-        .map((l) => String(typeof l === "string" ? l : (l && l.name) || "").toLowerCase())
-        .filter(Boolean);
-      const closed = forceClosed || String(item.state || "").toLowerCase() === "closed";
-      const url = typeof item.url === "string" && item.url.startsWith("https://") ? item.url : null;
-      const when = (v) => (typeof v === "string" && !Number.isNaN(Date.parse(v)) ? v : null);
-      const amount = (v) => (Number.isFinite(Number(v)) && Number(v) > 0 ? Number(v) : null);
-      tickets.push({
-        number, title: item.title.slice(0, 180), labels, url, stage: stageOf(labels, closed),
-        createdAt: when(item.createdAt), updatedAt: when(item.updatedAt), closedAt: when(item.closedAt),
-        tokens: amount(item.tokens), seconds: amount(item.timeSpentSeconds), kWh: amount(item.kWh), runs: amount(item.runs),
-      });
-    };
-    for (const item of list) add(item, false);
-    for (const item of shippedList) add(item, true);
-    return {
-      tickets,
-      paused: Boolean(raw && raw.paused),
-      pause: pauseInfo(raw),
-      noResources: Boolean(raw && raw.noResources),
-      kw: raw && Number(raw.assumedKw) > 0 ? Number(raw.assumedKw) : DEFAULT_KW,
-      sample: Boolean(raw && raw.sampleData),
-      words: collectWords(raw, tickets),
-    };
-  }
-
-  function collectWords(raw, tickets) {
-    const clean = (w) => String(w).toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 10);
-    const explicit = raw && Array.isArray(raw.buzzwords) ? raw.buzzwords : [];
-    const counts = new Map();
-    const stop = new Set(("the and for with from this that should would could when while into onto your their there about " +
-      "after before also have has had are was were will can not but all any our you its use make add show fix new more " +
-      "each than then them through off under over between across tehas ready running awaiting-merge").split(" "));
-    if (explicit.length) {
-      // A list that came with the data: the queue snapshot counts every issue
-      // of the repository, not only the tickets on the line.
-      for (const item of explicit) {
-        const said = String(typeof item === "string" ? item : (item && item.word) || "").toLowerCase();
-        const word = clean(said);
-        if (word.length < 3 || stop.has(said)) continue;
-        counts.set(word, (counts.get(word) || 0) + Math.max(1, Number(item && item.count) || 1));
-      }
-    } else {
-      for (const t of tickets) {
-        for (const word of (t.title + " " + t.labels.join(" ")).toLowerCase().match(/[a-z][a-z0-9-]{2,}/g) || []) {
-          if (!stop.has(word)) counts.set(clean(word), (counts.get(clean(word)) || 0) + 1);
-        }
-      }
-    }
-    return [...counts].map(([word, count]) => ({ word, count }))
-      .sort((a, b) => b.count - a.count || a.word.localeCompare(b.word)).slice(0, 40);
-  }
 
   // "live" is true while the tickets come from the factory's own queue snapshot.
   // That snapshot lists only tickets on the line, so counts it cannot know stay blank.
   const state = { tickets: [], paused: false, pause: null, noResources: false, sample: false, live: false, loaded: false, selected: null, filter: "open", query: "", kw: DEFAULT_KW };
 
-  const ago = (iso) => {
-    if (!iso) return "";
-    const s = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
-    if (s < 90) return "just now";
-    if (s < 5400) return Math.round(s / 60) + " min ago";
-    if (s < 129600) return Math.round(s / 3600) + " h ago";
-    return Math.round(s / 86400) + " d ago";
-  };
   const calm = window.matchMedia("(prefers-reduced-motion: reduce)");
   // Set by the production console when the last cycle ended badly: { issue, status }.
   let failure = null;
@@ -130,13 +30,9 @@
   // interrupted) counts as a failure until the next cycle starts.
   // A paused factory still finishes the issue a cycle is working on: the gate
   // says both, rather than "paused" over a floor that is still busy.
-  function finishingIssues() {
-    return state.tickets.filter((t) => t.stage === "running").map((t) => t.number);
-  }
-
   function renderGate() {
     const gate = $("gate");
-    const finishing = finishingIssues();
+    const finishing = finishingIssues(state.tickets);
     const [stateName, text] = failure ? ["failed", "FACTORY FAILED"]
       : !state.loaded ? ["none", "NO DATA"]
       : state.paused ? ["paused", finishing.length ? `FACTORY PAUSED, FINISHING #${finishing.join(", #")}` : "FACTORY PAUSED"]
@@ -182,7 +78,7 @@
     const open = state.tickets.filter((t) => t.stage !== "shipped");
     const n = (stage) => state.tickets.filter((t) => t.stage === stage).length;
     const summary = $("floor-summary");
-    const finishing = finishingIssues();
+    const finishing = finishingIssues(state.tickets);
     const why = state.pause && state.pause.reason ? ` (${state.pause.reason})` : "";
     const pauseNote = state.paused
       ? `Factory paused${why}${finishing.length ? `, still finishing #${finishing.join(", #")}` : ""}. ` : "";
@@ -192,7 +88,7 @@
         pauseNote +
         `${open.length} open: ${n("ready")} in line, ${n("running")} building, ${n("review")} in review, ` +
         `${n("stopped")} stopped` + (state.live ? "." : `, ${n("backlog")} not on the line.`) +
-        (state.live && queue.readAt ? ` Queue read ${ago(queue.readAt)}.` : "");
+        (state.live && queue.readAt ? ` Queue read ${ago(queue.readAt, Date.now())}.` : "");
     // The summary is a line of the head panel, and the panel is part of the
     // first screen: when its text changes, so does the fold. It asks for one
     // refit per turn (refitFold), which measures once the render it is in ends.
@@ -230,7 +126,7 @@
     const row = el("button", "row");
     row.type = "button";
     row.dataset.number = ticket.number;
-    const when = ago(ticket.stage === "shipped" ? ticket.closedAt || ticket.updatedAt : ticket.updatedAt);
+    const when = ago(ticket.stage === "shipped" ? ticket.closedAt || ticket.updatedAt : ticket.updatedAt, Date.now());
     row.append(el("b", null, "#" + ticket.number), el("span", "row-title", ticket.title),
       el("span", "row-stage", STAGES[ticket.stage] + (when ? ", " + when.toUpperCase() : "")));
     row.addEventListener("click", () => select(ticket.number, row));
@@ -638,7 +534,7 @@
     const source = $("source");
     source.textContent = stale ? "QUEUE STALE" : "LIVE QUEUE";
     source.dataset.kind = stale ? "stale" : "live";
-    const text = `Showing the factory's live queue, read ${ago(queue.readAt) || "at an unknown time"}: ${state.tickets.length} tickets on the line. ` +
+    const text = `Showing the factory's live queue, read ${ago(queue.readAt, Date.now()) || "at an unknown time"}: ${state.tickets.length} tickets on the line. ` +
       "Prototypes and tickets not on the line are not in the queue snapshot.";
     source.title = text;
     $("data-status").textContent = text;

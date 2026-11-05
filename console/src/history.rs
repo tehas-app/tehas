@@ -201,8 +201,7 @@ fn date(v: &J) -> Option<J> {
 
 /// A row of the store in the shape its line had before the store. A row of
 /// neither kind is no line, and an `at` that is no time none of the rows is:
-/// lib/history-lines.jq stops there. millwright.sh reads that copy; a test
-/// below holds the two to the same lines.
+/// the read stops there.
 fn line_of(row: &J, repo: &str) -> Option<Option<J>> {
     let f = |key: &str| row.get(key).clone();
     let started = ("started", f("started_at"));
@@ -518,7 +517,6 @@ mod tests {
     use super::*;
     use std::fs;
     use std::os::unix::fs::PermissionsExt;
-    use std::process::{Command, Stdio};
 
     // Outputs in this file were captured from the jq of v0.21.0.
     const ROWS: &str = r#"{"api":1,"ok":true,"verb":"history-show","rows":[
@@ -675,27 +673,6 @@ mod tests {
         assert!(lines(&answer, "acme/widget").is_empty());
         let answer = J::parse(r#"{"rows":[{"kind":"other"}]}"#).unwrap();
         assert!(lines(&answer, "acme/widget").is_empty());
-    }
-
-    #[test]
-    fn the_lines_are_those_of_the_jq_copy_millwright_reads() {
-        let program = concat!(env!("CARGO_MANIFEST_DIR"), "/../lib/history-lines.jq");
-        let mut jq = Command::new("jq")
-            .args(["-c", "--arg", "repo", "acme/widget", "--argjson", "kinds"])
-            .args([r#"["cycle","plan"]"#, "-f", program])
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .spawn()
-            .expect("the gate has jq");
-        jq.stdin.take().unwrap().write_all(ROWS.as_bytes()).unwrap();
-        let out = jq.wait_with_output().unwrap();
-        assert!(out.status.success());
-        let want = String::from_utf8(out.stdout).unwrap();
-        let got: Vec<String> = lines(&J::parse(ROWS).unwrap(), "acme/widget")
-            .iter()
-            .map(|line| line.dump() + "\n")
-            .collect();
-        assert_eq!(got.concat(), want);
     }
 
     #[test]

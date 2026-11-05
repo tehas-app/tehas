@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Tests for install.sh: the Protolab server's files of before the edge
-# router, the markers a cycle used to leave, and the copy a sandbox build staged
-# beside the installed script, are removed.
+# router, the markers a cycle used to leave, the libraries no command sources,
+# and the copy a sandbox build staged beside the installed script, are removed.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
@@ -43,7 +43,6 @@ for f in $gone; do
   t_contains "$t_out" "removed: $f"
   t_eq "$([ -e "$f" ] && echo there)" ""
 done
-t_eq "$([ -e "$th/lib/history-lines.jq" ] && echo there)" "there"
 
 t_case "the jq program of the bash report's repeat park is named, then removed"
 fresh
@@ -59,6 +58,29 @@ t_run "$install"
 t_eq "$t_rc" 0
 t_contains "$t_out" "removed: $f"
 t_eq "$([ -e "$f" ] && echo there)" ""
+
+t_case "the libraries whose last callers moved into the console are named, then removed"
+fresh
+instance
+t_run "$install"
+rm -f "$th/state/update-pending"
+gone=""
+for f in attachments.sh cycles.sh labels.sh millwright.sh questions.sh sandbox.sh slice.sh store.sh history-lines.jq; do
+  gone+=" $th/lib/$f"
+done
+for f in $gone; do echo "# old" >"$f"; done
+t_run "$install --check"
+t_eq "$t_rc" 1
+for f in $gone; do t_contains "$t_out" "stale: $f"; done
+t_run "$install"
+t_eq "$t_rc" 0
+for f in $gone; do
+  t_contains "$t_out" "removed: $f"
+  t_eq "$([ -e "$f" ] && echo there)" ""
+done
+for f in config.sh paths.sh github-app.sh rukas.sh release.sh; do
+  t_eq "$([ -e "$th/lib/$f" ] && echo there)" "there"
+done
 
 t_case "the settings wrappers of before console run are named, then removed"
 fresh

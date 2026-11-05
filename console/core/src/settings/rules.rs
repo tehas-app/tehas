@@ -41,7 +41,6 @@ pub const ROLES: [&str; 5] = [
 pub const CLEAN_DIRS: &str =
     "target node_modules __pycache__ .venv .pytest_cache .mypy_cache .next .turbo .gradle";
 
-const THEMES: &str = "expected pixel, paper, beesknees or beesknees26";
 const SWITCH: Rule = Rule::OneOf(&["0", "1"], "expected 0 or 1");
 const LOGIN_MILLWRIGHT: &str =
     "expected one GitHub login, such as tehas-millwright or tehas-millwright[bot]";
@@ -69,7 +68,7 @@ pub enum Rule {
     /// no quote, space or angle bracket may get through.
     ScriptAddress,
     SiteName,
-    /// The shape lib/slice.sh reads at every start: no leading zero, at most
+    /// The shape tehas_core::slice reads at every start: no leading zero, at most
     /// twelve digits of bytes or nine with a unit, and a size Docker takes:
     /// it refuses a memory value under 6m.
     ContainerSize,
@@ -153,16 +152,6 @@ const fn required(name: &'static str, rule: Rule) -> Setting {
 /// told about first. An optional setting left out is checked only when it is
 /// there, as TEHAS_BUILD_TIMEOUT is: its default belongs to install.sh.
 pub const TABLE: &[Setting] = &[
-    always(
-        "TEHAS_THEME",
-        Rule::OneOf(&["pixel", "paper", "beesknees", "beesknees26"], THEMES),
-        "pixel",
-    ),
-    always(
-        "TEHAS_LAYOUT",
-        Rule::OneOf(&["floor", "business"], "expected floor or business"),
-        "floor",
-    ),
     always("TEHAS_INDEXING", SWITCH, "0"),
     always("TEHAS_WORK_IMAGES", SWITCH, "0"),
     always("TEHAS_WORK_DESCRIBE", SWITCH, "0"),
@@ -198,6 +187,7 @@ pub const TABLE: &[Setting] = &[
     always("TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS", Rule::Count, "3"),
     always("TEHAS_MILLWRIGHT_FEED", SWITCH, "0"),
     always("TEHAS_MILLWRIGHT_MAX_FEEDS", Rule::Count, "2"),
+    always("TEHAS_MILLWRIGHT_EPICS", SWITCH, "0"),
     always("TEHAS_REFRESH_CONFLICTS", SWITCH, "0"),
     always("TEHAS_REFRESH_MAX", Rule::Count, "2"),
     always("TEHAS_REFRESH_EVERY", Rule::RefreshEvery, "10"),
@@ -698,10 +688,6 @@ mod tests {
 
     #[test]
     fn a_word_setting_takes_its_words() {
-        takes("TEHAS_THEME", "beesknees26");
-        refuses("TEHAS_THEME", "../pixel", THEMES);
-        takes("TEHAS_LAYOUT", "business");
-        refuses("TEHAS_LAYOUT", "game", "expected floor or business");
         takes("TEHAS_ANALYTICS", "off");
         refuses("TEHAS_ANALYTICS", "On", "expected on or off");
         takes("TEHAS_UPDATE_FROM", "git");
@@ -718,7 +704,12 @@ mod tests {
 
     #[test]
     fn a_switch_is_0_or_1() {
-        for name in ["TEHAS_INDEXING", "TEHAS_PREVIEWS", "TEHAS_MILLWRIGHT_FEED"] {
+        for name in [
+            "TEHAS_INDEXING",
+            "TEHAS_PREVIEWS",
+            "TEHAS_MILLWRIGHT_FEED",
+            "TEHAS_MILLWRIGHT_EPICS",
+        ] {
             takes(name, "1");
             refuses(name, "2", "expected 0 or 1");
         }

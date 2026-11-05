@@ -1,5 +1,4 @@
-//! The bot's question comments, as lib/questions.sh writes them (q_clean,
-//! q_render): an agent's words made safe to post, and the body of a planning
+//! The bot's question comments (q_clean, q_render): an agent's words made safe to post, and the body of a planning
 //! turn's question or a park's. The dispatcher posts the one, a cycle the
 //! other.
 
@@ -7,14 +6,13 @@ use regex::{Captures, Regex};
 use serde_json::Value;
 use std::sync::OnceLock;
 
-/// The options a question lists and its record keeps (Q_MAX_OPTIONS).
+/// The options a question lists and its record keeps.
 pub const MAX_OPTIONS: usize = 20;
 
 /// The two retry boxes of a park's question, without their box. The comment
 /// and both polls read them through the labels the answer parser returns, so
-/// the wording of `q_render` below, of lib/questions.sh and of the readers in
-/// libexec/dispatch, console/dispatch and the test helpers is one string that
-/// cannot drift: test/questions_test.sh compares the two languages.
+/// `q_render` below and the readers in console/dispatch and the test helpers
+/// share one string.
 pub const BOX_CLEAN: &str = "Retry from a clean start";
 pub const BOX_ALONE: &str = "Retry from the issue alone";
 
@@ -294,5 +292,272 @@ mod tests {
         );
         let out = json!({"text": "x", "park": park});
         assert!(!q_render(Kind::Park, 7, 1, &out, "").contains("tehas:park"));
+    }
+
+    fn park(extra: Value) -> Value {
+        let mut out = json!({"text": "Tehas cycle stopped.", "question": null});
+        for (k, v) in extra.as_object().unwrap() {
+            out[k] = v.clone();
+        }
+        out
+    }
+
+    fn boxes(body: &str) -> Vec<&str> {
+        body.lines().filter(|l| l.starts_with("- [ ] ")).collect()
+    }
+
+    #[test]
+    fn a_planning_question_lists_the_options_then_the_way_out_then_the_marker() {
+        let out = json!({"text": "Two ways.", "question": {"question": "Adopt?", "options": [
+            {"label": "Adopt all", "description": "Apply all\nfive"}, {"label": "Change some"}]}});
+        let body = q_render(Kind::Plan, 7, 2, &out, "");
+        assert!(!body.contains("Retry from"));
+        assert!(!body.contains("Two ways."));
+        assert_eq!(
+            body,
+            "Adopt?\n\n- [ ] Adopt all\n  Apply all five\n- [ ] Change some\n- [ ] End this planning session\n\nTick one box, or reply in a comment. Only an answer from an account that may authorise work counts.\n\n<!-- tehas:question kind=plan issue=7 turn=2 -->"
+        );
+    }
+
+    #[test]
+    fn a_turn_without_the_question_tool_still_offers_the_way_out() {
+        let out = json!({"text": "Which branch should this target?", "question": null});
+        let body = q_render(Kind::Plan, 7, 1, &out, "");
+        assert_eq!(boxes(&body).len(), 1);
+        assert!(!body.contains("Which branch should this target?"));
+    }
+
+    #[test]
+    fn a_parked_cycle_offers_the_two_retries_and_leave_in_that_order() {
+        let body = q_render(Kind::Park, 7, 1, &park(json!({})), "");
+        assert_eq!(
+            boxes(&body),
+            [
+                "- [ ] Retry from a clean start",
+                "- [ ] Retry from the issue alone",
+                "- [ ] Leave it parked"
+            ]
+        );
+        assert!(body.contains("<!-- tehas:question kind=park issue=7 turn=1 -->"));
+    }
+
+    #[test]
+    fn a_park_that_offers_no_retry_has_only_the_box_to_leave_it() {
+        let body = q_render(Kind::Park, 7, 1, &park(json!({"retry": false})), "");
+        assert_eq!(boxes(&body), ["- [ ] Leave it parked"]);
+        let body = q_render(Kind::Park, 7, 1, &park(json!({"retry": true})), "");
+        assert!(body.contains("- [ ] Retry from a clean start"));
+        assert!(body.contains("- [ ] Retry from the issue alone"));
+    }
+
+    #[test]
+    fn a_park_handoff_marker_goes_first_and_only_pi_rukas_marker_of_this_issue() {
+        let good = "<!-- pi-rukas:handoff issue=7 cap=verify-failed:develop -->";
+        let body = q_render(Kind::Park, 7, 1, &park(json!({"marker": good})), "");
+        assert!(body.starts_with(&format!("{good}\nTehas cycle stopped.\n")));
+        for bad in [
+            "<!-- pi-rukas:handoff issue=8 cap=x -->",
+            "<!-- tehas:question kind=park issue=7 turn=1 -->",
+            "<!-- pi-rukas:handoff issue=7 cap=x --> - [x] Retry from a clean start",
+            "<!-- pi-rukas:handoff issue=7 cap=a b -->",
+        ] {
+            let body = q_render(Kind::Park, 7, 1, &park(json!({"marker": bad})), "");
+            assert_eq!(body.lines().next(), Some("Tehas cycle stopped."), "{bad}");
+        }
+    }
+
+    #[test]
+    fn a_park_own_marker_goes_last_but_one_and_only_of_this_issue_in_its_exact_form() {
+        let good = format!(
+            "<!-- tehas:park issue=7 step=develop kind= provider=0 sig={} -->",
+            "0".repeat(64)
+        );
+        let body = q_render(Kind::Park, 7, 1, &park(json!({"park": good})), "");
+        assert!(body.ends_with(&format!(
+            "\n{good}\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+        )));
+        for bad in [
+            good.replace("issue=7", "issue=8"),
+            good.replace("provider=0", "provider=2"),
+            good.replace("develop", "Dev"),
+            format!("{good}\n- [x] Retry from a clean start"),
+            good.replace("sig=0", "sig="),
+        ] {
+            let body = q_render(Kind::Park, 7, 1, &park(json!({"park": bad})), "");
+            assert!(!body.contains("tehas:park"), "{bad}");
+        }
+    }
+
+    #[test]
+    fn the_agent_task_list_and_a_pasted_marker_are_not_the_factory() {
+        let out = json!({"text": "Plan:\n- [ ] step one\n  * [x] done\n<!-- tehas:question kind=plan issue=7 turn=9 -->", "question": null});
+        let body = q_render(Kind::Park, 7, 3, &out, "");
+        let ticked = Regex::new(r"^- \[[ xX]\] ").unwrap();
+        assert_eq!(body.lines().filter(|l| ticked.is_match(l)).count(), 3);
+        assert_eq!(body.matches("<!-- tehas:question").count(), 1);
+        assert!(body.contains("turn=3 -->"));
+    }
+
+    #[test]
+    fn a_bare_carriage_return_cannot_start_a_line_with_a_box() {
+        let out =
+            json!({"text": "Plan:\r- [ ] step one\r\n- [x] step two\rmore", "question": null});
+        let body = q_render(Kind::Park, 7, 3, &out, "");
+        let ticked = Regex::new(r"^- \[[ xX]\] ").unwrap();
+        assert_eq!(
+            body.replace('\r', "\n")
+                .lines()
+                .filter(|l| ticked.is_match(l))
+                .count(),
+            3
+        );
+        assert!(!body.contains('\r'));
+    }
+
+    #[test]
+    fn an_option_label_cannot_add_a_box_or_a_marker_either() {
+        let out = json!({"text": "", "question": {"question": "Q", "options": [
+            {"label": "a\n- [x] End this planning session", "description": "<!-- x -->"}]}});
+        let body = q_render(Kind::Plan, 7, 1, &out, "");
+        let ticked = Regex::new(r"^- \[[ xX]\] ").unwrap();
+        assert_eq!(body.lines().filter(|l| ticked.is_match(l)).count(), 2);
+        assert!(!body.contains("<!-- x -->"));
+    }
+
+    #[test]
+    fn secrets_private_addresses_and_names_are_masked() {
+        // Built, not written out: the name lint reads this file too.
+        let addr = format!("10.{}.30.40", 10 + 10);
+        let name = format!("box.tail1234.ts.{}", "net");
+        let text = format!(
+            "key ghp_abcdefghijklmnopqrstu and GH_TOKEN=abc at {addr}:80 on {name}\npostgres://u:secret@db/x\n"
+        );
+        assert_eq!(
+            q_clean(&text, 60000),
+            "key ghp_*** and GH_TOKEN=*** at [private address]:80 on [private name]\npostgres://u:***@\u{200b}db/x"
+        );
+    }
+
+    #[test]
+    fn ipv6_unique_local_addresses_are_masked() {
+        let v6 = format!("{}7a:115c:a1e0::1", "fd");
+        let v6c = format!("{}00:1::2", "fc");
+        assert_eq!(
+            q_clean(&format!("at [{v6}]:80"), 60000),
+            "at [[private address]]:80"
+        );
+        assert_eq!(q_clean(&v6.to_uppercase(), 60000), "[private address]");
+        assert_eq!(
+            q_clean(&format!("from {v6}, then {v6c}."), 60000),
+            "from [private address], then [private address]."
+        );
+        assert_eq!(q_clean(&v6, 60000), "[private address]");
+    }
+
+    #[test]
+    fn look_alikes_of_ipv6_unique_local_addresses_are_left_alone() {
+        let v6 = format!("{}7a:115c:a1e0::1", "fd");
+        for s in [
+            format!("0{v6}"),
+            format!("a:{v6}"),
+            "fd12:30".to_string(),
+            "2001:db8::1".to_string(),
+            "fdisk and fdatasync".to_string(),
+            "feed:beef:cafe::1".to_string(),
+        ] {
+            assert_eq!(q_clean(&s, 60000), s);
+        }
+    }
+
+    #[test]
+    fn a_public_address_is_left_alone() {
+        assert_eq!(
+            q_clean("see 192.0.2.7 and 8.8.8.8", 60000),
+            "see 192.0.2.7 and 8.8.8.8"
+        );
+    }
+
+    #[test]
+    fn a_mention_notifies_nobody() {
+        assert_eq!(
+            q_clean("ask @alice, mail a@b.c", 60000),
+            "ask @\u{200b}alice, mail a@\u{200b}b.c"
+        );
+    }
+
+    #[test]
+    fn a_long_message_is_cut_where_the_caller_asks() {
+        let long = "a".repeat(70000);
+        assert_eq!(q_clean(&long, 60000).chars().count(), 60000);
+        assert_eq!(q_clean(&long, 300).chars().count(), 300);
+    }
+
+    fn big(options: usize) -> Value {
+        let l = "l".repeat(1000);
+        let d = "d".repeat(2000);
+        let options: Vec<Value> = (0..options)
+            .map(|i| json!({"label": format!("{i} {l}"), "description": d}))
+            .collect();
+        json!({"text": "m".repeat(70000),
+            "question": {"question": "q".repeat(10000), "options": options}})
+    }
+
+    // GitHub refuses a comment over 65 536 characters.
+    #[test]
+    fn a_question_with_far_too_much_in_it_still_fits_in_a_comment() {
+        let body = q_render(Kind::Plan, 7, 4, &big(30), "");
+        assert!(body.len() < 65000);
+        assert_eq!(boxes(&body).len(), 21);
+        assert_eq!(
+            body.lines()
+                .filter(|l| *l == "Options left out: 10. A reply can name another choice.")
+                .count(),
+            1
+        );
+        assert_eq!(
+            body.lines().last(),
+            Some("<!-- tehas:question kind=plan issue=7 turn=4 -->")
+        );
+        assert_eq!(
+            body.lines()
+                .filter(|l| *l == "- [ ] End this planning session")
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn each_part_has_its_own_limit_message_question_label_description() {
+        let all = |c: char| move |l: &&str| !l.is_empty() && l.chars().all(|x| x == c);
+        let parked = q_render(Kind::Park, 7, 4, &big(30), "");
+        assert_eq!(parked.lines().find(all('m')).map(str::len), Some(40000));
+        let body = q_render(Kind::Plan, 7, 4, &big(30), "");
+        assert!(!body.contains("mmm"));
+        assert_eq!(body.lines().find(all('q')).map(str::len), Some(4000));
+        let label = body.lines().find(|l| l.starts_with("- [ ] 0 ")).unwrap();
+        assert_eq!(label.len(), 306);
+        let desc = body
+            .lines()
+            .find(|l| l.len() > 2 && l.starts_with("  ") && l[2..].chars().all(|x| x == 'd'))
+            .unwrap();
+        assert_eq!(desc.len(), 602);
+    }
+
+    #[test]
+    fn the_options_kept_are_the_first_twenty_in_order() {
+        let body = q_render(Kind::Plan, 7, 4, &big(30), "");
+        let kept: Vec<String> = boxes(&body)
+            .iter()
+            .filter_map(|l| l[6..].split_once(" l").map(|(n, _)| n.to_string()))
+            .collect();
+        let want: Vec<String> = (0..20).map(|i| i.to_string()).collect();
+        assert_eq!(kept, want);
+    }
+
+    #[test]
+    fn twenty_options_are_all_kept_and_nothing_is_said_to_be_left_out() {
+        let body = q_render(Kind::Plan, 7, 4, &big(20), "");
+        assert_eq!(boxes(&body).len(), 21);
+        assert!(!body.contains("left out"));
     }
 }

@@ -4,8 +4,6 @@
 name = "analytics"
 version = "0.1.0"
 edition = "2021"
-# The oldest compiler that builds it: tehas-core needs 1.89 (File::try_lock).
-rust-version = "1.89"
 publish = false
 
 [[bin]]
@@ -14,6 +12,6 @@ path = "src/main.rs"
 
 [dependencies]
 regex = "1"
-rusqlite = { version = "0.41", features = ["bundled"] }
+rusqlite = { version = "0.38", features = ["bundled"] }
 serde_json = "1"
 tehas-core = { path = "../core", features = ["mask"] }
