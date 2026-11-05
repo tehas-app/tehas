@@ -1843,7 +1843,29 @@ t_stub docker
 poll room "holding: the reason"
 t_run "$status && $summary"
 t_eq "$(t_calls systemctl)" "--user --failed --plain --no-legend tehas-*"
+# Only status asks docker, for the label of the image cycles run (src/rukas.rs).
+t_eq "$(t_calls docker)" 'image inspect --format {{.Id}} {{index .Config.Labels "tehas.rukas"}} tehas/pi-rukas:uid1000'
+rm -f "$T"/calls/docker
+t_run "$health && $summary"
 t_eq "$(t_calls docker)" ""
+
+t_case "status writes the pi-rukas the image runs, and health warns while it is behind"
+reset
+a=$(printf 'a%.0s' {1..40}) b=$(printf 'b%.0s' {1..40})
+t_stub docker "case \"\$1 \$2\" in
+  'image inspect') echo 'sha256:1 $a' ;;
+  'run --rm') echo '{\"version\":\"0.14.53\"}' ;;
+esac"
+T_ENV=("PI_RUKAS_FOLLOW=commit:$b")
+t_run "$status"
+T_ENV=()
+t_eq "$t_rc" 0
+t_eq "$(jq -c '{follow, target, image, imageVersion, behind}' "$live/rukas.json")" \
+  "{\"follow\":\"commit:$b\",\"target\":\"$b\",\"image\":\"$a\",\"imageVersion\":\"v0.14.53\",\"behind\":true}"
+t_eq "$(jq -r .checks.rukas.imageVersion "$live/health.json")" v0.14.53
+t_eq "$(jq -r .status "$live/health.json")" warn
+t_eq "$(jq -r .output "$live/health.json")" "The sandbox image runs pi-rukas v0.14.53 and the host follows bbbbbbbb: run tehas update."
+t_contains "$(t_calls docker)" "run --rm --init --network none tehas/pi-rukas:uid1000 /opt/pi-rukas/bin/pi-rukas-headless --capabilities"
 
 t_case "a lost cycle ends two minutes after its last heartbeat"
 reset

@@ -71,6 +71,12 @@ pub fn base_image(
     Some(format!("ghcr.io/{path}:sha-{}", &commit[..12]))
 }
 
+/// `PI_RUKAS_FOLLOW` or `PI_RUKAS_REPO` as the text of versions.env sets it,
+/// the last line of a usable shape, empty when there is none.
+pub fn pinned<'a>(versions: &'a str, name: &str) -> &'a str {
+    pin(versions, name, path_shaped)
+}
+
 /// The value of the last line of `name` whose value has the right shape,
 /// empty when there is none: a value of another shape names an image that
 /// cannot exist.

@@ -219,6 +219,7 @@ mod publish;
 mod queue;
 mod render;
 mod review;
+mod rukas;
 mod run;
 mod settings;
 mod setup;
