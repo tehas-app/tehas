@@ -4804,16 +4804,16 @@ next task waits for one to end, and one task always runs. The timeouts below
 then measure a file's own time, not a queue.
 
 Before the pool starts, it builds the state store (`console/store`) once,
-offline, into `console/target/shell`, and tells every test file where the
-program is (`T_STORE_BIN`) or why there is none (`T_STORE_WHY`). The build is
-asked for no debug info (`CARGO_PROFILE_DEV_DEBUG=0` on that one command),
-because those binaries are run and not debugged: debug info is most of what
-the directory holds. The variable is not exported, so the gate's `cargo test`
-in `console/target` keeps its debug info. The directory
-is its own because `scripts/verify.sh` runs the workspace's `cargo test` in
-`console/target` at the same time, and cargo holds that directory's lock while
-it builds (the workspace's dev profile keeps line tables and no incremental
-data, so that directory stays under 1 GB). The tests of the commands that run the store (`test/dispatch_*`,
+offline, into the workspace's own target directory (`CARGO_TARGET_DIR`, or
+`console/target`) with the workspace's dev profile, and tells every test file
+where the program is (`T_STORE_BIN`) or why there is none (`T_STORE_WHY`).
+The gate's `cargo test`, which `scripts/verify.sh` starts at the same time,
+builds the same crates there: cargo holds the directory's lock only while it
+builds, so one build waits for the other and reuses what it made, and the
+tests of each run side by side. One tree instead of two takes about 170 MB
+off every checkout (#1360); the dev profile keeps line tables and no
+incremental data, so the tree stays under 750 MB. A `console/target/shell`
+left by an earlier runner is removed. The tests of the commands that run the store (`test/dispatch_*`,
 `test/cycle_*`, `test/work_*` and `test/store_approval_test.sh`) install it in
 their scratch home and fail without it, so they need cargo too; the build needs the
 workspace's crates in cargo's cache, as the gate's own `cargo test` does. When
