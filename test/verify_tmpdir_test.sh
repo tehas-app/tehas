@@ -23,7 +23,7 @@ gate="cd '$tree' && TEHAS_VERIFY_FRESH=1 TEHAS_VERIFY_LOGS='$T/logs' scripts/ver
 # The stub notes the TMPDIR it was given, and leaves a directory there when
 # the case asks it to.
 # shellcheck disable=SC2016  # the stub body is expanded when it runs
-t_stub cargo 'echo "$TMPDIR" >"$T/cargo-tmp"; [ ! -e "$T/leak" ] || mkdir "$TMPDIR/tehas-cargo-4242"; exit 0'
+t_stub cargo '[ "$1" = test ] || exit 0; echo "$TMPDIR" >"$T/cargo-tmp"; [ ! -e "$T/leak" ] || mkdir "$TMPDIR/tehas-cargo-4242"; exit 0'
 t_stub node 'exit 0'
 
 t_case "the tests get a TMPDIR of their own and a clean run passes"

@@ -48,6 +48,9 @@
       "driver": "lean"
      }
     ]
+   },
+   "spec": {
+    "7": "Words.\n\n```pi-spec v1\n{\"intent\":\"faster search\"}\n```"
    }
   },
   {
@@ -214,7 +217,7 @@
     "7": {
      "by": "alice",
      "at": "2026-09-01T00:00:00Z",
-     "body": "Words."
+     "body": "Words.\n\n```pi-spec v1\n{\"intent\":\"faster search\"}\n```"
     }
    },
    "expect": {
@@ -228,6 +231,9 @@
       "driver": "lean"
      }
     ]
+   },
+   "spec": {
+    "7": "Words.\n\n```pi-spec v1\n{\"intent\":\"faster search\"}\n```"
    }
   },
   {
@@ -2045,6 +2051,9 @@
       "driver": "lean"
      }
     ]
+   },
+   "spec": {
+    "7": "Words."
    }
   },
   {
@@ -2073,6 +2082,9 @@
       "driver": "lean"
      }
     ]
+   },
+   "spec": {
+    "7": "Words."
    }
   },
   {
@@ -2098,6 +2110,9 @@
       "driver": "lean"
      }
     ]
+   },
+   "spec": {
+    "7": "Words.\n\n```pi-spec v1\n{\"intent\":\"faster search\"}\n```"
    }
   },
   {
@@ -2220,6 +2235,577 @@
       "start": 7
      }
     ]
+   }
+  },
+  {
+   "case": "tehas:lean with a pi-spec v1 block of valid JSON starts as today",
+   "queue": [
+    "7 tehas:lean"
+   ],
+   "label_events": {
+    "7": [
+     "tehas:lean=alice"
+    ]
+   },
+   "body": {
+    "7": "Part.\n\n```pi-spec v1\n{\"intent\":\"faster search\"}\n```"
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ],
+    "actions": [
+     {
+      "start": 7,
+      "given": "label",
+      "driver": "lean"
+     }
+    ],
+    "no_actions": [
+     {
+      "issue": 7,
+      "remove": [
+       "tehas:ready"
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "case": "tehas:lean with no pi-spec v1 block starts nothing, takes the ask off and says why once",
+   "queue": [
+    "7 tehas:lean"
+   ],
+   "label_events": {
+    "7": [
+     "tehas:lean=alice"
+    ]
+   },
+   "body": {
+    "7": "A plain body with no block."
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "log": [
+     "skip #7: its text holds no `pi-spec v1` block for the lean driver to read: it is not there, or it is not the one block of valid JSON lean needs. A person writes that block, and applies `tehas:ready` again."
+    ],
+    "actions": [
+     {
+      "issue": 7,
+      "remove": [
+       "tehas:ready"
+      ],
+      "say": "Tehas took `tehas:ready` off this issue and started nothing: its text holds no `pi-spec v1` block for the lean driver to read: it is not there, or it is not the one block of valid JSON lean needs. A person writes that block, and applies `tehas:ready` again."
+     }
+    ],
+    "no_actions": [
+     {
+      "start": 7
+     }
+    ]
+   }
+  },
+  {
+   "case": "tehas:lean with two pi-spec v1 blocks counts as none: nothing starts and the ask comes off",
+   "queue": [
+    "7 tehas:lean"
+   ],
+   "label_events": {
+    "7": [
+     "tehas:lean=alice"
+    ]
+   },
+   "body": {
+    "7": "```pi-spec v1\n{\"intent\":\"faster search\"}\n```\n\n```pi-spec v1\n{\"intent\":\"faster search\"}\n```"
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "actions": [
+     {
+      "issue": 7,
+      "remove": [
+       "tehas:ready"
+      ]
+     }
+    ],
+    "no_actions": [
+     {
+      "start": 7
+     }
+    ]
+   }
+  },
+  {
+   "case": "tehas:lean with a pi-spec v1 block that is no JSON counts as none",
+   "queue": [
+    "7 tehas:lean"
+   ],
+   "label_events": {
+    "7": [
+     "tehas:lean=alice"
+    ]
+   },
+   "body": {
+    "7": "```pi-spec v1\nnot json\n```"
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "actions": [
+     {
+      "issue": 7,
+      "remove": [
+       "tehas:ready"
+      ]
+     }
+    ],
+    "no_actions": [
+     {
+      "start": 7
+     }
+    ]
+   }
+  },
+  {
+   "note": "The gate reads the body of `edit`, the record an approval binds, and falls back to `work` only when that record gave no body. The read of the queue puts one node's text in both, so a case has to write the two apart to say they differ.",
+   "case": "tehas:lean reads the block of the edit record, not the REST issue's",
+   "queue": [
+    "7 tehas:lean"
+   ],
+   "label_events": {
+    "7": [
+     "tehas:lean=alice"
+    ]
+   },
+   "body": {
+    "7": "A plain body with no block."
+   },
+   "work": {
+    "7": {
+     "body": "```pi-spec v1\n{\"intent\":\"faster search\"}\n```"
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "actions": [
+     {
+      "issue": 7,
+      "remove": [
+       "tehas:ready"
+      ]
+     }
+    ],
+    "no_actions": [
+     {
+      "start": 7
+     }
+    ]
+   }
+  },
+  {
+   "case": "tehas:lean reads the block of the edit record when the REST issue holds none",
+   "queue": [
+    "7 tehas:lean"
+   ],
+   "label_events": {
+    "7": [
+     "tehas:lean=alice"
+    ]
+   },
+   "body": {
+    "7": "```pi-spec v1\n{\"intent\":\"faster search\"}\n```"
+   },
+   "work": {
+    "7": {
+     "body": "A plain body with no block."
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ],
+    "actions": [
+     {
+      "start": 7,
+      "driver": "lean"
+     }
+    ],
+    "no_actions": [
+     {
+      "issue": 7,
+      "remove": [
+       "tehas:ready"
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "case": "tehas:lean with no block takes tehas:blocked off with the ask, so a blocked issue is told once",
+   "queue": [
+    "7 tehas:blocked tehas:lean"
+   ],
+   "label_events": {
+    "7": [
+     "tehas:blocked=alice",
+     "tehas:lean=alice"
+    ]
+   },
+   "notes": {
+    "7": [
+     [
+      10,
+      "alice",
+      "<!-- tehas:blocked by=12 -->"
+     ]
+    ]
+   },
+   "states": {
+    "7": {
+     "12": "CLOSED"
+    }
+   },
+   "body": {
+    "7": "A plain body with no block."
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "actions": [
+     {
+      "issue": 7,
+      "remove": [
+       "tehas:ready",
+       "tehas:blocked"
+      ]
+     }
+    ],
+    "no_actions": [
+     {
+      "start": 7
+     }
+    ]
+   }
+  },
+  {
+   "case": "a dry run of a lean start with no block says what it would do and writes nothing",
+   "queue": [
+    "7 tehas:lean"
+   ],
+   "label_events": {
+    "7": [
+     "tehas:lean=alice"
+    ]
+   },
+   "body": {
+    "7": "A plain body with no block."
+   },
+   "dry": true,
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "log": [
+     "skip #7: its text holds no `pi-spec v1` block for the lean driver to read: it is not there, or it is not the one block of valid JSON lean needs. A person writes that block, and applies `tehas:ready` again.",
+     "would take tehas:ready off #7: its text holds no pi-spec v1 block"
+    ],
+    "actions": []
+   }
+  },
+  {
+   "case": "a lean start refused for its block does not run classic in its place",
+   "queue": [
+    "7 tehas:lean"
+   ],
+   "label_events": {
+    "7": [
+     "tehas:lean=alice"
+    ]
+   },
+   "body": {
+    "7": "A plain body with no block."
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "no_actions": [
+     {
+      "start": 7
+     },
+     {
+      "issue": 7,
+      "add": [
+       "needs-human-attention"
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "note": "A millwright's feed is the one fixer start that rests on no sum check: `feed_ok` credits the issue's author rather than comparing the body with a record, so `fixer` is Some while nothing has bound the text to an approval. It is therefore asked for its block like any other new start: the exemption `spec_ok` gives a start that follows a record is earned by a sum check, not by the flag alone.",
+   "case": "a millwright's fed lean start with no block is asked for it: the feed checks no sum",
+   "settings": {
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
+    "TEHAS_MILLWRIGHT_FEED": "1"
+   },
+   "snapshot": {
+    "ready": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       },
+       {
+        "name": "tehas:lean"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "tehas-fixer"
+        },
+        "created_at": "2026-10-02T00:00:00Z"
+       },
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:lean"
+        },
+        "actor": {
+         "login": "alice"
+        },
+        "created_at": "2026-10-01T00:00:00Z"
+       }
+      ]
+     }
+    },
+    "fed": 0
+   },
+   "body": {
+    "7": "A plain body with no block."
+   },
+   "after": {
+    "issues": {
+     "7": {
+      "edit": {
+       "createdAt": "2026-09-30T00:00:00Z",
+       "author": {
+        "login": "alice"
+       },
+       "lastEditedAt": null,
+       "editor": null
+      }
+     }
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "actions": [
+     {
+      "issue": 7,
+      "remove": [
+       "tehas:ready"
+      ]
+     }
+    ],
+    "no_actions": [
+     {
+      "start": 7
+     }
+    ]
+   }
+  },
+  {
+   "case": "an issue with no block runs classic when nobody chose lean",
+   "queue": [
+    "7"
+   ],
+   "body": {
+    "7": "A plain body with no block."
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ],
+    "actions": [
+     {
+      "start": 7,
+      "given": "label"
+     }
+    ],
+    "no_actions": [
+     {
+      "driver": "lean"
+     },
+     {
+      "issue": 7,
+      "remove": [
+       "tehas:ready"
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "case": "a refresh runs the driver of the start it follows: its body needs no pi-spec v1 block",
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 2,
+    "TEHAS_REFRESH_CONFLICTS": "1"
+   },
+   "snapshot": {
+    "ready": [],
+    "awaiting": [
+     {
+      "number": 7
+     }
+    ],
+    "refresh_requests": [
+     7
+    ],
+    "continues": true,
+    "pulls": {
+     "50": {
+      "state": "OPEN",
+      "number": 50,
+      "url": "https://github.com/acme/widget/pull/50",
+      "isDraft": false,
+      "isCrossRepository": false,
+      "headRefOid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "baseRefName": "main",
+      "baseRefOid": "cccccccccccccccccccccccccccccccccccccccc",
+      "mergeable": "CONFLICTING",
+      "author": {
+       "login": "tehas-bot"
+      },
+      "headRepository": {
+       "nameWithOwner": "acme/widget"
+      },
+      "labels": {
+       "nodes": []
+      },
+      "closingIssuesReferences": {
+       "totalCount": 1,
+       "nodes": [
+        {
+         "number": 7,
+         "state": "OPEN",
+         "labels": {
+          "nodes": [
+           {
+            "name": "tehas:awaiting-merge"
+           }
+          ]
+         },
+         "closedByPullRequestsReferences": {
+          "nodes": [
+           {
+            "number": 50,
+            "state": "OPEN"
+           }
+          ]
+         }
+        }
+       ]
+      }
+     }
+    },
+    "issues": {
+     "7": {
+      "events": [],
+      "request": {
+       "at": "2026-10-17T09:00:00Z",
+       "pr": 50,
+       "head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+       "base_sha": "cccccccccccccccccccccccccccccccccccccccc"
+      },
+      "approval": {
+       "at": "2026-10-01T00:00:00Z",
+       "by": "alice",
+       "how": "label",
+       "body_sha256": "f87711f83b43cb6faad019e9592a28faaf623ff8ad3249d846d38cec0f1cf18f"
+      },
+      "history": [],
+      "work": {
+       "number": 7,
+       "state": "open",
+       "labels": [
+        {
+         "name": "tehas:awaiting-merge"
+        }
+       ]
+      },
+      "edit": {
+       "lastEditedAt": null,
+       "editor": null,
+       "body": "A plain body with no block."
+      }
+     }
+    },
+    "refreshing": []
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ],
+    "actions": [
+     {
+      "start": 7,
+      "given": "refresh",
+      "driver": "lean"
+     }
+    ]
+   },
+   "after": {
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:lean"
+        },
+        "actor": {
+         "login": "alice"
+        },
+        "created_at": "2026-10-01T00:01:00Z"
+       }
+      ],
+      "approval": {
+       "at": "2026-10-01T00:00:00Z",
+       "by": "alice",
+       "how": "label",
+       "body_sha256": "f87711f83b43cb6faad019e9592a28faaf623ff8ad3249d846d38cec0f1cf18f",
+       "links": [],
+       "driver": "lean"
+      },
+      "work": {
+       "labels": [
+        {
+         "name": "tehas:awaiting-merge"
+        },
+        {
+         "name": "tehas:lean"
+        }
+       ]
+      }
+     }
+    }
    }
   }
  ]

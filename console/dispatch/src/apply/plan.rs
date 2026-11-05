@@ -29,8 +29,8 @@ use std::sync::OnceLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tehas_core::events::{plan_credit, Events};
 use tehas_core::plan::{
-    carries_update, clear_plan, draft_holds, is_refusal, refusal_document, refused_by_draft,
-    says_refusal, Refused,
+    carries_update, clear_plan, draft_holds, is_refusal, keep_spec, refusal_document,
+    refused_by_draft, says_refusal, text_of, Refused,
 };
 use tehas_core::question::{self, Kind, MAX_OPTIONS};
 
@@ -907,12 +907,19 @@ impl Writer {
         // The reason a person reads, so the line the poll logs and the line
         // the poll posts say which rule the draft failed.
         .map_err(|refused| refused.line())?;
+        // The body the issue is about to hold, with the person's spec block
+        // back on top of it. The two checks below ask this text, the one GitHub
+        // will hold: `tehas:plan` approves the links it names and the sum the
+        // bot's `tehas:ready` is later matched against is the sum of it, so a
+        // person who approved a plan with no open points approves exactly what
+        // they were shown and nothing the issue kept on its own.
+        let body = keep_spec(&plan.body, &text_of(was.get("body")));
         // tehas:plan approved the brief's links; the planner cannot add one.
         let approved = link_list(text(p, "brief"));
-        if link_list(&plan.body).iter().any(|l| !approved.contains(l)) {
+        if link_list(&body).iter().any(|l| !approved.contains(l)) {
             return Err("the plan links an attachment the issue did not".into());
         }
-        let update = json!({"title": plan.title, "body": plan.body});
+        let update = json!({"title": plan.title, "body": body});
         let next = json!({"session": out.get("session"), "text": plan.text, "question": null,
             "update": update, "start": {"by": by, "sum": plan_sum(&update)}});
         if !self.outcome_said(n, &next) {

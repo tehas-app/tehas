@@ -666,8 +666,8 @@ run
 # runner passes the paths as it built them, with $root resolved to the checkout.
 lintglobs=()
 for g in "$repo"/bin/* "$repo"/libexec/* "$repo"/lib/*.sh "$repo"/scripts/*.sh "$repo"/test/*.sh \
-  "$repo"/install.sh "$repo"/bootstrap.sh "$repo"/host/env.sh "$repo"/host/sandbox/build.sh \
-  "$repo"/host/login/tehas; do
+  "$repo"/install.sh "$repo"/bootstrap.sh "$repo"/host/env.sh "$repo"/host/shim/gh \
+  "$repo"/host/sandbox/build.sh "$repo"/host/sandbox/gh-shim "$repo"/host/login/tehas; do
   [ -f "$g" ] || continue
   case "$g" in */scripts/publish-lib.sh) continue ;; esac
   lintglobs+=("$g")
