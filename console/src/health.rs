@@ -1285,14 +1285,19 @@ fn held(lock: &Path) -> bool {
     )
 }
 
-/// The planning turns in flight, each {issue, turn, startedAt}: the sessions
-/// the store has running whose turn holds its lock and has not left its exit
-/// status (console/dispatch/src/apply/turn.rs).
+/// The open planning sessions to tell of, each {issue, turn, startedAt,
+/// state}: `running` for a turn in flight, the session the store has running
+/// whose turn holds its lock and has not left its exit status
+/// (console/dispatch/src/apply/turn.rs); `failed` for one whose last turn
+/// ended in error and waits for a person: on record as failed (the dispatcher
+/// posted its question), or still running on record beside an exit status
+/// other than 0 that the next poll will post. A session that is over is not in
+/// `plan-show --open`, and one whose turn finished or was cut off is left out.
 fn plans(home: &Path, sessions: &J) -> J {
     let state = home.join("state");
     let mut out = Vec::new();
     for s in sessions.get("sessions").items() {
-        if !s.get("running").is_true() || !matches!(s.get("issue"), J::Num(_)) {
+        if !matches!(s.get("issue"), J::Num(_)) || !s.get("ended_at").is_null() {
             continue;
         }
         let n = s.get("issue").text();
@@ -1303,22 +1308,45 @@ fn plans(home: &Path, sessions: &J) -> J {
         if !plain {
             continue;
         }
-        let lock = state.join(format!("plan-{n}.json.lock"));
-        let rc = state.join(format!("plan-{n}.json.rc"));
-        if rc.exists() || !held(&lock) {
-            continue;
-        }
         let turns = match s.get("turns") {
             t @ J::Num(_) => t.as_f64().unwrap_or(0.0),
             _ => 0.0,
         };
+        let lock = state.join(format!("plan-{n}.json.lock"));
+        let rc = state.join(format!("plan-{n}.json.rc"));
+        let (turn, word) = if s.get("running").is_true() {
+            match exit_status(&rc) {
+                Some(t) if t.trim_end_matches('\n') == "0" => continue,
+                Some(_) => (turns + 1.0, "failed"),
+                None if rc.exists() || !held(&lock) => continue,
+                None => (turns + 1.0, "running"),
+            }
+        } else if s.get("failed").is_true() && !s.get("lost").is_true() {
+            (turns, "failed")
+        } else {
+            continue;
+        };
         out.push(obj(vec![
             ("issue", s.get("issue").clone()),
-            ("turn", J::num(turns + 1.0)),
+            ("turn", J::num(turn)),
             ("startedAt", iso(s.get("started_at"))),
+            ("state", J::str(word)),
         ]));
     }
     J::Arr(out)
+}
+
+/// The exit status a planning turn left, as the dispatcher reads it: the
+/// first bytes of a regular file, None for no file. A status that cannot be
+/// read is not 0, which is a turn that ended in error.
+fn exit_status(rc: &Path) -> Option<String> {
+    if !rc.is_file() {
+        return None;
+    }
+    let mut text = Vec::new();
+    let _ = fs::File::open(rc)
+        .and_then(|f| io::Read::read_to_end(&mut io::Read::take(f, 64), &mut text));
+    Some(String::from_utf8_lossy(&text).into_owned())
 }
 
 /// The pause flag of this host: null with none, {at, reason} with one, and
@@ -2611,10 +2639,54 @@ mod tests {
         lock.lock().unwrap();
         assert_eq!(
             h.report(&g).at(&["checks", "plans"]).dump(),
-            r#"[{"issue":7,"turn":2,"startedAt":"2026-10-17T13:50:00Z"}]"#
+            r#"[{"issue":7,"turn":2,"startedAt":"2026-10-17T13:50:00Z","state":"running"}]"#
         );
         h.write("state/plan-7.json.rc", "0");
         assert_eq!(h.report(&g).at(&["checks", "plans"]).len(), 0);
+    }
+
+    #[test]
+    fn a_planning_session_whose_last_turn_failed_waits_for_a_person() {
+        let h = home("plans-failed");
+        let plans = |h: &Home, sessions: &str| {
+            let g = Given {
+                sessions: Some(sessions.into()),
+                ..Given::default()
+            };
+            h.report(&g).at(&["checks", "plans"]).dump()
+        };
+        // On record as failed: the turn ended in error, the dispatcher posted
+        // its question, and the session waits for an answer with no lock held.
+        let failed = r#"{"sessions":[{"issue":7,"running":false,"failed":true,"turns":2,"started_at":1792245000,"ended_at":null}]}"#;
+        assert_eq!(
+            plans(&h, failed),
+            r#"[{"issue":7,"turn":2,"startedAt":"2026-10-17T13:50:00Z","state":"failed"}]"#
+        );
+        // An exit status left beside a session still running on record: the
+        // turn ended in error and the next poll posts it.
+        let running = r#"{"sessions":[{"issue":7,"running":true,"failed":false,"turns":1,"started_at":1792245000,"ended_at":null}]}"#;
+        h.write("state/plan-7.json.rc", "2\n");
+        assert_eq!(
+            plans(&h, running),
+            r#"[{"issue":7,"turn":2,"startedAt":"2026-10-17T13:50:00Z","state":"failed"}]"#
+        );
+        h.write("state/plan-7.json.rc", "x");
+        assert_eq!(
+            plans(&h, running),
+            r#"[{"issue":7,"turn":2,"startedAt":"2026-10-17T13:50:00Z","state":"failed"}]"#
+        );
+        // A turn that finished is no failure, and neither is one whose
+        // session is over, lost, or waits on an answer to a turn that finished.
+        h.write("state/plan-7.json.rc", "0\n");
+        assert_eq!(plans(&h, running), "[]");
+        fs::remove_file(h.0.join("state/plan-7.json.rc")).unwrap();
+        for s in [
+            r#"{"sessions":[{"issue":7,"running":false,"failed":true,"turns":2,"started_at":1792245000,"ended_at":1792246000}]}"#,
+            r#"{"sessions":[{"issue":7,"running":false,"failed":true,"lost":true,"turns":2,"started_at":1792245000,"ended_at":null}]}"#,
+            r#"{"sessions":[{"issue":7,"running":false,"failed":false,"turns":2,"started_at":1792245000,"ended_at":null}]}"#,
+        ] {
+            assert_eq!(plans(&h, s), "[]", "{s}");
+        }
     }
 
     #[test]
@@ -2626,7 +2698,8 @@ mod tests {
             ),
             ..Given::default()
         };
-        let in_flight = r#"[{"issue":7,"turn":2,"startedAt":"2026-10-17T13:50:00Z"}]"#;
+        let in_flight =
+            r#"[{"issue":7,"turn":2,"startedAt":"2026-10-17T13:50:00Z","state":"running"}]"#;
         // A lock no one can open is not a turn that ended: the page says the
         // turn is in flight rather than read a probe it could not make as free.
         let h = home("plans-mode");
