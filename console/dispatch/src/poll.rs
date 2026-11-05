@@ -266,6 +266,7 @@ fn writer(
             } else {
                 bot.to_string()
             },
+            owner: env("TEHAS_OWNER"),
             systemctl: "systemctl".into(),
             start_cmd: opt("TEHAS_CYCLE_START_CMD"),
             stop_cmd: opt("TEHAS_CYCLE_STOP_CMD"),

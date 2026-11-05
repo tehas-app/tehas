@@ -102,10 +102,41 @@ fn page_query(first: bool, fields: bool) -> String {
         )
 }
 
-const COMMENTS: &str = r#"query($owner: String!, $name: String!, $number: Int!) {
+/// What a comment read asks of one issue: the one-issue query and the chunked
+/// one ask the same fields, so an issue's answer is the same either way.
+macro_rules! comment_fields {
+    () => {
+        r#"comments(last: 100) { nodes { databaseId id author { login ...on User { databaseId } ...on Bot { databaseId } } body createdAt lastEditedAt editor { login ...on User { databaseId } ...on Bot { databaseId } }
+          userContentEdits(last: 100) { totalCount nodes { editor { login ...on User { databaseId } ...on Bot { databaseId } } } } } }"#
+    };
+}
+
+const COMMENTS: &str = concat!(
+    r#"query($owner: String!, $name: String!, $number: Int!) {
       repository(owner: $owner, name: $name) { issue(number: $number) {
-        comments(last: 100) { nodes { databaseId id author { login ...on User { databaseId } ...on Bot { databaseId } } body createdAt lastEditedAt editor { login ...on User { databaseId } ...on Bot { databaseId } }
-          userContentEdits(last: 100) { totalCount nodes { editor { login ...on User { databaseId } ...on Bot { databaseId } } } } } } } } }"#;
+        "#,
+    comment_fields!(),
+    " } } }"
+);
+
+/// The most issues one comment query asks of. Each asks up to 100 comments of
+/// 100 edits, so ten issues stay well under GitHub's 500,000 nodes a query.
+pub const COMMENT_CHUNK: usize = 10;
+
+/// One aliased query for the comments of a chunk of issues: `i{n}` answers #n.
+fn comments_query(chunk: &[u64]) -> String {
+    let mut q = String::from(
+        "query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) {",
+    );
+    for n in chunk {
+        q.push_str(&format!(
+            " i{n}: issue(number: {n}) {{ {} }}",
+            comment_fields!()
+        ));
+    }
+    q.push_str(" } }");
+    q
+}
 
 /// What the refresh rule reads of a pull request and of the issue it closes.
 macro_rules! pull_fields {
@@ -485,34 +516,48 @@ pub fn issue(o: &Open) -> Map<String, Value> {
     m
 }
 
-/// The comments of several issues, read side by side.
+/// The comments of several issues, one aliased query per chunk of
+/// `COMMENT_CHUNK`, the chunks side by side. Each issue's answer has the shape
+/// `comments` gives, so a rule cannot tell the two reads apart. A chunk that
+/// failed reads every issue of it as `{"failed": true}`, as a failed `comments`
+/// does, so a hold stays a hold; an alias the answer left out or null is that
+/// one issue's failed read.
 pub fn comments_of(calls: &mut Calls, repo: &str, numbers: &[u64]) -> Vec<Value> {
     let (owner, name) = split(repo);
-    let query = format!("query={COMMENTS}");
     let list: Vec<Vec<String>> = numbers
-        .iter()
-        .map(|n| {
+        .chunks(COMMENT_CHUNK)
+        .map(|chunk| {
             [
-                "api",
-                "graphql",
-                "-F",
-                &owner,
-                "-F",
-                &name,
-                "-F",
-                &format!("number={n}"),
-                "-f",
-                &query,
+                "api".to_string(),
+                "graphql".to_string(),
+                "-F".to_string(),
+                owner.clone(),
+                "-F".to_string(),
+                name.clone(),
+                "-f".to_string(),
+                format!("query={}", comments_query(chunk)),
             ]
-            .iter()
-            .map(|s| s.to_string())
-            .collect()
+            .to_vec()
         })
         .collect();
-    calls
-        .gh_all(&list)
-        .into_iter()
-        .map(|r| r.unwrap_or_else(|_| json!({"failed": true})))
+    let answers = calls.gh_all(&list);
+    numbers
+        .chunks(COMMENT_CHUNK)
+        .zip(answers)
+        .flat_map(|(chunk, answer)| {
+            chunk
+                .iter()
+                .map(|n| match &answer {
+                    Ok(v) => match v.pointer(&format!("/data/repository/i{n}")) {
+                        Some(issue) if issue.is_object() => {
+                            json!({"data": {"repository": {"issue": issue}}})
+                        }
+                        _ => json!({"failed": true}),
+                    },
+                    Err(_) => json!({"failed": true}),
+                })
+                .collect::<Vec<Value>>()
+        })
         .collect()
 }
 
@@ -617,6 +662,7 @@ mod tests {
         for q in [
             page_query(true, true),
             COMMENTS.to_string(),
+            comments_query(&[7, 8]),
             PULL.to_string(),
             PULLS.to_string(),
         ] {
