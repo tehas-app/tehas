@@ -37,7 +37,11 @@ use crate::runner;
 ///                 makes the cap runner-never-started of it. Memory kills are
 ///                 counted in `oom`, as for every other end.
 ///   lean-refused  tehas work's 78 was for driver lean, not another 78.
-pub const FILES: [&str; 12] = [
+///   signal        one line: the signal that came to tehas work (TERM, INT, HUP,
+///                 or - when not known) and the step in flight, or -. Left only
+///                 when it stopped the container on that signal; tehasbot
+///                 cycle makes the cap `signal` of it.
+pub const FILES: [&str; 13] = [
     "result.json",
     "progress.json",
     "runner_exit",
@@ -48,6 +52,7 @@ pub const FILES: [&str; 12] = [
     "forks",
     "stalled",
     "timed",
+    "signal",
     "stopped",
     "done",
 ];
