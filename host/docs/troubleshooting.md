@@ -450,6 +450,8 @@ The common ones:
 | `process-limit:<step>`              | The container reached its `--pids-limit` and refused starts of a process, and the run named no other cap. The comment says how many were refused | Read the run log the comment names for what ran at that step. The limit follows the container's share of the slice, `TEHAS_SLICE_CONTAINERS` |
 | `runner-never-started`              | The container ended before the driver wrote its first event: no step ran and the record would hold nothing but an exit status | Look for a host-side fault: the image, the slice, the model endpoint. See [`runner-never-started`](#runner-never-started) below |
 | `the sandbox image cannot run it as this start asks` | The issue carries [`tehas:lean`](/operating#choosing-the-driver) and the sandbox image cannot run `work-lean` as asked: its pi-rukas is older than v0.14.47, or the start was a restart or a refresh, which `work-lean` does not take. The run log names what the image lacks. `tehas work` stopped with exit 78: no container ran, nothing moved, classic did not run in its place. The start's approval is gone, so nothing starts it again on its own | Take `tehas:lean` off, then tick Retry. The issue runs classic. A Retry ticked with the label still on waits for it to come off. For lean, rebuild the sandbox image on a newer pi-rukas before the next lean start |
+| `lean found this issue not ready to build from` | A lean run read the issue's `pi-spec v1` block and refused it (runner exit 11). The rules it failed follow in the comment | Fix the block, or run pi-rukas's `/plan` to write it, then apply `tehas:ready` |
+| `Lean left its pull request a draft` | A lean run handed back with a draft pull request: its gate did not clear the head it pushed. A draft never waits for a merge | Read the reason in the comment and the pull request before you retry |
 
 A `tehas:ready` that comes off with a comment that `tehas:lean` was applied or
 taken off by another account is no park: the choice of driver was not an allowed account's.
@@ -751,7 +753,7 @@ already done is not reused.
 
 The gate passed, but the change lacks a part the plan declared. The comment
 names the missing parts by id and path, for example `d5
-(host/docs/dashboard.frag)`. pi-rukas has already tried once to add them.
+(host/fun/dashboard-view.js)`. pi-rukas has already tried once to add them.
 The work is committed on a local branch in the workspace and was not pushed.
 There is no pull request. Retry: a new cycle gets a new attempt at the
 missing parts. If a missing part is one the issue does not want, say so in
