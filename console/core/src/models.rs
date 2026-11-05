@@ -14,8 +14,8 @@
 //! backup keys. A cycle stays on its endpoint: one that fails mid-cycle is
 //! retried by Pi, not switched.
 //!
-//! install.sh holds the one check of the keys that runs before any program of
-//! this workspace exists: its model_keys_ok.
+//! install.sh asks for the check of the keys with the rest of its findings
+//! (`console update findings`), from the console it builds first.
 
 use crate::jq::J;
 use serde_json::Value;
@@ -29,7 +29,8 @@ pub fn used() -> Vec<(String, String)> {
     used_from(|k| std::env::var(k).unwrap_or_default())
 }
 
-fn used_from(env: impl Fn(&str) -> String) -> Vec<(String, String)> {
+/// [`used`] from the variables `env` gives, for a caller that loaded them itself.
+pub fn used_from(env: impl Fn(&str) -> String) -> Vec<(String, String)> {
     let mut used: Vec<(String, String)> = Vec::new();
     let mut pairs = vec![(
         env("PI_ENSEMBLE_SUBAGENT_PROVIDER"),
