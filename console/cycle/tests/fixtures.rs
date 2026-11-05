@@ -223,6 +223,52 @@ fn a_lean_start_refused_with_78_is_parked_as_one_that_never_ran() {
     assert!(said.contains("take `tehas:lean` off"), "{said}");
 }
 
+/// The park of a refused lean start is on record as one, so the poll can hold
+/// its Retry boxes while `tehas:lean` is on, and its question says the label
+/// comes off before a box is ticked.
+#[test]
+fn the_park_of_a_refused_lean_start_puts_the_label_above_its_boxes() {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/park.json");
+    let cases: Vec<Value> = serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap();
+    let parks = |rc: i64, note: bool| {
+        let mut c = cases
+            .iter()
+            .find(|c| c["facts"]["rc"] == 4)
+            .unwrap()
+            .clone();
+        c["facts"]["rc"] = rc.into();
+        c["facts"]["approval"]["current"]["input"] = serde_json::json!({"driver": "lean"});
+        if note {
+            c["facts"]["files"]["lean-refused"] = "".into();
+        }
+        let facts = Facts::from_json(&c["facts"]).unwrap();
+        let r = report(&facts, &mut Given(c["facts"]["github"].clone()));
+        r.actions
+            .into_iter()
+            .find_map(|a| match a {
+                Action::Park(p) => Some(*p),
+                _ => None,
+            })
+            .unwrap()
+    };
+    let lead = "Take `tehas:lean` off this issue, then tick a box.";
+    let p = parks(78, true);
+    let reason = p.args.iter().position(|a| a == "--reason").unwrap();
+    assert_eq!(p.args[reason + 1], "lean-refused", "{:?}", p.args);
+    let (_, body) = p.question(7, false);
+    let at = body.find(lead).unwrap_or_else(|| panic!("{body}"));
+    let boxes = body.find("- [ ] Retry from a clean start").unwrap();
+    assert!(at < boxes, "{body}");
+    for p in [parks(4, false), parks(78, false)] {
+        assert!(
+            !p.args.contains(&"lean-refused".to_string()),
+            "{:?}",
+            p.args
+        );
+        assert!(!p.question(7, false).1.contains(lead));
+    }
+}
+
 #[test]
 fn another_78_on_a_lean_start_is_a_cycle_that_stopped() {
     let (end, said) = refused(78, false);
