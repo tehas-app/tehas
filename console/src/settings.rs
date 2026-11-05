@@ -180,7 +180,7 @@ fn run_require(uid: &str, bash: &str) -> u8 {
 
 // tehas_require: the first of `names` that is not set, or holds no value of its
 // rule. A name set to spaces only counts as not set.
-fn refusal(names: &[&str], vars: &Vars) -> Option<String> {
+pub(crate) fn refusal(names: &[&str], vars: &Vars) -> Option<String> {
     let bad = load::bad(vars);
     let dir = vars.text("TEHAS_INSTANCE_DIR");
     let file = format!("{}/instance.env", if dir.is_empty() { "?" } else { &dir });

@@ -11,6 +11,7 @@
 //!     --install-err <file> --install-rc <n>
 //!   console update release source|installed|newest|keep
 //!   console update release older|stale <version> <version>
+//!   console update findings <euid> [<bash>]
 //!   console update sources <workspace> <package>...
 //!   console update steps ids|units|valid <line>|owed|for <source>...|record <source>...
 //!   console update wait update|dispatch
@@ -25,7 +26,9 @@
 //! the update ran, and the one left has to finish it. `finish` reads install.sh's
 //! answer and runs the follow-ups, see src/update/finish.rs. `release` answers
 //! one question about the releases, and `steps` names the steps and records them
-//! for install.sh, see src/update/steps.rs. `sources` gives install.sh the
+//! for install.sh, see src/update/steps.rs. `findings` is what install.sh finds
+//! wrong with the instance before it changes anything, see
+//! src/update/findings.rs. `sources` gives install.sh the
 //! checksum of each program's source, see src/update/sources.rs. `wait` says how long a lock is waited
 //! for, see src/update/wait.rs.
 //!
@@ -37,6 +40,7 @@
 //! with no lock, 99 the run is over and went well, nothing more to do.
 
 mod checkout;
+mod findings;
 mod finish;
 mod lock;
 pub(crate) mod release;
@@ -537,11 +541,12 @@ pub fn main(given: &[String]) -> u8 {
         }
         Some((verb, rest)) if verb == "finish" => finish::main(rest),
         Some((verb, rest)) if verb == "release" => release::verb(rest),
+        Some((verb, rest)) if verb == "findings" => findings::verb(rest),
         Some((verb, rest)) if verb == "sources" => sources::verb(rest),
         Some((verb, rest)) if verb == "steps" => steps::verb(rest),
         Some((verb, rest)) if verb == "wait" => wait::verb(rest),
         _ => {
-            tell("console update: usage: run <console> <arguments> | args | gate | prepare | api | finish | release <question> | sources <workspace> <package>... | steps <question> | wait update|dispatch");
+            tell("console update: usage: run <console> <arguments> | args | gate | prepare | api | finish | findings <euid> [<bash>] | release <question> | sources <workspace> <package>... | steps <question> | wait update|dispatch");
             64
         }
     }
