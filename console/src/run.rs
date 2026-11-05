@@ -99,9 +99,7 @@ fn dispatch(bash: &str, libexec: &str, rest: &[String]) -> Result<u8, u8> {
 }
 
 /// tehas-dispatch's own refresh verb takes over, with the status a shell's exec
-/// would have ended with when it cannot. `log` names the file the run's line
-/// goes to, which only the settings know: a hand-off before the load, which is
-/// what an argument is, has none to give.
+/// would have ended with when it cannot.
 fn hand_to_dispatcher(libexec: &str, rest: &[String], log: Option<String>) -> u8 {
     let program = dispatcher(libexec);
     let mut refresh = Command::new(&program);
@@ -195,32 +193,12 @@ fn init_product(rest: &[String]) -> Result<u8, u8> {
     Ok(product::init(&words))
 }
 
-/// Whether the words of `tehasbot refresh` are a run the load hands over after
-/// the settings: no word at all, or the one word `--json`. Anything else - an
-/// empty word, which is an argument, or a second word - goes to the
-/// dispatcher's own verb before the load, which answers help and refuses what
-/// it does not know. The set is the verb's own (`words` in
-/// console/dispatch/src/refresh.rs, whose test pins it); the console is one
-/// program and cannot name that crate, so the pair is kept in step by the tests
-/// of each and by the refusal cases of `test/refresh_test.sh`.
-fn runs_json(rest: &[String]) -> bool {
-    match rest {
-        [] => true,
-        [word] => word == "--json",
-        [_, ..] => false,
-    }
-}
-
 /// Steps 2 to 4. Err is the status of a refusal.
 fn command(libexec: &str, uid: &str, bash: &str, words: &[String]) -> Result<u8, u8> {
     let rest = words.get(2..).unwrap_or_default();
     let name: Vec<&str> = words.iter().take(2).map(String::as_str).collect();
-    // Before the settings, so that a refusal needs none. Of the words the
-    // check lets through, the runs go on: no word, or --json, which is a run,
-    // so it goes over below, after the load, which is where the log it writes
-    // is named. Any other word is answered by the dispatcher's own verb without
-    // the settings, in the same words.
-    if name == ["tehasbot", "refresh"] && !runs_json(rest) {
+    // Before the settings, so that --help and a refusal need none.
+    if name == ["tehasbot", "refresh"] && !rest.is_empty() {
         return Ok(hand_to_dispatcher(libexec, rest, None));
     }
     // The load drops every TEHAS_ name it does not keep.
@@ -249,7 +227,7 @@ fn command(libexec: &str, uid: &str, bash: &str, words: &[String]) -> Result<u8,
         ["tehasbot", "protolab"] => protolab_run(),
         ["tehasbot", "refresh"] => {
             let log = format!("{}/logs/refresh.log", var("TEHAS_HOME"));
-            hand_to_dispatcher(libexec, rest, Some(log))
+            hand_to_dispatcher(libexec, &[], Some(log))
         }
         ["tehasbot", "review"] if var("TEHAS_REVIEW") != "1" => 0,
         ["tehasbot", "review"] => review::main(&["main".to_string()]),
@@ -317,22 +295,6 @@ mod tests {
         assert!(!a_program(&file(&dir, b"#!/bin/sh\n", 0o644)));
         assert!(!a_program(&dir));
         assert!(!a_program(&dir.join("no-such")));
-    }
-
-    #[test]
-    fn only_one_json_word_is_the_run_the_load_hands_over() {
-        let words = |given: &[&str]| given.iter().map(|w| w.to_string()).collect::<Vec<_>>();
-        assert!(runs_json(&words(&[])));
-        assert!(runs_json(&words(&["--json"])));
-        for rest in [
-            [""].as_slice(),
-            &["--now"],
-            &["--json", "--json"],
-            &["--json", "--help"],
-            &["--help"],
-        ] {
-            assert!(!runs_json(&words(rest)), "{rest:?}");
-        }
     }
 
     #[test]

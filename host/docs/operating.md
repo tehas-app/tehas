@@ -1837,23 +1837,15 @@ Those GitHub says are `CONFLICTING` get a request,
 request whose pull request no longer qualifies goes. `tehas-refresh.timer`
 starts it every minute, and it goes ahead only when the last run began that
 many minutes ago, by `~/tehas/state/refresh/last-run`. A run that failed
-counts. Each run writes one line to `~/tehas/logs/refresh.log`. Of the bot's
-pull requests that qualify, the line splits three ways: how many conflict, how
-many are still `UNKNOWN`, and how many are neither, and then how many requests
-it wrote. The three counts sum to that number; `read N` is that number, and
-the page it read from GitHub also holds pull requests that are not ours to
-refresh, which are counted nowhere:
+counts. Each run writes one line to `~/tehas/logs/refresh.log`: the open
+pull requests it read, and of those how many conflict, how many GitHub still
+has `UNKNOWN`, and how many are not ours to refresh (another account's, a
+fork, one the rule rejects, or one whose head or base is no sha). The rest are
+the bot's that do not conflict, so `0 conflict` beside `2 unknown` is not yet
+a fact:
 
 ```
-2026-10-18T09:00:00Z read 4 pull requests: 1 conflict, 2 unknown, 1 not ours to refresh, wrote 1 requests
-```
-
-With `--json` the same counts also go to standard output as one object, beside
-the line. Nothing is printed at all when the setting is off or the interval
-has not elapsed, because then there was no run:
-
-```
-{"read":4,"conflict":1,"unknown":2,"skipped":1,"wrote":1}
+2026-10-18T09:00:00Z read 9 pull requests: 1 conflict, 2 unknown, 3 not ours to refresh, wrote 1 requests
 ```
 
 **When it starts.** The dispatcher checks each request again at the start,

@@ -14,12 +14,6 @@ units=$T_ROOT/host/systemd
 # happens before the log can be opened - malformed settings, another run
 # holding the lock, a state directory that could not be made - reaches only
 # `journalctl --user -u <unit>`.
-#
-# refresh is in the class although its `--json` prints the run's counts object:
-# the unit's ExecStart passes no argument, so the timer never asks for stdout,
-# and only `tehasbot refresh --json` run by hand puts that object in the
-# journal. `test/refresh_test.sh` pins that a run without the flag prints
-# nothing.
 self_writing=(clean refresh)
 
 t_case "the cleaner's unit is the run with no sink of its own"

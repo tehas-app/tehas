@@ -39,16 +39,6 @@ pr() {
        labels: {nodes: [{name: "tehas:awaiting-merge"}]},
        closedByPullRequestsReferences: {nodes: [{number: $n, state: "OPEN"}]}}]}}' | jq -c "${3:-.}"
 }
-# The mix the counting cases share: one conflict, one UNKNOWN and one MERGEABLE
-# of the bot's that qualify, and three that are counted nowhere - another
-# account's, a fork, and a second MERGEABLE that keeps the page wider than the
-# counts, so `read N` is four and not six.
-mixed_prs() {
-  prs "$(pr 50 7)" "$(pr 51 8 '.mergeable = "UNKNOWN"')" "$(pr 52 9 '.mergeable = "MERGEABLE"')" \
-    "$(pr 53 10 '.author.login = "alice"')" "$(pr 54 11 '.mergeable = "MERGEABLE"')" \
-    "$(pr 55 12 '.isCrossRepository = true')"
-}
-
 # requests: the request files there are, one name a line.
 requests() { find "$dir" -name '*.json' -printf '%f\n' 2>/dev/null | sort; }
 prs() { printf '%s\n' "$@" | jq -s '{data: {repository: {pullRequests: {nodes: .}}}}' >"$fx/prs.json"; }
@@ -90,71 +80,26 @@ t_run "$refresh"
 t_lacks "$(jq -r .at "$dir/7.json")" "2026-01-01"
 t_eq "$(jq -r .head_sha "$dir/7.json")" "$head_b"
 
-t_case "MERGEABLE and UNKNOWN get no request, and each is counted"
+t_case "MERGEABLE and UNKNOWN get no request"
 reset
 prs "$(pr 50 7 '.mergeable = "MERGEABLE"')" "$(pr 51 8 '.mergeable = "UNKNOWN"')"
 t_run "$refresh"
 t_eq "$t_rc" 0
 t_eq "$(requests)" ""
-t_contains "$(cat "$logfile")" "read 2 pull requests: 0 conflict, 1 unknown, 1 not ours to refresh, wrote 0 requests"
+t_contains "$(cat "$logfile")" "read 2 pull requests: 0 conflict, 1 unknown, 0 not ours to refresh, wrote 0 requests"
 
-t_case "a mix of conflicting, unknown and skipped pull requests says each count"
+t_case "a mix of conflicting, unknown and not ours says each count of the page"
 reset
-mixed_prs
+# Nine read: one conflict, two UNKNOWN, three not ours (another account's, a
+# fork, a draft the rule rejects) and three of the bot's that do not conflict.
+prs "$(pr 50 7)" "$(pr 51 8 '.mergeable = "UNKNOWN"')" "$(pr 52 9 '.mergeable = "UNKNOWN"')" \
+  "$(pr 53 10 '.author.login = "alice"')" "$(pr 54 11 '.isCrossRepository = true')" \
+  "$(pr 55 12 '.isDraft = true | .closingIssuesReferences.nodes[0].labels.nodes = [{name: "tehas:running"}]')" \
+  "$(pr 56 13 '.mergeable = "MERGEABLE"')" "$(pr 57 14 '.mergeable = "MERGEABLE"')" "$(pr 58 15 '.mergeable = null')"
 t_run "$refresh"
 t_eq "$t_rc" 0
 t_eq "$(requests)" "7.json"
-t_contains "$(cat "$logfile")" "read 4 pull requests: 1 conflict, 1 unknown, 2 not ours to refresh, wrote 1 requests"
-
-t_case "--json answers the same counts as one object, and still writes the line"
-reset
-mixed_prs
-t_run "$refresh --json"
-t_eq "$t_rc" 0
-# The object, in the words the object itself has, so a key cannot be renamed
-# or dropped without a case failing; jq -S leaves the object unchanged.
-t_eq "$(echo "$t_out" | jq -Sc .)" '{"conflict":1,"read":4,"skipped":2,"unknown":1,"wrote":1}'
-t_eq "$(wc -l <"$logfile")" 1
-t_contains "$(cat "$logfile")" "read 4 pull requests: 1 conflict, 1 unknown, 2 not ours to refresh, wrote 1 requests"
-# The page is wider than the counts: three of the six are not ours to refresh.
-t_eq "$(jq '.data.repository.pullRequests.nodes | length' "$fx/prs.json")" 6
-
-t_case "the counts are the bot's that qualify, not the page the run read"
-reset
-# Six open pull requests, none of them ours to refresh, so none of them is
-# counted: the page has six nodes and the line says none. The node that would
-# conflict is another account's.
-prs "$(pr 60 20 '.author.login = "alice"')" "$(pr 61 21 '.author.login = "alice"')" \
-  "$(pr 62 22 '.isCrossRepository = true | .mergeable = "CONFLICTING"')" \
-  "$(pr 63 23 '.isDraft = true | .mergeable = "CONFLICTING" | .closingIssuesReferences.nodes[0].labels.nodes = [{name: "tehas:running"}]')" \
-  "$(pr 64 24 '.author.login = "alice" | .mergeable = "CONFLICTING"')" \
-  "$(pr 65 25 '.isCrossRepository = true | .mergeable = "CONFLICTING"')"
-t_run "$refresh --json"
-t_eq "$t_rc" 0
-t_eq "$t_out" '{"conflict":0,"read":0,"skipped":0,"unknown":0,"wrote":0}'
-
-t_case "--json answers nothing when there was no run"
-reset
-mixed_prs
-t_run "$refresh --json"
-t_eq "$t_rc" 0
-rm -rf "$T"/calls/*
-# Inside the interval there was no run, so there is no object to read.
-t_run "$refresh --json"
-t_eq "$t_rc" 0
-t_eq "$t_out" ""
-# And none with the setting off, which exits before the sweep.
-t_instance "${T_MINIMAL[@]}" TEHAS_REFRESH_CONFLICTS=0
-t_run "$refresh --json"
-t_eq "$t_rc" 0
-t_eq "$t_out" ""
-
-t_case "without --json nothing is printed on standard output"
-reset
-prs "$(pr 50 7)"
-t_run "$refresh"
-t_eq "$t_rc" 0
-t_eq "$t_out" ""
+t_contains "$(cat "$logfile")" "read 9 pull requests: 1 conflict, 2 unknown, 3 not ours to refresh, wrote 1 requests"
 
 t_case "UNKNOWN keeps a request it had; MERGEABLE removes it"
 reset
@@ -289,13 +234,11 @@ t_run "$refresh"
 t_eq "$t_rc" 0
 t_eq "$(t_calls gh)" ""
 
-t_case "an unknown argument is refused with 64 and calls nothing, and --help answers"
+t_case "an unknown argument is refused with 64, and --help answers"
 reset
-for bad in --now "--json --now" "--now --json" "--json --json"; do
-  t_run "$refresh $bad"
-  t_eq "$t_rc" 64
-  t_eq "$(t_calls gh)" ""
-done
+t_run "$refresh --now"
+t_eq "$t_rc" 64
+t_eq "$(t_calls gh)" ""
 t_run "$refresh --help"
 t_eq "$t_rc" 0
 t_contains "$t_out" "tehasbot refresh"
@@ -305,19 +248,10 @@ reset
 t_no_instance
 t_run "$refresh --now"
 t_eq "$t_rc" 64
-t_contains "$t_out" "usage: tehasbot refresh [--json]: unknown argument: --now"
+t_contains "$t_out" "tehasbot refresh: unknown argument: --now"
 t_run "$refresh --help"
 t_eq "$t_rc" 0
 t_contains "$t_out" "Usage:"
-# The dispatcher's own verb, which is what the unit's program runs: the same
-# refusal of the same word, and its own text beside it.
-t_run "$T_DISPATCH refresh --now"
-t_eq "$t_rc" 64
-t_contains "$t_out" "unknown argument: --now"
-t_contains "$t_out" "Usage:"
-t_run "$T_DISPATCH refresh --json --json"
-t_eq "$t_rc" 64
-t_contains "$t_out" "unknown argument: --json"
 
 t_case "a setting that is missing stops it with 78 before any call or write"
 reset

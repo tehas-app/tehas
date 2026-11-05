@@ -187,12 +187,6 @@ pub fn tehasbot(given: &[String]) -> u8 {
 /// among the arguments is: `console run` then ends 0 and loads nothing.
 pub const ANSWERED: u8 = 99;
 
-/// The text of `tehas help <command>`, from src/usage/<command>.txt. tehasbot
-/// refresh has its own text in the same directory, which `tehasbot refresh
-/// --help` answers with here (refresh_words), and which tehas-dispatch's copy
-/// of the verb `include_str!`s too: two owners of one file, and no more.
-const REFRESH_USAGE: &str = include_str!("usage/refresh.txt");
-
 const DISPATCH: &str = include_str!("usage/dispatch.txt");
 
 /// A poll starts only from an argument it knows: a typo such as --dryrun is no
@@ -251,34 +245,6 @@ fn preview_words(given: &[String]) -> Result<(), u8> {
     }
 }
 
-/// What `tehasbot refresh` takes: nothing, --json, or one of -h|--help, and
-/// never two words at once. The set is the verb's own `words` in
-/// console/dispatch/src/refresh.rs, matched here by the same expressions - the
-/// console is one program and cannot name the dispatcher's crate, so the pair
-/// is pinned by `one_parse_decides_the_verb_39s_arguments` there and by the
-/// refusal cases of `test/refresh_test.sh` here. -h|--help are answered here,
-/// before the settings, as they always were.
-fn refresh_words(given: &[String]) -> Result<(), u8> {
-    let run_of = |word: &str| word == "--json";
-    let help_of = |word: &str| word == "-h" || word == "--help";
-    match given {
-        [] => Ok(()),
-        [word] if run_of(word) => Ok(()),
-        [word] if help_of(word) => {
-            say(REFRESH_USAGE);
-            Err(ANSWERED)
-        }
-        [word] => {
-            eprintln!("usage: tehasbot refresh [--json]: unknown argument: {word}");
-            Err(64)
-        }
-        [_, second, ..] => {
-            eprintln!("usage: tehasbot refresh [--json]: unknown argument: {second}");
-            Err(64)
-        }
-    }
-}
-
 fn improve_words(given: &[String]) -> Result<(), u8> {
     if given.is_empty() {
         return Ok(());
@@ -319,7 +285,6 @@ pub fn check(given: &[String]) -> u8 {
         ["tehasbot", "github-token"] => github::words(rest).map(|_| ()),
         ["tehasbot", "improve"] => improve_words(rest),
         ["tehasbot", "preview"] => preview_words(rest),
-        ["tehasbot", "refresh"] => refresh_words(rest),
         ["tehasbot", "review"] => review::words(rest, include_str!("usage/review.txt")),
         _ => Ok(()),
     };
@@ -505,41 +470,6 @@ mod tests {
     }
 
     #[test]
-    fn the_refresh_s_refusal_names_the_word_and_the_pages_do_not_disagree() {
-        // The rule of `tehasbot refresh`'s line, stated once here and quoted in
-        // host/docs and console/src/usage/refresh.txt, and the counts of the
-        // sample line those three show. The shell pins the emitted words.
-        let text = REFRESH_USAGE;
-        assert!(
-            text.contains("The three\ncounts sum to that number"),
-            "{text}"
-        );
-        assert!(text.contains("are not ours to refresh; those are counted nowhere"));
-        assert!(text.contains(
-            "read 4 pull requests: 1 conflict, 2 unknown, 1 not ours to refresh, wrote 1 requests"
-        ));
-        assert!(
-            text.contains("{\"read\":4,\"conflict\":1,\"unknown\":2,\"skipped\":1,\"wrote\":1}")
-        );
-        let manual = |path: &str| {
-            let page = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(path);
-            std::fs::read_to_string(page).unwrap()
-        };
-        for page in ["../host/docs/operating.md", "../host/docs/tools.md"] {
-            let doc = manual(page);
-            // The same sample, so the manual cannot state a run the verb does not say.
-            assert!(
-                doc.contains("1 conflict, 2 unknown, 1 not ours to refresh, wrote 1 requests"),
-                "{page} repeats a run this command no longer says"
-            );
-            assert!(
-                !doc.contains("sum of the three") && !doc.contains("sum to the number read"),
-                "{page} states the sum rule the code does not hold"
-            );
-        }
-    }
-
-    #[test]
     fn check_judges_each_command_that_had_a_script_before_the_settings() {
         let says = |given: &[&str]| check(&words(given));
         for good in [
@@ -558,8 +488,7 @@ mod tests {
             &["tehasbot", "preview", "--sweep"],
             &["tehasbot", "preview", "--sweep", "kept"],
             &["tehasbot", "protolab", "ignored"],
-            &["tehasbot", "refresh"],
-            &["tehasbot", "refresh", "--json"],
+            &["tehasbot", "refresh", "--help"],
         ] {
             assert_eq!(says(good), 0, "{good:?}");
         }
@@ -578,29 +507,14 @@ mod tests {
             &["tehasbot", "dispatch", "--help", "--dry-run"],
             &["tehasbot", "improve", "x"],
             &["tehasbot", "preview", "--help"],
-            &["tehasbot", "refresh", ""],
-            &["tehasbot", "refresh", "--jsn"],
-            &["tehasbot", "refresh", "--json", "--json"],
-            &["tehasbot", "refresh", "--json", "now"],
         ] {
             assert_eq!(says(bad), 64, "{bad:?}");
-        }
-        for two in [
-            &["tehasbot", "refresh", "--json", "--help"][..],
-            &["tehasbot", "refresh", "--help", "--json"],
-            &["tehasbot", "refresh", "--json", "x"],
-        ] {
-            assert_eq!(says(two), 64, "{two:?}");
         }
         for help in [
             &["tehasbot", "clean", "-h"][..],
             &["tehasbot", "clean", "--help"],
             &["tehasbot", "dispatch", "-h"],
             &["tehasbot", "dispatch", "--help"],
-            // The refresh's text lives with the dispatcher's verb, so the
-            // check answers it rather than loading settings to ask for it.
-            &["tehasbot", "refresh", "-h"],
-            &["tehasbot", "refresh", "--help"],
         ] {
             assert_eq!(says(help), ANSWERED, "{help:?}");
         }
