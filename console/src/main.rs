@@ -171,6 +171,11 @@
 //! What bin/tehas and bin/tehasbot exec: which command a word names, its text,
 //! and what runs it, see src/front.rs.
 //!
+//!   console gh <real gh> <log> [words]
+//!
+//! What host/shim/gh execs: a read execs gh, a write runs it and leaves a line
+//! in the write log, see src/gh_shim.rs.
+//!
 //!   console run <libexec dir> <euid> <bash> tehas|tehasbot <command> ...
 //!
 //! A command under the instance's settings: its check, the load, what it
@@ -198,6 +203,7 @@ mod flags;
 mod forge;
 mod frame;
 mod front;
+mod gh_shim;
 mod github;
 mod health;
 mod history;
@@ -440,6 +446,10 @@ fn main() -> ExitCode {
     if words.first().is_some_and(|w| w == "front") {
         let given: Vec<std::ffi::OsString> = std::env::args_os().skip(2).collect();
         return ExitCode::from(front::main(&given));
+    }
+    if words.first().is_some_and(|w| w == "gh") {
+        let given: Vec<std::ffi::OsString> = std::env::args_os().skip(2).collect();
+        return ExitCode::from(gh_shim::main(&given));
     }
     if words.first().is_some_and(|w| w == "run") {
         let text = std::env::args_os().all(|a| a.to_str().is_some());
