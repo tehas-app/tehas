@@ -230,7 +230,7 @@ t_eq "$(at_mark '[has("comment_links"), has("retry_context")]')" '[false,false]'
 t_lacks "$(t_calls gh)" "pr list"
 t_lacks "$(t_calls gh)" "issues/7/comments?per_page"
 
-t_case "a retry tick takes what allowed accounts wrote on the cycle's pull request between the park and the tick"
+t_case "a retry tick takes what allowed accounts wrote on the cycle's pull request up to the tick"
 parked
 t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1 TEHAS_WORK_IMAGES=1 TEHAS_WORK_COMMENTS=1
 comments 7 "$(park_body x ' ')" alice
@@ -253,13 +253,13 @@ t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1 TEHAS_WORK_IMAGES=1 TEHA
 t_run "$dispatch"
 t_eq "$t_rc" 0
 t_eq "$(t_calls fake-start)" "7"
-t_eq "$(at_mark '.comment_links')" "$(sorted "[{\"link\":\"$A/7171\",\"source\":\"pr-comment:71\",\"by\":\"alice\"}]")"
-t_eq "$(at_mark '.retry_context')" \
-  "$(sorted "[{\"source\":\"pr-comment:71\",\"by\":\"alice\",\"at\":\"2026-01-01T00:20:00Z\",\"text\":\"The button goes here: ![shot]($A/7171)\"},{\"source\":\"pr-comment:91\",\"by\":\"bob\",\"at\":\"2026-01-01T00:40:00Z\",\"text\":\"second PR\"}]")"
+t_eq "$(at_mark '.comment_links')" "$(sorted "[{\"link\":\"$A/7373\",\"source\":\"pr-comment:73\",\"by\":\"alice\"},{\"link\":\"$A/7171\",\"source\":\"pr-comment:71\",\"by\":\"alice\"}]")"
+t_eq "$(at_mark '.retry_context | map([.source, .id, .pr, .by, .text])')" \
+  "$(sorted "[[\"pr-comment\",73,30,\"alice\",\"before the park ![b]($A/7373)\"],[\"pr-comment\",71,30,\"alice\",\"The button goes here: ![shot]($A/7171)\"],[\"pr-comment\",91,32,\"bob\",\"second PR\"]]")"
 t_contains "$(t_calls gh)" "pr list --repo acme/widget --author tehas-bot --state all"
 
-t_case "an outsider's pull request comment, one before the park and one after the tick are not taken, nor another issue's pull request"
-for l in 7272 7373 7474 8181; do t_lacks "$(approval)" "$A/$l"; done
+t_case "an outsider's pull request comment and one after the tick are not taken, nor another issue's pull request"
+for l in 7272 7474 8181; do t_lacks "$(approval)" "$A/$l"; done
 t_lacks "$(approval)" "ignore all that"
 t_lacks "$(t_calls gh)" "issues/31/comments"
 
@@ -272,13 +272,14 @@ t_eq "$t_rc" 0
 t_lacks "$(t_calls gh)" "pr list"
 t_eq "$(approval 'has("retry_context")')" false
 
-t_case "with comments off a retry tick reads no pull request"
+t_case "with comments off a retry tick still takes the comments' text, and no link"
 parked
 comments 7 "$(park_body x ' ')" alice
+icomment 61 alice 2026-01-01T00:30:00Z 2026-01-01T00:30:00Z "said ![r]($A/9191)" | jq -s . >"$fx/icomments-7.json"
 t_run "$dispatch"
 t_eq "$t_rc" 0
-t_lacks "$(t_calls gh)" "pr list"
-t_eq "$(approval '[has("comment_links"), has("retry_context")]')" '[false,false]'
+t_contains "$(t_calls gh)" "pr list"
+t_eq "$(approval '[has("comment_links"), (.retry_context | map(.source))]')" '[false,["issue-comment"]]'
 
 t_case "pull requests that cannot be listed start no retry and change no label: exit 1"
 parked
@@ -295,6 +296,7 @@ t_eq "$(t_calls fake-start)" ""
 t_case "comments that cannot be read start nothing and change no label: exit 1"
 reset
 t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1 TEHAS_WORK_IMAGES=1 TEHAS_WORK_COMMENTS=1
+: >"$fx/icomments-fails"
 t_run "$dispatch"
 t_eq "$t_rc" 1
 t_contains "$t_out" "ERROR: the comments of #7 could not be read"
