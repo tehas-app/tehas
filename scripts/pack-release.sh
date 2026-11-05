@@ -15,7 +15,7 @@
 # PI_RUKAS_IMAGE_DIGEST, one line each at the end of versions.env. A release
 # with no pins keeps pi-rukas's newest tag, as the checkout does today: passing
 # none is allowed. Neither key has a reader yet: host/sandbox/build.sh derives
-# the base image from the commit it follows, and lib/rukas.sh knows only
+# the base image from the commit it follows, and the console once knew only
 # release and branch:<name>, so a host that is given commit:<sha> stops on the
 # setting until #463 teaches it that form and gives the digest a reader.
 #
