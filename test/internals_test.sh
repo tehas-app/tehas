@@ -43,8 +43,8 @@ done < <(code)
 t_eq "$found" ""
 
 t_case "the list covers the code that is installed and run"
-t_contains "$(code)" "libexec/work"
-t_contains "$(code)" "libexec/cycle"
+t_contains "$(code)" "libexec/plan"
+t_contains "$(code)" "libexec/dispatch"
 t_contains "$(code)" "host/sandbox/build.sh"
 t_contains "$(code)" "host/sandbox/Dockerfile"
 t_contains "$(code)" "console/src/render.rs"

@@ -44,21 +44,22 @@ fn script(which: &str, command: &str) -> Option<&'static str> {
     let scripts: &[&'static str] = match which {
         "tehas" => &[
             "dispatch",
-            "work",
             "plan",
             "dev",
-            "index",
             "setup",
             "update",
             "check-product",
         ],
-        _ => &["dispatch", "cycle", "improve", "review", "github-token"],
+        _ => &["dispatch", "improve", "review", "github-token"],
     };
     scripts.iter().copied().find(|s| *s == command)
 }
 
-/// The verbs of `tehas`.
-const VERBS: [&str; 17] = [
+/// The verbs of `tehas`. work and index are tehas-cycle's, which takes their
+/// lock (src/run.rs).
+const VERBS: [&str; 19] = [
+    "work",
+    "index",
     "status",
     "disk",
     "state",
@@ -106,7 +107,9 @@ fn tehas(words: &[String]) -> Go {
 fn tehasbot(words: &[String]) -> Go {
     match words.first().map(String::as_str) {
         None | Some("help" | "-h" | "--help") => Go::Usage,
-        Some("health" | "status" | "top" | "refresh" | "clean" | "preview" | "protolab") => Go::Run,
+        Some(
+            "health" | "status" | "top" | "refresh" | "clean" | "preview" | "protolab" | "cycle",
+        ) => Go::Run,
         Some("mcp") if words.get(1).map(String::as_str) == Some("serve") => Go::Run,
         Some("mcp") => Go::Verb,
         Some("energy") => Go::Energy,
@@ -219,10 +222,8 @@ mod tests {
     fn tehas_runs_the_script_of_each_command_that_has_one() {
         for c in [
             "dispatch",
-            "work",
             "plan",
             "dev",
-            "index",
             "setup",
             "update",
             "check-product",
@@ -260,6 +261,8 @@ mod tests {
             "export",
             "stop",
             "init-product",
+            "work",
+            "index",
         ] {
             assert_eq!(t(&[c]), Go::Run, "{c}");
         }
@@ -281,7 +284,7 @@ mod tests {
             assert_eq!(t(&["limit", f]), Go::Text("limit".into()));
             assert_eq!(t(&["work", f]), Go::Text("work".into()));
         }
-        assert_eq!(t(&["work", "--help", "7"]), Go::Script("work"));
+        assert_eq!(t(&["work", "--help", "7"]), Go::Run);
         assert_eq!(t(&["limit", "--help", "7"]), Go::Run);
     }
 
@@ -307,11 +310,11 @@ mod tests {
 
     #[test]
     fn tehasbot_routes_each_command() {
-        for c in ["dispatch", "cycle", "improve", "review", "github-token"] {
+        for c in ["dispatch", "improve", "review", "github-token"] {
             assert_eq!(b(&[c, "7"]), Go::Script(script("tehasbot", c).unwrap()));
         }
         for c in [
-            "health", "status", "top", "refresh", "clean", "preview", "protolab",
+            "health", "status", "top", "refresh", "clean", "preview", "protolab", "cycle",
         ] {
             assert_eq!(b(&[c]), Go::Run, "{c}");
         }

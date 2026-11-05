@@ -15,6 +15,8 @@
 //! a container starts from, and `watch` starts a cycle's container and sees it
 //! to its end. `progress` summarises what the runner wrote.
 //! `supervise` starts a cycle, runs tehas work and sees to its report.
+//! `lock` takes the locks of a cycle, tehas work and the index, and hands them
+//! down to what they start.
 
 pub mod after;
 pub mod apply;
@@ -29,6 +31,7 @@ pub mod improve;
 pub mod index;
 pub mod jq;
 pub mod last_attempt;
+pub mod lock;
 pub mod pin;
 pub mod prepare;
 pub mod progress;
