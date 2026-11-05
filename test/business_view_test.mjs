@@ -36,6 +36,27 @@ test("prototypes show only while there are some, as planning does", () => {
   assert.equal(lineView({ status: status(), nowMs: NOW }).stages.find((s) => s.key === "proto"), undefined);
 });
 
+// Every stage is drawn only while it has something to show: a ticket, or a
+// figure the file publishes. The rule is the one prototypes and planning had.
+test("a stage with nothing to show is not on the line, whichever stage it is", () => {
+  const keys = (extra) => lineView({ status: status(extra), nowMs: NOW }).stages.map((s) => s.key);
+  // The issue's screenshot: nothing to review.
+  assert.deepEqual(keys({ awaiting: [] }), ["line", "build", "stop", "ship"]);
+  assert.deepEqual(keys({ queued: [], running: [], stopped: [] }), ["review", "ship"]);
+  // Shipped stays while the file counts some, though the list is empty.
+  assert.deepEqual(keys({ completed: [], completedCount: 18 }), ["line", "build", "review", "stop", "ship"]);
+  assert.deepEqual(keys({ completed: [] }), ["line", "build", "review", "stop"]);
+  // A live queue with nothing anywhere draws no stage at all.
+  const empty = lineView({ status: status({ queued: [], running: [], awaiting: [], stopped: [], completed: [], completedCount: 0 }), nowMs: NOW });
+  assert.equal(empty.source, "live");
+  assert.deepEqual(empty.stages, []);
+  assert.deepEqual(lineView({ nowMs: NOW }).stages, []);
+  // Every stage that is drawn has something to show.
+  for (const st of lineView({ status: status({ awaiting: [], planning: 3 }), nowMs: NOW }).stages) {
+    assert.ok(st.count > 0 || st.items.length > 0, st.key);
+  }
+});
+
 test("a queue older than ten minutes is stale, and a pause is shown", () => {
   const v = lineView({ status: status({ generatedAt: at(STALE_QUEUE + 1), paused: true }), nowMs: NOW });
   assert.equal(v.source, "stale");
@@ -88,14 +109,14 @@ test("the sample is staged by its labels, and only where there is no queue", () 
   ] };
   const v = lineView({ sample, nowMs: NOW });
   assert.equal(v.source, "sample");
-  assert.deepEqual(v.stages.map((s) => s.items.map((t) => t.number)), [[2], [1], [2], [], [3], [4]]);
+  assert.deepEqual(v.stages.map((s) => s.items.map((t) => t.number)), [[2], [1], [2], [3], [4]]);
   assert.equal(lineView({ status: status(), sample, nowMs: NOW }).stages[0].count, 2); // the queue wins
   assert.equal(lineView({ nowMs: NOW }).source, "none");
 });
 
 test("a ticket the queue lists twice stands at one place: stopped first, then review, building, in line", () => {
   const v = lineView({ status: status({ queued: [issue(2), issue(13), issue(18)], running: [issue(18)] }), nowMs: NOW });
-  assert.deepEqual(v.stages.map((s) => s.items.map((t) => t.number)), [[13], [], [18], [2], [83]]);
+  assert.deepEqual(v.stages.map((s) => s.items.map((t) => t.number)), [[13], [18], [2], [83]]);
 });
 
 // The shipped figure is the label's total, so it keeps rising past the fifty
@@ -124,10 +145,10 @@ test("without the count the shipped figure is the length of the list, as on an o
     assert.deepEqual(ship.more, { text: "All 1 shipped",
       href: "https://github.com/acme/widget/issues?q=" + encodeURIComponent("is:closed") });
   }
-  // Nothing listed and the count says none: an empty stage keeps no link.
-  assert.equal(shipOf({ completed: [], completedCount: 0 }).more, null);
-  // Nothing listed and no count: as it was before the field.
-  assert.equal(shipOf({ completed: [] }).more, null);
+  // Nothing listed and the count says none: the stage is not drawn.
+  assert.equal(shipOf({ completed: [], completedCount: 0 }), undefined);
+  // Nothing listed and no count: not drawn either.
+  assert.equal(shipOf({ completed: [] }), undefined);
 });
 
 // The read set is one named list, not whatever string a row of STAGES names:
@@ -139,8 +160,7 @@ test("the only count fields the page reads are the planning and shipped ones", (
   const ship = lineView({
     status: status({ completed: [], completedCount: 1e400 }), nowMs: NOW,
   }).stages.find((s) => s.key === "ship");
-  assert.equal(ship.count, 0);
-  assert.equal(ship.more, null);
+  assert.equal(ship, undefined); // a figure that is not a whole number counts none
 });
 
 // Planning is drawn only while something is in it.
@@ -164,7 +184,7 @@ test("planning stands between in line and building, and only while work is plann
 test("the sample stages a ticket labelled for planning in planning", () => {
   const v = lineView({ sample: { issues: [{ number: 7, title: "Plan", labels: ["tehas:plan", "tehas:ready"] }] }, nowMs: NOW });
   assert.deepEqual(v.stages.map((s) => [s.key, s.items.map((t) => t.number)]),
-    [["line", []], ["plan", [7]], ["build", []], ["review", []], ["stop", []], ["ship", []]]);
+    [["plan", [7]]]);
 });
 
 test("the board lists the open tickets on the line, in the line's order", () => {

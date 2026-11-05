@@ -436,6 +436,7 @@ fn base(r: &Value, allowed: &str) -> Option<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tehas_core::testdir::TestDir;
 
     #[test]
     fn a_link_to_an_attachment_may_be_one() {
@@ -523,11 +524,8 @@ mod tests {
 
     /// A scratch directory of its own, with no program in it: a home with no
     /// libexec/attach.
-    fn scratch(name: &str) -> PathBuf {
-        let d = std::env::temp_dir().join(format!("tehas-gives-{name}-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&d);
-        fs::create_dir_all(&d).unwrap();
-        d
+    fn scratch(name: &str) -> TestDir {
+        TestDir::new(&format!("gives-{name}"))
     }
 
     fn manifest(dir: &Path) -> Value {
@@ -563,7 +561,6 @@ mod tests {
         assert_eq!(manifest(&dir)["files"], json!([]));
         // Nothing was given, so the comment of what was given says nothing.
         assert_eq!(said(&d, &dir, "cycle", "1"), "");
-        let _ = fs::remove_dir_all(&d);
     }
 
     #[test]
@@ -586,7 +583,6 @@ mod tests {
         }
         // The reason may be put on the issue: it names no path of the host.
         assert!(!NO_ATTACH.contains('/'));
-        let _ = fs::remove_dir_all(&d);
     }
 
     #[test]
@@ -600,7 +596,6 @@ mod tests {
                 "{data}"
             );
         }
-        let _ = fs::remove_dir_all(&d);
     }
 
     #[test]
@@ -641,7 +636,6 @@ mod tests {
                 "{edit}"
             );
         }
-        let _ = fs::remove_dir_all(&d);
     }
 
     #[test]
@@ -667,7 +661,6 @@ mod tests {
         // No kept manifest: nothing to compare.
         fs::remove_file(&kept).unwrap();
         assert_eq!(changed(&d, &kept, &dir), Ok(()));
-        let _ = fs::remove_dir_all(&d);
     }
 
     #[test]
@@ -685,6 +678,5 @@ mod tests {
             left_out(&d, 7, &file, &none.to_string_lossy()),
             Gap::Nothing
         ));
-        let _ = fs::remove_dir_all(&d);
     }
 }

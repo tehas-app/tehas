@@ -322,12 +322,14 @@ An issue labelled `tehas:improvement` and `cross-project` together is not starte
 
 An epic is never started: an issue with open sub-issues is a plan broken into issues, not a change one cycle can make, and a cycle on it spends a slot and its tokens before it parks as too large. When `tehas:ready` is applied to such an issue, the dispatcher takes the label off, says so in one comment and starts nothing; a retry ticked on one starts nothing and the log says why. The count comes from the issue GitHub already answers for, so a GitHub without sub-issues is unaffected. Read the plan and apply `tehas:ready` to one of its sub-issues instead; a sub-issue with no open sub-issues of its own is started as any other issue. A `tehas:plan` session on an epic is allowed: planning an epic is what it is for. With `TEHAS_MILLWRIGHT_EPICS=1` and a millwright, your `tehas:ready` on an epic is not lost: it approves the epic's open sub-issues for [the millwright](#the-millwrights-grant), which plans each one that needs it and applies `tehas:ready` to it, and the comment says so. Close the epic, or put `needs-human-attention` on it, to take that back.
 
+An open issue whose title starts with an epic marker gets the `epic` label at the next poll, so the board says what it is. The marker is the word `epic` in any case at the very start of the title, or after one opening bracket, followed by `:`, a closing bracket or a space: `EPIC: Billing rework`, `Epic: ...`, `(Epic) ...` and `[EPIC] ...` match; `feat: WS-A child of epic 412: ...`, `Epicenter map` and `epics view polish` do not, so a part that names its epic is never labelled as one. tehas only adds the label. Take it off an issue and tehas leaves it off: the poll reads the issue's label events, and a removal by any account but the bot's is final. The control issue is never labelled, and a paused poll labels nothing. The label is for people: what makes an epic for the dispatcher and the epics panel is still GitHub's sub-issue links, so a labelled issue with no sub-issues is started as any other issue and is not on the panel. `tehasbot health` warns about such an issue, the common miss when a plan's parts were filed and never linked: open the epic and add its parts as sub-issues. Run `tehas labels` once after an update so the label exists.
+
 With `TEHAS_SIZE_MAX_FILES` set on the instance, an issue whose own body names more files than that number is not started either. The dispatcher reads the count off the approved text itself: a path is what stands between two ticks and holds a `/` or ends in `.sh`, `.rs`, `.md`, `.json`, `.toml` or `.yml`, and one path counts once however often it is written. Such an issue is a stack of changes wearing the shape of one issue, and a cycle on it spends its explore and its plan before it parks. The dispatcher takes `tehas:ready` off, puts `needs-human-attention` on, and says the count, the setting and the way out in one comment: narrow the issue to the part one cycle can make, or split it into issues of that size, then apply `tehas:ready` to one of them. The hold belongs to `tehas:ready` alone, so it holds nothing else back: a ticked retry, a refresh of the bot's own pull request and a `tehas:plan` session start as they did. Unset, the dispatcher never asks, and a wide issue starts as any other.
 
 | Label on the issue      | Meaning                           | Your move                                |
 | ----------------------- | --------------------------------- | ---------------------------------------- |
 | `tehas:ready`           | Queued                            | Wait, or remove the label to withdraw it |
-| `tehas:running`         | A cycle owns it                   | Leave the issue and its branch alone     |
+| `tehas:running`         | A cycle owns it; with `TEHAS_OWNER` set, the issue is assigned to that account too | Leave the issue and its branch alone     |
 | `tehas:awaiting-merge`  | Pull request open, only the merge left | Review and merge                    |
 | `tehas:shipped`         | A merged pull request closed it, or GitHub's own list of pull requests closing it holds a merged one   | Nothing; `tehas tidy` and `tehasbot status` give it |
 | `needs-human-attention` | The cycle stopped                 | Read the comment; see below              |
@@ -344,6 +346,17 @@ With `TEHAS_SIZE_MAX_FILES` set on the instance, an issue whose own body names m
 | `tehas:lean`            | The lean driver is chosen for it. [It cannot run yet](#choosing-the-driver) | Take it off to run the issue on classic |
 | `tehas:blocked`         | Started once every blocker it names is closed | Close the blockers; swap it for `tehas:ready` to start it now |
 | `tehas:refreshing`      | On a pull request: a [refresh](#refreshes) works on it | Do not merge or push to it now; it comes off when the cycle ends |
+
+With `TEHAS_OWNER` set on the instance, the call that marks an issue
+`tehas:running` for a cycle also assigns it to that account, so GitHub shows
+the issue as taken and nobody starts on it by accident. GitHub assigns no
+app's bot, which is why the owner is a person. The owner is never unassigned:
+a closed issue's assignee does not matter, and a parked one is with the person
+who acts on it. A refresh does not assign again, and neither does a planning
+turn. When GitHub refuses the assign, the dispatcher marks the issue running
+without it, starts the cycle, and says so in `logs/dispatch.log`:
+`WARN: could not assign #N to <owner>, marking it running without an assignee`.
+Unset, nobody is assigned.
 
 `tehas:ready` from an allowed labeller starts a fresh cycle whatever else the
 issue carries. So does one from [the millwright](#the-millwrights-grant), within its grant. tehas's labels of the earlier outcome go when the cycle starts.
@@ -433,11 +446,15 @@ does. See [Commands](/tools).
 A cycle runs on the classic driver unless a person chooses lean for that issue
 with `tehas:lean`. The label starts nothing: `tehas:ready` still does that.
 
-Lean cannot run on this tehas yet: it waits for
-[pi-rukas#1920](https://github.com/trail-openers/pi-rukas/issues/1920). A start
-that chose it is refused and [parked](/troubleshooting#the-cycle-parked-needs-human-attention),
-and classic does not run in its place. For now the label only records the
-choice.
+A lean start runs `pi-rukas-headless work-lean` in the same container classic
+`work` gets, which needs a sandbox image of pi-rukas v0.14.47 or later
+([pi-rukas#1920](https://github.com/trail-openers/pi-rukas/issues/1920)). On an
+image that cannot run it, the start is refused and
+[parked](/troubleshooting#the-cycle-parked-needs-human-attention), and classic
+does not run in its place. Whether lean merges is the product's
+`.pi/work.json` `autoMerge`, which tehas leaves alone. A lean start is never a
+refresh: no `--continue-pr`. By hand, `tehas work <issue> --driver lean` runs
+lean without the label ([tehas work](/tools#tehas-work)).
 
 - It counts only from an account in `TEHAS_ALLOWED_LABELERS`, read from the
   label's events. The millwright's does not count.
@@ -1202,6 +1219,29 @@ drain.
 
 A program that drives factories uses the same commands: see
 [the factory API](/api).
+
+## Panels on the dashboard
+
+A panel puts a page of the project on the dashboard: a support chat, a status
+page, a feedback form, a manual kept elsewhere. It is an item in the menu of
+both front pages; pressing it opens the page in a dock at the side, full screen
+on a phone, with a link to open it in a new tab.
+
+```
+tehas panel set support --label "Ask us" --url https://support.example.org/f/acme
+tehas panel                  # what is set
+tehas panel clear support    # take it away
+```
+
+Up to four. The URL is public, as everything the dashboard reads is, so it holds
+no secret. It may not be on the factory's own domain, `TEHAS_DOMAIN`, because
+the frame would then share the dashboard's origin; a name under it, such as
+`support.<domain>`, is fine. The dashboard asks the page for nothing until a
+person presses the item, and passes it nothing but the URL. A page that refuses
+to be framed shows an empty dock; its new-tab link still works.
+
+A program sets panels with the same command: see
+[the factory API](/api#tehas-panel).
 
 ## Reading what ended
 

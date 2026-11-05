@@ -12,6 +12,7 @@
   <link rel="icon" type="image/svg+xml" href="/fun/favicon.svg">
   <link rel="stylesheet" href="/fun/theme-beesknees26.css">
   <link rel="stylesheet" href="/fun/business.css">
+  <link rel="stylesheet" href="/fun/panels.css">
   <script src="/fun/mode.js"></script>
   {{- /* Visitor analytics, only on an instance that names a script and a site. */}}
   {{- if and (env "TEHAS_ANALYTICS_SRC") (env "TEHAS_ANALYTICS_SITE") }}
@@ -23,7 +24,7 @@
   <header class="topbar">
     <div class="wrap">
       <a class="mark" href="#top" aria-label="Tehas dashboard, top of page">
-        <svg width="26" height="26" viewBox="0 0 22 22" aria-hidden="true"><rect class="m-box" x="1" y="1" width="20" height="20" rx="3"/><path class="m-glyph" d="M6 15V9l4 3V9l4 3V7h2v8z"/><rect class="m-bar" x="6" y="16.5" width="10" height="1.5"/></svg>
+        <img src="/fun/favicon.svg" width="26" height="26" alt="">
         tehas
         <small>Factory</small>
       </a>
@@ -164,5 +165,6 @@
   <script src="/fun/console-tabs.js"></script>
   <script type="module" src="/fun/business-view.js"></script>
   <script src="/fun/epics-view.js"></script>
+  <script src="/fun/panels.js"></script>
 </body>
 </html>

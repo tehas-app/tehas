@@ -23,7 +23,7 @@
 //!   hold, not the rows a run would add.
 //!
 //! The carriers (`result.json`, `progress.json`, `.runner_exit`, `.status`,
-//! `.oom`, `.forks`, `.stalled`, `.timed`, `.nostart`, `.done`, `.stopped`,
+//! `.oom`, `.forks`, `.stalled`, `.timed`, `.signal`, `.nostart`, `.done`, `.stopped`,
 //! `.cid`, `.manifest.json`, `.images.md`, `.retry-context.md`, a plan's
 //! `.out`, `.rc`, `.lock`), `state/refined.jsonl` and the `.keep` directories
 //! are not the store's: they stay where they are.
