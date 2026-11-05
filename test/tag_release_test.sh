@@ -214,11 +214,14 @@ t_eq "$(git -C "$work" tag --list 'v*' --sort=-v:refname | head -n 1)" v0.1.0
 # not found), the open pull requests from $T/open_prs, and opens #9.
 # The stub docker answers --capabilities with $T/caps.json.
 mark='# polyfill'
+# The commit followed is named by the console, which the head would build.
+# shellcheck disable=SC2154  # t_console_why is set by t_console (test/lib.sh)
+t_console || t_bad "no console: $t_console_why"
+T_ENV_ALWAYS+=("TEHAS_CONSOLE=$T_CONSOLE")
 polyfilled() {
   fresh
   mkdir -p "$T/up/lib" "$T/up/test" "$T/up/libexec" "$T/up/host"
   cp "$T_ROOT/scripts/polyfills.sh" "$T/up/scripts/"
-  cp "$T_ROOT/lib/rukas.sh" "$T/up/lib/"
   printf 'PI_RUKAS_REPO=https://github.com/up-owner/pi-rukas.git\nPI_RUKAS_FOLLOW=release\n' >"$T/up/host/versions.env"
   printf '# shellcheck shell=bash\n# Upstream issue: up-owner/pi-rukas#77\n# Upstream PR: up-owner/pi-rukas#78\n' \
     >"$T/up/lib/polyfill-someFeature.sh"
@@ -309,6 +312,20 @@ t_eq "$t_rc" 1
 t_contains "$t_out" "whether the polyfills of"
 t_contains "$t_out" "--rukas-caps <file>"
 t_eq "$(tags)" "v0.1.0 "
+
+t_case "without TEHAS_CONSOLE the head's own console is run with cargo"
+polyfilled
+t_stub cargo 'exit 101'
+saved_env=("${T_ENV_ALWAYS[@]}")
+T_ENV_ALWAYS=()
+t_run "$work/scripts/tag-release.sh"
+T_ENV_ALWAYS=("${saved_env[@]}")
+t_eq "$t_rc" 1
+t_contains "$(t_calls cargo)" "run --quiet --locked --manifest-path"
+t_contains "$(t_calls cargo)" "/console/Cargo.toml -p console -- rukas target release https://github.com/up-owner/pi-rukas.git"
+t_contains "$t_out" "whether the polyfills of"
+t_eq "$(tags)" "v0.1.0 "
+rm -f "$T/bin/cargo"
 
 t_case "a polyfill pi-rukas no longer needs is removed in a pull request, and nothing is tagged"
 polyfilled

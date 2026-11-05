@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Prepare a fresh host for tehas: everything tehas and pi-rukas need, at the
 # versions in host/versions.env, and pi-rukas at the commit versions.env
-# follows (lib/rukas.sh). Safe to run again: a tool already at its version is skipped, one at
+# follows (console rukas target). Safe to run again: a tool already at its version is skipped, one at
 # another version is replaced. An npm tool counts as present only when its
 # pinned tree is installed too.
 #
@@ -16,8 +16,11 @@
 #                                     reloads systemd when memory is added
 #   ./bootstrap.sh user               the rest, as the tehas user, under that
 #                                     user's home; ends with pi-rukas's installer
-#                                     and, on an installed host, the sandbox
-#                                     image moved to that pi-rukas
+#                                     once a console is there to name its commit:
+#                                     a release's, or the one install.sh puts in
+#                                     ~/tehas/libexec, so a checkout runs it again
+#                                     after install.sh; on an installed host, also
+#                                     the sandbox image moved to that pi-rukas
 #                                     (sandbox/build.sh --if-moved)
 #   sudo ./bootstrap.sh dev <user> [<login>...]
 #                                     let other accounts on the host start a
@@ -49,8 +52,6 @@ set -euo pipefail
 root=$(cd "$(dirname "$0")" && pwd)
 # shellcheck source=host/versions.env
 . "$root/host/versions.env"
-# shellcheck source=lib/rukas.sh
-. "$root/lib/rukas.sh"
 
 os_release=${BOOTSTRAP_OS_RELEASE:-/etc/os-release}
 packages=(docker.io docker-compose-v2 docker-buildx git jq curl openssl rsync util-linux
@@ -451,10 +452,15 @@ found_rukas() {
   [ -e "$HOME/.pi/agent/extensions/pi-rukas" ] || return 0
   git -C "$TEHAS_HOME/repos/pi-rukas" rev-parse HEAD 2>/dev/null || true
 }
-# pi-rukas is not pinned: what is expected is the commit it follows now.
+# pi-rukas is not pinned: what is expected is the commit it follows now, as the
+# console of the release or the installed one names it. Otherwise why not, and
+# 2 when there is no console yet.
 rukas_head() {
-  local target
-  target=$(tehas_rukas_target) || return 1
+  local console=$root/libexec/console target
+  [ -x "$console" ] || console=$TEHAS_HOME/libexec/console
+  [ -x "$console" ] || { echo "after install.sh: no console names the commit"; return 2; }
+  target=$("$console" rukas target "${PI_RUKAS_FOLLOW:-}" "${PI_RUKAS_REPO:-}") ||
+    { echo "no pi-rukas commit for PI_RUKAS_FOLLOW=${PI_RUKAS_FOLLOW:-} in ${PI_RUKAS_REPO:-}"; return 1; }
   printf '%s\n' "${target%% *}"
 }
 
@@ -494,7 +500,7 @@ rust found_rust $RUST_VERSION
 vipune found_vipune $VIPUNE_VERSION
 oo found_oo $OO_VERSION
 codebase-memory-mcp found_cbm $CBM_VERSION
-pi-rukas found_rukas $(rukas_head || echo "no commit for PI_RUKAS_FOLLOW=$PI_RUKAS_FOLLOW")
+pi-rukas found_rukas $(rukas_head || true)
 EOF
   # System tools: present is enough, the version is shown for the record.
   for tool in docker git curl openssl flock minisign shellcheck unzip; do
@@ -790,12 +796,17 @@ do_user() {
   step vipune found_vipune "$VIPUNE_VERSION" install_vipune
   step oo found_oo "$OO_VERSION" install_oo
   step codebase-memory-mcp found_cbm "$CBM_VERSION" install_cbm
-  rukas_want=$(rukas_head) || die "no pi-rukas commit for PI_RUKAS_FOLLOW=$PI_RUKAS_FOLLOW in $PI_RUKAS_REPO"
-  step pi-rukas found_rukas "$rukas_want" install_rukas
+  local rc=0
+  rukas_want=$(rukas_head) || rc=$?
+  case $rc in
+    0) step pi-rukas found_rukas "$rukas_want" install_rukas ;;
+    2) echo "bootstrap: pi-rukas waits for install.sh, then run ./bootstrap.sh user again" ;;
+    *) die "$rukas_want" ;;
+  esac
   # The image cycles run follows the clone, or health says it is behind: built
   # only when it is not on the commit followed. A first bootstrap has no
   # install yet, so no build.sh, and install.sh builds it.
-  if [ -x "$TEHAS_HOME/sandbox/build.sh" ]; then
+  if [ "$rc" = 0 ] && [ -x "$TEHAS_HOME/sandbox/build.sh" ]; then
     "$TEHAS_HOME/sandbox/build.sh" --if-moved ||
       die "the sandbox image did not follow pi-rukas to $rukas_want; run $TEHAS_HOME/sandbox/build.sh --if-moved when the lines above are dealt with"
   fi
@@ -810,7 +821,7 @@ case "${1:-}" in
   clock) shift; do_clock "$@" ;;
   check) do_check ;;
   *)
-    sed -n '2,28p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,35p' "$0" | sed 's/^# \{0,1\}//'
     exit 64
     ;;
 esac

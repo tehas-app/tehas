@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Build the tehas sandbox image on this host, on the pi-rukas commit
 # PI_RUKAS_FOLLOW names: the newest release tag, the head of a branch, or one
-# commit (lib/rukas.sh). A value in the instance's instance.env wins over the
+# commit (console rukas target). A value in the instance's instance.env wins over the
 # one in versions.env.
 #
 # Tags the result both as the name PI_ENSEMBLE_IMAGE points at by default
@@ -119,13 +119,15 @@ esac
 # lib/ is beside sandbox/ on a host, and two up in the checkout.
 lib=""
 for d in "$here/../lib" "$here/../../lib"; do
-  [ -f "$d/rukas.sh" ] && [ -f "$d/config.sh" ] && { lib=$d; break; }
+  [ -f "$d/config.sh" ] && { lib=$d; break; }
 done
-# What reads the base's --capabilities. Read before tehas_load clears the name.
-# A checkout has no libexec/tehas-cycle: a build there names one.
+# What reads the base's --capabilities, and what names the commit followed and
+# says what the date sweep must keep. Read before tehas_load clears the names.
+# A checkout has neither: a build there names them.
 cycle=${TEHAS_CYCLE_BIN:-$lib/../libexec/tehas-cycle}
-if [ -z "$lib" ] || [ ! -x "$cycle" ]; then
-  echo "sandbox: no libexec/tehas-cycle, lib/rukas.sh and lib/config.sh beside $here, the base cannot be checked" >&2
+console=${TEHAS_CONSOLE:-$lib/../libexec/console}
+if [ -z "$lib" ] || [ ! -x "$cycle" ] || [ ! -x "$console" ]; then
+  echo "sandbox: no libexec/tehas-cycle, libexec/console and lib/config.sh beside $here, the base cannot be checked" >&2
   exit 1
 fi
 # The recipe the image is made from goes with lib/: a toolchain that lacks it
@@ -147,11 +149,6 @@ if [ "$(grep -cxF -- 'FROM shared' "$dockerfile")" != 1 ] ||
   echo "sandbox: $dockerfile does not hold one 'FROM shared' stage and one 'ARG TEHAS_UID=' line, so the shared layers cannot be cut" >&2
   exit 1
 fi
-# What asks the date sweep below what is held. Read before tehas_load clears the
-# name. A checkout has no console, so a build there keeps every tag and says so.
-console=${TEHAS_CONSOLE:-$lib/../libexec/console}
-# shellcheck source=lib/rukas.sh
-. "$lib/rukas.sh"
 # The instance directory, resolved as every command resolves it: loading
 # settings has no side effects (AGENTS.md rule 3), so sourcing the library is
 # safe here and reaches the `instance-dir` pointer that only tehas_load would
@@ -223,7 +220,7 @@ if [ "${#left[@]}" != 0 ] && ! rm -f -- "${left[@]}" 2>/dev/null; then
   exit 1
 fi
 
-if ! target=$(tehas_rukas_target); then
+if ! target=$("$console" rukas target "${PI_RUKAS_FOLLOW:-}" "${PI_RUKAS_REPO:-}"); then
   echo "build: no pi-rukas commit for PI_RUKAS_FOLLOW=${PI_RUKAS_FOLLOW:-} in $PI_RUKAS_REPO" >&2
   exit 1
 fi
@@ -241,7 +238,7 @@ if [ "$mode" != build ]; then
   fi
 fi
 
-upstream=$(tehas_rukas_image "$head") || {
+upstream=$("$console" rukas image "${PI_RUKAS_REPO:-}" "$head") || {
   echo "build: PI_RUKAS_REPO is not a GitHub repository, so upstream's image cannot be named" >&2
   exit 1
 }
@@ -497,8 +494,4 @@ prune_dated() {
     fi
   done < <(grep -E '^[0-9]{6}-[0-9]{4}(-product)? ' <<<"$tags" | LC_ALL=C sort -r)
 }
-if [ ! -x "$console" ]; then
-  echo "warning: no console at $console, no old $image tag was removed" >&2
-else
-  prune_dated || echo "warning: docker did not list its images or containers, no old $image tag was removed" >&2
-fi
+prune_dated || echo "warning: docker did not list its images or containers, no old $image tag was removed" >&2
