@@ -8,10 +8,22 @@
 //
 //   node --test test/dashboard_host_test.mjs
 import assert from "node:assert/strict";
+import { readdirSync, readFileSync, statSync } from "node:fs";
 import { test } from "node:test";
 
-// The module, a fresh copy per case: the query makes each import its own.
-const VIEW = new URL("../host/fun/dashboard-view.js", import.meta.url);
+// The module, imported once for the whole file and with no query string: every
+// page below is a call of its start() against that one copy, so state the
+// module kept outside start() would show up from one page in the next. No
+// document is installed yet, so the import itself draws nothing.
+import * as view from "../host/fun/dashboard-view.js";
+
+// The files the module reads, and so the only ones the stub fetch answers. The
+// console's file is not among them: the console half is stubbed out (below).
+const ANSWERED = ["/live/previews.json", "/live/top.json", "/live/analytics.json", "/live/status.json", "/live/running.json"];
+// The stub's surface, pinned by a case so that it stays this small.
+const GLOBALS = ["document", "fetch", "setInterval", "setTimeout", "clearInterval", "TEHAS_CONSOLE_TABS"];
+const NODE = ["name", "hidden", "dataset", "style", "attrs", "textContent", "className", "href", "kids",
+  "setAttribute", "append", "replaceChildren"];
 
 const T = 1791526545;
 
@@ -45,10 +57,10 @@ function status() {
   };
 }
 
-async function page(key, opt = {}) {
+async function page(opt = {}) {
   const { top = 200, unreachable = false } = opt;
-  const byId = new Map(), listeners = {}, timers = [], errors = [];
-  let hidden = false, topReads = 0, analyticsReads = 0;
+  const byId = new Map(), listeners = {}, timers = [], errors = [], asked = [], chosen = [];
+  let hidden = false, topReads = 0, analyticsReads = 0, keyed = 0, choose = null;
   const node = (name) => {
     const el = { name, hidden: false, dataset: {}, style: {}, attrs: {}, textContent: "", className: "", href: "", kids: [] };
     el.setAttribute = (k, v) => { el.attrs[k] = String(v); };
@@ -57,9 +69,7 @@ async function page(key, opt = {}) {
     return el;
   };
   const note = (e) => errors.push(String(e.message ?? e));
-  process.on("unhandledRejection", note);
-  const names = ["document", "fetch", "setInterval", "setTimeout", "clearInterval", "TEHAS_CONSOLE_TABS"];
-  const real = Object.fromEntries(names.map((k) => [k, globalThis[k]]));
+  const missing = (status = 404) => ({ ok: false, status, json: async () => ({}), headers: { get: () => "" } });
   const stubs = {
     document: {
       get hidden() { return hidden; },
@@ -69,27 +79,40 @@ async function page(key, opt = {}) {
       createElementNS: (_ns, tag) => node(tag),
     },
     // The tabs are the plain dashboard's other module. Here they say nothing is
-    // running, so what a case sees is the host half.
-    TEHAS_CONSOLE_TABS: { view: () => ({ running: 0, shown: null, cycles: [], tabs: [] }), render: () => {}, keys: () => {}, consoleFile: () => null },
+    // running, so what a case sees is the host half. view() keeps the cycle it
+    // was asked to show and keys() the page's own select(), so a case can choose
+    // a tab and see what the page asked for next. consoleFile names no file, so
+    // the console's tail() is never reached: reaching it would take arrayBuffer,
+    // TextDecoder, checked and scrollTop, and a stub that grows to fit one case
+    // stops saying anything about the page.
+    TEHAS_CONSOLE_TABS: {
+      view: (_now, selected) => { chosen.push(selected); return { running: 0, shown: null, cycles: [], tabs: [] }; },
+      render: () => {},
+      keys: (_el, fn) => { keyed++; choose = fn; },
+      consoleFile: () => null,
+    },
     fetch: async (url) => {
+      asked.push(url);
+      if (!ANSWERED.some((f) => url.endsWith(f))) {
+        // The module swallows a failed fetch, so a file nobody answers would
+        // pass unseen: it is an error of the case instead.
+        errors.push("asked for " + url + ", which the stub does not answer");
+        return missing();
+      }
       if (url.endsWith("/live/top.json")) topReads++;
       if (url.endsWith("/live/analytics.json")) analyticsReads++;
       if (unreachable) throw new Error("no route to the host");
       if (url.endsWith("/live/top.json")) {
         return top === 200
           ? { ok: true, status: 200, json: async () => (opt.topFile || file)(), headers: { get: () => new Date(T * 1000).toUTCString() } }
-          : { ok: false, status: top, json: async () => ({}), headers: { get: () => "" } };
+          : missing(top);
       }
       if (url.endsWith("/live/analytics.json")) {
-        return opt.analytics
-          ? { ok: true, status: 200, json: async () => opt.analytics, headers: { get: () => "" } }
-          : { ok: false, status: 404, json: async () => ({}), headers: { get: () => "" } };
+        return opt.analytics ? { ok: true, status: 200, json: async () => opt.analytics, headers: { get: () => "" } } : missing();
       }
       // No previews and no running cycle on this host: the host section is what
       // these cases are about.
-      if (url.endsWith("/live/previews.json") || url.endsWith("/live/running.json")) {
-        return { ok: false, status: 404, json: async () => ({}), headers: { get: () => "" } };
-      }
+      if (url.endsWith("/live/previews.json") || url.endsWith("/live/running.json")) return missing();
       return { ok: true, status: 200, json: async () => ({ ...status(), ...opt.status }), headers: { get: () => "" } };
     },
     // The page's own clock: the refresh it schedules is turned by a case, so no
@@ -98,34 +121,48 @@ async function page(key, opt = {}) {
     setTimeout: (fn) => { timers.push({ fn, ms: 0 }); return 0; },
     clearInterval: () => {},
   };
-  const install = () => Object.assign(globalThis, stubs);
   const settle = async () => { for (let i = 0; i < 60; i++) await new Promise((r) => setImmediate(r)); };
-  install();
-  try {
-    await import(`${VIEW.href}?${key}`);
-    await settle();
-    const text = (id) => byId.get(id)?.textContent;
-    // The text of each row of one list: its cells joined as the page shows them.
-    const items = (id) => (byId.get(id)?.kids ?? []).map((li) => li.kids
-      .map((k) => (typeof k === "string" ? k : k.textContent)).join(""));
-    return {
-      errors, text, items, topReads: () => topReads, analyticsReads: () => analyticsReads,
-      node: (id) => byId.get(id),
-      periods: () => timers.map((t) => t.ms),
-      hidden: (id = "host") => byId.get(id)?.hidden,
-      hide: () => { hidden = true; },
-      show: () => { hidden = false; },
-      tick: async (n) => { install(); for (let i = 0; i < n; i++) { for (const t of timers) await t.fn(); await settle(); } },
-      fire: async (name) => { install(); for (const fn of listeners[name] ?? []) await fn(); await settle(); },
-    };
-  } finally {
-    process.off("unhandledRejection", note);
-    for (const [k, v] of Object.entries(real)) globalThis[k] = v;
-  }
+  // Each turn of a page puts its own stubs in place and takes them away again,
+  // so two pages can be turned one after the other.
+  const turn = async (fn) => {
+    const real = Object.fromEntries(GLOBALS.map((k) => [k, globalThis[k]]));
+    Object.assign(globalThis, stubs);
+    process.on("unhandledRejection", note);
+    try {
+      await fn();
+      await settle();
+    } finally {
+      process.off("unhandledRejection", note);
+      for (const [k, v] of Object.entries(real)) globalThis[k] = v;
+    }
+  };
+  await turn(() => view.start());
+  // A page that ran none of the module fails here, whatever its case asserts:
+  // the module set up its tabs once and asked for the queue.
+  assert.equal(keyed, 1, "the module did not start on this page");
+  assert.ok(asked.includes("/live/status.json"), "the module asked for nothing on this page");
+  const text = (id) => byId.get(id)?.textContent;
+  // The text of each row of one list: its cells joined as the page shows them.
+  const items = (id) => (byId.get(id)?.kids ?? []).map((li) => li.kids
+    .map((k) => (typeof k === "string" ? k : k.textContent)).join(""));
+  return {
+    errors, text, items, topReads: () => topReads, analyticsReads: () => analyticsReads,
+    asked: () => [...asked],
+    chosen: () => [...chosen],
+    node: (id) => byId.get(id),
+    periods: () => timers.map((t) => t.ms),
+    hidden: (id = "host") => byId.get(id)?.hidden,
+    hide: () => { hidden = true; },
+    show: () => { hidden = false; },
+    surface: () => ({ globals: Object.keys(stubs), node: Object.keys(node("probe")), tabs: stubs.TEHAS_CONSOLE_TABS }),
+    choose: (issue) => turn(() => choose(issue)),
+    tick: (n) => turn(async () => { for (let i = 0; i < n; i++) { for (const t of timers) await t.fn(); await settle(); } }),
+    fire: (name) => turn(async () => { for (const fn of listeners[name] ?? []) await fn(); }),
+  };
 }
 
 test("the plain dashboard lists the host it is given", async () => {
-  const p = await page("list");
+  const p = await page();
   assert.deepEqual(p.errors, []);
   assert.equal(p.topReads(), 1);
   assert.equal(p.hidden(), false);
@@ -146,14 +183,14 @@ test("the plain dashboard lists the host it is given", async () => {
 });
 
 test("a host that publishes no snapshot has no host section", async () => {
-  const p = await page("absent", { top: 404 });
+  const p = await page({ top: 404 });
   assert.deepEqual(p.errors, []);
   assert.equal(p.hidden(), true);
   assert.deepEqual(p.items("host-list"), []);
 });
 
 test("the dashboard asks for the host file only while the page is shown", async () => {
-  const p = await page("hidden");
+  const p = await page();
   assert.equal(p.topReads(), 1);
   p.hide();
   await p.tick(3); // three marks of the refresh it schedules
@@ -164,7 +201,7 @@ test("the dashboard asks for the host file only while the page is shown", async 
 });
 
 test("a file that is not there is not asked for at every refresh", async () => {
-  const p = await page("miss", { top: 404 });
+  const p = await page({ top: 404 });
   assert.equal(p.topReads(), 1);
   await p.tick(5);
   assert.equal(p.topReads(), 1); // once a minute, not at every period
@@ -173,17 +210,17 @@ test("a file that is not there is not asked for at every refresh", async () => {
 });
 
 test("a host that cannot be reached keeps what was on screen", async () => {
-  const p = await page("down", { unreachable: true });
+  const p = await page({ unreachable: true });
   assert.deepEqual(p.errors, []); // the script caught it rather than rejecting
   assert.equal(p.hidden(), true); // nothing was ever drawn
 });
 
 test("all-hands is shown beside the state only while the snapshot says so", async () => {
-  const on = await page("allhands-on", { top: 404, status: { allHands: true } });
+  const on = await page({ top: 404, status: { allHands: true } });
   assert.deepEqual(on.errors, []);
   assert.equal(on.hidden("allhands"), false);
   for (const allHands of [false, null, undefined]) {
-    const off = await page("allhands-off-" + allHands, { top: 404, status: { allHands } });
+    const off = await page({ top: 404, status: { allHands } });
     assert.equal(off.hidden("allhands"), true);
   }
 });
@@ -215,7 +252,7 @@ function report() {
 }
 
 test("the last ten days are drawn from the report", async () => {
-  const p = await page("analytics", { top: 404, analytics: report() });
+  const p = await page({ top: 404, analytics: report() });
   assert.deepEqual(p.errors, []);
   assert.equal(p.analyticsReads(), 1);
   assert.equal(p.hidden("analytics"), false);
@@ -236,7 +273,7 @@ test("the last ten days are drawn from the report", async () => {
 });
 
 test("a host without the report has no ten-day section, and is asked once a minute", async () => {
-  const p = await page("analytics-absent", { top: 404 });
+  const p = await page({ top: 404 });
   assert.deepEqual(p.errors, []);
   assert.equal(p.hidden("analytics"), true);
   assert.equal(p.analyticsReads(), 1);
@@ -244,4 +281,120 @@ test("a host without the report has no ten-day section, and is asked once a minu
   assert.equal(p.analyticsReads(), 1);
   await p.fire("visibilitychange");
   assert.equal(p.analyticsReads(), 2);
+});
+
+// What follows pins the harness itself: that it runs the module it means to,
+// that it reaches what it claims to and no more, and that one copy of the
+// module can draw two pages.
+
+const ROOT = new URL("../", import.meta.url);
+const SOURCE = readFileSync(new URL("host/fun/dashboard-view.js", ROOT), "utf8");
+
+test("the harness has the module itself, and the module draws only when started", () => {
+  // An import that resolved to nothing, or to some other file, has no start().
+  assert.deepEqual(Object.keys(view), ["start"]);
+  assert.equal(typeof view.start, "function");
+  // Importing with no document drew nothing and left no page behind.
+  assert.equal(typeof globalThis.document, "undefined");
+  assert.deepEqual(globalThis.TEHAS_DASHBOARD, { probe: "state" });
+});
+
+test("the module's two imports are both exercised by a page", async () => {
+  // Every import of the module, by specifier. A third one fails this case until
+  // a case here draws what it brings in.
+  const imports = [...SOURCE.matchAll(/^import .* from "([^"]+)";$/gm)].map((m) => m[1]);
+  assert.deepEqual(imports, ["./host-data.js", "./analytics-data.js"]);
+  const p = await page({ analytics: report() });
+  assert.deepEqual(p.errors, []);
+  // Each import, seen through what only it draws: host-data.js's layout() writes
+  // the host note, analytics-data.js's analyticsView() the ten-day window.
+  const exercised = [
+    p.text("host-note").startsWith("4 CPUs, load 0.10 0.20 0.30") && "./host-data.js",
+    p.text("analytics-note") === "2026-10-23 to 2026-10-24, UTC" && "./analytics-data.js",
+  ].filter(Boolean);
+  assert.equal(exercised.length, imports.length);
+  assert.deepEqual(exercised, imports);
+});
+
+test("a page asks for each file it reads once, and for no other", async () => {
+  const p = await page();
+  assert.deepEqual(p.errors, []);
+  assert.deepEqual(p.asked().sort(), [...ANSWERED].sort());
+});
+
+test("the console half is stubbed out, and stays out", async () => {
+  const p = await page();
+  const { tabs } = p.surface();
+  assert.equal(String(tabs.consoleFile), "() => null");
+  await p.tick(3);
+  // tail() was never reached: no file was asked for beyond the five, and the
+  // console was never written.
+  assert.deepEqual(p.errors, []);
+  assert.ok(p.asked().every((url) => ANSWERED.includes(url)));
+  assert.equal(p.node("console"), undefined);
+  assert.equal(p.node("console-note"), undefined);
+});
+
+test("the stub stays as small as it is", async () => {
+  const p = await page();
+  const { globals, node } = p.surface();
+  assert.deepEqual([...globals].sort(), [...GLOBALS].sort());
+  assert.deepEqual(node, NODE);
+  for (const name of ["children", "focus", "checked", "scrollTop", "scrollHeight", "arrayBuffer", "import" + "Node", "TextDecoder"]) {
+    assert.ok(!globals.includes(name) && !node.includes(name), name + " is in the stub");
+  }
+  // No DOM shim and no dependency: this file imports node's own modules and the
+  // module under test, nothing else.
+  const own = readFileSync(new URL(import.meta.url), "utf8");
+  const specifiers = [...own.matchAll(/^import .* from "([^"]+)";$/gm)].map((m) => m[1]);
+  assert.deepEqual(specifiers.filter((s) => !s.startsWith("node:")), ["../host/fun/dashboard-view.js"]);
+});
+
+test("no page or test reaches past the DOM the stub has", () => {
+  // The names are put together here so that this file does not hold them.
+  const banned = { host: ["inner" + "HTML"], test: [] };
+  for (const name of ["attach" + "Shadow", "shadow" + "Root", "adopted" + "StyleSheets", "import" + "Node"]) {
+    banned.host.push(name);
+    banned.test.push(name);
+  }
+  const files = (dir) => readdirSync(dir).flatMap((f) => {
+    const path = new URL(f, dir);
+    return statSync(path).isDirectory() ? files(new URL(f + "/", dir)) : [path];
+  });
+  for (const [dir, names] of Object.entries(banned)) {
+    for (const path of files(new URL(dir + "/", ROOT))) {
+      const body = readFileSync(path, "latin1");
+      for (const name of names) assert.ok(!body.includes(name), path.pathname + " holds " + name);
+    }
+  }
+});
+
+test("two pages from one copy of the module share no state", async () => {
+  // One page on a host with no snapshot, one on a host with one; both from the
+  // single import above. Each is turned on its own before either is read.
+  const missed = await page({ top: 404 });
+  const served = await page();
+  // The miss sets the first page's hostMissedAt: it does not ask again at the
+  // next refreshes. The second page's own hostMissedAt is still 0, so it asks
+  // at each one, and its answers do not clear the first page's miss.
+  await missed.tick(3);
+  await served.tick(3);
+  // Coming back to the first page clears its miss and asks again at once; the
+  // 404 sets it again. The second page keeps asking.
+  await missed.fire("visibilitychange");
+  await served.tick(1);
+  // A tab chosen on the first page is the first page's selected, not the second's.
+  await missed.choose(7);
+  await served.tick(1);
+
+  assert.deepEqual(missed.errors, []);
+  assert.deepEqual(served.errors, []);
+  assert.equal(missed.topReads(), 2);
+  assert.equal(missed.hidden(), true);
+  assert.equal(served.topReads(), 6);
+  assert.equal(served.hidden(), false);
+  assert.equal(served.items("host-list").length, 3);
+  assert.equal(missed.chosen().at(-1), 7);
+  assert.ok(served.chosen().length > 1);
+  assert.ok(served.chosen().every((issue) => issue === null));
 });
