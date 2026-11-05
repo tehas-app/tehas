@@ -90,6 +90,15 @@ keeps it. It has to be a git checkout - a clone, a worktree or a submodule -
 with an install.sh; without one this command stops rather than guess at
 another directory.
 
+Before anything moves, the update asks GitHub for the user id of each login
+of TEHAS_ALLOWED_LABELERS and TEHAS_MILLWRIGHT_LOGIN and records the pairs in
+$TEHAS_HOME/state/account-ids. Every label, tick, answer and comment counts only
+when its account carries the recorded id, so a login that was renamed and
+taken by someone else authorises nothing. A login that does not resolve, or
+whose id is not the recorded one, stops the update with 78 and names it; a
+person who knows the account is still the same one confirms the new id with
+--accept-id.
+
 While $TEHAS_HOME/state/update-hold exists an update refuses to run, with
 exit 1, and --check says the hold is there. A person who rolled the platform
 back makes that file, so the next update does not move it forward again.
@@ -124,6 +133,11 @@ Usage:
                            Nothing is pulled, installed, built by install.sh
                            or fetched, and a record with nothing in it is not
                            a failure.
+  tehas update --accept-id <login>
+                           as tehas update, and record the new GitHub user id
+                           of <login>: a person's word that the account whose
+                           id changed is still the one the settings mean. May
+                           be given more than once.
   tehas update -h|--help   print this text and exit 0
 
 Exit: 0 updated, or already up to date,
@@ -156,8 +170,13 @@ Exit: 0 updated, or already up to date,
         does not know, and for a record it cannot read.
       64 --help with another argument, --to without a version or with one not
         shaped vX.Y.Z, --to on a host that updates from its checkout, --pending
-        with --check or with --to, or an argument this command does not know
-      78 the instance settings are missing or malformed, no console stands
+        with --check or with --to, --accept-id without a login, with --check
+        or --pending, or with a login of neither setting, or an argument this
+        command does not know
+      78 a login of TEHAS_ALLOWED_LABELERS or TEHAS_MILLWRIGHT_LOGIN does not
+        resolve, GitHub could not be asked for its user id, or its id is not
+        the recorded one (nothing is changed),
+        the instance settings are missing or malformed, no console stands
         beside this command, there is no platform checkout, the host has neither one nor ~/tehas/current and
         no TEHAS_UPDATE_FROM, or the release to switch to asks for a setting
         the instance does not have (nothing is switched). --pending asks for

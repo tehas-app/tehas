@@ -24,7 +24,9 @@ Usage: tehas status [--json]
   slice     room for 2 cycles (4 GiB of 20 GiB promised, reserve 2g, 40 s ago)
   platform  cb6912a, 19 commits behind origin/main since 2026-10-13, fetched 20 min ago
 
-A plan line is there for each planning turn in flight. The slice line reads
+A plan line is there for each planning turn in flight, and for each open
+planning session whose last turn ended in error and waits for a person
+("ended in error, waits for a person"). The slice line reads
 "holding: ..." when the last poll held cycles back, and "unknown: no poll
 has reported in 10 min" when no poll got as far as reading the slice in that
 time, as while the factory is paused. The platform line is there only on a

@@ -8922,6 +8922,8 @@
     "0",
     "--forks",
     "41",
+    "--cap",
+    "process-limit",
     "--parked"
    ],
    "park": [
@@ -8929,7 +8931,7 @@
     "--attempt",
     "1",
     "--reason",
-    "unknown",
+    "process-limit",
     "--step",
     "-"
    ],
@@ -8943,7 +8945,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped without a pull request: status `unknown`, last step `-`, 0 min (runner exit 0). This cycle left no workspace on this host; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. Its container reached its limit of processes and 41 starts of a process were refused: what the cycle ran after that may not have run.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped without a pull request: status `unknown`, last step `-`, 0 min (runner exit 0). Its cause is recorded as the cap `process-limit`. This cycle left no workspace on this host; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. Its container reached its limit of processes and 41 starts of a process were refused: what the cycle ran after that may not have run.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=5e41f6dd3decef5e6616bb18ca07b682f172e7b2576b96d2b10ebac7e9f5506c -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -11975,6 +11977,8 @@
     "3",
     "--forks",
     "2",
+    "--cap",
+    "process-limit",
     "--parked"
    ],
    "park": [
@@ -11982,7 +11986,7 @@
     "--attempt",
     "1",
     "--reason",
-    "unknown",
+    "process-limit",
     "--step",
     "-"
    ],
@@ -11996,7 +12000,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped without a pull request: status `unknown`, last step `-`, 0 min (runner exit 2). This cycle left no workspace on this host; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. 3 processes were killed for memory in its container. Its container reached its limit of processes and 2 starts of a process were refused: what the cycle ran after that may not have run.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped without a pull request: status `unknown`, last step `-`, 0 min (runner exit 2). Its cause is recorded as the cap `process-limit`. This cycle left no workspace on this host; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. 3 processes were killed for memory in its container. Its container reached its limit of processes and 2 starts of a process were refused: what the cycle ran after that may not have run.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=5e41f6dd3decef5e6616bb18ca07b682f172e7b2576b96d2b10ebac7e9f5506c -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",

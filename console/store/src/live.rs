@@ -17,8 +17,10 @@
 //!                      is made before a "fail" report is renamed into place,
 //!                      and removed after any other is
 //!
-//! and then removes each live/cycles/<number>.json that it did not write.
-//! It reads the rows and writes files; it writes no row.
+//! and removes each live/cycles/<number>.json that it did not write, before
+//! any of the writes above: a publish that fails on a write has already taken
+//! away the views of the cycles that ended, so a reader never shows one that
+//! is no longer running. It reads the rows and writes files; it writes no row.
 //!
 //! The factory floor, the plain dashboard, tehasbot health, tehas dev and the
 //! MCP server read these views. publish renders the cycle views from the
@@ -72,7 +74,7 @@ pub const KEEP: i64 = 100;
 /// another value.
 pub const LOCK_WAIT: Duration = Duration::from_secs(5);
 /// The largest --dispatch or --health file read.
-const REPORT_BOUND: u64 = 1 << 20;
+const REPORT_BOUND: u64 = tehas_core::file::READ_BOUND;
 const TEXT_MAX: usize = 300;
 /// How many ends endings.json holds.
 const ENDINGS: usize = 10;
@@ -360,6 +362,14 @@ fn put(dir: &Path, name: &str, bytes: &[u8], n: &mut u32) -> Result<(), Fail> {
     let base = Path::new(name)
         .file_name()
         .map_or_else(String::new, |s| s.to_string_lossy().into_owned());
+    // The test's seam (`fail_writes`): `n` counts the writes this call has made
+    // so far, so the nth write fails here, with no temp of it made.
+    #[cfg(test)]
+    if FAILS.with(std::cell::Cell::get) == Some(*n as usize + 1) {
+        FAILS.with(|fails| fails.set(None));
+        let e = std::io::Error::new(ErrorKind::StorageFull, "no space left on device");
+        return Err(write_failed(name, e));
+    }
     let to = dir.join(name);
     let parent = to.parent().unwrap_or(dir);
     *n += 1;
@@ -379,6 +389,64 @@ fn put(dir: &Path, name: &str, bytes: &[u8], n: &mut u32) -> Result<(), Fail> {
         let _ = fs::remove_file(&tmp);
         write_failed(name, e)
     })
+}
+
+#[cfg(test)]
+thread_local! {
+    static FAILS: std::cell::Cell<Option<usize>> = const {
+        std::cell::Cell::new(None)
+    };
+}
+
+/// Fails the nth write of the next `publish` on this thread, 1 for the first,
+/// so a test can watch what a publish that cannot write leaves behind. The
+/// files the earlier writes renamed into place stay, each whole. The setting
+/// lasts one call: it is cleared when that call returns, whether or not it got
+/// as far as the nth write. Compiled out of the build a host runs.
+#[cfg(test)]
+pub(crate) fn fail_writes(n: Option<usize>) {
+    FAILS.with(|fails| fails.set(n));
+}
+
+/// Clears `fail_writes` when the publish that holds it returns.
+#[cfg(test)]
+struct OneCall;
+
+#[cfg(test)]
+impl Drop for OneCall {
+    fn drop(&mut self) {
+        fail_writes(None);
+    }
+}
+
+/// The removal pass: every live/cycles/<number>.json of a cycle not in `keep`
+/// is gone, and the numbers removed are named. A name that is no cycle's is
+/// left alone, as is a file another publisher took away in the meantime.
+fn prune_cycles(live: &Path, keep: &BTreeSet<i64>) -> Result<Vec<String>, Fail> {
+    let mut removed = Vec::new();
+    let entries = fs::read_dir(live.join("cycles")).map_err(|e| remove_failed("cycles", e))?;
+    for e in entries {
+        let e = e.map_err(|e| remove_failed("cycles", e))?;
+        let name = e.file_name().to_string_lossy().into_owned();
+        let Some(issue) = cycle_file(&name) else {
+            continue;
+        };
+        if keep.contains(&issue) {
+            continue;
+        }
+        match fs::remove_file(e.path()) {
+            Ok(()) => removed.push(j(issue)),
+            Err(e) if e.kind() == ErrorKind::NotFound => {}
+            Err(e) => return Err(remove_failed(&format!("cycles/{name}"), e)),
+        }
+    }
+    Ok(removed)
+}
+
+/// The line of a removal that did not happen: a view still in place is what a
+/// reader of the live views is left showing, so it is the call's own failure.
+fn remove_failed(name: &str, e: std::io::Error) -> Fail {
+    (1, format!("remove live/{name}: {e}"))
 }
 
 /// state/publish.lock, held until the returned file is dropped. None when
@@ -443,6 +511,8 @@ fn publish(
     health: Option<&Path>,
     now: i64,
 ) -> Result<String, Fail> {
+    #[cfg(test)]
+    let _one_call = OneCall;
     let dispatch = dispatch.map(|p| report(p, "--dispatch")).transpose()?;
     let health = health
         .map(|p| {
@@ -460,15 +530,23 @@ fn publish(
     mkdir(&live.join("cycles"))?;
     let mut n = 0;
     let mut written = Vec::new();
+    // The cycles whose views stay are known from the rows alone, so the
+    // removals happen before any write: a publish that fails on a write has
+    // already taken away the views of the cycles that ended.
+    let keep: BTreeSet<i64> = got
+        .running
+        .iter()
+        .chain(got.last.iter())
+        .map(|v| v.issue)
+        .collect();
+    let removed = prune_cycles(&live, &keep)?;
     if let Some((bytes, _)) = &dispatch {
         put(&live, "dispatch.json", bytes, &mut n)?;
         written.push(j("dispatch.json"));
     }
-    let mut keep = BTreeSet::new();
     for v in got.running.iter().chain(got.last.iter()) {
         let name = format!("cycles/{}.json", v.issue);
         put(&live, &name, pretty(&v.pairs()).as_bytes(), &mut n)?;
-        keep.insert(v.issue);
         written.push(j(name));
     }
     let endings: Vec<String> = got.endings.iter().map(Ending::json).collect();
@@ -492,23 +570,6 @@ fn publish(
         &mut n,
     )?;
     written.push(j("running.json"));
-    let mut removed = Vec::new();
-    let entries = fs::read_dir(live.join("cycles")).map_err(|e| write_failed("cycles", e))?;
-    for e in entries {
-        let e = e.map_err(|e| write_failed("cycles", e))?;
-        let name = e.file_name().to_string_lossy().into_owned();
-        let Some(issue) = cycle_file(&name) else {
-            continue;
-        };
-        if keep.contains(&issue) {
-            continue;
-        }
-        match fs::remove_file(e.path()) {
-            Ok(()) => removed.push(j(issue)),
-            Err(e) if e.kind() == ErrorKind::NotFound => {}
-            Err(e) => return Err(write_failed(&format!("cycles/{name}"), e)),
-        }
-    }
     let mut down = Value::Null;
     if let Some((bytes, fail)) = &health {
         let marker = live.join("health.down");
