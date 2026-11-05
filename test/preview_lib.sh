@@ -136,23 +136,23 @@ case "$1" in
     esac ;;
   build)
     # A build makes the image the tag is left pointing at. The id is made from
-    # the bytes of the archive this build was given, so that the image of a
-    # commit has one id however often it is built. What the tag held before is
-    # kept as untagged-<n>, which is what a rebuild leaves on the host until
-    # something prunes it.
+    # the bytes of the archive this build was given, so the image of a commit
+    # has one id however often it is built, and a build of the same commit
+    # leaves the tag where it was. A build of another commit moves the tag, and
+    # the image it held is left with none: one line of untagged-<n> per such
+    # image, as Docker keeps a dangling image until something removes it.
     cat >"$d/context.tar"
     [ ! -e "$T/fx/build-fails" ] || { echo "step 2 failed" ; exit 1; }
     tag=$(after -t "$@"); n=${tag#tehas-preview:}
-    # Each build makes its own image, as it does on a host: a new commit is a
-    # new archive and a new id, and the image the tag held is left with none,
-    # which is what a rebuild does to the image before it. The hash is of the
-    # whole file and read before anything is written: the handler of a build is
-    # on the pipe that takes the archive in, so a command of it that ran in a
-    # subshell of that pipe would lose the directory this stub keeps its answers
-    # in, which is a name the main shell made. image_of in this file is the same
-    # bytes, so a case can name the id of a build before it runs.
+    # The hash is of the whole file and read before anything is written: the
+    # handler of a build is on the pipe that takes the archive in, so a command
+    # of it that ran in a subshell of that pipe would lose the directory this
+    # stub keeps its answers in, which is a name the main shell made. image_of
+    # in this file is the same bytes, so a case can name the id of a build
+    # before it runs.
     id="sha256:$(sha256sum <"$d/context.tar" | cut -c1-12)"
-    [ ! -e "$d/image-$n" ] || cp "$d/image-$n" "$d/untagged-$n"
+    was=$(cat "$d/image-$n" 2>/dev/null || true)
+    [ -z "$was" ] || [ "$was" = "$id" ] || echo "$was" >>"$d/untagged-$n"
     echo "$id" >"$d/image-$n"
     echo "$id" ;;
   run)
@@ -217,6 +217,9 @@ case "$1" in
           [ -f "$f" ] || continue
           n=${f##*/image-}; echo "$(cat "$f") tehas-preview:$n"
         done
+        # A dangling image keeps the labels of its build, and Docker lists it
+        # by default, as <none>:<none>.
+        cat "$d"/untagged-* 2>/dev/null | sed "s/\$/ <none>:<none>/"
         cat "$T/fx/extra-images" 2>/dev/null ;;
       # An image goes by its tag or by its id: the second is how a build whose
       # container stopped takes its own image away, and how the sweep takes an
@@ -224,10 +227,7 @@ case "$1" in
       # is a name to remove; any other word is refused and recorded, so a case can
       # see what was handed to it instead of watching nothing change. A -f before
       # the name is an option and is no image: `stop` asks for that form itself.
-      # The copy of the image before the tagged one, kept under untagged-<n> for a
-      # case that asks what a rebuild left behind, is what `docker image ls` does
-      # not answer with, so nothing of the platform is told about it and nothing
-      # of a test may take it away: the glob below reaches image-* only.
+      # By its id a dangling image goes too: its line leaves untagged-<n>.
       # The words after "image rm", so that the two words of the subcommand are
       # no image of their own: the tag and the id arms ignore them by luck alone,
       # and only the arm that records what it did not know would say so.
@@ -239,6 +239,12 @@ case "$1" in
                [ -f "$f" ] || continue
                [ "$a" = "$(cat "$f" 2>/dev/null)" ] || continue
                rm -f "$f"
+             done
+             for f in "$d"/untagged-*; do
+               [ -f "$f" ] || continue
+               grep -vx -e "$a" "$f" >"$f.left" || true
+               mv "$f.left" "$f"
+               [ -s "$f" ] || rm -f "$f"
              done ;;
              # The escape of the newline is read by the shell of the stub, which
              # is what the outer single quotes are for: see the SC2016 disable at
@@ -356,12 +362,10 @@ bytes() { tail -c "$2" "$1" | od -An -tx1 | tr -d ' \n'; }
 image_id() {
   cat "$T/fx/docker/image-$1" 2>/dev/null
 }
-# untagged <number>: the id of the image the last rebuild of that preview left
-# with no tag, which is what nothing but a prune ever takes. Empty when the build
-# made the preview's first image. Two builds are needed to make one: the first
-# gives the preview its image, and the second moves the tag off what it held.
-# The run of a container that stopped removes the image its own build made, so
-# that one is not what is found here.
+# untagged <number>: the ids of the images a build of that preview left with no
+# tag, one a line, which Docker lists as <none>:<none> until something removes
+# them. Empty when there is none: a first build, or a build of the same commit,
+# moves no tag.
 untagged() {
   cat "$T/fx/docker/untagged-$1" 2>/dev/null
 }

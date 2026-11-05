@@ -410,6 +410,13 @@ impl Preview {
             if let Some(built) = built.as_ref().filter(|built| is_image_id(built)) {
                 docker_quiet(&["image", "rm", built]);
             }
+            // The image of the earlier commit goes too. Its container went
+            // before this one was started and the build moved the tag off it,
+            // so nothing runs it and nothing names it: kept, it would be an
+            // image with no tag that only a sweep or a prune takes.
+            if let Some(old) = old.filter(|old| is_image_id(old) && Some(old) != built.as_ref()) {
+                docker_quiet(&["image", "rm", &old]);
+            }
             let reason = format!(
                 "The container started and stopped. See \"docker logs\" in logs/preview-{n}.log on the host."
             );
@@ -418,6 +425,8 @@ impl Preview {
             // affair and is tried again. So this commit is marked and left
             // until a new one: it was built, it ran, and its image went with
             // the container, so nothing here is worth trying a second time.
+            // Nothing serves for the pull request until then: the container of
+            // the earlier commit went before this one was started.
             self.mark(n, &sha, "build-failed", &reason);
             return;
         }

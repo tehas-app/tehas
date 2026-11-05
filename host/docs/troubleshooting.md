@@ -1129,15 +1129,17 @@ state says which of four things happened:
   image its build made, and the last 40 lines it wrote are at the end of the
   log, under `docker logs of tehas-preview-<pr>`. The usual causes are an image
   that writes outside `/tmp`, `/config` and `/data`, and one that does not start
-  without a variable. The container ran, so this is the commit and not the host:
-  a preview of the earlier commit keeps serving. Fix the recipe and push; the
-  new commit is built.
+  without a variable. The container ran, so this is the commit and not the host,
+  and the same commit is not built again. Nothing serves for that pull request
+  until a new commit starts: the old container was removed before the new one
+  was started, and its image goes as well, since nothing runs it. Fix the
+  recipe and push; the new commit is built.
 
-Only the case above, where the container was never created, leaves the pull
-request answering 404: a failed build, a recipe that declares a volume, and a
-container that started and stopped all leave the earlier preview serving. The
-"Tried again" column of the table in
-[Previews](/tools#tehasbot-preview) is the rule for each of these.
+A failed build and a recipe that declares a volume leave the earlier preview
+serving. A container that was never created, and one that started and stopped,
+leave the pull request answering 404 until a commit starts. The "Tried again"
+column of the table in [Previews](/tools#tehasbot-preview) is the rule for each
+of these.
 
 To have the same commit built again, remove the state and let the next run
 find the pull request anew: `rm -r ~/tehas/preview/<pr>`.
