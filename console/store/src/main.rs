@@ -99,6 +99,10 @@
 //!   store backup [--show]
 //!   store copy --to <file>
 //!   store prune --days N
+//!                (endings, settled actions with their journal, the heartbeats
+//!                of ended cycles, and the history of issues ended more than N
+//!                days ago, each issue keeping its last row of each history. A
+//!                cycle's row is never removed: src/upkeep.rs)
 //!   store sweep-locks [--days N] [--max N] [--dry-run]
 //!   store locks-held
 //!   store upkeep [--dry-run]
