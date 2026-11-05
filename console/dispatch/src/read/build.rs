@@ -139,6 +139,9 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
     s["repo"] = json!(q.repo);
     if fields {
         s["issue_fields"] = json!(q.issue_fields);
+        if q.personal {
+            s["personal_owner"] = json!(true);
+        }
     }
     s["user"] = if c.bot_login.is_empty() {
         calls

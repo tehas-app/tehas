@@ -161,6 +161,9 @@ pub struct Snapshot {
     /// With TEHAS_PRIORITY_FIELD: the single-select issue fields of the
     /// repository's owner, None when the page did not say.
     pub issue_fields: Option<Vec<String>>,
+    /// The repository's owner is a personal account, which has no issue
+    /// fields: the labels order its queue whatever TEHAS_PRIORITY_FIELD says.
+    pub personal_owner: bool,
     /// The issues with a planning session open, or the store's word and exit
     /// status when it could not say.
     pub plan_open: Result<Vec<u64>, (String, i32)>,
@@ -450,6 +453,7 @@ impl Snapshot {
                     .map(str::to_string)
                     .collect()
             }),
+            personal_owner: v.get("personal_owner").and_then(Value::as_bool) == Some(true),
             plan_open: match v.get("plan_open") {
                 Some(Value::Array(a)) => Ok(a
                     .iter()

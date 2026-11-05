@@ -207,8 +207,9 @@ Rules, in order:
      set, that issue field orders the queue and the two labels do not: its
      value Urgent counts as tehas:urgent when an allowed account made the
      newest change to the field, and High as tehas:next when an allowed
-     account or the fixer did. A field the repository's owner does not have
-     ends the poll with 78 before it writes. A running cycle is never
+     account or the fixer did. A field the organisation that owns the
+     repository does not have ends the poll with 78 before it writes; a
+     personal account's repository keeps the labels. A running cycle is never
      stopped to make room. With TEHAS_LOW_GATE set, the poll runs that command
      at most once, and only when an issue of the lowest kind would otherwise
      start: it reads the exit status alone, and only
