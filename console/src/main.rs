@@ -36,6 +36,11 @@
 //! src/preview.rs, and whether the previews' network keeps the host out, see
 //! src/edge.rs.
 //!
+//!   console pins check|move --root <dir> ...
+//!
+//! The release's move of the pinned tools to the newest minor and patch of
+//! their major, see src/pins/mod.rs.
+//!
 //!   console plan update|descriptor ...
 //!
 //! What a planning turn says and does on the host, see src/plan.rs; `tehas
@@ -203,6 +208,7 @@ mod mcp;
 mod models;
 mod notice;
 mod now;
+mod pins;
 mod plan;
 mod platform;
 mod pr_title;
@@ -468,6 +474,7 @@ fn main() -> ExitCode {
             Some("status") => return ExitCode::from(status::main(&given[1..])),
             Some("shipped") => return ExitCode::from(shipped::main(&given[1..])),
             Some("tidy") => return ExitCode::from(tidy::main(&given[1..])),
+            Some("pins") => return ExitCode::from(pins::main(&given[1..])),
             Some("plan") => return ExitCode::from(plan::main(&given[1..])),
             Some("pr-title") => return ExitCode::from(pr_title::main(&given[1..])),
             Some("protolab") => return ExitCode::from(protolab::main(&given[1..])),

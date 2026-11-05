@@ -4554,7 +4554,7 @@ the release's pull request.
 `scripts/tag-release.sh` reads `CHANGELOG.md` from the commit it is about to
 tag, `--dry-run` too, and refuses with exit 1 when the section for the new tag,
 or else `Unreleased`, has no `### Adopter action` heading with a line under it.
-It does not edit the file.
+It edits the file only to name the moves of the pinned tools, below.
 
 `scripts/release-notes.sh <tag>` prints a section without its heading, and
 exits 1 when the file has none for that tag. The workflow makes the release's
@@ -4564,6 +4564,37 @@ A host moving from its platform checkout has no version installed, so its notes
 start at the newest `vX.Y.Z` tag at or before the checkout's HEAD, which
 `tehas update` reads with `git describe` from what the repository already has;
 with no such tag it is shown every release.
+
+### Pinned tools move with the release
+
+Every tool in `host/versions.env` and in the npm trees beside it
+(`host/npm/`, `host/sandbox/npm/`) is pinned to an exact version, and
+`bootstrap.sh` installs only what the file says. `scripts/tag-release.sh`
+moves the pins before it tags, through `scripts/pins.sh move` (`console pins`):
+each to the newest release of the major version it has, taken from the tool's
+own source: nodejs.org, GitHub releases (gh, bun, shellcheck, jq, Rust,
+codebase-memory-mcp) or tags (rustup), npm, crates.io (vipune, oo) and Docker
+Hub (Caddy). Each version moves with what the header of `versions.env` pairs
+with it: the publisher's checksum or the hash of the download, the lockfile
+of an npm tree (npm locks it again; a version younger than npm's
+`min-release-age` is not taken) and its `_LOCK_SHA256`, Caddy's digest in the
+three files that name it, and vipune's model at the revision the new vipune
+asks for, with its two hashes from Hugging Face. pi-rukas is not pinned and is
+left alone.
+
+Under 0.x a minor release can break, so "same major" moves vipune from 0.15 to
+0.20. A later major version is never taken. The release's section of
+`CHANGELOG.md` names each move under `### Changes` and each major held back
+under `### Held back`, for a person to decide.
+
+When anything moved, the script runs the gate there, pushes a branch
+`pins-<tag>`, opens a pull request and exits 2 without tagging: verify.yml runs
+on that commit, a person merges it, and the next run tags. While such a pull
+request is open the script names it and exits 2. A source that cannot be read,
+or a move that fails, stops the release with 1, before any factory installs the
+tool. `--no-pins` tags without moving them. `scripts/pins.sh check` prints each
+pin and what it would move to, and changes nothing. A factory takes the new
+tools when its tag moves, on its next `bootstrap.sh user`.
 
 ### The release workflow
 
