@@ -455,7 +455,10 @@ choice.
   outside account; a retry runs the driver of the start it follows and asks
   nothing of the block. Tehas checks only that the block is there and reads as
   JSON; what it holds is the driver's to judge. A plan written over an issue by
-  `Update this issue` keeps the block the issue had, at the top.
+  `Update this issue` holds the block pi-rukas assembled for the plan, at the
+  top, when the drafted plan opens with one under `## Spec (pi-spec v1)`; any
+  other `pi-spec v1` fence in the plan is renamed `pi-spec-example v1`. A plan
+  with no such block keeps the block the issue had, at the top.
 - The block is the only text the lean driver reads, so the words a person adds
   to the issue plan nothing: what goes inside the fence is the whole brief, and
   its fields are pi-rukas's to define. pi-rukas's `/plan` writes one, and
