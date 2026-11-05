@@ -123,50 +123,9 @@ pub(crate) fn epoch(s: &str) -> Option<i64> {
     Some((era * 146_097 + doe - 719_468) * 86_400 + hh * 3600 + mm * 60 + ss)
 }
 
-/// The limit, as `flags limit read` reads it.
+/// The limit, as `flags limit read` reads it: the one reader in tehas_core.
 pub fn limit(home: &Path, now: i64) -> Value {
-    let p = home.join("state/limit.json");
-    if !p.exists() && p.symlink_metadata().is_err() {
-        return json!({"state": "none"});
-    }
-    let v: Value = fs::read_to_string(&p)
-        .ok()
-        .and_then(|t| serde_json::from_str(&t).ok())
-        .unwrap_or(Value::Null);
-    let cycles = v.get("cycles").and_then(Value::as_f64);
-    let ok = v.get("v") == Some(&json!(1))
-        && cycles.is_some_and(|c| c >= 0.0 && c.fract() == 0.0)
-        && v.get("plan").is_some_and(Value::is_boolean)
-        && v.get("until").is_none_or(|u| u.is_null() || u.is_string())
-        && v.get("reason").is_none_or(|r| r.is_null() || r.is_string());
-    if !ok {
-        return json!({"state": "unreadable"});
-    }
-    let until = v.get("until").and_then(Value::as_str);
-    let u = match until {
-        Some(t) => match epoch(t) {
-            Some(e) => Some(e),
-            None => return json!({"state": "unreadable"}),
-        },
-        None => None,
-    };
-    let mut out = json!({"state": if u.is_some_and(|u| u <= now) { "expired" } else { "ok" },
-        "cycles": v["cycles"], "plan": v["plan"]});
-    if let Some(t) = until {
-        out["until"] = json!(t);
-    }
-    let reason: String = v
-        .get("reason")
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .chars()
-        .map(|c| if c.is_control() { ' ' } else { c })
-        .take(200)
-        .collect();
-    if !reason.is_empty() {
-        out["reason"] = json!(reason);
-    }
-    out
+    tehas_core::limit::read(&home.join("state/limit.json"), now).value()
 }
 
 /// The first bytes of a file as text, empty when it cannot be read.
