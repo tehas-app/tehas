@@ -56,6 +56,24 @@ pub struct Beat {
     pub status: String,
     pub step: Option<String>,
     pub text: Option<String>,
+    pub at: StepAt,
+}
+
+/// Where the step is, as the driver said it. None is not known.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct StepAt {
+    pub number: Option<i64>,
+    pub total: Option<i64>,
+    pub round: Option<i64>,
+    pub limit: Option<i64>,
+    pub since: Option<i64>,
+}
+
+/// The most a step number, count, round or limit is believed to be.
+const MOST: i64 = 1000;
+
+fn count(s: &str) -> Option<i64> {
+    verbs::number(s).filter(|n| (1..=MOST).contains(n))
 }
 
 /// A running heartbeat older than this, whose lock is free, is a lost cycle.
@@ -109,9 +127,15 @@ fn heartbeat_args(rest: &[String]) -> Result<Call, String> {
             ("--status", Kind::Value),
             ("--step", Kind::Value),
             ("--text", Kind::Value),
+            ("--step-number", Kind::Value),
+            ("--step-total", Kind::Value),
+            ("--round", Kind::Value),
+            ("--round-limit", Kind::Value),
+            ("--step-since", Kind::Value),
         ],
         true,
     )?;
+    let n = |flag| a.strict(flag, "a number from 1 to 1000", count);
     let running = match (a.has("--running"), a.has("--ended")) {
         (true, false) => true,
         (false, true) => false,
@@ -127,6 +151,13 @@ fn heartbeat_args(rest: &[String]) -> Result<Call, String> {
             .unwrap_or_else(|| "unknown".to_string()),
         step: c.word("--step", a.value("--step"), verbs::word_char, 40),
         text: a.value("--text").and_then(text),
+        at: StepAt {
+            number: n("--step-number")?,
+            total: n("--step-total")?,
+            round: n("--round")?,
+            limit: n("--round-limit")?,
+            since: a.strict("--step-since", "a time in seconds", verbs::number)?,
+        },
     }))
 }
 
@@ -168,9 +199,22 @@ fn heartbeat(home: &Path, b: &Beat, now: i64) -> Result<String, Fail> {
             return Err(refuse("ended", issue, "the cycle has ended"));
         }
         c.execute(
-            "INSERT OR REPLACE INTO heartbeats (issue, at, running, step, status, text)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            params![issue, now, b.running, b.step, b.status, b.text],
+            "INSERT OR REPLACE INTO heartbeats (issue, at, running, step, status, text,
+               step_number, step_total, round, round_limit, step_since)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            params![
+                issue,
+                now,
+                b.running,
+                b.step,
+                b.status,
+                b.text,
+                b.at.number,
+                b.at.total,
+                b.at.round,
+                b.at.limit,
+                b.at.since
+            ],
         )
         .q()?;
         c.execute(
@@ -193,11 +237,13 @@ struct View {
     text: String,
     started_at: i64,
     updated_at: i64,
+    at: StepAt,
 }
 
 impl View {
+    /// The fields of a view; where the step is only as far as it is known.
     fn pairs(&self) -> Vec<(&'static str, String)> {
-        vec![
+        let mut pairs = vec![
             ("issue", j(self.issue)),
             ("running", j(self.running)),
             ("status", j(self.status.as_str())),
@@ -206,7 +252,19 @@ impl View {
             ("startedAt", j(self.started_at)),
             ("updatedAt", j(self.updated_at)),
             ("console", j(format!("console-{}.txt", self.issue))),
-        ]
+        ];
+        for (k, v) in [
+            ("stepNumber", self.at.number),
+            ("stepTotal", self.at.total),
+            ("round", self.at.round),
+            ("roundLimit", self.at.limit),
+            ("stepSince", self.at.since),
+        ] {
+            if let Some(v) = v {
+                pairs.push((k, j(v)));
+            }
+        }
+        pairs
     }
 
     fn ending(&self) -> Ending {
@@ -259,7 +317,8 @@ struct Read {
 fn read(home: &Path, c: &Connection, now: i64) -> Result<Read, Fail> {
     let mut q = c
         .prepare(
-            "SELECT h.issue, h.running, h.status, h.step, h.text, c.started_at, h.at
+            "SELECT h.issue, h.running, h.status, h.step, h.text, c.started_at, h.at,
+               h.step_number, h.step_total, h.round, h.round_limit, h.step_since
              FROM heartbeats h JOIN cycles c ON c.issue = h.issue
              WHERE h.at = (SELECT max(at) FROM heartbeats WHERE issue = h.issue)
                AND h.at >= c.started_at",
@@ -275,6 +334,13 @@ fn read(home: &Path, c: &Connection, now: i64) -> Result<Read, Fail> {
                 text: r.get::<_, Option<String>>(4)?.unwrap_or_default(),
                 started_at: r.get(5)?,
                 updated_at: r.get(6)?,
+                at: StepAt {
+                    number: r.get(7)?,
+                    total: r.get(8)?,
+                    round: r.get(9)?,
+                    limit: r.get(10)?,
+                    since: r.get(11)?,
+                },
             })
         })
         .q()?
