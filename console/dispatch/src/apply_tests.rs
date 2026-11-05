@@ -202,6 +202,7 @@ fn world() -> World {
             branch: "main".into(),
             git: s("git"),
             index_cmd: "/opt/index".into(),
+            index_args: Vec::new(),
             index_start_cmd: Some(s("start")),
             fetch_wait: Duration::from_secs(10),
             lock_poll: Duration::from_millis(500),
@@ -4313,7 +4314,7 @@ fn a_planning_turn_refreshes_the_checkout_before_its_unit() {
 fn an_index_that_failed_at_the_tip_is_not_launched_again() {
     let mut t = world();
     t.w.host.systemctl = t.dir.join("systemctl").to_string_lossy().into_owned();
-    // libexec/index writes the commit with its line end.
+    // tehas index writes the commit with its line end.
     fs::write(t.w.home.join("state/index.failed"), "abc1234\n").unwrap();
     let a = t.apply(gates(7, json!([])));
     assert_eq!(a.exit, None);

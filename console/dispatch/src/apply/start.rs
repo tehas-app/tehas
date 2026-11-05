@@ -71,8 +71,10 @@ pub struct Host {
     pub checkout: String,
     pub branch: String,
     pub git: String,
-    /// TEHAS_INDEX_CMD, and TEHAS_INDEX_START_CMD, a test's.
+    /// tehas index: bin/tehas and its word, or TEHAS_INDEX_CMD alone, and
+    /// TEHAS_INDEX_START_CMD, a test's.
     pub index_cmd: String,
+    pub index_args: Vec<String>,
     pub index_start_cmd: Option<String>,
     /// TEHAS_FETCH_WAIT: the bound of the checkout's fetch.
     pub fetch_wait: Duration,
