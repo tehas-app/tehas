@@ -262,6 +262,28 @@ fn status_schema() -> Value {
             ),
         ),
         (
+            "rukas",
+            obj(
+                vec![
+                    ("follow", given("What the host follows of pi-rukas, such as release:0.")),
+                    ("target", given("The pi-rukas commit that names now.")),
+                    ("targetVersion", given("Its release, such as v0.14.54, or null.")),
+                    ("image", given("The pi-rukas commit the sandbox image runs: what cycles run.")),
+                    ("imageVersion", given("The version that image's pi-rukas answers, or null.")),
+                    ("clone", given("The commit of the host's pi-rukas clone.")),
+                    ("behind", given("true when the image is not on the target commit.")),
+                ],
+                "The pi-rukas the sandbox image runs against the one the host follows. Left out when the host has none.",
+            ),
+        ),
+        (
+            "industry",
+            obj(
+                vec![("version", given("The tehas-industry version, such as v0.9.0."))],
+                "The tehas-industry that runs this factory. Left out for a factory that runs on its own.",
+            ),
+        ),
+        (
             "hold",
             obj(
                 vec![
@@ -1091,6 +1113,9 @@ pub fn spec_of(name: &str) -> Option<Value> {
             "demand": {"waiting": true, "oldest": true, "time": true},
             "platform": {"commit": true, "release": true, "newest": true, "behind": true,
                          "upstream": true, "fetchedAt": true},
+            "rukas": {"follow": true, "target": true, "targetVersion": true, "image": true,
+                      "imageVersion": true, "clone": true, "behind": true},
+            "industry": {"version": true},
             // The two keys of `hold`, copied from the poll's own report by
             // `held`, which names the file's fields through `tehas_core::hold`.
             // A report whose word is not one of the thirteen is no hold, so
@@ -1295,6 +1320,12 @@ fn status(live: &Path) -> Result<Map<String, Value>, ToolError> {
         &mut out,
         "platform",
         pick(&checks["platform"], &spec["platform"]),
+    );
+    put(&mut out, "rukas", pick(&checks["rukas"], &spec["rukas"]));
+    put(
+        &mut out,
+        "industry",
+        pick(&checks["industry"], &spec["industry"]),
     );
     // "why is nothing starting" is the most useful thing to say to someone
     // waiting, and dispatch.json is published already: the hold is copied from

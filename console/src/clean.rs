@@ -10,9 +10,6 @@
 //!   console clean held <the image's tags, "<tag> <id>" per line>
 //!     The ids something holds, one per line, for the sandbox build. Exit 1
 //!     with nothing on stdout when docker would not say.
-//!   console clean target <PI_RUKAS_FOLLOW> <PI_RUKAS_REPO>
-//!     "<commit> <what it is>", as tehas_rukas_target of lib/rukas.sh prints
-//!     it. Exit 1 with nothing printed when there is no answer.
 //!
 //! Only what has not been used for <after> hours goes. When the free disk is
 //! under the minimum, steps 1 and 2 take build output and the build cache
@@ -73,7 +70,7 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, Instant, SystemTime};
 use tehas_core::{rukas, time};
 
-const USAGE: &str = "usage: console clean run <dry 0|1> <home> <work dir> <after hours> <min free MiB> <min free> <free KiB> <dirs> <sandbox image> <log file> <scratch dir>\n       console clean image <PI_ENSEMBLE_IMAGE>\n       console clean usage <arguments>\n       console clean held <tags>\n       console clean target <follow> <repo>\n       console clean ended <workspace> <dirs> <log file> <scratch of the cycle>\n       console clean scratch <scratch dir> <name>";
+const USAGE: &str = "usage: console clean run <dry 0|1> <home> <work dir> <after hours> <min free MiB> <min free> <free KiB> <dirs> <sandbox image> <log file> <scratch dir>\n       console clean image <PI_ENSEMBLE_IMAGE>\n       console clean usage <arguments>\n       console clean held <tags>\n       console clean ended <workspace> <dirs> <log file> <scratch of the cycle>\n       console clean scratch <scratch dir> <name>";
 
 /// What `tehasbot clean --help` prints.
 const HELP: &str = r#"Remove what the host can make again: build output in kept workspaces,
@@ -148,9 +145,6 @@ pub fn main(given: &[String]) -> u8 {
     }
     if given.first().is_some_and(|v| v == "held") {
         return held(&given[1..]);
-    }
-    if given.first().is_some_and(|v| v == "target") {
-        return target(&given[1..]);
     }
     let [verb, dry, home, work, after, min_mb, min_word, free_kb, dirs, sandbox, logfile, tmp_disk] =
         given
@@ -234,42 +228,11 @@ fn held(given: &[String]) -> u8 {
     0
 }
 
-/// `rukas::target` on the real upstream, for test/rukas_test.sh to hold beside
-/// lib/rukas.sh.
-fn target(given: &[String]) -> u8 {
-    let [follow, repo] = given else {
-        eprintln!("{USAGE}");
-        return 64;
-    };
-    match rukas::target(follow, repo, ls_remote) {
-        Some((commit, what)) => {
-            tehas_core::outln!("{commit} {what}");
-            0
-        }
-        None => 1,
-    }
-}
-
-/// `git ls-remote`, bounded: the cleaner runs unattended on a timer and may
-/// not wait on a network that does not answer.
-fn ls_remote(args: &[&str]) -> Option<String> {
-    let said = bounded("5", "30", "git")
-        .arg("ls-remote")
-        .args(args)
-        .stdin(Stdio::null())
-        .stderr(Stdio::null())
-        .output()
-        .ok()?;
-    said.status
-        .success()
-        .then(|| String::from_utf8_lossy(&said.stdout).into_owned())
-}
-
 /// The base image the host's pins name. The build pulls the same name, and
 /// `home`'s versions.env is the one file read: an unreadable file names no base.
 fn pulled_base(home: &Path) -> Option<String> {
     let versions = fs::read(home.join("versions.env")).ok()?;
-    rukas::base_image(&String::from_utf8_lossy(&versions), ls_remote)
+    rukas::base_image(&String::from_utf8_lossy(&versions), crate::rukas::ls_remote)
 }
 
 /// The name the build tags and the dated tags are listed under: `image`

@@ -103,7 +103,6 @@ files="./.bashrc
 ./tehas/lib/paths.sh
 ./tehas/lib/refine-brief.md
 ./tehas/lib/release.list
-./tehas/lib/rukas.sh
 ./tehas/libexec/analytics
 ./tehas/libexec/analytics.stamp
 ./tehas/libexec/attach

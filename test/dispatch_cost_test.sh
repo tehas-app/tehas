@@ -71,9 +71,12 @@ t_eq "$(idle 3600 | jq -r .polls)" 0
 install_shim()
 {
   local h=$T/home/tehas
-  mkdir -p "$h/bin" "$h/shim"
+  mkdir -p "$h/bin" "$h/shim" "$h/libexec"
   cp "$T_ROOT/host/shim/gh" "$h/shim/gh"
   chmod +x "$h/shim/gh"
+  # The console decides what is a write and writes the line (`console gh`).
+  t_console || t_bad "no console: $t_console_why"
+  ln -sf "$T_CONSOLE" "$h/libexec/console"
   cp "$T/bin/gh" "$h/bin/gh"
   chmod +x "$h/bin/gh"
 }
