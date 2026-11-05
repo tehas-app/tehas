@@ -3013,6 +3013,15 @@ checkout of a host that has one. It is `null` on a host with neither.
 ageSeconds}`, or `null` when there is none (see [Backups and
 restore](/operating#backups-and-restore)).
 
+`checks.upkeep` is the cleaner's last `store upkeep`, the step that makes the
+backup: `{time, ok, word}`, where `word` is the store's word when it failed
+(`busy`, `corrupt`, `absent` when the store is not installed, ...) and `null`
+when it went well. It is `null` when no upkeep has run yet. The cleaner keeps it
+in `state/upkeep.json`, with the store's whole line. When the backup is missing
+or old and the last upkeep failed, `output` says when and the word: `There is no
+backup of the state store: the last upkeep failed at <time>: <word>.` A failed
+upkeep with a backup of under two days is no warning of its own.
+
 `checks.poll_cost` is the cost of the polls of the last hour that started no
 cycle, measured against `TEHAS_POLL_BUDGET` by
 [`store poll-idle --budget`](/operating#what-a-poll-costed): `{over, budget}`,
