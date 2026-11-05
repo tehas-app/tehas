@@ -43,7 +43,7 @@ use tehas_core::file::{read_regular, ReadError};
 use tehas_core::time::{civil_from_days, days_from_civil};
 
 /// The most a record file may hold.
-const BOUND: u64 = 1 << 20;
+const BOUND: u64 = tehas_core::file::READ_BOUND;
 /// The most rows a millwright or refresh record may ask the import to make up.
 const MAX_STARTS: i64 = 100;
 

@@ -24,7 +24,7 @@ use tehas_core::mask::mask;
 /// A larger file is not served.
 pub const LOG_MAX: u64 = 16 * 1024 * 1024;
 /// The most of a log a plain call returns, and the default.
-pub const PLAIN_MAX: u64 = 1024 * 1024;
+pub const PLAIN_MAX: u64 = tehas_core::file::READ_BOUND;
 /// Logs sent at the same time. Each holds a whole masked file in memory.
 pub const LOGS_AT_ONCE: usize = 2;
 /// The shortest and longest text a search asks for: a shorter one matches too
