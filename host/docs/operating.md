@@ -327,7 +327,7 @@ With `TEHAS_SIZE_MAX_FILES` set on the instance, an issue whose own body names m
 | Label on the issue      | Meaning                           | Your move                                |
 | ----------------------- | --------------------------------- | ---------------------------------------- |
 | `tehas:ready`           | Queued                            | Wait, or remove the label to withdraw it |
-| `tehas:running`         | A cycle owns it                   | Leave the issue and its branch alone     |
+| `tehas:running`         | A cycle owns it; with `TEHAS_OWNER` set, the issue is assigned to that account too | Leave the issue and its branch alone     |
 | `tehas:awaiting-merge`  | Pull request open, only the merge left | Review and merge                    |
 | `tehas:shipped`         | A merged pull request closed it, or GitHub's own list of pull requests closing it holds a merged one   | Nothing; `tehas tidy` and `tehasbot status` give it |
 | `needs-human-attention` | The cycle stopped                 | Read the comment; see below              |
@@ -344,6 +344,17 @@ With `TEHAS_SIZE_MAX_FILES` set on the instance, an issue whose own body names m
 | `tehas:lean`            | The lean driver is chosen for it. [It cannot run yet](#choosing-the-driver) | Take it off to run the issue on classic |
 | `tehas:blocked`         | Started once every blocker it names is closed | Close the blockers; swap it for `tehas:ready` to start it now |
 | `tehas:refreshing`      | On a pull request: a [refresh](#refreshes) works on it | Do not merge or push to it now; it comes off when the cycle ends |
+
+With `TEHAS_OWNER` set on the instance, the call that marks an issue
+`tehas:running` for a cycle also assigns it to that account, so GitHub shows
+the issue as taken and nobody starts on it by accident. GitHub assigns no
+app's bot, which is why the owner is a person. The owner is never unassigned:
+a closed issue's assignee does not matter, and a parked one is with the person
+who acts on it. A refresh does not assign again, and neither does a planning
+turn. When GitHub refuses the assign, the dispatcher marks the issue running
+without it, starts the cycle, and says so in `logs/dispatch.log`:
+`WARN: could not assign #N to <owner>, marking it running without an assignee`.
+Unset, nobody is assigned.
 
 `tehas:ready` from an allowed labeller starts a fresh cycle whatever else the
 issue carries. So does one from [the millwright](#the-millwrights-grant), within its grant. tehas's labels of the earlier outcome go when the cycle starts.
@@ -433,11 +444,15 @@ does. See [Commands](/tools).
 A cycle runs on the classic driver unless a person chooses lean for that issue
 with `tehas:lean`. The label starts nothing: `tehas:ready` still does that.
 
-Lean cannot run on this tehas yet: it waits for
-[pi-rukas#1920](https://github.com/trail-openers/pi-rukas/issues/1920). A start
-that chose it is refused and [parked](/troubleshooting#the-cycle-parked-needs-human-attention),
-and classic does not run in its place. For now the label only records the
-choice.
+A lean start runs `pi-rukas-headless work-lean` in the same container classic
+`work` gets, which needs a sandbox image of pi-rukas v0.14.47 or later
+([pi-rukas#1920](https://github.com/trail-openers/pi-rukas/issues/1920)). On an
+image that cannot run it, the start is refused and
+[parked](/troubleshooting#the-cycle-parked-needs-human-attention), and classic
+does not run in its place. Whether lean merges is the product's
+`.pi/work.json` `autoMerge`, which tehas leaves alone. A lean start is never a
+refresh: no `--continue-pr`. By hand, `tehas work <issue> --driver lean` runs
+lean without the label ([tehas work](/tools#tehas-work)).
 
 - It counts only from an account in `TEHAS_ALLOWED_LABELERS`, read from the
   label's events. The millwright's does not count.
