@@ -588,6 +588,11 @@ fn every_key_is_listed() {
                 "hold",
                 "hold.why",
                 "hold.text",
+                "held",
+                "held[].issue",
+                "held[].why",
+                "held[].text",
+                "held[].clear",
             ],
         ),
         (
