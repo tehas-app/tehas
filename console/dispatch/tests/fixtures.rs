@@ -425,7 +425,9 @@ fn expand(c: &Value, snap: &mut Value) {
         }
         snap["issues"] = Value::Object(is);
     }
-    // park_q: [retry box, alone box, leave box, editor, later comments]: the
+    // park_q: [retry box, alone box, leave box, editor, later comments]: a
+    // comment posted before #1492, with the old labels the readers still take;
+    // test/dispatch_lib.sh writes the new ones. The
     // comments of #7 as comments 7 "$(park_body ...)" writes them. Every box
     // is named: the reader is given no way to guess which of the five a case
     // meant, and a case that leaves one out is a fixture error, not a body
@@ -440,8 +442,8 @@ fn expand(c: &Value, snap: &mut Value) {
         };
         let body = format!(
             "Tehas cycle stopped.\n\n{}\n{}\n{}\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->",
-            box_line(tehas_core::question::BOX_CLEAN, box_of(0) == "x"),
-            box_line(tehas_core::question::BOX_ALONE, box_of(1) == "x"),
+            box_line(tehas_core::question::OLD_BOX_CLEAN, box_of(0) == "x"),
+            box_line(tehas_core::question::OLD_BOX_ALONE, box_of(1) == "x"),
             box_line("Leave it parked", box_of(2) == "x"),
         );
         let ed = x.get(3).cloned().unwrap_or(json!(""));

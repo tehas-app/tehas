@@ -481,9 +481,10 @@ comments_of() {
 }
 # The body of a park comment, as q_render of console/core/src/question.rs
 # writes it: the three boxes of a park of this factory, the two retries between
-# them and the one to leave it, their text BOX_CLEAN and BOX_ALONE there, which
-# the poll reads.
-# park_body <clean-start box> <alone box> [<leave box>]: each is x or a space.
+# them and the one to leave it, their text BOX_COMMENTS and BOX_ALONE there,
+# which the poll reads. The two-box shape of before carries the old label of
+# the comments retry, which the poll still takes.
+# park_body <comments box> <text-only box> [<leave box>]: each is x or a space.
 # With no alone box the body is the shape a comment had before that box
 # existed: it holds no such line at all, so a poll that reads the old comments
 # still finds its boxes. A comment of that shape has no box to leave it,
@@ -501,10 +502,14 @@ park_body() {
   fi
   b='Tehas cycle stopped.'
   # One box line, ticked when its box is x.
-  b+=$'\n\n'$(park_box "$clean" 'Retry from a clean start')
-  # A comment written before the box for the issue alone existed holds no such
-  # line at all, which is what an empty second argument stands for.
-  [ -z "$alone" ] || b+=$'\n'$(park_box "$alone" 'Retry from the issue alone')
+  if [ -z "$alone" ]; then
+    # A comment written before the box for the issue alone existed holds no
+    # such line at all, which is what an empty second argument stands for.
+    b+=$'\n\n'$(park_box "$clean" 'Retry from a clean start')
+  else
+    b+=$'\n\n'$(park_box "$clean" 'Retry with the issue and all its comments')
+    b+=$'\n'$(park_box "$alone" 'Retry with the issue text only')
+  fi
   b+=$'\n'$(park_box "$leave" 'Leave it parked')
   b+=$'\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->\n'
   printf '%s' "$b"

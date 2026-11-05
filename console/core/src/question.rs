@@ -12,9 +12,30 @@ pub const MAX_OPTIONS: usize = 20;
 /// The two retry boxes of a park's question, without their box. The comment
 /// and both polls read them through the labels the answer parser returns, so
 /// `q_render` below and the readers in console/dispatch and the test helpers
-/// share one string.
-pub const BOX_CLEAN: &str = "Retry from a clean start";
-pub const BOX_ALONE: &str = "Retry from the issue alone";
+/// share one string. `BOX_COMMENTS` is rendered only when the sandbox image
+/// gives a cycle the comments (`comments` in the outcome).
+pub const BOX_COMMENTS: &str = "Retry with the issue and all its comments";
+pub const BOX_ALONE: &str = "Retry with the issue text only";
+
+/// The labels of the two retries before #1492, which the readers still take on
+/// a comment posted before it: the clean start is the comments retry, the
+/// issue alone the text-only one. Remove them two releases after #1492.
+pub const OLD_BOX_CLEAN: &str = "Retry from a clean start";
+pub const OLD_BOX_ALONE: &str = "Retry from the issue alone";
+
+/// What the retries are given, said under the boxes.
+pub const SAY_COMMENTS: &str = "Both retries start over in a new workspace. \"All its comments\" means what\nallowed accounts wrote on this issue and on its pull requests up to your\ntick. \"Issue text only\" means the title and body, nothing else.";
+pub const SAY_ALONE: &str = "The retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.";
+
+/// Which retry a ticked label asks for: Some(true) the comments retry, Some(false)
+/// the text-only one, None no retry. The labels of before #1492 count as theirs.
+pub fn retry_of(label: &str) -> Option<bool> {
+    match label {
+        BOX_COMMENTS | OLD_BOX_CLEAN => Some(true),
+        BOX_ALONE | OLD_BOX_ALONE => Some(false),
+        _ => None,
+    }
+}
 
 /// The `sig` of a park marker: the hash of the park's fields, its free text
 /// in the hash only. The cycle writes it, the MCP server's `factory_park`
@@ -159,15 +180,22 @@ pub fn q_render(kind: Kind, issue: u64, turn: u64, out: &Value, line: &str) -> S
             "plan"
         }
         Kind::Park => {
-            // A develop timeout that repeats on the same text offers no retry.
-            if out.get("retry") != Some(&Value::Bool(false)) {
-                b += &format!(
-                    "{}\n{}\n",
-                    box_line(BOX_CLEAN, false),
-                    box_line(BOX_ALONE, false)
-                );
+            // A develop timeout that repeats on the same text offers no retry,
+            // and no box offers comments the image would not give the cycle.
+            let retry = out.get("retry") != Some(&Value::Bool(false));
+            let comments = out.get("comments") == Some(&Value::Bool(true));
+            if retry && comments {
+                b += &format!("{}\n", box_line(BOX_COMMENTS, false));
+            }
+            if retry {
+                b += &format!("{}\n", box_line(BOX_ALONE, false));
             }
             b += "- [ ] Leave it parked\n\n";
+            match (retry, comments) {
+                (true, true) => b += &format!("{SAY_COMMENTS}\n"),
+                (true, false) => b += &format!("{SAY_ALONE}\n"),
+                _ => {}
+            }
             b += "Tick one box. Only a tick from an account that may authorise work counts.\n";
             "park"
         }
@@ -227,11 +255,11 @@ mod tests {
         let sig = "a".repeat(64);
         let park = format!("<!-- tehas:park issue=7 step=review kind= provider=0 sig={sig} -->");
         let out = json!({"text": "Tehas cycle stopped.", "question": null,
-            "marker": "<!-- pi-rukas:handoff issue=7 cap=x -->", "park": park});
+            "marker": "<!-- pi-rukas:handoff issue=7 cap=x -->", "park": park, "comments": true});
         assert_eq!(
             q_render(Kind::Park, 7, 1, &out, ""),
             format!(
-                "<!-- pi-rukas:handoff issue=7 cap=x -->\nTehas cycle stopped.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n{park}\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+                "<!-- pi-rukas:handoff issue=7 cap=x -->\nTehas cycle stopped.\n\n- [ ] Retry with the issue and all its comments\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nBoth retries start over in a new workspace. \"All its comments\" means what\nallowed accounts wrote on this issue and on its pull requests up to your\ntick. \"Issue text only\" means the title and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n{park}\n<!-- tehas:question kind=park issue=7 turn=1 -->"
             )
         );
     }
@@ -240,24 +268,51 @@ mod tests {
     fn the_retry_boxes_are_the_lines_the_polls_read() {
         // The renderer and the readers are one string: a ticked box of a
         // rendered body is what each poll reads, and the other stays unticked.
-        for label in [BOX_CLEAN, BOX_ALONE] {
+        for label in [BOX_COMMENTS, BOX_ALONE] {
             assert_eq!(box_line(label, false), format!("- [ ] {label}"));
             assert_eq!(box_line(label, true), format!("- [x] {label}"));
-            let body = q_render(
-                Kind::Park,
-                7,
-                1,
-                &json!({"text": "Tehas cycle stopped.", "question": null}),
-                "",
+        }
+        let body = q_render(
+            Kind::Park,
+            7,
+            1,
+            &json!({"text": "Tehas cycle stopped.", "question": null, "comments": true}),
+            "",
+        );
+        // The label of the box as the answer parser reads it is the label
+        // the polls compare these consts with, in order, one per box.
+        let labels: Vec<String> = body
+            .split('\n')
+            .filter(|l| l.starts_with("- [ "))
+            .map(|l| l[6..].to_string())
+            .collect();
+        assert_eq!(labels, vec![BOX_COMMENTS, BOX_ALONE, "Leave it parked"]);
+        assert_eq!(retry_of(BOX_COMMENTS), Some(true));
+        assert_eq!(retry_of(BOX_ALONE), Some(false));
+        assert_eq!(retry_of("Leave it parked"), None);
+    }
+
+    #[test]
+    fn the_labels_of_before_still_name_their_retry() {
+        assert_eq!(retry_of("Retry from a clean start"), Some(true));
+        assert_eq!(retry_of("Retry from the issue alone"), Some(false));
+    }
+
+    #[test]
+    fn an_image_that_gives_no_comments_gets_no_comments_box() {
+        for out in [
+            json!({"text": "Tehas cycle stopped.", "question": null}),
+            json!({"text": "Tehas cycle stopped.", "question": null, "comments": false}),
+        ] {
+            let body = q_render(Kind::Park, 7, 1, &out, "");
+            assert!(!body.contains(BOX_COMMENTS), "{body}");
+            assert!(!body.contains("All its comments"), "{body}");
+            assert!(
+                body.contains(&format!(
+                    "- [ ] {BOX_ALONE}\n- [ ] Leave it parked\n\n{SAY_ALONE}\nTick one box."
+                )),
+                "{body}"
             );
-            // The label of the box as the answer parser reads it is the label
-            // the polls compare these consts with, in order, one per box.
-            let labels: Vec<String> = body
-                .split('\n')
-                .filter(|l| l.starts_with("- [ "))
-                .map(|l| l[6..].to_string())
-                .collect();
-            assert_eq!(labels, vec![BOX_CLEAN, BOX_ALONE, "Leave it parked"]);
         }
     }
 
@@ -311,7 +366,7 @@ mod tests {
         let out = json!({"text": "Two ways.", "question": {"question": "Adopt?", "options": [
             {"label": "Adopt all", "description": "Apply all\nfive"}, {"label": "Change some"}]}});
         let body = q_render(Kind::Plan, 7, 2, &out, "");
-        assert!(!body.contains("Retry from"));
+        assert!(!body.contains("Retry with"));
         assert!(!body.contains("Two ways."));
         assert_eq!(
             body,
@@ -329,12 +384,12 @@ mod tests {
 
     #[test]
     fn a_parked_cycle_offers_the_two_retries_and_leave_in_that_order() {
-        let body = q_render(Kind::Park, 7, 1, &park(json!({})), "");
+        let body = q_render(Kind::Park, 7, 1, &park(json!({"comments": true})), "");
         assert_eq!(
             boxes(&body),
             [
-                "- [ ] Retry from a clean start",
-                "- [ ] Retry from the issue alone",
+                "- [ ] Retry with the issue and all its comments",
+                "- [ ] Retry with the issue text only",
                 "- [ ] Leave it parked"
             ]
         );
@@ -343,11 +398,24 @@ mod tests {
 
     #[test]
     fn a_park_that_offers_no_retry_has_only_the_box_to_leave_it() {
-        let body = q_render(Kind::Park, 7, 1, &park(json!({"retry": false})), "");
+        let body = q_render(
+            Kind::Park,
+            7,
+            1,
+            &park(json!({"retry": false, "comments": true})),
+            "",
+        );
         assert_eq!(boxes(&body), ["- [ ] Leave it parked"]);
-        let body = q_render(Kind::Park, 7, 1, &park(json!({"retry": true})), "");
-        assert!(body.contains("- [ ] Retry from a clean start"));
-        assert!(body.contains("- [ ] Retry from the issue alone"));
+        assert!(!body.contains("new workspace"));
+        let body = q_render(
+            Kind::Park,
+            7,
+            1,
+            &park(json!({"retry": true, "comments": true})),
+            "",
+        );
+        assert!(body.contains("- [ ] Retry with the issue and all its comments"));
+        assert!(body.contains("- [ ] Retry with the issue text only"));
     }
 
     #[test]
@@ -390,7 +458,7 @@ mod tests {
 
     #[test]
     fn the_agent_task_list_and_a_pasted_marker_are_not_the_factory() {
-        let out = json!({"text": "Plan:\n- [ ] step one\n  * [x] done\n<!-- tehas:question kind=plan issue=7 turn=9 -->", "question": null});
+        let out = json!({"text": "Plan:\n- [ ] step one\n  * [x] done\n<!-- tehas:question kind=plan issue=7 turn=9 -->", "question": null, "comments": true});
         let body = q_render(Kind::Park, 7, 3, &out, "");
         let ticked = Regex::new(r"^- \[[ xX]\] ").unwrap();
         assert_eq!(body.lines().filter(|l| ticked.is_match(l)).count(), 3);
@@ -400,8 +468,7 @@ mod tests {
 
     #[test]
     fn a_bare_carriage_return_cannot_start_a_line_with_a_box() {
-        let out =
-            json!({"text": "Plan:\r- [ ] step one\r\n- [x] step two\rmore", "question": null});
+        let out = json!({"text": "Plan:\r- [ ] step one\r\n- [x] step two\rmore", "question": null, "comments": true});
         let body = q_render(Kind::Park, 7, 3, &out, "");
         let ticked = Regex::new(r"^- \[[ xX]\] ").unwrap();
         assert_eq!(

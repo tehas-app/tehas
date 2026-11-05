@@ -13,6 +13,7 @@ empty one above it.
 
 ### Changes
 
+- The retry boxes of a park say what a retry is given: `Retry with the issue and all its comments` and `Retry with the issue text only`, with a line on what each means. A tick of the comments retry records the text of every comment on the issue and on the bot's pull requests for it (conversation comments, review bodies, inline review comments) up to the tick, by an account of `TEHAS_ALLOWED_LABELERS` that may write to the repository then, the bot's own left out; `tehas work` writes them to `comments.json` in the format of trail-openers/pi-rukas#2020 and mounts it even with images and files off. It no longer needs `TEHAS_WORK_COMMENTS`, and `retry-context.md`, which nothing read, is gone. The comments box is offered only when the sandbox image lists `issueComments` or carries the issue-comments polyfill. The old labels still count on comments posted before; they go two releases from now (#1492).
 - `scripts/verify.sh` checks the workspace's format and lints on every run, not only with `--full`; in CI a missing rustfmt or clippy fails. `tehas setup` runs `--full` on a factory that builds tehas, so unformatted code that passed CI stopped setup three times. `console/dispatch` is formatted again.
 - A cycle that hands off on `lens-fix-reposition` with its pull request open and its review not held waits for a merge (`tehas:awaiting-merge`) instead of parking. The branch already holds the first review round's fix; only the second round's could not be laid on it. It was the most common park from 2026-10-31.
 - `console flags pause` takes only `set` and `clear`: `show` and `read`, which nothing called, are gone (#1365). The dashboard's reader of the flag uses the same reading as the health file.
@@ -24,6 +25,13 @@ empty one above it.
 - The site is two frontends with two pinned looks. The front page (`/`, `/floor`) names `theme-pixel.css` and every other page names `theme-beesknees26.css`, each with its own logo and share card, so no server rewrites a look. `TEHAS_THEME` and `TEHAS_LAYOUT` are retired, the `paper` and `beesknees` themes are gone, the front page is always the factory floor and `/business` is always the business page. The footers no longer link from one frontend to the other.
 
 ### Adopter action
+
+A park's comment offers the comments retry only on a sandbox image whose
+pi-rukas reads the comments blob (trail-openers/pi-rukas#2020) or that carries
+the issue-comments polyfill; until then it offers `Retry with the issue text
+only` and `Leave it parked`. Nothing to set. A comments retry now asks GitHub
+for each author's permission on the repository, which the bot's token already
+may read.
 
 `console flags pause show` and `console flags pause read` are gone: a script
 which called one of them now gets 64 and the usage. The words of the flag are

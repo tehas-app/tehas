@@ -49,10 +49,9 @@ pub struct Settings {
     pub work_images: bool,
     /// TEHAS_WORK_FILES: 1 gives a cycle the text files its issue links, in the
     /// directory `TEHAS_WORK_IMAGES` uses too. With it or `work_images` the
-    /// record's `retry_context` reaches a cycle as `retry-context.md`; else
-    /// where the instance gives a cycle neither, a millwright's comment of
-    /// guidance reaches none, and the park's hold of the unchanged body stays
-    /// (#1130).
+    /// park's hold of the unchanged body lifts for a millwright's comment of
+    /// guidance, which reaches the cycle in `comments.json` (#1130). Where
+    /// the instance gives a cycle neither, the hold stays.
     pub work_files: bool,
     /// PI_ENSEMBLE_SUBAGENT_MODEL and PI_ENSEMBLE_IMAGE.
     pub model: String,
@@ -203,8 +202,8 @@ mod tests {
         // park's hold stays, and the lift is off.
         let none = Settings::parse(&json!({}));
         assert!(!(none.work_images || none.work_files));
-        // Either one is enough: both write retry-context.md in the directory
-        // the instance already mounts.
+        // Either one is enough: both mount the directory comments.json is
+        // written in.
         let images = Settings::parse(&json!({"TEHAS_WORK_IMAGES": "1"}));
         assert!(images.work_images && !images.work_files);
         let files = Settings::parse(&json!({"TEHAS_WORK_FILES": "1"}));
