@@ -30,14 +30,11 @@ chmod +x "$plat/install.sh" "$T/home/tehas/bin/tehas" "$build"
 printf 'ghp_secret_token\n' >"$T/token"
 printf 'sk_model_key\n' >"$T/model-key"
 
-# The github.com host and the key of its credential helper, read from
-# lib/sandbox.sh, and the helper command gh writes, the one work_caps_test.sh
-# pins on a container's git. A change to its spelling fails there or here, not
-# on a host.
-# shellcheck source=lib/sandbox.sh
-. "$T_ROOT/lib/sandbox.sh"
-HK=$(tehas_git_credential_helper_key)
-HG=$(tehas_git_github_host)
+# The github.com host and the key of its credential helper, and the helper
+# command gh writes, the ones work_caps_test.sh pins on a container's git. A
+# change to their spelling fails there or here, not on a host.
+HK=credential.https://github.com.helper
+HG=github.com
 HB='!gh auth git-credential'
 
 # gh: the token can push (PUSH=false: it cannot), the bot is tehas-bot, the
@@ -46,8 +43,8 @@ HB='!gh auth git-credential'
 # on a host it is logged into: the helper key twice, an empty entry that ends
 # any list before it and gh's command after it. GH_TOKEN is the knob of a host
 # gh is not logged into, SETUP_GIT_RC of a gh that cannot write the config. The
-# key and the command come from lib/sandbox.sh, so the stub writes what the
-# container is given and cannot drift from it.
+# key and the command are the ones above, so the stub writes what the
+# container is given.
 stub_gh() {
   # The body is written with @HK@, @HG@ and @HB@ in place of the key, the host
   # and the command, and the stubs of the other commands are written with @T@

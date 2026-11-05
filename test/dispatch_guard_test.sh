@@ -154,15 +154,11 @@ t_lacks "$t_out" "nothing to do"
 
 t_case "a failed call names gh's error by words of a fixed list"
 reset
-# A status the rule of read/retry.rs keeps rather than retries, so the case still
-# speaks of the one call the stub failed: which status is which class is what
-# `console/dispatch/src/read/retry.rs` and the `broken` fixture of
-# `console/dispatch/src/read/build.rs` say.
-echo 'HTTP 500: Internal Server Error for query with a sk-secret-looking body' >"$fx/gh-stderr"
+echo 'HTTP 502: Bad Gateway for query with a sk-secret-looking body' >"$fx/gh-stderr"
 : >"$fx/gh-stderr-fails"
 t_run "$dispatch"
 t_eq "$t_rc" 1
-t_contains "$t_out" "ERROR: gh api graphql failed: HTTP 500"
+t_contains "$t_out" "ERROR: gh api graphql failed: HTTP 502"
 t_lacks "$t_out" "sk-secret"
 rm -f "$fx/gh-stderr" "$fx/gh-stderr-fails"
 
@@ -335,6 +331,42 @@ printf '%s\n' "${T_MINIMAL[@]}" "TEHAS_ALLOWED_LABELERS=''" >"$TEHAS_INSTANCE_DI
 t_run "$dispatch --dry-run"
 t_eq "$t_rc" 78
 t_eq "$(t_calls gh)" ""
+
+# The poll's own guard. tehas-dispatch reads its settings from the environment,
+# with no shell before it that loaded them, so it names what it needs: the five
+# an instance has to set itself, which `console settings required` answers, and
+# TEHAS_HOME, TEHAS_INSTANCE_DIR and TEHAS_TICKET_CONCURRENCY, which a load
+# always leaves set and a poll cannot guess. The lists are tehas-core's
+# (console/core/src/settings.rs); what is read here is what the two answer.
+# shellcheck disable=SC2154  # t_console_why is set by t_console (test/lib.sh)
+t_console || t_bad "no console: $t_console_why"
+
+t_case "tehas-dispatch names every setting a run with no load is missing"
+reset
+rm -rf "$T/home/tehas/state" "$T/home/tehas/logs"
+t_run "TEHAS_HOME= \"$T_DISPATCH\" decide"
+t_eq "$t_rc" 78
+t_contains "$t_out" "not set: load the instance's settings first (lib/config.sh, tehas_load)"
+t_eq "$(find "$T/home/tehas" -maxdepth 1 \( -name state -o -name logs \) | wc -l)" 0
+needs=${t_out%% not set:*}
+read -ra poll_needs <<<"${needs#tehas-dispatch: }"
+poll_needs=("${poll_needs[@]/,/}")
+t_run "\"$T_CONSOLE\" settings required"
+read -ra instance_needs <<<"$t_out"
+for name in "${instance_needs[@]}"; do
+  t_contains " ${poll_needs[*]} " " $name "
+done
+
+for missing in "${poll_needs[@]}"; do
+  t_case "tehas-dispatch stops a run with no $missing, and names it"
+  reset
+  rm -f "$T"/calls/*
+  t_run ". \"$T_ROOT/lib/config.sh\" && tehas_load && unset $missing && \"$T_DISPATCH\" decide"
+  t_eq "$t_rc" 78
+  t_eq "${t_out%% not set:*}" "tehas-dispatch: $missing"
+  t_eq "$(t_calls gh)" ""
+  t_eq "$(t_calls fake-start)" ""
+done
 
 # Arguments. A poll starts only from an argument this command knows, and the
 # check runs before the instance settings are read.

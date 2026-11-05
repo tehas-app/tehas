@@ -7,7 +7,7 @@
 
 use super::turn::{self, Turn};
 use super::{descriptor, update};
-use crate::{attach, github, label, review};
+use crate::{account, attach, github, label, review};
 use std::env;
 use std::fs;
 use std::io::Read;
@@ -431,7 +431,7 @@ fn turn_of(libexec: &str, w: &Words) -> Result<u8, u8> {
     if bot_name.is_empty() || bot_email.is_empty() {
         eprintln!(
             "tehas plan: git user.name and user.email are not set for {}",
-            review::account()
+            account::name()
         );
         return Err(64);
     }
