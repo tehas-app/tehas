@@ -29,10 +29,10 @@ pi-rukas could be better, and to write your findings to one file.
   - `stream.jsonl`: the cycle's event stream, condensed.
   - `console.txt`: what each agent wrote, as an operator saw it.
   - `err.txt`, `preflight.txt`: the cycle's error stream and preflight output.
-  - `manifest.json`, `images.md`, `retry-context.md`: what the cycle was given
+  - `manifest.json`, `images.md`, `comments.json`: what the cycle was given
     of the issue's attachments and what was left out with the reason, a model's
-    descriptions of the images, and a reviewer's words on the pull request
-    before a retry. Not the images themselves. A manifest that lists no image
+    descriptions of the images, and the comments a retry was given, from the
+    issue and its pull requests. Not the images themselves. A manifest that lists no image
     and names links left out because the instance gives a cycle none says the
     cycle never saw them; `err.txt` carries a line saying the same. Those links
     are of the text as approved, which the manifest dates and attributes, and

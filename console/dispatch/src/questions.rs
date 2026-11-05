@@ -186,7 +186,7 @@ pub fn untick(body: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tehas_core::question::{q_render, Kind, BOX_ALONE, BOX_CLEAN};
+    use tehas_core::question::{q_render, Kind, BOX_ALONE, BOX_COMMENTS};
 
     fn nodes(list: Value) -> Value {
         json!({"data": {"repository": {"issue": {"comments": {"nodes": list}}}}})
@@ -596,9 +596,9 @@ mod tests {
 
     #[test]
     fn the_box_a_poll_reads_is_the_box_the_park_prints() {
-        let out = json!({"text": "Tehas cycle stopped.", "question": null});
+        let out = json!({"text": "Tehas cycle stopped.", "question": null, "comments": true});
         let body = q_render(Kind::Park, 7, 1, &out, "");
-        for (want, other) in [(BOX_ALONE, BOX_CLEAN), (BOX_CLEAN, BOX_ALONE)] {
+        for (want, other) in [(BOX_ALONE, BOX_COMMENTS), (BOX_COMMENTS, BOX_ALONE)] {
             let box_line = format!("- [ ] {want}");
             assert!(body.contains(&box_line));
             let ticked = body.replace(&box_line, &format!("- [x] {want}"));

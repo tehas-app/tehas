@@ -471,24 +471,24 @@ impl Poll<'_> {
             // What was ticked is read from the label of the ticked box, which
             // questions::answer read from the comment's own line: the order of
             // the boxes decides nothing, and the two polls read the same list.
-            // The third box is a retry as the first is; what differs is that
-            // its record names no comment of the issue or of the pull request.
-            let ticked = |label: &str| {
-                ans["tick"]["index"]
-                    .as_u64()
-                    .and_then(|i| ans["labels"].get(usize::try_from(i).unwrap_or(usize::MAX)))
-                    .is_some_and(|l| l.as_str().is_some_and(|s| s == label))
-            };
-            let clean = ticked(tehas_core::question::BOX_CLEAN);
-            let issue_alone = ticked(tehas_core::question::BOX_ALONE);
-            if !clean && !issue_alone {
+            // The text-only box is a retry as the comments one is; what
+            // differs is that its record names no comment of the issue or of
+            // the pull request. A comment posted before #1492 carries the old
+            // labels, read as the retries they stand for.
+            let retry = ans["tick"]["index"]
+                .as_u64()
+                .and_then(|i| ans["labels"].get(usize::try_from(i).unwrap_or(usize::MAX)))
+                .and_then(Value::as_str)
+                .and_then(tehas_core::question::retry_of);
+            let Some(with_comments) = retry else {
                 if !self.dry {
                     self.act(json!({"issue": n, "remove": ["tehas:question"],
                         "fail": Self::label_fail(n, &["tehas:question"], &[]),
                         "answered": {"id": qid, "by": by}}));
                 }
                 continue;
-            }
+            };
+            let issue_alone = !with_comments;
             let parked = !has(&have, "tehas:running")
                 && !has(&have, "tehas:awaiting-merge")
                 && has(&have, "needs-human-attention");
