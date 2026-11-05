@@ -30,8 +30,36 @@ are on; pi-rukas reads the rest of it.
 | `.pi/verify-cmd-fast`                                    | Optional developer's gate, same format. With it, pi-rukas tells the developer to run this command and not `.pi/verify-cmd`, and runs it ahead of `.pi/verify-cmd` wherever its driver gates |
 | `.pi/smoke-cmd`                                          | Proves the built product starts, same format                                                                                                                                                                     | Recommended                             |
 | `.pi/worktree-setup`                                     | Shell script run in each new worktree with no arguments and no environment: install dependencies. Must exit 0                                                                                                    | If a bare checkout cannot run the gates |
+| `.pi/install-cmd`                                        | The install of the product's dependencies, run at the root of the cycle's clone before the cycle, in place of the one tehas finds from the lockfiles (below). Same format as the gate                              | Only when the lockfiles cannot tell it  |
 | `.pi/settings.json`                                      | Provider and model of the session, when they are not the instance's                                                                                                                                              | Optional                                |
 | `.agents/skills/`                                        | Project skills: short instructions plus scripts for things agents get wrong                                                                                                                                      | Optional                                |
+
+Dependencies need no file. Before a cycle starts, `tehas work` installs them in
+the cycle's clone, in the sandbox image, from the lockfiles at the root of the
+commit and one directory down. Each runs in its directory:
+
+| Lockfile | Install |
+| --- | --- |
+| `bun.lock`, `bun.lockb` | `bun install --frozen-lockfile` |
+| `package-lock.json` | `npm ci` |
+| `pnpm-lock.yaml` | `pnpm install --frozen-lockfile` |
+| `yarn.lock` | `yarn install --immutable`, `--frozen-lockfile` on yarn 1 |
+| `Cargo.lock` | `cargo fetch --locked` |
+| `uv.lock` | `uv sync --frozen` |
+| `poetry.lock` | `poetry install --no-root` |
+| `go.sum` | `go mod download` |
+| `Gemfile.lock` | `bundle install` |
+| `composer.lock` | `composer install` |
+
+One install per kind and directory: a directory with `pnpm-lock.yaml` and
+`package-lock.json` runs pnpm only. A lockfile under `node_modules/`, `vendor/`,
+`target/` or a submodule is not the product's. A worktree pi-rukas makes in the
+clone then finds the installed tree in its main checkout, which is what
+`.pi/worktree-setup` scripts that link `node_modules` from there expect. An
+install that fails, or a tool the image does not have, stops the cycle before it
+starts (exit 78). The install has the cycle's limits and security options, the
+workspace and no token. What goes to the container's home, such as cargo's or
+go's download cache, is not kept for the cycle.
 
 This repository is a product too, so its own `AGENTS.md` and `.pi/` are a
 small working example to copy from. pi-rukas's own state files in a cycle's
@@ -224,15 +252,21 @@ tehas check-product --sandbox
 ### 6. Prove the gates in the sandbox
 
 `tehas setup` runs `tehas check-product --sandbox` once. It runs the product's
-own gates inside the image, as the unprivileged user, with nothing mounted but a
-clone made as a cycle's is, with `origin/main` and `origin/HEAD`, and checks the
-contract files first. By hand it is:
+install and its own gates inside the image, as the unprivileged user, with
+nothing mounted but a clone made as a cycle's is, with `origin/main` and
+`origin/HEAD`, and checks the contract files first. The install runs at the root
+of the clone and the gates in a worktree of it, as in a cycle. By hand, for a
+product whose one lockfile is `extension/bun.lock`, it is:
 
 ```
 T=~/tehas/tmp/contract-test
-git clone -q ~/tehas/repos/<name> "$T"
+git clone -q ~/tehas/repos/<name> "$T/clone"
+git -C "$T/clone" worktree add -q --detach "$T/tree"
 docker run --rm --cgroup-parent tehas.slice --memory 4g --memory-swap 4g --user "$(id -u):$(id -g)" \
-  -e HOME=/home/vscode -v "$T:$T" -w "$T" --entrypoint bash \
+  -e HOME=/home/vscode -v "$T:$T" -w "$T/clone/extension" --entrypoint bash \
+  "$PI_ENSEMBLE_IMAGE" -c 'bun install --frozen-lockfile'
+docker run --rm --cgroup-parent tehas.slice --memory 4g --memory-swap 4g --user "$(id -u):$(id -g)" \
+  -e HOME=/home/vscode -v "$T:$T" -w "$T/tree" --entrypoint bash \
   "$PI_ENSEMBLE_IMAGE" -c '
     sh .pi/worktree-setup &&
     sh -c "$(grep -v -e "^#" -e "^$" .pi/verify-cmd-full | head -n 1)" &&
