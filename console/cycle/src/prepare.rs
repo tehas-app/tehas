@@ -5,8 +5,8 @@
 //!
 //!   check   the bot's identity, the variables of the container, what the image
 //!           supports. Nothing is moved or fetched before it passes.
-//!   tree    a fresh workspace, the product's gate, the push check, the code
-//!           index and the container's mounts.
+//!   tree    a fresh workspace, the product's gate, the push check, the
+//!           product's install step, the code index and the container's mounts.
 //!   record  the cycle's image and settings on its record, and the words of the
 //!           docker run, which the watch is given.
 //!
@@ -32,6 +32,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use tehas_core::install::{self, Step};
 use tehas_core::models;
 use tehas_core::sandbox::{self, Identity, Kind, Paths, HANDOFF_SECONDS};
 use tehas_core::slice::{self, Load};
@@ -40,12 +41,13 @@ use tehas_core::{lock, time};
 /// The words of the limits, then of the security options, as the slice gave them.
 const LIMIT_WORDS: usize = 14;
 
-const PROTOCOL: [&str; 13] = [
+const PROTOCOL: [&str; 14] = [
     "cid",
     "oom",
     "forks",
     "stalled",
     "timed",
+    "disk",
     "result.json",
     "progress.json",
     "runner_exit",
@@ -419,13 +421,7 @@ pub fn gate_line(text: &str) -> Option<&str> {
 /// park a cycle or start one. A start-cost guard, not proof a real gate exists.
 fn has_gate(tree: &str, branch: &str) -> bool {
     let at = format!("origin/{branch}");
-    let git = |args: &[&str]| {
-        let mut words = vec!["git".to_string(), "-C".to_string(), tree.to_string()];
-        words.extend(args.iter().map(|a| a.to_string()));
-        let out = bounded(10, 60, &words).stderr(Stdio::null()).output();
-        out.map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
-            .unwrap_or_default()
-    };
+    let git = |args: &[&str]| git_out(tree, args);
     gate_line(&git(&["show", &format!("{at}:.pi/verify-cmd")])).is_some()
         || !git(&[
             "ls-tree",
@@ -436,6 +432,73 @@ fn has_gate(tree: &str, branch: &str) -> bool {
             "Cargo.toml",
         ])
         .is_empty()
+}
+
+fn git_out(tree: &str, args: &[&str]) -> String {
+    let mut words = vec!["git".to_string(), "-C".to_string(), tree.to_string()];
+    words.extend(args.iter().map(|a| a.to_string()));
+    let out = bounded(10, 60, &words).stderr(Stdio::null()).output();
+    out.map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+        .unwrap_or_default()
+}
+
+/// The product's dependencies, installed in the workspace in the sandbox
+/// before the cycle starts, so a worktree pi-rukas makes there finds them in
+/// its main checkout. None when they were; else the status to exit with.
+fn install(state: &Value, tree: &str, steps: &[Step], preflight: &Path) -> Option<i32> {
+    let words = sandbox::install_run(
+        &list(state, "limits"),
+        &list(state, "security"),
+        &sandbox::user(),
+        &env("TEHAS_WORK_DIR"),
+        tree,
+        &env("PI_ENSEMBLE_IMAGE"),
+        &install::script(steps),
+    );
+    // What the install says is read back from where it starts, so a failure is
+    // told by its own lines and not the push check's before it.
+    let start = fs::metadata(preflight).map_or(0, |m| m.len());
+    let opened = OpenOptions::new()
+        .append(true)
+        .create(true)
+        .open(preflight)
+        .and_then(|log| Ok((log.try_clone()?, log)));
+    let rc = match opened {
+        Ok((err, log)) => code(
+            bounded(10, install::WAIT, &words)
+                .stdout(log)
+                .stderr(err)
+                .status(),
+        ),
+        Err(_) => 127,
+    };
+    if rc == 0 {
+        return None;
+    }
+    let text = fs::read(preflight).unwrap_or_default();
+    let own = usize::try_from(start).map_or(&[][..], |at| text.get(at..).unwrap_or(&[]));
+    let text = String::from_utf8_lossy(own);
+    let lacking = install::missing(&text);
+    if rc == install::MISSING && !lacking.is_empty() {
+        for tool in lacking {
+            say(&format!(
+                "tehas work: no {tool} in the sandbox image, which the product's install needs; not starting a cycle"
+            ));
+        }
+        return Some(78);
+    }
+    if matches!(rc, 124 | 137) {
+        let line = format!("the install did not end within {}s", install::WAIT);
+        let _ = append(preflight, &line);
+    }
+    say(&format!(
+        "tehas work: the product's install failed (exit {rc}), not starting a cycle:"
+    ));
+    let lines: Vec<&str> = text.lines().collect();
+    for line in &lines[lines.len().saturating_sub(5)..] {
+        say(&format!("    {line}"));
+    }
+    Some(78)
 }
 
 /// Can the sandbox push at all? The client passes the timeout's TERM on to git
@@ -546,8 +609,25 @@ pub fn tree(home: &Path, t: &Tree) -> i32 {
         return STOPPED;
     }
     let preflight = on(&t.log, ".preflight");
+    let Some(steps) = install::steps(&tree, "HEAD") else {
+        eprintln!("tehas work: could not list the files of {tree}, not starting a cycle");
+        return 78;
+    };
     if let Some(rc) = push_check(t, &state, &tree, &preflight) {
         return rc;
+    }
+    if !steps.is_empty() {
+        if t.stop.came() {
+            return STOPPED;
+        }
+        for step in &steps {
+            let line = format!("install {}", step.line());
+            let _ = append(&preflight, &line);
+            say(&format!("tehas work: {line}"));
+        }
+        if let Some(rc) = install(&state, &tree, &steps, &preflight) {
+            return rc;
+        }
     }
     if t.stop.came() {
         return STOPPED;
@@ -632,7 +712,12 @@ fn inspect(r: &Record) -> Option<(String, Option<String>)> {
         .stderr(Stdio::null())
         .output()
         .ok()?;
-    let text = String::from_utf8_lossy(&out.stdout);
+    image_of(&String::from_utf8_lossy(&out.stdout))
+}
+
+/// The id and the commit in the line `inspect` printed. None for anything that
+/// is not an image id.
+fn image_of(text: &str) -> Option<(String, Option<String>)> {
     let mut fields = text.split_whitespace();
     let id = fields.next()?;
     let hex = |s: &str| s.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'));
@@ -651,12 +736,12 @@ fn inspect(r: &Record) -> Option<(String, Option<String>)> {
 /// what the container is given of the settings, and how many cycles run now. A
 /// record that is not this start's, or has ended, is no start to run; a store
 /// that is only busy costs the record, not the cycle. False stops the start.
-fn on_record(home: &Path, r: &Record, state: &Value) -> bool {
-    let Some((id, commit)) = inspect(r) else {
+fn on_record(home: &Path, r: &Record, state: &Value, seen: &Seen) -> bool {
+    let Some((id, commit)) = seen else {
         return true;
     };
     let n = r.issue.to_string();
-    let mut args = vec!["cycle-image", &n, "--attempt", &r.attempt, "--image", &id];
+    let mut args = vec!["cycle-image", &n, "--attempt", &r.attempt, "--image", id];
     if let Some(c) = &commit {
         args.extend(["--rukas", c]);
     }
@@ -702,6 +787,19 @@ fn on_record(home: &Path, r: &Record, state: &Value) -> bool {
     false
 }
 
+/// What `inspect` found of the image: its id and the commit of its label.
+type Seen = Option<(String, Option<String>)>;
+
+/// The image the container runs: the id the start inspected and put on its
+/// record, so a rebuild after the inspect cannot start an image the record does
+/// not name. The tag when nothing was inspected.
+fn run_image(seen: &Seen, tag: &str) -> String {
+    match seen {
+        Some((id, _)) if id.starts_with("sha256:") => id.clone(),
+        _ => tag.to_string(),
+    }
+}
+
 /// The third step: the words of the docker run, or the exit status.
 pub fn record(home: &Path, r: &Record) -> Result<Vec<String>, i32> {
     let Some(state) = read_state(&r.file) else {
@@ -729,13 +827,16 @@ pub fn record(home: &Path, r: &Record) -> Result<Vec<String>, i32> {
     if r.stop.came() {
         return Err(STOPPED);
     }
-    if !r.attempt.is_empty() && !on_record(home, r, &state) {
+    // Inspected once: the id the record gets is the one the container runs.
+    let seen = (!r.attempt.is_empty()).then(|| inspect(r)).flatten();
+    if !r.attempt.is_empty() && !on_record(home, r, &state, &seen) {
         return Err(4);
     }
+    let image = run_image(&seen, &env("PI_ENSEMBLE_IMAGE"));
     let mut env_words = list(&state, "env");
     let mode = if state.pointer("/comments/native") == Some(&Value::Bool(true)) {
         "native"
-    } else if crate::gives::polyfill_label(&env("PI_ENSEMBLE_IMAGE")) {
+    } else if crate::gives::polyfill_label(&image) {
         "polyfill"
     } else {
         "off"
@@ -755,26 +856,75 @@ pub fn record(home: &Path, r: &Record) -> Result<Vec<String>, i32> {
         eprintln!("tehas work: could not write {}", err.display());
     }
     let cid = file("cid").to_string_lossy().into_owned();
-    Ok(sandbox::cycle_run(&sandbox::CycleRun {
+    Ok(run_words(r, &state, &env_words, &cid, &image))
+}
+
+/// The words of the cycle's docker run, of `image`, with the environment `env_words`.
+fn run_words(
+    r: &Record,
+    state: &Value,
+    env_words: &[String],
+    cid: &str,
+    image: &str,
+) -> Vec<String> {
+    sandbox::cycle_run(&sandbox::CycleRun {
         name: &r.name,
-        limits: &list(&state, "limits"),
-        security: &list(&state, "security"),
+        limits: &list(state, "limits"),
+        security: &list(state, "security"),
         user: &sandbox::user(),
-        cid_file: &cid,
+        cid_file: cid,
         tree: &env("TEHAS_WORK_DIR"),
-        mounts: &list(&state, "mounts"),
+        mounts: &list(state, "mounts"),
         images: &r.images,
-        env: &env_words,
-        hosts: &list(&state, "hosts"),
-        image: &env("PI_ENSEMBLE_IMAGE"),
+        env: env_words,
+        hosts: &list(state, "hosts"),
+        image,
         issue: r.issue,
-        flags: &list(&state, "flags"),
-    }))
+        flags: &list(state, "flags"),
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_container_runs_the_image_its_record_got_and_the_tag_without_one() {
+        let id = format!("sha256:{}", "e".repeat(64));
+        let r = Record {
+            issue: 7,
+            file: PathBuf::new(),
+            attempt: "1".into(),
+            log: PathBuf::new(),
+            name: "tehas-7".into(),
+            stop_wait: 1,
+            text_wait: 1,
+            gap: String::new(),
+            images: Vec::new(),
+            stop: Stop(Arc::new(AtomicBool::new(false))),
+        };
+        let tag = "tehas-sandbox:latest";
+        // The image is the word before the runner, as the table of runs reads it.
+        let image = |seen: &Seen| {
+            let words = run_words(&r, &json!({}), &[], "cid", &run_image(seen, tag));
+            let at = words.iter().position(|w| w == sandbox::RUNNER).unwrap();
+            (words[at - 1].clone(), words)
+        };
+        let seen = image_of(&format!("{id} abcdef1\n"));
+        assert_eq!(seen, Some((id.clone(), Some("abcdef1".into()))));
+        let (ran, words) = image(&seen);
+        assert_eq!(ran, id);
+        assert!(!words.iter().any(|w| w == tag), "{words:?}");
+        // An inspect that fails, or prints no id, leaves the tag.
+        for text in [
+            "",
+            "Error: No such image: tehas-sandbox:latest",
+            "sha256:abc",
+        ] {
+            assert_eq!(image(&image_of(text)).0, tag, "{text}");
+        }
+        assert_eq!(image(&None).0, tag);
+    }
 
     #[test]
     fn the_deadline_keeps_the_handoff_clear_of_the_limit() {

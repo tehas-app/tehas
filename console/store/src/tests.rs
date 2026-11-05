@@ -399,8 +399,12 @@ fn every_counted_table_exists_and_every_table_of_the_schema_is_counted() {
     );
 }
 
+/// What the line of a failed integrity check says after the word, and the
+/// quick_check of an open does not.
+const INTEGRITY_FAILED: &str = "integrity check failed: ";
+
 #[test]
-fn check_says_what_failed_and_exits_1_without_moving_the_file() {
+fn check_names_a_failed_integrity_check_corrupt_and_exits_78_without_moving_the_file() {
     let home = scratch("integrity");
     init(&home, false).unwrap();
     let file = db::path(&home);
@@ -425,8 +429,8 @@ fn check_says_what_failed_and_exits_1_without_moving_the_file() {
     // offset the page has no bytes at, that row is gone from the table and its
     // entries in issues_checked remain -- the one disagreement quick_check does
     // not compare and integrity_check does. The file then opens, answers, and
-    // is ill, and no byte of it reads as malformed: the case the exit of 1 is
-    // for, as distinct from the 78 of a file no open gets through. Most leaves
+    // is ill, and no byte of it reads as malformed: only `check` sees it, and
+    // it answers 78 `corrupt` as the open of a malformed file does. Most leaves
     // of the file answer for their own damage at the quick_check of every open
     // -- a fragment or a freeblock the page never counted, which is the shape
     // of the file and the word `corrupt` -- so each leaf is asked in turn and
@@ -462,15 +466,14 @@ fn check_says_what_failed_and_exits_1_without_moving_the_file() {
         tried[entry + 1] = 0x01;
         fs::write(&file, &tried).unwrap();
         match check(&home) {
-            Err((1, err)) => {
-                assert!(err.starts_with("integrity "), "{err}");
-                assert_ne!(err, "integrity ok", "{err}");
+            Err((78, err)) if err.contains(INTEGRITY_FAILED) => {
                 bytes = tried;
                 damaged = Some(page);
                 break;
             }
-            // Some other structure of the page answered first, or nothing did:
-            // put the page back as it was and ask the next one.
+            // Some other structure of the page answered first (the quick_check
+            // of the open, which says `corrupt` without naming the integrity
+            // check), or nothing did: put the page back and ask the next one.
             Err((78, _)) | Ok(_) => fs::write(&file, &base).unwrap(),
             Err((code, err)) => panic!("unexpected {code}: {err}"),
         }
@@ -484,9 +487,13 @@ fn check_says_what_failed_and_exits_1_without_moving_the_file() {
     // file and not a lucky leftover of the search.
     fs::write(&file, &bytes).unwrap();
     match check(&home) {
-        Err((1, err)) => {
-            assert!(err.starts_with("integrity "), "{err}");
-            assert_ne!(err, "integrity ok", "{err}");
+        // 78 and the word `corrupt` first, as every database the store cannot
+        // use says, then what the integrity check found and the file.
+        Err((78, err)) => {
+            assert!(err.starts_with("corrupt the database: "), "{err}");
+            assert!(err.contains(INTEGRITY_FAILED), "{err}");
+            assert!(!err.contains("integrity check failed: ok"), "{err}");
+            assert!(err.contains(&file.display().to_string()), "{err}");
         }
         Err((code, err)) => panic!("unexpected {code}: {err}"),
         Ok(line) => panic!("the damage went unnoticed: {line}"),
@@ -1085,7 +1092,7 @@ fn migrate_writes_into_state_backup_made_0700_and_refuses_a_link_there() {
     assert_eq!(mode(&own), 0o700);
     assert_eq!(mode(&copy), 0o600);
     assert!(db::is_database(&copy));
-    fs::set_permissions(&own, fs::Permissions::from_mode(0o755)).unwrap();
+    fs::set_permissions(&own, fs::Permissions::from_mode(0o755)).unwrap(); // a directory
     migrate_at(&home, &own, 1_792_000_060).unwrap();
     assert_eq!(mode(&own), 0o700, "a state/backup/ at 0755 is settled");
 
@@ -1151,7 +1158,7 @@ fn migrate_brings_an_empty_file_to_the_schema_and_the_rows_it_lacks() {
     fs::create_dir_all(home.join("state")).unwrap();
     fs::write(db::path(&home), b"").unwrap();
     fs::set_permissions(db::path(&home), fs::Permissions::from_mode(0o644)).unwrap();
-    fs::set_permissions(home.join("state"), fs::Permissions::from_mode(0o755)).unwrap();
+    fs::set_permissions(home.join("state"), fs::Permissions::from_mode(0o755)).unwrap(); // a directory
     let line = migrate(&home, &home.join("state")).unwrap();
     let value: serde_json::Value = serde_json::from_str(&line).unwrap();
     assert_eq!(value["from"], 0, "{line}");
@@ -2256,7 +2263,7 @@ fn review_issue_refuses_a_file_it_cannot_read() {
     );
 
     let over = dir.join("over.json");
-    fs::write(&over, vec![b'x'; (1 << 20) + 1]).unwrap();
+    fs::write(&over, vec![b'x'; tehas_core::file::READ_BOUND_LEN + 1]).unwrap();
     let (code, why) = review_at(over).unwrap_err();
     assert_eq!(code, 64, "{why}");
     assert!(
@@ -2480,8 +2487,7 @@ fi
 [ "$kind" = list ] && { echo '[]'; exit 0; }
 exit 0
 "#;
-    fs::write(&bin, body).unwrap();
-    fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
+    tehas_core::testing::write_exe(&bin, body).unwrap();
     bin
 }
 

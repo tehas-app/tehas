@@ -127,7 +127,7 @@ fn budget(s: &str) -> Option<Budget> {
 }
 
 /// The most of the write log read: its end, where a poll's lines are.
-const LOG_TAIL: u64 = 1 << 20;
+const LOG_TAIL: u64 = tehas_core::file::READ_BOUND;
 const TIMES_BOUND: u64 = 4096;
 const HOUR: i64 = 3600;
 

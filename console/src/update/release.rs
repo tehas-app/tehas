@@ -1259,7 +1259,6 @@ mod tests {
 
     // A download as a release gives it, and a minisign that answers `rc`.
     fn signed(d: &super::super::testing::Dir, rc: u8) -> (String, PathBuf) {
-        use std::os::unix::fs::PermissionsExt;
         let t = "tehas-v1.2.0-linux-x86_64.tar.gz".to_string();
         d.file(&format!("dl/{t}"), "a release\n");
         let (_, sum) = output(
@@ -1270,8 +1269,8 @@ mod tests {
         d.file(&format!("dl/{t}.sha256"), &format!("{sum}\n"));
         d.file(&format!("dl/{t}.minisig"), "signed\n");
         d.file("home/release/minisign.pub", "key\n");
-        let stub = d.file("minisign", &format!("#!/bin/sh\nexit {rc}\n"));
-        fs::set_permissions(&stub, fs::Permissions::from_mode(0o755)).unwrap();
+        let stub = d.0.join("minisign");
+        tehas_core::testing::write_exe(&stub, format!("#!/bin/sh\nexit {rc}\n")).unwrap();
         (t, stub)
     }
 

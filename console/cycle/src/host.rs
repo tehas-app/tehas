@@ -40,7 +40,10 @@ use crate::runner;
 ///   comments      one word: how the image gives a retry's comments, `native`,
 ///                 `polyfill` or `off` (gives::comments_mode). Only with
 ///                 `native` or `polyfill` does a park offer the comments retry.
-pub const FILES: [&str; 13] = [
+///   disk          `cap <held> <max>` or `floor <held> <free> <floor>`, in
+///                 bytes, then the step in flight: tehas work stopped the
+///                 cycle for its scratch's disk (src/scratch.rs).
+pub const FILES: [&str; 14] = [
     "result.json",
     "progress.json",
     "runner_exit",
@@ -52,6 +55,7 @@ pub const FILES: [&str; 13] = [
     "forks",
     "stalled",
     "timed",
+    "disk",
     "stopped",
     "done",
 ];
