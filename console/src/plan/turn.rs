@@ -95,6 +95,7 @@ use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use tehas_core::plan::WHY_MAX;
 
 /// `find ! -size +1024k`: a carried file is at most this long.
 const CARRIED: u64 = 1024 * 1024;
@@ -105,8 +106,6 @@ const STOP_ON_SIGNAL: u32 = 10;
 const STOP_ON_LIMIT: u32 = 20;
 const NOTHING_STARTS: u8 = 78;
 const FAILED: u8 = 2;
-/// How much of what went wrong a turn's output keeps for the dispatcher.
-const WHY_MAX: usize = 500;
 
 fn say(line: &str) {
     let _ = writeln!(io::stdout(), "{line}");

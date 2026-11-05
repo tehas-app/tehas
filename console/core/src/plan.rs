@@ -7,6 +7,13 @@ use serde_json::Value;
 /// A GitHub comment holds 65,536 characters; the plan is cut well before.
 pub const CLIP: usize = 40_000;
 
+/// How much of the runner's reason for a failed planning turn reaches the
+/// issue: the turn cuts its own words to this length (`console/src/plan/turn.rs`)
+/// and the dispatcher cuts them again where it prints them
+/// (`console/dispatch/src/apply/plan.rs`), as the file between the two is state
+/// a person can edit. One bound, so the two cannot drift apart.
+pub const WHY_MAX: usize = 500;
+
 /// What the comment says when a person still applies the label.
 pub const APPLY_READY: &str = "This issue now holds the plan. Apply `tehas:ready` to build it.";
 
