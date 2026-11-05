@@ -3,7 +3,7 @@
 #
 # Usage:
 #   tehas dispatch [--dry-run]       one poll of the issue queue, by hand
-#   tehas work <issue> [--restart]   one cycle for an issue, by hand
+#   tehas work <issue> [--restart] [--driver lean|classic]  one cycle, by hand
 #   tehas plan <issue> ...           one turn of a planning session, by hand
 #   tehas dev [<name>]               an interactive session on the host, by hand
 #   tehas index                      build the code index the agents search
