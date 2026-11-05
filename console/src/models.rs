@@ -1,5 +1,8 @@
 //! The host's models.json as a command, the rules being tehas_core::models.
 //!
+//!   console models used
+//!     "provider model" for every pair the agents use, each once, the
+//!     subagent's first
 //!   console models keys-ok
 //!     every key is a word or a set TEHAS_MODEL_KEY_ name; else 78
 //!   console models pick <provider>
@@ -17,6 +20,12 @@ use tehas_core::models::{self, ModelFile};
 pub fn main(given: &[String]) -> u8 {
     let words: Vec<&str> = given.iter().map(String::as_str).collect();
     match words.as_slice() {
+        ["used"] => {
+            for (provider, model) in models::used() {
+                tehas_core::outln!("{provider} {model}");
+            }
+            0
+        }
         ["keys-ok"] => match models::host_keys_ok() {
             Ok(()) => 0,
             Err(why) => {
@@ -42,7 +51,7 @@ pub fn main(given: &[String]) -> u8 {
             None => 1,
         },
         _ => {
-            eprintln!("usage: console models keys-ok | pick <provider> | resolve <out>");
+            eprintln!("usage: console models used | keys-ok | pick <provider> | resolve <out>");
             64
         }
     }
