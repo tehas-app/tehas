@@ -253,7 +253,8 @@ product "${good[@]}"
 t_stub docker 'case $1 in image) exit 0 ;; run) : >"$T/calls/started"; exec sleep 5 ;; esac'
 t_run "$check --sandbox >/dev/null 2>&1 &
 pid=\$!
-until [ -e \"\$T/calls/started\" ]; do sleep 0.05; done
+n=0
+until [ -e \"\$T/calls/started\" ] || ! kill -0 \$pid 2>/dev/null || [ \$((n += 1)) -gt 600 ]; do sleep 0.05; done
 kill -TERM \$pid
 wait \$pid
 echo status \$?"

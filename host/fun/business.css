@@ -33,10 +33,7 @@ b { font-weight: 600; }
 .topbar.is-scrolled { box-shadow: var(--stripe), var(--shadow-card-up); }
 .topbar .wrap { display: flex; align-items: center; gap: clamp(28px, 3vw, 56px); min-height: 70px; }
 .mark { display: flex; align-items: center; gap: 10px; text-decoration: none; font-weight: 700; font-size: max(var(--type-small), 18px); letter-spacing: -0.055em; }
-.mark svg { display: block; width: 26px; height: 26px; }
-.mark .m-box { fill: var(--good); }
-.mark .m-glyph { fill: var(--surface); }
-.mark .m-bar { fill: var(--accent); }
+.mark img { display: block; width: 26px; height: 26px; }
 .mark small { font-weight: 500; font-size: var(--type-small); letter-spacing: 0.13em; text-transform: uppercase; color: var(--bar-quiet); border-left: var(--edge) solid var(--line); padding-left: 13px; margin-left: 2px; }
 .topbar nav { display: flex; gap: clamp(16px, 2.6vw, 34px); flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: none; }
 .topbar nav a { text-decoration: none; color: var(--bar-quiet); white-space: nowrap; font-size: max(var(--type-small), 13px); font-weight: 500; padding: 25px 0 22px; border-bottom: 2px solid transparent; }

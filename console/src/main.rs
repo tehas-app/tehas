@@ -208,6 +208,7 @@ mod mcp;
 mod models;
 mod notice;
 mod now;
+mod panel;
 mod pins;
 mod plan;
 mod platform;
