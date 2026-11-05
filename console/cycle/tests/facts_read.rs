@@ -77,7 +77,7 @@ fn a_run_log_past_the_bound_tehas_reads_is_parked_though_its_branch_has_an_open_
     // The open pull request is still named, and the retry boxes come with it.
     assert!(park.text.contains("pull/347"), "{}", park.text);
     let (_, body) = park.question(7, false);
-    assert!(body.contains("Retry from a clean start"), "{body}");
+    assert!(body.contains("Retry with the issue text only"), "{body}");
 }
 
 #[test]
@@ -132,4 +132,74 @@ fn a_result_past_the_bound_of_a_run_log_is_read_and_still_carries_its_handoff() 
     assert!(park.handoff.len() <= 30_000, "{}", park.handoff.len());
     let (_, body) = park.question(7, false);
     assert!(body.contains("## Cap hit"), "{body}");
+}
+
+/// The facts of the case with the image's word on comments, the approval of a
+/// comments retry used by this start, and the runner's result.
+fn comments_facts(mode: Option<&str>, how: &str, result: Option<Value>) -> Facts {
+    let mut c = case();
+    let attempt = c["facts"]["start"]["attempt"].clone();
+    if let Some(m) = mode {
+        c["facts"]["files"]["comments"] = json!(format!("{m}\n"));
+    }
+    c["facts"]["approval"] = json!({"current": {"used_by": attempt, "how": how,
+        "input": {"retry_context": [{"source": "issue-comment", "id": 1}]}}});
+    if let Some(r) = result {
+        c["facts"]["files"]["result.json"] = json!(r.to_string());
+    }
+    Facts::from_json(&c["facts"]).unwrap()
+}
+
+#[test]
+fn a_park_offers_the_comments_retry_only_when_the_image_gives_the_comments() {
+    use tehas_cycle::report::comments_box;
+    for (mode, offered) in [
+        (Some("native"), true),
+        (Some("polyfill"), true),
+        (Some("off"), false),
+        (None, false),
+    ] {
+        let f = comments_facts(mode, "retry-tick", None);
+        assert_eq!(comments_box(&f), offered, "{mode:?}");
+        let park = Park {
+            comments: comments_box(&f),
+            ..Park::default()
+        };
+        let (_, body) = park.question(7, false);
+        assert_eq!(
+            body.contains("- [ ] Retry with the issue and all its comments"),
+            offered,
+            "{body}"
+        );
+        assert!(body.contains("- [ ] Retry with the issue text only"));
+    }
+}
+
+#[test]
+fn the_end_comment_says_how_many_comments_the_runner_read() {
+    use tehas_cycle::report::comments_said;
+    let read = json!({"schemaVersion": 5, "comments": {"read": true, "count": 3, "bytes": 900, "dropped": 1}});
+    assert_eq!(
+        comments_said(&comments_facts(Some("native"), "retry-tick", Some(read))),
+        " The cycle was given 3 comments of the issue and its pull requests, 1 older ones left out for room."
+    );
+    let unread =
+        json!({"schemaVersion": 5, "comments": {"read": false, "reason": "sha256 mismatch"}});
+    assert_eq!(
+        comments_said(&comments_facts(Some("native"), "retry-tick", Some(unread))),
+        " The cycle's runner did not read the comments it was given: sha256 mismatch."
+    );
+    assert_eq!(
+        comments_said(&comments_facts(Some("polyfill"), "retry-tick", None)),
+        " The comments of the issue and its pull requests were given to the cycle's agents."
+    );
+    assert!(
+        comments_said(&comments_facts(Some("off"), "retry-tick", None))
+            .contains("does not read comments")
+    );
+    // Only a comments retry says anything.
+    assert_eq!(
+        comments_said(&comments_facts(Some("native"), "label", None)),
+        ""
+    );
 }
