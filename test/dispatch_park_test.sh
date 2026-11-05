@@ -143,7 +143,7 @@ for other in tehas-bot mallory ""; do
   t_run "$dispatch"
   t_eq "$(t_calls fake-start)" ""
   t_contains "$(t_calls gh)" "api -X PATCH repos/acme/widget/issues/comments/4001"
-  t_contains "$(t_calls gh)" "- [ ] Retry from the issue alone"
+  t_contains "$(t_calls gh)" "- [ ] Retry with the issue text only"
   t_contains "$(t_calls gh)" "may not answer for this factory"
 done
 
