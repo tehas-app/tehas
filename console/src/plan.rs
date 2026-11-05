@@ -49,7 +49,11 @@ const MAX_SUFFIX: usize = 13;
 const NO_TITLE: &str = "the work in .tehas/brief.md";
 const DRAFTED: &str = "Tick Update this issue to make the plan, proposals included, this issue's text, or reply to change it.";
 const DRAFTED_REFINE: &str = "Tick Update this issue to make the plan, proposals included, this issue's text, File as a new issue to file it as its own issue, or reply to change it.";
-const DUPLICATE: &str = "pi-rukas thinks this plan duplicates open work. Reply to say why it does not, or end the session.";
+/// What a drafted plan the check refuses is asked, around the rule it failed.
+const WITHHELD: &str = "Tehas does not offer this plan as the text of an issue";
+const WITHHELD_NEXT: &str =
+    "Reply to change the plan, and the next turn drafts it again, or end the session.";
+const DUPLICATE: &str ="pi-rukas thinks this plan duplicates open work. Reply to say why it does not, or end the session.";
 
 pub fn main(given: &[String]) -> u8 {
     let mut input = String::new();
@@ -207,6 +211,18 @@ pub fn outcome(
             } else {
                 format!("Open points, with the planner's proposals:\n\n{numbered}\n\n")
             };
+            // A draft the check refuses is never offered: the tick would be
+            // refused anyway, and filing it would put the same text on a new
+            // issue. The person reads why and replies, or ends the session.
+            if let Err(refused) = checked(&draft) {
+                return Ok(document(
+                    session,
+                    &format!("{said}\n\n### {title}\n\n{}", clip(&spec, "the plan")),
+                    &json!({"question": format!("{open}{WITHHELD}: {}. {WITHHELD_NEXT}", refused.line), "options": []}),
+                    &[],
+                    "",
+                ));
+            }
             let mut options = vec![
                 json!({"label": "Update this issue", "description": "make the plan above the text of this issue"}),
             ];
@@ -218,7 +234,7 @@ pub fn outcome(
                 // issue without another tick, so it is said only of a draft
                 // the checks of #1210 let through: one that says nothing of
                 // the issue is asked about, like any other draft.
-                if clear(&d, &spec) && checked(&draft).is_ok() {
+                if clear(&d, &spec) {
                     more = ",\"clear\":true";
                 }
                 DRAFTED
@@ -274,14 +290,42 @@ fn words(s: &str) -> usize {
     s.split_whitespace().count()
 }
 
+/// The conventional-commit types pi-rukas puts before the title it drafts.
+const TYPES: [&str; 11] = [
+    "feat", "fix", "chore", "docs", "test", "refactor", "perf", "build", "ci", "style", "research",
+];
+
+/// `title` without a leading conventional-commit type (`feat: `,
+/// `fix(dispatch): `, `feat!: `), which pi-rukas adds to its draft again.
+fn untyped(title: &str) -> &str {
+    let Some((head, rest)) = title.split_once(':') else {
+        return title;
+    };
+    let head = head.strip_suffix('!').unwrap_or(head);
+    let kind = match head.split_once('(') {
+        Some((kind, scope)) => match scope.strip_suffix(')') {
+            Some(scope) if !scope.contains(['(', ')']) => kind,
+            _ => return title,
+        },
+        None => head,
+    };
+    let rest = rest.trim_start();
+    if TYPES.iter().any(|t| t.eq_ignore_ascii_case(kind)) && !rest.is_empty() {
+        rest
+    } else {
+        title
+    }
+}
+
 /// What the first turn of libexec/plan plans, on one line: the issue's title,
 /// or the drafted plan's own `Title:` line when the brief opens with one, so a
-/// half of a split is named for its own work and not its parent's. The issue's
+/// half of a split is named for its own work and not its parent's, without a
+/// leading type, which the drafted title gets from pi-rukas. The issue's
 /// number goes on only when the name is too short for pi-rukas to plan from
 /// (MIN_WORDS) and still fits what pi-rukas keeps of a title (TITLE_BUDGET).
 pub fn descriptor(brief: &str, issue: &str) -> String {
-    let named = named(brief).unwrap_or("").trim();
-    let heading = heading(brief).unwrap_or("").trim();
+    let named = untyped(named(brief).unwrap_or("").trim());
+    let heading = untyped(heading(brief).unwrap_or("").trim());
     let said = if !named.is_empty() {
         named
     } else if !heading.is_empty() {
@@ -516,11 +560,11 @@ mod tests {
         }
     }
 
-    /// A draft the text check refuses is never marked `clear`, so the
-    /// dispatcher cannot write it onto the issue or credit a start for it
-    /// without a person's tick: it is asked about as any other draft is.
+    /// A draft the text check refuses is never marked `clear` and never
+    /// offered: the question says the rule, shows the open points and has no
+    /// box but the end of the session, in a plan or a refine session alike.
     #[test]
-    fn a_draft_the_check_refuses_is_never_clear() {
+    fn a_draft_the_check_refuses_is_never_clear_nor_offered() {
         let k = keep();
         let good = "## Outcome\n\nThe p95 is under 100 ms.";
         // A title of one word written twice, long enough to be no summary of
@@ -535,15 +579,43 @@ mod tests {
                 "Descriptor: what the issue is\n\n## Prior context inventory\n\n- the file",
             ),
             ("feat: faster search", "[context param]\n\n[context param]"),
+            (
+                "feat: faster search",
+                "## Deliverables\n\n1. Search is faster.\n\n- # Faster search [context param]",
+            ),
+            (
+                "feat: faster search",
+                "## Deliverables\n\n1. Search is faster.\n\n## Acceptance criteria\n\n- derive the testable outcomes from the investigation findings before /work",
+            ),
         ] {
-            let doc = json!({"text": "Drafted.", "title": title, "spec": spec, "questions": []})
-                .to_string();
-            let v = parsed(&outcome(12, "abc", &k, &doc, false).unwrap());
-            assert!(v.get("clear").is_none(), "{doc}: {v}");
-            // Still shown with its box, so the person can tick it after they
-            // have read what the check said of it.
-            assert_eq!(v["question"]["options"][0]["label"], "Update this issue");
+            let doc = json!({"text": "Drafted.", "title": title, "spec": spec,
+                "questions": [{"question": "Which index?", "resolution": "The code index."}]})
+            .to_string();
+            for refine in [false, true] {
+                let v = parsed(&outcome(12, "abc", &k, &doc, refine).unwrap());
+                assert!(v.get("clear").is_none(), "{doc}: {v}");
+                assert_eq!(v["question"]["options"], json!([]), "{doc}: {v}");
+                let asked = v["question"]["question"].as_str().unwrap();
+                assert!(asked.starts_with("Open points, with the planner's proposals:\n\n1. Which index?\n   Proposed: The code index.\n\n"), "{asked}");
+                assert!(asked.contains(&format!("{WITHHELD}: the ")), "{asked}");
+                assert!(asked.ends_with(WITHHELD_NEXT), "{asked}");
+                // The plan is still shown, so the person sees what was refused.
+                assert!(v["text"].as_str().unwrap().contains(spec), "{v}");
+                // And kept, so a hand-written tick is refused by update too.
+                assert!(k.join("draft.json").is_file());
+            }
         }
+        let doc = json!({"text": "Drafted.", "title": "feat: faster search",
+            "spec": "## Deliverables\n\n1. Search is faster.\n\n- # Faster search [context param]"})
+        .to_string();
+        let asked = parsed(&outcome(12, "abc", &k, &doc, false).unwrap())["question"]["question"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        assert_eq!(
+            asked,
+            format!("{WITHHELD}: the body echoes the planner's context: it holds lines that end in `[context param]`. {WITHHELD_NEXT}")
+        );
         // The same document with a title and a text that hold says `clear`.
         let v = parsed(&outcome(12, "abc", &k, CLEAR, false).unwrap());
         assert_eq!(v["clear"], true);
@@ -675,6 +747,41 @@ mod tests {
             descriptor("# Make it fast now then\n", "12345"),
             "Make it fast now then (issue #12345)"
         );
+    }
+
+    #[test]
+    fn a_descriptor_leaves_out_the_type_the_draft_gets_again() {
+        let long = "Give the sync captured_logs a bound of its own today";
+        for typed in [
+            "chore: ",
+            "chore:",
+            "Feat: ",
+            "fix(dispatch): ",
+            "feat!: ",
+            "refactor(plan)!: ",
+        ] {
+            let brief = format!("# {typed}{long}\n\nBody.\n");
+            assert_eq!(descriptor(&brief, "1253"), long, "{typed:?}");
+            let named = format!("Title: {typed}{long}\n");
+            assert_eq!(descriptor(&named, "1253"), long, "{typed:?}");
+        }
+        // Short once its type is off: the number goes on.
+        assert_eq!(
+            descriptor("# feat: Faster search\n", "7"),
+            "Faster search (issue #7)"
+        );
+        // Not a type: a word that is none, a colon later on, a scope that is
+        // no scope, or a type and nothing after it.
+        for kept in [
+            "EPIC: Slack channel turns explain their read-only tools",
+            "Note: the renderer for the review issue comment body",
+            "The renderer: for the review issue comment body now",
+            "fix(a(b)): the renderer for the review issue comment",
+            "fix (dispatch): the renderer for the review issue",
+        ] {
+            assert_eq!(descriptor(&format!("# {kept}\n"), "7"), kept);
+        }
+        assert_eq!(descriptor("# feat:\n", "7"), "feat: (issue #7)");
     }
 
     #[test]
