@@ -2849,7 +2849,10 @@ health have one writer, the state store's `publish`: `cycles/<issue>.json`
 `endings.json`, and `dispatch.json` and `health.json` with `health.down` when
 the poll and `tehasbot health` hand it their reports. It holds
 `~/tehas/state/publish.lock` while it writes and renames each file into place
-from a hidden temporary name, so a reader never sees half a file.
+from a hidden temporary name, so a reader never sees half a file. It removes
+the views of the cycles it did not keep before it writes anything, so a
+publish that fails on a write leaves no cycle that has ended shown as
+running.
 `tehas work`, `tehasbot cycle` after a cycle ends, `tehasbot health` and the
 poll call it. A running cycle not heard from for two minutes whose lock is
 free is shown as `lost`, and its end is kept as lost when the issue starts
