@@ -433,11 +433,15 @@ does. See [Commands](/tools).
 A cycle runs on the classic driver unless a person chooses lean for that issue
 with `tehas:lean`. The label starts nothing: `tehas:ready` still does that.
 
-Lean cannot run on this tehas yet: it waits for
-[pi-rukas#1920](https://github.com/trail-openers/pi-rukas/issues/1920). A start
-that chose it is refused and [parked](/troubleshooting#the-cycle-parked-needs-human-attention),
-and classic does not run in its place. For now the label only records the
-choice.
+A lean start runs `pi-rukas-headless work-lean` in the same container classic
+`work` gets, which needs a sandbox image of pi-rukas v0.14.47 or later
+([pi-rukas#1920](https://github.com/trail-openers/pi-rukas/issues/1920)). On an
+image that cannot run it, the start is refused and
+[parked](/troubleshooting#the-cycle-parked-needs-human-attention), and classic
+does not run in its place. Whether lean merges is the product's
+`.pi/work.json` `autoMerge`, which tehas leaves alone. A lean start is never a
+refresh: no `--continue-pr`. By hand, `tehas work <issue> --driver lean` runs
+lean without the label ([tehas work](/tools#tehas-work)).
 
 - It counts only from an account in `TEHAS_ALLOWED_LABELERS`, read from the
   label's events. The millwright's does not count.

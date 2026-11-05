@@ -13,6 +13,7 @@ empty one above it.
 
 ### Changes
 
+- A start whose approval says driver `lean` (`tehas:lean`) runs `pi-rukas-headless work-lean` instead of being refused, and `tehas work <issue> --driver lean|classic` picks the driver by hand. The image is checked for the `work-lean` flags, `leanHandoffHost`, `leanDeadline` and `workLeanResultSchema` 5; one without them, or a lean restart or refresh, is 78 and parks, and classic never runs in lean's place. `.pi/lean-state/` is excluded in a cycle's workspace.
 - The health file has `checks.mcp`: whether the MCP server is on, installed and answers a `POST /mcp` with no key (#1418). A server that is on and does not answer makes the health `warn`, so `/health` tells a stopped MCP server from a factory that is gone.
 - An allowed account is its login and its GitHub user id, not the login alone. `install.sh` and `tehas update` record the id of each login of `TEHAS_ALLOWED_LABELERS` and `TEHAS_MILLWRIGHT_LOGIN` in `~/tehas/state/account-ids`, and a label, retry tick, planning answer or comment counts only when its account carries that id. A login that was renamed and registered by someone else authorises nothing. A login that does not resolve, or whose id changed, stops both with 78 and names it; `tehas update --accept-id <login>` records the new id (#1493).
 - `bin/tehas` and `bin/tehasbot` are a few lines that run the console, which chooses the command, prints the usage and refuses an unknown one. With no console every command but `tehas setup` stops with 78 and one line, `tehas: no console at <path>: run install.sh`; `tehas top` and `tehas export` ended 1 there before. `tehas index` asks `tehas-cycle` for the checkout and the branch, and `lib/config.sh` loses `tehas_checkout` and `tehas_branch` (#1346).
@@ -44,6 +45,17 @@ empty one above it.
 - `scripts/tag-release.sh` moves every pinned tool to the newest minor and patch of its major before it tags: `host/versions.env`, `host/npm/` and `host/sandbox/npm/`, each with its checksum, digest or lockfile, from the tool's own source (`scripts/pins.sh`, `console pins`). When anything moves it opens a pull request on `pins-<tag>` and tags after that is merged; a later major is listed under `### Held back` for a person. A move that fails stops the release; `--no-pins` skips it. The release that makes the move needs cargo, curl, tar and npm where it runs.
 
 ### Adopter action
+
+To run lean, rebuild the sandbox image on pi-rukas v0.14.47 or later. A
+lean start on an older image parks with what the image lacks.
+
+`console flags pause show` and `console flags pause read` are gone: a script
+which called one of them now gets 64 and the usage. The words of the flag are
+what `tehas status` prints, and the object is what `tehasbot status` publishes
+in `live/status.json` under `pause.flag`.
+
+A filter, script or search that looks for `STUCK: ` in pull request titles
+now looks for `HALT: `.
 
 Run `tehas update` (or `./install.sh`) once with GitHub reachable: until the
 user ids are recorded, no label, tick, answer or comment of an allowed account

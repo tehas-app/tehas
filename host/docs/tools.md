@@ -13,7 +13,7 @@ There are two commands on `PATH`, both in `~/tehas/bin`:
 
 ```
 tehas dispatch [--dry-run]       # one poll of the issue queue, by hand
-tehas work <issue> [--restart]   # one cycle for an issue, by hand
+tehas work <issue> [--restart] [--driver lean|classic]   # one cycle for an issue, by hand
 tehas plan <issue> ...           # one turn of a planning session, by hand
 tehas dev [<name>]               # an interactive session on the host, by hand
 tehas index                      # build the code index the agents search
@@ -722,12 +722,17 @@ The preview page shows the prefix too, as it shows the title.
 One pi-rukas `/work` cycle, headless, in the sandbox image.
 
 ```
-tehas work <issue> [--restart]
+tehas work <issue> [--restart] [--driver lean|classic]
 ```
 
 The container's command is pi-rukas's one-shot runner,
 `/opt/pi-rukas/bin/pi-rukas-headless work <issue> --timeout <minutes> --json`,
-with `--restart` added for `--restart`. The runner is given
+with `--restart` added for `--restart`. On driver lean the verb is `work-lean`
+in place of `work`, with the same flags, mounts and variables. The driver is
+the one the start's approval binds (`tehas:lean`, see
+[Choosing the driver](/operating#choosing-the-driver)), else classic.
+`--driver` names it by hand and wins over the approval's; any other word is
+exit 64. The runner is given
 `TEHAS_WORK_TIMEOUT` in whole minutes and stops itself there; a runner that
 has not stopped `TEHAS_WORK_GRACE` seconds (300) later is stopped with
 `docker stop`. `tehas work` waits for the runner to exit and reads nothing
@@ -739,12 +744,14 @@ of `tehas work` is the watch of `tehas-cycle work`, which `libexec/work` execs
 once it holds the issue's lock: the same process and the same lock start the
 container, watch it to its end and leave the cycle's notes.
 
-A start whose approval says driver `lean` stops first, with exit 78, the note
-`state/cycles/<issue>.lean-refused` and a line that says this tehas cannot run
-the lean driver yet and to take `tehas:lean` off. It starts no container, moves
-nothing and does not run classic in its place. `tehasbot cycle` reads the note
-and parks the issue as a start that never ran: its approval goes with the
-report, so nothing starts it again on its own. Any other 78 is a stopped cycle.
+A lean start on an image that cannot run it as asked stops with exit 78, the
+note `state/cycles/<issue>.lean-refused` and the lines below, which end
+`(driver lean, work-lean; it does not run classic in its place)`. It starts no
+container and moves nothing. `tehasbot cycle` reads the note and parks the
+issue as a start that never ran: its approval goes with the report, so nothing
+starts it again on its own. Any other 78 is a stopped cycle. A lean run is
+bounded by the same `TEHAS_WORK_TIMEOUT` and deadline as classic; its `ci`
+step waits on the pull request's checks inside that limit.
 
 Before anything is moved or fetched, it asks the image what it supports,
 `pi-rukas-headless --capabilities`. The cycle starts only when the image speaks
@@ -754,7 +761,11 @@ is an input the image lists for a host to set (scope `cycle` or `sandbox`; a
 family such as `PI_ENSEMBLE_MODEL_<ROLE>` covers the members the image lists
 for it, or any name when it lists none, as v0.12.80 does), and the answer's
 `features` say `true` for `handoffChannel`, for `cycleDeadline` when the cycle
-has a deadline and for `restartClearsAttention` with `--restart`. Anything else
+has a deadline and for `restartClearsAttention` with `--restart`. On driver
+lean the flags are checked against the `work-lean` verb, the features are
+`leanHandoffHost` and `leanDeadline`, and `workLeanResultSchema` must be 5. A
+lean `--restart` or refresh (`--continue-pr`) is refused unless the image lists
+the flag for `work-lean`, which v0.14.47 to v0.14.53 do not. Anything else
 is exit 78, with what is not supported named:
 
 ```
