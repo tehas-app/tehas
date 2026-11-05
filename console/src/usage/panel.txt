@@ -1,0 +1,36 @@
+tehas panel: the pages of the project the dashboard links, such as a support
+chat or a status page.
+
+Usage: tehas panel [--json]                         list the panels
+       tehas panel set <id> --label TEXT --url URL  add a panel, or replace it
+       tehas panel clear <id>                       take a panel away
+       tehas panel -h|--help                        print this text and exit 0
+
+Each panel is one item in the dashboard's menu. Pressing it opens the page in
+a dock at the side, in a sandboxed frame, with a link to open it in a new tab.
+The dashboard asks the page's host for nothing until a person presses it. tehas
+knows the label and the URL, nothing else.
+
+  id     a-z, 0-9 and -, 1 to 32 characters. set on an id that is there
+         replaces it, in its place
+  label  one line, 1 to 24 characters. A control character becomes a space
+  url    https:// or http://, a host, no user or password, at most 512
+         characters, and not on TEHAS_DOMAIN: the frame shares nothing with
+         the dashboard only on another origin. A sibling name such as
+         support.<domain> is another origin and is fine
+
+At most 4 panels. The list is $TEHAS_HOME/state/panels.json, mode 600, and the
+same object is published to $TEHAS_HOME/live/panels.json, which is public, as
+all of live/ is: a URL holds no secret. With no panels both files are gone.
+
+  {"api":1,"panels":[{"id":"support","label":"Ask us","url":"https://support.example.org/f/acme"}]}
+
+set and clear print the list as it then is. Both are safe to repeat, and clear
+of an id that is not there is fine. Reading makes no network call.
+
+Exit: 0 done; 1 the list could not be read or written; 64 a bad argument, a
+fifth panel or a url on TEHAS_DOMAIN, which write nothing; 78 the instance
+settings are missing or malformed, which write nothing.
+
+Instance settings (lib/config.sh): TEHAS_DOMAIN, when it is set, is the domain
+a url may not be on.

@@ -162,7 +162,8 @@ t_stub gh '
 sleep 1
 echo "[]"'
 t_run "$status & p=\$!
-until [ -e \"\$T/gh-started\" ]; do sleep 0.1; done
+n=0
+until [ -e \"\$T/gh-started\" ] || ! kill -0 \$p 2>/dev/null || [ \$((n += 1)) -gt 300 ]; do sleep 0.1; done
 kill -TERM \$p
 wait \$p"
 t_eq "$t_rc" 143

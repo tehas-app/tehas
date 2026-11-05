@@ -322,6 +322,8 @@ An issue labelled `tehas:improvement` and `cross-project` together is not starte
 
 An epic is never started: an issue with open sub-issues is a plan broken into issues, not a change one cycle can make, and a cycle on it spends a slot and its tokens before it parks as too large. When `tehas:ready` is applied to such an issue, the dispatcher takes the label off, says so in one comment and starts nothing; a retry ticked on one starts nothing and the log says why. The count comes from the issue GitHub already answers for, so a GitHub without sub-issues is unaffected. Read the plan and apply `tehas:ready` to one of its sub-issues instead; a sub-issue with no open sub-issues of its own is started as any other issue. A `tehas:plan` session on an epic is allowed: planning an epic is what it is for. With `TEHAS_MILLWRIGHT_EPICS=1` and a millwright, your `tehas:ready` on an epic is not lost: it approves the epic's open sub-issues for [the millwright](#the-millwrights-grant), which plans each one that needs it and applies `tehas:ready` to it, and the comment says so. Close the epic, or put `needs-human-attention` on it, to take that back.
 
+An open issue whose title starts with an epic marker gets the `epic` label at the next poll, so the board says what it is. The marker is the word `epic` in any case at the very start of the title, or after one opening bracket, followed by `:`, a closing bracket or a space: `EPIC: Billing rework`, `Epic: ...`, `(Epic) ...` and `[EPIC] ...` match; `feat: WS-A child of epic 412: ...`, `Epicenter map` and `epics view polish` do not, so a part that names its epic is never labelled as one. tehas only adds the label. Take it off an issue and tehas leaves it off: the poll reads the issue's label events, and a removal by any account but the bot's is final. The control issue is never labelled, and a paused poll labels nothing. The label is for people: what makes an epic for the dispatcher and the epics panel is still GitHub's sub-issue links, so a labelled issue with no sub-issues is started as any other issue and is not on the panel. `tehasbot health` warns about such an issue, the common miss when a plan's parts were filed and never linked: open the epic and add its parts as sub-issues. Run `tehas labels` once after an update so the label exists.
+
 With `TEHAS_SIZE_MAX_FILES` set on the instance, an issue whose own body names more files than that number is not started either. The dispatcher reads the count off the approved text itself: a path is what stands between two ticks and holds a `/` or ends in `.sh`, `.rs`, `.md`, `.json`, `.toml` or `.yml`, and one path counts once however often it is written. Such an issue is a stack of changes wearing the shape of one issue, and a cycle on it spends its explore and its plan before it parks. The dispatcher takes `tehas:ready` off, puts `needs-human-attention` on, and says the count, the setting and the way out in one comment: narrow the issue to the part one cycle can make, or split it into issues of that size, then apply `tehas:ready` to one of them. The hold belongs to `tehas:ready` alone, so it holds nothing else back: a ticked retry, a refresh of the bot's own pull request and a `tehas:plan` session start as they did. Unset, the dispatcher never asks, and a wide issue starts as any other.
 
 | Label on the issue      | Meaning                           | Your move                                |
@@ -1238,6 +1240,29 @@ drain.
 
 A program that drives factories uses the same commands: see
 [the factory API](/api).
+
+## Panels on the dashboard
+
+A panel puts a page of the project on the dashboard: a support chat, a status
+page, a feedback form, a manual kept elsewhere. It is an item in the menu of
+both front pages; pressing it opens the page in a dock at the side, full screen
+on a phone, with a link to open it in a new tab.
+
+```
+tehas panel set support --label "Ask us" --url https://support.example.org/f/acme
+tehas panel                  # what is set
+tehas panel clear support    # take it away
+```
+
+Up to four. The URL is public, as everything the dashboard reads is, so it holds
+no secret. It may not be on the factory's own domain, `TEHAS_DOMAIN`, because
+the frame would then share the dashboard's origin; a name under it, such as
+`support.<domain>`, is fine. The dashboard asks the page for nothing until a
+person presses the item, and passes it nothing but the URL. A page that refuses
+to be framed shows an empty dock; its new-tab link still works.
+
+A program sets panels with the same command: see
+[the factory API](/api#tehas-panel).
 
 ## Reading what ended
 
