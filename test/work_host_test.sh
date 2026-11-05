@@ -141,7 +141,6 @@ t_eq "$(jq -r .last.step "$T/home/tehas/live/running.json")" develop
 # Neither command writes to a process through a fifo any more: both run the
 # headless runner as the container's command.
 t_case "no command writes to Pi through a fifo"
-t_eq "$(grep -c '>&4' "$T_ROOT/libexec/work")" 0
 t_eq "$(grep -c '>&4' "$T_ROOT/libexec/plan")" 0
 
 t_case "without a console the command stops with 78 and publishes nothing of the cycle"

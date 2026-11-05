@@ -26,8 +26,9 @@
 //! agent runs here on a timer with no person in front of it: a weekly run says 78
 //! for an instance that could not review rather than exiting 0 on it.
 //!
-//! What runs here hands no descriptor to a child, so nothing here needs a
-//! close-on-exec cleared. libexec/index does, which is why it stays bash.
+//! tehasbot cycle, tehas work and tehas index are `tehas-cycle` beside this
+//! program, by exec under the settings. It takes the command's lock itself and
+//! hands it down to what it starts (console/cycle/src/lock.rs).
 //!
 //! Exit: the command's; 2 an argument that is not UTF-8; 64 usage; 78 the
 //! settings are missing or malformed.
@@ -186,6 +187,50 @@ fn preview_run(rest: &[String], settle: OsString) -> u8 {
     preview::main(&[mode.to_string()])
 }
 
+/// `tehas-cycle <verb>` beside this program, with the words of the command.
+/// No program there is 78 before anything runs.
+fn cycle_program(libexec: &str, who: &str, words: &[String]) -> u8 {
+    let program = format!("{libexec}/tehas-cycle");
+    if !a_program(Path::new(&program)) {
+        eprintln!("{who}: no tehas-cycle at {program} (run install.sh)");
+        return 78;
+    }
+    let failed = Command::new(&program).args(words).exec();
+    eprintln!("{who}: {program} cannot run (run install.sh): {failed}");
+    78
+}
+
+/// What a name the tests set says, else the install's own.
+fn or_var(name: &str, own: String) -> String {
+    Some(var(name)).filter(|v| !v.is_empty()).unwrap_or(own)
+}
+
+/// tehasbot cycle <issue>: tehas work is bin/tehas work, which loads the
+/// settings again, and the status is tehasbot status.
+fn cycle_run(libexec: &str, issue: &str) -> u8 {
+    let mut words: Vec<String> = ["cycle", issue, "--work"].map(String::from).to_vec();
+    match var("TEHAS_WORK_CMD") {
+        cmd if cmd.is_empty() => words.extend([
+            format!("{libexec}/../bin/tehas"),
+            "--work-arg".into(),
+            "work".into(),
+        ]),
+        cmd => words.push(cmd),
+    }
+    words.push("--status-cmd".into());
+    match var("TEHAS_STATUS_CMD") {
+        cmd if cmd.is_empty() => words.extend([
+            format!("{libexec}/../bin/tehasbot"),
+            "--status-arg".into(),
+            "status".into(),
+        ]),
+        cmd => words.push(cmd),
+    }
+    words.push("--console".into());
+    words.push(or_var("TEHAS_CONSOLE_CMD", format!("{libexec}/console")));
+    cycle_program(libexec, "tehasbot cycle", &words)
+}
+
 fn init_product(rest: &[String]) -> Result<u8, u8> {
     let words: Vec<String> = std::iter::once(branch()?)
         .chain(rest.iter().cloned())
@@ -219,6 +264,20 @@ fn command(libexec: &str, uid: &str, bash: &str, words: &[String]) -> Result<u8,
         ["tehas", "check-product"] => product::check(rest),
         ["tehas", "init-product"] => init_product(rest)?,
         ["tehas", "plan"] => plan::start(libexec, rest),
+        ["tehas", "work"] => {
+            let (issue, more) = rest.split_first().ok_or(64u8)?;
+            let mut words = vec!["work".to_string(), issue.clone()];
+            words.extend(["--console".to_string(), format!("{libexec}/console")]);
+            words.extend(more.iter().cloned());
+            cycle_program(libexec, "tehas work", &words)
+        }
+        ["tehas", "index"] => {
+            let words: Vec<String> = std::iter::once("index".to_string())
+                .chain(rest.iter().cloned())
+                .collect();
+            cycle_program(libexec, "tehas index", &words)
+        }
+        ["tehasbot", "cycle"] => cycle_run(libexec, rest.first().ok_or(64u8)?),
         ["tehas", _] => commands::tehas(&words[1..]),
         ["tehasbot", "clean"] => clean_run(rest)?,
         ["tehasbot", "dispatch"] => dispatch(bash, libexec, rest)?,

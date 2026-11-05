@@ -45,10 +45,11 @@ t_console || t_bad "no console: $t_console_why"
 shim=$T/shim
 mkdir -p "$shim/libexec"
 ln -s "$T_ROOT/lib" "$shim/lib"
-for c in plan review index dev check-product improve; do
+for c in plan review dev check-product improve; do
   ln -s "$T_ROOT/libexec/$c" "$shim/libexec/$c"
 done
 cp "$T_CONSOLE" "$shim/libexec/console"
+t_verb "$shim/libexec/index" tehas index
 # shellcheck disable=SC2154  # t_cycle_why is set by t_cycle (test/lib.sh)
 t_cycle || t_bad "no tehas-cycle: $t_cycle_why"
 cp "$T_CYCLE" "$shim/libexec/tehas-cycle"

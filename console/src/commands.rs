@@ -283,6 +283,22 @@ pub fn check(given: &[String]) -> u8 {
             product_words(rest, "--dry-run", "tehas init-product [--dry-run]")
         }
         ["tehas", "plan"] => crate::plan::turn_words(rest).map(|_| ()),
+        ["tehas", "work"] => issue_words(
+            rest.first(),
+            "usage: tehas work <issue-number> [--restart] [--driver lean|classic]",
+        ),
+        ["tehas", "index"] => match rest {
+            [] => Ok(()),
+            [w] if w == "--before-cycle" => Ok(()),
+            _ => {
+                eprintln!("usage: tehas index [--before-cycle]");
+                Err(64)
+            }
+        },
+        ["tehasbot", "cycle"] => match rest {
+            [n] => issue_words(Some(n), "usage: tehasbot cycle <issue>"),
+            _ => issue_words(None, "usage: tehasbot cycle <issue>"),
+        },
         ["tehasbot", "clean"] => clean_words(rest),
         ["tehasbot", "dispatch"] => dispatch_words(rest),
         ["tehasbot", "github-token"] => github::words(rest).map(|_| ()),
@@ -294,19 +310,31 @@ pub fn check(given: &[String]) -> u8 {
     said.err().unwrap_or(0)
 }
 
+/// An issue's number, as the factory writes one: no sign, no leading zero.
+fn issue_words(word: Option<&String>, usage: &str) -> Result<(), u8> {
+    let number = word.is_some_and(|w| {
+        !w.is_empty() && !w.starts_with('0') && w.bytes().all(|b| b.is_ascii_digit())
+    });
+    if number {
+        return Ok(());
+    }
+    eprintln!("{usage}");
+    Err(64)
+}
+
 /// The settings a command cannot run without.
 pub fn required(given: &[String]) -> &'static [&'static str] {
     let words: Vec<&str> = given.iter().take(2).map(String::as_str).collect();
     match words[..] {
-        ["tehas", "api" | "check-product" | "export" | "history" | "init-product" | "labels"]
-        | ["tehasbot", "preview"] => &["TEHAS_REPO"],
+        ["tehas", "api" | "check-product" | "export" | "history" | "index" | "init-product" | "labels"]
+        | ["tehasbot", "cycle" | "preview"] => &["TEHAS_REPO"],
         ["tehas", "resume"] | ["tehasbot", "status"] => &[
             "TEHAS_REPO",
             "TEHAS_CONTROL_ISSUE",
             "TEHAS_ALLOWED_LABELERS",
         ],
         ["tehasbot", "clean" | "dispatch" | "refresh" | "review"] => &INSTANCE_SETTINGS,
-        ["tehas", "plan"] | ["tehasbot", "improve"] => &[
+        ["tehas", "plan" | "work"] | ["tehasbot", "improve"] => &[
             "TEHAS_REPO",
             "PI_ENSEMBLE_SUBAGENT_MODEL",
             "PI_ENSEMBLE_SUBAGENT_PROVIDER",
@@ -331,6 +359,7 @@ pub fn text(command: &str) -> Option<&'static str> {
         "drain" => include_str!("usage/drain.txt"),
         "export" => include_str!("usage/export.txt"),
         "history" => include_str!("usage/history.txt"),
+        "index" => include_str!("usage/index.txt"),
         "init-product" => include_str!("usage/init-product.txt"),
         "labels" => include_str!("usage/labels.txt"),
         "limit" => include_str!("usage/limit.txt"),
@@ -347,6 +376,7 @@ pub fn text(command: &str) -> Option<&'static str> {
         "stop" => stop::USAGE,
         "top" => include_str!("usage/top.txt"),
         "update" => include_str!("usage/update.txt"),
+        "work" => include_str!("usage/work.txt"),
         _ => return None,
     })
 }

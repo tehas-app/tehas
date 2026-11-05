@@ -111,13 +111,11 @@ files="./.bashrc
 ./tehas/libexec/check-product
 ./tehas/libexec/console
 ./tehas/libexec/console.stamp
-./tehas/libexec/cycle
 ./tehas/libexec/dev
 ./tehas/libexec/dev-login
 ./tehas/libexec/dispatch
 ./tehas/libexec/github-token
 ./tehas/libexec/improve
-./tehas/libexec/index
 ./tehas/libexec/plan
 ./tehas/libexec/review
 ./tehas/libexec/setup
@@ -130,7 +128,6 @@ files="./.bashrc
 ./tehas/libexec/tehas-mcp
 ./tehas/libexec/tehas-mcp.stamp
 ./tehas/libexec/update
-./tehas/libexec/work
 ./tehas/release/minisign.pub
 ./tehas/sandbox/Dockerfile
 ./tehas/sandbox/build.sh

@@ -45,13 +45,15 @@
 //!                                     "body": <the body to write>,
 //!                                     "say": <a repeat's words for the park>}
 //!                                     (src/last_attempt.rs)
-//!   tehas-cycle cycle <issue> --work <path> --status-cmd <path>
-//!       [--status-arg <word>]... --console <path>
-//!                                     libexec/cycle execs this under the lock:
-//!                                     the start on record, what the number is,
-//!                                     tehas work to its end and the report
-//!                                     (src/supervise.rs). Exits as tehasbot
-//!                                     cycle does
+//!   tehas-cycle cycle <issue> --work <path> [--work-arg <word>]...
+//!       --status-cmd <path> [--status-arg <word>]... --console <path>
+//!                                     tehasbot cycle, which the console execs
+//!                                     with the settings loaded: the issue's
+//!                                     lock, waited for 5 s (3 when another
+//!                                     holds it), the start on record, what
+//!                                     the number is, tehas work to its end and
+//!                                     the report (src/supervise.rs). Exits as
+//!                                     tehasbot cycle does
 //!   tehas-cycle run <issue>           what tehas-cycle@.service starts:
 //!                                     copy the install's code for this
 //!                                     cycle and run tehasbot cycle from the
@@ -204,23 +206,28 @@
 //!   tehas-cycle settings <file> <count> [<docker options>...]
 //!                                     write what a cycle ran with to <file>
 //!   tehas-cycle work <issue> --console <path> [--restart] [--driver lean|classic]
-//!                                     tehas work, which libexec/work execs
-//!                                     with the settings loaded and the
-//!                                     issue's lock as fd 9: the start held to
-//!                                     its approval, the issue's files, the
+//!                                     tehas work, which the console execs
+//!                                     with the settings loaded: the issue's
+//!                                     lock, or the one tehasbot cycle handed
+//!                                     down (5 when another holds it), the
+//!                                     start held to its approval, the issue's files, the
 //!                                     workspace, the container watched to its
 //!                                     end and the cycle's notes
 //!                                     (src/work.rs). Exits as tehas work does
 //!   tehas-cycle index [--before-cycle]
-//!                                     the same at the tip of the product's
+//!                                     tehas index, which the console execs
+//!                                     with the settings loaded: the run
+//!                                     below at the tip of the product's
 //!                                     branch the checkout last fetched; 78
 //!                                     for a checkout of another repository
 //!                                     or a branch it does not know
 //!   tehas-cycle index <branch> <commit> [--before-cycle]
 //!                                     one run of the code indexer at <commit>,
-//!                                     the tip of <branch>, under the lock
-//!                                     libexec/index holds (src/index.rs).
-//!                                     Exit 0, 1, 3, 78 as that command says
+//!                                     the tip of <branch>, under
+//!                                     state/index.lock, which its docker
+//!                                     client inherits (src/index.rs). 3 when
+//!                                     another run holds it. Exit 0, 1, 3, 78
+//!                                     as tehas index says
 //!   tehas-cycle index table           its row of the table of runs
 //!   tehas-cycle -h|--help             print this text
 //!
@@ -254,11 +261,12 @@
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 use tehas_cycle::after::{self, After};
 use tehas_cycle::host::Start;
 use tehas_cycle::last_attempt::{self, Action};
 use tehas_cycle::report::{last_attempts, to_json, Given};
-use tehas_cycle::{apply, finish, pin, progress, renew, report};
+use tehas_cycle::{apply, finish, lock, pin, progress, renew, report};
 use tehas_cycle::{caps, clock, improve, index, runner, sandbox, start, supervise, work, Facts};
 
 fn usage() -> String {
@@ -300,11 +308,11 @@ fn main() {
         ["-h" | "--help"] => tehas_core::outln!("{}", usage()),
         ["report", file] => print_report(file),
         ["index", "table"] => tehas_core::outln!("{}", index::table()),
-        ["index"] => std::process::exit(index::here(false).into()),
-        ["index", "--before-cycle"] => std::process::exit(index::here(true).into()),
-        ["index", branch, base] => std::process::exit(index::main(branch, base, false).into()),
+        ["index"] => index_verb(&home, || index::here(false)),
+        ["index", "--before-cycle"] => index_verb(&home, || index::here(true)),
+        ["index", branch, base] => index_verb(&home, || index::main(branch, base, false)),
         ["index", branch, base, "--before-cycle"] => {
-            std::process::exit(index::main(branch, base, true).into())
+            index_verb(&home, || index::main(branch, base, true))
         }
         ["sandbox", ..] => match sandbox::main(&args[1..]) {
             Some(status) => std::process::exit(status),
@@ -441,11 +449,31 @@ fn main() {
     }
 }
 
-/// The words of a cycle's supervision.
+/// One run of the indexer under state/index.lock, which its docker client
+/// inherits: a client that outlives the run still writes the index.
+fn index_verb(home: &Path, run: impl FnOnce() -> u8) -> ! {
+    let state = home.join("state");
+    let _ = std::fs::create_dir_all(&state);
+    let held = match lock::take(&state.join("index.lock"), Duration::ZERO) {
+        Ok(Some(f)) => f,
+        Ok(None) => {
+            eprintln!("tehas index: another index run holds its lock, nothing was indexed; run it again in a moment");
+            std::process::exit(3)
+        }
+        Err(e) => fail(e),
+    };
+    lock::hand_down(&held).unwrap_or_else(|e| fail(e));
+    std::process::exit(run().into());
+}
+
+/// The words of a cycle's supervision. The store is asked for before the
+/// lock is opened, and the lock is waited for up to five seconds: a second
+/// start of the same issue is 3.
 fn cycle_verb(home: &Path, n: u64, args: &[String], rest: &[&str]) -> ! {
     let mut g = supervise::Given {
         issue: n,
         work: String::new(),
+        work_args: Vec::new(),
         status_cmd: String::new(),
         status_args: Vec::new(),
         console: String::new(),
@@ -455,6 +483,7 @@ fn cycle_verb(home: &Path, n: u64, args: &[String], rest: &[&str]) -> ! {
         let v = it.next().unwrap_or_else(|| wrong(args)).to_string();
         match *flag {
             "--work" => g.work = v,
+            "--work-arg" => g.work_args.push(v),
             "--status-cmd" => g.status_cmd = v,
             "--status-arg" => g.status_args.push(v),
             "--console" => g.console = v,
@@ -464,6 +493,24 @@ fn cycle_verb(home: &Path, n: u64, args: &[String], rest: &[&str]) -> ! {
     if g.work.is_empty() || g.status_cmd.is_empty() || g.console.is_empty() {
         wrong(args);
     }
+    if !work::store_ready(home) {
+        after::log("ERROR: the state store is not installed (run install.sh)");
+        std::process::exit(78);
+    }
+    let cycles = home.join("state/cycles");
+    let _ = std::fs::create_dir_all(&cycles);
+    let _ = std::fs::create_dir_all(home.join("logs"));
+    // tehas work and the docker client it starts inherit this lock. If this
+    // process is killed outright the place stays taken until they are gone too.
+    let held = match lock::take(&cycles.join(format!("{n}.lock")), Duration::from_secs(5)) {
+        Ok(Some(f)) => f,
+        Ok(None) => {
+            after::log(&format!("a cycle for #{n} is already running"));
+            std::process::exit(3)
+        }
+        Err(e) => fail(e),
+    };
+    lock::hand_down(&held).unwrap_or_else(|e| fail(e));
     std::process::exit(supervise::run(home, &g));
 }
 
@@ -493,6 +540,26 @@ fn work_verb(home: &Path, n: u64, args: &[String], rest: &[&str]) -> ! {
     if g.console.is_empty() || !home.is_absolute() {
         wrong(args);
     }
+    // Under tehasbot cycle the lock comes down already held. Taken here, it is
+    // handed down: every program of the cycle, the docker client among them,
+    // holds it, so a run by hand and the unit's cycle never share a workspace.
+    let path = home.join(format!("state/cycles/{n}.lock"));
+    let _ = std::fs::create_dir_all(home.join("state/cycles"));
+    let _held = if lock::held_here(&path) {
+        None
+    } else {
+        match lock::take(&path, Duration::ZERO) {
+            Ok(Some(f)) => {
+                lock::hand_down(&f).unwrap_or_else(|e| fail(e));
+                Some(f)
+            }
+            Ok(None) => {
+                eprintln!("tehas work: a cycle for #{n} is running, not starting another");
+                std::process::exit(5)
+            }
+            Err(e) => fail(e),
+        }
+    };
     std::process::exit(work::run(home, &g));
 }
 

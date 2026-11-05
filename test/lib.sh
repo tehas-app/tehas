@@ -772,6 +772,15 @@ t_console() {
   fi
   cp "$T_TARGET/debug/console" "$T_CONSOLE"
 }
+# t_verb <path> tehas|tehasbot <command>: a program at <path> that runs the
+# command as bin/tehas and bin/tehasbot do, through `console run` with the
+# directory the program is called from as libexec. tehasbot cycle, tehas work
+# and tehas index have no script: the console execs tehas-cycle beside it.
+t_verb() {
+  t_console || return 1
+  printf '%s\n' "#!$T_BASH" "exec \"$T_CONSOLE\" run \"\$(cd \"\${0%/*}\" && pwd)\" \"\$EUID\" \"\$BASH\" $2 $3 \"\$@\"" >"$1"
+  chmod +x "$1"
+}
 # t_health: tehasbot health as a host runs it, bin/tehasbot above the console
 # that builds its report (console/src/health.rs), as the one command $T_HEALTH.
 # The console is beside it, as on a host. The commands are copies, not symlinks, so they find their

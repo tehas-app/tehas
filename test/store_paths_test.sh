@@ -226,7 +226,7 @@ for line in 'jq -r .status' '$last.status' '.tick.status' 'run.status = x' '.sto
 done
 
 t_case "the list covers the code that is installed and run"
-t_contains "$(code)" "libexec/work"
+t_contains "$(code)" "libexec/plan"
 t_contains "$(code)" "libexec/dispatch"
 t_contains "$(code)" "lib/config.sh"
 t_contains "$(code)" "console/analytics/src/run.rs"

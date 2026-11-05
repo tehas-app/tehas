@@ -211,7 +211,7 @@ t_eq "$(size_lines)" "1"
 broken=$T/tree-broken
 mkdir -p "$broken/libexec"
 ln -s "$T_ROOT/lib" "$broken/lib"
-ln -s "$T_ROOT/libexec/work" "$broken/libexec/work"
+t_verb "$broken/libexec/work" tehas work
 printf '%s\n' '#!/bin/sh' '[ "$1" != size ] || { echo "{oops}"; exit 1; }' '[ "$1" != slice ] || exec "$T/console-bin" "$@"' >"$broken/libexec/console"
 chmod +x "$broken/libexec/console"
 cp "$tree/libexec/tehas-cycle" "$tree/libexec/tehas-cycle.real" "$broken/libexec/"
