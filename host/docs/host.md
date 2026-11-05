@@ -747,7 +747,7 @@ with one of these words:
 The store never moves a damaged file aside. Read what the database holds with:
 
 ```
-TEHAS_HOME=~/tehas ~/tehas/libexec/store check
+tehas state check
 ```
 
 It prints the schema version, SQLite's integrity check and the rows in each
@@ -778,7 +778,7 @@ chmod 600 ~/tehas/state/tehas.db.new
 rm -f ~/tehas/state/tehas.db-wal ~/tehas/state/tehas.db-shm
 mv ~/tehas/state/tehas.db.new ~/tehas/state/tehas.db
 ./install.sh            # or ~/tehas/current/install.sh on a host on releases
-TEHAS_HOME=~/tehas ~/tehas/libexec/store check
+tehas state check
 tehas resume
 ```
 
