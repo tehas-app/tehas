@@ -716,8 +716,8 @@ t_contains "$t_out" "TEHAS_ANALYTICS_COOKIE is not valid: expected 0 or 1"
 t_case "a command fails closed on a bad TEHAS_ANALYTICS before it calls GitHub"
 printf '%s\n' "${T_MINIMAL[@]}" TEHAS_ANALYTICS=maybe >"$TEHAS_INSTANCE_DIR/instance.env"
 t_stub gh
-for cmd in "cycle 7" dispatch; do
-  t_run "\"\$T_ROOT/libexec/\"$cmd"
+for cmd in "TEHAS_CONSOLE=$T_CONSOLE \"\$T_ROOT/bin/tehasbot\" cycle 7" "\"\$T_ROOT/libexec/dispatch\""; do
+  t_run "$cmd"
   t_eq "$t_rc" 78
   t_contains "$t_out" "TEHAS_ANALYTICS is not valid"
   t_eq "$(t_calls gh)" ""

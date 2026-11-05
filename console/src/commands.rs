@@ -605,6 +605,37 @@ mod tests {
     }
 
     #[test]
+    fn work_index_and_cycle_refuse_a_bad_word_before_the_settings() {
+        for ok in [
+            &["tehas", "work", "7"][..],
+            &["tehas", "work", "7", "--restart"],
+            &["tehas", "index"],
+            &["tehas", "index", "--before-cycle"],
+            &["tehasbot", "cycle", "12"],
+        ] {
+            assert_eq!(check(&words(ok)), 0, "{ok:?}");
+        }
+        for bad in [
+            &["tehas", "work"][..],
+            &["tehas", "work", "07"],
+            &["tehas", "work", "-7"],
+            &["tehas", "index", "--now"],
+            &["tehas", "index", "--before-cycle", "x"],
+            &["tehasbot", "cycle"],
+            &["tehasbot", "cycle", "0"],
+            &["tehasbot", "cycle", "7", "8"],
+        ] {
+            assert_eq!(check(&words(bad)), 64, "{bad:?}");
+        }
+        assert_eq!(required(&words(&["tehas", "index"])), ["TEHAS_REPO"]);
+        assert_eq!(required(&words(&["tehasbot", "cycle", "7"])), ["TEHAS_REPO"]);
+        assert_eq!(
+            required(&words(&["tehas", "work", "7"])),
+            required(&words(&["tehas", "plan"]))
+        );
+    }
+
+    #[test]
     fn every_command_has_a_text_that_names_it() {
         for command in [
             "analytics",
@@ -615,6 +646,7 @@ mod tests {
             "drain",
             "export",
             "history",
+            "index",
             "init-product",
             "labels",
             "limit",
@@ -625,13 +657,14 @@ mod tests {
             "state",
             "status",
             "update",
+            "work",
         ] {
             let text = text(command).unwrap();
             assert!(text.contains(&format!("tehas {command}")), "{command}");
             assert!(text.ends_with('\n'), "{command}");
         }
-        assert_eq!(text("work"), None);
-        assert_eq!(usage(&words(&["work"])), 64);
+        assert_eq!(text("bogus"), None);
+        assert_eq!(usage(&words(&["bogus"])), 64);
         assert_eq!(usage(&[]), 64);
     }
 }
