@@ -262,7 +262,9 @@ t_case "a second install makes no labels and enables nothing"
 rm -f "$T"/calls/*
 t_run "$install"
 t_eq "$t_rc" 0
-t_eq "$(t_calls gh)" ""
+# The user ids are asked again, and nothing else of GitHub.
+t_eq "$(t_calls gh)" "api users/alice --jq .id"
+t_eq "$(cat "$th/state/account-ids")" "alice $(t_uid alice)"
 # Only the reset of a tehas unit systemd failed, which enables nothing.
 t_eq "$(t_calls systemctl)" "--user is-failed tehas-dispatch.path
 --user reset-failed tehas-*"
@@ -289,7 +291,7 @@ t_eq "$(sed -n 2p "$T/calls/systemctl")" "--user enable --now tehas-dispatch.tim
 t_case "labels that cannot be made leave the first install owed, and the next run does it"
 fresh
 instance
-t_stub gh 'exit 1'
+t_stub gh '[ "$1" != label ] || exit 1'
 t_run "$install"
 t_eq "$t_rc" 0
 t_contains "$t_out" "later: ./install.sh again   (the first install's labels or units are not done: tehas labels failed)"
@@ -346,5 +348,29 @@ t_contains "$brief" 'the nearby files the cycle must not touch, by path'
 # The page is one of the installed manual's own: nothing planted beside it.
 t_eq "$(cd "$th/docs" && find . -type f ! -name version.txt | LC_ALL=C sort)" \
   "$(cd "$T_ROOT/host/docs" && find . -type f | LC_ALL=C sort)"
+
+t_case "a login that does not resolve stops the install with 78 before the first copy"
+fresh
+instance
+t_gh_fail 1 1 "gh: Not Found (HTTP 404)"
+t_run "$install"
+t_eq "$t_rc" 78
+t_contains "$t_out" "tehas: the login alice does not resolve to a GitHub account"
+t_contains "$t_out" "tehas: nothing was installed"
+t_eq "$([ -e "$th/bin/tehas" ] || [ -e "$th/state/account-ids" ] || echo none)" none
+
+t_case "an id that is not the recorded one stops the install with 78 and names both"
+fresh
+instance
+t_run "$install"
+t_eq "$t_rc" 0
+echo "alice 7" >"$th/state/account-ids"
+rm -f "$T"/calls/*
+t_run "$install"
+t_eq "$t_rc" 78
+t_contains "$t_out" "the login alice now has the user id $(t_uid alice), not the recorded 7"
+t_contains "$t_out" "tehas update --accept-id alice"
+t_eq "$(cat "$th/state/account-ids")" "alice 7"
+t_eq "$(t_calls systemctl)" ""
 
 t_done

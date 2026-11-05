@@ -151,6 +151,17 @@ t_run "$dispatch"
 t_eq "$(plan_calls)" ""
 t_contains "$(t_calls gh)" "api -X PATCH"
 
+t_case "a reply and a tick from a listed login with another user id run no turn"
+# The login alice changed hands: the account that answers is not the one listed.
+planning
+comments 7 "$(plan_body x ' ' ' ')" alice '[{"databaseId":4003,"author":{"login":"alice","databaseId":99},"body":"file everything","createdAt":"2026-01-01T02:00:00Z"}]'
+jq '.data.repository.issue.comments.nodes[0].editor.databaseId = 99' "$fx/comments-7.json" >"$fx/comments-7.new" &&
+  mv "$fx/comments-7.new" "$fx/comments-7.json"
+t_run "$dispatch"
+t_eq "$(plan_calls)" ""
+t_contains "$t_out" "tehas: alice acted with the user id 99, not the recorded $(t_uid alice), so it does not count"
+t_contains "$(t_calls gh)" "api -X PATCH"
+
 t_case "the way out ends the session: labels off, record gone, one comment"
 planning
 mkdir -p "$keep/images"

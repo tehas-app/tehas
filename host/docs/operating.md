@@ -233,6 +233,10 @@ compute on the issue.
   permission per label: any account that can write to
   the repository can apply any label, so the list is enforced here, at the
   next poll, and not by GitHub.
+- An allowed account is its login and its GitHub user id, as `install.sh`
+  and `tehas update` recorded them. A label from the login with another id,
+  after the login changed hands, counts as nobody's; so do a tick, an answer
+  and a comment. See [Accounts by user id](/tools#accounts-by-user-id).
 - Add **`tehas:urgent`** as well to move it ahead of other ready issues. It is
   checked like `tehas:ready`: only one applied by an allowed account moves the
   issue; one applied by the bot or anyone else is ignored and logged.
