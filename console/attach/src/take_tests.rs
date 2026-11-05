@@ -8,6 +8,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fs;
 use std::io::Write;
+use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use tehas_core::testdir::TestDir;
 
@@ -659,7 +660,7 @@ fn a_manifest_is_printed_as_jq_prints_it_with_its_keys_in_order() {
         lefts,
         json!(7),
         Ordered::Plain(Value::Null),
-        Some("retry-context.md"),
+        Some(Ordered::map([("file", Ordered::text("comments.json"))])),
     );
     let text = m.pretty();
     let v: Value = serde_json::from_str(&text).unwrap();
@@ -681,7 +682,7 @@ fn a_manifest_is_printed_as_jq_prints_it_with_its_keys_in_order() {
             "leftOut",
             "issue",
             "approval",
-            "retryContext",
+            "comments",
             "leftOutMore"
         ]
     );
@@ -779,6 +780,88 @@ fn with_a_record_only_its_links_are_taken_and_it_is_named() {
     assert_eq!(fetched, [link, file(2, "b.png")]);
     assert_eq!(m["leftOut"][0]["link"], file(3, "c.png"));
     assert_eq!(m["leftOut"].as_array().unwrap().len(), 1);
+}
+
+#[test]
+fn a_comments_retry_gets_its_blob_beside_the_images_and_in_the_manifest() {
+    let (_scratch, base) = scratch();
+    let dir = format!("{base}/images");
+    let record = format!("{base}/record.json");
+    fs::write(
+        &record,
+        json!({"at": "2026-11-04T10:12:00Z", "by": "alice", "how": "retry-tick", "links": [],
+            "retry_context": [{"source": "issue-comment", "id": 1, "by": "alice",
+                "at": "2026-11-04T10:00:00Z", "url": "u1", "text": "Use the other API."}]})
+        .to_string(),
+    )
+    .unwrap();
+    let data = json!({"author_association": "OWNER", "body": "no links"}).to_string();
+    issue(&run_of(&dir, &data, &record), &Fake::default()).unwrap();
+    assert_eq!(listing(&dir), ["comments.json", "manifest.json"]);
+    let text = fs::read_to_string(format!("{dir}/comments.json")).unwrap();
+    let m: Value =
+        serde_json::from_str(&fs::read_to_string(format!("{dir}/manifest.json")).unwrap()).unwrap();
+    assert_eq!(m["comments"]["file"], "comments.json");
+    assert_eq!(m["comments"]["bytes"], text.len());
+    assert_eq!(m["comments"]["sha256"].as_str().unwrap().len(), 64);
+    assert!(m.get("retryContext").is_none());
+    let blob: Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(blob["items"][0]["text"], "Use the other API.");
+    assert_eq!(
+        fs::metadata(format!("{dir}/comments.json"))
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777,
+        0o644
+    );
+
+    // The text-only tick: no blob, no entry.
+    fs::write(
+        &record,
+        json!({"at": "2026-11-04T10:12:00Z", "by": "alice", "how": "retry-tick", "links": []})
+            .to_string(),
+    )
+    .unwrap();
+    issue(&run_of(&dir, &data, &record), &Fake::default()).unwrap();
+    assert_eq!(listing(&dir), ["manifest.json"]);
+}
+
+#[test]
+fn with_no_images_and_no_files_the_directory_holds_the_manifest_and_the_blob() {
+    let (_scratch, base) = scratch();
+    let dir = format!("{base}/images");
+    fs::create_dir_all(&dir).unwrap();
+    fs::write(format!("{dir}/old"), "x").unwrap();
+    let record = format!("{base}/record.json");
+    fs::write(
+        &record,
+        json!({"at": "2026-11-04T10:12:00Z", "by": "alice", "how": "retry-tick",
+            "links": ["https://github.com/user-attachments/assets/1"],
+            "retry_context": [{"source": "issue-comment", "id": 1, "by": "alice",
+                "at": "2026-11-04T10:00:00Z", "url": "u1", "text": "x"}]})
+        .to_string(),
+    )
+    .unwrap();
+    let run = CommentsRun {
+        issue: "7",
+        dir: &dir,
+        record: &record,
+        repo: "acme/widget",
+        millwright: "",
+    };
+    assert_eq!(comments_only(&run), Ok((1, 0)));
+    assert_eq!(listing(&dir), ["comments.json", "manifest.json"]);
+    let m: Value =
+        serde_json::from_str(&fs::read_to_string(format!("{dir}/manifest.json")).unwrap()).unwrap();
+    assert_eq!(m["images"], json!([]));
+    assert_eq!(m["leftOut"], json!([]));
+    assert_eq!(m["issue"], 7);
+    assert_eq!(
+        m["approval"],
+        json!({"at": "2026-11-04T10:12:00Z", "by": "alice", "how": "retry-tick"})
+    );
+    assert_eq!(m["comments"]["file"], "comments.json");
 }
 
 #[test]

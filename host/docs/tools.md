@@ -30,6 +30,7 @@ tehas drain [--wait S] [--json]  # start nothing new, wait for running cycles
 tehas history [--json] [--after C] [--issue N]  # what ended, oldest first
 tehas export [--json] --after C <dir>  # copy a cycle's records, masked
 tehas state pack|unpack -        # move a stopped factory's state to another machine
+tehas state check [--json]       # the state store's integrity and rows
 tehas top [--once|--json]        # one screen of what the factory is doing
 tehas analytics report|export    # the factory's last 365 days of runs
 tehas pause [reason]             # stop this host from starting new work
@@ -128,7 +129,7 @@ in the platform repository has every one with a comment.
 | `TEHAS_WORK_IMAGES`             | `0`                                      | `1` gives a cycle and a planning session the images its issue text links: see [tehas work](#tehas-work) and [tehas plan](#tehas-plan). The model must declare `"image"` in its `input` in `models.json` and answer a request with an image, and the sandbox image must say, by the label `tehas.rukas.images` its build writes, that its pi-rukas reads the manifest tehas writes beside them. Else the dispatcher holds the cycles of issues whose text links an attachment; other issues start, and `install.sh` reports what the label says |
 | `TEHAS_WORK_DESCRIBE`           | `0`                                      | `1` has the model describe each of those images in words before the cycle or planning session starts, into `images.md` beside them: see [tehas work](#tehas-work). Needs `TEHAS_WORK_IMAGES=1`, else the command stops with 78 |
 | `TEHAS_WORK_FILES`              | `0`                                      | `1` gives a cycle and a planning session the text files its issue text links: md, txt, csv, json, yaml, log, html, css and js, at most 16, 1 MB each and 4 MB together. Needs no model that reads images. See [tehas work](#tehas-work) |
-| `TEHAS_WORK_COMMENTS`           | `0`                                      | `1` takes the images and files of the issue's comments too: those an allowed account wrote and nobody edited after the approval. Needs `TEHAS_WORK_IMAGES=1` or `TEHAS_WORK_FILES=1`, else the command stops with 78. See [tehas work](#tehas-work) |
+| `TEHAS_WORK_COMMENTS`           | `0`                                      | `1` takes the images and files of the issue's comments too: those an allowed account wrote and nobody edited after the approval. Needs `TEHAS_WORK_IMAGES=1` or `TEHAS_WORK_FILES=1`, else the command stops with 78. The text of the comments a retry is given does not depend on it: ticking `Retry with the issue and all its comments` is the opt-in. See [tehas work](#tehas-work) |
 | `TEHAS_WORK_ZIPS`               | `0`                                      | `1` unpacks a zip the issue's text links into the same read-only directory, at most 2 archives and 4 MB each. A zip is taken by its first bytes, not its name; every file in it goes through the checks of a linked one and counts against the same limits, and the archive is not kept. Needs `TEHAS_WORK_IMAGES=1` or `TEHAS_WORK_FILES=1`, else the command stops with 78. See [tehas work](#tehas-work) |
 | `TEHAS_VERIFY_TIMEOUT`          | `1800`                                   | Seconds one run of the product's gate may take inside a cycle. A gate that takes longer is stopped and the cycle parks with the cap `verify-timeout:<step>`. Passed to pi-rukas as `PI_ENSEMBLE_VERIFY_TIMEOUT_MS` and `PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS`; pi-rukas alone allows ten minutes. The bound is for one run under the container's CPU quota: a run that waits for another to end does not count its wait. With a `.pi/verify-cmd-fast`, the fast and the full command share it. The cycle's deadline leaves at least this much and the handoff allowance, 8 minutes, before `TEHAS_WORK_TIMEOUT` |
 | `TEHAS_CHILD_TIMEOUT`           | `7200`                                   | Seconds one child of a cycle may take before pi-rukas ends it: its backstop for a child nothing else stopped. A positive whole number, at most `TEHAS_WORK_TIMEOUT`, because no child may outlive the cycle that spawned it; a longer one is refused with 78. `tehas work` passes it to the container as `PI_ENSEMBLE_SPAWN_TIMEOUT_MS`, in milliseconds; pi-rukas alone allows two hours. Raise it when a fixer still making progress is stopped with hours of the cycle's budget left |
@@ -1008,8 +1009,8 @@ the link it came from, its type, its size and its sha256, the approval it was
 fetched for (`at`, `by` and `how` of the record, or null by hand), and every
 link that was left out with the reason. The manifest is kept as
 `~/tehas/state/cycles/<issue>.manifest.json`, with `images.md` and
-`retry-context.md` beside it as `<issue>.images.md` and
-`<issue>.retry-context.md` when the cycle has them, for the improvement
+`comments.json` beside it as `<issue>.images.md` and
+`<issue>.comments.json` when the cycle has them, for the improvement
 loop's record. When the next fetch is for the
 same approval, a restart of the same cycle, a link that gives other bytes than
 the kept manifest says stops the start with exit 4 and the link named. The directory is remade for every cycle and removed by
@@ -1124,16 +1125,29 @@ links, in the order written, under the same limits, counted together, and
 only while the author is still allowed. Every entry of the manifest, left out
 or not, has a `source`: `body` or the comment's. The comment on the issue
 names the comment beside each link. A start by hand, without a record, reads
-the body only. When the record has a `retry_context`, the text of a
-reviewer's comments on the pull request before a retry tick, it goes to
-`retry-context.md` in the same directory, under a head that says it is
-untrusted input, every line quoted, each comment cut at 4000 characters and
-the whole at 32000, and the manifest gets `"retryContext":
-"retry-context.md"`. The pinned pi-rukas does not read it yet. The setting adds no mount and no variable, and it needs
+the body only. The setting adds no mount and no variable, and it needs
 `TEHAS_WORK_IMAGES=1` or `TEHAS_WORK_FILES=1`, else the command stops with
 78.
 
-With `TEHAS_WORK_IMAGES=0` and `TEHAS_WORK_FILES=0` a cycle is given nothing:
+When the record has a `retry_context`, `tehas work` writes it to
+`comments.json` in the same directory and names it in the manifest as
+`"comments": {"file", "bytes", "sha256"}`, in the format of
+trail-openers/pi-rukas#2020: `version`, `issue`, `until` (the tick), and
+`items`, oldest first, each with `source` (`issue-comment`, `pr-comment`,
+`review`, `review-comment`, `fixer` or `refresh`), `id`, `by`, `at`, `url`
+and `text`, and `pr`, `path` and `line` where they apply. It holds the
+comments of a comments retry (what allowed accounts that may write said on
+the issue and its pull requests up to the tick), the millwright's note of its
+start, or a refresh's task. Each item is cut at 4,000 characters and the blob
+at 64 KB, the oldest dropped and counted in `dropped`. It is not fetched
+again: the dispatcher recorded it at the tick. With `TEHAS_WORK_IMAGES=0`
+and `TEHAS_WORK_FILES=0` the directory is still mounted and named in
+`PI_ENSEMBLE_EXTRA_IMAGE_DIRS` for it, and holds the manifest and
+`comments.json` alone. `state/cycles/<issue>.comments` says whether the image
+gives a cycle the comments (`native`, `polyfill` or `off`), which decides
+whether a park offers the comments retry.
+
+With `TEHAS_WORK_IMAGES=0` and `TEHAS_WORK_FILES=0`, and no comments, a cycle is given nothing:
 no directory is mounted and no `PI_ENSEMBLE_EXTRA_IMAGE_DIRS` is passed on,
 whatever the instance file says. The issue's text is still read once, to
 compare it with the dispatcher's record, and a body that is not the approved
@@ -2248,7 +2262,7 @@ tehas api [--json]
 api         1
 tehas       v0.8.0 (cb6912a)
 repo        tehas-app/tehas
-features    status millwright-grant fixer-grant all-hands limit drain history export refresh-conflicts analytics state-move pr-title clean
+features    status millwright-grant fixer-grant all-hands limit drain history export refresh-conflicts analytics state-move pr-title mcp-dashboard-keys clean disk state-check
 millwright  none
 poll        last 24 s wall, 1.5 s CPU, 12 gh; last hour 14 polls, 41 s CPU
 ```
@@ -3417,7 +3431,7 @@ filed, when the issue is worked on again, names both. When the cycle was given
 the issue's images or files, or given none though its issue linked some, the
 record also holds what `tehas work` kept of them in
 `~/tehas/state/cycles/`: `manifest.json`,
-and `images.md` and `retry-context.md` when the cycle had them. Only this
+and `images.md` and `comments.json` when the cycle had them. Only this
 cycle's, only plain files, at most 256 KB each, and never an image or a file
 itself. A run fetches the open
 issues and the ones closed in the last 30 days, takes the five oldest records

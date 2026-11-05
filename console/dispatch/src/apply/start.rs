@@ -28,7 +28,8 @@ const FROM_POLL: (&str, &str) = ("TEHAS_FROM_POLL", "1");
 pub struct Host {
     /// hostname, for the comments.
     pub name: String,
-    /// TEHAS_WORK_COMMENTS is 1: the approval names the comments' links.
+    /// TEHAS_WORK_COMMENTS is 1: the approval names the comments' links. The
+    /// text of the comments a comments retry is given does not depend on it.
     pub comments: bool,
     /// TEHAS_ALLOWED_LABELERS.
     pub allowed: Vec<String>,
@@ -144,18 +145,18 @@ fn id(v: Option<&Value>) -> String {
     }
 }
 
-/// `issue_alone`: the tick on `Retry from the issue alone`, whose start names
-/// no comment of the issue or of the pull request. Its absence is a clean
-/// start, which is what a record written before the box existed holds. A
-/// value that is not a bool is no answer: the reader says so rather than
-/// taking it for the clean start that reads the issue's comments.
+/// `issue_alone`: the tick on `Retry with the issue text only`, whose start
+/// names no comment of the issue or of the pull request. Its absence is the
+/// comments retry, which is what a record written before the box existed
+/// holds. A value that is not a bool is no answer: the reader says so rather
+/// than taking it for the comments retry that reads the issue's comments.
 fn issue_alone(a: &Value, log: &mut Vec<String>, n: u64) -> bool {
     match a.get("issue_alone") {
         None | Some(Value::Null) | Some(Value::Bool(false)) => false,
         Some(Value::Bool(true)) => true,
         Some(v) => {
             log.push(format!(
-                "WARN: #{}: its start names issue_alone {v}, which is neither true nor false: the record is written as a clean start's, and its comments are read",
+                "WARN: #{}: its start names issue_alone {v}, which is neither true nor false: the record is written as a comments retry's, and its comments are read",
                 n
             ));
             false
@@ -239,6 +240,100 @@ pub(crate) fn context(c: &Value, source: &str) -> Value {
         .collect();
     json!({"source": format!("{source}:{}", c["id"]), "by": c.pointer("/user/login").cloned().unwrap_or(Value::Null),
         "at": c.get("created_at").cloned().unwrap_or(Value::Null), "text": body})
+}
+
+/// The most text of comments a record holds, in bytes of their text: the
+/// store takes an input of 1 MiB, and the blob a cycle is given holds 64 KB.
+const RECORD_TEXT: usize = 512 * 1024;
+
+/// One comment of a comments retry as the record keeps it, in the item shape
+/// of the comments blob (trail-openers/pi-rukas#2020): `source`, `id`, `by`,
+/// `at`, `url` and `text`, plus `pr`, `path` and `line` where they apply.
+/// The text is cut at 4000 characters, without carriage returns.
+pub(crate) fn item(c: &Value, source: &str, pr: Option<u64>) -> Value {
+    let text: String = c
+        .get("body")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .replace('\r', "")
+        .chars()
+        .take(4000)
+        .collect();
+    let mut m = Map::new();
+    m.insert("source".into(), json!(source));
+    m.insert("id".into(), c.get("id").cloned().unwrap_or(Value::Null));
+    if let Some(pr) = pr {
+        m.insert("pr".into(), json!(pr));
+    }
+    if source == "review-comment" {
+        if let Some(path) = c.get("path").filter(|p| p.is_string()) {
+            m.insert("path".into(), path.clone());
+        }
+        if let Some(line) = c
+            .get("line")
+            .filter(|l| l.is_u64())
+            .or_else(|| c.get("original_line").filter(|l| l.is_u64()))
+        {
+            m.insert("line".into(), line.clone());
+        }
+    }
+    m.insert(
+        "by".into(),
+        c.pointer("/user/login").cloned().unwrap_or(Value::Null),
+    );
+    m.insert(
+        "at".into(),
+        c.get("created_at").cloned().unwrap_or(Value::Null),
+    );
+    m.insert(
+        "url".into(),
+        c.get("html_url").cloned().unwrap_or(json!("")),
+    );
+    m.insert("text".into(), json!(text));
+    Value::Object(m)
+}
+
+/// A review in the shape `window` reads: GitHub stamps it once, when it was
+/// submitted, and keeps no time of an edit. A review with no body says
+/// nothing to give, and one still pending was never submitted.
+fn review_as_comment(r: &Value) -> Option<Value> {
+    let at = r.get("submitted_at").and_then(Value::as_str)?;
+    let body = r.get("body").and_then(Value::as_str)?;
+    if body.trim().is_empty() {
+        return None;
+    }
+    let mut c = r.clone();
+    c["created_at"] = json!(at);
+    c["updated_at"] = json!(at);
+    Some(c)
+}
+
+/// Whether a permission answer of `collaborators/{login}/permission` lets the
+/// account write: write, maintain or admin. `role_name` names maintain, which
+/// `permission` folds into write.
+fn may_write(answer: &Value) -> Option<bool> {
+    let role = answer
+        .get("role_name")
+        .and_then(Value::as_str)
+        .or_else(|| answer.get("permission").and_then(Value::as_str))?;
+    Some(matches!(role, "admin" | "maintain" | "write"))
+}
+
+/// The newest items whose text fits `RECORD_TEXT`, oldest first, and how many
+/// older ones were left out.
+fn bounded(items: Vec<Value>) -> (Vec<Value>, usize) {
+    let mut used = 0;
+    let mut keep = 0;
+    for i in items.iter().rev() {
+        let len = i.get("text").and_then(Value::as_str).map_or(0, str::len);
+        if used + len > RECORD_TEXT {
+            break;
+        }
+        used += len;
+        keep += 1;
+    }
+    let dropped = items.len() - keep;
+    (items.into_iter().skip(dropped).collect(), dropped)
 }
 
 /// tehas_names_issue: a pull request is the issue's when its head is the
@@ -492,7 +587,8 @@ impl Writer {
                 return Then::Failed;
             }
         }
-        let recorded = match self.approval(n, a, log) {
+        let mut left_out = Vec::new();
+        let recorded = match self.approval(n, a, &mut left_out, log) {
             Ok(at) => at,
             Err((w, line)) => {
                 return match w.as_str() {
@@ -643,7 +739,13 @@ impl Writer {
             let url = text(a, "refresh_url");
             self.say(n, &format!("Tehas refresh started on `{host}` at {when} UTC: {url} conflicts with `{branch}`. This cycle merges that branch into it, resolves the conflicts and pushes to the same pull request. It rests on @{by}'s {how}. This issue is owned by the cycle until `tehas:running` is removed."), log);
         } else {
-            self.say(n, &format!("Tehas cycle started on `{host}` at {when} UTC (authorized by @{by}'s {how}). This issue is owned by the cycle until `tehas:running` is removed."), log);
+            let left = if left_out.is_empty() {
+                String::new()
+            } else {
+                let names: Vec<String> = left_out.iter().map(|l| format!("`{l}`")).collect();
+                format!(" The comments of {} are left out: their permission on the repository could not be read.", names.join(", "))
+            };
+            self.say(n, &format!("Tehas cycle started on `{host}` at {when} UTC (authorized by @{by}'s {how}). This issue is owned by the cycle until `tehas:running` is removed.{left}"), log);
         }
         if self.unit_start(n, before, log) {
             self.analytics(&["event".into(), n.to_string(), "started".into()], log);
@@ -677,10 +779,13 @@ impl Writer {
 
     /// approved_record: the approval on record with its inputs. Its time,
     /// or the store's word and line; an empty word is a read that failed.
+    /// `left_out` gets the authors of a comments retry whose permission on
+    /// the repository could not be read, so the start comment can name them.
     fn approval(
         &mut self,
         n: u64,
         a: &Value,
+        left_out: &mut Vec<String>,
         log: &mut Vec<String>,
     ) -> Result<i64, (String, String)> {
         let none = || (String::new(), String::new());
@@ -696,38 +801,59 @@ impl Writer {
         }
         let mut retry = Value::Null;
         let mut from: Vec<Value> = Vec::new();
-        // The comment policy of this start, derived once: the host reads
-        // comments, and the tick of the issue alone asks for none of them,
-        // so its record reads as the one of an instance with comments off.
-        // The bash derives the same single value in approved_record.
-        let comments = self.host.comments && !issue_alone(a, log, n);
+        let alone = issue_alone(a, log, n);
+        // The comment policy of the links, derived once: the host fetches what
+        // comments link, and the tick of the issue text only asks for none of
+        // them, so its record reads as the one of an instance with comments off.
+        let comments = self.host.comments && !alone;
+        let mut list = None;
         if comments {
-            let Some(list) = self.comments(n) else {
+            let Some(l) = self.comments(n) else {
                 log.push(format!("ERROR: the comments of #{n} could not be read"));
                 return Err(none());
             };
             let allowed = self.host.allowed.clone();
             let who = |l: &str| allowed.iter().any(|x| x == l);
-            let Some(w) = window(&list, "", &given_at, &who) else {
+            let Some(w) = window(&l, "", &given_at, &who) else {
                 log.push(format!("ERROR: the comments of #{n} could not be read"));
                 return Err(none());
             };
             from = comment_links(&w, "comment");
-            if given == "retry-tick" {
-                let since = text(a, "since").to_string();
-                let Some(r) = self.pr_comments(n, &since, &given_at) else {
-                    log.push(format!(
-                        "ERROR: the comments on the pull request of #{n} could not be read"
-                    ));
-                    return Err(none());
-                };
-                retry = r;
-            }
+            list = Some(l);
         }
-        // A start of the issue alone names no comment of an issue or a pull
-        // request, so nothing of the earlier cycle goes with it: the note of
-        // the fixer or of a refresh stays out of its record whatever asks.
-        if !issue_alone(a, log, n) {
+        // The tick of the comments retry is its own opt-in: what allowed
+        // accounts wrote up to it goes on the record whatever
+        // TEHAS_WORK_COMMENTS says.
+        if given == "retry-tick" && !alone {
+            let list = match list.take() {
+                Some(l) => l,
+                None => match self.comments(n) {
+                    Some(l) => l,
+                    None => {
+                        log.push(format!("ERROR: the comments of #{n} could not be read"));
+                        return Err(none());
+                    }
+                },
+            };
+            let Some(r) = self.retry_comments(n, &list, &given_at, log) else {
+                log.push(format!(
+                    "ERROR: the comments on the pull request of #{n} could not be read"
+                ));
+                return Err(none());
+            };
+            *left_out = r["left_out"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect();
+            retry = r;
+        }
+        // A start of the issue text only names no comment of an issue or a
+        // pull request, so nothing of the earlier cycle goes with it: the note
+        // of the fixer or of a refresh stays out of its record whatever asks.
+        if !alone {
             if let Some(note) = a.get("park_lifted").filter(|_| given == "millwright") {
                 retry = json!({"links": [], "context": [note]});
             } else if given == "millwright" {
@@ -903,11 +1029,30 @@ impl Writer {
         self.calls.gh(&["api", &path, "--paginate"]).ok()
     }
 
-    /// pr_comments: what an allowed account said on the bot's pull requests
-    /// of the issue between the park and the tick, as {links, context}.
-    fn pr_comments(&mut self, n: u64, since: &str, at: &str) -> Option<Value> {
+    /// What a comments retry is given, as {links, context, left_out}: the
+    /// text of every comment on the issue (`list`) and on the bot's pull
+    /// requests for it - conversation comments, review bodies and inline
+    /// review comments - written at or before the tick `at` and not edited
+    /// after it, by an account of TEHAS_ALLOWED_LABELERS that may write to the
+    /// repository at the tick. The bot's own comments are left out. `links`
+    /// are those of the pull requests' conversation comments; `left_out` the
+    /// authors whose permission could not be read, said in the log here. None
+    /// when a list could not be read.
+    fn retry_comments(
+        &mut self,
+        n: u64,
+        list: &Value,
+        at: &str,
+        log: &mut Vec<String>,
+    ) -> Option<Value> {
         let repo = self.repo.clone();
         let bot = self.host.bot.clone();
+        let allowed = self.host.allowed.clone();
+        let who = |l: &str| account(l) != account(&bot) && allowed.iter().any(|x| x == l);
+        let mut items: Vec<Value> = Vec::new();
+        for c in window(list, "", at, &who)? {
+            items.push(item(&c, "issue-comment", None));
+        }
         let prs = self
             .calls
             .gh(&[
@@ -932,23 +1077,88 @@ impl Writer {
             .filter_map(|p| p.get("number").and_then(Value::as_u64))
             .collect();
         mine.sort_unstable();
-        let mut all: Vec<Value> = Vec::new();
+        let mut said = Vec::new();
         for pr in mine {
-            let list = self.comments(pr)?;
-            all.extend(list.as_array()?.iter().cloned());
+            let talk = window(&self.comments(pr)?, "", at, &who)?;
+            said.extend(talk.iter().cloned());
+            for c in talk {
+                items.push(item(&c, "pr-comment", Some(pr)));
+            }
+            let path = format!("repos/{repo}/pulls/{pr}/reviews?per_page=100");
+            let reviews = self.calls.gh(&["api", &path, "--paginate"]).ok()?;
+            let reviews: Vec<Value> = reviews
+                .as_array()?
+                .iter()
+                .filter_map(review_as_comment)
+                .collect();
+            for c in window(&Value::Array(reviews), "", at, &who)? {
+                items.push(item(&c, "review", Some(pr)));
+            }
+            let path = format!("repos/{repo}/pulls/{pr}/comments?per_page=100");
+            let inline = self.calls.gh(&["api", &path, "--paginate"]).ok()?;
+            for c in window(&inline, "", at, &who)? {
+                items.push(item(&c, "review-comment", Some(pr)));
+            }
         }
-        if since.is_empty() {
-            all.clear();
-        }
-        let allowed = self.host.allowed.clone();
-        let who = |l: &str| allowed.iter().any(|x| x == l);
-        let w = window(&Value::Array(all), since, at, &who)?;
-        let ctx: Vec<Value> = w
+        // Who may write, asked once per author of this tick.
+        let mut authors: Vec<String> = items
             .iter()
-            .take(20)
-            .map(|c| context(c, "pr-comment"))
+            .filter_map(|i| i["by"].as_str().map(str::to_string))
             .collect();
-        Some(json!({"links": comment_links(&w, "pr-comment"), "context": ctx}))
+        authors.sort();
+        authors.dedup();
+        let mut keep = Vec::new();
+        let mut left_out = Vec::new();
+        for login in authors {
+            let path = format!("repos/{repo}/collaborators/{login}/permission");
+            match self
+                .calls
+                .gh(&["api", &path])
+                .ok()
+                .as_ref()
+                .and_then(may_write)
+            {
+                Some(true) => keep.push(login),
+                Some(false) => {}
+                None => {
+                    log.push(format!("WARN: #{n}: the permission of {login} on {repo} could not be read, so its comments are left out of the retry"));
+                    left_out.push(login);
+                }
+            }
+        }
+        let key = |i: &Value| {
+            (
+                i["at"].as_str().unwrap_or("").to_string(),
+                i["id"].as_f64().unwrap_or(0.0),
+            )
+        };
+        let mut given: Vec<Value> = items
+            .into_iter()
+            .filter(|i| {
+                i["by"]
+                    .as_str()
+                    .is_some_and(|b| keep.iter().any(|k| k == b))
+            })
+            .collect();
+        given.sort_by(|x, y| {
+            let (a, b) = (key(x), key(y));
+            a.0.cmp(&b.0).then(a.1.total_cmp(&b.1))
+        });
+        let (given, dropped) = bounded(given);
+        if dropped > 0 {
+            log.push(format!("WARN: #{n}: {dropped} older comments are left out of the retry's record, which holds {RECORD_TEXT} bytes of their text"));
+        }
+        let said: Vec<Value> = said
+            .into_iter()
+            .filter(|c| {
+                c.pointer("/user/login")
+                    .and_then(Value::as_str)
+                    .is_some_and(|b| keep.iter().any(|k| k == b))
+            })
+            .collect();
+        Some(
+            json!({"links": comment_links(&said, "pr-comment"), "context": given, "left_out": left_out}),
+        )
     }
 
     /// fixer_note: the millwright's comment behind its tehas:ready, written

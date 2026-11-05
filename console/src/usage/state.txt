@@ -1,4 +1,5 @@
-tehas state: move a stopped factory's state to another machine as one tar.
+tehas state: move a stopped factory's state to another machine as one tar,
+or check its state store.
 
 pack writes the tar to standard output: tehas-state.json, then state/,
 repos/, live/ and mcp/, the store as a copy it made of itself, not the live
@@ -9,8 +10,15 @@ replaces those directories. It refuses while a tehas-* unit is active and a
 marked tar without --rehearse, and starts no unit. unpack --rehearse also
 replaces the state, the old one gone: only for a machine to be rebuilt.
 
+check prints the store's schema, its integrity check and the rows of each
+table; --json prints the store's own object, {"api":1,"verb":"check",
+"ok":true,"schema":...,"integrity":"ok","rows":{...}}. It reads only, so it
+runs on a running factory too. A store that does not check is exit 1, one
+that cannot be used 78, and neither prints on standard output.
+
 Usage: tehas state pack [--rehearse] -
        tehas state unpack [--rehearse] -
+       tehas state check [--json]
 
 Exit: 0 done; 1 refused or failed; 64 a bad argument; 78 the instance
 settings, the release or the state store are missing or malformed.
