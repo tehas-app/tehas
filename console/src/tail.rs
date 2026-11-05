@@ -15,7 +15,7 @@ use tehas_core::time::civil_from_days;
 // passes. The third bounds what is held of unfinished lines in all files
 // together, however many an agent writes.
 const MAX_PASS: u64 = 8 << 20;
-const MAX_LINE: usize = 1 << 20;
+const MAX_LINE: usize = tehas_core::file::READ_BOUND_LEN;
 const MAX_HELD: usize = 16 << 20;
 const MAX_ROLE: usize = 24;
 
