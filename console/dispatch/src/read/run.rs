@@ -523,13 +523,13 @@ impl Calls {
     }
 }
 
-/// The request `store batch` reads: the same 1 MiB the store bounds its own
-/// standard input with (src/batch.rs). The store bounds what it is given and
-/// not what it prints, and one `plan-show` of a queue may answer a brief of the
-/// store's own bound, so the answer of a batch is the poll's own risk to bound:
+/// The request `store batch` reads: the same `READ_BOUND` the store bounds its
+/// own standard input with (store/src/batch.rs). The store bounds what it is
+/// given and not what it prints, and one `plan-show` of a queue may answer a
+/// brief of the store's own bound, so the answer of a batch is the poll's own risk to bound:
 /// what lies past the size of a legal request is not an answer anyone meant,
 /// and is not read.
-const BATCH_BOUND: u64 = 1 << 20;
+const BATCH_BOUND: u64 = tehas_core::file::READ_BOUND;
 
 /// The token of the host's GitHub App, asked for once by the poll that first
 /// needs it: `$TEHAS_HOME/libexec/github-token` with the poll's own environment,

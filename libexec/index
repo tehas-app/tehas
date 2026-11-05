@@ -19,7 +19,8 @@
 #                poll held the dispatcher's lock for the whole wait; nothing
 #                was done.
 #             64 an argument this command does not know.
-#             78 the instance settings are invalid, tehas.slice is not usable
+#             78 the instance settings are invalid, the checkout is no clone of
+#                TEHAS_REPO or its branch is unknown, tehas.slice is not usable
 #                on this host, or no tehas-cycle stands beside this command;
 #                nothing was done.
 set -uo pipefail
@@ -34,13 +35,8 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/config.sh"
 tehas_load || exit 78
 tehas_require TEHAS_REPO
-tehas_checkout || exit 78
-branch=$(tehas_branch) || exit 78
-base=$(git -C "$TEHAS_WORK_REPO" rev-parse -q --verify "refs/remotes/origin/$branch^{commit}") ||
-  { echo "tehas index: $TEHAS_WORK_REPO has no origin/$branch, nothing was indexed" >&2; exit 78; }
-
 [ -x "$here/tehas-cycle" ] || { echo "tehas index: no tehas-cycle beside this command, run install.sh" >&2; exit 78; }
 mkdir -p "$TEHAS_HOME/state"
 exec 7>>"$TEHAS_HOME/state/index.lock"
 flock -n 7 || { echo "tehas index: another index run holds its lock, nothing was indexed; run it again in a moment" >&2; exit 3; }
-exec "$here/tehas-cycle" index "$branch" "$base" "$@"
+exec "$here/tehas-cycle" index "$@"

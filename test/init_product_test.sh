@@ -262,7 +262,7 @@ t_case "a host with no console beside the command starts nothing: 78, and says t
 rm "$T/tree/libexec/console"
 t_run "$init"
 t_eq "$t_rc" 78
-t_contains "$t_out" "no console beside this command"
+t_contains "$t_out" "tehas: no console at $T/tree/libexec/console: run install.sh"
 cp "$T_CONSOLE" "$T/tree/libexec/console"
 
 t_case "a wrong argument is 64"
