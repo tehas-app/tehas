@@ -33,6 +33,36 @@ pub fn is_image(s: &str) -> bool {
     s.strip_prefix("sha256:").is_some_and(|h| is_hex(h, 64, 64))
 }
 
+/// The status words that are not an end: `running` is what a heartbeat carries
+/// while a cycle works, and the empty word is the heartbeat of a cycle that
+/// never sent one. A cycle whose end is on record is not still at work, so
+/// neither word belongs in the endings a host reads. The store's writer of the
+/// ten ends maps both to `unknown` (`ending_status`), and health names a row
+/// that still carries one as `not an end`, so the two sides of one file agree.
+/// Any other word is kept as the caller said it.
+pub const NOT_ENDS: [&str; 2] = ["running", ""];
+
+/// The word of an ending whose status is none of the ends, as health names it
+/// in its file and in the line it says. It is a display word, not a status the
+/// store records: the store's own mapping of such a word is `unknown`.
+pub const NOT_AN_END: &str = "not an end";
+
+/// The word `endings.status` holds for a status word of a cycle that did not
+/// end (`NOT_ENDS`), and the word itself for any other.
+pub fn ending_status(word: &str) -> &str {
+    if NOT_ENDS.contains(&word) {
+        "unknown"
+    } else {
+        word
+    }
+}
+
+/// Whether a status word counts as an end at all: any word but `NOT_ENDS`, and
+/// no word at all is not one.
+pub fn an_end(word: &str) -> bool {
+    !NOT_ENDS.contains(&word)
+}
+
 /// The two spellings of the millwright's word. The store writes `millwright`;
 /// a record or a row written before #686 part 1 still says `fixer`, and the
 /// two name one class. Every program that reads a record's `how` matches this
@@ -75,5 +105,20 @@ mod tests {
         // The one list the store, analytics and the MCP server all read. Each
         // of them has a test of its own that its words are these two.
         assert_eq!(MILLWRIGHT_WORDS, ["millwright", "fixer"]);
+    }
+
+    #[test]
+    fn the_words_that_are_not_an_end_map_to_unknown() {
+        // The set the store's writer and health's reader both name: the word of
+        // a cycle still at work, and the empty word of one that never reported.
+        assert_eq!(NOT_ENDS, ["running", ""]);
+        assert_eq!(ending_status("running"), "unknown");
+        assert_eq!(ending_status(""), "unknown");
+        assert_eq!(ending_status("aborted"), "aborted");
+        for word in NOT_ENDS {
+            assert!(!an_end(word), "{word:?}");
+        }
+        assert!(an_end("merged"));
+        assert_eq!(NOT_AN_END, "not an end");
     }
 }
