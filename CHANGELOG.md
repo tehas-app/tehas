@@ -14,6 +14,7 @@ empty one above it.
 ### Changes
 
 - The retry boxes of a park say what a retry is given: `Retry with the issue and all its comments` and `Retry with the issue text only`, with a line on what each means. A tick of the comments retry records the text of every comment on the issue and on the bot's pull requests for it (conversation comments, review bodies, inline review comments) up to the tick, by an account of `TEHAS_ALLOWED_LABELERS` that may write to the repository then, the bot's own left out; `tehas work` writes them to `comments.json` in the format of trail-openers/pi-rukas#2020 and mounts it even with images and files off. It no longer needs `TEHAS_WORK_COMMENTS`, and `retry-context.md`, which nothing read, is gone. The comments box is offered only when the sandbox image lists `issueComments` or carries the issue-comments polyfill. The old labels still count on comments posted before; they go two releases from now (#1492).
+- The health file has `checks.mcp`: whether the MCP server is on, installed and answers a `POST /mcp` with no key (#1418). A server that is on and does not answer makes the health `warn`, so `/health` tells a stopped MCP server from a factory that is gone.
 - An allowed account is its login and its GitHub user id, not the login alone. `install.sh` and `tehas update` record the id of each login of `TEHAS_ALLOWED_LABELERS` and `TEHAS_MILLWRIGHT_LOGIN` in `~/tehas/state/account-ids`, and a label, retry tick, planning answer or comment counts only when its account carries that id. A login that was renamed and registered by someone else authorises nothing. A login that does not resolve, or whose id changed, stops both with 78 and names it; `tehas update --accept-id <login>` records the new id (#1493).
 - `bin/tehas` and `bin/tehasbot` are a few lines that run the console, which chooses the command, prints the usage and refuses an unknown one. With no console every command but `tehas setup` stops with 78 and one line, `tehas: no console at <path>: run install.sh`; `tehas top` and `tehas export` ended 1 there before. `tehas index` asks `tehas-cycle` for the checkout and the branch, and `lib/config.sh` loses `tehas_checkout` and `tehas_branch` (#1346).
 - Health says when the cleaner's hourly upkeep failed to make a backup: `There is no backup of the state store: the last upkeep failed at <time>: <word>.`, and `checks.upkeep` carries the last upkeep's time, result and the store's word. The cleaner records it in `state/upkeep.json`. Before, health told the reader to wait for the cleaner that was already failing (#1419).
@@ -41,6 +42,13 @@ empty one above it.
 - `scripts/tag-release.sh` moves every pinned tool to the newest minor and patch of its major before it tags: `host/versions.env`, `host/npm/` and `host/sandbox/npm/`, each with its checksum, digest or lockfile, from the tool's own source (`scripts/pins.sh`, `console pins`). When anything moves it opens a pull request on `pins-<tag>` and tags after that is merged; a later major is listed under `### Held back` for a person. A move that fails stops the release; `--no-pins` skips it. The release that makes the move needs cargo, curl, tar and npm where it runs.
 
 ### Adopter action
+
+A park's comment offers the comments retry only on a sandbox image whose
+pi-rukas reads the comments blob (trail-openers/pi-rukas#2020) or that carries
+the issue-comments polyfill; until then it offers `Retry with the issue text
+only` and `Leave it parked`. Nothing to set. A comments retry now asks GitHub
+for each author's permission on the repository, which the bot's token already
+may read.
 
 Run `tehas update` (or `./install.sh`) once with GitHub reachable: until the
 user ids are recorded, no label, tick, answer or comment of an allowed account
@@ -130,13 +138,6 @@ None.
 - `tehas-cycle work` runs a cycle's start, and `libexec/work` keeps only the settings and the issue's lock. The container's mounts and environment do not change (#1446).
 
 ### Adopter action
-
-A park's comment offers the comments retry only on a sandbox image whose
-pi-rukas reads the comments blob (trail-openers/pi-rukas#2020) or that carries
-the issue-comments polyfill; until then it offers `Retry with the issue text
-only` and `Leave it parked`. Nothing to set. A comments retry now asks GitHub
-for each author's permission on the repository, which the bot's token already
-may read.
 
 `console flags pause show` and `console flags pause read` are gone: a script
 which called one of them now gets 64 and the usage. The words of the flag are
