@@ -2,6 +2,11 @@
 //! MCP server. Line 1 is the header, then one session per line, newest
 //! first. A session is a run with its steps, its roles and the names of the
 //! log files it left in $TEHAS_HOME/logs. A key with no value is left out.
+//!
+//! The fields are the contract in `tehas_core::snapshot`, which the MCP
+//! server's reader reads too: the names, their order and their shapes are
+//! spelled once there, so a field cannot be renamed on this side and quietly
+//! missing from every answer.
 
 use crate::run::iso_ms;
 use rusqlite::types::ValueRef;
@@ -9,7 +14,11 @@ use rusqlite::{params, Connection};
 use serde_json::{json, Map, Value};
 use std::fs;
 use std::path::Path;
+use tehas_core::snapshot::{
+    Field, Shape, API, ROLE_FIELDS, RUN_FIELDS, SESSIONS_SHAPE, STEP_FIELDS,
+};
 use tehas_core::time::iso;
+use Shape::{Bool, Time};
 
 pub const SESSIONS_DAYS: i64 = 30;
 /// The name of the private file, which the reader of the MCP server opens.
@@ -26,103 +35,44 @@ const FILED_AFTER: i64 = 120;
 /// as the cycle begins, the run's start a little before or after.
 const STAMP_BEFORE: i64 = 120;
 
-#[derive(Clone, Copy)]
-enum Kind {
-    Text,
-    Int,
-    Real,
-    Time,
-    Bool,
-}
-use Kind::{Bool, Int, Real, Text, Time};
-
-const RUN: [(&str, &str, Kind); 39] = [
-    ("id", "id", Text),
-    ("kind", "kind", Text),
-    ("issue", "issue", Int),
-    ("attempt", "attempt", Int),
-    ("how", "how", Text),
-    ("started", "started", Time),
-    ("ended", "ended", Time),
-    ("seconds", "seconds", Int),
-    ("queue_wait", "queueWait", Int),
-    ("outcome", "outcome", Text),
-    ("exit_code", "exitCode", Int),
-    ("status", "status", Text),
-    ("last_step", "lastStep", Text),
-    ("failed_step", "failedStep", Text),
-    ("cap", "cap", Text),
-    ("park_reason", "parkReason", Text),
-    ("review_held", "reviewHeld", Bool),
-    ("failure_kind", "failureKind", Text),
-    ("failure_cause", "failureCause", Text),
-    ("provider_outage", "providerOutage", Bool),
-    ("endpoint", "endpoint", Text),
-    ("pr", "pr", Int),
-    ("tehas_version", "tehasVersion", Text),
-    ("tehas_commit", "tehasCommit", Text),
-    ("rukas_version", "rukasVersion", Text),
-    ("rukas_commit", "rukasCommit", Text),
-    ("image", "image", Text),
-    (
-        "(SELECT CAST(value AS INTEGER) FROM meta WHERE key = 'image:' || runs.image)",
-        "imageBuilt",
-        Time,
-    ),
-    ("result_schema", "resultSchema", Int),
-    ("input", "input", Int),
-    ("output", "output", Int),
-    ("cache_read", "cacheRead", Int),
-    ("cache_write", "cacheWrite", Int),
-    ("turns", "turns", Int),
-    ("dispatches", "dispatches", Int),
-    ("cost", "cost", Real),
-    ("runner_ms", "runnerMs", Int),
-    ("oom_kills", "oomKills", Int),
-    ("forks_refused", "forksRefused", Int),
-];
-const RUN_LAST: [(&str, &str, Kind); 1] = [("concurrent", "concurrent", Int)];
-
-const STEP: [(&str, &str, Kind); 5] = [
-    ("step", "step", Text),
-    ("round", "round", Int),
-    ("started", "started", Time),
-    ("ended", "ended", Time),
-    ("seconds", "seconds", Int),
-];
-
-const ROLE: [(&str, &str, Kind); 10] = [
-    ("role", "role", Text),
-    ("model", "model", Text),
-    ("provider", "provider", Text),
-    ("dispatches", "dispatches", Int),
-    ("turns", "turns", Int),
-    ("input", "input", Int),
-    ("output", "output", Int),
-    ("cache_read", "cacheRead", Int),
-    ("cache_write", "cacheWrite", Int),
-    ("cost", "cost", Real),
-];
-const ROLE_LAST: [(&str, &str, Kind); 1] = [("ms", "ms", Int)];
-
-fn columns(
-    parts: &[&[(&'static str, &'static str, Kind)]],
-) -> Vec<(&'static str, &'static str, Kind)> {
-    parts.iter().flat_map(|p| p.iter().copied()).collect()
+// The column of a field in its table: the file's name with an underscore
+// before each capital, which is how the schema names every column but one.
+fn column(key: &str) -> String {
+    let mut out = String::with_capacity(key.len() + 4);
+    for c in key.chars() {
+        if c.is_ascii_uppercase() {
+            out.push('_');
+            out.extend(c.to_lowercase());
+        } else {
+            out.push(c);
+        }
+    }
+    out
 }
 
-fn select(table: &str, cols: &[(&str, &str, Kind)], tail: &str) -> String {
-    let names: Vec<&str> = cols.iter().map(|c| c.0).collect();
+// The one field that is not a column of the run's row: an image's build time,
+// which the store keeps in meta under the image's id.
+const META: [(&str, &str); 1] = [(
+    "imageBuilt",
+    "(SELECT CAST(value AS INTEGER) FROM meta WHERE key = 'image:' || runs.image)",
+)];
+
+fn select(table: &str, fields: &[Field], tail: &str) -> String {
+    let names: Vec<String> = fields
+        .iter()
+        .map(|f| {
+            META.iter()
+                .find(|(key, _)| *key == f.0)
+                .map_or_else(|| column(f.0), |(_, sql)| sql.to_string())
+        })
+        .collect();
     format!("SELECT {} FROM {table} {tail}", names.join(", "))
 }
 
 // One row as an object: camelCase keys, NULLs left out.
-fn object(
-    row: &rusqlite::Row,
-    cols: &[(&str, &str, Kind)],
-) -> rusqlite::Result<Map<String, Value>> {
+fn object(row: &rusqlite::Row, fields: &[Field]) -> rusqlite::Result<Map<String, Value>> {
     let mut o = Map::new();
-    for (i, (_, key, kind)) in cols.iter().enumerate() {
+    for (i, (key, kind, _)) in fields.iter().enumerate() {
         let v = match (row.get_ref(i)?, kind) {
             (ValueRef::Null, _) => continue,
             (ValueRef::Integer(n), Time) => json!(iso(n)),
@@ -148,43 +98,48 @@ pub fn write(dir: &Path, lines: &[String]) -> Result<(), String> {
 /// The lines to print: the header, then the sessions of the last
 /// SESSIONS_DAYS days.
 pub fn lines(conn: &Connection, home: &Path, now: i64) -> rusqlite::Result<Vec<String>> {
-    let run_cols = columns(&[&RUN, &RUN_LAST]);
-    let step_cols = STEP.to_vec();
-    let role_cols = columns(&[&ROLE, &ROLE_LAST]);
     let mut out = vec![
-        json!({"api": 1, "sessions": 1, "days": SESSIONS_DAYS, "generatedAt": iso(now)})
+        json!({"api": API, "sessions": SESSIONS_SHAPE, "days": SESSIONS_DAYS, "generatedAt": iso(now)})
             .to_string(),
     ];
 
     let mut runs = conn.prepare(&select(
         "runs",
-        &run_cols,
+        &RUN_FIELDS,
         "WHERE started >= ?1 ORDER BY started DESC, id DESC",
     ))?;
     let mut steps = conn.prepare(&select(
         "run_steps",
-        &step_cols,
+        &STEP_FIELDS,
         "WHERE run_id = ?1 ORDER BY started, step, round",
     ))?;
     let mut roles = conn.prepare(&select(
         "run_roles",
-        &role_cols,
+        &ROLE_FIELDS,
         "WHERE run_id = ?1 ORDER BY role",
     ))?;
     let found = runs
-        .query_map(params![now - SESSIONS_DAYS * DAY], |r| object(r, &run_cols))?
+        .query_map(params![now - SESSIONS_DAYS * DAY], |r| {
+            object(r, &RUN_FIELDS)
+        })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     let ledger = ledger(home);
     let logs_dir = home.join("logs");
     let names = log_names(&logs_dir);
     for mut run in found {
         let id = run["id"].as_str().unwrap_or_default().to_string();
-        let child = |stmt: &mut rusqlite::Statement, cols: &[(&str, &str, Kind)]| {
-            stmt.query_map(params![id], |r| object(r, cols).map(Value::Object))?
+        let child = |stmt: &mut rusqlite::Statement, fields: &[Field]| {
+            stmt.query_map(params![id], |r| object(r, fields).map(Value::Object))?
                 .collect::<rusqlite::Result<Vec<_>>>()
         };
-        run.insert("steps".into(), Value::Array(child(&mut steps, &step_cols)?));
-        run.insert("roles".into(), Value::Array(child(&mut roles, &role_cols)?));
+        run.insert(
+            "steps".into(),
+            Value::Array(child(&mut steps, &STEP_FIELDS)?),
+        );
+        run.insert(
+            "roles".into(),
+            Value::Array(child(&mut roles, &ROLE_FIELDS)?),
+        );
         let kind = run["kind"].as_str().unwrap_or_default().to_string();
         let issue = run["issue"].as_i64().unwrap_or_default();
         let started = secs(&run, "started").unwrap_or_default();

@@ -48,6 +48,7 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
+use tehas_core::grammar::an_end;
 use tehas_core::hold;
 use tehas_core::time;
 
@@ -441,19 +442,83 @@ mod run_tests {
         record: bool,
     }
 
-    /// The store of this build, as the store's own cases find it: the harness
-    /// is built with the binaries, so the store is in it, or one directory up.
+    /// The store of this build: looked for beside the test binary and one
+    /// directory up, and built once when neither holds it.
+    ///
+    /// The two directories are the profile under test, `target/<profile>/deps`
+    /// and `target/<profile>`, where a run of the workspace puts the store it
+    /// built with the binaries. A run of a package of its own builds only that
+    /// package, so the sibling `store` is not there at all. An absent store is
+    /// built, not skipped: these cases are honest about the program a host runs
+    /// only when they run the real one. A cold target directory builds the
+    /// store's bundled SQLite, which is the slow part of this path; the gate
+    /// builds the workspace first, so it does not pay for it.
     fn store_of_this_build() -> PathBuf {
         let deps = std::env::current_exe()
             .unwrap()
             .parent()
             .unwrap()
             .to_path_buf();
-        let here = deps.join("store");
-        if here.is_file() {
-            return here;
+        let dirs = [deps.to_path_buf(), deps.parent().unwrap().to_path_buf()];
+        find_store(&dirs).unwrap_or_else(|| {
+            build_store();
+            find_store(&dirs)
+                .unwrap_or_else(|| panic!("the store of this build is beside the test binary"))
+        })
+    }
+
+    /// The `store` of one of these directories, if it is there.
+    fn find_store(dirs: &[PathBuf]) -> Option<PathBuf> {
+        dirs.iter()
+            .map(|dir| dir.join("store"))
+            .find(|here| here.is_file())
+    }
+
+    /// One build of the store for the whole harness, into the directory the
+    /// harness's own profile uses, and its words when it did not build. A
+    /// `OnceLock` rather than a `Once` so every thread of the parallel harness
+    /// reads the same outcome, including the ones that lost the race and so ran
+    /// no closure of their own. cargo is given `timeout(1)` as every other
+    /// outside call of this file is: a cargo that blocks on the lock of a
+    /// target directory it does not own must fail with its own words rather
+    /// than hold the harness. The build scripts of the crates run here, so the
+    /// environment keeps no variable named like a secret, the bot's token among
+    /// them, as `build_ready` (install.sh) prunes it before a build.
+    fn build_store() {
+        static BUILT: std::sync::OnceLock<Result<(), String>> = std::sync::OnceLock::new();
+        let built = BUILT.get_or_init(|| {
+            let manifest = Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
+            // cargo names the directory when it was asked for one of its own;
+            // the workspace's default is the one this manifest's target dir is.
+            let target = std::env::var_os("CARGO_TARGET_DIR")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("target"));
+            let mut cmd = crate::store::bounded("10", "900", "cargo");
+            cmd.arg("build")
+                .args(["--locked", "--offline", "--quiet", "--manifest-path"])
+                .arg(&manifest)
+                .args(["--target-dir"])
+                .arg(&target)
+                .args(["-p", "store"])
+                .args((!cfg!(debug_assertions)).then_some("--release"));
+            for name in std::env::vars_os().map(|(k, _)| k) {
+                let name = name.to_string_lossy();
+                let secret = ["TOKEN", "SECRET", "PASSWORD", "API_KEY"]
+                    .iter()
+                    .any(|part| name.contains(part));
+                if secret {
+                    cmd.env_remove(name.as_ref());
+                }
+            }
+            match cmd.output() {
+                Ok(out) if out.status.success() => Ok(()),
+                Ok(out) => Err(String::from_utf8_lossy(&out.stderr).trim().to_string()),
+                Err(e) => Err(format!("cargo: {e}")),
+            }
+        });
+        if let Err(words) = built {
+            panic!("the store of this build could not be built: {words}");
         }
-        deps.parent().unwrap().join("store")
     }
 
     /// The store of a home: the store of this build, in a wrapper that writes
@@ -1040,7 +1105,68 @@ fn slice(live: &Path, now: i64) -> J {
             );
         }
     }
+    let held = held_of(d.get(hold::KEY_HELD));
+    if !held.is_empty() {
+        f.push((hold::KEY_HELD.to_string(), J::Arr(held)));
+    }
     J::Obj(f)
+}
+
+/// The ready issues the poll held one by one, each as `hold::Held` writes it.
+/// An entry of another shape is left out: `status --json` copies the list and
+/// api/status.schema.json closes its objects.
+fn held_of(list: &J) -> Vec<J> {
+    list.items()
+        .iter()
+        .filter(|h| {
+            h.get("issue")
+                .as_f64()
+                .is_some_and(|n| n >= 1.0 && n.fract() == 0.0)
+                && ["why", "text", "clear"]
+                    .iter()
+                    .all(|k| h.get(k).as_str().is_some())
+        })
+        .map(|h| {
+            obj(["issue", "why", "text", "clear"]
+                .into_iter()
+                .map(|k| (k, h.get(k).clone()))
+                .collect())
+        })
+        .collect()
+}
+
+/// The line of a factory with room whose every ready issue the poll held:
+/// None when the queue lists none, or one the poll did not hold.
+fn all_held(slice: &J, queue: &J) -> Option<String> {
+    let held = slice.get(hold::KEY_HELD).items();
+    let queued: Vec<String> = queue
+        .get("queued")
+        .items()
+        .iter()
+        .map(|i| i.get("number").text())
+        .collect();
+    let is_held = |n: &String| held.iter().any(|h| &h.get("issue").text() == n);
+    if queued.is_empty() || !queued.iter().all(is_held) {
+        return None;
+    }
+    if let [one] = queued.as_slice() {
+        let h = held.iter().find(|h| &h.get("issue").text() == one)?;
+        let clear = h.get("clear").text_or_empty();
+        let mut c = clear.chars();
+        let clear = match c.next() {
+            Some(f) => f.to_uppercase().chain(c).collect(),
+            None => String::new(),
+        };
+        return Some(format!(
+            "#{one} is held: {}. {clear}.",
+            h.get("text").text_or_empty()
+        ));
+    }
+    let nums: Vec<String> = queued.iter().map(|n| format!("#{n}")).collect();
+    Some(format!(
+        "Every ready issue is held: {}. tehas status says why.",
+        nums.join(", ")
+    ))
 }
 
 /// The four keys api/status.schema.json requires of the slots object.
@@ -1124,7 +1250,27 @@ fn demand(live: &Path, now: i64) -> J {
     if let Some(h) = d.get("refreshHold").as_str() {
         f.push(("refreshHold".to_string(), J::Str(first(h, 300))));
     }
+    if let Some(alone) = label_alone(d.get("labelAlone")) {
+        f.push(("labelAlone".to_string(), alone));
+    }
     J::Obj(f)
+}
+
+/// The most issue numbers `labelAlone` carries, as the dispatcher bounds it.
+const LABEL_ALONE_MAX: usize = 50;
+
+/// The issues `tehas:blocked` holds by the label alone, as the poll listed
+/// them: a list of issue numbers, at most `LABEL_ALONE_MAX` of them. A list
+/// that holds anything but issue numbers is left out, and so is an empty one.
+fn label_alone(v: &J) -> Option<J> {
+    let J::Arr(a) = v else { return None };
+    let ok = a
+        .iter()
+        .all(|n| matches!(n, J::Num(t) if t.parse::<u64>().is_ok_and(|n| n > 0)));
+    if !ok || a.is_empty() {
+        return None;
+    }
+    Some(J::Arr(a.iter().take(LABEL_ALONE_MAX).cloned().collect()))
 }
 
 /// Whether some process holds the lock, or it cannot be told apart from one
@@ -1139,14 +1285,19 @@ fn held(lock: &Path) -> bool {
     )
 }
 
-/// The planning turns in flight, each {issue, turn, startedAt}: the sessions
-/// the store has running whose turn holds its lock and has not left its exit
-/// status (console/dispatch/src/apply/turn.rs).
+/// The open planning sessions to tell of, each {issue, turn, startedAt,
+/// state}: `running` for a turn in flight, the session the store has running
+/// whose turn holds its lock and has not left its exit status
+/// (console/dispatch/src/apply/turn.rs); `failed` for one whose last turn
+/// ended in error and waits for a person: on record as failed (the dispatcher
+/// posted its question), or still running on record beside an exit status
+/// other than 0 that the next poll will post. A session that is over is not in
+/// `plan-show --open`, and one whose turn finished or was cut off is left out.
 fn plans(home: &Path, sessions: &J) -> J {
     let state = home.join("state");
     let mut out = Vec::new();
     for s in sessions.get("sessions").items() {
-        if !s.get("running").is_true() || !matches!(s.get("issue"), J::Num(_)) {
+        if !matches!(s.get("issue"), J::Num(_)) || !s.get("ended_at").is_null() {
             continue;
         }
         let n = s.get("issue").text();
@@ -1157,22 +1308,45 @@ fn plans(home: &Path, sessions: &J) -> J {
         if !plain {
             continue;
         }
-        let lock = state.join(format!("plan-{n}.json.lock"));
-        let rc = state.join(format!("plan-{n}.json.rc"));
-        if rc.exists() || !held(&lock) {
-            continue;
-        }
         let turns = match s.get("turns") {
             t @ J::Num(_) => t.as_f64().unwrap_or(0.0),
             _ => 0.0,
         };
+        let lock = state.join(format!("plan-{n}.json.lock"));
+        let rc = state.join(format!("plan-{n}.json.rc"));
+        let (turn, word) = if s.get("running").is_true() {
+            match exit_status(&rc) {
+                Some(t) if t.trim_end_matches('\n') == "0" => continue,
+                Some(_) => (turns + 1.0, "failed"),
+                None if rc.exists() || !held(&lock) => continue,
+                None => (turns + 1.0, "running"),
+            }
+        } else if s.get("failed").is_true() && !s.get("lost").is_true() {
+            (turns, "failed")
+        } else {
+            continue;
+        };
         out.push(obj(vec![
             ("issue", s.get("issue").clone()),
-            ("turn", J::num(turns + 1.0)),
+            ("turn", J::num(turn)),
             ("startedAt", iso(s.get("started_at"))),
+            ("state", J::str(word)),
         ]));
     }
     J::Arr(out)
+}
+
+/// The exit status a planning turn left, as the dispatcher reads it: the
+/// first bytes of a regular file, None for no file. A status that cannot be
+/// read is not 0, which is a turn that ended in error.
+fn exit_status(rc: &Path) -> Option<String> {
+    if !rc.is_file() {
+        return None;
+    }
+    let mut text = Vec::new();
+    let _ = fs::File::open(rc)
+        .and_then(|f| io::Read::read_to_end(&mut io::Read::take(f, 64), &mut text));
+    Some(String::from_utf8_lossy(&text).into_owned())
 }
 
 /// The pause flag of this host: null with none, {at, reason} with one, and
@@ -1299,14 +1473,42 @@ fn written_once(text: &str) -> bool {
     false
 }
 
-/// A cycle that ended without failing the factory: its work shipped, it is
-/// waiting for review, or its issue closed while it ran (rc 2), which usually
+/// Whether an ending's status is an end that went well: its work shipped, it
+/// waits for review, or its issue closed while it ran (rc 2), which usually
 /// means the pull request merged first or a person closed the issue by hand.
+/// The three words are ends, so an ending that carries one has ended.
 fn ended_well(c: &J) -> bool {
     in_list(
         c.get("status").or(&J::str("")),
         &["merged", "handoff", "closed"],
     )
+}
+
+/// The status word of an ending whose status names no end, as health shows it
+/// in `checks.failed` and in the line it says. The words that say so are
+/// `tehas_core::grammar::NOT_ENDS`, read here by `an_end` and mapped by the
+/// store's writer of the ten endings (`ending_status` there), so the page and
+/// the table never disagree about which words they are.
+const NOT_AN_END: &str = tehas_core::grammar::NOT_AN_END;
+
+/// Whether a row of the last ten counts for `checks.failed`: an object whose
+/// status is none of the ends that went well. A row that never ended is kept by
+/// that branch too, and named by the word `failed_word` gives it.
+fn a_failed_ending(e: &J) -> bool {
+    matches!(e, J::Obj(_)) && !ended_well(e)
+}
+
+/// The word health shows for an ending: the status it reported for one that
+/// ended, and `NOT_AN_END` for one whose status says it did not. A row carries
+/// no word at all when the key is absent, null, or not text, and a word of
+/// `NOT_ENDS` names a cycle still at work: neither is a word an end carries, so
+/// the row is named rather than copied into the published file. One rule, read
+/// the same in `checks.failed` and in the line `output` says.
+fn failed_word(e: &J) -> String {
+    match e.get("status") {
+        J::Str(w) if an_end(w) => w.clone(),
+        _ => NOT_AN_END.to_string(),
+    }
 }
 
 /// One cycle as the health file lists it.
@@ -1329,6 +1531,13 @@ fn joined(v: &J) -> String {
         .join(", ")
 }
 
+/// The limit as `flags::read` reads it. A reading the page cannot parse is
+/// unreadable, as it is to every other reader, never nothing.
+fn limit(home: &Path, now: i64) -> J {
+    J::parse(&flags::read(&home.join("state/limit.json"), now).json())
+        .unwrap_or_else(|| obj(vec![("state", J::Str("unreadable".to_string()))]))
+}
+
 fn report(home: &Path, g: &Given, now: i64) -> J {
     let live = home.join("live");
     let endings = match read(&live.join("endings.json")) {
@@ -1343,8 +1552,7 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
     let demand = demand(&live, now);
     let sessions = g.sessions.as_deref().and_then(J::parse).unwrap_or(J::Null);
     let plans = plans(home, &sessions);
-    let limit =
-        J::parse(&flags::read(&home.join("state/limit.json"), now).json()).unwrap_or(J::Null);
+    let limit = limit(home, now);
 
     let flag = pause_flag(home);
     let bool_or_false = |v: &J| match v {
@@ -1378,6 +1586,16 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
         },
         None => (J::Null, false),
     };
+    // The cleaner's record of its last upkeep, which is what makes the backup.
+    let upkeep = match read(&home.join("state/upkeep.json")) {
+        Some(u) if matches!(u.get("ok"), J::Bool(_)) => obj(vec![
+            ("time", iso(u.get("at"))),
+            ("ok", u.get("ok").clone()),
+            ("word", u.get("word").clone()),
+        ]),
+        _ => J::Null,
+    };
+    let upkeep_failed = matches!(upkeep.get("ok"), J::Bool(false));
     let poll_cost = match (g.poll_over.as_deref().and_then(J::parse), &g.poll_budget) {
         (Some(over), Some(budget)) => obj(vec![
             ("over", over.or(&J::Arr(vec![])).clone()),
@@ -1445,6 +1663,11 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
                 .is_gt());
     let disk_low = !disk.is_null() && disk.get("low").truthy();
     let has_units = units.as_ref().is_some_and(|u| !u.is_empty());
+    let held_line = if running.is_empty() && !old_queue {
+        all_held(&slice, &queue)
+    } else {
+        None
+    };
 
     let status = if queue.is_null() || failed {
         "fail"
@@ -1458,6 +1681,7 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
         || behind
         || old_backup
         || over_budget
+        || held_line.is_some()
     {
         "warn"
     } else {
@@ -1470,7 +1694,9 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
         format!(
             "The last cycle failed: #{} ended as {}.",
             last.get("issue").text(),
-            last.get("status").text()
+            // The word of an ending that never ended is named as it is in
+            // `checks.failed`, by the one helper that answers both.
+            failed_word(&last)
         )
     } else if old_queue {
         format!(
@@ -1520,13 +1746,29 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
             platform.get("upstream").text(),
             first(&platform.get("behindSince").text_or_empty(), 10)
         )
-    } else if old_backup && backup.is_null() {
-        "There is no backup of the state store: tehasbot clean makes one a day.".to_string()
     } else if old_backup {
-        format!(
-            "The newest backup of the state store is {} old.",
-            ago(backup.get("ageSeconds"))
-        )
+        let why = if upkeep_failed {
+            format!(
+                "the last upkeep failed at {}: {}",
+                upkeep.get("time").text(),
+                upkeep.get("word").or(&J::str("no word")).text()
+            )
+        } else if backup.is_null() {
+            "tehasbot clean makes one a day".to_string()
+        } else {
+            String::new()
+        };
+        match (backup.is_null(), why.is_empty()) {
+            (true, _) => format!("There is no backup of the state store: {why}."),
+            (false, true) => format!(
+                "The newest backup of the state store is {} old.",
+                ago(backup.get("ageSeconds"))
+            ),
+            (false, false) => format!(
+                "The newest backup of the state store is {} old: {why}.",
+                ago(backup.get("ageSeconds"))
+            ),
+        }
     } else if over_budget {
         format!(
             "An idle poll is over its budget on {} (TEHAS_POLL_BUDGET={}).",
@@ -1540,6 +1782,8 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
             .map(|c| format!("#{}", c.get("issue").text()))
             .collect();
         format!("Working on {}.", issues.join(", "))
+    } else if let Some(line) = held_line {
+        line
     } else {
         "Idle, taking work.".to_string()
     };
@@ -1571,21 +1815,19 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
     if !last.is_null() {
         ends.push(last.clone());
     }
-    let mut ends: Vec<J> = ends
-        .into_iter()
-        .filter(|e| matches!(e, J::Obj(_)) && !ended_well(e))
-        .collect();
+    let mut failed: Vec<J> = ends.into_iter().filter(a_failed_ending).collect();
     let key = |e: &J| J::Arr(vec![e.get("issue").clone(), e.get("startedAt").clone()]);
-    ends.sort_by(|a, b| key(a).cmp(&key(b)));
-    ends.dedup_by(|b, a| key(a).cmp(&key(b)).is_eq());
-    ends.sort_by(|a, b| a.get("updatedAt").cmp(b.get("updatedAt")));
-    ends.reverse();
+    failed.sort_by(|a, b| key(a).cmp(&key(b)));
+    failed.dedup_by(|b, a| key(a).cmp(&key(b)).is_eq());
+    failed.sort_by(|a, b| a.get("updatedAt").cmp(b.get("updatedAt")));
+    failed.reverse();
     let failed_list = J::Arr(
-        ends.iter()
+        failed
+            .iter()
             .map(|e| {
                 obj(vec![
                     ("issue", e.get("issue").clone()),
-                    ("status", e.get("status").clone()),
+                    ("status", J::str(failed_word(e))),
                     ("step", e.get("step").clone()),
                     ("startedAt", iso(e.get("startedAt"))),
                     ("time", iso(e.get("updatedAt"))),
@@ -1636,6 +1878,7 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
                 ("platform", platform),
                 ("units", units.unwrap_or(J::Null)),
                 ("backup", backup_check),
+                ("upkeep", upkeep),
                 ("poll_cost", poll_cost),
             ]),
         ),
@@ -1677,6 +1920,46 @@ mod tests {
 
     fn said(r: &J) -> (String, String) {
         (r.get("status").text(), r.get("output").text())
+    }
+
+    #[test]
+    fn every_reader_of_the_limit_gives_one_answer() {
+        let h = home("limit-readers");
+        let unreadable = r#"{"state":"unreadable"}"#;
+        let cases = [
+            (r#"{"v":1,"cycles":1,"plan":true,"cycles":2}"#, unreadable),
+            (r#"{"v":1,"cycles":1,"plan":false,"plan":true}"#, unreadable),
+            (r#"{"v":1,"cycles":1,"plan":true,"v":1}"#, unreadable),
+            (r#"{"v":1,"cycles":1e999,"plan":true}"#, unreadable),
+            (r#"{"v":1,"cycles":1,"plan":true"#, unreadable),
+            (
+                r#"{"v":1,"cycles":2,"plan":false,"until":"2026-10-17T13:00:00Z","reason":"x"}"#,
+                r#"{"state":"expired","cycles":2,"plan":false,"until":"2026-10-17T13:00:00Z","reason":"x"}"#,
+            ),
+            (
+                r#"{"v":1,"cycles":3,"plan":true,"until":null,"reason":" held\nfor alpha "}"#,
+                r#"{"state":"ok","cycles":3,"plan":true,"reason":"held for alpha"}"#,
+            ),
+            (
+                r#"{"v":1,"cycles":1,"plan":true,"note":{"cycles":9}}"#,
+                r#"{"state":"ok","cycles":1,"plan":true}"#,
+            ),
+            (
+                r#"{"v":1.0,"cycles":01,"plan":true}"#,
+                r#"{"state":"ok","cycles":1.0,"plan":true}"#,
+            ),
+        ];
+        let value = |text: &str| serde_json::from_str::<Value>(text).unwrap();
+        for (file, want) in cases {
+            h.write("state/limit.json", file);
+            let want = value(want);
+            let console = value(&flags::read(&h.0.join("state/limit.json"), NOW).json());
+            let page = value(&h.report(&Given::default()).at(&["checks", "limit"]).dump());
+            let dispatch = tehas_dispatch::read::host::limit(&h.0, NOW);
+            assert_eq!(console, want, "console: {file}");
+            assert_eq!(page, want, "health: {file}");
+            assert_eq!(dispatch, want, "dispatcher: {file}");
+        }
     }
 
     #[test]
@@ -2109,6 +2392,18 @@ mod tests {
         );
     }
 
+    #[test]
+    fn the_demand_lists_the_issues_held_by_the_label_alone_within_its_bound() {
+        assert_eq!(label_alone(&J::parse("[7,9]").unwrap()), J::parse("[7,9]"));
+        let many: Vec<String> = (1..=80).map(|n| n.to_string()).collect();
+        let got = label_alone(&J::parse(&format!("[{}]", many.join(","))).unwrap()).unwrap();
+        assert_eq!(got.items().len(), LABEL_ALONE_MAX);
+        assert_eq!(got.items()[0], J::Num("1".into()));
+        for bad in ["[]", "[0]", "[\"7\"]", "[7,-1]", "[1.5]", "7", "{}"] {
+            assert_eq!(label_alone(&J::parse(bad).unwrap()), None, "{bad}");
+        }
+    }
+
     /// The report of a poll, at `at`, as the dispatcher's own type writes it:
     /// the bytes of `Report::to_value` with the poll's time stamped on them,
     /// which is exactly what `libexec/dispatch` publishes as live/dispatch.json.
@@ -2116,6 +2411,90 @@ mod tests {
         let mut v = r.to_value();
         v[hold::KEY_TIME] = serde_json::json!(at);
         h.write("live/dispatch.json", &v.to_string());
+    }
+
+    /// A poll with room that held the issues given by the park's rule.
+    fn held_poll(h: &Home, issues: &[u64]) {
+        let r = hold::Report {
+            free: 2,
+            held: issues
+                .iter()
+                .map(|&n| hold::Held {
+                    issue: n,
+                    why: hold::HELD_PARKED,
+                    text: "its last cycle parked on `gate` and the body has not changed since"
+                        .into(),
+                    clear: "edit the body, or tick Retry in the park comment".into(),
+                })
+                .collect(),
+            ..hold::Report::default()
+        };
+        poll_report(h, "2026-10-17T14:00:00Z", &r);
+    }
+
+    fn queued(h: &Home, issues: &str) {
+        h.write(
+            "live/status.json",
+            &format!(
+                r#"{{"generatedAt":"2026-10-17T14:00:10Z","queued":{issues},"running":[],"awaiting":[],"stopped":[]}}"#
+            ),
+        );
+    }
+
+    #[test]
+    fn a_factory_whose_one_ready_issue_is_held_names_it() {
+        let h = home("held-one");
+        queued(&h, r#"[{"number":7}]"#);
+        held_poll(&h, &[7]);
+        let r = h.report(&Given::default());
+        assert_eq!(
+            said(&r),
+            (
+                "warn".into(),
+                "#7 is held: its last cycle parked on `gate` and the body has not changed since. Edit the body, or tick Retry in the park comment.".into()
+            )
+        );
+        assert_eq!(
+            r.at(&["checks", "slice", "held"]).dump(),
+            r#"[{"issue":7,"why":"parked","text":"its last cycle parked on `gate` and the body has not changed since","clear":"edit the body, or tick Retry in the park comment"}]"#
+        );
+    }
+
+    #[test]
+    fn every_ready_issue_held_is_said_and_one_free_is_taking_work() {
+        let h = home("held-all");
+        queued(&h, r#"[{"number":7},{"number":9}]"#);
+        held_poll(&h, &[7, 9]);
+        assert_eq!(
+            said(&h.report(&Given::default())),
+            (
+                "warn".into(),
+                "Every ready issue is held: #7, #9. tehas status says why.".into()
+            )
+        );
+        held_poll(&h, &[9]);
+        let r = h.report(&Given::default());
+        assert_eq!(said(&r), ("pass".into(), "Idle, taking work.".into()));
+        assert_eq!(r.at(&["checks", "slice", "held"]).len(), 1);
+        // Nothing in line: a hold the queue no longer lists says nothing.
+        queued(&h, "[]");
+        assert_eq!(
+            said(&h.report(&Given::default())),
+            ("pass".into(), "Idle, taking work.".into())
+        );
+    }
+
+    #[test]
+    fn a_held_entry_of_another_shape_is_left_out() {
+        let h = home("held-bad");
+        queued(&h, r#"[{"number":7}]"#);
+        h.write(
+            "live/dispatch.json",
+            r#"{"time":"2026-10-17T14:00:00Z","why":"","hold":"","held":[{"issue":"7","why":"parked","text":"x","clear":"y"},{"issue":7,"why":"parked","text":"x"}]}"#,
+        );
+        let r = h.report(&Given::default());
+        assert!(r.at(&["checks", "slice", "held"]).is_null());
+        assert_eq!(said(&r), ("pass".into(), "Idle, taking work.".into()));
     }
 
     #[test]
@@ -2144,6 +2523,7 @@ mod tests {
                 "cycle": {"bound": "cpu", "slots": 6, "cpus": 24, "cycleCpus": "4",
                           "containerMemory": "8g", "ceiling": "16", "floored": false}
             })),
+            held: Vec::new(),
         };
         poll_report(&h, "2026-10-17T14:00:00Z", &r);
         let got = h.report(&Given::default());
@@ -2254,6 +2634,50 @@ mod tests {
             said(&h.report(&g)).1,
             "The newest backup of the state store is 55 h old."
         );
+        // A failed upkeep is why there is none, and the line says when and
+        // what the store said rather than to wait for the cleaner.
+        h.write(
+            "state/upkeep.json",
+            r#"{"at":1792242000,"ok":false,"word":"busy","line":"store: busy: the lock is held"}"#,
+        );
+        let g = Given {
+            backup: Some(r#"{"newest":null}"#.into()),
+            ..Given::default()
+        };
+        let r = h.report(&g);
+        assert_eq!(
+            said(&r).1,
+            "There is no backup of the state store: the last upkeep failed at 2026-10-17T13:00:00Z: busy."
+        );
+        assert_eq!(
+            r.at(&["checks", "upkeep"]).dump(),
+            r#"{"time":"2026-10-17T13:00:00Z","ok":false,"word":"busy"}"#
+        );
+        let g = Given {
+            backup: Some(r#"{"newest":{"at":1792000000,"age_seconds":200000}}"#.into()),
+            ..Given::default()
+        };
+        assert_eq!(
+            said(&h.report(&g)).1,
+            "The newest backup of the state store is 55 h old: the last upkeep failed at 2026-10-17T13:00:00Z: busy."
+        );
+        // A fresh backup passes whatever the record says; the check still
+        // carries the failure.
+        let fresh = Given {
+            backup: Some(r#"{"newest":{"at":1792240000,"age_seconds":5620}}"#.into()),
+            ..Given::default()
+        };
+        let r = h.report(&fresh);
+        assert_eq!(said(&r), ("pass".into(), "Idle, taking work.".into()));
+        assert_eq!(r.at(&["checks", "upkeep", "word"]).as_str(), Some("busy"));
+        // An upkeep that went well keeps the plain wording.
+        h.write("state/upkeep.json", r#"{"at":1792242000,"ok":true}"#);
+        assert_eq!(
+            said(&h.report(&g)).1,
+            "The newest backup of the state store is 55 h old."
+        );
+        fs::remove_file(h.0.join("state/upkeep.json")).unwrap();
+        assert_eq!(h.report(&g).at(&["checks", "upkeep"]), &J::Null);
         let g = Given {
             poll_over: Some(r#"["cpu","wall"]"#.into()),
             poll_budget: Some("cpu=5".into()),
@@ -2286,10 +2710,54 @@ mod tests {
         lock.lock().unwrap();
         assert_eq!(
             h.report(&g).at(&["checks", "plans"]).dump(),
-            r#"[{"issue":7,"turn":2,"startedAt":"2026-10-17T13:50:00Z"}]"#
+            r#"[{"issue":7,"turn":2,"startedAt":"2026-10-17T13:50:00Z","state":"running"}]"#
         );
         h.write("state/plan-7.json.rc", "0");
         assert_eq!(h.report(&g).at(&["checks", "plans"]).len(), 0);
+    }
+
+    #[test]
+    fn a_planning_session_whose_last_turn_failed_waits_for_a_person() {
+        let h = home("plans-failed");
+        let plans = |h: &Home, sessions: &str| {
+            let g = Given {
+                sessions: Some(sessions.into()),
+                ..Given::default()
+            };
+            h.report(&g).at(&["checks", "plans"]).dump()
+        };
+        // On record as failed: the turn ended in error, the dispatcher posted
+        // its question, and the session waits for an answer with no lock held.
+        let failed = r#"{"sessions":[{"issue":7,"running":false,"failed":true,"turns":2,"started_at":1792245000,"ended_at":null}]}"#;
+        assert_eq!(
+            plans(&h, failed),
+            r#"[{"issue":7,"turn":2,"startedAt":"2026-10-17T13:50:00Z","state":"failed"}]"#
+        );
+        // An exit status left beside a session still running on record: the
+        // turn ended in error and the next poll posts it.
+        let running = r#"{"sessions":[{"issue":7,"running":true,"failed":false,"turns":1,"started_at":1792245000,"ended_at":null}]}"#;
+        h.write("state/plan-7.json.rc", "2\n");
+        assert_eq!(
+            plans(&h, running),
+            r#"[{"issue":7,"turn":2,"startedAt":"2026-10-17T13:50:00Z","state":"failed"}]"#
+        );
+        h.write("state/plan-7.json.rc", "x");
+        assert_eq!(
+            plans(&h, running),
+            r#"[{"issue":7,"turn":2,"startedAt":"2026-10-17T13:50:00Z","state":"failed"}]"#
+        );
+        // A turn that finished is no failure, and neither is one whose
+        // session is over, lost, or waits on an answer to a turn that finished.
+        h.write("state/plan-7.json.rc", "0\n");
+        assert_eq!(plans(&h, running), "[]");
+        fs::remove_file(h.0.join("state/plan-7.json.rc")).unwrap();
+        for s in [
+            r#"{"sessions":[{"issue":7,"running":false,"failed":true,"turns":2,"started_at":1792245000,"ended_at":1792246000}]}"#,
+            r#"{"sessions":[{"issue":7,"running":false,"failed":true,"lost":true,"turns":2,"started_at":1792245000,"ended_at":null}]}"#,
+            r#"{"sessions":[{"issue":7,"running":false,"failed":false,"turns":2,"started_at":1792245000,"ended_at":null}]}"#,
+        ] {
+            assert_eq!(plans(&h, s), "[]", "{s}");
+        }
     }
 
     #[test]
@@ -2301,7 +2769,8 @@ mod tests {
             ),
             ..Given::default()
         };
-        let in_flight = r#"[{"issue":7,"turn":2,"startedAt":"2026-10-17T13:50:00Z"}]"#;
+        let in_flight =
+            r#"[{"issue":7,"turn":2,"startedAt":"2026-10-17T13:50:00Z","state":"running"}]"#;
         // A lock no one can open is not a turn that ended: the page says the
         // turn is in flight rather than read a probe it could not make as free.
         let h = home("plans-mode");
@@ -2349,6 +2818,84 @@ mod tests {
         assert_eq!(h.report(&g).at(&["checks", "plans"]).dump(), in_flight);
         h.write("state/plan-7.json.rc", "0");
         assert_eq!(h.report(&g).at(&["checks", "plans"]).len(), 0);
+    }
+
+    #[test]
+    fn an_ending_that_never_ended_is_named_as_not_an_end() {
+        let h = home("not-an-end");
+        // Each row carries the word it must answer with, or none at all: the
+        // two words of the set, and the row with no key, are `not an end`.
+        h.write(
+            "live/endings.json",
+            r#"[{"issue":1,"status":"running","startedAt":10,"updatedAt":20},
+               {"issue":2,"status":"","startedAt":10,"updatedAt":20},
+               {"issue":3,"startedAt":10,"updatedAt":20},
+               {"issue":4,"status":"failed","startedAt":10,"updatedAt":20},
+               {"issue":5,"status":"aborted","startedAt":10,"updatedAt":20}]"#,
+        );
+        let got: Vec<(String, String)> = h
+            .report(&Given::default())
+            .at(&["checks", "failed"])
+            .items()
+            .iter()
+            .map(|e| (e.get("issue").text(), e.get("status").text()))
+            .collect();
+        assert_eq!(
+            got,
+            [
+                ("5".into(), "aborted".into()),
+                ("4".into(), "failed".into()),
+                // 3, 2 and 1: no word, the empty word, and `running`.
+                ("3".into(), "not an end".into()),
+                ("2".into(), "not an end".into()),
+                ("1".into(), "not an end".into()),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_last_cycle_still_running_is_not_reported_as_ended_as_running() {
+        let h = home("last-running");
+        h.write(
+            "live/running.json",
+            r#"{"cycles":[],"last":{"issue":9,"running":false,"status":"running","step":"develop","startedAt":100,"updatedAt":200}}"#,
+        );
+        let r = h.report(&Given::default());
+        let said = said(&r);
+        let failed = r.at(&["checks", "failed"]);
+        assert_eq!(failed.len(), 1);
+        // The line and `checks.failed` name the row the same word, which the
+        // one helper answers for both.
+        assert_eq!(
+            said,
+            (
+                "fail".into(),
+                format!("The last cycle failed: #9 ended as {}.", NOT_AN_END)
+            )
+        );
+        assert_eq!(failed.items()[0].get("status"), &J::str(NOT_AN_END));
+    }
+
+    #[test]
+    fn a_status_that_is_no_word_is_named_and_never_copied_into_the_file() {
+        // The published file answers with a word or with `NOT_AN_END`, never
+        // with whatever bytes a hand-written `live/endings.json` left under the
+        // key: edge and MCP both copy `checks.failed` out as it is.
+        let h = home("status-not-a-word");
+        h.write(
+            "live/endings.json",
+            r#"[{"issue":1,"status":{"secret":"a-very-long-value"},"startedAt":10,"updatedAt":20},
+               {"issue":2,"status":null,"startedAt":10,"updatedAt":20},
+               {"issue":3,"status":7,"startedAt":10,"updatedAt":20}]"#,
+        );
+        let got: Vec<String> = h
+            .report(&Given::default())
+            .at(&["checks", "failed"])
+            .items()
+            .iter()
+            .map(|e| e.get("status").text())
+            .collect();
+        assert_eq!(got, [NOT_AN_END; 3]);
     }
 
     #[test]

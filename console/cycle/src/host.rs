@@ -41,7 +41,10 @@ use crate::runner;
 ///                 or - when not known) and the step in flight, or -. Left only
 ///                 when it stopped the container on that signal; tehasbot
 ///                 cycle makes the cap `signal` of it.
-pub const FILES: [&str; 13] = [
+///   disk          `cap <held> <max>` or `floor <held> <free> <floor>`, in
+///                 bytes, then the step in flight: tehas work stopped the
+///                 cycle for its scratch's disk (src/scratch.rs).
+pub const FILES: [&str; 14] = [
     "result.json",
     "progress.json",
     "runner_exit",
@@ -53,6 +56,7 @@ pub const FILES: [&str; 13] = [
     "stalled",
     "timed",
     "signal",
+    "disk",
     "stopped",
     "done",
 ];

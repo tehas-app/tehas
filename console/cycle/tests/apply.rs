@@ -79,8 +79,32 @@ impl Host {
     }
 
     fn report_to(&self, rc: i64, signalled: bool, status: &[&str]) -> Output {
-        Command::new(env!("CARGO_BIN_EXE_tehas-cycle"))
-            .args(["report", "7", "--attempt", "1", "--rc", &rc.to_string()])
+        self.report_cmd(rc, signalled, status).output().unwrap()
+    }
+
+    /// `report` on a host that keeps the analytics: a stub program that takes
+    /// every call, so the notes that only feed it are written.
+    fn report_with_analytics(&self, rc: i64) -> Output {
+        exe(&self.dir.join("libexec/analytics"), "#!/bin/sh\nexit 0\n");
+        self.report_cmd(rc, false, &["--status-cmd", "true"])
+            .env("TEHAS_ANALYTICS", "on")
+            .output()
+            .unwrap()
+    }
+
+    /// The store answers that the approval of the start bound the lean driver.
+    fn approve_lean(&self) {
+        let store = self.dir.join("libexec/store");
+        let body = fs::read_to_string(&store).unwrap().replace(
+            r#"  approval-current) echo '{"api":1,"verb":"approval-current","ok":true,"current":null}' ;;"#,
+            r#"  approval-current) echo '{"api":1,"verb":"approval-current","ok":true,"current":{"at":"900","how":"label","input":{"driver":"lean"}}}' ;;"#,
+        );
+        exe(&store, &body);
+    }
+
+    fn report_cmd(&self, rc: i64, signalled: bool, status: &[&str]) -> Command {
+        let mut c = Command::new(env!("CARGO_BIN_EXE_tehas-cycle"));
+        c.args(["report", "7", "--attempt", "1", "--rc", &rc.to_string()])
             .args(["--started", "1000", "--by", "alice", "--how", "label"])
             .args(["--signalled", if signalled { "1" } else { "0" }])
             .args(["--approval-at", "900", "--requeued", "0", "--now", "1060"])
@@ -101,9 +125,8 @@ impl Host {
             .env("TEHAS_CYCLE_RETRY_WAIT", "0")
             .env("TEHAS_CYCLE_STOP_GH_WAIT", "1")
             .env("TEHAS_ANALYTICS", "off")
-            .env_remove("TEHAS_IMPROVE_REPO")
-            .output()
-            .unwrap()
+            .env_remove("TEHAS_IMPROVE_REPO");
+        c
     }
 
     /// `tehas-cycle after` as the cycle runs it, the words on its stdin.
@@ -380,6 +403,92 @@ fn a_merged_cycle_removes_its_workspace_and_its_notes() {
     let end = h.at("store cycle-end");
     assert!(h.calls()[end].contains("--oom 2"), "{}", h.calls()[end]);
     assert!(h.calls()[end].contains("--pr 9"));
+}
+
+#[test]
+fn a_lean_cycle_keeps_the_driver_record_before_it_clears_the_workspace() {
+    let h = Host::new("lean-kept");
+    h.result("handoff", "verify", "feature/issue-7-x", "build-blocked");
+    let work = h.dir.join("work");
+    fs::write(work.join(".tehas-workspaces"), "").unwrap();
+    fs::create_dir_all(work.join("widget-7/.pi/lean-state")).unwrap();
+    fs::write(
+        work.join("widget-7/.pi/lean-state/7.json"),
+        r#"{"schema":1,"issue":7,"steps":[{"state":"ready","startedAt":1},
+            {"state":"verify","startedAt":2}]}"#,
+    )
+    .unwrap();
+    // The approval of the start bound the lean driver.
+    let kept = h.dir.join("state/cycles/7.lean-state.json");
+    assert!(!kept.exists());
+    h.approve_lean();
+    let o = h.report_with_analytics(10);
+    assert!(o.status.success(), "{}", out(&o));
+    // The workspace is left for a person and the record of the driver is with
+    // the run, which is what the copy is for: the driver's file goes with what
+    // the cleaner may take away.
+    let held: Value = serde_json::from_str(&fs::read_to_string(&kept).unwrap()).unwrap();
+    assert_eq!(held["steps"].as_array().unwrap().len(), 2);
+    assert_eq!(
+        fs::metadata(&kept).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+}
+
+#[test]
+fn a_classic_cycle_keeps_no_lean_record_and_a_lean_one_of_no_file_is_no_warning() {
+    let h = Host::new("lean-none");
+    h.result("handoff", "verify", "feature/issue-7-x", "build-blocked");
+    let work = h.dir.join("work");
+    fs::write(work.join(".tehas-workspaces"), "").unwrap();
+    fs::create_dir_all(work.join("widget-7")).unwrap();
+    // Classic: no copy, whatever the workspace holds.
+    fs::create_dir_all(work.join("widget-7/.pi/lean-state")).unwrap();
+    fs::write(
+        work.join("widget-7/.pi/lean-state/7.json"),
+        r#"{"schema":1,"steps":[{"state":"ready","startedAt":1}]}"#,
+    )
+    .unwrap();
+    let o = h.report_with_analytics(10);
+    assert!(o.status.success(), "{}", out(&o));
+    assert!(!h.dir.join("state/cycles/7.lean-state.json").exists());
+    assert!(!out(&o).contains("lean record"), "{}", out(&o));
+    // Lean, but the driver wrote no record: nothing to keep, and no warning.
+    let h = Host::new("lean-no-file");
+    h.result("handoff", "verify", "feature/issue-7-x", "build-blocked");
+    let work = h.dir.join("work");
+    fs::write(work.join(".tehas-workspaces"), "").unwrap();
+    fs::create_dir_all(work.join("widget-7")).unwrap();
+    h.approve_lean();
+    let o = h.report_with_analytics(10);
+    assert!(o.status.success(), "{}", out(&o));
+    assert!(!h.dir.join("state/cycles/7.lean-state.json").exists());
+    assert!(!out(&o).contains("lean record"), "{}", out(&o));
+}
+
+#[test]
+fn a_lean_run_whose_record_cannot_be_kept_is_one_warning() {
+    let h = Host::new("lean-blocked");
+    h.result("handoff", "verify", "feature/issue-7-x", "build-blocked");
+    let work = h.dir.join("work");
+    fs::write(work.join(".tehas-workspaces"), "").unwrap();
+    fs::create_dir_all(work.join("widget-7/.pi/lean-state")).unwrap();
+    fs::write(
+        work.join("widget-7/.pi/lean-state/7.json"),
+        r#"{"schema":1,"steps":[{"state":"ready","startedAt":1}]}"#,
+    )
+    .unwrap();
+    h.approve_lean();
+    // The notes directory cannot hold the copy.
+    fs::remove_dir_all(h.dir.join("state/cycles")).unwrap();
+    fs::write(h.dir.join("state/cycles"), "").unwrap();
+    let o = h.report_with_analytics(10);
+    assert!(o.status.success(), "{}", out(&o));
+    assert!(
+        out(&o).contains("the lean record of #7 is not with its run"),
+        "{}",
+        out(&o)
+    );
 }
 
 /// awaiting-human-merge did not occur once in 154 cycles on a host, so this is

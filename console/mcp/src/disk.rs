@@ -21,7 +21,7 @@ pub fn tool() -> Value {
     let text = |d: &str| json!({"type": "string", "description": d});
     json!({
         "name": "factory_disk",
-        "description": "How full this host is and what fills it, as tehas disk published it: one entry per file system the factory cares about - the instance's home, Docker's own directory, /tmp and the scratch disk when the instance has one - with its mount and its free and total bytes, and with full the biggest places under them and what docker system df said. A figure that could not be read is null and carries why, never 0. The file is written by tehas disk --publish and nothing refreshes it, so generatedAt says how old the answer is; no file is a tool error.",
+        "description": "How full this host is and what fills it, as tehas disk published it: one entry per file system the factory cares about - the instance's home, Docker's own directory, /tmp and the scratch disk when the instance has one - with its mount and its free and total bytes, and with full the biggest places under them and what docker system df said. A figure that could not be read is null and carries why, never 0. The file is written by tehas disk --publish, which the hourly cleaner runs, so generatedAt says how old the answer is; no file is a tool error.",
         "inputSchema": {"type": "object", "properties": {}, "additionalProperties": false},
         "outputSchema": {"type": "object", "properties": {
             "api": int("The API version, 1."),

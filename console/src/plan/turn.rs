@@ -33,7 +33,9 @@
 //!                   Only plain files are carried, at most 1 MB each. Nothing
 //!                   new is mounted and the container is given nothing new.
 //!   exit            the runner's exit status of the last turn.
-//!   draft.json      the title and spec of the last drafted plan (exit 12).
+//!   draft.json      the title and spec of the last drafted plan (exit 12),
+//!                   and "block": the `pi-spec v1` block pi-rukas placed at
+//!                   the top of the spec, when it placed one.
 //!   images/         the issue's images, with TEHAS_WORK_IMAGES=1, and its
 //!                   text files, with TEHAS_WORK_FILES=1: fetched on the first
 //!                   turn as tehas work fetches a cycle's. Each turn is given
@@ -76,13 +78,15 @@
 //! "update" is the drafted plan an answer chose to make the issue's text; the
 //! dispatcher writes it there and ends the session with "text", which holds
 //! the issue's text before it.
-//! On exit 2 it holds only {"session": "<id>"} when the session is known, and
+//! On exit 2 it holds {"session": "<id>"} when the session is known, and
 //! {"session": "<id>", "lost": true} when the runner says the session is gone
-//! (exit 41): the session cannot go on. When no session is known, nothing is
-//! written.
+//! (exit 41): the session cannot go on. Alongside them it holds "why", what
+//! the turn says went wrong, cut to 500 characters, so the dispatcher can put
+//! it on the issue. A turn that failed with no session known writes a document
+//! with "why" and no "session", which is no session for the caller.
 
 use super::outcome;
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
 use signal_hook::consts::{SIGINT, SIGTERM};
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, ErrorKind, Write};
@@ -93,6 +97,7 @@ use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use tehas_core::plan::WHY_MAX;
 
 /// `find ! -size +1024k`: a carried file is at most this long.
 const CARRIED: u64 = 1024 * 1024;
@@ -544,19 +549,43 @@ fn runner_why(d: &Value) -> String {
         .join(": ")
 }
 
-/// The turn failed. The session, when it is known, is all that is left for the
-/// caller; `lost` says it is gone, so the caller ends it.
+/// The turn failed. The session, when it is known, and what went wrong are
+/// all that is left for the caller; `lost` says the session is gone, so the
+/// caller ends it. The reason goes in the output too, so the dispatcher can
+/// put it on the issue and a person need not open the log. With no session
+/// known the document holds only the reason, which is no session for the
+/// caller.
 fn give_up(turn: &Turn, sid: &str, what: &str, lost: bool) -> u8 {
     say(&format!(
         "tehas plan: issue={} {what}, see {}",
         turn.issue, turn.log
     ));
+    // serde builds the document: the shape three readers parse is one the
+    // type system knows, and "nothing to say" is an empty map, not a byte
+    // count of a buffer.
+    let mut doc = Map::new();
     if !sid.is_empty() {
-        let lost = if lost { ",\n  \"lost\": true" } else { "" };
-        let doc = format!("{{\n  \"session\": {}{lost}\n}}\n", json!(sid));
-        if write_out(turn.out, &doc).is_err() {
-            warn(&format!("tehas plan: could not write {}", turn.out));
+        doc.insert("session".to_string(), json!(sid));
+        if lost {
+            doc.insert("lost".to_string(), json!(true));
         }
+    }
+    let why = tehas_core::jq::first(what, WHY_MAX);
+    if !why.is_empty() {
+        doc.insert("why".to_string(), json!(why));
+    }
+    if doc.is_empty() {
+        return FAILED;
+    }
+    let doc = match serde_json::to_string_pretty(&doc) {
+        Ok(doc) => format!("{doc}\n"),
+        Err(e) => {
+            warn(&format!("tehas plan: could not write {}: {e}", turn.out));
+            return FAILED;
+        }
+    };
+    if let Err(e) = write_out(turn.out, &doc) {
+        warn(&format!("tehas plan: could not write {}: {e}", turn.out));
     }
     FAILED
 }
@@ -1008,10 +1037,36 @@ mod tests {
 
     #[test]
     fn a_failed_turn_gives_up_keeping_the_session_as_jq_wrote_it() {
-        let (s, code) = ended("give-up", 124, "", "abc-123");
+        let doc = r#"{"exitCode":40,"error":{"code":"draft-invalid","message":"the Acceptance criteria section is the fallback placeholder"}}"#;
+        let (s, code) = ended("give-up", 40, doc, "abc-123");
         assert_eq!(code, 2);
-        assert_eq!(s.read("out.json"), "{\n  \"session\": \"abc-123\"\n}\n");
-        assert_eq!(s.read("keep/exit"), "124\n");
+        assert_eq!(
+            s.read("out.json"),
+            "{\n  \"session\": \"abc-123\",\n  \"why\": \"the runner exited 40 (draft-invalid: the Acceptance criteria section is the fallback placeholder)\"\n}\n"
+        );
+        assert_eq!(s.read("keep/exit"), "40\n");
+    }
+
+    #[test]
+    fn the_why_of_a_failed_turn_is_cut_to_five_hundred_characters() {
+        let long = "x".repeat(600);
+        let doc = format!(r#"{{"exitCode":40,"failure":{{"reason":"{long}"}}}}"#);
+        let (s, code) = ended("why-cut", 40, &doc, "abc-123");
+        assert_eq!(code, 2);
+        let text = s.read("out.json");
+        let said: Value = serde_json::from_str(&text).expect("the outcome is json");
+        let why = said["why"].as_str().expect("the reason is a string");
+        assert_eq!(why.chars().count(), WHY_MAX);
+        assert!(why.starts_with("the runner exited 40 ("));
+        assert!(why.ends_with('x'));
+        // The same document, byte for byte, as its readers receive it.
+        let cut = "x".repeat(WHY_MAX - "the runner exited 40 (".len());
+        assert_eq!(
+            text,
+            format!(
+                "{{\n  \"session\": \"abc-123\",\n  \"why\": \"the runner exited 40 ({cut}\"\n}}\n"
+            )
+        );
     }
 
     #[test]
@@ -1019,19 +1074,27 @@ mod tests {
         let (s, code) = ended("lost", 41, r#"{"lost":true}"#, "abc-123");
         assert_eq!(code, 2);
         assert_eq!(
+            // serde_json's Map here is a BTreeMap, so the keys print sorted.
             s.read("out.json"),
-            "{\n  \"session\": \"abc-123\",\n  \"lost\": true\n}\n"
+            "{\n  \"lost\": true,\n  \"session\": \"abc-123\",\n  \"why\": \"the session abc-123 is gone: the runner has no record of it\"\n}\n"
         );
     }
 
     #[test]
-    fn with_no_session_known_nothing_is_written() {
+    fn with_no_session_known_only_the_reason_is_written() {
         let (s, code) = ended("no-session", 11, r#"{"text":"Hm."}"#, "");
         assert_eq!(code, 2);
-        assert!(!s.has("out.json"));
+        assert_eq!(
+            s.read("out.json"),
+            "{\n  \"why\": \"the session id is unknown\"\n}\n"
+        );
+        assert!(!s.read("out.json").contains("\"session\""));
         let (s, code) = ended("too-long", 30, "", "");
         assert_eq!(code, 2);
-        assert!(!s.has("out.json"));
+        assert_eq!(
+            s.read("out.json"),
+            "{\n  \"why\": \"the runner exited 30\"\n}\n"
+        );
     }
 
     #[test]
@@ -1043,8 +1106,60 @@ mod tests {
             "",
         );
         assert_eq!(code, 2);
-        assert_eq!(s.read("out.json"), "{\n  \"session\": \"abc-123\"\n}\n");
+        assert_eq!(
+            s.read("out.json"),
+            "{\n  \"session\": \"abc-123\",\n  \"why\": \"the turn said and asked nothing\"\n}\n"
+        );
         assert!(!s.has("out.json.new"));
+    }
+
+    #[test]
+    fn a_refused_turn_that_says_nothing_still_keeps_its_session() {
+        // The runner gave no `error` and no `failure`, so its own words are
+        // empty and the document holds only what the turn knows: the status
+        // it exited with, and the session. A missing `why` means it said naught.
+        let (s, code) = ended("no-why", 40, "", "abc-123");
+        assert_eq!(code, 2);
+        assert_eq!(
+            s.read("out.json"),
+            "{\n  \"session\": \"abc-123\",\n  \"why\": \"the runner exited 40\"\n}\n"
+        );
+    }
+
+    #[test]
+    fn every_document_a_turn_gives_up_with_is_parsable() {
+        // The keys are optional and serde writes them, so the shape a reader
+        // gets is a document, in every combination of them.
+        for (name, rc, doc, sid, want) in [
+            (
+                "both",
+                41,
+                r#"{"lost":true}"#,
+                "abc-123",
+                r#"{"lost":true,"session":"abc-123","why":"the session abc-123 is gone: the runner has no record of it"}"#,
+            ),
+            (
+                "session",
+                40,
+                r#"{"error":{"code":"busy"}}"#,
+                "abc-123",
+                r#"{"session":"abc-123","why":"the runner exited 40 (busy)"}"#,
+            ),
+            ("reason", 30, "", "", r#"{"why":"the runner exited 30"}"#),
+        ] {
+            let (s, code) = ended(name, rc, doc, sid);
+            assert_eq!(code, 2, "{name}: a turn that gave up exits 2");
+            let text = s.read("out.json");
+            let said: Value = serde_json::from_str(&text).unwrap_or_else(|e| panic!("{name}: {e}"));
+            let want: Value = serde_json::from_str(want).unwrap();
+            assert_eq!(said, want, "{name}");
+            // The bytes on disk are exactly that document, pretty printed.
+            assert_eq!(
+                text,
+                format!("{}\n", serde_json::to_string_pretty(&want).unwrap()),
+                "{name}"
+            );
+        }
     }
 
     fn spawned(script: &str) -> Child {

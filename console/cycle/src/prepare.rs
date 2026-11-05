@@ -5,8 +5,8 @@
 //!
 //!   check   the bot's identity, the variables of the container, what the image
 //!           supports. Nothing is moved or fetched before it passes.
-//!   tree    a fresh workspace, the product's gate, the push check, the code
-//!           index and the container's mounts.
+//!   tree    a fresh workspace, the product's gate, the push check, the
+//!           product's install step, the code index and the container's mounts.
 //!   record  the cycle's image and settings on its record, and the words of the
 //!           docker run, which the watch is given.
 //!
@@ -32,6 +32,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
+use tehas_core::install::{self, Step};
 use tehas_core::models;
 use tehas_core::sandbox::{self, Identity, Kind, Paths, HANDOFF_SECONDS};
 use tehas_core::slice::{self, Load};
@@ -40,13 +41,14 @@ use tehas_core::{lock, time};
 /// The words of the limits, then of the security options, as the slice gave them.
 const LIMIT_WORDS: usize = 14;
 
-const PROTOCOL: [&str; 14] = [
+const PROTOCOL: [&str; 15] = [
     "cid",
     "oom",
     "forks",
     "stalled",
     "timed",
     "signal",
+    "disk",
     "result.json",
     "progress.json",
     "runner_exit",
@@ -414,13 +416,7 @@ pub fn gate_line(text: &str) -> Option<&str> {
 /// park a cycle or start one. A start-cost guard, not proof a real gate exists.
 fn has_gate(tree: &str, branch: &str) -> bool {
     let at = format!("origin/{branch}");
-    let git = |args: &[&str]| {
-        let mut words = vec!["git".to_string(), "-C".to_string(), tree.to_string()];
-        words.extend(args.iter().map(|a| a.to_string()));
-        let out = bounded(10, 60, &words).stderr(Stdio::null()).output();
-        out.map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
-            .unwrap_or_default()
-    };
+    let git = |args: &[&str]| git_out(tree, args);
     gate_line(&git(&["show", &format!("{at}:.pi/verify-cmd")])).is_some()
         || !git(&[
             "ls-tree",
@@ -431,6 +427,73 @@ fn has_gate(tree: &str, branch: &str) -> bool {
             "Cargo.toml",
         ])
         .is_empty()
+}
+
+fn git_out(tree: &str, args: &[&str]) -> String {
+    let mut words = vec!["git".to_string(), "-C".to_string(), tree.to_string()];
+    words.extend(args.iter().map(|a| a.to_string()));
+    let out = bounded(10, 60, &words).stderr(Stdio::null()).output();
+    out.map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+        .unwrap_or_default()
+}
+
+/// The product's dependencies, installed in the workspace in the sandbox
+/// before the cycle starts, so a worktree pi-rukas makes there finds them in
+/// its main checkout. None when they were; else the status to exit with.
+fn install(state: &Value, tree: &str, steps: &[Step], preflight: &Path) -> Option<i32> {
+    let words = sandbox::install_run(
+        &list(state, "limits"),
+        &list(state, "security"),
+        &sandbox::user(),
+        &env("TEHAS_WORK_DIR"),
+        tree,
+        &env("PI_ENSEMBLE_IMAGE"),
+        &install::script(steps),
+    );
+    // What the install says is read back from where it starts, so a failure is
+    // told by its own lines and not the push check's before it.
+    let start = fs::metadata(preflight).map_or(0, |m| m.len());
+    let opened = OpenOptions::new()
+        .append(true)
+        .create(true)
+        .open(preflight)
+        .and_then(|log| Ok((log.try_clone()?, log)));
+    let rc = match opened {
+        Ok((err, log)) => code(
+            bounded(10, install::WAIT, &words)
+                .stdout(log)
+                .stderr(err)
+                .status(),
+        ),
+        Err(_) => 127,
+    };
+    if rc == 0 {
+        return None;
+    }
+    let text = fs::read(preflight).unwrap_or_default();
+    let own = usize::try_from(start).map_or(&[][..], |at| text.get(at..).unwrap_or(&[]));
+    let text = String::from_utf8_lossy(own);
+    let lacking = install::missing(&text);
+    if rc == install::MISSING && !lacking.is_empty() {
+        for tool in lacking {
+            say(&format!(
+                "tehas work: no {tool} in the sandbox image, which the product's install needs; not starting a cycle"
+            ));
+        }
+        return Some(78);
+    }
+    if matches!(rc, 124 | 137) {
+        let line = format!("the install did not end within {}s", install::WAIT);
+        let _ = append(preflight, &line);
+    }
+    say(&format!(
+        "tehas work: the product's install failed (exit {rc}), not starting a cycle:"
+    ));
+    let lines: Vec<&str> = text.lines().collect();
+    for line in &lines[lines.len().saturating_sub(5)..] {
+        say(&format!("    {line}"));
+    }
+    Some(78)
 }
 
 /// Can the sandbox push at all? The client passes the timeout's TERM on to git
@@ -541,8 +604,25 @@ pub fn tree(home: &Path, t: &Tree) -> i32 {
         return STOPPED;
     }
     let preflight = on(&t.log, ".preflight");
+    let Some(steps) = install::steps(&tree, "HEAD") else {
+        eprintln!("tehas work: could not list the files of {tree}, not starting a cycle");
+        return 78;
+    };
     if let Some(rc) = push_check(t, &state, &tree, &preflight) {
         return rc;
+    }
+    if !steps.is_empty() {
+        if t.stop.came() {
+            return STOPPED;
+        }
+        for step in &steps {
+            let line = format!("install {}", step.line());
+            let _ = append(&preflight, &line);
+            say(&format!("tehas work: {line}"));
+        }
+        if let Some(rc) = install(&state, &tree, &steps, &preflight) {
+            return rc;
+        }
     }
     if t.stop.came() {
         return STOPPED;

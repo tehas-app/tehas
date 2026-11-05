@@ -228,6 +228,14 @@ pub struct Snapshot {
     pub refresh_history: Option<Result<Vec<u64>, StoreErr>>,
     /// gh pr list --label tehas:refreshing, as it answered.
     pub refreshing: Option<Value>,
+    /// The open pull requests whose body names each open issue with a closing
+    /// keyword, by issue: `pulls_name` of the snapshot, from the page's own
+    /// read of the bodies. GitHub links a closing keyword only for a pull
+    /// request into the default branch, so this is how a stacked one holds its
+    /// issue. A number the page named nobody is absent, and so is one whose
+    /// list of pull requests held nothing a reader could use: an entry of no
+    /// numbers would hold an issue back on nothing.
+    pub pulls_name: BTreeMap<u64, Vec<u64>>,
     pub leftovers: Option<Vec<Leftover>>,
 }
 
@@ -575,6 +583,22 @@ impl Snapshot {
                     .unwrap_or_default()),
             }),
             refreshing: v.get("refreshing").cloned(),
+            pulls_name: v
+                .get("pulls_name")
+                .and_then(Value::as_object)
+                .map(|m| {
+                    m.iter()
+                        .filter_map(|(k, hits)| {
+                            let n = number(&Value::String(k.clone()))?;
+                            let hits: Vec<u64> = hits
+                                .as_array()
+                                .map(|a| a.iter().filter_map(number).collect())
+                                .unwrap_or_default();
+                            (!hits.is_empty()).then_some((n, hits))
+                        })
+                        .collect()
+                })
+                .unwrap_or_default(),
             leftovers: v.get("leftovers").and_then(Value::as_array).map(|a| {
                 a.iter()
                     .filter_map(|l| {
