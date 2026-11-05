@@ -1187,6 +1187,124 @@ impl<'a> Poll<'a> {
         }
     }
 
+    /// Whether the issue's text is the text of a record on the state store, as
+    /// `fixer_base` reads one: the base approval a fixer's or a refresh's start
+    /// rests on, or the record itself, and the sum of the body it bound, asked
+    /// of the same `edit` record `fixer_ok` summed. Nothing on record, or a
+    /// record that cannot be read, is no record: the question falls back to
+    /// whatever the body itself answers.
+    fn bound_to_a_record(&self, n: u64) -> bool {
+        let Some(Some(Ok(Some(record)))) = self.s.issues.get(&n).map(|i| i.approval.clone()) else {
+            return false;
+        };
+        // The one rule of `fixer_base`, so the two cannot disagree about which
+        // of the record's sums binds the text.
+        let rests = matches!(
+            record.get("how").and_then(Value::as_str),
+            Some("fixer" | "refresh")
+        );
+        let base = match record.get("rests_on") {
+            Some(b) if rests => b,
+            _ => &record,
+        };
+        base.get("body_sha256").and_then(Value::as_str)
+            == Some(text::body_sha256(&self.text(n)).as_str())
+    }
+
+    /// The body a start reads its text from: the issue's own, as the page of
+    /// the queue gave it. `edit` is the record an approval binds and `work`
+    /// the REST issue; the read of the queue puts the same text in both, and a
+    /// start that is not a retry has no record to follow, so the issue's own
+    /// answer is asked of. Nothing when the body was not read at all, or was
+    /// read as no string: a rule of the poll may not read either as a body of
+    /// no text, which is how `size_ok` and `image_ok` hold the same field.
+    fn body(&self, n: u64) -> Option<String> {
+        let i = self.s.issues.get(&n)?;
+        // A body that is there and no string answers `Some(None)`: the poll
+        // ends rather than reading it as a body of no text.
+        fn read(rec: Option<&Map<String, Value>>) -> Option<Option<String>> {
+            match rec?.get("body") {
+                None | Some(Value::Null) => None,
+                Some(Value::String(b)) => Some(Some(b.clone())),
+                Some(_) => Some(None),
+            }
+        }
+        read(i.edit.as_ref()).or_else(|| read(i.work.as_ref().and_then(Value::as_object)))?
+    }
+
+    /// The labels that ask for a start come off, and the issue says why once:
+    /// `ask` with `tehas:blocked` when that is on too, which is what keeps the
+    /// reason said once rather than twice on the next tick. `tehas:lean` is
+    /// never in the list a caller gives: with it off the next `tehas:ready`
+    /// would run classic in lean's place. `why` is the reason a person reads
+    /// and `dry_line` what the log says in their place, so far.
+    fn refuse_start(&mut self, n: u64, ask: &str, labels: &[String], why: &str, dry_line: &str) {
+        let mut off = vec![ask];
+        if ask != "tehas:blocked" && has(labels, "tehas:blocked") {
+            off.push("tehas:blocked");
+        }
+        if self.dry {
+            self.log(format!(
+                "would take {} off #{n}: {dry_line}",
+                off.join(" and ")
+            ));
+            return;
+        }
+        let names = format!("`{}`", off.join("` and `"));
+        self.act(json!({
+            "issue": n, "remove": off,
+            "fail": Self::label_fail(n, &off, &[]),
+            "say": format!("Tehas took {names} off this issue and started nothing: {why}"),
+        }));
+    }
+
+    /// spec_ok: the last hold of a lean start. The driver reads only the
+    /// issue's `pi-spec v1` block, so an issue without one is asked for it
+    /// here rather than started and declined by lean: nothing starts, the
+    /// labels that asked for the cycle come off, and the reason is said once.
+    /// `tehas:lean` stays on, or the next `tehas:ready` would run classic in
+    /// its place. Classic is asked nothing of the block, and a start that
+    /// follows a record on purpose runs the driver of that record: a tick, an
+    /// outage retry, the fixer's `tehas:ready` and a refresh ask nothing new
+    /// of the body. Only a start that asks for a cycle is asked this question,
+    /// so `ask` is the label that asked it and always sits on the issue here.
+    ///
+    /// `follows_a_record` is not the flag `driver` is given two lines above for
+    /// the same start: that one says whose driver to run, this one says the body
+    /// may be asked nothing of because the start is bound to text a person
+    /// approved. The fixer path earns that at `fixer_grant`'s sum check on the
+    /// body it read, in another function, so the premise is checked here as well
+    /// as trusted: a start given the flag with no record behind it, or whose
+    /// text is no longer the record's, is asked for its block like any other.
+    /// A caller that cannot point at such a check must pass false.
+    fn spec_ok(
+        &mut self,
+        n: u64,
+        ask: &str,
+        labels: &[String],
+        follows_a_record: bool,
+    ) -> Step<bool> {
+        if follows_a_record && self.bound_to_a_record(n) {
+            return Ok(true);
+        }
+        let Some(body) = self.body(n) else {
+            return Err(self.fail(format!("ERROR: the text of #{n} could not be read"), 1));
+        };
+        if text::has_spec(&body) {
+            return Ok(true);
+        }
+        let why = text::no_spec_said(ask);
+        self.log(format!("skip #{n}: {why}"));
+        self.refuse_start(
+            n,
+            ask,
+            labels,
+            &why,
+            &format!("its text holds no {} block", text::SPEC_INFO),
+        );
+        Ok(false)
+    }
+
     /// lean_taken_off: who took tehas:lean off, when an allowed account's
     /// choice went and that account may not take it. An issue whose events
     /// were not read names nobody: each start reads them itself.
@@ -1218,23 +1336,13 @@ impl<'a> Poll<'a> {
     /// said once. tehas:lean stays, or the next tehas:ready would run classic.
     fn lean_refused(&mut self, n: u64, ask: &str, labels: &[String], s: &Stranger) {
         self.lean_deny(n, s);
-        let mut off = vec![ask];
-        if ask != "tehas:blocked" && has(labels, "tehas:blocked") {
-            off.push("tehas:blocked");
-        }
-        let names = format!("`{}`", off.join("` and `"));
-        if self.dry {
-            self.log(format!(
-                "would take {} off #{n}: {LEAN} is not an allowed account's",
-                off.join(" and ")
-            ));
-        } else {
-            self.act(json!({
-                "issue": n, "remove": off,
-                "fail": Self::label_fail(n, &off, &[]),
-                "say": format!("Tehas took {names} off this issue and started nothing: {}, then applies `{ask}`.", s.said()),
-            }));
-        }
+        self.refuse_start(
+            n,
+            ask,
+            labels,
+            &format!("{}, then applies `{ask}`.", s.said()),
+            &format!("{LEAN} is not an allowed account's"),
+        );
     }
 
     /// unchanged_since: the title and body are what the approval at `since`
@@ -2393,6 +2501,9 @@ impl<'a> Poll<'a> {
                 Driver::Wait => continue,
                 Driver::Stranger(s) => {
                     self.lean_refused(n, ask, &labels, &s);
+                    continue;
+                }
+                Driver::Lean if !self.spec_ok(n, ask, &labels, fixer.is_some())? => {
                     continue;
                 }
                 d => d,

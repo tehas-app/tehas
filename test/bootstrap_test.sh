@@ -19,6 +19,10 @@ printf 'ID=debian\nVERSION_ID="13"\n' >"$T/os-debian"
 # the tests must not be found.
 T_PATH=$T/bin:/usr/bin:/bin
 T_ENV=(BOOTSTRAP_OS_RELEASE="$T/os-ubuntu" PATH="$T_PATH")
+# What a jailed run of the clock part really asks for and does not have stubbed:
+# the base system it runs its tests, its copies and its redirect with. A case
+# that jails its run is given these and nothing else out there.
+T_PLANT=(bash cat chmod chown cp date dirname grep head install ln mkdir mv rm sed stat uname)
 
 # The commit of pi-rukas's newest release tag, as git ls-remote answers it.
 rukas_head=$(printf 'e%.0s' {1..40})
@@ -272,7 +276,7 @@ t_eq "$(t_calls npm)$(t_calls curl)" ""
 t_case "a pinned tree that names another version than its lockfile is refused"
 all_present
 dir=$(pin_checkout)
-sed 's/"ctx7": "0\.5\.14"/"ctx7": "0.5.13"/' "$dir/host/npm/ctx7/package.json" >"$dir/p2"
+jq '.dependencies.ctx7 = "0.5.13"' "$dir/host/npm/ctx7/package.json" >"$dir/p2"
 mv "$dir/p2" "$dir/host/npm/ctx7/package.json"
 rm -f "$T"/calls/*
 t_run "$dir/bootstrap.sh user"
@@ -1128,9 +1132,11 @@ for answer in none none; do
   # so that the word 'none' reaches the helper as one argument of its own.
   # shellcheck disable=SC2086
   clock_stubs 0 $answer
-  # rm, and not t_stub: no systemd-detect-virt on the PATH at all is the host
-  # this case is about, and the host running the tests may well have one.
-  rm -f "$T/bin/systemd-detect-virt"
+  # t_unstub, and not rm: no systemd-detect-virt on the PATH at all is the host
+  # this case is about, and the host running the tests may well have one. The run
+  # is given the stubs and the planted base system only, so the host's own probe
+  # cannot answer for a host that has none.
+  t_unstub systemd-detect-virt
   t_run "$bootstrap clock"
   t_eq "$t_rc" 0
   t_contains "$t_out" "qemu-guest-agent: none on bare metal"
@@ -1290,11 +1296,29 @@ t_eq "$([ -e "$conf.prev" ] && echo there)" ""
 t_case "clock on a host that gives no BOOTSTRAP_ETC says it cannot make the file"
 fresh_clock
 clock_stubs 0 '' chrony
-t_run "unset BOOTSTRAP_ETC; $bootstrap clock"
-t_eq "$t_rc" 1
-t_contains "$t_out" "cannot create directory '/etc/chrony"
-t_eq "$([ -e "$conf" ] && echo there)" ""
-t_eq "$([ -e "${conf}.prev" ] && echo there)" ""
+# The run holds no command of the host but the planted ones: the part must reach
+# /etc by its own reading of BOOTSTRAP_ETC, and not by whether the person running
+# the tests happens to be able to write there, which a tool of the host outside
+# the case would decide.
+t_unstub
+# The case asks a host with no /etc/chrony to say it cannot make the file. Where
+# the directory is already there - a host that ran the clock part once, which this
+# repository's own hosts do - install -d finds the file system, the part goes on
+# to write, and the message asked for here is never said: the whole ask belongs to
+# a host with no such directory. The jail above (that no host command answers for
+# the file) is the part that does not depend on the host and runs everywhere; the
+# rest belongs to a host that can be asked, so it is skipped, not failed, here.
+if [ -d /etc/chrony ]; then
+  t_skip "this host has /etc/chrony, so the part cannot be asked to say it cannot make the file"
+else
+  t_run "unset BOOTSTRAP_ETC; $bootstrap clock"
+  t_eq "$t_rc" 1
+  t_contains "$t_out" "cannot create directory '/etc/chrony"
+  t_eq "$([ -e "$conf" ] && echo there)" ""
+  t_eq "$([ -e "${conf}.prev" ] && echo there)" ""
+  t_eq "$([ -e /etc/chrony/conf.d/tehas.conf ] && echo there)" ""
+  t_eq "$([ -e /etc/chrony/conf.d/tehas.conf.prev ] && echo there)" ""
+fi
 
 t_case "clock writes under BOOTSTRAP_ETC and nowhere else"
 fresh_clock
