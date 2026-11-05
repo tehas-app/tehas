@@ -1124,7 +1124,27 @@ fn demand(live: &Path, now: i64) -> J {
     if let Some(h) = d.get("refreshHold").as_str() {
         f.push(("refreshHold".to_string(), J::Str(first(h, 300))));
     }
+    if let Some(alone) = label_alone(d.get("labelAlone")) {
+        f.push(("labelAlone".to_string(), alone));
+    }
     J::Obj(f)
+}
+
+/// The most issue numbers `labelAlone` carries, as the dispatcher bounds it.
+const LABEL_ALONE_MAX: usize = 50;
+
+/// The issues `tehas:blocked` holds by the label alone, as the poll listed
+/// them: a list of issue numbers, at most `LABEL_ALONE_MAX` of them. A list
+/// that holds anything but issue numbers is left out, and so is an empty one.
+fn label_alone(v: &J) -> Option<J> {
+    let J::Arr(a) = v else { return None };
+    let ok = a
+        .iter()
+        .all(|n| matches!(n, J::Num(t) if t.parse::<u64>().is_ok_and(|n| n > 0)));
+    if !ok || a.is_empty() {
+        return None;
+    }
+    Some(J::Arr(a.iter().take(LABEL_ALONE_MAX).cloned().collect()))
 }
 
 /// Whether some process holds the lock, or it cannot be told apart from one
@@ -2107,6 +2127,18 @@ mod tests {
             h.report(&Given::default()).at(&["checks", "demand"]),
             &J::Null
         );
+    }
+
+    #[test]
+    fn the_demand_lists_the_issues_held_by_the_label_alone_within_its_bound() {
+        assert_eq!(label_alone(&J::parse("[7,9]").unwrap()), J::parse("[7,9]"));
+        let many: Vec<String> = (1..=80).map(|n| n.to_string()).collect();
+        let got = label_alone(&J::parse(&format!("[{}]", many.join(","))).unwrap()).unwrap();
+        assert_eq!(got.items().len(), LABEL_ALONE_MAX);
+        assert_eq!(got.items()[0], J::Num("1".into()));
+        for bad in ["[]", "[0]", "[\"7\"]", "[7,-1]", "[1.5]", "7", "{}"] {
+            assert_eq!(label_alone(&J::parse(bad).unwrap()), None, "{bad}");
+        }
     }
 
     /// The report of a poll, at `at`, as the dispatcher's own type writes it:
