@@ -344,7 +344,10 @@ has no "Adopter action" for the release ([Releases](/tools#release-notes-and-the
 The pushed tag starts the release workflow, which publishes the signed tarball.
 When the head carries a polyfill that the newest pi-rukas no longer needs, it
 opens a pull request that removes it and tags nothing until that is merged
-([Polyfills](/tools#polyfills-of-pi-rukas-features)).
+([Polyfills](/tools#polyfills-of-pi-rukas-features)). Before it tags, it moves
+every pinned tool to the newest minor and patch of its major version, and when
+anything moved it opens a pull request for that and tags nothing until it is
+merged ([Pinned tools](/tools#pinned-tools-move-with-the-release)).
 `scripts/tag-deploy.sh tehas-tehas` refuses
 unless the newest tag is the head of that branch, runs
 `. ~/tehas/env.sh && tehas update` on the host over ssh, then checks that the
