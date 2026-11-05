@@ -258,7 +258,7 @@ Run `tehas dispatch --dry-run` and read what it prints.
   in the state store, and the store was busy or did not answer in time. That
   passes on its own: a later poll asks. A store that cannot be used ends the
   poll with `ERROR: the state store cannot be used: ...` instead; look at it
-  with `TEHAS_HOME=~/tehas ~/tehas/libexec/store check`. Meanwhile, stop the
+  with `tehas state check`. Meanwhile, stop the
   cycle with `tehas stop N`.
 - `WARN: the cycle for #N holds its lock but has not been heard from since
   <time>, more than 1200s, and the state store has no open record of it, so
@@ -506,8 +506,8 @@ Read the rest of the comment with three things in mind:
 - Its paths are the ones inside the cycle's container. The workspace that is
   `~/tehas/work/tehas` there is `~/tehas/work/tehas-<issue>` on the host.
 - Its "Concrete recovery commands" are written for pi-rukas run by hand. On
-  the host a retry does what they do: tick `Retry from a clean start` in the
-  bot's comment, or apply `tehas:ready`. Both start a fresh cycle from the
+  the host a retry does what they do: tick a retry box in the bot's
+  comment, or apply `tehas:ready`. Both start a fresh cycle from the
   first step, in a new workspace. Commits that were never pushed are kept in
   `tehas-<issue>.before-retry` until the next retry. See step 5 of
   [Operating](/operating).

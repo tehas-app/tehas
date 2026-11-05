@@ -98,9 +98,10 @@ issue text.
 | What                                        | A cycle | A planning session | The Protolab |
 | ------------------------------------------- | ------- | ------------------ | ------------ |
 | The issue's title and body                  | Read | Read, at the start | The title |
-| Comments on the issue                       | Not given | Replies by an allowed account to its question, as answers | Not shown |
+| Comments on the issue                       | Not given, except on a retry with comments (below) | Replies by an allowed account to its question, as answers | Not shown |
 | A png, jpg, webp or gif linked in the body  | Fetched and mounted with `TEHAS_WORK_IMAGES=1`; shown to explore and plan when the sandbox image says its pi-rukas reads them | The same | Shown |
 | The same image linked in a comment          | With `TEHAS_WORK_COMMENTS=1`, when an allowed account wrote it before the label or the retry tick and nobody edited it since | When a reply to its question links it | Shown |
+| The text of comments, on a retry with comments | `comments.json` beside the images, when `Retry with the issue and all its comments` was ticked: what allowed accounts that may write said on the issue and its pull requests up to the tick. Read by the sandbox image's pi-rukas or its polyfill | Not given | Not shown |
 | md, txt, csv, json, yaml, log, html, css or js linked in the body | Fetched and mounted with `TEHAS_WORK_FILES=1`; pi-rukas does not read them yet | The same | html, css, js, json and txt shown, html in a frame |
 | svg, avif, a video                          | Not given | Not given | Shown |
 | A zip                                       | Unpacked with `TEHAS_WORK_ZIPS=1`, its files given as above | The same | Unpacked, its files shown as above |
@@ -321,6 +322,8 @@ Up to 20 numbers, separated by commas and no spaces. The newest such comment amo
 An issue labelled `tehas:improvement` and `cross-project` together is not started: the finding says the change belongs in another repository of the stack as well as this one, so one cycle here cannot make it, and a cycle on it spends a slot and its tokens before it parks. The dispatcher starts nothing and the log says why; it takes no label off and writes no comment, because the issue is a proposal the loop filed and a person decides what becomes of it. Read the `Names` line, which says the other repositories the loop read, and either work on both sides yourself or close it. Either label alone starts a cycle as any other issue would: `cross-project` on an issue the loop did not file is a person's label and means nothing to the dispatcher, and a finding that names no other repository is worked on here. The hold is on `tehas:ready` and on a ticked retry alike; a `tehas:plan` session on such an issue is allowed, since planning where the change goes on each side is what it is for.
 
 An epic is never started: an issue with open sub-issues is a plan broken into issues, not a change one cycle can make, and a cycle on it spends a slot and its tokens before it parks as too large. When `tehas:ready` is applied to such an issue, the dispatcher takes the label off, says so in one comment and starts nothing; a retry ticked on one starts nothing and the log says why. The count comes from the issue GitHub already answers for, so a GitHub without sub-issues is unaffected. Read the plan and apply `tehas:ready` to one of its sub-issues instead; a sub-issue with no open sub-issues of its own is started as any other issue. A `tehas:plan` session on an epic is allowed: planning an epic is what it is for. With `TEHAS_MILLWRIGHT_EPICS=1` and a millwright, your `tehas:ready` on an epic is not lost: it approves the epic's open sub-issues for [the millwright](#the-millwrights-grant), which plans each one that needs it and applies `tehas:ready` to it, and the comment says so. Close the epic, or put `needs-human-attention` on it, to take that back.
+
+An open issue whose title starts with an epic marker gets the `epic` label at the next poll, so the board says what it is. The marker is the word `epic` in any case at the very start of the title, or after one opening bracket, followed by `:`, a closing bracket or a space: `EPIC: Billing rework`, `Epic: ...`, `(Epic) ...` and `[EPIC] ...` match; `feat: WS-A child of epic 412: ...`, `Epicenter map` and `epics view polish` do not, so a part that names its epic is never labelled as one. tehas only adds the label. Take it off an issue and tehas leaves it off: the poll reads the issue's label events, and a removal by any account but the bot's is final. The control issue is never labelled, and a paused poll labels nothing. The label is for people: what makes an epic for the dispatcher and the epics panel is still GitHub's sub-issue links, so a labelled issue with no sub-issues is started as any other issue and is not on the panel. `tehasbot health` warns about such an issue, the common miss when a plan's parts were filed and never linked: open the epic and add its parts as sub-issues. Run `tehas labels` once after an update so the label exists.
 
 With `TEHAS_SIZE_MAX_FILES` set on the instance, an issue whose own body names more files than that number is not started either. The dispatcher reads the count off the approved text itself: a path is what stands between two ticks and holds a `/` or ends in `.sh`, `.rs`, `.md`, `.json`, `.toml` or `.yml`, and one path counts once however often it is written. Such an issue is a stack of changes wearing the shape of one issue, and a cycle on it spends its explore and its plan before it parks. The dispatcher takes `tehas:ready` off, puts `needs-human-attention` on, and says the count, the setting and the way out in one comment: narrow the issue to the part one cycle can make, or split it into issues of that size, then apply `tehas:ready` to one of them. The hold belongs to `tehas:ready` alone, so it holds nothing else back: a ticked retry, a refresh of the bot's own pull request and a `tehas:plan` session start as they did. Unset, the dispatcher never asks, and a wide issue starts as any other.
 
@@ -688,18 +691,41 @@ pi-rukas a deadline the handoff's 8 minutes before the end of
 `TEHAS_WORK_TIMEOUT`: after it, the cycle starts no new step and hands off with its branch and pull request, instead of being stopped in the
 middle of one.
 
-To try again after fixing the cause (often: make the issue clearer), tick
-`Retry from a clean start` in the bot's comment. Tick `Leave it parked` to
-take the question away and keep the issue as it is. With
-`TEHAS_WORK_COMMENTS=1`, what an allowed account wrote on the cycle's pull
-request between the park and the tick goes with the retry: its text as
-`retry-context.md` beside the images, and its images and files by the usual
-rules. The box between the two, `Retry from the issue alone`, starts the same
-cycle from the same rules and asks for none of that: its approval names no
-comment of the issue or of the pull request, so the cycle is given the approved
-body and the links of that body alone, with no `retry-context.md` and no image
-linked only from a comment. Neither poll reads the issue's comments or its pull
-request for such a start. A label works as well: apply `tehas:ready`.
+To try again after fixing the cause (often: make the issue clearer), tick a
+retry box in the bot's comment. Tick `Leave it parked` to take the question
+away and keep the issue as it is. Both retries start over in a new workspace.
+
+- `Retry with the issue and all its comments` gives the cycle what allowed
+  accounts wrote on the issue and on the bot's pull requests for it up to the
+  tick: issue comments, pull request comments, review bodies and inline review
+  comments. A comment counts when its author is in `TEHAS_ALLOWED_LABELERS`
+  and may write to the repository at the tick (write, maintain or admin, asked
+  of GitHub once per author), and nobody edited it after the tick. The bot's
+  own comments are left out. An author whose permission cannot be read is left
+  out with a warning in the log, and the start comment names them. The
+  dispatcher records the comments at the tick; `tehas work` writes them to
+  `comments.json` beside the images, each cut at 4,000 characters and the
+  whole at 64 KB with the oldest dropped and counted, and mounts that
+  directory even when the instance gives a cycle no images or files. It needs
+  no setting: the tick is the opt-in. With `TEHAS_WORK_COMMENTS=1` the images
+  and files those comments link come too, by the usual rules.
+- `Retry with the issue text only` gives the cycle the title and body, nothing
+  else: its approval names no comment of the issue or of the pull request, so
+  the cycle is given the approved body and the links of that body alone. Neither
+  poll reads the issue's comments or its pull request for such a start.
+
+The comments box is offered only when the sandbox image gives a cycle the
+comments: its pi-rukas lists `issueComments` in `--capabilities`
+(trail-openers/pi-rukas#2020), or its `tehas.rukas.polyfills` label carries
+`issue-comments@<version>` (tehas-app/tehas-polyfill). Otherwise the comment
+offers the text-only retry and `Leave it parked`. On the polyfill alone a
+comments retry runs with `PI_ENSEMBLE_REPEAT_PARK=0` where the image takes it,
+since the polyfill's comments do not reach the repeat-park guard, and the end
+comment says the comments were given to the cycle's agents. With the native
+reader it says how many the runner read, or that it did not and why. A
+comment posted before this release has the old boxes, `Retry from a clean
+start` and `Retry from the issue alone`: they still count, as the comments
+retry and the text-only retry. A label works as well: apply `tehas:ready`.
 `needs-human-attention` does not have to be removed first. A cycle started
 that way takes `tehas:question` off the issue, and the old boxes no longer do
 anything.
@@ -732,7 +758,7 @@ hash of the body that cycle's approval bound, as the state store keeps it for
 the park, with the issue's text now, and when they are equal and the park was
 not a provider outage it starts no cycle, leaves the park and the labels as
 they are, and says so in the poll's log. Once per park it also posts one
-comment: edit the body, or tick `Retry from a clean start`. The tick is the
+comment: edit the body, or tick a retry box. The tick is the
 park's own ask and is never held, so a retry on the same text starts as it
 did, and so does a start after any change to the body. A park of a provider
 outage is held by its own rule instead, and a park of a cycle started by hand,
@@ -743,7 +769,7 @@ The millwright's own `tehas:ready` is the one label a park lets through without
 a change to the body, when its comment says the next run is not the run that
 stopped. The hold is lifted when the label came from `TEHAS_MILLWRIGHT_LOGIN`,
 the instance gives a cycle images or files (`TEHAS_WORK_IMAGES=1` or
-`TEHAS_WORK_FILES=1`, since the note reaches a cycle nowhere else), and the note
+`TEHAS_WORK_FILES=1`), and the note
 the record would take from that account is one carrying `<!-- tehas:millwright
 issue=<n> action=change -->`: its newest marked comment of the ten minutes
 before the label, saved by nobody after the label and by no other account. A
@@ -904,6 +930,14 @@ dispatcher's log says so.
    - A `tehas:refine` session also offers **File as a new issue**, which
      files the plan as shown as one new issue that replaces this one. A
      session files once.
+   - A plan the checks of the issue's text refuse is not offered at all: the
+     comment still shows it, and the question names the rule it failed and
+     lists its open points, with no box but **End this planning session**.
+     Besides the checks under [A plan with no open points](#a-plan-with-no-open-points),
+     a plan is refused whose text has lines that end in `[context param]`,
+     the request or the briefs echoed back, or whose Acceptance criteria are
+     pi-rukas's placeholder for none ("derive the testable outcomes from the
+     investigation findings"). Reply to change the plan, or end the session.
 
    After either box nothing is started on its own: read the plan and apply
    `tehas:ready` to the issue you want built. The label approves the text as
@@ -932,8 +966,9 @@ The session asks, as in step 5, when:
 - the plan links an attachment the issue's text did not;
 - the checks of [the text of an issue](#1-write-an-issue-tehas-can-build)
   refuse the plan's own title or text: a title of nothing but a prefix, a
-  word said twice, the planner's brief copied as the plan, or a text with no
-  line of the issue's own in it. The session is not ended and no cycle is
+  word said twice, the planner's brief copied as the plan, a text with no
+  line of the issue's own in it, lines of the planner's context echoed back
+  with `[context param]`, or placeholder Acceptance criteria. The session is not ended and no cycle is
   credited, so a reply that changes the plan is the only answer that moves it
   on.
 
@@ -1073,7 +1108,19 @@ nothing under `.github/` or `.pi/`, and no inventory of the request. Its title
 starts with its classification as a conventional-commit type, `feat:`, `fix:`,
 `chore:`, `docs:`, `test:` or `refactor:`, keeping one the request already
 has; pi-rukas gives the cycle's pull request the same type, where a title
-without one becomes `chore(work):`.
+without one becomes `chore(work):`. The issue's title is handed to the planner
+as what to plan without its type (`feat: `, `fix(dispatch): `), so the drafted
+title does not carry it twice, and the type goes to the planner as its own
+`--type`: `feat` is a feature, `fix` and `bug` a bug, `chore` and `refactor` a
+chore, `research` a spike and `EPIC` an epic. A type with none of these
+(`docs:`, `perf:`) leaves the planner to read the kind of work from the title's
+words, as a title with no type does. A planner image that takes no `--type`
+keeps `chore`, `refactor`, `research` and `EPIC` in the title, where it finds
+them. When the issue's text has a `pi-spec v1` block
+with `criteria` and no Acceptance criteria heading of its own, the planner is
+also given those criteria under `ACCEPTANCE CRITERIA:`, one bullet each, which
+is where pi-rukas reads the request's criteria from: it reads none inside the
+block.
 
 `tehas:refine` starts the same planning session with one difference: between
 the issue's text and the issue brief, the planner is given the refine brief,
@@ -1217,6 +1264,29 @@ drain.
 
 A program that drives factories uses the same commands: see
 [the factory API](/api).
+
+## Panels on the dashboard
+
+A panel puts a page of the project on the dashboard: a support chat, a status
+page, a feedback form, a manual kept elsewhere. It is an item in the menu of
+both front pages; pressing it opens the page in a dock at the side, full screen
+on a phone, with a link to open it in a new tab.
+
+```
+tehas panel set support --label "Ask us" --url https://support.example.org/f/acme
+tehas panel                  # what is set
+tehas panel clear support    # take it away
+```
+
+Up to four. The URL is public, as everything the dashboard reads is, so it holds
+no secret. It may not be on the factory's own domain, `TEHAS_DOMAIN`, because
+the frame would then share the dashboard's origin; a name under it, such as
+`support.<domain>`, is fine. The dashboard asks the page for nothing until a
+person presses the item, and passes it nothing but the URL. A page that refuses
+to be framed shows an empty dock; its new-tab link still works.
+
+A program sets panels with the same command: see
+[the factory API](/api#tehas-panel).
 
 ## Reading what ended
 
@@ -1718,15 +1788,15 @@ systemctl --user list-units 'tehas-*' --state=active   # wait until no service i
 cd ~/tehas/state
 mv tehas.db tehas.db.broken; rm -f tehas.db-wal tehas.db-shm
 cp backup/tehas-<YYYYMMDD>.db tehas.db && chmod 600 tehas.db
-TEHAS_HOME=~/tehas ~/tehas/libexec/store check
+tehas state check
 systemctl --user start tehas-energy.service tehas-mcp.service
 systemctl --user start $(systemctl --user list-unit-files 'tehas-*.timer' 'tehas-*.path' --state=enabled --no-legend | cut -d' ' -f1)
 tehas limit clear
 ```
 
 Every unit that reads or writes the store is stopped first: one left running
-keeps the old file open and goes on writing to it. `store check` must say
-`"integrity":"ok"`. The next poll reconciles the labels
+keeps the old file open and goes on writing to it. `tehas state check` must say
+`integrity   ok`. The next poll reconciles the labels
 on GitHub against what the copy holds; a cycle that ran after the copy was
 made is not in it.
 
@@ -1805,12 +1875,12 @@ the new names.
 - **Its comment reaches the cycle.** The millwright's newest comment on the issue
   that starts with `<!-- tehas:millwright issue=<n> action=retry -->` or
   `action=change`, written in the ten minutes before its label and edited by
-  nobody after, goes into the record as `retry_context`. Where the instance
-  gives a cycle images or files, `tehas work` writes it to
-  `retry-context.md` beside them, quoted, under a head that says a model
-  wrote it. No mount and no variable more: elsewhere it reaches no cycle. The
-  park's hold is lifted by the `action=change` one of them alone, which is why
-  [parking](#5-when-a-cycle-stops) asks for that setting too.
+  nobody after, goes into the record as `retry_context`. `tehas work` writes
+  it to `comments.json`, source `fixer`, in the directory it mounts for the
+  cycle's attachments, mounted for it alone where the instance gives a cycle
+  no images or files. The park's hold is lifted by the `action=change` one of
+  them alone, and only where the instance gives a cycle images or files, as
+  [parking](#5-when-a-cycle-stops) says.
 - **It may answer a planning question**, by a tick or a reply, only when
   no person has answered the same question: a person's tick or reply wins,
   whichever came first. And only in a session an allowed account's
@@ -1984,8 +2054,7 @@ approval), `refresh_of` (`pr`, `head_sha`, `base_sha`, `branch`) and one
 > gate in `.pi/verify-cmd`, and push to the same branch. Do no other work.
 
 No comment text reaches the cycle this way. As with the millwright's note, it
-reaches `retry-context.md` only where the instance gives a cycle images or
-files. `tehas work` passes `--continue-pr` for a refresh, and refuses a refresh
+reaches the cycle in `comments.json`, source `refresh`. `tehas work` passes `--continue-pr` for a refresh, and refuses a refresh
 with 78 on an image that does not take it. Nothing else about the container
 changes. The outcome is read as any cycle's: a refresh that pushed goes back to
 `tehas:awaiting-merge` with the same pull request, one that parks parks the

@@ -434,6 +434,28 @@ pub fn dropped_events(o: &Open, exempt: &[&str]) -> bool {
         .any(|l| !exempt.contains(&l.as_str()) && label_state_of(&ev, l) != "labeled")
 }
 
+/// An open issue the poll labels `epic`: its title starts with the marker and
+/// it does not carry the label.
+pub fn epic_titled(o: &Open) -> bool {
+    let title = o.node.get("title").and_then(Value::as_str).unwrap_or("");
+    crate::text::epic_marker(title) && !o.labels.iter().any(|l| l == crate::text::EPIC)
+}
+
+/// Whether the page's timeline holds an application or a removal of `label`.
+pub fn has_event_of(o: &Open, label: &str) -> bool {
+    o.node
+        .pointer("/timelineItems/nodes")
+        .and_then(Value::as_array)
+        .is_some_and(|nodes| {
+            nodes.iter().any(|e| {
+                matches!(
+                    e.get("__typename").and_then(Value::as_str),
+                    Some("LabeledEvent" | "UnlabeledEvent")
+                ) && e.pointer("/label/name").and_then(Value::as_str) == Some(label)
+            })
+        })
+}
+
 /// The newest labeled or unlabeled event of one label of a REST-shaped
 /// timeline, as `events()` gives it: `"labeled"`, `"unlabeled"` or `""`.
 /// `label_state`'s ordering, of which this asks only the kind: a removal
@@ -758,6 +780,26 @@ mod tests {
     /// about. `&[]`, what the control issue passes, asks about every label.
     const QUEUE: &[&str] = &[RUNNING];
     const EVERYTHING: &[&str] = &[];
+
+    #[test]
+    fn an_epic_titled_issue_lacks_the_label_and_its_events_are_asked_of_it() {
+        let mut o = open(&["bug"], &["bug"]);
+        o.node["title"] = json!("EPIC: Billing rework");
+        assert!(epic_titled(&o));
+        assert!(!has_event_of(&o, "epic"));
+        o.node["timelineItems"]["nodes"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"__typename": "UnlabeledEvent", "label": {"name": "epic"}}));
+        assert!(has_event_of(&o, "epic"));
+        o.labels.push("epic".into());
+        assert!(!epic_titled(&o));
+        o.node["title"] = json!("feat: a part of epic 412");
+        o.labels.pop();
+        assert!(!epic_titled(&o));
+        assert!(!epic_titled(&no_timeline(&[])));
+        assert!(!has_event_of(&no_timeline(&[]), "epic"));
+    }
 
     #[test]
     fn a_label_no_event_applied_was_left_out() {

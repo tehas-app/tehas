@@ -999,7 +999,8 @@ cat >"$T/container.sh" <<'EOF'
 nap=$(command -pv sleep)
 "$nap" 60 >/dev/null 2>&1 &
 sleeper=$!
-while [ ! -e "$T/calls/stopped" ]; do "$nap" 0.1; done
+n=0
+while [ ! -e "$T/calls/stopped" ] && [ $((n += 1)) -le 1200 ]; do "$nap" 0.1; done
 kill "$sleeper" 2>/dev/null
 wait "$sleeper" 2>/dev/null
 exit 137
@@ -1051,7 +1052,8 @@ nap=$(command -pv sleep)
 # Bash runs the trap only once the sleep in front of it ends, so TERM does
 # not end this client; KILL does.
 trap 'exit 143' TERM
-while [ ! -e "$T/calls/stopped" ]; do "$nap" 0.1; done
+n=0
+while [ ! -e "$T/calls/stopped" ] && [ $((n += 1)) -le 1200 ]; do "$nap" 0.1; done
 "$nap" 120 >/dev/null 2>&1
 exit 137
 BODY
@@ -1077,7 +1079,7 @@ mkdir -p "$T/home/tehas/state"
 # command holds it, so the case holds it with a child that will not let go.
 flock "$T/home/tehas/state/review.lock" -c '"$(command -pv sleep)" 30' &
 holder=$!
-while flock -n "$T/home/tehas/state/review.lock" true; do command -p sleep 0.02; done
+while kill -0 "$holder" 2>/dev/null && flock -n "$T/home/tehas/state/review.lock" true; do command -p sleep 0.02; done
 t_run "$review"
 t_eq "$t_rc" 0
 t_contains "$t_out" "another review is going, nothing was reviewed"

@@ -452,6 +452,48 @@ else
   t_eq "$([ -e "$dst/state/new.txt" ] && echo replaced || echo kept)" kept
 fi
 
+t_case "check --json prints the store's own answer, on a running factory too"
+reset
+t_ended "$dst" 5 -
+t_live "$dst" 12 true running work
+echo "tehas-poll.timer loaded active waiting Poll" >"$T/units"
+before=$(fingerprint "$dst")
+t_run "$state check --json 2>/dev/null"
+t_eq "$t_rc" 0
+t_eq "$t_out" "$(TEHAS_HOME=$dst "$dst/libexec/store" check)"
+t_eq "$(jq -c '[.api, .verb, .integrity, .schema, .rows.cycles]' <<<"$t_out")" '[1,"check","ok",9,2]'
+t_eq "$(fingerprint "$dst")" "$before"
+
+t_case "check prints the schema, the integrity and a line per table for a person"
+reset
+t_ended "$dst" 5 -
+t_run "$state check"
+t_eq "$t_rc" 0
+t_contains "$t_out" "schema      9"
+t_contains "$t_out" "integrity   ok"
+t_contains "$t_out" "rows        cycles 1"
+
+t_case "check: a store that does not check is 1, one that cannot be used 78, nothing on stdout"
+reset
+t_store_home "$dst"
+t_store_answers check 1 "store: integrity *** in database main ***: $dst/state/tehas.db"
+t_run "$state check --json 2>/dev/null"
+t_eq "$t_rc" 1
+t_eq "$t_out" ""
+t_run "$state check --json"
+t_contains "$t_out" "does not check: store: integrity"
+t_store_answers check 78 "store: corrupt: $dst/state/tehas.db"
+t_run "$state check --json 2>/dev/null"
+t_eq "$t_rc" 78
+t_eq "$t_out" ""
+
+t_case "check takes only --json"
+reset
+t_run "$state check --bogus"
+t_eq "$t_rc" 64
+t_run "$state check --json -"
+t_eq "$t_rc" 64
+
 t_case "a bad argument is 64, missing settings are 78, and neither starts a tar"
 reset
 t_run "$state pack"
