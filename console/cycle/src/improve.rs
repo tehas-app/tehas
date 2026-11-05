@@ -19,7 +19,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 /// left out whole, so both writers of one cap what they list to stay under it.
 pub const MANIFEST_BYTES: u64 = 262_144;
 
-const ATTACHMENTS: [&str; 3] = ["manifest.json", "images.md", "retry-context.md"];
+const ATTACHMENTS: [&str; 3] = ["manifest.json", "images.md", "comments.json"];
 
 /// A file or directory of `prefix` and six more characters, made new.
 pub fn fresh(

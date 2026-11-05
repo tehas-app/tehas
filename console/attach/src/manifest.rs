@@ -72,7 +72,7 @@ pub fn of_issue(
     left: Vec<Ordered>,
     issue: Value,
     approval: Ordered,
-    context: Option<&str>,
+    comments: Option<Ordered>,
 ) -> Ordered {
     let (left, more) = capped(left);
     let mut m = Ordered::map([("images", Ordered::List(images))]);
@@ -82,8 +82,8 @@ pub fn of_issue(
     m.set("leftOut", Ordered::List(left));
     m.set("issue", Ordered::Plain(issue));
     m.set("approval", approval);
-    if let Some(context) = context {
-        m.set("retryContext", Ordered::text(context));
+    if let Some(comments) = comments {
+        m.set("comments", comments);
     }
     m.set("leftOutMore", Ordered::Plain(more.into()));
     m
