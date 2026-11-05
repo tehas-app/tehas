@@ -243,9 +243,10 @@ t_eq "$(TEHAS_HOME=$home "$st" journal-open | jq -c .actions)" "[]"
 
 # The poll's own GraphQL page holds the open pull requests, as this list: the
 # author as GraphQL names an app, with no [bot].
-pulls() { # one "<number>|<title>|<head>|<author>|<label>" per argument
+pulls() { # one "<number>|<title>|<head>|<author>|<label>[|<body>]" per argument
   printf '%s\n' "$@" | jq -Rn '[inputs | split("|") | {number: (.[0] | tonumber), title: .[1], headRefName: .[2],
-    author: {login: .[3]}, labels: {nodes: ([.[4] // empty | select(. != "")] | map({name: .}))}}]' >"$fx/pulls.json"
+    author: {login: .[3]}, labels: {nodes: ([.[4] // empty | select(. != "")] | map({name: .}))},
+    body: (.[5] // "")}]' >"$fx/pulls.json"
 }
 issue_with() { # <number> <label>
   jq -n --argjson n "$1" --arg l "$2" '{number: $n, state: "open", labels: [{name: $l}]}' >"$fx/work-$1.json"

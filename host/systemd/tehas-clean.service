@@ -9,7 +9,20 @@ Type=oneshot
 # unmade state directory) is printed only, so it reaches the journal and not
 # the log: journalctl --user -u tehas-clean. The same rule for a unit and its
 # command is asserted in test/units_test.sh.
-ExecStart=/bin/bash -c ". %h/tehas/env.sh && exec %h/tehas/bin/tehasbot clean"
+# The - lets the reading below run after a clean that failed: systemd runs the
+# next ExecStart, or an ExecStartPost, only after a step that ended 0, and a
+# full disk is the case the clean is likeliest to fail in and the reading is
+# for. The clean's failure is still in logs/clean.log and the journal.
+ExecStart=-/bin/bash -c ". %h/tehas/env.sh && exec %h/tehas/bin/tehasbot clean"
 # Three steps: a walk of the kept workspaces, one docker prune, and the scratch
 # under tmp/. A host with a full disk is the slow case, and it is still minutes.
+# The bound is systemd's for the whole start phase, the reading below included;
+# the reading bounds each of its own calls and walks, so it adds minutes at most.
 TimeoutStartSec=30min
+# The disk reading the MCP server's factory_disk serves, written to
+# live/disk.json after the clean so the file says what the clean left. It calls
+# the console directly: tehasbot has no disk command. It opens no file of the
+# clean's, so the no-sink rule above still reads true, and what it prints is the
+# journal's. With no -, a reading that could not be written fails the unit:
+# journalctl --user -u tehas-clean.
+ExecStart=/bin/bash -c ". %h/tehas/env.sh && exec %h/tehas/libexec/console disk %h/tehas --publish"
