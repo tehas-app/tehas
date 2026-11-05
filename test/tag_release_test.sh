@@ -353,6 +353,87 @@ t_eq "$(git -C "$origin" branch --list 'remove-polyfills-*')" ""
 t_lacks "$(t_calls gh)" "pr create"
 t_contains "$(git -C "$work" branch --list 'remove-polyfills-*')" remove-polyfills-v0.1.1
 
+# A head with scripts/pins.sh. The stub records its arguments, and does what
+# $T/pins_mode says: move (a line of host/versions.env changes, and it says
+# so), none (nothing changes), or fail (exit 1). The stub gh lists the open
+# pull requests from $T/open_prs and opens #12.
+pinned() {
+  fresh
+  mkdir -p "$T/up/host"
+  printf 'JQ_VERSION=1.8.1\n' >"$T/up/host/versions.env"
+  printf '#!/usr/bin/env bash\necho "$*" >>"%s/calls/pins"\nroot=$(dirname "$0")/..\ncase "$(cat "%s/pins_mode")" in\n  move) echo JQ_VERSION=1.8.2 >"$root/host/versions.env"; echo "moved jq: 1.8.1 to 1.8.2" ;;\n  fail) echo "pins: jq: cannot get" >&2; exit 1 ;;\nesac\n' "$T" "$T" >"$T/up/scripts/pins.sh"
+  chmod +x "$T/up/scripts/pins.sh"
+  g -C "$T/up" add -A
+  commit "carry pins"
+  rm -f "$T/open_prs" "$T/calls/gh" "$T/calls/verify" "$T/calls/pins"
+  echo move >"$T/pins_mode"
+  t_stub gh 'case "$1 $2" in
+  "pr list") cat "$T/open_prs" 2>/dev/null || true ;;
+  "pr create") echo https://github.com/acme/widget/pull/12 ;;
+esac'
+}
+
+t_case "pinned tools that move go to a pull request, and nothing is tagged"
+pinned
+t_run "$work/scripts/tag-release.sh"
+t_eq "$t_rc" 2
+t_eq "$(t_calls pins)" "move --release v0.1.1"
+t_contains "$t_out" "tag-release: moved jq: 1.8.1 to 1.8.2"
+t_contains "$t_out" "pull/12 moves them; merge it, then tag. Nothing was tagged"
+t_eq "$(tags)" "v0.1.0 "
+t_eq "$(t_calls verify)" ran
+t_contains "$(t_calls gh)" "pr create --base main --head pins-v0.1.1 --title Move the pinned tools to the newest minor and patch"
+t_contains "$(t_calls gh)" "- moved jq: 1.8.1 to 1.8.2"
+t_eq "$(git -C "$origin" show pins-v0.1.1:host/versions.env)" "JQ_VERSION=1.8.2"
+t_eq "$(git -C "$origin" rev-parse pins-v0.1.1^)" "$(head_of)"
+t_eq "$(git -C "$work" worktree list | wc -l)" 1
+
+t_case "an open pull request that moves the pinned tools holds the tag"
+echo https://github.com/acme/widget/pull/12 >"$T/open_prs"
+rm -f "$T/calls/gh" "$T/calls/pins"
+t_run "$work/scripts/tag-release.sh"
+t_eq "$t_rc" 2
+t_contains "$t_out" "pull/12 moves the pinned tools; merge it, then tag"
+t_eq "$(t_calls pins)" ""
+t_lacks "$(t_calls gh)" "pr create"
+t_eq "$(tags)" "v0.1.0 "
+
+t_case "pinned tools that are all at their newest let the head be tagged"
+pinned
+echo none >"$T/pins_mode"
+t_run "$work/scripts/tag-release.sh"
+t_eq "$t_rc" 0
+t_eq "$(tail -n 1 <<<"$t_out")" v0.1.1
+t_eq "$(t_calls pins)" "move --release v0.1.1"
+t_lacks "$(t_calls gh)" "pr create"
+
+t_case "a pinned tool that cannot be moved stops the release"
+pinned
+echo fail >"$T/pins_mode"
+t_run "$work/scripts/tag-release.sh"
+t_eq "$t_rc" 1
+t_contains "$t_out" "pins: jq: cannot get"
+t_contains "$t_out" "a pinned tool could not be moved; nothing was tagged"
+t_eq "$(tags)" "v0.1.0 "
+t_eq "$(t_calls verify)" ""
+
+t_case "a gate that fails with the pinned tools moved pushes nothing"
+pinned
+echo 1 >"$T/verify_rc"
+t_run "$work/scripts/tag-release.sh"
+rm -f "$T/verify_rc"
+t_eq "$t_rc" 1
+t_contains "$t_out" "the gate failed with the pinned tools moved"
+t_eq "$(git -C "$origin" branch --list 'pins-*')" ""
+t_lacks "$(t_calls gh)" "pr create"
+
+t_case "--no-pins tags without moving the pinned tools"
+pinned
+t_run "$work/scripts/tag-release.sh --no-pins"
+t_eq "$t_rc" 0
+t_eq "$(tail -n 1 <<<"$t_out")" v0.1.1
+t_eq "$(t_calls pins)" ""
+
 # The host: the update's status from $T/ssh_rc, its checkout's commit from
 # $T/host_head.
 host() {

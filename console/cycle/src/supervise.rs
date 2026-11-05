@@ -33,11 +33,13 @@ use std::time::Duration;
 use tehas_core::time;
 
 /// The notes of an earlier cycle, killed outright before it could report.
-const NOTES: [&str; 13] = [
+const NOTES: [&str; 15] = [
     "oom",
     "forks",
     "stalled",
     "timed",
+    "signal",
+    "disk",
     "stopped",
     "stopped.new",
     "result.json",
@@ -386,6 +388,13 @@ pub fn run(home: &Path, g: &Given) -> i32 {
     for note in NOTES {
         let _ = fs::remove_file(cycles.join(format!("{n}.{note}")));
     }
+    // The driver's record of the cycle before this one, had it kept one. Its
+    // one reader was that cycle's run of the analytics, and a start comes here
+    // however that cycle ended - reported, stopped, or killed outright - so
+    // this is where the note goes. Left behind it would be read as this
+    // cycle's own steps, the analytics read the file by its issue alone, and
+    // it would hold the place this cycle's copy needs.
+    let _ = fs::remove_file(cycles.join(format!("{n}.{}", apply::LEAN_STATE)));
     let stop = Arc::new(AtomicBool::new(false));
     for sig in [
         signal_hook::consts::SIGTERM,

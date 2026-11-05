@@ -23,7 +23,7 @@
 //!   hold, not the rows a run would add.
 //!
 //! The carriers (`result.json`, `progress.json`, `.runner_exit`, `.status`,
-//! `.oom`, `.forks`, `.stalled`, `.timed`, `.nostart`, `.done`, `.stopped`,
+//! `.oom`, `.forks`, `.stalled`, `.timed`, `.signal`, `.nostart`, `.done`, `.stopped`,
 //! `.cid`, `.manifest.json`, `.images.md`, `.retry-context.md`, a plan's
 //! `.out`, `.rc`, `.lock`), `state/refined.jsonl` and the `.keep` directories
 //! are not the store's: they stay where they are.
@@ -43,7 +43,7 @@ use tehas_core::file::{read_regular, ReadError};
 use tehas_core::time::{civil_from_days, days_from_civil};
 
 /// The most a record file may hold.
-const BOUND: u64 = 1 << 20;
+const BOUND: u64 = tehas_core::file::READ_BOUND;
 /// The most rows a millwright or refresh record may ask the import to make up.
 const MAX_STARTS: i64 = 100;
 

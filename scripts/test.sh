@@ -10,10 +10,11 @@
 # Before the tests start, the state store (console/store), the attachment
 # checker (console/attach), tehas-dispatch (console/dispatch), tehas-cycle
 # (console/cycle) and the console (console/src) are built
-# once, offline, into console/target/shell
+# once, offline, into the workspace's own target directory, CARGO_TARGET_DIR or
+# console/target, with its dev profile
 # (when cargo's cache lacks a locked crate, it is fetched once and built again):
-# a target directory of their own, because scripts/verify.sh runs the
-# workspace's cargo test in console/target at the same time. The test files are
+# the gate's cargo test (scripts/verify.sh) builds the same crates there, and
+# cargo lets go of the directory's lock once a build ends. The test files are
 # told where they are in T_STORE_BIN, T_ATTACH_BIN, T_DISPATCH_BIN,
 # T_CYCLE_BIN and T_CONSOLE_BIN, or why there are none in T_STORE_WHY
 # (test/lib.sh, t_store, t_attach, t_dispatch, t_cycle and t_console). A test that needs one fails without it.
@@ -130,13 +131,14 @@ out=$(mktemp -d "${TMPDIR:-/tmp}/tehas-tests.XXXXXX") || exit 2
 trap 'rm -rf "$out"' EXIT
 
 unset T_STORE_BIN T_STORE_WHY T_ATTACH_BIN T_DISPATCH_BIN T_CYCLE_BIN T_CONSOLE_BIN
-# The binaries are run, not debugged, so the build asks cargo for no debug
-# info: that is most of the size of console/target/shell. The variable is on
-# this command only, not exported: scripts/verify.sh runs the workspace's
-# cargo test in console/target at the same time and keeps its debug info.
+# One build for the gate, not a second tree beside it (#1360). The profile is
+# the workspace's own, so cargo test reuses what this build made and the other
+# way round. The tree of their own the binaries had before is removed.
+target=${CARGO_TARGET_DIR:-$root/console/target}
+rm -rf "$root/console/target/shell"
 store_build() {
-  CARGO_PROFILE_DEV_DEBUG=0 cargo build --locked --offline --quiet --manifest-path "$root/console/Cargo.toml" \
-    --target-dir "$root/console/target/shell" -p store -p attach -p tehas-dispatch -p tehas-cycle -p console >"$out/store-build.log" 2>&1
+  cargo build --locked --offline --quiet --manifest-path "$root/console/Cargo.toml" \
+    --target-dir "$target" -p store -p attach -p tehas-dispatch -p tehas-cycle -p console >"$out/store-build.log" 2>&1
 }
 store_why=""
 if [ ! -f "$root/console/Cargo.toml" ]; then
@@ -148,11 +150,11 @@ elif store_build ||
   # lock moves past the image: fetch the locked crates once and build again.
   # Without a network the fetch fails and the offline build's words stand.
   { cargo fetch --locked --quiet --manifest-path "$root/console/Cargo.toml" >"$out/store-fetch.log" 2>&1 && store_build; }; then
-  export T_STORE_BIN=$root/console/target/shell/debug/store
-  export T_ATTACH_BIN=$root/console/target/shell/debug/attach
-  export T_DISPATCH_BIN=$root/console/target/shell/debug/tehas-dispatch
-  export T_CYCLE_BIN=$root/console/target/shell/debug/tehas-cycle
-  export T_CONSOLE_BIN=$root/console/target/shell/debug/console
+  export T_STORE_BIN=$target/debug/store
+  export T_ATTACH_BIN=$target/debug/attach
+  export T_DISPATCH_BIN=$target/debug/tehas-dispatch
+  export T_CYCLE_BIN=$target/debug/tehas-cycle
+  export T_CONSOLE_BIN=$target/debug/console
 else
   store_why="the store did not build offline: $(tail -n 1 "$out/store-build.log")"
 fi

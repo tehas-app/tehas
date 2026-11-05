@@ -25,6 +25,14 @@ pub fn base64(bytes: &[u8]) -> String {
     out
 }
 
+/// The 1 MiB bound of a read: a file, a stream or a line one program writes
+/// and another reads. Both sides of a seam name this one constant, so a change
+/// to it cannot leave a writer producing what its reader refuses. A bound that
+/// is deliberately different keeps its own constant and says why.
+pub const READ_BOUND: u64 = 1 << 20;
+/// `READ_BOUND` for a bound counted in a `usize`.
+pub const READ_BOUND_LEN: usize = READ_BOUND as usize;
+
 #[derive(Debug)]
 pub enum ReadError {
     /// It could not be looked at, opened or read.
@@ -115,5 +123,27 @@ mod tests {
     fn a_side_file_is_named_after_its_database() {
         let f = side_file(Path::new("/x/state/tehas.db"), "-wal");
         assert_eq!(f, Path::new("/x/state/tehas.db-wal"));
+    }
+
+    #[test]
+    fn the_read_bound_is_one_mib_in_both_counts() {
+        assert_eq!(READ_BOUND, 1_048_576);
+        assert_eq!(READ_BOUND_LEN as u64, READ_BOUND);
+    }
+
+    #[test]
+    fn a_file_of_the_read_bound_is_read_and_one_byte_more_is_not() {
+        let d = TestDir::new("read-bound");
+        let p = d.join("f");
+        std::fs::write(&p, vec![b'x'; READ_BOUND_LEN]).unwrap();
+        assert_eq!(
+            read_regular(&p, READ_BOUND).unwrap().0.len(),
+            READ_BOUND_LEN
+        );
+        std::fs::write(&p, vec![b'x'; READ_BOUND_LEN + 1]).unwrap();
+        assert!(matches!(
+            read_regular(&p, READ_BOUND),
+            Err(ReadError::TooLarge)
+        ));
     }
 }

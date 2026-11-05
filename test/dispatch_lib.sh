@@ -43,6 +43,14 @@ if [ -e "$T/home/tehas/state/github-writes.log" ]; then
     "issue edit" | "issue comment" | "api -X") printf "%s\t%s %s\tacme/widget\t-\t0\t-\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" "$2" >>"$T/home/tehas/state/github-writes.log" ;;
   esac
 fi
+# comments_json <n>: the comments of #n as the GraphQL comment read gives them,
+# from the answer a case wrote or from its REST answer.
+comments_json() {
+  cat "$T/fx/comments-$1.json" 2>/dev/null ||
+    jq "{data: {repository: {issue: {comments: {nodes: [.[] | {databaseId: .id, author: ({login: .user.login} + (.user | with_entries(select(.key == \"id\")))),
+      body, createdAt: .created_at, lastEditedAt: (if .updated_at == .created_at then null else .updated_at end),
+      editor: (if .updated_at == .created_at then null else {login: .user.login} + (.user | with_entries(select(.key == \"id\"))) end)}]}}}}}" "$T/fx/icomments-$1.json"
+}
 # not_found: say what GitHub says for a path it does not have, and fail.
 not_found() { echo "message: Not Found" >&2; exit 1; }
 case "$1 $2" in
@@ -123,11 +131,18 @@ case "$1 $2" in
       *"issues(states: OPEN"*) if [ -e "$T/fx/gh-stderr-fails" ]; then
           cat "$T/fx/gh-stderr" >&2 2>/dev/null; exit 1; fi
         "$T/page-stub" || exit 1 ;;
-      # Or the REST answer a case wrote, as GraphQL gives it.
-      *"comments(last"*) cat "$T/fx/comments-$n.json" 2>/dev/null ||
-        jq "{data: {repository: {issue: {comments: {nodes: [.[] | {databaseId: .id, author: {login: .user.login},
-          body, createdAt: .created_at, lastEditedAt: (if .updated_at == .created_at then null else .updated_at end),
-          editor: (if .updated_at == .created_at then null else {login: .user.login} end)}]}}}}}" "$T/fx/icomments-$n.json" || exit 1 ;;
+      # Or the REST answer a case wrote, as GraphQL gives it. The poll asks a
+      # chunk of issues in one query, one alias i<n> an issue, and the stub
+      # answers them in one answer; a number the case wrote no comments for
+      # refuses the whole chunk, as GitHub refuses the one query.
+      *"comments(last"*) if [ -n "$n" ]; then comments_json "$n" || exit 1; else
+          acc="{}"
+          for k in $(printf "%s\n" "$*" | grep -o "i[0-9]*: issue(number:" | sed "s/^i\([0-9]*\):.*/\1/"); do
+            one=$(comments_json "$k") || exit 1
+            acc=$(jq -c --arg k "i$k" --argjson one "$one" ". + {(\$k): \$one.data.repository.issue}" <<<"$acc") || exit 1
+          done
+          echo "{\"data\":{\"repository\":$acc}}"
+        fi ;;
       # The states of the issues a tehas:blocked comment names.
       # One pull request, as a refresh reads it at the start.
       *"pullRequest(number"*) cat "$T/fx/pull-$n.json" || exit 1 ;;
@@ -387,6 +402,8 @@ reset() {
     "$T"/home/tehas/work/widget-plan-* "$T"/home/tehas/tmp/plan-*
   # The state store a poll runs, with nothing on record.
   t_store_home "$T/home/tehas"
+  # The user ids install.sh records for the logins the cases list.
+  t_ids "$T/home/tehas"
   # A slice of 20 GiB with nothing in it: room for ten cycles of the default
   # reserve, so the slots and the review cap decide unless a case says more.
   slice_show $((20 * gib))
@@ -874,7 +891,9 @@ jq -n --argjson lists "$lists" --argjson items "$items" --argjson control "$(rea
     + [range(7) as $i | select(any($lists[$i][]; (.number | tonumber?) == $n))
        | ["tehas:ready", "tehas:blocked", "tehas:question", "tehas:plan", "tehas:refine",
           "tehas:awaiting-merge", "tehas:running"][$i]] | unique;
-  def actor: if .actor == null then null else {login: .actor.login} end;
+  # GraphQL names the user id databaseId; an id the REST fixture gives is kept.
+  def actor: if .actor == null then null else {login: .actor.login}
+    + (if .actor | has("id") then {databaseId: .actor.id} else {} end) end;
   {data: {repository: {nameWithOwner: $repo.nameWithOwner,
     issues: {pageInfo: {hasNextPage: false, endCursor: null},
       nodes: [$items[] | select((.w.state // "open") | ascii_downcase == "open")
@@ -888,6 +907,7 @@ jq -n --argjson lists "$lists" --argjson items "$items" --argjson control "$(rea
             else labels($i.n) + [($i.w.labels // [])[] | .name? // . | strings] end)
           + (if any($locked[]; . == $i.n) then ["tehas:running"] else [] end)) | unique | .[] | {name: .}]},
         subIssuesSummary: (.w.sub_issues_summary // null),
+        issueDependenciesSummary: (if .w.issue_dependencies_summary then {blockedBy: .w.issue_dependencies_summary.blocked_by} else null end),
         # Parenthesised: jq 1.7, as in the sandbox image, takes no + in an object value.
         timelineItems: {nodes: ([.ev[] | select($dropped | not) | {__typename: (if .event == "labeled" then "LabeledEvent"
             elif .event == "unlabeled" then "UnlabeledEvent" else "RenamedTitleEvent" end),

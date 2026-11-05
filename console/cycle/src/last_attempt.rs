@@ -15,7 +15,7 @@ use regex::Regex;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 
 pub const CAP: &str = "child-timeout:develop";
@@ -232,17 +232,30 @@ fn note(base: &str, result: &Value, state: Option<&Value>) -> String {
 /// plain file under it of a sane size. The workspace was written in the
 /// container, so a link anywhere on the way is not followed.
 pub fn state(workspace: &Path, issue: u64) -> Option<Value> {
+    plain_under(workspace, &format!(".pi/work-state/{issue}.json")).and_then(|p| read_state(&p))
+}
+
+/// The driver's lean-state file of the issue in the workspace, read by the same
+/// rule as its work-state file, and kept by the cycle for the analytics.
+pub fn lean(workspace: &Path, issue: u64) -> Option<Value> {
+    plain_under(workspace, &format!(".pi/lean-state/{issue}.json")).and_then(|p| read_state(&p))
+}
+
+/// A file of the workspace, canonicalised on both sides: the path it must be,
+/// and no link anywhere on the way. None when the workspace is not there.
+fn plain_under(workspace: &Path, under: &str) -> Option<PathBuf> {
     let root = workspace.canonicalize().ok()?;
-    let p = workspace.join(format!(".pi/work-state/{issue}.json"));
+    let p = workspace.join(under);
     let real = p.canonicalize().ok()?;
-    if real != root.join(format!(".pi/work-state/{issue}.json")) {
-        return None;
-    }
-    let m = fs::symlink_metadata(&real).ok()?;
+    (real == root.join(under)).then_some(real)
+}
+
+fn read_state(p: &Path) -> Option<Value> {
+    let m = fs::symlink_metadata(p).ok()?;
     if !m.is_file() || m.len() > MAX_STATE {
         return None;
     }
-    serde_json::from_slice(&fs::read(&real).ok()?).ok()
+    serde_json::from_slice(&fs::read(p).ok()?).ok()
 }
 
 #[cfg(test)]

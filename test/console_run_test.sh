@@ -196,15 +196,15 @@ recording() {
   chmod +x "$1"
 }
 
-t_case "tehas and tehasbot name their libexec, the uid and the bash, and every word"
+t_case "tehas and tehasbot hand the front their libexec, the uid and the bash, and every word"
 reset
 recording "$T/other"
 T_ENV=(TEHAS_CONSOLE="$T/other")
 t_run "$tehas limit set --reason 'a b' && $bot clean --dry-run && echo \"\$EUID \$BASH\""
 t_eq "$t_rc" 0
 say=${t_out##*$'\n'}
-t_eq "$(t_calls console)" "run $tree/libexec ${say% *} ${say#* } tehas limit set --reason a b
-run $tree/libexec ${say% *} ${say#* } tehasbot clean --dry-run"
+t_eq "$(t_calls console)" "front $tree/libexec ${say% *} ${say#* } tehas limit set --reason a b
+front $tree/libexec ${say% *} ${say#* } tehasbot clean --dry-run"
 
 t_case "the pages and the previews are written by a umask their server can read"
 reset
@@ -228,10 +228,10 @@ t_instance 'echo "settings were read" >&2; exit 9'
 mv "$tree/libexec/console" "$T/held"
 t_run "$tehas limit show"
 t_eq "$t_rc" 78
-t_eq "$t_out" "tehas limit: no console at $tree/libexec/console: run install.sh"
+t_eq "$t_out" "tehas: no console at $tree/libexec/console: run install.sh"
 t_run "$bot refresh"
 t_eq "$t_rc" 78
-t_eq "$t_out" "tehas: no console at $tree/libexec/console to load the settings: run install.sh"
+t_eq "$t_out" "tehasbot: no console at $tree/libexec/console: run install.sh"
 mv "$T/held" "$tree/libexec/console"
 
 t_done

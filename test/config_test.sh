@@ -370,7 +370,7 @@ for bad in "TEHAS_CONCURRENCY=auto" "TEHAS_CONCURRENCY=0" "TEHAS_TICKET_CONCURRE
   "TEHAS_PREVIEW_MAX=0" "TEHAS_PREVIEW_MAX=100" "TEHAS_PREVIEW_MIN_FREE=lots" "TEHAS_CYCLE_MIN_FREE=lots" "TEHAS_CLEAN_MIN_FREE=lots" \
   "TEHAS_IMPROVE_REPO=not a repo" "TEHAS_IMPROVE_REPO=acme" "TEHAS_IMPROVE_REPO=acme/factory/more" \
   "TEHAS_IMPROVE_RUKAS_REPO=not a repo" "TEHAS_IMPROVE_RUKAS_REPO=acme" "TEHAS_IMPROVE_RUKAS_SKIP=yes" \
-  "TEHAS_IMPROVE_MAX_OPEN=0" "TEHAS_IMPROVE_MAX_OPEN=many" \
+  "TEHAS_IMPROVE_MAX_OPEN=0" "TEHAS_IMPROVE_MAX_OPEN=many" "TEHAS_OWNER=acme-app[bot]" "TEHAS_OWNER=alice bob" \
   "TEHAS_RUKAS_WORKAROUNDS=PI_ENSEMBLE_X" "TEHAS_RUKAS_WORKAROUNDS=PI_ENSEMBLE_X@soon" "TEHAS_RUKAS_WORKAROUNDS=PATH@1.2" \
   "TEHAS_RUKAS_WORKAROUNDS=PI_ENSEMBLE_X@1.2  TEHAS_TOP@1.3" "TEHAS_RUKAS_WORKAROUNDS=PI_ENSEMBLE_X@1" \
   "TEHAS_BRANCH_CHECK=verify&x=1" "TEHAS_BRANCH_CHECK=two  spaces" "TEHAS_BRANCH_CHECK= verify" "TEHAS_BRANCH_CHECK=a\"b" \
@@ -383,6 +383,14 @@ for bad in "TEHAS_CONCURRENCY=auto" "TEHAS_CONCURRENCY=0" "TEHAS_TICKET_CONCURRE
   [ "${bad%%=*}" = TEHAS_CONCURRENCY ] || t_lacks "$t_out" "auto is not usable yet"
   t_contains "$t_out" "tehas: ${bad%%=*} is not valid"
 done
+
+t_case "the owner is optional: unset it is empty, set it is the login"
+printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load && set -u && echo \"[\$TEHAS_OWNER]\""
+t_eq "$t_out" "[]"
+printf '%s\n' "${T_MINIMAL[@]}" TEHAS_OWNER=alice >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load && echo \"[\$TEHAS_OWNER]\""
+t_eq "$t_out" "[alice]"
 
 t_case "the improvement loop is off unless the instance names a repository"
 printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
@@ -916,50 +924,10 @@ t_run "$load"
 after=$(find "$T/home" "$T/instance" | sort)
 t_eq "$after" "$before"
 
-# --- tehas_branch -----------------------------------------------------------
+# --- A checkout -------------------------------------------------------------
 git init -q -b main "$T/upstream"
 git -C "$T/upstream" -c user.name=t -c user.email=t@example.com commit -q --allow-empty -m first
 git clone -q "$T/upstream" "$T/home/tehas/repos/widget"
-
-t_case "tehas_branch reads the default branch from origin/HEAD"
-t_instance "${T_MINIMAL[@]}"
-t_run "$load && tehas_branch"
-t_eq "$t_rc" 0
-t_eq "$t_out" "main"
-
-# lib/config.sh and tehas_core hold one rule for the checkout and the branch
-# (console/core/src/settings.rs), so the two answers are held side by side the
-# way test/rukas_test.sh holds lib/rukas.sh against console/core/src/rukas.rs.
-both() { # <name> <verb> [<KEY=VALUE>...]
-  local name=$1 verb=$2
-  shift 2
-  t_case "tehas_$verb and the console's $verb answer one thing: $name"
-  t_instance "${T_MINIMAL[@]}" "$@"
-  t_run "$load && tehas_$verb"
-  local bash_rc=$t_rc bash_out=$t_out
-  t_run "$load >/dev/null 2>&1; \"$T_CONSOLE\" settings $verb"
-  t_eq "$t_rc" "$bash_rc"
-  t_eq "$t_out" "$bash_out"
-}
-
-git init -q -b main "$T/other"
-git -C "$T/other" remote add origin https://github.com/acme/other.git
-git init -q -b main "$T/asrepo"
-git -C "$T/asrepo" remote add origin "git@github.com:acme/widget.git"
-
-both "the scratch checkout, a clone of a local path" checkout
-both "the checkout of another repository" checkout "TEHAS_WORK_REPO=$T/other"
-both "origin named as acme/widget" checkout "TEHAS_WORK_REPO=$T/asrepo"
-both "the checkout's default branch" branch
-both "TEHAS_BRANCH given" branch TEHAS_BRANCH=release
-git -C "$T/home/tehas/repos/widget" remote set-head origin -d
-both "a checkout with no origin/HEAD" branch
-git -C "$T/home/tehas/repos/widget" remote set-head origin main
-
-t_case "TEHAS_BRANCH wins over the checkout"
-t_instance "${T_MINIMAL[@]}" TEHAS_BRANCH=release
-t_run "$load && tehas_branch"
-t_eq "$t_out" "release"
 
 t_case "TEHAS_BRANCH_CHECK: unset is none, a name with spaces is kept"
 t_instance "${T_MINIMAL[@]}"
@@ -968,6 +936,18 @@ t_eq "$t_out" "[]"
 printf '%s\n' "${T_MINIMAL[@]}" "TEHAS_BRANCH_CHECK='build / verify (linux)'" >"$TEHAS_INSTANCE_DIR/instance.env"
 t_run "$load && echo \"[\$TEHAS_BRANCH_CHECK]\""
 t_eq "$t_out" "[build / verify (linux)]"
+
+t_case "TEHAS_PRIORITY_FIELD: unset stays unset, a field's name is kept, two words stop the load"
+t_instance "${T_MINIMAL[@]}"
+t_run "$load && echo \"[\${TEHAS_PRIORITY_FIELD-unset}]\""
+t_eq "$t_out" "[unset]"
+printf '%s\n' "${T_MINIMAL[@]}" TEHAS_PRIORITY_FIELD=Priority >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load && echo \"[\$TEHAS_PRIORITY_FIELD]\""
+t_eq "$t_out" "[Priority]"
+printf '%s\n' "${T_MINIMAL[@]}" "TEHAS_PRIORITY_FIELD='Pri ority'" >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load; echo rc=\$?"
+t_contains "$t_out" "rc=78"
+t_contains "$t_out" "TEHAS_PRIORITY_FIELD is not valid: expected one word"
 
 t_case "TEHAS_LOW_GATE: unset is none, an absolute path is kept"
 t_instance "${T_MINIMAL[@]}"
@@ -1030,14 +1010,6 @@ for bad in "601" "9999" "99999999999999999999"; do
   t_lacks "$t_out" "integer expression"
 done
 printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
-
-t_case "a checkout without origin/HEAD fails with both remedies"
-t_instance "${T_MINIMAL[@]}"
-git -C "$T/home/tehas/repos/widget" remote set-head origin -d
-t_run "$load && b=\$(tehas_branch); echo \"rc=\$? b=[\$b]\""
-t_contains "$t_out" "rc=78 b=[]"
-t_contains "$t_out" "TEHAS_BRANCH"
-t_contains "$t_out" "install.sh"
 
 t_case "the cycle's workspace is under the tehas tree and is not a setting"
 t_instance "${T_MINIMAL[@]}" TEHAS_WORK_DIR=/somewhere/else
@@ -1658,7 +1630,7 @@ T_INSIDE=$TEHAS_INSTANCE_DIR/$HOME
 INSTANCES
 T_ENV=()
 t_instance "${T_MINIMAL[@]}"
-t_eq "$(sha256sum <"$T/loads" | cut -d' ' -f1)" "849c8cb84c603e41c4e3dc086fcf93311d12daa559805af4e56c1225e92904e4"
+t_eq "$(sha256sum <"$T/loads" | cut -d' ' -f1)" "9a5f807c7b2d6a537e25d50ef8c6d07134214b3be8d5d6976709932a27d5591d"
 t_contains "$(cat "$T/loads")" "rc=78"
 
 t_case "no instance.env keeps the environment as it was, as bash did"

@@ -27,7 +27,7 @@ use serde_json::{json, Value};
 use std::io::Read;
 use std::path::Path;
 use tehas_core::plan::{
-    checked, clip, keep_spec, made, refusal_document, text_of, APPLY_READY, CLIP,
+    checked, clip, keep_spec, made, refusal_document, text_of, APPLY_READY, CLIP, SPEC_INFO,
 };
 
 mod start;
@@ -195,8 +195,11 @@ pub fn outcome(
                 None | Some(Value::Null) | Some(Value::Bool(false)) => "The plan".to_string(),
                 t => text_of(t),
             };
-            let spec = text_of(d.get("spec"));
-            let draft = json!({"title": text_of(d.get("title")), "spec": spec});
+            let (block, spec) = runner_block(&text_of(d.get("spec")));
+            let mut draft = json!({"title": text_of(d.get("title")), "spec": spec});
+            if let Some(block) = block {
+                draft["block"] = json!(block);
+            }
             std::fs::write(keep.join("draft.json"), format!("{draft}\n"))
                 .map_err(|_| "the drafted plan could not be kept".to_string())?;
             let open = if qs.is_empty() {
@@ -315,14 +318,20 @@ pub fn update(session: &str, keep: &Path, was: &str) -> Result<String, String> {
             return Ok(refused_document_of(session, &why).to_string());
         }
     };
+    // The block pi-rukas assembled, kept at exit 12, is the one the issue
+    // holds. A draft from a runner that placed none keeps the person's.
+    let kept_from = match draft.get("block").and_then(Value::as_str) {
+        Some(block) => block.to_string(),
+        None => text_of(was.get("body")),
+    };
     let more = format!(
         ",\"update\":{}",
         json!({
             "title": plan.title,
-            // The person's spec block goes back on top here, and nowhere
-            // earlier: the document the tick writes holds it, and nothing else
-            // reads this body.
-            "body": keep_spec(&plan.body, &text_of(was.get("body")))
+            // The runner's block, or else the person's, goes on top here and
+            // nowhere earlier: the document the tick writes holds it, and
+            // nothing else reads this body.
+            "body": keep_spec(&plan.body, &kept_from)
         })
     );
     Ok(document(session, &plan.text, &Value::Null, &[], &more))
@@ -338,6 +347,75 @@ pub fn update(session: &str, keep: &Path, was: &str) -> Result<String, String> {
 /// are still made by one function.
 fn refused_document_of(session: &str, why: &str) -> Value {
     refusal_document(why, why, Some(&json!(session)))
+}
+
+/// The heading pi-rukas places its assembled `pi-spec v1` block under, at
+/// the top of the body it shows at exit 12 (`plan-pi-spec.ts`).
+const SPEC_HEADING: &str = "## Spec (pi-spec v1)";
+
+/// The `pi-spec v1` block pi-rukas assembled into a drafted plan, and the
+/// spec to keep. The block is the runner's only when it opens the body: its
+/// heading is the first line, or the second after the provenance line, and
+/// the fence right under it reads as a block. Every other `pi-spec v1` fence
+/// is the draft's prose and is renamed `pi-spec-example v1`, as pi-rukas
+/// renames one, so the issue holds one block. A spec with no such section
+/// comes from a runner that places none and is kept as it came.
+fn runner_block(spec: &str) -> (Option<String>, String) {
+    let as_is = (None, spec.to_string());
+    let lines: Vec<&str> = spec.split('\n').collect();
+    let filled = |from: usize| (from..lines.len()).find(|&i| !lines[i].trim().is_empty());
+    let Some(first) = filled(0) else {
+        return as_is;
+    };
+    let heading = if lines[first].trim() == SPEC_HEADING {
+        first
+    } else {
+        match filled(first + 1) {
+            Some(i) if lines[i].trim() == SPEC_HEADING => i,
+            _ => return as_is,
+        }
+    };
+    let Some(open) = filled(heading + 1) else {
+        return as_is;
+    };
+    let Some(run) = opens_spec(lines[open]) else {
+        return as_is;
+    };
+    let Some(close) = (open + 1..lines.len()).find(|&i| closes(lines[i], run)) else {
+        return as_is;
+    };
+    let Some(block) = tehas_core::plan::spec_block(&lines[open..=close].join("\n")) else {
+        return as_is;
+    };
+    let kept = lines
+        .iter()
+        .enumerate()
+        .map(|(i, line)| match opens_spec(line) {
+            Some(_) if i != open => line.replacen(SPEC_INFO, "pi-spec-example v1", 1),
+            _ => line.to_string(),
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    (Some(block), kept)
+}
+
+/// A line's text after at most three spaces of indent.
+fn unindented(line: &str) -> &str {
+    let spaces = line.len() - line.trim_start_matches(' ').len();
+    &line[spaces.min(3)..]
+}
+
+/// The length of the backtick run of a line that opens a `pi-spec v1` fence.
+fn opens_spec(line: &str) -> Option<usize> {
+    let t = unindented(line);
+    let run = t.bytes().take_while(|b| *b == b'`').count();
+    (run >= 3 && t[run..].trim() == SPEC_INFO).then_some(run)
+}
+
+/// Whether a line closes a backtick fence opened with a run of `run`.
+fn closes(line: &str, run: usize) -> bool {
+    let t = unindented(line).trim_end();
+    t.len() >= run && t.bytes().all(|b| b == b'`')
 }
 
 /// The draft a turn kept beside its session, or nothing when it is gone or no
@@ -830,5 +908,95 @@ mod tests {
         std::fs::write(k.join("draft.json"), good).unwrap();
         assert!(update("s", &k, "").is_err());
         let _ = std::fs::remove_dir_all(&k);
+    }
+
+    /// The body pi-rukas shows at exit 12: its provenance line, the block it
+    /// assembled under its heading, then the drafted prose.
+    fn assembled(prose: &str) -> String {
+        format!("_Planned by pi-rukas._\n\n## Spec (pi-spec v1)\n\n```pi-spec v1\n{{\n  \"problem\": \"fast\"\n}}\n```\n\n{prose}")
+    }
+
+    fn shown(spec: &str) -> String {
+        json!({"text": "Drafted.", "title": "feat: fast", "spec": spec, "questions": []})
+            .to_string()
+    }
+
+    const RUNNER_BLOCK: &str = "```pi-spec v1\n{\n  \"problem\": \"fast\"\n}\n```";
+
+    /// The block the runner assembled is kept with the draft, and the update
+    /// writes it at the top of the issue in place of the person's own.
+    #[test]
+    fn a_draft_with_a_block_from_the_runner_writes_it_at_the_top() {
+        let k = keep();
+        let spec = assembled("## Outcome\n\nThe p95 is under 100 ms.");
+        outcome(12, "abc", &k, &shown(&spec), false).unwrap();
+        let kept = parsed(&std::fs::read_to_string(k.join("draft.json")).unwrap());
+        assert_eq!(kept["block"], RUNNER_BLOCK);
+        assert_eq!(kept["spec"], spec.as_str());
+        let was = json!({"title": "search",
+                         "body": "```pi-spec v1\n{\"intent\":\"old\"}\n```\n\nWhat the person wrote."});
+        let v = parsed(&update("s", &k, &was.to_string()).unwrap());
+        let body = v["update"]["body"].as_str().unwrap();
+        assert_eq!(body, spec);
+        assert_eq!(tehas_core::plan::spec_block(body).unwrap(), RUNNER_BLOCK);
+    }
+
+    /// A `pi-spec v1` fence in the drafted prose below the runner's block is
+    /// renamed as pi-rukas renames one, so the issue holds one block.
+    #[test]
+    fn a_drafted_prose_fence_named_pi_spec_is_not_written_as_a_second_block() {
+        let k = keep();
+        let prose = "## Outcome\n\nAn example:\n\n```pi-spec v1\n{\"problem\":\"quoted\"}\n```";
+        outcome(12, "abc", &k, &shown(&assembled(prose)), false).unwrap();
+        let kept = parsed(&std::fs::read_to_string(k.join("draft.json")).unwrap());
+        assert_eq!(kept["block"], RUNNER_BLOCK);
+        let renamed = assembled(
+            "## Outcome\n\nAn example:\n\n```pi-spec-example v1\n{\"problem\":\"quoted\"}\n```",
+        );
+        assert_eq!(kept["spec"], renamed.as_str());
+        let was = json!({"title": "search", "body": "What the person wrote."});
+        let v = parsed(&update("s", &k, &was.to_string()).unwrap());
+        let body = v["update"]["body"].as_str().unwrap();
+        assert_eq!(body, renamed);
+        assert_eq!(tehas_core::plan::spec_block(body).unwrap(), RUNNER_BLOCK);
+        assert_eq!(body.matches("```pi-spec v1\n").count(), 1);
+    }
+
+    /// A runner that places no block: no block is kept, the spec is kept as
+    /// it came, and the update keeps the person's block as before (#1458).
+    #[test]
+    fn a_runner_without_the_block_leaves_the_body_as_today() {
+        let k = keep();
+        let prose = "## Outcome\n\nThe p95 is under 100 ms.";
+        // A block somewhere below the top is the draft's prose, not a section
+        // the runner placed: nothing is renamed and nothing is kept for it.
+        let low = format!("{prose}\n\n## Spec (pi-spec v1)\n\n{RUNNER_BLOCK}");
+        for spec in [prose.to_string(), low] {
+            outcome(12, "abc", &k, &shown(&spec), false).unwrap();
+            let kept = parsed(&std::fs::read_to_string(k.join("draft.json")).unwrap());
+            assert!(kept.get("block").is_none(), "{kept}");
+            assert_eq!(kept["spec"], spec.as_str());
+        }
+        outcome(12, "abc", &k, &shown(prose), false).unwrap();
+        let was = json!({"title": "search",
+                         "body": "```pi-spec v1\n{\"intent\":\"old\"}\n```\n\nWhat the person wrote."});
+        let v = parsed(&update("s", &k, &was.to_string()).unwrap());
+        assert_eq!(
+            v["update"]["body"],
+            json!(format!(
+                "```pi-spec v1\n{{\"intent\":\"old\"}}\n```\n\n{prose}"
+            ))
+        );
+        // A heading with no block under it, or one that is no JSON, is no
+        // block the runner placed.
+        for top in [
+            "## Spec (pi-spec v1)\n\nNo block.".to_string(),
+            "## Spec (pi-spec v1)\n\n```pi-spec v1\nnot json\n```".to_string(),
+        ] {
+            outcome(12, "abc", &k, &shown(&top), false).unwrap();
+            let kept = parsed(&std::fs::read_to_string(k.join("draft.json")).unwrap());
+            assert!(kept.get("block").is_none(), "{kept}");
+            assert_eq!(kept["spec"], top.as_str());
+        }
     }
 }

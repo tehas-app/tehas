@@ -20,6 +20,9 @@ t_console || t_bad "no console: $t_console_why"
 T_ENV_ALWAYS=(TEHAS_CONSOLE="$T_CONSOLE")
 
 update="$T_ROOT/libexec/update"
+# The update and install.sh ask GitHub for the user ids of the allowed accounts;
+# the stub gives each its t_uid. A case that stubs gh again keeps that answer.
+t_stub gh
 th=$T/home/tehas
 checkout=$th/platform
 owed_file=$th/state/update-pending
@@ -37,9 +40,15 @@ T_ENV=(BOOTSTRAP_ETC="$dev_etc" BOOTSTRAP_BIN="$dev_bin" T_IN_TEST=1)
 # puts them back for each case, because a stub an earlier case installed would
 # otherwise answer this one.
 # A sandbox build asks the base for its capabilities: the answer of the image
-# of pi-rukas main.
+# of pi-rukas main. A run asked of bash, told apart by --entrypoint, is the
+# build's smoke run, answered with a step that started, so the uid tag moves as
+# it did before the check was there (test/sandbox_build_test.sh is where a
+# refusal of it is checked).
 docker_up() { t_stub docker 'if [ "$1" = ps ]; then printf "c1\n"; fi
-if [ "$1" = run ]; then cat "$T_ROOT/test/fixtures/headless-c5ddc0a/capabilities.json"; fi'; }
+if [ "$1" = run ]; then
+  for a in "$@"; do [ "$a" != --entrypoint ] || {
+    cat "$T_ROOT/test/fixtures/smoke-started.json"; exit 0; }; done
+  cat "$T_ROOT/test/fixtures/headless-c5ddc0a/capabilities.json"; fi'; }
 systemctl_active() { t_stub systemctl 'if [ "$2" = is-active ]; then echo active; fi'; }
 real_timeout=$(command -v timeout)
 bound_calls() { t_stub timeout "exec $real_timeout \"\$@\""; }
@@ -113,6 +122,8 @@ platform() { # [behind] [install body] [bin of the host, where its tehas is put]
   docker_up
   bound_calls
   mkdir -p "$checkout/libexec" "$checkout/lib" "$th/sandbox" "$th/edge"
+  # The ids an install recorded, so an update that finds them current writes none.
+  t_ids "$th"
   write_install "$body"
   # The host's own `tehas`, as the labels step runs it: by the path
   # $TEHAS_HOME/bin/tehas, and not by name. A stub on PATH would be shadowed by
@@ -229,7 +240,10 @@ rukas_image() { # <commit or none>
     printf '%s\n' "$1" >"$T/fx/label"
   fi
   t_stub docker 'if [ "$1" = ps ]; then printf "c1\n"; fi
-if [ "$1" = run ]; then cat "$T_ROOT/test/fixtures/headless-c5ddc0a/capabilities.json"; fi
+if [ "$1" = run ]; then
+  for a in "$@"; do [ "$a" != --entrypoint ] || {
+    cat "$T_ROOT/test/fixtures/smoke-started.json"; exit 0; }; done
+  cat "$T_ROOT/test/fixtures/headless-c5ddc0a/capabilities.json"; fi
 if [ "$1" = image ]; then case "$*" in
   "image inspect tehas/pi-rukas:release-"*) exit 1 ;;
   *"image inspect"*) [ -e "$T/fx/label" ] || exit 1; cat "$T/fx/label" ;;

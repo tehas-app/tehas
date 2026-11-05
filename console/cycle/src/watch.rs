@@ -12,7 +12,7 @@
 
 use crate::clock;
 use crate::start::attempt_shaped;
-use crate::{host, progress, runner};
+use crate::{host, progress, runner, scratch};
 use serde_json::Value;
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
@@ -20,7 +20,7 @@ use std::os::unix::fs::MetadataExt;
 use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tehas_core::{call, time};
@@ -51,6 +51,10 @@ pub struct Given {
     pub renewer: String,
     /// The whole command that starts the container.
     pub docker: Vec<String>,
+    /// The number of the signal that came last, as the handlers set it.
+    pub signal: Arc<AtomicUsize>,
+    /// What the cycle's scratch may take of the disk.
+    pub scratch: scratch::Bounds,
 }
 
 /// The cycle's clock: the boot's, or the test's program.
@@ -274,6 +278,69 @@ pub fn diag(stream: &[u8]) -> Vec<u8> {
     out
 }
 
+/// The name of a signal tehas work listens for; "-" for any other.
+fn signal_name(n: usize) -> &'static str {
+    use signal_hook::consts::{SIGHUP, SIGINT, SIGTERM};
+    match i32::try_from(n) {
+        Ok(SIGTERM) => "TERM",
+        Ok(SIGINT) => "INT",
+        Ok(SIGHUP) => "HUP",
+        _ => "-",
+    }
+}
+
+/// The runs of the gate the stream started and did not end, oldest first: the
+/// step and the command of each.
+pub fn open_gates(stream: &[u8], issue: u64) -> Vec<(String, String)> {
+    let mut open: Vec<(String, String)> = vec![];
+    for line in stream.split(|b| *b == b'\n') {
+        if !line.windows(7).any(|w| w == b"verify-") {
+            continue;
+        }
+        let Ok(Value::Object(o)) = serde_json::from_slice::<Value>(line) else {
+            continue;
+        };
+        let other = o
+            .get("issue")
+            .and_then(Value::as_u64)
+            .is_some_and(|n| n != issue);
+        if o.get("v").and_then(Value::as_i64) != Some(1) || other {
+            continue;
+        }
+        let event = o.get("event");
+        let word = |k: &str| text(event, k);
+        match o.get("kind").and_then(Value::as_str) {
+            Some("verify-started") => open.push((word("step"), word("command"))),
+            Some("verify-completed" | "verify-aborted") => {
+                let step = word("step");
+                match open.iter().rposition(|(s, _)| *s == step) {
+                    Some(i) => {
+                        open.remove(i);
+                    }
+                    None => {
+                        open.pop();
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    open
+}
+
+/// The line that closes a run of the gate a signal cut short. tehas writes it,
+/// not the driver: `by` says so.
+pub fn aborted_line(issue: u64, step: &str, command: &str, sig: &str, at_ms: i64) -> String {
+    let line = serde_json::json!({
+        "v": 1, "kind": "verify-aborted", "issue": issue, "by": "tehas",
+        "event": {
+            "kind": "verify-aborted", "step": step, "command": command,
+            "status": "aborted", "signal": sig, "at": at_ms,
+        },
+    });
+    format!("{line}\n")
+}
+
 /// What the watch saw of the container's end.
 pub struct Seen<'a> {
     pub rc: i32,
@@ -283,6 +350,8 @@ pub struct Seen<'a> {
     pub interrupted: bool,
     pub stalled: bool,
     pub timed: bool,
+    /// This command stopped the cycle for disk (src/scratch.rs).
+    pub disk: bool,
     /// This command stopped a container that was still running.
     pub stopped: bool,
     /// The time limit had passed when the container ended.
@@ -326,6 +395,9 @@ pub fn decide(s: &Seen) -> Decided {
             if s.timed && stopped_word(&status) {
                 status = "timeout".to_string();
             }
+            if s.disk && stopped_word(&status) {
+                status = "stopped".to_string();
+            }
         }
         None => {
             if s.interrupted {
@@ -337,6 +409,9 @@ pub fn decide(s: &Seen) -> Decided {
             if s.timed {
                 status = "timeout".to_string();
             }
+            if s.disk {
+                status = "stopped".to_string();
+            }
         }
     }
     // The runner stops itself at the --timeout it is given. Its result then
@@ -344,6 +419,7 @@ pub fn decide(s: &Seen) -> Decided {
     let mut ran_out = false;
     if !s.timed
         && !s.stalled
+        && !s.disk
         && !s.interrupted
         && s.rc != 137
         && s.at_limit
@@ -366,6 +442,7 @@ pub fn decide(s: &Seen) -> Decided {
         && !s.timed
         && !ran_out
         && !s.stalled
+        && !s.disk
         && s.rc != 137
         && (1..=999).contains(&s.rc)
         && s.log_empty;
@@ -383,7 +460,7 @@ pub fn exit_of(s: &Seen, d: &Decided) -> i32 {
     if d.killed {
         return 137;
     }
-    if s.stalled || s.timed {
+    if s.stalled || s.timed || s.disk {
         return 2;
     }
     let own = s.rc.to_string();
@@ -441,6 +518,8 @@ struct Files {
     forks: PathBuf,
     stalled: PathBuf,
     timed: PathBuf,
+    signal: PathBuf,
+    disk: PathBuf,
     result: PathBuf,
     progress: PathBuf,
     runner_exit: PathBuf,
@@ -458,6 +537,8 @@ impl Files {
             forks: f("forks"),
             stalled: f("stalled"),
             timed: f("timed"),
+            signal: f("signal"),
+            disk: f("disk"),
             result: f("result.json"),
             progress: f("progress.json"),
             runner_exit: f("runner_exit"),
@@ -483,6 +564,8 @@ struct Watch<'a> {
     console_now: PathBuf,
     stop: Arc<AtomicBool>,
     interrupted: bool,
+    /// The signal that stopped the cycle, "-" when not known.
+    sig: &'static str,
     console: Option<Child>,
     live_on: bool,
     beat_said: bool,
@@ -524,6 +607,7 @@ impl Watch<'_> {
             return false;
         }
         self.interrupted = true;
+        self.sig = signal_name(self.g.signal.load(Ordering::SeqCst));
         if let Some(c) = &self.console {
             signal(&c.id().to_string(), "-TERM");
         }
@@ -770,6 +854,7 @@ pub fn run(home: &Path, g: &Given, stop: Arc<AtomicBool>) -> i32 {
         console_now,
         stop,
         interrupted: false,
+        sig: "-",
         console: None,
         live_on: false,
         beat_said: false,
@@ -805,6 +890,7 @@ pub fn run(home: &Path, g: &Given, stop: Arc<AtomicBool>) -> i32 {
     w.now_file(true, "running");
 
     let (mut stalled, mut timed, mut stopped) = (false, false, false);
+    let mut disk: Option<scratch::Over> = None;
     let mut seen = started;
     let mut last = clock.now();
     while !w.interrupted && docker.alive() {
@@ -839,6 +925,11 @@ pub fn run(home: &Path, g: &Given, stop: Arc<AtomicBool>) -> i32 {
                 break;
             }
             _ => {}
+        }
+        if let Some(over) = scratch::check(&g.scratch) {
+            say(&over.line());
+            disk = Some(over);
+            break;
         }
     }
 
@@ -881,6 +972,7 @@ pub fn run(home: &Path, g: &Given, stop: Arc<AtomicBool>) -> i32 {
         interrupted: w.interrupted,
         stalled,
         timed,
+        disk: disk.is_some(),
         stopped,
         at_limit: time::now() - started >= g.limit as i64,
         log_empty,
@@ -897,6 +989,23 @@ pub fn run(home: &Path, g: &Given, stop: Arc<AtomicBool>) -> i32 {
     if stalled {
         let words = format!("{}\n{step_in_flight}\n", g.stall);
         w.write_or_say(&w.files.stalled, &words);
+    }
+    // A signal leaves the signal and the step, and closes a gate it cut short.
+    let mut cut_gates = vec![];
+    if w.interrupted {
+        let words = format!("{} {step_in_flight}\n", w.sig);
+        w.write_or_say(&w.files.signal, &words);
+        cut_gates = open_gates(&fs::read(&g.log).unwrap_or_default(), g.issue);
+        for (step, command) in &cut_gates {
+            let line = aborted_line(g.issue, step, command, w.sig, time::now() * 1000);
+            if !append(&g.log, line.as_bytes()) {
+                eprintln!("tehas work: could not write {}", g.log.display());
+            }
+        }
+    }
+    if let Some(over) = &disk {
+        let words = format!("{}\n{step_in_flight}\n", over.note());
+        w.write_or_say(&w.files.disk, &words);
     }
     if decided.killed {
         // The only account of the end when the runner wrote no result: lost, it
@@ -936,12 +1045,19 @@ pub fn run(home: &Path, g: &Given, stop: Arc<AtomicBool>) -> i32 {
     // Let the console catch the last transcript lines.
     std::thread::sleep(settle);
     w.end_console();
+    if w.interrupted {
+        let line = signal_line(w.sig, &step_in_flight, &cut_gates);
+        let out = live.join(format!("console-{}.txt", g.issue));
+        if !append(&out, line.as_bytes()) {
+            eprintln!("tehas work: could not write {}", out.display());
+        }
+    }
 
     let mut step = result_step(outcome.as_ref());
     if step.is_empty() {
         step = "-".to_string();
     }
-    if step == "-" && (timed || stalled || decided.ran_out) {
+    if step == "-" && (timed || stalled || disk.is_some() || decided.ran_out) {
         step = step_in_flight;
     }
     w.now_file(false, &status);
@@ -954,6 +1070,8 @@ pub fn run(home: &Path, g: &Given, stop: Arc<AtomicBool>) -> i32 {
     match status.as_str() {
         "timeout" => cap = "wall-clock".to_string(),
         "stalled" => cap = "stall".to_string(),
+        "stopped" if disk.is_some() => cap = "disk".to_string(),
+        _ if w.interrupted && cap.is_empty() && stopped_word(&status) => cap = "signal".to_string(),
         _ => {}
     }
     say(&format!(
@@ -967,6 +1085,7 @@ pub fn run(home: &Path, g: &Given, stop: Arc<AtomicBool>) -> i32 {
     if !decided.killed
         && !stalled
         && !timed
+        && disk.is_none()
         && outcome.is_some()
         && empty_err
         && (!cap.is_empty() || status == "aborted")
@@ -974,6 +1093,22 @@ pub fn run(home: &Path, g: &Given, stop: Arc<AtomicBool>) -> i32 {
         tell_the_end(&w, &cap);
     }
     code
+}
+
+/// The console's last line of a cycle a signal stopped.
+fn signal_line(sig: &str, step: &str, gates: &[(String, String)]) -> String {
+    let what = if sig == "-" {
+        "a stop signal".to_string()
+    } else {
+        format!("SIG{sig}")
+    };
+    let mut line =
+        format!("tehas work: {what} came at step {step}, so tehas stopped the container");
+    for (s, _) in gates {
+        let s = if s.is_empty() { "-" } else { s };
+        line += &format!("; the gate of step {s} was left open and is closed as aborted");
+    }
+    line + "\n"
 }
 
 /// What reaches err.txt of the cycle's improvement record for a cycle that ended
@@ -1013,6 +1148,7 @@ mod tests {
             interrupted: false,
             stalled: false,
             timed: false,
+            disk: false,
             stopped: false,
             at_limit: false,
             log_empty: false,
@@ -1073,6 +1209,36 @@ mod tests {
             };
             assert_eq!(exit_of(&s, &decide(&s)), want);
         }
+    }
+
+    #[test]
+    fn a_disk_stop_is_stopped_and_2() {
+        let o = json!({"status": "interrupted", "exitCode": 21});
+        for s in [
+            Seen {
+                outcome: Some(&o),
+                disk: true,
+                stopped: true,
+                ..seen(21)
+            },
+            Seen {
+                disk: true,
+                stopped: true,
+                ..seen(137)
+            },
+        ] {
+            let d = decide(&s);
+            assert_eq!(d.status, "stopped");
+            assert!(!d.killed && !d.ran_out && !d.nostart);
+            assert_eq!(exit_of(&s, &d), 2);
+        }
+        let o = json!({"status": "merged"});
+        let s = Seen {
+            outcome: Some(&o),
+            disk: true,
+            ..seen(0)
+        };
+        assert_eq!(decide(&s).status, "merged");
     }
 
     #[test]
@@ -1295,6 +1461,64 @@ mod tests {
     }
 
     #[test]
+    fn the_gates_left_open_are_those_started_and_not_ended() {
+        let line = |kind: &str, step: &str| {
+            format!(
+                "{}\n",
+                json!({"v": 1, "kind": kind, "issue": 7,
+                       "event": {"kind": kind, "step": step, "command": "make test"}})
+            )
+        };
+        let closed = line("verify-started", "develop") + &line("verify-completed", "develop");
+        assert!(open_gates(closed.as_bytes(), 7).is_empty());
+        let cut = closed.clone() + &line("verify-started", "verify") + "[pi-rukas] verify-ish\n";
+        assert_eq!(
+            open_gates(cut.as_bytes(), 7),
+            vec![("verify".to_string(), "make test".to_string())]
+        );
+        // Another issue's line, and a line of no stable version, are not this
+        // cycle's gate.
+        let other = line("verify-started", "verify").replace("\"issue\":7", "\"issue\":8");
+        assert!(open_gates(other.as_bytes(), 7).is_empty());
+        let loose = line("verify-started", "verify").replace("\"v\":1", "\"v\":2");
+        assert!(open_gates(loose.as_bytes(), 7).is_empty());
+        // A gate closed by an aborted line is closed.
+        let aborted = cut + &aborted_line(7, "verify", "make test", "TERM", 5);
+        assert!(open_gates(aborted.as_bytes(), 7).is_empty());
+    }
+
+    #[test]
+    fn the_aborted_line_is_one_stable_line_of_tehas() {
+        let l = aborted_line(7, "verify", "make test", "TERM", 5000);
+        assert!(l.ends_with('\n') && l.lines().count() == 1);
+        let v: Value = serde_json::from_str(l.trim_end()).unwrap();
+        assert_eq!(v["v"], 1);
+        assert_eq!(v["kind"], "verify-aborted");
+        assert_eq!(v["by"], "tehas");
+        assert_eq!(v["event"]["status"], "aborted");
+        assert_eq!(v["event"]["step"], "verify");
+        assert_eq!(v["event"]["signal"], "TERM");
+        assert_eq!(v["event"]["at"], 5000);
+    }
+
+    #[test]
+    fn the_signal_is_named_and_the_console_line_says_the_gates() {
+        assert_eq!(signal_name(signal_hook::consts::SIGTERM as usize), "TERM");
+        assert_eq!(signal_name(signal_hook::consts::SIGINT as usize), "INT");
+        assert_eq!(signal_name(signal_hook::consts::SIGHUP as usize), "HUP");
+        assert_eq!(signal_name(0), "-");
+        assert_eq!(
+            signal_line("TERM", "develop", &[]),
+            "tehas work: SIGTERM came at step develop, so tehas stopped the container\n"
+        );
+        let gates = [("verify".to_string(), "make test".to_string())];
+        assert_eq!(
+            signal_line("-", "verify", &gates),
+            "tehas work: a stop signal came at step verify, so tehas stopped the container; the gate of step verify was left open and is closed as aborted\n"
+        );
+    }
+
+    #[test]
     fn the_two_lines_of_the_console() {
         let d = dir("now");
         let now = d.join("now");
@@ -1401,6 +1625,8 @@ mod tests {
             email: String::new(),
             renewer: String::new(),
             docker: vec![],
+            signal: Arc::default(),
+            scratch: scratch::Bounds::default(),
         };
         let w = Watch {
             home: &home,
@@ -1410,6 +1636,7 @@ mod tests {
             console_now: d.join("now"),
             stop: Arc::new(AtomicBool::new(false)),
             interrupted: false,
+            sig: "-",
             console: None,
             live_on: false,
             beat_said: false,
@@ -1434,24 +1661,11 @@ mod tests {
     fn a_clock_of_a_program_answers_as_the_verbs_do() {
         let d = dir("clock");
         let p = d.join("clock");
-        fs::write(
+        tehas_core::testing::write_exe(
             &p,
             "#!/bin/sh\ncase \"$2\" in now) echo 42 ;; check) echo stalled ;; mark) : >\"$3\" ;; esac\n",
         )
         .unwrap();
-        let chmod = Command::new("chmod").arg("+x").arg(&p).status().unwrap();
-        assert!(chmod.success());
-        // A fork in another thread can hold the new script open for writing
-        // until its exec, and an exec in that moment fails with ETXTBSY.
-        // Once one run starts, no such fork is left.
-        let ran = (0..200).any(|_| {
-            let ran = Command::new(&p).status().is_ok();
-            if !ran {
-                std::thread::sleep(std::time::Duration::from_millis(10));
-            }
-            ran
-        });
-        assert!(ran, "{} never ran", p.display());
         let c = Clock::Program(p.to_string_lossy().into_owned());
         assert_eq!(c.now(), Some(42));
         assert!(c.mark(&d.join("m")));
