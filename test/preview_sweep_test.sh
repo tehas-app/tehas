@@ -170,11 +170,51 @@ t_lacks "$t_out" "#65: swept"
 t_eq "$(count "$root" 65)" 1
 t_eq "$(jq -r '.removed' "$root/sweep.json")" 0
 
-t_case "sweep: an untagged image left by a rebuild is removed"
+t_case "sweep: an image the host lists with no tag is removed"
 reset
 echo "sha256:dangling <none>:<none>" >"$fx/extra-images"
 t_run "$preview --sweep"
 t_contains "$(t_calls docker)" "image rm sha256:dangling"
+
+t_case "sweep: the image a re-tag left dangling is listed and removed"
+reset
+# Docker keeps the labels of an image whose tag a build moved away, and
+# `docker image ls --filter label=tehas.preview` lists it as <none>:<none>. A
+# container that was never created leaves one: its build moved the tag off the
+# image of the commit that served, and that commit's container went before the
+# new one was tried.
+a=$(commit one)
+pulls "$(pull 66 "$a")"
+t_run "$preview"
+first=$(image_id 66)
+a2=$(commit feature)
+pulls "$(pull 66 "$a2")"
+touch "$fx/run-fails"
+t_run "$preview"
+rm -f "$fx/run-fails"
+t_eq "$(untagged 66)" "$first"
+rm -f "$T"/calls/docker*
+t_run "$preview --sweep"
+t_eq "$(image_rm_calls "$first")" 1
+t_eq "$(untagged 66)" ""
+# The tagged image of the open pull request stays.
+t_eq "$(image_rm_calls tehas-preview:66)" 0
+t_eq "$(image_id 66)" "$(image_of "$a2")"
+
+t_case "sweep: a stopped commit leaves no image for the sweep"
+reset
+a=$(commit one)
+pulls "$(pull 67 "$a")"
+t_run "$preview"
+a2=$(commit feature)
+pulls "$(pull 67 "$a2")"
+echo "false 0" >"$fx/settle"
+t_run "$preview"   # its build made an image and its container stopped at once
+t_eq "$(image_id 67) $(untagged 67)" " "
+rm -f "$T"/calls/docker*
+t_run "$preview --sweep"
+t_contains "$(t_calls docker)" "image ls --filter label=tehas.preview"
+t_eq "$(image_rm_calls)" 0
 
 t_case "sweep: nothing to remove writes a zero and no line about removing"
 reset

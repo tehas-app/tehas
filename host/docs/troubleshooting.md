@@ -1133,21 +1133,25 @@ state says which of four things happened:
 - The container did not start: Docker could not create or start it, such as
   an image whose command is not in it. That can also be the host and not the
   commit, so it is tried again at each of the next three runs, and then no
-  more for that commit.
+  more for that commit. Nothing serves for that pull request, not the preview
+  of the earlier commit either: the old container is removed before the new one
+  is started, so the name answers 404 until a commit starts.
 - The container started and stopped: five seconds after its start it was not
-  running, or Docker had started it again already. It was removed, and the
-  last 40 lines it wrote are at the end of the log, under `docker logs of
-  tehas-preview-<pr>`. The usual causes are an image that writes outside
-  `/tmp`, `/config` and `/data`, and one that does not start without a
-  variable. It is tried again as the case above is: at each of the next three
-  runs, then no more for that commit. Fix the recipe and push; the new commit
-  is built.
+  running, or Docker had started it again already. It was removed with the
+  image its build made, and the last 40 lines it wrote are at the end of the
+  log, under `docker logs of tehas-preview-<pr>`. The usual causes are an image
+  that writes outside `/tmp`, `/config` and `/data`, and one that does not start
+  without a variable. The container ran, so this is the commit and not the host,
+  and the same commit is not built again. Nothing serves for that pull request
+  until a new commit starts: the old container was removed before the new one
+  was started, and its image goes as well, since nothing runs it. Fix the
+  recipe and push; the new commit is built.
 
-For a container that did not start or that stopped, nothing serves for that
-pull request, not the preview of the earlier commit either: the old container
-is removed before the new one is started. The name answers 404 until a commit
-starts. Only a failed build, or a recipe that declares a volume, leaves the
-earlier preview serving.
+A failed build and a recipe that declares a volume leave the earlier preview
+serving. A container that was never created, and one that started and stopped,
+leave the pull request answering 404 until a commit starts. The "Tried again"
+column of the table in [Previews](/tools#tehasbot-preview) is the rule for each
+of these.
 
 To have the same commit built again, remove the state and let the next run
 find the pull request anew: `rm -r ~/tehas/preview/<pr>`.
