@@ -55,6 +55,7 @@ stub_gh() {
   "api user --jq [.login,.id]|@tsv") printf "tehas-bot\t4242\n" ;;
   "api --paginate installation/repositories --jq .repositories[].full_name") printf "%s\n" ${APP_REPOS:-acme/other acme/Widget} ;;
   "api users/tehas-app[bot] --jq .id") echo 9191 ;;
+  "api repos/acme/widget/assignees/alice --silent") exit 0 ;;
   "issue create --repo acme/widget"*) echo "https://github.com/acme/widget/issues/7" ;;
   "repo clone acme/widget "*) mkdir -p "${4}/.git" ;;
   "auth setup-git --hostname @HG@")
@@ -148,6 +149,22 @@ stub_all
 run_setup --token-file "$T/token" --endpoint http://gb1:8086/v1
 t_eq "$t_rc" 0
 t_eq "$(cd "$cfg" && sha256sum instance.env models.json env; git config -f "$T/home/.gitconfig" -l)" "$before"
+
+t_case "an owner GitHub assigns is taken; one it does not is 78 before the clone"
+stub_all
+: >"$T/image-there"
+cp "$cfg/instance.env" "$T/instance.env.kept"
+echo TEHAS_OWNER=alice >>"$cfg/instance.env"
+run_setup --token-file "$T/token" --endpoint http://gb1:8086/v1
+t_eq "$t_rc" 0
+t_contains "$(t_calls gh)" "api repos/acme/widget/assignees/alice --silent"
+stub_all
+sed -i 's/^TEHAS_OWNER=alice$/TEHAS_OWNER=dave/' "$cfg/instance.env"
+run_setup --token-file "$T/token" --endpoint http://gb1:8086/v1
+t_eq "$t_rc" 78
+t_contains "$t_out" "TEHAS_OWNER is not valid: GitHub does not say dave can be assigned issues in acme/widget"
+t_lacks "$(t_calls steps)" "install.sh"
+mv "$T/instance.env.kept" "$cfg/instance.env"
 
 t_case "a different setting is refused with 78 and nothing changes, until --force"
 stub_all
