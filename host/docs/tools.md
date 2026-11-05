@@ -393,7 +393,8 @@ endpoint has been settled, the subagent provider's endpoint as one word
 gets past the settings and the bot's login, a paused one too, writes
 `~/tehas/live/demand.json`: how many issues would start if there were room,
 and when the oldest of them was accepted, refresh requests included, with
-`refreshHold` when refreshes are held. It reads the `tehas:ready` list and
+`refreshHold` when refreshes are held, and `labelAlone`, the issues
+`tehas:blocked` holds with no comment that names their blockers. It reads the `tehas:ready` list and
 who labelled each issue for that, apart from what a start rests on. The holds are listed
 under [Troubleshooting](/troubleshooting). Log:
 `~/tehas/logs/dispatch.log` when run by systemd, the terminal otherwise. Each
@@ -2130,6 +2131,27 @@ waiting:
 refresh   held: the pi-rukas in the sandbox image tehas/pi-rukas:uid1000 does not take --continue-pr
 ```
 
+For each ready issue the last poll held on its own while it had room, such as
+one whose last cycle parked on the body it still has:
+
+```
+held      #21: its last cycle parked on `intent-park` and the body has not changed since; edit the body, or tick Retry in the park comment
+```
+
+When every issue in line is held that way and no cycle runs, the factory line
+is a `warn` that names them instead of `Idle, taking work.`:
+
+```
+factory   warn: #21 is held: its last cycle parked on `intent-park` and the body has not changed since. Edit the body, or tick Retry in the park comment. (40 s ago)
+```
+
+While [`tehas:blocked`](/operating#3-what-happens-next) holds issues by the
+label alone, with no comment that names their blockers (up to 50 numbers):
+
+```
+blocked   by the label alone, no blockers named: #7, #9. Each waits until an allowed account comments a `<!-- tehas:blocked by=N -->` marker on it or a person takes tehas:blocked off
+```
+
 And while [`tehas:all-hands`](/operating#all-hands) holds:
 
 ```
@@ -2940,7 +2962,7 @@ file is served.
 | `status` | Meaning                                                                                  | HTTP |
 | -------- | ---------------------------------------------------------------------------------------- | ---- |
 | `pass`   | Taking work, idle or in a cycle                                                          | 200  |
-| `warn`   | The queue snapshot is more than ten minutes old: GitHub did not answer the last polls, and `output` says how old. Or paused (the pause flag on this host, `tehas:pause` on the control issue, or a pause no allowed account took off), or the dispatcher holds everything because the slice is missing or cannot be read, or there are no resources (the model endpoint does not answer or does not offer the model), or too low on disk to build previews, or the free space could not be read, or the platform checkout has been behind origin's default branch for more than a day (`output` says how many commits; run `tehas update`), or the state store has no daily backup or the newest is more than two days old, or an idle poll cost more than its budget (`TEHAS_POLL_BUDGET`, `checks.poll_cost`), or systemd gave up on a tehas unit (`checks.units`, null when that read did not answer) | 200  |
+| `warn`   | The queue snapshot is more than ten minutes old: GitHub did not answer the last polls, and `output` says how old. Or paused (the pause flag on this host, `tehas:pause` on the control issue, or a pause no allowed account took off), or the dispatcher holds everything because the slice is missing or cannot be read, or there are no resources (the model endpoint does not answer or does not offer the model), or too low on disk to build previews, or the free space could not be read, or the platform checkout has been behind origin's default branch for more than a day (`output` says how many commits; run `tehas update`), or the state store has no daily backup or the newest is more than two days old, or an idle poll cost more than its budget (`TEHAS_POLL_BUDGET`, `checks.poll_cost`), or systemd gave up on a tehas unit (`checks.units`, null when that read did not answer), or no cycle runs and the last poll held every issue in line on its own (`checks.slice.held`: issue, why, text, clear), as one whose last cycle parked on the body it still has | 200  |
 | `fail`   | The last cycle ended as anything but `merged` or `handoff` and no cycle has started since (a running cycle with no `startedAt` counts as started since), or there is no queue snapshot | 503  |
 
 `output` says the same in a sentence. `checks.queue` has the snapshot time and
