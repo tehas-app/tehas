@@ -178,6 +178,7 @@ fn world() -> World {
             allowed: vec!["alice".into()],
             millwright: "mill-bot".into(),
             bot: "tehas-bot".into(),
+            owner: String::new(),
             systemctl: s("start"),
             start_cmd: Some(s("start")),
             stop_cmd: Some(s("start")),
