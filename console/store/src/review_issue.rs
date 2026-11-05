@@ -57,7 +57,7 @@ use std::time::{Duration, Instant};
 /// A review's document is one object with the findings of the six lenses. This
 /// is far above it, and is the bound the verb agrees to read: the same bound
 /// the import of the older records reads a file at.
-const MAX_BYTES: u64 = 1 << 20;
+const MAX_BYTES: u64 = tehas_core::file::READ_BOUND;
 
 /// What the findings of a filing may reach GitHub as. GitHub refuses a body of
 /// more than 65 536 characters, and the line that asks for `tehas:refine` is
