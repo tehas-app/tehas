@@ -40,6 +40,7 @@ t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "state-move"
 t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "clean"
 t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "pr-title"
 t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "mcp-dashboard-keys"
+t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "state-check"
 t_eq "$(t_calls gh)$(t_calls git)" ""
 
 t_case "api --json: the millwright and the old fixer field are its login when the instance has one"

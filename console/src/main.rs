@@ -97,9 +97,10 @@
 //! The flags under state/ of one instance: the limit tehas limit sets, see
 //! src/flags.rs.
 //!
-//!   console state pack|unpack ...
+//!   console state pack|unpack ... | check [--json]
 //!
-//! A stopped factory's state as one tar, see src/state.rs.
+//! A stopped factory's state as one tar, and the store's check, see
+//! src/state.rs.
 //!
 //!   console protolab run
 //!
