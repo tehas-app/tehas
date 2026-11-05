@@ -1488,15 +1488,17 @@ build cannot see from an answer alone: pi-rukas v0.14.30 to v0.14.40 passed the
 check above and every `work` run on it ended at once, three cycles on
 one host before anyone saw it. So before the uid tag moves onto an image this
 build made, or onto the instance's layer above it, the build smoke-runs that
-image: one `work` turn started inside it, offline, with no token, model or
-network, in a container bounded at 30 seconds. A good image prints a
-`step-started` line within a few seconds and the tag moves; an image that
-prints no such line, or a result that says its runner crashed, is refused, the
-build exits 1 and the uid tag stays where it was, as for a layer that does not
-build. The run's words and the decision on its output are
-`tehas-cycle sandbox smoke` and `tehas-cycle smoke`, in
-`console/cycle/src/sandbox.rs`; `build.sh` only runs docker and passes it the
-output. A smoke run starts no cycle and reaches no model, so it costs the build
+image: one `work` turn started inside it, in a container with no network
+(`--network none`), no token and no model, small memory and pids bounds of its
+own, and at most 40 seconds. A good image prints a `step-started` line within a
+few seconds, the run ends there, and the tag moves; an image that prints no
+such line, or a result that says its runner crashed, is refused, the build
+exits 1 and the uid tag stays where it was, as for a layer that does not
+build. A build with an instance layer smoke-runs both images. The run's words
+and the decision on its output are `tehas-cycle sandbox smoke` and
+`tehas-cycle sandbox smoke-verdict`, in `console/cycle/src/sandbox.rs`;
+`build.sh` only runs docker and passes it the output. A smoke run starts no
+cycle and reaches no model, so it costs the build
 a few seconds, and it is not one of the containers a cycle is given.
 
 An image that says its pi-rukas does not read them holds every issue whose

@@ -39,7 +39,7 @@ uid=$(id -u)
 # The smoke run of every case starts a step, so the uid tag moves as it did
 # before the check was there. A case that means a refusal writes another answer
 # over the file: smoke_crash and smoke_silence below are the two refusals.
-printf '%s\n' '{"v":1,"kind":"step-started","event":{"step":"explore"}}' >"$fx/smoke"
+cp "$T_ROOT/test/fixtures/smoke-started.json" "$fx/smoke"
 
 # git lists the newest release tag at the commit in $fx/head, and an older
 # one, and lists nothing when the file is missing; asked for a branch it
@@ -88,7 +88,7 @@ t_stub docker 'case "$1" in
     # A smoke run asked of bash stands apart from the ask of --capabilities: the
     # layer above the image answers from a file of its own,
     # so one case can let the image below it start a step and refuse the layer.
-    if [[ $* == *" --entrypoint bash "* ]]; then
+    if [[ $* == "run --rm --init --network none "*" --entrypoint bash "*"pi-rukas-headless work 1 --json"* ]]; then
       answer=$T/fx/smoke
       if [[ $* == *"-product "* && -e $T/fx/smoke-product ]]; then
         answer=$T/fx/smoke-product
@@ -119,7 +119,7 @@ reset() {
   rm -f "$T/instance/instance.env" "$T/instance/sandbox.Dockerfile"
   # The default smoke run again: reset takes the whole of fx, the answer of the
   # case before it among it.
-  printf '%s\n' '{"v":1,"kind":"step-started","event":{"step":"explore"}}' >"$fx/smoke"
+  cp "$T_ROOT/test/fixtures/smoke-started.json" "$fx/smoke"
 }
 
 # The line a runner that died before its first step prints, and the same turn
@@ -466,17 +466,18 @@ t_case "a build smoke-runs the image it made, in one offline work turn, before t
 reset
 t_run "$build"
 t_eq "$t_rc" 0
-# The run is asked of bash in the image this build made, and it is asked before
-# the tag moves: of the two calls that follow the build, the smoke run is first.
-t_contains "$(t_calls docker)" "run --rm --init --entrypoint bash tehas/pi-rukas:"
-t_contains "$(t_calls docker)" "timeout 20 /opt/pi-rukas/bin/pi-rukas-headless work 1 --json"
+# The run is asked of bash in the image this build made, with no network, and
+# it is asked before the tag moves.
+t_contains "$(t_calls docker)" "run --rm --init --network none --memory 2g --pids-limit 512 --entrypoint bash tehas/pi-rukas:"
+t_contains "$(t_calls docker)" "timeout 20 /opt/pi-rukas/bin/pi-rukas-headless work 1 --json 2>&1 | sed "
 t_contains "$t_out" "smoke-ran tehas/pi-rukas:"
-t_eq "$(t_calls docker | grep -n -e '^run --rm --init --entrypoint bash ' -e '^tag tehas/pi-rukas:' | head -n 1 | cut -d: -f1)" \
-  "$(t_calls docker | grep -n -e '^run --rm --init --entrypoint bash ' | head -n 1 | cut -d: -f1)"
+smoke_at=$(t_calls docker | grep -n -m1 '^run --rm --init --network none ' | cut -d: -f1)
+tag_at=$(t_calls docker | grep -n -m1 '^tag ' | cut -d: -f1)
+t_eq "$([ -n "$smoke_at" ] && [ -n "$tag_at" ] && [ "$smoke_at" -lt "$tag_at" ] && echo before)" before
 
 t_case "a smoke run that prints step-started moves the uid tag"
 reset
-printf '%s\n' '{"v":1,"kind":"step-started","event":{"step":"explore"}}' >"$fx/smoke"
+cp "$T_ROOT/test/fixtures/smoke-started.json" "$fx/smoke"
 t_run "$build"
 t_eq "$t_rc" 0
 t_contains "$t_out" "smoke-ran tehas/pi-rukas:"
