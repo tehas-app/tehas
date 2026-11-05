@@ -36,6 +36,7 @@ pub mod renew;
 pub mod report;
 pub mod runner;
 pub mod sandbox;
+pub mod scratch;
 pub mod start;
 pub mod supervise;
 pub mod watch;
