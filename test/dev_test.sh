@@ -803,7 +803,8 @@ printf "%s\n" "$@" >"$T/calls/docker.args.1"'
 lock=$T/home/tehas/state/dev/frank.lock
 t_hold "$lock"
 # The removal happens while the command waits for the lock.
-(until [ -d "$devs/frank.state/target" ]; do "$(command -pv sleep)" 0.05; done
+(n=0
+  until [ -d "$devs/frank.state/target" ] || [ $((n += 1)) -gt 600 ]; do "$(command -pv sleep)" 0.05; done
   rmdir "$devs/frank.state/target"; kill "$t_holder") &
 freed=$!
 T_ENV=(GH_TOKEN=test-token "$root")

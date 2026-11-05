@@ -62,6 +62,12 @@ const POLL_MAX_AGE: i64 = 600;
 /// console/store/src/live.rs); the read here is the parser's only other door, and our parser is slower on
 /// a big object than the store's, so the bound is kept on this side too.
 const POLL_FILE_BOUND: u64 = tehas_core::file::READ_BOUND;
+/// The last read of the epics is not believed after this: `tehasbot status`
+/// writes it at least every five minutes while the polls run.
+const EPICS_MAX_AGE: i64 = 600;
+/// The most issues the output line names of those labelled `epic` with no
+/// sub-issues; `checks.epics` lists them all.
+const UNLINKED_SAID: usize = 5;
 /// The previews' measure of the disk is not believed after this.
 const DISK_MAX_AGE: i64 = 1800;
 /// A platform this long behind is news.
@@ -1170,6 +1176,22 @@ fn set(o: &mut Vec<(String, J)>, key: &str, v: J) {
     }
 }
 
+/// The open issues labelled `epic` with no sub-issues, as tehasbot status last
+/// read them (live/epics.json), with the time of that read. Null when the read
+/// is too old or the file is not one it wrote: a read that failed leaves the
+/// file as it was, so an old file says nothing about the issues now.
+fn epics(live: &Path, now: i64) -> J {
+    let e = read(&live.join("epics.json")).unwrap_or(J::Null);
+    let fresh = age_of(e.get("generatedAt"), now).is_some_and(|a| a < EPICS_MAX_AGE);
+    match e.get("unlinked") {
+        J::Arr(a) if fresh && a.iter().all(|n| matches!(n, J::Num(_))) => obj(vec![
+            ("time", e.get("generatedAt").clone()),
+            ("unlinked", J::Arr(a.clone())),
+        ]),
+        _ => J::Null,
+    }
+}
+
 /// The platform checkout against origin, as tehasbot status last read it.
 fn platform(live: &Path) -> J {
     match read(&live.join("platform.json")) {
@@ -1705,6 +1727,7 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
     let rukas = rukas(&live);
     let slice = slice(&live, now);
     let demand = demand(&live, now);
+    let epics = epics(&live, now);
     let sessions = g.sessions.as_deref().and_then(J::parse).unwrap_or(J::Null);
     let plans = plans(home, &sessions);
     let limit = limit(home, now);
@@ -1822,6 +1845,7 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
                 .is_gt());
     let disk_low = !disk.is_null() && disk.get("low").truthy();
     let has_units = units.as_ref().is_some_and(|u| !u.is_empty());
+    let unlinked = epics.get("unlinked").items();
     let held_line = if running.is_empty() && !old_queue {
         all_held(&slice, &queue)
     } else {
@@ -1841,6 +1865,7 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
         || rukas_behind
         || old_backup
         || over_budget
+        || !unlinked.is_empty()
         || mcp_silent
         || held_line.is_some()
     {
@@ -1951,6 +1976,19 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
             "The MCP server does not answer: {}.",
             mcp.get("reason").text()
         )
+    } else if !unlinked.is_empty() {
+        let mut named: Vec<String> = unlinked
+            .iter()
+            .take(UNLINKED_SAID)
+            .map(|n| format!("#{}", n.text()))
+            .collect();
+        if unlinked.len() > UNLINKED_SAID {
+            named.push(format!("{} more", unlinked.len() - UNLINKED_SAID));
+        }
+        format!(
+            "Labelled epic with no sub-issues: {}. Link their parts to them as sub-issues.",
+            named.join(", ")
+        )
     } else if !running.is_empty() {
         let issues: Vec<String> = running
             .items()
@@ -2051,6 +2089,7 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
         ("backup", backup_check),
         ("upkeep", upkeep),
         ("poll_cost", poll_cost),
+        ("epics", epics),
         ("mcp", mcp),
     ];
     if let Some(i) = industry(g.industry.as_deref()) {
@@ -2152,6 +2191,60 @@ mod tests {
         );
         assert_eq!(r.at(&["checks", "allHands"]).dump(), "false");
         assert_eq!(r.at(&["checks", "limit"]).dump(), r#"{"state":"none"}"#);
+    }
+
+    #[test]
+    fn an_issue_labelled_epic_with_no_sub_issues_warns_while_the_read_is_young() {
+        let h = home("epics");
+        let epics = |at: &str, unlinked: &str| {
+            format!(
+                r#"{{"generatedAt":"{at}","repo":"acme/widget","epics":[],"unlinked":{unlinked}}}"#
+            )
+        };
+        h.write("live/epics.json", &epics("2026-10-17T14:00:00Z", "[12,4]"));
+        let r = h.report(&Given::default());
+        assert_eq!(
+            said(&r),
+            (
+                "warn".into(),
+                "Labelled epic with no sub-issues: #12, #4. Link their parts to them as sub-issues."
+                    .into()
+            )
+        );
+        assert_eq!(
+            r.at(&["checks", "epics"]).dump(),
+            r#"{"time":"2026-10-17T14:00:00Z","unlinked":[12,4]}"#
+        );
+        h.write(
+            "live/epics.json",
+            &epics("2026-10-17T14:00:00Z", "[9,8,7,6,5,4,3]"),
+        );
+        assert_eq!(
+            h.report(&Given::default()).get("output").text(),
+            "Labelled epic with no sub-issues: #9, #8, #7, #6, #5, 2 more. Link their parts to them as sub-issues."
+        );
+        // None unlinked, a read too old to believe, a file of another shape and
+        // no file at all: no warning, and the check is there only for the first.
+        h.write("live/epics.json", &epics("2026-10-17T14:00:00Z", "[]"));
+        let r = h.report(&Given::default());
+        assert_eq!(said(&r), ("pass".into(), "Idle, taking work.".into()));
+        assert_eq!(r.at(&["checks", "epics", "unlinked"]).dump(), "[]");
+        for file in [
+            epics("2026-10-17T13:40:00Z", "[12]"),
+            epics("2026-10-17T14:00:00Z", r#"["12"]"#),
+            r#"{"epics":"before"}"#.to_string(),
+        ] {
+            h.write("live/epics.json", &file);
+            let r = h.report(&Given::default());
+            assert_eq!(
+                said(&r),
+                ("pass".into(), "Idle, taking work.".into()),
+                "{file}"
+            );
+            assert_eq!(r.at(&["checks", "epics"]), &J::Null, "{file}");
+        }
+        fs::remove_file(h.0.join("live/epics.json")).unwrap();
+        assert_eq!(h.report(&Given::default()).get("status").text(), "pass");
     }
 
     #[test]
