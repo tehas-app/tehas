@@ -281,7 +281,7 @@ impl Run {
 /// one of these three for any argument list, so the partition of the arguments
 /// is checked by the match on this type rather than by a caller's patterns.
 #[derive(Debug, PartialEq)]
-pub enum Words {
+enum Words {
     /// Print the verb's text and end 0.
     Help,
     /// One run; `json` says whether its counts also go to stdout.
@@ -294,7 +294,7 @@ pub enum Words {
 /// refused, never combined with the first, so `--json --help` cannot be read as
 /// two intents at once. An empty argument is an argument, so it is refused
 /// rather than run.
-pub fn words(given: &[&str]) -> Words {
+fn words(given: &[&str]) -> Words {
     match given {
         [] => Words::Run { json: false },
         [word] if *word == "--json" => Words::Run { json: true },
@@ -501,11 +501,7 @@ mod tests {
         let f = of(&nodes);
         assert_eq!(f.conflicts.len(), 2);
         assert_eq!((f.unknown, f.skipped), (1, 2));
-        assert_eq!(
-            f.qualifying(),
-            ours.len(),
-            "a pull request counted nowhere"
-        );
+        assert_eq!(f.qualifying(), ours.len(), "a pull request counted nowhere");
     }
 
     #[test]
