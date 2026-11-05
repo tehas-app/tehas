@@ -390,9 +390,9 @@ fn block_text(lines: &[&str]) -> String {
 const NOTE: &str = "(cut: the plan is longer than a comment holds)";
 
 /// The body tehas writes over an issue: `new`, with the `pi-spec v1` block
-/// `was` holds put back at the top when `new` brings none of its own. A draft
-/// never carries a block, so a plan written over a person's issue keeps the
-/// spec lean reads.
+/// `was` holds put back at the top when `new` brings none of its own, so a
+/// plan whose draft carries no block keeps the spec lean reads. The console's
+/// `update` passes the block pi-rukas assembled as `was` when it kept one.
 ///
 /// This is the writer's own step, not part of [`made`]: the two callers of
 /// `made` each apply it once, at the point where they put text on the issue, so
