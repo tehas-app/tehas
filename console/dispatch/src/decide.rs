@@ -15,6 +15,7 @@ use tehas_core::events::{
 use tehas_core::hold::{Report, Why};
 
 mod clean;
+mod epic;
 mod plan;
 mod retry;
 
@@ -422,6 +423,7 @@ impl<'a> Poll<'a> {
             }
             return Ok(());
         }
+        self.epic_titles();
         let room = self.room()?;
         self.questions(&room, &bot)?;
         self.plan_new(&room)?;

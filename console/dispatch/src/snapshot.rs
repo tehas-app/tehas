@@ -212,6 +212,9 @@ pub struct Snapshot {
     pub owed: Option<Result<Vec<Value>, StoreErr>>,
     pub images: Option<Images>,
     pub issues: BTreeMap<u64, Issue>,
+    /// The open issues whose title starts with the epic marker and that do not
+    /// carry `epic`, the control issue left out.
+    pub epic_titled: Vec<u64>,
     /// The poll's clock, in seconds, and this host's name.
     pub now: Option<u64>,
     pub hostname: Option<String>,
@@ -535,6 +538,11 @@ impl Snapshot {
                 .map(|a| a.iter().filter_map(number).collect())
                 .unwrap_or_default(),
             refresh_held: s("refresh_held"),
+            epic_titled: v
+                .get("epic_titled")
+                .and_then(Value::as_array)
+                .map(|a| a.iter().filter_map(number).collect())
+                .unwrap_or_default(),
             continues: v.get("continues").and_then(Value::as_bool),
             pulls: v
                 .get("pulls")
