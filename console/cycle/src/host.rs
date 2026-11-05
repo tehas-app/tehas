@@ -37,7 +37,10 @@ use crate::runner;
 ///                 makes the cap runner-never-started of it. Memory kills are
 ///                 counted in `oom`, as for every other end.
 ///   lean-refused  tehas work's 78 was for driver lean, not another 78.
-pub const FILES: [&str; 12] = [
+///   disk          `cap <held> <max>` or `floor <held> <free> <floor>`, in
+///                 bytes, then the step in flight: tehas work stopped the
+///                 cycle for its scratch's disk (src/scratch.rs).
+pub const FILES: [&str; 13] = [
     "result.json",
     "progress.json",
     "runner_exit",
@@ -48,6 +51,7 @@ pub const FILES: [&str; 12] = [
     "forks",
     "stalled",
     "timed",
+    "disk",
     "stopped",
     "done",
 ];
