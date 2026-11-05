@@ -485,9 +485,8 @@ pub const LEAN_STATE: &str = "lean-state.json";
 /// recorded with no lean figures rather than not at all.
 fn keep_lean_state(home: &Path, workdir: &str, issue: u64, lean: bool) {
     // The note exists only to feed the analytics, so on a host that has it off
-    // nothing is written: the one rule the other host writes of the cycle ask
-    // under (`after::analytics_enabled`).
-    if !lean || !crate::after::analytics_enabled(home) {
+    // nothing is written.
+    if !lean || !crate::after::analytics_on(home) {
         return;
     }
     let to = home.join(format!("state/cycles/{issue}.{LEAN_STATE}"));
@@ -747,7 +746,7 @@ pub fn run(home: &Path, s: &Start) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::approved_lean;
-    use serde_json::{json, Value};
+    use serde_json::json;
 
     #[test]
     fn the_approval_of_the_start_says_whether_the_run_went_lean() {
@@ -792,6 +791,5 @@ mod tests {
         assert!(!approved_lean(
             &json!({"approval": {"input": {"driver": true}}})
         ));
-        let _: Value = json!(null);
     }
 }

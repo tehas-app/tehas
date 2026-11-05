@@ -56,17 +56,12 @@ fn analytics_bin(home: &Path) -> PathBuf {
     home.join("libexec/analytics")
 }
 
-fn analytics_on(home: &Path) -> bool {
+/// Whether the host keeps the analytics: every write whose only purpose is to
+/// feed that program asks this, so a host with it off leaves no such note.
+pub fn analytics_on(home: &Path) -> bool {
     let bin = analytics_bin(home);
     env("TEHAS_ANALYTICS") == "on"
         && fs::metadata(bin).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
-}
-
-/// Whether the host keeps the analytics at all: the one rule every write whose
-/// only purpose is to feed that program asks the same question under, so a host
-/// with it off leaves no notes behind for a reader that will never be called.
-pub fn analytics_enabled(home: &Path) -> bool {
-    analytics_on(home)
 }
 
 fn analytics_wait() -> u32 {
