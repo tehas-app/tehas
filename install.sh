@@ -1422,6 +1422,16 @@ if [ "$check" = 1 ]; then
 
   images_say check
 
+  # The image cycles run against the pi-rukas the host follows, as the factory's
+  # health last read it (checks.rukas, which tehasbot status reads from docker
+  # and upstream). The clone is the Dependencies line's; this is the image.
+  behind=$(jq -r '.checks.rukas | select(.behind == true) | "\(.imageVersion // .image) \(.targetVersion // .target)"' \
+    "$TEHAS_HOME/live/health.json" 2>/dev/null) || behind=""
+  if [ -n "$behind" ]; then
+    echo "Sandbox:      BEHIND (the image runs pi-rukas ${behind% *}, the host follows ${behind#* }; tehas update builds it)"
+    rc=1
+  fi
+
   # The last tehas check-product, read and not run: the product is not this
   # host's install, so it does not change the exit status.
   product=$TEHAS_HOME/state/check-product.json

@@ -1,6 +1,6 @@
 // The host snapshot as data: live/top.json in, the figures a page draws out.
 // The factory floor's panel (host/fun/host-view.js) and the plain dashboard
-// (host/docs/dashboard.frag) both draw from this one function, so the two
+// (host/fun/dashboard-view.js) both draw from this one function, so the two
 // cannot disagree about what a reading means or when a file has gone stale.
 //
 // Pure: it opens no file, asks no command and reads no clock. A test hands it a

@@ -753,7 +753,7 @@ already done is not reused.
 
 The gate passed, but the change lacks a part the plan declared. The comment
 names the missing parts by id and path, for example `d5
-(host/docs/dashboard.frag)`. pi-rukas has already tried once to add them.
+(host/fun/dashboard-view.js)`. pi-rukas has already tried once to add them.
 The work is committed on a local branch in the workspace and was not pushed.
 There is no pull request. Retry: a new cycle gets a new attempt at the
 missing parts. If a missing part is one the issue does not want, say so in
