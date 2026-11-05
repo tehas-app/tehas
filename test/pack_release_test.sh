@@ -5,13 +5,19 @@
 # is refused, that every program given is an ELF for the architecture the
 # tarball's name promises, and what a bad argument costs. The console is a stub
 # file in every
-# case: the pack script builds nothing and needs no cargo. The tree it packs is
+# case: the pack builds no program of the release. It is the xtask of this
+# checkout, built once below and named in TEHAS_XTASK. The tree it packs is
 # this checkout unless a case names another, so the case that checks what a tree
 # missing one of those files costs builds a partial one in scratch.
 # shellcheck disable=SC2016  # snippets are expanded by the shell under test
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
 
+# The pack is the xtask of this checkout, built once for every run below.
+t_xtask || {
+  echo "FAIL: $t_xtask_why"
+  exit 1
+}
 pack=$T_ROOT/scripts/pack-release.sh
 manifest=$T_ROOT/lib/release.list
 dist=$T/dist
