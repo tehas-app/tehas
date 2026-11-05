@@ -30,7 +30,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tehas_core::events::{plan_credit, Events};
 use tehas_core::plan::{
     carries_update, clear_plan, draft_holds, is_refusal, keep_spec, refusal_document,
-    refused_by_draft, says_refusal, text_of, Refused,
+    refused_by_draft, says_refusal, text_of, Refused, WHY_MAX,
 };
 use tehas_core::question::{self, Kind, MAX_OPTIONS};
 
@@ -542,7 +542,21 @@ impl Writer {
                 return false;
             }
             self.plan_brief_rm(n);
-            let said = json!({"text": format!("This planning turn did not finish: it {why}. The log is `~/tehas/logs/dispatch-plan-{n}.log` on `{host}`. Reply in a comment to run the turn again with your reply as the next message, or end the session and apply `tehas:plan` to start a new one."), "question": null});
+            // The turn's own words, when it left any: the runner's reason is
+            // what a person needs to fix, not the exit status. It came out of
+            // the container, so it passes the same boundary as every other
+            // agent string this file posts.
+            // The scrub runs on the whole reason and the cut after it, so a
+            // secret that straddles the bound is masked, not left half shown.
+            let reason = s(&out, "/why").replace(['\r', '\n'], " ");
+            let reason = question::q_clean(&reason, WHY_MAX);
+            let said = if reason.is_empty() {
+                why
+            } else {
+                format!("{why}: {reason}")
+            };
+            let text = format!("This planning turn did not finish: it {said}. The log is `~/tehas/logs/dispatch-plan-{n}.log` on `{host}`. Reply in a comment to run the turn again with your reply as the next message, or end the session and apply `tehas:plan` to start a new one.");
+            let said = json!({"text": text, "question": null});
             let _ = std::fs::write(self.st(n, ".out"), format!("{said}\n"));
             self.plan_post(n, log);
             log.push(format!("done planning #{n} turn={turns} rc={rc}"));
