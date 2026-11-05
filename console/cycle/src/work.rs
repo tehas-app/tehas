@@ -652,6 +652,7 @@ fn fetch(f: &Files, answer: &str, console: &str, stop: &Stop) -> Result<Vec<Stri
             Command::new(me)
                 .arg("describe")
                 .arg(f.dir)
+                .arg(n.to_string())
                 .stdin(Stdio::null())
                 .spawn()
         };
