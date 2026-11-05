@@ -152,6 +152,8 @@ pub struct Queue {
     /// queue asked for them and the first page answered the owner: empty for a
     /// personal account.
     pub issue_fields: Option<Vec<String>>,
+    /// The first page named a personal account as the repository's owner.
+    pub personal: bool,
 }
 
 fn names(v: Option<&Value>) -> Vec<String> {
@@ -179,6 +181,7 @@ pub fn queue(calls: &mut Calls, repo: &str, fields: bool) -> Result<Queue, GhFai
         closed_running: Vec::new(),
         open_pulls: None,
         issue_fields: None,
+        personal: false,
     };
     let mut cursor: Option<String> = None;
     loop {
@@ -213,6 +216,7 @@ pub fn queue(calls: &mut Calls, repo: &str, fields: bool) -> Result<Queue, GhFai
             });
         }
         if cursor.is_none() && fields {
+            q.personal = r.pointer("/owner/__typename").and_then(Value::as_str) == Some("User");
             q.issue_fields = r.get("owner").filter(|o| o.is_object()).map(|o| {
                 o.pointer("/issueFields/nodes")
                     .and_then(Value::as_array)

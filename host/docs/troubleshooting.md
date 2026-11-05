@@ -167,9 +167,9 @@ Run `tehas dispatch --dry-run` and read what it prints.
   the newest change to the issue field came from an account that does not
   count, or the poll could not read who made it. Set the field again from an
   allowed account.
-- `ERROR: TEHAS_PRIORITY_FIELD names ...`: the repository's owner has no
-  single-select issue field of that name, or the owner is a personal account,
-  which has none. The poll stops with 78. Name the field as the organisation
+- `ERROR: TEHAS_PRIORITY_FIELD names ...`: the organisation that owns the
+  repository has no single-select issue field of that name. The poll stops
+  with 78. Name the field as the organisation
   spells it, or remove the setting.
 - `holding: <n> of <free> free slots start: ...`: some cycles started, fewer
   than there are free slots and issues waiting. The rest of the line is the

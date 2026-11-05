@@ -393,7 +393,7 @@ impl<'a> Poll<'a> {
                 78,
             ));
         }
-        if !c.priority_field.is_empty() {
+        if !c.priority_field.is_empty() && !s.personal_owner {
             let field = &c.priority_field;
             match &s.issue_fields {
                 None => {
@@ -2453,7 +2453,7 @@ impl<'a> Poll<'a> {
             ..
         } = room;
         let ready = self.ready()?;
-        let (urgent, next) = if self.c.priority_field.is_empty() {
+        let (urgent, next) = if self.c.priority_field.is_empty() || self.s.personal_owner {
             self.order_by_labels(&ready, want)?
         } else {
             self.order_by_field(&ready, want)
