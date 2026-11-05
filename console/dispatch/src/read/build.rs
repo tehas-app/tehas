@@ -7,6 +7,7 @@ use super::run::{self, Calls, GhFail};
 use super::{github, host, models, store};
 use crate::decide::has;
 use crate::settings::Settings;
+use crate::text;
 use crate::text::closing_numbers;
 use serde_json::{json, Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
@@ -182,10 +183,23 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
     // every running cycle carries it, the bot applies it alone, and the rules
     // read the mark and the lock file rather than its events. The control
     // issue is asked about by name below, with no label exempt.
+    // The open issues the poll labels `epic`. Whether a person took the
+    // label off is read of their events: a page whose timeline holds no
+    // event of the label may have cut a removal off, so it is read whole.
+    let epic_titled: Vec<&github::Open> = q
+        .open
+        .iter()
+        .filter(|o| o.number != c.control && github::epic_titled(o))
+        .collect();
+    s["epic_titled"] = epic_titled.iter().map(|o| json!(o.number)).collect();
     let dropped: Vec<u64> = q
         .open
         .iter()
-        .filter(|o| github::dropped_events(o, &[github::RUNNING]))
+        .filter(|o| {
+            github::dropped_events(o, &[github::RUNNING])
+                || (epic_titled.iter().any(|e| e.number == o.number)
+                    && !github::has_event_of(o, text::EPIC))
+        })
         .map(|o| o.number)
         .collect();
     for (n, r) in dropped.iter().zip(events_all(calls, &c.repo, &dropped)) {
@@ -1378,6 +1392,47 @@ esac"#,
             1,
             "the per-issue reads are one run of the store"
         );
+    }
+
+    /// An open issue titled with the epic marker that lacks `epic` is listed for
+    /// the label. Its events are read whole when the page holds none of the
+    /// label, so a removal the page cut off is still seen; one the page does
+    /// show, and an issue that carries the label, cost no read.
+    #[test]
+    fn an_epic_titled_issue_is_listed_and_its_events_read_whole_when_the_page_shows_none() {
+        let mut w = world();
+        let epic = |n: u64, labels: Value, timeline: Value| {
+            json!({"number": n, "title": "EPIC: Billing rework", "body": "",
+                "createdAt": "2026-10-01T00:00:00Z", "author": {"login": "alice"},
+                "lastEditedAt": null, "editor": null, "labels": {"nodes": labels},
+                "timelineItems": {"nodes": timeline},
+                "closedByPullRequestsReferences": {"nodes": []}})
+        };
+        let removed = json!([{"__typename": "UnlabeledEvent", "createdAt": "2026-10-02T00:00:00Z",
+            "actor": {"login": "alice"}, "label": {"name": "epic"}}]);
+        let carried = json!([{"__typename": "LabeledEvent", "createdAt": "2026-10-02T00:00:00Z",
+            "actor": {"login": "alice"}, "label": {"name": "epic"}}]);
+        let nodes = w["queue"]["data"]["repository"]["issues"]["nodes"]
+            .as_array_mut()
+            .unwrap();
+        nodes.push(epic(30, json!([]), json!([])));
+        nodes.push(epic(31, json!([]), removed));
+        nodes.push(epic(32, json!([{"name": "epic"}]), carried));
+        let mut title = epic(33, json!([]), json!([]));
+        title["title"] = json!("feat: a part of epic 30");
+        nodes.push(title);
+        w["events"]["30"] = json!([{"event": "unlabeled", "label": {"name": "epic"},
+            "actor": {"login": "bob"}, "created_at": "2026-09-01T00:00:00Z"}]);
+        let (snap, calls, _, _) = poll(&w, &[]);
+        assert_eq!(snap["epic_titled"], json!([30, 31]));
+        for n in 30..=33 {
+            let read = calls
+                .iter()
+                .filter(|c| c.contains(&format!("issues/{n}/events?")))
+                .count();
+            assert_eq!(read, usize::from(n == 30), "#{n}: {calls:?}");
+        }
+        assert_eq!(snap["issues"]["30"]["events"], w["events"]["30"]);
     }
 
     /// The refreshing sweep reads the events of its pull requests side by side,
