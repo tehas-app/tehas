@@ -13,6 +13,9 @@ empty one above it.
 
 ### Changes
 
+- The health file has `checks.rukas`: the pi-rukas commit the sandbox image runs (its `tehas.rukas` label) and its version, the commit the host follows and its release, the commit of the host's pi-rukas clone, and `behind` (#1534). An image behind the commit followed makes the health `warn`, and `install.sh --check` says `Sandbox: BEHIND`. `bootstrap.sh user` on an installed host ends with `sandbox/build.sh --if-moved`, so moving the clone moves the image. Before, a host on `PI_RUKAS_FOLLOW=release:0` could move its clone to a new release while cycles kept the old image, and nothing said so.
+- The health file has `checks.industry` when the factory is run by tehas-industry, from `TEHAS_INDUSTRY_VERSION` in `~/.config/tehas/env`. A factory without it, or with a value that is no version, has no block and is decided as before. The MCP `factory_status` answer carries `rukas` and `industry` too.
+- The footers of the two front pages read their versions from the health file (`tehas v0.24.6 · pi-rukas v0.14.54 · industry v0.9.0`), not from `fun/version.txt` and `fun/rukas-version.txt`. The image build no longer writes `rukas-version.txt`.
 - The health file has `checks.mcp`: whether the MCP server is on, installed and answers a `POST /mcp` with no key (#1418). A server that is on and does not answer makes the health `warn`, so `/health` tells a stopped MCP server from a factory that is gone.
 - An allowed account is its login and its GitHub user id, not the login alone. `install.sh` and `tehas update` record the id of each login of `TEHAS_ALLOWED_LABELERS` and `TEHAS_MILLWRIGHT_LOGIN` in `~/tehas/state/account-ids`, and a label, retry tick, planning answer or comment counts only when its account carries that id. A login that was renamed and registered by someone else authorises nothing. A login that does not resolve, or whose id changed, stops both with 78 and names it; `tehas update --accept-id <login>` records the new id (#1493).
 - `bin/tehas` and `bin/tehasbot` are a few lines that run the console, which chooses the command, prints the usage and refuses an unknown one. With no console every command but `tehas setup` stops with 78 and one line, `tehas: no console at <path>: run install.sh`; `tehas top` and `tehas export` ended 1 there before. `tehas index` asks `tehas-cycle` for the checkout and the branch, and `lib/config.sh` loses `tehas_checkout` and `tehas_branch` (#1346).
@@ -44,6 +47,10 @@ empty one above it.
 - `scripts/tag-release.sh` moves every pinned tool to the newest minor and patch of its major before it tags: `host/versions.env`, `host/npm/` and `host/sandbox/npm/`, each with its checksum, digest or lockfile, from the tool's own source (`scripts/pins.sh`, `console pins`). When anything moves it opens a pull request on `pins-<tag>` and tags after that is merged; a later major is listed under `### Held back` for a person. A move that fails stops the release; `--no-pins` skips it. The release that makes the move needs cargo, curl, tar and npm where it runs.
 
 ### Adopter action
+
+None for the pi-rukas and industry blocks: `tehasbot status` writes
+`live/rukas.json` at its next run. A `~/tehas/fun/rukas-version.txt` an older
+build left can be removed by hand.
 
 Run `tehas update` (or `./install.sh`) once with GitHub reachable: until the
 user ids are recorded, no label, tick, answer or comment of an allowed account
