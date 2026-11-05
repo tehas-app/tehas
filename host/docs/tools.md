@@ -742,9 +742,12 @@ from the workspace `~/tehas/work/<name>-<issue>`: the outcome is the runner's
 `--json` result, which goes to `~/tehas/state/cycles/<issue>.result.json`, and
 a copy beside the log. The contract is pi-rukas's `docs/headless.md`: exit
 codes v1, result schema 5, NDJSON progress with a stable subset. The last step
-of `tehas work` is the watch of `tehas-cycle work`, which `libexec/work` execs
-once it holds the issue's lock: the same process and the same lock start the
-container, watch it to its end and leave the cycle's notes.
+of `tehas work` is the watch of `tehas-cycle work`, which the console execs
+with the settings loaded. It takes the issue's lock, or under `tehasbot cycle`
+finds it already held by the cycle, and hands it down to every program it
+starts: the same process and the same lock start the container, watch it to
+its end and leave the cycle's notes. A second `tehas work` of the same issue
+exits 5 and touches nothing.
 
 A lean start on an image that cannot run it as asked stops with exit 78, the
 note `state/cycles/<issue>.lean-refused` and the lines below, which end
@@ -2501,10 +2504,13 @@ made is said there as `#N runs from the install: its own copy could not be made
 (<why>)`, and the cycle runs from `~/tehas` as before. Each start removes the
 copies whose process has ended.
 
-`libexec/cycle` loads the settings, takes the lock and execs `tehas-cycle
-cycle`, which puts the start on record, asks what the number is, runs `tehas
-work` and sees to the report. A stop reaches it as the main process of the unit.
-With no `libexec/tehas-cycle` nothing starts: exit 78.
+`tehasbot cycle` is `tehas-cycle cycle`, which the console execs with the
+settings loaded. It takes `state/cycles/<issue>.lock`, waiting up to 5 seconds
+for it (exit 3 when another cycle of the issue holds it), and hands it down to
+`tehas work` and the docker client, so a cycle killed outright keeps its place
+until they are gone too. Then it puts the start on record, asks what the number
+is, runs `tehas work` and sees to the report. A stop reaches it as the main
+process of the unit. With no `libexec/tehas-cycle` nothing starts: exit 78.
 
 **The clock a cycle is measured on.** `tehas-cycle clock` counts a cycle on a
 monotonic clock: the seconds since boot, read from the first number of
@@ -3358,7 +3364,9 @@ systemctl --user enable --now tehas-protolab.timer
 Builds the Protolab in `~/tehas/protolab`: a page for every open issue
 labelled `tehas:prototype` by an account in `TEHAS_ALLOWED_LABELERS`, with the
 files attached to it, and the list
-`~/tehas/live/protolab.json` that the dashboard links from. The timer runs it
+`~/tehas/live/protolab.json` that the dashboard and `prototypes` of
+[`tehas status --json`](/api#tehas-status--json) read, each ticket with `builtAt`, the
+time of its page. The timer runs it
 every five minutes; the log is `~/tehas/logs/protolab.log`.
 
 The pass is the console's (`~/tehas/libexec/console protolab run`,

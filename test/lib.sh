@@ -772,6 +772,15 @@ t_console() {
   fi
   cp "$T_TARGET/debug/console" "$T_CONSOLE"
 }
+# t_verb <path> tehas|tehasbot <command>: a program at <path> that runs the
+# command as bin/tehas and bin/tehasbot do, through `console run` with the
+# directory the program is called from as libexec. tehasbot cycle, tehas work
+# and tehas index have no script: the console execs tehas-cycle beside it.
+t_verb() {
+  t_console || return 1
+  printf '%s\n' "#!$T_BASH" "exec \"$T_CONSOLE\" run \"\$(cd \"\${0%/*}\" && pwd)\" \"\$EUID\" \"\$BASH\" $2 $3 \"\$@\"" >"$1"
+  chmod +x "$1"
+}
 # t_front <tree>: bin/tehas and bin/tehasbot of this checkout in <tree>/bin,
 # with the console in <tree>/libexec and lib/ beside them, as a host has them:
 # `$tree/bin/tehasbot dispatch` then runs with <tree>/libexec as its own.

@@ -1,10 +1,10 @@
 # shellcheck shell=bash
 # shellcheck disable=SC2016,SC2034  # snippets and stub bodies are expanded later; the parts read the variables
-# What the tests of libexec/cycle share: test/cycle_*_test.sh source this. One
+# What the tests of tehasbot cycle share: test/cycle_*_test.sh source this. One
 # cycle for one issue against a stub gh, and what is reported about it.
 # The part has sourced test/lib.sh before this.
 
-# As a host has it: tehas-cycle beside the script, lib beside libexec.
+# As a host has it: tehas-cycle beside the console, lib beside libexec.
 cycle="$T/home/tehas/libexec/cycle"
 fx=$T/fx
 mkdir -p "$fx"
@@ -185,7 +185,7 @@ reset() {
   t_cycle || t_bad "no tehas-cycle: $t_cycle_why"
   mkdir -p "$T/home/tehas/libexec"
   cp "$T_CYCLE" "$T/home/tehas/libexec/tehas-cycle"
-  ln -s "$T_ROOT/libexec/cycle" "$cycle"
+  t_verb "$cycle" tehasbot cycle
   ln -sfn "$T_ROOT/lib" "$T/home/tehas/lib"
   T_ENV=(TEHAS_WORK_CMD=fake-work TEHAS_STATUS_CMD=fake-status TEHAS_CONSOLE_CMD=fake-console TEHAS_CYCLE_RETRY_WAIT=0)
   t_instance "${T_MINIMAL[@]}"

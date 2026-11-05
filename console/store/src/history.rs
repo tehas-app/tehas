@@ -128,7 +128,8 @@ fn cycles(c: &Connection, issue: Option<i64>, how: Option<&'static str>) -> Resu
     let mut q = c
         .prepare(
             "SELECT id, issue, attempt, at, status, step, by_account, how, pr, started_at, rc, cap,
-               park_reason, failure_kind, failure_cause, provider, parked, seq
+               park_reason, failure_kind, failure_cause, provider, parked, seq,
+               step_number, step_total, round
              FROM cycle_history
              WHERE (?1 IS NULL OR issue = ?1)
                AND (?2 IS NULL OR how = ?2 OR how = ?3)",
@@ -136,13 +137,21 @@ fn cycles(c: &Connection, issue: Option<i64>, how: Option<&'static str>) -> Resu
         .q()?;
     let rows = q
         .query_map(rusqlite::params![issue, first, second], |r| {
-            Ok((r.get(CYCLE_NAMES.len() - 1)?, row_json(r, &CYCLE_NAMES)?))
+            let n = CYCLE_NAMES.len();
+            let at: [Option<i64>; 3] = [r.get(n)?, r.get(n + 1)?, r.get(n + 2)?];
+            Ok((r.get(n - 1)?, row_json(r, &CYCLE_NAMES)?, at))
         })
         .q()?;
     let mut out = Vec::new();
     for row in rows {
-        let (seq, mut p) = row.q()?;
+        let (seq, mut p, at) = row.q()?;
         p.insert(0, ("kind", j("cycle")));
+        // Where the step it ended in was, only as far as it is known.
+        for (k, v) in ["step_number", "step_total", "round"].into_iter().zip(at) {
+            if let Some(v) = v {
+                p.push((k, j(v)));
+            }
+        }
         out.push((seq, obj(&p)));
     }
     Ok(out)
