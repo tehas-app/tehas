@@ -58,11 +58,12 @@ fn script(which: &str, command: &str) -> Option<&'static str> {
 }
 
 /// The verbs of `tehas`.
-const VERBS: [&str; 16] = [
+const VERBS: [&str; 17] = [
     "status",
     "disk",
     "state",
     "limit",
+    "panel",
     "pause",
     "analytics",
     "top",
@@ -248,6 +249,7 @@ mod tests {
         for c in [
             "state",
             "limit",
+            "panel",
             "pause",
             "analytics",
             "api",
