@@ -9,6 +9,7 @@ Usage:
   tehas setup [options]            write this host's instance and start the factory
   tehas update [--check]           bring this host up to date with the platform
   tehas labels                     create the tehas labels in the repository
+  tehas panel [set ...|clear ...]  the pages of the project the dashboard links
   tehas check-product [--sandbox]  check the product against the contract
   tehas init-product [--dry-run]   propose the missing contract files
   tehas status [--json]            print the state of the factory

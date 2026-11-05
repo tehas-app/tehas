@@ -1227,6 +1227,29 @@ drain.
 A program that drives factories uses the same commands: see
 [the factory API](/api).
 
+## Panels on the dashboard
+
+A panel puts a page of the project on the dashboard: a support chat, a status
+page, a feedback form, a manual kept elsewhere. It is an item in the menu of
+both front pages; pressing it opens the page in a dock at the side, full screen
+on a phone, with a link to open it in a new tab.
+
+```
+tehas panel set support --label "Ask us" --url https://support.example.org/f/acme
+tehas panel                  # what is set
+tehas panel clear support    # take it away
+```
+
+Up to four. The URL is public, as everything the dashboard reads is, so it holds
+no secret. It may not be on the factory's own domain, `TEHAS_DOMAIN`, because
+the frame would then share the dashboard's origin; a name under it, such as
+`support.<domain>`, is fine. The dashboard asks the page for nothing until a
+person presses the item, and passes it nothing but the URL. A page that refuses
+to be framed shows an empty dock; its new-tab link still works.
+
+A program sets panels with the same command: see
+[the factory API](/api#tehas-panel).
+
 ## Reading what ended
 
 The records of a finished cycle stay on the host. Two commands read them; both
