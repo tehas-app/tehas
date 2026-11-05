@@ -37,19 +37,20 @@ const PAGE: &str = r#"query($owner: String!, $name: String!, $cursor: String) {
     issues(states: OPEN, first: {ISSUE_PAGE}, after: $cursor) {
       pageInfo { hasNextPage endCursor }
       nodes {
-        number title body createdAt author { login } lastEditedAt editor { login }
+        number title body createdAt author { login ...on User { databaseId } ...on Bot { databaseId } } lastEditedAt editor { login ...on User { databaseId } ...on Bot { databaseId } }
         labels(first: 50) { nodes { name } }
         subIssuesSummary { total completed }
+        issueDependenciesSummary { blockedBy }
         parent { number }
         timelineItems(itemTypes: [LABELED_EVENT, UNLABELED_EVENT, RENAMED_TITLE_EVENT], last: 100) {
           nodes {
             __typename
-            ... on LabeledEvent { createdAt actor { login } label { name } }
-            ... on UnlabeledEvent { createdAt actor { login } label { name } }
-            ... on RenamedTitleEvent { createdAt actor { login } }
+            ... on LabeledEvent { createdAt actor { login ...on User { databaseId } ...on Bot { databaseId } } label { name } }
+            ... on UnlabeledEvent { createdAt actor { login ...on User { databaseId } ...on Bot { databaseId } } label { name } }
+            ... on RenamedTitleEvent { createdAt actor { login ...on User { databaseId } ...on Bot { databaseId } } }
           }
         }
-        closedByPullRequestsReferences(first: 20) { nodes { url state } }
+        closedByPullRequestsReferences(first: 20) { nodes { url state } }{FIELDS}
       }
     }
     closedRunning: issues(states: CLOSED, labels: ["tehas:running"], first: 100) { nodes { number } }{OPEN_PULLS}
@@ -63,29 +64,54 @@ const PAGE: &str = r#"query($owner: String!, $name: String!, $cursor: String) {
 /// description can make long.
 const OPEN_PULLS: &str = r#"
     openPulls: pullRequests(states: OPEN, first: 100, orderBy: {field: CREATED_AT, direction: DESC}) {
-      nodes { number title body headRefName author { login } labels(first: 20) { nodes { name } } }
+      nodes { number title body headRefName author { login ...on User { databaseId } ...on Bot { databaseId } } labels(first: 20) { nodes { name } } }
     }"#;
 
 // The page above names `tehas:running` inside a GraphQL string, where the
 // constant cannot reach it; this test is what ties the word in the query to
 // `RUNNING`.
 
+/// With `TEHAS_PRIORITY_FIELD`: each issue's single-select field values, and
+/// the newest changes to them with the account that made each. Asked only
+/// with the setting on, so an instance without it sends the page as before.
+const FIELDS: &str = r#"
+        issueFieldValues(first: 20) { nodes { __typename ... on IssueFieldSingleSelectValue { name field { ... on IssueFieldSingleSelect { name } } } } }
+        fieldEvents: timelineItems(itemTypes: [ISSUE_FIELD_ADDED_EVENT, ISSUE_FIELD_CHANGED_EVENT, ISSUE_FIELD_REMOVED_EVENT], last: 20) {
+          nodes {
+            __typename
+            ... on IssueFieldAddedEvent { createdAt actor { login ...on User { databaseId } ...on Bot { databaseId } } value issueField { ... on IssueFieldSingleSelect { name } } }
+            ... on IssueFieldChangedEvent { createdAt actor { login ...on User { databaseId } ...on Bot { databaseId } } newValue issueField { ... on IssueFieldSingleSelect { name } } }
+            ... on IssueFieldRemovedEvent { createdAt actor { login ...on User { databaseId } ...on Bot { databaseId } } issueField { ... on IssueFieldSingleSelect { name } } }
+          }
+        }"#;
+
+/// With `TEHAS_PRIORITY_FIELD`, on the first page: the single-select issue
+/// fields of the repository's owner. A personal account has none.
+const OWNER_FIELDS: &str = r#"
+    owner { __typename ... on Organization { issueFields(first: 50) { nodes { __typename ... on IssueFieldSingleSelect { name } } } } }"#;
+
 /// The queue's page as it is sent, its page size filled in from `ISSUE_PAGE`.
-fn page_query(first: bool) -> String {
+/// `fields` asks for the issue fields as well.
+fn page_query(first: bool, fields: bool) -> String {
+    let owner = if first && fields { OWNER_FIELDS } else { "" };
     PAGE.replace("{ISSUE_PAGE}", &ISSUE_PAGE.to_string())
-        .replace("{OPEN_PULLS}", if first { OPEN_PULLS } else { "" })
+        .replace("{FIELDS}", if fields { FIELDS } else { "" })
+        .replace(
+            "{OPEN_PULLS}",
+            &format!("{}{owner}", if first { OPEN_PULLS } else { "" }),
+        )
 }
 
 const COMMENTS: &str = r#"query($owner: String!, $name: String!, $number: Int!) {
       repository(owner: $owner, name: $name) { issue(number: $number) {
-        comments(last: 100) { nodes { databaseId id author { login } body createdAt lastEditedAt editor { login }
-          userContentEdits(last: 100) { totalCount nodes { editor { login } } } } } } } }"#;
+        comments(last: 100) { nodes { databaseId id author { login ...on User { databaseId } ...on Bot { databaseId } } body createdAt lastEditedAt editor { login ...on User { databaseId } ...on Bot { databaseId } }
+          userContentEdits(last: 100) { totalCount nodes { editor { login ...on User { databaseId } ...on Bot { databaseId } } } } } } } } }"#;
 
 /// What the refresh rule reads of a pull request and of the issue it closes.
 macro_rules! pull_fields {
     () => {
         r#"number url isDraft isCrossRepository headRefOid baseRefName baseRefOid mergeable
-        author { login } headRepository { nameWithOwner } labels(first: 50) { nodes { name } }
+        author { login ...on User { databaseId } ...on Bot { databaseId } } headRepository { nameWithOwner } labels(first: 50) { nodes { name } }
         closingIssuesReferences(first: 5) { totalCount nodes { number state labels(first: 50) { nodes { name } }
           closedByPullRequestsReferences(first: 10) { nodes { number state } } } }"#
     };
@@ -123,6 +149,12 @@ pub struct Queue {
     /// budget reads as nothing known rather than nothing open. Only the first
     /// page asks for the list, so a page after the first says nothing about it.
     pub open_pulls: Option<Value>,
+    /// The single-select issue fields of the repository's owner, when the
+    /// queue asked for them and the first page answered the owner: empty for a
+    /// personal account.
+    pub issue_fields: Option<Vec<String>>,
+    /// The first page named a personal account as the repository's owner.
+    pub personal: bool,
 }
 
 fn names(v: Option<&Value>) -> Vec<String> {
@@ -141,18 +173,20 @@ fn split(repo: &str) -> (String, String) {
     (format!("owner={o}"), format!("name={n}"))
 }
 
-/// The open issues, page by page.
-pub fn queue(calls: &mut Calls, repo: &str) -> Result<Queue, GhFail> {
+/// The open issues, page by page. `fields` asks for the issue fields too.
+pub fn queue(calls: &mut Calls, repo: &str, fields: bool) -> Result<Queue, GhFail> {
     let (owner, name) = split(repo);
     let mut q = Queue {
         repo: None,
         open: Vec::new(),
         closed_running: Vec::new(),
         open_pulls: None,
+        issue_fields: None,
+        personal: false,
     };
     let mut cursor: Option<String> = None;
     loop {
-        let query = format!("query={}", page_query(cursor.is_none()));
+        let query = format!("query={}", page_query(cursor.is_none(), fields));
         let cur = cursor.as_ref().map(|c| format!("cursor={c}"));
         let mut args = vec!["api", "graphql", "-F", &owner, "-F", &name, "-f", &query];
         if let Some(c) = cur.as_deref() {
@@ -182,6 +216,21 @@ pub fn queue(calls: &mut Calls, repo: &str) -> Result<Queue, GhFail> {
                 node: n.clone(),
             });
         }
+        if cursor.is_none() && fields {
+            q.personal = r.pointer("/owner/__typename").and_then(Value::as_str) == Some("User");
+            q.issue_fields = r.get("owner").filter(|o| o.is_object()).map(|o| {
+                o.pointer("/issueFields/nodes")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter(|f| {
+                        f.get("__typename").and_then(Value::as_str)
+                            == Some("IssueFieldSingleSelect")
+                    })
+                    .filter_map(|f| f.get("name").and_then(Value::as_str).map(str::to_string))
+                    .collect()
+            });
+        }
         if cursor.is_none() {
             q.open_pulls = r.get("openPulls").and_then(|v| v.get("nodes")).cloned();
             q.closed_running = r
@@ -205,6 +254,53 @@ pub fn queue(calls: &mut Calls, repo: &str) -> Result<Queue, GhFail> {
         }
     }
     Ok(q)
+}
+
+/// An issue's value of the single-select field `field`, and who set it:
+/// `{"value": "Urgent", "by": "alice"}`, `{"value": null}` for none. The
+/// account is the actor of the newest change to the field, and only when that
+/// change set the value it holds now. A removal, a change the page left out
+/// or one with no actor leaves `by` empty, which no allowed account matches.
+pub fn priority(node: &Value, field: &str) -> Value {
+    let of_field = |v: &Value, at: &str| v.pointer(at).and_then(Value::as_str) == Some(field);
+    let value = node
+        .pointer("/issueFieldValues/nodes")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .find(|v| of_field(v, "/field/name"))
+        .and_then(|v| v.get("name").and_then(Value::as_str));
+    let Some(value) = value else {
+        return json!({"value": null});
+    };
+    let stamp = |e: &Value| {
+        e.get("createdAt")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string()
+    };
+    let mut newest: Option<&Value> = None;
+    for e in node
+        .pointer("/fieldEvents/nodes")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|e| of_field(e, "/issueField/name"))
+    {
+        if newest.is_none_or(|n| stamp(e) >= stamp(n)) {
+            newest = Some(e);
+        }
+    }
+    let set = newest.filter(|e| match e.get("__typename").and_then(Value::as_str) {
+        Some("IssueFieldAddedEvent") => e.get("value").and_then(Value::as_str) == Some(value),
+        Some("IssueFieldChangedEvent") => e.get("newValue").and_then(Value::as_str) == Some(value),
+        _ => false,
+    });
+    let by = set
+        .and_then(|e| e.pointer("/actor/login"))
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    json!({"value": value, "by": by})
 }
 
 /// The label events of an issue as the REST events list gives them.
@@ -358,6 +454,15 @@ pub fn issue(o: &Open) -> Map<String, Value> {
     if let Some(p) = n.pointer("/parent/number").filter(|p| p.is_u64()) {
         work["parent"] = p.clone();
     }
+    // The open blockers of its native blocked-by links, in the REST answer's
+    // shape: `blocked_by` counts the open ones, the closed ones hold nothing.
+    // A forge that answers no such field leaves it out, and nothing is held.
+    if let Some(b) = n
+        .pointer("/issueDependenciesSummary/blockedBy")
+        .filter(|b| b.is_u64())
+    {
+        work["issue_dependencies_summary"] = json!({"blocked_by": b});
+    }
     let mut m = Map::new();
     m.insert("work".into(), work);
     m.insert(
@@ -506,6 +611,25 @@ mod tests {
     }
 
     #[test]
+    fn every_account_a_query_reads_comes_with_its_user_id() {
+        // tehas_core::accounts counts a listed login only with its recorded id.
+        let with_id = "{ login ...on User { databaseId } ...on Bot { databaseId } }";
+        for q in [
+            page_query(true, true),
+            COMMENTS.to_string(),
+            PULL.to_string(),
+            PULLS.to_string(),
+        ] {
+            assert_eq!(
+                q.matches("login").count(),
+                q.matches(with_id).count(),
+                "{q}"
+            );
+            assert!(q.contains(with_id), "{q}");
+        }
+    }
+
+    #[test]
     fn an_issue_names_its_epic_and_the_page_asks_for_it() {
         assert!(PAGE.contains("parent { number }"));
         let o = |node: Value| Open {
@@ -519,6 +643,37 @@ mod tests {
         assert_eq!(part["work"]["parent"], json!(5));
         let alone = issue(&o(json!({"title": "t", "body": "b", "parent": null})));
         assert!(alone["work"].get("parent").is_none());
+    }
+
+    /// The page asks how many open issues block each one through a native
+    /// blocked-by link, and the issue's REST-shaped answer carries the count.
+    /// A forge answer without the field, or with one that is no count, carries
+    /// nothing, so no link holds the issue.
+    #[test]
+    fn an_issue_carries_its_open_blocked_by_links_and_the_page_asks_for_them() {
+        assert!(PAGE.contains("issueDependenciesSummary { blockedBy }"));
+        let o = |node: Value| Open {
+            number: 7,
+            labels: vec![],
+            node,
+        };
+        let held = issue(&o(json!({"title": "t", "body": "b",
+            "issueDependenciesSummary": {"blockedBy": 2}})));
+        assert_eq!(
+            held["work"]["issue_dependencies_summary"],
+            json!({"blocked_by": 2})
+        );
+        for node in [
+            json!({"title": "t", "body": "b"}),
+            json!({"title": "t", "body": "b", "issueDependenciesSummary": null}),
+            json!({"title": "t", "body": "b", "issueDependenciesSummary": {"blockedBy": "2"}}),
+        ] {
+            let none = issue(&o(node.clone()));
+            assert!(
+                none["work"].get("issue_dependencies_summary").is_none(),
+                "{node}"
+            );
+        }
     }
 
     /// A label event's kind. An unlisted kind does not compile, so a case
@@ -789,9 +944,100 @@ mod tests {
 
     #[test]
     fn only_the_first_page_asks_for_the_open_pull_requests() {
-        assert!(page_query(true).contains("openPulls: pullRequests(states: OPEN"));
-        assert!(!page_query(false).contains("pullRequests"));
-        assert!(!page_query(false).contains("{OPEN_PULLS}"));
+        assert!(page_query(true, false).contains("openPulls: pullRequests(states: OPEN"));
+        assert!(!page_query(false, false).contains("pullRequests"));
+        assert!(!page_query(false, false).contains("{OPEN_PULLS}"));
+    }
+
+    #[test]
+    fn the_issue_fields_are_asked_only_with_the_setting_and_the_owners_on_the_first_page() {
+        for first in [true, false] {
+            let off = page_query(first, false);
+            assert!(!off.contains("issueField") && !off.contains("{FIELDS}"));
+            let on = page_query(first, true);
+            assert!(on.contains("issueFieldValues(first: 20)"));
+            assert!(on.contains("fieldEvents: timelineItems(itemTypes: [ISSUE_FIELD_ADDED_EVENT"));
+            assert_eq!(on.contains("owner { __typename"), first);
+        }
+    }
+
+    fn field_node(values: Value, events: Value) -> Value {
+        json!({"issueFieldValues": {"nodes": values}, "fieldEvents": {"nodes": events}})
+    }
+
+    fn select(field: &str, value: &str) -> Value {
+        json!({"__typename": "IssueFieldSingleSelectValue", "name": value, "field": {"name": field}})
+    }
+
+    fn change(kind: &str, field: &str, value: Option<&str>, who: Option<&str>, at: &str) -> Value {
+        let mut e = json!({"__typename": kind, "createdAt": at, "issueField": {"name": field},
+            "actor": who.map(|w| json!({"login": w}))});
+        match (kind, value) {
+            ("IssueFieldAddedEvent", Some(v)) => e["value"] = json!(v),
+            ("IssueFieldChangedEvent", Some(v)) => e["newValue"] = json!(v),
+            _ => {}
+        }
+        e
+    }
+
+    #[test]
+    fn the_priority_is_the_fields_value_and_the_account_of_the_change_that_set_it() {
+        const ADD: &str = "IssueFieldAddedEvent";
+        const CHANGE: &str = "IssueFieldChangedEvent";
+        const REMOVE: &str = "IssueFieldRemovedEvent";
+        let t1 = "2026-11-01T00:00:00Z";
+        let t2 = "2026-11-01T00:01:00Z";
+        // Set once: the value and its setter.
+        let n = field_node(
+            json!([select("Priority", "Urgent")]),
+            json!([change(ADD, "Priority", Some("Urgent"), Some("alice"), t1)]),
+        );
+        assert_eq!(
+            priority(&n, "Priority"),
+            json!({"value": "Urgent", "by": "alice"})
+        );
+        // Changed since: the account of the newest change, whatever the order.
+        let n = field_node(
+            json!([select("Effort", "Low"), select("Priority", "High")]),
+            json!([
+                change(CHANGE, "Priority", Some("High"), Some("mallory"), t2),
+                change(ADD, "Priority", Some("Urgent"), Some("alice"), t1),
+                change(ADD, "Effort", Some("Low"), Some("alice"), t2),
+            ]),
+        );
+        assert_eq!(
+            priority(&n, "Priority"),
+            json!({"value": "High", "by": "mallory"})
+        );
+        // Another field's change is no setter of this one.
+        let n = field_node(
+            json!([select("Priority", "High")]),
+            json!([change(ADD, "Effort", Some("High"), Some("alice"), t1)]),
+        );
+        assert_eq!(priority(&n, "Priority"), json!({"value": "High", "by": ""}));
+        // A newest change that is not the value held now, a removal, or one
+        // with no actor names nobody.
+        for newest in [
+            change(CHANGE, "Priority", Some("Low"), Some("alice"), t2),
+            change(REMOVE, "Priority", None, Some("alice"), t2),
+            change(ADD, "Priority", Some("Urgent"), None, t2),
+        ] {
+            let n = field_node(
+                json!([select("Priority", "Urgent")]),
+                json!([
+                    change(ADD, "Priority", Some("Urgent"), Some("alice"), t1),
+                    newest
+                ]),
+            );
+            assert_eq!(
+                priority(&n, "Priority"),
+                json!({"value": "Urgent", "by": ""})
+            );
+        }
+        // No value, or a node the page gave none of: none.
+        let n = field_node(json!([select("Effort", "High")]), json!([]));
+        assert_eq!(priority(&n, "Priority"), json!({"value": null}));
+        assert_eq!(priority(&json!({}), "Priority"), json!({"value": null}));
     }
 
     #[test]
@@ -799,7 +1045,7 @@ mod tests {
         // `first:` is not a tuning number: a page over GitHub's budget for
         // nested items answers with timelines cut short and no error. An edit
         // to the constant is caught here and in the shell poll test.
-        let q = page_query(true);
+        let q = page_query(true, false);
         assert!(
             q.contains(&format!("first: {ISSUE_PAGE}, after: $cursor")),
             "the queue's page does not ask for ISSUE_PAGE: {q}"

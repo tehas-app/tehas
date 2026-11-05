@@ -893,7 +893,7 @@ rm -f "$T/bin/console"
 T_ENV=(TEHAS_CONSOLE= TEHAS_CONSOLE= PATH=/usr/bin:/bin)
 t_run "unset TEHAS_CONSOLE; TEHAS_HOME=$T/home/tehas $T/no-console/bin/tehasbot health"
 t_eq "$t_rc" 78
-t_contains "$t_out" "tehasbot health: no console at $T/no-console/libexec/console: run install.sh"
+t_contains "$t_out" "tehasbot: no console at $T/no-console/libexec/console: run install.sh"
 t_eq "$([ -e "$live/health.json" ] && echo written)" ""
 
 t_case "summary: the last cycle failed and the cycle beside it started earlier: still failed"

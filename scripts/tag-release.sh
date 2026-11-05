@@ -9,8 +9,9 @@
 #
 # The commit it tags must have a CHANGELOG.md whose section for the new tag,
 # or else its Unreleased section, has an "### Adopter action" heading with at
-# least one line under it. It does not edit CHANGELOG.md: a person renames
-# Unreleased to the version in the release's pull request, or leaves it.
+# least one line under it. Only the move of the pinned tools below edits
+# CHANGELOG.md: a person renames Unreleased to the version in the release's
+# pull request, or leaves it.
 #
 # The tag is annotated: "Release <tag> - <message>", the message being the
 # subject of the head commit unless --message gives one.
@@ -31,12 +32,23 @@
 # A merged pull request whose feature the answer still lacks is said and kept:
 # it is not released yet, or came under another name.
 #
+# Before it tags, the pinned tools move to the newest release of the major
+# version each has (scripts/pins.sh, console pins): every pin in
+# host/versions.env, host/npm/ and host/sandbox/npm/, with its checksum, digest
+# or lockfile, and the release's section of CHANGELOG.md names each move and
+# each later major held back for a person. When anything moved, it runs the
+# gate there, pushes a branch pins-<tag>, opens a pull request, and tags
+# nothing: verify.yml runs on that commit, and the tag waits for a person to
+# merge it. An open pull request from such a branch holds the tag the same
+# way. A move that fails stops the release. A head without scripts/pins.sh
+# moves nothing.
+#
 # The tag is the only line on stdout, so a script can take it:
 #   tag=$(scripts/tag-release.sh) || exit
 #
 # Usage: scripts/tag-release.sh [--patch|--minor|--major] [--message <text>]
 #                               [--no-verify] [--dry-run] [--remote <name>]
-#                               [--rukas-caps <file>]
+#                               [--rukas-caps <file>] [--no-pins]
 #   --patch      the default: v0.7.6 becomes v0.7.7
 #   --minor      v0.7.6 becomes v0.8.0
 #   --major      v0.7.6 becomes v1.0.0
@@ -47,13 +59,15 @@
 #   --remote     the remote to read and push to, default origin
 #   --rukas-caps the --capabilities answer of that pi-rukas, from a file,
 #                instead of asking its image
+#   --no-pins    tag without moving the pinned tools
 #
 # Exit: 0 tagged, or the head already carries the newest tag; 1 git, the
 #       remote, GitHub or docker failed, the newest tag is not on the branch,
 #       CHANGELOG.md has no Adopter action for the release, a polyfill it keeps
-#       has no live upstream issue and pull request, or the gate failed; 2
-#       nothing tagged: a pull request, named on stderr, removes polyfills
-#       first; 64 a bad argument
+#       has no live upstream issue and pull request, a pinned tool could not be
+#       moved, or the gate failed; 2 nothing tagged: a pull request, named on
+#       stderr, removes polyfills or moves the pinned tools first; 64 a bad
+#       argument
 set -uo pipefail
 
 part="patch"
@@ -62,11 +76,13 @@ verify=1
 message=""
 remote=origin
 rukas_caps=""
+pins=1
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --patch | --minor | --major) part=${1#--} ;;
     --dry-run) dry=1 ;;
     --no-verify) verify="" ;;
+    --no-pins) pins="" ;;
     --message)
       [ "$#" -ge 2 ] || { echo "tag-release: --message needs a text" >&2; exit 64; }
       message=$2
@@ -176,6 +192,26 @@ if ! git worktree add --quiet --detach "$tree" "$head"; then
   exit 1
 fi
 
+# The URL of an open pull request from a branch whose name starts with $1.
+open_pr() {
+  (cd "$tree" && gh pr list --state open --json url,headRefName \
+    --jq "[.[] | select(.headRefName | startswith(\"$1\")) | .url][0] // \"\"")
+}
+
+# Commit the tree's changes as $2 with the body $3, push them as the branch
+# $1 and open a pull request; its URL on stdout. A failure is said on stderr.
+propose() {
+  if ! git -C "$tree" add -A || ! git -C "$tree" commit --quiet -m "$2" -m "$3" ||
+    ! git -C "$tree" push --quiet "$remote" "HEAD:refs/heads/$1"; then
+    echo "tag-release: cannot commit or push $1; nothing was tagged" >&2
+    return 1
+  fi
+  (cd "$tree" && gh pr create --base "$branch" --head "$1" --title "$2" --body "$3") || {
+    echo "tag-release: $1 is pushed, but no pull request could be opened for it; nothing was tagged" >&2
+    return 1
+  }
+}
+
 # The polyfills the head carries, and whether that pi-rukas still lacks their
 # features. A head from before scripts/polyfills.sh carries none.
 carried=""
@@ -231,8 +267,7 @@ if [ -n "$carried" ]; then
     exit 1
   fi
   if [ -n "$expired" ]; then
-    open=$(cd "$tree" && gh pr list --state open --json url,headRefName \
-      --jq '[.[] | select(.headRefName | startswith("remove-polyfills-")) | .url][0] // ""') || {
+    open=$(open_pr remove-polyfills-) || {
       echo "tag-release: cannot list the open pull requests" >&2
       exit 1
     }
@@ -252,17 +287,39 @@ if [ -n "$carried" ]; then
       ! grep -q -x -F -- "$feature" <<<"$expired" || body+="- features.$feature, upstream $issue and $pr"$'\n'
     done <<<"$carried"
     body+=$'\n'"Opened by scripts/tag-release.sh, which tags $next once this is merged."
-    if ! git -C "$tree" add -A || ! git -C "$tree" commit --quiet -m "Remove the polyfills pi-rukas no longer needs" -m "$body" ||
-      ! git -C "$tree" push --quiet "$remote" "HEAD:refs/heads/$fix"; then
-      echo "tag-release: cannot commit or push $fix; nothing was tagged" >&2
-      exit 1
-    fi
-    if ! url=$(cd "$tree" && gh pr create --base "$branch" --head "$fix" \
-      --title "Remove the polyfills pi-rukas no longer needs" --body "$body"); then
-      echo "tag-release: $fix is pushed, but no pull request could be opened for it; nothing was tagged" >&2
-      exit 1
-    fi
+    url=$(propose "$fix" "Remove the polyfills pi-rukas no longer needs" "$body") || exit 1
     echo "tag-release: $url removes them; merge it, then tag. Nothing was tagged" >&2
+    exit 2
+  fi
+fi
+
+if [ -n "$pins" ] && [ -x "$tree/scripts/pins.sh" ]; then
+  open=$(open_pr pins-) || {
+    echo "tag-release: cannot list the open pull requests" >&2
+    exit 1
+  }
+  if [ -n "$open" ]; then
+    echo "tag-release: $open moves the pinned tools; merge it, then tag. Nothing was tagged" >&2
+    exit 2
+  fi
+  if ! moves=$("$tree/scripts/pins.sh" move --release "$next"); then
+    echo "tag-release: a pinned tool could not be moved; nothing was tagged" >&2
+    echo "tag-release: --no-pins tags without moving them" >&2
+    exit 1
+  fi
+  mapfile -t moved <<<"$moves"
+  [ -z "$moves" ] || printf 'tag-release: %s\n' "${moved[@]}" >&2
+  if [ -n "$(git -C "$tree" status --porcelain)" ]; then
+    if [ -n "$verify" ] && ! (cd "$tree" && scripts/verify.sh) >&2; then
+      echo "tag-release: the gate failed with the pinned tools moved; nothing was pushed or tagged" >&2
+      exit 1
+    fi
+    body="Each pinned tool at the newest release of the major version it has, with its checksum, digest or lockfile:"$'\n\n'
+    body+=$(printf -- '- %s\n' "${moved[@]}")$'\n\n'
+    body+="A held tool has a new major version out; moving to it is a person's call. CHANGELOG.md names both."$'\n\n'
+    body+="Opened by scripts/tag-release.sh, which tags $next once this is merged."
+    url=$(propose "pins-$next" "Move the pinned tools to the newest minor and patch" "$body") || exit 1
+    echo "tag-release: $url moves them; merge it, then tag. Nothing was tagged" >&2
     exit 2
   fi
 fi

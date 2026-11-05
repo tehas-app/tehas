@@ -89,6 +89,38 @@ t_run "$dispatch --dry-run"
 t_contains "$t_out" "skip #7: tehas:ready was applied by 'unknown'"
 t_contains "$t_out" "nothing to do"
 
+t_case "a label from a listed login with the recorded user id counts"
+reset
+echo "[{\"event\":\"labeled\",\"label\":{\"name\":\"tehas:ready\"},\"actor\":{\"login\":\"alice\",\"id\":$(t_uid alice)}}]" >"$fx/events-7.json"
+t_run "$dispatch --dry-run"
+t_contains "$t_out" "would run a cycle for #7 (labelled by alice)"
+t_lacks "$t_out" "does not count"
+
+t_case "a label from a listed login with another user id does not count, and is warned about"
+# The login was renamed and taken by someone else: the label is not alice's.
+reset
+echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"alice","id":99}}]' >"$fx/events-7.json"
+t_run "$dispatch --dry-run"
+t_contains "$t_out" "tehas: alice acted with the user id 99, not the recorded $(t_uid alice), so it does not count"
+t_contains "$t_out" "tehas update --accept-id alice"
+t_contains "$t_out" "skip #7: tehas:ready was applied by 'alice#99', not an allowed account"
+t_lacks "$t_out" "would run a cycle"
+
+t_case "a label event whose account carries no user id does not count"
+reset
+echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"alice","id":null}}]' >"$fx/events-7.json"
+t_run "$dispatch --dry-run"
+t_contains "$t_out" "tehas: an action of alice carries no user id, so it does not count"
+t_contains "$t_out" "skip #7: tehas:ready was applied by 'alice#', not an allowed account"
+
+t_case "with no user id recorded, a listed login authorises nothing until tehas update records one"
+reset
+rm -f "$T/home/tehas/state/account-ids"
+t_run "$dispatch --dry-run"
+t_contains "$t_out" "no user id is recorded for alice"
+t_contains "$t_out" "skip #7: tehas:ready was applied by 'alice#$(t_uid alice)', not an allowed account"
+t_lacks "$t_out" "would run a cycle"
+
 t_case "an issue with no label event at all is skipped"
 reset
 echo '[]' >"$fx/events-7.json"
