@@ -1391,7 +1391,7 @@ fn cycle_show_of_an_unlistable_directory_is_probe_rc_2() {
     if modes_bind() {
         fs::set_permissions(lock::dir(&home), fs::Permissions::from_mode(0o000)).unwrap();
         let v = ok(&home, &["cycle-show", "--running"]);
-        fs::set_permissions(lock::dir(&home), fs::Permissions::from_mode(0o700)).unwrap();
+        fs::set_permissions(lock::dir(&home), fs::Permissions::from_mode(0o700)).unwrap(); // a directory
         assert_eq!(v["probe_rc"], 2);
         assert!(v["why"].as_str().unwrap().starts_with("state/cycles"));
     }

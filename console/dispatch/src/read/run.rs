@@ -970,46 +970,24 @@ pub(super) mod tests {
         if std::fs::create_dir_all(dir.join("libexec")).is_err() {
             return None;
         }
-        use std::os::unix::fs::PermissionsExt;
         let token = dir.join("libexec/github-token");
         // The program of a case that fails at making one says its reason on the
         // error stream and ends non-zero, as libexec/github-token does.
         let body = if counter {
-            "#!/bin/sh\n[ \"$1\" = settled ] && exit 0\ncount=\"$0.count\"\n\
+            "#!/bin/sh\ncount=\"$0.count\"\n\
              n=$(cat \"$count\" 2>/dev/null || echo 0)\n\
              n=$((n + 1)); echo \"$n\" >\"$count\"\nprintf 'ghs_%s\\n' \"$n\"\n"
         } else {
-            "#!/bin/sh\n[ \"$1\" = settled ] && exit 0\n\
+            "#!/bin/sh\n\
              printf 'tehas: no GitHub App is set\\n' >&2\nexit 1\n"
         };
-        std::fs::write(&token, body).ok()?;
-        std::fs::set_permissions(&token, std::fs::Permissions::from_mode(0o755)).ok()?;
-        let gh = dir.join("gh");
-        std::fs::write(
-            &gh,
-            "#!/bin/sh\n[ \"$1\" = settled ] && exit 0\n\
-             printf '%s\\n' \"${TEHAS_GH_TOKEN:-untouched}\"\n",
+        tehas_core::testing::write_exe(&token, body).ok()?;
+        tehas_core::testing::write_exe(
+            dir.join("gh"),
+            "#!/bin/sh\nprintf '%s\\n' \"${TEHAS_GH_TOKEN:-untouched}\"\n",
         )
         .ok()?;
-        std::fs::set_permissions(&gh, std::fs::Permissions::from_mode(0o755)).ok()?;
-        settled(&token);
-        settled(&gh);
         Some(dir)
-    }
-
-    /// Wait until a script just written can run. A parallel test's fork holds
-    /// it open for writing until that child's exec, and a run in that moment
-    /// fails with ETXTBSY.
-    pub(in crate::read) fn settled(script: &Path) {
-        let until = std::time::Instant::now() + Duration::from_secs(5);
-        while std::process::Command::new(script)
-            .arg("settled")
-            .status()
-            .is_err()
-            && std::time::Instant::now() < until
-        {
-            std::thread::sleep(Duration::from_millis(5));
-        }
     }
 
     /// The clock of a case of a retry: the case clock of `Case`, held so the case
@@ -1034,20 +1012,15 @@ pub(super) mod tests {
     /// A `gh` of one case: its first `times` calls fail as GitHub does on a bad
     /// minute and every call after them answers the read with one issue. One
     /// `/bin/sh` script with no sleep in it, counting its own calls in a file the
-    /// case reads to say how many processes a poll started. `settled` is the
-    /// argument `settled` below runs it with to wait out a parallel test's fork.
+    /// case reads to say how many processes a poll started.
     fn failing_gh(name: &str, times: u32) -> Option<TestDir> {
         let dir = TestDir::new(name);
-        use std::os::unix::fs::PermissionsExt;
         let gh = dir.join("gh");
         let count = dir.join("gh.count").to_string_lossy().into_owned();
         // One `/bin/sh` script written as it will run, with `format!` only for the
-        // count's file and the number of calls it fails: no sleep in it, and
-        // `settled` answered so the wait below can see it run without meeting the
-        // case's own failure path.
+        // count's file and the number of calls it fails: no sleep in it.
         let body = format!(
             r#"#!/bin/sh
-[ "$1" = settled ] && exit 0
 c={count}
 n=$(cat "$c" 2>/dev/null || echo 0)
 n=$((n + 1)); echo "$n" >"$c"
@@ -1055,9 +1028,7 @@ n=$((n + 1)); echo "$n" >"$c"
 printf '[{{"number":1}}]\n'
 "#
         );
-        std::fs::write(&gh, body).ok()?;
-        std::fs::set_permissions(&gh, std::fs::Permissions::from_mode(0o755)).ok()?;
-        settled(&gh);
+        tehas_core::testing::write_exe(&gh, body).ok()?;
         Some(dir)
     }
 
@@ -1346,7 +1317,6 @@ printf '[{{"number":1}}]\n'
             Some(d) => d,
             None => return,
         };
-        use std::os::unix::fs::PermissionsExt;
         let program = home.join("libexec/github-token");
         std::env::set_var("TEHAS_GITHUB_APP_ID", "5452597");
         let mut calls = calls_of(&home);
@@ -1366,8 +1336,7 @@ printf '[{{"number":1}}]\n'
             "#!/bin/sh\nprintf 'ghs_x\\n'\nexit 1\n",
             "#!/bin/sh\nprintf 'tehas: no GitHub App is set\\n' >&2\nexit 1\n",
         ] {
-            std::fs::write(&program, body).expect("the token program is written");
-            let _ = std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755));
+            tehas_core::testing::write_exe(&program, body).expect("the token program is written");
             calls.gh_token = read_gh_token(&home, Duration::from_secs(5));
             assert_eq!(calls.gh_token, None, "a failed run of {body}");
             assert_eq!(given(&mut calls), "untouched");
