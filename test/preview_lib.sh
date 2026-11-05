@@ -135,9 +135,26 @@ case "$1" in
         echo "$out" ;;
     esac ;;
   build)
+    # A build makes the image the tag is left pointing at. The id is made from
+    # the bytes of the archive this build was given, so the image of a commit
+    # has one id however often it is built, and a build of the same commit
+    # leaves the tag where it was. A build of another commit moves the tag, and
+    # the image it held is left with none: one line of untagged-<n> per such
+    # image, as Docker keeps a dangling image until something removes it.
     cat >"$d/context.tar"
     [ ! -e "$T/fx/build-fails" ] || { echo "step 2 failed" ; exit 1; }
-    tag=$(after -t "$@"); echo "sha256:$(date +%s%N)" >"$d/image-${tag#tehas-preview:}" ;;
+    tag=$(after -t "$@"); n=${tag#tehas-preview:}
+    # The hash is of the whole file and read before anything is written: the
+    # handler of a build is on the pipe that takes the archive in, so a command
+    # of it that ran in a subshell of that pipe would lose the directory this
+    # stub keeps its answers in, which is a name the main shell made. image_of
+    # in this file is the same bytes, so a case can name the id of a build
+    # before it runs.
+    id="sha256:$(sha256sum <"$d/context.tar" | cut -c1-12)"
+    was=$(cat "$d/image-$n" 2>/dev/null || true)
+    [ -z "$was" ] || [ "$was" = "$id" ] || echo "$was" >>"$d/untagged-$n"
+    echo "$id" >"$d/image-$n"
+    echo "$id" ;;
   run)
     [ ! -e "$T/fx/run-fails" ] || exit 1
     name=$(after --name "$@")
@@ -200,8 +217,41 @@ case "$1" in
           [ -f "$f" ] || continue
           n=${f##*/image-}; echo "$(cat "$f") tehas-preview:$n"
         done
+        # A dangling image keeps the labels of its build, and Docker lists it
+        # by default, as <none>:<none>.
+        cat "$d"/untagged-* 2>/dev/null | sed "s/\$/ <none>:<none>/"
         cat "$T/fx/extra-images" 2>/dev/null ;;
-      rm) for a in "$@"; do case "$a" in tehas-preview:*) rm -f "$d/image-${a#tehas-preview:}" ;; esac; done ;;
+      # An image goes by its tag or by its id: the second is how a build whose
+      # container stopped takes its own image away, and how the sweep takes an
+      # image of a preview that is gone. Only a digest of the shape Docker gives
+      # is a name to remove; any other word is refused and recorded, so a case can
+      # see what was handed to it instead of watching nothing change. A -f before
+      # the name is an option and is no image: `stop` asks for that form itself.
+      # By its id a dangling image goes too: its line leaves untagged-<n>.
+      # The words after "image rm", so that the two words of the subcommand are
+      # no image of their own: the tag and the id arms ignore them by luck alone,
+      # and only the arm that records what it did not know would say so.
+      rm) for a in "${@:3}"; do
+           case "$a" in
+             -*) ;;
+             tehas-preview:*) rm -f "$d/image-${a#tehas-preview:}" ;;
+             sha256:[0-9a-f][0-9a-f]*) for f in "$d"/image-*; do
+               [ -f "$f" ] || continue
+               [ "$a" = "$(cat "$f" 2>/dev/null)" ] || continue
+               rm -f "$f"
+             done
+             for f in "$d"/untagged-*; do
+               [ -f "$f" ] || continue
+               grep -vx -e "$a" "$f" >"$f.left" || true
+               mv "$f.left" "$f"
+               [ -s "$f" ] || rm -f "$f"
+             done ;;
+             # The escape of the newline is read by the shell of the stub, which
+             # is what the outer single quotes are for: see the SC2016 disable at
+             # the top of this file, and the printf of the run arm above.
+             *) printf "%s\n" "$a" >>"$T/fx/docker-unexpected" ;;
+           esac
+         done ;;
     esac ;;
 esac
 exit 0'
@@ -307,10 +357,55 @@ block() {
 told() { cat "$T/fx/desc-$1" 2>/dev/null; }
 # bytes <file> <count>: the last bytes of a file, as one line of hex.
 bytes() { tail -c "$2" "$1" | od -An -tx1 | tr -d ' \n'; }
+# image_id <number>: the id of the image the tag of that preview holds. Empty
+# when the preview has no image.
+image_id() {
+  cat "$T/fx/docker/image-$1" 2>/dev/null
+}
+# untagged <number>: the ids of the images a build of that preview left with no
+# tag, one a line, which Docker lists as <none>:<none> until something removes
+# them. Empty when there is none: a first build, or a build of the same commit,
+# moves no tag.
+untagged() {
+  cat "$T/fx/docker/untagged-$1" 2>/dev/null
+}
+# image_rm_unexpected: the image names the docker stub would not remove, because
+# they are neither a preview's tag nor a digest of the shape Docker gives. It
+# sums the whole case, so a case that counts them clears $T/calls/docker first;
+# image_rm_calls counts from that same file, so a case that asks for one run
+# clears the calls and does not ask this. A case that expects a value Docker
+# would not name clears it itself and asserts what the stub was handed.
+image_rm_unexpected() { cat "$T/fx/docker-unexpected" 2>/dev/null; }
+# image_of <commit>: the id the stub gives the image built from that commit. The
+# build reads the commit as an archive, and the archive of one commit always has
+# the same bytes, so a case can name the id of a build before it runs. The hash
+# is the one the build branch of the docker stub makes of the same archive; the
+# two must stay equal or no case can name the image of a build. It answers
+# nothing and fails when the commit has no archive, so a caller can tell that
+# answer from the empty one of a preview that has no image:
+#   stopped=$(image_of "$a") || t_bad "no archive for that commit"
+image_of() {
+  local tar="$T/fx/image-of.tar"
+  rm -f "$tar"
+  git -C "$upstream" archive "$1" >"$tar" || return 1
+  echo "sha256:$(sha256sum <"$tar" | cut -c1-12)"
+}
 # count <directory> <name pattern>: how many entries of that name it has.
 count() { find "$1" -mindepth 1 -maxdepth 1 -name "$2" 2>/dev/null | wc -l; }
+# builds/runs: how many images a run built and how many containers it started.
+# image_rm_calls [needle]: how many images it was told to remove, all of them
+# or only the ones naming <needle>, which is an id or a tag.
+builds() { t_calls docker | grep -c '^build '; }
 runs() { find "$T/calls" -name 'docker.run.*' | wc -l; }
-builds() { t_calls docker | grep -c '^build ' || true; }
+image_rm_calls() {
+  if [ $# -eq 0 ]; then
+    t_calls docker | grep -c '^image rm'
+  else
+    # The whole line and not a substring: an empty needle would otherwise match
+    # every removal, and a malformed id names none of them.
+    t_calls docker | grep -c -x "image rm $1"
+  fi
+}
 writes() { cat "$T/calls/gh-writes" 2>/dev/null || true; }
 # stub_gh: the gh of the fixtures at the top of this file, for a case that needs
 # it after another case replaced it with its own. It answers the repository, the
