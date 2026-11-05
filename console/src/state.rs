@@ -119,9 +119,10 @@ fn tag(home: &Path) -> Result<String, Fail> {
     Ok(tag.to_string())
 }
 
-/// What `store check` says of a store: its schema. A refusal or a store that
-/// does not check is 1; a store that cannot be run is 78 when it is the
-/// host's own (`own`) and 1 when it came in a tar.
+/// What `store check` says of a store: its schema. A refusal is 1; a store
+/// that cannot be run or used, a failed integrity check among them (`store`
+/// says 78 `corrupt`), is 78 when it is the host's own (`own`) and 1 when it
+/// came in a tar.
 fn checked(home: &Path, own: bool) -> Result<i64, Fail> {
     let unusable = if own { 78 } else { 1 };
     let v = match store::call(home, &["check"]) {

@@ -117,6 +117,9 @@
 //!   TEHAS_CHILD_TIMEOUT seconds one child may take, as
 //!                       PI_ENSEMBLE_SPAWN_TIMEOUT_MS [7200]
 //!   TEHAS_CYCLE_RESERVE the container's memory floor [2g]
+//!   TEHAS_SCRATCH_MAX   what the cycle's scratch may hold [20g]
+//!   TEHAS_CYCLE_STOP_FREE  free disk of the scratch below which the cycle with
+//!                       the largest scratch stops [5g] (src/scratch.rs)
 //!   TEHAS_RUKAS_WORKAROUNDS  settings that work around a pi-rukas defect, as
 //!                       NAME@VERSION: VERSION is the release that fixes it []
 //!   TEHAS_WORK_IMAGES   1 gives the cycle the images its issue links [0]
@@ -652,6 +655,7 @@ fn fetch(f: &Files, answer: &str, console: &str, stop: &Stop) -> Result<Vec<Stri
             Command::new(me)
                 .arg("describe")
                 .arg(f.dir)
+                .arg(n.to_string())
                 .stdin(Stdio::null())
                 .spawn()
         };
@@ -1006,6 +1010,7 @@ pub fn run(home: &Path, g: &Given) -> i32 {
         email: git_email(),
         renewer: renew.as_ref().map_or(String::new(), |c| c.id().to_string()),
         docker,
+        scratch: crate::scratch::Bounds::from_env(n),
     };
     let rc = watch::run(home, &given, stop.flag());
     if let Some(c) = renew {

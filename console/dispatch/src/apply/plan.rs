@@ -30,7 +30,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tehas_core::events::{plan_credit, Events};
 use tehas_core::plan::{
     carries_update, clear_plan, draft_holds, is_refusal, keep_spec, refusal_document,
-    refused_by_draft, says_refusal, text_of, Refused,
+    refused_by_draft, says_refusal, text_of, Refused, WHY_MAX,
 };
 use tehas_core::question::{self, Kind, MAX_OPTIONS};
 
@@ -45,6 +45,28 @@ fn filed_re() -> &'static Regex {
 /// plan_sid_ok: a session id the store keeps.
 fn sid_ok(s: &str) -> bool {
     (1..=128).contains(&s.len()) && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+}
+
+/// Bytes written whole to `path`, which is then the file, at `mode` when one
+/// is given. The sibling of a failed write is taken back, so a caller that
+/// renames next sees either the old file or the bytes it was given.
+fn write_atomic(path: &std::path::Path, bytes: &[u8], mode: Option<u32>) -> std::io::Result<()> {
+    use std::io::Write as _;
+    use std::os::unix::fs::OpenOptionsExt as _;
+    let mut f = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .mode(mode.unwrap_or(0o644))
+        .open(path)?;
+    match f.write_all(bytes).and_then(|()| f.flush()) {
+        Ok(()) => Ok(()),
+        Err(e) => {
+            drop(f);
+            let _ = std::fs::remove_file(path);
+            Err(e)
+        }
+    }
 }
 
 /// A text of the outcome, a string or nothing, as `.k // ""` reads it.
@@ -218,6 +240,9 @@ impl Writer {
     /// plan_files_rm: the files beside a session that ended.
     fn plan_files_rm(&self, n: u64) {
         let _ = std::fs::remove_file(self.st(n, ".out"));
+        // The sibling a turn killed mid-keep left behind: no reader of it
+        // exists, so the session that ended takes it out.
+        let _ = std::fs::remove_file(self.st(n, ".out.new"));
         let _ = std::fs::remove_file(self.st(n, ".rc"));
         let _ = std::fs::remove_file(self.st(n, ".image"));
         let _ = std::fs::remove_dir_all(self.keep(n));
@@ -542,7 +567,21 @@ impl Writer {
                 return false;
             }
             self.plan_brief_rm(n);
-            let said = json!({"text": format!("This planning turn did not finish: it {why}. The log is `~/tehas/logs/dispatch-plan-{n}.log` on `{host}`. Reply in a comment to run the turn again with your reply as the next message, or end the session and apply `tehas:plan` to start a new one."), "question": null});
+            // The turn's own words, when it left any: the runner's reason is
+            // what a person needs to fix, not the exit status. It came out of
+            // the container, so it passes the same boundary as every other
+            // agent string this file posts.
+            // The scrub runs on the whole reason and the cut after it, so a
+            // secret that straddles the bound is masked, not left half shown.
+            let reason = s(&out, "/why").replace(['\r', '\n'], " ");
+            let reason = question::q_clean(&reason, WHY_MAX);
+            let said = if reason.is_empty() {
+                why
+            } else {
+                format!("{why}: {reason}")
+            };
+            let text = format!("This planning turn did not finish: it {said}. The log is `~/tehas/logs/dispatch-plan-{n}.log` on `{host}`. Reply in a comment to run the turn again with your reply as the next message, or end the session and apply `tehas:plan` to start a new one.");
+            let said = json!({"text": text, "question": null});
             let _ = std::fs::write(self.st(n, ".out"), format!("{said}\n"));
             self.plan_post(n, log);
             log.push(format!("done planning #{n} turn={turns} rc={rc}"));
@@ -642,6 +681,16 @@ impl Writer {
     /// `plan_show` read with the session, so one read of the file serves the
     /// poll and a refusal that rewrites it cannot be read back as the outcome
     /// of the poll that made it.
+    ///
+    /// Two layers keep a poll from doing a step twice: the journal, and this
+    /// file. Of a refused draft the file is the authoritative one. A keep that
+    /// does not land ends the turn before any write of it is journaled, on
+    /// both routes: the clear route keeps the refusal before it posts the
+    /// comment that says it. A keep that lands then loses the poll is no loss
+    /// of record: the next poll reads the refusal out of the file and asks its
+    /// reply-only question. The file needs no journal row because a document
+    /// is written whole and renamed, so a reader sees one or the other, and
+    /// what a half-written sibling leaves behind is not read at all.
     pub(super) fn plan_post(&mut self, n: u64, log: &mut Vec<String>) -> bool {
         let Some((show, kept)) = self.plan_show(n, log) else {
             return false;
@@ -683,6 +732,7 @@ impl Writer {
         } else {
             None
         };
+        let mut refusal_kept = false;
         if comment.is_empty() && out.get("clear") == Some(&json!(true)) {
             // A clear draft whose text the check refuses is read again by
             // `plan_clear` through `clear_plan`, which holds its own refusal
@@ -713,6 +763,13 @@ impl Writer {
                     let text = why.take().unwrap_or(reason);
                     if says_refusal(&text) {
                         why = Some(text.clone());
+                        // Kept before it is said: the comment is journaled
+                        // once posted, so a keep that failed after it would
+                        // leave the next poll to post it again.
+                        if self.keep_refusal(n, &kept, log).is_none() {
+                            return false;
+                        }
+                        refusal_kept = true;
                         if !self.say(n, &question::q_clean(&text, 4000), log) {
                             log.push(format!(
                                 "WARN: the refusal of the drafted plan of #{n} could not be posted; the next poll tries again"
@@ -727,16 +784,18 @@ impl Writer {
         // A draft whose text says nothing of the issue writes nothing, whether
         // it was kept for the tick or for a start with no open points: the
         // issue keeps its text, the session stays open, and the only answer
-        // that changes anything is a reply that changes the plan. The document
-        // on disk goes back to what the console wrote, so the plan stays there
-        // to tick once the person's reply has changed it, and the question of
-        // the turn is asked of the document the runner made. The rule is said
+        // that changes anything is a reply that changes the plan. The question
+        // of the turn is asked of the document the runner made. The rule is said
         // once, in the comment above, so the document's own question holds
         // nothing of it and no box: the tick this refusal stopped is gone.
         if comment.is_empty() && why.is_some() {
             let said = question::q_clean(why.as_deref().unwrap(), 4000);
             log.push(format!("planning #{n} asks: {said}"));
-            self.outcome_said(n, &kept);
+            // The console's own document, restored before the refusal is said:
+            // see `keep_refusal`. The clear route above kept it already.
+            if !refusal_kept && self.keep_refusal(n, &kept, log).is_none() {
+                return false;
+            }
             out = refused_document(&said, out.get("session"));
         }
         let mut filed: Vec<&str> = out
@@ -809,6 +868,23 @@ impl Writer {
         }
         let _ = std::fs::remove_file(self.st(n, ".out"));
         true
+    }
+
+    /// The console's own document `kept` put back into the outcome file, so a
+    /// later poll answers that instead of the refused draft and does not say
+    /// the rule twice. `None`, with the cause in the log, when the keep did not
+    /// land; the caller ends its turn then, since a poll that cannot keep the
+    /// refusal must post nothing of it.
+    fn keep_refusal(&self, n: u64, kept: &Value, log: &mut Vec<String>) -> Option<()> {
+        match self.outcome_kept(n, kept) {
+            Ok(()) => Some(()),
+            Err(why) => {
+                log.push(format!(
+                    "WARN: the refusal of the drafted plan of #{n} could not be kept ({why}); the next poll tries again"
+                ));
+                None
+            }
+        }
     }
 
     /// What the check of #1210 says about the `update` of `out`, read from the
@@ -932,26 +1008,13 @@ impl Writer {
     /// account it is credited to and the sum of the text it binds. Only the
     /// tehas user's, as a turn's other files are.
     fn plan_start_keep(&self, n: u64, start: &Value) -> bool {
-        use std::io::Write as _;
-        use std::os::unix::fs::OpenOptionsExt;
         let file = plan_start_file(&self.home, n);
         let new = file.with_extension("json.new");
         let kept = file
             .parent()
             .map_or(Ok(()), std::fs::create_dir_all)
-            .and_then(|()| {
-                std::fs::OpenOptions::new()
-                    .write(true)
-                    .create(true)
-                    .truncate(true)
-                    .mode(0o600)
-                    .open(&new)
-            })
-            .and_then(|mut f| f.write_all(format!("{start}\n").as_bytes()))
+            .and_then(|()| write_atomic(&new, format!("{start}\n").as_bytes(), Some(0o600)))
             .and_then(|()| std::fs::rename(&new, &file));
-        if kept.is_err() {
-            let _ = std::fs::remove_file(&new);
-        }
         kept.is_ok()
     }
 
@@ -1080,18 +1143,38 @@ impl Writer {
         self.outcome_said(n, &rest)
     }
 
-    /// The outcome kept as `doc` holds it, written whole and moved into place
-    /// so a poll that reads it sees one document or the other. False when the
-    /// file could not be written, which leaves what was in it for the next
-    /// poll to answer again.
+    /// The outcome kept as `doc` holds it, apart from its `text`, which is
+    /// read as a string. False is "this turn's outcome is not on disk", which
+    /// every caller answers by ending its turn: the next poll answers what the
+    /// file still holds.
     fn outcome_said(&self, n: u64, doc: &Value) -> bool {
+        self.outcome_kept(n, doc).is_ok()
+    }
+
+    /// The keep behind `outcome_said`, with the cause of a failure that did not
+    /// land: which write it was, and what the system said of it. The document
+    /// is written whole to a sibling of `.out` and moved into place, so a poll
+    /// that reads it sees one document or the other; a turn killed between the
+    /// two leaves the sibling behind, and the next keep truncates it. A `doc`
+    /// that is no object at all keeps only its session, so what a poll writes
+    /// back always reads as an outcome.
+    fn outcome_kept(&self, n: u64, doc: &Value) -> Result<(), String> {
         let new = self.st(n, ".out.new");
-        let moved = std::fs::write(&new, format!("{doc}\n"))
+        let doc = if doc.is_object() {
+            let mut kept = doc.clone();
+            kept["text"] = json!(text_of(doc.get("text")));
+            kept
+        } else {
+            json!({"session": doc.get("session")})
+        };
+        let moved = write_atomic(&new, format!("{doc}\n").as_bytes(), None)
             .and_then(|()| std::fs::rename(&new, self.st(n, ".out")));
-        if moved.is_err() {
-            let _ = std::fs::remove_file(&new);
-        }
-        moved.is_ok()
+        // The name of the sibling that failed, not a path a person has to
+        // read off the log to find the mount.
+        let name = new
+            .file_name()
+            .map_or(String::new(), |s| s.to_string_lossy().into_owned());
+        moved.map_err(|e| format!("{name}: {e}"))
     }
 
     /// plan_replace: a refine that filed replaces its issue. The mark on the

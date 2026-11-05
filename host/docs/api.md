@@ -176,6 +176,7 @@ tehas status --json
   "planning": [{"issue": 7, "turn": 2, "since": "2026-10-17T13:47:00Z"}],
   "demand": {"waiting": 2, "oldestWait": 5400},
   "hold": {"why": "pause", "text": "paused by the flag tehas pause wrote: weekend"},
+  "held": [],
   "room": {"cycles": 0, "slice": 2}
 }
 ```
@@ -195,11 +196,17 @@ tehas status --json
 | `planning` | The planning turns in flight: `issue`, `turn` (the session's turn that runs, from 1) and `since` (when it started; left out for a turn started before this was kept) |
 | `demand.waiting` | Open issues that would start if there were room: `tehas:ready` applied last by an account in `TEHAS_ALLOWED_LABELERS` or the millwright, with no cycle and no planning session open, and the refresh requests waiting, unless refreshes are held |
 | `demand.oldestWait` | Seconds since the oldest of them was labelled or asked for; left out when none waits |
+| `demand.labelAlone` | The issues `tehas:blocked` holds by the label alone, by number, at most 50: the label counts, and no comment of an allowed labeller or the millwright names their blockers, so they never start until one does or a person takes the label off. A marker in the issue's body is not read. Left out when there are none |
 | `demand.refreshHold` | Why refresh requests start nothing on this host, for a person: refreshes are off, or the sandbox image cannot continue a pull request. Left out when nothing holds them or there are none |
 | `demand` | `null` when no poll counted it in the last ten minutes, or the last poll could not read the queue |
 | `hold.why` | One word for what holds new cycles back: `pause`, `slice`, `unreadable`, `resources`, `limit`, `red`, `count`, `awaiting`, `pressure`, `room` or `full`. Treat it as an open list: later releases add words |
 | `hold.text` | The same for a person. Do not parse it |
 | `hold` | `null` when nothing holds |
+| `held` | The ready issues the last poll held one by one while it had room, each with its own reason; empty when none. An issue here starts nothing until a person clears its hold, so do not show it as next |
+| `held.issue` | The issue number |
+| `held.why` | One word for the reason: `parked` when its last cycle parked and its body has not changed since. Treat it as an open list |
+| `held.text` | The reason for a person. Do not parse it |
+| `held.clear` | What a person does to release it, such as editing the body or ticking Retry on the park comment |
 | `room.cycles` | Free slots under `TEHAS_TICKET_CONCURRENCY`. Below 0 when more cycles run than it allows, as after it was lowered |
 | `room.refreshes` | Free slots of the refresh lane, `TEHAS_REFRESH_SLOTS`; left out when the factory does not refresh its pull requests |
 | `room.maxAwaiting` | Room under `TEHAS_MAX_AWAITING`, the cycles running and pull requests waiting for review together. Below 0 when more wait than it allows. Left out when the last poll did not need to read it |
@@ -268,6 +275,8 @@ it then is, and `--json` works with the show form only.
 - **An expired or unreadable limit holds every start**: no cycle, planning
   turn, answer or improvement run. `tehas status` warns and says why. A file
   that cannot be read never counts as no limit. The poll still cleans up.
+- **One reading.** `tehas status`, the dispatcher and the health page read the
+  file the same way. A file that names a key twice is `unreadable`.
 - **Running cycles are never stopped.** A lower limit only holds new starts.
 - **Pause is separate.** A paused factory stays paused under any limit.
 - `set` replaces the whole limit. The same arguments twice leave the same
@@ -638,8 +647,11 @@ of the disk.
 
 `--publish` also writes that object to `~/tehas/live/disk.json`, whole, through
 a side file renamed into place, so a reader sees a whole answer or the last
-one. It is the only form that writes anything, and no timer runs it: a person,
-or a program that asked, decides when the file is refreshed. The
+one. It is the only form that writes anything, and it prints the reading as
+well. On a host the cleaner's `tehas-clean.timer` runs it every hour after the
+clean, whether the clean succeeded or not
+([`tehas disk`](/tools#tehas-disk)), so the file is under an hour old there; a
+person or a program can ask for a reading at any moment. The
 [`factory_disk` tool](/mcp-server#the-tools) of the MCP server reads that file
 and never runs the command, so the server asks the host's disk nothing.
 
