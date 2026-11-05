@@ -74,8 +74,6 @@ in the platform repository has every one with a comment.
 | `TEHAS_INDEXING`                | `0`                                      | `1` lets search engines index the dashboard and the manual      |
 | `TEHAS_ANALYTICS_SRC`, `_SITE`  | empty                                    | Optional. The https address of a visitor analytics script and the site name it reports under. Both set: every page loads it |
 | `TEHAS_ANALYTICS_COOKIE`        | `0`                                      | `1` adds `data-cookie="true"` to that script tag                |
-| `TEHAS_THEME`                   | `pixel`                                  | The look of every page: `pixel`, `paper`, `beesknees` or `beesknees26`. Another name stops every command with 78. See [The host](/host#themes-and-layouts) |
-| `TEHAS_LAYOUT`                  | `floor`                                  | The front page: `floor`, the game view, or `business`. Both are always at `/floor` and `/business`. Another name stops every command with 78. See [The host](/host#themes-and-layouts) |
 | `TEHAS_CYCLE_REPORT`            | `rust`                                   | Who reports a cycle: `rust`, `tehas-cycle cycle`, the only value. The report in bash is gone: `bash`, or any other value, is exit 78. See [The report in Rust](/operating#the-report-in-rust) |
 | `TEHAS_ANALYTICS`               | `on`                                     | The factory's own analytics, not the visitor analytics above: 365 days of runs, issue events and poll samples in `~/tehas/state/analytics.db`. `off` stops every write and leaves the file as it is. Anything but `on` or `off` stops every command with 78 |
 | `TEHAS_PROTOLAB_URL`            | `https://lab.<domain>`, or port 8081     | Address people reach the Protolab at, when it is published elsewhere, as `https://lab.example`. The dashboard links to it. Without it: `https://lab.<domain>` when `TEHAS_DOMAIN` is set, else port 8081 of the dashboard's host |
@@ -98,7 +96,9 @@ in the platform repository has every one with a comment.
 | `TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS` | `3`                                  | How many planning questions the millwright may answer in one session. It never answers two in a row (see [the millwright's grant](/operating#the-millwrights-grant)) |
 | `TEHAS_MILLWRIGHT_FEED`        | `0`                                      | 1 lets the millwright's `tehas:ready` start the first cycle of an issue a person wrote (see [the millwright's grant](/operating#the-millwrights-grant)). Anything but 0 or 1 stops every command with 78 |
 | `TEHAS_MILLWRIGHT_MAX_FEEDS`   | `2`                                      | How many cycles the feed started may run at once. A positive whole number |
+| `TEHAS_MILLWRIGHT_EPICS`       | `0`                                      | 1 lets a person's `tehas:ready` on an epic approve its open sub-issues for the millwright (see [the millwright's grant](/operating#the-millwrights-grant)). Anything but 0 or 1 stops every command with 78 |
 | `TEHAS_REFRESH_CONFLICTS`      | `0`                                      | 1 has the factory resolve conflicts in its own pull requests that wait for a merge (see [refreshes](/operating#refreshes)). Anything but 0 or 1 stops every command with 78 |
+| `TEHAS_EASY_MERGE`             | `0`                                      | 1 lets the dispatcher choose an easy merge for a refresh start instead of the full refresh cycle (see [refreshes](/operating#refreshes)): one merge of the branch into the pull request with no model and no container, at most once since the person's approval. The full refresh runs when the setting is off, when that approval has had its easy merge, when the store names no row for an easy merge it says the approval had, when nothing ran on record after the last easy merge, or when a check named by `TEHAS_BRANCH_CHECK` failed on the pull request after it. Today the choice is on the approval record, in `dispatch.log` and in the comment on the issue: the cycle an easy start runs is still the full refresh, so no host has merged this way yet. Anything but 0 or 1 stops every command with 78 |
 | `TEHAS_REFRESH_MAX`            | `2`                                      | Refreshes of one pull request since the person's approval its cycle rests on. A positive whole number |
 | `TEHAS_REFRESH_EVERY`          | `10`                                     | Minutes between two runs of `tehasbot refresh`, from 1 to 1440 |
 | `TEHAS_REFRESH_SLOTS`          | `1`                                      | Refreshes side by side in a lane of their own, from 0 to 8. They do not count against `TEHAS_TICKET_CONCURRENCY`, and new cycles leave room in the slice for them (see [refreshes](/operating#refreshes)). 0 has refreshes share the cycles' slots |
@@ -4001,10 +4001,14 @@ It runs, in order and one line per step: a `git fetch` and a fast-forward of
 the platform checkout (`$TEHAS_HOME/platform`, in the example
 `~/tehas/platform`), then `install.sh`, then the follow-ups install.sh asks for.
 An argument it does not know, or `--help` with another one, is refused with
-exit 64 before the settings are read. The settings are checked next against the required list in
-`lib/config.sh` (`tehas_require_instance_settings`), the same one install.sh and
-the dispatcher check, so an instance with a required line still commented out
-stops with 78 before git runs. After a fast-forward the settings are checked
+exit 64 before the settings are read. The settings are checked next against the
+one required list, which tehas-core holds (`console/core/src/settings.rs`):
+`tehas_load` hands it to `lib/config.sh` as `_tehas_required`, and
+`tehas_require_instance_settings` checks it. install.sh, `console run`, tehas
+setup and the dispatcher check the same five. A poll adds the three a load
+always leaves set that it cannot act by without - `TEHAS_HOME`,
+`TEHAS_INSTANCE_DIR` and `TEHAS_TICKET_CONCURRENCY` - and names them too, so an
+instance with a required line still commented out stops with 78 before git runs. After a fast-forward the settings are checked
 by the code it pulled: a checkout has no console of its own yet, so install.sh
 builds it first and a change that adds a required setting stops with 78 there,
 before anything of the host changes. The checkout must be on a branch and have nothing uncommitted, and

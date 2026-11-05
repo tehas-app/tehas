@@ -10,6 +10,8 @@ use std::process::Command;
 use std::time::Duration;
 use tehas_core::call;
 
+use crate::runner;
+
 /// The files of the protocol a report reads, state/cycles/<issue>.<name>.
 /// tehas work writes them and tehasbot cycle reads and removes them; a cycle
 /// killed outright leaves them for the next cycle of the issue, and both clear
@@ -70,6 +72,13 @@ pub struct Start {
 }
 
 /// A file as the facts hold it: its text, {"link": true}, or nothing.
+///
+/// A protocol file is read whole, and its size decides nothing. A file is
+/// seen or not seen, as `[ -f ]` sees it: the result of a multi-issue run, with
+/// the handoff bodies of each issue, is the cycle's own account of its end, and
+/// reading it as absent would report a handoff as a cycle that wrote nothing.
+/// The one file of a cycle with no ceiling is its run log, and that is read at
+/// `runner::LOG_TAIL`.
 fn file(p: &Path) -> Option<Value> {
     let m = fs::symlink_metadata(p).ok()?;
     if m.file_type().is_symlink() {
@@ -166,10 +175,7 @@ pub fn facts(home: &Path, s: &Start) -> Value {
         "files": files,
     });
     if let Some(log) = newest_log(&home.join("logs"), issue) {
-        let text = fs::read(&log)
-            .ok()
-            .map(|b| String::from_utf8_lossy(&b).into_owned());
-        f["run_log"] = json!({"name": log.to_string_lossy(), "text": text});
+        f["run_log"] = run_log(&log);
     }
     let n = issue.to_string();
     f["record"] = store(home, &["cycle-show", &n]).unwrap_or_else(|w| json!({"error": w}));
@@ -185,6 +191,23 @@ pub fn facts(home: &Path, s: &Start) -> Value {
         f["image_built"] = json!(built(&id));
     }
     f
+}
+
+/// The newest run log as the facts hold it: its name and its text, of a log
+/// longer than `LOG_TAIL` only its last `LOG_TAIL` bytes with `truncated`, or
+/// its name and `unreadable` when it cannot be read.
+fn run_log(p: &Path) -> Value {
+    let mut v = json!({"name": p.to_string_lossy()});
+    match runner::log_tail(p) {
+        Some((bytes, whole)) => {
+            v["text"] = json!(String::from_utf8_lossy(&bytes).into_owned());
+            if !whole {
+                v["truncated"] = json!(true);
+            }
+        }
+        None => v["unreadable"] = json!(true),
+    }
+    v
 }
 
 /// When the image `id` was built, as docker prints .Created, or nothing.
@@ -214,4 +237,77 @@ fn newest_log(logs: &Path, issue: u64) -> Option<PathBuf> {
                 && fs::symlink_metadata(p).is_ok_and(|m| m.is_file())
         })
         .max()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::runner::LOG_TAIL;
+    use tehas_core::testdir::TestDir;
+
+    /// At least `n` bytes of what a runner writes between its steps: one line,
+    /// so the steps after it are still whole lines.
+    fn written(n: usize) -> String {
+        "y".repeat(n) + "\n"
+    }
+
+    #[test]
+    fn a_protocol_file_is_held_whole_and_its_size_decides_nothing() {
+        let d = TestDir::new("host-file-whole");
+        let small = d.join("7.progress.json");
+        fs::write(&small, "{\"roles\":[]}\n").unwrap();
+        assert_eq!(file(&small), Some(Value::String("{\"roles\":[]}\n".into())));
+        // The result of a multi-issue run with a long handoff body: bigger than
+        // the run log tehas reads only its end of. It is the cycle's own
+        // account of its end, not a file that is not there.
+        let body = "y".repeat(1 << 20);
+        let big = d.join("7.result.json");
+        fs::write(&big, format!("{{\"handoffBody\":\"{body}\"}}\n")).unwrap();
+        assert!(fs::metadata(&big).unwrap().len() > LOG_TAIL);
+        let held = file(&big).expect("a big result is not held as an absent one");
+        assert_eq!(
+            held.as_str().unwrap(),
+            format!("{{\"handoffBody\":\"{body}\"}}\n")
+        );
+        assert_eq!(file(&d.join("7.stopped")), None);
+    }
+
+    #[test]
+    fn a_run_log_past_the_bound_is_held_as_its_end_and_says_truncated() {
+        let d = TestDir::new("host-run-log-tail");
+        let p = d.join("work-7-261101-093921.jsonl");
+        // explore is past the end the facts hold; commit-pr and the branch of
+        // the push are in it.
+        fs::write(
+            &p,
+            format!(
+                "{{\"v\":1,\"kind\":\"step-started\",\"event\":{{\"step\":\"explore\"}}}}\n{}{{\"v\":1,\"kind\":\"step-started\",\"event\":{{\"step\":\"commit-pr\"}}}}\n",
+                written(LOG_TAIL as usize)
+            ),
+        )
+        .unwrap();
+        let v = run_log(&p);
+        let held = v["text"].as_str().unwrap();
+        assert_eq!(v["name"], p.to_string_lossy().as_ref());
+        assert_eq!(v["truncated"], true);
+        assert_eq!(held.len(), LOG_TAIL as usize);
+        assert!(!held.contains("explore"), "the head was held");
+        assert!(held.ends_with("\"step\":\"commit-pr\"}}\n"));
+    }
+
+    #[test]
+    fn a_run_log_within_the_bound_is_held_whole_and_a_missing_one_says_unreadable() {
+        let d = TestDir::new("host-run-log-whole");
+        let p = d.join("work-7-261101-093921.jsonl");
+        fs::write(&p, "{\"v\":1,\"kind\":\"log\",\"message\":\"a\"}\n").unwrap();
+        let v = run_log(&p);
+        assert_eq!(
+            v["text"].as_str().unwrap(),
+            "{\"v\":1,\"kind\":\"log\",\"message\":\"a\"}\n"
+        );
+        assert!(v.get("truncated").is_none());
+        let gone = run_log(&d.join("work-7-261101-094123.jsonl"));
+        assert_eq!(gone["unreadable"], true);
+        assert!(gone.get("text").is_none());
+    }
 }

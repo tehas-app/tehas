@@ -17,8 +17,8 @@
 # seams for test/gh_shim_test.sh, and the image sets neither.
 #
 # Exit: gh's own status; 1 when the token file is there and cannot be read.
-# Lint: shellcheck -s sh, which scripts/test.sh does not run over this file;
-# test/gh_shim_test.sh does.
+# Lint: scripts/test.sh lints it with shellcheck -x, which takes the shell from
+# the shebang; test/gh_shim_test.sh names that shell with -s sh.
 real=${TEHAS_GH_BIN:-/usr/bin/gh}
 f=/run/tehas/github/token
 if [ -r "$f" ]; then

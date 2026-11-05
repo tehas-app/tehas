@@ -57,7 +57,7 @@ die() { echo "bootstrap: $*" >&2; exit 1; }
 
 supported() {
   local id="" version="" arch
-  # shellcheck disable=SC1090
+  # shellcheck source=/etc/os-release  # $os_release holds this unless a test names a stand-in
   [ -r "$os_release" ] && id=$(. "$os_release" && echo "${ID:-}") && version=$(. "$os_release" && echo "${VERSION_ID:-}")
   arch=$(uname -m)
   [ "$id" = ubuntu ] && [ "$version" = 26.04 ] && [ "$arch" = x86_64 ] ||
