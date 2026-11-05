@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for libexec/dispatch: who may label an issue, and the approval record
+# Tests for tehasbot dispatch: who may label an issue, and the approval record
 # a start writes.
 # shellcheck disable=SC2016  # snippets are expanded by the shell under test
 # shellcheck source=test/lib.sh

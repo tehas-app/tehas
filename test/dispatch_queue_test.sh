@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for libexec/dispatch: tehas:next and tehas:blocked, the gate of the
+# Tests for tehasbot dispatch: tehas:next and tehas:blocked, the gate of the
 # lowest issues, the demand written for tehas status, and live/dispatch.json.
 # shellcheck disable=SC2016  # snippets are expanded by the shell under test
 # shellcheck source=test/lib.sh

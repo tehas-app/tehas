@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for libexec/dispatch: what stops a poll before it starts. The
+# Tests for tehasbot dispatch: what stops a poll before it starts. The
 # repository, the pause label and flag, invalid settings and the arguments.
 # shellcheck disable=SC2016  # snippets are expanded by the shell under test
 # shellcheck source=test/lib.sh
@@ -111,17 +111,15 @@ T_ENV_ALWAYS=("${keep_env[@]}")
 t_case "with no TEHAS_DISPATCH_CMD the poll is the program beside the command"
 reset
 tree=$T/wrapper
-mkdir -p "$tree/libexec"
-ln -sfn "$T_ROOT/lib" "$tree/lib"
-cp "$dispatch" "$tree/libexec/dispatch"
+t_front "$tree"
 keep_env=("${T_ENV_ALWAYS[@]}")
 T_ENV_ALWAYS=()
-t_run "$tree/libexec/dispatch"
+t_run "$tree/bin/tehasbot dispatch"
 t_eq "$t_rc" 78
 t_contains "$t_out" "tehas: $tree/libexec/tehas-dispatch is not installed (run install.sh)"
 printf '#!/bin/sh\necho "beside it: $*"\n' >"$tree/libexec/tehas-dispatch"
 chmod +x "$tree/libexec/tehas-dispatch"
-t_run "$tree/libexec/dispatch --dry-run"
+t_run "$tree/bin/tehasbot dispatch --dry-run"
 t_eq "$t_rc" 0
 t_eq "$t_out" "beside it: poll --dry-run"
 T_ENV_ALWAYS=("${keep_env[@]}")

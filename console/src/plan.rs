@@ -274,7 +274,7 @@ fn words(s: &str) -> usize {
     s.split_whitespace().count()
 }
 
-/// What the first turn of libexec/plan plans, on one line: the issue's title,
+/// What the first turn of `tehas plan` plans, on one line: the issue's title,
 /// or the drafted plan's own `Title:` line when the brief opens with one, so a
 /// half of a split is named for its own work and not its parent's. The issue's
 /// number goes on only when the name is too short for pi-rukas to plan from
