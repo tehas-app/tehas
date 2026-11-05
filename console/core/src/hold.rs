@@ -44,6 +44,46 @@ pub const KEY_ENDPOINT: &str = "endpoint";
 pub const KEY_SLOTS: &str = "slots";
 /// `time`: the poll's own stamp, added when the file is written.
 pub const KEY_TIME: &str = "time";
+/// `held`: the ready issues the poll held one by one, left out when none.
+pub const KEY_HELD: &str = "held";
+
+/// `held[].why` of an issue held because its last cycle parked and its body
+/// has not changed since.
+pub const HELD_PARKED: &str = "parked";
+/// The most characters `held[].text` keeps: it quotes a park's reason.
+pub const HELD_TEXT_MAX: usize = 200;
+
+/// One ready issue the poll held on its own, whatever room there was.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Held {
+    pub issue: u64,
+    /// One word for the reason, such as [`HELD_PARKED`].
+    pub why: &'static str,
+    /// The reason for a person, one line.
+    pub text: String,
+    /// What a person does to release it.
+    pub clear: String,
+}
+
+impl Held {
+    /// The entry as the file holds it: issue, why, text, clear.
+    pub fn to_value(&self) -> serde_json::Value {
+        serde_json::json!({
+            "issue": self.issue,
+            "why": self.why,
+            "text": self.text,
+            "clear": self.clear,
+        })
+    }
+
+    /// An entry of the file back, None for one that is not the four keys of
+    /// their types: a reader drops it rather than guess.
+    pub fn parse(v: &serde_json::Value) -> Option<(u64, String, String, String)> {
+        let s = |k: &str| v.get(k)?.as_str().map(str::to_string);
+        let issue = v.get("issue")?.as_u64().filter(|n| *n > 0)?;
+        Some((issue, s("why")?, s("text")?, s("clear")?))
+    }
+}
 
 /// The reason a poll starts nothing, as `why` writes it. A word is stable
 /// once the manual names it: a person reads it in `tehas status` and in the
@@ -155,6 +195,8 @@ pub struct Report {
     /// The derived counts, as `slots::Slots::report` writes them; left out
     /// when neither setting asked for `auto`.
     pub slots: Option<serde_json::Value>,
+    /// The ready issues held one by one; left out of the file when none.
+    pub held: Vec<Held>,
 }
 
 impl Report {
@@ -196,6 +238,12 @@ impl Report {
         }
         if let Some(s) = &self.slots {
             m.insert(KEY_SLOTS.into(), s.clone());
+        }
+        if !self.held.is_empty() {
+            m.insert(
+                KEY_HELD.into(),
+                self.held.iter().map(Held::to_value).collect(),
+            );
         }
         serde_json::Value::Object(m)
     }
@@ -269,6 +317,7 @@ mod tests {
             KEY_ENDPOINT,
             KEY_SLOTS,
             KEY_TIME,
+            KEY_HELD,
         ] {
             assert!(v.get(k).is_none(), "{k}");
         }
@@ -290,6 +339,12 @@ mod tests {
             refresh_room: Some(1),
             endpoint: Some("backup".into()),
             slots: Some(json!({"cycles": 2, "cyclesHow": "auto"})),
+            held: vec![Held {
+                issue: 7,
+                why: HELD_PARKED,
+                text: "its last cycle parked on `gate` and the body has not changed since".into(),
+                clear: "edit the body, or tick Retry in the park comment".into(),
+            }],
         };
         let v = r.to_value();
         assert_eq!(v[KEY_WHY], json!("count"));
@@ -304,6 +359,20 @@ mod tests {
         assert_eq!(v[KEY_REFRESH_ROOM], json!(1));
         assert_eq!(v[KEY_ENDPOINT], json!("backup"));
         assert_eq!(v[KEY_SLOTS]["cyclesHow"], json!("auto"));
+        assert_eq!(
+            v[KEY_HELD],
+            json!([{"issue": 7, "why": "parked",
+                "text": "its last cycle parked on `gate` and the body has not changed since",
+                "clear": "edit the body, or tick Retry in the park comment"}])
+        );
+        assert_eq!(Held::parse(&v[KEY_HELD][0]).map(|h| h.0), Some(7));
+        for bad in [
+            json!({}),
+            json!({"issue": 0, "why": "", "text": "", "clear": ""}),
+            json!({"issue": 3, "why": "parked", "text": 1, "clear": ""}),
+        ] {
+            assert_eq!(Held::parse(&bad), None, "{bad}");
+        }
         // The slots are the report's own key: never merged at the top level.
         assert!(v.get("cycles").is_none());
         assert!(v.get("cyclesHow").is_none());

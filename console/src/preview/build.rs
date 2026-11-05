@@ -14,6 +14,18 @@ const BUILD_LIMIT: u64 = 900;
 /// What a preview has in memory. A declared volume anywhere else is on the disk.
 const IN_MEMORY: [&str; 3] = ["/tmp", "/config", "/data"];
 
+/// Only such an id is handed to "docker image rm", which would take anything
+/// else as a name or an option. The answer of an inspect is text of the image
+/// that was pulled, so it is checked the way the sweep checks an id of a
+/// listing it got from Docker: "sha256:" and lowercase hex after it, and no
+/// whitespace, which would carry a second word into the command.
+fn is_image_id(word: &str) -> bool {
+    let Some(hex) = word.strip_prefix("sha256:") else {
+        return false;
+    };
+    !hex.is_empty() && hex.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+}
+
 /// The failed starts of a commit, as the retry marker holds them: the marker
 /// is "<commit> <failed starts so far>".
 fn tries_of(marker: &str, sha: &str) -> u32 {
@@ -389,10 +401,33 @@ impl Preview {
             let tail = ["logs", "--tail", "40", &name];
             logged(Command::new("docker").args(tail), &log);
             docker_quiet(&["rm", "-f", "-v", &name]);
+            // The image of the stopped container goes with it, asked for by its
+            // id and not by the tag: a stopped container holds the image under
+            // the tag until it is gone, so the tag cannot be removed at this
+            // point, and by the tag Docker would be told about whatever image
+            // the tag holds when the container is off it.
+            let built = image_id();
+            if let Some(built) = built.as_ref().filter(|built| is_image_id(built)) {
+                docker_quiet(&["image", "rm", built]);
+            }
+            // The image of the earlier commit goes too. Its container went
+            // before this one was started and the build moved the tag off it,
+            // so nothing runs it and nothing names it: kept, it would be an
+            // image with no tag that only a sweep or a prune takes.
+            if let Some(old) = old.filter(|old| is_image_id(old) && Some(old) != built.as_ref()) {
+                docker_quiet(&["image", "rm", &old]);
+            }
             let reason = format!(
                 "The container started and stopped. See \"docker logs\" in logs/preview-{n}.log on the host."
             );
-            self.start_failed(n, &sha, tries, &reason);
+            // The container ran and then quit, which is the commit and not a
+            // host that hiccuped: one that was never created is the host's
+            // affair and is tried again. So this commit is marked and left
+            // until a new one: it was built, it ran, and its image went with
+            // the container, so nothing here is worth trying a second time.
+            // Nothing serves for the pull request until then: the container of
+            // the earlier commit went before this one was started.
+            self.mark(n, &sha, "build-failed", &reason);
             return;
         }
         let now = image_id();
@@ -479,6 +514,27 @@ mod tests {
             "abc 2",
         ] {
             assert_eq!(tries_of(marker, "abc"), 0, "{marker:?}");
+        }
+    }
+
+    #[test]
+    fn only_an_image_id_of_docker_is_removed_by_id() {
+        assert!(is_image_id(&format!("sha256:{}", "a".repeat(64))));
+        assert!(is_image_id("sha256:2c26b46b1464"));
+        for word in [
+            "",
+            "sha256:",
+            "sha256:1 ",
+            "sha256:1\n",
+            "sha256:1 -f",
+            "--force",
+            "sha256:ABC",
+            "sha256:g",
+            "tehas-preview:12",
+            "2c26b46b1464",
+            "",
+        ] {
+            assert!(!is_image_id(word), "{word:?}");
         }
     }
 
