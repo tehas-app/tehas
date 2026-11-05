@@ -217,7 +217,7 @@ fn a_lean_start_refused_with_78_is_parked_as_one_that_never_ran() {
     let (end, said) = refused(78, true);
     assert!(end.contains(&"--never-ran".to_string()), "{end:?}");
     assert!(
-        said.contains("this tehas cannot run the lean driver yet"),
+        said.contains("the sandbox image cannot run it as this start asks"),
         "{said}"
     );
     assert!(said.contains("take `tehas:lean` off"), "{said}");
