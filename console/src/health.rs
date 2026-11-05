@@ -482,6 +482,7 @@ mod run_tests {
     use super::*;
     use std::process::Command;
     use tehas_core::testdir::TestDir;
+    use tehas_core::testing::{copy_exe, write_exe};
 
     const COMMIT: &str = "0123456789abcdef0123456789abcdef01234567";
 
@@ -602,7 +603,7 @@ mod run_tests {
             fs::write(home.join(".tehas-home"), format!("{}\n", home.display())).unwrap();
             // The store itself is kept under a name of its own, because the
             // home's `libexec/store` is the wrapper every call is recorded in.
-            fs::copy(&real, home.join("store.real")).unwrap();
+            copy_exe(&real, home.join("store.real")).unwrap();
             let mut s = Store {
                 home,
                 real,
@@ -674,12 +675,7 @@ mod run_tests {
                 "#!/usr/bin/env bash\n{record}\n{body}\nexec '{real}' \"$@\"\n",
                 real = self.home.join("store.real").display(),
             );
-            fs::write(self.home.join("libexec/store"), &wrapper).unwrap();
-            fs::set_permissions(
-                self.home.join("libexec/store"),
-                fs::Permissions::from_mode(0o755),
-            )
-            .unwrap();
+            write_exe(self.home.join("libexec/store"), &wrapper).unwrap();
         }
 
         /// The refusals the wrapper answers, one for each call the case stands
@@ -773,8 +769,7 @@ mod run_tests {
             } else {
                 format!("printf '%s\n' '{text}'")
             };
-            fs::write(self.systemctl(), format!("#!/usr/bin/env bash\n{said}\n")).unwrap();
-            fs::set_permissions(self.systemctl(), fs::Permissions::from_mode(0o755)).unwrap();
+            write_exe(self.systemctl(), format!("#!/usr/bin/env bash\n{said}\n")).unwrap();
         }
 
         /// The stub systemd of this home, named by the run rather than read
