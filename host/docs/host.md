@@ -744,7 +744,8 @@ TEHAS_HOME=~/tehas ~/tehas/libexec/store check
 ```
 
 It prints the schema version, SQLite's integrity check and the rows in each
-table, and writes nothing.
+table, and writes nothing. A database that fails the integrity check exits 78
+with `corrupt` and what failed, as any database the store cannot use does.
 
 **Backing it up.** Copy the file with SQLite, not with `cp`, while tehas runs:
 `cp` of a WAL database can take the file without the rows still in its `-wal`.
