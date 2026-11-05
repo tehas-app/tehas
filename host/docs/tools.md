@@ -466,7 +466,11 @@ changes anything in the turn.
 A planning session is on the state store (`plan-show`): its turns, the
 options of its open question, who started it and with which label, the
 approved text, each answer with who gave it, the issues it filed and the
-comments the poll spoke about once. Each change is one write: `plan-begin` as
+comments the poll spoke about once. An option is one label, kept as its
+text: `plan-end` writes the options as a JSON list of the labels it was
+given, and a stored options value that is not a JSON list of labels is
+damage, refused by every read and write of the session with `corrupt` and
+78, never shown as a question with no boxes. Each change is one write: `plan-begin` as
 a session starts, `plan-answer` as an answer begins a turn, `plan-end` as a
 turn ends, as its outcome is posted, and as the session ends. A turn's end the
 store would not take keeps the turn's exit status, and the next poll takes it
@@ -2982,12 +2986,18 @@ file is served.
 the counts in line, building, in review and stopped. `checks.cycles` has the
 issue, status, step and times of every running cycle; `checks.cycle` is the
 first of them, or the cycle that finished last when none is running.
-`checks.plans` has the issue, the turn and `startedAt` of every planning turn
-in flight: a session the state store has running (`plan-show --open`) whose
-lock (`state/plan-<issue>.json.lock`) its unit holds. The page asks the one
-probe, so a lock it cannot open, or a name at that path that is no lock file, is
-a turn in flight too: the page reads a probe it could not make as a turn that has
-not ended, never as one that has. A store that does not
+`checks.plans` has the issue, the turn, `startedAt` and `state` of every
+planning turn in flight and of every open session whose last turn ended in
+error. `state` is `running` for a session the state store has running
+(`plan-show --open`) whose lock (`state/plan-<issue>.json.lock`) its unit holds.
+The page asks the one probe, so a lock it cannot open, or a name at that path
+that is no lock file, is a turn in flight too: the page reads a probe it could
+not make as a turn that has not ended, never as one that has. `state` is
+`failed` for a session still open whose last turn ended in error and waits for
+a person: the store has it failed, or it is running on record beside an exit
+status (`state/plan-<issue>.json.rc`) other than 0 that the next poll posts. A
+session that is over, one whose turn finished, and one whose turn was cut off
+are left out. A store that does not
 answer writes no health file: `tehasbot health` exits 1 when it was busy, 78
 when it is not installed or cannot be used. The publish of the report is tried
 three times while the store is busy, within 30 s of its own, so that a store
@@ -3012,6 +3022,15 @@ checkout of a host that has one. It is `null` on a host with neither.
 `checks.backup` is the newest daily copy of the state store, `{time,
 ageSeconds}`, or `null` when there is none (see [Backups and
 restore](/operating#backups-and-restore)).
+
+`checks.upkeep` is the cleaner's last `store upkeep`, the step that makes the
+backup: `{time, ok, word}`, where `word` is the store's word when it failed
+(`busy`, `corrupt`, `absent` when the store is not installed, ...) and `null`
+when it went well. It is `null` when no upkeep has run yet. The cleaner keeps it
+in `state/upkeep.json`, with the store's whole line. When the backup is missing
+or old and the last upkeep failed, `output` says when and the word: `There is no
+backup of the state store: the last upkeep failed at <time>: <word>.` A failed
+upkeep with a backup of under two days is no warning of its own.
 
 `checks.poll_cost` is the cost of the polls of the last hour that started no
 cycle, measured against `TEHAS_POLL_BUDGET` by
@@ -3041,11 +3060,19 @@ read it. [`tehas status --json`](/api#tehas-status---json) is built from these.
 
 `checks.failed` lists the cycles among the last ten that ended, newest first,
 that ended as anything but `merged` or `handoff`: `issue`, `status`, `step`,
-`startedAt` and `time`. It does not change the status. An abort that a merge
-overtook ten seconds later leaves the status `pass`, and is still in
-`checks.failed` until ten more cycles have ended. A monitor that polls less
-often than cycles end reads it to see every failure. The ten endings are kept
-on the state store and published in `live/endings.json`.
+`startedAt` and `time`. The `status` of an ending whose status names no end at
+all (`running`, or none) is `not an end`, and `output` says of the last cycle
+that it "ended as not an end". health does not change the overall status. An
+abort that a merge overtook ten seconds later leaves the status `pass`, and is
+still in `checks.failed` until ten more cycles have ended. A monitor that polls
+less often than cycles end reads it to see every failure. The ten endings are
+kept on the state store and published in `live/endings.json`.
+
+The store records an ending with the word the cycle reported, except for the two
+that say it did not end at all (`running`, and the empty word of a cycle that
+never sent a heartbeat): those become `unknown`, in the ending and in the
+heartbeat of the end that publish answers from, so a finished run never reads as
+one still in flight.
 
 `checks.disk` has the free and the required bytes and `low`, as `tehasbot
 preview` last wrote them to `live/previews.json`. It is `null` on a host
