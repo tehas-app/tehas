@@ -2,7 +2,8 @@
 //! sandbox image, to its end.
 //!
 //! The container's command is pi-rukas's one-shot runner, `pi-rukas-headless
-//! work <issue> --timeout <minutes> --json`. It writes one JSON result to its
+//! work <issue> --timeout <minutes> --json`, or `work-lean` in place of `work`
+//! when the start's driver is lean: the approval's, or --driver by hand. It writes one JSON result to its
 //! standard output and NDJSON progress to its error stream, and exits with a
 //! status of its own. Nothing is read from the cycle's tree: the outcome is the
 //! result, which this command writes to state/cycles/<issue>.result.json.
@@ -13,7 +14,10 @@
 //! NDJSON 1), takes the flags passed, lists every PI_ENSEMBLE_* variable the
 //! container is given as an input a host may set, and has the features this
 //! command relies on: the host handoff channel, the cycle deadline when one is
-//! given and, with --restart, a restart that clears needs-human-attention.
+//! given and, with --restart, a restart that clears needs-human-attention. On
+//! lean the flags are the work-lean verb's, the features leanHandoffHost and
+//! leanDeadline, and workLeanResultSchema is 5; an image without them leaves
+//! state/cycles/<issue>.lean-refused and never runs classic in lean's place.
 //! A refresh, a start whose approval record has how "refresh", passes
 //! --continue-pr (pi-rukas#1468): the cycle checks out the issue's open pull
 //! request, merges the branch into it and pushes to the same branch. An image
@@ -43,7 +47,7 @@
 //!                       TEHAS_CHILD_TIMEOUT: pi-rukas's backstop for a child
 //!                       nothing else ended.
 //!
-//! Usage: tehas work <issue-number> [--restart]
+//! Usage: tehas work <issue-number> [--restart] [--driver lean|classic]
 //!
 //! ```text
 //! Exit status: the runner's own when it ran and wrote its result:
@@ -89,12 +93,13 @@
 //!              `runner-never-started`. One this command stopped, killed outright
 //!              with no result, or ended at the time limit leaves no such note.
 //!
-//!             64 no bot token or no git identity; no cycle was started.
+//!             64 no bot token or no git identity, or --driver names neither
+//!                lean nor classic; no cycle was started.
 //!             78 the instance settings are invalid, the state store is not
 //!                installed, tehas.slice is not usable on this host, the
-//!                approval says driver lean, which this tehas cannot run yet
-//!                (state/cycles/<issue>.lean-refused says that was the reason),
-//!                the image does not support what the cycle is given, or the
+//!                approval names a driver this tehas does not know, the image
+//!                does not support what the cycle is given (on driver lean
+//!                state/cycles/<issue>.lean-refused says so), or the
 //!                product names no gate in
 //!                .pi/verify-cmd and holds neither package.json nor Cargo.toml
 //!                at the commit the cycle's clone was made at; no cycle was
@@ -351,6 +356,8 @@ use tehas_core::{self, sandbox, slice, time};
 pub struct Given {
     pub issue: u64,
     pub restart: bool,
+    /// The driver a person asked for with --driver, if any.
+    pub driver: Option<start::Driver>,
     /// The console beside the script, which the watch runs.
     pub console: String,
 }
@@ -751,7 +758,8 @@ pub fn run(home: &Path, g: &Given) -> i32 {
         signal_hook::consts::SIGINT,
         signal_hook::consts::SIGHUP,
     ] {
-        if signal_hook::flag::register(sig, stop.flag()).is_err() {
+        let which = signal_hook::flag::register_usize(sig, stop.which(), sig as usize);
+        if signal_hook::flag::register(sig, stop.flag()).is_err() || which.is_err() {
             eprintln!("tehas work: cannot listen for signal {sig}, not starting a cycle");
             return 78;
         }
@@ -837,15 +845,15 @@ pub fn run(home: &Path, g: &Given) -> i32 {
     // What the dispatcher approved for this start, as a private file that goes
     // when this command ends, and why a start with none stops, which is said
     // below with the issue's text. Read before anything of the cycle is written.
-    // Driver lean is refused here: it needs trail-openers/pi-rukas#1920.
     let attempt = env("TEHAS_CYCLE_ATTEMPT");
     let prepared = home.join(format!("state/cycles/{n}.prepared"));
     let mut left = Leftovers(vec![prepared.clone()]);
-    let (record, record_why) = match start::record(home, n, &attempt) {
+    let recorded = match start::record(home, n, &attempt, g.driver) {
         Ok(r) => r,
-        Err(_) => return 78,
+        Err(rc) => return rc,
     };
-    let record = record.map_or(String::new(), |r| {
+    let record_why = recorded.why;
+    let record = recorded.file.map_or(String::new(), |r| {
         left.0.push(r.clone());
         r.to_string_lossy().into_owned()
     });
@@ -873,6 +881,8 @@ pub fn run(home: &Path, g: &Given) -> i32 {
         file: prepared.clone(),
         record: record.clone(),
         restart: g.restart,
+        driver: recorded.driver,
+        lean_note: home.join(format!("state/cycles/{n}.lean-refused")),
         caps_wait,
         console: console.clone(),
         words,
@@ -1010,6 +1020,7 @@ pub fn run(home: &Path, g: &Given) -> i32 {
         email: git_email(),
         renewer: renew.as_ref().map_or(String::new(), |c| c.id().to_string()),
         docker,
+        signal: stop.which(),
         scratch: crate::scratch::Bounds::from_env(n),
     };
     let rc = watch::run(home, &given, stop.flag());
