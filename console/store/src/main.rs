@@ -41,8 +41,8 @@
 //!     Reads only: the schema version, PRAGMA integrity_check, and the rows of
 //!     every table. Answers {"api":1,"verb":"check","ok":true,"schema":2,
 //!     "integrity":"ok","rows":{...}}. A database that fails its integrity
-//!     check answers with "integrity" naming what failed and exit 1; it is
-//!     never moved aside.
+//!     check is one the store cannot use: 78 `corrupt`, with what failed and
+//!     the file. It is never moved aside.
 //!
 //!   store import [--dry-run] [--json]
 //!     The records an older tehas kept as files under state/ (the cycle's,
@@ -99,6 +99,10 @@
 //!   store backup [--show]
 //!   store copy --to <file>
 //!   store prune --days N
+//!                (endings, settled actions with their journal, the heartbeats
+//!                of ended cycles, and the history of issues ended more than N
+//!                days ago, each issue keeping its last row of each history. A
+//!                cycle's row is never removed: src/upkeep.rs)
 //!   store sweep-locks [--days N] [--max N] [--dry-run]
 //!   store locks-held
 //!   store upkeep [--dry-run]
@@ -831,14 +835,15 @@ pub fn execute(home: &Path, verb: &Verb, now: i64) -> Result<String, (u8, String
             let conn = db::open_read_only(&file).map_err(line)?;
             let report = db::check(&conn).map_err(line)?;
             if report.integrity != "ok" {
-                // The word first, as every failure of the store says its own,
-                // so a caller that reads only the word knows the database is
-                // ill. It is not one of the four: nothing about the file stops
-                // the answer, so the exit is 1 and the check names itself.
-                return Err((
-                    1,
-                    format!("integrity {}: {}", report.integrity, file.display()),
-                ));
+                // A failed integrity check is a damaged file, the same as one
+                // whose quick_check fails at the open: 78 and `corrupt` first,
+                // so a caller that reads the word stops on the store instead
+                // of reading it as one refused request and carrying on.
+                return Err(line(db::DbError::Corrupt(format!(
+                    "integrity check failed: {}: {}",
+                    report.integrity,
+                    file.display()
+                ))));
             }
             let rows = report
                 .rows

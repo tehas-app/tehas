@@ -15,6 +15,13 @@ use serde_json::{json, map::Map, Value};
 /// A GitHub comment holds 65,536 characters; the plan is cut well before.
 pub const CLIP: usize = 40_000;
 
+/// How much of the runner's reason for a failed planning turn reaches the
+/// issue: the turn cuts its own words to this length (`console/src/plan/turn.rs`)
+/// and the dispatcher cuts them again where it prints them
+/// (`console/dispatch/src/apply/plan.rs`), as the file between the two is state
+/// a person can edit. One bound, so the two cannot drift apart.
+pub const WHY_MAX: usize = 500;
+
 /// What the comment says when a person still applies the label.
 pub const APPLY_READY: &str = "This issue now holds the plan. Apply `tehas:ready` to build it.";
 
@@ -383,9 +390,9 @@ fn block_text(lines: &[&str]) -> String {
 const NOTE: &str = "(cut: the plan is longer than a comment holds)";
 
 /// The body tehas writes over an issue: `new`, with the `pi-spec v1` block
-/// `was` holds put back at the top when `new` brings none of its own. A draft
-/// never carries a block, so a plan written over a person's issue keeps the
-/// spec lean reads.
+/// `was` holds put back at the top when `new` brings none of its own, so a
+/// plan whose draft carries no block keeps the spec lean reads. The console's
+/// `update` passes the block pi-rukas assembled as `was` when it kept one.
 ///
 /// This is the writer's own step, not part of [`made`]: the two callers of
 /// `made` each apply it once, at the point where they put text on the issue, so

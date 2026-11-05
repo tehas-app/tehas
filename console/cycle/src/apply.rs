@@ -12,6 +12,8 @@ use crate::host::{self, Start};
 use crate::report::{report, Action, Ask, Park, Report};
 use serde_json::{json, Value};
 use std::fs;
+use std::io::Write;
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
 use std::process::Command;
 use std::time::Duration;
@@ -434,6 +436,92 @@ impl Writer<'_> {
     }
 }
 
+/// The driver word of an approval row: the store writes a row with its inputs
+/// under `input` and the word at `input.driver` (console/store/src/approval.rs,
+/// `approval_json`), and `approval-view` writes one with the word on its own.
+fn driver_of(a: &Value) -> Option<&str> {
+    a.get("driver")
+        .and_then(Value::as_str)
+        .or_else(|| a["input"].get("driver").and_then(Value::as_str))
+}
+
+/// Whether the cycle's approval bound the lean driver: the store keeps the
+/// driver with the approval's inputs, and writes it only for lean, so a record
+/// with none anywhere is classic. The copy of the driver's record is kept for a
+/// lean run alone.
+///
+/// The facts hold the raw answer of `approval-current`, which names the two
+/// rows of the issue's latest start: `approval`, an unused one, and `current`,
+/// the one a run took. Either may be the row that bound the driver, so both are
+/// read. The `view` shape is that of `approval-view`, `{at, how, driver}`, which
+/// a reader of the published approval holds instead. An answer that is none of
+/// these - null, or one that holds the store's error - is classic: the cycle
+/// keeps no record rather than guessing at one.
+pub fn approved_lean(facts: &Value) -> bool {
+    let approval = facts.get("approval");
+    [
+        approval,
+        approval.and_then(|a| a.get("approval")),
+        approval.and_then(|a| a.get("current")),
+        approval.and_then(|a| a.get("view")),
+    ]
+    .into_iter()
+    .flatten()
+    .any(|a| driver_of(a) == Some("lean"))
+}
+
+/// The driver's own record of a lean run, kept with the cycle's other notes:
+/// the copy of `.pi/lean-state/<issue>.json` of the workspace, taken before the
+/// workspace is cleaned and read by `analytics run` for the steps the classic
+/// history holds no account of. The name of the note, said once.
+pub const LEAN_STATE: &str = "lean-state.json";
+
+/// The driver's record of a lean run, copied out of its workspace beside the
+/// cycle's other notes, before anything of the workspace is removed. The copy is
+/// made by the one rule the protocol's files have: the file is a plain file of
+/// the workspace and no link on the way, and of a sane size. The driver writes a
+/// new file each attempt, so what is there now is this run's. None, with a
+/// warning, when there is nothing to keep or it cannot be kept: a run is
+/// recorded with no lean figures rather than not at all.
+fn keep_lean_state(home: &Path, workdir: &str, issue: u64, lean: bool) {
+    // The note exists only to feed the analytics, so on a host that has it off
+    // nothing is written.
+    if !lean || !crate::after::analytics_on(home) {
+        return;
+    }
+    let to = home.join(format!("state/cycles/{issue}.{LEAN_STATE}"));
+    let _ = fs::remove_file(&to);
+    // The read of the workspace's own file, which refuses a link anywhere on the
+    // way and a file of no sane size; the copy is of what that read answered.
+    let Some(kept) = crate::last_attempt::lean(Path::new(workdir), issue) else {
+        return;
+    };
+    if !write_private(&to, &kept.to_string()) {
+        log(&format!(
+            "WARN: the lean record of #{issue} is not with its run"
+        ));
+    }
+}
+
+/// A file of `text`, made for its owner and no one else, and removed again when
+/// the write did not finish. The directory is the cycle's notes, which its start
+/// makes, so a write into one that is not there is a host out of order and no
+/// directory is made here.
+fn write_private(to: &Path, text: &str) -> bool {
+    let mut opts = fs::OpenOptions::new();
+    opts.write(true).create_new(true);
+    #[cfg(unix)]
+    opts.mode(0o600);
+    let Ok(mut f) = opts.open(to) else {
+        return false;
+    };
+    if f.write_all(text.as_bytes()).is_err() {
+        let _ = fs::remove_file(to);
+        return false;
+    }
+    f.flush().is_ok()
+}
+
 /// `rm -rf`: gone or never there.
 fn remove_all(p: &str) -> bool {
     match fs::symlink_metadata(p) {
@@ -461,7 +549,10 @@ fn clear_workspace(workdir: &str) {
 }
 
 /// The notes of the protocol, read once: the next cycle of the issue must not
-/// take them for its own.
+/// take them for its own. The driver's kept record of a lean run is not one of
+/// them: the run of the analytics reads it, and the next cycle takes what is
+/// left as it starts (src/supervise.rs), which is the one point reached
+/// however the cycle before it ended.
 fn clear_notes(home: &Path, issue: u64) {
     for name in [
         "oom",
@@ -469,6 +560,7 @@ fn clear_notes(home: &Path, issue: u64) {
         "stalled",
         "timed",
         "signal",
+        "disk",
         "stopped",
         "nostart",
         "done",
@@ -567,6 +659,10 @@ pub fn run(home: &Path, s: &Start) -> i32 {
     let workdir = format!("{}-{issue}", env("TEHAS_WORK_DIR"));
     let now = s.now.unwrap_or_else(tehas_core::time::now);
     let facts_json = host::facts(home, s);
+    // The driver's record goes with the run before the workspace is cleared of
+    // what only its container wrote: the record is the only account of the
+    // driver's own steps, and nothing else reads it later.
+    keep_lean_state(home, &workdir, issue, approved_lean(&facts_json));
     clear_workspace(&workdir);
     let facts = match Facts::from_json(&facts_json) {
         Ok(f) => f,
@@ -646,5 +742,56 @@ pub fn run(home: &Path, s: &Start) -> i32 {
         0
     } else {
         70
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::approved_lean;
+    use serde_json::json;
+
+    #[test]
+    fn the_approval_of_the_start_says_whether_the_run_went_lean() {
+        // The raw answer of `approval-current`: the row of the latest start
+        // under `current`, its inputs under `input`, the driver only for lean.
+        let current = |driver: Option<&str>| {
+            let input = match driver {
+                Some(d) => json!({"driver": d}),
+                None => json!({}),
+            };
+            json!({"approval": {
+                "api": 1, "verb": "approval-current", "ok": true,
+                "current": {"at": "900", "how": "label", "input": input}
+            }})
+        };
+        assert!(approved_lean(&current(Some("lean"))));
+        assert!(!approved_lean(&current(Some("classic"))));
+        assert!(!approved_lean(&current(None)));
+        // An approval taken by a run: the same row under `approval`, which is
+        // what the facts hold when the start's row is still unused.
+        let unused = |driver: &str| {
+            json!({"approval": {
+                "api": 1, "verb": "approval-current", "ok": true,
+                "approval": {"at": "900", "how": "label", "input": {"driver": driver}}
+            }})
+        };
+        assert!(approved_lean(&unused("lean")));
+        assert!(!approved_lean(&unused("classic")));
+        // The approval-view's shape, which holds the word on its own.
+        assert!(approved_lean(
+            &json!({"approval": {"view": {"at": "9", "how": "label", "driver": "lean"}}})
+        ));
+        assert!(!approved_lean(
+            &json!({"approval": {"view": {"at": "9", "how": "label"}}})
+        ));
+        // No answer at all, or one of the store's errors, is classic: no record
+        // is kept on a guess.
+        assert!(!approved_lean(&json!({})));
+        assert!(!approved_lean(&json!({"approval": null})));
+        assert!(!approved_lean(&json!({"approval": {"error": "store"}})));
+        // A word of another type, or of another shape, is no driver.
+        assert!(!approved_lean(
+            &json!({"approval": {"input": {"driver": true}}})
+        ));
     }
 }
