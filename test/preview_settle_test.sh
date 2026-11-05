@@ -97,6 +97,9 @@ for answer in "false 0" "true 2" ""; do
   reset
   a=$(commit feature)
   pulls "$(pull 12 "$a")"
+  # The id this build answers with: the preview had no image before this run,
+  # so the file names the image of the build and nothing that was there before.
+  served=$(image_of "$a") || t_bad "no archive for that commit"
   echo "$answer" >"$fx/settle"
   t_run "$preview"
   t_eq "$t_rc" 0
@@ -104,6 +107,12 @@ for answer in "false 0" "true 2" ""; do
   t_eq "$(jq -r .reason "$root/12/state.json")" \
     'The container started and stopped. See "docker logs" in logs/preview-12.log on the host.'
   t_eq "$(count "$fx/docker" container-12)" 0
+  # The image it built goes with it, asked for by the id the build answered
+  # with and not by the tag a stopped container still holds, and nothing is
+  # built for that commit again.
+  t_eq "$(count "$fx/docker" image-12)" 0
+  t_contains "$(t_calls docker)" "image rm $served"
+  t_lacks "$(t_calls docker)" "image rm tehas-preview:12"
   # Its last lines are kept before it goes.
   t_eq "$(t_calls docker | grep -x -e 'logs --tail 40 tehas-preview-12' -e 'rm -f -v tehas-preview-12' | tail -n 2 | tr '\n' ' ')" \
     "logs --tail 40 tehas-preview-12 rm -f -v tehas-preview-12 "
@@ -115,32 +124,96 @@ for answer in "false 0" "true 2" ""; do
   t_lacks "$(cat "$T/calls/gh-writes")" "https://uat-12.example.org/"
 done
 
-t_case "a container that stopped is tried again at the next run, and serves when it stays up"
-rm -f "$fx/settle"
-t_run "$preview"
-t_eq "$(state_of 12)" "serving"
-t_eq "$(cat "$fx/docker/container-12")" "$a"
-t_eq "$(jq -r '.previews[0].address' "$live/previews.json")" "https://uat-12.example.org/"
-
-t_case "a container that always stops is tried three more times, then left until a new commit"
+t_case "a container that stopped at once is not started again, nor built again"
 reset
 a=$(commit feature)
 pulls "$(pull 12 "$a")"
 echo "false 0" >"$fx/settle"
-for _ in 1 2 3 4 5 6; do t_run "$preview"; done
-t_eq "$(builds)" 4
-t_eq "$(runs)" 1
-t_eq "$(t_calls docker | grep -c '^run ')" 4
-t_eq "$(state_of 12)" "build-failed"
-t_eq "$(count "$root/12" '.retry')" 0
-t_eq "$(cat "$T/calls/gh-writes" | wc -l)" 1
-rm -f "$fx/settle"
 t_run "$preview"
-t_eq "$(builds)" 4
+rm -f "$fx/settle"
+t_eq "$(count "$root/12" '.retry')" 0
+rm -f "$T"/calls/docker*
+t_run "$preview"
+t_eq "$(builds) $(runs)" "0 0"
+t_eq "$(state_of 12)" "build-failed"
+t_eq "$(image_id 12)" ""
+# A new commit, which is a different commit, is built and serves: the stopped
+# one holds nothing back for it.
 a2=$(commit feature)
 pulls "$(pull 12 "$a2")"
 t_run "$preview"
 t_eq "$(state_of 12)" "serving"
+t_eq "$(cat "$fx/docker/container-12")" "$a2"
+t_eq "$(builds)" 1
+
+t_case "a container that stopped at once leaves no image, is not started again, and is built once"
+reset
+a=$(commit feature)
+pulls "$(pull 12 "$a")"
+echo "false 0" >"$fx/settle"
+for _ in 1 2 3 4 5; do t_run "$preview"; done
+t_eq "$(builds) $(runs) $(image_rm_calls)" "1 1 1"
+t_eq "$(state_of 12)" "build-failed"
+t_eq "$(count "$root/12" '.retry')" 0
+t_eq "$(image_id 12)" ""
+# The one image it was told to remove is the image of that build, named by its
+# id: nothing else on the host is touched, and the docker stub removed it.
+built=$(image_of "$a") || t_bad "no archive for that commit"
+t_eq "$(t_calls docker | grep '^image rm')" "image rm $built"
+t_eq "$(image_rm_unexpected)" ""
+t_eq "$(cat "$T/calls/gh-writes" | wc -l)" 1
+
+t_case "a stopped commit takes its own image and the image of the commit before it, by their ids"
+reset
+a=$(commit feature)
+pulls "$(pull 12 "$a")"
+t_run "$preview"
+served=$(image_id 12)
+first=$(image_of "$a") || t_bad "no archive for that commit"
+[ "$served" = "$first" ] || t_bad "the first build made another image"
+a2=$(commit feature)
+pulls "$(pull 12 "$a2")"
+stopped=$(image_of "$a2") || t_bad "no archive for that commit"
+echo "false 0" >"$fx/settle"
+rm -f "$T"/calls/docker*
+t_run "$preview"   # its build made a new image and its container stopped
+# The build moved the tag off the image of the commit that served, and that
+# commit's container went before the new one was started: nothing runs it and
+# nothing names it, so it goes with the image of the stopped commit. Each is
+# named by its id once, and never by the tag.
+t_eq "$(image_rm_calls "$stopped") $(image_rm_calls "$served") $(image_rm_calls)" "1 1 2"
+t_lacks "$(t_calls docker)" "image rm tehas-preview:12"
+t_eq "$(image_rm_unexpected)" ""
+
+t_case "a stopped commit leaves no image and nothing serving, until a new commit serves"
+reset
+a=$(commit feature)
+pulls "$(pull 12 "$a")"
+t_run "$preview"
+a2=$(commit feature)
+pulls "$(pull 12 "$a2")"
+echo "false 0" >"$fx/settle"
+t_run "$preview"   # its build made a new image and its container stopped
+t_eq "$(state_of 12)" "build-failed"
+t_eq "$(image_id 12)" ""
+t_eq "$(untagged 12)" ""
+# The container of the earlier commit went before this one was started.
+t_eq "$(count "$fx/docker" container-12)" 0
+t_eq "$(jq -r '.previews[0] | "\(.state) \(.address)"' "$live/previews.json")" "build-failed null"
+# And it stays so at the next run: the same commit is not built again.
+rm -f "$T"/calls/docker*
+t_run "$preview"
+t_eq "$(builds) $(runs)" "0 0"
+t_eq "$(count "$fx/docker" container-12)" 0
+a3=$(commit feature)
+pulls "$(pull 12 "$a3")"
+next=$(image_of "$a3") || t_bad "no archive for that commit"
+rm -f "$fx/settle"
+t_run "$preview"
+t_eq "$(state_of 12)" "serving"
+t_eq "$(cat "$fx/docker/container-12")" "$a3"
+t_eq "$(image_id 12)" "$next"
+t_eq "$(untagged 12)" ""
 
 t_case "a container that was not created keeps its own reason, and is not asked or logged"
 reset

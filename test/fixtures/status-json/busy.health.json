@@ -22,7 +22,7 @@
                         "cycle": {"bound": "ceiling", "slots": 12, "cpus": 24, "cycleCpus": "4", "containerMemory": "8g", "ceiling": "3", "floored": false},
                         "container": {"bound": "memory", "slots": 6, "cpus": 24, "cycleCpus": "4", "containerMemory": "8g", "ceiling": "3", "floored": false}}},
     "demand": {"time": "2026-10-17T13:59:30Z", "waiting": 2, "oldest": "2026-10-17T12:29:40Z",
-               "refreshHold": "refreshes are off on this host"},
+               "refreshHold": "refreshes are off on this host", "labelAlone": [12]},
     "limit": {"state": "ok", "cycles": 3, "plan": true, "until": "2026-10-17T15:00:00Z", "reason": "shared with another factory"},
     "allHands": true,
     "pause": {"flag": {"at": "2026-10-17T13:00:00Z", "reason": "weekend"}, "label": false, "lifted": false},
