@@ -1685,7 +1685,7 @@ impl Run {
     /// nowhere among the locks of the cycles: `state/dev` holds what `tehas dev`
     /// takes, `state/cycles` what a cycle takes, so no reader of a cycle's lock
     /// ever asks about one of these. The path is the contract with
-    /// `libexec/dev`, which holds it for a session's life, so a test of the rule
+    /// `tehas dev`, which holds it for a session's life, so a test of the rule
     /// is a test of the path. A name of no plain word has no lock of its own and
     /// answers nothing.
     fn clone_lock(&self, name: &str) -> Option<PathBuf> {

@@ -393,7 +393,7 @@ Instance:     /home/boss/tehas/platform/instances/tehas-tehas OK
 Dependencies: OK
 Slice:        MISSING (sudo ./bootstrap.sh slice)
 Installed:    DRIFT (1 files)
-  differs: /home/boss/tehas/libexec/dispatch
+  differs: /home/boss/tehas/libexec/work
 Follow-ups:   NOT DONE (2 from an earlier run, see /home/boss/tehas/state/update-pending)
 Tests:        not run (./install.sh --check --tests runs them)
 ```

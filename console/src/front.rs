@@ -9,6 +9,10 @@
 //! verb of this program: in this process, under the settings through `console
 //! run` (src/run.rs) where it needs them. Nothing here loads the settings.
 //!
+//! `tehasbot github-token` is what host/shim/gh and the poll run for the app's
+//! token, and `console tehas dev-login` is what the sudo rule of `bootstrap.sh
+//! dev` names: neither has a script of its own.
+//!
 //! Exit: the command's; 64 a command this does not know.
 
 use crate::{commands, energy, run};
@@ -42,23 +46,18 @@ enum Go {
 
 fn script(which: &str, command: &str) -> Option<&'static str> {
     let scripts: &[&'static str] = match which {
-        "tehas" => &[
-            "dispatch",
-            "work",
-            "plan",
-            "dev",
-            "index",
-            "setup",
-            "update",
-            "check-product",
-        ],
-        _ => &["dispatch", "cycle", "improve", "review", "github-token"],
+        "tehas" => &["work", "index", "setup", "update"],
+        _ => &["cycle"],
     };
     scripts.iter().copied().find(|s| *s == command)
 }
 
 /// The verbs of `tehas`.
-const VERBS: [&str; 17] = [
+const VERBS: [&str; 21] = [
+    "dispatch",
+    "plan",
+    "dev",
+    "check-product",
     "status",
     "disk",
     "state",
@@ -97,7 +96,7 @@ fn tehas(words: &[String]) -> Go {
         return Go::Text(command.to_string());
     }
     match command {
-        "status" | "disk" | "top" => Go::Verb,
+        "status" | "disk" | "top" | "dev" => Go::Verb,
         "mcp" if word(1) != Some("serve") => Go::Verb,
         c => script("tehas", c).map_or(Go::Run, Go::Script),
     }
@@ -106,7 +105,10 @@ fn tehas(words: &[String]) -> Go {
 fn tehasbot(words: &[String]) -> Go {
     match words.first().map(String::as_str) {
         None | Some("help" | "-h" | "--help") => Go::Usage,
-        Some("health" | "status" | "top" | "refresh" | "clean" | "preview" | "protolab") => Go::Run,
+        Some(
+            "health" | "status" | "top" | "refresh" | "clean" | "preview" | "protolab" | "dispatch"
+            | "improve" | "review" | "github-token",
+        ) => Go::Run,
         Some("mcp") if words.get(1).map(String::as_str) == Some("serve") => Go::Run,
         Some("mcp") => Go::Verb,
         Some("energy") => Go::Energy,
@@ -217,18 +219,24 @@ mod tests {
 
     #[test]
     fn tehas_runs_the_script_of_each_command_that_has_one() {
-        for c in [
-            "dispatch",
-            "work",
-            "plan",
-            "dev",
-            "index",
-            "setup",
-            "update",
-            "check-product",
-        ] {
+        for c in ["work", "index", "setup", "update"] {
             assert_eq!(t(&[c, "7"]), Go::Script(script("tehas", c).unwrap()));
         }
+    }
+
+    #[test]
+    fn the_commands_of_the_old_wrappers_go_straight_to_the_console() {
+        for c in ["dispatch", "plan", "check-product"] {
+            assert_eq!(t(&[c, "7"]), Go::Run, "{c}");
+        }
+        assert_eq!(t(&["dev", "--issue", "7"]), Go::Verb);
+        for c in ["dispatch", "improve", "review", "github-token"] {
+            assert_eq!(b(&[c]), Go::Run, "{c}");
+        }
+        for c in ["dev-login", "github-token", "review", "improve"] {
+            assert_eq!(t(&[c]), Go::Unknown(c.into()), "{c}");
+        }
+        assert_eq!(b(&["dev-login"]), Go::Unknown("dev-login".into()));
     }
 
     #[test]
@@ -239,6 +247,7 @@ mod tests {
             &["top", "--once"],
             &["top"],
             &["mcp", "key"],
+            &["dev"],
         ] {
             assert_eq!(t(w), Go::Verb, "{w:?}");
         }
@@ -307,11 +316,19 @@ mod tests {
 
     #[test]
     fn tehasbot_routes_each_command() {
-        for c in ["dispatch", "cycle", "improve", "review", "github-token"] {
-            assert_eq!(b(&[c, "7"]), Go::Script(script("tehasbot", c).unwrap()));
-        }
+        assert_eq!(b(&["cycle", "7"]), Go::Script("cycle"));
         for c in [
-            "health", "status", "top", "refresh", "clean", "preview", "protolab",
+            "health",
+            "status",
+            "top",
+            "refresh",
+            "clean",
+            "preview",
+            "protolab",
+            "dispatch",
+            "improve",
+            "review",
+            "github-token",
         ] {
             assert_eq!(b(&[c]), Go::Run, "{c}");
         }

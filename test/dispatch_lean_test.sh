@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for libexec/dispatch: tehas:lean through the real read of a poll. The
+# Tests for tehasbot dispatch: tehas:lean through the real read of a poll. The
 # rules are in console/dispatch/tests/fixtures/lean.json.
 # shellcheck disable=SC2016  # snippets are expanded by the shell under test
 # shellcheck source=test/lib.sh

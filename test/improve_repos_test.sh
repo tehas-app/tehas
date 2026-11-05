@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for libexec/improve: findings filed in the repository for pi-rukas, and
+# Tests for tehasbot improve: findings filed in the repository for pi-rukas, and
 # a boundary finding with a half on each side.
 # shellcheck disable=SC2016  # stub bodies and snippets are expanded when they run
 # shellcheck source=test/lib.sh

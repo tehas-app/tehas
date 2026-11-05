@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for libexec/dispatch: the planning session on the state store. What
+# Tests for tehasbot dispatch: the planning session on the state store. What
 # survives a turn (B8), which question an answer counts in (F5), an open
 # session holding its issue out of other work (A13), a session replaced (B4),
 # and a store that does not answer (D2).

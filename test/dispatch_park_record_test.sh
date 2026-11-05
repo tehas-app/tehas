@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for libexec/dispatch: a retry tick that is not taken, and a question on
+# Tests for tehasbot dispatch: a retry tick that is not taken, and a question on
 # record that this host does not know or cannot read.
 # shellcheck disable=SC2016  # snippets are expanded by the shell under test
 # shellcheck source=test/lib.sh

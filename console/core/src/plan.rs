@@ -5,7 +5,7 @@
 //! Neither writes text that says nothing of the issue. [`made`] asks
 //! [`tehas_core::textcheck`] of the draft's title and spec and answers with a
 //! [`Refusal`] naming the rule, so the writer that calls it can say the reason
-//! to the person and change nothing. `libexec/plan` cannot fail the turn for
+//! to the person and change nothing. `tehas plan` cannot fail the turn for
 //! a refused draft: the session stays open and the person replies to change
 //! the plan, as with an open point.
 
