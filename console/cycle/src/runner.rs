@@ -122,6 +122,8 @@ fn outcome_of(r: &Value, issue: u64) -> Option<Value> {
         "lastStep": steps.last().cloned().unwrap_or_default(),
         "parkReason": plain(e.get("parkReason")),
         "handoffBody": body,
+        "handoffChannel": plain(e.get("handoff").and_then(|h| h.get("channel"))),
+        "prState": plain(e.get("prState")),
         "branch": plain(e.get("branch")), "prUrl": plain(e.get("prUrl")),
         "resumable": e.get("resumable") == Some(&Value::Bool(true)),
         "exitCode": match e.get("exitCode") { Some(Value::Number(x)) => Value::Number(x.clone()), _ => Value::Null },
@@ -524,6 +526,13 @@ mod tests {
         assert_eq!(o["usage"]["input"], 3);
         assert_eq!(o["usage"]["output"], 0);
         assert_eq!(o["buildCommit"], "abc");
+        assert_eq!(o["prState"], "");
+        let lean = r#"{"schemaVersion":5,"issues":[{"issue":7,"prState":"draft","handoff":{"channel":"host","body":"b"}}]}"#;
+        let o = outcome(lean, 7).unwrap();
+        assert_eq!(
+            (&o["prState"], &o["handoffChannel"]),
+            (&json!("draft"), &json!("host"))
+        );
         assert!(outcome(r, 9).is_none());
         assert!(outcome(&r.replace(":5,", ":4,"), 7).is_none());
         assert!(outcome(
