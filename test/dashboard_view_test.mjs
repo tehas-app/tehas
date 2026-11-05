@@ -31,3 +31,9 @@ test("the fragment loads the tabs, then the module, and holds no script of its o
     '<script type="module" src="/fun/dashboard-view.js"></script>',
   ]);
 });
+
+test("the module starts itself on the page that holds its element", () => {
+  const last = VIEW.trimEnd().split("\n").at(-1);
+  assert.equal(last,
+    'if (typeof document !== "undefined" && document.getElementById(globalThis.TEHAS_DASHBOARD.probe)) start();');
+});
