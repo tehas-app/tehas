@@ -166,6 +166,19 @@ fn denied(before: &str) -> bool {
         .any(|word| NO.contains(&word) || word.ends_with("n't"))
 }
 
+/// The label the poll gives an issue whose title starts with the epic marker.
+pub const EPIC: &str = "epic";
+
+/// Whether a title starts with the epic marker: the word `epic` in any case,
+/// first or after one opening bracket, then `:`, a closing bracket or white
+/// space. Only the start counts, so a part that names its epic later in its
+/// title is no epic.
+pub fn epic_marker(title: &str) -> bool {
+    static MARK: OnceLock<Regex> = OnceLock::new();
+    MARK.get_or_init(|| Regex::new(r"(?i)^[\[(]?epic[:)\]\s]").unwrap())
+        .is_match(title)
+}
+
 /// The first unfilled placeholder of a text.
 fn placeholder(text: &str) -> Option<String> {
     static SAID: OnceLock<Regex> = OnceLock::new();
@@ -241,6 +254,40 @@ pub fn promise(answer: &Value) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_title_that_starts_with_the_epic_marker_is_an_epic() {
+        for t in [
+            "EPIC: Billing rework",
+            "Epic: x",
+            "epic: x",
+            "EpIc: x",
+            "(Epic) x",
+            "[EPIC] x",
+            "EPIC: Epic: x",
+            "Epic billing rework",
+            "[epic: billing] x",
+        ] {
+            assert!(epic_marker(t), "{t}");
+        }
+    }
+
+    #[test]
+    fn the_word_anywhere_else_is_no_marker() {
+        for t in [
+            "feat: WS-A child of epic 412: x",
+            "feat: CSV parser (import epic 2/4)",
+            "Epicenter map",
+            "epics view polish",
+            "Epic",
+            "",
+            " Epic: x",
+            "[[Epic]] x",
+            "Epic-wide rename",
+        ] {
+            assert!(!epic_marker(t), "{t}");
+        }
+    }
 
     #[test]
     fn an_unfilled_placeholder_in_a_text_that_links_nothing_is_a_promise() {

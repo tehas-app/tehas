@@ -1790,13 +1790,14 @@ build one from.
 tehas labels        # one line per label
 ```
 
-Creates the nineteen labels tehas uses in the product repository: `tehas:ready`,
+Creates the twenty labels tehas uses in the product repository: `tehas:ready`,
 `tehas:urgent`, `tehas:running`, `tehas:awaiting-merge`, `tehas:shipped`, `tehas:pause`,
 `needs-human-attention`, `tehas:question`, `tehas:plan`, `tehas:refine`, `tehas:planning`,
 `tehas:replaced` and `tehas:refined` (an issue a [refine](/operating#refining-a-request)
 filed a ticket for), `tehas:millwright-escalated`, `tehas:next`, `tehas:blocked`, `tehas:refreshing` (on a
-pull request a [refresh](/operating#refreshes) works on), `tehas:all-hands` and
-`tehas:lean` (see [choosing the driver](/operating#choosing-the-driver)).
+pull request a [refresh](/operating#refreshes) works on), `tehas:all-hands`,
+`tehas:lean` (see [choosing the driver](/operating#choosing-the-driver)) and
+`epic` (see [epics](/operating#3-what-happens-next)).
 Run it once for a new product, and again after pulling a version that adds a
 label. Run again, it puts their colours and descriptions back. The labels are
 the lines of `~/tehas/lib/labels.tsv`, which `install.sh` copies from
@@ -2798,7 +2799,9 @@ epic is not read, so it leaves the file at the next poll. The console makes the
 read and writes the file (`console epics`, `console/src/epics.rs`), under the
 home and repository of the instance it is run for: one GraphQL
 call for each hundred open issues, under the same 60 seconds. A read that fails
-writes nothing and the file of the run before stays.
+writes nothing and the file of the run before stays. `unlinked` lists the open
+issues labelled `epic` that have no sub-issues, newest first, by number: the
+label puts no issue on the panel, and `tehasbot health` warns about these.
 
 `tehasbot status` also records issue events in the factory's analytics,
 `~/tehas/state/analytics.db`, by comparing the snapshot it writes with the one
@@ -2991,10 +2994,15 @@ issue, and `lifted` whether the label is off with no account in
 carries no `by`: the account that wrote the flag stays on the host, because this
 file is served.
 
+`checks.epics` is `{time, unlinked}` from `live/epics.json`: the open issues
+labelled `epic` with no sub-issues, as the last read of the epics found them.
+It is null when that file is missing, not of that shape, or more than ten
+minutes old, which is what a failed read leaves, and then it warns of nothing.
+
 | `status` | Meaning                                                                                  | HTTP |
 | -------- | ---------------------------------------------------------------------------------------- | ---- |
 | `pass`   | Taking work, idle or in a cycle                                                          | 200  |
-| `warn`   | The queue snapshot is more than ten minutes old: GitHub did not answer the last polls, and `output` says how old. Or paused (the pause flag on this host, `tehas:pause` on the control issue, or a pause no allowed account took off), or the dispatcher holds everything because the slice is missing or cannot be read, or there are no resources (the model endpoint does not answer or does not offer the model), or too low on disk to build previews, or the free space could not be read, or the platform checkout has been behind origin's default branch for more than a day (`output` says how many commits; run `tehas update`), or the state store has no daily backup or the newest is more than two days old, or an idle poll cost more than its budget (`TEHAS_POLL_BUDGET`, `checks.poll_cost`)| `warn`   | The queue snapshot is more than ten minutes old: GitHub did not answer the last polls, and `output` says how old. Or paused (the pause flag on this host, `tehas:pause` on the control issue, or a pause no allowed account took off), or the dispatcher holds everything because the slice is missing or cannot be read, or there are no resources (the model endpoint does not answer or does not offer the model), or too low on disk to build previews, or the free space could not be read, or the platform checkout has been behind origin's default branch for more than a day (`output` says how many commits; run `tehas update`), or the state store has no daily backup or the newest is more than two days old, or an idle poll cost more than its budget (`TEHAS_POLL_BUDGET`, `checks.poll_cost`), or systemd gave up on a tehas unit (`checks.units`, null when that read did not answer), or no cycle runs and the last poll held every issue in line on its own (`checks.slice.held`: issue, why, text, clear), as one whose last cycle parked on the body it still has, or the MCP server is on and does not answer (`checks.mcp`) | 200  |
+| `warn`   | The queue snapshot is more than ten minutes old: GitHub did not answer the last polls, and `output` says how old. Or paused (the pause flag on this host, `tehas:pause` on the control issue, or a pause no allowed account took off), or the dispatcher holds everything because the slice is missing or cannot be read, or there are no resources (the model endpoint does not answer or does not offer the model), or too low on disk to build previews, or the free space could not be read, or the platform checkout has been behind origin's default branch for more than a day (`output` says how many commits; run `tehas update`), or the state store has no daily backup or the newest is more than two days old, or an idle poll cost more than its budget (`TEHAS_POLL_BUDGET`, `checks.poll_cost`), or systemd gave up on a tehas unit (`checks.units`, null when that read did not answer), or no cycle runs and the last poll held every issue in line on its own (`checks.slice.held`: issue, why, text, clear), as one whose last cycle parked on the body it still has, or an open issue labelled `epic` has no sub-issues (`checks.epics`; `output` names up to five and says to link their parts as sub-issues), or the MCP server is on and does not answer (`checks.mcp`) | 200  |
 | `fail`   | The last cycle ended as anything but `merged` or `handoff` and no cycle has started since (a running cycle with no `startedAt` counts as started since), or there is no queue snapshot | 503  |
 
 `output` says the same in a sentence. `checks.queue` has the snapshot time and

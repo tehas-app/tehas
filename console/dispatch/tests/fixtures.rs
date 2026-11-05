@@ -740,6 +740,11 @@ fn run_suite(name: &str) {
 }
 
 #[test]
+fn epic_label() {
+    run_suite("epic_label");
+}
+
+#[test]
 fn refine() {
     run_suite("refine");
 }
