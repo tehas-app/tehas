@@ -283,6 +283,33 @@ fn status_schema() -> Value {
                 "Why the dispatcher starts nothing. Left out when nothing holds.",
             ),
         ),
+        (
+            "held",
+            arr(
+                obj(
+                    vec![
+                        ("issue", prop("integer", "The issue number.")),
+                        (
+                            "why",
+                            prop(
+                                "string",
+                                "One word for the reason, such as parked: its last cycle parked and the body has not changed since.",
+                            ),
+                        ),
+                        (
+                            "text",
+                            prop("string", "The reason in a line, masked and cut to 400 characters."),
+                        ),
+                        (
+                            "clear",
+                            prop("string", "What a person does to release it."),
+                        ),
+                    ],
+                    "One ready issue the poll held on its own.",
+                ),
+                "The ready issues the last poll held one by one while it had room: none of them starts until a person clears its hold. Left out when none is held.",
+            ),
+        ),
     ])
 }
 
@@ -1070,6 +1097,7 @@ pub fn spec_of(name: &str) -> Option<Value> {
             // the empty word of a free poll is never served and needs no arm
             // of its own in the answer.
             "hold": {"why": true, "text": true},
+            "held": [{"issue": true, "why": true, "text": true, "clear": true}],
         }),
         "factory_issues" => {
             let mut s = Map::new();
@@ -1259,7 +1287,27 @@ fn status(live: &Path) -> Result<Map<String, Value>, ToolError> {
     // waiting, and dispatch.json is published already: the hold is copied from
     // it, and left out when the poll said nothing held.
     put(&mut out, "hold", held(live).map(Held::into_value));
+    put(&mut out, "held", held_issues(live));
     Ok(out)
+}
+
+/// The ready issues the poll's report held one by one, as `hold::Held` writes
+/// them, None when it held none or there is no report to read. An entry of
+/// another shape is left out, and the two lines of text are masked, then cut.
+fn held_issues(live: &Path) -> Option<Value> {
+    let (report, _) = tehas_core::file::read_regular(&live.join(DISPATCH_FILE), HOLD_BOUND).ok()?;
+    let report = serde_json::from_slice::<Value>(&report).ok()?;
+    let cut = |t: &str| mask(t).chars().take(HOLD_MAX).collect::<String>();
+    let list: Vec<Value> = report
+        .get(hold::KEY_HELD)?
+        .as_array()?
+        .iter()
+        .filter_map(hold::Held::parse)
+        .map(|(issue, why, text, clear)| {
+            json!({"issue": issue, "why": cut(&why), "text": cut(&text), "clear": cut(&clear)})
+        })
+        .collect();
+    (!list.is_empty()).then_some(Value::Array(list))
 }
 
 /// The hold of the poll's report as the answer gives it: the one word of the
@@ -1748,6 +1796,42 @@ mod tests {
                 why.as_str()
             );
         }
+    }
+
+    #[test]
+    fn the_issues_a_poll_held_are_copied_and_one_of_another_shape_is_not() {
+        let dir = TestDir::new("mcp-held");
+        assert_eq!(held_issues(&dir), None);
+        std::fs::write(
+            dir.join(DISPATCH_FILE),
+            json!({"why": "", "hold": "", "held": [
+                {"issue": 7, "why": "parked", "text": "its last cycle parked on `gate`", "clear": "edit the body"},
+                {"issue": "8", "why": "parked", "text": "x", "clear": "y"},
+                {"issue": 9, "why": "parked", "text": "x"},
+            ]})
+            .to_string(),
+        )
+        .unwrap();
+        assert_eq!(
+            held_issues(&dir),
+            Some(
+                json!([{"issue": 7, "why": "parked", "text": "its last cycle parked on `gate`", "clear": "edit the body"}])
+            )
+        );
+        std::fs::write(
+            dir.join(DISPATCH_FILE),
+            json!({"why": "", "hold": ""}).to_string(),
+        )
+        .unwrap();
+        assert_eq!(held_issues(&dir), None);
+        // A hold of the whole poll and a held issue are two answers of their own.
+        std::fs::write(
+            dir.join(DISPATCH_FILE),
+            json!({"why": "count", "hold": "holding: 5", "held": []}).to_string(),
+        )
+        .unwrap();
+        assert_eq!(held_issues(&dir), None);
+        assert!(held(&dir).is_some());
     }
 
     // Dirs of the fixtures, for tests that ask the dispatch which side of it
