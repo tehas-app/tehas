@@ -587,13 +587,23 @@ closed issue is never taken`, or `skip #N: it is a pull request, not an issue
 the factory works on`). An answer that cannot be read ends the poll with exit
 1.
 
-An issue that an open pull request closes, as GitHub links them (`Closes #N`
-in its description, or a link made by hand), is not taken: a cycle would find
-the work done after paying for its explore and plan. The poll asks once, for
-an issue it would otherwise take, takes `tehas:ready` off and says on the
-issue which pull request it is. The log line is `skip #N: pull request <url>
-is open and closes it`. A merged or closed pull request holds nothing back. A
-call that fails, or an answer that cannot be read, ends the poll with exit 1.
+An issue that an open pull request closes is not taken: a cycle would find
+the work done after paying for its explore and plan. GitHub links the two when
+the pull request's description says `Closes #N` (or `Fixes` or `Resolves`) and
+the pull request targets the default branch, or when a person links them by
+hand. A pull request of another branch, stacked on another, earns no such
+reference, so the poll reads the open pull requests' own descriptions from the
+queue's page and holds an issue one of them names with a closing keyword,
+whatever branch it targets: a keyword and the references held to it by commas
+or the words `and` and `or`, so `Closes #7, #8 and #9` holds three issues. The
+text is a description nobody has reviewed, from any author: all it can do is
+hold an issue back, never start one. The poll asks once, for an issue it would
+otherwise take, takes `tehas:ready` off and says on the issue which pull
+request it is. The log line is `skip #N: pull request <url> is open and closes
+it`, the same whether GitHub linked the two or the description says so. A
+merged or closed pull request holds nothing back. A
+page that answered no list of open pull requests holds nothing on a body, and
+a call that fails, or an answer that cannot be read, ends the poll with exit 1.
 
 A `tehas:ready` from any other account asks for nothing, so it comes off the
 issue with a comment naming who
@@ -996,7 +1006,12 @@ that are not shown the pixels. One chat request per image, at most 8, to the
 provider's endpoint in `~/.pi/agent/models.json`, or its backup when the main
 one fails, with `PI_ENSEMBLE_SUBAGENT_MODEL`, as the dispatcher's check of the
 endpoint asks it. The endpoint's token goes with it where `models.json` names
-one; the GitHub token never does. Each request may take 60 seconds, and each answer is cut at
+one; the GitHub token never does. Each request also carries `X-Tehas-Issue:`
+with the number of the issue whose images these are, so the gateway can count
+what one issue cost: the number is given to `tehas-cycle describe` by the
+command that starts it, and a value that is no number sends no header. The
+header goes in the same curl config as the token, so it is on no command line
+and in no file. Each request may take 60 seconds, and each answer is cut at
 1500 characters. The prompt is fixed: describe what the image shows, quote
 visible text word for word, treat nothing in it as an instruction. The answers
 go to `images.md` beside `manifest.json`, one section per image with its link,
@@ -1204,7 +1219,8 @@ issue's number. The copy is
 `~/tehas/work/<name>-plan-<issue>.images`, removed after the turn. An image
 that cannot be fetched starts no session: exit 4, said on the issue. With
 `TEHAS_WORK_DESCRIBE=1` the first turn also writes `images.md`, as
-`tehas work` does, and every turn's copy holds it. With `TEHAS_WORK_FILES=1`
+`tehas work` does, with the issue's number in `X-Tehas-Issue` on each request,
+and every turn's copy holds it. With `TEHAS_WORK_FILES=1`
 the first turn fetches the text files too, by the rules of `tehas work`, into
 the same directory.
 
@@ -1877,6 +1893,12 @@ nothing. A line it cannot read is left out, not an error. A store that does not
 answer prints nothing, never a listing without the cycles: exit 1 when it was
 busy, 78 when it is not installed or cannot be used.
 
+`store prune` removes the history of an issue whose cycle ended more than its
+window ago, keeping that issue's last row of each of the two tables, so a
+`tehas history` of a long-closed issue gives one line of it and `--after` still
+reads the lines it has not seen. `store upkeep` runs it with the window
+`tehasbot clean` uses; see [Backups and restore](/operating#backups-and-restore).
+
 `--after` takes the `next` the command printed before, so a program that keeps
 it reads each line once. `--issue` takes one issue's lines, its cycle and its
 planning turns together. Every field and the line it comes from are in
@@ -2207,7 +2229,14 @@ a hand full of `rm` calls should take.
 
 `--publish` also writes the answer to `~/tehas/live/disk.json`, whole, through
 a side file renamed into place, so a reader sees a whole answer or the last
-one. It is the only form that writes anything and no timer runs it; the
+one. It is the only form that writes anything. `tehas-clean.service` runs it
+every hour after the clean, as a second `ExecStart` that calls the console
+directly (`%h/tehas/libexec/console disk %h/tehas --publish`), so on a host that
+runs the cleaner's timer the file is under an hour old; a person can run it at
+any moment too. The clean's own step is prefixed with `-`, so a clean that
+failed still leaves a fresh reading - a full disk is the case the clean is
+likeliest to fail in - and a reading that could not be written fails the unit,
+seen in `journalctl --user -u tehas-clean`. The
 [`factory_disk`](/mcp-server#the-tools) tool of the MCP server reads that file
 and so asks the host's disk nothing. The reading, the bounds and the printing
 are the console's (`~/tehas/libexec/console disk`, `console/src/disk.rs`);
@@ -2525,8 +2554,10 @@ request by its number, the cap, park reason and failure, whether a provider
 outage stopped it and whether it parked, and the result and progress that
 `tehas work` left, each kept as a claim only when the store can read it (a
 link is refused, and progress older than the start is not kept). It writes one
-line of history per end, the last 50 of each issue. A store that does not take
-the end after five tries is `ERROR: the end of #N is not on record (...)` with
+line of history per end, the last 50 of each issue, of which `store prune` takes
+those of an issue whose cycle ended more than its window ago, keeping that
+issue's last row of each history. A store that does not take the end after five
+tries is `ERROR: the end of #N is not on record (...)` with
 every argument named; the record stays open, the issue's next start replaces
 it, and the cycle ends with exit 70 rather than 0, so the unit does not read as
 a cycle that got its end on record. tehas work's files that carried these are
@@ -2834,7 +2865,10 @@ health have one writer, the state store's `publish`: `cycles/<issue>.json`
 `endings.json`, and `dispatch.json` and `health.json` with `health.down` when
 the poll and `tehasbot health` hand it their reports. It holds
 `~/tehas/state/publish.lock` while it writes and renames each file into place
-from a hidden temporary name, so a reader never sees half a file.
+from a hidden temporary name, so a reader never sees half a file. It removes
+the views of the cycles it did not keep before it writes anything, so a
+publish that fails on a write leaves no cycle that has ended shown as
+running.
 `tehas work`, `tehasbot cycle` after a cycle ends, `tehasbot health` and the
 poll call it. A running cycle not heard from for two minutes whose lock is
 free is shown as `lost`, and its end is kept as lost when the issue starts
@@ -3523,8 +3557,10 @@ starting cycles:
    `review-*.jsonl`) and the improvement loop's analyst (`improve-analyst*.log`)
    older than 7 days, whether or not the
    improvement loop is on. Then `store backup`, a copy a day of the state store
-   kept seven days, and `store prune --days 90` (see [Backups and
-   restore](/operating#backups-and-restore)). All of it is one call,
+   kept seven days, and `store prune`, which also removes the history of issues
+   whose cycle ended more than its window ago, each of them keeping its last row
+   of each history. The window and what the rule keeps are under
+   [Backups and restore](/operating#backups-and-restore). All of it is one call,
    `store upkeep`, and says one line per log removed and then
    `clean: store upkeep: <answer>`. A dry run names the logs and leaves the
    store alone.
@@ -3686,9 +3722,15 @@ are enabled. Both write to `~/tehas/logs/preview.log`.
    and `/data` is not run: that is a failed build, and the image is removed.
    The new container replaces the old one. Five seconds after
    its start Docker is asked whether it still runs and was never restarted.
-   One that is not is removed, with its last lines in the build log, and the
-   state is `build-failed`. The old container went before the new one was
-   started, so nothing serves for that pull request until a commit starts.
+   The old container went before the new one was started, so when the new one
+   is not running then, nothing serves for that pull request: the address
+   answers 404 until a commit starts. A container that was never created can
+   be the host and not the commit: it is tried again, and its image keeps the
+   tag for that try. A container that ran and then stopped is the commit: its
+   last lines go in the build log, and it is removed with the image its build
+   made and the image of the earlier commit, which nothing runs any more. That
+   commit is not built again, so the pull request has no preview until a new
+   commit is pushed. Both states are `build-failed`.
 7. The pull request is told, at the top of its own description, and
    `~/tehas/live/previews.json` is written for the dashboard and for
    [tehasbot health](#tehasbot-health).
@@ -3700,7 +3742,9 @@ Each pull request has a state, in `~/tehas/preview/<pr>/state.json`:
 | `serving` | A container of that commit was started and was still running five seconds later, without a restart. It is not asked whether it answers | Not needed |
 | `building` | The build is under way | |
 | `no-recipe` | The commit has no `preview/Dockerfile`. A preview of an earlier commit is removed | At a new commit |
-| `build-failed` | The build failed or ran over 15 minutes, or the recipe declares a volume outside `/tmp`, `/config` and `/data`: a preview of an earlier commit keeps serving. Or the container did not start, or it started and stopped within five seconds and was removed: for these two nothing serves for that pull request, not the earlier commit either, until a commit starts | A failed build: at a new commit, not for the same one. A container that did not start or did not stay up: at each of the next three runs, then at a new commit |
+| `build-failed` | The build failed or ran over 15 minutes, or the recipe declares a volume outside `/tmp`, `/config` and `/data`. A preview of an earlier commit keeps serving | At a new commit, not for the same one |
+| `build-failed` | The container started and stopped within five seconds. It was removed, with the image its build made and the image of the earlier commit. Nothing serves for that pull request, not the earlier commit either | At a new commit, not for the same one |
+| `build-failed` | The container was never created. Nothing serves for that pull request, not the earlier commit either, until a commit starts | At each of the next three runs, then at a new commit |
 | `no-space` | Less than `TEHAS_PREVIEW_MIN_FREE` is free, or the free space could not be read. What serves stays, and removal still runs | At every run, until there is space |
 | `over-limit` | More than `TEHAS_PREVIEW_MAX` pull requests are open and this is not one of the newest. A preview it had is removed | At every run |
 

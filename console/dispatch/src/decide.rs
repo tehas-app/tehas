@@ -1658,6 +1658,39 @@ impl<'a> Poll<'a> {
             .map(str::to_string))
     }
 
+    /// The address of an open pull request that names the issue with a closing
+    /// keyword in its body, whatever branch it targets. GitHub links a closing
+    /// keyword only for a pull request into the default branch, so a stacked
+    /// one reaches `open_pr` with nothing; the page's own read of the bodies
+    /// is what holds its issue. The lowest number decides, so the line is the
+    /// same on every poll while two of them name the issue.
+    fn named_pr(&self, n: u64) -> Option<String> {
+        // The address comes from the repository the page answered, the way
+        // `open_pr` reads GitHub's own url: no repository, no address, no hold.
+        let repo = self.s.repo.as_deref().filter(|r| !r.is_empty())?;
+        self.s
+            .pulls_name
+            .get(&n)
+            .and_then(|hits| hits.iter().min())
+            .map(|pr| format!("https://github.com/{repo}/pull/{pr}"))
+    }
+
+    /// The hold of an open pull request: `tehas:ready` (or whatever asked)
+    /// comes off and the issue is told which pull request holds it. One line,
+    /// whether GitHub linked the two or the pull request's body says so.
+    fn holds_on_pr(&mut self, n: u64, ask: &str, url: &str) {
+        self.log(format!(
+            "skip #{n}: pull request {url} is open and closes it"
+        ));
+        if !self.dry {
+            self.act(json!({
+                "issue": n, "remove": [ask],
+                "fail": Self::label_fail(n, &[ask], &[]),
+                "say": format!("Tehas took `{ask}` off this issue and started nothing: {url} is open and closes it. Merge or close that pull request, then apply `tehas:ready` if work is still needed."),
+            }));
+        }
+    }
+
     /// The answer work_ok read for the issue.
     fn work(&self, n: u64) -> Value {
         self.s
@@ -2473,16 +2506,14 @@ impl<'a> Poll<'a> {
                 continue;
             }
             if let Some(url) = self.open_pr(n)? {
-                self.log(format!(
-                    "skip #{n}: pull request {url} is open and closes it"
-                ));
-                if !self.dry {
-                    self.act(json!({
-                        "issue": n, "remove": [ask],
-                        "fail": Self::label_fail(n, &[ask], &[]),
-                        "say": format!("Tehas took `{ask}` off this issue and started nothing: {url} is open and closes it. Merge or close that pull request, then apply `tehas:ready` if work is still needed."),
-                    }));
-                }
+                self.holds_on_pr(n, ask, &url);
+                continue;
+            }
+            // A pull request stacked on another branch names its issue in its
+            // body alone, and GitHub records no closing reference for it: the
+            // page's read of the bodies is what holds this issue.
+            if let Some(url) = self.named_pr(n) {
+                self.holds_on_pr(n, ask, &url);
                 continue;
             }
             // The start a lift lets through is held back here and built with
