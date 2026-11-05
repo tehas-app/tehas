@@ -2215,6 +2215,7 @@ fn a_sample_reads_the_report_the_dispatcher_writes() {
         refresh_room: Some(2),
         endpoint: Some("backup".into()),
         slots: Some(json!({"cycles": 6, "cyclesHow": "auto"})),
+        held: Vec::new(),
     };
     let mut v = r.to_value();
     v[tehas_core::hold::KEY_TIME] = json!(iso(now - 20));

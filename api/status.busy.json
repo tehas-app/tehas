@@ -52,6 +52,14 @@
     "why": "pause",
     "text": "paused by the flag tehas pause wrote: weekend"
   },
+  "held": [
+    {
+      "issue": 21,
+      "why": "parked",
+      "text": "its last cycle parked on `gate` and the body has not changed since",
+      "clear": "edit the body, or tick Retry in the park comment"
+    }
+  ],
   "room": {
     "cycles": 0,
     "refreshes": 1,
