@@ -65,7 +65,7 @@ instance
 t_run "$install"
 rm -f "$th/state/update-pending"
 gone=""
-for f in attachments.sh cycles.sh labels.sh millwright.sh questions.sh sandbox.sh slice.sh store.sh history-lines.jq; do
+for f in attachments.sh cycles.sh labels.sh millwright.sh questions.sh rukas.sh sandbox.sh slice.sh store.sh history-lines.jq; do
   gone+=" $th/lib/$f"
 done
 for f in $gone; do echo "# old" >"$f"; done
@@ -78,7 +78,7 @@ for f in $gone; do
   t_contains "$t_out" "removed: $f"
   t_eq "$([ -e "$f" ] && echo there)" ""
 done
-for f in config.sh paths.sh github-app.sh rukas.sh release.sh; do
+for f in config.sh paths.sh github-app.sh release.sh; do
   t_eq "$([ -e "$th/lib/$f" ] && echo there)" "there"
 done
 

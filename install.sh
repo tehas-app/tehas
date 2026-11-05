@@ -657,7 +657,6 @@ files=(
   "lib/refine-brief.md|$TEHAS_HOME/lib/refine-brief.md|644"
   "lib/issue-brief.md|$TEHAS_HOME/lib/issue-brief.md|644"
   "lib/github-app.sh|$TEHAS_HOME/lib/github-app.sh|644"
-  "lib/rukas.sh|$TEHAS_HOME/lib/rukas.sh|644"
   # The key a release signature is checked with. It is here so the copy an
   # adopter verifies against is the one the repository holds and not one that
   # came inside the download it is checking.
@@ -1330,6 +1329,7 @@ for f in \
   lib/slice.sh \
   lib/questions.sh \
   lib/store.sh \
+  lib/rukas.sh \
   edge/protolab.Caddyfile \
   edge/protolab.compose.yaml; do
   to=$TEHAS_HOME/$f
