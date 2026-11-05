@@ -30,6 +30,7 @@ tehas drain [--wait S] [--json]  # start nothing new, wait for running cycles
 tehas history [--json] [--after C] [--issue N]  # what ended, oldest first
 tehas export [--json] --after C <dir>  # copy a cycle's records, masked
 tehas state pack|unpack -        # move a stopped factory's state to another machine
+tehas state check [--json]       # the state store's integrity and rows
 tehas top [--once|--json]        # one screen of what the factory is doing
 tehas analytics report|export    # the factory's last 365 days of runs
 tehas pause [reason]             # stop this host from starting new work
@@ -2230,7 +2231,7 @@ tehas api [--json]
 api         1
 tehas       v0.8.0 (cb6912a)
 repo        tehas-app/tehas
-features    status millwright-grant fixer-grant all-hands limit drain history export refresh-conflicts analytics state-move pr-title clean
+features    status millwright-grant fixer-grant all-hands limit drain history export refresh-conflicts analytics state-move pr-title mcp-dashboard-keys clean disk state-check
 millwright  none
 poll        last 24 s wall, 1.5 s CPU, 12 gh; last hour 14 polls, 41 s CPU
 ```
