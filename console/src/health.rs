@@ -48,6 +48,7 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
+use tehas_core::grammar::an_end;
 use tehas_core::hold;
 use tehas_core::time;
 
@@ -441,19 +442,83 @@ mod run_tests {
         record: bool,
     }
 
-    /// The store of this build, as the store's own cases find it: the harness
-    /// is built with the binaries, so the store is in it, or one directory up.
+    /// The store of this build: looked for beside the test binary and one
+    /// directory up, and built once when neither holds it.
+    ///
+    /// The two directories are the profile under test, `target/<profile>/deps`
+    /// and `target/<profile>`, where a run of the workspace puts the store it
+    /// built with the binaries. A run of a package of its own builds only that
+    /// package, so the sibling `store` is not there at all. An absent store is
+    /// built, not skipped: these cases are honest about the program a host runs
+    /// only when they run the real one. A cold target directory builds the
+    /// store's bundled SQLite, which is the slow part of this path; the gate
+    /// builds the workspace first, so it does not pay for it.
     fn store_of_this_build() -> PathBuf {
         let deps = std::env::current_exe()
             .unwrap()
             .parent()
             .unwrap()
             .to_path_buf();
-        let here = deps.join("store");
-        if here.is_file() {
-            return here;
+        let dirs = [deps.to_path_buf(), deps.parent().unwrap().to_path_buf()];
+        find_store(&dirs).unwrap_or_else(|| {
+            build_store();
+            find_store(&dirs)
+                .unwrap_or_else(|| panic!("the store of this build is beside the test binary"))
+        })
+    }
+
+    /// The `store` of one of these directories, if it is there.
+    fn find_store(dirs: &[PathBuf]) -> Option<PathBuf> {
+        dirs.iter()
+            .map(|dir| dir.join("store"))
+            .find(|here| here.is_file())
+    }
+
+    /// One build of the store for the whole harness, into the directory the
+    /// harness's own profile uses, and its words when it did not build. A
+    /// `OnceLock` rather than a `Once` so every thread of the parallel harness
+    /// reads the same outcome, including the ones that lost the race and so ran
+    /// no closure of their own. cargo is given `timeout(1)` as every other
+    /// outside call of this file is: a cargo that blocks on the lock of a
+    /// target directory it does not own must fail with its own words rather
+    /// than hold the harness. The build scripts of the crates run here, so the
+    /// environment keeps no variable named like a secret, the bot's token among
+    /// them, as `build_ready` (install.sh) prunes it before a build.
+    fn build_store() {
+        static BUILT: std::sync::OnceLock<Result<(), String>> = std::sync::OnceLock::new();
+        let built = BUILT.get_or_init(|| {
+            let manifest = Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
+            // cargo names the directory when it was asked for one of its own;
+            // the workspace's default is the one this manifest's target dir is.
+            let target = std::env::var_os("CARGO_TARGET_DIR")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("target"));
+            let mut cmd = crate::store::bounded("10", "900", "cargo");
+            cmd.arg("build")
+                .args(["--locked", "--offline", "--quiet", "--manifest-path"])
+                .arg(&manifest)
+                .args(["--target-dir"])
+                .arg(&target)
+                .args(["-p", "store"])
+                .args((!cfg!(debug_assertions)).then_some("--release"));
+            for name in std::env::vars_os().map(|(k, _)| k) {
+                let name = name.to_string_lossy();
+                let secret = ["TOKEN", "SECRET", "PASSWORD", "API_KEY"]
+                    .iter()
+                    .any(|part| name.contains(part));
+                if secret {
+                    cmd.env_remove(name.as_ref());
+                }
+            }
+            match cmd.output() {
+                Ok(out) if out.status.success() => Ok(()),
+                Ok(out) => Err(String::from_utf8_lossy(&out.stderr).trim().to_string()),
+                Err(e) => Err(format!("cargo: {e}")),
+            }
+        });
+        if let Err(words) = built {
+            panic!("the store of this build could not be built: {words}");
         }
-        deps.parent().unwrap().join("store")
     }
 
     /// The store of a home: the store of this build, in a wrapper that writes
@@ -1380,14 +1445,42 @@ fn written_once(text: &str) -> bool {
     false
 }
 
-/// A cycle that ended without failing the factory: its work shipped, it is
-/// waiting for review, or its issue closed while it ran (rc 2), which usually
+/// Whether an ending's status is an end that went well: its work shipped, it
+/// waits for review, or its issue closed while it ran (rc 2), which usually
 /// means the pull request merged first or a person closed the issue by hand.
+/// The three words are ends, so an ending that carries one has ended.
 fn ended_well(c: &J) -> bool {
     in_list(
         c.get("status").or(&J::str("")),
         &["merged", "handoff", "closed"],
     )
+}
+
+/// The status word of an ending whose status names no end, as health shows it
+/// in `checks.failed` and in the line it says. The words that say so are
+/// `tehas_core::grammar::NOT_ENDS`, read here by `an_end` and mapped by the
+/// store's writer of the ten endings (`ending_status` there), so the page and
+/// the table never disagree about which words they are.
+const NOT_AN_END: &str = tehas_core::grammar::NOT_AN_END;
+
+/// Whether a row of the last ten counts for `checks.failed`: an object whose
+/// status is none of the ends that went well. A row that never ended is kept by
+/// that branch too, and named by the word `failed_word` gives it.
+fn a_failed_ending(e: &J) -> bool {
+    matches!(e, J::Obj(_)) && !ended_well(e)
+}
+
+/// The word health shows for an ending: the status it reported for one that
+/// ended, and `NOT_AN_END` for one whose status says it did not. A row carries
+/// no word at all when the key is absent, null, or not text, and a word of
+/// `NOT_ENDS` names a cycle still at work: neither is a word an end carries, so
+/// the row is named rather than copied into the published file. One rule, read
+/// the same in `checks.failed` and in the line `output` says.
+fn failed_word(e: &J) -> String {
+    match e.get("status") {
+        J::Str(w) if an_end(w) => w.clone(),
+        _ => NOT_AN_END.to_string(),
+    }
 }
 
 /// One cycle as the health file lists it.
@@ -1563,7 +1656,9 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
         format!(
             "The last cycle failed: #{} ended as {}.",
             last.get("issue").text(),
-            last.get("status").text()
+            // The word of an ending that never ended is named as it is in
+            // `checks.failed`, by the one helper that answers both.
+            failed_word(&last)
         )
     } else if old_queue {
         format!(
@@ -1666,21 +1761,19 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
     if !last.is_null() {
         ends.push(last.clone());
     }
-    let mut ends: Vec<J> = ends
-        .into_iter()
-        .filter(|e| matches!(e, J::Obj(_)) && !ended_well(e))
-        .collect();
+    let mut failed: Vec<J> = ends.into_iter().filter(a_failed_ending).collect();
     let key = |e: &J| J::Arr(vec![e.get("issue").clone(), e.get("startedAt").clone()]);
-    ends.sort_by(|a, b| key(a).cmp(&key(b)));
-    ends.dedup_by(|b, a| key(a).cmp(&key(b)).is_eq());
-    ends.sort_by(|a, b| a.get("updatedAt").cmp(b.get("updatedAt")));
-    ends.reverse();
+    failed.sort_by(|a, b| key(a).cmp(&key(b)));
+    failed.dedup_by(|b, a| key(a).cmp(&key(b)).is_eq());
+    failed.sort_by(|a, b| a.get("updatedAt").cmp(b.get("updatedAt")));
+    failed.reverse();
     let failed_list = J::Arr(
-        ends.iter()
+        failed
+            .iter()
             .map(|e| {
                 obj(vec![
                     ("issue", e.get("issue").clone()),
-                    ("status", e.get("status").clone()),
+                    ("status", J::str(failed_word(e))),
                     ("step", e.get("step").clone()),
                     ("startedAt", iso(e.get("startedAt"))),
                     ("time", iso(e.get("updatedAt"))),
@@ -2581,6 +2674,84 @@ mod tests {
         assert_eq!(h.report(&g).at(&["checks", "plans"]).dump(), in_flight);
         h.write("state/plan-7.json.rc", "0");
         assert_eq!(h.report(&g).at(&["checks", "plans"]).len(), 0);
+    }
+
+    #[test]
+    fn an_ending_that_never_ended_is_named_as_not_an_end() {
+        let h = home("not-an-end");
+        // Each row carries the word it must answer with, or none at all: the
+        // two words of the set, and the row with no key, are `not an end`.
+        h.write(
+            "live/endings.json",
+            r#"[{"issue":1,"status":"running","startedAt":10,"updatedAt":20},
+               {"issue":2,"status":"","startedAt":10,"updatedAt":20},
+               {"issue":3,"startedAt":10,"updatedAt":20},
+               {"issue":4,"status":"failed","startedAt":10,"updatedAt":20},
+               {"issue":5,"status":"aborted","startedAt":10,"updatedAt":20}]"#,
+        );
+        let got: Vec<(String, String)> = h
+            .report(&Given::default())
+            .at(&["checks", "failed"])
+            .items()
+            .iter()
+            .map(|e| (e.get("issue").text(), e.get("status").text()))
+            .collect();
+        assert_eq!(
+            got,
+            [
+                ("5".into(), "aborted".into()),
+                ("4".into(), "failed".into()),
+                // 3, 2 and 1: no word, the empty word, and `running`.
+                ("3".into(), "not an end".into()),
+                ("2".into(), "not an end".into()),
+                ("1".into(), "not an end".into()),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_last_cycle_still_running_is_not_reported_as_ended_as_running() {
+        let h = home("last-running");
+        h.write(
+            "live/running.json",
+            r#"{"cycles":[],"last":{"issue":9,"running":false,"status":"running","step":"develop","startedAt":100,"updatedAt":200}}"#,
+        );
+        let r = h.report(&Given::default());
+        let said = said(&r);
+        let failed = r.at(&["checks", "failed"]);
+        assert_eq!(failed.len(), 1);
+        // The line and `checks.failed` name the row the same word, which the
+        // one helper answers for both.
+        assert_eq!(
+            said,
+            (
+                "fail".into(),
+                format!("The last cycle failed: #9 ended as {}.", NOT_AN_END)
+            )
+        );
+        assert_eq!(failed.items()[0].get("status"), &J::str(NOT_AN_END));
+    }
+
+    #[test]
+    fn a_status_that_is_no_word_is_named_and_never_copied_into_the_file() {
+        // The published file answers with a word or with `NOT_AN_END`, never
+        // with whatever bytes a hand-written `live/endings.json` left under the
+        // key: edge and MCP both copy `checks.failed` out as it is.
+        let h = home("status-not-a-word");
+        h.write(
+            "live/endings.json",
+            r#"[{"issue":1,"status":{"secret":"a-very-long-value"},"startedAt":10,"updatedAt":20},
+               {"issue":2,"status":null,"startedAt":10,"updatedAt":20},
+               {"issue":3,"status":7,"startedAt":10,"updatedAt":20}]"#,
+        );
+        let got: Vec<String> = h
+            .report(&Given::default())
+            .at(&["checks", "failed"])
+            .items()
+            .iter()
+            .map(|e| e.get("status").text())
+            .collect();
+        assert_eq!(got, [NOT_AN_END; 3]);
     }
 
     #[test]
