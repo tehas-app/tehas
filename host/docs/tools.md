@@ -874,7 +874,12 @@ and no end, or with no result; it keeps its own exit status. In both cases
 `~/tehas/state/cycles/<issue>.timed` holds the limit's seconds, who stopped
 the cycle (`tehas` or `runner`) and the step it was in. `tehasbot cycle` says
 it on the issue, records the cap `wall-clock` with that step, and removes the
-file.
+file. A `TERM`, `INT` or `HUP` that stops the container leaves
+`~/tehas/state/cycles/<issue>.signal`: the signal's name (`-` when not known)
+and the step in flight. A run of the gate it cut short gets a `verify-aborted`
+line in the cycle's stream, and the live console a last line. `tehasbot cycle`
+records the cap `signal` of it when the runner named none and no person ran
+`tehas stop`, and removes the file.
 
 The container runs in `tehas.slice` and gets the bot token and the
 `PI_ENSEMBLE_*` settings, a memory ceiling of the slice over `TEHAS_SLICE_CONTAINERS` with no
@@ -2054,7 +2059,7 @@ Ends a cycle by hand and clears what it left on this host. It asks
 of its lock, and removes the container `tehas-work-12` when it is still there.
 Then it removes what says a cycle runs, owes something, or is parked:
 `~/tehas/state/cycles/12.lock` with `.cid`, `.done`, `.stalled`,
-`.timed`, `.oom`, `.forks`, `.nostart`, `.lean-refused`, `.progress.json` and
+`.timed`, `.signal`, `.oom`, `.forks`, `.nostart`, `.lean-refused`, `.progress.json` and
 `.result.json`, `~/tehas/live/console-12.txt`, `~/.pi/agent/ensemble-runs/issue-12`, and the
 workspace `~/tehas/work/<name>-12` with its `.state`, `.before-retry` and
 `.images` beside it. `--keep-workspace` keeps the workspace for you to read.
@@ -2716,7 +2721,8 @@ recorded as `cap:provider-outage`, as only tehas names an outage), and with the 
 record for the improvement loop as `cap` and `capReason`, reduced to plain
 characters. A cycle that ended at tehas's own bound gets tehas's cap:
 `wall-clock` for the time limit, `stall` for the stall, `runner-never-started`
-for the container that ended before the driver wrote its first event, and a
+for the container that ended before the driver wrote its first event, `signal`
+for a container stopped on a `TERM`, `INT` or `HUP`, and a
 `capReason` that names the bound and the step. A cap the runner named mid-step goes into
 the reason; a cap of an end it reached before the stop is kept. Where the result gives a failure of another kind than `cap`, the
 park comment names its kind, role, cause and message. The record also holds `buildCommit`, the pi-rukas commit the

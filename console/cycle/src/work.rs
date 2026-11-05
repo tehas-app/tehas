@@ -751,7 +751,8 @@ pub fn run(home: &Path, g: &Given) -> i32 {
         signal_hook::consts::SIGINT,
         signal_hook::consts::SIGHUP,
     ] {
-        if signal_hook::flag::register(sig, stop.flag()).is_err() {
+        let which = signal_hook::flag::register_usize(sig, stop.which(), sig as usize);
+        if signal_hook::flag::register(sig, stop.flag()).is_err() || which.is_err() {
             eprintln!("tehas work: cannot listen for signal {sig}, not starting a cycle");
             return 78;
         }
@@ -1010,6 +1011,7 @@ pub fn run(home: &Path, g: &Given) -> i32 {
         email: git_email(),
         renewer: renew.as_ref().map_or(String::new(), |c| c.id().to_string()),
         docker,
+        signal: stop.which(),
         scratch: crate::scratch::Bounds::from_env(n),
     };
     let rc = watch::run(home, &given, stop.flag());
