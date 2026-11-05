@@ -184,6 +184,11 @@ to the container's arguments reaches a running server at its next restart.
 With `TEHAS_MCP` unset or `0` the command removes a container left running and
 exits 0, and the unit stays stopped.
 
+The [health file](/tools#tehasbot-health) says whether the server answers, in
+`checks.mcp`: each run of `tehasbot health` sends it a `POST /mcp` with no key
+and expects the 401. A server that is on and does not answer makes `/health`
+`warn`, so a monitor tells a stopped MCP server from a factory that is gone.
+
 ## How an agent connects
 
 | | |

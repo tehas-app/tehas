@@ -16,7 +16,7 @@
 //!     as the shell's left the units, the backup and the polls out.
 //!
 //!   console health report <home> [--sessions <json>] [--units <text>]
-//!     [--backup <json>] [--poll-over <json> --poll-budget <spec>]
+//!     [--backup <json>] [--poll-over <json> --poll-budget <spec>] [--mcp <json>]
 //!     The report alone on standard output, from the answers a shell gathered
 //!     and gave as arguments; nothing is written. It is the part `run` calls
 //!     after it made those answers itself.
@@ -38,6 +38,7 @@
 
 use crate::flags::{self, epoch};
 use crate::jq::{first, obj, J, NULL};
+use crate::mcp::{liveness, Liveness};
 use crate::store::{self, bounded, merged, Refusal};
 use serde_json::Value;
 use std::env;
@@ -82,6 +83,56 @@ struct Given {
     backup: Option<String>,
     poll_over: Option<String>,
     poll_budget: Option<String>,
+    mcp: Option<String>,
+}
+
+/// Where the run looks for the MCP server: `TEHAS_MCP` and `TEHAS_HOST_ADDR`
+/// as the settings gave them, and the port, which a case names for itself.
+struct Mcp {
+    on: String,
+    addr: String,
+    port: u16,
+}
+
+impl Mcp {
+    fn of_settings() -> Self {
+        let var = |name| env::var(name).unwrap_or_default();
+        Self {
+            on: var("TEHAS_MCP"),
+            addr: var("TEHAS_HOST_ADDR"),
+            port: crate::mcp::PORT,
+        }
+    }
+}
+
+/// The probe of the MCP server is bounded at this, to connect and again for
+/// the answer.
+const MCP_BOUND: Duration = Duration::from_secs(2);
+
+/// `checks.mcp`: `{on}` of a server that is off, else whether it is
+/// installed and answers, and why not when it does not.
+fn mcp_check(l: &Liveness) -> J {
+    let on = |installed: bool, answers: bool, reason: Option<&str>| {
+        let mut o = vec![
+            ("on", J::Bool(true)),
+            ("installed", J::Bool(installed)),
+            ("answers", J::Bool(answers)),
+        ];
+        if let Some(r) = reason {
+            o.push(("reason", J::str(r)));
+        }
+        obj(o)
+    };
+    match l {
+        Liveness::Off => obj(vec![("on", J::Bool(false))]),
+        Liveness::NotInstalled => on(
+            false,
+            false,
+            Some("libexec/tehas-mcp is not there: run install.sh"),
+        ),
+        Liveness::Answers => on(true, true, None),
+        Liveness::Silent(why) => on(true, false, Some(why)),
+    }
 }
 
 /// What a run asks of the store. `PlanShow` and `Publish` stop the run with
@@ -238,7 +289,7 @@ fn publish_health(home: &Path, file: &Path, budget: Duration) -> Result<(), Refu
 /// left out rather than passed. Both say so with a WARN line: the units, the
 /// backup and the polls are the checks a run goes without, and a home that
 /// passes with three of them missing is a home whose store did not answer.
-fn checks(home: &Path, budget: &str, systemctl: &Path) -> Result<Given, u8> {
+fn checks(home: &Path, budget: &str, systemctl: &Path, mcp: &Mcp) -> Result<Given, u8> {
     // Each ask ends the run with the status of its refusal, which is the
     // status of the step and not of a later one.
     let ask = |step: Step, args: &[&str]| -> Result<Option<Value>, u8> {
@@ -286,12 +337,14 @@ fn checks(home: &Path, budget: &str, systemctl: &Path) -> Result<Given, u8> {
     let poll_budget = over.as_ref().map(|_| budget.to_string());
     // systemd, bounded at 10 s; None leaves the units out of the file.
     let units = failed_units_of(systemctl);
+    let mcp = liveness(home, &mcp.on, &mcp.addr, mcp.port, MCP_BOUND);
     Ok(Given {
         sessions: Some(sessions),
         units,
         backup,
         poll_over: over,
         poll_budget,
+        mcp: Some(mcp_check(&mcp).dump()),
     })
 }
 
@@ -368,6 +421,7 @@ pub fn run(given: &[String]) -> u8 {
         Path::new(home),
         budget.unwrap_or_else(|| POLL_BUDGET.to_string()),
         Path::new("systemctl"),
+        &Mcp::of_settings(),
     )
 }
 
@@ -382,18 +436,23 @@ pub fn loaded() -> u8 {
         .ok()
         .filter(|b| !b.is_empty())
         .unwrap_or_else(|| POLL_BUDGET.to_string());
-    run_with(Path::new(&home), budget, Path::new("systemctl"))
+    run_with(
+        Path::new(&home),
+        budget,
+        Path::new("systemctl"),
+        &Mcp::of_settings(),
+    )
 }
 
 /// The run itself, with the budget the host's settings give: the case that
 /// names a budget of its own does not reach over the environment of the
 /// process the tests of the workspace share. The units read is the read of
 /// systemd, which a case of the units names for itself.
-fn run_with(home: &Path, budget: String, systemctl: &Path) -> u8 {
+fn run_with(home: &Path, budget: String, systemctl: &Path, mcp: &Mcp) -> u8 {
     if !store::ready(home) {
         return not_installed();
     }
-    let given = match checks(home, &budget, systemctl) {
+    let given = match checks(home, &budget, systemctl, mcp) {
         Ok(gathered) => gathered,
         Err(rc) => return rc,
     };
@@ -439,6 +498,9 @@ mod run_tests {
         /// stands in for. Every call the run makes is written down.
         body: Vec<String>,
         record: bool,
+        /// Where the run looks for the MCP server: off unless a case turns
+        /// it on.
+        mcp: Mcp,
     }
 
     /// The store of this build, as the store's own cases find it: the harness
@@ -481,6 +543,11 @@ mod run_tests {
                 real,
                 body: Vec::new(),
                 record: true,
+                mcp: Mcp {
+                    on: String::new(),
+                    addr: String::new(),
+                    port: 0,
+                },
             };
             s.install();
             // init and the copy of the day are the store's own bookkeeping,
@@ -654,7 +721,7 @@ mod run_tests {
         fn run_with(&mut self, budget: &str) -> u8 {
             self.units("");
             let program = self.systemctl();
-            run_with(&self.home, budget.to_string(), &program)
+            run_with(&self.home, budget.to_string(), &program, &self.mcp)
         }
 
         /// The whole of `run` for a home whose settings named <budget> as its
@@ -673,7 +740,12 @@ mod run_tests {
         /// where PATH could find one.
         fn run_without_systemd(&mut self) -> u8 {
             let _ = fs::remove_file(self.systemctl());
-            run_with(&self.home, POLL_BUDGET.to_string(), &self.systemctl())
+            run_with(
+                &self.home,
+                POLL_BUDGET.to_string(),
+                &self.systemctl(),
+                &self.mcp,
+            )
         }
 
         fn run(&mut self) -> u8 {
@@ -840,6 +912,54 @@ mod run_tests {
     }
 
     #[test]
+    fn a_stopped_mcp_server_warns_and_the_file_is_still_written() {
+        let mut s = Store::new("mcp-stopped");
+        s.queue();
+        let bin = s.home.join("libexec/tehas-mcp");
+        fs::write(&bin, "").unwrap();
+        fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
+        // A port nothing listens on: the server is stopped.
+        let port = std::net::TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        s.mcp = Mcp {
+            on: "1".into(),
+            addr: "127.0.0.1".into(),
+            port,
+        };
+        assert_eq!(s.run(), 0);
+        let h = s.health();
+        let mcp = &h["checks"]["mcp"];
+        assert_eq!(mcp["on"], true);
+        assert_eq!(mcp["installed"], true);
+        assert_eq!(mcp["answers"], false);
+        let why = mcp["reason"].as_str().unwrap();
+        assert!(
+            why.starts_with(&format!("POST /mcp on 127.0.0.1:{port}: ")),
+            "{why}"
+        );
+        assert_eq!(h["status"], "warn");
+        assert_eq!(
+            h["output"],
+            format!("The MCP server does not answer: {why}.")
+        );
+    }
+
+    #[test]
+    fn an_mcp_server_that_is_off_is_said_and_passes() {
+        let mut s = Store::new("mcp-off");
+        s.queue();
+        assert_eq!(s.run(), 0);
+        assert_eq!(
+            s.health()["checks"]["mcp"],
+            serde_json::json!({"on": false})
+        );
+        assert_eq!(s.health()["status"], "pass");
+    }
+
+    #[test]
     fn a_budget_the_store_refuses_leaves_the_check_out_and_says_so() {
         // The load of lib/config.sh is what stops the host with 78 on a
         // malformed budget; a run given one reaches the store, whose refusal
@@ -872,7 +992,7 @@ pub fn main(given: &[String]) -> u8 {
     }
     let usage = || {
         eprintln!(
-            "console health: usage: run <home> | report <home> [--sessions <json>] [--units <text>] [--backup <json>] [--poll-over <json> --poll-budget <spec>]"
+            "console health: usage: run <home> | report <home> [--sessions <json>] [--units <text>] [--backup <json>] [--poll-over <json> --poll-budget <spec>] [--mcp <json>]"
         );
         2
     };
@@ -892,6 +1012,7 @@ pub fn main(given: &[String]) -> u8 {
             "--backup" => g.backup = Some(v),
             "--poll-over" => g.poll_over = Some(v),
             "--poll-budget" => g.poll_budget = Some(v),
+            "--mcp" => g.mcp = Some(v),
             _ => return usage(),
         }
     }
@@ -1378,6 +1499,9 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
         },
         None => (J::Null, false),
     };
+    // No probe was made: no entry, and no warning raised from one.
+    let mcp = g.mcp.as_deref().and_then(J::parse).unwrap_or(J::Null);
+    let mcp_silent = mcp.get("on").is_true() && !mcp.get("answers").is_true();
     let poll_cost = match (g.poll_over.as_deref().and_then(J::parse), &g.poll_budget) {
         (Some(over), Some(budget)) => obj(vec![
             ("over", over.or(&J::Arr(vec![])).clone()),
@@ -1458,6 +1582,7 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
         || behind
         || old_backup
         || over_budget
+        || mcp_silent
     {
         "warn"
     } else {
@@ -1532,6 +1657,11 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
             "An idle poll is over its budget on {} (TEHAS_POLL_BUDGET={}).",
             joined(poll_cost.get("over")),
             poll_cost.get("budget").text()
+        )
+    } else if mcp_silent {
+        format!(
+            "The MCP server does not answer: {}.",
+            mcp.get("reason").text()
         )
     } else if !running.is_empty() {
         let issues: Vec<String> = running
@@ -1637,6 +1767,7 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
                 ("units", units.unwrap_or(J::Null)),
                 ("backup", backup_check),
                 ("poll_cost", poll_cost),
+                ("mcp", mcp),
             ]),
         ),
     ])
@@ -2268,6 +2399,51 @@ mod tests {
             h.report(&Given::default()).at(&["checks", "poll_cost"]),
             &J::Null
         );
+    }
+
+    #[test]
+    fn an_mcp_server_that_is_on_and_not_answering_warns() {
+        let h = home("mcp");
+        let check = |l: Liveness| Given {
+            mcp: Some(mcp_check(&l).dump()),
+            ..Given::default()
+        };
+        let r = h.report(&check(Liveness::Answers));
+        assert_eq!(
+            r.at(&["checks", "mcp"]).dump(),
+            r#"{"on":true,"installed":true,"answers":true}"#
+        );
+        assert_eq!(r.get("status").text(), "pass");
+        let r = h.report(&check(Liveness::Off));
+        assert_eq!(r.at(&["checks", "mcp"]).dump(), r#"{"on":false}"#);
+        assert_eq!(r.get("status").text(), "pass");
+        let r = h.report(&check(Liveness::NotInstalled));
+        assert_eq!(
+            r.at(&["checks", "mcp"]).dump(),
+            r#"{"on":true,"installed":false,"answers":false,"reason":"libexec/tehas-mcp is not there: run install.sh"}"#
+        );
+        assert_eq!(
+            said(&r),
+            (
+                "warn".into(),
+                "The MCP server does not answer: libexec/tehas-mcp is not there: run install.sh."
+                    .into()
+            )
+        );
+        let r = h.report(&check(Liveness::Silent(
+            "POST /mcp on 127.0.0.1:8082 answered 502".into(),
+        )));
+        assert_eq!(
+            said(&r),
+            (
+                "warn".into(),
+                "The MCP server does not answer: POST /mcp on 127.0.0.1:8082 answered 502.".into()
+            )
+        );
+        // No probe was made: no entry, and no warning.
+        let r = h.report(&Given::default());
+        assert_eq!(r.at(&["checks", "mcp"]), &J::Null);
+        assert_eq!(r.get("status").text(), "pass");
     }
 
     #[test]
