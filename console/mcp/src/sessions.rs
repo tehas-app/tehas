@@ -1,7 +1,7 @@
 //! The session tools: `factory_sessions`, `factory_session` and
 //! `factory_failures`, over the sessions snapshot. They read it one line at a
-//! time and copy only the fields named here. A log's file name is never
-//! returned.
+//! time and copy only the fields of the contract in `tehas_core::snapshot`,
+//! which the analytics writer reads too. A log's file name is never returned.
 
 use crate::snapshot::Snapshot;
 use crate::tools::{self, Dirs, ToolError};
@@ -59,94 +59,28 @@ const GROUPS: [&str; 2] = ["version", "image"];
 static REPO: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$").unwrap());
 
-/// The snapshot's scalar fields: key, JSON type, what it is.
-const FIELDS: [(&str, &str, &str); 39] = [
-    ("id", "string", "The session id, like work-12-1792485967."),
-    ("kind", "string", "work or plan."),
-    ("issue", "integer", "The issue number."),
-    (
-        "attempt",
-        "integer",
-        "Which attempt on the issue this run was.",
-    ),
-    (
-        "how",
-        "string",
-        "What started it: label, refresh, retry-tick, outage-retry, millwright, fixer, answer, refine or hand.",
-    ),
-    ("started", "string", "When it started, UTC."),
-    (
-        "ended",
-        "string",
-        "When it ended, UTC. Left out while it runs.",
-    ),
-    ("seconds", "integer", "Seconds from start to end."),
-    (
-        "queueWait",
-        "integer",
-        "Seconds it waited before it started.",
-    ),
-    (
-        "outcome",
-        "string",
-        "pr, merged, handoff, parked, failed, refused or stopped.",
-    ),
-    ("exitCode", "integer", "The exit status of the cycle."),
-    ("status", "string", "The status word the cycle ended with."),
-    ("lastStep", "string", "The last step it reached."),
-    ("failedStep", "string", "The step that failed."),
-    ("cap", "string", "The cap that stopped it."),
-    ("parkReason", "string", "Why it was parked."),
-    (
-        "reviewHeld",
-        "boolean",
-        "Whether the review held the pull request.",
-    ),
-    ("failureKind", "string", "The kind of failure."),
-    ("failureCause", "string", "The cause of the failure."),
-    (
-        "providerOutage",
-        "boolean",
-        "Whether a model provider outage caused it.",
-    ),
-    ("endpoint", "string", "The model endpoint it used."),
-    ("pr", "integer", "The pull request number."),
-    ("tehasVersion", "string", "The tehas version it ran."),
-    ("tehasCommit", "string", "The tehas commit it ran."),
-    ("rukasVersion", "string", "The pi-rukas version it ran."),
-    ("rukasCommit", "string", "The pi-rukas commit it ran."),
-    (
-        "image",
-        "string",
-        "The sandbox image it ran in, by its id sha256:<hex>. The id names one build.",
-    ),
-    (
-        "imageBuilt",
-        "string",
-        "When that image was built, UTC. Left out when unknown.",
-    ),
-    ("resultSchema", "integer", "The schema of the result file."),
-    ("input", "integer", "Input tokens."),
-    ("output", "integer", "Output tokens."),
-    ("cacheRead", "integer", "Tokens read from the cache."),
-    ("cacheWrite", "integer", "Tokens written to the cache."),
-    ("turns", "integer", "Model turns."),
-    ("dispatches", "integer", "Model dispatches."),
-    ("cost", "number", "Model cost as the runner reported it."),
-    ("runnerMs", "integer", "Milliseconds the runner ran."),
-    ("oomKills", "integer", "Processes killed for memory."),
-    (
-        "forksRefused",
-        "integer",
-        "Forks refused at the process limit.",
-    ),
-];
-const CONCURRENT: (&str, &str, &str) = (
-    "concurrent",
-    "integer",
-    "Cycles running at the same time when it started.",
-);
-const SUMMARY: [&str; 17] = [
+/// The snapshot's fields as this crate names them: key, JSON type,
+/// description. All three come from `tehas_core::snapshot`, in its order, so
+/// the writer's columns and the fields this reader copies are one list.
+const fn contract<const N: usize>(
+    fields: [tehas_core::snapshot::Field; N],
+) -> [(&'static str, &'static str, &'static str); N] {
+    let mut out: [(&'static str, &'static str, &'static str); N] = [("", "", ""); N];
+    let mut i = 0;
+    while i < N {
+        out[i] = (fields[i].0, fields[i].1.json_type(), fields[i].2);
+        i += 1;
+    }
+    out
+}
+
+/// The scalar fields of a session, `concurrent` last. A summary and an attempt
+/// answer a subset of them, named below.
+const FIELDS: [(&str, &str, &str); 40] = contract(tehas_core::snapshot::RUN_FIELDS);
+/// What a summary of a session answers: a subset of `FIELDS`. A name here
+/// that is not a field of the contract would answer nothing for it, so the
+/// tests check these names against the contract.
+pub const SUMMARY: [&str; 17] = [
     "id",
     "kind",
     "issue",
@@ -165,26 +99,8 @@ const SUMMARY: [&str; 17] = [
     "image",
     "imageBuilt",
 ];
-const STEP: [(&str, &str, &str); 5] = [
-    ("step", "string", "The step name."),
-    ("round", "integer", "Which round of the step."),
-    ("started", "string", "When it started, UTC."),
-    ("ended", "string", "When it ended, UTC."),
-    ("seconds", "integer", "Seconds it took."),
-];
-const ROLE: [(&str, &str, &str); 11] = [
-    ("role", "string", "The role, such as developer or reviewer."),
-    ("model", "string", "The model."),
-    ("provider", "string", "The provider."),
-    ("dispatches", "integer", "Dispatches to the model."),
-    ("turns", "integer", "Model turns."),
-    ("input", "integer", "Input tokens."),
-    ("output", "integer", "Output tokens."),
-    ("cacheRead", "integer", "Tokens read from the cache."),
-    ("cacheWrite", "integer", "Tokens written to the cache."),
-    ("cost", "number", "Model cost as the runner reported it."),
-    ("ms", "integer", "Milliseconds of model time."),
-];
+const STEP: [(&str, &str, &str); 5] = contract(tehas_core::snapshot::STEP_FIELDS);
+const ROLE: [(&str, &str, &str); 11] = contract(tehas_core::snapshot::ROLE_FIELDS);
 
 fn field(f: (&str, &str, &str)) -> (String, Value) {
     (f.0.to_string(), json!({"type": f.1, "description": f.2}))
@@ -240,9 +156,7 @@ fn summary_schema() -> Value {
 }
 
 fn session_schema() -> Value {
-    let mut all = FIELDS.to_vec();
-    all.push(CONCURRENT);
-    let mut item = object_of(&all);
+    let mut item = object_of(&FIELDS);
     let p = &mut item["properties"];
     p["steps"] = array_of(object_of(&STEP), "The steps it went through, in order.");
     p["roles"] = array_of(object_of(&ROLE), "Model use per role.");
@@ -650,8 +564,7 @@ pub(crate) fn one(dirs: &Dirs, args: &Value) -> Result<Map<String, Value>, ToolE
     }
     let snap = open(dirs)?;
     let raw = find(&snap, id)?;
-    let mut keys: Vec<&str> = FIELDS.iter().map(|f| f.0).collect();
-    keys.push(CONCURRENT.0);
+    let keys: Vec<&str> = FIELDS.iter().map(|f| f.0).collect();
     let mut spec = spec(&keys);
     spec["steps"] = json!([spec_of(&STEP)]);
     spec["roles"] = json!([spec_of(&ROLE)]);
@@ -795,11 +708,13 @@ fn copied(src: &Value, key: &str) -> Option<Value> {
     tools::pick(&src[key], &json!(true))
 }
 
-// The attempt's fields this tool copies as the snapshot gives them. Two more
-// are named by `issue_spec` and put in by hand: `prUrl`, whose link the
+// The attempt's fields this tool copies as the snapshot gives them, as
+// `SUMMARY` is for a summary: a name here that is not a field of the contract
+// would answer nothing for it, so the tests check these names against it. Two
+// more are named by `issue_spec` and put in by hand: `prUrl`, whose link the
 // snapshot does not hold, and the session's own `id`, which `factory_sessions`
 // gives and this answer leaves out to keep an attempt to its story.
-const ATTEMPT_KEYS: [&str; 11] = [
+pub const ATTEMPT_KEYS: [&str; 11] = [
     "kind",
     "attempt",
     "how",

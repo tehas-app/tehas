@@ -13,6 +13,8 @@ empty one above it.
 
 ### Changes
 
+- A cycle's scratch has a size limit (#1547). With `TEHAS_SCRATCH_DIR` set, tehas work measures the cycle's scratch every 10 seconds and stops the cycle when it holds more than `TEHAS_SCRATCH_MAX` (20g by default), or when the scratch's file system has less than `TEHAS_CYCLE_STOP_FREE` free (5g by default) and this cycle's scratch is the largest there. The cycle ends `stopped` at the cap `disk`, and its report says which bound it passed. Before, one cycle that copied its container's root into its scratch filled the host's disk and stopped the dispatcher and the other cycles.
+- `tehas status`, `tehas status --json` (`held`) and the MCP `factory_status` answer (`held`) name each ready issue the dispatcher holds on its own, with the reason and what clears it: for now, an issue whose last cycle parked and whose body has not changed since (#1437). When every issue in line is held that way and no cycle runs, the health line is a `warn` that names them instead of "Idle, taking work.". Before, a factory whose one ready issue was held reported `pass` and taking work for hours.
 - An open issue whose title starts with an epic marker (`EPIC: ...`, `[Epic] ...`) gets the new `epic` label at each poll. tehas only adds it, and a person's removal is final. The label is for people: sub-issue links still make an epic for the dispatcher and the panel. `live/epics.json` gains `unlinked`, and `tehasbot health` warns about an open issue labelled `epic` with no sub-issues (`checks.epics`).
 - `scripts/verify.sh` checks the workspace's format and lints on every run, not only with `--full`; in CI a missing rustfmt or clippy fails. `tehas setup` runs `--full` on a factory that builds tehas, so unformatted code that passed CI stopped setup three times. `console/dispatch` is formatted again.
 - A cycle that hands off on `lens-fix-reposition` with its pull request open and its review not held waits for a merge (`tehas:awaiting-merge`) instead of parking. The branch already holds the first review round's fix; only the second round's could not be laid on it. It was the most common park from 2026-10-31.
@@ -40,6 +42,11 @@ now looks for `HALT: `.
 The `epic` label is new in `host/labels.tsv`, so an update runs its `labels`
 step; a host that skips it runs `tehas labels` once. Until the label exists,
 the poll's write of it fails with a `WARN:` line and nothing else changes.
+
+On a host that sets `TEHAS_SCRATCH_DIR`, a cycle whose scratch holds more
+than 20g, or that has the largest scratch when its disk has less than 5g free,
+is now stopped at the cap `disk`. Set `TEHAS_SCRATCH_MAX` or
+`TEHAS_CYCLE_STOP_FREE` in the instance if a product needs more.
 
 Take `TEHAS_THEME` and `TEHAS_LAYOUT` out of `instance.env`. A line that asks
 for what this version does anyway (`TEHAS_THEME=pixel`, `TEHAS_LAYOUT=floor`,
