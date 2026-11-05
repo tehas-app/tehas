@@ -3,8 +3,8 @@
 #
 # An adopter downloads one tarball, unpacks it and runs install.sh from it, so
 # what is packed is what install.sh reads: the directories, the top-level
-# files and the example instance named in lib/release.sh, the console binary it was given as
-# libexec/console, a VERSION file with the tag, a COMMIT file with the commit
+# files and the example instance named in lib/release.list, the console
+# binary it was given as libexec/console, a VERSION file with the tag, a COMMIT file with the commit
 # it was packed from when one is given, and host/versions.env, to which
 # the pins are put when they are given. The tarball holds one top directory,
 # tehas-<tag>/, so unpacking it leaves that and nothing beside it. Its name
@@ -223,19 +223,21 @@ cd "$root" || { echo "pack-release: cannot read the tree: $root" >&2; exit 64; }
 root=$PWD
 
 # What install.sh reads, so a tarball that packs all of it installs.
-if [ ! -f lib/release.sh ]; then
-  echo "pack-release: lib/release.sh is missing from $root" >&2
+if [ ! -f lib/release.list ]; then
+  echo "pack-release: lib/release.list is missing from $root" >&2
   exit 1
 fi
-# shellcheck source=lib/release.sh
-. lib/release.sh
-mapfile -t dirs < <(tehas_release_dirs)
-mapfile -t plain < <(tehas_release_plain)
-mapfile -t extra < <(tehas_release_extra)
+# The entries of one [section] of lib/release.list, comments and blanks skipped.
+release_list() { # release_list <section>
+  awk -v want="[$1]" '/^#/ || NF == 0 { next } /^\[/ { on = ($0 == want); next } on' lib/release.list
+}
+mapfile -t dirs < <(release_list dirs)
+mapfile -t plain < <(release_list plain)
+mapfile -t extra < <(release_list extra)
 # Two empty lists pass every check below without checking anything, so a list
 # that names nothing is a refusal rather than a release of nothing.
 if [ "${#dirs[@]}" = 0 ] || [ "${#plain[@]}" = 0 ]; then
-  echo "pack-release: $root/lib/release.sh names nothing to pack" >&2
+  echo "pack-release: $root/lib/release.list names nothing to pack" >&2
   exit 1
 fi
 for d in "${dirs[@]}"; do

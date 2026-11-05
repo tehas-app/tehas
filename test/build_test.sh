@@ -721,47 +721,19 @@ tracked_rest=$(image_steps "$dockerfile" | awk -F '\t' '$1 == "comment" || $1 ==
 build_rest=$(image_steps "$T/docker-build-recipe" | awk -F '\t' '$1 == "comment" || $1 == "boundary" { next } { print $2 }')
 t_eq "$build_rest" "$tracked_rest"
 
-# The footers of the front pages show the pi-rukas version of the image, from a
-# file beside the pages the build writes on a host and never in the checkout.
-t_case "a build on a host writes the pi-rukas version beside the pages"
+# The footers read the pi-rukas version from the factory's health
+# (src/rukas.rs), so the build writes no file beside the pages.
+t_case "a build and an --if-moved with nothing to build write no version file"
 setup
 install_host_toolchain
 mkdir -p "$T/home/tehas/fun"
-rm -f "$T/home/tehas/fun/rukas-version.txt"
 t_run "\"$home/build.sh\""
 t_eq "$t_rc" 0
-t_eq "$(cat "$T/home/tehas/fun/rukas-version.txt")" v0.14.0
-
-t_case "an --if-moved with nothing to build writes the version of the current image"
-setup
-install_host_toolchain
-mkdir -p "$T/home/tehas/fun"
-echo v0.13.9 >"$T/home/tehas/fun/rukas-version.txt"
 T_ENV=(LABEL=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa)
 t_run "\"$home/build.sh\" --if-moved"
 t_eq "$t_rc" 0
 t_contains "$t_out" "is on aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-t_lacks "$(t_calls docker)" "build "
-t_eq "$(cat "$T/home/tehas/fun/rukas-version.txt")" v0.14.0
-
-t_case "an image that names no version takes the file away, and --check writes nothing"
-setup
-install_host_toolchain
-mkdir -p "$T/home/tehas/fun"
-echo v0.13.9 >"$T/home/tehas/fun/rukas-version.txt"
-T_ENV=(LABEL=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa CAPS='{}')
-t_run "\"$home/build.sh\" --check"
-t_eq "$t_rc" 0
-t_eq "$(cat "$T/home/tehas/fun/rukas-version.txt")" v0.13.9
-t_run "\"$home/build.sh\" --if-moved"
-t_eq "$t_rc" 0
-t_eq "$(test -e "$T/home/tehas/fun/rukas-version.txt" && echo there)" ""
 T_ENV=()
-
-t_case "a build from the checkout writes no version file"
-setup
-t_run "$build"
-t_eq "$t_rc" 0
-t_eq "$(test -e "$T_ROOT/host/fun/rukas-version.txt" && echo there)" ""
+t_eq "$(test -e "$T/home/tehas/fun/rukas-version.txt" && echo there)" ""
 
 t_done
