@@ -1,5 +1,5 @@
 //! The commands of `bin/tehas` and `bin/tehasbot` that are verbs of this
-//! program: nothing of them is left in bash but a line of a table.
+//! program. src/front.rs chooses them.
 //!
 //!   console tehas status [--json]
 //!   console tehas disk [...]
@@ -321,7 +321,7 @@ fn say(text: &str) {
     let _ = io::stdout().write_all(text.as_bytes());
 }
 
-fn text(command: &str) -> Option<&'static str> {
+pub fn text(command: &str) -> Option<&'static str> {
     Some(match command {
         "analytics" => include_str!("usage/analytics.txt"),
         "api" => include_str!("usage/api.txt"),

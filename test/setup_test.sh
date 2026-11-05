@@ -55,6 +55,8 @@ stub_gh() {
   "api user --jq [.login,.id]|@tsv") printf "tehas-bot\t4242\n" ;;
   "api --paginate installation/repositories --jq .repositories[].full_name") printf "%s\n" ${APP_REPOS:-acme/other acme/Widget} ;;
   "api users/tehas-app[bot] --jq .id") echo 9191 ;;
+  # The ids install.sh records of the allowed accounts, as t_stub gives them.
+  "api users/"*" --jq .id") ;;
   "issue create --repo acme/widget"*) echo "https://github.com/acme/widget/issues/7" ;;
   "repo clone acme/widget "*) mkdir -p "${4}/.git" ;;
   "auth setup-git --hostname @HG@")
@@ -317,6 +319,68 @@ fresh
 run_setup "${args[@]}" --no-build
 t_lacks "$(t_calls steps)" "build"
 t_lacks "$(t_calls steps)" "check-product"
+rm -f "$plat/libexec/check-product"
+
+# A checkout setup finds, as tehas state unpack leaves it: a real clone of a
+# bare origin whose URL ends in the repository, one commit behind. The gates
+# record the commit they were given.
+g() { git -c user.name=t -c user.email=t@example.com "$@"; }
+behind_origin() {
+  rm -rf "$T/src" "$T/origin" && mkdir -p "$T/src" "$T/home/tehas/repos"
+  g -C "$T/src" init -q --initial-branch=main && echo a >"$T/src/a"
+  g -C "$T/src" add -A && g -C "$T/src" commit -qm one
+  g clone -q --bare "$T/src" "$T/origin/acme/widget.git"
+  g clone -q "$T/origin/acme/widget.git" "$T/home/tehas/repos/widget"
+  echo b >"$T/src/a" && g -C "$T/src" commit -qam two
+  g -C "$T/src" push -q "$T/origin/acme/widget.git" main
+}
+work=$T/home/tehas/repos/widget
+printf '#!/usr/bin/env bash\necho check-product $* $(git -C "$T/home/tehas/repos/widget" rev-parse HEAD origin/HEAD) >>"$T/calls/steps"\n' >"$plat/libexec/check-product"
+chmod +x "$plat/libexec/check-product"
+
+t_case "a checkout behind origin is fast-forwarded before the gates, which run on the new head"
+fresh
+behind_origin
+from=$(git -C "$work" rev-parse HEAD)
+to=$(git -C "$T/src" rev-parse HEAD)
+run_setup "${args[@]}"
+t_eq "$t_rc" 0
+t_eq "$(git -C "$work" rev-parse HEAD)" "$to"
+t_contains "$t_out" "tehas setup: fast-forwarded the product checkout $work ${from:0:12} -> ${to:0:12}"
+t_eq "$(grep check-product "$T/calls/steps")" "check-product --sandbox $to $to"
+t_lacks "$(t_calls gh)" "repo clone"
+
+t_case "a second setup on a current checkout changes nothing and makes no commit"
+stub_all
+: >"$T/image-there"
+refs=$(git -C "$work" for-each-ref; git -C "$work" rev-list --count --all; git -C "$work" status --porcelain)
+run_setup "${args[@]}"
+t_eq "$t_rc" 0
+t_contains "$t_out" "tehas setup: the product checkout $work is up to date at ${to:0:12}"
+t_eq "$(git -C "$work" for-each-ref; git -C "$work" rev-list --count --all; git -C "$work" status --porcelain)" "$refs"
+
+t_case "a checkout with commits of its own is left as it is and named, and setup goes on with status 0"
+fresh
+behind_origin
+g -C "$work" commit -q --allow-empty -m local
+to=$(git -C "$T/src" rev-parse HEAD)
+mine=$(git -C "$work" rev-parse HEAD)
+run_setup "${args[@]}"
+t_eq "$t_rc" 0
+t_eq "$(git -C "$work" rev-parse HEAD)" "$mine"
+t_contains "$t_out" "tehas setup: no fast-forward of the product checkout $work (it cannot fast-forward to origin/main at ${to:0:12}"
+t_contains "$t_out" "the checkout was left as it is"
+t_contains "$(t_calls steps)" "check-product --sandbox"
+
+t_case "--no-build fast-forwards the checkout too, and runs no gates"
+fresh
+behind_origin
+to=$(git -C "$T/src" rev-parse HEAD)
+run_setup "${args[@]}" --no-build
+t_eq "$t_rc" 0
+t_eq "$(git -C "$work" rev-parse HEAD)" "$to"
+t_lacks "$(t_calls steps)" "check-product"
+rm -rf "$T/src" "$T/origin"
 rm -f "$plat/libexec/check-product"
 
 t_case "a given control issue is used and none is made"
