@@ -36,6 +36,8 @@ empty one above it.
 - The `sizes` figures count no lead for a ship whose `merged` is stamped before the `ready` behind it, as `refine` already counts it; a negative median lead no longer reaches the report.
 - `store prune` also removes the cycle and plan history of an issue whose cycle ended more than its window ago, keeping that issue's last row of each of the two tables, so the state store no longer grows with every issue the factory has ever closed. `store upkeep`, what `tehasbot clean` calls once an hour, prunes with a window of 90 days (`PRUNE_DAYS` in `console/store/src/upkeep.rs`). `tehas history` still answers for a long-closed issue with the line it keeps, and an issue whose cycle ended without a history line of its own keeps all of its rows (#1414).
 
+- `scripts/tag-release.sh` moves every pinned tool to the newest minor and patch of its major before it tags: `host/versions.env`, `host/npm/` and `host/sandbox/npm/`, each with its checksum, digest or lockfile, from the tool's own source (`scripts/pins.sh`, `console pins`). When anything moves it opens a pull request on `pins-<tag>` and tags after that is merged; a later major is listed under `### Held back` for a person. A move that fails stops the release; `--no-pins` skips it. The release that makes the move needs cargo, curl, tar and npm where it runs.
+
 ### Adopter action
 
 `console flags pause show` and `console flags pause read` are gone: a script
