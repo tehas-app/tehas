@@ -176,6 +176,7 @@ tehas status --json
   "planning": [{"issue": 7, "turn": 2, "since": "2026-10-17T13:47:00Z"}],
   "demand": {"waiting": 2, "oldestWait": 5400},
   "hold": {"why": "pause", "text": "paused by the flag tehas pause wrote: weekend"},
+  "held": [],
   "room": {"cycles": 0, "slice": 2}
 }
 ```
@@ -200,6 +201,11 @@ tehas status --json
 | `hold.why` | One word for what holds new cycles back: `pause`, `slice`, `unreadable`, `resources`, `limit`, `red`, `count`, `awaiting`, `pressure`, `room` or `full`. Treat it as an open list: later releases add words |
 | `hold.text` | The same for a person. Do not parse it |
 | `hold` | `null` when nothing holds |
+| `held` | The ready issues the last poll held one by one while it had room, each with its own reason; empty when none. An issue here starts nothing until a person clears its hold, so do not show it as next |
+| `held.issue` | The issue number |
+| `held.why` | One word for the reason: `parked` when its last cycle parked and its body has not changed since. Treat it as an open list |
+| `held.text` | The reason for a person. Do not parse it |
+| `held.clear` | What a person does to release it, such as editing the body or ticking Retry on the park comment |
 | `room.cycles` | Free slots under `TEHAS_TICKET_CONCURRENCY`. Below 0 when more cycles run than it allows, as after it was lowered |
 | `room.refreshes` | Free slots of the refresh lane, `TEHAS_REFRESH_SLOTS`; left out when the factory does not refresh its pull requests |
 | `room.maxAwaiting` | Room under `TEHAS_MAX_AWAITING`, the cycles running and pull requests waiting for review together. Below 0 when more wait than it allows. Left out when the last poll did not need to read it |
