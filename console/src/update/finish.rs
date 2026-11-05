@@ -18,8 +18,8 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
-/// What libexec/update gives install.sh. It runs it; this says so.
-const INSTALL_LIMIT: u32 = 1800;
+/// What `run` gives install.sh. It runs it; this says so.
+pub(super) const INSTALL_LIMIT: u32 = 1800;
 /// docker ps and docker compose up.
 const COMPOSE_LIMIT: u32 = 180;
 /// systemctl daemon-reload, is-active and restart.
@@ -596,8 +596,7 @@ mod tests {
     #[test]
     fn the_script_and_this_console_agree() {
         let script = include_str!("../../../libexec/update");
-        assert!(script.contains(&format!("timeout {INSTALL_LIMIT} \"${{run[@]}}\"")));
-        assert!(script.contains(&format!("7>&-)\" != {} ]", super::super::API)));
+        assert!(script.contains(r#"exec "$console" update run "$console" "$@""#));
     }
 
     #[test]
