@@ -143,7 +143,9 @@ fn events_of(text: &str) -> Option<Vec<Event>> {
     if all.iter().any(Value::is_array) {
         return None;
     }
-    match Events::parse(&Value::Array(all)) {
+    let mut all = Value::Array(all);
+    tehas_core::accounts::vouch(&mut all);
+    match Events::parse(&all) {
         Events::Read(events) => Some(events),
         _ => None,
     }

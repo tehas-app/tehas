@@ -799,6 +799,8 @@ fn an_unknown_status_word_ends_as_unknown() {
         one::<String>(&home, "SELECT status FROM cycle_history"),
         "pr-closed"
     );
+    // The ending keeps the word the caller said, as the history does: only
+    // `cycles.end_reason` maps a word it does not know to `unknown`.
     assert_eq!(
         one::<String>(&home, "SELECT status FROM endings"),
         "pr-closed"
@@ -806,6 +808,56 @@ fn an_unknown_status_word_ends_as_unknown() {
     assert_eq!(
         one::<String>(&home, "SELECT status FROM heartbeats"),
         "pr-closed"
+    );
+}
+
+#[test]
+fn an_ending_maps_a_word_that_is_not_an_end_to_unknown() {
+    // The word a heartbeat carries while a cycle runs, and the empty word of a
+    // cycle that never sent one: the ten ends never hold either, and neither
+    // does the heartbeat the end writes, which is the row publish answers from.
+    // The set and its mapping are `NOT_ENDS` and `ending_status` in
+    // `tehas_core::grammar`, health's reader of the same file beside them.
+    for word in ["running", ""] {
+        let home = home(&format!("end-word-{word}"));
+        let (_l, a) = start(&home, 46);
+        end(&home, 46, a, word);
+        assert_eq!(
+            one::<String>(&home, "SELECT status FROM endings"),
+            "unknown",
+            "endings of {word:?}"
+        );
+        assert_eq!(
+            one::<String>(&home, "SELECT status FROM heartbeats"),
+            "unknown",
+            "heartbeat of {word:?}"
+        );
+    }
+    // What publish writes for such an end: the file the page reads.
+    let home = home("end-word-published");
+    let (_l, a) = start(&home, 47);
+    end(&home, 47, a, "running");
+    ok(&home, &["publish"]);
+    let text = fs::read_to_string(home.join("live/endings.json")).unwrap();
+    let e: Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(e[0]["status"], "unknown");
+}
+
+#[test]
+fn an_ending_keeps_a_word_the_caller_reported() {
+    // A word that names no end the store knows is an end the caller reported,
+    // not a cycle still at work: `aborted` is the runner's own, and the history
+    // keeps the word it was given whatever it is.
+    let home = home("end-word-aborted");
+    let (_l, a) = start(&home, 48);
+    end(&home, 48, a, "aborted");
+    assert_eq!(
+        one::<String>(&home, "SELECT status FROM endings"),
+        "aborted"
+    );
+    assert_eq!(
+        one::<String>(&home, "SELECT status FROM heartbeats"),
+        "aborted"
     );
 }
 
@@ -1107,7 +1159,10 @@ fn cycle_end_does_not_store_progress_older_than_the_start() {
     // Too large and unreadable.
     let (_l2, b) = start(&home, 59);
     let big = home.join("big-progress.json");
-    File::create(&big).unwrap().set_len((1 << 20) + 1).unwrap();
+    File::create(&big)
+        .unwrap()
+        .set_len(tehas_core::file::READ_BOUND + 1)
+        .unwrap();
     let (n, at) = attempt_args(59, b);
     let v = ok(
         &home,
@@ -1391,7 +1446,7 @@ fn cycle_show_of_an_unlistable_directory_is_probe_rc_2() {
     if modes_bind() {
         fs::set_permissions(lock::dir(&home), fs::Permissions::from_mode(0o000)).unwrap();
         let v = ok(&home, &["cycle-show", "--running"]);
-        fs::set_permissions(lock::dir(&home), fs::Permissions::from_mode(0o700)).unwrap();
+        fs::set_permissions(lock::dir(&home), fs::Permissions::from_mode(0o700)).unwrap(); // a directory
         assert_eq!(v["probe_rc"], 2);
         assert!(v["why"].as_str().unwrap().starts_with("state/cycles"));
     }

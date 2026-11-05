@@ -551,7 +551,7 @@ fn approval_record_refuses_an_input_file_it_cannot_take() {
     let big = home.join("big.json");
     // Within the bound by whitespace alone, then one byte over it.
     let mut text = br#"{"links":[]}"#.to_vec();
-    text.resize(1 << 20, b' ');
+    text.resize(tehas_core::file::READ_BOUND_LEN, b' ');
     std::fs::write(&big, &text).unwrap();
     assert!(record_with(&home, 40, 5, &big).is_ok());
     text.push(b' ');
