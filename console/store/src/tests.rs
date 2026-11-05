@@ -399,8 +399,12 @@ fn every_counted_table_exists_and_every_table_of_the_schema_is_counted() {
     );
 }
 
+/// What the line of a failed integrity check says after the word, and the
+/// quick_check of an open does not.
+const INTEGRITY_FAILED: &str = "integrity check failed: ";
+
 #[test]
-fn check_says_what_failed_and_exits_1_without_moving_the_file() {
+fn check_names_a_failed_integrity_check_corrupt_and_exits_78_without_moving_the_file() {
     let home = scratch("integrity");
     init(&home, false).unwrap();
     let file = db::path(&home);
@@ -425,8 +429,8 @@ fn check_says_what_failed_and_exits_1_without_moving_the_file() {
     // offset the page has no bytes at, that row is gone from the table and its
     // entries in issues_checked remain -- the one disagreement quick_check does
     // not compare and integrity_check does. The file then opens, answers, and
-    // is ill, and no byte of it reads as malformed: the case the exit of 1 is
-    // for, as distinct from the 78 of a file no open gets through. Most leaves
+    // is ill, and no byte of it reads as malformed: only `check` sees it, and
+    // it answers 78 `corrupt` as the open of a malformed file does. Most leaves
     // of the file answer for their own damage at the quick_check of every open
     // -- a fragment or a freeblock the page never counted, which is the shape
     // of the file and the word `corrupt` -- so each leaf is asked in turn and
@@ -462,15 +466,14 @@ fn check_says_what_failed_and_exits_1_without_moving_the_file() {
         tried[entry + 1] = 0x01;
         fs::write(&file, &tried).unwrap();
         match check(&home) {
-            Err((1, err)) => {
-                assert!(err.starts_with("integrity "), "{err}");
-                assert_ne!(err, "integrity ok", "{err}");
+            Err((78, err)) if err.contains(INTEGRITY_FAILED) => {
                 bytes = tried;
                 damaged = Some(page);
                 break;
             }
-            // Some other structure of the page answered first, or nothing did:
-            // put the page back as it was and ask the next one.
+            // Some other structure of the page answered first (the quick_check
+            // of the open, which says `corrupt` without naming the integrity
+            // check), or nothing did: put the page back and ask the next one.
             Err((78, _)) | Ok(_) => fs::write(&file, &base).unwrap(),
             Err((code, err)) => panic!("unexpected {code}: {err}"),
         }
@@ -484,9 +487,13 @@ fn check_says_what_failed_and_exits_1_without_moving_the_file() {
     // file and not a lucky leftover of the search.
     fs::write(&file, &bytes).unwrap();
     match check(&home) {
-        Err((1, err)) => {
-            assert!(err.starts_with("integrity "), "{err}");
-            assert_ne!(err, "integrity ok", "{err}");
+        // 78 and the word `corrupt` first, as every database the store cannot
+        // use says, then what the integrity check found and the file.
+        Err((78, err)) => {
+            assert!(err.starts_with("corrupt the database: "), "{err}");
+            assert!(err.contains(INTEGRITY_FAILED), "{err}");
+            assert!(!err.contains("integrity check failed: ok"), "{err}");
+            assert!(err.contains(&file.display().to_string()), "{err}");
         }
         Err((code, err)) => panic!("unexpected {code}: {err}"),
         Ok(line) => panic!("the damage went unnoticed: {line}"),
