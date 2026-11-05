@@ -663,7 +663,7 @@ files=(
   # came inside the download it is checking.
   "release/minisign.pub|$TEHAS_HOME/release/minisign.pub|644"
   # What a release packs, so the list is on a host as it is in a checkout.
-  "lib/release.sh|$TEHAS_HOME/lib/release.sh|644"
+  "lib/release.list|$TEHAS_HOME/lib/release.list|644"
   "versions.env|$TEHAS_HOME/versions.env|644"
   "sandbox/Dockerfile|$TEHAS_HOME/sandbox/Dockerfile|644"
   "sandbox/build.sh|$TEHAS_HOME/sandbox/build.sh|755"
@@ -1262,7 +1262,8 @@ done
 # Protolab's server files of before the edge router. And the wrappers of what is
 # now a verb of the console, and the libraries of what is now a verb of
 # tehas-cycle, and the jq program of the bash report. And the libraries whose
-# last callers moved into the console. Found here, removed in
+# last callers moved into the console, and the release list of before it was a
+# plain file (lib/release.list). Found here, removed in
 # step 5 once systemd has the new units.
 old=()
 for f in \
@@ -1321,6 +1322,7 @@ for f in \
   lib/disk.sh \
   lib/top.sh \
   lib/update-release.sh \
+  lib/release.sh \
   lib/attachments.sh \
   lib/history-lines.jq \
   lib/cycles.sh \
