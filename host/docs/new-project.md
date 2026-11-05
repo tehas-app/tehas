@@ -30,6 +30,7 @@ are on; pi-rukas reads the rest of it.
 | `.pi/verify-cmd-fast`                                    | Optional developer's gate, same format. With it, pi-rukas tells the developer to run this command and not `.pi/verify-cmd`, and runs it ahead of `.pi/verify-cmd` wherever its driver gates |
 | `.pi/smoke-cmd`                                          | Proves the built product starts, same format                                                                                                                                                                     | Recommended                             |
 | `.pi/worktree-setup`                                     | Shell script run in each new worktree with no arguments and no environment: install dependencies. Must exit 0                                                                                                    | If a bare checkout cannot run the gates |
+| `.pi/work.json`                                          | The lean driver's settings: whether lean may merge, its gates, its budgets. Only lean reads it. See [`.pi/work.json`](#the-lean-drivers-settings) | Optional |
 | `.pi/install-cmd`                                        | The install of the product's dependencies, run at the root of the cycle's clone before the cycle, in place of the one tehas finds from the lockfiles (below). Same format as the gate                              | Only when the lockfiles cannot tell it  |
 | `.pi/settings.json`                                      | Provider and model of the session, when they are not the instance's                                                                                                                                              | Optional                                |
 | `.agents/skills/`                                        | Project skills: short instructions plus scripts for things agents get wrong                                                                                                                                      | Optional                                |
@@ -63,7 +64,8 @@ go's download cache, is not kept for the cycle.
 
 This repository is a product too, so its own `AGENTS.md` and `.pi/` are a
 small working example to copy from. pi-rukas's own state files in a cycle's
-clone (`.pi/work-state/`, `.pi/permissions.json`, `.pi/decisions.json`) are
+clone (`.pi/work-state/`, `.pi/lean-state/`, `.pi/permissions.json`,
+`.pi/decisions.json`) are
 kept out of git by `tehas work`, so the product needs no `.gitignore` lines for
 them. Make the gates print one
 line per step and exit non-zero on failure. Before going further, prove them by
@@ -91,6 +93,82 @@ on the cost of a start, not proof that a real gate exists at merge time.
 Work lands on the repository's default branch: pi-rukas branches from it and
 the pull request targets it. tehas reads the default branch from the checkout.
 Set `TEHAS_BRANCH` only to use another one.
+
+### The spec block lean needs
+
+A cycle on the [lean driver](/operating#choosing-the-driver) works from one
+fenced block in the issue's text whose info string is exactly `pi-spec v1`. Its
+content is JSON, and it is the whole brief: lean reads no scope, criteria or
+size from the prose around it. Classic does not read it.
+
+- `problem`: what the run is for, a string that is not empty.
+- `criteria`: at least one. Each has an `id` (`AC1`, `AC2` and so on), a
+  `text`, and a `verify` of `test`, `command` or `manual`. A `command`
+  criterion carries the `command` the gate runs.
+- `scope`, optional: `paths` the run may touch and `out` paths it must not.
+- `size`: `S` or `M`. `L` is refused: split the issue.
+
+A `manual` criterion, or a `command` one the gate could not run, keeps the pull
+request a draft, and a draft never waits for a merge. An example, for an issue
+of the tehas-tehas instance:
+
+````markdown
+```pi-spec v1
+{
+  "problem": "tehas work takes a --driver word it does not know",
+  "criteria": [
+    { "id": "AC1", "text": "--driver with a word other than lean or classic exits 64", "verify": "test" },
+    { "id": "AC2", "text": "--driver with no word exits 64", "verify": "test" }
+  ],
+  "scope": { "paths": ["console/cycle/src/main.rs"] },
+  "size": "S"
+}
+```
+````
+
+pi-rukas's `/plan` writes the block into an issue it files. A plan written over
+an issue with `Update this issue` keeps the block the issue had and writes none
+of its own, so an issue written by hand needs a block written by hand. With
+`tehas:lean` on an issue that has no block, or not one block of valid JSON, no
+cycle starts and the poll says why once. A block of valid JSON that lean
+refuses, for a missing field or a size `L`, ends the cycle not ready: tehas
+parks the issue with the rules lean says it failed. See
+[Troubleshooting](/troubleshooting#the-cycle-parked-needs-human-attention). The fields are
+pi-rukas's: its `docs/lean.md` is the reference.
+
+### The lean driver's settings
+
+Only the lean driver reads `.pi/work.json`, at the run's base commit, never from
+the working tree. Without it lean takes its defaults. A person writes it: it is
+under `.pi/`, so a cycle never changes it (AGENTS.md rule 7).
+
+```json
+{
+  "version": 1,
+  "autoMerge": false,
+  "verify": {
+    "fast": "scripts/verify.sh --changed",
+    "full": "scripts/verify.sh"
+  }
+}
+```
+
+- `version` must be `1`.
+- `autoMerge`, default `false`, lets lean merge its own pull request. Without
+  it a green run waits in `tehas:awaiting-merge` for a person. The repository
+  decides this, not tehas.
+- `verify.fast` and `verify.full` are shell commands run from the repository
+  root, fast first. With the file there, lean does not read `.pi/verify-cmd`.
+  `tehas work` still asks for `.pi/verify-cmd`, `package.json` or `Cargo.toml`
+  before any cycle starts, lean's included.
+- `verify.test` runs one test file: argv form with exactly one `{file}`, and no
+  shell characters.
+- `verify.testDir` and `verify.testGlob` come as a pair or not at all. With
+  them, lean's tests go where the project's CI runs them.
+- `budgets` sets the turns, tokens and minutes of each step.
+
+A file that does not parse, or holds a field lean refuses, stops the run: it is
+not defaulted. The full reference is pi-rukas's `docs/configuration.md`.
 
 ## The install
 
