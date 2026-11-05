@@ -1465,6 +1465,16 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
         },
         None => (J::Null, false),
     };
+    // The cleaner's record of its last upkeep, which is what makes the backup.
+    let upkeep = match read(&home.join("state/upkeep.json")) {
+        Some(u) if matches!(u.get("ok"), J::Bool(_)) => obj(vec![
+            ("time", iso(u.get("at"))),
+            ("ok", u.get("ok").clone()),
+            ("word", u.get("word").clone()),
+        ]),
+        _ => J::Null,
+    };
+    let upkeep_failed = matches!(upkeep.get("ok"), J::Bool(false));
     let poll_cost = match (g.poll_over.as_deref().and_then(J::parse), &g.poll_budget) {
         (Some(over), Some(budget)) => obj(vec![
             ("over", over.or(&J::Arr(vec![])).clone()),
@@ -1613,13 +1623,29 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
             platform.get("upstream").text(),
             first(&platform.get("behindSince").text_or_empty(), 10)
         )
-    } else if old_backup && backup.is_null() {
-        "There is no backup of the state store: tehasbot clean makes one a day.".to_string()
     } else if old_backup {
-        format!(
-            "The newest backup of the state store is {} old.",
-            ago(backup.get("ageSeconds"))
-        )
+        let why = if upkeep_failed {
+            format!(
+                "the last upkeep failed at {}: {}",
+                upkeep.get("time").text(),
+                upkeep.get("word").or(&J::str("no word")).text()
+            )
+        } else if backup.is_null() {
+            "tehasbot clean makes one a day".to_string()
+        } else {
+            String::new()
+        };
+        match (backup.is_null(), why.is_empty()) {
+            (true, _) => format!("There is no backup of the state store: {why}."),
+            (false, true) => format!(
+                "The newest backup of the state store is {} old.",
+                ago(backup.get("ageSeconds"))
+            ),
+            (false, false) => format!(
+                "The newest backup of the state store is {} old: {why}.",
+                ago(backup.get("ageSeconds"))
+            ),
+        }
     } else if over_budget {
         format!(
             "An idle poll is over its budget on {} (TEHAS_POLL_BUDGET={}).",
@@ -1731,6 +1757,7 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
                 ("platform", platform),
                 ("units", units.unwrap_or(J::Null)),
                 ("backup", backup_check),
+                ("upkeep", upkeep),
                 ("poll_cost", poll_cost),
             ]),
         ),
@@ -2486,6 +2513,50 @@ mod tests {
             said(&h.report(&g)).1,
             "The newest backup of the state store is 55 h old."
         );
+        // A failed upkeep is why there is none, and the line says when and
+        // what the store said rather than to wait for the cleaner.
+        h.write(
+            "state/upkeep.json",
+            r#"{"at":1792242000,"ok":false,"word":"busy","line":"store: busy: the lock is held"}"#,
+        );
+        let g = Given {
+            backup: Some(r#"{"newest":null}"#.into()),
+            ..Given::default()
+        };
+        let r = h.report(&g);
+        assert_eq!(
+            said(&r).1,
+            "There is no backup of the state store: the last upkeep failed at 2026-10-17T13:00:00Z: busy."
+        );
+        assert_eq!(
+            r.at(&["checks", "upkeep"]).dump(),
+            r#"{"time":"2026-10-17T13:00:00Z","ok":false,"word":"busy"}"#
+        );
+        let g = Given {
+            backup: Some(r#"{"newest":{"at":1792000000,"age_seconds":200000}}"#.into()),
+            ..Given::default()
+        };
+        assert_eq!(
+            said(&h.report(&g)).1,
+            "The newest backup of the state store is 55 h old: the last upkeep failed at 2026-10-17T13:00:00Z: busy."
+        );
+        // A fresh backup passes whatever the record says; the check still
+        // carries the failure.
+        let fresh = Given {
+            backup: Some(r#"{"newest":{"at":1792240000,"age_seconds":5620}}"#.into()),
+            ..Given::default()
+        };
+        let r = h.report(&fresh);
+        assert_eq!(said(&r), ("pass".into(), "Idle, taking work.".into()));
+        assert_eq!(r.at(&["checks", "upkeep", "word"]).as_str(), Some("busy"));
+        // An upkeep that went well keeps the plain wording.
+        h.write("state/upkeep.json", r#"{"at":1792242000,"ok":true}"#);
+        assert_eq!(
+            said(&h.report(&g)).1,
+            "The newest backup of the state store is 55 h old."
+        );
+        fs::remove_file(h.0.join("state/upkeep.json")).unwrap();
+        assert_eq!(h.report(&g).at(&["checks", "upkeep"]), &J::Null);
         let g = Given {
             poll_over: Some(r#"["cpu","wall"]"#.into()),
             poll_budget: Some("cpu=5".into()),
