@@ -57,10 +57,10 @@ const QUEUE_MAX_AGE: i64 = 600;
 /// The last poll's slice and demand are not believed after this.
 const POLL_MAX_AGE: i64 = 600;
 /// The largest poll file the page reads. The store bounds the same files at
-/// 1 MiB when it publishes them (`REPORT_BOUND` in console/store/src/live.rs);
-/// the read here is the parser's only other door, and our parser is slower on
+/// the same `READ_BOUND` when it publishes them (`REPORT_BOUND` in
+/// console/store/src/live.rs); the read here is the parser's only other door, and our parser is slower on
 /// a big object than the store's, so the bound is kept on this side too.
-const POLL_FILE_BOUND: u64 = 1 << 20;
+const POLL_FILE_BOUND: u64 = tehas_core::file::READ_BOUND;
 /// The previews' measure of the disk is not believed after this.
 const DISK_MAX_AGE: i64 = 1800;
 /// A platform this long behind is news.
@@ -2375,7 +2375,7 @@ mod tests {
             "live/dispatch.json",
             &format!(
                 "{{\"time\":\"2026-10-17T14:00:00Z\",\"why\":\"\",\"fill\":\"{}\"}}",
-                "x".repeat(1 << 20)
+                "x".repeat(tehas_core::file::READ_BOUND_LEN)
             ),
         );
         let r = h.report(&Given::default());
@@ -2384,7 +2384,10 @@ mod tests {
         // The demand check is read by the same function and is bounded too.
         h.write(
             "live/demand.json",
-            &format!("{{\"waiting\":1,\"fill\":\"{}\"}}", "y".repeat(1 << 20)),
+            &format!(
+                "{{\"waiting\":1,\"fill\":\"{}\"}}",
+                "y".repeat(tehas_core::file::READ_BOUND_LEN)
+            ),
         );
         assert_eq!(
             h.report(&Given::default()).at(&["checks", "demand"]),

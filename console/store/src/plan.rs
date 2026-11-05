@@ -77,9 +77,9 @@ pub const OUTCOMES: [&str; 6] = [
     "lost",
 ];
 
-const BRIEF_BOUND: u64 = 1 << 20;
+const BRIEF_BOUND: u64 = tehas_core::file::READ_BOUND;
 // A GitHub comment is up to 65,536 characters of up to four bytes each.
-const TEXT_BOUND: u64 = 1 << 20;
+const TEXT_BOUND: u64 = tehas_core::file::READ_BOUND;
 
 /// The kinds of `plan-note`, each with the key plan-show lists it under and,
 /// for the refused class, the old name #686 takes beside it.

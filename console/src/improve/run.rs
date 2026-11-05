@@ -29,7 +29,7 @@ const CHUNK: u64 = 5 * 1024 * 1024;
 const BOUND: u64 = 3600;
 const MAX_TAKE: usize = 5;
 const OLD: u64 = 7 * 24 * 60 * 60;
-const FINDINGS_BYTES: u64 = 1_048_576;
+const FINDINGS_BYTES: u64 = tehas_core::file::READ_BOUND;
 
 fn say(line: &str) {
     let _ = writeln!(io::stdout(), "{} improve: {line}", time::iso(time::now()));
