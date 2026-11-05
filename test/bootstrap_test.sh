@@ -577,6 +577,36 @@ T_ENV=(BOOTSTRAP_OS_RELEASE="$T/os-ubuntu" PATH="$T_PATH")
 t_eq "$(cat "$T/installer-env")" "image=unset"
 rm -rf "$T/home/tehas/repos/pi-rukas"
 
+# The clone moved without the image is the case health calls behind: an
+# installed host builds it then, and a first bootstrap, with no build.sh yet,
+# leaves it to install.sh.
+t_case "user moves the sandbox image after pi-rukas on an installed host"
+all_present
+mkdir -p "$T/home/tehas/sandbox"
+printf '#!/bin/sh\necho "$*" >>"$T/build-calls"; exit "${BUILD_RC:-0}"\n' >"$T/home/tehas/sandbox/build.sh"
+chmod +x "$T/home/tehas/sandbox/build.sh"
+rm -f "$T/build-calls"
+t_run "$bootstrap user"
+t_eq "$t_rc" 0
+t_eq "$(cat "$T/build-calls")" "--if-moved"
+t_contains "$t_out" "bootstrap: user part done"
+
+t_case "an image that does not follow stops user and says how to try again"
+rm -f "$T/build-calls"
+T_ENV+=(BUILD_RC=1)
+t_run "$bootstrap user"
+T_ENV=(BOOTSTRAP_OS_RELEASE="$T/os-ubuntu" PATH="$T_PATH")
+t_eq "$t_rc" 1
+t_contains "$t_out" "the sandbox image did not follow pi-rukas to $rukas_head"
+t_lacks "$t_out" "user part done"
+rm -rf "$T/home/tehas/sandbox"
+
+t_case "a first bootstrap, with no build.sh, builds nothing"
+rm -f "$T/build-calls"
+t_run "$bootstrap user"
+t_eq "$t_rc" 0
+t_eq "$(test -e "$T/build-calls" && echo there)" ""
+
 t_case "check reports a jq at another version than versions.env pins"
 all_present
 t_stub jq "[ \"\${1:-}\" = --version ] && { echo jq-1.7.1; exit 0; }; exec $jq_real \"\$@\""

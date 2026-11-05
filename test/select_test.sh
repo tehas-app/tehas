@@ -259,6 +259,11 @@ fake a_test.sh "nothing"
 pick host/fun/brick-wall.js
 t_eq "$t_out" "node test/brick_wall_test.mjs"
 
+t_case "the real checkout: the plain dashboard's module selects the node tests that run it"
+picked=$(bash "$T_ROOT/scripts/select-tests.sh" host/fun/dashboard-view.js 2>&1 | grep '^node ')
+t_contains "$picked" "node test/dashboard_view_test.mjs"
+t_contains "$picked" "node test/dashboard_host_test.mjs"
+
 t_case "the heavy files a shared library reaches are left to the full gate"
 fresh
 for f in install_steps_test.sh update_test.sh update_release_test.sh pack_release_test.sh bootstrap_test.sh a_test.sh; do

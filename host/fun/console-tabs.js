@@ -6,7 +6,7 @@
 // and the one that finished last. view() turns that file into the tabs. It
 // has no side effects and draws nothing, so it is tested without a browser
 // (test/console_tabs_test.mjs). The factory floor (game-view.js) and the
-// plain dashboard (dashboard.frag) both draw what it returns, with render().
+// plain dashboard (dashboard-view.js) both draw what it returns, with render().
 //
 // The file is read from the network and its text is untrusted: a tab's label
 // is an issue number, set as text.
