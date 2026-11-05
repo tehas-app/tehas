@@ -286,6 +286,15 @@ pub fn check(c: &Check) -> i32 {
     }
     let last = last.map(|s| s * 1000);
     vars.extend(sandbox::cycle_variables(&verify.to_string(), child, last));
+    // Whether the image's runner reads a retry's comments, for the boxes of a
+    // park of this cycle; the polyfill's label is read with the record. The
+    // polyfill does not reach the repeat-park guard, so a comments retry it
+    // alone carries runs without the guard where the image takes that input.
+    let native = caps_rc == 0 && caps::mode(&answer, "issueComments", None).0 == "native";
+    let guard = "PI_ENSEMBLE_REPEAT_PARK";
+    let unguard = !native
+        && crate::gives::comments_retry(&c.record)
+        && caps::unsupported(&answer, c.driver.verb(), "", guard, "").as_deref() == Some("");
     let tree = tree_of(c.issue);
     let works = Path::new(&tree).parent().unwrap_or(Path::new(""));
     if works.exists() && !works.join(".tehas-workspaces").is_file() {
@@ -312,7 +321,10 @@ pub fn check(c: &Check) -> i32 {
         names.push(' ');
         names.push_str(word.split('=').next().unwrap_or(word));
     }
-    if env("TEHAS_WORK_IMAGES") == "1" || env("TEHAS_WORK_FILES") == "1" {
+    if env("TEHAS_WORK_IMAGES") == "1"
+        || env("TEHAS_WORK_FILES") == "1"
+        || crate::gives::comments_given(&c.record)
+    {
         names.push_str(" PI_ENSEMBLE_EXTRA_IMAGE_DIRS");
     }
     let lacking = (caps_rc == 0)
@@ -359,7 +371,8 @@ pub fn check(c: &Check) -> i32 {
         return STOPPED;
     }
     let state = json!({"limits": limits, "security": security, "env": vars,
-        "hosts": hosts, "flags": flags, "verb": verb});
+        "hosts": hosts, "flags": flags, "verb": verb,
+        "comments": {"native": native, "unguard": unguard}});
     if !write_state(&c.file, &state) {
         eprintln!("tehas work: could not prepare the sandbox, not starting a cycle");
         return 78;
@@ -846,6 +859,21 @@ pub fn record(home: &Path, r: &Record) -> Result<Vec<String>, i32> {
     if !r.attempt.is_empty() && !on_record(home, r, &state, &seen) {
         return Err(4);
     }
+    let image = run_image(&seen, &env("PI_ENSEMBLE_IMAGE"));
+    let mut env_words = list(&state, "env");
+    let mode = if state.pointer("/comments/native") == Some(&Value::Bool(true)) {
+        "native"
+    } else if crate::gives::polyfill_label(&image) {
+        "polyfill"
+    } else {
+        "off"
+    };
+    if fs::write(file("comments"), format!("{mode}\n")).is_err() {
+        eprintln!("tehas work: could not write the image's word on comments, a park of this cycle offers no comments retry");
+    }
+    if mode == "polyfill" && state.pointer("/comments/unguard") == Some(&Value::Bool(true)) {
+        env_words.extend(["-e".to_string(), "PI_ENSEMBLE_REPEAT_PARK=0".to_string()]);
+    }
     // A log is named to the second, so a cycle of this issue can be given the
     // name one before it used: what err.txt of the record copies is only what
     // this cycle writes into it. The line of the attachments' gap is one of them.
@@ -859,12 +887,19 @@ pub fn record(home: &Path, r: &Record) -> Result<Vec<String>, i32> {
         eprintln!("tehas work: could not prepare the sandbox, not starting a cycle");
         return Err(78);
     };
-    let image = run_image(&seen, &env("PI_ENSEMBLE_IMAGE"));
-    Ok(run_words(r, &state, &cid, &image, verb))
+    Ok(run_words(r, &state, &env_words, &cid, &image, verb))
 }
 
-/// The words of the cycle's docker run of `verb`, of `image`.
-fn run_words(r: &Record, state: &Value, cid: &str, image: &str, verb: &str) -> Vec<String> {
+/// The words of the cycle's docker run of `verb`, of `image`, with the
+/// environment `env_words`.
+fn run_words(
+    r: &Record,
+    state: &Value,
+    env_words: &[String],
+    cid: &str,
+    image: &str,
+    verb: &str,
+) -> Vec<String> {
     sandbox::cycle_run(&sandbox::CycleRun {
         name: &r.name,
         limits: &list(state, "limits"),
@@ -874,7 +909,7 @@ fn run_words(r: &Record, state: &Value, cid: &str, image: &str, verb: &str) -> V
         tree: &env("TEHAS_WORK_DIR"),
         mounts: &list(state, "mounts"),
         images: &r.images,
-        env: &list(state, "env"),
+        env: env_words,
         hosts: &list(state, "hosts"),
         image,
         verb,
@@ -905,7 +940,7 @@ mod tests {
         let tag = "tehas-sandbox:latest";
         // The image is the word before the runner, as the table of runs reads it.
         let image = |seen: &Seen| {
-            let words = run_words(&r, &json!({}), "cid", &run_image(seen, tag), "work");
+            let words = run_words(&r, &json!({}), &[], "cid", &run_image(seen, tag), "work");
             let at = words.iter().position(|w| w == sandbox::RUNNER).unwrap();
             (words[at - 1].clone(), words)
         };

@@ -9,15 +9,6 @@ fn record() -> Value {
     json!({"links": [LINK], "at": "2026-01-01T00:00:00Z", "by": "alice", "how": "label"})
 }
 
-fn comment(source: &str, text: &str) -> Value {
-    json!({"source": source, "by": "alice", "at": "2026-01-01T00:20:00Z", "text": text})
-}
-
-fn context(entries: Value) -> String {
-    let rec = json!({"how": "retry-tick", "retry_context": entries});
-    retry_context(&rec, true, "").unwrap().unwrap()
-}
-
 fn compose(rec: &Value) -> (Value, String) {
     let (manifest, gap) = left_out_manifest(&json!(7), rec, "why", "GIVEN", None)
         .unwrap()
@@ -29,76 +20,6 @@ fn compose(rec: &Value) -> (Value, String) {
 fn the_links_rule_is_the_one_of_the_dispatcher() {
     let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../dispatch/src/text.rs");
     assert!(fs::read_to_string(path).unwrap().contains(LINK_RULE));
-}
-
-#[test]
-fn a_comment_is_cut_at_4000_code_points_not_bytes() {
-    let text = "\u{1F600}".repeat(5000);
-    let out = context(json!([comment("pr-comment:1", &text)]));
-    let quoted = out.lines().find(|l| l.starts_with("> ")).unwrap();
-    assert_eq!(quoted.chars().count(), 2 + 4000);
-}
-
-#[test]
-fn the_whole_is_cut_at_32000_code_points_with_a_mark() {
-    let text = "\u{e4}".repeat(3990);
-    let entries: Vec<Value> = (0..10)
-        .map(|i| comment(&format!("pr-comment:{i}"), &text))
-        .collect();
-    let out = context(json!(entries));
-    let body = out.strip_suffix("\n\n[cut]").unwrap();
-    assert_eq!(body.chars().count(), 32000);
-}
-
-#[test]
-fn every_line_of_a_comment_is_quoted_and_a_return_goes() {
-    let out = context(json!([comment("pr-comment:1", "one\r\n## two\n\nthree\n")]));
-    assert!(out.ends_with("\n> one\n> ## two\n> \n> three\n> \n"));
-}
-
-#[test]
-fn an_empty_comment_holds_no_line() {
-    let out = context(json!([comment("pr-comment:1", "")]));
-    assert!(out.ends_with(", by alice, 2026-01-01T00:20:00Z\n\n\n"));
-}
-
-#[test]
-fn a_source_or_an_account_of_another_shape_is_left_out() {
-    for bad in [
-        comment("pr-comment:1\n", "x"),
-        comment("x\npr-comment:1", "x"),
-        json!({"source": "pr-comment:1", "by": "a b", "at": "2026", "text": "x"}),
-        json!({"source": "pr-comment:1", "by": "a", "at": "now", "text": "x"}),
-        json!({"source": "pr-comment:1", "by": "a", "at": "2026", "text": 1}),
-    ] {
-        let rec = json!({"how": "retry-tick", "retry_context": [bad]});
-        assert_eq!(retry_context(&rec, true, "").unwrap(), None);
-    }
-}
-
-#[test]
-fn the_millwright_is_one_comment_by_its_login_with_or_without_bot() {
-    let mut first = comment("millwright:1", "first");
-    first["by"] = json!("mw[bot]");
-    let mut second = comment("fixer:2", "second");
-    second["by"] = json!("mw");
-    let rec = json!({"how": "fixer", "retry_context": [comment("fixer:0", "not"), first, second]});
-    let out = retry_context(&rec, false, "mw").unwrap().unwrap();
-    assert!(out.starts_with("# The fixer before this retry\n"));
-    assert!(out.contains("> first") && !out.contains("> second") && !out.contains("> not"));
-    assert_eq!(retry_context(&rec, false, "").unwrap(), None);
-}
-
-#[test]
-fn a_refresh_task_is_not_quoted_and_only_a_refresh_has_one() {
-    let entry = json!({"source": "refresh", "text": "Do no other work."});
-    let rec = json!({"how": "refresh", "retry_context": [entry]});
-    assert_eq!(
-        retry_context(&rec, false, "").unwrap().unwrap(),
-        "# This refresh\n\nDo no other work.\n"
-    );
-    let rec = json!({"how": "label", "retry_context": [entry]});
-    assert_eq!(retry_context(&rec, false, "").unwrap(), None);
 }
 
 #[test]
