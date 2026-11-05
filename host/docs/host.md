@@ -527,14 +527,14 @@ when nothing changed. That build comes after the proof of the home and before
 the update lock, whose directory is a write to the home and waits for the
 settings. It removes no earlier build, so a run the lock will refuse takes
 nothing from the run that holds it. A console that does not build stops the run
-with exit 1 before the settings are read. The console's source is `console/` without its tests and
-without `console/analytics/`, `console/mcp/` and `console/store/`, so a change
-to one of those alone builds that program alone. The store's source is
-`console/store/` without its tests, the workspace's `Cargo.toml` and
-`Cargo.lock`, and `console/core/`. The analytics source and the MCP server's
-are their own directory without its tests, the workspace's `Cargo.toml` and
-`Cargo.lock`, and `console/core/`. So a change to `console/core/` builds all
-four. Each build asks `cargo` for
+with exit 1 before the settings are read. A program's source is read from the workspace's manifests by
+`console update sources`: its own directory, the workspace's `Cargo.toml` and
+`Cargo.lock`, and the directory of every crate it takes by `path`, without
+`target/`, `tests/` and `src/tests.rs`. The console's own directory is
+`console/` without the members' directories. So a change to one program alone
+builds that program alone, a change to `console/cycle/` builds the cycle's
+supervisor and the console, which links it, and a change to `console/core/`
+builds all seven. Each build asks `cargo` for
 `--offline` first, so a host that has fetched once installs with no network.
 The build that fetches is the slow one and takes a minute or two: analytics
 compiles SQLite. When cargo says a crate is missing from its cache the build
