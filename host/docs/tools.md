@@ -142,7 +142,7 @@ the check out in silence (see [What a poll costs](/operating#what-a-poll-costs))
 | `TEHAS_PLAN_MAX_TURNS`          | `20`                                     | Turns a planning session may take before it is ended            |
 | `TEHAS_PLAN_TIMEOUT`            | `7200`                                   | Seconds before one planning turn is given up. At most 7200, 2 hours: the unit of a turn runs to that limit plus a quarter of an hour (see [the host manual](/host#time-limits)) |
 | `PI_ENSEMBLE_HOST_ALIASES`      | empty                                    | `name:address` pairs the sandbox must resolve, comma separated  |
-| `PI_ENSEMBLE_REVIEW_THRESHOLD`  | unset                                    | Optional. The code-review severity that blocks a change in a cycle: `CRITICAL`, `HIGH`, `MEDIUM` or `LOW`. Read by pi-rukas, not by tehas, and it wins over the severity the product's doctrine (`AGENTS.md` or `CLAUDE.md`) states. Unset, or anything other than those four words: pi-rukas ignores it and uses the severity that doctrine states, and MEDIUM when it states none. tehas does not check this value and does not stop with 78 over it. A `CRITICAL` finding blocks whatever this says |
+| `PI_ENSEMBLE_REVIEW_THRESHOLD`  | unset                                    | Optional. The code-review severity that blocks a change in a cycle: `CRITICAL`, `HIGH`, `MEDIUM` or `LOW`. Read by pi-rukas, not by tehas, and it wins over the severity the product's doctrine (`AGENTS.md` or `CLAUDE.md`) states. Unset, or anything other than those four words: pi-rukas ignores it and uses the severity that doctrine states, and when it states none pi-rukas's default: MEDIUM up to v0.14.49, HIGH from v0.14.50. tehas does not check this value and does not stop with 78 over it. A `CRITICAL` finding blocks whatever this says |
 | `PI_ENSEMBLE_IMAGE`             | `tehas/pi-rukas:uid<uid>`                | The sandbox image. Only its tag is the instance's to change: `sandbox/build.sh` tags what it builds under the default repository, and `tehasbot clean` takes the dated tags of that name, so a setting with another repository leaves the build's dated tags uncleaned |
 
 A line named `PI_ENSEMBLE_*` reaches a cycle's container as it is, except for
@@ -893,8 +893,14 @@ failure, for `tehasbot cycle`. They come from the result (`usage.byRole` and
 v0.12.80, gives the usage of the stable `dispatch-completed` lines, each
 counted once by its key, and a reason read from lines the runner marks
 unstable, which may be empty.
-The time limit is `TEHAS_WORK_TIMEOUT`. The push check, the clone and every
-`docker stop` have bounds of their own, listed under
+Before the cycle's container, after the push check, `tehas work` installs the
+product's dependencies in the workspace, in a container of the sandbox image
+with the cycle's limits and security options, the workspace and no token (see
+[the contract](/new-project#what-the-product-repository-must-provide)). An
+install that fails, or a tool the image lacks, starts no cycle: exit 78, with
+the install's last lines, which are in the log's `.preflight` file too.
+The time limit is `TEHAS_WORK_TIMEOUT`. The push check, the install, the clone
+and every `docker stop` have bounds of their own, listed under
 [time limits](/host#time-limits). [The host](/host#limits-and-concurrency)
 has the limits in full.
 
@@ -1810,12 +1816,17 @@ is committed there. One line per check, `ok` or `FAIL`:
 | `agents`  | `AGENTS.md` is there                                                                            |
 | `gate`    | `.pi/verify-cmd` has a line that is not empty or a comment                                      |
 | `model`   | `.pi/settings.json`, when the product has one, names a model the instance's `models.json` lists |
+| `install` | One line per install a cycle runs before it starts: the first command of `.pi/install-cmd`, else one for each lockfile at the root or one directory down (see [the contract](/new-project#what-the-product-repository-must-provide)) |
 
-With `--sandbox` it then clones that commit into `~/tehas/tmp` and runs, in the
-sandbox image as this user and in the slice, `.pi/worktree-setup` when there is
-one, the first command of `.pi/verify-cmd-full` (else `.pi/verify-cmd`) and the
-first command of `.pi/smoke-cmd` when there is one. The clone is removed
-afterwards.
+With `--sandbox` it then clones that commit into `~/tehas/tmp/<name>`, `<name>`
+the repository's name, and works in the sandbox image as this user and in the
+slice. It runs the installs at the root of the clone, then, in a worktree of the
+clone as pi-rukas makes one in a cycle, `.pi/worktree-setup` when there is one,
+the first command of `.pi/verify-cmd-full` (else `.pi/verify-cmd`) and the first
+command of `.pi/smoke-cmd` when there is one. An install that fails, or a tool
+the image lacks (`no pnpm in the sandbox image`), is a `FAIL install` line and
+no gate runs. The clone and its worktree are removed afterwards; the product's
+checkout gets no worktree and no branch.
 
 It changes nothing in the product. The result goes to
 `~/tehas/state/check-product.json`, which `tehas status` prints as its
