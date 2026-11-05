@@ -31,12 +31,15 @@
 //! share of the runs' time, over the runs that recorded them, from the two gate
 //! columns `run.rs` fills. Counts and durations only.
 //!
-//! `drivers` compares the drivers on the same work runs: for each of them the
-//! runs, those that ran (not refused or stopped), of these the share that ended
-//! in a pull request a person could merge and the share handed to a person,
-//! minutes, tokens, and of those pull requests, one per issue, how many were
-//! merged by now. A run with no driver on record is classic. Lean does not
-//! merge, so the figure is the pull requests', not the driver's own merges. Like
+//! `drivers` compares the drivers on the same work runs, one entry per driver
+//! and pi-rukas version, so two releases never pool into one figure: the runs,
+//! those that ran (not refused or stopped), of these the share that ended in a
+//! pull request a person could merge and the share handed to a person, minutes,
+//! tokens, of those pull requests, one per issue, how many were merged by now,
+//! the one-attempt success, and the hand-back by step. A share is given from
+//! VERSION_FLOOR runs behind it, as in `versions`. A run with no driver on
+//! record is classic. The pull requests are counted rather than the driver's
+//! own merges, since whether a driver may merge is the product's setting. Like
 //! `gate`, `tehasbot status` does not publish it.
 
 use rusqlite::{params, Connection};
@@ -126,13 +129,18 @@ fn vocab(s: &str) -> String {
 /// A version as published: left out when unknown, "other" when of another
 /// shape than a version or a commit.
 fn named(s: &str) -> Option<Value> {
+    named_str(s).map(|w| json!(w))
+}
+
+/// The word `named` publishes for a version.
+fn named_str(s: &str) -> Option<&str> {
     if s.is_empty() {
         return None;
     }
     let ok = s.len() <= 40
         && s.bytes()
             .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b':' | b'+' | b'-'));
-    Some(json!(if ok { s } else { "other" }))
+    Some(if ok { s } else { "other" })
 }
 
 fn share(part: usize, whole: usize) -> Option<f64> {
@@ -202,6 +210,9 @@ struct WorkRun {
     // printed duration needs.
     gate_runs: Option<i64>,
     gate_seconds: Option<i64>,
+    /// How many runs of the issue there had been, this one with them, as
+    /// `run.rs` recorded it: 1 is the issue's first attempt.
+    attempt: Option<i64>,
 }
 
 /// The two gate figures of one run, bound together: a run that holds one holds
@@ -363,7 +374,7 @@ pub fn build(conn: &Connection, to: i64) -> rusqlite::Result<Value> {
     report.insert("stopReasons".into(), stop_reasons(&runs));
     report.insert("stations".into(), stations(conn, &runs, from, to)?);
     report.insert("versions".into(), versions(&runs));
-    report.insert("drivers".into(), drivers(conn, &runs, to)?);
+    report.insert("drivers".into(), drivers(conn, &runs, from, to)?);
     Ok(Value::Object(report))
 }
 
@@ -792,7 +803,7 @@ fn work_runs(conn: &Connection, from: i64, to: i64) -> rusqlite::Result<Vec<Work
         "SELECT id, started, ended, seconds, coalesce(outcome, 'failed'), input, output, cache_read,
                 failure_kind, cap, park_reason, last_step, failed_step,
                 coalesce(tehas_version, ''), coalesce(rukas_version, rukas_commit, ''),
-                gate_runs, gate_ms, issue, coalesce(driver, 'classic')
+                gate_runs, gate_ms, issue, coalesce(driver, 'classic'), attempt
          FROM runs WHERE kind = 'work' AND ended >= ?1 AND ended <= ?2 ORDER BY ended",
     )?;
     let rows = q.query_map(params![from, to], |r| {
@@ -819,6 +830,7 @@ fn work_runs(conn: &Connection, from: i64, to: i64) -> rusqlite::Result<Vec<Work
             gate_seconds: integer(r, 16)
                 .filter(|m| *m > 0 && *m <= crate::run::MAX_GATE_MS)
                 .map(|m| (m / 1000).max(1)),
+            attempt: integer(r, 19),
         })
     })?;
     rows.collect()
@@ -1017,6 +1029,18 @@ fn stop_reasons(runs: &[WorkRun]) -> Value {
 // refused and stopped runs are not the line's doing and are left out.
 // Steps are in the order runs reach them: by their mean start in the run.
 fn stations(conn: &Connection, runs: &[WorkRun], from: i64, to: i64) -> rusqlite::Result<Value> {
+    let all: Vec<&WorkRun> = runs.iter().collect();
+    Ok(funnel(&reached_steps(conn, runs, from, to)?, &all))
+}
+
+/// The steps each work run of the window reached, by run id, each with its
+/// earliest start as an offset into the run.
+fn reached_steps<'a>(
+    conn: &Connection,
+    runs: &'a [WorkRun],
+    from: i64,
+    to: i64,
+) -> rusqlite::Result<BTreeMap<&'a str, BTreeMap<String, i64>>> {
     let mut q = conn.prepare(
         "SELECT s.run_id, s.step, s.started FROM run_steps s JOIN runs r ON r.id = s.run_id
          WHERE r.kind = 'work' AND r.ended >= ?1 AND r.ended <= ?2",
@@ -1043,11 +1067,20 @@ fn stations(conn: &Connection, runs: &[WorkRun], from: i64, to: i64) -> rusqlite
             .or_insert(offset);
         *at = (*at).min(offset);
     }
+    Ok(reached)
+}
+
+/// The step funnel of `runs`, by the rule `stations` states, from the steps
+/// `reached_steps` read: one table for the whole window and for each entry of
+/// `drivers`, so the two can never disagree on where a run stopped.
+fn funnel(reached: &BTreeMap<&str, BTreeMap<String, i64>>, runs: &[&WorkRun]) -> Value {
     // step -> (reached, passed, sum of offsets)
     let mut steps: BTreeMap<String, (usize, usize, i64)> = BTreeMap::new();
     let mut n = 0;
-    for (id, ran) in &reached {
-        let run = by_id[id];
+    for run in runs {
+        let Some(ran) = reached.get(run.id.as_str()) else {
+            continue;
+        };
         let stop = match run.outcome.as_str() {
             "pr" | "merged" => None,
             "handoff" | "parked" | "failed" => Some(
@@ -1087,7 +1120,7 @@ fn stations(conn: &Connection, runs: &[WorkRun], from: i64, to: i64) -> rusqlite
                    "share": round3(passed as f64 / reached as f64)})
         })
         .collect();
-    Ok(json!({"n": n, "steps": list}))
+    json!({"n": n, "steps": list})
 }
 
 // One row per tehas and pi-rukas version pair, the pair that ran last
@@ -1177,18 +1210,33 @@ fn tally(sorted: &[i64], per: i64) -> Value {
     ])
 }
 
-/// The runs of each driver in the window. A refused or stopped run is in `n` and
-/// not in the shares: neither tells of the driver, as `stations` has it. Parked is
-/// what `handoffRate` counts, since a run tehas parks with its pull request open is
-/// outcome handoff. A run that reported no usage is in no token figure and one of
-/// no length in no minutes figure. A pull request counts once per issue, because
-/// a merge is on record per issue and the runs that follow up one pull request
-/// are many. A merge is of one driver: the one whose run last reached a pull
-/// request before it, since an earlier pull request of the issue may be closed.
-fn drivers(conn: &Connection, runs: &[WorkRun], to: i64) -> rusqlite::Result<Value> {
+/// The runs of each driver in the window, one entry per pi-rukas version of
+/// theirs under the word `named` gives it (`none` for a run that recorded
+/// none), so two releases never pool into one figure. A refused or stopped run
+/// is in `n` and not in the shares: neither tells of the driver, as `stations`
+/// has it. Parked is what `handoffRate` counts, since a run tehas parks with
+/// its pull request open is outcome handoff. A run that reported no usage is in
+/// no token figure and one of no length in no minutes figure. A pull request
+/// counts once per issue, because a merge is on record per issue and the runs
+/// that follow up one pull request are many. A merge is of one driver: the one
+/// whose run last reached a pull request before it, since an earlier pull
+/// request of the issue may be closed. A share is left out under
+/// VERSION_FLOOR runs behind it.
+///
+/// `oneAttempt` is of the runs that were their issue's first attempt (attempt
+/// 1, so a resumed or follow-up run is not one) and ran: how many reached a
+/// pull request. `handBack` is the step funnel of the entry's runs, by the rule
+/// and from the steps `stations` reads, so it is where the runs of one driver
+/// and version handed the work back. Each is left out when no run is in it.
+fn drivers(conn: &Connection, runs: &[WorkRun], from: i64, to: i64) -> rusqlite::Result<Value> {
     let merges = last_merges(conn, to)?;
     let reaches = |r: &WorkRun| matches!(r.outcome.as_str(), "pr" | "merged");
     let ran_at_all = |r: &WorkRun| !matches!(r.outcome.as_str(), "refused" | "stopped");
+    let floor = |part: usize, whole: usize| {
+        share(part, whole)
+            .filter(|_| whole >= VERSION_FLOOR)
+            .map(Value::from)
+    };
     let mut merged_by: BTreeMap<i64, (i64, &str)> = BTreeMap::new();
     for r in runs.iter().filter(|r| reaches(r)) {
         if merges.get(&r.issue).is_some_and(|m| *m >= r.started) {
@@ -1198,48 +1246,76 @@ fn drivers(conn: &Connection, runs: &[WorkRun], to: i64) -> rusqlite::Result<Val
             }
         }
     }
+    let steps = reached_steps(conn, runs, from, to)?;
     let mut out = Map::new();
     for driver in DRIVERS {
-        let of: Vec<&WorkRun> = runs.iter().filter(|r| r.driver == driver).collect();
-        let n = of.len();
-        let ran = of.iter().filter(|r| ran_at_all(r)).count();
-        let reached: Vec<&&WorkRun> = of.iter().filter(|r| reaches(r)).collect();
-        let pulls: BTreeSet<i64> = reached.iter().map(|r| r.issue).collect();
-        let merged = pulls
-            .iter()
-            .filter(|issue| merged_by.get(issue).is_some_and(|m| m.1 == driver))
-            .count();
-        let parked = of
-            .iter()
-            .filter(|r| matches!(r.outcome.as_str(), "handoff" | "parked"))
-            .count();
-        let mut secs: Vec<i64> = of
-            .iter()
-            .filter(|r| ran_at_all(r))
-            .filter_map(|r| r.seconds)
-            .collect();
-        secs.sort_unstable();
-        let mut tokens = used_tokens(&of);
-        tokens.sort_unstable();
-        out.insert(
-            driver.to_string(),
-            obj(vec![
-                ("n", Some(json!(n))),
-                ("ran", Some(json!(ran))),
-                ("prShare", share(reached.len(), ran).map(Value::from)),
-                ("parkedShare", share(parked, ran).map(Value::from)),
-                ("minutes", Some(tally(&secs, 60))),
-                ("tokens", Some(tally(&tokens, 1))),
-                (
-                    "pullRequests",
-                    Some(obj(vec![
-                        ("n", Some(json!(pulls.len()))),
-                        ("merged", Some(json!(merged))),
-                        ("share", share(merged, pulls.len()).map(Value::from)),
-                    ])),
-                ),
-            ]),
-        );
+        let mut by_version: BTreeMap<&str, Vec<&WorkRun>> = BTreeMap::new();
+        for r in runs.iter().filter(|r| r.driver == driver) {
+            let version = named_str(&r.rukas).unwrap_or("none");
+            by_version.entry(version).or_default().push(r);
+        }
+        let mut entries = Map::new();
+        for (version, of) in by_version {
+            let n = of.len();
+            let ran = of.iter().filter(|r| ran_at_all(r)).count();
+            let reached: Vec<&&WorkRun> = of.iter().filter(|r| reaches(r)).collect();
+            let pulls: BTreeSet<i64> = reached.iter().map(|r| r.issue).collect();
+            let merged = pulls
+                .iter()
+                .filter(|issue| merged_by.get(issue).is_some_and(|m| m.1 == driver))
+                .count();
+            let parked = of
+                .iter()
+                .filter(|r| matches!(r.outcome.as_str(), "handoff" | "parked"))
+                .count();
+            let firsts: Vec<&&WorkRun> = of
+                .iter()
+                .filter(|r| ran_at_all(r) && r.attempt == Some(1))
+                .collect();
+            let first_pr = firsts.iter().filter(|r| reaches(r)).count();
+            let mut secs: Vec<i64> = of
+                .iter()
+                .filter(|r| ran_at_all(r))
+                .filter_map(|r| r.seconds)
+                .collect();
+            secs.sort_unstable();
+            let mut tokens = used_tokens(&of);
+            tokens.sort_unstable();
+            entries.insert(
+                version.to_string(),
+                obj(vec![
+                    ("n", Some(json!(n))),
+                    ("ran", Some(json!(ran))),
+                    ("prShare", floor(reached.len(), ran)),
+                    ("parkedShare", floor(parked, ran)),
+                    ("minutes", Some(tally(&secs, 60))),
+                    ("tokens", Some(tally(&tokens, 1))),
+                    (
+                        "pullRequests",
+                        Some(obj(vec![
+                            ("n", Some(json!(pulls.len()))),
+                            ("merged", Some(json!(merged))),
+                            ("share", floor(merged, pulls.len())),
+                        ])),
+                    ),
+                    (
+                        "oneAttempt",
+                        (!firsts.is_empty()).then(|| {
+                            obj(vec![
+                                ("n", Some(json!(firsts.len()))),
+                                ("pr", Some(json!(first_pr))),
+                                ("share", floor(first_pr, firsts.len())),
+                            ])
+                        }),
+                    ),
+                    (
+                        "handBack",
+                        Some(funnel(&steps, &of)).filter(|f| f["n"] != 0),
+                    ),
+                ]),
+            );
+        }
+        out.insert(driver.to_string(), Value::Object(entries));
     }
     Ok(Value::Object(out))
 }
@@ -1535,33 +1611,64 @@ pub fn text(report: &Value) -> String {
     }
 
     lines.push(String::new());
-    lines.push("Drivers".to_string());
+    lines.push("Drivers, by pi-rukas version".to_string());
     lines.push(format!(
-        "  {:<10}{:>5}{:>5}{:>9}{:>8}{:>10}{:>14}{:>5}{:>8}",
-        "", "runs", "ran", "to a PR", "parked", "minutes", "tokens", "PRs", "merged"
+        "  {:<10}{:<12}{:>5}{:>5}{:>9}{:>8}{:>10}{:>14}{:>5}{:>8}{:>10}",
+        "",
+        "rukas",
+        "runs",
+        "ran",
+        "to a PR",
+        "parked",
+        "minutes",
+        "tokens",
+        "PRs",
+        "merged",
+        "1st try"
     ));
     for driver in DRIVERS {
-        let d = &report["drivers"][driver];
-        let pulls = &d["pullRequests"];
-        // A count short of the runs says the tokens are not all of them.
-        let tokens = match (int(&d["tokens"]["n"]), int(&d["n"])) {
-            (Some(some), Some(all)) if some < all => {
-                format!("{} (n={some})", num(&d["tokens"]["total"]))
-            }
-            _ => num(&d["tokens"]["total"]),
+        let Some(versions) = report["drivers"][driver].as_object() else {
+            continue;
         };
-        lines.push(format!(
-            "  {:<10}{:>5}{:>5}{:>9}{:>8}{:>10}{:>14}{:>5}{:>8}",
-            driver,
-            num(&d["n"]),
-            num(&d["ran"]),
-            pct(&d["prShare"]),
-            pct(&d["parkedShare"]),
-            num(&d["minutes"]["total"]),
-            tokens,
-            num(&pulls["n"]),
-            num(&pulls["merged"])
-        ));
+        for (version, d) in versions {
+            let pulls = &d["pullRequests"];
+            // A count short of the runs says the tokens are not all of them.
+            let tokens = match (int(&d["tokens"]["n"]), int(&d["n"])) {
+                (Some(some), Some(all)) if some < all => {
+                    format!("{} (n={some})", num(&d["tokens"]["total"]))
+                }
+                _ => num(&d["tokens"]["total"]),
+            };
+            lines.push(format!(
+                "  {:<10}{:<12}{:>5}{:>5}{:>9}{:>8}{:>10}{:>14}{:>5}{:>8}{:>10}",
+                driver,
+                version,
+                num(&d["n"]),
+                num(&d["ran"]),
+                pct(&d["prShare"]),
+                pct(&d["parkedShare"]),
+                num(&d["minutes"]["total"]),
+                tokens,
+                num(&pulls["n"]),
+                num(&pulls["merged"]),
+                format!(
+                    "{}/{}",
+                    num(&d["oneAttempt"]["pr"]),
+                    num(&d["oneAttempt"]["n"])
+                )
+            ));
+            for s in d["handBack"]["steps"].as_array().into_iter().flatten() {
+                lines.push(format!(
+                    "  {:<10}{:<12}{:<16}{:>5} of {:<5}{:>8}",
+                    "",
+                    "",
+                    s["step"].as_str().unwrap_or("-"),
+                    num(&s["passed"]),
+                    num(&s["n"]),
+                    pct(&s["share"])
+                ));
+            }
+        }
     }
     let mut out = lines.join("\n");
     out.push('\n');

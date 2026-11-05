@@ -310,7 +310,7 @@ Blocked by #12 and #34.
 <!-- tehas:blocked by=12,34 -->
 ```
 
-Up to 20 numbers, separated by commas and no spaces. The newest such comment among the last 100 counts; one by anyone else is ignored. The issue also waits, and the log says why, when the label counts and no such comment is there, when the newest one does not hold a marker that reads, when it was last edited by another account, or when GitHub does not give the state of a number it names. Once every blocker is closed the issue starts, and the start takes `tehas:blocked` off with `tehas:ready`. A blocker that is closed already holds nothing: name one that is still open, or reopen it. To start a blocked issue anyway, swap `tehas:blocked` for `tehas:ready`. To stop it starting, take the label off.
+Up to 20 numbers, separated by commas and no spaces. The newest such comment among the last 100 counts; one by anyone else is ignored. Only comments are read: a marker in the issue's body names nothing. When the label counts and no such comment is there, the issue is held by the label alone: it names no blockers and never starts until an allowed labeller or the millwright comments a marker, or a person takes `tehas:blocked` off. The log says so at every poll, and [tehas status](/tools#tehas-status) lists such issues on a `blocked` line and in `demand.labelAlone`. The issue also waits, and the log says why, when the newest one does not hold a marker that reads, when it was last edited by another account, or when GitHub does not give the state of a number it names. Once every blocker is closed the issue starts, and the start takes `tehas:blocked` off with `tehas:ready`. A blocker that is closed already holds nothing: name one that is still open, or reopen it. To start a blocked issue anyway, swap `tehas:blocked` for `tehas:ready`. To stop it starting, take the label off.
 
 An issue labelled `tehas:improvement` and `cross-project` together is not started: the finding says the change belongs in another repository of the stack as well as this one, so one cycle here cannot make it, and a cycle on it spends a slot and its tokens before it parks. The dispatcher starts nothing and the log says why; it takes no label off and writes no comment, because the issue is a proposal the loop filed and a person decides what becomes of it. Read the `Names` line, which says the other repositories the loop read, and either work on both sides yourself or close it. Either label alone starts a cycle as any other issue would: `cross-project` on an issue the loop did not file is a person's label and means nothing to the dispatcher, and a finding that names no other repository is worked on here. The hold is on `tehas:ready` and on a ticked retry alike; a `tehas:plan` session on such an issue is allowed, since planning where the change goes on each side is what it is for.
 
@@ -461,6 +461,17 @@ choice.
   its fields are pi-rukas's to define. pi-rukas's `/plan` writes one, and
   [Troubleshooting](/troubleshooting#what-a-park-says) says what to do when the
   block is missing. A second block, or one that is no JSON, counts as none.
+- The driver keeps its own record of the steps it ran, in
+  `.pi/lean-state/<issue>.json` in the workspace. Before the cycle's report
+  clears what the container wrote, `tehas-cycle report` copies it to
+  `~/tehas/state/cycles/<issue>.lean-state.json`, and `tehas analytics run`
+  takes its steps as the run's steps, which the
+  [drivers table](/analytics#drivers) reads for the hand-back by step. A classic
+  cycle keeps no such file, nor does a cycle of a host with
+  `TEHAS_ANALYTICS=off`: the note exists only to feed that program. A lean cycle
+  whose copy could not be written says so once, and its run keeps the steps of
+  its stream. The copy is a plain file of the workspace, no link on the way, of
+  no more than 4 MiB. The next cycle of the issue removes the copy as it starts.
 
 ### What a poll costs
 
@@ -562,14 +573,17 @@ started from, so a cycle cannot lower its own bar mid-run. For this repository
 the bar is MEDIUM and above, decided in the platform repository's
 `docs/adr/0002-review-severity-policy.md`, a record in the source rather than a
 file on a host. A finding at the bar or above sends the change back to a fix
-step and the review runs again, up to three rounds. Only LOW findings may be
+step and the review runs again, up to two rounds from pi-rukas v0.14.49 (three
+before it). Only LOW findings may be
 deferred: they are notes on the pull request and start no fix round. A CRITICAL
 finding blocks whatever the bar says.
 
 `AGENTS.md` of this repository does not state the bar yet, because rule 7 gives
 that file to a person, so a cycle's log still records the verdict as `unstated`
-and takes pi-rukas's default, which is the same MEDIUM. Once a person adds the
-sentence the log names the bar it quoted and no cycle behaves differently. The
+and takes pi-rukas's default. That default is MEDIUM up to pi-rukas v0.14.49 and
+HIGH from v0.14.50, so on v0.14.50 a cycle here blocks at HIGH, not at the
+MEDIUM the record decided, until a person adds the sentence. Once the sentence
+is there the log names the bar it quoted, whatever the release's default. The
 sentence has to be one pi-rukas can read: one sentence that names the bar with a
 relation, `This repository blocks at MEDIUM severity and above.` pi-rukas takes
 the severity out of the sentence the judge quotes and checks that sentence
@@ -580,10 +594,14 @@ An instance can set the bar itself with `PI_ENSEMBLE_REVIEW_THRESHOLD`, which
 wins over what the product says (see [Commands](/tools#instance-settings)).
 tehas passes that line through without checking it, and pi-rukas honours it only
 when it reads as one of the four severities: a value that is not one of them is
-ignored, not refused with 78. With neither, MEDIUM.
+ignored, not refused with 78. With neither, pi-rukas's default: MEDIUM up to
+v0.14.49, HIGH from v0.14.50. Because the default moved, the
+[drivers table](/analytics#drivers) gives each pi-rukas version its own entry,
+so runs of the two bars are never read as one figure.
 
-Three rounds is the most a review takes. A CRITICAL finding parks the cycle. A
-round cap reached with only MEDIUM and HIGH findings left, an approving
+Two rounds is the most a review takes from pi-rukas v0.14.49, three before it.
+A CRITICAL finding parks the cycle. A round cap reached with only MEDIUM and
+HIGH findings left, an approving
 adversarial review, and those findings posted as a comment on the pull request,
 carries on to the gate with the findings named on the pull request instead of
 parking; a post that fails parks. A review that runs out of its time budget
