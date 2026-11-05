@@ -200,6 +200,8 @@ pub const TABLE: &[Setting] = &[
     always("TEHAS_PREVIEW_MIN_FREE", Rule::FreeDisk, "5g"),
     always("TEHAS_CYCLE_MIN_FREE", Rule::FreeDisk, "10g"),
     always("TEHAS_CLEAN_MIN_FREE", Rule::FreeDisk, "30g"),
+    always("TEHAS_CYCLE_STOP_FREE", Rule::FreeDisk, "5g"),
+    always("TEHAS_SCRATCH_MAX", Rule::FreeDisk, "20g"),
     always("TEHAS_CYCLE_RESERVE", Rule::ContainerSize, "2g"),
     always("TEHAS_SLICE_CONTAINERS", Rule::SliceContainers, "4"),
     always("TEHAS_LOW_GATE_WAIT", Rule::LowGateWait, "60"),
