@@ -163,39 +163,48 @@ t_eq "$(t_calls docker | grep '^image rm')" "image rm $built"
 t_eq "$(image_rm_unexpected)" ""
 t_eq "$(cat "$T/calls/gh-writes" | wc -l)" 1
 
-t_case "the image of a stopped commit goes with it, by its id and not by its tag"
-reset
-a=$(commit feature)
-pulls "$(pull 12 "$a")"
-t_run "$preview"
-a2=$(commit feature)
-pulls "$(pull 12 "$a2")"
-stopped=$(image_of "$a2") || t_bad "no archive for that commit"
-echo "false 0" >"$fx/settle"
-t_run "$preview"   # its build made a new image and its container stopped
-# Both went: the container of the stopped commit and the image its build made,
-# named by that id and once only. A stopped container holds the image under the
-# tag, so the tag is no name to remove at this point: the command is asked for
-# the id the build answered with, never for the tag, which by then names the
-# image of the commit that served before it.
-t_eq "$(image_rm_calls "$stopped")" 1
-t_eq "$(image_rm_calls)" 1
-t_lacks "$(t_calls docker)" "image rm tehas-preview:12"
-t_eq "$(image_rm_unexpected)" ""
-
-t_case "a stopped commit leaves the tag on the image of the commit before it"
+t_case "a stopped commit takes its own image and the image of the commit before it, by their ids"
 reset
 a=$(commit feature)
 pulls "$(pull 12 "$a")"
 t_run "$preview"
 served=$(image_id 12)
-[ -n "$served" ] || t_bad "the first build left no image behind"
 first=$(image_of "$a") || t_bad "no archive for that commit"
 [ "$served" = "$first" ] || t_bad "the first build made another image"
 a2=$(commit feature)
 pulls "$(pull 12 "$a2")"
+stopped=$(image_of "$a2") || t_bad "no archive for that commit"
+echo "false 0" >"$fx/settle"
+rm -f "$T"/calls/docker*
+t_run "$preview"   # its build made a new image and its container stopped
+# The build moved the tag off the image of the commit that served, and that
+# commit's container went before the new one was started: nothing runs it and
+# nothing names it, so it goes with the image of the stopped commit. Each is
+# named by its id once, and never by the tag.
+t_eq "$(image_rm_calls "$stopped") $(image_rm_calls "$served") $(image_rm_calls)" "1 1 2"
+t_lacks "$(t_calls docker)" "image rm tehas-preview:12"
+t_eq "$(image_rm_unexpected)" ""
+
+t_case "a stopped commit leaves no image and nothing serving, until a new commit serves"
+reset
+a=$(commit feature)
+pulls "$(pull 12 "$a")"
+t_run "$preview"
+a2=$(commit feature)
+pulls "$(pull 12 "$a2")"
 echo "false 0" >"$fx/settle"
 t_run "$preview"   # its build made a new image and its container stopped
+t_eq "$(state_of 12)" "build-failed"
+t_eq "$(image_id 12)" ""
+t_eq "$(untagged 12)" ""
+# The container of the earlier commit went before this one was started.
+t_eq "$(count "$fx/docker" container-12)" 0
+t_eq "$(jq -r '.previews[0] | "\(.state) \(.address)"' "$live/previews.json")" "build-failed null"
+# And it stays so at the next run: the same commit is not built again.
+rm -f "$T"/calls/docker*
+t_run "$preview"
+t_eq "$(builds) $(runs)" "0 0"
+t_eq "$(count "$fx/docker" container-12)" 0
 a3=$(commit feature)
 pulls "$(pull 12 "$a3")"
 next=$(image_of "$a3") || t_bad "no archive for that commit"
@@ -204,10 +213,7 @@ t_run "$preview"
 t_eq "$(state_of 12)" "serving"
 t_eq "$(cat "$fx/docker/container-12")" "$a3"
 t_eq "$(image_id 12)" "$next"
-# The tag moved on to the image of the serving commit and left the one it held:
-# the image of the commit that served before the stopped one, and not the image
-# of the stopped commit, whose build removed it itself.
-t_eq "$(untagged 12)" "$served"
+t_eq "$(untagged 12)" ""
 
 t_case "a container that was not created keeps its own reason, and is not asked or logged"
 reset

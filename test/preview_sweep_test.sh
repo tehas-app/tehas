@@ -176,67 +176,45 @@ echo "sha256:dangling <none>:<none>" >"$fx/extra-images"
 t_run "$preview --sweep"
 t_contains "$(t_calls docker)" "image rm sha256:dangling"
 
-t_case "sweep: a rebuild leaves an image behind, and names no image for the sweep"
+t_case "sweep: the image a re-tag left dangling is listed and removed"
 reset
-# On a host `docker image ls` answers only with what has a tag, so the image a
-# rebuild leaves untagged is never listed and the sweep cannot name it. A rebuild
-# is asked for by hand: with the state and the container of the commit taken
-# away, the next run finds the same commit again and builds it, which is what a
-# rebuild is. The first build is what gives the preview its image; the second
-# moves the tag off it.
+# Docker keeps the labels of an image whose tag a build moved away, and
+# `docker image ls --filter label=tehas.preview` lists it as <none>:<none>. A
+# container that was never created leaves one: its build moved the tag off the
+# image of the commit that served, and that commit's container went before the
+# new one was tried.
 a=$(commit one)
 pulls "$(pull 66 "$a")"
 t_run "$preview"
-rm -rf "$root/66"
-rm -f "$fx/docker/container-66"
-t_run "$preview"   # built again from the same commit, and the tag moves off it
-t_eq "$(state_of 66)" "serving"
-left=$(untagged 66)
-[ -n "$left" ] || t_bad "the rebuild left no image behind"
-first=$(image_of "$a") || t_bad "no archive for that commit"
-[ "$left" = "$first" ] || t_bad "the image left behind is not the first one"
+first=$(image_id 66)
+a2=$(commit feature)
+pulls "$(pull 66 "$a2")"
+touch "$fx/run-fails"
+t_run "$preview"
+rm -f "$fx/run-fails"
+t_eq "$(untagged 66)" "$first"
 rm -f "$T"/calls/docker*
 t_run "$preview --sweep"
-t_eq "$(image_rm_calls "$left")" 0
-# The sweep did run, and asked about images: were it to die before that, the
-# line above would read the same as one that named nothing at all.
-t_contains "$(t_calls docker)" "image ls --filter label=tehas.preview"
+t_eq "$(image_rm_calls "$first")" 1
+t_eq "$(untagged 66)" ""
+# The tagged image of the open pull request stays.
+t_eq "$(image_rm_calls tehas-preview:66)" 0
+t_eq "$(image_id 66)" "$(image_of "$a2")"
 
-t_case "sweep: a build of a stopped commit names its image alone, and the sweep names no image of it"
+t_case "sweep: a stopped commit leaves no image for the sweep"
 reset
 a=$(commit one)
 pulls "$(pull 67 "$a")"
 t_run "$preview"
 a2=$(commit feature)
 pulls "$(pull 67 "$a2")"
-stopped=$(image_of "$a2") || t_bad "no archive for that commit"
 echo "false 0" >"$fx/settle"
 t_run "$preview"   # its build made an image and its container stopped at once
-# What the build of the stopped commit is told to remove: its own image, by its
-# id, and nothing else. Were it ever to name another image, the sweep would be
-# told about one it should leave alone.
-t_eq "$(image_rm_calls)" 1
-t_eq "$(t_calls docker | grep '^image rm')" "image rm $stopped"
-t_eq "$(image_rm_unexpected)" ""
-# The sweep of a preview whose container stopped at once names no image of it
-# at all: the one its build made is gone, and the earlier image, which the tag
-# moved off, is left with none and is not in what `docker image ls` answers
-# with. The host keeps it until a person prunes.
-left=$(untagged 67)
-[ -n "$left" ] || t_bad "the stopped build left the image before it behind"
-[ "$(image_id 67)" = "" ] || t_bad "the stopped build left its own image behind"
+t_eq "$(image_id 67) $(untagged 67)" " "
 rm -f "$T"/calls/docker*
 t_run "$preview --sweep"
-t_eq "$(image_rm_calls)" 0
-# The sweep ran, so the line above is about what it saw and not about a run that
-# never got to the images.
 t_contains "$(t_calls docker)" "image ls --filter label=tehas.preview"
-# What would take that image away, named in a listing, is taken: which is what
-# makes the line above say something, rather than nothing.
-echo "$left <none>:<none>" >"$fx/extra-images"
-rm -f "$T"/calls/docker*
-t_run "$preview --sweep"
-t_contains "$(t_calls docker)" "image rm $left"
+t_eq "$(image_rm_calls)" 0
 
 t_case "sweep: nothing to remove writes a zero and no line about removing"
 reset
