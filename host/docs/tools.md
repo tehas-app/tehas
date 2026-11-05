@@ -47,9 +47,9 @@ with its status. `tehas status` and `tehas disk` need no settings. The verbs
 that do, `tehas state`, `limit`, `pause`, `analytics`, `stop`, `init-product` and
 `tehasbot health`, `clean`, `preview`, `protolab`, `refresh` among them, run
 under `console run`, which checks the arguments, loads the settings, requires
-what the command cannot run without and runs it (`console/src/run.rs`). A few
-paths stay as a line that calls `console run`: `libexec/dispatch`, `review`,
-`improve`, `check-product` and `github-token`. A command neither of them knows
+what the command cannot run without and runs it (`console/src/run.rs`), and so
+do `tehas dispatch`, `plan`, `check-product` and `tehasbot dispatch`, `review`,
+`improve` and `github-token`, which have no script of their own. A command neither of them knows
 is exit 64 with the list on standard error. `tehas <command> --help`
 prints the same text as `tehas help <command>`.
 
@@ -1186,7 +1186,7 @@ Run by hand it removes and remakes the workspace that a planning turn of the
 same issue uses, and it does not take the dispatcher's lock, so do not run it
 for an issue whose session the factory is working on.
 
-`libexec/plan` is only a path: the console runs the turn
+`tehas plan` has no script: the console runs the turn
 (`console/src/plan/start.rs`), after `console run` has loaded the settings. A
 call that is no turn is refused with 64 before the settings are read.
 
@@ -4256,9 +4256,9 @@ The update hands the lock to the install.sh it runs, and to nothing else; the
 wait covers a run started right after one that failed and left the lock held a
 moment by something it had started. `--check` takes no lock.
 
-`libexec/update` is a thin script: it holds that lock and runs install.sh, and
-the console does the rest. A console that does not start stops an update with
-exit 1, see [tehas update says the console does not answer](/troubleshooting#tehas-update-says-the-console-does-not-answer).
+The console does all of the update, the lock and install.sh included:
+`libexec/update` asks it whether it answers and execs it. A console that does
+not start stops an update with exit 1, see [tehas update says the console does not answer](/troubleshooting#tehas-update-says-the-console-does-not-answer).
 
 That pre-check covers the required settings only. The rest of the instance
 contract - `models.json` readable, valid JSON, listing the models the settings

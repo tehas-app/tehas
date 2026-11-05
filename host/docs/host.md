@@ -392,7 +392,7 @@ Instance:     /home/boss/tehas/platform/instances/tehas-tehas OK
 Dependencies: OK
 Slice:        MISSING (sudo ./bootstrap.sh slice)
 Installed:    DRIFT (1 files)
-  differs: /home/boss/tehas/libexec/dispatch
+  differs: /home/boss/tehas/libexec/work
 Follow-ups:   NOT DONE (2 from an earlier run, see /home/boss/tehas/state/update-pending)
 Tests:        not run (./install.sh --check --tests runs them)
 ```
@@ -527,14 +527,14 @@ when nothing changed. That build comes after the proof of the home and before
 the update lock, whose directory is a write to the home and waits for the
 settings. It removes no earlier build, so a run the lock will refuse takes
 nothing from the run that holds it. A console that does not build stops the run
-with exit 1 before the settings are read. The console's source is `console/` without its tests and
-without `console/analytics/`, `console/mcp/` and `console/store/`, so a change
-to one of those alone builds that program alone. The store's source is
-`console/store/` without its tests, the workspace's `Cargo.toml` and
-`Cargo.lock`, and `console/core/`. The analytics source and the MCP server's
-are their own directory without its tests, the workspace's `Cargo.toml` and
-`Cargo.lock`, and `console/core/`. So a change to `console/core/` builds all
-four. Each build asks `cargo` for
+with exit 1 before the settings are read. A program's source is read from the workspace's manifests by
+`console update sources`: its own directory, the workspace's `Cargo.toml` and
+`Cargo.lock`, and the directory of every crate it takes by `path`, without
+`target/`, `tests/` and `src/tests.rs`. The console's own directory is
+`console/` without the members' directories. So a change to one program alone
+builds that program alone, a change to `console/cycle/` builds the cycle's
+supervisor and the console, which links it, and a change to `console/core/`
+builds all seven. Each build asks `cargo` for
 `--offline` first, so a host that has fetched once installs with no network.
 The build that fetches is the slow one and takes a minute or two: analytics
 compiles SQLite. When cargo says a crate is missing from its cache the build
@@ -1471,8 +1471,8 @@ the cycles run: see [Rolling back pi-rukas](#rolling-back-pi-rukas)).
 Each image is several gigabytes, with Chromium and Rust in it. After a build
 `build.sh` keeps the newest three dated tags, the new one among them (with the
 instance's `<date>-product` counted as one of them), and
-removes older ones. It keeps an older tag whose image a container, running or
-stopped, was made from, or that a `uid` tag names. On a host that builds
+removes older ones (`console clean dated`). It keeps an older tag whose image
+a container, running or stopped, was made from, or that a `uid` tag names. On a host that builds
 often the images then take about three times the size of one, plus those
 still in use. `tehasbot clean` is what takes the rest: the dated tags past
 `TEHAS_CLEAN_AFTER` hours, keeping the newest, and then the old `sha-` tags of
@@ -1505,10 +1505,9 @@ own, and at most 40 seconds. A good image prints a `step-started` line within a
 few seconds, the run ends there, and the tag moves; an image that prints no
 such line, or a result that says its runner crashed, is refused, the build
 exits 1 and the uid tag stays where it was, as for a layer that does not
-build. A build with an instance layer smoke-runs both images. The run's words
-and the decision on its output are `tehas-cycle sandbox smoke` and
-`tehas-cycle sandbox smoke-verdict`, in `console/cycle/src/sandbox.rs`;
-`build.sh` only runs docker and passes it the output. A smoke run starts no
+build. A build with an instance layer smoke-runs both images. The run and the
+decision on its output are `tehas-cycle sandbox smoke-run`, in
+`console/cycle/src/sandbox.rs`. A smoke run starts no
 cycle and reaches no model, so it costs the build
 a few seconds, and it is not one of the containers a cycle is given.
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for libexec/dispatch: no new cycle while the check TEHAS_BRANCH_CHECK
+# Tests for tehasbot dispatch: no new cycle while the check TEHAS_BRANCH_CHECK
 # names failed on the head commit of the branch.
 # shellcheck disable=SC2016  # snippets are expanded by the shell under test
 # shellcheck source=test/lib.sh

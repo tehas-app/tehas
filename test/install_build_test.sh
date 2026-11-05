@@ -237,20 +237,20 @@ rm -f "$T/calls/cargo"
 t_run "$part/install.sh"
 t_eq "$(t_calls cargo)" ""
 
+# The attachment checker takes the library too, as its manifest says.
 for shared in src/mask.rs src/time.rs Cargo.toml; do
-  t_case "a change to the library the six share builds all six ($shared)"
+  t_case "a change to the library the seven share builds all seven ($shared)"
   echo "# changed" >>"$part/console/core/$shared"
   rm -f "$T/calls/cargo"
   t_run "$part/install.sh --check"
   t_eq "$t_rc" 1
-  for prog in console analytics tehas-mcp store tehas-dispatch tehas-cycle; do
+  for prog in console analytics tehas-mcp store attach tehas-dispatch tehas-cycle; do
     t_contains "$t_out" "differs: $th/libexec/$prog"
   done
-  t_lacks "$t_out" "differs: $th/libexec/attach"
   t_run "$part/install.sh"
   t_eq "$t_rc" 0
-  t_eq "$(t_calls cargo | wc -l)" 6
-  for prog in console analytics tehas-mcp store tehas-dispatch tehas-cycle; do
+  t_eq "$(t_calls cargo | wc -l)" 7
+  for prog in console analytics tehas-mcp store attach tehas-dispatch tehas-cycle; do
     t_contains "$(t_calls cargo)" "-p $prog"
   done
 done

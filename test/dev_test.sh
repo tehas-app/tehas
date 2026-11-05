@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for libexec/dev: the clone a manual session works in, whose name its
+# Tests for tehas dev: the clone a manual session works in, whose name its
 # commits carry, and what its container is given. A stub docker records its
 # arguments, one per line, and exits at once, so no session runs.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
@@ -9,7 +9,6 @@
 # every test machine.
 t_stub nproc 'echo 16'
 
-dev="$T_ROOT/libexec/dev"
 checkout=$T/home/tehas/repos/widget
 devs=$T/home/tehas/dev
 clone=$devs/main
@@ -41,14 +40,11 @@ t_stub docker "$docker_stub"
 # starting a session without its lock.
 # shellcheck disable=SC2154  # t_console_why is set by t_console (test/lib.sh)
 t_console || t_bad "no console: $t_console_why"
-mkdir -p "$T/tree/libexec"
-ln -s "$dev" "$T/tree/libexec/dev"
-ln -s "$T_ROOT/lib" "$T/tree/lib"
-cp "$T_CONSOLE" "$T/tree/libexec/console"
+t_front "$T/tree"
 # shellcheck disable=SC2154  # t_cycle_why is set by t_cycle (test/lib.sh)
 t_cycle || t_bad "no tehas-cycle: $t_cycle_why"
 cp "$T_CYCLE" "$T/tree/libexec/tehas-cycle"
-dev_cmd=$T/tree/libexec/dev
+dev_cmd="$T/tree/bin/tehas dev"
 printf '[user]\n\tname = Test Bot\n\temail = bot@example.com\n' >"$T/home/.gitconfig"
 # Pi's settings as install.sh leaves them on a host.
 # An issue's attachments are read by the real attachment checker.

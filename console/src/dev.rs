@@ -8,9 +8,10 @@
 //!                                            the tehas user: libexec/dev-login
 //!   console dev table                        its row of the table of runs
 //!
-//! Every refusal that needs neither GitHub nor a write comes first. libexec/dev
-//! and libexec/dev-login are the paths of this, and each execs it, so the pid,
-//! the terminal and the signal dispositions are the caller's.
+//! Every refusal that needs neither GitHub nor a write comes first. bin/tehas
+//! and libexec/dev-login exec this, so the pid, the terminal and the signal
+//! dispositions are the caller's. dev-login stays a script: the sudo rule of
+//! `bootstrap.sh dev` names that one file and no arguments.
 //!
 //! The session is spawned, not exec'd: the terminal is put back after it. The
 //! docker client shares this program's stdio, so it has the real terminal. The

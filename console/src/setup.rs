@@ -1052,14 +1052,14 @@ fn the_sandbox(vars: &Vars, libexec: &Path, home: &str) -> Result<(), Fail> {
             &mut program(vars, format!("{home}/sandbox/build.sh")),
         )?;
     }
-    let check = libexec.join("check-product");
+    let check = libexec.join("../bin/tehas");
     if runnable(&check) {
         step(
             "tehas check-product --sandbox",
-            program(vars, check).arg("--sandbox"),
+            program(vars, check).args(["check-product", "--sandbox"]),
         )?;
     } else {
-        tell("check-product is not installed, so the product's gates were not run in the sandbox");
+        tell("bin/tehas is not installed, so the product's gates were not run in the sandbox");
     }
     Ok(())
 }

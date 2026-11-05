@@ -294,7 +294,13 @@ fn writer(
             user_home: env("HOME"),
             done_wait: secs("TEHAS_CYCLE_DONE_WAIT", 330),
             image: env("PI_ENSEMBLE_IMAGE"),
-            plan_cmd: or("TEHAS_PLAN_CMD", "plan"),
+            plan_cmd: match opt("TEHAS_PLAN_CMD") {
+                Some(cmd) => vec![cmd],
+                None => vec![
+                    here.join("../bin/tehas").to_string_lossy().into_owned(),
+                    "plan".into(),
+                ],
+            },
             plan_start_cmd: opt("TEHAS_PLAN_START_CMD"),
             pin_cmd: Some(here.join("tehas-cycle"))
                 .filter(|p| opt("TEHAS_PLAN_CMD").is_none() && p.is_file())
@@ -468,7 +474,7 @@ const TOKEN_BOUND: Duration = Duration::from_secs(30);
 
 impl PollToken {
     /// The token of the host's GitHub App: the one already taken, or the first
-    /// run of `$TEHAS_HOME/libexec/github-token`, which answers the token and
+    /// run of `$TEHAS_HOME/bin/tehasbot github-token`, which answers the token and
     /// nothing else. Only when `TEHAS_GITHUB_APP_ID` names an app. A run that
     /// could not be had leaves nothing taken, so the poll's gh calls go on as
     /// they did before and each pays for a token of its own. The token is held
@@ -565,7 +571,7 @@ pub fn run_poll(home: &Path, settings: &Settings, dry: bool) -> i32 {
     // The poll's GitHub token, kept in memory from before its first call: the
     // first gh of the poll asks the host's token program once, and every gh
     // process after it is given the token as TEHAS_GH_TOKEN, so the shim of a
-    // call runs no libexec/github-token of its own: its reads, its writes, and
+    // call runs no `tehasbot github-token` of its own: its reads, its writes, and
     // the commands it starts at its end - tidy, the status and health, all
     // through status_of - carry it in their environment too. With no app named
     // nothing is asked and nothing is given, and a token that could not be had
