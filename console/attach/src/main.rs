@@ -23,8 +23,11 @@
 //!     The comment on what <dir>/manifest.json gave a <what>. --reads is what
 //!     the sandbox image says of its pi-rukas, --build the script that records
 //!     it. Answers {"api":1,"verb":"said","ok":true,"text":"..."|null}.
-//!   attach retry-context <record> --comments 0|1 --millwright LOGIN
-//!     The retry-context.md of an approval record. Answers "text" as said does.
+//!   attach comments <issue> <dir> --record PATH --repo R --millwright LOGIN
+//!     Remake <dir> with comments.json of the approval record and a manifest
+//!     that lists no file, for a retry of an instance that gives a cycle no
+//!     images and no files. Answers "why" as issue does, and "count" and
+//!     "dropped", the comments the blob holds and the oldest it left out.
 //!   attach changed <kept manifest> <manifest>
 //!     Answers "link": the first link that gave other bytes under the same
 //!     approval, or null, also when a manifest cannot be read.
@@ -47,13 +50,15 @@
 //!     Add to a session's <dir> what the reply links. Answers "why", and "new"
 //!     and "left", the lines that say what was added and what was left out.
 //!
-//! The rules of said, retry-context, changed and left-out are in src/given.rs,
-//! those of issue and answer in src/take.rs. Each answers one line on
+//! The rules of said, changed and left-out are in src/given.rs, those of
+//! issue and answer in src/take.rs, and those of comments.json in
+//! src/comments.rs. Each answers one line on
 //! standard output. Exit: 0 the answer; 64 an argument the verb does not know;
 //! 1 the file cannot be read (`attach: unreadable: ...`, which for unpack is an
 //! archive it cannot read and nothing was written) or <dir> or <file> cannot be
 //! written (`attach: unwritable: ...`).
 
+mod comments;
 mod given;
 mod manifest;
 mod sniff;
@@ -81,7 +86,7 @@ fn usage(why: &str) -> ! {
     eprintln!("attach: usage: {why}");
     eprintln!("usage: attach sniff <file> | attach unpack <zip> <dir> --max-bytes N --max-files N");
     eprintln!("       attach said <dir> <what> --reads R --build PATH");
-    eprintln!("       attach retry-context <record> --comments 0|1 --millwright LOGIN");
+    eprintln!("       attach comments <issue> <dir> --record PATH --repo R --millwright LOGIN");
     eprintln!("       attach changed <kept manifest> <manifest>");
     eprintln!("       attach left-out <issue> <file> <record> --images 0|1 --files 0|1");
     eprintln!("       attach issue <issue> <dir> --approved WORD --record PATH --repo R --comments 0|1 --allowed LOGINS --millwright LOGIN --images 0|1 --files 0|1 --zips 0|1 --attach PATH");
@@ -204,14 +209,24 @@ fn said_verb(args: &[String]) {
     answer("said", json!({"text": text}));
 }
 
-fn retry_context_verb(args: &[String]) {
-    let (pos, [comments, millwright]) =
-        flagged("retry-context", args, ["--comments", "--millwright"]);
-    let ([record], "0" | "1") = (pos.as_slice(), comments) else {
-        usage("retry-context <record> --comments 0|1 --millwright LOGIN")
+fn comments_verb(args: &[String]) {
+    let (pos, [record, repo, millwright]) =
+        flagged("comments", args, ["--record", "--repo", "--millwright"]);
+    let ([issue, dir], false) = (pos.as_slice(), record.is_empty()) else {
+        usage("comments <issue> <dir> --record PATH --repo R --millwright LOGIN")
     };
-    let text = refused(given::retry_context_of(record, comments == "1", millwright));
-    answer("retry-context", json!({"text": text}));
+    let run = take::CommentsRun {
+        issue,
+        dir,
+        record,
+        repo,
+        millwright,
+    };
+    let v = match take::comments_only(&run) {
+        Ok((count, dropped)) => json!({"why": null, "count": count, "dropped": dropped}),
+        Err(why) => json!({"why": why, "count": 0, "dropped": 0}),
+    };
+    answer("comments", v);
 }
 
 fn changed_verb(args: &[String]) {
@@ -316,7 +331,7 @@ fn main() {
         Some("sniff") => sniff_verb(&args[1..]),
         Some("unpack") => unpack_verb(&args[1..]),
         Some("said") => said_verb(&args[1..]),
-        Some("retry-context") => retry_context_verb(&args[1..]),
+        Some("comments") => comments_verb(&args[1..]),
         Some("changed") => changed_verb(&args[1..]),
         Some("left-out") => left_out_verb(&args[1..]),
         Some("issue") => issue_verb(&args[1..]),

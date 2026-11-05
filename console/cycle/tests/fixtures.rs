@@ -257,7 +257,7 @@ fn the_park_of_a_refused_lean_start_puts_the_label_above_its_boxes() {
     assert_eq!(p.args[reason + 1], "lean-refused", "{:?}", p.args);
     let (_, body) = p.question(7, false);
     let at = body.find(lead).unwrap_or_else(|| panic!("{body}"));
-    let boxes = body.find("- [ ] Retry from a clean start").unwrap();
+    let boxes = body.find("- [ ] Retry with the issue text only").unwrap();
     assert!(at < boxes, "{body}");
     for p in [parks(4, false), parks(78, false)] {
         assert!(
