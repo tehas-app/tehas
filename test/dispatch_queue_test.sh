@@ -81,6 +81,16 @@ t_eq "$(started)" "8 "
 t_contains "$t_out" "wait #7: tehas:blocked holds it: #12 is open"
 t_lacks "$(t_calls gh)" "issue edit 7 "
 
+t_case "an open blocked-by link holds a ready issue, and the slot goes to the next one"
+reset
+queue 7 8
+echo '{"number":7,"state":"open","issue_dependencies_summary":{"blocked_by":1}}' >"$fx/work-7.json"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(started)" "8 "
+t_contains "$(t_calls gh)" "issueDependenciesSummary { blockedBy }"
+t_contains "$t_out" "wait #7: a blocked-by link holds it: 1 blocker is open"
+
 t_case "a blocked issue starts once every blocker it names is closed"
 reset
 queue "7 tehas:blocked"
