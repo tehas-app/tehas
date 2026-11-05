@@ -130,7 +130,23 @@ fn answer(file: &str, now: i64, lines: Option<(&str, Option<&str>)>) -> u8 {
                 tehas_core::outln!("{line}");
             }
         }
-        None => tehas_core::outln!("{}", status_json(&health, now, stale).dump()),
+        None => {
+            let mut said = status_json(&health, now, stale);
+            // The Protolab's list beside the health file: live/protolab.json
+            // for live/health.json, and so for a sample's <name>.health.json.
+            let lab = match file.strip_suffix("health.json") {
+                Some(stem) => format!("{stem}protolab.json"),
+                None => Path::new(file)
+                    .with_file_name("protolab.json")
+                    .display()
+                    .to_string(),
+            };
+            let list = fs::read_to_string(lab).ok().and_then(|t| J::parse(&t));
+            if let (J::Obj(o), Some(p)) = (&mut said, list.as_ref().and_then(prototypes)) {
+                o.push(("prototypes".to_string(), p));
+            }
+            tehas_core::outln!("{}", said.dump())
+        }
     }
     u8::from(stale || health.get("status").as_str() == Some("fail"))
 }
@@ -577,6 +593,15 @@ pub fn status_json(h: &J, now: i64, stale: bool) -> J {
             if !c.get("step").is_null() {
                 f.push(("step", c.get("step").clone()));
             }
+            // Where the step is, each only when known (#1579).
+            for k in ["stepNumber", "stepTotal", "round", "roundLimit"] {
+                if matches!(c.get(k), J::Num(_)) {
+                    f.push((k, c.get(k).clone()));
+                }
+            }
+            if c.get("stepSince").as_str().and_then(epoch).is_some() {
+                f.push(("stepSince", c.get("stepSince").clone()));
+            }
             obj(f)
         })
         .collect();
@@ -699,6 +724,32 @@ pub fn status_json(h: &J, now: i64, stale: bool) -> J {
     ];
     fields.retain(|(k, v)| !matches!(*k, "allHands" | "limit") || !v.is_null());
     obj(fields)
+}
+
+/// The tickets with a Protolab page, from the list the Protolab writes beside
+/// the health file: each issue, and when its page was built where that is
+/// known. None when there is no list to read, as on a host without the lab.
+pub fn prototypes(list: &J) -> Option<J> {
+    let J::Arr(tickets) = list.get("tickets") else {
+        return None;
+    };
+    Some(J::Arr(
+        tickets
+            .iter()
+            .filter(|t| {
+                t.get("number")
+                    .as_f64()
+                    .is_some_and(|n| n >= 1.0 && n.fract() == 0.0)
+            })
+            .map(|t| {
+                let mut f = vec![("issue", t.get("number").clone())];
+                if t.get("builtAt").as_str().and_then(epoch).is_some() {
+                    f.push(("builtAt", t.get("builtAt").clone()));
+                }
+                obj(f)
+            })
+            .collect(),
+    ))
 }
 
 #[cfg(test)]
@@ -943,5 +994,28 @@ mod tests {
             r#"{"state":"ok","cycles":1,"plan":true}"#
         );
         assert_eq!(v.get("reasons").dump(), r#"[""]"#);
+    }
+
+    #[test]
+    fn a_running_cycle_says_where_its_step_is_as_far_as_it_is_known() {
+        let health = h(r#"{"status":"pass","checks":{"cycles":[
+              {"issue":12,"startedAt":"2026-10-17T13:50:20Z","step":"lens-review","stepNumber":7,"stepTotal":9,"round":2,"roundLimit":3,"stepSince":"2026-10-17T13:58:00Z"},
+              {"issue":13,"startedAt":"2026-10-17T13:50:20Z","step":"develop","stepNumber":"7","stepSince":"soon"}]}}"#);
+        assert_eq!(
+            status_json(&health, NOW, false).get("running").dump(),
+            r#"[{"issue":12,"since":"2026-10-17T13:50:20Z","step":"lens-review","stepNumber":7,"stepTotal":9,"round":2,"roundLimit":3,"stepSince":"2026-10-17T13:58:00Z"},{"issue":13,"since":"2026-10-17T13:50:20Z","step":"develop"}]"#
+        );
+    }
+
+    #[test]
+    fn the_prototypes_are_the_tickets_of_the_lab_s_list() {
+        let list = h(
+            r#"{"generatedAt":"2026-10-17T14:00:00Z","tickets":[{"number":7,"builtAt":"2026-10-17T12:00:00Z","files":2},{"number":9},{"number":"x"}]}"#,
+        );
+        assert_eq!(
+            prototypes(&list).unwrap().dump(),
+            r#"[{"issue":7,"builtAt":"2026-10-17T12:00:00Z"},{"issue":9}]"#
+        );
+        assert!(prototypes(&h("{}")).is_none());
     }
 }

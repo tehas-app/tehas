@@ -18,7 +18,7 @@ use std::time::{Duration, Instant};
 use crate::live;
 
 /// PRAGMA user_version of the schema in schema.sql.
-pub const SCHEMA_VERSION: i64 = 9;
+pub const SCHEMA_VERSION: i64 = 10;
 pub const SCHEMA: &str = include_str!("schema.sql");
 
 /// The steps from schema 1 to 2 and from 2 to 3: columns and a table added,
@@ -147,6 +147,20 @@ ALTER TABLE poll_cost ADD COLUMN starts INTEGER;
 /// easy merge existed must have: a refresh of such a row was a full cycle.
 pub const STEP_9: &str = "
 ALTER TABLE approvals ADD COLUMN easy INTEGER NOT NULL DEFAULT 0 CHECK (easy IN (0, 1));
+";
+
+/// The step from 9 to 10: where a cycle's step is, as the driver said it
+/// (#1579), last in `heartbeats` and `cycle_history` as in schema.sql. A row of
+/// an older store keeps them null, which is "not known".
+pub const STEP_10: &str = "
+ALTER TABLE heartbeats ADD COLUMN step_number INTEGER;
+ALTER TABLE heartbeats ADD COLUMN step_total INTEGER;
+ALTER TABLE heartbeats ADD COLUMN round INTEGER;
+ALTER TABLE heartbeats ADD COLUMN round_limit INTEGER;
+ALTER TABLE heartbeats ADD COLUMN step_since INTEGER;
+ALTER TABLE cycle_history ADD COLUMN step_number INTEGER;
+ALTER TABLE cycle_history ADD COLUMN step_total INTEGER;
+ALTER TABLE cycle_history ADD COLUMN round INTEGER;
 ";
 
 /// How long SQLite waits for a lock another connection holds before giving
@@ -1080,36 +1094,45 @@ pub fn migrate(
             .and_then(|()| step(conn, 6, STEP_6))
             .and_then(|()| step(conn, 7, STEP_7))
             .and_then(|()| step(conn, 8, STEP_8))
-            .and_then(|()| step(conn, 9, STEP_9)),
+            .and_then(|()| step(conn, 9, STEP_9))
+            .and_then(|()| step(conn, 10, STEP_10)),
         2 => step(conn, 3, STEP_3)
             .and_then(|()| step_4(conn))
             .and_then(|()| step(conn, 5, STEP_5))
             .and_then(|()| step(conn, 6, STEP_6))
             .and_then(|()| step(conn, 7, STEP_7))
             .and_then(|()| step(conn, 8, STEP_8))
-            .and_then(|()| step(conn, 9, STEP_9)),
+            .and_then(|()| step(conn, 9, STEP_9))
+            .and_then(|()| step(conn, 10, STEP_10)),
         3 => step_4(conn)
             .and_then(|()| step(conn, 5, STEP_5))
             .and_then(|()| step(conn, 6, STEP_6))
             .and_then(|()| step(conn, 7, STEP_7))
             .and_then(|()| step(conn, 8, STEP_8))
-            .and_then(|()| step(conn, 9, STEP_9)),
+            .and_then(|()| step(conn, 9, STEP_9))
+            .and_then(|()| step(conn, 10, STEP_10)),
         4 => step(conn, 5, STEP_5)
             .and_then(|()| step(conn, 6, STEP_6))
             .and_then(|()| step(conn, 7, STEP_7))
             .and_then(|()| step(conn, 8, STEP_8))
-            .and_then(|()| step(conn, 9, STEP_9)),
+            .and_then(|()| step(conn, 9, STEP_9))
+            .and_then(|()| step(conn, 10, STEP_10)),
         5 => step(conn, 6, STEP_6)
             .and_then(|()| step(conn, 7, STEP_7))
             .and_then(|()| step(conn, 8, STEP_8))
-            .and_then(|()| step(conn, 9, STEP_9)),
+            .and_then(|()| step(conn, 9, STEP_9))
+            .and_then(|()| step(conn, 10, STEP_10)),
         6 => step(conn, 7, STEP_7)
             .and_then(|()| step(conn, 8, STEP_8))
-            .and_then(|()| step(conn, 9, STEP_9)),
-        7 => step(conn, 8, STEP_8).and_then(|()| step(conn, 9, STEP_9)),
-        // The store of the previous release sits at 8, so the step from it is
+            .and_then(|()| step(conn, 9, STEP_9))
+            .and_then(|()| step(conn, 10, STEP_10)),
+        7 => step(conn, 8, STEP_8)
+            .and_then(|()| step(conn, 9, STEP_9))
+            .and_then(|()| step(conn, 10, STEP_10)),
+        8 => step(conn, 9, STEP_9).and_then(|()| step(conn, 10, STEP_10)),
+        // The store of the previous release sits at 9, so the step from it is
         // one the shipped binary must answer for.
-        8 => step(conn, 9, STEP_9),
+        9 => step(conn, 10, STEP_10),
         v => Err(DbError::Corrupt(format!(
             "no migration from schema {v} of {}, this binary writes {SCHEMA_VERSION}",
             file.display()
