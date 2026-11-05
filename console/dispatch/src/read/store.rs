@@ -563,12 +563,14 @@ pub fn question(asked: &Asked, n: u64) -> Value {
     }
     let plan = open_plan(&plan);
     let mut qid = digits(plan.get("comment_id")).unwrap_or_default();
+    let mut reason = Value::Null;
     if qid.is_empty() {
         let park = asked.answer(Read::Park(n));
         if park.get("failed") == Some(&json!(true)) {
             return park;
         }
         qid = digits(park.pointer("/park/question")).unwrap_or_default();
+        reason = park.pointer("/park/reason").cloned().unwrap_or(Value::Null);
     }
     let mut kind = String::new();
     if !qid.is_empty() {
@@ -584,7 +586,7 @@ pub fn question(asked: &Asked, n: u64) -> Value {
             _ => qid.clear(),
         }
     }
-    json!({"plan": plan, "id": qid, "kind": kind})
+    json!({"plan": plan, "id": qid, "kind": kind, "reason": reason})
 }
 
 #[cfg(test)]

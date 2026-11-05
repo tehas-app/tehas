@@ -3,7 +3,7 @@
 //! request. Each takes the room rules 2 and 3 left, as libexec/dispatch does.
 
 use super::clean::iso;
-use super::{fixer_base, has, label_actor, or_unknown, Driver, End, Poll, Room, Start, Step};
+use super::{fixer_base, has, label_actor, or_unknown, Driver, End, Poll, Room, Start, Step, LEAN};
 use crate::questions;
 use crate::text;
 use serde_json::{json, Map, Value};
@@ -503,6 +503,16 @@ impl Poll<'_> {
                         Some("Retry was ticked, but this issue is not parked, so nothing was started."),
                     );
                 }
+                continue;
+            }
+            // The park of a lean start tehas work refused: the same start
+            // would be refused again. The tick stays, and starts classic once
+            // the label is off.
+            if has(&have, LEAN)
+                && q.get("reason").and_then(Value::as_str)
+                    == Some(tehas_core::question::LEAN_REFUSED)
+            {
+                self.log(format!("wait #{n}: a retry was ticked on the park of a lean start this tehas cannot run; take {LEAN} off first, and the tick then starts it on classic"));
                 continue;
             }
             if !self.work_ok(n)? || !self.epic_ok(n, "tehas:ready", &have) {

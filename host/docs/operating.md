@@ -448,6 +448,10 @@ choice.
   nothing until a person applies `tehas:ready` again. A person's `tehas:ready`
   that a park holds counts too: the ticked box then reads the label.
 - With the label off, the next start is classic, retry or not.
+- The park of a refused lean start asks for the label to come off first. A
+  Retry ticked there while `tehas:lean` is on starts nothing: the poll logs
+  that it waits for the label, and the tick stays. Once the label is off, that
+  tick starts the cycle on classic.
 - A new lean start also needs a `pi-spec v1` block in the issue's text: one
   fence with that info string, holding valid JSON. With none the poll starts
   nothing, takes `tehas:ready` off and says why once, as for a label from an
