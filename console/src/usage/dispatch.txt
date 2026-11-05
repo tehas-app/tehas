@@ -203,7 +203,12 @@ Rules, in order:
      one applied by the bot or anyone else is
      ignored and logged, and the issue keeps its place by number. tehas:next,
      and tehas:blocked in rule 6, count when their latest event applies them
-     and is by an allowed account or the fixer. A running cycle is never
+     and is by an allowed account or the fixer. With TEHAS_PRIORITY_FIELD
+     set, that issue field orders the queue and the two labels do not: its
+     value Urgent counts as tehas:urgent when an allowed account made the
+     newest change to the field, and High as tehas:next when an allowed
+     account or the fixer did. A field the repository's owner does not have
+     ends the poll with 78 before it writes. A running cycle is never
      stopped to make room. With TEHAS_LOW_GATE set, the poll runs that command
      at most once, and only when an issue of the lowest kind would otherwise
      start: it reads the exit status alone, and only
@@ -261,6 +266,9 @@ Instance settings (lib/config.sh; defaults in brackets):
                             when unset
   TEHAS_LOW_GATE_WAIT       seconds that command gets before its answer is a
                             closed gate, 1 to 600 [60]
+  TEHAS_PRIORITY_FIELD      the owner's single-select issue field whose
+                            Urgent and High order the queue in place of
+                            tehas:urgent and tehas:next, the labels when unset
 From the environment, for tests: TEHAS_STATUS_CMD, TEHAS_INDEX_CMD,
 TEHAS_TIDY_CMD (in place of console tidy run), TEHAS_PLAN_CMD, TEHAS_PLAN_START_CMD
 and TEHAS_INDEX_START_CMD (in place of systemd-run: the first called with the

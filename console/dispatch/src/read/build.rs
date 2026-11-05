@@ -134,8 +134,12 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
         .is_ok_and(|m| m.len() > 0));
 
     let calls = &mut src.calls;
-    let q = github::queue(calls, &c.repo)?;
+    let fields = !c.priority_field.is_empty();
+    let q = github::queue(calls, &c.repo, fields)?;
     s["repo"] = json!(q.repo);
+    if fields {
+        s["issue_fields"] = json!(q.issue_fields);
+    }
     s["user"] = if c.bot_login.is_empty() {
         calls
             .gh(&["api", "user"])
@@ -161,7 +165,14 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
     let open: BTreeSet<u64> = q.open.iter().map(|o| o.number).collect();
     let mut issues = Map::new();
     for o in &q.open {
-        issues.insert(o.number.to_string(), Value::Object(github::issue(o)));
+        let mut i = github::issue(o);
+        if fields {
+            i.insert(
+                "priority".into(),
+                github::priority(&o.node, &c.priority_field),
+            );
+        }
+        issues.insert(o.number.to_string(), Value::Object(i));
     }
     // Those the page left out are read as the bash reads them, side by side.
     // The bot's `RUNNING` mark is the one label the queue does not ask about:
