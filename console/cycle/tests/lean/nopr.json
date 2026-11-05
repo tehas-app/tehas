@@ -1,0 +1,78 @@
+{
+  "buildCommit": null,
+  "buildVersion": "0.14.53",
+  "subcommand": "work-lean",
+  "issue": 7,
+  "exitCode": 10,
+  "state": "handed-back",
+  "summary": "work-lean #7: handed-back (exit 10)",
+  "steps": 4,
+  "schemaVersion": 5,
+  "issues": [
+    {
+      "issue": 7,
+      "status": "handoff",
+      "stateFile": ".pi/lean-state/7.json",
+      "durationMs": 210000,
+      "steps": [
+        {
+          "step": "ready",
+          "startedAt": "2026-11-01T09:47:20.000Z",
+          "endedAt": "2026-11-01T09:47:50.000Z"
+        },
+        {
+          "step": "specify",
+          "startedAt": "2026-11-01T09:48:20.000Z",
+          "endedAt": "2026-11-01T09:48:50.000Z"
+        },
+        {
+          "step": "build",
+          "startedAt": "2026-11-01T09:49:20.000Z",
+          "endedAt": "2026-11-01T09:49:50.000Z"
+        },
+        {
+          "step": "handback",
+          "startedAt": "2026-11-01T09:50:20.000Z",
+          "endedAt": "2026-11-01T09:50:50.000Z"
+        }
+      ],
+      "exitCode": 10,
+      "resumable": false,
+      "usage": {
+        "input": 2400,
+        "output": 600,
+        "cacheRead": 100,
+        "cacheWrite": 0,
+        "cost": 0,
+        "turns": 12,
+        "dispatches": 2,
+        "byRole": {
+          "developer": {
+            "input": 2400,
+            "output": 600,
+            "cacheRead": 100,
+            "cacheWrite": 0,
+            "cost": 0,
+            "turns": 12,
+            "dispatches": 2
+          }
+        }
+      },
+      "branch": "lean/issue-7",
+      "prState": "none",
+      "failure": {
+        "kind": "process",
+        "message": "the developer produced no change",
+        "step": "handoff",
+        "role": "developer"
+      },
+      "handoff": {
+        "channel": "host",
+        "marker": "<!-- pi-rukas:handoff issue=7 cap=none -->",
+        "labelApplied": false,
+        "labelSkipped": "host-channel",
+        "body": "<!-- pi-rukas:handoff issue=7 cap=none -->\n\nThe build produced no change, so nothing was published."
+      }
+    }
+  ]
+}
