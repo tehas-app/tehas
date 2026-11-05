@@ -628,7 +628,10 @@ mod tests {
             assert_eq!(check(&words(bad)), 64, "{bad:?}");
         }
         assert_eq!(required(&words(&["tehas", "index"])), ["TEHAS_REPO"]);
-        assert_eq!(required(&words(&["tehasbot", "cycle", "7"])), ["TEHAS_REPO"]);
+        assert_eq!(
+            required(&words(&["tehasbot", "cycle", "7"])),
+            ["TEHAS_REPO"]
+        );
         assert_eq!(
             required(&words(&["tehas", "work", "7"])),
             required(&words(&["tehas", "plan"]))
