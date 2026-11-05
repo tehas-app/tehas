@@ -9,6 +9,11 @@
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
+# The pack is the xtask of this checkout, built once.
+t_xtask || {
+  echo "FAIL: $t_xtask_why"
+  exit 1
+}
 # shellcheck source=test/install_lib.sh
 . "$(dirname "$0")/install_lib.sh" || exit 1
 
