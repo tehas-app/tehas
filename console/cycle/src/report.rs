@@ -61,6 +61,9 @@ impl Ask for Given {
 /// The caps tehas sets for a stop of its own, and no other command does.
 pub const OWN_CAPS: [&str; 4] = ["wall-clock", "stall", "disk", "runner-never-started"];
 
+/// The label that chooses the lean driver.
+const LEAN: &str = "tehas:lean";
+
 /// What a label that could not be changed adds to a comment.
 pub const STUCK: &str =
     " The label of this issue could not be changed. The next poll of the dispatcher hands it to a human.";
@@ -89,6 +92,8 @@ pub struct Park {
     pub no_retry: bool,
     pub say: String,
     pub edit: Option<String>,
+    /// The host's line above the boxes of its question.
+    pub lead: String,
 }
 
 impl Park {
@@ -123,7 +128,7 @@ impl Park {
         );
         let out = json!({"text": text, "question": null, "marker": self.marker,
                          "park": self.park_marker, "retry": !self.no_retry});
-        let body = q_render(Kind::Park, issue, 1, &out, "");
+        let body = q_render(Kind::Park, issue, 1, &out, &self.lead);
         (text, body)
     }
 
@@ -1253,6 +1258,7 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         );
         let mut park_why = "";
         let mut auto = String::new();
+        let mut lead = String::new();
         r.arm = "parked";
         if never_started {
             r.arm = "never-ran";
@@ -1280,6 +1286,8 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
             parked = format!("Tehas started no cycle: an image or file the issue links could not be given to it, or the issue could not be read for them (runner exit {runner_rc}). Nothing of it ran: no workspace, no container, no step, no usage.{said} The comment before this one names it; {log_where}.");
             if rc != 4 {
                 parked = format!("Tehas started no cycle: this start's approval says driver `lean`, and this tehas cannot run the lean driver yet (runner exit {runner_rc}). It does not run classic in its place, and nothing of it ran. To run it on classic, take `tehas:lean` off, then retry; {log_where}.");
+                park_why = tehas_core::question::LEAN_REFUSED;
+                lead = format!("Take `{LEAN}` off this issue, then tick a box.");
             }
         } else if provider {
             r.arm = "provider";
@@ -1300,11 +1308,11 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
             }
         }
         parked_now = true;
-        r.actions.push(park(
-            park_args(park_why, &cap, &status, &step, &pr),
-            parked,
-            auto,
-        ));
+        let mut p = park(park_args(park_why, &cap, &status, &step, &pr), parked, auto);
+        if let Action::Park(b) = &mut p {
+            b.lead = lead;
+        }
+        r.actions.push(p);
     }
     if !refreshed.is_empty() {
         r.actions.push(Action::RefreshOff {
