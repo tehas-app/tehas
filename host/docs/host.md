@@ -21,7 +21,6 @@ Preparing a fresh machine is on the [bootstrap page](/bootstrap).
 | `~/tehas/lib/config.sh`              | Asks `libexec/console` to load and check the instance settings; sourced by every command |
 | `~/tehas/lib/paths.sh`               | The home of each tool this host installs, and the `PATH` that finds them. `env.sh`, `bootstrap.sh` and `install.sh` all take the list from here |
 | `~/tehas/lib/github-app.sh`          | With a GitHub App: puts the `gh` shim first on `PATH` and gives git its credential helper; sourced by `env.sh` |
-| `~/tehas/lib/rukas.sh`               | Which pi-rukas commit the host follows; sourced by the sandbox build |
 | `~/tehas/bin/`                       | The two commands on `PATH`: `tehas` for a person, `tehasbot` for the units, each a few lines that run the console's front (`console/src/front.rs`), which chooses the command. Without a console both stop with exit 78, except `tehas setup`, which builds one. Plus `gh` |
 | `~/tehas/libexec/`                   | The scripts behind the two commands, one for each thing they do. Not on `PATH` |
 | `~/tehas/run/`                       | One copy of `bin/`, `libexec/` and `lib/` for each running cycle (`cycle-<issue>-<pid>`) and planning turn (`plan-<issue>-<pid>`), as hardlinks, so an update leaves the code of what runs as it started. The next start removes the copies whose process has ended |
@@ -1647,6 +1646,11 @@ An instance that sets neither follows the line its tehas was shipped with. A loa
 settings load and stops the command with 78 naming it. `bootstrap.sh` reads only
 `versions.env`.
 
+One reading of these values serves the sandbox build, `bootstrap.sh`,
+`tehasbot clean` and the release script: the console's, `console rukas target
+<follow> <repo>` and `console rukas image <repo> <commit>`
+(`console/core/src/rukas.rs`).
+
 What follows from it:
 
 - `tehas update` moves the sandbox image to that commit whenever it is not
@@ -1660,7 +1664,8 @@ What follows from it:
   so; the next update tries again. `tehas update --check` says whether the commit
   moved.
 - `./bootstrap.sh user` moves the host's clone in `~/tehas/repos/pi-rukas` to
-  that commit and runs its installer. That clone is what `tehas dev` and an
+  that commit and runs its installer, once a console is there to name the
+  commit: a release's own, or the one `install.sh` puts in `~/tehas/libexec`. That clone is what `tehas dev` and an
   interactive Pi session on the host load. Cycles run the pi-rukas inside the
   sandbox image, so on an installed host it then runs `sandbox/build.sh
   --if-moved`, which builds only when the image is not on that commit. A
