@@ -36,6 +36,9 @@ pub fn retry_of(label: &str) -> Option<bool> {
         _ => None,
     }
 }
+/// The reason on record of a park over a lean start tehas work refused: a
+/// retry of it waits while the issue carries `tehas:lean`.
+pub const LEAN_REFUSED: &str = "lean-refused";
 
 /// The `sig` of a park marker: the hash of the park's fields, its free text
 /// in the hash only. The cycle writes it, the MCP server's `factory_park`

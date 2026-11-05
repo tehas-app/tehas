@@ -454,6 +454,10 @@ choice.
   nothing until a person applies `tehas:ready` again. A person's `tehas:ready`
   that a park holds counts too: the ticked box then reads the label.
 - With the label off, the next start is classic, retry or not.
+- The park of a refused lean start asks for the label to come off first. A
+  Retry ticked there while `tehas:lean` is on starts nothing: the poll logs
+  that it waits for the label, and the tick stays. Once the label is off, that
+  tick starts the cycle on classic.
 - A new lean start also needs a `pi-spec v1` block in the issue's text: one
   fence with that info string, holding valid JSON. With none the poll starts
   nothing, takes `tehas:ready` off and says why once, as for a label from an
@@ -1928,8 +1932,10 @@ approval it rests on after the millwright):
 
 A request that fails a check goes, and the dispatcher's log says why. At the
 cap or after a parked refresh the bot says so on the issue, once: a person
-resolves the conflict or applies `tehas:ready`. A pull request that carries
-`tehas:refreshing` waits.
+resolves the conflict, or closes the pull request and then applies
+`tehas:ready`. While the pull request is open, `tehas:ready` starts nothing: it
+is taken off, as for any issue whose open pull request closes it. A pull
+request that carries `tehas:refreshing` waits.
 
 **The refresh lane.** Refreshes run in a lane of their own, so a conflicting
 pull request is refreshed while every cycle slot is busy. At most
