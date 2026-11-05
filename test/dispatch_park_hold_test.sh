@@ -75,6 +75,9 @@ t_contains "$t_out" "hold #7: its last cycle parked on intent-park and the body 
 t_contains "$(t_calls gh)" "issue comment 7 --repo acme/widget --body Not started: the last cycle parked on \`intent-park\` and the issue text has not changed since. Edit the body, or tick Retry in the park comment."
 t_eq "$(park_of '.told_at != null')" true
 t_eq "$(grep -c '^issue comment 7' <<<"$(t_calls gh)")" 1
+# shellcheck disable=SC2154  # dispatch_json is set by test/dispatch_lib.sh
+t_eq "$(jq -c .held "$dispatch_json")" \
+  '[{"clear":"edit the body, or tick Retry in the park comment","issue":7,"text":"its last cycle parked on `intent-park` and the body has not changed since","why":"parked"}]'
 
 t_case "and the next poll of the same park only logs, with no comment"
 parked_again "Words."

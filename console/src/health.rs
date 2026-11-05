@@ -1040,7 +1040,68 @@ fn slice(live: &Path, now: i64) -> J {
             );
         }
     }
+    let held = held_of(d.get(hold::KEY_HELD));
+    if !held.is_empty() {
+        f.push((hold::KEY_HELD.to_string(), J::Arr(held)));
+    }
     J::Obj(f)
+}
+
+/// The ready issues the poll held one by one, each as `hold::Held` writes it.
+/// An entry of another shape is left out: `status --json` copies the list and
+/// api/status.schema.json closes its objects.
+fn held_of(list: &J) -> Vec<J> {
+    list.items()
+        .iter()
+        .filter(|h| {
+            h.get("issue")
+                .as_f64()
+                .is_some_and(|n| n >= 1.0 && n.fract() == 0.0)
+                && ["why", "text", "clear"]
+                    .iter()
+                    .all(|k| h.get(k).as_str().is_some())
+        })
+        .map(|h| {
+            obj(["issue", "why", "text", "clear"]
+                .into_iter()
+                .map(|k| (k, h.get(k).clone()))
+                .collect())
+        })
+        .collect()
+}
+
+/// The line of a factory with room whose every ready issue the poll held:
+/// None when the queue lists none, or one the poll did not hold.
+fn all_held(slice: &J, queue: &J) -> Option<String> {
+    let held = slice.get(hold::KEY_HELD).items();
+    let queued: Vec<String> = queue
+        .get("queued")
+        .items()
+        .iter()
+        .map(|i| i.get("number").text())
+        .collect();
+    let is_held = |n: &String| held.iter().any(|h| &h.get("issue").text() == n);
+    if queued.is_empty() || !queued.iter().all(is_held) {
+        return None;
+    }
+    if let [one] = queued.as_slice() {
+        let h = held.iter().find(|h| &h.get("issue").text() == one)?;
+        let clear = h.get("clear").text_or_empty();
+        let mut c = clear.chars();
+        let clear = match c.next() {
+            Some(f) => f.to_uppercase().chain(c).collect(),
+            None => String::new(),
+        };
+        return Some(format!(
+            "#{one} is held: {}. {clear}.",
+            h.get("text").text_or_empty()
+        ));
+    }
+    let nums: Vec<String> = queued.iter().map(|n| format!("#{n}")).collect();
+    Some(format!(
+        "Every ready issue is held: {}. tehas status says why.",
+        nums.join(", ")
+    ))
 }
 
 /// The four keys api/status.schema.json requires of the slots object.
@@ -1471,6 +1532,11 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
                 .is_gt());
     let disk_low = !disk.is_null() && disk.get("low").truthy();
     let has_units = units.as_ref().is_some_and(|u| !u.is_empty());
+    let held_line = if running.is_empty() && !old_queue {
+        all_held(&slice, &queue)
+    } else {
+        None
+    };
 
     let status = if queue.is_null() || failed {
         "fail"
@@ -1484,6 +1550,7 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
         || behind
         || old_backup
         || over_budget
+        || held_line.is_some()
     {
         "warn"
     } else {
@@ -1566,6 +1633,8 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
             .map(|c| format!("#{}", c.get("issue").text()))
             .collect();
         format!("Working on {}.", issues.join(", "))
+    } else if let Some(line) = held_line {
+        line
     } else {
         "Idle, taking work.".to_string()
     };
@@ -2196,6 +2265,90 @@ mod tests {
         h.write("live/dispatch.json", &v.to_string());
     }
 
+    /// A poll with room that held the issues given by the park's rule.
+    fn held_poll(h: &Home, issues: &[u64]) {
+        let r = hold::Report {
+            free: 2,
+            held: issues
+                .iter()
+                .map(|&n| hold::Held {
+                    issue: n,
+                    why: hold::HELD_PARKED,
+                    text: "its last cycle parked on `gate` and the body has not changed since"
+                        .into(),
+                    clear: "edit the body, or tick Retry in the park comment".into(),
+                })
+                .collect(),
+            ..hold::Report::default()
+        };
+        poll_report(h, "2026-10-17T14:00:00Z", &r);
+    }
+
+    fn queued(h: &Home, issues: &str) {
+        h.write(
+            "live/status.json",
+            &format!(
+                r#"{{"generatedAt":"2026-10-17T14:00:10Z","queued":{issues},"running":[],"awaiting":[],"stopped":[]}}"#
+            ),
+        );
+    }
+
+    #[test]
+    fn a_factory_whose_one_ready_issue_is_held_names_it() {
+        let h = home("held-one");
+        queued(&h, r#"[{"number":7}]"#);
+        held_poll(&h, &[7]);
+        let r = h.report(&Given::default());
+        assert_eq!(
+            said(&r),
+            (
+                "warn".into(),
+                "#7 is held: its last cycle parked on `gate` and the body has not changed since. Edit the body, or tick Retry in the park comment.".into()
+            )
+        );
+        assert_eq!(
+            r.at(&["checks", "slice", "held"]).dump(),
+            r#"[{"issue":7,"why":"parked","text":"its last cycle parked on `gate` and the body has not changed since","clear":"edit the body, or tick Retry in the park comment"}]"#
+        );
+    }
+
+    #[test]
+    fn every_ready_issue_held_is_said_and_one_free_is_taking_work() {
+        let h = home("held-all");
+        queued(&h, r#"[{"number":7},{"number":9}]"#);
+        held_poll(&h, &[7, 9]);
+        assert_eq!(
+            said(&h.report(&Given::default())),
+            (
+                "warn".into(),
+                "Every ready issue is held: #7, #9. tehas status says why.".into()
+            )
+        );
+        held_poll(&h, &[9]);
+        let r = h.report(&Given::default());
+        assert_eq!(said(&r), ("pass".into(), "Idle, taking work.".into()));
+        assert_eq!(r.at(&["checks", "slice", "held"]).len(), 1);
+        // Nothing in line: a hold the queue no longer lists says nothing.
+        queued(&h, "[]");
+        assert_eq!(
+            said(&h.report(&Given::default())),
+            ("pass".into(), "Idle, taking work.".into())
+        );
+    }
+
+    #[test]
+    fn a_held_entry_of_another_shape_is_left_out() {
+        let h = home("held-bad");
+        queued(&h, r#"[{"number":7}]"#);
+        h.write(
+            "live/dispatch.json",
+            r#"{"time":"2026-10-17T14:00:00Z","why":"","hold":"","held":[{"issue":"7","why":"parked","text":"x","clear":"y"},{"issue":7,"why":"parked","text":"x"}]}"#,
+        );
+        let r = h.report(&Given::default());
+        assert!(r.at(&["checks", "slice", "held"]).is_null());
+        assert_eq!(said(&r), ("pass".into(), "Idle, taking work.".into()));
+    }
+
     #[test]
     fn the_slice_reads_the_report_the_dispatcher_writes() {
         // The one contract between the two programs: a Report the dispatcher
@@ -2222,6 +2375,7 @@ mod tests {
                 "cycle": {"bound": "cpu", "slots": 6, "cpus": 24, "cycleCpus": "4",
                           "containerMemory": "8g", "ceiling": "16", "floored": false}
             })),
+            held: Vec::new(),
         };
         poll_report(&h, "2026-10-17T14:00:00Z", &r);
         let got = h.report(&Given::default());
