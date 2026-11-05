@@ -281,7 +281,8 @@ and one row per tehas and pi-rukas version pair. Every figure says its count as
 `n=`: ten days make small numbers. A pair with fewer than three runs shows its
 count only. The section is hidden where there is no file, and the page reads it
 at most once a minute. What the file means is worked out by one module,
-`host/fun/analytics-data.js`.
+`host/fun/analytics-data.js`; the plain dashboard's module,
+`host/fun/dashboard-view.js`, draws it.
 
 Optional, and only when the model backend is a [viiwork](https://github.com/janit/viiwork) mesh with
 `tehas-energy.service` enabled: the factory floor also has a section
@@ -492,6 +493,16 @@ lean without the label ([tehas work](/tools#tehas-work)).
   its fields are pi-rukas's to define. pi-rukas's `/plan` writes one, and
   [Troubleshooting](/troubleshooting#what-a-park-says) says what to do when the
   block is missing. A second block, or one that is no JSON, counts as none.
+- Once lean runs, `tehasbot cycle` reads how it ended from its result, as it
+  does for classic, and its end comment names the driver: ``driver `lean` ``. Exit 0 with a
+  merged pull request takes the cycle's labels off. A green pull request that
+  lean says is `ready` goes to `tehas:awaiting-merge`; a draft, a red run or a
+  run with no pull request parks with lean's reason. Exit 11, not ready, parks
+  and asks for a `pi-spec v1` block lean accepts. Tehas posts the one comment:
+  when lean posted its own report on the issue, tehas does not repeat it. Lean
+  writes no step lines to its stream, so the console of a running lean cycle
+  shows no steps, and a lean runner that died is looked up on its branch
+  `lean/issue-<N>`.
 - The driver keeps its own record of the steps it ran, in
   `.pi/lean-state/<issue>.json` in the workspace. Before the cycle's report
   clears what the container wrote, `tehas-cycle report` copies it to

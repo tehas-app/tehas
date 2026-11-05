@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Tests for the gh shim's write log (host/shim/gh): which calls it counts as
-# writes, the six fields of the line it appends, and that a write keeps gh's
-# own stdout, stderr and exit status whatever the log does. The real gh is a
+# Tests for the gh shim's write log (host/shim/gh and `console gh` behind it):
+# which calls it counts as writes, the six fields of the line it appends, that
+# a write keeps gh's own stdout, stderr and exit status whatever the log does,
+# and that gh still works when the console does not. The real gh is a
 # stub (t_stub) that answers what GH_OUT, GH_ERR and GH_RC name: no network,
 # and no GitHub asked of anything.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
@@ -375,5 +376,34 @@ t_eq "$t_rc" 0
 t_eq "$t_out" "gh api repos/o/r
 token=ghs_poll tehas=ghs_poll"
 t_eq "$(cat "$T/token-runs" 2>/dev/null | wc -c | tr -d '[:space:]' | head -n 1)" 0
+
+t_case "with no console the shim still runs gh, with its token, and logs nothing"
+reset
+# A host that needs repair: the console is gone or cannot be run. Reads and
+# writes reach gh as they came, and the token is still given.
+rm -f "$T/home/tehas/libexec/console"
+T_ENV=(TEHAS_GH_TOKEN=ghs_poll SHOW_TOKEN=1)
+shim issue comment 12 -R o/r --body secret
+t_eq "$t_rc" 0
+t_eq "$t_out" "gh issue comment 12 -R o/r --body secret
+token=ghs_poll tehas=ghs_poll"
+shim issue view 12
+t_eq "$t_rc" 0
+t_contains "$t_out" "gh issue view 12"
+printf 'not a program\n' >"$T/home/tehas/libexec/console"
+chmod 644 "$T/home/tehas/libexec/console"
+T_ENV=(GH_RC=3)
+shim pr merge 5 --repo o/r
+t_eq "$t_rc" 3
+t_eq "$t_out" "gh pr merge 5 --repo o/r"
+t_eq "$(lines)" ""
+
+t_case "a write whose gh cannot be run says so and logs nothing"
+reset
+rm -f "$T/home/tehas/bin/gh"
+shim issue comment 12 -R o/r
+t_eq "$t_rc" 127
+t_contains "$t_out" "bin/gh"
+t_eq "$(lines)" ""
 
 t_done
