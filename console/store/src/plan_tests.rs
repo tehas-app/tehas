@@ -112,7 +112,10 @@ fn plan_begin_states_its_preconditions_and_arguments() {
     let link = home.join("brief-link.md");
     std::os::unix::fs::symlink(&b, &link).unwrap();
     let big = home.join("big.md");
-    File::create(&big).unwrap().set_len((1 << 20) + 1).unwrap();
+    File::create(&big)
+        .unwrap()
+        .set_len(tehas_core::file::READ_BOUND + 1)
+        .unwrap();
     let bad = write_file(&home, "bad.md", &[0xff, 0xfe]);
     for f in [link, big, bad, home.join("none.md")] {
         assert_eq!(
@@ -1116,7 +1119,7 @@ fn plan_answer_refuses_a_text_file_it_cannot_take() {
     let link = home.join("link.md");
     std::os::unix::fs::symlink(&good, &link).unwrap();
     let big = home.join("big.md");
-    std::fs::write(&big, vec![b'a'; (1 << 20) + 1]).unwrap();
+    std::fs::write(&big, vec![b'a'; tehas_core::file::READ_BOUND_LEN + 1]).unwrap();
     for (file, says) in [
         (link, "not a regular file"),
         (home.join("none.md"), "not a regular file"),
@@ -1130,9 +1133,12 @@ fn plan_answer_refuses_a_text_file_it_cannot_take() {
     }
     assert_eq!(count(&home, "planning_answers"), 0);
     assert_eq!(show(&home, 67)["running"], false);
-    std::fs::write(&big, vec![b'a'; 1 << 20]).unwrap();
+    std::fs::write(&big, vec![b'a'; tehas_core::file::READ_BOUND_LEN]).unwrap();
     let v = answer_with(&home, 67, 2, &big).unwrap();
-    assert_eq!(v["planning"]["answer"].as_str().unwrap().len(), 1 << 20);
+    assert_eq!(
+        v["planning"]["answer"].as_str().unwrap().len(),
+        tehas_core::file::READ_BOUND_LEN
+    );
 }
 
 #[test]

@@ -2256,7 +2256,7 @@ fn review_issue_refuses_a_file_it_cannot_read() {
     );
 
     let over = dir.join("over.json");
-    fs::write(&over, vec![b'x'; (1 << 20) + 1]).unwrap();
+    fs::write(&over, vec![b'x'; tehas_core::file::READ_BOUND_LEN + 1]).unwrap();
     let (code, why) = review_at(over).unwrap_err();
     assert_eq!(code, 64, "{why}");
     assert!(
