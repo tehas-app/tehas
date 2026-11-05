@@ -236,7 +236,7 @@ fn first_images(w: &Words, images: &str, kinds: &str) -> Result<(), u8> {
         return Err(4);
     }
     if var("TEHAS_WORK_DESCRIBE") == "1"
-        && tehas_cycle::describe::describe(Path::new(images)).is_err()
+        && tehas_cycle::describe::describe(Path::new(images), &w.issue).is_err()
     {
         eprintln!("tehas plan: the descriptions of the images could not be written, the session goes on without them");
     }

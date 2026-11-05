@@ -122,7 +122,8 @@ The rules behind each column:
   attachment while the setting stands; the other issues start. The steps
   after plan read the plan, not the pictures. With `TEHAS_WORK_DESCRIBE=1`
   the model also describes each image in words, into `images.md` beside
-  them; with `TEHAS_WORK_FILES=1` the text files come too. pi-rukas reads
+  them, and names the issue in `X-Tehas-Issue` on each of those requests; with
+  `TEHAS_WORK_FILES=1` the text files come too. pi-rukas reads
   neither yet. `TEHAS_WORK_COMMENTS=1` adds the attachments of comments, by
   the rule in the table.
 - **A zip** reaches a cycle with `TEHAS_WORK_ZIPS=1`, and needs
@@ -1841,10 +1842,15 @@ Those GitHub says are `CONFLICTING` get a request,
 request whose pull request no longer qualifies goes. `tehas-refresh.timer`
 starts it every minute, and it goes ahead only when the last run began that
 many minutes ago, by `~/tehas/state/refresh/last-run`. A run that failed
-counts. Each run writes one line to `~/tehas/logs/refresh.log`:
+counts. Each run writes one line to `~/tehas/logs/refresh.log`: the open
+pull requests it read, and of those how many conflict, how many GitHub still
+has `UNKNOWN`, and how many are not ours to refresh (another account's, a
+fork, one the rule rejects, or one whose head or base is no sha). The rest are
+the bot's that do not conflict, so `0 conflict` beside `2 unknown` is not yet
+a fact:
 
 ```
-2026-10-18T09:00:00Z read 6 pull requests, 1 conflict, wrote 1 requests
+2026-10-18T09:00:00Z read 9 pull requests: 1 conflict, 2 unknown, 3 not ours to refresh, wrote 1 requests
 ```
 
 **When it starts.** The dispatcher checks each request again at the start,
