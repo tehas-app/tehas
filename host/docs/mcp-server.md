@@ -248,7 +248,7 @@ the same JSON as text.
 
 | Tool | Arguments | Returns |
 | --- | --- | --- |
-| `factory_status` | none | `status` (pass, warn, fail), `output`, `time`, `stale` (no report for ten minutes), `generatedAt`, `repo`, `paused`, `planning`, `limit.state`, `queue` (`inLine`, `building`, `review`, `stopped`, `time`), `cycles` (issue, running, status, step, startedAt, time), `demand` (waiting, oldest, time), `platform` (commit, behind, upstream, fetchedAt), `hold` (`why`, `text`) when something holds |
+| `factory_status` | none | `status` (pass, warn, fail), `output`, `time`, `stale` (no report for ten minutes), `generatedAt`, `repo`, `paused`, `planning`, `limit.state`, `queue` (`inLine`, `building`, `review`, `stopped`, `time`), `cycles` (issue, running, status, step, startedAt, time), `demand` (waiting, oldest, time), `platform` (commit, behind, upstream, fetchedAt), `hold` (`why`, `text`) when something holds, `held` (`issue`, `why`, `text`, `clear`) for each ready issue the last poll held on its own |
 | `factory_issues` | `stage`, optional: `queued`, `planning`, `running`, `awaiting`, `stopped` or `completed` | Per stage, the issues the dashboard lists: number, title, url, updatedAt, and closedAt when closed. `planning` is a count and issue numbers, without titles |
 | `factory_endings` | none | `endings`, the cycles that ended last (issue, status, step, startedAt, updatedAt), and `failed`, the failed ones among them (issue, status, step, startedAt, time) |
 | `factory_console` | `issue`, and `bytes` from 1 to 65536 | One running cycle's issue, step, status, statusText, startedAt, updatedAt, and the last `bytes` of its console, 64 KB without it. Only those bytes are read, however large the console |
@@ -283,6 +283,13 @@ named no reason, which is how "nothing holds" is answered, and left out when
 the report is missing, unreadable or of another shape: the rest of the answer
 stands on its own, and a caller is not told the poll is not on record by a
 field that is not there.
+
+`held` comes from the same file: the ready issues the poll held one by one
+while it had room, such as one whose last cycle parked and whose body has not
+changed since. Each has `issue`, `why` (`parked`), `text` and `clear`, what a
+person does to release it; the two lines are masked and cut as `hold.text` is.
+It is left out when the poll held none. A queue view should not show these
+issues as next.
 
 `factory_outcomes` reads `outcomes.jsonl` from the same directory, which
 `tehasbot status` asks for on each poll from `analytics outcomes`, and which is
