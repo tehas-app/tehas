@@ -67,6 +67,9 @@ pub const OWN_CAPS: [&str; 5] = [
     "signal",
 ];
 
+/// The label that chooses the lean driver.
+const LEAN: &str = "tehas:lean";
+
 /// What a label that could not be changed adds to a comment.
 pub const STUCK: &str =
     " The label of this issue could not be changed. The next poll of the dispatcher hands it to a human.";
@@ -95,6 +98,8 @@ pub struct Park {
     pub no_retry: bool,
     pub say: String,
     pub edit: Option<String>,
+    /// The host's line above the boxes of its question.
+    pub lead: String,
 }
 
 impl Park {
@@ -129,7 +134,7 @@ impl Park {
         );
         let out = json!({"text": text, "question": null, "marker": self.marker,
                          "park": self.park_marker, "retry": !self.no_retry});
-        let body = q_render(Kind::Park, issue, 1, &out, "");
+        let body = q_render(Kind::Park, issue, 1, &out, &self.lead);
         (text, body)
     }
 
@@ -836,6 +841,31 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         reason = cut_bytes(&format!("{stop_why}{tail}"), 200);
         cap = own.to_string();
     }
+    // #1411: refused starts of a process are the cause of a stop that names
+    // none. A cap the run had, and a person's stop, come first.
+    let process_limit = cap.is_empty() && forks != "0" && !stopped_by_person;
+    if process_limit {
+        let at = kept(&step, |c| c.is_ascii_alphanumeric() || "_.-".contains(c));
+        cap = if at.is_empty() || at == "-" {
+            "process-limit".to_string()
+        } else {
+            cut(&format!("process-limit:{at}"), 80)
+        };
+        let tail = if reason.is_empty() {
+            String::new()
+        } else {
+            format!("; {reason}")
+        };
+        let in_flight = if step == "-" {
+            String::new()
+        } else {
+            format!(", step {step} in flight")
+        };
+        reason = cut_bytes(
+            &format!("its container reached its limit of processes and refused {forks} starts of a process{in_flight}{tail}"),
+            200,
+        );
+    }
     let (usage, unreadable) = runner::usage(&outcome, progress);
     if unreadable {
         warn(
@@ -914,6 +944,8 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
     let mut why = String::new();
     if OWN_CAPS.contains(&cap.as_str()) {
         why = format!(" tehas stopped the cycle: the cap `{cap}`.");
+    } else if process_limit {
+        why = format!(" Its cause is recorded as the cap `{cap}`.");
     } else if !cap.is_empty() {
         let pr_why = if park_reason.is_empty() {
             String::new()
@@ -1291,6 +1323,7 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         );
         let mut park_why = "";
         let mut auto = String::new();
+        let mut lead = String::new();
         r.arm = "parked";
         if never_started {
             r.arm = "never-ran";
@@ -1318,6 +1351,8 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
             parked = format!("Tehas started no cycle: an image or file the issue links could not be given to it, or the issue could not be read for them (runner exit {runner_rc}). Nothing of it ran: no workspace, no container, no step, no usage.{said} The comment before this one names it; {log_where}.");
             if rc != 4 {
                 parked = format!("Tehas started no cycle: this start's approval says driver `lean`, and this tehas cannot run the lean driver yet (runner exit {runner_rc}). It does not run classic in its place, and nothing of it ran. To run it on classic, take `tehas:lean` off, then retry; {log_where}.");
+                park_why = tehas_core::question::LEAN_REFUSED;
+                lead = format!("Take `{LEAN}` off this issue, then tick a box.");
             }
         } else if provider {
             r.arm = "provider";
@@ -1338,11 +1373,11 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
             }
         }
         parked_now = true;
-        r.actions.push(park(
-            park_args(park_why, &cap, &status, &step, &pr),
-            parked,
-            auto,
-        ));
+        let mut p = park(park_args(park_why, &cap, &status, &step, &pr), parked, auto);
+        if let Action::Park(b) = &mut p {
+            b.lead = lead;
+        }
+        r.actions.push(p);
     }
     if !refreshed.is_empty() {
         r.actions.push(Action::RefreshOff {
@@ -1790,5 +1825,107 @@ mod tests {
             "{}",
             r.done
         );
+    }
+
+    /// A cycle that handed off at `commit` with a draft pull request open,
+    /// its runner exit 30, after its container refused `forks` starts.
+    fn refused(forks: &str, cap: Option<&str>) -> Report {
+        let mut entry = json!({"issue": 7, "status": "handoff", "failedStep": "commit", "branch": "feature/x", "handoff": {"body": "The review roles did not run."}});
+        if let Some(c) = cap {
+            entry["cap"] = json!(c);
+        }
+        let result = json!({"schemaVersion": runner::RESULT_SCHEMA, "issues": [entry]});
+        let pr = json!({"url": "https://github.com/acme/widget/pull/9", "state": "OPEN", "isDraft": true,
+                        "body": "Fixes #7", "title": "x", "headRefName": "feature/x"});
+        let facts = json!({
+            "issue": 7,
+            "repo": "acme/widget",
+            "home": "/home/tehas",
+            "rc": 10,
+            "started": 1000,
+            "now": 2620,
+            "start": { "attempt": 1 },
+            "files": {
+                "result.json": result.to_string(),
+                "progress.json": "{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}\n",
+                "runner_exit": "30\n",
+                "forks": forks,
+            },
+            "record": { "cycle": { "attempt": 1 } },
+            "github": { "prs": [pr], "attention": false },
+        });
+        let f = Facts::from_json(&facts).expect("the facts read");
+        report(&f, &mut Given(facts["github"].clone()))
+    }
+
+    fn end_cap(r: &Report) -> Option<&str> {
+        r.end
+            .iter()
+            .position(|a| a == "--cap")
+            .and_then(|i| r.end.get(i + 1))
+            .map(String::as_str)
+    }
+
+    // #1411: a stop on the process limit read like a review park, `cap=-`.
+    #[test]
+    fn refused_starts_with_no_cap_are_the_cause_of_the_stop() {
+        let r = refused("6\n", None);
+        assert!(r.done.contains("forks_refused=6"), "{}", r.done);
+        assert_eq!(end_cap(&r), Some("process-limit:commit"), "{:?}", r.end);
+        assert_eq!(r.history["cap"], "process-limit:commit", "{}", r.history);
+        assert_eq!(r.after.ended.cap, "process-limit:commit");
+        assert!(
+            r.after
+                .ended
+                .reason
+                .contains("refused 6 starts of a process, step commit in flight"),
+            "{}",
+            r.after.ended.reason
+        );
+        let park = r
+            .actions
+            .iter()
+            .find_map(|a| match a {
+                Action::Park(p) => Some(p.clone()),
+                _ => None,
+            })
+            .expect("a park");
+        assert!(
+            park.args
+                .windows(2)
+                .any(|w| w == ["--reason", "process-limit:commit"]),
+            "{:?}",
+            park.args
+        );
+        assert!(
+            park.marker.contains("cap=process-limit:commit"),
+            "{}",
+            park.marker
+        );
+        assert!(
+            park.text
+                .contains("Its cause is recorded as the cap `process-limit:commit`."),
+            "{}",
+            park.text
+        );
+    }
+
+    #[test]
+    fn a_cap_the_run_named_stays_with_refused_starts() {
+        let r = refused("6\n", Some("awaiting-human-merge"));
+        assert_eq!(end_cap(&r), Some("awaiting-human-merge"), "{:?}", r.end);
+        assert_eq!(r.history["cap"], "awaiting-human-merge");
+        assert!(
+            !r.after.ended.reason.contains("limit of processes"),
+            "{}",
+            r.after.ended.reason
+        );
+    }
+
+    #[test]
+    fn no_refused_starts_name_no_process_limit() {
+        let r = refused("0\n", None);
+        assert_eq!(end_cap(&r), None, "{:?}", r.end);
+        assert!(r.history.get("cap").is_none(), "{}", r.history);
     }
 }
