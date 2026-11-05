@@ -1159,7 +1159,10 @@ fn cycle_end_does_not_store_progress_older_than_the_start() {
     // Too large and unreadable.
     let (_l2, b) = start(&home, 59);
     let big = home.join("big-progress.json");
-    File::create(&big).unwrap().set_len((1 << 20) + 1).unwrap();
+    File::create(&big)
+        .unwrap()
+        .set_len(tehas_core::file::READ_BOUND + 1)
+        .unwrap();
     let (n, at) = attempt_args(59, b);
     let v = ok(
         &home,
@@ -1443,7 +1446,7 @@ fn cycle_show_of_an_unlistable_directory_is_probe_rc_2() {
     if modes_bind() {
         fs::set_permissions(lock::dir(&home), fs::Permissions::from_mode(0o000)).unwrap();
         let v = ok(&home, &["cycle-show", "--running"]);
-        fs::set_permissions(lock::dir(&home), fs::Permissions::from_mode(0o700)).unwrap();
+        fs::set_permissions(lock::dir(&home), fs::Permissions::from_mode(0o700)).unwrap(); // a directory
         assert_eq!(v["probe_rc"], 2);
         assert!(v["why"].as_str().unwrap().starts_with("state/cycles"));
     }

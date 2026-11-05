@@ -65,7 +65,7 @@ in the platform repository has every one with a comment.
 | ------------------------------- | ---------------------------------------- | --------------------------------------------------------------- |
 | `TEHAS_REPO`                    | required                                 | `owner/name` of the repository whose issues are the queue       |
 | `TEHAS_CONTROL_ISSUE`           | required                                 | Issue that carries `tehas:pause`                                |
-| `TEHAS_ALLOWED_LABELERS`        | required                                 | Logins whose labels count, space separated: `tehas:ready`, `tehas:plan`, `tehas:urgent`, `tehas:next`, `tehas:blocked` and `tehas:lean` for the dispatcher, `tehas:prototype` for the Protolab |
+| `TEHAS_ALLOWED_LABELERS`        | required                                 | Logins whose labels count, space separated: `tehas:ready`, `tehas:plan`, `tehas:urgent`, `tehas:next`, `tehas:blocked` and `tehas:lean` for the dispatcher, `tehas:prototype` for the Protolab. Each counts only with the GitHub user id `install.sh` and `tehas update` recorded for it, see [Accounts by user id](#accounts-by-user-id) |
 | `PI_ENSEMBLE_SUBAGENT_MODEL`    | required                                 | Model for every subagent role without one of its own            |
 | `PI_ENSEMBLE_SUBAGENT_PROVIDER` | required                                 | Its provider, as named in `models.json`                         |
 | `PI_ENSEMBLE_MODEL_<ROLE>`      | `PI_ENSEMBLE_SUBAGENT_MODEL`             | Model for one role: `EXPLORE`, `DEVELOPER`, `ADVERSARIAL_DEVELOPER`, `CODE_REVIEW_SPECIALIST` (the six lens reviewers) or `OPS`. Another name is refused. See [A model per role](/host#a-model-per-role) |
@@ -88,7 +88,7 @@ in the platform repository has every one with a comment.
 | `TEHAS_IMPROVE_MAX_OPEN`        | `10`                                     | How many issues labelled `tehas:improvement` may be open in one repository before the loop files no more there |
 | `TEHAS_REVIEW_REPO`             | empty                                    | Optional. `owner/name` of the repository [tehasbot review](#tehasbot-review) files the findings of a run in, as one issue a person triages. Empty: a run that found something says it filed nothing. Never `TEHAS_REPO`: the findings are a model's, and a person triages them into tickets of the product first, so loading refuses it with exit 78 |
 | `TEHAS_REVIEW`                  | `0`                                      | `1` lets [tehasbot review](#tehasbot-review) review anything: `tehas-review.timer` starts it once a week and a run that is off exits 0 at once and calls nothing. Anything but `0` or `1` stops every command with 78 (see [the review loop](/operating#the-review-loop)) |
-| `TEHAS_MILLWRIGHT_LOGIN`        | empty                                    | Optional. The account whose `tehas:ready`, and whose answer to a planning question, the dispatcher takes on [the millwright's grant](/operating#the-millwrights-grant). A GitHub App's login works with or without `[bot]`, such as `tehas-millwright[bot]`. Never the bot and never one of `TEHAS_ALLOWED_LABELERS`, in either form. Empty: no millwright |
+| `TEHAS_MILLWRIGHT_LOGIN`        | empty                                    | Optional. The account whose `tehas:ready`, and whose answer to a planning question, the dispatcher takes on [the millwright's grant](/operating#the-millwrights-grant). A GitHub App's login works with or without `[bot]`, such as `tehas-millwright[bot]`. Never the bot and never one of `TEHAS_ALLOWED_LABELERS`, in either form. Counts only with its recorded user id, as the allowed logins do. Empty: no millwright |
 | `TEHAS_GITHUB_APP_ID`           | empty                                    | Optional. The ID of the GitHub App the factory acts as ([tehasbot github-token](#tehasbot-github-token)). Set with `TEHAS_GITHUB_APP_INSTALLATION` and `TEHAS_BOT_LOGIN`, or none of the three |
 | `TEHAS_GITHUB_APP_INSTALLATION` | empty                                    | Optional. The ID of the app's installation that reaches `TEHAS_REPO`: the number at the end of the installation's settings page |
 | `TEHAS_BOT_LOGIN`               | empty                                    | Optional. The app's login, `<slug>[bot]` |
@@ -3365,8 +3365,10 @@ written inside the container and swept with the workspace. The record keeps the
 last 20 of them and never over 64 KiB. Its `cycle.json`
 names the image the cycle's container started from (`image`, its id) and the
 pi-rukas commit of that image's label (`rukas`), which `tehas work` reads as
-the container starts and puts on the cycle's record in the state store. A
-rebuild while the cycle runs does not change them. Without an image on record
+the container starts and puts on the cycle's record in the state store. The
+container is started from that id, not the tag, so a rebuild between the two
+cannot start an image the record does not name. A rebuild while the cycle runs
+does not change them. Without an image on record
 the commit is the one the cycle noted at its start. A comment on an issue the loop
 filed, when the issue is worked on again, names both. When the cycle was given
 the issue's images or files, or given none though its issue linked some, the
@@ -3446,7 +3448,9 @@ tail ~/tehas/logs/refresh.log
 
 Finds the factory's own pull requests that conflict with the branch and
 writes a request for each, `~/tehas/state/refresh/<issue>.json`, for the
-dispatcher to start (see [refreshes](/operating#refreshes)). Deterministic, no
+dispatcher to start (see [refreshes](/operating#refreshes)). The poll reads a
+request of up to 4096 bytes; a larger file is not read, counts as an unreadable
+request, and the poll's log names it with a `WARN:` line. Deterministic, no
 model, no container. `tehas-refresh.timer` starts it every minute, the first
 time 15 minutes after boot, and a run goes ahead only when the last one began
 `TEHAS_REFRESH_EVERY` minutes ago or more (`~/tehas/state/refresh/last-run`,
@@ -4045,6 +4049,7 @@ tehas update                  # the newest release, or pull the checkout;
 tehas update --to v0.8.1      # that release, an older one too
 tehas update --check          # report what would change; change nothing
 tehas update --pending        # run the follow-ups the record lists, no git
+tehas update --accept-id janit  # as tehas update, and record janit's new user id
 tehas update --help           # print the usage of the command, touch nothing
 ```
 
@@ -4102,6 +4107,34 @@ with their image tags.
 
 `~/tehas/state/update-hold` stops a plain `tehas update`. `--to` names its
 version and runs with the hold there.
+
+### Accounts by user id
+
+A GitHub login can be renamed, and a login that was freed can be registered by
+someone else. So a login alone does not say who applied a label. Before
+anything moves, `tehas update` asks GitHub for the user id of each login of
+`TEHAS_ALLOWED_LABELERS` and `TEHAS_MILLWRIGHT_LOGIN` (`GET /users/<login>`)
+and records the pairs in `~/tehas/state/account-ids`, one `<login> <id>` a
+line. `install.sh` does the same before its first copy. The pair of a login
+taken off the list stays, so the login, listed again, must still be the same
+account.
+
+From then on a label, a retry tick, an answer to a planning question and a
+comment count only when the account that made them carries the recorded id
+(`user.id`, `actor.id`, or GraphQL's `databaseId`). An account with the
+login and another id, or with no id at all, does not count: the dispatcher
+reads it as `<login>#<id>`, which no list matches, and says why on standard
+error. With no id recorded for a login, nothing of it counts until
+`tehas update` records one.
+
+- A login that does not resolve stops `install.sh` and `tehas update` with 78
+  and names it. Take it out of the settings or correct it.
+- A login whose id is not the recorded one stops them with 78 and names both
+  ids. If the account was renamed and is still the person the settings mean,
+  `tehas update --accept-id <login>` records the new id. If not, take the login
+  out of the settings.
+- GitHub that cannot be asked stops them with 78 as well, before anything is
+  installed.
 
 ### From the checkout
 
