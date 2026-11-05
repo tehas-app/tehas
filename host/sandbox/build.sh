@@ -23,15 +23,14 @@
 # layer that does not build, or a build stopped partway, leaves the tag where it
 # was.
 #
-# Before the tag moves, each image that would take it is smoke-run: one offline
-# work turn started in it, with no token, model or network, and the output
-# handed to tehas-cycle sandbox smoke-verdict, which decides. An image that
+# Before the tag moves, each image that would take it is smoke-run by
+# tehas-cycle sandbox smoke-run: one offline work turn started in it, with no
+# token, model or network, and a decision on its output. An image that
 # prints no step-started line within 20 s, or prints a result that says its
 # runner crashed, is refused: the build ends 1 and the tag stays where it was,
 # as for a layer that does not build (a base that answered --capabilities and
 # died at every work run: pi-rukas v0.14.30 to v0.14.40). What the three
-# answers mean is in console/cycle/src/sandbox.rs, not here: this command runs
-# docker and passes it the output.
+# answers mean is in console/cycle/src/sandbox.rs, not here.
 #
 # The base is the image upstream publishes for each commit, tagged
 # sha-<first 12 characters>, or, when PI_RUKAS_IMAGE_DIGEST (sha256:<64 hex>)
@@ -286,20 +285,12 @@ fi
 reads=$("$cycle" caps reads-images <<<"$caps")
 
 # One offline work turn inside an image that would take the uid tag, and the
-# decision on what it printed (console/cycle/src/sandbox.rs: `sandbox smoke`
-# gives the words of the run, `sandbox smoke-verdict` reads its output and ends
-# 0 only on a step-started line). The run is no row of `sandbox table`: its
-# image is the one this build has just made. The turn bounds itself at 20 s and
-# ends at its first step; the 20 over it are the container's own start.
+# decision on what it printed (console/cycle/src/sandbox.rs: `sandbox smoke-run`
+# runs it and ends 0 only on a step-started line). The run is no row of
+# `sandbox table`: its image is the one this build has just made.
 smoke_image() { # <image>
-  local words=() word
-  mapfile -td '' words < <("$cycle" sandbox smoke "$1")
-  if [ "${#words[@]}" -lt 8 ] || [ "${words[0]}" != run ]; then
-    echo "sandbox: tehas-cycle gave no words for a smoke run, so $1 cannot be smoke-run" >&2
-    exit 1
-  fi
-  if ! word=$({ timeout -k 5 40 docker "${words[@]}" 2>&1 || true; } |
-    "$cycle" sandbox smoke-verdict); then
+  local word
+  if ! word=$("$cycle" sandbox smoke-run "$1"); then
     echo "sandbox: $1 started no step of an offline work run (${word:-no answer}), so $current is left as it was" >&2
     exit 1
   fi
@@ -478,27 +469,11 @@ if [ -f "$instance_file" ]; then
   echo "built $image:$stamp-product from $instance_file, also tagged $current"
 fi
 
-# The ids of images a container was made from, or a uid tag names, are the
-# console's answer, the one the cleaner goes by.
-
-prune_dated() {
-  local tags held tag id n=0
-  tags=$(docker image ls --no-trunc --format '{{.Tag}} {{.ID}}' "$image") || return 1
-  held=$("$console" clean held "$tags") || return 1
-  while read -r tag id; do
-    n=$((n + 1))
-    [ "$n" -gt "$keep" ] || continue
-    if grep -qxF "$id" <<<"$held"; then
-      echo "kept $image:$tag: a container or a uid tag uses it"
-    elif docker rmi "$image:$tag" >/dev/null; then
-      echo "removed $image:$tag"
-    else
-      echo "warning: could not remove $image:$tag" >&2
-    fi
-  done < <(grep -E '^[0-9]{6}-[0-9]{4}(-product)? ' <<<"$tags" | LC_ALL=C sort -r)
-}
+# The sweep of the dated tags is the console's (console clean dated), which
+# asks what is held the way the cleaner does.
 if [ ! -x "$console" ]; then
   echo "warning: no console at $console, no old $image tag was removed" >&2
 else
-  prune_dated || echo "warning: docker did not list its images or containers, no old $image tag was removed" >&2
+  "$console" clean dated "$image" "$keep" ||
+    echo "warning: docker did not list its images or containers, no old $image tag was removed" >&2
 fi
