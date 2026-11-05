@@ -233,6 +233,14 @@ pub fn state_lines(h: &J, now: i64, stale: bool, poll: &str) -> Vec<String> {
     if let Some(held) = checks.at(&["demand", "refreshHold"]).as_str() {
         lines.push(format!("refresh   held: {held}"));
     }
+    for h in checks.at(&["slice", "held"]).items() {
+        lines.push(format!(
+            "held      #{}: {}; {}",
+            h.get("issue").text(),
+            oneline_of(h.get("text")),
+            oneline_of(h.get("clear"))
+        ));
+    }
     let alone = label_alone(checks.at(&["demand", "labelAlone"]));
     if !alone.is_empty() {
         let list: Vec<String> = alone.iter().map(|n| format!("#{n}")).collect();
@@ -618,6 +626,20 @@ pub fn status_json(h: &J, now: i64, stale: bool) -> J {
     } else {
         J::Null
     };
+    let held = J::Arr(
+        s.get("held")
+            .items()
+            .iter()
+            .map(|h| {
+                obj(vec![
+                    ("issue", h.get("issue").clone()),
+                    ("why", h.get("why").clone()),
+                    ("text", J::Str(oneline_of(h.get("text")))),
+                    ("clear", J::Str(oneline_of(h.get("clear")))),
+                ])
+            })
+            .collect(),
+    );
     let room = if s.is_null() {
         J::Null
     } else {
@@ -659,6 +681,7 @@ pub fn status_json(h: &J, now: i64, stale: bool) -> J {
         ("planning", J::Arr(planning)),
         ("demand", demand),
         ("hold", hold),
+        ("held", held),
         ("room", room),
     ];
     fields.retain(|(k, v)| !matches!(*k, "allHands" | "limit") || !v.is_null());
@@ -718,7 +741,8 @@ mod tests {
           "checks":{"queue":{"inLine":2,"building":0,"review":1,"stopped":0,"paused":true,"time":"2026-10-17T14:00:00Z"},
           "pause":{"flag":{"at":"2026-10-17T13:00:20Z","reason":"a\nb"},"label":true,"lifted":false},
           "limit":{"state":"ok","cycles":1,"plan":false,"reason":"night"},
-          "demand":{"refreshHold":"two in review"},"allHands":true}}"#,
+          "demand":{"refreshHold":"two in review"},"allHands":true,
+          "slice":{"why":"","held":[{"issue":7,"why":"parked","text":"its last cycle parked on `gate`","clear":"edit the body"}]}}}"#,
         );
         assert_eq!(
             state_lines(&health, NOW, false, "poll      last 1 s"),
@@ -730,6 +754,7 @@ mod tests {
                 "pause     label: tehas:pause on the control issue",
                 "limit     1 cycle at once, planning off, until cleared: night",
                 "refresh   held: two in review",
+                "held      #7: its last cycle parked on `gate`; edit the body",
                 "all-hands tehas:all-hands is on the control issue, applied by an allowed account",
             ]
         );
@@ -867,7 +892,7 @@ mod tests {
             h(r#"{"status":"pass","output":"Idle.","time":"2026-10-17T14:00:00Z","checks":{}}"#);
         assert_eq!(
             status_json(&health, NOW, false).dump(),
-            r#"{"api":1,"time":"2026-10-17T14:00:00Z","age":20,"stale":false,"state":"pass","reasons":[],"paused":{"local":false,"label":false},"running":[],"planning":[],"demand":null,"hold":null,"room":null}"#
+            r#"{"api":1,"time":"2026-10-17T14:00:00Z","age":20,"stale":false,"state":"pass","reasons":[],"paused":{"local":false,"label":false},"running":[],"planning":[],"demand":null,"hold":null,"held":[],"room":null}"#
         );
     }
 
