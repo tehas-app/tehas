@@ -230,8 +230,9 @@ impl Writer {
             self.plan_collect_action(n, log);
         } else if let Some(n) = a.get("plan_post").and_then(Value::as_u64) {
             // A turn that ends on a keep that would not land is not a left
-            // action: nothing of it was journaled, so the next poll repeats it
-            // whole, which is what the keep waiting for it is for.
+            // action: nothing of it was journaled, on either refusal route
+            // (the clear route keeps before it says), so the next poll repeats
+            // it whole, which is what the keep waiting for it is for.
             self.plan_post(n, log);
         } else if let Some(n) = a.get("plan_close").and_then(Value::as_u64) {
             self.plan_close(n, log);
