@@ -38,11 +38,8 @@ t_console || t_bad "no console: $t_console_why"
 # The slice is the real console's too, whatever a case does to the stub.
 T_ENV_ALWAYS+=(TEHAS_CONSOLE_CMD="$T_CONSOLE")
 tree=$T/tree
-mkdir -p "$tree/libexec"
-ln -s "$T_ROOT/lib" "$tree/lib"
-ln -s "$T_ROOT/libexec/improve" "$tree/libexec/improve"
-cp "$T_CONSOLE" "$tree/libexec/console"
-improve="$tree/libexec/improve"
+t_front "$tree"
+improve="$tree/bin/tehasbot improve"
 
 # docker leaves $T/fx/findings.json where the analyst would write, and keeps
 # its arguments one to a line. $T/fx/docker.rc is an exit status to fail with;

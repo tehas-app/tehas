@@ -127,7 +127,7 @@ t_eq "$(t_calls steps)" "install.sh
 labels
 build"
 t_contains "$(t_calls systemctl)" "--user enable --now tehas-dispatch.timer tehas-dispatch.path"
-t_contains "$t_out" "check-product is not installed"
+t_contains "$t_out" "bin/tehas is not installed, so the product's gates were not run"
 t_contains "$t_out" "http://127.0.0.1:8080/"
 t_eq "$(cat "$T/gh-token")" "ghp_secret_token"
 
@@ -327,8 +327,9 @@ t_lacks "$(t_calls gh)" "repo clone"
 
 t_case "the product's gates run in the sandbox when check-product is there; --no-build skips both"
 fresh
-printf '#!/usr/bin/env bash\necho check-product $* >>"$T/calls/steps"\n' >"$plat/libexec/check-product"
-chmod +x "$plat/libexec/check-product"
+mkdir -p "$plat/bin"
+printf '#!/usr/bin/env bash\necho $* >>"$T/calls/steps"\n' >"$plat/bin/tehas"
+chmod +x "$plat/bin/tehas"
 run_setup "${args[@]}"
 t_eq "$t_rc" 0
 t_contains "$(t_calls steps)" "check-product --sandbox"
@@ -336,7 +337,7 @@ fresh
 run_setup "${args[@]}" --no-build
 t_lacks "$(t_calls steps)" "build"
 t_lacks "$(t_calls steps)" "check-product"
-rm -f "$plat/libexec/check-product"
+rm -f "$plat/bin/tehas"
 
 # A checkout setup finds, as tehas state unpack leaves it: a real clone of a
 # bare origin whose URL ends in the repository, one commit behind. The gates
@@ -352,8 +353,9 @@ behind_origin() {
   g -C "$T/src" push -q "$T/origin/acme/widget.git" main
 }
 work=$T/home/tehas/repos/widget
-printf '#!/usr/bin/env bash\necho check-product $* $(git -C "$T/home/tehas/repos/widget" rev-parse HEAD origin/HEAD) >>"$T/calls/steps"\n' >"$plat/libexec/check-product"
-chmod +x "$plat/libexec/check-product"
+mkdir -p "$plat/bin"
+printf '#!/usr/bin/env bash\necho $* $(git -C "$T/home/tehas/repos/widget" rev-parse HEAD origin/HEAD) >>"$T/calls/steps"\n' >"$plat/bin/tehas"
+chmod +x "$plat/bin/tehas"
 
 t_case "a checkout behind origin is fast-forwarded before the gates, which run on the new head"
 fresh
@@ -398,7 +400,7 @@ t_eq "$t_rc" 0
 t_eq "$(git -C "$work" rev-parse HEAD)" "$to"
 t_lacks "$(t_calls steps)" "check-product"
 rm -rf "$T/src" "$T/origin"
-rm -f "$plat/libexec/check-product"
+rm -f "$plat/bin/tehas"
 
 t_case "a given control issue is used and none is made"
 fresh

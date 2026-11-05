@@ -83,35 +83,35 @@ rm -rf "${T:?}/etc"
 T_ENV=(T_IN_TEST=1)
 
 t_case "--check reports drift, changes nothing and exits 1"
-echo "# edited on the host" >>"$th/libexec/dispatch"
+echo "# edited on the host" >>"$th/libexec/work"
 before=$(installed_files | xargs -I{} sh -c "cd '$home' && cksum '{}'")
 t_run "$install --check"
 t_eq "$t_rc" 1
 t_contains "$t_out" "Installed:    DRIFT (1 files)"
-t_contains "$t_out" "differs: $th/libexec/dispatch"
+t_contains "$t_out" "differs: $th/libexec/work"
 t_eq "$(installed_files | xargs -I{} sh -c "cd '$home' && cksum '{}'")" "$before"
 
 t_case "--check reports a command whose mode is wrong, changes nothing and exits 1"
 # Only the mode is wrong here, so the content edit of the case before this one
 # is put back from the checkout first. The edit is restored below, where the
 # cases that need it come again.
-cp "$T_ROOT/libexec/dispatch" "$th/libexec/dispatch"
-chmod 644 "$th/libexec/dispatch"
+cp "$T_ROOT/libexec/work" "$th/libexec/work"
+chmod 644 "$th/libexec/work"
 t_run "$install --check"
 t_eq "$t_rc" 1
 t_contains "$t_out" "Installed:    DRIFT (1 files)"
-t_contains "$t_out" "mode: $th/libexec/dispatch is 644, wants 755"
-t_eq "$(stat -c %a "$th/libexec/dispatch")" 644
+t_contains "$t_out" "mode: $th/libexec/work is 644, wants 755"
+t_eq "$(stat -c %a "$th/libexec/work")" 644
 
 t_case "a real run sets the mode of a command whose content already matches"
 # The content is already the checkout's, so the only thing owed is the mode: no
 # copy is owed either, so no .prev appears beside it.
-before=$(cksum <"$th/libexec/dispatch")
+before=$(cksum <"$th/libexec/work")
 t_run "$install"
 t_eq "$t_rc" 0
-t_eq "$(stat -c %a "$th/libexec/dispatch")" 755
-t_eq "$(cksum <"$th/libexec/dispatch")" "$before"
-t_eq "$([ -e "$th/libexec/dispatch.prev" ] && echo there)" ""
+t_eq "$(stat -c %a "$th/libexec/work")" 755
+t_eq "$(cksum <"$th/libexec/work")" "$before"
+t_eq "$([ -e "$th/libexec/work.prev" ] && echo there)" ""
 t_run "$install --check"
 t_contains "$t_out" "Installed:    OK"
 t_eq "$t_rc" 0
@@ -135,25 +135,25 @@ t_eq "$(stat -c %a "$unit")" 644
 t_eq "$(cksum <"$unit")" "$before"
 
 # The content edit the mode cases below displaced is put back for the cases
-# after this block, which install dispatch and expect a copy to be owed.
-echo "# edited on the host" >>"$th/libexec/dispatch"
+# after this block, which install work and expect a copy to be owed.
+echo "# edited on the host" >>"$th/libexec/work"
 
 t_case "a copy that fails halfway leaves the installed file as it was"
-before=$(cksum <"$th/libexec/dispatch")
+before=$(cksum <"$th/libexec/work")
 # An install that writes part of the file where it was told to, then fails.
 t_stub install 'head -c 100 "$3" >"$4"; exit 1'
 t_run "$install"
 rm -f "$T/bin/install"
 t_eq "$t_rc" 1
-t_contains "$t_out" "tehas: could not install $th/libexec/dispatch"
-t_eq "$(cksum <"$th/libexec/dispatch")" "$before"
+t_contains "$t_out" "tehas: could not install $th/libexec/work"
+t_eq "$(cksum <"$th/libexec/work")" "$before"
 t_eq "$(find "$th/libexec" -name '*.new' | wc -l)" 0
 
 t_case "a real run repairs drift and keeps the old file as .prev"
 t_run "$install"
-t_contains "$t_out" "installed: $th/libexec/dispatch"
-t_eq "$(cmp -s "$th/libexec/dispatch" "$T_ROOT/libexec/dispatch" && echo same)" "same"
-t_contains "$(cat "$th/libexec/dispatch.prev")" "# edited on the host"
+t_contains "$t_out" "installed: $th/libexec/work"
+t_eq "$(cmp -s "$th/libexec/work" "$T_ROOT/libexec/work" && echo same)" "same"
+t_contains "$(cat "$th/libexec/work.prev")" "# edited on the host"
 
 t_case "a changed versions.env asks for bootstrap.sh user on a later line"
 cp "$th/versions.env" "$T/versions.env.kept"

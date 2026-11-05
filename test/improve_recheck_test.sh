@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for libexec/improve: an issue worked on again, and the comment a recheck
+# Tests for tehasbot improve: an issue worked on again, and the comment a recheck
 # posts on the issue the loop filed.
 # shellcheck disable=SC2016  # stub bodies and snippets are expanded when they run
 # shellcheck source=test/lib.sh

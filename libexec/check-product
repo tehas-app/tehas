@@ -1,8 +1,0 @@
-#!/usr/bin/env bash
-# tehas check-product: console/src/run.rs, console/src/usage/check-product.txt is
-# its text. Only a path: test/sandbox_argv_test.sh runs it.
-#
-# Exit: the command's; 78 no console.
-here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-[ -x "$here/console" ] || { printf 'tehas check-product: no console beside this command at %s, run install.sh\n' "$here/console" >&2; exit 78; }
-exec "$here/console" run "$here" "$EUID" "$BASH" tehas check-product "$@"
