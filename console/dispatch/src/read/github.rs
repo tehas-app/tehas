@@ -57,10 +57,13 @@ const PAGE: &str = r#"query($owner: String!, $name: String!, $cursor: String) {
 }"#;
 
 /// The open pull requests, on the first page alone: the titles need no call of
-/// their own. Last in the page, and small, for the budget `ISSUE_PAGE` names.
+/// their own, and neither does the hold of rule 6 that reads a body for a
+/// closing keyword. Last in the page, and small, for the budget `ISSUE_PAGE`
+/// names. `body` is read whole, and it is the one field of the page that a
+/// description can make long.
 const OPEN_PULLS: &str = r#"
     openPulls: pullRequests(states: OPEN, first: 100, orderBy: {field: CREATED_AT, direction: DESC}) {
-      nodes { number title headRefName author { login ...on User { databaseId } ...on Bot { databaseId } } labels(first: 20) { nodes { name } } }
+      nodes { number title body headRefName author { login ...on User { databaseId } ...on Bot { databaseId } } labels(first: 20) { nodes { name } } }
     }"#;
 
 // The page above names `tehas:running` inside a GraphQL string, where the
@@ -115,6 +118,10 @@ pub struct Queue {
     pub repo: Option<String>,
     pub open: Vec<Open>,
     pub closed_running: Vec<u64>,
+    /// The nodes of `openPulls` as the first page gave them: None when the page
+    /// answered no such list, which is how a page cut short of GitHub's nested
+    /// budget reads as nothing known rather than nothing open. Only the first
+    /// page asks for the list, so a page after the first says nothing about it.
     pub open_pulls: Option<Value>,
 }
 
@@ -176,7 +183,7 @@ pub fn queue(calls: &mut Calls, repo: &str) -> Result<Queue, GhFail> {
             });
         }
         if cursor.is_none() {
-            q.open_pulls = r.pointer("/openPulls/nodes").cloned();
+            q.open_pulls = r.get("openPulls").and_then(|v| v.get("nodes")).cloned();
             q.closed_running = r
                 .pointer("/closedRunning/nodes")
                 .and_then(Value::as_array)

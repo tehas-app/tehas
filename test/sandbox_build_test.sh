@@ -36,12 +36,21 @@ head=$(printf 'a%.0s' {1..40})
 old=$(printf 'b%.0s' {1..40})
 uid=$(id -u)
 
+# The smoke run of every case starts a step, so the uid tag moves as it did
+# before the check was there. A case that means a refusal writes another answer
+# over the file: smoke_crash and smoke_silence below are the two refusals.
+cp "$T_ROOT/test/fixtures/smoke-started.json" "$fx/smoke"
+
 # git lists the newest release tag at the commit in $fx/head, and an older
 # one, and lists nothing when the file is missing; asked for a branch it
 # answers the same commit as its head. docker
 # answers the label in $fx/label, a pull fails when $fx/pull-fails exists, and
 # asking the base for its capabilities prints $fx/caps.json and exits with
-# $fx/ask-rc, 0 when it is missing. A build given the file named in
+# $fx/ask-rc, 0 when it is missing. The smoke run the build starts in a new
+# image before the uid tag moves is answered from $fx/smoke - the whole of that
+# turn's output, nothing when the file is not there - so a case says what the
+# image printed by writing that one file, and $fx/smoke-product answers the run
+# of the instance's layer instead. A build given the file named in
 # $fx/build-fails - the instance's own, by its path - fails. A case that builds
 # an instance layer calls fx_ids, which answers the inspects of that check.
 t_stub git '[ -e "$T/fx/head" ] || exit 2
@@ -75,7 +84,20 @@ t_stub docker 'case "$1" in
     # "docker image" on its own, which no command of build.sh asks for.
     [ -e "$T/fx/label" ] || exit 1; cat "$T/fx/label" ;;
   pull) [ ! -e "$T/fx/pull-fails" ] || exit 1 ;;
-  run) cat "$T/fx/caps.json" 2>/dev/null; exit "$(cat "$T/fx/ask-rc" 2>/dev/null || echo 0)" ;;
+  run)
+    # A smoke run asked of bash stands apart from the ask of --capabilities: the
+    # layer above the image answers from a file of its own,
+    # so one case can let the image below it start a step and refuse the layer.
+    if [[ $* == "run --rm --init --network none "*" --entrypoint bash "*"pi-rukas-headless work 1 --json"* ]]; then
+      answer=$T/fx/smoke
+      if [[ $* == *"-product "* && -e $T/fx/smoke-product ]]; then
+        answer=$T/fx/smoke-product
+      fi
+      [ ! -s "$answer" ] || cat "$answer"
+      exit "$(cat "$T/fx/smoke-rc" 2>/dev/null || echo 0)"
+    fi
+    cat "$T/fx/caps.json" 2>/dev/null
+    exit "$(cat "$T/fx/ask-rc" 2>/dev/null || echo 0)" ;;
   build) found=0
     for a in "$@"; do [ "$a" = "$(cat "$T/fx/build-fails" 2>/dev/null)" ] && found=1; done
     [ "$found" = 0 ] || exit 1 ;;
@@ -95,7 +117,15 @@ reset() {
   cp "$T_ROOT/host/versions.env" "$home/versions.env"
   sed -i 's#^PI_RUKAS_REPO=.*#PI_RUKAS_REPO=https://github.com/Up-Owner/pi-rukas.git#' "$home/versions.env"
   rm -f "$T/instance/instance.env" "$T/instance/sandbox.Dockerfile"
+  # The default smoke run again: reset takes the whole of fx, the answer of the
+  # case before it among it.
+  cp "$T_ROOT/test/fixtures/smoke-started.json" "$fx/smoke"
 }
+
+# The line a runner that died before its first step prints, and the same turn
+# giving no answer at all: the two refusals of a smoke run.
+smoke_crash() { printf '%s\n' '{"schemaVersion":5,"issues":[],"error":{"code":"crash","message":"the runner process exited 0 without a result"}}' >"$fx/smoke"; }
+smoke_silence() { rm -f "$fx/smoke"; }
 
 t_case "a build takes upstream's image for the newest release and labels it with the commit"
 reset
@@ -431,6 +461,78 @@ fx_ids() {
   # the answers it needs by calling this after another installed a stub of its
   # own; what a case chooses is which file the two inspects read.
 }
+
+t_case "a build smoke-runs the image it made, in one offline work turn, before the tag moves"
+reset
+t_run "$build"
+t_eq "$t_rc" 0
+# The run is asked of bash in the image this build made, with no network, and
+# it is asked before the tag moves.
+t_contains "$(t_calls docker)" "run --rm --init --network none --memory 2g --pids-limit 512 --entrypoint bash tehas/pi-rukas:"
+t_contains "$(t_calls docker)" "timeout 20 /opt/pi-rukas/bin/pi-rukas-headless work 1 --json 2>&1 | sed "
+t_contains "$t_out" "smoke-ran tehas/pi-rukas:"
+smoke_at=$(t_calls docker | grep -n -m1 '^run --rm --init --network none ' | cut -d: -f1)
+tag_at=$(t_calls docker | grep -n -m1 '^tag ' | cut -d: -f1)
+t_eq "$([ -n "$smoke_at" ] && [ -n "$tag_at" ] && [ "$smoke_at" -lt "$tag_at" ] && echo before)" before
+
+t_case "a smoke run that prints step-started moves the uid tag"
+reset
+cp "$T_ROOT/test/fixtures/smoke-started.json" "$fx/smoke"
+t_run "$build"
+t_eq "$t_rc" 0
+t_contains "$t_out" "smoke-ran tehas/pi-rukas:"
+# The tag names the image the build made, as it did before the check was there:
+# a run that started a step costs the tag nothing.
+t_eq "$(t_calls docker | awk '$1 == "tag" && $3 ~ /^tehas\/pi-rukas:uid/ { print $2 }')" \
+  "$(t_calls docker | sed -n 's/^build .* -t \([^ ]*\) .*/\1/p' | head -n 1)"
+
+t_case "a smoke run that prints the crash document leaves the uid tag where it was and ends 1"
+reset
+smoke_crash
+t_run "$build"
+t_eq "$t_rc" 1
+t_contains "$t_out" "started no step of an offline work run (crashed)"
+t_contains "$t_out" "tehas/pi-rukas:uid$uid is left as it was"
+# The image built, and no tag of the run moved onto it.
+t_contains "$(t_calls docker)" "build --build-arg"
+t_eq "$(t_calls docker | grep -c -e '^tag ')" 0
+
+t_case "a smoke run that prints nothing leaves the uid tag where it was and ends 1"
+reset
+smoke_silence
+t_run "$build"
+t_eq "$t_rc" 1
+t_contains "$t_out" "started no step of an offline work run (silent)"
+t_contains "$(t_calls docker)" "build --build-arg"
+t_eq "$(t_calls docker | grep -c -e '^tag ')" 0
+
+t_case "a smoke run whose container starts and answers nothing is refused, not waited on"
+reset
+# The shape of a container that was started and printed no line at all, which is
+# what the runner of pi-rukas v0.14.30 to v0.14.40 left every work run with.
+: >"$fx/smoke"
+t_run "$build"
+t_eq "$t_rc" 1
+t_contains "$t_out" "started no step of an offline work run (silent)"
+t_eq "$(t_calls docker | grep -c -e '^tag ')" 0
+
+t_case "the instance layer is smoke-run too, and a refusal there leaves the tag on the image under it"
+reset
+printf 'ARG TEHAS_BASE\nFROM $TEHAS_BASE\n' >"$T/instance/sandbox.Dockerfile"
+fx_ids
+# The platform image starts a step and the layer above it prints the crash
+# document: the tag moves once, onto the image the host can run, and the second
+# move is refused. The two runs are answered apart by the image each is in.
+printf '%s\n' '{"schemaVersion":5,"error":{"code":"crash"}}' >"$fx/smoke-product"
+t_run "$build"
+t_eq "$t_rc" 1
+t_contains "$t_out" "smoke-ran tehas/pi-rukas:"
+t_contains "$t_out" "-product started no step of an offline work run (crashed)"
+# One tag moved: the platform image's. The layer that was refused takes nothing.
+t_eq "$(t_calls docker | grep -c -e '^tag ')" 1
+uidtag=$(t_calls docker | awk '$1 == "tag" && $3 ~ /^tehas\/pi-rukas:uid/ { print $2 }')
+t_lacks "$uidtag" "-product"
+rm -f "$T/instance/sandbox.Dockerfile"
 
 # The instance layer, when the host has one: built on the image above, checked
 # against it, and the only thing allowed to move the tag cycles run. The cases
