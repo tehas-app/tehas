@@ -391,7 +391,10 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
     {
         entry(&mut issues, *pr)["events"] = r;
     }
-    let requests = host::requests(home);
+    let (requests, refresh_warn) = host::requests(home);
+    if !refresh_warn.is_empty() {
+        s["refresh_warn"] = json!(refresh_warn);
+    }
     want(
         &mut per_issue,
         requests.iter().map(|(n, _)| store::Read::Approval(*n)),

@@ -3411,7 +3411,9 @@ tail ~/tehas/logs/refresh.log
 
 Finds the factory's own pull requests that conflict with the branch and
 writes a request for each, `~/tehas/state/refresh/<issue>.json`, for the
-dispatcher to start (see [refreshes](/operating#refreshes)). Deterministic, no
+dispatcher to start (see [refreshes](/operating#refreshes)). The poll reads a
+request of up to 4096 bytes; a larger file is not read, counts as an unreadable
+request, and the poll's log names it with a `WARN:` line. Deterministic, no
 model, no container. `tehas-refresh.timer` starts it every minute, the first
 time 15 minutes after boot, and a run goes ahead only when the last one began
 `TEHAS_REFRESH_EVERY` minutes ago or more (`~/tehas/state/refresh/last-run`,

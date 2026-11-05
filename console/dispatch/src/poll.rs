@@ -84,6 +84,15 @@ fn say(line: &str) {
     tehas_core::outln!("{} {line}", iso_now());
 }
 
+/// The warnings of the snapshot's read of state/refresh.
+fn refresh_warn(snap: &Value) -> impl Iterator<Item = &str> {
+    snap["refresh_warn"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+}
+
 /// What a command printed, as the bash poll lets it through.
 fn pass(lines: &[String]) {
     for l in lines {
@@ -661,6 +670,9 @@ fn body(
             return 1;
         }
     };
+    for l in refresh_warn(&snap) {
+        say(l);
+    }
     let mut d = decide(&Snapshot::parse(&snap), settings, dry);
     while fill(&src, &mut snap, &d.needs) {
         d = decide(&Snapshot::parse(&snap), settings, dry);
@@ -866,6 +878,16 @@ fn sweep_locks(w: &mut Writer, dry: bool) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_poll_says_each_warning_of_the_refresh_read() {
+        let snap = serde_json::json!({"refresh_warn": ["WARN: a", "WARN: b"]});
+        assert_eq!(
+            super::refresh_warn(&snap).collect::<Vec<_>>(),
+            ["WARN: a", "WARN: b"]
+        );
+        assert_eq!(super::refresh_warn(&serde_json::json!({})).count(), 0);
+    }
+
     #[test]
     fn status_runs_through_tehasbot_unless_a_test_names_a_command() {
         let (cmd, args) =
