@@ -2207,7 +2207,14 @@ a hand full of `rm` calls should take.
 
 `--publish` also writes the answer to `~/tehas/live/disk.json`, whole, through
 a side file renamed into place, so a reader sees a whole answer or the last
-one. It is the only form that writes anything and no timer runs it; the
+one. It is the only form that writes anything. `tehas-clean.service` runs it
+every hour after the clean, as a second `ExecStart` that calls the console
+directly (`%h/tehas/libexec/console disk %h/tehas --publish`), so on a host that
+runs the cleaner's timer the file is under an hour old; a person can run it at
+any moment too. The clean's own step is prefixed with `-`, so a clean that
+failed still leaves a fresh reading - a full disk is the case the clean is
+likeliest to fail in - and a reading that could not be written fails the unit,
+seen in `journalctl --user -u tehas-clean`. The
 [`factory_disk`](/mcp-server#the-tools) tool of the MCP server reads that file
 and so asks the host's disk nothing. The reading, the bounds and the printing
 are the console's (`~/tehas/libexec/console disk`, `console/src/disk.rs`);
