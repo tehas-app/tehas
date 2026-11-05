@@ -102,7 +102,7 @@ files="./.bashrc
 ./tehas/lib/labels.tsv
 ./tehas/lib/paths.sh
 ./tehas/lib/refine-brief.md
-./tehas/lib/release.sh
+./tehas/lib/release.list
 ./tehas/lib/rukas.sh
 ./tehas/libexec/analytics
 ./tehas/libexec/analytics.stamp
