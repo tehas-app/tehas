@@ -405,6 +405,8 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
     let issue = f.issue;
     let warn = |r: &mut Report, s: String| r.log.push(format!("WARN: {s}"));
     let mins = (f.now - f.started) / 60;
+    // A lean runner ran: tehas work saw it end.
+    let lean = lean_start(f) && f.file("runner_exit").text().is_some();
 
     // The runner's result and its progress. Not through a link.
     let mut result = f.file("result.json").clone();
@@ -450,8 +452,15 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
     let handoff = {
         let b = text(&outcome, "handoffBody");
         let marker = regex::Regex::new(r"\A<!-- pi-rukas:handoff [^\n]*-->\n*").unwrap();
-        v(&marker.replace(&b, ""))
+        let b = v(&marker.replace(&b, ""));
+        // Lean on the forge channel posted this itself: one comment, not two.
+        if lean && !b.is_empty() && text(&outcome, "handoffChannel") == "forge" {
+            "Lean posted its report on this issue itself, so it is not repeated here.".into()
+        } else {
+            b
+        }
     };
+    let pr_state = text(&outcome, "prState");
     let mut park_reason = v(&cut(
         &kept(&text(&outcome, "parkReason"), |c| {
             c.is_ascii_lowercase() || c == '-'
@@ -698,6 +707,10 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
     if branch.is_empty() {
         branch = log_branch;
     }
+    // Lean writes no step-started line to name its branch: its own default.
+    if branch.is_empty() && lean {
+        branch = format!("lean/issue-{issue}");
+    }
     let build = if re(r"^[0-9a-f]{40}$", &build) {
         build
     } else {
@@ -823,6 +836,9 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
             }
             _ => {}
         }
+    }
+    if lean {
+        summary += ", driver `lean`";
     }
     let mut why = String::new();
     if OWN_CAPS.contains(&cap.as_str()) {
@@ -1108,6 +1124,7 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         && !pr.is_empty()
         && waits_only_for_a_merge(&cap)
         && review_held == "false"
+        && !(lean && (pr_draft || pr_state != "ready"))
         && {
             r.asked.push("attention".into());
             match ask.attention() {
@@ -1146,7 +1163,13 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         } else {
             ""
         };
-        if cap.is_empty() {
+        if lean && pr_draft {
+            why = format!(
+                " Lean left its pull request a draft, so it does not wait only for a merge.{why}"
+            );
+        } else if lean && pr_state != "ready" {
+            why = format!(" Lean says its pull request is `{}`, not `ready`, so it does not wait only for a merge.{why}", if pr_state.is_empty() { "unknown" } else { &pr_state });
+        } else if cap.is_empty() {
             why = " The result names no cap, so it is not taken for a pull request that waits only for a merge.".into();
         }
         r.arm = "handoff-parked";
@@ -1180,6 +1203,22 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
             )
         }));
         status = "handoff".into();
+    } else if lean && rc == 11 && status == "aborted" {
+        r.arm = "not-ready";
+        parked_now = true;
+        let fix = if handoff.contains("pi-spec") || handoff.is_empty() {
+            " The issue needs a `pi-spec v1` block that lean accepts: fix the block, or run /plan to write it, then retry."
+        } else {
+            ""
+        };
+        let rules = if handoff.is_empty() {
+            " Lean's own comment on this issue lists the rules it failed."
+        } else {
+            " The rules it failed follow."
+        };
+        r.actions.push(park(park_args("not-ready", &cap, &status, &step, &pr), format!(
+            "Tehas cycle stopped: lean found this issue not ready to build from ({summary}, runner exit {runner_rc}).{fix}{rules} {kept_said}; {log_where}.{killed}"
+        ), String::new()));
     } else {
         let handoff_said = if handoff.is_empty() {
             ""
@@ -1451,6 +1490,17 @@ pub fn to_json(r: &Report, issue: u64) -> Value {
         "history": r.history, "analytics": r.analytics, "improve": r.improve,
         "status_run": r.status_run, "asked": r.asked, "arm": r.arm,
     })
+}
+
+/// Whether the approval this start used chose the lean driver.
+fn lean_start(f: &Facts) -> bool {
+    let Ok(a) = &f.approval else {
+        return false;
+    };
+    a.get("current")
+        .filter(|c| c.get("used_by").and_then(Value::as_u64) == Some(f.attempt))
+        .and_then(|c| c.pointer("/input/driver"))
+        == Some(&json!("lean"))
 }
 
 /// The caps of a handoff whose open pull request waits only for a merge.
