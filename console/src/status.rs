@@ -233,6 +233,14 @@ pub fn state_lines(h: &J, now: i64, stale: bool, poll: &str) -> Vec<String> {
     if let Some(held) = checks.at(&["demand", "refreshHold"]).as_str() {
         lines.push(format!("refresh   held: {held}"));
     }
+    let alone = label_alone(checks.at(&["demand", "labelAlone"]));
+    if !alone.is_empty() {
+        let list: Vec<String> = alone.iter().map(|n| format!("#{n}")).collect();
+        lines.push(format!(
+            "blocked   by the label alone, no blockers named: {}. Each waits until an allowed account comments a `<!-- tehas:blocked by=N -->` marker on it or a person takes tehas:blocked off",
+            list.join(", ")
+        ));
+    }
     if checks.get("allHands").is_true() {
         lines.push(
             "all-hands tehas:all-hands is on the control issue, applied by an allowed account"
@@ -240,6 +248,23 @@ pub fn state_lines(h: &J, now: i64, stale: bool, poll: &str) -> Vec<String> {
         );
     }
     lines
+}
+
+/// The issues the health file lists as held by `tehas:blocked` alone: its
+/// issue numbers, at most 50, and nothing when it lists anything else.
+fn label_alone(v: &J) -> Vec<u64> {
+    let n: Vec<u64> = v
+        .items()
+        .iter()
+        .filter_map(|x| match x {
+            J::Num(t) => t.parse::<u64>().ok().filter(|n| *n > 0),
+            _ => None,
+        })
+        .collect();
+    if n.len() != v.items().len() {
+        return Vec::new();
+    }
+    n.into_iter().take(50).collect()
 }
 
 /// What holds the factory paused, one line for each switch that is set:
@@ -560,6 +585,13 @@ pub fn status_json(h: &J, now: i64, stale: bool) -> J {
             if !d.get("refreshHold").is_null() {
                 f.push(("refreshHold", J::Str(oneline_of(d.get("refreshHold")))));
             }
+            let alone = label_alone(d.get("labelAlone"));
+            if !alone.is_empty() {
+                f.push((
+                    "labelAlone",
+                    J::Arr(alone.iter().map(|n| J::Num(n.to_string())).collect()),
+                ));
+            }
             obj(f)
         }
     };
@@ -658,6 +690,20 @@ mod tests {
         assert!(!stale(&h(r#"{"time":"2026-10-17T13:50:20Z"}"#), NOW));
         assert!(stale(&h(r#"{"time":"2026-10-17T13:50:19Z"}"#), NOW));
         assert!(stale(&h(r#"{"time":"yesterday"}"#), NOW));
+    }
+
+    #[test]
+    fn issues_held_by_the_label_alone_are_one_line_of_what_to_do() {
+        let health = h(
+            r#"{"status":"pass","output":"Idle.","time":"2026-10-17T14:00:00Z",
+          "checks":{"demand":{"waiting":0,"labelAlone":[7,9]}}}"#,
+        );
+        let lines = state_lines(&health, NOW, false, "poll      last 1 s");
+        assert!(lines.contains(&"blocked   by the label alone, no blockers named: #7, #9. Each waits until an allowed account comments a `<!-- tehas:blocked by=N -->` marker on it or a person takes tehas:blocked off".to_string()), "{lines:?}");
+        let many: Vec<String> = (1..=80).map(|n| n.to_string()).collect();
+        assert_eq!(label_alone(&h(&format!("[{}]", many.join(",")))).len(), 50);
+        assert!(label_alone(&h(r#"[7,"9"]"#)).is_empty());
+        assert!(label_alone(&J::Null).is_empty());
     }
 
     #[test]

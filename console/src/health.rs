@@ -1124,7 +1124,27 @@ fn demand(live: &Path, now: i64) -> J {
     if let Some(h) = d.get("refreshHold").as_str() {
         f.push(("refreshHold".to_string(), J::Str(first(h, 300))));
     }
+    if let Some(alone) = label_alone(d.get("labelAlone")) {
+        f.push(("labelAlone".to_string(), alone));
+    }
     J::Obj(f)
+}
+
+/// The most issue numbers `labelAlone` carries, as the dispatcher bounds it.
+const LABEL_ALONE_MAX: usize = 50;
+
+/// The issues `tehas:blocked` holds by the label alone, as the poll listed
+/// them: a list of issue numbers, at most `LABEL_ALONE_MAX` of them. A list
+/// that holds anything but issue numbers is left out, and so is an empty one.
+fn label_alone(v: &J) -> Option<J> {
+    let J::Arr(a) = v else { return None };
+    let ok = a
+        .iter()
+        .all(|n| matches!(n, J::Num(t) if t.parse::<u64>().is_ok_and(|n| n > 0)));
+    if !ok || a.is_empty() {
+        return None;
+    }
+    Some(J::Arr(a.iter().take(LABEL_ALONE_MAX).cloned().collect()))
 }
 
 /// Whether some process holds the lock, or it cannot be told apart from one
@@ -1329,6 +1349,13 @@ fn joined(v: &J) -> String {
         .join(", ")
 }
 
+/// The limit as `flags::read` reads it. A reading the page cannot parse is
+/// unreadable, as it is to every other reader, never nothing.
+fn limit(home: &Path, now: i64) -> J {
+    J::parse(&flags::read(&home.join("state/limit.json"), now).json())
+        .unwrap_or_else(|| obj(vec![("state", J::Str("unreadable".to_string()))]))
+}
+
 fn report(home: &Path, g: &Given, now: i64) -> J {
     let live = home.join("live");
     let endings = match read(&live.join("endings.json")) {
@@ -1343,8 +1370,7 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
     let demand = demand(&live, now);
     let sessions = g.sessions.as_deref().and_then(J::parse).unwrap_or(J::Null);
     let plans = plans(home, &sessions);
-    let limit =
-        J::parse(&flags::read(&home.join("state/limit.json"), now).json()).unwrap_or(J::Null);
+    let limit = limit(home, now);
 
     let flag = pause_flag(home);
     let bool_or_false = |v: &J| match v {
@@ -1677,6 +1703,46 @@ mod tests {
 
     fn said(r: &J) -> (String, String) {
         (r.get("status").text(), r.get("output").text())
+    }
+
+    #[test]
+    fn every_reader_of_the_limit_gives_one_answer() {
+        let h = home("limit-readers");
+        let unreadable = r#"{"state":"unreadable"}"#;
+        let cases = [
+            (r#"{"v":1,"cycles":1,"plan":true,"cycles":2}"#, unreadable),
+            (r#"{"v":1,"cycles":1,"plan":false,"plan":true}"#, unreadable),
+            (r#"{"v":1,"cycles":1,"plan":true,"v":1}"#, unreadable),
+            (r#"{"v":1,"cycles":1e999,"plan":true}"#, unreadable),
+            (r#"{"v":1,"cycles":1,"plan":true"#, unreadable),
+            (
+                r#"{"v":1,"cycles":2,"plan":false,"until":"2026-10-17T13:00:00Z","reason":"x"}"#,
+                r#"{"state":"expired","cycles":2,"plan":false,"until":"2026-10-17T13:00:00Z","reason":"x"}"#,
+            ),
+            (
+                r#"{"v":1,"cycles":3,"plan":true,"until":null,"reason":" held\nfor alpha "}"#,
+                r#"{"state":"ok","cycles":3,"plan":true,"reason":"held for alpha"}"#,
+            ),
+            (
+                r#"{"v":1,"cycles":1,"plan":true,"note":{"cycles":9}}"#,
+                r#"{"state":"ok","cycles":1,"plan":true}"#,
+            ),
+            (
+                r#"{"v":1.0,"cycles":01,"plan":true}"#,
+                r#"{"state":"ok","cycles":1.0,"plan":true}"#,
+            ),
+        ];
+        let value = |text: &str| serde_json::from_str::<Value>(text).unwrap();
+        for (file, want) in cases {
+            h.write("state/limit.json", file);
+            let want = value(want);
+            let console = value(&flags::read(&h.0.join("state/limit.json"), NOW).json());
+            let page = value(&h.report(&Given::default()).at(&["checks", "limit"]).dump());
+            let dispatch = tehas_dispatch::read::host::limit(&h.0, NOW);
+            assert_eq!(console, want, "console: {file}");
+            assert_eq!(page, want, "health: {file}");
+            assert_eq!(dispatch, want, "dispatcher: {file}");
+        }
     }
 
     #[test]
@@ -2107,6 +2173,18 @@ mod tests {
             h.report(&Given::default()).at(&["checks", "demand"]),
             &J::Null
         );
+    }
+
+    #[test]
+    fn the_demand_lists_the_issues_held_by_the_label_alone_within_its_bound() {
+        assert_eq!(label_alone(&J::parse("[7,9]").unwrap()), J::parse("[7,9]"));
+        let many: Vec<String> = (1..=80).map(|n| n.to_string()).collect();
+        let got = label_alone(&J::parse(&format!("[{}]", many.join(","))).unwrap()).unwrap();
+        assert_eq!(got.items().len(), LABEL_ALONE_MAX);
+        assert_eq!(got.items()[0], J::Num("1".into()));
+        for bad in ["[]", "[0]", "[\"7\"]", "[7,-1]", "[1.5]", "7", "{}"] {
+            assert_eq!(label_alone(&J::parse(bad).unwrap()), None, "{bad}");
+        }
     }
 
     /// The report of a poll, at `at`, as the dispatcher's own type writes it:
