@@ -278,6 +278,8 @@ pub(crate) fn host_or_refuse() -> Result<Host, u8> {
 struct Asked {
     mode: Mode,
     to: Option<String>,
+    /// The logins whose new user id a person confirmed (src/ids.rs).
+    accept: Vec<String>,
 }
 
 /// The arguments of `tehas update`, or the status they end the run with. The
@@ -300,6 +302,7 @@ fn parse(given: &[String]) -> Result<Asked, u8> {
     }
     let (mut checked, mut pending) = (false, false);
     let mut to = String::new();
+    let mut accept = Vec::new();
     let mut words = given.iter();
     while let Some(word) = words.next() {
         match word.as_str() {
@@ -309,6 +312,13 @@ fn parse(given: &[String]) -> Result<Asked, u8> {
                 Some(version) => to = version.clone(),
                 None => {
                     tell("tehas update: --to needs a version");
+                    return Err(64);
+                }
+            },
+            "--accept-id" => match words.next() {
+                Some(login) => accept.push(login.clone()),
+                None => {
+                    tell("tehas update: --accept-id needs a login");
                     return Err(64);
                 }
             },
@@ -331,6 +341,10 @@ fn parse(given: &[String]) -> Result<Asked, u8> {
         tell("  it takes neither --check nor --to");
         return Err(64);
     }
+    if !accept.is_empty() && (pending || checked) {
+        tell("tehas update: --accept-id records an id, and does not go with --check or --pending");
+        return Err(64);
+    }
     if !to.is_empty() && !release::tag_ok(&to) {
         tell(&format!(
             "tehas update: --to takes a version vX.Y.Z, got: {to}"
@@ -347,6 +361,7 @@ fn parse(given: &[String]) -> Result<Asked, u8> {
     Ok(Asked {
         mode,
         to: (!to.is_empty()).then_some(to),
+        accept,
     })
 }
 
@@ -412,6 +427,9 @@ fn gate(given: &[String]) -> u8 {
     };
     match pass(&host, &asked) {
         0 if asked.mode == Mode::Check => NO_LOCK,
+        // The ids before anything moves: a login that changed hands stops
+        // the update, and --accept-id is the person's word that it did not.
+        0 if asked.mode == Mode::Update => crate::ids::record_here(&asked.accept),
         rc => rc,
     }
 }
@@ -588,6 +606,11 @@ mod tests {
         assert_eq!((to.mode, to.to.as_deref()), (Mode::Check, Some("v1.2.3")));
         // An empty version is no version asked for.
         assert_eq!(asked(&["--to", ""]), Ok(Asked::default()));
+        let accept = asked(&["--accept-id", "alice", "--accept-id", "bob"]).unwrap();
+        assert_eq!(
+            (accept.mode, accept.accept),
+            (Mode::Update, words(&["alice", "bob"]))
+        );
     }
 
     #[test]
@@ -604,6 +627,9 @@ mod tests {
             &["--check", "--pending"],
             &["--pending", "--to", "v1.2.3"],
             &["--to", "v1.2.3", "--pending"],
+            &["--accept-id"],
+            &["--accept-id", "alice", "--check"],
+            &["--pending", "--accept-id", "alice"],
         ] {
             assert_eq!(parse(&words(bad)), Err(64), "{bad:?}");
         }
@@ -614,7 +640,13 @@ mod tests {
 
     #[test]
     fn the_usage_names_every_form() {
-        for form in ["--check", "--pending", "--to vX.Y.Z", "-h|--help"] {
+        for form in [
+            "--check",
+            "--pending",
+            "--to vX.Y.Z",
+            "--accept-id <login>",
+            "-h|--help",
+        ] {
             assert!(USAGE.contains(form), "{form}");
         }
     }
@@ -637,6 +669,7 @@ mod tests {
         let asked = |mode, to: Option<&str>| Asked {
             mode,
             to: to.map(str::to_string),
+            accept: Vec::new(),
         };
         assert_eq!(pass(&h, &asked(Mode::Update, None)), 1);
         assert_eq!(pass(&h, &asked(Mode::Check, None)), 0);
@@ -648,7 +681,16 @@ mod tests {
     fn a_host_with_no_checkout_and_no_current_is_not_guessed_at() {
         let d = dir("gate-bare");
         let h = home(&d);
-        let run = |mode| pass(&h, &Asked { mode, to: None });
+        let run = |mode| {
+            pass(
+                &h,
+                &Asked {
+                    mode,
+                    to: None,
+                    accept: Vec::new(),
+                },
+            )
+        };
         assert_eq!(run(Mode::Update), 78);
         assert_eq!(run(Mode::Check), 78);
         // --pending asks of the host only that its settings read.

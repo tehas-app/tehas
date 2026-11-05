@@ -104,6 +104,19 @@ for other in tehas-bot mallory ""; do
   t_contains "$(t_calls gh)" "may not answer for this factory"
 done
 
+t_case "a retry ticked by a listed login with another user id starts nothing and is undone"
+for id in 99 null; do
+  parked
+  comments 7 "$(park_body x ' ')" alice
+  jq --argjson id "$id" '.data.repository.issue.comments.nodes[0].editor.databaseId = $id' "$fx/comments-7.json" >"$fx/comments-7.new" &&
+    mv "$fx/comments-7.new" "$fx/comments-7.json"
+  t_run "$dispatch"
+  t_eq "$(t_calls fake-start)" ""
+  t_contains "$t_out" "does not count"
+  t_contains "$(t_calls gh)" "- [ ] Retry from a clean start"
+  t_contains "$(t_calls gh)" "may not answer for this factory"
+done
+
 t_case "when a refused tick cannot be undone, the note is not repeated every poll"
 parked
 comments 7 "$(park_body x ' ')" mallory

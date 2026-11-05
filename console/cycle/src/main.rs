@@ -80,11 +80,14 @@
 //!                                     is stopped on a guess. It reads no wall
 //!                                     clock, so a VM that was saved is not
 //!                                     counted against a cycle
-//!   tehas-cycle describe <dir>        write <dir>/images.md, a model's
+//!   tehas-cycle describe <dir> <issue>
+//!                                     write <dir>/images.md, a model's
 //!                                     description of each image in
 //!                                     <dir>/manifest.json, and name it in the
-//!                                     manifest (src/describe.rs). Exits 1 only
-//!                                     when a file could not be written
+//!                                     manifest (src/describe.rs). <issue> is
+//!                                     the issue number, sent as X-Tehas-Issue
+//!                                     on each request when it is digits. Exits
+//!                                     1 only when a file could not be written
 //!   tehas-cycle private <models.json> <email>
 //!                                     the names a mask hides, two lines each:
 //!                                     `--private` and the name, for a command
@@ -185,6 +188,14 @@
 //!                                     make <tree>, a clone of <src>
 //!   tehas-cycle sandbox seed <state> <index>
 //!                                     give <state> the host's code index
+//!   tehas-cycle sandbox smoke <image> the words of `docker run` for one offline
+//!                                     work turn in <image>, NUL separated:
+//!                                     `host/sandbox/build.sh` runs it before it
+//!                                     moves the uid tag
+//!   tehas-cycle sandbox smoke-verdict the output of that run comes on standard
+//!                                     input, and `started`, `crashed` or
+//!                                     `silent` is printed. Exit 0 only for a
+//!                                     stable `step-started` line
 //!   tehas-cycle sandbox verify <limit words>
 //!                                     how many runs of the gate one container
 //!                                     runs at once. Exit 1 with nothing
@@ -200,6 +211,11 @@
 //!                                     workspace, the container watched to its
 //!                                     end and the cycle's notes
 //!                                     (src/work.rs). Exits as tehas work does
+//!   tehas-cycle index [--before-cycle]
+//!                                     the same at the tip of the product's
+//!                                     branch the checkout last fetched; 78
+//!                                     for a checkout of another repository
+//!                                     or a branch it does not know
 //!   tehas-cycle index <branch> <commit> [--before-cycle]
 //!                                     one run of the code indexer at <commit>,
 //!                                     the tip of <branch>, under the lock
@@ -284,6 +300,8 @@ fn main() {
         ["-h" | "--help"] => tehas_core::outln!("{}", usage()),
         ["report", file] => print_report(file),
         ["index", "table"] => tehas_core::outln!("{}", index::table()),
+        ["index"] => std::process::exit(index::here(false).into()),
+        ["index", "--before-cycle"] => std::process::exit(index::here(true).into()),
         ["index", branch, base] => std::process::exit(index::main(branch, base, false).into()),
         ["index", branch, base, "--before-cycle"] => {
             std::process::exit(index::main(branch, base, true).into())
@@ -409,8 +427,8 @@ fn main() {
             Some(r) => tehas_core::outln!("{}\n{}\n{}", r.step, r.branch, r.read),
             None => std::process::exit(1),
         },
-        ["describe", dir] => {
-            if tehas_cycle::describe::describe(Path::new(dir)).is_err() {
+        ["describe", dir, issue] => {
+            if tehas_cycle::describe::describe(Path::new(dir), issue).is_err() {
                 std::process::exit(1);
             }
         }

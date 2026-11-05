@@ -55,6 +55,8 @@ stub_gh() {
   "api user --jq [.login,.id]|@tsv") printf "tehas-bot\t4242\n" ;;
   "api --paginate installation/repositories --jq .repositories[].full_name") printf "%s\n" ${APP_REPOS:-acme/other acme/Widget} ;;
   "api users/tehas-app[bot] --jq .id") echo 9191 ;;
+  # The ids install.sh records of the allowed accounts, as t_stub gives them.
+  "api users/"*" --jq .id") ;;
   "issue create --repo acme/widget"*) echo "https://github.com/acme/widget/issues/7" ;;
   "repo clone acme/widget "*) mkdir -p "${4}/.git" ;;
   "auth setup-git --hostname @HG@")

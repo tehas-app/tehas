@@ -699,6 +699,17 @@ fn run_suite(name: &str) {
                 bad.push(format!("the report has {x}"));
             }
         }
+        for x in e
+            .get("demand_lacks")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            let k = x.as_str().unwrap();
+            if d.demand.as_ref().is_some_and(|v| v.get(k).is_some()) {
+                bad.push(format!("demand {:?} has {k}", d.demand));
+            }
+        }
         if let Some(x) = e.get("demand") {
             let ok = match (x, &d.demand) {
                 (Value::Null, Some(Value::Null)) => true,

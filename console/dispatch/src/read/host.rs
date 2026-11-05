@@ -123,50 +123,9 @@ pub(crate) fn epoch(s: &str) -> Option<i64> {
     Some((era * 146_097 + doe - 719_468) * 86_400 + hh * 3600 + mm * 60 + ss)
 }
 
-/// The limit, as `flags limit read` reads it.
+/// The limit, as `flags limit read` reads it: the one reader in tehas_core.
 pub fn limit(home: &Path, now: i64) -> Value {
-    let p = home.join("state/limit.json");
-    if !p.exists() && p.symlink_metadata().is_err() {
-        return json!({"state": "none"});
-    }
-    let v: Value = fs::read_to_string(&p)
-        .ok()
-        .and_then(|t| serde_json::from_str(&t).ok())
-        .unwrap_or(Value::Null);
-    let cycles = v.get("cycles").and_then(Value::as_f64);
-    let ok = v.get("v") == Some(&json!(1))
-        && cycles.is_some_and(|c| c >= 0.0 && c.fract() == 0.0)
-        && v.get("plan").is_some_and(Value::is_boolean)
-        && v.get("until").is_none_or(|u| u.is_null() || u.is_string())
-        && v.get("reason").is_none_or(|r| r.is_null() || r.is_string());
-    if !ok {
-        return json!({"state": "unreadable"});
-    }
-    let until = v.get("until").and_then(Value::as_str);
-    let u = match until {
-        Some(t) => match epoch(t) {
-            Some(e) => Some(e),
-            None => return json!({"state": "unreadable"}),
-        },
-        None => None,
-    };
-    let mut out = json!({"state": if u.is_some_and(|u| u <= now) { "expired" } else { "ok" },
-        "cycles": v["cycles"], "plan": v["plan"]});
-    if let Some(t) = until {
-        out["until"] = json!(t);
-    }
-    let reason: String = v
-        .get("reason")
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .chars()
-        .map(|c| if c.is_control() { ' ' } else { c })
-        .take(200)
-        .collect();
-    if !reason.is_empty() {
-        out["reason"] = json!(reason);
-    }
-    out
+    tehas_core::limit::read(&home.join("state/limit.json"), now).value()
 }
 
 /// The first bytes of a file as text, empty when it cannot be read.
@@ -176,10 +135,15 @@ pub fn head(path: &Path, bytes: usize) -> String {
         .unwrap_or_default()
 }
 
+/// The bound of a refresh request: one is a few hundred bytes.
+pub const REQUEST_BOUND: u64 = 4096;
+
 /// refresh_requests: the issues with a request, lowest first, with what each
-/// file holds (null when it cannot be read as JSON).
-pub fn requests(home: &Path) -> Vec<(u64, Value)> {
+/// file holds (null when it cannot be read as JSON), and a warning for each
+/// file over the bound, which is not read.
+pub fn requests(home: &Path) -> (Vec<(u64, Value)>, Vec<String>) {
     let dir = home.join("state/refresh");
+    let mut warn = Vec::new();
     let mut out: Vec<(u64, Value)> = fs::read_dir(&dir)
         .into_iter()
         .flatten()
@@ -194,19 +158,24 @@ pub fn requests(home: &Path) -> Vec<(u64, Value)> {
             {
                 return None;
             }
-            let meta = fs::symlink_metadata(e.path()).ok()?;
-            if !meta.is_file() {
-                return None;
-            }
-            let v = fs::read_to_string(e.path())
-                .ok()
-                .and_then(|t| serde_json::from_str(&t).ok())
-                .unwrap_or(Value::Null);
+            let v = match read_regular(&e.path(), REQUEST_BOUND) {
+                Ok((bytes, _)) => serde_json::from_slice(&bytes).unwrap_or(Value::Null),
+                Err(ReadError::NotRegular) => return None,
+                Err(ReadError::TooLarge) => {
+                    warn.push(format!(
+                        "WARN: {} is over {REQUEST_BOUND} bytes, not read",
+                        e.path().display()
+                    ));
+                    Value::Null
+                }
+                Err(_) => Value::Null,
+            };
             Some((n.parse().ok()?, v))
         })
         .collect();
     out.sort_by_key(|(n, _)| *n);
-    out
+    warn.sort();
+    (out, warn)
 }
 
 /// Where the record of a plan's start is kept. No container is given the state
@@ -478,6 +447,46 @@ mod tests {
         fs::write(&there, r#"{"by":"alice"}"#).unwrap();
         std::os::unix::fs::symlink(&there, &file).unwrap();
         assert_eq!(plan_start(&h, 7), Some(Value::Null));
+    }
+
+    #[test]
+    fn a_refresh_request_over_the_bound_is_not_read_and_is_named() {
+        let h = home("requests");
+        let dir = h.join("state/refresh");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(
+            dir.join("7.json"),
+            r#"{"at":"2026-11-01T00:00:00Z","pr":9}"#,
+        )
+        .unwrap();
+        fs::write(dir.join("8.json"), "not json").unwrap();
+        let big = format!(r#"{{"at":"{}"}}"#, "x".repeat(REQUEST_BOUND as usize));
+        fs::write(dir.join("9.json"), big).unwrap();
+        std::os::unix::fs::symlink(dir.join("7.json"), dir.join("10.json")).unwrap();
+        fs::write(dir.join("07.json"), "{}").unwrap();
+        let (got, warn) = requests(&h);
+        assert_eq!(
+            got,
+            vec![
+                (7, json!({"at": "2026-11-01T00:00:00Z", "pr": 9})),
+                (8, Value::Null),
+                (9, Value::Null),
+            ]
+        );
+        assert_eq!(
+            warn,
+            vec![format!(
+                "WARN: {} is over {REQUEST_BOUND} bytes, not read",
+                dir.join("9.json").display()
+            )]
+        );
+        // A request at the bound is read as before.
+        let fits = format!(r#"{{"at":"{}"}}"#, "x".repeat(REQUEST_BOUND as usize - 9));
+        assert_eq!(fits.len() as u64, REQUEST_BOUND);
+        fs::write(dir.join("9.json"), fits).unwrap();
+        let (got, warn) = requests(&h);
+        assert!(got[2].1["at"].is_string());
+        assert!(warn.is_empty());
     }
 
     #[test]

@@ -160,6 +160,11 @@
 //! The commands of bin/tehas and bin/tehasbot that are verbs of this program,
 //! and the text of tehas help, see src/commands.rs.
 //!
+//!   console front <libexec dir> <euid> <bash> tehas|tehasbot [words]
+//!
+//! What bin/tehas and bin/tehasbot exec: which command a word names, its text,
+//! and what runs it, see src/front.rs.
+//!
 //!   console run <libexec dir> <euid> <bash> tehas|tehasbot <command> ...
 //!
 //! A command under the instance's settings: its check, the load, what it
@@ -186,9 +191,11 @@ mod export;
 mod flags;
 mod forge;
 mod frame;
+mod front;
 mod github;
 mod health;
 mod history;
+mod ids;
 mod improve;
 mod label;
 mod labels;
@@ -422,6 +429,10 @@ fn main() -> ExitCode {
     // of its command when that command has one.
     let words = std::env::args_os().skip(1);
     let words: Vec<String> = words.map(|a| a.to_string_lossy().into_owned()).collect();
+    if words.first().is_some_and(|w| w == "front") {
+        let given: Vec<std::ffi::OsString> = std::env::args_os().skip(2).collect();
+        return ExitCode::from(front::main(&given));
+    }
     if words.first().is_some_and(|w| w == "run") {
         let text = std::env::args_os().all(|a| a.to_str().is_some());
         return ExitCode::from(run::main(&words[1..], text));
@@ -450,6 +461,7 @@ fn main() -> ExitCode {
             Some("slice") => return ExitCode::from(slice::main(&given[1..])),
             Some("health") => return ExitCode::from(health::main(&given[1..])),
             Some("improve") => return ExitCode::from(improve::main(&given[1..])),
+            Some("ids") => return ExitCode::from(ids::main(&given[1..])),
             Some("label") => return ExitCode::from(label::main(&given[1..])),
             Some("models") => return ExitCode::from(models::main(&given[1..])),
             Some("state") => return ExitCode::from(state::main(&given[1..])),

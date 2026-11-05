@@ -7,6 +7,7 @@ use super::run::{self, Calls, GhFail};
 use super::{github, host, models, store};
 use crate::decide::has;
 use crate::settings::Settings;
+use crate::text::closing_numbers;
 use serde_json::{json, Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -151,6 +152,11 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
             .map(|o| (o.number.to_string(), json!(o.labels)))
             .collect::<Map<_, _>>()
             .into();
+        // What rule 6 holds an issue on out of an open pull request's body:
+        // every open pull request that names it with a closing keyword, by
+        // number, whatever base it targets. Held beside the nodes above,
+        // which `console pr-title poll` takes as they are.
+        names_from_bodies(&mut s, pulls, &q.open);
     }
     let open: BTreeSet<u64> = q.open.iter().map(|o| o.number).collect();
     let mut issues = Map::new();
@@ -168,18 +174,8 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
         .filter(|o| github::dropped_events(o, &[github::RUNNING]))
         .map(|o| o.number)
         .collect();
-    let reads: Vec<Vec<String>> = dropped
-        .iter()
-        .map(|n| {
-            vec![
-                "api".into(),
-                format!("repos/{}/issues/{n}/events?per_page=100", c.repo),
-                "--paginate".into(),
-            ]
-        })
-        .collect();
-    for (n, r) in dropped.iter().zip(calls.gh_all(&reads)) {
-        issues[&n.to_string()]["events"] = r.unwrap_or_else(|_| json!({"failed": true}));
+    for (n, r) in dropped.iter().zip(events_all(calls, &c.repo, &dropped)) {
+        issues[&n.to_string()]["events"] = r;
     }
     match q.open.iter().find(|o| o.number == c.control) {
         Some(o) => {
@@ -386,16 +382,19 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
             ],
         );
     }
-    for pr in s["refreshing"]
-        .as_array()
-        .cloned()
-        .unwrap_or_default()
+    // The events of the refreshing pull requests are read side by side, 8 at a
+    // time, as the issues that lost the mark are read above (#1423).
+    let refreshing = numbers(&s["refreshing"]);
+    for (pr, r) in refreshing
         .iter()
-        .filter_map(|p| p["number"].as_u64())
+        .zip(events_all(calls, &c.repo, &refreshing))
     {
-        entry(&mut issues, pr)["events"] = rest_events(calls, &c.repo, pr);
+        entry(&mut issues, *pr)["events"] = r;
     }
-    let requests = host::requests(home);
+    let (requests, refresh_warn) = host::requests(home);
+    if !refresh_warn.is_empty() {
+        s["refresh_warn"] = json!(refresh_warn);
+    }
     want(
         &mut per_issue,
         requests.iter().map(|(n, _)| store::Read::Approval(*n)),
@@ -685,6 +684,43 @@ fn closed(issues: &mut Map<String, Value>, n: u64) {
     }
 }
 
+/// Which open pull requests name an open issue with a closing keyword in their
+/// own description, written to `pulls_name` of the snapshot by issue number.
+///
+/// A body is read once per keyword it holds, not once per open issue: a page of
+/// 25 issues over 100 bodies is 2500 matches otherwise, and most descriptions
+/// hold no keyword at all. The nodes are what the page answered: a list of no
+/// shape a rule reads holds nothing, and no issue is held on a body no poll read.
+fn names_from_bodies(s: &mut Value, pulls: &Value, open: &[github::Open]) {
+    let Some(nodes) = pulls.as_array() else {
+        return;
+    };
+    let mentions: BTreeMap<u64, Vec<u64>> = nodes
+        .iter()
+        .filter_map(|p| {
+            let pr = p.get("number").and_then(Value::as_u64)?;
+            // A body of no shape a rule reads, none or absent, is a description
+            // that closes nothing.
+            let body = p.get("body").and_then(Value::as_str).unwrap_or("");
+            Some((pr, closing_numbers(body)))
+        })
+        .collect();
+    let mut names: Map<String, Value> = Map::new();
+    for o in open {
+        let hits: Vec<u64> = mentions
+            .iter()
+            .filter(|(pr, hits)| **pr != o.number && hits.contains(&o.number))
+            .map(|(pr, _)| *pr)
+            .collect();
+        if !hits.is_empty() {
+            names.insert(o.number.to_string(), json!(hits));
+        }
+    }
+    if !names.is_empty() {
+        s["pulls_name"] = Value::Object(names);
+    }
+}
+
 /// The label events of an issue or pull request as the bash reads them:
 /// the REST events, all pages; {"failed": true} when the call failed.
 pub fn rest_events(calls: &mut Calls, repo: &str, n: u64) -> Value {
@@ -692,6 +728,26 @@ pub fn rest_events(calls: &mut Calls, repo: &str, n: u64) -> Value {
     calls
         .gh(&["api", &path, "--paginate"])
         .unwrap_or_else(|_| json!({"failed": true}))
+}
+
+/// `rest_events` for several issues or pull requests, read side by side through
+/// `Calls::gh_all`: one answer per number, in the order given.
+fn events_all(calls: &mut Calls, repo: &str, ns: &[u64]) -> Vec<Value> {
+    let reads: Vec<Vec<String>> = ns
+        .iter()
+        .map(|n| {
+            vec![
+                "api".into(),
+                format!("repos/{repo}/issues/{n}/events?per_page=100"),
+                "--paginate".into(),
+            ]
+        })
+        .collect();
+    calls
+        .gh_all(&reads)
+        .into_iter()
+        .map(|r| r.unwrap_or_else(|_| json!({"failed": true})))
+        .collect()
 }
 
 fn bot(s: &Value) -> String {
@@ -728,7 +784,6 @@ mod tests {
     use super::*;
     use crate::read::models::Models;
     use crate::snapshot::Snapshot;
-    use std::os::unix::fs::PermissionsExt;
 
     /// What separates two calls in a stub's record: a word of nothing that no
     /// argument of a real gh or store call contains, named once so that neither
@@ -764,6 +819,8 @@ mod tests {
                 "closedByPullRequestsReferences": {"nodes": []}
             })
         };
+        // The page answers no open pull request here, so a world's poll holds
+        // nothing on a body; `openPulls` is written beside the nodes below.
         let comment = |body: &str| {
             json!({"data": {"repository": {"issue": {"comments": {"nodes": [
                 {"databaseId": 500, "author": {"login": "tehas-bot"}, "body": body,
@@ -780,7 +837,11 @@ mod tests {
                 "nameWithOwner": "acme/widget",
                 "issues": {"pageInfo": {"hasNextPage": false, "endCursor": null},
                            "nodes": [node(21), node(22), node(23)]},
-                "closedRunning": {"nodes": []}
+                "closedRunning": {"nodes": []},
+                // The page's own list of open pull requests, empty here so a
+                // world's poll holds nothing on a body. A case that wants one
+                // writes `openPulls` into its own `queue`.
+                "openPulls": {"nodes": []}
             }}},
             // The three issues are the candidates of rule 6. The control issue
             // is not in the page, so its labels and its events are read by name,
@@ -851,6 +912,11 @@ mod tests {
             fixture: "queue",
             fails: false,
         },
+        Read {
+            word: "tehas:refreshing",
+            fixture: "refreshing",
+            fails: false,
+        },
     ];
 
     /// Whether a table entry names a file to read rather than holding its bytes.
@@ -878,7 +944,7 @@ mod tests {
         // space (`issue view`) or a `?`, so the shell sees the list as one word
         // per line and never splits it further.
         let words: Vec<&'static str> = READS.iter().map(|r| r.word).collect();
-        assert_eq!(words.len(), 6, "the stub's list holds one word a read");
+        assert_eq!(words.len(), 7, "the stub's list holds one word a read");
         // One word a line; the stub reads it with IFS set to the newline alone,
         // so a word that holds a space stays one word.
         std::fs::write(dir.join("words"), words.join("\n")).unwrap();
@@ -912,6 +978,16 @@ mod tests {
         fixture(&dir, "queue", &world["queue"]);
         fixture(&dir, "states", &world["states"]);
         fixture(&dir, "control", &world["control"]);
+        if let Some(r) = world.get("refreshing") {
+            fixture(&dir, "refreshing", r);
+        }
+        // The events reads named in `together` wait, each, until every one of
+        // them has started: they answer only when they run side by side, and
+        // a read of them one at a time gives up and is refused. The wait is
+        // for the count, bounded well inside the call's own bound.
+        for n in world["together"].as_array().into_iter().flatten() {
+            std::fs::write(dir.join(format!("together-{n}")), "").unwrap();
+        }
         for (n, events) in world["events"].as_object().into_iter().flatten() {
             fixture(&dir, &format!("events-{n}"), events);
         }
@@ -938,6 +1014,16 @@ for word in $(cat "$here/../words"); do
             [ -n "$key" ] || key=$(printf '%s' "$line" | sed -n 's/.*number=\([0-9]*\).*/\1/p')
             f="$here/../$a$key"
             [ -f "$here/../broken-$key" ] && { printf '%s' "$(cat "$here/../broken-$key")" >&2; printf '{}' >"$out"; answer 1; }
+            if [ -n "$key" ] && [ -f "$here/../together-$key" ]; then
+              : >"$here/../started-$key"
+              want=$(ls "$here/.." | grep -c '^together-')
+              tries=0
+              while [ "$(ls "$here/.." | grep -c '^started-')" -lt "$want" ]; do
+                tries=$((tries + 1))
+                [ "$tries" -le 100 ] || { printf 'alone' >&2; printf '{}' >"$out"; answer 1; }
+                sleep 0.05
+              done
+            fi
             [ -f "$f" ] || { printf '{}' >"$out"; answer 1; }
             cat "$f" >"$out" ;;
         *) printf '%s' "$a" >"$out" ;;
@@ -993,7 +1079,6 @@ esac"#,
     fn stub(bin: &Path, name: &str, body: &str) {
         let mut lines: Vec<String> = [
             "#!/bin/sh".to_string(),
-            "[ \"$1\" = settled ] && exit 0".to_string(),
             format!("here='{}'", bin.display()),
             "args=$(mktemp \"$here/{name}-args.XXXXXX\")".to_string(),
             "out=$(mktemp \"$here/{name}-out.XXXXXX\")".to_string(),
@@ -1016,9 +1101,7 @@ esac"#,
         .to_vec();
         lines.extend(body.lines().map(str::to_string));
         lines.push("answer 0".to_string());
-        std::fs::write(bin.join(name), lines.join("\n") + "\n").unwrap();
-        std::fs::set_permissions(bin.join(name), std::fs::Permissions::from_mode(0o755)).unwrap();
-        crate::read::run::tests::settled(&bin.join(name));
+        tehas_core::testing::write_exe(bin.join(name), lines.join("\n") + "\n").unwrap();
     }
 
     /// The calls the stub of `name` recorded, in the order it wrote them.
@@ -1049,10 +1132,19 @@ esac"#,
     /// that clock, and a retry case of `run.rs` that set it while one of them ran
     /// would be the reason the read gave up.
     fn poll(world: &Value, broken: &[u64]) -> (Value, Vec<String>, u32, Vec<String>) {
+        poll_with(world, broken, &settings())
+    }
+
+    /// `poll`, under settings of the case's own.
+    fn poll_with(
+        world: &Value,
+        broken: &[u64],
+        c: &Settings,
+    ) -> (Value, Vec<String>, u32, Vec<String>) {
         let _clock = crate::read::run::no_case_clock();
         let dir = host(world, broken);
         let mut src = sources(&dir);
-        let snap = match snapshot(&mut src, &settings()) {
+        let snap = match snapshot(&mut src, c) {
             Ok(s) => s,
             Err(f) => panic!("the stubs answer: {}", f.line),
         };
@@ -1181,6 +1273,51 @@ esac"#,
             store.iter().filter(|c| c.starts_with("batch")).count(),
             1,
             "the per-issue reads are one run of the store"
+        );
+    }
+
+    /// The refreshing sweep reads the events of its pull requests side by side,
+    /// as the read of the issues that lost the mark does (#1423): the stub
+    /// answers the events of #31, #32 and #33 only once all three have started,
+    /// so a sweep that reads them one at a time is refused, and each pull
+    /// request keeps its own answer. A refused read is `{"failed": true}`.
+    #[test]
+    fn the_refreshing_sweep_reads_the_events_of_its_pull_requests_side_by_side() {
+        let mut w = world();
+        let labeled = |n: u64| {
+            json!([{"event": "labeled", "label": {"name": "tehas:refreshing"},
+                    "actor": {"login": "tehas-bot"}, "created_at": format!("2026-10-0{}T00:00:00Z", n - 30)}])
+        };
+        w["refreshing"] = json!([31, 32, 33, 34].map(|n| json!({"number": n,
+            "labels": [{"name": "tehas:refreshing"}]})));
+        for n in 31..=33u64 {
+            w["events"][n.to_string()] = labeled(n);
+        }
+        w["together"] = json!([31, 32, 33]);
+        // #34 has no events to give, so its read is refused.
+        let mut s = settings();
+        s.refresh_conflicts = true;
+        let (snap, calls, gh_count, _) = poll_with(&w, &[], &s);
+
+        for n in 31..=33u64 {
+            assert_eq!(
+                snap["issues"][n.to_string()]["events"],
+                labeled(n),
+                "pull request {n} keeps its own events: {calls:?}"
+            );
+        }
+        assert_eq!(snap["issues"]["34"]["events"], json!({"failed": true}));
+        for n in 31..=34u64 {
+            let path = format!("repos/acme/widget/issues/{n}/events?per_page=100");
+            assert!(
+                calls.iter().any(|c| c.contains(&path)),
+                "pull request {n} has its events read: {calls:?}"
+            );
+        }
+        assert_eq!(
+            gh_count as usize,
+            calls.len(),
+            "the poll counted every gh call it made"
         );
     }
 
@@ -1373,5 +1510,156 @@ esac"#,
             parsed.issues.keys().collect::<Vec<_>>()
         );
         assert_eq!(snap["issues"].get("23"), None);
+    }
+
+    /// A pull request node of the page as GitHub gives it, its body the field
+    /// the hold of rule 6 reads.
+    fn pull(n: u64, body: &str) -> Value {
+        pull_body(n, json!(body))
+    }
+
+    /// The same with a body of any shape, for a page that answers something
+    /// other than a string: GitHub gives null for a pull request with no
+    /// description at all.
+    fn pull_body(n: u64, body: Value) -> Value {
+        json!({"number": n, "title": format!("pull {n}"), "body": body,
+               "headRefName": format!("feature/other-{n}"),
+               "author": {"login": "alice"}, "labels": {"nodes": []}})
+    }
+
+    /// The page's own bodies are what hold an issue a pull request into another
+    /// branch closes: GitHub records a closing reference only for a pull
+    /// request into the default branch, so an issue whose
+    /// `closedByPullRequestsReferences` is empty is held by the body alone,
+    /// and `Snapshot::parse` carries the numbers to `pulls_name` for rule 6.
+    #[test]
+    fn an_open_pull_request_naming_the_issue_in_its_body_is_written_as_holding_it() {
+        let mut w = world();
+        w["queue"]["data"]["repository"]["openPulls"]["nodes"] = json!([
+            pull(90, "Closes #21. Fixes #22."),
+            // A body that names no keyword, one that names a number with a
+            // colon but is not one of the closing words, one that names a
+            // longer number, and one of no body at all: none holds anything.
+            pull(91, "See #21 and issue 22 for background"),
+            pull(92, "Resolves #212, which is not #21"),
+            {"number": 93, "title": "no body", "headRefName": "x",
+             "author": {"login": "alice"}, "labels": {"nodes": []}},
+        ]);
+        let (snap, _, _, _) = poll(&w, &[]);
+        assert_eq!(
+            snap["pulls_name"],
+            json!({"21": [90], "22": [90]}),
+            "the bodies name #21 and #22, and no other number"
+        );
+        let parsed = Snapshot::parse(&snap);
+        assert_eq!(parsed.pulls_name[&21], vec![90]);
+        assert_eq!(parsed.pulls_name[&22], vec![90]);
+        assert!(
+            !parsed.pulls_name.contains_key(&23),
+            "an issue no body names is absent: {:?}",
+            parsed.pulls_name
+        );
+    }
+
+    /// The hold reads only the open pull requests the page answered: a page
+    /// GitHub cut before `openPulls` writes no names, so no issue is held by a
+    /// body no poll read.
+    #[test]
+    fn a_page_that_answered_no_open_pull_requests_writes_no_names() {
+        let mut w = world();
+        w["queue"]["data"]["repository"]
+            .as_object_mut()
+            .unwrap()
+            .remove("openPulls");
+        let (snap, _, _, _) = poll(&w, &[]);
+        assert_eq!(snap.get("pulls_name"), None);
+        assert!(Snapshot::parse(&snap).pulls_name.is_empty());
+    }
+
+    /// A body of no shape a rule reads closes nothing: a description that is
+    /// null, a number, a list or an object is no text with a keyword in it, and
+    /// none of them holds an issue.
+    #[test]
+    fn a_body_of_no_shape_a_rule_reads_closes_nothing() {
+        for body in [
+            Value::Null,
+            json!(7),
+            json!(["Closes #21"]),
+            json!({"x": "Closes #21"}),
+            json!(true),
+        ] {
+            let mut w = world();
+            w["queue"]["data"]["repository"]["openPulls"]["nodes"] =
+                json!([pull_body(90, body.clone())]);
+            let (snap, _, _, _) = poll(&w, &[]);
+            assert_eq!(
+                snap.get("pulls_name"),
+                None,
+                "a body of {body} names nothing"
+            );
+            assert!(
+                Snapshot::parse(&snap).pulls_name.is_empty(),
+                "a body of {body} holds nothing"
+            );
+        }
+    }
+
+    /// A page whose `openPulls` answers no list of nodes is a list nothing is
+    /// known of: no body is read, so no issue is held on one.
+    #[test]
+    fn a_page_whose_pull_requests_are_no_list_writes_no_names() {
+        for nodes in [Value::Null, json!(7), json!({"number": 90})] {
+            let mut w = world();
+            w["queue"]["data"]["repository"]["openPulls"] = json!({"nodes": nodes});
+            let (snap, _, _, _) = poll(&w, &[]);
+            assert_eq!(
+                snap.get("pulls_name"),
+                None,
+                "nodes of {nodes} name nothing"
+            );
+            assert!(
+                Snapshot::parse(&snap).pulls_name.is_empty(),
+                "nodes of {nodes} hold nothing"
+            );
+        }
+    }
+
+    /// The numbers of `pulls_name` are read the way every other number of the
+    /// snapshot is: a key or a hit of a numeric string reads as the number it
+    /// is, and one of no shape a reader takes is dropped with its own entry,
+    /// never counted as a pull request that holds the issue.
+    #[test]
+    fn the_numbers_of_pulls_name_read_as_the_snapshot_reads_a_number() {
+        let snap = json!({"pulls_name": {
+            "7": [90.5, "91", 92],
+            "8": ["93"],
+            "9": [],
+            "x": [94],
+            "10": "93",
+            "11": ["not a number"],
+        }});
+        let parsed = Snapshot::parse(&snap);
+        assert_eq!(
+            parsed.pulls_name[&7],
+            vec![91, 92],
+            "a hit that is no number is dropped, the rest of the entry is read"
+        );
+        assert_eq!(parsed.pulls_name[&8], vec![93], "a hit of a string");
+        assert_eq!(
+            parsed.pulls_name.get(&9),
+            None,
+            "an entry of no pull requests holds an issue on nothing"
+        );
+        assert_eq!(parsed.pulls_name.get(&10), None, "hits of no list");
+        assert_eq!(
+            parsed.pulls_name.get(&11),
+            None,
+            "an entry whose every hit is unreadable"
+        );
+        assert!(
+            !parsed.pulls_name.contains_key(&0),
+            "a key of no number names no issue: {:?}",
+            parsed.pulls_name
+        );
     }
 }

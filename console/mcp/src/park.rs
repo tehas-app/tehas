@@ -19,7 +19,7 @@ pub const STOPS: [&str; 4] = ["handoff", "parked", "failed", "refused"];
 /// The largest issue number: the most digits a session id holds.
 const ISSUE_MAX: u64 = 999_999_999;
 /// A larger result log is not read. A real one is some kilobytes.
-pub const RESULT_MAX: u64 = 1024 * 1024;
+pub const RESULT_MAX: u64 = tehas_core::file::READ_BOUND;
 /// The most failing check lines an answer holds.
 pub const CHECKS_MAX: usize = 20;
 /// The most characters of one line or text of the result.

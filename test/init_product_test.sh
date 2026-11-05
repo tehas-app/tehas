@@ -64,7 +64,9 @@ t_contains "$(pushed AGENTS.md)" "## Verify"
 t_eq "$(git -C "$origin" log --format=%s -1 main)" one
 calls=$(t_calls gh)
 t_contains "$calls" "pr create --repo acme/widget --base main --head tehas/init-product"
-t_eq "$(find "$T/home/tehas/tmp" -mindepth 1 | wc -l)" 0
+# The product's directory under tmp is the namespace of the check's
+# runs and stays; nothing may live under it.
+t_eq "$(find "$T/home/tehas/tmp" -mindepth 2 | wc -l)" 0
 
 t_case "a file the product has is kept; with every file there, nothing is pushed"
 product AGENTS.md=ours Cargo.toml='[package]'
@@ -206,7 +208,9 @@ The files of the tehas contract that the default branch does not have yet: .pi/v
 
 The gate and the install step are guessed from the repository'"'"'s files (stack: go.mod). Check them, and fill in AGENTS.md, before you merge. `tehas check-product` says what is still missing.'
 t_eq "$(git -C "$origin" log --format='%s|%an' -1 tehas/init-product)" "The tehas contract files|bot"
-t_eq "$(find "$T/home/tehas/tmp" -mindepth 1 | wc -l)" 0
+# The product's directory under tmp is the namespace of the check's
+# runs and stays; nothing may live under it.
+t_eq "$(find "$T/home/tehas/tmp" -mindepth 2 | wc -l)" 0
 t_stub gh 'echo https://github.com/acme/widget/pull/9'
 
 t_case "the push asks gh for the credential, and no token is on a command line"
@@ -250,13 +254,15 @@ t_instance "${T_MINIMAL[@]}" TEHAS_BRANCH=trunk
 t_run "$init"
 t_eq "$t_rc" 1
 t_contains "$t_out" "/repos/widget has no origin/trunk to start from"
-t_eq "$(find "$T/home/tehas/tmp" -mindepth 1 | wc -l)" 0
+# The product's directory under tmp is the namespace of the check's
+# runs and stays; nothing may live under it.
+t_eq "$(find "$T/home/tehas/tmp" -mindepth 2 | wc -l)" 0
 
 t_case "a host with no console beside the command starts nothing: 78, and says to install"
 rm "$T/tree/libexec/console"
 t_run "$init"
 t_eq "$t_rc" 78
-t_contains "$t_out" "no console beside this command"
+t_contains "$t_out" "tehas: no console at $T/tree/libexec/console: run install.sh"
 cp "$T_CONSOLE" "$T/tree/libexec/console"
 
 t_case "a wrong argument is 64"

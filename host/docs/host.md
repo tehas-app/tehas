@@ -22,7 +22,7 @@ Preparing a fresh machine is on the [bootstrap page](/bootstrap).
 | `~/tehas/lib/paths.sh`               | The home of each tool this host installs, and the `PATH` that finds them. `env.sh`, `bootstrap.sh` and `install.sh` all take the list from here |
 | `~/tehas/lib/github-app.sh`          | With a GitHub App: puts the `gh` shim first on `PATH` and gives git its credential helper; sourced by `env.sh` |
 | `~/tehas/lib/rukas.sh`               | Which pi-rukas commit the host follows; sourced by the sandbox build |
-| `~/tehas/bin/`                       | The two commands on `PATH`: `tehas` for a person, `tehasbot` for the units. Plus `gh` |
+| `~/tehas/bin/`                       | The two commands on `PATH`: `tehas` for a person, `tehasbot` for the units, each a few lines that run the console's front (`console/src/front.rs`), which chooses the command. Without a console both stop with exit 78, except `tehas setup`, which builds one. Plus `gh` |
 | `~/tehas/libexec/`                   | The scripts behind the two commands, one for each thing they do. Not on `PATH` |
 | `~/tehas/run/`                       | One copy of `bin/`, `libexec/` and `lib/` for each running cycle (`cycle-<issue>-<pid>`) and planning turn (`plan-<issue>-<pid>`), as hardlinks, so an update leaves the code of what runs as it started. The next start removes the copies whose process has ended |
 | `~/tehas/platform`                   | Checkout of this repository; `install.sh` runs from it and `tehas update` pulls it |
@@ -744,7 +744,8 @@ TEHAS_HOME=~/tehas ~/tehas/libexec/store check
 ```
 
 It prints the schema version, SQLite's integrity check and the rows in each
-table, and writes nothing.
+table, and writes nothing. A database that fails the integrity check exits 78
+with `corrupt` and what failed, as any database the store cannot use does.
 
 **Backing it up.** Copy the file with SQLite, not with `cp`, while tehas runs:
 `cp` of a WAL database can take the file without the rows still in its `-wal`.
@@ -1039,8 +1040,8 @@ edge router are outside the slice too.
 
 ### What a container may not do
 
-A cycle, a planning turn, a `tehas dev` session and the push check before a
-cycle all get the options below, from `security` in
+A cycle, a planning turn, a `tehas dev` session, and the push check and the
+product's install before a cycle all get the options below, from `security` in
 `console/core/src/sandbox.rs`, beside the mounts and the variables. The list is
 capability-shaped options and this round's bounded `/tmp`. The indexer and the
 analyst are not given them yet (issue #54 leaves them to a follow-up), so the
@@ -1060,7 +1061,7 @@ as that user it skips the drop. The image is built with the tehas user's uid
 | `--cap-add` | `CHOWN` | `npm install` drops a package to its owner with `chown(2)`, and Playwright's install of Chromium copies a cache tree that way. Both run in a gate of the product. Without it the gate fails with `EPERM` |
 | `--cap-add` | `FOWNER` | `npm` moves its staging directory onto its destination with `rename`, which is refused for a file one does not own even when the directory is writable. `tar`'s unpack, `cargo install` of a built crate and a gate's own `mv` do the same |
 | `--security-opt` | `no-new-privileges:true` | No process in the container gains rights through its mode bits or file capabilities, whatever it runs |
-| `--tmpfs` | `/tmp:rw,exec,nosuid,nodev,size=<half of --memory>m,mode=1777` | A `/tmp` that counts against the container's memory instead of the host's disk, where the writable layer it replaces sits on the host's root disk with no limit. The host keeps its own scratch under `$TEHAS_HOME/tmp` and sets `TMPDIR` there for its own commands, and `TMPDIR` is not among the variables given to a container, so a tool inside one that honours `TMPDIR` writes to this bounded tmpfs. The size is half the container's ceiling (`--memory`, from `tehas-cycle sandbox limits`), in MiB: about 2.7 GiB on tehas-tehas. Its pages count against `--memory` and cannot be reclaimed, so a tmpfs as large as the ceiling fills memory first and the kernel kills the agents, which frees nothing (cycle #353 on 2026-10-24, issue #761). At half, a full `/tmp` gives its writer `ENOSPC` and leaves the other half to the processes. A command with no usable ceiling gets no options and starts no container. Nothing prunes it during a cycle, and `tehasbot clean` reclaims the host's scratch and nothing of a running container's, so what a long cycle leaves there is what it runs out of. It stays `exec` because Docker's own default for a tmpfs is `noexec` and a product's gate is expected to write and run helpers there through npm, cargo and Playwright; no host of ours has been seen to need the bit, so that reason is an expectation, not an observation. With `TEHAS_SCRATCH_DIR` set, a cycle gets `<dir>/tehas-<issue>` bind-mounted at `/tmp` in place of this tmpfs: the tools write to the same path, the data is on disk and takes no memory, and the cycle removes it when it ends (the hourly cleaner takes what a killed cycle left). The host decides what is behind the path, normally a file system of its own at `/mnt/scratch`, mounted `nosuid,nodev`. Nothing limits a cycle's size inside it, so on the host's root disk a runaway cycle would fill the factory's disk. A planning turn and a `tehas dev` session keep the tmpfs |
+| `--tmpfs` | `/tmp:rw,exec,nosuid,nodev,size=<half of --memory>m,mode=1777` | A `/tmp` that counts against the container's memory instead of the host's disk, where the writable layer it replaces sits on the host's root disk with no limit. The host keeps its own scratch under `$TEHAS_HOME/tmp` and sets `TMPDIR` there for its own commands, and `TMPDIR` is not among the variables given to a container, so a tool inside one that honours `TMPDIR` writes to this bounded tmpfs. The size is half the container's ceiling (`--memory`, from `tehas-cycle sandbox limits`), in MiB: about 2.7 GiB on tehas-tehas. Its pages count against `--memory` and cannot be reclaimed, so a tmpfs as large as the ceiling fills memory first and the kernel kills the agents, which frees nothing (cycle #353 on 2026-10-24, issue #761). At half, a full `/tmp` gives its writer `ENOSPC` and leaves the other half to the processes. A command with no usable ceiling gets no options and starts no container. Nothing prunes it during a cycle, and `tehasbot clean` reclaims the host's scratch and nothing of a running container's, so what a long cycle leaves there is what it runs out of. It stays `exec` because Docker's own default for a tmpfs is `noexec` and a product's gate is expected to write and run helpers there through npm, cargo and Playwright; no host of ours has been seen to need the bit, so that reason is an expectation, not an observation. With `TEHAS_SCRATCH_DIR` set, a cycle gets `<dir>/tehas-<issue>` bind-mounted at `/tmp` in place of this tmpfs: the tools write to the same path, the data is on disk and takes no memory, and the cycle removes it when it ends (the hourly cleaner takes what a killed cycle left). The host decides what is behind the path, normally a file system of its own at `/mnt/scratch`, mounted `nosuid,nodev`. tehas work measures the cycle's scratch every 10 seconds and stops the cycle when it holds more than `TEHAS_SCRATCH_MAX` (20g by default), or when the scratch's file system has less than `TEHAS_CYCLE_STOP_FREE` free (5g by default) and this cycle's scratch is the largest there (issue #1547: one cycle wrote 34.7 GB in two minutes and filled the host's disk). Between two looks a runaway writer still gets up to 10 seconds, so a file system of its own is still the safer place. A planning turn and a `tehas dev` session keep the tmpfs |
 
 What is left off the list on purpose: `SETUID` and `SETGID`, because nothing a
 cycle runs becomes another user (the image has no `sudo`, the container runs as
@@ -1176,6 +1177,7 @@ hold a slot for ever:
 | --- | --- | --- |
 | The image's `--capabilities` answer before a cycle | 120 s | `tehas work` exits 78, with `gave no --capabilities answer` |
 | The push check before a cycle | 300 s | `tehas work` exits 3, with `the push check did not end within 300s` |
+| The product's install before a cycle | 1800 s | `tehas work` exits 78, with `the install did not end within 1800s` in the `.preflight` file |
 | The clone of the cycle's workspace | 300 s | `tehas work` exits 78 |
 | `docker stop` at the end of a cycle, and on a signal | 60 s | `docker kill`, bounded the same way, and the line `docker stop of tehas-work-N did not end within 60s, killing it` |
 | The console at the end of a cycle | 3 s, then 30 s after it is asked to stop (`TEHAS_CONSOLE_WAIT`) | The console is killed, with `the console did not stop within 30s, killing it` |
@@ -1481,6 +1483,24 @@ beside a cycle's images, is recorded as the label `tehas.rukas.images`. The
 Dockerfile asks the base it stands on again and stops when the two disagree. `tehas work`, `tehas plan`, the
 dispatcher and `install.sh` read the label; an image built without build.sh
 carries `unknown`, which tehas reads as "not said" rather than as an answer.
+
+A base that answers `--capabilities` can still start no run, which is what a
+build cannot see from an answer alone: pi-rukas v0.14.30 to v0.14.40 passed the
+check above and every `work` run on it ended at once, three cycles on
+one host before anyone saw it. So before the uid tag moves onto an image this
+build made, or onto the instance's layer above it, the build smoke-runs that
+image: one `work` turn started inside it, in a container with no network
+(`--network none`), no token and no model, small memory and pids bounds of its
+own, and at most 40 seconds. A good image prints a `step-started` line within a
+few seconds, the run ends there, and the tag moves; an image that prints no
+such line, or a result that says its runner crashed, is refused, the build
+exits 1 and the uid tag stays where it was, as for a layer that does not
+build. A build with an instance layer smoke-runs both images. The run's words
+and the decision on its output are `tehas-cycle sandbox smoke` and
+`tehas-cycle sandbox smoke-verdict`, in `console/cycle/src/sandbox.rs`;
+`build.sh` only runs docker and passes it the output. A smoke run starts no
+cycle and reaches no model, so it costs the build
+a few seconds, and it is not one of the containers a cycle is given.
 
 An image that says its pi-rukas does not read them holds every issue whose
 text links an attachment while `TEHAS_WORK_IMAGES=1` stands; other issues
