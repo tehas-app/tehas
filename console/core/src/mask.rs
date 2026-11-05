@@ -172,7 +172,7 @@ fn home() -> Option<PathBuf> {
 
 // A host's file is a few KiB of providers, models and compat blocks; over the
 // bound it is refused as any host read of it is.
-const MODELS_BYTES: u64 = 1 << 20;
+const MODELS_BYTES: u64 = crate::file::READ_BOUND;
 
 // Once per run, with the mask: a missing, unreadable, oversized or linked file
 // holds nothing, and that is no error.

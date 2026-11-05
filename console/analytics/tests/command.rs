@@ -79,7 +79,7 @@ impl Host {
         symlink(ANALYTICS, home.join("libexec/analytics")).unwrap();
         let instance = dir.join("instance");
         fs::create_dir_all(&instance).unwrap();
-        fs::set_permissions(&instance, fs::Permissions::from_mode(0o700)).unwrap();
+        fs::set_permissions(&instance, fs::Permissions::from_mode(0o700)).unwrap(); // a directory
         fs::write(
             instance.join("instance.env"),
             "TEHAS_REPO=acme/widget\nTEHAS_CONTROL_ISSUE=1\nTEHAS_ALLOWED_LABELERS=alice\n\
@@ -90,7 +90,7 @@ impl Host {
         fs::create_dir_all(&bin).unwrap();
         for tool in ["gh", "docker", "git", "curl"] {
             let stub = bin.join(tool);
-            fs::write(
+            tehas_core::testing::write_exe(
                 &stub,
                 format!(
                     "#!/usr/bin/env bash\necho \"{tool} $*\" >>\"{}\"\nexit 1\n",
@@ -98,16 +98,14 @@ impl Host {
                 ),
             )
             .unwrap();
-            fs::set_permissions(&stub, fs::Permissions::from_mode(0o755)).unwrap();
         }
         let console = dir.join("console");
-        fs::write(
+        tehas_core::testing::write_exe(
             &console,
             "#!/usr/bin/env bash\nshift 6\n\
              exec \"$TEHAS_HOME/libexec/analytics\" \"$@\" </dev/null\n",
         )
         .unwrap();
-        fs::set_permissions(&console, fs::Permissions::from_mode(0o755)).unwrap();
         Host {
             dir,
             home,

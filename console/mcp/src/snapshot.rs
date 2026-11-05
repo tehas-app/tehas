@@ -6,6 +6,7 @@ use serde_json::Value;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
+use tehas_core::snapshot::API;
 
 pub const FILE: &str = "sessions.jsonl";
 
@@ -41,7 +42,7 @@ impl Snapshot {
             .read_line(&mut first)
             .map_err(|_| bad("could not be read"))?;
         let head: Value = serde_json::from_str(&first).map_err(|_| bad("has no header"))?;
-        if head["api"] != 1 {
+        if head["api"] != API {
             return Err(bad("has a header of another api"));
         }
         let days = head["days"]
