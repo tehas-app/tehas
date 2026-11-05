@@ -1040,8 +1040,8 @@ edge router are outside the slice too.
 
 ### What a container may not do
 
-A cycle, a planning turn, a `tehas dev` session and the push check before a
-cycle all get the options below, from `security` in
+A cycle, a planning turn, a `tehas dev` session, and the push check and the
+product's install before a cycle all get the options below, from `security` in
 `console/core/src/sandbox.rs`, beside the mounts and the variables. The list is
 capability-shaped options and this round's bounded `/tmp`. The indexer and the
 analyst are not given them yet (issue #54 leaves them to a follow-up), so the
@@ -1177,6 +1177,7 @@ hold a slot for ever:
 | --- | --- | --- |
 | The image's `--capabilities` answer before a cycle | 120 s | `tehas work` exits 78, with `gave no --capabilities answer` |
 | The push check before a cycle | 300 s | `tehas work` exits 3, with `the push check did not end within 300s` |
+| The product's install before a cycle | 1800 s | `tehas work` exits 78, with `the install did not end within 1800s` in the `.preflight` file |
 | The clone of the cycle's workspace | 300 s | `tehas work` exits 78 |
 | `docker stop` at the end of a cycle, and on a signal | 60 s | `docker kill`, bounded the same way, and the line `docker stop of tehas-work-N did not end within 60s, killing it` |
 | The console at the end of a cycle | 3 s, then 30 s after it is asked to stop (`TEHAS_CONSOLE_WAIT`) | The console is killed, with `the console did not stop within 30s, killing it` |
