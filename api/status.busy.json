@@ -22,7 +22,12 @@
     {
       "issue": 12,
       "since": "2026-10-17T11:20:00Z",
-      "step": "review"
+      "step": "review",
+      "stepNumber": 7,
+      "stepTotal": 9,
+      "round": 2,
+      "roundLimit": 3,
+      "stepSince": "2026-10-17T13:41:00Z"
     },
     {
       "issue": 15,
@@ -90,5 +95,14 @@
         "floored": false
       }
     }
-  }
+  },
+  "prototypes": [
+    {
+      "issue": 21,
+      "builtAt": "2026-10-17T09:12:00Z"
+    },
+    {
+      "issue": 20
+    }
+  ]
 }

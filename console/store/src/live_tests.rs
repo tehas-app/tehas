@@ -590,3 +590,144 @@ fn ends_of_the_same_second_stay_in_the_order_they_ended() {
     assert_eq!(e[0]["issue"], 51);
     assert_eq!(e[1]["issue"], 50);
 }
+
+#[test]
+fn where_the_step_is_goes_to_the_view_the_end_and_the_history() {
+    let home = home("beat-progress");
+    let (lock, attempt) = start_by(&home, 35, "alice", "label", 1000);
+    ok_at(
+        &home,
+        1010,
+        &[
+            "cycle-heartbeat",
+            "35",
+            "--running",
+            "--status",
+            "running",
+            "--step",
+            "lens-review",
+            "--step-number",
+            "7",
+            "--step-total",
+            "9",
+            "--round",
+            "2",
+            "--round-limit",
+            "3",
+            "--step-since",
+            "1005",
+        ],
+    );
+    publish(&home, 1010, &[]).unwrap();
+    let v: Value = serde_json::from_str(&read(&home, "running.json")).unwrap();
+    let c = &v["cycles"][0];
+    assert_eq!(
+        [
+            &c["stepNumber"],
+            &c["stepTotal"],
+            &c["round"],
+            &c["roundLimit"],
+            &c["stepSince"]
+        ],
+        [7, 9, 2, 3, 1005]
+    );
+    // A heartbeat that knows none of it says none of it.
+    beat(&home, 1020, 35, true, "running", "lens-fix", "");
+    publish(&home, 1020, &[]).unwrap();
+    let v: Value = serde_json::from_str(&read(&home, "running.json")).unwrap();
+    let c = v["cycles"][0].as_object().unwrap();
+    for k in [
+        "stepNumber",
+        "stepTotal",
+        "round",
+        "roundLimit",
+        "stepSince",
+    ] {
+        assert!(!c.contains_key(k), "{k} in {c:?}");
+    }
+    // The end at the step the last heartbeat named keeps where it was.
+    ok_at(
+        &home,
+        1030,
+        &[
+            "cycle-heartbeat",
+            "35",
+            "--running",
+            "--status",
+            "running",
+            "--step",
+            "lens-fix",
+            "--step-number",
+            "7",
+            "--step-total",
+            "9",
+            "--round",
+            "3",
+        ],
+    );
+    drop(lock);
+    end_at(&home, 1040, 35, attempt, "parked", Some("lens-fix"));
+    publish(&home, 1040, &[]).unwrap();
+    let v: Value = serde_json::from_str(&read(&home, "running.json")).unwrap();
+    assert_eq!([&v["last"]["stepNumber"], &v["last"]["round"]], [7, 3]);
+    let h = ok(&home, &["history-show", "35"]);
+    let row = &h["rows"][0];
+    assert_eq!(
+        [&row["step_number"], &row["step_total"], &row["round"]],
+        [7, 9, 3]
+    );
+    // An end at another step than the last heartbeat's does not borrow it.
+    let (lock, attempt) = start_by(&home, 35, "alice", "label", 2000);
+    ok_at(
+        &home,
+        2010,
+        &[
+            "cycle-heartbeat",
+            "35",
+            "--running",
+            "--status",
+            "running",
+            "--step",
+            "ci",
+            "--step-number",
+            "8",
+            "--step-total",
+            "9",
+        ],
+    );
+    drop(lock);
+    end_at(&home, 2020, 35, attempt, "failed", Some("develop"));
+    let h = ok(&home, &["history-show", "35"]);
+    let row = h["rows"]
+        .as_array()
+        .unwrap()
+        .last()
+        .unwrap()
+        .as_object()
+        .unwrap();
+    assert_eq!(row["step"], "develop");
+    assert!(!row.contains_key("step_number"), "{row:?}");
+}
+
+#[test]
+fn a_heartbeat_refuses_a_step_number_out_of_bounds() {
+    let home = home("beat-progress-bounds");
+    let (_lock, _) = start_by(&home, 36, "alice", "label", 1000);
+    for (flag, v) in [
+        ("--step-number", "0"),
+        ("--round", "1001"),
+        ("--step-total", "x"),
+    ] {
+        let args = [
+            "cycle-heartbeat",
+            "36",
+            "--running",
+            "--status",
+            "running",
+            flag,
+            v,
+        ];
+        let (code, _) = call_at(&home, 1010, &args).unwrap_err();
+        assert_eq!(code, 64, "{flag} {v}");
+    }
+}
