@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for libexec/dispatch: slots, the CPU ceiling, urgent order and the cap
+# Tests for tehasbot dispatch: slots, the CPU ceiling, urgent order and the cap
 # on unreviewed work.
 # shellcheck disable=SC2016  # snippets are expanded by the shell under test
 # shellcheck source=test/lib.sh

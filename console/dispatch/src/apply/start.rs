@@ -78,11 +78,11 @@ pub struct Host {
     pub index_start_cmd: Option<String>,
     /// TEHAS_FETCH_WAIT: the bound of the checkout's fetch.
     pub fetch_wait: Duration,
-    /// TEHAS_PLAN_CMD: the program a turn's unit runs, libexec/plan.
-    pub plan_cmd: String,
+    /// TEHAS_PLAN_CMD, or `bin/tehas plan`: what a turn's unit runs.
+    pub plan_cmd: Vec<String>,
     /// TEHAS_PLAN_START_CMD, which a test sets in place of systemd-run.
     pub plan_start_cmd: Option<String>,
-    /// libexec/tehas-cycle, when the turn runs the install's libexec/plan:
+    /// libexec/tehas-cycle, when the turn runs the install's `tehas plan`:
     /// the turn then runs from its own copy of the code (`tehas-cycle pin`).
     pub pin_cmd: Option<String>,
     /// TEHAS_PLAN_TIMEOUT, in seconds: the turn's own limit.

@@ -192,7 +192,7 @@ fn world() -> World {
             user_home: dir.join("user").to_string_lossy().into_owned(),
             done_wait: Duration::from_secs(5),
             image: "tehas-sandbox:test".into(),
-            plan_cmd: "/opt/plan".into(),
+            plan_cmd: vec!["/opt/plan".into()],
             plan_start_cmd: Some(s("start")),
             pin_cmd: None,
             plan_timeout: 3600,
@@ -2424,7 +2424,7 @@ fn a_plan_chosen_for_its_issue_is_written_onto_it_and_ends_the_session() {
     );
     // The draft the console made that `update` from: the poll's pre-check of
     // #1210 refuses an `update` no kept draft holds, so the write is only
-    // reached with the draft beside it, as `libexec/plan` leaves it.
+    // reached with the draft beside it, as `tehas plan` leaves it.
     let keep = t.dir.join("works/tehas-work-plan-7.keep");
     fs::create_dir_all(&keep).unwrap();
     fs::write(keep.join("draft.json"), plan_draft()).unwrap();

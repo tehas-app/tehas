@@ -781,6 +781,16 @@ t_verb() {
   printf '%s\n' "#!$T_BASH" "exec \"$T_CONSOLE\" run \"\$(cd \"\${0%/*}\" && pwd)\" \"\$EUID\" \"\$BASH\" $2 $3 \"\$@\"" >"$1"
   chmod +x "$1"
 }
+# t_front <tree>: bin/tehas and bin/tehasbot of this checkout in <tree>/bin,
+# with the console in <tree>/libexec and lib/ beside them, as a host has them:
+# `$tree/bin/tehasbot dispatch` then runs with <tree>/libexec as its own.
+t_front() {
+  t_console || return 1
+  mkdir -p "$1/bin" "$1/libexec"
+  [ -e "$1/lib" ] || ln -s "$T_ROOT/lib" "$1/lib"
+  cp "$T_ROOT/bin/tehas" "$T_ROOT/bin/tehasbot" "$1/bin/"
+  cp "$T_CONSOLE" "$1/libexec/console"
+}
 # t_health: tehasbot health as a host runs it, bin/tehasbot above the console
 # that builds its report (console/src/health.rs), as the one command $T_HEALTH.
 # The console is beside it, as on a host. The commands are copies, not symlinks, so they find their

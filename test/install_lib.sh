@@ -107,16 +107,9 @@ files="./.bashrc
 ./tehas/libexec/analytics.stamp
 ./tehas/libexec/attach
 ./tehas/libexec/attach.stamp
-./tehas/libexec/check-product
 ./tehas/libexec/console
 ./tehas/libexec/console.stamp
-./tehas/libexec/dev
 ./tehas/libexec/dev-login
-./tehas/libexec/dispatch
-./tehas/libexec/github-token
-./tehas/libexec/improve
-./tehas/libexec/plan
-./tehas/libexec/review
 ./tehas/libexec/setup
 ./tehas/libexec/store
 ./tehas/libexec/store.stamp

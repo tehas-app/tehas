@@ -134,8 +134,8 @@
 # holds `..`: the loader takes TEHAS_HOME from the environment as it is, and
 # this script removes what it takes for stale under it, so a wrong path would
 # lose files that were never tehas's. A home that already has env.sh and
-# libexec/dispatch is taken as one installed before the marker, and gets it on
-# this run.
+# libexec/dispatch, which installs of then left, is taken as one installed
+# before the marker, and gets it on this run.
 #
 # Exit: 0 done or nothing to report, 1 --check found something, a step failed,
 # the console that reads the settings did not build (nothing can judge them
@@ -703,14 +703,7 @@ for f in tehas tehasbot; do
   files+=("bin/$f|$TEHAS_HOME/bin/$f|755")
 done
 for f in \
-  check-product \
-  dev \
   dev-login \
-  dispatch \
-  github-token \
-  improve \
-  plan \
-  review \
   setup \
   update; do
   files+=("libexec/$f|$TEHAS_HOME/libexec/$f|755")
@@ -1253,15 +1246,23 @@ for f in "$TEHAS_HOME"/sandbox/sandbox-uid.Dockerfile \
   if [ "$check" = 1 ]; then note "stale: $f"; else rm -f "$f" && echo "removed: $f"; fi
 done
 
+a_cycle_runs() { # true while a cycle holds its lock
+  local lock
+  for lock in "$TEHAS_HOME"/state/cycles/*.lock; do
+    [ -e "$lock" ] && ! { flock -n 8; } 8<"$lock" && return 0
+  done
+  return 1
+}
+
 # The commands of before bin/tehas, one file each in bin/, and the console of
 # before it was a compiled program. The libraries the bash poll sourced. And the
 # Protolab's server files of before the edge router. And the wrappers of what is
 # now a verb of the console, and the libraries of what is now a verb of
 # tehas-cycle, and the jq program of the bash report. And the libraries whose
-# last callers moved into the console, the release list of before it was a
-# plain file (lib/release.list), and the scripts that took a lock for
-# tehas-cycle, which takes it itself. Found here, removed in
-# step 5 once systemd has the new units.
+# last callers moved into the console, the scripts that only exec'd it, the
+# release list of before it was a plain file (lib/release.list), and the
+# scripts that took a lock for tehas-cycle, which takes it itself. Found here,
+# removed in step 5 once systemd has the new units.
 old=()
 for f in \
   bin/tehas-console.ts \
@@ -1283,7 +1284,14 @@ for f in \
   lib/private.sh \
   libexec/analytics-cmd \
   libexec/api \
+  libexec/check-product \
   libexec/clean \
+  libexec/dev \
+  libexec/dispatch \
+  libexec/github-token \
+  libexec/improve \
+  libexec/plan \
+  libexec/review \
   libexec/console.ts \
   libexec/cycle \
   lib/limit.sh \
@@ -1337,6 +1345,11 @@ for f in \
   edge/protolab.compose.yaml; do
   to=$TEHAS_HOME/$f
   [ -e "$to" ] || continue
+  # A cycle that started before this update renews its token by this path.
+  if [ "$f" = libexec/github-token ] && a_cycle_runs; then
+    echo "later: ./install.sh again when no cycle runs   ($to stays: a running cycle renews its token through it)"
+    continue
+  fi
   old+=("$to")
   changed+=("$f")
   # A running sampler or publisher is the old file calling itself; only a

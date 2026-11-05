@@ -103,9 +103,64 @@ done
 # tehasbot top of before this version runs with-settings at each mark, so the
 # unit has to start again.
 t_contains "$(cat "$th/state/update-pending")" "tehas-top.service"
-for f in dispatch github-token review improve check-product; do
+for f in dev-login setup update; do
   t_eq "$([ -x "$th/libexec/$f" ] && echo there)" "there"
 done
+
+t_case "the scripts that only exec'd the console are named, then removed"
+fresh
+instance
+t_run "$install"
+rm -f "$th/state/update-pending"
+gone=""
+for f in check-product dev dispatch github-token improve plan review; do gone+=" $th/libexec/$f"; done
+for f in $gone; do echo "# old" >"$f"; done
+t_run "$install --check"
+t_eq "$t_rc" 1
+for f in $gone; do t_contains "$t_out" "stale: $f"; done
+t_run "$install"
+t_eq "$t_rc" 0
+for f in $gone; do
+  t_contains "$t_out" "removed: $f"
+  t_eq "$([ -e "$f" ] && echo there)" ""
+done
+
+t_case "the scripts that took a lock for tehas-cycle are named, then removed"
+fresh
+instance
+t_run "$install"
+rm -f "$th/state/update-pending"
+gone=""
+for f in cycle index work; do gone+=" $th/libexec/$f"; done
+for f in $gone; do echo "# old" >"$f"; done
+t_run "$install --check"
+t_eq "$t_rc" 1
+for f in $gone; do t_contains "$t_out" "stale: $f"; done
+t_run "$install"
+t_eq "$t_rc" 0
+for f in $gone; do
+  t_contains "$t_out" "removed: $f"
+  t_eq "$([ -e "$f" ] && echo there)" ""
+done
+
+t_case "the token script stays while a cycle that may renew through it runs"
+fresh
+instance
+t_run "$install"
+rm -f "$th/state/update-pending"
+echo "# old" >"$th/libexec/github-token"
+mkdir -p "$th/state/cycles"
+exec {held}>"$th/state/cycles/7.lock"
+flock -n "$held"
+t_run "$install"
+t_eq "$t_rc" 0
+t_contains "$t_out" "later: ./install.sh again when no cycle runs"
+t_eq "$([ -e "$th/libexec/github-token" ] && echo there)" "there"
+exec {held}>&-
+t_run "$install"
+t_eq "$t_rc" 0
+t_contains "$t_out" "removed: $th/libexec/github-token"
+t_eq "$([ -e "$th/libexec/github-token" ] && echo there)" ""
 
 t_case "the script of tehas export of before the console is named, then removed"
 fresh
