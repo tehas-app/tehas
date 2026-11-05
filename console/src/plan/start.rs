@@ -7,7 +7,7 @@
 
 use super::turn::{self, Turn};
 use super::{descriptor, update};
-use crate::{attach, github, label, review};
+use crate::{account, attach, github, label, review};
 use std::env;
 use std::fs;
 use std::io::Read;
@@ -236,7 +236,7 @@ fn first_images(w: &Words, images: &str, kinds: &str) -> Result<(), u8> {
         return Err(4);
     }
     if var("TEHAS_WORK_DESCRIBE") == "1"
-        && tehas_cycle::describe::describe(Path::new(images)).is_err()
+        && tehas_cycle::describe::describe(Path::new(images), &w.issue).is_err()
     {
         eprintln!("tehas plan: the descriptions of the images could not be written, the session goes on without them");
     }
@@ -431,7 +431,7 @@ fn turn_of(libexec: &str, w: &Words) -> Result<u8, u8> {
     if bot_name.is_empty() || bot_email.is_empty() {
         eprintln!(
             "tehas plan: git user.name and user.email are not set for {}",
-            review::account()
+            account::name()
         );
         return Err(64);
     }

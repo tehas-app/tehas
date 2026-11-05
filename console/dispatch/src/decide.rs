@@ -10,7 +10,7 @@ use crate::text;
 use serde_json::{json, Map, Value};
 use tehas_core::events::{
     first_unallowed_rename, label_actor, label_state, pause_holds, plan_credit, sole_application,
-    Event, Events, UNKNOWN_ACTOR,
+    Event, Events, LabelState, UNKNOWN_ACTOR,
 };
 use tehas_core::hold::{Report, Why};
 
@@ -573,7 +573,56 @@ impl<'a> Poll<'a> {
         if !held.is_empty() {
             m.insert("refreshHold".into(), json!(held));
         }
+        let alone = self.label_alone();
+        if !alone.is_empty() {
+            m.insert("labelAlone".into(), json!(alone));
+        }
         Value::Object(m)
+    }
+
+    /// The issues `tehas:blocked` holds by the label alone: rule 6 would wait
+    /// on them with `LABEL_ALONE`, as `order_label` and `newest_marker` read
+    /// them. An issue whose events or comments this poll did not read is left
+    /// out: the rule ends the poll on such a read, so it is not reported as
+    /// held. At most `LABEL_ALONE_MAX`, by number.
+    fn label_alone(&self) -> Vec<u64> {
+        let mut seen: Vec<u64> = Vec::new();
+        let lists = [&self.s.ready.0, &self.s.blocked.0];
+        for i in lists.into_iter().flatten().flatten() {
+            let Some(n) = i.number else { continue };
+            if !has(&i.labels, BLOCKED)
+                || in_flow(&i.labels)
+                || n == self.c.control
+                || self.plan_open(n)
+                || self.running(n)
+                || seen.contains(&n)
+            {
+                continue;
+            }
+            let Some(issue) = self.s.issues.get(&n) else {
+                continue;
+            };
+            let Events::Read(ev) = &issue.events else {
+                continue;
+            };
+            if !self.order_stands(&label_state(ev, BLOCKED)) {
+                continue;
+            }
+            let Some(nodes) = issue
+                .comments
+                .as_ref()
+                .and_then(|a| a.pointer("/data/repository/issue/comments/nodes"))
+                .and_then(Value::as_array)
+            else {
+                continue;
+            };
+            if newest_marker(nodes, self.c).is_none() {
+                seen.push(n);
+            }
+        }
+        seen.sort_unstable();
+        seen.truncate(LABEL_ALONE_MAX);
+        seen
     }
 }
 
@@ -596,24 +645,8 @@ impl<'a> Poll<'a> {
     fn ready(&mut self) -> Step<Vec<Listed>> {
         let ready = self.list(&self.s.ready.clone())?;
         let blocked = self.list(&self.s.blocked.clone())?;
-        let flow = |l: &str| {
-            matches!(
-                l,
-                "tehas:running"
-                    | "tehas:awaiting-merge"
-                    | "tehas:question"
-                    | "tehas:planning"
-                    | "tehas:refreshing"
-                    | "tehas:plan"
-                    | "tehas:refine"
-            )
-        };
         let mut all: Vec<Listed> = ready;
-        all.extend(
-            blocked
-                .into_iter()
-                .filter(|i| !i.labels.iter().any(|l| flow(l))),
-        );
+        all.extend(blocked.into_iter().filter(|i| !in_flow(&i.labels)));
         all.sort_by_key(|i| i.number);
         all.dedup_by_key(|i| i.number);
         Ok(all)
@@ -1142,11 +1175,18 @@ impl<'a> Poll<'a> {
             ));
             return Ok(false);
         }
-        if self.c.allowed(state.actor()) || self.c.is_millwright(state.actor()) {
+        if self.order_stands(&state) {
             return Ok(true);
         }
         self.deny("ignore", n, label, state.actor());
         Ok(false)
+    }
+
+    /// Whether an order label's last event, as `order_label` reads it, lets
+    /// the label stand: an application by an allowed account or the fixer.
+    fn order_stands(&self, state: &LabelState) -> bool {
+        state.event() == "labeled"
+            && (self.c.allowed(state.actor()) || self.c.is_millwright(state.actor()))
     }
 
     /// driver: the driver of a start, read of who applied tehas:lean and never
@@ -1194,8 +1234,7 @@ impl<'a> Poll<'a> {
     /// record that cannot be read, is no record: the question falls back to
     /// whatever the body itself answers.
     fn bound_to_a_record(&self, n: u64) -> bool {
-        let Some(Some(Ok(Some(record)))) = self.s.issues.get(&n).map(|i| i.approval.clone())
-        else {
+        let Some(Some(Ok(Some(record)))) = self.s.issues.get(&n).map(|i| i.approval.clone()) else {
             return false;
         };
         // The one rule of `fixer_base`, so the two cannot disagree about which
@@ -1520,33 +1559,8 @@ impl<'a> Poll<'a> {
         else {
             return Err(self.fail(format!("ERROR: unreadable comments of #{n}"), 1));
         };
-        let c = self.c;
-        let mut marked: Vec<&Value> = nodes
-            .iter()
-            .filter(|x| {
-                x.get("body")
-                    .and_then(Value::as_str)
-                    .is_some_and(|b| b.contains("<!-- tehas:blocked"))
-                    && {
-                        let a = x
-                            .pointer("/author/login")
-                            .and_then(Value::as_str)
-                            .unwrap_or("");
-                        !a.is_empty() && (c.allowed(a) || c.is_millwright(a))
-                    }
-            })
-            .collect();
-        marked.sort_by_key(|x| {
-            (
-                x.get("createdAt")
-                    .and_then(Value::as_str)
-                    .unwrap_or("")
-                    .to_string(),
-                x.get("databaseId").and_then(Value::as_i64).unwrap_or(0),
-            )
-        });
-        let why = match marked.last() {
-            None => "no comment of an allowed account or the fixer names its blockers".to_string(),
+        let why = match newest_marker(nodes, self.c) {
+            None => LABEL_ALONE.to_string(),
             Some(x) => {
                 let author = x
                     .pointer("/author/login")
@@ -1657,6 +1671,39 @@ impl<'a> Poll<'a> {
             .and_then(|p| p.get("url").and_then(Value::as_str))
             .filter(|u| !u.is_empty())
             .map(str::to_string))
+    }
+
+    /// The address of an open pull request that names the issue with a closing
+    /// keyword in its body, whatever branch it targets. GitHub links a closing
+    /// keyword only for a pull request into the default branch, so a stacked
+    /// one reaches `open_pr` with nothing; the page's own read of the bodies
+    /// is what holds its issue. The lowest number decides, so the line is the
+    /// same on every poll while two of them name the issue.
+    fn named_pr(&self, n: u64) -> Option<String> {
+        // The address comes from the repository the page answered, the way
+        // `open_pr` reads GitHub's own url: no repository, no address, no hold.
+        let repo = self.s.repo.as_deref().filter(|r| !r.is_empty())?;
+        self.s
+            .pulls_name
+            .get(&n)
+            .and_then(|hits| hits.iter().min())
+            .map(|pr| format!("https://github.com/{repo}/pull/{pr}"))
+    }
+
+    /// The hold of an open pull request: `tehas:ready` (or whatever asked)
+    /// comes off and the issue is told which pull request holds it. One line,
+    /// whether GitHub linked the two or the pull request's body says so.
+    fn holds_on_pr(&mut self, n: u64, ask: &str, url: &str) {
+        self.log(format!(
+            "skip #{n}: pull request {url} is open and closes it"
+        ));
+        if !self.dry {
+            self.act(json!({
+                "issue": n, "remove": [ask],
+                "fail": Self::label_fail(n, &[ask], &[]),
+                "say": format!("Tehas took `{ask}` off this issue and started nothing: {url} is open and closes it. Merge or close that pull request, then apply `tehas:ready` if work is still needed."),
+            }));
+        }
     }
 
     /// The answer work_ok read for the issue.
@@ -2474,16 +2521,14 @@ impl<'a> Poll<'a> {
                 continue;
             }
             if let Some(url) = self.open_pr(n)? {
-                self.log(format!(
-                    "skip #{n}: pull request {url} is open and closes it"
-                ));
-                if !self.dry {
-                    self.act(json!({
-                        "issue": n, "remove": [ask],
-                        "fail": Self::label_fail(n, &[ask], &[]),
-                        "say": format!("Tehas took `{ask}` off this issue and started nothing: {url} is open and closes it. Merge or close that pull request, then apply `tehas:ready` if work is still needed."),
-                    }));
-                }
+                self.holds_on_pr(n, ask, &url);
+                continue;
+            }
+            // A pull request stacked on another branch names its issue in its
+            // body alone, and GitHub records no closing reference for it: the
+            // page's read of the bodies is what holds this issue.
+            if let Some(url) = self.named_pr(n) {
+                self.holds_on_pr(n, ask, &url);
                 continue;
             }
             // The start a lift lets through is held back here and built with
@@ -2687,6 +2732,61 @@ fn fixer_starts(record: &Value) -> Option<u64> {
         _ => 0.0,
     };
     (n < 1_000_000.0).then_some(n as u64)
+}
+
+/// Whether the labels put an issue in a flow of its own, where a
+/// `tehas:blocked` on its own starts nothing.
+fn in_flow(labels: &[String]) -> bool {
+    labels.iter().any(|l| {
+        matches!(
+            l.as_str(),
+            "tehas:running"
+                | "tehas:awaiting-merge"
+                | "tehas:question"
+                | "tehas:planning"
+                | "tehas:refreshing"
+                | "tehas:plan"
+                | "tehas:refine"
+        )
+    })
+}
+
+/// The most numbers `labelAlone` lists, so the line status prints is bounded.
+pub(crate) const LABEL_ALONE_MAX: usize = 50;
+
+/// The wait line of a `tehas:blocked` that counts while no comment names its
+/// blockers. The dispatcher reads blockers only from comments, so it says
+/// what a person must do; a marker in the issue's body is not read.
+pub(crate) const LABEL_ALONE: &str = "no comment of an allowed account or the fixer names its blockers: it is held by the label alone, names no blockers and never starts until an allowed account comments a `<!-- tehas:blocked by=N -->` marker or a person takes tehas:blocked off. A marker in the issue's body is not read";
+
+/// The newest comment that holds a `tehas:blocked` marker and was written by
+/// an allowed account or the fixer: the one rule 6 reads its blockers from.
+fn newest_marker<'v>(nodes: &'v [Value], c: &Settings) -> Option<&'v Value> {
+    let mut marked: Vec<&Value> = nodes
+        .iter()
+        .filter(|x| {
+            x.get("body")
+                .and_then(Value::as_str)
+                .is_some_and(|b| b.contains("<!-- tehas:blocked"))
+                && {
+                    let a = x
+                        .pointer("/author/login")
+                        .and_then(Value::as_str)
+                        .unwrap_or("");
+                    !a.is_empty() && (c.allowed(a) || c.is_millwright(a))
+                }
+        })
+        .collect();
+    marked.sort_by_key(|x| {
+        (
+            x.get("createdAt")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string(),
+            x.get("databaseId").and_then(Value::as_i64).unwrap_or(0),
+        )
+    });
+    marked.last().copied()
 }
 
 /// The numbers a tehas:blocked marker names, sorted and unique, or None when
