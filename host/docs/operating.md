@@ -1900,8 +1900,10 @@ approval it rests on after the millwright):
 
 A request that fails a check goes, and the dispatcher's log says why. At the
 cap or after a parked refresh the bot says so on the issue, once: a person
-resolves the conflict or applies `tehas:ready`. A pull request that carries
-`tehas:refreshing` waits.
+resolves the conflict, or closes the pull request and then applies
+`tehas:ready`. While the pull request is open, `tehas:ready` starts nothing: it
+is taken off, as for any issue whose open pull request closes it. A pull
+request that carries `tehas:refreshing` waits.
 
 **The refresh lane.** Refreshes run in a lane of their own, so a conflicting
 pull request is refreshed while every cycle slot is busy. At most

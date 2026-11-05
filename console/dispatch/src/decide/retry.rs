@@ -764,7 +764,7 @@ impl Poll<'_> {
         if !self.dry && said != key {
             self.act(json!({
                 "issue": n, "refresh_said": key,
-                "say": format!("Tehas does not refresh this issue's pull request on its own: {why}. It conflicts with the branch, and a person resolves it or applies `tehas:ready` to start a fresh cycle."),
+                "say": format!("Tehas does not refresh this issue's pull request on its own: {why}. It conflicts with the branch: a person resolves the conflict, or closes the pull request and then applies `tehas:ready` to start a fresh cycle."),
             }));
         }
         Ok(None)
