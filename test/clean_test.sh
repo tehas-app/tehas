@@ -2058,8 +2058,7 @@ workspace
 rm -f "$shim/libexec/console"
 t_run "$clean"
 t_eq "$t_rc" 78
-t_contains "$t_out" "no console beside this command"
-t_contains "$t_out" "run install.sh"
+t_contains "$t_out" "tehasbot: no console at $shim/libexec/console: run install.sh"
 t_eq "$(t_calls docker)" ""
 t_eq "$([ -e "$workdir-7/target" ] && echo there)" "there"
 cp "$T_CONSOLE" "$shim/libexec/console"

@@ -201,8 +201,7 @@ mod tests {
             }
             script.push_str("esac\n");
             let bin = home.join("libexec/store");
-            fs::write(&bin, script).unwrap();
-            fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
+            tehas_core::testing::write_exe(&bin, script).unwrap();
             Home(home)
         }
 

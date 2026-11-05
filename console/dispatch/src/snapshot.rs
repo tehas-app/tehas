@@ -23,6 +23,10 @@ pub struct Listed {
 #[derive(Clone, Debug)]
 pub struct Issue {
     pub events: Events,
+    /// With TEHAS_PRIORITY_FIELD: the issue's value of that field and the
+    /// account that set it, empty when no allowed reading names one. None when
+    /// the issue has no value.
+    pub priority: Option<(String, String)>,
     /// The edit record: lastEditedAt, the editor's login, the body and the
     /// title. None when the call failed.
     pub edit: Option<Map<String, Value>>,
@@ -154,6 +158,12 @@ pub struct Snapshot {
     /// The control issue's labels, None when the call failed.
     pub control_labels: Option<Vec<String>>,
     pub control_events: Option<Events>,
+    /// With TEHAS_PRIORITY_FIELD: the single-select issue fields of the
+    /// repository's owner, None when the page did not say.
+    pub issue_fields: Option<Vec<String>>,
+    /// The repository's owner is a personal account, which has no issue
+    /// fields: the labels order its queue whatever TEHAS_PRIORITY_FIELD says.
+    pub personal_owner: bool,
     /// The issues with a planning session open, or the store's word and exit
     /// status when it could not say.
     pub plan_open: Result<Vec<u64>, (String, i32)>,
@@ -228,6 +238,14 @@ pub struct Snapshot {
     pub refresh_history: Option<Result<Vec<u64>, StoreErr>>,
     /// gh pr list --label tehas:refreshing, as it answered.
     pub refreshing: Option<Value>,
+    /// The open pull requests whose body names each open issue with a closing
+    /// keyword, by issue: `pulls_name` of the snapshot, from the page's own
+    /// read of the bodies. GitHub links a closing keyword only for a pull
+    /// request into the default branch, so this is how a stacked one holds its
+    /// issue. A number the page named nobody is absent, and so is one whose
+    /// list of pull requests held nothing a reader could use: an entry of no
+    /// numbers would hold an issue back on nothing.
+    pub pulls_name: BTreeMap<u64, Vec<u64>>,
     pub leftovers: Option<Vec<Leftover>>,
 }
 
@@ -320,6 +338,15 @@ fn reading(v: &Value) -> Reading {
 fn issue(v: &Value) -> Issue {
     Issue {
         events: v.get("events").map(Events::parse).unwrap_or(Events::Failed),
+        priority: v.get("priority").and_then(|p| {
+            let value = p.get("value").and_then(Value::as_str)?.to_string();
+            let by = p
+                .get("by")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
+            Some((value, by))
+        }),
         edit: v
             .get("edit")
             .filter(|e| !failed(e))
@@ -420,6 +447,13 @@ impl Snapshot {
                 .filter(|l| !failed(l))
                 .map(|l| names(Some(l))),
             control_events: control.get("events").map(Events::parse),
+            issue_fields: v.get("issue_fields").and_then(Value::as_array).map(|a| {
+                a.iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_string)
+                    .collect()
+            }),
+            personal_owner: v.get("personal_owner").and_then(Value::as_bool) == Some(true),
             plan_open: match v.get("plan_open") {
                 Some(Value::Array(a)) => Ok(a
                     .iter()
@@ -575,6 +609,22 @@ impl Snapshot {
                     .unwrap_or_default()),
             }),
             refreshing: v.get("refreshing").cloned(),
+            pulls_name: v
+                .get("pulls_name")
+                .and_then(Value::as_object)
+                .map(|m| {
+                    m.iter()
+                        .filter_map(|(k, hits)| {
+                            let n = number(&Value::String(k.clone()))?;
+                            let hits: Vec<u64> = hits
+                                .as_array()
+                                .map(|a| a.iter().filter_map(number).collect())
+                                .unwrap_or_default();
+                            (!hits.is_empty()).then_some((n, hits))
+                        })
+                        .collect()
+                })
+                .unwrap_or_default(),
             leftovers: v.get("leftovers").and_then(Value::as_array).map(|a| {
                 a.iter()
                     .filter_map(|l| {

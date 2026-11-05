@@ -127,7 +127,7 @@ fn a_cycle_becomes_a_console_file_and_a_stop_reads_the_last_lines() {
     let mut log = fs::read(&progress).unwrap();
     log.extend_from_slice(b"{\"v\":1,\"kind\":\"log\",\"message\":\"handoff\"}\n");
     // A line too long to be one: left out, and said.
-    log.extend_from_slice(&vec![b'x'; (1 << 20) + 1]);
+    log.extend_from_slice(&vec![b'x'; tehas_core::file::READ_BOUND_LEN + 1]);
     log.push(b'\n');
     fs::write(&progress, log).unwrap();
     let killed = Command::new("kill")

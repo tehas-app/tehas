@@ -51,12 +51,17 @@
 //! - logs/work-<n>-<stamp>.jsonl.preflight (libexec/work): the push check's
 //!   log, with a line "model endpoint: provider <p> is on its backup" for
 //!   each provider that was on its backup endpoint.
+//! - state/cycles/<n>.lean-state.json (tehas-cycle, `apply`): the driver's own
+//!   record, `.pi/lean-state/<issue>.json` of the workspace, copied out before
+//!   the workspace is cleaned. Only a lean run has it, and its steps stand for
+//!   the run's steps in place of the stream's.
 //! - docs/version.txt (install.sh): one line, "vX.Y.Z+<sha7>" or "<sha7>".
 //!   `analytics plan` reads it too.
 
 use regex::Regex;
 use rusqlite::{params, Connection};
 use serde_json::{Map, Value};
+use std::collections::BTreeMap;
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
@@ -198,6 +203,35 @@ pub struct Given {
     pub oom: Option<i64>,
     pub forks: Option<i64>,
     pub facts: Option<PathBuf>,
+}
+
+/// The most steps one driver's record may give the run. A lean run makes a
+/// dozen of them; the bound is a guard, not a figure the report reads.
+pub const MAX_LEAN_STEPS: usize = 200;
+
+/// Bytes of the kept record the reader takes. The cycle copies a record of up
+/// to `last_attempt::MAX_STATE` (4 MiB); a larger one than this bound is read
+/// as no record, so a run of it has no lean steps rather than a slow read.
+const MAX_LEAN_FILE: u64 = 256 << 10;
+
+/// The steps of the driver's record of a lean run, as the cycle kept it at
+/// state/cycles/<issue>.lean-state.json: {schema, issue, version, steps:
+/// [{state, ...}]}, read by the same rule as every other host file. The cycle
+/// writes the copy as the run ends and the next cycle of the issue removes it
+/// as it starts, so what is there when the run is recorded is this run's. None
+/// when there is no file, or one this reads no step from.
+pub fn lean_steps(home: &Path, issue: i64) -> Option<Vec<String>> {
+    let p = home.join(format!("state/cycles/{issue}.lean-state.json"));
+    let v = read_json_of(&p, MAX_LEAN_FILE)?;
+    let out: Vec<String> = v
+        .get("steps")?
+        .as_array()?
+        .iter()
+        .filter_map(Value::as_object)
+        .filter_map(|s| word(s, "state", 40))
+        .take(MAX_LEAN_STEPS)
+        .collect();
+    (!out.is_empty()).then_some(out)
 }
 
 /// The facts file, read as a host file is: a JSON value, not through a link,
@@ -368,6 +402,29 @@ pub fn read(home: &Path, issue: i64, given: &Given) -> Result<Run, String> {
     run.image_built = given.image_built;
     run.oom_kills = given.oom;
     run.forks_refused = given.forks;
+    // Only a lean run leaves the driver's record behind, and its steps are the
+    // driver's own account of the run, so they stand for the run's steps in
+    // place of what the stream held. They go into run_steps as any run's do, so
+    // the report reads them by the run and never by the issue.
+    if run.driver.as_deref() == Some("lean") {
+        if let Some(kept) = lean_steps(home, issue) {
+            let mut rounds: BTreeMap<String, i64> = BTreeMap::new();
+            run.steps = kept
+                .into_iter()
+                .map(|step| {
+                    let round = rounds.entry(step.clone()).or_insert(0);
+                    *round += 1;
+                    Step {
+                        round: *round,
+                        step,
+                        started: None,
+                        ended: None,
+                        seconds: None,
+                    }
+                })
+                .collect();
+        }
+    }
 
     (run.tehas_version, run.tehas_commit) = tehas_version(home);
 
@@ -789,7 +846,13 @@ fn read_plain(p: &Path, limit: u64) -> Option<String> {
 }
 
 pub(crate) fn read_json(p: &Path) -> Option<Value> {
-    serde_json::from_str(&read_plain(p, MAX_FILE)?).ok()
+    read_json_of(p, MAX_FILE)
+}
+
+/// A host file read as JSON under a bound of the caller's: the same rule, for a
+/// file of its own kind of size.
+pub(crate) fn read_json_of(p: &Path, limit: u64) -> Option<Value> {
+    serde_json::from_str(&read_plain(p, limit)?).ok()
 }
 
 fn first_line(p: &Path) -> Option<String> {

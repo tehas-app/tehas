@@ -155,12 +155,22 @@ Run `tehas dispatch --dry-run` and read what it prints.
   The line says why, and the session asks as it does for any plan. See
   [A plan with no open points](/operating#a-plan-with-no-open-points).
 - `skip #N: pull request <url> is open and closes it`: the work is in that
-  pull request already. The dispatcher took `tehas:ready` off and said so on
+  pull request already, whether GitHub links the two or the pull request's own
+  description says `Closes #N` into a branch other than the default one. The
+  dispatcher took `tehas:ready` off and said so on
   the issue. Merge or close the pull request, then apply `tehas:ready` if work
   is still needed.
 - `ignore #N: tehas:urgent was applied by ...`: the label came from an account
   that is not allowed, so it moves nothing: the issue keeps its place by
   number. It is said at every poll until someone removes the label.
+- `ignore #N: Priority Urgent was set by ...`: with `TEHAS_PRIORITY_FIELD`,
+  the newest change to the issue field came from an account that does not
+  count, or the poll could not read who made it. Set the field again from an
+  allowed account.
+- `ERROR: TEHAS_PRIORITY_FIELD names ...`: the organisation that owns the
+  repository has no single-select issue field of that name. The poll stops
+  with 78. Name the field as the organisation
+  spells it, or remove the setting.
 - `holding: <n> of <free> free slots start: ...`: some cycles started, fewer
   than there are free slots and issues waiting. The rest of the line is the
   one limit that cut it: issues awaiting merge (`TEHAS_MAX_AWAITING`), or the
@@ -436,8 +446,9 @@ The common ones:
 | review round cap                    | The review kept finding problems                    | Read the review on the pull request                      |
 | developer timeout                   | An agent ran out of time                            | Usually model endpoint capacity; retry later             |
 | `wall-clock`, `stall`               | tehas ended the cycle: its time limit `TEHAS_WORK_TIMEOUT`, or no log moved for `TEHAS_WORK_STALL` | Read the run log the comment names; see [a cycle stops at a cap](#a-cycle-stops-at-a-cap) |
+| `process-limit:<step>`              | The container reached its `--pids-limit` and refused starts of a process, and the run named no other cap. The comment says how many were refused | Read the run log the comment names for what ran at that step. The limit follows the container's share of the slice, `TEHAS_SLICE_CONTAINERS` |
 | `runner-never-started`              | The container ended before the driver wrote its first event: no step ran and the record would hold nothing but an exit status | Look for a host-side fault: the image, the slice, the model endpoint. See [`runner-never-started`](#runner-never-started) below |
-| `this tehas cannot run the lean driver yet` | The issue carries [`tehas:lean`](/operating#choosing-the-driver) and lean needs pi-rukas#1920, which has not landed. `tehas work` stopped with exit 78: no container ran, nothing moved, classic did not run in its place. The start's approval is gone, so nothing starts it again on its own | Take `tehas:lean` off, then tick Retry. The issue runs classic |
+| `this tehas cannot run the lean driver yet` | The issue carries [`tehas:lean`](/operating#choosing-the-driver) and lean needs pi-rukas#1920, which has not landed. `tehas work` stopped with exit 78: no container ran, nothing moved, classic did not run in its place. The start's approval is gone, so nothing starts it again on its own | Take `tehas:lean` off, then tick Retry. The issue runs classic. A Retry ticked with the label still on waits for it to come off |
 
 A `tehas:ready` that comes off with a comment that `tehas:lean` was applied or
 taken off by another account is no park: the choice of driver was not an allowed account's.
@@ -1133,21 +1144,25 @@ state says which of four things happened:
 - The container did not start: Docker could not create or start it, such as
   an image whose command is not in it. That can also be the host and not the
   commit, so it is tried again at each of the next three runs, and then no
-  more for that commit.
+  more for that commit. Nothing serves for that pull request, not the preview
+  of the earlier commit either: the old container is removed before the new one
+  is started, so the name answers 404 until a commit starts.
 - The container started and stopped: five seconds after its start it was not
-  running, or Docker had started it again already. It was removed, and the
-  last 40 lines it wrote are at the end of the log, under `docker logs of
-  tehas-preview-<pr>`. The usual causes are an image that writes outside
-  `/tmp`, `/config` and `/data`, and one that does not start without a
-  variable. It is tried again as the case above is: at each of the next three
-  runs, then no more for that commit. Fix the recipe and push; the new commit
-  is built.
+  running, or Docker had started it again already. It was removed with the
+  image its build made, and the last 40 lines it wrote are at the end of the
+  log, under `docker logs of tehas-preview-<pr>`. The usual causes are an image
+  that writes outside `/tmp`, `/config` and `/data`, and one that does not start
+  without a variable. The container ran, so this is the commit and not the host,
+  and the same commit is not built again. Nothing serves for that pull request
+  until a new commit starts: the old container was removed before the new one
+  was started, and its image goes as well, since nothing runs it. Fix the
+  recipe and push; the new commit is built.
 
-For a container that did not start or that stopped, nothing serves for that
-pull request, not the preview of the earlier commit either: the old container
-is removed before the new one is started. The name answers 404 until a commit
-starts. Only a failed build, or a recipe that declares a volume, leaves the
-earlier preview serving.
+A failed build and a recipe that declares a volume leave the earlier preview
+serving. A container that was never created, and one that started and stopped,
+leave the pull request answering 404 until a commit starts. The "Tried again"
+column of the table in [Previews](/tools#tehasbot-preview) is the rule for each
+of these.
 
 To have the same commit built again, remove the state and let the next run
 find the pull request anew: `rm -r ~/tehas/preview/<pr>`.

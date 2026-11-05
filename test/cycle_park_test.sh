@@ -573,9 +573,13 @@ t_run "$cycle 7"
 t_eq "$t_rc" 0
 t_contains "$(t_calls gh)" "Tehas started no cycle: this start's approval says driver \`lean\`, and this tehas cannot run the lean driver yet (runner exit 78). It does not run classic in its place, and nothing of it ran. To run it on classic, take \`tehas:lean\` off, then retry;"
 t_contains "$(t_calls gh)" "--remove-label tehas:running --add-label needs-human-attention"
-t_contains "$(t_calls gh)" "- [ ] Retry from a clean start"
+t_contains "$(t_calls gh)" "Take \`tehas:lean\` off this issue, then tick a box.
+
+- [ ] Retry from a clean start"
 t_lacks "$(t_calls gh)" "stopped without a pull request"
 t_lacks "$(t_calls gh)" "--add-label tehas:ready"
+# On record as a refused lean start, so a Retry tick waits for the label.
+t_eq "$(park_of .reason)" lean-refused
 # No approval left for the millwright or a refresh to rest on: the poll does
 # not start it again. A tick reads the label, so taking it off runs classic.
 t_eq "$(t_row approval-current 7 -- '[.approval, .current, .rests_on] | tostring')" '[null,null,null]'

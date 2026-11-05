@@ -178,6 +178,9 @@ case " $* " in
     [ ! -e "$T/push-hangs" ] || exec "$(command -pv sleep)" 30
     [ ! -e "$T/push-slow" ] || { : >"$T/slow-began"; "$(command -pv sleep)" 1; }
     [ "${PUSH_RC:-0}" = 0 ] || { echo "docker: could not read from remote repository" >&2; exit "$PUSH_RC"; } ;;
+  *" --entrypoint bash "*)
+    [ -z "${INSTALL_SAYS:-}" ] || echo "$INSTALL_SAYS" >&2
+    exit "${INSTALL_RC:-0}" ;;
   " rm -f "*)
     [ ! -e "$T/rm-slow" ] || { : >"$T/slow-began"; "$(command -pv sleep)" 1; } ;;
   " stop "*)
@@ -245,6 +248,9 @@ env_ok=(GH_TOKEN=test-token "TEHAS_CGROUP_ROOT=$T_CGROUP")
 runner=/opt/pi-rukas/bin/pi-rukas-headless
 # The arguments of the docker call that starts the cycle.
 cycle_args() { grep -l -x -e 'pi-rukas-headless' -e "$runner" "$T"/calls/docker.args.* 2>/dev/null | head -n 1 | xargs -r cat; }
+# The arguments of the docker call that installs the product before the cycle:
+# the one whose script starts with set -e.
+install_args() { grep -l -x -e 'set -e' "$T"/calls/docker.args.* 2>/dev/null | head -n 1 | xargs -r cat; }
 # The arguments of the docker call that checks the push before the cycle.
 preflight_args() { grep -l -x -e '--entrypoint' "$T"/calls/docker.args.* 2>/dev/null | head -n 1 | xargs -r cat; }
 # The security options and the readers of a docker line come from
@@ -362,16 +368,22 @@ case "$1 $2" in
   "issue comment") [ ! -e "$T/fx/comment-fails" ] || exit 1 ;;
 esac'
 t_stub curl '
-out="" url="" max=0 header=0
+out="" url="" max=0 header=0 conf=""
 while [ $# -gt 0 ]; do
   case "$1" in
     -o) out=$2; shift ;;
     --max-filesize) max=$2; shift ;;
     -H) header=1; shift ;;
+    -K) conf=$2; shift ;;
     https://*) url=$1 ;;
   esac
   shift
 done
+# A model request gives curl its headers in a config file opened by a file
+# descriptor of this process (console/cycle/src/describe.rs reads the bytes and
+# hands over the descriptor). The stub reads it before it reads the body, so a
+# case can name both of them.
+case "$conf" in /proc/*/fd/*) cat "$conf" >>"$T/calls/curl-config" ;; esac
 key=$(printf %s "$url" | tr -c "A-Za-z0-9" _)
 [ "$header" = 1 ] && { printf "%s " "$url"; cat; } >>"$T/calls/curl-headers"
 [ -f "$T/fx/net/$key.rc" ] && exit "$(cat "$T/fx/net/$key.rc")"

@@ -459,10 +459,55 @@ t_contains "$t_out" "2 of 4 follow-up(s) are not done"
 # Each rewrite goes through a temporary file moved over the record, so a run that
 # died mid-write leaves the steps already owed there rather than half of a new list
 # - and a run that finished leaves no stray file. The lock is kept: removing it
-# would let a run that opened it a moment before lock a file no longer there.
-t_eq "$(ls -A "$th/state")" "update-pending
+# would let a run that opened it a moment before lock a file no longer there. The
+# ids are what the install recorded.
+t_eq "$(ls -A "$th/state")" "account-ids
+update-pending
 update.lock"
 t_eq "$(owed_steps)" "docs --force-recreate
 edge --force-recreate"
+
+t_case "an update asks GitHub for the ids and runs on when they are the recorded ones"
+instance
+platform 0 'echo "installed: nothing"'
+t_run "$update"
+t_eq "$t_rc" 0
+t_contains "$(t_calls gh)" "api users/alice --jq .id"
+t_eq "$(t_calls install)" "install "
+
+t_case "an id that changed stops the update with 78 before anything moves, and --accept-id records it"
+instance
+platform 1 'echo "installed: nothing"'
+before=$(head_sha)
+echo "alice 7" >"$th/state/account-ids"
+t_run "$update"
+t_eq "$t_rc" 78
+t_contains "$t_out" "tehas: the login alice now has the user id $(t_uid alice), not the recorded 7"
+t_contains "$t_out" "tehas update --accept-id alice"
+t_eq "$(head_sha)" "$before"
+t_eq "$(t_calls install)" ""
+t_eq "$(cat "$th/state/account-ids")" "alice 7"
+t_run "$update --accept-id alice"
+t_eq "$t_rc" 0
+t_contains "$t_out" "accounts: alice is recorded with the user id $(t_uid alice) (it was 7)"
+t_eq "$(grep '^alice ' "$th/state/account-ids")" "alice $(t_uid alice)"
+t_eq "$(t_calls install)" "install "
+
+t_case "--accept-id of a login neither setting names is refused with 64"
+instance
+platform 0 'echo "installed: nothing"'
+t_run "$update --accept-id mallory"
+t_eq "$t_rc" 64
+t_contains "$t_out" "--accept-id mallory names no login of TEHAS_ALLOWED_LABELERS or TEHAS_MILLWRIGHT_LOGIN"
+t_eq "$(t_calls install)" ""
+
+t_case "a login that no longer resolves stops the update with 78 and is named"
+instance
+platform 0 'echo "installed: nothing"'
+t_gh_fail 1 1 "gh: Not Found (HTTP 404)"
+t_run "$update"
+t_eq "$t_rc" 78
+t_contains "$t_out" "tehas: the login alice does not resolve to a GitHub account"
+t_eq "$(t_calls install)" ""
 
 t_done

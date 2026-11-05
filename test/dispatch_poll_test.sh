@@ -229,6 +229,33 @@ t_eq "$(started)" ""
 t_eq "$([ -e "$T/calls/tidy.after-start" ] && echo tidied)" ""
 t_eq "$([ -e "$home/live/demand.json" ] && echo written)" ""
 
+t_case "the poll's token reaches the real tidy, status and health: the token program runs once"
+reset
+# The host's shim, its gh this run's stub, and a token program that counts its
+# runs. The real status and health load their settings, and the load keeps the
+# name, so only the poll itself asks for a token.
+mkdir -p "$home/shim" "$home/bin" "$home/libexec" "$home/state/github"
+cp "$T_ROOT/host/shim/gh" "$home/shim/gh"
+ln -sf "$T/bin/gh" "$home/bin/gh"
+printf 'ghs_poll\n' >"$home/state/github/token"
+echo $(($(date +%s) + 3000)) >"$home/state/github/token.expires"
+printf '#!%s\necho run >>%q\nprintf "%%s\\n" ghs_poll\n' "$T_BASH" "$T/token-runs" >"$home/libexec/github-token"
+chmod +x "$home/libexec/github-token"
+rm -f "$T/token-runs"
+printf '#!/usr/bin/env bash\nexec %q tidy run\n' "$T_CONSOLE" >"$T/real-tidy"
+# shellcheck disable=SC2016  # expanded when the command runs
+printf '#!/usr/bin/env bash\nexec "$(dirname "$0")/../bin/tehasbot" status\n' >"$T/health-tree/libexec/status"
+chmod +x "$T/real-tidy" "$T/health-tree/libexec/status"
+t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1 TEHAS_GITHUB_APP_ID=5452597 \
+  TEHAS_GITHUB_APP_INSTALLATION=174742089 "TEHAS_BOT_LOGIN=tehas-app-bot[bot]"
+T_ENV+=(TEHAS_TIDY_CMD="$T/real-tidy" TEHAS_STATUS_CMD="$T/health-tree/libexec/status")
+# The shim first on PATH, as host/env.sh puts it.
+t_run "PATH=$home/shim:\$PATH; $rpoll"
+t_contains "$t_out" "start #7 (labelled by alice)"
+t_contains "$(t_calls gh)" "is:closed"
+t_eq "$(wc -l <"$T/token-runs")" 1
+rm -f "$T/health-tree/libexec/status"
+
 t_case "a write a dead poll left in the journal is settled first, and decided again"
 reset
 st="$home/libexec/store"
@@ -243,9 +270,10 @@ t_eq "$(TEHAS_HOME=$home "$st" journal-open | jq -c .actions)" "[]"
 
 # The poll's own GraphQL page holds the open pull requests, as this list: the
 # author as GraphQL names an app, with no [bot].
-pulls() { # one "<number>|<title>|<head>|<author>|<label>" per argument
+pulls() { # one "<number>|<title>|<head>|<author>|<label>[|<body>]" per argument
   printf '%s\n' "$@" | jq -Rn '[inputs | split("|") | {number: (.[0] | tonumber), title: .[1], headRefName: .[2],
-    author: {login: .[3]}, labels: {nodes: ([.[4] // empty | select(. != "")] | map({name: .}))}}]' >"$fx/pulls.json"
+    author: {login: .[3]}, labels: {nodes: ([.[4] // empty | select(. != "")] | map({name: .}))},
+    body: (.[5] // "")}]' >"$fx/pulls.json"
 }
 issue_with() { # <number> <label>
   jq -n --argjson n "$1" --arg l "$2" '{number: $n, state: "open", labels: [{name: $l}]}' >"$fx/work-$1.json"
