@@ -124,6 +124,11 @@ t_eq "$called" "$listed"
 t_case "the real workspace: a change to the selector asks for the full gate"
 t_eq "$(bash "$T_ROOT/scripts/select-tests.sh" console/xtask/src/select.rs)" "full console/xtask/src/select.rs is part of the gate itself"
 
+t_case "the real checkout: the plain dashboard's module selects the node tests that run it"
+picked=$(bash "$T_ROOT/scripts/select-tests.sh" host/fun/dashboard-view.js 2>&1 | grep '^node ')
+t_contains "$picked" "node test/dashboard_view_test.mjs"
+t_contains "$picked" "node test/dashboard_host_test.mjs"
+
 t_case "the real script: a path no test names asks for the full gate, and no path is a usage error"
 # Built here, so this file does not name it.
 nowhere=nowhere/un"named"
