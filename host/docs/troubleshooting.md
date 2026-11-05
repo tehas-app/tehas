@@ -506,8 +506,8 @@ Read the rest of the comment with three things in mind:
 - Its paths are the ones inside the cycle's container. The workspace that is
   `~/tehas/work/tehas` there is `~/tehas/work/tehas-<issue>` on the host.
 - Its "Concrete recovery commands" are written for pi-rukas run by hand. On
-  the host a retry does what they do: tick `Retry from a clean start` in the
-  bot's comment, or apply `tehas:ready`. Both start a fresh cycle from the
+  the host a retry does what they do: tick a retry box in the bot's
+  comment, or apply `tehas:ready`. Both start a fresh cycle from the
   first step, in a new workspace. Commits that were never pushed are kept in
   `tehas-<issue>.before-retry` until the next retry. See step 5 of
   [Operating](/operating).
