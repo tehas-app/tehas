@@ -108,6 +108,14 @@ for f in "$T_ROOT/host/docs/_layout.html" "$T_ROOT/console/src/protolab.rs"; do
 done
 t_contains "$(cat "$T_ROOT/host/docs/_layout.html")" '/fun/share-logo.png'
 
+t_case "the business page's header shows the logo, not the old mark"
+mark=$(sed -n '/<a class="mark"/,/<\/a>/p' "$fun/business.html")
+t_contains "$mark" '<img src="/fun/favicon.svg" width="26" height="26" alt="">'
+t_contains "$mark" 'aria-label="Tehas dashboard, top of page"'
+t_eq "$(grep -cE 'm-(box|glyph|bar)|<svg' <<<"$mark")" 0
+t_eq "$(grep -cE 'm-(box|glyph|bar)|\.mark svg' "$fun/business.css")" 0
+t_contains "$(cat "$fun/business.css")" '.mark img { display: block; width: 26px; height: 26px; }'
+
 t_case "no page asks which theme the instance picked"
 for f in "${markup[@]}"; do
   t_eq "$(grep -c 'TEHAS_THEME' "$f")" 0
@@ -132,7 +140,7 @@ done
 
 t_case "the business page reads the dispatcher's files and loads its sample first"
 order=$(grep -oE 'src="/fun/[a-z-]+\.js"' "$fun/business.html" | sed 's/src="\/fun\///; s/"//' | xargs)
-t_eq "$order" "mode.js sample-issues.js console-tabs.js business-view.js epics-view.js"
+t_eq "$order" "mode.js sample-issues.js console-tabs.js business-view.js epics-view.js panels.js"
 t_contains "$(cat "$fun/business.html")" '<script type="module" src="/fun/business-view.js">'
 t_eq "$(grep -oE '"/live/[a-z]+\.json"' "$fun/business-view.js" | tr -d '"' | sort -u | xargs)" '/live/analytics.json /live/energy.json /live/protolab.json /live/running.json /live/status.json'
 

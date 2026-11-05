@@ -252,7 +252,8 @@ cp "$T/bin/fake-plan" "$T/bin/fake-plan.keep"
 t_stub fake-plan 'out=""
 while [ "$#" -gt 0 ]; do [ "$1" = --out ] && out=$2; shift; done
 [ ! -e "/proc/$$/fd/9" ] || : >"$T/calls/plan.fd9"
-while [ ! -e "$T/fx/plan-done" ]; do sleep 0.1; done
+n=0
+while [ ! -e "$T/fx/plan-done" ] && [ $((n += 1)) -le 3000 ]; do sleep 0.1; done
 cp "$T/fx/plan-result.json" "$out"'
 t_stub fake-plan-start 'n=$1; shift
 setsid "$@" </dev/null >/dev/null 2>&1 &'

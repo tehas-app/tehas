@@ -132,10 +132,10 @@ killed() { # name
   chmod +x "$repo/test/$1"
 }
 
-# Where a scratch run keeps each test file's record: one run, one directory, so
-# a fake test file can name its own record. The pattern is left for the fake
-# file to expand, with the directory quoted and the pattern not.
-recpat='"${TMPDIR:-/tmp}"/tehas-tests.*'
+# Where a scratch run keeps each test file's record: the run's root, which is
+# the TMPDIR it gives its test files, so a fake test file can name its own
+# record. Left for the fake file to expand.
+recpat='"$TMPDIR"'
 
 # A fake test file that removes its own log and puts a directory where it was:
 # the runner has a status for it and nothing to show of what it said.
@@ -238,7 +238,7 @@ no_shellcheck() {
   local c p
   rm -rf "$nobin"
   mkdir -p "$nobin"
-  for c in bash cat dirname mkdir mktemp nproc rm sed tail timeout; do
+  for c in bash cat dirname flock mkdir mktemp mv nproc rm sed tail timeout; do
     p=$(command -v "$c") || continue
     ln -s "$p" "$nobin/$c"
   done
@@ -517,6 +517,33 @@ t_eq "$(tail_of 2)" "test.sh: failed checks (1), not run (0)
 $(bad_line b_test.sh 'timed out after 1s')"
 t_eq "$((SECONDS - began < 15))" 1
 
+# A test file's scratch directories go under the run's root, its TMPDIR, so
+# what a file killed before its own cleanup leaves goes with the run.
+t_case "a test file's TMPDIR is the run's own root, and the root goes when the run ends"
+fresh
+fake_body a_test.sh "echo \"\$TMPDIR\" >'$T/a.tmpdir'" 'mktemp -d >/dev/null'
+run
+t_eq "$t_rc" 0
+given=$(cat "$T/a.tmpdir")
+t_eq "${given%/run.*}" "$recs/tehas-tests"
+t_eq "$([ -e "$given" ] && echo there || echo gone)" gone
+
+t_case "a root a killed run left goes when the next run starts, and one a run holds stays"
+fresh
+roots=$recs/tehas-tests
+mkdir -p "$roots/run.dead/tehas-test.left" "$roots/run.live" "$roots/run.made"
+: >"$roots/run.dead/lock"
+t_hold "$roots/run.live/lock"
+fake a_test.sh 0 1
+run
+t_release
+t_eq "$t_rc" 0
+t_eq "$([ -e "$roots/run.dead" ] && echo there || echo gone)" gone
+t_eq "$([ -e "$roots/run.live" ] && echo there || echo gone)" there
+# A root with no lock yet is one a run is still making.
+t_eq "$([ -e "$roots/run.made" ] && echo there || echo gone)" there
+rm -rf "$roots"
+
 # Each file notes when it starts and ends. Three at a time, they overlap; on a
 # host whose load has reached its CPUs, the next waits for the one before.
 # The threshold is the host's CPUs, not 1.5 times them: three gates side by
@@ -708,7 +735,7 @@ with_console() {
 
 # The stub records its arguments; the environment of its call is what a case
 # about a variable has to echo itself, into the same file t_calls reads.
-t_case "the store, the attachment checker, tehas-dispatch, tehas-cycle and the console are built once, offline, into a target of its own, and named to every test file"
+t_case "the store, the attachment checker, tehas-dispatch, tehas-cycle and the console are built once, offline, into the workspace's target with its profile, and named to every test file"
 fresh
 with_console
 t_stub cargo 'prev=""
@@ -720,11 +747,28 @@ saw_store b_test.sh
 run
 t_eq "$t_rc" 0
 # The line of the environment is the last of the call, so the arguments still
-# read as one line: the binary is run, not debugged, so no debug info.
-t_eq "$(t_calls cargo)" "build --locked --offline --quiet --manifest-path $repo/console/Cargo.toml --target-dir $repo/console/target/shell -p store -p attach -p tehas-dispatch -p tehas-cycle -p console
-debug=0"
-t_contains "$t_out" "a_test.sh bin=$repo/console/target/shell/debug/store why="$'\n'
-t_contains "$t_out" "b_test.sh bin=$repo/console/target/shell/debug/store why="$'\n'
+# read as one line. CARGO_TARGET_DIR is the one t_run gives, as CI gives one:
+# the gate's cargo test builds there too, with the same profile (#1360).
+t_eq "$(t_calls cargo)" "build --locked --offline --quiet --manifest-path $repo/console/Cargo.toml --target-dir $T/target -p store -p attach -p tehas-dispatch -p tehas-cycle -p console
+debug=absent"
+t_contains "$t_out" "a_test.sh bin=$T/target/debug/store why="$'\n'
+t_contains "$t_out" "b_test.sh bin=$T/target/debug/store why="$'\n'
+
+t_case "without CARGO_TARGET_DIR the build is the workspace's console/target, and the second tree of before is removed"
+fresh
+with_console
+mkdir -p "$repo/console/target/shell/debug"
+t_stub cargo 'prev=""
+for a in "$@"; do [ "$prev" != --target-dir ] || td=$a; prev=$a; done
+mkdir -p "$td/debug" && echo store >"$td/debug/store"'
+saw_store a_test.sh
+T_ENV=(TEHAS_TEST_JOBS=1 TMPDIR="$recs" CARGO_TARGET_DIR=)
+run
+T_ENV=(TEHAS_TEST_JOBS=1 TMPDIR="$recs")
+t_eq "$t_rc" 0
+t_contains "$(t_calls cargo)" "--target-dir $repo/console/target -p store"
+t_contains "$t_out" "a_test.sh bin=$repo/console/target/debug/store why="$'\n'
+t_eq "$(ls "$repo/console/target")" "debug"
 
 t_case "a store that does not build is named to the test files, which still run"
 fresh
@@ -756,7 +800,7 @@ rm -f "$T/fetched"
 t_eq "$t_rc" 0
 t_eq "$(t_calls cargo | awk '{print $1}' | tr '\n' ' ')" "build fetch build "
 t_contains "$(t_calls cargo)" "fetch --locked --quiet --manifest-path $repo/console/Cargo.toml"
-t_contains "$t_out" "a_test.sh bin=$repo/console/target/shell/debug/store why="$'\n'
+t_contains "$t_out" "a_test.sh bin=$T/target/debug/store why="$'\n'
 
 t_case "a checkout without the console, or a host without cargo, builds nothing"
 fresh

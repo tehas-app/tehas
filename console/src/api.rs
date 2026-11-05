@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 
 /// What this release can do. A feature is added here in the release that
 /// brings it, and never taken out within api 1.
-const FEATURES: [&str; 16] = [
+const FEATURES: [&str; 17] = [
     "status",
     "millwright-grant",
     "fixer-grant",
@@ -27,6 +27,7 @@ const FEATURES: [&str; 16] = [
     "mcp-dashboard-keys",
     "clean",
     "disk",
+    "panels",
     "state-check",
 ];
 
@@ -196,7 +197,7 @@ mod tests {
             r#"{"api":1,"tehas":"v1.2.3","commit":null,"repo":"acme/widget","features":["status","#
         ));
         assert!(printed.ends_with(
-            r#""disk","state-check"],"millwright":"mill","fixer":"mill","poll":{"z":1,"a":2}}"#
+            r#""disk","panels","state-check"],"millwright":"mill","fixer":"mill","poll":{"z":1,"a":2}}"#
         ));
     }
 
