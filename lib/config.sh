@@ -14,9 +14,6 @@
 #                        exit 78 unless every setting an instance has to set for
 #                        itself is set and valid. One list, so no command that
 #                        checks it before changing anything has its own copy.
-#   tehas_checkout       check the product checkout is a clone of TEHAS_REPO;
-#                        returns 78 if not.
-#   tehas_branch         print the branch work lands on; returns 78 if unknown.
 #   tehas_models         print "provider model" for every model the agents use.
 #
 # A command starts with:
@@ -103,40 +100,6 @@ tehas_models() {
       [ -z "${!m:-}" ] || printf '%s %s\n' "${!p:-}" "${!m}"
     done
   } | awk '$1 != "" && $2 != "" && !seen[$0]++'
-}
-
-# The product checkout must exist and be a clone of TEHAS_REPO: issues are
-# polled from one and the work happens in the other, so they have to be the
-# same repository. Returns 78 otherwise. Reads the checkout's configuration
-# only; nothing is fetched.
-tehas_checkout() {
-  local dir=${TEHAS_WORK_REPO:-} url
-  if [ -z "$dir" ] || [ ! -d "$dir/.git" ]; then
-    tehas_err "no product checkout at ${dir:-(unset)}: clone $TEHAS_REPO there, or set TEHAS_WORK_REPO in ${TEHAS_INSTANCE_DIR:-?}/instance.env"
-    return 78
-  fi
-  url=$(git -C "$dir" config --get remote.origin.url 2>/dev/null) || url=""
-  url=${url%/}
-  url=${url%.git}
-  case "$url" in
-    */"$TEHAS_REPO" | *:"$TEHAS_REPO") return 0 ;;
-  esac
-  tehas_err "$dir is a checkout of ${url:-nothing}, not of $TEHAS_REPO"
-  return 78
-}
-
-# The branch cycles start from and pull requests target. Read locally: the
-# checkout's origin/HEAD is set by install.sh, never looked up here.
-tehas_branch() {
-  local b=""
-  [ -z "${TEHAS_BRANCH:-}" ] || { printf '%s\n' "$TEHAS_BRANCH"; return 0; }
-  b=$(git -C "${TEHAS_WORK_REPO:-/nonexistent}" symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null) || b=""
-  b=${b#origin/}
-  [ -n "$b" ] || {
-    tehas_err "the default branch of ${TEHAS_WORK_REPO:-the product checkout} is unknown: run install.sh, or set TEHAS_BRANCH in ${TEHAS_INSTANCE_DIR:-?}/instance.env"
-    return 78
-  }
-  printf '%s\n' "$b"
 }
 
 # tehas update from before v0.21.0 sources this file from the checkout it pulled

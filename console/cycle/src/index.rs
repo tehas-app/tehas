@@ -690,6 +690,36 @@ pub fn table() -> String {
     format!("index\t{}\t{entry}", run.image)
 }
 
+/// One run at the tip of the product's branch that the checkout last fetched.
+/// The checkout must be a clone of TEHAS_REPO and its branch known: 78
+/// otherwise, before anything is done.
+pub fn here(before_cycle: bool) -> u8 {
+    use tehas_core::settings;
+    let branch = match settings::checkout().and_then(|()| settings::branch()) {
+        Ok(branch) => branch,
+        Err(line) => {
+            eprintln!("{line}");
+            return 78;
+        }
+    };
+    let repo = env::var("TEHAS_WORK_REPO").unwrap_or_default();
+    let tip = format!("refs/remotes/origin/{branch}^{{commit}}");
+    let base = Command::new("git")
+        .args(["-C", &repo, "rev-parse", "-q", "--verify", &tip])
+        .stderr(Stdio::null())
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string());
+    match base {
+        Some(base) if !base.is_empty() => main(&branch, &base, before_cycle),
+        _ => {
+            eprintln!("tehas index: {repo} has no origin/{branch}, nothing was indexed");
+            78
+        }
+    }
+}
+
 /// One run, under the lock libexec/index holds on a descriptor this program and
 /// the indexer's docker client inherit: a client that outlives this still
 /// writes the index. `base` is the tip of <branch> the product checkout last
