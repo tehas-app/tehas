@@ -269,6 +269,8 @@ it then is, and `--json` works with the show form only.
 - **An expired or unreadable limit holds every start**: no cycle, planning
   turn, answer or improvement run. `tehas status` warns and says why. A file
   that cannot be read never counts as no limit. The poll still cleans up.
+- **One reading.** `tehas status`, the dispatcher and the health page read the
+  file the same way. A file that names a key twice is `unreadable`.
 - **Running cycles are never stopped.** A lower limit only holds new starts.
 - **Pause is separate.** A paused factory stays paused under any limit.
 - `set` replaces the whole limit. The same arguments twice leave the same

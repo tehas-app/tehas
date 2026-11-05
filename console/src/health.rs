@@ -1349,6 +1349,13 @@ fn joined(v: &J) -> String {
         .join(", ")
 }
 
+/// The limit as `flags::read` reads it. A reading the page cannot parse is
+/// unreadable, as it is to every other reader, never nothing.
+fn limit(home: &Path, now: i64) -> J {
+    J::parse(&flags::read(&home.join("state/limit.json"), now).json())
+        .unwrap_or_else(|| obj(vec![("state", J::Str("unreadable".to_string()))]))
+}
+
 fn report(home: &Path, g: &Given, now: i64) -> J {
     let live = home.join("live");
     let endings = match read(&live.join("endings.json")) {
@@ -1363,8 +1370,7 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
     let demand = demand(&live, now);
     let sessions = g.sessions.as_deref().and_then(J::parse).unwrap_or(J::Null);
     let plans = plans(home, &sessions);
-    let limit =
-        J::parse(&flags::read(&home.join("state/limit.json"), now).json()).unwrap_or(J::Null);
+    let limit = limit(home, now);
 
     let flag = pause_flag(home);
     let bool_or_false = |v: &J| match v {
@@ -1697,6 +1703,46 @@ mod tests {
 
     fn said(r: &J) -> (String, String) {
         (r.get("status").text(), r.get("output").text())
+    }
+
+    #[test]
+    fn every_reader_of_the_limit_gives_one_answer() {
+        let h = home("limit-readers");
+        let unreadable = r#"{"state":"unreadable"}"#;
+        let cases = [
+            (r#"{"v":1,"cycles":1,"plan":true,"cycles":2}"#, unreadable),
+            (r#"{"v":1,"cycles":1,"plan":false,"plan":true}"#, unreadable),
+            (r#"{"v":1,"cycles":1,"plan":true,"v":1}"#, unreadable),
+            (r#"{"v":1,"cycles":1e999,"plan":true}"#, unreadable),
+            (r#"{"v":1,"cycles":1,"plan":true"#, unreadable),
+            (
+                r#"{"v":1,"cycles":2,"plan":false,"until":"2026-10-17T13:00:00Z","reason":"x"}"#,
+                r#"{"state":"expired","cycles":2,"plan":false,"until":"2026-10-17T13:00:00Z","reason":"x"}"#,
+            ),
+            (
+                r#"{"v":1,"cycles":3,"plan":true,"until":null,"reason":" held\nfor alpha "}"#,
+                r#"{"state":"ok","cycles":3,"plan":true,"reason":"held for alpha"}"#,
+            ),
+            (
+                r#"{"v":1,"cycles":1,"plan":true,"note":{"cycles":9}}"#,
+                r#"{"state":"ok","cycles":1,"plan":true}"#,
+            ),
+            (
+                r#"{"v":1.0,"cycles":01,"plan":true}"#,
+                r#"{"state":"ok","cycles":1.0,"plan":true}"#,
+            ),
+        ];
+        let value = |text: &str| serde_json::from_str::<Value>(text).unwrap();
+        for (file, want) in cases {
+            h.write("state/limit.json", file);
+            let want = value(want);
+            let console = value(&flags::read(&h.0.join("state/limit.json"), NOW).json());
+            let page = value(&h.report(&Given::default()).at(&["checks", "limit"]).dump());
+            let dispatch = tehas_dispatch::read::host::limit(&h.0, NOW);
+            assert_eq!(console, want, "console: {file}");
+            assert_eq!(page, want, "health: {file}");
+            assert_eq!(dispatch, want, "dispatcher: {file}");
+        }
     }
 
     #[test]
