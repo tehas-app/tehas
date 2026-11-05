@@ -15,6 +15,7 @@ pub mod hold;
 #[cfg(feature = "mask")]
 pub mod journal;
 pub mod jq;
+pub mod limit;
 pub mod lock;
 #[cfg(feature = "mask")]
 pub mod mask;

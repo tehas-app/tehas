@@ -43,7 +43,10 @@
   "demand": {
     "waiting": 2,
     "oldestWait": 5440,
-    "refreshHold": "refreshes are off on this host"
+    "refreshHold": "refreshes are off on this host",
+    "labelAlone": [
+      12
+    ]
   },
   "hold": {
     "why": "pause",

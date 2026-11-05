@@ -6,9 +6,10 @@
 //!   copy --to <file>  one consistent copy of the store at the absolute name
 //!                     given, by VACUUM INTO; reads the store, writes only that
 //!                     file, and refuses a name that is taken
-//!   prune --days N    endings, settled actions with their journal, and the
-//!                     heartbeats of ended cycles, older than N days. A cycle's
-//!                     row is never removed
+//!   prune --days N    endings, settled actions with their journal, the
+//!                     heartbeats of ended cycles, and the history of issues
+//!                     ended more than N days ago, each issue keeping its last
+//!                     row of each history. A cycle's row is never removed
 //!   sweep-locks [--days N] [--max N] [--dry-run]
 //!                     removes state/cycles/<n>.lock when no one holds it and
 //!                     nothing has used the issue for N days: its cycle on
@@ -234,6 +235,67 @@ fn prune(home: &Path, days: i64, now: i64) -> Result<String, Fail> {
     Ok(line("prune", &pruned(home, days, now)?))
 }
 
+/// One of the two histories `pruned` deletes from. The type is the whole
+/// argument: nothing else is a table prune knows, and the keep-rules below hold
+/// only for these two names.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum HistoryTable {
+    CycleHistory,
+    PlanHistory,
+}
+
+impl HistoryTable {
+    fn name(self) -> &'static str {
+        match self {
+            HistoryTable::CycleHistory => "cycle_history",
+            HistoryTable::PlanHistory => "plan_history",
+        }
+    }
+}
+
+/// The DELETE of one history table, as `pruned` runs it. What goes is a row of
+/// an issue whose cycle ended before `?1`, and never the row a reader is asking
+/// about: `history-show` lists the last row of each table, and `park-show`'s
+/// `PARK_SELECT` takes `park_reason` and its `refine` from the parked attempt's
+/// newest cycle history row. `upkeep_tests` prunes each of those stores and
+/// reads them back, so a keep-rule that stops holding is a failing test there.
+/// Rows are told apart by `at` and `id`, the order the writers and their
+/// per-issue cap of the 50 newest use, not by `seq`, which each new end is given
+/// beyond the rows kept.
+pub fn history_delete(table: HistoryTable) -> String {
+    let name = table.name();
+    // The issue's newest row of one table by `at`, of all its rows or of those
+    // the window has passed.
+    let last = |from: &str, older: bool| {
+        let where_ = if older { " AND h.at < ?1" } else { "" };
+        format!(
+            "(at, id) NOT IN
+             (SELECT at, id FROM {from} h WHERE h.issue = {name}.issue{where_}
+                ORDER BY at DESC, id DESC LIMIT 1)"
+        )
+    };
+    // The newest row of the issue's own table, and of its cycle history: a plan
+    // row is kept while it is the last end of the issue's cycle on record.
+    let own_last = last(name, false);
+    let cycle_last = last("cycle_history", false);
+    // The newest row of the issue's cycle history that the window has passed, so
+    // the row prune keeps is the end still in `endings` when `cycles.ended_at`
+    // names the same end. The two tables are written by the same `now` on the
+    // end path; a hand-repair that moves one of them apart is the case this is
+    // here for.
+    let cycle_last_before_window = last("cycle_history", true);
+    // `cycle-end --stopped` and `--refused` write no cycle_history row, so this
+    // is the only thing keeping the planning rows of those issues, and the only
+    // record of how their plan went. Dropping it as redundant would erase it.
+    let has_cycle_history = "issue IN (SELECT issue FROM cycle_history)";
+    format!(
+        "DELETE FROM {name} WHERE
+           issue IN (SELECT issue FROM cycles WHERE ended_at < ?1)
+           AND {has_cycle_history}
+           AND {own_last} AND {cycle_last} AND {cycle_last_before_window}"
+    )
+}
+
 fn pruned(home: &Path, days: i64, now: i64) -> Result<Vec<(&'static str, String)>, Fail> {
     let before = now - days * DAY;
     verbs::write(home, |c| {
@@ -281,6 +343,16 @@ fn pruned(home: &Path, days: i64, now: i64) -> Result<Vec<(&'static str, String)
                 r.get(0)
             })
             .q()?;
+        // The history of an issue that ended long ago goes with its endings row:
+        // the cap of the 50 newest per issue, in cycle-end and plan-end, bounds
+        // one issue but not the factory, so the two tables otherwise grow with the
+        // issues the factory has ever run.
+        let cycle_history = c
+            .execute(&history_delete(HistoryTable::CycleHistory), [before])
+            .q()?;
+        let plan_history = c
+            .execute(&history_delete(HistoryTable::PlanHistory), [before])
+            .q()?;
         Ok(vec![
             ("before", j(before)),
             ("endings", j(endings)),
@@ -291,6 +363,8 @@ fn pruned(home: &Path, days: i64, now: i64) -> Result<Vec<(&'static str, String)
             ("poll_cost", j(poll_cost)),
             ("polls", j(polls)),
             ("polls_kept", j(polls_kept)),
+            ("cycle_history", j(cycle_history)),
+            ("plan_history", j(plan_history)),
         ])
     })
 }
