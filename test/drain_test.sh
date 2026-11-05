@@ -46,7 +46,7 @@ poll_hold() { # <cycle-after> <hold> [<issue>]
     TEHAS_INSTANCE_DIR="$TEHAS_INSTANCE_DIR" \
     held-poll >/dev/null 2>&1 &
   poll_pid=$!
-  while flock -n "$home/state/dispatch.lock" true; do sleep 0.02; done
+  while kill -0 "$poll_pid" 2>/dev/null && flock -n "$home/state/dispatch.lock" true; do sleep 0.02; done
 }
 poll_end() {
   [ -n "$poll_pid" ] || return 0
