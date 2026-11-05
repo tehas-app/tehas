@@ -43,6 +43,14 @@ if [ -e "$T/home/tehas/state/github-writes.log" ]; then
     "issue edit" | "issue comment" | "api -X") printf "%s\t%s %s\tacme/widget\t-\t0\t-\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" "$2" >>"$T/home/tehas/state/github-writes.log" ;;
   esac
 fi
+# comments_json <n>: the comments of #n as the GraphQL comment read gives them,
+# from the answer a case wrote or from its REST answer.
+comments_json() {
+  cat "$T/fx/comments-$1.json" 2>/dev/null ||
+    jq "{data: {repository: {issue: {comments: {nodes: [.[] | {databaseId: .id, author: {login: .user.login},
+      body, createdAt: .created_at, lastEditedAt: (if .updated_at == .created_at then null else .updated_at end),
+      editor: (if .updated_at == .created_at then null else {login: .user.login} end)}]}}}}}" "$T/fx/icomments-$1.json"
+}
 # not_found: say what GitHub says for a path it does not have, and fail.
 not_found() { echo "message: Not Found" >&2; exit 1; }
 case "$1 $2" in
@@ -123,11 +131,18 @@ case "$1 $2" in
       *"issues(states: OPEN"*) if [ -e "$T/fx/gh-stderr-fails" ]; then
           cat "$T/fx/gh-stderr" >&2 2>/dev/null; exit 1; fi
         "$T/page-stub" || exit 1 ;;
-      # Or the REST answer a case wrote, as GraphQL gives it.
-      *"comments(last"*) cat "$T/fx/comments-$n.json" 2>/dev/null ||
-        jq "{data: {repository: {issue: {comments: {nodes: [.[] | {databaseId: .id, author: {login: .user.login},
-          body, createdAt: .created_at, lastEditedAt: (if .updated_at == .created_at then null else .updated_at end),
-          editor: (if .updated_at == .created_at then null else {login: .user.login} end)}]}}}}}" "$T/fx/icomments-$n.json" || exit 1 ;;
+      # Or the REST answer a case wrote, as GraphQL gives it. The poll asks a
+      # chunk of issues in one query, one alias i<n> an issue, and the stub
+      # answers them in one answer; a number the case wrote no comments for
+      # refuses the whole chunk, as GitHub refuses the one query.
+      *"comments(last"*) if [ -n "$n" ]; then comments_json "$n" || exit 1; else
+          acc="{}"
+          for k in $(printf "%s\n" "$*" | grep -o "i[0-9]*: issue(number:" | sed "s/^i\([0-9]*\):.*/\1/"); do
+            one=$(comments_json "$k") || exit 1
+            acc=$(jq -c --arg k "i$k" --argjson one "$one" ". + {(\$k): \$one.data.repository.issue}" <<<"$acc") || exit 1
+          done
+          echo "{\"data\":{\"repository\":$acc}}"
+        fi ;;
       # The states of the issues a tehas:blocked comment names.
       # One pull request, as a refresh reads it at the start.
       *"pullRequest(number"*) cat "$T/fx/pull-$n.json" || exit 1 ;;
