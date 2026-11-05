@@ -1,8 +1,10 @@
 //! tehas state pack and unpack: a stopped factory's state as one tar, to move
-//! it to another machine (console/src/usage/state.txt says how and why).
+//! it to another machine (console/src/usage/state.txt says how and why), and
+//! the store's check, for a program that moves one to compare both sides.
 //!
 //!   console state pack [--rehearse] -    the tar on standard output
 //!   console state unpack [--rehearse] -  the tar on standard input
+//!   console state check [--json]         the store's integrity and rows
 //!
 //! The home is $TEHAS_HOME, which `console run` has loaded.
 //!
@@ -32,7 +34,12 @@
 //! does: the old state is gone afterwards. It is for a machine that will be
 //! rebuilt.
 //!
-//! Neither calls GitHub, Docker or the network.
+//! check prints the answer of `store check` as the store printed it, or, for
+//! a person, its schema, integrity and rows. It reads only and refuses
+//! nothing, so it runs on a running factory too. A store that does not check
+//! is 1, one that cannot be used 78, and neither prints on standard output.
+//!
+//! None calls GitHub, Docker or the network.
 //!
 //! Exit: 0 done; 1 refused or failed, said on standard error; 64 usage; 78
 //! the release or the state store of the home cannot be read.
@@ -48,7 +55,8 @@ use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::Mutex;
 
-const USAGE: &str = "usage: tehas state pack [--rehearse] - | unpack [--rehearse] -";
+const USAGE: &str =
+    "usage: tehas state pack [--rehearse] - | unpack [--rehearse] - | check [--json]";
 const MANIFEST: &str = "tehas-state.json";
 const DIRS: [&str; 4] = ["state", "repos", "live", "mcp"];
 const ACTIVE: &str = "--state=active,activating,deactivating,reloading";
@@ -70,6 +78,8 @@ pub fn main(given: &[String]) -> u8 {
         ["pack", "--rehearse", "-"] => pack(&home, true),
         ["unpack", "-"] => unpack(&home, false),
         ["unpack", "--rehearse", "-"] => unpack(&home, true),
+        ["check"] => check(&home, false),
+        ["check", "--json"] => check(&home, true),
         _ => {
             eprintln!("{USAGE}");
             return 64;
@@ -135,6 +145,42 @@ fn checked(home: &Path, own: bool) -> Result<i64, Fail> {
     v["schema"]
         .as_i64()
         .ok_or_else(|| (unusable, "the state store gave no schema".to_string()))
+}
+
+/// `tehas state check`: the store's answer, whole or for a person.
+fn check(home: &Path, json: bool) -> Result<(), Fail> {
+    let said = store::line(home, &["check"]).map_err(|r| {
+        if r.rc == 1 {
+            (1, format!("the state store does not check: {}", r.line))
+        } else {
+            (78, format!("the state store cannot be used: {}", r.line))
+        }
+    })?;
+    if json {
+        tehas_core::outln!("{said}");
+        return Ok(());
+    }
+    let v: Value = serde_json::from_str(&said).unwrap_or(Value::Null);
+    for line in person(&v) {
+        tehas_core::outln!("{line}");
+    }
+    Ok(())
+}
+
+/// The lines of a check for a person: the schema, the integrity and a line
+/// per table.
+fn person(v: &Value) -> Vec<String> {
+    let mut out = vec![
+        format!("schema      {}", v["schema"]),
+        format!(
+            "integrity   {}",
+            v["integrity"].as_str().unwrap_or("unknown")
+        ),
+    ];
+    if let Some(rows) = v["rows"].as_object() {
+        out.extend(rows.iter().map(|(t, n)| format!("rows        {t} {n}")));
+    }
+    out
 }
 
 /// The tehas-* units `systemctl --user` reports as running or on their way.
@@ -661,6 +707,21 @@ fn swap(home: &Path, new: &Path, old: &Path) -> Result<(), Fail> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_check_reads_for_a_person_a_line_per_table() {
+        let v = json!({"api":1,"verb":"check","ok":true,"schema":9,
+            "integrity":"ok","rows":{"cycles":2,"actions":0}});
+        assert_eq!(
+            person(&v),
+            [
+                "schema      9",
+                "integrity   ok",
+                "rows        actions 0",
+                "rows        cycles 2"
+            ]
+        );
+    }
 
     #[test]
     fn receive_passes_every_byte_on() {

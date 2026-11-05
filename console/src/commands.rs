@@ -3,7 +3,7 @@
 //!
 //!   console tehas status [--json]
 //!   console tehas disk [...]
-//!   console tehas state pack|unpack ...
+//!   console tehas state pack|unpack ... | check [--json]
 //!   console tehas limit [--json] | set ... | clear
 //!   console tehas pause [reason]
 //!   console tehas analytics report | export <file> [--json]
