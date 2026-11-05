@@ -69,6 +69,11 @@
 //!
 //! What tehasbot clean removes, see src/clean.rs.
 //!
+//!   console rukas target <follow> <repo> | image <repo> <commit>
+//!
+//! Which pi-rukas commit a host follows and the image upstream publishes for
+//! it, for the sandbox build, bootstrap.sh and tag-release.sh, see src/rukas.rs.
+//!
 //!   console improve due|run <prompt file> | table
 //!
 //! One run of the improvement loop, see src/improve/mod.rs.
@@ -171,6 +176,11 @@
 //! What bin/tehas and bin/tehasbot exec: which command a word names, its text,
 //! and what runs it, see src/front.rs.
 //!
+//!   console gh <real gh> <log> [words]
+//!
+//! What host/shim/gh execs: a read execs gh, a write runs it and leaves a line
+//! in the write log, see src/gh_shim.rs.
+//!
 //!   console run <libexec dir> <euid> <bash> tehas|tehasbot <command> ...
 //!
 //! A command under the instance's settings: its check, the load, what it
@@ -198,6 +208,7 @@ mod flags;
 mod forge;
 mod frame;
 mod front;
+mod gh_shim;
 mod github;
 mod health;
 mod history;
@@ -221,6 +232,7 @@ mod publish;
 mod queue;
 mod render;
 mod review;
+mod rukas;
 mod run;
 mod settings;
 mod setup;
@@ -441,6 +453,10 @@ fn main() -> ExitCode {
         let given: Vec<std::ffi::OsString> = std::env::args_os().skip(2).collect();
         return ExitCode::from(front::main(&given));
     }
+    if words.first().is_some_and(|w| w == "gh") {
+        let given: Vec<std::ffi::OsString> = std::env::args_os().skip(2).collect();
+        return ExitCode::from(gh_shim::main(&given));
+    }
     if words.first().is_some_and(|w| w == "run") {
         let text = std::env::args_os().all(|a| a.to_str().is_some());
         return ExitCode::from(run::main(&words[1..], text));
@@ -461,6 +477,7 @@ fn main() -> ExitCode {
             Some("forge") => return ExitCode::from(forge::main(&given[1..])),
             Some("init-product") => return ExitCode::from(product::init(&given[1..])),
             Some("dev") => return ExitCode::from(dev::main(&given[1..])),
+            Some("rukas") => return ExitCode::from(rukas::main(&given[1..])),
             Some("review") => return ExitCode::from(review::main(&given[1..])),
             Some("preview") => return ExitCode::from(preview::main(&given[1..])),
             Some("settings") => return ExitCode::from(settings::main(&given[1..])),

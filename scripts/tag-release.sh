@@ -19,7 +19,8 @@
 # A release carries no polyfill the pi-rukas it builds on no longer needs
 # (scripts/polyfills.sh). When the head carries polyfills, the script asks that
 # pi-rukas for its --capabilities: the commit host/versions.env follows, in the
-# image upstream publishes for it. When the answer has the feature of one of
+# image upstream publishes for it, as `console rukas` of the head names them
+# (built with cargo, or TEHAS_CONSOLE when set). When the answer has the feature of one of
 # them, it removes those polyfills on a branch remove-polyfills-<tag>, runs the
 # gate there, pushes the branch and opens a pull request, and tags nothing: the
 # tag waits for a person to merge it. An open pull request from such a branch
@@ -227,12 +228,17 @@ if [ -n "$carried" ]; then
     rukas="the pi-rukas of $rukas_caps"
     cp "$rukas_caps" "$caps" || exit 1
   else
-    # What host/versions.env follows, as the sandbox build finds it.
+    # What host/versions.env follows, as the sandbox build finds it, asked of
+    # the console of the head (or TEHAS_CONSOLE).
     found=$(
+      rukas() {
+        if [ -n "${TEHAS_CONSOLE:-}" ]; then "$TEHAS_CONSOLE" rukas "$@"; else
+          cargo run --quiet --locked --manifest-path "$tree/console/Cargo.toml" -p console -- rukas "$@"
+        fi
+      }
       # shellcheck source=host/versions.env
-      . "$tree/host/versions.env" && . "$tree/lib/rukas.sh" &&
-        target=$(tehas_rukas_target) && image=$(tehas_rukas_image "${target%% *}") &&
-        printf '%s\n%s\n' "$image" "${target#* }"
+      . "$tree/host/versions.env" && target=$(rukas target "${PI_RUKAS_FOLLOW:-}" "${PI_RUKAS_REPO:-}") &&
+        image=$(rukas image "${PI_RUKAS_REPO:-}" "${target%% *}") && printf '%s\n%s\n' "$image" "${target#* }"
     ) || found=""
     image=$(sed -n 1p <<<"$found")
     rukas="pi-rukas $(sed -n 2p <<<"$found")"
