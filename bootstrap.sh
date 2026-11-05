@@ -16,6 +16,9 @@
 #                                     reloads systemd when memory is added
 #   ./bootstrap.sh user               the rest, as the tehas user, under that
 #                                     user's home; ends with pi-rukas's installer
+#                                     and, on an installed host, the sandbox
+#                                     image moved to that pi-rukas
+#                                     (sandbox/build.sh --if-moved)
 #   sudo ./bootstrap.sh dev <user> [<login>...]
 #                                     let other accounts on the host start a
 #                                     session with "tehas dev", run as <user>
@@ -789,6 +792,13 @@ do_user() {
   step codebase-memory-mcp found_cbm "$CBM_VERSION" install_cbm
   rukas_want=$(rukas_head) || die "no pi-rukas commit for PI_RUKAS_FOLLOW=$PI_RUKAS_FOLLOW in $PI_RUKAS_REPO"
   step pi-rukas found_rukas "$rukas_want" install_rukas
+  # The image cycles run follows the clone, or health says it is behind: built
+  # only when it is not on the commit followed. A first bootstrap has no
+  # install yet, so no build.sh, and install.sh builds it.
+  if [ -x "$TEHAS_HOME/sandbox/build.sh" ]; then
+    "$TEHAS_HOME/sandbox/build.sh" --if-moved ||
+      die "the sandbox image did not follow pi-rukas to $rukas_want; run $TEHAS_HOME/sandbox/build.sh --if-moved when the lines above are dealt with"
+  fi
   echo "bootstrap: user part done"
 }
 
