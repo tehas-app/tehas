@@ -58,7 +58,7 @@ fn n(v: Option<&Value>) -> Value {
 
 /// Whether `.a.b?` of jq makes no value at all: `.a` is neither an object
 /// nor null.
-fn hides(v: Option<&Value>) -> bool {
+pub(crate) fn hides(v: Option<&Value>) -> bool {
     !matches!(v, None | Some(Value::Null) | Some(Value::Object(_)))
 }
 
@@ -171,7 +171,7 @@ fn step_name(s: &str) -> bool {
 
 /// The stable lines of a stream: each line that is a JSON object with v 1
 /// and not marked unstable.
-fn stable(text: &str) -> impl Iterator<Item = Value> + '_ {
+pub(crate) fn stable(text: &str) -> impl Iterator<Item = Value> + '_ {
     text.split('\n').filter_map(|l| {
         let v: Value = serde_json::from_str(l).ok()?;
         let ok = v.is_object()
