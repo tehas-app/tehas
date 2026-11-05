@@ -520,7 +520,7 @@ instance_findings() {
       jq -e --arg p "$provider" --arg m "$model" \
         '.providers[$p].models // [] | any(.id == $m)' "$models" >/dev/null ||
         echo "tehas: models.json does not list model $model under provider $provider"
-    done < <(tehas_models)
+    done < <("$(_tehas_settings_console)" models used)
     # A token is named, never written: models.json is in a repository.
     model_keys_ok "$models" 2>&1
     # The session's model is named by the product, not the instance.

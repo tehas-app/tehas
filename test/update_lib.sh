@@ -336,8 +336,7 @@ push_settings_change() {
   cat >>"$T/upstream/lib/config.sh" <<'EOF'
 # added by this case: a required setting nothing can give a default for.
 tehas_require_instance_settings() {
-  tehas_require TEHAS_REPO TEHAS_CONTROL_ISSUE TEHAS_ALLOWED_LABELERS \
-    PI_ENSEMBLE_SUBAGENT_MODEL PI_ENSEMBLE_SUBAGENT_PROVIDER TEHAS_NEW_SETTING
+  [ -n "${TEHAS_NEW_SETTING:-}" ] || { tehas_err "TEHAS_NEW_SETTING is not set (see $TEHAS_INSTANCE_DIR/instance.env)"; exit 78; }
 }
 EOF
   git -C "$T/upstream" add -A
