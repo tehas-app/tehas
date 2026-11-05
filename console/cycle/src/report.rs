@@ -449,15 +449,19 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         .unwrap_or("-")));
     let result_branch = v(&text(&outcome, "branch"));
     let build = v(&text(&outcome, "buildCommit"));
-    let handoff = {
+    let (handoff, lean_posted) = {
         let b = text(&outcome, "handoffBody");
         let marker = regex::Regex::new(r"\A<!-- pi-rukas:handoff [^\n]*-->\n*").unwrap();
         let b = v(&marker.replace(&b, ""));
         // Lean on the forge channel posted this itself: one comment, not two.
-        if lean && !b.is_empty() && text(&outcome, "handoffChannel") == "forge" {
-            "Lean posted its report on this issue itself, so it is not repeated here.".into()
+        let posted = lean && !b.is_empty() && text(&outcome, "handoffChannel") == "forge";
+        if posted {
+            (
+                "Lean posted its report on this issue itself, so it is not repeated here.".into(),
+                true,
+            )
         } else {
-            b
+            (b, false)
         }
     };
     let pr_state = text(&outcome, "prState");
@@ -1206,12 +1210,12 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
     } else if lean && rc == 11 && status == "aborted" {
         r.arm = "not-ready";
         parked_now = true;
-        let fix = if handoff.contains("pi-spec") || handoff.is_empty() {
+        let fix = if lean_posted || handoff.contains("pi-spec") || handoff.is_empty() {
             " The issue needs a `pi-spec v1` block that lean accepts: fix the block, or run /plan to write it, then retry."
         } else {
             ""
         };
-        let rules = if handoff.is_empty() {
+        let rules = if lean_posted || handoff.is_empty() {
             " Lean's own comment on this issue lists the rules it failed."
         } else {
             " The rules it failed follow."

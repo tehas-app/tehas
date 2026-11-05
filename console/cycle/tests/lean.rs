@@ -215,6 +215,22 @@ fn lean_s_own_comment_on_the_issue_is_not_repeated() {
 }
 
 #[test]
+fn a_not_ready_report_lean_posted_itself_still_asks_for_a_pi_spec_block() {
+    let forge = doc("notready").replace("\"channel\": \"host\"", "\"channel\": \"forge\"");
+    assert!(forge.contains("\"channel\": \"forge\""));
+    let r = read("notready-forge", &forge, 11, json!([]), "lean");
+    assert_eq!(r.arm, "not-ready");
+    let (_, comment) = said(&r);
+    assert!(comment.contains("needs a `pi-spec v1` block"), "{comment}");
+    assert!(
+        comment.contains("Lean's own comment on this issue lists the rules it failed"),
+        "{comment}"
+    );
+    assert!(!comment.contains("The rules it failed follow"), "{comment}");
+    assert!(!comment.contains("no pi-spec v1 block"), "{comment}");
+}
+
+#[test]
 fn a_classic_cycle_names_no_driver() {
     let r = ended("green", 10, pr("OPEN", false), "classic");
     let (_, comment) = said(&r);
