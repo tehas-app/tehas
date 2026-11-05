@@ -4612,11 +4612,29 @@ the release's pull request.
 `scripts/tag-release.sh` reads `CHANGELOG.md` from the commit it is about to
 tag, `--dry-run` too, and refuses with exit 1 when the section for the new tag,
 or else `Unreleased`, has no `### Adopter action` heading with a line under it.
-It edits the file only to name the moves of the pinned tools, below.
+It edits the file only to collect the fragments and to name the moves of the
+pinned tools, below.
 
 `scripts/release-notes.sh <tag>` prints a section without its heading, and
 exits 1 when the file has none for that tag. The workflow makes the release's
 page from it, from the `Unreleased` section when the tag has none of its own.
+
+A pull request does not edit `CHANGELOG.md`, so two open ones do not conflict
+there. It adds a fragment, `changelog.d/<issue>.md` (named after the branch
+when there is no issue), with a `### Changes` and an `### Adopter action`
+section, either of which may be left out; text outside them is refused.
+`scripts/release-notes.sh Unreleased` prints the Unreleased section with the
+fragments' lines added under their headings, ordered by issue number. A tagged
+release is read from `CHANGELOG.md` alone.
+
+`scripts/tag-release.sh` counts the fragments' Adopter action, and `--dry-run`
+prints the section with the fragments collected. When the head has fragments it
+moves their lines into the release's section and deletes them
+(`scripts/collect-changelog.sh`), runs the gate, opens a pull request from
+`changelog-<tag>`, and tags nothing; the tag, and the move of the pinned tools,
+wait for a person to merge it. An open pull request from such a branch holds
+the tag. `scripts/collect-changelog.sh --print` shows the result without
+changing a file.
 
 A host moving from its platform checkout has no version installed, so its notes
 start at the newest `vX.Y.Z` tag at or before the checkout's HEAD, which

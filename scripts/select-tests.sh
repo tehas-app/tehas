@@ -25,7 +25,8 @@
 #   - cargo instead of crates when the path is in console/core/, is a manifest
 #     or the lock, is in no crate, or cargo cannot say what the crates are.
 #   - A helper under test/ or a fixture under test/fixtures/<name>/: the test
-#     files that name it.
+#     files that name it. A changelog fragment, changelog.d/*: the test files
+#     that name changelog.d.
 #   - Any other path: the test files that name its file name as a word, or its
 #     directory when that has a slash in it (host/docs). A helper that names it
 #     brings in the test files that name the helper.
@@ -190,6 +191,7 @@ for p in "$@"; do
       name=${p#test/fixtures/}
       p=test/fixtures/${name%%/*}
       ;;
+    changelog.d/*) p=changelog.d ;;
   esac
   subject "$p"
   mapfile -t hit < <(naming "$p")

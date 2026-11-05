@@ -322,6 +322,14 @@ pick docs/plans/x.md README.md
 t_eq "$t_out" ""
 t_eq "$t_rc" 0
 
+t_case "a changelog fragment selects the tests that name changelog.d"
+fresh
+fake a_test.sh "nothing"
+fake b_test.sh "reads changelog.d/ beside the file"
+pick changelog.d/1606.md changelog.d/my-branch.md
+t_eq "$t_out" "test test/b_test.sh"
+t_eq "$t_rc" 0
+
 t_case "a deleted test file selects nothing"
 fresh
 fake a_test.sh "nothing"
