@@ -163,6 +163,14 @@ Run `tehas dispatch --dry-run` and read what it prints.
 - `ignore #N: tehas:urgent was applied by ...`: the label came from an account
   that is not allowed, so it moves nothing: the issue keeps its place by
   number. It is said at every poll until someone removes the label.
+- `ignore #N: Priority Urgent was set by ...`: with `TEHAS_PRIORITY_FIELD`,
+  the newest change to the issue field came from an account that does not
+  count, or the poll could not read who made it. Set the field again from an
+  allowed account.
+- `ERROR: TEHAS_PRIORITY_FIELD names ...`: the repository's owner has no
+  single-select issue field of that name, or the owner is a personal account,
+  which has none. The poll stops with 78. Name the field as the organisation
+  spells it, or remove the setting.
 - `holding: <n> of <free> free slots start: ...`: some cycles started, fewer
   than there are free slots and issues waiting. The rest of the line is the
   one limit that cut it: issues awaiting merge (`TEHAS_MAX_AWAITING`), or the
