@@ -722,7 +722,7 @@ fn a_link_is_held_and_stays_with_its_issue_s_files() {
     put(
         &h,
         "cycles/9.history.jsonl",
-        &"x".repeat((1 << 20) + 1),
+        &"x".repeat(tehas_core::file::READ_BOUND_LEN + 1),
         start,
     );
     let (code, why) = import(&h, true).unwrap_err();

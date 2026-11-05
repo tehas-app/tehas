@@ -19,7 +19,7 @@ const LIMIT_DEFAULT: u64 = 50;
 /// The most of the log's end one call reads. The longest decision line a host
 /// writes today is about 250 bytes, so this holds far more than `LIMIT_MAX`
 /// of them.
-pub const TAIL_BYTES: u64 = 1024 * 1024;
+pub const TAIL_BYTES: u64 = tehas_core::file::READ_BOUND;
 /// A reason is cut to this many characters.
 const REASON_MAX: usize = 400;
 /// Where a decision's reason sits in its line: in brackets after the issue,

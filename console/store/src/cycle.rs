@@ -101,7 +101,7 @@ pub const END_REASONS: [&str; 12] = [
 ];
 
 const RESULT_BOUND: u64 = 16 << 20;
-const PROGRESS_BOUND: u64 = 1 << 20;
+const PROGRESS_BOUND: u64 = tehas_core::file::READ_BOUND;
 const SETTINGS_BOUND: u64 = 64 << 10;
 const SETTING_VALUE_MAX: usize = 4096;
 
