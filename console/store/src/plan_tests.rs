@@ -1,5 +1,6 @@
 //! plan-begin, plan-answer, plan-end and plan-show.
 
+use crate::plan::OPTION_BYTES;
 use crate::verbs_tests::*;
 use serde_json::{json, Value};
 use std::fs::File;
@@ -46,6 +47,22 @@ fn finished(home: &Path, issue: i64, turn: i64) -> Value {
     .unwrap()
 }
 
+/// `plan-end <issue> <turn> --outcome finished --rc 0 --session s` with the
+/// arguments the case names, so a case says only what varies.
+fn end_with(home: &Path, issue: i64, turn: i64, extra: &[&str]) -> Result<Value, (u8, String)> {
+    let mut args = vec![
+        "--outcome".to_string(),
+        "finished".to_string(),
+        "--rc".to_string(),
+        "0".to_string(),
+        "--session".to_string(),
+        "s".to_string(),
+    ];
+    args.extend(extra.iter().map(|s| s.to_string()));
+    let refs: Vec<&str> = args.iter().map(String::as_str).collect();
+    turn_end(home, issue, turn, &refs)
+}
+
 fn answer(home: &Path, issue: i64, turn: i64, by: &str) -> Result<Value, (u8, String)> {
     call(
         home,
@@ -62,6 +79,21 @@ fn answer(home: &Path, issue: i64, turn: i64, by: &str) -> Result<Value, (u8, St
 
 fn show(home: &Path, issue: i64) -> Value {
     ok(home, &["plan-show", &issue.to_string()])["planning"].clone()
+}
+
+/// The row's options and turn, read with a statement of the test's own so that
+/// a verb of the store is not asked for the value that makes it refuse.
+fn held_options(home: &Path, issue: i64) -> (Option<String>, i64) {
+    (
+        one(
+            home,
+            &format!("SELECT options_json FROM planning WHERE issue = {issue}"),
+        ),
+        one(
+            home,
+            &format!("SELECT turns FROM planning WHERE issue = {issue}"),
+        ),
+    )
 }
 
 #[test]
@@ -778,6 +810,124 @@ fn cleaned_options_never_fail_a_turn() {
     assert!(first.starts_with("ab"));
     assert_eq!(options[1], "-");
     assert_eq!(v["planning"]["filed"], json!([]));
+}
+
+#[test]
+fn an_option_that_reads_as_json_stays_one_label() {
+    let home = home("plan-options-json");
+    begin(&home, 32);
+    // The dispatcher hands a label that is no text over as its JSON text, so a
+    // turn that answered `{"label": ["Yes","No"]}` ends with that text as the
+    // label of one box. The turn ends, the label is kept as it was given and
+    // nothing is cleaned: an option never fails the end of a turn, and the
+    // column is a JSON list of labels however each label reads.
+    let given = [
+        r#"["Yes","No"]"#,
+        r#"{"text":"Yes"}"#,
+        r#" [ "a" , "b" ] "#,
+        "[1,2]",
+        "use [Yes] or {No}",
+        "{not json",
+        "[1,2",
+    ];
+    let mut args = Vec::new();
+    for g in given {
+        args.extend(["--option", g]);
+    }
+    let v = end_with(&home, 32, 1, &args).unwrap();
+    assert_eq!(v["cleaned"], json!([]));
+    assert_eq!(v["planning"]["running"], false);
+    assert_eq!(v["planning"]["options"], json!(given));
+    assert_eq!(held_options(&home, 32), (Some(json!(given).to_string()), 1));
+    // A label too long for one box is cut and marked, whatever it reads as
+    // once cut.
+    begin(&home, 37);
+    let long = format!("ab{}", "1".repeat(OPTION_BYTES));
+    let list = format!("[1,2]{}", "1".repeat(OPTION_BYTES));
+    let v = end_with(&home, 37, 1, &["--option", &long, "--option", &list]).unwrap();
+    assert_eq!(v["cleaned"], json!(["--option"]));
+    assert_eq!(
+        v["planning"]["options"],
+        json!([&long[..OPTION_BYTES], &list[..OPTION_BYTES]])
+    );
+}
+
+#[test]
+fn plan_show_reports_options_it_cannot_read() {
+    let home = home("plan-options-damaged");
+    begin(&home, 33);
+    finished(&home, 33, 1);
+    // The verbs of the session that read the value back: the two reads and the
+    // view, and a write that answers with the row it has just changed.
+    let reads: [&[&str]; 3] = [
+        &["plan-show", "33"],
+        &["plan-show", "--open"],
+        &["plan-view", "33"],
+    ];
+    let writes: [&[&str]; 2] = [
+        &[
+            "plan-note",
+            "33",
+            "--kind",
+            "millwright-refused",
+            "--id",
+            "1",
+        ],
+        &["plan-end", "33", "--close"],
+    ];
+    // A value of no boxes is the column of the row as the session left it, so
+    // it is read: the refusal is about the shape and not about emptiness.
+    assert_eq!(show(&home, 33)["options"], json!([]));
+    // One row for all of them, damaged once per value: a fresh store per value
+    // would prove nothing more about the value. The reason names the damage:
+    // no JSON at all, or JSON that is not a list of labels.
+    let not_json = "a planning session's options are not JSON";
+    let not_labels = "a planning session's options are not a JSON list of labels";
+    for (held, why) in [
+        ("not json", not_json),
+        ("[\"Yes\",", not_json),
+        ("{\"a\":1}", not_labels),
+        ("\"Yes\"", not_labels),
+        ("1", not_labels),
+        ("true", not_labels),
+        ("null", not_labels),
+        ("[1,2]", not_labels),
+        ("[{\"a\":1}]", not_labels),
+        ("[\"Yes\",null]", not_labels),
+    ] {
+        conn(&home)
+            .execute(
+                "UPDATE planning SET options_json = ?1 WHERE issue = 33",
+                [held],
+            )
+            .unwrap();
+        // The read of the value is damage, never a question with no options.
+        for args in reads {
+            let (code, line) = call(&home, args).expect_err("the read was answered");
+            assert_eq!(code, 78, "{held} {args:?}: {line}");
+            assert!(line.starts_with("corrupt "), "{held} {args:?}: {line}");
+            assert!(line.ends_with(why), "{held} {args:?}: {line}");
+        }
+        // The writes of the session refuse the value too, and leave the row as
+        // it found it: the answer is rendered after the statements, so the 78
+        // rolls back all of the write.
+        for args in writes {
+            let (code, line) = call(&home, args).expect_err("the write was answered");
+            assert_eq!(code, 78, "{held} {args:?}: {line}");
+            assert!(line.starts_with("corrupt "), "{held} {args:?}: {line}");
+            assert_eq!(held_options(&home, 33), (Some(held.to_string()), 1));
+            assert_eq!(count(&home, "planning_notes"), 0);
+        }
+    }
+    // A list of labels is read again, so the refusal belongs to the value and
+    // not to the row.
+    conn(&home)
+        .execute(
+            "UPDATE planning SET options_json = '[\"Yes\"]' WHERE issue = 33",
+            [],
+        )
+        .unwrap();
+    assert_eq!(show(&home, 33)["options"], json!(["Yes"]));
 }
 
 #[test]

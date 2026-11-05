@@ -33,7 +33,9 @@
 //!                   Only plain files are carried, at most 1 MB each. Nothing
 //!                   new is mounted and the container is given nothing new.
 //!   exit            the runner's exit status of the last turn.
-//!   draft.json      the title and spec of the last drafted plan (exit 12).
+//!   draft.json      the title and spec of the last drafted plan (exit 12),
+//!                   and "block": the `pi-spec v1` block pi-rukas placed at
+//!                   the top of the spec, when it placed one.
 //!   images/         the issue's images, with TEHAS_WORK_IMAGES=1, and its
 //!                   text files, with TEHAS_WORK_FILES=1: fetched on the first
 //!                   turn as tehas work fetches a cycle's. Each turn is given
