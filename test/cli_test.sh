@@ -304,7 +304,7 @@ reset
 t_console || t_bad "no console: $t_console_why"
 T_ENV=(TEHAS_CONSOLE="$T_CONSOLE")
 names=$("$T_ROOT/bin/tehas" help | sed -n 's/^  tehas \([a-z-]*\).*/\1/p' | grep -v -x help | tr '\n' ' ')
-t_eq "$names" "dispatch work plan dev index setup update labels check-product init-product status api disk limit drain history export state top analytics mcp pause resume stop "
+t_eq "$names" "dispatch work plan dev index setup update labels panel check-product init-product status api disk limit drain history export state top analytics mcp pause resume stop "
 for name in $names; do
   t_run "$T_ROOT/bin/tehas help $name"
   t_eq "$t_rc" 0
