@@ -14,6 +14,8 @@ empty one above it.
 ### Changes
 
 - The business page's header shows the logo (`/fun/favicon.svg`), as the manual's header does, in place of the old mark it still drew beside the new favicon.
+- A cycle's scratch has a size limit (#1547). With `TEHAS_SCRATCH_DIR` set, tehas work measures the cycle's scratch every 10 seconds and stops the cycle when it holds more than `TEHAS_SCRATCH_MAX` (20g by default), or when the scratch's file system has less than `TEHAS_CYCLE_STOP_FREE` free (5g by default) and this cycle's scratch is the largest there. The cycle ends `stopped` at the cap `disk`, and its report says which bound it passed. Before, one cycle that copied its container's root into its scratch filled the host's disk and stopped the dispatcher and the other cycles.
+- `tehas status`, `tehas status --json` (`held`) and the MCP `factory_status` answer (`held`) name each ready issue the dispatcher holds on its own, with the reason and what clears it: for now, an issue whose last cycle parked and whose body has not changed since (#1437). When every issue in line is held that way and no cycle runs, the health line is a `warn` that names them instead of "Idle, taking work.". Before, a factory whose one ready issue was held reported `pass` and taking work for hours.
 - `scripts/verify.sh` checks the workspace's format and lints on every run, not only with `--full`; in CI a missing rustfmt or clippy fails. `tehas setup` runs `--full` on a factory that builds tehas, so unformatted code that passed CI stopped setup three times. `console/dispatch` is formatted again.
 - A cycle that hands off on `lens-fix-reposition` with its pull request open and its review not held waits for a merge (`tehas:awaiting-merge`) instead of parking. The branch already holds the first review round's fix; only the second round's could not be laid on it. It was the most common park from 2026-10-31.
 - `console flags pause` takes only `set` and `clear`: `show` and `read`, which nothing called, are gone (#1365). The dashboard's reader of the flag uses the same reading as the health file.
@@ -23,6 +25,9 @@ empty one above it.
 - The libraries no command sources are gone: `lib/attachments.sh`, `cycles.sh`, `labels.sh`, `millwright.sh`, `questions.sh`, `sandbox.sh`, `slice.sh`, `store.sh` and `history-lines.jq`. What still had a caller is in the console or the store now, and `install.sh` removes a host's copies in its stale-file step.
 - The host's pinned tools are back to what v0.24.x released: Node 22.23.4, gh 2.103.3, bun 1.4.4, jq 1.8.2, Pi 1.4.0, ctx7 0.8.2, parallel-cli 0.9.4, Playwright 1.64.1, Rust 1.99.1, rustup 1.29.2, codebase-memory-mcp 0.12.1, Caddy 2.11.7 and CI's actions/checkout v7.0.1, each with its checksum, digest or lockfile. A merge had put the earlier pins back in `host/versions.env`, the npm trees beside it, the Caddy digests and the two workflows.
 - The site is two frontends with two pinned looks. The front page (`/`, `/floor`) names `theme-pixel.css` and every other page names `theme-beesknees26.css`, each with its own logo and share card, so no server rewrites a look. `TEHAS_THEME` and `TEHAS_LAYOUT` are retired, the `paper` and `beesknees` themes are gone, the front page is always the factory floor and `/business` is always the business page. The footers no longer link from one frontend to the other.
+- `analytics event --at <t>` keeps the row when the time is a little ahead of the host's clock: within an hour it is stored at now and said on standard error, because the dispatcher passes the time GitHub recorded for the label. Beyond the hour it is still a usage error and no row is written.
+- The `sizes` figures count no lead for a ship whose `merged` is stamped before the `ready` behind it, as `refine` already counts it; a negative median lead no longer reaches the report.
+- `store prune` also removes the cycle and plan history of an issue whose cycle ended more than its window ago, keeping that issue's last row of each of the two tables, so the state store no longer grows with every issue the factory has ever closed. `store upkeep`, what `tehasbot clean` calls once an hour, prunes with a window of 90 days (`PRUNE_DAYS` in `console/store/src/upkeep.rs`). `tehas history` still answers for a long-closed issue with the line it keeps, and an issue whose cycle ended without a history line of its own keeps all of its rows (#1414).
 
 ### Adopter action
 
@@ -33,6 +38,11 @@ in `live/status.json` under `pause.flag`.
 
 A filter, script or search that looks for `STUCK: ` in pull request titles
 now looks for `HALT: `.
+
+On a host that sets `TEHAS_SCRATCH_DIR`, a cycle whose scratch holds more
+than 20g, or that has the largest scratch when its disk has less than 5g free,
+is now stopped at the cap `disk`. Set `TEHAS_SCRATCH_MAX` or
+`TEHAS_CYCLE_STOP_FREE` in the instance if a product needs more.
 
 Take `TEHAS_THEME` and `TEHAS_LAYOUT` out of `instance.env`. A line that asks
 for what this version does anyway (`TEHAS_THEME=pixel`, `TEHAS_LAYOUT=floor`,
