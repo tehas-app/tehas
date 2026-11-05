@@ -23,7 +23,8 @@ What exists today: [`tehas api`](#tehas-api),
 [`tehas export`](#tehas-export),
 [`tehas state`](#tehas-state),
 [`tehas analytics export`](#tehas-analytics-export),
-[`tehasbot clean`](#tehasbot-clean), [`tehas disk`](#tehas-disk) and
+[`tehasbot clean`](#tehasbot-clean), [`tehas disk`](#tehas-disk),
+[`tehas panel`](#tehas-panel) and
 [`tehas:all-hands`](/operating#all-hands). The design of the rest is in
 the spec, `docs/specs/2026-10-17-factories.md` in the source; a command is
 listed here when a release has it.
@@ -106,7 +107,7 @@ tehas api [--json]
   "tehas": "v0.8.0",
   "commit": "cb6912a",
   "repo": "tehas-app/tehas",
-  "features": ["status", "millwright-grant", "fixer-grant", "all-hands", "limit", "drain", "history", "export", "refresh-conflicts", "analytics", "state-move", "pr-title", "mcp-dashboard-keys", "clean", "disk"],
+  "features": ["status", "millwright-grant", "fixer-grant", "all-hands", "limit", "drain", "history", "export", "refresh-conflicts", "analytics", "state-move", "pr-title", "mcp-dashboard-keys", "clean", "disk", "panels"],
   "millwright": null,
   "fixer": null,
   "poll": {
@@ -131,7 +132,7 @@ tehas api [--json]
 | `tehas` | The release tag the factory was installed from: `v0.10.2` for a release install, `v0.8.0` for a checkout one. `null` when the install came from a checkout with no tag, or not from a git checkout |
 | `commit` | The commit it was installed from, seven characters; `null` for a release install, which records only the tag, and when not from a git checkout |
 | `repo` | `TEHAS_REPO`, the product repository |
-| `features` | What this release has, so a program can tell a factory that predates a feature from one where it failed. Today `status`, `millwright-grant` ([the millwright's grant](/operating#the-millwrights-grant)), `fixer-grant`, `all-hands`, `limit`, `drain`, `history` ([`tehas history`](#tehas-history)), `export` ([`tehas export`](#tehas-export)), `refresh-conflicts` (the factory refreshes its own pull requests that conflict, [refreshes](/operating#refreshes)), `analytics` ([`tehas analytics export --json`](#tehas-analytics-export)), `state-move` ([`tehas state`](#tehas-state)), `pr-title` (the factory keeps the `WIP: ` and `HALT: ` prefixes of its pull requests itself, [pull request titles](/tools#pull-request-titles)), `mcp-dashboard-keys` (the read-only MCP server answers a key of `TEHAS_MCP_DASHBOARD_KEYS` with only the four tools that copy from `live/`, [the MCP server](/mcp-server)) and `clean` ([`tehasbot clean`](#tehasbot-clean)), and `disk` ([`tehas disk`](#tehas-disk)) |
+| `features` | What this release has, so a program can tell a factory that predates a feature from one where it failed. Today `status`, `millwright-grant` ([the millwright's grant](/operating#the-millwrights-grant)), `fixer-grant`, `all-hands`, `limit`, `drain`, `history` ([`tehas history`](#tehas-history)), `export` ([`tehas export`](#tehas-export)), `refresh-conflicts` (the factory refreshes its own pull requests that conflict, [refreshes](/operating#refreshes)), `analytics` ([`tehas analytics export --json`](#tehas-analytics-export)), `state-move` ([`tehas state`](#tehas-state)), `pr-title` (the factory keeps the `WIP: ` and `HALT: ` prefixes of its pull requests itself, [pull request titles](/tools#pull-request-titles)), `mcp-dashboard-keys` (the read-only MCP server answers a key of `TEHAS_MCP_DASHBOARD_KEYS` with only the four tools that copy from `live/`, [the MCP server](/mcp-server)) `clean` ([`tehasbot clean`](#tehasbot-clean)), `disk` ([`tehas disk`](#tehas-disk)) and `panels` ([`tehas panel`](#tehas-panel)) |
 | `millwright` | `TEHAS_MILLWRIGHT_LOGIN`, or `null` when the instance has no millwright |
 | `fixer` | The same as `millwright`. It and the feature `fixer-grant` are the old names, kept for as long as API version 1; a program reads `millwright` and `millwright-grant` |
 | `poll` | What the polls of this factory cost, or `null` when no poll is on record or the state store cannot answer. `last` is the poll that most recently held the dispatcher's lock and `hour` is the sums of the polls that ended in the last hour; both are in the fields below, so a program that keeps a copy of them can add the cost of many hosts up. See [What a poll costs](/operating#what-a-poll-costs) for what each figure counts |
@@ -646,3 +647,53 @@ could not be written, which leaves the last answer there; 64 on an argument the
 command does not know, which writes nothing; 78 when the settings are missing
 or malformed, before any `df`,
 `docker` or walk.
+
+## tehas panel
+
+```
+tehas panel [--json]
+tehas panel set <id> --label TEXT --url URL
+tehas panel clear <id>
+```
+
+```json
+{"api": 1, "panels": [{"id": "support", "label": "Ask us", "url": "https://support.example.org/f/acme"}]}
+```
+
+A page that belongs to the project, such as a support chat, a status page or a
+feedback form, shown on the dashboard. Each panel is an item in the menu of both
+front pages, and pressing it opens the page in a dock at the side. tehas knows
+the label and the URL, nothing else.
+
+| Field | Rule |
+| --- | --- |
+| `id` | `a-z`, `0-9` and `-`, 1 to 32 characters. `set` on an `id` that is there replaces it, in its place |
+| `label` | One line, 1 to 24 characters. Control characters become spaces, as in `tehas pause` |
+| `url` | `https://` or `http://`, a host, no user or password, at most 512 characters. Its host is not `TEHAS_DOMAIN`: the frame is given `allow-same-origin`, which is safe only on another origin. A sibling name such as `support.<domain>` is another origin and is allowed |
+
+- At most 4 panels. A fifth is refused.
+- The list is `~/tehas/state/panels.json`, and the same object is published,
+  renamed into place, to `~/tehas/live/panels.json`. With no panels both files
+  are gone. `tehas state pack` takes both.
+- **A URL is public**, as all of `live/` is: put no secret in it.
+- `set` and `clear` print the list as it then is; `--json` works with the show
+  form only. Setting is safe to repeat, and `clear` of an `id` that is not there
+  is fine. Reading makes no network call.
+
+The dashboard reads the file once at load (`host/fun/panels.js`) and checks each
+URL again. It makes the frame on the first press, never at load, so it asks a
+panel's host for nothing until a person does:
+
+```html
+<iframe title="<label>" src="<url>" referrerpolicy="no-referrer" allow=""
+  sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox"></iframe>
+```
+
+No `allow-top-navigation`, no message channel between the page and the frame,
+and no context but what is in the URL. A page that refuses to be framed shows
+an empty frame; the dock's "Open in a new tab" link still works.
+
+The checks, the list and the files are the console's (`console/src/panel.rs`).
+
+Exit 0 done; 1 the list could not be read or written; 64 a bad argument, a fifth
+panel or a URL on `TEHAS_DOMAIN`, which writes nothing; 78 without an instance.

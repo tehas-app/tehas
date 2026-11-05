@@ -1,0 +1,317 @@
+{
+ "cases": [
+  {
+   "case": "an open issue titled with the epic marker and no event of the label is labelled epic",
+   "snapshot": {
+    "ready": [],
+    "epic_titled": [
+     12
+    ],
+    "issues": {
+     "12": {
+      "events": []
+     }
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "actions": [
+     {
+      "issue": 12,
+      "remove": [],
+      "add": [
+       "epic"
+      ]
+     }
+    ],
+    "log": [
+     "label #12 epic: its title starts with an epic marker"
+    ]
+   }
+  },
+  {
+   "case": "a dry run says it would label it and writes nothing",
+   "snapshot": {
+    "ready": [],
+    "epic_titled": [
+     12
+    ],
+    "issues": {
+     "12": {
+      "events": []
+     }
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "nothing": true,
+    "log": [
+     "would label #12 epic: its title starts with an epic marker"
+    ]
+   },
+   "dry": true
+  },
+  {
+   "case": "once a person took the label off, no poll puts it back",
+   "snapshot": {
+    "ready": [],
+    "epic_titled": [
+     12
+    ],
+    "issues": {
+     "12": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "epic"
+        },
+        "actor": {
+         "login": "tehas-bot"
+        },
+        "created_at": "2026-10-01T00:00:00Z"
+       },
+       {
+        "event": "unlabeled",
+        "label": {
+         "name": "epic"
+        },
+        "actor": {
+         "login": "alice"
+        },
+        "created_at": "2026-10-01T00:05:00Z"
+       }
+      ]
+     }
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "no_actions": [
+     {
+      "add": [
+       "epic"
+      ]
+     }
+    ],
+    "log_lacks": [
+     "epic: its title"
+    ]
+   }
+  },
+  {
+   "case": "a removal by an account the poll does not know is final too",
+   "snapshot": {
+    "ready": [],
+    "epic_titled": [
+     12
+    ],
+    "issues": {
+     "12": {
+      "events": [
+       {
+        "event": "unlabeled",
+        "label": {
+         "name": "epic"
+        },
+        "actor": {
+         "login": "mallory"
+        },
+        "created_at": "2026-10-01T00:05:00Z"
+       }
+      ]
+     }
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "no_actions": [
+     {
+      "add": [
+       "epic"
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "case": "the bot's own application and removal are no veto",
+   "snapshot": {
+    "ready": [],
+    "epic_titled": [
+     12
+    ],
+    "issues": {
+     "12": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "epic"
+        },
+        "actor": {
+         "login": "alice"
+        },
+        "created_at": "2026-10-01T00:00:00Z"
+       },
+       {
+        "event": "unlabeled",
+        "label": {
+         "name": "epic"
+        },
+        "actor": {
+         "login": "tehas-bot"
+        },
+        "created_at": "2026-10-01T00:05:00Z"
+       }
+      ]
+     }
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "actions": [
+     {
+      "issue": 12,
+      "remove": [],
+      "add": [
+       "epic"
+      ]
+     }
+    ],
+    "log": [
+     "label #12 epic: its title starts with an epic marker"
+    ]
+   }
+  },
+  {
+   "case": "an application the issue no longer carries, with no removal seen, is left alone",
+   "snapshot": {
+    "ready": [],
+    "epic_titled": [
+     12
+    ],
+    "issues": {
+     "12": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "epic"
+        },
+        "actor": {
+         "login": "alice"
+        },
+        "created_at": "2026-10-01T00:00:00Z"
+       }
+      ]
+     }
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "no_actions": [
+     {
+      "add": [
+       "epic"
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "case": "label events that could not be read label nothing and end no poll",
+   "snapshot": {
+    "ready": [],
+    "epic_titled": [
+     12
+    ],
+    "issues": {
+     "12": {
+      "events": {
+       "failed": true
+      }
+     }
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "no_actions": [
+     {
+      "add": [
+       "epic"
+      ]
+     }
+    ],
+    "log": [
+     "WARN: the label events of #12 could not be read: it is not labelled epic this poll"
+    ]
+   }
+  },
+  {
+   "case": "a paused factory labels nothing",
+   "snapshot": {
+    "ready": [],
+    "epic_titled": [
+     12
+    ],
+    "issues": {
+     "12": {
+      "events": []
+     }
+    },
+    "control": {
+     "labels": [
+      {
+       "name": "tehas:pause"
+      }
+     ],
+     "events": [
+      {
+       "event": "labeled",
+       "label": {
+        "name": "tehas:pause"
+       },
+       "actor": {
+        "login": "alice"
+       },
+       "created_at": "2026-10-01T00:00:00Z"
+      }
+     ]
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "no_actions": [
+     {
+      "add": [
+       "epic"
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "case": "an issue the snapshot does not list is never labelled",
+   "snapshot": {
+    "ready": [],
+    "epic_titled": [],
+    "issues": {
+     "12": {
+      "events": []
+     }
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "no_actions": [
+     {
+      "add": [
+       "epic"
+      ]
+     }
+    ]
+   }
+  }
+ ]
+}

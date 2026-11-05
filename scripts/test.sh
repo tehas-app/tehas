@@ -127,8 +127,20 @@ busy() {
 }
 limit=${TEHAS_TEST_FILE_TIMEOUT:-300}
 [[ $limit =~ ^[1-9][0-9]*$ ]] || limit=300
-out=$(mktemp -d "${TMPDIR:-/tmp}/tehas-tests.XXXXXX") || exit 2
+# One root per run, ${TMPDIR:-/tmp}/tehas-tests/run.*, which is also the TMPDIR
+# of the test files: their scratch directories and the records go there. The
+# run holds a flock on its lock, and so does every process it starts, which
+# inherits the descriptor. A root whose lock no one holds is what a killed run
+# left, and goes now; one with no lock yet is still being made.
+base=${TMPDIR:-/tmp}/tehas-tests
+mkdir -p "$base" || exit 2
+for d in "$base"/run.*; do
+  [ -e "$d/lock" ] && flock -n "$d/lock" true 2>/dev/null && rm -rf "$d"
+done
+out=$(mktemp -d "$base/run.XXXXXX") || exit 2
 trap 'rm -rf "$out"' EXIT
+{ exec 47>"$out/lock.new" && flock -n 47 && mv "$out/lock.new" "$out/lock"; } || exit 2
+export TMPDIR=$out
 
 unset T_STORE_BIN T_STORE_WHY T_ATTACH_BIN T_DISPATCH_BIN T_CYCLE_BIN T_CONSOLE_BIN
 # One build for the gate, not a second tree beside it (#1360). The profile is
