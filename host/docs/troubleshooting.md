@@ -436,6 +436,7 @@ The common ones:
 | review round cap                    | The review kept finding problems                    | Read the review on the pull request                      |
 | developer timeout                   | An agent ran out of time                            | Usually model endpoint capacity; retry later             |
 | `wall-clock`, `stall`               | tehas ended the cycle: its time limit `TEHAS_WORK_TIMEOUT`, or no log moved for `TEHAS_WORK_STALL` | Read the run log the comment names; see [a cycle stops at a cap](#a-cycle-stops-at-a-cap) |
+| `signal`                            | A `TERM`, `INT` or `HUP` came to `tehas work` (the unit was stopped, or the host shut down) and it stopped the container. The record's `capReason` names the signal and the step, and a run of the gate the stop cut short is closed in the stream by a `verify-aborted` line | Retry once the host is back; nothing in the issue caused it |
 | `runner-never-started`              | The container ended before the driver wrote its first event: no step ran and the record would hold nothing but an exit status | Look for a host-side fault: the image, the slice, the model endpoint. See [`runner-never-started`](#runner-never-started) below |
 | `this tehas cannot run the lean driver yet` | The issue carries [`tehas:lean`](/operating#choosing-the-driver) and lean needs pi-rukas#1920, which has not landed. `tehas work` stopped with exit 78: no container ran, nothing moved, classic did not run in its place. The start's approval is gone, so nothing starts it again on its own | Take `tehas:lean` off, then tick Retry. The issue runs classic |
 
@@ -536,6 +537,15 @@ retry when the cause of the stall is gone.
 The third cap tehas sets for itself is `runner-never-started`, for the
 container that ended before the driver wrote its first event. See
 [`runner-never-started`](#runner-never-started) below.
+
+The fourth is `signal`: a `TERM`, `INT` or `HUP` came to `tehas work` and it
+stopped the container, and the runner named no cap. The record's `capReason`
+says `SIGTERM came to tehas work and it stopped the container, step develop in
+flight`. When the stop came while the driver's gate ran, the stream holds a
+`verify-started` with no `verify-completed`; `tehas work` then adds a
+`verify-aborted` line for it, with `"by": "tehas"` and the signal, and the
+cycle's `console.txt` ends with a line that says so. A person's `tehas stop`
+keeps its own reason and no cap.
 
 These are the caps the factory posted on its own issues from 10 to 14 October
 2026, most frequent first.
