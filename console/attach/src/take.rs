@@ -10,6 +10,7 @@
 //! Every name a file is given here is made here, from a count and an extension
 //! of a closed list. Nothing of a link names a place on the disk.
 
+use crate::comments;
 use crate::given::{self, Linked, Ordered};
 use crate::manifest::{self, Given};
 use crate::unpack;
@@ -857,26 +858,21 @@ pub fn issue(run: &IssueRun, net: &dyn Net) -> Result<(), String> {
     take.all(&links)?;
 
     let written = || NOT_WRITTEN.to_string();
-    let mut context = None;
-    if !run.record.is_empty() {
-        let text = given::retry_context_of(run.record, run.comments, run.millwright)
-            .map_err(|_| written())?;
-        if let Some(text) = text {
-            let path = format!("{dir}/retry-context.md");
-            fs::write(&path, format!("{text}\n"))
-                .and_then(|()| chmod(&path, 0o644))
-                .map_err(|_| written())?;
-            context = Some("retry-context.md");
-        }
-    }
     let number: Value = serde_json::from_str(run.issue).map_err(|_| written())?;
+    let comments = if run.record.is_empty() {
+        None
+    } else {
+        write_comments(dir, run.record, &number, run.repo, run.millwright)
+            .map_err(|()| written())?
+            .map(|(entry, _)| entry)
+    };
     let manifest = manifest::of_issue(
         take.images,
         run.wants.files.then_some(take.files),
         take.left,
         number,
         approval,
-        context,
+        comments,
     );
     let path = format!("{dir}/manifest.json");
     fs::write(&path, manifest.pretty()).map_err(|_| written())?;
@@ -884,6 +880,81 @@ pub fn issue(run: &IssueRun, net: &dyn Net) -> Result<(), String> {
     chmod(dir, 0o755)
         .and_then(|()| chmod(&path, 0o644))
         .map_err(|_| written())
+}
+
+/// The manifest entry of comments.json, and how many items it holds and dropped.
+type Written = (Ordered, (usize, usize));
+
+/// comments.json of an approval record into <dir>, its manifest entry and the
+/// blob's counts; None when the record gives no comments.
+fn write_comments(
+    dir: &str,
+    record: &str,
+    issue: &Value,
+    repo: &str,
+    millwright: &str,
+) -> Result<Option<Written>, ()> {
+    let values = given::values_of(record).map_err(|_| ())?;
+    let Some(r) = values.first().filter(|r| r.is_object()) else {
+        return Err(());
+    };
+    let Some(b) = comments::blob(r, issue.as_u64().ok_or(())?, repo, millwright) else {
+        return Ok(None);
+    };
+    let path = format!("{dir}/{}", comments::FILE);
+    fs::write(&path, &b.text)
+        .and_then(|()| chmod(&path, 0o644))
+        .map_err(|_| ())?;
+    let entry = Ordered::map([
+        ("file", Ordered::text(comments::FILE)),
+        ("bytes", Ordered::Plain(b.bytes.into())),
+        ("sha256", Ordered::text(&b.sha256)),
+    ]);
+    Ok(Some((entry, (b.count, b.dropped))))
+}
+
+/// What `attach comments` is told.
+pub struct CommentsRun<'a> {
+    pub issue: &'a str,
+    pub dir: &'a str,
+    pub record: &'a str,
+    pub repo: &'a str,
+    pub millwright: &'a str,
+}
+
+/// Remake <dir> with the comments of the record and a manifest that lists no
+/// file: what a retry is given when the instance gives a cycle no images and
+/// no files. Answers how many comments the blob holds and how many it
+/// dropped; Err with the reason nothing may start.
+pub fn comments_only(run: &CommentsRun) -> Result<(usize, usize), String> {
+    let written = || NOT_WRITTEN.to_string();
+    let dir = run.dir;
+    let number: Value = serde_json::from_str(run.issue).map_err(|_| written())?;
+    let values = given::values_of(run.record).map_err(|_| written())?;
+    let record = values
+        .first()
+        .filter(|r| r.is_object())
+        .ok_or_else(written)?;
+    rm_rf(dir)
+        .and_then(|()| fs::create_dir_all(dir))
+        .map_err(|_| "the directory for the issue's comments could not be made".to_string())?;
+    let given = write_comments(dir, run.record, &number, run.repo, run.millwright)
+        .map_err(|()| written())?;
+    let counts = given.as_ref().map_or((0, 0), |(_, c)| *c);
+    let entry = given.map(|(e, _)| e);
+    let plain = |key: &str| Ordered::Plain(record[key].clone());
+    let approval = Ordered::map([
+        ("at", plain("at")),
+        ("by", plain("by")),
+        ("how", plain("how")),
+    ]);
+    let manifest = manifest::of_issue(Vec::new(), None, Vec::new(), number, approval, entry);
+    let path = format!("{dir}/manifest.json");
+    fs::write(&path, manifest.pretty()).map_err(|_| written())?;
+    chmod(dir, 0o755)
+        .and_then(|()| chmod(&path, 0o644))
+        .map_err(|_| written())?;
+    Ok(counts)
 }
 
 /// What `attach answer` is told.

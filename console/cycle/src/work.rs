@@ -193,8 +193,8 @@
 //! manifest.json that lists each file, the link it came from, its type, size
 //! and sha256, the approval, and what was left out and why. The directory is
 //! remade for every cycle. The manifest is kept as
-//! state/cycles/<issue>.manifest.json, with images.md and retry-context.md
-//! beside it as <issue>.images.md and <issue>.retry-context.md when the cycle
+//! state/cycles/<issue>.manifest.json, with images.md and comments.json
+//! beside it as <issue>.images.md and <issue>.comments.json when the cycle
 //! has them, for the improvement loop's record, and a later fetch of the same
 //! approval whose link gives other bytes stops the start. An image that is left
 //! out is said in a comment on the issue, and each one given with its sha256.
@@ -209,15 +209,31 @@
 //! an allowed account wrote and nobody edited after the approval, as the
 //! dispatcher found them. Each is taken only while its author is still allowed.
 //! Every manifest entry has a source, "body", "comment:<id>" or, for a retry,
-//! "pr-comment:<id>". By hand there is no record, and only the body is read. A
-//! record of a retry tick may carry retry_context, what reviewers wrote on the
-//! pull request: it goes to retry-context.md in the same directory, headed as
-//! untrusted, every line quoted, cut at 32000 characters. No mount and no
-//! variable more.
+//! "pr-comment:<id>". By hand there is no record, and only the body is read.
 //!
-//! With neither setting a cycle is given nothing: no directory is mounted and
-//! no PI_ENSEMBLE_EXTRA_IMAGE_DIRS is passed on, whatever the instance file
-//! says. The issue is still read once, for its text, and held to the
+//! A record whose retry_context holds anything gives the cycle comments: the
+//! comments a comments retry recorded at its tick (the issue's and its pull
+//! requests', by allowed accounts that may write), the fixer's note of a
+//! millwright's start, or a refresh's task. console/attach writes them to
+//! comments.json in the same directory, in the format of
+//! trail-openers/pi-rukas#2020, and names it under "comments" in the manifest:
+//! each item cut at 4000 characters, the blob at 64 KB with the oldest dropped
+//! and counted. With TEHAS_WORK_IMAGES and TEHAS_WORK_FILES both 0 the
+//! directory is still mounted and named in PI_ENSEMBLE_EXTRA_IMAGE_DIRS, and
+//! holds the manifest and comments.json alone. A blob that cannot be written
+//! starts no cycle.
+//!
+//! The image's word on comments goes to state/cycles/<issue>.comments:
+//! `native` when its runner lists issueComments, `polyfill` when its
+//! tehas.rukas.polyfills label carries issue-comments@<version>, else `off`. A
+//! park offers "Retry with the issue and all its comments" only with the first
+//! two. A comments retry on the polyfill alone runs with
+//! PI_ENSEMBLE_REPEAT_PARK=0 where the image takes it: the polyfill's comments
+//! do not reach the repeat-park guard.
+//!
+//! With neither setting and no comments a cycle is given nothing: no
+//! directory is mounted and no PI_ENSEMBLE_EXTRA_IMAGE_DIRS is passed on,
+//! whatever the instance file says. The issue is still read once, for its text, and held to the
 //! dispatcher's record (exit 4). That one read is the one the images and the
 //! files are fetched from too, so a start asks GitHub for the issue once
 //! whatever it is given. By hand, where this host holds no record, the run is
@@ -677,10 +693,21 @@ fn fetch(f: &Files, answer: &str, console: &str, stop: &Stop) -> Result<Vec<Stri
             f.kept.display()
         );
     }
-    // Kept beside it for the improvement loop's record: the directory is removed
-    // when the cycle ends. Only this cycle's: an earlier one's would mislead.
-    let stem = f.home.join(format!("state/cycles/{n}"));
-    for name in ["images.md", "retry-context.md"] {
+    keep_beside(f);
+    let said = gives::said(f.home, f.dir, "cycle", &gives::reads_images());
+    if !said.is_empty() {
+        comment(n, f.text_wait, &said);
+    }
+    Ok(mounted(f))
+}
+
+/// Kept beside the manifest for the improvement loop's record: the directory
+/// is removed when the cycle ends. Only this cycle's: an earlier one's would
+/// mislead.
+fn keep_beside(f: &Files) {
+    let stem = f.home.join(format!("state/cycles/{}", f.issue));
+    // retry-context.md is written no more: one an earlier release kept goes.
+    for name in ["images.md", "comments.json", "retry-context.md"] {
         let beside = PathBuf::from(format!("{}.{name}", stem.display()));
         let _ = fs::remove_file(&beside);
         let from = f.dir.join(name);
@@ -691,16 +718,31 @@ fn fetch(f: &Files, answer: &str, console: &str, stop: &Stop) -> Result<Vec<Stri
             );
         }
     }
-    let said = gives::said(f.home, f.dir, "cycle", &gives::reads_images());
-    if !said.is_empty() {
-        comment(n, f.text_wait, &said);
-    }
-    Ok(vec![
+}
+
+/// The directory, read-only, and its path inside the container.
+fn mounted(f: &Files) -> Vec<String> {
+    vec![
         "-v".to_string(),
         format!("{}:{}:ro", f.dir.display(), f.inside),
         "-e".to_string(),
         format!("PI_ENSEMBLE_EXTRA_IMAGE_DIRS={}", f.inside),
-    ])
+    ]
+}
+
+/// A retry's comments for an instance that gives a cycle no images and no
+/// files: the directory holds the manifest and comments.json alone. The
+/// options that give it to the container, or the exit status.
+fn comments_alone(f: &Files) -> Result<Vec<String>, i32> {
+    let n = f.issue;
+    if let Err(why) = gives::comments_only(f.home, n, f.dir, f.record) {
+        let _ = fs::remove_dir_all(f.dir);
+        eprintln!("tehas work: {why}, not starting a cycle");
+        comment(n, f.text_wait, &format!("Tehas started no cycle: {why}. The retry was ticked for the issue and all its comments, and a cycle without them is not that retry. To retry, apply `tehas:ready`."));
+        return Err(4);
+    }
+    keep_beside(f);
+    Ok(mounted(f))
 }
 
 /// The line that says what a cycle given nothing was not given, on the error
@@ -917,6 +959,24 @@ pub fn run(home: &Path, g: &Given) -> i32 {
         return 78;
     }
     let mut image_opts = Vec::new();
+    // A retry's comments are given whatever the instance gives of files.
+    let comments = !give && gives::comments_given(&record);
+    if comments {
+        let f = Files {
+            home,
+            issue: n,
+            record: &record,
+            dir: &images,
+            inside: &images_inside,
+            kept: &kept,
+            kinds,
+            text_wait,
+        };
+        image_opts = match comments_alone(&f) {
+            Ok(o) => o,
+            Err(rc) => return rc,
+        };
+    }
     if give {
         let f = Files {
             home,

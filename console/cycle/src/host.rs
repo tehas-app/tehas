@@ -37,13 +37,17 @@ use crate::runner;
 ///                 makes the cap runner-never-started of it. Memory kills are
 ///                 counted in `oom`, as for every other end.
 ///   lean-refused  tehas work's 78 was for driver lean, not another 78.
-pub const FILES: [&str; 12] = [
+///   comments      one word: how the image gives a retry's comments, `native`,
+///                 `polyfill` or `off` (gives::comments_mode). Only with
+///                 `native` or `polyfill` does a park offer the comments retry.
+pub const FILES: [&str; 13] = [
     "result.json",
     "progress.json",
     "runner_exit",
     "status",
     "nostart",
     "lean-refused",
+    "comments",
     "oom",
     "forks",
     "stalled",

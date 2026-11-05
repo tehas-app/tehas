@@ -267,6 +267,31 @@ pub fn check(c: &Check) -> i32 {
     }
     let last = last.map(|s| s * 1000);
     vars.extend(sandbox::cycle_variables(&verify.to_string(), child, last));
+    // Whether the image gives a cycle a retry's comments, for the boxes of a
+    // park of this cycle. The polyfill does not reach the repeat-park guard,
+    // so a comments retry it alone carries runs without the guard.
+    let comments = if caps_rc == 0 {
+        crate::gives::comments_mode(&answer, &image)
+    } else {
+        "off"
+    };
+    let note = c.file.with_file_name(format!("{}.comments", c.issue));
+    if fs::write(&note, format!("{comments}\n")).is_err() {
+        eprintln!(
+            "tehas work: could not write {}, a park of this cycle offers no comments retry",
+            note.display()
+        );
+    }
+    if comments == "polyfill" && crate::gives::comments_retry(&c.record) {
+        let guard = "PI_ENSEMBLE_REPEAT_PARK";
+        if caps::unsupported(&answer, "", guard, "").as_deref() == Some("") {
+            vars.push(format!("{guard}=0"));
+        } else {
+            say(&format!(
+                "tehas work: the image does not take {guard}, so the repeat-park guard of this comments retry does not see its comments"
+            ));
+        }
+    }
     let tree = tree_of(c.issue);
     let works = Path::new(&tree).parent().unwrap_or(Path::new(""));
     if works.exists() && !works.join(".tehas-workspaces").is_file() {
@@ -290,7 +315,10 @@ pub fn check(c: &Check) -> i32 {
         names.push(' ');
         names.push_str(word.split('=').next().unwrap_or(word));
     }
-    if env("TEHAS_WORK_IMAGES") == "1" || env("TEHAS_WORK_FILES") == "1" {
+    if env("TEHAS_WORK_IMAGES") == "1"
+        || env("TEHAS_WORK_FILES") == "1"
+        || crate::gives::comments_given(&c.record)
+    {
         names.push_str(" PI_ENSEMBLE_EXTRA_IMAGE_DIRS");
     }
     let lacking = (caps_rc == 0)
