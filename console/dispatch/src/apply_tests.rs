@@ -2880,6 +2880,70 @@ fn a_refused_draft_is_refused_once_however_often_the_poll_comes_back() {
 }
 
 #[test]
+fn a_clear_refusal_whose_outcome_cannot_be_kept_posts_it_once() {
+    // The clear route: `plan_clear` refuses the draft and the poll says so in
+    // a comment of its own. The keep comes before that comment, so a keep that
+    // fails posts nothing, and the poll that can keep it posts the refusal
+    // once: a comment journaled ahead of a failed keep would be posted again
+    // on every poll for as long as the keep failed.
+    let mut t = world();
+    clear_draft(
+        &t,
+        alices_session(),
+        "alice",
+        &json!({"title": REFUSED_TITLE, "spec": PLAN_BODY}),
+    );
+    let file = t.w.home.join("state/plan-7.json.out");
+    // A directory of the sibling's name stops the write for any user.
+    let new = t.w.home.join("state/plan-7.json.out.new");
+    fs::create_dir_all(&new).unwrap();
+    for a in [
+        t.apply(json!([{"plan_collect": 7}])),
+        t.apply(json!([{"plan_post": 7}])),
+    ] {
+        assert!(
+            a.log.iter().any(|l| l.starts_with(
+                "WARN: the refusal of the drafted plan of #7 could not be kept (plan-7.json.out.new:"
+            )),
+            "{:?}",
+            a.log
+        );
+    }
+    asks_nothing(&t);
+    // The console's document is still the file, `clear` and all, so the poll
+    // that can keep it reaches the same refusal.
+    let before: Value = serde_json::from_str(&fs::read_to_string(&file).unwrap()).unwrap();
+    assert_eq!(before.get("clear"), Some(&json!(true)), "{before}");
+    fs::remove_dir(&new).unwrap();
+    let a = t.apply(json!([{"plan_post": 7}]));
+    assert!(!a.log.iter().any(|l| l.starts_with("WARN")), "{:?}", a.log);
+    asks(&t);
+    let said = |t: &World| {
+        t.writes()
+            .iter()
+            .filter(|c| c.starts_with("gh issue comment 7") && c.contains(REFUSED))
+            .count()
+    };
+    let once = said(&t);
+    assert!(once > 0, "{:?}", t.writes());
+    // And the poll after it posts nothing more of the turn.
+    t.apply(json!([{"plan_post": 7}]));
+    assert_eq!(said(&t), once, "{:?}", t.writes());
+    let w = t.writes();
+    assert_eq!(
+        w.iter()
+            .filter(|c| c.starts_with("gh api -X POST") && c.contains("issues/7/comments"))
+            .count(),
+        1,
+        "{w:?}"
+    );
+    assert!(
+        w.contains(&"store plan-end 7 --posted".to_string()),
+        "{w:?}"
+    );
+}
+
+#[test]
 fn a_refusal_whose_outcome_cannot_be_kept_ends_the_poll_and_says_it() {
     // The poll refused the drafted plan and cannot keep the document that tells
     // a later poll so. It ends on the warning naming the issue and posts

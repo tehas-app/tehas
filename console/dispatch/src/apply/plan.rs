@@ -684,12 +684,13 @@ impl Writer {
     ///
     /// Two layers keep a poll from doing a step twice: the journal, and this
     /// file. Of a refused draft the file is the authoritative one. A keep that
-    /// does not land ends the turn before any write of it is journaled, and a
-    /// keep that lands then loses the poll is no loss of record: the next poll
-    /// reads the refusal out of the file and asks its reply-only question. The
-    /// file needs no journal row because a document is written whole and
-    /// renamed, so a reader sees one or the other, and what a half-written
-    /// sibling leaves behind is not read at all.
+    /// does not land ends the turn before any write of it is journaled, on
+    /// both routes: the clear route keeps the refusal before it posts the
+    /// comment that says it. A keep that lands then loses the poll is no loss
+    /// of record: the next poll reads the refusal out of the file and asks its
+    /// reply-only question. The file needs no journal row because a document
+    /// is written whole and renamed, so a reader sees one or the other, and
+    /// what a half-written sibling leaves behind is not read at all.
     pub(super) fn plan_post(&mut self, n: u64, log: &mut Vec<String>) -> bool {
         let Some((show, kept)) = self.plan_show(n, log) else {
             return false;
@@ -731,6 +732,7 @@ impl Writer {
         } else {
             None
         };
+        let mut refusal_kept = false;
         if comment.is_empty() && out.get("clear") == Some(&json!(true)) {
             // A clear draft whose text the check refuses is read again by
             // `plan_clear` through `clear_plan`, which holds its own refusal
@@ -761,6 +763,13 @@ impl Writer {
                     let text = why.take().unwrap_or(reason);
                     if says_refusal(&text) {
                         why = Some(text.clone());
+                        // Kept before it is said: the comment is journaled
+                        // once posted, so a keep that failed after it would
+                        // leave the next poll to post it again.
+                        if self.keep_refusal(n, &kept, log).is_none() {
+                            return false;
+                        }
+                        refusal_kept = true;
                         if !self.say(n, &question::q_clean(&text, 4000), log) {
                             log.push(format!(
                                 "WARN: the refusal of the drafted plan of #{n} could not be posted; the next poll tries again"
@@ -783,8 +792,8 @@ impl Writer {
             let said = question::q_clean(why.as_deref().unwrap(), 4000);
             log.push(format!("planning #{n} asks: {said}"));
             // The console's own document, restored before the refusal is said:
-            // see `keep_refusal`.
-            if self.keep_refusal(n, &kept, log).is_none() {
+            // see `keep_refusal`. The clear route above kept it already.
+            if !refusal_kept && self.keep_refusal(n, &kept, log).is_none() {
                 return false;
             }
             out = refused_document(&said, out.get("session"));
