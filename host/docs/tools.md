@@ -1714,6 +1714,13 @@ In order, stopping at the first step that fails:
    files say. If `gh auth setup-git` fails, the run stops with 1 before the
    identity is checked.
 4. It clones the product to `~/tehas/repos/<name>` when there is no checkout.
+   A checkout it finds, such as one `tehas state unpack` brought from another
+   host, it fetches from origin and fast-forwards on the branch it is on, with
+   `--no-build` too, so the gates run on origin's code. A checkout with local
+   changes, commits of its own, a detached HEAD, or a fetch that fails or takes
+   over 120 seconds is left as it is: the run names the path and the reason in
+   a line `no fast-forward of the product checkout <path> (<why>); the checkout
+   was left as it is`, and goes on with its status unchanged.
 5. It runs `install.sh` from the same tree as the command, then
    [tehas labels](#tehas-labels).
 6. Unless `--no-build`: it builds the sandbox image when there is none
