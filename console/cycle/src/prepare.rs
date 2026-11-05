@@ -22,7 +22,7 @@
 //! the host runs nothing in it. The host runs git only in a tree no container
 //! has touched.
 
-use crate::start::{self, is_record, record_value};
+use crate::start::{self, is_record, record_value, Driver};
 use crate::{caps, host, improve};
 use serde_json::{json, Value};
 use std::fs::{self, OpenOptions};
@@ -179,6 +179,9 @@ pub struct Check {
     pub file: PathBuf,
     pub record: String,
     pub restart: bool,
+    pub driver: Driver,
+    /// state/cycles/<issue>.lean-refused: left when the image cannot run lean.
+    pub lean_note: PathBuf,
     pub caps_wait: u64,
     pub console: String,
     /// The limits and the security options of the slice.
@@ -257,10 +260,17 @@ pub fn check(c: &Check) -> i32 {
         Err(_) => (String::new(), 127),
     };
     // No step starts after the deadline: the cycle parks with a handoff instead.
-    let mut features = "handoffChannel".to_string();
+    // Lean names the same two features its own way.
+    let lean = c.driver == Driver::Lean;
+    let (channel, by_deadline) = if lean {
+        ("leanHandoffHost", " leanDeadline")
+    } else {
+        ("handoffChannel", " cycleDeadline")
+    };
+    let mut features = channel.to_string();
     let last = deadline(time::now(), limit);
     match last {
-        Some(_) => features.push_str(" cycleDeadline"),
+        Some(_) => features.push_str(by_deadline),
         None => say(&format!(
             "tehas work: the time limit of {limit}s leaves no room for a deadline before it, the cycle has none"
         )),
@@ -281,10 +291,13 @@ pub fn check(c: &Check) -> i32 {
         .flatten();
     let how = how.as_ref().and_then(|r| r.get("how"));
     let refresh = how.and_then(Value::as_str) == Some("refresh");
+    // A lean restart or refresh is refused below unless the image lists the
+    // flag for work-lean.
     let flags = run_flags(limit, c.restart, refresh);
-    if c.restart {
+    if c.restart && !lean {
         features.push_str(" restartClearsAttention");
     }
+    let verb = c.driver.verb();
     let mut names = String::new();
     for word in vars.iter().filter(|w| w.starts_with("PI_ENSEMBLE_")) {
         names.push(' ');
@@ -294,7 +307,7 @@ pub fn check(c: &Check) -> i32 {
         names.push_str(" PI_ENSEMBLE_EXTRA_IMAGE_DIRS");
     }
     let lacking = (caps_rc == 0)
-        .then(|| caps::unsupported(&answer, &flags.join(" "), &names, &features))
+        .then(|| caps::unsupported(&answer, verb, &flags.join(" "), &names, &features))
         .flatten();
     let Some(lacking) = lacking else {
         eprintln!(
@@ -306,6 +319,12 @@ pub fn check(c: &Check) -> i32 {
         eprintln!(
             "tehas work: {image} does not support what this cycle is given, not starting a cycle:"
         );
+        if lean {
+            // tehasbot cycle parks a start that never ran, and classic does not
+            // run in its place.
+            let _ = fs::File::create(&c.lean_note);
+            eprintln!("    (driver lean, {verb}; it does not run classic in its place)");
+        }
         for line in lacking.trim_end_matches('\n').lines() {
             eprintln!("    {line}");
         }
@@ -331,7 +350,7 @@ pub fn check(c: &Check) -> i32 {
         return STOPPED;
     }
     let state = json!({"limits": limits, "security": security, "env": vars,
-        "hosts": hosts, "flags": flags});
+        "hosts": hosts, "flags": flags, "verb": verb});
     if !write_state(&c.file, &state) {
         eprintln!("tehas work: could not prepare the sandbox, not starting a cycle");
         return 78;
@@ -384,7 +403,7 @@ fn make_tree(tree: &str, state_dir: &str, branch: &str) -> bool {
             .create(true)
             .open(format!("{tree}/.git/info/exclude"))
             .and_then(|mut f| {
-                f.write_all(b"/.pi/work-state/\n/.pi/permissions.json\n/.pi/decisions.json\n")
+                f.write_all(b"/.pi/work-state/\n/.pi/lean-state/\n/.pi/permissions.json\n/.pi/decisions.json\n")
             })
             .is_ok()
     };
@@ -729,6 +748,10 @@ pub fn record(home: &Path, r: &Record) -> Result<Vec<String>, i32> {
         eprintln!("tehas work: could not write {}", err.display());
     }
     let cid = file("cid").to_string_lossy().into_owned();
+    let Some(verb) = state.get("verb").and_then(Value::as_str) else {
+        eprintln!("tehas work: could not prepare the sandbox, not starting a cycle");
+        return Err(78);
+    };
     Ok(sandbox::cycle_run(&sandbox::CycleRun {
         name: &r.name,
         limits: &list(&state, "limits"),
@@ -741,6 +764,7 @@ pub fn record(home: &Path, r: &Record) -> Result<Vec<String>, i32> {
         env: &list(&state, "env"),
         hosts: &list(&state, "hosts"),
         image: &env("PI_ENSEMBLE_IMAGE"),
+        verb,
         issue: r.issue,
         flags: &list(&state, "flags"),
     }))
