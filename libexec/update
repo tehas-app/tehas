@@ -1,103 +1,18 @@
 #!/usr/bin/env bash
 # Bring this host up to date in one step, from a release or from the platform
-# checkout. `tehas help update` says what it does: this script is what cannot be
-# in the console.
+# checkout. `tehas help update` says what it does. The console does all of it
+# (console/src/update/run.rs); this execs it with its own path, so the console
+# install.sh leaves there, or the one it kept, finishes the run. A console that
+# does not start cannot say so itself, so it is asked first.
 #
-# The lock is here because Rust opens its files close-on-exec, handing descriptor
-# 7 to install.sh needs dup2 before exec, which is unsafe, and an install.sh of any
-# version takes the lock only as a descriptor it inherited. Everything but
-# install.sh runs with 7>&-: a child that outlives this run would keep the lock.
-#
-# install.sh renames over this file and over the console while they run, which
-# neither notices: this shell reads the file it opened, and no console runs
-# meanwhile. The console that finishes is the one install.sh left, so a unit the
-# new version adds is restarted by the update that installed it.
-#
-# Exit: the console's, as its text says; 1 another update is running or the
-# console does not answer; 78 the settings are missing or malformed, or no console
-# stands beside this file.
+# Exit: the console's; 1 the console does not answer; 78 no console stands
+# beside this file.
 set -uo pipefail
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 console=${TEHAS_CONSOLE:-$here/console}
 [ -x "$console" ] || { echo "tehas update: no console at $console: run install.sh" >&2; exit 78; }
-
-"$console" update args "$@"
+api=$("$console" update api 2>/dev/null)
 rc=$?
-case "$rc" in
-  0) ;;
-  64) exit 64 ;;
-  99) exit 0 ;;
-  *)
-    echo "tehas update: the console at $console does not answer (exit $rc), so this host cannot update itself; see What to do when tehas update says the console does not answer in the manual's troubleshooting page" >&2
-    exit 1
-    ;;
-esac
-# Before lib/config.sh is loaded: tehas_load drops what it does not know.
-lock_wait=$("$console" update wait update) || exit 1
-
-# shellcheck source=lib/config.sh
-. "$here/../lib/config.sh"
-tehas_load || exit 78
-tehas_require_instance_settings
-
-"$console" update gate "$@"
-rc=$?
-case "$rc" in
-  0)
-    update_lock=$TEHAS_HOME/state/update.lock
-    if ! mkdir -p "$TEHAS_HOME/state" || ! exec 7>>"$update_lock"; then
-      echo "tehas update: cannot open $update_lock; nothing was changed" >&2
-      exit 1
-    fi
-    if ! flock -w "$lock_wait" 7; then
-      echo "tehas update: another update is running ($update_lock), still held after ${lock_wait}s; nothing was changed" >&2
-      exit 1
-    fi
-    export TEHAS_UPDATE_LOCK_FD=7
-    ;;
-  98) ;;
-  *) exit "$rc" ;;
-esac
-
-scratch=${TMPDIR:-/tmp}
-mkdir -p "$scratch" 2>/dev/null || scratch=/tmp
-scratch=$(mktemp -d "$scratch/tehas-update.XXXXXX") || {
-  echo "tehas update: could not make a scratch file to keep install.sh's diagnostics apart" >&2
-  exit 1
-}
-trap 'rm -rf "$scratch"' EXIT
-
-"$console" update prepare --plan "$scratch/plan" "$@" 7>&-
-rc=$?
-[ "$rc" != 99 ] || exit 0
-[ "$rc" = 0 ] || exit "$rc"
-
-# The console wrote the tree and the mode first. --pending has no tree: the record
-# is the whole of what it was asked to finish. install.sh is the one child that
-# keeps the descriptor. Its limit is what the console reports, and not below
-# TEHAS_BUILD_TIMEOUT's default: install.sh reports a build it cut off itself.
-{ IFS='=' read -r _ tree; IFS='=' read -r _ mode; } <"$scratch/plan"
-rc=0
-: >"$scratch/out"
-: >"$scratch/err"
-if [ -n "$tree" ]; then
-  run=("$tree/install.sh")
-  [ "$mode" != check ] || run+=(--check)
-  timeout 1800 "${run[@]}" >"$scratch/out" 2>"$scratch/err"
-  rc=$?
-fi
-
-finisher=$console
-if [ "$("$finisher" update api 2>/dev/null 7>&-)" != 1 ]; then
-  # A --to below the release that moved this into the console.
-  finisher=$console.prev
-  if [ "$("$finisher" update api 2>/dev/null 7>&-)" != 1 ]; then
-    cat -- "$scratch/out"
-    cat -- "$scratch/err" >&2
-    echo "tehas update: neither $console nor $finisher can finish this update; what install.sh copied is installed, and what it recorded is still owed" >&2
-    exit 1
-  fi
-fi
-"$finisher" update finish --plan "$scratch/plan" --install-out "$scratch/out" \
-  --install-err "$scratch/err" --install-rc "$rc" 7>&-
+[ "$api" = 1 ] || { echo "tehas update: the console at $console does not answer (exit $rc), so this host cannot update itself; see What to do when tehas update says the console does not answer in the manual's troubleshooting page" >&2; exit 1; }
+exec "$console" update run "$console" "$@"
