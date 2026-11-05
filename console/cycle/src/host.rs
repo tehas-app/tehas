@@ -40,10 +40,14 @@ use crate::runner;
 ///   comments      one word: how the image gives a retry's comments, `native`,
 ///                 `polyfill` or `off` (gives::comments_mode). Only with
 ///                 `native` or `polyfill` does a park offer the comments retry.
+///   signal        one line: the signal that came to tehas work (TERM, INT, HUP,
+///                 or - when not known) and the step in flight, or -. Left only
+///                 when it stopped the container on that signal; tehasbot
+///                 cycle makes the cap `signal` of it.
 ///   disk          `cap <held> <max>` or `floor <held> <free> <floor>`, in
 ///                 bytes, then the step in flight: tehas work stopped the
 ///                 cycle for its scratch's disk (src/scratch.rs).
-pub const FILES: [&str; 14] = [
+pub const FILES: [&str; 15] = [
     "result.json",
     "progress.json",
     "runner_exit",
@@ -55,6 +59,7 @@ pub const FILES: [&str; 14] = [
     "forks",
     "stalled",
     "timed",
+    "signal",
     "disk",
     "stopped",
     "done",

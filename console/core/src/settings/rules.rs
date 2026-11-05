@@ -45,6 +45,7 @@ const SWITCH: Rule = Rule::OneOf(&["0", "1"], "expected 0 or 1");
 const LOGIN_MILLWRIGHT: &str =
     "expected one GitHub login, such as tehas-millwright or tehas-millwright[bot]";
 const LOGIN_BOT: &str = "expected one GitHub login, such as tehas-app-bot[bot]";
+const LOGIN_OWNER: &str = "expected the GitHub login of one person: GitHub assigns no app's bot";
 
 /// The shape of a value.
 #[derive(Clone, Copy)]
@@ -62,6 +63,8 @@ pub enum Rule {
     /// empty name match.
     Logins,
     Login(&'static str),
+    /// A person's login, never a bot's: GitHub assigns no app's bot.
+    Person(&'static str),
     AppId,
     OneOf(&'static [&'static str], &'static str),
     /// Both analytics settings end up in an HTML attribute of every page, so
@@ -235,6 +238,7 @@ pub const TABLE: &[Setting] = &[
     given_or("TEHAS_GITHUB_APP_ID", Rule::AppId, ""),
     given_or("TEHAS_GITHUB_APP_INSTALLATION", Rule::AppId, ""),
     given_or("TEHAS_BOT_LOGIN", Rule::Login(LOGIN_BOT), ""),
+    given_or("TEHAS_OWNER", Rule::Person(LOGIN_OWNER), ""),
     given_or("TEHAS_RUKAS_WORKAROUNDS", Rule::Workarounds, ""),
     given_or("TEHAS_BRANCH_CHECK", Rule::BranchCheck, ""),
     given_or("TEHAS_LOW_GATE", Rule::LowGate, ""),
@@ -309,6 +313,7 @@ fn verdict(rule: Rule, v: &str, trees: &Trees) -> Result<(), String> {
             "expected GitHub logins separated by single spaces",
         ),
         Rule::Login(why) => refuse(is_login(v.strip_suffix("[bot]").unwrap_or(v)), why),
+        Rule::Person(why) => refuse(is_login(v), why),
         Rule::AppId => refuse(leading(v, 12), "expected the ID GitHub shows, a whole number"),
         Rule::OneOf(words, why) => refuse(words.contains(&v), why),
         Rule::ScriptAddress => {
@@ -678,6 +683,14 @@ mod tests {
         for bad in ["a[bot][bot]", "[bot]", "a[BOT]", "a[bot]x", "a b", "-a"] {
             refuses("TEHAS_MILLWRIGHT_LOGIN", bad, LOGIN_MILLWRIGHT);
             refuses("TEHAS_BOT_LOGIN", bad, LOGIN_BOT);
+        }
+    }
+
+    #[test]
+    fn the_owner_is_one_person_and_never_a_bot() {
+        takes("TEHAS_OWNER", "janit");
+        for bad in ["acme-app[bot]", "a b", "-a", "alice bob", "a;b"] {
+            refuses("TEHAS_OWNER", bad, LOGIN_OWNER);
         }
     }
 

@@ -37,6 +37,8 @@ pub struct Host {
     pub millwright: String,
     /// The bot's login, whose pull requests a retry's comments are read on.
     pub bot: String,
+    /// TEHAS_OWNER: the person a claimed issue is assigned to, or empty.
+    pub owner: String,
     pub systemctl: String,
     /// TEHAS_CYCLE_START_CMD and TEHAS_CYCLE_STOP_CMD, which a test sets.
     pub start_cmd: Option<String>,
@@ -671,7 +673,26 @@ impl Writer {
         for l in super::strings(a, "remove") {
             args.extend(["--remove-label".into(), l]);
         }
-        match self.write(n, "label-add", args, None, None) {
+        // #806: the owner is assigned in the same call, so GitHub shows the
+        // issue as taken. A refresh's issue was assigned when it was first
+        // claimed. An assign GitHub refuses fails the whole edit, so the mark
+        // is made again without it: the claim never fails on the assign.
+        let owner = self.host.owner.clone();
+        let assign = !owner.is_empty() && refresh_pr.is_none();
+        let mut wrote = if assign {
+            let mut with = args.clone();
+            with.extend(["--add-assignee".into(), owner.clone()]);
+            self.write(n, "label-add", with, None, None)
+        } else {
+            self.write(n, "label-add", args.clone(), None, None)
+        };
+        if assign && matches!(wrote, Wrote::Failed(_)) {
+            log.push(format!(
+                "WARN: could not assign #{n} to {owner}, marking it running without an assignee"
+            ));
+            wrote = self.write(n, "label-add", args, None, None);
+        }
+        match wrote {
             Wrote::Done(_) => {}
             other => {
                 if matches!(other, Wrote::Unrecorded) {

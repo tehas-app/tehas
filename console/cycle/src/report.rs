@@ -140,7 +140,13 @@ pub fn comments_said(f: &Facts) -> String {
 }
 
 /// The caps tehas sets for a stop of its own, and no other command does.
-pub const OWN_CAPS: [&str; 4] = ["wall-clock", "stall", "disk", "runner-never-started"];
+pub const OWN_CAPS: [&str; 5] = [
+    "wall-clock",
+    "stall",
+    "disk",
+    "runner-never-started",
+    "signal",
+];
 
 /// The label that chooses the lean driver.
 const LEAN: &str = "tehas:lean";
@@ -625,6 +631,23 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         }
         None => ("0".into(), String::new(), String::new()),
     };
+    // The signal note: the signal's name, or - when not known, and the step.
+    let signal = f.file("signal").text().map(|t| {
+        let ws = words(t, Some(200));
+        let word = |i: usize| ws.get(i).cloned().unwrap_or_default();
+        let (name, at) = (word(0), word(1));
+        let name = if re(r"^(TERM|INT|HUP)$", &name) {
+            name
+        } else {
+            String::new()
+        };
+        let at = if re(r"^[A-Za-z0-9_.:-]{1,40}$", &at) && at != "-" {
+            at
+        } else {
+            String::new()
+        };
+        (name, at)
+    });
     // The disk stop (src/scratch.rs): `cap <held> <max>` or
     // `floor <held> <free> <floor>`, then the step in flight.
     let disk: Option<(String, Vec<u64>, String)> = f.file("disk").text().and_then(|t| {
@@ -709,6 +732,12 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
     if step == "-" && !stalled_step.is_empty() {
         step = stalled_step.clone();
         step_from = "stalled";
+    }
+    if let Some((_, at)) = &signal {
+        if step == "-" && !at.is_empty() {
+            step = at.clone();
+            step_from = "signal";
+        }
     }
     if f.rc == 137 && !watched && (status == "running" || status == "unknown") {
         status = "killed".into();
@@ -872,6 +901,15 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
             &format!("tehas stop ended the cycle, run by {stopped_by} at {stopped_at_shown}, step {step} in flight{tail}"),
             200,
         );
+    } else if let Some((name, _)) = signal.as_ref().filter(|_| {
+        cap.is_empty() && ["running", "unknown", "interrupted"].contains(&status.as_str())
+    }) {
+        own = "signal";
+        stop_why = if name.is_empty() {
+            "a stop signal came to tehas work and it stopped the container".to_string()
+        } else {
+            format!("SIG{name} came to tehas work and it stopped the container")
+        };
     }
     if !own.is_empty() {
         if !((own == "wall-clock" && timed_by == "runner") || own == "runner-never-started") {
@@ -979,7 +1017,7 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
             "log" => {
                 summary = format!("status `{status}`, last step `{step}` read from its run log, {mins} min")
             }
-            "stalled" | "timed" | "disk" => {
+            "stalled" | "timed" | "disk" | "signal" => {
                 summary = format!("status `{status}`, last step `{step}` tehas work saw in flight, {mins} min")
             }
             "nostart" => {
@@ -1398,7 +1436,7 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
             };
             parked = format!("Tehas started no cycle: an image or file the issue links could not be given to it, or the issue could not be read for them (runner exit {runner_rc}). Nothing of it ran: no workspace, no container, no step, no usage.{said} The comment before this one names it; {log_where}.");
             if rc != 4 {
-                parked = format!("Tehas started no cycle: this start's approval says driver `lean`, and this tehas cannot run the lean driver yet (runner exit {runner_rc}). It does not run classic in its place, and nothing of it ran. To run it on classic, take `tehas:lean` off, then retry; {log_where}.");
+                parked = format!("Tehas started no cycle: this start's driver is `lean`, and the sandbox image cannot run it as this start asks (runner exit {runner_rc}). It does not run classic in its place, and nothing of it ran. The log names what the image lacks. To run it on classic, take `tehas:lean` off, then retry; {log_where}.");
                 park_why = tehas_core::question::LEAN_REFUSED;
                 lead = format!("Take `{LEAN}` off this issue, then tick a box.");
             }
@@ -1747,6 +1785,68 @@ mod tests {
             comments(&r)
         );
         assert!(!r.improve.iter().any(|a| a == "stalled"), "{:?}", r.improve);
+    }
+
+    #[test]
+    fn a_signal_note_is_the_cap_signal_and_its_reason_names_the_signal_and_step() {
+        let r = notes(vec![("signal", "TERM verify\n")]);
+        assert_eq!(r.after.ended.cap, "signal");
+        assert_eq!(
+            r.after.ended.reason,
+            "SIGTERM came to tehas work and it stopped the container, step verify in flight"
+        );
+        assert_eq!(r.after.ended.step, "verify");
+        assert!(
+            r.end.windows(2).any(|w| w == ["--cap", "signal"]),
+            "{:?}",
+            r.end
+        );
+        assert!(
+            comments(&r)
+                .iter()
+                .any(|c| c.contains("tehas stopped the cycle: the cap `signal`")),
+            "{:?}",
+            comments(&r)
+        );
+    }
+
+    #[test]
+    fn a_signal_note_of_no_known_signal_or_step_still_names_the_stop() {
+        for text in ["- -\n", "KILL `rm`;x\n", "\n"] {
+            let r = notes(vec![("signal", text)]);
+            assert_eq!(r.after.ended.cap, "signal", "{text:?}");
+            assert_eq!(
+                r.after.ended.reason,
+                "a stop signal came to tehas work and it stopped the container, step - in flight",
+                "{text:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_persons_stop_beside_a_signal_note_keeps_its_own_reason_and_no_cap() {
+        let r = notes(vec![
+            ("signal", "TERM develop\n"),
+            ("stopped", "1792000000 alice\n"),
+        ]);
+        assert_eq!(r.after.ended.cap, "");
+        assert!(
+            r.after
+                .ended
+                .reason
+                .starts_with("tehas stop ended the cycle, run by alice"),
+            "{}",
+            r.after.ended.reason
+        );
+    }
+
+    #[test]
+    fn a_stall_beside_a_signal_note_is_the_stall() {
+        let r = notes(vec![
+            ("signal", "TERM develop\n"),
+            ("stalled", "600\ndevelop\n"),
+        ]);
+        assert_eq!(r.after.ended.cap, "stall");
     }
 
     #[test]

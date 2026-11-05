@@ -3,8 +3,8 @@
 //! supports between them and each refusal keeps its place in that order.
 //!
 //! [`record`] reads the approval of this start into a private file and gives
-//! its path and why a start with no approval stops, if it does. It refuses
-//! driver lean with 78 and the note `<issue>.lean-refused`.
+//! its path, why a start with no approval stops, if it does, and the driver
+//! the start runs. A driver this tehas does not know is 78.
 //!
 //! [`text`] reads the issue once, holds its words to the approval, and measures
 //! them into state/sizes.jsonl. It says why a start stopped on the issue and
@@ -131,13 +131,41 @@ fn read_record(home: &Path, issue: &str, attempt: &str) -> (Option<PathBuf>, &'s
     }
 }
 
-/// Whether the approval says a driver: lean needs what this tehas cannot run
-/// yet, and classic never runs in its place.
-pub fn wants_driver(record: &Value) -> bool {
-    !matches!(
-        record.get("driver"),
-        None | Some(Value::Null) | Some(Value::Bool(false))
-    ) && record.get("driver") != Some(&Value::String(String::new()))
+/// The engine a cycle runs: classic `work`, or `work-lean`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Driver {
+    Classic,
+    Lean,
+}
+
+impl Driver {
+    /// The driver a person names with --driver.
+    pub fn named(word: &str) -> Option<Driver> {
+        match word {
+            "classic" => Some(Driver::Classic),
+            "lean" => Some(Driver::Lean),
+            _ => None,
+        }
+    }
+
+    /// The runner's verb.
+    pub fn verb(self) -> &'static str {
+        match self {
+            Driver::Classic => "work",
+            Driver::Lean => "work-lean",
+        }
+    }
+}
+
+/// The driver an approval binds: none is classic. None for one this tehas does
+/// not know, which never runs as classic.
+pub fn record_driver(record: &Value) -> Option<Driver> {
+    match record.get("driver") {
+        None | Some(Value::Null) | Some(Value::Bool(false)) => Some(Driver::Classic),
+        Some(Value::String(s)) if s.is_empty() => Some(Driver::Classic),
+        Some(Value::String(s)) => Driver::named(s),
+        Some(_) => None,
+    }
 }
 
 pub fn record_value(file: &Path) -> Option<Value> {
@@ -149,26 +177,38 @@ pub fn is_record(p: &str) -> bool {
     !p.is_empty() && fs::symlink_metadata(p).is_ok_and(|m| m.is_file())
 }
 
-/// The `record` step: the approval's private file, if any, and why a start
-/// with none stops; or the exit status.
+/// What the `record` step gives: the approval's private file, if any, why a
+/// start with none stops, and the driver.
+pub struct Recorded {
+    pub file: Option<PathBuf>,
+    pub why: &'static str,
+    pub driver: Driver,
+}
+
+/// The `record` step, or the exit status. A driver `asked` for by hand wins
+/// over the approval's; with neither the driver is classic.
 pub fn record(
     home: &Path,
     issue: u64,
     attempt: &str,
-) -> Result<(Option<PathBuf>, &'static str), i32> {
+    asked: Option<Driver>,
+) -> Result<Recorded, i32> {
     let n = issue.to_string();
     let (file, why) = read_record(home, &n, attempt);
-    if let Some(f) = &file {
-        if record_value(f).is_some_and(|r| wants_driver(&r)) {
+    let bound = match file.as_deref().and_then(record_value) {
+        Some(r) => record_driver(&r),
+        None => Some(Driver::Classic),
+    };
+    let Some(driver) = asked.or(bound) else {
+        if let Some(f) = &file {
             let _ = fs::remove_file(f);
-            let _ = fs::File::create(home.join(format!("state/cycles/{n}.lean-refused")));
-            eprintln!(
-                "tehas work: this tehas cannot run the lean driver yet, not starting a cycle; take tehas:lean off #{n} to run it on classic"
-            );
-            return Err(78);
         }
-    }
-    Ok((file, why))
+        eprintln!(
+            "tehas work: the approval of #{n} names a driver this tehas does not know, not starting a cycle"
+        );
+        return Err(78);
+    };
+    Ok(Recorded { file, why, driver })
 }
 
 /// What the `text` step works with.
@@ -388,17 +428,34 @@ mod tests {
     }
 
     #[test]
-    fn lean_is_any_driver_the_record_names() {
-        assert!(wants_driver(&json!({"driver": "lean"})));
-        assert!(wants_driver(&json!({"driver": 1})));
+    fn a_record_with_no_driver_is_classic_and_an_unknown_one_is_none() {
+        assert_eq!(
+            record_driver(&json!({"driver": "lean"})),
+            Some(Driver::Lean)
+        );
+        assert_eq!(
+            record_driver(&json!({"driver": "classic"})),
+            Some(Driver::Classic)
+        );
         for no in [
             json!({}),
             json!({"driver": null}),
             json!({"driver": false}),
             json!({"driver": ""}),
         ] {
-            assert!(!wants_driver(&no), "{no}");
+            assert_eq!(record_driver(&no), Some(Driver::Classic), "{no}");
         }
+        for odd in [json!({"driver": "other"}), json!({"driver": 1})] {
+            assert_eq!(record_driver(&odd), None, "{odd}");
+        }
+    }
+
+    #[test]
+    fn a_driver_is_a_verb_of_the_runner() {
+        assert_eq!(Driver::named("lean").map(Driver::verb), Some("work-lean"));
+        assert_eq!(Driver::named("classic").map(Driver::verb), Some("work"));
+        assert_eq!(Driver::named("Lean"), None);
+        assert_eq!(Driver::named(""), None);
     }
 
     #[test]

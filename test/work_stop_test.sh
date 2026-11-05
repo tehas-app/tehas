@@ -132,6 +132,9 @@ kill "$(cat "$T/sleeper.pid" 2>/dev/null)" 2>/dev/null
 t_contains "$(t_calls docker)" "stop -t 10 tehas-work-7"
 t_lacks "$(cat "$T/work.out")" "was killed"
 t_eq "$(jq -c '[.running, .status]' "$live/cycles/7.json")" '[false,"interrupted"]'
+# No gate ran, so none is closed. No step was seen, so none is named.
+t_eq "$(cat "$T/home/tehas/state/cycles/7.signal")" "TERM -"
+t_lacks "$(cat "$T"/home/tehas/logs/work-7-*.jsonl)" "verify-aborted"
 
 t_case "TERM with no result gives interrupted"
 fresh
@@ -146,6 +149,21 @@ t_contains "$t_out" "rc=2"
 t_lacks "$(cat "$T/work.out")" "was killed"
 t_contains "$(cat "$T/work.out")" "status=interrupted"
 t_eq "$(jq -c '[.running, .status]' "$live/cycles/7.json")" '[false,"interrupted"]'
+
+t_case "a TERM inside a gate leaves the signal and the step, closes the gate in the stream, and says so on the console"
+fresh
+under_cycle
+container "progress '{\"v\":1,\"kind\":\"step-started\",\"event\":{\"step\":\"develop\"}}'; progress '{\"v\":1,\"kind\":\"verify-started\",\"issue\":7,\"event\":{\"kind\":\"verify-started\",\"step\":\"develop\",\"command\":\"make test\"}}'; trap 'says interrupted; exit 21' TERM; \"\$nap\" 60 & echo \$! >\"\$T/sleeper.pid\"; wait; wait"
+t_run "$work 7 >\"\$T/work.out\" 2>&1 & pid=\$!
+for _ in \$(seq 200); do [ -e \"\$T/sleeper.pid\" ] && grep -qs develop \"$live/console-7.txt.now\" && break; \"\$(command -pv sleep)\" 0.1; done
+kill -TERM \$pid; wait \$pid; echo rc=\$?"
+kill "$(cat "$T/sleeper.pid" 2>/dev/null)" 2>/dev/null
+t_contains "$(cat "$T/work.out")" "status=interrupted step=- cap=signal"
+t_eq "$(cat "$T/home/tehas/state/cycles/7.signal")" "TERM develop"
+log=$(find "$T/home/tehas/logs" -name 'work-7-*.jsonl' | head -n 1)
+t_eq "$(jq -c 'select(.kind == "verify-aborted") | [.by, .event.step, .event.command, .event.status, .event.signal]' "$log")" \
+  '["tehas","develop","make test","aborted","TERM"]'
+t_contains "$(cat "$live/console-7.txt")" "tehas work: SIGTERM came at step develop, so tehas stopped the container; the gate of step develop was left open and is closed as aborted"
 
 t_case "a TERM as soon as the container starts is caught: interrupted, and the container stopped"
 fresh

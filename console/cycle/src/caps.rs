@@ -106,12 +106,19 @@ fn version(caps: &Value, path: &[&str], want: u64, what: &str) -> Option<Option<
 
 /// What the answer does not support, one line each, in plain characters: a
 /// contract version other than the one read here, a flag in `flags` that the
-/// work verb does not take, a name in `names` that is no input a host may set,
-/// a name in `features` the answer does not set to true. None when the answer
-/// cannot be read.
-pub fn unsupported(text: &str, flags: &str, names: &str, features: &str) -> Option<String> {
+/// verb `verb` does not take (every one, when the answer has no such verb), a name in
+/// `names` that is no input a host may set, a name in `features` the answer
+/// does not set to true. For `work-lean` the answer must also say that it
+/// writes the result schema read here. None when the answer cannot be read.
+pub fn unsupported(
+    text: &str,
+    verb: &str,
+    flags: &str,
+    names: &str,
+    features: &str,
+) -> Option<String> {
     let caps = answer(text)?;
-    let flags_taken = dig(&caps, &["verbs", "work", "flags"])?;
+    let flags_taken = dig(&caps, &["verbs", verb, "flags"])?;
     let have: Vec<&str> = items(Some(flags_taken))
         .into_iter()
         .filter_map(Value::as_str)
@@ -140,6 +147,10 @@ pub fn unsupported(text: &str, flags: &str, names: &str, features: &str) -> Opti
     .into_iter()
     .flatten()
     .collect();
+    let lean_schema = dig(&caps, &["features", "workLeanResultSchema"]);
+    if verb == "work-lean" && !is_num(lean_schema, RESULT_SCHEMA) {
+        lines.push(format!("the feature workLeanResultSchema {RESULT_SCHEMA}"));
+    }
     lines.extend(
         words(flags)
             .filter(|f| f.starts_with("--") && !have.contains(f))
@@ -305,6 +316,7 @@ mod tests {
         assert_eq!(
             unsupported(
                 &caps,
+                "work",
                 "--timeout 360 --json --restart",
                 "PI_ENSEMBLE_SUBAGENT_MODEL PI_ENSEMBLE_MODEL_DEVELOPER",
                 "handoffChannel"
@@ -320,11 +332,11 @@ mod tests {
     fn each_contract_version_is_compared_as_a_number() {
         let a = r#"{"contracts":{"exitCodes":{"version":1.0},"resultSchema":{"version":"5"},"ndjson":{"stable":{"version":9}}}}"#;
         assert_eq!(
-            unsupported(a, "", "", "").unwrap(),
+            unsupported(a, "work", "", "", "").unwrap(),
             "result schema version 5, not 5\nstable NDJSON version 9, not 1\n"
         );
         assert_eq!(
-            unsupported("{}", "", "", "").unwrap(),
+            unsupported("{}", "work", "", "", "").unwrap(),
             "exit codes version null, not 1\nresult schema version null, not 5\nstable NDJSON version null, not 1\n"
         );
     }
@@ -337,14 +349,14 @@ mod tests {
             r#"{"verbs":7}"#,
             r#"{"verbs":{"work":[]}}"#,
         ] {
-            assert_eq!(unsupported(bad, "", "", ""), None, "{bad}");
+            assert_eq!(unsupported(bad, "work", "", "", ""), None, "{bad}");
         }
     }
 
     #[test]
     fn only_one_object_is_an_answer() {
         for bad in ["", "not json", "[]", "7", "null", "{} {}", "{} x"] {
-            assert_eq!(unsupported(bad, "", "", ""), None, "{bad}");
+            assert_eq!(unsupported(bad, "work", "", "", ""), None, "{bad}");
             assert_eq!(mode(bad, "planTurns", None), ("error", 1), "{bad}");
             assert!(!verb(bad, "work", ""), "{bad}");
             assert!(!reads_images(bad), "{bad}");
@@ -358,7 +370,7 @@ mod tests {
             {"name":"F_<ROLE>","scope":"sandbox"},{"name":"H_<ROLE>","scope":"other"}]"#,
         );
         assert_eq!(
-            unsupported(&a, "", "M_OPS_X M_A_X M_B_X F_ANY_1 F_ H_A", "").unwrap(),
+            unsupported(&a, "work", "", "M_OPS_X M_A_X M_B_X F_ANY_1 F_ H_A", "").unwrap(),
             "the input M_A_X\nthe input M_B_X\nthe input F_\nthe input H_A\n"
         );
     }
@@ -366,7 +378,7 @@ mod tests {
     #[test]
     fn a_word_may_end_in_a_newline() {
         let a = with(r#""inputs":[{"name":"P_A","scope":"cycle"}]"#);
-        assert_eq!(unsupported(&a, "", "P_A\n", "").unwrap(), "");
+        assert_eq!(unsupported(&a, "work", "", "P_A\n", "").unwrap(), "");
     }
 
     #[test]
@@ -374,22 +386,59 @@ mod tests {
         let a = with(
             r#""inputs":[{"name":"P_.*","scope":"cycle"},{"name":"P_A|P_B","scope":"cycle"}]"#,
         );
-        assert_eq!(unsupported(&a, "", "P_A", "").unwrap(), "the input P_A\n");
+        assert_eq!(
+            unsupported(&a, "work", "", "P_A", "").unwrap(),
+            "the input P_A\n"
+        );
     }
 
     #[test]
     fn words_split_on_spaces_and_flag_values_are_not_flags() {
         let a = with(r#""verbs":{"work":{"flags":["--json",7]}}"#);
         assert_eq!(
-            unsupported(&a, "  --timeout 360  --json ", "", "").unwrap(),
+            unsupported(&a, "work", "  --timeout 360  --json ", "", "").unwrap(),
             "the flag --timeout\n"
+        );
+    }
+
+    #[test]
+    fn work_lean_is_asked_its_own_flags_and_its_result_schema() {
+        let a = with(
+            r#""verbs":{"work":{"flags":["--json","--timeout","--restart"]},"work-lean":{"flags":["--json","--timeout"]}},
+            "features":{"workLeanResultSchema":5,"leanHandoffHost":true}"#,
+        );
+        assert_eq!(
+            unsupported(
+                &a,
+                "work-lean",
+                "--timeout 360 --json",
+                "",
+                "leanHandoffHost"
+            )
+            .unwrap(),
+            ""
+        );
+        assert_eq!(
+            unsupported(&a, "work-lean", "--timeout 360 --json --restart", "", "").unwrap(),
+            "the flag --restart\n"
+        );
+        let old = with(
+            r#""verbs":{"work":{"flags":["--json","--timeout"]}},"features":{"workLeanResultSchema":4}"#,
+        );
+        assert_eq!(
+            unsupported(&old, "work-lean", "--timeout 360 --json", "", "leanDeadline").unwrap(),
+            "the feature workLeanResultSchema 5\nthe flag --timeout\nthe flag --json\nthe feature leanDeadline\n"
+        );
+        assert_eq!(
+            unsupported(&old, "work", "--timeout 360 --json", "", "").unwrap(),
+            ""
         );
     }
 
     #[test]
     fn what_is_said_is_plain_characters() {
         let a = "{\"contracts\":{\"exitCodes\":{\"version\":\"1\\u001b[31m;x|y\"}}}";
-        assert!(unsupported(a, "", "", "")
+        assert!(unsupported(a, "work", "", "", "")
             .unwrap()
             .starts_with("exit codes version 131mxy, not 1\n"));
     }
