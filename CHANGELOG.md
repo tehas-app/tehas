@@ -92,14 +92,6 @@ Name an issue's blockers with GitHub's blocked-by links from now on. The `<!-- t
 
 To have claimed issues assigned, set `TEHAS_OWNER` in `instance.env` to a person's login with access to the repository. Nothing to do otherwise.
 
-`console flags pause show` and `console flags pause read` are gone: a script
-which called one of them now gets 64 and the usage. The words of the flag are
-what `tehas status` prints, and the object is what `tehasbot status` publishes
-in `live/status.json` under `pause.flag`.
-
-A filter, script or search that looks for `STUCK: ` in pull request titles
-now looks for `HALT: `.
-
 The `epic` label is new in `host/labels.tsv`, so an update runs its `labels`
 step; a host that skips it runs `tehas labels` once. Until the label exists,
 the poll's write of it fails with a `WARN:` line and nothing else changes.

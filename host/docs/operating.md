@@ -345,7 +345,7 @@ With `TEHAS_SIZE_MAX_FILES` set on the instance, an issue whose own body names m
 | `cross-project`         | On a finding of the loop: the change belongs in another repository of the stack too | Not started; read the `Names` line, then work both sides or close it |
 | `tehas:millwright-escalated` | The millwright left it to a person | Read the millwright's note; decide, or take the label off to hand it back |
 | `tehas:next`            | Started after urgent issues, before the rest | Take it off to give the issue its place by number back |
-| `tehas:lean`            | The lean driver is chosen for it. [It cannot run yet](#choosing-the-driver) | Take it off to run the issue on classic |
+| `tehas:lean`            | The lean driver is chosen for it. See [Choosing the driver](#choosing-the-driver) | Take it off to run the issue on classic |
 | `tehas:blocked`         | Started once every blocker it names is closed | Close the blockers; swap it for `tehas:ready` to start it now |
 | `tehas:refreshing`      | On a pull request: a [refresh](#refreshes) works on it | Do not merge or push to it now; it comes off when the cycle ends |
 
@@ -491,7 +491,7 @@ lean without the label ([tehas work](/tools#tehas-work)).
 - The block is the only text the lean driver reads, so the words a person adds
   to the issue plan nothing: what goes inside the fence is the whole brief, and
   its fields are pi-rukas's to define. pi-rukas's `/plan` writes one, and
-  [Troubleshooting](/troubleshooting#what-a-park-says) says what to do when the
+  [Troubleshooting](/troubleshooting#the-cycle-parked-needs-human-attention) says what to do when the
   block is missing. A second block, or one that is no JSON, counts as none.
 - Once lean runs, `tehasbot cycle` reads how it ended from its result, as it
   does for classic, and its end comment names the driver: ``driver `lean` ``. Exit 0 with a
@@ -514,6 +514,30 @@ lean without the label ([tehas work](/tools#tehas-work)).
   whose copy could not be written says so once, and its run keeps the steps of
   its stream. The copy is a plain file of the workspace, no link on the way, of
   no more than 4 MiB. The next cycle of the issue removes the copy as it starts.
+
+What a lean run does, as pi-rukas's `docs/lean.md` describes it:
+
+- It works from the issue's [`pi-spec v1` block](/new-project#the-spec-block-lean-needs)
+  alone. Its steps: ready (read the block and the repository's
+  [`.pi/work.json`](/new-project#the-lean-drivers-settings) at the base), specify (tests that
+  fail on the base, then frozen), build, challenge, verify, publish, review, ci
+  and land. The tests frozen in specify are what the build is measured against.
+- It ends one of three ways. Landed: lean merged the pull request (exit 0).
+  Handed back: lean stopped and says why (exit 10); tehas parks the issue with
+  that reason, or, for a green pull request lean calls `ready`, moves it to
+  `tehas:awaiting-merge`. Not ready: lean refused the spec block (exit 11), and
+  tehas parks the issue with the rules it failed.
+- Lean merges only when `.pi/work.json` at the run's base commit says
+  `"autoMerge": true`. The repository decides, not tehas. Without it a green run
+  is handed back with its pull request `ready`, and it waits for a person's
+  merge in `tehas:awaiting-merge`.
+- A check that goes red while lean watches the pull request is lean's: it
+  builds once more, and a second red hands back. A pull request that conflicts
+  or falls behind after the run is tehas's, not lean's, and it is never
+  refreshed with `--continue-pr`: a lean refresh is refused with 78 as above.
+  The [easy merge](#refreshes) is meant for it, and it runs on no host yet.
+- The cycle's time limit, `TEHAS_WORK_TIMEOUT`, covers the whole run, the wait
+  for the pull request's checks included.
 
 ### What a poll costs
 
