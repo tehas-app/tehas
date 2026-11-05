@@ -20,10 +20,12 @@ use rusqlite::{params, Connection};
 use serde_json::{json, Map, Value};
 use std::collections::BTreeMap;
 use std::path::Path;
+use tehas_core::snapshot::{API, OUTCOMES_SHAPE};
 use tehas_core::time::{civil_from_days, days_from_civil, iso, week_start_of_day};
 
-/// The shape of the entries.
-pub const OUTCOMES: i64 = 1;
+/// The shape of the entries, the number the reader of the MCP server checks
+/// for: the one pair of them in `tehas_core::snapshot`.
+pub const OUTCOMES: i64 = OUTCOMES_SHAPE;
 /// Where `tehasbot status` asks for the file, under `~/tehas/mcp`. The name
 /// the reader opens. It is JSON Lines; the name says what the file is, not
 /// how it is cut into lines, as `sessions.jsonl` is named for its sessions.
@@ -242,7 +244,7 @@ pub fn lines(conn: &Connection, now: i64, f: &Filter) -> rusqlite::Result<Vec<St
         By::Week => grouped.sort_by_key(|(group, _)| std::cmp::Reverse(group.clone())),
     }
     let mut out = vec![json!({
-        "api": 1,
+        "api": API,
         "outcomes": OUTCOMES,
         "file": FILE,
         "days": db::RETENTION_DAYS,
