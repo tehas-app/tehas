@@ -148,8 +148,11 @@ when that word is `mutation`. An idle poll asks GitHub nothing but queries, and
 so adds no line. Which call is a write, and the line, are decided by
 `console gh`, which the shim execs; a read goes on to gh at once. A host whose
 console is missing or cannot be run still has a working `gh`, with the token,
-and logs nothing until the console is repaired. The log grows with every write and is read by nothing yet; it
-is the measure the throttling of #649 is to be designed from.
+and logs nothing until the console is repaired. The poll line of `tehas
+status` counts it, and `tehasbot github-writes` shows the last day by hour and
+by its busiest minute against GitHub's limits. A write GitHub refuses for a
+rate limit is sent once more after a minute, and only that call
+([the commands page](/tools#tehasbot-github-writes)).
 
 [The commands page](/tools#tehasbot-github-token) has the details.
 
