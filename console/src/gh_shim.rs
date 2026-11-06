@@ -224,11 +224,11 @@ pub fn reads(args: &[String]) -> bool {
             (cmd, v),
             ("issue", "view" | "list" | "status")
                 | ("pr", "view" | "list" | "status" | "checks" | "diff")
-                | ("repo", "view")
+                | ("repo", "view" | "clone")
                 | ("label", "list")
                 | ("run", "view" | "list")
                 | ("release", "view" | "list" | "download")
-                | ("auth", "status" | "token" | "git-credential")
+                | ("auth", "status" | "token" | "git-credential" | "setup-git")
         ),
     }
 }
@@ -385,6 +385,9 @@ mod tests {
             &["api", "-X", "GET", "repos/o/r/issues"],
             &["api", "graphql", "-f", "query=query { viewer { login } }"],
             &["auth", "git-credential"],
+            // `tehas setup` clones the product and sets up git's credentials.
+            &["repo", "clone", "o/r", "/tmp/r"],
+            &["auth", "setup-git"],
             &["search", "issues", "x"],
         ] {
             assert!(r(words), "{words:?}");
