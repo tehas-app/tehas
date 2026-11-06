@@ -6,7 +6,9 @@ pi-rukas could be better, and to write your findings to one file.
 ## What you have
 
 - `/improve/in/cycles/<issue>-<stamp>/`: one directory per cycle that ended.
-  - `cycle.json`: issue number, seconds, final status and step, exit status,
+  - `cycle.json`: issue number, seconds, final status and step, exit status
+    (a status of `child-bound` is a child pi-rukas ended at its own per-child
+    run bound, which the runner reports as `aborted`, the word of an abort),
     the pull request if there is one, `oomKills`, how many processes in
     the cycle's container were killed for memory (0 when none), `rukas`,
     the commit of pi-rukas the sandbox image's label names, `buildCommit`,
