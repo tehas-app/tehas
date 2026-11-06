@@ -245,7 +245,13 @@ pub fn check(c: &Check) -> i32 {
     };
     let kind = Kind::Cycle;
     let mut vars = sandbox::env_options(kind, &who, &sandbox::ensemble(kind), &sandbox::tokens());
-    let hosts = sandbox::hosts(&env("PI_ENSEMBLE_HOST_ALIASES"));
+    let hosts = match sandbox::network(&env("PI_ENSEMBLE_HOST_ALIASES")) {
+        Ok(hosts) => hosts,
+        Err(why) => {
+            eprintln!("tehas work: {why}, not starting a cycle");
+            return 78;
+        }
+    };
     if scratch(c, &mut security).is_none() {
         return 78;
     }
