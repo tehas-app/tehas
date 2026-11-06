@@ -169,6 +169,7 @@ pub const TABLE: &[Setting] = &[
     always("TEHAS_ANALYTICS_COOKIE", SWITCH, "0"),
     always("TEHAS_TOP", SWITCH, "0"),
     always("TEHAS_EASY_MERGE", SWITCH, "0"),
+    always("TEHAS_OVERLAP_HOLD", SWITCH, "0"),
     always("TEHAS_IMPROVE_RUKAS_SKIP", SWITCH, "0"),
     always("TEHAS_REVIEW", SWITCH, "0"),
     always("TEHAS_CONCURRENCY", Rule::Count, "1"),
@@ -725,6 +726,7 @@ mod tests {
             "TEHAS_PREVIEWS",
             "TEHAS_MILLWRIGHT_FEED",
             "TEHAS_MILLWRIGHT_EPICS",
+            "TEHAS_OVERLAP_HOLD",
         ] {
             takes(name, "1");
             refuses(name, "2", "expected 0 or 1");

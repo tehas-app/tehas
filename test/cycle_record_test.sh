@@ -285,6 +285,15 @@ t_contains "$(t_calls gh)" 'pi-rukas:handoff issue=7 cap=wall-clock -->'
 t_eq "$(jq -c '[.status, .step, .cap, .capReason]' "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" \
   '["timeout","develop","wall-clock","tehas work stopped the container at the time limit of 21600s, step develop in flight"]'
 
+t_case "a cycle pi-rukas ended at a child's run bound is on record as child-bound, not aborted"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
+ended aborted develop feature/issue-7-x child-timeout:develop
+echo 'echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"; exit 20' >"$fx/work.sh"
+t_run "$cycle 7"
+t_eq "$(jq -c '[.status, .step, .rc, .cap]' "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" \
+  '["child-bound","develop",20,"child-timeout:develop"]'
+
 t_case "a cycle a signal stopped inside a gate is on record with the cap signal and its gate closed"
 reset
 t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory

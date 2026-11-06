@@ -497,6 +497,15 @@ for bad in "TEHAS_EASY_MERGE=yes" "TEHAS_EASY_MERGE=2"; do
   t_contains "$t_out" "tehas: ${bad%%=*} is not valid"
 done
 
+t_case "the overlap hold is off unless the instance turns it on, and a value that is not 0 or 1 stops the load"
+printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load && set -u && echo \"[\$TEHAS_OVERLAP_HOLD]\""
+t_eq "$t_out" "[0]"
+printf '%s\n' "${T_MINIMAL[@]}" TEHAS_OVERLAP_HOLD=2 >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load; echo rc=\$?"
+t_contains "$t_out" "rc=78"
+t_contains "$t_out" "tehas: TEHAS_OVERLAP_HOLD is not valid"
+
 t_case "the review loop is off unless the instance turns it on"
 printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
 t_run "$load && set -u && echo \"[\$TEHAS_REVIEW]\""
@@ -1630,7 +1639,7 @@ T_INSIDE=$TEHAS_INSTANCE_DIR/$HOME
 INSTANCES
 T_ENV=()
 t_instance "${T_MINIMAL[@]}"
-t_eq "$(sha256sum <"$T/loads" | cut -d' ' -f1)" "9a5f807c7b2d6a537e25d50ef8c6d07134214b3be8d5d6976709932a27d5591d"
+t_eq "$(sha256sum <"$T/loads" | cut -d' ' -f1)" "e906fd0109252caa568bf2d4f152f5303f36c61c919fbb761821507ace5a8831"
 t_contains "$(cat "$T/loads")" "rc=78"
 
 t_case "no instance.env keeps the environment as it was, as bash did"
