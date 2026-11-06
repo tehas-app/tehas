@@ -13,3 +13,20 @@
 @media (max-width: 699px) {
   .panel-dock { width: 100vw; border-left: 0; box-shadow: none; }
 }
+
+/* The industry's alerts at the top of the page (versions.js), in the look of
+   the floor's doors when they need a person (.door.is-alert). */
+/* Its width is the floor's; a page that sets its own (.wrap) keeps that. */
+:where(.industry-alerts) { max-width: 1488px; padding: 0 24px; }
+.industry-alerts { margin: 16px auto 0; display: grid; gap: 8px; font-family: var(--font); }
+.industry-alerts[hidden] { display: none; }
+.industry-alert { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; margin: 0; padding: 10px 16px; background: var(--accent); color: var(--text); border: var(--frame); border-radius: var(--radius); box-shadow: var(--shadow-sign); font-size: var(--type-body); overflow-wrap: anywhere; }
+.industry-alert b { font-weight: 700; }
+.industry-alert span { flex: 1 1 16em; min-width: 0; }
+.industry-alert small { font-size: var(--type-small); }
+.industry-alert a { color: inherit; min-height: 24px; }
+.industry-alert a:hover { background: var(--accent-soft); }
+.industry-alert a:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
+@media (max-width: 699px) {
+  :where(.industry-alerts) { padding: 0 16px; }
+}

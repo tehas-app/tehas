@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/tehas-app/tehas/api/industry-alerts.schema.json",
+  "title": "state/industry/alerts.json",
+  "description": "The alerts tehas-industry writes into a factory it runs, at state/industry/alerts.json, on each pass and atomically. tehasbot health reads it into checks.industry.alerts. host/docs/api.md says what each field means. A kind tehas does not know is shown by its word. test/status_contract_test.sh checks the sample beside this file against it.",
+  "type": "object",
+  "required": ["time", "alerts"],
+  "properties": {
+    "time": {"type": "string", "format": "date-time"},
+    "alerts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["kind", "since", "text", "link"],
+        "properties": {
+          "kind": {"type": "string"},
+          "since": {"type": "string", "format": "date-time"},
+          "text": {"type": "string"},
+          "link": {"type": "string"}
+        }
+      }
+    }
+  }
+}
