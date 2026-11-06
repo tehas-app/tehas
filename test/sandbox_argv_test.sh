@@ -66,6 +66,7 @@ t_stub docker 'case $1 in
   info) cat "$T/docker.info"; exit ;;
   image) case " $* " in *"{{.Id}}"*) cat "$T/image.inspect" ;; *) cat "$T/image.label" ;; esac; exit ;;
   run) ;;
+  network) case " $* " in *Internal*) echo "true isolated" ;; esac; exit ;;
   *) exit 0 ;;
 esac
 n=$(($(cat "$T/docker.n" 2>/dev/null || echo 0) + 1))
@@ -172,6 +173,19 @@ clean
 t_run "$work 7"
 t_eq "$t_rc" 2 # the stub ends at once, so the cycle counts as died
 compare work
+
+t_case "a cycle with TEHAS_EGRESS=1: the proxy is started, then the cycle on the internal network"
+clean
+t_instance "${all[@]}" TEHAS_EGRESS=1 'TEHAS_EGRESS_HOSTS="pypi.org models.example:8443"'
+mkdir -p "$T/home/tehas/libexec"
+printf "#!/bin/sh\n" >"$T/home/tehas/libexec/tehas-mcp"
+chmod +x "$T/home/tehas/libexec/tehas-mcp"
+echo "CADDY_DIGEST=sha256:$(printf '%064d' 7)" >"$T/home/tehas/versions.env"
+t_run "$work 7"
+t_eq "$t_rc" 2
+sed -i -E 's/^(tehas\.egress=)[0-9a-f]{16}$/\1@KEY@/' "$T"/calls/argv.*
+compare work-egress
+rm -f "$T/home/tehas/libexec/tehas-mcp" "$T/home/tehas/versions.env"
 
 t_case "a planning turn that starts a session"
 clean
