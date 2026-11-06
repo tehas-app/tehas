@@ -1355,6 +1355,54 @@ Cycles that run side by side know nothing of each other:
   person's call too, and nothing moves what is in them: a manual session starts
   a new history in `~/tehas/dev/<name>.state/sessions`, and so does a cycle.
 
+### Where a container may connect
+
+By default a container is on Docker's default bridge and can connect to any
+address: the host's own ports, the local network and the internet. With
+`TEHAS_EGRESS=1` in `instance.env`, a cycle, a planning turn, a review and a
+`tehas dev` session are put on `tehas-egress` instead, an internal Docker
+network with no way out and no address on the host. Each is given
+`HTTPS_PROXY` and `HTTP_PROXY` (and the lower-case spellings, and
+`NODE_USE_ENV_PROXY=1` for node) naming the proxy, `http://tehas-egress:3128`.
+
+The proxy is the container `tehas-egress`, on that network and on
+`tehas-egress-out`, a plain bridge. It is `~/tehas/libexec/tehas-mcp egress`,
+the static MCP binary, in the Caddy image the docs server is pinned to: no
+other image is trusted. It runs as the tehas user with a read-only root, every
+capability dropped, 128m of memory and 512 processes. It connects only to:
+
+- `github.com`, `api.github.com`, `codeload.github.com` and
+  `objects.githubusercontent.com` on 443, for git, gh and downloads;
+- `registry.npmjs.org`, `crates.io`, `static.crates.io` and `index.crates.io`
+  on 443, for npm and cargo;
+- the host and port of every `baseUrl` and `backupBaseUrl` in models.json;
+- the hosts of `TEHAS_EGRESS_HOSTS`, a name on 443 or `name:port`.
+
+Anything else is answered `403` and the proxy logs one line naming it:
+`docker logs tehas-egress`. A tool that ignores the proxy variables reaches
+nothing, so a failure is closed, not open. Names are compared, not addresses:
+the proxy resolves a name itself, through the names of
+`PI_ENSEMBLE_HOST_ALIASES` first, which it is given too.
+
+The first container that needs the proxy makes both networks and starts it,
+under `~/tehas/state/egress.lock`. It is started again when its list, the
+binary or the image changed, which cuts the connections of the containers
+running then. The network is held to what the previews' network is held to
+(`console preview network check`): Docker 27.1 or later, which knows
+`gateway_mode_ipv4`, and a network that is internal, of the bridge driver,
+without IPv6 and with `gateway_mode_ipv4` `isolated`, so the host has no
+address on it. An older Docker, or a `tehas-egress` network that falls short of
+any of these, stops the container with 78 instead of starting it open, and an
+older Docker is not asked to make anything. For a network, remove it and start
+again.
+
+Checked on 2026-11-06 with the pi-rukas image on a development machine: curl,
+git, gh, npm, cargo and bun went through the proxy, node 22 only with
+`NODE_USE_ENV_PROXY=1`, and a direct connection or a name not on the list
+failed. Not yet: a whole cycle on a host. The container that installs the
+product's dependencies before a cycle and the push check stay on the default
+bridge; neither is given the cycle's variables.
+
 ### The slice
 
 `tehas.slice` is one systemd slice for every sandbox container tehas starts.
@@ -1934,7 +1982,7 @@ Both are outside the repository and the tehas tree.
 | What the host runs from the workspace  | Nothing but the cleaner's one bounded `git rev-parse` of a worktree's gitdir, which reads no config of the tree and takes nothing from it. Every other git the host runs is in the product checkout, which no container has written. It reads nothing from the workspace: a cycle's outcome is the runner's result, from its standard output |
 | The indexing container                 | `tehas index` runs the indexer, not an agent: a clone of the product read-only, and `~/tehas/state/index` to write, which no other container is given; no network, no token            |
 | The improvement loop's container       | `tehasbot improve` runs plain Pi, not pi-rukas: the records of the cycles read-only, one directory to write its findings in, and its own `models.json`. No GitHub token, only the model endpoints' tokens; no repository, no tool that runs a command. The host makes every GitHub call and checks the findings against a fixed shape before it files one |
-| The network                            | Not restricted. The container reaches GitHub, the model endpoint and whatever else the host can route to                                |
+| The network                            | Not restricted by default: the container reaches GitHub, the model endpoint and whatever else the host can route to. With `TEHAS_EGRESS=1`, only the hosts of the egress proxy's list, through the proxy. See [Where a container may connect](#where-a-container-may-connect) |
 | Merging                                | The token could merge where the repository lets it. Nothing does, because `AGENTS.md` forbids it and the dispatcher never merges        |
 
 The improvement loop files with the bot's token, from the host. For it the bot
