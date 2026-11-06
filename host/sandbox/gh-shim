@@ -36,8 +36,8 @@ if [ "${TEHAS_READ_ONLY:-0}" = 1 ]; then
   write=1
   case "$1 ${2:-}" in
   "issue view" | "issue list" | "issue status" | "pr view" | "pr list" | "pr status" | "pr checks" | "pr diff" | \
-    "repo view" | "label list" | "run view" | "run list" | "release view" | "release list" | "auth status" | \
-    "auth token" | "auth git-credential" | "search "* | "--version "* | "version "*) write= ;;
+    "repo view" | "label list" | "run view" | "run list" | "release view" | "release list" | "release download" | \
+    "auth status" | "auth token" | "auth git-credential" | "search "* | "--version "* | "version "*) write= ;;
   "api "*)
     method='' fields='' graphql='' mutation='' prev=''
     for a in "$@"; do
