@@ -117,6 +117,19 @@ fn low_gate(home: &Path) -> Value {
     json!({"answer": answer, "held": held})
 }
 
+/// An open issue of the issue type `name` carries `label` from here on, as
+/// though GitHub had given it: every rule that holds an issue on the label
+/// holds it on the type too. The label itself still counts.
+fn typed_as_label(open: &mut [github::Open], name: &str, label: &str) {
+    for o in open {
+        if o.node.pointer("/issueType/name").and_then(Value::as_str) == Some(name)
+            && !has(&o.labels, label)
+        {
+            o.labels.push(label.to_string());
+        }
+    }
+}
+
 fn listed(open: &[github::Open], label: &str) -> Value {
     Value::Array(
         open.iter()
@@ -149,13 +162,26 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
 
     let calls = &mut src.calls;
     let fields = !c.priority_field.is_empty();
-    let q = github::queue(calls, &c.repo, fields)?;
+    let types = !c.improvement_type.is_empty();
+    let mut q = github::queue(calls, &c.repo, fields, types)?;
     s["repo"] = json!(q.repo);
     if fields {
         s["issue_fields"] = json!(q.issue_fields);
         if q.personal {
             s["personal_owner"] = json!(true);
         }
+    }
+    // Which issues the page cut short is read of the labels as GitHub gave
+    // them, before an issue of the improvement type is given the label below.
+    let dropped_of_page: Vec<u64> = q
+        .open
+        .iter()
+        .filter(|o| github::dropped_events(o, &[github::RUNNING]))
+        .map(|o| o.number)
+        .collect();
+    if types {
+        s["issue_types"] = json!(q.issue_types);
+        typed_as_label(&mut q.open, &c.improvement_type, crate::decide::IMPROVEMENT);
     }
     s["user"] = if c.bot_login.is_empty() {
         calls
@@ -209,7 +235,7 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
         .open
         .iter()
         .filter(|o| {
-            github::dropped_events(o, &[github::RUNNING])
+            dropped_of_page.contains(&o.number)
                 || (epic_titled.iter().any(|e| e.number == o.number)
                     && !github::has_event_of(o, text::EPIC))
         })
@@ -1411,6 +1437,45 @@ esac"#,
             1,
             "the per-issue reads are one run of the store"
         );
+    }
+
+    /// With TEHAS_ISSUE_TYPES mapping improvement, the page asks each issue's
+    /// type and the owner's types, and an issue of the type carries
+    /// `tehas:improvement` in every read the rules take of it, with no read of
+    /// its events by name. Without the setting the page asks neither.
+    #[test]
+    fn an_issue_of_the_improvement_type_carries_the_label_and_costs_no_read() {
+        let mut w = world();
+        let typed = |n: u64, t: &str| {
+            json!({"number": n, "title": format!("issue {n}"), "body": "",
+                "createdAt": "2026-10-01T00:00:00Z", "author": {"login": "alice"},
+                "lastEditedAt": null, "editor": null, "labels": {"nodes": []},
+                "issueType": {"name": t}, "timelineItems": {"nodes": []},
+                "closedByPullRequestsReferences": {"nodes": []}})
+        };
+        let repo = &mut w["queue"]["data"]["repository"];
+        repo["issueTypes"] = json!({"nodes": [{"name": "Task"}, {"name": "Improvement"}]});
+        let nodes = repo["issues"]["nodes"].as_array_mut().unwrap();
+        nodes.push(typed(40, "Improvement"));
+        nodes.push(typed(41, "Task"));
+        let mut c = settings();
+        c.improvement_type = "Improvement".into();
+        let (snap, calls, _, _) = poll_with(&w, &[], &c);
+        assert_eq!(snap["issue_types"], json!(["Task", "Improvement"]));
+        let improvement = json!([{"name": crate::decide::IMPROVEMENT}]);
+        assert_eq!(snap["issues"]["40"]["work"]["labels"], improvement);
+        assert_eq!(snap["issues"]["40"]["view"]["labels"], improvement);
+        assert_eq!(snap["issues"]["41"]["work"]["labels"], json!([]));
+        assert!(!calls.iter().any(|c| c.contains("issues/40/events")));
+        let page = queries(&calls, "hasNextPage");
+        assert!(
+            page[0].contains("issueType { name }") && page[0].contains("issueTypes(first: 50)")
+        );
+
+        let (snap, calls, _, _) = poll(&w, &[]);
+        assert_eq!(snap["issues"]["40"]["work"]["labels"], json!([]));
+        assert!(snap.get("issue_types").is_none());
+        assert!(!queries(&calls, "hasNextPage")[0].contains("issueType"));
     }
 
     /// An open issue titled with the epic marker that lacks `epic` is listed for
