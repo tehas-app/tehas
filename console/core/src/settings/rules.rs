@@ -108,6 +108,8 @@ pub enum Rule {
     /// which is how a check on where a path sits is defeated.
     LowGate,
     OneWord,
+    /// kind=Type pairs: [`crate::kinds::parse`].
+    IssueTypes,
 }
 
 /// When a load checks a setting.
@@ -254,6 +256,7 @@ pub const TABLE: &[Setting] = &[
     given_or("TEHAS_BRANCH_CHECK", Rule::BranchCheck, ""),
     given_or("TEHAS_LOW_GATE", Rule::LowGate, ""),
     given("TEHAS_PRIORITY_FIELD", Rule::OneWord),
+    given(crate::kinds::SETTING, Rule::IssueTypes),
     given_or("TEHAS_CLEAN_DIRS", Rule::CleanDirs, CLEAN_DIRS),
     required("TEHAS_REPO", Rule::Repo),
     required("TEHAS_CONTROL_ISSUE", Rule::Count),
@@ -404,6 +407,7 @@ fn verdict(rule: Rule, v: &str, trees: &Trees) -> Result<(), String> {
             !v.is_empty() && !v.bytes().any(is_space),
             "expected one word",
         ),
+        Rule::IssueTypes => crate::kinds::parse(v).map(|_| ()),
     }
 }
 
