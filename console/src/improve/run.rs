@@ -15,6 +15,8 @@ use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::SystemTime;
+use tehas_core::forge::{Bounded, Forge, GitHub};
+use tehas_core::kinds::{self, Kind};
 use tehas_core::models::{self, host_path};
 use tehas_core::sandbox;
 use tehas_core::secret::secret;
@@ -258,6 +260,9 @@ struct Loop {
     hosts: Vec<String>,
     skip_rukas: String,
     max_open: i64,
+    /// The issue type TEHAS_ISSUE_TYPES maps improvement to. None: the label
+    /// is the kind.
+    kind: Option<String>,
 }
 
 // What the analyst's container is started with.
@@ -410,6 +415,7 @@ impl Loop {
             hosts: sandbox::hosts(&env::var("PI_ENSEMBLE_HOST_ALIASES").unwrap_or_default()),
             skip_rukas: need("TEHAS_IMPROVE_RUKAS_SKIP")?,
             max_open,
+            kind: kinds::type_from_env(Kind::Improvement),
         })
     }
 
@@ -505,9 +511,12 @@ impl Loop {
 
     /// Its open issues and those closed in 30 days.
     fn stack_of(&self, repo: &str) -> Option<Vec<J>> {
-        const FIELDS: &str = "number,title,state,labels,body";
+        let fields = match self.kind {
+            Some(_) => "number,title,state,labels,body,issueType",
+            None => "number,title,state,labels,body",
+        };
         let open = gh_says(&[
-            "issue", "list", "--repo", repo, "--state", "open", "--limit", "500", "--json", FIELDS,
+            "issue", "list", "--repo", repo, "--state", "open", "--limit", "500", "--json", fields,
         ])?;
         let closed = gh_says(&[
             "issue",
@@ -521,9 +530,10 @@ impl Loop {
             "--search",
             &format!("closed:>={}", month_ago(time::now())),
             "--json",
-            FIELDS,
+            fields,
         ])?;
-        check::issues_of(repo, &[&open, &closed])
+        let kind = self.kind.as_deref().map(|t| (t, LABEL));
+        check::issues_of(repo, &[&open, &closed], kind)
     }
 
     /// The records are moved out one by one and the window stays, so a cycle
@@ -577,6 +587,31 @@ impl Loop {
     /// Everything after the check for a slice.
     fn go(&self, ready: Ready) -> u8 {
         let Ready { _lock, recs, ask } = ready;
+        if let Some(t) = &self.kind {
+            for r in &self.repos {
+                let mut forge = GitHub::new(
+                    r.clone(),
+                    Box::new(Bounded::new("gh", std::time::Duration::from_secs(30))),
+                );
+                match forge.issue_types() {
+                    Ok(types) if types.contains(t) => {}
+                    Ok(_) => {
+                        say(&format!(
+                            "ERROR: TEHAS_ISSUE_TYPES maps improvement to {t}, which is no issue type of {r}'s owner; the records wait"
+                        ));
+                        return 78;
+                    }
+                    Err(e) => {
+                        say(&format!(
+                            "cycles={} failed: {}, the records wait",
+                            recs.len(),
+                            e.line()
+                        ));
+                        return 1;
+                    }
+                }
+            }
+        }
         let mut got = true;
         let mut stack = Vec::new();
         for r in &self.repos {
@@ -865,6 +900,9 @@ impl Run<'_> {
         for label in labels {
             args.extend(["--label", label]);
         }
+        if let Some(t) = &l.kind {
+            args.extend(["--type", t]);
+        }
         let url = gh_says(&args)?;
         let url = url.trim_end_matches('\n').to_string();
         let number = url.rsplit('/').next().unwrap_or("");
@@ -951,7 +989,13 @@ impl Run<'_> {
         // dispatcher's tell that one cycle here cannot make the change on its
         // own; the body names the repository it has to make it in.
         let to = if about_rukas { &l.rukas } else { &l.repo };
-        let mut labels = vec![LABEL];
+        // With the kind an issue type, the type marks it and the label is not
+        // put on.
+        let mut labels = if l.kind.is_some() {
+            vec![]
+        } else {
+            vec![LABEL]
+        };
         if boundary {
             labels.push(CROSS);
         }
@@ -998,7 +1042,7 @@ impl Run<'_> {
     /// Err when the run ended here.
     fn file(&mut self, plan: &Plan) -> Result<(), u8> {
         let l = self.l;
-        if !plan.file.is_empty() {
+        if !plan.file.is_empty() && l.kind.is_none() {
             // It fails when the label is there already, which is fine.
             for r in &l.repos {
                 gh_quiet(&[
