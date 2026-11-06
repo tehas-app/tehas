@@ -53,10 +53,10 @@ struct Found {
 /// lazily and the next run reads it again. A pull request the rule rejects,
 /// or whose head or base is no sha, is not ours to refresh. What is left of
 /// the page is the bot's that GitHub says do not conflict.
-fn found(nodes: &[Value], bot: &str, repo: &str, control: u64) -> Found {
+fn found(nodes: &[Value], bot: &str, cycle: &str, repo: &str, control: u64) -> Found {
     let mut f = Found::default();
     for node in nodes {
-        if !refresh_why(node, bot, repo, control).is_empty() {
+        if !refresh_why(node, bot, cycle, repo, control).is_empty() {
             f.not_ours += 1;
             continue;
         }
@@ -156,6 +156,8 @@ struct Run {
     control: u64,
     every: u64,
     bot: String,
+    /// TEHAS_CYCLE_LOGIN: the account a cycle opens its pull request as.
+    cycle: String,
 }
 
 impl Run {
@@ -227,7 +229,7 @@ impl Run {
             ));
         };
 
-        let f = found(nodes, &bot, repo, self.control);
+        let f = found(nodes, &bot, &self.cycle, repo, self.control);
         let mut wrote = 0;
         for c in &f.conflicts {
             let path = self.dir.join(format!("{}.json", c.issue));
@@ -288,6 +290,7 @@ pub fn main(args: &[&str]) -> i32 {
         control,
         every,
         bot: set("TEHAS_BOT_LOGIN").unwrap_or_default(),
+        cycle: set(tehas_core::accounts::CYCLE_LOGIN).unwrap_or_default(),
     };
     let store = home.join("libexec/store").to_string_lossy().into_owned();
     let mut calls = Calls::idle(Duration::from_secs(20), store);
@@ -321,7 +324,17 @@ mod tests {
     }
 
     fn of(nodes: &[Value]) -> Found {
-        found(nodes, "bot[bot]", "a/b", 1)
+        found(nodes, "bot[bot]", "", "a/b", 1)
+    }
+
+    #[test]
+    fn the_cycle_tokens_pull_request_is_the_bots_to_refresh() {
+        let mut by_cycle = pull(50, 7);
+        by_cycle["author"]["login"] = json!("acme-cycle");
+        let ours = found(&[by_cycle.clone()], "bot[bot]", "acme-cycle", "a/b", 1);
+        assert_eq!((ours.conflicts.len(), ours.not_ours), (1, 0));
+        let theirs = found(&[by_cycle], "bot[bot]", "", "a/b", 1);
+        assert_eq!((theirs.conflicts.len(), theirs.not_ours), (0, 1));
     }
 
     #[test]

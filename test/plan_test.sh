@@ -402,7 +402,9 @@ jq -n '{contracts: {exitCodes: {version: 1}, resultSchema: {version: 5}, ndjson:
 # by hand.
 t_store_home "$T/home/tehas"
 t_verb "$shim/libexec/work" tehas work
+T_ENV+=(GH_CYCLE_TOKEN=cycle-token)
 t_run "$shim/libexec/work 7"
+unset 'T_ENV[-1]'
 turn_args | options | without_cycle_only >"$T/work.options"
 t_eq "$(turn_args | grep -c -e '^PI_ENSEMBLE_HANDOFF_CHANNEL=host$' -e '^PI_ENSEMBLE_HANDOFF_TIMEOUT_MS=480000$' -e '^PI_ENSEMBLE_CYCLE_DEADLINE=' -e '^PI_ENSEMBLE_VERIFY_CONCURRENCY=')" 4
 t_eq "$([ -s "$T/work.options" ] && echo recorded)" recorded
