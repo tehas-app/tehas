@@ -613,6 +613,19 @@ pub fn hosts(aliases: &str) -> Vec<String> {
         .collect()
 }
 
+/// The network options of an agent's container: the --add-host options, and
+/// with TEHAS_EGRESS=1 the internal network and the proxy of crate::egress,
+/// which is started here if it is not up. Err is the line that says why the
+/// proxy is not up: the container is not started on an open network instead.
+pub fn network(aliases: &str) -> Result<Vec<String>, String> {
+    let mut w = hosts(aliases);
+    if crate::egress::on() {
+        crate::egress::ensure(aliases)?;
+        w.extend(crate::egress::options());
+    }
+    Ok(w)
+}
+
 /// What a container is not allowed to do, so that an agent's code cannot give
 /// itself more of the host than it was given: every capability Docker grants
 /// by default is taken away, and a program cannot gain rights through its mode
