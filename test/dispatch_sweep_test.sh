@@ -8,9 +8,14 @@
 . "$(dirname "$0")/dispatch_lib.sh" || exit 1
 
 # Kept workspaces. Issue 5's were last used eight days ago, issue 6's today.
+# Each issue a case leaves something of is open on GitHub, unless the case
+# closes it: what a closed issue left goes at once.
 works=$T/home/tehas/work
+open_issue() { printf '{"number":%s,"state":"open"}\n' "$1" >"$fx/work-$1.json"; }
+closed_issue() { printf '{"number":%s,"state":"closed"}\n' "$1" >"$fx/work-$1.json"; }
 kept() { # <issue> <age, as touch -d takes it> [what is beside it]
   local p
+  open_issue "$1"
   mkdir -p "$works" "$T/home/tehas/state/cycles"
   : >"$works/.tehas-workspaces"
   for p in "$works/widget-$1" "${@:3}"; do
@@ -50,6 +55,7 @@ reset_said() {
   unsaid
 }
 said() { # <issue> <age, as touch -d takes it>
+  open_issue "$1"
   mkdir -p "$runs/issue-$1" "$runs/plan-$1" "$live"
   printf 'transcript\n' >"$runs/issue-$1/a-1-coder.json"
   printf 'transcript\n' >"$runs/plan-$1/p-1-planner.json"
@@ -123,6 +129,41 @@ t_run "$dispatch"
 t_eq "$(left_said 5)" ""
 t_eq "$(left_said 6)" "$runs/issue-6 $runs/plan-6 $live/console-6.txt"
 t_eq "$(swept)" "what #5 left on this host "
+
+t_case "what a closed issue left goes at once, however young, and an open one's is kept"
+reset_said
+rm -rf "$works"
+kept 5 "1 hour ago" "$works/widget-5.before-retry" "$works/widget-5.state"
+said 5 "1 hour ago"
+closed_issue 5
+kept 6 "1 hour ago"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(left)" "widget-6 "
+t_eq "$(left_said 5)" ""
+t_contains "$t_out" "removed what #5 left on this host: its issue is closed"
+t_eq "$(swept)" "what #5 left on this host "
+
+t_case "a closed issue whose lock is held keeps what it left"
+reset_said
+rm -rf "$works"
+kept 5 "1 hour ago"
+closed_issue 5
+hold 5
+t_run "$dispatch"
+release
+t_eq "$(left)" "widget-5 "
+
+t_case "TEHAS_WORKSPACE_KEEP_DAYS sets the days an open issue's workspace is kept"
+reset_said
+t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1 TEHAS_WORKSPACE_KEEP_DAYS=2
+rm -rf "$works"
+kept 5 "3 days ago"
+kept 6 "1 day ago"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(left)" "widget-6 "
+t_contains "$t_out" "removed what #5 left on this host: no cycle has run on it for 2 days"
 
 # The dated directories are the runner's, not tehas's: no rule of the sweep
 # names them and a poll leaves them whole.

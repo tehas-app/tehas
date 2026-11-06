@@ -1239,12 +1239,13 @@ docker system df
 docker image prune      # removes images with no tag that nothing uses
 ```
 
-A sandbox build removes date tags beyond its newest three itself; one run from a
-checkout has no console to ask what is held, and removes none. The cleaner
-prunes Docker's build cache every hour, of whatever has not been
+A sandbox build removes the date tags of builds before the newest two itself;
+one run from a checkout has no console to ask what is held, and removes none. The
+cleaner prunes Docker's build cache every hour, of whatever has not been
 used for `TEHAS_CLEAN_AFTER` hours, and removes the build output of kept
-workspaces, old host scratch, the sandbox image's dated tags past that age
-except the newest, and the pulled base image of that age
+workspaces, old host scratch, the sandbox image's dated tags before the newest
+two builds whatever their age, and the upstream base image of that age a host
+pulled before the base was built on the host
 besides (see [the cleaner](/operating#the-cleaner)). Nothing a container was
 made from is taken: `docker ps -a` shows what holds an image, and an image in
 use is kept whatever its age. The cleaner removes the base by its own name and
