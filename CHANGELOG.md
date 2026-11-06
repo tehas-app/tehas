@@ -45,6 +45,15 @@ None.
 - The factory finishes a stopped cycle when the issue asks: a comment that starts with `<!-- tehas:millwright issue=<n> action=finish -->` and gives the reason, then the new label `tehas:finish`, from an allowed labeller or from the millwright within its grant. The poll takes the label off, runs `tehas-cycle finish`, and comments with the draft pull request's URL or the one line of why not. `tehas api` lists the feature `finish`, and `factory_decisions` answers each ask taken as the decision `finish`. `tehas update` creates the label (#1665).
 - A new instance setting, `TEHAS_DESIGN`, draws the whole site in one design: `beesknees26`, the default, or `pixel`. With no setting every page is beesknees26, `/` included, with the beesknees26 logo and share card, and `/` is the business page. `TEHAS_DESIGN=pixel` draws every page in pixel, the manual, `/business`, `/dashboard` and the Protolab included, with the animated factory and its share card, and `/` is the factory floor. `/floor` and `/business` are always there in either design. Any other value stops every command with 78 (#1668).
 - `TEHAS_THEME=beesknees26` and `TEHAS_LAYOUT=business` now ask for the default and load as no-ops, as an empty value does. `TEHAS_THEME=pixel`, `TEHAS_LAYOUT=floor` and every other value of the two retired settings stop every command with 78 and say to use `TEHAS_DESIGN` (#1668).
+- The pinned Pi moves from 1.4.0 to 1.5.0.
+- The pinned rustup moves from 1.29.2 to 1.29.3.
+- The pinned vipune moves from 0.15.0 to 0.20.3.
+- The pinned oo moves from 0.5.0 to 0.10.1.
+- The pinned Caddy moves from 2.11.7 to 2.11.9.
+
+### Held back
+
+- Node 26.13.0 is out, a new major version. `host/versions.env` keeps 22.23.4: the move is a person's call.
 
 ### Adopter action
 
