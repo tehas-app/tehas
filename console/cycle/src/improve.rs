@@ -167,6 +167,17 @@ pub struct Ended {
     pub build: String,
 }
 
+/// The status a record gives an end. A child that outlived pi-rukas's own
+/// per-child bound ends `aborted`, the contract's word for an abort too, so the
+/// record names it `child-bound`. The exit status stays the runner's.
+fn record_status<'a>(status: &'a str, cap: &str) -> &'a str {
+    if status == "aborted" && cap.starts_with("child-timeout:") {
+        "child-bound"
+    } else {
+        status
+    }
+}
+
 fn re(pattern: &str, s: &str) -> bool {
     Regex::new(pattern).is_ok_and(|r| r.is_match(s))
 }
@@ -352,7 +363,7 @@ pub fn write(
         ("issue", J::int(e.issue as i64)),
         ("started", J::int(e.started)),
         ("seconds", J::int(now - e.started)),
-        ("status", J::str(&e.status)),
+        ("status", J::str(record_status(&e.status, &cap))),
         ("step", J::str(&e.step)),
         ("rc", J::int(e.rc)),
         ("pr", J::text_or_null(&e.pr)),
@@ -499,6 +510,15 @@ mod tests {
         let line = format!(r#"{{"text":"{}"}}"#, "é".repeat(2001));
         let want = format!(r#"{{"text":"{} [cut]"}}"#, "é".repeat(2000));
         assert_eq!(condensed(&line).unwrap(), want);
+    }
+
+    #[test]
+    fn a_child_bound_end_is_not_on_record_as_an_abort() {
+        assert_eq!(record_status("aborted", "child-timeout:develop"), "child-bound");
+        assert_eq!(record_status("aborted", "child-timeout:explore"), "child-bound");
+        assert_eq!(record_status("aborted", "deadline"), "aborted");
+        assert_eq!(record_status("aborted", ""), "aborted");
+        assert_eq!(record_status("timeout", "child-timeout:develop"), "timeout");
     }
 
     #[test]
