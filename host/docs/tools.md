@@ -1010,7 +1010,10 @@ workspace and not in it, so no patch can commit them. The files are named
 `image-1.png`, `image-2.jpg` and so on, and `manifest.json` lists each with
 the link it came from, its type, its size and its sha256, the approval it was
 fetched for (`at`, `by` and `how` of the record, or null by hand), and every
-link that was left out with the reason. The manifest is kept as
+link that was left out with the reason. `linksUnavailable` says why the
+lists are empty when the text links no file of GitHub's storage, and is null
+when every link is listed; the manifest of a cycle given nothing names the
+settings there instead. The manifest is kept as
 `~/tehas/state/cycles/<issue>.manifest.json`, with `images.md` and
 `comments.json` beside it as `<issue>.images.md` and
 `<issue>.comments.json` when the cycle has them, for the improvement

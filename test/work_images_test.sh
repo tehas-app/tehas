@@ -126,6 +126,7 @@ issue_is "[shot.png]($F/21/shot.png) [empty.png]($F/22/empty.png)"
 t_run "$work 7"
 t_eq "$t_rc" 2
 t_eq "$(manifest '[(.images | length), (.leftOut | map(.reason))]')" '[0,["Not a png, jpg, webp or gif image.","Not a png, jpg, webp or gif image."]]'
+t_eq "$(manifest '.linksUnavailable')" null
 t_eq "$(cd "$imgs" && find . -mindepth 1 | tr '\n' ' ')" "./manifest.json "
 
 t_case "an issue with no image still gets the mount, with an empty list, and no comment"
@@ -134,6 +135,7 @@ issue_is "Words only."
 t_run "$work 7"
 t_eq "$t_rc" 2
 t_eq "$(manifest '[.images, .leftOut]')" '[[],[]]'
+t_eq "$(manifest '.linksUnavailable')" '"The text links no file of GitHub'"'"'s storage."'
 t_contains "$(after -v)" "$imgs:$inside.images:ro"
 t_lacks "$(t_calls gh)" "issue comment"
 

@@ -217,7 +217,7 @@ fn gives_nothing(
     fs::set_permissions(dir, fs::Permissions::from_mode(0o755)).map_err(|_| unmade)?;
     let manifest = dir.join("manifest.json");
     let text = format!(
-        "{{\n  \"images\": [],\n{files}  \"leftOut\": [],\n  \"issue\": {issue},\n  \"approval\": {approval},\n  \"leftOutMore\": 0\n}}\n"
+        "{{\n  \"images\": [],\n{files}  \"leftOut\": [],\n  \"linksUnavailable\": \"The text links no file of GitHub's storage.\",\n  \"issue\": {issue},\n  \"approval\": {approval},\n  \"leftOutMore\": 0\n}}\n"
     );
     fs::write(&manifest, text).map_err(|_| unmade)?;
     fs::set_permissions(&manifest, fs::Permissions::from_mode(0o644)).map_err(|_| unmade)?;
@@ -640,7 +640,7 @@ mod tests {
         assert_eq!(names, ["manifest.json"]);
         assert_eq!(
             manifest(&dir),
-            json!({"images": [], "leftOut": [], "issue": 7, "approval": null, "leftOutMore": 0})
+            json!({"images": [], "leftOut": [], "linksUnavailable": "The text links no file of GitHub's storage.", "issue": 7, "approval": null, "leftOutMore": 0})
         );
         // An instance that gives files is given an empty list of them.
         gives_nothing(7, &dir, "", body, true).unwrap();

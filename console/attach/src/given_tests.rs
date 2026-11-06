@@ -46,6 +46,10 @@ fn a_hundred_are_all_listed_and_more_is_zero() {
     let (manifest, gap) = compose(&rec);
     assert_eq!(manifest["leftOutMore"], 0);
     assert!(!gap.contains("first"));
+    assert_eq!(
+        manifest["linksUnavailable"],
+        "This instance gives a cycle none (GIVEN): no directory is mounted and PI_ENSEMBLE_EXTRA_IMAGE_DIRS is not set."
+    );
 }
 
 #[test]
@@ -104,7 +108,8 @@ fn an_earlier_manifest_of_the_approval_keeps_its_entries_in_its_order() {
     assert!(written.starts_with(
         r#"{"issue":7,"images":[{"zeta":1,"file":"image-1.png","alpha":"\u007f"}],"approval":{"at":"#
     ));
-    assert!(written.ends_with(",\"leftOutMore\":0,\"files\":[]}\n"));
+    assert!(written
+        .contains(",\"leftOutMore\":0,\"files\":[],\"linksUnavailable\":\"This instance gives"));
     assert!(!dir.join("7.manifest.json.new").exists());
 }
 
