@@ -38,7 +38,7 @@
 # TEHAS_TEST_JOBS at once [the CPUs nproc counts, or the CPU quota of the
 # cgroup it runs in, rounded up, when that is less, and at most two a GiB of
 # the cgroup's memory ceiling]: each test file keeps
-# everything under a scratch directory of its own (test/lib.sh). Each task is
+# everything under a scratch directory of its own (test/lib.sh).
 # While the host's load is its CPUs or more, from other runners or a build,
 # the next task waits for one to end; one task always runs, so the run goes
 # on. TEHAS_TEST_LOADAVG names the file read in place of /proc/loadavg. Each
@@ -50,311 +50,32 @@
 # count, always names the lint when it failed, and the test file names that do
 # not fit are counted instead.
 #
-# Exit: 0 every check passed, 1 a check failed, 2 nothing could be checked
+# The work is `xtask test` (console/xtask/src/run.rs). Unless TEHAS_XTASK
+# names a build, it is built here first, offline, into the same target
+# directory (fetched once when cargo's cache lacks a locked crate), so the run
+# needs cargo. Each task of the pool is an `xtask test-task` process that runs
+# the check under timeout and records its status and time when it ends.
+#
+# Exit: 0 every check passed, 1 a check failed, 2 nothing could be checked,
+#       or the runner did not build
 set -uo pipefail
 
-root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-lintbad=()  # the lint, when it ran and refused a file
-bad=()      # test files that did not pass, by path relative to the checkout
-why=()      # why bad[i] is named beyond its path, empty when it is just that
-skipped=()  # checks that did not run, with the reason
-ran=0
-
-given=" "
-for a in "$@"; do
-  a=${a#./}
-  case "$a" in
-    test/*_test.sh) [ -f "$root/$a" ] || { echo "test.sh: no test file $a" >&2; exit 2; } ;;
-  esac
-  given+="$root/$a "
-done
-# Whether a file is to run: every file without paths, else only those given.
-asked() { [ "$given" = " " ] || [[ $given == *" $1 "* ]]; }
-
-files=()
-for f in "$root"/bin/* "$root"/libexec/* "$root"/lib/*.sh "$root"/scripts/*.sh "$root"/test/*.sh \
-  "$root/install.sh" "$root/bootstrap.sh" "$root/host/env.sh" "$root/host/shim/gh" "$root/host/sandbox/build.sh" \
-  "$root/host/sandbox/gh-shim" "$root/host/login/tehas" "$root/host/release/install"; do
-  [ -f "$f" ] || continue
-  # publish-lib.sh is a vendored copy, checked where it is kept.
-  case "$f" in */scripts/publish-lib.sh) continue ;; esac
-  asked "$f" || continue
-  files+=("$f")
-done
-lint=0
-if ! command -v shellcheck >/dev/null 2>&1; then
-  echo "WARN: shellcheck is not installed, skipping it" >&2
-  skipped+=("shellcheck is not installed")
-elif [ "${#files[@]}" -gt 0 ]; then
-  ran=1
-  lint=1
+root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd) || exit 2
+xtask=${TEHAS_XTASK:-}
+if [ -z "$xtask" ]; then
+  command -v cargo >/dev/null 2>&1 || {
+    echo "test.sh: cargo is not installed, and it builds the runner (console/xtask)" >&2
+    exit 2
+  }
+  target=${CARGO_TARGET_DIR:-$root/console/target}
+  build() {
+    cargo build --locked --offline --quiet --manifest-path "$root/console/Cargo.toml" \
+      --target-dir "$target" -p tehas-xtask
+  }
+  build 2>/dev/null || { cargo fetch --locked --quiet --manifest-path "$root/console/Cargo.toml" && build; } || {
+    echo "test.sh: the runner (console/xtask) did not build" >&2
+    exit 2
+  }
+  xtask=$target/debug/xtask
 fi
-
-# The CPUs this run may use: the cgroup's quota, rounded up, when it is less
-# than the CPUs nproc counts. A container's quota does not change what nproc
-# says.
-cpus() {
-  local quota period n
-  n=$(nproc 2>/dev/null) || n=1
-  if read -r quota period 2>/dev/null </sys/fs/cgroup/cpu.max &&
-    [[ $quota =~ ^[1-9][0-9]*$ && $period =~ ^[1-9][0-9]*$ ]] &&
-    [ $(((quota + period - 1) / period)) -lt "$n" ]; then
-    n=$(((quota + period - 1) / period))
-  fi
-  echo "$n"
-}
-# The tasks this run's memory holds, at two a GiB, when that is less than $1.
-# One shellcheck can reach 2 GiB: at 4 tasks a GiB the kernel killed them in a
-# cycle's container. TEHAS_TEST_MEMORY_MAX names the file read in place of the
-# cgroup's.
-memory_jobs() { # jobs
-  local max n=$1
-  if read -r max 2>/dev/null <"${TEHAS_TEST_MEMORY_MAX:-/sys/fs/cgroup/memory.max}" &&
-    [[ $max =~ ^[1-9][0-9]*$ ]] && [ $((max >> 29)) -lt "$n" ]; then
-    n=$((max >> 29))
-  fi
-  [ "$n" -ge 1 ] || n=1
-  echo "$n"
-}
-jobs=${TEHAS_TEST_JOBS:-$(memory_jobs "$(cpus)")}
-[[ $jobs =~ ^[1-9][0-9]*$ ]] || jobs=1
-host_cpus=$(nproc 2>/dev/null) || host_cpus=1
-loadavg=${TEHAS_TEST_LOADAVG:-/proc/loadavg}
-busy() {
-  local load
-  read -r load _ <"$loadavg" 2>/dev/null && [[ $load =~ ^[0-9]+ ]] &&
-    [ $((BASH_REMATCH * 2)) -ge $((host_cpus * 2)) ]
-}
-limit=${TEHAS_TEST_FILE_TIMEOUT:-300}
-[[ $limit =~ ^[1-9][0-9]*$ ]] || limit=300
-# One root per run, ${TMPDIR:-/tmp}/tehas-tests/run.*, which is also the TMPDIR
-# of the test files: their scratch directories and the records go there. The
-# run holds a flock on its lock, and so does every process it starts, which
-# inherits the descriptor. A root whose lock no one holds is what a killed run
-# left, and goes now; one with no lock yet is still being made.
-base=${TMPDIR:-/tmp}/tehas-tests
-mkdir -p "$base" || exit 2
-for d in "$base"/run.*; do
-  [ -e "$d/lock" ] && flock -n "$d/lock" true 2>/dev/null && rm -rf "$d"
-done
-out=$(mktemp -d "$base/run.XXXXXX") || exit 2
-trap 'rm -rf "$out"' EXIT
-{ exec 47>"$out/lock.new" && flock -n 47 && mv "$out/lock.new" "$out/lock"; } || exit 2
-export TMPDIR=$out
-
-unset T_STORE_BIN T_STORE_WHY T_ATTACH_BIN T_DISPATCH_BIN T_CYCLE_BIN T_CONSOLE_BIN
-# One build for the gate, not a second tree beside it (#1360). The profile is
-# the workspace's own, so cargo test reuses what this build made and the other
-# way round. The tree of their own the binaries had before is removed.
-target=${CARGO_TARGET_DIR:-$root/console/target}
-rm -rf "$root/console/target/shell"
-store_build() {
-  cargo build --locked --offline --quiet --manifest-path "$root/console/Cargo.toml" \
-    --target-dir "$target" -p store -p attach -p tehas-dispatch -p tehas-cycle -p console >"$out/store-build.log" 2>&1
-}
-store_why=""
-if [ ! -f "$root/console/Cargo.toml" ]; then
-  store_why="this checkout has no console/Cargo.toml"
-elif ! command -v cargo >/dev/null 2>&1; then
-  store_why="cargo is not installed"
-elif store_build ||
-  # A fresh container's registry is empty (host/sandbox/Dockerfile), and the
-  # lock moves past the image: fetch the locked crates once and build again.
-  # Without a network the fetch fails and the offline build's words stand.
-  { cargo fetch --locked --quiet --manifest-path "$root/console/Cargo.toml" >"$out/store-fetch.log" 2>&1 && store_build; }; then
-  export T_STORE_BIN=$target/debug/store
-  export T_ATTACH_BIN=$target/debug/attach
-  export T_DISPATCH_BIN=$target/debug/tehas-dispatch
-  export T_CYCLE_BIN=$target/debug/tehas-cycle
-  export T_CONSOLE_BIN=$target/debug/console
-else
-  store_why="the store did not build offline: $(tail -n 1 "$out/store-build.log")"
-fi
-[ -z "$store_why" ] || export T_STORE_WHY=$store_why
-
-# The slowest files first, so none of them starts last and holds the run. A
-# fixed list, the same on every host; the rest follow in name order, and the
-# lint of each file after them, to fill the gaps.
-first=(work_ dispatch_ install_ preview_ cycle_ top_ improve_ update_ plan_)
-tests=()
-for p in "${first[@]}"; do
-  for t in "$root"/test/"$p"*_test.sh; do
-    [ -f "$t" ] && asked "$t" && tests+=("$t")
-  done
-done
-for t in "$root"/test/*_test.sh; do
-  { [ -f "$t" ] && asked "$t"; } || continue
-  [[ " ${tests[*]} " == *" $t "* ]] || tests+=("$t")
-done
-
-now_ms() { local t=${EPOCHREALTIME/[.,]/}; echo $((10#$t / 1000)); }
-
-# run <record> <command>...: one task of the pool, bounded by $limit. Its
-# status is written only when it ends, so a missing one is a failure; so is
-# its time.
-running=0
-run() {
-  local key=$1
-  shift
-  mkdir -p "${key%/*}" || { echo "test.sh: no record directory for ${key#"$out"/}" >&2; exit 2; }
-  # From the checkout: shellcheck -x finds sourced files from there.
-  (
-    cd "$root" || exit
-    s=$(now_ms)
-    timeout -k 10 "$limit" "$@" >"$key.log" 2>&1
-    echo "$?" >"$key.rc"
-    echo $(($(now_ms) - s)) >"$key.ms"
-  ) &
-  running=$((running + 1))
-  while [ "$running" -ge "$jobs" ] || { [ "$running" -gt 0 ] && busy; }; do
-    wait -n
-    running=$((running - 1))
-  done
-}
-for t in "${tests[@]}"; do
-  ran=1
-  # One record per test file, under the same identity the block reports: the
-  # path relative to the checkout, so no two files share a record. The block
-  # reads the log back by that same path, so one file cannot borrow another's
-  # FAIL: line.
-  run "$out/${t#"$root"/}" bash "$t"
-done
-if [ "$lint" = 1 ]; then
-  for f in "${files[@]}"; do
-    run "$out/lint/${f#"$root"/}" shellcheck -x "$f"
-  done
-fi
-wait
-
-if [ "$lint" = 1 ]; then
-  refused=0
-  for f in "${files[@]}"; do
-    key=$out/lint/${f#"$root"/}
-    rc=$(cat "$key.rc" 2>/dev/null) || rc=""
-    [ "$rc" = 0 ] && continue
-    refused=$((refused + 1))
-    cat "$key.log" 2>/dev/null
-    case "$rc" in
-      124 | 137) echo "shellcheck: ${f#"$root"/} timed out after ${limit}s" ;;
-    esac
-  done
-  if [ "$refused" = 0 ]; then
-    echo "shellcheck: ${#files[@]} files, ok"
-  else
-    echo "shellcheck: failed, $refused of ${#files[@]} files"
-    lintbad+=(shellcheck)
-  fi
-fi
-
-cases=0
-slow=()
-for t in "${tests[@]}"; do
-  name=${t#"$root"/}
-  key=$out/$name
-  reason=
-  # A file whose output is gone is a failure even when its status says it
-  # passed: the run cannot show what the check said.
-  if ! cat "$key.log" 2>/dev/null; then
-    echo "${name//[[:cntrl:]]/?}: its output could not be read"
-    reason="its output could not be read"
-  else
-    n=$(sed -n 's/^.*: \([0-9][0-9]*\) cases, [0-9][0-9]* failed$/\1/p' "$key.log" 2>/dev/null | tail -n 1)
-    [ -z "$n" ] || cases=$((cases + n))
-  fi
-  ms=$(cat "$key.ms" 2>/dev/null) || ms=""
-  [[ $ms =~ ^[0-9]+$ ]] && slow+=("$ms $name")
-  rc=
-  ok=1
-  if [ ! -f "$key.rc" ]; then
-    # A status is written only when the file ends, so a missing one is one that
-    # never finished.
-    ok=0
-    reason="it did not finish, no result recorded"
-  else
-    rc=$(cat "$key.rc" 2>/dev/null)
-    if [[ $rc =~ ^[0-9]+$ ]]; then
-      [ "$rc" -eq 0 ] || ok=0
-      if [ "$rc" = 124 ] || [ "$rc" = 137 ]; then reason="timed out after ${limit}s"; fi
-    else
-      ok=0
-      reason="its recorded result could not be read"
-    fi
-  fi
-  if [ "$ok" -eq 0 ] || [ -n "$reason" ]; then
-    bad+=("$name")
-    why+=("$reason")
-  fi
-done
-
-# What the run covered and where its time went: the count of cases goes down
-# only when cases were removed, and the slowest files are the ones to split.
-if [ "${#tests[@]}" -gt 0 ]; then
-  echo "test.sh: $cases cases in ${#tests[@]} files, $jobs at a time"
-  echo "test.sh: the slowest files:"
-  for ((i = 0; i < 5 && i < ${#slow[@]}; i++)); do
-    top=0
-    for ((j = 1; j < ${#slow[@]}; j++)); do
-      [ "${slow[j]%% *}" -le "${slow[top]%% *}" ] || top=$j
-    done
-    ms=${slow[top]%% *}
-    printf '    %3d.%d s  %s\n' "$((ms / 1000))" "$((ms % 1000 / 100))" "${slow[top]#* }"
-    slow[top]="-1 ${slow[top]#* }"
-  done
-fi
-
-# scripts/verify.sh keeps the last 40 lines of this step, and the block is what
-# a person of that gate sees of a failing run, so its size is derived from that
-# bound: the count line, the lint when it failed, the names that fit, the line
-# counting the rest, one line per check that did not run, and two lines spare
-# for anything printed after the block. The lint is outside the cap: nothing
-# else in the block says the shell scripts were refused.
-keep=40
-nf=${#bad[@]}
-cap=$((keep - 5 - ${#lintbad[@]} - ${#skipped[@]}))
-[ "$cap" -ge 1 ] || cap=1
-failed=$(( ${#lintbad[@]} + nf ))
-if [ "$ran" = 0 ] && [ "$given" != " " ] && [ "${#skipped[@]}" = 0 ]; then
-  echo "test.sh: no test file and no linted script among the paths given"
-  exit 0
-fi
-[ "$ran" = 1 ] || { echo "test.sh: nothing could be checked" >&2; exit 2; }
-if [ "$failed" -gt 0 ] || [ "${#skipped[@]}" -gt 0 ]; then
-  printf '\ntest.sh: failed checks (%s), not run (%s)\n' "$failed" "${#skipped[@]}"
-  for e in "${lintbad[@]}"; do
-    printf '    %s\n' "$e"
-  done
-  shown=$nf
-  [ "$shown" -le "$cap" ] || shown=$cap
-  for ((i = nf - shown; i < nf; i++)); do
-    # One line per file, so the size of the block and the cap above it do not
-    # change with the form of the entry.
-    entry=${bad[i]//[[:cntrl:]]/?}
-    # The file's own first FAIL: line names the case that did not pass, so the
-    # tail scripts/verify.sh keeps says which case it was and not only which
-    # file. The marker starts the line and the entry is not indented, so a
-    # caller looking for FAILED: finds it in column 1, and the file is still
-    # named on the line, so a reader that looks for paths finds it too. The
-    # text after the marker is data from the log, not this script's words: it is cut to 200
-    # characters and its control bytes become ?, as the name already is, so
-    # one case cannot print escapes or take the block's lines with it.
-    read -r first < <(sed -n 's/^FAIL: //p' "$out/${bad[i]}.log" 2>/dev/null)
-    if [ -n "$first" ]; then
-      first=${first:0:200}
-      printf 'FAILED: %s: %s\n' "$entry" "${first//[[:cntrl:]]/?}"
-      continue
-    fi
-    # A file with a reason and no FAIL: line of its own keeps the indented
-    # path. The reason is this script's own words, so only the name is
-    # rewritten.
-    [ -z "${why[i]}" ] || entry=$entry': '${why[i]}
-    printf '    %s\n' "$entry"
-  done
-  hidden=$((nf - shown))
-  [ "$hidden" -eq 0 ] || echo "    and $hidden more, in the full log"
-  for s in "${skipped[@]}"; do
-    printf '    skipped: %s\n' "${s//[[:cntrl:]]/?}"
-  done
-fi
-
-[ "$failed" -eq 0 ] || exit 1
-exit 0
+exec "$xtask" test --root "$root" "$@"
