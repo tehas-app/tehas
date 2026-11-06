@@ -842,3 +842,106 @@ fn the_order_of_one_second_is_the_rule_once() {
     assert_eq!(gh::event_order(&&ghost, &&app), Ordering::Less);
     assert_eq!(gh::event_order(&&removal, &&ghost), Ordering::Greater);
 }
+
+/// An issue's type and its type events as the GraphQL question answers them:
+/// each event is (typename, the type it names, the actor).
+fn typed(current: Option<&str>, events: &[(&str, &str, &str)]) -> String {
+    let nodes: Vec<Value> = events
+        .iter()
+        .map(|(kind, name, actor)| {
+            serde_json::json!({"__typename": kind, "createdAt": "2026-11-06T10:00:00Z",
+                "actor": if actor.is_empty() { Value::Null } else { serde_json::json!({"login": actor}) },
+                "issueType": {"name": name}})
+        })
+        .collect();
+    serde_json::json!({"data": {"repository": {"issue": {
+        "issueType": current.map(|c| serde_json::json!({"name": c})),
+        "timelineItems": {"nodes": nodes}}}}})
+    .to_string()
+}
+
+#[test]
+fn the_type_is_given_by_the_newest_change_that_set_it() {
+    let added = "IssueTypeAddedEvent";
+    let changed = "IssueTypeChangedEvent";
+    let removed = "IssueTypeRemovedEvent";
+    let cases: Vec<(String, Option<&str>)> = vec![
+        (
+            typed(Some("Prototype"), &[(added, "Prototype", "alice")]),
+            Some("alice"),
+        ),
+        (
+            typed(
+                Some("Prototype"),
+                &[
+                    (added, "Prototype", "mallory"),
+                    (removed, "Prototype", "bob"),
+                    (added, "Prototype", "alice"),
+                ],
+            ),
+            Some("alice"),
+        ),
+        (
+            typed(
+                Some("Prototype"),
+                &[(added, "Task", "mallory"), (changed, "Prototype", "alice")],
+            ),
+            Some("alice"),
+        ),
+        // The newest change is not the one that set it: nobody.
+        (
+            typed(
+                Some("Prototype"),
+                &[(added, "Prototype", "alice"), (changed, "Task", "bob")],
+            ),
+            Some(""),
+        ),
+        (typed(Some("Prototype"), &[]), Some("")),
+        (
+            typed(Some("Prototype"), &[(added, "Prototype", "")]),
+            Some(""),
+        ),
+        // Another type, or none: no answer.
+        (typed(Some("Task"), &[(added, "Task", "alice")]), None),
+        (
+            typed(
+                None,
+                &[
+                    (added, "Prototype", "alice"),
+                    (removed, "Prototype", "alice"),
+                ],
+            ),
+            None,
+        ),
+    ];
+    for (answer, want) in cases {
+        let (mut f, asked) = forge(vec![Ok(answer.clone())]);
+        let got = f.typed_by(7, "Prototype").unwrap();
+        assert_eq!(got.map(|a| a.actor).as_deref(), want, "{answer}");
+        let call = &asked.borrow()[0];
+        assert_eq!(&call[..2], ["api", "graphql"]);
+        assert!(call.contains(&"number=7".to_string()));
+        assert!(
+            call.contains(&"owner=acme".to_string()) && call.contains(&"name=widget".to_string())
+        );
+    }
+}
+
+#[test]
+fn the_owners_issue_types_are_read_and_an_answer_with_no_repository_is_an_error() {
+    let (mut f, _) = forge(vec![
+        Ok(r#"{"data":{"repository":{"issueTypes":{"nodes":[{"name":"Task"},{"name":"Prototype"}]}}}}"#.into()),
+        Ok(r#"{"data":{"repository":{"issueTypes":null}}}"#.into()),
+        Ok(r#"{"data":{"repository":null}}"#.into()),
+        Err("HTTP 502".into()),
+    ]);
+    assert_eq!(f.issue_types().unwrap(), ["Task", "Prototype"]);
+    assert!(f.issue_types().unwrap().is_empty());
+    assert!(f.issue_types().is_err());
+    assert_eq!(
+        f.issue_types().unwrap_err().line(),
+        "ERROR: the issue types failed: HTTP 502"
+    );
+    let (mut f, _) = forge(vec![Ok("not json".into())]);
+    assert!(f.typed_by(7, "Prototype").is_err());
+}

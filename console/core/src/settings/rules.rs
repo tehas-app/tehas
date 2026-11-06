@@ -110,6 +110,8 @@ pub enum Rule {
     /// Host names, each with `:<port>` if not 443, one space apart: the
     /// egress proxy's own list takes nothing else.
     EgressHosts,
+    /// kind=Type pairs: [`crate::kinds::parse`].
+    IssueTypes,
 }
 
 /// When a load checks a setting.
@@ -257,6 +259,7 @@ pub const TABLE: &[Setting] = &[
     given_or("TEHAS_BRANCH_CHECK", Rule::BranchCheck, ""),
     given_or("TEHAS_LOW_GATE", Rule::LowGate, ""),
     given("TEHAS_PRIORITY_FIELD", Rule::OneWord),
+    given(crate::kinds::SETTING, Rule::IssueTypes),
     given_or("TEHAS_CLEAN_DIRS", Rule::CleanDirs, CLEAN_DIRS),
     required("TEHAS_REPO", Rule::Repo),
     required("TEHAS_CONTROL_ISSUE", Rule::Count),
@@ -411,6 +414,7 @@ fn verdict(rule: Rule, v: &str, trees: &Trees) -> Result<(), String> {
             v.split(' ').all(is_egress_host),
             "expected host names such as pypi.org or host:port, separated by single spaces",
         ),
+        Rule::IssueTypes => crate::kinds::parse(v).map(|_| ()),
     }
 }
 
