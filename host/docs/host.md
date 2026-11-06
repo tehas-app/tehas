@@ -495,7 +495,12 @@ footers of the two front pages read their versions from the factory's health
 instead (`/live/health.json`, by `fun/versions.js`): tehas from
 `checks.platform`, the pi-rukas the sandbox image runs from `checks.rukas`, and
 the tehas-industry that runs the factory from `checks.industry` when there is
-one, as `tehas v0.24.6 · pi-rukas v0.14.54 · industry v0.9.0`. A
+one, as `tehas v0.24.6 · pi-rukas v0.14.54 · industry v0.9.0`. The same
+module shows a banner at the top of both pages while the industry has current
+alerts about the factory (`checks.industry.alerts`): each alert's kind as a
+word (Paused, Frozen, Held by one ticket, or the kind's own word for one this
+release does not know), its text, how long ago it started and its link. With
+no industry, or no current alert, there is no banner. A
 `rukas-version.txt` an older image build left in `~/tehas/fun` is no longer
 read; `install.sh` leaves it where it is.
 

@@ -412,6 +412,13 @@ fn status_names_the_pi_rukas_the_image_runs_and_the_industry() {
     assert_eq!(out["rukas"]["imageVersion"], "v0.14.54");
     assert_eq!(out["rukas"]["behind"], false);
     assert_eq!(out["industry"]["version"], "v0.9.0");
+    assert_eq!(out["industry"]["alerts"][0]["kind"], "held-by-one");
+    assert_eq!(
+        out["industry"]["alerts"][0]["link"],
+        "https://github.com/tehas-app/tehas/issues/12"
+    );
+    assert!(out["industry"]["alerts"][0].get("secretKey").is_none());
+    assert_eq!(out["industry"]["alertsStale"], false);
     // A factory with neither has neither.
     let dir = copy("no-rukas");
     let file = dir.join("health.json");
@@ -597,6 +604,12 @@ fn an_unknown_tool_is_unknown() {
     ));
 }
 
+/// The industry of the fixtures' health.json, and one whose alerts file cannot
+/// be read, which is the one answer that names `alertsUnreadable`.
+const INDUSTRY: &str = r##""industry":{"version":"v0.9.0","alertsTime":"2026-10-20T08:45:00Z","alerts":[{"kind":"held-by-one","since":"2026-10-20T06:45:00Z","text":"#12 has held the factory still for 2 h.","link":"https://github.com/tehas-app/tehas/issues/12","secretKey":"SECRET"}],"alertsStale":false}"##;
+const UNREADABLE_INDUSTRY: &str =
+    r#""industry":{"version":"v0.9.0","alerts":null,"alertsUnreadable":true}"#;
+
 // Adding a key to what a tool returns is a change someone makes on purpose:
 // it shows up here.
 #[test]
@@ -650,6 +663,14 @@ fn every_key_is_listed() {
                 "rukas.behind",
                 "industry",
                 "industry.version",
+                "industry.alerts",
+                "industry.alerts[].kind",
+                "industry.alerts[].since",
+                "industry.alerts[].text",
+                "industry.alerts[].link",
+                "industry.alertsTime",
+                "industry.alertsStale",
+                "industry.alertsUnreadable",
                 "hold",
                 "hold.why",
                 "hold.text",
@@ -841,7 +862,10 @@ fn every_key_is_listed() {
             let health = std::fs::read_to_string(&file).unwrap().replace(
                 "\"commit\":\"9b1b7dc11b73b93f7296b5f3131fcc6ef6b964e9\",\"upstream\":\"origin/main\"",
                 "\"release\":\"v0.9.1\",\"newest\":\"v0.9.2\",\"upstream\":\"releases\"",
-            );
+            )
+            // and an industry whose alerts cannot be read.
+            .replace(INDUSTRY, UNREADABLE_INDUSTRY);
+            assert!(health.contains(UNREADABLE_INDUSTRY));
             std::fs::write(&file, health).unwrap();
             got.extend(key_paths(&call(&c, name, &args(name)).unwrap()));
         }
@@ -886,7 +910,10 @@ fn schema_matches_output() {
             let health = std::fs::read_to_string(&file).unwrap().replace(
                 "\"commit\":\"9b1b7dc11b73b93f7296b5f3131fcc6ef6b964e9\",\"upstream\":\"origin/main\"",
                 "\"release\":\"v0.9.1\",\"newest\":\"v0.9.2\",\"upstream\":\"releases\"",
-            );
+            )
+            // and an industry whose alerts cannot be read.
+            .replace(INDUSTRY, UNREADABLE_INDUSTRY);
+            assert!(health.contains(UNREADABLE_INDUSTRY));
             std::fs::write(&file, health).unwrap();
             got.extend(key_paths(&call(&c, name, &args(name)).unwrap()));
         }
