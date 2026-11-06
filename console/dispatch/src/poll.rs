@@ -315,6 +315,7 @@ fn writer(
             systemd_run: "systemd-run".into(),
             lock_poll: Duration::from_millis(500),
             launch_poll: Duration::from_millis(500),
+            read_only: env("TEHAS_READ_ONLY") == "1",
             checkout: env("TEHAS_WORK_REPO"),
             branch: settings.branch.clone(),
             git: "git".into(),

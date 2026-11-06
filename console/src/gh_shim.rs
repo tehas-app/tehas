@@ -207,6 +207,21 @@ pub fn line(at: i64, w: &Write, rc: i32, marker: &str) -> String {
     )
 }
 
+/// What a refused write was, in the words of its log line: `gh issue edit
+/// o/r#7`, with no number or repository when the call names none.
+pub fn refused(w: &Write) -> String {
+    let mut s = format!("gh {}", w.kind);
+    if !w.repo.is_empty() {
+        s.push(' ');
+        s.push_str(&w.repo);
+    }
+    if !w.number.is_empty() {
+        s.push_str(if w.repo.is_empty() { " #" } else { "#" });
+        s.push_str(&w.number);
+    }
+    s
+}
+
 fn append(log: &Path, text: &str) -> io::Result<()> {
     if let Some(dir) = log.parent() {
         let _ = fs::create_dir_all(dir);
@@ -232,6 +247,12 @@ pub fn main(given: &[OsString]) -> u8 {
         let _ = writeln!(io::stderr(), "gh: {}: {e}", Path::new(gh).display());
         return 127;
     };
+    // A read-only instance (#608): the write is not run and leaves no line in
+    // the write log, which counts what reached GitHub. Its caller goes on as
+    // after a write that answered nothing.
+    if tehas_core::read_only::refuse(&refused(&w)) {
+        return 0;
+    }
     let out = Command::new(gh)
         .args(words)
         .stdin(Stdio::inherit())
@@ -278,6 +299,21 @@ mod tests {
             repo: repo.into(),
             number: number.into(),
         })
+    }
+
+    #[test]
+    fn a_refused_write_is_named_by_its_kind_repository_and_number() {
+        let r = |words: &[&str]| refused(&c(words).unwrap());
+        assert_eq!(
+            r(&["issue", "edit", "7", "-R", "o/r", "--add-label", "x"]),
+            "gh issue edit o/r#7"
+        );
+        assert_eq!(
+            r(&["label", "create", "x", "-R", "o/r"]),
+            "gh label create o/r"
+        );
+        assert_eq!(r(&["pr", "comment", "3"]), "gh pr comment #3");
+        assert_eq!(r(&["api", "-X", "PATCH", "user"]), "gh api PATCH");
     }
 
     #[test]
