@@ -75,6 +75,12 @@ cd ~/tehas/platform && ./install.sh --check
   `instance.env`.
 - A setting you exported in the shell is ignored: `instance.env` wins, and a
   setting it does not assign is dropped.
+- `tehas work: GH_CYCLE_TOKEN is not set (see ~/.config/tehas/env)`: no cycle
+  starts without the cycle token. Make a fine-grained token for the bot account,
+  for the product repository only, with Contents, Pull requests and Issues read
+  and write and Metadata read. Put it in `~/.config/tehas/env` as
+  `GH_CYCLE_TOKEN=...`, then restart the dispatcher. See
+  [Secrets and trust](/host#secrets-and-trust).
 
 The dispatcher fails the same way under systemd; the line is then in
 `~/tehas/logs/dispatch.log`.

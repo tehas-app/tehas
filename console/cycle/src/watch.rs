@@ -23,6 +23,7 @@ use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use tehas_core::sandbox;
 use tehas_core::{call, time};
 
 /// How often a stop is looked for while something else is waited on.
@@ -833,7 +834,7 @@ fn start_container(g: &Given, files: &Files) -> Running {
         return Running::gone(127);
     };
     let keep = err.try_clone();
-    let child = Command::new(program)
+    let child = sandbox::give_cycle_token(&mut Command::new(program))
         .args(args)
         .stdin(Stdio::null())
         .stdout(out)
