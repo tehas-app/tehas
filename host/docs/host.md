@@ -1845,33 +1845,37 @@ to the tag; a script that then sets a persistent cookie usually needs the
 visitor's consent. The example instance uses this for its public pages. The
 same `docker compose ... up -d` applies after a change.
 
-### Themes and layouts
+### Designs
 
-The site is two frontends with two looks, and no setting picks either. Their
-colours, typefaces, sizes, outlines and shadows come from a theme file, and the
-file each page asks for is fixed:
+The site has two designs, and the instance picks one for all of it with
+`TEHAS_DESIGN`. A page's colours, typefaces, sizes, outlines and shadows come
+from the design's theme file, and the design also picks the page at `/`:
 
-| Look          | Where                                                      | Its file                |
-| ------------- | ---------------------------------------------------------- | ----------------------- |
-| `pixel`       | The front page: `/` and `/floor`, the factory floor        | `theme-pixel.css`       |
-| `beesknees26` | `/business`, `/dashboard`, every manual page, the Protolab | `theme-beesknees26.css` |
+| `TEHAS_DESIGN`             | The front page, `/` | Every page names        | Logo and share card             |
+| -------------------------- | ------------------- | ----------------------- | ------------------------------- |
+| `beesknees26`, the default | The business page   | `theme-beesknees26.css` | `favicon.svg`, `share-logo.png` |
+| `pixel`                    | The factory floor   | `theme-pixel.css`       | `factory.svg`, `share.png`      |
 
-`pixel` is the factory as a 16-bit game, in the Topaz bitmap typeface.
 `beesknees26` is ink and one muted green on a near-white ground, white panels
 with soft shadows, IBM Plex, and no motion: light, with a dark set only where
 the viewer picks it with the business page's mode button, kept in their browser.
+`pixel` is the factory as a 16-bit game, in the Topaz bitmap typeface. It is
+meant for a factory whose site is also its demo; a factory that sets nothing is
+drawn in `beesknees26` everywhere, `/` included.
 
-Each page names its own logo and share card too, so neither server rewrites a
-look. The floor asks for `factory.svg` and `share.png`; every other page asks
-for `favicon.svg` and `share-logo.png`. The sprites and scenes are pictures and
-stay the same in both.
+The design draws every page: `/`, `/floor`, `/business`, `/dashboard`, every
+manual page and the Protolab. The docs server reads `TEHAS_DESIGN` when its
+container is created, so run its `docker compose ... up -d` line again after a
+change. `tehasbot protolab` writes the Protolab's pages in the design, and
+builds every page again at its next pass when the design changes. The edge
+router is given no setting about looks: it serves the files the pages name.
 
-`TEHAS_THEME` and `TEHAS_LAYOUT` are retired. A line that asks for what this
-version does anyway, `TEHAS_THEME=pixel`, `TEHAS_LAYOUT=floor` or an empty
-value, loads and is dropped. Any other value stops every tehas command with 78
-and names the line to take out of `instance.env`. A host that had
-`TEHAS_LAYOUT=business` has the floor at `/` now, and the business page at
-`/business`.
+Any value but `beesknees26` or `pixel` stops every tehas command with 78.
+`TEHAS_THEME` and `TEHAS_LAYOUT` are retired. A line that asks for the default
+design, `TEHAS_THEME=beesknees26`, `TEHAS_LAYOUT=business` or an empty value,
+loads and is dropped. Any other value, `TEHAS_THEME=pixel` and
+`TEHAS_LAYOUT=floor` among them, stops every command with 78 and names the line
+to take out of `instance.env`: set `TEHAS_DESIGN=pixel` instead.
 
 Both pages are always there, at `/floor` and `/business`. The business page
 reads the
@@ -1888,15 +1892,13 @@ shows only where the file is there.
 Its live charts cover the last 30 minutes, which is what `energy.json` holds.
 
 A page asks for its theme by name, `~/tehas/fun/theme-<name>.css`, and the docs
-server and the edge router answer with that file: nothing is rewritten, so
-neither server is given a setting about looks. The docs server still reads
-`TEHAS_INDEXING` and the analytics settings when its container is created: run
-its `docker compose ... up -d` line again after changing either.
+server and the edge router answer with that file: nothing is rewritten. The
+docs server's pages are templates that read `TEHAS_DESIGN` for the name.
 
 A theme is one file in `host/fun/`, `theme-<name>.css`, that sets every token
 `theme-pixel.css` sets. `test/theme_test.sh` fails when a theme leaves a token
-out, when a page names a colour or a typeface of its own, and when a page asks
-for the look of the other frontend.
+out, when a page names a colour or a typeface of its own, and when a page names
+a theme other than the instance's design.
 
 ## Secrets and trust
 

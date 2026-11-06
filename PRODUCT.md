@@ -50,10 +50,11 @@ The Amiga demoscene heritage (the Tehdas ASCII logo by Squarepusher and its
 credit) belongs in the footer only. It is a signature, not the theme. The Topaz
 typeface is the exception: it sets every word on the front page.
 
-That identity is the front page's, where the factory is shown and demonstrated.
-The rest of the site is in the business register: `/business`, the plain
-dashboard, the manual and the Protolab, in IBM Plex on white panels with one
-muted green. Same voice, same facts, no 16-bit clothing.
+That identity is the pixel design's, for a site where the factory is shown and
+demonstrated: with `TEHAS_DESIGN=pixel` it draws the whole site. A factory that
+sets nothing is in the business register everywhere: beesknees26, IBM Plex on
+white panels with one muted green, with the business page at `/`. Same voice,
+same facts, no 16-bit clothing.
 
 Voice is short and plain, in the manner of game interface text: labels, counts,
 station names. It may be dry. It does not cheer.
