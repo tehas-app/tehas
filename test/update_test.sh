@@ -214,6 +214,7 @@ real_platform() {
   systemctl_active
   docker_up
   bound_calls
+  rukas_tree
   mkdir -p "$checkout"
   cp -R "$T_ROOT/install.sh" "$T_ROOT/bootstrap.sh" "$T_ROOT/bin" "$T_ROOT/libexec" \
     "$T_ROOT/lib" "$T_ROOT/host" "$checkout/"
