@@ -1273,7 +1273,7 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
             )
         },
     };
-    let rc = f.rc;
+    let mut rc = f.rc;
     // tehas work refused the start: with 4, or with 78 and its note on lean.
     let lean_refused = rc == 78 && matches!(f.file("lean-refused"), File::Text(_));
     let never_started = rc == 4 || lean_refused;
@@ -1307,7 +1307,11 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
                 format!("Tehas cycle ended: its pull request {merged_pr} was merged while the cycle ran (last step `{step}`, {mins} min, runner exit {runner_rc}). Nothing more is needed here. {kept_said}.{killed}{s}")
             }));
         }
+        // A merged pull request is the cycle's end, whatever the runner was
+        // stopped in: the record says merged and 0, the runner's exit stays
+        // in --runner-exit and the comment.
         status = "merged".into();
+        rc = 0;
         pr = merged_pr.clone();
     } else if unread {
         r.arm = "prs-unread";
