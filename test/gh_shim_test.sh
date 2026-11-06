@@ -181,7 +181,8 @@ ro_shim() { # <args...>
 
 t_case "read-only: the reads a cycle makes still reach gh"
 for call in "issue view 7 --json body" "pr list --head feature/issue-7" "pr view 12" "api repos/acme/widget/issues/7/comments" \
-  "api -X GET repos/acme/widget/pulls -f state=open" "api graphql -f query='query { viewer { login } }'" "auth git-credential"; do
+  "api -X GET repos/acme/widget/pulls -f state=open" "api graphql -f query='query { viewer { login } }'" "auth git-credential" \
+  "repo clone acme/widget" "auth setup-git"; do
   stub_reset
   answer 1 "the answer" "" 0
   ro_shim "$call"
