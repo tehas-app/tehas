@@ -4,10 +4,12 @@
 //! Usage:
 //!   xtask select-tests --root <dir> <path>...
 //!   xtask pack-release --script <path> <argument>...
+//!   xtask tag-release --script <path> <argument>...
 //!
 //! select-tests is scripts/select-tests.sh: src/select.rs says what it prints.
 //! pack-release is scripts/pack-release.sh, whose header (the --script) is its
-//! usage: src/pack.rs.
+//! usage: src/pack.rs. tag-release is scripts/tag-release.sh, the same way:
+//! src/tag.rs; it works in the checkout two levels above the --script.
 //!
 //! Exit: what the task says; 64 a task or an argument it does not know.
 
@@ -16,15 +18,18 @@ use std::process::ExitCode;
 
 mod pack;
 mod select;
+mod tag;
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
         Some("select-tests") => select_tests(&args[1..]),
         Some("pack-release") => pack_release(&args[1..]),
+        Some("tag-release") => tag_release(&args[1..]),
         _ => {
             eprintln!("xtask: usage: xtask select-tests --root <dir> <path>...");
             eprintln!("       xtask pack-release --script <path> <argument>...");
+            eprintln!("       xtask tag-release --script <path> <argument>...");
             ExitCode::from(64)
         }
     }
@@ -78,6 +83,30 @@ fn pack_release(args: &[String]) -> ExitCode {
         }
         Err(f) => refuse(f),
     }
+}
+
+fn tag_release(args: &[String]) -> ExitCode {
+    let (script, rest) = match args {
+        [flag, script, rest @ ..] if flag == "--script" => (PathBuf::from(script), rest),
+        _ => {
+            eprintln!("xtask: tag-release needs --script <path>");
+            return ExitCode::from(64);
+        }
+    };
+    let a = match tag::parse(rest, &pwd()) {
+        Ok(tag::Parsed::Run(a)) => a,
+        Ok(tag::Parsed::Help) => {
+            let text = std::fs::read_to_string(&script).unwrap_or_default();
+            tehas_core::out!("{}", pack::help(&text));
+            return ExitCode::SUCCESS;
+        }
+        Err(msg) => {
+            eprintln!("tag-release: {msg}");
+            return ExitCode::from(64);
+        }
+    };
+    let root = pack::logical(&pwd(), &script.join("../.."));
+    ExitCode::from(tag::run(&a, &root))
 }
 
 fn refuse(f: pack::Fail) -> ExitCode {

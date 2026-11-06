@@ -203,7 +203,7 @@ fn is_dir(p: &Path) -> bool {
 }
 
 /// `[ -x ]`: this process may run it.
-fn is_exec(p: &Path) -> bool {
+pub(crate) fn is_exec(p: &Path) -> bool {
     use rustix::fs::{accessat, Access, AtFlags, CWD};
     accessat(CWD, p, Access::EXEC_OK, AtFlags::EACCESS).is_ok()
 }
@@ -266,11 +266,12 @@ fn links(root: &Path, paths: &[String]) -> Vec<String> {
     out
 }
 
-/// A directory under $TMPDIR (or /tmp), removed when the value drops.
-struct Stage(PathBuf);
+/// A directory under $TMPDIR (or /tmp), removed when the value drops, its
+/// name `<prefix>.` and a few random characters, as `mktemp -d` names one.
+pub(crate) struct Stage(pub(crate) PathBuf);
 
 impl Stage {
-    fn new() -> io::Result<Stage> {
+    pub(crate) fn new(prefix: &str) -> io::Result<Stage> {
         let tmp = std::env::var_os("TMPDIR")
             .filter(|t| !t.is_empty())
             .map_or_else(|| PathBuf::from("/tmp"), PathBuf::from);
@@ -280,7 +281,7 @@ impl Stage {
         let mut last = io::Error::other("no name left");
         for n in 0..100u32 {
             let p = tmp.join(format!(
-                "pack-release.{}{:06x}",
+                "{prefix}.{}{:06x}",
                 std::process::id(),
                 (seed ^ n.wrapping_mul(2_654_435_761)) & 0xff_ffff
             ));
@@ -501,7 +502,7 @@ pub fn pack(a: &Args, pack_root: Option<&str>, pwd: &Path) -> Result<Packed, Fai
         );
     }
 
-    let stage = Stage::new().map_err(|_| Fail {
+    let stage = Stage::new("pack-release").map_err(|_| Fail {
         code: 1,
         msg: "cannot make a staging directory".into(),
     })?;
