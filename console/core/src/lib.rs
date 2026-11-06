@@ -12,6 +12,7 @@ pub mod env_file;
 pub mod events;
 pub mod file;
 pub mod forge;
+pub mod github_fails;
 pub mod grammar;
 pub mod hold;
 pub mod hostnet;
@@ -33,6 +34,8 @@ pub mod plan;
 #[cfg(feature = "mask")]
 pub mod question;
 pub mod read_only;
+#[cfg(feature = "mask")]
+pub mod retry;
 pub mod review;
 pub mod rukas;
 pub mod sandbox;
