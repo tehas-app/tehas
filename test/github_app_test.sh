@@ -348,15 +348,22 @@ t_instance TEHAS_REPO=acme/widget
 t_run "export TEHAS_READ_ONLY=1 TEHAS_HOME=$T/home/tehas GH_TOKEN=ghp_user
 $T/home/tehas/shim/gh issue edit 7 --repo acme/widget --add-label tehas:running; echo rc=\$?
 $T/home/tehas/shim/gh api -X POST repos/acme/widget/issues/7/comments -f body=hello; echo rc=\$?
+$T/home/tehas/shim/gh release create improve --repo acme/lab --prerelease; echo rc=\$?
+$T/home/tehas/shim/gh release upload improve cycle.log --repo acme/lab --clobber; echo rc=\$?
 $T/home/tehas/shim/gh issue view 7 --repo acme/widget"
 t_eq "$t_rc" 0
+# A call no write is known by is refused too: only the reads run (#608).
 t_eq "$t_out" "read-only: would gh issue edit acme/widget#7
 rc=0
 read-only: would gh api POST acme/widget#7
 rc=0
+read-only: would gh release create acme/lab
+rc=0
+read-only: would gh release upload acme/lab
+rc=0
 gh issue view 7 --repo acme/widget token=ghp_user"
 t_contains "$(cat "$T/home/tehas/state/read-only.log")" "read-only: would gh issue edit acme/widget#7"
-t_eq "$(grep -c 'read-only: would' "$T/home/tehas/state/read-only.log")" 2
+t_eq "$(grep -c 'read-only: would' "$T/home/tehas/state/read-only.log")" 4
 # The write log counts what reached GitHub, and nothing did.
 t_eq "$(cat "$T/home/tehas/state/github-writes.log" 2>/dev/null)" ""
 
