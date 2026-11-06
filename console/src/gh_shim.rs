@@ -16,6 +16,14 @@
 //! A log that cannot be written changes nothing of gh's result: one word about
 //! it comes on the error stream after gh's own.
 //!
+//! A write GitHub refused for a rate limit (#649 part 2) is sent once more, and
+//! only that call: the first answer is thrown away, and after
+//! TEHAS_GH_RETRY_WAIT seconds [60] the same words go to gh again. Each attempt
+//! is a line of the log. gh shows no Retry-After, and GitHub asks for a minute
+//! when it names none. A write that reads standard input (`-`, or a word that
+//! ends in `@-`) is sent once, because its input cannot be read twice. Nothing
+//! is shared between calls, so a call that waits holds up no other.
+//!
 //! Exit: gh's own; 64 no real gh or no log named; 127 gh cannot be run.
 
 use std::ffi::OsString;
@@ -23,7 +31,8 @@ use std::fs::{self, OpenOptions};
 use std::io::{self, Write as _};
 use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::{Command, Output, Stdio};
+use std::time::Duration;
 use tehas_core::time;
 
 const USAGE: &str = "usage: console gh <real gh> <log> [words]";
@@ -207,6 +216,26 @@ pub fn line(at: i64, w: &Write, rc: i32, marker: &str) -> String {
     )
 }
 
+/// GitHub refused the call for a rate limit: gh failed and its error stream
+/// says 429, or 403 and "rate limit", which GitHub puts on lines of their own.
+/// As host/sandbox/gh-shim reads it.
+pub fn rate_limited(rc: i32, stderr: &[u8]) -> bool {
+    let text = String::from_utf8_lossy(stderr).to_lowercase();
+    rc != 0
+        && (text.contains("http 429") || text.contains("http 403") && text.contains("rate limit"))
+}
+
+/// A call that reads standard input, which a second attempt could not read.
+pub fn reads_stdin(args: &[String]) -> bool {
+    args.iter().any(|a| a == "-" || a.ends_with("@-"))
+}
+
+/// The pause before the second attempt: TEHAS_GH_RETRY_WAIT in seconds, or a
+/// minute when it is unset or no number.
+pub fn retry_wait(given: Option<&str>) -> Duration {
+    Duration::from_secs(given.and_then(|w| w.trim().parse().ok()).unwrap_or(60))
+}
+
 fn append(log: &Path, text: &str) -> io::Result<()> {
     if let Some(dir) = log.parent() {
         let _ = fs::create_dir_all(dir);
@@ -216,6 +245,36 @@ fn append(log: &Path, text: &str) -> io::Result<()> {
         .append(true)
         .open(log)?
         .write_all(text.as_bytes())
+}
+
+// One attempt of a write: gh's error stream is always kept, its output only
+// when a second attempt may follow and the first answer must not reach the
+// caller. The line goes to the log at once; whether it could be written is
+// the bool.
+fn attempt(
+    gh: &OsString,
+    words: &[OsString],
+    w: &Write,
+    log: &Path,
+    keep: bool,
+) -> io::Result<(i32, Output, bool)> {
+    let out = Command::new(gh)
+        .args(words)
+        .stdin(Stdio::inherit())
+        .stdout(if keep {
+            Stdio::piped()
+        } else {
+            Stdio::inherit()
+        })
+        .stderr(Stdio::piped())
+        .spawn()
+        .and_then(|child| child.wait_with_output())?;
+    let rc = out
+        .status
+        .code()
+        .unwrap_or_else(|| 128 + out.status.signal().unwrap_or(0));
+    let logged = append(log, &line(time::now(), w, rc, marker(&out.stderr))).is_ok();
+    Ok((rc, out, logged))
 }
 
 pub fn main(given: &[OsString]) -> u8 {
@@ -232,33 +291,39 @@ pub fn main(given: &[OsString]) -> u8 {
         let _ = writeln!(io::stderr(), "gh: {}: {e}", Path::new(gh).display());
         return 127;
     };
-    let out = Command::new(gh)
-        .args(words)
-        .stdin(Stdio::inherit())
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::piped())
-        .spawn()
-        .and_then(|child| child.wait_with_output());
-    let out = match out {
-        Ok(out) => out,
-        Err(e) => {
-            let _ = writeln!(io::stderr(), "gh: {}: {e}", Path::new(gh).display());
-            return 127;
-        }
+    let log = Path::new(log);
+    let cannot = |e: io::Error| {
+        let _ = writeln!(io::stderr(), "gh: {}: {e}", Path::new(gh).display());
+        127
     };
-    let rc = out
-        .status
-        .code()
-        .unwrap_or_else(|| 128 + out.status.signal().unwrap_or(0));
-    let text = line(time::now(), &w, rc, marker(&out.stderr));
-    let logged = append(Path::new(log), &text);
+    let again = !reads_stdin(&args);
+    let (mut rc, mut out, mut logged) = match attempt(gh, words, &w, log, again) {
+        Ok(first) => first,
+        Err(e) => return cannot(e),
+    };
     let mut err = io::stderr();
+    if again && rate_limited(rc, &out.stderr) {
+        let wait = retry_wait(std::env::var("TEHAS_GH_RETRY_WAIT").ok().as_deref());
+        let _ = writeln!(
+            err,
+            "gh: rate limited, trying once more in {} s",
+            wait.as_secs()
+        );
+        std::thread::sleep(wait);
+        let first_logged = logged;
+        (rc, out, logged) = match attempt(gh, words, &w, log, false) {
+            Ok(second) => second,
+            Err(e) => return cannot(e),
+        };
+        logged &= first_logged;
+    }
+    let _ = io::stdout().write_all(&out.stdout);
     let _ = err.write_all(&out.stderr);
-    if logged.is_err() {
+    if !logged {
         let _ = writeln!(
             err,
             "gh: the write log {} could not be written",
-            Path::new(log).display()
+            log.display()
         );
     }
     u8::try_from(rc).unwrap_or(1)
@@ -494,6 +559,44 @@ mod tests {
             c(&["api", "-X", "POST", "repos/o/r", "-R", "x/y"]),
             w("api POST", "x/y", "")
         );
+    }
+
+    #[test]
+    fn a_rate_limit_is_a_failed_429_or_a_403_that_says_so() {
+        assert!(rate_limited(1, b"HTTP 429: Too Many Requests"));
+        assert!(rate_limited(
+            1,
+            b"HTTP 403: Forbidden\nAPI rate limit exceeded for installation"
+        ));
+        assert!(rate_limited(
+            1,
+            b"http 403: You have exceeded a secondary RATE LIMIT"
+        ));
+        assert!(!rate_limited(
+            1,
+            b"HTTP 403: Resource not accessible by integration"
+        ));
+        assert!(!rate_limited(1, b"HTTP 404: Not Found"));
+        assert!(!rate_limited(0, b"HTTP 429"));
+    }
+
+    #[test]
+    fn a_call_that_reads_standard_input_is_sent_once() {
+        let s = |w: &[&str]| reads_stdin(&w.iter().map(|w| w.to_string()).collect::<Vec<_>>());
+        assert!(s(&["issue", "comment", "3", "--body-file", "-"]));
+        assert!(s(&["api", "repos/o/r/issues/3/comments", "--input", "-"]));
+        assert!(s(&["api", "repos/o/r/issues/3/comments", "-F", "body=@-"]));
+        assert!(!s(&["issue", "comment", "3", "--body", "a - b"]));
+        assert!(!s(&["api", "-X", "DELETE", "repos/o/r/labels/x"]));
+    }
+
+    #[test]
+    fn the_wait_is_a_minute_unless_named() {
+        assert_eq!(retry_wait(None), Duration::from_secs(60));
+        assert_eq!(retry_wait(Some("0")), Duration::ZERO);
+        assert_eq!(retry_wait(Some("5")), Duration::from_secs(5));
+        assert_eq!(retry_wait(Some("soon")), Duration::from_secs(60));
+        assert_eq!(retry_wait(Some("-1")), Duration::from_secs(60));
     }
 
     #[test]

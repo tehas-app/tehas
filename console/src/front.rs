@@ -113,7 +113,7 @@ fn tehasbot(words: &[String]) -> Go {
             | "improve" | "review" | "github-token" | "cycle",
         ) => Go::Run,
         Some("mcp") if words.get(1).map(String::as_str) == Some("serve") => Go::Run,
-        Some("mcp") => Go::Verb,
+        Some("mcp" | "github-writes") => Go::Verb,
         Some("energy") => Go::Energy,
         Some(c) => script("tehasbot", c).map_or_else(|| Go::Unknown(c.to_string()), Go::Script),
     }
@@ -348,6 +348,7 @@ mod tests {
         }
         assert_eq!(b(&["mcp", "serve"]), Go::Run);
         assert_eq!(b(&["mcp", "key"]), Go::Verb);
+        assert_eq!(b(&["github-writes"]), Go::Verb);
         assert_eq!(b(&["energy", "--every"]), Go::Energy);
         for w in [&[][..], &["help"], &["-h"], &["--help"]] {
             assert_eq!(b(w), Go::Usage, "{w:?}");

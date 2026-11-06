@@ -23,6 +23,7 @@
 //!   console tehasbot status
 //!   console tehasbot top [--every]
 //!   console tehasbot github-token [--check]
+//!   console tehasbot github-writes
 //!
 //! status, disk, top and mcp key need no settings, and dev loads its own. The
 //! rest run under `console run` (src/run.rs), which first asks [`check`] with the
@@ -176,9 +177,10 @@ pub fn tehasbot(given: &[String]) -> u8 {
         Some("top") => top::publish(&given[1..]),
         Some("mcp") => mcp::main(&given[1..]),
         Some("github-token") => github::main(&given[1..]),
+        Some("github-writes") => crate::gh_writes::main(&given[1..]),
         _ => {
             eprintln!(
-                "console tehasbot: usage: health | status | top [--every] | mcp | github-token [--check]"
+                "console tehasbot: usage: health | status | top [--every] | mcp | github-token [--check] | github-writes"
             );
             64
         }

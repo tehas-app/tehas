@@ -52,6 +52,23 @@ pub fn iso(t: i64) -> String {
     )
 }
 
+/// Unix seconds of 2026-10-15T18:38:44Z, as [`iso`] and `date -u
+/// +%Y-%m-%dT%H:%M:%SZ` write it; None for any other shape.
+pub fn from_iso(s: &str) -> Option<i64> {
+    let b = s.as_bytes();
+    if b.len() != 20 || b[4] != b'-' || b[7] != b'-' || b[10] != b'T' || b[19] != b'Z' {
+        return None;
+    }
+    let n = |r: std::ops::Range<usize>| {
+        let v = s.get(r)?;
+        v.bytes()
+            .all(|b| b.is_ascii_digit())
+            .then(|| v.parse().ok())?
+    };
+    let days = days_from_civil(n(0..4)?, n(5..7)?, n(8..10)?);
+    Some(days * 86_400 + n(11..13)? * 3600 + n(14..16)? * 60 + n(17..19)?)
+}
+
 /// `date -u +%y%m%d-%H%M%S`, the stamp of a log's name.
 pub fn stamp(t: i64) -> String {
     let (y, m, d) = civil_from_days(t.div_euclid(86_400));
@@ -68,6 +85,16 @@ pub fn stamp(t: i64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn from_iso_reads_what_iso_writes() {
+        for t in [0, 1_793_967_944, 86_399] {
+            assert_eq!(from_iso(&iso(t)), Some(t));
+        }
+        assert_eq!(from_iso("2026-10-15T18:38:44"), None);
+        assert_eq!(from_iso("2026-10-15 18:38:44Z"), None);
+        assert_eq!(from_iso("2026-1x-15T18:38:44Z"), None);
+    }
 
     #[test]
     fn the_epoch_and_known_days() {
