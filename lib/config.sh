@@ -1,62 +1,36 @@
 # shellcheck shell=bash
-# Tehas instance settings. Sourced by every tehas command and by env.sh.
+# Tehas instance settings, for login shells (env.sh), install.sh and updates.
+# <instance dir>/instance.env is KEY=value lines, sourced as written: keep it
+# writable by the tehas user only, and put no secrets in it.
 #
-# An instance is one host serving one product repository. Its settings are in
-# <instance dir>/instance.env, a shell file of KEY=value lines written by the
-# operator. It is sourced as written: treat it like a script, keep it writable
-# by the tehas user only, and put no secrets in it.
-#
-#   tehas_load           find the instance, load and check its settings.
-#                        Returns 78 with one line on stderr when it cannot. It
-#                        never exits, because login shells source it too.
-#   tehas_require NAME.. exit 78 unless each named setting is set and valid.
+#   tehas_load  find the instance, load and check its settings. Returns 78 with
+#               one line on stderr when it cannot. It never exits, because
+#               login shells source it too.
 #   tehas_require_instance_settings
-#                        exit 78 unless every setting an instance has to set for
-#                        itself is set and valid. One list, so no command that
-#                        checks it before changing anything has its own copy.
-#   tehas_models         print "provider model" for every model the agents use.
+#               exit 78 unless every setting an instance has to set itself is
+#               set and valid. An update asks it of the tree it is about to run.
 #
-# A command starts with:
-#   here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-#   . "$here/../lib/config.sh"
-#   tehas_load || exit 78
-#   tehas_require TEHAS_REPO ...   (or tehas_require_instance_settings)
-#
-# The rules are the console's: console/core/src/settings/rules.rs holds what
-# each setting may hold and load.rs what a load does. Loading runs no git
+# The rules are the console's (console/core/src/settings/). Loading runs no git
 # command, makes no network call and writes nothing.
 
 tehas_err() { echo "tehas: $*" >&2; }
 
-# Where the instance's settings are: the environment, else the one-line file
-# ~/.config/tehas/instance-dir, else ~/.config/tehas.
+# The environment, else the one-line file ~/.config/tehas/instance-dir, else ~/.config/tehas.
 tehas_instance_dir() {
   local dir=${TEHAS_INSTANCE_DIR:-} pointer=$HOME/.config/tehas/instance-dir
   [ -n "$dir" ] || [ ! -r "$pointer" ] || read -r dir <"$pointer" || true
   printf '%s\n' "${dir:-$HOME/.config/tehas}"
 }
 
-# What tehas_require reads: each setting that holds no value of its rule, and
-# why, with _tehas_loaded to say a load made it. Declared once, so a second
-# source of this file keeps what a load said.
-declare -gA _tehas_bad
-
-# The console that reads the settings: TEHAS_SETTINGS_CMD, which a build or a
-# test names, else the one beside this file, else the home's.
+# TEHAS_SETTINGS_CMD, which a build or a test names, else the console beside this file, else the home's.
 _tehas_settings_console() {
   local beside=${BASH_SOURCE[0]%/*}/../libexec/console
-  if [ -n "${TEHAS_SETTINGS_CMD:-}" ]; then
-    printf '%s\n' "$TEHAS_SETTINGS_CMD"
-  elif [ -x "$beside" ]; then
-    printf '%s\n' "$beside"
-  else
-    printf '%s\n' "$TEHAS_HOME/libexec/console"
-  fi
+  [ -x "$beside" ] || beside=$TEHAS_HOME/libexec/console
+  printf '%s\n' "${TEHAS_SETTINGS_CMD:-$beside}"
 }
 
-# The subshell exports the families so the console sees every name it may have
-# to drop or check. This shell's names change only by the lines the console prints:
-# one that cannot run, or says something else, leaves a login shell as it was.
+# The console sees every name of the families, to drop or check. This shell
+# changes only by the lines it prints: one that cannot run leaves it as it was.
 tehas_load() {
   local _tehas_console _tehas_lines _tehas_rc=0
   : "${TEHAS_HOME:=$HOME/tehas}"
@@ -71,42 +45,13 @@ tehas_load() {
   return 78
 }
 
-tehas_require() {
-  local name file=${TEHAS_INSTANCE_DIR:-?}/instance.env
-  [ -n "${_tehas_loaded:-}" ] || { tehas_err "no settings are loaded here, so none can be required"; exit 78; }
-  for name in "$@"; do
-    # Only spaces counts as not set.
-    [ -n "${!name:-}" ] && [ -n "${!name// /}" ] || { tehas_err "$name is not set (see $file)"; exit 78; }
-    [ -z "${_tehas_bad[$name]:-}" ] || { tehas_err "$name is not valid: ${_tehas_bad[$name]} (see $file)"; exit 78; }
-  done
-}
-
-# The settings an instance has to set itself: the console's one list, which
-# tehas_load hands over as _tehas_required. install.sh, tehas-dispatch and tehas
-# update each check it before they call GitHub, Docker, git or write a file.
 tehas_require_instance_settings() {
-  [ -n "${_tehas_required[*]+x}" ] || { tehas_err "the load named no required setting: run install.sh"; exit 78; }
-  tehas_require "${_tehas_required[@]}"
-}
-
-# Every provider and model pair the agents use, one "provider model" line
-# each, without repeats: the subagent default first, then each role's own.
-tehas_models() {
-  local role m p
-  {
-    printf '%s %s\n' "${PI_ENSEMBLE_SUBAGENT_PROVIDER:-}" "${PI_ENSEMBLE_SUBAGENT_MODEL:-}"
-    for role in DEVELOPER OPS EXPLORE ADVERSARIAL_DEVELOPER CODE_REVIEW_SPECIALIST; do
-      m=PI_ENSEMBLE_MODEL_$role p=PI_ENSEMBLE_PROVIDER_$role
-      [ -z "${!m:-}" ] || printf '%s %s\n' "${!p:-}" "${!m}"
-    done
-  } | awk '$1 != "" && $2 != "" && !seen[$0]++'
+  (export "${!TEHAS_@}" "${!PI_ENSEMBLE_@}" "${!PI_RUKAS_@}"; "$(_tehas_settings_console)" settings require "$EUID" "$BASH" </dev/null) || exit 78
 }
 
 # tehas update from before v0.21.0 sources this file from the checkout it pulled
-# and calls tehas_load, with no console here and a home console with no settings
-# verb, so it would report a settings problem that is not there. It leaves the
-# check to install.sh when no tehas_load is defined. Drop this when no host runs
-# such an update.
+# with no console here and one at home with no settings verb. Without tehas_load
+# it leaves the check to install.sh. Drop this when no host runs such an update.
 case ${BASH_EXECUTION_STRING:-} in
   *'install.sh will check the settings itself'*)
     [ -x "${BASH_SOURCE[0]%/*}/../libexec/console" ] || [ -n "${TEHAS_SETTINGS_CMD:-}" ] || unset -f tehas_load

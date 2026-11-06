@@ -121,22 +121,18 @@ t_contains "$t_out" "version: v9.8.7+"
 t_run "$tagged/install.sh --check"
 t_contains "$t_out" "Installed:    OK"
 t_lacks "$t_out" "version.txt"
-for page in "$T_ROOT/host/docs/_layout.html" "$T_ROOT/host/fun/index.html" "$T_ROOT/host/fun/business.html"; do
-  t_contains "$(cat "$page")" 'readFile "/version.txt"'
-  # The word before the version is lower case, like pi-rukas beside it.
-  t_contains "$(cat "$page")" 'tehas {{ readFile "/version.txt" | trim | html }}'
+# The word before the version is lower case, like pi-rukas on the front pages.
+t_contains "$(cat "$T_ROOT/host/docs/_layout.html")" 'tehas {{ readFile "/version.txt" | trim | html }}'
+# The front pages read their versions from the factory's health instead
+# (host/fun/versions.js). A rukas-version.txt an older build left is the
+# host's: an install neither removes it nor names it stale.
+for page in "$T_ROOT/host/fun/index.html" "$T_ROOT/host/fun/business.html"; do
+  t_lacks "$(cat "$page")" 'version.txt'
+  t_contains "$(cat "$page")" '<script src="/fun/versions.js"></script>'
 done
-# The pi-rukas version beside the pages is the image build's, not install.sh's:
-# an install neither removes it nor names it stale, and the front pages show it.
 echo v0.14.29 >"$th/fun/rukas-version.txt"
 t_run "$tagged/install.sh --check"
 t_lacks "$t_out" "rukas-version.txt"
-t_run "$tagged/install.sh"
-t_eq "$t_rc" 0
-t_eq "$(cat "$th/fun/rukas-version.txt")" v0.14.29
-for page in "$T_ROOT/host/fun/index.html" "$T_ROOT/host/fun/business.html"; do
-  t_contains "$(cat "$page")" 'pi-rukas {{ readFile "/rukas-version.txt" | trim | html }}'
-done
 
 t_case "a checkout without the console's source installs nothing and exits 1"
 fresh
@@ -241,20 +237,20 @@ rm -f "$T/calls/cargo"
 t_run "$part/install.sh"
 t_eq "$(t_calls cargo)" ""
 
+# The attachment checker takes the library too, as its manifest says.
 for shared in src/mask.rs src/time.rs Cargo.toml; do
-  t_case "a change to the library the six share builds all six ($shared)"
+  t_case "a change to the library the seven share builds all seven ($shared)"
   echo "# changed" >>"$part/console/core/$shared"
   rm -f "$T/calls/cargo"
   t_run "$part/install.sh --check"
   t_eq "$t_rc" 1
-  for prog in console analytics tehas-mcp store tehas-dispatch tehas-cycle; do
+  for prog in console analytics tehas-mcp store attach tehas-dispatch tehas-cycle; do
     t_contains "$t_out" "differs: $th/libexec/$prog"
   done
-  t_lacks "$t_out" "differs: $th/libexec/attach"
   t_run "$part/install.sh"
   t_eq "$t_rc" 0
-  t_eq "$(t_calls cargo | wc -l)" 6
-  for prog in console analytics tehas-mcp store tehas-dispatch tehas-cycle; do
+  t_eq "$(t_calls cargo | wc -l)" 7
+  for prog in console analytics tehas-mcp store attach tehas-dispatch tehas-cycle; do
     t_contains "$(t_calls cargo)" "-p $prog"
   done
 done

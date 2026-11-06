@@ -47,9 +47,9 @@ with its status. `tehas status` and `tehas disk` need no settings. The verbs
 that do, `tehas state`, `limit`, `pause`, `analytics`, `stop`, `init-product` and
 `tehasbot health`, `clean`, `preview`, `protolab`, `refresh` among them, run
 under `console run`, which checks the arguments, loads the settings, requires
-what the command cannot run without and runs it (`console/src/run.rs`). A few
-paths stay as a line that calls `console run`: `libexec/dispatch`, `review`,
-`improve`, `check-product` and `github-token`. A command neither of them knows
+what the command cannot run without and runs it (`console/src/run.rs`), and so
+do `tehas dispatch`, `plan`, `check-product` and `tehasbot dispatch`, `review`,
+`improve` and `github-token`, which have no script of their own. A command neither of them knows
 is exit 64 with the list on standard error. `tehas <command> --help`
 prints the same text as `tehas help <command>`.
 
@@ -742,9 +742,12 @@ from the workspace `~/tehas/work/<name>-<issue>`: the outcome is the runner's
 `--json` result, which goes to `~/tehas/state/cycles/<issue>.result.json`, and
 a copy beside the log. The contract is pi-rukas's `docs/headless.md`: exit
 codes v1, result schema 5, NDJSON progress with a stable subset. The last step
-of `tehas work` is the watch of `tehas-cycle work`, which `libexec/work` execs
-once it holds the issue's lock: the same process and the same lock start the
-container, watch it to its end and leave the cycle's notes.
+of `tehas work` is the watch of `tehas-cycle work`, which the console execs
+with the settings loaded. It takes the issue's lock, or under `tehasbot cycle`
+finds it already held by the cycle, and hands it down to every program it
+starts: the same process and the same lock start the container, watch it to
+its end and leave the cycle's notes. A second `tehas work` of the same issue
+exits 5 and touches nothing.
 
 A lean start on an image that cannot run it as asked stops with exit 78, the
 note `state/cycles/<issue>.lean-refused` and the lines below, which end
@@ -1186,7 +1189,7 @@ Run by hand it removes and remakes the workspace that a planning turn of the
 same issue uses, and it does not take the dispatcher's lock, so do not run it
 for an issue whose session the factory is working on.
 
-`libexec/plan` is only a path: the console runs the turn
+`tehas plan` has no script: the console runs the turn
 (`console/src/plan/start.rs`), after `console run` has loaded the settings. A
 call that is no turn is refused with 64 before the settings are read.
 
@@ -2501,10 +2504,13 @@ made is said there as `#N runs from the install: its own copy could not be made
 (<why>)`, and the cycle runs from `~/tehas` as before. Each start removes the
 copies whose process has ended.
 
-`libexec/cycle` loads the settings, takes the lock and execs `tehas-cycle
-cycle`, which puts the start on record, asks what the number is, runs `tehas
-work` and sees to the report. A stop reaches it as the main process of the unit.
-With no `libexec/tehas-cycle` nothing starts: exit 78.
+`tehasbot cycle` is `tehas-cycle cycle`, which the console execs with the
+settings loaded. It takes `state/cycles/<issue>.lock`, waiting up to 5 seconds
+for it (exit 3 when another cycle of the issue holds it), and hands it down to
+`tehas work` and the docker client, so a cycle killed outright keeps its place
+until they are gone too. Then it puts the start on record, asks what the number
+is, runs `tehas work` and sees to the report. A stop reaches it as the main
+process of the unit. With no `libexec/tehas-cycle` nothing starts: exit 78.
 
 **The clock a cycle is measured on.** `tehas-cycle clock` counts a cycle on a
 monotonic clock: the seconds since boot, read from the first number of
@@ -3034,7 +3040,7 @@ minutes old, which is what a failed read leaves, and then it warns of nothing.
 | `status` | Meaning                                                                                  | HTTP |
 | -------- | ---------------------------------------------------------------------------------------- | ---- |
 | `pass`   | Taking work, idle or in a cycle                                                          | 200  |
-| `warn`   | The queue snapshot is more than ten minutes old: GitHub did not answer the last polls, and `output` says how old. Or paused (the pause flag on this host, `tehas:pause` on the control issue, or a pause no allowed account took off), or the dispatcher holds everything because the slice is missing or cannot be read, or there are no resources (the model endpoint does not answer or does not offer the model), or too low on disk to build previews, or the free space could not be read, or the platform checkout has been behind origin's default branch for more than a day (`output` says how many commits; run `tehas update`), or the state store has no daily backup or the newest is more than two days old, or an idle poll cost more than its budget (`TEHAS_POLL_BUDGET`, `checks.poll_cost`), or systemd gave up on a tehas unit (`checks.units`, null when that read did not answer), or no cycle runs and the last poll held every issue in line on its own (`checks.slice.held`: issue, why, text, clear), as one whose last cycle parked on the body it still has, or an open issue labelled `epic` has no sub-issues (`checks.epics`; `output` names up to five and says to link their parts as sub-issues), or the MCP server is on and does not answer (`checks.mcp`) | 200  |
+| `warn`   | The queue snapshot is more than ten minutes old: GitHub did not answer the last polls, and `output` says how old. Or paused (the pause flag on this host, `tehas:pause` on the control issue, or a pause no allowed account took off), or the dispatcher holds everything because the slice is missing or cannot be read, or there are no resources (the model endpoint does not answer or does not offer the model), or too low on disk to build previews, or the free space could not be read, or the platform checkout has been behind origin's default branch for more than a day (`output` says how many commits; run `tehas update`), or the state store has no daily backup or the newest is more than two days old, or an idle poll cost more than its budget (`TEHAS_POLL_BUDGET`, `checks.poll_cost`), or systemd gave up on a tehas unit (`checks.units`, null when that read did not answer), or no cycle runs and the last poll held every issue in line on its own (`checks.slice.held`: issue, why, text, clear), as one whose last cycle parked on the body it still has, or an open issue labelled `epic` has no sub-issues (`checks.epics`; `output` names up to five and says to link their parts as sub-issues), or the MCP server is on and does not answer (`checks.mcp`), or the sandbox image is behind the pi-rukas the host follows (`checks.rukas.behind`; run `tehas update`) | 200  |
 | `fail`   | The last cycle ended as anything but `merged` or `handoff` and no cycle has started since (a running cycle with no `startedAt` counts as started since), or there is no queue snapshot | 503  |
 
 `output` says the same in a sentence. `checks.queue` has the snapshot time and
@@ -3073,6 +3079,25 @@ recorded as ended with the status `lost`, which is a failure. While
 
 `checks.platform` is `live/platform.json`: the release a host runs, or the
 checkout of a host that has one. It is `null` on a host with neither.
+
+`checks.rukas` is `live/rukas.json`, which `tehasbot status` writes: the
+pi-rukas the sandbox image runs against the one the host follows. `follow` is
+`PI_RUKAS_FOLLOW` (the instance's over `versions.env`), `target` the commit it
+names now and `targetVersion` its release (asked upstream at most once an
+hour), `image` the `tehas.rukas` label of `PI_ENSEMBLE_IMAGE`, which is what
+cycles run, `imageVersion` what that image's `pi-rukas-headless --capabilities`
+answers (asked once per image), and `clone` the commit of
+`~/tehas/repos/pi-rukas`. `behind` is true when the image is not on the target
+commit, and makes the health `warn` with `The sandbox image runs pi-rukas
+<image> and the host follows <target>: run tehas update.`; `install.sh --check`
+reports it as `Sandbox: BEHIND`. A value that could not be read is `null` and
+decides nothing. `checks.rukas` is `null` on a host with no pi-rukas.
+
+`checks.industry` is `{version}` of the tehas-industry that runs this factory,
+from `TEHAS_INDUSTRY_VERSION` in `~/.config/tehas/env`, which industry writes.
+A factory that runs on its own has no `checks.industry`, and its status is
+decided as before. A value that is not `vX.Y.Z`, with an optional `-<suffix>`
+of letters, digits and dots, is left out the same way, and nothing fails.
 
 `checks.backup` is the newest daily copy of the state store, `{time,
 ageSeconds}`, or `null` when there is none (see [Backups and
@@ -3339,7 +3364,9 @@ systemctl --user enable --now tehas-protolab.timer
 Builds the Protolab in `~/tehas/protolab`: a page for every open issue
 labelled `tehas:prototype` by an account in `TEHAS_ALLOWED_LABELERS`, with the
 files attached to it, and the list
-`~/tehas/live/protolab.json` that the dashboard links from. The timer runs it
+`~/tehas/live/protolab.json` that the dashboard and `prototypes` of
+[`tehas status --json`](/api#tehas-status--json) read, each ticket with `builtAt`, the
+time of its page. The timer runs it
 every five minutes; the log is `~/tehas/logs/protolab.log`.
 
 The pass is the console's (`~/tehas/libexec/console protolab run`,
@@ -4072,12 +4099,14 @@ keeps no new log.
 
 `--changed` takes the paths changed since the merge base with `origin/main`,
 uncommitted and untracked files included, and hands them to
-`scripts/select-tests.sh`. A changed test file runs itself; another path runs
+`scripts/select-tests.sh`, which runs the selection in the workspace's
+`console/xtask` (`cargo run -p tehas-xtask`, offline; a selection that cannot
+build runs the whole gate). A changed test file runs itself; another path runs
 the test files that name it (`libexec/update`, `tehas update`, a test file
 named `update_*`). A path under `console/` also runs `cargo test -p` for the
 crate it is in and the crates that depend on it, from `cargo metadata`. The
 tests of the console and the dispatcher run the store's program, which no
-manifest says, so `scripts/select-tests.sh` lists that link: they run with the
+manifest says, so `console/xtask/src/select.rs` lists that link: they run with the
 store, and a change to the store runs them. A path in `console/core/`, a
 manifest, `console/Cargo.lock`, a path in no crate, or metadata that cannot be
 read runs the whole workspace's tests.
@@ -4085,7 +4114,8 @@ The heavy integration files, `test/install_*`, `test/update_*`,
 `test/pack_release_test.sh` and `test/bootstrap_test.sh`, run only when the
 change touches what they test directly, and a `note` line names the ones left
 to the whole gate. A change to `test/lib.sh`, `scripts/test.sh`,
-`scripts/verify.sh` or the selector, a path no test names, or a checkout
+`scripts/verify.sh` or the selector (`scripts/select-tests.sh` and
+`console/xtask/`), a path no test names, or a checkout
 without `origin/main` runs the whole gate. Records under `docs/` and the
 top-level notes that no test names need no test. The selection is by name, so
 a test that builds a file's name at run time is missed: the whole gate after it
@@ -4234,9 +4264,9 @@ The update hands the lock to the install.sh it runs, and to nothing else; the
 wait covers a run started right after one that failed and left the lock held a
 moment by something it had started. `--check` takes no lock.
 
-`libexec/update` is a thin script: it holds that lock and runs install.sh, and
-the console does the rest. A console that does not start stops an update with
-exit 1, see [tehas update says the console does not answer](/troubleshooting#tehas-update-says-the-console-does-not-answer).
+The console does all of the update, the lock and install.sh included:
+`libexec/update` asks it whether it answers and execs it. A console that does
+not start stops an update with exit 1, see [tehas update says the console does not answer](/troubleshooting#tehas-update-says-the-console-does-not-answer).
 
 That pre-check covers the required settings only. The rest of the instance
 contract - `models.json` readable, valid JSON, listing the models the settings
@@ -4515,9 +4545,12 @@ pi-rukas leaves both off. The digest is written as `sha256:` and 64 hex digits.
 The tree it packs is the working directory, or `TEHAS_PACK_ROOT` when that names
 one, so a workflow that checks a tag out into its own workspace points the
 script at the checkout rather than at the runner's copy of the script. It reads
-that tree and its arguments and nothing else: no network, no git, no cargo. It
+that tree and its arguments and nothing else: no network, no git. The work is
+`xtask pack-release` in the workspace's `console/xtask`
+(`console/xtask/src/pack.rs`), which the script builds offline with cargo, or
+the build `TEHAS_XTASK` names; the release runner holds cargo already. It
 builds no console of its own; the workflow compiles it for linux x86_64 and
-hands the binary over, which is why the pack script needs no toolchain. Which
+hands the binary over. Which
 architecture the binaries are is read from the programs themselves, from the
 two bytes of e_machine at offset 18 of each ELF header, so a release is not
 packed on what whoever ran the workflow believed.
@@ -4880,6 +4913,13 @@ files among them and the lint of those of them it lints anyway. A test file
 named that does not exist stops it with 2; paths with nothing to test or lint
 among them pass with a line that says so. `scripts/verify.sh --changed` calls
 it this way.
+
+The script is a short exec of `xtask test` (`console/xtask/src/run.rs`), which
+it builds first, offline, into the same target directory, fetching the locked
+crates once when cargo's cache lacks one; `TEHAS_XTASK` names a build to use
+instead. So the runner needs cargo, as the gate does. Each check of the pool
+is an `xtask test-task` process that runs it under the timeout and records its
+status and time when it ends.
 
 Each task is stopped after `TEHAS_TEST_FILE_TIMEOUT` seconds (300 by default)
 and counts as a failure, named with `timed out`. A file that hangs therefore

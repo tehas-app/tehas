@@ -1,0 +1,89 @@
+{
+  "buildCommit": null,
+  "buildVersion": "0.14.53",
+  "subcommand": "work-lean",
+  "issue": 7,
+  "exitCode": 10,
+  "state": "handed-back",
+  "summary": "work-lean #7: handed-back (exit 10)",
+  "steps": 6,
+  "schemaVersion": 5,
+  "issues": [
+    {
+      "issue": 7,
+      "status": "handoff",
+      "stateFile": ".pi/lean-state/7.json",
+      "durationMs": 330000,
+      "steps": [
+        {
+          "step": "ready",
+          "startedAt": "2026-11-01T09:41:20.000Z",
+          "endedAt": "2026-11-01T09:41:50.000Z"
+        },
+        {
+          "step": "specify",
+          "startedAt": "2026-11-01T09:42:20.000Z",
+          "endedAt": "2026-11-01T09:42:50.000Z"
+        },
+        {
+          "step": "build",
+          "startedAt": "2026-11-01T09:43:20.000Z",
+          "endedAt": "2026-11-01T09:43:50.000Z"
+        },
+        {
+          "step": "verify",
+          "startedAt": "2026-11-01T09:44:20.000Z",
+          "endedAt": "2026-11-01T09:44:50.000Z"
+        },
+        {
+          "step": "publish",
+          "startedAt": "2026-11-01T09:45:20.000Z",
+          "endedAt": "2026-11-01T09:45:50.000Z"
+        },
+        {
+          "step": "handback",
+          "startedAt": "2026-11-01T09:46:20.000Z",
+          "endedAt": "2026-11-01T09:46:50.000Z"
+        }
+      ],
+      "exitCode": 10,
+      "resumable": false,
+      "usage": {
+        "input": 2400,
+        "output": 600,
+        "cacheRead": 100,
+        "cacheWrite": 0,
+        "cost": 0,
+        "turns": 12,
+        "dispatches": 2,
+        "byRole": {
+          "developer": {
+            "input": 2400,
+            "output": 600,
+            "cacheRead": 100,
+            "cacheWrite": 0,
+            "cost": 0,
+            "turns": 12,
+            "dispatches": 2
+          }
+        }
+      },
+      "branch": "lean/issue-7",
+      "prState": "draft",
+      "failure": {
+        "kind": "verify",
+        "message": "acceptance test test-ac2 is red",
+        "step": "handoff",
+        "role": "developer"
+      },
+      "prUrl": "https://github.com/acme/widget/pull/41",
+      "handoff": {
+        "channel": "host",
+        "marker": "<!-- pi-rukas:handoff issue=7 cap=none -->",
+        "labelApplied": false,
+        "labelSkipped": "host-channel",
+        "body": "<!-- pi-rukas:handoff issue=7 cap=none -->\n\nThe gate is red: acceptance test test-ac2 is red. The draft pull request https://github.com/acme/widget/pull/41 holds the work so far."
+      }
+    }
+  ]
+}

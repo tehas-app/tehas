@@ -1,0 +1,86 @@
+{
+  "buildCommit": null,
+  "buildVersion": "0.14.53",
+  "subcommand": "work-lean",
+  "issue": 7,
+  "exitCode": 0,
+  "state": "landed",
+  "summary": "work-lean #7: landed (exit 0)",
+  "steps": 8,
+  "schemaVersion": 5,
+  "issues": [
+    {
+      "issue": 7,
+      "status": "merged",
+      "stateFile": ".pi/lean-state/7.json",
+      "durationMs": 450000,
+      "steps": [
+        {
+          "step": "ready",
+          "startedAt": "2026-11-01T09:24:20.000Z",
+          "endedAt": "2026-11-01T09:24:50.000Z"
+        },
+        {
+          "step": "specify",
+          "startedAt": "2026-11-01T09:25:20.000Z",
+          "endedAt": "2026-11-01T09:25:50.000Z"
+        },
+        {
+          "step": "build",
+          "startedAt": "2026-11-01T09:26:20.000Z",
+          "endedAt": "2026-11-01T09:26:50.000Z"
+        },
+        {
+          "step": "verify",
+          "startedAt": "2026-11-01T09:27:20.000Z",
+          "endedAt": "2026-11-01T09:27:50.000Z"
+        },
+        {
+          "step": "publish",
+          "startedAt": "2026-11-01T09:28:20.000Z",
+          "endedAt": "2026-11-01T09:28:50.000Z"
+        },
+        {
+          "step": "review",
+          "startedAt": "2026-11-01T09:29:20.000Z",
+          "endedAt": "2026-11-01T09:29:50.000Z"
+        },
+        {
+          "step": "ci",
+          "startedAt": "2026-11-01T09:30:20.000Z",
+          "endedAt": "2026-11-01T09:30:50.000Z"
+        },
+        {
+          "step": "land",
+          "startedAt": "2026-11-01T09:31:20.000Z",
+          "endedAt": "2026-11-01T09:31:50.000Z"
+        }
+      ],
+      "exitCode": 0,
+      "resumable": false,
+      "usage": {
+        "input": 2400,
+        "output": 600,
+        "cacheRead": 100,
+        "cacheWrite": 0,
+        "cost": 0,
+        "turns": 12,
+        "dispatches": 2,
+        "byRole": {
+          "developer": {
+            "input": 2400,
+            "output": 600,
+            "cacheRead": 100,
+            "cacheWrite": 0,
+            "cost": 0,
+            "turns": 12,
+            "dispatches": 2
+          }
+        }
+      },
+      "branch": "lean/issue-7",
+      "prState": "ready",
+      "prUrl": "https://github.com/acme/widget/pull/41"
+    }
+  ]
+}

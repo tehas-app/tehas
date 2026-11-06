@@ -1,5 +1,5 @@
 //! Who this run is: the account name a flag records as its author, and the uid
-//! a check of who owns a file compares against.
+//! and gid a check of who owns a file compares against.
 //!
 //! Both come from `id`. Asking the kernel instead needs libc's `getuid` and
 //! `getpwuid`, which are `unsafe`, and AGENTS.md allows no `unsafe`.
@@ -39,6 +39,13 @@ pub(crate) fn name() -> String {
 pub(crate) fn uid() -> Option<u32> {
     static UID: OnceLock<Option<u32>> = OnceLock::new();
     *UID.get_or_init(|| word("-u").and_then(|w| w.parse().ok()))
+}
+
+/// The effective gid of this run, as `id -g` says it, kept after the first
+/// ask. None when `id` does not answer.
+pub(crate) fn gid() -> Option<u32> {
+    static GID: OnceLock<Option<u32>> = OnceLock::new();
+    *GID.get_or_init(|| word("-g").and_then(|w| w.parse().ok()))
 }
 
 #[cfg(test)]

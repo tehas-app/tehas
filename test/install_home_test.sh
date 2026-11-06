@@ -82,7 +82,7 @@ echo "a page this checkout does not have" >"$other/docs/gone.md"
 : >"$other/$install_marker"
 t_run "TEHAS_HOME='$other' '$install'"
 t_eq "$t_rc" 0
-t_eq "$([ -f "$other/libexec/dispatch" ] && echo there)" "there"
+t_eq "$([ -f "$other/libexec/setup" ] && echo there)" "there"
 # The page of the home that this checkout does not have is the stale file it
 # removes: with the mark there, this is a home it was asked to install under.
 t_contains "$t_out" "removed: $other/docs/gone.md"

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for libexec/dispatch: the limit tehas limit writes.
+# Tests for tehasbot dispatch: the limit tehas limit writes.
 # shellcheck disable=SC2016  # snippets are expanded by the shell under test
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1

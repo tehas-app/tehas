@@ -134,8 +134,8 @@
 # holds `..`: the loader takes TEHAS_HOME from the environment as it is, and
 # this script removes what it takes for stale under it, so a wrong path would
 # lose files that were never tehas's. A home that already has env.sh and
-# libexec/dispatch is taken as one installed before the marker, and gets it on
-# this run.
+# libexec/dispatch, which installs of then left, is taken as one installed
+# before the marker, and gets it on this run.
 #
 # Exit: 0 done or nothing to report, 1 --check found something, a step failed,
 # the console that reads the settings did not build (nothing can judge them
@@ -191,30 +191,6 @@ fi
 [ -f "$root/lib/paths.sh" ] || { echo "tehas: $root/lib/paths.sh is missing from this checkout" >&2; exit 1; }
 # shellcheck source=lib/paths.sh
 . "$root/lib/paths.sh"
-
-# Every apiKey of a models.json is a word or a set TEHAS_MODEL_KEY_ name; else
-# one line, and 78. The rule of console/core/src/models.rs, here in jq because
-# this runs before a console is built or copied.
-model_keys_ok() { # <file>
-  local bad name
-  bad=$(jq -r '.providers // {} | to_entries[] | .key as $p | .value
-    | (.apiKey, .backupApiKey) | strings
-    | select(test("^[$][{]?TEHAS_MODEL_KEY_[A-Z0-9_]+[}]?$") or (test("[$!]") | not) | not)
-    | $p' "$1" 2>/dev/null | head -n 1)
-  if [ -n "$bad" ]; then
-    tehas_err "models.json: provider $bad has an apiKey that is neither a word nor \$TEHAS_MODEL_KEY_<NAME> (see $1)"
-    return 78
-  fi
-  while read -r name; do
-    [ -n "$name" ] || continue
-    if [ -z "${!name:-}" ]; then
-      tehas_err "models.json names $name and it is not set: put it in ~/.config/tehas/env"
-      return 78
-    fi
-  done < <(jq -r '.providers // {} | .[] | (.apiKey, .backupApiKey) | strings
-    | select(startswith("$")) | ltrimstr("$") | ltrimstr("{") | rtrimstr("}")' "$1" 2>/dev/null | sort -u)
-  return 0
-}
 
 note() { if [ "$check" = 1 ]; then report+=("$1"); else echo "$1"; fi; }
 # program_label <name>: how a message names it.
@@ -274,8 +250,8 @@ cache_miss() {
 # unsafe_tool_dir: a tool directory this run would take its compiler from that
 # is not the running user's own, or nothing. tehas_tool_paths puts those
 # directories first on PATH and the programs cargo builds here are installed in
-# libexec, where every cycle and the dispatcher run them. Only a directory that is there is judged, by the rule instance_findings
-# applies to the settings files.
+# libexec, where every cycle and the dispatcher run them. Only a directory that is there is judged, by the rule the console's
+# `update findings` applies to the settings files.
 unsafe_tool_dir() {
   local dir mode owner group
   for dir in "$TEHAS_HOME/bin" "$TEHAS_HOME/tools/node/bin" "$NPM_CONFIG_PREFIX/bin" \
@@ -476,65 +452,27 @@ if [ -d "$root/console" ] && [ -z "${TEHAS_SETTINGS_CMD:-}" ]; then
 fi
 
 # --- 1. Instance settings ---------------------------------------------------
-# Every finding is one line. Any finding stops a real run before it changes
-# anything.
+# Every finding is one line, and any finding stops a real run before it changes
+# anything. The console names them (console/src/update/findings.rs): settings
+# another account can write, judged before instance.env is sourced, then the
+# load, the settings an instance has to set, and models.json against the models
+# the agents and the product's session use. What the instance's own shell
+# prints while it is sourced counts too, as it did when this was tehas_load.
 instance_findings() {
-  local dir file models product_model mode owner group provider model
-  # The settings are shell that every command runs: nobody else may write them.
-  # A group-writable file is accepted only for the user's own primary group.
-  # Checked before tehas_load, which sources instance.env: a file another
-  # account can write is refused, not run.
-  dir=$(tehas_instance_dir)
-  # Only a file that exists has permissions to check: a missing directory or a
-  # missing instance.env is tehas_load's to name. A file that is there is
-  # judged here, before anything is sourced. The instance's own
-  # sandbox.Dockerfile is among them: its bytes are built into the image every
-  # cycle runs, so they are as trusted as the platform's Dockerfile and only
-  # the tehas user may write them.
-  for file in "$dir" "$dir/instance.env" "$dir/sandbox.Dockerfile"; do
-    [ -e "$file" ] || [ -L "$file" ] || continue
-    # -L: a symlink is judged by the file it points at.
-    mode=$(stat -L -c %a "$file" 2>/dev/null) || mode=0
-    owner=$(stat -L -c %u "$file" 2>/dev/null) || owner=-1
-    group=$(stat -L -c %g "$file" 2>/dev/null) || group=-1
-    if [ "$owner" != "$(id -u)" ]; then
-      echo "tehas: $file is not owned by $(id -un)"
-      return 0
-    elif [ $((8#$mode & 2)) != 0 ]; then
-      echo "tehas: $file is writable by everyone (chmod o-w)"
-      return 0
-    elif [ $((8#$mode & 16)) != 0 ] && [ "$group" != "$(id -g)" ]; then
-      echo "tehas: $file is writable by another group (chmod g-w)"
-      return 0
-    fi
-  done
-  tehas_load 2>&1 || return 0
-  (tehas_require_instance_settings 2>&1) || return 0
-  models=$dir/models.json
-  if [ ! -r "$models" ]; then
-    echo "tehas: no models.json in $dir"
-  elif ! jq -e . "$models" >/dev/null 2>&1; then
-    echo "tehas: $models is not valid JSON"
-  else
-    while read -r provider model; do
-      jq -e --arg p "$provider" --arg m "$model" \
-        '.providers[$p].models // [] | any(.id == $m)' "$models" >/dev/null ||
-        echo "tehas: models.json does not list model $model under provider $provider"
-    done < <(tehas_models)
-    # A token is named, never written: models.json is in a repository.
-    model_keys_ok "$models" 2>&1
-    # The session's model is named by the product, not the instance.
-    if [ -r "$TEHAS_WORK_REPO/.pi/settings.json" ]; then
-      product_model=$(jq -r '"\(.defaultProvider // "")/\(.defaultModel // "")"' "$TEHAS_WORK_REPO/.pi/settings.json" 2>/dev/null || echo "/")
-      if [ "$product_model" != "/" ]; then
-        jq -e --arg p "${product_model%%/*}" --arg m "${product_model#*/}" \
-          '.providers[$p].models // [] | any(.id == $m)' "$models" >/dev/null ||
-          echo "tehas: models.json does not list the product's session model $product_model (from $TEHAS_WORK_REPO/.pi/settings.json)"
-      fi
-    fi
-  fi
+  local console rc=0
+  console=$(_tehas_settings_console)
+  [ -x "$console" ] || { echo "tehas: no console at $console to load the settings: run install.sh"; return 0; }
+  (export "${!TEHAS_@}" "${!PI_ENSEMBLE_@}" "${!PI_RUKAS_@}"; "$console" update findings "$EUID" "$BASH" </dev/null) 2>&1 || rc=$?
+  case $rc in
+    0 | 78) ;;
+    *) echo "tehas: the console at $console cannot judge the settings (status $rc); a real run of install.sh builds the one this tree needs" ;;
+  esac
 }
 
+# The home tehas_load would take, set here as it sets it, so the console that
+# judges the settings sees the same one.
+: "${TEHAS_HOME:=$HOME/tehas}"
+export TEHAS_HOME
 findings=$(instance_findings)
 if [ -n "$findings" ]; then
   if [ "$check" = 1 ]; then
@@ -622,30 +560,26 @@ agent=$HOME/.pi/agent
 units=$HOME/.config/systemd/user
 
 # Pi's settings and model list are made from the instance, not copied as they
-# are. The session model is named once, by PI_ENSEMBLE_SUBAGENT_PROVIDER and
+# are, by the console that read the settings (console/src/update/pi.rs). The
+# session model is named once, by PI_ENSEMBLE_SUBAGENT_PROVIDER and
 # PI_ENSEMBLE_SUBAGENT_MODEL; a settings.json that names its own keeps it. A
 # model entry needs only its id; the keys Pi also wants get today's defaults,
 # and a key the instance gives is kept. A product's .pi/settings.json, when it
 # has one, still wins: Pi reads it over these.
 made=$(mktemp -d) || { echo "tehas: could not make a scratch directory" >&2; exit 1; }
 trap 'rm -rf "$made"' EXIT
-pi_settings=$host/pi/settings.json
-[ -r "$instance/settings.json" ] && pi_settings=$instance/settings.json
-jq --arg p "$PI_ENSEMBLE_SUBAGENT_PROVIDER" --arg m "$PI_ENSEMBLE_SUBAGENT_MODEL" '
-  .defaultProvider //= $p | .defaultModel //= $m
-' "$pi_settings" >"$made/settings.json" ||
-  { echo "tehas: $pi_settings is not valid JSON; nothing was installed" >&2; exit 78; }
-jq '
-  {supportsDeveloperRole: false, supportsReasoningEffort: false} as $compat |
-  .providers[] |= (
-    .compat //= $compat |
-    .models[]? |= (
-      .name //= .id | .input //= ["text"] | .reasoning //= false |
-      .cost //= {input: 0, output: 0, cacheRead: 0, cacheWrite: 0}
-    )
-  )
-' "$instance/models.json" >"$made/models.json" ||
-  { echo "tehas: $instance/models.json is not valid JSON; nothing was installed" >&2; exit 78; }
+loaded_console=${built_console:-$(_tehas_settings_console)}
+pi_rc=0
+"$loaded_console" update pi "$instance" "$host/pi/settings.json" "$PI_ENSEMBLE_SUBAGENT_PROVIDER" \
+  "$PI_ENSEMBLE_SUBAGENT_MODEL" "$made" || pi_rc=$?
+case $pi_rc in
+  0) ;;
+  78) exit 78 ;;
+  *) echo "tehas: the console at $loaded_console could not make Pi's settings (status $pi_rc); nothing was installed" >&2; exit 1 ;;
+esac
+# The files an older tehas installed and this one removes (section 3).
+retired=$("$loaded_console" update retired) ||
+  { echo "tehas: the console at $loaded_console could not name the retired files; nothing was installed" >&2; exit 1; }
 
 files=(
   "env.sh|$TEHAS_HOME/env.sh|644"
@@ -657,7 +591,6 @@ files=(
   "lib/refine-brief.md|$TEHAS_HOME/lib/refine-brief.md|644"
   "lib/issue-brief.md|$TEHAS_HOME/lib/issue-brief.md|644"
   "lib/github-app.sh|$TEHAS_HOME/lib/github-app.sh|644"
-  "lib/rukas.sh|$TEHAS_HOME/lib/rukas.sh|644"
   # The key a release signature is checked with. It is here so the copy an
   # adopter verifies against is the one the repository holds and not one that
   # came inside the download it is checking.
@@ -704,19 +637,9 @@ for f in tehas tehasbot; do
   files+=("bin/$f|$TEHAS_HOME/bin/$f|755")
 done
 for f in \
-  check-product \
-  cycle \
-  dev \
   dev-login \
-  dispatch \
-  github-token \
-  improve \
-  index \
-  plan \
-  review \
   setup \
-  update \
-  work; do
+  update; do
   files+=("libexec/$f|$TEHAS_HOME/libexec/$f|755")
 done
 # What tehas labels makes. A change here owes the labels step.
@@ -968,48 +891,20 @@ if [ ! -d "$root/console" ] && [ -f "$root/VERSION" ]; then
   done
 else
   [ -d "$root/console" ] || { echo "tehas: $root/console is missing from this checkout" >&2; exit 1; }
-  # source_sum <find tests>: one checksum of the files under console/ that the
-  # tests select, the build's own output left out.
-  source_sum() {
-    (cd "$root/console" && find . -type f ! -path './target/*' ! -path './analytics/target/*' "$@" -print0 |
-      LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1)
-  }
-  # The console's source is all of console/ but its tests, analytics/, mcp/,
-  # store/, attach/, dispatch/ and cycle/'s tests, so a change to one of those
-  # alone does not build the console again. It links the tehas-cycle library.
-  # analytics reads its own directory, the workspace's manifest and lock, and the
-  # shared library in core/, and so do the MCP server and the store.
-  console_source=$(source_sum ! -path './tests/*' ! -path './analytics/*' ! -path './mcp/*' ! -path './store/*' \
-    ! -path './attach/*' ! -path './dispatch/*' ! -path './cycle/tests/*' ! -path './cycle/target/*') ||
-    { echo "tehas: could not read the console's source in $root/console" >&2; exit 1; }
-  analytics_source=$(source_sum \( \( -path './analytics/*' ! -path './analytics/tests/*' \) \
-    -o -path ./Cargo.toml -o -path ./Cargo.lock -o -path './core/*' \)) ||
-    { echo "tehas: could not read the analytics program's source in $root/console" >&2; exit 1; }
-  mcp_source=$(source_sum \( \( -path './mcp/*' ! -path './mcp/tests/*' ! -path './mcp/target/*' \) \
-    -o -path ./Cargo.toml -o -path ./Cargo.lock -o -path './core/*' \)) ||
-    { echo "tehas: could not read the MCP server's source in $root/console" >&2; exit 1; }
-  store_source=$(source_sum \( \( -path './store/*' ! -path './store/src/tests.rs' ! -path './store/target/*' \) \
-    -o -path ./Cargo.toml -o -path ./Cargo.lock -o -path './core/*' \)) ||
-    { echo "tehas: could not read the store's source in $root/console" >&2; exit 1; }
-  # The attachment checker reads its own directory and the workspace's manifest
-  # and lock.
-  attach_source=$(source_sum \( \( -path './attach/*' ! -path './attach/src/tests.rs' ! -path './attach/target/*' \) \
-    -o -path ./Cargo.toml -o -path ./Cargo.lock \)) ||
-    { echo "tehas: could not read the attachment checker's source in $root/console" >&2; exit 1; }
-  # The dispatcher and the cycle's supervisor each read their own directory, the
-  # workspace's manifest and lock, and core/.
-  dispatch_source=$(source_sum \( \( -path './dispatch/*' ! -path './dispatch/tests/*' ! -path './dispatch/target/*' \) \
-    -o -path ./Cargo.toml -o -path ./Cargo.lock -o -path './core/*' \)) ||
-    { echo "tehas: could not read the dispatcher's source in $root/console" >&2; exit 1; }
-  cycle_source=$(source_sum \( \( -path './cycle/*' ! -path './cycle/tests/*' ! -path './cycle/target/*' \) \
-    -o -path ./Cargo.toml -o -path ./Cargo.lock -o -path './core/*' \)) ||
-    { echo "tehas: could not read the cycle's source in $root/console" >&2; exit 1; }
+  # The checksum of each program's source, from the console that read the
+  # settings: the one built from this tree, or in --check the one an earlier
+  # build left or the one installed. It reads the workspace's members and what
+  # each takes by path (console/src/update/sources.rs).
+  sources_console=${built_console:-${TEHAS_SETTINGS_CMD:-$TEHAS_HOME/libexec/console}}
+  sources=$("$sources_console" update sources "$root/console" console analytics tehas-mcp store attach \
+    tehas-dispatch tehas-cycle) ||
+    { echo "tehas: $sources_console could not read the programs' source in $root/console" >&2; exit 1; }
   program_sum() { sha256sum <"$1" | cut -d' ' -f1; }
   due=()
-  for entry in "console $console_source" "analytics $analytics_source" "tehas-mcp $mcp_source" \
-    "store $store_source" "attach $attach_source" "tehas-dispatch $dispatch_source" \
-    "tehas-cycle $cycle_source"; do
+  while IFS= read -r entry; do
     read -r prog sum <<<"$entry"
+    [[ $sum =~ ^[0-9a-f]{64}$ ]] ||
+      { echo "tehas: $sources_console gave no checksum for ${prog:-a program}: $entry" >&2; exit 1; }
     to=$TEHAS_HOME/libexec/$prog
     [ ! -x "$to" ] || [ "$(cat "$to.stamp" 2>/dev/null)" != "$sum $(program_sum "$to")" ] || continue
     if [ "$check" = 1 ]; then
@@ -1018,7 +913,7 @@ else
     else
       due+=("$entry")
     fi
-  done
+  done <<<"$sources"
   if [ "${#due[@]}" != 0 ]; then
     build_ready "${due[0]%% *}"
     for entry in "${due[@]}"; do
@@ -1257,242 +1152,62 @@ for f in "$TEHAS_HOME"/sandbox/sandbox-uid.Dockerfile \
   if [ "$check" = 1 ]; then note "stale: $f"; else rm -f "$f" && echo "removed: $f"; fi
 done
 
-# The commands of before bin/tehas, one file each in bin/, and the console of
-# before it was a compiled program. The libraries the bash poll sourced. And the
-# Protolab's server files of before the edge router. And the wrappers of what is
-# now a verb of the console, and the libraries of what is now a verb of
-# tehas-cycle, and the jq program of the bash report. And the libraries whose
-# last callers moved into the console, and the release list of before it was a
-# plain file (lib/release.list). Found here, removed in
-# step 5 once systemd has the new units.
+a_cycle_runs() { # true while a cycle holds its lock
+  local lock
+  for lock in "$TEHAS_HOME"/state/cycles/*.lock; do
+    [ -e "$lock" ] && ! { flock -n 8; } 8<"$lock" && return 0
+  done
+  return 1
+}
+
+# The files of an older layout, as the console lists them
+# (console/src/update/retired.list). Found here, removed in step 5 once systemd
+# has the new units.
 old=()
-for f in \
-  bin/tehas-console.ts \
-  bin/tehas-dispatch \
-  bin/tehas-energy \
-  bin/tehas-health \
-  bin/tehas-index \
-  bin/tehas-protolab \
-  bin/tehas-status \
-  bin/tehas-test \
-  bin/tehas-work \
-  lib/analytics.sh \
-  lib/describe.sh \
-  lib/edge.sh \
-  lib/history-listing.jq \
-  lib/history-repeats.jq \
-  lib/models.sh \
-  lib/park-fields.jq \
-  lib/private.sh \
-  libexec/analytics-cmd \
-  libexec/api \
-  libexec/clean \
-  libexec/console.ts \
-  lib/limit.sh \
-  lib/live.sh \
-  lib/headless.sh \
-  lib/improve.sh \
-  lib/planning.sh \
-  lib/refresh.sh \
-  lib/status.sh \
-  lib/sizing.sh \
-  libexec/disk \
-  libexec/drain \
-  libexec/energy \
-  libexec/export \
-  libexec/health \
-  libexec/history \
-  libexec/init-product \
-  libexec/labels \
-  libexec/limit \
-  libexec/mcp \
-  libexec/pause \
-  libexec/preview \
-  libexec/protolab \
-  libexec/refresh \
-  libexec/resume \
-  libexec/state \
-  libexec/status \
-  libexec/stop \
-  libexec/summary \
-  libexec/tidy \
-  libexec/top \
-  libexec/top-publish \
-  libexec/with-settings \
-  lib/disk.sh \
-  lib/top.sh \
-  lib/update-release.sh \
-  lib/release.sh \
-  lib/attachments.sh \
-  lib/history-lines.jq \
-  lib/cycles.sh \
-  lib/labels.sh \
-  lib/millwright.sh \
-  lib/sandbox.sh \
-  lib/slice.sh \
-  lib/questions.sh \
-  lib/store.sh \
-  edge/protolab.Caddyfile \
-  edge/protolab.compose.yaml; do
+while IFS= read -r f; do
   to=$TEHAS_HOME/$f
   [ -e "$to" ] || continue
+  # A cycle that started before this update renews its token by this path.
+  if [ "$f" = libexec/github-token ] && a_cycle_runs; then
+    echo "later: ./install.sh again when no cycle runs   ($to stays: a running cycle renews its token through it)"
+    continue
+  fi
   old+=("$to")
   changed+=("$f")
   # A running sampler or publisher is the old file calling itself; only a
   # restart moves it on, and the units step is what restarts it.
   if [ "$check" = 1 ]; then note "stale: $to"; else record_step "$f"; fi
-done
+done <<<"$retired"
 
-# The slice file on the host against the one in this checkout. Nothing here
-# reads the instance or asks systemd.
+# The slice file on the host, which the console compares with the one in this
+# checkout, and what the sandbox image says of the images a cycle is given
+# (console/src/update/report.rs). Inside the tests the slice is not checked
+# unless a test asks.
 slice_to=${BOOTSTRAP_ETC:-/etc}/systemd/system/tehas.slice
-slice_state() {
-  if [ -n "${T_IN_TEST:-}" ] && [ -z "${T_SLICE:-}" ]; then
-    echo "not checked"
-  elif [ ! -f "$slice_to" ]; then
-    echo MISSING
-  elif cmp -s "$host/slice/tehas.slice" "$slice_to"; then
-    echo OK
-  else
-    echo DIFFERS
-  fi
-}
-
-# TEHAS_WORK_IMAGES=1 promises a cycle the images its issue links. The pi-rukas
-# in the sandbox image has to read the manifest tehas writes beside them for
-# that to be true, and the image says whether it does, by a label its build
-# writes (host/sandbox/build.sh). A disagreement is between the setting and the
-# image, not in what this script installs, so it is said and not failed: the
-# host rebuilds the image on a pi-rukas that reads them, or turns the setting off.
-# Nothing when the setting is off, when the image reads them, or when there is
-# no image to ask.
-images_say() { # <check|run>
-  local mode=$1 status sentence labels
-  if [ "$TEHAS_WORK_IMAGES" != 1 ]; then return 0; fi
-  docker image inspect "$PI_ENSEMBLE_IMAGE" >/dev/null 2>&1 || return 0
-  labels=$(docker image inspect --format '{{index .Config.Labels "tehas.rukas"}}|{{index .Config.Labels "tehas.rukas.images"}}' \
-    "$PI_ENSEMBLE_IMAGE" 2>/dev/null) || labels=""
-  case "${labels#*|}" in
-    1) return 0 ;;
-    0)
-      status="NOT READ"
-      sentence="TEHAS_WORK_IMAGES is 1 and the sandbox image $PI_ENSEMBLE_IMAGE says its pi-rukas does not read the images a cycle is given. The dispatcher holds every cycle while that stands, not only an issue whose text links a picture: rebuild the image on a pi-rukas that reads them (tehas update), or set TEHAS_WORK_IMAGES=0."
-      ;;
-    *)
-      status="NOT SAID"
-      sentence="TEHAS_WORK_IMAGES is 1 and the sandbox image $PI_ENSEMBLE_IMAGE does not say whether its pi-rukas reads the images a cycle is given. Rebuild it with $TEHAS_HOME/sandbox/build.sh, which records the answer."
-      ;;
-  esac
-  if [ "$mode" = check ]; then
-    echo "Images:       $status"
-    echo "  $sentence"
-  else
-    echo "note: $sentence"
-  fi
-}
+slice=(--slice "$slice_to")
+[ -z "${T_IN_TEST:-}" ] || [ -n "${T_SLICE:-}" ] || slice=()
+images=(--images "$TEHAS_WORK_IMAGES" "$PI_ENSEMBLE_IMAGE")
 
 # --- 4. Report (--check) -----------------------------------------------------
+# One line a finding, made by the console (console/src/update/report.rs) from
+# what this run found: the files that differ, the shell, the store and the
+# login command. It runs bootstrap.sh check, compares the slice, reads the
+# sandbox image, the health, the last check-product and the record of steps
+# owed, which the console that names the steps reads, and runs the tests when
+# asked. Exit 1 when it found something to do.
 if [ "$check" = 1 ]; then
+  asked=()
+  [ -z "${T_IN_TEST:-}" ] || asked+=(--in-test)
+  [ "$tests" = 0 ] || asked+=(--tests "$suite")
+  bashrc_ok || asked+=(--shell-missing "$bashrc")
   rc=0
-  echo "Instance:     $instance OK"
-
-  if [ -n "${T_IN_TEST:-}" ]; then
-    echo "Dependencies: not checked (running inside the tests)"
-  elif [ -x "$root/bootstrap.sh" ]; then
-    if out=$("$root/bootstrap.sh" check 2>&1); then
-      echo "Dependencies: OK"
-    else
-      echo "Dependencies: NOT OK"
-      printf '%s\n' "$out" | sed 's/^/  /'
-      rc=1
-    fi
-  else
-    echo "Dependencies: not checked (no bootstrap.sh in this checkout)"
-  fi
-
-  # Every container runs in the slice, so a host without it, or with another
-  # version of it, has something to do. Only root can do it; the check says
-  # so until it is done.
-  case "$(slice_state)" in
-    OK) echo "Slice:        OK" ;;
-    MISSING) echo "Slice:        MISSING (sudo ./bootstrap.sh slice)"; rc=1 ;;
-    DIFFERS) echo "Slice:        DIFFERS (sudo ./bootstrap.sh slice)"; rc=1 ;;
-    *) echo "Slice:        not checked (running inside the tests)" ;;
+  printf '%s\n' "${report[@]}" | "$loaded_console" update report "$root" "$instance" "${slice[@]}" "${images[@]}" \
+    "${asked[@]}" --drift "$((${#changed[@]} + sandbox_drift))" --store "$store_refusal" \
+    --login "$login_bin" "$login_fix" --steps "$steps_console" || rc=$?
+  case $rc in
+    0 | 1) exit "$rc" ;;
+    *) echo "tehas: the console at $loaded_console could not make the report (status $rc)" >&2; exit 1 ;;
   esac
-
-  images_say check
-
-  # The last tehas check-product, read and not run: the product is not this
-  # host's install, so it does not change the exit status.
-  product=$TEHAS_HOME/state/check-product.json
-  if [ -r "$product" ]; then
-    jq -r '"Product:      " + (if .ok then "OK" else "\(.failures | length) TO FIX" end)
-      + " (tehas check-product, \(.at))", (.failures[] | "  \(.)")' "$product" 2>/dev/null ||
-      echo "Product:      NOT READ ($product)"
-  fi
-
-  if [ "${#changed[@]}" = 0 ] && [ "$sandbox_drift" = 0 ]; then
-    echo "Installed:    OK"
-  else
-    echo "Installed:    DRIFT ($((${#changed[@]} + sandbox_drift)) files)"
-    printf '%s\n' "${report[@]}" | sed 's/^/  /'
-    rc=1
-  fi
-
-  # The command the other accounts type is root's to install, so it is not part
-  # of the drift above: no run of this script can clear it. It is named apart,
-  # with the command that does clear it.
-  if bashrc_ok; then
-    echo "Shell:        OK"
-  else
-    echo "Shell:        MISSING ($bashrc does not source $TEHAS_HOME/env.sh; ./install.sh puts the line at its top)"
-    rc=1
-  fi
-  if [ -f "$first_owed" ]; then
-    echo "First install: NOT DONE (labels and core units; ./install.sh does them)"
-    rc=1
-  fi
-  if [ -n "$store_refusal" ]; then
-    echo "Store:        REFUSED ($store_refusal; ./install.sh stops before it writes)"
-    rc=1
-  fi
-
-  if [ -n "$login_fix" ]; then
-    echo "Login:        NOT CURRENT"
-    if [ -e "$login_bin" ]; then
-      echo "  differs: $login_bin   ($login_fix)"
-    else
-      echo "  missing: $login_bin   ($login_fix)"
-    fi
-    rc=1
-  fi
-
-  # A follow-up an earlier tehas update was asked for and never finished is
-  # still owed. Files matching is not enough to call a host current. A record
-  # this account cannot open is not an answer of "nothing owed" either: it holds
-  # steps, and this cannot say how many.
-  owed=$TEHAS_HOME/state/update-pending
-  owed_lines=
-  if [ -e "$owed" ] && ! owed_lines=$("$steps_console" update steps owed); then
-    echo "Follow-ups:   NOT DONE (the record $owed cannot be read)"
-    rc=1
-  elif [ -n "$owed_lines" ]; then
-    echo "Follow-ups:   NOT DONE ($(printf '%s\n' "$owed_lines" | wc -l) from an earlier run, see $owed)"
-    rc=1
-  fi
-
-  if [ "$tests" = 0 ]; then
-    echo "Tests:        not run (./install.sh --check --tests runs them)"
-  elif [ -n "${T_IN_TEST:-}" ] && [ -z "$suite" ]; then
-    echo "Tests:        not checked (running inside the tests)"
-  elif out=$("${suite:-$root/scripts/test.sh}" 2>&1); then
-    echo "Tests:        OK"
-  else
-    echo "Tests:        FAILED"
-    printf '%s\n' "$out" | tail -n 30 | sed 's/^/  /'
-    rc=1
-  fi
-  exit "$rc"
 fi
 
 # --- 5. After a real run ------------------------------------------------------
@@ -1608,12 +1323,8 @@ if command -v docker >/dev/null 2>&1; then
   esac
 fi
 
-case "$(slice_state)" in
-  MISSING) echo "note: $slice_to is missing (sudo ./bootstrap.sh slice)" ;;
-  DIFFERS) echo "note: $slice_to differs from host/slice/tehas.slice in this checkout (sudo ./bootstrap.sh slice)" ;;
-esac
-
-images_say run
+"$loaded_console" update notes "$root" "${slice[@]}" "${images[@]}" ||
+  echo "note: the console at $loaded_console did not compare the slice file or read the sandbox image"
 
 # The one place the default branch is looked up over the network.
 if [ -z "${TEHAS_BRANCH:-}" ] && [ -d "$TEHAS_WORK_REPO/.git" ]; then

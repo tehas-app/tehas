@@ -14,8 +14,8 @@
 //! backup keys. A cycle stays on its endpoint: one that fails mid-cycle is
 //! retried by Pi, not switched.
 //!
-//! install.sh holds the one check of the keys that runs before any program of
-//! this workspace exists: its model_keys_ok.
+//! install.sh asks for the check of the keys with the rest of its findings
+//! (`console update findings`), from the console it builds first.
 
 use crate::jq::J;
 use serde_json::Value;
@@ -24,26 +24,19 @@ use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
-const ROLES: [&str; 5] = [
-    "DEVELOPER",
-    "OPS",
-    "EXPLORE",
-    "ADVERSARIAL_DEVELOPER",
-    "CODE_REVIEW_SPECIALIST",
-];
-
-/// tehas_models: (provider, model), the subagent's first, each pair once.
+/// `console models used`: (provider, model), the subagent's first, each pair once.
 pub fn used() -> Vec<(String, String)> {
     used_from(|k| std::env::var(k).unwrap_or_default())
 }
 
-fn used_from(env: impl Fn(&str) -> String) -> Vec<(String, String)> {
+/// [`used`] from the variables `env` gives, for a caller that loaded them itself.
+pub fn used_from(env: impl Fn(&str) -> String) -> Vec<(String, String)> {
     let mut used: Vec<(String, String)> = Vec::new();
     let mut pairs = vec![(
         env("PI_ENSEMBLE_SUBAGENT_PROVIDER"),
         env("PI_ENSEMBLE_SUBAGENT_MODEL"),
     )];
-    for r in ROLES {
+    for r in crate::settings::rules::ROLES {
         let m = env(&format!("PI_ENSEMBLE_MODEL_{r}"));
         if !m.is_empty() {
             pairs.push((env(&format!("PI_ENSEMBLE_PROVIDER_{r}")), m));

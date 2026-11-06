@@ -3,14 +3,14 @@
 //! tehas_core::sandbox's. Each verb prints its words NUL separated, so a
 //! command reads them with `mapfile -d ''`.
 //!
-//! `smoke` and `smoke-verdict` are the build's: the words of one offline work
-//! turn started inside an image that would take the uid tag, and the decision
-//! on what that turn printed.
+//! `smoke-run` is the build's: one offline work turn started inside an image
+//! that would take the uid tag, and the decision on what that turn printed.
 
 use crate::runner;
 use std::env;
 use std::io::{self, Read, Write};
 use std::path::Path;
+use std::process::{Command, Stdio};
 use tehas_core::models;
 use tehas_core::sandbox::{self, Identity, Kind, Paths};
 use tehas_core::slice::{self, Host, Load};
@@ -101,16 +101,38 @@ fn smoke_run(image: &str) -> Vec<String> {
     .to_vec()
 }
 
-/// The `tehas-cycle sandbox smoke-verdict` verb: the output of a smoke run
-/// comes on standard input, at most `runner::LOG_TAIL` bytes of it. Prints
-/// `started`, `crashed` or `silent` and ends 0 only for `started`. It reads no
-/// settings: the words hold none and the decision reads only its input.
-fn smoke_verdict_verb() -> i32 {
+/// What a command printed on both streams, as `2>&1` puts them on one pipe,
+/// at most `runner::LOG_TAIL` bytes of it. The read end closes there, so a
+/// command that goes on printing ends on its next write.
+fn merged_head(cmd: &mut Command) -> io::Result<Vec<u8>> {
+    let (reader, writer) = io::pipe()?;
+    cmd.stdin(Stdio::null())
+        .stdout(writer.try_clone()?)
+        .stderr(writer);
+    let child = cmd.spawn();
+    // The command holds the writers; the read ends only once they are closed.
+    cmd.stdout(Stdio::null()).stderr(Stdio::null());
+    let mut child = child?;
     let mut bytes = vec![];
-    if let Err(e) = io::stdin().take(runner::LOG_TAIL).read_to_end(&mut bytes) {
-        eprintln!("tehas-cycle: the smoke output cannot be read: {e}");
-        return 1;
-    }
+    let read = reader.take(runner::LOG_TAIL).read_to_end(&mut bytes);
+    let _ = child.wait();
+    read.map(|_| bytes)
+}
+
+/// The `tehas-cycle sandbox smoke-run <image>` verb: the turn of `smoke_run`
+/// in <image>, bounded at 40 s, and the verdict on what it printed. Prints
+/// `started`, `crashed` or `silent` and ends 0 only for `started`. Docker's own
+/// status is not read: the output decides. It reads no settings.
+fn smoke_run_verb(image: &str) -> i32 {
+    let mut cmd = Command::new("timeout");
+    cmd.args(["-k", "5", "40", "docker"]).args(smoke_run(image));
+    let bytes = match merged_head(&mut cmd) {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            eprintln!("tehas-cycle: the smoke run of {image} could not be started: {e}");
+            return 1;
+        }
+    };
     let verdict = smoke_verdict(&String::from_utf8_lossy(&bytes));
     tehas_core::outln!("{}", verdict.word());
     i32::from(verdict != Smoke::Started)
@@ -262,8 +284,7 @@ pub fn main(args: &[String]) -> Option<i32> {
         }
         ["clone", src, tree, branch] => i32::from(!sandbox::clone(src, tree, branch)),
         ["seed", state, index] => i32::from(!sandbox::seed(state, index)),
-        ["smoke", image] => print(&smoke_run(image)),
-        ["smoke-verdict"] => smoke_verdict_verb(),
+        ["smoke-run", image] => smoke_run_verb(image),
         _ => return None,
     })
 }
@@ -423,6 +444,27 @@ mod tests {
                 "{secret} is in the smoke turn: {turn}"
             );
         }
+    }
+
+    #[test]
+    fn both_streams_are_read_as_one() {
+        let mut cmd = Command::new("sh");
+        cmd.args(["-c", "echo out; echo err >&2; echo end"]);
+        let bytes = merged_head(&mut cmd).unwrap();
+        assert_eq!(String::from_utf8_lossy(&bytes), "out\nerr\nend\n");
+    }
+
+    #[test]
+    fn an_endless_output_is_read_to_the_tail_and_not_waited_on() {
+        let mut cmd = Command::new("yes");
+        let bytes = merged_head(&mut cmd).unwrap();
+        assert_eq!(bytes.len() as u64, runner::LOG_TAIL);
+    }
+
+    #[test]
+    fn a_command_that_cannot_start_is_an_error() {
+        let mut cmd = Command::new("/nonexistent/tehas-no-such-program");
+        assert!(merged_head(&mut cmd).is_err());
     }
 
     #[test]

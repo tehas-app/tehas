@@ -178,7 +178,7 @@ impl Writer {
     fn index_launch(&self) -> bool {
         let _ = std::fs::remove_file(self.home.join("state/index.rc"));
         let p = |x: &str| self.home.join(x).to_string_lossy().into_owned();
-        let cmd: Vec<String> = vec![
+        let mut cmd: Vec<String> = vec![
             "/bin/bash".into(),
             "-c".into(),
             INDEX.into(),
@@ -187,8 +187,9 @@ impl Writer {
             p("state/index.rc"),
             p("state/dispatch.again"),
             self.host.index_cmd.clone(),
-            "--before-cycle".into(),
         ];
+        cmd.extend(self.host.index_args.iter().cloned());
+        cmd.push("--before-cycle".into());
         if let Some(start) = &self.host.index_start_cmd {
             return run_quiet(start, &cmd, None, Duration::from_secs(300)) == Some(0);
         }

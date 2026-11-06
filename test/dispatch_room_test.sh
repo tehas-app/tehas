@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for libexec/dispatch: admission by the slice's room and pressure, and
+# Tests for tehasbot dispatch: admission by the slice's room and pressure, and
 # the model endpoint and its backup.
 # shellcheck disable=SC2016  # snippets are expanded by the shell under test
 # shellcheck source=test/lib.sh

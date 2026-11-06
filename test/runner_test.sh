@@ -25,6 +25,13 @@ bad_line() { # name [reason]
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
 
+# The runner is the xtask of this checkout, built once and named in
+# TEHAS_XTASK, so the cases' cargo stubs reach only the build of the store.
+t_xtask || {
+  echo "FAIL: no xtask: $t_xtask_why"
+  exit 1
+}
+
 repo=$T/checkout
 recs=$T/records
 nobin=$T/nobin

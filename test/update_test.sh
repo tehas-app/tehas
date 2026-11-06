@@ -259,8 +259,7 @@ push_settings_change() {
   cat >>"$T/upstream/lib/config.sh" <<'EOF'
 # added by this case: a required setting nothing can give a default for.
 tehas_require_instance_settings() {
-  tehas_require TEHAS_REPO TEHAS_CONTROL_ISSUE TEHAS_ALLOWED_LABELERS \
-    PI_ENSEMBLE_SUBAGENT_MODEL PI_ENSEMBLE_SUBAGENT_PROVIDER TEHAS_NEW_SETTING
+  [ -n "${TEHAS_NEW_SETTING:-}" ] || { tehas_err "TEHAS_NEW_SETTING is not set (see $TEHAS_INSTANCE_DIR/instance.env)"; exit 78; }
 }
 EOF
   git -C "$T/upstream" add -A
@@ -556,6 +555,26 @@ t_eq "$(owed_steps)" "sandbox"
 t_eq "$(t_calls build)" ""
 rm -f "$T/console.now" "$T/console.now.prev" "$T/console.next"
 T_ENV_ALWAYS=(TEHAS_CONSOLE="$T_CONSOLE")
+
+# The release before this one ran the console's verbs one by one from bash. A
+# host on it updates once with that script, so this console keeps every verb it
+# calls. test/fixtures/update-by-verbs/update is that script.
+t_case "the updater of the release before runs this console's verbs and finishes"
+instance
+platform 1 "$ASK"'
+if [ "/dev/fd/${TEHAS_UPDATE_LOCK_FD:-x}" -ef "$TEHAS_HOME/state/update.lock" ]; then echo "the lock is ours"; fi'
+mkdir -p "$T/by-verbs/libexec" "$T/by-verbs/lib"
+cp "$T_ROOT/test/fixtures/update-by-verbs/update" "$T/by-verbs/libexec/update"
+cp "$T_ROOT/lib/config.sh" "$T/by-verbs/lib/"
+t_run "'$T/by-verbs/libexec/update'"
+t_eq "$t_rc" 0
+t_contains "$t_out" "the lock is ours"
+t_eq "$(step_order)" "systemd: restarted
+sandbox: building
+docs: updating
+edge: updating"
+t_eq "$(owed_steps)" ""
+rm -rf "$T/by-verbs"
 
 t_case "a later: line of install.sh is printed and is no step"
 instance

@@ -45,21 +45,23 @@
 //!                                     "body": <the body to write>,
 //!                                     "say": <a repeat's words for the park>}
 //!                                     (src/last_attempt.rs)
-//!   tehas-cycle cycle <issue> --work <path> --status-cmd <path>
-//!       [--status-arg <word>]... --console <path>
-//!                                     libexec/cycle execs this under the lock:
-//!                                     the start on record, what the number is,
-//!                                     tehas work to its end and the report
-//!                                     (src/supervise.rs). Exits as tehasbot
-//!                                     cycle does
+//!   tehas-cycle cycle <issue> --work <path> [--work-arg <word>]...
+//!       --status-cmd <path> [--status-arg <word>]... --console <path>
+//!                                     tehasbot cycle, which the console execs
+//!                                     with the settings loaded: the issue's
+//!                                     lock, waited for 5 s (3 when another
+//!                                     holds it), the start on record, what
+//!                                     the number is, tehas work to its end and
+//!                                     the report (src/supervise.rs). Exits as
+//!                                     tehasbot cycle does
 //!   tehas-cycle run <issue>           what tehas-cycle@.service starts:
 //!                                     copy the install's code for this
 //!                                     cycle and run tehasbot cycle from the
 //!                                     copy (src/pin.rs)
-//!   tehas-cycle pin plan <issue> <program> [args...]
+//!   tehas-cycle pin plan <issue> <command> [args...]
 //!                                     what the dispatcher starts a planning
 //!                                     turn with: the same copy, and run
-//!                                     libexec/<program> of it with the args
+//!                                     bin/tehas <command> of it with the args
 //!   tehas-cycle clock now             print the seconds of the monotonic
 //!                                     clock: seconds since boot, read from
 //!                                     the first number of /proc/uptime
@@ -92,9 +94,10 @@
 //!                                     the names a mask hides, two lines each:
 //!                                     `--private` and the name, for a command
 //!                                     to read into its arguments
-//!   tehas-cycle renew --cmd <path> --every <s> --retry <s>
+//!   tehas-cycle renew --cmd <path> [--arg <word>]... --every <s> --retry <s>
 //!                                     the renewer of a cycle's GitHub token:
-//!                                     run <path> with its output discarded,
+//!                                     run <path> with the words of --arg, in
+//!                                     their order, with its output discarded,
 //!                                     wait --every seconds after a success
 //!                                     and --retry after a failure, and say
 //!                                     one line on standard error for each
@@ -188,14 +191,12 @@
 //!                                     make <tree>, a clone of <src>
 //!   tehas-cycle sandbox seed <state> <index>
 //!                                     give <state> the host's code index
-//!   tehas-cycle sandbox smoke <image> the words of `docker run` for one offline
-//!                                     work turn in <image>, NUL separated:
-//!                                     `host/sandbox/build.sh` runs it before it
-//!                                     moves the uid tag
-//!   tehas-cycle sandbox smoke-verdict the output of that run comes on standard
-//!                                     input, and `started`, `crashed` or
-//!                                     `silent` is printed. Exit 0 only for a
-//!                                     stable `step-started` line
+//!   tehas-cycle sandbox smoke-run <image>
+//!                                     one offline work turn in <image>, at
+//!                                     most 40 s, for `host/sandbox/build.sh`
+//!                                     before it moves the uid tag. Prints
+//!                                     `started`, `crashed` or `silent`. Exit 0
+//!                                     only for a stable `step-started` line
 //!   tehas-cycle sandbox verify <limit words>
 //!                                     how many runs of the gate one container
 //!                                     runs at once. Exit 1 with nothing
@@ -204,23 +205,28 @@
 //!   tehas-cycle settings <file> <count> [<docker options>...]
 //!                                     write what a cycle ran with to <file>
 //!   tehas-cycle work <issue> --console <path> [--restart] [--driver lean|classic]
-//!                                     tehas work, which libexec/work execs
-//!                                     with the settings loaded and the
-//!                                     issue's lock as fd 9: the start held to
-//!                                     its approval, the issue's files, the
+//!                                     tehas work, which the console execs
+//!                                     with the settings loaded: the issue's
+//!                                     lock, or the one tehasbot cycle handed
+//!                                     down (5 when another holds it), the
+//!                                     start held to its approval, the issue's files, the
 //!                                     workspace, the container watched to its
 //!                                     end and the cycle's notes
 //!                                     (src/work.rs). Exits as tehas work does
 //!   tehas-cycle index [--before-cycle]
-//!                                     the same at the tip of the product's
+//!                                     tehas index, which the console execs
+//!                                     with the settings loaded: the run
+//!                                     below at the tip of the product's
 //!                                     branch the checkout last fetched; 78
 //!                                     for a checkout of another repository
 //!                                     or a branch it does not know
 //!   tehas-cycle index <branch> <commit> [--before-cycle]
 //!                                     one run of the code indexer at <commit>,
-//!                                     the tip of <branch>, under the lock
-//!                                     libexec/index holds (src/index.rs).
-//!                                     Exit 0, 1, 3, 78 as that command says
+//!                                     the tip of <branch>, under
+//!                                     state/index.lock, which its docker
+//!                                     client inherits (src/index.rs). 3 when
+//!                                     another run holds it. Exit 0, 1, 3, 78
+//!                                     as tehas index says
 //!   tehas-cycle index table           its row of the table of runs
 //!   tehas-cycle -h|--help             print this text
 //!
@@ -254,11 +260,12 @@
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 use tehas_cycle::after::{self, After};
 use tehas_cycle::host::Start;
 use tehas_cycle::last_attempt::{self, Action};
 use tehas_cycle::report::{last_attempts, to_json, Given};
-use tehas_cycle::{apply, finish, pin, progress, renew, report};
+use tehas_cycle::{apply, finish, lock, pin, progress, renew, report};
 use tehas_cycle::{caps, clock, improve, index, runner, sandbox, start, supervise, work, Facts};
 
 fn usage() -> String {
@@ -300,11 +307,11 @@ fn main() {
         ["-h" | "--help"] => tehas_core::outln!("{}", usage()),
         ["report", file] => print_report(file),
         ["index", "table"] => tehas_core::outln!("{}", index::table()),
-        ["index"] => std::process::exit(index::here(false).into()),
-        ["index", "--before-cycle"] => std::process::exit(index::here(true).into()),
-        ["index", branch, base] => std::process::exit(index::main(branch, base, false).into()),
+        ["index"] => index_verb(&home, || index::here(false)),
+        ["index", "--before-cycle"] => index_verb(&home, || index::here(true)),
+        ["index", branch, base] => index_verb(&home, || index::main(branch, base, false)),
         ["index", branch, base, "--before-cycle"] => {
-            std::process::exit(index::main(branch, base, true).into())
+            index_verb(&home, || index::main(branch, base, true))
         }
         ["sandbox", ..] => match sandbox::main(&args[1..]) {
             Some(status) => std::process::exit(status),
@@ -374,10 +381,13 @@ fn main() {
             if program.is_empty() || program.contains('/') || program.starts_with('.') {
                 wrong(&args);
             }
-            pinned(&home, "plan", n, &format!("libexec/{program}"), rest)
+            let mut words = vec![*program];
+            words.extend_from_slice(rest);
+            pinned(&home, "plan", n, "bin/tehas", &words)
         }
         ["renew", rest @ ..] => {
             let mut cmd = None;
+            let mut words = Vec::new();
             let mut every = None;
             let mut retry = None;
             let secs = |v: &str| v.parse::<u64>().unwrap_or_else(|_| wrong(&args));
@@ -386,6 +396,7 @@ fn main() {
                 let v = it.next().unwrap_or_else(|| wrong(&args));
                 match *flag {
                     "--cmd" => cmd = Some(PathBuf::from(v)),
+                    "--arg" => words.push(v.to_string()),
                     "--every" => every = Some(secs(v)),
                     "--retry" => retry = Some(secs(v)),
                     _ => wrong(&args),
@@ -394,7 +405,7 @@ fn main() {
             let (Some(cmd), Some(every), Some(retry)) = (cmd, every, retry) else {
                 wrong(&args)
             };
-            renew_verb(&cmd, every, retry);
+            renew_verb(&cmd, &words, every, retry);
         }
         ["finish", n, rest @ ..] => finish_verb(issue(n, &args), &args, rest),
         ["caps", rest @ ..] => caps_verb(rest, &args),
@@ -441,11 +452,31 @@ fn main() {
     }
 }
 
-/// The words of a cycle's supervision.
+/// One run of the indexer under state/index.lock, which its docker client
+/// inherits: a client that outlives the run still writes the index.
+fn index_verb(home: &Path, run: impl FnOnce() -> u8) -> ! {
+    let state = home.join("state");
+    let _ = std::fs::create_dir_all(&state);
+    let held = match lock::take(&state.join("index.lock"), Duration::ZERO) {
+        Ok(Some(f)) => f,
+        Ok(None) => {
+            eprintln!("tehas index: another index run holds its lock, nothing was indexed; run it again in a moment");
+            std::process::exit(3)
+        }
+        Err(e) => fail(e),
+    };
+    lock::hand_down(&held).unwrap_or_else(|e| fail(e));
+    std::process::exit(run().into());
+}
+
+/// The words of a cycle's supervision. The store is asked for before the
+/// lock is opened, and the lock is waited for up to five seconds: a second
+/// start of the same issue is 3.
 fn cycle_verb(home: &Path, n: u64, args: &[String], rest: &[&str]) -> ! {
     let mut g = supervise::Given {
         issue: n,
         work: String::new(),
+        work_args: Vec::new(),
         status_cmd: String::new(),
         status_args: Vec::new(),
         console: String::new(),
@@ -455,6 +486,7 @@ fn cycle_verb(home: &Path, n: u64, args: &[String], rest: &[&str]) -> ! {
         let v = it.next().unwrap_or_else(|| wrong(args)).to_string();
         match *flag {
             "--work" => g.work = v,
+            "--work-arg" => g.work_args.push(v),
             "--status-cmd" => g.status_cmd = v,
             "--status-arg" => g.status_args.push(v),
             "--console" => g.console = v,
@@ -464,6 +496,24 @@ fn cycle_verb(home: &Path, n: u64, args: &[String], rest: &[&str]) -> ! {
     if g.work.is_empty() || g.status_cmd.is_empty() || g.console.is_empty() {
         wrong(args);
     }
+    if !work::store_ready(home) {
+        after::log("ERROR: the state store is not installed (run install.sh)");
+        std::process::exit(78);
+    }
+    let cycles = home.join("state/cycles");
+    let _ = std::fs::create_dir_all(&cycles);
+    let _ = std::fs::create_dir_all(home.join("logs"));
+    // tehas work and the docker client it starts inherit this lock. If this
+    // process is killed outright the place stays taken until they are gone too.
+    let held = match lock::take(&cycles.join(format!("{n}.lock")), Duration::from_secs(5)) {
+        Ok(Some(f)) => f,
+        Ok(None) => {
+            after::log(&format!("a cycle for #{n} is already running"));
+            std::process::exit(3)
+        }
+        Err(e) => fail(e),
+    };
+    lock::hand_down(&held).unwrap_or_else(|e| fail(e));
     std::process::exit(supervise::run(home, &g));
 }
 
@@ -493,6 +543,26 @@ fn work_verb(home: &Path, n: u64, args: &[String], rest: &[&str]) -> ! {
     if g.console.is_empty() || !home.is_absolute() {
         wrong(args);
     }
+    // Under tehasbot cycle the lock comes down already held. Taken here, it is
+    // handed down: every program of the cycle, the docker client among them,
+    // holds it, so a run by hand and the unit's cycle never share a workspace.
+    let path = home.join(format!("state/cycles/{n}.lock"));
+    let _ = std::fs::create_dir_all(home.join("state/cycles"));
+    let _held = if lock::held_here(&path) {
+        None
+    } else {
+        match lock::take(&path, Duration::ZERO) {
+            Ok(Some(f)) => {
+                lock::hand_down(&f).unwrap_or_else(|e| fail(e));
+                Some(f)
+            }
+            Ok(None) => {
+                eprintln!("tehas work: a cycle for #{n} is running, not starting another");
+                std::process::exit(5)
+            }
+            Err(e) => fail(e),
+        }
+    };
     std::process::exit(work::run(home, &g));
 }
 
@@ -693,20 +763,20 @@ fn finish_verb(n: u64, args: &[String], rest: &[&str]) -> ! {
 /// The renewer of a cycle's GitHub token: it runs to the end of the cycle and
 /// ends 0 when a signal asks it to stop. The flag is what `renew` counts its
 /// waits against, as `console`'s review does.
-fn renew_verb(cmd: &Path, every: u64, retry: u64) -> ! {
+fn renew_verb(cmd: &Path, words: &[String], every: u64, retry: u64) -> ! {
     let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
     for signal in [signal_hook::consts::SIGTERM, signal_hook::consts::SIGINT] {
         if signal_hook::flag::register(signal, Arc::clone(&stop)).is_err() {
             fail(format!("cannot listen for signal {signal}"));
         }
     }
-    renew::renew(cmd, every, retry, &stop, renew::epoch_seconds);
+    renew::renew(cmd, words, every, retry, &stop, renew::epoch_seconds);
     std::process::exit(0);
 }
 
 /// Runs `program` of the copy of the install made for this `kind` of `n`,
 /// or the install's own when the copy cannot be made: `bin/tehasbot` for a
-/// cycle, a program of libexec/ for a planning turn.
+/// cycle, `bin/tehas` and a command of it for a planning turn.
 fn pinned(home: &Path, kind: &str, n: u64, program: &str, args: &[&str]) -> ! {
     use std::os::unix::process::CommandExt;
     let say = |s: String| {

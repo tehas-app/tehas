@@ -192,7 +192,7 @@ fn world() -> World {
             user_home: dir.join("user").to_string_lossy().into_owned(),
             done_wait: Duration::from_secs(5),
             image: "tehas-sandbox:test".into(),
-            plan_cmd: "/opt/plan".into(),
+            plan_cmd: vec!["/opt/plan".into()],
             plan_start_cmd: Some(s("start")),
             pin_cmd: None,
             plan_timeout: 3600,
@@ -202,6 +202,7 @@ fn world() -> World {
             branch: "main".into(),
             git: s("git"),
             index_cmd: "/opt/index".into(),
+            index_args: Vec::new(),
             index_start_cmd: Some(s("start")),
             fetch_wait: Duration::from_secs(10),
             lock_poll: Duration::from_millis(500),
@@ -2423,7 +2424,7 @@ fn a_plan_chosen_for_its_issue_is_written_onto_it_and_ends_the_session() {
     );
     // The draft the console made that `update` from: the poll's pre-check of
     // #1210 refuses an `update` no kept draft holds, so the write is only
-    // reached with the draft beside it, as `libexec/plan` leaves it.
+    // reached with the draft beside it, as `tehas plan` leaves it.
     let keep = t.dir.join("works/tehas-work-plan-7.keep");
     fs::create_dir_all(&keep).unwrap();
     fs::write(keep.join("draft.json"), plan_draft()).unwrap();
@@ -4313,7 +4314,7 @@ fn a_planning_turn_refreshes_the_checkout_before_its_unit() {
 fn an_index_that_failed_at_the_tip_is_not_launched_again() {
     let mut t = world();
     t.w.host.systemctl = t.dir.join("systemctl").to_string_lossy().into_owned();
-    // libexec/index writes the commit with its line end.
+    // tehas index writes the commit with its line end.
     fs::write(t.w.home.join("state/index.failed"), "abc1234\n").unwrap();
     let a = t.apply(gates(7, json!([])));
     assert_eq!(a.exit, None);

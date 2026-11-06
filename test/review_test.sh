@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for libexec/review: one headless lens-review of the branch since the
+# Tests for tehasbot review: one headless lens-review of the branch since the
 # last reviewed commit. A stub docker records its arguments and answers as
 # pi-rukas's headless runner does: one JSON document on stdout and an exit
 # status, so no model runs.
@@ -117,10 +117,8 @@ t_stub nproc 'echo 16'
 # (console/src/review.rs), and the tests of its parts are beside its source.
 t_console || t_bad "no console: $t_console_why"
 shim=$T/tree
-mkdir -p "$shim/libexec"
-ln -s "$T_ROOT/libexec/review" "$shim/libexec/review"
-ln -s "$T_ROOT/lib" "$shim/lib"
-review=$shim/libexec/review
+t_front "$shim"
+review="$shim/bin/tehasbot review"
 # shellcheck disable=SC2154  # t_cycle_why is set by t_cycle (test/lib.sh)
 t_cycle || t_bad "no tehas-cycle: $t_cycle_why"
 cp "$T_CYCLE" "$shim/libexec/tehas-cycle"
@@ -454,7 +452,7 @@ logs_named() { find "$T/home/tehas/logs" -type f 2>/dev/null | LC_ALL=C sort; }
 # and no container started.
 t_case "-h prints the usage of the command, starts no container and makes nothing"
 reset
-t_run "'$review' -h >'$T/help.out' 2>&1; echo \$? >'$T/help.rc'"
+t_run "$review -h >'$T/help.out' 2>&1; echo \$? >'$T/help.rc'"
 t_eq "$(cat "$T/help.rc")" 0
 t_contains "$(cat "$T/help.out")" "Review what the default branch gained"
 t_contains "$(cat "$T/help.out")" "tehasbot review"
@@ -465,7 +463,7 @@ t_eq "$(t_calls docker)" ""
 
 t_case "--help prints the same text"
 reset
-t_run "'$review' --help"
+t_run "$review --help"
 t_eq "$t_rc" 0
 t_eq "$t_out" "$(cat "$T/help.out")"
 
@@ -522,7 +520,7 @@ t_case "with the loop off the settings the command needs are still checked"
 # The gate sits below tehas_require_instance_settings, so a host whose instance
 # could not run a review is told 78 by the weekly unit and not only by a command a
 # person typed. The name below is one the review requires, and invalid rather
-# than missing: tehas_require stops on the first name that is not set, so a
+# than missing: the check stops on the first name that is not set, so a
 # missing one would answer 78 wherever the gate sat.
 reset
 t_instance "${T_MINIMAL[@]}" TEHAS_CONTROL_ISSUE=abc
@@ -530,7 +528,7 @@ t_run "$review"
 t_eq "$t_rc" 78
 t_contains "$t_out" "TEHAS_CONTROL_ISSUE is not valid"
 t_eq "$(t_calls docker)" ""
-t_run "'$review' --help"
+t_run "$review --help"
 t_eq "$t_rc" 0
 t_contains "$t_out" "Review what the default branch gained"
 
@@ -570,7 +568,7 @@ t_case "a --capabilities probe that fails is named as a probe that failed, not a
 for answer in 1 125 127; do
   t_case "docker answered $answer"
   reset
-  t_run "CAPS_RC=$answer '$review'"
+  t_run "CAPS_RC=$answer $review"
   t_eq "$t_rc" 78
   t_contains "$t_out" "gave no --capabilities answer (exit $answer)"
   t_lacks "$t_out" "runs no review"
@@ -890,8 +888,7 @@ t_case "docker is given what tehas plan gives a planning turn: only the name, th
 # The two runs go through the same stubbed docker with the same settings, and
 # their options are compared after only the names the two cannot share are
 # rewritten. A run given a cid file would keep one here and fail the compare.
-ln -sf "$T_ROOT/libexec/plan" "$shim/libexec/plan"
-plan=$shim/libexec/plan
+plan="$shim/bin/tehas plan"
 reset
 t_run "$review"
 t_eq "$t_rc" 0
@@ -982,7 +979,7 @@ reset
 console_absent
 t_run "$review"
 t_eq "$t_rc" 78
-t_contains "$t_out" "no console beside this command"
+t_contains "$t_out" "tehasbot: no console at $shim/libexec/console"
 t_contains "$t_out" "run install.sh"
 t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
 t_eq "$(find "$T/home/tehas/work" "$T/home/tehas/logs" "$record" 2>/dev/null | wc -l)" 0

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for libexec/dispatch: a relabelled start held on the body its last cycle
+# Tests for tehasbot dispatch: a relabelled start held on the body its last cycle
 # parked on, and the retry after a provider outage.
 # shellcheck disable=SC2016  # snippets are expanded by the shell under test
 # shellcheck source=test/lib.sh
