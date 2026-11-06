@@ -827,6 +827,11 @@ fn overlap() {
 }
 
 #[test]
+fn read_only() {
+    run_suite("read_only");
+}
+
+#[test]
 fn fixer() {
     run_suite("fixer");
 }

@@ -1,0 +1,188 @@
+{
+  "suite": "TEHAS_READ_ONLY: the poll starts nothing on an issue this host started before",
+  "cases": [
+    {
+      "case": "read-only: an issue this host started before is not started again, though tehas:ready is still on it",
+      "settings": {
+        "TEHAS_READ_ONLY": "1"
+      },
+      "snapshot": {
+        "read_only_ran": [
+          7
+        ]
+      },
+      "expect": {
+        "exit": 0,
+        "picked": [],
+        "no_actions": [
+          {
+            "start": 7
+          },
+          {
+            "issue": 7
+          }
+        ],
+        "log_lacks": [
+          "start #7"
+        ]
+      }
+    },
+    {
+      "case": "read-only: a dry run says why the issue is not started and how to start it again",
+      "settings": {
+        "TEHAS_READ_ONLY": "1"
+      },
+      "snapshot": {
+        "read_only_ran": [
+          7
+        ]
+      },
+      "dry": true,
+      "expect": {
+        "picked": [],
+        "log": [
+          "skip #7: read-only, and this host started it before: remove state/read-only/7.json to start it again"
+        ]
+      }
+    },
+    {
+      "case": "read-only: an issue with no record starts as on any host",
+      "settings": {
+        "TEHAS_READ_ONLY": "1"
+      },
+      "snapshot": {
+        "read_only_ran": [
+          9
+        ]
+      },
+      "expect": {
+        "exit": 0,
+        "picked": [
+          7
+        ]
+      }
+    },
+    {
+      "case": "with read-only off a record is not read, and the issue starts",
+      "snapshot": {
+        "read_only_ran": [
+          7
+        ]
+      },
+      "expect": {
+        "exit": 0,
+        "picked": [
+          7
+        ]
+      }
+    },
+    {
+      "case": "read-only: a tehas:plan this host started a session on before starts no second one",
+      "settings": {
+        "TEHAS_READ_ONLY": "1"
+      },
+      "snapshot": {
+        "ready": [],
+        "endpoint": {
+          "end": "main"
+        },
+        "plans": [
+          {
+            "number": 7,
+            "labels": [
+              {
+                "name": "tehas:plan"
+              }
+            ]
+          }
+        ],
+        "issues": {
+          "7": {
+            "events": [
+              {
+                "event": "labeled",
+                "label": {
+                  "name": "tehas:plan"
+                },
+                "actor": {
+                  "login": "alice"
+                }
+              }
+            ],
+            "view": {
+              "title": "Faster search",
+              "body": "Make it fast."
+            }
+          }
+        },
+        "read_only_ran": [
+          7
+        ]
+      },
+      "expect": {
+        "exit": 0,
+        "no_actions": [
+          {
+            "plan_turn": 7
+          }
+        ],
+        "log_lacks": [
+          "start planning #7"
+        ]
+      }
+    },
+    {
+      "case": "read-only: a tehas:plan with no record starts its session",
+      "settings": {
+        "TEHAS_READ_ONLY": "1"
+      },
+      "snapshot": {
+        "ready": [],
+        "endpoint": {
+          "end": "main"
+        },
+        "plans": [
+          {
+            "number": 7,
+            "labels": [
+              {
+                "name": "tehas:plan"
+              }
+            ]
+          }
+        ],
+        "issues": {
+          "7": {
+            "events": [
+              {
+                "event": "labeled",
+                "label": {
+                  "name": "tehas:plan"
+                },
+                "actor": {
+                  "login": "alice"
+                }
+              }
+            ],
+            "view": {
+              "title": "Faster search",
+              "body": "Make it fast."
+            }
+          }
+        }
+      },
+      "expect": {
+        "exit": 0,
+        "log": [
+          "start planning #7 (labelled by alice)"
+        ],
+        "actions": [
+          {
+            "plan_turn": 7,
+            "kind": "first"
+          }
+        ]
+      }
+    }
+  ]
+}

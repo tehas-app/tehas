@@ -37,6 +37,9 @@ pub struct Settings {
     /// TEHAS_OVERLAP_HOLD: 1 holds a start while a running cycle's branch
     /// changes a path the issue's body names. Off unless the instance says so.
     pub overlap_hold: bool,
+    /// TEHAS_READ_ONLY: 1 writes nothing to GitHub (#608). The poll then
+    /// starts nothing on an issue a start of this host is on record for.
+    pub read_only: bool,
     pub refresh_slots: i64,
     /// TEHAS_CYCLE_MIN_FREE as written, and in MiB.
     pub min_free: String,
@@ -125,6 +128,7 @@ impl Settings {
             refresh_conflicts: s("TEHAS_REFRESH_CONFLICTS", "0") == "1",
             easy_merge: s("TEHAS_EASY_MERGE", "0") == "1",
             overlap_hold: s("TEHAS_OVERLAP_HOLD", "0") == "1",
+            read_only: s("TEHAS_READ_ONLY", "0") == "1",
             refresh_slots: n("TEHAS_REFRESH_SLOTS", 1),
             min_free,
             min_free_mb,
