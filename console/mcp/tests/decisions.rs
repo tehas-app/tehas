@@ -100,9 +100,10 @@ fn the_answer_is_what_grep_and_tail_show() {
 // here rather than read from the crate, so a word added to one side and not
 // the other fails this test. Each is a `logged` of the table or the first word
 // of a `WRITER_NON_DECISIONS`.
-const WRITTEN_WORDS: [&str; 12] = [
+const WRITTEN_WORDS: [&str; 13] = [
     "clear",
     "drop the refresh of",
+    "finish",
     "hold",
     "hold refreshes",
     "holding",

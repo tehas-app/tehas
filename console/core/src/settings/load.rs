@@ -72,6 +72,7 @@ const KEPT: &[&str] = &[
     "TEHAS_CYCLE_FROM",
     "TEHAS_CYCLE_ATTEMPT",
     "TEHAS_TIDY_CMD",
+    "TEHAS_FINISH_CMD",
     "TEHAS_DISPATCH_CMD",
     "TEHAS_HEALTH_CMD",
     "TEHAS_TIDY_WAIT",

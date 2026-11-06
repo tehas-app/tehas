@@ -410,7 +410,7 @@ pub fn owed(calls: &mut Calls, which: &str) -> Value {
 
 /// The shape of `store approval-view`: the approval of the issue's latest start as the
 /// readers of approval-view have it. Null for none.
-fn approval_shape(v: &Value) -> Option<Value> {
+pub(crate) fn approval_shape(v: &Value) -> Option<Value> {
     let c = v.get("current")?;
     if c.is_null() {
         return Some(Value::Null);
