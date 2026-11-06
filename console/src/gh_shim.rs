@@ -21,14 +21,18 @@
 //! TEHAS_GH_RETRY_WAIT seconds [60] the same words go to gh again. Each attempt
 //! is a line of the log. gh shows no Retry-After, and GitHub asks for a minute
 //! when it names none. A write that reads standard input (`-`, or a word that
-//! ends in `@-`) is sent once, because its input cannot be read twice. Nothing
-//! is shared between calls, so a call that waits holds up no other.
+//! ends in `@-` or `=-`) is sent once, because its input cannot be read twice.
+//! So is a write made at a terminal (standard input or output is one): gh's
+//! output stays the terminal, so gh can still prompt, open an editor and print
+//! as it goes, and a person sees a rate limit at once. Only a write whose output
+//! is no terminal has that output held until the last attempt. Nothing is
+//! shared between calls, so a call that waits holds up no other.
 //!
 //! Exit: gh's own; 64 no real gh or no log named; 127 gh cannot be run.
 
 use std::ffi::OsString;
 use std::fs::{self, OpenOptions};
-use std::io::{self, Write as _};
+use std::io::{self, IsTerminal as _, Write as _};
 use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::path::Path;
 use std::process::{Command, Output, Stdio};
@@ -227,7 +231,15 @@ pub fn rate_limited(rc: i32, stderr: &[u8]) -> bool {
 
 /// A call that reads standard input, which a second attempt could not read.
 pub fn reads_stdin(args: &[String]) -> bool {
-    args.iter().any(|a| a == "-" || a.ends_with("@-"))
+    args.iter()
+        .any(|a| a == "-" || a.ends_with("@-") || a.ends_with("=-"))
+}
+
+/// Whether a write may be sent a second time, its output held back until then:
+/// not when it reads standard input, and not when standard input or output is
+/// a terminal, where gh prompts only while its output is the terminal itself.
+pub fn may_resend(args: &[String], stdin_tty: bool, stdout_tty: bool) -> bool {
+    !stdin_tty && !stdout_tty && !reads_stdin(args)
 }
 
 /// The pause before the second attempt: TEHAS_GH_RETRY_WAIT in seconds, or a
@@ -296,7 +308,7 @@ pub fn main(given: &[OsString]) -> u8 {
         let _ = writeln!(io::stderr(), "gh: {}: {e}", Path::new(gh).display());
         127
     };
-    let again = !reads_stdin(&args);
+    let again = may_resend(&args, io::stdin().is_terminal(), io::stdout().is_terminal());
     let (mut rc, mut out, mut logged) = match attempt(gh, words, &w, log, again) {
         Ok(first) => first,
         Err(e) => return cannot(e),
@@ -586,8 +598,25 @@ mod tests {
         assert!(s(&["issue", "comment", "3", "--body-file", "-"]));
         assert!(s(&["api", "repos/o/r/issues/3/comments", "--input", "-"]));
         assert!(s(&["api", "repos/o/r/issues/3/comments", "-F", "body=@-"]));
+        assert!(s(&["issue", "comment", "3", "--body-file=-"]));
+        assert!(s(&["api", "repos/o/r/issues/3/comments", "--input=-"]));
         assert!(!s(&["issue", "comment", "3", "--body", "a - b"]));
         assert!(!s(&["api", "-X", "DELETE", "repos/o/r/labels/x"]));
+    }
+
+    #[test]
+    fn a_write_at_a_terminal_is_sent_once_with_its_output_left_alone() {
+        let a = |w: &[&str]| w.iter().map(|w| w.to_string()).collect::<Vec<_>>();
+        let pr = a(&["pr", "create", "-R", "o/r"]);
+        assert!(may_resend(&pr, false, false));
+        assert!(!may_resend(&pr, true, false));
+        assert!(!may_resend(&pr, false, true));
+        assert!(!may_resend(&pr, true, true));
+        assert!(!may_resend(
+            &a(&["issue", "comment", "3", "--body-file", "-"]),
+            false,
+            false
+        ));
     }
 
     #[test]

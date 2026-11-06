@@ -32,10 +32,13 @@ install_shim() {
   # A gh that answers what it is told to: the words, the error and the status
   # are named by the case, in the environment of its run. With nothing named it
   # says the call back on stdout, which is how a case sees that the shim
-  # reached gh at all and handed its words back. The words name no token: the
+  # reached gh at all and handed its words back. SHOW_TTY adds whether the
+  # stub's stdout is a terminal: the body's own is a file of t_stub's, so it
+  # reads the stub's ($$ in the body's subshell) from /proc. The words name no token: the
   # token belongs to test/github_app_test.sh, which keeps a real one, and a
   # case of this file names one itself when it wants gh to have had it.
   t_stub gh 'if [ -n "${GH_OUT:-}" ]; then printf "%s\n" "$GH_OUT"; else echo "gh $*"; fi
+if [ -n "${SHOW_TTY:-}" ]; then case $(readlink "/proc/$$/fd/1") in /dev/pts/*) echo stdout-tty ;; *) echo stdout-pipe ;; esac; fi
 if [ -n "${SHOW_TOKEN:-}" ]; then printf "token=%s tehas=%s\n" "${GH_TOKEN:-none}" "${TEHAS_GH_TOKEN:-unset}"; fi
 [ -z "${GH_ERR:-}" ] || printf "%s\n" "$GH_ERR" >&2
 exit "${GH_RC:-0}"'
@@ -222,6 +225,29 @@ t_eq "$t_rc" 1
 t_lacks "$t_out" "rate limited"
 t_eq "$(t_calls gh | wc -l)" 1
 t_eq "$(field 6)" "429"
+
+# A write at a terminal (#649 review): gh's output stays the terminal, so gh
+# can still prompt, and the call is sent once. script(1) gives the shim a
+# terminal for its input and output; the stub says what its stdout is.
+t_case "a write at a terminal keeps the terminal as gh's output and is sent once, even after a 429"
+if command -v script >/dev/null; then
+  reset
+  T_ENV=(GH_ERR="HTTP 429: Too Many Requests" GH_RC=1 TEHAS_GH_RETRY_WAIT=0 SHOW_TTY=1)
+  t_run "script -qec $(printf '%q' "$T/home/tehas/shim/gh pr create -R o/r") /dev/null </dev/null"
+  t_contains "$t_out" stdout-tty
+  t_lacks "$t_out" "rate limited"
+  t_eq "$(t_calls gh | wc -l)" 1
+  t_eq "$(field 6)" "429"
+  # The same write with its output a pipe is held back and sent again.
+  reset
+  T_ENV=(GH_ERR="HTTP 429: Too Many Requests" GH_RC=1 TEHAS_GH_RETRY_WAIT=0 SHOW_TTY=1)
+  shim pr create -R o/r
+  t_contains "$t_out" stdout-pipe
+  t_contains "$t_out" "rate limited"
+  t_eq "$(t_calls gh | wc -l)" 2
+else
+  t_skip "no script(1)"
+fi
 
 t_case "a write that waits out a rate limit holds up no other call"
 reset
