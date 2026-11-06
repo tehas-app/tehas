@@ -24,7 +24,8 @@ chmod +x "$tidy"
 # read that failed or timed out: the two must read differently, or a rate-limited
 # search looks like a factory that shipped nothing.
 no_closer() { printf 'no merged pull request was read as the closer'; }
-read_failed_line() { printf 'WARN: tidy: the read of what closed these issues failed, tehas:shipped was not added for %s issues\n' "$1"; }
+# The reason after `failed` is gh's (or the bound's); the case pins the rest.
+read_failed_line() { printf 'WARN: tidy: the read of what closed these issues failed%s, tehas:shipped was not added for %s issues\n' "${2-: gh exited 1}" "$1"; }
 fx=$T/fx
 mkdir -p "$fx"
 # shellcheck disable=SC1083  # the braces of the JSON answers below are literal
@@ -402,7 +403,7 @@ t_eq "$t_rc" 0
 t_fast 5000
 t_eq "$(edits)" "issue edit 42 --repo acme/widget --remove-label tehas:question"
 t_contains "$t_out" "tidy #42: removed tehas:question"
-t_contains "$t_out" "$(read_failed_line 1)"
+t_contains "$t_out" "ran out of its 1s bound (tried 2 times), tehas:shipped was not added for 1 issues"
 t_lacks "$t_out" "$(no_closer)"
 
 t_case "a read that answers and names none of the issues is a failed read, not a closed issue"
@@ -414,7 +415,7 @@ t_run "$tidy"
 t_eq "$t_rc" 0
 t_eq "$(edits)" "issue edit 47 --repo acme/widget --remove-label tehas:question"
 t_eq "$(t_calls gh | grep -c 'add-label')" 0
-t_contains "$t_out" "$(read_failed_line 1)"
+t_contains "$t_out" "$(read_failed_line 1 "")"
 t_lacks "$t_out" "$(no_closer)"
 
 t_case "a read that answers and names the issue with no merged closer is logged per issue"
@@ -436,7 +437,7 @@ t_run "$tidy"
 t_eq "$t_rc" 0
 t_eq "$(edits)" "issue edit 43 --repo acme/widget --remove-label tehas:question"
 t_eq "$(t_calls gh | grep -c 'add-label')" 0
-t_contains "$t_out" "$(read_failed_line 1)"
+t_contains "$t_out" "$(read_failed_line 1 "")"
 t_lacks "$t_out" "$(no_closer)"
 
 t_case "a label that is not a state label is neither taken off nor written to the log"

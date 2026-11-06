@@ -55,6 +55,15 @@ pub fn status_due(home: &Path, now: i64) -> bool {
     made.is_none_or(|made| now.saturating_sub(made) >= STATUS_AGE)
 }
 
+/// A GitHub read the poll could not make: its line in the log, and on the
+/// host's record of failed calls that health counts (tehas_core::github_fails).
+fn failed_read(home: &Path, dry: bool, line: &str) {
+    say(line);
+    if !dry {
+        tehas_core::github_fails::note(home, now() as i64, line);
+    }
+}
+
 fn env(k: &str) -> String {
     std::env::var(k).unwrap_or_default()
 }
@@ -604,7 +613,7 @@ pub fn run_poll(home: &Path, settings: &Settings, dry: bool) -> i32 {
     // nowhere else: `taken` empties the shared queue, so the drain of `body` and
     // this one read disjoint buckets of the same queue and no line is said twice.
     for n in w.calls.retry.taken() {
-        say(&n);
+        failed_read(home, dry, &n);
     }
     end.gh += w.calls.gh_count + w.gh_writes;
     end.starts = w.starts;
@@ -675,13 +684,18 @@ fn body(
     // only the words of `gh_why`'s list reach one. The poll says each of them
     // once, here and in `run_poll`: `taken` empties the shared queue, so the two
     // drains read disjoint buckets and no line is said twice.
-    for n in src.calls.retry.taken() {
-        say(&n);
+    let taken = src.calls.retry.taken();
+    for n in &taken {
+        failed_read(home, dry, n);
     }
     let mut snap = match snap {
         Ok(s) => s,
         Err(f) => {
-            say(&f.line);
+            if taken.contains(&f.line) {
+                say(&f.line);
+            } else {
+                failed_read(home, dry, &f.line);
+            }
             return 1;
         }
     };
