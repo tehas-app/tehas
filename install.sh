@@ -560,30 +560,23 @@ agent=$HOME/.pi/agent
 units=$HOME/.config/systemd/user
 
 # Pi's settings and model list are made from the instance, not copied as they
-# are. The session model is named once, by PI_ENSEMBLE_SUBAGENT_PROVIDER and
+# are, by the console that read the settings (console/src/update/pi.rs). The
+# session model is named once, by PI_ENSEMBLE_SUBAGENT_PROVIDER and
 # PI_ENSEMBLE_SUBAGENT_MODEL; a settings.json that names its own keeps it. A
 # model entry needs only its id; the keys Pi also wants get today's defaults,
 # and a key the instance gives is kept. A product's .pi/settings.json, when it
 # has one, still wins: Pi reads it over these.
 made=$(mktemp -d) || { echo "tehas: could not make a scratch directory" >&2; exit 1; }
 trap 'rm -rf "$made"' EXIT
-pi_settings=$host/pi/settings.json
-[ -r "$instance/settings.json" ] && pi_settings=$instance/settings.json
-jq --arg p "$PI_ENSEMBLE_SUBAGENT_PROVIDER" --arg m "$PI_ENSEMBLE_SUBAGENT_MODEL" '
-  .defaultProvider //= $p | .defaultModel //= $m
-' "$pi_settings" >"$made/settings.json" ||
-  { echo "tehas: $pi_settings is not valid JSON; nothing was installed" >&2; exit 78; }
-jq '
-  {supportsDeveloperRole: false, supportsReasoningEffort: false} as $compat |
-  .providers[] |= (
-    .compat //= $compat |
-    .models[]? |= (
-      .name //= .id | .input //= ["text"] | .reasoning //= false |
-      .cost //= {input: 0, output: 0, cacheRead: 0, cacheWrite: 0}
-    )
-  )
-' "$instance/models.json" >"$made/models.json" ||
-  { echo "tehas: $instance/models.json is not valid JSON; nothing was installed" >&2; exit 78; }
+pi_console=${built_console:-$(_tehas_settings_console)}
+pi_rc=0
+"$pi_console" update pi "$instance" "$host/pi/settings.json" "$PI_ENSEMBLE_SUBAGENT_PROVIDER" \
+  "$PI_ENSEMBLE_SUBAGENT_MODEL" "$made" || pi_rc=$?
+case $pi_rc in
+  0) ;;
+  78) exit 78 ;;
+  *) echo "tehas: the console at $pi_console could not make Pi's settings (status $pi_rc); nothing was installed" >&2; exit 1 ;;
+esac
 
 files=(
   "env.sh|$TEHAS_HOME/env.sh|644"
