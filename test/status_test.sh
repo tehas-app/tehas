@@ -517,65 +517,93 @@ t_run "$status"
 t_eq "$t_rc" 0
 t_eq "$(jq -c '[.completed[].number]' "$live/status.json")" "[20]"
 
-t_case "without the search for shipped work the old snapshot stays"
+# The parts of the snapshot of the run before, for a case to compare: the lists
+# of work, and the completed work.
+lists() { jq -c '[.running, .queued, .awaiting, .stopped, .planned, .planning]' "$live/status.json"; }
+done_part() { jq -c '[.completedAt, .completed, .completedCount]' "$live/status.json"; }
+
+t_case "without the search for shipped work the completed part is kept and said stale"
 reset
 t_run "$status"
-before=$(cksum <"$live/status.json")
+lists_before=$(lists)
+done_before=$(done_part)
 : >"$T/shipped-down"
 t_run "$status"
 t_eq "$t_rc" 0
-t_eq "$(cksum <"$live/status.json")" "$before"
+t_eq "$(lists)" "$lists_before"
+t_eq "$(done_part)" "$done_before"
+t_eq "$(jq -c .stale "$live/status.json")" '["completed"]'
+t_contains "$t_out" "WARN status: gh api graphql failed"
 echo '{"errors": [{"message": "rate limited"}]}' >"$T/shipped.json"
 rm "$T/shipped-down"
 t_run "$status"
-t_eq "$(cksum <"$live/status.json")" "$before"
+t_eq "$(done_part)" "$done_before"
+t_eq "$(jq -c .stale "$live/status.json")" '["completed"]'
 
-t_case "a list of issues that cannot be read warns and leaves the old snapshot"
-# The header of the command promises a WARN line whenever it writes no snapshot.
-# The read of the list of issues in work is one of the two reads that end the
-# run with nothing written, and used to do so in silence: now it says so, as the
-# read of the closers has always done, and exit stays 0.
+t_case "a list of issues that cannot be read keeps the lists of work and says why"
+# The read of the list of issues in work is the one the lists rest on: they
+# are the file's before, said stale, and the rest of the snapshot is this run's.
 reset
 t_run "$status"
-before=$(cksum <"$live/status.json")
+lists_before=$(lists)
+read_at=$(jq -r .queueAt "$live/status.json")
 rm "$live/health.json"
 # The stub answers the search of the issues in work from $T/issues.json and the
 # word cloud of every issue from $T/all.json: only the first file is gone here,
-# so the read the run cannot do without fails and the one it can do without does
-# not. t_case clears $T/calls, so the two lines below are this case's calls.
+# so the read of the lists fails and the one it can do without does not. t_case
+# clears $T/calls, so the line below is this case's call.
 rm "$T/issues.json"
+echo true >"$T/paused"
 t_run "$status"
 t_eq "$t_rc" 0
 t_contains "$(t_calls gh)" "issue list --repo acme/widget --state all --limit 200"
-t_lacks "$t_out" "WARN status: the answer of what closed these issues was no list"
-t_contains "$t_out" "WARN status: the list of issues could not be read, no snapshot was written"
-t_eq "$(cksum <"$live/status.json")" "$before"
-t_eq "$(jq -r .status "$live/health.json")" pass
+t_contains "$t_out" "WARN status: gh issue list failed"
+t_eq "$(lists)" "$lists_before"
+t_eq "$(jq -c .stale "$live/status.json")" '["queue"]'
+t_eq "$(jq -r .queueAt "$live/status.json")" "$read_at"
+# What was read is fresh: the pause on the control issue.
+t_eq "$(jq -r .paused "$live/status.json")" true
+t_eq "$(cut -f2 "$T/home/tehas/state/github-failures")" "WARN status: gh issue list failed"
+t_eq "$(jq -r .checks.github.failed "$live/health.json")" 1
 
-t_case "an answer of what closed these issues that is no list warns and leaves the old snapshot"
-# The read answers 0 with a reply that holds no list of nodes: the console says
-# it is no answer at all, so the run writes no snapshot and says why.
+t_case "an answer of what closed these issues that is no list keeps the completed part"
 reset
 t_run "$status"
-before=$(cksum <"$live/status.json")
-rm "$live/health.json"
+done_before=$(done_part)
 printf '%s\n' '{"data":{}}' >"$T/shipped.json"
 t_run "$status"
 t_eq "$t_rc" 0
-t_contains "$t_out" "WARN status: the answer of what closed these issues was no list, no snapshot was written"
-t_eq "$(cksum <"$live/status.json")" "$before"
+t_contains "$t_out" "WARN status: the answer of what closed these issues was no list, its part of the snapshot is stale"
+t_eq "$(done_part)" "$done_before"
+t_eq "$(jq -c .stale "$live/status.json")" '["completed"]'
 t_eq "$(jq -r .status "$live/health.json")" pass
 
-t_case "with GitHub down the old snapshot stays and health is still refreshed"
+t_case "a read on a bad minute is tried once more and the snapshot is whole"
 reset
 t_run "$status"
-before=$(cksum <"$live/status.json")
 rm "$live/health.json"
-: >"$T/gh-down"
+t_gh_fail 1 1 "HTTP 502: Bad Gateway"
 t_run "$status"
 t_eq "$t_rc" 0
-t_eq "$(cksum <"$live/status.json")" "$before"
-t_eq "$(jq -r .status "$live/health.json")" pass
+t_eq "$(t_calls gh | grep -c -- '--limit 200')" 2
+t_eq "$(jq -c .stale "$live/status.json")" null
+t_lacks "$t_out" "WARN status"
+t_eq "$([ -e "$T/home/tehas/state/github-failures" ] && echo kept)" ""
+
+t_case "with GitHub down the lists are kept, and health names the failed calls"
+reset
+t_run "$status"
+lists_before=$(lists)
+rm "$live/health.json"
+: >"$T/gh-down"
+t_run "$status && $summary"
+t_eq "$t_rc" 0
+t_eq "$(lists)" "$lists_before"
+t_eq "$(jq -c .stale "$live/status.json")" '["queue","completed"]'
+t_eq "$(jq -r .status "$live/health.json")" warn
+t_contains "$(jq -r .output "$live/health.json")" "GitHub failed 6 calls in the last 10 min, the last: WARN status: gh "
+t_contains "$t_out" "queue     stale: queue and completed kept from an earlier read, GitHub did not answer"
+t_contains "$t_out" "github    6 failed calls in the last 10 min"
 
 t_case "given the poll's name, status leaves the health file to the poll"
 reset
@@ -609,7 +637,7 @@ t_eq "$(wc -l <"$T/calls/analytics")" 4
 t_case "with GitHub down for three hours, health warns and the queue line says how old it is"
 reset
 t_run "$status"
-jq --arg t "$(date -u -d '-3 hours -5 minutes' +%FT%TZ)" '.generatedAt = $t' "$live/status.json" >"$T/old.json"
+jq --arg t "$(date -u -d '-3 hours -5 minutes' +%FT%TZ)" '.generatedAt = $t | .queueAt = $t' "$live/status.json" >"$T/old.json"
 mv "$T/old.json" "$live/status.json"
 : >"$T/gh-down"
 t_run "$status && $summary"
@@ -1546,7 +1574,9 @@ t_case "all-hands: on the issue with events that cannot be read is unknown, and 
 reset
 all_hands alice
 rm "$T/events.json"
-t_run "$status && $summary --json"
+t_run "$status"
+t_contains "$t_out" "WARN status: gh api repos/acme/widget/issues/1/events?per_page=100 failed"
+t_run "$summary --json"
 t_eq "$(jq -r .allHands "$live/status.json")" null
 t_eq "$(jq -c 'has("allHands")' <<<"$t_out")" false
 reset

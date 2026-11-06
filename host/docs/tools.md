@@ -366,15 +366,20 @@ still come off and the line says
 not added`, which covers both the closer that was read as unmerged and the
 closer the read could not name as a pull request. When the read itself failed or
 timed out, that line is said once for
-the whole poll as `WARN: tidy: the read of what closed these issues failed,
+the whole poll as `WARN: tidy: the read of what closed these issues failed: <reason>,
 tehas:shipped was not added for N issues`, so a search GitHub refused reads
 differently from a factory that shipped nothing. A dry run passes `--dry-run` and
 logs `tidy #N: would remove <labels>` instead, and `would add tehas:shipped` for
 the label it would give.
 A search that fails, times out or cannot be read is logged
-as `WARN: tidy: the search for closed issues with state labels failed`, a
+as `WARN: tidy: the search for closed issues with state labels failed: <reason>`, a
 label change that fails as `WARN: tidy #N: could not remove <labels>`, and
-neither stops the poll.
+neither stops the poll. The reason is gh's own words of the fixed list the
+poll's lines use (`HTTP 502`, `timed out`, ...), and `(tried 2 times)` follows
+it when the read was tried again: tidy's two reads follow the poll's rule of a
+bad minute ([Operating](/operating)), and its edits are made once. Each failed read also goes on
+the host's record of failed GitHub calls that
+[tehasbot health](#tehasbot-health) counts.
 
 Every real poll that holds the dispatcher's lock ends with one sample in the
 factory's analytics, `~/tehas/state/analytics.db`, when its work could have
@@ -2204,6 +2209,14 @@ pause     label: tehas:pause on the control issue
 pause     label: tehas:pause is off the control issue, but no account in TEHAS_ALLOWED_LABELERS took it off
 ```
 
+When the last snapshot kept a part from an earlier read, and while GitHub calls
+failed in the last ten minutes (`checks.github`):
+
+```
+queue     stale: queue and completed kept from an earlier read, GitHub did not answer
+github    4 failed calls in the last 10 min, the last 40 s ago: ERROR: gh api graphql failed: HTTP 502
+```
+
 While [refreshes](/operating#refreshes) are held on this host, with requests
 waiting:
 
@@ -2836,9 +2849,20 @@ the two commands cannot disagree on what a merge closed. `tehasbot status` reads
 issues lack the label, those whose labels do not hold it or could not be read,
 and gives each of them the label;
 `console tidy run` is the one that logs the read, and both leave the control issue
-unlabelled. The read of the list goes under the same 60 seconds as the count
-below; one that times out or is refused writes no snapshot, and the file of the
-run before stays. `planned` lists the open issues labelled `tehas:plan` or
+unlabelled. Each read goes under the same 60 seconds as the count
+below, and one that failed on a bad minute (a 5xx, a bare 403, or the bound) is
+tried once more, after a second, as the poll's reads are. A read that still
+failed is a line `WARN status: gh <verb> failed: <reason>`, with gh's own words
+of the fixed list, and goes on the host's record of failed GitHub calls that
+[tehasbot health](#tehasbot-health) counts. The snapshot is still written,
+with what was read: when the list of issues failed, the lists of work
+(`running`, `queued`, `awaiting`, `stopped`, `planned`, `planning`) and
+`queueAt`, the time they were read, are the file's of the run before; when the
+read of what closed them failed or answered no list, `completed`,
+`completedCount` and `completedAt` are. `stale` names each part kept so,
+`queue` or `completed`, and is absent when every read answered. A part the
+file before did not hold is left out. The pause, all-hands and the words are
+this run's. `planned` lists the open issues labelled `tehas:plan` or
 `tehas:planning`, found by the same search as the lists, and `planning` counts
 them. `completedCount` is a count, not a list: a whole number from 0 of the closed issues that
 carry `tehas:shipped`, counted by a search of its own, so it keeps rising past
@@ -3065,11 +3089,18 @@ minutes old, which is what a failed read leaves, and then it warns of nothing.
 | `status` | Meaning                                                                                  | HTTP |
 | -------- | ---------------------------------------------------------------------------------------- | ---- |
 | `pass`   | Taking work, idle or in a cycle                                                          | 200  |
-| `warn`   | The queue snapshot is more than ten minutes old: GitHub did not answer the last polls, and `output` says how old. Or paused (the pause flag on this host, `tehas:pause` on the control issue, or a pause no allowed account took off), or the dispatcher holds everything because the slice is missing or cannot be read, or there are no resources (the model endpoint does not answer or does not offer the model), or too low on disk to build previews, or the free space could not be read, or the platform checkout has been behind origin's default branch for more than a day (`output` says how many commits; run `tehas update`), or the state store has no daily backup or the newest is more than two days old, or an idle poll cost more than its budget (`TEHAS_POLL_BUDGET`, `checks.poll_cost`), or systemd gave up on a tehas unit (`checks.units`, null when that read did not answer), or no cycle runs and the last poll held every issue in line on its own (`checks.slice.held`: issue, why, text, clear), as one whose last cycle parked on the body it still has, or an open issue labelled `epic` has no sub-issues (`checks.epics`; `output` names up to five and says to link their parts as sub-issues), or the MCP server is on and does not answer (`checks.mcp`), or the sandbox image is behind the pi-rukas the host follows (`checks.rukas.behind`; run `tehas update`), or the industry that runs the factory raised an alert in the last five minutes or wrote an alerts file that cannot be read (`checks.industry.alerts`) | 200  |
+| `warn`   | The queue snapshot is more than ten minutes old: GitHub did not answer the last polls, and `output` says how old. Or GitHub failed three calls or more in the last ten minutes (`checks.github`; `output` counts them and quotes the last). Or paused (the pause flag on this host, `tehas:pause` on the control issue, or a pause no allowed account took off), or the dispatcher holds everything because the slice is missing or cannot be read, or there are no resources (the model endpoint does not answer or does not offer the model), or too low on disk to build previews, or the free space could not be read, or the platform checkout has been behind origin's default branch for more than a day (`output` says how many commits; run `tehas update`), or the state store has no daily backup or the newest is more than two days old, or an idle poll cost more than its budget (`TEHAS_POLL_BUDGET`, `checks.poll_cost`), or systemd gave up on a tehas unit (`checks.units`, null when that read did not answer), or no cycle runs and the last poll held every issue in line on its own (`checks.slice.held`: issue, why, text, clear), as one whose last cycle parked on the body it still has, or an open issue labelled `epic` has no sub-issues (`checks.epics`; `output` names up to five and says to link their parts as sub-issues), or the MCP server is on and does not answer (`checks.mcp`), or the sandbox image is behind the pi-rukas the host follows (`checks.rukas.behind`; run `tehas update`), or the industry that runs the factory raised an alert in the last five minutes or wrote an alerts file that cannot be read (`checks.industry.alerts`) | 200  |
 | `fail`   | The last cycle ended as anything but `merged` or `handoff` and no cycle has started since (a running cycle with no `startedAt` counts as started since), or there is no queue snapshot | 503  |
 
-`output` says the same in a sentence. `checks.queue` has the snapshot time and
-the counts in line, building, in review and stopped. `checks.cycles` has the
+`output` says the same in a sentence. `checks.queue` has the time its lists
+were read (`queueAt`, or the snapshot's time when it has none, whichever is
+older) and the counts in line, building, in review and stopped, and `stale`
+when the snapshot kept a part from an earlier read: the age of the snapshot is
+the age of its lists, so lists kept through ten minutes of failed reads warn as
+an old snapshot does. `checks.github` is `{failed, windowSeconds, lastAt, last}`:
+the GitHub reads the poll, `tehasbot status` and `tehas tidy` could not make
+in the last ten minutes, from `~/tehas/state/github-failures`, and the newest
+of their log lines. A read cleared by its retry is not on it. `checks.cycles` has the
 issue, status, step and times of every running cycle; `checks.cycle` is the
 first of them, or the cycle that finished last when none is running.
 `checks.plans` has the issue, the turn, `startedAt` and `state` of every

@@ -190,7 +190,7 @@ t_eq "$t_rc" 0
 t_eq "$(jq -r '.awaiting | length' "$live/status.json")" 1
 t_eq "$(events)" ""
 
-t_case "a snapshot that is not written records nothing"
+t_case "a snapshot with a part kept from the run before records nothing"
 reset
 issues "$(issue 3 tehas:ready)"
 t_run "$status"
@@ -198,7 +198,7 @@ issues "$(issue 3 tehas:awaiting-merge)"
 echo '{"errors": [{"message": "rate limited"}]}' >"$T/shipped.json"
 again
 t_eq "$t_rc" 0
-t_eq "$(jq -r '.awaiting | length' "$live/status.json")" 0
+t_eq "$(jq -c '[(.awaiting | length), .stale]' "$live/status.json")" '[1,["completed"]]'
 t_eq "$(events)" ""
 
 t_case "a failing analytics is a warning on standard error, and the snapshot is written"
