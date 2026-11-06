@@ -198,6 +198,17 @@ pub trait Forge {
         self.applied_by(issue, APPROVAL_LABEL)
     }
 
+    /// The names of the issue types an issue of the repository can be given.
+    /// The empty list is an owner with none, as a personal account is.
+    fn issue_types(&mut self) -> Result<Vec<String>, ForgeError>;
+
+    /// Who gave the issue the type `name` it holds now, and when, for the
+    /// caller to compare with the allowed list, as [`Forge::applied_by`]
+    /// answers of a label. None when it holds another type or none. An empty
+    /// `actor` when the newest change of its type is not the one that set
+    /// `name`, or names nobody.
+    fn typed_by(&mut self, issue: u64, name: &str) -> Result<Option<Approval>, ForgeError>;
+
     /// Put `label` on the issue. An issue that carries it already is the
     /// state wanted, not an error. A name no label can have is refused
     /// without a call.
@@ -279,6 +290,12 @@ impl GitHub {
         ForgeError::new("the issue's label events", why)
     }
 
+    /// The `-F` fields of a GraphQL question of the repository.
+    fn owner_name(&self) -> (String, String) {
+        let (o, n) = self.repo.split_once('/').unwrap_or((&self.repo, ""));
+        (format!("owner={o}"), format!("name={n}"))
+    }
+
     /// The issue's label events, whole: the REST list with `--paginate`, so an
     /// issue with more events than one page holds is read to the end rather
     /// than to its first hundred.
@@ -317,6 +334,45 @@ impl Forge for GitHub {
                 at: e.at,
             }),
         )
+    }
+
+    fn issue_types(&mut self) -> Result<Vec<String>, ForgeError> {
+        let (owner, name) = self.owner_name();
+        let out = self.call(
+            "the issue types",
+            &[
+                "api",
+                "graphql",
+                "-F",
+                &owner,
+                "-F",
+                &name,
+                "-f",
+                &format!("query={}", gh::ISSUE_TYPES),
+            ],
+        )?;
+        gh::parse_issue_types(&out).map_err(|why| ForgeError::new("the issue types", why))
+    }
+
+    fn typed_by(&mut self, issue: u64, type_name: &str) -> Result<Option<Approval>, ForgeError> {
+        let (owner, name) = self.owner_name();
+        let out = self.call(
+            "the issue's type events",
+            &[
+                "api",
+                "graphql",
+                "-F",
+                &owner,
+                "-F",
+                &name,
+                "-F",
+                &format!("number={issue}"),
+                "-f",
+                &format!("query={}", gh::TYPE_EVENTS),
+            ],
+        )?;
+        gh::parse_typed_by(&out, type_name)
+            .map_err(|why| ForgeError::new("the issue's type events", why))
     }
 
     fn add_label(&mut self, issue: u64, label: &str) -> Result<(), ForgeError> {

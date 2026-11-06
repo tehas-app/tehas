@@ -275,3 +275,79 @@ fn find_http(line: &str) -> Option<usize> {
     }
     None
 }
+
+/// The question of the issue types the repository's owner has.
+pub(crate) const ISSUE_TYPES: &str = "query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { issueTypes(first: 50) { nodes { name } } } }";
+
+/// The question of an issue's type and the newest changes of it, each with the
+/// account that made it.
+pub(crate) const TYPE_EVENTS: &str = "query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) { issue(number: $number) { issueType { name } timelineItems(itemTypes: [ISSUE_TYPE_ADDED_EVENT, ISSUE_TYPE_CHANGED_EVENT, ISSUE_TYPE_REMOVED_EVENT], last: 20) { nodes { __typename ... on IssueTypeAddedEvent { createdAt actor { login } issueType { name } } ... on IssueTypeChangedEvent { createdAt actor { login } issueType { name } } ... on IssueTypeRemovedEvent { createdAt actor { login } issueType { name } } } } } } }";
+
+fn graphql(out: &str) -> Result<Value, String> {
+    serde_json::from_str(out).map_err(|_| "the answer is no JSON".to_string())
+}
+
+/// The names of the owner's issue types. A repository whose owner has none, a
+/// personal account's, answers the empty list; an answer with no repository
+/// in it is no answer.
+pub(crate) fn parse_issue_types(out: &str) -> Result<Vec<String>, String> {
+    let v = graphql(out)?;
+    let Some(repo) = v.pointer("/data/repository").filter(|r| r.is_object()) else {
+        return Err("the answer names no repository".to_string());
+    };
+    match repo.get("issueTypes") {
+        None | Some(Value::Null) => Ok(Vec::new()),
+        Some(t) => t
+            .get("nodes")
+            .and_then(Value::as_array)
+            .map(|nodes| {
+                nodes
+                    .iter()
+                    .filter_map(|n| n.get("name").and_then(Value::as_str).map(str::to_string))
+                    .collect()
+            })
+            .ok_or_else(|| "the issue types are no list".to_string()),
+    }
+}
+
+/// Who gave the issue the type `name`, as [`super::Forge::typed_by`] answers.
+/// GitHub gives the timeline oldest first, so the newest change is the last.
+/// It names the setter only when it is the change that set `name`: a removal,
+/// a change to another type, or none at all, and the type came some way the
+/// page does not show, which counts for nobody.
+pub(crate) fn parse_typed_by(out: &str, name: &str) -> Result<Option<super::Approval>, String> {
+    let v = graphql(out)?;
+    let Some(issue) = v
+        .pointer("/data/repository/issue")
+        .filter(|i| i.is_object())
+    else {
+        return Err("the answer names no issue".to_string());
+    };
+    if issue.pointer("/issueType/name").and_then(Value::as_str) != Some(name) {
+        return Ok(None);
+    }
+    let Some(nodes) = issue
+        .pointer("/timelineItems/nodes")
+        .and_then(Value::as_array)
+    else {
+        return Err("the type's events are no list".to_string());
+    };
+    let text = |e: &Value, p: &str| {
+        e.pointer(p)
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string()
+    };
+    let set = nodes.last().filter(|e| {
+        matches!(
+            e.get("__typename").and_then(Value::as_str),
+            Some("IssueTypeAddedEvent" | "IssueTypeChangedEvent")
+        ) && e.pointer("/issueType/name").and_then(Value::as_str) == Some(name)
+    });
+    Ok(Some(set.map_or_else(super::Approval::default, |e| {
+        super::Approval {
+            actor: text(e, "/actor/login"),
+            at: text(e, "/createdAt"),
+        }
+    })))
+}

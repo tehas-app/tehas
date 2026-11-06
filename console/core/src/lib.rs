@@ -19,6 +19,7 @@ pub mod install;
 #[cfg(feature = "mask")]
 pub mod journal;
 pub mod jq;
+pub mod kinds;
 pub mod limit;
 pub mod lock;
 #[cfg(feature = "mask")]

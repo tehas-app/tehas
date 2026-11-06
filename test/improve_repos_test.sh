@@ -334,4 +334,58 @@ t_contains "$t_out" "filed=1 issues=#101"
 t_lacks "$(t_calls gh | grep '^issue create')" cross-project
 t_lacks "$(cat "$T/calls/body-101")" "**Names:**"
 
+# --- TEHAS_ISSUE_TYPES maps improvement to an issue type -------------------
+types() { # <fixture> <type>...: the owner's issue types
+  local f=$1
+  shift
+  jq -n -c '{data: {repository: {issueTypes: {nodes: ($ARGS.positional | map({name: .}))}}}}' --args "$@" >"$fx/$f"
+}
+with_types() {
+  t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory TEHAS_IMPROVE_RUKAS_REPO=acme/rukas "TEHAS_ISSUE_TYPES=improvement=Improvement"
+  types types.json Task Improvement
+  types rukas-types.json Improvement
+}
+
+t_case "with the kind an issue type, the loop files with the type and puts no tehas:improvement on"
+ready
+with_types
+findings "$(boundary_finding "Gates time out under four cycles")" "$(finding "The gate runs twice")"
+t_run "$improve"
+t_eq "$t_rc" 0
+t_contains "$t_out" "filed=3"
+t_eq "$(t_calls gh | grep '^issue create' | grep -c -e '--type Improvement')" 3
+t_eq "$(t_calls gh | grep '^issue create' | grep -c -e '--label cross-project --type Improvement')" 2
+t_lacks "$(t_calls gh)" "--label tehas:improvement"
+t_lacks "$(t_calls gh)" "label create tehas:improvement"
+
+t_case "with the kind an issue type, ten open of the type fill a repository"
+ready
+with_types
+for i in $(seq 1 10); do stack "$i" "Finding $i"; done | jq -s 'map(. + {issueType: {name: "Improvement"}})' >"$fx/open.json"
+for i in $(seq 1 10); do stack "$i" "Driver finding $i" OPEN tehas:improvement; done | jq -s . >"$fx/rukas-open.json"
+t_run "$improve"
+t_eq "$t_rc" 0
+t_contains "$t_out" "waiting: 10 open issues carry tehas:improvement in acme/factory acme/rukas"
+
+t_case "a type the owner of a repository does not have exits 78 before the analyst, and the records stay"
+ready
+with_types
+types rukas-types.json Task
+t_run "$improve"
+t_eq "$t_rc" 78
+t_contains "$t_out" "ERROR: TEHAS_ISSUE_TYPES maps improvement to Improvement, which is no issue type of acme/rukas's owner"
+t_eq "$(t_calls gh | grep -c '^issue ')" 0
+t_eq "$(t_calls docker | grep -v '^info ')" ""
+[ -f "$base/window/$REC/cycle.json" ] || t_bad "the record is gone"
+
+t_case "issue types GitHub does not give: the run fails and the records stay"
+ready
+with_types
+rm "$fx/types.json"
+t_run "$improve"
+t_eq "$t_rc" 1
+t_contains "$t_out" "the issue types failed"
+t_eq "$(t_calls docker | grep -v '^info ')" ""
+[ -f "$base/window/$REC/cycle.json" ] || t_bad "the record is gone"
+
 t_done
