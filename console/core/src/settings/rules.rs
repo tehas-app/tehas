@@ -107,6 +107,9 @@ pub enum Rule {
     /// which is how a check on where a path sits is defeated.
     LowGate,
     OneWord,
+    /// Host names, each with `:<port>` if not 443, one space apart: the
+    /// egress proxy's own list takes nothing else.
+    EgressHosts,
     /// kind=Type pairs: [`crate::kinds::parse`].
     IssueTypes,
 }
@@ -206,6 +209,8 @@ pub const TABLE: &[Setting] = &[
     always("TEHAS_REFRESH_EVERY", Rule::RefreshEvery, "10"),
     always("TEHAS_REFRESH_SLOTS", Rule::RefreshSlots, "1"),
     always("TEHAS_PREVIEWS", SWITCH, "0"),
+    always("TEHAS_EGRESS", SWITCH, "0"),
+    given_or("TEHAS_EGRESS_HOSTS", Rule::EgressHosts, ""),
     always("TEHAS_PREVIEW_MAX", Rule::PreviewMax, "5"),
     always("TEHAS_PREVIEW_MIN_FREE", Rule::FreeDisk, "5g"),
     always("TEHAS_CYCLE_MIN_FREE", Rule::FreeDisk, "10g"),
@@ -405,6 +410,10 @@ fn verdict(rule: Rule, v: &str, trees: &Trees) -> Result<(), String> {
             !v.is_empty() && !v.bytes().any(is_space),
             "expected one word",
         ),
+        Rule::EgressHosts => refuse(
+            v.split(' ').all(is_egress_host),
+            "expected host names such as pypi.org or host:port, separated by single spaces",
+        ),
         Rule::IssueTypes => crate::kinds::parse(v).map(|_| ()),
     }
 }
@@ -445,6 +454,14 @@ fn is_host(s: &str) -> bool {
         None => (s, None),
     };
     all(name, class(".-")) && port.is_none_or(digits)
+}
+fn is_egress_host(s: &str) -> bool {
+    let (name, port) = match s.split_once(':') {
+        Some((name, port)) => (name, Some(port)),
+        None => (s, None),
+    };
+    is_domain(&name.to_ascii_lowercase())
+        && port.is_none_or(|p| leading(p, 5) && p.parse::<u16>().is_ok())
 }
 fn is_domain(s: &str) -> bool {
     let label = |l: &str| {
@@ -833,6 +850,30 @@ mod tests {
             "example.org/",
         ] {
             refuses("TEHAS_DOMAIN", bad, why);
+        }
+    }
+
+    #[test]
+    fn egress_hosts_are_names_with_a_port_if_any() {
+        takes("TEHAS_EGRESS", "1");
+        takes("TEHAS_EGRESS_HOSTS", "pypi.org");
+        takes(
+            "TEHAS_EGRESS_HOSTS",
+            "pypi.org Files.Pythonhosted.org models.example:8080",
+        );
+        let why = "expected host names such as pypi.org or host:port, separated by single spaces";
+        for bad in [
+            "pypi.org  x.org",
+            " pypi.org",
+            "localhost",
+            "x.org:0",
+            "x.org:65536",
+            "x.org:",
+            "192.0.2.1:x",
+            "*.example.org",
+            "https://x.org",
+        ] {
+            refuses("TEHAS_EGRESS_HOSTS", bad, why);
         }
     }
 
