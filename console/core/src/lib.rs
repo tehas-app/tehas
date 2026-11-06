@@ -11,6 +11,7 @@ pub mod env_file;
 pub mod events;
 pub mod file;
 pub mod forge;
+pub mod github_fails;
 pub mod grammar;
 pub mod hold;
 pub mod install;
@@ -30,6 +31,8 @@ mod overlap_tests;
 pub mod plan;
 #[cfg(feature = "mask")]
 pub mod question;
+#[cfg(feature = "mask")]
+pub mod retry;
 pub mod review;
 pub mod rukas;
 pub mod sandbox;

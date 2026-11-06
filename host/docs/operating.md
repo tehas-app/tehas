@@ -1164,9 +1164,14 @@ and the end every
 poll that held the lock has. Each write to GitHub goes through the state
 store's action journal first, and a poll begins by settling the writes a poll
 before it left open there: each is read again on GitHub and recorded as done
-or as not done, and never made again. A failed read of GitHub ends the poll
-with a line that names gh's error by words of a fixed list only (`HTTP 502`,
-`rate limit`, `timed out`).
+or as not done, and never made again. A read of GitHub that failed on a bad
+minute (a 5xx, a bare 403, or its bound) is tried once more after a short
+wait, at most six times a poll; `tehasbot status` and `tehas tidy` follow the
+same rule for their reads. A read that still failed is a line that names gh's
+error by words of a fixed list only (`HTTP 502`, `rate limit`, `timed out`),
+and goes on `~/tehas/state/github-failures`, the record of the last ten
+minutes that health counts: three or more warn, and `tehas status` prints a
+`github` line. A read that still failed ends the poll where a decision rests on it, as before the retry.
 
 The bash poll is gone. `TEHAS_DISPATCHER=bash` in `instance.env`, or any value
 but `rust` and blank, is exit 78 until the line is taken out.

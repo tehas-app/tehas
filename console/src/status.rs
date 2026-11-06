@@ -241,6 +241,28 @@ pub fn state_lines(h: &J, now: i64, stale: bool, poll: &str) -> Vec<String> {
             age(q.get("time"), now)
         )
     });
+    let stale: Vec<String> = q
+        .get("stale")
+        .items()
+        .iter()
+        .filter_map(|p| p.as_str().map(oneline))
+        .collect();
+    if !stale.is_empty() {
+        lines.push(format!(
+            "queue     stale: {} kept from an earlier read, GitHub did not answer",
+            stale.join(" and ")
+        ));
+    }
+    let g = checks.get("github");
+    if g.get("failed").above_zero() {
+        lines.push(format!(
+            "github    {} failed calls in the last {} min, the last {}: {}",
+            g.get("failed").text(),
+            g.get("windowSeconds").as_f64().unwrap_or(600.0) as i64 / 60,
+            age(g.get("lastAt"), now),
+            oneline_of(g.get("last"))
+        ));
+    }
     lines.extend(pause_lines(checks.get("pause"), now));
     let limit = checks.get("limit");
     if limit.truthy() && limit.get("state").as_str() != Some("none") {
@@ -849,6 +871,26 @@ mod tests {
             state_lines(&health, NOW, true, "")[0],
             "factory   stale: the dispatcher last reported 20 s ago, is its timer running? It said warn: Paused."
         );
+    }
+
+    #[test]
+    fn stale_lists_and_failed_github_calls_have_their_lines() {
+        let health = h(
+            r#"{"status":"warn","output":"x","time":"2026-10-17T14:00:00Z","checks":{"queue":{"time":"2026-10-17T13:40:20Z","inLine":0,"building":0,"review":0,"stopped":0,"stale":["queue","completed"]},"github":{"failed":3,"windowSeconds":600,"lastAt":"2026-10-17T13:59:20Z","last":"ERROR: gh api graphql failed: HTTP 502"}}}"#,
+        );
+        let lines = state_lines(&health, NOW, false, "");
+        assert_eq!(
+            &lines[1..4],
+            [
+                "queue     0 in line, 0 building, 0 in review, 0 stopped (20 min ago)",
+                "queue     stale: queue and completed kept from an earlier read, GitHub did not answer",
+                "github    3 failed calls in the last 10 min, the last 60 s ago: ERROR: gh api graphql failed: HTTP 502",
+            ]
+        );
+        let quiet = h(
+            r#"{"status":"pass","output":"x","time":"2026-10-17T14:00:00Z","checks":{"queue":{"inLine":0},"github":{"failed":0}}}"#,
+        );
+        assert_eq!(state_lines(&quiet, NOW, false, "").len(), 2);
     }
 
     #[test]
