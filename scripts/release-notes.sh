@@ -3,8 +3,9 @@
 #
 # A section starts at a line "## <name>", with anything after the name, such as
 # the date, and ends before the next "## " line. The release workflow calls this
-# for the text of a release's page, and scripts/tag-release.sh calls it to check
-# that the release has an "### Adopter action" before it tags.
+# for the text of a release's page. scripts/tag-release.sh reads a section the
+# same way (console/xtask/src/tag.rs) to check that the release has an
+# "### Adopter action" before it tags.
 #
 # Usage: scripts/release-notes.sh <tag> [<file>]
 #   <tag>    a vX.Y.Z tag, or Unreleased for the section at the top
