@@ -277,7 +277,10 @@ fn review() -> u8 {
         &sandbox::ensemble(Kind::Review),
         &sandbox::tokens(),
     );
-    let hosts = sandbox::hosts(&var("PI_ENSEMBLE_HOST_ALIASES"));
+    let hosts = match sandbox::network(&var("PI_ENSEMBLE_HOST_ALIASES")) {
+        Ok(hosts) => hosts,
+        Err(why) => return refuse(format!("tehas review: {why}, not starting")),
+    };
 
     // A docker that does not answer is said apart from an image with no
     // lens-review verb, so nobody rebuilds an image that is fine.
