@@ -29,6 +29,10 @@ account behind the label is what is checked, not the label itself. The check
 only means something while the bot's own login is outside
 `TEHAS_ALLOWED_LABELERS`, and the Protolab stops with an error when it is not.
 
+With `TEHAS_ISSUE_TYPES` mapping `prototype` to an issue type, the type puts
+a ticket at the stage in place of the label, by the same rule: see
+[Kinds as issue types](#kinds-as-issue-types).
+
 The **Protolab** is where tickets at the prototype stage are kept. It is a
 small site of its own, on port 8081 of the host, with a page for every open
 prototype: the title, a link to the issue, and what is attached to the issue.
@@ -1729,6 +1733,52 @@ was filed, and the two cycles it named nowhere wait for a later run.
 To turn the loop off, remove `TEHAS_IMPROVE_REPO` from `instance.env`: cycles
 stop leaving records and a run does nothing. Or stop the timer with
 `systemctl --user disable --now tehas-improve.timer`.
+
+## Kinds as issue types
+
+Optional. Two labels say what an issue is rather than where it is:
+`tehas:improvement`, a proposal of the improvement loop, and
+`tehas:prototype`, a ticket at the prototype stage. An organisation can use
+its own issue types for them instead. Without the setting, the labels work
+as described above.
+
+To set it up:
+
+1. As an owner of the organisation, add the issue types in its settings,
+   under Planning, Issue types: for example `Improvement` and `Prototype`.
+   tehas never creates them. Where the improvement loop files in a second
+   repository (`TEHAS_IMPROVE_RUKAS_REPO`), its owner needs the type too.
+2. Map each kind to its type in `instance.env`, one `kind=Type` pair for
+   each, separated by a space. A kind left out stays its label:
+
+   ```
+   TEHAS_ISSUE_TYPES="improvement=Improvement prototype=Prototype"
+   ```
+
+3. Run `install.sh`, or wait for the next poll: the setting is read at each
+   run.
+
+What changes:
+
+- **improvement**: the loop files its issues with the type and puts no
+  `tehas:improvement` on them; `cross-project` stays a label. Its limit of
+  open issues counts the issues of the type and those with the label. The
+  dispatcher holds an issue of the type exactly as it holds one labelled
+  `tehas:improvement`: the millwright does not start it, and with
+  `cross-project` nobody does. The label still holds where a person left it,
+  so turning the setting on lets nothing start that was held.
+- **prototype**: the Protolab lists the open issues of the type, and a ticket
+  counts when an account in `TEHAS_ALLOWED_LABELERS` made the newest change to
+  its type, the change that set it. A type set by anyone else, or a change the
+  Protolab cannot see, counts as no type, as a label from anyone else does.
+  With the setting on, `tehas:prototype` puts nothing in the lab.
+
+A type the organisation does not have fails closed: the poll, the loop or the
+Protolab pass that reads the setting stops with 78 before it writes anything,
+and the log names the type and the repository. A repository of a personal
+account has no issue types, so the setting is not for it. To go back to the
+labels, remove the setting; issues keep their types, and a person relabels
+the ones that should still carry the label.
 
 ## The review loop
 
