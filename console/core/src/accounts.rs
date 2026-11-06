@@ -28,6 +28,24 @@ pub fn account(login: &str) -> &str {
     login.strip_suffix("[bot]").unwrap_or(login)
 }
 
+/// The setting that names the account of the cycle token (GH_CYCLE_TOKEN):
+/// what a cycle opens, pushes and comments from inside its container carries
+/// this login. With a GitHub App it is never the app's, and the host's checks
+/// of "the bot's own" accept it beside TEHAS_BOT_LOGIN.
+pub const CYCLE_LOGIN: &str = "TEHAS_CYCLE_LOGIN";
+
+/// Whether `login` is the factory's own: the bot's, or the cycle token's
+/// account. An empty name matches nothing. Logins compare as `account` gives
+/// them, and gh's JSON `app/<slug>` is the app's too.
+pub fn factorys(login: &str, bot: &str, cycle: &str) -> bool {
+    let bare = |l: &str| account(l.strip_prefix("app/").unwrap_or(l)).to_string();
+    let login = bare(login);
+    !login.is_empty()
+        && [bot, cycle]
+            .iter()
+            .any(|o| !o.is_empty() && bare(o) == login)
+}
+
 /// The pairs of a file's text. None when a line is not `<login> <id>`.
 pub fn parse(text: &str) -> Option<BTreeMap<String, u64>> {
     let mut ids = BTreeMap::new();
@@ -188,6 +206,24 @@ fn warn(login: &str, id: Option<u64>, doubt: &Doubt) {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn the_factorys_own_are_the_bot_and_the_cycle_token_account() {
+        let (bot, cycle) = ("tehas-app-bot[bot]", "tehas-cycle");
+        for who in [
+            "tehas-app-bot",
+            "tehas-app-bot[bot]",
+            "app/tehas-app-bot",
+            "tehas-cycle",
+        ] {
+            assert!(factorys(who, bot, cycle), "{who}");
+        }
+        assert!(!factorys("alice", bot, cycle));
+        assert!(!factorys("tehas-cycle", bot, ""));
+        assert!(!factorys("", bot, ""));
+        assert!(!factorys("", "", ""));
+        assert!(factorys("tehas-bot", "tehas-bot", ""));
+    }
 
     fn alice() -> Accounts {
         Accounts::new(

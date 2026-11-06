@@ -561,6 +561,53 @@ fn since(t: &J, now: i64) -> J {
         .map_or(J::Null, |e| J::num((now - e).max(0) as f64))
 }
 
+/// A text the health file wrote, null when it wrote none.
+fn text_or_null(v: &J) -> J {
+    match v {
+        J::Str(_) => v.clone(),
+        _ => J::Null,
+    }
+}
+
+/// `versions`: the platform and the pi-rukas, as health read them (#1534),
+/// each value null when it cannot be read and never left out (#1680).
+fn versions(checks: &J) -> J {
+    let p = checks.get("platform");
+    let release = text_or_null(p.get("release"));
+    let latest = text_or_null(p.get("newest"));
+    let behind = match (&release, &latest, p.get("behind")) {
+        (J::Str(_), J::Str(_), _) => J::Bool(newer(&latest, &release)),
+        (J::Str(_), _, _) => J::Null,
+        (_, _, b @ J::Num(_)) => J::Bool(b.above_zero()),
+        _ => J::Null,
+    };
+    // Versions only: a commit is no version, and `behind` already compares
+    // the image's commit with the target's.
+    let r = checks.get("rukas");
+    let rukas_behind = match r.get("behind") {
+        b @ J::Bool(_) => b.clone(),
+        _ => J::Null,
+    };
+    obj(vec![
+        (
+            "platform",
+            obj(vec![
+                ("release", release),
+                ("latest", latest),
+                ("behind", behind),
+            ]),
+        ),
+        (
+            "rukas",
+            obj(vec![
+                ("version", text_or_null(r.get("imageVersion"))),
+                ("latest", text_or_null(r.get("targetVersion"))),
+                ("behind", rukas_behind),
+            ]),
+        ),
+    ])
+}
+
 /// The object tehas status --json prints.
 pub fn status_json(h: &J, now: i64, stale: bool) -> J {
     let checks = h.get("checks");
@@ -721,6 +768,7 @@ pub fn status_json(h: &J, now: i64, stale: bool) -> J {
         ("hold", hold),
         ("held", held),
         ("room", room),
+        ("versions", versions(checks)),
     ];
     fields.retain(|(k, v)| !matches!(*k, "allHands" | "limit") || !v.is_null());
     // A read-only instance (#608) says so; any other leaves the key out.
@@ -983,7 +1031,46 @@ mod tests {
             h(r#"{"status":"pass","output":"Idle.","time":"2026-10-17T14:00:00Z","checks":{}}"#);
         assert_eq!(
             status_json(&health, NOW, false).dump(),
-            r#"{"api":1,"time":"2026-10-17T14:00:00Z","age":20,"stale":false,"state":"pass","reasons":[],"paused":{"local":false,"label":false},"running":[],"planning":[],"demand":null,"hold":null,"held":[],"room":null}"#
+            r#"{"api":1,"time":"2026-10-17T14:00:00Z","age":20,"stale":false,"state":"pass","reasons":[],"paused":{"local":false,"label":false},"running":[],"planning":[],"demand":null,"hold":null,"held":[],"room":null,"versions":{"platform":{"release":null,"latest":null,"behind":null},"rukas":{"version":null,"latest":null,"behind":null}}}"#
+        );
+    }
+
+    #[test]
+    fn the_versions_are_what_health_read_and_null_where_it_read_nothing() {
+        let v = |checks: &str| versions(&h(checks)).dump();
+        let none = r#"{"platform":{"release":null,"latest":null,"behind":null},"rukas":{"version":null,"latest":null,"behind":null}}"#;
+        assert_eq!(v("{}"), none);
+        assert_eq!(v(r#"{"platform":null,"rukas":null}"#), none);
+        assert_eq!(
+            v(
+                r#"{"platform":{"release":"v0.24.0","newest":"v0.25.0","behind":0,"upstream":"releases"},
+                 "rukas":{"follow":"release:0","target":"abc1234","targetVersion":"v0.14.54",
+                          "image":"def5678","imageVersion":"v0.14.53","clone":"abc1234","behind":true}}"#
+            ),
+            r#"{"platform":{"release":"v0.24.0","latest":"v0.25.0","behind":true},"rukas":{"version":"v0.14.53","latest":"v0.14.54","behind":true}}"#
+        );
+        // A release with no newest known; a pi-rukas with commits and no
+        // versions, as on a host that follows a branch.
+        assert_eq!(
+            v(
+                r#"{"platform":{"release":"v0.25.0","newest":null,"behind":0},
+                 "rukas":{"target":"abc1234","targetVersion":null,"image":"abc1234","imageVersion":null,"behind":false}}"#
+            ),
+            r#"{"platform":{"release":"v0.25.0","latest":null,"behind":null},"rukas":{"version":null,"latest":null,"behind":false}}"#
+        );
+        // A candidate ahead of the newest release is not behind.
+        assert_eq!(
+            v(r#"{"platform":{"release":"v0.26.0-rc.1","newest":"v0.25.0"}}"#),
+            r#"{"platform":{"release":"v0.26.0-rc.1","latest":"v0.25.0","behind":false},"rukas":{"version":null,"latest":null,"behind":null}}"#
+        );
+        // A checkout host: no release, behind by its commit count.
+        assert_eq!(
+            v(r#"{"platform":{"commit":"cb6912a0","behind":19,"upstream":"origin/main"}}"#),
+            r#"{"platform":{"release":null,"latest":null,"behind":true},"rukas":{"version":null,"latest":null,"behind":null}}"#
+        );
+        assert_eq!(
+            v(r#"{"platform":{"commit":"cb6912a0","behind":0,"upstream":"origin/main"}}"#),
+            r#"{"platform":{"release":null,"latest":null,"behind":false},"rukas":{"version":null,"latest":null,"behind":null}}"#
         );
     }
 

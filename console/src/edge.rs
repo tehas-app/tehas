@@ -30,8 +30,10 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
-
-const OPTION: &str = "com.docker.network.bridge.gateway_mode_ipv4";
+#[cfg(test)]
+use tehas_core::hostnet::version;
+pub use tehas_core::hostnet::words;
+use tehas_core::hostnet::{docker_fault, net_create, net_fault};
 
 /// `$TEHAS_HOME/state/<name>.lock`, held until the file is dropped. Without a
 /// wait, another holder is an answer at once. None when it is held or cannot
@@ -98,97 +100,6 @@ pub fn numbers(dir: &Path) -> Vec<String> {
         .collect();
     found.sort();
     found
-}
-
-/// Docker's major and minor, from what it says of its server. Anything but
-/// `<1-4 digits>.<1-4 digits>` and a suffix of `.+~-` and what follows is none.
-fn version(said: &str) -> Option<(u32, u32)> {
-    let digits = |text: &str| {
-        let end = text
-            .find(|c: char| !c.is_ascii_digit())
-            .unwrap_or(text.len());
-        (1..=4).contains(&end).then_some(end)
-    };
-    let (major, rest) = said.split_once('.')?;
-    if digits(major)? != major.len() {
-        return None;
-    }
-    let (minor, suffix) = rest.split_at(digits(rest)?);
-    let plain = |c: char| c.is_ascii_alphanumeric() || ".+~-".contains(c);
-    if !suffix.is_empty()
-        && (!suffix.starts_with(['.', '+', '~', '-']) || !suffix.chars().all(plain))
-    {
-        return None;
-    }
-    Some((major.parse().ok()?, minor.parse().ok()?))
-}
-
-/// Why this Docker cannot keep the host out: older than 27.1, or no version
-/// that can be read. `docker` answers with standard output, or None on failure.
-fn docker_fault(docker: &mut impl FnMut(&[&str]) -> Option<String>) -> Option<String> {
-    let said = docker(&["version", "--format", "{{.Server.Version}}"]).unwrap_or_default();
-    let said = said.trim_end_matches('\n');
-    match version(said) {
-        None => Some("Docker's version could not be read".to_string()),
-        Some(seen) if seen < (27, 1) => Some(format!("Docker {said} is older than 27.1")),
-        Some(_) => None,
-    }
-}
-
-/// The four words of Docker's answer, split as `read` does: on blanks in the
-/// first line, what is left over staying in the last.
-pub fn words(said: &str) -> [&str; 4] {
-    let blank = [' ', '\t'];
-    let mut rest = said.split('\n').next().unwrap_or("").trim_matches(blank);
-    let mut found = [""; 4];
-    for word in found.iter_mut().take(3) {
-        let (first, after) = rest.split_once(blank).unwrap_or((rest, ""));
-        *word = first;
-        rest = after.trim_start_matches(blank);
-    }
-    found[3] = rest;
-    found
-}
-
-/// The exit status and the reason for a network that is not as it should be.
-/// It does not ask for Docker's version: a caller asks docker_fault first.
-fn net_fault(
-    docker: &mut impl FnMut(&[&str]) -> Option<String>,
-    network: &str,
-) -> Option<(u8, &'static str)> {
-    let format = format!(
-        "{{{{.Internal}}}} {{{{.Driver}}}} {{{{.EnableIPv6}}}} {{{{index .Options \"{OPTION}\"}}}}"
-    );
-    let Some(said) = docker(&["network", "inspect", "--format", &format, network]) else {
-        return Some((2, "it could not be read"));
-    };
-    let [internal, driver, ipv6, mode] = words(&said);
-    let why = if internal != "true" {
-        "it is not internal"
-    } else if driver != "bridge" {
-        "its driver is not bridge"
-    } else if ipv6 != "false" {
-        "it has IPv6"
-    } else if mode != "isolated" {
-        "it is not isolated from the host"
-    } else {
-        return None;
-    };
-    Some((1, why))
-}
-
-fn net_create(docker: &mut impl FnMut(&[&str]) -> Option<String>, network: &str) -> bool {
-    let option = format!("{OPTION}=isolated");
-    let create = [
-        "network",
-        "create",
-        "--internal",
-        "--ipv6=false",
-        "-o",
-        &option,
-        network,
-    ];
-    docker(&create).is_some()
 }
 
 fn check(

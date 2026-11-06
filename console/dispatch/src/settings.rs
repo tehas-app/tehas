@@ -12,6 +12,8 @@ pub struct Settings {
     pub allowed: Vec<String>,
     /// TEHAS_BOT_LOGIN: an app's login, which GET /user cannot answer.
     pub bot_login: String,
+    /// TEHAS_CYCLE_LOGIN: the cycle token's account, the factory's own too.
+    pub cycle_login: String,
     /// TEHAS_MILLWRIGHT_LOGIN: the millwright's account, as `account` has it.
     pub millwright: String,
     pub concurrency: i64,
@@ -119,6 +121,7 @@ impl Settings {
                 .map(str::to_string)
                 .collect(),
             bot_login: s("TEHAS_BOT_LOGIN", ""),
+            cycle_login: s("TEHAS_CYCLE_LOGIN", ""),
             millwright: account(&s("TEHAS_MILLWRIGHT_LOGIN", "")).to_string(),
             concurrency,
             concurrency_written: written("TEHAS_TICKET_CONCURRENCY", 7),
