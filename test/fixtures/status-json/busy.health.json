@@ -30,6 +30,8 @@
     "limit": {"state": "ok", "cycles": 3, "plan": true, "until": "2026-10-17T15:00:00Z", "reason": "shared with another factory"},
     "allHands": true,
     "pause": {"flag": {"at": "2026-10-17T13:00:00Z", "reason": "weekend"}, "label": false, "lifted": false},
-    "platform": {"release": "v0.11.0", "newest": "v0.11.0", "behind": 0, "upstream": "releases", "fetchedAt": "2026-10-17T13:00:00Z"}
+    "platform": {"release": "v0.11.0", "newest": "v0.11.0", "behind": 0, "upstream": "releases", "fetchedAt": "2026-10-17T13:00:00Z"},
+    "rukas": {"follow": "release:0", "target": "4f1c2a9", "targetVersion": "v0.14.54", "image": "9b3e7d1",
+              "imageVersion": "v0.14.53", "clone": "4f1c2a9", "behind": true}
   }
 }

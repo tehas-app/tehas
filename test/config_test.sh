@@ -366,7 +366,7 @@ for bad in "TEHAS_CONCURRENCY=auto" "TEHAS_CONCURRENCY=0" "TEHAS_TICKET_CONCURRE
   "TEHAS_CHILD_TIMEOUT=30m" "TEHAS_CHILD_TIMEOUT=0" "TEHAS_CHILD_TIMEOUT=-1" "TEHAS_CHILD_TIMEOUT= \t" \
   "TEHAS_BUILD_TIMEOUT=30m" "TEHAS_BUILD_TIMEOUT=0" \
   "TEHAS_DOMAIN=https://example.org" "TEHAS_DOMAIN=example.org/" "TEHAS_DOMAIN=Example.org" \
-  "TEHAS_DOMAIN=localhost" "TEHAS_DOMAIN=-a.example.org" "TEHAS_PREVIEWS=yes" \
+  "TEHAS_DOMAIN=localhost" "TEHAS_DOMAIN=-a.example.org" "TEHAS_PREVIEWS=yes" "TEHAS_EGRESS=yes" "TEHAS_EGRESS_HOSTS=*.example.org" \
   "TEHAS_PREVIEW_MAX=0" "TEHAS_PREVIEW_MAX=100" "TEHAS_PREVIEW_MIN_FREE=lots" "TEHAS_CYCLE_MIN_FREE=lots" "TEHAS_CLEAN_MIN_FREE=lots" \
   "TEHAS_IMPROVE_REPO=not a repo" "TEHAS_IMPROVE_REPO=acme" "TEHAS_IMPROVE_REPO=acme/factory/more" \
   "TEHAS_IMPROVE_RUKAS_REPO=not a repo" "TEHAS_IMPROVE_RUKAS_REPO=acme" "TEHAS_IMPROVE_RUKAS_SKIP=yes" \
@@ -517,6 +517,14 @@ printf '%s\n' "${T_MINIMAL[@]}" TEHAS_READ_ONLY=yes >"$TEHAS_INSTANCE_DIR/instan
 t_run "$load; echo rc=\$?"
 t_contains "$t_out" "rc=78"
 t_contains "$t_out" "tehas: TEHAS_READ_ONLY is not valid: expected 0 or 1"
+
+t_case "the egress limit is off and its hosts empty unless the instance says otherwise"
+printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load && set -u && echo \"[\$TEHAS_EGRESS] [\$TEHAS_EGRESS_HOSTS]\""
+t_eq "$t_out" "[0] []"
+printf '%s\n' "${T_MINIMAL[@]}" TEHAS_EGRESS=1 'TEHAS_EGRESS_HOSTS="pypi.org m.example:8443"' >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load && set -u && echo \"[\$TEHAS_EGRESS] [\$TEHAS_EGRESS_HOSTS]\""
+t_eq "$t_out" "[1] [pypi.org m.example:8443]"
 
 t_case "the review loop is off unless the instance turns it on"
 printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
@@ -1681,7 +1689,7 @@ T_INSIDE=$TEHAS_INSTANCE_DIR/$HOME
 INSTANCES
 T_ENV=()
 t_instance "${T_MINIMAL[@]}"
-t_eq "$(sha256sum <"$T/loads" | cut -d' ' -f1)" "670a0ae130c32e70292866006229d58edc6e4e9f25b8ed08a7bc7692ad08706f"
+t_eq "$(sha256sum <"$T/loads" | cut -d' ' -f1)" "f008c96660f1d68ee6548a5a8f12466e79381813d904e7646e5e7648b4bee455"
 t_contains "$(cat "$T/loads")" "rc=78"
 
 t_case "no instance.env keeps the environment as it was, as bash did"

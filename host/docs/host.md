@@ -1355,6 +1355,54 @@ Cycles that run side by side know nothing of each other:
   person's call too, and nothing moves what is in them: a manual session starts
   a new history in `~/tehas/dev/<name>.state/sessions`, and so does a cycle.
 
+### Where a container may connect
+
+By default a container is on Docker's default bridge and can connect to any
+address: the host's own ports, the local network and the internet. With
+`TEHAS_EGRESS=1` in `instance.env`, a cycle, a planning turn, a review and a
+`tehas dev` session are put on `tehas-egress` instead, an internal Docker
+network with no way out and no address on the host. Each is given
+`HTTPS_PROXY` and `HTTP_PROXY` (and the lower-case spellings, and
+`NODE_USE_ENV_PROXY=1` for node) naming the proxy, `http://tehas-egress:3128`.
+
+The proxy is the container `tehas-egress`, on that network and on
+`tehas-egress-out`, a plain bridge. It is `~/tehas/libexec/tehas-mcp egress`,
+the static MCP binary, in the Caddy image the docs server is pinned to: no
+other image is trusted. It runs as the tehas user with a read-only root, every
+capability dropped, 128m of memory and 512 processes. It connects only to:
+
+- `github.com`, `api.github.com`, `codeload.github.com` and
+  `objects.githubusercontent.com` on 443, for git, gh and downloads;
+- `registry.npmjs.org`, `crates.io`, `static.crates.io` and `index.crates.io`
+  on 443, for npm and cargo;
+- the host and port of every `baseUrl` and `backupBaseUrl` in models.json;
+- the hosts of `TEHAS_EGRESS_HOSTS`, a name on 443 or `name:port`.
+
+Anything else is answered `403` and the proxy logs one line naming it:
+`docker logs tehas-egress`. A tool that ignores the proxy variables reaches
+nothing, so a failure is closed, not open. Names are compared, not addresses:
+the proxy resolves a name itself, through the names of
+`PI_ENSEMBLE_HOST_ALIASES` first, which it is given too.
+
+The first container that needs the proxy makes both networks and starts it,
+under `~/tehas/state/egress.lock`. It is started again when its list, the
+binary or the image changed, which cuts the connections of the containers
+running then. The network is held to what the previews' network is held to
+(`console preview network check`): Docker 27.1 or later, which knows
+`gateway_mode_ipv4`, and a network that is internal, of the bridge driver,
+without IPv6 and with `gateway_mode_ipv4` `isolated`, so the host has no
+address on it. An older Docker, or a `tehas-egress` network that falls short of
+any of these, stops the container with 78 instead of starting it open, and an
+older Docker is not asked to make anything. For a network, remove it and start
+again.
+
+Checked on 2026-11-06 with the pi-rukas image on a development machine: curl,
+git, gh, npm, cargo and bun went through the proxy, node 22 only with
+`NODE_USE_ENV_PROXY=1`, and a direct connection or a name not on the list
+failed. Not yet: a whole cycle on a host. The container that installs the
+product's dependencies before a cycle and the push check stay on the default
+bridge; neither is given the cycle's variables.
+
 ### The slice
 
 `tehas.slice` is one systemd slice for every sandbox container tehas starts.
@@ -1906,7 +1954,9 @@ a theme other than the instance's design.
   [GitHub App](/github-app), mode 600. Never given to a container: it is given
   the hour-long installation token from `~/tehas/state/github`, read-only.
 - `~/.config/tehas/env`: a GitHub token (`GH_TOKEN`) for a factory without an
-  app, dropped by `env.sh` when the instance names one, and the model
+  app, dropped by `env.sh` when the instance names one; the cycle token
+  (`GH_CYCLE_TOKEN`), the one GitHub token a cycle's containers are given; and
+  the model
   endpoints' tokens (`TEHAS_MODEL_KEY_*`, see
   [A backup model endpoint](#a-backup-model-endpoint)), mode 600. The
   energy switches `TEHAS_ENERGY` and `TEHAS_ENERGY_URL` go here too
@@ -1924,17 +1974,17 @@ Both are outside the repository and the tehas tree.
 | What else starts a cycle               | The retry box of a parked issue, ticked by one of those accounts. It counts once, and only in the question whose comment id the host has on record for that issue. Like the label, the tick approves the text as it was at that moment |
 | Who can start or continue planning     | The same accounts. A session starts when one of them applied `tehas:plan`. A turn runs on a tick or a reply from one of them to the question the session is waiting on |
 | Who can put a ticket in the Protolab   | The same accounts. `tehasbot protolab` checks who most recently applied `tehas:prototype`, as the dispatcher checks `tehas:ready`. A label from anyone else counts as no label, and a page it had is removed. The pass stops with an error when `TEHAS_ALLOWED_LABELERS` names the bot's own login. The files beside a ticket are taken only from an owner, member or collaborator |
-| What a planning container is given     | The same token, the same mounts and the same approve-everything mode as a work cycle's. The agent is asked to plan and file issues. Nothing in the container holds it to that |
+| What a planning container is given     | The app's token from `~/tehas/state/github` (read-only), or the bot's `GH_TOKEN` without an app: not the narrower cycle token a work cycle gets. Otherwise the same mounts and the same approve-everything mode as a work cycle's. The agent is asked to plan and file issues. Nothing in the container holds it to that |
 | What an agent can do as the bot        | Post comments, edit the bot's comments, edit the description of any pull request and apply labels, with the token. So a comment is the factory's question only if the host has its id on record in `~/tehas/state`, which no cycle or planning container is given, and an answer counts only by who gave it |
 | Where an agent's conversation is kept  | In the container's own sessions directory: `~/tehas/work/<name>-<issue>.state/sessions` for a cycle, `~/tehas/dev/<name>.state/sessions` for a manual session. No other container reads or writes it, and a cycle's goes with its workspace |
-| Does the token enter the cycle         | Yes. With a GitHub App, an installation token of at most an hour, read from `~/tehas/state/github` (read-only) and renewed by the host; without one, the bot's `GH_TOKEN`. pi-rukas pushes the branch and opens the pull request from inside. Agent code can do anything the token can. So do the model endpoints' tokens that `models.json` names, as `TEHAS_MODEL_KEY_*`: Pi sends them. Agent code can read them and call the endpoints with them |
+| Does the token enter the cycle         | The cycle token does, never the host's own. Every agent in a cycle's container, and the push check before it, has `GH_CYCLE_TOKEN` as its `GH_TOKEN`: a fine-grained token of the bot account for the product repository only, with Contents, Pull requests and Issues read and write and Metadata read. Neither the app's installation token nor its `~/tehas/state/github` reaches a cycle; without `GH_CYCLE_TOKEN` a cycle does not start (exit 78). Labels are under Issues, so a cycle can still change them; it cannot start work with them, because the dispatcher checks who applied `tehas:ready`. A planning turn and a manual session are still given the app's token from `~/tehas/state/github` (read-only), or the bot's `GH_TOKEN` without an app. pi-rukas pushes the branch and opens the pull request from inside, as the cycle token's account: `TEHAS_CYCLE_LOGIN` names it, required with an app, and the host counts its pull requests and comments as the bot's own, never as a person's approval (the settings load refuses it in `TEHAS_ALLOWED_LABELERS`). Agent code can do anything the token can. So do the model endpoints' tokens that `models.json` names, as `TEHAS_MODEL_KEY_*`: Pi sends them. Agent code can read them and call the endpoints with them |
 | What else enters the container         | `PI_ENSEMBLE_*` settings, the bot's git name and email, the host aliases. Not the rest of the host environment                          |
 | Host paths mounted                     | The cycle's own workspace, `~/tehas/work/<name>-<issue>`, at the same path in every container; its own transcripts, `~/.pi/agent/ensemble-runs/issue-<issue>`; its own state directory, `~/tehas/work/<name>-<issue>.state` (read-write); its own `models.json` from that directory, `mcp.json`, Pi's `settings.json` (read-only). Only the last two are the same host file in every container; nothing one container writes is mounted for another |
 | Not reachable from the container       | The Docker socket, SSH keys, `~/.config/tehas`, the platform checkout, the product checkout, the instance directory                     |
 | What the host runs from the workspace  | Nothing but the cleaner's one bounded `git rev-parse` of a worktree's gitdir, which reads no config of the tree and takes nothing from it. Every other git the host runs is in the product checkout, which no container has written. It reads nothing from the workspace: a cycle's outcome is the runner's result, from its standard output |
 | The indexing container                 | `tehas index` runs the indexer, not an agent: a clone of the product read-only, and `~/tehas/state/index` to write, which no other container is given; no network, no token            |
 | The improvement loop's container       | `tehasbot improve` runs plain Pi, not pi-rukas: the records of the cycles read-only, one directory to write its findings in, and its own `models.json`. No GitHub token, only the model endpoints' tokens; no repository, no tool that runs a command. The host makes every GitHub call and checks the findings against a fixed shape before it files one |
-| The network                            | Not restricted. The container reaches GitHub, the model endpoint and whatever else the host can route to                                |
+| The network                            | Not restricted by default: the container reaches GitHub, the model endpoint and whatever else the host can route to. With `TEHAS_EGRESS=1`, only the hosts of the egress proxy's list, through the proxy. See [Where a container may connect](#where-a-container-may-connect) |
 | Merging                                | The token could merge where the repository lets it. Nothing does, because `AGENTS.md` forbids it and the dispatcher never merges        |
 
 The improvement loop files with the bot's token, from the host. For it the bot

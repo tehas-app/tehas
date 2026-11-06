@@ -462,7 +462,8 @@ fn turn_of(libexec: &str, w: &Words) -> Result<u8, u8> {
         &sandbox::ensemble(Kind::Turn),
         &sandbox::tokens(),
     );
-    let hosts = sandbox::hosts(&var("PI_ENSEMBLE_HOST_ALIASES"));
+    let hosts = sandbox::network(&var("PI_ENSEMBLE_HOST_ALIASES"))
+        .map_err(|why| refuse(format!("tehas plan: {why}, not starting a turn")))?;
 
     // An image whose runner does not take planning turns runs none, before
     // anything is fetched or cloned.

@@ -36,7 +36,7 @@ use crate::verbs::{self, j, line, obj, Args, Fail, Kind, Q};
 use rusqlite::{params, OptionalExtension};
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
-use tehas_core::time::days_from_civil;
+use tehas_core::time::from_iso;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Call {
@@ -230,29 +230,13 @@ impl Writes {
     }
 }
 
-/// `2026-10-26T06:00:00Z` in Unix seconds.
-fn iso_secs(s: &str) -> Option<i64> {
-    let b = s.as_bytes();
-    if b.len() != 20 || b[4] != b'-' || b[7] != b'-' || b[10] != b'T' || b[19] != b'Z' {
-        return None;
-    }
-    let n = |r: std::ops::Range<usize>| {
-        let v = s.get(r)?;
-        v.bytes()
-            .all(|b| b.is_ascii_digit())
-            .then(|| v.parse().ok())?
-    };
-    let days = days_from_civil(n(0..4)?, n(5..7)?, n(8..10)?);
-    Some(days * 86_400 + n(11..13)? * 3600 + n(14..16)? * 60 + n(17..19)?)
-}
-
 /// The kinds the shim writes: `label create`, `issue comment`, `pr edit`,
 /// `api POST`, ... Its first word for a label call, its second else.
 pub fn count_writes(log: &str, from: i64, to: i64) -> Writes {
     let mut w = Writes::default();
     for l in log.lines() {
         let mut f = l.split('\t');
-        let (Some(at), Some(kind)) = (f.next().and_then(iso_secs), f.next()) else {
+        let (Some(at), Some(kind)) = (f.next().and_then(from_iso), f.next()) else {
             continue;
         };
         if at < from || at > to {

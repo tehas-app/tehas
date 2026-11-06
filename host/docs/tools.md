@@ -81,6 +81,8 @@ in the platform repository has every one with a comment.
 | `TEHAS_PROTOLAB_URL`            | `https://lab.<domain>`, or port 8081     | Address people reach the Protolab at, when it is published elsewhere, as `https://lab.example`. The dashboard links to it. Without it: `https://lab.<domain>` when `TEHAS_DOMAIN` is set, else port 8081 of the dashboard's host |
 | `TEHAS_DOMAIN`                  | none                                     | The domain the edge's names are made under, as `tehas.app`: `uat-<pr>.` for a preview, `lab-<issue>.` for a ticket of the Protolab, `lab.` for its list |
 | `TEHAS_PREVIEWS`                | `0`                                      | `1` builds a preview of every open pull request whose branch is in the product repository and that an owner, member or collaborator opened. Needs `TEHAS_DOMAIN` |
+| `TEHAS_EGRESS`                  | `0`                                      | `1` puts every cycle, planning turn, review and `tehas dev` session on an internal network whose one way out is a proxy that connects only to listed hosts. See [Where a container may connect](/host#where-a-container-may-connect) |
+| `TEHAS_EGRESS_HOSTS`            | empty                                    | Hosts the proxy allows beside its own list, one space apart, each a name on port 443 or `name:port`, as `pypi.org files.pythonhosted.org` |
 | `TEHAS_PREVIEW_MAX`             | `5`                                      | How many previews run at once. The newest pull requests win |
 | `TEHAS_PREVIEW_MIN_FREE`        | `5g`                                     | Free disk space below which no preview is built |
 | `TEHAS_CYCLE_MIN_FREE`          | `10g`                                    | Free disk space below which no cycle starts: the smaller of the file system of `~/tehas` and the one Docker keeps its images on, read with `df`. Space that cannot be read holds too. Running cycles are not touched (see [Limits that hold work back](/operating#limits-that-hold-work-back)). A size such as `512m` or `10g`, else every command stops with 78 |
@@ -2483,6 +2485,7 @@ tehasbot refresh              # ask for refreshes of conflicting pull requests; 
 tehasbot review               # one review of the branch; what tehas-review.timer runs
 tehasbot clean                # remove what the host can make again; what tehas-clean.timer runs
 tehasbot github-token [--check]  # the GitHub App's token, or a check of it
+tehasbot github-writes        # the GitHub writes of the last day, by hour
 ```
 
 The units are `tehas-dispatch.timer`, `tehas-dispatch.path` (a poll as soon
@@ -3618,16 +3621,28 @@ a `GH_TOKEN` left in `~/.config/tehas/env` is dropped so nothing acts as the
 user it belongs to. The dispatcher, the refresh and the Protolab take the bot's
 login from `TEHAS_BOT_LOGIN`: an installation token cannot ask GitHub who it is.
 
-A cycle's container is given `~/tehas/state/github` read-only at
-`/run/tehas/github`, never the key. The image's `gh` (`host/sandbox/gh-shim`,
-before `/usr/bin/gh` on its `PATH`) reads the token there at every call, and
-git's helper asks that `gh`. A call GitHub refuses for a rate limit is tried
-once more after 60 seconds, and only that call; a call that reads standard
-input is not retried. While the container runs, `tehas work` asks for a
-fresh token every 5 minutes, so a cycle of any length pushes and comments as
-the app. The container's `GH_TOKEN` is the token it started with; a program in
-it that reads `GH_TOKEN` itself, not through `gh`, has that token for its first
-hour only.
+A cycle's container is never given the app's token, its directory or the key.
+It gets the cycle token, `GH_CYCLE_TOKEN` from `~/.config/tehas/env`, as its
+`GH_TOKEN` (#746): a fine-grained token of a user account for the product
+repository only. So what a cycle pushes, opens and comments from inside its
+container carries that account's login, not the app's `<slug>[bot]`, and with
+an app `tehas work` refuses to start (exit 78) until `TEHAS_CYCLE_LOGIN` in
+`instance.env` names it. The host counts that login as the factory's own beside
+`TEHAS_BOT_LOGIN`: the cycle's report finds the cycle's pull request by it, the
+poll stops a cycle whose pull request is merged or closed, the refresh
+refreshes its conflicts, a comments retry reads its pull requests and
+leaves out its comments, and `console pr-title` keeps its title. The host side
+of the cycle - the report, the handoff, the attachment fetch - still acts as
+the app, and `tehas work` renews the app's token every 5 minutes for it while
+the cycle runs.
+
+A planning turn's and a manual session's container is given
+`~/tehas/state/github` read-only at `/run/tehas/github`, never the key. The
+image's `gh` (`host/sandbox/gh-shim`, before `/usr/bin/gh` on its `PATH`) reads
+the token there at every call, and git's helper asks that `gh`; without the
+directory, as in a cycle, it uses `GH_TOKEN`. A call GitHub refuses for a rate
+limit is tried once more after 60 seconds, and only that call; a call that
+reads standard input is not retried.
 
 GitHub names an app `<slug>[bot]` in its REST answers and `<slug>` in GraphQL:
 where tehas compares a GraphQL author with the bot it drops the `[bot]`.
@@ -3639,6 +3654,29 @@ the first word of the document instead: a query, a fragment, or a document that
 names no operation reads and is not logged, and only a `mutation` adds a line
 of kind `api POST`. An idle poll of the dispatcher asks nothing but queries, so
 it writes nothing. See [GitHub App identity](/github-app).
+
+A write that GitHub refuses for a rate limit (`HTTP 429`, or `HTTP 403` with
+`rate limit`) is sent once more after 60 seconds (`TEHAS_GH_RETRY_WAIT`), as in
+the container, and only that call: gh shows no `Retry-After`, and GitHub asks
+for a minute when it names none. Both attempts are lines of the log. A write
+that reads standard input is sent once. So is a write typed at a terminal:
+gh's output stays the terminal, so `gh pr create` and the other commands that
+ask still ask, and a rate limit shows at once. Nothing is shared between calls, so a
+call that waits holds up no other. A caller with a time limit of its own, such
+as the poll's 30 seconds a call, ends the call at its limit; the poll's action
+journal settles that write on a later poll.
+
+## tehasbot github-writes
+
+```
+tehasbot github-writes          # the writes of the 24 hours to now, by hour
+```
+
+Reads `~/tehas/state/github-writes.log` and prints the writes and the refused
+writes (403 or 429) of the last 24 hours, the busiest minute and the busiest
+hour, beside GitHub's limits for writes (about 80 a minute and 500 an hour),
+and then one row per clock hour with its writes, its refused writes and its
+busiest minute. It needs no settings and changes nothing.
 
 Exit 0 a token or a check that passed; 1 no token could be had, or it does not
 reach `TEHAS_REPO`; 64 an argument it does not know; 78 settings that are
