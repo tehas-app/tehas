@@ -56,6 +56,9 @@ None.
 - The host's gh shim sends a write that GitHub refused for a rate limit once more after a minute, and only that call, unless it was typed at a terminal, as the container's shim does. `tehasbot github-writes` shows the GitHub writes of the last day by hour, with the busiest minute, against GitHub's limits (#649).
 - A cycle's container, every agent in it and the push check before it, is given the cycle token `GH_CYCLE_TOKEN` from `~/.config/tehas/env` as its `GH_TOKEN`, never the host's own token or the GitHub App's. The app's token directory is no longer mounted into a cycle. Without `GH_CYCLE_TOKEN`, `tehas work` exits 78 before it calls GitHub, Docker or git (#746, part of #51).
 - `TEHAS_CYCLE_LOGIN` in `instance.env` names the account of the cycle token. The host counts it as the factory's own beside `TEHAS_BOT_LOGIN`: the cycle's report finds the cycle's pull request by it, the poll stops a cycle whose pull request is merged or closed, the refresh refreshes its conflicted pull requests, a comments retry reads its pull requests and leaves out its comments, and `console pr-title` keeps its titles. With a GitHub App, `tehas work` exits 78 without it. The load refuses it in `TEHAS_ALLOWED_LABELERS`, or as `TEHAS_MILLWRIGHT_LOGIN`.
+- A GitHub read that fails on a bad minute (a 5xx, a bare 403, or its time bound) is tried once more in `tehasbot status` and `tehas tidy` too, as in the poll, and the poll now waits its second before the retry rather than after it (#823).
+- `tehasbot status` and `tehas tidy` name gh's error in their WARN lines, and `tehasbot status` writes its snapshot when a read fails: the part that read fed is kept from the file before and named in `stale`, so the pause, all-hands and the rest stay current (#823).
+- Health counts the GitHub calls that failed in the last ten minutes (`checks.github`) and warns from three; `tehas status` prints a `github` line with the count and the last error (#823).
 
 ### Held back
 
