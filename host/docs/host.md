@@ -1039,6 +1039,31 @@ least 1. That is pi-rukas's own rule for a host, applied to the container. A
 run that waits for another does not count its wait against
 `TEHAS_VERIFY_TIMEOUT`.
 
+### The gate under load
+
+How long a gate takes depends on what else the host runs, so
+`TEHAS_VERIFY_TIMEOUT` is sized against the gate measured with the cycles the
+instance lets run at once (see [The gate's bound and the cycles at
+once](/operating#the-gates-bound-and-the-cycles-at-once)). This repository's
+`scripts/test.sh` also holds its next test file while the host's load average
+is at its CPUs or above, so on a busy host its tests run one file at a time
+and the whole gate gets slower than its share of the CPUs alone would make it.
+
+This repository's whole gate, `scripts/verify.sh`, measured on 6 Nov 2026 on
+a host of 16 CPUs (8 cores) with runs of the gate in other checkouts beside
+it, the load average between 15 and 36 throughout:
+
+| Run | Wall time | Result |
+| --- | --- | --- |
+| A fresh checkout: the workspace built first | 55 minutes (3313 s) | passed |
+| A second run beside it, started 22 minutes later, the workspace mostly built | 36 minutes (2143 s) | passed |
+
+Both are above the default bound of 30 minutes. On 26 Oct 2026, with three
+cycles at once on the tehas-tehas host, the gate ran 26 and 47 minutes in a
+cycle. On a host that runs four cycles of this repository at once, a bound of
+3600 seconds, with `TEHAS_WORK_STALL` above it, fits both runs above, the
+first with little margin; a bound of 1800 fits only with fewer cycles at once.
+
 The floor is a priority when the slice frees memory, not a guarantee against
 the whole host: when the host itself runs short, the host comes first. With
 the default reserve the host needs about 11 GiB of memory, because the reserve
