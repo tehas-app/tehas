@@ -361,7 +361,13 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
     src.endpoint = (url, key);
     let work_dir = std::env::var("TEHAS_WORK_DIR").unwrap_or_default();
     let user_home = std::path::PathBuf::from(std::env::var("HOME").unwrap_or_default());
-    s["leftovers"] = host::leftovers(home, &work_dir, &user_home, src.now);
+    s["leftovers"] = host::leftovers(home, &work_dir, &user_home, src.now, c.keep_days);
+    // The queue is every open issue, so one it does not hold is closed: a
+    // closed issue never resumes, and what it left goes at once.
+    for l in s["leftovers"].as_array_mut().into_iter().flatten() {
+        let n = l["issue"].as_u64().unwrap_or(0);
+        l["closed"] = json!(!open.contains(&n));
+    }
     s["disk_kb"] = host::disk(home);
 
     // The per-issue reads the snapshot makes, gathered before any of them is
