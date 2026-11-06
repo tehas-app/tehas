@@ -18,6 +18,44 @@ a pull request before it tags, with the head's `scripts/collect-changelog.sh`.
 
 ## Unreleased
 
+### Adopter action
+
+None.
+
+## v0.25.1 (2026-11-06)
+
+### Changes
+
+- A cycle whose pull request is merged, but whose runner was stopped mid-step (a lens-fix fixer killed by the end of the cycle, say), is now recorded as `merged` with exit status 0, not with the runner's exit. The runner's own exit is still kept and named in the issue comment (#673).
+- A cycle's record for the improvement loop keeps the whole reason it ended with, up to 2000 characters, where it was cut at 200 mid-word; a longer one ends ` (cut)`. Its new `handoffDelivered` says whether pi-rukas's handoff reached a comment on the issue or its pull request (`null` with no handoff), and a handoff that reached none is a `WARN` line in the cycle's log (#718).
+- With `TEHAS_OVERLAP_HOLD=1` the dispatcher holds a start while a running cycle's branch changes a path the issue's body names, and logs `wait #N: a running cycle on #M changes <path>`. Off by default (#725).
+- Troubleshooting has an entry for the `verify-baseline-red` park: what it means, how to find the red case when pi-rukas names no assertion, and `TEHAS_BRANCH_CHECK`, which holds new cycles while the branch is red instead (#751).
+- A cycle pi-rukas ended at a child's run bound (`child-timeout:<step>`) is on the improvement loop's record with the status `child-bound`, not `aborted`, so it is not read as an abort (#752).
+- The manual says how `TEHAS_VERIFY_TIMEOUT`, the gate's wall time on a loaded host and `TEHAS_TICKET_CONCURRENCY` have to agree, how to read the gate's longest runs from `analytics.db`, and what this repository's own gate takes under load (#803).
+- A cycle's `manifest.json` says in `linksUnavailable` why it lists no image: the text links no file, or the instance gives a cycle none. It is null when every link is listed (#822).
+- A drafted plan whose title only names the issue it plans (`feat: Plan issue #608`) is refused like `EPIC: EPIC`: Update this issue keeps the person's title and body and the comment says why (#1015).
+- The sandbox image is built from a lean base that `sandbox/build.sh` makes on the host from the pi-rukas clone at the commit followed (`sandbox/base.Dockerfile`), instead of upstream's devcontainer image. The user is made at the tehas user's uid in the first layer, so the remap no longer stores every file twice, and Playwright brings only its headless shell. The image went from 11.5G to 5.6G on nessie and 3.8G in a local build of v0.14.54 (#1548).
+- A host keeps the sandbox images of two builds, the current one and the one before it, whatever their age; `tehasbot clean` no longer waits for `TEHAS_CLEAN_AFTER` to take older ones (#1548).
+- A directory that holds cargo's `CACHEDIR.TAG` is build output whatever its name, at a cycle's end and in `tehasbot clean` (#1548).
+- What a closed issue left on the host goes at the next poll; an open issue's kept workspace waits `TEHAS_WORKSPACE_KEEP_DAYS` days, 7 by default. The tree a retry moved aside goes when that retry ends (#1548).
+- A pull request adds its changelog lines in `changelog.d/<issue>.md`, with `### Changes` and `### Adopter action`, instead of editing `CHANGELOG.md`, so two open pull requests no longer conflict there. With no issue the file is named after the branch, each `/` a `-` (`scripts/collect-changelog.sh --name <branch>` prints it). `scripts/release-notes.sh Unreleased` shows the fragments' lines in the Unreleased section, ordered by issue number. `scripts/tag-release.sh` counts their Adopter action, shows the collected section with `--dry-run`, and before it tags has the head's own `scripts/collect-changelog.sh` move them into the release's section in a pull request from `changelog-<tag>`. A tagged release's notes are unchanged (#1606).
+- A factory run by tehas-industry shows the industry's alerts about it: paused too long, frozen, or held still by one ticket. `tehasbot health` reads `state/industry/alerts.json` into `checks.industry.alerts` and warns with the first alert's text, so `tehas status` and the MCP `factory_status` say it, and the factory floor and the plain dashboard show a banner at the top while an alert is current (#1642).
+- The status tests expect the sandbox image of the user who runs them, so `tehas setup`'s product check passes on a factory that builds tehas under a user other than uid 1000 (#1644).
+- `host/sandbox/build.sh` no longer refuses every instance `sandbox.Dockerfile` as "not built on" the image of the run: it now reads the image layers one id per line, where it read Docker's one bracketed line as a single layer (#1653).
+- The factory finishes a stopped cycle when the issue asks: a comment that starts with `<!-- tehas:millwright issue=<n> action=finish -->` and gives the reason, then the new label `tehas:finish`, from an allowed labeller or from the millwright within its grant. The poll takes the label off, runs `tehas-cycle finish`, and comments with the draft pull request's URL or the one line of why not. `tehas api` lists the feature `finish`, and `factory_decisions` answers each ask taken as the decision `finish`. `tehas update` creates the label (#1665).
+- A new instance setting, `TEHAS_DESIGN`, draws the whole site in one design: `beesknees26`, the default, or `pixel`. With no setting every page is beesknees26, `/` included, with the beesknees26 logo and share card, and `/` is the business page. `TEHAS_DESIGN=pixel` draws every page in pixel, the manual, `/business`, `/dashboard` and the Protolab included, with the animated factory and its share card, and `/` is the factory floor. `/floor` and `/business` are always there in either design. Any other value stops every command with 78 (#1668).
+- `TEHAS_THEME=beesknees26` and `TEHAS_LAYOUT=business` now ask for the default and load as no-ops, as an empty value does. `TEHAS_THEME=pixel`, `TEHAS_LAYOUT=floor` and every other value of the two retired settings stop every command with 78 and say to use `TEHAS_DESIGN` (#1668).
+
+### Adopter action
+
+Run the query in "The gate's bound and the cycles at once" on the operating page. When the longest run of the gate at the cycles you run is near `TEHAS_VERIFY_TIMEOUT` or above it, raise the bound or lower `TEHAS_TICKET_CONCURRENCY`, and write the measurement beside the number in `instance.env`.
+
+The next `tehas update` builds the base on the host, which needs the pi-rukas clone in `~/tehas/repos/pi-rukas` that `bootstrap.sh user` keeps, and network for the base's downloads. The upstream `ghcr.io/.../pi-rukas:sha-*` images the host pulled before go with `tehasbot clean` once they are `TEHAS_CLEAN_AFTER` old; other images outside the rule, such as a `pi-rukas:latest`, are removed by hand. Set `TEHAS_WORKSPACE_KEEP_DAYS` in `instance.env` to keep stopped workspaces for fewer or more days.
+
+tehas.app keeps the pixel design with one line that tehas-settings adds to `hosts/tehas-tehas/instance.env`: `TEHAS_DESIGN=pixel`. The docs server reads it when its container is created: add the line before the update, or run `docker compose -f ~/tehas/edge/docs.compose.yaml up -d --force-recreate` after adding it. The Protolab's pages are drawn again at its next pass. Other hosts need nothing: they get beesknees26 everywhere, `/` included. A host that still has `TEHAS_THEME=pixel` or `TEHAS_LAYOUT=floor` takes the line out, and sets `TEHAS_DESIGN=pixel` if it wants the pixel design.
+
+## v0.25.0 (2026-11-06)
+
 ### Changes
 
 - `lib/config.sh` keeps what a login shell, `install.sh` and an update need: `tehas_load`, `tehas_instance_dir` and `tehas_require_instance_settings`, which now asks the console (`console settings require`). `tehas_require` and `tehas_models` are gone; `install.sh` asks `console models used` for the models the agents use (#1590).
