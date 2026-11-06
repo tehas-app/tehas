@@ -17,5 +17,17 @@
   "demand": null,
   "hold": null,
   "held": [],
-  "room": null
+  "room": null,
+  "versions": {
+    "platform": {
+      "release": null,
+      "latest": null,
+      "behind": null
+    },
+    "rukas": {
+      "version": null,
+      "latest": null,
+      "behind": null
+    }
+  }
 }
