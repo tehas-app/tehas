@@ -7,16 +7,20 @@
 # same way (console/xtask/src/tag.rs) to check that the release has an
 # "### Adopter action" before it tags.
 #
+# Unreleased also has the lines of the changelog fragments in changelog.d/
+# beside the file, under their headings (scripts/collect-changelog.sh). A
+# tagged release is read from the file alone.
+#
 # Usage: scripts/release-notes.sh <tag> [<file>]
 #   <tag>    a vX.Y.Z tag, or Unreleased for the section at the top
 #   <file>   the changelog to read, default the CHANGELOG.md beside scripts/;
-#            - reads standard input
+#            - reads standard input, with no fragments
 #
 # Example:
 #   scripts/release-notes.sh v0.9.0
 #
 # Exit: 0 the section is printed; 1 the file has no section for that name, or
-#       cannot be read; 64 a bad argument
+#       cannot be read, or a fragment cannot; 64 a bad argument
 set -uo pipefail
 
 case "${1:-}" in
@@ -35,6 +39,12 @@ if [ "$file" = - ]; then
   text=$(cat) || exit 1
 else
   text=$(cat "$file" 2>/dev/null) || { echo "release-notes: cannot read $file" >&2; exit 1; }
+  if [ "$name" = Unreleased ] && [ -d "$(dirname "$file")/changelog.d" ]; then
+    text=$("$(dirname "${BASH_SOURCE[0]}")/collect-changelog.sh" --print "$file") || {
+      echo "release-notes: the changelog fragments beside $file cannot be read" >&2
+      exit 1
+    }
+  fi
 fi
 
 # The name is matched as a string, so the dots of a version are not a pattern.

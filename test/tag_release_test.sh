@@ -455,6 +455,114 @@ t_eq "$t_rc" 0
 t_eq "$(tail -n 1 <<<"$t_out")" v0.1.1
 t_eq "$(t_calls pins)" ""
 
+# A head whose Unreleased section has no Adopter action of its own, and two
+# changelog fragments that bring one. The head's scripts/collect-changelog.sh
+# records its arguments in $T/calls/collect and runs this checkout's; the
+# operator's checkout has one that fails, which must not run. The stub gh
+# lists the open pull requests from $T/open_prs and opens #14.
+fragmented() {
+  fresh
+  printf '# Changelog\n\n## Unreleased\n\n### Changes\n\n- in the file\n\n## v0.1.0 (2026-01-01)\n\n### Adopter action\n\nNone.\n' >"$T/up/CHANGELOG.md"
+  mkdir -p "$T/up/changelog.d"
+  printf '### Changes\n\n- from twelve\n\n### Adopter action\n\nSet TEHAS_TWELVE.\n' >"$T/up/changelog.d/12.md"
+  printf '### Changes\n\n- from three\n' >"$T/up/changelog.d/3.md"
+  printf '#!/usr/bin/env bash\necho "head $*" >>"%s/calls/collect"\nexec "%s/scripts/collect-changelog.sh" "$@"\n' "$T" "$T_ROOT" >"$T/up/scripts/collect-changelog.sh"
+  chmod +x "$T/up/scripts/collect-changelog.sh"
+  g -C "$T/up" add -A
+  commit "carry fragments"
+  printf '#!/usr/bin/env bash\necho "operator $*" >>"%s/calls/collect"\nexit 1\n' "$T" >"$work/scripts/collect-changelog.sh"
+  chmod +x "$work/scripts/collect-changelog.sh"
+  rm -f "$T/open_prs" "$T/calls/gh" "$T/calls/verify" "$T/calls/collect"
+  t_stub gh 'case "$1 $2" in
+  "pr list") cat "$T/open_prs" 2>/dev/null || true ;;
+  "pr create") echo https://github.com/acme/widget/pull/14 ;;
+esac'
+}
+
+t_case "--dry-run counts the fragments' Adopter action and shows the collected section"
+fragmented
+t_run "$work/scripts/tag-release.sh --dry-run"
+t_eq "$t_rc" 0
+t_eq "$(tail -n 1 <<<"$t_out")" v0.1.1
+t_contains "$t_out" "would collect 2 changelog fragments into the Unreleased section of CHANGELOG.md:"
+t_contains "$t_out" "$(printf '%s\n' '    ### Changes' '    ' '    - in the file' '    - from three' '    - from twelve' '    ' '    ### Adopter action' '    ' '    Set TEHAS_TWELVE.')"
+t_eq "$(git -C "$origin" show HEAD:changelog.d/3.md | head -n 1)" "### Changes"
+t_eq "$(t_calls collect)" ""
+
+t_case "fragments without an Adopter action, and none in the file, make no tag"
+fragmented
+g -C "$T/up" rm --quiet changelog.d/12.md
+commit "one fragment"
+t_run "$work/scripts/tag-release.sh --no-verify"
+t_eq "$t_rc" 1
+t_contains "$t_out" 'needs an "### Adopter action"'
+t_eq "$(tags)" "v0.1.0 "
+
+t_case "a fragment with text outside its headings makes no tag, and says why"
+fragmented
+printf 'Stray text.\n' >"$T/up/changelog.d/5.md"
+g -C "$T/up" add -A
+commit "a bad fragment"
+t_run "$work/scripts/tag-release.sh --dry-run"
+t_eq "$t_rc" 1
+t_contains "$t_out" "changelog.d/5.md line 1: text outside"
+
+t_case "fragments are collected by the head's own script in a pull request, and nothing is tagged"
+fragmented
+t_run "$work/scripts/tag-release.sh"
+t_eq "$t_rc" 2
+t_contains "$t_out" "pull/14 collects them; merge it, then tag. Nothing was tagged"
+t_eq "$(tags)" "v0.1.0 "
+t_eq "$(t_calls verify)" ran
+t_contains "$(t_calls collect)" "head --section Unreleased "
+t_lacks "$(t_calls collect)" operator
+t_contains "$(t_calls gh)" "pr create --base main --head changelog-v0.1.1 --title Collect the changelog fragments into CHANGELOG.md"
+t_contains "$(t_calls gh)" "$(printf '%s\n' '- changelog.d/3.md' '- changelog.d/12.md')"
+t_eq "$(git -C "$origin" show changelog-v0.1.1:CHANGELOG.md)" "$(printf '%s\n' '# Changelog' '' '## Unreleased' '' '### Changes' '' '- in the file' '- from three' '- from twelve' '' '### Adopter action' '' 'Set TEHAS_TWELVE.' '' '## v0.1.0 (2026-01-01)' '' '### Adopter action' '' 'None.')"
+t_eq "$(git -C "$origin" ls-tree --name-only changelog-v0.1.1 changelog.d/)" ""
+t_eq "$(git -C "$origin" rev-parse changelog-v0.1.1^)" "$(head_of)"
+t_eq "$(git -C "$work" worktree list | wc -l)" 1
+
+t_case "an open pull request that collects the fragments holds the tag"
+echo https://github.com/acme/widget/pull/14 >"$T/open_prs"
+rm -f "$T/calls/gh" "$T/calls/collect"
+t_run "$work/scripts/tag-release.sh"
+t_eq "$t_rc" 2
+t_contains "$t_out" "pull/14 collects the changelog fragments; merge it, then tag"
+t_lacks "$(t_calls gh)" "pr create"
+t_eq "$(t_calls collect)" ""
+t_eq "$(tags)" "v0.1.0 "
+
+t_case "the head with the fragments collected is tagged"
+g -C "$T/up" fetch --quiet origin changelog-v0.1.1
+g -C "$T/up" merge --quiet --ff-only FETCH_HEAD
+g -C "$T/up" push --quiet origin main
+rm -f "$T/open_prs"
+t_run "$work/scripts/tag-release.sh"
+t_eq "$t_rc" 0
+t_eq "$(tail -n 1 <<<"$t_out")" v0.1.1
+t_eq "$(tags)" "v0.1.0 v0.1.1 "
+
+t_case "a gate that fails with the fragments collected pushes nothing"
+fragmented
+echo 1 >"$T/verify_rc"
+t_run "$work/scripts/tag-release.sh"
+rm -f "$T/verify_rc"
+t_eq "$t_rc" 1
+t_contains "$t_out" "the gate failed with the changelog fragments collected"
+t_eq "$(git -C "$origin" branch --list 'changelog-*')" ""
+t_lacks "$(t_calls gh)" "pr create"
+
+t_case "a head with fragments and no collect script of its own makes no tag"
+fragmented
+g -C "$T/up" rm --quiet scripts/collect-changelog.sh
+commit "no collector"
+t_run "$work/scripts/tag-release.sh"
+t_eq "$t_rc" 1
+t_contains "$t_out" "has changelog fragments but no scripts/collect-changelog.sh"
+t_eq "$(t_calls collect)" ""
+t_eq "$(tags)" "v0.1.0 "
+
 # The host: the update's status from $T/ssh_rc, its checkout's commit from
 # $T/host_head.
 host() {

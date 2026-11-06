@@ -9,9 +9,17 @@
 #
 # The commit it tags must have a CHANGELOG.md whose section for the new tag,
 # or else its Unreleased section, has an "### Adopter action" heading with at
-# least one line under it. Only the move of the pinned tools below edits
-# CHANGELOG.md: a person renames Unreleased to the version in the release's
-# pull request, or leaves it.
+# least one line under it, the lines of its changelog fragments
+# (changelog.d/*.md) counted. Only the collection of those fragments and the
+# move of the pinned tools below edit CHANGELOG.md: a person renames Unreleased
+# to the version in the release's pull request, or leaves it.
+#
+# When the head has changelog fragments, the head's own
+# scripts/collect-changelog.sh moves their lines into that section and deletes
+# them; then it runs the gate, pushes a branch changelog-<tag>, opens a pull
+# request, and tags nothing: the tag waits for a person to merge it. An open
+# pull request from such a branch holds the tag the same way. The pinned tools
+# move on the next run. A head with fragments and no such script is not tagged.
 #
 # The tag is annotated: "Release <tag> - <message>", the message being the
 # subject of the head commit unless --message gives one.
@@ -59,8 +67,9 @@
 #   --major      v0.7.6 becomes v1.0.0
 #   --message    the tag's message instead of the head's subject
 #   --no-verify  skip scripts/verify.sh
-#   --dry-run    check CHANGELOG.md and print the tag it would make; make none,
-#                run no gate and check no polyfill
+#   --dry-run    check CHANGELOG.md and print the tag it would make, and the
+#                section with the fragments collected when there are any; make
+#                none, run no gate and check no polyfill
 #   --remote     the remote to read and push to, default origin
 #   --rukas-caps the --capabilities answer of that pi-rukas, from a file,
 #                instead of asking its image
@@ -70,9 +79,10 @@
 #       remote, GitHub or docker failed, the newest tag is not on the branch,
 #       CHANGELOG.md has no Adopter action for the release, a polyfill it keeps
 #       has no live upstream issue and pull request, a pinned tool could not be
-#       moved, or the gate failed; 2 nothing tagged: a pull request, named on
-#       stderr, removes polyfills or moves the pinned tools first; 64 a bad
-#       argument; another status when cargo cannot build the task
+#       moved, the fragments could not be collected, or the gate failed;
+#       2 nothing tagged: a pull request, named on stderr, removes polyfills,
+#       collects the changelog fragments or moves the pinned tools first;
+#       64 a bad argument; another status when cargo cannot build the task
 set -uo pipefail
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd) || exit 1

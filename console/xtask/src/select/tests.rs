@@ -281,6 +281,17 @@ fn a_fixture_selects_the_test_files_that_name_its_directory() {
 }
 
 #[test]
+fn a_changelog_fragment_selects_the_test_files_that_name_changelog_d() {
+    let t = Tree::new();
+    t.fake("a_test.sh", "nothing")
+        .fake("b_test.sh", "reads changelog.d/ beside the file");
+    assert_eq!(
+        t.pick(&["changelog.d/1606.md", "changelog.d/my-branch.md"]),
+        "test test/b_test.sh"
+    );
+}
+
+#[test]
 fn a_front_page_file_selects_the_node_test_that_loads_it() {
     let t = Tree::new();
     t.file(
