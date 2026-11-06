@@ -1,5 +1,5 @@
 //! `factory_decisions`: the dispatcher's last decisions, start, skip, wait,
-//! hold and drop (of a refresh request), read from the end of `dispatch.log`.
+//! hold, drop (of a refresh request) and finish, read from the end of `dispatch.log`.
 //!
 //! The log is opened by its one fixed name in the logs directory; a caller
 //! gives no path. Only its last `TAIL_BYTES` are read. A decision's time, word
@@ -63,7 +63,7 @@ pub struct DecisionKind {
 /// drops, which is a refresh request. A `lift #<n>:` line, the release of a
 /// hold from the same code, is no decision of its own: `factory_events`
 /// shows it.
-pub const DECISIONS: [DecisionKind; 5] = [
+pub const DECISIONS: [DecisionKind; 6] = [
     DecisionKind {
         word: "start",
         logged: "start",
@@ -104,6 +104,14 @@ pub const DECISIONS: [DecisionKind; 5] = [
         sample: "2026-10-29T16:23:14Z drop the refresh of #8: pull request #9 moved since the request",
         number: 8,
     },
+    DecisionKind {
+        word: "finish",
+        logged: "finish",
+        kind: "done",
+        style: ReasonStyle::Colon,
+        sample: "2026-10-29T16:23:14Z finish #7: opened https://github.com/acme/widget/pull/9, asked by alice (label): the flaky test failed, not the change",
+        number: 7,
+    },
 ];
 
 /// The words the writers of `dispatch.log` use today, each a `logged` of
@@ -111,9 +119,10 @@ pub const DECISIONS: [DecisionKind; 5] = [
 /// writer logs that is in neither list, or a list that keeps a word no writer
 /// logs, fails the comparison in `tests/decisions.rs` rather than leaving a
 /// line of the log quietly unanswered.
-pub const WRITER_WORDS: [&str; 12] = [
+pub const WRITER_WORDS: [&str; 13] = [
     "clear",
     "drop the refresh of",
+    "finish",
     "hold",
     "hold refreshes",
     "holding",
@@ -229,7 +238,7 @@ pub fn tool() -> Value {
     let text = |desc: &str| json!({"type": "string", "description": desc});
     json!({
         "name": "factory_decisions",
-        "description": "The dispatcher's last decisions, newest last: each start, skip, wait, hold and drop with its time, issue and reason as the dispatcher logs it. A drop is a refresh request the dispatcher dropped. Read from the last 1 MiB of the dispatch log, masked; a reason is cut to 400 characters.",
+        "description": "The dispatcher's last decisions, newest last: each start, skip, wait, hold, drop and finish with its time, issue and reason as the dispatcher logs it. A drop is a refresh request the dispatcher dropped. A finish is an ask of tehas:finish the poll took: the draft pull request it opened or why it refused, and who asked. Read from the last 1 MiB of the dispatch log, masked; a reason is cut to 400 characters.",
         "inputSchema": {"type": "object", "properties": {
             "limit": {"type": "integer", "minimum": 1, "maximum": LIMIT_MAX, "description": "How many decisions, from 1 to 200. 50 without it."},
         }, "additionalProperties": false},
@@ -238,7 +247,7 @@ pub fn tool() -> Value {
             "decisions": {"type": "array", "description": "The last decisions, oldest first.", "items": {
                 "type": "object", "description": "One decision.", "properties": {
                     "time": text("When it was made, UTC."),
-                    "decision": {"type": "string", "enum": words(), "description": "start, skip, wait, hold (an issue the dispatcher keeps parked without starting it, such as one whose last cycle parked on the same text, or one whose attachment the model cannot read) or drop (of a refresh request)."},
+                    "decision": {"type": "string", "enum": words(), "description": "start, skip, wait, hold (an issue the dispatcher keeps parked without starting it, such as one whose last cycle parked on the same text, or one whose attachment the model cannot read) drop (of a refresh request) or finish (an ask of tehas:finish taken: opened or refused, and who asked)."},
                     "issue": {"type": "integer", "description": "The issue number."},
                     "reason": text("Why, as the dispatcher logs it, masked and cut to 400 characters. For a start, who started it and how; for a hold, why the parked issue does not start."),
                 }}},

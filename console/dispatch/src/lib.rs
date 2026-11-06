@@ -3,6 +3,7 @@
 
 pub mod apply;
 pub mod decide;
+pub mod finish;
 pub mod poll;
 pub mod questions;
 pub mod read;
