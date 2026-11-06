@@ -2754,7 +2754,14 @@ else the cap, else the status; a cap or status that reads `provider-outage` is
 recorded as `cap:provider-outage`, as only tehas names an outage), and with the failure before it (the reason
 `tehas work` wrote to the progress file) into the
 record for the improvement loop as `cap` and `capReason`, reduced to plain
-characters. A cycle that ended at tehas's own bound gets tehas's cap:
+characters. The reason is kept whole up to 2000 characters, as many as the
+condensed stream keeps of a text; a longer one ends ` (cut)`, and so does the
+park comment's. The record's `handoffDelivered` says whether pi-rukas's
+handoff reached a comment, on the issue or on its pull request: `true` when
+the cycle's park or comment that carries it was posted, or lean posted its own
+report; `false` when every post of it failed, and the log then says
+`WARN: the handoff of #N reached no comment: it is only in the run log`;
+`null` when the cycle wrote no handoff. A cycle that ended at tehas's own bound gets tehas's cap:
 `wall-clock` for the time limit, `stall` for the stall, `runner-never-started`
 for the container that ended before the driver wrote its first event, `signal`
 for a container stopped on a `TERM`, `INT` or `HUP`, and a

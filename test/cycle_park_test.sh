@@ -86,6 +86,50 @@ t_lacks "$(t_calls gh)" "provider outage"
 t_eq "$(park_of '[.reason, .automatic]')" '["step-failed:develop",false]'
 t_eq "$(jq -r .capReason "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" "3 assertions failed in test/x"
 
+# #718: a handoff whose consolidated branch was never pushed, so no pull
+# request carries it: the host's park is the one comment that does.
+handed_off() { # <cap> <failure event as JSON>
+  capped "$@"
+  jq '.issues[0].handoff = {channel: "host",
+    body: "<!-- pi-rukas:handoff issue=7 cap=fix-pass-park -->\n## Cap hit\nThe branch is consolidated locally, not pushed."}' \
+    "$fx/result.json" >"$fx/r" && mv "$fx/r" "$fx/result.json"
+}
+long_cause="verify-timeout verify command bash scripts/verify.sh exceeded its 30-min timeout on the CONSOLIDATED tree at /w/tehas (PI_ENSEMBLE_VERIFY_SUITE_TIMEOUT_MS=1800000), so the run was killed at the bound; the gate was still in test/cycle_test.sh"
+
+t_case "a handoff no pull request carries is posted once by the host, and the record says it was delivered, with its whole cause"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
+handed_off verify-timeout:develop "{\"kind\":\"dispatch-failed\",\"at\":2,\"errorTail\":\"$long_cause\"}"
+echo 'echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"' >"$fx/work.sh"
+t_run "$cycle 7"
+t_eq "$t_rc" 0
+t_eq "$(t_calls gh | grep -c 'pi-rukas:handoff issue=7 cap=')" 1
+t_contains "$(t_calls gh)" "The branch is consolidated locally, not pushed."
+t_lacks "$t_out" "reached no comment"
+rec=$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json
+t_eq "$(jq -c '[.cap, .handoffDelivered]' "$rec")" '["verify-timeout:develop",true]'
+t_eq "$(jq -r .capReason "$rec")" "$long_cause"
+
+t_case "a handoff that reached no comment is on record as not delivered, and the log says so"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
+handed_off verify-timeout:develop '{"kind":"dispatch-failed","at":2,"errorTail":"exit 1"}'
+echo 'echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"' >"$fx/work.sh"
+: >"$fx/post-fails"
+: >"$fx/comment-fails"
+t_run "$cycle 7"
+t_contains "$t_out" "WARN: the handoff of #7 reached no comment: it is only in the run log"
+t_eq "$(jq .handoffDelivered "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" false
+
+t_case "a cycle with no handoff has no delivery on record"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
+capped step-failed:develop '{"kind":"dispatch-failed","at":2,"errorTail":"exit 1"}'
+echo 'echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"' >"$fx/work.sh"
+t_run "$cycle 7"
+t_eq "$(jq .handoffDelivered "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" null
+t_lacks "$t_out" "reached no comment"
+
 t_case "a cap whose progress names no failure is no outage and asks no reason"
 reset
 capped step-failed:develop '{"kind":"dispatch-failed","at":2}'

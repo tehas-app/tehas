@@ -9,7 +9,7 @@
 use crate::after::{self, log};
 use crate::facts::Facts;
 use crate::host::{self, Start};
-use crate::report::{report, Action, Ask, Park, Report};
+use crate::report::{report, Action, Ask, Park, Report, HANDOFF_MARK};
 use serde_json::{json, Value};
 use std::fs;
 use std::io::Write;
@@ -165,6 +165,8 @@ struct Writer<'a> {
     unjournaled: bool,
     /// The label stayed: the next comment says so.
     stuck: bool,
+    /// A comment that carries the handoff of pi-rukas was posted.
+    handed_off: bool,
 }
 
 impl Writer<'_> {
@@ -275,7 +277,13 @@ impl Writer<'_> {
             "--body-file".into(),
             "-".into(),
         ];
-        self.tried(&warn, "comment-post", args, Some(body));
+        let posted = self.tried(&warn, "comment-post", args, Some(body));
+        self.handed(posted, body);
+    }
+
+    /// A body posted with pi-rukas's handoff marker carries its handoff.
+    fn handed(&mut self, posted: bool, body: &str) {
+        self.handed_off |= posted && body.contains(HANDOFF_MARK);
     }
 
     fn park(&mut self, p: &mut Park, f: &Facts, ask: &mut dyn Ask) {
@@ -343,6 +351,7 @@ impl Writer<'_> {
         let Wrote::Done(out) = self.write(n, "comment-post", args, Some(&input), None) else {
             return None;
         };
+        self.handed(true, body);
         let id = out.trim().to_string();
         let digits = (1..=16).contains(&id.len())
             && !id.starts_with('0')
@@ -399,10 +408,12 @@ impl Writer<'_> {
             "--body-file".into(),
             "-".into(),
         ];
-        if !matches!(
+        let posted = matches!(
             self.write(n, "comment-post", args, Some(body), None),
             Wrote::Done(_)
-        ) {
+        );
+        self.handed(posted, body);
+        if !posted {
             log(&format!("WARN: comment on {pr} failed"));
         }
     }
@@ -693,6 +704,7 @@ pub fn run(home: &Path, s: &Start) -> i32 {
         no_row: false,
         unjournaled: false,
         stuck: true,
+        handed_off: false,
     };
     for a in &mut r.actions {
         match a {
@@ -732,6 +744,13 @@ pub fn run(home: &Path, s: &Start) -> i32 {
     let approved = after::approved(home, issue, s.attempt);
     let on_record = end(home, &r, &facts);
     let mut a = r.after.clone();
+    let delivered = &mut a.ended.handoff_delivered;
+    *delivered = delivered.map(|d| d || w.handed_off);
+    if *delivered == Some(false) {
+        log(&format!(
+            "WARN: the handoff of #{issue} reached no comment: it is only in the run log"
+        ));
+    }
     a.approved = approved;
     a.console = s.console.clone();
     a.status_cmd = s.status_cmd.clone();
