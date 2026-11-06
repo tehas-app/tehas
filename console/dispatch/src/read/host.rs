@@ -416,6 +416,71 @@ pub fn leftovers(home: &Path, work_dir: &str, user_home: &Path, now: i64) -> Val
     Value::Array(out)
 }
 
+/// What the running cycles' branches change, for TEHAS_OVERLAP_HOLD: by
+/// issue, the files `git diff --name-only <default>...<branch>` names in the
+/// dispatcher's own checkout, for each of the issue's branches the checkout
+/// last fetched (`feature/issue-<n>`, `feature/issue-<n>-*` and
+/// `finish/issue-<n>`). An issue with no such branch changes nothing; one whose
+/// branches cannot be listed or diffed is {"failed": true}. Git runs in the
+/// checkout only, never in a cycle's workspace.
+pub fn changed(checkout: &str, default: &str, issues: &[u64]) -> Value {
+    let wait = Duration::from_secs(10);
+    let git = |args: &[String]| {
+        let mut all = vec![
+            "-C".to_string(),
+            checkout.to_string(),
+            "-c".into(),
+            "core.quotePath=false".into(),
+        ];
+        all.extend_from_slice(args);
+        run("git", &all, wait)
+    };
+    let mut out = serde_json::Map::new();
+    for n in issues {
+        if checkout.is_empty() {
+            out.insert(n.to_string(), json!({"failed": true}));
+            continue;
+        }
+        let origin = "refs/remotes/origin";
+        let refs = git(&[
+            "for-each-ref".into(),
+            "--format=%(refname)".into(),
+            format!("{origin}/feature/issue-{n}"),
+            format!("{origin}/feature/issue-{n}-*"),
+            format!("{origin}/finish/issue-{n}"),
+        ]);
+        let mut files: Vec<String> = Vec::new();
+        let mut ok = refs.ok();
+        for r in refs.out.lines() {
+            if !ok {
+                break;
+            }
+            let diff = git(&[
+                "diff".into(),
+                "--name-only".into(),
+                "--no-renames".into(),
+                format!("{origin}/{default}...{r}"),
+                "--".into(),
+            ]);
+            ok = diff.ok();
+            for f in diff.out.lines() {
+                if !files.iter().any(|x| x == f) {
+                    files.push(f.to_string());
+                }
+            }
+        }
+        out.insert(
+            n.to_string(),
+            if ok {
+                json!(files)
+            } else {
+                json!({"failed": true})
+            },
+        );
+    }
+    Value::Object(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -549,5 +614,53 @@ mod tests {
         drop(child.stdin.take().unwrap());
         child.wait().unwrap();
         assert!(!held(&lock), "the lock was given back");
+    }
+
+    #[test]
+    fn a_running_cycles_changes_are_read_from_its_branches_in_the_checkout() {
+        let d = TestDir::new("dispatch-host-changed");
+        let (origin, checkout) = (d.join("origin"), d.join("checkout"));
+        let git = |dir: &Path, args: &[&str]| {
+            let ok = std::process::Command::new("git")
+                .arg("-C")
+                .arg(dir)
+                .args(["-c", "user.name=t", "-c", "user.email=t@t"])
+                .args(args)
+                .output()
+                .unwrap()
+                .status
+                .success();
+            assert!(ok, "git {args:?}");
+        };
+        fs::create_dir_all(&origin).unwrap();
+        git(&origin, &["init", "-q", "-b", "main"]);
+        fs::write(origin.join("README.md"), "x\n").unwrap();
+        git(&origin, &["add", "."]);
+        git(&origin, &["commit", "-q", "-m", "base"]);
+        let branch = |name: &str, file: &str| {
+            git(&origin, &["checkout", "-q", "-b", name, "main"]);
+            fs::create_dir_all(origin.join(file).parent().unwrap()).unwrap();
+            fs::write(origin.join(file), "y\n").unwrap();
+            git(&origin, &["add", "."]);
+            git(&origin, &["commit", "-q", "-m", name]);
+        };
+        branch("feature/issue-9-the-fix", "lib/a.sh");
+        branch("finish/issue-9", "test/a test.sh");
+        branch("feature/issue-90-other", "lib/b.sh");
+        git(&origin, &["checkout", "-q", "main"]);
+        fs::write(origin.join("main.rs"), "z\n").unwrap();
+        git(&origin, &["add", "."]);
+        git(&origin, &["commit", "-q", "-m", "main moves on"]);
+        let src = origin.to_string_lossy().into_owned();
+        git(&d, &["clone", "-q", &src, "checkout"]);
+        let at = checkout.to_string_lossy().into_owned();
+        assert_eq!(
+            changed(&at, "main", &[9, 8]),
+            json!({"9": ["lib/a.sh", "test/a test.sh"], "8": []})
+        );
+        assert_eq!(changed(&at, "trunk", &[9]), json!({"9": {"failed": true}}));
+        let none = d.join("none").to_string_lossy().into_owned();
+        assert_eq!(changed(&none, "main", &[9]), json!({"9": {"failed": true}}));
+        assert_eq!(changed("", "main", &[9]), json!({"9": {"failed": true}}));
     }
 }

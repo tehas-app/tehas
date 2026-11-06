@@ -2033,6 +2033,42 @@ impl<'a> Poll<'a> {
         Ok(false)
     }
 
+    /// overlap_ok: with TEHAS_OVERLAP_HOLD=1, a start waits while a running
+    /// cycle's branch changes a path the issue's body names. A branch that
+    /// could not be read holds nothing, and nothing on the issue changes.
+    fn overlap_ok(&mut self, n: u64) -> bool {
+        if !self.c.overlap_hold {
+            return true;
+        }
+        let w = self.work(n);
+        let Some(body) = w.get("body").and_then(Value::as_str).map(str::to_string) else {
+            return true;
+        };
+        if tehas_core::overlap::named(&body).is_empty() {
+            return true;
+        }
+        let others: Vec<u64> = self.live().map(|(m, _)| *m).filter(|m| *m != n).collect();
+        if others.is_empty() {
+            return true;
+        }
+        let Some(changed) = &self.s.overlap else {
+            self.need("overlap");
+            return false;
+        };
+        let hit = others.iter().find_map(|m| {
+            let files = changed.get(m)?.as_ref()?;
+            let path = tehas_core::overlap::matches(&body, files)
+                .into_iter()
+                .next()?;
+            Some((*m, path))
+        });
+        let Some((m, path)) = hit else {
+            return true;
+        };
+        self.log(format!("wait #{n}: a running cycle on #{m} changes {path}"));
+        false
+    }
+
     /// image_missing_ok: a text that promises a file and links none waits for
     /// its owner, with nothing on the issue changed.
     fn image_missing_ok(&mut self, n: u64) -> bool {
@@ -2651,6 +2687,9 @@ impl<'a> Poll<'a> {
                 || !self.image_missing_ok(n)
                 || self.park_holds(n, fixer.as_ref().map(|_| at.as_str()), &mut lift)?
             {
+                continue;
+            }
+            if !self.overlap_ok(n) {
                 continue;
             }
             if kind == 'x' && !self.low_gate(n) {
