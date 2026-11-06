@@ -817,6 +817,10 @@ pub fn run(home: &Path, g: &Given) -> i32 {
         eprintln!("{line}");
         return 78;
     }
+    if let Err(line) = sandbox::cycle_token("tehas work") {
+        eprintln!("{line}");
+        return 78;
+    }
     if !checkout_ok() {
         return 78;
     }
@@ -1062,8 +1066,9 @@ pub fn run(home: &Path, g: &Given) -> i32 {
 
     // The runner is the container's command, so a docker stop reaches it: it
     // ends the cycle as interrupted and still writes its result. The container
-    // reads the app's token from a directory the host keeps fresh; the renewer
-    // ends with the container, or with the watch.
+    // is given the cycle token; the app's token, which the host side acts with
+    // after the run, is kept fresh by the renewer, which ends with the
+    // container, or with the watch.
     let renew = renewer(home);
     let given = watch::Given {
         issue: n,
