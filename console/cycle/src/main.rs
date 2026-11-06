@@ -26,7 +26,8 @@
 //!       --parked true|false --pr <url> --by <login> --how <how>
 //!       --approved <json> --image <id> --image-built <time>
 //!       --rukas-image <commit> --oom <n> --forks <n> --reason <text>
-//!       --build <commit> --signalled 0|1 --workdir <dir> --console <path>
+//!       --build <commit> --handoff-delivered true|false --signalled 0|1
+//!       --workdir <dir> --console <path>
 //!       --status-cmd <path>
 //!                                     what follows a cycle's record, each
 //!                                     step's failure a WARN line: the live
@@ -645,6 +646,7 @@ fn after_verb(home: &Path, n: u64, args: &[String]) {
             "--forks" => a.forks = v,
             "--reason" => e.reason = v,
             "--build" => e.build = v,
+            "--handoff-delivered" => e.handoff_delivered = Some(v == "true"),
             "--signalled" => a.signalled = v == "1",
             "--workdir" => a.workdir = v,
             "--console" => a.console = v,

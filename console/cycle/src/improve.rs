@@ -165,6 +165,9 @@ pub struct Ended {
     pub cap: String,
     pub reason: String,
     pub build: String,
+    /// Whether the handoff of pi-rukas reached a comment, None when the
+    /// cycle had none.
+    pub handoff_delivered: Option<bool>,
 }
 
 fn re(pattern: &str, s: &str) -> bool {
@@ -328,7 +331,7 @@ pub fn write(
         .filter(|c| c.is_ascii_alphanumeric() || "_.:-".contains(*c))
         .take(80)
         .collect();
-    let reason = cut(&prose(&e.reason), 200);
+    let reason = crate::runner::cut_reason(&prose(&e.reason));
     let kills = if re(r"^(0|[1-9][0-9]{0,8})$", &e.kills) {
         e.kills.as_str()
     } else {
@@ -363,6 +366,10 @@ pub fn write(
         ("image", J::text_or_null(image)),
         ("cap", J::text_or_null(&cap)),
         ("capReason", J::text_or_null(&reason)),
+        (
+            "handoffDelivered",
+            e.handoff_delivered.map_or(J::null(), J::bool),
+        ),
         ("settings", ran_with),
         ("concurrentCycles", concurrent),
         ("providerRetry", J::text_or_null(&retry)),
