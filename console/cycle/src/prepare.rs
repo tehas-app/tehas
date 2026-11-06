@@ -245,7 +245,13 @@ pub fn check(c: &Check) -> i32 {
     };
     let kind = Kind::Cycle;
     let mut vars = sandbox::env_options(kind, &who, &sandbox::ensemble(kind), &sandbox::tokens());
-    let hosts = sandbox::hosts(&env("PI_ENSEMBLE_HOST_ALIASES"));
+    let hosts = match sandbox::network(&env("PI_ENSEMBLE_HOST_ALIASES")) {
+        Ok(hosts) => hosts,
+        Err(why) => {
+            eprintln!("tehas work: {why}, not starting a cycle");
+            return 78;
+        }
+    };
     if scratch(c, &mut security).is_none() {
         return 78;
     }
@@ -551,7 +557,7 @@ fn push_check(t: &Tree, state: &Value, tree: &str, preflight: &Path) -> Option<i
         return Some(3);
     };
     let rc = code(
-        bounded(10, t.push_wait, &words)
+        sandbox::give_cycle_token(&mut bounded(10, t.push_wait, &words))
             .stdout(log)
             .stderr(err)
             .status(),

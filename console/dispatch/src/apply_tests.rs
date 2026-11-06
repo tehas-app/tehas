@@ -174,6 +174,7 @@ fn world() -> World {
             allowed: vec!["alice".into()],
             millwright: "mill-bot".into(),
             bot: "tehas-bot".into(),
+            cycle: String::new(),
             owner: String::new(),
             systemctl: s("start"),
             start_cmd: Some(s("start")),
@@ -1393,6 +1394,46 @@ fn a_comments_retry_leaves_out_what_does_not_count() {
             "gh api repos/example-owner/example-product/collaborators/carol/permission"
         ]
     );
+}
+
+#[test]
+fn a_comments_retry_reads_the_cycle_tokens_pull_requests_and_leaves_out_its_comments() {
+    let mut t = world();
+    t.w.host.cycle = "tehas-cycle".into();
+    t.w.host.allowed = vec!["alice".into(), "tehas-cycle".into()];
+    fs::write(
+        t.dir.join("prs"),
+        r#"[{"number": 30, "headRefName": "feature/issue-7-x", "body": ""}]"#,
+    )
+    .unwrap();
+    fs::write(
+        t.dir.join("comments-30"),
+        json!([
+            said(1, "tehas-cycle", "2026-10-26T09:05:00Z", "the cycle's"),
+            said(2, "alice", "2026-10-26T09:10:00Z", "counts"),
+        ])
+        .to_string(),
+    )
+    .unwrap();
+    t.apply(json!([comments_retry()]));
+    let ctx = input_of(&t)["retry_context"].clone();
+    assert_eq!(ctx.as_array().unwrap().len(), 1, "{ctx}");
+    assert_eq!(ctx[0]["text"], "counts");
+    let lists: Vec<String> = t
+        .calls()
+        .into_iter()
+        .filter(|c| c.starts_with("gh pr list"))
+        .collect();
+    assert_eq!(lists.len(), 2, "{lists:?}");
+    assert!(lists[0].contains("--author tehas-bot "), "{lists:?}");
+    assert!(lists[1].contains("--author tehas-cycle "), "{lists:?}");
+    // Once per pull request, though both lists name it.
+    let read = t
+        .calls()
+        .into_iter()
+        .filter(|c| c.contains("issues/30/comments"))
+        .count();
+    assert_eq!(read, 1);
 }
 
 #[test]

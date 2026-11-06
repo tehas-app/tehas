@@ -7,12 +7,14 @@ pub mod approval;
 #[cfg(feature = "mask")]
 pub mod call;
 pub mod disk;
+pub mod egress;
 pub mod env_file;
 pub mod events;
 pub mod file;
 pub mod forge;
 pub mod grammar;
 pub mod hold;
+pub mod hostnet;
 pub mod install;
 #[cfg(feature = "mask")]
 pub mod journal;
