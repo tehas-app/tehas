@@ -323,6 +323,21 @@ impl<'a> Poll<'a> {
         self.live().any(|(r, _)| *r == n)
     }
 
+    /// TEHAS_READ_ONLY (#608): a start of this host is on record for the
+    /// issue, and the labels that would say so on GitHub were never written.
+    /// Said in a dry run only, as each poll would say it again.
+    fn read_only_ran(&mut self, n: u64) -> bool {
+        if !self.c.read_only || !self.s.read_only_ran.contains(&n) {
+            return false;
+        }
+        if self.dry {
+            self.log(format!(
+                "skip #{n}: read-only, and this host started it before: remove state/read-only/{n}.json to start it again"
+            ));
+        }
+        true
+    }
+
     fn plan_open(&self, n: u64) -> bool {
         matches!(&self.s.plan_open, Ok(v) if v.contains(&n)) && !self.plan_closed.contains(&n)
     }
@@ -2626,6 +2641,9 @@ impl<'a> Poll<'a> {
             }
             if self.running(n) {
                 self.log(format!("wait #{n}: its cycle is still running"));
+                continue;
+            }
+            if self.read_only_ran(n) {
                 continue;
             }
             let ask = if has(&labels, "tehas:ready") {

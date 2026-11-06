@@ -452,6 +452,9 @@ impl Poll<'_> {
             if self.control_ask(n, &format!("`{label}`")) {
                 continue;
             }
+            if self.read_only_ran(n) {
+                continue;
+            }
             if !room.limit_plan_ok {
                 if self.dry {
                     self.log(format!(

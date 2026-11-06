@@ -13,6 +13,10 @@
 //! `gh api graphql` always posts, so it is told by the operation at the start
 //! of its query: a mutation is a write of kind `api POST` (#792).
 //!
+//! On a read-only instance (TEHAS_READ_ONLY=1, #608) only the calls [`reads`]
+//! knows run; every other one, a write or a command it does not know, is
+//! refused, says what it would have been, and exits 0.
+//!
 //! A log that cannot be written changes nothing of gh's result: one word about
 //! it comes on the error stream after gh's own.
 //!
@@ -220,6 +224,70 @@ pub fn line(at: i64, w: &Write, rc: i32, marker: &str) -> String {
     )
 }
 
+/// Whether a call only reads, as a read-only instance (#608) lets it run: a
+/// short list, the same as host/sandbox/gh-shim, and anything else counts as
+/// a write, so a command gh adds later is refused too. `gh api` reads with
+/// `-X GET`, with no method and no field, or as a graphql query.
+pub fn reads(args: &[String]) -> bool {
+    let a = |k: usize| args.get(k).map(String::as_str).unwrap_or("");
+    match (a(0), a(1)) {
+        ("search" | "--version" | "version", _) => true,
+        ("api", _) => classify(args).is_none_or(|w| w.kind == "api GET"),
+        (cmd, v) => matches!(
+            (cmd, v),
+            ("issue", "view" | "list" | "status")
+                | ("pr", "view" | "list" | "status" | "checks" | "diff")
+                | ("repo", "view" | "clone")
+                | ("label", "list")
+                | ("run", "view" | "list")
+                | ("release", "view" | "list" | "download")
+                | ("auth", "status" | "token" | "git-credential" | "setup-git")
+        ),
+    }
+}
+
+// A call no kind of write names, told by its first two words and the
+// repository it gives: `gh release create o/r`.
+fn other(args: &[String]) -> Write {
+    let mut repo = String::new();
+    let mut prev = "";
+    for a in args {
+        if matches!(prev, "-R" | "--repo") {
+            repo = a.clone();
+        }
+        prev = a;
+        if let Some(r) = a.strip_prefix("-R=").or_else(|| a.strip_prefix("--repo=")) {
+            repo = r.to_string();
+        }
+    }
+    let kind: Vec<&str> = args
+        .iter()
+        .take(2)
+        .map(String::as_str)
+        .take_while(|w| !w.starts_with('-'))
+        .collect();
+    Write {
+        kind: kind.join(" "),
+        repo,
+        number: String::new(),
+    }
+}
+
+/// What a refused write was, in the words of its log line: `gh issue edit
+/// o/r#7`, with no number or repository when the call names none.
+pub fn refused(w: &Write) -> String {
+    let mut s = format!("gh {}", w.kind);
+    if !w.repo.is_empty() {
+        s.push(' ');
+        s.push_str(&w.repo);
+    }
+    if !w.number.is_empty() {
+        s.push_str(if w.repo.is_empty() { " #" } else { "#" });
+        s.push_str(&w.number);
+    }
+    s
+}
+
 /// GitHub refused the call for a rate limit: gh failed and its error stream
 /// says 429, or 403 and "rate limit", which GitHub puts on lines of their own.
 /// As host/sandbox/gh-shim reads it.
@@ -298,7 +366,17 @@ pub fn main(given: &[OsString]) -> u8 {
         .iter()
         .map(|w| w.to_string_lossy().into_owned())
         .collect();
-    let Some(w) = classify(&args) else {
+    let w = classify(&args);
+    // A read-only instance (#608): a call that is not a known read is not run
+    // and leaves no line in the write log, which counts what reached GitHub.
+    // Its caller goes on as after a write that answered nothing.
+    if !reads(&args) {
+        let what = w.as_ref().map_or_else(|| refused(&other(&args)), refused);
+        if tehas_core::read_only::refuse(&what) {
+            return 0;
+        }
+    }
+    let Some(w) = w else {
         let e = Command::new(gh).args(words).exec();
         let _ = writeln!(io::stderr(), "gh: {}: {e}", Path::new(gh).display());
         return 127;
@@ -355,6 +433,91 @@ mod tests {
             repo: repo.into(),
             number: number.into(),
         })
+    }
+
+    #[test]
+    fn a_refused_write_is_named_by_its_kind_repository_and_number() {
+        let r = |words: &[&str]| refused(&c(words).unwrap());
+        assert_eq!(
+            r(&["issue", "edit", "7", "-R", "o/r", "--add-label", "x"]),
+            "gh issue edit o/r#7"
+        );
+        assert_eq!(
+            r(&["label", "create", "x", "-R", "o/r"]),
+            "gh label create o/r"
+        );
+        assert_eq!(r(&["pr", "comment", "3"]), "gh pr comment #3");
+        assert_eq!(r(&["api", "-X", "PATCH", "user"]), "gh api PATCH");
+    }
+
+    #[test]
+    fn read_only_runs_only_the_known_reads() {
+        let r = |words: &[&str]| reads(&words.iter().map(|w| w.to_string()).collect::<Vec<_>>());
+        for words in [
+            &["issue", "view", "12"][..],
+            &["pr", "checks", "3"],
+            &["repo", "view", "o/r"],
+            &["release", "view", "improve", "--repo", "o/r"],
+            &["api", "repos/o/r"],
+            &["api", "-X", "GET", "repos/o/r/issues"],
+            &["api", "graphql", "-f", "query=query { viewer { login } }"],
+            &["auth", "git-credential"],
+            // `tehas setup` clones the product and sets up git's credentials.
+            &["repo", "clone", "o/r", "/tmp/r"],
+            &["auth", "setup-git"],
+            &["search", "issues", "x"],
+        ] {
+            assert!(r(words), "{words:?}");
+        }
+        for words in [
+            &["release", "create", "improve", "--prerelease"][..],
+            &[
+                "release",
+                "upload",
+                "improve",
+                "a.log",
+                "--repo",
+                "o/r",
+                "--clobber",
+            ],
+            &["release", "edit", "improve"],
+            &["release", "delete", "improve"],
+            &["repo", "create", "o/r"],
+            &["workflow", "run", "ci.yml"],
+            &["secret", "set", "X"],
+            &["issue", "comment", "7"],
+            &["api", "-X", "POST", "repos/o/r/issues"],
+            &["api", "graphql", "-f", "query=mutation { x }"],
+            &[],
+        ] {
+            assert!(!r(words), "{words:?}");
+        }
+    }
+
+    #[test]
+    fn a_refused_call_no_write_names_is_told_by_its_first_words() {
+        let o = |words: &[&str]| {
+            refused(&other(
+                &words.iter().map(|w| w.to_string()).collect::<Vec<_>>(),
+            ))
+        };
+        assert_eq!(
+            o(&[
+                "release",
+                "upload",
+                "improve",
+                "a.log",
+                "--repo",
+                "o/r",
+                "--clobber"
+            ]),
+            "gh release upload o/r"
+        );
+        assert_eq!(
+            o(&["release", "create", "improve", "--prerelease"]),
+            "gh release create"
+        );
+        assert_eq!(o(&["workflow", "-R=o/r", "x"]), "gh workflow o/r");
     }
 
     #[test]

@@ -694,6 +694,11 @@ fn propose(branch: &str, dry: bool) -> Result<u8, u8> {
     if dry {
         return Ok(0);
     }
+    // A read-only instance (#608): what the push and the pull request would
+    // have been is said, and nothing leaves the host.
+    if tehas_core::read_only::refuse(&format!("push {HEAD} to {name} and open its pull request")) {
+        return Ok(0);
+    }
 
     let on_origin = read(git(tree).args(["ls-remote", "--heads", "origin", HEAD]));
     if !on_origin.unwrap_or_default().is_empty() {

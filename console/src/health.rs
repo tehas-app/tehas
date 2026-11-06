@@ -2310,6 +2310,11 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
     if let Some(i) = industry_check {
         checks.push(("industry", i));
     }
+    // TEHAS_READ_ONLY (#608): said only when on, so a health file of any
+    // other instance is as it was.
+    if tehas_core::read_only::on() {
+        checks.push(("readOnly", J::Bool(true)));
+    }
     obj(vec![
         ("status", J::str(status)),
         ("time", J::Str(time::iso(now))),

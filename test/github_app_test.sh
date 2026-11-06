@@ -340,4 +340,48 @@ t_run ". $T/home/tehas/env.sh; command -v gh; echo \"token=\${GH_TOKEN:-none}\""
 t_eq "$t_out" "$T/home/tehas/bin/gh
 token=ghp_user"
 
+
+t_case "read-only: the shim runs no write, says what it would have done and keeps the line; a read still runs"
+reset
+installed
+t_instance TEHAS_REPO=acme/widget
+t_run "export TEHAS_READ_ONLY=1 TEHAS_HOME=$T/home/tehas GH_TOKEN=ghp_user
+$T/home/tehas/shim/gh issue edit 7 --repo acme/widget --add-label tehas:running; echo rc=\$?
+$T/home/tehas/shim/gh api -X POST repos/acme/widget/issues/7/comments -f body=hello; echo rc=\$?
+$T/home/tehas/shim/gh release create improve --repo acme/lab --prerelease; echo rc=\$?
+$T/home/tehas/shim/gh release upload improve cycle.log --repo acme/lab --clobber; echo rc=\$?
+$T/home/tehas/shim/gh issue view 7 --repo acme/widget"
+t_eq "$t_rc" 0
+# A call no write is known by is refused too: only the reads run (#608).
+t_eq "$t_out" "read-only: would gh issue edit acme/widget#7
+rc=0
+read-only: would gh api POST acme/widget#7
+rc=0
+read-only: would gh release create acme/lab
+rc=0
+read-only: would gh release upload acme/lab
+rc=0
+gh issue view 7 --repo acme/widget token=ghp_user"
+t_contains "$(cat "$T/home/tehas/state/read-only.log")" "read-only: would gh issue edit acme/widget#7"
+t_eq "$(grep -c 'read-only: would' "$T/home/tehas/state/read-only.log")" 4
+# The write log counts what reached GitHub, and nothing did.
+t_eq "$(cat "$T/home/tehas/state/github-writes.log" 2>/dev/null)" ""
+
+t_case "read-only with no console: the shim runs nothing, not even a read"
+reset
+installed
+rm -f "$T/home/tehas/libexec/console"
+t_run "TEHAS_READ_ONLY=1 GH_TOKEN=ghp_user $T/home/tehas/shim/gh issue view 7"
+t_eq "$t_rc" 1
+t_contains "$t_out" "TEHAS_READ_ONLY=1 and no console"
+t_lacks "$t_out" "gh issue view 7 token"
+
+t_case "env.sh on a read-only instance with no app puts the shim first, once"
+reset
+installed
+t_instance TEHAS_REPO=acme/widget TEHAS_READ_ONLY=1
+t_run ". $T/home/tehas/env.sh; . $T/home/tehas/env.sh; command -v gh; echo \"\$PATH\" | tr : '\\n' | grep -c -x \"$T/home/tehas/shim\""
+t_eq "$t_out" "$T/home/tehas/shim/gh
+1"
+
 t_done

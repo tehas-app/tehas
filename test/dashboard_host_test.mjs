@@ -408,3 +408,27 @@ test("two pages from one copy of the module share no state", async () => {
   assert.ok(served.chosen().length > 1);
   assert.ok(served.chosen().every((issue) => issue === null));
 });
+
+test("a read-only factory says so and lists what its starts left, with the pull request text", async () => {
+  const p = await page({ status: { readOnly: { on: true, starts: [
+    { issue: 7, how: "cycle", at: new Date(T * 1000).toISOString(), workspace: "/h/work/widget-7",
+      pr: { title: "Fix the thing", branch: "feature/issue-7", body: "The body." } },
+    { issue: 9, how: "cycle", at: new Date(T * 1000).toISOString(), workspace: "/h/work/widget-9" },
+  ] } } });
+  assert.deepEqual(p.errors, []);
+  assert.equal(p.hidden("readonly"), false);
+  assert.equal(p.hidden("ro"), false);
+  assert.equal(p.text("n-ro"), "(2)");
+  const rows = p.items("ro-list");
+  assert.match(rows[0], /^#7Fix the thing feature\/issue-7 in \/h\/work\/widget-7, /);
+  assert.match(rows[0], /The body\.$/);
+  assert.match(rows[1], /^#9cycle started, no pull request yet \/h\/work\/widget-9, /);
+});
+
+test("a factory that is not read-only shows no read-only pill or section", async () => {
+  const p = await page();
+  assert.deepEqual(p.errors, []);
+  assert.equal(p.hidden("readonly"), true);
+  assert.equal(p.hidden("ro"), true);
+  assert.deepEqual(p.items("ro-list"), []);
+});

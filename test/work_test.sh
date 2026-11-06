@@ -282,6 +282,24 @@ PI_ENSEMBLE_VERIFY_TIMEOUT_MS
 PI_ENSEMBLE_WORKSPACE_ROOT"
 t_eq "$(after -e | sed 's/=.*//' | LC_ALL=C sort)" "$(printf '%s\n' "$want" | LC_ALL=C sort)"
 
+t_case "read-only: the container is told so, and its git pushes to origin land in the workspace"
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9 TEHAS_READ_ONLY=1
+rm -f "$T"/calls/*
+t_run "$work 7"
+ro_want="$want
+GIT_CONFIG_KEY_4
+GIT_CONFIG_KEY_5
+GIT_CONFIG_VALUE_4
+GIT_CONFIG_VALUE_5
+TEHAS_READ_ONLY"
+t_eq "$(after -e | sed 's/=.*//' | LC_ALL=C sort)" "$(printf '%s\n' "$ro_want" | LC_ALL=C sort)"
+t_eq "$(after -e | grep -E '^(GIT_CONFIG_COUNT|GIT_CONFIG_KEY_4|GIT_CONFIG_VALUE_5|TEHAS_READ_ONLY)=' | tr '\n' ' ')" \
+  "GIT_CONFIG_COUNT=6 GIT_CONFIG_KEY_4=remote.origin.pushurl GIT_CONFIG_VALUE_5=https://github.com/ TEHAS_READ_ONLY=1 "
+t_eq "$(after -e | grep '^GIT_CONFIG_VALUE_4=')" "GIT_CONFIG_VALUE_4=$(after -e | sed -n 's/^PI_ENSEMBLE_WORKSPACE_ROOT=//p')"
+# The push check is given the same: its dry run asks the workspace.
+t_contains "$(preflight_args | tr '\n' ' ')" "GIT_CONFIG_KEY_4=remote.origin.pushurl"
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
+
 t_case "the poll's token, which the load keeps, is not passed in"
 T_ENV=("${env_ok[@]}" TEHAS_GH_TOKEN=ghs_poll)
 rm -f "$T"/calls/*
