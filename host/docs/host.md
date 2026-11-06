@@ -346,7 +346,10 @@ opens a pull request that removes it and tags nothing until that is merged
 ([Polyfills](/tools#polyfills-of-pi-rukas-features)). Before it tags, it moves
 every pinned tool to the newest minor and patch of its major version, and when
 anything moved it opens a pull request for that and tags nothing until it is
-merged ([Pinned tools](/tools#pinned-tools-move-with-the-release)).
+merged ([Pinned tools](/tools#pinned-tools-move-with-the-release)). The
+script is a short exec of `xtask tag-release` (`console/xtask/src/tag.rs`),
+which cargo builds from the checkout, so a checkout that releases needs cargo,
+or a build named in `TEHAS_XTASK`.
 `scripts/tag-deploy.sh tehas-tehas` refuses
 unless the newest tag is the head of that branch, runs
 `. ~/tehas/env.sh && tehas update` on the host over ssh, then checks that the
