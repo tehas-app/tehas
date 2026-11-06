@@ -175,6 +175,15 @@ t_eq "$t_rc" 0
 t_eq "$(jq -cS . "$home/.pi/agent/settings.json")" \
   '{"defaultModel":"test-model","defaultProvider":"other-provider","hideThinkingBlock":false}'
 
+t_case "an instance's Pi settings that are not JSON install nothing and exit 78"
+fresh
+instance
+echo '{"defaultProvider":' >"$TEHAS_INSTANCE_DIR/settings.json"
+t_run "$install"
+t_eq "$t_rc" 78
+t_contains "$t_out" "tehas: $TEHAS_INSTANCE_DIR/settings.json is not valid JSON; nothing was installed"
+t_eq "$(installed_files | grep -cv '^./tehas/state/')" 0
+
 t_case "with no settings.json in the instance, Pi gets the generic settings and the instance's session model"
 fresh
 instance
@@ -182,7 +191,7 @@ rm -f "$TEHAS_INSTANCE_DIR/settings.json"
 t_run "$install"
 t_eq "$t_rc" 0
 t_eq "$(jq -c '[.defaultProvider, .defaultModel]' "$home/.pi/agent/settings.json")" '["test-provider","test-model"]'
-t_eq "$(jq -c 'del(.defaultProvider, .defaultModel)' "$home/.pi/agent/settings.json")" "$(jq -c . "$T_ROOT/host/pi/settings.json")"
+t_eq "$(jq -cS 'del(.defaultProvider, .defaultModel)' "$home/.pi/agent/settings.json")" "$(jq -cS . "$T_ROOT/host/pi/settings.json")"
 
 t_case "a second install changes nothing in Pi's files"
 t_run "$install"
@@ -202,7 +211,7 @@ m=$home/.pi/agent/models.json
 t_eq "$(jq -c '.providers["test-provider"] | [.baseUrl, .api, .apiKey]' "$m")" '["http://m.test/v1","openai-completions","unused"]'
 t_eq "$(jq -c '.providers["test-provider"].compat' "$m")" '{"supportsDeveloperRole":false,"supportsReasoningEffort":false}'
 t_eq "$(jq -c '.providers["test-provider"].models[0] | [.name, .input, .reasoning]' "$m")" '["test-model",["text"],false]'
-t_eq "$(jq -c '.providers["test-provider"].models[0].cost' "$m")" '{"input":0,"output":0,"cacheRead":0,"cacheWrite":0}'
+t_eq "$(jq -cS '.providers["test-provider"].models[0].cost' "$m")" '{"cacheRead":0,"cacheWrite":0,"input":0,"output":0}'
 t_case "a key the model list gives is kept"
 t_eq "$(jq -c '.providers["test-provider"].models[1] | [.name, .input, .reasoning]' "$m")" '["Named",["text","image"],true]'
 
