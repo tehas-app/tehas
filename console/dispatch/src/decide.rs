@@ -128,6 +128,8 @@ pub struct Decision {
     pub needs: Vec<&'static str>,
     /// Past the bot's checks: the poll's end runs tidy from here on.
     pub tidy: bool,
+    /// A pause holds the factory: the poll's finish step waits with it.
+    pub paused: bool,
     /// The bot's login, which the poll's writes name.
     pub bot: String,
     /// Where the poll sweeps the unused locks (after its clean-up) and
@@ -436,6 +438,7 @@ impl<'a> Poll<'a> {
         self.d.swept_at = Some((self.d.actions.len(), self.d.log.len()));
         // 1b. The pause switches end the poll here.
         if let Some(h) = holds {
+            self.d.paused = true;
             if self.dry || news {
                 self.log(format!("paused: {h}"));
             }
@@ -2848,7 +2851,7 @@ impl<'a> Poll<'a> {
 
 /// The person's approval a record rests on, {at, by, how,
 /// body_sha256}, when it reads as one.
-fn fixer_base(record: &Value) -> Option<Value> {
+pub(crate) fn fixer_base(record: &Value) -> Option<Value> {
     let how = record.get("how").and_then(Value::as_str);
     let base = if matches!(how, Some("fixer" | "refresh")) {
         record.get("rests_on")?
@@ -2873,7 +2876,7 @@ fn fixer_base(record: &Value) -> Option<Value> {
 }
 
 /// The fixer starts a record counts, at most six digits.
-fn fixer_starts(record: &Value) -> Option<u64> {
+pub(crate) fn fixer_starts(record: &Value) -> Option<u64> {
     let whole = |v: &Value, min: f64| v.as_f64().filter(|f| *f >= min && f.fract() == 0.0);
     let n = match record.get("how").and_then(Value::as_str) {
         Some("fixer") => whole(record.get("fixer_starts")?, 1.0)?,

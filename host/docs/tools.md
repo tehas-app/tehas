@@ -1829,14 +1829,15 @@ build one from.
 tehas labels        # one line per label
 ```
 
-Creates the twenty labels tehas uses in the product repository: `tehas:ready`,
+Creates the twenty-one labels tehas uses in the product repository: `tehas:ready`,
 `tehas:urgent`, `tehas:running`, `tehas:awaiting-merge`, `tehas:shipped`, `tehas:pause`,
 `needs-human-attention`, `tehas:question`, `tehas:plan`, `tehas:refine`, `tehas:planning`,
 `tehas:replaced` and `tehas:refined` (an issue a [refine](/operating#refining-a-request)
 filed a ticket for), `tehas:millwright-escalated`, `tehas:next`, `tehas:blocked`, `tehas:refreshing` (on a
 pull request a [refresh](/operating#refreshes) works on), `tehas:all-hands`,
-`tehas:lean` (see [choosing the driver](/operating#choosing-the-driver)) and
-`epic` (see [epics](/operating#3-what-happens-next)).
+`tehas:lean` (see [choosing the driver](/operating#choosing-the-driver)),
+`epic` (see [epics](/operating#3-what-happens-next)) and `tehas:finish` (see
+[finishing a stopped cycle](/operating#finishing-a-stopped-cycle)).
 Run it once for a new product, and again after pulling a version that adds a
 label. Run again, it puts their colours and descriptions back. The labels are
 the lines of `~/tehas/lib/labels.tsv`, which `install.sh` copies from
@@ -2270,7 +2271,7 @@ tehas api [--json]
 api         1
 tehas       v0.8.0 (cb6912a)
 repo        tehas-app/tehas
-features    status millwright-grant fixer-grant all-hands limit drain history export refresh-conflicts analytics state-move pr-title mcp-dashboard-keys clean disk state-check
+features    status millwright-grant fixer-grant all-hands limit drain history export refresh-conflicts analytics state-move pr-title mcp-dashboard-keys clean disk state-check finish
 millwright  none
 poll        last 24 s wall, 1.5 s CPU, 12 gh; last hour 14 polls, 41 s CPU
 ```
@@ -2556,7 +2557,8 @@ put it: whether the failure was outside the change is the asker's judgement, and
 the draft never says the gate was green. Of the settings it reads only
 `TEHAS_WORK_DIR`, the name the workspace was given by; the rest it is given, so
 what it works on is what the caller named. It asks no authorisation: who asked
-is what the poll's step of the next change checks before it calls this.
+is what [the poll's finish step](/operating#finishing-a-stopped-cycle) checks
+before it calls this.
 
 It refuses with one line on standard error and exit 1, and changes nothing,
 when: the workspace or the branch is missing or is no git repository, the
@@ -2567,9 +2569,9 @@ already has an open pull request of its branch or one whose body closes it (a
 body that denies the closing word, `this does not fix #<n>`, names no pull
 request of the issue), or the rebase conflicts. A push the remote refuses is not
 tried again. A refusal
-names the rule and, where the command said something, its first line. The ask
-that runs this verb, the marked comment and the label that carries it, is the
-next change: on a host today the verb is run by hand.
+names the rule and, where the command said something, its first line. On a
+host the poll runs it when an issue asks with a marked comment and
+`tehas:finish`; see [finishing a stopped cycle](/operating#finishing-a-stopped-cycle).
 
 It runs [tehas work](#tehas-work) for the issue, reads the runner's result
 that `tehas work` left in `~/tehas/state/cycles/<issue>.result.json` (status,
