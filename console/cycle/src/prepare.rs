@@ -557,7 +557,7 @@ fn push_check(t: &Tree, state: &Value, tree: &str, preflight: &Path) -> Option<i
         return Some(3);
     };
     let rc = code(
-        bounded(10, t.push_wait, &words)
+        sandbox::give_cycle_token(&mut bounded(10, t.push_wait, &words))
             .stdout(log)
             .stderr(err)
             .status(),
