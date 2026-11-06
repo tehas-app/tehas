@@ -41,6 +41,20 @@ pub fn cut(s: &str, n: usize) -> String {
     s.chars().take(n).collect()
 }
 
+/// The most characters of the reason a cycle ended with that its end keeps,
+/// as many as the condensed stream keeps of a text (#718).
+pub const REASON_MOST: usize = 2000;
+const REASON_CUT: &str = " (cut)";
+
+/// A reason of at most REASON_MOST characters, ending ` (cut)` when it was
+/// longer. Cutting one already cut changes nothing.
+pub fn cut_reason(s: &str) -> String {
+    if s.chars().nth(REASON_MOST).is_none() {
+        return s.to_string();
+    }
+    cut(s, REASON_MOST - REASON_CUT.len()) + REASON_CUT
+}
+
 fn plain(v: Option<&Value>) -> String {
     match v {
         Some(Value::String(s)) => kept(s, |c| c.is_ascii_alphanumeric() || "_.:/-".contains(c)),
@@ -288,11 +302,11 @@ pub fn progress_fields(text: Option<&str>) -> [String; 6] {
         Value::String(s) => Value::String(s.replace('\n', " ")),
         o => o,
     };
-    f[1] = keep(
+    f[1] = cut_reason(&keep(
         &reason,
         |c| c.is_ascii_alphanumeric() || " _.,:;/()=+-".contains(c),
-        200,
-    );
+        usize::MAX,
+    ));
     let Some(from) = get.at(&v, &["from", "failure"]) else {
         return f;
     };
@@ -663,6 +677,24 @@ mod tests {
         ));
         assert_eq!(f[2..], ["result", "provider", "coder", "xy"]);
         assert_eq!(progress_fields(Some("[1]"))[0], "");
+    }
+
+    #[test]
+    fn a_long_reason_is_kept_whole_up_to_its_bound_and_says_where_it_was_cut() {
+        // #718: a cause of 180 characters was cut mid-word at 200.
+        let long = "verify-timeout verify command bash scripts/verify.sh exceeded its 30-min timeout on the CONSOLIDATED tree at /w/tehas (PI_ENSEMBLE_VERIFY_SUITE_TIMEOUT_MS=1800000), so the run was killed at the bound; the gate was still running test/cycle_test.sh";
+        assert!(long.len() > 200);
+        let f = progress_fields(Some(&format!(r#"{{"reason":"{long}"}}"#)));
+        assert_eq!(f[1], long);
+        let huge = "x".repeat(REASON_MOST + 1);
+        let f = progress_fields(Some(&format!(r#"{{"reason":"{huge}"}}"#)));
+        assert_eq!(f[1].chars().count(), REASON_MOST);
+        assert!(f[1].ends_with("x (cut)"), "{}", &f[1][1980..]);
+        assert_eq!(cut_reason(&f[1]), f[1]);
+        assert_eq!(
+            cut_reason(&"y".repeat(REASON_MOST)),
+            "y".repeat(REASON_MOST)
+        );
     }
 
     #[test]

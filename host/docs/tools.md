@@ -101,6 +101,7 @@ in the platform repository has every one with a comment.
 | `TEHAS_MILLWRIGHT_EPICS`       | `0`                                      | 1 lets a person's `tehas:ready` on an epic approve its open sub-issues for the millwright (see [the millwright's grant](/operating#the-millwrights-grant)). Anything but 0 or 1 stops every command with 78 |
 | `TEHAS_REFRESH_CONFLICTS`      | `0`                                      | 1 has the factory resolve conflicts in its own pull requests that wait for a merge (see [refreshes](/operating#refreshes)). Anything but 0 or 1 stops every command with 78 |
 | `TEHAS_EASY_MERGE`             | `0`                                      | 1 lets the dispatcher choose an easy merge for a refresh start instead of the full refresh cycle (see [refreshes](/operating#refreshes)): one merge of the branch into the pull request with no model and no container, at most once since the person's approval. The full refresh runs when the setting is off, when that approval has had its easy merge, when the store names no row for an easy merge it says the approval had, when nothing ran on record after the last easy merge, or when a check named by `TEHAS_BRANCH_CHECK` failed on the pull request after it. Today the choice is on the approval record, in `dispatch.log` and in the comment on the issue: the cycle an easy start runs is still the full refresh, so no host has merged this way yet. Anything but 0 or 1 stops every command with 78 |
+| `TEHAS_OVERLAP_HOLD`           | `0`                                      | 1 holds a start while a running cycle's branch changes a path the issue's body names (see [what happens next](/operating#3-what-happens-next)). Anything but 0 or 1 stops every command with 78 |
 | `TEHAS_REFRESH_MAX`            | `2`                                      | Refreshes of one pull request since the person's approval its cycle rests on. A positive whole number |
 | `TEHAS_REFRESH_EVERY`          | `10`                                     | Minutes between two runs of `tehasbot refresh`, from 1 to 1440 |
 | `TEHAS_REFRESH_SLOTS`          | `1`                                      | Refreshes side by side in a lane of their own, from 0 to 8. They do not count against `TEHAS_TICKET_CONCURRENCY`, and new cycles leave room in the slice for them (see [refreshes](/operating#refreshes)). 0 has refreshes share the cycles' slots |
@@ -2686,7 +2687,9 @@ nor the dispatcher removes it.
 The pull request is looked up in every state. One that a person merged while
 the cycle ran ends the cycle as merged, whatever the result says: the
 issue only loses `tehas:running`, the comment says the pull request was merged
-while the cycle ran, nothing is parked, and the tail of every poll,
+while the cycle ran and names the runner's exit, the cycle's record ends
+`merged` with exit status 0 (the runner's own stays its `runner_exit`), nothing
+is parked, and the tail of every poll,
 [`console tidy run`](#tehas-dispatch), and
 [tehasbot status](#tehasbot-status-and-the-console)
 label the closed issue `tehas:shipped`. One that a person closed without
@@ -2754,7 +2757,14 @@ else the cap, else the status; a cap or status that reads `provider-outage` is
 recorded as `cap:provider-outage`, as only tehas names an outage), and with the failure before it (the reason
 `tehas work` wrote to the progress file) into the
 record for the improvement loop as `cap` and `capReason`, reduced to plain
-characters. A cycle that ended at tehas's own bound gets tehas's cap:
+characters. The reason is kept whole up to 2000 characters, as many as the
+condensed stream keeps of a text; a longer one ends ` (cut)`, and so does the
+park comment's. The record's `handoffDelivered` says whether pi-rukas's
+handoff reached a comment, on the issue or on its pull request: `true` when
+the cycle's park or comment that carries it was posted, or lean posted its own
+report; `false` when every post of it failed, and the log then says
+`WARN: the handoff of #N reached no comment: it is only in the run log`;
+`null` when the cycle wrote no handoff. A cycle that ended at tehas's own bound gets tehas's cap:
 `wall-clock` for the time limit, `stall` for the stall, `runner-never-started`
 for the container that ended before the driver wrote its first event, `signal`
 for a container stopped on a `TERM`, `INT` or `HUP`, and a
@@ -3042,7 +3052,7 @@ minutes old, which is what a failed read leaves, and then it warns of nothing.
 | `status` | Meaning                                                                                  | HTTP |
 | -------- | ---------------------------------------------------------------------------------------- | ---- |
 | `pass`   | Taking work, idle or in a cycle                                                          | 200  |
-| `warn`   | The queue snapshot is more than ten minutes old: GitHub did not answer the last polls, and `output` says how old. Or paused (the pause flag on this host, `tehas:pause` on the control issue, or a pause no allowed account took off), or the dispatcher holds everything because the slice is missing or cannot be read, or there are no resources (the model endpoint does not answer or does not offer the model), or too low on disk to build previews, or the free space could not be read, or the platform checkout has been behind origin's default branch for more than a day (`output` says how many commits; run `tehas update`), or the state store has no daily backup or the newest is more than two days old, or an idle poll cost more than its budget (`TEHAS_POLL_BUDGET`, `checks.poll_cost`), or systemd gave up on a tehas unit (`checks.units`, null when that read did not answer), or no cycle runs and the last poll held every issue in line on its own (`checks.slice.held`: issue, why, text, clear), as one whose last cycle parked on the body it still has, or an open issue labelled `epic` has no sub-issues (`checks.epics`; `output` names up to five and says to link their parts as sub-issues), or the MCP server is on and does not answer (`checks.mcp`), or the sandbox image is behind the pi-rukas the host follows (`checks.rukas.behind`; run `tehas update`) | 200  |
+| `warn`   | The queue snapshot is more than ten minutes old: GitHub did not answer the last polls, and `output` says how old. Or paused (the pause flag on this host, `tehas:pause` on the control issue, or a pause no allowed account took off), or the dispatcher holds everything because the slice is missing or cannot be read, or there are no resources (the model endpoint does not answer or does not offer the model), or too low on disk to build previews, or the free space could not be read, or the platform checkout has been behind origin's default branch for more than a day (`output` says how many commits; run `tehas update`), or the state store has no daily backup or the newest is more than two days old, or an idle poll cost more than its budget (`TEHAS_POLL_BUDGET`, `checks.poll_cost`), or systemd gave up on a tehas unit (`checks.units`, null when that read did not answer), or no cycle runs and the last poll held every issue in line on its own (`checks.slice.held`: issue, why, text, clear), as one whose last cycle parked on the body it still has, or an open issue labelled `epic` has no sub-issues (`checks.epics`; `output` names up to five and says to link their parts as sub-issues), or the MCP server is on and does not answer (`checks.mcp`), or the sandbox image is behind the pi-rukas the host follows (`checks.rukas.behind`; run `tehas update`), or the industry that runs the factory raised an alert in the last five minutes or wrote an alerts file that cannot be read (`checks.industry.alerts`) | 200  |
 | `fail`   | The last cycle ended as anything but `merged` or `handoff` and no cycle has started since (a running cycle with no `startedAt` counts as started since), or there is no queue snapshot | 503  |
 
 `output` says the same in a sentence. `checks.queue` has the snapshot time and
@@ -3100,6 +3110,21 @@ from `TEHAS_INDUSTRY_VERSION` in `~/.config/tehas/env`, which industry writes.
 A factory that runs on its own has no `checks.industry`, and its status is
 decided as before. A value that is not `vX.Y.Z`, with an optional `-<suffix>`
 of letters, digits and dots, is left out the same way, and nothing fails.
+
+With an industry, `checks.industry` also carries the alerts it writes into
+`~/tehas/state/industry/alerts.json` on each pass, as [the factory
+API](/api#industry-alerts) describes the file: `alerts`, a list of `{kind,
+since, text, link}`, with `alertsTime`, when the industry wrote them, and
+`alertsStale`, `true` when that is more than five minutes ago. A stale file's
+alerts are listed but not current. `kind` is `paused`, `frozen` or
+`held-by-one`, and a kind this release does not know is kept by its word.
+`since` is in UTC, `text` is one line of at most 200 characters, and `link` is
+`null` when the file's is not an `http` or `https` address. No file yet is
+`alerts: null`. A file that cannot be read, or is not what the industry
+writes, is `alerts: null` with `alertsUnreadable: true`, never an empty list.
+Any current alert makes the health `warn`, with the first alert's text as
+`output`, ahead of the pause the factory knows of itself; an unreadable file
+makes it `warn` with `The industry's alerts cannot be read: ...`.
 
 `checks.backup` is the newest daily copy of the state store, `{time,
 ageSeconds}`, or `null` when there is none (see [Backups and

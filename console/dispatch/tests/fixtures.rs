@@ -822,6 +822,11 @@ fn images() {
 }
 
 #[test]
+fn overlap() {
+    run_suite("overlap");
+}
+
+#[test]
 fn fixer() {
     run_suite("fixer");
 }

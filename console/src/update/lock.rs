@@ -111,7 +111,9 @@ mod tests {
     fn a_lock_let_go_is_taken_again() {
         let d = dir("lock-again");
         drop(Held::take(&d.0, 0).unwrap());
-        assert!(Held::take(&d.0, 0).is_ok());
+        // A child another test forks shares the dropped lock until it execs,
+        // so the second take waits for the lock to come free.
+        assert!(Held::take(&d.0, 10).is_ok());
     }
 
     #[test]

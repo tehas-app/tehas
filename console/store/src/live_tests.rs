@@ -59,7 +59,7 @@ fn publish(home: &Path, at: i64, extra: &[&str]) -> Result<Value, (u8, String)> 
 
 /// The rows behind the fixtures (tests/fixtures/live/README): the cycle files
 /// tehas_live_assemble read, made as heartbeats and ends.
-fn fixture_home() -> (TestDir, Vec<File>) {
+fn fixture_home() -> (TestDir, Vec<Held>) {
     let home = home("publish-fixture");
     let mut locks = Vec::new();
     for (issue, started, status, step, text, ended) in [
@@ -355,7 +355,7 @@ fn ends_of_a_finished_cycle_are_gone_when_a_write_fails() {
 /// The store of `ends_of_a_finished_cycle_are_gone_when_a_write_fails`: #62
 /// running with its lock held, #60 a cycle with no heartbeat of its open
 /// attempt, and a view under live/cycles/ for each of 60, 62 and 99.
-fn partial_home(name: &str) -> (TestDir, File) {
+fn partial_home(name: &str) -> (TestDir, Held) {
     let home = home(name);
     approve(&home, 60, "alice", "label");
     let lock = hold(&home, 60);

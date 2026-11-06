@@ -150,12 +150,24 @@ t_contains "$(t_calls gh)" "runner exit 2"
 t_lacks "$(t_calls gh)" "stopped without a pull request"
 t_lacks "$(t_calls gh)" "issues/7/comments"
 t_eq "$(park_q)" none
-t_contains "$t_out" "done #7 rc=2 status=merged"
+t_contains "$t_out" "done #7 rc=0 status=merged"
 t_contains "$t_out" "pr=https://github.com/acme/widget/pull/9"
 t_eq "$(find "$workdir" -maxdepth 0 2>/dev/null | wc -l)" 1
 t_contains "$(t_calls gh)" "The workspace is kept at \`$kept_here\`"
 t_eq "$(find "$T/home/tehas/state/rukas-proven" 2>/dev/null | wc -l)" 0
 rm -f "$fx/image.label"
+
+t_case "a runner stopped at lens-fix after its pull request merged ends the cycle as merged with 0, its own exit kept"
+reset
+ended interrupted lens-fix feature/x -
+merged_pr
+echo 'mkdir -p "$TEHAS_HOME/state/cycles"; echo 21 >"$TEHAS_HOME/state/cycles/7.runner_exit"' >"$fx/work.sh"
+t_run "$cycle 7"
+t_eq "$t_rc" 0
+t_contains "$t_out" "done #7 rc=0 status=merged step=lens-fix"
+t_contains "$(t_calls gh)" "runner exit 21"
+t_eq "$(t_row cycle-show 7 -- .cycle.runner_exit)" 21
+t_eq "$(park_q)" none
 
 t_case "a pull request closed without a merge parks the issue without the retry boxes"
 reset
