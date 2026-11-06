@@ -1859,7 +1859,7 @@ poll room "holding: the reason"
 t_run "$status && $summary"
 t_eq "$(t_calls systemctl)" "--user --failed --plain --no-legend tehas-*"
 # Only status asks docker, for the label of the image cycles run (src/rukas.rs).
-t_eq "$(t_calls docker)" 'image inspect --format {{.Id}} {{index .Config.Labels "tehas.rukas"}} tehas/pi-rukas:uid1000'
+t_eq "$(t_calls docker)" "image inspect --format {{.Id}} {{index .Config.Labels \"tehas.rukas\"}} tehas/pi-rukas:uid$(id -u)"
 rm -f "$T"/calls/docker
 t_run "$health && $summary"
 t_eq "$(t_calls docker)" ""
@@ -1880,7 +1880,7 @@ t_eq "$(jq -c '{follow, target, image, imageVersion, behind}' "$live/rukas.json"
 t_eq "$(jq -r .checks.rukas.imageVersion "$live/health.json")" v0.14.53
 t_eq "$(jq -r .status "$live/health.json")" warn
 t_eq "$(jq -r .output "$live/health.json")" "The sandbox image runs pi-rukas v0.14.53 and the host follows bbbbbbbb: run tehas update."
-t_contains "$(t_calls docker)" "run --rm --init --network none tehas/pi-rukas:uid1000 /opt/pi-rukas/bin/pi-rukas-headless --capabilities"
+t_contains "$(t_calls docker)" "run --rm --init --network none tehas/pi-rukas:uid$(id -u) /opt/pi-rukas/bin/pi-rukas-headless --capabilities"
 
 t_case "a lost cycle ends two minutes after its last heartbeat"
 reset

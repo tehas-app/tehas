@@ -2684,7 +2684,9 @@ nor the dispatcher removes it.
 The pull request is looked up in every state. One that a person merged while
 the cycle ran ends the cycle as merged, whatever the result says: the
 issue only loses `tehas:running`, the comment says the pull request was merged
-while the cycle ran, nothing is parked, and the tail of every poll,
+while the cycle ran and names the runner's exit, the cycle's record ends
+`merged` with exit status 0 (the runner's own stays its `runner_exit`), nothing
+is parked, and the tail of every poll,
 [`console tidy run`](#tehas-dispatch), and
 [tehasbot status](#tehasbot-status-and-the-console)
 label the closed issue `tehas:shipped`. One that a person closed without
