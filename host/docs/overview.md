@@ -82,12 +82,13 @@ the factory works the same without it.
 | Previews             | `TEHAS_PREVIEWS=1` with `TEHAS_DOMAIN`, and a `preview/Dockerfile` in the product. See [Previews](/edge) | A pull request is read on GitHub only          |
 | Search indexing      | `TEHAS_INDEXING=1`, for an instance published on the internet                                    | Every page says noindex                                |
 | Visitor analytics    | `TEHAS_ANALYTICS_SRC` and `TEHAS_ANALYTICS_SITE`, for an instance that wants to count visits     | No script is loaded                                    |
-| Factory floor        | The game view on the front page. The [plain dashboard](/dashboard) shows the same queue          | Use `/dashboard`                                       |
+| Pixel design         | `TEHAS_DESIGN=pixel`: the whole site in 16-bit pixel art, with the factory floor at `/`         | Every page is beesknees26, with the business page at `/` |
 
 ## Start here
 
-- [Factory floor](/): the front page. The factory as a 16-bit game view: the
-  live queue, the selected work order, the running cycle's console.
+- [Factory floor](/floor): the factory as a game view: the live queue, the
+  selected work order, the running cycle's console. The front page with
+  `TEHAS_DESIGN=pixel`; the business page is the front page otherwise.
 - [Plain dashboard](/dashboard): what is in line, being worked on (with its live console),
   waiting for you and done.
 - [Pi software factory](/pi-software-factory): what tehas is made of, and
