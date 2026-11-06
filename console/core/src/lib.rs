@@ -14,6 +14,7 @@ pub mod file;
 pub mod forge;
 pub mod grammar;
 pub mod hold;
+pub mod hostnet;
 pub mod install;
 #[cfg(feature = "mask")]
 pub mod journal;

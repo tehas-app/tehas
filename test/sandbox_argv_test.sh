@@ -66,7 +66,8 @@ t_stub docker 'case $1 in
   info) cat "$T/docker.info"; exit ;;
   image) case " $* " in *"{{.Id}}"*) cat "$T/image.inspect" ;; *) cat "$T/image.label" ;; esac; exit ;;
   run) ;;
-  network) case " $* " in *Internal*) echo "true isolated" ;; esac; exit ;;
+  version) echo 29.1.3; exit ;;
+  network) case " $* " in *Internal*) echo "true bridge false isolated" ;; esac; exit ;;
   *) exit 0 ;;
 esac
 n=$(($(cat "$T/docker.n" 2>/dev/null || echo 0) + 1))
