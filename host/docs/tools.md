@@ -4896,6 +4896,13 @@ named that does not exist stops it with 2; paths with nothing to test or lint
 among them pass with a line that says so. `scripts/verify.sh --changed` calls
 it this way.
 
+The script is a short exec of `xtask test` (`console/xtask/src/run.rs`), which
+it builds first, offline, into the same target directory, fetching the locked
+crates once when cargo's cache lacks one; `TEHAS_XTASK` names a build to use
+instead. So the runner needs cargo, as the gate does. Each check of the pool
+is an `xtask test-task` process that runs it under the timeout and records its
+status and time when it ends.
+
 Each task is stopped after `TEHAS_TEST_FILE_TIMEOUT` seconds (300 by default)
 and counts as a failure, named with `timed out`. A file that hangs therefore
 costs the timeout and nothing more, and the run still prints its block.
