@@ -105,13 +105,16 @@ done < <(real_crates | jq -r '.workspace_root as $r | .packages[] |
 # A crate's tests that run a sibling's program find it from current_exe. A crate
 # that starts to has to be added to `runs` in the selector. tehas-cycle's one call
 # finds the lib/ beside its libexec/, no program, so it stays off the list while
-# that is what the call does.
+# that is what the call does. The xtask's one call names itself, to run each
+# check of scripts/test.sh as its own test-task, no sibling's program.
 t_case "the real workspace: the list of programs names every crate that calls current_exe"
 dirs=$(real_crates | jq -r '.workspace_root as $r | .packages[] |
   [(.manifest_path | ltrimstr($r) | rtrimstr("/Cargo.toml") | ltrimstr("/")), .name] | @tsv')
 own_lib=$T_ROOT/console/cycle/src/main.rs
 t_contains "$(grep -A2 current_exe "$own_lib")" '.join("lib")'
-called=$(grep -rl --include='*.rs' --exclude-dir=target current_exe "$T_ROOT/console" | grep -vxF "$own_lib" | while read -r f; do
+own_task=$T_ROOT/console/xtask/src/main.rs
+t_contains "$(grep -A5 current_exe "$own_task")" 'run::main(&root, paths, &me)'
+called=$(grep -rl --include='*.rs' --exclude-dir=target current_exe "$T_ROOT/console" | grep -vxF -e "$own_lib" -e "$own_task" | while read -r f; do
   rel=${f#"$T_ROOT"/console/}
   name=$(awk -F'\t' -v d="${rel%%/*}" '$1 == d { print $2 }' <<<"$dirs")
   echo "${name:-console}"
