@@ -133,6 +133,7 @@ fn a_held_cycle_or_plan_lock_refuses_with_live_and_writes_nothing() {
     let plan_lock = h.join("state/plan-12.json.lock");
     let f = File::create(&plan_lock).unwrap();
     f.lock().unwrap();
+    let f = Held(f);
     let (code, why) = import(&h, false).unwrap_err();
     assert_eq!(code, 1);
     assert!(why.starts_with("live #12: a planning turn"), "{why}");

@@ -4825,7 +4825,7 @@
    ]
   },
   "expect": {
-   "done": "done #7 rc=10 status=merged step=develop minutes=0 pr=https://github.com/acme/widget/pull/9 oom_kills=0 forks_refused=0",
+   "done": "done #7 rc=0 status=merged step=develop minutes=0 pr=https://github.com/acme/widget/pull/9 oom_kills=0 forks_refused=0",
    "end": [
     "7",
     "--attempt",
@@ -4835,7 +4835,7 @@
     "--step",
     "develop",
     "--rc",
-    "10",
+    "0",
     "--oom",
     "0",
     "--forks",

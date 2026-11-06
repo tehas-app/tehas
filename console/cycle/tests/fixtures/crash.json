@@ -520,7 +520,7 @@
    ]
   },
   "expect": {
-   "done": "done #7 rc=2 status=merged step=feature/issue-7-install-sh-checks-instance-env minutes=0 pr=https://github.com/acme/widget/pull/9 oom_kills=0 forks_refused=0",
+   "done": "done #7 rc=0 status=merged step=feature/issue-7-install-sh-checks-instance-env minutes=0 pr=https://github.com/acme/widget/pull/9 oom_kills=0 forks_refused=0",
    "end": [
     "7",
     "--attempt",
@@ -530,7 +530,7 @@
     "--step",
     "feature/issue-7-install-sh-checks-instance-env",
     "--rc",
-    "2",
+    "0",
     "--oom",
     "0",
     "--forks",
