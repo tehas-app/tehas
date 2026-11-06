@@ -49,9 +49,17 @@
 //! every count and every list: no label makes it count in line, being worked on,
 //! waiting for a human or waiting to be merged.
 //!
-//! Prints nothing but an ignored all-hands label, once, analytics warnings and a
-//! WARN line when the snapshot cannot be written, on standard error. Exit 0 even
-//! when GitHub is down: the previous file is then left in place. Exit 78, before
+//! A read that failed on a bad minute is tried once more, as the poll's reads
+//! are (tehas_core::retry). One that still failed says so with gh's reason in
+//! a WARN line and goes on the host's record of failed GitHub calls
+//! (tehas_core::github_fails). The snapshot is written with what was read: when
+//! the list of issues failed, the lists of work (`queueAt`, `running`, `queued`,
+//! `awaiting`, `stopped`, `planned`, `planning`) are the file's before, and
+//! when the read of what closed them failed, `completedAt`, `completed` and
+//! `completedCount` are; `stale` names each part kept so.
+//!
+//! Prints nothing but an ignored all-hands label, once, analytics warnings and
+//! WARN lines, on standard error. Exit 0 even when GitHub is down. Exit 78, before
 //! GitHub is asked or anything is written, when a setting it needs is not set,
 //! however it was started.
 
@@ -74,6 +82,8 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tehas_core::call;
 use tehas_core::events::{label_actor, pause_holds, Event, Events};
+use tehas_core::github_fails;
+use tehas_core::retry::{retry_with, Budget};
 use tehas_core::time;
 
 /// A read that has a bound: it hangs this long, then it failed.
@@ -94,23 +104,110 @@ fn words(args: &[&str]) -> Vec<String> {
     args.iter().map(|a| a.to_string()).collect()
 }
 
-/// What gh printed, None when it failed. The poll bounds these calls.
-fn gh(args: &[&str]) -> Option<String> {
-    let out = Command::new("gh")
-        .args(args)
-        .stdin(Stdio::null())
-        .stderr(Stdio::null())
-        .output()
-        .ok()?;
-    out.status
-        .success()
-        .then(|| String::from_utf8_lossy(&out.stdout).into_owned())
+/// How long one read may take before it is stopped: the bound of a search,
+/// the slowest of them. The poll bounds the whole run as well.
+const READ_WAIT: Duration = SEARCH_WAIT;
+
+/// The GitHub reads of one run: each tried again on a bad minute under the
+/// rule the poll's reads follow (tehas_core::retry), from one budget, and
+/// each failure said with gh's own words and kept on the host's record of
+/// failed calls (tehas_core::github_fails).
+struct Reads {
+    home: PathBuf,
+    budget: Budget,
 }
 
-/// What gh printed within the bound of a search, None when it failed or hung.
-fn search(args: &[&str]) -> Option<String> {
-    let ran = call::run_full("gh", &words(args), None, SEARCH_WAIT, SEARCH_GRACE, &[]);
-    ran.ok().then_some(ran.out)
+fn clock() -> Option<u64> {
+    u64::try_from(time::now()).ok()
+}
+
+fn sleep_secs(secs: u64) {
+    std::thread::sleep(Duration::from_secs(secs));
+}
+
+impl Reads {
+    fn new(home: &Path) -> Reads {
+        Reads {
+            home: home.to_path_buf(),
+            budget: Budget::new(),
+        }
+    }
+
+    /// What gh printed, or None when the read failed and said so.
+    fn read(&mut self, args: &[&str]) -> Option<String> {
+        let given = words(args);
+        let outcome = retry_with(
+            &mut || call::run_full("gh", &given, None, READ_WAIT, SEARCH_GRACE, &[]),
+            &mut self.budget,
+            clock,
+            &mut sleep_secs,
+        );
+        if outcome.ran.ok() {
+            return Some(outcome.ran.out);
+        }
+        let err = outcome.first_err.as_deref().unwrap_or(&outcome.ran.err);
+        let verb = args.iter().take(2).copied().collect::<Vec<_>>().join(" ");
+        let mut line = format!("WARN status: gh {verb} failed{}", call::gh_why(err));
+        if outcome.attempts > 1 {
+            line.push_str(&format!(" (tried {} times)", outcome.attempts));
+        }
+        let line = call::trim(&line);
+        log(&line);
+        github_fails::note(&self.home, time::now(), &line);
+        None
+    }
+}
+
+/// A write of gh: tried once, as the next run decides it again.
+fn gh_write(args: &[&str]) -> bool {
+    call::run_full("gh", &words(args), None, READ_WAIT, SEARCH_GRACE, &[]).ok()
+}
+
+/// The keys of the snapshot that rest on the list of issues, and on the read
+/// of what closed them: when the read fails, the run keeps these keys of the
+/// file before and says the part is stale.
+const QUEUE_PART: [&str; 7] = [
+    "queueAt", "running", "queued", "awaiting", "stopped", "planned", "planning",
+];
+const COMPLETED_PART: [&str; 3] = ["completedAt", "completed", "completedCount"];
+
+/// The snapshot with the parts named in `stale` taken from `previous`, the
+/// file it replaces: a key that file did not have is left out, and a `queueAt`
+/// or `completedAt` it did not have is its `generatedAt`. `stale` is written
+/// beside them when it names a part.
+fn carried(snap: J, previous: &J, stale: &[&str]) -> J {
+    if stale.is_empty() {
+        return snap;
+    }
+    let keys: Vec<&str> = stale
+        .iter()
+        .flat_map(|part| match *part {
+            "queue" => QUEUE_PART.as_slice(),
+            _ => COMPLETED_PART.as_slice(),
+        })
+        .copied()
+        .collect();
+    let J::Obj(fields) = snap else {
+        return snap;
+    };
+    let mut out: Vec<(String, J)> = fields
+        .into_iter()
+        .filter(|(k, _)| !keys.contains(&k.as_str()))
+        .collect();
+    for k in keys {
+        let was = match (previous.get(k), k) {
+            (J::Null, "queueAt" | "completedAt") => previous.get("generatedAt"),
+            (v, _) => v,
+        };
+        if !was.is_null() {
+            out.push((k.to_string(), was.clone()));
+        }
+    }
+    out.push((
+        "stale".to_string(),
+        J::Arr(stale.iter().map(|p| J::str(*p)).collect()),
+    ));
+    J::Obj(out)
 }
 
 fn allowed(login: &str) -> bool {
@@ -452,6 +549,8 @@ fn snapshot(f: &Facts) -> Result<J, String> {
     let planning = J::num(planned.len() as f64);
     let mut fields = vec![
         ("generatedAt", J::str(f.now.as_str())),
+        ("queueAt", J::str(f.now.as_str())),
+        ("completedAt", J::str(f.now.as_str())),
         ("repo", J::str(f.repo)),
         (
             "paused",
@@ -683,41 +782,54 @@ fn queue(home: &Path, live: &Path, analytics: &Analytics, stop: &AtomicBool) {
     platform::write(home, live);
     rukas::write(home, live);
 
-    let Some(issues) = gh(&[
-        "issue",
-        "list",
-        "--repo",
-        repo,
-        "--state",
-        "all",
-        "--limit",
-        "200",
-        "--search",
-        LABELS,
-        "--json",
-        "number,title,url,state,labels,createdAt,updatedAt,closedAt",
-    ]) else {
-        log("WARN status: the list of issues could not be read, no snapshot was written");
-        return;
-    };
+    let mut reads = Reads::new(home);
+    let mut stale: Vec<&str> = Vec::new();
+    let issues = reads
+        .read(&[
+            "issue",
+            "list",
+            "--repo",
+            repo,
+            "--state",
+            "all",
+            "--limit",
+            "200",
+            "--search",
+            LABELS,
+            "--json",
+            "number,title,url,state,labels,createdAt,updatedAt,closedAt",
+        ])
+        .and_then(|text| {
+            let list = J::parse(&text).filter(|v| matches!(v, J::Arr(_)));
+            if list.is_none() {
+                log(
+                    "WARN status: the list of issues is no list, its part of the snapshot is stale",
+                );
+            }
+            list
+        });
+    if issues.is_none() {
+        stale.push("queue");
+    }
     if stopped() {
         return;
     }
-    let every = gh(&[
-        "issue",
-        "list",
-        "--repo",
-        repo,
-        "--state",
-        "all",
-        "--limit",
-        "1000",
-        "--json",
-        "title,labels",
-    ])
-    .and_then(|text| J::parse(&text))
-    .filter(|v| matches!(v, J::Arr(_)))
-    .unwrap_or(J::Null);
+    let every = reads
+        .read(&[
+            "issue",
+            "list",
+            "--repo",
+            repo,
+            "--state",
+            "all",
+            "--limit",
+            "1000",
+            "--json",
+            "title,labels",
+        ])
+        .and_then(|text| J::parse(&text))
+        .filter(|v| matches!(v, J::Arr(_)))
+        .unwrap_or(J::Null);
     // The closing pull request is only in the issue's closed event, so this one
     // is GraphQL. The query and the acceptance rule are shipped.rs's, the same
     // ones tehas tidy reads, so the two commands cannot disagree on what a merge
@@ -727,34 +839,39 @@ fn queue(home: &Path, live: &Path, analytics: &Analytics, stop: &AtomicBool) {
     }
     let closed_query = format!("q=repo:{repo} is:issue is:closed linked:pr sort:updated-desc");
     let the_query = format!("query={}", shipped::QUERY);
-    let Some(closers) = search(&["api", "graphql", "-f", &closed_query, "-f", &the_query]) else {
-        log("WARN status: the read of what closed these issues could not be read, no snapshot was written");
-        return;
-    };
+    let closers = reads.read(&["api", "graphql", "-f", &closed_query, "-f", &the_query]);
     // A read that named issues and found no merged closer is a whole answer and
     // a snapshot of no completed work; only a reply with no list of nodes in it
-    // is no snapshot.
-    let Some(nodes) = shipped::list(&closers, &controls) else {
-        log("WARN status: the answer of what closed these issues was no list, no snapshot was written");
-        return;
-    };
-    let nodes = nodes
-        .iter()
-        .filter_map(|n| J::parse(&n.to_string()))
-        .collect();
+    // is no answer.
+    let nodes: Option<Vec<J>> = closers.as_deref().and_then(|closers| {
+        let Some(nodes) = shipped::list(closers, &controls) else {
+            log("WARN status: the answer of what closed these issues was no list, its part of the snapshot is stale");
+            return None;
+        };
+        Some(
+            nodes
+                .iter()
+                .filter_map(|n| J::parse(&n.to_string()))
+                .collect(),
+        )
+    });
+    if nodes.is_none() {
+        stale.push("completed");
+    }
     if stopped() {
         return;
     }
     let shipped_query = format!("is:issue is:closed label:{}", shipped::SHIPPED);
     let count_q = format!("q=repo:{repo} {shipped_query}");
     let count_query = format!("query={COUNT_QUERY}");
-    let completed = search(&["api", "graphql", "-f", &count_q, "-f", &count_query])
+    let completed = reads
+        .read(&["api", "graphql", "-f", &count_q, "-f", &count_query])
         .and_then(|answer| count(&answer));
 
     if stopped() {
         return;
     }
-    let labels = gh(&[
+    let labels = reads.read(&[
         "issue",
         "view",
         issue,
@@ -768,7 +885,11 @@ fn queue(home: &Path, live: &Path, analytics: &Analytics, stop: &AtomicBool) {
     let events_path = format!("repos/{repo}/issues/{issue}/events?per_page=100");
     let switches = control(
         labels.as_deref(),
-        &mut || gh(&["api", &events_path, "--paginate"]).unwrap_or_default(),
+        &mut || {
+            reads
+                .read(&["api", &events_path, "--paginate"])
+                .unwrap_or_default()
+        },
         &allowed,
         &home.join("state/all-hands.ignored"),
         issue,
@@ -779,32 +900,33 @@ fn queue(home: &Path, live: &Path, analytics: &Analytics, stop: &AtomicBool) {
     let (flag, flag_paused) = host_pause_flag(&home.join("state/pause.json"));
     let now = time::now();
     let on = env::var("TEHAS_ANALYTICS").as_deref() == Ok("on");
-    let was = if on {
+    let previous = fs::read_to_string(live.join("status.json"))
+        .ok()
+        .and_then(|t| J::parse(&t))
+        .unwrap_or(J::Null);
+    let was = if on && stale.is_empty() {
         before(&live.join("status.json"), now)
     } else {
         J::Null
     };
-    let issues = J::parse(&issues);
-    let snapshot = issues
-        .as_ref()
-        .ok_or_else(|| "the list of issues is no JSON".to_string())
-        .and_then(|issues| {
-            snapshot(&Facts {
-                repo,
-                control: issue,
-                now: time::iso(time::now()),
-                issues,
-                every: &every,
-                shipped: nodes,
-                count: completed,
-                query: shipped_query,
-                switches,
-                flag,
-                flag_paused,
-                no_resources: no_resources(&live.join("dispatch.json"), now),
-            })
-        });
-    let snapshot = snapshot.map(|s| {
+    let no_list = J::Arr(Vec::new());
+    let at = time::iso(now);
+    let snapshot = snapshot(&Facts {
+        repo,
+        control: issue,
+        now: at.clone(),
+        issues: issues.as_ref().unwrap_or(&no_list),
+        every: &every,
+        shipped: nodes.clone().unwrap_or_default(),
+        count: completed,
+        query: shipped_query,
+        switches,
+        flag,
+        flag_paused,
+        no_resources: no_resources(&live.join("dispatch.json"), now),
+    })
+    .map(|s| carried(s, &previous, &stale))
+    .map(|s| {
         let starts = tehas_core::read_only::on().then(|| {
             let work = env::var("TEHAS_WORK_DIR").unwrap_or_default();
             tehas_core::read_only::results(home, &work)
@@ -827,23 +949,25 @@ fn queue(home: &Path, live: &Path, analytics: &Analytics, stop: &AtomicBool) {
     // and the read names its labels, so an issue that already holds it is not
     // asked for it: `gh issue edit` reads the issue and sends a mutation every
     // time. The labels the read did not answer count as missing.
-    for n in shipped::lacking(&closers, &controls, shipped::SHIPPED) {
-        let n = n.to_string();
-        let _ = gh(&[
-            "issue",
-            "edit",
-            &n,
-            "--repo",
-            repo,
-            "--add-label",
-            shipped::SHIPPED,
-        ]);
+    if let Some(closers) = &closers {
+        for n in shipped::lacking(closers, &controls, shipped::SHIPPED) {
+            let n = n.to_string();
+            gh_write(&[
+                "issue",
+                "edit",
+                &n,
+                "--repo",
+                repo,
+                "--add-label",
+                shipped::SHIPPED,
+            ]);
+        }
     }
 
     if stopped() {
         return;
     }
-    if let (Ok(s), true, Some(issues)) = (&written, on, &issues) {
+    if let (Ok(s), true, Some(issues), true) = (&written, on, &issues, stale.is_empty()) {
         record(analytics, &events(s, &was, issues, issue, time::now()));
     }
 }
@@ -1055,6 +1179,41 @@ mod tests {
     }
 
     #[test]
+    fn a_part_whose_read_failed_is_the_file_before_and_said_stale() {
+        let issues = j("[]");
+        let fresh = snapshot(&facts(&issues, &J::Null, Vec::new())).unwrap();
+        let before = j(
+            r#"{"generatedAt":"2026-10-31T23:50:00Z","running":[{"number":7}],
+            "queued":[{"number":8}],"awaiting":[],"stopped":[],"planned":[],"planning":0,
+            "completed":[{"number":3}],"completedCount":40,"paused":true}"#,
+        );
+        let s = carried(fresh.clone(), &before, &["queue"]);
+        assert_eq!(s.get("running").dump(), r#"[{"number":7}]"#);
+        assert_eq!(s.get("queued").dump(), r#"[{"number":8}]"#);
+        assert_eq!(s.get("queueAt").as_str(), Some("2026-10-31T23:50:00Z"));
+        assert_eq!(s.get("stale").dump(), r#"["queue"]"#);
+        // What was read stays this run's.
+        assert_eq!(s.get("generatedAt").as_str(), Some("2026-11-01T00:00:00Z"));
+        assert_eq!(s.get("completedAt").as_str(), Some("2026-11-01T00:00:00Z"));
+        assert!(s.get("paused").dump() == "false");
+        assert_eq!(s.get("completed").dump(), "[]");
+
+        let s = carried(fresh.clone(), &before, &["queue", "completed"]);
+        assert_eq!(s.get("completed").dump(), r#"[{"number":3}]"#);
+        assert_eq!(s.get("completedCount").dump(), "40");
+        assert_eq!(s.get("stale").dump(), r#"["queue","completed"]"#);
+
+        // No file before: the part is left out, and still said stale.
+        let s = carried(fresh.clone(), &J::Null, &["queue"]);
+        assert!(s.get("running").is_null());
+        assert!(s.get("queueAt").is_null());
+        assert_eq!(s.get("stale").dump(), r#"["queue"]"#);
+
+        // Nothing failed: the snapshot as it was made, with no `stale`.
+        assert_eq!(carried(fresh.clone(), &before, &[]).dump(), fresh.dump());
+    }
+
+    #[test]
     fn the_keys_of_the_snapshot_stay_in_their_order() {
         let issues = j("[]");
         let s = snapshot(&facts(&issues, &J::Null, Vec::new())).unwrap();
@@ -1066,6 +1225,8 @@ mod tests {
             keys,
             [
                 "generatedAt",
+                "queueAt",
+                "completedAt",
                 "repo",
                 "paused",
                 "pause",
@@ -1086,9 +1247,9 @@ mod tests {
         f.count = Some(J::num(3.0));
         let s = snapshot(&f).unwrap();
         let J::Obj(o) = &s else { panic!() };
-        assert_eq!(o[13].0, "completedCount");
-        assert_eq!(o[14].0, "links");
-        assert_eq!(o[15].0, "buzzwords");
+        assert_eq!(o[15].0, "completedCount");
+        assert_eq!(o[16].0, "links");
+        assert_eq!(o[17].0, "buzzwords");
         assert_eq!(
             s.at(&["links", "completed"]).as_str().unwrap(),
             "https://github.com/acme/widget/issues?q=is%3Aissue%20is%3Aclosed%20label%3Atehas%3Ashipped"
