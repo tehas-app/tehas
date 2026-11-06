@@ -4,7 +4,7 @@
   "title": "tehas status --json",
   "description": "The object tehas status --json prints, version 1. host/docs/api.md says what each field means. Every object is closed, so a field tehas adds must be added here too; a program that reads the object still accepts fields it does not know. test/status_contract_test.sh checks the samples beside this file against it.",
   "type": "object",
-  "required": ["api", "time", "age", "stale", "state", "reasons", "paused", "limit", "running", "planning", "demand", "hold", "held", "room"],
+  "required": ["api", "time", "age", "stale", "state", "reasons", "paused", "limit", "running", "planning", "demand", "hold", "held", "room", "versions"],
   "additionalProperties": false,
   "properties": {
     "api": {"const": 1},
@@ -132,6 +132,33 @@
             "containersHow": {"enum": ["auto", "number", "fixed"]},
             "cycle": {"type": "object", "required": ["bound", "slots", "cpus", "cycleCpus", "containerMemory", "ceiling", "floored"], "additionalProperties": false, "properties": {"bound": {"enum": ["cpu", "memory", "ceiling", "host"]}, "slots": {"type": "integer", "minimum": 0}, "cpus": {"type": ["integer", "null"], "minimum": 0}, "cycleCpus": {"type": "string"}, "containerMemory": {"type": "string"}, "ceiling": {"type": "string"}, "floored": {"type": "boolean"}}},
             "container": {"type": "object", "required": ["bound", "slots", "cpus", "cycleCpus", "containerMemory", "ceiling", "floored"], "additionalProperties": false, "properties": {"bound": {"enum": ["cpu", "memory", "ceiling", "host"]}, "slots": {"type": "integer", "minimum": 0}, "cpus": {"type": ["integer", "null"], "minimum": 0}, "cycleCpus": {"type": "string"}, "containerMemory": {"type": "string"}, "ceiling": {"type": "string"}, "floored": {"type": "boolean"}}}
+          }
+        }
+      }
+    },
+    "versions": {
+      "type": "object",
+      "required": ["platform", "rukas"],
+      "additionalProperties": false,
+      "properties": {
+        "platform": {
+          "type": "object",
+          "required": ["release", "latest", "behind"],
+          "additionalProperties": false,
+          "properties": {
+            "release": {"type": ["string", "null"]},
+            "latest": {"type": ["string", "null"]},
+            "behind": {"type": ["boolean", "null"]}
+          }
+        },
+        "rukas": {
+          "type": "object",
+          "required": ["version", "latest", "behind"],
+          "additionalProperties": false,
+          "properties": {
+            "version": {"type": ["string", "null"]},
+            "latest": {"type": ["string", "null"]},
+            "behind": {"type": ["boolean", "null"]}
           }
         }
       }

@@ -182,6 +182,16 @@ Run `tehas dispatch --dry-run` and read what it prints.
   repository has no single-select issue field of that name. The poll stops
   with 78. Name the field as the organisation
   spells it, or remove the setting.
+- `ERROR: TEHAS_ISSUE_TYPES maps improvement to ...` (the poll or
+  `improve.log`) or `... maps prototype to ...` (the Protolab's log): the
+  owner of the repository has no issue type of that name. Nothing was
+  written. Add the type in the organisation's settings, spell it as the
+  organisation does, or leave the kind out of the setting for its label. See
+  [Kinds as issue types](/operating#kinds-as-issue-types).
+- `#N: the issue type Prototype was set by ...`: with `TEHAS_ISSUE_TYPES`, the
+  newest change to the ticket's type came from an account outside
+  `TEHAS_ALLOWED_LABELERS`, or the Protolab could not see who made it. Set the
+  type again from an allowed account.
 - `holding: <n> of <free> free slots start: ...`: some cycles started, fewer
   than there are free slots and issues waiting. The rest of the line is the
   one limit that cut it: issues awaiting merge (`TEHAS_MAX_AWAITING`), or the

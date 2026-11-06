@@ -105,6 +105,8 @@ case "$1 $2" in
     case " $* " in
       *"/events "*) [ -f "$T/fx/events" ] || exit 1; cat "$T/fx/events" ;;
       *"/compare/"*) [ -f "$T/fx/compare" ] || exit 1; cat "$T/fx/compare" ;;
+      *" graphql "*) case " $* " in *" name=rukas "*) pre=rukas- ;; esac
+        cat "$T/fx/${pre}types.json" 2>/dev/null || exit 1 ;;
     esac ;;
   "release view") [ -f "$T/fx/release" ]; exit $? ;;
   "release create") [ -f "$T/fx/gh-release.rc" ] && exit 1; : >"$T/fx/release" ;;
