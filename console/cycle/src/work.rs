@@ -817,7 +817,9 @@ pub fn run(home: &Path, g: &Given) -> i32 {
         eprintln!("{line}");
         return 78;
     }
-    if let Err(line) = sandbox::cycle_token("tehas work") {
+    if let Err(line) =
+        sandbox::cycle_token("tehas work").and_then(|_| sandbox::cycle_login("tehas work"))
+    {
         eprintln!("{line}");
         return 78;
     }

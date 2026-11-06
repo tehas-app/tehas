@@ -535,14 +535,25 @@ fn together(vars: &Vars, file: &str) -> Result<(), String> {
     }
     let millwright = vars.text("TEHAS_MILLWRIGHT_LOGIN");
     let bare = |login: &str| login.strip_suffix("[bot]").unwrap_or(login).to_string();
+    let cycle = vars.text("TEHAS_CYCLE_LOGIN");
     let authorising = format!(
-        " {} {} ",
+        " {} {} {} ",
         vars.text("TEHAS_ALLOWED_LABELERS"),
-        bare(&vars.text("TEHAS_BOT_LOGIN"))
+        bare(&vars.text("TEHAS_BOT_LOGIN")),
+        bare(&cycle)
     );
     if !millwright.is_empty() && authorising.contains(&format!(" {} ", bare(&millwright))) {
         return Err(format!(
-            "TEHAS_MILLWRIGHT_LOGIN ({millwright}) is in TEHAS_ALLOWED_LABELERS or is TEHAS_BOT_LOGIN: the millwright is an account of its own and works within its own grant, never as the bot or a person (see {file})"
+            "TEHAS_MILLWRIGHT_LOGIN ({millwright}) is in TEHAS_ALLOWED_LABELERS or is TEHAS_BOT_LOGIN or TEHAS_CYCLE_LOGIN: the millwright is an account of its own and works within its own grant, never as the bot or a person (see {file})"
+        ));
+    }
+    // The cycle token's account is what a cycle acts as from inside its
+    // container: a label or answer of it is the factory's own, never a
+    // person's approval.
+    let labellers = format!(" {} ", vars.text("TEHAS_ALLOWED_LABELERS"));
+    if !cycle.is_empty() && labellers.contains(&format!(" {} ", bare(&cycle))) {
+        return Err(format!(
+            "TEHAS_CYCLE_LOGIN ({cycle}) is in TEHAS_ALLOWED_LABELERS: a cycle acts as that account from inside its container, so its label would approve its own work (see {file})"
         ));
     }
     if on("TEHAS_WORK_DESCRIBE") && !on("TEHAS_WORK_IMAGES") {
@@ -1252,6 +1263,14 @@ mod tests {
             (
                 &["TEHAS_MILLWRIGHT_LOGIN=alice[bot]"][..],
                 "TEHAS_MILLWRIGHT_LOGIN (alice[bot]) is in TEHAS_ALLOWED_LABELERS or is TEHAS_BOT_LOGIN",
+            ),
+            (
+                &["TEHAS_CYCLE_LOGIN=acme-cycle", "TEHAS_MILLWRIGHT_LOGIN=acme-cycle"][..],
+                "TEHAS_MILLWRIGHT_LOGIN (acme-cycle) is in TEHAS_ALLOWED_LABELERS or is TEHAS_BOT_LOGIN or TEHAS_CYCLE_LOGIN",
+            ),
+            (
+                &["TEHAS_CYCLE_LOGIN=alice"][..],
+                "TEHAS_CYCLE_LOGIN (alice) is in TEHAS_ALLOWED_LABELERS: a cycle acts as that account",
             ),
             (
                 &["TEHAS_WORK_DESCRIBE=1"][..],
