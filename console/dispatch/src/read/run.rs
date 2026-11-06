@@ -3,7 +3,7 @@
 //! change anything is refused before it runs. How a program is run is
 //! tehas_core::call.
 
-use super::retry::{retry, Budget, Outcome, Stopped};
+use super::retry::{retry_with, Budget, Outcome, Stopped};
 use serde_json::{json, Value};
 use std::path::Path;
 use std::sync::Arc;
@@ -129,11 +129,7 @@ fn sleep_out(waited: u64) {
 /// a thread of its own. Only `RetryPolicy::read` asks for it, so the budget stays
 /// inside the policy that owns it.
 fn tried(call: &mut dyn FnMut() -> Ran, budget: &mut Budget) -> Outcome {
-    let outcome = retry(call, budget, poll_now);
-    for waited in &outcome.waits {
-        sleep_out(*waited);
-    }
-    outcome
+    retry_with(call, budget, poll_now, &mut sleep_out)
 }
 
 /// What the retry of one failed read costs the poll: the words the failed

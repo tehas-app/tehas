@@ -8,14 +8,18 @@
 //!     passes on --dry-run, which says what would change and changes nothing.
 //!     It reads TEHAS_REPO, TEHAS_CONTROL_ISSUE, TEHAS_HOME and TEHAS_TIDY_WAIT
 //!     from the environment tehas_load left. Each gh call may take
-//!     TEHAS_TIDY_WAIT seconds [60] and none is retried:
+//!     TEHAS_TIDY_WAIT seconds [60]. A read that failed on a bad minute (a
+//!     5xx, a bare 403, or its bound) is tried once more, as the poll's are
+//!     (tehas_core::retry); a write is not:
 //!       - one search for the closed issues that carry a state label, the most
 //!         recently updated first, up to `shipped::PAGE`, the rest on later polls;
 //!       - one read of what closed them, for the issues that may earn the label;
 //!       - one `gh issue edit` per issue, with all its labels.
 //!
 //! An issue whose cycle holds its lock waits for the cycle. A failed read still
-//! takes the state labels off, and earns no label on a guess. tehas:shipped,
+//! takes the state labels off, and earns no label on a guess. Its line says
+//! gh's reason, and it goes on the host's record of failed GitHub calls
+//! (tehas_core::github_fails). tehas:shipped,
 //! needs-human-attention and the labels a person chooses never come off.
 //! tehasbot status gives the same label from the same rule (src/shipped.rs).
 //!
@@ -30,8 +34,11 @@ use std::env;
 use std::io::Write as _;
 use std::path::Path;
 use std::time::Duration;
+use tehas_core::call::{self, Ran};
 use tehas_core::forge::{Bounded, GhRunner};
+use tehas_core::github_fails;
 use tehas_core::lock::{probe, Probe};
+use tehas_core::retry::{retry_with, Budget};
 use tehas_core::time;
 
 /// The state labels that say work is in progress or waiting: all that is ever
@@ -118,9 +125,65 @@ fn run(given: &[String]) -> u8 {
             Probe::Absent | Probe::Free
         )
     };
-    tidy(&settings, dry, &mut gh, &running, &mut |line| {
-        let _ = writeln!(std::io::stdout(), "{} {line}", time::iso(time::now()));
-    })
+    tidy(
+        &settings,
+        dry,
+        &mut gh,
+        &running,
+        &mut |line| {
+            let _ = writeln!(std::io::stdout(), "{} {line}", time::iso(time::now()));
+        },
+        &mut |secs| std::thread::sleep(Duration::from_secs(secs)),
+    )
+}
+
+fn clock() -> Option<u64> {
+    u64::try_from(time::now()).ok()
+}
+
+/// One read of gh, tried again on a bad minute under the rule the poll's
+/// reads follow (tehas_core::retry). Err is the reason, as `: <words>`, and
+/// how many times it was tried when that was more than once.
+fn read(
+    gh: &mut dyn GhRunner,
+    budget: &mut Budget,
+    sleep: &mut dyn FnMut(u64),
+    args: &[&str],
+) -> Result<String, String> {
+    let outcome = retry_with(
+        &mut || match gh.run(args) {
+            Ok(out) => Ran {
+                status: Some(0),
+                out,
+                err: String::new(),
+                truncated: false,
+            },
+            // Bounded says so of a call it stopped at its bound: no exit, as
+            // the rule reads a cut-off call.
+            Err(err) => Ran {
+                status: (!err.contains("ran out of its")).then_some(1),
+                out: String::new(),
+                err,
+                truncated: false,
+            },
+        },
+        budget,
+        clock,
+        sleep,
+    );
+    if outcome.ran.ok() {
+        return Ok(outcome.ran.out);
+    }
+    let err = outcome.first_err.unwrap_or(outcome.ran.err);
+    let mut why = if err.starts_with(": ") || err.is_empty() {
+        err
+    } else {
+        format!(": {err}")
+    };
+    if outcome.attempts > 1 {
+        why.push_str(&format!(" (tried {} times)", outcome.attempts));
+    }
+    Err(call::trim(&why))
 }
 
 /// `--dry-run` or not, None for help, and the first word `run` does not know.
@@ -204,27 +267,44 @@ fn tidy(
     gh: &mut dyn GhRunner,
     running: &dyn Fn(u64) -> bool,
     say: &mut dyn FnMut(&str),
+    sleep: &mut dyn FnMut(u64),
 ) -> u8 {
     let repo = settings.repo.as_str();
     let search = search();
     let page = PAGE.to_string();
-    let found = gh.run(&[
-        "issue",
-        "list",
-        "--repo",
-        repo,
-        "--state",
-        "closed",
-        "--search",
-        &search,
-        "--limit",
-        &page,
-        "--json",
-        "number,state,labels",
-    ]);
-    let Ok(found) = found else {
-        say("WARN: tidy: the search for closed issues with state labels failed");
-        return 1;
+    let mut budget = Budget::new();
+    let home = Path::new(&settings.home);
+    let mut failed = |line: String| {
+        say(&line);
+        github_fails::note(home, time::now(), &line);
+    };
+    let found = read(
+        gh,
+        &mut budget,
+        sleep,
+        &[
+            "issue",
+            "list",
+            "--repo",
+            repo,
+            "--state",
+            "closed",
+            "--search",
+            &search,
+            "--limit",
+            &page,
+            "--json",
+            "number,state,labels",
+        ],
+    );
+    let found = match found {
+        Ok(found) => found,
+        Err(why) => {
+            failed(format!(
+                "WARN: tidy: the search for closed issues with state labels failed{why}"
+            ));
+            return 1;
+        }
     };
     let Some(items) = answer_of(&found) else {
         say(
@@ -241,15 +321,19 @@ fn tidy(
 
     let asked = rows.iter().filter(|row| row.ask).count();
     let merged = if asked == 0 {
-        Some(Vec::new())
+        Ok(Vec::new())
     } else {
-        closers(gh, settings, &rows)
+        closers(gh, &mut budget, sleep, settings, &rows)
     };
-    if merged.is_none() {
-        say(&format!(
-            "WARN: tidy: the read of what closed these issues failed, {SHIPPED} was not added for {asked} issues"
-        ));
-    }
+    let merged = match merged {
+        Ok(m) => Some(m),
+        Err(why) => {
+            failed(format!(
+                "WARN: tidy: the read of what closed these issues failed{why}, {SHIPPED} was not added for {asked} issues"
+            ));
+            None
+        }
+    };
 
     let mut rc = 0;
     for row in &rows {
@@ -299,15 +383,27 @@ fn search() -> String {
 }
 
 /// The issues of the one read of the poll that a merged pull request closed.
-/// None when the read did not answer.
-fn closers(gh: &mut dyn GhRunner, settings: &Settings, rows: &[Row]) -> Option<Vec<u64>> {
+/// Err with the reason when the read did not answer, and an empty one when
+/// it answered no list.
+fn closers(
+    gh: &mut dyn GhRunner,
+    budget: &mut Budget,
+    sleep: &mut dyn FnMut(u64),
+    settings: &Settings,
+    rows: &[Row],
+) -> Result<Vec<u64>, String> {
     let mut q = format!("q=repo:{} is:issue is:closed", settings.repo);
     for row in rows.iter().filter(|row| row.ask) {
         q.push_str(&format!(" number:{}", row.number));
     }
     let query = format!("query={}", shipped::QUERY);
-    let answer = gh.run(&["api", "graphql", "-f", &q, "-f", &query]).ok()?;
-    shipped::numbers(&answer, &[settings.control.to_string()])
+    let answer = read(
+        gh,
+        budget,
+        sleep,
+        &["api", "graphql", "-f", &q, "-f", &query],
+    )?;
+    shipped::numbers(&answer, &[settings.control.to_string()]).ok_or_else(String::new)
 }
 
 /// The issues of a search's answer, or None when it is no list of them: a
@@ -724,6 +820,8 @@ mod tests {
     /// a number in `refuses` fails, and every call is written down.
     struct Stub {
         search: Result<String, String>,
+        /// The answer of the first search alone, when a case gives one.
+        search_first: Option<Result<String, String>>,
         read: Result<String, String>,
         refuses: Vec<u64>,
         calls: Vec<String>,
@@ -733,6 +831,7 @@ mod tests {
         fn new(search: &[String], read: &str) -> Stub {
             Stub {
                 search: Ok(found(search)),
+                search_first: None,
                 read: Ok(read.to_string()),
                 refuses: Vec::new(),
                 calls: Vec::new(),
@@ -756,7 +855,10 @@ mod tests {
         fn run(&mut self, args: &[&str]) -> Result<String, String> {
             self.calls.push(args.join(" "));
             match args[..2] {
-                ["issue", "list"] => self.search.clone(),
+                ["issue", "list"] => self
+                    .search_first
+                    .take()
+                    .unwrap_or_else(|| self.search.clone()),
                 ["api", "graphql"] => self.read.clone(),
                 _ if self.refuses.iter().any(|n| n.to_string() == args[2]) => {
                     Err("refused".to_string())
@@ -787,9 +889,14 @@ mod tests {
     fn poll(gh: &mut Stub, dry: bool, locked: &[u64]) -> (u8, Vec<String>) {
         let settings = read(&GOOD).unwrap();
         let lines = RefCell::new(Vec::new());
-        let rc = tidy(&settings, dry, gh, &|n| locked.contains(&n), &mut |line| {
-            lines.borrow_mut().push(line.to_string())
-        });
+        let rc = tidy(
+            &settings,
+            dry,
+            gh,
+            &|n| locked.contains(&n),
+            &mut |line| lines.borrow_mut().push(line.to_string()),
+            &mut |_| {},
+        );
         (rc, lines.into_inner())
     }
 
@@ -865,10 +972,13 @@ mod tests {
 
     #[test]
     fn a_read_that_failed_is_one_line_and_the_labels_still_come_off() {
-        for read in [
-            Err("rate limited".to_string()),
-            Ok("not json".to_string()),
-            Ok("{\"errors\":[{\"message\":\"no\"}],\"data\":null}".to_string()),
+        for (read, why) in [
+            (Err(": rate limit".to_string()), ": rate limit"),
+            (Ok("not json".to_string()), ""),
+            (
+                Ok("{\"errors\":[{\"message\":\"no\"}],\"data\":null}".to_string()),
+                "",
+            ),
         ] {
             let mut gh = Stub::new(
                 &[
@@ -890,12 +1000,46 @@ mod tests {
             assert_eq!(
                 log,
                 [
-                    "WARN: tidy: the read of what closed these issues failed, tehas:shipped was not added for 2 issues",
+                    format!("WARN: tidy: the read of what closed these issues failed{why}, tehas:shipped was not added for 2 issues").as_str(),
                     "tidy #40: removed tehas:question",
                     "tidy #41: removed tehas:plan",
                 ]
             );
+            // A limit says the same thing twice: it is not asked again.
+            assert_eq!(gh.called("api graphql").len(), 1);
         }
+    }
+
+    #[test]
+    fn a_read_on_a_bad_minute_is_asked_again_and_says_so_when_it_stays_bad() {
+        let mut gh = Stub::new(
+            &[closed_with(40, "tehas:awaiting-merge")],
+            &closed(&[40], &[]),
+        );
+        gh.search_first = Some(Err(": HTTP 502".to_string()));
+        let (rc, log) = poll(&mut gh, false, &[]);
+        assert_eq!(rc, 0);
+        assert_eq!(
+            gh.called("issue list").len(),
+            2,
+            "the search was tried again"
+        );
+        assert_eq!(
+            log,
+            [
+                "tidy #40: removed tehas:awaiting-merge",
+                "tidy #40: added tehas:shipped",
+            ]
+        );
+
+        let mut gh = Stub::new(&[], "");
+        gh.search = Err(": HTTP 503".to_string());
+        let (rc, log) = poll(&mut gh, false, &[]);
+        assert_eq!(rc, 1);
+        assert_eq!(
+            log,
+            ["WARN: tidy: the search for closed issues with state labels failed: HTTP 503 (tried 2 times)"]
+        );
     }
 
     #[test]
@@ -988,7 +1132,7 @@ mod tests {
         assert_eq!(rc, 1);
         assert_eq!(
             log,
-            ["WARN: tidy: the search for closed issues with state labels failed"]
+            ["WARN: tidy: the search for closed issues with state labels failed: no gh"]
         );
         assert_eq!(gh.calls.len(), 1);
 

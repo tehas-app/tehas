@@ -334,7 +334,10 @@ Run `tehas dispatch --dry-run` and read what it prints.
   After `failed`, the line names gh's own error when it is one of a fixed
   list (`HTTP 502`, `rate limit`, `timed out`, `connection reset`, `no such
   host`, `unexpected EOF`): `ERROR: gh api graphql failed: HTTP 502`. Nothing
-  else of gh's error is logged, since an agent can write it.
+  else of gh's error is logged, since an agent can write it. A 5xx was tried
+  once more already, and the line ends `(tried 2 times)`. When it repeats,
+  `tehas status` shows a `github` line with the count of the last ten
+  minutes; GitHub's status page is often green through these.
 - `ERROR: <repo> is now <other> on GitHub`: the repository was renamed or
   moved. Until it is put right the factory floor shows an empty board. Set
   `TEHAS_REPO` to the new name, and `TEHAS_IMPROVE_REPO` too if it named the
