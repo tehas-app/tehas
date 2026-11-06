@@ -155,6 +155,9 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
         .trim_end_matches('\n')
         .to_string());
     s["refresh_held"] = json!(host::head(&home.join("state/refresh/.held"), 300));
+    if c.read_only {
+        s["read_only_ran"] = json!(tehas_core::read_only::recorded(home));
+    }
     s["refine_brief"] = json!(Path::new(&c.libexec)
         .join("../lib/refine-brief.md")
         .metadata()

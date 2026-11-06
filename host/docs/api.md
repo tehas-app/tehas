@@ -197,6 +197,7 @@ tehas status --json
 | `reasons` | Why the state is not `pass`, for a person; empty on `pass` |
 | `paused.local` | The pause flag `tehas pause` writes on this host is set |
 | `paused.label` | `tehas:pause` holds the factory from the control issue: it is on the issue, or an account that may not lift it took it off |
+| `readOnly` | `true` on a read-only instance (`TEHAS_READ_ONLY=1`), which writes nothing to GitHub (see [read-only](/operating#read-only)). Left out on any other instance, and by a release before the setting |
 | `allHands` | `tehas:all-hands` holds on the control issue: it is on the issue and an allowed account applied it. It changes nothing in this factory. Left out when the last snapshot could not read it or is more than ten minutes old |
 | `limit` | The limit, as [`tehas limit --json`](#tehas-limit) prints it without `api` and `reason`: `{"state": "none"}` when none is set |
 | `running` | The running cycles: `issue`, `since` (when it started) and `step`, and where the step is: `stepNumber` (the step the cycle is on, from 1, as the driver counts it), `stepTotal` (how many steps the cycle has), `round` (the round of a step that has run before in this cycle, from 2, or the round the driver gave), `roundLimit` (the most rounds the step may run, when the driver gives a limit) and `stepSince` (when the step started). Each is left out when not known yet. `stepNumber`, `stepTotal` and `roundLimit` are there only when the driver puts them on its `step-started` lines |

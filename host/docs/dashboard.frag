@@ -2,6 +2,7 @@
 <div class="dash-top">
   <span id="state" class="pill idle">loading</span>
   <span id="allhands" class="pill pause" title="tehas:all-hands is on the control issue" hidden>all hands</span>
+  <span id="readonly" class="pill pause" title="TEHAS_READ_ONLY=1: this factory writes nothing to GitHub" hidden>read-only</span>
   <span id="fresh" class="muted"></span>
   <a id="all" class="muted" href="#">all issues on GitHub</a>
 </div>
@@ -23,6 +24,12 @@
   <section><h2>Stopped, needs attention <span class="n" id="n-stopped"></span></h2><ul class="issues" id="stopped"></ul></section>
   <section><h2>Completed <span class="n" id="n-completed"></span></h2><ul class="issues" id="completed"></ul></section>
 </div>
+
+<section id="ro" hidden>
+  <h2>Read-only results <span class="n" id="n-ro"></span></h2>
+  <p class="muted">This factory writes nothing to GitHub. Each cycle's branch stays in its workspace on the host, with the pull request it would have opened.</p>
+  <ul class="issues" id="ro-list"></ul>
+</section>
 
 <section id="analytics" hidden>
   <h2>Last 10 days</h2>

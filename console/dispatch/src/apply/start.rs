@@ -99,6 +99,10 @@ pub struct Host {
     /// How often the wait for a launched turn's unit looks for its lock or
     /// its rc. Production: 500 ms, as the bash plan polls.
     pub launch_poll: Duration,
+    /// TEHAS_READ_ONLY is 1: a start that worked leaves its record in
+    /// state/read-only, the queue state the labels it did not write would
+    /// have held (#608).
+    pub read_only: bool,
 }
 
 /// The two time limits of a run of a host command, as `timeout -k` gives
@@ -452,7 +456,8 @@ impl Writer {
         let mut marked = false;
         for a in starts {
             match self.start(a, &mut marked, log) {
-                Then::Started | Then::Skipped => {}
+                Then::Started => self.read_only_record(a, log),
+                Then::Skipped => {}
                 Then::Failed => failed = true,
                 Then::Unusable => {
                     if !marked {
@@ -465,6 +470,25 @@ impl Writer {
         }
         self.status(printed);
         failed.then_some(1)
+    }
+
+    /// A read-only host keeps the start that worked on record, so the next
+    /// poll does not start the issue again: its `tehas:ready` is still on it.
+    fn read_only_record(&self, a: &Value, log: &mut Vec<String>) {
+        if !self.host.read_only {
+            return;
+        }
+        let n = a.get("start").and_then(Value::as_u64).unwrap_or(0);
+        let how = if a.get("refresh_pr").is_some() {
+            "refresh"
+        } else {
+            "cycle"
+        };
+        if tehas_core::read_only::record(&self.home, n, how, &crate::decide::iso_now()).is_err() {
+            log.push(format!(
+                "WARN: read-only: the record of the start of #{n} could not be written"
+            ));
+        }
     }
 
     /// The status command, once the poll's work is done; what it printed.

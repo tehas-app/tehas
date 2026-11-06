@@ -793,6 +793,10 @@ pub fn status_json(h: &J, now: i64, stale: bool) -> J {
         ("versions", versions(checks)),
     ];
     fields.retain(|(k, v)| !matches!(*k, "allHands" | "limit") || !v.is_null());
+    // A read-only instance (#608) says so; any other leaves the key out.
+    if checks.get("readOnly").is_true() {
+        fields.push(("readOnly", J::Bool(true)));
+    }
     obj(fields)
 }
 
@@ -1110,6 +1114,19 @@ mod tests {
             v(r#"{"platform":{"commit":"cb6912a0","behind":0,"upstream":"origin/main"}}"#),
             r#"{"platform":{"release":null,"latest":null,"behind":false},"rukas":{"version":null,"latest":null,"behind":null}}"#
         );
+    }
+
+    #[test]
+    fn a_read_only_health_file_makes_the_object_say_read_only() {
+        let health = h(
+            r#"{"status":"pass","output":"Idle.","time":"2026-10-17T14:00:00Z","checks":{"readOnly":true}}"#,
+        );
+        assert_eq!(
+            status_json(&health, NOW, false).get("readOnly"),
+            &J::Bool(true)
+        );
+        let other = h(r#"{"status":"pass","time":"2026-10-17T14:00:00Z","checks":{}}"#);
+        assert!(status_json(&other, NOW, false).get("readOnly").is_null());
     }
 
     #[test]

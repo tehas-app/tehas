@@ -1386,6 +1386,28 @@ t_eq "$(jq -c '{state, stale, reasons, paused, allHands, limit, running, demand,
   '{"state":"pass","stale":false,"reasons":[],"paused":{"local":false,"label":false},"allHands":false,"limit":{"state":"none"},"running":[],"demand":{"waiting":0},"hold":null}'
 t_eq "$(jq -r '.age < 60' <<<"$t_out")" true
 
+t_case "status --json: a read-only instance says so, the snapshot lists what its starts left, and no other instance has the key"
+reset
+demand 0
+t_run "$status && $summary --json"
+t_eq "$(jq -c '.readOnly' <<<"$t_out")" null
+t_eq "$(jq -c '.readOnly' "$live/status.json")" null
+reset
+demand 0
+t_instance "${T_MINIMAL[@]}" TEHAS_READ_ONLY=1
+# The workspace of #7, beside TEHAS_WORK_DIR, the default <home>/work/widget.
+mkdir -p "$T/home/tehas/state/read-only" "$T/home/tehas/work/widget-7/.git"
+printf '{"issue":7,"how":"cycle","at":"2026-11-06T10:00:00Z"}\n' >"$T/home/tehas/state/read-only/7.json"
+printf '# Fix the thing\n\nBranch: feature/issue-7\n\nThe body.\n' >"$T/home/tehas/work/widget-7/.git/tehas-read-only-pr.md"
+t_run "$status && $summary --json"
+t_eq "$t_rc" 0
+t_eq "$(jq "$shape" <<<"$t_out")" true
+t_eq "$(jq -c '.readOnly' <<<"$t_out")" true
+t_eq "$(jq -cS '.readOnly.starts[0] | {issue, how, pr}' "$live/status.json")" \
+  '{"how":"cycle","issue":7,"pr":{"body":"The body.","branch":"feature/issue-7","title":"Fix the thing"}}'
+t_eq "$(jq -c '.readOnly.on' "$live/status.json")" true
+rm -rf "$T/home/tehas/work"
+
 t_case "status --json: the demand, with how long the oldest has waited"
 reset
 demand 2 5400
