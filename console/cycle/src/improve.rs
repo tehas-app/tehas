@@ -514,8 +514,14 @@ mod tests {
 
     #[test]
     fn a_child_bound_end_is_not_on_record_as_an_abort() {
-        assert_eq!(record_status("aborted", "child-timeout:develop"), "child-bound");
-        assert_eq!(record_status("aborted", "child-timeout:explore"), "child-bound");
+        assert_eq!(
+            record_status("aborted", "child-timeout:develop"),
+            "child-bound"
+        );
+        assert_eq!(
+            record_status("aborted", "child-timeout:explore"),
+            "child-bound"
+        );
         assert_eq!(record_status("aborted", "deadline"), "aborted");
         assert_eq!(record_status("aborted", ""), "aborted");
         assert_eq!(record_status("timeout", "child-timeout:develop"), "timeout");
