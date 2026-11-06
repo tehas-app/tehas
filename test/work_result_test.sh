@@ -238,17 +238,17 @@ t_contains "$err" "repetition 100"
 
 t_case "the reason of the cap is kept to what the park comment can hold"
 fresh
-long=$(printf 'r%.0s' $(seq 1 900))
+long=$(printf 'r%.0s' $(seq 1 2100))
 container "says2 handoff plan-spec-mismatch '{\"kind\":\"provider\",\"providerMessage\":\"$long\"}'; exit 10"
 t_run "$work 7"
 t_eq "$t_rc" 10
 cycle_log=$(printf '%s\n' "$t_out" | sed -n 's/^tehas work: issue 7 started, log //p')
 err=$(cat "$cycle_log.err")
 # The reason is read the way tehasbot cycle reads it for the park comment: the
-# same reduction, the same 200 characters.
-t_eq "$(sed -n '1p' "$cycle_log.err" | wc -c)" 258
+# same reduction, the same 2000 characters, the last six of them ` (cut)`.
+t_eq "$(sed -n '1p' "$cycle_log.err" | wc -c)" 2058
 t_eq "$(sed -n '1p' "$cycle_log.err")" \
-  "tehas work: issue 7 ended at the cap plan-spec-mismatch: $(printf 'r%.0s' $(seq 1 200))"
+  "tehas work: issue 7 ended at the cap plan-spec-mismatch: $(printf 'r%.0s' $(seq 1 1994)) (cut)"
 t_eq "$(printf '%s\n' "$err" | wc -l)" 2
 
 t_case "a cycle that ended with no cap leaves its error stream as it is"
