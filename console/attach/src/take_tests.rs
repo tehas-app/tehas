@@ -658,6 +658,7 @@ fn a_manifest_is_printed_as_jq_prints_it_with_its_keys_in_order() {
         Vec::new(),
         Some(Vec::new()),
         lefts,
+        Some(Ordered::Plain(Value::Null)),
         json!(7),
         Ordered::Plain(Value::Null),
         Some(Ordered::map([("file", Ordered::text("comments.json"))])),
@@ -680,6 +681,7 @@ fn a_manifest_is_printed_as_jq_prints_it_with_its_keys_in_order() {
             "images",
             "files",
             "leftOut",
+            "linksUnavailable",
             "issue",
             "approval",
             "comments",
@@ -690,6 +692,7 @@ fn a_manifest_is_printed_as_jq_prints_it_with_its_keys_in_order() {
         Vec::new(),
         None,
         Vec::new(),
+        None,
         json!(7),
         Ordered::Plain(Value::Null),
         None,
@@ -741,6 +744,26 @@ fn a_directory_is_remade_and_a_bad_answer_is_no_ground_to_fetch() {
     assert_eq!(m["approval"], Value::Null);
     assert_eq!(m["files"], json!([]));
     assert_eq!(m["leftOut"][0]["source"], "body");
+}
+
+#[test]
+fn a_text_with_no_link_says_so_and_one_with_links_lists_each() {
+    let (_scratch, base) = scratch();
+    let dir = format!("{base}/images");
+    let net = Fake::default();
+    let read = |dir: &str| -> Value {
+        serde_json::from_str(&fs::read_to_string(format!("{dir}/manifest.json")).unwrap()).unwrap()
+    };
+    let words = json!({"author_association": "OWNER", "body": "Words only."}).to_string();
+    issue(&run_of(&dir, &words, ""), &net).unwrap();
+    let m = read(&dir);
+    assert_eq!((&m["images"], &m["leftOut"]), (&json!([]), &json!([])));
+    assert_eq!(m["linksUnavailable"], crate::manifest::NO_LINKS);
+    let linked = json!({"author_association": "OWNER", "body": file(1, "a.exe")}).to_string();
+    issue(&run_of(&dir, &linked, ""), &net).unwrap();
+    let m = read(&dir);
+    assert_eq!(m["leftOut"].as_array().unwrap().len(), 1);
+    assert_eq!(m["linksUnavailable"], Value::Null);
 }
 
 #[test]

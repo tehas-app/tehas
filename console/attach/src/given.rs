@@ -624,15 +624,17 @@ pub fn left_out_manifest(
         .join(",");
     let at = shown(&approval["at"]);
     let by = shown(&approval["by"]);
+    let none = format!("gives a cycle none ({given}): no directory is mounted and PI_ENSEMBLE_EXTRA_IMAGE_DIRS is not set");
     let manifest = format!(
-        r#"{{"issue":{issue},"images":{images},"approval":{{"at":{},"by":{},"how":{}}},"leftOut":[{left}],"leftOutMore":{more}{}}}"#,
+        r#"{{"issue":{issue},"images":{images},"approval":{{"at":{},"by":{},"how":{}}},"leftOut":[{left}],"leftOutMore":{more}{},"linksUnavailable":{}}}"#,
         approval["at"],
         approval["by"],
         approval["how"],
         files.map_or(String::new(), |f| format!(r#","files":{f}"#)),
+        Value::from(format!("This instance {none}.")),
     );
     let mut gap = format!(
-        "the approval record of issue {} (approved {at} by {by}) lists {total} attachment{} and this instance gives a cycle none ({given}): no directory is mounted and PI_ENSEMBLE_EXTRA_IMAGE_DIRS is not set",
+        "the approval record of issue {} (approved {at} by {by}) lists {total} attachment{} and this instance {none}",
         shown(issue),
         if total == 1 { "" } else { "s" },
     );

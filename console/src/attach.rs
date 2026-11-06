@@ -100,7 +100,7 @@ fn may_link(text: &str) -> bool {
 fn empty_manifest(issue: &str, files: bool) -> String {
     let files = if files { "  \"files\": [],\n" } else { "" };
     format!(
-        "{{\n  \"images\": [],\n{files}  \"leftOut\": [],\n  \"issue\": {issue},\n  \"approval\": null,\n  \"leftOutMore\": 0\n}}\n"
+        "{{\n  \"images\": [],\n{files}  \"leftOut\": [],\n  \"linksUnavailable\": \"The text links no file of GitHub's storage.\",\n  \"issue\": {issue},\n  \"approval\": null,\n  \"leftOutMore\": 0\n}}\n"
     )
 }
 
