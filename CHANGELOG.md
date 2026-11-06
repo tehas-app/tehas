@@ -39,8 +39,6 @@ empty one above it.
 
 - The business page's header shows the logo (`/fun/favicon.svg`), as the manual's header does, in place of the old mark it still drew beside the new favicon.
 - A new optional setting, `TEHAS_OWNER`: one person's GitHub login. When the dispatcher marks an issue `tehas:running` for a cycle, the same call assigns the issue to that account, so GitHub shows it as taken (#806). An assign GitHub refuses does not fail the claim: the issue is marked running without it and `logs/dispatch.log` says so. A bot's login or more than one login stops every command with 78, and `tehas setup` refuses a login GitHub cannot assign on `TEHAS_REPO`. Unset, nobody is assigned, as before.
-- A cycle's scratch has a size limit (#1547). With `TEHAS_SCRATCH_DIR` set, tehas work measures the cycle's scratch every 10 seconds and stops the cycle when it holds more than `TEHAS_SCRATCH_MAX` (20g by default), or when the scratch's file system has less than `TEHAS_CYCLE_STOP_FREE` free (5g by default) and this cycle's scratch is the largest there. The cycle ends `stopped` at the cap `disk`, and its report says which bound it passed. Before, one cycle that copied its container's root into its scratch filled the host's disk and stopped the dispatcher and the other cycles.
-- `tehas status`, `tehas status --json` (`held`) and the MCP `factory_status` answer (`held`) name each ready issue the dispatcher holds on its own, with the reason and what clears it: for now, an issue whose last cycle parked and whose body has not changed since (#1437). When every issue in line is held that way and no cycle runs, the health line is a `warn` that names them instead of "Idle, taking work.". Before, a factory whose one ready issue was held reported `pass` and taking work for hours.
 - The shell tests use the workspace's build, in `CARGO_TARGET_DIR` or `console/target`, instead of a second one in `console/target/shell`, which `scripts/test.sh` now removes. Each checkout's build is about 170 MB smaller (#1360).
 - `scripts/select-tests.sh`, the selection behind `scripts/verify.sh --changed`, is a short exec of `xtask select-tests` in a new workspace crate for development tasks, `console/xtask` (`tehas-xtask`), with its cases as Rust tests. It selects what it selected before; a change under `console/xtask/` asks for the full gate, as a change to the script did (#1595). Nothing in it is installed.
 - `scripts/pack-release.sh` is a short exec of `xtask pack-release` (`console/xtask/src/pack.rs`), with its checks as Rust tests. It packs what it packed before, with the same messages and exit statuses; it now needs cargo, which the release runner has, or a build named in `TEHAS_XTASK` (#1595).
@@ -48,24 +46,12 @@ empty one above it.
 - `scripts/test.sh` is a short exec of `xtask test` (`console/xtask/src/run.rs`), with its decisions as Rust tests: the pool's size, the load wait, the order of the files, the case count, the slowest files and the block of what failed. It runs, prints and exits as before; each check runs as an `xtask test-task` process that records its status. The runner now needs cargo, or a build named in `TEHAS_XTASK` (#1595).
 
 - An open issue whose title starts with an epic marker (`EPIC: ...`, `[Epic] ...`) gets the new `epic` label at each poll. tehas only adds it, and a person's removal is final. The label is for people: sub-issue links still make an epic for the dispatcher and the panel. `live/epics.json` gains `unlinked`, and `tehasbot health` warns about an open issue labelled `epic` with no sub-issues (`checks.epics`).
-- `scripts/verify.sh` checks the workspace's format and lints on every run, not only with `--full`; in CI a missing rustfmt or clippy fails. `tehas setup` runs `--full` on a factory that builds tehas, so unformatted code that passed CI stopped setup three times. `console/dispatch` is formatted again (#1486).
-- A cycle that hands off on `lens-fix-reposition` with its pull request open and its review not held waits for a merge (`tehas:awaiting-merge`) instead of parking. The branch already holds the first review round's fix; only the second round's could not be laid on it. It was the most common park from 2026-10-31.
-- `console flags pause` takes only `set` and `clear`: `show` and `read`, which nothing called, are gone (#1365). The dashboard's reader of the flag uses the same reading as the health file.
-- The console's cycle report reads the stalled and timed stop files once each, so a file whose first word is no count of seconds names neither a stop nor a step (#1207). Before, the two reads of one file could disagree and report a stalled cycle with a step of an unreadable file.
-- A factory pull request that waits for a person is titled `HALT: ` instead of `STUCK: `. The next poll renames the open ones.
-- `tehas drain` prints its answer when a poll holds its lock for the whole wait: `not drained:`, or `drained: false` with `--json`. It printed nothing, which stopped `industry factory upgrade` with `unreadable factory answer`.
-- The libraries no command sources are gone: `lib/attachments.sh`, `cycles.sh`, `labels.sh`, `millwright.sh`, `questions.sh`, `sandbox.sh`, `slice.sh`, `store.sh` and `history-lines.jq`. What still had a caller is in the console or the store now, and `install.sh` removes a host's copies in its stale-file step.
-- The host's pinned tools are back to what v0.24.x released: Node 22.23.4, gh 2.103.3, bun 1.4.4, jq 1.8.2, Pi 1.4.0, ctx7 0.8.2, parallel-cli 0.9.4, Playwright 1.64.1, Rust 1.99.1, rustup 1.29.2, codebase-memory-mcp 0.12.1, Caddy 2.11.7 and CI's actions/checkout v7.0.1, each with its checksum, digest or lockfile. A merge had put the earlier pins back in `host/versions.env`, the npm trees beside it, the Caddy digests and the two workflows (#1475).
-- The site is two frontends with two pinned looks. The front page (`/`, `/floor`) names `theme-pixel.css` and every other page names `theme-beesknees26.css`, each with its own logo and share card, so no server rewrites a look. `TEHAS_THEME` and `TEHAS_LAYOUT` are retired, the `paper` and `beesknees` themes are gone, the front page is always the factory floor and `/business` is always the business page. The footers no longer link from one frontend to the other (#1488).
 - An ending never carries a word that says the cycle is still at work. `store
   cycle-end` records `running` or an empty status as `unknown` in `endings` and
   in the heartbeat of that end, and the health page names such a row, from a
   file written before this, as `not an end` instead of listing a finished run as
   a failure that is still running. The two words and their mapping are one set
   in `tehas_core::grammar`, read by both sides (#1417).
-- `analytics event --at <t>` keeps the row when the time is a little ahead of the host's clock: within an hour it is stored at now and said on standard error, because the dispatcher passes the time GitHub recorded for the label. Beyond the hour it is still a usage error and no row is written.
-- The `sizes` figures count no lead for a ship whose `merged` is stamped before the `ready` behind it, as `refine` already counts it; a negative median lead no longer reaches the report.
-- `store prune` also removes the cycle and plan history of an issue whose cycle ended more than its window ago, keeping that issue's last row of each of the two tables, so the state store no longer grows with every issue the factory has ever closed. `store upkeep`, what `tehasbot clean` calls once an hour, prunes with a window of 90 days (`PRUNE_DAYS` in `console/store/src/upkeep.rs`). `tehas history` still answers for a long-closed issue with the line it keeps, and an issue whose cycle ended without a history line of its own keeps all of its rows (#1414).
 - `tehas panel set <id> --label TEXT --url URL` names a page of the project, such as a support chat or a status page, and both front pages show it: an item in the menu opens it in a sandboxed frame in a dock at the side. Up to four, published to `live/panels.json`; `tehas api --json` lists the feature `panels`.
 
 - `scripts/tag-release.sh` moves every pinned tool to the newest minor and patch of its major before it tags: `host/versions.env`, `host/npm/` and `host/sandbox/npm/`, each with its checksum, digest or lockfile, from the tool's own source (`scripts/pins.sh`, `console pins`). When anything moves it opens a pull request on `pins-<tag>` and tags after that is merged; a later major is listed under `### Held back` for a person. A move that fails stops the release; `--no-pins` skips it. The release that makes the move needs cargo, curl, tar and npm where it runs.
@@ -87,14 +73,6 @@ build left can be removed by hand.
 To run lean, rebuild the sandbox image on pi-rukas v0.14.47 or later. A
 lean start on an older image parks with what the image lacks.
 
-`console flags pause show` and `console flags pause read` are gone: a script
-which called one of them now gets 64 and the usage. The words of the flag are
-what `tehas status` prints, and the object is what `tehasbot status` publishes
-in `live/status.json` under `pause.flag`.
-
-A filter, script or search that looks for `STUCK: ` in pull request titles
-now looks for `HALT: `.
-
 Run `tehas update` (or `./install.sh`) once with GitHub reachable: until the
 user ids are recorded, no label, tick, answer or comment of an allowed account
 counts, and the poll says so on standard error. If it stops with 78 on a login
@@ -108,6 +86,35 @@ To have claimed issues assigned, set `TEHAS_OWNER` in `instance.env` to a person
 The `epic` label is new in `host/labels.tsv`, so an update runs its `labels`
 step; a host that skips it runs `tehas labels` once. Until the label exists,
 the poll's write of it fails with a `WARN:` line and nothing else changes.
+
+## v0.24.7 (2026-11-05)
+
+### Changes
+
+- A cycle's scratch has a size limit (#1547). With `TEHAS_SCRATCH_DIR` set, tehas work measures the cycle's scratch every 10 seconds and stops the cycle when it holds more than `TEHAS_SCRATCH_MAX` (20g by default), or when the scratch's file system has less than `TEHAS_CYCLE_STOP_FREE` free (5g by default) and this cycle's scratch is the largest there. The cycle ends `stopped` at the cap `disk`, and its report says which bound it passed. Before, one cycle that copied its container's root into its scratch filled the host's disk and stopped the dispatcher and the other cycles.
+- `tehas status`, `tehas status --json` (`held`) and the MCP `factory_status` answer (`held`) name each ready issue the dispatcher holds on its own, with the reason and what clears it: for now, an issue whose last cycle parked and whose body has not changed since (#1437). When every issue in line is held that way and no cycle runs, the health line is a `warn` that names them instead of "Idle, taking work.". Before, a factory whose one ready issue was held reported `pass` and taking work for hours.
+- `scripts/verify.sh` checks the workspace's format and lints on every run, not only with `--full`; in CI a missing rustfmt or clippy fails. `tehas setup` runs `--full` on a factory that builds tehas, so unformatted code that passed CI stopped setup three times. `console/dispatch` is formatted again (#1486).
+- A cycle that hands off on `lens-fix-reposition` with its pull request open and its review not held waits for a merge (`tehas:awaiting-merge`) instead of parking. The branch already holds the first review round's fix; only the second round's could not be laid on it. It was the most common park from 2026-10-31.
+- `console flags pause` takes only `set` and `clear`: `show` and `read`, which nothing called, are gone (#1365). The dashboard's reader of the flag uses the same reading as the health file.
+- The console's cycle report reads the stalled and timed stop files once each, so a file whose first word is no count of seconds names neither a stop nor a step (#1207). Before, the two reads of one file could disagree and report a stalled cycle with a step of an unreadable file.
+- A factory pull request that waits for a person is titled `HALT: ` instead of `STUCK: `. The next poll renames the open ones.
+- `tehas drain` prints its answer when a poll holds its lock for the whole wait: `not drained:`, or `drained: false` with `--json`. It printed nothing, which stopped `industry factory upgrade` with `unreadable factory answer`.
+- The libraries no command sources are gone: `lib/attachments.sh`, `cycles.sh`, `labels.sh`, `millwright.sh`, `questions.sh`, `sandbox.sh`, `slice.sh`, `store.sh` and `history-lines.jq`. What still had a caller is in the console or the store now, and `install.sh` removes a host's copies in its stale-file step.
+- The host's pinned tools are back to what v0.24.x released: Node 22.23.4, gh 2.103.3, bun 1.4.4, jq 1.8.2, Pi 1.4.0, ctx7 0.8.2, parallel-cli 0.9.4, Playwright 1.64.1, Rust 1.99.1, rustup 1.29.2, codebase-memory-mcp 0.12.1, Caddy 2.11.7 and CI's actions/checkout v7.0.1, each with its checksum, digest or lockfile. A merge had put the earlier pins back in `host/versions.env`, the npm trees beside it, the Caddy digests and the two workflows (#1475).
+- The site is two frontends with two pinned looks. The front page (`/`, `/floor`) names `theme-pixel.css` and every other page names `theme-beesknees26.css`, each with its own logo and share card, so no server rewrites a look. `TEHAS_THEME` and `TEHAS_LAYOUT` are retired, the `paper` and `beesknees` themes are gone, the front page is always the factory floor and `/business` is always the business page. The footers no longer link from one frontend to the other (#1488).
+- `analytics event --at <t>` keeps the row when the time is a little ahead of the host's clock: within an hour it is stored at now and said on standard error, because the dispatcher passes the time GitHub recorded for the label. Beyond the hour it is still a usage error and no row is written.
+- The `sizes` figures count no lead for a ship whose `merged` is stamped before the `ready` behind it, as `refine` already counts it; a negative median lead no longer reaches the report.
+- `store prune` also removes the cycle and plan history of an issue whose cycle ended more than its window ago, keeping that issue's last row of each of the two tables, so the state store no longer grows with every issue the factory has ever closed. `store upkeep`, what `tehasbot clean` calls once an hour, prunes with a window of 90 days (`PRUNE_DAYS` in `console/store/src/upkeep.rs`). `tehas history` still answers for a long-closed issue with the line it keeps, and an issue whose cycle ended without a history line of its own keeps all of its rows (#1414).
+
+### Adopter action
+
+`console flags pause show` and `console flags pause read` are gone: a script
+which called one of them now gets 64 and the usage. The words of the flag are
+what `tehas status` prints, and the object is what `tehasbot status` publishes
+in `live/status.json` under `pause.flag`.
+
+A filter, script or search that looks for `STUCK: ` in pull request titles
+now looks for `HALT: `.
 
 On a host that sets `TEHAS_SCRATCH_DIR`, a cycle whose scratch holds more
 than 20g, or that has the largest scratch when its disk has less than 5g free,
