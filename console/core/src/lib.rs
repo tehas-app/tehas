@@ -7,6 +7,7 @@ pub mod approval;
 #[cfg(feature = "mask")]
 pub mod call;
 pub mod disk;
+pub mod egress;
 pub mod env_file;
 pub mod events;
 pub mod file;
