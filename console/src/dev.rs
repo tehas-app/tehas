@@ -638,7 +638,10 @@ fn session(given: &Words, taken: &Taken) -> u8 {
     let (Ok(mounts), Some(())) = (mounts, models) else {
         return refuse("tehas dev: could not prepare the sandbox, not starting a session".into());
     };
-    let hosts = sandbox::hosts(&var("PI_ENSEMBLE_HOST_ALIASES"));
+    let hosts = match sandbox::network(&var("PI_ENSEMBLE_HOST_ALIASES")) {
+        Ok(hosts) => hosts,
+        Err(why) => return refuse(format!("tehas dev: {why}, not starting a session")),
+    };
 
     tehas_core::outln!("tehas dev: {tree}, commits as {}", who.said);
     let view = fs::read_to_string(format!("{home}/live/running.json")).unwrap_or_default();

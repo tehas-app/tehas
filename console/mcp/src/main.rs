@@ -11,6 +11,11 @@
 //! must hold a key, and no key may be in both. One line per request on stderr
 //! names the key by fingerprint and the key's scope.
 //! Exit 78 when the keys or the arguments are wrong, 1 when it cannot listen.
+//!
+//!   tehas-mcp egress --listen <addr:port> [--allow <host:port>]...
+//!
+//! The egress proxy of the sandbox containers instead (mcp::egress), with the
+//! same exit statuses.
 
 use mcp::keys::{parse_keys, Keys, Setting};
 use mcp::tools::Dirs;
@@ -51,8 +56,46 @@ impl Drop for Slot {
     }
 }
 
+/// `tehas-mcp egress`: the proxy of mcp::egress, for good.
+fn egress(args: &[String]) -> ! {
+    let fail = |why: String| -> ! {
+        eprintln!("tehas-mcp egress: {why}");
+        eprintln!("usage: tehas-mcp egress --listen <addr:port> [--allow <host:port>]...");
+        std::process::exit(78);
+    };
+    let (mut listen, mut allow) = (None, Vec::new());
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        let v = it
+            .next()
+            .unwrap_or_else(|| fail(format!("{a} needs a value")))
+            .clone();
+        match a.as_str() {
+            "--listen" => listen = Some(v),
+            "--allow" => allow.push(v),
+            other => fail(format!("unknown argument {other}")),
+        }
+    }
+    let listen = listen.unwrap_or_else(|| fail("--listen is missing".to_string()));
+    let allowed = mcp::egress::Allowed::parse(&allow).unwrap_or_else(|why| fail(why));
+    let listener = TcpListener::bind(&listen).unwrap_or_else(|e| {
+        eprintln!("tehas-mcp egress: cannot listen on {listen}: {e}");
+        std::process::exit(1);
+    });
+    eprintln!(
+        "tehas-mcp egress: listening on {listen}, {} hosts allowed",
+        allowed.len()
+    );
+    mcp::egress::serve(listener, allowed);
+    std::process::exit(1);
+}
+
 fn main() {
-    let mut args = std::env::args().skip(1);
+    let all: Vec<String> = std::env::args().skip(1).collect();
+    if all.first().map(String::as_str) == Some("egress") {
+        egress(&all[1..]);
+    }
+    let mut args = all.into_iter();
     let (mut live, mut sessions, mut logs) = (None, None, None);
     let (mut listen, mut version) = (None, None);
     let mut io_timeout: Option<String> = None;
