@@ -125,9 +125,16 @@ with a token; remove the token from `~/.config/tehas/env` after.
   when the poll runs them, so the `gh` of none of them asks again (#938, #965).
   The poll keeps it in memory only - never in a log, a file, or the
   poll's record.
-- A cycle's container is given `~/tehas/state/github` read-only, never the key.
-  The image's own `gh` reads the token there at every call, and `tehas work`
-  renews it every 5 minutes while the cycle runs. A failed renewal is one line
+- A cycle's container is never given the app's token: it gets the cycle token
+  `GH_CYCLE_TOKEN`, a fine-grained token of a user account, as its `GH_TOKEN`
+  (#746). The cycle's pull request and comments therefore carry that account's
+  login, which `TEHAS_CYCLE_LOGIN` in `instance.env` names; with an app a cycle
+  does not start without it (exit 78), and the host counts that login as the
+  factory's own beside `TEHAS_BOT_LOGIN`. A planning turn's and a manual
+  session's container is given `~/tehas/state/github` read-only, never the
+  key, and the image's own `gh` reads the token there at every call. For the
+  host side of a cycle `tehas work` renews the app's token every 5 minutes
+  while the cycle runs. A failed renewal is one line
   in the cycle's work log, never a token, and is tried again after 30 seconds,
   so two failures in a row no longer let the token run out. The renewer is
   `tehas-cycle renew` (`console/cycle/src/renew.rs`).
@@ -148,8 +155,11 @@ when that word is `mutation`. An idle poll asks GitHub nothing but queries, and
 so adds no line. Which call is a write, and the line, are decided by
 `console gh`, which the shim execs; a read goes on to gh at once. A host whose
 console is missing or cannot be run still has a working `gh`, with the token,
-and logs nothing until the console is repaired. The log grows with every write and is read by nothing yet; it
-is the measure the throttling of #649 is to be designed from.
+and logs nothing until the console is repaired. The poll line of `tehas
+status` counts it, and `tehasbot github-writes` shows the last day by hour and
+by its busiest minute against GitHub's limits. A write GitHub refuses for a
+rate limit is sent once more after a minute, and only that call
+([the commands page](/tools#tehasbot-github-writes)).
 
 [The commands page](/tools#tehasbot-github-token) has the details.
 

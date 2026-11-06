@@ -112,18 +112,6 @@ fn check_keys(full: &str, dashboard: &str) -> Result<(), String> {
     }
 }
 
-/// The digest of the Caddy image the docs server runs. That image is pinned
-/// already, so no other is trusted here: it is only a root file system for a
-/// static binary.
-fn digest(versions: &str) -> Option<&str> {
-    let value = versions
-        .split('\n')
-        .find_map(|line| line.strip_prefix("CADDY_DIGEST="))?;
-    let hex = value.strip_prefix("sha256:")?;
-    (hex.len() == 64 && hex.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')))
-        .then_some(value)
-}
-
 /// The version the server states: the first line of the file, in the
 /// characters a version has.
 fn version(file: &[u8]) -> String {
@@ -269,7 +257,7 @@ fn prepare(home: &str) -> Result<Run, (u8, String)> {
     }
     let versions = fs::read(format!("{home}/versions.env")).unwrap_or_default();
     let versions = String::from_utf8_lossy(&versions);
-    let digest = digest(&versions)
+    let digest = tehas_core::egress::caddy_digest(&versions)
         .ok_or(fail(format!(
             "no CADDY_DIGEST in {home}/versions.env: run install.sh"
         )))?
@@ -478,20 +466,6 @@ mod tests {
             .unwrap_err()
             .starts_with("TEHAS_MCP_DASHBOARD_KEYS: key 1"));
         assert_eq!(check_keys("", KEY), Ok(()));
-    }
-
-    #[test]
-    fn the_digest_is_the_first_line_of_its_name_and_must_be_whole() {
-        let good = format!("sha256:{}", "a".repeat(64));
-        let file = format!("CADDY_VERSION=2\nCADDY_DIGEST={good}\nCADDY_DIGEST=other\n");
-        assert_eq!(digest(&file), Some(good.as_str()));
-        assert_eq!(digest("CADDY_DIGEST=latest\n"), None);
-        assert_eq!(digest(&format!("CADDY_DIGEST={good}\r\n")), None);
-        assert_eq!(
-            digest(&format!("CADDY_DIGEST={}", good.to_uppercase())),
-            None
-        );
-        assert_eq!(digest(""), None);
     }
 
     #[test]
