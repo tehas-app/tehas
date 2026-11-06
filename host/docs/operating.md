@@ -1057,7 +1057,8 @@ The session asks, as in step 5, when:
 - the plan links an attachment the issue's text did not;
 - the checks of [the text of an issue](#1-write-an-issue-tehas-can-build)
   refuse the plan's own title or text: a title of nothing but a prefix, a
-  word said twice, the planner's brief copied as the plan, a text with no
+  word said twice, a title that only names the issue it plans
+  (`feat: Plan issue #608`), the planner's brief copied as the plan, a text with no
   line of the issue's own in it, lines of the planner's context echoed back
   with `[context param]`, or placeholder Acceptance criteria. The session is not ended and no cycle is
   credited, so a reply that changes the plan is the only answer that moves it
