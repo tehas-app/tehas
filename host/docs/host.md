@@ -1387,9 +1387,14 @@ the proxy resolves a name itself, through the names of
 The first container that needs the proxy makes both networks and starts it,
 under `~/tehas/state/egress.lock`. It is started again when its list, the
 binary or the image changed, which cuts the connections of the containers
-running then. A network named `tehas-egress` that is not internal and isolated
-from the host stops the container with 78 instead of starting it open; remove
-the network and start again.
+running then. The network is held to what the previews' network is held to
+(`console preview network check`): Docker 27.1 or later, which knows
+`gateway_mode_ipv4`, and a network that is internal, of the bridge driver,
+without IPv6 and with `gateway_mode_ipv4` `isolated`, so the host has no
+address on it. An older Docker, or a `tehas-egress` network that falls short of
+any of these, stops the container with 78 instead of starting it open, and an
+older Docker is not asked to make anything. For a network, remove it and start
+again.
 
 Checked on 2026-11-06 with the pi-rukas image on a development machine: curl,
 git, gh, npm, cargo and bun went through the proxy, node 22 only with

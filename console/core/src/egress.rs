@@ -6,7 +6,9 @@
 //! on that network and on `tehas-egress-out`, a plain bridge, and connects
 //! only to the hosts allowed here: the base list below, the host of every
 //! endpoint in models.json, and `TEHAS_EGRESS_HOSTS`. A tool that ignores the
-//! proxy variables reaches nothing: it fails closed.
+//! proxy variables reaches nothing: it fails closed. The network is held to
+//! the previews' check in `hostnet`, Docker 27.1 or later included, and a
+//! network that falls short stops the container before it starts.
 //!
 //! The proxy is the static `tehas-mcp` binary's `egress` verb in the Caddy
 //! image the docs server is pinned to, as the MCP server is run. It is started
@@ -14,6 +16,7 @@
 //! binary or its image changed. Without `TEHAS_EGRESS=1` nothing here runs and
 //! a container has Docker's default bridge, as before.
 
+use crate::hostnet;
 use crate::models::ModelFile;
 use crate::sandbox;
 use std::fs;
@@ -27,7 +30,6 @@ pub const NAME: &str = "tehas-egress";
 pub const OUTSIDE: &str = "tehas-egress-out";
 pub const PORT: u16 = 3128;
 const LABEL: &str = "tehas.egress";
-const ISOLATED: &str = "com.docker.network.bridge.gateway_mode_ipv4";
 
 /// What every cycle reaches, on 443: GitHub for git, gh and the release
 /// downloads, and the registries of npm and cargo. The owner's list of
@@ -221,19 +223,21 @@ pub fn ensure_with(
     run: &Run,
 ) -> Result<(), String> {
     let mut call = |w: &[&str]| docker(&w.iter().map(|s| s.to_string()).collect::<Vec<_>>());
-    let format = format!("{{{{.Internal}}}} {{{{index .Options \"{ISOLATED}\"}}}}");
-    match call(&["network", "inspect", "--format", &format, NETWORK]).as_deref() {
-        Some("true isolated") => {}
-        Some(_) => {
-            return Err(format!(
-                "the network {NETWORK} is not internal and isolated from the host: remove it and start again"
-            ))
-        }
-        None => {
-            let option = format!("{ISOLATED}=isolated");
-            let create = ["network", "create", "--internal", "--ipv6=false", "-o", &option, NETWORK];
-            call(&create).ok_or(format!("could not make the network {NETWORK}"))?;
-        }
+    // The previews' check: an old Docker is not asked to make anything, and a
+    // network is held to all four words, not to the option alone.
+    if let Some(why) = hostnet::docker_fault(&mut call) {
+        return Err(format!(
+            "{why}: the network {NETWORK} cannot keep the host out"
+        ));
+    }
+    if call(&["network", "inspect", NETWORK]).is_none() && !hostnet::net_create(&mut call, NETWORK)
+    {
+        return Err(format!("could not make the network {NETWORK}"));
+    }
+    if let Some((_, why)) = hostnet::net_fault(&mut call, NETWORK) {
+        return Err(format!(
+            "the network {NETWORK} does not keep the host out: {why}: remove it and start again"
+        ));
     }
     if call(&["network", "inspect", "--format", "{{.Name}}", OUTSIDE]).is_none() {
         call(&["network", "create", "--ipv6=false", OUTSIDE])
@@ -435,75 +439,152 @@ mod tests {
         }
     }
 
+    const VERSION: (&str, Option<&str>) = ("version --format", Some("29.1.3"));
+    const FIELDS: &str = "network inspect --format {{.Internal}} {{.Driver}} {{.EnableIPv6}} \
+         {{index .Options \"com.docker.network.bridge.gateway_mode_ipv4\"}} tehas-egress";
+    const HOLDS: (&str, Option<&str>) = (FIELDS, Some("true bridge false isolated"));
+    const THERE: (&str, Option<&str>) = ("network inspect tehas-egress", Some("[]"));
+    const OUT: (&str, Option<&str>) = (
+        "network inspect --format {{.Name}} tehas-egress-out",
+        Some("tehas-egress-out"),
+    );
+
     #[test]
     fn a_host_with_nothing_gets_both_networks_and_the_proxy() {
         let mut calls = vec![];
-        let answers = [("network create", Some("")), ("run", Some("id"))];
+        let answers = [
+            VERSION,
+            HOLDS,
+            ("network create", Some("")),
+            ("run", Some("id")),
+        ];
         let r = ensure_with(&mut fake(&answers, &mut calls), &run());
         assert_eq!(r, Ok(()));
-        assert!(calls[1].starts_with("network create --internal --ipv6=false -o com.docker.network.bridge.gateway_mode_ipv4=isolated tehas-egress"), "{calls:?}");
-        assert_eq!(calls[3], "network create --ipv6=false tehas-egress-out");
+        assert_eq!(calls[0], "version --format {{.Server.Version}}");
+        assert_eq!(calls[1], "network inspect tehas-egress");
+        assert_eq!(calls[2], "network create --internal --ipv6=false -o com.docker.network.bridge.gateway_mode_ipv4=isolated tehas-egress");
+        assert_eq!(calls[3], FIELDS);
+        assert_eq!(calls[5], "network create --ipv6=false tehas-egress-out");
         assert!(
-            calls[4].starts_with("inspect --type container"),
+            calls[6].starts_with("inspect --type container"),
             "{calls:?}"
         );
-        assert!(calls[5].starts_with("run --detach"), "{calls:?}");
-        assert_eq!(calls.len(), 6);
+        assert!(calls[7].starts_with("run --detach"), "{calls:?}");
+        assert_eq!(calls.len(), 8);
     }
 
     #[test]
     fn the_proxy_that_is_running_with_the_same_key_is_kept() {
         let want = format!("true {}", key(&run()));
         let answers = [
-            (
-                "network inspect --format {{.Internal}}",
-                Some("true isolated"),
-            ),
-            (
-                "network inspect --format {{.Name}}",
-                Some("tehas-egress-out"),
-            ),
+            VERSION,
+            HOLDS,
+            THERE,
+            OUT,
             ("inspect --type container", Some(want.as_str())),
         ];
         let mut calls = vec![];
         assert_eq!(ensure_with(&mut fake(&answers, &mut calls), &run()), Ok(()));
-        assert_eq!(calls.len(), 3, "{calls:?}");
+        assert_eq!(calls.len(), 5, "{calls:?}");
     }
 
     #[test]
     fn a_proxy_with_another_key_or_stopped_is_replaced() {
         for seen in ["true 0", "false 0"] {
             let answers = [
-                (
-                    "network inspect --format {{.Internal}}",
-                    Some("true isolated"),
-                ),
-                (
-                    "network inspect --format {{.Name}}",
-                    Some("tehas-egress-out"),
-                ),
+                VERSION,
+                HOLDS,
+                THERE,
+                OUT,
                 ("inspect --type container", Some(seen)),
                 ("rm -f tehas-egress", Some("")),
                 ("run", Some("id")),
             ];
             let mut calls = vec![];
             assert_eq!(ensure_with(&mut fake(&answers, &mut calls), &run()), Ok(()));
-            assert_eq!(calls[3], "rm -f tehas-egress");
-            assert!(calls[4].starts_with("run --detach"));
+            assert_eq!(calls[5], "rm -f tehas-egress");
+            assert!(calls[6].starts_with("run --detach"));
         }
     }
 
     #[test]
-    fn a_network_that_lets_out_or_a_proxy_that_does_not_start_fails_closed() {
-        let open = [(
-            "network inspect --format {{.Internal}}",
-            Some("false <no value>"),
-        )];
+    fn a_docker_older_than_27_1_or_unread_is_refused_before_anything_is_made() {
+        for (said, why) in [
+            (Some("26.1.4"), "older than 27.1"),
+            (Some("27.0.3"), "older than 27.1"),
+            (Some("latest"), "could not be read"),
+            (None, "could not be read"),
+        ] {
+            let answers = [
+                ("version --format", said),
+                HOLDS,
+                THERE,
+                ("network create", Some("")),
+                ("run", Some("id")),
+            ];
+            let mut calls = vec![];
+            let r = ensure_with(&mut fake(&answers, &mut calls), &run());
+            assert!(r.unwrap_err().contains(why), "{said:?}");
+            assert_eq!(calls.len(), 1, "only the version is asked: {calls:?}");
+        }
+    }
+
+    #[test]
+    fn a_network_that_lets_out_or_reaches_the_host_is_refused_and_nothing_is_started() {
+        for (said, why) in [
+            ("false bridge false isolated", "it is not internal"),
+            ("false bridge false <no value>", "it is not internal"),
+            ("true macvlan false isolated", "its driver is not bridge"),
+            ("true ipvlan false isolated", "its driver is not bridge"),
+            ("true bridge true isolated", "it has IPv6"),
+            (
+                "true bridge false <no value>",
+                "it is not isolated from the host",
+            ),
+            ("true bridge false nat", "it is not isolated from the host"),
+        ] {
+            let answers = [
+                VERSION,
+                (FIELDS, Some(said)),
+                THERE,
+                ("network create", Some("")),
+                ("run", Some("id")),
+            ];
+            let mut calls = vec![];
+            let r = ensure_with(&mut fake(&answers, &mut calls), &run());
+            let err = r.unwrap_err();
+            assert!(err.contains(why), "{said}: {err}");
+            assert!(err.contains("remove it and start again"), "{err}");
+            assert_eq!(calls.len(), 3, "nothing is made or started: {calls:?}");
+        }
+    }
+
+    #[test]
+    fn a_network_made_here_is_checked_too() {
+        // A Docker that took the option and ignored it, or made it with IPv6.
+        for said in ["true bridge false <no value>", "true bridge true isolated"] {
+            let answers = [
+                VERSION,
+                (FIELDS, Some(said)),
+                ("network create", Some("")),
+                ("run", Some("id")),
+            ];
+            let mut calls = vec![];
+            let r = ensure_with(&mut fake(&answers, &mut calls), &run());
+            assert!(r.is_err(), "{said}");
+            assert_eq!(calls.len(), 4, "{calls:?}");
+        }
+        let answers = [VERSION];
         let mut calls = vec![];
-        let r = ensure_with(&mut fake(&open, &mut calls), &run());
-        assert!(r.unwrap_err().contains("not internal"));
-        assert_eq!(calls.len(), 1, "nothing is started on an open network");
-        let none = [("network create", Some(""))];
+        let r = ensure_with(&mut fake(&answers, &mut calls), &run());
+        assert!(r
+            .unwrap_err()
+            .contains("could not make the network tehas-egress"));
+    }
+
+    #[test]
+    fn a_proxy_that_does_not_start_fails_closed() {
+        let none = [VERSION, HOLDS, ("network create", Some(""))];
         let mut calls = vec![];
         let r = ensure_with(&mut fake(&none, &mut calls), &run());
         assert!(r.unwrap_err().contains("could not start the proxy"));
