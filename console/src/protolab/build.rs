@@ -38,6 +38,7 @@ struct Lab {
     allowed: String,
     domain: String,
     url: String,
+    design: String,
     token: String,
 }
 
@@ -74,6 +75,7 @@ pub fn run() -> u8 {
         allowed,
         domain: setting("TEHAS_DOMAIN"),
         url: setting("TEHAS_PROTOLAB_URL"),
+        design: setting("TEHAS_DESIGN"),
         token: String::new(),
     };
     let rc = pass(&mut lab, &live);
@@ -87,7 +89,7 @@ fn pass(lab: &mut Lab, live: &Path) -> u8 {
     let mut gh = Bounded::new(program.clone(), CALL_BOUND);
     lab.token = token(&mut gh);
     let home_url = home_url(&lab.domain, &lab.url);
-    let generator = generator(&lab.domain);
+    let generator = generator(&lab.domain, &lab.design);
 
     // The bot's own login, asked once before anything of a ticket is read,
     // built or removed: whatever a cycle labels, it labels as the bot. A login
@@ -165,7 +167,7 @@ fn pass(lab: &mut Lab, live: &Path) -> u8 {
 
     let metas = metas(&lab.site);
     let now = tehas_core::time::iso(tehas_core::time::now());
-    let front = front_page(&metas, &lab.domain, &home_url, LIMIT);
+    let front = front_page(&metas, &lab.domain, &home_url, &lab.design, LIMIT);
     let list = live_file(&metas, &now, &lab.url, &lab.domain, LIMIT);
     let written = edge::put(&lab.site.join("index.html"), front.as_bytes())
         .and_then(|()| edge::put(&live.join("protolab.json"), list.as_bytes()));
@@ -205,18 +207,23 @@ fn home_url(domain: &str, url: &str) -> String {
 }
 
 /// What every stamp starts with: the console writes the pages, so a page whose
-/// words changed is built again. Read through /proc, which still works while an
-/// update has replaced the file.
-fn generator(domain: &str) -> String {
+/// words changed is built again, and so is one drawn in another design. Read
+/// through /proc, which still works while an update has replaced the file.
+fn generator(domain: &str, design: &str) -> String {
     let bytes = fs::read("/proc/self/exe").unwrap_or_default();
     let mut hash = DefaultHasher::new();
     bytes.hash(&mut hash);
-    stamp_of(hash.finish(), bytes.len(), domain)
+    stamp_of(hash.finish(), bytes.len(), domain, design)
 }
 
-fn stamp_of(hash: u64, len: usize, domain: &str) -> String {
+fn stamp_of(hash: u64, len: usize, domain: &str, design: &str) -> String {
     let domain = if domain.is_empty() { "path" } else { domain };
-    format!("{hash:016x}-{len}-{domain}")
+    let design = if design == "pixel" {
+        "pixel"
+    } else {
+        "beesknees26"
+    };
+    format!("{hash:016x}-{len}-{domain}-{design}")
 }
 
 /// Whole logins, split by spaces, exact case. An empty name is nobody.
@@ -384,6 +391,7 @@ fn build(
         row["skipped"].as_array()?,
         found.outside,
         home_url,
+        &lab.design,
         LIMIT,
     );
     fs::write(dir.join("index.html"), page).ok()?;
@@ -866,9 +874,15 @@ mod tests {
     }
 
     #[test]
-    fn the_stamp_says_the_console_and_the_domain() {
-        assert_eq!(stamp_of(255, 7, ""), "00000000000000ff-7-path");
-        assert_eq!(stamp_of(255, 7, "a.org"), "00000000000000ff-7-a.org");
+    fn the_stamp_says_the_console_the_domain_and_the_design() {
+        assert_eq!(
+            stamp_of(255, 7, "", ""),
+            "00000000000000ff-7-path-beesknees26"
+        );
+        assert_eq!(
+            stamp_of(255, 7, "a.org", "pixel"),
+            "00000000000000ff-7-a.org-pixel"
+        );
     }
 
     #[test]

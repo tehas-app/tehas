@@ -75,6 +75,7 @@ in the platform repository has every one with a comment.
 | `TEHAS_INDEXING`                | `0`                                      | `1` lets search engines index the dashboard and the manual      |
 | `TEHAS_ANALYTICS_SRC`, `_SITE`  | empty                                    | Optional. The https address of a visitor analytics script and the site name it reports under. Both set: every page loads it |
 | `TEHAS_ANALYTICS_COOKIE`        | `0`                                      | `1` adds `data-cookie="true"` to that script tag                |
+| `TEHAS_DESIGN`                  | `beesknees26`                            | The look of the whole site and its front page: `beesknees26` (the business page at `/`) or `pixel` (the factory floor at `/`). Any other value is exit 78. See [Designs](/host#designs) |
 | `TEHAS_CYCLE_REPORT`            | `rust`                                   | Who reports a cycle: `rust`, `tehas-cycle cycle`, the only value. The report in bash is gone: `bash`, or any other value, is exit 78. See [The report in Rust](/operating#the-report-in-rust) |
 | `TEHAS_ANALYTICS`               | `on`                                     | The factory's own analytics, not the visitor analytics above: 365 days of runs, issue events and poll samples in `~/tehas/state/analytics.db`. `off` stops every write and leaves the file as it is. Anything but `on` or `off` stops every command with 78 |
 | `TEHAS_PROTOLAB_URL`            | `https://lab.<domain>`, or port 8081     | Address people reach the Protolab at, when it is published elsewhere, as `https://lab.example`. The dashboard links to it. Without it: `https://lab.<domain>` when `TEHAS_DOMAIN` is set, else port 8081 of the dashboard's host |
@@ -1222,9 +1223,12 @@ open points may need no such answer: the dispatcher then reads the issue and
 [A plan with no open points](/operating#a-plan-with-no-open-points).
 The one gate on the draft's text is `made` (`console/core/src/plan.rs`), which
 asks the text check of #1210 (`console/core/src/textcheck.rs`) of the draft's
-own title and text: a title of nothing but a prefix, a word said twice, the
-planner's brief as the plan, or a text with no line of the issue's own in it is
-refused, and a refusal writes nothing. Both writers of a plan go through it, and
+own title and text: a title of nothing but a prefix (`EPIC: EPIC`), a word
+said twice, a title that only names the issue it plans (`feat: Plan issue
+#608`), the planner's brief as the plan, or a text with no line of the issue's
+own in it is refused, and a refusal writes nothing: the issue keeps the title
+and body a person gave it, and the comment of the turn says which rule the
+draft failed. Both writers of a plan go through it, and
 the dispatcher pre-checks the same function before it writes an `update` or
 credits a start, so a draft that says nothing of the issue asks instead: the
 console's `update` answer comes back with the question and no `update` key, and

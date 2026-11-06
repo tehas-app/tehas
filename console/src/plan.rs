@@ -982,6 +982,47 @@ mod tests {
         );
     }
 
+    /// The drafts that were offered as an issue's text (`EPIC: EPIC` on
+    /// trail-openers/nessie#1184 and tehas #1015, `EPIC: Epic` on #980,
+    /// `feat: Plan issue #608` on #608, each with the brief as its body),
+    /// replayed through Update this issue: the answer holds no `update`, so
+    /// the person's title and body stay, and its text says why.
+    #[test]
+    fn update_this_issue_keeps_the_person_text_over_a_real_draft() {
+        let k = keep();
+        let prefixes = "the title is nothing but prefixes: epic epic";
+        for (fixture, said) in [
+            (
+                include_str!("../core/tests/drafts/nessie-1184.drafted.md"),
+                prefixes,
+            ),
+            (
+                include_str!("../core/tests/drafts/tehas-1015.drafted.md"),
+                prefixes,
+            ),
+            (
+                include_str!("../core/tests/drafts/tehas-980.drafted.md"),
+                prefixes,
+            ),
+            (
+                include_str!("../core/tests/drafts/tehas-608.drafted.md"),
+                "the title only names the issue it plans: feat plan issue 608",
+            ),
+        ] {
+            let (title, spec) = fixture.split_once("\n\n").unwrap();
+            let draft = json!({"title": title, "spec": spec}).to_string();
+            std::fs::write(k.join("draft.json"), draft).unwrap();
+            let was = json!({"title": "EPIC: Issue titles tehas writes must summarise the issue",
+                "body": "## Problem\n\nA bad draft from the planner replaces good text."});
+            let v = parsed(&update("s", &k, &was.to_string()).unwrap());
+            assert!(v.get("update").is_none_or(Value::is_null), "{title}: {v}");
+            let text = v["text"].as_str().unwrap();
+            let opens = format!("{}: {said}.", tehas_core::plan::REFUSED);
+            assert!(text.starts_with(&opens), "{text}");
+            assert_eq!(v["question"]["question"], v["text"], "{title}");
+        }
+    }
+
     /// A person's `pi-spec v1` block survives the write of a plan: the lean
     /// driver reads only that block, and the draft of a plan holds none of its
     /// own, so the issue's block goes back on top of the text (`keep_spec`).
