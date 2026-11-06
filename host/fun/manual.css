@@ -129,6 +129,7 @@
 .page ul.issues { padding: 0; list-style: none; }
 .page ul.issues li { max-width: none; margin: 0; padding: 8px 0; border-top: 1px solid var(--rule); overflow-wrap: anywhere; }
 .page ul.issues li:first-child { border-top: 0; }
+.page ul.issues li pre.ro-body { margin: 6px 0 0; max-height: 16em; overflow: auto; white-space: pre-wrap; }
 .page .when { white-space: nowrap; }
 /* A preview that is not serving has no link: its title is plain text, and the
    reason after it needs a mark to stand apart as a link's "when" does. */
