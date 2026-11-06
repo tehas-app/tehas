@@ -321,15 +321,16 @@ fn retired_names(vars: &mut Vars, file: &str) -> Result<(), String> {
             continue;
         }
         // The values that ask for what this version does: an earlier version
-        // read 0 and a blank line alike as no clones, and rust or a blank line
-        // as the Rust poll, so the line stays loadable.
+        // read 0 and a blank line alike as no clones, rust or a blank line as
+        // the Rust poll, and beesknees26 and business are the default design,
+        // so the line stays loadable.
         let value = vars.text(name);
         if matches!(
             (name, value.as_str()),
             ("TEHAS_CLONES", "0" | "")
                 | ("TEHAS_DISPATCHER", "rust" | "")
-                | ("TEHAS_THEME", "pixel" | "")
-                | ("TEHAS_LAYOUT", "floor" | "")
+                | ("TEHAS_THEME", "beesknees26" | "")
+                | ("TEHAS_LAYOUT", "business" | "")
         ) {
             vars.unset(name.as_bytes());
             continue;
@@ -344,8 +345,8 @@ fn retired_names(vars: &mut Vars, file: &str) -> Result<(), String> {
                 format!("is set and this version of tehas has no memory budget to set: {SLICE}")
             }
             "TEHAS_DISPATCHER" => "is set and this version of tehas has no bash poll: every poll is tehas-dispatch, so take the line out".to_string(),
-            "TEHAS_THEME" => "is no longer read: the front page is pixel and every other page is beesknees26, so take the line out".to_string(),
-            "TEHAS_LAYOUT" => "is no longer read: the front page is always the factory floor and /business is always the business page, so take the line out".to_string(),
+            "TEHAS_THEME" => "is no longer read: TEHAS_DESIGN draws the whole site, beesknees26 by default or pixel, so take the line out".to_string(),
+            "TEHAS_LAYOUT" => "is no longer read: the front page follows TEHAS_DESIGN, the business page for beesknees26 and the factory floor for pixel, so take the line out".to_string(),
             _ => format!(
                 "is no longer read: rename it TEHAS_MILLWRIGHT_{}",
                 name.strip_prefix("TEHAS_FIXER_").unwrap_or(name)
@@ -899,6 +900,20 @@ mod tests {
     }
 
     #[test]
+    fn the_design_is_beesknees26_unless_the_instance_says_pixel() {
+        assert_eq!(loads(&[]).text("TEHAS_DESIGN"), "beesknees26");
+        assert_eq!(
+            loads(&["TEHAS_DESIGN="]).text("TEHAS_DESIGN"),
+            "beesknees26"
+        );
+        assert_eq!(loads(&["TEHAS_DESIGN=pixel"]).text("TEHAS_DESIGN"), "pixel");
+        assert_eq!(
+            refused(&["TEHAS_DESIGN=paper"]),
+            format!("TEHAS_DESIGN is not valid: expected beesknees26 or pixel (see {FILE})")
+        );
+    }
+
+    #[test]
     fn a_ceiling_the_instance_names_asks_no_host() {
         let mut host = Fake::with(&["TEHAS_TICKET_CONCURRENCY=4"]);
         let (vars, got) = run(&mut host);
@@ -1140,21 +1155,21 @@ mod tests {
             "TEHAS_DISPATCHER=",
             "TEHAS_DISPATCHER=rust",
             "TEHAS_THEME=",
-            "TEHAS_THEME=pixel",
+            "TEHAS_THEME=beesknees26",
             "TEHAS_LAYOUT=",
-            "TEHAS_LAYOUT=floor",
+            "TEHAS_LAYOUT=business",
         ] {
             let vars = loads(&[line]);
             assert!(!vars.is_set(line.split('=').next().unwrap()));
         }
         for (line, why) in [
             (
-                "TEHAS_THEME=beesknees26",
-                "is no longer read: the front page is pixel and every other page is beesknees26, so take the line out",
+                "TEHAS_THEME=pixel",
+                "is no longer read: TEHAS_DESIGN draws the whole site, beesknees26 by default or pixel, so take the line out",
             ),
             (
-                "TEHAS_LAYOUT=business",
-                "is no longer read: the front page is always the factory floor and /business is always the business page, so take the line out",
+                "TEHAS_LAYOUT=floor",
+                "is no longer read: the front page follows TEHAS_DESIGN, the business page for beesknees26 and the factory floor for pixel, so take the line out",
             ),
         ] {
             assert_eq!(
