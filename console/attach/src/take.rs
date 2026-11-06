@@ -842,6 +842,11 @@ pub fn issue(run: &IssueRun, net: &dyn Net) -> Result<(), String> {
         ]);
         (approval, given::record_links(record, run.comments))
     };
+    let unavailable = if links.is_empty() {
+        Ordered::text(manifest::NO_LINKS)
+    } else {
+        Ordered::Plain(Value::Null)
+    };
 
     let mut take = Take {
         net,
@@ -870,6 +875,7 @@ pub fn issue(run: &IssueRun, net: &dyn Net) -> Result<(), String> {
         take.images,
         run.wants.files.then_some(take.files),
         take.left,
+        Some(unavailable),
         number,
         approval,
         comments,
@@ -948,7 +954,7 @@ pub fn comments_only(run: &CommentsRun) -> Result<(usize, usize), String> {
         ("by", plain("by")),
         ("how", plain("how")),
     ]);
-    let manifest = manifest::of_issue(Vec::new(), None, Vec::new(), number, approval, entry);
+    let manifest = manifest::of_issue(Vec::new(), None, Vec::new(), None, number, approval, entry);
     let path = format!("{dir}/manifest.json");
     fs::write(&path, manifest.pretty()).map_err(|_| written())?;
     chmod(dir, 0o755)
