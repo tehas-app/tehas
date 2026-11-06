@@ -64,12 +64,18 @@ fn capped(mut left: Vec<Ordered>) -> (Vec<Ordered>, usize) {
     (left, more)
 }
 
+/// What `linksUnavailable` says of a text with no link to fetch: an empty
+/// list is then no image to give, not an image the cycle could not see.
+pub const NO_LINKS: &str = "The text links no file of GitHub's storage.";
+
 /// What one start of an issue was given. `files` is absent where the instance
-/// gives a cycle none.
+/// gives a cycle none. `unavailable`, where given, is `linksUnavailable`: why
+/// the text gave no link to fetch, or null when every link is listed.
 pub fn of_issue(
     images: Vec<Ordered>,
     files: Option<Vec<Ordered>>,
     left: Vec<Ordered>,
+    unavailable: Option<Ordered>,
     issue: Value,
     approval: Ordered,
     comments: Option<Ordered>,
@@ -80,6 +86,9 @@ pub fn of_issue(
         m.set("files", Ordered::List(files));
     }
     m.set("leftOut", Ordered::List(left));
+    if let Some(why) = unavailable {
+        m.set("linksUnavailable", why);
+    }
     m.set("issue", Ordered::Plain(issue));
     m.set("approval", approval);
     if let Some(comments) = comments {

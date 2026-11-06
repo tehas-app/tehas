@@ -31,6 +31,7 @@ t_eq "$(gapline)" "tehas work: the approval record of issue 7 (approved 2026-10-
 t_eq "$(jq -c '{images, approval}' "$kept")" '{"images":[],"approval":{"at":"2026-10-14T00:00:00Z","by":"alice","how":"label"}}'
 t_eq "$(jq -c '[.leftOut[] | [.link, .source]]' "$kept")" "[[\"$A/1111\",\"body\"],[\"$F/31/spec.md\",\"body\"]]"
 t_contains "$(jq -r '.leftOut[0].reason' "$kept")" "no images and no files"
+t_eq "$(jq -r '.linksUnavailable' "$kept")" "This instance gives a cycle none (TEHAS_WORK_IMAGES=0, TEHAS_WORK_FILES=0): no directory is mounted and PI_ENSEMBLE_EXTRA_IMAGE_DIRS is not set."
 t_eq "$(kept_manifests)" 1
 
 t_case "with nothing given an instance line for the images variable is not passed on, as the line says"
