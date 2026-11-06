@@ -57,6 +57,10 @@ pub(crate) const LEAN: &str = "tehas:lean";
 /// it cannot drift apart.
 pub(crate) const BLOCKED: &str = "tehas:blocked";
 
+/// The kind of a proposal of the improvement loop. With TEHAS_ISSUE_TYPES
+/// mapping improvement, an issue of that type carries it in the snapshot.
+pub(crate) const IMPROVEMENT: &str = "tehas:improvement";
+
 /// The driver a start runs, as `Poll::driver` reads it.
 enum Driver {
     Classic,
@@ -184,7 +188,7 @@ struct EpicGrant {
 /// The labels that keep the millwright from starting an issue on no
 /// approval of the issue itself.
 const MILLWRIGHT_HELD: [&str; 4] = [
-    "tehas:improvement",
+    IMPROVEMENT,
     "cross-project",
     "needs-human-attention",
     "tehas:millwright-escalated",
@@ -423,6 +427,24 @@ impl<'a> Poll<'a> {
                 Some(f) if !f.contains(field) => {
                     return Err(self.fail(
                         format!("ERROR: TEHAS_PRIORITY_FIELD names {field}, which is no single-select issue field of {}'s owner: name one in {}/instance.env, or leave it out for the tehas:urgent and tehas:next labels", c.repo, c.instance_dir),
+                        78,
+                    ))
+                }
+                Some(_) => {}
+            }
+        }
+        if !c.improvement_type.is_empty() {
+            let t = &c.improvement_type;
+            match &s.issue_types {
+                None => {
+                    return Err(self.fail(
+                        format!("ERROR: the issue types of {}'s owner could not be read", c.repo),
+                        1,
+                    ))
+                }
+                Some(types) if !types.contains(t) => {
+                    return Err(self.fail(
+                        format!("ERROR: TEHAS_ISSUE_TYPES maps improvement to {t}, which is no issue type of {}'s owner: name one in {}/instance.env, or leave improvement out for the tehas:improvement label", c.repo, c.instance_dir),
                         78,
                     ))
                 }

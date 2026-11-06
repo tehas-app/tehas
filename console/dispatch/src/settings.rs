@@ -51,6 +51,9 @@ pub struct Settings {
     /// Urgent and High order the queue in place of `tehas:urgent` and
     /// `tehas:next`. Empty: the labels order it.
     pub priority_field: String,
+    /// The issue type TEHAS_ISSUE_TYPES maps improvement to: an issue of it
+    /// holds as `tehas:improvement` does. Empty: the label alone.
+    pub improvement_type: String,
     pub fixer_max_retries: i64,
     /// TEHAS_SIZE_MAX_FILES, None when unset, and the measure's bounds.
     pub size_max_files: Option<u64>,
@@ -136,6 +139,11 @@ impl Settings {
             branch: s("TEHAS_BRANCH", "main"),
             low_gate: s("TEHAS_LOW_GATE", ""),
             priority_field: s("TEHAS_PRIORITY_FIELD", ""),
+            improvement_type: tehas_core::kinds::type_of(
+                &s(tehas_core::kinds::SETTING, ""),
+                tehas_core::kinds::Kind::Improvement,
+            )
+            .unwrap_or_default(),
             fixer_max_retries: n("TEHAS_MILLWRIGHT_MAX_RETRIES", 2),
             size_max_files: v
                 .get("TEHAS_SIZE_MAX_FILES")

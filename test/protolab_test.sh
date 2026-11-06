@@ -30,7 +30,12 @@ case "$1 $2" in
   "api user")
     [ ! -e "$T/fx/user-fails" ] || exit 1
     cat "$T/fx/user.json" 2>/dev/null || echo "{\"login\":\"tehas-bot\"}" ;;
-  "api repos/acme/widget/issues?"*) cat "$T/fx/issues.json" 2>/dev/null || exit 1 ;;
+  "api repos/acme/widget/issues?"*) echo "$2" >>"$T/calls/lists"; cat "$T/fx/issues.json" 2>/dev/null || exit 1 ;;
+  "api graphql")
+    case "$*" in
+      *issueTypes*) cat "$T/fx/types.json" 2>/dev/null || exit 1 ;;
+      *number=*) n="$*"; n=${n#*number=}; cat "$T/fx/typed-${n%% *}.json" 2>/dev/null || exit 1 ;;
+    esac ;;
   "api repos/acme/widget/issues/"*)
     n=${2#repos/acme/widget/issues/}
     case "$n" in
@@ -777,5 +782,54 @@ t_eq "$(cat "$site/66/.meta.json")" '{
   "outside": 0,
   "bytes": 8
 }'
+
+# --- TEHAS_ISSUE_TYPES maps prototype to an issue type --------------------
+# typed <number> <account> [type]: the issue holds the type, set by the account.
+typed() {
+  jq -n -c --arg who "$2" --arg t "${3:-Prototype}" '{data: {repository: {issue: {issueType: {name: $t},
+    timelineItems: {nodes: [{__typename: "IssueTypeAddedEvent", createdAt: "2026-10-09T08:00:00Z",
+      actor: {login: $who}, issueType: {name: $t}}]}}}}}' >"$fx/typed-$1.json"
+}
+types() { jq -n -c '{data: {repository: {issueTypes: {nodes: ($ARGS.positional | map({name: .}))}}}}' --args "$@" >"$fx/types.json"; }
+with_types() { reset; t_instance "${T_MINIMAL[@]}" "TEHAS_ISSUE_TYPES='improvement=Improvement prototype=Prototype'"; types Task Prototype; }
+
+t_case "with the type mapped, the lab lists the tickets of the type and checks who set it"
+with_types
+issues "$(issue 40 'Typed by alice' 'no files')" "$(issue 41 'Typed by mallory' 'no files')"
+typed 40 alice
+typed 41 mallory
+t_protolab
+t_eq "$t_rc" 0
+t_eq "$(cat "$T/calls/lists")" "repos/acme/widget/issues?state=open&type=Prototype&per_page=100"
+t_contains "$t_out" "#40: 0 files, 0 bytes, 0 left out"
+t_contains "$t_out" "#41: the issue type Prototype was set by 'mallory', not an allowed account"
+t_eq "$(jq -c '.tickets | map(.number)' "$live/protolab.json")" "[40]"
+
+t_case "with the type mapped, the label counts for nothing: alice's tehas:prototype is no type"
+with_types
+issues "$(issue 42 'Labelled only' 'no files')"
+t_protolab
+t_contains "$t_out" "#42: its type events could not be read, nothing built or removed"
+t_eq "$([ -e "$site/42" ] && echo there)" ""
+jq -n -c '{data: {repository: {issue: {issueType: null, timelineItems: {nodes: []}}}}}' >"$fx/typed-42.json"
+t_protolab
+t_contains "$t_out" "#42: the issue type Prototype was set by 'unknown', not an allowed account"
+
+t_case "a type the owner does not have exits 78 and builds and removes nothing"
+with_types
+issues "$(issue 43 'Kept' 'no files')"
+typed 43 alice
+t_protolab
+t_contains "$t_out" "#43: 0 files"
+types Task Bug
+t_protolab
+t_eq "$t_rc" 78
+t_contains "$t_out" "ERROR: TEHAS_ISSUE_TYPES maps prototype to Prototype, which is no issue type of acme/widget's owner"
+[ -d "$site/43" ] || t_bad "the page of #43 was removed"
+rm "$fx/types.json"
+t_protolab
+t_eq "$t_rc" 0
+t_contains "$t_out" "the issue types failed"
+[ -d "$site/43" ] || t_bad "the page of #43 was removed"
 
 t_done
