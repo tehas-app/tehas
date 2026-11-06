@@ -767,7 +767,9 @@ the pull request before you retry: while it is open, a new cycle stops at
 `child-timeout:develop` or `child-timeout:explore`: one child of that step ran
 past its own run bound. pi-rukas told it to wrap up at the bound and ended it
 10 minutes later. Read the run log for what the child was doing. When it was
-progressing, split the issue; when it was stuck, find out why.
+progressing, split the issue; when it was stuck, find out why. The runner
+reports the end as `aborted`; the cycle's record for the improvement loop
+says `child-bound`, so it is not read as an abort.
 
 A `child-timeout:develop` leaves a note of the attempt at the end of the
 issue's body, which the next cycle reads. A second one on the same text offers
