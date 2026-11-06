@@ -208,6 +208,7 @@ fn world() -> World {
             fetch_wait: Duration::from_secs(10),
             lock_poll: Duration::from_millis(500),
             launch_poll: Duration::from_millis(500),
+            read_only: false,
         },
         ended: None,
         spend: None,
@@ -796,6 +797,28 @@ fn a_start_on_an_epics_approval_is_recorded_as_the_persons_label() {
     assert!(c[4].contains(
         "(authorized by @alice's `tehas:ready` label on epic #5 at 2026-10-25T09:00:00Z, which the fixer carried to this sub-issue)."
     ));
+}
+
+#[test]
+fn a_read_only_start_that_worked_is_kept_on_record_and_one_that_failed_is_not() {
+    let mut t = world();
+    t.w.host.read_only = true;
+    let a = t.apply(json!([start_of(7, "label")]));
+    assert_eq!(a.exit, None);
+    let home = t.w.home.clone();
+    assert_eq!(tehas_core::read_only::recorded(&home), vec![7]);
+    let r = tehas_core::read_only::read_records(&home);
+    assert_eq!(r[0]["how"], "cycle");
+    t.fail("gh", "--add-label tehas:running");
+    t.apply(json!([start_of(8, "label")]));
+    assert_eq!(tehas_core::read_only::recorded(&home), vec![7]);
+}
+
+#[test]
+fn a_start_off_read_only_leaves_no_record() {
+    let mut t = world();
+    t.apply(json!([start_of(7, "label")]));
+    assert!(tehas_core::read_only::recorded(&t.w.home).is_empty());
 }
 
 #[test]

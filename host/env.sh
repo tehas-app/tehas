@@ -34,6 +34,11 @@ if [ -n "${TEHAS_GITHUB_APP_ID:-}" ] && [ -r "$TEHAS_HOME/lib/github-app.sh" ]; 
   . "$TEHAS_HOME/lib/github-app.sh"
   tehas_github_app_env
 fi
+# A read-only instance (TEHAS_READ_ONLY=1) sends every gh through the shim, with
+# an app or without one: the console behind it refuses each write (#608).
+if [ "${TEHAS_READ_ONLY:-0}" = 1 ]; then
+  case ":$PATH:" in *":$TEHAS_HOME/shim:"*) ;; *) export PATH="$TEHAS_HOME/shim:$PATH" ;; esac
+fi
 # Energy use on the dashboard: tehasbot energy samples the model mesh when it
 # is a viiwork mesh, and the section appears by itself. TEHAS_ENERGY=off removes
 # it (the file tells every visitor the machines' names, their draw and their
