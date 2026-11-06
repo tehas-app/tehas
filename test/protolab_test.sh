@@ -681,6 +681,25 @@ t_contains "$t_out" "#61: 0 files"
 t_eq "$([ "$(cat "$site/61/.stamp")" != "$was" ] && echo other)" "other"
 cp "$keep" "$T_CONSOLE_DIR/console"
 
+t_case "the pages are drawn in the instance's design, and a change of design builds them again"
+reset
+issues "$(issue 62 'Drawn' 'no files')"
+t_protolab
+t_contains "$t_out" "#62: 0 files"
+for page in "$site/62/index.html" "$site/index.html"; do
+  t_contains "$(cat "$page")" 'href="/fun/theme-beesknees26.css"'
+  t_contains "$(cat "$page")" '<img src="/fun/favicon.svg"'
+done
+t_instance "${T_MINIMAL[@]}" TEHAS_DESIGN=pixel
+t_protolab
+t_contains "$t_out" "#62: 0 files"
+for page in "$site/62/index.html" "$site/index.html"; do
+  t_contains "$(cat "$page")" 'href="/fun/theme-pixel.css"'
+  t_contains "$(cat "$page")" '<img src="/fun/factory.svg"'
+done
+t_protolab
+t_eq "$t_out" ""
+
 t_case "an app with no token to be had stops before anything is read"
 reset
 app=(TEHAS_GITHUB_APP_ID=5452597 TEHAS_GITHUB_APP_INSTALLATION=174742089 "TEHAS_BOT_LOGIN=tehas-app-bot[bot]")

@@ -1,3 +1,11 @@
+{{- /* The public address of this page, for the absolute links that share
+       previews need. Behind a TLS proxy the scheme is the forwarded one. */ -}}
+{{- $base := printf "%s://%s" (default (placeholder "http.request.scheme") (.Req.Header.Get "X-Forwarded-Proto")) .Req.Host | html -}}
+{{- /* The instance's design draws the whole site: beesknees26 unless
+       TEHAS_DESIGN says pixel. */ -}}
+{{- $design := "beesknees26" }}{{ if eq (env "TEHAS_DESIGN") "pixel" }}{{ $design = "pixel" }}{{ end -}}
+{{- /* This page is the front page unless the design is pixel. */ -}}
+{{- $here := "/" }}{{ if eq $design "pixel" }}{{ $here = "/business" }}{{ end -}}
 <!doctype html>
 <html lang="en">
 <head>
@@ -9,8 +17,28 @@
   <link rel="alternate" type="text/plain" href="/llms.txt" title="For agents: llms.txt">
   <title>Tehas: factory dashboard</title>
   <meta name="description" content="Tehas is a software factory powered by the Pi coding agent and pi-rukas. GitHub issues go in, reviewed pull requests come out, built in a sandbox on self-hosted models. This is its dashboard, live.">
+  <link rel="canonical" href="{{ $base }}{{ $here }}">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Tehas">
+  <meta property="og:title" content="Tehas: factory dashboard">
+  <meta property="og:description" content="Tehas is a software factory powered by the Pi coding agent and pi-rukas. GitHub issues go in, reviewed pull requests come out, built in a sandbox on self-hosted models. This is its dashboard, live.">
+  <meta property="og:url" content="{{ $base }}{{ $here }}">
+  {{- if eq $design "pixel" }}
+  <meta property="og:image" content="{{ $base }}/fun/share.png">
+  {{- else }}
+  <meta property="og:image" content="{{ $base }}/fun/share-logo.png">
+  {{- end }}
+  <meta property="og:image:type" content="image/png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  {{- if eq $design "pixel" }}
+  <meta property="og:image:alt" content="A pixel art factory with a wind turbine beside the word TEHAS">
+  {{- else }}
+  <meta property="og:image:alt" content="The tehas logo, a white factory on a green square, beside the word TEHAS">
+  {{- end }}
+  <meta name="twitter:card" content="summary_large_image">
   <link rel="icon" type="image/svg+xml" href="/fun/favicon.svg">
-  <link rel="stylesheet" href="/fun/theme-beesknees26.css">
+  <link rel="stylesheet" href="/fun/theme-{{ $design }}.css">
   <link rel="stylesheet" href="/fun/business.css">
   <link rel="stylesheet" href="/fun/panels.css">
   <script src="/fun/mode.js"></script>

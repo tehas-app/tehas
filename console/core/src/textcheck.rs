@@ -53,6 +53,12 @@ const LABELS: &[&str] = &[
     "epic", "feat", "fix", "chore", "docs", "test", "refactor", "research",
 ];
 
+/// The words of a title that names the issue it plans and nothing else, with
+/// the issue's number: `feat: Plan issue #608` is what the planner made of the
+/// descriptor `Plan issue #608: <the person's title>` when it kept only its
+/// head. A number on its own says no more, so `fix: #608` is the same title.
+const NAMING: &[&str] = &["plan", "issue"];
+
 /// The two marks of the planner's brief, which together are the form the model
 /// was given. `Descriptor` on its own is a field a body may well hold, and so is
 /// a section that invents prior context; both together, each at the head of the
@@ -80,6 +86,9 @@ pub enum Reason {
     OnlyPrefix,
     /// One word, written more than once, with no label among the words.
     Repeated,
+    /// Past its labels the title only names the issue it plans: `Plan issue
+    /// #608`, which is the head of the planner's descriptor and not a summary.
+    NamesOnlyTheIssue,
     /// The body holds both marks of the planner's brief.
     Briefed,
     /// The body holds nothing but the brief's unfilled markers, or nothing.
@@ -93,10 +102,11 @@ pub enum Reason {
 
 impl Reason {
     /// Every reason, in the order the rules ask.
-    pub const ALL: [Reason; 7] = [
+    pub const ALL: [Reason; 8] = [
         Reason::EmptyTitle,
         Reason::OnlyPrefix,
         Reason::Repeated,
+        Reason::NamesOnlyTheIssue,
         Reason::Briefed,
         Reason::Unfilled,
         Reason::Echoed,
@@ -105,7 +115,12 @@ impl Reason {
 
     /// The title's refusals, in the order `check_title` asks them, so a writer
     /// that answers only for titles can enumerate them.
-    pub const TITLE: [Reason; 3] = [Reason::EmptyTitle, Reason::OnlyPrefix, Reason::Repeated];
+    pub const TITLE: [Reason; 4] = [
+        Reason::EmptyTitle,
+        Reason::OnlyPrefix,
+        Reason::Repeated,
+        Reason::NamesOnlyTheIssue,
+    ];
 
     /// What the person reading the comment is told.
     pub fn as_str(self) -> &'static str {
@@ -115,6 +130,7 @@ impl Reason {
             // both are refused here.
             Reason::OnlyPrefix => "the title is nothing but prefixes",
             Reason::Repeated => "the title is one word repeated",
+            Reason::NamesOnlyTheIssue => "the title only names the issue it plans",
             Reason::Briefed => "the body is the planner's brief: it holds both `Descriptor:` and a `Prior context inventory`",
             Reason::Unfilled => "the body is nothing but `[context param]` markers",
             Reason::Echoed => "the body echoes the planner's context: it holds lines that end in `[context param]`",
@@ -331,6 +347,17 @@ fn is_label(word: &str) -> bool {
     LABELS.contains(&word)
 }
 
+/// Whether the words of a title, past its labels, only name an issue: each
+/// is one of [`NAMING`] or a number, and a number is among them.
+fn names_only_an_issue(words: &[String]) -> bool {
+    let number = |w: &String| w.chars().all(|c| c.is_ascii_digit());
+    let rest: Vec<&String> = words.iter().filter(|w| !is_label(w)).collect();
+    rest.iter().any(|w| number(w))
+        && rest
+            .iter()
+            .all(|w| number(w) || NAMING.contains(&w.as_str()))
+}
+
 /// Whether the words of a title say one thing twice. A single word is a
 /// title on its own, so it takes more than one word to say nothing.
 fn is_repeated(words: &[String]) -> bool {
@@ -367,6 +394,12 @@ pub fn check_title(title: &str, _body: &str) -> Result<(), Refusal> {
     // first, so membership in LABELS decides which of the two a text gets.
     if is_repeated(&read) {
         return Err(Refusal::of(Reason::Repeated, &read));
+    }
+
+    // The issue's own name and number, which the person's title already says
+    // better: the planner kept the head of its descriptor and nothing else.
+    if names_only_an_issue(&read) {
+        return Err(Refusal::of(Reason::NamesOnlyTheIssue, &read));
     }
 
     Ok(())
@@ -519,6 +552,35 @@ mod tests {
             assert_eq!(refused_title(again), Reason::Repeated, "{again:?}");
         }
         assert!(check_title("Fast work", "").is_ok());
+    }
+
+    #[test]
+    fn a_title_that_only_names_the_issue_it_plans_is_refused() {
+        for named in [
+            "feat: Plan issue #608",
+            "Plan issue #608",
+            "fix: #608",
+            "EPIC: Issue 1015",
+            "plan: issue #12\n",
+        ] {
+            assert_eq!(refused_title(named), Reason::NamesOnlyTheIssue, "{named:?}");
+        }
+        let said = check_title("feat: Plan issue #608", "").expect_err("a refusal");
+        assert_eq!(
+            said.line,
+            "the title only names the issue it plans: feat plan issue 608"
+        );
+        // A title that says something past the number stands, and so does a
+        // title of the naming words with no number to name.
+        for stands in [
+            "feat: Plan issue #608: TEHAS_READ_ONLY writes nothing to GitHub",
+            "Issue 608 keeps the person's title",
+            "fix: the plan of issue #12 is read again",
+            "Plan the issue",
+            "v2",
+        ] {
+            assert!(check_title(stands, "").is_ok(), "{stands:?}");
+        }
     }
 
     #[test]
@@ -750,12 +812,9 @@ mod tests {
         said.sort_unstable();
         said.dedup();
         assert_eq!(said.len(), Reason::ALL.len());
-        // The title's refusals are the first three, so a writer that answers
+        // The title's refusals are the first four, so a writer that answers
         // only for titles can enumerate them.
-        assert_eq!(
-            Reason::TITLE,
-            [Reason::EmptyTitle, Reason::OnlyPrefix, Reason::Repeated]
-        );
+        assert_eq!(Reason::TITLE, Reason::ALL[..4]);
     }
 
     #[test]
