@@ -453,7 +453,7 @@ pub fn kind_of(log: &str, text: &str) -> &'static str {
         (_, "WARN:" | "WARN") => "warn",
         ("refresh", _) => "refresh",
         (_, "start" | "tehas-cycle:") => "start",
-        (_, "done" | "stop") => "done",
+        (_, "done" | "stop" | "finish") => "done",
         (_, "planning" | "refining") if text.contains(" waits") => "wait",
         (_, "planning") if text.contains(" runs as ") || text.contains(" continues") => "start",
         (_, "planning") if text.contains(" ended") => "done",
