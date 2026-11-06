@@ -9,9 +9,13 @@
 //!     written; 3 another run holds the lock; 64 a usage error.
 //!   console clean dated <image> <keep>
 //!     The sandbox build's sweep: of the `<date>` and `<date>-product` tags of
-//!     <image>, newest first, the first <keep> stay, and an older one is
-//!     removed unless a container or a uid tag holds its image. Exit 1, nothing
-//!     removed, when docker would not list its images or containers.
+//!     <image>, those of the newest <keep> builds stay, a date and its
+//!     `-product` counted as one build, and an older one is removed unless a
+//!     container or a uid tag holds its image. Exit 1, nothing removed, when
+//!     docker would not list its images or containers.
+//!   console clean bases <repo> <tag>
+//!     The tags of the sandbox's base <repo> of <tag>'s uid other than <tag>
+//!     are removed. Exit 1 when docker would not list them.
 //!
 //! Only what has not been used for <after> hours goes. When the free disk is
 //! under the minimum, steps 1 and 2 take build output and the build cache
@@ -34,8 +38,8 @@
 //!    that age, the
 //!    copy of the sandbox recipe (and its temporary) of that age a killed build
 //!    left beside the build script, and tmp/tehas-test.* directories.
-//! 4. Dated tags of the sandbox image of that age, except the newest and any
-//!    a container or a uid tag holds.
+//! 4. Dated tags of the sandbox image past the newest two builds, whatever
+//!    their age, except any a container or a uid tag holds.
 //! 5. `sha-` tags of the base image's repository of that age, which no
 //!    container was made from and no kept tag (uid, release-) stands on, each
 //!    removed by its own name. Never `docker image prune`.
@@ -72,7 +76,11 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, Instant, SystemTime};
 use tehas_core::{rukas, time};
 
-const USAGE: &str = "usage: console clean run <dry 0|1> <home> <work dir> <after hours> <min free MiB> <min free> <free KiB> <dirs> <sandbox image> <log file> <scratch dir>\n       console clean image <PI_ENSEMBLE_IMAGE>\n       console clean usage <arguments>\n       console clean dated <image> <keep>\n       console clean ended <workspace> <dirs> <log file> <scratch of the cycle>\n       console clean scratch <scratch dir> <name>";
+/// Sandbox builds a host keeps: the current one and the one before it, for a
+/// rollback.
+const KEEP_BUILDS: usize = 2;
+
+const USAGE: &str = "usage: console clean run <dry 0|1> <home> <work dir> <after hours> <min free MiB> <min free> <free KiB> <dirs> <sandbox image> <log file> <scratch dir>\n       console clean image <PI_ENSEMBLE_IMAGE>\n       console clean usage <arguments>\n       console clean dated <image> <keep>\n       console clean bases <repo> <tag>\n       console clean ended <workspace> <dirs> <log file> <scratch of the cycle>\n       console clean scratch <scratch dir> <name>";
 
 /// What `tehasbot clean --help` prints.
 const HELP: &str = r#"Remove what the host can make again: build output in kept workspaces,
@@ -102,9 +110,9 @@ still never touched.
                                        tehas-test.* dirs, a staged recipe
                                        and the /tmp of a killed cycle on
                                        TEHAS_SCRATCH_DIR, under its lock
-  4. old sandbox images                dated tags of that age, except the
-                                       newest and any a container or a uid
-                                       tag holds
+  4. old sandbox images                dated tags past the newest two
+                                       builds, whatever their age, except
+                                       any a container or a uid tag holds
   5. the old base images               `sha-` tags of the base's repository
                                        of that age that nothing on the host
                                        stands on, each by its own name
@@ -147,6 +155,9 @@ pub fn main(given: &[String]) -> u8 {
     }
     if given.first().is_some_and(|v| v == "dated") {
         return sweep_dated(&given[1..]);
+    }
+    if given.first().is_some_and(|v| v == "bases") {
+        return sweep_bases(&given[1..]);
     }
     let [verb, dry, home, work, after, min_mb, min_word, free_kb, dirs, sandbox, logfile, tmp_disk] =
         given
@@ -261,16 +272,64 @@ fn sweep_dated(given: &[String]) -> u8 {
     0
 }
 
-/// The dated tags of <tags> ("<tag> <id>" per line) past the newest <keep>,
-/// newest first, with their ids, as `LC_ALL=C sort -r` puts the lines: a
-/// `-product` comes just before the date it stands on.
+/// The dated tags of <tags> ("<tag> <id>" per line) past the newest <keep>
+/// builds, newest first, with their ids, as `LC_ALL=C sort -r` puts the lines: a
+/// `-product` comes just before the date it stands on. A build is one date:
+/// `<date>` and the `<date>-product` made on it count once.
 fn dated_past(tags: &str, keep: usize) -> Vec<(&str, &str)> {
     let mut lines: Vec<&str> = tags.split('\n').filter(|l| dated(l)).collect();
     lines.sort_by(|a, b| b.as_bytes().cmp(a.as_bytes()));
-    lines
-        .into_iter()
-        .skip(keep)
-        .filter_map(|l| l.split_once(' '))
+    let mut builds: Vec<&str> = Vec::new();
+    let mut past = Vec::new();
+    for l in lines {
+        let build = &l[..11];
+        if !builds.contains(&build) {
+            builds.push(build);
+        }
+        if builds.len() > keep {
+            past.extend(l.split_once(' '));
+        }
+    }
+    past
+}
+
+/// `console clean bases <repo> <tag>`: the tags of <repo> for the same uid as
+/// <tag>, `sha-<12 hex>-uid<uid>`, other than <tag> itself, are removed. A
+/// tag is a name: the layers of a base stay while an image stands on them.
+fn sweep_bases(given: &[String]) -> u8 {
+    let [repo, keep] = given else {
+        eprintln!("{USAGE}");
+        return 64;
+    };
+    let Some(tags) = docker_list(&["image", "ls", "--format", "{{.Tag}}", repo]) else {
+        return 1;
+    };
+    for tag in bases_past(&tags, keep.rsplit_once(':').map_or("", |(_, t)| t)) {
+        let name = format!("{repo}:{tag}");
+        match Run::rmi(&name) {
+            Ok(()) => tehas_core::outln!("removed {name}"),
+            Err(why) => eprintln!("warning: could not remove {name}: {why}"),
+        }
+    }
+    0
+}
+
+/// The base tags of <tags>, one per line, of the uid <keep> names, other than
+/// <keep>. Nothing when <keep> is no base tag.
+fn bases_past<'a>(tags: &'a str, keep: &str) -> Vec<&'a str> {
+    fn uid_of(tag: &str) -> Option<&str> {
+        let rest = tag.strip_prefix("sha-")?;
+        let (sha, uid) = rest.split_once("-uid")?;
+        let hex = sha.len() == 12 && sha.bytes().all(|c| matches!(c, b'0'..=b'9' | b'a'..=b'f'));
+        let num = !uid.is_empty() && uid.bytes().all(|c| c.is_ascii_digit());
+        (hex && num).then_some(uid)
+    }
+    let Some(uid) = uid_of(keep) else {
+        return Vec::new();
+    };
+    tags.lines()
+        .map(str::trim)
+        .filter(|t| *t != keep && uid_of(t) == Some(uid))
         .collect()
 }
 
@@ -747,10 +806,26 @@ fn starts_dot(p: &Path) -> bool {
         .is_some_and(|n| n.as_bytes().first() == Some(&b'.'))
 }
 
-/// The build output of one tree: every directory named one of <names>, the
-/// root included, as `find -P <root> -xdev \( -name '.*' -prune \) -o \(
-/// -type d -name ... -print \)` lists it. Nothing is removed here, so the dry
-/// run and the run ask the same question.
+/// Whether <dir> holds a CACHEDIR.TAG, a plain file that opens with the
+/// signature of the Cache Directory Tagging spec: what cargo writes in every
+/// target directory, whatever name an agent gave it.
+fn cache_tagged(dir: &Path) -> bool {
+    const SIGNATURE: &[u8] = b"Signature: 8a477f597d28d172789f06886806bc55";
+    let tag = dir.join("CACHEDIR.TAG");
+    if !plain_file(&tag) {
+        return false;
+    }
+    let mut head = [0u8; SIGNATURE.len()];
+    File::open(&tag)
+        .and_then(|mut f| io::Read::read_exact(&mut f, &mut head))
+        .is_ok_and(|()| head == SIGNATURE)
+}
+
+/// The build output of one tree: every directory named one of <names> or
+/// tagged as a cache (`cache_tagged`), the root included, as `find -P <root>
+/// -xdev \( -name '.*' -prune \) -o \( -type d -name ... -print \)` lists
+/// it. Nothing is removed here, so the dry run and the run ask the same
+/// question.
 fn build_output(root: &Path, names: &[String]) -> Vec<PathBuf> {
     let mut found = Vec::new();
     if !root.is_dir() {
@@ -767,6 +842,7 @@ fn build_output(root: &Path, names: &[String]) -> Vec<PathBuf> {
         }
         if p.file_name()
             .is_some_and(|n| names.iter().any(|d| d.as_bytes() == n.as_bytes()))
+            || cache_tagged(&p)
         {
             found.push(p.clone());
         }
@@ -856,6 +932,20 @@ fn which(name: &str) -> Option<String> {
 
 impl Run {
     fn ended(&mut self, workspace: &Path) {
+        // The tree a retry moved aside was kept for this cycle, which has ended.
+        let retry = PathBuf::from(format!("{}.before-retry", workspace.display()));
+        if real_dir(&retry) {
+            let shown = retry.display().to_string();
+            let size = bytes_of(&retry);
+            if remove(&retry) {
+                self.log(&format!(
+                    "removed {shown}: the tree a retry moved aside, and the retry has ended, {size} bytes"
+                ));
+            } else {
+                self.warn(&format!("could not remove {shown}"));
+                self.rc = 1;
+            }
+        }
         let found: Vec<PathBuf> = roots_of(workspace)
             .iter()
             .flat_map(|root| build_output(root, &self.dirs))
@@ -1430,7 +1520,8 @@ impl Run {
         }
     }
 
-    // --- 4. old sandbox images: the dated tags past the age, but the newest.
+    // --- 4. old sandbox images: the dated tags past the newest two builds,
+    // whatever their age.
     fn sandbox_images(&mut self) -> bool {
         let s = self.sandbox.clone();
         let Some(tags) = docker_list(&[
@@ -1451,21 +1542,16 @@ impl Run {
             self.warn("docker said nothing about the containers on the host");
             return false;
         };
+        let past = dated_past(&tags, KEEP_BUILDS);
         let mut lines: Vec<&str> = tags.split('\n').filter(|l| dated(l)).collect();
         lines.sort_by(|a, b| b.as_bytes().cmp(a.as_bytes()));
-        let (mut ok, mut undated) = (true, 0);
-        for (i, line) in lines.iter().enumerate() {
+        let mut ok = true;
+        for line in lines {
             let (tag, id) = line.split_once(char::is_whitespace).unwrap_or((line, ""));
             let id = id.trim();
-            if i == 0 {
-                self.log(&format!("kept {s}:{tag}: the newest dated tag"));
-                continue;
-            }
-            if !self.image_old_enough(id) {
-                undated += 1;
-                let after = self.after;
+            if !past.iter().any(|(t, _)| *t == tag) {
                 self.log(&format!(
-                    "kept {s}:{tag}: docker did not date its image past {after} hours"
+                    "kept {s}:{tag}: one of the newest {KEEP_BUILDS} builds"
                 ));
                 continue;
             }
@@ -1478,7 +1564,7 @@ impl Run {
                 // would be the size of the image, not of what the tag's removal
                 // frees, since a layer a kept tag shares stays.
                 self.log(&format!(
-                    "would remove {s}:{tag}: a sandbox image of that age, whose size is not known beforehand"
+                    "would remove {s}:{tag}: a sandbox image older than the newest {KEEP_BUILDS} builds, whose size is not known beforehand"
                 ));
                 continue;
             }
@@ -1487,7 +1573,7 @@ impl Run {
                 Ok(()) => {
                     self.freed += kb;
                     self.log(&format!(
-                        "removed {s}:{tag}: a sandbox image of that age, {kb} bytes"
+                        "removed {s}:{tag}: a sandbox image older than the newest {KEEP_BUILDS} builds, {kb} bytes"
                     ));
                 }
                 Err(why) => {
@@ -1495,12 +1581,6 @@ impl Run {
                     ok = false;
                 }
             }
-        }
-        if undated > 0 {
-            self.warn(&format!(
-                "docker gave no date past {} hours for {undated} image(s), none of them removed",
-                self.after
-            ));
         }
         ok
     }
@@ -1859,13 +1939,14 @@ mod tests {
     use tehas_core::testdir::TestDir;
 
     #[test]
-    fn the_dated_tags_past_the_newest_three_are_the_sweeps() {
+    fn the_dated_tags_past_the_newest_builds_are_the_sweeps() {
         let tags = "uid1000 sha256:6\n261009-1000 sha256:1\n261012-1000 sha256:4\n\
             261010-1000 sha256:2\n261013-1000 sha256:5\n261011-1000 sha256:3\n\
             261014-1000 sha256:6\nlatest sha256:9\n<none> sha256:8";
         assert_eq!(
-            dated_past(tags, 3),
+            dated_past(tags, 2),
             [
+                ("261012-1000", "sha256:4"),
                 ("261011-1000", "sha256:3"),
                 ("261010-1000", "sha256:2"),
                 ("261009-1000", "sha256:1"),
@@ -1875,14 +1956,58 @@ mod tests {
     }
 
     #[test]
-    fn an_instance_layer_counts_with_the_date_tags() {
+    fn an_instance_layer_counts_with_its_date_as_one_build() {
         let tags = "uid1000 sha256:1\n261009-1000 sha256:1\n261009-1000-product sha256:2\n\
-            261010-1000 sha256:3\n261011-1000 sha256:4";
-        assert_eq!(dated_past(tags, 3), [("261009-1000", "sha256:1")]);
+            261010-1000 sha256:3\n261010-1000-product sha256:4\n261011-1000 sha256:5\n\
+            261011-1000-product sha256:6";
+        assert_eq!(
+            dated_past(tags, 2),
+            [
+                ("261009-1000-product", "sha256:2"),
+                ("261009-1000", "sha256:1")
+            ]
+        );
     }
 
     #[test]
-    fn a_cycles_end_takes_the_build_output_of_every_tree_and_nothing_else() {
+    fn the_bases_of_the_same_uid_but_the_one_built_are_the_sweeps() {
+        let a = format!("sha-{}", "a".repeat(12));
+        let b = format!("sha-{}", "b".repeat(12));
+        let tags =
+            format!("{a}-uid1001\n{b}-uid1001\n{b}-uid1002\nlatest\nsha-short-uid1001\n{a}-uidx\n");
+        assert_eq!(
+            bases_past(&tags, &format!("{a}-uid1001")),
+            [format!("{b}-uid1001")]
+        );
+        assert_eq!(
+            bases_past(&tags, &format!("{b}-uid1002")),
+            Vec::<&str>::new()
+        );
+        assert!(bases_past(&tags, "latest").is_empty());
+    }
+
+    #[test]
+    fn a_directory_tagged_as_a_cache_is_build_output_whatever_its_name() {
+        let root = TestDir::new("clean-cachedir");
+        let tagged = root.join("tmp/issue-7/cargo-target");
+        let forged = root.join("tmp/notes");
+        let linked = root.join("tmp/linked");
+        for d in [&tagged, &forged, &linked, &root.join("src")] {
+            fs::create_dir_all(d.join("debug")).unwrap();
+        }
+        fs::write(
+            tagged.join("CACHEDIR.TAG"),
+            "Signature: 8a477f597d28d172789f06886806bc55\n# cargo\n",
+        )
+        .unwrap();
+        fs::write(forged.join("CACHEDIR.TAG"), "Signature: something else\n").unwrap();
+        std::os::unix::fs::symlink(tagged.join("CACHEDIR.TAG"), linked.join("CACHEDIR.TAG"))
+            .unwrap();
+        assert_eq!(build_output(&root, &["target".to_string()]), [tagged]);
+    }
+
+    #[test]
+    fn a_cycles_end_takes_the_build_output_and_the_tree_a_retry_moved_aside() {
         let root = TestDir::new("clean-ended");
         let tree = root.join("widget-7");
         let retry = root.join("widget-7.before-retry");
@@ -1899,6 +2024,7 @@ mod tests {
         }
         fs::write(worktree.join(".git"), "gitdir: /elsewhere\n").unwrap();
         fs::write(tree.join("src/kept.rs"), "x").unwrap();
+        fs::write(retry.join("kept.rs"), "x").unwrap();
         let log = root.join("clean.log");
         let args = [
             tree.display().to_string(),
@@ -1912,16 +2038,16 @@ mod tests {
         for gone in [
             tree.join("console/target"),
             tree.join("web/node_modules"),
-            retry.join("console/target"),
+            retry.clone(),
             worktree.join("console/target"),
         ] {
             assert!(!gone.exists(), "{}", gone.display());
         }
         assert!(tree.join("src/kept.rs").exists());
         assert!(worktree.join("src").exists());
-        assert!(fs::read_to_string(&log)
-            .unwrap()
-            .contains("build output of a cycle that ended"));
+        let said = fs::read_to_string(&log).unwrap();
+        assert!(said.contains("build output of a cycle that ended"));
+        assert!(said.contains("the tree a retry moved aside, and the retry has ended"));
         assert_eq!(ended(&args), 0);
         assert_eq!(ended(&args[..2]), 64);
     }
