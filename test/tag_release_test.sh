@@ -18,6 +18,10 @@ moved_tag() {
 }
 head_of() { git -C "$origin" rev-parse "${1:-main}^{commit}"; }
 
+# The script execs the xtask of this checkout, built once and named in
+# TEHAS_XTASK.
+t_xtask || t_bad "no xtask: $t_xtask_why"
+
 # The annotated tags the script makes need a name.
 printf '[user]\n\tname = t\n\temail = t@example.com\n' >"$T/home/.gitconfig"
 
@@ -38,7 +42,7 @@ fresh() {
   g -C "$T/up" push --quiet origin v0.1.0
   g clone --quiet "$origin" "$work"
   mkdir -p "$work/scripts"
-  cp "$T_ROOT/scripts/tag-release.sh" "$T_ROOT/scripts/tag-deploy.sh" "$T_ROOT/scripts/release-notes.sh" "$work/scripts/"
+  cp "$T_ROOT/scripts/tag-release.sh" "$T_ROOT/scripts/tag-deploy.sh" "$work/scripts/"
 }
 tags() { git -C "$origin" tag --list | sort -V | tr '\n' ' '; }
 
@@ -317,7 +321,7 @@ t_case "without TEHAS_CONSOLE the head's own console is run with cargo"
 polyfilled
 t_stub cargo 'exit 101'
 saved_env=("${T_ENV_ALWAYS[@]}")
-T_ENV_ALWAYS=()
+T_ENV_ALWAYS=(TEHAS_XTASK="$T_XTASK")
 t_run "$work/scripts/tag-release.sh"
 T_ENV_ALWAYS=("${saved_env[@]}")
 t_eq "$t_rc" 1
