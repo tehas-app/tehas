@@ -361,7 +361,7 @@ done
 for bad in "TEHAS_CONCURRENCY=auto" "TEHAS_CONCURRENCY=0" "TEHAS_TICKET_CONCURRENCY=0" "TEHAS_TICKET_CONCURRENCY=two" "TEHAS_MAX_AWAITING=-1" "TEHAS_WORK_TIMEOUT=soon" "TEHAS_WORK_STALL=0" "TEHAS_WORK_STALL=1h" "TEHAS_HOST_ADDR=not an address" \
   "TEHAS_BRANCH=two words" "TEHAS_INDEXING=yes" "TEHAS_WORK_IMAGES=yes" "TEHAS_WORK_IMAGES=2" "TEHAS_WORK_ZIPS=yes" "TEHAS_WORK_ZIPS=2" "TEHAS_WORK_DESCRIBE=yes" "TEHAS_WORK_FILES=yes" "TEHAS_WORK_FILES=2" "TEHAS_WORK_COMMENTS=yes" "TEHAS_TOP=yes" "TEHAS_TOP=2" "TEHAS_ANALYTICS_SRC=http://plain.example/ea.js" \
   "TEHAS_ANALYTICS_SRC=https://a.example/x.js\" onload=\"x" "TEHAS_ANALYTICS_SITE=two words" \
-  "TEHAS_ANALYTICS_COOKIE=yes" "TEHAS_PROTOLAB_URL=https://lab.example/" "TEHAS_PROTOLAB_URL=lab.example" \
+  "TEHAS_ANALYTICS_COOKIE=yes" "TEHAS_DESIGN=paper" "TEHAS_DESIGN=Pixel" "TEHAS_PROTOLAB_URL=https://lab.example/" "TEHAS_PROTOLAB_URL=lab.example" \
   "TEHAS_PLAN_MAX_TURNS=0" "TEHAS_PLAN_TIMEOUT=1h" "TEHAS_VERIFY_TIMEOUT=30m" "TEHAS_VERIFY_TIMEOUT=0" \
   "TEHAS_CHILD_TIMEOUT=30m" "TEHAS_CHILD_TIMEOUT=0" "TEHAS_CHILD_TIMEOUT=-1" "TEHAS_CHILD_TIMEOUT= \t" \
   "TEHAS_BUILD_TIMEOUT=30m" "TEHAS_BUILD_TIMEOUT=0" \
@@ -668,9 +668,25 @@ printf '%s\n' "${T_MINIMAL[@]}" "TEHAS_ANALYTICS_SRC=https://stats.example/ea.js
 t_run "$load && echo \"[\$TEHAS_ANALYTICS_SRC][\$TEHAS_ANALYTICS_SITE][\$TEHAS_ANALYTICS_COOKIE]\""
 t_eq "$t_out" "[https://stats.example/ea.js][widget][1]"
 
+t_case "the whole site is beesknees26 unless the instance says pixel"
+for pair in "|beesknees26" "TEHAS_DESIGN=|beesknees26" "TEHAS_DESIGN=beesknees26|beesknees26" "TEHAS_DESIGN=pixel|pixel"; do
+  t_instance "${T_MINIMAL[@]}" "${pair%%|*}"
+  t_run "$load; echo rc=\$? \"[\$TEHAS_DESIGN]\""
+  t_eq "$t_out" "rc=0 [${pair#*|}]"
+done
+t_instance "${T_MINIMAL[@]}"
+
+t_case "a design this version does not draw stops every command"
+t_instance "${T_MINIMAL[@]}" TEHAS_DESIGN=paper
+t_run "$load; echo rc=\$?"
+t_contains "$t_out" "tehas: TEHAS_DESIGN is not valid: expected beesknees26 or pixel"
+t_contains "$t_out" "rc=78"
+t_instance "${T_MINIMAL[@]}"
+
 t_case "a retired theme or layout line stops every command, with its reason"
-for pair in "TEHAS_THEME=beesknees26|the front page is pixel and every other page is beesknees26, so take the line out" \
-  "TEHAS_LAYOUT=business|the front page is always the factory floor and /business is always the business page, so take the line out"; do
+for pair in "TEHAS_THEME=pixel|TEHAS_DESIGN draws the whole site, beesknees26 by default or pixel, so take the line out" \
+  "TEHAS_THEME=neon|TEHAS_DESIGN draws the whole site, beesknees26 by default or pixel, so take the line out" \
+  "TEHAS_LAYOUT=floor|the front page follows TEHAS_DESIGN, the business page for beesknees26 and the factory floor for pixel, so take the line out"; do
   line=${pair%%|*}
   why=${pair#*|}
   t_instance "${T_MINIMAL[@]}" "$line"
@@ -680,8 +696,8 @@ for pair in "TEHAS_THEME=beesknees26|the front page is pixel and every other pag
 done
 t_instance "${T_MINIMAL[@]}"
 
-t_case "a theme or layout line that asks for what this version does loads, and is gone after it"
-for line in "TEHAS_THEME=" "TEHAS_THEME=pixel" "TEHAS_LAYOUT=" "TEHAS_LAYOUT=floor"; do
+t_case "a theme or layout line that asks for the default design loads, and is gone after it"
+for line in "TEHAS_THEME=" "TEHAS_THEME=beesknees26" "TEHAS_LAYOUT=" "TEHAS_LAYOUT=business"; do
   t_instance "${T_MINIMAL[@]}" "$line"
   t_run "$load; echo rc=\$? \"[\${${line%%=*}:-}]\""
   t_eq "$t_out" "rc=0 []"
@@ -1528,7 +1544,7 @@ names=(PI_ENSEMBLE_MODEL_ PI_ENSEMBLE_PROVIDER_ PI_ENSEMBLE_SUBAGENT_MODEL PI_EN
   TEHAS_ALLOWED_LABELERS TEHAS_ANALYTICS TEHAS_ANALYTICS_COOKIE TEHAS_ANALYTICS_SITE TEHAS_ANALYTICS_SRC TEHAS_BOT_LOGIN
   TEHAS_BRANCH TEHAS_BRANCH_CHECK TEHAS_BUILD_TIMEOUT TEHAS_CHILD_TIMEOUT TEHAS_CLEAN_AFTER TEHAS_CLEAN_DIRS
   TEHAS_CLEAN_MIN_FREE TEHAS_CONCURRENCY TEHAS_CONTAINER_MEMORY TEHAS_CONTROL_ISSUE TEHAS_CYCLE_MIN_FREE TEHAS_CYCLE_REPORT
-  TEHAS_CYCLE_RESERVE TEHAS_DOMAIN TEHAS_EASY_MERGE TEHAS_GITHUB_APP_ID TEHAS_GITHUB_APP_INSTALLATION TEHAS_HOME
+  TEHAS_CYCLE_RESERVE TEHAS_DESIGN TEHAS_DOMAIN TEHAS_EASY_MERGE TEHAS_GITHUB_APP_ID TEHAS_GITHUB_APP_INSTALLATION TEHAS_HOME
   TEHAS_HOST_ADDR TEHAS_IMPROVE_MAX_OPEN TEHAS_IMPROVE_REPO TEHAS_IMPROVE_RUKAS_REPO TEHAS_IMPROVE_RUKAS_SKIP
   TEHAS_INDEXING TEHAS_INSTANCE_DIR TEHAS_LOW_GATE TEHAS_LOW_GATE_WAIT TEHAS_MAX_AWAITING
   TEHAS_MILLWRIGHT_EPICS TEHAS_MILLWRIGHT_FEED TEHAS_MILLWRIGHT_LOGIN TEHAS_MILLWRIGHT_MAX_FEEDS TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS
@@ -1542,7 +1558,7 @@ for name in "${names[@]}"; do
   for value in "${values[@]}"; do printf '%s\0%s\0' "$name" "$value"; done
 done >"$T/pairs"
 TEHAS_HOME=/h/tehas TEHAS_INSTANCE_DIR=/i/ TEHAS_WORK_REPO=/w "$T_CONSOLE" settings valid <"$T/pairs" >"$T/verb"
-t_eq "$(sha256sum <"$T/verb" | cut -d' ' -f1)" "3c69cf93dd4f99543525657941b6070c482eccccf96fab511c10a28b3c046d4b"
+t_eq "$(sha256sum <"$T/verb" | cut -d' ' -f1)" "fc1a0f66aed00723bef55b0e71cca7493a5159254f415f980cf7427aee3f2c8a"
 
 t_stub nproc 'echo 8'
 t_case "each kind of instance leaves the environment and the words bash left"
@@ -1603,6 +1619,8 @@ TEHAS_WORK_MEMORY=8g
 TEHAS_CLONES=1|TEHAS_WORK_CPUS=4
 TEHAS_THEME=neon
 TEHAS_THEME=neon|TEHAS_TOP=9
+TEHAS_DESIGN=pixel
+TEHAS_DESIGN=paper
 TEHAS_TOP=9|TEHAS_BRANCH='a b'
 TEHAS_CYCLE_MIN_FREE=010g
 TEHAS_CYCLE_MIN_FREE=08m
@@ -1647,7 +1665,7 @@ T_INSIDE=$TEHAS_INSTANCE_DIR/$HOME
 INSTANCES
 T_ENV=()
 t_instance "${T_MINIMAL[@]}"
-t_eq "$(sha256sum <"$T/loads" | cut -d' ' -f1)" "e95434c4c8bde9e75fd373f05add9c6b1fa26bf8f897136486623a35b58b4bb0"
+t_eq "$(sha256sum <"$T/loads" | cut -d' ' -f1)" "ca852cb0a94c118d9b1385edd98598ed00dd32cbeafd5ae513d075eee75691f0"
 t_contains "$(cat "$T/loads")" "rc=78"
 
 t_case "no instance.env keeps the environment as it was, as bash did"

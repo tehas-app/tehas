@@ -245,14 +245,28 @@ fn door(number: i64, domain: &str) -> String {
     }
 }
 
+/// The theme file and the logo of a design, as TEHAS_DESIGN names it: the
+/// pixel factory for pixel, the logo for beesknees26 and anything else.
+fn look(design: &str) -> (&'static str, &'static str) {
+    if design == "pixel" {
+        ("theme-pixel.css", "factory.svg\" width=\"80\" height=\"50")
+    } else {
+        (
+            "theme-beesknees26.css",
+            "favicon.svg\" width=\"50\" height=\"50",
+        )
+    }
+}
+
 /// The head of a page: the style sheets of host/fun, the wordmark, the menu.
-fn top(title: &str, menu: &str, home: &str) -> String {
+fn top(title: &str, menu: &str, home: &str, design: &str) -> String {
     let home = h(&Value::from(home));
+    let (theme, logo) = look(design);
     let mut out = String::from("<!doctype html>\n<html lang=\"en\">\n<head>\n");
     out.push_str(&format!("  <meta charset=\"utf-8\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n  <meta name=\"robots\" content=\"noindex, nofollow\">\n  <title>{} - Protolab</title>\n", h(&Value::from(title))));
-    out.push_str("  <link rel=\"icon\" type=\"image/svg+xml\" href=\"/fun/favicon.svg\">\n  <link rel=\"stylesheet\" href=\"/fun/theme-beesknees26.css\">\n  <link rel=\"stylesheet\" href=\"/fun/game-view.css\">\n  <link rel=\"stylesheet\" href=\"/fun/protolab.css\">\n");
+    out.push_str(&format!("  <link rel=\"icon\" type=\"image/svg+xml\" href=\"/fun/favicon.svg\">\n  <link rel=\"stylesheet\" href=\"/fun/{theme}\">\n  <link rel=\"stylesheet\" href=\"/fun/game-view.css\">\n  <link rel=\"stylesheet\" href=\"/fun/protolab.css\">\n"));
     out.push_str("</head>\n<body id=\"top\">\n  <a class=\"skip\" href=\"#page\">Skip to the page</a>\n  <header class=\"topbar topbar-short\">\n");
-    out.push_str(&format!("    <a class=\"brand\" href=\"{home}\" aria-label=\"Protolab, every prototype\">\n      <img src=\"/fun/favicon.svg\" width=\"50\" height=\"50\" alt=\"\">\n      <span>PROTOLAB</span>\n    </a>\n    <nav class=\"menu\" aria-label=\"Site\">\n      <a href=\"{home}\">ALL PROTOTYPES</a>\n"));
+    out.push_str(&format!("    <a class=\"brand\" href=\"{home}\" aria-label=\"Protolab, every prototype\">\n      <img src=\"/fun/{logo}\" alt=\"\">\n      <span>PROTOLAB</span>\n    </a>\n    <nav class=\"menu\" aria-label=\"Site\">\n      <a href=\"{home}\">ALL PROTOTYPES</a>\n"));
     out.push_str(menu);
     out.push_str("    </nav>\n  </header>\n  <main class=\"lab-stage\" id=\"page\">\n");
     out
@@ -409,6 +423,7 @@ fn ticket_page(
     skipped: &[Value],
     outside: i64,
     home: &str,
+    design: &str,
     limit: i64,
 ) -> String {
     let number = number_of(row);
@@ -423,7 +438,7 @@ fn ticket_page(
         _ => "-".to_string(),
     };
     let (shown, parts, bytes) = tally(files);
-    let mut out = top(&format!("#{number} {title}"), &menu, home);
+    let mut out = top(&format!("#{number} {title}"), &menu, home, design);
     out.push_str(&format!(
         "    <section class=\"lab-ticket\" aria-labelledby=\"ticket-title\">\n      <p class=\"lab-box-head\"><span>PROTOTYPE</span><b>#{number}</b></p>\n      <div class=\"lab-ticket-body\">\n        <h1 id=\"ticket-title\">{}</h1>\n        <dl class=\"lab-facts\">\n          <div><dt>OPENED BY</dt><dd>{opened}</dd></div>\n          <div><dt>CHANGED</dt><dd>{}</dd></div>\n        </dl>\n",
         h(&Value::from(title.as_str())),
@@ -496,8 +511,8 @@ fn row_of(item: &Value, domain: &str) -> String {
 }
 
 /// The lab's front page.
-fn front_page(tickets: &[Value], domain: &str, home: &str, limit: i64) -> String {
-    let mut out = top("Prototypes", "", home);
+fn front_page(tickets: &[Value], domain: &str, home: &str, design: &str, limit: i64) -> String {
+    let mut out = top("Prototypes", "", home, design);
     out.push_str(&format!(
         "    <section class=\"lab\" aria-labelledby=\"lab-title\">\n      <div class=\"lab-head\"><h1 id=\"lab-title\">PROTOLAB</h1><p>{}</p></div>\n      <div class=\"lab-body\">\n        <ul class=\"rows\">\n",
         plural(tickets.len() as i64, "PROTOTYPE", "PROTOTYPES"),
@@ -814,6 +829,7 @@ mod tests {
             &[],
             0,
             "/",
+            "",
             LIMIT,
         );
         assert!(page.contains("2 FILES, 8796093022208 MB OF 10 MB"));
@@ -829,6 +845,7 @@ mod tests {
             &lines("{\"name\":\"all.tar\",\"reason\":\"Not a type the lab hosts.\"}\n"),
             1,
             "/",
+            "",
             LIMIT,
         );
         assert!(page.starts_with("<!doctype html>\n<html lang=\"en\">\n<head>\n"));
@@ -858,8 +875,42 @@ mod tests {
     }
 
     #[test]
+    fn a_page_is_drawn_in_the_instances_design() {
+        for (design, theme, logo) in [
+            (
+                "",
+                "theme-beesknees26.css",
+                "favicon.svg\" width=\"50\" height=\"50\"",
+            ),
+            (
+                "beesknees26",
+                "theme-beesknees26.css",
+                "favicon.svg\" width=\"50\" height=\"50\"",
+            ),
+            (
+                "pixel",
+                "theme-pixel.css",
+                "factory.svg\" width=\"80\" height=\"50\"",
+            ),
+        ] {
+            for page in [
+                ticket_page(&ticket(), &[], &[], 0, "/", design, LIMIT),
+                front_page(&[], "", "/", design, LIMIT),
+            ] {
+                assert!(page.contains(&format!("<link rel=\"stylesheet\" href=\"/fun/{theme}\">")));
+                assert!(page.contains(&format!("<img src=\"/fun/{logo} alt=\"\">")));
+                assert_eq!(
+                    page.matches("rel=\"stylesheet\" href=\"/fun/theme-")
+                        .count(),
+                    1
+                );
+            }
+        }
+    }
+
+    #[test]
     fn a_ticket_with_nothing_attached_says_so() {
-        let page = ticket_page(&ticket(), &[], &[], 0, "/", LIMIT);
+        let page = ticket_page(&ticket(), &[], &[], 0, "/", "", LIMIT);
         assert!(page.contains("No image, video or HTML file is attached"));
         assert!(page.contains("0 FILES, 0 B OF 10 MB"));
         assert!(!page.contains("LEFT OUT"));
@@ -870,7 +921,7 @@ mod tests {
     fn a_ticket_with_no_github_address_holds_no_link_to_github() {
         let mut row = ticket();
         row["url"] = Value::from("https://elsewhere.example/7");
-        let page = ticket_page(&row, &[], &[], 0, "/", LIMIT);
+        let page = ticket_page(&row, &[], &[], 0, "/", "", LIMIT);
         assert!(!page.contains("TICKET ON GITHUB"));
         assert!(!page.contains("OPEN THE TICKET"));
     }
@@ -879,9 +930,9 @@ mod tests {
     fn a_ticket_no_one_opened_has_a_dash_for_its_author() {
         let mut row = ticket();
         row["author"] = Value::Null;
-        assert!(ticket_page(&row, &[], &[], 0, "/", LIMIT).contains("<dd>-</dd>"));
+        assert!(ticket_page(&row, &[], &[], 0, "/", "", LIMIT).contains("<dd>-</dd>"));
         row["author"] = Value::from("");
-        assert!(ticket_page(&row, &[], &[], 0, "/", LIMIT).contains("<dd>-</dd>"));
+        assert!(ticket_page(&row, &[], &[], 0, "/", "", LIMIT).contains("<dd>-</dd>"));
     }
 
     #[test]
@@ -889,11 +940,11 @@ mod tests {
         let one = value_of(
             r#"{"number":7,"title":"Map","url":"u","files":[{"name":"a","kind":"image","bytes":3}],"bytes":3}"#,
         );
-        let page = front_page(&[one], "", "/", LIMIT);
+        let page = front_page(&[one], "", "/", "", LIMIT);
         assert!(page.contains("<a class=\"row\" href=\"/7/\"><b>#7</b>"));
         assert!(page.contains("1 PROTOTYPE<"));
         assert!(page.contains("1 FILE, 3 B"));
-        let none = front_page(&[], "", "/", LIMIT);
+        let none = front_page(&[], "", "/", "", LIMIT);
         assert!(none.contains("Nothing in the lab."));
         assert!(none.contains("0 PROTOTYPES<"));
         let named = front_page(
@@ -902,6 +953,7 @@ mod tests {
             )],
             "example.org",
             "https://lab.example.org/",
+            "",
             LIMIT,
         );
         assert!(named.contains("href=\"https://lab-7.example.org/\""));
