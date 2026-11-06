@@ -568,15 +568,18 @@ units=$HOME/.config/systemd/user
 # has one, still wins: Pi reads it over these.
 made=$(mktemp -d) || { echo "tehas: could not make a scratch directory" >&2; exit 1; }
 trap 'rm -rf "$made"' EXIT
-pi_console=${built_console:-$(_tehas_settings_console)}
+loaded_console=${built_console:-$(_tehas_settings_console)}
 pi_rc=0
-"$pi_console" update pi "$instance" "$host/pi/settings.json" "$PI_ENSEMBLE_SUBAGENT_PROVIDER" \
+"$loaded_console" update pi "$instance" "$host/pi/settings.json" "$PI_ENSEMBLE_SUBAGENT_PROVIDER" \
   "$PI_ENSEMBLE_SUBAGENT_MODEL" "$made" || pi_rc=$?
 case $pi_rc in
   0) ;;
   78) exit 78 ;;
-  *) echo "tehas: the console at $pi_console could not make Pi's settings (status $pi_rc); nothing was installed" >&2; exit 1 ;;
+  *) echo "tehas: the console at $loaded_console could not make Pi's settings (status $pi_rc); nothing was installed" >&2; exit 1 ;;
 esac
+# The files an older tehas installed and this one removes (section 3).
+retired=$("$loaded_console" update retired) ||
+  { echo "tehas: the console at $loaded_console could not name the retired files; nothing was installed" >&2; exit 1; }
 
 files=(
   "env.sh|$TEHAS_HOME/env.sh|644"
@@ -1157,95 +1160,11 @@ a_cycle_runs() { # true while a cycle holds its lock
   return 1
 }
 
-# The commands of before bin/tehas, one file each in bin/, and the console of
-# before it was a compiled program. The libraries the bash poll sourced. And the
-# Protolab's server files of before the edge router. And the wrappers of what is
-# now a verb of the console, and the libraries of what is now a verb of
-# tehas-cycle, and the jq program of the bash report. And the libraries whose
-# last callers moved into the console, the scripts that only exec'd it, the
-# release list of before it was a plain file (lib/release.list), and the
-# scripts that took a lock for tehas-cycle, which takes it itself. Found here,
-# removed in step 5 once systemd has the new units.
+# The files of an older layout, as the console lists them
+# (console/src/update/retired.list). Found here, removed in step 5 once systemd
+# has the new units.
 old=()
-for f in \
-  bin/tehas-console.ts \
-  bin/tehas-dispatch \
-  bin/tehas-energy \
-  bin/tehas-health \
-  bin/tehas-index \
-  bin/tehas-protolab \
-  bin/tehas-status \
-  bin/tehas-test \
-  bin/tehas-work \
-  lib/analytics.sh \
-  lib/describe.sh \
-  lib/edge.sh \
-  lib/history-listing.jq \
-  lib/history-repeats.jq \
-  lib/models.sh \
-  lib/park-fields.jq \
-  lib/private.sh \
-  libexec/analytics-cmd \
-  libexec/api \
-  libexec/check-product \
-  libexec/clean \
-  libexec/dev \
-  libexec/dispatch \
-  libexec/github-token \
-  libexec/improve \
-  libexec/plan \
-  libexec/review \
-  libexec/console.ts \
-  libexec/cycle \
-  lib/limit.sh \
-  lib/live.sh \
-  lib/headless.sh \
-  lib/improve.sh \
-  lib/planning.sh \
-  lib/refresh.sh \
-  lib/status.sh \
-  lib/sizing.sh \
-  libexec/disk \
-  libexec/drain \
-  libexec/energy \
-  libexec/export \
-  libexec/health \
-  libexec/history \
-  libexec/index \
-  libexec/init-product \
-  libexec/labels \
-  libexec/limit \
-  libexec/mcp \
-  libexec/pause \
-  libexec/preview \
-  libexec/protolab \
-  libexec/refresh \
-  libexec/resume \
-  libexec/state \
-  libexec/status \
-  libexec/stop \
-  libexec/summary \
-  libexec/tidy \
-  libexec/top \
-  libexec/top-publish \
-  libexec/with-settings \
-  libexec/work \
-  lib/disk.sh \
-  lib/top.sh \
-  lib/update-release.sh \
-  lib/release.sh \
-  lib/attachments.sh \
-  lib/history-lines.jq \
-  lib/cycles.sh \
-  lib/labels.sh \
-  lib/millwright.sh \
-  lib/sandbox.sh \
-  lib/slice.sh \
-  lib/questions.sh \
-  lib/store.sh \
-  lib/rukas.sh \
-  edge/protolab.Caddyfile \
-  edge/protolab.compose.yaml; do
+while IFS= read -r f; do
   to=$TEHAS_HOME/$f
   [ -e "$to" ] || continue
   # A cycle that started before this update renews its token by this path.
@@ -1258,168 +1177,37 @@ for f in \
   # A running sampler or publisher is the old file calling itself; only a
   # restart moves it on, and the units step is what restarts it.
   if [ "$check" = 1 ]; then note "stale: $to"; else record_step "$f"; fi
-done
+done <<<"$retired"
 
-# The slice file on the host against the one in this checkout. Nothing here
-# reads the instance or asks systemd.
+# The slice file on the host, which the console compares with the one in this
+# checkout, and what the sandbox image says of the images a cycle is given
+# (console/src/update/report.rs). Inside the tests the slice is not checked
+# unless a test asks.
 slice_to=${BOOTSTRAP_ETC:-/etc}/systemd/system/tehas.slice
-slice_state() {
-  if [ -n "${T_IN_TEST:-}" ] && [ -z "${T_SLICE:-}" ]; then
-    echo "not checked"
-  elif [ ! -f "$slice_to" ]; then
-    echo MISSING
-  elif cmp -s "$host/slice/tehas.slice" "$slice_to"; then
-    echo OK
-  else
-    echo DIFFERS
-  fi
-}
-
-# TEHAS_WORK_IMAGES=1 promises a cycle the images its issue links. The pi-rukas
-# in the sandbox image has to read the manifest tehas writes beside them for
-# that to be true, and the image says whether it does, by a label its build
-# writes (host/sandbox/build.sh). A disagreement is between the setting and the
-# image, not in what this script installs, so it is said and not failed: the
-# host rebuilds the image on a pi-rukas that reads them, or turns the setting off.
-# Nothing when the setting is off, when the image reads them, or when there is
-# no image to ask.
-images_say() { # <check|run>
-  local mode=$1 status sentence labels
-  if [ "$TEHAS_WORK_IMAGES" != 1 ]; then return 0; fi
-  docker image inspect "$PI_ENSEMBLE_IMAGE" >/dev/null 2>&1 || return 0
-  labels=$(docker image inspect --format '{{index .Config.Labels "tehas.rukas"}}|{{index .Config.Labels "tehas.rukas.images"}}' \
-    "$PI_ENSEMBLE_IMAGE" 2>/dev/null) || labels=""
-  case "${labels#*|}" in
-    1) return 0 ;;
-    0)
-      status="NOT READ"
-      sentence="TEHAS_WORK_IMAGES is 1 and the sandbox image $PI_ENSEMBLE_IMAGE says its pi-rukas does not read the images a cycle is given. The dispatcher holds every cycle while that stands, not only an issue whose text links a picture: rebuild the image on a pi-rukas that reads them (tehas update), or set TEHAS_WORK_IMAGES=0."
-      ;;
-    *)
-      status="NOT SAID"
-      sentence="TEHAS_WORK_IMAGES is 1 and the sandbox image $PI_ENSEMBLE_IMAGE does not say whether its pi-rukas reads the images a cycle is given. Rebuild it with $TEHAS_HOME/sandbox/build.sh, which records the answer."
-      ;;
-  esac
-  if [ "$mode" = check ]; then
-    echo "Images:       $status"
-    echo "  $sentence"
-  else
-    echo "note: $sentence"
-  fi
-}
+slice=(--slice "$slice_to")
+[ -z "${T_IN_TEST:-}" ] || [ -n "${T_SLICE:-}" ] || slice=()
+images=(--images "$TEHAS_WORK_IMAGES" "$PI_ENSEMBLE_IMAGE")
 
 # --- 4. Report (--check) -----------------------------------------------------
+# One line a finding, made by the console (console/src/update/report.rs) from
+# what this run found: the files that differ, the shell, the store and the
+# login command. It runs bootstrap.sh check, compares the slice, reads the
+# sandbox image, the health, the last check-product and the record of steps
+# owed, which the console that names the steps reads, and runs the tests when
+# asked. Exit 1 when it found something to do.
 if [ "$check" = 1 ]; then
+  asked=()
+  [ -z "${T_IN_TEST:-}" ] || asked+=(--in-test)
+  [ "$tests" = 0 ] || asked+=(--tests "$suite")
+  bashrc_ok || asked+=(--shell-missing "$bashrc")
   rc=0
-  echo "Instance:     $instance OK"
-
-  if [ -n "${T_IN_TEST:-}" ]; then
-    echo "Dependencies: not checked (running inside the tests)"
-  elif [ -x "$root/bootstrap.sh" ]; then
-    if out=$("$root/bootstrap.sh" check 2>&1); then
-      echo "Dependencies: OK"
-    else
-      echo "Dependencies: NOT OK"
-      printf '%s\n' "$out" | sed 's/^/  /'
-      rc=1
-    fi
-  else
-    echo "Dependencies: not checked (no bootstrap.sh in this checkout)"
-  fi
-
-  # Every container runs in the slice, so a host without it, or with another
-  # version of it, has something to do. Only root can do it; the check says
-  # so until it is done.
-  case "$(slice_state)" in
-    OK) echo "Slice:        OK" ;;
-    MISSING) echo "Slice:        MISSING (sudo ./bootstrap.sh slice)"; rc=1 ;;
-    DIFFERS) echo "Slice:        DIFFERS (sudo ./bootstrap.sh slice)"; rc=1 ;;
-    *) echo "Slice:        not checked (running inside the tests)" ;;
+  printf '%s\n' "${report[@]}" | "$loaded_console" update report "$root" "$instance" "${slice[@]}" "${images[@]}" \
+    "${asked[@]}" --drift "$((${#changed[@]} + sandbox_drift))" --store "$store_refusal" \
+    --login "$login_bin" "$login_fix" --steps "$steps_console" || rc=$?
+  case $rc in
+    0 | 1) exit "$rc" ;;
+    *) echo "tehas: the console at $loaded_console could not make the report (status $rc)" >&2; exit 1 ;;
   esac
-
-  images_say check
-
-  # The image cycles run against the pi-rukas the host follows, as the factory's
-  # health last read it (checks.rukas, which tehasbot status reads from docker
-  # and upstream). The clone is the Dependencies line's; this is the image.
-  behind=$(jq -r '.checks.rukas | select(.behind == true) | "\(.imageVersion // .image) \(.targetVersion // .target)"' \
-    "$TEHAS_HOME/live/health.json" 2>/dev/null) || behind=""
-  if [ -n "$behind" ]; then
-    echo "Sandbox:      BEHIND (the image runs pi-rukas ${behind% *}, the host follows ${behind#* }; tehas update builds it)"
-    rc=1
-  fi
-
-  # The last tehas check-product, read and not run: the product is not this
-  # host's install, so it does not change the exit status.
-  product=$TEHAS_HOME/state/check-product.json
-  if [ -r "$product" ]; then
-    jq -r '"Product:      " + (if .ok then "OK" else "\(.failures | length) TO FIX" end)
-      + " (tehas check-product, \(.at))", (.failures[] | "  \(.)")' "$product" 2>/dev/null ||
-      echo "Product:      NOT READ ($product)"
-  fi
-
-  if [ "${#changed[@]}" = 0 ] && [ "$sandbox_drift" = 0 ]; then
-    echo "Installed:    OK"
-  else
-    echo "Installed:    DRIFT ($((${#changed[@]} + sandbox_drift)) files)"
-    printf '%s\n' "${report[@]}" | sed 's/^/  /'
-    rc=1
-  fi
-
-  # The command the other accounts type is root's to install, so it is not part
-  # of the drift above: no run of this script can clear it. It is named apart,
-  # with the command that does clear it.
-  if bashrc_ok; then
-    echo "Shell:        OK"
-  else
-    echo "Shell:        MISSING ($bashrc does not source $TEHAS_HOME/env.sh; ./install.sh puts the line at its top)"
-    rc=1
-  fi
-  if [ -f "$first_owed" ]; then
-    echo "First install: NOT DONE (labels and core units; ./install.sh does them)"
-    rc=1
-  fi
-  if [ -n "$store_refusal" ]; then
-    echo "Store:        REFUSED ($store_refusal; ./install.sh stops before it writes)"
-    rc=1
-  fi
-
-  if [ -n "$login_fix" ]; then
-    echo "Login:        NOT CURRENT"
-    if [ -e "$login_bin" ]; then
-      echo "  differs: $login_bin   ($login_fix)"
-    else
-      echo "  missing: $login_bin   ($login_fix)"
-    fi
-    rc=1
-  fi
-
-  # A follow-up an earlier tehas update was asked for and never finished is
-  # still owed. Files matching is not enough to call a host current. A record
-  # this account cannot open is not an answer of "nothing owed" either: it holds
-  # steps, and this cannot say how many.
-  owed=$TEHAS_HOME/state/update-pending
-  owed_lines=
-  if [ -e "$owed" ] && ! owed_lines=$("$steps_console" update steps owed); then
-    echo "Follow-ups:   NOT DONE (the record $owed cannot be read)"
-    rc=1
-  elif [ -n "$owed_lines" ]; then
-    echo "Follow-ups:   NOT DONE ($(printf '%s\n' "$owed_lines" | wc -l) from an earlier run, see $owed)"
-    rc=1
-  fi
-
-  if [ "$tests" = 0 ]; then
-    echo "Tests:        not run (./install.sh --check --tests runs them)"
-  elif [ -n "${T_IN_TEST:-}" ] && [ -z "$suite" ]; then
-    echo "Tests:        not checked (running inside the tests)"
-  elif out=$("${suite:-$root/scripts/test.sh}" 2>&1); then
-    echo "Tests:        OK"
-  else
-    echo "Tests:        FAILED"
-    printf '%s\n' "$out" | tail -n 30 | sed 's/^/  /'
-    rc=1
-  fi
-  exit "$rc"
 fi
 
 # --- 5. After a real run ------------------------------------------------------
@@ -1535,12 +1323,8 @@ if command -v docker >/dev/null 2>&1; then
   esac
 fi
 
-case "$(slice_state)" in
-  MISSING) echo "note: $slice_to is missing (sudo ./bootstrap.sh slice)" ;;
-  DIFFERS) echo "note: $slice_to differs from host/slice/tehas.slice in this checkout (sudo ./bootstrap.sh slice)" ;;
-esac
-
-images_say run
+"$loaded_console" update notes "$root" "${slice[@]}" "${images[@]}" ||
+  echo "note: the console at $loaded_console did not compare the slice file or read the sandbox image"
 
 # The one place the default branch is looked up over the network.
 if [ -z "${TEHAS_BRANCH:-}" ] && [ -d "$TEHAS_WORK_REPO/.git" ]; then
