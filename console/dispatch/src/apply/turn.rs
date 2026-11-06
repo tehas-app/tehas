@@ -393,6 +393,15 @@ impl Writer {
             self.plan_finish(n, "not started", turns, &sid, log);
             return self.go(Then::Go);
         }
+        if first && self.host.read_only {
+            let how = if refine { "refine" } else { "plan" };
+            if tehas_core::read_only::record(&self.home, n, how, &crate::decide::iso_now()).is_err()
+            {
+                log.push(format!(
+                    "WARN: read-only: the record of the start of #{n} could not be written"
+                ));
+            }
+        }
         if self.st(n, ".rc").is_file() {
             self.plan_collect(n, log);
         } else {

@@ -1327,6 +1327,18 @@ its JSON says `"allHands": true` and the dashboard shows "all hands". What it
 means for other factories is up to the program that runs them, such as
 tehas-industry. Take the label off to end it.
 
+## Read-only
+
+With `TEHAS_READ_ONLY=1` in `instance.env` the instance reads its product's issues and code and runs cycles as usual, but writes nothing to GitHub: no label, comment, reaction, issue edit, pushed branch or pull request. It is meant for a factory on a developer's laptop that points at a repository a shared factory also serves. Off unless the instance turns it on; an instance that does not set it is unchanged.
+
+One guard decides every write. On the host each `gh` goes through the shim in `~/tehas/shim`, which `env.sh` puts first on `PATH` for a read-only instance whether or not it names a GitHub App, and its console runs no call that writes. It prints `read-only: would gh issue edit acme/widget#7` instead, exits 0 so the command goes on as if the write was made, and keeps the line in `state/read-only.log`. A read goes to GitHub as before. A shim with no console to ask runs nothing at all. `tehas finish` and `tehas init-product` say what they would have pushed and push nothing. The line in `state/github-writes.log` is only for a write that reached GitHub, so none is written.
+
+A cycle's container is told so too (`TEHAS_READ_ONLY=1` in its environment). Its git pushes to `origin` land in the workspace's own repository, so the push check before a cycle and the cycle's own pushes succeed and the branch stays in `~/tehas/work/<name>-<issue>`; a push that names a URL of github.com fails. The image's `gh` refuses every call that may write, by the same rule: what reads is a short list (`issue view`, `pr list`, `api` with no method and no field, a graphql query that names no mutation, and a few more), and anything else is a write. A `gh pr create` it refuses leaves the title, the branch and the body in `.git/tehas-read-only-pr.md` of the workspace. The image's `gh` has this only from the release that brought the setting: rebuild the image with `install.sh` before you turn it on.
+
+The labels that hold the queue are never written, so `tehas:ready` stays on an issue after its cycle starts. The dispatcher keeps each start that worked in `state/read-only/<issue>.json` instead, and starts nothing more on an issue that has one, a cycle or a planning session: a dry run says `skip #7: read-only, and this host started it before`. Remove the file to start the issue again.
+
+`tehas status --json` says `"readOnly": true`, so a program that starts the factory can confirm it first. The [dashboard](/dashboard) shows "read-only" and a list of read-only results: each start, its branch and workspace, and the pull request it would have opened.
+
 ## Limit and drain
 
 A limit caps what this factory starts, until it expires or is cleared. It

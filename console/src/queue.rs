@@ -721,6 +721,21 @@ fn record(analytics: &Analytics, changes: &[Change]) {
     }
 }
 
+/// A read-only instance (TEHAS_READ_ONLY=1, #608) says so in the snapshot,
+/// with what each of its starts left: `readOnly: {on, starts}`. An instance
+/// that is not read-only has no such key, as before.
+fn with_read_only(s: J, starts: Option<Vec<serde_json::Value>>) -> J {
+    let (Some(starts), J::Obj(mut fields)) = (starts, s.clone()) else {
+        return s;
+    };
+    let starts = J::parse(&serde_json::Value::Array(starts).to_string()).unwrap_or(J::Arr(vec![]));
+    fields.push((
+        "readOnly".to_string(),
+        obj(vec![("on", J::Bool(true)), ("starts", starts)]),
+    ));
+    J::Obj(fields)
+}
+
 fn put(live: &Path, file: &J) -> Result<(), String> {
     let new = live.join(format!("status.json.{}.new", std::process::id()));
     let written = fs::write(&new, format!("{}\n", file.pretty()))
@@ -910,7 +925,14 @@ fn queue(home: &Path, live: &Path, analytics: &Analytics, stop: &AtomicBool) {
         flag_paused,
         no_resources: no_resources(&live.join("dispatch.json"), now),
     })
-    .map(|s| carried(s, &previous, &stale));
+    .map(|s| carried(s, &previous, &stale))
+    .map(|s| {
+        let starts = tehas_core::read_only::on().then(|| {
+            let work = env::var("TEHAS_WORK_DIR").unwrap_or_default();
+            tehas_core::read_only::results(home, &work)
+        });
+        with_read_only(s, starts)
+    });
     let written = snapshot.and_then(|s| put(live, &s).map(|()| s));
     if let Err(why) = &written {
         log(&format!("WARN status.json not written: {why}"));
@@ -991,6 +1013,23 @@ pub fn main() -> u8 {
 mod tests {
     use super::*;
     use std::cell::Cell;
+
+    #[test]
+    fn a_read_only_snapshot_says_so_with_its_starts_and_another_has_no_key() {
+        let s = obj(vec![("paused", J::Bool(false))]);
+        assert_eq!(with_read_only(s.clone(), None), s);
+        let start = serde_json::json!({"issue": 7, "how": "cycle", "at": "2026-11-06T10:00:00Z",
+            "pr": {"title": "Fix", "branch": "feature/issue-7", "body": "b"}});
+        let r = with_read_only(s, Some(vec![start]));
+        assert_eq!(r.at(&["readOnly", "on"]), &J::Bool(true));
+        assert_eq!(
+            r.get("readOnly").get("starts").items()[0]
+                .at(&["pr", "branch"])
+                .as_str(),
+            Some("feature/issue-7")
+        );
+        assert_eq!(r.get("paused"), &J::Bool(false));
+    }
 
     const NOW: i64 = 1_790_000_000;
 

@@ -330,7 +330,34 @@ export function start() {
     list("awaiting", s.awaiting, s.links.awaiting, "No pull request is waiting.", "updatedAt");
     list("stopped", s.stopped, s.links.stopped, "Nothing is stopped.", "updatedAt");
     list("completed", s.completed, s.links.completed, "Nothing completed yet.", "closedAt");
+    readOnly(s.readOnly);
     show();
+  }
+
+  // A read-only factory (TEHAS_READ_ONLY=1) opens no pull request: what each of
+  // its starts left is listed here, the branch in its workspace and the pull
+  // request it would have opened. The text is untrusted: textContent only.
+  function readOnly(ro) {
+    const on = Boolean(ro && ro.on);
+    $("readonly").hidden = !on;
+    $("ro").hidden = !on;
+    const ul = $("ro-list");
+    ul.replaceChildren();
+    if (!on) return;
+    const starts = Array.isArray(ro.starts) ? ro.starts : [];
+    $("n-ro").textContent = starts.length ? "(" + starts.length + ")" : "";
+    if (!starts.length) {
+      ul.append(el("li", "empty", "Nothing has started yet."));
+      return;
+    }
+    for (const r of starts.slice(0, MAX)) {
+      const li = el("li");
+      const pr = r.pr || null;
+      li.append(el("span", "num", "#" + r.issue), el("span", null, pr ? pr.title : r.how + " started, no pull request yet"),
+        " ", el("span", "muted", (pr && pr.branch ? pr.branch + " in " : "") + (r.workspace || "") + (r.at ? ", " + ago(r.at) : "")));
+      if (pr && pr.body) li.append(el("pre", "ro-body", pr.body));
+      ul.append(li);
+    }
   }
 
   function select(issue) {

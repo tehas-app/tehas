@@ -17,7 +17,12 @@
 # console decides which call that is and writes the line: see `console gh`.
 # A read is never logged and goes straight to gh.
 #
-# Exit: gh's own; 1 when no token could be had (tehasbot github-token says why).
+# On a read-only instance (TEHAS_READ_ONLY=1, #608) the console runs no write
+# at all: it says `read-only: would gh <kind> <repo>#<n>` and exits 0. Without
+# a console that can be run the shim then runs nothing, not even a read.
+#
+# Exit: gh's own; 0 for a write a read-only instance refused; 1 when no token
+# could be had (tehasbot github-token says why), or read-only with no console.
 set -uo pipefail
 
 home=${TEHAS_HOME:-$HOME/tehas}
@@ -42,4 +47,8 @@ shopt -s execfail
 console=$home/libexec/console
 log=${TEHAS_GITHUB_WRITES_LOG:-$home/state/github-writes.log}
 [ ! -x "$console" ] || exec "$console" gh "$home/bin/gh" "$log" "$@"
+if [ "${TEHAS_READ_ONLY:-0}" = 1 ]; then
+  echo "gh: TEHAS_READ_ONLY=1 and no console at $console to refuse a write: nothing was run" >&2
+  exit 1
+fi
 exec "$home/bin/gh" "$@"

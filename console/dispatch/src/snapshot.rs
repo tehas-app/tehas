@@ -211,6 +211,9 @@ pub struct Snapshot {
     /// The issues with a refresh request (state/refresh/<n>.json), lowest
     /// first.
     pub refresh_requests: Vec<u64>,
+    /// With TEHAS_READ_ONLY: the issues a start of this host is on record for
+    /// (state/read-only/<n>.json), lowest first.
+    pub read_only_ran: Vec<u64>,
     /// What state/refresh/.held says, and whether the sandbox's pi-rukas takes
     /// --continue-pr (asked when a refresh may start).
     pub refresh_held: String,
@@ -574,6 +577,11 @@ impl Snapshot {
             }),
             refresh_requests: v
                 .get("refresh_requests")
+                .and_then(Value::as_array)
+                .map(|a| a.iter().filter_map(number).collect())
+                .unwrap_or_default(),
+            read_only_ran: v
+                .get("read_only_ran")
                 .and_then(Value::as_array)
                 .map(|a| a.iter().filter_map(number).collect())
                 .unwrap_or_default(),
