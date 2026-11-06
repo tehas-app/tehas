@@ -279,7 +279,39 @@ fn status_schema() -> Value {
         (
             "industry",
             obj(
-                vec![("version", given("The tehas-industry version, such as v0.9.0."))],
+                vec![
+                    ("version", given("The tehas-industry version, such as v0.9.0.")),
+                    (
+                        "alerts",
+                        arr(
+                            obj(
+                                vec![
+                                    (
+                                        "kind",
+                                        prop(
+                                            "string",
+                                            "paused, frozen or held-by-one. Treat it as an open list.",
+                                        ),
+                                    ),
+                                    ("since", given("When it started, UTC.")),
+                                    ("text", prop("string", "The alert for a person. Do not parse it.")),
+                                    ("link", given("Where the industry shows it, or null.")),
+                                ],
+                                "One alert.",
+                            ),
+                            "What the industry sees of this factory that it cannot see of itself. Left out until the industry has written them, or when they cannot be read.",
+                        ),
+                    ),
+                    ("alertsTime", given("When the industry wrote the alerts, UTC.")),
+                    (
+                        "alertsStale",
+                        given("true when the alerts are more than five minutes old: they are not current."),
+                    ),
+                    (
+                        "alertsUnreadable",
+                        given("true when the industry's alerts file cannot be read."),
+                    ),
+                ],
                 "The tehas-industry that runs this factory. Left out for a factory that runs on its own.",
             ),
         ),
@@ -1115,7 +1147,9 @@ pub fn spec_of(name: &str) -> Option<Value> {
                          "upstream": true, "fetchedAt": true},
             "rukas": {"follow": true, "target": true, "targetVersion": true, "image": true,
                       "imageVersion": true, "clone": true, "behind": true},
-            "industry": {"version": true},
+            "industry": {"version": true,
+                         "alerts": [{"kind": true, "since": true, "text": true, "link": true}],
+                         "alertsTime": true, "alertsStale": true, "alertsUnreadable": true},
             // The two keys of `hold`, copied from the poll's own report by
             // `held`, which names the file's fields through `tehas_core::hold`.
             // A report whose word is not one of the thirteen is no hold, so
