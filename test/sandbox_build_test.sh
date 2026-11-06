@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Tests for host/sandbox/build.sh, against stub git and docker: it builds on
-# upstream's image for the commit versions.env follows, only when
+# Tests for host/sandbox/build.sh, against stub git and docker: it builds the
+# base from the host's pi-rukas clone at the commit versions.env follows, then
+# the sandbox image on it, only when
 # that image's --capabilities answer has the contract tehas work needs, labels
 # the image with that commit and with whether its pi-rukas reads issue images,
 # and with --if-moved or --check looks at the label of the current image first.
@@ -15,7 +16,7 @@ cp "$T_ROOT/host/sandbox/build.sh" "$home/sandbox/"
 # from it. The tests copy the toolchain to the scratch home, so the recipe goes
 # too: without it the build stops at the file it cannot read and asks docker
 # nothing.
-cp "$T_ROOT/host/sandbox/Dockerfile" "$home/sandbox/"
+cp "$T_ROOT/host/sandbox/Dockerfile" "$T_ROOT/host/sandbox/base.Dockerfile" "$home/sandbox/"
 cp "$T_ROOT/lib/config.sh" "$home/lib/"
 cp "$T_ROOT/host/versions.env" "$home/"
 # The console names the commit followed and its image, and tells the sweep of
@@ -36,6 +37,8 @@ mkdir -p "$fx"
 head=$(printf 'a%.0s' {1..40})
 old=$(printf 'b%.0s' {1..40})
 uid=$(id -u)
+# The base this build makes for the commit in $fx/head.
+base=tehas/pi-rukas-base:sha-aaaaaaaaaaaa-uid$uid
 
 # The smoke run of every case starts a step, so the uid tag moves as it did
 # before the check was there. A case that means a refusal writes another answer
@@ -54,7 +57,17 @@ cp "$T_ROOT/test/fixtures/smoke-started.json" "$fx/smoke"
 # of the instance's layer instead. A build given the file named in
 # $fx/build-fails - the instance's own, by its path - fails. A case that builds
 # an instance layer calls fx_ids, which answers the inspects of that check.
-t_stub git '[ -e "$T/fx/head" ] || exit 2
+# Asked in the clone, git holds the commit unless $fx/no-commit exists; a fetch
+# brings it when $fx/fetch-brings exists, and archive prints a stand-in tree.
+t_stub git 'if [ "$1" = -C ]; then
+  case "$3" in
+    cat-file) [ ! -e "$T/fx/no-commit" ] ;;
+    fetch) [ ! -e "$T/fx/fetch-brings" ] || rm -f "$T/fx/no-commit" ;;
+    archive) echo tree ;;
+  esac
+  exit
+fi
+[ -e "$T/fx/head" ] || exit 2
 case "$*" in
   *--tags*) printf "%s\trefs/tags/v0.12.9\n%s\trefs/tags/v0.12.80\n" "$(printf "c%.0s" {1..40})" "$(cat "$T/fx/head")" ;;
   *) printf "%s\trefs/heads/main\n" "$(cat "$T/fx/head")" ;;
@@ -101,6 +114,11 @@ t_stub docker 'case "$1" in
     exit "$(cat "$T/fx/ask-rc" 2>/dev/null || echo 0)" ;;
   build) found=0
     for a in "$@"; do [ "$a" = "$(cat "$T/fx/build-fails" 2>/dev/null)" ] && found=1; done
+    # The base is built from the tree on standard input.
+    if [ "$2" = -f ] && [ "$3" = base.Dockerfile ]; then
+      cat >"$T/fx/base-context"
+      [ ! -e "$T/fx/base-fails" ] || exit 1
+    fi
     [ "$found" = 0 ] || exit 1 ;;
   ps) # "docker ps", which asks which containers exist: a case that wants none
     # names them by touching fx/no-containers, and this docker then answers no id.
@@ -127,21 +145,32 @@ reset() {
 # giving no answer at all: the two refusals of a smoke run.
 smoke_crash() { printf '%s\n' '{"schemaVersion":5,"issues":[],"error":{"code":"crash","message":"the runner process exited 0 without a result"}}' >"$fx/smoke"; }
 smoke_silence() { rm -f "$fx/smoke"; }
+# The docker builds of the sandbox image and of the instance's layer, the base
+# left out.
+sandbox_builds() { t_calls docker | grep -e '^build ' | grep -v -e '^build -f base.Dockerfile '; }
 
-t_case "a build takes upstream's image for the newest release and labels it with the commit"
+t_case "a build makes the base from the clone at the newest release, builds on it and labels it with the commit"
 reset
 t_run "$build"
 t_eq "$t_rc" 0
 t_contains "$(t_calls git)" "ls-remote --tags https://github.com/Up-Owner/pi-rukas.git"
-t_contains "$(t_calls docker)" "pull -q ghcr.io/up-owner/pi-rukas:sha-aaaaaaaaaaaa"
-t_contains "$(t_calls docker)" "--build-arg PI_RUKAS_IMAGE=ghcr.io/up-owner/pi-rukas:sha-aaaaaaaaaaaa --build-arg PI_RUKAS_COMMIT=$head"
+t_contains "$(t_calls git)" "-C $T/home/tehas/repos/pi-rukas archive --add-file=$home/sandbox/base.Dockerfile $head"
+t_eq "$(cat "$fx/base-context")" "tree"
+t_contains "$(t_calls docker)" "build -f base.Dockerfile -t $base --build-arg=TEHAS_UID=$uid --build-arg=GITHUB_SHA=$head"
+t_contains "$(t_calls docker)" "--build-arg=OO_VERSION=$(sed -n 's/^OO_VERSION=//p' "$home/versions.env") -"
+t_lacks "$(t_calls docker)" "pull"
+t_contains "$(t_calls docker)" "--build-arg PI_RUKAS_IMAGE=$base --build-arg PI_RUKAS_COMMIT=$head"
 t_contains "$(t_calls docker)" "tag tehas/pi-rukas:"
 t_contains "$t_out" "with pi-rukas $head (release v0.12.80), issue images: 1, also tagged tehas/pi-rukas:uid$uid"
 # A plain build does not ask what the current image is on.
 t_lacks "$(t_calls docker)" "image inspect"
+# A clone that already holds the commit is not fetched.
+t_lacks "$(t_calls git)" "fetch"
+# The bases of this uid but this build's lose their tags.
+t_contains "$(t_calls docker)" "image ls --format {{.Tag}} tehas/pi-rukas-base"
 
 t_case "the base is asked for its capabilities, and whether it reads issue images is its answer"
-t_contains "$(t_calls docker)" "run --rm --init ghcr.io/up-owner/pi-rukas:sha-aaaaaaaaaaaa /opt/pi-rukas/bin/pi-rukas-headless --capabilities"
+t_contains "$(t_calls docker)" "run --rm --init $base /opt/pi-rukas/bin/pi-rukas-headless --capabilities"
 t_contains "$(t_calls docker)" "--build-arg TEHAS_RUKAS_IMAGES=1"
 t_contains "$t_out" "issue images: 1"
 reset
@@ -153,6 +182,40 @@ reset
 jq '(.inputs[] | select(.name == "PI_ENSEMBLE_ISSUE_IMAGES") | .manifestVersion) = 2' "$caps" >"$fx/caps.json"
 t_run "$build"
 t_contains "$(t_calls docker)" "--build-arg TEHAS_RUKAS_IMAGES=0"
+
+t_case "the base is passed every argument its recipe declares, and the pins come from versions.env"
+base_args=$(sed -n 's/^ARG \([A-Z0-9_]*\).*/\1/p' "$T_ROOT/host/sandbox/base.Dockerfile" | LC_ALL=C sort -u)
+passed=$(grep -oE -- '--build-arg=[A-Z0-9_]+=' "$T_ROOT/host/sandbox/build.sh" | sed 's/^--build-arg=//; s/=$//' |
+  grep -vx TEHAS_BASE | LC_ALL=C sort -u)
+t_eq "$passed" "$base_args"
+for arg in VIPUNE_VERSION OO_VERSION; do
+  grep -q "^$arg=" "$T_ROOT/host/versions.env" || t_bad "$arg is not in versions.env"
+done
+# The pi version is read from pi-rukas's own recipe in the tree, not pinned here.
+t_contains "$(cat "$T_ROOT/host/sandbox/base.Dockerfile")" "source=.devcontainer/Dockerfile"
+
+t_case "a clone without the commit fetches once, and one a fetch does not bring it to builds nothing"
+reset
+: >"$fx/no-commit"
+: >"$fx/fetch-brings"
+t_run "$build"
+t_eq "$t_rc" 0
+t_contains "$(t_calls git)" "-C $T/home/tehas/repos/pi-rukas fetch -q --tags origin"
+reset
+: >"$fx/no-commit"
+t_run "$build"
+t_eq "$t_rc" 1
+t_contains "$t_out" "does not hold $head, and a fetch did not bring it"
+t_eq "$(t_calls docker)" ""
+
+t_case "a base that does not build stops the build before the base is asked anything"
+reset
+: >"$fx/base-fails"
+t_run "$build"
+t_eq "$t_rc" 1
+t_contains "$t_out" "the base $base did not build"
+t_lacks "$(t_calls docker)" "run "
+t_eq "$(sandbox_builds)" ""
 
 t_case "a base on result schema 5 passes the check, and one on an older schema is not built on"
 reset
@@ -296,95 +359,48 @@ pin_versions() { # <key> <value>
   printf '%s=%s\n' "$1" "$2" >>"$home/versions.env"
 }
 
-t_case "commit:<sha> builds that commit with no lookup upstream, on the image of its tag"
+t_case "commit:<sha> builds that commit with no lookup upstream"
 reset
 pin_versions PI_RUKAS_FOLLOW "commit:$commit40"
 t_run "$build"
 t_eq "$t_rc" 0
-# Nothing asked of git: the release named the commit, so asking again could only
-# move it. The base is still the tag of those twelve characters.
-t_eq "$(t_calls git)" ""
-t_contains "$(t_calls docker)" "pull -q ghcr.io/up-owner/pi-rukas:sha-eeeeeeeeeeee"
+# Nothing asked upstream: the release named the commit, so asking again could
+# only move it. The clone is asked for that commit and nothing else.
+t_lacks "$(t_calls git)" "ls-remote"
+t_contains "$(t_calls git)" "archive --add-file=$home/sandbox/base.Dockerfile $commit40"
+t_contains "$(t_calls docker)" "-t tehas/pi-rukas-base:sha-eeeeeeeeeeee-uid$uid"
 t_contains "$(t_calls docker)" "--build-arg PI_RUKAS_COMMIT=$commit40"
 t_contains "$t_out" "with pi-rukas $commit40 (pinned), issue images: 1"
 sed -i '/^PI_RUKAS_FOLLOW=commit:/d' "$home/versions.env"
 
-t_case "a digest in versions.env is the base, pulled by digest rather than by tag"
-reset
-pin_versions PI_RUKAS_IMAGE_DIGEST "$digest64"
-t_run "$build"
-t_eq "$t_rc" 0
-t_contains "$(t_calls docker)" "pull -q ghcr.io/up-owner/pi-rukas@$digest64"
-t_contains "$(t_calls docker)" "run --rm --init ghcr.io/up-owner/pi-rukas@$digest64"
-t_contains "$(t_calls docker)" "--build-arg PI_RUKAS_IMAGE=ghcr.io/up-owner/pi-rukas@$digest64"
-t_lacks "$(t_calls docker)" "sha-aaaaaaaaaaaa"
-sed -i '/^PI_RUKAS_IMAGE_DIGEST=/d' "$home/versions.env"
-
-t_case "the commit and the digest of a release go together, the commit labelled and the base pinned"
+t_case "a release's image digest is no base: the base is built here all the same"
 reset
 pin_versions PI_RUKAS_FOLLOW "commit:$commit40"
-printf 'PI_RUKAS_IMAGE_DIGEST=%s\n' "$digest64" >>"$home/versions.env"
+pin_versions PI_RUKAS_IMAGE_DIGEST "$digest64"
 t_run "$build"
 t_eq "$t_rc" 0
-t_eq "$(t_calls git)" ""
-t_contains "$(t_calls docker)" "pull -q ghcr.io/up-owner/pi-rukas@$digest64"
-t_contains "$(t_calls docker)" "--build-arg PI_RUKAS_IMAGE=ghcr.io/up-owner/pi-rukas@$digest64 --build-arg PI_RUKAS_COMMIT=$commit40"
-t_contains "$t_out" "with pi-rukas $commit40 (pinned)"
+t_lacks "$(t_calls docker)" "@sha256:"
+t_lacks "$(t_calls docker)" "pull"
+t_contains "$(t_calls docker)" "--build-arg PI_RUKAS_IMAGE=tehas/pi-rukas-base:sha-eeeeeeeeeeee-uid$uid --build-arg PI_RUKAS_COMMIT=$commit40"
 sed -i '/^PI_RUKAS_FOLLOW=commit:/d; /^PI_RUKAS_IMAGE_DIGEST=/d' "$home/versions.env"
 
-t_case "a malformed digest stops the build with 78 and asks docker nothing"
-# versions.env is sourced, so values with a space are quoted.
-for bad in "\"sha256:$(printf 'f%.0s' {1..63})\"" "sha256:$(printf 'f%.0s' {1..65})" \
-  "'sha512:$(printf 'f%.0s' {1..64})'" "$(printf 'f%.0s' {1..64})" "sha256:$(printf 'g%.0s' {1..64})" \
-  "sha256:$(printf 'F%.0s' {1..64})" "'sha256:'" "'sha256: $(printf 'f%.0s' {1..64})'"; do
-  reset
-  pin_versions PI_RUKAS_IMAGE_DIGEST "$bad"
-  t_run "$build"
-  t_eq "$t_rc" 78
-  t_contains "$t_out" "is not sha256: and 64 hex digits"
-  t_eq "$(t_calls git)$(t_calls docker)" ""
-done
-
-t_case "no digest line leaves the base the tag it has always been"
-reset
-t_run "$build"
-t_eq "$t_rc" 0
-t_contains "$(t_calls docker)" "pull -q ghcr.io/up-owner/pi-rukas:sha-aaaaaaaaaaaa"
-t_lacks "$(t_calls docker)" "@sha256:"
-
-t_case "the instance's PI_RUKAS_FOLLOW wins, and the release's digest goes with the release's commit"
+t_case "the instance's PI_RUKAS_FOLLOW wins over the release's"
 reset
 pin_versions PI_RUKAS_FOLLOW "commit:$(printf '1%.0s' {1..40})"
-pin_versions PI_RUKAS_IMAGE_DIGEST "$digest64"
 t_instance "${T_MINIMAL[@]}" "PI_RUKAS_FOLLOW=commit:$commit40"
 t_run "$build"
 t_eq "$t_rc" 0
-t_eq "$(t_calls git)" ""
+t_lacks "$(t_calls git)" "ls-remote"
 t_contains "$(t_calls docker)" "--build-arg PI_RUKAS_COMMIT=$commit40"
-# The release's digest is the image of the release's commit, not of this one.
-t_contains "$(t_calls docker)" "pull -q ghcr.io/up-owner/pi-rukas:sha-eeeeeeeeeeee"
-t_lacks "$(t_calls docker)" "@sha256:"
 t_contains "$t_out" "with pi-rukas $commit40 (pinned)"
 
-t_case "an instance that follows another commit and names its digest builds on that digest"
-reset
-pin_versions PI_RUKAS_FOLLOW "commit:$(printf '1%.0s' {1..40})"
-pin_versions PI_RUKAS_IMAGE_DIGEST "sha256:$(printf '2%.0s' {1..64})"
-t_instance "${T_MINIMAL[@]}" "PI_RUKAS_FOLLOW=commit:$commit40" "PI_RUKAS_IMAGE_DIGEST=$digest64"
-t_run "$build"
-t_eq "$t_rc" 0
-t_contains "$(t_calls docker)" "pull -q ghcr.io/up-owner/pi-rukas@$digest64"
-t_lacks "$(t_calls docker)" "sha256:222222"
-
-t_case "an instance that sets no pin builds on the release's commit and digest"
+t_case "an instance that sets no pin builds on the release's commit"
 reset
 pin_versions PI_RUKAS_FOLLOW "commit:$commit40"
-pin_versions PI_RUKAS_IMAGE_DIGEST "$digest64"
 t_instance "${T_MINIMAL[@]}"
 t_run "$build"
 t_eq "$t_rc" 0
-t_eq "$(t_calls git)" ""
-t_contains "$(t_calls docker)" "pull -q ghcr.io/up-owner/pi-rukas@$digest64"
+t_lacks "$(t_calls git)" "ls-remote"
 t_contains "$(t_calls docker)" "--build-arg PI_RUKAS_COMMIT=$commit40"
 
 t_case "an instance whose PI_RUKAS_FOLLOW is not valid builds nothing, with 78"
@@ -404,14 +420,6 @@ t_run "$build"
 t_eq "$t_rc" 78
 t_eq "$(t_calls git)$(t_calls docker)" ""
 
-t_case "a malformed digest in the instance's file is 78 before docker is asked anything"
-reset
-t_instance "${T_MINIMAL[@]}" "PI_RUKAS_IMAGE_DIGEST=sha256:$(printf 'f%.0s' {1..63})"
-t_run "$build"
-t_eq "$t_rc" 78
-t_contains "$t_out" "is not sha256: and 64 hex digits"
-t_eq "$(t_calls git)$(t_calls docker)" ""
-
 t_case "with --check a pinned commit is compared with the image like any other"
 reset
 pin_versions PI_RUKAS_FOLLOW "commit:$commit40"
@@ -422,14 +430,6 @@ t_eq "$(t_calls git)" ""
 t_contains "$t_out" "is on $old, pinned is $commit40"
 t_eq "$(t_calls docker | grep -c -e '^build' -e '^pull')" 0
 sed -i '/^PI_RUKAS_FOLLOW=commit:/d' "$home/versions.env"
-
-t_case "a commit whose image is not published yet builds nothing"
-reset
-: >"$fx/pull-fails"
-t_run "$build"
-t_eq "$t_rc" 1
-t_contains "$t_out" "no image ghcr.io/up-owner/pi-rukas:sha-aaaaaaaaaaaa yet"
-t_lacks "$(t_calls docker)" "build"
 
 t_case "an argument it does not know is refused"
 reset
@@ -485,7 +485,7 @@ t_contains "$t_out" "smoke-ran tehas/pi-rukas:"
 # The tag names the image the build made, as it did before the check was there:
 # a run that started a step costs the tag nothing.
 t_eq "$(t_calls docker | awk '$1 == "tag" && $3 ~ /^tehas\/pi-rukas:uid/ { print $2 }')" \
-  "$(t_calls docker | sed -n 's/^build .* -t \([^ ]*\) .*/\1/p' | head -n 1)"
+  "$(sandbox_builds | sed -n 's/^build .* -t \([^ ]*\) .*/\1/p' | head -n 1)"
 
 t_case "a smoke run that prints the crash document leaves the uid tag where it was and ends 1"
 reset
@@ -543,7 +543,7 @@ reset
 rm -f "$T/instance/sandbox.Dockerfile"
 t_run "$build"
 t_eq "$t_rc" 0
-t_eq "$(t_calls docker | grep -c -e '^build ')" 1
+t_eq "$(sandbox_builds | grep -c .)" 1
 t_contains "$(t_calls docker)" "tag tehas/pi-rukas:"
 t_lacks "$(t_calls docker)" "TEHAS_BASE"
 
@@ -558,10 +558,10 @@ t_eq "$t_rc" 0
 # Two builds, the tehas image first and the instance's on top of it. The second
 # names the image the first made as its base, so the file itself names no tag,
 # and the result is what carries the uid tag.
-t_eq "$(t_calls docker | grep -c -e '^build ')" 2
+t_eq "$(sandbox_builds | grep -c .)" 2
 t_eq "$(t_calls docker | sed -n "s|^build .* $instance_file $TEHAS_INSTANCE_DIR\$|instance|p")" "instance"
 t_eq "$(t_calls docker | sed -n "s|^build .* $TEHAS_INSTANCE_DIR\$|tehas|p")" "tehas"
-second=$(t_calls docker | grep -e "^build -t ")
+second=$(sandbox_builds | grep -e "^build -t ")
 t_contains "$second" "--build-arg=TEHAS_BASE=tehas/pi-rukas:"
 t_contains "$second" "-f $instance_file"
 product=$(sed -n 's/^build -t \([^ ]*\)-product .*/\1/p' <<<"$second")
@@ -586,7 +586,7 @@ t_contains "$t_out" "$T/instance/sandbox.Dockerfile did not build"
 # of this run and not the layer that failed to build: the last tag of the run is
 # that one, and no tag of the run names the layer at all.
 uidtag=$(t_calls docker | awk '$1 == "tag" && $3 ~ /^tehas\/pi-rukas:uid/ { print $2 }')
-t_eq "$uidtag" "$(t_calls docker | grep -e '^build ' | sed -n 's/^build .* -t \([^ ]*\) .*/\1/p' | head -n 1)"
+t_eq "$uidtag" "$(sandbox_builds | sed -n 's/^build .* -t \([^ ]*\) .*/\1/p' | head -n 1)"
 t_lacks "$uidtag" "-product"
 t_lacks "$(t_calls docker | grep -e '^tag ')" "-product "
 rm -f "$T/instance/sandbox.Dockerfile" "$fx/build-fails"
@@ -613,7 +613,7 @@ t_contains "$t_out" "docker gave no layers"
 t_lacks "$(t_calls docker | grep -e '^tag ')" "-product "
 rm -f "$T/instance/sandbox.Dockerfile"
 
-t_case "an instance layer that is already the newest image is not kept past the three dated tags"
+t_case "an instance layer that is already the newest image is not kept past the two builds"
 reset
 # A host that updates on a schedule must not accumulate one -product tag per
 # build: the dated sweep names the instance's tag too, so it is counted with the
@@ -652,7 +652,7 @@ reset
 printf 'TEHAS_REPO=acme/widget\n' >"$T/instance/instance.env"
 t_run "$build"
 t_eq "$t_rc" 0
-t_eq "$(t_calls docker | grep -c -e '^build ')" 1
+t_eq "$(sandbox_builds | grep -c .)" 1
 t_lacks "$(t_calls docker)" "TEHAS_BASE"
 t_contains "$t_out" "also tagged tehas/pi-rukas:uid$uid"
 
@@ -669,7 +669,7 @@ T_ENV=(T_ROOT="$T_ROOT")
 unset TEHAS_INSTANCE_DIR
 t_run "$build"
 t_eq "$t_rc" 0
-t_eq "$(t_calls docker | grep -c -e '^build ')" 2
+t_eq "$(sandbox_builds | grep -c .)" 2
 t_contains "$t_out" "$T/home/.config/tehas/sandbox.Dockerfile"
 rm -f "$T/home/.config/tehas/sandbox.Dockerfile"
 
@@ -680,6 +680,6 @@ T_ENV=(T_ROOT="$T_ROOT")
 unset TEHAS_INSTANCE_DIR
 t_run "$build"
 t_eq "$t_rc" 0
-t_eq "$(t_calls docker | grep -c -e '^build ')" 1
+t_eq "$(sandbox_builds | grep -c .)" 1
 t_lacks "$(t_calls docker)" "TEHAS_BASE"
 t_done

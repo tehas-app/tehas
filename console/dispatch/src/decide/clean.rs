@@ -471,8 +471,9 @@ impl Poll<'_> {
         Ok(())
     }
 
-    /// What a cycle left for an issue goes once nothing has used it for 7
-    /// days, three issues a poll at most.
+    /// What a cycle left for an issue goes once its issue is closed, or once
+    /// nothing has used it for TEHAS_WORKSPACE_KEEP_DAYS days, three issues a
+    /// poll at most.
     fn sweep(&mut self) {
         let mut seen = Vec::new();
         let mut count = 0;
@@ -498,11 +499,16 @@ impl Poll<'_> {
             if self.running(n) {
                 continue;
             }
-            if l.young {
+            if l.young && !l.closed {
                 continue;
             }
             count += 1;
-            let line = format!("what #{n} left on this host: no cycle has run on it for 7 days");
+            let line = if l.closed {
+                format!("what #{n} left on this host: its issue is closed")
+            } else {
+                let days = self.c.keep_days;
+                format!("what #{n} left on this host: no cycle has run on it for {days} days")
+            };
             if self.dry {
                 self.log(format!("would remove {line}"));
             } else {

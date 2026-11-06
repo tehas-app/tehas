@@ -87,6 +87,8 @@ pub enum Rule {
     RefreshEvery,
     /// Hours: docker's `until` and find's `-newermt`.
     CleanAfter,
+    /// Days a kept workspace of an open issue waits before the sweep.
+    KeepDays,
     /// An idle poll's budget for `store poll-idle --budget`: the three figures
     /// in this order, any left out; another order would bound the wrong
     /// figure. Each figure as the store's count reads it, no leading 0.
@@ -206,6 +208,7 @@ pub const TABLE: &[Setting] = &[
     always("TEHAS_SLICE_CONTAINERS", Rule::SliceContainers, "4"),
     always("TEHAS_LOW_GATE_WAIT", Rule::LowGateWait, "60"),
     always("TEHAS_CLEAN_AFTER", Rule::CleanAfter, "24"),
+    always("TEHAS_WORKSPACE_KEEP_DAYS", Rule::KeepDays, "7"),
     always(
         "TEHAS_POLL_BUDGET",
         Rule::PollBudget,
@@ -369,6 +372,10 @@ fn verdict(rule: Rule, v: &str, trees: &Trees) -> Result<(), String> {
         Rule::CleanAfter => refuse(
             leading(v, 5),
             "expected a whole number of hours of at least 1",
+        ),
+        Rule::KeepDays => refuse(
+            leading(v, 4),
+            "expected a whole number of days of at least 1",
         ),
         Rule::PollBudget => poll_budget(v),
         Rule::MeasureBound => refuse(leading(v, 8), "expected a whole number of at least 1"),
@@ -900,6 +907,19 @@ mod tests {
         let why = "expected a whole number of minutes from 1 to 1440";
         for bad in ["0", "1441", "010", "10m", "99999"] {
             refuses("TEHAS_REFRESH_EVERY", bad, why);
+        }
+    }
+
+    #[test]
+    fn a_workspace_is_kept_whole_days_of_at_least_one() {
+        takes("TEHAS_WORKSPACE_KEEP_DAYS", "2");
+        takes("TEHAS_WORKSPACE_KEEP_DAYS", "9999");
+        for bad in ["0", "02", "2d", "10000", ""] {
+            refuses(
+                "TEHAS_WORKSPACE_KEEP_DAYS",
+                bad,
+                "expected a whole number of days of at least 1",
+            );
         }
     }
 

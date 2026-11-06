@@ -73,6 +73,9 @@ pub struct Settings {
     pub millwright_epics: bool,
     /// Where the poll's libexec is, as the refine brief's path names it.
     pub libexec: String,
+    /// TEHAS_WORKSPACE_KEEP_DAYS: the days a kept workspace of an open issue
+    /// waits after its last use before the sweep takes it.
+    pub keep_days: u64,
 }
 
 impl Settings {
@@ -141,6 +144,7 @@ impl Settings {
             millwright_max_feeds: n("TEHAS_MILLWRIGHT_MAX_FEEDS", 2),
             millwright_epics: s("TEHAS_MILLWRIGHT_EPICS", "0") == "1",
             libexec: s("libexec", "/home/tehas/tehas/libexec"),
+            keep_days: n("TEHAS_WORKSPACE_KEEP_DAYS", 7).max(1) as u64,
         }
     }
 
