@@ -1,0 +1,8 @@
+{
+  "time": "2026-10-17T14:00:00Z",
+  "alerts": [
+    {"kind": "paused", "since": "2026-10-17T10:00:00Z", "text": "Paused for 4 h: tehas:pause on the control issue.", "link": "https://tehas-industry.example/factories/tehas-tehas"},
+    {"kind": "frozen", "since": "2026-10-17T11:30:00Z", "text": "Frozen for 2 h: nothing started and nothing ended.", "link": "https://tehas-industry.example/factories/tehas-tehas"},
+    {"kind": "held-by-one", "since": "2026-10-17T12:00:00Z", "text": "#12 has held the factory still for 2 h while 3 issues wait.", "link": "https://github.com/tehas-app/tehas/issues/12"}
+  ]
+}
