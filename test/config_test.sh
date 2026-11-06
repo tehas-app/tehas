@@ -506,6 +506,14 @@ t_run "$load; echo rc=\$?"
 t_contains "$t_out" "rc=78"
 t_contains "$t_out" "tehas: TEHAS_OVERLAP_HOLD is not valid"
 
+t_case "the egress limit is off and its hosts empty unless the instance says otherwise"
+printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load && set -u && echo \"[\$TEHAS_EGRESS] [\$TEHAS_EGRESS_HOSTS]\""
+t_eq "$t_out" "[0] []"
+printf '%s\n' "${T_MINIMAL[@]}" TEHAS_EGRESS=1 'TEHAS_EGRESS_HOSTS="pypi.org m.example:8443"' >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load && set -u && echo \"[\$TEHAS_EGRESS] [\$TEHAS_EGRESS_HOSTS]\""
+t_eq "$t_out" "[1] [pypi.org m.example:8443]"
+
 t_case "the review loop is off unless the instance turns it on"
 printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
 t_run "$load && set -u && echo \"[\$TEHAS_REVIEW]\""
@@ -1639,7 +1647,7 @@ T_INSIDE=$TEHAS_INSTANCE_DIR/$HOME
 INSTANCES
 T_ENV=()
 t_instance "${T_MINIMAL[@]}"
-t_eq "$(sha256sum <"$T/loads" | cut -d' ' -f1)" "8c1af0bf57fc47ada9b4356b3a909339f43eabae265fdea62b27fb9b2430f993"
+t_eq "$(sha256sum <"$T/loads" | cut -d' ' -f1)" "e95434c4c8bde9e75fd373f05add9c6b1fa26bf8f897136486623a35b58b4bb0"
 t_contains "$(cat "$T/loads")" "rc=78"
 
 t_case "no instance.env keeps the environment as it was, as bash did"
