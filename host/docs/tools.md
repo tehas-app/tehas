@@ -2484,6 +2484,7 @@ tehasbot refresh              # ask for refreshes of conflicting pull requests; 
 tehasbot review               # one review of the branch; what tehas-review.timer runs
 tehasbot clean                # remove what the host can make again; what tehas-clean.timer runs
 tehasbot github-token [--check]  # the GitHub App's token, or a check of it
+tehasbot github-writes        # the GitHub writes of the last day, by hour
 ```
 
 The units are `tehas-dispatch.timer`, `tehas-dispatch.path` (a poll as soon
@@ -3640,6 +3641,29 @@ the first word of the document instead: a query, a fragment, or a document that
 names no operation reads and is not logged, and only a `mutation` adds a line
 of kind `api POST`. An idle poll of the dispatcher asks nothing but queries, so
 it writes nothing. See [GitHub App identity](/github-app).
+
+A write that GitHub refuses for a rate limit (`HTTP 429`, or `HTTP 403` with
+`rate limit`) is sent once more after 60 seconds (`TEHAS_GH_RETRY_WAIT`), as in
+the container, and only that call: gh shows no `Retry-After`, and GitHub asks
+for a minute when it names none. Both attempts are lines of the log. A write
+that reads standard input is sent once. So is a write typed at a terminal:
+gh's output stays the terminal, so `gh pr create` and the other commands that
+ask still ask, and a rate limit shows at once. Nothing is shared between calls, so a
+call that waits holds up no other. A caller with a time limit of its own, such
+as the poll's 30 seconds a call, ends the call at its limit; the poll's action
+journal settles that write on a later poll.
+
+## tehasbot github-writes
+
+```
+tehasbot github-writes          # the writes of the 24 hours to now, by hour
+```
+
+Reads `~/tehas/state/github-writes.log` and prints the writes and the refused
+writes (403 or 429) of the last 24 hours, the busiest minute and the busiest
+hour, beside GitHub's limits for writes (about 80 a minute and 500 an hour),
+and then one row per clock hour with its writes, its refused writes and its
+busiest minute. It needs no settings and changes nothing.
 
 Exit 0 a token or a check that passed; 1 no token could be had, or it does not
 reach `TEHAS_REPO`; 64 an argument it does not know; 78 settings that are
