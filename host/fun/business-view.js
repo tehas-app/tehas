@@ -1,4 +1,4 @@
-// The business layout's front page (TEHAS_LAYOUT=business, host/fun/business.html):
+// The business page (host/fun/business.html), the front page unless TEHAS_DESIGN=pixel:
 // the live strip, the production line, the last ten days, the issue board and
 // the console of the running cycles, from the files the dispatcher writes under
 // /live/. See host/docs/host.md, "Layouts".
