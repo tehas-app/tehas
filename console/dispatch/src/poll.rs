@@ -209,10 +209,15 @@ fn tehasbot_command(named: Option<String>, here: &Path, verb: &str) -> (String, 
 /// The writes of a poll, with the host's commands as the settings name them.
 /// The console takes a verb; a stand-in named by TEHAS_TIDY_CMD takes none.
 fn tidy_args(hook: bool) -> Vec<String> {
+    own_words(hook, &["tidy", "run"])
+}
+
+/// The words of the install's own command, none for a test's hook.
+fn own_words(hook: bool, words: &[&str]) -> Vec<String> {
     if hook {
         Vec::new()
     } else {
-        vec!["tidy".into(), "run".into()]
+        words.iter().map(|w| w.to_string()).collect()
     }
 }
 
@@ -294,7 +299,13 @@ fn writer(
             user_home: env("HOME"),
             done_wait: secs("TEHAS_CYCLE_DONE_WAIT", 330),
             image: env("PI_ENSEMBLE_IMAGE"),
-            plan_cmd: or("TEHAS_PLAN_CMD", "plan"),
+            plan_cmd: match opt("TEHAS_PLAN_CMD") {
+                Some(cmd) => vec![cmd],
+                None => vec![
+                    here.join("../bin/tehas").to_string_lossy().into_owned(),
+                    "plan".into(),
+                ],
+            },
             plan_start_cmd: opt("TEHAS_PLAN_START_CMD"),
             pin_cmd: Some(here.join("tehas-cycle"))
                 .filter(|p| opt("TEHAS_PLAN_CMD").is_none() && p.is_file())
@@ -307,7 +318,9 @@ fn writer(
             checkout: env("TEHAS_WORK_REPO"),
             branch: settings.branch.clone(),
             git: "git".into(),
-            index_cmd: or("TEHAS_INDEX_CMD", "index"),
+            // The unit has none of the poll's settings: bin/tehas loads them.
+            index_cmd: or("TEHAS_INDEX_CMD", "../bin/tehas"),
+            index_args: own_words(opt("TEHAS_INDEX_CMD").is_some(), &["index"]),
             index_start_cmd: opt("TEHAS_INDEX_START_CMD"),
             // timeout's 0 is no bound.
             fetch_wait: match env("TEHAS_FETCH_WAIT").parse::<u64>() {
@@ -468,7 +481,7 @@ const TOKEN_BOUND: Duration = Duration::from_secs(30);
 
 impl PollToken {
     /// The token of the host's GitHub App: the one already taken, or the first
-    /// run of `$TEHAS_HOME/libexec/github-token`, which answers the token and
+    /// run of `$TEHAS_HOME/bin/tehasbot github-token`, which answers the token and
     /// nothing else. Only when `TEHAS_GITHUB_APP_ID` names an app. A run that
     /// could not be had leaves nothing taken, so the poll's gh calls go on as
     /// they did before and each pays for a token of its own. The token is held
@@ -565,7 +578,7 @@ pub fn run_poll(home: &Path, settings: &Settings, dry: bool) -> i32 {
     // The poll's GitHub token, kept in memory from before its first call: the
     // first gh of the poll asks the host's token program once, and every gh
     // process after it is given the token as TEHAS_GH_TOKEN, so the shim of a
-    // call runs no libexec/github-token of its own: its reads, its writes, and
+    // call runs no `tehasbot github-token` of its own: its reads, its writes, and
     // the commands it starts at its end - tidy, the status and health, all
     // through status_of - carry it in their environment too. With no app named
     // nothing is asked and nothing is given, and a token that could not be had
@@ -916,6 +929,8 @@ mod tests {
     fn the_console_is_told_the_verb_and_a_stand_in_is_told_nothing() {
         assert_eq!(tidy_args(false), ["tidy", "run"]);
         assert!(tidy_args(true).is_empty());
+        assert_eq!(own_words(false, &["index"]), ["index"]);
+        assert!(own_words(true, &["index"]).is_empty());
     }
 
     /// A scratch home of this test, with `live/` in it.

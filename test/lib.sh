@@ -606,15 +606,15 @@ esac
 EOF
 }
 # The source of the workspace's crates without what a build here left beside
-# it.
+# it: every member, so install.sh reads the workspace as a checkout has it.
 t_console_source() {
-  mkdir -p "$1/console/analytics" "$1/console/attach" "$1/console/core" "$1/console/mcp" "$1/console/store"
+  local member
+  mkdir -p "$1/console"
   cp -R "$T_ROOT/console/Cargo.toml" "$T_ROOT/console/Cargo.lock" "$T_ROOT/console/src" "$1/console/"
-  cp -R "$T_ROOT/console/analytics/Cargo.toml" "$T_ROOT/console/analytics/src" "$1/console/analytics/"
-  cp -R "$T_ROOT/console/attach/Cargo.toml" "$T_ROOT/console/attach/src" "$1/console/attach/"
-  cp -R "$T_ROOT/console/core/Cargo.toml" "$T_ROOT/console/core/src" "$1/console/core/"
-  cp -R "$T_ROOT/console/mcp/Cargo.toml" "$T_ROOT/console/mcp/src" "$1/console/mcp/"
-  cp -R "$T_ROOT/console/store/Cargo.toml" "$T_ROOT/console/store/src" "$1/console/store/"
+  for member in analytics attach core cycle dispatch mcp merge store xtask; do
+    mkdir -p "$1/console/$member"
+    cp -R "$T_ROOT/console/$member/Cargo.toml" "$T_ROOT/console/$member/src" "$1/console/$member/"
+  done
   t_tree_commit "$1"
 }
 # A scratch tree is no git checkout, so it names its commit as a release does,
@@ -650,6 +650,27 @@ t_store() {
     return 1
   fi
   cp "$T_TARGET/debug/store" "$T_STORE"
+}
+# t_xtask: the development tasks of this checkout (console/xtask), in
+# $T_XTASK, built once per file offline into $T_TARGET. The scripts that exec
+# it (scripts/pack-release.sh) take it from TEHAS_XTASK, which every later run
+# of the file is given. Returns 1 with the reason in $t_xtask_why.
+T_XTASK=$T/xtask-bin
+t_xtask_why=""
+t_xtask() {
+  [ -x "$T_XTASK" ] && return 0
+  if ! command -v cargo >/dev/null 2>&1; then
+    t_xtask_why="cargo is not installed"
+    return 1
+  fi
+  if ! cargo build --locked --offline --quiet --manifest-path "$T_ROOT/console/Cargo.toml" \
+    --target-dir "$T_TARGET" -p tehas-xtask >"$T/xtask-build.log" 2>&1; then
+    t_xtask_why="the xtask did not build offline: $(tail -n 1 "$T/xtask-build.log")"
+    return 1
+  fi
+  cp "$T_TARGET/debug/xtask" "$T_XTASK" || return 1
+  export TEHAS_XTASK=$T_XTASK
+  T_ENV_ALWAYS+=(TEHAS_XTASK="$T_XTASK")
 }
 # t_attach: the attachment checker of this checkout, in $T_ATTACH, as t_store
 # gets the store: from T_ATTACH_BIN, or built here when the file runs alone.
@@ -771,6 +792,25 @@ t_console() {
     return 1
   fi
   cp "$T_TARGET/debug/console" "$T_CONSOLE"
+}
+# t_verb <path> tehas|tehasbot <command>: a program at <path> that runs the
+# command as bin/tehas and bin/tehasbot do, through `console run` with the
+# directory the program is called from as libexec. tehasbot cycle, tehas work
+# and tehas index have no script: the console execs tehas-cycle beside it.
+t_verb() {
+  t_console || return 1
+  printf '%s\n' "#!$T_BASH" "exec \"$T_CONSOLE\" run \"\$(cd \"\${0%/*}\" && pwd)\" \"\$EUID\" \"\$BASH\" $2 $3 \"\$@\"" >"$1"
+  chmod +x "$1"
+}
+# t_front <tree>: bin/tehas and bin/tehasbot of this checkout in <tree>/bin,
+# with the console in <tree>/libexec and lib/ beside them, as a host has them:
+# `$tree/bin/tehasbot dispatch` then runs with <tree>/libexec as its own.
+t_front() {
+  t_console || return 1
+  mkdir -p "$1/bin" "$1/libexec"
+  [ -e "$1/lib" ] || ln -s "$T_ROOT/lib" "$1/lib"
+  cp "$T_ROOT/bin/tehas" "$T_ROOT/bin/tehasbot" "$1/bin/"
+  cp "$T_CONSOLE" "$1/libexec/console"
 }
 # t_health: tehasbot health as a host runs it, bin/tehasbot above the console
 # that builds its report (console/src/health.rs), as the one command $T_HEALTH.

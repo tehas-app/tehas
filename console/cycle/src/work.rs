@@ -307,13 +307,13 @@
 //! state/cycles/<issue>.oom for tehasbot cycle. The starts of a process that the
 //! pids limit refused are counted the same way, into state/cycles/<issue>.forks.
 //!
-//! It holds the issue's lock, state/cycles/<issue>.lock, as fd 9 for as long as
-//! it runs, so a run by hand and the unit's cycle never share a workspace.
-//! libexec/work loads the settings, takes the lock and execs this; under
-//! tehasbot cycle the lock comes down from libexec/cycle already held. The lock
-//! stays in bash because every program this starts, the docker client among
-//! them, must inherit it, and safe Rust opens each file close-on-exec. So a
-//! cycle killed outright keeps its place until they are gone too.
+//! It holds the issue's lock, state/cycles/<issue>.lock, for as long as it
+//! runs, so a run by hand and the unit's cycle never share a workspace.
+//! `console run` loads the settings and execs `tehas-cycle work`, which takes
+//! the lock and hands it down (src/lock.rs); under tehasbot cycle the lock
+//! comes down from the cycle already held. Every program this starts, the
+//! docker client among them, inherits it, so a cycle killed outright keeps its
+//! place until they are gone too.
 //!
 //! A TERM, INT or HUP before the container starts ends the start after the
 //! command it is in, with 143 and no container. Once the container runs, the
@@ -368,7 +368,7 @@ use std::process::{Child, Command, Stdio};
 use std::time::Duration;
 use tehas_core::{self, sandbox, slice, time};
 
-/// What libexec/work gives this.
+/// What tehas work gives this.
 pub struct Given {
     pub issue: u64,
     pub restart: bool,
@@ -411,7 +411,7 @@ impl Drop for Leftovers {
 }
 
 /// The state store is installed: the program and its database.
-fn store_ready(home: &Path) -> bool {
+pub fn store_ready(home: &Path) -> bool {
     let bin = home.join("libexec/store");
     let db = home.join("state/tehas.db");
     !home.as_os_str().is_empty()
@@ -545,7 +545,8 @@ fn renewer(home: &Path) -> Option<Child> {
     let child = Command::new(home.join("libexec/tehas-cycle"))
         .arg("renew")
         .arg("--cmd")
-        .arg(home.join("libexec/github-token"))
+        .arg(home.join("bin/tehasbot"))
+        .args(["--arg", "github-token"])
         .args(["--every", &every, "--retry", "30"])
         .stdin(Stdio::null())
         .stdout(Stdio::null())

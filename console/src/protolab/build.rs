@@ -282,8 +282,22 @@ fn metas(site: &Path) -> Vec<Value> {
     names.sort();
     let mut found: Vec<Value> = names
         .iter()
-        .filter_map(|name| fs::read_to_string(site.join(name).join(".meta.json")).ok())
-        .filter_map(|text| serde_json::from_str(&text).ok())
+        .filter_map(|name| {
+            let text = fs::read_to_string(site.join(name).join(".meta.json")).ok()?;
+            let mut row: Value = serde_json::from_str(&text).ok()?;
+            // When the page was built: a ticket left alone keeps its page.
+            let built = fs::metadata(site.join(name).join("index.html"))
+                .and_then(|m| m.modified())
+                .ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok());
+            if let (Some(t), Some(o)) = (built, row.as_object_mut()) {
+                o.insert(
+                    "builtAt".into(),
+                    Value::from(tehas_core::time::iso(t.as_secs() as i64)),
+                );
+            }
+            Some(row)
+        })
         .collect();
     found.sort_by_key(|row| std::cmp::Reverse(number_of(row)));
     found

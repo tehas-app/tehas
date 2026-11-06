@@ -852,19 +852,30 @@ fn end_report(home: &Path, issue: i64, attempt: i64, r: &Report, now: i64) -> Re
             // names none, so the page keeps showing them. The status is mapped
             // as the ending above is: publish copies this row into the file the
             // page reads, so an ended cycle answers with one word in both.
-            "INSERT OR REPLACE INTO heartbeats (issue, at, running, step, status, text)
-             SELECT ?1, ?2, 0,
-               coalesce(?3, (SELECT step FROM heartbeats WHERE issue = ?1 AND at >= ?5
-                             ORDER BY at DESC LIMIT 1)),
-               ?4, (SELECT text FROM heartbeats WHERE issue = ?1 AND at >= ?5
-                    ORDER BY at DESC LIMIT 1)",
+            // Where the step was goes with it, from the last heartbeat of
+            // that step: of another step it is not known.
+            "INSERT OR REPLACE INTO heartbeats (issue, at, running, step, status, text,
+               step_number, step_total, round, round_limit, step_since)
+             SELECT ?1, ?2, 0, e.step, ?4, l.text,
+               s.step_number, s.step_total, s.round, s.round_limit, s.step_since
+             FROM (SELECT coalesce(?3, (SELECT step FROM heartbeats WHERE issue = ?1 AND at >= ?5
+                                        ORDER BY at DESC LIMIT 1)) AS step) e
+             LEFT JOIN (SELECT text FROM heartbeats WHERE issue = ?1 AND at >= ?5
+                        ORDER BY at DESC LIMIT 1) l ON 1
+             LEFT JOIN (SELECT * FROM heartbeats WHERE issue = ?1 AND at >= ?5
+                        ORDER BY at DESC LIMIT 1) s ON s.step = e.step",
             params![issue, now, r.step, ending_status(&r.status), row.started_at],
         )
         .q()?;
         c.execute(
+            // The heartbeat just written holds where the step it ended in was.
             "INSERT INTO cycle_history (issue, attempt, at, status, step, by_account, how, pr,
-               started_at, rc, cap, park_reason, failure_kind, failure_cause, provider, parked)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+               started_at, rc, cap, park_reason, failure_kind, failure_cause, provider, parked,
+               step_number, step_total, round)
+             SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16,
+               h.step_number, h.step_total, h.round
+             FROM (SELECT 1) LEFT JOIN heartbeats h ON h.issue = ?1 AND h.at = ?3
+               AND h.step IS ?5",
             params![
                 issue,
                 attempt,

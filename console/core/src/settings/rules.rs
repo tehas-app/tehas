@@ -116,8 +116,8 @@ pub enum When {
     Given,
     /// Every load that names it, even as an empty line.
     Named,
-    /// Only when a command requires it: tehas_require reads the load's
-    /// `_tehas_bad`, so a login shell is not refused for it.
+    /// Only when a command requires it: the require reads the load's
+    /// [`super::load::bad`], so a login shell is not refused for it.
     Required,
 }
 

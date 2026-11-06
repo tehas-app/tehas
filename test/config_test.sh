@@ -307,16 +307,16 @@ t_run "$load; echo rc=\$?"
 t_contains "$t_out" "no instance.env in $T/home/.config/tehas"
 export TEHAS_INSTANCE_DIR=$saved
 
-t_case "tehas_require names an unset setting and exits 78"
+t_case "tehas_require_instance_settings names an unset setting and exits 78"
 t_instance TEHAS_CONTROL_ISSUE=1
-t_run "$load && tehas_require TEHAS_CONTROL_ISSUE TEHAS_REPO; echo not-reached"
+t_run "$load && tehas_require_instance_settings; echo not-reached"
 t_eq "$t_rc" 78
 t_contains "$t_out" "tehas: TEHAS_REPO is not set (see $T/instance/instance.env)"
 t_lacks "$t_out" "not-reached"
 
-t_case "tehas_require rejects an empty setting"
+t_case "tehas_require_instance_settings rejects an empty setting"
 t_instance "${T_MINIMAL[@]}" TEHAS_ALLOWED_LABELERS=
-t_run "$load && tehas_require TEHAS_ALLOWED_LABELERS"
+t_run "$load && tehas_require_instance_settings"
 t_eq "$t_rc" 78
 t_contains "$t_out" "TEHAS_ALLOWED_LABELERS is not set"
 
@@ -350,10 +350,10 @@ done
 for bad in "TEHAS_REPO=widget" "TEHAS_REPO=a/b/c" "TEHAS_CONTROL_ISSUE=abc" "TEHAS_CONTROL_ISSUE=0" \
   "TEHAS_ALLOWED_LABELERS=alice;rm" "TEHAS_ALLOWED_LABELERS=alice  bob" "TEHAS_ALLOWED_LABELERS=alice " \
   "TEHAS_ALLOWED_LABELERS= alice" "PI_ENSEMBLE_SUBAGENT_MODEL=two words"; do
-  t_case "tehas_require rejects $bad"
+  t_case "tehas_require_instance_settings rejects $bad"
   # Written quoted so a space or semicolon reaches the variable intact.
   printf '%s\n' "${T_MINIMAL[@]}" "${bad%%=*}='${bad#*=}'" >"$TEHAS_INSTANCE_DIR/instance.env"
-  t_run "$load && tehas_require ${bad%%=*}"
+  t_run "$load && tehas_require_instance_settings"
   t_eq "$t_rc" 78
   t_contains "$t_out" "tehas: ${bad%%=*} is not valid"
 done
@@ -716,8 +716,8 @@ t_contains "$t_out" "TEHAS_ANALYTICS_COOKIE is not valid: expected 0 or 1"
 t_case "a command fails closed on a bad TEHAS_ANALYTICS before it calls GitHub"
 printf '%s\n' "${T_MINIMAL[@]}" TEHAS_ANALYTICS=maybe >"$TEHAS_INSTANCE_DIR/instance.env"
 t_stub gh
-for cmd in "cycle 7" dispatch; do
-  t_run "\"\$T_ROOT/libexec/\"$cmd"
+for cmd in "bin/tehasbot cycle 7" "bin/tehasbot dispatch"; do
+  t_run "TEHAS_CONSOLE=\"\$TEHAS_SETTINGS_CMD\" \"\$T_ROOT/\"$cmd"
   t_eq "$t_rc" 78
   t_contains "$t_out" "TEHAS_ANALYTICS is not valid"
   t_eq "$(t_calls gh)" ""
@@ -725,7 +725,7 @@ done
 
 t_case "several labellers separated by single spaces are accepted"
 printf '%s\n' "${T_MINIMAL[@]}" "TEHAS_ALLOWED_LABELERS='alice bob-2 carol'" >"$TEHAS_INSTANCE_DIR/instance.env"
-t_run "$load && tehas_require TEHAS_ALLOWED_LABELERS && echo \"[\$TEHAS_ALLOWED_LABELERS]\""
+t_run "$load && tehas_require_instance_settings && echo \"[\$TEHAS_ALLOWED_LABELERS]\""
 t_eq "$t_out" "[alice bob-2 carol]"
 
 # The budget of an earlier version. The limit around the containers is now the
@@ -1242,7 +1242,7 @@ rm -rf "$T/home/.config/tehas" "$T/home/tehas/lib"
 
 t_case "without a role model every role is left to the subagent model"
 t_instance "${T_MINIMAL[@]}"
-t_run "$load && env | grep -E '^PI_ENSEMBLE_(MODEL|PROVIDER)_' ; tehas_models"
+t_run "$load && env | grep -E '^PI_ENSEMBLE_(MODEL|PROVIDER)_' ; \"$T_CONSOLE\" models used"
 t_eq "$t_out" "test-provider test-model"
 
 t_case "a role model is passed on, with the subagent provider unless it names its own"
@@ -1255,11 +1255,11 @@ PI_ENSEMBLE_MODEL_DEVELOPER=big-model
 PI_ENSEMBLE_PROVIDER_CODE_REVIEW_SPECIALIST=test-provider
 PI_ENSEMBLE_PROVIDER_DEVELOPER=other-provider"
 
-t_case "tehas_models names each provider and model once, the subagent default first"
+t_case "console models used names each provider and model once, the subagent default first"
 t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_MODEL_EXPLORE=test-model \
   PI_ENSEMBLE_MODEL_DEVELOPER=big-model PI_ENSEMBLE_PROVIDER_DEVELOPER=other-provider \
   PI_ENSEMBLE_MODEL_OPS=big-model PI_ENSEMBLE_PROVIDER_OPS=other-provider
-t_run "$load && tehas_models"
+t_run "$load && \"$T_CONSOLE\" models used"
 t_eq "$t_out" "test-provider test-model
 other-provider big-model"
 
@@ -1702,42 +1702,31 @@ t_contains "$t_out" "rc=0 none $T/bash-env.sh"
 [ ! -e "$T/bash-env" ] || t_bad "the file BASH_ENV names ran"
 t_instance "${T_MINIMAL[@]}"
 
-t_case "what a load does not refuse tehas_require does, in the words it always had"
-t_instance "${T_MINIMAL[@]}" TEHAS_REPO=widget TEHAS_CONTAINER_MEMORY=1m "TEHAS_ALLOWED_LABELERS='a  b'" TEHAS_REVIEW_REPO=acme
-for pair in "TEHAS_REPO|expected owner/name" "TEHAS_CONTAINER_MEMORY|expected a size of at least 6m, such as 512m or 2g" \
-  "TEHAS_ALLOWED_LABELERS|expected GitHub logins separated by single spaces" "TEHAS_REVIEW_REPO|expected owner/name"; do
-  t_run "$load || exit 9; echo loaded; tehas_require ${pair%%|*}; echo not-reached"
+t_case "what a load does not refuse tehas_require_instance_settings does, in the words it always had"
+for pair in "TEHAS_REPO|widget|expected owner/name" "TEHAS_ALLOWED_LABELERS|'a  b'|expected GitHub logins separated by single spaces"; do
+  t_instance "${T_MINIMAL[@]}" "${pair%%|*}=$(cut -d'|' -f2 <<<"$pair")"
+  t_run "$load || exit 9; echo loaded; tehas_require_instance_settings; echo not-reached"
   t_eq "$t_rc" 78
   t_contains "$t_out" "loaded"
-  t_contains "$t_out" "tehas: ${pair%%|*} is not valid: ${pair#*|} (see $T/instance/instance.env)"
+  t_contains "$t_out" "tehas: ${pair%%|*} is not valid: ${pair##*|} (see $T/instance/instance.env)"
   t_lacks "$t_out" "not-reached"
 done
 
-t_case "a second source of lib/config.sh keeps what the load said, and a later load replaces it"
-t_run "$load; . \"\$T_ROOT/lib/config.sh\"; (tehas_require TEHAS_REPO); echo rc=\$?"
-t_contains "$t_out" "rc=78"
-t_instance "${T_MINIMAL[@]}"
-t_run ". \"\$T_ROOT/lib/config.sh\"; _tehas_bad[TEHAS_REPO]=stale; tehas_load; tehas_require TEHAS_REPO; echo fine"
-t_eq "$t_out" "fine"
-
-t_case "tehas_require with no load before it is 78: it has no rules of its own to ask"
-t_run ". \"\$T_ROOT/lib/config.sh\"; TEHAS_REPO=x; tehas_require TEHAS_REPO; echo not-reached"
+t_case "tehas_require_instance_settings asks the console: no load before it, and the instance's rules still hold"
+t_instance "${T_MINIMAL[@]}" TEHAS_REPO=widget
+t_run ". \"\$T_ROOT/lib/config.sh\"; TEHAS_HOME=\$T/home/tehas tehas_require_instance_settings; echo not-reached"
 t_eq "$t_rc" 78
-t_contains "$t_out" "tehas: no settings are loaded here, so none can be required"
+t_contains "$t_out" "tehas: TEHAS_REPO is not valid: expected owner/name"
 t_lacks "$t_out" "not-reached"
+t_instance "${T_MINIMAL[@]}"
+t_run ". \"\$T_ROOT/lib/config.sh\"; TEHAS_HOME=\$T/home/tehas tehas_require_instance_settings && echo fine"
+t_eq "$t_out" "fine"
 
 t_case "a shell's own PI_RUKAS_FOLLOW, as versions.env leaves it unexported, is checked by a load"
 t_instance "${T_MINIMAL[@]}"
 t_run "PI_RUKAS_FOLLOW=main; $load; echo rc=\$?"
 t_contains "$t_out" "PI_RUKAS_FOLLOW is not valid"
 t_contains "$t_out" "rc=78"
-
-t_case "the roles of tehas_models are the roles a load takes"
-t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_MODEL_NOPE=m
-t_run "$load"
-list=$(sed -n 's/^.*the roles are \(.*[A-Z]\)  (see.*$/\1/p' <<<"$t_out")
-t_eq "$list" "$(sed -n 's/^    for role in \(.*\); do$/\1/p' "$T_ROOT/lib/config.sh")"
-t_instance "${T_MINIMAL[@]}"
 
 t_case "the host's hook stays from the environment, and an instance line of it is not what a load uses"
 t_run "$load && echo \"\$TEHAS_SETTINGS_CMD\""

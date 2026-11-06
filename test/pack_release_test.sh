@@ -5,13 +5,19 @@
 # is refused, that every program given is an ELF for the architecture the
 # tarball's name promises, and what a bad argument costs. The console is a stub
 # file in every
-# case: the pack script builds nothing and needs no cargo. The tree it packs is
+# case: the pack builds no program of the release. It is the xtask of this
+# checkout, built once below and named in TEHAS_XTASK. The tree it packs is
 # this checkout unless a case names another, so the case that checks what a tree
 # missing one of those files costs builds a partial one in scratch.
 # shellcheck disable=SC2016  # snippets are expanded by the shell under test
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
 
+# The pack is the xtask of this checkout, built once for every run below.
+t_xtask || {
+  echo "FAIL: $t_xtask_why"
+  exit 1
+}
 pack=$T_ROOT/scripts/pack-release.sh
 manifest=$T_ROOT/lib/release.list
 dist=$T/dist
@@ -96,8 +102,7 @@ make_tree() {
   cp "$T_ROOT/lib/release.list" "$tree/lib/"
   cp "$T_ROOT/host/versions.env" "$tree/host/"
   cp "$T_ROOT/bin/tehas" "$tree/bin/"
-  cp "$T_ROOT/libexec/dispatch" "$tree/libexec/"
-  cp "$T_ROOT/libexec/work" "$tree/libexec/"
+  cp "$T_ROOT/libexec/setup" "$tree/libexec/"
   cp "$T_ROOT/lib/config.sh" "$tree/lib/"
   cp "$T_ROOT/host/sandbox/build.sh" "$tree/host/sandbox/"
   mkdir -p "$tree/instances"
@@ -137,8 +142,8 @@ for d in "${want_dirs[@]}"; do
   done
 done
 # Named by hand: the files an adopter's install and its host depend on.
-for want in tehas-v9.9.9/bin/tehas tehas-v9.9.9/bin/tehasbot tehas-v9.9.9/libexec/dispatch \
-  tehas-v9.9.9/libexec/work tehas-v9.9.9/libexec/console tehas-v9.9.9/lib/config.sh \
+for want in tehas-v9.9.9/bin/tehas tehas-v9.9.9/bin/tehasbot \
+  tehas-v9.9.9/libexec/setup tehas-v9.9.9/libexec/console tehas-v9.9.9/lib/config.sh \
   tehas-v9.9.9/VERSION tehas-v9.9.9/host/versions.env \
   tehas-v9.9.9/host/sandbox/build.sh tehas-v9.9.9/host/docs/tools.md \
   tehas-v9.9.9/host/release/minisign.pub; do

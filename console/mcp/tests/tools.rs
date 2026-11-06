@@ -407,6 +407,25 @@ fn status_names_the_release_of_a_release_host() {
 }
 
 #[test]
+fn status_names_the_pi_rukas_the_image_runs_and_the_industry() {
+    let out = call(&live(), "factory_status", &json!({})).unwrap();
+    assert_eq!(out["rukas"]["imageVersion"], "v0.14.54");
+    assert_eq!(out["rukas"]["behind"], false);
+    assert_eq!(out["industry"]["version"], "v0.9.0");
+    // A factory with neither has neither.
+    let dir = copy("no-rukas");
+    let file = dir.join("health.json");
+    let mut health: Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+    let checks = health["checks"].as_object_mut().unwrap();
+    checks.remove("rukas");
+    checks.remove("industry");
+    std::fs::write(&file, health.to_string()).unwrap();
+    let out = call(&dir, "factory_status", &json!({})).unwrap();
+    assert!(out.get("rukas").is_none());
+    assert!(out.get("industry").is_none());
+}
+
+#[test]
 fn issues_by_stage() {
     let all = call(&live(), "factory_issues", &json!({})).unwrap();
     assert_eq!(all["queued"][0]["title"], "Queued issue");
@@ -621,6 +640,16 @@ fn every_key_is_listed() {
                 "platform.behind",
                 "platform.upstream",
                 "platform.fetchedAt",
+                "rukas",
+                "rukas.follow",
+                "rukas.target",
+                "rukas.targetVersion",
+                "rukas.image",
+                "rukas.imageVersion",
+                "rukas.clone",
+                "rukas.behind",
+                "industry",
+                "industry.version",
                 "hold",
                 "hold.why",
                 "hold.text",

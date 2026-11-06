@@ -18,6 +18,10 @@ moved_tag() {
 }
 head_of() { git -C "$origin" rev-parse "${1:-main}^{commit}"; }
 
+# The script execs the xtask of this checkout, built once and named in
+# TEHAS_XTASK.
+t_xtask || t_bad "no xtask: $t_xtask_why"
+
 # The annotated tags the script makes need a name.
 printf '[user]\n\tname = t\n\temail = t@example.com\n' >"$T/home/.gitconfig"
 
@@ -38,8 +42,7 @@ fresh() {
   g -C "$T/up" push --quiet origin v0.1.0
   g clone --quiet "$origin" "$work"
   mkdir -p "$work/scripts"
-  cp "$T_ROOT/scripts/tag-release.sh" "$T_ROOT/scripts/tag-deploy.sh" "$T_ROOT/scripts/release-notes.sh" \
-    "$T_ROOT/scripts/collect-changelog.sh" "$work/scripts/"
+  cp "$T_ROOT/scripts/tag-release.sh" "$T_ROOT/scripts/tag-deploy.sh" "$work/scripts/"
 }
 tags() { git -C "$origin" tag --list | sort -V | tr '\n' ' '; }
 
@@ -215,11 +218,14 @@ t_eq "$(git -C "$work" tag --list 'v*' --sort=-v:refname | head -n 1)" v0.1.0
 # not found), the open pull requests from $T/open_prs, and opens #9.
 # The stub docker answers --capabilities with $T/caps.json.
 mark='# polyfill'
+# The commit followed is named by the console, which the head would build.
+# shellcheck disable=SC2154  # t_console_why is set by t_console (test/lib.sh)
+t_console || t_bad "no console: $t_console_why"
+T_ENV_ALWAYS+=("TEHAS_CONSOLE=$T_CONSOLE")
 polyfilled() {
   fresh
   mkdir -p "$T/up/lib" "$T/up/test" "$T/up/libexec" "$T/up/host"
   cp "$T_ROOT/scripts/polyfills.sh" "$T/up/scripts/"
-  cp "$T_ROOT/lib/rukas.sh" "$T/up/lib/"
   printf 'PI_RUKAS_REPO=https://github.com/up-owner/pi-rukas.git\nPI_RUKAS_FOLLOW=release\n' >"$T/up/host/versions.env"
   printf '# shellcheck shell=bash\n# Upstream issue: up-owner/pi-rukas#77\n# Upstream PR: up-owner/pi-rukas#78\n' \
     >"$T/up/lib/polyfill-someFeature.sh"
@@ -310,6 +316,20 @@ t_eq "$t_rc" 1
 t_contains "$t_out" "whether the polyfills of"
 t_contains "$t_out" "--rukas-caps <file>"
 t_eq "$(tags)" "v0.1.0 "
+
+t_case "without TEHAS_CONSOLE the head's own console is run with cargo"
+polyfilled
+t_stub cargo 'exit 101'
+saved_env=("${T_ENV_ALWAYS[@]}")
+T_ENV_ALWAYS=(TEHAS_XTASK="$T_XTASK")
+t_run "$work/scripts/tag-release.sh"
+T_ENV_ALWAYS=("${saved_env[@]}")
+t_eq "$t_rc" 1
+t_contains "$(t_calls cargo)" "run --quiet --locked --manifest-path"
+t_contains "$(t_calls cargo)" "/console/Cargo.toml -p console -- rukas target release https://github.com/up-owner/pi-rukas.git"
+t_contains "$t_out" "whether the polyfills of"
+t_eq "$(tags)" "v0.1.0 "
+rm -f "$T/bin/cargo"
 
 t_case "a polyfill pi-rukas no longer needs is removed in a pull request, and nothing is tagged"
 polyfilled
@@ -434,85 +454,6 @@ t_run "$work/scripts/tag-release.sh --no-pins"
 t_eq "$t_rc" 0
 t_eq "$(tail -n 1 <<<"$t_out")" v0.1.1
 t_eq "$(t_calls pins)" ""
-
-# A head whose Unreleased section has no Adopter action of its own, and two
-# changelog fragments that bring one. The stub gh lists the open pull requests
-# from $T/open_prs and opens #14.
-fragmented() {
-  fresh
-  printf '# Changelog\n\n## Unreleased\n\n### Changes\n\n- in the file\n\n## v0.1.0 (2026-01-01)\n\n### Adopter action\n\nNone.\n' >"$T/up/CHANGELOG.md"
-  mkdir -p "$T/up/changelog.d"
-  printf '### Changes\n\n- from twelve\n\n### Adopter action\n\nSet TEHAS_TWELVE.\n' >"$T/up/changelog.d/12.md"
-  printf '### Changes\n\n- from three\n' >"$T/up/changelog.d/3.md"
-  g -C "$T/up" add -A
-  commit "carry fragments"
-  rm -f "$T/open_prs" "$T/calls/gh" "$T/calls/verify"
-  t_stub gh 'case "$1 $2" in
-  "pr list") cat "$T/open_prs" 2>/dev/null || true ;;
-  "pr create") echo https://github.com/acme/widget/pull/14 ;;
-esac'
-}
-
-t_case "--dry-run counts the fragments' Adopter action and shows the collected section"
-fragmented
-t_run "$work/scripts/tag-release.sh --dry-run"
-t_eq "$t_rc" 0
-t_eq "$(tail -n 1 <<<"$t_out")" v0.1.1
-t_contains "$t_out" "would collect 2 changelog fragments into the Unreleased section of CHANGELOG.md:"
-t_contains "$t_out" "$(printf '%s\n' '    ### Changes' '    ' '    - in the file' '    - from three' '    - from twelve' '    ' '    ### Adopter action' '    ' '    Set TEHAS_TWELVE.')"
-t_eq "$(git -C "$origin" show HEAD:changelog.d/3.md | head -n 1)" "### Changes"
-
-t_case "fragments without an Adopter action, and none in the file, make no tag"
-fragmented
-g -C "$T/up" rm --quiet changelog.d/12.md
-commit "one fragment"
-t_run "$work/scripts/tag-release.sh --no-verify"
-t_eq "$t_rc" 1
-t_contains "$t_out" 'needs an "### Adopter action"'
-t_eq "$(tags)" "v0.1.0 "
-
-t_case "fragments are collected in a pull request, and nothing is tagged"
-fragmented
-t_run "$work/scripts/tag-release.sh"
-t_eq "$t_rc" 2
-t_contains "$t_out" "pull/14 collects them; merge it, then tag. Nothing was tagged"
-t_eq "$(tags)" "v0.1.0 "
-t_eq "$(t_calls verify)" ran
-t_contains "$(t_calls gh)" "pr create --base main --head changelog-v0.1.1 --title Collect the changelog fragments into CHANGELOG.md"
-t_contains "$(t_calls gh)" "$(printf '%s\n' '- changelog.d/3.md' '- changelog.d/12.md')"
-t_eq "$(git -C "$origin" show changelog-v0.1.1:CHANGELOG.md)" "$(printf '%s\n' '# Changelog' '' '## Unreleased' '' '### Changes' '' '- in the file' '- from three' '- from twelve' '' '### Adopter action' '' 'Set TEHAS_TWELVE.' '' '## v0.1.0 (2026-01-01)' '' '### Adopter action' '' 'None.')"
-t_eq "$(git -C "$origin" ls-tree --name-only changelog-v0.1.1 changelog.d)" ""
-t_eq "$(git -C "$origin" rev-parse changelog-v0.1.1^)" "$(head_of)"
-t_eq "$(git -C "$work" worktree list | wc -l)" 1
-
-t_case "an open pull request that collects the fragments holds the tag"
-echo https://github.com/acme/widget/pull/14 >"$T/open_prs"
-rm -f "$T/calls/gh"
-t_run "$work/scripts/tag-release.sh"
-t_eq "$t_rc" 2
-t_contains "$t_out" "pull/14 collects the changelog fragments; merge it, then tag"
-t_lacks "$(t_calls gh)" "pr create"
-t_eq "$(tags)" "v0.1.0 "
-
-t_case "the head with the fragments collected is tagged"
-g -C "$T/up" fetch --quiet origin changelog-v0.1.1
-g -C "$T/up" merge --quiet --ff-only FETCH_HEAD
-g -C "$T/up" push --quiet origin main
-rm -f "$T/open_prs"
-t_run "$work/scripts/tag-release.sh"
-t_eq "$t_rc" 0
-t_eq "$(tail -n 1 <<<"$t_out")" v0.1.1
-t_eq "$(tags)" "v0.1.0 v0.1.1 "
-
-t_case "a gate that fails with the fragments collected pushes nothing"
-fragmented
-echo 1 >"$T/verify_rc"
-t_run "$work/scripts/tag-release.sh"
-rm -f "$T/verify_rc"
-t_eq "$t_rc" 1
-t_contains "$t_out" "the gate failed with the changelog fragments collected"
-t_eq "$(git -C "$origin" branch --list 'changelog-*')" ""
-t_lacks "$(t_calls gh)" "pr create"
 
 # The host: the update's status from $T/ssh_rc, its checkout's commit from
 # $T/host_head.

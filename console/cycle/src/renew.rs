@@ -1,5 +1,6 @@
 //! The GitHub token renewer of a cycle (#1079): `tehas-cycle renew --cmd
-//! <path> --every <s> --retry <s>` runs `<path>` for the life of a cycle, so
+//! <path> [--arg <word>]... --every <s> --retry <s>` runs `<path>` with its
+//! words for the life of a cycle, so
 //! the token a container reads under `state/github` does not run out at the
 //! top of its hour.
 //!
@@ -56,8 +57,9 @@ const STEP: Duration = Duration::from_millis(50);
 /// Runs `cmd` once, with its standard input closed and its output discarded;
 /// its error stream is the caller's own, so the reason a token command gives
 /// reaches the cycle's work log. True when it ended without a status.
-fn ask(cmd: &Path) -> bool {
+fn ask(cmd: &Path, args: &[String]) -> bool {
     match Command::new(cmd)
+        .args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .spawn()
@@ -71,12 +73,12 @@ fn ask(cmd: &Path) -> bool {
 /// the whole of `every` seconds after a success and `retry` after a failure,
 /// with one line on standard error for each failure. It returns as soon as
 /// `stop` is set, which is what makes the verb end 0 on TERM.
-pub fn renew(cmd: &Path, every: u64, retry: u64, stop: &AtomicBool, now: Now) {
+pub fn renew(cmd: &Path, args: &[String], every: u64, retry: u64, stop: &AtomicBool, now: Now) {
     loop {
         if stop.load(Ordering::Relaxed) {
             return;
         }
-        let ok = ask(cmd);
+        let ok = ask(cmd, args);
         let wait = next_wait(ok, every, retry);
         if !ok {
             eprint!("{}", failure_line(wait));
@@ -280,7 +282,7 @@ mod tests {
         let handle = thread::Builder::new()
             .name(thread_name.clone())
             .spawn(move || {
-                renew(&path, every, retry, &s, read_own_clock);
+                renew(&path, &[], every, retry, &s, read_own_clock);
                 take_back(&thread_name);
             })
             .unwrap();
@@ -478,10 +480,24 @@ mod tests {
     }
 
     #[test]
+    fn an_ask_runs_the_command_with_its_words() {
+        let dir = TestDir::new("renew-words");
+        let path = dir.join("tehasbot");
+        let said = dir.join("said");
+        tehas_core::testing::write_exe(
+            &path,
+            format!("#!/bin/sh\nprintf '%s\\n' \"$*\" >'{}'\n", said.display()),
+        )
+        .unwrap();
+        assert!(ask(&path, &["github-token".to_string()]));
+        assert_eq!(fs::read_to_string(&said).unwrap(), "github-token\n");
+    }
+
+    #[test]
     fn it_ends_at_once_when_a_signal_stopped_it() {
         let cmd = command(0);
         let stop = AtomicBool::new(true);
-        renew(&cmd.path, 300, 30, &stop, || 1000);
+        renew(&cmd.path, &[], 300, 30, &stop, || 1000);
         assert_eq!(cmd.asks(), 0);
     }
 

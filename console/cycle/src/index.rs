@@ -1,5 +1,5 @@
 //! `tehas-cycle index`: build the code index that a cycle's agents search, or
-//! refresh it. libexec/index holds the lock and starts this.
+//! refresh it. tehas-cycle index takes the lock and hands it down (src/lock.rs).
 //!
 //! pi-rukas tells its agents to find code with the codebase_memory tools. Those
 //! answer from an index that nothing builds on its own: interactive pi-rukas
@@ -720,8 +720,8 @@ pub fn here(before_cycle: bool) -> u8 {
     }
 }
 
-/// One run, under the lock libexec/index holds on a descriptor this program and
-/// the indexer's docker client inherit: a client that outlives this still
+/// One run, under the lock src/main.rs takes on a descriptor the indexer's
+/// docker client inherits: a client that outlives this still
 /// writes the index. `base` is the tip of <branch> the product checkout last
 /// fetched.
 pub fn main(branch: &str, base: &str, before_cycle: bool) -> u8 {

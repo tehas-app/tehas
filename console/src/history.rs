@@ -223,6 +223,9 @@ fn line_of(row: &J, repo: &str) -> Option<Option<J>> {
                     ("rc", f("rc")),
                     ("status", f("status")),
                     ("step", f("step")),
+                    ("step_number", f("step_number")),
+                    ("step_total", f("step_total")),
+                    ("round", f("round")),
                     ("cap", f("cap")),
                     ("park_reason", f("park_reason")),
                     ("failure_kind", f("failure_kind")),
@@ -355,6 +358,9 @@ fn publish(line: &J, seconds: i64) -> J {
             ("outcome", f("status")),
             ("turn", number("turn")),
             ("step", word("step")),
+            ("stepNumber", number("step_number")),
+            ("stepTotal", number("step_total")),
+            ("round", number("round")),
             ("cap", word("cap")),
             ("parkReason", word("park_reason")),
             ("failureKind", word("failure_kind")),
@@ -588,6 +594,27 @@ mod tests {
             CYCLES.join(",")
         );
         assert_eq!(listing.object().dump(), want);
+    }
+
+    #[test]
+    fn a_cycle_line_says_where_the_step_it_ended_in_was() {
+        let answer = J::parse(
+            r#"{"rows":[{"kind":"cycle","id":1,"issue":12,"attempt":1,"at":1760700000,"status":"failed","step":"lens-review","rc":10,"provider":false,"parked":true,"seq":1,"step_number":7,"step_total":9,"round":3},
+            {"kind":"cycle","id":2,"issue":13,"attempt":1,"at":1760700060,"status":"failed","step":"ci","rc":10,"provider":false,"parked":true,"seq":2,"round":"3"}]}"#,
+        )
+        .unwrap();
+        let got: Vec<String> = listed(lines(&answer, "acme/widget"), None)
+            .cycles
+            .iter()
+            .map(J::dump)
+            .collect();
+        assert_eq!(
+            got,
+            [
+                r#"{"cursor":"1760700000-12-1","kind":"work","issue":12,"ended":"2025-10-17T11:20:00Z","status":10,"outcome":"failed","step":"lens-review","stepNumber":7,"stepTotal":9,"round":3,"provider":false,"parked":true}"#,
+                r#"{"cursor":"1760700060-13-2","kind":"work","issue":13,"ended":"2025-10-17T11:21:00Z","status":10,"outcome":"failed","step":"ci","provider":false,"parked":true}"#,
+            ]
+        );
     }
 
     #[test]

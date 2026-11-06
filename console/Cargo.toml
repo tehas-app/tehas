@@ -1,13 +1,14 @@
-# The console of a running cycle: libexec/work starts it, install.sh builds
+# The console of a running cycle: tehas work starts it, install.sh builds
 # it and installs the binary as ~/tehas/libexec/console. It is also the root
 # of the workspace, so the gate's cargo commands on this manifest cover the
 # analytics program in analytics/, the store in store/, the MCP server in
 # mcp/, the attachment checker in attach/, the library they share in core/,
-# the dispatcher's decisions in dispatch/, a cycle's report in cycle/ and the
-# easy merge of a pull request in merge/ as well.
+# the dispatcher's decisions in dispatch/, a cycle's report in cycle/, the
+# easy merge of a pull request in merge/ and the development tasks behind
+# scripts/ in xtask/ as well.
 [workspace]
-members = ["analytics", "attach", "core", "cycle", "dispatch", "mcp", "merge", "store"]
-default-members = [".", "analytics", "attach", "core", "cycle", "dispatch", "mcp", "merge", "store"]
+members = ["analytics", "attach", "core", "cycle", "dispatch", "mcp", "merge", "store", "xtask"]
+default-members = [".", "analytics", "attach", "core", "cycle", "dispatch", "mcp", "merge", "store", "xtask"]
 
 [package]
 name = "console"
@@ -20,6 +21,7 @@ publish = false
 
 [dependencies]
 libc = "0.2"
+rustix = { version = "1", default-features = false, features = ["std"] }
 serde_json = "1"
 sha2 = "0.10"
 signal-hook = "0.3"

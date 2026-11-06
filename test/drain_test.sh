@@ -23,7 +23,7 @@ t_stub gh
 # holds only a poll that has yet to read it, so a cycle started after the write is
 # one drain can miss, and only the take of the lock counts it. The cycle takes the
 # issue's lock in its own descriptor and outlives the poll, as a cycle does
-# (libexec/cycle does the same with its 9), so drain finds it once the poll is
+# (tehas-cycle cycle does the same), so drain finds it once the poll is
 # gone. A poll ends only after its cycle said it started, which comes after the
 # cycle's lock, so here the issue's lock is taken before the poll's is let go. The
 # poll takes the dispatcher's lock the same way, in a 9 of its own: a
