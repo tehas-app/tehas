@@ -166,6 +166,9 @@ pub struct Snapshot {
     /// The repository's owner is a personal account, which has no issue
     /// fields: the labels order its queue whatever TEHAS_PRIORITY_FIELD says.
     pub personal_owner: bool,
+    /// With TEHAS_ISSUE_TYPES mapping improvement: the issue types of the
+    /// repository's owner, None when the page did not say.
+    pub issue_types: Option<Vec<String>>,
     /// The issues with a planning session open, or the store's word and exit
     /// status when it could not say.
     pub plan_open: Result<Vec<u64>, (String, i32)>,
@@ -466,6 +469,11 @@ impl Snapshot {
                     .collect()
             }),
             personal_owner: v.get("personal_owner").and_then(Value::as_bool) == Some(true),
+            issue_types: v.get("issue_types").and_then(Value::as_array).map(|a| {
+                a.iter()
+                    .filter_map(|t| t.as_str().map(str::to_string))
+                    .collect()
+            }),
             plan_open: match v.get("plan_open") {
                 Some(Value::Array(a)) => Ok(a
                     .iter()
