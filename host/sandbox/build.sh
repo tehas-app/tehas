@@ -401,15 +401,16 @@ if [ -f "$instance_file" ]; then
   fi
   # The layer has to stand on the image this build made. Docker answers FROM from
   # its own cache, so a stale same-named tag can satisfy it and the image built
-  # then stands on another image's layers. The layers of an image come back one
-  # per line, and the chain of a layer built on that image is its parent's lines
-  # with more after them, so the two answers are compared a line at a time: read
-  # whole, a list of ids could be cut inside one. A docker that answers neither
+  # then stands on another image's layers. The layers are asked for one id per
+  # line, since {{.RootFS.Layers}} prints them all on one bracketed line, and the
+  # chain of a layer built on that image is its parent's lines with more after
+  # them, so the two answers are compared a line at a time. A docker that answers neither
   # is the case of an image that is not there at all. The image is not named until
   # it passes, so a layer that fails leaves the tag where it was and the host runs
   # the toolchain it had rather than a half-built one.
-  parent=$(docker image inspect --format '{{.RootFS.Layers}}' "$image:$stamp" 2>/dev/null) || parent=""
-  product=$(docker image inspect --format '{{.RootFS.Layers}}' \
+  parent=$(docker image inspect --format '{{range .RootFS.Layers}}{{println .}}{{end}}' \
+    "$image:$stamp" 2>/dev/null) || parent=""
+  product=$(docker image inspect --format '{{range .RootFS.Layers}}{{println .}}{{end}}' \
     "$image:$stamp-product" 2>/dev/null) || product=""
   if [ -z "$parent" ] || [ -z "$product" ]; then
     echo "sandbox: docker gave no layers for $image:$stamp or $image:$stamp-product, so the instance layer cannot be checked against this build" >&2
