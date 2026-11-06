@@ -749,7 +749,156 @@ fn body(
         }
     }
     lines_to(d.log.len(), &mut next);
+    if d.exit == 0 && d.tidy && !d.paused && !dry {
+        finish_step(home, settings, &mut src, w, &snap, &d);
+    }
     d.exit
+}
+
+/// How long one `tehas-cycle finish` may take: a fetch, a rebase, a push and
+/// a pull request.
+const FINISH_BOUND: u64 = 600;
+
+/// The poll's hands for the finish step: its writes and the host's
+/// `tehas-cycle finish`, or the command `TEHAS_FINISH_CMD` names for a test.
+struct FinishHands<'a> {
+    w: &'a mut Writer,
+    cmd: String,
+    home: String,
+    repo: String,
+    branch: String,
+}
+
+impl crate::finish::Hands for FinishHands<'_> {
+    fn unlabel(&mut self, n: u64) -> bool {
+        let label = crate::finish::LABEL;
+        let done = format!("finish #{n}: {label} off");
+        let done = self.w.apply(&[json!({
+            "issue": n, "remove": [label], "reread": label, "log": done,
+            "fail": format!("WARN: label change on #{n} failed: --remove-label {label}"),
+        })]);
+        let off = done
+            .log
+            .iter()
+            .any(|l| l.starts_with(&format!("finish #{n}: ")));
+        for l in done
+            .log
+            .iter()
+            .filter(|l| !l.starts_with(&format!("finish #{n}: ")))
+        {
+            say(l);
+        }
+        off && done.exit.is_none()
+    }
+
+    fn finish(&mut self, n: u64, reason: &str) -> Result<String, String> {
+        let args: Vec<String> = [
+            "finish",
+            &n.to_string(),
+            "--home",
+            &self.home,
+            "--repo",
+            &self.repo,
+            "--default",
+            &self.branch,
+            "--reason",
+            reason,
+        ]
+        .iter()
+        .map(|a| a.to_string())
+        .collect();
+        let token = tehas_core::call::gh_env(self.w.calls.gh_token.as_deref());
+        let ran = tehas_core::call::run_input_env(
+            &self.cmd,
+            &args,
+            None,
+            Duration::from_secs(FINISH_BOUND),
+            &token,
+        );
+        self.w.changed = true;
+        crate::finish::outcome(n, &ran, FINISH_BOUND)
+    }
+
+    fn say(&mut self, n: u64, body: &str) {
+        let done = self.w.apply(&[json!({"issue": n, "say": body})]);
+        for l in &done.log {
+            say(l);
+        }
+    }
+
+    fn log(&mut self, line: String) {
+        say(&line);
+    }
+}
+
+/// The finish step (src/finish.rs): the issues that carry `tehas:finish`,
+/// what the rules read of each, and the step over them. No slot, no agent and
+/// no cycle: a poll that holds, pauses or failed runs none.
+fn finish_step(
+    home: &Path,
+    settings: &Settings,
+    src: &mut Sources,
+    w: &mut Writer,
+    snap: &Value,
+    d: &crate::Decision,
+) {
+    use crate::finish::{asked, step, Ask, PER_POLL};
+    use tehas_core::events::Events;
+    let numbers = asked(snap, settings.control);
+    if numbers.is_empty() {
+        return;
+    }
+    let running: Vec<u64> = snap["running"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|r| r["issue"].as_u64())
+        .collect();
+    let mut asks = Vec::new();
+    for n in numbers.into_iter().take(PER_POLL) {
+        let issue = &snap["issues"][n.to_string()];
+        let labels = issue["work"]["labels"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        let marked = labels
+            .iter()
+            .any(|l| l["name"] == crate::read::github::RUNNING);
+        let comments = crate::read::github::comments(&mut src.calls, &settings.repo, n);
+        let nn = n.to_string();
+        let approval = match src.calls.store(&["approval-current", &nn]) {
+            Ok(v) => match crate::read::store::approval_shape(&v) {
+                Some(Value::Null) => Ok(None),
+                Some(a) => Ok(Some(a)),
+                None => Err(()),
+            },
+            Err(_) => Err(()),
+        };
+        asks.push(Ask {
+            n,
+            events: Events::parse(&issue["events"]),
+            comments,
+            edit: issue["edit"].clone(),
+            approval,
+            running: marked || running.contains(&n) || d.picked.contains(&n),
+        });
+    }
+    let mut hands = FinishHands {
+        cmd: std::env::var("TEHAS_FINISH_CMD")
+            .ok()
+            .filter(|c| !c.is_empty())
+            .unwrap_or_else(|| {
+                here(home)
+                    .join("tehas-cycle")
+                    .to_string_lossy()
+                    .into_owned()
+            }),
+        home: home.to_string_lossy().into_owned(),
+        repo: settings.repo.clone(),
+        branch: settings.branch.clone(),
+        w,
+    };
+    step(settings, &asks, &mut hands);
 }
 
 /// live/demand.json and health, as the poll's start writes them. A dry run

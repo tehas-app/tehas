@@ -350,6 +350,7 @@ With `TEHAS_SIZE_MAX_FILES` set on the instance, an issue whose own body names m
 | `tehas:lean`            | The lean driver is chosen for it. See [Choosing the driver](#choosing-the-driver) | Take it off to run the issue on classic |
 | `tehas:blocked`         | Started once every blocker it names is closed | Close the blockers; swap it for `tehas:ready` to start it now |
 | `tehas:refreshing`      | On a pull request: a [refresh](#refreshes) works on it | Do not merge or push to it now; it comes off when the cycle ends |
+| `tehas:finish`          | Asks the factory to open the draft pull request of a stopped cycle. See [Finishing a stopped cycle](#finishing-a-stopped-cycle) | Wait: the next poll takes it off and comments with the URL or why not |
 
 With `TEHAS_OWNER` set on the instance, the call that marks an issue
 `tehas:running` for a cycle also assigns it to that account, so GitHub shows
@@ -898,6 +899,59 @@ someone other than an allowed labeller changes the title or the body
 afterwards, the issue is skipped and the dispatcher's log says who changed it.
 Read the new text. Then approve it again: for the label, remove `tehas:ready`
 and apply it again; for a retry tick, untick the box and tick it again.
+
+### Finishing a stopped cycle
+
+A cycle can finish its change and still stop on something outside it: a flaky
+test in a file the change does not touch, a review lane out of disk, the
+gate's time bound. Its workspace is kept, and the factory can open what it
+holds as a draft pull request with [`tehas-cycle
+finish`](/tools#the-pull-request-of-a-stopped-cycle). To ask for that from the
+issue, with no access to the host:
+
+1. Write a comment whose first line is
+   `<!-- tehas:millwright issue=<n> action=finish -->`, with `<n>` the issue's
+   number, and why the failure is outside the change after it. The reason goes
+   into the draft's body as written.
+2. Within ten minutes, apply `tehas:finish` from the same account.
+
+Who may ask:
+
+- An account in `TEHAS_ALLOWED_LABELERS`.
+- The millwright, within [its grant](#the-millwrights-grant): a person
+  approved a cycle of the issue, the body is still the body that person
+  approved, nobody outside the list changed the title or text since, and the
+  millwright has started no more than `TEHAS_MILLWRIGHT_MAX_RETRIES` cycles on
+  it since that approval. A finish starts no cycle, so the last cycle the cap
+  allowed may still be finished.
+- Anyone else is ignored: the label stays, nothing runs, and the log says
+  `ignore #<n>: tehas:finish was applied by '<who>', not an allowed account`.
+
+The poll's finish step takes no slot and starts no agent and no cycle. It runs
+after the poll's own decisions, at most three asks a poll, and not on a poll
+that is paused, dry or that failed. For each ask it checks the rules above, the
+comment (the asker's newest marked one, written in the ten minutes before the
+label and edited by nobody after it), and that no cycle of the issue is
+running. Then it takes `tehas:finish` off and runs `tehas-cycle finish <n>
+--home <home> --repo <repo> --default <TEHAS_BRANCH> --reason <the reason>`.
+Taking the label off first means one ask runs one finish.
+
+What comes back on the issue is one comment of the bot's:
+
+- `<!-- tehas:finish issue=<n> result=opened -->` and the draft's URL when
+  the finish opened it.
+- `<!-- tehas:finish issue=<n> result=refused -->` and the one line of why
+  when it did not: no kept workspace or branch, no commit of its own, an open
+  pull request of the issue, a rebase that conflicts, a cycle still running,
+  no marked comment, or a rule of the grant not met. The label comes off here
+  too. To ask again, write a new marked comment and apply the label again.
+
+An ask whose label events, comments or approval record cannot be read waits
+with the label on for the next poll. Each ask taken leaves one line in
+`~/tehas/logs/dispatch.log`, `finish #<n>: opened <url>, asked by <who>
+(<label|millwright>): <reason>` or `finish #<n>: refused, asked by <who>:
+<why>`, which the MCP server's `factory_decisions` answers as the decision
+`finish`.
 
 ## Planning on an issue
 
@@ -1983,6 +2037,9 @@ the new names.
   poll, or reply to the next question. The session on the state store
   (`plan-show`) keeps who started it and who answered each turn, and
   whether the millwright did.
+- **It may ask for a finish** of a stopped cycle with a marked comment and
+  `tehas:finish`, within the same grant, as
+  [finishing a stopped cycle](#finishing-a-stopped-cycle) says.
 - **`tehas:millwright-escalated`** is the millwright's word that a person decides.
   The factory does nothing on it; a start takes it off.
 - **It may order the queue** with `tehas:next` and `tehas:blocked`, and

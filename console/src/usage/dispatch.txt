@@ -231,6 +231,18 @@ Rules, in order:
      is said by each issue's line, not again as a beginning. Urgent issues,
      tehas:next issues, refreshes and a poll with no issue of the lowest kind
      ask nothing. Unset, nothing here changes.
+  8. After the rules, a poll that is not paused, dry or failed runs the finish
+     step (no slot, no agent, no cycle) for at most three open issues that
+     carry tehas:finish. The asker is who applied it last: an allowed account,
+     or the millwright within its tehas:ready grant (its starts may be at the
+     cap, not past it). Anyone else is ignored and the label stays. The ask is
+     the asker's newest comment that starts with
+     <!-- tehas:millwright issue=<n> action=finish -->, written in the ten
+     minutes before the label and edited by nobody after; the rest of it is the
+     reason. With no cycle of the issue running, the label comes off and
+     tehas-cycle finish <n> runs with that reason; the issue is told the draft's
+     URL or the one line of why not, and the log says finish #<n>: .... A rule
+     not met takes the label off and says why; a read that failed waits.
 
 Instance settings (lib/config.sh; defaults in brackets):
   TEHAS_REPO                owner/name of the product repository, required
@@ -271,7 +283,8 @@ Instance settings (lib/config.sh; defaults in brackets):
                             Urgent and High order the queue in place of
                             tehas:urgent and tehas:next, the labels when unset
 From the environment, for tests: TEHAS_STATUS_CMD, TEHAS_INDEX_CMD,
-TEHAS_TIDY_CMD (in place of console tidy run), TEHAS_PLAN_CMD, TEHAS_PLAN_START_CMD
+TEHAS_TIDY_CMD (in place of console tidy run), TEHAS_FINISH_CMD (in place of
+tehas-cycle), TEHAS_PLAN_CMD, TEHAS_PLAN_START_CMD
 and TEHAS_INDEX_START_CMD (in place of systemd-run: the first called with the
 issue and the turn's command line, the second with the index run's),
 TEHAS_CYCLE_START_CMD and TEHAS_CYCLE_STOP_CMD (in place of systemctl, with the
