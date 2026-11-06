@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "verify": {
+    "fast": "scripts/verify.sh --changed",
+    "full": "scripts/verify.sh",
+    "test": "scripts/test.sh {file}",
+    "testDir": "test",
+    "testGlob": "*_test.sh"
+  }
+}
