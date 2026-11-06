@@ -1,0 +1,91 @@
+# The files an older tehas installed that this one does not, as paths under
+# $TEHAS_HOME. install.sh finds each one there and removes it once systemd has
+# the new units (console update retired, src/update/report.rs). One path a
+# line, in the order --check names them; a line from # is a comment.
+#
+# The commands of before bin/tehas, one file each in bin/, and the console of
+# before it was a compiled program. The libraries the bash poll sourced. The
+# Protolab's server files of before the edge router. The wrappers of what is
+# now a verb of the console, the libraries of what is now a verb of
+# tehas-cycle, and the jq program of the bash report. The libraries whose last
+# callers moved into the console, the scripts that only exec'd it, the release
+# list of before it was a plain file (lib/release.list), and the scripts that
+# took a lock for tehas-cycle, which takes it itself.
+bin/tehas-console.ts
+bin/tehas-dispatch
+bin/tehas-energy
+bin/tehas-health
+bin/tehas-index
+bin/tehas-protolab
+bin/tehas-status
+bin/tehas-test
+bin/tehas-work
+lib/analytics.sh
+lib/describe.sh
+lib/edge.sh
+lib/history-listing.jq
+lib/history-repeats.jq
+lib/models.sh
+lib/park-fields.jq
+lib/private.sh
+libexec/analytics-cmd
+libexec/api
+libexec/check-product
+libexec/clean
+libexec/dev
+libexec/dispatch
+libexec/github-token
+libexec/improve
+libexec/plan
+libexec/review
+libexec/console.ts
+libexec/cycle
+lib/limit.sh
+lib/live.sh
+lib/headless.sh
+lib/improve.sh
+lib/planning.sh
+lib/refresh.sh
+lib/status.sh
+lib/sizing.sh
+libexec/disk
+libexec/drain
+libexec/energy
+libexec/export
+libexec/health
+libexec/history
+libexec/index
+libexec/init-product
+libexec/labels
+libexec/limit
+libexec/mcp
+libexec/pause
+libexec/preview
+libexec/protolab
+libexec/refresh
+libexec/resume
+libexec/state
+libexec/status
+libexec/stop
+libexec/summary
+libexec/tidy
+libexec/top
+libexec/top-publish
+libexec/with-settings
+libexec/work
+lib/disk.sh
+lib/top.sh
+lib/update-release.sh
+lib/release.sh
+lib/attachments.sh
+lib/history-lines.jq
+lib/cycles.sh
+lib/labels.sh
+lib/millwright.sh
+lib/sandbox.sh
+lib/slice.sh
+lib/questions.sh
+lib/store.sh
+lib/rukas.sh
+edge/protolab.Caddyfile
+edge/protolab.compose.yaml
