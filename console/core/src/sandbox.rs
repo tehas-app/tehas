@@ -126,11 +126,12 @@ pub fn env_options(
     if kind.token() {
         vars.push("GH_TOKEN".to_string());
     }
+    let read_only = crate::read_only::on();
     vars.extend([
         "PI_ENSEMBLE_SANDBOX_MODE=1".to_string(),
         format!("PI_ENSEMBLE_WORKSPACE_ROOT={}", who.tree),
         format!("CBM_CACHE_DIR={CACHE_DIR}"),
-        "GIT_CONFIG_COUNT=4".to_string(),
+        format!("GIT_CONFIG_COUNT={}", if read_only { 6 } else { 4 }),
         format!("GIT_CONFIG_KEY_0={HELPER_KEY}"),
         "GIT_CONFIG_VALUE_0=".to_string(),
         format!("GIT_CONFIG_KEY_1={HELPER_KEY}"),
@@ -141,12 +142,35 @@ pub fn env_options(
         format!("GIT_CONFIG_VALUE_3={}", who.email),
         "GIT_TERMINAL_PROMPT=0".to_string(),
     ]);
+    if read_only {
+        vars.extend(read_only_variables(who.tree));
+    }
     vars.extend_from_slice(ensemble);
     vars.extend_from_slice(tokens);
     if kind == Kind::Session {
         vars.push(format!("CARGO_TARGET_DIR={TARGET_DIR}"));
     }
     pair("-e", vars)
+}
+
+/// Where a push to a URL of github.com goes on a read-only instance: nowhere a
+/// push can land, so it fails before it leaves the container.
+const NO_PUSH: &str = "file:///nonexistent/tehas-read-only/";
+
+/// What a container of a read-only instance (TEHAS_READ_ONLY=1, #608) is given
+/// besides: git's pushes to origin land in the workspace's own repository,
+/// which is where the cycle's branch stays, and a push that names a URL of
+/// github.com fails. TEHAS_READ_ONLY=1 has the image's gh refuse every call
+/// that may write (host/sandbox/gh-shim). The keys follow the four of
+/// [`env_options`], whose GIT_CONFIG_COUNT counts them.
+pub fn read_only_variables(tree: &str) -> Vec<String> {
+    vec![
+        "GIT_CONFIG_KEY_4=remote.origin.pushurl".to_string(),
+        format!("GIT_CONFIG_VALUE_4={tree}"),
+        format!("GIT_CONFIG_KEY_5=url.{NO_PUSH}.pushInsteadOf"),
+        "GIT_CONFIG_VALUE_5=https://github.com/".to_string(),
+        "TEHAS_READ_ONLY=1".to_string(),
+    ]
 }
 
 /// The PI_ENSEMBLE_* the host has set, in the order of its environment. Not the
@@ -729,6 +753,95 @@ mod tests {
 
     fn words(line: &str) -> Vec<String> {
         line.split_whitespace().map(String::from).collect()
+    }
+
+    /// The read-only variables as a container's git takes them: a push to
+    /// origin, whose URL is GitHub's, lands in the repository itself, with no
+    /// network (a push that left would fail offline), and a push to a URL of
+    /// github.com fails.
+    #[test]
+    fn a_read_only_push_to_origin_stays_in_the_workspace_and_one_to_github_fails() {
+        let d = crate::testdir::TestDir::new("read-only-push");
+        let tree = d.join("widget");
+        let t = tree.to_str().unwrap();
+        let git = |args: &[&str]| {
+            let mut c = Command::new("git");
+            c.args(["-C", t]).args(args);
+            c.env_clear()
+                .env("PATH", std::env::var_os("PATH").unwrap_or_default());
+            c.env("HOME", d.join("home"))
+                .env("GIT_TERMINAL_PROMPT", "0");
+            c.env("GIT_CONFIG_NOSYSTEM", "1");
+            c.env("GIT_CONFIG_COUNT", "6");
+            for (i, w) in [
+                "user.name=A Bot".to_string(),
+                "user.email=bot@example.org".to_string(),
+                "core.hooksPath=/dev/null".to_string(),
+                "init.defaultBranch=main".to_string(),
+            ]
+            .iter()
+            .enumerate()
+            {
+                let (k, v) = w.split_once('=').unwrap();
+                c.env(format!("GIT_CONFIG_KEY_{i}"), k)
+                    .env(format!("GIT_CONFIG_VALUE_{i}"), v);
+            }
+            for w in read_only_variables(t) {
+                if let Some((k, v)) = w.split_once('=') {
+                    if k.starts_with("GIT_CONFIG_") {
+                        c.env(k, v);
+                    }
+                }
+            }
+            c.output().unwrap()
+        };
+        fs::create_dir_all(&tree).unwrap();
+        assert!(git(&["init", "-q"]).status.success());
+        git(&[
+            "remote",
+            "add",
+            "origin",
+            "https://github.com/example-owner/example-product.git",
+        ]);
+        assert!(git(&["commit", "-q", "--allow-empty", "-m", "one"])
+            .status
+            .success());
+        let pushed = git(&["push", "-q", "origin", "HEAD:refs/heads/feature/issue-7"]);
+        assert!(
+            pushed.status.success(),
+            "{}",
+            String::from_utf8_lossy(&pushed.stderr)
+        );
+        assert!(
+            git(&["rev-parse", "-q", "--verify", "refs/heads/feature/issue-7"])
+                .status
+                .success()
+        );
+        let dry = git(&[
+            "push",
+            "--dry-run",
+            "origin",
+            "HEAD:refs/heads/tehas-preflight",
+        ]);
+        assert!(dry.status.success());
+        let url = git(&[
+            "push",
+            "-q",
+            "https://github.com/example-owner/example-product.git",
+            "HEAD:refs/heads/x",
+        ]);
+        assert!(!url.status.success());
+        assert!(String::from_utf8_lossy(&url.stderr).contains("nonexistent/tehas-read-only"));
+    }
+
+    #[test]
+    fn the_read_only_variables_follow_the_four_keys_and_name_the_setting() {
+        let v = read_only_variables("/w/widget");
+        assert_eq!(v[0], "GIT_CONFIG_KEY_4=remote.origin.pushurl");
+        assert_eq!(v[1], "GIT_CONFIG_VALUE_4=/w/widget");
+        assert!(v[2].starts_with("GIT_CONFIG_KEY_5=url.file:///nonexistent/"));
+        assert_eq!(v[3], "GIT_CONFIG_VALUE_5=https://github.com/");
+        assert_eq!(v[4], "TEHAS_READ_ONLY=1");
     }
 
     const WHO: Identity = Identity {

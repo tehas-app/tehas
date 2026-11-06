@@ -16,7 +16,8 @@
 # TEHAS_GH_BIN names the real gh and TEHAS_GH_RETRY_WAIT the pause; both are
 # seams for test/gh_shim_test.sh, and the image sets neither.
 #
-# Exit: gh's own status; 1 when the token file is there and cannot be read.
+# Exit: gh's own status; 0 for a call a read-only instance refused; 1 when the
+# token file is there and cannot be read.
 # Lint: scripts/test.sh lints it with shellcheck -x, which takes the shell from
 # the shebang; test/gh_shim_test.sh names that shell with -s sh.
 real=${TEHAS_GH_BIN:-/usr/bin/gh}
@@ -24,6 +25,59 @@ f=/run/tehas/github/token
 if [ -r "$f" ]; then
   GH_TOKEN=$(cat "$f") || exit 1
   export GH_TOKEN
+fi
+# A read-only instance (TEHAS_READ_ONLY=1, #608): a call that may write to
+# GitHub is not run. The shim says what it would have done and exits 0, so the
+# cycle goes on. What reads is a short list; anything else counts as a write.
+# `gh api` reads with -X GET, with no method and no field, or as a graphql
+# query that names no mutation. A refused `pr create` leaves its title, branch
+# and body in the workspace's git directory, tehas-read-only-pr.md.
+if [ "${TEHAS_READ_ONLY:-0}" = 1 ]; then
+  write=1
+  case "$1 ${2:-}" in
+  "issue view" | "issue list" | "issue status" | "pr view" | "pr list" | "pr status" | "pr checks" | "pr diff" | \
+    "repo view" | "label list" | "run view" | "run list" | "release view" | "release list" | "auth status" | \
+    "auth token" | "auth git-credential" | "search "* | "--version "* | "version "*) write= ;;
+  "api "*)
+    method='' fields='' graphql='' mutation='' prev=''
+    for a in "$@"; do
+      case $prev in -X | --method) method=$a ;; esac
+      case $a in
+      -X?*) method=${a#-X} ;;
+      --method=*) method=${a#--method=} ;;
+      -f | -F | --field | --raw-field | --input) fields=1 ;;
+      graphql) graphql=1 ;;
+      *[Mm][Uu][Tt][Aa][Tt][Ii][Oo][Nn]*) mutation=1 ;;
+      esac
+      prev=$a
+    done
+    case $method in
+    [Gg][Ee][Tt]) write= ;;
+    "") if [ -n "$graphql" ]; then [ -n "$mutation" ] || write=; elif [ -z "$fields" ]; then write=; fi ;;
+    esac
+    ;;
+  esac
+  if [ -n "$write" ]; then
+    echo "read-only: would gh $1 ${2:-}" >&2
+    if [ "$1 ${2:-}" = "pr create" ] && [ -n "${PI_ENSEMBLE_WORKSPACE_ROOT:-}" ] &&
+      dir=$(git -C "$PI_ENSEMBLE_WORKSPACE_ROOT" rev-parse --absolute-git-dir 2>/dev/null); then
+      title='' head='' body='' file='' prev=''
+      for a in "$@"; do
+        case $prev in
+        -t | --title) title=$a ;;
+        -H | --head) head=$a ;;
+        -b | --body) body=$a ;;
+        -F | --body-file) file=$a ;;
+        esac
+        prev=$a
+      done
+      {
+        printf '# %s\n\nBranch: %s\n\n' "$title" "${head:-$(git -C "$PI_ENSEMBLE_WORKSPACE_ROOT" branch --show-current 2>/dev/null)}"
+        if [ -n "$file" ]; then cat -- "$file"; else printf '%s\n' "$body"; fi
+      } >"$dir/tehas-read-only-pr.md" 2>/dev/null
+    fi
+    exit 0
+  fi
 fi
 for a in "$@"; do
   case $a in - | *@-) exec "$real" "$@" ;; esac

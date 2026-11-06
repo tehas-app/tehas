@@ -172,4 +172,68 @@ t_run "shellcheck -s sh '$shim'"
 t_eq "$t_rc" 0
 t_eq "$t_out" ""
 
+# A read-only instance (#608): the shim of a container given TEHAS_READ_ONLY=1.
+ro_shim() { # <args...>
+  T_ENV=(TEHAS_GH_BIN="$T/bin/gh" TEHAS_GH_RETRY_WAIT=0 TEHAS_READ_ONLY=1 PI_ENSEMBLE_WORKSPACE_ROOT="$T/ws")
+  t_run "$shim $* >'$T/shim.out' 2>'$T/shim.err'"
+  T_ENV=()
+}
+
+t_case "read-only: the reads a cycle makes still reach gh"
+for call in "issue view 7 --json body" "pr list --head feature/issue-7" "pr view 12" "api repos/acme/widget/issues/7/comments" \
+  "api -X GET repos/acme/widget/pulls -f state=open" "api graphql -f query='query { viewer { login } }'" "auth git-credential"; do
+  stub_reset
+  answer 1 "the answer" "" 0
+  ro_shim "$call"
+  t_eq "$t_rc" 0
+  t_eq "$(cat "$T/shim.out")" "the answer"
+  t_eq "$(calls)" 1
+done
+
+t_case "read-only: a call that may write is not run, and the shim says what it would have done"
+for call in "issue comment 7 --body hi" "issue edit 7 --add-label x" "pr create --title t --body b" "pr merge 12" "label create x" \
+  "api -X POST repos/acme/widget/issues/7/labels" "api repos/acme/widget/issues/7/comments -f body=hi" \
+  "api --method=PATCH repos/acme/widget/issues/7" "api graphql -f query='mutation { addComment }'" "release upload v1 a.tgz" "repo edit"; do
+  stub_reset
+  ro_shim "$call"
+  t_eq "$t_rc" 0
+  t_eq "$(seen)" ""
+  t_eq "$(cat "$T/shim.out")" ""
+  read -r one two _ <<<"$call"
+  t_eq "$(cat "$T/shim.err")" "read-only: would gh $one $two"
+done
+
+t_case "read-only: a write that reads standard input is refused before it reads it"
+stub_reset
+T_ENV=(TEHAS_GH_BIN="$T/bin/gh" TEHAS_READ_ONLY=1)
+t_run "printf hi | $shim issue comment 7 --body-file - 2>'$T/shim.err'"
+T_ENV=()
+t_eq "$t_rc" 0
+t_eq "$(seen)" ""
+t_eq "$(cat "$T/shim.err")" "read-only: would gh issue comment"
+
+t_case "read-only: a refused pr create leaves the pull request's text in the workspace's git directory"
+stub_reset
+rm -rf "$T/ws"
+git init -q "$T/ws"
+printf 'The body.\nTwo lines.\n' >"$T/body.md"
+ro_shim "pr create --title 'Fix the thing' --head feature/issue-7 --body-file '$T/body.md'"
+t_eq "$t_rc" 0
+t_eq "$(seen)" ""
+t_eq "$(cat "$T/ws/.git/tehas-read-only-pr.md")" "# Fix the thing
+
+Branch: feature/issue-7
+
+The body.
+Two lines."
+t_eq "$(git -C "$T/ws" status --porcelain)" ""
+
+t_case "without read-only a write goes to gh as before"
+stub_reset
+answer 1 "done" "" 0
+T_ENV=(TEHAS_GH_BIN="$T/bin/gh" TEHAS_READ_ONLY=0)
+t_run "$shim issue comment 7 --body hi"
+T_ENV=()
+t_eq "$(calls)" 1
+
 t_done

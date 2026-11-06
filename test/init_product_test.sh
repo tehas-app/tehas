@@ -89,6 +89,16 @@ t_contains "$t_out" "=== .pi/verify-cmd"
 t_eq "$(git -C "$origin" branch --list tehas/init-product)" ""
 t_eq "$(t_calls gh)" ""
 
+t_case "read-only: the files are named, nothing is pushed and no pull request is opened"
+product go.mod='module x'
+t_instance "${T_MINIMAL[@]}" TEHAS_READ_ONLY=1
+t_run "$init"
+t_eq "$t_rc" 0
+t_contains "$t_out" "proposing AGENTS.md .pi/verify-cmd"
+t_contains "$t_out" "read-only: would push tehas/init-product to acme/widget and open its pull request"
+t_eq "$(git -C "$origin" branch --list tehas/init-product)" ""
+t_eq "$(t_calls gh)" ""
+
 t_case "the gate is guessed for each stack"
 t_eq "$(gate_for Makefile='check:' package.json='{}')" "make check"
 t_eq "$(gate_for package.json='{"scripts": {"build": "tsc"}}' pnpm-lock.yaml=x)" "pnpm run build"

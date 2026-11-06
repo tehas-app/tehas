@@ -38,10 +38,20 @@ pub use plan::{body, title, Finished, Plan};
 /// What one ask for one issue did: the pull request it opened, or the one line
 /// of why it refused and changed nothing.
 pub fn finish(plan: &Plan, h: &mut dyn Host) -> Finished {
-    match plan.check() {
-        Ok(()) => run::run(plan, h),
-        Err(why) => Finished::refused(why),
+    if let Err(why) = plan.check() {
+        return Finished::refused(why);
     }
+    // A read-only instance (#608) pushes nothing: the guard says what this
+    // would have done, and the run changes nothing.
+    if tehas_core::read_only::refuse(&format!(
+        "push finish/issue-{} and open its draft pull request",
+        plan.issue
+    )) {
+        return Finished::refused(
+            "TEHAS_READ_ONLY=1: nothing is pushed and no pull request is opened".to_string(),
+        );
+    }
+    run::run(plan, h)
 }
 
 /// The prefix of every line this command says, so the poll's log of part 2 names

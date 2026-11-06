@@ -120,6 +120,65 @@ pub fn read_records(home: &Path) -> Vec<serde_json::Value> {
         .collect()
 }
 
+/// The file the image's gh leaves in a workspace's git directory for the pull
+/// request a read-only cycle would have opened (host/sandbox/gh-shim).
+pub const PR_FILE: &str = "tehas-read-only-pr.md";
+
+/// The most of a pull request's body the status carries.
+pub const BODY_MAX: usize = 4000;
+
+/// What a read-only start left, for the status: each record, with the title,
+/// branch and body of the pull request its cycle would have opened when the
+/// workspace `<work_dir>-<issue>` holds one. The branch itself is in that
+/// workspace.
+pub fn results(home: &Path, work_dir: &str) -> Vec<serde_json::Value> {
+    read_records(home)
+        .into_iter()
+        .map(|mut r| {
+            let n = r
+                .get("issue")
+                .and_then(serde_json::Value::as_u64)
+                .unwrap_or(0);
+            if !work_dir.is_empty() {
+                let tree = format!("{work_dir}-{n}");
+                r["workspace"] = serde_json::json!(tree);
+                let file = Path::new(&tree).join(".git").join(PR_FILE);
+                if let Ok(text) = fs::read_to_string(file) {
+                    let (title, branch, body) = pr_text(&text);
+                    r["pr"] = serde_json::json!({"title": title, "branch": branch, "body": body});
+                }
+            }
+            r
+        })
+        .collect()
+}
+
+/// The three parts of the file: `# <title>`, a `Branch: <name>` line, then the
+/// body, cut to [`BODY_MAX`] characters.
+pub fn pr_text(text: &str) -> (String, String, String) {
+    let mut lines = text.lines();
+    let title = lines
+        .next()
+        .map(|l| l.strip_prefix("# ").unwrap_or(l).to_string())
+        .unwrap_or_default();
+    let rest: Vec<&str> = lines.collect();
+    let mut branch = String::new();
+    let mut from = 0;
+    for (i, l) in rest.iter().enumerate() {
+        if let Some(b) = l.strip_prefix("Branch: ") {
+            branch = b.trim().to_string();
+            from = i + 1;
+            break;
+        }
+        if !l.trim().is_empty() {
+            break;
+        }
+    }
+    let body = rest[from..].join("\n");
+    let body: String = body.trim_matches('\n').chars().take(BODY_MAX).collect();
+    (title, branch, body)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -152,6 +211,34 @@ mod tests {
         assert_eq!(r[1]["at"], "2026-11-06T10:00:00Z");
         assert_eq!(r[0]["how"], "plan");
         let _ = fs::remove_dir_all(&h);
+    }
+
+    #[test]
+    fn a_result_carries_the_pull_request_its_workspace_holds() {
+        let h = dir("res");
+        let work = h.join("work/widget");
+        record(&h, 7, "cycle", "2026-11-06T10:00:00Z").unwrap();
+        record(&h, 8, "cycle", "2026-11-06T10:00:00Z").unwrap();
+        let git = h.join("work/widget-7/.git");
+        fs::create_dir_all(&git).unwrap();
+        fs::write(
+            git.join(PR_FILE),
+            "# Fix the thing\n\nBranch: feature/issue-7\n\nThe body.\nTwo lines.\n",
+        )
+        .unwrap();
+        let r = results(&h, work.to_str().unwrap());
+        assert_eq!(r[0]["pr"]["title"], "Fix the thing");
+        assert_eq!(r[0]["pr"]["branch"], "feature/issue-7");
+        assert_eq!(r[0]["pr"]["body"], "The body.\nTwo lines.");
+        assert_eq!(r[0]["workspace"], format!("{}-7", work.display()));
+        assert!(r[1].get("pr").is_none());
+        let _ = fs::remove_dir_all(&h);
+    }
+
+    #[test]
+    fn a_long_body_is_cut() {
+        let (_, _, body) = pr_text(&format!("# t\n\n{}", "x".repeat(BODY_MAX + 10)));
+        assert_eq!(body.chars().count(), BODY_MAX);
     }
 
     #[test]
