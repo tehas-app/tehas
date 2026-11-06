@@ -32,10 +32,11 @@
 # died at every work run: pi-rukas v0.14.30 to v0.14.40). What the three
 # answers mean is in console/cycle/src/sandbox.rs, not here.
 #
-# The base is the image upstream publishes for each commit, tagged
-# sha-<first 12 characters>, or, when PI_RUKAS_IMAGE_DIGEST (sha256:<64 hex>)
-# is set, that digest: a release builds on the image it was packed with, not on
-# whatever the tag points at now. The commit becomes the label tehas.rukas.
+# The base is tehas's own lean recipe, base.Dockerfile beside this script,
+# built from the host's pi-rukas clone ($TEHAS_HOME/repos/pi-rukas) at the
+# commit followed, with vscode at this account's uid from its first layer. It
+# is tagged tehas/pi-rukas-base:sha-<first 12 characters>-uid<uid>. The commit
+# becomes the label tehas.rukas.
 # Tool versions come from versions.env, one directory up, the code indexer and
 # Rust included: the image carries the same codebase-memory-mcp and rustc
 # versions bootstrap.sh puts on the host, not the ones the base image happened
@@ -51,13 +52,14 @@
 # recipe are for, what the staged copy is and who takes it back, is told once in
 # What two instance users of one host share (host/docs/host.md).
 #
-# Each image is several gigabytes. After a build only the newest 3 dated
-# tags are kept, the instance's own layer among them: a build makes
-# <date>-product beside <date> when the instance has a sandbox.Dockerfile, and
-# that tag is counted with the date tags, so nothing accumulates.
-# An older one is removed unless a container, running or
-# stopped, was made from its image, or a uid tag names that image. A docker
-# that does not answer removes nothing; the build still counts.
+# Each image is several gigabytes. After a build the dated tags of the newest
+# 2 builds are kept, the current one and the one before it for a rollback,
+# whatever their age: a build makes <date>-product beside <date> when the
+# instance has a sandbox.Dockerfile, and the two count as one build. An older
+# one is removed unless a container, running or stopped, was made from its
+# image, or a uid tag names that image. The bases of this uid other than this
+# build's lose their tags too; their layers stay while a kept image stands on
+# them. A docker that does not answer removes nothing; the build still counts.
 #
 # Usage: build.sh              build
 #        build.sh --if-moved   build only when the commit followed is not the
@@ -65,18 +67,19 @@
 #        build.sh --check      build nothing; say whether the commit moved
 #
 # Exit: 0 built, or nothing to do; 1 the commit moved (--check), or the commit,
-#       the base image or the build could not be had, or the base does not
+#       the base or the build could not be had, or the base does not
 #       support what tehas work needs, or a smoke run of the new image started
 #       no step; 64 usage; 78 the instance's settings
-#       do not load, PI_RUKAS_IMAGE_DIGEST is not sha256:<64 hex>, or the uid of
-#       this account is not a number
+#       do not load, or the uid of this account is not a number
 set -euo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd)
 # shellcheck source=host/versions.env
 . "$here/../versions.env"
 image=tehas/pi-rukas
-keep=3
+base_repo=tehas/pi-rukas-base
+# Builds kept: the current one and the one before it, for a rollback.
+keep=2
 uid=$(id -u)
 # The uid decides whether the image's user is remapped at all, so a value that
 # is not a number is refused here rather than deep in the build's usermod.
@@ -89,6 +92,7 @@ current=$image:uid$uid
 # is named here before anything is asked of git or docker. What it holds and who
 # takes it back: host/docs/host.md, What two instance users of one host share.
 dockerfile=$here/Dockerfile
+base_recipe=$here/base.Dockerfile
 uid_recipe=$here/sandbox-uid.Dockerfile
 # One shape for a staged temporary, named once: mktemp makes the suffix six
 # characters, and the sweep, the check below, .gitignore and the cleaner's pick
@@ -135,6 +139,10 @@ if [ ! -f "$dockerfile" ]; then
   echo "sandbox: no Dockerfile beside $here, so the image cannot be built" >&2
   exit 1
 fi
+if [ ! -f "$base_recipe" ]; then
+  echo "sandbox: no base.Dockerfile beside $here, so the base cannot be built" >&2
+  exit 1
+fi
 # The two lines the two stages are cut at, each counted as one whole line of the
 # tracked file: the boundary, and the uid's own argument with nothing after the
 # `=`. A stage renamed, a step indented, a second declaration, or a default
@@ -157,22 +165,9 @@ fi
 instance_file=$(tehas_instance_dir)/sandbox.Dockerfile
 # A host with an instance may follow another pi-rukas than its release names
 # (PI_RUKAS_FOLLOW in instance.env). Its settings are loaded and checked as
-# every command loads them, and a broken instance builds nothing. The release's
-# base digest belongs to the release's commit, so it goes when the commit does,
-# unless the instance names a digest of its own.
+# every command loads them, and a broken instance builds nothing.
 if [ -f "$(tehas_instance_dir)/instance.env" ]; then
-  release_follow=${PI_RUKAS_FOLLOW:-} release_digest=${PI_RUKAS_IMAGE_DIGEST:-}
   tehas_load || exit 78
-  if [ "${PI_RUKAS_FOLLOW:-}" != "$release_follow" ] && [ "${PI_RUKAS_IMAGE_DIGEST:-}" = "$release_digest" ]; then
-    unset PI_RUKAS_IMAGE_DIGEST
-  fi
-fi
-
-# Checked before git or docker is asked anything.
-digest=${PI_RUKAS_IMAGE_DIGEST:-}
-if [ -n "$digest" ] && ! [[ $digest =~ ^sha256:[0-9a-f]{64}$ ]]; then
-  echo "build: PI_RUKAS_IMAGE_DIGEST=$digest is not sha256: and 64 hex digits" >&2
-  exit 78
 fi
 
 # The staged recipe below is the only file this script writes, so its name is
@@ -237,17 +232,27 @@ if [ "$mode" != build ]; then
   fi
 fi
 
-upstream=$("$console" rukas image "${PI_RUKAS_REPO:-}" "$head") || {
-  echo "build: PI_RUKAS_REPO is not a GitHub repository, so upstream's image cannot be named" >&2
-  exit 1
-}
-if [ -n "$digest" ]; then
-  base=${upstream%:sha-*}@$digest
-else
-  base=$upstream
+# The base, built here from the host's pi-rukas clone at the commit followed and
+# base.Dockerfile, which git archive adds at the root of that commit's tree. A
+# clone that lacks the commit fetches once. The arguments are written with their
+# values in front of them, like the instance layer's below, so they join neither
+# count of test/build_test.sh: test/sandbox_build_test.sh checks this recipe's.
+clone=${TEHAS_HOME:-$HOME/tehas}/repos/pi-rukas
+base=$base_repo:sha-${head:0:12}-uid$uid
+if ! git -C "$clone" cat-file -e "$head^{commit}" 2>/dev/null; then
+  timeout -k 10 300 git -C "$clone" fetch -q --tags origin >/dev/null 2>&1 || true
 fi
-if ! docker pull -q "$base" >/dev/null 2>&1; then
-  echo "build: no image $base yet; upstream publishes one for each commit, try again when it has" >&2
+if ! git -C "$clone" cat-file -e "$head^{commit}" 2>/dev/null; then
+  echo "build: the pi-rukas clone in $clone does not hold $head, and a fetch did not bring it" >&2
+  exit 1
+fi
+if ! git -C "$clone" archive --add-file="$base_recipe" "$head" |
+  docker build -f base.Dockerfile -t "$base" \
+    "--build-arg=TEHAS_UID=$uid" \
+    "--build-arg=GITHUB_SHA=$head" \
+    "--build-arg=VIPUNE_VERSION=$VIPUNE_VERSION" \
+    "--build-arg=OO_VERSION=$OO_VERSION" -; then
+  echo "build: the base $base did not build from $clone at $head" >&2
   exit 1
 fi
 
@@ -470,3 +475,5 @@ fi
 # asks what is held the way the cleaner does.
 "$console" clean dated "$image" "$keep" ||
   echo "warning: docker did not list its images or containers, no old $image tag was removed" >&2
+"$console" clean bases "$base_repo" "$base" ||
+  echo "warning: docker did not list its images, no old $base_repo tag was removed" >&2

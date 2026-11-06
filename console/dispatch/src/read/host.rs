@@ -319,9 +319,9 @@ pub fn disk(home: &Path) -> Value {
 
 /// What sweep_workspaces finds: each issue with something left on this host,
 /// in the order the bash's globs find them, whether any of it (or its lock)
-/// was used within 7 days or cannot be dated, and whether its lock is a lock
-/// file.
-pub fn leftovers(home: &Path, work_dir: &str, user_home: &Path, now: i64) -> Value {
+/// was used within <days> days or cannot be dated, and whether its lock is a
+/// lock file.
+pub fn leftovers(home: &Path, work_dir: &str, user_home: &Path, now: i64, days: u64) -> Value {
     let work = Path::new(work_dir);
     let (works, base) = (
         work.parent().unwrap_or(Path::new("/")),
@@ -400,8 +400,8 @@ pub fn leftovers(home: &Path, work_dir: &str, user_home: &Path, now: i64) -> Val
         files.push(runs.join(format!("issue-{n}")));
         files.push(runs.join(format!("plan-{n}")));
         files.push(home.join(format!("live/console-{n}.txt")));
-        // The age rule of tehasbot clean: a name used within 7 days keeps
-        // the issue, and so does one that cannot be dated.
+        // A name used within <days> days keeps the issue, and so does one
+        // that cannot be dated.
         let young = files.iter().any(|f| match fs::symlink_metadata(f) {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => false,
             Err(_) => true,
@@ -409,7 +409,7 @@ pub fn leftovers(home: &Path, work_dir: &str, user_home: &Path, now: i64) -> Val
                 .modified()
                 .ok()
                 .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                .is_none_or(|t| (t.as_secs() as i64) > now - 7 * 86_400),
+                .is_none_or(|t| (t.as_secs() as i64) > now - days as i64 * 86_400),
         });
         out.push(json!({"issue": n, "young": young, "lock_ok": lock_ok}));
     }

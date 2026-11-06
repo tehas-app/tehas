@@ -12,7 +12,7 @@
 #     than whatever stable the upstream image was built with,
 #   - cargo's registry given to that user (the upstream image has a registry
 #     only root can write, so a gate could not fetch a crate),
-#   - Playwright's Chromium with its system libraries and fonts, for a
+#   - Playwright's headless Chromium with its system libraries and fonts, for a
 #     product's browser checks,
 #   - `file` and a Python image library, so a cycle can look at a picture,
 #   - the code indexer the agents' code search answers from, at the version
@@ -216,7 +216,8 @@ USER root
 # records (build.sh passes its sha256 and its version here), and npm ci then
 # refuses a package whose hash does not match the lockfile. Scripts are off for
 # the install; the browsers are fetched by the command below, not by a package's
-# postinstall hook.
+# postinstall hook. Only the headless shell: a container has no display, so a
+# cycle's browser runs headless, and the full Chromium beside it was 594M.
 COPY npm/playwright/package.json npm/playwright/package-lock.json /opt/pin/playwright/
 # Browsers live outside any home directory so every user can read them.
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
@@ -224,7 +225,7 @@ RUN cd /opt/pin/playwright \
  && echo "${PLAYWRIGHT_LOCK_SHA256}  package-lock.json" | sha256sum -c - \
  && node -e 'const v=process.argv[1], p=require("./package.json"), l=require("./package-lock.json"); if (p.dependencies.playwright !== v || l.packages[""].dependencies.playwright !== v || l.packages["node_modules/playwright"].version !== v) { console.error("sandbox: the Playwright pin is not " + v); process.exit(1) }' "$PLAYWRIGHT_VERSION" \
  && npm ci --ignore-scripts --no-fund --no-audit \
- && ./node_modules/.bin/playwright install --with-deps chromium \
+ && ./node_modules/.bin/playwright install --with-deps --only-shell chromium \
  && chmod -R a+rX /opt/ms-playwright \
  && rm -rf /var/lib/apt/lists/* /root/.npm /opt/pin
 
@@ -270,9 +271,12 @@ ARG PI_RUKAS_COMMIT=""
 # nothing, and tehas reads that as "not said" rather than as an answer. Last,
 # like the commit above.
 ARG TEHAS_RUKAS_IMAGES=unknown
+# The answer goes to a file: read through a pipe, bun's output was cut at 16384
+# bytes, and the answer of pi-rukas v0.14.54 is longer.
 RUN given=${TEHAS_RUKAS_IMAGES:-unknown}; \
-    caps=$(/opt/pi-rukas/bin/pi-rukas-headless --capabilities 2>/dev/null) \
-      && reads=$(printf '%s' "$caps" | jq -e -r 'if any(.inputs[]? | objects; .name == "PI_ENSEMBLE_ISSUE_IMAGES" and .manifestVersion == 1) then 1 else 0 end') \
+    /opt/pi-rukas/bin/pi-rukas-headless --capabilities >/tmp/caps.json 2>/dev/null \
+      && reads=$(jq -e -r 'if any(.inputs[]? | objects; .name == "PI_ENSEMBLE_ISSUE_IMAGES" and .manifestVersion == 1) then 1 else 0 end' /tmp/caps.json) \
+      && rm -f /tmp/caps.json \
       || { echo "sandbox: the base image gave no --capabilities answer" >&2; exit 1; }; \
     echo "sandbox: the base image's pi-rukas $reads issue images"; \
     if [ "$given" = unknown ]; then exit 0; fi; \

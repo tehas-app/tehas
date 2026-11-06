@@ -1630,7 +1630,7 @@ T_INSIDE=$TEHAS_INSTANCE_DIR/$HOME
 INSTANCES
 T_ENV=()
 t_instance "${T_MINIMAL[@]}"
-t_eq "$(sha256sum <"$T/loads" | cut -d' ' -f1)" "9a5f807c7b2d6a537e25d50ef8c6d07134214b3be8d5d6976709932a27d5591d"
+t_eq "$(sha256sum <"$T/loads" | cut -d' ' -f1)" "53a7ae7d66e6d4f0b8517740123652b8a2764eaaeeac622b5ecdd73b960141b8"
 t_contains "$(cat "$T/loads")" "rc=78"
 
 t_case "no instance.env keeps the environment as it was, as bash did"

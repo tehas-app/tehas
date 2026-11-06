@@ -105,6 +105,7 @@ in the platform repository has every one with a comment.
 | `TEHAS_REFRESH_EVERY`          | `10`                                     | Minutes between two runs of `tehasbot refresh`, from 1 to 1440 |
 | `TEHAS_REFRESH_SLOTS`          | `1`                                      | Refreshes side by side in a lane of their own, from 0 to 8. They do not count against `TEHAS_TICKET_CONCURRENCY`, and new cycles leave room in the slice for them (see [refreshes](/operating#refreshes)). 0 has refreshes share the cycles' slots |
 | `TEHAS_CLEAN_AFTER`            | `24`                                     | Hours a thing must have gone unused before `tehasbot clean` removes it: build output in a kept workspace, Docker's build cache and host scratch. A whole number of at least 1, else every command stops with 78 (see [tehasbot clean](#tehasbot-clean)) |
+| `TEHAS_WORKSPACE_KEEP_DAYS`    | `7`                                      | Days a kept workspace of an open issue waits after its last use before the dispatcher removes it, with its `.images`, `.state`, transcripts and console. A closed issue's go at once. A whole number of at least 1, else every command stops with 78 |
 | `TEHAS_DISK_WAIT`              | `10`                                     | The seconds one read of the host's space may take: `df`, `docker info` and `docker ps`, and one walk of `tehas disk --full` over one place at twice that. A call not answered in the time is no answer, and its figure is null with the reason rather than a command that stops; a tree that stopped answering is no figure and its place says `cut: time`. A whole number from 1 to 99. The dispatcher's hold, the previews' measure and `tehas disk` read under it (see [`tehas disk`](/api#tehas-disk)) |
 | `TEHAS_CLEAN_MIN_FREE`          | `30g`                                    | Free disk space below which `tehasbot clean` takes the build output of a kept workspace and Docker's build cache whatever their age, instead of waiting for `TEHAS_CLEAN_AFTER` hours: the smaller of the file system of `~/tehas` and the one Docker keeps its images on, read with `df`. Space that cannot be read changes nothing, and a lock a cycle holds is never removed under. Host scratch and the old images keep the age. It sits above `TEHAS_CYCLE_MIN_FREE`, so space goes before the poll stops starting cycles. A size such as `512m` or `30g`, else every command stops with 78 (see [tehasbot clean](#tehasbot-clean)) |
 | `TEHAS_CYCLE_STOP_FREE`         | `5g`                                     | Free disk space below which a running cycle is stopped, read with `df` on the file system of `TEHAS_SCRATCH_DIR` every 10 seconds by tehas work. Only the cycle whose scratch is the largest there stops, at the cap `disk`; the others go on. No figure stops nothing. Only with `TEHAS_SCRATCH_DIR`. A size such as `512m` or `5g`, else every command stops with 78 |
@@ -1988,7 +1989,7 @@ that reached a log does not reach the copy; only a file the mask itself will not
 read is copied as it is, and one over 32 MiB is left out. The mask catches
 accidents and cannot stop what no pattern knows, so an export is still a copy of
 what a cycle wrote. An export is never written under the factory's home, not
-even through a link. The dispatcher's 7-day sweep removes
+even through a link. The dispatcher's sweep removes
 `~/.pi/agent/ensemble-runs/issue-<issue>` with the issue's workspace, so an
 export of an issue the sweep has taken has no transcripts: its records, logs and
 Protolab page are still copied. See
@@ -2593,9 +2594,10 @@ status, step, duration or token usage as that cycle's. The approval of such a
 start is taken off the record with the report: the millwright, a refresh and a later
 start never rest on an approval that started nothing.
 A retry moves a stopped workspace to
-`<name>-<issue>.before-retry`, which is removed and kept by the same rule.
-The dispatcher removes a kept workspace once no cycle has run on its issue for
-7 days, three issues a poll at most. With the workspace go what a cycle leaves
+`<name>-<issue>.before-retry`, which goes when that retry ends.
+The dispatcher removes a kept workspace at once when its issue is closed, and
+otherwise once no cycle has run on its issue for `TEHAS_WORKSPACE_KEEP_DAYS`
+days (7 by default), three issues a poll at most. With the workspace go what a cycle leaves
 outside it: the agents' transcripts in
 `~/.pi/agent/ensemble-runs/issue-<issue>`, the console
 `~/tehas/live/console-<issue>.txt`, and a planning session's transcripts in
@@ -3697,15 +3699,16 @@ starting cycles:
    `~/tehas/tmp/tehas-test.*` directories, of that age. Nothing else under `~/tehas`, and nothing outside it: not
    `~/tehas/dev`, so nothing under a manual session's `<name>.state` is walked
    here. Step 7 is the only step that names a path under `~/tehas/dev`.
-4. **Old sandbox images.** The dated tags of the sandbox image whose image was
-   made before the age, taken one `docker rmi` at a time. The newest dated tag
-   stays whatever its age, and so does any tag a container or a `uid` tag was
+4. **Old sandbox images.** The dated tags of the sandbox image before the
+   newest two builds, whatever their age, taken one `docker rmi` at a time: the
+   current build and the one before it stay, for a rollback, a `<date>-product`
+   counted with its `<date>`, and so does any tag a container or a `uid` tag was
    made from: `tehasbot work` runs cycles from those images, so one in use is
-   never old. The build keeps its own newest three date tags
-   (see [the sandbox build](#the-sandbox-build)); what is older than the age
-   besides the newest is this step's.
-5. **The pulled base image.** The image the sandbox build starts from, which
-   upstream publishes for the commit `versions.env` follows, removed by name
+   never old. The build keeps the same two itself
+   (see [the sandbox build](#the-sandbox-build)).
+5. **The pulled base image.** The image upstream publishes for the commit
+   `versions.env` follows, which a sandbox build started from before the base
+   was built on the host, removed by name
    with one `docker rmi` of its own once it is of that age and no container was
    made from it. Nothing else is offered to docker: the step asks for that one
    name, and never for the images that have lost their tag.
@@ -4597,7 +4600,7 @@ tarball, replace rather than repeat a key the tree already carried:
 
 ```
 PI_RUKAS_FOLLOW=commit:<sha>         the pi-rukas commit the sandbox builds from
-PI_RUKAS_IMAGE_DIGEST=sha256:<hex>   the base image that sandbox starts from
+PI_RUKAS_IMAGE_DIGEST=sha256:<hex>   upstream's image of that commit, no longer the base
 ```
 
 The rest of the file is the checkout's own. The release workflow packs no pins:
