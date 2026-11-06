@@ -86,9 +86,11 @@ pub struct Cycle {
 #[derive(Clone, Debug)]
 pub struct Leftover {
     pub issue: u64,
-    /// One of its names, or the lock, was used within 7 days, or cannot be
-    /// dated.
+    /// One of its names, or the lock, was used within TEHAS_WORKSPACE_KEEP_DAYS
+    /// days, or cannot be dated.
     pub young: bool,
+    /// The issue is not among the open ones the queue listed.
+    pub closed: bool,
     /// The lock is a lock file, or there is none.
     pub lock_ok: bool,
 }
@@ -656,6 +658,7 @@ impl Snapshot {
                         Some(Leftover {
                             issue: l.get("issue").and_then(number)?,
                             young: l.get("young").and_then(Value::as_bool) == Some(true),
+                            closed: l.get("closed").and_then(Value::as_bool) == Some(true),
                             lock_ok: l.get("lock_ok").and_then(Value::as_bool) != Some(false),
                         })
                     })

@@ -821,7 +821,7 @@ t_eq "$([ -e "$workdir-7.state/cache" ] && echo there)" "there"
 t_eq "$([ -e "$tmp/dl/tool.tar.gz" ] && echo there)" "there"
 t_contains "$t_out" "would remove $workdir-7/target: build output of #7"
 t_contains "$t_out" "would remove $tmp/dl/tool.tar.gz: host scratch"
-t_contains "$t_out" "would remove $image_name:261009-1000: a sandbox image of that age"
+t_contains "$t_out" "would remove $image_name:261009-1000: a sandbox image older than the newest 2 builds"
 printf '%s\n' "$base_repo sha-aaaaaaaaaaaa $base1" >"$fx/base-images"
 old_base "$base1"
 t_contains "$t_out" "would remove $base_image: a base image of that age"
@@ -1311,17 +1311,6 @@ t_contains "$(t_calls docker)" "builder prune -f --filter until=0h"
 # so the low-disk answer reached the build-output steps and no further.
 t_eq "$([ -e "$tmp/dl/tool.tar.gz" ] && echo there)" ""
 t_eq "$([ -e "$tmp/dl/tool2.tar.gz" ] && echo there)" "there"
-# Step 4: an image younger than the age is still kept, which a run that took
-# every step early would have removed with the rest.
-old_tags
-printf '%s\n' "$young_time" >"$fx/created-sha256:1"
-rm -f "$fx/created-sha256:2" "$fx/created-sha256:3" "$fx/created-sha256:4" \
-  "$fx/created-sha256:5" "$fx/created-sha256:6"
-for n in 2 3 4 5 6; do printf '%s\n' "$young_time" >"$fx/created-sha256:$n"; done
-t_run "$clean"
-t_eq "$t_rc" 0
-t_lacks "$(t_calls docker)" "rmi $image_name:261009-1000"
-t_contains "$t_out" "kept $image_name:261009-1000: docker did not date its image past $after_hours hours"
 
 t_case "a young workspace keeps its build output at the minimum, as it does above it"
 reset
@@ -1491,10 +1480,10 @@ t_contains "$(t_calls docker)" "builder prune -f --filter until=24h"
 t_lacks "$t_out" "low on disk"
 
 # --- 4. old sandbox images ---------------------------------------------------
-# Six dated tags, all three days old, none of them held: the age rule is what
-# takes them, and the newest of them is what the cleaner never takes.
+# Six dated tags, none of them held: the newest two builds stay whatever their
+# age, and the ones before them go whatever theirs.
 
-t_case "an old dated tag no container holds is removed, and the newest stays"
+t_case "a dated tag before the newest two builds no container holds is removed"
 reset
 old_tags
 printf '%s\n' 3000000000 >"$fx/size-sha256:1"
@@ -1503,13 +1492,15 @@ t_eq "$t_rc" 0
 t_contains "$(t_calls docker)" "image ls --no-trunc --format {{.Tag}} {{.ID}} $image_name"
 t_contains "$(t_calls docker)" "rmi $image_name:261009-1000"
 t_lacks "$(t_calls docker)" "rmi $image_name:261014-1000"
-t_contains "$t_out" "removed $image_name:261009-1000: a sandbox image of that age, 3000000000 bytes"
+t_lacks "$(t_calls docker)" "rmi $image_name:261013-1000"
+t_contains "$(t_calls docker)" "rmi $image_name:261012-1000"
+t_contains "$t_out" "removed $image_name:261009-1000: a sandbox image older than the newest 2 builds, 3000000000 bytes"
 t_lacks "$t_out" "removed $image_name:261014-1000"
 # Only the one image reports a size; a docker that answers none contributes
 # nothing to the total, which is what the closing line adds up.
 t_contains "$t_out" "freed 3000000000 bytes"
 
-t_case "the newest dated tag stays whatever its age"
+t_case "the newest two builds stay whatever their age"
 reset
 old_tags
 # The newest tag is old, and stays on the newest rule alone: it is not asked
@@ -1519,7 +1510,8 @@ printf '%s\n' "$old_time" >"$fx/created-sha256:6"
 t_run "$clean"
 t_eq "$t_rc" 0
 t_lacks "$(t_calls docker)" "rmi $image_name:261014-1000"
-t_contains "$t_out" "kept $image_name:261014-1000: the newest dated tag"
+t_contains "$t_out" "kept $image_name:261014-1000: one of the newest 2 builds"
+t_contains "$t_out" "kept $image_name:261013-1000: one of the newest 2 builds"
 
 t_case "a tag a container was made from stays, an old one though it is"
 reset
@@ -1539,9 +1531,7 @@ t_eq "$t_rc" 0
 t_lacks "$(t_calls docker)" "rmi $image_name:261009-1000"
 t_contains "$t_out" "kept $image_name:261009-1000: a container or a uid tag uses it"
 
-t_case "an image younger than the age stays, and so does one docker cannot date"
-# Both stay, and the log says the same reason for both: the cleaner takes what
-# it dated, and an image it could not date is not one it proved old.
+t_case "an image younger than the age goes all the same once two builds stand after it"
 reset
 old_tags
 young=$(date -u +%Y-%m-%dT%H:%M:%S.000000000Z)
@@ -1549,25 +1539,11 @@ printf '%s\n' "$young" >"$fx/created-sha256:1"
 rm -f "$fx/created-sha256:2"
 t_run "$clean"
 t_eq "$t_rc" 0
-t_lacks "$(t_calls docker)" "rmi $image_name:261009-1000"
-t_lacks "$(t_calls docker)" "rmi $image_name:261010-1000"
-t_contains "$t_out" "kept $image_name:261009-1000: docker did not date its image past $after_hours hours"
-t_contains "$t_out" "kept $image_name:261010-1000: docker did not date its image past $after_hours hours"
-t_contains "$t_out" "docker gave no date past $after_hours hours for 2 image(s), none of them removed"
+t_contains "$(t_calls docker)" "rmi $image_name:261009-1000"
+t_contains "$(t_calls docker)" "rmi $image_name:261010-1000"
+t_lacks "$t_out" "docker did not date its image"
 
-t_case "a stamp docker answers that cannot be read is a keep, not a date"
-reset
-old_tags
-# A stamp that is there and is not a time: docker answered, and what it answered
-# is not a date this parse can read. The image stays, and the run says it dated
-# nothing rather than that the image was young.
-printf '%s\n' 'not a time' >"$fx/created-sha256:1"
-t_run "$clean"
-t_eq "$t_rc" 0
-t_lacks "$(t_calls docker)" "rmi $image_name:261009-1000"
-t_contains "$t_out" "kept $image_name:261009-1000: docker did not date its image past $after_hours hours"
-
-t_case "the instance's age is the age of the images too"
+t_case "the instance's age does not hold the old builds back"
 reset
 old_tags
 # A year against the instance's four days: far past the age, so no clock reads
@@ -1579,8 +1555,8 @@ t_instance "${T_MINIMAL[@]}" TEHAS_CLEAN_AFTER=96
 after_hours=96
 t_run "$clean"
 t_eq "$t_rc" 0
-# Five removals, and not one call for the newest tag of its own age.
-t_eq "$(t_calls docker | grep -c '^rmi ')" "5"
+# Four removals, and none for the newest two builds.
+t_eq "$(t_calls docker | grep -c '^rmi ')" "4"
 t_lacks "$(t_calls docker)" "rmi $image_name:261014-1000"
 
 t_case "a docker that lists no tags removes nothing"
@@ -1641,8 +1617,10 @@ printf '%s\n' "$old_time" >"$fx/created-sha256:7"
 no_containers
 t_run "$clean"
 t_eq "$t_rc" 0
+# The -product and its date are one build, so 261013 is the build before it.
 t_lacks "$(t_calls docker)" "rmi $image_name:261014-1000-product"
-t_contains "$(t_calls docker)" "rmi $image_name:261013-1000"
+t_lacks "$(t_calls docker)" "rmi $image_name:261013-1000"
+t_contains "$(t_calls docker)" "rmi $image_name:261012-1000"
 
 # --- 5. the base image -------------------------------------------------------
 

@@ -66,7 +66,7 @@ END {
 install_host_toolchain() {
   home=$T/home/tehas/sandbox
   mkdir -p "$home" "$T/home/tehas/lib"
-  cp "$build" "$dockerfile" "$home/"
+  cp "$build" "$dockerfile" "$T_ROOT/host/sandbox/base.Dockerfile" "$home/"
   cp "$T_ROOT"/lib/config.sh "$T/home/tehas/lib/"
   cp "$T_ROOT/host/versions.env" "$T/home/tehas/"
 }
@@ -82,6 +82,8 @@ uid=$(id -u)
 t_stub git 'printf "%s\trefs/tags/v0.12.80\n" aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
 t_stub docker 'case "$1" in
   build)
+    # The base is built from a tree on standard input.
+    [ "${!#}" != - ] || cat >/dev/null
     # The recipe the build was handed, kept while the run stands: build.sh takes
     # its own copy back when it ends, so this is the only reading of it. The -f
     # name and its value come in pairs, and the pair is what is asked. The mode of
@@ -128,12 +130,15 @@ setup() {
   rm -f "$T"/calls/* "$T/docker-build-recipe" "$T"/home/tehas/sandbox/sandbox-uid.Dockerfile*
 }
 removed() { t_calls docker | awk '$1 == "rmi" { print $2 }' | LC_ALL=C sort | tr '\n' ' '; }
+# The docker calls but the build of the base, which test/sandbox_build_test.sh
+# checks.
+docker_calls() { t_calls docker | grep -v -e '^build -f base.Dockerfile '; }
 
-t_case "after a build the newest three date tags stay and older ones are removed"
+t_case "after a build the tags of this build and the one before it stay, and older ones are removed"
 setup
 t_run "$build"
 t_eq "$t_rc" 0
-t_eq "$(removed)" "tehas/pi-rukas:261009-1000 tehas/pi-rukas:261010-1000 tehas/pi-rukas:261011-1000 tehas/pi-rukas:261012-1000 "
+t_eq "$(removed)" "tehas/pi-rukas:261009-1000 tehas/pi-rukas:261010-1000 tehas/pi-rukas:261011-1000 tehas/pi-rukas:261012-1000 tehas/pi-rukas:261013-1000 "
 t_contains "$t_out" "removed tehas/pi-rukas:261009-1000"
 t_lacks "$(t_calls docker)" "rmi tehas/pi-rukas:uid"
 
@@ -142,7 +147,7 @@ setup
 printf '%s\n' "c1 sha256:2" "c2 sha256:new" >"$T/containers"
 t_run "$build"
 t_eq "$t_rc" 0
-t_eq "$(removed)" "tehas/pi-rukas:261009-1000 tehas/pi-rukas:261011-1000 tehas/pi-rukas:261012-1000 "
+t_eq "$(removed)" "tehas/pi-rukas:261009-1000 tehas/pi-rukas:261011-1000 tehas/pi-rukas:261012-1000 tehas/pi-rukas:261013-1000 "
 t_contains "$t_out" "kept tehas/pi-rukas:261010-1000: a container or a uid tag uses it"
 
 t_case "a tag whose image another uid tag names is kept"
@@ -150,7 +155,7 @@ setup
 echo "uid4242 sha256:1" >>"$T/images"
 t_run "$build"
 t_eq "$t_rc" 0
-t_eq "$(removed)" "tehas/pi-rukas:261010-1000 tehas/pi-rukas:261011-1000 tehas/pi-rukas:261012-1000 "
+t_eq "$(removed)" "tehas/pi-rukas:261010-1000 tehas/pi-rukas:261011-1000 tehas/pi-rukas:261012-1000 tehas/pi-rukas:261013-1000 "
 
 t_case "a tag that cannot be removed is said, and the build still counts"
 setup
@@ -170,9 +175,9 @@ t_eq "$(removed)" ""
 t_contains "$t_out" "no old tehas/pi-rukas tag was removed"
 T_ENV=()
 
-t_case "three builds or fewer remove nothing"
+t_case "a build and the one before it remove nothing"
 setup
-printf '%s\n' "uid$uid sha256:2" "261010-1000 sha256:1" "261011-1000 sha256:2" >"$T/images"
+printf '%s\n' "uid$uid sha256:2" "261011-1000 sha256:2" >"$T/images"
 t_run "$build"
 t_eq "$t_rc" 0
 t_eq "$(removed)" ""
@@ -209,7 +214,7 @@ t_eq "$(recipe_counts "$dockerfile")" "1 1 1"
 # The mode and the contents are asked of the stub while the build stands, so a copy
 # an earlier run left behind answers for neither.
 t_eq "$(cat "$T/docker-build-mode")" 600
-build_call=$(t_calls docker | grep -m 1 '^build ')
+build_call=$(docker_calls | grep -m 1 '^build ')
 # The -f of the build docker was asked for names the staged recipe, and that is
 # the file whose contents, mode, boundary and uid argument are asked above: a
 # build that dropped -f altogether would leave the stub with no recipe to keep,
@@ -317,7 +322,7 @@ install_host_toolchain
 # staging's own, before docker is asked.
 for_stage=$T/home/no-stage
 mkdir -p "$for_stage/sandbox" "$for_stage/lib"
-cp "$build" "$dockerfile" "$for_stage/sandbox/"
+cp "$build" "$dockerfile" "$T_ROOT/host/sandbox/base.Dockerfile" "$for_stage/sandbox/"
 cp "$T_ROOT"/lib/config.sh "$for_stage/lib/"
 cp "$T_ROOT/host/versions.env" "$for_stage/"
 # The name the staging would have used is made first, owned by the case, so the
@@ -524,7 +529,7 @@ t_run "\"$home/build.sh\" >/dev/null || exit 1
 ! test -e \"$home/sandbox-uid.Dockerfile\" || echo left behind"
 t_eq "$t_rc" 0
 t_contains "$t_out" "is the copy an earlier build left, written"
-t_eq "$(t_calls docker | grep -c -e '^pull' -e '^build')" 2
+t_eq "$(docker_calls | grep -c -e '^pull' -e '^build')" 1
 t_run "cmp -s \"$home/Dockerfile\" \"$dockerfile\""
 t_eq "$t_rc" 0
 # The copy docker was handed is the whole image the tracked file describes, not
@@ -549,7 +554,7 @@ setup
 install_host_toolchain
 t_run "\"$home/build.sh\" >/dev/null || exit 1"
 t_eq "$t_rc" 0
-build_call=$(t_calls docker | grep -m 1 '^build ')
+build_call=$(docker_calls | grep -m 1 '^build ')
 t_eq "$(sed -n 's/.* -f \([^ ]*\) .*/\1/p' <<<"$build_call")" "$home/sandbox-uid.Dockerfile"
 t_contains "$build_call" "--build-arg TEHAS_UID=$uid"
 t_eq "$(cat "$T/docker-build-mode")" 600

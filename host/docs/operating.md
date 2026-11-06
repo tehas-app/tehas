@@ -871,21 +871,21 @@ pi-rukas lets the cycle past its check of the label and takes the label off.
 tehas removes it nowhere. Branches and
 commits the earlier attempt pushed are kept on GitHub. What it left only on the
 host, such as commits on worktrees that were never pushed, is moved to
-`~/tehas/work/tehas-<issue>.before-retry` and stays there until a cycle of that
-issue ends with its own merge, or hands off waiting only for a human to merge.
-A merge or a close someone else makes while the cycle runs keeps both the
-workspace and that copy, for the poll's 7-day removal. Only the latest stopped
+`~/tehas/work/tehas-<issue>.before-retry` and stays there until the retry it
+was kept for ends, whatever its end: merged, handed off or parked. Only the latest stopped
 attempt is kept: a second retry replaces it, unless the attempt before cloned
 no workspace, which leaves the older copy beside the new one. Recover what you
 need from a stopped cycle before you retry twice. Nothing is kept for ever: the
-dispatcher's poll removes an issue's kept workspaces once no cycle has run on
-it for 7 days, three issues a poll at most, and logs each removal. With them go
+dispatcher's poll removes an issue's kept workspaces at once when the issue is
+closed, since a closed issue never resumes, and otherwise once no cycle has run
+on it for `TEHAS_WORKSPACE_KEEP_DAYS` days (7 by default), three issues a poll
+at most, and logs each removal. With them go
 what the cycle left outside its workspace: the agents' transcripts in
 `~/.pi/agent/ensemble-runs/issue-<issue>`, the console
 `~/tehas/live/console-<issue>.txt`, and the transcripts of the issue's planning
 session, `~/.pi/agent/ensemble-runs/plan-<issue>`. An issue whose workspace is
 already gone loses those three on their own, on the same rule: the issue's lock
-free and none of them touched for 7 days. The lock has to be a lock file: as
+free and none of them touched for that many days, or the issue closed. The lock has to be a lock file: as
 with `tehas stop`, one that is a link or a directory says nothing about the
 issue, and the poll removes nothing of it and says so. An issue the poll cannot
 date is kept too, as `tehasbot clean` keeps what it cannot date, and is tried
@@ -1747,8 +1747,9 @@ removes what has not been used for `TEHAS_CLEAN_AFTER` hours, 24 by default:
   that merged is gone - is walked too. A worktree that is a symlink is not walked:
   a link there stands outside the workspace and is left while the roots beside it
   are taken. A kept workspace is never built in again -
-  every cycle clones fresh - and the dispatcher's 7-day sweep takes the whole of
-  it later. The issue's lock is held while they go, so no cycle starts in it,
+  every cycle clones fresh - and the dispatcher's sweep takes the whole of
+  it later. A directory that holds cargo's `CACHEDIR.TAG` is build output
+  whatever name an agent gave it, here and at a cycle's end. The issue's lock is held while they go, so no cycle starts in it,
   and a workspace touched within the age is left alone, the tree of a retry and
   the worktrees beside it being part of that age rule. Nothing is removed
   under a lock that is not there: an issue whose lock file is gone is left
@@ -1783,12 +1784,13 @@ removes what has not been used for `TEHAS_CLEAN_AFTER` hours, 24 by default:
   memory, sessions, transcripts, code index, author and images stay. `du -sh
   ~/tehas/dev/*.state/target` says what the sessions hold, and `rm -rf` of that
   path clears one clone's build by hand (see [tehas dev](/tools#tehas-dev)).
-- the sandbox image's dated tags whose image is of that age, each with its own
-  `docker rmi`. The newest dated tag stays, and so does any tag a container or
-  a `uid` tag was made from: a cycle or a preview still running from an image
-  keeps it whatever its age. The build's own sweep keeps the newest three dated
-  tags; this step is what takes those past the age besides the newest.
-- the base image the sandbox build pulls from upstream, of that age and made no
+- the sandbox image's dated tags before the newest two builds, whatever their
+  age, each with its own `docker rmi`: the current build and the one before it
+  stay, a `<date>-product` counted with its `<date>`, and so does any tag a
+  container or a `uid` tag was made from: a cycle or a preview still running
+  from an image keeps it whatever its age. The build's own sweep keeps the same.
+- the base image a sandbox build pulled from upstream before the base was built
+  on the host, of that age and made no
   container, removed by its own name with `docker rmi`. Nothing else is offered
   to docker: the step never asks for the images that have lost their tag, which
   is how a preview image of `tehasbot preview` and the rollback tag of an update

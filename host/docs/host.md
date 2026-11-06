@@ -26,7 +26,7 @@ Preparing a fresh machine is on the [bootstrap page](/bootstrap).
 | `~/tehas/run/`                       | One copy of `bin/`, `libexec/` and `lib/` for each running cycle (`cycle-<issue>-<pid>`) and planning turn (`plan-<issue>-<pid>`), as hardlinks, so an update leaves the code of what runs as it started. The next start removes the copies whose process has ended |
 | `~/tehas/platform`                   | Checkout of this repository; `install.sh` runs from it and `tehas update` pulls it |
 | `~/tehas/repos/tehas`                | The product checkout, on the default branch. Cycles are cloned from it; no container is given it |
-| `~/tehas/work/tehas-<issue>`         | The cycle's workspace: a fresh clone made for each cycle. Removed after a cycle that merged or left a pull request, otherwise kept, and moved to `tehas-<issue>.before-retry` when that issue is retried. A start that stopped before the container ran keeps the clone it made, as does the one it moved aside. A kept workspace, its `.before-retry` and what else is left beside it go once no cycle has run on the issue for 7 days. Its build output goes sooner: `tehasbot clean` removes what it names as build output once nothing of the issue has been touched for `TEHAS_CLEAN_AFTER` hours, in this tree, in the one a retry moved aside, and in the worktrees of a cycle under either at the depth the runner lays them out, and the 7-day sweep still takes the rest. `~/tehas/work/tehas` is only its path inside the container |
+| `~/tehas/work/tehas-<issue>`         | The cycle's workspace: a fresh clone made for each cycle. Removed after a cycle that merged or left a pull request, otherwise kept, and moved to `tehas-<issue>.before-retry` when that issue is retried. A start that stopped before the container ran keeps the clone it made, as does the one it moved aside. The `.before-retry` goes when the retry it was kept for ends. A kept workspace and what else is left beside it go at once when its issue is closed, and otherwise once no cycle has run on the issue for `TEHAS_WORKSPACE_KEEP_DAYS` days (7 by default). Its build output goes sooner: `tehasbot clean` removes what it names as build output once nothing of the issue has been touched for `TEHAS_CLEAN_AFTER` hours, in this tree, in the one a retry moved aside, and in the worktrees of a cycle under either at the depth the runner lays them out, and the 7-day sweep still takes the rest. `~/tehas/work/tehas` is only its path inside the container |
 | `~/tehas/work/tehas-<issue>.state`   | The cycle's own: `cache`, a copy of the code index the host built; `memory`, what its agents learn; `sessions`, Pi's session files. Made fresh for each cycle, mounted in its container, removed with the workspace. A cycle reads no memory an earlier cycle wrote, even one of the same issue, so a `vipune search` at its start answers `{"results": []}`. `~/tehas/work/tehas-plan-<issue>.state` is a planning turn's, removed after the turn. Of these, only `cache` is build output: `tehasbot clean` removes it when the issue has been idle for `TEHAS_CLEAN_AFTER` hours, and `memory` and `sessions` stay |
 | `~/tehas/work/tehas-<issue>.images`  | With `TEHAS_WORK_IMAGES=1`, the images of the cycle's issue and their `manifest.json`, and with `TEHAS_WORK_DESCRIBE=1` the model's descriptions of them, `images.md`. With `TEHAS_WORK_FILES=1`, the issue's text files too, `file-<n>.<ext>`, with or without the images. Made for each cycle, read-only in its container at `~/tehas/work/tehas.images`, removed when the cycle is over |
 | `~/tehas/work/tehas-plan-<issue>.images` | With `TEHAS_WORK_IMAGES=1` or `TEHAS_WORK_FILES=1`, a copy of a planning session's images and files for one turn, read-only in its container at `~/tehas/work/tehas.images`, removed after the turn |
@@ -111,12 +111,11 @@ free figure that cannot be read changes nothing; the setting sits above
 `TEHAS_CYCLE_MIN_FREE`, so space goes before the poll stops starting cycles.
 
 It removes images in two steps, and no volume. The first takes the dated tags of
-the sandbox image whose image is older than `TEHAS_CLEAN_AFTER` hours, keeping
-the newest dated tag and any tag a container or a `uid` tag was made from. The
-build keeps its newest three date tags (see [Commands](/tools)); what is older
-than the age besides the newest is this step's. The second lists the `sha-` tags
-of the base repository, the repository of the image the build pulls from
-upstream, and removes those of that age with one `docker rmi` each: the current
+the sandbox image past the newest two builds, whatever their age, keeping any tag
+a container or a `uid` tag was made from: the current build and the one before
+it, for a rollback. A build's `<date>` and `<date>-product` count as one build. The second lists the `sha-` tags
+of upstream's base repository, the image a build pulled before the base was
+built on the host, and removes those of that age with one `docker rmi` each: the current
 commit's base, a base a container was made from, and a base a kept `release-`
 tag of the sandbox image stands on all stay: the kept releases are the
 `release-` tags of that image in docker's own list, so no version is assumed,
@@ -167,7 +166,7 @@ commands a person does.
 | Its own `TEHAS_DOMAIN`                         | The edge makes `uat-<pr>.` and `lab-<issue>.` names under it. Two factories under one domain answer each other's previews |
 | The model gateway's `baseUrl` and key, when it uses one | `baseUrl` of the provider in `models.json`, with the token as `$TEHAS_MODEL_KEY_<NAME>` in `~/.config/tehas/env`. See [A backup model endpoint](#a-backup-model-endpoint) |
 | `TEHAS_ENERGY_URL`, when the model is behind a gateway | The energy sampler asks `<baseUrl>/v1/cluster` with the model's token. A gateway that does not pass that path through needs the cluster URL named here, asked with no token. See [`tehasbot energy`](/tools#tehasbot-energy) |
-| Disk for the sandbox image                     | What `docker image inspect --format '{{.Size}}' tehas/pi-rukas:uid$(id -u)` reports for the host's image, with room above that for the base a build pulls and the layers it writes, and room for one image of a rollback. Before the first build the image is not there to be measured, and its size is upstream's base plus these steps: [Bootstrap](/bootstrap#what-the-machine-needs). A second instance user of one host builds its own image for its own uid and shares the layers of the first: [What two instance users of one host share](#what-two-instance-users-of-one-host-share) |
+| Disk for the sandbox image                     | What `docker image inspect --format '{{.Size}}' tehas/pi-rukas:uid$(id -u)` reports for the host's image, with room above that for the base a build makes and the layers it writes, and room for one image of a rollback. Before the first build the image is not there to be measured, and its size is upstream's base plus these steps: [Bootstrap](/bootstrap#what-the-machine-needs). A second instance user of one host builds its own image for its own uid and shares the layers of the first: [What two instance users of one host share](#what-two-instance-users-of-one-host-share) |
 | Room to grow into, when the machine is a VM     | The host runs as one virtual machine on a hypervisor, so its CPUs and memory are set at its maximum once, with room above what the factory needs today: `<vcpu current='N'>MAX</vcpu>` and memory as a `virtio-mem` device. Everything under the maximum then changes while the machine runs, and a restart of the hypervisor saves the VM with its cycles in it. No tehas command takes part in any of it. See [Resize or restart the host](/resize). The other shape is a factory that is a container on another project's machine, as tehas-tehas is: it gains that room, and loses the live resize and the save, so a restart of the machine under it needs a drain first |
 
 ## Installing a factory
@@ -1408,11 +1407,10 @@ the next container reads the new ceiling for itself. That is on
 
 ## Sandbox image
 
-`tehas/pi-rukas:uid<uid>`: the upstream pi-rukas image plus the in-container
-user remapped to the tehas user's id, shellcheck, tehas's jq (ahead of the
-base image's, the version the host runs), Rust at `RUST_VERSION` with rustfmt
-and clippy, Playwright's Chromium with fonts, `file`, and a Python image
-library. The last two are in the container only: `bootstrap.sh` installs
+`tehas/pi-rukas:uid<uid>`: the lean pi-rukas base below plus shellcheck,
+tehas's jq (ahead of the base image's, the version the host runs), Rust at
+`RUST_VERSION` with rustfmt and clippy, Playwright's headless Chromium with
+fonts, `file`, and a Python image library. The last two are in the container only: `bootstrap.sh` installs
 neither and its check does not look for them.
 cargo's registry belongs to that user, so a gate that builds Rust can fetch its
 crates; they go with the container. The base is pinned by digest in
@@ -1502,19 +1500,15 @@ Each build is also tagged with its date, so
 instance with its own `sandbox.Dockerfile` tags back `<date>-product`, the layer
 the cycles run: see [Rolling back pi-rukas](#rolling-back-pi-rukas)).
 Each image is several gigabytes, with Chromium and Rust in it. After a build
-`build.sh` keeps the newest three dated tags, the new one among them (with the
-instance's `<date>-product` counted as one of them), and
-removes older ones (`console clean dated`). It keeps an older tag whose image
-a container, running or stopped, was made from, or that a `uid` tag names. On a host that builds
-often the images then take about three times the size of one, plus those
-still in use. `tehasbot clean` is what takes the rest: the dated tags past
-`TEHAS_CLEAN_AFTER` hours, keeping the newest, and then the old `sha-` tags of
-the base repository, the repository of the image the build pulls from upstream,
-each removed by its own name (see [tehasbot
-clean](/tools#tehasbot-clean)). The base is upstream's image for the commit
-`versions.env` follows, and the puller names it one way only, by that commit;
-the bases of the commits before it are what the cleaner takes, and the base of
-the commit followed today stays.
+`build.sh` keeps the dated tags of the newest two builds, the new one and the one
+before it (a build's `<date>-product` counted with its `<date>`), and removes
+older ones (`console clean dated`). It keeps an older tag whose image a
+container, running or stopped, was made from, or that a `uid` tag names. The
+bases of the same uid other than this build's lose their tags too (`console
+clean bases`); their layers stay while a kept image stands on them. `tehasbot
+clean` keeps the same two builds, and takes the old `sha-` tags of upstream's
+base repository that a host built before the base was tehas's own, each
+removed by its own name (see [tehasbot clean](/tools#tehasbot-clean)).
 
 A build first asks the base image's runner what it supports,
 `pi-rukas-headless --capabilities`. A base that does not speak the contract
@@ -1613,8 +1607,12 @@ uid. `mktemp` writes the copy owner-only, and a link or a directory under the na
 of one of the two is refused rather than removed: the cleaner takes a copy of that
 name and shape and no other.
 
-So a second instance user's build on a host that already has the first reuses the
-base and every layer above the remap, and builds only the steps after it: where much
+Since the base became tehas's own [lean base](#the-lean-base), it is built
+per uid too: its first layer makes the user at that uid, which is what saves the
+remap's copy. So the layers below hold for two instance users of one host only
+where their uids agree. Before that, a second instance user's build on a host
+that already had the first reused the base and every layer above the remap, and
+built only the steps after it: where much
 of the image is shared, the cost of the second user is the last steps and not the
 whole image. The sharing has not been measured on a host yet, and
 [features](/features) records the two measurements that would prove it - the layer
@@ -1653,6 +1651,26 @@ same is true when the first user's build has since been pruned, since `tehasbot
 clean` takes the dated tags past `TEHAS_CLEAN_AFTER` hours and the layers go with
 the last image that needed them. See [the cleaner](/operating#the-cleaner).
 
+### The lean base
+
+The base is tehas's own recipe, `sandbox/base.Dockerfile`, built by
+`build.sh` from the host's pi-rukas clone at the commit followed. It follows
+pi-rukas's `.devcontainer/Dockerfile` step by step on `ubuntu:24.04` instead of
+the VS Code devcontainer base, and leaves out what a cycle never runs or what
+the sandbox layer installs again at pinned versions: glab, wigolo, Rust stable
+(rustup only, the layer installs `RUST_VERSION`), codebase-memory-mcp from
+upstream's main, huggingface_hub and its model download. vipune and oo are
+built in a stage of their own at `VIPUNE_VERSION` and `OO_VERSION`, and pi is
+the version pi-rukas's own recipe pins, read from that file in the tree. The
+user `vscode` is made at the tehas user's uid in the first layer, so the remap
+of the sandbox layer finds nothing to copy: it used to store every file twice.
+Playwright brings only its headless shell, since a container has no display.
+
+On pi-rukas 686ed28 the base was 2.39G against upstream's 6.7G, and the sandbox
+image 5.57G against 11.5G; on v0.14.54, built for uid 1000, the base was 1.66G
+and the sandbox image 3.83G, and its smoke run started a step. The base is per
+uid, so two instance users of one host no longer share its layers.
+
 ## pi-rukas comes from upstream
 
 tehas takes pi-rukas from [upstream](https://github.com/trail-openers/pi-rukas).
@@ -1673,8 +1691,8 @@ commit a host follows:
   pi-rukas. A commit that is not 40 lower-case hex digits is refused with 78.
 
 For the sandbox build, any of these may go in the instance's `instance.env`, where
-it wins over the line in `versions.env`, and so may `PI_RUKAS_IMAGE_DIGEST` below.
-An instance that sets neither follows the line its tehas was shipped with. A load checks `PI_RUKAS_FOLLOW` when the
+it wins over the line in `versions.env`.
+An instance that sets none follows the line its tehas was shipped with. A load checks `PI_RUKAS_FOLLOW` when the
 settings load and stops the command with 78 naming it. `bootstrap.sh` reads only
 `versions.env`.
 
@@ -1687,14 +1705,13 @@ What follows from it:
 
 - `tehas update` moves the sandbox image to that commit whenever it is not
   the commit the image was built on, also when no file of tehas changed. The
-  base is the image upstream publishes for each commit, named by its tag
-  `sha-<first 12 characters>`, or by its digest when `PI_RUKAS_IMAGE_DIGEST`
-  (`sha256:<64 hex>`) is set: a release then starts from the one image its packer
-  saw rather than from whatever that tag points at now. A digest of any other
-  shape stops the build with 78 before docker is asked anything. A commit whose
-  image upstream has not published yet fails the update with a message that says
-  so; the next update tries again. `tehas update --check` says whether the commit
-  moved.
+  base is built on the host from `sandbox/base.Dockerfile` and the clone in
+  `~/tehas/repos/pi-rukas` at that commit (`git archive`), tagged
+  `tehas/pi-rukas-base:sha-<first 12 characters>-uid<uid>`: see [the lean
+  base](#the-lean-base). A clone that lacks the commit fetches once; one that
+  still lacks it fails the update with a message that says so. A release's
+  `PI_RUKAS_IMAGE_DIGEST` no longer picks the base. `tehas update --check` says
+  whether the commit moved.
 - `./bootstrap.sh user` moves the host's clone in `~/tehas/repos/pi-rukas` to
   that commit and runs its installer, once a console is there to name the
   commit: a release's own, or the one `install.sh` puts in `~/tehas/libexec`. That clone is what `tehas dev` and an
@@ -1740,8 +1757,7 @@ the cycle's container started.
 That holds until the next `tehas update`, which builds the followed commit
 again. Hold off updates until upstream tags a fix, or set `PI_RUKAS_FOLLOW` in
 `instance.env`, where it wins over the release's line: `branch:<name>` for a
-branch whose head is the commit you want, or `commit:<sha>` for one commit, with
-`PI_RUKAS_IMAGE_DIGEST` beside it when the base image is to be pinned too.
+branch whose head is the commit you want, or `commit:<sha>` for one commit.
 
 Where the instance sets `TEHAS_IMPROVE_RUKAS_REPO`, the
 [improvement loop](/operating#the-improvement-loop) files what it finds about

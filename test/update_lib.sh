@@ -284,12 +284,25 @@ instance_models() {
 # with this repository's real install.sh, its libraries and its host/ files in
 # the checkout. A case can then run the seam between the two commands against
 # its producer.
+# git as the host has it, but the host's pi-rukas clone holds every commit and
+# archives an empty tree: the sandbox build makes its base from that clone, and
+# docker is a stub here. Everything else goes to the real git.
+real_git=$(command -v git)
+rukas_tree() {
+  # shellcheck disable=SC2016  # the stub expands its own arguments
+  t_stub git 'case "$1 $3" in
+  "-C cat-file" | "-C archive") case $2 in */repos/pi-rukas) exit 0 ;; esac ;;
+esac
+exec '"$real_git"' "$@"'
+}
+
 real_platform() {
   rm -rf "${T:?}/home" "$T/origin" "$T/upstream" "$T/calls"/*
   mkdir -p "$T/home"
   systemctl_active
   docker_up
   bound_calls
+  rukas_tree
   mkdir -p "$checkout"
   cp -R "$T_ROOT/install.sh" "$T_ROOT/bootstrap.sh" "$T_ROOT/bin" "$T_ROOT/libexec" \
     "$T_ROOT/lib" "$T_ROOT/host" "$checkout/"
