@@ -1517,6 +1517,52 @@ changes, and `released: cycles may start again` once when it ends. The gate of
 the lowest issues is not one of these holds: it reaches neither `tehas status`
 nor `/health`, and is seen in `logs/dispatch.log` and `logs/low-gate.log`.
 
+### The gate's bound and the cycles at once
+
+`TEHAS_VERIFY_TIMEOUT` bounds one run of the product's gate, and how long a
+run takes depends on how many cycles share the host. Each container's quota
+is the host's CPUs less one, but busy gates share those CPUs about equally:
+with `TEHAS_TICKET_CONCURRENCY` cycles running their gates at once, each gets
+about the host's CPUs less one over that count. Three numbers have to agree:
+
+- the gate's wall time on this host, measured with that many cycles running;
+- `TEHAS_VERIFY_TIMEOUT`, at or above that time with a margin;
+- `TEHAS_TICKET_CONCURRENCY`, no higher than keeps the gate inside the bound.
+
+A bound below the gate's time under load parks cycles with
+`verify-timeout:<step>` for code that was never judged. On 26 Oct 2026 three
+cycles shared a quota of 15 CPUs with a bound of 30 minutes: the load average
+was about 21, the whole gate ran 26 and 47 minutes, neither run gave a verdict
+on the code, and each of the two cycles spent more than 2 hours to park.
+
+The host records each run of the gate in `~/tehas/state/analytics.db` (see
+[Analytics](/analytics#run_gate_runs)). The longest runs, by the number of
+other cycles running when the cycle started:
+
+```
+sqlite3 ~/tehas/state/analytics.db "SELECT r.concurrent, g.tier, count(*), max(g.ms) / 60000 AS max_minutes FROM run_gate_runs g JOIN runs r ON r.id = g.run_id GROUP BY 1, 2"
+```
+
+When `max_minutes` at the cycles you run is near the bound or above it, do
+one of two things, and write the number in `instance.env` with the
+measurement beside it:
+
+- Raise `TEHAS_VERIFY_TIMEOUT` to the longest run plus a margin. Keep
+  `TEHAS_WORK_STALL` above it, which the settings check enforces, and leave
+  `TEHAS_WORK_TIMEOUT` room for the gate runs of every step.
+- Or lower `TEHAS_TICKET_CONCURRENCY` until the gate fits the bound. Fewer
+  cycles run, and each gate gets a bigger share.
+
+What this repository's own gate takes is measured on [The host](/host#the-gate-under-load).
+
+A step can take more than one bound today. The pi-rukas the factory pins was
+seen to start the whole gate on the combined tree after the fast gate had
+already been stopped at the bound, so one step spent two bounds, and its
+`gate-hang` report said `hung in no named test` while it listed the processes
+still alive. Both are for pi-rukas to change: on a bound kill, go to the
+handoff with what it has, and name the test file still running. Until then,
+size `TEHAS_WORK_TIMEOUT` for two bounds a step.
+
 ## The improvement loop
 
 Optional. It is off unless the instance sets `TEHAS_IMPROVE_REPO` and the timer
