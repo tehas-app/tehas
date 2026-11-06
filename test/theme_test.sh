@@ -3,8 +3,9 @@
 # tokens, the pages use no token a theme does not set, and nothing outside a
 # theme names a colour, so a theme is the whole of the look. Every page names
 # the theme file of the instance's design, TEHAS_DESIGN: beesknees26 unless it
-# says pixel. It reads the files as they are in the checkout, and where caddy
-# is installed it also renders the pages in both designs.
+# says pixel. It reads the files as they are in the checkout: no browser, no
+# server.
+# shellcheck disable=SC2016  # the templates and the compose file are matched as text
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
 
