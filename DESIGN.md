@@ -148,17 +148,19 @@ colours the original chipset could show.
 
 ## Themes
 
-The site is two frontends, and each names its own theme file. The front page,
-the factory floor at `/` and `/floor`, names `host/fun/theme-pixel.css`.
-Every other page, `/business`, `/dashboard`, the manual and the Protolab, names
-`host/fun/theme-beesknees26.css`. There is no setting for the look and neither
-server rewrites a stylesheet path.
+The site has two designs, and the instance's `TEHAS_DESIGN` picks one for every
+page. `beesknees26`, the default, names `host/fun/theme-beesknees26.css` on
+every page and puts the business page at `/`. `pixel` names
+`host/fun/theme-pixel.css` on every page and puts the factory floor at `/`; it
+is for a site that is also the factory's demo. `/floor` and `/business` are
+always there. Neither server rewrites a stylesheet path: the pages are
+templates that name the design's file, logo and share card.
 
-This file describes the pixel frontend, and the rules below it bind that
-frontend. The pages are drawn from role tokens, and a theme is the file that
-gives them values. The stylesheets, the scripts and the markup name no colour,
-typeface or shadow of their own; `test/theme_test.sh` holds them to that, and
-holds each page to the theme of its frontend.
+This file describes the pixel design, and the rules below it bind that design.
+The pages are drawn from role tokens, and a theme is the file that gives them
+values. The stylesheets, the scripts and the markup name no colour, typeface or
+shadow of their own; `test/theme_test.sh` holds them to that, and holds each
+page to the theme of the instance's design.
 
 Beesknees26 is the business look: ink and one muted green on a near-white
 ground, white panels with soft shadows, IBM Plex (bundled, under the OFL), a

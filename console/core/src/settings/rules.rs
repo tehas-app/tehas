@@ -169,6 +169,11 @@ pub const TABLE: &[Setting] = &[
         "on",
     ),
     always("TEHAS_ANALYTICS_COOKIE", SWITCH, "0"),
+    always(
+        "TEHAS_DESIGN",
+        Rule::OneOf(&["beesknees26", "pixel"], "expected beesknees26 or pixel"),
+        "beesknees26",
+    ),
     always("TEHAS_TOP", SWITCH, "0"),
     always("TEHAS_EASY_MERGE", SWITCH, "0"),
     always("TEHAS_OVERLAP_HOLD", SWITCH, "0"),
@@ -714,6 +719,11 @@ mod tests {
     fn a_word_setting_takes_its_words() {
         takes("TEHAS_ANALYTICS", "off");
         refuses("TEHAS_ANALYTICS", "On", "expected on or off");
+        takes("TEHAS_DESIGN", "pixel");
+        takes("TEHAS_DESIGN", "beesknees26");
+        for v in ["Pixel", "paper", "beesknees", "floor"] {
+            refuses("TEHAS_DESIGN", v, "expected beesknees26 or pixel");
+        }
         takes("TEHAS_UPDATE_FROM", "git");
         refuses("TEHAS_UPDATE_FROM", "tag", "expected git or release");
         takes("TEHAS_CYCLE_REPORT", "rust");
