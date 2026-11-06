@@ -96,6 +96,18 @@
       }
     }
   },
+  "versions": {
+    "platform": {
+      "release": "v0.11.0",
+      "latest": "v0.11.0",
+      "behind": false
+    },
+    "rukas": {
+      "version": "v0.14.53",
+      "latest": "v0.14.54",
+      "behind": true
+    }
+  },
   "prototypes": [
     {
       "issue": 21,
