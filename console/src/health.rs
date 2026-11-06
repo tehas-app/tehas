@@ -49,6 +49,7 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
+use tehas_core::github_fails;
 use tehas_core::grammar::an_end;
 use tehas_core::hold;
 use tehas_core::time;
@@ -1979,13 +1980,26 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
                 .unwrap_or(0)
             > BEHIND_FOR;
     let rukas_behind = rukas.get("behind").is_true();
-    let queue_age = (!queue.is_null()).then(|| {
-        now - queue
-            .get("generatedAt")
-            .as_str()
-            .and_then(epoch)
-            .unwrap_or(0)
-    });
+    // The lists are as old as the last read of them: a snapshot that kept
+    // them from the file before, as its read of GitHub failed, says when, and
+    // one that had none to keep is as old as can be.
+    let lists_stale = queue
+        .get("stale")
+        .items()
+        .iter()
+        .any(|p| p.as_str() == Some("queue"));
+    let generated = queue.get("generatedAt");
+    let queue_at = match queue.get("queueAt") {
+        J::Null if lists_stale => &NULL,
+        J::Null => generated,
+        // No list is newer than the file that holds it.
+        at if at.as_str().and_then(epoch) > generated.as_str().and_then(epoch) => generated,
+        at => at,
+    };
+    let queue_age =
+        (!queue.is_null()).then(|| now - queue_at.as_str().and_then(epoch).unwrap_or(0));
+    let github = github_fails::recent(home, now);
+    let github_out = github.outage();
     let no_start = !slice.is_null()
         && in_list(
             slice.get(hold::KEY_WHY),
@@ -2033,6 +2047,7 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
         || over_budget
         || !unlinked.is_empty()
         || mcp_silent
+        || github_out
         || held_line.is_some()
     {
         "warn"
@@ -2054,6 +2069,13 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
         format!(
             "The queue snapshot is {} old: GitHub did not answer the last polls.",
             ago(&J::num(queue_age.unwrap_or(0) as f64))
+        )
+    } else if github_out {
+        format!(
+            "GitHub failed {} calls in the last {} min, the last: {}",
+            github.count,
+            github_fails::WINDOW / 60,
+            github.last.as_ref().map_or("", |(_, l)| l.as_str())
         )
     } else if let Some(line) = alert_line {
         line
@@ -2176,15 +2198,37 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
     let queue_check = if queue.is_null() {
         J::Null
     } else {
-        obj(vec![
-            ("time", queue.get("generatedAt").clone()),
+        let mut q = vec![
+            ("time", queue_at.clone()),
             ("paused", J::Bool(paused)),
             ("inLine", count("queued")),
             ("building", count("running")),
             ("review", count("awaiting")),
             ("stopped", count("stopped")),
-        ])
+        ];
+        if !queue.get("stale").is_null() {
+            q.push(("stale", queue.get("stale").clone()));
+        }
+        obj(q)
     };
+    let github_check = obj(vec![
+        ("failed", J::num(github.count as f64)),
+        ("windowSeconds", J::num(github_fails::WINDOW as f64)),
+        (
+            "lastAt",
+            github
+                .last
+                .as_ref()
+                .map_or(J::Null, |(at, _)| J::Str(time::iso(*at))),
+        ),
+        (
+            "last",
+            github
+                .last
+                .as_ref()
+                .map_or(J::Null, |(_, l)| J::str(l.clone())),
+        ),
+    ]);
     let current = running.items().first().unwrap_or(&NULL).or(&last);
     let cycle = if current.is_null() {
         J::Null
@@ -2261,6 +2305,7 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
         ("poll_cost", poll_cost),
         ("epics", epics),
         ("mcp", mcp),
+        ("github", github_check),
     ];
     if let Some(i) = industry_check {
         checks.push(("industry", i));
@@ -2524,6 +2569,83 @@ mod tests {
             )
         );
         assert_eq!(r.at(&["checks", "allHands"]), &J::Null);
+    }
+
+    #[test]
+    fn lists_kept_from_an_earlier_read_are_as_old_as_that_read() {
+        let h = home("stale-lists");
+        h.write(
+            "live/status.json",
+            r#"{"generatedAt":"2026-10-17T14:00:10Z","queueAt":"2026-10-17T13:40:20Z","stale":["queue"],"queued":[],"running":[],"awaiting":[],"stopped":[]}"#,
+        );
+        let r = h.report(&Given::default());
+        assert_eq!(
+            said(&r),
+            (
+                "warn".into(),
+                "The queue snapshot is 20 min old: GitHub did not answer the last polls.".into()
+            )
+        );
+        assert_eq!(
+            r.at(&["checks", "queue", "time"]).as_str(),
+            Some("2026-10-17T13:40:20Z")
+        );
+        assert_eq!(r.at(&["checks", "queue", "stale"]).dump(), r#"["queue"]"#);
+
+        // Stale with nothing kept: no time to trust, so old.
+        h.write(
+            "live/status.json",
+            r#"{"generatedAt":"2026-10-17T14:00:10Z","stale":["queue"]}"#,
+        );
+        assert_eq!(h.report(&Given::default()).get("status").text(), "warn");
+
+        // Only the completed work stale: the lists are fresh.
+        h.write(
+            "live/status.json",
+            r#"{"generatedAt":"2026-10-17T14:00:10Z","queueAt":"2026-10-17T14:00:10Z","stale":["completed"],"queued":[],"running":[],"awaiting":[],"stopped":[]}"#,
+        );
+        assert_eq!(h.report(&Given::default()).get("status").text(), "pass");
+    }
+
+    #[test]
+    fn github_calls_failing_in_the_last_ten_minutes_warn_and_are_counted() {
+        let h = home("github-fails");
+        let r = h.report(&Given::default());
+        assert_eq!(
+            r.at(&["checks", "github"]).dump(),
+            r#"{"failed":0,"windowSeconds":600,"lastAt":null,"last":null}"#
+        );
+        github_fails::note(&h.0, NOW - 700, "ERROR: gh issue list failed: HTTP 502");
+        github_fails::note(&h.0, NOW - 300, "ERROR: gh api graphql failed: HTTP 502");
+        github_fails::note(
+            &h.0,
+            NOW - 60,
+            "WARN status: gh issue list failed: HTTP 502",
+        );
+        let r = h.report(&Given::default());
+        assert_eq!(
+            r.get("status").text(),
+            "pass",
+            "two are below the threshold"
+        );
+        assert_eq!(r.at(&["checks", "github", "failed"]).dump(), "2");
+        github_fails::note(
+            &h.0,
+            NOW - 20,
+            "ERROR: gh api graphql failed: HTTP 504 (tried 2 times)",
+        );
+        let r = h.report(&Given::default());
+        assert_eq!(
+            said(&r),
+            (
+                "warn".into(),
+                "GitHub failed 3 calls in the last 10 min, the last: ERROR: gh api graphql failed: HTTP 504 (tried 2 times)".into()
+            )
+        );
+        assert_eq!(
+            r.at(&["checks", "github", "lastAt"]).as_str(),
+            Some("2026-10-17T14:00:00Z")
+        );
     }
 
     #[test]

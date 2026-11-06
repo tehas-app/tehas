@@ -225,6 +225,10 @@ t_eq "$(cat "$T/gh-n")" 2
 t_lacks "$t_out" "ghs_poll"
 t_lacks "$t_out" "ghs_fresh"
 t_lacks "$t_out" "TEHAS_GH_TOKEN"
+# The failed read is on the host's record that health counts, once.
+t_eq "$(cut -f2 "$home/state/github-failures")" "$(grep -o 'ERROR: gh api graphql failed.*' <<<"$t_out" | head -1)"
+t_eq "$(wc -l <"$home/state/github-failures")" 1
+t_lacks "$(cat "$home/state/github-failures")" "ghs_"
 t_eq "$(started)" ""
 t_eq "$([ -e "$T/calls/tidy.after-start" ] && echo tidied)" ""
 t_eq "$([ -e "$home/live/demand.json" ] && echo written)" ""
