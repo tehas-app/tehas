@@ -4,16 +4,18 @@
 //!
 //! The steps run in the order the script has always run them, with the same
 //! lines on stderr and the tag alone on stdout. git, gh, docker, the console's
-//! `rukas`, scripts/polyfills.sh, scripts/pins.sh and scripts/verify.sh are
-//! still the programs that do the work; what moved here is what decides
-//! between them: the next version, the remote's head, the changelog's
-//! section and its Adopter action, which polyfills still stand in for work
+//! `rukas`, scripts/polyfills.sh, scripts/pins.sh, scripts/verify.sh and
+//! the head's scripts/collect-changelog.sh are still the programs that do
+//! the work; what moved here is what decides between them: the next version, the remote's head, the changelog's
+//! section and its Adopter action with the head's changelog fragments
+//! counted (src/changelog.rs), which polyfills still stand in for work
 //! upstream is doing, and the pull requests' text.
 //!
 //! Every command runs in the checkout the script lives in, as the script ran
 //! them after its `cd`; the gate and the commits of a pull request run in a
 //! worktree of the head, removed when the task ends.
 
+use crate::changelog::{collect, order, Refusal};
 use crate::pack::{is_exec, logical, Stage};
 use std::fs::File;
 use std::path::{Path, PathBuf};
@@ -485,10 +487,31 @@ pub fn run(a: &Args, root: &Path) -> u8 {
             return 1;
         }
     };
+    // The head's changelog fragments count as lines of the section they will
+    // be collected into.
+    let Some(fragments) = head_fragments(root, &head) else {
+        eprintln!(
+            "tag-release: cannot read the changelog fragments of {}; nothing was tagged",
+            short(&head)
+        );
+        return 1;
+    };
     let found = [next.as_str(), "Unreleased"]
         .into_iter()
-        .find_map(|name| section(&changelog, name).map(|s| (name, s)));
-    let (name, text) = match found {
+        .find(|name| section(&changelog, name).is_some());
+    let collected = match found {
+        Some(name) if !fragments.is_empty() => match collect(&changelog, name, &fragments) {
+            Ok(c) => Some((name, c)),
+            Err(Refusal::Fragment(m)) => {
+                eprintln!("tag-release: {m}; nothing was tagged");
+                return 1;
+            }
+            Err(Refusal::NoSection) => None,
+        },
+        Some(name) => Some((name, changelog.clone())),
+        None => None,
+    };
+    let (name, text) = match collected.and_then(|(n, c)| section(&c, n).map(|t| (n, t))) {
         Some((name, text)) if !text.is_empty() => (name, text),
         _ => {
             eprintln!("tag-release: CHANGELOG.md has no section for {next} or Unreleased; nothing was tagged");
@@ -507,6 +530,15 @@ pub fn run(a: &Args, root: &Path) -> u8 {
     let (count, _) = capture(git().args(["rev-list", "--count", &range]));
     let since = latest.as_deref().unwrap_or("the start");
     if a.dry {
+        if !fragments.is_empty() {
+            eprintln!(
+                "tag-release: would collect {} changelog fragments into the {name} section of CHANGELOG.md:",
+                fragments.len()
+            );
+            for line in text.split('\n') {
+                eprintln!("    {line}");
+            }
+        }
         eprintln!(
             "tag-release: would tag {branch} at {} as {next} ({count} commits since {since})",
             short(&head)
@@ -545,6 +577,9 @@ pub fn run(a: &Args, root: &Path) -> u8 {
 
     if let Some(code) = polyfills(&ctx, a, &scratch.dir.0, &head, &next) {
         return code;
+    }
+    if !fragments.is_empty() {
+        return fragments_pr(&ctx, name, &next, &head);
     }
     if a.pins && is_exec(&tree.join("scripts/pins.sh")) {
         if let Some(code) = pins(&ctx, &next) {
@@ -704,6 +739,105 @@ impl Ctx<'_> {
         let what = what.lines().next().unwrap_or_default().to_string();
         Some((image.lines().next().unwrap_or_default().to_string(), what))
     }
+}
+
+/// The changelog fragments of a commit, (path, text) in the order they are
+/// collected: the regular *.md files of its changelog.d/. None when git
+/// cannot read them.
+pub fn head_fragments(root: &Path, commit: &str) -> Option<Vec<(String, String)>> {
+    let git = || {
+        let mut c = Command::new("git");
+        c.current_dir(root).stderr(Stdio::null());
+        c
+    };
+    let o = git()
+        .args(["ls-tree", "-z", commit, "changelog.d/"])
+        .output()
+        .ok()?;
+    if !o.status.success() {
+        return None;
+    }
+    let mut blobs = Vec::new();
+    for entry in o.stdout.split(|b| *b == 0).filter(|e| !e.is_empty()) {
+        let entry = String::from_utf8_lossy(entry);
+        let (meta, path) = entry.split_once('\t')?;
+        let mut m = meta.split(' ');
+        let (mode, kind, sha) = (m.next()?, m.next()?, m.next()?);
+        let name = path.strip_prefix("changelog.d/")?;
+        if kind != "blob" || mode == "120000" || name.starts_with('.') || !name.ends_with(".md") {
+            continue;
+        }
+        blobs.push((name.to_string(), sha.to_string()));
+    }
+    let mut names: Vec<String> = blobs.iter().map(|(n, _)| n.clone()).collect();
+    order(&mut names);
+    let mut out = Vec::new();
+    for n in names {
+        let sha = &blobs.iter().find(|(b, _)| *b == n)?.1;
+        let o = git().args(["cat-file", "blob", sha]).output().ok()?;
+        if !o.status.success() {
+            return None;
+        }
+        out.push((
+            format!("changelog.d/{n}"),
+            String::from_utf8_lossy(&o.stdout).into_owned(),
+        ));
+    }
+    Some(out)
+}
+
+/// The head's changelog fragments moved into the `name` section of its
+/// CHANGELOG.md by the head's own scripts/collect-changelog.sh, in a pull
+/// request; nothing is tagged. The status the task ends with.
+fn fragments_pr(ctx: &Ctx, name: &str, next: &str, head: &str) -> u8 {
+    let Some(open) = ctx.open_pr("changelog-") else {
+        eprintln!("tag-release: cannot list the open pull requests");
+        return 1;
+    };
+    if !open.is_empty() {
+        eprintln!("tag-release: {open} collects the changelog fragments; merge it, then tag. Nothing was tagged");
+        return 2;
+    }
+    if !is_exec(&ctx.tree.join("scripts/collect-changelog.sh")) {
+        eprintln!("tag-release: {} has changelog fragments but no scripts/collect-changelog.sh to collect them; nothing was tagged", short(head));
+        return 1;
+    }
+    let (collected, ok) = capture(
+        ctx.script("collect-changelog.sh")
+            .args(["--section", name])
+            .arg(ctx.tree.join("CHANGELOG.md")),
+    );
+    if !ok {
+        eprintln!(
+            "tag-release: the changelog fragments could not be collected; nothing was tagged"
+        );
+        return 1;
+    }
+    if ctx.verify && !ctx.gate() {
+        eprintln!("tag-release: the gate failed with the changelog fragments collected; nothing was pushed or tagged");
+        return 1;
+    }
+    let tree = format!("{}/", ctx.tree.display());
+    let paths: Vec<&str> = collected
+        .lines()
+        .map(|p| p.strip_prefix(&tree).unwrap_or(p))
+        .collect();
+    let body = fragments_body(name, &paths, next);
+    let title = "Collect the changelog fragments into CHANGELOG.md";
+    let Some(url) = ctx.propose(&format!("changelog-{next}"), title, &body) else {
+        return 1;
+    };
+    eprintln!("tag-release: {url} collects them; merge it, then tag. Nothing was tagged");
+    2
+}
+
+/// The body of the pull request that collects the changelog fragments.
+pub fn fragments_body(name: &str, paths: &[&str], next: &str) -> String {
+    let lines: Vec<String> = paths.iter().map(|p| format!("- {p}")).collect();
+    format!(
+        "The lines of the changelog fragments, moved into the {name} section of CHANGELOG.md, and the fragments deleted:\n\n{}\n\nOpened by scripts/tag-release.sh, which tags {next} once this is merged.",
+        lines.join("\n")
+    )
 }
 
 /// The polyfills the head carries: kept while upstream works on them, removed
