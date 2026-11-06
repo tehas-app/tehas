@@ -125,7 +125,9 @@ fn cycles_of(body: &str) -> Vec<J> {
 /// One repository's part of the stack, from what `gh issue list` gave: each
 /// list's issues with the repository beside them, the cycles an issue rests
 /// on, and its body cut to 4000 characters. None for what is not such a list.
-pub fn issues_of(repo: &str, lists: &[&str]) -> Option<Vec<J>> {
+/// With `kind`, an issue of that issue type carries the label too, so the
+/// stack reads the kind the same either way.
+pub fn issues_of(repo: &str, lists: &[&str], kind: Option<(&str, &str)>) -> Option<Vec<J>> {
     let mut out = Vec::new();
     for list in lists {
         let J::Arr(issues) = J::parse(list)? else {
@@ -142,6 +144,14 @@ pub fn issues_of(repo: &str, lists: &[&str]) -> Option<Vec<J>> {
                     _ => None,
                 })
                 .collect::<Option<Vec<J>>>()?;
+            let mut names = names;
+            if let Some((t, label)) = kind {
+                if i.get("issueType").get("name").as_str() == Some(t)
+                    && !has(&J::Arr(names.clone()), label)
+                {
+                    names.push(J::str(label));
+                }
+            }
             let body = match i.get("body").or(&J::Null) {
                 J::Null | J::Bool(false) => "",
                 J::Str(s) => s,
@@ -982,7 +992,7 @@ mod tests {
             r#"[{{"number":4,"title":"T","state":"OPEN","labels":[{{"name":"a"}}],"body":"{long}"}},
                 {{"number":5,"title":"U","state":"OPEN","labels":[],"body":null}}]"#
         );
-        let got = issues_of("a/f", &[&list, "[]"]).unwrap();
+        let got = issues_of("a/f", &[&list, "[]"], None).unwrap();
         assert_eq!(got.len(), 2);
         assert_eq!(got[0].get("body").as_str().unwrap().chars().count(), 4000);
         assert_eq!(
@@ -996,8 +1006,32 @@ mod tests {
             r#"[{"labels":["a"]}]"#,
             r#"[{"labels":[],"body":7}]"#,
         ] {
-            assert!(issues_of("a/f", &[bad]).is_none(), "{bad}");
+            assert!(issues_of("a/f", &[bad], None).is_none(), "{bad}");
         }
+    }
+
+    #[test]
+    fn with_the_kind_a_type_an_issue_of_the_type_counts_as_one_of_the_label() {
+        let label = "tehas:improvement";
+        let list = r#"[{"number":4,"title":"T","state":"OPEN","labels":[],"issueType":{"name":"Improvement"}},
+            {"number":5,"title":"U","state":"OPEN","labels":[],"issueType":{"name":"Task"}},
+            {"number":6,"title":"V","state":"OPEN","labels":[{"name":"tehas:improvement"}],"issueType":{"name":"Improvement"}},
+            {"number":7,"title":"W","state":"OPEN","labels":[],"issueType":null}]"#;
+        let kind = issues_of("a/f", &[list], Some(("Improvement", label))).unwrap();
+        let labels: Vec<String> = kind.iter().map(|i| i.get("labels").dump()).collect();
+        assert_eq!(
+            labels,
+            [
+                r#"["tehas:improvement"]"#,
+                "[]",
+                r#"["tehas:improvement"]"#,
+                "[]"
+            ]
+        );
+        let repos = vec!["a/f".to_string()];
+        assert_eq!(rooms(&kind, &repos, label, 3)["a/f"], 1);
+        let plain = issues_of("a/f", &[list], None).unwrap();
+        assert_eq!(rooms(&plain, &repos, label, 3)["a/f"], 2);
     }
 
     #[test]
