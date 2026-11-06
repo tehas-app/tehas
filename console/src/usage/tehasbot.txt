@@ -16,4 +16,5 @@ Usage:
   tehasbot clean                remove what the host can make again (the timer)
   tehasbot mcp serve            the read-only MCP server (the service)
   tehasbot github-token [--check]  the GitHub App's token (the gh shim)
+  tehasbot github-writes        the GitHub writes of the last day, by hour
   tehasbot help                 this text
