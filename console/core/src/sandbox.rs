@@ -113,6 +113,20 @@ pub fn cycle_token(who: &str) -> Result<String, String> {
     }
 }
 
+/// The line that refuses a cycle on a host with a GitHub App and no
+/// TEHAS_CYCLE_LOGIN. The cycle opens its pull request and comments with the
+/// cycle token, which is never the app's: without the token's login the host
+/// would take the cycle's own pull requests for someone else's.
+pub fn cycle_login(who: &str) -> Result<(), String> {
+    let set = |k: &str| env::var(k).is_ok_and(|v| !v.is_empty());
+    if set("TEHAS_GITHUB_APP_ID") && !set(crate::accounts::CYCLE_LOGIN) {
+        return Err(format!(
+            "{who}: TEHAS_CYCLE_LOGIN is not set and a GitHub App is: name the account of {CYCLE_TOKEN} in instance.env"
+        ));
+    }
+    Ok(())
+}
+
 /// A docker client that starts a cycle's container: its GH_TOKEN, which the
 /// container takes by name, is the cycle token. Without one it has none, so the
 /// host's token cannot reach the container.

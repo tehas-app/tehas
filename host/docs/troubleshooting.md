@@ -81,6 +81,11 @@ cd ~/tehas/platform && ./install.sh --check
   and write and Metadata read. Put it in `~/.config/tehas/env` as
   `GH_CYCLE_TOKEN=...`, then restart the dispatcher. See
   [Secrets and trust](/host#secrets-and-trust).
+- `tehas work: TEHAS_CYCLE_LOGIN is not set and a GitHub App is: ...`: with an
+  app, a cycle opens its pull request as the cycle token's account, not the
+  app, and the host needs that login to know the pull request as the factory's.
+  Put `TEHAS_CYCLE_LOGIN=<login>` in `instance.env`, the login of the account
+  `GH_CYCLE_TOKEN` belongs to. It may not be one of `TEHAS_ALLOWED_LABELERS`.
 
 The dispatcher fails the same way under systemd; the line is then in
 `~/tehas/logs/dispatch.log`.

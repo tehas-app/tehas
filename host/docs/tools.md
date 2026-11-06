@@ -3616,16 +3616,28 @@ a `GH_TOKEN` left in `~/.config/tehas/env` is dropped so nothing acts as the
 user it belongs to. The dispatcher, the refresh and the Protolab take the bot's
 login from `TEHAS_BOT_LOGIN`: an installation token cannot ask GitHub who it is.
 
-A cycle's container is given `~/tehas/state/github` read-only at
-`/run/tehas/github`, never the key. The image's `gh` (`host/sandbox/gh-shim`,
-before `/usr/bin/gh` on its `PATH`) reads the token there at every call, and
-git's helper asks that `gh`. A call GitHub refuses for a rate limit is tried
-once more after 60 seconds, and only that call; a call that reads standard
-input is not retried. While the container runs, `tehas work` asks for a
-fresh token every 5 minutes, so a cycle of any length pushes and comments as
-the app. The container's `GH_TOKEN` is the token it started with; a program in
-it that reads `GH_TOKEN` itself, not through `gh`, has that token for its first
-hour only.
+A cycle's container is never given the app's token, its directory or the key.
+It gets the cycle token, `GH_CYCLE_TOKEN` from `~/.config/tehas/env`, as its
+`GH_TOKEN` (#746): a fine-grained token of a user account for the product
+repository only. So what a cycle pushes, opens and comments from inside its
+container carries that account's login, not the app's `<slug>[bot]`, and with
+an app `tehas work` refuses to start (exit 78) until `TEHAS_CYCLE_LOGIN` in
+`instance.env` names it. The host counts that login as the factory's own beside
+`TEHAS_BOT_LOGIN`: the cycle's report finds the cycle's pull request by it, the
+poll stops a cycle whose pull request is merged or closed, the refresh
+refreshes its conflicts, a comments retry reads its pull requests and
+leaves out its comments, and `console pr-title` keeps its title. The host side
+of the cycle - the report, the handoff, the attachment fetch - still acts as
+the app, and `tehas work` renews the app's token every 5 minutes for it while
+the cycle runs.
+
+A planning turn's and a manual session's container is given
+`~/tehas/state/github` read-only at `/run/tehas/github`, never the key. The
+image's `gh` (`host/sandbox/gh-shim`, before `/usr/bin/gh` on its `PATH`) reads
+the token there at every call, and git's helper asks that `gh`; without the
+directory, as in a cycle, it uses `GH_TOKEN`. A call GitHub refuses for a rate
+limit is tried once more after 60 seconds, and only that call; a call that
+reads standard input is not retried.
 
 GitHub names an app `<slug>[bot]` in its REST answers and `<slug>` in GraphQL:
 where tehas compares a GraphQL author with the bot it drops the `[bot]`.

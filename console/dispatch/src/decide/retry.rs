@@ -25,8 +25,9 @@ pub(crate) fn hex40(v: Option<&Value>) -> bool {
 }
 
 /// tehas_refresh_rule's refresh_why: what keeps a pull request from being
-/// refreshed, empty when nothing does.
-pub(crate) fn refresh_why(pr: &Value, bot: &str, repo: &str, control: u64) -> String {
+/// refreshed, empty when nothing does. The bot's are those of `bot` and of
+/// `cycle`, TEHAS_CYCLE_LOGIN, which a cycle opens its pull request as.
+pub(crate) fn refresh_why(pr: &Value, bot: &str, cycle: &str, repo: &str, control: u64) -> String {
     let names = |v: &Value| -> Vec<String> {
         v.pointer("/labels/nodes")
             .and_then(Value::as_array)
@@ -49,7 +50,7 @@ pub(crate) fn refresh_why(pr: &Value, bot: &str, repo: &str, control: u64) -> St
     let closing = pr
         .pointer("/closingIssuesReferences/nodes")
         .and_then(Value::as_array);
-    if s(pr, "/author/login") != bot.strip_suffix("[bot]").unwrap_or(bot) {
+    if !tehas_core::accounts::factorys(&s(pr, "/author/login"), bot, cycle) {
         "it is not the bot's".into()
     } else if pr.get("isCrossRepository") != Some(&json!(false))
         || !s(pr, "/headRepository/nameWithOwner").eq_ignore_ascii_case(repo)
@@ -882,7 +883,13 @@ impl Poll<'_> {
             .get("number")
             .map(|x| x.to_string())
             .unwrap_or("null".into());
-        let rule = refresh_why(&node, bot, &self.c.repo, self.c.control);
+        let rule = refresh_why(
+            &node,
+            bot,
+            &self.c.cycle_login,
+            &self.c.repo,
+            self.c.control,
+        );
         let st = |k: &str| node.get(k).and_then(Value::as_str).unwrap_or("");
         let why = if st("state") != "OPEN" {
             format!("pull request #{number} is not open")

@@ -45,6 +45,7 @@ const SWITCH: Rule = Rule::OneOf(&["0", "1"], "expected 0 or 1");
 const LOGIN_MILLWRIGHT: &str =
     "expected one GitHub login, such as tehas-millwright or tehas-millwright[bot]";
 const LOGIN_BOT: &str = "expected one GitHub login, such as tehas-app-bot[bot]";
+const LOGIN_CYCLE: &str = "expected the GitHub login of the account GH_CYCLE_TOKEN belongs to";
 const LOGIN_OWNER: &str = "expected the GitHub login of one person: GitHub assigns no app's bot";
 
 /// The shape of a value.
@@ -247,6 +248,7 @@ pub const TABLE: &[Setting] = &[
     given_or("TEHAS_GITHUB_APP_ID", Rule::AppId, ""),
     given_or("TEHAS_GITHUB_APP_INSTALLATION", Rule::AppId, ""),
     given_or("TEHAS_BOT_LOGIN", Rule::Login(LOGIN_BOT), ""),
+    given_or("TEHAS_CYCLE_LOGIN", Rule::Login(LOGIN_CYCLE), ""),
     given_or("TEHAS_OWNER", Rule::Person(LOGIN_OWNER), ""),
     given_or("TEHAS_RUKAS_WORKAROUNDS", Rule::Workarounds, ""),
     given_or("TEHAS_BRANCH_CHECK", Rule::BranchCheck, ""),
@@ -693,9 +695,11 @@ mod tests {
     fn a_login_may_end_in_one_bot() {
         takes("TEHAS_MILLWRIGHT_LOGIN", "acme-mill");
         takes("TEHAS_BOT_LOGIN", "acme-app[bot]");
+        takes("TEHAS_CYCLE_LOGIN", "acme-cycle");
         for bad in ["a[bot][bot]", "[bot]", "a[BOT]", "a[bot]x", "a b", "-a"] {
             refuses("TEHAS_MILLWRIGHT_LOGIN", bad, LOGIN_MILLWRIGHT);
             refuses("TEHAS_BOT_LOGIN", bad, LOGIN_BOT);
+            refuses("TEHAS_CYCLE_LOGIN", bad, LOGIN_CYCLE);
         }
     }
 

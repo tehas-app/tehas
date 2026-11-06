@@ -89,12 +89,12 @@ fn nothing_blocks(body: &str) -> bool {
 
 /// When the last review of `bot` was written, if it left nothing that blocks.
 /// A full page may hide a later review, so it proves nothing.
-fn passed_review<'a>(comments: &'a Value, bot: &str) -> Option<&'a str> {
+fn passed_review<'a>(comments: &'a Value, bot: &str, cycle: &str) -> Option<&'a str> {
     let comments = comments.as_array().filter(|c| c.len() < COMMENTS_PAGE)?;
     let review = comments.iter().rev().find(|c| {
         let by = c.pointer("/user/login").and_then(Value::as_str);
         let body = c.get("body").and_then(Value::as_str);
-        by.is_some_and(|by| account(by) == account(bot))
+        by.is_some_and(|by| tehas_core::accounts::factorys(by, bot, cycle))
             && body.is_some_and(|b| b.contains(REVIEW_MARK))
     })?;
     review
@@ -108,7 +108,13 @@ fn passed_review<'a>(comments: &'a Value, bot: &str) -> Option<&'a str> {
 /// GitHub calls it clean, and the factory's last review came after its head
 /// and left no finding above MEDIUM. Anything short of that is not proof.
 /// Err when a read failed, so the title stays as it is.
-fn fine_to_merge(gh: &mut dyn GhRunner, repo: &str, n: u64, bot: &str) -> Result<bool, String> {
+fn fine_to_merge(
+    gh: &mut dyn GhRunner,
+    repo: &str,
+    n: u64,
+    bot: &str,
+    cycle: &str,
+) -> Result<bool, String> {
     let pull = read(gh, &format!("repos/{repo}/pulls/{n}"))?;
     let clean = pull.get("draft") == Some(&Value::Bool(false))
         && pull.get("mergeable") == Some(&Value::Bool(true))
@@ -124,7 +130,7 @@ fn fine_to_merge(gh: &mut dyn GhRunner, repo: &str, n: u64, bot: &str) -> Result
         gh,
         &format!("repos/{repo}/issues/{n}/comments?per_page={COMMENTS_PAGE}"),
     )?;
-    let Some(reviewed) = passed_review(&comments, bot) else {
+    let Some(reviewed) = passed_review(&comments, bot, cycle) else {
         return Ok(false);
     };
     let commit = read(gh, &format!("repos/{repo}/commits/{head}"))?;
@@ -157,13 +163,6 @@ fn linked(head: &str) -> Option<u64> {
     digits.parse().ok().filter(|n| *n > 0)
 }
 
-/// One account whatever names it: GraphQL gives an app as `<slug>`, REST as
-/// `<slug>[bot]` and gh's JSON as `app/<slug>`.
-fn account(login: &str) -> &str {
-    let login = login.strip_prefix("app/").unwrap_or(login);
-    login.strip_suffix("[bot]").unwrap_or(login)
-}
-
 struct Pull {
     number: u64,
     title: String,
@@ -173,9 +172,10 @@ struct Pull {
 }
 
 impl Pull {
-    /// The linked issue of a pull request of the factory's, or None.
-    fn issue(&self, bot: &str) -> Option<u64> {
-        (!bot.is_empty() && account(&self.author) == account(bot))
+    /// The linked issue of a pull request of the factory's, or None: one the
+    /// bot opened, or a cycle with the cycle token (TEHAS_CYCLE_LOGIN).
+    fn issue(&self, bot: &str, cycle: &str) -> Option<u64> {
+        (!bot.is_empty() && tehas_core::accounts::factorys(&self.author, bot, cycle))
             .then(|| linked(&self.head))
             .flatten()
     }
@@ -230,9 +230,10 @@ fn keep(
     pull: &Pull,
     issue: &[String],
     bot: &str,
+    cycle: &str,
 ) -> Result<Option<State>, String> {
     let mut wanted = state(&pull.labels, issue);
-    if wanted == State::Halt && fine_to_merge(gh, repo, pull.number, bot)? {
+    if wanted == State::Halt && fine_to_merge(gh, repo, pull.number, bot, cycle)? {
         wanted = State::Clear;
     }
     let title = titled(&pull.title, wanted);
@@ -250,7 +251,7 @@ fn keep(
     Ok(Some(wanted))
 }
 
-fn sync(gh: &mut dyn GhRunner, repo: &str, n: u64, bot: &str) -> Result<(), String> {
+fn sync(gh: &mut dyn GhRunner, repo: &str, n: u64, bot: &str, cycle: &str) -> Result<(), String> {
     let out = gh.run(&["api", &format!("repos/{repo}/pulls/{n}")])?;
     let v: Value = serde_json::from_str(out.trim()).map_err(|_| "no pull request".to_string())?;
     if v.get("state").and_then(Value::as_str) != Some("open") {
@@ -270,19 +271,19 @@ fn sync(gh: &mut dyn GhRunner, repo: &str, n: u64, bot: &str) -> Result<(), Stri
     if bot.is_empty() {
         return Err("the bot's login could not be read".to_string());
     }
-    let Some(issue) = pull.issue(&bot) else {
+    let Some(issue) = pull.issue(&bot, cycle) else {
         return Ok(());
     };
     let labels = issue_labels(gh, repo, issue)?;
-    keep(gh, repo, &pull, &labels, &bot).map(|_| ())
+    keep(gh, repo, &pull, &labels, &bot, cycle).map(|_| ())
 }
 
-fn poll(gh: &mut dyn GhRunner, repo: &str, given: &Value) -> Vec<String> {
+fn poll(gh: &mut dyn GhRunner, repo: &str, given: &Value, cycle: &str) -> Vec<String> {
     let bot = given.get("bot").and_then(Value::as_str).unwrap_or("");
     let mut lines = Vec::new();
     let nodes = given.get("pulls").and_then(Value::as_array);
     for pull in nodes.into_iter().flatten().filter_map(Pull::of_node) {
-        let Some(issue) = pull.issue(bot) else {
+        let Some(issue) = pull.issue(bot, cycle) else {
             continue;
         };
         let known = given
@@ -293,7 +294,7 @@ fn poll(gh: &mut dyn GhRunner, repo: &str, given: &Value) -> Vec<String> {
             Some(labels) => Ok(labels),
             None => issue_labels(gh, repo, issue),
         }
-        .and_then(|labels| keep(gh, repo, &pull, &labels, bot));
+        .and_then(|labels| keep(gh, repo, &pull, &labels, bot, cycle));
         match kept {
             Ok(None) => {}
             Ok(Some(s)) => lines.push(format!("pull request #{} is now {}", pull.number, s.word())),
@@ -341,10 +342,11 @@ pub fn main(given: &[String]) -> u8 {
         return 78;
     };
     let mut gh = Bounded::new(program, forge::CALL_BOUND);
+    let cycle = env::var(tehas_core::accounts::CYCLE_LOGIN).unwrap_or_default();
     match asked {
         Ok(n) => {
             let bot = env::var("TEHAS_BOT_LOGIN").unwrap_or_default();
-            match sync(&mut gh, &repo, n, &bot) {
+            match sync(&mut gh, &repo, n, &bot, &cycle) {
                 Ok(()) => 0,
                 Err(why) => {
                     eprintln!("{why}");
@@ -360,7 +362,7 @@ pub fn main(given: &[String]) -> u8 {
                 eprintln!("console pr-title: {file} cannot be read");
                 return 1;
             };
-            for line in poll(&mut gh, &repo, &v) {
+            for line in poll(&mut gh, &repo, &v, &cycle) {
                 tehas_core::outln!("{line}");
             }
             0
@@ -373,6 +375,7 @@ mod tests {
     use super::*;
     use serde_json::json;
     use std::collections::VecDeque;
+    use tehas_core::accounts::factorys;
 
     const REPO: &str = "acme/widget";
     const WRITE: &str = "api -X PATCH repos/acme/widget/pulls/9 -f";
@@ -491,7 +494,7 @@ mod tests {
     }
 
     fn fine(answers: Vec<Result<&str, &str>>) -> Result<bool, String> {
-        fine_to_merge(&mut Fake::of(answers), REPO, 9, BOT)
+        fine_to_merge(&mut Fake::of(answers), REPO, 9, BOT, "")
     }
 
     #[test]
@@ -505,7 +508,7 @@ mod tests {
         let comments = comments.to_string();
         let commit = commit();
         let mut gh = Fake::of(vec![Ok(&clean), Ok(&comments), Ok(&commit)]);
-        assert_eq!(fine_to_merge(&mut gh, REPO, 9, BOT), Ok(true));
+        assert_eq!(fine_to_merge(&mut gh, REPO, 9, BOT, ""), Ok(true));
         assert_eq!(
             gh.calls,
             [
@@ -528,7 +531,11 @@ mod tests {
             "{}".to_string(),
         ] {
             let mut gh = Fake::of(vec![Ok(&pull)]);
-            assert_eq!(fine_to_merge(&mut gh, REPO, 9, BOT), Ok(false), "{pull}");
+            assert_eq!(
+                fine_to_merge(&mut gh, REPO, 9, BOT, ""),
+                Ok(false),
+                "{pull}"
+            );
             assert_eq!(gh.calls.len(), 1);
         }
     }
@@ -607,10 +614,27 @@ mod tests {
         let comments = json!([review(BOT, AFTER, "- [LOW] a.rs:1 — x")]).to_string();
         let commit = commit();
         let mut gh = Fake::of(vec![Ok(&clean), Ok(&comments), Ok(&commit), Ok("{}")]);
-        let lines = poll(&mut gh, REPO, &given);
+        let lines = poll(&mut gh, REPO, &given, "");
         assert_eq!(gh.calls[3], format!("{WRITE} title=a"));
         assert_eq!(gh.calls.len(), 4);
         assert_eq!(lines, ["pull request #9 is now without a prefix"]);
+    }
+
+    #[test]
+    fn a_pull_and_review_of_the_cycle_token_are_the_factorys() {
+        let given = json!({"bot": BOT,
+            "pulls": [node(9, "HALT: a", "feature/issue-7-a", "tehas-cycle")],
+            "issues": {"7": [ATTENTION]}});
+        let clean = merge_read(false, json!(true), "clean");
+        let comments = json!([review("tehas-cycle", AFTER, "- [LOW] a.rs:1 — x")]).to_string();
+        let commit = commit();
+        let mut gh = Fake::of(vec![Ok(&clean), Ok(&comments), Ok(&commit), Ok("{}")]);
+        let lines = poll(&mut gh, REPO, &given, "tehas-cycle");
+        assert_eq!(lines, ["pull request #9 is now without a prefix"]);
+        // Without TEHAS_CYCLE_LOGIN it is nobody's the factory touches.
+        let mut gh = Fake::of(vec![]);
+        assert!(poll(&mut gh, REPO, &given, "").is_empty());
+        assert!(gh.calls.is_empty());
     }
 
     #[test]
@@ -621,7 +645,7 @@ mod tests {
         let clean = merge_read(false, json!(true), "clean");
         let comments = json!([review(BOT, AFTER, "- [HIGH] a.rs:1 — x")]).to_string();
         let mut gh = Fake::of(vec![Ok(&clean), Ok(&comments)]);
-        assert!(poll(&mut gh, REPO, &given).is_empty());
+        assert!(poll(&mut gh, REPO, &given, "").is_empty());
         assert_eq!(gh.calls.len(), 2);
     }
 
@@ -631,7 +655,7 @@ mod tests {
             "pulls": [node(9, "WIP: a", "feature/issue-7-a", "tehas-app-bot")],
             "issues": {"7": [RUNNING, ATTENTION]}});
         let mut gh = Fake::default();
-        assert!(poll(&mut gh, REPO, &given).is_empty());
+        assert!(poll(&mut gh, REPO, &given, "").is_empty());
         assert!(gh.calls.is_empty());
     }
 
@@ -642,7 +666,7 @@ mod tests {
             "issues": {"7": [ATTENTION]}});
         let mut gh = Fake::of(vec![Err("HTTP 502")]);
         assert_eq!(
-            poll(&mut gh, REPO, &given),
+            poll(&mut gh, REPO, &given, ""),
             ["WARN: the title of pull request #9 was not kept: HTTP 502"]
         );
         assert_eq!(gh.calls.len(), 1);
@@ -663,10 +687,10 @@ mod tests {
     fn an_account_is_one_under_each_of_its_names() {
         for author in ["tehas-app-bot", "tehas-app-bot[bot]", "app/tehas-app-bot"] {
             for bot in ["tehas-app-bot", "tehas-app-bot[bot]"] {
-                assert_eq!(account(author), account(bot));
+                assert!(factorys(author, bot, ""));
             }
         }
-        assert_ne!(account("alice"), account("tehas-app-bot[bot]"));
+        assert!(!factorys("alice", "tehas-app-bot[bot]", ""));
     }
 
     #[test]
@@ -680,7 +704,7 @@ mod tests {
         let issue = json!({"labels": [{"name": ATTENTION}]}).to_string();
         // A pull request GitHub does not call clean: the second read of it.
         let mut gh = Fake::of(vec![Ok(&pull), Ok(&issue), Ok(&pull), Ok("{}")]);
-        assert_eq!(sync(&mut gh, REPO, 9, "tehas-app-bot[bot]"), Ok(()));
+        assert_eq!(sync(&mut gh, REPO, 9, "tehas-app-bot[bot]", ""), Ok(()));
         assert_eq!(
             gh.calls,
             [
@@ -697,7 +721,7 @@ mod tests {
         let pull = rest_pull("a", "feature/issue-7-a", "tehas-bot", "open");
         let issue = json!({"labels": []}).to_string();
         let mut gh = Fake::of(vec![Ok(&pull), Ok(r#"{"login":"tehas-bot"}"#), Ok(&issue)]);
-        assert_eq!(sync(&mut gh, REPO, 9, ""), Ok(()));
+        assert_eq!(sync(&mut gh, REPO, 9, "", ""), Ok(()));
         assert_eq!(gh.calls[1], "api user");
         assert_eq!(gh.calls.len(), 3, "a right title gets no write");
     }
@@ -711,7 +735,7 @@ mod tests {
         ] {
             let pull = rest_pull("WIP: a", head, by, st);
             let mut gh = Fake::of(vec![Ok(&pull)]);
-            assert_eq!(sync(&mut gh, REPO, 9, "tehas-bot"), Ok(()));
+            assert_eq!(sync(&mut gh, REPO, 9, "tehas-bot", ""), Ok(()));
             assert_eq!(gh.calls.len(), 1, "{head} {by} {st}");
         }
     }
@@ -722,12 +746,12 @@ mod tests {
         // A failed read, and an answer that names no labels: no guess.
         for answer in [Err("HTTP 502"), Ok("{}"), Ok("not json")] {
             let mut gh = Fake::of(vec![Ok(&pull), answer]);
-            assert!(sync(&mut gh, REPO, 9, "tehas-bot").is_err());
+            assert!(sync(&mut gh, REPO, 9, "tehas-bot", "").is_err());
             assert_eq!(gh.calls.len(), 2);
         }
         let mut gh = Fake::of(vec![Err("HTTP 502")]);
         assert_eq!(
-            sync(&mut gh, REPO, 9, "tehas-bot"),
+            sync(&mut gh, REPO, 9, "tehas-bot", ""),
             Err("HTTP 502".to_string())
         );
         assert_eq!(gh.calls.len(), 1);
@@ -744,7 +768,7 @@ mod tests {
             "pulls": [node(9, "a", "feature/issue-7-a", "tehas-bot")],
             "issues": {"7": [RUNNING]}});
         let mut gh = Fake::default();
-        let lines = poll(&mut gh, REPO, &given);
+        let lines = poll(&mut gh, REPO, &given, "");
         assert_eq!(gh.calls, [format!("{WRITE} title=WIP: a")]);
         assert_eq!(lines, ["pull request #9 is now WIP"]);
     }
@@ -756,7 +780,7 @@ mod tests {
             "issues": {}});
         let issue = json!({"labels": []}).to_string();
         let mut gh = Fake::of(vec![Ok(&issue), Ok("{}")]);
-        poll(&mut gh, REPO, &given);
+        poll(&mut gh, REPO, &given, "");
         assert_eq!(
             gh.calls,
             [
@@ -773,7 +797,7 @@ mod tests {
                 node(9, "a", "feature/issue-7-a", "tehas-bot")],
             "issues": {"7": [RUNNING]}});
         let mut gh = Fake::of(vec![Err("HTTP 502"), Err("HTTP 403")]);
-        let lines = poll(&mut gh, REPO, &given);
+        let lines = poll(&mut gh, REPO, &given, "");
         assert_eq!(gh.calls.len(), 2);
         assert_eq!(
             lines,
@@ -792,10 +816,10 @@ mod tests {
         ]);
         let given = json!({"bot": "tehas-bot", "pulls": pulls, "issues": {"7": [RUNNING]}});
         let mut gh = Fake::default();
-        assert!(poll(&mut gh, REPO, &given).is_empty());
+        assert!(poll(&mut gh, REPO, &given, "").is_empty());
         assert!(gh.calls.is_empty());
         let given = json!({"bot": "", "pulls": pulls, "issues": {}});
-        assert!(poll(&mut gh, REPO, &given).is_empty());
+        assert!(poll(&mut gh, REPO, &given, "").is_empty());
         assert!(gh.calls.is_empty());
     }
 

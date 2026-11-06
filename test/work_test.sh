@@ -475,6 +475,13 @@ printf 'ghs_app\n' >"$T/home/tehas/state/github/token"
 echo $(($(date +%s) + 3000)) >"$T/home/tehas/state/github/token.expires"
 t_console || t_bad "no console: $t_console_why"
 T_ENV=("TEHAS_CGROUP_ROOT=$T_CGROUP" TEHAS_CONSOLE_CMD="$T_CONSOLE" GH_CYCLE_TOKEN=cycle-token)
+# Without the cycle token's login the host could not tell the cycle's pull
+# request for the factory's: no cycle starts.
+t_run "$work 7"
+t_eq "$t_rc" 78
+t_contains "$t_out" "tehas work: TEHAS_CYCLE_LOGIN is not set and a GitHub App is"
+t_eq "$(find "$T/calls" -name 'docker*' -o -name 'gh*' -o -name 'git*' | wc -l)" 0
+printf '%s\n' TEHAS_CYCLE_LOGIN=tehas-cycle >>"$TEHAS_INSTANCE_DIR/instance.env"
 t_run "$work 7"
 t_eq "$(cat "$T/calls/docker.token" 2>/dev/null)" "cycle-token"
 run_args=$(cycle_args)

@@ -331,23 +331,36 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
             }
             Err(e) => s["cycles_failed"] = e,
         }
-        s["bot_prs"] = github::list(
-            calls,
-            &[
-                "pr",
-                "list",
-                "--repo",
-                &c.repo,
-                "--author",
-                &bot(&s),
-                "--state",
-                "all",
-                "--json",
-                "url,state,body,headRefName,createdAt",
-                "--limit",
-                "100",
-            ],
-        );
+        // The bot's pull requests, and those a cycle opened with the cycle
+        // token from inside its container (TEHAS_CYCLE_LOGIN).
+        let mut authors = vec![bot(&s)];
+        let cycle = tehas_core::accounts::account(&c.cycle_login).to_string();
+        if !cycle.is_empty() && cycle != tehas_core::accounts::account(&authors[0]) {
+            authors.push(cycle);
+        }
+        let lists: Vec<Value> = authors
+            .iter()
+            .map(|author| {
+                github::list(
+                    calls,
+                    &[
+                        "pr",
+                        "list",
+                        "--repo",
+                        &c.repo,
+                        "--author",
+                        author,
+                        "--state",
+                        "all",
+                        "--json",
+                        "url,state,body,headRefName,createdAt",
+                        "--limit",
+                        "100",
+                    ],
+                )
+            })
+            .collect();
+        s["bot_prs"] = joined_lists(lists);
     }
     for n in &locks {
         if !open.contains(n) {
@@ -817,10 +830,41 @@ fn uri(s: &str) -> String {
         .collect()
 }
 
+/// The lists of each author as one, or the first that failed or is no list.
+fn joined_lists(lists: Vec<Value>) -> Value {
+    let mut all = Vec::new();
+    for l in lists {
+        match l {
+            Value::Array(a) => {
+                for p in a {
+                    let url = p.get("url");
+                    if url.is_none() || !all.iter().any(|q: &Value| q.get("url") == url) {
+                        all.push(p);
+                    }
+                }
+            }
+            other => return other,
+        }
+    }
+    Value::Array(all)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::read::models::Models;
+
+    #[test]
+    fn the_bots_pull_requests_are_the_lists_of_both_authors() {
+        let a = json!({"url": "https://github.com/a/b/pull/1"});
+        let b = json!({"url": "https://github.com/a/b/pull/2"});
+        assert_eq!(
+            joined_lists(vec![json!([a.clone()]), json!([b.clone(), a.clone()])]),
+            json!([a, b])
+        );
+        let failed = json!({"failed": true});
+        assert_eq!(joined_lists(vec![json!([a]), failed.clone()]), failed);
+    }
     use crate::snapshot::Snapshot;
 
     /// What separates two calls in a stub's record: a word of nothing that no
