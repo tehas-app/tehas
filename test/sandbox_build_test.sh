@@ -79,7 +79,14 @@ t_stub docker 'case "$1" in
         which=$(cat "$T/fx/which-layers" 2>/dev/null)
         for a in "$@"; do case "$a" in *-product) which=$(cat "$T/fx/which-product" 2>/dev/null) ;; esac; done
         [ -n "$which" ] && [ -s "$T/fx/$which" ] || exit 1
-        cat "$T/fx/$which"
+        # Answered as Docker does: {{.RootFS.Layers}} prints the ids on one
+        # bracketed line, and a range that prints each id ends with an empty line.
+        fmt=""; prev=""; for a in "$@"; do [ "$prev" != --format ] || fmt=$a; prev=$a; done
+        case "$fmt" in
+          "{{range .RootFS.Layers}}{{println .}}{{end}}") cat "$T/fx/$which"; echo ;;
+          "{{.RootFS.Layers}}") echo "[$(paste -sd " " "$T/fx/$which")]" ;;
+          *) exit 1 ;;
+        esac
         exit 0 ;;
     esac
     # "docker image" on its own, which no command of build.sh asks for.
@@ -601,6 +608,22 @@ t_eq "$t_rc" 1
 t_contains "$t_out" "was not built on tehas/pi-rukas:"
 t_lacks "$(t_calls docker | grep -e '^tag ')" "-product "
 rm -f "$T/instance/sandbox.Dockerfile" "$fx/product-missing"
+
+t_case "the layers are asked one id per line, so a layer on this run's image passes the check (#1653)"
+reset
+printf 'ARG TEHAS_BASE\nFROM $TEHAS_BASE\n' >"$T/instance/sandbox.Dockerfile"
+fx_ids
+# The shape seen on Docker 29: a base of many layers and one layer on top. The
+# stub prints {{.RootFS.Layers}} as Docker does, one bracketed line, so a check
+# that asked for that field would read one id from each and refuse the layer.
+for n in $(seq 1 52); do printf 'sha256:%064d\n' "$n"; done >"$fx/layers-platform"
+{ cat "$fx/layers-platform"; printf 'sha256:%064d\n' 53; } >"$fx/layers-product"
+t_run "$build"
+t_eq "$t_rc" 0
+t_lacks "$t_out" "was not built on"
+t_eq "$(t_calls docker | grep -c -F 'image inspect --format {{range .RootFS.Layers}}{{println .}}{{end}} ')" 2
+t_contains "$(t_calls docker | grep -e '^tag ')" "-product "
+rm -f "$T/instance/sandbox.Dockerfile"
 
 t_case "a docker that answers no layers for the instance image stops the build"
 reset
