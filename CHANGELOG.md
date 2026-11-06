@@ -50,6 +50,7 @@ None.
 - The pinned vipune moves from 0.15.0 to 0.20.3.
 - The pinned oo moves from 0.5.0 to 0.10.1.
 - The pinned Caddy moves from 2.11.7 to 2.11.9.
+- A new setting, `TEHAS_ISSUE_TYPES`, lets the organisation's issue types mark the kinds `improvement` and `prototype` in place of the `tehas:improvement` and `tehas:prototype` labels. The improvement loop files its issues with the type, the dispatcher holds an issue of the type as it holds one with the label, and the Protolab lists the issues of the type set by an allowed account. A type the organisation does not have stops each with 78. Unset, the labels work as before (#813).
 
 ### Held back
 
