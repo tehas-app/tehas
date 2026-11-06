@@ -317,6 +317,36 @@ the running cycles to end. `running` lists the issues whose cycles still run.
 Exit 0 when no cycle is running; 1 when some still are at the end of the
 wait; 64 on a bad argument; 78 without an instance.
 
+## Industry alerts
+
+```
+~/tehas/state/industry/alerts.json
+```
+
+```json
+{"time": "2026-10-17T14:00:00Z", "alerts": [{"kind": "paused", "since": "2026-10-17T10:00:00Z", "text": "Paused for 4 h: tehas:pause on the control issue.", "link": "https://tehas-industry.example/factories/tehas-tehas"}]}
+```
+
+The one file a program writes into the factory rather than a command it
+runs: tehas-industry writes it on each pass, atomically, with what it sees of
+the factory that the factory cannot see of itself. [`tehasbot
+health`](/tools#tehasbot-health) reads it when `TEHAS_INDUSTRY_VERSION` is
+set, into `checks.industry.alerts`, and the front pages show the current
+alerts as a banner. The source holds its JSON Schema,
+`api/industry-alerts.schema.json`, and a sample, `api/industry-alerts.sample.json`.
+
+| Field | Meaning |
+| --- | --- |
+| `time` | When the industry wrote the file, RFC 3339. Alerts more than five minutes old are not current |
+| `alerts` | The alerts that hold now; an empty list when there are none |
+| `alerts.kind` | `paused` (paused or drained for too long), `frozen` (nothing moves) or `held-by-one` (one ticket has held the factory still while work waits). A kind tehas does not know is shown by its word |
+| `alerts.since` | When it started, RFC 3339 |
+| `alerts.text` | The alert for a person, one line. Health keeps 200 characters of it |
+| `alerts.link` | Where the industry shows it, an `http` or `https` address |
+
+A file that is not this shape is unreadable: health says so and warns, and
+never reads it as no alerts.
+
 ## tehas history
 
 ```

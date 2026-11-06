@@ -109,8 +109,20 @@ pub fn count(home: &Path, sql: &str) -> i64 {
     one(home, &format!("SELECT count(*) FROM {sql}"))
 }
 
-/// The cycle lock of an issue, held by this process until the file is dropped.
-pub fn hold(home: &Path, issue: i64) -> File {
+/// A lock this process holds, let go when the guard is dropped. The drop
+/// unlocks before it closes the file: a `flock` belongs to the open file
+/// description, so a child another test forks in that moment shares it, and
+/// only an explicit unlock frees the lock before the child execs (#1568).
+pub struct Held(pub File);
+
+impl Drop for Held {
+    fn drop(&mut self) {
+        let _ = self.0.unlock();
+    }
+}
+
+/// The cycle lock of an issue, held by this process until the guard is dropped.
+pub fn hold(home: &Path, issue: i64) -> Held {
     let dir = home.join("state").join("cycles");
     fs::create_dir_all(&dir).unwrap();
     let f = OpenOptions::new()
@@ -120,7 +132,7 @@ pub fn hold(home: &Path, issue: i64) -> File {
         .open(dir.join(format!("{issue}.lock")))
         .unwrap();
     f.lock().unwrap();
-    f
+    Held(f)
 }
 
 /// A unique `--at` for each approval a test records.
@@ -161,14 +173,14 @@ pub fn approve(home: &Path, issue: i64, by: &str, how: &str) -> i64 {
 }
 
 /// A started cycle: an approval by `by`, the lock held, cycle-start.
-pub fn start_by(home: &Path, issue: i64, by: &str, how: &str, now: i64) -> (File, i64) {
+pub fn start_by(home: &Path, issue: i64, by: &str, how: &str, now: i64) -> (Held, i64) {
     approve(home, issue, by, how);
     let lock = hold(home, issue);
     let v = ok_at(home, now, &["cycle-start", &issue.to_string()]);
     (lock, v["attempt"].as_i64().unwrap())
 }
 
-pub fn start(home: &Path, issue: i64) -> (File, i64) {
+pub fn start(home: &Path, issue: i64) -> (Held, i64) {
     start_by(home, issue, "alice", "label", NOW)
 }
 

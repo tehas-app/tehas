@@ -633,6 +633,34 @@ The work is committed on a local branch in the workspace and was not pushed.
 There is no pull request. Change the issue where the cause is in it, then
 retry.
 
+### `verify-baseline-red:<step>`
+
+Before the developer ran, the driver ran the product's gate once on a clean
+checkout of the cycle's base commit, and it failed there too. The cause is
+on the branch, not in the issue. The cap says `ALSO FAILS on a clean checkout
+of the cycle's base commit <sha>`, then the assertion that failed. When it
+says `(no specific assertion could be extracted)`, pi-rukas found none in the
+gate's output, and the cycle keeps no copy of that output: its
+`stream.jsonl` has no `verify-completed` event for the base run, and the
+record's `capReason` is cut at about 180 characters. Run the gate yourself
+on that commit, as [The verify gate fails on code the cycle did not
+touch](#the-verify-gate-fails-on-code-the-cycle-did-not-touch) says, to see
+which case is red.
+
+The cycle got here after its explore and plan steps, and the run at the base
+takes as long as one full gate, so this is the most expensive way to learn
+that the branch is red. Every cycle the poll starts onto the same commit
+parks the same way. Set `TEHAS_BRANCH_CHECK` to the check that runs the gate
+on every push, `verify` for this repository, and the poll holds new cycles
+with `holding: main is red at <sha>` while that check failed on the head
+commit (see [Limits that hold work back](/operating#limits-that-hold-work-back)).
+Fix the branch, then retry.
+
+What only pi-rukas can change (tehas-app/tehas#751): the base run should
+write a `verify-started` and a `verify-completed` event with `status:
+"failed"`, the failing suite, the assertion and the path of the output it
+kept. When it extracts no assertion it should say so and name that path.
+
 ### `intent-park`
 
 The cycle stopped before the plan. Having read the issue and the code, the
@@ -739,7 +767,9 @@ the pull request before you retry: while it is open, a new cycle stops at
 `child-timeout:develop` or `child-timeout:explore`: one child of that step ran
 past its own run bound. pi-rukas told it to wrap up at the bound and ended it
 10 minutes later. Read the run log for what the child was doing. When it was
-progressing, split the issue; when it was stuck, find out why.
+progressing, split the issue; when it was stuck, find out why. The runner
+reports the end as `aborted`; the cycle's record for the improvement loop
+says `child-bound`, so it is not read as an abort.
 
 A `child-timeout:develop` leaves a note of the attempt at the end of the
 issue's body, which the next cycle reads. A second one on the same text offers
@@ -964,6 +994,9 @@ scripts/verify.sh --full
 ```
 
 Fix the default branch first; every cycle will fail the same way until then.
+With `TEHAS_BRANCH_CHECK` set, the poll starts no cycle while the branch's
+check is red, so new cycles wait for the fix instead of parking at
+`verify-baseline-red` after their plan.
 
 When the gate stops on a shellcheck note, the severity floor the lint runs at
 and the one suppression it accepts (`SC2016`, for the line whose single quotes
