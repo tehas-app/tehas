@@ -3040,7 +3040,7 @@ minutes old, which is what a failed read leaves, and then it warns of nothing.
 | `status` | Meaning                                                                                  | HTTP |
 | -------- | ---------------------------------------------------------------------------------------- | ---- |
 | `pass`   | Taking work, idle or in a cycle                                                          | 200  |
-| `warn`   | The queue snapshot is more than ten minutes old: GitHub did not answer the last polls, and `output` says how old. Or paused (the pause flag on this host, `tehas:pause` on the control issue, or a pause no allowed account took off), or the dispatcher holds everything because the slice is missing or cannot be read, or there are no resources (the model endpoint does not answer or does not offer the model), or too low on disk to build previews, or the free space could not be read, or the platform checkout has been behind origin's default branch for more than a day (`output` says how many commits; run `tehas update`), or the state store has no daily backup or the newest is more than two days old, or an idle poll cost more than its budget (`TEHAS_POLL_BUDGET`, `checks.poll_cost`), or systemd gave up on a tehas unit (`checks.units`, null when that read did not answer), or no cycle runs and the last poll held every issue in line on its own (`checks.slice.held`: issue, why, text, clear), as one whose last cycle parked on the body it still has, or an open issue labelled `epic` has no sub-issues (`checks.epics`; `output` names up to five and says to link their parts as sub-issues), or the MCP server is on and does not answer (`checks.mcp`), or the sandbox image is behind the pi-rukas the host follows (`checks.rukas.behind`; run `tehas update`) | 200  |
+| `warn`   | The queue snapshot is more than ten minutes old: GitHub did not answer the last polls, and `output` says how old. Or paused (the pause flag on this host, `tehas:pause` on the control issue, or a pause no allowed account took off), or the dispatcher holds everything because the slice is missing or cannot be read, or there are no resources (the model endpoint does not answer or does not offer the model), or too low on disk to build previews, or the free space could not be read, or the platform checkout has been behind origin's default branch for more than a day (`output` says how many commits; run `tehas update`), or the state store has no daily backup or the newest is more than two days old, or an idle poll cost more than its budget (`TEHAS_POLL_BUDGET`, `checks.poll_cost`), or systemd gave up on a tehas unit (`checks.units`, null when that read did not answer), or no cycle runs and the last poll held every issue in line on its own (`checks.slice.held`: issue, why, text, clear), as one whose last cycle parked on the body it still has, or an open issue labelled `epic` has no sub-issues (`checks.epics`; `output` names up to five and says to link their parts as sub-issues), or the MCP server is on and does not answer (`checks.mcp`), or the sandbox image is behind the pi-rukas the host follows (`checks.rukas.behind`; run `tehas update`), or the industry that runs the factory raised an alert in the last five minutes or wrote an alerts file that cannot be read (`checks.industry.alerts`) | 200  |
 | `fail`   | The last cycle ended as anything but `merged` or `handoff` and no cycle has started since (a running cycle with no `startedAt` counts as started since), or there is no queue snapshot | 503  |
 
 `output` says the same in a sentence. `checks.queue` has the snapshot time and
@@ -3098,6 +3098,21 @@ from `TEHAS_INDUSTRY_VERSION` in `~/.config/tehas/env`, which industry writes.
 A factory that runs on its own has no `checks.industry`, and its status is
 decided as before. A value that is not `vX.Y.Z`, with an optional `-<suffix>`
 of letters, digits and dots, is left out the same way, and nothing fails.
+
+With an industry, `checks.industry` also carries the alerts it writes into
+`~/tehas/state/industry/alerts.json` on each pass, as [the factory
+API](/api#industry-alerts) describes the file: `alerts`, a list of `{kind,
+since, text, link}`, with `alertsTime`, when the industry wrote them, and
+`alertsStale`, `true` when that is more than five minutes ago. A stale file's
+alerts are listed but not current. `kind` is `paused`, `frozen` or
+`held-by-one`, and a kind this release does not know is kept by its word.
+`since` is in UTC, `text` is one line of at most 200 characters, and `link` is
+`null` when the file's is not an `http` or `https` address. No file yet is
+`alerts: null`. A file that cannot be read, or is not what the industry
+writes, is `alerts: null` with `alertsUnreadable: true`, never an empty list.
+Any current alert makes the health `warn`, with the first alert's text as
+`output`, ahead of the pause the factory knows of itself; an unreadable file
+makes it `warn` with `The industry's alerts cannot be read: ...`.
 
 `checks.backup` is the newest daily copy of the state store, `{time,
 ageSeconds}`, or `null` when there is none (see [Backups and
