@@ -5,11 +5,14 @@
 //!   xtask select-tests --root <dir> <path>...
 //!   xtask pack-release --script <path> <argument>...
 //!   xtask tag-release --script <path> <argument>...
+//!   xtask test --root <dir> [path...]
 //!
 //! select-tests is scripts/select-tests.sh: src/select.rs says what it prints.
 //! pack-release is scripts/pack-release.sh, whose header (the --script) is its
 //! usage: src/pack.rs. tag-release is scripts/tag-release.sh, the same way:
-//! src/tag.rs; it works in the checkout two levels above the --script.
+//! src/tag.rs; it works in the checkout two levels above the --script. test
+//! is scripts/test.sh: src/run.rs. Each check of its pool runs as
+//! `xtask test-task`, a process of this program's own.
 //!
 //! Exit: what the task says; 64 a task or an argument it does not know.
 
@@ -17,19 +20,27 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 mod pack;
+mod run;
 mod select;
 mod tag;
 
 fn main() -> ExitCode {
+    // A task's arguments are paths, taken as bytes.
+    let os: Vec<std::ffi::OsString> = std::env::args_os().skip(1).collect();
+    if os.first().is_some_and(|a| a == "test-task") {
+        return ExitCode::from(run::task(&os[1..]));
+    }
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
         Some("select-tests") => select_tests(&args[1..]),
         Some("pack-release") => pack_release(&args[1..]),
         Some("tag-release") => tag_release(&args[1..]),
+        Some("test") => test(&args[1..]),
         _ => {
             eprintln!("xtask: usage: xtask select-tests --root <dir> <path>...");
             eprintln!("       xtask pack-release --script <path> <argument>...");
             eprintln!("       xtask tag-release --script <path> <argument>...");
+            eprintln!("       xtask test --root <dir> [path...]");
             ExitCode::from(64)
         }
     }
@@ -107,6 +118,21 @@ fn tag_release(args: &[String]) -> ExitCode {
     };
     let root = pack::logical(&pwd(), &script.join("../.."));
     ExitCode::from(tag::run(&a, &root))
+}
+
+fn test(args: &[String]) -> ExitCode {
+    let (root, paths) = match args {
+        [flag, root, paths @ ..] if flag == "--root" => (PathBuf::from(root), paths),
+        _ => {
+            eprintln!("xtask: test needs --root <dir>");
+            return ExitCode::from(64);
+        }
+    };
+    let Ok(me) = std::env::current_exe() else {
+        eprintln!("test.sh: cannot name the program that runs the checks");
+        return ExitCode::from(2);
+    };
+    ExitCode::from(run::main(&root, paths, &me))
 }
 
 fn refuse(f: pack::Fail) -> ExitCode {
