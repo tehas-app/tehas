@@ -10,11 +10,11 @@ person renames it to the version in the release's pull request and starts a new
 empty one above it.
 
 A pull request does not edit this file. It adds its lines in
-`changelog.d/<issue>.md` (named after the branch when there is no issue), under
-`### Changes` and `### Adopter action`, either of which may be left out.
-`scripts/release-notes.sh Unreleased` shows them in the Unreleased section, and
-`scripts/tag-release.sh` moves them into the release's section in a pull
-request before it tags (`scripts/collect-changelog.sh`).
+`changelog.d/<issue>.md` (named after the branch, each `/` a `-`, when there is
+no issue), under `### Changes` and `### Adopter action`, either of which may be
+left out. `scripts/release-notes.sh Unreleased` shows them in the Unreleased
+section, and `scripts/tag-release.sh` moves them into the release's section in
+a pull request before it tags, with the head's `scripts/collect-changelog.sh`.
 
 ## Unreleased
 

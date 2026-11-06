@@ -4109,7 +4109,8 @@ tests of the console and the dispatcher run the store's program, which no
 manifest says, so `console/xtask/src/select.rs` lists that link: they run with the
 store, and a change to the store runs them. A path in `console/core/`, a
 manifest, `console/Cargo.lock`, a path in no crate, or metadata that cannot be
-read runs the whole workspace's tests.
+read runs the whole workspace's tests. A changelog fragment, a path under
+`changelog.d/`, runs the test files that name `changelog.d`.
 The heavy integration files, `test/install_*`, `test/update_*`,
 `test/pack_release_test.sh` and `test/bootstrap_test.sh`, run only when the
 change touches what they test directly, and a `note` line names the ones left
@@ -4653,21 +4654,29 @@ exits 1 when the file has none for that tag. The workflow makes the release's
 page from it, from the `Unreleased` section when the tag has none of its own.
 
 A pull request does not edit `CHANGELOG.md`, so two open ones do not conflict
-there. It adds a fragment, `changelog.d/<issue>.md` (named after the branch
-when there is no issue), with a `### Changes` and an `### Adopter action`
-section, either of which may be left out; text outside them is refused.
+there. It adds a fragment, `changelog.d/<issue>.md`, with a `### Changes` and
+an `### Adopter action` section, either of which may be left out; text outside
+them is refused. A pull request with no issue names the file after its branch,
+each `/` a `-`: branch `fix/typo` writes `changelog.d/fix-typo.md`, and
+`scripts/collect-changelog.sh --name <branch>` prints that path. A line inside
+a fenced code block is text, so a `#` comment there is not read as a heading;
+a line in one that starts `## ` or `### ` is refused, since it would read as a
+heading of `CHANGELOG.md` once collected, and so is a block left open.
 `scripts/release-notes.sh Unreleased` prints the Unreleased section with the
 fragments' lines added under their headings, ordered by issue number. A tagged
 release is read from `CHANGELOG.md` alone.
 
 `scripts/tag-release.sh` counts the fragments' Adopter action, and `--dry-run`
-prints the section with the fragments collected. When the head has fragments it
-moves their lines into the release's section and deletes them
-(`scripts/collect-changelog.sh`), runs the gate, opens a pull request from
+prints the section with the fragments collected. When the head has fragments,
+the head's own `scripts/collect-changelog.sh` (the version in the commit being
+tagged, not the operator's checkout) moves their lines into the release's
+section and deletes them; then it runs the gate, opens a pull request from
 `changelog-<tag>`, and tags nothing; the tag, and the move of the pinned tools,
 wait for a person to merge it. An open pull request from such a branch holds
-the tag. `scripts/collect-changelog.sh --print` shows the result without
-changing a file.
+the tag. A head with fragments and no `scripts/collect-changelog.sh` is not
+tagged. `scripts/collect-changelog.sh --print` shows the result without
+changing a file. The rules are `xtask collect-changelog`
+(`console/xtask/src/changelog.rs`), which the script runs.
 
 A host moving from its platform checkout has no version installed, so its notes
 start at the newest `vX.Y.Z` tag at or before the checkout's HEAD, which

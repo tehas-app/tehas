@@ -361,3 +361,72 @@ fn a_remote_that_cannot_be_read_stops_it() {
     let r = Remote::new();
     assert_eq!(r.run(&["--remote", "nowhere"]), 1);
 }
+
+impl Remote {
+    /// A new commit on the remote's main with these files of up/.
+    fn files(&self, files: &[(&str, &str)]) {
+        for (path, text) in files {
+            let p = self.dir.join("up").join(path);
+            fs::create_dir_all(p.parent().unwrap()).unwrap();
+            fs::write(p, text).unwrap();
+        }
+        self.git(&["-C", "up", "add", "-A"]);
+        self.git(&["-C", "up", "commit", "--quiet", "-m", "files"]);
+        self.git(&["-C", "up", "push", "--quiet", "origin", "main"]);
+    }
+}
+
+#[test]
+fn the_heads_fragments_are_its_md_files_in_issue_order() {
+    let r = Remote::new();
+    r.files(&[
+        ("changelog.d/12.md", "### Changes\n\n- twelve\n"),
+        ("changelog.d/3.md", "### Changes\n\n- three\n"),
+        ("changelog.d/fix-typo.md", "### Changes\n\n- named\n"),
+        ("changelog.d/notes.txt", "not a fragment\n"),
+        ("changelog.d/.x.md", "hidden\n"),
+    ]);
+    let head = r.git(&["-C", "up", "rev-parse", "HEAD"]);
+    let got = head_fragments(&r.dir.join("up"), &head).unwrap();
+    let names: Vec<&str> = got.iter().map(|(p, _)| p.as_str()).collect();
+    assert_eq!(
+        names,
+        [
+            "changelog.d/3.md",
+            "changelog.d/12.md",
+            "changelog.d/fix-typo.md"
+        ]
+    );
+    assert_eq!(got[0].1, "### Changes\n\n- three\n");
+    let first = r.git(&["-C", "up", "rev-list", "--max-parents=0", "HEAD"]);
+    assert_eq!(head_fragments(&r.dir.join("up"), &first), Some(Vec::new()));
+}
+
+#[test]
+fn the_fragments_adopter_action_counts_and_a_bad_fragment_stops_it() {
+    let r = Remote::new();
+    r.files(&[
+        (
+            "CHANGELOG.md",
+            "## Unreleased\n\n### Changes\n\n- in the file\n",
+        ),
+        ("changelog.d/3.md", "### Changes\n\n- three\n"),
+    ]);
+    assert_eq!(r.run(&["--dry-run"]), 1);
+    r.files(&[(
+        "changelog.d/12.md",
+        "### Adopter action\n\n```sh\n# set it\nexport TEHAS_TWELVE=1\n```\n",
+    )]);
+    assert_eq!(r.run(&["--dry-run"]), 0);
+    r.files(&[("changelog.d/7.md", "Text before a heading.\n")]);
+    assert_eq!(r.run(&["--dry-run"]), 1);
+    assert_eq!(r.tags(), "v0.1.0");
+}
+
+#[test]
+fn the_pull_request_that_collects_names_the_fragments() {
+    assert_eq!(
+        fragments_body("Unreleased", &["changelog.d/3.md", "changelog.d/12.md"], "v0.1.1"),
+        "The lines of the changelog fragments, moved into the Unreleased section of CHANGELOG.md, and the fragments deleted:\n\n- changelog.d/3.md\n- changelog.d/12.md\n\nOpened by scripts/tag-release.sh, which tags v0.1.1 once this is merged."
+    );
+}

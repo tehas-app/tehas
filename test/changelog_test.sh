@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
-# Tests for scripts/collect-changelog.sh and the changelog fragments that
-# scripts/release-notes.sh reads for the Unreleased section.
+# Tests for scripts/collect-changelog.sh (xtask collect-changelog) and the
+# changelog fragments that scripts/release-notes.sh reads for the Unreleased
+# section. console/xtask/src/changelog/tests.rs has the rules over text.
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
+
+# The scripts exec the xtask of this checkout, built once and named in
+# TEHAS_XTASK.
+t_xtask || t_bad "no xtask: $t_xtask_why"
 
 collect=$T_ROOT/scripts/collect-changelog.sh
 notes=$T_ROOT/scripts/release-notes.sh
@@ -99,6 +104,33 @@ t_run "'$notes' Unreleased '$log'"
 t_eq "$t_rc" 1
 t_contains "$t_out" "release-notes: "
 t_contains "$t_out" "text outside"
+
+t_case "a fenced code block in a fragment is text, so a # line in it is not a heading"
+fresh
+# shellcheck disable=SC2016  # the backticks are a code fence
+fragment 9.md '### Adopter action\n\nRun:\n\n```sh\n# as the tehas user\ntehas update\n```\n'
+t_run "'$notes' Unreleased '$log'"
+t_eq "$t_rc" 0
+t_eq "$t_out" "$(printf '%s\n' '### Changes' '' '- in the file' '' '### Adopter action' '' 'Run:' '' '```sh' \
+  '# as the tehas user' 'tehas update' '```')"
+# shellcheck disable=SC2016  # the backticks are a code fence
+fragment 9.md '### Changes\n\n```\n## Not a release\n```\n'
+t_run "'$collect' '$log'"
+t_eq "$t_rc" 1
+t_contains "$t_out" "9.md line 4: a line of the code block from line 3 starts like a heading of CHANGELOG.md"
+fragment 9.md '### Changes\n\n```\n# never closed\n'
+t_run "'$collect' '$log'"
+t_eq "$t_rc" 1
+t_contains "$t_out" "9.md line 3: the code block is not closed"
+
+t_case "a branch with no issue names its fragment with each / a -"
+t_run "'$collect' --name fix/typo"
+t_eq "$t_rc" 0
+t_eq "$t_out" changelog.d/fix-typo.md
+t_run "'$collect' --name bl/a/b"
+t_eq "$t_out" changelog.d/bl-a-b.md
+t_run "'$collect' --name ''"
+t_eq "$t_rc" 64
 
 t_case "a section that is not there is 1, a bad argument 64"
 fresh

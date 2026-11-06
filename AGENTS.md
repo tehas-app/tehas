@@ -118,9 +118,12 @@ Working by hand, run the whole gate once on the final state.
 ## Changelog
 
 A change that a person running tehas would notice gets a line in the
-changelog. Do not edit `CHANGELOG.md`: add `changelog.d/<issue>.md` (named
-after the branch when there is no issue) with `### Changes` and, when an
-adopter has something to do after updating, `### Adopter action`:
+changelog. Do not edit `CHANGELOG.md`: add `changelog.d/<issue>.md` with
+`### Changes` and, when an adopter has something to do after updating,
+`### Adopter action`. With no issue, name the file after the branch, each `/`
+a `-`: branch `fix/typo` writes `changelog.d/fix-typo.md`
+(`scripts/collect-changelog.sh --name <branch>` prints it). Inside a fenced
+code block a `#` line is text, but a line may not start `## ` or `### `:
 
 ```
 ### Changes

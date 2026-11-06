@@ -130,6 +130,11 @@ picked=$(bash "$T_ROOT/scripts/select-tests.sh" host/fun/dashboard-view.js 2>&1 
 t_contains "$picked" "node test/dashboard_view_test.mjs"
 t_contains "$picked" "node test/dashboard_host_test.mjs"
 
+t_case "the real checkout: a changelog fragment selects the tests that name changelog.d"
+picked=$(bash "$T_ROOT/scripts/select-tests.sh" changelog.d/1606.md changelog.d/my-branch.md 2>&1)
+t_contains "$picked" "test test/changelog_test.sh"
+t_lacks "$picked" "full "
+
 t_case "the real script: a path no test names asks for the full gate, and no path is a usage error"
 # Built here, so this file does not name it.
 nowhere=nowhere/un"named"

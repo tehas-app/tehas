@@ -40,8 +40,8 @@ if [ "$file" = - ]; then
 else
   text=$(cat "$file" 2>/dev/null) || { echo "release-notes: cannot read $file" >&2; exit 1; }
   if [ "$name" = Unreleased ] && [ -d "$(dirname "$file")/changelog.d" ]; then
-    text=$("$(dirname "${BASH_SOURCE[0]}")/collect-changelog.sh" --print "$file" 2>&1) || {
-      printf 'release-notes: %s\n' "${text#collect-changelog: }" >&2
+    text=$("$(dirname "${BASH_SOURCE[0]}")/collect-changelog.sh" --print "$file") || {
+      echo "release-notes: the changelog fragments beside $file cannot be read" >&2
       exit 1
     }
   fi
