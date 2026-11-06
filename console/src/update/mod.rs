@@ -12,6 +12,7 @@
 //!   console update release source|installed|newest|keep
 //!   console update release older|stale <version> <version>
 //!   console update findings <euid> [<bash>]
+//!   console update pi <instance> <generic settings> <provider> <model> <out>
 //!   console update sources <workspace> <package>...
 //!   console update steps ids|units|valid <line>|owed|for <source>...|record <source>...
 //!   console update wait update|dispatch
@@ -28,7 +29,8 @@
 //! one question about the releases, and `steps` names the steps and records them
 //! for install.sh, see src/update/steps.rs. `findings` is what install.sh finds
 //! wrong with the instance before it changes anything, see
-//! src/update/findings.rs. `sources` gives install.sh the
+//! src/update/findings.rs. `pi` makes Pi's settings and model list from the
+//! instance, see src/update/pi.rs. `sources` gives install.sh the
 //! checksum of each program's source, see src/update/sources.rs. `wait` says how long a lock is waited
 //! for, see src/update/wait.rs.
 //!
@@ -43,6 +45,7 @@ mod checkout;
 mod findings;
 mod finish;
 mod lock;
+mod pi;
 pub(crate) mod release;
 mod run;
 mod sources;
@@ -542,11 +545,12 @@ pub fn main(given: &[String]) -> u8 {
         Some((verb, rest)) if verb == "finish" => finish::main(rest),
         Some((verb, rest)) if verb == "release" => release::verb(rest),
         Some((verb, rest)) if verb == "findings" => findings::verb(rest),
+        Some((verb, rest)) if verb == "pi" => pi::verb(rest),
         Some((verb, rest)) if verb == "sources" => sources::verb(rest),
         Some((verb, rest)) if verb == "steps" => steps::verb(rest),
         Some((verb, rest)) if verb == "wait" => wait::verb(rest),
         _ => {
-            tell("console update: usage: run <console> <arguments> | args | gate | prepare | api | finish | findings <euid> [<bash>] | release <question> | sources <workspace> <package>... | steps <question> | wait update|dispatch");
+            tell("console update: usage: run <console> <arguments> | args | gate | prepare | api | finish | findings <euid> [<bash>] | pi <instance> <generic settings> <provider> <model> <out> | release <question> | sources <workspace> <package>... | steps <question> | wait update|dispatch");
             64
         }
     }
