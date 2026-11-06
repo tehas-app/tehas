@@ -282,6 +282,9 @@ Instance settings (lib/config.sh; defaults in brackets):
   TEHAS_PRIORITY_FIELD      the owner's single-select issue field whose
                             Urgent and High order the queue in place of
                             tehas:urgent and tehas:next, the labels when unset
+  TEHAS_ISSUE_TYPES         kind=Type pairs: with improvement=<type> an issue
+                            of the owner's type holds as tehas:improvement
+                            does, the label alone when unset
 From the environment, for tests: TEHAS_STATUS_CMD, TEHAS_INDEX_CMD,
 TEHAS_TIDY_CMD (in place of console tidy run), TEHAS_FINISH_CMD (in place of
 tehas-cycle), TEHAS_PLAN_CMD, TEHAS_PLAN_START_CMD
