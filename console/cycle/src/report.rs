@@ -287,6 +287,10 @@ pub fn last_attempts(r: &mut Report, f: &Facts, ask: &mut dyn Ask) {
     }
 }
 
+/// How pi-rukas's handoff marker begins: a comment with it carries the
+/// handoff.
+pub const HANDOFF_MARK: &str = "<!-- pi-rukas:handoff ";
+
 /// One write of the report, in its order.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Action {
@@ -914,9 +918,8 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         } else {
             format!("; {reason}")
         };
-        reason = cut_bytes(
+        reason = runner::cut_reason(
             &format!("tehas stop ended the cycle, run by {stopped_by} at {stopped_at_shown}, step {step} in flight{tail}"),
-            200,
         );
     } else if let Some((name, _)) = signal.as_ref().filter(|_| {
         cap.is_empty() && ["running", "unknown", "interrupted"].contains(&status.as_str())
@@ -940,7 +943,7 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         } else {
             format!("; {reason}")
         };
-        reason = cut_bytes(&format!("{stop_why}{tail}"), 200);
+        reason = runner::cut_reason(&format!("{stop_why}{tail}"));
         cap = own.to_string();
     }
     // #1411: refused starts of a process are the cause of a stop that names
@@ -963,9 +966,8 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         } else {
             format!(", step {step} in flight")
         };
-        reason = cut_bytes(
+        reason = runner::cut_reason(
             &format!("its container reached its limit of processes and refused {forks} starts of a process{in_flight}{tail}"),
-            200,
         );
     }
     let (usage, unreadable) = runner::usage(&outcome, progress);
@@ -1089,7 +1091,7 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         String::new()
     } else {
         format!(
-            "<!-- pi-rukas:handoff issue={issue} cap={} -->",
+            "{HANDOFF_MARK}issue={issue} cap={} -->",
             if cap.is_empty() { "none" } else { &cap }
         )
     };
@@ -1635,6 +1637,12 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
             cap: cap.clone(),
             reason: reason.clone(),
             build: build.clone(),
+            // The writes say whether one of them carried it.
+            handoff_delivered: if lean_posted {
+                Some(true)
+            } else {
+                (!handoff.is_empty()).then_some(false)
+            },
         },
         attempt: f.attempt,
         park_reason,
@@ -1665,12 +1673,6 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
     ];
     r.status_run = !f.signalled;
     r
-}
-
-/// The first `n` bytes, as `head -c` cuts them.
-fn cut_bytes(s: &str, n: usize) -> String {
-    let b = &s.as_bytes()[..s.len().min(n)];
-    String::from_utf8_lossy(b).into_owned()
 }
 
 /// The report as JSON. A park is shown with its question and with the
