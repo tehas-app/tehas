@@ -17,6 +17,7 @@ use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use tehas_core::forge::{Bounded, Forge, GhRunner, GitHub};
+use tehas_core::kinds::Kind;
 
 const LABEL: &str = "tehas:prototype";
 const LIMIT: i64 = 10 * 1024 * 1024;
@@ -109,38 +110,65 @@ fn pass(lab: &mut Lab, live: &Path) -> u8 {
         return 78;
     }
 
-    // The first hundred; a failed or odd answer leaves everything as it is.
-    let list = format!(
-        "repos/{}/issues?state=open&labels={LABEL}&per_page=100",
-        lab.repo
-    );
-    let Some(tickets) = gh.run(&["api", &list]).ok().and_then(|t| tickets(&t)) else {
-        return 0;
-    };
-
     let mut forge = GitHub::new(
         lab.repo.clone(),
         Box::new(Bounded::new(program, CALL_BOUND)),
     );
+    // With TEHAS_ISSUE_TYPES mapping the kind, the issue type marks a ticket
+    // and the label marks nothing. A type the owner does not have stops the
+    // pass before anything is built or removed.
+    let kind = tehas_core::kinds::type_from_env(Kind::Prototype);
+    if let Some(t) = &kind {
+        match forge.issue_types() {
+            Ok(types) if types.contains(t) => {}
+            Ok(_) => {
+                say(&format!(
+                    "ERROR: TEHAS_ISSUE_TYPES maps prototype to {t}, which is no issue type of {}'s owner",
+                    lab.repo
+                ));
+                return 78;
+            }
+            Err(e) => {
+                say(&format!("{}, nothing built or removed", e.line()));
+                return 0;
+            }
+        }
+    }
+
+    // The first hundred; a failed or odd answer leaves everything as it is.
+    let filter = match &kind {
+        Some(t) => format!("type={t}"),
+        None => format!("labels={LABEL}"),
+    };
+    let list = format!("repos/{}/issues?state=open&{filter}&per_page=100", lab.repo);
+    let Some(tickets) = gh.run(&["api", &list]).ok().and_then(|t| tickets(&t)) else {
+        return 0;
+    };
+
     let mut keep = Vec::new();
     for ticket in &tickets {
         let n = ticket["number"].as_u64().unwrap_or_default();
         // The label is checked before the ticket is published: who applied it
         // most recently. An agent in a cycle holds the bot's token, and the bot
-        // can label.
-        let who = match forge.applied_by(n, LABEL) {
+        // can label. A type is checked the same way: who set it.
+        let read = match &kind {
+            Some(t) => forge.typed_by(n, t),
+            None => forge.applied_by(n, LABEL),
+        };
+        let who = match read {
             Ok(approval) => approval.map(|a| a.actor).unwrap_or_default(),
             Err(_) => {
                 // Not a refusal: nothing is built, and the removal keeps it.
                 say(&format!(
-                    "#{n}: its label events could not be read, nothing built or removed"
+                    "#{n}: its {} events could not be read, nothing built or removed",
+                    if kind.is_some() { "type" } else { "label" }
                 ));
                 keep.push(n.to_string());
                 continue;
             }
         };
         if !allowed(&who, &lab.allowed) {
-            say(&denied(n, &who));
+            say(&denied(n, &who, kind.as_deref()));
             continue;
         }
         keep.push(n.to_string());
@@ -224,9 +252,12 @@ fn allowed(who: &str, list: &str) -> bool {
     !who.is_empty() && list.split(' ').any(|login| login == who)
 }
 
-fn denied(n: u64, who: &str) -> String {
+fn denied(n: u64, who: &str, kind: Option<&str>) -> String {
     let who = if who.is_empty() { "unknown" } else { who };
-    format!("#{n}: {LABEL} was applied by '{who}', not an allowed account")
+    match kind {
+        Some(t) => format!("#{n}: the issue type {t} was set by '{who}', not an allowed account"),
+        None => format!("#{n}: {LABEL} was applied by '{who}', not an allowed account"),
+    }
 }
 
 /// A value as `jq -r` prints it.
@@ -758,12 +789,16 @@ mod tests {
     #[test]
     fn the_denied_line_names_the_account_or_says_unknown() {
         assert_eq!(
-            denied(7, "mallory"),
+            denied(7, "mallory", None),
             "#7: tehas:prototype was applied by 'mallory', not an allowed account"
         );
         assert_eq!(
-            denied(7, ""),
+            denied(7, "", None),
             "#7: tehas:prototype was applied by 'unknown', not an allowed account"
+        );
+        assert_eq!(
+            denied(7, "mallory", Some("Prototype")),
+            "#7: the issue type Prototype was set by 'mallory', not an allowed account"
         );
     }
 

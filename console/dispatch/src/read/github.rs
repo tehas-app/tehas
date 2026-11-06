@@ -50,7 +50,7 @@ const PAGE: &str = r#"query($owner: String!, $name: String!, $cursor: String) {
             ... on RenamedTitleEvent { createdAt actor { login ...on User { databaseId } ...on Bot { databaseId } } }
           }
         }
-        closedByPullRequestsReferences(first: 20) { nodes { url state } }{FIELDS}
+        closedByPullRequestsReferences(first: 20) { nodes { url state } }{FIELDS}{TYPE}
       }
     }
     closedRunning: issues(states: CLOSED, labels: ["tehas:running"], first: 100) { nodes { number } }{OPEN_PULLS}
@@ -90,15 +90,34 @@ const FIELDS: &str = r#"
 const OWNER_FIELDS: &str = r#"
     owner { __typename ... on Organization { issueFields(first: 50) { nodes { __typename ... on IssueFieldSingleSelect { name } } } } }"#;
 
+/// With `TEHAS_ISSUE_TYPES` mapping improvement: each issue's type.
+const TYPE: &str = "\n        issueType { name }";
+
+/// With `TEHAS_ISSUE_TYPES` mapping improvement, on the first page: the issue
+/// types of the repository's owner.
+const OWNER_TYPES: &str = "\n    issueTypes(first: 50) { nodes { name } }";
+
 /// The queue's page as it is sent, its page size filled in from `ISSUE_PAGE`.
 /// `fields` asks for the issue fields as well.
+#[cfg(test)]
 fn page_query(first: bool, fields: bool) -> String {
+    page_query_typed(first, fields, false)
+}
+
+/// The same, and with `types` each issue's type and, on the first page, the
+/// owner's types.
+fn page_query_typed(first: bool, fields: bool, types: bool) -> String {
     let owner = if first && fields { OWNER_FIELDS } else { "" };
+    let owner_types = if first && types { OWNER_TYPES } else { "" };
     PAGE.replace("{ISSUE_PAGE}", &ISSUE_PAGE.to_string())
         .replace("{FIELDS}", if fields { FIELDS } else { "" })
+        .replace("{TYPE}", if types { TYPE } else { "" })
         .replace(
             "{OPEN_PULLS}",
-            &format!("{}{owner}", if first { OPEN_PULLS } else { "" }),
+            &format!(
+                "{}{owner}{owner_types}",
+                if first { OPEN_PULLS } else { "" }
+            ),
         )
 }
 
@@ -186,6 +205,10 @@ pub struct Queue {
     pub issue_fields: Option<Vec<String>>,
     /// The first page named a personal account as the repository's owner.
     pub personal: bool,
+    /// The issue types of the repository's owner, when the queue asked for
+    /// them and the first page answered the repository: empty for an owner
+    /// with none.
+    pub issue_types: Option<Vec<String>>,
 }
 
 fn names(v: Option<&Value>) -> Vec<String> {
@@ -204,8 +227,9 @@ fn split(repo: &str) -> (String, String) {
     (format!("owner={o}"), format!("name={n}"))
 }
 
-/// The open issues, page by page. `fields` asks for the issue fields too.
-pub fn queue(calls: &mut Calls, repo: &str, fields: bool) -> Result<Queue, GhFail> {
+/// The open issues, page by page. `fields` asks for the issue fields too, and
+/// `types` for the issue types.
+pub fn queue(calls: &mut Calls, repo: &str, fields: bool, types: bool) -> Result<Queue, GhFail> {
     let (owner, name) = split(repo);
     let mut q = Queue {
         repo: None,
@@ -214,10 +238,14 @@ pub fn queue(calls: &mut Calls, repo: &str, fields: bool) -> Result<Queue, GhFai
         open_pulls: None,
         issue_fields: None,
         personal: false,
+        issue_types: None,
     };
     let mut cursor: Option<String> = None;
     loop {
-        let query = format!("query={}", page_query(cursor.is_none(), fields));
+        let query = format!(
+            "query={}",
+            page_query_typed(cursor.is_none(), fields, types)
+        );
         let cur = cursor.as_ref().map(|c| format!("cursor={c}"));
         let mut args = vec!["api", "graphql", "-F", &owner, "-F", &name, "-f", &query];
         if let Some(c) = cur.as_deref() {
@@ -261,6 +289,9 @@ pub fn queue(calls: &mut Calls, repo: &str, fields: bool) -> Result<Queue, GhFai
                     .filter_map(|f| f.get("name").and_then(Value::as_str).map(str::to_string))
                     .collect()
             });
+        }
+        if cursor.is_none() && types && r.is_object() {
+            q.issue_types = Some(names(r.get("issueTypes")));
         }
         if cursor.is_none() {
             q.open_pulls = r.get("openPulls").and_then(|v| v.get("nodes")).cloned();
@@ -993,6 +1024,17 @@ mod tests {
         assert!(page_query(true, false).contains("openPulls: pullRequests(states: OPEN"));
         assert!(!page_query(false, false).contains("pullRequests"));
         assert!(!page_query(false, false).contains("{OPEN_PULLS}"));
+    }
+
+    #[test]
+    fn the_issue_types_are_asked_only_with_the_setting_and_the_owners_on_the_first_page() {
+        for first in [true, false] {
+            let off = page_query(first, true);
+            assert!(!off.contains("issueType") && !off.contains("{TYPE}"));
+            let on = page_query_typed(first, false, true);
+            assert!(on.contains("issueType { name }"));
+            assert_eq!(on.contains("issueTypes(first: 50)"), first);
+        }
     }
 
     #[test]
