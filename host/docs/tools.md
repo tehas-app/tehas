@@ -3643,7 +3643,9 @@ A write that GitHub refuses for a rate limit (`HTTP 429`, or `HTTP 403` with
 `rate limit`) is sent once more after 60 seconds (`TEHAS_GH_RETRY_WAIT`), as in
 the container, and only that call: gh shows no `Retry-After`, and GitHub asks
 for a minute when it names none. Both attempts are lines of the log. A write
-that reads standard input is sent once. Nothing is shared between calls, so a
+that reads standard input is sent once. So is a write typed at a terminal:
+gh's output stays the terminal, so `gh pr create` and the other commands that
+ask still ask, and a rate limit shows at once. Nothing is shared between calls, so a
 call that waits holds up no other. A caller with a time limit of its own, such
 as the poll's 30 seconds a call, ends the call at its limit; the poll's action
 journal settles that write on a later poll.
