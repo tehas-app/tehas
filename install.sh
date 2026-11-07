@@ -568,6 +568,13 @@ units=$HOME/.config/systemd/user
 # has one, still wins: Pi reads it over these.
 made=$(mktemp -d) || { echo "tehas: could not make a scratch directory" >&2; exit 1; }
 trap 'rm -rf "$made"' EXIT
+# --check hands the console the installed settings.json: kept as it is when it
+# differs only in the session model Pi wrote there itself, so that is not drift.
+# A real run makes the file again and puts the instance's model back.
+if [ "$check" = 1 ] && [ -f "$agent/settings.json" ]; then
+  # One it cannot read is made again, and the compare below says it differs.
+  cp "$agent/settings.json" "$made/settings.json" 2>/dev/null || :
+fi
 loaded_console=${built_console:-$(_tehas_settings_console)}
 pi_rc=0
 "$loaded_console" update pi "$instance" "$host/pi/settings.json" "$PI_ENSEMBLE_SUBAGENT_PROVIDER" \
@@ -629,7 +636,9 @@ files=(
   "systemd/tehas-review.service|$units/tehas-review.service|644"
   "systemd/tehas-review.timer|$units/tehas-review.timer|644"
   "systemd/tehas-top.service|$units/tehas-top.service|644"
-  "pi/mcp.json|$agent/mcp.json|644"
+  # 600 as Pi keeps its own files: Pi 1.5 lets the global mcp.json hold a
+  # server's auth. A container runs as this account, so it still reads it.
+  "pi/mcp.json|$agent/mcp.json|600"
   "$made/models.json|$agent/models.json|644"
   "$made/settings.json|$agent/settings.json|644"
 )

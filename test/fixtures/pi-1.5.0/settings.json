@@ -1,0 +1,16 @@
+{
+  "defaultModel": "qwen3.8-flash-next",
+  "defaultProvider": "fleet",
+  "hideThinkingBlock": true,
+  "httpIdleTimeoutMs": 120000,
+  "retry": {
+    "baseDelayMs": 5000,
+    "maxAgentDelayMs": 120000,
+    "maxRetries": 10,
+    "provider": {
+      "maxRetries": 8,
+      "maxRetryDelayMs": 60000,
+      "timeoutMs": 600000
+    }
+  }
+}
