@@ -12,6 +12,11 @@
 //! one: the login may have changed hands, and only a person who knows it did
 //! not confirms the new id with --accept-id. Nothing is written then.
 //!
+//! With an app named and no GH_TOKEN, gh is given the app's token, made from
+//! its key as `tehasbot github-token` makes it (console/src/github.rs). A first
+//! install runs this before the shim is in place, so gh has no other token. A
+//! token that cannot be had stops with 78.
+//!
 //! Exit: 0 recorded, 64 bad words or an --accept-id of no listed login, 78 as
 //! above or TEHAS_HOME unset or the file cannot be written.
 
@@ -141,6 +146,15 @@ pub fn record_here(accept: &[String]) -> u8 {
     {
         eprintln!("tehas: --accept-id {a} names no login of TEHAS_ALLOWED_LABELERS or TEHAS_MILLWRIGHT_LOGIN");
         return 64;
+    }
+    let app = !env::var("TEHAS_GITHUB_APP_ID").unwrap_or_default().is_empty();
+    if app && env::var("GH_TOKEN").unwrap_or_default().is_empty() {
+        let Some(token) = crate::github::for_a_container() else {
+            eprintln!("tehas: ids record: no GitHub token for the app, so no user id was recorded");
+            return 78;
+        };
+        env::set_var("GH_TOKEN", &token);
+        env::set_var("TEHAS_GH_TOKEN", &token);
     }
     // gh by PATH, as `tehas labels` runs it: a login shell has the app's shim
     // first, and an install from a checkout has the person's own.

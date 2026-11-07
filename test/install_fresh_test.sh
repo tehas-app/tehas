@@ -373,4 +373,24 @@ t_contains "$t_out" "tehas update --accept-id alice"
 t_eq "$(cat "$th/state/account-ids")" "alice 7"
 t_eq "$(t_calls systemctl)" ""
 
+t_case "a first install with an app and no GH_TOKEN records the ids through the app's token"
+# The shim is not in place before the ids are recorded, so gh (signed out
+# without GH_TOKEN, exit 4) has only the token made from the app's key (#1714).
+fresh
+instance TEHAS_GITHUB_APP_ID=5452597 TEHAS_GITHUB_APP_INSTALLATION=174742089 "TEHAS_BOT_LOGIN=tehas-app-bot[bot]"
+mkdir -p "$home/.config/tehas" && printf 'a key\n' >"$home/.config/tehas/github-app.pem"
+t_stub openssl '[ "$1" != dgst ] || { cat >/dev/null; printf signature; }'
+t_stub curl 'cat >/dev/null; case "$*" in *access_tokens*) printf "{\"token\":\"ghs_minted\",\"expires_at\":\"%s\"}" "$(date -u -d "+1 hour" +%FT%TZ)" ;; esac'
+t_stub gh '[ -n "${GH_TOKEN:-}" ] || { echo "gh: not logged in" >&2; exit 4; }
+[ "$1 $2" != "api users/alice" ] || printf "%s\n" "$GH_TOKEN" >"$T/gh-token"'
+rm -f "$T/gh-token"
+t_run "$install"
+t_eq "$(cat "$th/state/account-ids")" "alice $(t_uid alice)"
+t_eq "$(cat "$T/gh-token")" "ghs_minted"
+t_eq "$t_rc" 0
+t_lacks "$t_out" "ghs_minted"
+t_lacks "$t_out" "nothing was installed"
+t_stub gh
+rm -f "$T/bin/openssl" "$T/bin/curl"
+
 t_done
