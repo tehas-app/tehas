@@ -1279,6 +1279,11 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
     // tehas work refused the start: with 4, or with 78 and its note on lean.
     let lean_refused = rc == 78 && matches!(f.file("lean-refused"), File::Text(_));
     let never_started = rc == 4 || lean_refused;
+    // tehas work's 78 for a refresh whose pull request conflicts.
+    let conflicted = match f.file(crate::conflict::NOTE) {
+        File::Text(t) if rc == 78 && !never_started => crate::conflict::said(t),
+        _ => None,
+    };
     let handoff_part = if handoff.is_empty() {
         String::new()
     } else {
@@ -1489,6 +1494,10 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
                 park_why = tehas_core::question::LEAN_REFUSED;
                 lead = format!("Take `{LEAN}` off this issue, then tick a box.");
             }
+        } else if let Some(said) = &conflicted {
+            r.arm = "refresh-conflict";
+            park_why = crate::conflict::NOTE;
+            parked = format!("{said} {log_where}.{killed}");
         } else if provider {
             r.arm = "provider";
             park_why = "provider-outage";

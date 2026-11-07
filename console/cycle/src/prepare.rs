@@ -23,7 +23,7 @@
 //! has touched.
 
 use crate::start::{self, is_record, record_value, Driver};
-use crate::{caps, host, improve};
+use crate::{caps, conflict, host, improve};
 use serde_json::{json, Value};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
@@ -310,11 +310,20 @@ pub fn check(c: &Check) -> i32 {
         );
         return 78;
     }
-    let how = is_record(&c.record)
+    let rec = is_record(&c.record)
         .then(|| record_value(Path::new(&c.record)))
         .flatten();
-    let how = how.as_ref().and_then(|r| r.get("how"));
+    let how = rec.as_ref().and_then(|r| r.get("how"));
     let refresh = how.and_then(Value::as_str) == Some("refresh");
+    // A refresh on an image that cannot verify its merge is first asked
+    // whether it conflicts (src/conflict.rs).
+    let judge = refresh && caps::mode(&answer, conflict::VERIFIES_MERGE, None).0 != "native";
+    let refresh_of = rec
+        .as_ref()
+        .and_then(|r| r.get("refresh_of"))
+        .filter(|_| judge)
+        .map(|of| json!({"pr": of.get("pr"), "head": of.get("head_sha")}))
+        .unwrap_or(Value::Null);
     // A lean restart or refresh is refused below unless the image lists the
     // flag for work-lean.
     let flags = run_flags(limit, c.restart, refresh);
@@ -378,7 +387,7 @@ pub fn check(c: &Check) -> i32 {
     }
     let state = json!({"limits": limits, "security": security, "env": vars,
         "hosts": hosts, "flags": flags, "verb": verb,
-        "comments": {"native": native, "unguard": unguard}});
+        "comments": {"native": native, "unguard": unguard}, "refresh": refresh_of});
     if !write_state(&c.file, &state) {
         eprintln!("tehas work: could not prepare the sandbox, not starting a cycle");
         return 78;
@@ -612,6 +621,43 @@ fn mounts(tree: &str, state_dir: &str, runs: &str) -> Option<Vec<String>> {
         .map(|()| words)
 }
 
+/// A refresh the image cannot finish when it conflicts: Some(78) when it does,
+/// with the files in state/cycles/<issue>.refresh-conflict. A merge git
+/// cannot judge runs the refresh, as before.
+fn refresh_conflict(home: &Path, t: &Tree, state: &Value, tree: &str) -> Option<i32> {
+    let of = state.get("refresh").filter(|v| v.is_object())?;
+    let pr = of.get("pr").and_then(Value::as_u64).unwrap_or(0);
+    let head = of.get("head").and_then(Value::as_str).unwrap_or("");
+    let Some(paths) = conflict::conflicts(tree, &t.branch, head) else {
+        say(&format!(
+            "tehas work: whether pull request #{pr} conflicts with origin/{} could not be read, the refresh runs",
+            t.branch
+        ));
+        return None;
+    };
+    if paths.is_empty() {
+        return None;
+    }
+    let file = home.join(format!("state/cycles/{}.{}", t.issue, conflict::NOTE));
+    if fs::write(&file, conflict::note(pr, &t.branch, &paths)).is_err() {
+        eprintln!(
+            "tehas work: could not write {}, not starting a cycle",
+            file.display()
+        );
+        return Some(78);
+    }
+    eprintln!(
+        "tehas work: pull request #{pr} conflicts with origin/{} in {} file(s), and the image's pi-rukas cannot finish such a refresh (no feature {}), not starting a cycle:",
+        t.branch,
+        paths.len(),
+        conflict::VERIFIES_MERGE
+    );
+    for p in paths.iter().take(20) {
+        eprintln!("    {}", p.escape_debug());
+    }
+    Some(78)
+}
+
 /// The second step. Its exit status.
 pub fn tree(home: &Path, t: &Tree) -> i32 {
     let Some(mut state) = read_state(&t.file) else {
@@ -637,6 +683,9 @@ pub fn tree(home: &Path, t: &Tree) -> i32 {
             "tehas work: {tree} is left in place with what it holds, and {tree}.before-retry holds what the last cycle left, if any"
         );
         return 78;
+    }
+    if let Some(rc) = refresh_conflict(home, t, &state, &tree) {
+        return rc;
     }
     if t.stop.came() {
         return STOPPED;
