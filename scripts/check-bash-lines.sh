@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# The ceiling on the factory's bash: the lines of bin/, lib/*.sh and
-# libexec/ (the files whose first line names bash) may not grow past the
-# number in scripts/bash-lines.max. New factory logic goes into the Rust
+# The ceiling on the factory's bash: the lines of the shell scripts under
+# bin/, lib/ and libexec/, subdirectories included, may not grow past the
+# number in scripts/bash-lines.max. A file is a shell script when its shebang
+# or a shellcheck shell= directive names sh or bash. New factory logic goes into the Rust
 # workspace under console/; bash glues (AGENTS.md, Style). Install, update
 # and bootstrap are outside the count. A change that takes bash out lowers the
 # number to the new count in the same pull request, so the room it made is not
@@ -35,10 +36,18 @@ if ! [[ $max =~ ^[0-9]{1,18}$ ]]; then
   exit 1
 fi
 
+# Whether the text on stdin is a shell script. It reads to the end: an early
+# exit would kill the writer of a pipe with SIGPIPE, which pipefail reports.
+is_shell() {
+  awk 'NR == 1 && /^#!/ && /[\/ \t](ba)?sh([ \t]|$)/ { s = 1 }
+    /^#[ \t]*shellcheck[ \t]+shell=(ba)?sh([ \t]|$)/ { s = 1 }
+    END { exit !s }'
+}
+
 files=()
-for f in bin/* lib/*.sh libexec/*; do
-  [ -f "$f" ] && head -n 1 "$f" | grep -q bash && files+=("$f")
-done
+while IFS= read -r -d '' f; do
+  is_shell <"$f" && files+=("$f")
+done < <(find bin lib libexec -type f -print0 2>/dev/null | sort -z)
 lines=0
 [ "${#files[@]}" = 0 ] || lines=$(cat "${files[@]}" | wc -l)
 
@@ -50,10 +59,12 @@ max=$((10#"$max"))
 
 # The lines a path counts for at a revision, 0 if it is not counted there.
 rev_lines() { # rev path
-  local first
-  case $2 in bin/* | lib/*.sh | libexec/*) ;; *) echo 0 && return ;; esac
-  first=$(git show "$1:$2" 2>/dev/null | head -n 1)
-  case $first in *bash*) git show "$1:$2" | wc -l ;; *) echo 0 ;; esac
+  case $2 in bin/* | lib/* | libexec/*) ;; *) echo 0 && return ;; esac
+  if git show "$1:$2" 2>/dev/null | is_shell; then
+    git show "$1:$2" | wc -l
+  else
+    echo 0
+  fi
 }
 base_lines() { rev_lines "$base" "$1"; }
 now_lines() { # path

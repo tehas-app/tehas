@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Tests for scripts/check-bash-lines.sh: the bash of bin/, lib/*.sh and
-# libexec/ may not grow past scripts/bash-lines.max. Each case runs the check
-# in a scratch tree.
+# Tests for scripts/check-bash-lines.sh: the shell scripts under bin/, lib/
+# and libexec/ may not grow past scripts/bash-lines.max. Each case runs the
+# check in a scratch tree.
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
 
@@ -218,6 +218,56 @@ t_case "files that are not bash are not counted"
 fresh 6
 printf '%s\n' '#!/usr/bin/env python3' 'print(1)' 'print(2)' >"$tree/libexec/py"
 printf '%s\n' 'a prompt' 'of text' >"$tree/lib/brief.md"
+t_run "$check"
+t_eq "$t_rc" 0
+
+t_case "a script in a subdirectory is counted"
+fresh 6
+mkdir -p "$tree/libexec/sub/deep"
+printf '%s\n' '#!/usr/bin/env bash' 'echo nested' >"$tree/libexec/sub/deep/cmd"
+t_run "GIT_CEILING_DIRECTORIES='$T' $check"
+t_eq "$t_rc" 1
+t_contains "$t_out" "8 lines of bash, over the ceiling of 6"
+t_contains "$t_out" "2  libexec/sub/deep/cmd"
+
+t_case "a lib file without .sh is counted by its shellcheck directive"
+fresh 6
+printf '%s\n' '# shellcheck shell=bash' 'g() { :; }' 'h() { :; }' >"$tree/lib/helpers"
+t_run "GIT_CEILING_DIRECTORIES='$T' $check"
+t_eq "$t_rc" 1
+t_contains "$t_out" "9 lines of bash, over the ceiling of 6"
+t_contains "$t_out" "3  lib/helpers"
+
+t_case "a #!/bin/sh script is counted"
+fresh 6
+printf '%s\n' '#!/bin/sh' 'echo posix' >"$tree/bin/posix"
+t_run "GIT_CEILING_DIRECTORIES='$T' $check"
+t_eq "$t_rc" 1
+t_contains "$t_out" "8 lines of bash, over the ceiling of 6"
+t_contains "$t_out" "2  bin/posix"
+
+t_case "a nested script and a lib file without .sh count in a change's delta"
+fresh 20
+g() { git -C "$tree" -c user.name=t -c user.email=t@example.invalid "$@"; }
+mkdir -p "$tree/libexec/sub"
+printf '%s\n' '#!/bin/sh' 'echo a' >"$tree/libexec/sub/x"
+g init -q -b main
+g add -A
+g commit -q -m base
+g update-ref refs/remotes/origin/main HEAD
+g checkout -q -b topic
+printf '%s\n' 'echo b' 'echo c' >>"$tree/libexec/sub/x"
+printf '%s\n' '# shellcheck shell=sh' 'echo d' >"$tree/lib/more"
+t_run "$check"
+t_eq "$t_rc" 0
+t_contains "$t_out" "12 of 20: 8 lines of room; base 8 of 20: 12 lines of room; this change +4"
+
+t_case "a shebang or directive for another shell is not counted"
+fresh 6
+printf '%s\n' '#!/usr/bin/env zsh' 'echo z' >"$tree/libexec/z"
+printf '%s\n' '#!/bin/dash' 'echo d' >"$tree/libexec/d"
+printf '%s\n' '# shellcheck shell=ksh' 'echo k' >"$tree/lib/k"
+printf '%s\n' 'text that says bash' 'and no shebang' >"$tree/lib/note"
 t_run "$check"
 t_eq "$t_rc" 0
 
