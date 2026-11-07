@@ -771,6 +771,13 @@ pub fn drain(given: &[String]) -> u8 {
     u8::from(!passed || !running.is_empty())
 }
 
+/// Whether the limit in force holds every start, as `tehas drain` set it: no
+/// cycle at once and planning off.
+pub fn drained(file: &Path) -> bool {
+    let r = read(file, now());
+    r.state() == "ok" && r.json_of("cycles") == Some("0") && r.json_of("plan") == Some("false")
+}
+
 /// `tehas_pause_read`: the flag as every command which honours it reads it.
 /// A file which is not there is no flag, and anything else which is no flag is
 /// `unreadable`, never `none`, so a reader holds every start rather than
