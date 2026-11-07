@@ -55,6 +55,9 @@ esac'
 # A release host reads the list with gh when it is signed in and with curl
 # otherwise; CURL_RC is what curl answers with, and 22 is no answer at all.
 t_stub curl '[ ! -e "${CURL_RC:-}" ] && exit "${CURL_RC:-0}"; exit 0'
+# No sandbox image: status asks docker for the label of the one cycles run
+# (src/rukas.rs), and this host's own must not answer.
+t_stub docker 'exit 1'
 # The failed tehas units, as systemctl --user --failed --plain --no-legend lists
 # them: none until a case writes $T/failed-units, and the read fails with
 # SYSTEMCTL_RC when a case names one.
@@ -1963,7 +1966,8 @@ t_stub docker "case \"\$1 \$2\" in
 esac"
 t_run "$status"
 T_ENV=()
-rm -f "$T/bin/git" "$T/bin/docker"
+rm -f "$T/bin/git"
+t_stub docker 'exit 1'
 t_eq "$(jq -c '{targetVersion, imageVersion, behind}' "$live/rukas.json")" \
   '{"targetVersion":"v0.14.55","imageVersion":"v0.14.54","behind":true}'
 t_eq "$(jq -r .checks.rukas.behind "$live/health.json")" true
