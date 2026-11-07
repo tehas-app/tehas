@@ -10,7 +10,10 @@
 #     host/sandbox/Dockerfile finds nothing to copy (it stored every file twice).
 #   - rustup only: tehas's layer installs the pinned toolchain.
 #   - vipune and double-o are built in a stage of their own; only the binaries
-#     reach the image.
+#     reach the image. That stage is ubuntu:24.04 too: vipune's embeddings link
+#     the onnxruntime that ort-sys downloads, which needs the glibc (2.38 or
+#     newer) and libstdc++ of the image it runs in; on Debian bookworm (glibc
+#     2.36) it does not link.
 #   - no glab, no wigolo, no codebase-memory-mcp from main, no huggingface_hub
 #     and no model download: tehas's layer fetches the model itself.
 # Kept: gh, git, node 22, bun, pi, ctx7, parallel-cli, vipune, oo, rg, fd,
@@ -22,14 +25,22 @@
 # checkout, so the base cannot drift from upstream's floor. vipune and oo are
 # the versions host/versions.env names, the ones tehas's layer checks.
 
-FROM rust:1-slim-bookworm AS cargo-tools
+FROM ubuntu:24.04 AS cargo-tools
 ARG VIPUNE_VERSION
 ARG OO_VERSION
-RUN apt-get update && apt-get install -y --no-install-recommends pkg-config libssl-dev g++ make perl \
+ENV DEBIAN_FRONTEND=noninteractive RUSTUP_HOME=/usr/local/rustup CARGO_HOME=/usr/local/cargo PATH=/usr/local/cargo/bin:$PATH
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl pkg-config libssl-dev g++ make perl \
  && rm -rf /var/lib/apt/lists/*
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+      | sh -s -- -y --no-modify-path --profile minimal --default-toolchain stable
 RUN test -n "$VIPUNE_VERSION" && test -n "$OO_VERSION" \
  && cargo install --locked vipune --version "$VIPUNE_VERSION" --root /out \
  && cargo install --locked double-o --version "$OO_VERSION" --root /out
+# The binaries run here, in the distro of the image, so one that does not start
+# stops the base build rather than the first cycle. vipune names a scratch store,
+# as the sandbox layer's check does; its embeddings are read there.
+RUN db=$(mktemp -d) && /out/bin/vipune version --db-path "$db/v.db" && rm -rf "$db" \
+ && /out/bin/oo --help >/dev/null
 
 FROM ubuntu:24.04
 ARG TEHAS_UID
