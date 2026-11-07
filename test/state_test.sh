@@ -576,7 +576,7 @@ t_eq "$(jq -r .source <<<"$t_out")" "$T/copies/c.db"
 t_eq "$(jq .schema <<<"$t_out")" "$(TEHAS_HOME=$dst "$dst/libexec/store" check | jq .schema)"
 t_eq "$(jq '.rows > 0' <<<"$t_out")" true
 t_eq "$(TEHAS_HOME=$dst "$dst/libexec/store" check | jq -c '[.integrity, .rows.cycles]')" '["ok",2]'
-t_eq "$(ls -A "$dst/state" | grep -c load)" 0
+t_eq "$(find "$dst/state" -maxdepth 1 -name '*load*' | wc -l)" 0
 t_run "cd '$T/copies' && $state load --from c.db"
 t_eq "$t_rc" 1
 t_contains "$t_out" "tehas state: the state store holds history, "
