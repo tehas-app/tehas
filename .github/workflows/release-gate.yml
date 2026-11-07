@@ -1,0 +1,127 @@
+# The release gate, on the speed lane: the whole gate on one commit, and the
+# sandbox base image and sandbox image that commit ships, built the way a host
+# builds them, with a smoke run of the tools in the image. scripts/tag-release.sh
+# starts it with `gh workflow run release-gate.yml -f commit=<sha>` and tags
+# the commit once a run on it is green; it still pushes the tag itself, since a
+# tag pushed with this workflow's token would not start release.yml.
+#
+# The run's title names the commit it gates. The run's own head is the branch
+# it was started on, which can be another commit, so tag-release reads the
+# title, not the head.
+#
+# It runs on [self-hosted, speedlane]: a runner registered with that label and
+# not `tehas`, one job at a time, so no ordinary verify job takes it and a
+# release does not wait behind them (host/docs/operating.md, The speed lane).
+# The runner holds what verify.yml's holds, and Docker. The build moves the
+# runner account's own tehas/pi-rukas tags: the lane's account is not a tehas
+# host's account.
+name: release-gate
+run-name: release-gate ${{ inputs.commit }}
+on:
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: The full commit id to gate
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: release-gate-${{ inputs.commit }}
+  cancel-in-progress: false
+jobs:
+  gate:
+    runs-on: [self-hosted, speedlane]
+    timeout-minutes: 90
+    env:
+      COMMIT: ${{ inputs.commit }}
+    steps:
+      - name: the commit is a full commit id
+        run: |
+          [[ $COMMIT =~ ^[0-9a-f]{40}$ ]] || { echo "not a full commit id: $COMMIT" >&2; exit 1; }
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.commit }}
+          persist-credentials: false
+          fetch-depth: 0
+      - name: the checkout is the commit
+        run: test "$(git rev-parse HEAD)" = "$COMMIT"
+      - name: shellcheck at the pinned version
+        run: |
+          . host/versions.env
+          curl -fsSL -o "$RUNNER_TEMP/shellcheck.tar.xz" \
+            "https://github.com/koalaman/shellcheck/releases/download/v$SHELLCHECK_VERSION/shellcheck-v$SHELLCHECK_VERSION.linux.x86_64.tar.xz"
+          echo "$SHELLCHECK_SHA256  $RUNNER_TEMP/shellcheck.tar.xz" | sha256sum -c -
+          tar -xJf "$RUNNER_TEMP/shellcheck.tar.xz" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/shellcheck-v$SHELLCHECK_VERSION" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/shellcheck-v$SHELLCHECK_VERSION/shellcheck" --version
+      - name: jq at the pinned version
+        run: |
+          . host/versions.env
+          mkdir -p "$RUNNER_TEMP/jq"
+          curl -fsSL -o "$RUNNER_TEMP/jq/jq" \
+            "https://github.com/jqlang/jq/releases/download/jq-$JQ_VERSION/jq-linux-amd64"
+          echo "$JQ_SHA256  $RUNNER_TEMP/jq/jq" | sha256sum -c -
+          chmod 755 "$RUNNER_TEMP/jq/jq"
+          echo "$RUNNER_TEMP/jq" >> "$GITHUB_PATH"
+          test "$("$RUNNER_TEMP/jq/jq" --version)" = "jq-$JQ_VERSION"
+      - name: names list for scripts/check-generic.sh
+        env:
+          GENERIC_NAMES: ${{ secrets.GENERIC_NAMES }}
+        run: |
+          if [ -n "$GENERIC_NAMES" ]; then
+            printf '%s\n' "$GENERIC_NAMES" > scripts/check-generic.names
+          fi
+      - name: the cargo build kept between runs
+        run: |
+          dir=$HOME/.cache/tehas-target/$RUNNER_NAME
+          mkdir -p "$dir"
+          echo "CARGO_TARGET_DIR=$dir" >> "$GITHUB_ENV"
+      - name: the test jobs from the runner's cores and memory
+        run: |
+          # Two test files a GiB at most, as scripts/test.sh counts them, and
+          # no more than the cores. The lane runs one job at a time, so the
+          # whole machine is the gate's.
+          mem=$(awk '/^MemTotal:/ {print $2 * 1024}' /proc/meminfo)
+          printf '%s\n' "$mem" > "$RUNNER_TEMP/memory.max"
+          cores=$(nproc)
+          jobs=$((mem / 536870912))
+          [ "$jobs" -le "$cores" ] || jobs=$cores
+          [ "$jobs" -ge 1 ] || jobs=1
+          echo "TEHAS_TEST_MEMORY_MAX=$RUNNER_TEMP/memory.max" >> "$GITHUB_ENV"
+          echo "TEHAS_TEST_JOBS=$jobs" >> "$GITHUB_ENV"
+          echo "test jobs: $jobs ($cores cores, $((mem / 1073741824)) GiB)"
+      - name: scripts/verify.sh
+        run: scripts/verify.sh
+      - name: remove the names list
+        if: always()
+        run: rm -f scripts/check-generic.names
+      - name: the sandbox base and image, built by host/sandbox/build.sh
+        run: |
+          . host/versions.env
+          cargo build --locked --manifest-path console/Cargo.toml -p console -p tehas-cycle
+          # The lane's own home for the pi-rukas clone build.sh reads, kept
+          # between runs, and an empty instance: no product layer.
+          home=$HOME/.cache/tehas-speedlane
+          clone=$home/repos/pi-rukas
+          [ -d "$clone/.git" ] || git clone --quiet "$PI_RUKAS_REPO" "$clone"
+          mkdir -p "$RUNNER_TEMP/instance"
+          TEHAS_HOME=$home TEHAS_INSTANCE_DIR=$RUNNER_TEMP/instance \
+            TEHAS_CONSOLE=$CARGO_TARGET_DIR/debug/console TEHAS_CYCLE_BIN=$CARGO_TARGET_DIR/debug/tehas-cycle \
+            host/sandbox/build.sh
+      - name: a smoke run of the tools in the image
+        run: |
+          image=tehas/pi-rukas:uid$(id -u)
+          # build.sh has asked the runner's --capabilities and smoke-run one
+          # work turn. Here the tools a cycle calls answer as that user, offline:
+          # vipune embeds and searches with the model the image carries.
+          docker run --rm --network none --user vscode --entrypoint /bin/bash \
+            -e HF_HUB_OFFLINE=1 "$image" -c '
+            set -euo pipefail
+            db=$(mktemp -d)
+            vipune version --db-path "$db/smoke.db"
+            vipune add "the release gate ran the image" --json --db-path "$db/smoke.db" | jq -e ".status == \"added\""
+            vipune search "release gate image" --json --limit 1 --db-path "$db/smoke.db" | jq -e ".results | length > 0"
+            jq --version
+            codebase-memory-mcp --version
+          '

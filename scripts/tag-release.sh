@@ -2,8 +2,8 @@
 # Tag the head of the remote's default branch as the next release.
 #
 # Finds the newest vX.Y.Z tag and, when it is not already on the branch head,
-# runs the gate on the head and, when it passes, tags the head with the next
-# version and pushes that tag. Nothing else is pushed. What it tags is the
+# gates the head and, when it passes, tags the head with the next version and
+# pushes that tag. Nothing else is pushed. What it tags is the
 # remote's commit, not this checkout's HEAD, so it can run from any branch or
 # worktree: the gate runs in a temporary worktree at that commit.
 #
@@ -52,6 +52,17 @@
 # way. A move that fails stops the release. A head without scripts/pins.sh
 # moves nothing.
 #
+# The gate before the tag is the release gate on the speed lane
+# (.github/workflows/release-gate.yml, on a [self-hosted, speedlane] runner):
+# a green run of it on the exact commit is taken and no gate runs here. With
+# none, or only red ones, it starts one with `gh workflow run` and waits for it,
+# looking every TEHAS_GATE_POLL seconds [30], up to --gate-wait minutes [90];
+# a run already going is waited for. A run it waited for that fails, or no
+# green run within the bound, tags nothing. --local-gate runs scripts/verify.sh
+# here instead, as before the lane. The gate before a pull request it opens
+# (polyfills, fragments, pins) still runs here; verify.yml gates that pull
+# request too.
+#
 # The tag is the only line on stdout, so a script can take it:
 #   tag=$(scripts/tag-release.sh) || exit
 #
@@ -62,11 +73,14 @@
 # Usage: scripts/tag-release.sh [--patch|--minor|--major] [--message <text>]
 #                               [--no-verify] [--dry-run] [--remote <name>]
 #                               [--rukas-caps <file>] [--no-pins]
+#                               [--local-gate] [--gate-wait <minutes>]
 #   --patch      the default: v0.7.6 becomes v0.7.7
 #   --minor      v0.7.6 becomes v0.8.0
 #   --major      v0.7.6 becomes v1.0.0
 #   --message    the tag's message instead of the head's subject
-#   --no-verify  skip scripts/verify.sh
+#   --no-verify  no gate at all: neither the release gate nor scripts/verify.sh
+#   --local-gate run scripts/verify.sh here instead of the release gate
+#   --gate-wait  the minutes to wait for the release gate, default 90
 #   --dry-run    check CHANGELOG.md and print the tag it would make, and the
 #                section with the fragments collected when there are any; make
 #                none, run no gate and check no polyfill
@@ -79,7 +93,8 @@
 #       remote, GitHub or docker failed, the newest tag is not on the branch,
 #       CHANGELOG.md has no Adopter action for the release, a polyfill it keeps
 #       has no live upstream issue and pull request, a pinned tool could not be
-#       moved, the fragments could not be collected, or the gate failed;
+#       moved, the fragments could not be collected, or the gate failed, or
+#       no green release gate came within the bound;
 #       2 nothing tagged: a pull request, named on stderr, removes polyfills,
 #       collects the changelog fragments or moves the pinned tools first;
 #       64 a bad argument; another status when cargo cannot build the task
