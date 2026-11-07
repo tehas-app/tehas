@@ -591,6 +591,25 @@ t_eq "$t_rc" 0
 t_eq "$(cat "$T/build-calls")" "--if-moved"
 t_contains "$t_out" "bootstrap: user part done"
 
+t_case "an installed home of another release leaves the build to install.sh"
+# Its build.sh reads its own versions.env, and would refuse the tools this run
+# just installed at this tree's versions.
+rm -f "$T/build-calls"
+sed 's/^VIPUNE_VERSION=.*/VIPUNE_VERSION=0.0.1/' "$T_ROOT/host/versions.env" >"$T/home/tehas/versions.env"
+t_run "$bootstrap user"
+t_eq "$t_rc" 0
+t_eq "$(test -e "$T/build-calls" && echo there)" ""
+t_contains "$t_out" "the installed tehas is another release; install.sh builds the sandbox image"
+t_contains "$t_out" "bootstrap: user part done"
+
+t_case "an installed home of this release builds as before"
+rm -f "$T/build-calls"
+cp "$T_ROOT/host/versions.env" "$T/home/tehas/versions.env"
+t_run "$bootstrap user"
+t_eq "$t_rc" 0
+t_eq "$(cat "$T/build-calls")" "--if-moved"
+rm -f "$T/home/tehas/versions.env"
+
 t_case "an image that does not follow stops user and says how to try again"
 rm -f "$T/build-calls"
 T_ENV+=(BUILD_RC=1)

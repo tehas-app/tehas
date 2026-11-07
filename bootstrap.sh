@@ -805,10 +805,16 @@ do_user() {
   esac
   # The image cycles run follows the clone, or health says it is behind: built
   # only when it is not on the commit followed. A first bootstrap has no
-  # install yet, so no build.sh, and install.sh builds it.
+  # install yet, so no build.sh, and install.sh builds it. Nor does an
+  # installed home of another release: its build.sh checks the tools against
+  # its own versions.env, not the ones this run installed.
   if [ "$rc" = 0 ] && [ -x "$TEHAS_HOME/sandbox/build.sh" ]; then
-    "$TEHAS_HOME/sandbox/build.sh" --if-moved ||
-      die "the sandbox image did not follow pi-rukas to $rukas_want; run $TEHAS_HOME/sandbox/build.sh --if-moved when the lines above are dealt with"
+    if [ -f "$TEHAS_HOME/versions.env" ] && ! cmp -s "$TEHAS_HOME/versions.env" "$root/host/versions.env"; then
+      echo "bootstrap: the installed tehas is another release; install.sh builds the sandbox image"
+    else
+      "$TEHAS_HOME/sandbox/build.sh" --if-moved ||
+        die "the sandbox image did not follow pi-rukas to $rukas_want; run $TEHAS_HOME/sandbox/build.sh --if-moved when the lines above are dealt with"
+    fi
   fi
   echo "bootstrap: user part done"
 }
