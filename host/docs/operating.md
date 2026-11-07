@@ -2316,6 +2316,63 @@ install.sh again`: run `install.sh` again, and it imports what is left. How it w
 pulling it until it is moved: see
 [Move a checkout host to releases](/host#move-a-checkout-host-to-releases).
 
+## The speed lane
+
+The speed lane is a self-hosted GitHub Actions runner with the label
+`speedlane` and not `tehas`, on a machine that runs nothing else, one job at a
+time. An ordinary `verify` job asks for `[self-hosted, tehas]` and never takes
+it, so a release gate or an urgent batch does not wait behind them or share
+the machine's cores.
+
+Two things run there:
+
+- **The release gate**, `.github/workflows/release-gate.yml`. Started by hand
+  (`workflow_dispatch`) with the full commit id to gate, it checks out that
+  commit, runs `scripts/verify.sh` with `TEHAS_TEST_JOBS` and
+  `TEHAS_TEST_MEMORY_MAX` set from the runner's own cores and memory, then
+  builds the sandbox base image and the sandbox image with
+  `host/sandbox/build.sh`, as a host builds them, and runs vipune, jq and
+  codebase-memory-mcp in the image offline. The run's title is
+  `release-gate <commit>`.
+- **Express batches.** `verify.yml` runs a pull request whose title starts
+  with `Express Lane` on `[self-hosted, speedlane]`. Every other pull request
+  and every push to main runs where it always has.
+
+### How a release is gated and tagged
+
+`scripts/tag-release.sh` gates the head of the default branch before it tags
+it. It looks for a green `release-gate` run whose title names that exact
+commit; a run on another commit does not count. With one, it runs no gate of
+its own. With none, or only red ones, it starts one
+(`gh workflow run release-gate.yml --ref main -f commit=<sha>`) and waits for
+it; a run already going is waited for. It looks every `TEHAS_GATE_POLL`
+seconds (30) for up to `--gate-wait` minutes (90). A run it waited for that
+fails, or no green run in time, tags nothing and exits 1. `tag-release` still
+pushes the tag itself, so `release.yml` starts as before.
+
+`--local-gate` runs `scripts/verify.sh` on the laptop instead, as before the
+lane: use it when no `speedlane` runner is online. `--no-verify` runs no gate
+at all. The gate before a pull request `tag-release` opens (polyfills, changelog
+fragments, pins) still runs where `tag-release` runs.
+
+### Registering a speedlane runner
+
+On the lane's machine, as an account that is not a tehas host's account (the
+image build moves that account's `tehas/pi-rukas` tags), with the tools
+`verify.yml`'s runner has (cargo at the `RUST_VERSION` of `host/versions.env`,
+bash, git, curl) and Docker:
+
+1. In the organization's settings, Actions, Runners, New self-hosted runner,
+   take the registration token.
+2. Run the runner's `./config.sh --url https://github.com/<org> --token <token>
+   --labels speedlane`. The runner carries `self-hosted`, its OS and
+   architecture, and `speedlane`, and not `tehas`.
+3. Run one runner on the machine, so it takes one job at a time, and start it
+   as a service (`./svc.sh install && ./svc.sh start`).
+
+The lane keeps its cargo build in `~/.cache/tehas-target/<runner name>` and
+its pi-rukas clone in `~/.cache/tehas-speedlane/repos/pi-rukas` between runs.
+
 ## Run one issue by hand
 
 Skips the queue, the labels and the comments:
