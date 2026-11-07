@@ -23,6 +23,8 @@ a pull request before it tags, with the head's `scripts/collect-changelog.sh`.
 - A first `tehas setup` on a new factory with a GitHub App no longer stops at `console ids record` with "gh exited 4". With no `GH_TOKEN`, the step makes the app's installation token from its key, as `tehasbot github-token` does, and stops with 78 when no token can be made (#1714).
 - The sandbox base builds again: vipune and oo are built on Ubuntu 24.04, the distro of the image they run in, not on Debian bookworm, whose glibc 2.36 could not link the onnxruntime that vipune's embeddings download. On v0.25.1 `tehas update` stopped at the sandbox step with `undefined symbol: __isoc23_strtol`. The base build now also runs vipune and oo, so a binary that does not start stops the build (#1716).
 - The pinned ctx7 moves from 0.8.2 to 0.9.0.
+- A release is gated on the speed lane: `.github/workflows/release-gate.yml` runs the whole gate on one commit on a `[self-hosted, speedlane]` runner and builds the sandbox base image and the sandbox image with `host/sandbox/build.sh`, with a smoke run of vipune in it. `scripts/tag-release.sh` tags a commit once a run of it on that exact commit is green, starting one and waiting for it when there is none, and runs no gate of its own then; `--local-gate` runs the gate on the machine as before, and `--no-verify` runs none. A batch pull request titled `Express Lane ...` runs `verify` on the speed lane too (#1718).
+- `install.sh --check` no longer calls drift what Pi 1.5.0 writes itself: a `~/.pi/agent/settings.json` that differs from the installed one only in the `defaultProvider` and `defaultModel` Pi set when a person picked a model, or in Pi's key order, passes. A key tehas sets that differs is still drift. `~/.pi/agent/mcp.json` is installed at mode 600. The generic Pi settings put `httpIdleTimeoutMs` at the top level, where Pi 1.5 reads it (Pi 1.5 ignored it under `retry.provider`); an instance `settings.json` with it nested has it moved there at install, and the cycle's `provider retry:` log line reads either place (#1723).
 
 ### Held back
 
@@ -31,6 +33,8 @@ a pull request before it tags, with the head's `scripts/collect-changelog.sh`.
 ### Adopter action
 
 A factory that stopped on v0.25.1 at the sandbox step (`update: ... follow-up(s) are not done, recorded in .../state/update-pending`) runs `tehas update` again after updating to this release; it runs the pending follow-ups, `sandbox` among them, and `update-pending` empties. A factory that did not stop has nothing to do.
+
+A factory whose upgrade to v0.25.2 stopped at `install.sh --check` with `differs: ~/.pi/agent/settings.json` or `mode: ~/.pi/agent/mcp.json is 600, wants 644` (seen on koala's tehas-lab) passes the check after `tehas update` to v0.25.3: the update installs the new settings.json and sets mcp.json to 600. An instance with its own `settings.json` can move `httpIdleTimeoutMs` out of `retry.provider` to the top level itself; install does it either way.
 
 ## v0.25.1 (2026-11-07)
 
