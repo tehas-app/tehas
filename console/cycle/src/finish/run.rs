@@ -1,5 +1,6 @@
-//! The run: what the kept workspace holds, the rebase of its branch in a tree of
-//! the run's own, the push of a new branch, and the draft pull request.
+//! The run: what the kept workspace holds, the rebase of its branch in a
+//! repository of the run's own, the push of a new branch, and the draft pull
+//! request.
 //!
 //! The rules, in the order they stop a run:
 //!
@@ -13,15 +14,29 @@
 //!    clean and leaves a commit;
 //! 6. the push of the new name is accepted, and GitHub answers for the draft.
 //!
-//! A refusal changes nothing outside the run's own scratch, which goes on every
-//! path. The workspace is read and never written: the rebase happens in a
-//! detached tree and the push names `HEAD`, so the branch the cycle left stands
-//! where the cycle left it.
+//! No git runs in the workspace. A cycle's container wrote all of it, its
+//! `.git/config` included, and git honours that file's programs (filters, a
+//! signing program, a credential helper, an ssh command) and its remote URL in
+//! every command run there. The run makes a repository of its own in its
+//! scratch and takes the workspace's commits by `git fetch <workspace>`: the
+//! serving side of that fetch is `git upload-pack`, which git keeps safe to run
+//! on a repository nobody trusts. The working tree is read by a `status` of the
+//! run's repository with the workspace as its work tree. The push goes to the
+//! plan's remote, never to a URL the workspace names. The workspace is read and
+//! never written, so the branch the cycle left stands where the cycle left it.
 
 use super::cmd::{asked, dir_exists, Done, Host, Scratch};
 use super::plan::{body, branch_shaped, title, Finished, Plan};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
+
+/// Where the run's repository keeps the workspace's refs: its branches under
+/// `refs/kept/heads/` and its `HEAD` as `refs/kept/HEAD`.
+const KEPT_HEADS: &str = "refs/kept/heads/";
+const KEPT_HEAD: &str = "refs/kept/HEAD";
+
+/// The most of the workspace's `info/exclude` the run copies.
+const EXCLUDE_MAX: u64 = 1 << 16;
 
 /// A step the run could not do, in the words it refuses with: the rule's own
 /// sentence and, where the command said something, what it said.
@@ -62,17 +77,15 @@ impl Say for Done {
     }
 }
 
-/// `git -C <workspace>` and then `args`: every git call of a run is asked of the
-/// kept workspace, which it only ever reads. The tree of the run is asked of that
-/// same repository, by a `-C` of the run's own. The words go through
-/// [`super::cmd::asked`], so the tree's own hooks and fsmonitor are pinned off on
-/// every one of them: the workspace is a directory a cycle's container wrote.
-fn git(h: &mut dyn Host, workspace: &Path, args: &[&str]) -> Done {
+/// `git -C <repo>` and then `args`: every git call of a run is asked of the run's
+/// own repository. The words go through [`super::cmd::asked`], so hooks and
+/// fsmonitor are pinned off on every one of them as well.
+fn git(h: &mut dyn Host, repo: &Path, args: &[&str]) -> Done {
     let all: Vec<String> = std::iter::once("-C".to_string())
-        .chain(std::iter::once(workspace.display().to_string()))
+        .chain(std::iter::once(repo.display().to_string()))
         .chain(args.iter().map(|s| s.to_string()))
         .collect();
-    h.run("git", &asked(all), workspace)
+    h.run("git", &asked(all), repo)
 }
 
 /// `gh` with these arguments, asked of the home the run was given.
@@ -81,34 +94,12 @@ fn gh(h: &mut dyn Host, home: &Path, args: &[&str]) -> Done {
     h.run("gh", &all, home)
 }
 
-/// The run: everything the rules of this file decide, and the tree it takes back
-/// with it.
+/// The run: everything the rules of this file decide, and the scratch it takes
+/// back with it.
 pub fn run(plan: &Plan, h: &mut dyn Host) -> Finished {
     let workspace = plan.workspace();
-    // The workspace is asked of first, and nothing of it is read before the
-    // rules that refuse it have been answered: no branch, no fetch, no call.
     if !dir_exists(&workspace) {
         return Finished::refused(format!("{} is not a directory", workspace.display()));
-    }
-    if let Err(why) = git(h, &workspace, &["rev-parse", "--git-dir"])
-        .let_say(&format!("{} is no git repository", workspace.display()))
-    {
-        return Finished::refused(why.why);
-    }
-    let branch = match kept_branch(plan, h, &workspace) {
-        Ok(Some(b)) => b,
-        Ok(None) => {
-            return Finished::refused(format!(
-                "{} holds no branch of issue #{}",
-                workspace.display(),
-                plan.issue
-            ))
-        }
-        Err(why) => return Finished::refused(why.why),
-    };
-    let pushed = plan.branch();
-    if let Err(why) = preflight(plan, h, &workspace, &branch, &pushed) {
-        return Finished::refused(why.why);
     }
     let scratch = Scratch::new(
         plan.scratch_parent(),
@@ -118,10 +109,10 @@ pub fn run(plan: &Plan, h: &mut dyn Host) -> Finished {
         Ok(d) => d,
         Err(e) => return Finished::refused(e),
     };
-    let outcome = rebase_push_open(plan, h, &workspace, &branch, &pushed, &dir, &scratch);
-    // Whatever the run did, its tree goes with it: a tree the rebase left mid
-    // flight is the run's own and belongs to no one else.
-    h.clean(&workspace, &dir);
+    let outcome = in_scratch(plan, h, &workspace, &dir, &scratch);
+    // Whatever the run did, its repository goes with it: a tree the rebase left
+    // mid flight is the run's own and belongs to no one else.
+    h.clean(&dir);
     match outcome {
         Ok(url) => Finished {
             url,
@@ -131,22 +122,79 @@ pub fn run(plan: &Plan, h: &mut dyn Host) -> Finished {
     }
 }
 
-/// The kept workspace's branch: `feature/issue-<n>`, with the optional slug
-/// pi-rukas gives it, as the grammar of src/finish/plan.rs reads it. Ok(None) is a
-/// workspace that holds no branch of this issue.
-fn kept_branch(plan: &Plan, h: &mut dyn Host, workspace: &Path) -> Result<Option<String>, Why> {
-    let out = git(
-        h,
-        workspace,
-        &["for-each-ref", "--format=%(refname:short)", "refs/heads/"],
+/// Rules 1 to 6, asked of the run's repository under `dir`.
+fn in_scratch(
+    plan: &Plan,
+    h: &mut dyn Host,
+    workspace: &Path,
+    dir: &Path,
+    scratch: &Scratch,
+) -> Result<String, Why> {
+    let repo = taken(h, workspace, dir)?;
+    let branch = issue_branch_of(
+        &git(
+            h,
+            &repo,
+            &["for-each-ref", "--format=%(refname:lstrip=3)", KEPT_HEADS],
+        )
+        .let_say("its branches could not be read")?,
+        plan.issue,
     )
-    .let_say("its branches could not be read")?;
-    Ok(issue_branch_of(&out, plan.issue))
+    .ok_or_else(|| {
+        Why::only(format!(
+            "{} holds no branch of issue #{}",
+            workspace.display(),
+            plan.issue
+        ))
+    })?;
+    let pushed = plan.branch();
+    preflight(plan, h, workspace, &repo, &branch, &pushed)?;
+    rebase_push_open(plan, h, &repo, &branch, &pushed, scratch)
 }
 
-/// The issue's branch among the names of a `for-each-ref` answer, the first one
-/// git answers. A name that is no branch name is not the issue's branch, so a
-/// `feature/issue-7-` or a name of another issue's number is not taken for it.
+/// The run's repository, `<dir>/repo`, holding the workspace's branches and
+/// `HEAD` under `refs/kept/` and its `info/exclude`, with `origin` the plan's
+/// remote. Nothing of the workspace's config comes with them.
+fn taken(h: &mut dyn Host, workspace: &Path, dir: &Path) -> Result<PathBuf, Why> {
+    let repo = dir.join("repo");
+    std::fs::create_dir(&repo).map_err(|e| Why::only(format!("{}: {e}", repo.display())))?;
+    git(h, &repo, &["init", "--quiet"]).let_say("the run's repository could not be made")?;
+    let from = workspace.display().to_string();
+    let heads = format!("+refs/heads/*:{KEPT_HEADS}*");
+    let head = format!("+HEAD:{KEPT_HEAD}");
+    git(
+        h,
+        &repo,
+        &["fetch", "--quiet", "--no-tags", &from, &head, &heads],
+    )
+    .let_say(&format!("{} is no git repository", workspace.display()))?;
+    copy_exclude(workspace, &repo);
+    Ok(repo)
+}
+
+/// The workspace's `.git/info/exclude` copied as text into the run's
+/// repository, so the files the cycle kept out of git are not read as
+/// uncommitted work. A link or anything but a plain file is not followed.
+fn copy_exclude(workspace: &Path, repo: &Path) {
+    let git_dir = workspace.join(".git");
+    if !dir_exists(&git_dir) || !dir_exists(&git_dir.join("info")) {
+        return;
+    }
+    let Ok((text, _)) = tehas_core::file::read_regular(&git_dir.join("info/exclude"), EXCLUDE_MAX)
+    else {
+        return;
+    };
+    let to = repo.join(".git/info");
+    if std::fs::create_dir_all(&to).is_ok() {
+        let _ = std::fs::write(to.join("exclude"), text);
+    }
+}
+
+/// The kept workspace's branch: `feature/issue-<n>`, with the optional slug
+/// pi-rukas gives it, as the grammar of src/finish/plan.rs reads it. The first
+/// name of a `for-each-ref` answer that is the issue's. A name that is no branch
+/// name is not the issue's branch, so a `feature/issue-7-` or a name of another
+/// issue's number is not taken for it.
 pub fn issue_branch_of(names: &str, n: u64) -> Option<String> {
     let want = format!("feature/issue-{n}");
     let slug = format!("{want}-");
@@ -157,24 +205,34 @@ pub fn issue_branch_of(names: &str, n: u64) -> Option<String> {
         .map(str::to_string)
 }
 
-/// Everything checked before a tree is made: rules 1 to 4.
+/// Everything checked before the branch is checked out: rules 2 to 4.
 fn preflight(
     plan: &Plan,
     h: &mut dyn Host,
     workspace: &Path,
+    repo: &Path,
     branch: &str,
     pushed: &str,
 ) -> Result<(), Why> {
-    // The workspace holds the branch: git refuses a name it does not have, and
-    // a name it cannot read is a refusal and not a branch to push.
-    git(h, workspace, &["rev-parse", "--verify", "--quiet", branch])
-        .let_say(&format!("{branch} is not a branch of it"))?;
+    let kept = format!("{KEPT_HEADS}{branch}");
     // Nobody has looked at work that was never committed, so it is not finished
-    // work and this command does not deliver it.
+    // work and this command does not deliver it. The workspace's files are read
+    // against the commit its `HEAD` named, through the run's own repository:
+    // its head and index are that commit and the workspace is its work tree.
+    // Submodules are left alone, because a status of one would be a git of a
+    // repository the container wrote.
+    git(h, repo, &["reset", "--quiet", KEPT_HEAD]).let_say("its working tree could not be read")?;
+    let tree = format!("--work-tree={}", workspace.display());
     let dirty = git(
         h,
-        workspace,
-        &["status", "--porcelain", "--untracked-files=all"],
+        repo,
+        &[
+            &tree,
+            "status",
+            "--porcelain",
+            "--untracked-files=all",
+            "--ignore-submodules=all",
+        ],
     )
     .let_say("its working tree could not be read")?;
     if !dirty.trim().is_empty() {
@@ -182,9 +240,11 @@ fn preflight(
             "its working tree holds work that was never committed",
         ));
     }
-    // The fetch is before the count: what the host's `origin/<default>` holds is
-    // not what the remote holds, and the rebase decides against the remote's.
-    let fetched = git(h, workspace, &["fetch", "--quiet", "origin", &plan.default]);
+    git(h, repo, &["remote", "add", "origin", &plan.remote()])
+        .let_say("the remote could not be named")?;
+    // The fetch is before the count: the rebase decides against what the remote
+    // holds now.
+    let fetched = git(h, repo, &["fetch", "--quiet", "origin", &plan.default]);
     if !fetched.ok() {
         return Err(
             Why::new(format!("origin/{} could not be fetched", plan.default)).said(&fetched),
@@ -192,12 +252,12 @@ fn preflight(
     }
     git(
         h,
-        workspace,
+        repo,
         &[
             "rev-parse",
             "--verify",
             "--quiet",
-            &format!("origin/{}", plan.default),
+            &format!("refs/remotes/origin/{}", plan.default),
         ],
     )
     .let_say(&format!(
@@ -206,11 +266,11 @@ fn preflight(
     ))?;
     let ahead = git(
         h,
-        workspace,
+        repo,
         &[
             "rev-list",
             "--count",
-            &format!("origin/{}..{branch}", plan.default),
+            &format!("refs/remotes/origin/{}..{kept}", plan.default),
         ],
     )
     .let_say("its commits over the default branch could not be counted")?;
@@ -225,7 +285,7 @@ fn preflight(
     // refs exist. git answers 2 for a name the remote does not have.
     let there = git(
         h,
-        workspace,
+        repo,
         &[
             "ls-remote",
             "--exit-code",
@@ -429,110 +489,48 @@ pub fn negated(before: &str) -> bool {
 fn rebase_push_open(
     plan: &Plan,
     h: &mut dyn Host,
-    workspace: &Path,
+    repo: &Path,
     branch: &str,
     pushed: &str,
-    dir: &Path,
     scratch: &Scratch,
 ) -> Result<String, Why> {
-    let tree = worktree(h, workspace, branch, dir)?;
-    let on = format!("origin/{}", plan.default);
-    // The tree holds the branch's commits detached. `<upstream>` and `<branch>`
-    // are named in full because git takes them from the current branch otherwise,
-    // and the tree is on none; `HEAD` stands for the tree's own head, which is
-    // what `worktree add --detach` left there. `--onto` is the remote's default
-    // branch, so the commits of the cycle stand on what a reviewer merges
-    // against. The tree is what git checks out, never a branch of the workspace,
-    // so the branch the cycle left keeps its commits.
-    let rebased = git(
+    let kept = format!("{KEPT_HEADS}{branch}");
+    // `--force`: the index the status made is the workspace's, not this tree's.
+    git(
         h,
-        workspace,
-        &[
-            "-C",
-            &tree.display().to_string(),
-            "rebase",
-            "--onto",
-            &on,
-            &on,
-            "HEAD",
-        ],
-    );
-    if !rebased.ok() {
-        // git left the tree mid rebase. It is the run's own tree and goes with
-        // it, and the workspace's branch holds its commits, so there is nothing
-        // here to abort and nothing to leave behind.
-        return Err(Why::new(format!("the rebase onto {on} conflicts")).said(&rebased));
-    }
-    let kept = git(
-        h,
-        workspace,
-        &[
-            "-C",
-            &tree.display().to_string(),
-            "rev-list",
-            "--count",
-            &format!("{on}..HEAD"),
-        ],
+        repo,
+        &["checkout", "--quiet", "--force", "--detach", &kept],
     )
-    .let_say("the rebased commits could not be counted")?;
-    if !has_commits(kept.trim()) {
+    .let_say("the branch could not be checked out")?;
+    let on = format!("refs/remotes/origin/{}", plan.default);
+    // `<upstream>` and `<branch>` are named in full because git takes them from
+    // the current branch otherwise, and the tree is on none. `--onto` is the
+    // remote's default branch, so the commits of the cycle stand on what a
+    // reviewer merges against.
+    let rebased = git(h, repo, &["rebase", "--onto", &on, &on, "HEAD"]);
+    if !rebased.ok() {
+        // git left the tree mid rebase. It is the run's own and goes with it.
+        return Err(
+            Why::new(format!("the rebase onto origin/{} conflicts", plan.default)).said(&rebased),
+        );
+    }
+    let count = git(h, repo, &["rev-list", "--count", &format!("{on}..HEAD")])
+        .let_say("the rebased commits could not be counted")?;
+    if !has_commits(count.trim()) {
         return Err(Why::only("the rebase left no commit to push"));
     }
-    // The push of a new name with no force, of HEAD and never a ref of the
-    // workspace. The remote refusing it is the same refusal as the name found
-    // there before the push, and it is not tried again.
+    // The push of a new name with no force, of HEAD. The remote refusing it is
+    // the same refusal as the name found there before the push, and it is not
+    // tried again.
     let push = git(
         h,
-        workspace,
-        &[
-            "-C",
-            &tree.display().to_string(),
-            "push",
-            "origin",
-            &format!("HEAD:refs/heads/{pushed}"),
-        ],
+        repo,
+        &["push", "origin", &format!("HEAD:refs/heads/{pushed}")],
     );
     if !push.ok() {
         return Err(Why::new(format!("{pushed} could not be pushed")).said(&push));
     }
     draft(plan, h, pushed, scratch)
-}
-
-/// The tree of the run, checked out at the branch in a detached head: the one
-/// tree a rebase is allowed to move.
-fn worktree(h: &mut dyn Host, workspace: &Path, branch: &str, dir: &Path) -> Result<PathBuf, Why> {
-    // The tree is a name git has never registered, because the run removes the
-    // registration of its own before it ends: `worktree add` refuses a path that
-    // exists, and a run whose tree was taken away from it under it would leave a
-    // registration behind for the next one to trip on.
-    let tree = dir.join(format!("tree-{}", std::process::id()));
-    if dir_exists(&tree) {
-        let _ = std::fs::remove_dir_all(&tree);
-        // The tree is the run's own and its directory is gone, so git's record of
-        // it is cleared where git is asked for real. A case that stands in for
-        // the host's programs answers this call with words of its own, so the ask
-        // is made of `Live` alone: the checkout of the tree is what decides, and
-        // a name git still holds is said there.
-        if let Some(live) = h.as_live() {
-            live.prune(workspace);
-        }
-    }
-    let d = git(
-        h,
-        workspace,
-        &[
-            "worktree",
-            "add",
-            "--quiet",
-            "--detach",
-            &tree.display().to_string(),
-            branch,
-        ],
-    );
-    if !d.ok() {
-        return Err(Why::new("the branch could not be checked out").said(&d));
-    }
-    Ok(tree)
 }
 
 /// The draft pull request, and the URL gh prints for it.
