@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/tehas-app/tehas/api/state-copy.schema.json",
+  "title": "tehas state copy --json",
+  "description": "What tehas state copy --to <file> --json prints when it has made a copy of the state store. host/docs/api.md says what each field means. A later release may add fields. test/state_test.sh checks the samples beside this file, and what the command prints, against it.",
+  "type": "object",
+  "required": ["api", "target", "schema", "rows", "ms"],
+  "additionalProperties": false,
+  "properties": {
+    "api": {"const": 1},
+    "target": {"type": "string"},
+    "schema": {"type": "integer", "minimum": 1},
+    "rows": {"type": "integer", "minimum": 0},
+    "ms": {"type": "integer", "minimum": 0}
+  }
+}
