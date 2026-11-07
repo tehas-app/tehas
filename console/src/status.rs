@@ -59,8 +59,8 @@ pub fn main(given: &[String]) -> u8 {
         }
     }
     match verb {
-        "show" => answer(file, now, Some((&poll, product.as_deref()))),
-        "json" => answer(file, now, None),
+        "show" => answer(file, now, Some((&poll, product.as_deref())), &[]),
+        "json" => answer(file, now, None, &[]),
         _ => usage(),
     }
 }
@@ -82,11 +82,39 @@ pub fn print(given: &[String]) -> u8 {
     let file = home.join("live/health.json").display().to_string();
     let now = tehas_core::time::now();
     if json {
-        return answer(&file, now, None);
+        return answer(&file, now, None, &[]);
     }
     let poll = poll_line(&home);
     let product = home.join("state/check-product.json");
-    answer(&file, now, Some((&poll, product.to_str())))
+    let ends = end_lines(&tehas_core::end_fault::all(&home), now);
+    answer(&file, now, Some((&poll, product.to_str())), &ends)
+}
+
+/// The cycles whose last GitHub step failed (#1726): the next try of the poll,
+/// or why it does not try.
+pub fn end_lines(records: &[tehas_core::end_fault::EndFault], now: i64) -> Vec<String> {
+    use tehas_core::end_fault::{Due, TRIES};
+    records
+        .iter()
+        .map(|r| {
+            let tried = format!("{} of {TRIES} tries made", r.tries.len());
+            let state = match r.due(now) {
+                Due::Now => format!("the poll finishes it at its next run, {tried}"),
+                Due::At(t) => format!("the poll tries to finish it {}, {tried}", in_time(t, now)),
+                Due::Never(why) => format!("waits for tehas:finish: {why}"),
+            };
+            format!("finish    #{}: {}; {state}", r.issue, r.failure())
+        })
+        .collect()
+}
+
+fn in_time(t: i64, now: i64) -> String {
+    let m = (t - now).max(0) / 60;
+    if m < 1 {
+        "in under a minute".into()
+    } else {
+        format!("in {m} min")
+    }
 }
 
 /// The instance's home, as `lib/config.sh` resolves it.
@@ -109,7 +137,7 @@ fn poll_line(home: &Path) -> String {
 
 /// Print the health file: the object, or with `lines` (the poll line and the
 /// file of the product's check) the lines.
-fn answer(file: &str, now: i64, lines: Option<(&str, Option<&str>)>) -> u8 {
+fn answer(file: &str, now: i64, lines: Option<(&str, Option<&str>)>, ends: &[String]) -> u8 {
     let health = match fs::read_to_string(file).ok().and_then(|t| J::parse(&t)) {
         Some(h) if h.get("status").as_str().is_some() => h,
         _ => {
@@ -122,6 +150,7 @@ fn answer(file: &str, now: i64, lines: Option<(&str, Option<&str>)>) -> u8 {
         Some((poll, product)) => {
             let mut lines = state_lines(&health, now, stale, poll);
             lines.extend(cycles(&health).iter().map(|c| cycle_line(c, now)));
+            lines.extend(ends.iter().cloned());
             lines.extend(plan_lines(&health, now));
             lines.push(slice_line(&health, now));
             lines.extend(platform_line(&health, now));
@@ -834,6 +863,23 @@ mod tests {
 
     fn h(text: &str) -> J {
         J::parse(text).unwrap()
+    }
+
+    #[test]
+    fn a_cycle_waiting_to_be_finished_has_its_next_try_or_why_not() {
+        use tehas_core::end_fault::EndFault;
+        let mut push = EndFault::new(7, 1, "push", "HTTP 502: Bad Gateway", NOW - 60);
+        push.tries.push(NOW - 60);
+        let fresh = EndFault::new(8, 1, "pr", "HTTP 429", NOW);
+        let own = EndFault::new(9, 1, "pr", "HTTP 422: Validation Failed", NOW);
+        assert_eq!(
+            end_lines(&[push, fresh, own], NOW),
+            vec![
+                "finish    #7: its push failed on GitHub's side (HTTP 502); the poll tries to finish it in 9 min, 1 of 3 tries made",
+                "finish    #8: its pull request failed on GitHub's side (HTTP 429); the poll finishes it at its next run, 0 of 3 tries made",
+                "finish    #9: its pull request failed by a fault of the request itself (HTTP 422); waits for tehas:finish: the failure was the request's own, not GitHub's, so only tehas:finish finishes it",
+            ]
+        );
     }
 
     #[test]

@@ -2,6 +2,7 @@
 //! and returns what it does; it reads and writes nothing itself.
 
 pub mod apply;
+pub mod auto_finish;
 pub mod decide;
 pub mod finish;
 pub mod poll;

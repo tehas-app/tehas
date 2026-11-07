@@ -121,7 +121,8 @@ case "$1 $2" in
       left=$(cat "$T/fx/comment-fails-times")
       if [ "$left" -gt 0 ]; then echo $((left - 1)) >"$T/fx/comment-fails-times"; exit 1; fi
     fi
-    [ ! -e "$T/fx/comment-fails" ] || exit 1 ;;
+    # comment-fails holds what gh says when it fails, which may be nothing.
+    [ ! -e "$T/fx/comment-fails" ] || { cat "$T/fx/comment-fails" >&2; exit 1; } ;;
   # Who the token is, and one pull request as REST gives it.
   "api user") cat "$T/fx/user.json" || exit 1 ;;
   "api repos/acme/widget/pulls/"*) cat "$T/fx/pull.json" || exit 1 ;;
