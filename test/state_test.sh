@@ -500,7 +500,7 @@ t_case "copy --json copies a running factory's store, names its schema, and fits
 reset
 t_ended "$dst" 5 -
 t_live "$dst" 12 true running work
-rm -rf "$T/copies" && mkdir -p -m 700 "$T/copies/state"
+rm -rf "$T/copies" && mkdir -p "$T/copies" && mkdir -m 700 "$T/copies/state"
 before=$(fingerprint "$dst")
 t_run "$state copy --to '$T/copies/state/tehas.db' --json"
 t_eq "$t_rc" 0
