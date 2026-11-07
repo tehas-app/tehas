@@ -39,6 +39,10 @@ pub struct Args {
     /// The --capabilities answer, absolute, when --rukas-caps gave one.
     pub rukas_caps: Option<PathBuf>,
     pub pins: bool,
+    /// The gate before the tag runs here, not on the speed lane.
+    pub local_gate: bool,
+    /// The minutes tag-release waits for the release gate.
+    pub gate_wait: u64,
 }
 
 impl Default for Args {
@@ -51,6 +55,8 @@ impl Default for Args {
             remote: "origin".into(),
             rukas_caps: None,
             pins: true,
+            local_gate: false,
+            gate_wait: 90,
         }
     }
 }
@@ -75,6 +81,13 @@ pub fn parse(args: &[String], pwd: &Path) -> Result<Parsed, String> {
             "--dry-run" => a.dry = true,
             "--no-verify" => a.verify = false,
             "--no-pins" => a.pins = false,
+            "--local-gate" => a.local_gate = true,
+            "--gate-wait" => {
+                a.gate_wait = it
+                    .next()
+                    .and_then(|v| v.parse().ok())
+                    .ok_or("--gate-wait needs a number of minutes")?
+            }
             "--message" => a.message = it.next().ok_or("--message needs a text")?.clone(),
             "--remote" => a.remote = it.next().ok_or("--remote needs a name")?.clone(),
             "--rukas-caps" => match it.next() {
@@ -587,7 +600,7 @@ pub fn run(a: &Args, root: &Path) -> u8 {
         }
     }
 
-    if a.verify {
+    if a.verify && a.local_gate {
         eprintln!("tag-release: running the gate on {}", short(&head));
         if !ctx.gate() {
             eprintln!(
@@ -596,6 +609,8 @@ pub fn run(a: &Args, root: &Path) -> u8 {
             );
             return 1;
         }
+    } else if a.verify && !ctx.release_gate(&head, a.gate_wait) {
+        return 1;
     }
 
     let message = if a.message.is_empty() {
@@ -648,6 +663,90 @@ impl Ctx<'_> {
     /// The head's gate, run in the head, its output on stderr.
     fn gate(&self) -> bool {
         runs(self.script("verify.sh").current_dir(self.tree), false)
+    }
+
+    /// A green run of the release gate on `commit`, found, or started and
+    /// waited for up to `minutes`. A failure is said.
+    fn release_gate(&self, commit: &str, minutes: u64) -> bool {
+        let gh = || {
+            let mut c = self.cmd("gh");
+            c.current_dir(self.tree);
+            c
+        };
+        let list = || {
+            let out = ok_out(gh().args([
+                "run",
+                "list",
+                "--workflow",
+                lane::WORKFLOW,
+                "--event",
+                "workflow_dispatch",
+                "--limit",
+                "100",
+                "--json",
+                lane::FIELDS,
+            ]))?;
+            lane::parse(&out)
+        };
+        let start = || {
+            runs(
+                gh().args(["workflow", "run", lane::WORKFLOW, "--ref", self.branch])
+                    .args(["-f", &format!("commit={commit}")]),
+                false,
+            )
+        };
+        // TEHAS_GATE_POLL: the seconds between looks, 30 by default.
+        let poll = std::env::var("TEHAS_GATE_POLL")
+            .ok()
+            .and_then(|p| p.parse().ok())
+            .unwrap_or(30);
+        let end = std::time::Instant::now() + std::time::Duration::from_secs(minutes * 60);
+        let wait = || {
+            let now = std::time::Instant::now();
+            if now >= end {
+                return false;
+            }
+            std::thread::sleep(std::time::Duration::from_secs(poll).min(end - now));
+            true
+        };
+        let c = short(commit);
+        let say = |m: &str| eprintln!("tag-release: {m}");
+        let hint = "tag-release: --local-gate runs the gate here instead";
+        match lane::gate(commit, list, start, wait, say) {
+            lane::Outcome::Green(url) => {
+                eprintln!("tag-release: the release gate passed on {c}, {url}; no local gate");
+                true
+            }
+            lane::Outcome::Red(url) => {
+                eprintln!("tag-release: the release gate failed on {c}, {url}; nothing was tagged");
+                false
+            }
+            lane::Outcome::TimedOut(url) => {
+                let run = url.map(|u| format!(" ({u})")).unwrap_or_default();
+                eprintln!("tag-release: no green release gate on {c} within {minutes} minutes{run}; nothing was tagged");
+                eprintln!(
+                    "tag-release: is a speedlane runner online? --gate-wait gives a longer bound"
+                );
+                eprintln!("{hint}");
+                false
+            }
+            lane::Outcome::NoList => {
+                eprintln!(
+                    "tag-release: cannot list the runs of {}; nothing was tagged",
+                    lane::WORKFLOW
+                );
+                eprintln!("{hint}");
+                false
+            }
+            lane::Outcome::NoStart => {
+                eprintln!(
+                    "tag-release: cannot start {} on {c}; nothing was tagged",
+                    lane::WORKFLOW
+                );
+                eprintln!("{hint}");
+                false
+            }
+        }
     }
 
     /// The URL of an open pull request from a branch whose name starts with
@@ -1014,6 +1113,8 @@ fn pins(ctx: &Ctx, next: &str) -> Option<u8> {
     eprintln!("tag-release: {url} moves them; merge it, then tag. Nothing was tagged");
     Some(2)
 }
+
+pub mod lane;
 
 #[cfg(test)]
 mod tests;

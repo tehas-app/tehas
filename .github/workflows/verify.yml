@@ -23,8 +23,12 @@ jobs:
     # the job no sudo. A passing run took 7 to 15 minutes on a hosted runner.
     # A pull request from a fork does not run here: the repository is public,
     # and the runner is a machine of ours.
+    # A batch pull request whose title starts with "Express Lane" runs on the
+    # speed lane, [self-hosted, speedlane], the reserved runner the release
+    # gate uses (host/docs/operating.md, The speed lane). The title, not a
+    # label: the backlog run's merge train adds no labels.
     if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: [self-hosted, tehas]
+    runs-on: ${{ startsWith(github.event.pull_request.title, 'Express Lane') && fromJSON('["self-hosted", "speedlane"]') || fromJSON('["self-hosted", "tehas"]') }}
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

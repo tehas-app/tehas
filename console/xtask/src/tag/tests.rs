@@ -34,6 +34,14 @@ fn the_arguments_are_read_in_order() {
     assert!(!a.verify && !a.pins && a.dry);
     assert_eq!((a.message.as_str(), a.remote.as_str()), ("by hand", "up"));
     assert_eq!(args(&["--major", "--patch"]).part, Part::Patch);
+    let a = args(&["--local-gate", "--gate-wait", "5"]);
+    assert!(a.local_gate && a.verify);
+    assert_eq!(a.gate_wait, 5);
+    assert!(!Args::default().local_gate);
+    assert_eq!(
+        parse(&s(&["--gate-wait", "soon"]), Path::new("/")),
+        Err("--gate-wait needs a number of minutes".into())
+    );
     assert_eq!(
         parse(&s(&["--bogus"]), Path::new("/")),
         Err("unknown argument: --bogus".into())
