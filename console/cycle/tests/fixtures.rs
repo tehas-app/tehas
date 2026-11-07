@@ -277,6 +277,66 @@ fn another_78_on_a_lean_start_is_a_cycle_that_stopped() {
     assert!(!said.contains("lean"), "{said}");
 }
 
+/// The park of the classic 78 of tests/fixtures/park.json, with the note
+/// tehas work leaves for a refresh whose pull request conflicts, if any.
+fn refresh_parked(note: Option<&str>) -> (Vec<String>, tehas_cycle::report::Park) {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/park.json");
+    let cases: Vec<Value> = serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap();
+    let mut c = cases
+        .into_iter()
+        .find(|c| {
+            c["case"]
+                == "a 78 on a classic start stays a stopped cycle, with its approval on record"
+        })
+        .unwrap();
+    if let Some(n) = note {
+        c["facts"]["files"]["refresh-conflict"] = n.into();
+    }
+    let facts = Facts::from_json(&c["facts"]).unwrap();
+    let r = report(&facts, &mut Given(c["facts"]["github"].clone()));
+    let park = r
+        .actions
+        .into_iter()
+        .find_map(|a| match a {
+            Action::Park(p) => Some(*p),
+            _ => None,
+        })
+        .unwrap();
+    (r.end, park)
+}
+
+/// #1727: a refresh that conflicts on an image that cannot finish one is a
+/// stopped refresh, its approval on record so no refresh of it starts again,
+/// and its park names the files.
+#[test]
+fn a_refresh_that_conflicts_is_parked_naming_its_files() {
+    let note = r#"{"pr":1453,"branch":"main","paths":["console/dispatch/src/text.rs"],"more":0}"#;
+    let (end, p) = refresh_parked(Some(note));
+    assert!(!end.contains(&"--never-ran".to_string()), "{end:?}");
+    assert!(end.contains(&"--parked".to_string()), "{end:?}");
+    let reason = p.args.iter().position(|a| a == "--reason").unwrap();
+    assert_eq!(p.args[reason + 1], "refresh-conflict", "{:?}", p.args);
+    let (_, body) = p.question(7, false);
+    assert!(
+        body.contains("Tehas ran no refresh: pull request #1453 conflicts with `main` in `console/dispatch/src/text.rs`."),
+        "{body}"
+    );
+    assert!(!body.contains("stopped without a pull request"), "{body}");
+    // A note that is not one, or none, is the 78 it was.
+    for note in [None, Some("not json")] {
+        let (_, p) = refresh_parked(note);
+        assert!(
+            !p.args.contains(&"refresh-conflict".to_string()),
+            "{:?}",
+            p.args
+        );
+        assert!(p
+            .question(7, false)
+            .1
+            .contains("stopped without a pull request"));
+    }
+}
+
 /// All cases of a suite whose question or comment says these words.
 fn said(suite: &str, words: &str) -> Vec<Value> {
     let path = format!("{}/tests/fixtures/{suite}.json", env!("CARGO_MANIFEST_DIR"));

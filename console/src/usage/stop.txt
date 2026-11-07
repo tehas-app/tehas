@@ -13,7 +13,8 @@ host asks GitHub for nothing, so a second run is a no-op twice.
 What goes is only what says a cycle runs, is owed, or is parked:
 
   state/cycles/<issue>.lock .cid .done .stalled .timed .oom
-                 .forks .nostart .nostart.new .lean-refused .progress.json .result.json
+                 .forks .nostart .nostart.new .lean-refused .refresh-conflict
+                 .progress.json .result.json
   state/cycles/<issue>.stopped .stopped.new, left by an earlier stop
   the issue's current park on the state store asks for nothing more: its
                  question is taken off the record (its boxes start nothing)

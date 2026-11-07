@@ -957,6 +957,44 @@ with the label on for the next poll. Each ask taken leaves one line in
 <why>`, which the MCP server's `factory_decisions` answers as the decision
 `finish`.
 
+### A cycle whose push or pull request GitHub failed
+
+When the last GitHub steps of a cycle fail, the cycle's report records which
+one in `~/tehas/state/cycles/<n>.end-failed.json`: the push, the pull request
+or the handoff comment, and whether the failure was GitHub's. GitHub's is an
+HTTP 5xx, a 429, a 403 that names a rate limit, a timeout or a connection
+error. Any other 4xx, such as a 422 or a 403 for a missing permission, is the
+request's own, and so is a failure that names none of these. A later cycle of
+the issue replaces the record, or removes it when its end failed nothing.
+
+For a push or a pull request that failed on GitHub's side, the poll runs the
+same `tehas-cycle finish` an ask runs, from the kept workspace, with no ask:
+
+- The first try is at the next poll, each next one at least 10 minutes after
+  the one before, 3 tries at most, all within an hour of the failure.
+- A try that opens the draft removes the record and comments
+  `<!-- tehas:finish issue=<n> result=opened by=poll -->` with its URL. The
+  issue keeps `needs-human-attention`, as after an ask: the draft's gate did
+  not pass.
+- A try that GitHub fails again is counted. A refusal of anything else, the
+  third try failed, or the hour over, stops the tries. The issue is told once,
+  with `<!-- tehas:finish issue=<n> result=stopped by=poll -->`, and the cycle
+  waits for an ask with `tehas:finish`.
+- An issue that carries `tehas:finish` is the ask's: the ask runs its finish
+  and removes the record, so the finish runs once. A running issue waits. An
+  issue that is closed, carries `tehas:ready`, `tehas:running` or
+  `tehas:awaiting-merge`, or no longer carries `needs-human-attention`, has its
+  record removed and nothing runs.
+
+Nothing else is finished on its own: a request's own 4xx, a handoff comment
+that failed, a failed test, a review or a park still wait for the ask. The
+step runs where the ask's step runs, after it, and not on a poll that is
+paused, dry or that failed. Each try leaves one line in `dispatch.log`:
+`auto-finish #<n>: opened <url>, try <k> of 3: ...`, `auto-finish #<n>: try
+<k> of 3 failed on GitHub's side: ...`, `auto-finish #<n>: stopped: ...` or
+`auto-finish #<n>: dropped: ...`. `tehas status` lists each record on a
+`finish` line, with the poll's next try or why it does not try.
+
 ## Planning on an issue
 
 A planning session is a conversation with pi-rukas's planner that ends in a
@@ -2271,6 +2309,29 @@ with 78 on an image that does not take it. Nothing else about the container
 changes. The outcome is read as any cycle's: a refresh that pushed goes back to
 `tehas:awaiting-merge` with the same pull request, one that parks parks the
 issue, and no refresh of it starts again on its own.
+
+**A refresh that conflicts.** pi-rukas up to v0.14.58 cannot finish a refresh
+that has a conflict to resolve. Its develop step verifies a tree it builds by
+putting the worktree's commits back onto the branch's tip, and for a continued
+pull request those are the pull request's own commits and the merge: they
+conflict there as the merge did, however the conflict was resolved, and the
+cycle stops on `consolidated-verify-conflict`. On tehas-tehas from
+2026-10-24 to 2026-11-07, 13 of 16 refreshes stopped on that cap and none of
+the other three pushed. So on an image whose `--capabilities` does not set
+`features.continuePrMergeVerify`, `tehas work` first asks git, in the fresh
+workspace and before the push check, whether the pull request's head at the
+request merges with `origin/main` (`git merge-tree`). When it conflicts, no
+container starts: the files go to `state/cycles/<issue>.refresh-conflict`, the
+command exits 78, and `tehasbot cycle` parks the issue as a stopped refresh,
+reason `refresh-conflict`, with the files named:
+
+> Tehas ran no refresh: pull request #1453 conflicts with `main` in
+> `console/dispatch/src/text.rs`. ...
+
+The park counts as a parked refresh, so none starts again on its own. A
+person merges `main` into the branch and resolves the conflict there. A merge
+that is clean, or one git cannot judge (a head the workspace does not hold),
+runs the refresh as before.
 
 **What it does not do.** Failing checks and requested changes, pull requests
 the bot did not open, from forks or closing several issues, and conflicts

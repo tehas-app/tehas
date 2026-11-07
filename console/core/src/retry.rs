@@ -249,6 +249,33 @@ pub fn owed_a_retry(r: &Ran) -> bool {
     said.failed_by_server() || said.class == Class::Unknown403
 }
 
+/// Whether a failed write or push was GitHub's fault (#1726): a 5xx, a 429 or
+/// a 403 that names a limit, as gh or git said it, or a timeout or a
+/// connection error. A 4xx that names a state or no limit is the request's
+/// own, and wins over a 5xx on another line, as `owed_a_retry` reads it. A
+/// failure that says none of these is not GitHub's.
+pub fn githubs_fault(err: &str) -> bool {
+    let low = err.to_ascii_lowercase();
+    // git says its status as `The requested URL returned error: 502`.
+    let said = read_of(&low.replace("returned error: ", "http "));
+    match said.class {
+        Class::Limit | Class::Server => true,
+        Class::State | Class::Unknown403 => false,
+        Class::Nothing => [
+            "timed out",
+            "timeout",
+            "connection reset",
+            "connection refused",
+            "connection closed",
+            "could not resolve host",
+            "no such host",
+            "unexpected eof",
+        ]
+        .iter()
+        .any(|w| low.contains(w)),
+    }
+}
+
 /// How long to wait before the retry of attempt `attempts`: the whole seconds
 /// a caller sleeps for, or None when no retry follows it, or when the clock
 /// cannot be read and so no wait can be measured. `retry_with` hands it to the
