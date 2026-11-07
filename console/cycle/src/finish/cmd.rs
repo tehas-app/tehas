@@ -6,9 +6,9 @@
 //! stopped is one that did not happen. A case hands the rules a host of its own,
 //! so the rules of `finish` are read without a network and without a token.
 //!
-//! This is the one place the factory asks git of a tree a cycle's container
-//! wrote, so a call of git is asked of that tree's repository under the settings
-//! that leave nothing of the tree to be run: see [`PINS`].
+//! Every call of git is asked of the run's own repository and never of the
+//! workspace a cycle's container wrote (see [`super::run`]). The pins of
+//! [`PINS`] stay on every call as a second guard.
 
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::process::CommandExt;
@@ -26,23 +26,10 @@ const GRACE: Duration = Duration::from_secs(10);
 /// and a URL. A stream past this is read to its end and dropped.
 const KEPT: u64 = 1 << 16;
 
-/// What every call of git is pinned to. A run is the factory's first host-side
-/// ask of git in a tree a cycle's container wrote, and an agent can write
-/// anything into the tree it works in, hooks and git configuration included, so
-/// a git of the workspace reads the settings of the tree it is pointed at. Two
-/// of those name a program for git to run: `core.hooksPath`, which moves the
-/// hooks git executes around a checkout, a rebase and a push (and whose default
-/// is under the workspace's own `.git`), and `core.fsmonitor`, which a `status`
-/// reads as a command. The workspace's hooks are no part of the work: the
-/// factory pushes the cycle's commits, not the scripts somebody left beside
-/// them, and a script of the tree must not run as the factory on the host or
-/// answer for whether its push goes through. So both are pinned off on every
-/// call, as the cleaner's one call into a workspace pins them off
-/// (`console/src/clean.rs`), and pinned off at the front of the words, where
-/// they answer the tree's config.
-///
-/// The pins are `args` and not the environment, because a host of a case keeps
-/// the words it was asked and a case can see that a run gave them.
+/// What every call of git is pinned to: no hooks and no fsmonitor. The run's
+/// repository has neither, and the workspace is never asked of; the pins are a
+/// second guard should a call ever be pointed at a tree the container wrote.
+/// They are `args` and not the environment, so a case can see a run gave them.
 const PINS: [&str; 4] = [
     "-c",
     "core.hooksPath=/dev/null",
@@ -106,30 +93,18 @@ fn missing(why: &str) -> Done {
     }
 }
 
-/// The programs a run asks, and the way its own tree goes away. A host's asks
+/// The programs a run asks, and the way its own scratch goes away. A host's asks
 /// git and gh of their own; a case's answers from a repository of its own and a
 /// stub of `gh`.
 pub trait Host {
     /// Ask `program` with `args`. The run gives only the names `git` and `gh`;
     /// a call of git is given the pins of [`PINS`] as the first of its `args`,
     /// because they decide what a run does and not only how it is asked. `dir`
-    /// is the directory to ask in: the workspace, or the run's tree.
+    /// is the directory to ask in: the run's repository, or the home for gh.
     fn run(&mut self, program: &str, args: &[String], dir: &Path) -> Done;
 
-    /// Take the run's tree away, the one thing every path does. `workspace` is
-    /// the repository the tree belongs to: a tree's registration lives in that
-    /// repository, and a run that stopped before its end would otherwise leave
-    /// the name claimed, which the next run of the issue cannot use again.
-    fn clean(&mut self, workspace: &Path, dir: &Path);
-
-    /// The host of a real host, when this one is it. One call of a run is not a
-    /// rule but a tidy-up — git's record of a tree the run has already taken away
-    /// — and its words answer nothing. A case that stands in for the host's
-    /// programs would answer it with a line of its own and be read as a call the
-    /// case never meant, so the ask is made of the real programs or not at all.
-    fn as_live(&mut self) -> Option<&mut Live> {
-        None
-    }
+    /// Take the run's scratch away, the one thing every path does.
+    fn clean(&mut self, dir: &Path);
 }
 
 /// The programs of a host: git and gh, found once, before anything is asked of
@@ -157,17 +132,6 @@ impl Live {
             gh: gh.display().to_string(),
         }
     }
-
-    /// git's record of the run's trees cleared, which asks nothing whose answer
-    /// a rule reads. The pins go with it: it is a call of git of the workspace
-    /// like every other, and `asked` is the one place a call is built.
-    pub fn prune(&self, workspace: &Path) {
-        let _ = bounded(
-            &self.git,
-            &asked(vec!["worktree".to_string(), "prune".to_string()]),
-            workspace,
-        );
-    }
 }
 
 impl Host for Live {
@@ -187,40 +151,7 @@ impl Host for Live {
         bounded(program, args, dir)
     }
 
-    fn as_live(&mut self) -> Option<&mut Live> {
-        Some(self)
-    }
-
-    /// git's own removal when git still knows the tree, so its record goes with
-    /// it; the tree itself when git does not, which is what a tree the rebase
-    /// left mid flight needs.
-    fn clean(&mut self, workspace: &Path, dir: &Path) {
-        // The tree of a run is named for the process, so its name is not known
-        // here. Whatever is under the directory is the run's own, and a tree git
-        // still has a registration for is removed through the repository it is a
-        // worktree of, so the name is free for the next run of the issue.
-        if let Ok(entries) = std::fs::read_dir(dir) {
-            for entry in entries.flatten() {
-                let tree = entry.path();
-                if tree
-                    .file_name()
-                    .is_some_and(|n| n.to_string_lossy().starts_with("tree-"))
-                {
-                    let _ = self.run(
-                        "git",
-                        &asked(vec![
-                            "-C".into(),
-                            workspace.display().to_string(),
-                            "worktree".into(),
-                            "remove".into(),
-                            "--force".into(),
-                            tree.display().to_string(),
-                        ]),
-                        dir,
-                    );
-                }
-            }
-        }
+    fn clean(&mut self, dir: &Path) {
         if dir_exists(dir) {
             let _ = std::fs::remove_dir_all(dir);
         }
@@ -228,7 +159,7 @@ impl Host for Live {
 }
 
 /// The words of a call of git, the pins of [`PINS`] before everything else: one
-/// place builds them, so no call of the workspace is asked without them. They
+/// place builds them, so no call of git is asked without them. They
 /// are `args` and not the command's environment, because the tree's own config
 /// is what they answer, and `args` is what the host hands the program.
 pub fn asked(words: Vec<String>) -> Vec<String> {
