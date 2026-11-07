@@ -2568,16 +2568,19 @@ the push and nobody outside the host needs write access to the code. It finds
 the kept workspace `$TEHAS_WORK_DIR-<issue>`, which is
 `~/tehas/work/<name>-<issue>` for a host that keeps its settings in `~/tehas`,
 and the branch `feature/issue-<issue>-*` in it.
-It fetches, rebases the branch's commits onto `origin/<branch>` in a temporary
-worktree of that repository, pushes them to a new branch `finish/issue-<issue>`
-with no force, and opens the draft with `gh pr create --draft`. It prints the
-URL. The kept workspace is only ever read, the cycle's own branch never moves,
-and the worktree and the body file go on every path, the refusals included.
-Every call of git is asked of that workspace with `core.hooksPath=/dev/null`
-and `core.fsmonitor=false` on its own command line, as the cleaner's one call
-into a workspace is: the tree was written by the cycle's container, and a hook
-or a `core.hooksPath` it left there runs neither, so no script the cycle planted
-runs as the factory on the host or answers for whether the push goes through.
+It makes a repository of its own beside the workspace, fetches the
+workspace's branches into it with `git fetch <workspace>`, rebases the
+branch's commits onto the remote's `<branch>` there, pushes them to a new
+branch `finish/issue-<issue>` of `https://github.com/<owner/name>` with no
+force, and opens the draft with `gh pr create --draft`. It prints the URL. No
+git command runs in the workspace: the cycle's container wrote it, git
+configuration included, so nothing that configuration names (a hook, a
+filter, a signing program, a credential helper, a remote) is used. Whether
+work was left uncommitted is read with the workspace as the work tree of the
+run's own repository; its `.git/info/exclude` is copied as text and not read
+through a link. The kept workspace is only ever read, the cycle's own branch
+never moves, and the run's repository and the body file go on every path,
+the refusals included.
 The draft's body says `Fixes #<issue>.`, that the factory opened it from a
 stopped cycle, and that its gate did not pass, with the `--reason` as the asker
 put it: whether the failure was outside the change is the asker's judgement, and

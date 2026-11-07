@@ -748,6 +748,7 @@ fn finish_verb(n: u64, args: &[String], rest: &[&str]) -> ! {
         work_dir,
         default,
         reason,
+        remote: None,
     };
     let mut host = match finish::Live::new() {
         Ok(host) => host,

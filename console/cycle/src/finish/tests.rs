@@ -324,6 +324,7 @@ impl World {
             work_dir: self.work_dir.clone(),
             default: "main".to_string(),
             reason: "a flaky test in a file this change does not touch".to_string(),
+            remote: Some(self.origin.display().to_string()),
         }
     }
 
@@ -471,6 +472,7 @@ impl Host for Case {
             };
         }
         if program == "git"
+            && !args.iter().any(|a| a == "init")
             && !Command::new("git")
                 .args(["rev-parse", "--git-dir"])
                 .current_dir(dir)
@@ -490,6 +492,9 @@ impl Host for Case {
             .stdin(Stdio::null())
             .env_remove("GIT_CONFIG_GLOBAL")
             .env_remove("GIT_CONFIG_SYSTEM")
+            // A host's identity is in its user's config; a rebase needs one.
+            .env("GIT_COMMITTER_NAME", "tehas")
+            .env("GIT_COMMITTER_EMAIL", "tehas@invalid")
             .env_remove("GH_TOKEN")
             .env_remove("GITHUB_TOKEN")
             .output()
@@ -501,31 +506,7 @@ impl Host for Case {
         }
     }
 
-    fn clean(&mut self, workspace: &Path, dir: &Path) {
-        // The same ask the host makes: the tree goes through the repository it is
-        // a worktree of, so a run that refused cannot leave the name claimed.
-        if let Ok(entries) = fs::read_dir(dir) {
-            for entry in entries.flatten() {
-                let tree = entry.path();
-                if tree
-                    .file_name()
-                    .is_some_and(|n| n.to_string_lossy().starts_with("tree-"))
-                {
-                    let _ = self.run(
-                        "git",
-                        &asked(vec![
-                            "-C".into(),
-                            workspace.display().to_string(),
-                            "worktree".into(),
-                            "remove".into(),
-                            "--force".into(),
-                            tree.display().to_string(),
-                        ]),
-                        dir,
-                    );
-                }
-            }
-        }
+    fn clean(&mut self, dir: &Path) {
         if dir.exists() {
             let _ = fs::remove_dir_all(dir);
         }
@@ -919,8 +900,10 @@ fn the_words_of_a_run_name_its_workspace_its_scratch_and_its_branch() {
         work_dir: PathBuf::from("/home/t/tehas/work/widget"),
         default: "main".to_string(),
         reason: "the gate's time bound".to_string(),
+        remote: None,
     };
     assert_eq!(p.check(), Ok(()));
+    assert_eq!(p.remote(), "https://github.com/acme/widget.git");
     assert_eq!(p.workspace(), PathBuf::from("/home/t/tehas/work/widget-7"));
     assert_eq!(p.scratch_parent(), PathBuf::from("/home/t/tehas/work"));
     assert_eq!(p.branch(), "finish/issue-7");
@@ -1141,6 +1124,21 @@ fn live(git: &Path, gh: &Path) -> Live {
     Live::aimed_at(git, gh)
 }
 
+/// The host's git behind a script that gives it a committer, as a host's user
+/// config does: a rebase that rewrites a commit needs one.
+fn identified_git(dir: &Path) -> PathBuf {
+    let script = dir.join("git");
+    write_exe(
+        &script,
+        format!(
+            "#!/bin/sh\nGIT_COMMITTER_NAME=tehas GIT_COMMITTER_EMAIL=tehas@invalid exec '{}' \"$@\"\n",
+            git_program()
+        ),
+    )
+    .unwrap();
+    script
+}
+
 #[test]
 fn a_call_carries_what_the_program_printed_on_both_its_streams() {
     // A run decides from what a program printed: the name of a branch, a count of
@@ -1355,7 +1353,7 @@ fn a_run_of_the_real_host_finishes_a_repository_of_its_own() {
     w.kept("feature/issue-7-default", &[("a.txt", "the change\n")]);
     w.remote_commit("other.md", "later\n", "later");
     w.stub("", "https://github.com/acme/widget/pull/77");
-    let git = PathBuf::from(git_program());
+    let git = identified_git(&w.dir);
     let mut h = live(&git, &w.gh);
     let got = finish(&w.plan(), &mut h);
     assert_eq!(got.why, "", "the run refused: {}", got.why);
@@ -1372,4 +1370,105 @@ fn a_run_of_the_real_host_finishes_a_repository_of_its_own() {
         ]
     );
     assert_eq!(w.left(), Vec::<String>::new());
+}
+
+#[test]
+fn the_workspace_s_git_config_runs_nothing_on_the_host_and_names_no_remote() {
+    // The container wrote the workspace's `.git/config`. Every key below names
+    // a program git would run, or a place it would push, in a command run in
+    // that repository. The run asks no git of the workspace, so none runs and
+    // the push goes to the plan's remote.
+    let w = World::new("workspace-config");
+    w.kept("feature/issue-7-default", &[("a.txt", "the change\n")]);
+    // A rebase that rewrites a commit, so a signing program would be asked.
+    w.remote_commit("other.md", "later\n", "later");
+    let mark = |name: &str| w.dir.join(name).display().to_string();
+    let prog = w.dir.join("prog");
+    write_exe(
+        &prog,
+        format!("#!/bin/sh\ntouch '{}'\nexit 1\n", mark("ran-prog")),
+    )
+    .unwrap();
+    let p = prog.display().to_string();
+    let decoy = w.dir.join("decoy.git");
+    git(&["init", "--quiet", "--bare", &decoy.display().to_string()]);
+    let d = decoy.display().to_string();
+    for (k, v) in [
+        ("filter.x.smudge", p.as_str()),
+        ("filter.x.clean", p.as_str()),
+        ("filter.x.process", p.as_str()),
+        ("commit.gpgSign", "true"),
+        ("gpg.program", p.as_str()),
+        ("credential.helper", &format!("!{p}")),
+        ("core.sshCommand", p.as_str()),
+        ("core.askPass", p.as_str()),
+        ("core.pager", p.as_str()),
+        ("remote.origin.uploadpack", p.as_str()),
+        ("remote.origin.receivepack", p.as_str()),
+        ("remote.origin.url", d.as_str()),
+        ("remote.origin.pushurl", d.as_str()),
+    ] {
+        git_in(&w.workspace, &["config", k, v]);
+    }
+    fs::create_dir_all(w.workspace.join(".git/info")).unwrap();
+    fs::write(w.workspace.join(".git/info/attributes"), "* filter=x\n").unwrap();
+    w.stub("", "https://github.com/acme/widget/pull/9");
+    let git = identified_git(&w.dir);
+    let mut h = live(&git, &w.gh);
+    let got = finish(&w.plan(), &mut h);
+    assert_eq!(got.why, "", "the run refused: {}", got.why);
+    assert!(
+        !w.dir.join("ran-prog").exists(),
+        "a program of the workspace ran"
+    );
+    assert!(
+        w.remote_has("finish/issue-7"),
+        "the plan's remote has no branch"
+    );
+    assert_eq!(
+        w.remote_log("finish/issue-7"),
+        vec!["one", "later", "the change"]
+    );
+    let on_decoy = Command::new("git")
+        .args(["--git-dir", &d, "rev-parse", "--verify", "--quiet"])
+        .arg("refs/heads/finish/issue-7")
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .is_ok_and(|s| s.success());
+    assert!(!on_decoy, "the push went to a remote the workspace named");
+    assert_eq!(w.left(), Vec::<String>::new());
+}
+
+#[test]
+fn a_file_the_workspace_excludes_is_not_uncommitted_work() {
+    // The cycle's own scratch, kept out of git by the workspace's
+    // `info/exclude`: the run copies that file's text and reads the tree with it.
+    let w = World::new("exclude");
+    w.kept("feature/issue-7-default", &[("a.txt", "x\n")]);
+    fs::create_dir_all(w.workspace.join(".git/info")).unwrap();
+    fs::write(w.workspace.join(".git/info/exclude"), "scratch.log\n").unwrap();
+    fs::write(w.workspace.join("scratch.log"), "noise\n").unwrap();
+    w.stub("", "https://github.com/acme/widget/pull/3");
+    let mut h = w.host();
+    let got = finish(&w.plan(), &mut h);
+    assert_eq!(got.why, "", "the run refused: {}", got.why);
+}
+
+#[test]
+fn an_exclude_that_is_a_link_is_not_followed() {
+    // A link the container planted is not read: the file it would have hidden
+    // counts as work that was never committed.
+    let w = World::new("exclude-link");
+    w.kept("feature/issue-7-default", &[("a.txt", "x\n")]);
+    let elsewhere = w.dir.join("elsewhere");
+    fs::write(&elsewhere, "scratch.log\n").unwrap();
+    fs::create_dir_all(w.workspace.join(".git/info")).unwrap();
+    let _ = fs::remove_file(w.workspace.join(".git/info/exclude"));
+    std::os::unix::fs::symlink(&elsewhere, w.workspace.join(".git/info/exclude")).unwrap();
+    fs::write(w.workspace.join("scratch.log"), "noise\n").unwrap();
+    w.stub("", "https://github.com/acme/widget/pull/3");
+    let mut h = w.host();
+    let got = finish(&w.plan(), &mut h);
+    assert!(got.why.contains("never committed"), "{}", got.why);
 }
