@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 
 /// What this release can do. A feature is added here in the release that
 /// brings it, and never taken out within api 1.
-const FEATURES: [&str; 19] = [
+const FEATURES: [&str; 20] = [
     "status",
     "millwright-grant",
     "fixer-grant",
@@ -31,6 +31,7 @@ const FEATURES: [&str; 19] = [
     "state-check",
     "finish",
     "status-versions",
+    "store-copy",
 ];
 
 /// The longest version text read, which `head -c` kept it to.
@@ -199,7 +200,7 @@ mod tests {
             r#"{"api":1,"tehas":"v1.2.3","commit":null,"repo":"acme/widget","features":["status","#
         ));
         assert!(printed.ends_with(
-            r#""disk","panels","state-check","finish","status-versions"],"millwright":"mill","fixer":"mill","poll":{"z":1,"a":2}}"#
+            r#""disk","panels","state-check","finish","status-versions","store-copy"],"millwright":"mill","fixer":"mill","poll":{"z":1,"a":2}}"#
         ));
     }
 

@@ -22,6 +22,7 @@ What exists today: [`tehas api`](#tehas-api),
 [`tehas drain`](#tehas-drain), [`tehas history`](#tehas-history),
 [`tehas export`](#tehas-export),
 [`tehas state`](#tehas-state), [`tehas state check`](#tehas-state-check),
+[`tehas state copy`](#tehas-state-copy),
 [`tehas analytics export`](#tehas-analytics-export),
 [`tehasbot clean`](#tehasbot-clean), [`tehas disk`](#tehas-disk),
 [`tehas panel`](#tehas-panel),
@@ -108,7 +109,7 @@ tehas api [--json]
   "tehas": "v0.8.0",
   "commit": "cb6912a",
   "repo": "tehas-app/tehas",
-  "features": ["status", "millwright-grant", "fixer-grant", "all-hands", "limit", "drain", "history", "export", "refresh-conflicts", "analytics", "state-move", "pr-title", "mcp-dashboard-keys", "clean", "disk", "panels", "state-check", "finish", "status-versions"],
+  "features": ["status", "millwright-grant", "fixer-grant", "all-hands", "limit", "drain", "history", "export", "refresh-conflicts", "analytics", "state-move", "pr-title", "mcp-dashboard-keys", "clean", "disk", "panels", "state-check", "finish", "status-versions", "store-copy"],
   "millwright": null,
   "fixer": null,
   "poll": {
@@ -133,7 +134,7 @@ tehas api [--json]
 | `tehas` | The release tag the factory was installed from: `v0.10.2` for a release install, `v0.8.0` for a checkout one. `null` when the install came from a checkout with no tag, or not from a git checkout |
 | `commit` | The commit it was installed from, seven characters; `null` for a release install, which records only the tag, and when not from a git checkout |
 | `repo` | `TEHAS_REPO`, the product repository |
-| `features` | What this release has, so a program can tell a factory that predates a feature from one where it failed. Today `status`, `millwright-grant` ([the millwright's grant](/operating#the-millwrights-grant)), `fixer-grant`, `all-hands`, `limit`, `drain`, `history` ([`tehas history`](#tehas-history)), `export` ([`tehas export`](#tehas-export)), `refresh-conflicts` (the factory refreshes its own pull requests that conflict, [refreshes](/operating#refreshes)), `analytics` ([`tehas analytics export --json`](#tehas-analytics-export)), `state-move` ([`tehas state`](#tehas-state)), `pr-title` (the factory keeps the `WIP: ` and `HALT: ` prefixes of its pull requests itself, [pull request titles](/tools#pull-request-titles)), `mcp-dashboard-keys` (the read-only MCP server answers a key of `TEHAS_MCP_DASHBOARD_KEYS` with only the four tools that copy from `live/`, [the MCP server](/mcp-server)), `clean` ([`tehasbot clean`](#tehasbot-clean)), `disk` ([`tehas disk`](#tehas-disk)), `panels` ([`tehas panel`](#tehas-panel)), `state-check` ([`tehas state check`](#tehas-state-check)), `finish` ([the finish ask](#the-finish-ask)) and `status-versions` (`versions` in [`tehas status --json`](#tehas-status---json)) |
+| `features` | What this release has, so a program can tell a factory that predates a feature from one where it failed. Today `status`, `millwright-grant` ([the millwright's grant](/operating#the-millwrights-grant)), `fixer-grant`, `all-hands`, `limit`, `drain`, `history` ([`tehas history`](#tehas-history)), `export` ([`tehas export`](#tehas-export)), `refresh-conflicts` (the factory refreshes its own pull requests that conflict, [refreshes](/operating#refreshes)), `analytics` ([`tehas analytics export --json`](#tehas-analytics-export)), `state-move` ([`tehas state`](#tehas-state)), `pr-title` (the factory keeps the `WIP: ` and `HALT: ` prefixes of its pull requests itself, [pull request titles](/tools#pull-request-titles)), `mcp-dashboard-keys` (the read-only MCP server answers a key of `TEHAS_MCP_DASHBOARD_KEYS` with only the four tools that copy from `live/`, [the MCP server](/mcp-server)), `clean` ([`tehasbot clean`](#tehasbot-clean)), `disk` ([`tehas disk`](#tehas-disk)), `panels` ([`tehas panel`](#tehas-panel)), `state-check` ([`tehas state check`](#tehas-state-check)), `finish` ([the finish ask](#the-finish-ask)), `status-versions` (`versions` in [`tehas status --json`](#tehas-status---json)) and `store-copy` ([`tehas state copy`](#tehas-state-copy)) |
 | `millwright` | `TEHAS_MILLWRIGHT_LOGIN`, or `null` when the instance has no millwright |
 | `fixer` | The same as `millwright`. It and the feature `fixer-grant` are the old names, kept for as long as API version 1; a program reads `millwright` and `millwright-grant` |
 | `poll` | What the polls of this factory cost, or `null` when no poll is on record or the state store cannot answer. `last` is the poll that most recently held the dispatcher's lock and `hour` is the sums of the polls that ended in the last hour; both are in the fields below, so a program that keeps a copy of them can add the cost of many hosts up. See [What a poll costs](/operating#what-a-poll-costs) for what each figure counts |
@@ -616,6 +617,45 @@ standard output and the store's words on standard error, when its integrity
 check fails or it did not answer in time; 64 on a bad argument; 78 without an
 instance or a state store that can be used. `tehas api` lists the feature
 `state-check`.
+
+## tehas state copy
+
+```
+tehas state copy --to <file> [--json]
+```
+
+```json
+{"api": 1, "target": "/home/tehas/copies/tehas-before-deploy.db", "schema": 10, "rows": 4182, "ms": 37}
+```
+
+Writes a copy of the state store, as it is at one moment, to `<file>`, mode
+600, without stopping a cycle that runs: the copy is SQLite's `VACUUM INTO` on
+a read-only connection, so a write that has not committed is not in it and
+nothing waits for it. `<file>` must not be there yet: a name that is taken,
+even by a link, is refused and left as it was. A relative name is taken from
+the working directory. The copy is a store that `tehas` opens as it is.
+
+| Field | Meaning |
+| --- | --- |
+| `target` | The file written, an absolute name |
+| `schema` | The copy's schema version, `PRAGMA user_version`, the number [`tehas state check`](#tehas-state-check) reports. It makes no judgement about which release may read it |
+| `rows` | The rows the copy holds, in every table `tehas state check` counts but `meta`, which holds the installation's own values. A new store is 0 |
+| `ms` | How long the copy took, in milliseconds |
+
+The fields are read from the copy, so they describe the file written.
+`api/state-copy.schema.json` in the source says what the object holds, and
+`api/state-copy.sample.json` and `api/state-copy.empty.json`, a new store's,
+are samples of it. Without `--json` it prints the same as
+one line for a person. It writes nothing but `<file>` (SQLite's `-wal` and
+`-shm` beside it while it is made, gone when it is done) and opens the
+factory's store read only.
+
+Exit 0 when the copy is made; 1, with the reason in one line on standard
+error and nothing written, when `<file>` is there, its directory is not, it
+is under `live/`, which the docs server serves, or the store did not answer in
+time; 64 on a bad argument; 78 without an instance or a state store that can
+be used. No call to GitHub, Docker or the network. `tehas api` lists the
+feature `store-copy`.
 
 ## tehas analytics export
 
