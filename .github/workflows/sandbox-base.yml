@@ -25,10 +25,9 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   cargo-tools:
-    # The organization's own runner, as verify.yml: it holds Docker. A pull
-    # request from a fork does not run here.
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: [self-hosted, tehas]
+    # A hosted runner: the organization's own runner has no docker on the
+    # job's PATH (the first run here stopped at `docker: command not found`).
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -40,9 +39,5 @@ jobs:
           # No context: the stage copies nothing in, and the stages after it
           # are not built.
           docker build --no-cache --progress=plain --target cargo-tools \
-            -t "tehas-ci/cargo-tools:$GITHUB_RUN_ID" \
             "--build-arg=VIPUNE_VERSION=$VIPUNE_VERSION" \
             "--build-arg=OO_VERSION=$OO_VERSION" - < host/sandbox/base.Dockerfile
-      - name: remove the image
-        if: always()
-        run: docker rmi -f "tehas-ci/cargo-tools:$GITHUB_RUN_ID" >/dev/null 2>&1 || true
