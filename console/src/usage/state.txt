@@ -1,5 +1,5 @@
 tehas state: move a stopped factory's state to another machine as one tar,
-or check its state store.
+check its state store, or copy it.
 
 pack writes the tar to standard output: tehas-state.json, then state/,
 repos/, live/ and mcp/, the store as a copy it made of itself, not the live
@@ -16,9 +16,16 @@ table; --json prints the store's own object, {"api":1,"verb":"check",
 runs on a running factory too. A store that does not check is exit 1, one
 that cannot be used 78, and neither prints on standard output.
 
+copy writes a copy of the store as it is at that moment to a file that is
+not there yet, while cycles run and write, and says its schema, its rows and
+the time it took; --json prints {"api":1,"target":...,"schema":10,"rows":...,
+"ms":...}. It writes nothing else. A taken name, a directory that is not
+there and one under live/ are refused with exit 1 and the reason.
+
 Usage: tehas state pack [--rehearse] -
        tehas state unpack [--rehearse] -
        tehas state check [--json]
+       tehas state copy --to <file> [--json]
 
 Exit: 0 done; 1 refused or failed; 64 a bad argument; 78 the instance
 settings, the release or the state store are missing or malformed.
