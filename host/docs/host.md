@@ -1708,7 +1708,11 @@ the VS Code devcontainer base, and leaves out what a cycle never runs or what
 the sandbox layer installs again at pinned versions: glab, wigolo, Rust stable
 (rustup only, the layer installs `RUST_VERSION`), codebase-memory-mcp from
 upstream's main, huggingface_hub and its model download. vipune and oo are
-built in a stage of their own at `VIPUNE_VERSION` and `OO_VERSION`, and pi is
+built in a stage of their own at `VIPUNE_VERSION` and `OO_VERSION`, on
+`ubuntu:24.04` too: vipune's embeddings link the onnxruntime that ort-sys
+downloads, which needs glibc 2.38 or newer and did not link on Debian bookworm.
+That stage runs vipune and oo, so a binary that does
+not start stops the base build. pi is
 the version pi-rukas's own recipe pins, read from that file in the tree. The
 user `vscode` is made at the tehas user's uid in the first layer, so the remap
 of the sandbox layer finds nothing to copy: it used to store every file twice.
