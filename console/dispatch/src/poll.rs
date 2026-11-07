@@ -529,10 +529,6 @@ pub fn run_poll(home: &Path, settings: &Settings, dry: bool) -> i32 {
         say("ERROR: could not open the dispatcher's lock");
         return 1;
     };
-    // A cycle that ended asked for a poll, and this is it.
-    if !dry {
-        let _ = std::fs::remove_file(state.join("dispatch.again"));
-    }
     let (taken, stuck) = (state.join("dispatch.taken"), state.join("dispatch.stuck"));
     if lock.try_lock().is_err() {
         if dry {
@@ -560,6 +556,11 @@ pub fn run_poll(home: &Path, settings: &Settings, dry: bool) -> i32 {
             }
         }
         return 0;
+    }
+    // A cycle that ended asked for a poll, and this is it. A poll that found
+    // the lock held leaves the ask for the poll after the one that holds it.
+    if !dry {
+        let _ = std::fs::remove_file(state.join("dispatch.again"));
     }
     if std::fs::write(&taken, format!("{}\n", now())).is_err() {
         say(&format!("WARN: could not write {}", taken.display()));
@@ -1211,6 +1212,17 @@ mod tests {
     }
 
     const NOW: i64 = 1_800_000_000;
+
+    #[test]
+    fn a_poll_that_finds_the_lock_held_leaves_the_ask_for_a_poll() {
+        let home = home_of("held");
+        std::fs::create_dir_all(home.join("state")).unwrap();
+        let held = File::create(home.join("state/dispatch.lock")).unwrap();
+        held.try_lock().unwrap();
+        std::fs::write(home.join("state/dispatch.again"), b"").unwrap();
+        assert_eq!(run_poll(&home, &Settings::parse(&json!({})), false), 0);
+        assert!(home.join("state/dispatch.again").exists());
+    }
 
     #[test]
     fn a_poll_with_no_status_file_runs_the_status() {

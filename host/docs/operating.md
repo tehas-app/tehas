@@ -1591,7 +1591,8 @@ recording, and both commands then say so and exit 69.
   `~/tehas/state/dispatch.again`, and `tehas-dispatch.path` starts the next
   poll as soon as that one ends. `tehas-dispatch.service` removes the file
   before the poll runs, so a poll that stops on bad settings does not leave it
-  to start the next one at once. If systemd still fails the path unit, for
+  to start the next one at once. A poll started by hand while another runs
+  finds the lock held and leaves the file for the poll after it. If systemd still fails the path unit, for
   example at the service's start limit, `tehasbot health` warns
   (`checks.units`, which is `null` when that read did not answer rather than
   empty), and the next `install.sh` resets it and starts it again.
