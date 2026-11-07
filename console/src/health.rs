@@ -1761,7 +1761,7 @@ fn written_once(text: &str) -> bool {
                 let from = i;
                 let mut j = i + 1;
                 let mut escaped = false;
-                while j < b.len() && b[j] != b'"' {
+                while j < b.len() && (b[j] != b'"' || escaped) {
                     escaped = !escaped && b[j] == b'\\';
                     j += 1;
                 }
@@ -2793,6 +2793,19 @@ mod tests {
         let kept = r#"{"time":"2026-10-17T14:00:00Z","why":"","hold":null,"count":null,"room":3,"committed":null,"max":null,"reserve":null,"free":2,"slots":{"cycles":6,"containers":6,"cyclesHow":"auto","containersHow":"auto"}}"#;
         let without = r#"{"time":"2026-10-17T14:00:00Z","why":"","hold":null,"count":null,"room":3,"committed":null,"max":null,"reserve":null,"free":2}"#;
         assert_eq!(check(&h), kept);
+        // A hold text with one quote in it is a value, not the end of one.
+        h.write(
+            "live/dispatch.json",
+            r#"{"time":"2026-10-17T14:00:00Z","why":"","hold":"he said: \"no","room":3,"free":2,
+                 "slots":{"cycles":6,"containers":6,"cyclesHow":"auto","containersHow":"auto"}}"#,
+        );
+        assert_eq!(
+            h.report(&Given::default())
+                .at(&["checks", "slice", "slots", "cycles"])
+                .dump(),
+            "6",
+            "a hold with a quote lost its slots"
+        );
 
         // The four keys are each required, at their own type, and a key of a
         // derivation at the wrong type or one of them too many is refused too.
@@ -2851,6 +2864,17 @@ mod tests {
             cycle_with(&h, key, value);
             assert_eq!(check(&h), without, "cycle with {key}: {value} was copied");
         }
+    }
+
+    #[test]
+    fn an_escaped_quote_does_not_end_a_string() {
+        // One `\"` in a value: a scan that ends the string there reads the
+        // rest of the file as an unterminated string.
+        assert!(!written_once(
+            r#"{"hold":"he said: \"no","slots":{"cycles":1}}"#
+        ));
+        assert!(!written_once(r#"{"a":"\\","b":1}"#));
+        assert!(written_once(r#"{"a":"x\"","a":1}"#));
     }
 
     #[test]
