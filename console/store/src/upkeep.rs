@@ -5,7 +5,9 @@
 //!                     newest copy and its age
 //!   copy --to <file>  one consistent copy of the store at the absolute name
 //!                     given, by VACUUM INTO; reads the store, writes only that
-//!                     file, and refuses a name that is taken
+//!                     file, and refuses a name that is taken, a directory
+//!                     that is not there and one under live/. Answers the
+//!                     copy's schema, its rows but meta's, and the ms it took
 //!   prune --days N    endings, settled actions with their journal, the
 //!                     heartbeats of ended cycles, and the history of issues
 //!                     ended more than N days ago, each issue keeping its last
@@ -173,11 +175,47 @@ fn newest(dir: &Path, now: i64) -> Result<String, Fail> {
 
 fn copy(home: &Path, to: &str) -> Result<String, Fail> {
     verbs::look(home, |_| Ok(()))?;
+    let target = Path::new(to);
+    if fs::symlink_metadata(target).is_ok() {
+        return Err((
+            1,
+            format!("exists: the target {to} already holds a file; name a new one"),
+        ));
+    }
+    let dir = target.parent().unwrap_or(Path::new("/"));
+    if !fs::metadata(dir).is_ok_and(|m| m.is_dir()) {
+        return Err((
+            1,
+            format!("no-directory: the directory of the target {to} is not there"),
+        ));
+    }
+    // Caddy serves live/: a copy there would be the store on the web.
+    let live = home.join("live");
+    let served = |d: &Path| {
+        d.canonicalize()
+            .is_ok_and(|d| live.canonicalize().is_ok_and(|l| d.starts_with(l)))
+    };
+    if served(dir) {
+        return Err((
+            1,
+            format!("served: the target {to} is under live/, which Caddy serves"),
+        ));
+    }
+    let began = std::time::Instant::now();
     // The reader's connection is enough: VACUUM INTO reads one snapshot, so a
     // row still in the WAL is in the copy and no writer waits for it.
     let conn = db::open_look(&db::path(home)).map_err(crate::line)?;
-    db::backup_to(&conn, Path::new(to)).map_err(crate::line)?;
-    Ok(line("copy", &[("file", j(to))]))
+    let copied = db::copy_to(&conn, target).map_err(crate::line)?;
+    let ms = i64::try_from(began.elapsed().as_millis()).unwrap_or(i64::MAX);
+    Ok(line(
+        "copy",
+        &[
+            ("file", j(to)),
+            ("schema", j(copied.schema)),
+            ("rows", j(copied.rows)),
+            ("ms", j(ms)),
+        ],
+    ))
 }
 
 fn backup(home: &Path, show: bool, now: i64) -> Result<String, Fail> {

@@ -494,6 +494,63 @@ t_eq "$t_rc" 64
 t_run "$state check --json -"
 t_eq "$t_rc" 64
 
+fits() { jq -r --slurpfile schema "$T_ROOT/api/state-copy.schema.json" -f "$T_ROOT/test/schema.jq" "$@"; }
+
+t_case "copy --json copies a running factory's store, names its schema, and fits the schema"
+reset
+t_ended "$dst" 5 -
+t_live "$dst" 12 true running work
+rm -rf "$T/copies" && mkdir -p -m 700 "$T/copies/state"
+before=$(fingerprint "$dst")
+t_run "$state copy --to '$T/copies/state/tehas.db' --json"
+t_eq "$t_rc" 0
+t_eq "$(fits <<<"$t_out")" ""
+t_eq "$(jq -r .target <<<"$t_out")" "$T/copies/state/tehas.db"
+t_eq "$(jq .schema <<<"$t_out")" "$(TEHAS_HOME=$dst "$dst/libexec/store" check | jq .schema)"
+t_eq "$(jq '.rows > 0' <<<"$t_out")" true
+t_eq "$(ls -A "$T/copies/state")" "tehas.db"
+t_eq "$(fingerprint "$dst")" "$before"
+t_eq "$(TEHAS_HOME=$T/copies "$dst/libexec/store" check | jq -c '[.integrity, .rows.cycles]')" '["ok",2]'
+
+t_case "copy of a new store is made and says 0 rows; a person gets one line"
+reset
+rm -rf "$T/copies" && mkdir -p "$T/copies"
+t_run "cd '$T/copies' && $state copy --to new.db"
+t_eq "$t_rc" 0
+t_eq "$t_out" "copied the state store to $T/copies/new.db: schema 10, 0 rows, $(sed -n 's/.*, \([0-9]*\) ms$/\1/p' <<<"$t_out") ms"
+t_eq "$(ls "$T/copies")" "new.db"
+
+t_case "copy refuses a target that is there in one line, names it, and leaves it"
+reset
+rm -rf "$T/copies" && mkdir -p "$T/copies"
+echo mine >"$T/copies/taken.db"
+t_run "$state copy --to '$T/copies/taken.db' --json 2>/dev/null"
+t_eq "$t_rc" 1
+t_eq "$t_out" ""
+t_run "$state copy --to '$T/copies/taken.db' --json"
+t_eq "$t_out" "tehas state: the target $T/copies/taken.db already holds a file; name a new one"
+t_eq "$(cat "$T/copies/taken.db")" "mine"
+t_run "$state copy --to '$T/nowhere/x.db'"
+t_eq "$t_rc" 1
+t_eq "$t_out" "tehas state: the directory of the target $T/nowhere/x.db is not there"
+
+t_case "copy takes --to <file> and --json only"
+reset
+t_run "$state copy"
+t_eq "$t_rc" 64
+t_run "$state copy --to"
+t_eq "$t_rc" 64
+t_run "$state copy --to '$T/c.db' --bogus"
+t_eq "$t_rc" 64
+t_eq "$([ -e "$T/c.db" ] && echo made || echo none)" none
+
+t_case "the samples of api/state-copy fit its schema, and the check finds what does not"
+t_eq "$(fits "$T_ROOT/api/state-copy.sample.json")$(fits "$T_ROOT/api/state-copy.empty.json")" ""
+out=$(jq '.rows = -1 | del(.target) | .later = 1' "$T_ROOT/api/state-copy.sample.json" | fits)
+t_contains "$out" ".rows: -1 is under 0"
+t_contains "$out" ".: target is missing"
+t_contains "$out" ".later: not in the schema"
+
 t_case "a bad argument is 64, missing settings are 78, and neither starts a tar"
 reset
 t_run "$state pack"
