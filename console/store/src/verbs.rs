@@ -497,7 +497,7 @@ fn no_schema(held: i64) -> Fail {
     crate::line(db::DbError::Unreadable(why))
 }
 
-fn schema(conn: &Connection) -> Result<(), Fail> {
+pub fn schema(conn: &Connection) -> Result<(), Fail> {
     let v: i64 = conn
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .q()?;

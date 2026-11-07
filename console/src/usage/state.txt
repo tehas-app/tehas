@@ -1,5 +1,5 @@
 tehas state: move a stopped factory's state to another machine as one tar,
-check its state store, or copy it.
+check its state store, copy it, or load a copy into a new one.
 
 pack writes the tar to standard output: tehas-state.json, then state/,
 repos/, live/ and mcp/, the store as a copy it made of itself, not the live
@@ -22,10 +22,20 @@ the time it took; --json prints {"api":1,"target":...,"schema":10,"rows":...,
 "ms":...}. It writes nothing else. A taken name, a directory that is not
 there and one under live/ are refused with exit 1 and the reason.
 
+load fills a new or empty store from a copy that copy made, the inverse of
+copy. The factory must be drained (tehas drain) with no cycle or planning turn
+running, and the store must hold no history: a cycle, a planning turn, an
+approval or a park on record. The copy is checked first, its integrity and its
+schema: a newer schema is refused, naming both numbers, and an older one is
+brought forward as an update would. Then its rows replace the store's in one
+transaction; a refusal leaves the store as it was. --json prints {"api":1,
+"source":...,"schema":...,"rows":...,"ms":...}, with the copy's schema.
+
 Usage: tehas state pack [--rehearse] -
        tehas state unpack [--rehearse] -
        tehas state check [--json]
        tehas state copy --to <file> [--json]
+       tehas state load --from <file> [--json]
 
 Exit: 0 done; 1 refused or failed; 64 a bad argument; 78 the instance
 settings, the release or the state store are missing or malformed.
