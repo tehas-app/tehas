@@ -294,6 +294,80 @@ rm -f "$T/home/tehas/state/cycles/7.lean-refused"
 t_store_db "$T/home/tehas"
 caps_good
 
+# A refresh of pull request 50 at <head>, its record as the dispatcher writes
+# it: refresh_of names the head.
+refresh_at() { # <head>
+  mkdir -p "$fx/net" "$T/home/tehas/state/cycles"
+  issue_is "" NONE
+  t_store_db "$T/home/tehas"
+  jq -n --arg h "$1" '{links: [], refresh_of: {pr: 50, head_sha: $h, branch: "main"}}' >"$T/refresh-input.json"
+  t_approve "$T/home/tehas" 7 alice refresh "$(date -u -d 2026-10-01T00:00:00Z +%s)" \
+    --body-sha "$(jq -n '{body: ""}' | tehas_body_sha256)" --input-file "$T/refresh-input.json" \
+    --refresh-pr 50 --refresh-head "$1"
+  t_started "$T/home/tehas" 7
+}
+# A branch of the product off main that writes <line> to <file>, and main
+# moved on with <file> written too when a fourth word says so: the branch's
+# head. The checkout fetches both, as its own fetch would.
+pr_branch() { # <branch> <file> <line> [conflict]
+  git -C "$upstream" checkout -q -b "$1"
+  printf '%s\n' "$3" >"$upstream/$2"
+  git -C "$upstream" add -f -- "$2"
+  git -C "$upstream" -c user.name=t -c user.email=t@example.com commit -q -m "the pull request"
+  git -C "$upstream" rev-parse HEAD
+  git -C "$upstream" checkout -q main
+  if [ "${4:-}" = conflict ]; then
+    printf 'main moved on\n' >"$upstream/$2"
+    git -C "$upstream" add -f -- "$2"
+    git -C "$upstream" -c user.name=t -c user.email=t@example.com commit -q -m "main moves"
+  fi
+  git -C "$checkout" fetch -q "$upstream" "+refs/heads/*:refs/remotes/origin/*"
+}
+note7=$T/home/tehas/state/cycles/7.refresh-conflict
+
+t_case "a refresh that conflicts in one file starts no container on an image that cannot verify its merge, and names the file"
+caps_fresh
+caps_continue
+head=$(pr_branch feature/one conflict.txt "the pull request's line" conflict)
+refresh_at "$head"
+t_run "$work 7"
+t_eq "$t_rc" 78
+t_eq "$(cycle_args)" ""
+t_contains "$t_out" "pull request #50 conflicts with origin/main in 1 file(s)"
+t_contains "$t_out" "    conflict.txt"
+t_eq "$(jq -c . "$note7")" '{"branch":"main","more":0,"paths":["conflict.txt"],"pr":50}'
+# The workspace is left as it was made: main's tip, no merge in it.
+t_eq "$(git -C "$ws" status --porcelain)" ""
+t_eq "$(cat "$ws/conflict.txt")" "main moved on"
+rm -f "$note7"
+t_store_db "$T/home/tehas"
+
+t_case "the same refresh runs on an image that verifies a continued pull request's merge"
+caps_fresh
+caps_continue
+jq '.features.continuePrMergeVerify = true' "$T/caps.json" >"$T/caps.new" && mv "$T/caps.new" "$T/caps.json"
+refresh_at "$head"
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_contains "$(cycle_args | tr '\n' ' ')" "--continue-pr"
+t_eq "$(find "$note7" 2>/dev/null)" ""
+t_store_db "$T/home/tehas"
+caps_good
+
+t_case "a refresh that merges cleanly, or whose head the workspace does not hold, runs as before"
+for h in "$(pr_branch feature/two clean.txt "a new file")" "$(printf 'e%.0s' {1..40})"; do
+  caps_fresh
+  caps_continue
+  refresh_at "$h"
+  t_run "$work 7"
+  t_eq "$t_rc" 2
+  t_contains "$(cycle_args | tr '\n' ' ')" "--continue-pr"
+  t_eq "$(find "$note7" 2>/dev/null)" ""
+  t_store_db "$T/home/tehas"
+  caps_good
+done
+t_contains "$t_out" "whether pull request #50 conflicts with origin/main could not be read, the refresh runs"
+
 for how in label retry-tick outage-retry fixer; do
   t_case "a start of how $how never passes --continue-pr, also when the image takes it"
   caps_fresh

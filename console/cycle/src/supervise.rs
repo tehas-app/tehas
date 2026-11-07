@@ -34,7 +34,7 @@ use std::time::Duration;
 use tehas_core::time;
 
 /// The notes of an earlier cycle, killed outright before it could report.
-const NOTES: [&str; 16] = [
+const NOTES: [&str; 17] = [
     "oom",
     "forks",
     "stalled",
@@ -47,6 +47,7 @@ const NOTES: [&str; 16] = [
     "progress.json",
     "nostart",
     "lean-refused",
+    "refresh-conflict",
     "comments",
     "done",
     "runner_exit",

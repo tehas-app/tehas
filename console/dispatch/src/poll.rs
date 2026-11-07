@@ -767,6 +767,7 @@ fn body(
     lines_to(d.log.len(), &mut next);
     if d.exit == 0 && d.tidy && !d.paused && !dry {
         finish_step(home, settings, &mut src, w, &snap, &d);
+        auto_finish_step(home, settings, &mut src, w, &snap, &d);
     }
     d.exit
 }
@@ -808,6 +809,50 @@ impl crate::finish::Hands for FinishHands<'_> {
     }
 
     fn finish(&mut self, n: u64, reason: &str) -> Result<String, String> {
+        // The ask takes over a failed end the poll would finish (#1726): a
+        // finish is run once.
+        let _ = tehas_core::end_fault::remove(Path::new(&self.home), n);
+        self.run(n, reason)
+    }
+
+    fn say(&mut self, n: u64, body: &str) {
+        self.post(n, body);
+    }
+
+    fn log(&mut self, line: String) {
+        say(&line);
+    }
+}
+
+impl crate::auto_finish::Hands for FinishHands<'_> {
+    fn finish(&mut self, n: u64, reason: &str) -> Result<String, String> {
+        self.run(n, reason)
+    }
+
+    fn say(&mut self, n: u64, body: &str) {
+        self.post(n, body);
+    }
+
+    fn log(&mut self, line: String) {
+        say(&line);
+    }
+
+    fn keep(&mut self, r: &tehas_core::end_fault::EndFault) -> bool {
+        tehas_core::end_fault::write(Path::new(&self.home), r)
+    }
+
+    fn drop(&mut self, n: u64) {
+        if !tehas_core::end_fault::remove(Path::new(&self.home), n) {
+            say(&format!(
+                "WARN: the failed end of #{n} could not be removed"
+            ));
+        }
+    }
+}
+
+impl FinishHands<'_> {
+    /// `tehas-cycle finish` for `n`.
+    fn run(&mut self, n: u64, reason: &str) -> Result<String, String> {
         let args: Vec<String> = [
             "finish",
             &n.to_string(),
@@ -835,15 +880,11 @@ impl crate::finish::Hands for FinishHands<'_> {
         crate::finish::outcome(n, &ran, FINISH_BOUND)
     }
 
-    fn say(&mut self, n: u64, body: &str) {
+    fn post(&mut self, n: u64, body: &str) {
         let done = self.w.apply(&[json!({"issue": n, "say": body})]);
         for l in &done.log {
             say(l);
         }
-    }
-
-    fn log(&mut self, line: String) {
-        say(&line);
     }
 }
 
@@ -899,7 +940,12 @@ fn finish_step(
             running: marked || running.contains(&n) || d.picked.contains(&n),
         });
     }
-    let mut hands = FinishHands {
+    let mut hands = finish_hands(home, settings, w);
+    step(settings, &asks, &mut hands);
+}
+
+fn finish_hands<'a>(home: &Path, settings: &Settings, w: &'a mut Writer) -> FinishHands<'a> {
+    FinishHands {
         cmd: std::env::var("TEHAS_FINISH_CMD")
             .ok()
             .filter(|c| !c.is_empty())
@@ -913,8 +959,54 @@ fn finish_step(
         repo: settings.repo.clone(),
         branch: settings.branch.clone(),
         w,
-    };
-    step(settings, &asks, &mut hands);
+    }
+}
+
+/// The step that finishes a cycle whose push or pull request failed on
+/// GitHub's side (src/auto_finish.rs): the records the cycles left, the issue
+/// of each that is due, and the step over them. An issue that carries
+/// `tehas:finish` is the ask's, and one that runs or starts now waits.
+fn auto_finish_step(
+    home: &Path,
+    settings: &Settings,
+    src: &mut Sources,
+    w: &mut Writer,
+    snap: &Value,
+    d: &crate::Decision,
+) {
+    use crate::auto_finish::{step, wants, Case, PER_POLL};
+    let records = tehas_core::end_fault::all(home);
+    if records.is_empty() {
+        return;
+    }
+    let asked = crate::finish::asked(snap, settings.control);
+    let running: Vec<u64> = snap["running"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|r| r["issue"].as_u64())
+        .chain(crate::read::host::running(home))
+        .collect();
+    let now = tehas_core::time::now();
+    let mut read = 0;
+    let mut cases = Vec::new();
+    for rec in records {
+        let n = rec.issue;
+        let held = asked.contains(&n) || running.contains(&n) || d.picked.contains(&n);
+        let mut c = Case {
+            rec,
+            held,
+            issue: None,
+        };
+        if wants(&c, now) && read < PER_POLL {
+            read += 1;
+            let path = format!("repos/{}/issues/{n}", settings.repo);
+            c.issue = src.calls.gh(&["api", &path]).ok();
+        }
+        cases.push(c);
+    }
+    let mut hands = finish_hands(home, settings, w);
+    step(cases, now, &mut hands);
 }
 
 /// live/demand.json and health, as the poll's start writes them. A dry run

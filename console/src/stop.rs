@@ -35,7 +35,7 @@ pub const USAGE: &str = include_str!("usage/stop.txt");
 /// after `state/cycles/<issue>`. `.nostart.new` is there because a note is
 /// written beside its name and moved into place: a stop that takes the note
 /// takes a write that never finished, as libexec/work's own clear does.
-const NOTES: [&str; 14] = [
+const NOTES: [&str; 15] = [
     ".lock",
     ".cid",
     ".done",
@@ -48,6 +48,7 @@ const NOTES: [&str; 14] = [
     ".nostart",
     ".nostart.new",
     ".lean-refused",
+    ".refresh-conflict",
     ".progress.json",
     ".result.json",
 ];
