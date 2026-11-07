@@ -1,0 +1,48 @@
+# The stage of the sandbox base that builds vipune and oo, from a clean Docker
+# cache at the versions host/versions.env pins. It is the step a factory's
+# `tehas update` stopped at on v0.25.1 (#1716): the base did not build, and the
+# gate never builds images. The stage runs both binaries, in the distro of the
+# image, so a build that links but does not start fails here too. The rest of
+# the base needs the pi-rukas tree at the commit a host follows, which this
+# repository does not pin; `sandbox/build.sh` builds it on the host.
+name: sandbox-base
+on:
+  pull_request:
+    paths:
+      - host/sandbox/base.Dockerfile
+      - host/versions.env
+      - .github/workflows/sandbox-base.yml
+  push:
+    branches: [main]
+    paths:
+      - host/sandbox/base.Dockerfile
+      - host/versions.env
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: sandbox-base-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  cargo-tools:
+    # The organization's own runner, as verify.yml: it holds Docker. A pull
+    # request from a fork does not run here.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, tehas]
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: build vipune and oo as the base does
+        run: |
+          . host/versions.env
+          # No context: the stage copies nothing in, and the stages after it
+          # are not built.
+          docker build --no-cache --progress=plain --target cargo-tools \
+            -t "tehas-ci/cargo-tools:$GITHUB_RUN_ID" \
+            "--build-arg=VIPUNE_VERSION=$VIPUNE_VERSION" \
+            "--build-arg=OO_VERSION=$OO_VERSION" - < host/sandbox/base.Dockerfile
+      - name: remove the image
+        if: always()
+        run: docker rmi -f "tehas-ci/cargo-tools:$GITHUB_RUN_ID" >/dev/null 2>&1 || true
