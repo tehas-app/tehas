@@ -33,8 +33,9 @@ use std::sync::Arc;
 use std::time::Duration;
 use tehas_core::time;
 
-/// The notes of an earlier cycle, killed outright before it could report.
-const NOTES: [&str; 17] = [
+/// The notes of an earlier cycle, killed outright before it could report. A
+/// freeze left by one would pause this cycle the moment it starts.
+const NOTES: [&str; 19] = [
     "oom",
     "forks",
     "stalled",
@@ -52,6 +53,8 @@ const NOTES: [&str; 17] = [
     "done",
     "runner_exit",
     "status",
+    "freeze",
+    "frozen",
 ];
 
 /// What tehasbot cycle gives this.

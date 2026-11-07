@@ -1,0 +1,17 @@
+tehas thaw: let a cycle that tehas freeze held still go on.
+
+Usage: tehas thaw <issue> [--json]
+       tehas thaw -h|--help   print this text and exit 0
+
+Removes the request $TEHAS_HOME/state/cycles/<issue>.freeze. On its next
+look, within 10 seconds, the watch of the cycle unpauses the container,
+moves the start of the cycle's time limit forward by the time it was frozen,
+counts its stall from the thaw, and removes state/cycles/<issue>.frozen.
+
+With --json it prints one object: api 1, issue, running, asked and frozen,
+as tehas freeze prints it. frozen stays true until the watch has unpaused the
+container.
+
+Exit: 0 the thaw is asked, or the cycle was not frozen; 1 the request could
+not be removed; 64 a bad argument; 78 the instance settings are missing or
+malformed.

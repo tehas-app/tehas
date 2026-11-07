@@ -622,6 +622,43 @@ rm -f "$T/clock.check"
 t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
 T_ENV=("${env_ok[@]}")
 
+t_case "a frozen cycle is paused, is not stopped as stalled, and its freeze ends with it"
+fresh
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_TIMEOUT=600 TEHAS_CHILD_TIMEOUT=600 TEHAS_WORK_STALL=60 TEHAS_VERIFY_TIMEOUT=1
+T_ENV=("${env_ok[@]}" TEHAS_WORK_GRACE=0)
+printf 'stalled\n' >"$T/clock.check"
+printf '{}\n' >"$T/home/tehas/state/cycles/7.freeze"
+container '"$nap" 1; says handoff; exit 10'
+t_run "$work 7"
+t_eq "$t_rc" 10
+t_contains "$t_out" "#7 frozen: its container is paused"
+t_lacks "$t_out" "stopping it as stalled"
+t_eq "$(cat "$T/calls/docker.freeze")" "pause"
+t_eq "$(find "$T/home/tehas/state/cycles" -name '7.freeze' -o -name '7.frozen')" ""
+rm -f "$T/clock.check"
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
+T_ENV=("${env_ok[@]}")
+
+t_case "a thaw unpauses the container, moves its start, and its clocks count again"
+fresh
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_TIMEOUT=600 TEHAS_CHILD_TIMEOUT=600 TEHAS_WORK_STALL=60 TEHAS_VERIFY_TIMEOUT=1
+T_ENV=("${env_ok[@]}" TEHAS_WORK_GRACE=0)
+printf 'stalled\n' >"$T/clock.check"
+printf '{}\n' >"$T/home/tehas/state/cycles/7.freeze"
+# The container thaws itself a second in, as tehas thaw would, and is then
+# stopped as stalled: the clock's answer counts once it is thawed.
+container '"$nap" 1; rm -f "$T/home/tehas/state/cycles/7.freeze"; '"$hold; $gone"
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_contains "$t_out" "#7 frozen: its container is paused"
+t_contains "$t_out" "#7 thawed after"
+t_contains "$t_out" "none of the cycle's logs changed for 60s, stopping it as stalled"
+t_eq "$(tr '\n' ' ' <"$T/calls/docker.freeze")" "pause unpause "
+t_eq "$(find "$T/home/tehas/state/cycles" -name '7.frozen')" ""
+rm -f "$T/clock.check"
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
+T_ENV=("${env_ok[@]}")
+
 t_case "the container is given a deadline of the wall clock, and the mark is the cycle's"
 fresh
 t_run "$work 7"

@@ -189,6 +189,7 @@ case " $* " in
     [ ! -e "$T/stop-hangs" ] || exec "$(command -pv sleep)" 30
     kill "$(cat "$T/sleeper.pid" 2>/dev/null)" 2>/dev/null ;;
   " kill "*) kill "$(cat "$T/sleeper.pid" 2>/dev/null)" 2>/dev/null ;;
+  " pause "* | " unpause "*) printf "%s\n" "$1" >>"$T/calls/docker.freeze" ;;
 esac'
 # The container of a cycle that named none: it says one line of progress and
 # ends at once, purely to keep the cycle's stream from being the empty one tehas
