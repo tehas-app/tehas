@@ -18,6 +18,7 @@ use std::path::Path;
 use std::process::Command;
 use std::time::Duration;
 use tehas_core::call::{run_full, store_try, GRACE};
+use tehas_core::end_fault;
 use tehas_core::journal::{Journal, Wrote};
 
 /// The comment a park posts when its question's label could not be added.
@@ -203,6 +204,10 @@ struct Writer<'a> {
     stuck: bool,
     /// A comment that carries the handoff of pi-rukas was posted.
     handed_off: bool,
+    /// What gh said of the last write that failed all its tries.
+    last_failed: String,
+    /// What gh said of the comment with the handoff that was not posted.
+    handoff_failed: Option<String>,
 }
 
 impl Writer<'_> {
@@ -259,11 +264,10 @@ impl Writer<'_> {
     fn tried(&mut self, warn: &str, kind: &str, args: Vec<String>, input: Option<&str>) -> bool {
         let n = self.issue;
         for t in 1..=self.gh.tries {
-            if matches!(
-                self.write(n, kind, args.clone(), input, None),
-                Wrote::Done(_)
-            ) {
-                return true;
+            match self.write(n, kind, args.clone(), input, None) {
+                Wrote::Done(_) => return true,
+                Wrote::Failed(why) => self.last_failed = why,
+                Wrote::Unrecorded => self.last_failed.clear(),
             }
             if t < self.gh.tries {
                 std::thread::sleep(self.gh.retry_wait);
@@ -320,6 +324,9 @@ impl Writer<'_> {
     /// A body posted with pi-rukas's handoff marker carries its handoff.
     fn handed(&mut self, posted: bool, body: &str) {
         self.handed_off |= posted && body.contains(HANDOFF_MARK);
+        if !posted && body.contains(HANDOFF_MARK) {
+            self.handoff_failed = Some(self.last_failed.clone());
+        }
     }
 
     fn park(&mut self, p: &mut Park, f: &Facts, ask: &mut dyn Ask) {
@@ -699,6 +706,39 @@ fn end(home: &Path, r: &Report, f: &Facts) -> bool {
     }
 }
 
+/// The record of a failed GitHub step of this end (#1726), or none: an end
+/// with no failed step removes the one an earlier cycle of the issue left.
+fn keep_end_fault(home: &Path, f: &Facts, a: &after::After, handoff: Option<&str>, now: i64) {
+    let issue = f.issue;
+    let handoff = handoff.filter(|_| a.ended.handoff_delivered == Some(false));
+    let left = crate::end_failed::Left {
+        issue,
+        attempt: a.attempt,
+        result: f.file("result.json").text(),
+        progress: f.file("progress.json").text(),
+        pr: !a.ended.pr.is_empty(),
+        handoff_failed: handoff,
+    };
+    match crate::end_failed::of(&left, now) {
+        Some(r) => {
+            log(&format!("#{issue}: {}: on record", r.failure()));
+            if !end_fault::write(home, &r) {
+                log(&format!(
+                    "WARN: the failed end of #{issue} is not on record"
+                ));
+            }
+        }
+        None => {
+            if !end_fault::remove(home, issue) {
+                log(&format!(
+                    "WARN: could not remove {}",
+                    end_fault::path(home, issue).display()
+                ));
+            }
+        }
+    }
+}
+
 /// Report the cycle `s`. The exit status of the cycle: 0, or 70 when its end
 /// is not on record.
 pub fn run(home: &Path, s: &Start) -> i32 {
@@ -742,6 +782,8 @@ pub fn run(home: &Path, s: &Start) -> i32 {
         unjournaled: false,
         stuck: true,
         handed_off: false,
+        last_failed: String::new(),
+        handoff_failed: None,
     };
     for a in &mut r.actions {
         match a {
@@ -788,6 +830,7 @@ pub fn run(home: &Path, s: &Start) -> i32 {
             "WARN: the handoff of #{issue} reached no comment: it is only in the run log"
         ));
     }
+    keep_end_fault(home, &facts, &a, w.handoff_failed.as_deref(), now);
     a.approved = approved;
     a.console = s.console.clone();
     a.status_cmd = s.status_cmd.clone();
