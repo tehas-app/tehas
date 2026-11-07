@@ -8,6 +8,8 @@ pub mod approval;
 pub mod call;
 pub mod disk;
 pub mod egress;
+#[cfg(feature = "mask")]
+pub mod end_fault;
 pub mod env_file;
 pub mod events;
 pub mod file;
