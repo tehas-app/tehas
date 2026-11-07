@@ -7,6 +7,7 @@ use super::{has, or_unknown, Poll, Step};
 use crate::snapshot::Cycle;
 use regex::Regex;
 use serde_json::{json, Value};
+use tehas_core::accounts::account;
 use tehas_core::events::label_actor;
 
 pub(crate) const QUIET_BOUND: u64 = 1200;
@@ -451,7 +452,7 @@ impl Poll<'_> {
                 Some(_) => {
                     let ev = self.events(pr)?;
                     let (who, _) = label_actor(&ev, "tehas:refreshing");
-                    if who == bot {
+                    if account(&who) == account(bot) {
                         continue;
                     }
                     format!("it was applied by '{}', not by tehas", or_unknown(&who))
