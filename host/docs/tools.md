@@ -3146,11 +3146,14 @@ checkout of a host that has one. It is `null` on a host with neither.
 pi-rukas the sandbox image runs against the one the host follows. `follow` is
 `PI_RUKAS_FOLLOW` (the instance's over `versions.env`), `target` the commit it
 names now and `targetVersion` its release (asked upstream at most once an
-hour), `image` the `tehas.rukas` label of `PI_ENSEMBLE_IMAGE`, which is what
+hour, and once more as soon as the image is on another commit than the answer
+kept, so an image built from a release that came out within the hour gets its
+own target at the next status run), `image` the `tehas.rukas` label of `PI_ENSEMBLE_IMAGE`, which is what
 cycles run, `imageVersion` what that image's `pi-rukas-headless --capabilities`
 answers (asked once per image), and `clone` the commit of
 `~/tehas/repos/pi-rukas`. `behind` is true when the image is not on the target
-commit, and makes the health `warn` with `The sandbox image runs pi-rukas
+commit and is not a later release on the line followed (an image ahead of its
+target is no drift), and makes the health `warn` with `The sandbox image runs pi-rukas
 <image> and the host follows <target>: run tehas update.`; `install.sh --check`
 reports it as `Sandbox: BEHIND`. A value that could not be read is `null` and
 decides nothing. `checks.rukas` is `null` on a host with no pi-rukas.

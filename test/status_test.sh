@@ -1934,6 +1934,40 @@ t_eq "$(jq -r .status "$live/health.json")" warn
 t_eq "$(jq -r .output "$live/health.json")" "The sandbox image runs pi-rukas v0.14.53 and the host follows bbbbbbbb: run tehas update."
 t_contains "$(t_calls docker)" "run --rm --init --network none tehas/pi-rukas:uid$(id -u) /opt/pi-rukas/bin/pi-rukas-headless --capabilities"
 
+t_case "an image built from a release newer than the target cached is current, and one older is behind"
+reset
+b=$(printf 'b%.0s' {1..40}) c=$(printf 'c%.0s' {1..40})
+# The target was asked a minute ago, at v0.14.54; v0.14.55 came out since and
+# the image was built from it.
+mkdir -p "$T/home/tehas/state"
+printf '{"at":%s,"follow":"release:0","repo":"https://github.com/up/pi-rukas.git","commit":"%s","what":"release v0.14.54"}\n' \
+  "$(($(date +%s) - 60))" "$b" >"$T/home/tehas/state/rukas-target"
+t_stub git "case \"\$1\" in
+  ls-remote) printf '%s\trefs/tags/v0.14.54\n%s\trefs/tags/v0.14.55\n' $b $c ;;
+  *) command -p git \"\$@\" ;;
+esac"
+t_stub docker "case \"\$1 \$2\" in
+  'image inspect') echo 'sha256:2 $c' ;;
+  'run --rm') echo '{\"version\":\"0.14.55\"}' ;;
+esac"
+T_ENV=("PI_RUKAS_FOLLOW=release:0" "PI_RUKAS_REPO=https://github.com/up/pi-rukas.git")
+t_run "$status"
+t_eq "$t_rc" 0
+t_eq "$(jq -c '{target, targetVersion, imageVersion, behind}' "$live/rukas.json")" \
+  "{\"target\":\"$c\",\"targetVersion\":\"v0.14.55\",\"imageVersion\":\"v0.14.55\",\"behind\":false}"
+t_eq "$(jq -r .checks.rukas.behind "$live/health.json")" false
+# An image a release older than the target is still behind it.
+t_stub docker "case \"\$1 \$2\" in
+  'image inspect') echo 'sha256:1 $b' ;;
+  'run --rm') echo '{\"version\":\"0.14.54\"}' ;;
+esac"
+t_run "$status"
+T_ENV=()
+rm -f "$T/bin/git" "$T/bin/docker"
+t_eq "$(jq -c '{targetVersion, imageVersion, behind}' "$live/rukas.json")" \
+  '{"targetVersion":"v0.14.55","imageVersion":"v0.14.54","behind":true}'
+t_eq "$(jq -r .checks.rukas.behind "$live/health.json")" true
+
 t_case "a lost cycle ends two minutes after its last heartbeat"
 reset
 one 9 true running develop 900 300
