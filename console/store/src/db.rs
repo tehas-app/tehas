@@ -1256,8 +1256,26 @@ pub fn backup(conn: &Connection, state: &Path, from: i64, now: i64) -> Result<Pa
 
 /// `backup` to a name the caller chose, with the same guarantees.
 pub fn backup_to(conn: &Connection, copy: &Path) -> Result<(), DbError> {
+    make_copy(conn, copy, "backup").map(|_| ())
+}
+
+/// What `copy_to` read from the copy it made: its schema, `PRAGMA user_version`
+/// as `check` reads it, and the rows of every counted table but `meta`, which
+/// holds the installation's values and not a record.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Copied {
+    pub schema: i64,
+    pub rows: i64,
+}
+
+/// `store copy`: `backup_to`, with the schema and rows read from the copy made.
+pub fn copy_to(conn: &Connection, copy: &Path) -> Result<Copied, DbError> {
+    make_copy(conn, copy, "copy")
+}
+
+fn make_copy(conn: &Connection, copy: &Path, what: &str) -> Result<Copied, DbError> {
     let name = copy.to_str().ok_or_else(|| {
-        DbError::Unreadable(format!("the backup path {} is not UTF-8", copy.display()))
+        DbError::Unreadable(format!("the {what} path {} is not UTF-8", copy.display()))
     })?;
     // Made here, with its mode, because SQLite's VACUUM INTO wants a file that
     // is there and empty, and takes the mode of one it makes itself from the
@@ -1270,32 +1288,51 @@ pub fn backup_to(conn: &Connection, copy: &Path) -> Result<(), DbError> {
         .open(copy)
         .map(|_| ())
         .map_err(|e| {
-            DbError::Unreadable(format!("cannot make the backup {}: {e}", copy.display()))
+            DbError::Unreadable(format!("cannot make the {what} {}: {e}", copy.display()))
         })?;
     conn.execute("VACUUM INTO ?1", [name]).map_err(|e| {
         // SQLite may have filled part of the file before it gave up, and a
         // reader cannot tell that copy from a good one. The name is taken away
-        // so that the only backup the directory holds is one that finished.
+        // so that the only copy there is one that finished.
         let _ = fs::remove_file(copy);
         classify(e)
     })?;
     // The copy is written in the rollback journal mode, which the store's
     // readers cannot open: a copy restored over the store must be one the
-    // store opens as it is.
-    let wal = Connection::open(copy)
-        .and_then(|c| c.query_row("PRAGMA journal_mode = WAL", [], |r| r.get::<_, String>(0)))
-        .map_err(|e| {
-            let _ = fs::remove_file(copy);
-            classify(e)
-        })?;
+    // store opens as it is. The counts are read from the copy, so they are of
+    // the moment it holds.
+    let read = Connection::open(copy).and_then(|c| {
+        let wal = c.query_row("PRAGMA journal_mode = WAL", [], |r| r.get::<_, String>(0))?;
+        let schema = c.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))?;
+        let mut rows = 0;
+        for table in COUNTED_TABLES.iter().filter(|t| **t != "meta") {
+            let there: bool = c.query_row(
+                "SELECT count(*) > 0 FROM sqlite_master WHERE type = 'table' AND name = ?1",
+                [table],
+                |r| r.get(0),
+            )?;
+            if there {
+                // The name is one of COUNTED_TABLES, never a caller's word.
+                rows += c.query_row(&format!("SELECT count(*) FROM {table}"), [], |r| {
+                    r.get::<_, i64>(0)
+                })?;
+            }
+        }
+        Ok((wal, Copied { schema, rows }))
+    });
+    let (wal, copied) = read.map_err(|e| {
+        let _ = fs::remove_file(copy);
+        classify(e)
+    })?;
     if wal != "wal" {
         let _ = fs::remove_file(copy);
         return Err(DbError::Unreadable(format!(
-            "the backup {} took journal mode {wal}",
+            "the {what} {} took journal mode {wal}",
             copy.display()
         )));
     }
-    set_mode(copy, 0o600)
+    set_mode(copy, 0o600)?;
+    Ok(copied)
 }
 
 /// The directory `migrate --backup` was given, settled to one of the two places

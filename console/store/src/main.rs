@@ -98,6 +98,8 @@
 //!   store history-show [<issue>] [--kind cycle|plan] [--how <how>]
 //!   store backup [--show]
 //!   store copy --to <file>
+//!                (a copy of the store at one moment, by VACUUM INTO on a
+//!                reader's connection; answers its schema, rows and ms)
 //!   store prune --days N
 //!                (endings, settled actions with their journal, the heartbeats
 //!                of ended cycles, and the history of issues ended more than N

@@ -5,6 +5,8 @@
 //!   console state pack [--rehearse] -    the tar on standard output
 //!   console state unpack [--rehearse] -  the tar on standard input
 //!   console state check [--json]         the store's integrity and rows
+//!   console state copy --to <file> [--json]
+//!                                        a copy of the store at that moment
 //!
 //! The home is $TEHAS_HOME, which `console run` has loaded.
 //!
@@ -39,6 +41,12 @@
 //! nothing, so it runs on a running factory too. A store that does not check
 //! is 1, one that cannot be used 78, and neither prints on standard output.
 //!
+//! copy asks `store copy` for a copy of the store at a name that is not taken,
+//! made while cycles run and write, and says the copy's schema, as `store
+//! check` reads it, its rows but meta's, and the time it took. A relative name
+//! is the working directory's. The store refuses a name that is taken, a
+//! directory that is not there and one under live/: 1, its reason in one line.
+//!
 //! None calls GitHub, Docker or the network.
 //!
 //! Exit: 0 done; 1 refused or failed, said on standard error; 64 usage; 78
@@ -55,8 +63,7 @@ use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::Mutex;
 
-const USAGE: &str =
-    "usage: tehas state pack [--rehearse] - | unpack [--rehearse] - | check [--json]";
+const USAGE: &str = "usage: tehas state pack [--rehearse] - | unpack [--rehearse] - | check [--json] | copy --to <file> [--json]";
 const MANIFEST: &str = "tehas-state.json";
 const DIRS: [&str; 4] = ["state", "repos", "live", "mcp"];
 const ACTIVE: &str = "--state=active,activating,deactivating,reloading";
@@ -80,6 +87,8 @@ pub fn main(given: &[String]) -> u8 {
         ["unpack", "--rehearse", "-"] => unpack(&home, true),
         ["check"] => check(&home, false),
         ["check", "--json"] => check(&home, true),
+        ["copy", "--to", to] => copy(&home, to, false),
+        ["copy", "--to", to, "--json"] | ["copy", "--json", "--to", to] => copy(&home, to, true),
         _ => {
             eprintln!("{USAGE}");
             return 64;
@@ -164,6 +173,42 @@ fn check(home: &Path, json: bool) -> Result<(), Fail> {
     let v: Value = serde_json::from_str(&said).unwrap_or(Value::Null);
     for line in person(&v) {
         tehas_core::outln!("{line}");
+    }
+    Ok(())
+}
+
+/// `tehas state copy`: the store's copy of itself at `to`, and what it says of
+/// the copy.
+fn copy(home: &Path, to: &str, json: bool) -> Result<(), Fail> {
+    if to.is_empty() {
+        return Err((64, USAGE.to_string()));
+    }
+    let target = std::path::absolute(to).map_err(io_fail("could not name the target"))?;
+    let target = target.to_string_lossy();
+    let v = store::call(home, &["copy", "--to", &target]).map_err(|r| {
+        let why = r
+            .line
+            .strip_prefix("store: ")
+            .and_then(|l| l.strip_prefix(&format!("{}: ", r.word)))
+            .filter(|_| {
+                r.rc == 1 && ["exists", "no-directory", "served"].contains(&r.word.as_str())
+            });
+        match why {
+            Some(why) => (1, why.to_string()),
+            None if r.rc == 1 => (1, format!("the state store made no copy: {}", r.line)),
+            None => (78, format!("the state store cannot be used: {}", r.line)),
+        }
+    })?;
+    let answer = json!({"api": 1, "target": target, "schema": v["schema"], "rows": v["rows"], "ms": v["ms"]});
+    if json {
+        tehas_core::outln!("{answer}");
+    } else {
+        tehas_core::outln!(
+            "copied the state store to {target}: schema {}, {} rows, {} ms",
+            v["schema"],
+            v["rows"],
+            v["ms"]
+        );
     }
     Ok(())
 }
