@@ -165,8 +165,8 @@ scripts/tag-deploy.sh tehas-tehas   # run tehas update on that host, check it la
 ```
 
 Both run unattended. Both fetch the remote's tags by force, so a tag the remote
-re-points is taken rather than refused, and a fetch that fails says so. `tag-release.sh` runs the gate on the head of main before
-it tags, does nothing when the head is already tagged, and prints the tag on
+re-points is taken rather than refused, and a fetch that fails says so. `tag-release.sh` gates the head of main before
+it tags (a green `release-gate` run on that commit, on the speed lane, or `--local-gate` to run the gate here), does nothing when the head is already tagged, and prints the tag on
 stdout; `--minor`, `--major`, `--message`, `--no-verify` and `--dry-run` are
 there too. Before it tags, it removes the polyfills the newest pi-rukas no
 longer needs (`scripts/polyfills.sh`): it opens a pull request for that, exits

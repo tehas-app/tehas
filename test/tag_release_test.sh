@@ -49,7 +49,7 @@ tags() { git -C "$origin" tag --list | sort -V | tr '\n' ' '; }
 t_case "a head that carries the newest tag is left as it is"
 fresh
 g -C "$work" fetch --quiet --tags --force origin
-t_run "$work/scripts/tag-release.sh"
+t_run "$work/scripts/tag-release.sh --local-gate"
 t_eq "$t_rc" 0
 t_eq "$(tail -n 1 <<<"$t_out")" v0.1.0
 t_contains "$t_out" "already v0.1.0"
@@ -57,7 +57,7 @@ t_eq "$(tags)" "v0.1.0 "
 
 t_case "a new commit is tagged with the next patch and the tag is pushed"
 commit second
-t_run "$work/scripts/tag-release.sh 2>/dev/null"
+t_run "$work/scripts/tag-release.sh --local-gate 2>/dev/null"
 t_eq "$t_rc" 0
 t_eq "$t_out" v0.1.1
 t_eq "$(tags)" "v0.1.0 v0.1.1 "
@@ -70,7 +70,7 @@ t_eq "$(git -C "$work" worktree list | wc -l)" 1
 t_case "a failed gate makes no tag"
 commit broken
 echo 1 >"$T/verify_rc"
-t_run "$work/scripts/tag-release.sh"
+t_run "$work/scripts/tag-release.sh --local-gate"
 t_eq "$t_rc" 1
 t_contains "$t_out" "the gate failed"
 t_eq "$(tags)" "v0.1.0 v0.1.1 "
@@ -87,16 +87,16 @@ t_eq "$(git -C "$origin" tag -l --format='%(contents:subject)' v0.1.2)" "Release
 t_case "it tags the remote's head, not the checkout's"
 commit third
 g -C "$work" checkout --quiet -b elsewhere v0.1.0
-t_run "$work/scripts/tag-release.sh 2>/dev/null"
+t_run "$work/scripts/tag-release.sh --local-gate 2>/dev/null"
 t_eq "$t_out" v0.1.3
 t_eq "$(head_of v0.1.3)" "$(head_of)"
 
 t_case "--minor and --major reset the parts below them"
 commit fourth
-t_run "$work/scripts/tag-release.sh --minor 2>/dev/null"
+t_run "$work/scripts/tag-release.sh --local-gate --minor 2>/dev/null"
 t_eq "$t_out" v0.2.0
 commit fifth
-t_run "$work/scripts/tag-release.sh --major 2>/dev/null"
+t_run "$work/scripts/tag-release.sh --local-gate --major 2>/dev/null"
 t_eq "$t_out" v1.0.0
 
 t_case "--dry-run names the tag and makes none"
@@ -116,7 +116,7 @@ g -C "$T/up" tag v0.9.0
 g -C "$T/up" push --quiet origin v0.9.0
 g -C "$T/up" checkout --quiet main
 commit second
-t_run "$work/scripts/tag-release.sh"
+t_run "$work/scripts/tag-release.sh --local-gate"
 t_eq "$t_rc" 1
 t_contains "$t_out" "v0.9.0 is not on main"
 t_eq "$(tags)" "v0.1.0 v0.9.0 "
@@ -126,7 +126,7 @@ fresh
 commit second
 printf '#!/bin/sh\nexit 1\n' >"$origin/hooks/pre-receive"
 chmod +x "$origin/hooks/pre-receive"
-t_run "$work/scripts/tag-release.sh"
+t_run "$work/scripts/tag-release.sh --local-gate"
 t_eq "$t_rc" 1
 t_contains "$t_out" "pushing v0.1.1 to origin failed"
 t_eq "$(git -C "$work" tag --list v0.1.1)" ""
@@ -248,7 +248,7 @@ esac'
 
 t_case "a polyfill whose feature pi-rukas still lacks is kept, and the head is tagged"
 polyfilled
-t_run "$work/scripts/tag-release.sh --rukas-caps '$T/caps.json'"
+t_run "$work/scripts/tag-release.sh --local-gate --rukas-caps '$T/caps.json'"
 t_eq "$t_rc" 0
 t_eq "$(tail -n 1 <<<"$t_out")" v0.1.1
 t_contains "$(t_calls gh)" "issue view 77 -R up-owner/pi-rukas"
@@ -261,7 +261,7 @@ t_case "a polyfill whose upstream pull request is merged without the feature rel
 polyfilled
 echo CLOSED >"$T/issue_state"
 echo MERGED >"$T/pr_state"
-t_run "$work/scripts/tag-release.sh --rukas-caps '$T/caps.json'"
+t_run "$work/scripts/tag-release.sh --local-gate --rukas-caps '$T/caps.json'"
 t_eq "$t_rc" 0
 t_contains "$t_out" "up-owner/pi-rukas#78 is merged, but the pi-rukas of $T/caps.json does not set features.someFeature"
 
@@ -269,7 +269,7 @@ t_case "a polyfill whose upstream pull request was closed unmerged, or cannot be
 for state in CLOSED ""; do
   polyfilled
   echo "$state" >"$T/pr_state"
-  t_run "$work/scripts/tag-release.sh --rukas-caps '$T/caps.json'"
+  t_run "$work/scripts/tag-release.sh --local-gate --rukas-caps '$T/caps.json'"
   t_eq "$t_rc" 1
   t_contains "$t_out" "stand in for no work upstream is doing; nothing was tagged"
   t_contains "$t_out" "someFeature: its upstream pull request up-owner/pi-rukas#78"
@@ -280,7 +280,7 @@ t_contains "$t_out" "cannot be found"
 t_case "a polyfill whose upstream issue cannot be found tags nothing"
 polyfilled
 : >"$T/issue_state"
-t_run "$work/scripts/tag-release.sh --rukas-caps '$T/caps.json'"
+t_run "$work/scripts/tag-release.sh --local-gate --rukas-caps '$T/caps.json'"
 t_eq "$t_rc" 1
 t_contains "$t_out" "someFeature: its upstream issue up-owner/pi-rukas#77 cannot be found"
 t_eq "$(tags)" "v0.1.0 "
@@ -289,7 +289,7 @@ t_case "an expired polyfill is removed even when its upstream pull request is cl
 polyfilled
 echo CLOSED >"$T/pr_state"
 echo '{"features":{"someFeature":true}}' >"$T/caps.json"
-t_run "$work/scripts/tag-release.sh --rukas-caps '$T/caps.json'"
+t_run "$work/scripts/tag-release.sh --local-gate --rukas-caps '$T/caps.json'"
 t_eq "$t_rc" 2
 t_contains "$t_out" "pull/9 removes them"
 
@@ -301,7 +301,7 @@ rukas_commit=$(g -C "$T/up" rev-parse HEAD)
 g -C "$T/up" push --quiet "$up_rukas" HEAD:refs/heads/main
 g -C "$T/up" push --quiet "$up_rukas" HEAD:refs/tags/v0.14.0
 git config --file "$T/home/.gitconfig" "url.$up_rukas.insteadOf" https://github.com/up-owner/pi-rukas.git
-t_run "$work/scripts/tag-release.sh"
+t_run "$work/scripts/tag-release.sh --local-gate"
 git config --file "$T/home/.gitconfig" --unset "url.$up_rukas.insteadOf"
 t_eq "$t_rc" 0
 t_eq "$(t_calls docker)" "pull -q ghcr.io/up-owner/pi-rukas:sha-${rukas_commit:0:12}
@@ -311,7 +311,7 @@ t_case "a pi-rukas that cannot be asked tags nothing"
 polyfilled
 sed -i 's/^PI_RUKAS_FOLLOW=.*/PI_RUKAS_FOLLOW=nowhere/' "$T/up/host/versions.env"
 g -C "$T/up" commit --quiet -am "follow nowhere" && g -C "$T/up" push --quiet origin main
-t_run "$work/scripts/tag-release.sh"
+t_run "$work/scripts/tag-release.sh --local-gate"
 t_eq "$t_rc" 1
 t_contains "$t_out" "whether the polyfills of"
 t_contains "$t_out" "--rukas-caps <file>"
@@ -322,7 +322,7 @@ polyfilled
 t_stub cargo 'exit 101'
 saved_env=("${T_ENV_ALWAYS[@]}")
 T_ENV_ALWAYS=(TEHAS_XTASK="$T_XTASK")
-t_run "$work/scripts/tag-release.sh"
+t_run "$work/scripts/tag-release.sh --local-gate"
 T_ENV_ALWAYS=("${saved_env[@]}")
 t_eq "$t_rc" 1
 t_contains "$(t_calls cargo)" "run --quiet --locked --manifest-path"
@@ -334,7 +334,7 @@ rm -f "$T/bin/cargo"
 t_case "a polyfill pi-rukas no longer needs is removed in a pull request, and nothing is tagged"
 polyfilled
 echo '{"features":{"someFeature":true}}' >"$T/caps.json"
-t_run "$work/scripts/tag-release.sh --rukas-caps '$T/caps.json'"
+t_run "$work/scripts/tag-release.sh --local-gate --rukas-caps '$T/caps.json'"
 t_eq "$t_rc" 2
 t_contains "$t_out" "https://github.com/acme/widget/pull/9 removes them; merge it, then tag"
 t_contains "$t_out" "removed from lib/polyfill-someFeature.sh"
@@ -355,7 +355,7 @@ t_eq "$(git -C "$work" branch --list 'remove-polyfills-*')" ""
 t_case "an open pull request that removes polyfills holds the tag and nothing is pushed again"
 echo https://github.com/acme/widget/pull/9 >"$T/open_prs"
 rm -f "$T/calls/gh"
-t_run "$work/scripts/tag-release.sh --rukas-caps '$T/caps.json'"
+t_run "$work/scripts/tag-release.sh --local-gate --rukas-caps '$T/caps.json'"
 t_eq "$t_rc" 2
 t_contains "$t_out" "pull/9 removes polyfills; merge it, then tag"
 t_lacks "$(t_calls gh)" "pr create"
@@ -366,7 +366,7 @@ polyfilled
 git -C "$work" branch remove-polyfills-v0.1.1
 echo '{"features":{"someFeature":true}}' >"$T/caps.json"
 echo 1 >"$T/verify_rc"
-t_run "$work/scripts/tag-release.sh --rukas-caps '$T/caps.json'"
+t_run "$work/scripts/tag-release.sh --local-gate --rukas-caps '$T/caps.json'"
 rm -f "$T/verify_rc"
 t_eq "$t_rc" 1
 t_contains "$t_out" "the gate failed with the polyfills removed"
@@ -396,7 +396,7 @@ esac'
 
 t_case "pinned tools that move go to a pull request, and nothing is tagged"
 pinned
-t_run "$work/scripts/tag-release.sh"
+t_run "$work/scripts/tag-release.sh --local-gate"
 t_eq "$t_rc" 2
 t_eq "$(t_calls pins)" "move --release v0.1.1"
 t_contains "$t_out" "tag-release: moved jq: 1.8.1 to 1.8.2"
@@ -412,7 +412,7 @@ t_eq "$(git -C "$work" worktree list | wc -l)" 1
 t_case "an open pull request that moves the pinned tools holds the tag"
 echo https://github.com/acme/widget/pull/12 >"$T/open_prs"
 rm -f "$T/calls/gh" "$T/calls/pins"
-t_run "$work/scripts/tag-release.sh"
+t_run "$work/scripts/tag-release.sh --local-gate"
 t_eq "$t_rc" 2
 t_contains "$t_out" "pull/12 moves the pinned tools; merge it, then tag"
 t_eq "$(t_calls pins)" ""
@@ -422,7 +422,7 @@ t_eq "$(tags)" "v0.1.0 "
 t_case "pinned tools that are all at their newest let the head be tagged"
 pinned
 echo none >"$T/pins_mode"
-t_run "$work/scripts/tag-release.sh"
+t_run "$work/scripts/tag-release.sh --local-gate"
 t_eq "$t_rc" 0
 t_eq "$(tail -n 1 <<<"$t_out")" v0.1.1
 t_eq "$(t_calls pins)" "move --release v0.1.1"
@@ -431,7 +431,7 @@ t_lacks "$(t_calls gh)" "pr create"
 t_case "a pinned tool that cannot be moved stops the release"
 pinned
 echo fail >"$T/pins_mode"
-t_run "$work/scripts/tag-release.sh"
+t_run "$work/scripts/tag-release.sh --local-gate"
 t_eq "$t_rc" 1
 t_contains "$t_out" "pins: jq: cannot get"
 t_contains "$t_out" "a pinned tool could not be moved; nothing was tagged"
@@ -441,7 +441,7 @@ t_eq "$(t_calls verify)" ""
 t_case "a gate that fails with the pinned tools moved pushes nothing"
 pinned
 echo 1 >"$T/verify_rc"
-t_run "$work/scripts/tag-release.sh"
+t_run "$work/scripts/tag-release.sh --local-gate"
 rm -f "$T/verify_rc"
 t_eq "$t_rc" 1
 t_contains "$t_out" "the gate failed with the pinned tools moved"
@@ -450,7 +450,7 @@ t_lacks "$(t_calls gh)" "pr create"
 
 t_case "--no-pins tags without moving the pinned tools"
 pinned
-t_run "$work/scripts/tag-release.sh --no-pins"
+t_run "$work/scripts/tag-release.sh --local-gate --no-pins"
 t_eq "$t_rc" 0
 t_eq "$(tail -n 1 <<<"$t_out")" v0.1.1
 t_eq "$(t_calls pins)" ""
@@ -509,7 +509,7 @@ t_contains "$t_out" "changelog.d/5.md line 1: text outside"
 
 t_case "fragments are collected by the head's own script in a pull request, and nothing is tagged"
 fragmented
-t_run "$work/scripts/tag-release.sh"
+t_run "$work/scripts/tag-release.sh --local-gate"
 t_eq "$t_rc" 2
 t_contains "$t_out" "pull/14 collects them; merge it, then tag. Nothing was tagged"
 t_eq "$(tags)" "v0.1.0 "
@@ -526,7 +526,7 @@ t_eq "$(git -C "$work" worktree list | wc -l)" 1
 t_case "an open pull request that collects the fragments holds the tag"
 echo https://github.com/acme/widget/pull/14 >"$T/open_prs"
 rm -f "$T/calls/gh" "$T/calls/collect"
-t_run "$work/scripts/tag-release.sh"
+t_run "$work/scripts/tag-release.sh --local-gate"
 t_eq "$t_rc" 2
 t_contains "$t_out" "pull/14 collects the changelog fragments; merge it, then tag"
 t_lacks "$(t_calls gh)" "pr create"
@@ -538,7 +538,7 @@ g -C "$T/up" fetch --quiet origin changelog-v0.1.1
 g -C "$T/up" merge --quiet --ff-only FETCH_HEAD
 g -C "$T/up" push --quiet origin main
 rm -f "$T/open_prs"
-t_run "$work/scripts/tag-release.sh"
+t_run "$work/scripts/tag-release.sh --local-gate"
 t_eq "$t_rc" 0
 t_eq "$(tail -n 1 <<<"$t_out")" v0.1.1
 t_eq "$(tags)" "v0.1.0 v0.1.1 "
@@ -546,7 +546,7 @@ t_eq "$(tags)" "v0.1.0 v0.1.1 "
 t_case "a gate that fails with the fragments collected pushes nothing"
 fragmented
 echo 1 >"$T/verify_rc"
-t_run "$work/scripts/tag-release.sh"
+t_run "$work/scripts/tag-release.sh --local-gate"
 rm -f "$T/verify_rc"
 t_eq "$t_rc" 1
 t_contains "$t_out" "the gate failed with the changelog fragments collected"
@@ -557,11 +557,112 @@ t_case "a head with fragments and no collect script of its own makes no tag"
 fragmented
 g -C "$T/up" rm --quiet scripts/collect-changelog.sh
 commit "no collector"
-t_run "$work/scripts/tag-release.sh"
+t_run "$work/scripts/tag-release.sh --local-gate"
 t_eq "$t_rc" 1
 t_contains "$t_out" "has changelog fragments but no scripts/collect-changelog.sh"
 t_eq "$(t_calls collect)" ""
 t_eq "$(tags)" "v0.1.0 "
+
+# The release gate on the speed lane. The stub gh lists the runs of
+# release-gate.yml from $T/runs.json; when $T/runs.next is there, the list
+# after it is that file's (once a run planned in $T/runs.started is
+# started), as a run moving on. `workflow run` puts
+# $T/runs.started in place, as the run it starts. TEHAS_GATE_POLL=0: the
+# looks follow each other at once, and the bound is what --gate-wait says.
+# gate_run <id> <commit> <status> <conclusion>: one run, as gh gives it.
+gate_run() {
+  printf '{"databaseId":%s,"displayTitle":"release-gate %s","status":"%s","conclusion":"%s","url":"https://github.com/acme/widget/actions/runs/%s"}' "$1" "$2" "$3" "$4" "$1"
+}
+lane() {
+  fresh
+  commit second
+  rm -f "$T/runs.json" "$T/runs.next" "$T/runs.started" "$T/calls/gh" "$T/calls/verify"
+  echo '[]' >"$T/runs.json"
+  t_stub gh 'case "$1 $2" in
+  "run list")
+    cat "$T/runs.json"
+    if [ -e "$T/runs.next" ] && [ ! -e "$T/runs.started" ]; then mv "$T/runs.next" "$T/runs.json"; fi ;;
+  "workflow run") [ ! -e "$T/runs.started" ] || mv "$T/runs.started" "$T/runs.json" ;;
+esac'
+  T_ENV=(TEHAS_GATE_POLL=0)
+}
+
+t_case "a green release gate on the commit tags it with no local gate and starts none"
+lane
+c=$(head_of)
+echo "[$(gate_run 5 "$c" completed success)]" >"$T/runs.json"
+t_run "$work/scripts/tag-release.sh --gate-wait 1"
+t_eq "$t_rc" 0
+t_eq "$(tail -n 1 <<<"$t_out")" v0.1.1
+t_contains "$t_out" "the release gate passed on ${c:0:7}, https://github.com/acme/widget/actions/runs/5; no local gate"
+t_eq "$(t_calls verify)" ""
+t_contains "$(t_calls gh)" "run list --workflow release-gate.yml --event workflow_dispatch"
+t_lacks "$(t_calls gh)" "workflow run"
+t_eq "$(tags)" "v0.1.0 v0.1.1 "
+
+t_case "a green gate on another commit does not count: one is started on this commit, and its pass tags"
+lane
+c=$(head_of)
+other=$(head_of v0.1.0)
+echo "[$(gate_run 5 "$other" completed success),$(gate_run 6 "$c" completed failure)]" >"$T/runs.json"
+echo "[$(gate_run 7 "$c" in_progress '')]" >"$T/runs.started"
+echo "[$(gate_run 7 "$c" completed success)]" >"$T/runs.next"
+t_run "$work/scripts/tag-release.sh --gate-wait 1"
+t_eq "$t_rc" 0
+t_eq "$(tail -n 1 <<<"$t_out")" v0.1.1
+t_contains "$(t_calls gh)" "workflow run release-gate.yml --ref main -f commit=$c"
+t_contains "$t_out" "waiting for the release gate: https://github.com/acme/widget/actions/runs/7"
+t_contains "$t_out" "actions/runs/7; no local gate"
+t_eq "$(t_calls verify)" ""
+
+t_case "a release gate that fails tags nothing"
+lane
+c=$(head_of)
+echo "[$(gate_run 7 "$c" completed failure)]" >"$T/runs.started"
+t_run "$work/scripts/tag-release.sh --gate-wait 1"
+t_eq "$t_rc" 1
+t_contains "$t_out" "the release gate failed on ${c:0:7}, https://github.com/acme/widget/actions/runs/7; nothing was tagged"
+t_eq "$(grep -c 'workflow run' "$T/calls/gh")" 1
+t_eq "$(tags)" "v0.1.0 "
+
+t_case "a release gate already running is waited for, and none is started"
+lane
+c=$(head_of)
+echo "[$(gate_run 8 "$c" queued '')]" >"$T/runs.json"
+echo "[$(gate_run 8 "$c" completed success)]" >"$T/runs.next"
+t_run "$work/scripts/tag-release.sh --gate-wait 1"
+t_eq "$t_rc" 0
+t_eq "$(tail -n 1 <<<"$t_out")" v0.1.1
+t_lacks "$(t_calls gh)" "workflow run"
+
+t_case "no green release gate within the bound tags nothing and names the local fallback"
+lane
+t_run "$work/scripts/tag-release.sh --gate-wait 0"
+t_eq "$t_rc" 1
+t_contains "$t_out" "within 0 minutes; nothing was tagged"
+t_contains "$t_out" "--local-gate runs the gate here instead"
+t_eq "$(tags)" "v0.1.0 "
+
+t_case "a gh that cannot start the release gate tags nothing"
+lane
+t_stub gh '[ "$1 $2" != "workflow run" ] || exit 1; echo "[]"'
+t_run "$work/scripts/tag-release.sh --gate-wait 1"
+t_eq "$t_rc" 1
+t_contains "$t_out" "cannot start release-gate.yml"
+t_eq "$(tags)" "v0.1.0 "
+
+t_case "--local-gate runs the gate here and asks no release gate; --no-verify asks neither"
+lane
+t_run "$work/scripts/tag-release.sh --local-gate 2>/dev/null"
+t_eq "$t_out" v0.1.1
+t_eq "$(t_calls verify)" ran
+t_eq "$(t_calls gh)" ""
+commit third
+t_run "$work/scripts/tag-release.sh --no-verify 2>/dev/null"
+t_eq "$t_out" v0.1.2
+t_eq "$(t_calls verify)" ran
+t_eq "$(t_calls gh)" ""
+T_ENV=()
 
 # The host: the update's status from $T/ssh_rc, its checkout's commit from
 # $T/host_head.
