@@ -142,8 +142,7 @@ pub fn results(home: &Path, work_dir: &str) -> Vec<serde_json::Value> {
             if !work_dir.is_empty() {
                 let tree = format!("{work_dir}-{n}");
                 r["workspace"] = serde_json::json!(tree);
-                let file = Path::new(&tree).join(".git").join(PR_FILE);
-                if let Ok(text) = fs::read_to_string(file) {
+                if let Some(text) = pr_file(Path::new(&tree)) {
                     let (title, branch, body) = pr_text(&text);
                     r["pr"] = serde_json::json!({"title": title, "branch": branch, "body": body});
                 }
@@ -151,6 +150,21 @@ pub fn results(home: &Path, work_dir: &str) -> Vec<serde_json::Value> {
             r
         })
         .collect()
+}
+
+/// The most of the file that is read.
+const PR_FILE_MAX: u64 = 1 << 16;
+
+/// The text of `<tree>/.git/<PR_FILE>`. A cycle's container wrote the tree and
+/// the status is published, so neither `.git` nor the file is read through a
+/// link: a link could name any file the host's user can read.
+fn pr_file(tree: &Path) -> Option<String> {
+    let git = tree.join(".git");
+    if !fs::symlink_metadata(&git).is_ok_and(|m| m.is_dir()) {
+        return None;
+    }
+    let (bytes, _) = crate::file::read_regular(&git.join(PR_FILE), PR_FILE_MAX).ok()?;
+    Some(String::from_utf8_lossy(&bytes).into_owned())
 }
 
 /// The three parts of the file: `# <title>`, a `Branch: <name>` line, then the
@@ -232,6 +246,30 @@ mod tests {
         assert_eq!(r[0]["pr"]["body"], "The body.\nTwo lines.");
         assert_eq!(r[0]["workspace"], format!("{}-7", work.display()));
         assert!(r[1].get("pr").is_none());
+        let _ = fs::remove_dir_all(&h);
+    }
+
+    #[test]
+    fn a_pull_request_file_is_not_read_through_a_link() {
+        let h = dir("link");
+        let work = h.join("work/widget");
+        record(&h, 7, "cycle", "2026-11-06T10:00:00Z").unwrap();
+        record(&h, 8, "cycle", "2026-11-06T10:00:00Z").unwrap();
+        let secret = h.join("secret");
+        fs::write(&secret, "# GH_TOKEN=x\n\nBranch: b\n\nsecret\n").unwrap();
+        // The file is a link to a file of the host's.
+        let git7 = h.join("work/widget-7/.git");
+        fs::create_dir_all(&git7).unwrap();
+        std::os::unix::fs::symlink(&secret, git7.join(PR_FILE)).unwrap();
+        // `.git` is a link to a directory holding such a file.
+        let elsewhere = h.join("elsewhere");
+        fs::create_dir_all(&elsewhere).unwrap();
+        fs::copy(&secret, elsewhere.join(PR_FILE)).unwrap();
+        fs::create_dir_all(h.join("work/widget-8")).unwrap();
+        std::os::unix::fs::symlink(&elsewhere, h.join("work/widget-8/.git")).unwrap();
+        let r = results(&h, work.to_str().unwrap());
+        assert!(r[0].get("pr").is_none(), "{}", r[0]);
+        assert!(r[1].get("pr").is_none(), "{}", r[1]);
         let _ = fs::remove_dir_all(&h);
     }
 
