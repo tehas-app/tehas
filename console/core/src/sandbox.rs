@@ -413,7 +413,6 @@ fn first_json(file: &str) -> Option<serde_json::Value> {
 /// mounted under the product's own .pi/settings.json in <host>, merged the way
 /// Pi merges them. A value neither sets is Pi's default.
 pub fn retry_line(host: &str) -> String {
-    use serde_json::Value;
     let global = format!("{}/settings.json", agent_dir());
     if !std::path::Path::new(&global).is_file() {
         return format!("provider retry: unknown, {global} is missing");
@@ -429,13 +428,25 @@ pub fn retry_line(host: &str) -> String {
     if !g.is_object() || !p.is_object() {
         return not_json();
     }
-    let s = merged(g, p);
+    retry_fields(&merged(g, p)).unwrap_or_else(not_json)
+}
+
+/// The line of retry_line from the merged settings; None when a key on a
+/// path is under something that is not an object.
+fn retry_fields(s: &serde_json::Value) -> Option<String> {
+    use serde_json::Value;
     let v = |path: &[&str]| {
-        at(&s, path).map(|x| match x {
+        at(s, path).map(|x| match x {
             Value::Null => "unset".to_string(),
             Value::String(t) => t.clone(),
             other => other.to_string(),
         })
+    };
+    // Pi 1.5 reads it at the top level; settings made for 1.4 nest it under
+    // retry.provider, so a host mid-upgrade has either.
+    let idle: &[&str] = match at(s, &["httpIdleTimeoutMs"]) {
+        Some(Value::Null) => &["retry", "provider", "httpIdleTimeoutMs"],
+        _ => &["httpIdleTimeoutMs"],
     };
     let fields = [
         ("timeoutMs", v(&["retry", "provider", "timeoutMs"])),
@@ -444,19 +455,16 @@ pub fn retry_line(host: &str) -> String {
             "maxRetryDelayMs",
             v(&["retry", "provider", "maxRetryDelayMs"]),
         ),
-        ("httpIdleTimeoutMs", v(&["httpIdleTimeoutMs"])),
+        ("httpIdleTimeoutMs", v(idle)),
         ("agentMaxRetries", v(&["retry", "maxRetries"])),
         ("agentBaseDelayMs", v(&["retry", "baseDelayMs"])),
         ("agentMaxDelayMs", v(&["retry", "maxAgentDelayMs"])),
     ];
     let mut line = "provider retry:".to_string();
     for (name, value) in fields {
-        let Some(value) = value else {
-            return not_json();
-        };
-        line.push_str(&format!(" {name}={value}"));
+        line.push_str(&format!(" {name}={}", value?));
     }
-    line
+    Some(line)
 }
 
 /// The tokens models.json names that are set.
@@ -810,6 +818,30 @@ fn taken(slice: Usable, load: &Load, who: &str, what: &str) -> Result<Taken, Str
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_idle_timeout_is_read_at_the_top_level_and_under_retry_provider() {
+        use serde_json::json;
+        let idle = |s: serde_json::Value| {
+            let line = retry_fields(&s).unwrap();
+            line.split(' ')
+                .find_map(|w| w.strip_prefix("httpIdleTimeoutMs="))
+                .unwrap()
+                .to_string()
+        };
+        assert_eq!(idle(json!({"httpIdleTimeoutMs": 120000})), "120000");
+        assert_eq!(
+            idle(json!({"retry": {"provider": {"httpIdleTimeoutMs": 90000}}})),
+            "90000"
+        );
+        assert_eq!(
+            idle(json!({"httpIdleTimeoutMs": 5, "retry": {"provider": {"httpIdleTimeoutMs": 7}}})),
+            "5"
+        );
+        assert_eq!(idle(json!({"retry": {"provider": {}}})), "unset");
+        assert_eq!(idle(json!({})), "unset");
+        assert_eq!(retry_fields(&json!({"retry": 1})), None);
+    }
 
     fn words(line: &str) -> Vec<String> {
         line.split_whitespace().map(String::from).collect()
