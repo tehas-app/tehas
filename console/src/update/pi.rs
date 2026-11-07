@@ -7,7 +7,16 @@
 //! settings.json is the instance's own when it has one it can read, else the
 //! generic one, with `defaultProvider` and `defaultModel` set to <provider> and
 //! <model> where it leaves them out: the session model is named once, by
-//! PI_ENSEMBLE_SUBAGENT_PROVIDER and PI_ENSEMBLE_SUBAGENT_MODEL.
+//! PI_ENSEMBLE_SUBAGENT_PROVIDER and PI_ENSEMBLE_SUBAGENT_MODEL. Pi 1.5 reads
+//! `httpIdleTimeoutMs` at the top level only, so one nested under
+//! `retry.provider`, where settings for Pi 1.4 put it, is moved up.
+//!
+//! When <out>/settings.json is there already, it is taken as the installed
+//! one (install.sh --check copies it there). If it says what the made one
+//! says, apart from the `defaultProvider` and `defaultModel` that Pi writes
+//! itself when a person picks a model and that tehas only filled in, it is
+//! left as it is: what Pi wrote is not drift. A key tehas sets that differs
+//! still is.
 //!
 //! models.json is the instance's, with the keys Pi wants and the instance may
 //! leave out given today's defaults: each provider's `compat`, each model's
@@ -37,9 +46,10 @@ pub fn verb(given: &[String]) -> u8 {
             fs::read_to_string(generic),
         ),
     };
+    let installed = fs::read_to_string(Path::new(out).join("settings.json")).ok();
     let settings = text
         .map_err(|_| "cannot be read".to_string())
-        .and_then(|t| settings(&t, provider, model));
+        .and_then(|t| settings(&t, provider, model, installed.as_deref()));
     let models_from = Path::new(instance).join("models.json");
     let models = fs::read_to_string(&models_from)
         .map_err(|_| "cannot be read".to_string())
@@ -83,14 +93,56 @@ fn default(object: &mut Map<String, Value>, key: &str, value: Value) {
     }
 }
 
-fn settings(text: &str, provider: &str, model: &str) -> Result<String, String> {
+/// The keys Pi writes itself: the session model a person picks.
+const PI_OWN: [&str; 2] = ["defaultProvider", "defaultModel"];
+
+fn settings(
+    text: &str,
+    provider: &str,
+    model: &str,
+    installed: Option<&str>,
+) -> Result<String, String> {
     let mut value = parse(text)?;
     let object = value
         .as_object_mut()
         .ok_or("is not a JSON object".to_string())?;
+    let nested = object
+        .get_mut("retry")
+        .and_then(|r| r.get_mut("provider"))
+        .and_then(Value::as_object_mut)
+        .and_then(|p| p.remove("httpIdleTimeoutMs"));
+    if let Some(idle) = nested {
+        object.entry("httpIdleTimeoutMs").or_insert(idle);
+    }
+    let filled: Vec<&str> = PI_OWN
+        .into_iter()
+        .filter(|k| {
+            matches!(
+                object.get(*k),
+                None | Some(Value::Null) | Some(Value::Bool(false))
+            )
+        })
+        .collect();
     default(object, "defaultProvider", json!(provider));
     default(object, "defaultModel", json!(model));
-    Ok(pretty(&value))
+    match installed {
+        Some(there) if same_but(&value, there, &filled) => Ok(there.to_string()),
+        _ => Ok(pretty(&value)),
+    }
+}
+
+/// Whether <there> is the object <made> is, apart from the keys in <skip>.
+fn same_but(made: &Value, there: &str, skip: &[&str]) -> bool {
+    let (Value::Object(mut made), Ok(Value::Object(mut there))) =
+        (made.clone(), serde_json::from_str::<Value>(there))
+    else {
+        return false;
+    };
+    for key in skip {
+        made.remove(*key);
+        there.remove(*key);
+    }
+    made == there
 }
 
 /// The members of an array, or the values of an object.
@@ -151,12 +203,24 @@ mod tests {
 
     #[test]
     fn settings_get_the_session_model_they_leave_out() {
-        let made = settings(r#"{"defaultProvider":"other","hide":false}"#, "p", "m").unwrap();
+        let made = settings(
+            r#"{"defaultProvider":"other","hide":false}"#,
+            "p",
+            "m",
+            None,
+        )
+        .unwrap();
         assert_eq!(
             value(&made),
             json!({"defaultProvider": "other", "defaultModel": "m", "hide": false})
         );
-        let made = settings(r#"{"defaultProvider":null,"defaultModel":false}"#, "p", "m").unwrap();
+        let made = settings(
+            r#"{"defaultProvider":null,"defaultModel":false}"#,
+            "p",
+            "m",
+            None,
+        )
+        .unwrap();
         assert_eq!(
             value(&made),
             json!({"defaultProvider": "p", "defaultModel": "m"})
@@ -165,12 +229,73 @@ mod tests {
     }
 
     #[test]
+    fn an_idle_timeout_nested_for_pi_1_4_moves_to_the_top_level() {
+        let old = r#"{"retry": {"maxRetries": 10, "provider": {"timeoutMs": 6, "httpIdleTimeoutMs": 120000}}}"#;
+        assert_eq!(
+            value(&settings(old, "p", "m", None).unwrap()),
+            json!({"retry": {"maxRetries": 10, "provider": {"timeoutMs": 6}}, "httpIdleTimeoutMs": 120000,
+                   "defaultProvider": "p", "defaultModel": "m"})
+        );
+        let both = r#"{"httpIdleTimeoutMs": 5, "retry": {"provider": {"httpIdleTimeoutMs": 7}}}"#;
+        let made = value(&settings(both, "p", "m", None).unwrap());
+        assert_eq!(made["httpIdleTimeoutMs"], json!(5));
+        assert_eq!(made["retry"]["provider"], json!({}));
+    }
+
+    const TEHAS: &str =
+        r#"{"retry": {"maxRetries": 10}, "httpIdleTimeoutMs": 120000, "hideThinkingBlock": true}"#;
+
+    #[test]
+    fn an_installed_file_pi_rewrote_with_its_own_model_is_kept_as_it_is() {
+        // As Pi 1.5 writes: its key order, its own model, no last newline.
+        let there = "{\n  \"hideThinkingBlock\": true,\n  \"retry\": {\n    \"maxRetries\": 10\n  },\n  \"defaultProvider\": \"fleet\",\n  \"defaultModel\": \"big\",\n  \"httpIdleTimeoutMs\": 120000\n}";
+        assert_eq!(settings(TEHAS, "p", "m", Some(there)).unwrap(), there);
+        let unpicked = r#"{"retry": {"maxRetries": 10}, "httpIdleTimeoutMs": 120000, "hideThinkingBlock": true}"#;
+        assert_eq!(settings(TEHAS, "p", "m", Some(unpicked)).unwrap(), unpicked);
+    }
+
+    #[test]
+    fn an_installed_file_with_a_tehas_key_changed_is_made_again() {
+        let fresh = settings(TEHAS, "p", "m", None).unwrap();
+        for there in [
+            r#"{"retry": {"maxRetries": 3}, "httpIdleTimeoutMs": 120000, "hideThinkingBlock": true}"#,
+            r#"{"retry": {"maxRetries": 10}, "hideThinkingBlock": true}"#,
+            r#"{"retry": {"maxRetries": 10}, "httpIdleTimeoutMs": 120000, "hideThinkingBlock": true, "theme": "x"}"#,
+            "{",
+            "[1]",
+        ] {
+            assert_eq!(
+                settings(TEHAS, "p", "m", Some(there)).unwrap(),
+                fresh,
+                "{there}"
+            );
+        }
+        // A model the settings name is tehas's, not Pi's.
+        let named = r#"{"defaultModel": "m"}"#;
+        assert_eq!(
+            value(
+                &settings(
+                    named,
+                    "p",
+                    "m",
+                    Some(r#"{"defaultProvider": "p", "defaultModel": "big"}"#)
+                )
+                .unwrap()
+            ),
+            json!({"defaultProvider": "p", "defaultModel": "m"})
+        );
+    }
+
+    #[test]
     fn settings_that_are_not_an_object_are_refused() {
         assert_eq!(
-            settings("[1]", "p", "m").unwrap_err(),
+            settings("[1]", "p", "m", None).unwrap_err(),
             "is not a JSON object"
         );
-        assert_eq!(settings("{", "p", "m").unwrap_err(), "is not valid JSON");
+        assert_eq!(
+            settings("{", "p", "m", None).unwrap_err(),
+            "is not valid JSON"
+        );
     }
 
     #[test]
@@ -255,6 +380,19 @@ mod tests {
             made,
             json!({"own": 1, "defaultProvider": "p", "defaultModel": "m"})
         );
+
+        // What install.sh --check copied into <out> stays when Pi wrote it.
+        let there = r#"{"own": 1, "defaultProvider": "fleet", "defaultModel": "big"}"#;
+        fs::write(out.join("settings.json"), there).unwrap();
+        assert_eq!(verb(&args("inst")), 0);
+        assert_eq!(
+            fs::read_to_string(out.join("settings.json")).unwrap(),
+            there
+        );
+        fs::write(out.join("settings.json"), r#"{"own": 2}"#).unwrap();
+        assert_eq!(verb(&args("inst")), 0);
+        let made = value(&fs::read_to_string(out.join("settings.json")).unwrap());
+        assert_eq!(made["own"], json!(1));
 
         d.file("inst/settings.json", "[1]");
         assert_eq!(verb(&args("inst")), 78);

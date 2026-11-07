@@ -407,6 +407,14 @@ installed. `--check` says `mode: <path> is 644, wants 755` and exits 1; a real
 run sets the mode with `chmod` and copies the file again only when its content
 differs too.
 
+Pi rewrites `~/.pi/agent/settings.json` itself when a person picks another
+model: it sets `defaultProvider` and `defaultModel` and writes the file in its
+own key order. `--check` compares that file by its keys, not its bytes, and
+does not count those two as drift unless the instance's `settings.json` names
+them. Any other key that differs is drift. A real run writes the file again,
+with the instance's session model. `~/.pi/agent/mcp.json` is installed at mode
+600, as Pi keeps its own files.
+
 A home the script cannot prove is tehas's answers with a `Home: REFUSED` line,
 the reason under it, and `not checked` for the three lines that would have read
 the home; it exits 1 and looks at nothing else. `tehas update --check` reports
@@ -907,6 +915,11 @@ The generic one sets:
 | `retry.maxRetries`               | 10     | 3                                            |
 | `retry.baseDelayMs`              | 5000   | 2000                                         |
 | `retry.maxAgentDelayMs`          | 120000 | 60000                                        |
+| `httpIdleTimeoutMs`              | 120000 | 300000                                       |
+
+Pi 1.5 reads `httpIdleTimeoutMs` at the top level only. An instance's
+`settings.json` written for Pi 1.4 nests it under `retry.provider`; `install.sh`
+moves it to the top level, and the log line below reads either place.
 
 The `retry.provider` keys retry one HTTP request. The other three are Pi's
 second layer: when a turn still ends in a retryable error, such as `429 no
@@ -922,7 +935,7 @@ these for its cycles. `tehas work` writes the values in effect to the cycle's
 preflight log and prints them:
 
 ```
-tehas work: provider retry: timeoutMs=600000 maxRetries=8 maxRetryDelayMs=60000 httpIdleTimeoutMs=unset agentMaxRetries=10 agentBaseDelayMs=5000 agentMaxDelayMs=120000
+tehas work: provider retry: timeoutMs=600000 maxRetries=8 maxRetryDelayMs=60000 httpIdleTimeoutMs=120000 agentMaxRetries=10 agentBaseDelayMs=5000 agentMaxDelayMs=120000
 ```
 
 `unset` means Pi's default. Without `~/.pi/agent/settings.json`, `tehas work`,
