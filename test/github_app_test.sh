@@ -384,4 +384,61 @@ t_run ". $T/home/tehas/env.sh; . $T/home/tehas/env.sh; command -v gh; echo \"\$P
 t_eq "$t_out" "$T/home/tehas/shim/gh
 1"
 
+# console ids record on a first install (#1714): the shim is not in place yet,
+# so gh has no token unless the record makes one from the app's key. gh stands
+# for the real one: signed out without GH_TOKEN, exit 4.
+ids="$lib && \"\$TEHAS_CONSOLE\" ids record"
+t_stub gh '[ -n "${GH_TOKEN:-}" ] || { echo "gh: not logged in" >&2; exit 4; }
+printf "%s\n" "$GH_TOKEN" >>"$T/gh-token"'
+
+t_case "ids record with no GH_TOKEN and the app's key asks gh with a token made from the key"
+reset
+rm -f "$T/gh-token"
+t_instance "${app[@]}" TEHAS_ALLOWED_LABELERS=alice
+t_run "$ids"
+t_eq "$t_rc" 0
+t_eq "$(cat "$T/home/tehas/state/account-ids")" "alice $(t_uid alice)"
+t_eq "$(cat "$T/gh-token")" "ghs_fresh1"
+t_eq "$(cat "$kept")" "ghs_fresh1"
+# The token goes to gh in its environment, never on its command line.
+t_eq "$(t_calls gh)" "api users/alice --jq .id"
+t_lacks "$t_out" "ghs_fresh1"
+
+t_case "ids record with no GH_TOKEN and no usable key stops with 78, names the step and asks gh nothing"
+reset
+rm -f "$key"
+t_instance "${app[@]}" TEHAS_ALLOWED_LABELERS=alice
+t_run "$ids"
+t_eq "$t_rc" 78
+t_contains "$t_out" "the GitHub App's key is not readable at $key"
+t_contains "$t_out" "tehas: ids record: no GitHub token for the app, so no user id was recorded"
+t_eq "$(t_calls gh)$(t_calls curl)" ""
+t_eq "$([ -e "$T/home/tehas/state/account-ids" ] && echo written || echo none)" none
+reset
+T_ENV=(CURL_FAILS=1)
+t_instance "${app[@]}" TEHAS_ALLOWED_LABELERS=alice
+t_run "$ids"
+t_eq "$t_rc" 78
+t_contains "$t_out" "tehas: ids record: no GitHub token for the app"
+t_eq "$(t_calls gh)" ""
+
+t_case "ids record given GH_TOKEN, or with no app, asks gh as before and makes no token"
+reset
+rm -f "$T/gh-token"
+T_ENV=(GH_TOKEN=ghs_given)
+t_instance "${app[@]}" TEHAS_ALLOWED_LABELERS=alice
+t_run "$ids"
+t_eq "$t_rc" 0
+t_eq "$(cat "$T/gh-token")" "ghs_given"
+t_eq "$(t_calls curl)" ""
+reset
+rm -f "$T/gh-token"
+T_ENV=(GH_TOKEN=ghs_given)
+t_instance TEHAS_REPO=acme/widget TEHAS_ALLOWED_LABELERS=alice
+t_run "$ids"
+t_eq "$t_rc" 0
+t_eq "$(cat "$T/gh-token")" "ghs_given"
+t_eq "$(t_calls curl)" ""
+t_eq "$([ -e "$kept" ] && echo kept || echo none)" none
+
 t_done
