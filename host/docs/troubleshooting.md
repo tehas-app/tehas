@@ -351,6 +351,34 @@ Run `tehas dispatch --dry-run` and read what it prints.
 - `tehas: ... is a checkout of ..., not of ...` or `no product checkout at ...`:
   the product checkout is missing or is a clone of another repository than
   `TEHAS_REPO`. Nothing is polled until that is put right.
+- `ignore #N: tehas:finish was applied by '<who>', not an allowed account`: the
+  ask to open the draft pull request of a stopped cycle came from an account
+  outside `TEHAS_ALLOWED_LABELERS`, so nothing ran: the label stays on the issue
+  and no pull request is opened. It is said at every poll until the label comes
+  off. An allowed account writes a new marked comment and applies
+  `tehas:finish`. See [Finishing a stopped cycle](/operating#finishing-a-stopped-cycle).
+- `wait #N: tehas:finish waits: <why>`: the ask's label events, its comments or
+  its approval record could not be read, so the poll decided nothing. The label
+  stays for the next poll, which asks again. Nothing on the issue changed. When
+  it repeats, the reads of that issue are the thing to look at. See
+  [Finishing a stopped cycle](/operating#finishing-a-stopped-cycle).
+- `finish #N: refused, asked by <who>: <why>` and `finish #N: refused, asked by
+  <who> (<label|millwright>): <why>`: a rule of the ask was not met or the
+  finish command refused: a cycle of the issue is running, no workspace or
+  branch is kept, the branch holds no commit of its own, an open pull request
+  closes the issue, the rebase conflicts, no marked comment was found, or a rule
+  of the millwright's grant is not met. `tehas:finish` came off and the issue
+  was told the line as `result=refused`. Write a new marked comment and apply
+  the label again. See [Finishing a stopped cycle](/operating#finishing-a-stopped-cycle).
+- `finish #N: opened <url>, asked by <who> (<label|millwright>): <reason>`: the
+  ask ran and opened the draft pull request. `tehas:finish` came off and the
+  issue was told the URL as `result=opened`. Its gate did not pass: the checks
+  and the review decide on it as on any other pull request. Nothing more is
+  needed. See [Finishing a stopped cycle](/operating#finishing-a-stopped-cycle).
+
+The finish step runs after the poll's own decisions, takes at most three asks a
+poll and starts no cycle: it does not run on a poll that is paused, dry or that
+failed. The four lines above are the whole of what it logs.
 
 ### A cycle stops with `Cannot fork` in its log
 
