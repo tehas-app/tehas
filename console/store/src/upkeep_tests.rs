@@ -849,6 +849,171 @@ fn copy_writes_the_store_to_the_named_file_and_changes_nothing_else() {
     assert_ne!(code, 0);
 }
 
+/// Every file under `dir`, with its size and modified time.
+fn tree(dir: &Path) -> Vec<(String, u64, std::time::SystemTime)> {
+    let mut out = Vec::new();
+    for e in fs::read_dir(dir).unwrap() {
+        let e = e.unwrap();
+        let m = fs::symlink_metadata(e.path()).unwrap();
+        if m.is_dir() {
+            out.extend(tree(&e.path()));
+        } else {
+            out.push((
+                e.path().display().to_string(),
+                m.len(),
+                m.modified().unwrap(),
+            ));
+        }
+    }
+    out.sort();
+    out
+}
+
+#[test]
+fn copy_names_the_schema_rows_and_time_and_a_new_store_has_no_rows() {
+    let home = home("copy-new");
+    let to = home.join("new.db");
+    let v = ok(&home, &["copy", "--to", to.to_str().unwrap()]);
+    assert_eq!(v["schema"], crate::db::SCHEMA_VERSION);
+    // The schema is what `check` says of the store.
+    let check: Value =
+        serde_json::from_str(&crate::execute(&home, &crate::Verb::Check, 0).unwrap()).unwrap();
+    assert_eq!(v["schema"], check["schema"]);
+    assert_eq!(v["rows"], 0, "{v}");
+    assert!(v["ms"].as_i64().is_some_and(|ms| ms >= 0), "{v}");
+    let (_lock, _) = start(&home, 7);
+    let to = home.join("one.db");
+    let v = ok(&home, &["copy", "--to", to.to_str().unwrap()]);
+    assert!(v["rows"].as_i64().unwrap() > 0, "{v}");
+}
+
+#[test]
+fn copy_refuses_a_target_that_is_there_and_leaves_it_as_it_was() {
+    let home = home("copy-taken");
+    let to = home.join("taken.db");
+    fs::write(&to, "mine").unwrap();
+    let call = || crate::verbs_tests::call(&home, &["copy", "--to", to.to_str().unwrap()]);
+    let (code, why) = call().expect_err("refused");
+    assert_eq!(code, 1);
+    assert!(why.starts_with("exists:"), "{why}");
+    assert!(why.contains(to.to_str().unwrap()), "{why}");
+    assert!(!why.contains('\n'));
+    assert_eq!(fs::read_to_string(&to).unwrap(), "mine");
+    // A link is a name that is taken too, dangling or not.
+    let link = home.join("link.db");
+    std::os::unix::fs::symlink(home.join("nowhere.db"), &link).unwrap();
+    let (code, word) = refused(&home, &["copy", "--to", link.to_str().unwrap()]);
+    assert_eq!((code, word.as_str()), (1, "exists"));
+    assert!(!home.join("nowhere.db").exists());
+}
+
+#[test]
+fn copy_refuses_a_missing_directory_and_one_caddy_serves() {
+    let home = home("copy-where");
+    let gone = home.join("gone/x.db");
+    let (code, word) = refused(&home, &["copy", "--to", gone.to_str().unwrap()]);
+    assert_eq!((code, word.as_str()), (1, "no-directory"));
+    assert!(!home.join("gone").exists());
+    fs::create_dir_all(home.join("live/sub")).unwrap();
+    let served = home.join("live/sub/x.db");
+    let (code, word) = refused(&home, &["copy", "--to", served.to_str().unwrap()]);
+    assert_eq!((code, word.as_str()), (1, "served"));
+    assert!(!served.exists());
+}
+
+#[test]
+fn copy_writes_nothing_but_the_target_and_reads_a_store_it_cannot_write() {
+    let home = home("copy-only");
+    let (_lock, _) = start(&home, 7);
+    // A factory that runs has a reader open, so the store's -wal and -shm are
+    // there before the copy as they are on a host.
+    let reader = conn(&home);
+    reader
+        .query_row("SELECT count(*) FROM cycles", [], |r| r.get::<_, i64>(0))
+        .unwrap();
+    let out = crate::verbs_tests::scratch("copy-only-out");
+    // The -shm is SQLite's index of the WAL, which every reader of the store
+    // marks, `store check` too; every other file is compared, bytes and time.
+    let files = || -> Vec<_> {
+        tree(&home)
+            .into_iter()
+            .filter(|(p, _, _)| !p.ends_with("-shm"))
+            .map(|(p, n, at)| (fs::read(&p).unwrap(), p, n, at))
+            .collect()
+    };
+    let before = files();
+    assert!(before
+        .iter()
+        .any(|(_, p, _, _)| p.ends_with("tehas.db-wal")));
+    // The store's own file is read only: a copy that wrote to it would fail.
+    let db = home.join("state/tehas.db");
+    fs::set_permissions(&db, fs::Permissions::from_mode(0o400)).unwrap();
+    let to = out.join("copy.db");
+    let v = ok(&home, &["copy", "--to", to.to_str().unwrap()]);
+    fs::set_permissions(&db, fs::Permissions::from_mode(0o600)).unwrap();
+    assert!(v["rows"].as_i64().unwrap() > 0);
+    assert!(files() == before, "the home is as it was");
+    let made: Vec<String> = tree(&out).into_iter().map(|(p, _, _)| p).collect();
+    assert_eq!(made, vec![to.display().to_string()]);
+    drop(reader);
+}
+
+#[test]
+fn copy_is_taken_while_a_cycle_writes_and_holds_what_was_committed() {
+    let home = home("copy-busy");
+    let (_lock, _) = start(&home, 7);
+    // A writer in the middle of its transaction: the copy neither waits for it
+    // nor holds its row.
+    let w = conn(&home);
+    w.execute_batch("BEGIN IMMEDIATE").unwrap();
+    w.execute(
+        "INSERT INTO meta (key, value) VALUES ('copy-test', 'uncommitted')",
+        [],
+    )
+    .unwrap();
+    let to = home.join("busy.db");
+    ok(&home, &["copy", "--to", to.to_str().unwrap()]);
+    let c = Connection::open(&to).unwrap();
+    let held: i64 = c
+        .query_row(
+            "SELECT count(*) FROM meta WHERE key = 'copy-test'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(held, 0);
+    let cycles: i64 = c
+        .query_row("SELECT count(*) FROM cycles WHERE issue = 7", [], |r| {
+            r.get(0)
+        })
+        .unwrap();
+    assert_eq!(cycles, 1);
+    drop(c);
+    w.execute_batch("COMMIT").unwrap();
+    // And with cycles starting beside it, each copy is whole and reads back
+    // the rows it says it holds.
+    let writer_home = home.to_path_buf();
+    let writing = std::thread::spawn(move || {
+        crate::verbs_tests::short_bounds();
+        for issue in 20..40 {
+            drop(start(&writer_home, issue));
+        }
+    });
+    let mut n = 0;
+    while !writing.is_finished() || n == 0 {
+        let to = home.join(format!("during-{n}.db"));
+        let v = ok(&home, &["copy", "--to", to.to_str().unwrap()]);
+        let c = Connection::open(&to).unwrap();
+        let ok: String = c
+            .query_row("PRAGMA integrity_check", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(ok, "ok");
+        assert!(v["rows"].as_i64().unwrap() > 0);
+        n += 1;
+    }
+    writing.join().unwrap();
+}
+
 #[test]
 fn copy_needs_an_absolute_name() {
     assert!(usage(&["copy"]).contains("--to"));
