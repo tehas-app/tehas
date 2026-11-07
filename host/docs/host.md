@@ -1226,7 +1226,11 @@ said, not in the middle of a step. The runner is
 given `TEHAS_WORK_TIMEOUT` in whole minutes and ends the cycle itself, with
 exit 30; `tehas work` stops a runner that is still there 300 seconds later.
 Either way the cycle is `timeout` and goes on record with the cap
-`wall-clock` and the step it was in. The steps around it are bounded too, so
+`wall-clock` and the step it was in. A cycle that
+[`tehas freeze`](/api#tehas-freeze-and-tehas-thaw) holds still is not
+checked against the stall or the time limit while its container is paused,
+and its time limit is moved forward by the time it was frozen; the runner's
+deadline is not, so a long freeze can bring the cycle to it sooner. The steps around it are bounded too, so
 a dockerd that stops answering or a network that swallows packets does not
 hold a slot for ever:
 

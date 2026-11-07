@@ -35,7 +35,7 @@ pub const USAGE: &str = include_str!("usage/stop.txt");
 /// after `state/cycles/<issue>`. `.nostart.new` is there because a note is
 /// written beside its name and moved into place: a stop that takes the note
 /// takes a write that never finished, as libexec/work's own clear does.
-const NOTES: [&str; 15] = [
+const NOTES: [&str; 17] = [
     ".lock",
     ".cid",
     ".done",
@@ -51,6 +51,8 @@ const NOTES: [&str; 15] = [
     ".refresh-conflict",
     ".progress.json",
     ".result.json",
+    ".freeze",
+    ".frozen",
 ];
 
 /// What the words of a run asked for.
@@ -60,7 +62,7 @@ pub struct Asked {
     keep: bool,
 }
 
-fn is_issue(word: &str) -> bool {
+pub(crate) fn is_issue(word: &str) -> bool {
     let b = word.as_bytes();
     (1..=10).contains(&b.len()) && (b'1'..=b'9').contains(&b[0]) && b.iter().all(u8::is_ascii_digit)
 }

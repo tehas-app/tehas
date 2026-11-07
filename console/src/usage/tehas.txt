@@ -26,4 +26,6 @@ Usage:
   tehas pause [reason]             stop this host from starting new work
   tehas resume                     lift this host's pause flag
   tehas stop <issue> [--keep-workspace]  end a cycle by hand, clear what it left
+  tehas freeze <issue> [--reason R] hold a running cycle still, its clocks stopped
+  tehas thaw <issue>               let a frozen cycle go on
   tehas help [command]             this text, or the text of one command
