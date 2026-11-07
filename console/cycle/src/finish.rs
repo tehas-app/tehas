@@ -7,12 +7,13 @@
 //! what the workspace holds. A person asks here, and the factory does the push,
 //! so nobody outside the host needs write access to the code.
 //!
-//! The branch of the kept workspace is rebased onto the default branch in a
-//! temporary worktree of that repository, pushed to a branch of its own,
+//! The branch of the kept workspace is fetched into a repository of the run's
+//! own, rebased there onto the default branch, pushed to a branch of its own,
 //! `finish/issue-<n>`, and opened as a draft pull request that closes the issue.
-//! The kept workspace is read and never written, and its branch never moves: the
-//! rebase runs in a detached tree and the push names `HEAD`. The worktree and the
-//! body file go on every path, the refusals included.
+//! No git runs in the workspace, because its git config is the container's to
+//! write. The workspace is read and never written, and its branch never moves.
+//! The run's repository and the body file go on every path, the refusals
+//! included.
 //!
 //! Whether a failure is outside the change is the asker's judgement, and the
 //! reason is theirs; it goes into the draft's body. Whether the gate passed is
