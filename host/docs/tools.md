@@ -5084,8 +5084,10 @@ unless cases were removed. The slowest files are the ones to split.
 Every severity of shellcheck note fails the run: error, warning, info and style.
 The lint is called with no `-S` floor and no codes excluded, so a style note on a
 shell script is as much a failed check as an error, and a platform checkout is
-kept clean at that level when shellcheck is installed: without it the lint is a
-`skipped:` line and the run still passes on the test files. The one accepted
+kept clean at that level. Without shellcheck the lint is a `SKIPPED:` line and
+the run passes on the test files, except in CI (`CI` set) or with
+`TEHAS_TEST_STRICT` set, where the lint counts as failed and the run fails, as
+a missing rustfmt or clippy does in `scripts/verify.sh`. The one accepted
 suppression is a note shellcheck gets wrong: on a line whose single quotes are
 the point, an assertion that some text is a literal, it says an expansion was
 meant (`SC2016 (info)`). Silence that one code, with the reason beside it, and
@@ -5108,9 +5110,12 @@ test file relative to the checkout, with a reason after it when there is more to
 say than the exit status: `it did not finish, no result recorded` for a file
 that never ended, `timed out after 300s` for one the timeout stopped, `its
 recorded result could not be read` for a record that is
-not a number, `its output could not be read` for a log the run cannot show.
-Control bytes in a file name become `?`. A line starting `skipped:` gives a
-check that did not run, with its reason.
+not a number, `its output could not be read` for a log the run cannot show,
+`ended before t_done` for a file that exited 0 without the count line t_done
+prints (`<name>: N cases, M failed`), so a stray `exit 0` or a sourced helper
+that exits cannot pass the cases after it. Control bytes in a file name become
+`?`. A line starting `SKIPPED:` in column 1 gives a check that did not run,
+with its reason, so a caller can find it in a run that passed.
 
 A failing test file whose own log carries a `FAIL:` line is named differently:
 the line starts with `FAILED:` in column 1, with no indent, and carries the
