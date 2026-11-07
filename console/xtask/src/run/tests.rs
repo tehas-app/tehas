@@ -161,6 +161,9 @@ fn the_cases_are_the_last_count_line_of_a_log() {
     assert_eq!(cases_in(b"x: 3 cases, 0 failed later\n"), None);
     assert_eq!(cases_in(b"x: 3 cases,  failed\n"), None);
     assert_eq!(cases_in(b""), None);
+    // t_done names the skipped cases between the two counts.
+    assert_eq!(cases_in(b"x: 5 cases, 2 skipped, 0 failed\n"), Some(5));
+    assert_eq!(cases_in(b"x: 5 cases, skipped, 0 failed\n"), None);
 }
 
 #[test]
@@ -213,30 +216,48 @@ fn the_slowest_five_are_named_slowest_first_ties_in_run_order() {
 #[test]
 fn a_record_is_judged_by_its_status_its_log_and_the_timeout() {
     let rc = |v: &str| Some(Some(v.to_string()));
-    assert_eq!(judge(true, rc("0"), 300), None);
-    assert_eq!(judge(true, rc("1"), 300), Some(String::new()));
+    assert_eq!(judge(true, true, rc("0"), 300), None);
+    assert_eq!(judge(true, true, rc("1"), 300), Some(String::new()));
     assert_eq!(
-        judge(true, rc("124"), 300),
+        judge(true, true, rc("124"), 300),
         Some("timed out after 300s".into())
     );
-    assert_eq!(judge(true, rc("137"), 1), Some("timed out after 1s".into()));
     assert_eq!(
-        judge(true, None, 300),
+        judge(true, true, rc("137"), 1),
+        Some("timed out after 1s".into())
+    );
+    assert_eq!(
+        judge(true, true, None, 300),
         Some("it did not finish, no result recorded".into())
     );
     assert_eq!(
-        judge(true, Some(None), 300),
+        judge(true, true, Some(None), 300),
         Some("its recorded result could not be read".into())
     );
     assert_eq!(
-        judge(true, rc("not a number"), 300),
+        judge(true, true, rc("not a number"), 300),
         Some("its recorded result could not be read".into())
     );
     // A passing status does not make up for output the run cannot show.
     assert_eq!(
-        judge(false, rc("0"), 300),
+        judge(false, false, rc("0"), 300),
         Some("its output could not be read".into())
     );
+    // Nor for a log with no count line from t_done: the file stopped early.
+    assert_eq!(
+        judge(true, false, rc("0"), 300),
+        Some("ended before t_done".into())
+    );
+    // A failing status is named as before; the count line is not the reason.
+    assert_eq!(judge(true, false, rc("1"), 300), Some(String::new()));
+}
+
+#[test]
+fn a_missing_shellcheck_fails_in_ci_and_when_asked() {
+    assert!(!strict(None, None));
+    assert!(!strict(Some(""), Some("")));
+    assert!(strict(Some("true"), None));
+    assert!(strict(None, Some("1")));
 }
 
 fn bad(name: &str, why: &str, first: Option<&str>) -> Bad {
@@ -267,7 +288,7 @@ fn the_block_names_what_failed_and_what_did_not_run() {
             "FAILED: test/a_test.sh: a case?that failed",
             "    test/b?_test.sh: timed out after 1s",
             "    test/c_test.sh",
-            "    skipped: shellcheck is not installed",
+            "SKIPPED: shellcheck is not installed",
         ]
     );
     let long = "x".repeat(300);
@@ -292,7 +313,7 @@ fn the_block_fits_the_lines_verify_keeps_and_counts_the_rest() {
     assert_eq!(lines[3], "    test/f29_test.sh");
     assert!(lines.contains(&"    test/f60_test.sh".to_string()));
     assert!(lines.contains(&"    and 28 more, in the full log".to_string()));
-    assert_eq!(lines.last().unwrap(), "    skipped: two");
+    assert_eq!(lines.last().unwrap(), "SKIPPED: two");
 }
 
 #[test]

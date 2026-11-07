@@ -3,9 +3,12 @@
 #
 #   1. shellcheck over the shell scripts, at every severity: the call carries no
 #      -S floor and excludes no code, so an info note fails the run like any
-#      other note. Without shellcheck installed the step is a skipped line and
-#      the run passes on the test files alone.
-#   2. the shell tests in test/*_test.sh
+#      other note. Without shellcheck installed the step is a SKIPPED: line
+#      and the run passes on the test files alone, except when CI or
+#      TEHAS_TEST_STRICT is set: then the lint counts as failed.
+#   2. the shell tests in test/*_test.sh. A file passes when it exits 0 and
+#      its output has the count line of t_done; one that exits 0 without it
+#      ended early and fails, named with "ended before t_done".
 #
 # Before the tests start, the state store (console/store), the attachment
 # checker (console/attach), tehas-dispatch (console/dispatch), tehas-cycle
