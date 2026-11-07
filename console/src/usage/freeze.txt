@@ -1,0 +1,28 @@
+tehas freeze: hold one running cycle still without ending it.
+
+Usage: tehas freeze <issue> [--reason TEXT] [--json]
+       tehas freeze -h|--help   print this text and exit 0
+
+Writes the request $TEHAS_HOME/state/cycles/<issue>.freeze. On its next look,
+within 10 seconds, the watch of the cycle pauses the cycle's container
+(docker pause) and writes state/cycles/<issue>.frozen. While the container is
+paused, neither the stall (TEHAS_WORK_STALL) nor the time limit
+(TEHAS_WORK_TIMEOUT) is checked. tehas thaw <issue> lets it go on, and the
+cycle then has the time it had left. For a host that is short of disk, where
+stopping the cycle that writes most would throw its work away.
+
+A frozen cycle still holds its slot: freezing makes no room for another
+cycle. The runner inside the container reads its own deadline,
+PI_ENSEMBLE_CYCLE_DEADLINE, on the wall clock, so a long freeze can bring the
+cycle to that deadline sooner, where it parks at a step boundary with a
+handoff. A stop of the cycle or of the factory still works on a frozen cycle,
+and a freeze ends with its cycle.
+
+The reason is kept to 200 characters on one line in the request. With
+--json it prints one object: api 1, issue, running, asked (the request is
+there) and frozen (the watch has paused the container).
+
+Exit: 0 the freeze is asked, was asked already, or no cycle of the issue is
+running, which writes nothing; 1 the request could not be written; 64 a bad
+argument, which writes nothing; 78 the instance settings are missing or
+malformed.

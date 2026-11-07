@@ -207,6 +207,7 @@ mod export;
 mod flags;
 mod forge;
 mod frame;
+mod freeze;
 mod front;
 mod gh_shim;
 mod gh_writes;

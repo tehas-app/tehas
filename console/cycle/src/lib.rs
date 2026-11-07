@@ -1,7 +1,8 @@
 //! A cycle's supervisor in Rust (#256). `report` takes what an ended cycle
 //! left and the answers GitHub gives, and returns what to do with them, and
 //! `apply` does it. `pin` gives a cycle its own copy of the code.
-//! `clock` measures a cycle on a clock that stops while the VM is saved.
+//! `clock` measures a cycle on a clock that stops while the VM is saved,
+//! and `freeze` says what the watch does for a frozen cycle.
 //! `renew` keeps a cycle's GitHub token fresh and says what went wrong.
 //! `finish` opens a pull request from what a cycle that stopped left.
 //! `after` does what follows a cycle's record, and `improve` writes the
@@ -28,6 +29,7 @@ pub mod describe;
 pub mod end_failed;
 pub mod facts;
 pub mod finish;
+pub mod freeze;
 pub mod gives;
 pub mod host;
 pub mod improve;

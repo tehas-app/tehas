@@ -16,6 +16,8 @@
 //!   console tehas history [--json] [--after CURSOR] [--issue N]
 //!   console tehas export [--json] --after CURSOR <dir>
 //!   console tehas stop <issue> [--keep-workspace]
+//!   console tehas freeze <issue> [--reason TEXT] [--json]
+//!   console tehas thaw <issue> [--json]
 //!   console tehas dev <arguments>
 //!   console tehas dev-login "Name <email>" [-- <pi arguments>]
 //!   console tehas|tehasbot mcp serve|key
@@ -38,8 +40,8 @@
 //! Exit: the status of the command; 64 usage.
 
 use crate::{
-    api, clean, dev, disk, export, flags, github, health, history, labels, mcp, panel, queue,
-    review, state, status, stop, top,
+    api, clean, dev, disk, export, flags, freeze, github, health, history, labels, mcp, panel,
+    queue, review, state, status, stop, top,
 };
 use std::env;
 use std::io::{self, Write};
@@ -160,6 +162,8 @@ pub fn tehas(given: &[String]) -> u8 {
         "history" => history::main(rest),
         "export" => export::main(rest),
         "stop" => stop::main(rest),
+        "freeze" => freeze::freeze(rest),
+        "thaw" => freeze::thaw(rest),
         "dev" => dev::start(rest),
         "dev-login" => dev::login(rest),
         "mcp" => mcp::main(rest),
@@ -278,6 +282,11 @@ pub fn check(given: &[String]) -> u8 {
             Ok(None) => Err(ANSWERED),
             Err(rc) => Err(rc),
         },
+        ["tehas", verb @ ("freeze" | "thaw")] => match freeze::words(rest, verb == "freeze") {
+            Ok(Some(_)) => Ok(()),
+            Ok(None) => Err(ANSWERED),
+            Err(rc) => Err(rc),
+        },
         ["tehas", "check-product"] => {
             product_words(rest, "--sandbox", "tehas check-product [--sandbox]")
         }
@@ -360,6 +369,7 @@ pub fn text(command: &str) -> Option<&'static str> {
         "dispatch" => DISPATCH,
         "drain" => include_str!("usage/drain.txt"),
         "export" => include_str!("usage/export.txt"),
+        "freeze" => freeze::FREEZE_USAGE,
         "history" => include_str!("usage/history.txt"),
         "index" => include_str!("usage/index.txt"),
         "init-product" => include_str!("usage/init-product.txt"),
@@ -376,6 +386,7 @@ pub fn text(command: &str) -> Option<&'static str> {
         "state" => include_str!("usage/state.txt"),
         "status" => include_str!("usage/status.txt"),
         "stop" => stop::USAGE,
+        "thaw" => freeze::THAW_USAGE,
         "top" => include_str!("usage/top.txt"),
         "update" => include_str!("usage/update.txt"),
         "work" => include_str!("usage/work.txt"),

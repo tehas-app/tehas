@@ -12,7 +12,7 @@
 
 use crate::clock;
 use crate::start::attempt_shaped;
-use crate::{host, progress, runner, scratch};
+use crate::{freeze, host, progress, runner, scratch};
 use serde_json::Value;
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
@@ -564,6 +564,9 @@ struct Files {
     status: PathBuf,
     nostart: PathBuf,
     clock: PathBuf,
+    /// The request of `tehas freeze`, and the watch's word that it paused.
+    freeze: PathBuf,
+    frozen: PathBuf,
 }
 
 impl Files {
@@ -583,6 +586,8 @@ impl Files {
             status: f("status"),
             nostart: f("nostart"),
             clock: f("clock"),
+            freeze: f("freeze"),
+            frozen: f("frozen"),
         }
     }
 }
@@ -611,10 +616,96 @@ struct Watch<'a> {
     ooms: u32,
     forks: u32,
     oom_id: String,
+    /// The container is paused by a freeze, and the cycle clock read when it
+    /// was paused, if it could be read.
+    paused: bool,
+    frozen_at: Option<u64>,
+    /// The wall seconds of the freezes that ended, and the start of the one
+    /// in force, so the end of a runner is not read as its time limit.
+    frozen_secs: i64,
+    frozen_wall: i64,
+    freeze_said: bool,
 }
 
 impl Watch<'_> {
+    /// `docker <verb> <name>` for a freeze, within the bound of a stop.
+    fn docker_verb(&self, verb: &str) -> bool {
+        let args = vec![verb.to_string(), self.g.name.clone()];
+        let bound = Duration::from_secs(self.g.stop_wait);
+        call::run_grace("docker", &args, None, bound, Duration::from_secs(5)) == Some(0)
+    }
+
+    /// Pauses the container a freeze asked for. A pause that does not work
+    /// is said once and tried again on the next look.
+    fn pause(&mut self, now: Option<u64>) {
+        if !self.docker_verb("pause") {
+            if !self.freeze_said {
+                say(&format!(
+                    "tehas work: docker pause of {} did not work, trying again on the next look",
+                    self.g.name
+                ));
+                self.freeze_said = true;
+            }
+            return;
+        }
+        self.paused = true;
+        self.freeze_said = false;
+        self.frozen_at = now;
+        self.frozen_wall = time::now();
+        let words = now.map_or_else(|| "-\n".to_string(), |t| format!("{t}\n"));
+        self.write_or_say(&self.files.frozen, &words);
+        say(&format!(
+            "tehas work: #{} frozen: its container is paused and neither its stall nor its time limit counts",
+            self.g.issue
+        ));
+    }
+
+    /// Unpauses the container once its freeze is gone, and moves the start's
+    /// mark forward by the time it was frozen. Gives the clock reading the
+    /// stall counts from, or nothing when the container is still paused.
+    fn unpause(&mut self, now: Option<u64>) -> Option<Option<u64>> {
+        if !self.docker_verb("unpause") {
+            if !self.freeze_said {
+                say(&format!(
+                    "tehas work: docker unpause of {} did not work, trying again on the next look",
+                    self.g.name
+                ));
+                self.freeze_said = true;
+            }
+            return None;
+        }
+        self.paused = false;
+        self.freeze_said = false;
+        self.frozen_secs += time::now() - self.frozen_wall;
+        let start = clock::read_mark(&self.files.clock);
+        let moved = match (self.frozen_at.take(), now, start) {
+            (Some(at), Some(n), Some(s)) => freeze::shifted(s, at, n).and_then(|m| {
+                fs::write(&self.files.clock, format!("{m}\n"))
+                    .ok()
+                    .map(|()| m - s)
+            }),
+            _ => None,
+        };
+        let _ = fs::remove_file(&self.files.frozen);
+        say(&match moved {
+            Some(secs) => format!(
+                "tehas work: #{} thawed after {secs}s: its time limit and stall count on from here",
+                self.g.issue
+            ),
+            None => format!(
+                "tehas work: #{} thawed, but the time it was frozen could not be read: it counts against the time limit",
+                self.g.issue
+            ),
+        });
+        Some(now)
+    }
+
     fn stop_container(&self, grace: u64) {
+        // A paused container takes no TERM, so a stop waits out its grace for
+        // nothing. A freeze never outlives the cycle's own stop.
+        if self.paused {
+            self.docker_verb("unpause");
+        }
         let name = &self.g.name;
         let bound = Duration::from_secs(self.g.stop_wait);
         let five = Duration::from_secs(5);
@@ -902,6 +993,11 @@ pub fn run(home: &Path, g: &Given, stop: Arc<AtomicBool>) -> i32 {
         ooms: 0,
         forks: 0,
         oom_id: String::new(),
+        paused: false,
+        frozen_at: None,
+        frozen_secs: 0,
+        frozen_wall: 0,
+        freeze_said: false,
     };
     let (tick, settle) = ticks();
     let clock = Clock::from_env();
@@ -947,9 +1043,20 @@ pub fn run(home: &Path, g: &Given, stop: Arc<AtomicBool>) -> i32 {
                 last = clock.now();
             }
         }
-        // A clock that says nothing, says ok or says unknown stops no cycle.
-        let verdict =
-            last.map(|since| clock.check(&w.files.clock, g.limit + g.grace, g.stall, since));
+        match freeze::next(w.files.freeze.exists(), w.paused) {
+            freeze::Move::Pause => w.pause(clock.now()),
+            freeze::Move::Unpause => {
+                if let Some(since) = w.unpause(clock.now()) {
+                    last = since;
+                }
+            }
+            freeze::Move::Stay => {}
+        }
+        // A clock that says nothing, says ok or says unknown stops no cycle,
+        // and a frozen cycle is not asked about.
+        let verdict = last
+            .filter(|_| !w.paused)
+            .map(|since| clock.check(&w.files.clock, g.limit + g.grace, g.stall, since));
         match verdict.as_deref() {
             Some("over") => {
                 say(&format!("tehas work: time limit of {}s passed", g.limit));
@@ -995,6 +1102,13 @@ pub fn run(home: &Path, g: &Given, stop: Arc<AtomicBool>) -> i32 {
     w.oom_look();
     let _ = fs::remove_file(&w.files.cid);
     w.oom_log(started);
+    // A freeze ends with its cycle: a request left behind would pause the
+    // next cycle of the issue the moment it starts.
+    if w.paused {
+        w.frozen_secs += time::now() - w.frozen_wall;
+    }
+    let _ = fs::remove_file(&w.files.freeze);
+    let _ = fs::remove_file(&w.files.frozen);
 
     let result = fs::read(&w.files.result).ok();
     let result = result.map(|b| String::from_utf8_lossy(&b).into_owned());
@@ -1014,7 +1128,7 @@ pub fn run(home: &Path, g: &Given, stop: Arc<AtomicBool>) -> i32 {
         timed,
         disk: disk.is_some(),
         stopped,
-        at_limit: time::now() - started >= g.limit as i64,
+        at_limit: time::now() - started - w.frozen_secs >= g.limit as i64,
         log_empty,
     };
     let decided = decide(&seen_end);
@@ -1722,6 +1836,11 @@ mod tests {
             ooms: 0,
             forks: 0,
             oom_id: String::new(),
+            paused: false,
+            frozen_at: None,
+            frozen_secs: 0,
+            frozen_wall: 0,
+            freeze_said: false,
         };
         assert!(w.write_note(&w.files.runner_exit, "10"));
         assert_eq!(fs::read_to_string(&w.files.runner_exit).unwrap(), "10\n");
