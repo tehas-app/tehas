@@ -650,3 +650,24 @@ fn the_test_clock_is_read_from_its_variable() {
         assert!(err.contains("TEHAS_STORE_TEST_NOW"), "{bad}: {err}");
     }
 }
+
+#[test]
+fn load_brings_a_copy_of_an_older_schema_forward_as_migrate_does() {
+    for from in [1, db::SCHEMA_VERSION - 1] {
+        let old = old_home(&format!("load-old-{from}"), from, V1_ROWS, "");
+        let into = home(&format!("load-old-into-{from}"));
+        let copy = db::path(&old);
+        let v = call(&into, &["load", "--from", copy.to_str().unwrap()]).unwrap();
+        assert_eq!(v["schema"], from, "{v}");
+        assert!(v["rows"].as_i64().unwrap() > 0, "{v}");
+        assert_eq!(one::<i64>(&into, "PRAGMA user_version"), db::SCHEMA_VERSION);
+        assert_eq!(
+            one::<String>(&into, "SELECT value FROM meta WHERE key = 'schema'"),
+            db::SCHEMA_VERSION.to_string()
+        );
+        assert_eq!(count(&into, "cycles WHERE issue = 7"), 1);
+        assert_eq!(count(&into, "plan_history WHERE issue = 7"), 1);
+        // The copy itself is read, never changed.
+        assert_eq!(one::<i64>(&old, "PRAGMA user_version"), from);
+    }
+}

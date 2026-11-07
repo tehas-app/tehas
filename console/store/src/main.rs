@@ -100,6 +100,10 @@
 //!   store copy --to <file>
 //!                (a copy of the store at one moment, by VACUUM INTO on a
 //!                reader's connection; answers its schema, rows and ms)
+//!   store load --from <file>
+//!                (a copy loaded into a store that holds no history, in one
+//!                transaction; answers the copy's schema, rows and ms:
+//!                src/load.rs)
 //!   store prune --days N
 //!                (endings, settled actions with their journal, the heartbeats
 //!                of ended cycles, and the history of issues ended more than N
@@ -200,6 +204,7 @@ mod history;
 mod import;
 mod journal;
 mod live;
+mod load;
 mod lock;
 mod park;
 mod plan;
@@ -221,6 +226,8 @@ mod import_tests;
 mod journal_tests;
 #[cfg(test)]
 mod live_tests;
+#[cfg(test)]
+mod load_tests;
 #[cfg(test)]
 mod lock_tests;
 #[cfg(test)]

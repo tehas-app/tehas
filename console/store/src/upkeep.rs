@@ -8,6 +8,9 @@
 //!                     file, and refuses a name that is taken, a directory
 //!                     that is not there and one under live/. Answers the
 //!                     copy's schema, its rows but meta's, and the ms it took
+//!   load --from <file>
+//!                     a copy of `copy` loaded into a store that holds no
+//!                     history, in one transaction: src/load.rs
 //!   prune --days N    endings, settled actions with their journal, the
 //!                     heartbeats of ended cycles, and the history of issues
 //!                     ended more than N days ago, each issue keeping its last
@@ -40,6 +43,7 @@ use std::time::{Duration, SystemTime};
 pub enum Call {
     Backup { show: bool },
     Copy { to: String },
+    Load { from: String },
     Prune { days: i64 },
     SweepLocks { days: i64, max: i64, dry_run: bool },
     LocksHeld,
@@ -63,6 +67,15 @@ pub fn parse(name: &str, rest: &[String]) -> Option<Result<Call, String>> {
                 return Err(a.usage("--to", "is an absolute name"));
             }
             Ok(Call::Copy { to: to.to_string() })
+        }),
+        "load" => Args::parse("load", rest, &[("--from", Kind::Value)], false).and_then(|a| {
+            let from = a.need("--from")?;
+            if !from.starts_with('/') {
+                return Err(a.usage("--from", "is an absolute name"));
+            }
+            Ok(Call::Load {
+                from: from.to_string(),
+            })
         }),
         "prune" => Args::parse("prune", rest, &[("--days", Kind::Value)], false).and_then(|a| {
             Ok(Call::Prune {
@@ -108,6 +121,7 @@ pub fn run(home: &Path, call: &Call, now: i64) -> Result<String, Fail> {
     match call {
         Call::Backup { show } => backup(home, *show, now),
         Call::Copy { to } => copy(home, to),
+        Call::Load { from } => crate::load::load(home, from, now),
         Call::Prune { days } => prune(home, *days, now),
         Call::SweepLocks { days, max, dry_run } => sweep_locks(home, *days, *max, *dry_run, now),
         Call::Upkeep { dry_run } => upkeep(home, *dry_run, now),
