@@ -551,6 +551,103 @@ t_contains "$out" ".rows: -1 is under 0"
 t_contains "$out" ".: target is missing"
 t_contains "$out" ".later: not in the schema"
 
+loaded() { jq -r --slurpfile schema "$T_ROOT/api/state-load.schema.json" -f "$T_ROOT/test/schema.jq" "$@"; }
+# a_copy: $T/copies/c.db, a copy of the source factory's store with two ended
+# cycles in it.
+a_copy() {
+  rm -rf "$T/copies" && mkdir -p "$T/copies"
+  t_ended "$src" 5 -
+  t_ended "$src" 6 -
+  T_ENV=(TEHAS_HOME="$src")
+  t_run "$state copy --to '$T/copies/c.db'"
+  T_ENV=()
+  t_eq "$t_rc" 0
+}
+drain() { printf '%s\n' '{"v":1,"cycles":0,"plan":false,"until":null,"reason":"draining"}' >"$dst/state/limit.json"; }
+
+t_case "load --json fills a drained factory's new store from a copy, and fits the schema"
+reset
+a_copy
+drain
+t_run "$state load --from '$T/copies/c.db' --json"
+t_eq "$t_rc" 0
+t_eq "$(loaded <<<"$t_out")" ""
+t_eq "$(jq -r .source <<<"$t_out")" "$T/copies/c.db"
+t_eq "$(jq .schema <<<"$t_out")" "$(TEHAS_HOME=$dst "$dst/libexec/store" check | jq .schema)"
+t_eq "$(jq '.rows > 0' <<<"$t_out")" true
+t_eq "$(TEHAS_HOME=$dst "$dst/libexec/store" check | jq -c '[.integrity, .rows.cycles]')" '["ok",2]'
+t_eq "$(find "$dst/state" -maxdepth 1 -name '*load*' | wc -l)" 0
+t_run "cd '$T/copies' && $state load --from c.db"
+t_eq "$t_rc" 1
+t_contains "$t_out" "tehas state: the state store holds history, "
+
+t_case "load refuses a factory that is not drained, or runs a cycle, and leaves the store"
+reset
+a_copy
+before=$(fingerprint "$dst")
+t_run "$state load --from '$T/copies/c.db' --json"
+t_eq "$t_rc" 1
+t_eq "$t_out" "tehas state: the factory is not drained: run tehas drain, then load"
+printf '%s\n' '{"v":1,"cycles":1,"plan":false,"until":null,"reason":"x"}' >"$dst/state/limit.json"
+t_run "$state load --from '$T/copies/c.db'"
+t_eq "$t_out" "tehas state: the factory is not drained: run tehas drain, then load"
+rm "$dst/state/limit.json"
+t_eq "$(fingerprint "$dst")" "$before"
+drain
+t_live "$dst" 12 true running work
+t_run "$state load --from '$T/copies/c.db'"
+t_eq "$t_rc" 1
+t_eq "$t_out" "tehas state: a cycle is running for #12"
+
+t_case "load refuses a store that holds history in one line, and leaves it"
+reset
+a_copy
+t_ended "$dst" 9 -
+drain
+before=$(fingerprint "$dst")
+t_run "$state load --from '$T/copies/c.db' --json 2>/dev/null"
+t_eq "$t_rc" 1
+t_eq "$t_out" ""
+t_run "$state load --from '$T/copies/c.db'"
+t_eq "$t_out" "tehas state: the state store holds history, 1 rows in cycles; a copy loads only into a new or empty store"
+t_eq "$(fingerprint "$dst")" "$before"
+
+t_case "load refuses a copy of a newer schema, naming both, and an unreadable copy"
+reset
+a_copy
+drain
+before=$(fingerprint "$dst")
+mine=$(TEHAS_HOME=$dst "$dst/libexec/store" check | jq .schema)
+# user_version is the four bytes at offset 60 of SQLite's header.
+printf '\0\0\0\143' | dd of="$T/copies/c.db" bs=1 seek=60 conv=notrunc 2>/dev/null
+t_run "$state load --from '$T/copies/c.db'"
+t_eq "$t_rc" 1
+t_eq "$t_out" "tehas state: the copy $T/copies/c.db holds schema 99, this release reads schema $mine and older"
+echo "not a store" >"$T/copies/text.db"
+t_run "$state load --from '$T/copies/text.db'"
+t_eq "$t_rc" 1
+t_eq "$t_out" "tehas state: the copy $T/copies/text.db is not an SQLite database"
+t_run "$state load --from '$T/copies/gone.db'"
+t_eq "$t_rc" 1
+t_eq "$t_out" "tehas state: the copy $T/copies/gone.db is not there"
+t_eq "$(fingerprint "$dst")" "$before"
+
+t_case "load takes --from <file> and --json only"
+reset
+t_run "$state load"
+t_eq "$t_rc" 64
+t_run "$state load --from"
+t_eq "$t_rc" 64
+t_run "$state load --from '$T/c.db' --bogus"
+t_eq "$t_rc" 64
+
+t_case "the samples of api/state-load fit its schema, and the check finds what does not"
+t_eq "$(loaded "$T_ROOT/api/state-load.sample.json")$(loaded "$T_ROOT/api/state-load.empty.json")" ""
+out=$(jq '.schema = 0 | del(.source) | .target = "x"' "$T_ROOT/api/state-load.sample.json" | loaded)
+t_contains "$out" ".schema: 0 is under 1"
+t_contains "$out" ".: source is missing"
+t_contains "$out" ".target: not in the schema"
+
 t_case "a bad argument is 64, missing settings are 78, and neither starts a tar"
 reset
 t_run "$state pack"
