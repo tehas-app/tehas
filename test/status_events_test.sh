@@ -19,6 +19,11 @@ ln -s "$T_ROOT/bin/tehasbot" "$shim/bin/tehasbot"
 status="$shim/bin/tehasbot status"
 live=$T/home/tehas/live
 
+# No sandbox image: status asks docker for the label of the one cycles run
+# (src/rukas.rs), and this host's own must not answer.
+t_stub docker 'exit 1'
+# No failed tehas units: health asks systemctl for them.
+t_stub systemctl
 t_stub gh '
 case "$*" in
   "issue list"*--search*) cat "$T/issues.json" ;;
