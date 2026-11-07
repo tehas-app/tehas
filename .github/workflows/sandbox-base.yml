@@ -1,0 +1,43 @@
+# The stage of the sandbox base that builds vipune and oo, from a clean Docker
+# cache at the versions host/versions.env pins. It is the step a factory's
+# `tehas update` stopped at on v0.25.1 (#1716): the base did not build, and the
+# gate never builds images. The stage runs both binaries, in the distro of the
+# image, so a build that links but does not start fails here too. The rest of
+# the base needs the pi-rukas tree at the commit a host follows, which this
+# repository does not pin; `sandbox/build.sh` builds it on the host.
+name: sandbox-base
+on:
+  pull_request:
+    paths:
+      - host/sandbox/base.Dockerfile
+      - host/versions.env
+      - .github/workflows/sandbox-base.yml
+  push:
+    branches: [main]
+    paths:
+      - host/sandbox/base.Dockerfile
+      - host/versions.env
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: sandbox-base-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  cargo-tools:
+    # A hosted runner: the organization's own runner has no docker on the
+    # job's PATH (the first run here stopped at `docker: command not found`).
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: build vipune and oo as the base does
+        run: |
+          . host/versions.env
+          # No context: the stage copies nothing in, and the stages after it
+          # are not built.
+          docker build --no-cache --progress=plain --target cargo-tools \
+            "--build-arg=VIPUNE_VERSION=$VIPUNE_VERSION" \
+            "--build-arg=OO_VERSION=$OO_VERSION" - < host/sandbox/base.Dockerfile
