@@ -22,6 +22,11 @@ a pull request before it tags, with the head's `scripts/collect-changelog.sh`.
 
 - A first `tehas setup` on a new factory with a GitHub App no longer stops at `console ids record` with "gh exited 4". With no `GH_TOKEN`, the step makes the app's installation token from its key, as `tehasbot github-token` does, and stops with 78 when no token can be made (#1714).
 - The sandbox base builds again: vipune and oo are built on Ubuntu 24.04, the distro of the image they run in, not on Debian bookworm, whose glibc 2.36 could not link the onnxruntime that vipune's embeddings download. On v0.25.1 `tehas update` stopped at the sandbox step with `undefined symbol: __isoc23_strtol`. The base build now also runs vipune and oo, so a binary that does not start stops the build (#1716).
+- The pinned ctx7 moves from 0.8.2 to 0.9.0.
+
+### Held back
+
+- Node 26.13.0 is out, a new major version. `host/versions.env` keeps 22.23.4: the move is a person's call.
 
 ### Adopter action
 
