@@ -96,7 +96,7 @@ run_env() { # NAME=VALUE...
 }
 
 # One fake test file for the scratch checkout: it prints <lines> lines, then
-# passes or exits <rc>. Bash takes an exit status mod 256 and the runner reads
+# passes with the count line of t_done or exits <rc>. Bash takes an exit status mod 256 and the runner reads
 # what it records as a number, so a call outside that range says so instead of
 # building a case that quietly passes.
 fake() { # name rc [lines]
@@ -111,19 +111,21 @@ fake() { # name rc [lines]
       echo "echo ran $n line $i"
     done
     if [ "$rc" -ne 0 ]; then echo "echo FAIL: $n has a case that failed"; fi
+    if [ "$rc" -eq 0 ]; then printf 'echo %q\n' "$n: 1 cases, 0 failed"; fi
     echo "exit $rc"
   } >"$repo/test/$n"
   chmod +x "$repo/test/$n"
 }
 
 # A fake test file of its own: the body is what the file runs, so a case names
-# what the file sees rather than what it prints. scripts/test.sh runs the file
-# from the root of the scratch checkout, so a body that wants the harness
-# sources test/lib.sh by that path.
+# what the file sees rather than what it prints, and a body that ends prints
+# the count line of t_done. scripts/test.sh runs the file from the root of the
+# scratch checkout, so a body that wants the harness sources test/lib.sh by
+# that path.
 fake_body() { # name <body...>
   local n=$1
   shift
-  { echo '#!/usr/bin/env bash'; printf '%s\n' "$@"; } >"$repo/test/$n"
+  { echo '#!/usr/bin/env bash'; printf '%s\n' "$@" "echo '$n: 1 cases, 0 failed'"; } >"$repo/test/$n"
   chmod +x "$repo/test/$n"
 }
 
@@ -240,16 +242,18 @@ t_fits() {
 # A PATH with the commands scripts/test.sh reaches for and no shellcheck in it,
 # so the degraded run is tested on a host that does have one. The list has to
 # keep step with the runner: a command it learns and this list does not shows up
-# as a failed run naming the command, not as a block that looks wrong.
-no_shellcheck() {
-  local c p
+# as a failed run naming the command, not as a block that looks wrong. Each
+# argument is a NAME=VALUE the runner is given.
+no_shellcheck() { # [NAME=VALUE...]
+  local c p pre=
   rm -rf "$nobin"
   mkdir -p "$nobin"
   for c in bash cat dirname flock mkdir mktemp mv nproc rm sed tail timeout; do
     p=$(command -v "$c") || continue
     ln -s "$p" "$nobin/$c"
   done
-  t_run "cd '$repo' && PATH='$nobin' bash runner/runner.sh"
+  [ "$#" = 0 ] || pre=$(printf '%q ' "$@")
+  t_run "cd '$repo' && PATH='$nobin' ${pre}bash runner/runner.sh"
   case $t_out in
     *'command not found'*)
       t_bad "the runner needs a command the harness left out: $(printf '%s\n' "$t_out" \
@@ -318,7 +322,7 @@ fresh
 # The host's own lint, where it has one: this is the one case that wants it.
 rm -f "$T/bin/shellcheck"
 if ! command -v shellcheck >/dev/null 2>&1; then
-  t_skip "no shellcheck on this host: the gate's own run covers a real lint"
+  no_lint "the gate's own run covers a real lint"
 else
   mkdir -p "$repo/lib"
   printf 'echo $unquoted\n' >"$repo/lib/bad.sh"
@@ -331,13 +335,23 @@ else
     shellcheck"
 fi
 
+# A case that wants the host's own shellcheck, on a host without one: skipped
+# by hand, failed in CI, where the gate needs it.
+no_lint() { # why the skip is safe
+  if [ -n "${CI:-}" ]; then
+    t_bad "no shellcheck on this host, and CI needs it"
+  else
+    t_skip "no shellcheck on this host: $1"
+  fi
+}
+
 t_case "a lint that was not run is named too, and the run still passes"
 fresh
 fake a_test.sh 0 2
 no_shellcheck
 t_eq "$t_rc" 0
 t_eq "$(tail_of 2)" "test.sh: failed checks (0), not run (1)
-    skipped: shellcheck is not installed"
+SKIPPED: shellcheck is not installed"
 
 t_case "a lint that was not run is named beside a failing test file"
 fresh
@@ -347,7 +361,47 @@ t_eq "$t_rc" 1
 t_contains "$t_out" "WARN: shellcheck is not installed, skipping it"
 t_eq "$(tail_of 3)" "test.sh: failed checks (1), not run (1)
 $(fail_line a_test.sh)
-    skipped: shellcheck is not installed"
+SKIPPED: shellcheck is not installed"
+
+t_case "a missing shellcheck fails the run in CI"
+fresh
+fake a_test.sh 0 2
+no_shellcheck CI=true
+t_eq "$t_rc" 1
+t_contains "$t_out" "shellcheck: not installed, and this run needs it"
+t_lacks "$t_out" "skipping it"
+t_eq "$(tail_of 2)" "test.sh: failed checks (1), not run (0)
+    shellcheck"
+
+t_case "a missing shellcheck fails the run when TEHAS_TEST_STRICT asks"
+fresh
+fake a_test.sh 0 2
+no_shellcheck TEHAS_TEST_STRICT=1
+t_eq "$t_rc" 1
+t_eq "$(tail_of 2)" "test.sh: failed checks (1), not run (0)
+    shellcheck"
+
+t_case "a test file that exits 0 before t_done fails the run"
+fresh
+cp "$T_ROOT/test/lib.sh" "$repo/test/lib.sh" || t_bad "no harness to source"
+fake_body a_test.sh '. test/lib.sh' 't_case "the first"' 't_eq 1 1' 'exit 0' \
+  't_case "the second"' 't_eq 1 2' 't_done'
+fake b_test.sh 0 2
+run
+t_eq "$t_rc" 1
+t_lacks "$t_out" "the second"
+t_eq "$(tail_of 2)" "test.sh: failed checks (1), not run (0)
+$(bad_line a_test.sh 'ended before t_done')"
+
+t_case "a test file that ends with t_done passes, skips and all"
+fresh
+cp "$T_ROOT/test/lib.sh" "$repo/test/lib.sh" || t_bad "no harness to source"
+fake_body a_test.sh '. test/lib.sh' 't_case "the first"' 't_eq 1 1' \
+  't_case "the second"' 't_skip "not here"' 't_done'
+run
+t_eq "$t_rc" 0
+t_contains "$t_out" "a_test.sh: 2 cases, 1 skipped, 0 failed"
+t_contains "$t_out" "test.sh: 2 cases in 1 files"
 
 t_case "a test file that never finished is named as one"
 fresh
@@ -562,8 +616,8 @@ rm -rf "$roots"
 overlap() {
   fresh
   for n in a b c; do
-    printf '#!/usr/bin/env bash\necho "start %s" >>"%s"\nsleep 0.3\necho "end %s" >>"%s"\n' \
-      "$n" "$T/order" "$n" "$T/order" >"$repo/test/${n}_test.sh"
+    printf '#!/usr/bin/env bash\necho "start %s" >>"%s"\nsleep 0.3\necho "end %s" >>"%s"\necho "%s: 1 cases, 0 failed"\n' \
+      "$n" "$T/order" "$n" "$T/order" "$n" >"$repo/test/${n}_test.sh"
   done
   rm -f "$T/order"
   T_ENV=(TEHAS_TEST_JOBS=3 TMPDIR="$recs" TEHAS_TEST_LOADAVG="$T/loadavg")
@@ -578,7 +632,7 @@ t_stub nproc 'echo 8'
 # no case here sets TEHAS_TEST_JOBS, or the ceiling would not be asked.
 pool() { # memory.max's contents, or nothing for a file that does not exist
   fresh
-  printf '#!/usr/bin/env bash\n:\n' >"$repo/test/a_test.sh"
+  printf '#!/usr/bin/env bash\necho "a_test.sh: 1 cases, 0 failed"\n' >"$repo/test/a_test.sh"
   rm -f "$T/memory.max"
   [ -z "$1" ] || echo "$1" >"$T/memory.max"
   T_ENV=(TMPDIR="$recs" TEHAS_TEST_MEMORY_MAX="$T/memory.max" TEHAS_TEST_LOADAVG="$T/loadavg")
@@ -717,7 +771,7 @@ mkdir -p "$repo/lib"
 # a cycle met once. The host's lint is what knows it is an info note.
 rm -f "$T/bin/shellcheck"
 if ! command -v shellcheck >/dev/null 2>&1; then
-  t_skip "no shellcheck on this host: the gate's own run covers the severity floor"
+  no_lint "the gate's own run covers the severity floor"
 else
   # shellcheck disable=SC2016  # the quotes are a literal for the lint to note on, not expanded here
   printf "echo 'a literal \$(not expanded)'\n" >"$repo/lib/literal.sh"
@@ -732,7 +786,8 @@ fi
 # --- The state store, built once for the test files ------------------------------
 # saw_store <name>: a fake test file that prints what it was told of the store.
 saw_store() {
-  printf '%s\n' '#!/usr/bin/env bash' 'echo "$0 bin=${T_STORE_BIN:-} why=${T_STORE_WHY:-}"' >"$repo/test/$1"
+  printf '%s\n' '#!/usr/bin/env bash' 'echo "$0 bin=${T_STORE_BIN:-} why=${T_STORE_WHY:-}"' \
+    "echo '$1: 1 cases, 0 failed'" >"$repo/test/$1"
   chmod +x "$repo/test/$1"
 }
 with_console() {
@@ -865,7 +920,7 @@ t_lacks "$t_out" "ran a_test.sh"
 # no line at all is the pass for a file that sourced the harness.
 settings_body() {
   printf '%s\n' 'for n in TEHAS_REPO PI_RUKAS_FOLLOW GH_TOKEN; do' \
-    '[ -z "${!n-}" ] || printf "leaked %s\n" "$n"' 'done' 'exit 0'
+    '[ -z "${!n-}" ] || printf "leaked %s\n" "$n"' 'done'
 }
 
 t_case "a test file that sources the harness sees none of the host's settings"

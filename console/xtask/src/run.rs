@@ -247,26 +247,29 @@ fn nproc() -> u128 {
         .unwrap_or(1)
 }
 
-/// The cases a test file said it ran: the last `<name>: N cases, M failed`
-/// line of its log.
+/// The cases a test file said it ran: the last `<name>: N cases, [K skipped, ]M
+/// failed` line of its log, which t_done prints as the file ends.
 pub fn cases_in(log: &[u8]) -> Option<u128> {
+    // The number that ends `rest` and what is before it.
+    fn number(rest: &[u8]) -> Option<(&[u8], &[u8])> {
+        let n = rest.iter().rev().take_while(|b| b.is_ascii_digit()).count();
+        (n > 0).then(|| rest.split_at(rest.len() - n))
+    }
     let mut found = None;
     for line in log.split(|b| *b == b'\n') {
-        let Some(rest) = line.strip_suffix(b" failed") else {
+        let Some((rest, _)) = line.strip_suffix(b" failed").and_then(number) else {
             continue;
         };
-        let failed = rest.iter().rev().take_while(|b| b.is_ascii_digit()).count();
-        if failed == 0 {
-            continue;
-        }
-        let Some(rest) = rest[..rest.len() - failed].strip_suffix(b" cases, ") else {
+        let rest = match rest.strip_suffix(b" skipped, ").and_then(number) {
+            Some((before, _)) => before,
+            None => rest,
+        };
+        let Some((before, n)) = rest.strip_suffix(b" cases, ").and_then(number) else {
             continue;
         };
-        let n = rest.iter().rev().take_while(|b| b.is_ascii_digit()).count();
-        if n == 0 || !rest[..rest.len() - n].ends_with(b": ") {
-            continue;
+        if before.ends_with(b": ") {
+            found = digits(&String::from_utf8_lossy(n));
         }
-        found = digits(&String::from_utf8_lossy(&rest[rest.len() - n..]));
     }
     found
 }
@@ -365,15 +368,22 @@ pub fn block(lint_failed: bool, bad: &[Bad], skipped: &[String]) -> Vec<String> 
     if nf > shown {
         lines.push(format!("    and {} more, in the full log", nf - shown));
     }
+    // In column 1, as FAILED: is, so a caller can find it in a passing run.
     for s in skipped {
-        lines.push(format!("    skipped: {}", clean(s)));
+        lines.push(format!("SKIPPED: {}", clean(s)));
     }
     lines
 }
 
 /// What the records of a test file say: whether it is to be named, and why
-/// beyond its path.
-pub fn judge(log_read: bool, rc: Option<Option<String>>, limit: u128) -> Option<String> {
+/// beyond its path. `counted` is whether its log has the count line of t_done:
+/// a file that exits 0 without it stopped before its last cases.
+pub fn judge(
+    log_read: bool,
+    counted: bool,
+    rc: Option<Option<String>>,
+    limit: u128,
+) -> Option<String> {
     let mut reason = (!log_read).then(|| "its output could not be read".to_string());
     let ok;
     match rc {
@@ -388,6 +398,8 @@ pub fn judge(log_read: bool, rc: Option<Option<String>>, limit: u128) -> Option<
                 ok = digits(&rc) == Some(0);
                 if rc == "124" || rc == "137" {
                     reason = Some(format!("timed out after {limit}s"));
+                } else if ok && log_read && !counted {
+                    reason = Some("ended before t_done".into());
                 }
             } else {
                 ok = false;
@@ -415,6 +427,13 @@ fn put(bytes: &[u8]) {
 
 fn putln(s: &str) {
     put(format!("{s}\n").as_bytes());
+}
+
+/// Whether a missing shellcheck fails the run rather than skips: in CI, as
+/// scripts/verify.sh treats a missing rustfmt or clippy, and when
+/// TEHAS_TEST_STRICT asks for it (scripts/verify.sh --full).
+pub fn strict(ci: Option<&str>, asked: Option<&str>) -> bool {
+    ci.is_some_and(|v| !v.is_empty()) || asked.is_some_and(|v| !v.is_empty())
 }
 
 fn on_path(name: &str) -> bool {
@@ -645,9 +664,18 @@ pub fn main(root: &Path, args: &[String], recorder: &Path) -> u8 {
     let mut ran = false;
     let files = lint_files(root, &given);
     let mut lint = false;
+    let mut lint_failed = false;
     if !on_path("shellcheck") {
-        eprintln!("WARN: shellcheck is not installed, skipping it");
-        skipped.push("shellcheck is not installed".into());
+        if strict(env("CI").as_deref(), env("TEHAS_TEST_STRICT").as_deref()) {
+            if !files.is_empty() {
+                putln("shellcheck: not installed, and this run needs it");
+                ran = true;
+                lint_failed = true;
+            }
+        } else {
+            eprintln!("WARN: shellcheck is not installed, skipping it");
+            skipped.push("shellcheck is not installed".into());
+        }
     } else if !files.is_empty() {
         ran = true;
         lint = true;
@@ -739,7 +767,6 @@ pub fn main(root: &Path, args: &[String], recorder: &Path) -> u8 {
     }
     pool.wait_all();
 
-    let mut lint_failed = false;
     if lint {
         let mut refused = 0;
         for f in &files {
@@ -780,11 +807,13 @@ pub fn main(root: &Path, args: &[String], recorder: &Path) -> u8 {
         // A file whose output is gone is a failure even when its status says
         // it passed: the run cannot show what the check said.
         let log = fs::read(with_suffix(&key, ".log"));
+        let mut counted = false;
         match &log {
             Ok(log) => {
                 put(log);
                 if let Some(n) = cases_in(log) {
                     cases = cases.saturating_add(n);
+                    counted = true;
                 }
             }
             Err(_) => putln(&format!("{}: its output could not be read", clean(&name))),
@@ -794,7 +823,7 @@ pub fn main(root: &Path, args: &[String], recorder: &Path) -> u8 {
         }
         let rc_path = with_suffix(&key, ".rc");
         let rc = rc_path.is_file().then(|| value(&rc_path));
-        if let Some(why) = judge(log.is_ok(), rc, limit) {
+        if let Some(why) = judge(log.is_ok(), counted, rc, limit) {
             bad.push(Bad {
                 name,
                 why,
