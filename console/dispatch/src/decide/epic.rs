@@ -6,6 +6,7 @@
 use super::Poll;
 use crate::text::EPIC;
 use serde_json::json;
+use tehas_core::accounts::account;
 use tehas_core::events::{label_state, Events, LabelState};
 
 const WHY: &str = "its title starts with an epic marker";
@@ -25,7 +26,7 @@ impl Poll<'_> {
             };
             match state {
                 LabelState::Absent => {}
-                LabelState::Unlabeled { actor, .. } if actor == self.bot => {}
+                LabelState::Unlabeled { actor, .. } if account(&actor) == account(&self.bot) => {}
                 // A person took it off, or the timeline says it is on while
                 // the issue does not carry it: either way not this poll's.
                 _ => continue,
