@@ -22,7 +22,7 @@ a pull request before it tags, with the head's `scripts/collect-changelog.sh`.
 
 None.
 
-## v0.25.1 (2026-11-06)
+## v0.25.1 (2026-11-07)
 
 ### Changes
 
@@ -59,6 +59,9 @@ None.
 - A GitHub read that fails on a bad minute (a 5xx, a bare 403, or its time bound) is tried once more in `tehasbot status` and `tehas tidy` too, as in the poll, and the poll now waits its second before the retry rather than after it (#823).
 - `tehasbot status` and `tehas tidy` name gh's error in their WARN lines, and `tehasbot status` writes its snapshot when a read fails: the part that read fed is kept from the file before and named in `stale`, so the pause, all-hands and the rest stay current (#823).
 - Health counts the GitHub calls that failed in the last ten minutes (`checks.github`) and warns from three; `tehas status` prints a `github` line with the count and the last error (#823).
+- `TEHAS_READ_ONLY=1` makes an instance that writes nothing to GitHub. It reads issues and code and runs cycles as usual. Every write of the host's `gh` and of a cycle's container is refused and said as `read-only: would ...`, a cycle's branch stays in its workspace with the pull request it would have opened, and the dispatcher keeps its starts in `state/read-only` instead of the labels. `tehas status --json` says `"readOnly": true` and the dashboard lists the results. Off by default (#608).
+- `tehas state copy --to <file> [--json]` writes a copy of the state store as it is at one moment to a new file, without stopping a running cycle, and says the copy's schema (the number `tehas state check` reports), its rows and the time it took. It refuses a name that is taken, a directory that is not there and one under `live/`, in one line, and writes nothing else. `--json` prints the object of `api/state-copy.schema.json`, and `tehas api` lists the feature `store-copy` (#1707).
+- `tehas state load --from <file> [--json]` fills a drained factory's new or empty state store from a copy made by `tehas state copy`, the inverse of the copy, to restore a factory on a new host. It refuses, in one line and with the store as it was, a factory that is not drained or runs a cycle, a store that holds history, a copy that is not there or does not pass its integrity check, and a copy of a newer schema, naming both numbers; a copy of an older schema is brought forward as an update would. The rows are loaded in one transaction. `--json` prints the object of `api/state-load.schema.json`, and `tehas api` lists the feature `state-load` (#1710).
 
 ### Held back
 
@@ -75,6 +78,8 @@ tehas.app keeps the pixel design with one line that tehas-settings adds to `host
 To turn it on, set `TEHAS_EGRESS=1` in `instance.env` after `install.sh`, and add the hosts the product's gate fetches from beyond GitHub, npm and crates.io to `TEHAS_EGRESS_HOSTS`. `docker logs tehas-egress` names every host it refused. It needs Docker 27.1 or later: an older Docker stops the container with 78.
 
 Before you update, make a fine-grained token for the bot account, for the product repository only: Contents, Pull requests and Issues read and write, Metadata read, nothing else. Put it in `~/.config/tehas/env` as `GH_CYCLE_TOKEN=...`. A host updated without it starts no cycle until it is there. Commits, pull requests and comments made from inside a cycle then carry the bot account's name, not the app's. With a GitHub App, also put `TEHAS_CYCLE_LOGIN=<that account's login>` in `instance.env`, or no cycle starts.
+
+Nothing for an instance that does not set it. To run one read-only, run `install.sh` first so the sandbox image has the `gh` that refuses writes, then set `TEHAS_READ_ONLY=1` in `instance.env`.
 
 ## v0.25.0 (2026-11-06)
 
