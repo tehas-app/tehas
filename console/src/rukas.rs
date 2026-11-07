@@ -11,10 +11,16 @@
 //!                  answers, as build.sh reads it
 //!   clone          HEAD of <home>/repos/pi-rukas, so a clone that moved
 //!                  without a rebuild shows
-//!   behind         image and target both known, and not the same commit
+//!   behind         image and target both known, not the same commit, and the
+//!                  image not a later release on the line followed: an image
+//!                  ahead of its target is no drift
 //!
 //! Upstream is asked at most once an hour (state/rukas-target keeps the last
-//! answer), and an image's --capabilities once per image id (state/rukas-image).
+//! answer), and again at once when the image is on another commit than the
+//! answer kept and was not asked for yet: a build from a release newer than
+//! the answer gets the answer it was built from at the next run, not an hour
+//! later. An image's --capabilities is asked once per image id
+//! (state/rukas-image).
 //! A read that gets no answer is null, and decides nothing.
 //!
 //! The same module answers the sandbox build, bootstrap.sh and
@@ -143,11 +149,6 @@ fn text_or_null(s: Option<String>) -> J {
 /// The file, or None on a host that follows no pi-rukas and has no image or
 /// clone of it.
 pub fn read(home: &Path, g: &Given, out: &mut dyn Outside, now: i64) -> Option<J> {
-    let target = if g.follow.is_empty() {
-        None
-    } else {
-        target(home, g, out, now)
-    };
     let (image, image_version) = if g.image.is_empty() {
         (None, None)
     } else {
@@ -166,9 +167,10 @@ pub fn read(home: &Path, g: &Given, out: &mut dyn Outside, now: i64) -> Option<J
     if g.follow.is_empty() && image.is_none() && clone.is_none() {
         return None;
     }
-    let behind = match (&image, &target) {
-        (Some(i), Some((t, _))) => i != t,
-        _ => false,
+    let target = if g.follow.is_empty() {
+        None
+    } else {
+        target(home, g, image.as_deref(), out, now)
     };
     let (target, target_version) = match target {
         Some((commit, what)) => (
@@ -176,6 +178,17 @@ pub fn read(home: &Path, g: &Given, out: &mut dyn Outside, now: i64) -> Option<J
             what.strip_prefix("release ").map(str::to_string),
         ),
         None => (None, None),
+    };
+    let behind = match (&image, &target) {
+        (Some(i), Some(t)) => {
+            i != t
+                && !ahead(
+                    &g.follow,
+                    image_version.as_deref(),
+                    target_version.as_deref(),
+                )
+        }
+        _ => false,
     };
     Some(obj(vec![
         ("generatedAt", J::str(time::iso(now))),
@@ -196,10 +209,47 @@ pub fn read(home: &Path, g: &Given, out: &mut dyn Outside, now: i64) -> Option<J
     ]))
 }
 
+/// Whether the image is a later release than the target, on the line the host
+/// follows (`release` or `release:<line>`). An image built from a release that
+/// came out after the target was asked is ahead of it, not behind.
+fn ahead(follow: &str, image: Option<&str>, target: Option<&str>) -> bool {
+    let line = match follow.strip_prefix("release") {
+        Some("") => "",
+        Some(rest) => match rest.strip_prefix(':') {
+            Some(line) => line,
+            None => return false,
+        },
+        None => return false,
+    };
+    let (Some(image), Some(target)) = (image, target) else {
+        return false;
+    };
+    let numbers = |v: &str| -> Option<Vec<u64>> {
+        let v = v.strip_prefix('v')?;
+        if !version_shaped(v) {
+            return None;
+        }
+        v.split('.').map(|p| p.parse().ok()).collect()
+    };
+    let on_line = |v: &str| line.is_empty() || v.starts_with(&format!("v{line}."));
+    match (numbers(image), numbers(target)) {
+        (Some(i), Some(t)) => on_line(image) && on_line(target) && i > t,
+        _ => false,
+    }
+}
+
 /// The commit the host follows and what it is, asked upstream at most once an
-/// hour. An answer kept for the same follow and repository stands while a new
-/// one cannot be had.
-fn target(home: &Path, g: &Given, out: &mut dyn Outside, now: i64) -> Option<(String, String)> {
+/// hour, and once more for an image on another commit than the answer kept
+/// (`image` in the file is the image the last question was asked for). An
+/// answer kept for the same follow and repository stands while a new one
+/// cannot be had.
+fn target(
+    home: &Path,
+    g: &Given,
+    image: Option<&str>,
+    out: &mut dyn Outside,
+    now: i64,
+) -> Option<(String, String)> {
     let file = home.join("state/rukas-target");
     let kept = fs::read_to_string(&file)
         .ok()
@@ -217,7 +267,15 @@ fn target(home: &Path, g: &Given, out: &mut dyn Outside, now: i64) -> Option<(St
         .as_ref()
         .and_then(|k| k.get("at").as_f64())
         .unwrap_or(0.0) as i64;
-    if now - at < FETCH_EVERY && kept.is_some() {
+    // The image moved off the answer kept since upstream was last asked: a
+    // build from a release the answer does not know yet.
+    let image_moved = kept.as_ref().is_some_and(|k| {
+        image.is_some_and(|i| {
+            kept_answer.as_ref().map(|(c, _)| c.as_str()) != Some(i)
+                && k.get("image").as_str() != Some(i)
+        })
+    });
+    if now - at < FETCH_EVERY && kept.is_some() && !image_moved {
         return kept_answer;
     }
     let answer = rukas::target(&g.follow, &g.repo, |args| out.ls_remote(args)).or(kept_answer);
@@ -233,6 +291,7 @@ fn target(home: &Path, g: &Given, out: &mut dyn Outside, now: i64) -> Option<(St
             ("repo", J::str(g.repo.clone())),
             ("commit", commit),
             ("what", what),
+            ("image", text_or_null(image.map(str::to_string))),
         ]),
     );
     answer
@@ -435,6 +494,95 @@ mod tests {
         let got = read(&d, &given("release:0"), &mut f, NOW + FETCH_EVERY).unwrap();
         assert_eq!(got.get("imageVersion").text(), "v0.14.54");
         assert_eq!(got.get("behind"), &J::Bool(false));
+    }
+
+    /// Upstream as it answers after v0.14.55 came out.
+    fn released(f: &mut Fake) {
+        f.tags = Some(format!(
+            "{}\trefs/tags/v0.14.53\n{}\trefs/tags/v0.14.54\n{}\trefs/tags/v0.14.55\n",
+            hex('a'),
+            hex('b'),
+            hex('c')
+        ));
+    }
+
+    fn asked_upstream(f: &Fake) -> usize {
+        f.asked
+            .iter()
+            .filter(|a| a.starts_with("ls-remote"))
+            .count()
+    }
+
+    #[test]
+    fn a_build_from_a_release_after_the_cached_target_is_current() {
+        let d = TestDir::new("rukas-race");
+        // The target is cached at v0.14.54, with the image on it.
+        let mut f = fake(&hex('b'));
+        f.caps = Some(r#"{"version":"0.14.54"}"#.to_string());
+        read(&d, &given("release:0"), &mut f, NOW).unwrap();
+        // v0.14.55 comes out, and a build within the hour builds from it.
+        released(&mut f);
+        f.image = Some(("sha256:2".to_string(), hex('c')));
+        f.caps = Some(r#"{"version":"0.14.55"}"#.to_string());
+        let got = read(&d, &given("release:0"), &mut f, NOW + 60).unwrap();
+        assert_eq!(asked_upstream(&f), 2, "{:?}", f.asked);
+        assert_eq!(got.get("target").text(), hex('c'));
+        assert_eq!(got.get("targetVersion").text(), "v0.14.55");
+        assert_eq!(got.get("imageVersion").text(), "v0.14.55");
+        assert_eq!(got.get("behind"), &J::Bool(false));
+        // The answer agrees with the image now: not asked again in the hour.
+        read(&d, &given("release:0"), &mut f, NOW + 120).unwrap();
+        assert_eq!(asked_upstream(&f), 2, "{:?}", f.asked);
+    }
+
+    #[test]
+    fn an_image_on_a_later_release_of_the_line_is_ahead_not_behind() {
+        let d = TestDir::new("rukas-ahead");
+        let mut f = fake(&hex('b'));
+        read(&d, &given("release:0"), &mut f, NOW).unwrap();
+        // Upstream does not answer, so the cached v0.14.54 stands.
+        f.tags = None;
+        f.image = Some(("sha256:2".to_string(), hex('c')));
+        f.caps = Some(r#"{"version":"0.14.55"}"#.to_string());
+        let got = read(&d, &given("release:0"), &mut f, NOW + 60).unwrap();
+        assert_eq!(got.get("target").text(), hex('b'));
+        assert_eq!(got.get("behind"), &J::Bool(false));
+    }
+
+    #[test]
+    fn an_image_on_an_earlier_release_stays_behind_and_asks_once() {
+        let d = TestDir::new("rukas-earlier");
+        let mut f = fake(&hex('b'));
+        f.caps = Some(r#"{"version":"0.14.54"}"#.to_string());
+        read(&d, &given("release:0"), &mut f, NOW).unwrap();
+        // The image goes back to v0.14.53 with the target at v0.14.54.
+        f.image = Some(("sha256:2".to_string(), hex('a')));
+        f.caps = Some(r#"{"version":"0.14.53"}"#.to_string());
+        let got = read(&d, &given("release:0"), &mut f, NOW + 60).unwrap();
+        assert_eq!(got.get("targetVersion").text(), "v0.14.54");
+        assert_eq!(got.get("imageVersion").text(), "v0.14.53");
+        assert_eq!(got.get("behind"), &J::Bool(true));
+        assert_eq!(asked_upstream(&f), 2, "{:?}", f.asked);
+        // Asked once for that image, then the hour again.
+        let got = read(&d, &given("release:0"), &mut f, NOW + 120).unwrap();
+        assert_eq!(got.get("behind"), &J::Bool(true));
+        assert_eq!(asked_upstream(&f), 2, "{:?}", f.asked);
+    }
+
+    #[test]
+    fn ahead_is_only_a_later_release_on_the_line_followed() {
+        let (later, now) = (Some("v0.14.55"), Some("v0.14.54"));
+        assert!(ahead("release", later, now));
+        assert!(ahead("release:0", later, now));
+        assert!(ahead("release:0.14", Some("v0.14.100"), now));
+        assert!(!ahead("release:0.14", Some("v0.15.0"), now));
+        assert!(!ahead("release", now, later));
+        assert!(!ahead("release", now, now));
+        assert!(!ahead("releases", later, now));
+        assert!(!ahead(&format!("commit:{}", hex('c')), later, now));
+        assert!(!ahead("branch:main", later, now));
+        assert!(!ahead("release", None, now));
+        assert!(!ahead("release", Some("v0.14.55-dirty"), now));
     }
 
     #[test]
