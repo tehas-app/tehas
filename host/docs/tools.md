@@ -766,7 +766,12 @@ note `state/cycles/<issue>.lean-refused` and the lines below, which end
 `(driver lean, work-lean; it does not run classic in its place)`. It starts no
 container and moves nothing. `tehasbot cycle` reads the note and parks the
 issue as a start that never ran: its approval goes with the report, so nothing
-starts it again on its own. Any other 78 is a stopped cycle. A lean run is
+starts it again on its own. Any other 78 is a stopped cycle. A refresh whose
+pull request conflicts with the branch, on an image whose capabilities do not
+set `continuePrMergeVerify`, stops with 78 after the workspace is made and
+before the push check, with the note `state/cycles/<issue>.refresh-conflict`
+naming the files; `tehasbot cycle` parks it as a stopped refresh, reason
+`refresh-conflict` (see [Refreshes](/operating#refreshes)). A lean run is
 bounded by the same `TEHAS_WORK_TIMEOUT` and deadline as classic; its `ci`
 step waits on the pull request's checks inside that limit.
 
@@ -2108,7 +2113,7 @@ Ends a cycle by hand and clears what it left on this host. It asks
 of its lock, and removes the container `tehas-work-12` when it is still there.
 Then it removes what says a cycle runs, owes something, or is parked:
 `~/tehas/state/cycles/12.lock` with `.cid`, `.done`, `.stalled`,
-`.timed`, `.signal`, `.oom`, `.forks`, `.nostart`, `.lean-refused`, `.progress.json` and
+`.timed`, `.signal`, `.oom`, `.forks`, `.nostart`, `.lean-refused`, `.refresh-conflict`, `.progress.json` and
 `.result.json`, `~/tehas/live/console-12.txt`, `~/.pi/agent/ensemble-runs/issue-12`, and the
 workspace `~/tehas/work/<name>-12` with its `.state`, `.before-retry` and
 `.images` beside it. `--keep-workspace` keeps the workspace for you to read.
