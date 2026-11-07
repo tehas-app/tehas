@@ -7,6 +7,8 @@
 //!   console state check [--json]         the store's integrity and rows
 //!   console state copy --to <file> [--json]
 //!                                        a copy of the store at that moment
+//!   console state load --from <file> [--json]
+//!                                        a copy loaded into a new store
 //!
 //! The home is $TEHAS_HOME, which `console run` has loaded.
 //!
@@ -47,6 +49,14 @@
 //! is the working directory's. The store refuses a name that is taken, a
 //! directory that is not there and one under live/: 1, its reason in one line.
 //!
+//! load refuses (1) unless the factory is drained, as `tehas drain` leaves it,
+//! and no cycle or planning turn runs, then asks `store load` for the rest: it
+//! refuses a copy that is not there, does not check or is of a newer schema, a
+//! store that holds history and a cycle lock held, each in one line, and
+//! brings a copy of an older schema forward. It never replaces the store's
+//! file: the rows are loaded in one transaction, and a refusal leaves the
+//! store as it was.
+//!
 //! None calls GitHub, Docker or the network.
 //!
 //! Exit: 0 done; 1 refused or failed, said on standard error; 64 usage; 78
@@ -63,7 +73,7 @@ use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::Mutex;
 
-const USAGE: &str = "usage: tehas state pack [--rehearse] - | unpack [--rehearse] - | check [--json] | copy --to <file> [--json]";
+const USAGE: &str = "usage: tehas state pack [--rehearse] - | unpack [--rehearse] - | check [--json] | copy --to <file> [--json] | load --from <file> [--json]";
 const MANIFEST: &str = "tehas-state.json";
 const DIRS: [&str; 4] = ["state", "repos", "live", "mcp"];
 const ACTIVE: &str = "--state=active,activating,deactivating,reloading";
@@ -89,6 +99,10 @@ pub fn main(given: &[String]) -> u8 {
         ["check", "--json"] => check(&home, true),
         ["copy", "--to", to] => copy(&home, to, false),
         ["copy", "--to", to, "--json"] | ["copy", "--json", "--to", to] => copy(&home, to, true),
+        ["load", "--from", from] => load(&home, from, false),
+        ["load", "--from", from, "--json"] | ["load", "--json", "--from", from] => {
+            load(&home, from, true)
+        }
         _ => {
             eprintln!("{USAGE}");
             return 64;
@@ -205,6 +219,51 @@ fn copy(home: &Path, to: &str, json: bool) -> Result<(), Fail> {
     } else {
         tehas_core::outln!(
             "copied the state store to {target}: schema {}, {} rows, {} ms",
+            v["schema"],
+            v["rows"],
+            v["ms"]
+        );
+    }
+    Ok(())
+}
+
+/// `tehas state load`: the store filled from the copy at `from`, when the
+/// factory is drained and its store holds no history.
+fn load(home: &Path, from: &str, json: bool) -> Result<(), Fail> {
+    if from.is_empty() {
+        return Err((64, USAGE.to_string()));
+    }
+    let source = std::path::absolute(from).map_err(io_fail("could not name the copy"))?;
+    let source = source.to_string_lossy();
+    if !crate::flags::drained(&home.join("state/limit.json")) {
+        return Err((
+            1,
+            "the factory is not drained: run tehas drain, then load".to_string(),
+        ));
+    }
+    no_work_running(home)?;
+    let v = store::call(home, &["load", "--from", &source]).map_err(|r| {
+        let why = r
+            .line
+            .strip_prefix("store: ")
+            .and_then(|l| l.strip_prefix(&format!("{}: ", r.word)))
+            .filter(|_| {
+                r.rc == 1
+                    && ["no-copy", "bad-copy", "newer-copy", "history", "running"]
+                        .contains(&r.word.as_str())
+            });
+        match why {
+            Some(why) => (1, why.to_string()),
+            None if r.rc == 1 => (1, format!("the state store loaded nothing: {}", r.line)),
+            None => (78, format!("the state store cannot be used: {}", r.line)),
+        }
+    })?;
+    let answer = json!({"api": 1, "source": source, "schema": v["schema"], "rows": v["rows"], "ms": v["ms"]});
+    if json {
+        tehas_core::outln!("{answer}");
+    } else {
+        tehas_core::outln!(
+            "loaded the state store from {source}: schema {}, {} rows, {} ms",
             v["schema"],
             v["rows"],
             v["ms"]
