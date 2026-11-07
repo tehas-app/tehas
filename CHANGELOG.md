@@ -18,9 +18,14 @@ a pull request before it tags, with the head's `scripts/collect-changelog.sh`.
 
 ## Unreleased
 
+### Changes
+
+- A first `tehas setup` on a new factory with a GitHub App no longer stops at `console ids record` with "gh exited 4". With no `GH_TOKEN`, the step makes the app's installation token from its key, as `tehasbot github-token` does, and stops with 78 when no token can be made (#1714).
+- The sandbox base builds again: vipune and oo are built on Ubuntu 24.04, the distro of the image they run in, not on Debian bookworm, whose glibc 2.36 could not link the onnxruntime that vipune's embeddings download. On v0.25.1 `tehas update` stopped at the sandbox step with `undefined symbol: __isoc23_strtol`. The base build now also runs vipune and oo, so a binary that does not start stops the build (#1716).
+
 ### Adopter action
 
-None.
+A factory that stopped on v0.25.1 at the sandbox step (`update: ... follow-up(s) are not done, recorded in .../state/update-pending`) runs `tehas update` again after updating to this release; it runs the pending follow-ups, `sandbox` among them, and `update-pending` empties. A factory that did not stop has nothing to do.
 
 ## v0.25.1 (2026-11-07)
 
