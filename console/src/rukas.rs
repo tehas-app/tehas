@@ -181,7 +181,12 @@ pub fn read(home: &Path, g: &Given, out: &mut dyn Outside, now: i64) -> Option<J
     };
     let behind = match (&image, &target) {
         (Some(i), Some(t)) => {
-            i != t && !ahead(&g.follow, image_version.as_deref(), target_version.as_deref())
+            i != t
+                && !ahead(
+                    &g.follow,
+                    image_version.as_deref(),
+                    target_version.as_deref(),
+                )
         }
         _ => false,
     };
@@ -502,7 +507,10 @@ mod tests {
     }
 
     fn asked_upstream(f: &Fake) -> usize {
-        f.asked.iter().filter(|a| a.starts_with("ls-remote")).count()
+        f.asked
+            .iter()
+            .filter(|a| a.starts_with("ls-remote"))
+            .count()
     }
 
     #[test]
