@@ -2272,6 +2272,29 @@ changes. The outcome is read as any cycle's: a refresh that pushed goes back to
 `tehas:awaiting-merge` with the same pull request, one that parks parks the
 issue, and no refresh of it starts again on its own.
 
+**A refresh that conflicts.** pi-rukas up to v0.14.58 cannot finish a refresh
+that has a conflict to resolve. Its develop step verifies a tree it builds by
+putting the worktree's commits back onto the branch's tip, and for a continued
+pull request those are the pull request's own commits and the merge: they
+conflict there as the merge did, however the conflict was resolved, and the
+cycle stops on `consolidated-verify-conflict`. On tehas-tehas from
+2026-10-24 to 2026-11-07, 13 of 16 refreshes stopped on that cap and none of
+the other three pushed. So on an image whose `--capabilities` does not set
+`features.continuePrMergeVerify`, `tehas work` first asks git, in the fresh
+workspace and before the push check, whether the pull request's head at the
+request merges with `origin/main` (`git merge-tree`). When it conflicts, no
+container starts: the files go to `state/cycles/<issue>.refresh-conflict`, the
+command exits 78, and `tehasbot cycle` parks the issue as a stopped refresh,
+reason `refresh-conflict`, with the files named:
+
+> Tehas ran no refresh: pull request #1453 conflicts with `main` in
+> `console/dispatch/src/text.rs`. ...
+
+The park counts as a parked refresh, so none starts again on its own. A
+person merges `main` into the branch and resolves the conflict there. A merge
+that is clean, or one git cannot judge (a head the workspace does not hold),
+runs the refresh as before.
+
 **What it does not do.** Failing checks and requested changes, pull requests
 the bot did not open, from forks or closing several issues, and conflicts
 between two open pull requests of the factory: each is resolved against the
