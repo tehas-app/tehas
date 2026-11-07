@@ -4331,6 +4331,10 @@ error. With no id recorded for a login, nothing of it counts until
   out of the settings.
 - GitHub that cannot be asked stops them with 78 as well, before anything is
   installed.
+- With a GitHub App and no `GH_TOKEN`, the ids are asked with the app's
+  token, made from its key as `tehasbot github-token` makes it. That is what a
+  first `tehas setup` has: the shim is not in place yet. A token that cannot be
+  made stops them with 78.
 
 ### From the checkout
 
