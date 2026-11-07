@@ -123,6 +123,11 @@
 #   slice_state / slice_child / slice_id   a scratch cgroup tree for the slice probe
 #   t_done                           print the tally, exit 1 if anything failed
 #
+# A run of t_run finds docker, gh, systemctl, curl and ssh in $T/deny, after the
+# stubs and before the host's own: a call that no stub answers is recorded and
+# fails with 97, and the case it ran in fails. A case that wants the real
+# program jails its run (t_unstub, T_PLANT).
+#
 # Everything lives under $T, a scratch directory removed on exit. HOME and
 # TEHAS_HOME point into it, so a test cannot touch the real ones. On a factory
 # host env.sh exports the settings of tehas_load and GH_TOKEN, and
@@ -148,7 +153,7 @@ T_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 T_TARGET=${CARGO_TARGET_DIR:-$T_ROOT/console/target}
 T=$(mktemp -d "${TMPDIR:-/tmp}/tehas-test.XXXXXX")
 trap 'rm -rf "$T"' EXIT
-mkdir -p "$T/bin" "$T/calls" "$T/home"
+mkdir -p "$T/bin" "$T/calls" "$T/home" "$T/deny"
 # tehas_load asks the console, and a test's tree has none beside lib/config.sh:
 # every load of a test goes to the one of this run, which a test can stub apart
 # from TEHAS_CONSOLE_CMD. A file run alone builds it here, once, as t_console does.
@@ -161,6 +166,21 @@ export TEHAS_SETTINGS_CMD=${T_CONSOLE_BIN:-}
 # The stubs name bash by its path: through /usr/bin/env a stub costs one more
 # process each call.
 T_BASH=$(command -v bash)
+for t_deny in docker gh systemctl curl ssh; do
+  printf '#!%s\necho "%s $*" >>%q\necho "test/lib.sh: no stub stands in for %s" >&2\nexit 97\n' \
+    "$T_BASH" "$t_deny" "$T/denied" "$t_deny" >"$T/deny/$t_deny"
+  chmod +x "$T/deny/$t_deny"
+done
+unset t_deny
+# t_denied: a failure of the case for each call that reached $T/deny.
+t_denied() {
+  [ -s "$T/denied" ] || return 0
+  local call
+  while IFS= read -r call; do
+    t_bad "no stub stands in for ${call%% *}: $call"
+  done <"$T/denied"
+  rm -f "$T/denied"
+}
 t_count=0
 t_failed=0
 t_skipped=0
@@ -191,6 +211,7 @@ t_gh_reset() {
 }
 t_case() {
   [ "$t_count" = 0 ] || [ -z "$t_after" ] || eval "$t_after"
+  t_denied
   # The jail of the case that just ended is no jail for this one: a run of the
   # next case must not find a name the earlier case held out of it, so the
   # planted directory is built again from the file's list. T_ENV is left alone,
@@ -1223,7 +1244,7 @@ t_run() {
     done
     jail+=('T_PATH_JAIL=1')
   fi
-  t_out=$(env -i "${jail[@]}" PATH="$T/bin:$PATH" HOME="$T/home" TEHAS_HOME="$T/home/tehas" \
+  t_out=$(env -i "${jail[@]}" PATH="$T/bin:$T/deny:$PATH" HOME="$T/home" TEHAS_HOME="$T/home/tehas" \
     T="$T" T_ROOT="$T_ROOT" CARGO_TARGET_DIR="$T/target" TEHAS_SETTINGS_CMD="$TEHAS_SETTINGS_CMD" \
     "${instance_env[@]}" "${T_ENV[@]}" "${T_ENV_ALWAYS[@]}" \
     bash -c "$1" 2>&1)
@@ -1252,6 +1273,7 @@ no_wait="export TEHAS_UPDATE_LOCK_WAIT=0; "
 t_done() {
   local line
   [ "$t_count" = 0 ] || [ -z "$t_after" ] || eval "$t_after"
+  t_denied
   # The last case's answers and count go with the file: a run of a body by hand,
   # or a file that stubs gh after t_done, reads none of them.
   t_gh_reset
