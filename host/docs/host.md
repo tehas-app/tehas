@@ -335,8 +335,10 @@ exits 1 before it changes anything. The update hands its lock to the
 From a checkout of tehas on another machine, two scripts release and deploy.
 Both fetch the remote's tags with `--force`, so a tag the remote re-points
 follows the remote instead of stopping the script.
-`scripts/tag-release.sh` runs the gate on the head of the remote's default
-branch in a temporary worktree, tags that commit as the next `vX.Y.Z` with an
+`scripts/tag-release.sh` gates the head of the remote's default branch, with
+a green run of the release gate on that commit on the speed lane, or with
+`--local-gate` in a temporary worktree here
+([The speed lane](/operating#the-speed-lane)), tags that commit as the next `vX.Y.Z` with an
 annotated tag, and pushes the tag. It refuses a commit whose `CHANGELOG.md`
 has no "Adopter action" for the release ([Releases](/tools#release-notes-and-the-adopter-action)).
 The pushed tag starts the release workflow, which publishes the signed tarball.
