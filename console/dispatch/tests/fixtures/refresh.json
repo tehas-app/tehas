@@ -171,6 +171,72 @@
    }
   },
   {
+   "case": "the mark of a running refresh stays when TEHAS_BOT_LOGIN names the app without [bot]",
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 2,
+    "TEHAS_REFRESH_CONFLICTS": "1",
+    "TEHAS_BOT_LOGIN": "acme-app"
+   },
+   "snapshot": {
+    "ready": [],
+    "awaiting": [
+     {
+      "number": 7
+     }
+    ],
+    "refresh_history": [
+     7
+    ],
+    "refreshing": [
+     {
+      "number": 50,
+      "labels": [
+       {
+        "name": "tehas:refreshing"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [],
+      "current": {
+       "how": "refresh",
+       "by": "alice",
+       "refresh_pr": 50
+      }
+     },
+     "50": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:refreshing"
+        },
+        "actor": {
+         "login": "acme-app[bot]"
+        },
+        "created_at": "2026-10-17T00:00:00Z"
+       }
+      ]
+     }
+    },
+    "running": [
+     {
+      "issue": 7,
+      "how": "refresh"
+     }
+    ]
+   },
+   "expect": {
+    "no_actions": [
+     {
+      "pr": 50
+     }
+    ]
+   }
+  },
+  {
    "case": "a tehas:refreshing applied by anyone else is taken off, also while a refresh runs",
    "settings": {
     "TEHAS_TICKET_CONCURRENCY": 2,

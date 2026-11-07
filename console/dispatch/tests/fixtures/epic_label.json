@@ -185,6 +185,59 @@
    }
   },
   {
+   "case": "the bot's removal is no veto when TEHAS_BOT_LOGIN carries [bot] and the events do not",
+   "snapshot": {
+    "ready": [],
+    "epic_titled": [
+     12
+    ],
+    "issues": {
+     "12": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "epic"
+        },
+        "actor": {
+         "login": "alice"
+        },
+        "created_at": "2026-10-01T00:00:00Z"
+       },
+       {
+        "event": "unlabeled",
+        "label": {
+         "name": "epic"
+        },
+        "actor": {
+         "login": "acme-app"
+        },
+        "created_at": "2026-10-01T00:05:00Z"
+       }
+      ]
+     }
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "actions": [
+     {
+      "issue": 12,
+      "remove": [],
+      "add": [
+       "epic"
+      ]
+     }
+    ],
+    "log": [
+     "label #12 epic: its title starts with an epic marker"
+    ]
+   },
+   "settings": {
+    "TEHAS_BOT_LOGIN": "acme-app[bot]"
+   }
+  },
+  {
    "case": "an application the issue no longer carries, with no removal seen, is left alone",
    "snapshot": {
     "ready": [],
