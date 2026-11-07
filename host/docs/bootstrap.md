@@ -337,6 +337,10 @@ checksum; for an npm tool, the SHA-256 of its lockfile, regenerated with
 contract test before a cycle uses it. On an installed host `bootstrap.sh user`
 ends with `sandbox/build.sh --if-moved`, so the image follows the pi-rukas
 clone it just moved; a tool version the image takes still needs the rebuild.
+When the installed `~/tehas/versions.env` is not the one of the tree it runs
+from, the installed tehas is another release, whose `build.sh` would check the
+image against its own versions. Then `bootstrap.sh user` builds nothing and
+says so, and the `install.sh` of the new release builds the image.
 
 An update that brings a changed `versions.env` to a host prints
 `later: .../bootstrap.sh user`. Neither `install.sh` nor `tehas update` runs
