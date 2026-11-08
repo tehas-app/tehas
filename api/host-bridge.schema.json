@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/tehas-app/tehas/api/host-bridge.schema.json",
+  "title": "/host/bridge.json",
+  "description": "The answer a host that fronts a factory's domain gives at /host/bridge.json. The dashboard reads it with host/fun/host-bridge.js. host/docs/api.md, \"The host bridge\", says what each field means and how it is read: the rules here that a schema cannot say (an id unique in its list, at most 3 notes a ticket) are there. Unknown fields are allowed at the top level and in each element. test/host_bridge_test.sh checks the samples beside this file against it.",
+  "type": "object",
+  "required": ["bridge", "host", "time"],
+  "properties": {
+    "bridge": {"const": 1},
+    "host": {"type": "string", "minLength": 1, "maxLength": 40, "pattern": "^[^\u0000-\u001f\u007f-\u009f\u2028\u2029]*$"},
+    "time": {"type": "string", "format": "date-time"},
+    "ticketLink": {"type": "string", "maxLength": 200, "pattern": "^/host/(?:(?!\\{n\\})\\S)*\\{n\\}(?:(?!\\{n\\})\\S)*$"},
+    "notices": {
+      "type": "array",
+      "maxItems": 5,
+      "items": {
+        "type": "object",
+        "required": ["id", "level", "text"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^[a-z0-9-]{1,32}$"},
+          "level": {"enum": ["info", "warn", "alert"]},
+          "text": {"type": "string", "minLength": 1, "maxLength": 200},
+          "link": {"type": "string", "maxLength": 512, "pattern": "^(/host/|https://)\\S*$"}
+        }
+      }
+    },
+    "ticketNotes": {
+      "type": "array",
+      "maxItems": 200,
+      "items": {
+        "type": "object",
+        "required": ["issue", "text"],
+        "properties": {
+          "issue": {"type": "integer", "minimum": 1, "maximum": 999999999},
+          "text": {"type": "string", "minLength": 1, "maxLength": 60},
+          "link": {"type": "string", "maxLength": 512, "pattern": "^(/host/|https://)\\S*$"}
+        }
+      }
+    }
+  }
+}

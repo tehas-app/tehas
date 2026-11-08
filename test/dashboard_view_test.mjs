@@ -24,9 +24,10 @@ test("the module imports its siblings relatively", () => {
   assert.ok(!VIEW.includes('from "/fun/'));
 });
 
-test("the fragment loads the tabs, then the module, and holds no script of its own", () => {
+test("the fragment loads the host bridge, the tabs, then the module, and holds no script of its own", () => {
   const tags = FRAG.split("\n").filter((l) => l.includes("<script"));
   assert.deepEqual(tags, [
+    '<script src="/fun/host-bridge.js"></script>',
     '<script src="/fun/console-tabs.js"></script>',
     '<script type="module" src="/fun/dashboard-view.js"></script>',
   ]);

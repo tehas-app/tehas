@@ -114,9 +114,9 @@ t_contains "$out" ".limit: null, not object"
 t_lacks "$out" ".hold"
 
 t_case "a schema keyword the check does not know is an error, not passed over"
-jq '.properties.age.maximum = 10' "$schema" >"$T/schema.json"
+jq '.properties.age.multipleOf = 10' "$schema" >"$T/schema.json"
 t_contains "$(jq -r --slurpfile schema "$T/schema.json" -f "$T_ROOT/test/schema.jq" "$api/status.busy.json")" \
-  ".age: the schema uses maximum, which this check does not know"
+  ".age: the schema uses multipleOf, which this check does not know"
 
 t_case "api/industry-alerts.sample.json fits its schema, which the console reads (console/src/health.rs)"
 t_eq "$(jq -r --slurpfile schema "$api/industry-alerts.schema.json" -f "$T_ROOT/test/schema.jq" \
