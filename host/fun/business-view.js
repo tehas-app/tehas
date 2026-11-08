@@ -199,6 +199,19 @@ if (typeof document !== "undefined" && document.getElementById("line")) {
   };
   const still = matchMedia("(prefers-reduced-motion: reduce)");
   const data = { status: null, lab: null, analytics: null, analyticsAt: 0, energy: null, serverAt: 0, localAt: 0 };
+
+  // The host bridge (host-bridge.js), when a host answers: a ticket of the
+  // repository links to the host's page, in the same tab, and its notes are
+  // drawn beside it. Only for the live queue: sample tickets are no one's.
+  // With no answer the link is the one the file gave and no note is drawn.
+  const bridge = () => (data.status ? globalThis.TEHAS_HOST_BRIDGE || null : null);
+  function point(a, url) {
+    const host = bridge() && bridge().ticket(obj(data.status).repo, url);
+    if (host) { a.href = host; a.removeAttribute("target"); a.removeAttribute("rel"); }
+    else if (url) { a.href = url; a.target = "_blank"; a.rel = "noopener noreferrer"; }
+    else a.removeAttribute("href");
+  }
+  const notesOf = (number) => (bridge() ? bridge().notes(document, number) : null);
   const now = () => (data.serverAt ? data.serverAt + (performance.now() - data.localAt) : Date.now());
 
   async function read(path) {
@@ -263,7 +276,10 @@ if (typeof document !== "undefined" && document.getElementById("line")) {
     a.querySelector("code").textContent = "#" + t.number;
     a.querySelector(".card-title").textContent = t.title;
     a.title = t.title;
-    if (t.url) { a.href = t.url; a.target = "_blank"; a.rel = "noopener noreferrer"; } else a.removeAttribute("href");
+    point(a, t.url);
+    box.querySelector(".host-notes")?.remove();
+    const notes = notesOf(t.number);
+    if (notes) box.append(notes);
   }
   function renderLine() {
     const v = lineView({ status: data.status, lab: data.lab, sample: data.status ? null : window.TEHAS_SAMPLE_ISSUES || null, nowMs: now(), pageUrl: location.href });
@@ -469,9 +485,11 @@ if (typeof document !== "undefined" && document.getElementById("line")) {
       const title = el("td");
       if (r.url) {
         const a = el("a", null, r.title);
-        a.href = r.url; a.target = "_blank"; a.rel = "noopener noreferrer";
+        point(a, r.url);
         title.append(a);
       } else title.textContent = r.title;
+      const notes = notesOf(r.number);
+      if (notes) title.append(" ", notes);
       num.textContent = "#" + r.number;
       const stage = el("td");
       stage.append(el("span", `st s-${r.stage}`, r.stageLabel));
@@ -520,6 +538,7 @@ if (typeof document !== "undefined" && document.getElementById("line")) {
     data.analytics = await read("/live/analytics.json");
     renderPeriod();
   }
+  globalThis.TEHAS_HOST_BRIDGE?.onChange(() => { $("line").dataset.signature = ""; renderLine(); });
   queue(); power(); lab(); report();
   setInterval(queue, 10000);
   setInterval(tail, 2000);

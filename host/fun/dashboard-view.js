@@ -36,8 +36,14 @@ export function start() {
     return h > 0 ? h + " h " + (m % 60) + " min" : m + " min";
   };
 
+  // The host bridge (host-bridge.js), when a host answers: a ticket of the
+  // repository links to the host's page and its notes are drawn beside it.
+  // With no answer the links are the file's and no note is drawn.
+  const bridge = () => globalThis.TEHAS_HOST_BRIDGE || null;
+  const notesOf = (number) => (bridge() ? bridge().notes(document, number) : null);
+
   // Issue titles are untrusted text: only ever set through textContent.
-  function list(id, items, moreUrl, emptyText, whenKey) {
+  function list(id, items, moreUrl, emptyText, whenKey, repo) {
     const ul = $(id);
     ul.replaceChildren();
     $("n-" + id).textContent = items.length ? "(" + items.length + ")" : "";
@@ -48,8 +54,11 @@ export function start() {
     for (const it of items.slice(0, MAX)) {
       const li = el("li");
       const a = el("a", null, it.title);
-      a.href = it.url;
-      li.append(el("span", "num", "#" + it.number), a, " ", el("span", "when", ago(it[whenKey] || it.updatedAt)));
+      a.href = (bridge() && bridge().ticket(repo, it.url)) || it.url;
+      li.append(el("span", "num", "#" + it.number), a);
+      const notes = notesOf(it.number);
+      if (notes) li.append(" ", notes);
+      li.append(" ", el("span", "when", ago(it[whenKey] || it.updatedAt)));
       ul.append(li);
     }
     if (items.length > MAX) {
@@ -326,12 +335,16 @@ export function start() {
     $("fresh").textContent = "queue read " + ago(s.generatedAt);
     $("all").href = s.links.all;
 
-    list("queued", s.queued, s.links.queued, "Nothing is waiting. Label an issue tehas:ready.", "updatedAt");
-    list("awaiting", s.awaiting, s.links.awaiting, "No pull request is waiting.", "updatedAt");
-    list("stopped", s.stopped, s.links.stopped, "Nothing is stopped.", "updatedAt");
-    list("completed", s.completed, s.links.completed, "Nothing completed yet.", "closedAt");
-    readOnly(s.readOnly);
+    lists(s);
     show();
+  }
+
+  function lists(s) {
+    list("queued", s.queued, s.links.queued, "Nothing is waiting. Label an issue tehas:ready.", "updatedAt", s.repo);
+    list("awaiting", s.awaiting, s.links.awaiting, "No pull request is waiting.", "updatedAt", s.repo);
+    list("stopped", s.stopped, s.links.stopped, "Nothing is stopped.", "updatedAt", s.repo);
+    list("completed", s.completed, s.links.completed, "Nothing completed yet.", "closedAt", s.repo);
+    readOnly(s.readOnly);
   }
 
   // A read-only factory (TEHAS_READ_ONLY=1) opens no pull request: what each of
@@ -353,7 +366,10 @@ export function start() {
     for (const r of starts.slice(0, MAX)) {
       const li = el("li");
       const pr = r.pr || null;
-      li.append(el("span", "num", "#" + r.issue), el("span", null, pr ? pr.title : r.how + " started, no pull request yet"),
+      li.append(el("span", "num", "#" + r.issue));
+      const notes = notesOf(r.issue);
+      if (notes) li.append(notes, " ");
+      li.append(el("span", null, pr ? pr.title : r.how + " started, no pull request yet"),
         " ", el("span", "muted", (pr && pr.branch ? pr.branch + " in " : "") + (r.workspace || "") + (r.at ? ", " + ago(r.at) : "")));
       if (pr && pr.body) li.append(el("pre", "ro-body", pr.body));
       ul.append(li);
@@ -437,6 +453,7 @@ export function start() {
     }
   }
 
+  bridge()?.onChange(() => { if (lastStatus) lists(lastStatus); });
   refresh();
   TABS.keys($("tabs"), select);
   setInterval(refresh, 10000);

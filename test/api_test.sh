@@ -46,6 +46,7 @@ t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "finish"
 t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "status-versions"
 t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "store-copy"
 t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "state-load"
+t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "host-bridge"
 t_eq "$(t_calls gh)$(t_calls git)" ""
 
 t_case "api --json: the millwright and the old fixer field are its login when the instance has one"

@@ -59,6 +59,21 @@ import { DEFAULT_KW, LINE, STAGES, ago, finishingIssues, normalize } from "./gam
   }
   let words = [];
 
+  // The host bridge (host-bridge.js), when a host answers: a ticket of the
+  // repository links to the host's page, in the same tab, and its notes are
+  // drawn beside it. Only for the live queue: sample and export tickets are
+  // no one's. With no answer every link and row stays as it was.
+  const bridge = () => (state.live ? globalThis.TEHAS_HOST_BRIDGE || null : null);
+  const hostHref = (url) => (bridge() ? bridge().ticket(queue.repo, url) : null);
+  const notesOf = (number) => (bridge() ? bridge().notes(document, number) : null);
+  function point(a, url) {
+    const host = hostHref(url);
+    a.href = host || url;
+    if (host) return;
+    a.target = "_blank";
+    a.rel = "noopener noreferrer";
+  }
+
   const inStage = (stage) => {
     const list = state.tickets.filter((t) => t.stage === stage);
     // The queue is worked lowest number first; everything else shows newest first.
@@ -103,6 +118,8 @@ import { DEFAULT_KW, LINE, STAGES, ago, finishingIssues, normalize } from "./gam
       setCount("count-" + stage, list.length);
       const slot = $("slot-" + stage);
       slot.replaceChildren(list.length ? ticketButton(list[0]) : el("p", "empty-slot", state.loaded ? "Nothing here." : "No data."));
+      const notes = list.length ? notesOf(list[0].number) : null;
+      if (notes) slot.append(notes);
       const more = station.querySelector(".see-all");
       more.hidden = list.length < 2;
       more.textContent = `ALL ${list.length} ${STAGES[stage]}`;
@@ -132,6 +149,8 @@ import { DEFAULT_KW, LINE, STAGES, ago, finishingIssues, normalize } from "./gam
     row.addEventListener("click", () => select(ticket.number, row));
     const li = el("li");
     li.append(row);
+    const notes = notesOf(ticket.number);
+    if (notes) li.append(notes);
     return li;
   }
 
@@ -140,12 +159,10 @@ import { DEFAULT_KW, LINE, STAGES, ago, finishingIssues, normalize } from "./gam
     const li = rowFor(ticket);
     if (ticket.url) {
       const a = el("a", "row-open", "OPEN");
-      a.href = ticket.url;
-      a.target = "_blank";
-      a.rel = "noopener noreferrer";
+      point(a, ticket.url);
       a.setAttribute("aria-label", `Open ticket ${ticket.number}`);
       li.classList.add("has-link");
-      li.append(a);
+      li.firstChild.after(a);
     }
     return li;
   }
@@ -170,13 +187,14 @@ import { DEFAULT_KW, LINE, STAGES, ago, finishingIssues, normalize } from "./gam
       el("span", "row-stage", item.files ? `${item.files} ${item.files === 1 ? "FILE" : "FILES"}` : "NO FILES"));
     li.append(row);
     if (item.url) {
-      const a = el("a", "row-open", "GITHUB");
-      a.href = item.url;
-      a.target = "_blank";
-      a.rel = "noopener noreferrer";
-      a.setAttribute("aria-label", `Open ticket ${item.number} on GitHub`);
+      const host = hostHref(item.url);
+      const a = el("a", "row-open", host ? "OPEN" : "GITHUB");
+      point(a, item.url);
+      a.setAttribute("aria-label", host ? `Open ticket ${item.number}` : `Open ticket ${item.number} on GitHub`);
       li.append(a);
     }
+    const notes = notesOf(item.number);
+    if (notes) li.append(notes);
     return li;
   }
 
@@ -255,15 +273,15 @@ import { DEFAULT_KW, LINE, STAGES, ago, finishingIssues, normalize } from "./gam
     fact("order-energy", ticket && energy(ticket));
     $("order-number").textContent = ticket ? "#" + ticket.number : "----";
     $("order-title").textContent = ticket ? ticket.title : state.loaded ? "No ticket selected." : "No ticket data loaded.";
+    const notes = ticket ? notesOf(ticket.number) : null;
+    if (notes) $("order-title").append(" ", notes);
     fact("order-stage", ticket && STAGES[ticket.stage]);
     fact("order-labels", ticket && ticket.labels.length ? ticket.labels.join(", ") : null);
     const link = $("order-link");
     link.replaceChildren();
     if (ticket && ticket.url) {
       const a = el("a", null, "OPEN THE ISSUE");
-      a.href = ticket.url;
-      a.target = "_blank";
-      a.rel = "noopener noreferrer";
+      point(a, ticket.url);
       link.append(a);
     } else if (ticket) {
       link.textContent = state.sample ? "Sample ticket. No link." : "This export has no link for the ticket.";
@@ -498,7 +516,7 @@ import { DEFAULT_KW, LINE, STAGES, ago, finishingIssues, normalize } from "./gam
   // it can be reached and re-reads it every ten seconds; choosing the sample or an
   // export switches to "manual" until the viewer asks for the live queue again.
   const MODE_KEY = "tehas-game-view-mode";
-  const queue = { mode: "auto", readAt: null, all: null, signature: "" };
+  const queue = { mode: "auto", readAt: null, all: null, repo: null, signature: "" };
   const IMPLIED = { queued: "tehas:ready", running: "tehas:running", awaiting: "tehas:awaiting-merge", stopped: "needs-human-attention" };
 
   // `orders` is what each ticket's runs spent (work-orders.js), or null.
@@ -554,6 +572,7 @@ import { DEFAULT_KW, LINE, STAGES, ago, finishingIssues, normalize } from "./gam
     queue.readAt = typeof s.generatedAt === "string" ? s.generatedAt : null;
     const all = s.links && typeof s.links.all === "string" && s.links.all.startsWith("https://") ? s.links.all : null;
     queue.all = all;
+    queue.repo = typeof s.repo === "string" ? s.repo : null;
     const orders = window.TEHAS_ORDERS ? await window.TEHAS_ORDERS.read() : null;
     if (queue.mode !== "auto") return state.live;
     const data = fromSnapshot(s, orders);
@@ -967,6 +986,7 @@ import { DEFAULT_KW, LINE, STAGES, ago, finishingIssues, normalize } from "./gam
     useSample();
   };
   renderFloor(); renderBoard(); renderLab(); renderOrder(); resetGame();
+  globalThis.TEHAS_HOST_BRIDGE?.onChange(() => { renderFloor(); renderBoard(); renderLab(); renderOrder(); });
   if (queue.mode === "manual") fallback();
   else refreshQueue().then((ok) => { if (!ok && !state.loaded) fallback(); });
   setInterval(refreshQueue, 10000);

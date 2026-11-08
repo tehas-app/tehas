@@ -283,3 +283,7 @@ td a:hover { text-decoration: underline; text-underline-offset: 3px; }
   .epic-count { grid-column: 2; text-align: left; }
   .epic-body { padding: 4px 20px 16px; }
 }
+
+/* A host's notes (host-bridge.js; the chips are in panels.css). On a card
+   they sit above the link that covers it. */
+.card .host-notes { position: relative; z-index: 1; display: flex; margin-top: 6px; }
