@@ -170,3 +170,10 @@
   .page { padding: 0 16px 24px; }
   .page h1 { margin: 0 -16px 24px; padding: 16px; }
 }
+
+/* A host's notes on a ticket (host-bridge.js): small chips beside its title,
+   as on the front pages (panels.css). */
+.page .host-notes { display: inline-flex; flex-wrap: wrap; gap: 4px; vertical-align: baseline; }
+.page .host-note { display: inline-block; max-width: 100%; padding: 0 6px; font-size: var(--type-small); line-height: 1.6; color: var(--text-quiet); background: var(--surface-quiet); border: var(--frame); border-radius: var(--radius); overflow-wrap: anywhere; text-decoration: none; }
+.page a.host-note { color: var(--text-cool); text-decoration: underline; text-underline-offset: 2px; }
+.page a.host-note:hover { background: var(--accent-soft); color: var(--text); }

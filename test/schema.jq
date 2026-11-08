@@ -8,7 +8,8 @@
 # fits. date-time is the form tehas writes, 2026-10-17T13:59:40Z.
 
 def known: ["$schema", "$id", "title", "description", "type", "const", "enum",
-  "required", "additionalProperties", "properties", "items", "minimum", "format"];
+  "required", "additionalProperties", "properties", "items", "minimum", "maximum",
+  "minLength", "maxLength", "pattern", "maxItems", "format"];
 
 def kind: if type == "number" then (if . == floor then "integer" else "number" end) else type end;
 
@@ -28,6 +29,16 @@ def check($s; $p):
      else ["\(where($p)): \($v | tojson) is not one of \($s.enum | tojson)"] end)
   + (if ($v | type) == "number" and $s.minimum != null and $v < $s.minimum
      then ["\(where($p)): \($v) is under \($s.minimum)"] else [] end)
+  + (if ($v | type) == "number" and $s.maximum != null and $v > $s.maximum
+     then ["\(where($p)): \($v) is over \($s.maximum)"] else [] end)
+  + (if ($v | type) == "string" and $s.minLength != null and ($v | length) < $s.minLength
+     then ["\(where($p)): shorter than \($s.minLength)"] else [] end)
+  + (if ($v | type) == "string" and $s.maxLength != null and ($v | length) > $s.maxLength
+     then ["\(where($p)): longer than \($s.maxLength)"] else [] end)
+  + (if ($v | type) == "string" and $s.pattern != null and ($v | test($s.pattern) | not)
+     then ["\(where($p)): \($v | tojson) does not match \($s.pattern | tojson)"] else [] end)
+  + (if ($v | type) == "array" and $s.maxItems != null and ($v | length) > $s.maxItems
+     then ["\(where($p)): more than \($s.maxItems) items"] else [] end)
   + (if $s.format == null then []
      elif $s.format != "date-time" then ["\(where($p)): the format \($s.format) is not checked"]
      elif ($v | type) != "string" or ($v | try (fromdateiso8601 | true) catch false) then []

@@ -30,3 +30,16 @@
 @media (max-width: 699px) {
   :where(.industry-alerts) { padding: 0 16px; }
 }
+
+/* A host's notices (host-bridge.js): beside the alerts and drawn as they are,
+   in the tone of their level. */
+.host-notice[data-level="info"] { background: var(--surface); }
+.host-notice[data-level="warn"] { background: var(--stage-review-soft); border-color: var(--stage-review); }
+.host-notice[data-level="alert"] { background: var(--stage-stop-soft); border-color: var(--stage-stop); }
+
+/* A host's notes on a ticket: small chips beside its number or title. */
+.host-notes { display: inline-flex; flex-wrap: wrap; gap: 4px; vertical-align: baseline; }
+.host-note { display: inline-block; max-width: 100%; padding: 0 6px; font: 400 var(--type-small)/1.6 var(--font); letter-spacing: 0; text-transform: none; color: var(--text-quiet); background: var(--surface-quiet); border: var(--frame); border-radius: var(--radius); overflow-wrap: anywhere; text-decoration: none; }
+a.host-note { color: var(--text-cool); text-decoration: underline; text-underline-offset: 2px; }
+a.host-note:hover { background: var(--accent-soft); color: var(--text); }
+a.host-note:focus-visible { outline: var(--focus); outline-offset: 2px; }

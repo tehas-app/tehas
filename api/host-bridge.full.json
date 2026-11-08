@@ -1,0 +1,16 @@
+{
+  "bridge": 1,
+  "host": "example-host",
+  "time": "2026-11-08T12:00:00Z",
+  "ticketLink": "/host/ticket/{n}",
+  "notices": [
+    {"id": "n-1", "level": "info", "text": "Example notice.", "link": "/host/notice/n-1"},
+    {"id": "n-2", "level": "warn", "text": "Example warning.", "link": "https://host.example/notice/n-2"},
+    {"id": "n-3", "level": "alert", "text": "Example alert."}
+  ],
+  "ticketNotes": [
+    {"issue": 42, "text": "Example note", "link": "/host/ticket/42"},
+    {"issue": 42, "text": "Second note"},
+    {"issue": 7, "text": "Another note", "link": "https://host.example/ticket/7"}
+  ]
+}

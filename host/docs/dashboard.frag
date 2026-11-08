@@ -64,5 +64,6 @@
   <ul class="issues" id="unit-list"></ul>
 </section>
 
+<script src="/fun/host-bridge.js"></script>
 <script src="/fun/console-tabs.js"></script>
 <script type="module" src="/fun/dashboard-view.js"></script>
