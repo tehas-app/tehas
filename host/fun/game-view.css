@@ -781,3 +781,15 @@ body[data-factory="live"] .console-state::before {
   .ascii pre { font: 8px/8px var(--font-code); }
   .footer { padding: 24px 16px 32px; }
 }
+
+/* A host's notes (host-bridge.js; the chips are in panels.css, and in
+   manual.css for /dashboard). Under a sign's ticket, under a row's title with
+   the row's rule below both, and on the monitor in the screen's colours. */
+.slot > .host-notes { display: flex; margin-top: 4px; }
+.rows li > .host-notes { display: flex; padding: 0 16px 12px calc(72px + 32px); }
+.rows li:has(> .host-notes) { border-bottom: 1px solid var(--rule); }
+.rows li:has(> .host-notes) .row { border-bottom: 0; }
+.rows li:last-child:has(> .host-notes) { border-bottom: 0; }
+.lab .has-link > .host-notes { grid-column: 1 / -1; }
+.order-title .host-note { color: var(--screen-text); background: none; border-color: var(--screen-quiet); }
+.order-title a.host-note { color: var(--surface); }

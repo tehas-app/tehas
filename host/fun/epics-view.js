@@ -43,15 +43,28 @@
     return n;
   }
 
-  function anchor(cls, href, text) {
+  // The host bridge (host-bridge.js), when a host answers: a ticket links to
+  // the host's page, in the same tab, and its notes are drawn beside it. With
+  // no answer the links are GitHub's and no note is drawn.
+  const bridge = () => globalThis.TEHAS_HOST_BRIDGE || null;
+  const hostHref = (repo, url) => (bridge() ? bridge().ticket(repo, url) : null);
+  const notesOf = (number) => (bridge() ? bridge().notes(document, number) : null);
+
+  function anchor(cls, href, text, host = null) {
     const a = el(href ? "a" : "span", cls, text);
-    if (href) {
+    if (host) a.href = host;
+    else if (href) {
       a.href = href;
       a.target = "_blank";
       a.rel = "noopener noreferrer";
     }
     return a;
   }
+  const withNotes = (node, number) => {
+    const notes = notesOf(number);
+    if (notes) node.append(" ", notes);
+    return node;
+  };
 
   // One <details> an epic: its summary is the stack's row, its body the list.
   // `opened` is the set of epic numbers open, kept across redraws.
@@ -62,7 +75,7 @@
         d.open = opened.has(e.number);
         d.addEventListener("toggle", () => (d.open ? opened.add(e.number) : opened.delete(e.number)));
         const s = el("summary", "epic-row");
-        s.append(el("b", "epic-number", `#${e.number}`), el("span", "epic-title", e.title));
+        s.append(el("b", "epic-number", `#${e.number}`), withNotes(el("span", "epic-title", e.title), e.number));
         const bar = el("span", "epic-bar");
         bar.setAttribute("aria-hidden", "true");
         for (const sub of e.subs) bar.append(el("i", sub.closed ? "is-closed" : ""));
@@ -72,14 +85,17 @@
         const items = el("ul", "epic-subs");
         for (const sub of e.subs) {
           const li = el("li", sub.closed ? "is-closed" : "is-open");
-          li.append(el("span", "epic-state", sub.closed ? "Closed" : "Open"), anchor("epic-sub", sub.url, `#${sub.number} ${sub.title}`));
+          li.append(el("span", "epic-state", sub.closed ? "Closed" : "Open"),
+            anchor("epic-sub", sub.url, `#${sub.number} ${sub.title}`, hostHref(v.repo, sub.url)));
+          withNotes(li, sub.number);
           items.append(li);
         }
         if (!e.subs.length) items.append(el("li", "epic-none", "No sub-issue of this repository."));
         body.append(items);
         const foot = el("p", "epic-foot");
         if (e.more) foot.append(el("span", "", `${e.more} more on GitHub. `));
-        foot.append(anchor("epic-link", e.url, `Epic #${e.number} on GitHub`));
+        const host = hostHref(v.repo, e.url);
+        foot.append(anchor("epic-link", e.url, host ? `Epic #${e.number}` : `Epic #${e.number} on GitHub`, host));
         body.append(foot);
         d.append(s, body);
         return d;
@@ -96,6 +112,7 @@
   const note = document.getElementById("epics-count");
   const nav = document.querySelectorAll("[data-epics-nav]");
   const opened = new Set();
+  let shown = null;
 
   async function refresh() {
     if (document.hidden) return;
@@ -111,10 +128,12 @@
     for (const a of nav) a.hidden = v === null;
     if (v === null) return;
     if (note) note.textContent = v.epics.length === 1 ? "1 open" : `${v.epics.length} open`;
+    shown = v;
     if (v.epics.length) render(list, v, opened);
     else list.replaceChildren(el("p", "epic-empty", "No open epics."));
   }
 
+  bridge()?.onChange(() => { if (shown && shown.epics.length) render(list, shown, opened); });
   refresh();
   setInterval(refresh, 60000);
   document.addEventListener("visibilitychange", refresh);

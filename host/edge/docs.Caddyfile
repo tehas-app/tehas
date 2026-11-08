@@ -18,6 +18,11 @@
     # No page here is meant to be read as another type than the one it is sent as.
     header X-Content-Type-Options "nosniff"
     route {
+        # /host/ belongs to a host that fronts the domain, never to tehas: the
+        # dashboard reads a 404 for /host/bridge.json as "no host". See "The
+        # host bridge" in api.md.
+        @host path /host /host/*
+        respond @host 404
         # Dashboard data: the queue snapshot and the running cycle's console.
         # Plain files written by the dispatcher; the page polls them, the
         # console with Range requests so it only fetches what is new.
