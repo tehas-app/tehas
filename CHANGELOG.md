@@ -35,6 +35,7 @@ a pull request before it tags, with the head's `scripts/collect-changelog.sh`.
 - The shell test runner (`scripts/test.sh`) is stricter. A test file that exits 0 without the count line of `t_done` fails, named `ended before t_done`, so a stray `exit 0` no longer passes the cases after it. A missing shellcheck fails the run in CI or with `TEHAS_TEST_STRICT` set; elsewhere it is still skipped, now as a `SKIPPED:` line in column 1. A file with skipped cases now counts toward the case total (#1760).
 - `tehas-cycle finish` rebases in a repository of its own beside the kept workspace and pushes to the instance's repository on GitHub; it runs no git command in the workspace.
 - The read-only status reads a workspace's pull request file only when it is a plain file.
+- The dashboard reads `/host/bridge.json` on its own origin, where a host that fronts the factory's domain can give a link for tickets, notices at the top of the front pages and short notes on tickets. tehas answers 404 under `/host/` itself, so a factory without such a host is unchanged. The dashboard pages unregister any service worker on their origin. `tehas api` lists the feature `host-bridge`. The contract is in the API page, "The host bridge".
 
 ### Held back
 
@@ -47,6 +48,8 @@ A factory that stopped on v0.25.1 at the sandbox step (`update: ... follow-up(s)
 A factory whose upgrade to v0.25.2 stopped at `install.sh --check` with `differs: ~/.pi/agent/settings.json` or `mode: ~/.pi/agent/mcp.json is 600, wants 644` (seen on koala's tehas-lab) passes the check after `tehas update` to v0.25.3: the update installs the new settings.json and sets mcp.json to 600. An instance with its own `settings.json` can move `httpIdleTimeoutMs` out of `retry.provider` to the top level itself; install does it either way.
 
 A factory upgrade that stopped at `Sandbox: BEHIND` right after a pi-rukas release: after updating, run the check again (`install.sh --check`, or the factory's own check) once a status run has passed.
+
+None.
 
 ## v0.25.1 (2026-11-07)
 
