@@ -3,13 +3,12 @@
 ## Why
 
 A factory is a single-project appliance, and it must stay whole on its own.
-Some factories are run by a host, tehas-industry, that sees more than one
-factory can: the other factories in its network, a ticket page with a chat,
-security findings from its night guard, stats across factories. Today each
-thing industry wants to show on a factory's dashboard needs its own command or
-file in tehas (`tehas panel`, `state/industry/alerts.json`), or it does not
-show at all. Ticket links are the latest case: industry has a ticket page, but
-the dashboard can only link a ticket to GitHub.
+Some factories are run by a host, a program that runs factories through the
+factory API, and a host may know things a factory cannot. Today each thing a
+host wants to show on a factory's dashboard needs its own command or file in
+tehas (`tehas panel`, `state/industry/alerts.json`), or it does not show at
+all. A ticket is the plainest case: the dashboard can only link it to GitHub,
+even when the host has a page of its own for it.
 
 The host bridge is one contract for all of this. A factory on its own looks
 and works exactly as it does today, with nothing missing. A factory with a host
@@ -36,7 +35,7 @@ gets more, drawn natively by its own dashboard, from data the host bridges in.
 - Named places on the front pages for a host's elements, and one shape for
   every seam between factory and host. Both come later, once a few uses of the
   bridge are built and show what the front ends need.
-- Anything tehas must know about industry. tehas knows the path and the shape
+- Anything tehas must know about a host. tehas knows the path and the shape
   of the answer, not who answers or where the data comes from.
 
 ## Anti-goals
@@ -59,8 +58,8 @@ The dashboard asks its own origin for `GET /host/bridge.json`. tehas never
 answers anything under `/host/` itself: `host/edge/docs.Caddyfile` answers
 every path under it with 404, so on its own the factory says "no host".
 
-A host that fronts the factory's domain routes `/host/*` to itself. Industry
-does this already for `/mcp` on each factory's site. Because the answer comes
+A host that fronts the factory's domain routes `/host/*` to itself. Because
+the answer comes
 from the dashboard's own origin, the browser sends it whatever cookies the
 host set on that origin, and the host decides per request what to answer: more
 to a person signed in to it, less or nothing to anyone else. The factory never
@@ -80,14 +79,14 @@ a standalone factory. Nothing waits on the bridge: every view draws first from
 ```json
 {
   "bridge": 1,
-  "host": "tehas-industry",
+  "host": "example-host",
   "time": "2026-11-08T12:00:00Z",
   "ticketLink": "/host/ticket/{n}",
   "notices": [
-    {"id": "ng-17", "level": "warn", "text": "A dependency has a known vulnerability. A fix is being prepared.", "link": "/host/notice/ng-17"}
+    {"id": "n-17", "level": "warn", "text": "Work on this factory waits on a person.", "link": "/host/notice/n-17"}
   ],
   "ticketNotes": [
-    {"issue": 42, "text": "blocked by tehas-lab #7", "link": "/host/ticket/42"}
+    {"issue": 42, "text": "waits on another ticket", "link": "/host/ticket/42"}
   ]
 }
 ```
@@ -150,8 +149,8 @@ As for the status contract:
 - A test of `host/edge/docs.Caddyfile` that `/host/bridge.json` answers 404.
 - A test that every dashboard page unregisters service workers.
 
-tehas-industry copies the schema and samples into its `factory-api` fixtures
-and checks its own answer against them on every pull request.
+A host copies the schema and samples and checks its own answer against them,
+as a consumer of `tehas status --json` does.
 
 ### What it says it has
 
@@ -176,10 +175,8 @@ predates the bridge from one where it failed.
 
 ## The host's side
 
-What industry does to answer the bridge is industry's to design, in its own
-repository: the route, the ticket page on each factory's domain with its
-sign-in, where each notice and note comes from, and switching industry's own
-ticket links over. This spec only fixes what it must answer.
+How a host answers the bridge, and what it shows, is the host's to design.
+This spec only fixes what it must answer and what the factory does with it.
 
 ## Left to the builder
 
