@@ -28,8 +28,10 @@
 //!   result, schema 3, 4 or 5, {schemaVersion, buildVersion, buildCommit,
 //!   exitCode, issues: [{issue, status, durationMs, steps: [{step,
 //!   startedAt, endedAt}], exitCode, usage: {input, output, cacheRead,
-//!   cacheWrite, cost, turns, dispatches, byRole: {<role>: {...}}}, cap,
-//!   failedStep, parkReason, failure: {kind, step, role, cause}}]}. Read
+//!   cacheWrite, cost, turns, dispatches, toolCalls, toolErrors, byRole:
+//!   {<role>: {...}}}, driver, cap, failedStep, parkReason, failure: {kind,
+//!   step, role, cause}}]}. toolCalls, toolErrors and driver are pi-rukas's
+//!   `usageTools` (v0.14.66), absent before it. Read
 //!   whole: tehas-cycle reads its RESULT_SCHEMA only, but the fields read here
 //!   are the same in all three. libexec/cycle removes it as the next cycle starts.
 //! - state/cycles/<n>.progress.json (tehas-cycle, progress.rs):
@@ -134,6 +136,11 @@ pub struct Run {
     pub gate_runs: Option<i64>,
     pub gate_ms: Option<i64>,
     pub driver: Option<String>,
+    pub tool_calls: Option<i64>,
+    pub tool_errors: Option<i64>,
+    /// The driver the result says ran the issue, beside `driver`, the one the
+    /// approval bound.
+    pub result_driver: Option<String>,
     pub steps: Vec<Step>,
     pub roles: Vec<Role>,
     pub gates: Vec<GateRun>,
@@ -187,6 +194,8 @@ pub struct Role {
     pub cache_write: Option<i64>,
     pub cost: Option<f64>,
     pub ms: Option<i64>,
+    pub tool_calls: Option<i64>,
+    pub tool_errors: Option<i64>,
 }
 
 /// The result schemas whose fields this reads. Schema 5 renamed two caps and
@@ -508,6 +517,8 @@ fn read_entry(run: &mut Run, e: &Map<String, Value>) {
         run.cache_write = number(u, "cacheWrite");
         run.turns = number(u, "turns");
         run.dispatches = number(u, "dispatches");
+        run.tool_calls = number(u, "toolCalls");
+        run.tool_errors = number(u, "toolErrors");
         run.cost = u.get("cost").and_then(Value::as_f64).filter(|c| *c >= 0.0);
         if let Some(by) = u.get("byRole").and_then(Value::as_object) {
             run.roles = by
@@ -519,6 +530,11 @@ fn read_entry(run: &mut Run, e: &Map<String, Value>) {
                 .collect();
         }
     }
+    run.result_driver = e
+        .get("driver")
+        .and_then(Value::as_str)
+        .filter(|d| DRIVERS.contains(d))
+        .map(str::to_string);
     if let Some(steps) = e.get("steps").and_then(Value::as_array) {
         let mut seen: Vec<String> = Vec::new();
         for s in steps.iter().filter_map(Value::as_object) {
@@ -554,6 +570,8 @@ fn role(name: String, r: &Map<String, Value>) -> Option<Role> {
         cache_write: number(r, "cacheWrite"),
         cost: r.get("cost").and_then(Value::as_f64).filter(|c| *c >= 0.0),
         ms: number(r, "ms").or_else(|| number(r, "durationMs")),
+        tool_calls: number(r, "toolCalls"),
+        tool_errors: number(r, "toolErrors"),
         ..Role::default()
     })
 }
@@ -607,10 +625,11 @@ pub fn insert(conn: &Connection, run: &Run) -> rusqlite::Result<()> {
            failure_kind, failure_cause, provider_outage, endpoint, pr, tehas_version,
            tehas_commit, rukas_version, rukas_commit, image, input, output, cache_read,
            cache_write, turns, dispatches, cost, oom_kills, forks_refused, concurrent,
-           runner_ms, result_schema, gate_runs, gate_ms, driver)
+           runner_ms, result_schema, gate_runs, gate_ms, driver, tool_calls, tool_errors,
+           result_driver)
          VALUES (?1, 'work', ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16,
            ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32,
-           ?33, ?34, ?35, ?36, ?37, ?38, ?39, ?40, ?41)",
+           ?33, ?34, ?35, ?36, ?37, ?38, ?39, ?40, ?41, ?42, ?43, ?44)",
         params![
             run.id,
             run.issue,
@@ -653,6 +672,9 @@ pub fn insert(conn: &Connection, run: &Run) -> rusqlite::Result<()> {
             run.gate_runs,
             run.gate_ms,
             run.driver,
+            run.tool_calls,
+            run.tool_errors,
+            run.result_driver,
         ],
     )?;
     crate::db::image_built(&tx, run.image.as_deref(), run.image_built)?;
@@ -666,8 +688,8 @@ pub fn insert(conn: &Connection, run: &Run) -> rusqlite::Result<()> {
     for r in &run.roles {
         tx.execute(
             "INSERT OR REPLACE INTO run_roles (run_id, role, model, provider, dispatches, turns,
-               input, output, cache_read, cache_write, cost, ms)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+               input, output, cache_read, cache_write, cost, ms, tool_calls, tool_errors)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
             params![
                 run.id,
                 r.role,
@@ -680,7 +702,9 @@ pub fn insert(conn: &Connection, run: &Run) -> rusqlite::Result<()> {
                 r.cache_read,
                 r.cache_write,
                 r.cost,
-                r.ms
+                r.ms,
+                r.tool_calls,
+                r.tool_errors
             ],
         )?;
     }
