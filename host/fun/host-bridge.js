@@ -52,13 +52,27 @@
     }
   }
 
+  // A page for the dock: an http: or https: address with no user or
+  // password, at most 512 characters. panels.js drops one on the page's own
+  // origin, as it does a panel's.
+  function page(s) {
+    if (typeof s !== "string" || s.length > 512 || SPACE_OR_CONTROL.test(s)) return null;
+    try {
+      const u = new URL(s);
+      return (u.protocol === "http:" || u.protocol === "https:") && u.hostname && !u.username && !u.password ? u.href : null;
+    } catch {
+      return null;
+    }
+  }
+
   function ticketLink(s) {
     if (typeof s !== "string" || s.length > 200 || !s.startsWith("/host/") || SPACE_OR_CONTROL.test(s)) return null;
     return s.split("{n}").length === 2 ? s : null;
   }
 
   // The answer as the pages use it, or null when it is ignored whole:
-  // { ticketLink, notices: [{ id, level, text, link }], notes: Map(issue -> [{ text, link }]) }.
+  // { ticketLink, notices: [{ id, level, text, link }], notes: Map(issue -> [{ text, link }]),
+  //   menu: [{ id, label, url }] }.
   // `now` is the time to judge the answer's age by, in ms.
   function read(text, now) {
     if (typeof text !== "string" || new TextEncoder().encode(text).length > MAX_BYTES) return null;
@@ -107,7 +121,20 @@
       kept++;
     }
 
-    return { ticketLink: ticketLink(v.ticketLink), notices, notes };
+    const menu = [];
+    const menuIds = new Set();
+    for (const m of Array.isArray(v.menu) ? v.menu : []) {
+      if (menu.length === 4) break;
+      const e = object(m);
+      if (!e || typeof e.id !== "string" || !ID.test(e.id) || menuIds.has(e.id)) continue;
+      const label = line(e.label, 24);
+      const url = page(e.url);
+      if (label === null || url === null) continue;
+      menuIds.add(e.id);
+      menu.push({ id: e.id, label, url });
+    }
+
+    return { ticketLink: ticketLink(v.ticketLink), notices, notes, menu };
   }
 
   // Where a ticket links on the dashboard: the host's page for a ticket of the

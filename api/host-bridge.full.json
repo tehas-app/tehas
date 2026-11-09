@@ -12,5 +12,8 @@
     {"issue": 42, "text": "Example note", "link": "/host/ticket/42"},
     {"issue": 42, "text": "Second note"},
     {"issue": 7, "text": "Another note", "link": "https://host.example/ticket/7"}
+  ],
+  "menu": [
+    {"id": "m-1", "label": "Example page", "url": "https://host.example/page"}
   ]
 }
