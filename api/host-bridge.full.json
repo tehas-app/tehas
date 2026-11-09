@@ -15,5 +15,15 @@
   ],
   "menu": [
     {"id": "m-1", "label": "Example page", "url": "https://host.example/page"}
-  ]
+  ],
+  "tokens": {
+    "days": [
+      {"date": "2026-11-07", "requests": 380, "input": 8400000, "output": 76000, "cached": 8000000},
+      {"date": "2026-11-08", "requests": 412, "input": 9120000, "output": 81000, "cached": 8700000}
+    ],
+    "models": [
+      {"model": "example-model", "requests": 792, "input": 17520000, "output": 157000, "cached": 16700000}
+    ],
+    "unknown": 3
+  }
 }

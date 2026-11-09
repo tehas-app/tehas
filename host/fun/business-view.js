@@ -422,6 +422,11 @@ if (typeof document !== "undefined" && document.getElementById("line")) {
   TABS.keys($("console-tabs"), (issue) => { term.selected = issue; renderConsole(); });
 
   // ---- The last ten days.
+  // Token use comes from the host bridge alone; tehas counts no tokens a model.
+  function renderTokens() {
+    const answer = bridge() && bridge().current();
+    bridge()?.drawTokens($("host-tokens"), answer ? answer.tokens : null, document);
+  }
   function renderPeriod() {
     const v = analyticsView(data.analytics);
     $("period").hidden = $("nav-period").hidden = !v.present;
@@ -468,6 +473,7 @@ if (typeof document !== "undefined" && document.getElementById("line")) {
       return li;
     }));
     $("reasons-note").textContent = v.reasonsNote;
+    renderTokens();
   }
 
   // ---- The issue board.
@@ -538,7 +544,7 @@ if (typeof document !== "undefined" && document.getElementById("line")) {
     data.analytics = await read("/live/analytics.json");
     renderPeriod();
   }
-  globalThis.TEHAS_HOST_BRIDGE?.onChange(() => { $("line").dataset.signature = ""; renderLine(); });
+  globalThis.TEHAS_HOST_BRIDGE?.onChange(() => { $("line").dataset.signature = ""; renderLine(); renderTokens(); });
   queue(); power(); lab(); report();
   setInterval(queue, 10000);
   setInterval(tail, 2000);
