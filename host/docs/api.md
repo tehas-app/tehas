@@ -941,7 +941,7 @@ GET /host/bridge.json
 ```
 
 ```json
-{"bridge": 1, "host": "example-host", "time": "2026-11-08T12:00:00Z", "ticketLink": "/host/ticket/{n}", "notices": [{"id": "n-1", "level": "info", "text": "Example notice.", "link": "/host/notice/n-1"}], "ticketNotes": [{"issue": 42, "text": "Example note", "link": "/host/ticket/42"}]}
+{"bridge": 1, "host": "example-host", "time": "2026-11-08T12:00:00Z", "ticketLink": "/host/ticket/{n}", "notices": [{"id": "n-1", "level": "info", "text": "Example notice.", "link": "/host/notice/n-1"}], "ticketNotes": [{"issue": 42, "text": "Example note", "link": "/host/ticket/42"}], "menu": [{"id": "m-1", "label": "Example page", "url": "https://host.example/page"}]}
 ```
 
 A contract between the dashboard and a host that fronts the factory's domain.
@@ -974,6 +974,10 @@ Schema, `api/host-bridge.schema.json`, a sample with every field,
 | `ticketNotes.issue` | 1 to 999999999. At most 3 notes per ticket; the rest are dropped |
 | `ticketNotes.text` | One line, 1 to 60 characters. Control characters become spaces |
 | `ticketNotes.link` | Optional, as `notices.link` |
+| `menu` | Optional, at most 4. Items in the front pages' menu, each opening its page in the dock as a panel does |
+| `menu.id` | `a-z`, `0-9` and `-`, 1 to 32 characters, unique in the list. An item with the id of a panel takes that panel's place |
+| `menu.label` | One line, 1 to 24 characters. Control characters become spaces |
+| `menu.url` | An `http://` or `https://` address with no user or password, at most 512 characters, not on the dashboard's own origin |
 
 - Not JSON, over 256 KiB, or a bad `bridge` or `time`: the answer is ignored
   whole.
@@ -992,6 +996,10 @@ How the dashboard draws it:
   level, beside the industry's alerts and drawn the same way.
 - `ticketNotes`: a small chip beside the ticket's number or title in every
   view that draws the ticket from the live queue, linked when it has a link.
+- `menu`: an item each in the menu of both front pages, after the panels of
+  `live/panels.json`, four in all. Pressing one opens its page in the dock at
+  the side, framed as a panel is; an item that goes from the answer goes from
+  the menu.
 
 The answer is data and never runs code on the dashboard's pages. Pages under
 `/host/` share the dashboard's origin: tehas keeps no secret on it, and a host

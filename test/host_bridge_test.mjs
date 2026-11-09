@@ -30,11 +30,12 @@ test("the full sample gives every element", () => {
   assert.deepEqual(notesOf(a, 42), [{ text: "Example note", link: "/host/ticket/42" }, { text: "Second note", link: null }]);
   assert.deepEqual(notesOf(a, 7), [{ text: "Another note", link: "https://host.example/ticket/7" }]);
   assert.deepEqual(notesOf(a, 8), []);
+  assert.deepEqual(a.menu, [{ id: "m-1", label: "Example page", url: "https://host.example/page" }]);
 });
 
 test("the bare sample is an answer with nothing to draw", () => {
   const a = read(sample("bare"), NOW);
-  assert.deepEqual(a, { ticketLink: null, notices: [], notes: new Map() });
+  assert.deepEqual(a, { ticketLink: null, notices: [], notes: new Map(), menu: [] });
   assert.equal(ticketHref(a, REPO, ISSUE(42)), null);
 });
 
@@ -160,6 +161,23 @@ test("each breach of a ticket note drops that note alone; at most 3 a ticket and
 });
 
 // The least of a document: the elements the module makes, as plain objects.
+test("each breach of a menu item drops that item alone; ids unique and four the most", () => {
+  const m = (id, over = {}) => ({ id, label: `Page ${id}`, url: `https://${id}.host.example/p`, ...over });
+  const v = full();
+  v.menu = [
+    m("a"), m("a"), m("Big"), m("b", { label: "" }), m("c", { label: "x".repeat(25) }),
+    m("d", { url: "javascript:alert(1)" }), m("e", { url: "/host/page" }), m("f", { url: "https://u:p@f.host.example/" }),
+    m("g", { url: `https://g.host.example/${"x".repeat(500)}` }), m("h", { url: "https://h.host.example/a b" }),
+    m("i", { label: " Two\nlines " }), m("j", { url: "http://j.host.example/p" }), m("k"), m("l"),
+  ];
+  const a = readOf(v);
+  assert.deepEqual(a.menu.map((i) => i.id), ["a", "i", "j", "k"]);
+  assert.equal(a.menu[1].label, "Two lines");
+  assert.equal(a.menu[2].url, "http://j.host.example/p");
+  v.menu = "x";
+  assert.deepEqual(readOf(v).menu, []);
+});
+
 function stubDocument() {
   const make = (name) => ({
     name, className: "", textContent: "", href: "", hidden: false, attrs: {}, kids: [],

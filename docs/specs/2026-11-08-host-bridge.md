@@ -31,6 +31,9 @@ are added when an answer arrives.
   ],
   "ticketNotes": [
     {"issue": 42, "text": "Example note", "link": "/host/ticket/42"}
+  ],
+  "menu": [
+    {"id": "m-1", "label": "Example page", "url": "https://host.example/page"}
   ]
 }
 ```
@@ -50,6 +53,10 @@ are added when an answer arrives.
 | `ticketNotes.issue` | 1 to 999999999. At most 3 notes per ticket; the rest are dropped |
 | `ticketNotes.text` | One line, 1 to 60 characters |
 | `ticketNotes.link` | Optional, as `notices.link` |
+| `menu` | Optional, at most 4. Items in the front pages' menu, each opening its page in the dock as a panel does |
+| `menu.id` | `a-z`, `0-9` and `-`, 1 to 32 characters, unique in the list. An item with the id of a panel takes that panel's place |
+| `menu.label` | One line, 1 to 24 characters. Control characters become spaces |
+| `menu.url` | An `http://` or `https://` address with no user or password, at most 512 characters, not on the dashboard's own origin |
 
 Reading it:
 
@@ -67,6 +74,9 @@ Reading it:
   tone, beside the alerts banner and drawn the same way.
 - **`ticketNotes`**: a small chip beside the ticket's number or title in
   every view that draws it, linked when it has a link.
+- **`menu`**: an item each in the menu of both front pages, after the
+  panels of `live/panels.json`, four in all, opening its page in the dock as
+  a panel does. An item that goes from the answer goes from the menu.
 
 Placement and look in each design is left to the builder.
 

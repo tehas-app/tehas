@@ -1,10 +1,11 @@
 // The pages of the project the dashboard links, read once from
-// /live/panels.json (written by tehas panel, see console/src/panel.rs). Both
-// front pages load it: each panel is an item in the page's menu, and pressing
-// it opens the page in a dock at the side.
+// /live/panels.json (written by tehas panel, see console/src/panel.rs), and
+// the host bridge's menu (host/fun/host-bridge.js), as it comes and goes. Both
+// front pages load it: each is an item in the page's menu, and pressing it
+// opens the page in a dock at the side.
 //
-// view() is the pure step from the file to the items, tested without a browser
-// (test/panels_view_test.mjs). The file is read from the network and its text
+// view() is the pure step from the file to the items, and merge() adds the
+// bridge's, both tested without a browser (test/panels_view_test.mjs). The file is read from the network and its text
 // is untrusted: a label is set as text, and a URL is parsed again here, so
 // only an http: or https: page on another origin is kept.
 //
@@ -45,7 +46,28 @@
     return items;
   }
 
-  globalThis.TEHAS_PANELS = { view };
+  // The file's items and the bridge's menu as one list of at most four: a
+  // bridge item takes the place of the file's item with its id, the others
+  // follow the file's. A bridge item on the page's own origin is dropped.
+  function merge(items, menu, origin) {
+    const out = items.slice();
+    for (const m of Array.isArray(menu) ? menu : []) {
+      let url;
+      try {
+        url = new URL(m.url);
+      } catch {
+        continue;
+      }
+      if (url.origin === origin) continue;
+      const item = { id: m.id, label: m.label, url: url.href };
+      const at = out.findIndex((i) => i.id === item.id);
+      if (at >= 0) out[at] = item;
+      else if (out.length < MAX) out.push(item);
+    }
+    return out.slice(0, MAX);
+  }
+
+  globalThis.TEHAS_PANELS = { view, merge };
 
   if (typeof document === "undefined") return;
   const nav = document.querySelector(".topbar nav");
@@ -118,13 +140,21 @@
     shown = null;
   }
 
-  async function load() {
-    let items = [];
-    try {
-      const r = await fetch("/live/panels.json", { cache: "no-store" });
-      if (r.ok) items = view(await r.json(), location.origin);
-    } catch {
-      items = [];
+  // The menu's items drawn again: the file's, then the bridge's. An item
+  // that went keeps no frame, and a dock showing it closes.
+  function draw(items) {
+    for (const old of nav.querySelectorAll(".panel-link")) old.remove();
+    const ids = new Set(items.map((i) => i.id));
+    if (shown && (!ids.has(shown.item.id) || items.find((i) => i.id === shown.item.id).url !== shown.item.url)) {
+      dock.hidden = true;
+      shown = null;
+    }
+    for (const [id, f] of frames) {
+      const now = items.find((i) => i.id === id);
+      if (!now || f.src !== now.url) {
+        f.remove();
+        frames.delete(id);
+      }
     }
     for (const item of items) {
       const link = el("a", "panel-link", item.label);
@@ -139,9 +169,45 @@
         e.preventDefault();
         show(item, link);
       });
+      if (shown && shown.item.id === item.id) {
+        link.setAttribute("aria-expanded", "true");
+        shown.link = link;
+      }
       nav.append(link);
     }
   }
 
+  let fromFile = [];
+  let fromHost = [];
+  // The bridge answers again each minute: the menu is drawn again only when
+  // its items changed, so a link keeps its focus and a frame its page.
+  let drawn = null;
+  const redraw = () => {
+    const items = merge(fromFile, fromHost, location.origin);
+    const key = JSON.stringify(items);
+    if (key === drawn) return;
+    drawn = key;
+    draw(items);
+  };
+
+  async function load() {
+    try {
+      const r = await fetch("/live/panels.json", { cache: "no-store" });
+      if (r.ok) fromFile = view(await r.json(), location.origin);
+    } catch {
+      fromFile = [];
+    }
+    redraw();
+  }
+
+  const bridge = globalThis.TEHAS_HOST_BRIDGE;
+  if (bridge) {
+    const current = bridge.current();
+    if (current) fromHost = current.menu || [];
+    bridge.onChange((a) => {
+      fromHost = (a && a.menu) || [];
+      redraw();
+    });
+  }
   load();
 })();
