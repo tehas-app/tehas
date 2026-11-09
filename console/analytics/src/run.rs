@@ -25,13 +25,13 @@
 //! file is missing its columns are NULL. Under $TEHAS_HOME:
 //!
 //! - state/cycles/<n>.result.json (libexec/work): the headless runner's raw
-//!   result, schema 3 or 4, {schemaVersion, buildVersion, buildCommit,
+//!   result, schema 3, 4 or 5, {schemaVersion, buildVersion, buildCommit,
 //!   exitCode, issues: [{issue, status, durationMs, steps: [{step,
 //!   startedAt, endedAt}], exitCode, usage: {input, output, cacheRead,
 //!   cacheWrite, cost, turns, dispatches, byRole: {<role>: {...}}}, cap,
 //!   failedStep, parkReason, failure: {kind, step, role, cause}}]}. Read
 //!   whole: tehas-cycle reads its RESULT_SCHEMA only, but the fields read here
-//!   are the same in both. libexec/cycle removes it as the next cycle starts.
+//!   are the same in all three. libexec/cycle removes it as the next cycle starts.
 //! - state/cycles/<n>.progress.json (tehas-cycle, progress.rs):
 //!   {roles: [{role, dispatches, turns, input, output, cacheRead}], reason,
 //!   failure, reviewHeld, from}. reviewHeld, and the roles where the result
@@ -189,8 +189,9 @@ pub struct Role {
     pub ms: Option<i64>,
 }
 
-/// The result schemas whose fields this reads.
-const RESULT_SCHEMAS: [i64; 2] = [3, 4];
+/// The result schemas whose fields this reads. Schema 5 renamed two caps and
+/// left every field read here as it was.
+const RESULT_SCHEMAS: [i64; 3] = [3, 4, 5];
 
 /// What libexec/cycle passes on: the facts file, the image the container
 /// started from and when it was built, the pi-rukas commit of its label, and

@@ -146,7 +146,7 @@ call; one that a caller killed during the call leaves is removed by
 | `oom_kills`, `forks_refused` | Processes killed for memory and forks refused in the container, as `tehasbot cycle` reads them | 1 |
 | `concurrent` | How many other cycles ran when it started, from `settings` | 1 |
 | `runner_ms` | The result's `durationMs`, in milliseconds | 1 |
-| `result_schema` | The pi-rukas result's schema number, 3 or 4 | 1 |
+| `result_schema` | The pi-rukas result's schema number, 3, 4 or 5 | 1 |
 | `gate_runs` | How many runs of the product's gate the cycle made, from its stream. NULL when the stream held none, which is no gate rather than a gate of no time; 0 is not stored, so a run whose rows the runner timed of nothing keeps no count either | 2 |
 | `gate_ms` | Their milliseconds in all, as the runner timed each of them: the gate's own time, not the wait for another run of it that held the container's CPU share. A single run of it of more than three runs of `TEHAS_VERIFY_TIMEOUT` is no figure, and NULL with no run of it | 2 |
 | `driver` | The driver the start's approval bound: `classic` or `lean`. NULL where the approval holds no driver or another word, on every run from before the column, and on a planning turn. NULL reads as classic | 3 |
