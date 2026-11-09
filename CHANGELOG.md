@@ -36,6 +36,11 @@ a pull request before it tags, with the head's `scripts/collect-changelog.sh`.
 - `tehas-cycle finish` rebases in a repository of its own beside the kept workspace and pushes to the instance's repository on GitHub; it runs no git command in the workspace.
 - The read-only status reads a workspace's pull request file only when it is a plain file.
 - The dashboard reads `/host/bridge.json` on its own origin, where a host that fronts the factory's domain can give a link for tickets, notices at the top of the front pages and short notes on tickets. tehas answers 404 under `/host/` itself, so a factory without such a host is unchanged. The dashboard pages unregister any service worker on their origin. `tehas api` lists the feature `host-bridge`. The contract is in the API page, "The host bridge".
+- `analytics.db` reads the pi-rukas result of schema 5 again. Since the result moved to schema 5, a run's usage, roles and pi-rukas version from the result were left empty (#1793).
+- `analytics.db` keeps each run's tool calls and failed tool calls, in total and per role, and the driver the result says ran it (`result_driver`) beside the one the approval bound. They need pi-rukas v0.14.66 or later and are NULL before it. Analytics schema 4; a file at schema 2 or 3 is migrated in place (#1793).
+- The host bridge can add up to four items to the front pages' menu, each
+  opening its page in the dock as a panel does. Without a host the menu is as
+  it was.
 
 ### Held back
 
@@ -50,6 +55,8 @@ A factory whose upgrade to v0.25.2 stopped at `install.sh --check` with `differs
 A factory upgrade that stopped at `Sandbox: BEHIND` right after a pi-rukas release: after updating, run the check again (`install.sh --check`, or the factory's own check) once a status run has passed.
 
 None.
+
+A program that pins the analytics schema at 3 moves its pin to 4 before it reads a copy from this release: the export's `schema` is 4.
 
 ## v0.25.1 (2026-11-07)
 
