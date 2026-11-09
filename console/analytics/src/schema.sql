@@ -9,6 +9,10 @@
 -- its stream said; both are NULL when it recorded none, which is no gate rather
 -- than a gate of no time, and 0 is not stored. driver is the driver the
 -- approval bound; NULL is classic, as on every run from before the column.
+-- tool_calls and tool_errors are the tool calls the run's children started and
+-- those that ended in an error, as the result's usage counts them, and
+-- result_driver is the driver the result says ran it; all three are NULL where
+-- the result has none, which is no count rather than none.
 CREATE TABLE runs (
   id TEXT PRIMARY KEY,
   kind TEXT NOT NULL CHECK (kind IN ('work', 'plan')),
@@ -51,7 +55,10 @@ CREATE TABLE runs (
   result_schema INTEGER,
   gate_runs INTEGER,
   gate_ms INTEGER,
-  driver TEXT CHECK (driver IN ('classic', 'lean'))
+  driver TEXT CHECK (driver IN ('classic', 'lean')),
+  tool_calls INTEGER,
+  tool_errors INTEGER,
+  result_driver TEXT CHECK (result_driver IN ('classic', 'lean'))
 );
 CREATE INDEX runs_ended ON runs (ended);
 CREATE INDEX runs_issue ON runs (issue, started);
@@ -89,7 +96,8 @@ CREATE TABLE run_steps (
   PRIMARY KEY (run_id, step, round)
 );
 
--- The usage of each role in a run, and the model it was given.
+-- The usage of each role in a run, and the model it was given. tool_calls and
+-- tool_errors as on runs, for the role.
 CREATE TABLE run_roles (
   run_id TEXT NOT NULL REFERENCES runs (id) ON DELETE CASCADE,
   role TEXT NOT NULL,
@@ -103,6 +111,8 @@ CREATE TABLE run_roles (
   cache_write INTEGER,
   cost REAL,
   ms INTEGER,
+  tool_calls INTEGER,
+  tool_errors INTEGER,
   PRIMARY KEY (run_id, role)
 );
 
@@ -136,6 +146,9 @@ CREATE TABLE samples (
 -- schema 3: driver on runs, and v_versions leaves empty tokens out of its
 -- median. A database of schema 2 is migrated in place (migrate in db.rs), which
 -- adds the column last, as it is above, and makes the view anew.
+-- schema 4: tool_calls, tool_errors and result_driver on runs, tool_calls and
+-- tool_errors on run_roles. A database of schema 2 or 3 is migrated in place,
+-- each new column last, as it is above.
 
 -- schema, retention_days and created. Nothing about the host.
 CREATE TABLE meta (

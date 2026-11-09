@@ -1,4 +1,4 @@
-user_version 3
+user_version 4
 
 -- index issue_events_at
 CREATE INDEX issue_events_at ON issue_events (at);
@@ -50,6 +50,8 @@ CREATE TABLE run_roles (
   cache_write INTEGER,
   cost REAL,
   ms INTEGER,
+  tool_calls INTEGER,
+  tool_errors INTEGER,
   PRIMARY KEY (run_id, role)
 );
 
@@ -107,7 +109,10 @@ CREATE TABLE runs (
   result_schema INTEGER,
   gate_runs INTEGER,
   gate_ms INTEGER,
-  driver TEXT CHECK (driver IN ('classic', 'lean'))
+  driver TEXT CHECK (driver IN ('classic', 'lean')),
+  tool_calls INTEGER,
+  tool_errors INTEGER,
+  result_driver TEXT CHECK (result_driver IN ('classic', 'lean'))
 );
 
 -- table samples
