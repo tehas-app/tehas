@@ -253,6 +253,19 @@ t_run "$refresh --help"
 t_eq "$t_rc" 0
 t_contains "$t_out" "Usage:"
 
+# What --help prints is the text file of the dispatcher's own package, which is
+# the one `console update sources` counts in its sum. The sum is the one the text
+# had before it moved, so an edit of the help is the only way to change it, and
+# such an edit changes this line on purpose.
+t_case "the refresh text is the words it had before it moved"
+t_eq "$(sha256sum <"$T_ROOT/console/dispatch/src/usage/refresh.txt" | cut -d' ' -f1)" \
+  "5b5495769e26a847c63bf67eb913b7e869faab82a8d627f51c1dc7aa46569fa3"
+
+t_case "--help prints the refresh text word for word"
+reset
+t_run "$refresh --help"
+t_eq "$t_out" "$(cat "$T_ROOT/console/dispatch/src/usage/refresh.txt")"
+
 t_case "a setting that is missing stops it with 78 before any call or write"
 reset
 t_instance TEHAS_REFRESH_CONFLICTS=1
