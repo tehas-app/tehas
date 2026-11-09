@@ -161,6 +161,15 @@ impl Host {
         result["issues"][0]["failedStep"] = json!("handoff");
         result["issues"][0]["cap"] = json!("explore-bodies-empty");
         result["issues"][0]["parkReason"] = json!("cap");
+        // pi-rukas's usageTools: the counts per run and per role, and the driver.
+        result["issues"][0]["driver"] = json!("lean");
+        result["issues"][0]["usage"]["toolCalls"] = json!(12);
+        result["issues"][0]["usage"]["toolErrors"] = json!(2);
+        result["issues"][0]["usage"]["byRole"] = json!({
+            "ops": {"input": 100, "output": 10, "cacheRead": 5, "cacheWrite": 0, "cost": 0,
+                    "turns": 3, "dispatches": 1, "toolCalls": 8, "toolErrors": 1},
+            "explore": {"input": 50, "output": 5, "cacheRead": 0, "cacheWrite": 0, "cost": 0,
+                        "turns": 2, "dispatches": 1, "toolCalls": 4, "toolErrors": 1}});
         result["issues"][0]["failure"] = json!({"kind": "provider", "step": "handoff",
             "cause": format!("GET https://user:hunter2@models.example/v1 from {} and {} with Bearer abcdefghijklmnopqrstuvwxyz; \
                 connect ECONNREFUSED models.example:8000; git@host.tld:org/repo; token=ghp_abcdefghijklmnopqrstuvwxyz123456; \
