@@ -111,7 +111,7 @@ tehas api [--json]
   "tehas": "v0.8.0",
   "commit": "cb6912a",
   "repo": "tehas-app/tehas",
-  "features": ["status", "millwright-grant", "fixer-grant", "all-hands", "limit", "drain", "history", "export", "refresh-conflicts", "analytics", "state-move", "pr-title", "mcp-dashboard-keys", "clean", "disk", "panels", "state-check", "finish", "status-versions", "store-copy", "state-load", "freeze", "host-bridge"],
+  "features": ["status", "millwright-grant", "fixer-grant", "all-hands", "limit", "drain", "history", "export", "refresh-conflicts", "analytics", "state-move", "pr-title", "mcp-dashboard-keys", "clean", "disk", "panels", "state-check", "finish", "status-versions", "store-copy", "state-load", "freeze", "host-bridge", "host-bridge-tokens"],
   "millwright": null,
   "fixer": null,
   "poll": {
@@ -136,7 +136,7 @@ tehas api [--json]
 | `tehas` | The release tag the factory was installed from: `v0.10.2` for a release install, `v0.8.0` for a checkout one. `null` when the install came from a checkout with no tag, or not from a git checkout |
 | `commit` | The commit it was installed from, seven characters; `null` for a release install, which records only the tag, and when not from a git checkout |
 | `repo` | `TEHAS_REPO`, the product repository |
-| `features` | What this release has, so a program can tell a factory that predates a feature from one where it failed. Today `status`, `millwright-grant` ([the millwright's grant](/operating#the-millwrights-grant)), `fixer-grant`, `all-hands`, `limit`, `drain`, `history` ([`tehas history`](#tehas-history)), `export` ([`tehas export`](#tehas-export)), `refresh-conflicts` (the factory refreshes its own pull requests that conflict, [refreshes](/operating#refreshes)), `analytics` ([`tehas analytics export --json`](#tehas-analytics-export)), `state-move` ([`tehas state`](#tehas-state)), `pr-title` (the factory keeps the `WIP: ` and `HALT: ` prefixes of its pull requests itself, [pull request titles](/tools#pull-request-titles)), `mcp-dashboard-keys` (the read-only MCP server answers a key of `TEHAS_MCP_DASHBOARD_KEYS` with only the four tools that copy from `live/`, [the MCP server](/mcp-server)), `clean` ([`tehasbot clean`](#tehasbot-clean)), `disk` ([`tehas disk`](#tehas-disk)), `panels` ([`tehas panel`](#tehas-panel)), `state-check` ([`tehas state check`](#tehas-state-check)), `finish` ([the finish ask](#the-finish-ask)), `status-versions` (`versions` in [`tehas status --json`](#tehas-status---json)) `store-copy` ([`tehas state copy`](#tehas-state-copy)), `state-load` ([`tehas state load`](#tehas-state-load)), `freeze` ([`tehas freeze` and `tehas thaw`](#tehas-freeze-and-tehas-thaw)) and `host-bridge` ([the host bridge](#the-host-bridge)) |
+| `features` | What this release has, so a program can tell a factory that predates a feature from one where it failed. Today `status`, `millwright-grant` ([the millwright's grant](/operating#the-millwrights-grant)), `fixer-grant`, `all-hands`, `limit`, `drain`, `history` ([`tehas history`](#tehas-history)), `export` ([`tehas export`](#tehas-export)), `refresh-conflicts` (the factory refreshes its own pull requests that conflict, [refreshes](/operating#refreshes)), `analytics` ([`tehas analytics export --json`](#tehas-analytics-export)), `state-move` ([`tehas state`](#tehas-state)), `pr-title` (the factory keeps the `WIP: ` and `HALT: ` prefixes of its pull requests itself, [pull request titles](/tools#pull-request-titles)), `mcp-dashboard-keys` (the read-only MCP server answers a key of `TEHAS_MCP_DASHBOARD_KEYS` with only the four tools that copy from `live/`, [the MCP server](/mcp-server)), `clean` ([`tehasbot clean`](#tehasbot-clean)), `disk` ([`tehas disk`](#tehas-disk)), `panels` ([`tehas panel`](#tehas-panel)), `state-check` ([`tehas state check`](#tehas-state-check)), `finish` ([the finish ask](#the-finish-ask)), `status-versions` (`versions` in [`tehas status --json`](#tehas-status---json)) `store-copy` ([`tehas state copy`](#tehas-state-copy)), `state-load` ([`tehas state load`](#tehas-state-load)), `freeze` ([`tehas freeze` and `tehas thaw`](#tehas-freeze-and-tehas-thaw)) `host-bridge` ([the host bridge](#the-host-bridge)) and `host-bridge-tokens` (the dashboard draws `tokens` of [the host bridge](#the-host-bridge)) |
 | `millwright` | `TEHAS_MILLWRIGHT_LOGIN`, or `null` when the instance has no millwright |
 | `fixer` | The same as `millwright`. It and the feature `fixer-grant` are the old names, kept for as long as API version 1; a program reads `millwright` and `millwright-grant` |
 | `poll` | What the polls of this factory cost, or `null` when no poll is on record or the state store cannot answer. `last` is the poll that most recently held the dispatcher's lock and `hour` is the sums of the polls that ended in the last hour; both are in the fields below, so a program that keeps a copy of them can add the cost of many hosts up. See [What a poll costs](/operating#what-a-poll-costs) for what each figure counts |
@@ -941,7 +941,7 @@ GET /host/bridge.json
 ```
 
 ```json
-{"bridge": 1, "host": "example-host", "time": "2026-11-08T12:00:00Z", "ticketLink": "/host/ticket/{n}", "notices": [{"id": "n-1", "level": "info", "text": "Example notice.", "link": "/host/notice/n-1"}], "ticketNotes": [{"issue": 42, "text": "Example note", "link": "/host/ticket/42"}], "menu": [{"id": "m-1", "label": "Example page", "url": "https://host.example/page"}]}
+{"bridge": 1, "host": "example-host", "time": "2026-11-08T12:00:00Z", "ticketLink": "/host/ticket/{n}", "notices": [{"id": "n-1", "level": "info", "text": "Example notice.", "link": "/host/notice/n-1"}], "ticketNotes": [{"issue": 42, "text": "Example note", "link": "/host/ticket/42"}], "menu": [{"id": "m-1", "label": "Example page", "url": "https://host.example/page"}], "tokens": {"days": [{"date": "2026-11-08", "requests": 412, "input": 9120000, "output": 81000, "cached": 8700000}], "models": [{"model": "example-model", "requests": 412, "input": 9120000, "output": 81000, "cached": 8700000}], "unknown": 0}}
 ```
 
 A contract between the dashboard and a host that fronts the factory's domain.
@@ -978,6 +978,10 @@ Schema, `api/host-bridge.schema.json`, a sample with every field,
 | `menu.id` | `a-z`, `0-9` and `-`, 1 to 32 characters, unique in the list. An item with the id of a panel takes that panel's place |
 | `menu.label` | One line, 1 to 24 characters. Control characters become spaces |
 | `menu.url` | An `http://` or `https://` address with no user or password, at most 512 characters, not on the dashboard's own origin |
+| `tokens` | Optional. Token use over the last 10 days, from the host's own records. Absent, or not an object: nothing is drawn |
+| `tokens.days` | At most 10, one per UTC date. Each has `date` (`YYYY-MM-DD`, unique in the list) and the counts `requests`, `input`, `output` and `cached`, integers from 0 to 10^15. `cached` is the part of `input` read from a cache |
+| `tokens.models` | At most 20, totals over the days. Each has `model` (one line, 1 to 80 characters, unique in the list) and the same four counts |
+| `tokens.unknown` | Requests whose usage the host could not read, an integer from 0 to 10^15. Anything else counts as 0 |
 
 - Not JSON, over 256 KiB, or a bad `bridge` or `time`: the answer is ignored
   whole.
@@ -1000,10 +1004,17 @@ How the dashboard draws it:
   `live/panels.json`, four in all. Pressing one opens its page in the dock at
   the side, framed as a panel is; an item that goes from the answer goes from
   the menu.
+- `tokens`: a "Token use" block at the foot of the Performance section of
+  the business front page, under its charts: a table of the days, oldest
+  first, and a table of the models, each with requests, input, cached and
+  output. A day or a model with no input or output tokens is not listed.
+  `unknown` above 0 is shown as "N unknown", never as zero tokens. The block
+  is drawn only while the section is.
 
 The answer is data and never runs code on the dashboard's pages. Pages under
 `/host/` share the dashboard's origin: tehas keeps no secret on it, and a host
 that fronts the domain is trusted as the factory's operator is. tehas
 registers no service worker, and the front pages and `/dashboard` unregister
 any they find on their origin. `live/` stays public; the bridge does not
-change it. `tehas api` lists the feature `host-bridge`.
+change it. `tehas api` lists the feature `host-bridge`, and `host-bridge-tokens`
+when the dashboard draws `tokens`.

@@ -27,6 +27,9 @@
   const CONTROL = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g;
   const SPACE_OR_CONTROL = /[\s\u0000-\u001f\u007f-\u009f]/;
   const REPO = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
+  const DAY = /^\d{4}-\d{2}-\d{2}$/;
+  const MAX_COUNT = 1e15;
+  const COUNTS = ["requests", "input", "output", "cached"];
 
   const object = (o) => (o !== null && typeof o === "object" && !Array.isArray(o) ? o : null);
   const length = (s) => [...s].length;
@@ -65,6 +68,53 @@
     }
   }
 
+  const count = (n) => (Number.isInteger(n) && n >= 0 && n <= MAX_COUNT ? n : null);
+
+  // The four counts of a day or a model, or null when one breaks its rule.
+  function counts(e) {
+    const c = {};
+    for (const k of COUNTS) if ((c[k] = count(e[k])) === null) return null;
+    return c;
+  }
+
+  // A UTC date that exists, as YYYY-MM-DD.
+  function day(s) {
+    if (typeof s !== "string" || !DAY.test(s)) return null;
+    const t = Date.parse(s + "T00:00:00Z");
+    return !Number.isNaN(t) && new Date(t).toISOString().slice(0, 10) === s ? s : null;
+  }
+
+  // { days: [{ date, requests, input, output, cached }], models: [{ model, ... }], unknown },
+  // or null when the field is absent or not an object. A day or a model with
+  // no tokens is left out; days run oldest first.
+  function tokensOf(v) {
+    const t = object(v);
+    if (!t) return null;
+    const used = (c) => c.input + c.output > 0;
+    const days = [];
+    const dates = new Set();
+    for (const d of (Array.isArray(t.days) ? t.days : []).slice(0, 10)) {
+      const e = object(d);
+      const date = e && day(e.date);
+      const c = e && counts(e);
+      if (!date || !c || dates.has(date)) continue;
+      dates.add(date);
+      if (used(c)) days.push({ date, ...c });
+    }
+    days.sort((a, b) => (a.date < b.date ? -1 : 1));
+    const models = [];
+    const names = new Set();
+    for (const m of (Array.isArray(t.models) ? t.models : []).slice(0, 20)) {
+      const e = object(m);
+      const model = e && line(e.model, 80);
+      const c = e && counts(e);
+      if (!model || !c || names.has(model)) continue;
+      names.add(model);
+      if (used(c)) models.push({ model, ...c });
+    }
+    return { days, models, unknown: count(t.unknown) || 0 };
+  }
+
   function ticketLink(s) {
     if (typeof s !== "string" || s.length > 200 || !s.startsWith("/host/") || SPACE_OR_CONTROL.test(s)) return null;
     return s.split("{n}").length === 2 ? s : null;
@@ -72,7 +122,7 @@
 
   // The answer as the pages use it, or null when it is ignored whole:
   // { ticketLink, notices: [{ id, level, text, link }], notes: Map(issue -> [{ text, link }]),
-  //   menu: [{ id, label, url }] }.
+  //   menu: [{ id, label, url }], tokens: tokensOf() }.
   // `now` is the time to judge the answer's age by, in ms.
   function read(text, now) {
     if (typeof text !== "string" || new TextEncoder().encode(text).length > MAX_BYTES) return null;
@@ -134,7 +184,7 @@
       menu.push({ id: e.id, label, url });
     }
 
-    return { ticketLink: ticketLink(v.ticketLink), notices, notes, menu };
+    return { ticketLink: ticketLink(v.ticketLink), notices, notes, menu, tokens: tokensOf(v.tokens) };
   }
 
   // Where a ticket links on the dashboard: the host's page for a ticket of the
@@ -199,6 +249,51 @@
     el.hidden = list.length === 0;
   }
 
+  const COMPACT = new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 });
+  const amount = (n) => COMPACT.format(n);
+
+  // Token use, under the charts of the Performance section: a table of the
+  // days and one of the models. Hidden when there is nothing to show.
+  function drawTokens(el, tokens, doc) {
+    const node = (name, cls, words) => {
+      const n = doc.createElement(name);
+      if (cls) n.className = cls;
+      if (words !== undefined) n.textContent = words;
+      return n;
+    };
+    const table = (head, rows) => {
+      const t = node("table", "token-table");
+      const top = node("thead");
+      const body = node("tbody");
+      const h = node("tr");
+      h.append(...[head, "Requests", "Input", "Cached", "Output"].map((w) => node("th", null, w)));
+      top.append(h);
+      t.append(top, body);
+      body.append(...rows.map((r) => {
+        const tr = node("tr");
+        tr.append(node("th", null, r.name), ...["requests", "input", "cached", "output"].map((k) => {
+          const td = node("td", k === "cached" ? "is-cached" : null, amount(r[k]));
+          td.setAttribute("title", r[k].toLocaleString("en"));
+          return td;
+        }));
+        return tr;
+      }));
+      return t;
+    };
+    const t = tokens || { days: [], models: [], unknown: 0 };
+    const parts = [];
+    if (t.days.length) parts.push(table("Day", t.days.map((d) => ({ name: d.date, ...d }))));
+    if (t.models.length) parts.push(table("Model", t.models.map((m) => ({ name: m.model, ...m }))));
+    if (t.unknown > 0) {
+      const p = node("p", "note", `${t.unknown.toLocaleString("en")} unknown`);
+      p.setAttribute("title", "Requests whose usage the host could not read");
+      parts.push(p);
+    }
+    if (parts.length) parts.unshift(node("h3", null, "Token use"));
+    el.replaceChildren(...parts);
+    el.hidden = parts.length === 0;
+  }
+
   // Asks for the answer and keeps the last good one. A 404 is no host and
   // drops it at once; a failed ask, a slow one or an answer that is ignored
   // keeps it for up to five minutes after it came. `changed` is called with
@@ -243,7 +338,7 @@
   const listeners = [];
   let answer = null;
   const api = {
-    read, ticketHref, notesOf, chips, drawNotices, keeper,
+    read, ticketHref, notesOf, chips, drawNotices, drawTokens, keeper,
     current: () => answer,
     ticket: (repo, url) => ticketHref(answer, repo, url),
     notes: (doc, issue) => chips(doc, notesOf(answer, issue)),

@@ -105,3 +105,13 @@ Placement and look in each design is left to the builder.
 ## Feature
 
 `tehas api` lists `host-bridge`.
+
+## Token use (#1797)
+
+An optional `tokens` field carries a host's token use for the last 10 days:
+`days` (at most 10, unique UTC dates) and `models` (at most 20), each with
+`requests`, `input`, `output` and `cached`, plus `unknown`, the requests whose
+usage the host could not read. The business front page draws it as text in a
+"Token use" block at the foot of the Performance section. The contract stays
+version 1: a dashboard that predates the field ignores it. `tehas api` lists
+`host-bridge-tokens`, so a host can tell which factories draw it.
