@@ -60,11 +60,13 @@ beside it. It is not under `live/` and is not served. Times are UTC Unix
 seconds and durations are seconds, as integers, except `runner_ms` and
 `run_roles.ms`, which are milliseconds.
 
-`PRAGMA user_version` is the schema version, today 3. Within one version
+`PRAGMA user_version` is the schema version, today 4. Within one version
 columns are only added. A change of a column's meaning raises the version.
-A file at 2 is migrated in place as the program opens it: one transaction adds
-the column `driver` to `runs` and makes the view `v_versions` anew, and every run
-stays. Programs that have the file open go on working. A host whose file is still
+A file at 2 or 3 is migrated in place as the program opens it: one transaction
+adds the columns it lacks (`driver` from 2; `tool_calls`, `tool_errors` and
+`result_driver` on `runs` and `tool_calls` and `tool_errors` on `run_roles` from
+3) and makes the view `v_versions` anew, and every run stays. The new columns are
+NULL on the runs recorded before them. Programs that have the file open go on working. A host whose file is still
 at 1 keeps it aside under its version and starts a new one. Nothing of the gate
 was on the record there before; the new gate columns are NULL where a run made no
 gate, which the report reads as no gate rather than a gate of no time.
@@ -74,9 +76,9 @@ gate, which the report reads as no gate rather than a gate of no time.
 - **A database of another schema version** is moved, with its side files, to
   `analytics.db.schema-<version>`, where a reader can still fetch it, and a new
   one is made. It is deleted 365 days after its last write. That goes for a
-  version newer than the program too: after a rollback to a release of schema 2,
-  the file at 3 goes aside whole. Move it back by hand before going forward again:
-  nothing says it is still aside, and a second rollback renames the file then at 3
+  version newer than the program too: after a rollback to a release of schema 3,
+  the file at 4 goes aside whole. Move it back by hand before going forward again:
+  nothing says it is still aside, and a second rollback renames the file then at 4
   over it, which loses the runs it held.
 - Any other failure, a full disk or a lock held too long, leaves the file as
   it is.
@@ -146,10 +148,12 @@ call; one that a caller killed during the call leaves is removed by
 | `oom_kills`, `forks_refused` | Processes killed for memory and forks refused in the container, as `tehasbot cycle` reads them | 1 |
 | `concurrent` | How many other cycles ran when it started, from `settings` | 1 |
 | `runner_ms` | The result's `durationMs`, in milliseconds | 1 |
-| `result_schema` | The pi-rukas result's schema number, 3 or 4 | 1 |
+| `result_schema` | The pi-rukas result's schema number, 3, 4 or 5 | 1 |
 | `gate_runs` | How many runs of the product's gate the cycle made, from its stream. NULL when the stream held none, which is no gate rather than a gate of no time; 0 is not stored, so a run whose rows the runner timed of nothing keeps no count either | 2 |
 | `gate_ms` | Their milliseconds in all, as the runner timed each of them: the gate's own time, not the wait for another run of it that held the container's CPU share. A single run of it of more than three runs of `TEHAS_VERIFY_TIMEOUT` is no figure, and NULL with no run of it | 2 |
 | `driver` | The driver the start's approval bound: `classic` or `lean`. NULL where the approval holds no driver or another word, on every run from before the column, and on a planning turn. NULL reads as classic | 3 |
+| `tool_calls`, `tool_errors` | The result's `usage.toolCalls` and `usage.toolErrors`: the tool calls the run's children started, a codemode script's nested calls included, and those that ended in an error. NULL where the result has none: a pi-rukas before v0.14.66 (`features.usageTools`), a result that could not count them, a planning turn | 4 |
+| `result_driver` | The result's `driver`: the engine that ran the issue, `classic` or `lean`, beside `driver`, the one the approval bound. NULL where the result names none or another word | 4 |
 
 The outcome of a work run:
 
@@ -192,6 +196,7 @@ The usage of each role in a run, and the model it was given.
 | `dispatches`, `turns`, `input`, `output`, `cache_read` | The result's `usage.byRole`, else `progress.json` | 1 |
 | `cache_write`, `cost` | The result's `usage.byRole` | 1 |
 | `ms` | The role's time, in milliseconds, from `usage.byRole` | 1 |
+| `tool_calls`, `tool_errors` | As on `runs`, for the role, from `usage.byRole`. NULL where the role's row has none | 4 |
 
 The key is `(run_id, role)`.
 

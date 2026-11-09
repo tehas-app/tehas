@@ -408,6 +408,84 @@ fn cache_write_cost_and_role_usage_are_kept() {
 }
 
 #[test]
+fn a_schema_5_result_is_read() {
+    let home = scratch("schema-5");
+    let started = secs("2026-10-18T10:16:39Z");
+    cycle(
+        &home,
+        "headless-316134e",
+        started,
+        json!({"at": iso(started + 30), "started": started, "rc": 10, "status": "handoff",
+               "parked": true}),
+    );
+    let path = home.join("state/cycles/7.result.json");
+    let mut r: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+    r["schemaVersion"] = json!(5);
+    r["issues"][0]["usage"]["input"] = json!(1234);
+    fs::write(&path, r.to_string()).unwrap();
+    let conn = record(&home, 7, started + 60);
+    assert_eq!(
+        one::<String>(
+            &conn,
+            "SELECT result_schema || ' ' || input || ' ' || rukas_version FROM runs"
+        ),
+        "5 1234 0.12.80"
+    );
+}
+
+#[test]
+fn tool_counts_and_the_driver_that_ran_are_kept_and_absent_ones_stay_null() {
+    let home = scratch("tool-counts");
+    let started = secs("2026-10-18T10:16:39Z");
+    let facts = json!({"at": iso(started + 30), "started": started, "rc": 10,
+                       "status": "handoff", "parked": true});
+    cycle(&home, "headless-316134e", started, facts.clone());
+    let path = home.join("state/cycles/7.result.json");
+    let mut r: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+    r["schemaVersion"] = json!(5);
+    r["issues"][0]["driver"] = json!("lean");
+    r["issues"][0]["usage"]["toolCalls"] = json!(12);
+    r["issues"][0]["usage"]["toolErrors"] = json!(3);
+    r["issues"][0]["usage"]["byRole"] = json!({
+        "developer": {"input": 1, "output": 1, "cacheRead": 0, "cacheWrite": 0, "cost": 0,
+                      "turns": 1, "dispatches": 1, "toolCalls": 12, "toolErrors": 3}});
+    fs::write(&path, r.to_string()).unwrap();
+    let conn = record(&home, 7, started + 60);
+    assert_eq!(
+        one::<String>(
+            &conn,
+            "SELECT tool_calls || ' ' || tool_errors || ' ' || result_driver FROM runs"
+        ),
+        "12 3 lean"
+    );
+    assert_eq!(
+        one::<String>(
+            &conn,
+            "SELECT role || ' ' || tool_calls || ' ' || tool_errors FROM run_roles"
+        ),
+        "developer 12 3"
+    );
+
+    // A result from before pi-rukas counted, or with a driver it does not
+    // know, leaves the columns empty: no count, not none.
+    let home = scratch("tool-counts-absent");
+    cycle(&home, "headless-316134e", started, facts);
+    let path = home.join("state/cycles/7.result.json");
+    let mut r: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+    r["issues"][0]["driver"] = json!("other");
+    fs::write(&path, r.to_string()).unwrap();
+    let conn = record(&home, 7, started + 60);
+    assert_eq!(
+        one::<i64>(
+            &conn,
+            "SELECT count(*) FROM runs
+             WHERE tool_calls IS NULL AND tool_errors IS NULL AND result_driver IS NULL"
+        ),
+        1
+    );
+}
+
+#[test]
 fn roles_come_from_the_progress_and_steps_from_the_stream_when_the_result_has_none() {
     let home = scratch("fallback");
     let started = secs("2026-10-15T18:38:34Z");
@@ -1542,6 +1620,75 @@ fn a_migrated_database_holds_what_a_new_one_does() {
         one::<String>(&migrated, "SELECT driver FROM runs WHERE issue = 8"),
         "lean"
     );
+}
+
+/// The database as a schema 3 program made it, with a run the approval
+/// bound to lean and a role.
+fn schema_3_database(file: &Path, now: i64) -> Connection {
+    let c = Connection::open(file).unwrap();
+    c.execute_batch(include_str!("../tests/fixtures/schema-3.sql"))
+        .unwrap();
+    for (key, value) in [
+        ("schema", "3".to_string()),
+        ("retention_days", "365".to_string()),
+        ("created", now.to_string()),
+    ] {
+        c.execute(
+            "INSERT INTO meta (key, value) VALUES (?1, ?2)",
+            rusqlite::params![key, value],
+        )
+        .unwrap();
+    }
+    c.pragma_update(None, "user_version", 3).unwrap();
+    c.pragma_update(None, "journal_mode", "WAL").unwrap();
+    c.execute_batch(&format!(
+        "INSERT INTO runs (id, kind, issue, started, ended, outcome, driver)
+           VALUES ('work-7-1', 'work', 7, {s}, {e}, 'pr', 'lean');
+         INSERT INTO run_roles (run_id, role, input) VALUES ('work-7-1', 'developer', 10);",
+        s = now - 120,
+        e = now - 60,
+    ))
+    .unwrap();
+    c
+}
+
+#[test]
+fn a_schema_3_database_migrates_in_place_and_holds_what_a_new_one_does() {
+    let home = scratch("migrate-3");
+    let file = db::path(&home);
+    let now = 1_792_000_000;
+    drop(schema_3_database(&file, now));
+    let (migrated, moved) = db::open(&file, now).unwrap();
+    assert_eq!(moved, None);
+    assert_eq!(
+        one::<i64>(&migrated, "PRAGMA user_version"),
+        db::SCHEMA_VERSION
+    );
+    assert_eq!(
+        one::<String>(&migrated, "SELECT value FROM meta WHERE key = 'schema'"),
+        db::SCHEMA_VERSION.to_string()
+    );
+    assert_eq!(
+        one::<String>(
+            &migrated,
+            "SELECT driver || ' ' || coalesce(tool_calls, 'none') || ' '
+                    || coalesce(result_driver, 'none') FROM runs"
+        ),
+        "lean none none"
+    );
+    assert_eq!(
+        one::<String>(
+            &migrated,
+            "SELECT input || ' ' || coalesce(tool_calls, 'none') FROM run_roles"
+        ),
+        "10 none"
+    );
+    let fresh = scratch("fresh-4");
+    let (new, _) = db::open(&db::path(&fresh), now).unwrap();
+    assert_eq!(stored_schema(&migrated), stored_schema(&new));
+    assert!(migrated
+        .execute("UPDATE runs SET result_driver = 'other'", [])
+        .is_err());
 }
 
 #[test]
