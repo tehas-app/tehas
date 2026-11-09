@@ -408,6 +408,32 @@ fn cache_write_cost_and_role_usage_are_kept() {
 }
 
 #[test]
+fn a_schema_5_result_is_read() {
+    let home = scratch("schema-5");
+    let started = secs("2026-10-18T10:16:39Z");
+    cycle(
+        &home,
+        "headless-316134e",
+        started,
+        json!({"at": iso(started + 30), "started": started, "rc": 10, "status": "handoff",
+               "parked": true}),
+    );
+    let path = home.join("state/cycles/7.result.json");
+    let mut r: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+    r["schemaVersion"] = json!(5);
+    r["issues"][0]["usage"]["input"] = json!(1234);
+    fs::write(&path, r.to_string()).unwrap();
+    let conn = record(&home, 7, started + 60);
+    assert_eq!(
+        one::<String>(
+            &conn,
+            "SELECT result_schema || ' ' || input || ' ' || rukas_version FROM runs"
+        ),
+        "5 1234 0.12.80"
+    );
+}
+
+#[test]
 fn roles_come_from_the_progress_and_steps_from_the_stream_when_the_result_has_none() {
     let home = scratch("fallback");
     let started = secs("2026-10-15T18:38:34Z");
