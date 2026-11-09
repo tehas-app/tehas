@@ -159,4 +159,4 @@ issue.
 ## Optional
 
 - [For agents]({{ $base }}/agents.md): this file as a manual page, with a prompt a person can paste
-- [Factory floor]({{ $base }}/): the dashboard people look at
+- [Factory floor]({{ $base }}/floor): the dashboard people look at

@@ -33,4 +33,34 @@ done
 t_case "mcp-server.md: has a client config block"
 t_contains "$(cat "$T_ROOT/host/docs/mcp-server.md")" '"headers"'
 
+# Since TEHAS_DESIGN the root is the factory floor only with TEHAS_DESIGN=pixel;
+# with the default design it is the business page. /floor and /business are
+# there in both designs, so a manual page names the page it means. The rule is
+# about Markdown links; a page's own navigation is HTML and not a link a reader
+# is told to follow.
+root_re='\]\((\{\{ \$base \}\})?/\)'
+
+# The pattern is checked against its samples first: a pattern that matches
+# nothing would pass every page.
+t_case "the root link pattern finds both forms it is for"
+grep -qiE -- "$root_re" <<< 'a [factory floor](/) link' \
+  || t_bad "the pattern finds no Markdown link to the root"
+grep -qiE -- "$root_re" <<< 'a [Factory floor]({{ $base }}/) link in a template' \
+  || t_bad "the pattern finds no template link to the root"
+grep -qiE -- "$root_re" <<< '[factory floor](/floor) and [x]({{ $base }}/health) and [x](/dashboard)' \
+  && t_bad "the pattern matches a link that is not the root"
+
+t_case "no manual page links the root, which is the floor in one design only"
+roots=$(grep -rinE -- "$root_re" "$T_ROOT/host/docs" || true)
+[ -z "$roots" ] || t_bad "links the root: $roots"
+
+t_case "llms.txt links the factory floor at its /floor"
+t_contains "$(cat "$T_ROOT/host/docs/llms.txt")" '[Factory floor]({{ $base }}/floor)'
+
+t_case "the pages that name the floor link it at /floor"
+for page in operating.md overview.md pi-software-factory.md tools.md; do
+  grep -qiE -- '\[factory floor\]\(/floor\)' "$T_ROOT/host/docs/$page" \
+    || t_bad "$page has no link to the floor at /floor"
+done
+
 t_done

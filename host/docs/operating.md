@@ -36,7 +36,7 @@ a ticket at the stage in place of the label, by the same rule: see
 The **Protolab** is where tickets at the prototype stage are kept. It is a
 small site of its own, on port 8081 of the host, with a page for every open
 prototype: the title, a link to the issue, and what is attached to the issue.
-On the [factory floor](/) the Protolab panel lists the same tickets and each
+On the [factory floor](/floor) the Protolab panel lists the same tickets and each
 row opens its page.
 
 To put something on a ticket's page, attach it to the issue on GitHub, in the
@@ -271,7 +271,7 @@ line.
 
 ## 3. What happens next
 
-Watch it on the [factory floor](/) or the [plain dashboard](/dashboard): the queue, the issue being worked on with its
+Watch it on the [factory floor](/floor) or the [plain dashboard](/dashboard): the queue, the issue being worked on with its
 console streaming live, and what is waiting for you.
 
 Unless `TEHAS_ANALYTICS=off`, the plain dashboard also has a section **Last 10
@@ -414,7 +414,7 @@ snapshot; where the snapshot has none, the figure is the length of that list.
 When the cycle starts and when it ends, the bot comments on the issue. The token
 usage per agent role is posted on the pull request.
 
-The console on the [factory floor](/) and on the [plain dashboard](/dashboard)
+The console on the [factory floor](/floor) and on the [plain dashboard](/dashboard)
 shows one cycle at a time. When several are running, or one is running and an
 earlier one can still be read, a row of tabs above it names each by its issue
 number.
@@ -2456,7 +2456,7 @@ its one-shot runner, `pi-rukas-headless work <issue>`, with no terminal and no
 Pi session of its own: it starts a Pi process for each agent. There is no prompt to type at and nothing waits for an
 answer.
 
-What you can do is watch it, on the [factory floor](/) or on the host:
+What you can do is watch it, on the [factory floor](/floor) or on the host:
 
 ```
 tail -f ~/tehas/live/console-123.txt     # the console the dashboard shows

@@ -2840,7 +2840,7 @@ call.
 
 ## tehasbot status and the console
 
-Feed the [factory floor](/) and the [plain dashboard](/dashboard). `tehasbot status` writes the queue snapshot to
+Feed the [factory floor](/floor) and the [plain dashboard](/dashboard). `tehasbot status` writes the queue snapshot to
 `~/tehas/live/status.json`; the dispatcher runs it at the start of a poll only
 when that file is five minutes old or missing, and after any poll that changed
 the queue, and a cycle when it ends. An idle poll whose file the last poll wrote
@@ -2931,7 +2931,7 @@ program is not installed, there is no file.
 
 Just before the report, `~/tehas/libexec/analytics orders` writes
 `~/tehas/live/orders.json`, what the runs of each issue in `status.json` spent,
-for the work order of the [factory floor](/):
+for the work order of the [factory floor](/floor):
 `{"orders": 1, "generatedAt": ..., "issues": {"962": {"runs": 3, "seconds": 5400, "tokens": 60800000}}}`.
 It counts work runs and planning turns for as far back as the database holds.
 `seconds` is the runs' own time and `tokens` their input, output and cache
