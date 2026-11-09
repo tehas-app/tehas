@@ -64,3 +64,22 @@ test("odd entries are left out, an id is kept once, and four is the most", () =>
   assert.deepEqual(items.map((i) => i.id), ["a", "b", "c", "d"]);
   assert.equal(items[0].label, "Label a");
 });
+
+const { merge } = globalThis.TEHAS_PANELS;
+const item = (id, over = {}) => ({ id, label: `Label ${id}`, url: `https://${id}.example.net/x`, ...over });
+
+test("the bridge's menu follows the file's items, and takes the place of one with its id", () => {
+  const file = [item("a"), item("b")];
+  assert.deepEqual(merge(file, [], ORIGIN), file);
+  assert.deepEqual(merge(file, undefined, ORIGIN), file);
+  assert.deepEqual(merge(file, [item("c")], ORIGIN).map((i) => i.id), ["a", "b", "c"]);
+  const swapped = merge(file, [item("a", { label: "From the host", url: "http://host.example.net/a" })], ORIGIN);
+  assert.deepEqual(swapped, [{ id: "a", label: "From the host", url: "http://host.example.net/a" }, file[1]]);
+});
+
+test("four is the most with the bridge's too, and a bridge item on the page's own origin is dropped", () => {
+  const file = [item("a"), item("b"), item("c")];
+  assert.deepEqual(merge(file, [item("d"), item("e")], ORIGIN).map((i) => i.id), ["a", "b", "c", "d"]);
+  assert.deepEqual(merge([], [item("d", { url: "https://example.org/x" })], ORIGIN), []);
+  assert.deepEqual(merge([], [item("d", { url: "not a url" })], ORIGIN), []);
+});

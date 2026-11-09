@@ -36,6 +36,19 @@
           "link": {"type": "string", "maxLength": 512, "pattern": "^(/host/|https://)\\S*$"}
         }
       }
+    },
+    "menu": {
+      "type": "array",
+      "maxItems": 4,
+      "items": {
+        "type": "object",
+        "required": ["id", "label", "url"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^[a-z0-9-]{1,32}$"},
+          "label": {"type": "string", "minLength": 1, "maxLength": 24},
+          "url": {"type": "string", "maxLength": 512, "pattern": "^https?://\\S*$"}
+        }
+      }
     }
   }
 }
