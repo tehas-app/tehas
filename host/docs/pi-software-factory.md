@@ -10,7 +10,7 @@ Tehas is a Pi software factory. It takes a GitHub issue, runs the
 reviewed pull request. Nobody sits in the agent session. A person writes the
 issue, applies one label, and later reviews and merges.
 
-The [factory floor](/) on this host is one such factory at work. This page
+The [factory floor](/floor) on this host is one such factory at work. This page
 explains what it is made of.
 
 Tehas is its own project. It is built on Pi and is not part of Pi or endorsed
@@ -86,7 +86,7 @@ cycle's sandbox, on the factory's models, with their own name on the commits.
 
 ## See it run
 
-The [factory floor](/) shows the stages as stations: in line, building, review
+The [factory floor](/floor) shows the stages as stations: in line, building, review
 and shipped. Beside them are the selected work order with its dates, runs, tokens,
 time and estimated energy (from `live/orders.json`), the issue board and the console of the running cycle. The
 work order leaves out a row it has no data for. When
