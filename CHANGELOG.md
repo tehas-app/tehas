@@ -41,6 +41,9 @@ a pull request before it tags, with the head's `scripts/collect-changelog.sh`.
 - The host bridge can add up to four items to the front pages' menu, each
   opening its page in the dock as a panel does. Without a host the menu is as
   it was.
+- The manual links the factory floor at `/floor` on every page that names it. With the default design the floor is not at `/`, so those links sent a reader or an agent to the business page (#1696).
+- The business front page shows token use in its Performance section when the factory's host sends `tokens` in `/host/bridge.json`: a table by day and one by model. `tehas api` lists the feature `host-bridge-tokens` (#1797).
+- With a GitHub App, a cycle no longer needs a user account. Its container gets a second token from the app, for the product repository only, with Contents, Pull requests and Issues write, renewed while the cycle runs. Pull requests and comments from a cycle carry the app's `<slug>[bot]` login. `GH_CYCLE_TOKEN` and `TEHAS_CYCLE_LOGIN` are no longer needed with an app (#1814).
 
 ### Held back
 
@@ -57,6 +60,8 @@ A factory upgrade that stopped at `Sandbox: BEHIND` right after a pi-rukas relea
 None.
 
 A program that pins the analytics schema at 3 moves its pin to 4 before it reads a copy from this release: the export's `schema` is 4.
+
+With a GitHub App: nothing is required. A `GH_CYCLE_TOKEN` in `~/.config/tehas/env` is no longer used; remove it and revoke the token on GitHub. You can remove `TEHAS_CYCLE_LOGIN` from `instance.env` once no open pull request of that account is left for the factory to follow. `tehasbot github-token --cycle --check` shows that the app can make the cycle's token.
 
 ## v0.25.1 (2026-11-07)
 
