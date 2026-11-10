@@ -50,8 +50,6 @@ allow() {
   a_file+=("$1")
   a_re+=("$2")
 }
-allow install.sh 'plan-(<n>|\[0-9\]\*)\.json\.keep|%\.json\.keep' \
-  "install.sh moves a planning session's kept directory out of state/"
 
 # carrier <pattern> <sample> <files that may name it> <why it stays a file>
 # An empty list: no code this test reads names it. tehas-cycle reads it.
