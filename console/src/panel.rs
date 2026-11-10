@@ -8,9 +8,8 @@
 use crate::edge;
 use serde_json::Value;
 use std::env;
-use std::fs::{self, OpenOptions};
-use std::io::{ErrorKind, Write as _};
-use std::os::unix::fs::{OpenOptionsExt as _, PermissionsExt as _};
+use std::fs;
+use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -229,20 +228,12 @@ pub fn with(mut panels: Vec<Panel>, panel: Panel) -> Result<Vec<Panel>, String> 
 }
 
 fn write(file: &Path, text: &str, mode: u32) -> std::io::Result<()> {
-    let tmp = file.with_extension("json.new");
-    let _ = fs::remove_file(&tmp);
-    let done = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(mode)
-        .open(&tmp)
-        .and_then(|mut f| f.write_all(text.as_bytes()))
-        .and_then(|()| fs::set_permissions(&tmp, fs::Permissions::from_mode(mode)))
-        .and_then(|()| fs::rename(&tmp, file));
-    if done.is_err() {
-        let _ = fs::remove_file(&tmp);
-    }
-    done
+    tehas_core::file::write_atomic(
+        file,
+        text.as_bytes(),
+        mode,
+        &tehas_core::file::Temp::Predictable,
+    )
 }
 
 fn gone(file: &Path) -> std::io::Result<()> {
@@ -357,6 +348,7 @@ pub fn run(home: &Path, domain: &str, asked: Asked) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::os::unix::fs::PermissionsExt;
     use tehas_core::testdir::TestDir;
 
     fn w(given: &[&str]) -> Result<Asked, u8> {

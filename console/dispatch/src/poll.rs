@@ -1019,12 +1019,16 @@ fn demand_health(home: &Path, w: &mut Writer, d: &crate::Decision) {
         } else {
             let mut v = demand.clone();
             v["time"] = json!(iso_now());
-            let new = home.join("live/demand.json.new");
-            if std::fs::write(&new, format!("{v}\n"))
-                .and_then(|()| std::fs::rename(&new, &file))
-                .is_err()
+            // A unique name, not the fixed `demand.json.new` two polls can
+            // share: each writer holds its own file until its rename.
+            if tehas_core::file::write_atomic(
+                &file,
+                format!("{v}\n").as_bytes(),
+                0o644,
+                &tehas_core::file::Temp::Unique,
+            )
+            .is_err()
             {
-                let _ = std::fs::remove_file(&new);
                 say(&format!("WARN: could not write {}", file.display()));
             }
         }
