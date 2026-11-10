@@ -235,11 +235,31 @@ t_skip() {
 t_contains() { case "$1" in *"$2"*) ;; *) t_bad "'$2' is not in: $1" ;; esac; }
 t_lacks() { case "$1" in *"$2"*) t_bad "'$2' should not be in: $1" ;; esac; }
 
+# t_app_world [SLUG]: the factory as the one GitHub App it is. The app's login
+# is kept in state/github/login as SLUG[bot], where the settings read the bot from, and a
+# token and a narrowed cycle token with hours left are kept beside it, so a
+# command that asks for one finds it and asks GitHub for nothing.
+t_app_world() {
+  local home=$T/home/tehas dir until
+  until=$(($(date +%s) + 86400))
+  for dir in github github-cycle; do
+    mkdir -p "$home/state/$dir"
+    printf 'ghs_%s\n' "$dir" >"$home/state/$dir/token"
+    printf '%s\n' "$until" >"$home/state/$dir/token.expires"
+  done
+  printf '%s\n' "${1:-tehas-bot}[bot]" >"$home/state/github/login"
+}
+
+# t_instance KEY=VALUE...: the instance names the app (TEHAS_GITHUB_APP_ID=1)
+# unless it names another, and t_app_world is made unless the case made its own.
 t_instance() {
   export TEHAS_INSTANCE_DIR=$T/instance
   mkdir -p "$TEHAS_INSTANCE_DIR"
   chmod 700 "$TEHAS_INSTANCE_DIR"
-  if [ "$#" -gt 0 ]; then printf '%s\n' "$@" >"$TEHAS_INSTANCE_DIR/instance.env"; else : >"$TEHAS_INSTANCE_DIR/instance.env"; fi
+  local -a given=("$@")
+  case "${given[*]-}" in *TEHAS_GITHUB_APP_ID=*) ;; *) given+=(TEHAS_GITHUB_APP_ID=1) ;; esac
+  printf '%s\n' "${given[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
+  [ -e "$T/home/tehas/state/github/login" ] || t_app_world
 }
 # t_no_instance: the case is done with the instance its t_instance made: the
 # name is dropped, so a run that follows has no instance directory, and the
