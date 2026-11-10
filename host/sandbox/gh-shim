@@ -16,8 +16,9 @@
 # TEHAS_GH_BIN names the real gh and TEHAS_GH_RETRY_WAIT the pause; both are
 # seams for test/gh_shim_test.sh, and the image sets neither.
 #
-# Exit: gh's own status; 0 for a call a read-only instance refused; 1 when the
-# token file is there and cannot be read.
+# Exit: gh's own status, or the host's for a relayed call; 0 for a call a
+# read-only instance refused; 1 when the token file is there and cannot be
+# read, or the host did not answer the relay.
 # Lint: scripts/test.sh lints it with shellcheck -x, which takes the shell from
 # the shebang; test/gh_shim_test.sh names that shell with -s sh.
 real=${TEHAS_GH_BIN:-/usr/bin/gh}
@@ -78,6 +79,52 @@ if [ "${TEHAS_READ_ONLY:-0}" = 1 ]; then
     fi
     exit 0
   fi
+fi
+# A cycle's issue writes go through the host (console/cycle/src/relay.rs): its
+# token reads issues and cannot write them. The request is a directory of this
+# process's own: the arguments, each ended by a NUL, the body file copied, and
+# ready made last. The host answers in res.<pid>, done made last, and is waited
+# for TEHAS_RELAY_WAIT seconds [120]. TEHAS_RELAY_DIR is a seam for the tests.
+relay=${TEHAS_RELAY_DIR:-/run/tehas/relay}
+if [ -d "$relay" ] && [ "$1" = issue ]; then
+  case ${2:-} in
+  create | edit | comment)
+    req=$relay/req.$$ res=$relay/res.$$
+    rm -rf "$req" "$res"
+    mkdir "$req" || exit 1
+    printf '%s\0' "$@" >"$req/args" || exit 1
+    prev=''
+    for a in "$@"; do
+      file=''
+      case $prev in -F | --body-file) file=$a ;; esac
+      case $a in --body-file=*) file=${a#--body-file=} ;; esac
+      if [ "$file" = - ]; then
+        cat >"$req/body" || exit 1
+      elif [ -n "$file" ]; then
+        cat -- "$file" >"$req/body" || exit 1
+      fi
+      prev=$a
+    done
+    : >"$req/ready" || exit 1
+    wait=${TEHAS_RELAY_WAIT:-120}
+    n=0
+    until [ -e "$res/done" ]; do
+      if [ "$n" -ge "$wait" ]; then
+        rm -rf "$req"
+        echo "gh-shim: the host did not answer the relay" >&2
+        exit 1
+      fi
+      sleep 1
+      n=$((n + 1))
+    done
+    cat "$res/out"
+    cat "$res/err" >&2
+    rc=$(cat "$res/rc")
+    rm -rf "$res"
+    case $rc in '' | *[!0-9]*) rc=1 ;; esac
+    exit "$rc"
+    ;;
+  esac
 fi
 for a in "$@"; do
   case $a in - | *@-) exec "$real" "$@" ;; esac

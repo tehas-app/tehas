@@ -209,7 +209,8 @@ $state/sessions:/home/vscode/.pi/agent/sessions
 $T/home/.pi/agent/mcp.json:/home/vscode/.pi/agent/mcp.json:ro
 $state/models.json:/home/vscode/.pi/agent/models.json:ro
 $T/home/.pi/agent/settings.json:/home/vscode/.pi/agent/settings.json:ro
-$T/home/tehas/state/github-cycle:/run/tehas/github:ro"
+$T/home/tehas/state/github-cycle:/run/tehas/github:ro
+$state/relay:/run/tehas/relay"
 t_eq "$(after -v | LC_ALL=C sort)" "$(printf '%s\n' "$want" | LC_ALL=C sort)"
 
 t_case "the agents are told the path inside the container, not the host's"
@@ -223,7 +224,7 @@ t_case "the cycle's transcripts directory is its own and is made for it"
 t_eq "$(find "$runs" -maxdepth 0 -type d | wc -l)" 1
 
 t_case "the cycle's own state is made beside its workspace, and no shared directory is mounted"
-t_eq "$(find "$state" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | LC_ALL=C sort | tr '\n' ' ')" "cache memory sessions "
+t_eq "$(find "$state" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | LC_ALL=C sort | tr '\n' ' ')" "cache memory relay sessions "
 t_lacks "$(cat "$T"/calls/docker.args.*)" "pi-ensemble"
 t_lacks "$(cat "$T"/calls/docker.args.*)" "$T/home/.pi/agent/sessions"
 t_lacks "$(cat "$T"/calls/docker.args.*)" "$T/home/.vipune"
