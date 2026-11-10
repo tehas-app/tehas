@@ -4638,8 +4638,8 @@ yet and waits 900. A poll that holds the lock
 longer stops the run with exit 1 and `a poll is running ...; nothing was
 installed`. A home installed before the marker `.tehas-home` came in gets it
 here, so its old records are judged too. Before the first copy the store the run installs judges the record
-files an older tehas kept under `state/` (`store import --dry-run`, which reads
-the files only), and the run stops with exit 1 and `nothing was installed` when:
+files an older tehas kept under `state/` (`store import --dry-run --say`, which
+reads the files only and prints the lines below itself), and the run stops with exit 1 and `nothing was installed` when:
 
 - a cycle or planning turn runs while such a file is there: `a cycle or planning
   turn runs (#N); run tehas drain --wait and let it end, then install again`.
@@ -4649,7 +4649,7 @@ the files only), and the run stops with exit 1 and `nothing was installed` when:
   line per file, which stays where it is with the other files of its issue. Move
   each one out of `state/` or mend it, then run again.
 
-After the database is made or migrated, `store import` makes the files rows and
+After the database is made or migrated, `store import --say` makes the files rows and
 moves them to `state/imported-<YYYYMMDD>/`, under their paths in `state/`, an
 issue's files together once all their rows read back; nothing is deleted. The run prints `store: imported <table>
 <rows>, ...; moved <n> files to ...` when it moved any. An import that fails
@@ -4996,6 +4996,7 @@ scripts/polyfills.sh prune caps.json    # remove those: their files and marked l
 `prune` checks that each shell file it changed still parses, and exits 1 when
 one does not: a marked line that was part of a larger statement. The fast gate
 runs `check` on this checkout.
+The work is `xtask polyfills` in `console/xtask/`, which the script execs.
 
 ### Removed before a release
 
