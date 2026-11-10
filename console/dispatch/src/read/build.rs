@@ -360,13 +360,7 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
             }
             Err(e) => s["cycles_failed"] = e,
         }
-        // The bot's pull requests, and those a cycle opened with the cycle
-        // token from inside its container (TEHAS_CYCLE_LOGIN).
-        let mut authors = vec![bot(&s)];
-        let cycle = tehas_core::accounts::account(&c.cycle_login).to_string();
-        if !cycle.is_empty() && cycle != tehas_core::accounts::account(&authors[0]) {
-            authors.push(cycle);
-        }
+        let authors = [bot(&s)];
         let lists: Vec<Value> = authors
             .iter()
             .map(|author| {

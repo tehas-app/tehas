@@ -59,6 +59,20 @@ pub fn require(names: &[&str]) -> Result<(), u8> {
     }
 }
 
+/// The login in the text of state/github/login: one line, `<slug>[bot]`.
+pub(crate) fn login_of(text: &[u8]) -> Option<String> {
+    let line = String::from_utf8_lossy(text);
+    let line = line.lines().next()?.trim();
+    (line.ends_with("[bot]") && line.len() > "[bot]".len() && !line.contains(char::is_whitespace))
+        .then(|| line.to_string())
+}
+
+/// The login of the app the factory acts as, which the lookup of the app's
+/// installation wrote under `home`; None before it has.
+pub fn bot_login(home: &Path) -> Option<String> {
+    login_of(&std::fs::read(home.join("state/github/login")).ok()?)
+}
+
 /// tehas_checkout: the product checkout is a clone of TEHAS_REPO. Err is the
 /// line for standard error.
 pub fn checkout() -> Result<(), String> {

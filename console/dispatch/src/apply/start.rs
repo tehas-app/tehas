@@ -37,9 +37,6 @@ pub struct Host {
     pub millwright: String,
     /// The bot's login, whose pull requests a retry's comments are read on.
     pub bot: String,
-    /// TEHAS_CYCLE_LOGIN: the cycle token's account, whose pull requests are
-    /// the bot's too. Empty when unset.
-    pub cycle: String,
     /// TEHAS_OWNER: the person a claimed issue is assigned to, or empty.
     pub owner: String,
     pub systemctl: String,
@@ -1076,21 +1073,14 @@ impl Writer {
     ) -> Option<Value> {
         let repo = self.repo.clone();
         let bot = self.host.bot.clone();
-        let cycle = self.host.cycle.clone();
         let allowed = self.host.allowed.clone();
-        let who = |l: &str| {
-            !tehas_core::accounts::factorys(l, &bot, &cycle) && allowed.iter().any(|x| x == l)
-        };
+        let who =
+            |l: &str| !tehas_core::accounts::factorys(l, &bot) && allowed.iter().any(|x| x == l);
         let mut items: Vec<Value> = Vec::new();
         for c in window(list, "", at, &who)? {
             items.push(item(&c, "issue-comment", None));
         }
-        // The bot's pull requests: the host token's and those a cycle opened
-        // with the cycle token from inside its container.
-        let mut authors = vec![bot.clone()];
-        if !cycle.is_empty() && account(&cycle) != account(&bot) {
-            authors.push(cycle.clone());
-        }
+        let authors = [bot.clone()];
         let mut mine: Vec<u64> = Vec::new();
         for author in &authors {
             let prs = self

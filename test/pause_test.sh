@@ -207,7 +207,7 @@ t_eq "$(t_calls gh)" ""
 
 t_case "resume without the settings it reads the control issue with stops at 78"
 reset
-t_instance TEHAS_REPO=acme/widget TEHAS_CONTROL_ISSUE=1
+t_instance TEHAS_GITHUB_APP_ID=1 TEHAS_REPO=acme/widget TEHAS_CONTROL_ISSUE=1
 t_run "$resume"
 t_eq "$t_rc" 78
 t_contains "$t_out" "TEHAS_ALLOWED_LABELERS is not set"

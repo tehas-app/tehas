@@ -293,7 +293,7 @@ t_eq "$(state)" "main $(head_sha) none"
 t_eq "$(t_calls install)" ""
 
 t_case "a required setting left commented out stops it before git and install.sh"
-t_instance TEHAS_REPO=acme/widget TEHAS_CONTROL_ISSUE=1 TEHAS_ALLOWED_LABELERS=alice
+t_instance TEHAS_GITHUB_APP_ID=1 TEHAS_REPO=acme/widget TEHAS_CONTROL_ISSUE=1 TEHAS_ALLOWED_LABELERS=alice
 platform 2
 before=$(state)
 t_run "$update"

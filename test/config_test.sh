@@ -192,7 +192,7 @@ t_run "$load && echo \"\$TEHAS_REPO\""
 t_eq "$t_out" "acme/widget"
 
 t_case "a setting only in the environment is not used"
-t_instance TEHAS_CONTROL_ISSUE=1
+t_instance TEHAS_CONTROL_ISSUE=1 TEHAS_GITHUB_APP_ID=1
 T_ENV=(TEHAS_REPO=other/thing TEHAS_INDEXING=1 PI_ENSEMBLE_DEBUG=1)
 t_run "$load && echo \"[\${TEHAS_REPO:-}] [\$TEHAS_INDEXING] [\${PI_ENSEMBLE_DEBUG:-}]\""
 t_eq "$t_out" "[] [0] []"
@@ -308,7 +308,7 @@ t_contains "$t_out" "no instance.env in $T/home/.config/tehas"
 export TEHAS_INSTANCE_DIR=$saved
 
 t_case "tehas_require_instance_settings names an unset setting and exits 78"
-t_instance TEHAS_CONTROL_ISSUE=1
+t_instance TEHAS_CONTROL_ISSUE=1 TEHAS_GITHUB_APP_ID=1
 t_run "$load && tehas_require_instance_settings; echo not-reached"
 t_eq "$t_rc" 78
 t_contains "$t_out" "tehas: TEHAS_REPO is not set (see $T/instance/instance.env)"
@@ -447,19 +447,19 @@ printf '%s\n' "${T_MINIMAL[@]}" TEHAS_IMPROVE_MAX_OPEN=30 >"$TEHAS_INSTANCE_DIR/
 t_run "$load && echo \"[\$TEHAS_IMPROVE_MAX_OPEN]\""
 t_eq "$t_out" "[30]"
 
-t_case "the millwright is off unless the instance names its account, may retry twice and answer three planning questions by default"
+t_case "the millwright may retry twice and answer three planning questions by default"
 printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
-t_run "$load && set -u && echo \"[\$TEHAS_MILLWRIGHT_LOGIN][\$TEHAS_MILLWRIGHT_MAX_RETRIES][\$TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS]\""
-t_eq "$t_out" "[][2][3]"
-printf '%s\n' "${T_MINIMAL[@]}" TEHAS_MILLWRIGHT_LOGIN=tehas-fixer TEHAS_MILLWRIGHT_MAX_RETRIES=3 TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS=1 >"$TEHAS_INSTANCE_DIR/instance.env"
-t_run "$load && echo \"[\$TEHAS_MILLWRIGHT_LOGIN][\$TEHAS_MILLWRIGHT_MAX_RETRIES][\$TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS]\""
-t_eq "$t_out" "[tehas-fixer][3][1]"
+t_run "$load && set -u && echo \"[\$TEHAS_MILLWRIGHT_MAX_RETRIES][\$TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS]\""
+t_eq "$t_out" "[2][3]"
+printf '%s\n' "${T_MINIMAL[@]}" TEHAS_MILLWRIGHT_MAX_RETRIES=3 TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS=1 >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load && echo \"[\$TEHAS_MILLWRIGHT_MAX_RETRIES][\$TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS]\""
+t_eq "$t_out" "[3][1]"
 
 t_case "the millwright's feed is off unless the instance turns it on, two at once by default"
 printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
 t_run "$load && set -u && echo \"[\$TEHAS_MILLWRIGHT_FEED][\$TEHAS_MILLWRIGHT_MAX_FEEDS]\""
 t_eq "$t_out" "[0][2]"
-printf '%s\n' "${T_MINIMAL[@]}" TEHAS_MILLWRIGHT_LOGIN=tehas-fixer TEHAS_MILLWRIGHT_FEED=1 TEHAS_MILLWRIGHT_MAX_FEEDS=4 >"$TEHAS_INSTANCE_DIR/instance.env"
+printf '%s\n' "${T_MINIMAL[@]}" TEHAS_MILLWRIGHT_FEED=1 TEHAS_MILLWRIGHT_MAX_FEEDS=4 >"$TEHAS_INSTANCE_DIR/instance.env"
 t_run "$load && echo \"[\$TEHAS_MILLWRIGHT_FEED][\$TEHAS_MILLWRIGHT_MAX_FEEDS]\""
 t_eq "$t_out" "[1][4]"
 
@@ -467,7 +467,7 @@ t_case "the millwright's epics are off unless the instance turns them on"
 printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
 t_run "$load && set -u && echo \"[\$TEHAS_MILLWRIGHT_EPICS]\""
 t_eq "$t_out" "[0]"
-printf '%s\n' "${T_MINIMAL[@]}" TEHAS_MILLWRIGHT_LOGIN=tehas-fixer TEHAS_MILLWRIGHT_EPICS=1 >"$TEHAS_INSTANCE_DIR/instance.env"
+printf '%s\n' "${T_MINIMAL[@]}" TEHAS_MILLWRIGHT_EPICS=1 >"$TEHAS_INSTANCE_DIR/instance.env"
 t_run "$load && echo \"[\$TEHAS_MILLWRIGHT_EPICS]\""
 t_eq "$t_out" "[1]"
 
@@ -605,7 +605,7 @@ t_instance "${T_MINIMAL[@]}" TEHAS_SIZE_MAX_FILES=999999999
 t_run "$load && echo \"[\$TEHAS_SIZE_MAX_FILES]\""
 t_eq "$t_out" "[999999999]"
 
-for bad in "TEHAS_MILLWRIGHT_LOGIN=two words" "TEHAS_MILLWRIGHT_LOGIN=-x" "TEHAS_MILLWRIGHT_MAX_RETRIES=0" "TEHAS_MILLWRIGHT_MAX_RETRIES=many" \
+for bad in "TEHAS_MILLWRIGHT_MAX_RETRIES=0" "TEHAS_MILLWRIGHT_MAX_RETRIES=many" \
   "TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS=0" "TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS=-1" "TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS=lots" \
   "TEHAS_MILLWRIGHT_FEED=yes" "TEHAS_MILLWRIGHT_FEED=2" "TEHAS_MILLWRIGHT_MAX_FEEDS=0" "TEHAS_MILLWRIGHT_MAX_FEEDS=many" \
   "TEHAS_MILLWRIGHT_EPICS=yes" "TEHAS_MILLWRIGHT_EPICS=2"; do
@@ -616,48 +616,41 @@ for bad in "TEHAS_MILLWRIGHT_LOGIN=two words" "TEHAS_MILLWRIGHT_LOGIN=-x" "TEHAS
   t_contains "$t_out" "tehas: ${bad%%=*} is not valid"
 done
 
-t_case "the millwright is never one of the accounts that authorise work"
-t_instance "${T_MINIMAL[@]}" TEHAS_MILLWRIGHT_LOGIN=alice
-t_run "$load; echo rc=\$?"
-t_contains "$t_out" "rc=78"
-t_contains "$t_out" "TEHAS_MILLWRIGHT_LOGIN (alice) is in TEHAS_ALLOWED_LABELERS"
+t_case "obsolete app settings warn once each, and the app's login file gives the bot and the millwright their login"
+mkdir -p "$T/home/tehas/state/github"
+printf '%s\n' 'new-app[bot]' >"$T/home/tehas/state/github/login"
+t_instance "${T_MINIMAL[@]}" TEHAS_GITHUB_APP_INSTALLATION=2 'TEHAS_BOT_LOGIN=old[bot]' 'TEHAS_MILLWRIGHT_LOGIN=mw[bot]'
+t_run "$load 2>&1 >/dev/null | grep -c 'is no longer used'; $load 2>/dev/null; echo \"[\$TEHAS_BOT_LOGIN][\$TEHAS_MILLWRIGHT_LOGIN]\""
+t_contains "$t_out" "3"
+t_contains "$t_out" "[new-app[bot]][new-app[bot]]"
+rm -rf "$T/home/tehas/state/github"
 
-t_case "the millwright may be a GitHub App, named by its login with or without [bot]"
-for good in acme-millwright 'acme-millwright[bot]'; do
-  t_instance "${T_MINIMAL[@]}" "TEHAS_MILLWRIGHT_LOGIN=$good"
-  t_run "$load && echo \"[\$TEHAS_MILLWRIGHT_LOGIN]\""
-  t_eq "$t_out" "[$good]"
-done
-
-for bad in 'acme-millwright[bot][bot]' '[bot]' 'acme-millwright ' 'acme-millwright[bot] acme-other' 'acme-millwright[BOT]' 'acme-millwright[bot]x'; do
-  t_case "loading rejects a TEHAS_MILLWRIGHT_LOGIN of '$bad'"
-  printf '%s\n' "${T_MINIMAL[@]}" "TEHAS_MILLWRIGHT_LOGIN='$bad'" >"$TEHAS_INSTANCE_DIR/instance.env"
+t_case "GH_CYCLE_TOKEN and TEHAS_CYCLE_LOGIN stop the load, and so does GH_TOKEN in the factory's credential file"
+refusal="is no longer used: the factory acts as a GitHub App. Run tehas setup --new-app or give --app-id and --app-key-file."
+for line in GH_CYCLE_TOKEN=x TEHAS_CYCLE_LOGIN=acme-cycle; do
+  t_instance "${T_MINIMAL[@]}" "$line"
   t_run "$load; echo rc=\$?"
+  t_contains "$t_out" "tehas: ${line%%=*} $refusal"
   t_contains "$t_out" "rc=78"
-  t_contains "$t_out" "tehas: TEHAS_MILLWRIGHT_LOGIN is not valid: expected one GitHub login"
 done
-
-t_case "an App's login is the same account as its name without [bot]: the millwright is still never an allowed labeller"
-t_instance "${T_MINIMAL[@]}" 'TEHAS_MILLWRIGHT_LOGIN=alice[bot]'
+t_instance "${T_MINIMAL[@]}"
+mkdir -p "$T/home/.config/tehas"
+echo GH_TOKEN=t0 >"$T/home/.config/tehas/env"
 t_run "$load; echo rc=\$?"
+t_contains "$t_out" "tehas: GH_TOKEN $refusal"
 t_contains "$t_out" "rc=78"
-t_contains "$t_out" "TEHAS_MILLWRIGHT_LOGIN (alice[bot]) is in TEHAS_ALLOWED_LABELERS"
+rm -rf "$T/home/.config/tehas"
+T_ENV=(GH_TOKEN=other)
+t_run "$load; echo rc=\$?"
+t_eq "$t_out" "rc=0"
+T_ENV=()
 
-# The bot of a GitHub App as both forms name it: REST gives <slug>[bot],
-# GraphQL <slug>.
-app=(TEHAS_GITHUB_APP_ID=1 TEHAS_GITHUB_APP_INSTALLATION=2)
-for pair in 'acme-app[bot] acme-app[bot]' 'acme-app[bot] acme-app' 'acme-app acme-app[bot]'; do
-  t_case "the millwright is never the bot: bot ${pair% *}, millwright ${pair#* }"
-  t_instance "${T_MINIMAL[@]}" "${app[@]}" "TEHAS_BOT_LOGIN=${pair% *}" "TEHAS_MILLWRIGHT_LOGIN=${pair#* }"
-  t_run "$load; echo rc=\$?"
-  t_contains "$t_out" "rc=78"
-  t_contains "$t_out" "TEHAS_MILLWRIGHT_LOGIN (${pair#* }) is in TEHAS_ALLOWED_LABELERS or is TEHAS_BOT_LOGIN"
-done
-
-t_case "a millwright with a name like the bot's is an account of its own"
-t_instance "${T_MINIMAL[@]}" "${app[@]}" 'TEHAS_BOT_LOGIN=acme-app[bot]' 'TEHAS_MILLWRIGHT_LOGIN=acme-app-millwright[bot]'
-t_run "$load && echo \"[\$TEHAS_MILLWRIGHT_LOGIN]\""
-t_eq "$t_out" "[acme-app-millwright[bot]]"
+t_case "an instance without TEHAS_GITHUB_APP_ID is refused and the line says where it comes from"
+t_instance "${T_MINIMAL[@]:1}"
+t_run "$load; echo rc=\$?"
+t_contains "$t_out" "tehas: TEHAS_GITHUB_APP_ID is not set: run tehas setup"
+t_contains "$t_out" "rc=78"
+t_instance "${T_MINIMAL[@]}"
 
 t_case "an old fixer name stops the load with 78 and names the new one"
 for old in TEHAS_FIXER_LOGIN=tehas-mill TEHAS_FIXER_MAX_RETRIES=3 TEHAS_FIXER_MAX_PLAN_ANSWERS=1 TEHAS_FIXER_LOGIN=; do
@@ -946,10 +939,11 @@ t_eq "$t_out" "192.0.2.7"
 t_case "the worked example takes its private addresses from a file on the host"
 t_stub nproc 'echo 12'
 TEHAS_INSTANCE_DIR=$T_ROOT/instances/tehas-tehas
+mkdir -p "$T/home/.config/tehas"
+echo TEHAS_GITHUB_APP_ID=1 >"$T/home/.config/tehas/private.env"
 t_run "$load && echo \"[\$TEHAS_HOST_ADDR] [\$PI_ENSEMBLE_HOST_ALIASES]\""
 t_eq "$t_out" "[127.0.0.1] []"
-mkdir -p "$T/home/.config/tehas"
-printf '%s\n' "TEHAS_HOST_ADDR=192.0.2.7" "PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.8" >"$T/home/.config/tehas/private.env"
+printf '%s\n' TEHAS_GITHUB_APP_ID=1 "TEHAS_HOST_ADDR=192.0.2.7" "PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.8" >"$T/home/.config/tehas/private.env"
 t_run "$load && echo \"[\$TEHAS_HOST_ADDR] [\$PI_ENSEMBLE_HOST_ALIASES]\""
 t_eq "$t_out" "[192.0.2.7] [models:192.0.2.8]"
 rm -rf "$T/home/.config"
@@ -1291,10 +1285,10 @@ t_case "the energy switches in ~/.config/tehas/env survive env.sh"
 t_instance "${T_MINIMAL[@]}"
 mkdir -p "$T/home/.config/tehas" "$T/home/tehas/lib"
 cp "$T_ROOT/lib/config.sh" "$T/home/tehas/lib/"
-printf '%s\n' GH_TOKEN=t0 TEHAS_ENERGY=off TEHAS_ENERGY_URL=http://mesh.example:8086/v1/cluster \
+printf '%s\n' TEHAS_ENERGY=off TEHAS_ENERGY_URL=http://mesh.example:8086/v1/cluster \
   >"$T/home/.config/tehas/env"
-t_run '. "$T_ROOT/host/env.sh"; echo "[$GH_TOKEN] [${TEHAS_ENERGY:-}] [${TEHAS_ENERGY_URL:-}] [$TEHAS_REPO]"'
-t_eq "$t_out" "[t0] [off] [http://mesh.example:8086/v1/cluster] [acme/widget]"
+t_run '. "$T_ROOT/host/env.sh"; echo "[${TEHAS_ENERGY:-}] [${TEHAS_ENERGY_URL:-}] [$TEHAS_REPO]"'
+t_eq "$t_out" "[off] [http://mesh.example:8086/v1/cluster] [acme/widget]"
 rm -rf "$T/home/.config/tehas" "$T/home/tehas/lib"
 
 t_case "without a role model every role is left to the subagent model"
@@ -1565,13 +1559,13 @@ values=('' ' ' 0 1 2 6 16 17 99 100 600 601 1440 1441 123456 999999999 100000000
   commit:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa commit:aaa main 'build / verify (linux)' verify\&x=1 $'tab\tbed'
   $'new\nline' $'word\n' é)
 names=(PI_ENSEMBLE_MODEL_ PI_ENSEMBLE_PROVIDER_ PI_ENSEMBLE_SUBAGENT_MODEL PI_ENSEMBLE_SUBAGENT_PROVIDER PI_RUKAS_FOLLOW
-  TEHAS_ALLOWED_LABELERS TEHAS_ANALYTICS TEHAS_ANALYTICS_COOKIE TEHAS_ANALYTICS_SITE TEHAS_ANALYTICS_SRC TEHAS_BOT_LOGIN
+  TEHAS_ALLOWED_LABELERS TEHAS_ANALYTICS TEHAS_ANALYTICS_COOKIE TEHAS_ANALYTICS_SITE TEHAS_ANALYTICS_SRC
   TEHAS_BRANCH TEHAS_BRANCH_CHECK TEHAS_BUILD_TIMEOUT TEHAS_CHILD_TIMEOUT TEHAS_CLEAN_AFTER TEHAS_CLEAN_DIRS
   TEHAS_CLEAN_MIN_FREE TEHAS_CONCURRENCY TEHAS_CONTAINER_MEMORY TEHAS_CONTROL_ISSUE TEHAS_CYCLE_MIN_FREE TEHAS_CYCLE_REPORT
-  TEHAS_CYCLE_RESERVE TEHAS_DESIGN TEHAS_DOMAIN TEHAS_EASY_MERGE TEHAS_GITHUB_APP_ID TEHAS_GITHUB_APP_INSTALLATION TEHAS_HOME
+  TEHAS_CYCLE_RESERVE TEHAS_DESIGN TEHAS_DOMAIN TEHAS_EASY_MERGE TEHAS_GITHUB_APP_ID TEHAS_HOME
   TEHAS_HOST_ADDR TEHAS_IMPROVE_MAX_OPEN TEHAS_IMPROVE_REPO TEHAS_IMPROVE_RUKAS_REPO TEHAS_IMPROVE_RUKAS_SKIP
   TEHAS_INDEXING TEHAS_INSTANCE_DIR TEHAS_LOW_GATE TEHAS_LOW_GATE_WAIT TEHAS_MAX_AWAITING
-  TEHAS_MILLWRIGHT_EPICS TEHAS_MILLWRIGHT_FEED TEHAS_MILLWRIGHT_LOGIN TEHAS_MILLWRIGHT_MAX_FEEDS TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS
+  TEHAS_MILLWRIGHT_EPICS TEHAS_MILLWRIGHT_FEED TEHAS_MILLWRIGHT_MAX_FEEDS TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS
   TEHAS_MILLWRIGHT_MAX_RETRIES TEHAS_PLAN_MAX_TURNS TEHAS_PLAN_TIMEOUT TEHAS_POLL_BUDGET TEHAS_PREVIEWS TEHAS_PREVIEW_MAX
   TEHAS_PREVIEW_MIN_FREE TEHAS_PROTOLAB_URL TEHAS_READ_ONLY TEHAS_REFRESH_CONFLICTS TEHAS_REFRESH_EVERY TEHAS_REFRESH_MAX
   TEHAS_REFRESH_SLOTS TEHAS_RELEASE_REPO TEHAS_REPO TEHAS_REVIEW TEHAS_REVIEW_REPO TEHAS_RUKAS_WORKAROUNDS
@@ -1582,7 +1576,7 @@ for name in "${names[@]}"; do
   for value in "${values[@]}"; do printf '%s\0%s\0' "$name" "$value"; done
 done >"$T/pairs"
 TEHAS_HOME=/h/tehas TEHAS_INSTANCE_DIR=/i/ TEHAS_WORK_REPO=/w "$T_CONSOLE" settings valid <"$T/pairs" >"$T/verb"
-t_eq "$(sha256sum <"$T/verb" | cut -d' ' -f1)" "efe8436ee623f5129d0b79010371753498d32df88e48314b94e9caf3b35eb17d"
+t_eq "$(sha256sum <"$T/verb" | cut -d' ' -f1)" "83b8102db1c83217ae1ac3a64ef34c21b8411892b95c7f35d356f1a0e968b972"
 
 t_stub nproc 'echo 8'
 t_case "each kind of instance leaves the environment and the words bash left"
@@ -1654,13 +1648,11 @@ TEHAS_RUKAS_WORKAROUNDS=TEHAS_X@1.2
 TEHAS_TOP=1|TEHAS_RUKAS_WORKAROUNDS=TEHAS_TOP@1.2
 TEHAS_RUKAS_WORKAROUNDS=TEHAS_RUKAS_WORKAROUNDS@1.2
 TEHAS_GITHUB_APP_ID=7
-TEHAS_GITHUB_APP_ID=7|TEHAS_GITHUB_APP_INSTALLATION=8|TEHAS_BOT_LOGIN=a-app
 TEHAS_ANALYTICS_SRC=https://a.example/x.js
 TEHAS_IMPROVE_RUKAS_REPO=a/b
 TEHAS_IMPROVE_REPO=a/b|TEHAS_IMPROVE_RUKAS_REPO=a/c|TEHAS_IMPROVE_RUKAS_SKIP=1
 TEHAS_IMPROVE_REPO=ACME/widget
 TEHAS_REVIEW_REPO=Acme/Widget
-TEHAS_MILLWRIGHT_LOGIN=alice[bot]
 TEHAS_WORK_DESCRIBE=1
 TEHAS_WORK_COMMENTS=1
 TEHAS_WORK_ZIPS=1
@@ -1689,7 +1681,7 @@ T_INSIDE=$TEHAS_INSTANCE_DIR/$HOME
 INSTANCES
 T_ENV=()
 t_instance "${T_MINIMAL[@]}"
-t_eq "$(sha256sum <"$T/loads" | cut -d' ' -f1)" "f008c96660f1d68ee6548a5a8f12466e79381813d904e7646e5e7648b4bee455"
+t_eq "$(sha256sum <"$T/loads" | cut -d' ' -f1)" "d946ce42b1ebfe1543e4db189136a37b62dad4fe6b34deae16249bdc5bd0639d"
 t_contains "$(cat "$T/loads")" "rc=78"
 
 t_case "no instance.env keeps the environment as it was, as bash did"
@@ -1746,9 +1738,9 @@ t_run "cd \"\$T\" && $load; echo rc=\$? \"\$PWD\""
 t_eq "$t_out" "rc=0 $T"
 
 t_case "instance.env sees the environment, and the name of a host's setting is gone from it"
-t_instance "${T_MINIMAL[@]}" 'TEHAS_MILLWRIGHT_LOGIN=${TEHAS_TOP:-seen-${HOME##*/}}'
+t_instance "${T_MINIMAL[@]}" 'TEHAS_OWNER=${TEHAS_TOP:-seen-${HOME##*/}}'
 T_ENV=(TEHAS_TOP=1)
-t_run "$load && echo \"\$TEHAS_MILLWRIGHT_LOGIN\""
+t_run "$load && echo \"\$TEHAS_OWNER\""
 T_ENV=()
 t_eq "$t_out" "seen-home"
 t_instance "${T_MINIMAL[@]}"
