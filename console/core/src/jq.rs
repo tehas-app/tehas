@@ -1,8 +1,10 @@
-//! JSON as jq reads and prints it, for the lines of `tehas status` and the
-//! frame of `tehas top`: the keys of an object keep the order they were
-//! written in, and a number keeps the text it was written with, so 0.10 is
-//! printed 0.10. serde_json does neither, and those lines were written in jq.
+//! JSON as jq reads and prints it, for the lines of `tehas status`, the frame
+//! of `tehas top` and the files a cycle leaves: the keys of an object keep the
+//! order they were written in, and a number keeps the text it was written
+//! with, so 0.10 is printed 0.10. serde_json does neither, and those lines
+//! were written in jq.
 
+use serde_json::Value;
 use std::cmp::Ordering;
 use std::fmt::Write;
 
@@ -17,6 +19,19 @@ pub enum J {
 }
 
 pub static NULL: J = J::Null;
+
+impl From<&Value> for J {
+    /// A value read by serde_json: an object comes over in its own order, and
+    /// a number as serde_json prints it, so 1.50 has lost its last zero.
+    fn from(v: &Value) -> J {
+        match v {
+            Value::String(s) => J::Str(s.clone()),
+            Value::Array(a) => J::Arr(a.iter().map(J::from).collect()),
+            Value::Object(o) => J::Obj(o.iter().map(|(k, x)| (k.clone(), J::from(x))).collect()),
+            other => J::Num(other.to_string()),
+        }
+    }
+}
 
 impl J {
     pub fn parse(text: &str) -> Option<J> {
@@ -66,6 +81,32 @@ impl J {
     /// `.a.b.c`
     pub fn at(&self, path: &[&str]) -> &J {
         path.iter().fold(self, |v, k| v.get(k))
+    }
+
+    /// The text, or null for an empty one.
+    pub fn text_or_null(s: &str) -> J {
+        if s.is_empty() {
+            J::Null
+        } else {
+            J::Str(s.to_string())
+        }
+    }
+
+    /// `del(.key)`.
+    pub fn remove(&mut self, key: &str) {
+        if let J::Obj(o) = self {
+            o.retain(|(k, _)| k != key);
+        }
+    }
+
+    /// `walk(if type == "string" then f else . end)`.
+    pub fn each_string(&mut self, f: &impl Fn(&mut String)) {
+        match self {
+            J::Str(s) => f(s),
+            J::Arr(a) => a.iter_mut().for_each(|x| x.each_string(f)),
+            J::Obj(o) => o.iter_mut().for_each(|(_, x)| x.each_string(f)),
+            _ => {}
+        }
     }
 
     pub fn is_null(&self) -> bool {
@@ -310,7 +351,9 @@ fn quote(s: &str, out: &mut String) {
     out.push('"');
 }
 
-// Deeper than this is not a file the factory wrote.
+// jq 1.7 refuses a document nested deeper than this, and no file the factory
+// reads nests near it; the parser here is recursive, so a bigger bound would
+// put a deep document on the thread's stack.
 const DEPTH: usize = 256;
 
 struct Parser<'a> {
@@ -475,6 +518,7 @@ impl Parser<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::Value;
 
     #[test]
     fn keeps_order_and_number_text() {
@@ -545,5 +589,64 @@ mod tests {
     fn jq_truth_and_order() {
         assert!(!J::Null.truthy() && !J::Bool(false).truthy() && J::num(0.0).truthy());
         assert!(J::str("1").above_zero() && !J::Null.above_zero() && !J::num(0.0).above_zero());
+    }
+
+    #[test]
+    fn del_takes_the_key_out_of_an_object_only() {
+        let mut v = J::parse(r#"{"a":1,"b":2,"c":3}"#).unwrap();
+        v.remove("b");
+        assert_eq!(v.dump(), r#"{"a":1,"c":3}"#);
+        v.remove("missing");
+        assert_eq!(v.dump(), r#"{"a":1,"c":3}"#);
+        let mut a = J::parse("[1,2]").unwrap();
+        a.remove("a");
+        assert_eq!(a.dump(), "[1,2]");
+        let mut n = J::Null;
+        n.remove("a");
+        assert_eq!(n.dump(), "null");
+    }
+
+    #[test]
+    fn each_string_walks_strings_in_arrays_inside_objects() {
+        let mut v =
+            J::parse(r#"{"a":"abc","b":["de","f"],"c":{"d":["g"],"n":1,"t":true}}"#).unwrap();
+        v.each_string(&|s| *s = s.to_uppercase());
+        assert_eq!(
+            v.dump(),
+            r#"{"a":"ABC","b":["DE","F"],"c":{"d":["G"],"n":1,"t":true}}"#
+        );
+    }
+
+    #[test]
+    fn an_empty_text_is_null() {
+        assert!(J::text_or_null("").is_null());
+        assert_eq!(J::text_or_null("x").dump(), r#""x""#);
+    }
+
+    #[test]
+    fn a_serde_value_keeps_its_numbers_and_nulls() {
+        // serde_json's map is ordered by key; what the cycle's callers take
+        // from it is the number text and the nulls.
+        let mut m = serde_json::Map::new();
+        m.insert("b".into(), serde_json::json!(1.50));
+        m.insert("a".into(), serde_json::json!([true, null, "x"]));
+        // `From<&Value>` is in scope as `from`.
+        let made = |v: &Value| <J as From<&Value>>::from(v).dump();
+        assert_eq!(made(&Value::Object(m)), r#"{"a":[true,null,"x"],"b":1.5}"#);
+        assert_eq!(made(&Value::Null), "null");
+        assert_eq!(made(&Value::Bool(true)), "true");
+        // A number worked out by serde_json prints without a fraction.
+        assert_eq!(made(&Value::from(1.5)), "1.5");
+        assert_eq!(made(&Value::from(-0)), "0");
+        assert_eq!(made(&Value::from(7)), "7");
+    }
+
+    #[test]
+    fn a_document_of_256_levels_parses_and_one_more_does_not() {
+        // Only a container counts a level: 256 arrays around 0 read, and the
+        // parser refuses one level more, as jq does.
+        let deep = |n: usize| format!("{}0{}", "[".repeat(n), "]".repeat(n));
+        assert!(J::parse(&deep(256)).is_some());
+        assert_eq!(J::parse(&deep(257)), None);
     }
 }

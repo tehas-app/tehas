@@ -4,7 +4,6 @@
 //! that end together do not collide.
 
 use crate::host;
-use crate::jq::J;
 use regex::Regex;
 use serde_json::Value;
 use std::fs;
@@ -14,6 +13,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::OnceLock;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use tehas_core::jq::{obj, J, NULL};
 
 /// The most bytes of an attachment file a record takes. A manifest over it is
 /// left out whole, so both writers of one cap what they list to stay under it.
@@ -139,12 +139,12 @@ pub fn settings(running: &str, options: &[String]) -> String {
         && !running.is_empty()
         && running.bytes().all(|b| b.is_ascii_digit())
         && (running == "0" || !running.starts_with('0'));
-    J::obj(vec![
+    obj(vec![
         ("container", J::Obj(container)),
         ("host", J::Obj(shape)),
         (
             "concurrentCycles",
-            J::Lit(if count { running } else { "null" }.to_string()),
+            J::Num(if count { running } else { "null" }.to_string()),
         ),
     ])
     .pretty()
@@ -232,14 +232,14 @@ fn log_of(home: &Path, issue: u64, started: i64) -> Option<PathBuf> {
 /// so it goes, and a status repeated in a row is then kept once.
 pub fn condensed(line: &str) -> Option<String> {
     let mut v = J::parse(line)?;
-    let kind = match &v {
-        J::Obj(_) => v.get("type").cloned(),
-        _ => return None,
-    };
-    if kind == Some(J::str("message_update")) {
+    if !matches!(v, J::Obj(_)) {
         return None;
     }
-    if kind == Some(J::str("extension_ui_request")) {
+    let kind = v.get("type");
+    if kind == &J::str("message_update") {
+        return None;
+    }
+    if kind == &J::str("extension_ui_request") {
         v.remove("id");
     }
     v.each_string(&|s| {
@@ -247,7 +247,7 @@ pub fn condensed(line: &str) -> Option<String> {
             *s = s.chars().take(2000).collect::<String>() + " [cut]";
         }
     });
-    Some(v.compact())
+    Some(v.dump())
 }
 
 fn condense(raw: &Path, to: &Path) -> std::io::Result<()> {
@@ -281,9 +281,9 @@ fn copy_or_empty(from: &Path, to: &Path) {
     }
 }
 
-/// Container, host and concurrentCycles of a settings-view.
-pub fn ran_with(view: &Value) -> (J, J, J) {
-    let part = |k: &str| view.get(k).map_or(J::null(), J::from);
+/// Container, host and concurrentCycles of a settings-view, read as jq reads it.
+pub fn ran_with(view: &J) -> (J, J, J) {
+    let part = |k: &str| view.get(k).clone();
     (part("container"), part("host"), part("concurrentCycles"))
 }
 
@@ -327,7 +327,10 @@ pub fn write(
         .into_iter()
         .find(|r| re(r"^[0-9a-f]{7,40}$", r))
         .unwrap_or("");
-    let shape = view.and_then(|v| v.get("view")).filter(|v| v.is_object());
+    let shape = view
+        .and_then(|v| v.get("view"))
+        .filter(|v| v.is_object())
+        .map(J::from);
     let preflight = PathBuf::from(format!("{}.preflight", raw.display()));
     let retry = fs::read(&preflight)
         .map(|b| String::from_utf8_lossy(&b).into_owned())
@@ -358,20 +361,20 @@ pub fn write(
     } else {
         ""
     };
-    let (ran_with, concurrent) = match shape.map(ran_with) {
-        Some((container, host, n)) => (J::obj(vec![("container", container), ("host", host)]), n),
-        None => (J::null(), J::null()),
+    let (ran_with, concurrent) = match shape.as_ref().map(ran_with) {
+        Some((container, host, n)) => (obj(vec![("container", container), ("host", host)]), n),
+        None => (NULL.clone(), NULL.clone()),
     };
-    let doc = J::obj(vec![
-        ("issue", J::int(e.issue as i64)),
-        ("started", J::int(e.started)),
-        ("seconds", J::int(now - e.started)),
+    let doc = obj(vec![
+        ("issue", J::Num(e.issue.to_string())),
+        ("started", J::Num(e.started.to_string())),
+        ("seconds", J::Num((now - e.started).to_string())),
         ("status", J::str(record_status(&e.status, &cap))),
         ("step", J::str(&e.step)),
-        ("rc", J::int(e.rc)),
+        ("rc", J::Num(e.rc.to_string())),
         ("pr", J::text_or_null(&e.pr)),
         ("log", J::str(&name)),
-        ("oomKills", J::Lit(kills.into())),
+        ("oomKills", J::Num(kills.into())),
         ("rukas", J::text_or_null(rukas)),
         ("buildCommit", J::text_or_null(build)),
         ("image", J::text_or_null(image)),
@@ -379,7 +382,7 @@ pub fn write(
         ("capReason", J::text_or_null(&reason)),
         (
             "handoffDelivered",
-            e.handoff_delivered.map_or(J::null(), J::bool),
+            e.handoff_delivered.map_or(J::Null, J::Bool),
         ),
         ("settings", ran_with),
         ("concurrentCycles", concurrent),
@@ -517,6 +520,23 @@ mod tests {
         let line = format!(r#"{{"text":"{}"}}"#, "é".repeat(2001));
         let want = format!(r#"{{"text":"{} [cut]"}}"#, "é".repeat(2000));
         assert_eq!(condensed(&line).unwrap(), want);
+    }
+
+    #[test]
+    fn a_line_nested_too_deep_is_no_object() {
+        // A container counts a level, as jq counts it. The object of the line
+        // is the first level, so 255 arrays inside it are 256 levels and the
+        // line reads; 256 of them are one level past the limit.
+        let nested = |arrays: usize| {
+            let mut s = String::from(r#"{"a":"#);
+            s.push_str(&"[".repeat(arrays));
+            s.push('0');
+            s.push_str(&"]".repeat(arrays));
+            s.push('}');
+            s
+        };
+        assert!(condensed(&nested(255)).is_some(), "{}", nested(255));
+        assert_eq!(condensed(&nested(256)), None);
     }
 
     #[test]

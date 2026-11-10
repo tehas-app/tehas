@@ -8,12 +8,12 @@
 //! empty. reviewHeld is a stable cap-hit that ended the review on its round cap
 //! and sent the cycle on to ci, so its findings were left open.
 
-use crate::jq::J;
 use crate::runner::{self, kept, RESULT_SCHEMA};
 use serde_json::Value;
 use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::path::Path;
+use tehas_core::jq::{obj, J, NULL};
 
 fn stable(o: &Value) -> bool {
     matches!(
@@ -36,11 +36,11 @@ fn stream(text: &str) -> Vec<Value> {
 
 /// A number jq would print: whole ones without a point.
 fn figure(x: f64) -> J {
-    if x.fract() == 0.0 && x.abs() < 1e17 {
-        J::int(x as i64)
+    J::Num(if x.fract() == 0.0 && x.abs() < 1e17 {
+        format!("{}", x as i64)
     } else {
-        J::Lit(format!("{x}"))
-    }
+        format!("{x}")
+    })
 }
 
 /// `tonumber? // 0`.
@@ -77,7 +77,7 @@ struct Row {
 
 fn role_row(role: &str, r: [J; 5]) -> J {
     let [dispatches, turns, input, output, cache_read] = r;
-    J::obj(vec![
+    obj(vec![
         ("role", J::str(role)),
         ("dispatches", dispatches),
         ("turns", turns),
@@ -202,7 +202,7 @@ fn entry(path: &Path, issue: u64) -> Option<J> {
     if !is_number(r.get("schemaVersion"), RESULT_SCHEMA as f64) {
         return None;
     }
-    let entries: Vec<&J> = match r.get("issues")? {
+    let entries: Vec<&J> = match r.get("issues") {
         J::Arr(a) => a.iter().collect(),
         J::Obj(o) => o.iter().map(|(_, v)| v).collect(),
         _ => return None,
@@ -213,28 +213,28 @@ fn entry(path: &Path, issue: u64) -> Option<J> {
         .cloned()
 }
 
-fn is_number(v: Option<&J>, n: f64) -> bool {
-    matches!(v, Some(J::Lit(l)) if l.parse::<f64>() == Ok(n))
+fn is_number(v: &J, n: f64) -> bool {
+    matches!(v, J::Num(l) if l.parse::<f64>() == Ok(n))
 }
 
-fn plain(v: Option<&J>) -> J {
+fn plain(v: &J) -> J {
     J::Str(match v {
-        Some(J::Str(s)) => kept(s, |c| c.is_ascii_alphanumeric() || "_.:-".contains(c)),
+        J::Str(s) => kept(s, |c| c.is_ascii_alphanumeric() || "_.:-".contains(c)),
         _ => String::new(),
     })
 }
 
 /// A number of at least 0, as written; else 0.
-fn at_least_zero(v: Option<&J>) -> J {
+fn at_least_zero(v: &J) -> J {
     match v {
-        Some(J::Lit(l)) if l.parse::<f64>().is_ok_and(|x| x >= 0.0) => J::Lit(l.clone()),
-        _ => J::int(0),
+        J::Num(l) if l.parse::<f64>().is_ok_and(|x| x >= 0.0) => J::Num(l.clone()),
+        _ => J::Num("0".into()),
     }
 }
 
 fn result_roles(entry: &J) -> J {
-    let by_role = match entry.get("usage").and_then(|u| u.get("byRole")) {
-        Some(J::Obj(o)) => o.as_slice(),
+    let by_role = match entry.get("usage").get("byRole") {
+        J::Obj(o) => o.as_slice(),
         _ => &[],
     };
     J::Arr(
@@ -242,7 +242,7 @@ fn result_roles(entry: &J) -> J {
             .iter()
             .filter(|(_, v)| matches!(v, J::Obj(_)))
             .map(|(k, v)| {
-                let name = match plain(Some(&J::str(k))) {
+                let name = match plain(&J::str(k)) {
                     J::Str(s) if !s.is_empty() => s,
                     _ => "driver".to_string(),
                 };
@@ -270,47 +270,47 @@ pub fn summary(ndjson: &Path, result: Option<(&Path, u64)>) -> String {
     let entry = result.and_then(|(path, issue)| entry(path, issue));
     let failure = entry
         .as_ref()
-        .and_then(|e| e.get("failure"))
-        .filter(|f| matches!(f, J::Obj(_)));
-    let from = |w: &str| J::obj(vec![("roles", J::str(w)), ("failure", J::str(w))]);
-    let reason = |f: Option<&J>| {
-        [
-            f.and_then(|f| f.get("providerMessage")),
-            f.and_then(|f| f.get("message")),
-        ]
-        .into_iter()
-        .flatten()
-        .find_map(|m| match m {
-            J::Str(s) if !s.is_empty() => Some(s.clone()),
-            _ => None,
-        })
-        .unwrap_or_default()
+        .filter(|e| matches!(e.get("failure"), J::Obj(_)));
+    let from = |w: &str| obj(vec![("roles", J::str(w)), ("failure", J::str(w))]);
+    let reason = |f: &J| {
+        [f.get("providerMessage"), f.get("message")]
+            .into_iter()
+            // An empty text is skipped, as the filter of bash skipped it.
+            .filter(|m| !matches!(m, J::Null) && m.as_str() != Some(""))
+            .find_map(|m| match m {
+                J::Str(s) => Some(s.clone()),
+                _ => None,
+            })
+            .unwrap_or_default()
     };
     let (roles, why, fail, word) = match &entry {
         Some(e) => (
             result_roles(e),
-            reason(failure),
+            reason(e.get("failure")),
             match failure {
-                Some(f) => J::obj(vec![
-                    ("kind", plain(f.get("kind"))),
-                    ("step", plain(f.get("step"))),
-                    ("role", plain(f.get("role"))),
-                    ("cause", plain(f.get("cause"))),
-                ]),
-                None => J::null(),
+                Some(f) => {
+                    let f = f.get("failure");
+                    obj(vec![
+                        ("kind", plain(f.get("kind"))),
+                        ("step", plain(f.get("step"))),
+                        ("role", plain(f.get("role"))),
+                        ("cause", plain(f.get("cause"))),
+                    ])
+                }
+                None => NULL.clone(),
             },
             "result",
         ),
-        None => (lines.roles, lines.reason, J::null(), "progress"),
+        None => (lines.roles, lines.reason, NULL.clone(), "progress"),
     };
-    J::obj(vec![
+    obj(vec![
         ("roles", roles),
         ("reason", J::Str(why)),
         ("failure", fail),
-        ("reviewHeld", J::bool(lines.review_held)),
+        ("reviewHeld", J::Bool(lines.review_held)),
         ("from", from(word)),
     ])
-    .compact()
+    .dump()
 }
 
 /// Whether `text` is a schema 5 result with no issue entry at all, as a refusal

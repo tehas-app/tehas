@@ -261,7 +261,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread::sleep;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use tehas_core::jq;
+pub use tehas_core::jq;
 use tehas_core::mask;
 
 const POLL: Duration = Duration::from_millis(1500);
