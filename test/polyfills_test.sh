@@ -1,9 +1,14 @@
 #!/usr/bin/env bash
-# Tests for scripts/polyfills.sh: the polyfills a tree carries, which of them a
-# --capabilities answer has made unnecessary, and their removal. Each case
-# works on a scratch tree; the last checks this checkout.
+# Tests for scripts/polyfills.sh (xtask polyfills): the polyfills a tree
+# carries, which of them a --capabilities answer has made unnecessary, and
+# their removal. Each case works on a scratch tree; the last checks this
+# checkout. console/xtask/src/polyfills/tests.rs has the rules case by case.
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
+
+# The script execs the xtask of this checkout, built once and named in
+# TEHAS_XTASK.
+t_xtask || t_bad "no xtask: $t_xtask_why"
 
 script=$T_ROOT/scripts/polyfills.sh
 tree=$T/tree

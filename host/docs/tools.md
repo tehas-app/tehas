@@ -4996,6 +4996,7 @@ scripts/polyfills.sh prune caps.json    # remove those: their files and marked l
 `prune` checks that each shell file it changed still parses, and exits 1 when
 one does not: a marked line that was part of a larger statement. The fast gate
 runs `check` on this checkout.
+The work is `xtask polyfills` in `console/xtask/`, which the script execs.
 
 ### Removed before a release
 
