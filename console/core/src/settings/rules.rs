@@ -42,10 +42,6 @@ pub const CLEAN_DIRS: &str =
     "target node_modules __pycache__ .venv .pytest_cache .mypy_cache .next .turbo .gradle";
 
 const SWITCH: Rule = Rule::OneOf(&["0", "1"], "expected 0 or 1");
-const LOGIN_MILLWRIGHT: &str =
-    "expected one GitHub login, such as tehas-millwright or tehas-millwright[bot]";
-const LOGIN_BOT: &str = "expected one GitHub login, such as tehas-app-bot[bot]";
-const LOGIN_CYCLE: &str = "expected the GitHub login of the account GH_CYCLE_TOKEN belongs to";
 const LOGIN_OWNER: &str = "expected the GitHub login of one person: GitHub assigns no app's bot";
 
 /// The shape of a value.
@@ -63,7 +59,6 @@ pub enum Rule {
     /// matches " login " inside " list ", and a stray space would make an
     /// empty name match.
     Logins,
-    Login(&'static str),
     /// A person's login, never a bot's: GitHub assigns no app's bot.
     Person(&'static str),
     AppId,
@@ -252,11 +247,7 @@ pub const TABLE: &[Setting] = &[
     given_or("TEHAS_IMPROVE_REPO", Rule::Repo, ""),
     given_or("TEHAS_IMPROVE_RUKAS_REPO", Rule::Repo, ""),
     given_or("TEHAS_IMPROVE_MAX_OPEN", Rule::Count, "10"),
-    given_or("TEHAS_MILLWRIGHT_LOGIN", Rule::Login(LOGIN_MILLWRIGHT), ""),
     given_or("TEHAS_GITHUB_APP_ID", Rule::AppId, ""),
-    given_or("TEHAS_GITHUB_APP_INSTALLATION", Rule::AppId, ""),
-    given_or("TEHAS_BOT_LOGIN", Rule::Login(LOGIN_BOT), ""),
-    given_or("TEHAS_CYCLE_LOGIN", Rule::Login(LOGIN_CYCLE), ""),
     given_or("TEHAS_OWNER", Rule::Person(LOGIN_OWNER), ""),
     given_or("TEHAS_RUKAS_WORKAROUNDS", Rule::Workarounds, ""),
     given_or("TEHAS_BRANCH_CHECK", Rule::BranchCheck, ""),
@@ -332,7 +323,6 @@ fn verdict(rule: Rule, v: &str, trees: &Trees) -> Result<(), String> {
             v.split(' ').all(is_login),
             "expected GitHub logins separated by single spaces",
         ),
-        Rule::Login(why) => refuse(is_login(v.strip_suffix("[bot]").unwrap_or(v)), why),
         Rule::Person(why) => refuse(is_login(v), why),
         Rule::AppId => refuse(leading(v, 12), "expected the ID GitHub shows, a whole number"),
         Rule::OneOf(words, why) => refuse(words.contains(&v), why),
@@ -714,18 +704,6 @@ mod tests {
     }
 
     #[test]
-    fn a_login_may_end_in_one_bot() {
-        takes("TEHAS_MILLWRIGHT_LOGIN", "acme-mill");
-        takes("TEHAS_BOT_LOGIN", "acme-app[bot]");
-        takes("TEHAS_CYCLE_LOGIN", "acme-cycle");
-        for bad in ["a[bot][bot]", "[bot]", "a[BOT]", "a[bot]x", "a b", "-a"] {
-            refuses("TEHAS_MILLWRIGHT_LOGIN", bad, LOGIN_MILLWRIGHT);
-            refuses("TEHAS_BOT_LOGIN", bad, LOGIN_BOT);
-            refuses("TEHAS_CYCLE_LOGIN", bad, LOGIN_CYCLE);
-        }
-    }
-
-    #[test]
     fn the_owner_is_one_person_and_never_a_bot() {
         takes("TEHAS_OWNER", "janit");
         for bad in ["acme-app[bot]", "a b", "-a", "alice bob", "a;b"] {
@@ -738,7 +716,6 @@ mod tests {
         takes("TEHAS_GITHUB_APP_ID", "123456789012");
         let why = "expected the ID GitHub shows, a whole number";
         refuses("TEHAS_GITHUB_APP_ID", "1234567890123", why);
-        refuses("TEHAS_GITHUB_APP_INSTALLATION", "0", why);
     }
 
     #[test]

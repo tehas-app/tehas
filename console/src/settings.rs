@@ -100,6 +100,10 @@ impl Host for Real {
         }
     }
 
+    fn warn(&mut self, line: &str) {
+        eprintln!("tehas: {line}");
+    }
+
     fn cpus(&mut self) -> i64 {
         let said = Command::new("nproc")
             .stdin(Stdio::null())

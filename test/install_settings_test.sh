@@ -9,7 +9,7 @@
 
 t_case "an instance with a missing setting installs nothing and exits 78"
 fresh
-t_instance TEHAS_CONTROL_ISSUE=1
+t_instance TEHAS_GITHUB_APP_ID=1 TEHAS_CONTROL_ISSUE=1
 t_run "$install"
 t_eq "$t_rc" 78
 t_contains "$t_out" "tehas: TEHAS_REPO is not set"

@@ -280,7 +280,6 @@ fn writer(
             } else {
                 bot.to_string()
             },
-            cycle: env(tehas_core::accounts::CYCLE_LOGIN),
             owner: env("TEHAS_OWNER"),
             systemctl: "systemctl".into(),
             start_cmd: opt("TEHAS_CYCLE_START_CMD"),
