@@ -18,6 +18,8 @@
 //!   console update units <env file>
 //!   console update login <root> <login command> <marker>
 //!   console update pi <instance> <generic settings> <provider> <model> <out>
+//!   console update programs <home> release|build <tree> <program>...
+//!   console update programs stamp <installed program> release|<source sum>
 //!   console update retired
 //!   console update report <root> <instance> <options>
 //!   console update notes <root> <options>
@@ -36,7 +38,9 @@
 //! the update ran, and the one left has to finish it. `finish` reads install.sh's
 //! answer and runs the follow-ups, see src/update/finish.rs. `release` answers
 //! one question about the releases, and `steps` names the steps and records them
-//! for install.sh, see src/update/steps.rs. `findings` is what install.sh finds
+//! for install.sh, see src/update/steps.rs. `programs` says which compiled
+//! programs install.sh installs and writes their stamps, see
+//! src/update/programs.rs. `findings` is what install.sh finds
 //! wrong with the instance before it changes anything, see
 //! src/update/findings.rs. `keeps`, `units` and `login` are three questions
 //! about the host, see src/update/host.rs. `pi` makes Pi's settings and model list from the
@@ -64,6 +68,7 @@ mod finish;
 mod host;
 mod lock;
 mod pi;
+mod programs;
 pub(crate) mod release;
 mod report;
 mod run;
@@ -570,6 +575,7 @@ pub fn main(given: &[String]) -> u8 {
         Some((verb, rest)) if verb == "units" => host::units_verb(rest),
         Some((verb, rest)) if verb == "login" => host::login_verb(rest),
         Some((verb, rest)) if verb == "pi" => pi::verb(rest),
+        Some((verb, rest)) if verb == "programs" => programs::verb(rest),
         Some((verb, rest)) if verb == "retired" => report::retired_verb(rest),
         Some((verb, rest)) if verb == "report" => report::report_verb(rest),
         Some((verb, rest)) if verb == "notes" => report::notes_verb(rest),
@@ -578,7 +584,7 @@ pub fn main(given: &[String]) -> u8 {
         Some((verb, rest)) if verb == "steps" => steps::verb(rest),
         Some((verb, rest)) if verb == "wait" => wait::verb(rest),
         _ => {
-            tell("console update: usage: run <console> <arguments> | args | gate | prepare | api | finish | files <options> <root> <host> | files write <path> | findings <euid> [<bash>] | keeps <home> <work dir> | units <env file> | login <root> <login command> <marker> | pi <instance> <generic settings> <provider> <model> <out> | release <question> | retired | report <root> <instance> <options> | notes <root> <options> | sandbox <host versions> <checkout versions> <dockerfile> <recorded> | sources <workspace> <package>... | steps <question> | wait update|dispatch");
+            tell("console update: usage: run <console> <arguments> | args | gate | prepare | api | finish | files <options> <root> <host> | files write <path> | findings <euid> [<bash>] | keeps <home> <work dir> | units <env file> | login <root> <login command> <marker> | pi <instance> <generic settings> <provider> <model> <out> | programs <home> release|build <tree> <program>... | programs stamp <program> release|<source sum> | release <question> | retired | report <root> <instance> <options> | notes <root> <options> | sandbox <host versions> <checkout versions> <dockerfile> <recorded> | sources <workspace> <package>... | steps <question> | wait update|dispatch");
             64
         }
     }

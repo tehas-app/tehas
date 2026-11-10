@@ -12,16 +12,16 @@ fn root() -> PathBuf {
         .to_path_buf()
 }
 
-/// The programs install.sh copies into libexec/, from its loop over them.
+/// The programs install.sh copies into libexec/, from its list of them.
 fn installed(root: &Path) -> Vec<String> {
     let install = fs::read_to_string(root.join("install.sh")).unwrap();
     let line = install
         .lines()
         .map(str::trim)
-        .find(|l| l.starts_with("for prog in ") && l.contains("console"))
-        .expect("install.sh has its loop over the programs");
-    line["for prog in ".len()..]
-        .split(';')
+        .find(|l| l.starts_with("compiled=(") && l.contains("console"))
+        .expect("install.sh has its list of the programs");
+    line["compiled=(".len()..]
+        .split(')')
         .next()
         .unwrap()
         .split_whitespace()
