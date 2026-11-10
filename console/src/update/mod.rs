@@ -16,6 +16,7 @@
 //!   console update retired
 //!   console update report <root> <instance> <options>
 //!   console update notes <root> <options>
+//!   console update sandbox <host versions> <checkout versions> <dockerfile> <recorded>
 //!   console update sources <workspace> <package>...
 //!   console update steps ids|units|valid <line>|owed|for <source>...|record <source>...
 //!   console update wait update|dispatch
@@ -35,7 +36,9 @@
 //! src/update/findings.rs. `pi` makes Pi's settings and model list from the
 //! instance, see src/update/pi.rs. `retired` names the files an older tehas
 //! installed, `report` is the --check report and `notes` what a real run says
-//! about the slice and the sandbox image, see src/update/report.rs. `sources`
+//! about the slice and the sandbox image, see src/update/report.rs. `sandbox`
+//! says whether install.sh owes the sandbox build, see src/update/sandbox.rs.
+//! `sources`
 //! gives install.sh the
 //! checksum of each program's source, see src/update/sources.rs. `wait` says how long a lock is waited
 //! for, see src/update/wait.rs.
@@ -55,6 +58,7 @@ mod pi;
 pub(crate) mod release;
 mod report;
 mod run;
+mod sandbox;
 mod sources;
 mod steps;
 mod wait;
@@ -556,11 +560,12 @@ pub fn main(given: &[String]) -> u8 {
         Some((verb, rest)) if verb == "retired" => report::retired_verb(rest),
         Some((verb, rest)) if verb == "report" => report::report_verb(rest),
         Some((verb, rest)) if verb == "notes" => report::notes_verb(rest),
+        Some((verb, rest)) if verb == "sandbox" => sandbox::verb(rest),
         Some((verb, rest)) if verb == "sources" => sources::verb(rest),
         Some((verb, rest)) if verb == "steps" => steps::verb(rest),
         Some((verb, rest)) if verb == "wait" => wait::verb(rest),
         _ => {
-            tell("console update: usage: run <console> <arguments> | args | gate | prepare | api | finish | findings <euid> [<bash>] | pi <instance> <generic settings> <provider> <model> <out> | release <question> | retired | report <root> <instance> <options> | notes <root> <options> | sources <workspace> <package>... | steps <question> | wait update|dispatch");
+            tell("console update: usage: run <console> <arguments> | args | gate | prepare | api | finish | findings <euid> [<bash>] | pi <instance> <generic settings> <provider> <model> <out> | release <question> | retired | report <root> <instance> <options> | notes <root> <options> | sandbox <host versions> <checkout versions> <dockerfile> <recorded> | sources <workspace> <package>... | steps <question> | wait update|dispatch");
             64
         }
     }
