@@ -209,7 +209,7 @@ and `PI_ENSEMBLE_POLICY_JUDGE` among them. tehas sets neither, and setting one
 is a person's decision on the instance, never something a cycle can do for
 itself.
 
-The example instance sets the five required ones, `TEHAS_GITHUB_APP_ID`, `TEHAS_HOST_ADDR`,
+The example instance sets `TEHAS_GITHUB_APP_ID`, `TEHAS_HOST_ADDR`,
 `PI_ENSEMBLE_HOST_ALIASES`, and, because it is public, `TEHAS_INDEXING` and the
 analytics settings. It leaves the rest at the defaults.
 

@@ -318,14 +318,15 @@ impl App {
         Some(login)
     }
 
-    /// How many installations the app has, from GET /app/installations.
-    pub fn installations(&self) -> Option<usize> {
-        let jwt = self.jwt()?;
-        let answer = curl(&jwt, &[], &format!("{}/app/installations", api()))?;
+    /// How many installations the app has, from GET /app/installations, or
+    /// why GitHub did not say (`HTTP <status>` for a refusal).
+    pub fn installations(&self) -> Result<usize, String> {
+        let jwt = self.jwt().ok_or("the app's token could not be signed")?;
+        let answer = curl_why(&jwt, &[], &format!("{}/app/installations", api()))?;
         serde_json::from_slice::<Value>(&answer)
-            .ok()?
-            .as_array()
-            .map(Vec::len)
+            .ok()
+            .and_then(|a| a.as_array().map(Vec::len))
+            .ok_or_else(|| "its answer held no list of installations".to_string())
     }
 
     /// Whether the app is installed on `repo`, from GET
@@ -430,6 +431,11 @@ fn keep_line(dir: &Path, name: &str, line: &str) -> bool {
         let _ = fs::remove_file(&new);
     }
     kept
+}
+
+/// Keeps `login` as the app's login in `dir`, as a lookup would.
+pub fn keep_login(dir: &Path, login: &str) -> bool {
+    keep_line(dir, "login", login)
 }
 
 /// The first poll after a fresh install should know the bot before the
@@ -1258,7 +1264,19 @@ mod tests {
                 app.installations(),
             )
         });
-        assert_eq!(got, (Ok(()), Err("HTTP 404".to_string()), Some(1)));
+        assert_eq!(got, (Ok(()), Err("HTTP 404".to_string()), Ok(1)));
+    }
+
+    // tehas setup stops at a refusal rather than wait ten minutes on it.
+    #[test]
+    fn a_refused_list_of_installations_says_why() {
+        let d = dir("installations-refused");
+        let app = app_of(&d);
+        let f = fake(&[("GET /app/installations", 401, "{}")]);
+        assert_eq!(
+            against(&f, || app.installations()),
+            Err("HTTP 401".to_string())
+        );
     }
 
     #[test]
@@ -1378,7 +1396,7 @@ mod tests {
     fn a_login_in_the_wrong_shape_is_looked_up_again() {
         let d = dir("login-bad");
         let app = app_of(&d);
-        fs::write(d.join("login"), "acme industry\n").unwrap();
+        fs::write(d.join("login"), "acme factory\n").unwrap();
         let f = fake(&[SLUG]);
         let got = against(&f, || app.login(d.path()));
         assert_eq!(got.as_deref(), Some("acme-factory[bot]"));
