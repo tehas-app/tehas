@@ -116,7 +116,9 @@ fn clock_ticks_of(auxv: &[u8]) -> Option<u64> {
     const AT_CLKTCK: u64 = 17;
     const WORD: usize = std::mem::size_of::<usize>();
     let word = |c: &[u8]| c.try_into().map(usize::from_ne_bytes).unwrap_or(0) as u64;
-    auxv.chunks_exact(2 * WORD)
+    auxv.as_chunks::<{ 2 * WORD }>()
+        .0
+        .iter()
         .map(|pair| (word(&pair[..WORD]), word(&pair[WORD..])))
         .find(|&(key, _)| key == AT_CLKTCK)
         .map(|(_, v)| v)
