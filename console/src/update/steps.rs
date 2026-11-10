@@ -93,9 +93,10 @@ fn is_unit(word: &str) -> bool {
 pub(crate) fn steps_for(sources: &[String]) -> Vec<String> {
     let any = |test: &dyn Fn(&str) -> bool| sources.iter().any(|s| test(s));
     let mut steps = Vec::new();
-    // bin/tehas-energy, libexec/energy and libexec/top-publish are loops of
-    // before the console: a running one moves on only when restarted. So is a
-    // tehasbot top that still runs libexec/with-settings each mark. A running
+    // bin/tehas-energy and the energy and top-publish scripts an older install
+    // left in libexec are loops of before the console: a running one moves on
+    // only when restarted. So is a tehasbot top that still runs the old
+    // with-settings script each mark. A running
     // service keeps the environment env.sh gave it at its start.
     if any(&|s| {
         s.starts_with("systemd/")

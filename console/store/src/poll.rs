@@ -1,17 +1,15 @@
-//! What a poll cost: poll-record, which libexec/dispatch calls as each poll
+//! What a poll cost: poll-record, which tehas-dispatch calls as each poll
 //! that held the lock ends, and poll-show, which `tehas status` reads.
 //!
-//!   store poll-record --started <unix[.frac]> --times <file> --tally <file>
+//!   store poll-record --started <unix[.frac]> --cpu-ms <n> --gh <n>
 //!                     --writes-log <file> [--starts <n>]
-//!     One row of poll_cost. The wall time is from --started to now. The CPU
-//!     time is the four figures of bash's `times` in <file>, the poll's and
-//!     its children's. The gh calls are the bytes of the tally, one newline
-//!     per call. The writes are the lines of the host shim's write log
-//!     (host/shim/gh) dated from the second of --started to now, by kind. A
-//!     tally that is not there is 0 calls; a write log that is not there
-//!     counts nothing, and the writes are null. --starts is the number of
-//!     cycles the poll started, 0 when it started none; without it the row
-//!     keeps no answer for that.
+//!     One row of poll_cost. The wall time is from --started to now. --cpu-ms
+//!     is the poll's CPU time and its children's, in milliseconds, and --gh
+//!     the gh calls it made. The writes are the lines of the host shim's write
+//!     log (host/shim/gh) dated from the second of --started to now, by kind.
+//!     A write log that is not there counts nothing, and the writes are null.
+//!     --starts is the number of cycles the poll started, 0 when it started
+//!     none; without it the row keeps no answer for that.
 //!   store poll-show
 //!     The last poll's row, the sums of the last hour, and the line `tehas
 //!     status` prints, null when no poll is on record.
@@ -57,8 +55,8 @@ pub struct Show {
 #[derive(Debug, PartialEq, Eq)]
 pub struct Record {
     pub started_ms: i64,
-    pub times: PathBuf,
-    pub tally: PathBuf,
+    pub cpu_ms: i64,
+    pub gh: i64,
     pub writes_log: PathBuf,
     /// The cycles this poll started; None when the caller said nothing.
     pub starts: Option<i64>,
@@ -128,7 +126,6 @@ fn budget(s: &str) -> Option<Budget> {
 
 /// The most of the write log read: its end, where a poll's lines are.
 const LOG_TAIL: u64 = tehas_core::file::READ_BOUND;
-const TIMES_BOUND: u64 = 4096;
 const HOUR: i64 = 3600;
 
 pub fn parse(name: &str, rest: &[String]) -> Option<Result<Call, String>> {
@@ -138,20 +135,21 @@ pub fn parse(name: &str, rest: &[String]) -> Option<Result<Call, String>> {
             rest,
             &[
                 ("--started", Kind::Value),
-                ("--times", Kind::Value),
-                ("--tally", Kind::Value),
+                ("--cpu-ms", Kind::Value),
+                ("--gh", Kind::Value),
                 ("--writes-log", Kind::Value),
                 ("--starts", Kind::Value),
             ],
             false,
         )
         .and_then(|a| {
-            let path = |flag: &str| a.path(flag)?.ok_or_else(|| a.usage(flag, "is required"));
             Ok(Call::Record(Record {
                 started_ms: a.strict_need("--started", "a Unix time", started)?,
-                times: path("--times")?,
-                tally: path("--tally")?,
-                writes_log: path("--writes-log")?,
+                cpu_ms: a.strict_need("--cpu-ms", "a number of milliseconds", verbs::count)?,
+                gh: a.strict_need("--gh", "a number of calls", verbs::count)?,
+                writes_log: a
+                    .path("--writes-log")?
+                    .ok_or_else(|| a.usage("--writes-log", "is required"))?,
                 starts: a.strict("--starts", "a number of cycles", verbs::count)?,
             }))
         }),
@@ -196,23 +194,6 @@ fn millis(frac: &str) -> Option<i64> {
         return None;
     }
     format!("{frac:0<3}")[..3].parse().ok()
-}
-
-/// The four times of bash's `times` builtin, `0m0.012s` each, summed in
-/// milliseconds. None when the text holds anything else or not four.
-pub fn cpu_ms(text: &str) -> Option<i64> {
-    let words: Vec<&str> = text.split_whitespace().collect();
-    if words.len() != 4 {
-        return None;
-    }
-    let mut ms = 0;
-    for w in words {
-        let (min, sec) = w.strip_suffix('s')?.split_once('m')?;
-        let min = verbs::count(min)?;
-        let (s, frac) = sec.split_once(['.', ',']).unwrap_or((sec, ""));
-        ms += (min * 60 + verbs::count(s)?) * 1000 + millis(frac)?;
-    }
-    Some(ms)
 }
 
 /// The writes of the log's lines dated from `from` to `to`, Unix seconds.
@@ -331,22 +312,10 @@ fn now_ms() -> i64 {
         .unwrap_or(0)
 }
 
-fn garbled(what: &str) -> Fail {
-    (1, format!("garbled: {what}"))
-}
-
 /// `now` dates the row; `real_ms` is the clock the wall time and the write
 /// log are read against, which a test cannot set.
 pub fn record(home: &Path, r: &Record, now: i64, real_ms: i64) -> Result<String, Fail> {
-    let times = match verbs::read_file(&r.times, TIMES_BOUND) {
-        Ok((bytes, _)) => String::from_utf8(bytes).map_err(|_| garbled("--times is not UTF-8"))?,
-        Err(_) => return Err(garbled("--times is not a regular file")),
-    };
-    let cpu = cpu_ms(&times).ok_or_else(|| garbled("--times is not what bash's times writes"))?;
-    let gh = match std::fs::symlink_metadata(&r.tally) {
-        Ok(m) if m.is_file() => m.len() as i64,
-        _ => 0,
-    };
+    let (cpu, gh) = (r.cpu_ms, r.gh);
     let wall = (real_ms - r.started_ms).max(0);
     let writes = log_tail(&r.writes_log).map(|log| {
         count_writes(

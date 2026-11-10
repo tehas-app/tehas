@@ -1,5 +1,5 @@
 //! What a snapshot asks of the model endpoints and the sandbox image, as
-//! libexec/dispatch asks it: mesh_check over tehas_core::models, image_ok's
+//! the bash dispatcher asked it: mesh_check over tehas_core::models, image_ok's
 //! image and model, and whether a refresh can continue. curl and docker do the
 //! asking, under the bash's bounds.
 
@@ -8,7 +8,7 @@ use serde_json::{json, Value};
 use std::time::Duration;
 use tehas_core::models::{self, auth, host_path, ModelFile};
 
-/// A png of one pixel, as libexec/dispatch's mesh_pixel.
+/// A png of one pixel, as the bash dispatcher's mesh_pixel.
 const PIXEL: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
 
 /// The instance's providers and the models its agents use.
