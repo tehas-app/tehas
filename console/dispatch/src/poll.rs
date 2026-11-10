@@ -1216,8 +1216,42 @@ mod tests {
         assert!(own_words(true, &["index"]).is_empty());
     }
 
+    /// The two login variables of this process, put back as they were when the
+    /// guard goes, a panic included; held under a lock, since the process's
+    /// environment is shared by every test.
+    #[allow(dead_code)] // the lock is held, never read
+    struct Logins(
+        std::sync::MutexGuard<'static, ()>,
+        [(&'static str, Option<std::ffi::OsString>); 2],
+    );
+
+    impl Logins {
+        fn take() -> Logins {
+            static LOCK: Mutex<()> = Mutex::new(());
+            let held = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+            let names = ["TEHAS_BOT_LOGIN", "TEHAS_MILLWRIGHT_LOGIN"];
+            let kept = names.map(|n| (n, std::env::var_os(n)));
+            for n in names {
+                std::env::remove_var(n);
+            }
+            Logins(held, kept)
+        }
+    }
+
+    impl Drop for Logins {
+        fn drop(&mut self) {
+            for (name, value) in &self.1 {
+                match value {
+                    Some(v) => std::env::set_var(name, v),
+                    None => std::env::remove_var(name),
+                }
+            }
+        }
+    }
+
     #[test]
     fn a_login_the_first_mint_wrote_is_the_bot_and_the_millwright_of_the_poll() {
+        let _env = Logins::take();
         let home = home_of("adopt");
         let none = Settings::parse(&json!({}));
         assert!(adopt_login(&home, &none).is_none(), "no login is kept yet");
@@ -1226,10 +1260,9 @@ mod tests {
         let got = adopt_login(&home, &none).expect("the kept login is adopted");
         assert_eq!(got.bot_login, "acme-app[bot]");
         assert!(got.is_millwright("acme-app[bot]"));
+        assert_eq!(std::env::var("TEHAS_BOT_LOGIN").unwrap(), "acme-app[bot]");
         let named = Settings::parse(&json!({"TEHAS_BOT_LOGIN": "set[bot]"}));
         assert!(adopt_login(&home, &named).is_none(), "a named bot stays");
-        std::env::remove_var("TEHAS_BOT_LOGIN");
-        std::env::remove_var("TEHAS_MILLWRIGHT_LOGIN");
     }
 
     /// A scratch home of this test, with `live/` in it.
