@@ -101,17 +101,24 @@ fn quoted(value: &str) -> String {
 /// curl's answer, when it exits 0, else why not: `HTTP <status>` or curl's own
 /// words. The bearer goes on standard input.
 fn curl_why(bearer: &str, flags: &[&str], url: &str) -> Result<Vec<u8>, String> {
+    let config = format!("header = \"Authorization: Bearer {}\"\n", quoted(bearer));
+    curl_config(&config, flags, Some(url))
+}
+
+/// curl with `config` on its standard input; the URL there too when `url`
+/// is None.
+fn curl_config(config: &str, flags: &[&str], url: Option<&str>) -> Result<Vec<u8>, String> {
     let mut child = Command::new("curl")
         .args(["-fsS", "--max-time", "30", "-K", "-"])
         .args(flags)
-        .args(["-H", ACCEPT, url])
+        .args(["-H", ACCEPT])
+        .args(url)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| format!("curl cannot run: {e}"))?;
     if let Some(mut stdin) = child.stdin.take() {
-        let config = format!("header = \"Authorization: Bearer {}\"\n", quoted(bearer));
         let _ = stdin.write_all(config.as_bytes());
     }
     let out = child
@@ -127,6 +134,31 @@ fn curl_why(bearer: &str, flags: &[&str], url: &str) -> Result<Vec<u8>, String> 
         None if said.is_empty() => format!("curl failed ({})", out.status),
         None => said.replace('\n', " "),
     })
+}
+
+/// GitHub's answer to POST /app-manifests/{code}/conversions, which needs no
+/// authentication and works once per code. The code goes to curl on standard
+/// input, inside the URL.
+pub fn convert_manifest(code: &str) -> Result<Vec<u8>, String> {
+    let config = format!(
+        "url = \"{}\"\nrequest = \"POST\"\n",
+        quoted(&format!("{}/app-manifests/{code}/conversions", api()))
+    );
+    curl_config(&config, &[], None)
+}
+
+/// Whether a GitHub account is an organisation, from GET /users/{login}.
+pub fn is_org(login: &str) -> Result<bool, String> {
+    let config = format!(
+        "url = \"{}\"\n",
+        quoted(&format!("{}/users/{login}", api()))
+    );
+    let answer: Value = serde_json::from_slice(&curl_config(&config, &[], None)?)
+        .map_err(|_| "its answer was not JSON".to_string())?;
+    match answer["type"].as_str() {
+        Some(kind) => Ok(kind == "Organization"),
+        None => Err("its answer named no account type".to_string()),
+    }
 }
 
 fn curl(bearer: &str, flags: &[&str], url: &str) -> Option<Vec<u8>> {
@@ -281,6 +313,28 @@ impl App {
             );
         }
         Some(login)
+    }
+
+    /// How many installations the app has, from GET /app/installations.
+    pub fn installations(&self) -> Option<usize> {
+        let jwt = self.jwt()?;
+        let answer = curl(&jwt, &[], &format!("{}/app/installations", api()))?;
+        serde_json::from_slice::<Value>(&answer)
+            .ok()?
+            .as_array()
+            .map(Vec::len)
+    }
+
+    /// Whether the app is installed on `repo`, from GET
+    /// /repos/{repo}/installation; why not when it is not.
+    pub fn reaches(&self, repo: &str) -> Result<(), String> {
+        let jwt = self.jwt().ok_or("the app's token could not be signed")?;
+        let answer = curl_why(&jwt, &[], &format!("{}/repos/{repo}/installation", api()))?;
+        serde_json::from_slice::<Value>(&answer)
+            .ok()
+            .and_then(|a| a["id"].as_u64())
+            .map(|_| ())
+            .ok_or_else(|| "its answer held no installation id".to_string())
     }
 
     /// The app's slug, from GET /app with its JWT.
@@ -1063,6 +1117,46 @@ mod tests {
             assert!(said.contains("could not find"), "{said}");
             assert!(said.contains("acme/widget") && said.contains(why), "{said}");
         }
+    }
+
+    #[test]
+    fn a_manifest_code_is_converted_without_auth() {
+        let f = fake(&[(
+            "POST /app-manifests/abc123/conversions",
+            201,
+            r#"{"id":9,"slug":"acme-factory"}"#,
+        )]);
+        let (made, again) = against(&f, || {
+            (convert_manifest("abc123"), convert_manifest("other"))
+        });
+        assert_eq!(made, Ok(br#"{"id":9,"slug":"acme-factory"}"#.to_vec()));
+        assert_eq!(again, Err("HTTP 404".to_string()));
+        assert_eq!(f.count("POST /app-manifests/abc123/conversions"), 1);
+    }
+
+    #[test]
+    fn an_account_is_an_organisation_or_a_user() {
+        let f = fake(&[
+            ("GET /users/acme", 200, r#"{"type":"Organization"}"#),
+            ("GET /users/alice", 200, r#"{"type":"User"}"#),
+        ]);
+        let got = against(&f, || (is_org("acme"), is_org("alice"), is_org("ghost")));
+        assert_eq!(got, (Ok(true), Ok(false), Err("HTTP 404".to_string())));
+    }
+
+    #[test]
+    fn reach_and_installations_ask_with_the_apps_jwt() {
+        let d = dir("reach");
+        let app = app_of(&d);
+        let f = fake(&[INSTALLED, ("GET /app/installations", 200, r#"[{"id":77}]"#)]);
+        let got = against(&f, || {
+            (
+                app.reaches("acme/widget"),
+                app.reaches("acme/other"),
+                app.installations(),
+            )
+        });
+        assert_eq!(got, (Ok(()), Err("HTTP 404".to_string()), Some(1)));
     }
 
     #[test]

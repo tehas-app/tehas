@@ -106,10 +106,12 @@ and whether the installation reaches `TEHAS_REPO`, and never the token itself.
 `command -v gh` now answers `~/tehas/shim/gh`.
 
 On a new host, `tehas setup` takes the app from its first run:
-`--app-id`, `--app-installation` and `--app-key-file` do the steps above and
-check the installation before anything is written (see
-[tehas setup](/tools#tehas-setup)). The steps above move a host that was set up
-with a token; remove the token from `~/.config/tehas/env` after.
+`tehas setup --new-app` makes it from a manifest in your browser, and
+`--app-id` with `--app-key-file` takes one you have. Either way setup writes
+`TEHAS_GITHUB_APP_ID` and the key, looks up the installation, sets git's
+identity and ends with `tehasbot github-token --check` (see
+[tehas setup](/tools#tehas-setup)). The steps above move a host that was set
+up with a token; remove the token from `~/.config/tehas/env` after.
 
 ## What tehas does with it
 

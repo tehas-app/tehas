@@ -6,10 +6,12 @@
 //! First the settings, the checks and the files. Reads what the options leave
 //! out from the instance's files, then asks on a terminal. Checks every value
 //! and refuses a setting that is there and differs, unless --force, before it
-//! calls anything. Then checks GitHub and the endpoint, makes the control
-//! issue, and writes instance.env, models.json, ~/.config/tehas/env and the
-//! app's key. The app's token is made by src/github.rs. Nothing is written
-//! before every check passed. What this half says goes to standard error.
+//! calls anything. Then checks the endpoint and the GitHub App, makes the
+//! control issue, and writes instance.env, models.json, ~/.config/tehas/env,
+//! the app's key and its login. The app's token is made by src/github.rs.
+//! Nothing is written before every check passed, except what --new-app
+//! writes as soon as GitHub made the app (setup/manifest.rs): its key and
+//! TEHAS_GITHUB_APP_ID. What this half says goes to standard error.
 //!
 //! Then the steps: git's helper and identity, the clone, the install, the
 //! labels, the sandbox, the units. What they say goes to standard output, a
@@ -38,7 +40,7 @@ use tehas_core::settings::{
     INSTANCE_SETTINGS,
 };
 
-const USAGE: &str = "usage: tehas setup [--repo owner/name] [--labellers \"a b\"] [--token-file f|- | --app-id id --app-installation id --app-key-file f] [--endpoint url] [--model id] [--model-key-file f|-] [--provider name] [--control-issue n] [--no-build] [--force]";
+const USAGE: &str = "usage: tehas setup [--repo owner/name] [--labellers \"a b\"] [--new-app [--app-owner login] [--app-name name] | --app-id id --app-key-file f] [--endpoint url] [--model id] [--model-key-file f|-] [--provider name] [--control-issue n] [--no-build] [--force]";
 
 const CONTROL_BODY: &str = "The control issue of this repository's tehas factory. The label tehas:pause here stops it starting work. Keep this issue open; it is never worked on.";
 
@@ -54,6 +56,7 @@ enum Fail {
 }
 use Fail::{Bad, Die, Stop};
 
+mod manifest;
 mod product;
 
 fn say(what: &str) {
@@ -105,6 +108,9 @@ struct Given {
     app_id: String,
     app_inst: String,
     app_key_file: String,
+    new_app: bool,
+    app_owner: String,
+    app_name: String,
     endpoint: String,
     model: String,
     key_file: String,
@@ -130,6 +136,12 @@ fn parse(args: &[String]) -> Result<Given, Fail> {
                 g.force = true;
                 continue;
             }
+            "--new-app" => {
+                g.new_app = true;
+                continue;
+            }
+            "--app-owner" => &mut g.app_owner,
+            "--app-name" => &mut g.app_name,
             "--repo" => &mut g.repo,
             "--labellers" => &mut g.labellers,
             "--token-file" => &mut g.token_file,
@@ -320,24 +332,292 @@ impl Conflicts {
     }
 }
 
-/// What the files leave for the steps. `bot` is the app's login and ID.
+/// What the files leave for the steps: the app's login and its user's ID.
 struct Written {
     build: bool,
-    bot: Option<(String, String)>,
+    bot: (String, String),
+}
+
+/// The words of a refused way to give the factory an account, as the
+/// settings say them.
+const NO_LONGER_USED: &str = "is no longer used: the factory acts as a GitHub App. Run tehas setup --new-app or give --app-id and --app-key-file.";
+
+/// Which app the factory acts as.
+enum Way {
+    /// --app-id and --app-key-file: the key is installed when the checks pass.
+    Given { id: String, key: PathBuf },
+    /// The app instance.env names, its key installed.
+    Configured { id: String },
+    /// --new-app: made in the owner's browser.
+    New { owner: String, name: String },
+}
+
+/// GitHub allows 34 characters in an app's name.
+fn is_app_name(s: &str) -> bool {
+    s.len() <= 34
+        && s.starts_with(|c: char| c.is_ascii_alphanumeric())
+        && all(s, |c| c.is_ascii_alphanumeric() || " ._-".contains(c))
+}
+
+/// A directory of this run for the app's lookups before its settings are
+/// written, removed when the run is done with it.
+struct Scratch(PathBuf);
+
+impl Scratch {
+    fn new() -> Result<Scratch, Fail> {
+        let word = manifest::new_state().map_err(|e| Die(format!("no random source: {e}")))?;
+        let dir = std::env::temp_dir().join(format!("tehas-setup.{word}"));
+        DirBuilder::new()
+            .mode(0o700)
+            .create(&dir)
+            .map_err(|e| Die(format!("could not make {}: {e}", dir.display())))?;
+        Ok(Scratch(dir))
+    }
+}
+
+impl Drop for Scratch {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
+fn made_dir(d: &Path) -> io::Result<()> {
+    DirBuilder::new().recursive(true).mode(0o700).create(d)?;
+    fs::set_permissions(d, fs::Permissions::from_mode(0o700))
+}
+
+const INSTANCE_HEADER: &str = "# Written by tehas setup: the settings this instance must have. The\n# optional ones are in instances/example/optional.env of the release.\n\n";
+
+/// The app's settings page, where a new key is made.
+fn app_settings(owner: &str, is_org: bool, slug: &str) -> String {
+    if is_org {
+        format!("https://github.com/organizations/{owner}/settings/apps/{slug}")
+    } else {
+        format!("https://github.com/settings/apps/{slug}")
+    }
+}
+
+/// Steps 1 to 6 of "The wizard": the manifest goes to GitHub in the owner's
+/// browser, the code comes back pasted, and GitHub's conversion gives the
+/// app's ID and key. The key and TEHAS_GITHUB_APP_ID are written together,
+/// as soon as the app is made: a code works once, and a second run then finds
+/// the app and only checks it. Then waits for the app to be installed.
+fn make_app(
+    owner: &str,
+    name: &str,
+    repo: &str,
+    paths: (&Path, &Path, &Path),
+) -> Result<github::App, Fail> {
+    let (dir, config, app_key) = paths;
+    let is_org = github::is_org(owner).map_err(|why| {
+        Die(format!(
+            "could not ask GitHub whether {owner} is an organisation ({why}); nothing was written"
+        ))
+    })?;
+    let owner_url = format!("https://github.com/{owner}");
+    let manifest = manifest::json(name, &owner_url, &owner_url);
+    let action = manifest::form_url(owner, is_org);
+    let state = manifest::new_state().map_err(|e| Die(format!("no random source: {e}")))?;
+    made_dir(dir)
+        .and_then(|_| made_dir(config))
+        .map_err(|_| Die(format!("could not make {}", config.display())))?;
+    manifest::key_can_go(app_key).map_err(|e| {
+        Bad(format!(
+            "the new app's key cannot go to {} ({e}); no app was made",
+            app_key.display()
+        ))
+    })?;
+    let page_file = config.join("new-app.html");
+    let page = manifest::page(&manifest, &action, &state);
+    let kept_page = manifest::write_page(&page_file, &page);
+    if let Err(e) = &kept_page {
+        say(&format!("could not write {}: {e}", page_file.display()));
+    }
+    let account = if is_org {
+        "organisation"
+    } else {
+        "user account"
+    };
+    eprintln!();
+    eprintln!("To make the GitHub App {name} for the {account} {owner}, paste this link into your browser's address bar:");
+    eprintln!();
+    eprintln!("{}", manifest::data_link(&manifest, &action, &state));
+    eprintln!();
+    if kept_page.is_ok() {
+        eprintln!(
+            "If the browser will not open it: {} on this host is the same page. Copy it to the machine your browser runs on and open it there.",
+            page_file.display()
+        );
+    }
+    eprintln!("GitHub shows the app's permissions. Create it, and GitHub opens {owner_url}?code=...: copy that address.");
+    let pasted = ask("The address GitHub opened, or the code in it", false);
+    let code = manifest::checked_code(&pasted, &state).map_err(|why| {
+        Bad(format!(
+            "{why}; no app was made, run tehas setup --new-app again"
+        ))
+    })?;
+    let answer = github::convert_manifest(&code).map_err(|why| {
+        Die(format!(
+            "GitHub did not make the app from the code ({why}); a code lasts one hour and works once, run tehas setup --new-app again"
+        ))
+    })?;
+    let (id, slug) = keep_new_app(&answer, dir, app_key, |slug| {
+        app_settings(owner, is_org, slug)
+    })?;
+    if kept_page.is_ok() {
+        let _ = fs::remove_file(&page_file);
+    }
+    say(&format!(
+        "made the GitHub App {slug}: TEHAS_GITHUB_APP_ID={id} written to {}, its key to {}",
+        dir.join("instance.env").display(),
+        app_key.display()
+    ));
+    let install = format!("https://github.com/apps/{slug}/installations/new");
+    eprintln!();
+    eprintln!("Install the app on {owner}: {install}");
+    eprintln!("All repositories, or pick {repo} and the other repositories the factory works in.");
+    eprintln!("Waiting up to 10 minutes for the installation.");
+    let app = github::App {
+        id: id.clone(),
+        key: app_key.to_path_buf(),
+    };
+    let started = std::time::Instant::now();
+    loop {
+        if app.installations().is_some_and(|n| n > 0) {
+            break;
+        }
+        if started.elapsed() >= INSTALL_WAIT {
+            return Err(Die(format!(
+                "the app {slug} is not installed after 10 minutes. Install it at {install} and run tehas setup again: it finds app {id} and checks it"
+            )));
+        }
+        std::thread::sleep(INSTALL_POLL);
+    }
+    say(&format!("the app {slug} is installed"));
+    Ok(app)
+}
+
+/// GitHub's answer to the conversion, kept: the key at `app_key` (a new file,
+/// mode 600) and TEHAS_GITHUB_APP_ID in the instance, in one step. The key is
+/// never printed. The app's ID and slug.
+fn keep_new_app(
+    answer: &[u8],
+    dir: &Path,
+    app_key: &Path,
+    settings_page: impl Fn(&str) -> String,
+) -> Result<(String, String), Fail> {
+    let made = manifest::made(answer).ok_or_else(|| {
+        Die("GitHub's answer for the new app held no ID, name and key; find the app among your GitHub Apps, make a private key for it and run tehas setup --app-id <id> --app-key-file <key>".to_string())
+    })?;
+    let manifest::Made { id, slug, pem } = made;
+    manifest::write_key(app_key, &pem).map_err(|e| {
+        Die(format!(
+            "the app {slug} (ID {id}) was made, but its key could not be written to {}: {e}. Make a new private key at {} and run tehas setup --app-id {id} --app-key-file <key>",
+            app_key.display(),
+            settings_page(&slug)
+        ))
+    })?;
+    drop(pem);
+    let inst = dir.join("instance.env");
+    if !inst.exists() {
+        write_new(&inst, INSTANCE_HEADER)?;
+    }
+    put(&inst, "TEHAS_GITHUB_APP_ID", &id, false).map_err(|_| {
+        Die(format!(
+            "could not write {}; the app's ID is {id}",
+            inst.display()
+        ))
+    })?;
+    let _ = fs::set_permissions(&inst, fs::Permissions::from_mode(0o600));
+    Ok((id, slug))
+}
+
+const INSTALL_WAIT: std::time::Duration = std::time::Duration::from_secs(600);
+const INSTALL_POLL: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// The settings besides TEHAS_REPO that name a repository the factory works in.
+const OTHER_REPOS: [&str; 4] = [
+    "TEHAS_IMPROVE_REPO",
+    "TEHAS_IMPROVE_RUKAS_REPO",
+    "TEHAS_REVIEW_REPO",
+    "TEHAS_RELEASE_REPO",
+];
+
+/// The app is installed on the repository and may write what the factory
+/// writes; the other repositories the instance names are reached or named.
+/// Lookups are kept in `scratch`, not in the factory's state. The bot's login,
+/// its user's ID and a token of the installation, which is kept in no file.
+fn check_app(
+    app: &github::App,
+    repo: &str,
+    inst: &Path,
+    scratch: &Path,
+    after: &str,
+) -> Result<(String, String, String), Fail> {
+    let installation = app
+        .installation(repo, scratch)
+        .ok_or_else(|| Die(format!("the app cannot act on {repo}; {after}")))?;
+    let mint = app
+        .mint(&installation, None)
+        .ok_or_else(|| Die(format!("the app's key could not make a token; {after}")))?;
+    let mint: Value = serde_json::from_slice(&mint).unwrap_or_default();
+    let token = mint["token"].as_str().unwrap_or_default().to_string();
+    if token.is_empty() {
+        return Err(Die(format!(
+            "GitHub's answer for the app's token held no token; {after}"
+        )));
+    }
+    for p in ["contents", "issues", "pull_requests"] {
+        if mint["permissions"][p] != "write" {
+            return Err(Die(format!("the app's installation may not write {p} (it needs contents, issues and pull_requests: write); {after}")));
+        }
+    }
+    let login = app
+        .login(scratch)
+        .filter(|l| is_slug_or_login(l.trim_end_matches("[bot]")))
+        .ok_or_else(|| Die(format!("GitHub did not say the app's name; {after}")))?;
+    let slug = login.trim_end_matches("[bot]");
+    say(&format!(
+        "the app {slug} is installed on {repo} and may write to it"
+    ));
+    for name in OTHER_REPOS {
+        let other = value_in(inst, name);
+        if !is_repo(&other) || other.eq_ignore_ascii_case(repo) {
+            continue;
+        }
+        match app.reaches(&other) {
+            Ok(()) => say(&format!("the app reaches {other} ({name})")),
+            Err(why) => say(&format!(
+                "the app does not reach {other} ({name}: {why}); install it there at https://github.com/apps/{slug}/installations/new"
+            )),
+        }
+    }
+    let id = gh(&token, &["api", &format!("users/{login}"), "--jq", ".id"])
+        .filter(|id| is_number(id))
+        .ok_or_else(|| Die(format!("GitHub did not give the ID of {login}; {after}")))?;
+    Ok((login, id, token))
 }
 
 fn files(dir: &Path, args: &[String]) -> Result<Written, Fail> {
     let mut g = parse(args)?;
-    let app = !(g.app_id.is_empty() && g.app_inst.is_empty() && g.app_key_file.is_empty());
-    if app {
-        if g.app_id.is_empty() || g.app_inst.is_empty() || g.app_key_file.is_empty() {
-            say("--app-id, --app-installation and --app-key-file go together");
-            return Err(Fail::Usage);
-        }
-        if !g.token_file.is_empty() {
-            say("an app or --token-file, not both");
-            return Err(Fail::Usage);
-        }
+    if !g.token_file.is_empty() {
+        return Err(Bad(format!("--token-file {NO_LONGER_USED}")));
+    }
+    if !g.app_inst.is_empty() {
+        say("--app-installation is no longer used: the app's installation on the repository is looked up; the value is ignored");
+    }
+    let given_app = !(g.app_id.is_empty() && g.app_key_file.is_empty());
+    if given_app && (g.app_id.is_empty() || g.app_key_file.is_empty()) {
+        say("--app-id and --app-key-file go together");
+        return Err(Fail::Usage);
+    }
+    if given_app && g.new_app {
+        say("--new-app makes an app; --app-id and --app-key-file name one. Not both");
+        return Err(Fail::Usage);
+    }
+    if !g.new_app && !(g.app_owner.is_empty() && g.app_name.is_empty()) {
+        say("--app-owner and --app-name go with --new-app");
+        return Err(Fail::Usage);
     }
 
     let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
@@ -369,16 +649,14 @@ fn files(dir: &Path, args: &[String]) -> Result<Written, Fail> {
             g.endpoint = base_url(&m, &g.provider);
         }
     }
-    let stdin_used = [&g.token_file, &g.key_file]
-        .iter()
-        .filter(|f| f.as_str() == "-")
-        .count();
-    if stdin_used > 1 {
+    let kept_id = value_in(&inst, "TEHAS_GITHUB_APP_ID");
+    let configured = !kept_id.is_empty() && app_key.exists();
+    if g.key_file == "-" && g.new_app {
         return Err(Bad(
-            "only one of --token-file and --model-key-file can read standard input".into(),
+            "--new-app reads GitHub's code on standard input: give --model-key-file a file".into(),
         ));
     }
-    let tty = stdin_used == 0 && io::stdin().is_terminal();
+    let tty = g.key_file != "-" && io::stdin().is_terminal();
     if tty {
         if g.repo.is_empty() {
             g.repo = ask("Product repository (owner/name)", false);
@@ -388,6 +666,18 @@ fn files(dir: &Path, args: &[String]) -> Result<Written, Fail> {
         }
         if g.endpoint.is_empty() {
             g.endpoint = ask("Model endpoint, with its /v1", false);
+        }
+        if !given_app && !g.new_app && !configured {
+            let answer = ask(
+                "The factory's GitHub App: new to make one, or the ID of one you have",
+                false,
+            );
+            if answer == "new" {
+                g.new_app = true;
+            } else {
+                g.app_id = answer;
+                g.app_key_file = ask("The path of that app's private key", false);
+            }
         }
     }
     if g.repo.is_empty() {
@@ -437,38 +727,75 @@ fn files(dir: &Path, args: &[String]) -> Result<Written, Fail> {
         return Err(Bad(format!("not a model id: {}", g.model)));
     }
 
-    let mut token = String::new();
-    if app {
-        if !is_number(&g.app_id) {
-            return Err(Bad(format!("the app ID is a number, not: {}", g.app_id)));
+    // Which app. A second app is never made over one the instance has.
+    let way = if !g.app_id.is_empty() {
+        Way::Given {
+            id: g.app_id.clone(),
+            key: PathBuf::from(&g.app_key_file),
         }
-        if !is_number(&g.app_inst) {
+    } else if configured {
+        if g.new_app {
+            say(&format!(
+                "instance.env names the app {kept_id} and its key is at {}: it is checked, no new app is made",
+                app_key.display()
+            ));
+        }
+        Way::Configured {
+            id: kept_id.clone(),
+        }
+    } else if !kept_id.is_empty() {
+        return Err(Bad(format!(
+            "instance.env names the app {kept_id}, and its key is not at {}: give --app-id {kept_id} --app-key-file <key>",
+            app_key.display()
+        )));
+    } else if app_key.exists() {
+        return Err(Bad(format!(
+            "a key is at {} and instance.env names no app: give --app-id <id> --app-key-file {}; --new-app does not make a second app",
+            app_key.display(),
+            app_key.display()
+        )));
+    } else if g.new_app {
+        let (repo_owner, repo_name) = g.repo.split_once('/').unwrap_or_default();
+        let owner = if g.app_owner.is_empty() {
+            repo_owner.to_string()
+        } else {
+            g.app_owner.clone()
+        };
+        let name = if g.app_name.is_empty() {
+            format!("{repo_name}-factory")
+        } else {
+            g.app_name.clone()
+        };
+        if !is_slug_or_login(&owner) {
             return Err(Bad(format!(
-                "the installation ID is a number, not: {}",
-                g.app_inst
+                "the app's owner is a GitHub login, not: {owner}"
             )));
         }
-        let readable = fs::File::open(&g.app_key_file).is_ok()
-            && fs::metadata(&g.app_key_file).is_ok_and(|m| m.len() > 0);
+        if !is_app_name(&name) {
+            return Err(Bad(format!(
+                "the app's name is up to 34 letters, digits, spaces, dots, dashes and underscores, not: {name}; give --app-name"
+            )));
+        }
+        Way::New { owner, name }
+    } else {
+        return Err(Bad(
+            "no GitHub App: give --new-app to make one, or --app-id <id> --app-key-file <key>"
+                .into(),
+        ));
+    };
+    if let Way::Given { id, key } = &way {
+        if !is_number(id) {
+            return Err(Bad(format!("the app ID is a number, not: {id}")));
+        }
+        let readable = fs::File::open(key).is_ok() && fs::metadata(key).is_ok_and(|m| m.len() > 0);
         if !readable {
             return Err(Bad(format!(
                 "cannot read the app's key from {}",
-                g.app_key_file
+                key.display()
             )));
         }
-    } else {
-        token = if g.token_file.is_empty() {
-            value_in(&env_file, "GH_TOKEN")
-        } else {
-            read_secret(&g.token_file, "the token")?
-        };
-        if token.is_empty() && tty {
-            token = ask("The bot's GitHub token", true);
-        }
-        if token.is_empty() {
-            return Err(Bad("no token: give --token-file <file> or --token-file - and the token on standard input".into()));
-        }
     }
+
     let key_name = key_name(&g.provider);
     let key = if g.key_file.is_empty() {
         value_in(&env_file, &key_name)
@@ -490,16 +817,13 @@ fn files(dir: &Path, args: &[String]) -> Result<Written, Fail> {
     if !g.model.is_empty() {
         conflicts.differs(&inst, "PI_ENSEMBLE_SUBAGENT_MODEL", &g.model);
     }
-    if app {
-        conflicts.differs(&inst, "TEHAS_GITHUB_APP_ID", &g.app_id);
-        conflicts.differs(&inst, "TEHAS_GITHUB_APP_INSTALLATION", &g.app_inst);
-        if app_key.exists() && fs::read(&app_key).ok() != fs::read(&g.app_key_file).ok() {
+    if let Way::Given { id, key } = &way {
+        conflicts.differs(&inst, "TEHAS_GITHUB_APP_ID", id);
+        if app_key.exists() && fs::read(&app_key).ok() != fs::read(key).ok() {
             conflicts
                 .list
                 .push(format!("the app's key in {}", app_key.display()));
         }
-    } else {
-        conflicts.differs(&env_file, "GH_TOKEN", &token);
     }
     if !key.is_empty() {
         conflicts.differs(&env_file, &key_name, &key);
@@ -521,87 +845,7 @@ fn files(dir: &Path, args: &[String]) -> Result<Written, Fail> {
     };
     conflicts.refuse()?;
 
-    // GitHub and the endpoint.
-    let mut bot = None;
-    if app {
-        // Checked with the given key: nothing is installed yet. The minted
-        // token is kept in no file.
-        let given_app = github::App {
-            id: g.app_id.clone(),
-            key: PathBuf::from(&g.app_key_file),
-        };
-        let mint = given_app.mint(&g.app_inst, None).ok_or_else(|| {
-            Die("the app's key could not make a token; nothing was written".into())
-        })?;
-        let mint: Value = serde_json::from_slice(&mint).unwrap_or_default();
-        token = mint["token"].as_str().unwrap_or_default().to_string();
-        if token.is_empty() {
-            return Err(Die(
-                "GitHub's answer for the app's token held no token; nothing was written".into(),
-            ));
-        }
-        for p in ["contents", "issues", "pull_requests"] {
-            if mint["permissions"][p] != "write" {
-                return Err(Die(format!("the app's installation may not write {p} (it needs contents, issues and pull_requests: write); nothing was written")));
-            }
-        }
-        let slug = given_app
-            .slug()
-            .filter(|s| is_slug_or_login(s))
-            .ok_or_else(|| Die("GitHub did not say the app's name; nothing was written".into()))?;
-        let login = format!("{slug}[bot]");
-        let repos = gh(
-            &token,
-            &[
-                "api",
-                "--paginate",
-                "installation/repositories",
-                "--jq",
-                ".repositories[].full_name",
-            ],
-        )
-        .unwrap_or_default();
-        if !repos.lines().any(|r| r.eq_ignore_ascii_case(&g.repo)) {
-            return Err(Die(format!(
-                "the app's installation {} does not list {}; nothing was written",
-                g.app_inst, g.repo
-            )));
-        }
-        say(&format!(
-            "the app {slug} is installed on {} and may write to it",
-            g.repo
-        ));
-        let id = gh(&token, &["api", &format!("users/{login}"), "--jq", ".id"])
-            .filter(|id| is_number(id))
-            .ok_or_else(|| {
-                Die(format!(
-                    "GitHub did not give the ID of {login}; nothing was written"
-                ))
-            })?;
-        conflicts.differs(&inst, "TEHAS_BOT_LOGIN", &login);
-        conflicts.refuse()?;
-        bot = Some((login, id));
-    } else {
-        let push = gh(
-            &token,
-            &[
-                "api",
-                &format!("repos/{}", g.repo),
-                "--jq",
-                ".permissions.push",
-            ],
-        )
-        .unwrap_or_default();
-        if push != "true" {
-            let push = if push.is_empty() { "unknown" } else { &push };
-            return Err(Die(format!(
-                "the token cannot push to {} (permissions.push is {push}); nothing was written",
-                g.repo
-            )));
-        }
-        say(&format!("the token can push to {}", g.repo));
-    }
-
+    // The endpoint, before an app is made for a factory that has no model.
     let ids = model_ids(&g.endpoint, &key);
     if ids.is_empty() {
         return Err(Die(format!(
@@ -642,6 +886,31 @@ fn files(dir: &Path, args: &[String]) -> Result<Written, Fail> {
     }
     say(&format!("the endpoint offers {}", g.model));
 
+    // GitHub. A given key is checked where it is: nothing is installed yet.
+    let scratch = Scratch::new()?;
+    let (app, after) = match &way {
+        Way::Given { id, key } => (
+            github::App {
+                id: id.clone(),
+                key: key.clone(),
+            },
+            "nothing was written".to_string(),
+        ),
+        Way::Configured { id } => (
+            github::App {
+                id: id.clone(),
+                key: app_key.clone(),
+            },
+            "nothing was written".to_string(),
+        ),
+        Way::New { owner, name } => (
+            make_app(owner, name, &g.repo, (dir, &config, &app_key))?,
+            "the app's ID and key are written; fix that and run tehas setup again".to_string(),
+        ),
+    };
+    let (login, bot_id, token) = check_app(&app, &g.repo, &inst, &scratch.0, &after)?;
+    drop(scratch);
+
     if g.control.is_empty() {
         let url = gh(
             &token,
@@ -673,18 +942,11 @@ fn files(dir: &Path, args: &[String]) -> Result<Written, Fail> {
     }
 
     // The files.
-    let made = |d: &Path| {
-        DirBuilder::new().recursive(true).mode(0o700).create(d)?;
-        fs::set_permissions(d, fs::Permissions::from_mode(0o700))
-    };
-    made(dir)
-        .and_then(|_| made(&config))
+    made_dir(dir)
+        .and_then(|_| made_dir(&config))
         .map_err(|_| Die(format!("could not make {}", dir.display())))?;
     if !inst.exists() {
-        write_new(
-            &inst,
-            "# Written by tehas setup: the settings this instance must have. The\n# optional ones are in instances/example/optional.env of the release.\n\n",
-        )?;
+        write_new(&inst, INSTANCE_HEADER)?;
     }
     let set = |file: &Path, k: &str, v: &str, quoted: bool| -> Result<(), Fail> {
         if put(file, k, v, quoted)
@@ -709,26 +971,46 @@ fn files(dir: &Path, args: &[String]) -> Result<Written, Fail> {
     set(&inst, "PI_ENSEMBLE_SUBAGENT_PROVIDER", &g.provider, false)?;
     set(&inst, "PI_ENSEMBLE_SUBAGENT_MODEL", &g.model, false)?;
     let _ = fs::set_permissions(&inst, fs::Permissions::from_mode(0o600));
-    if let Some((login, _)) = &bot {
-        if fs::read(&app_key).ok() != fs::read(&g.app_key_file).ok() {
-            install_key(Path::new(&g.app_key_file), &app_key).map_err(|_| {
+    let lookups = tehas_home.join("state/github");
+    let mut stale: &[&str] = if kept_id == app.id {
+        &[]
+    } else {
+        &["token", "token.expires", "installation", "login"]
+    };
+    if let Way::Given { key, .. } = &way {
+        if fs::read(&app_key).ok() != fs::read(key).ok() {
+            install_key(key, &app_key).map_err(|_| {
                 Die(format!(
                     "could not install the app's key at {}",
                     app_key.display()
                 ))
             })?;
-            // A kept token was made for the app before this one.
-            let kept = tehas_home.join("state/github/token");
-            let _ = fs::remove_file(&kept);
-            let _ = fs::remove_file(kept.with_extension("expires"));
             say(&format!("the app's key installed at {}", app_key.display()));
+            if stale.is_empty() {
+                stale = &["token", "token.expires"];
+            }
         }
-        let _ = fs::set_permissions(&app_key, fs::Permissions::from_mode(0o600));
-        set(&inst, "TEHAS_GITHUB_APP_ID", &g.app_id, false)?;
-        set(&inst, "TEHAS_GITHUB_APP_INSTALLATION", &g.app_inst, false)?;
-        set(&inst, "TEHAS_BOT_LOGIN", login, false)?;
-    } else {
-        set(&env_file, "GH_TOKEN", &token, false)?;
+    }
+    let _ = fs::set_permissions(&app_key, fs::Permissions::from_mode(0o600));
+    // What was kept for another app, or made with the key before this one.
+    for name in stale {
+        let _ = fs::remove_file(lookups.join(name));
+    }
+    set(&inst, "TEHAS_GITHUB_APP_ID", &app.id, false)?;
+    // The first poll knows the bot from this file.
+    let installed = github::App {
+        id: app.id.clone(),
+        key: app_key.clone(),
+    };
+    let kept_login = fs::read(lookups.join("login")).unwrap_or_default();
+    if String::from_utf8_lossy(&kept_login).trim_end() != login {
+        let _ = fs::remove_file(lookups.join("login"));
+    }
+    if installed.login(&lookups).as_deref() != Some(login.as_str()) {
+        return Err(Die(format!(
+            "could not keep the app's login in {}",
+            lookups.display()
+        )));
     }
     if !key.is_empty() {
         set(&env_file, &key_name, &key, false)?;
@@ -764,7 +1046,7 @@ fn files(dir: &Path, args: &[String]) -> Result<Written, Fail> {
 
     Ok(Written {
         build: g.build,
-        bot,
+        bot: (login, bot_id),
     })
 }
 
@@ -874,64 +1156,29 @@ fn act_as_the_app(vars: &mut Vars, bash: &str, lib: &Path) -> Result<(), Fail> {
     Ok(())
 }
 
-/// How many entries `git config --get-all` listed, one line each.
-fn helpers_listed(values: &str) -> usize {
-    values.trim_end_matches('\n').split('\n').count()
-}
-
-/// Before the clone and before the identity: with no helper for github.com a
-/// host cannot read a private product's remote with plain git, and the fetches
-/// of tehas dispatch, update, status and preview stop at a prompt.
+/// Before the clone and before the identity. git's helper for github.com is
+/// the app's shim, given as environment-level config by act_as_the_app: it
+/// outranks every file, so nothing is written to git's files. What git reads
+/// is still read once, so a file git refuses stops the run here.
 fn give_git_the_helper(vars: &Vars) -> Result<(), Fail> {
-    // Neither stream is printed: the value is a command an operator wrote and
-    // may hold a token, and git's words name the file and can quote a value.
-    // git says nothing and exits 1 when the key is not set, so a word on
-    // standard error is a file git refused. gh would write over it, so this is
-    // a settings problem. The read covers what git reads from this directory;
-    // the product's checkout is not made yet.
+    // Neither stream is printed: a helper an operator wrote in git's files may
+    // hold a token, and git's words name the file and can quote a value.
     let read = program(vars, "git")
         .args(["config", "--get-all", HELPER_KEY])
         .stdin(Stdio::inherit())
         .output();
-    let (rc, values, words) = match read {
-        Ok(done) => (status_of(Ok(done.status)), done.stdout, done.stderr),
-        Err(_) => (127, Vec::new(), b"no git".to_vec()),
+    let (rc, words) = match read {
+        Ok(done) => (status_of(Ok(done.status)), done.stderr),
+        Err(_) => (127, b"no git".to_vec()),
     };
     if !String::from_utf8_lossy(&words).trim().is_empty() {
         return Err(Bad(format!("could not read git's credential helper for {GIT_HOST} (git exit {rc}); fix git's config and run tehas setup again 78")));
     }
-    // gitcredentials ends a list at an empty value, so a chain of nothing but
-    // empty entries is no helper.
-    let values = String::from_utf8_lossy(&values);
-    if !values.trim().is_empty() {
-        let n = helpers_listed(&values);
-        tell(&format!(
-            "git's helper for {GIT_HOST} is kept ({n} in git's config)"
-        ));
-        return Ok(());
-    }
-    // No terminal to prompt on: setup may be run from a unit.
-    let rc = status_of(
-        program(vars, "gh")
-            .args(["auth", "setup-git", "--hostname", GIT_HOST])
-            .env("GIT_TERMINAL_PROMPT", "0")
-            .stderr(Stdio::null())
-            .status(),
-    );
-    if rc != 0 {
-        return Err(Die(format!(
-            "gh auth setup-git failed for {GIT_HOST} (exit {rc}); it cannot give git a credential helper"
-        )));
-    }
-    tell(&format!("git uses gh's credential helper for {GIT_HOST}"));
+    tell(&format!(
+        "git asks the app's gh for {GIT_HOST} credentials ({})",
+        vars.text("GIT_CONFIG_VALUE_1").trim_start_matches('!')
+    ));
     Ok(())
-}
-
-/// An installation token cannot ask /user who it is: the bot comes from the
-/// files.
-fn the_bot(bot: &Option<(String, String)>) -> Result<(String, String), Fail> {
-    bot.clone()
-        .ok_or_else(|| Die("the bot's login and ID are not known: give --app-id".into()))
 }
 
 fn give_git_an_identity(vars: &Vars, login: &str, id: &str) -> Result<(), Fail> {
@@ -1050,8 +1297,8 @@ fn steps(libexec: &Path, shell: &Shell, vars: &mut Vars, done: &Written) -> Resu
     shell.load(vars)?;
     act_as_the_app(vars, shell.bash, &libexec.join("../lib/github-app.sh"))?;
     give_git_the_helper(vars)?;
-    let (login, id) = the_bot(&done.bot)?;
-    give_git_an_identity(vars, &login, &id)?;
+    let (login, id) = &done.bot;
+    give_git_an_identity(vars, login, id)?;
 
     shell.load(vars)?;
     if let Some(line) = missing_setting(vars).or_else(|| unassignable_owner(vars)) {
@@ -1064,7 +1311,7 @@ fn steps(libexec: &Path, shell: &Shell, vars: &mut Vars, done: &Written) -> Resu
     // The app's gh and helper are the install's; the install below reads the
     // clone.
     let no_shim = !runnable(&Path::new(&home).join("shim/gh"));
-    if done.bot.is_some() && no_shim && has_install {
+    if no_shim && has_install {
         step("install.sh", &mut program(vars, &install))?;
     }
     clone_the_product(vars)?;
@@ -1101,6 +1348,16 @@ fn steps(libexec: &Path, shell: &Shell, vars: &mut Vars, done: &Written) -> Resu
             "the docs server",
             program(vars, "docker").args(["compose", "-f", &docs, "up", "-d"]),
         )?;
+    }
+    // One mint, the login and the reach, as every later command sees them.
+    let tehasbot = Path::new(&home).join("bin/tehasbot");
+    if runnable(&tehasbot) {
+        step(
+            "tehasbot github-token --check",
+            program(vars, tehasbot).args(["github-token", "--check"]),
+        )?;
+    } else {
+        tell("bin/tehasbot is not installed, so the app's token was not checked");
     }
     let addr = vars.text("TEHAS_HOST_ADDR");
     let addr = if addr.is_empty() { "127.0.0.1" } else { &addr };
@@ -1221,6 +1478,51 @@ mod tests {
     }
 
     #[test]
+    fn conversion_writes_key_600_and_id() {
+        let d = scratch("conversion");
+        let key = d.join("github-app.pem");
+        let answer = br#"{"id":9,"slug":"acme-factory","pem":"-----BEGIN RSA PRIVATE KEY-----\nk\n-----END RSA PRIVATE KEY-----\n","client_secret":"cs"}"#;
+        let (id, slug) = keep_new_app(answer, d.path(), &key, |s| s.to_string())
+            .ok()
+            .unwrap();
+        assert_eq!((id.as_str(), slug.as_str()), ("9", "acme-factory"));
+        assert!(fs::read_to_string(&key)
+            .unwrap()
+            .starts_with("-----BEGIN RSA"));
+        assert_eq!(
+            fs::metadata(&key).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        let inst = d.join("instance.env");
+        assert_eq!(value_in(&inst, "TEHAS_GITHUB_APP_ID"), "9");
+        assert_eq!(
+            fs::metadata(&inst).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        assert!(!fs::read_to_string(&inst).unwrap().contains("BEGIN"));
+        // A key that is there is never written over, and no ID is written.
+        let other = scratch("conversion-again");
+        let there = other.join("github-app.pem");
+        fs::write(&there, "old key").unwrap();
+        let again = keep_new_app(answer, other.path(), &there, |s| s.to_string());
+        assert!(matches!(again, Err(Die(m)) if !m.contains("BEGIN")));
+        assert_eq!(fs::read_to_string(&there).unwrap(), "old key");
+        assert!(!other.join("instance.env").exists());
+        assert!(matches!(
+            keep_new_app(br#"{"id":9}"#, other.path(), &d.join("x.pem"), |s| s
+                .to_string()),
+            Err(Die(_))
+        ));
+    }
+
+    #[test]
+    fn an_app_name_is_what_github_takes() {
+        assert!(is_app_name("widget-factory") && is_app_name("My factory 2"));
+        assert!(!is_app_name("") && !is_app_name("-x") && !is_app_name(&"a".repeat(35)));
+        assert!(!is_app_name("a<b") && !is_app_name("a\nb"));
+    }
+
+    #[test]
     fn put_adds_keeps_and_replaces_one_line() {
         let d = scratch("put");
         let f = d.join("env");
@@ -1298,12 +1600,6 @@ mod tests {
     #[test]
     fn the_helper_key_names_the_host() {
         assert_eq!(HELPER_KEY, format!("credential.https://{GIT_HOST}.helper"));
-    }
-
-    #[test]
-    fn an_empty_entry_counts_as_a_line_of_the_list() {
-        assert_eq!(helpers_listed("\n!gh auth git-credential\n"), 2);
-        assert_eq!(helpers_listed("!store\n"), 1);
     }
 
     #[test]
