@@ -44,6 +44,7 @@ a pull request before it tags, with the head's `scripts/collect-changelog.sh`.
 - The manual links the factory floor at `/floor` on every page that names it. With the default design the floor is not at `/`, so those links sent a reader or an agent to the business page (#1696).
 - The business front page shows token use in its Performance section when the factory's host sends `tokens` in `/host/bridge.json`: a table by day and one by model. `tehas api` lists the feature `host-bridge-tokens` (#1797).
 - With a GitHub App, a cycle no longer needs a user account. Its container gets a second token from the app, for the product repository only, with Contents, Pull requests and Issues write, renewed while the cycle runs. Pull requests and comments from a cycle carry the app's `<slug>[bot]` login. `GH_CYCLE_TOKEN` and `TEHAS_CYCLE_LOGIN` are no longer needed with an app (#1814).
+- The pinned Playwright moves from 1.64.1 to 1.65.0.
 
 ### Held back
 
