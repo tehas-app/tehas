@@ -165,10 +165,6 @@ impl Poll<'_> {
             && ans["tick"]["index"].as_u64().map(|i| i + 1) == Some(boxes)
         {
             "it ticked End this planning session, which only a person may".to_string()
-        } else if said == "reply" && ans["fixer_reply"]["marked"] != json!(true) {
-            format!(
-                "its reply does not start with <!-- tehas:millwright issue={n} action=answer -->"
-            )
         } else {
             fixer_answer_why(self.c, view)
         };

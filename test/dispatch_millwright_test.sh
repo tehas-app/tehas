@@ -342,12 +342,30 @@ t_run "$dispatch"
 t_eq "$(t_calls fake-start)" ""
 t_lacks "$(t_calls gh)" "api -X PATCH"
 
-t_case "a reply of the fixer's without its marker runs no turn"
+t_case "a comment of the fixer's without its marker is no reply: no turn and no note"
 fixer_planning
 comments 7 "$(plan_body ' ' ' ' ' ')" "" "$(freply 'Adopt all.')"
 t_run "$dispatch"
 t_eq "$(plan_calls)" ""
-t_contains "$t_out" "its reply does not start with <!-- tehas:millwright issue=7 action=answer -->"
+t_lacks "$t_out" "the fixer's answer runs no turn"
+t_lacks "$(t_calls gh)" "issue comment"
+
+# The fixer is the bot, so every note the host writes is a comment of the
+# fixer's account. None starts with the answer marker, so none is a reply, and
+# a note after the question never makes the host answer itself.
+t_case "a host note after a plan question is no fixer reply: two polls post nothing"
+for note in "The fixer's tick was not taken as an answer: it was unticked. A person answers this question." \
+  "Tehas did not take the box ticked in this question as an answer: the fixer saved the comment after another account did." \
+  "The label \`tehas:ready\` was removed: mallory is not an account that may authorise work."; do
+  fixer_planning
+  comments 7 "$(plan_body ' ' ' ' ' ')" "" "$(freply "$note" 4010)"
+  rm -f "$T"/calls/*
+  t_run "$dispatch"
+  t_run "$dispatch"
+  t_eq "$(plan_calls)" ""
+  t_lacks "$(t_calls gh)" "issue comment"
+  t_lacks "$t_out" "the fixer's answer runs no turn"
+done
 
 t_case "in a session started by an account no longer allowed, the fixer answers nothing"
 fixer_planning '[]' mallory

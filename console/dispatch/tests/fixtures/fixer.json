@@ -2228,7 +2228,7 @@
    }
   },
   {
-   "case": "a reply of the fixer's without its marker runs no turn",
+   "case": "a comment of the fixer's without its marker is no reply: no turn and no note",
    "snapshot": {
     "ready": [],
     "asking": [
@@ -2284,12 +2284,12 @@
     "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
    },
    "expect": {
-    "log": [
-     "its reply does not start with <!-- tehas:millwright issue=7 action=answer -->"
-    ],
     "no_actions": [
      {
       "plan_turn": 7
+     },
+     {
+      "plan_note": 7
      }
     ]
    }
