@@ -981,6 +981,54 @@
      "another repository"
     ]
    }
+  },
+  {
+   "case": "with the issues with a question unreadable a ready issue from an allowed account still starts in the same poll",
+   "snapshot": {
+    "asking": {
+     "failed": true
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ],
+    "log": [
+     "WARN: the issues with a question could not be read, so no question is answered this poll",
+     "start #7 (labelled by alice)"
+    ],
+    "actions": [
+     {
+      "start": 7,
+      "by": "alice"
+     }
+    ]
+   }
+  },
+  {
+   "case": "and the poll whose list is no list starts the ready issue too",
+   "snapshot": {
+    "asking": {
+     "oops": 1
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ],
+    "log": [
+     "WARN: the issues with a question could not be read, so no question is answered this poll",
+     "start #7 (labelled by alice)"
+    ],
+    "actions": [
+     {
+      "start": 7,
+      "by": "alice"
+     }
+    ]
+   }
   }
  ]
 }
