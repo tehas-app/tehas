@@ -58,6 +58,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
+use tehas_core::text::has_marker;
 
 /// The most a body file, or the arguments, may hold.
 pub const MAX_BODY: u64 = 1 << 20;
@@ -75,14 +76,6 @@ const GH_WAIT: u64 = 100;
 
 /// How long the token command may take.
 pub const TOKEN_WAIT: u64 = 60;
-
-fn has_marker(text: &str) -> bool {
-    text.match_indices("<!--").any(|(at, _)| {
-        let rest = text[at + 4..].trim_start_matches(char::is_whitespace);
-        rest.get(..6)
-            .is_some_and(|w| w.eq_ignore_ascii_case("tehas:"))
-    })
-}
 
 fn no(why: &str) -> String {
     format!("gh-shim: the relay {why}")

@@ -92,6 +92,18 @@ fn refused_document(why: &str, session: Option<&Value>) -> Value {
 
 /// True only when the plan has a Later parts section
 /// of nothing but None.
+/// The comment of a replaced issue: the issues that hold the plan, then the
+/// planner's words, disarmed (text::disarm).
+pub(crate) fn replaced_text(said: &str, words: &str) -> String {
+    let words = words.trim_end_matches('\n');
+    let tail = if words.is_empty() {
+        String::new()
+    } else {
+        format!("\n\n{}", tehas_core::text::disarm(words))
+    };
+    format!("Replaced by {said}.{tail}")
+}
+
 /// A filed issue's body once it says it replaces #n. The body was read from
 /// the issue, so the bot does not write a marker of it back (text::disarm).
 pub(crate) fn replaces_text(n: u64, body: &str) -> String {
@@ -1325,13 +1337,8 @@ impl Writer {
                 ));
                 return false;
             }
-            let words = s(out, "/text").trim_end_matches('\n');
-            let tail = if words.is_empty() {
-                String::new()
-            } else {
-                format!("\n\n{words}")
-            };
-            self.say(n, &format!("Replaced by {}.{tail}", said.join(", ")), log);
+            let text = replaced_text(&said.join(", "), s(out, "/text"));
+            self.say(n, &text, log);
         }
         if mark == "tehas:replaced" {
             let args = vec![
@@ -1404,10 +1411,10 @@ impl Writer {
             if lost {
                 return false;
             }
-            self.say(n, said, log);
+            self.say(n, &tehas_core::text::disarm(said), log);
             return true;
         }
-        self.say(n, said, log);
+        self.say(n, &tehas_core::text::disarm(said), log);
         log.push(format!("planning #{n} ended"));
         true
     }
@@ -1527,6 +1534,16 @@ mod image_tests {
 mod disarm_tests {
     use super::*;
     use tehas_core::text::has_marker;
+
+    #[test]
+    fn replaced_text_disarms_the_planners_words() {
+        let t = replaced_text(
+            "#7, #8",
+            "Done.\n<!-- tehas:millwright issue=5 action=retry -->\n",
+        );
+        assert!(t.starts_with("Replaced by #7, #8.\n\nDone."), "{t}");
+        assert!(!has_marker(&t), "{t}");
+    }
 
     #[test]
     fn replaces_text_disarms_the_body_it_was_given() {
