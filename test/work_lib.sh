@@ -246,7 +246,7 @@ t_stub systemctl 'cat "$T/slice.show"'
 # The kernel log, as journalctl -k -o cat prints it, from a file a case writes.
 t_stub journalctl 'cat "$T/kernel.log"'
 slice_good
-env_ok=(GH_TOKEN=test-token GH_CYCLE_TOKEN=cycle-token "TEHAS_CGROUP_ROOT=$T_CGROUP")
+env_ok=("TEHAS_CGROUP_ROOT=$T_CGROUP")
 
 runner=/opt/pi-rukas/bin/pi-rukas-headless
 # The arguments of the docker call that starts the cycle.
@@ -304,7 +304,8 @@ $state/memory:/home/vscode/.vipune
 $state/sessions:/home/vscode/.pi/agent/sessions
 $T/home/.pi/agent/mcp.json:/home/vscode/.pi/agent/mcp.json:ro
 $state/models.json:/home/vscode/.pi/agent/models.json:ro
-$T/home/.pi/agent/settings.json:/home/vscode/.pi/agent/settings.json:ro"
+$T/home/.pi/agent/settings.json:/home/vscode/.pi/agent/settings.json:ro
+$T/home/tehas/state/github-cycle:/run/tehas/github:ro"
 image="tehas/pi-rukas:uid$(id -u)"
 live=$T/home/tehas/live
 

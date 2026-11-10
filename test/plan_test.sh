@@ -282,7 +282,8 @@ $state/memory:/home/vscode/.vipune
 $state/sessions:/home/vscode/.pi/agent/sessions
 $T/home/.pi/agent/mcp.json:/home/vscode/.pi/agent/mcp.json:ro
 $state/models.json:/home/vscode/.pi/agent/models.json:ro
-$T/home/.pi/agent/settings.json:/home/vscode/.pi/agent/settings.json:ro"
+$T/home/.pi/agent/settings.json:/home/vscode/.pi/agent/settings.json:ro
+$T/home/tehas/state/github:/run/tehas/github:ro"
 t_eq "$(after -v | LC_ALL=C sort)" "$(printf '%s\n' "$want" | LC_ALL=C sort)"
 
 t_case "the turn is given its own cache, memory and sessions, and no shared one"

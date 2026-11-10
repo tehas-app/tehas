@@ -244,7 +244,7 @@ t_app_world() {
   until=$(($(date +%s) + 86400))
   for dir in github github-cycle; do
     mkdir -p "$home/state/$dir"
-    printf 'ghs_%s\n' "$dir" >"$home/state/$dir/token"
+    printf 'ghs_%s\n' "$([ "$dir" = github ] && echo app || echo cycle)" >"$home/state/$dir/token"
     printf '%s\n' "$until" >"$home/state/$dir/token.expires"
   done
   printf '%s\n' "${1:-tehas-bot}[bot]" >"$home/state/github/login"
