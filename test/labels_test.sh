@@ -14,7 +14,7 @@ t_stub gh 'case "$*" in *"${FAIL_ON:-no label fails}"*) exit 1 ;; esac'
 reset() {
   rm -f "$T"/calls/*
   T_ENV=()
-  t_instance TEHAS_REPO=acme/widget
+  t_instance TEHAS_GITHUB_APP_ID=1 TEHAS_REPO=acme/widget
   t_ids "$T/home/tehas"
   mkdir -p "${table%/*}"
   cp "$T_ROOT/host/labels.tsv" "$table"
@@ -53,7 +53,7 @@ t_eq "$(t_calls gh | wc -l)" 21
 
 t_case "without the repository nothing is called, exit 78"
 reset
-t_instance TEHAS_CONTROL_ISSUE=1
+t_instance TEHAS_GITHUB_APP_ID=1 TEHAS_CONTROL_ISSUE=1
 t_run "$labels"
 t_eq "$t_rc" 78
 t_contains "$t_out" "TEHAS_REPO is not set"
@@ -61,7 +61,7 @@ t_eq "$(t_calls gh)" ""
 
 t_case "an argument is a usage error, before the settings are read"
 reset
-t_instance TEHAS_CONTROL_ISSUE=1
+t_instance TEHAS_GITHUB_APP_ID=1 TEHAS_CONTROL_ISSUE=1
 t_run "$labels --force"
 t_eq "$t_rc" 64
 t_contains "$t_out" "usage: tehas labels"
