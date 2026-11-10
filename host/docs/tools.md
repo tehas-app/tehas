@@ -3158,7 +3158,9 @@ answers (asked once per image), and `clone` the commit of
 commit and is not a later release on the line followed (an image ahead of its
 target is no drift), and makes the health `warn` with `The sandbox image runs pi-rukas
 <image> and the host follows <target>: run tehas update.`; `install.sh --check`
-reports it as `Sandbox: BEHIND`. A value that could not be read is `null` and
+reports it as `Sandbox: BEHIND`, unless the image's `tehas.rukas` label is no
+longer the `image` the health read: an update built it after the last status
+run, and the check says `Sandbox: NOT READ` and finds nothing. A value that could not be read is `null` and
 decides nothing. `checks.rukas` is `null` on a host with no pi-rukas.
 
 `checks.industry` is `{version}` of the tehas-industry that runs this factory,
