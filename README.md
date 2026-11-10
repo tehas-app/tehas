@@ -151,11 +151,14 @@ TMPDIR. The rules for changes are in [`AGENTS.md`](AGENTS.md).
 
 GitHub Actions runs the fast gate, `scripts/verify.sh`, on every pull request
 and on every push to main: the `verify` check, from
-[`.github/workflows/verify.yml`](.github/workflows/verify.yml). It runs on a
-hosted Ubuntu runner, installs shellcheck at the version in
-`host/versions.env` and checks its sha256, and uses the runner's bash, git, jq
-and cargo. It reads the repository and uses no secret. A newer push to a pull
-request cancels the older run; runs on main are not cancelled.
+[`.github/workflows/verify.yml`](.github/workflows/verify.yml). It runs on the
+organisation's own runner, installs shellcheck and jq at the versions in
+`host/versions.env` and checks each against a published checksum, scans the
+repository's lockfiles against published advisories with OSV-Scanner at its
+pinned version, and uses the runner's bash, git, jq and cargo. It reads the
+repository, reaches the network only for the pinned tools it downloads and the
+advisory queries, and uses no secret. A newer push to a pull request
+cancels the older run; runs on main are not cancelled.
 
 To release and deploy:
 

@@ -4231,6 +4231,24 @@ runs it and then `.pi/verify-cmd` on every tree it gates: each worktree, the
 consolidated tree and the base commit. So the whole gate still runs before a
 pull request opens, and CI runs it again.
 
+CI adds two things of its own, as steps of
+`.github/workflows/verify.yml`. It installs shellcheck and jq at the versions
+`host/versions.env` pins, each checked against a published checksum before it
+runs. And it scans the repository's lockfiles against published advisories with
+OSV-Scanner, pinned there too: the name and version of every package of
+`console/Cargo.lock` and of the npm trees under `host/npm/` and
+`host/sandbox/npm/` is queried against the OSV database, and nothing else is
+sent anywhere. A known advisory fails the run. An advisory carried on purpose is
+named in `osv-scanner.toml` with its id, the reason, and the date to look again;
+after that date the ignore no longer applies and the run fails until the
+advisory is fixed or the date moves with a new reason. This is the one part of
+the gate that reaches the network for its answers: a scan that cannot reach the
+advisory database fails the run rather than reporting nothing, and an ignore
+whose advisory has gone is reported as unused but still passes, so it comes out
+when the dependency moves. `.github/` is a protected path, so a cycle halts
+rather than changing this: see
+[the parked cycle](/troubleshooting#the-cycle-parked-needs-human-attention).
+
 A failed step shows only its last 40 lines. Each run keeps the whole output of
 every step in a log of its own, `<mode>-<UTC time>-<pid>.log` under
 `TEHAS_VERIFY_LOGS` (default `$TMPDIR/tehas-verify`, else `/tmp/tehas-verify`),
@@ -4836,14 +4854,15 @@ Every tool in `host/versions.env` and in the npm trees beside it
 moves the pins before it tags, through `scripts/pins.sh move` (`console pins`):
 each to the newest release of the major version it has, taken from the tool's
 own source: nodejs.org, GitHub releases (gh, bun, shellcheck, jq, Rust,
-codebase-memory-mcp) or tags (rustup), npm, crates.io (vipune, oo) and Docker
-Hub (Caddy). Each version moves with what the header of `versions.env` pairs
+codebase-memory-mcp, OSV-Scanner) or tags (rustup), npm, crates.io (vipune, oo)
+and Docker Hub (Caddy). Each version moves with what the header of `versions.env` pairs
 with it: the publisher's checksum or the hash of the download, the lockfile
 of an npm tree (npm locks it again; a version younger than npm's
 `min-release-age` is not taken) and its `_LOCK_SHA256`, Caddy's digest in the
 three files that name it, and vipune's model at the revision the new vipune
 asks for, with its two hashes from Hugging Face. pi-rukas is not pinned and is
-left alone.
+left alone. OSV-Scanner is the one pin `bootstrap.sh` does not install: the gate
+of `verify.yml` downloads it into the runner's own temporary directory.
 
 Under 0.x a minor release can break, so "same major" moves vipune from 0.15 to
 0.20. A later major version is never taken. The release's section of

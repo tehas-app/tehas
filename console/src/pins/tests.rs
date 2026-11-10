@@ -215,6 +215,11 @@ fn sources() -> Fake {
         .json(&format!("{gh}/rust-lang/rust/releases?per_page=100"), releases(&["1.99.1"]))
         .json(&format!("{gh}/rust-lang/rustup/tags?per_page=100"), json!([{"name": "1.29.2"}]))
         .json(&format!("{gh}/DeusData/codebase-memory-mcp/releases?per_page=100"), releases(&["v0.12.1"]))
+        .json(&format!("{gh}/google/osv-scanner/releases?per_page=100"), releases(&["v2.7.0", "v2.7.1"]))
+        .with(
+            "https://github.com/google/osv-scanner/releases/download/v2.7.1/osv-scanner_SHA256SUMS",
+            format!("{H1}  osv-scanner_linux_amd64\n"),
+        )
         .json("https://registry.npmjs.org/@earendil-works%2Fpi-coding-agent", npm(&["1.4.0", "1.5.0", "2.0.0"]))
         .json("https://registry.npmjs.org/ctx7", npm(&["0.8.2"]))
         .json("https://registry.npmjs.org/parallel-web-cli", npm(&["0.9.4"]))
@@ -241,8 +246,8 @@ fn tree() -> TestDir {
         "# header\nNODE_VERSION=22.1.0\nGH_VERSION=2.1.0\nBUN_VERSION=1.1.0\nSHELLCHECK_VERSION=0.11.0\nJQ_VERSION=1.8.2\n\
 PI_VERSION=1.4.0\nCTX7_VERSION=0.8.2\nPARALLEL_CLI_VERSION=0.9.4\nPLAYWRIGHT_VERSION=1.64.1\nRUST_VERSION=1.99.1\n\
 RUSTUP_VERSION=1.29.2\nVIPUNE_VERSION=0.15.0\nVIPUNE_MODEL=BAAI/bge-small-en-v1.5\nVIPUNE_MODEL_REVISION={REV}\n\
-OO_VERSION=0.5.0\nCBM_VERSION=0.12.1\nNODE_SHA256=aa\nSHELLCHECK_SHA256=bb\nVIPUNE_MODEL_SHA256_ONNX=cc\n\
-VIPUNE_MODEL_SHA256_TOKENIZER=dd\nPI_LOCK_SHA256=ee\nCADDY_VERSION=2.11.7\nCADDY_DIGEST={DIGEST}\n"
+OO_VERSION=0.5.0\nCBM_VERSION=0.12.1\nOSV_SCANNER_VERSION=2.7.0\nNODE_SHA256=aa\nSHELLCHECK_SHA256=bb\nVIPUNE_MODEL_SHA256_ONNX=cc\n\
+VIPUNE_MODEL_SHA256_TOKENIZER=dd\nPI_LOCK_SHA256=ee\nOSV_SCANNER_SHA256=ff\nCADDY_VERSION=2.11.7\nCADDY_DIGEST={DIGEST}\n"
     );
     for (path, text) in [
         ("host/versions.env", env),
@@ -309,6 +314,7 @@ fn move_writes_each_version_with_what_moves_with_it() {
             "moved Pi: 1.4.0 to 1.5.0",
             &format!("moved vipune model: {REV} to {NEW_REV}"),
             "moved vipune: 0.15.0 to 0.20.2",
+            "moved OSV-Scanner: 2.7.0 to 2.7.1",
             "moved Caddy: 2.11.7 to 2.11.8",
             "held Node: 22.2.0, 24.0.0 is out",
             "held Pi: 1.5.0, 2.0.0 is out",
@@ -326,6 +332,8 @@ fn move_writes_each_version_with_what_moves_with_it() {
         ("VIPUNE_MODEL_SHA256_ONNX", H1),
         ("VIPUNE_MODEL_SHA256_TOKENIZER", &sha256(b"tokens")),
         ("GH_VERSION", "2.1.0"),
+        ("OSV_SCANNER_VERSION", "2.7.1"),
+        ("OSV_SCANNER_SHA256", H1),
         ("CADDY_VERSION", "2.11.8"),
         ("CADDY_DIGEST", NEW_DIGEST),
     ] {
