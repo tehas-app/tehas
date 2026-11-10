@@ -766,7 +766,7 @@ t_case "the names the release workflow is written against are the ones this writ
 # one. The environment prefix and the command's own name are taken off as far as
 # the first placeholder, so the test does not depend on how the manual quotes
 # either of them.
-manual=$T_ROOT/host/docs/tools.md
+manual=$T_ROOT/host/docs/tools-releases.md
 t_eq "$(grep -c 'tehas-<tag>-linux-<arch>.tar.gz' "$manual")" 1
 start=$(grep -n "^TEHAS_PACK_ROOT='<checkout>' scripts/pack-release.sh <tag>" "$manual" | cut -d: -f1)
 end=$(awk -v n="$start" 'NR > n && /^```$/ { print NR; exit }' "$manual")

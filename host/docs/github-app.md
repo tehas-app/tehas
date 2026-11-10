@@ -108,7 +108,7 @@ and whether the installation reaches `TEHAS_REPO`, and never the token itself.
 On a new host, `tehas setup` takes the app from its first run:
 `--app-id`, `--app-installation` and `--app-key-file` do the steps above and
 check the installation before anything is written (see
-[tehas setup](/tools#tehas-setup)). The steps above move a host that was set up
+[tehas setup](/tools-setup#tehas-setup)). The steps above move a host that was set up
 with a token; remove the token from `~/.config/tehas/env` after.
 
 ## What tehas does with it
@@ -162,9 +162,9 @@ and logs nothing until the console is repaired. The poll line of `tehas
 status` counts it, and `tehasbot github-writes` shows the last day by hour and
 by its busiest minute against GitHub's limits. A write GitHub refuses for a
 rate limit is sent once more after a minute, and only that call
-([the commands page](/tools#tehasbot-github-writes)).
+([the commands page](/tools-github#tehasbot-github-writes)).
 
-[The commands page](/tools#tehasbot-github-token) has the details.
+[The commands page](/tools-github#tehasbot-github-token) has the details.
 
 ## Things seen on the first app
 

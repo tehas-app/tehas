@@ -558,7 +558,7 @@ Read the rest of the comment with three things in mind:
 - The workspace was written by the cycle's container, its git settings and
   hooks included. tehas runs no git in it on the host to read it: git there
   would run what the cycle left in those settings. Read its files instead. The
-  one host command that works in it is [tehas-cycle finish](/tools#the-pull-request-of-a-stopped-cycle),
+  one host command that works in it is [tehas-cycle finish](/tools-tehasbot#tehasbot-cycle),
   which cannot read the branch without git: every call it makes pins
   `core.hooksPath` and `core.fsmonitor` off on its own command line, so a hook
   or a helper the cycle left runs for nobody.
@@ -869,7 +869,7 @@ helper and every push ended in
 helper and the bot's identity, and checks with a dry-run push before starting.
 The host's own git is covered the other way round: `tehas setup` gives it gh's
 helper for `github.com` and keeps one that is there (see
-[tehas setup](/tools#tehas-setup)).
+[tehas setup](/tools-setup#tehas-setup)).
 
 Check the push by hand:
 
@@ -1248,7 +1248,7 @@ state says which of four things happened:
 A failed build and a recipe that declares a volume leave the earlier preview
 serving. A container that was never created, and one that started and stopped,
 leave the pull request answering 404 until a commit starts. The "Tried again"
-column of the table in [Previews](/tools#tehasbot-preview) is the rule for each
+column of the table in [Previews](/tools-clean#tehasbot-preview) is the rule for each
 of these.
 
 To have the same commit built again, remove the state and let the next run

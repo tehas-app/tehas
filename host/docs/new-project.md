@@ -254,14 +254,14 @@ the first step that fails, it:
    dashboard's address.
 
 A second run changes nothing that is right. A setting that is there and
-differs is not replaced without `--force`. See [tehas setup](/tools#tehas-setup).
+differs is not replaced without `--force`. See [tehas setup](/tools-setup#tehas-setup).
 
 A program that brings a host current without a terminal runs `install.sh` and
 then `tehas update --pending`: the copies, then the follow-ups `install.sh`
 recorded in `~/tehas/state/update-pending`. `--pending` runs no git command and
 no `install.sh`, so it finishes an install on a host whose checkout is at a
 release tag or whose remote is not reachable, where `tehas update` stops. See
-[tehas update](/tools#tehas-update).
+[tehas update](/tools-update#tehas-update).
 
 ### 4. The product's files
 
@@ -274,7 +274,7 @@ tehas init-product
 branch lacks, and exits 78 when one is missing. `tehas init-product` writes the
 missing `AGENTS.md`, `.pi/verify-cmd` and `.pi/worktree-setup` on a branch and
 opens a pull request with the bot. The gate is guessed from the stack: check
-it, then merge it. See [tehas check-product](/tools#tehas-check-product).
+it, then merge it. See [tehas check-product](/tools-setup#tehas-check-product).
 
 ### 5. The sandbox image
 
@@ -413,7 +413,7 @@ After a change to the instance, run `~/tehas/current/install.sh --check`, then
 `tehas update`, which runs `install.sh` and the follow-ups it asks for. Where the
 checkout cannot be moved - it is at a release tag, or its remote does not answer -
 `tehas update --pending` runs the follow-ups `install.sh` recorded and no git
-command; see [tehas update](/tools#tehas-update).
+command; see [tehas update](/tools-update#tehas-update).
 
 ## Optional parts
 

@@ -57,10 +57,39 @@ roots=$(grep -rinE -- "$root_re" "$T_ROOT/host/docs" || true)
 t_case "llms.txt links the factory floor at its /floor"
 t_contains "$(cat "$T_ROOT/host/docs/llms.txt")" '[Factory floor]({{ $base }}/floor)'
 
+# The floor's page moved with the split of the commands page: what the floor
+# reads is the health page, so the address it is given here has to be a page of
+# the manual, and the health page has to link the floor at it.
+t_case "the floor's address in llms.txt is a page of the manual"
+floor=$(grep -oE '\[Factory floor\]\(\{\{ \$base \}\}/[a-z]+\)' "$T_ROOT/host/docs/llms.txt" |
+  sed -e 's/.*}\}//' -e 's#)##g')
+[ -n "$floor" ] || t_bad "llms.txt gives the floor no address"
+[ "$floor" = /floor ] || t_bad "llms.txt gives the floor the address $floor, which no page answers"
+t_case "the health page links the floor at the address llms.txt gives it"
+t_contains "$(cat "$T_ROOT/host/docs/tools-health.md")" "($floor)"
+
 t_case "the pages that name the floor link it at /floor"
-for page in operating.md overview.md pi-software-factory.md tools.md; do
+for page in operating.md overview.md pi-software-factory.md tools-health.md; do
   grep -qiE -- '\[factory floor\]\(/floor\)' "$T_ROOT/host/docs/$page" \
     || t_bad "$page has no link to the floor at /floor"
 done
+
+# The commands page is the one llms.txt names for the two commands, and the
+# pages by tool are named beside it: a page that left the list left the manual.
+t_case "llms.txt names the commands page and the pages by tool"
+llms=$(cat "$T_ROOT/host/docs/llms.txt")
+t_contains "$llms" '[Commands]({{ $base }}/tools.md)'
+t_contains "$llms" '[Commands]({{ $base }}/tools.md): `tehas`, `tehasbot`'
+for page in tools-dispatch tools-work tools-plan tools-dev tools-setup \
+  tools-control tools-status tools-tehasbot tools-health tools-protolab \
+  tools-github tools-clean tools-update tools-releases; do
+  t_contains "$llms" "](/$page)"
+done
+
+# The line an agent follows for a hand session is the one that names `tehas dev`,
+# and it names the page the command is on now.
+t_case "llms.txt names the dev page for what tehas dev accepts"
+line=$(grep -F -- 'accepts from each kind of account' "$T_ROOT/host/docs/llms.txt")
+t_contains "$line" 'tools-dev.md#tehas-dev'
 
 t_done

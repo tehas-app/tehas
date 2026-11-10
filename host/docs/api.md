@@ -136,7 +136,7 @@ tehas api [--json]
 | `tehas` | The release tag the factory was installed from: `v0.10.2` for a release install, `v0.8.0` for a checkout one. `null` when the install came from a checkout with no tag, or not from a git checkout |
 | `commit` | The commit it was installed from, seven characters; `null` for a release install, which records only the tag, and when not from a git checkout |
 | `repo` | `TEHAS_REPO`, the product repository |
-| `features` | What this release has, so a program can tell a factory that predates a feature from one where it failed. Today `status`, `millwright-grant` ([the millwright's grant](/operating#the-millwrights-grant)), `fixer-grant`, `all-hands`, `limit`, `drain`, `history` ([`tehas history`](#tehas-history)), `export` ([`tehas export`](#tehas-export)), `refresh-conflicts` (the factory refreshes its own pull requests that conflict, [refreshes](/operating#refreshes)), `analytics` ([`tehas analytics export --json`](#tehas-analytics-export)), `state-move` ([`tehas state`](#tehas-state)), `pr-title` (the factory keeps the `WIP: ` and `HALT: ` prefixes of its pull requests itself, [pull request titles](/tools#pull-request-titles)), `mcp-dashboard-keys` (the read-only MCP server answers a key of `TEHAS_MCP_DASHBOARD_KEYS` with only the four tools that copy from `live/`, [the MCP server](/mcp-server)), `clean` ([`tehasbot clean`](#tehasbot-clean)), `disk` ([`tehas disk`](#tehas-disk)), `panels` ([`tehas panel`](#tehas-panel)), `state-check` ([`tehas state check`](#tehas-state-check)), `finish` ([the finish ask](#the-finish-ask)), `status-versions` (`versions` in [`tehas status --json`](#tehas-status---json)) `store-copy` ([`tehas state copy`](#tehas-state-copy)), `state-load` ([`tehas state load`](#tehas-state-load)), `freeze` ([`tehas freeze` and `tehas thaw`](#tehas-freeze-and-tehas-thaw)) `host-bridge` ([the host bridge](#the-host-bridge)) and `host-bridge-tokens` (the dashboard draws `tokens` of [the host bridge](#the-host-bridge)) |
+| `features` | What this release has, so a program can tell a factory that predates a feature from one where it failed. Today `status`, `millwright-grant` ([the millwright's grant](/operating#the-millwrights-grant)), `fixer-grant`, `all-hands`, `limit`, `drain`, `history` ([`tehas history`](#tehas-history)), `export` ([`tehas export`](#tehas-export)), `refresh-conflicts` (the factory refreshes its own pull requests that conflict, [refreshes](/operating#refreshes)), `analytics` ([`tehas analytics export --json`](#tehas-analytics-export)), `state-move` ([`tehas state`](#tehas-state)), `pr-title` (the factory keeps the `WIP: ` and `HALT: ` prefixes of its pull requests itself, [pull request titles](/tools-dispatch#pull-request-titles)), `mcp-dashboard-keys` (the read-only MCP server answers a key of `TEHAS_MCP_DASHBOARD_KEYS` with only the four tools that copy from `live/`, [the MCP server](/mcp-server)), `clean` ([`tehasbot clean`](#tehasbot-clean)), `disk` ([`tehas disk`](#tehas-disk)), `panels` ([`tehas panel`](#tehas-panel)), `state-check` ([`tehas state check`](#tehas-state-check)), `finish` ([the finish ask](#the-finish-ask)), `status-versions` (`versions` in [`tehas status --json`](#tehas-status---json)) `store-copy` ([`tehas state copy`](#tehas-state-copy)), `state-load` ([`tehas state load`](#tehas-state-load)), `freeze` ([`tehas freeze` and `tehas thaw`](#tehas-freeze-and-tehas-thaw)) `host-bridge` ([the host bridge](#the-host-bridge)) and `host-bridge-tokens` (the dashboard draws `tokens` of [the host bridge](#the-host-bridge)) |
 | `millwright` | `TEHAS_MILLWRIGHT_LOGIN`, or `null` when the instance has no millwright |
 | `fixer` | The same as `millwright`. It and the feature `fixer-grant` are the old names, kept for as long as API version 1; a program reads `millwright` and `millwright-grant` |
 | `poll` | What the polls of this factory cost, or `null` when no poll is on record or the state store cannot answer. `last` is the poll that most recently held the dispatcher's lock and `hour` is the sums of the polls that ended in the last hour; both are in the fields below, so a program that keeps a copy of them can add the cost of many hosts up. See [What a poll costs](/operating#what-a-poll-costs) for what each figure counts |
@@ -196,7 +196,7 @@ tehas status --json
 | `time` | When the health file was written: at the dispatcher's last poll, or when a cycle last ended |
 | `age` | Seconds since `time` |
 | `stale` | `true` when `time` is more than ten minutes ago. The exit status is then 1 |
-| `state` | `pass`, `warn` or `fail`, as the [health file](/tools#tehasbot-health) says it |
+| `state` | `pass`, `warn` or `fail`, as the [health file](/tools-health#tehasbot-health) says it |
 | `reasons` | Why the state is not `pass`, for a person; empty on `pass` |
 | `paused.local` | The pause flag `tehas pause` writes on this host is set |
 | `paused.label` | `tehas:pause` holds the factory from the control issue: it is on the issue, or an account that may not lift it took it off |
@@ -245,7 +245,7 @@ tehas status --json
 | `room.slots.container.ceiling` | `TEHAS_CYCLE_CEILING` as written, or its default |
 | `room.slots.container.floored` | `true` when the memory or the size was no reading and 2 containers are in force |
 | `room` | `null` when no poll got as far as the room check in the last ten minutes, as while the factory is paused |
-| `versions` | The platform and the pi-rukas this factory runs, as the [health file](/tools#tehasbot-health) last read them in `checks.platform` and `checks.rukas`. Always there: a value that cannot be read is `null`, never left out, so a program tells "unknown" from a release without the field. The feature `status-versions` of [`tehas api`](#tehas-api) says a factory has it |
+| `versions` | The platform and the pi-rukas this factory runs, as the [health file](/tools-health#tehasbot-health) last read them in `checks.platform` and `checks.rukas`. Always there: a value that cannot be read is `null`, never left out, so a program tells "unknown" from a release without the field. The feature `status-versions` of [`tehas api`](#tehas-api) says a factory has it |
 | `versions.platform` | The tehas release: `release`, `latest` and `behind` |
 | `versions.platform.release` | The release the host runs, such as `v0.25.0`; `null` on a host that runs a checkout, or with no platform reading |
 | `versions.platform.latest` | The newest published release, without release candidates; `null` when it is not known, and on a checkout host |
@@ -254,7 +254,7 @@ tehas status --json
 | `versions.rukas.version` | The version the sandbox image's pi-rukas answers, such as `v0.14.53`; `null` when it is not known |
 | `versions.rukas.latest` | The version of the pi-rukas commit the host follows (`PI_RUKAS_FOLLOW`); `null` when that commit is no release, as when the host follows a branch |
 | `versions.rukas.behind` | `true` when the image is not on the commit the host follows, compared by commit, so it can be `true` while both versions are `null` |
-| `prototypes` | The issues with a [Protolab](/tools#tehasbot-protolab) page, from `live/protolab.json` as the Protolab last wrote it. Left out when there is no such list, as on a host that does not run the Protolab |
+| `prototypes` | The issues with a [Protolab](/tools-protolab#tehasbot-protolab) page, from `live/protolab.json` as the Protolab last wrote it. Left out when there is no such list, as on a host that does not run the Protolab |
 | `prototypes.issue` | The issue number |
 | `prototypes.builtAt` | When its page was last built; left out for a page whose time cannot be read |
 
@@ -380,7 +380,7 @@ without an instance. `tehas api` lists the feature `freeze`.
 The one file a program writes into the factory rather than a command it
 runs: tehas-industry writes it on each pass, atomically, with what it sees of
 the factory that the factory cannot see of itself. [`tehasbot
-health`](/tools#tehasbot-health) reads it when `TEHAS_INDUSTRY_VERSION` is
+health`](/tools-health#tehasbot-health) reads it when `TEHAS_INDUSTRY_VERSION` is
 set, into `checks.industry.alerts`, and the front pages show the current
 alerts as a banner. The source holds its JSON Schema,
 `api/industry-alerts.schema.json`, and a sample, `api/industry-alerts.sample.json`.
@@ -409,7 +409,7 @@ then the label `tehas:finish`, from the same account within ten minutes.
 The one ask a caller with no SSH makes of the factory through GitHub alone: the
 factory opens the draft pull request of a stopped cycle from what its kept
 workspace holds, with [`tehas-cycle
-finish`](/tools#the-pull-request-of-a-stopped-cycle). A factory whose `tehas
+finish`](/tools-tehasbot#tehasbot-cycle). A factory whose `tehas
 api` lists the feature `finish` takes it; one that does not leaves the label
 and the comment alone. [Finishing a stopped
 cycle](/operating#finishing-a-stopped-cycle) is the whole of it.
@@ -792,7 +792,7 @@ Reclaims what the host can make again, of anything untouched for
 cache, host scratch, old sandbox and base images, and old logs and the state
 store's upkeep. The six steps, their age and lock rules and what they never
 touch are on
-[tehasbot clean](/tools#tehasbot-clean); this page names the command only as
+[tehasbot clean](/tools-clean#tehasbot-clean); this page names the command only as
 far as a program needs it.
 
 It is not `--json`: one line per removal goes to `~/tehas/logs/clean.log` and is
@@ -867,7 +867,7 @@ a side file renamed into place, so a reader sees a whole answer or the last
 one. It is the only form that writes anything, and it prints the reading as
 well. On a host the cleaner's `tehas-clean.timer` runs it every hour after the
 clean, whether the clean succeeded or not
-([`tehas disk`](/tools#tehas-disk)), so the file is under an hour old there; a
+([`tehas disk`](/tools-status#tehas-disk)), so the file is under an hour old there; a
 person or a program can ask for a reading at any moment. The
 [`factory_disk` tool](/mcp-server#the-tools) of the MCP server reads that file
 and never runs the command, so the server asks the host's disk nothing.
