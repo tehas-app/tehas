@@ -36,13 +36,6 @@
     return { repo, epics };
   }
 
-  function el(tag, cls, text) {
-    const n = document.createElement(tag);
-    if (cls) n.className = cls;
-    if (text !== undefined) n.textContent = text;
-    return n;
-  }
-
   // The host bridge (host-bridge.js), when a host answers: a ticket links to
   // the host's page, in the same tab, and its notes are drawn beside it. With
   // no answer the links are GitHub's and no note is drawn.
@@ -106,6 +99,10 @@
   globalThis.TEHAS_EPICS = { view };
 
   if (typeof document === "undefined") return;
+  // The one el(), from host/fun/dom.js, the classic script both pages load before
+  // this file. Read here, past the document guard, so node can take view() out of
+  // this file with no document and no dom.js at all (test/epics_view_test.mjs).
+  const { el } = globalThis.TEHAS_DOM;
   const section = document.getElementById("epics");
   const list = document.getElementById("epics-list");
   if (!section || !list) return;

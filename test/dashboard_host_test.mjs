@@ -309,16 +309,22 @@ test("the harness has the module itself, and the module draws only when started"
   assert.deepEqual(globalThis.TEHAS_DASHBOARD, { probe: "state" });
 });
 
-test("the module's two imports are both exercised by a page", async () => {
-  // Every import of the module, by specifier. A third one fails this case until
-  // a case here draws what it brings in.
-  const imports = [...SOURCE.matchAll(/^import .* from "([^"]+)";$/gm)].map((m) => m[1]);
-  assert.deepEqual(imports, ["./host-data.js", "./analytics-data.js"]);
+test("the module's three imports are each exercised by a page", async () => {
+  // Every import of the module, by specifier. A fourth one fails this case until
+  // a case here draws what it brings in. dom.js is the shared el(): the page is
+  // drawn with it, so the module cannot name an element of its own, and the file
+  // is covered by its own test (test/dom_test.mjs) rather than by a page, so it
+  // is pinned as the side-effecting import the module starts itself with.
+  const imports = [...SOURCE.matchAll(/^import (?:.* from )?"([^"]+)";$/gm)].map((m) => m[1]);
+  assert.deepEqual(imports, ["./dom.js", "./host-data.js", "./analytics-data.js"]);
+  assert.ok(SOURCE.includes("const el = globalThis.TEHAS_DOM.el;"));
   const p = await page({ analytics: report() });
   assert.deepEqual(p.errors, []);
-  // Each import, seen through what only it draws: host-data.js's layout() writes
-  // the host note, analytics-data.js's analyticsView() the ten-day window.
+  // Each import, seen through what only it draws: dom.js's el() the rows of the
+  // host list, host-data.js's layout() the host note, analytics-data.js's
+  // analyticsView() the ten-day window.
   const exercised = [
+    p.items("host-list").length === 3 && "./dom.js",
     p.text("host-note").startsWith("4 CPUs, load 0.10 0.20 0.30") && "./host-data.js",
     p.text("analytics-note") === "2026-10-23 to 2026-10-24, UTC" && "./analytics-data.js",
   ].filter(Boolean);
