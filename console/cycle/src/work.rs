@@ -568,23 +568,46 @@ fn renewer(home: &Path) -> Option<Child> {
 
 /// The cycle's issue relay (src/relay.rs): a thread beside the renewer that
 /// runs the container's issue writes with the app's token. `end` stops it once
-/// the container is gone and answers what is left with 1.
+/// the container is gone and answers what is left with 1. It waits for the
+/// thread `wait` at most: a relay held up by gh or the token command never
+/// holds up the end of the cycle.
 struct Relay {
+    dir: PathBuf,
     stop: Arc<AtomicBool>,
     thread: JoinHandle<()>,
+    wait: Duration,
 }
 
-fn start_relay(dir: &Path, repo: &str, via: relay::Via) -> Relay {
+/// How long the end of a cycle waits for its relay.
+const RELAY_END_WAIT: Duration = Duration::from_secs(10);
+
+fn start_relay(dir: &Path, repo: &str, issue: u64, via: relay::Via, wait: Duration) -> Relay {
     let stop = Arc::new(AtomicBool::new(false));
-    let (dir, repo, flag) = (dir.to_path_buf(), repo.to_string(), stop.clone());
-    let thread = std::thread::spawn(move || relay::serve_via(&dir, &repo, &flag, &via));
-    Relay { stop, thread }
+    let (d, repo, flag) = (dir.to_path_buf(), repo.to_string(), stop.clone());
+    let thread = std::thread::spawn(move || relay::serve_via(&d, &repo, issue, &flag, &via));
+    Relay {
+        dir: dir.to_path_buf(),
+        stop,
+        thread,
+        wait,
+    }
 }
 
 impl Relay {
     fn end(self) {
         self.stop.store(true, Ordering::SeqCst);
-        let _ = self.thread.join();
+        let until = std::time::Instant::now() + self.wait;
+        while !self.thread.is_finished() && std::time::Instant::now() < until {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        if self.thread.is_finished() {
+            let _ = self.thread.join();
+        } else {
+            eprintln!(
+                "tehas work: the issue relay did not stop; what is left is answered without it"
+            );
+            relay::answer_left(&self.dir);
+        }
     }
 }
 
@@ -1101,7 +1124,13 @@ pub fn run(home: &Path, g: &Given) -> i32 {
     // container, or with the watch.
     let renew = renewer(home);
     let relay_dir = PathBuf::from(format!("{work_dir}-{n}.state/relay"));
-    let relay = start_relay(&relay_dir, &env("TEHAS_REPO"), relay::Via::from_env(home));
+    let relay = start_relay(
+        &relay_dir,
+        &env("TEHAS_REPO"),
+        n,
+        relay::Via::from_env(home),
+        RELAY_END_WAIT,
+    );
     let given = watch::Given {
         issue: n,
         attempt,
@@ -1188,10 +1217,22 @@ mod tests {
             d.display()
         );
         tehas_core::testing::write_exe(&bot, script).unwrap();
-        let gh = d.join("gh");
+        // gh is the host's own shim, host/shim/gh, in front of a gh that
+        // writes the token it was given: the path a relayed write takes on a
+        // host. The shim asks bin/tehasbot when it is given no token.
+        fs::create_dir(d.join("bin")).unwrap();
+        tehas_core::testing::copy_exe(&bot, d.join("bin/tehasbot")).unwrap();
         let script = format!(
             "#!/bin/sh\necho \"$GH_TOKEN\" >'{}'\n",
             d.join("gh.token").display()
+        );
+        tehas_core::testing::write_exe(d.join("bin/gh"), script).unwrap();
+        let shim = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../host/shim/gh");
+        let gh = d.join("gh");
+        let script = format!(
+            "#!/bin/sh\nTEHAS_HOME='{}' exec '{}' \"$@\"\n",
+            d.display(),
+            shim.display()
         );
         tehas_core::testing::write_exe(&gh, script).unwrap();
         let asked = || fs::read_to_string(d.join("asked")).unwrap_or_default();
@@ -1209,11 +1250,14 @@ mod tests {
         let relay = start_relay(
             &dir,
             "acme/widget",
+            3,
             relay::Via {
                 gh: gh.clone(),
                 token: bot.clone(),
                 token_args: vec!["github-token".to_string()],
+                token_wait: 10,
             },
+            Duration::from_secs(10),
         );
         // Two renewals after the first ask.
         let until = Instant::now() + Duration::from_secs(20);
@@ -1244,6 +1288,62 @@ mod tests {
             .map(|t| format!("{t}\n"));
         assert_eq!(Some(used.clone()), current, "{}", asked());
         assert_ne!(used, "ghs_1\n");
+        // The start's ask and the relay's: the shim took the relay's token and
+        // asked for none of its own.
+        let asks = asked().lines().filter(|l| !l.contains("--cycle")).count();
+        assert_eq!(asks, 2, "{}", asked());
+    }
+
+    #[test]
+    fn a_relay_that_is_held_up_does_not_hold_up_the_end() {
+        use std::time::Instant;
+        let d = tehas_core::testdir::TestDir::new("work-relay-held");
+        let token = d.join("token");
+        tehas_core::testing::write_exe(&token, "#!/bin/sh\nsleep 6\necho ghs_late\n").unwrap();
+        let gh = d.join("gh");
+        tehas_core::testing::write_exe(&gh, "#!/bin/sh\necho posted\n").unwrap();
+        let dir = d.join("relay");
+        fs::create_dir(&dir).unwrap();
+        let relay = start_relay(
+            &dir,
+            "acme/widget",
+            3,
+            relay::Via {
+                gh,
+                token,
+                token_args: vec![],
+                token_wait: 30,
+            },
+            Duration::from_secs(1),
+        );
+        let ask = |pid: &str| {
+            let req = dir.join(format!("req.{pid}"));
+            fs::create_dir(&req).unwrap();
+            fs::write(req.join("args"), "issue\0comment\x003\0--body\0hi\0").unwrap();
+            fs::write(req.join("ready"), "").unwrap();
+        };
+        ask("1");
+        // The relay takes the first and waits on its token.
+        let until = Instant::now() + Duration::from_secs(5);
+        while dir.join("req.1").exists() && Instant::now() < until {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        assert!(!dir.join("req.1").exists());
+        ask("2");
+        let started = Instant::now();
+        relay.end();
+        assert!(
+            started.elapsed() < Duration::from_secs(4),
+            "{:?}",
+            started.elapsed()
+        );
+        assert_eq!(
+            fs::read_to_string(dir.join("res.2/rc")).unwrap_or_default(),
+            "1\n"
+        );
+        assert!(fs::read_to_string(dir.join("res.2/err"))
+            .unwrap_or_default()
+            .contains("the cycle ended"));
     }
 
     #[test]

@@ -143,11 +143,14 @@ with a token; remove the token from `~/.config/tehas/env` after.
   and `gh issue comment` go to the host instead, through the cycle's relay
   directory (`<workspace>.state/relay`, `/run/tehas/relay` in the container):
   `tehas work` runs them with the app's token, asked for each one, and only
-  with a title, a body and an issue number. A label, an assignee, a
-  milestone, a project, a state, another repository, a body over 1 MiB, a
-  link in place of a file, and a title or body with `<!-- tehas:` in it, in
-  any letter case and with any white space after `<!--`, are refused with
-  the reason. A planning turn and a session have no relay. `tehas work` renews the cycle's token
+  with a title, a body and an issue number. A comment goes only on the
+  cycle's own issue or on one the cycle created through the relay, and an
+  edit only on one it created, never on an approved issue. A cycle has at
+  most 50 such writes. A label, an assignee, a milestone, a project, a
+  state, another repository, a body over 1 MiB, a link in place of a file,
+  and a title or body with `<!-- tehas:` in it, in any letter case and with
+  any white space after `<!--`, are refused with the reason. A planning turn
+  and a session have no relay. `tehas work` renews the cycle's token
   every 5 minutes while the cycle runs. A failed renewal is one line
   in the cycle's work log, never a token, and is tried again after 30 seconds,
   so two failures in a row no longer let the token run out. The renewer is
