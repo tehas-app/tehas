@@ -132,14 +132,16 @@ t_eq "$t_rc" 78
 t_eq "$(containers)" 0
 t_eq "$([ -e "$devs" ] && echo there)" ""
 
-t_case "a missing token starts no container"
+t_case "no token to be had starts no container"
 t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
-T_ENV=("$root")
+rm -rf "$T/home/tehas/state/github" "$T/home/tehas/state/github-cycle"
+T_ENV=("$root" "TEHAS_GITHUB_APP_KEY=$T/no-such-key.pem")
 t_run "$dev_cmd"
-t_eq "$t_rc" 64
-t_contains "$t_out" "GH_TOKEN is not set"
+t_eq "$t_rc" 1
+t_contains "$t_out" "tehas dev: no GitHub token for the app"
 t_eq "$(containers)" 0
 t_eq "$([ -e "$devs" ] && echo there)" ""
+t_app_world
 
 t_case "a checkout of another repository starts no container"
 T_ENV=(GH_TOKEN=test-token TERM=xterm-256color COLORTERM=truecolor SECRET_THING=leak "$root")
@@ -219,7 +221,8 @@ $state/memory:/home/vscode/.vipune
 $state/sessions:/home/vscode/.pi/agent/sessions
 $T/home/.pi/agent/mcp.json:/home/vscode/.pi/agent/mcp.json:ro
 $state/models.json:/home/vscode/.pi/agent/models.json:ro
-$T/home/.pi/agent/settings.json:/home/vscode/.pi/agent/settings.json:ro"
+$T/home/.pi/agent/settings.json:/home/vscode/.pi/agent/settings.json:ro
+$T/home/tehas/state/github:/run/tehas/github:ro"
 t_eq "$(after -v | LC_ALL=C sort)" "$(printf '%s\n' "$want" | LC_ALL=C sort)"
 # The count of -v is asked of the docker line, not of the list above: an
 # option written --volume or --mount is a mount too, and the sorted list would
@@ -635,7 +638,8 @@ $state/memory:/home/vscode/.vipune
 $state/sessions:/home/vscode/.pi/agent/sessions
 $T/home/.pi/agent/mcp.json:/home/vscode/.pi/agent/mcp.json:ro
 $state/models.json:/home/vscode/.pi/agent/models.json:ro
-$T/home/.pi/agent/settings.json:/home/vscode/.pi/agent/settings.json:ro"
+$T/home/.pi/agent/settings.json:/home/vscode/.pi/agent/settings.json:ro
+$T/home/tehas/state/github:/run/tehas/github:ro"
 attach_on() {
   without
   rm -rf "$T/fx" "$imgs" "$devs/main.author"
