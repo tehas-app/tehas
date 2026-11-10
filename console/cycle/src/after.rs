@@ -14,7 +14,7 @@ use std::io::Write;
 use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use tehas_core::jq::{obj, J, NULL};
+use tehas_core::jq::{obj, J};
 use tehas_core::time::{iso, now};
 
 /// A call of the analytics may take this long: a stopped cycle has
@@ -103,7 +103,7 @@ pub fn approval_of(answer: &Value) -> J {
     let answer = J::from(answer);
     let view = answer.get("view");
     if !matches!(view, J::Obj(_)) {
-        return NULL.clone();
+        return J::Null;
     }
     let field = |k: &str| view.get(k).clone();
     obj(vec![
@@ -175,16 +175,13 @@ pub fn run_facts(line: &J, attempt: Option<u64>, approved: &str, view: Option<&V
         ("line", line.clone()),
         (
             "attempt",
-            attempt.map_or_else(|| NULL.clone(), |n| J::Num(n.to_string())),
+            attempt.map_or_else(|| J::Null, |n| J::Num(n.to_string())),
         ),
-        (
-            "approval",
-            J::parse(approved).unwrap_or_else(|| NULL.clone()),
-        ),
+        ("approval", J::parse(approved).unwrap_or(J::Null)),
         (
             "settings",
             settings.map_or_else(
-                || NULL.clone(),
+                || J::Null,
                 |(c, h, n)| obj(vec![("container", c), ("host", h), ("concurrentCycles", n)]),
             ),
         ),
@@ -325,7 +322,7 @@ mod tests {
             approval_of(&b).dump(),
             r#"{"at":"T","how":"label","driver":null}"#
         );
-        assert_eq!(approval_of(&json!({"view": null})), NULL.clone());
+        assert_eq!(approval_of(&json!({"view": null})), J::Null);
     }
 
     fn ended() -> After {

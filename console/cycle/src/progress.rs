@@ -13,7 +13,7 @@ use serde_json::Value;
 use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::path::Path;
-use tehas_core::jq::{obj, J, NULL};
+use tehas_core::jq::{obj, J};
 
 fn stable(o: &Value) -> bool {
     matches!(
@@ -297,11 +297,11 @@ pub fn summary(ndjson: &Path, result: Option<(&Path, u64)>) -> String {
                         ("cause", plain(f.get("cause"))),
                     ])
                 }
-                None => NULL.clone(),
+                None => J::Null,
             },
             "result",
         ),
-        None => (lines.roles, lines.reason, NULL.clone(), "progress"),
+        None => (lines.roles, lines.reason, J::Null, "progress"),
     };
     obj(vec![
         ("roles", roles),

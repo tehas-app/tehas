@@ -142,6 +142,9 @@ fn commit_shaped(c: &str) -> bool {
     c.len() == 40 && c.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
 }
 
+/// A version read from a host, null when there was none to read. Not
+/// `J::text_or_null`, which turns an empty text to null: an empty text here is
+/// a version of sorts, and a missing one is the null.
 fn text_or_null(s: Option<String>) -> J {
     s.map_or(J::Null, J::Str)
 }

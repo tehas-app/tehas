@@ -37,7 +37,7 @@
 //! Exit: 0 the report was printed; 2 usage.
 
 use crate::flags::{self, epoch};
-use crate::jq::{first, obj, J, NULL};
+use crate::jq::{first, obj, J};
 use crate::mcp::{liveness, Liveness};
 use crate::store::{self, bounded, merged, Refusal};
 use serde_json::Value;
@@ -1990,7 +1990,7 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
         .any(|p| p.as_str() == Some("queue"));
     let generated = queue.get("generatedAt");
     let queue_at = match queue.get("queueAt") {
-        J::Null if lists_stale => &NULL,
+        J::Null if lists_stale => &J::Null,
         J::Null => generated,
         // No list is newer than the file that holds it.
         at if at.as_str().and_then(epoch) > generated.as_str().and_then(epoch) => generated,
@@ -2229,7 +2229,7 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
                 .map_or(J::Null, |(_, l)| J::str(l.clone())),
         ),
     ]);
-    let current = running.items().first().unwrap_or(&NULL).or(&last);
+    let current = running.items().first().unwrap_or(&J::Null).or(&last);
     let cycle = if current.is_null() {
         J::Null
     } else {

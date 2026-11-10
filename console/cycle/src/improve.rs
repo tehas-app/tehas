@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::OnceLock;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use tehas_core::jq::{obj, J, NULL};
+use tehas_core::jq::{obj, J};
 
 /// The most bytes of an attachment file a record takes. A manifest over it is
 /// left out whole, so both writers of one cap what they list to stay under it.
@@ -227,10 +227,12 @@ fn log_of(home: &Path, issue: u64, started: i64) -> Option<PathBuf> {
         .max()
 }
 
-/// One line of the stream as a model can read it, None for a line that is
-/// not an object or is a delta. The id of a status event differs every time,
-/// so it goes, and a status repeated in a row is then kept once.
-pub fn condensed(line: &str) -> Option<String> {
+/// One line of the stream as a model can read it, None for a line that is not
+/// an object, is a delta, or is nested past the parser's bound; condense()
+/// leaves such a line out of the record's stream. The id of a status event
+/// differs every time, so it goes, and a status repeated in a row is then kept
+/// once.
+fn condensed(line: &str) -> Option<String> {
     let mut v = J::parse(line)?;
     if !matches!(v, J::Obj(_)) {
         return None;
@@ -363,7 +365,7 @@ pub fn write(
     };
     let (ran_with, concurrent) = match shape.as_ref().map(ran_with) {
         Some((container, host, n)) => (obj(vec![("container", container), ("host", host)]), n),
-        None => (NULL.clone(), NULL.clone()),
+        None => (J::Null, J::Null),
     };
     let doc = obj(vec![
         ("issue", J::Num(e.issue.to_string())),

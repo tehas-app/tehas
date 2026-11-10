@@ -18,17 +18,23 @@ pub enum J {
     Obj(Vec<(String, J)>),
 }
 
-pub static NULL: J = J::Null;
+/// The value `get` answers for a key that is not there; a caller that needs
+/// one of its own writes `J::Null`.
+static NULL: J = J::Null;
 
 impl From<&Value> for J {
     /// A value read by serde_json: an object comes over in its own order, and
     /// a number as serde_json prints it, so 1.50 has lost its last zero.
     fn from(v: &Value) -> J {
         match v {
+            Value::Null => J::Null,
+            Value::Bool(b) => J::Bool(*b),
             Value::String(s) => J::Str(s.clone()),
             Value::Array(a) => J::Arr(a.iter().map(J::from).collect()),
             Value::Object(o) => J::Obj(o.iter().map(|(k, x)| (k.clone(), J::from(x))).collect()),
-            other => J::Num(other.to_string()),
+            // Only a number is left: serde_json holds one as text and prints
+            // it as it read it, which is what J::Num keeps.
+            Value::Number(n) => J::Num(n.to_string()),
         }
     }
 }
@@ -83,7 +89,9 @@ impl J {
         path.iter().fold(self, |v, k| v.get(k))
     }
 
-    /// The text, or null for an empty one.
+    /// The text, or null for an empty one: `if . == "" then null else . end`.
+    /// Not the same as a caller's helper of the same name that keeps a `J`
+    /// only when it is already a string, nor one that unwraps an Option.
     pub fn text_or_null(s: &str) -> J {
         if s.is_empty() {
             J::Null
@@ -351,9 +359,9 @@ fn quote(s: &str, out: &mut String) {
     out.push('"');
 }
 
-// jq 1.7 refuses a document nested deeper than this, and no file the factory
-// reads nests near it; the parser here is recursive, so a bigger bound would
-// put a deep document on the thread's stack.
+// The bound is ours, not jq's: the parser below is recursive, so a bigger
+// number would put a deep document on the thread's stack. jq itself reads
+// deeper than this. No file the factory reads nests near it.
 const DEPTH: usize = 256;
 
 struct Parser<'a> {
@@ -624,27 +632,37 @@ mod tests {
     }
 
     #[test]
-    fn a_serde_value_keeps_its_numbers_and_nulls() {
-        // serde_json's map is ordered by key; what the cycle's callers take
-        // from it is the number text and the nulls.
+    fn a_serde_value_prints_as_serde_json_prints_it() {
+        // serde_json's map is ordered by key, not in the order the file wrote
+        // it; what the cycle's callers take from it is the variant of each
+        // value and the number text.
         let mut m = serde_json::Map::new();
         m.insert("b".into(), serde_json::json!(1.50));
         m.insert("a".into(), serde_json::json!([true, null, "x"]));
         // `From<&Value>` is in scope as `from`.
-        let made = |v: &Value| <J as From<&Value>>::from(v).dump();
-        assert_eq!(made(&Value::Object(m)), r#"{"a":[true,null,"x"],"b":1.5}"#);
-        assert_eq!(made(&Value::Null), "null");
-        assert_eq!(made(&Value::Bool(true)), "true");
+        let made = |v: &Value| <J as From<&Value>>::from(v);
+        assert_eq!(
+            made(&Value::Object(m)).dump(),
+            r#"{"a":[true,null,"x"],"b":1.5}"#
+        );
+        // A null and a boolean keep their kind, so is_null() reads them.
+        assert!(made(&Value::Null).is_null());
+        assert_eq!(made(&Value::Bool(true)), J::Bool(true));
+        assert_eq!(made(&Value::Bool(false)), J::Bool(false));
+        assert_eq!(
+            made(&Value::Number(serde_json::Number::from(7))),
+            J::Num("7".into())
+        );
         // A number worked out by serde_json prints without a fraction.
-        assert_eq!(made(&Value::from(1.5)), "1.5");
-        assert_eq!(made(&Value::from(-0)), "0");
-        assert_eq!(made(&Value::from(7)), "7");
+        assert_eq!(made(&Value::from(1.5)).dump(), "1.5");
+        assert_eq!(made(&Value::from(-0)).dump(), "0");
+        assert_eq!(made(&Value::from(7)).dump(), "7");
     }
 
     #[test]
     fn a_document_of_256_levels_parses_and_one_more_does_not() {
         // Only a container counts a level: 256 arrays around 0 read, and the
-        // parser refuses one level more, as jq does.
+        // parser refuses one level more, at its own bound.
         let deep = |n: usize| format!("{}0{}", "[".repeat(n), "]".repeat(n));
         assert!(J::parse(&deep(256)).is_some());
         assert_eq!(J::parse(&deep(257)), None);

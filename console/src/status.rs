@@ -612,7 +612,9 @@ fn since(t: &J, now: i64) -> J {
         .map_or(J::Null, |e| J::num((now - e).max(0) as f64))
 }
 
-/// A text the health file wrote, null when it wrote none.
+/// A text of the health file, null when it wrote none. Not `J::text_or_null`,
+/// which turns an empty text to null: here a value that is no string at all is
+/// what is withheld.
 fn text_or_null(v: &J) -> J {
     match v {
         J::Str(_) => v.clone(),
