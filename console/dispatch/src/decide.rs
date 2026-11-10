@@ -399,12 +399,6 @@ impl<'a> Poll<'a> {
                 78,
             ));
         }
-        if c.is_millwright(&bot) {
-            return Err(self.fail(
-                format!("ERROR: the bot account {bot} is TEHAS_MILLWRIGHT_LOGIN; every agent posts as the bot, so the millwright must be an account of its own"),
-                78,
-            ));
-        }
         if !c.priority_field.is_empty() && !s.personal_owner {
             let field = &c.priority_field;
             match &s.issue_fields {
