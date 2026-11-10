@@ -410,13 +410,9 @@ fn ready(given: &Words) -> Result<Taken, u8> {
 // tehas_github_env: an app's token goes in this environment, and from there by
 // name to what is started. It is never an argument.
 fn token() -> Result<(), u8> {
-    if !env::var("TEHAS_GITHUB_APP_ID").is_ok_and(|id| !id.is_empty()) {
-        return Ok(());
-    }
-    let Some(token) = github::for_a_container() else {
+    let token = github::token_env().inspect_err(|_| {
         eprintln!("tehas dev: no GitHub token for the app");
-        return Err(1);
-    };
+    })?;
     env::set_var("GH_TOKEN", token);
     Ok(())
 }

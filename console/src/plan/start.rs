@@ -184,17 +184,10 @@ fn update_issue(w: &Words) -> u8 {
 /// tehas_github_env: an app's token goes in this environment, and from there by
 /// name to the container. It is never an argument.
 fn token() -> Result<(), u8> {
-    if !var("TEHAS_GITHUB_APP_ID").is_empty() {
-        let Some(token) = github::for_a_container() else {
-            eprintln!("tehas plan: no GitHub token for the app");
-            return Err(1);
-        };
-        env::set_var("GH_TOKEN", token);
-    }
-    if var("GH_TOKEN").is_empty() {
-        eprintln!("tehas plan: GH_TOKEN is not set (source ~/tehas/env.sh)");
-        return Err(64);
-    }
+    let token = github::token_env().inspect_err(|_| {
+        eprintln!("tehas plan: no GitHub token for the app");
+    })?;
+    env::set_var("GH_TOKEN", token);
     Ok(())
 }
 

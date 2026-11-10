@@ -683,7 +683,8 @@
   {
    "case": "a bot that is the fixer stops the poll: exit 78",
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
+    "TEHAS_BOT_LOGIN": "tehas-fixer"
    },
    "snapshot": {
     "ready": [
@@ -705,9 +706,6 @@
       ]
      }
     ],
-    "user": {
-     "login": "tehas-fixer"
-    },
     "issues": {
      "7": {
       "events": [

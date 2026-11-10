@@ -95,12 +95,8 @@ fn pass(lab: &mut Lab, live: &Path) -> u8 {
     // The bot's own login, asked once before anything of a ticket is read,
     // built or removed: whatever a cycle labels, it labels as the bot. A login
     // that cannot be read ends the pass too, because no label below could then
-    // be checked against the allowed list. A GitHub App's token cannot ask GET
-    // /user, so an app's login is the setting.
-    let bot = match env::var("TEHAS_BOT_LOGIN").unwrap_or_default() {
-        set if set.is_empty() => login(&mut gh),
-        set => set,
-    };
+    // be checked against the allowed list.
+    let bot = env::var("TEHAS_BOT_LOGIN").unwrap_or_default();
     if bot.is_empty() {
         say("the bot's own login could not be read, nothing built or removed");
         return 0;
@@ -215,14 +211,6 @@ fn token(gh: &mut Bounded) -> String {
             .map(|out| out.trim_end_matches('\n').to_string())
             .unwrap_or_default(),
     }
-}
-
-fn login(gh: &mut Bounded) -> String {
-    gh.run(&["api", "user"])
-        .ok()
-        .and_then(|out| serde_json::from_str::<Value>(&out).ok())
-        .and_then(|me| me["login"].as_str().map(str::to_string))
-        .unwrap_or_default()
 }
 
 /// With a domain every ticket has a name of its own and the list is elsewhere.

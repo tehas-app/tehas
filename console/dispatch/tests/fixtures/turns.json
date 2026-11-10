@@ -1028,16 +1028,13 @@
    }
   },
   {
-   "case": "an own login that GitHub answers without one ends the poll before anything is written",
+   "case": "a bot login that is not set ends the poll before anything is written",
    "snapshot": {
     "marked": [
      {
       "number": 9
      }
-    ],
-    "user": {
-     "message": "Bad credentials"
-    }
+    ]
    },
    "expect": {
     "exit": 1,
@@ -1046,20 +1043,16 @@
      "ERROR: the bot's own login could not be read"
     ]
    },
-   "drop": [
-    "user.login"
-   ]
+   "settings": {
+    "TEHAS_BOT_LOGIN": ""
+   }
   },
   {
-   "case": "with a GitHub App the bot's login is TEHAS_BOT_LOGIN, and GET /user is not asked",
+   "case": "the bot's login is TEHAS_BOT_LOGIN",
    "settings": {
     "TEHAS_BOT_LOGIN": "tehas-app[bot]"
    },
-   "snapshot": {
-    "user": {
-     "failed": true
-    }
-   },
+   "snapshot": {},
    "expect": {
     "log_lacks": [
      "the bot's own login could not be read"

@@ -103,26 +103,8 @@ impl Kind {
 }
 
 /// The variable that holds the token a cycle's containers are given as their
-/// GH_TOKEN. Without a GitHub App it is a fine-grained token for the product
-/// repository alone, from ~/.config/tehas/env (#51). With an app, `tehas work`
-/// sets it to the app's narrowed cycle token (#1814) and what the file says
-/// is not used.
+/// GH_TOKEN: `tehas work` sets it to the app's narrowed cycle token (#1814).
 pub const CYCLE_TOKEN: &str = "GH_CYCLE_TOKEN";
-
-/// The cycle token, or the line that refuses the start: a cycle without it
-/// starts nothing (AGENTS.md rule 2), it never falls back to the host's token.
-/// With an app the token is made later, so this asks nothing yet.
-pub fn cycle_token(who: &str) -> Result<(), String> {
-    if env::var("TEHAS_GITHUB_APP_ID").is_ok_and(|v| !v.is_empty()) {
-        return Ok(());
-    }
-    match env::var(CYCLE_TOKEN) {
-        Ok(t) if !t.is_empty() => Ok(()),
-        _ => Err(format!(
-            "{who}: {CYCLE_TOKEN} is not set (see ~/.config/tehas/env)"
-        )),
-    }
-}
 
 /// A docker client that starts a cycle's container: its GH_TOKEN, which the
 /// container takes by name, is the cycle token. Without one it has none, so the
@@ -558,10 +540,8 @@ pub fn prepared_mounts(kind: Kind, p: &Paths) -> Result<Vec<String>, String> {
         format!("{}/memory", p.state),
         format!("{}/sessions", p.state),
     ];
-    let app = env::var("TEHAS_GITHUB_APP_ID")
-        .ok()
-        .filter(|id| !id.is_empty())
-        .and(kind.app_dir())
+    let app = kind
+        .app_dir()
         .map(|dir| format!("{}/{dir}", env::var("TEHAS_HOME").unwrap_or_default()));
     dirs.extend(app.clone());
     for dir in dirs {

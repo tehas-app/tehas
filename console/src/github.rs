@@ -97,23 +97,39 @@ fn quoted(value: &str) -> String {
         .replace('\r', "\\r")
 }
 
-/// curl's answer, when it exits 0. The bearer goes on standard input.
-fn curl(bearer: &str, flags: &[&str], url: &str) -> Option<Vec<u8>> {
+/// curl's answer, when it exits 0, else why not: `HTTP <status>` or curl's own
+/// words. The bearer goes on standard input.
+fn curl_why(bearer: &str, flags: &[&str], url: &str) -> Result<Vec<u8>, String> {
     let mut child = Command::new("curl")
         .args(["-fsS", "--max-time", "30", "-K", "-"])
         .args(flags)
         .args(["-H", ACCEPT, url])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
+        .stderr(Stdio::piped())
         .spawn()
-        .ok()?;
+        .map_err(|e| format!("curl cannot run: {e}"))?;
     if let Some(mut stdin) = child.stdin.take() {
         let config = format!("header = \"Authorization: Bearer {}\"\n", quoted(bearer));
         let _ = stdin.write_all(config.as_bytes());
     }
-    let out = child.wait_with_output().ok()?;
-    out.status.success().then_some(out.stdout)
+    let out = child
+        .wait_with_output()
+        .map_err(|e| format!("curl did not finish: {e}"))?;
+    if out.status.success() {
+        return Ok(out.stdout);
+    }
+    let said = String::from_utf8_lossy(&out.stderr);
+    let said = said.trim();
+    Err(match said.rsplit_once("returned error: ") {
+        Some((_, status)) => format!("HTTP {}", status.trim()),
+        None if said.is_empty() => format!("curl failed ({})", out.status),
+        None => said.replace('\n', " "),
+    })
+}
+
+fn curl(bearer: &str, flags: &[&str], url: &str) -> Option<Vec<u8>> {
+    curl_why(bearer, flags, url).ok()
 }
 
 /// The app's slug in GitHub's answer for GET /app.
@@ -219,15 +235,24 @@ impl App {
             return Some(id);
         }
         let jwt = self.jwt()?;
-        let found = curl(&jwt, &[], &format!("{}/repos/{repo}/installation", api()))
-            .and_then(|answer| serde_json::from_slice::<Value>(&answer).ok())
-            .and_then(|answer| answer["id"].as_u64());
-        let Some(id) = found else {
-            let slug = self
-                .login(dir)
-                .map(|l| l.trim_end_matches("[bot]").to_string());
-            eprintln!("{}", not_installed(repo, slug.as_deref()));
-            return None;
+        let found = curl_why(&jwt, &[], &format!("{}/repos/{repo}/installation", api())).and_then(
+            |answer| {
+                serde_json::from_slice::<Value>(&answer)
+                    .ok()
+                    .and_then(|answer| answer["id"].as_u64())
+                    .ok_or_else(|| "its answer held no installation id".to_string())
+            },
+        );
+        let id = match found {
+            Ok(id) => id,
+            Err(why) => {
+                let slug = (why == "HTTP 404")
+                    .then(|| self.login(dir))
+                    .flatten()
+                    .map(|l| l.trim_end_matches("[bot]").to_string());
+                eprintln!("{}", not_found(repo, slug.as_deref(), &why));
+                return None;
+            }
         };
         if !keep_line(dir, "installation", &format!("{owner} {id}")) {
             eprintln!(
@@ -274,6 +299,17 @@ impl App {
 
 fn digits(word: &str) -> bool {
     !word.is_empty() && word.len() <= 20 && word.bytes().all(|c| c.is_ascii_digit())
+}
+
+/// What is said when the installation on `repo` was not found: that the app
+/// is not installed there for a 404 alone, and for any other failure that it
+/// could not be looked up, and why.
+fn not_found(repo: &str, slug: Option<&str>, why: &str) -> String {
+    if why == "HTTP 404" {
+        not_installed(repo, slug)
+    } else {
+        format!("tehas: could not find the GitHub App's installation on {repo}: {why}")
+    }
 }
 
 /// What is said when the app has no installation on `repo`.
@@ -429,8 +465,18 @@ fn token(app: &App, dir: &Path, lookup: &Path, repo: &str, narrow: Option<&str>)
     if let Some(token) = kept(dir, time::now() + LEFT) {
         return Some(token);
     }
+    let had_one = lookup.join("installation").exists();
     let installation = app.installation(repo, lookup)?;
-    let answer = app.mint(&installation, narrow)?;
+    let answer = match app.mint(&installation, narrow) {
+        Some(answer) => answer,
+        None if had_one => {
+            // The kept installation may be an old one: look it up once more.
+            let _ = fs::remove_file(lookup.join("installation"));
+            let installation = app.installation(repo, lookup)?;
+            app.mint(&installation, narrow)?
+        }
+        None => return None,
+    };
     let Some((token, until)) = exchanged(&answer, time::now()) else {
         eprintln!("tehas: GitHub's answer for the app's token held no token and expiry");
         return None;
@@ -531,11 +577,11 @@ fn kept_in(cycle: bool) -> PathBuf {
     PathBuf::from(env::var_os("TEHAS_HOME").unwrap_or_default()).join(dir)
 }
 
-/// tehas_github_env, for a command that hands the token on to a container: a
-/// token with at least 10 minutes left. None when none could be had, said on
-/// standard error.
-pub fn for_a_container() -> Option<String> {
-    settings::require(&NEEDS).ok()?;
+/// The one token path of a host command: a token with at least 10 minutes
+/// left, for the command to put in its environment as GH_TOKEN. The error is
+/// the exit status, the reason already said on standard error.
+pub fn token_env() -> Result<String, u8> {
+    settings::require(&NEEDS)?;
     let repo = env::var("TEHAS_REPO").unwrap_or_default();
     token(
         &App::loaded(),
@@ -544,6 +590,7 @@ pub fn for_a_container() -> Option<String> {
         &repo,
         None,
     )
+    .ok_or(1)
 }
 
 pub fn main(given: &[String]) -> u8 {
@@ -968,6 +1015,79 @@ mod tests {
             "{said}"
         );
         assert!(not_installed("acme/widget", None).contains("acme/widget"));
+    }
+
+    #[test]
+    fn only_a_404_says_the_app_is_not_installed() {
+        let said = not_found("acme/widget", Some("acme-factory"), "HTTP 404");
+        assert!(said.contains("is not installed on acme/widget"), "{said}");
+        assert!(
+            said.contains("/apps/acme-factory/installations/new"),
+            "{said}"
+        );
+        for why in ["HTTP 500", "HTTP 401", "Could not resolve host: x"] {
+            let said = not_found("acme/widget", None, why);
+            assert!(!said.contains("not installed"), "{said}");
+            assert!(said.contains("could not find"), "{said}");
+            assert!(said.contains("acme/widget") && said.contains(why), "{said}");
+        }
+    }
+
+    #[test]
+    fn curl_says_the_status_of_a_refusal() {
+        let f = fake(&[("GET /ok", 200, "{}"), ("GET /down", 500, "{}")]);
+        let (ok, down, gone) = against(&f, || {
+            let url = |p: &str| format!("{}{p}", api());
+            (
+                curl_why("t", &[], &url("/ok")),
+                curl_why("t", &[], &url("/down")),
+                curl_why("t", &[], &url("/missing")),
+            )
+        });
+        assert_eq!(ok, Ok(b"{}".to_vec()));
+        assert_eq!(down, Err("HTTP 500".to_string()));
+        assert_eq!(gone, Err("HTTP 404".to_string()));
+        let dead = curl_why("t", &[], "http://127.0.0.1:1/x").unwrap_err();
+        assert!(!dead.starts_with("HTTP"), "{dead}");
+    }
+
+    #[test]
+    fn a_failed_mint_with_a_kept_installation_looks_it_up_once_more() {
+        let d = dir("mint-stale");
+        let app = app_of(&d);
+        fs::write(d.join("installation"), "acme 11\n").unwrap();
+        fs::write(d.join("login"), "acme-factory[bot]\n").unwrap();
+        let f = fake(&[
+            INSTALLED,
+            (
+                "POST /app/installations/77/access_tokens",
+                201,
+                r#"{"token":"ghs_new","expires_at":"2099-01-01T00:00:00Z"}"#,
+            ),
+        ]);
+        let tokens = d.join("tokens");
+        let got = against(&f, || token(&app, &tokens, d.path(), "acme/widget", None));
+        assert_eq!(got.as_deref(), Some("ghs_new"));
+        assert_eq!(f.count("POST /app/installations/11/access_tokens"), 1);
+        assert_eq!(f.count("GET /repos/acme/widget/installation"), 1);
+        assert_eq!(f.count("POST /app/installations/77/access_tokens"), 1);
+        assert_eq!(
+            fs::read_to_string(d.join("installation")).unwrap(),
+            "acme 77\n"
+        );
+    }
+
+    #[test]
+    fn a_failed_mint_with_a_fresh_lookup_is_not_tried_again() {
+        let d = dir("mint-fresh");
+        let app = app_of(&d);
+        fs::write(d.join("login"), "acme-factory[bot]\n").unwrap();
+        let f = fake(&[INSTALLED]);
+        let tokens = d.join("tokens");
+        let got = against(&f, || token(&app, &tokens, d.path(), "acme/widget", None));
+        assert_eq!(got, None);
+        assert_eq!(f.count("GET /repos/acme/widget/installation"), 1);
+        assert_eq!(f.count("POST /app/installations/77/access_tokens"), 1);
     }
 
     #[test]

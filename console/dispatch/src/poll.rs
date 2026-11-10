@@ -492,7 +492,7 @@ const TOKEN_BOUND: Duration = Duration::from_secs(30);
 impl PollToken {
     /// The token of the host's GitHub App: the one already taken, or the first
     /// run of `$TEHAS_HOME/bin/tehasbot github-token`, which answers the token and
-    /// nothing else. Only when `TEHAS_GITHUB_APP_ID` names an app. A run that
+    /// nothing else. A run that
     /// could not be had leaves nothing taken, so the poll's gh calls go on as
     /// they did before and each pays for a token of its own. The token is held
     /// here and nowhere else: never logged, never written, never recorded.

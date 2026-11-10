@@ -254,21 +254,14 @@ fn sync(gh: &mut dyn GhRunner, repo: &str, n: u64, bot: &str) -> Result<(), Stri
     if linked(&pull.head).is_none() {
         return Ok(());
     }
-    let bot = if bot.is_empty() {
-        let who = gh.run(&["api", "user"])?;
-        let who: Value = serde_json::from_str(who.trim()).unwrap_or(Value::Null);
-        login(who.get("login"))
-    } else {
-        bot.to_string()
-    };
     if bot.is_empty() {
         return Err("the bot's login could not be read".to_string());
     }
-    let Some(issue) = pull.issue(&bot) else {
+    let Some(issue) = pull.issue(bot) else {
         return Ok(());
     };
     let labels = issue_labels(gh, repo, issue)?;
-    keep(gh, repo, &pull, &labels, &bot).map(|_| ())
+    keep(gh, repo, &pull, &labels, bot).map(|_| ())
 }
 
 fn poll(gh: &mut dyn GhRunner, repo: &str, given: &Value) -> Vec<String> {
@@ -688,13 +681,14 @@ mod tests {
     }
 
     #[test]
-    fn sync_asks_who_it_is_only_without_a_login_set() {
+    fn sync_without_a_login_asks_nobody_and_reads_nothing_more() {
         let pull = rest_pull("a", "feature/issue-7-a", "tehas-bot", "open");
-        let issue = json!({"labels": []}).to_string();
-        let mut gh = Fake::of(vec![Ok(&pull), Ok(r#"{"login":"tehas-bot"}"#), Ok(&issue)]);
-        assert_eq!(sync(&mut gh, REPO, 9, ""), Ok(()));
-        assert_eq!(gh.calls[1], "api user");
-        assert_eq!(gh.calls.len(), 3, "a right title gets no write");
+        let mut gh = Fake::of(vec![Ok(&pull)]);
+        assert_eq!(
+            sync(&mut gh, REPO, 9, ""),
+            Err("the bot's login could not be read".to_string())
+        );
+        assert_eq!(gh.calls, ["api repos/acme/widget/pulls/9".to_string()]);
     }
 
     #[test]

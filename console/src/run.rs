@@ -119,12 +119,12 @@ fn hand_to_dispatcher(libexec: &str, rest: &[String], log: Option<String>) -> u8
 
 /// The GitHub App's token goes in this environment for the pass and its children.
 fn protolab_run() -> u8 {
-    if !var("TEHAS_GITHUB_APP_ID").is_empty() {
-        let Some(token) = github::for_a_container() else {
+    match github::token_env() {
+        Ok(token) => env::set_var("GH_TOKEN", token),
+        Err(rc) => {
             eprintln!("tehasbot protolab: no GitHub token for the app");
-            return 1;
-        };
-        env::set_var("GH_TOKEN", token);
+            return rc;
+        }
     }
     protolab::main(&["run".to_string()])
 }

@@ -841,44 +841,37 @@ fn git_global(vars: &Vars, key: &str) -> String {
     )
 }
 
-/// lib/github-app.sh, tehas_github_app_env: gh and git act as the app, through
-/// the shim the install puts in place.
-fn act_as_the_app(vars: &mut Vars) {
-    if vars.text("TEHAS_GITHUB_APP_ID").is_empty() {
-        return;
-    }
-    let shim = format!("{}/shim", vars.text("TEHAS_HOME"));
-    let path = vars.text("PATH");
-    vars.unset(b"GH_TOKEN");
-    if !format!(":{path}:").contains(&format!(":{shim}:")) {
-        vars.set("PATH", format!("{shim}:{path}"));
-    }
-    vars.set("GIT_CONFIG_COUNT", "2");
-    vars.set("GIT_CONFIG_KEY_0", HELPER_KEY);
-    vars.set("GIT_CONFIG_VALUE_0", "");
-    vars.set("GIT_CONFIG_KEY_1", HELPER_KEY);
-    vars.set(
-        "GIT_CONFIG_VALUE_1",
-        format!("!{shim}/gh auth git-credential"),
-    );
-}
-
-/// The token just written. The file is shell, sourced as host/env.sh sources
-/// it, and hands the token back on standard output, never on a command line.
-fn written_token(vars: &Vars, bash: &str) -> Result<String, Fail> {
-    let file = format!("{}/.config/tehas/env", vars.text("HOME"));
+/// lib/github-app.sh, tehas_github_app_env, run by bash on `vars`: gh and git
+/// act as the app, through the shim the install puts in place. Only what it
+/// changes comes back.
+fn act_as_the_app(vars: &mut Vars, bash: &str, lib: &Path) -> Result<(), Fail> {
+    const SCRIPT: &str = r#". "$0" && tehas_github_app_env && env -0"#;
     let done = program(vars, bash)
-        .args(["-c", r#". "$0" && printf '%s' "${GH_TOKEN:-}""#, &file])
+        .args(["-c", SCRIPT])
+        .arg(lib)
         .env_remove("BASH_ENV")
-        .stdin(Stdio::inherit())
+        .stdin(Stdio::null())
         .stderr(Stdio::inherit())
         .output();
-    match done {
-        Ok(done) if done.status.success() => Ok(String::from_utf8_lossy(&done.stdout)
-            .trim_end_matches('\n')
-            .to_string()),
-        _ => Err(Die(format!("could not read {file}"))),
+    let done = match done {
+        Ok(done) if done.status.success() => done,
+        _ => return Err(Die(format!("could not run {}", lib.display()))),
+    };
+    let after = Vars::new(settings::pairs(&done.stdout));
+    vars.unset(b"GH_TOKEN");
+    for name in [
+        "PATH",
+        "GIT_CONFIG_COUNT",
+        "GIT_CONFIG_KEY_0",
+        "GIT_CONFIG_VALUE_0",
+        "GIT_CONFIG_KEY_1",
+        "GIT_CONFIG_VALUE_1",
+    ] {
+        if after.is_set(name) {
+            vars.set(name, after.text(name));
+        }
     }
+    Ok(())
 }
 
 /// How many entries `git config --get-all` listed, one line each.
@@ -934,25 +927,11 @@ fn give_git_the_helper(vars: &Vars) -> Result<(), Fail> {
     Ok(())
 }
 
-/// The login and the ID in what `gh api user` said, as `read` splits a line.
-fn who(said: &str) -> Option<(String, String)> {
-    let line = said.lines().next()?.trim();
-    let (login, id) = line.split_once([' ', '\t']).unwrap_or((line, ""));
-    (!login.is_empty()).then(|| (login.to_string(), id.trim().to_string()))
-}
-
-/// An installation token cannot ask /user who it is: an app's bot comes from
-/// the files.
-fn the_bot(vars: &Vars, bot: &Option<(String, String)>) -> Result<(String, String), Fail> {
-    if let Some(bot) = bot {
-        return Ok(bot.clone());
-    }
-    who(&asked(
-        program(vars, "gh")
-            .args(["api", "user", "--jq", "[.login,.id]|@tsv"])
-            .stderr(Stdio::null()),
-    ))
-    .ok_or_else(|| Die("gh api user did not say who the bot is".into()))
+/// An installation token cannot ask /user who it is: the bot comes from the
+/// files.
+fn the_bot(bot: &Option<(String, String)>) -> Result<(String, String), Fail> {
+    bot.clone()
+        .ok_or_else(|| Die("the bot's login and ID are not known: give --app-id".into()))
 }
 
 fn give_git_an_identity(vars: &Vars, login: &str, id: &str) -> Result<(), Fail> {
@@ -1067,16 +1046,11 @@ fn the_sandbox(vars: &Vars, libexec: &Path, home: &str) -> Result<(), Fail> {
 /// builds and judges its own console.
 fn steps(libexec: &Path, shell: &Shell, vars: &mut Vars, done: &Written) -> Result<(), Fail> {
     // From here gh acts as the app through the shim, as every later command on
-    // the host does. Without one it acts with the token just written.
-    if done.bot.is_some() {
-        shell.load(vars)?;
-        act_as_the_app(vars);
-    } else {
-        let token = written_token(vars, shell.bash)?;
-        vars.set("GH_TOKEN", token);
-    }
+    // the host does.
+    shell.load(vars)?;
+    act_as_the_app(vars, shell.bash, &libexec.join("../lib/github-app.sh"))?;
     give_git_the_helper(vars)?;
-    let (login, id) = the_bot(vars, &done.bot)?;
+    let (login, id) = the_bot(&done.bot)?;
     give_git_an_identity(vars, &login, &id)?;
 
     shell.load(vars)?;
@@ -1322,52 +1296,6 @@ mod tests {
     }
 
     #[test]
-    fn the_token_comes_out_of_the_file_on_no_command_line() {
-        let d = scratch("token");
-        fs::create_dir_all(d.join(".config/tehas")).unwrap();
-        fs::write(d.join(".config/tehas/env"), "GH_TOKEN=ghp_x\n").unwrap();
-        let mut vars = Vars::new([(
-            b"PATH".to_vec(),
-            std::env::var_os("PATH").unwrap().into_encoded_bytes(),
-        )]);
-        vars.set("HOME", d.display().to_string());
-        assert_eq!(written_token(&vars, "bash").ok().unwrap(), "ghp_x");
-        fs::write(d.join(".config/tehas/env"), "if\n").unwrap();
-        let Err(Die(why)) = written_token(&vars, "bash") else {
-            panic!("a file that is no shell was read");
-        };
-        assert_eq!(
-            why,
-            format!("could not read {}/.config/tehas/env", d.display())
-        );
-    }
-
-    #[test]
-    fn the_app_gets_its_shim_and_helper_and_loses_a_token() {
-        let mut vars = Vars::new([(b"PATH".to_vec(), b"/bin".to_vec())]);
-        vars.set("TEHAS_HOME", "/h");
-        vars.set("GH_TOKEN", "old");
-        act_as_the_app(&mut vars);
-        assert_eq!(vars.text("GH_TOKEN"), "old", "no app, no change");
-        assert!(!vars.is_set("GIT_CONFIG_COUNT"));
-
-        vars.set("TEHAS_GITHUB_APP_ID", "7");
-        act_as_the_app(&mut vars);
-        assert!(!vars.is_set("GH_TOKEN"));
-        assert_eq!(vars.text("PATH"), "/h/shim:/bin");
-        assert_eq!(vars.text("GIT_CONFIG_COUNT"), "2");
-        assert_eq!(vars.text("GIT_CONFIG_KEY_0"), HELPER_KEY);
-        assert_eq!(vars.text("GIT_CONFIG_VALUE_0"), "");
-        assert_eq!(vars.text("GIT_CONFIG_KEY_1"), HELPER_KEY);
-        assert_eq!(
-            vars.text("GIT_CONFIG_VALUE_1"),
-            "!/h/shim/gh auth git-credential"
-        );
-        act_as_the_app(&mut vars);
-        assert_eq!(vars.text("PATH"), "/h/shim:/bin", "once on PATH");
-    }
-
-    #[test]
     fn the_helper_key_names_the_host() {
         assert_eq!(HELPER_KEY, format!("credential.https://{GIT_HOST}.helper"));
     }
@@ -1379,15 +1307,24 @@ mod tests {
     }
 
     #[test]
-    fn the_bot_is_the_first_two_words_of_the_first_line() {
-        let got = |s: &str| who(s);
+    fn the_app_gets_its_shim_and_helper_and_loses_a_token() {
+        let lib = Path::new(env!("CARGO_MANIFEST_DIR")).join("../lib/github-app.sh");
+        let mut vars = Vars::new([(b"PATH".to_vec(), b"/usr/bin:/bin".to_vec())]);
+        vars.set("TEHAS_HOME", "/h");
+        vars.set("GH_TOKEN", "old");
+        assert!(act_as_the_app(&mut vars, "bash", &lib).is_ok());
+        assert!(!vars.is_set("GH_TOKEN"));
+        assert_eq!(vars.text("PATH"), "/h/shim:/usr/bin:/bin");
+        assert_eq!(vars.text("GIT_CONFIG_COUNT"), "2");
+        assert_eq!(vars.text("GIT_CONFIG_KEY_0"), HELPER_KEY);
+        assert_eq!(vars.text("GIT_CONFIG_VALUE_0"), "");
+        assert_eq!(vars.text("GIT_CONFIG_KEY_1"), HELPER_KEY);
         assert_eq!(
-            got("tehas-bot\t4242\n"),
-            Some(("tehas-bot".into(), "4242".into()))
+            vars.text("GIT_CONFIG_VALUE_1"),
+            "!/h/shim/gh auth git-credential"
         );
-        assert_eq!(got("tehas-bot"), Some(("tehas-bot".into(), String::new())));
-        assert_eq!(got(""), None);
-        assert_eq!(got("\n"), None);
+        assert!(act_as_the_app(&mut vars, "bash", &lib).is_ok());
+        assert_eq!(vars.text("PATH"), "/h/shim:/usr/bin:/bin", "once on PATH");
     }
 
     #[test]

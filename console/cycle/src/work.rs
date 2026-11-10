@@ -518,37 +518,27 @@ fn app_token(console: &str, words: &[&str]) -> Option<String> {
     (!token.is_empty()).then_some(token)
 }
 
-/// The host's token and the cycle's. With an app, GH_TOKEN is the app's and
-/// the cycle token is the app's narrowed one (#1814); without, both are the
-/// instance's.
+/// The host's token and the cycle's: GH_TOKEN is the app's and the cycle token
+/// is the app's narrowed one (#1814).
 fn github_token(console: &str) -> i32 {
-    if !env("TEHAS_GITHUB_APP_ID").is_empty() {
-        // Before any thread: the process is still single-threaded.
-        std::env::remove_var(sandbox::CYCLE_TOKEN);
-        let Some(token) = app_token(console, &[]) else {
-            eprintln!("tehas work: no GitHub token for the app");
-            return 1;
-        };
-        std::env::set_var("GH_TOKEN", token);
-        let Some(token) = app_token(console, &["--cycle"]) else {
-            eprintln!("tehas work: no cycle token from the app, not starting a cycle");
-            return 1;
-        };
-        std::env::set_var(sandbox::CYCLE_TOKEN, token);
-    }
-    if env("GH_TOKEN").is_empty() {
-        eprintln!("tehas work: GH_TOKEN is not set (source ~/tehas/env.sh)");
-        return 64;
-    }
+    // Before any thread: the process is still single-threaded.
+    std::env::remove_var(sandbox::CYCLE_TOKEN);
+    let Some(token) = app_token(console, &[]) else {
+        eprintln!("tehas work: no GitHub token for the app");
+        return 1;
+    };
+    std::env::set_var("GH_TOKEN", token);
+    let Some(token) = app_token(console, &["--cycle"]) else {
+        eprintln!("tehas work: no cycle token from the app, not starting a cycle");
+        return 1;
+    };
+    std::env::set_var(sandbox::CYCLE_TOKEN, token);
     0
 }
 
-/// The renewer of the cycle's token while the container reads it, none
-/// without an app. The watch ends it with a TERM.
+/// The renewer of the cycle's token while the container reads it. The watch
+/// ends it with a TERM.
 fn renewer(home: &Path) -> Option<Child> {
-    if env("TEHAS_GITHUB_APP_ID").is_empty() {
-        return None;
-    }
     let every = env("TEHAS_GITHUB_RENEW_EVERY");
     let every = if every.is_empty() {
         "300".to_string()
@@ -827,10 +817,6 @@ pub fn run(home: &Path, g: &Given) -> i32 {
         return 78;
     }
     if let Err(line) = sandbox::settings_ok() {
-        eprintln!("{line}");
-        return 78;
-    }
-    if let Err(line) = sandbox::cycle_token("tehas work") {
         eprintln!("{line}");
         return 78;
     }
