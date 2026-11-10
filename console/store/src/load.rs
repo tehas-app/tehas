@@ -27,10 +27,11 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 /// The tables that record what the factory did. A store with a row in any of
-/// them holds history and is never loaded over. The others are the poll's
-/// samples, caches and settings, which a drained factory may still write and
-/// the copy's replace.
-pub const HISTORY: [&str; 20] = [
+/// them holds history and is never loaded over. The five counted tables beside
+/// these -- `meta`, `issues`, `polls`, `poll_cost` and `sweep_log` -- are the
+/// installation's record, the numbers the poll reads from GitHub and its own
+/// log, which a drained factory may still write and the copy's rows replace.
+pub const HISTORY: [&str; 18] = [
     "cycles",
     "heartbeats",
     "endings",
@@ -47,8 +48,6 @@ pub const HISTORY: [&str; 20] = [
     "questions",
     "cycle_history",
     "plan_history",
-    "refined",
-    "refresh_requests",
     "actions",
     "journal",
 ];
