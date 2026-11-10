@@ -50,5 +50,6 @@ pub mod slow;
 pub mod snapshot;
 pub mod testdir;
 pub mod testing;
+pub mod text;
 pub mod textcheck;
 pub mod time;

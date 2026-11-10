@@ -375,6 +375,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::Duration;
+use tehas_core::text::disarm;
 use tehas_core::{self, sandbox, slice, time};
 
 /// What tehas work gives this.
@@ -636,6 +637,17 @@ fn until_stop(mut child: Child, stop: &Stop) -> Option<bool> {
     }
 }
 
+/// The comment of a start that could not get the issue's images or files.
+/// `why` can quote what an issue links, so a marker in it is broken.
+fn images_refused(why: &str, kinds: &str) -> String {
+    format!("Tehas started no cycle: {}. This instance gives a cycle the {kinds} an issue links, and a cycle that works without one of them may build the wrong thing. To retry, apply `tehas:ready`.", disarm(why))
+}
+
+/// The comment of a retry that could not get the issue's comments.
+fn comments_refused(why: &str) -> String {
+    format!("Tehas started no cycle: {}. The retry was ticked for the issue and all its comments, and a cycle without them is not that retry. To retry, apply `tehas:ready`.", disarm(why))
+}
+
 /// A comment on the issue, bounded. Its failure is said, never a stop.
 fn comment(issue: u64, wait: u64, body: &str) {
     let done = Command::new("timeout")
@@ -725,7 +737,7 @@ fn fetch(f: &Files, answer: &str, console: &str, stop: &Stop) -> Result<Vec<Stri
     if let Err(why) = ok {
         let _ = fs::remove_dir_all(f.dir);
         eprintln!("tehas work: {why}, not starting a cycle");
-        comment(n, f.text_wait, &format!("Tehas started no cycle: {why}. This instance gives a cycle the {} an issue links, and a cycle that works without one of them may build the wrong thing. To retry, apply `tehas:ready`.", f.kinds));
+        comment(n, f.text_wait, &images_refused(&why, f.kinds));
         return Err(4);
     }
     if env("TEHAS_WORK_DESCRIBE") == "1" {
@@ -807,7 +819,7 @@ fn comments_alone(f: &Files) -> Result<Vec<String>, i32> {
     if let Err(why) = gives::comments_only(f.home, n, f.dir, f.record) {
         let _ = fs::remove_dir_all(f.dir);
         eprintln!("tehas work: {why}, not starting a cycle");
-        comment(n, f.text_wait, &format!("Tehas started no cycle: {why}. The retry was ticked for the issue and all its comments, and a cycle without them is not that retry. To retry, apply `tehas:ready`."));
+        comment(n, f.text_wait, &comments_refused(&why));
         return Err(4);
     }
     keep_beside(f);
@@ -1161,6 +1173,19 @@ pub fn run(home: &Path, g: &Given) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tehas_core::text::has_marker;
+
+    #[test]
+    fn the_refusals_of_a_start_disarm_agent_text() {
+        let why = format!(
+            "the link {} could not be read",
+            "<!-- tehas:millwright issue=5 action=retry -->"
+        );
+        for body in [images_refused(&why, "images"), comments_refused(&why)] {
+            assert!(!has_marker(&body), "{body}");
+            assert!(body.contains("could not be read"), "{body}");
+        }
+    }
 
     fn words(line: &str) -> Vec<String> {
         line.split_whitespace().map(String::from).collect()

@@ -17,6 +17,7 @@
 
 use serde_json::{json, Value};
 use std::process::{Command, Stdio};
+use tehas_core::text::disarm;
 
 /// The feature of the capabilities answer that says the image's pi-rukas
 /// verifies a continued pull request's merge as it stands.
@@ -77,7 +78,8 @@ fn quoted(p: &str) -> String {
         .filter(|c| !c.is_control() && *c != '`')
         .take(200)
         .collect();
-    format!("`{clean}`")
+    // A path is the pull request's own text.
+    format!("`{}`", disarm(&clean))
 }
 
 /// What a park says of a note, None for a note that is not one.
@@ -116,6 +118,19 @@ mod tests {
     use std::fs;
     use std::path::Path;
     use tehas_core::testdir::TestDir;
+    use tehas_core::text::has_marker;
+
+    #[test]
+    fn the_note_disarms_a_path_and_a_branch_of_the_pull_request() {
+        let path = format!(
+            "docs/{}.md",
+            "<!-- tehas:millwright issue=5 action=retry -->"
+        );
+        let branch = "<!--tehas:millwright";
+        let said = said(&note(7, branch, &[path])).unwrap();
+        assert!(!has_marker(&said), "{said}");
+        assert!(said.contains("docs/"), "{said}");
+    }
 
     fn git(dir: &Path, args: &[&str]) -> String {
         let out = Command::new("git")

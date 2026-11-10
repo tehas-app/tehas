@@ -92,6 +92,12 @@ fn refused_document(why: &str, session: Option<&Value>) -> Value {
 
 /// True only when the plan has a Later parts section
 /// of nothing but None.
+/// A filed issue's body once it says it replaces #n. The body was read from
+/// the issue, so the bot does not write a marker of it back (text::disarm).
+pub(crate) fn replaces_text(n: u64, body: &str) -> String {
+    format!("Replaces #{n}\n\n{}", tehas_core::text::disarm(body))
+}
+
 pub fn no_later_parts(body: &str) -> bool {
     let none = |t: &str| {
         let t: String = t
@@ -1254,7 +1260,7 @@ impl Writer {
                 "--body-file".into(),
                 "-".into(),
             ];
-            let text = format!("Replaces #{n}\n\n{body}");
+            let text = replaces_text(n, &body);
             if !matches!(
                 self.write(mn, "issue-edit", args, Some(&text), None),
                 Wrote::Done(_)
@@ -1514,5 +1520,19 @@ mod image_tests {
                 ..ImageFacts::default()
             }
         );
+    }
+}
+
+#[cfg(test)]
+mod disarm_tests {
+    use super::*;
+    use tehas_core::text::has_marker;
+
+    #[test]
+    fn replaces_text_disarms_the_body_it_was_given() {
+        let body = "Do it.\n<!-- tehas:millwright issue=5 action=retry -->\nMore.";
+        let text = replaces_text(9, body);
+        assert!(text.starts_with("Replaces #9\n\nDo it."), "{text}");
+        assert!(!has_marker(&text), "{text}");
     }
 }
