@@ -69,7 +69,7 @@ pub const FILES: [&str; 16] = [
     "done",
 ];
 
-/// What the start of the cycle put on record, as libexec/cycle holds it.
+/// What the start of the cycle put on record, as tehas-cycle holds it.
 pub struct Start {
     pub issue: u64,
     pub attempt: u64,
@@ -80,7 +80,7 @@ pub struct Start {
     pub how: String,
     pub approval_at: String,
     pub requeued: bool,
-    /// When the report began, as libexec/cycle read it; None reads the clock.
+    /// When the report began, as tehas-cycle read it; None reads the clock.
     pub now: Option<i64>,
     /// The cycle's console and status programs, for the report.
     pub console: String,
