@@ -2503,6 +2503,7 @@ tehasbot refresh              # ask for refreshes of conflicting pull requests; 
 tehasbot review               # one review of the branch; what tehas-review.timer runs
 tehasbot clean                # remove what the host can make again; what tehas-clean.timer runs
 tehasbot github-token [--check]  # the GitHub App's token, or a check of it
+tehasbot github-token --cycle [--check]  # the cycle's token: the product repository only
 tehasbot github-writes        # the GitHub writes of the last day, by hour
 ```
 
@@ -3632,6 +3633,7 @@ before it starts any.
 ```
 tehasbot github-token           # print the app's token
 tehasbot github-token --check   # when it runs out, and whether it reaches TEHAS_REPO
+tehasbot github-token --cycle   # print the cycle's token, narrowed to TEHAS_REPO
 ```
 
 Makes the installation token of the GitHub App named by `TEHAS_GITHUB_APP_ID`,
@@ -3644,6 +3646,11 @@ The web token and the token go to curl on its standard input, never on its
 command line. Without `--check` it prints the token and nothing else. `--check` prints the
 app, the installation, the bot's login, when the token runs out and whether the
 installation reaches `TEHAS_REPO`, and never the token.
+
+`--cycle` makes the cycle's token instead (#1814): GitHub is asked for a token
+of the same installation for the repository of `TEHAS_REPO` alone, with
+Contents, Pull requests and Issues write and nothing else. It is kept apart, in
+`~/tehas/state/github-cycle`, and made again the same way.
 
 With an app named, the host acts as the app. `env.sh` puts `~/tehas/shim`
 first on `PATH`: its `gh` takes a token from `tehasbot github-token` at every
@@ -3663,26 +3670,32 @@ a `GH_TOKEN` left in `~/.config/tehas/env` is dropped so nothing acts as the
 user it belongs to. The dispatcher, the refresh and the Protolab take the bot's
 login from `TEHAS_BOT_LOGIN`: an installation token cannot ask GitHub who it is.
 
-A cycle's container is never given the app's token, its directory or the key.
-It gets the cycle token, `GH_CYCLE_TOKEN` from `~/.config/tehas/env`, as its
-`GH_TOKEN` (#746): a fine-grained token of a user account for the product
-repository only. So what a cycle pushes, opens and comments from inside its
-container carries that account's login, not the app's `<slug>[bot]`, and with
-an app `tehas work` refuses to start (exit 78) until `TEHAS_CYCLE_LOGIN` in
-`instance.env` names it. The host counts that login as the factory's own beside
+A cycle's container is never given the app's own token, its directory or the
+key. With an app, `tehas work` makes the cycle's token with
+`tehasbot github-token --cycle` and gives the container
+`~/tehas/state/github-cycle` read-only at `/run/tehas/github`, and the token as
+its first `GH_TOKEN` (#1814). What a cycle pushes, opens and comments carries
+the app's `<slug>[bot]` login, the same as the host's. `tehas work` renews the
+cycle's token every 5 minutes while the cycle runs. If it cannot make the
+token, no cycle starts. A `GH_CYCLE_TOKEN` in `~/.config/tehas/env` is not used
+with an app.
+
+Without an app the container gets the cycle token, `GH_CYCLE_TOKEN` from
+`~/.config/tehas/env`, as its `GH_TOKEN` (#746): a fine-grained token of a user
+account for the product repository only. What a cycle pushes, opens and
+comments then carries that account's login, which `TEHAS_CYCLE_LOGIN` in
+`instance.env` may name. The host counts that login as the factory's own beside
 `TEHAS_BOT_LOGIN`: the cycle's report finds the cycle's pull request by it, the
 poll stops a cycle whose pull request is merged or closed, the refresh
 refreshes its conflicts, a comments retry reads its pull requests and
-leaves out its comments, and `console pr-title` keeps its title. The host side
-of the cycle - the report, the handoff, the attachment fetch - still acts as
-the app, and `tehas work` renews the app's token every 5 minutes for it while
-the cycle runs.
+leaves out its comments, and `console pr-title` keeps its title.
 
 A planning turn's and a manual session's container is given
 `~/tehas/state/github` read-only at `/run/tehas/github`, never the key. The
 image's `gh` (`host/sandbox/gh-shim`, before `/usr/bin/gh` on its `PATH`) reads
 the token there at every call, and git's helper asks that `gh`; without the
-directory, as in a cycle, it uses `GH_TOKEN`. A call GitHub refuses for a rate
+directory it uses `GH_TOKEN`. A cycle's container reads the cycle's token
+directory the same way. A call GitHub refuses for a rate
 limit is tried once more after 60 seconds, and only that call; a call that
 reads standard input is not retried.
 

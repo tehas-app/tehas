@@ -1,11 +1,14 @@
 //! The factory's GitHub App: an installation token, made from the app's key
 //! and kept fresh in one file (docs/specs/2026-10-24-github-app.md).
 //!
-//!   console tehasbot github-token [--check]
+//!   console tehasbot github-token [--cycle] [--check]
 //!
 //! Prints a token with at least 10 minutes left, making one when the kept one
 //! has less. --check says when the token runs out and whether it reaches
-//! TEHAS_REPO, and never prints the token. `tehasbot github-token` is what
+//! TEHAS_REPO, and never prints the token. --cycle is the cycle's token
+//! (#1814): made from the same app, narrowed to TEHAS_REPO alone with
+//! Contents, Pull requests and Issues write, kept in state/github-cycle. A
+//! cycle's container is given that directory, never the app's own. `tehasbot github-token` is what
 //! the gh shim, the poll and `tehas-cycle renew` ask: `console run` loads the
 //! settings and comes here.
 //!
@@ -37,7 +40,7 @@ use std::thread::sleep;
 use std::time::{Duration, Instant};
 use tehas_core::{settings, time};
 
-const USAGE: &str = "usage: tehasbot github-token [--check]";
+const USAGE: &str = "usage: tehasbot github-token [--cycle] [--check]";
 const ACCEPT: &str = "Accept: application/vnd.github+json";
 const LEFT: i64 = 600;
 const LOCK_WAIT: Duration = Duration::from_secs(30);
@@ -178,15 +181,21 @@ impl App {
     }
 
     /// GitHub's whole answer for a new installation token: the token, its
-    /// expiry and its permissions. Keeps nothing.
-    pub fn mint(&self) -> Option<Vec<u8>> {
+    /// expiry and its permissions. Keeps nothing. `narrow` is the JSON body
+    /// that limits the token's repositories and permissions; None asks for
+    /// all the installation has.
+    pub fn mint(&self, narrow: Option<&str>) -> Option<Vec<u8>> {
         let jwt = self.jwt()?;
         let url = format!(
             "{}/app/installations/{}/access_tokens",
             api(),
             self.installation
         );
-        let answer = curl(&jwt, &["-X", "POST"], &url);
+        let mut flags = vec!["-X", "POST"];
+        if let Some(body) = narrow {
+            flags.extend(["-H", "Content-Type: application/json", "--data", body]);
+        }
+        let answer = curl(&jwt, &flags, &url);
         if answer.is_none() {
             eprintln!(
                 "tehas: GitHub did not give the app a token for installation {}",
@@ -280,9 +289,25 @@ fn wait_for(lock: &File, wait: Duration) -> bool {
     }
 }
 
+/// The body that narrows a cycle's token: the product repository alone, and
+/// what a cycle writes. None when TEHAS_REPO is not `<owner>/<name>`.
+fn narrowed(repo: &str) -> Option<String> {
+    let (owner, name) = repo.split_once('/')?;
+    let word = |w: &str| {
+        !w.is_empty()
+            && w.bytes()
+                .all(|c| c.is_ascii_alphanumeric() || b"-_.".contains(&c))
+    };
+    (word(owner) && word(name)).then(|| {
+        format!(
+            r#"{{"repositories":["{name}"],"permissions":{{"contents":"write","pull_requests":"write","issues":"write"}}}}"#
+        )
+    })
+}
+
 /// A token with at least 10 minutes left, or None with one line on standard
 /// error: no key, the exchange failed or answered no token.
-fn token(app: &App, dir: &Path) -> Option<String> {
+fn token(app: &App, dir: &Path, narrow: Option<&str>) -> Option<String> {
     if let Some(token) = kept(dir, time::now() + LEFT) {
         return Some(token);
     }
@@ -313,7 +338,7 @@ fn token(app: &App, dir: &Path) -> Option<String> {
     if let Some(token) = kept(dir, time::now() + LEFT) {
         return Some(token);
     }
-    let answer = app.mint()?;
+    let answer = app.mint(narrow)?;
     let Some((token, until)) = exchanged(&answer, time::now()) else {
         eprintln!("tehas: GitHub's answer for the app's token held no token and expiry");
         return None;
@@ -368,18 +393,31 @@ fn check(app: &App, dir: &Path, token: &str) -> u8 {
     0
 }
 
-/// Whether the arguments ask for --check. What is said of them before the
-/// settings are loaded.
-pub fn words(given: &[String]) -> Result<bool, u8> {
-    match given {
-        [] => Ok(false),
-        [word] if word.is_empty() => Ok(false),
-        [word] if word == "--check" => Ok(true),
-        _ => {
+/// What the arguments ask for. Said before the settings are loaded.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct Ask {
+    pub check: bool,
+    pub cycle: bool,
+}
+
+pub fn words(given: &[String]) -> Result<Ask, u8> {
+    let mut ask = Ask::default();
+    let given = match given {
+        [word] if word.is_empty() => &[][..],
+        _ => given,
+    };
+    for word in given {
+        let seen = match word.as_str() {
+            "--check" => std::mem::replace(&mut ask.check, true),
+            "--cycle" => std::mem::replace(&mut ask.cycle, true),
+            _ => true,
+        };
+        if seen {
             eprintln!("{USAGE}");
-            Err(64)
+            return Err(64);
         }
     }
+    Ok(ask)
 }
 
 const NEEDS: [&str; 4] = [
@@ -389,8 +427,13 @@ const NEEDS: [&str; 4] = [
     "TEHAS_BOT_LOGIN",
 ];
 
-fn kept_in() -> PathBuf {
-    PathBuf::from(env::var_os("TEHAS_HOME").unwrap_or_default()).join("state/github")
+fn kept_in(cycle: bool) -> PathBuf {
+    let dir = if cycle {
+        "state/github-cycle"
+    } else {
+        "state/github"
+    };
+    PathBuf::from(env::var_os("TEHAS_HOME").unwrap_or_default()).join(dir)
 }
 
 /// tehas_github_env, for a command that hands the token on to a container: a
@@ -398,23 +441,36 @@ fn kept_in() -> PathBuf {
 /// standard error.
 pub fn for_a_container() -> Option<String> {
     settings::require(&NEEDS).ok()?;
-    token(&App::loaded(), &kept_in())
+    token(&App::loaded(), &kept_in(false), None)
 }
 
 pub fn main(given: &[String]) -> u8 {
-    let checking = match words(given) {
-        Ok(checking) => checking,
+    let ask = match words(given) {
+        Ok(ask) => ask,
         Err(rc) => return rc,
     };
     if let Err(rc) = settings::require(&NEEDS) {
         return rc;
     }
-    let dir = kept_in();
+    let narrow = if ask.cycle {
+        if let Err(rc) = settings::require(&["TEHAS_REPO"]) {
+            return rc;
+        }
+        let repo = env::var("TEHAS_REPO").unwrap_or_default();
+        let Some(body) = narrowed(&repo) else {
+            eprintln!("tehas github-token: TEHAS_REPO ({repo}) is not <owner>/<name>");
+            return 78;
+        };
+        Some(body)
+    } else {
+        None
+    };
+    let dir = kept_in(ask.cycle);
     let app = App::loaded();
-    let Some(token) = token(&app, &dir) else {
+    let Some(token) = token(&app, &dir, narrow.as_deref()) else {
         return 1;
     };
-    if checking {
+    if ask.check {
         return check(&app, &dir, &token);
     }
     say(&token);
@@ -592,14 +648,45 @@ mod tests {
     }
 
     #[test]
-    fn check_is_the_one_argument_and_an_empty_word_is_none() {
+    fn check_and_cycle_are_the_arguments_and_an_empty_word_is_none() {
         let words_of =
             |given: &[&str]| words(&given.iter().map(|w| w.to_string()).collect::<Vec<_>>());
-        assert_eq!(words_of(&[]), Ok(false));
-        assert_eq!(words_of(&[""]), Ok(false));
-        assert_eq!(words_of(&["--check"]), Ok(true));
+        let ask = |check, cycle| Ok(Ask { check, cycle });
+        assert_eq!(words_of(&[]), ask(false, false));
+        assert_eq!(words_of(&[""]), ask(false, false));
+        assert_eq!(words_of(&["--check"]), ask(true, false));
+        assert_eq!(words_of(&["--cycle"]), ask(false, true));
+        assert_eq!(words_of(&["--cycle", "--check"]), ask(true, true));
+        assert_eq!(words_of(&["--check", "--cycle"]), ask(true, true));
         assert_eq!(words_of(&["--print"]), Err(64));
         assert_eq!(words_of(&["--check", "extra"]), Err(64));
+        assert_eq!(words_of(&["--cycle", "--cycle"]), Err(64));
         assert_eq!(words_of(&["", "x"]), Err(64));
+    }
+
+    #[test]
+    fn a_cycles_token_is_narrowed_to_the_product_and_what_a_cycle_writes() {
+        let body: Value = serde_json::from_str(&narrowed("acme/widget").unwrap()).unwrap();
+        assert_eq!(body["repositories"], serde_json::json!(["widget"]));
+        assert_eq!(
+            body["permissions"],
+            serde_json::json!({"contents": "write", "pull_requests": "write", "issues": "write"})
+        );
+        for bad in [
+            "widget",
+            "",
+            "/widget",
+            "acme/",
+            "acme/wid\"get",
+            "acme/a b",
+        ] {
+            assert_eq!(narrowed(bad), None, "{bad}");
+        }
+    }
+
+    #[test]
+    fn a_cycles_token_is_kept_apart_from_the_apps() {
+        assert!(kept_in(true).ends_with("state/github-cycle"));
+        assert!(kept_in(false).ends_with("state/github"));
     }
 }
