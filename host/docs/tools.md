@@ -3651,8 +3651,10 @@ installation reaches `TEHAS_REPO`, and never the token.
 
 `--cycle` makes the cycle's token instead (#1814): GitHub is asked for a token
 of the same installation for the repository of `TEHAS_REPO` alone, with
-Contents, Pull requests and Issues write and nothing else. It is kept apart, in
-`~/tehas/state/github-cycle`, and made again the same way.
+Contents and Pull requests write, Issues read and nothing else. It is kept
+apart, in `~/tehas/state/github-cycle`, and made again the same way. A planning
+turn and a manual session get a token of the same body, made when the command
+starts and kept in `~/tehas/state/github-session`.
 
 With an app named, the host acts as the app. `env.sh` puts `~/tehas/shim`
 first on `PATH`: its `gh` takes a token from `tehasbot github-token` at every
@@ -3693,7 +3695,8 @@ refreshes its conflicts, a comments retry reads its pull requests and
 leaves out its comments, and `console pr-title` keeps its title.
 
 A planning turn's and a manual session's container is given
-`~/tehas/state/github` read-only at `/run/tehas/github`, never the key. The
+`~/tehas/state/github-session` read-only at `/run/tehas/github`, never the key
+or the app's own token, and that token as its `GH_TOKEN`. The
 image's `gh` (`host/sandbox/gh-shim`, before `/usr/bin/gh` on its `PATH`) reads
 the token there at every call, and git's helper asks that `gh`; without the
 directory it uses `GH_TOKEN`. A cycle's container reads the cycle's token

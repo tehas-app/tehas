@@ -237,14 +237,14 @@ t_lacks() { case "$1" in *"$2"*) t_bad "'$2' should not be in: $1" ;; esac; }
 
 # t_app_world [SLUG]: the factory as the one GitHub App it is. The app's login
 # is kept in state/github/login as SLUG[bot], where the settings read the bot from, and a
-# token and a narrowed cycle token with hours left are kept beside it, so a
+# token and the narrowed cycle and session tokens with hours left are kept beside it, so a
 # command that asks for one finds it and asks GitHub for nothing.
 t_app_world() {
   local home=$T/home/tehas dir until
   until=$(($(date +%s) + 86400))
-  for dir in github github-cycle; do
+  for dir in github github-cycle github-session; do
     mkdir -p "$home/state/$dir"
-    printf 'ghs_%s\n' "$([ "$dir" = github ] && echo app || echo cycle)" >"$home/state/$dir/token"
+    printf 'ghs_%s\n' "$([ "$dir" = github ] && echo app || echo "${dir#github-}")" >"$home/state/$dir/token"
     printf '%s\n' "$until" >"$home/state/$dir/token.expires"
   done
   printf '%s\n' "${1:-tehas-bot}[bot]" >"$home/state/github/login"

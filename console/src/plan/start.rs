@@ -188,6 +188,13 @@ fn token() -> Result<(), u8> {
         eprintln!("tehas plan: no GitHub token for the app");
     })?;
     env::set_var("GH_TOKEN", token);
+    // What the container is given instead: the narrowed one, which reads
+    // issues. This command keeps the app's own for what it writes itself.
+    env::remove_var(sandbox::CYCLE_TOKEN);
+    let narrowed = github::session_token_env().inspect_err(|_| {
+        eprintln!("tehas plan: no narrowed GitHub token for the app");
+    })?;
+    env::set_var(sandbox::CYCLE_TOKEN, narrowed);
     Ok(())
 }
 

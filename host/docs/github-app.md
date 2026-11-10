@@ -126,17 +126,20 @@ with a token; remove the token from `~/.config/tehas/env` after.
   The poll keeps it in memory only - never in a log, a file, or the
   poll's record.
 - A cycle's container is never given the app's own token. It gets a second
-  token from the same app, narrowed to the product repository with Contents,
-  Pull requests and Issues write (#1814): `tehasbot github-token --cycle`
+  token from the same app, narrowed to the product repository with Contents
+  and Pull requests write and Issues read (#1814): `tehasbot github-token --cycle`
   makes it and keeps it in `~/tehas/state/github-cycle`. The container is
   given that directory read-only, and the token as its first `GH_TOKEN`. The
   cycle's pull request and comments carry the app's `<slug>[bot]` login, so no
   user account is behind a cycle and none can be suspended. `GH_CYCLE_TOKEN`
   and `TEHAS_CYCLE_LOGIN` are not needed with an app; a `GH_CYCLE_TOKEN` left
   in `~/.config/tehas/env` is not used. Without the narrowed token no cycle
-  starts. A planning turn's and a manual session's container is given
-  `~/tehas/state/github` read-only, never the key, and the image's own `gh`
-  reads the token there at every call. `tehas work` renews the cycle's token
+  starts. A planning turn's and a manual session's container is given a token
+  of the same body, made when the command starts and kept in
+  `~/tehas/state/github-session`, read-only, never the key or the app's own
+  token, and the image's own `gh` reads the token there at every call.
+  Neither token can label an issue or comment on one: the issue writes of a
+  container are not made with it. `tehas work` renews the cycle's token
   every 5 minutes while the cycle runs. A failed renewal is one line
   in the cycle's work log, never a token, and is tried again after 30 seconds,
   so two failures in a row no longer let the token run out. The renewer is

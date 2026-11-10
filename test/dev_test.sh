@@ -32,7 +32,8 @@ n=0
 [ -e "$T/docker.n" ] && n=$(<"$T/docker.n")
 n=$((n + 1))
 printf "%s\n" "$n" >"$T/docker.n"
-printf "%s\n" "$@" >"$T/calls/docker.args.$n"'
+printf "%s\n" "$@" >"$T/calls/docker.args.$n"
+printf "%s\n" "${GH_TOKEN:-}" >"$T/calls/docker.token.$n"'
 t_stub docker "$docker_stub"
 # The command beside the console, as a host has it: the session is the console's
 # (console/src/dev.rs), and it makes the clone's state, its build output and the
@@ -134,7 +135,7 @@ t_eq "$([ -e "$devs" ] && echo there)" ""
 
 t_case "no token to be had starts no container"
 t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
-rm -rf "$T/home/tehas/state/github" "$T/home/tehas/state/github-cycle"
+rm -rf "$T/home/tehas/state/github" "$T/home/tehas/state/github-cycle" "$T/home/tehas/state/github-session"
 T_ENV=("$root" "TEHAS_GITHUB_APP_KEY=$T/no-such-key.pem")
 t_run "$dev_cmd"
 t_eq "$t_rc" 1
@@ -222,12 +223,15 @@ $state/sessions:/home/vscode/.pi/agent/sessions
 $T/home/.pi/agent/mcp.json:/home/vscode/.pi/agent/mcp.json:ro
 $state/models.json:/home/vscode/.pi/agent/models.json:ro
 $T/home/.pi/agent/settings.json:/home/vscode/.pi/agent/settings.json:ro
-$T/home/tehas/state/github:/run/tehas/github:ro"
+$T/home/tehas/state/github-session:/run/tehas/github:ro"
 t_eq "$(after -v | LC_ALL=C sort)" "$(printf '%s\n' "$want" | LC_ALL=C sort)"
 # The count of -v is asked of the docker line, not of the list above: an
 # option written --volume or --mount is a mount too, and the sorted list would
 # not see it.
 t_eq "$(session_args | count_of -v)" "$(printf '%s\n' "$want" | wc -l)"
+
+t_case "the session's container is given the narrowed token, never the app's"
+t_eq "$(cat "$T/calls/docker.token.1")" "ghs_session"
 
 t_case "the session's state is its own, made beside the clone and kept between sessions"
 # target is made before the container starts, so it is there to hold a build.
@@ -639,7 +643,7 @@ $state/sessions:/home/vscode/.pi/agent/sessions
 $T/home/.pi/agent/mcp.json:/home/vscode/.pi/agent/mcp.json:ro
 $state/models.json:/home/vscode/.pi/agent/models.json:ro
 $T/home/.pi/agent/settings.json:/home/vscode/.pi/agent/settings.json:ro
-$T/home/tehas/state/github:/run/tehas/github:ro"
+$T/home/tehas/state/github-session:/run/tehas/github:ro"
 attach_on() {
   without
   rm -rf "$T/fx" "$imgs" "$devs/main.author"
