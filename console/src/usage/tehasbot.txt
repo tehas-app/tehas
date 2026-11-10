@@ -15,6 +15,7 @@ Usage:
   tehasbot review               review the branch since the last review
   tehasbot clean                remove what the host can make again (the timer)
   tehasbot mcp serve            the read-only MCP server (the service)
-  tehasbot github-token [--check]  the GitHub App's token (the gh shim)
+  tehasbot github-token [--cycle] [--check]
+                                the GitHub App's token, or the cycle's (the gh shim)
   tehasbot github-writes        the GitHub writes of the last day, by hour
   tehasbot help                 this text
