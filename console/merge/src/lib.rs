@@ -2,8 +2,8 @@
 //! request's head, settle the files a rule can settle without a model, ask one
 //! bare `pi` session about the rest, and push the one merge commit.
 //!
-//! The decisions are here and nothing else: `libexec/easy-merge` is the few
-//! lines that start this in the sandbox container, and the container is given
+//! The decisions are here and nothing else: what starts this in the sandbox
+//! container is to be a few lines, no installed command does yet, and the container is given
 //! what a cycle is given (console/core/src/sandbox.rs), so no mount or variable is added
 //! here. The pull request's CI is the gate: this command runs none of the
 //! product's own.
@@ -55,7 +55,7 @@ pub struct Why {
 
 /// What one easy merge did, in the words its caller reads: the pull request,
 /// the outcome, and the commands that ran. One JSON line on standard output,
-/// which is what `libexec/easy-merge` and the dispatcher's log keep.
+/// which is what its starter and the dispatcher's log keep.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Report {
     pub pr: u64,
