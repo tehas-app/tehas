@@ -72,3 +72,58 @@ test("planning is on unless the page says otherwise", () => {
   assert.equal(stageOf(["tehas:plan"], false), "planning");
   assert.equal(stageOf(["tehas:plan"], false, {}), "planning");
 });
+
+test("what is not a set of labels, or not a set of options, says nothing", () => {
+  // A page that reads its options out of an untrusted file may hand over
+  // null, which is the table with planning, not a thrown TypeError.
+  for (const options of [null, undefined, "planning"]) {
+    assert.equal(stageOf(["tehas:plan"], false, options), "planning", String(options));
+  }
+  // What is not a list of labels is no label at all, whatever it reads like:
+  // a string would otherwise answer includes() like a list of one.
+  for (const labels of ["tehas:ready", null, undefined, 7, {}]) {
+    assert.equal(stageOf(labels, false), null, String(labels));
+  }
+  // A list with something that is not a label in it still reads its labels.
+  assert.equal(stageOf(["tehas:ready", 7, null], false), "line");
+});
+
+test("a label answers whatever its case, and a page may pass it as GitHub wrote it", () => {
+  for (const planning of [true, false]) {
+    const at = (labels) => stageOf(labels, false, { planning });
+    assert.equal(at(["Tehas:Ready"]), "line");
+    assert.equal(at(["NEEDS-HUMAN-ATTENTION"]), "stopped");
+    assert.equal(at(["Tehas:Plan"]), planning ? "planning" : null);
+    // What a label is not stays no stage, whatever its case.
+    assert.equal(at(["Bug", "Help Wanted"]), null);
+  }
+});
+
+// The pages name the steps their own way, so a step the table gains and a
+// page does not name must draw nothing rather than the stage next to it. The
+// two maps are the ones the pages read (business-view.js's LINE_KEY,
+// game-data.js's FLOOR_STAGES), copied as they are written; the cases beside
+// each page say the page really has that map, this one says what both must
+// cover.
+const LINE_KEY = { stopped: "stop", review: "review", building: "build", planning: "plan", line: "line", shipped: "ship" };
+const FLOOR_STAGES = { stopped: "stopped", review: "review", building: "running", line: "ready" };
+const PAGES = [
+  // "asked" is the { planning } the page passes; "drawn" the names it has for
+  // its own sake rather than as a step of the table. "shipped" is the column
+  // of closed tickets, which both pages fill from the file's own list before
+  // any label is read; "backlog" is the floor's one stage no label answers for.
+  ["business-view.js", LINE_KEY, { asked: true, drawn: ["shipped"] }],
+  ["game-data.js", FLOOR_STAGES, { asked: false, drawn: ["shipped", "backlog"] }],
+];
+
+test("each page names every step of the table it asks the table for", () => {
+  // A step the table gains and a page does not name would be an unmapped row:
+  // those tickets would be drawn as no stage at all, quietly. A step a page
+  // names and does not ask for is its own stage, not the table's.
+  for (const [page, names, { asked, drawn }] of PAGES) {
+    const want = STAGE_ORDER.filter((step) => asked || step !== "planning");
+    const need = want.filter((step) => !drawn.includes(step));
+    const have = Object.keys(names).filter((step) => !drawn.includes(step));
+    assert.deepEqual(have.sort(), [...need].sort(), page + " names the steps it reads");
+  }
+});

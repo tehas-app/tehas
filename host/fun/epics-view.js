@@ -99,10 +99,9 @@
   globalThis.TEHAS_EPICS = { view };
 
   if (typeof document === "undefined") return;
-  // Every page under host/fun builds a node the same way (host/fun/dom.js),
-  // which the page loads before this classic script. view() above draws
-  // nothing, so its test loads neither.
-  const { el } = globalThis.TEHAS_DOM;
+  const dom = globalThis.TEHAS_DOM;
+  if (!dom || typeof dom.el !== "function") return;
+  const { el } = dom;
   const section = document.getElementById("epics");
   const list = document.getElementById("epics-list");
   if (!section || !list) return;

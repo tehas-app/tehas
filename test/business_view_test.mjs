@@ -114,6 +114,22 @@ test("the sample is staged by its labels, and only where there is no queue", () 
   assert.equal(lineView({ nowMs: NOW }).source, "none");
 });
 
+// The line's own key for each step of host/fun/stages.js (business-view.js's
+// LINE_KEY) lands in that step's column: a row of the map dropped or renamed
+// would leave a column empty, so each step is asked for by name here.
+test("the sample lands each step of the table in its own column", () => {
+  const one = (label) => lineView({
+    sample: { issues: [{ number: 7, title: "T", labels: [label] }] }, nowMs: NOW,
+  }).stages.map((s) => [s.key, s.items.map((t) => t.number)]);
+  assert.deepEqual(one("tehas:ready"), [["line", [7]]]);
+  assert.deepEqual(one("tehas:running"), [["build", [7]]]);
+  assert.deepEqual(one("tehas:awaiting-merge"), [["review", [7]]]);
+  assert.deepEqual(one("needs-human-attention"), [["stop", [7]]]);
+  assert.deepEqual(one("tehas:plan"), [["plan", [7]]]);
+  // A label of no step puts the ticket in no column, and is no reason to draw one.
+  assert.deepEqual(one("bug"), []);
+});
+
 test("a ticket the queue lists twice stands at one place: stopped first, then review, building, in line", () => {
   const v = lineView({ status: status({ queued: [issue(2), issue(13), issue(18)], running: [issue(18)] }), nowMs: NOW });
   assert.deepEqual(v.stages.map((s) => s.items.map((t) => t.number)), [[13], [18], [2], [83]]);

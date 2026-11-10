@@ -427,17 +427,22 @@ export function start() {
       const answer = await tailStep(file, offset);
       // A tab was chosen while this request was out: its answer is for the old one.
       if (file !== consoleFile) return;
-      if (typeof answer === "object" && answer !== null) {
+      if (answer.kind === "chunk") {
         if (answer.size) {
           offset += answer.size;
           const pre = $("console");
           appendCapped(pre, answer.text);
           if ($("follow").checked) pre.scrollTop = pre.scrollHeight;
         }
-      } else if (answer === "replaced") {
+      } else if (answer.kind === "replaced") {
         // The file was replaced by a new cycle.
         offset = 0;
         $("console").textContent = "";
+      } else if (answer.kind === "failed") {
+        // No answer at all, or one that came too late: the note says so
+        // rather than keep saying the console is live.
+        $("console-note").textContent = "console unavailable";
+        return;
       }
       $("console-note").textContent = running ? "live" : "ended";
     } catch {

@@ -63,11 +63,11 @@ function labItems(lab, base) {
   }).filter(Boolean);
 }
 
-// The sample, as the factory floor stages it: by label, a closed one shipped.
-// stages.js says the step the labels name; the line's own key for it is the
-// row of STAGES at the same place, and the proto stage is the label the
-// Protolab keeps rather than a step of the line.
-const SAMPLE_KEY = { stopped: "stop", review: "review", building: "build", planning: "plan", line: "line", shipped: "ship" };
+// The line's own key for each step of the one table (host/fun/stages.js),
+// named by its step: a step the table gains and the line does not name draws
+// no tickets rather than the column beside it. The proto stage is the label
+// the Protolab keeps rather than a step of the line.
+const LINE_KEY = { stopped: "stop", review: "review", building: "build", planning: "plan", line: "line", shipped: "ship" };
 function fromSample(raw) {
   const out = Object.fromEntries(STAGES.map((s) => [s.key, []]));
   for (const i of list(obj(raw).issues)) {
@@ -75,7 +75,7 @@ function fromSample(raw) {
     if (!item) continue;
     const labels = list(i.labels).map((l) => String(typeof l === "string" ? l : obj(l).name || "").toLowerCase());
     if (labels.includes("tehas:prototype")) out.proto.push(item);
-    const key = SAMPLE_KEY[stageOf(labels, String(i.state || "").toLowerCase() === "closed")];
+    const key = LINE_KEY[stageOf(labels, String(i.state || "").toLowerCase() === "closed")];
     if (key) out[key].push(item);
   }
   for (const i of list(obj(raw).shippedIssues)) { const item = ticket(i); if (item) out.ship.push(item); }
@@ -187,7 +187,7 @@ export function consoleView(v, titles, nowSecs) {
 if (typeof document !== "undefined" && document.getElementById("line")) {
   const $ = (id) => document.getElementById(id);
   const NS = "http://www.w3.org/2000/svg";
-  const el = globalThis.TEHAS_DOM.el;
+  const { el } = globalThis.TEHAS_DOM;
   const svgEl = (name, attrs, parent) => {
     const e = document.createElementNS(NS, name);
     for (const k in attrs) e.setAttribute(k, attrs[k]);
@@ -391,17 +391,22 @@ if (typeof document !== "undefined" && document.getElementById("line")) {
     try {
       const answer = await tailStep(file, term.offset);
       if (file !== term.file) return;
-      if (typeof answer === "object" && answer !== null) {
+      if (answer.kind === "chunk") {
         if (!answer.size) return;
         term.offset += answer.size;
         appendCapped(out, answer.text);
         if ($("console-follow").checked) out.scrollTop = out.scrollHeight;
-      } else if (answer === "ended") {
+      } else if (answer.kind === "ended") {
         if (!term.running) term.idle = true;
-      } else if (answer === "replaced") {
+      } else if (answer.kind === "replaced") {
         // The file was replaced by a new cycle.
         term.offset = 0;
         out.textContent = "";
+      } else if (answer.kind === "failed") {
+        // No answer at all, or one that came too late: say so beside the
+        // console rather than leave the last note claiming it is live.
+        $("console-note").textContent = "Console unavailable";
+        return;
       }
       $("console-note").textContent = "";
     } catch {

@@ -12,30 +12,44 @@
 // appends text, and never as markup.
 export const CAP = 400000; // where the console's text is cut
 export const KEEP = 300000; // what is kept: the newest of it
+const TIMEOUT = 10000; // how long one answer may take to come at all
+// The name of a console, as console-tabs.js reads it out of a cycle. The same
+// test again, because this is where the name becomes a path: a caller that
+// forgot to check would otherwise ask for anything under the same origin.
+const NAME = /^[\w-][\w.-]*$/;
 
-// file: a name under /live/. offset: how many bytes the page already holds.
-// { text, size } for what the file holds from offset on, "replaced" when the
-// answer is a whole file rather than a piece of one - a new cycle wrote over
-// the old console, so what the page holds is of no use - "ended" for a range
-// past the end of the file, and null for any other answer or no answer at all.
+// { kind } names what the answer was, so a page reads one field rather than
+// guessing at a type. chunk: text and the bytes of it; replaced: a whole file
+// rather than a piece of one, so what the page holds is of no use; ended: a
+// range past the end of the file; none: an answer the page ignores; failed: no
+// answer, or one that came too late, which a page says beside its console.
 // A page that asked for one file and was shown another while the request was
 // out drops the answer itself: tailStep names nothing of the page's.
+//
+// file: a name under /live/, checked here. offset: how many bytes the page
+// already holds.
 export async function tailStep(file, offset) {
+  if (typeof file !== "string" || !NAME.test(file)) return { kind: "none" };
+  const stop = new AbortController();
+  const timer = setTimeout(() => stop.abort(), TIMEOUT);
   try {
     const r = await fetch("/live/" + file, {
       headers: { Range: "bytes=" + offset + "-" },
       cache: "no-store",
+      signal: stop.signal,
     });
     // A piece of the file, or the whole of a file that was not there at all.
     if (r.status === 206 || (r.status === 200 && offset === 0)) {
       const bytes = new Uint8Array(await r.arrayBuffer());
-      return { text: new TextDecoder().decode(bytes), size: bytes.length };
+      return { kind: "chunk", text: new TextDecoder().decode(bytes), size: bytes.length };
     }
-    if (r.status === 200) return "replaced";
-    if (r.status === 416) return "ended";
-    return null;
+    if (r.status === 200) return { kind: "replaced" };
+    if (r.status === 416) return { kind: "ended" };
+    return { kind: "none" };
   } catch {
-    return null;
+    return { kind: "failed" };
+  } finally {
+    clearTimeout(timer);
   }
 }
 

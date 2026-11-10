@@ -20,8 +20,10 @@ import * as view from "../host/fun/dashboard-view.js";
 // The files the module reads, and so the only ones the stub fetch answers. The
 // console's file is not among them: the console half is stubbed out (below).
 const ANSWERED = ["/live/previews.json", "/live/top.json", "/live/analytics.json", "/live/status.json", "/live/running.json"];
-// The stub's surface, pinned by a case so that it stays this small.
-const GLOBALS = ["document", "fetch", "setInterval", "setTimeout", "clearInterval", "TEHAS_CONSOLE_TABS"];
+// The stub's surface, pinned by a case so that it stays this small. TEHAS_DOM
+// is the global the page's dom.js tag sets, so the harness holds it too
+// (test/dom_test.mjs is the test of the file itself).
+const GLOBALS = ["document", "fetch", "setInterval", "setTimeout", "clearInterval", "TEHAS_CONSOLE_TABS", "TEHAS_DOM"];
 const NODE = ["name", "hidden", "dataset", "style", "attrs", "textContent", "className", "href", "kids",
   "setAttribute", "append", "replaceChildren"];
 
@@ -78,6 +80,10 @@ async function page(opt = {}) {
       createElement: (tag) => node(tag),
       createElementNS: (_ns, tag) => node(tag),
     },
+    // The page loads host/fun/dom.js before this module, which imports it, so
+    // the page's el() is the one the file sets. The harness is asked for the
+    // same global: a module that lost its import would find no el() here.
+    TEHAS_DOM: { el: (tag, cls, text) => Object.assign(node(tag), cls ? { className: cls } : {}, text !== undefined ? { textContent: text } : {}) },
     // The tabs are the plain dashboard's other module. Here they say nothing is
     // running, so what a case sees is the host half. view() keeps the cycle it
     // was asked to show and keys() the page's own select(), so a case can choose
@@ -314,11 +320,11 @@ test("the module's imports are each exercised, by a page or by their own test", 
   // until a case here draws what it brings in, or names the test that does.
   const imports = [...SOURCE.matchAll(/^import .* from "([^"]+)";$/gm)].map((m) => m[1]);
   assert.deepEqual(imports, ["./host-data.js", "./console-tail.js", "./analytics-data.js"]);
-  // console-tail.js is not exercised here: these cases stub the tabs so they
-  // name no console file, and the tail is the half its own test covers
-  // (test/console_tail_test.mjs). The two files a page draws are named by what
-  // only they can draw.
-  const byPage = imports.filter((s) => s !== "./console-tail.js");
+  // Each import, named by what draws it: here, or by the test that does. An
+  // import in neither list fails this case, so the exemption is data rather
+  // than a hole in the check.
+  const byPage = ["./host-data.js", "./analytics-data.js"];
+  const byTheirOwn = { "./console-tail.js": "test/console_tail_test.mjs" }; // read by the page, never drawn here
   const p = await page({ analytics: report() });
   assert.deepEqual(p.errors, []);
   // Each import, seen through what only it draws: host-data.js's layout() writes
@@ -329,6 +335,8 @@ test("the module's imports are each exercised, by a page or by their own test", 
   ].filter(Boolean);
   assert.equal(exercised.length, byPage.length);
   assert.deepEqual(exercised, byPage);
+  assert.deepEqual(imports.slice().sort(), [...byPage, ...Object.keys(byTheirOwn)].sort(),
+    "an import is exercised by neither a page nor a named test");
 });
 
 test("a page asks for each file it reads once, and for no other", async () => {

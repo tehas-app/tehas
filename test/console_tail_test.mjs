@@ -30,38 +30,75 @@ test("a 206 is the file's text from the offset on, with its size", async () => {
   asked.length = 0;
   fetchOf(206, "the rest of the log\n");
   const answer = await tailStep("console-7.txt", 1024);
-  assert.deepEqual(answer, { text: "the rest of the log\n", size: 20 });
+  assert.deepEqual(answer, { kind: "chunk", text: "the rest of the log\n", size: 20 });
   assert.deepEqual(asked, [{
     url: "/live/console-7.txt",
-    init: { headers: { Range: "bytes=1024-" }, cache: "no-store" },
+    init: { headers: { Range: "bytes=1024-" }, cache: "no-store", signal: asked[0].init.signal },
   }]);
+  // The request carries a deadline of its own, so one that never answers
+  // cannot hold the page's console forever (host-bridge.js keeps one too).
+  assert.equal(asked[0].init.signal.aborted, false);
 });
 
 test("a 200 at the start of the file is its text too", async () => {
   fetchOf(200, "all of it");
-  assert.deepEqual(await tailStep("console-7.txt", 0), { text: "all of it", size: 9 });
+  assert.deepEqual(await tailStep("console-7.txt", 0), { kind: "chunk", text: "all of it", size: 9 });
 });
 
 test("a 200 later on is a replaced file, not more text", async () => {
   fetchOf(200, "a new cycle's whole console");
-  assert.equal(await tailStep("console-7.txt", 4096), "replaced");
+  assert.deepEqual(await tailStep("console-7.txt", 4096), { kind: "replaced" });
 });
 
 test("a 416 is a console at its end", async () => {
   fetchOf(416);
-  assert.equal(await tailStep("console-7.txt", 512), "ended");
+  assert.deepEqual(await tailStep("console-7.txt", 512), { kind: "ended" });
 });
 
-test("any other answer, or no answer, is nothing", async () => {
-  for (const status of [404, 500, 302, 0]) {
+test("an answer the page ignores is none", async () => {
+  for (const status of [404, 500, 302]) {
     fetchOf(status, "words nobody asked for");
-    assert.equal(await tailStep("console-7.txt", 12), null, `status ${status}`);
+    assert.deepEqual(await tailStep("console-7.txt", 12), { kind: "none" }, `status ${status}`);
   }
+});
+
+test("no answer at all is failed, which a page says beside its console", async () => {
+  fetchOf(0, "nothing arrives");
+  assert.deepEqual(await tailStep("console-7.txt", 12), { kind: "failed" });
+});
+
+test("a request that never answers is failed, and the page may ask again", async () => {
+  // The clock of this case only: tailStep's deadline is turned by hand.
+  const real = { set: globalThis.setTimeout, clear: globalThis.clearTimeout };
+  let due = null;
+  globalThis.setTimeout = (fn) => { due = fn; return 1; };
+  globalThis.clearTimeout = () => { due = null; };
+  try {
+    globalThis.fetch = (_url, init) => new Promise((_resolve, reject) => {
+      init.signal.addEventListener("abort", () => reject(new Error("the request was stopped")));
+    });
+    const asked = tailStep("console-7.txt", 0);
+    assert.ok(due, "nothing was left to fire the deadline");
+    due();
+    assert.deepEqual(await asked, { kind: "failed" });
+    assert.equal(due, null, "the deadline outlived the request");
+  } finally {
+    Object.assign(globalThis, real);
+  }
+});
+
+test("a name that is not a plain file name asks for nothing", async () => {
+  asked.length = 0;
+  fetchOf(206, "the file it should never have been asked for");
+  for (const name of ["../etc/passwd", "a/b.txt", "console 7.txt", "", "", 7, null, undefined]) {
+    assert.deepEqual(await tailStep(name, 0), { kind: "none" }, String(name));
+  }
+  assert.deepEqual(asked, [], "a name of that shape reached the network");
 });
 
 test("an empty piece is a size of nothing, which no page counts", async () => {
   fetchOf(206, "");
-  assert.deepEqual(await tailStep("console-7.txt", 20), { text: "", size: 0 });
+  assert.deepEqual(await tailStep("console-7.txt", 20), { kind: "chunk", text: "", size: 0 });
 });
 
 function pre() {

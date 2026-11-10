@@ -73,11 +73,13 @@
   const nav = document.querySelector(".topbar nav");
   if (!nav) return;
 
-  // Every page under host/fun builds a node the same way (host/fun/dom.js).
-  // The name is read inside the document's branch, where the tags for dom.js
-  // and this file have both run; view() above is tested with no document and
-  // no dom.js at all.
-  const { el } = globalThis.TEHAS_DOM;
+  // Every page under host/fun builds a node the same way (host/fun/dom.js),
+  // which the page loads before this classic script. A page without that tag
+  // adds no menu item and draws nothing else, the way it does for markup it
+  // has not got: view() above is tested with no document and no dom.js at all.
+  const dom = globalThis.TEHAS_DOM;
+  if (!dom || typeof dom.el !== "function") return;
+  const { el } = dom;
 
   let dock = null;
   let shown = null; // { item, link }

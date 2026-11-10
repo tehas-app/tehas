@@ -933,18 +933,22 @@ import "./dom.js";
       const answer = await tailStep(file, live.offset);
       // A tab was chosen while this request was out: its answer is for the old one.
       if (file !== live.file) return;
-      if (typeof answer === "object" && answer !== null) {
+      if (answer.kind === "chunk") {
         if (answer.size) {
           live.offset += answer.size;
           appendCapped(out, answer.text);
           if ($("console-follow").checked) out.scrollTop = out.scrollHeight;
         }
-      } else if (answer === "ended") {
+      } else if (answer.kind === "ended") {
         if (!live.running) live.idle = true;
-      } else if (answer === "replaced") {
+      } else if (answer.kind === "replaced") {
         // The file was replaced by a new cycle.
         live.offset = 0;
         out.textContent = "";
+      } else if (answer.kind === "failed") {
+        // No answer at all, or one that came too late: say so on the page.
+        $("console-note").textContent = "CONSOLE UNAVAILABLE";
+        return;
       }
       $("console-note").textContent = live.running ? "LIVE" : "ENDED";
     } catch {

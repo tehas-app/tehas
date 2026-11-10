@@ -160,4 +160,26 @@ t_eq "$order" "host-bridge.js console-tabs.js dashboard-view.js"
 t_contains "$(cat "$frag")" '<script type="module" src="/fun/dashboard-view.js"></script>'
 t_eq "$(grep -c '<script type="module">' "$frag")" 0
 
+# dom.js is a classic script: it sets the el() that the classic scripts of the
+# page read, and it can only be read once its tag has run. A page that drops
+# the tag loses those two scripts, so the pin is the tag itself, in front of
+# the scripts that read it. The modules of the same el() need no tag: they
+# import the file, which test/dashboard_view_test.mjs pins.
+t_case "each front page loads the shared el() before the classic scripts that read it"
+# dom.js is the page's classic script: it sets the el() the two classic scripts
+# below it read, and nothing else can put that name on the page. The modules of
+# the same el() need no tag, because they import the file
+# (test/dashboard_view_test.mjs pins those imports).
+dom_tag='<script src="/fun/dom.js"></script>'
+for page in index.html business.html; do
+  for stem in epics-view panels; do
+    t_contains "$(cat "$fun/$page")" "$dom_tag"
+    # The two tags as data, so the pattern holds no dot a name could match.
+    dom=$(grep -oE '<script src="/fun/dom[.]js"></script>' "$fun/$page" | head -n 1)
+    con=$(grep -oE "<script src=\"/fun/${stem}[.]js\"></script>" "$fun/$page" | head -n 1)
+    t_eq "$(awk -v a="$dom" -v b="$con" '{ if (index($0, a)) x = NR } /<script/ { if (index($0, b)) y = NR } END { print (!x || !y || x >= y) ? "wrong" : "before" }' "$fun/$page")" \
+      before
+  done
+done
+
 t_done

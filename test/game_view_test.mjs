@@ -32,6 +32,17 @@ test("a closed ticket has left the line, and a worse label answers first", () =>
   assert.equal(stageOf(["tehas:ready", "tehas:running"], false), "running");
 });
 
+test("the floor has no planning of its own, so tehas:ready still reads ready beside tehas:plan", () => {
+  // The one place the { planning: false } of game-data.js is settled: a
+  // ticket the line draws as planning stands ready here.
+  assert.equal(stageOf(["tehas:plan"], false), "backlog");
+  assert.equal(stageOf(["tehas:planning"], false), "backlog");
+  assert.equal(stageOf(["tehas:plan", "tehas:ready"], false), "ready");
+  // A worse label still answers first, planning or not.
+  assert.equal(stageOf(["tehas:plan", "tehas:running"], false), "running");
+  assert.equal(stageOf(["tehas:plan", "needs-human-attention"], false), "stopped");
+});
+
 test("every stage the data names has a name the page draws", () => {
   for (const stage of [...LINE, "stopped", "backlog"]) {
     assert.equal(typeof STAGES[stage], "string");

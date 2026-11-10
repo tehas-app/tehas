@@ -8,7 +8,7 @@
 // Ticket text is untrusted: it comes from a file the viewer loads or from the
 // factory's queue snapshot. Each piece is cut to a bound here, and the page sets
 // it only through textContent, never as markup.
-import { STAGE_ORDER, stageOf as stage } from "./stages.js";
+import { stageOf as stage } from "./stages.js";
 
 // Stages follow the labels tehas itself puts on issues (see console/src/queue.rs):
 // the order and the labels are host/fun/stages.js, the names are the floor's.
@@ -31,18 +31,22 @@ export const WORD_MAX = 40; // the words a round of Buzzword Buster is built fro
 export const WORD_LEN = 10; // one word, cleaned
 
 // The floor's own names for the steps of the one table (host/fun/stages.js),
-// in its order, with the one stage of its own that has no label: a ticket no
-// label of tehas answers for is not on the line. A closed ticket has left the
-// line whatever its labels say. The floor has no planning of its own, so the
-// table is read without that step: tehas:ready still reads ready beside
-// tehas:plan.
-const STEPS = STAGE_ORDER;
-const FLOOR_STAGES = ["stopped", "review", "running", "planning", "ready"];
+// each named by its step: a step the table gains and the floor does not name
+// is drawn as nothing, not as the stage beside it. The floor has no planning
+// of its own, so the table is read without that step and the step needs no
+// name here: tehas:ready still reads ready beside tehas:plan. A ticket no
+// label of tehas answers for is not on the line, which is the floor's own
+// stage, not a step of the table.
+const FLOOR_STAGES = { stopped: "stopped", review: "review", building: "running", line: "ready" };
 
 export function stageOf(labels, closed) {
   const step = stage(labels, closed, { planning: false });
+  // A closed ticket has left the line, and a ticket no label of tehas answers
+  // for is not on it: both are stages of the floor's own, no step of the
+  // table. The rest keep their name from the list above.
+  if (step === null) return "backlog";
   if (step === "shipped") return "shipped";
-  return step == null ? "backlog" : FLOOR_STAGES[STEPS.indexOf(step)];
+  return FLOOR_STAGES[step] || "backlog";
 }
 
 // The pause, as tehasbot status writes it: {flag: {at, reason} or null, label}.
