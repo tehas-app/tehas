@@ -4,6 +4,6 @@
   "private": true,
   "description": "One pinned npm tree: ctx7 at the version host/versions.env names, with every package in it fixed by hash in package-lock.json.",
   "dependencies": {
-    "ctx7": "0.9.0"
+    "ctx7": "0.10.0"
   }
 }
