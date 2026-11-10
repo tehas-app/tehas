@@ -390,7 +390,7 @@ without_cycle_only() {
 }
 t_case "docker is given what tehas work gives a cycle's container: only the name, the two directories of its own, the cycle's cid file, the cycle's own five inputs and what is run differ"
 turn_args | options |
-  sed -e "s|^$tree:|$ws-7:|" -e 's|/ensemble-runs/plan-7:|/ensemble-runs/issue-7:|' -e 's|widget-plan-7\.state|widget-7.state|' >"$T/plan.options"
+  sed -e "s|^$tree:|$ws-7:|" -e 's|/ensemble-runs/plan-7:|/ensemble-runs/issue-7:|' -e 's|widget-plan-7\.state|widget-7.state|' -e 's|/state/github:/run/tehas/github|/state/github-cycle:/run/tehas/github|' >"$T/plan.options"
 rm -f "$T"/calls/*
 # What the image says it supports: every input the container is given.
 jq -n '{contracts: {exitCodes: {version: 1}, resultSchema: {version: 5}, ndjson: {stable: {version: 1}}},
@@ -793,13 +793,15 @@ for bad in \
   t_contains "$t_out" "tehas plan: tehas_sandbox_security gave $words words, wants 10: not starting a turn"
 done
 
-t_case "a missing token starts no container"
+t_case "no token to be had starts no container"
 reset
-T_ENV=("TEHAS_CGROUP_ROOT=$T_CGROUP")
+rm -rf "$T/home/tehas/state/github" "$T/home/tehas/state/github-cycle"
+T_ENV=("TEHAS_CGROUP_ROOT=$T_CGROUP" "TEHAS_GITHUB_APP_KEY=$T/no-such-key.pem")
 t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
-t_eq "$t_rc" 64
-t_contains "$t_out" "GH_TOKEN is not set"
+t_eq "$t_rc" 1
+t_contains "$t_out" "tehas plan: no GitHub token for the app"
 t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
+t_app_world
 
 t_case "an invalid instance starts no container"
 reset
