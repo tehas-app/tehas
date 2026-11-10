@@ -2535,6 +2535,7 @@ tehasbot review               # one review of the branch; what tehas-review.time
 tehasbot clean                # remove what the host can make again; what tehas-clean.timer runs
 tehasbot github-token [--check]  # the GitHub App's token, or a check of it
 tehasbot github-token --cycle [--check]  # the cycle's token: the product repository only
+tehasbot github-token --session [--check]  # the same body, for a planning turn or a manual session
 tehasbot github-writes        # the GitHub writes of the last day, by hour
 ```
 
@@ -3667,6 +3668,7 @@ before it starts any.
 tehasbot github-token           # print the app's token
 tehasbot github-token --check   # when it runs out, and whether it reaches TEHAS_REPO
 tehasbot github-token --cycle   # print the cycle's token, narrowed to TEHAS_REPO
+tehasbot github-token --session # the same body, for a planning turn or a manual session
 ```
 
 Makes the installation token of the GitHub App named by `TEHAS_GITHUB_APP_ID`.
@@ -3688,7 +3690,9 @@ of the same installation for the repository of `TEHAS_REPO` alone, with
 Contents and Pull requests write, Issues read and nothing else. It is kept
 apart, in `~/tehas/state/github-cycle`, and made again the same way. A planning
 turn and a manual session get a token of the same body, made when the command
-starts and kept in `~/tehas/state/github-session`.
+starts and kept in `~/tehas/state/github-session` (`--session`). The command
+asks for it again every 5 minutes while its container runs, so a session
+longer than an hour keeps a good token.
 
 With an app named, the host acts as the app. `env.sh` puts `~/tehas/shim`
 first on `PATH`: its `gh` takes a token from `tehasbot github-token` at every

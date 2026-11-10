@@ -1,7 +1,7 @@
 //! The factory's GitHub App: an installation token, made from the app's key
 //! and kept fresh in one file (docs/specs/2026-10-24-github-app.md).
 //!
-//!   console tehasbot github-token [--cycle] [--check] [--login]
+//!   console tehasbot github-token [--cycle | --session] [--check] [--login]
 //!
 //! Prints a token with at least 10 minutes left, making one when the kept one
 //! has less. --check says when the token runs out and whether it reaches
@@ -9,7 +9,9 @@
 //! (#1814): made from the same app, narrowed to TEHAS_REPO alone with
 //! Contents and Pull requests write and Issues read, kept in state/github-cycle.
 //! A planning turn and a dev session are given the same body in
-//! state/github-session. A container is given one of those, never the app's own. `tehasbot github-token` is what
+//! state/github-session (--session), which a thread of the command keeps
+//! fresh while the container runs, as `tehas-cycle renew` keeps a cycle's
+//! (`renew_session`). A container is given one of those, never the app's own. `tehasbot github-token` is what
 //! the gh shim, the poll and `tehas-cycle renew` ask: `console run` loads the
 //! settings and comes here.
 //!
@@ -43,11 +45,12 @@ use std::io::{self, Write};
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::atomic::AtomicBool;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 use tehas_core::{settings, time};
 
-const USAGE: &str = "usage: tehasbot github-token [--cycle] [--check] [--login]";
+const USAGE: &str = "usage: tehasbot github-token [--cycle | --session] [--check] [--login]";
 const ACCEPT: &str = "Accept: application/vnd.github+json";
 const LEFT: i64 = 600;
 const LOCK_WAIT: Duration = Duration::from_secs(30);
@@ -597,6 +600,7 @@ fn check(app: &App, dir: &Path, lookup: &Path, token: &str) -> u8 {
 pub struct Ask {
     pub check: bool,
     pub cycle: bool,
+    pub session: bool,
     pub login: bool,
 }
 
@@ -609,7 +613,8 @@ pub fn words(given: &[String]) -> Result<Ask, u8> {
     for word in given {
         let seen = match word.as_str() {
             "--check" => std::mem::replace(&mut ask.check, true),
-            "--cycle" => std::mem::replace(&mut ask.cycle, true),
+            "--cycle" => std::mem::replace(&mut ask.cycle, true) || ask.session,
+            "--session" => std::mem::replace(&mut ask.session, true) || ask.cycle,
             "--login" => std::mem::replace(&mut ask.login, true),
             _ => true,
         };
@@ -623,12 +628,19 @@ pub fn words(given: &[String]) -> Result<Ask, u8> {
 
 const NEEDS: [&str; 3] = ["TEHAS_HOME", "TEHAS_GITHUB_APP_ID", "TEHAS_REPO"];
 
+/// Where a planning turn's or a dev session's narrowed token is kept.
+const SESSION_DIR: &str = "state/github-session";
+
 fn kept_in(cycle: bool) -> PathBuf {
     let dir = if cycle {
         "state/github-cycle"
     } else {
         "state/github"
     };
+    home_dir(dir)
+}
+
+fn home_dir(dir: &str) -> PathBuf {
     PathBuf::from(env::var_os("TEHAS_HOME").unwrap_or_default()).join(dir)
 }
 
@@ -659,15 +671,51 @@ pub fn session_token_env() -> Result<String, u8> {
         eprintln!("tehas: TEHAS_REPO ({repo}) is not <owner>/<name>");
         return Err(78);
     };
-    let home = PathBuf::from(env::var_os("TEHAS_HOME").unwrap_or_default());
     token(
         &App::loaded(),
-        &home.join("state/github-session"),
+        &home_dir(SESSION_DIR),
         &kept_in(false),
         &repo,
         Some(&body),
     )
     .ok_or(1)
+}
+
+/// Keeps state/github-session fresh for the rest of this process, as
+/// `tehas-cycle renew` keeps a cycle's token: a thread asks `tehasbot
+/// github-token --session` every TEHAS_GITHUB_RENEW_EVERY seconds [300], the
+/// first one period after the start, and 30 seconds after a failed ask. A planning turn and a dev session run their
+/// container in this process, so the thread ends with them.
+pub fn renew_session() {
+    static NEVER: AtomicBool = AtomicBool::new(false);
+    let every = env::var("TEHAS_GITHUB_RENEW_EVERY")
+        .ok()
+        .and_then(|e| e.parse().ok())
+        .filter(|e| *e > 0)
+        .unwrap_or(300);
+    let cmd = home_dir("bin/tehasbot");
+    session_renewer(cmd, every, 30, &NEVER);
+}
+
+fn session_renewer(
+    cmd: PathBuf,
+    every: u64,
+    retry: u64,
+    stop: &'static AtomicBool,
+) -> std::thread::JoinHandle<()> {
+    std::thread::spawn(move || {
+        // The command has just made the token: the first ask is one period on.
+        sleep(Duration::from_secs(every));
+        let args = ["github-token".to_string(), "--session".to_string()];
+        tehas_cycle::renew::renew(
+            &cmd,
+            &args,
+            every,
+            retry,
+            stop,
+            tehas_cycle::renew::epoch_seconds,
+        );
+    })
 }
 
 pub fn main(given: &[String]) -> u8 {
@@ -679,7 +727,7 @@ pub fn main(given: &[String]) -> u8 {
         return rc;
     }
     let repo = env::var("TEHAS_REPO").unwrap_or_default();
-    let narrow = if ask.cycle {
+    let narrow = if ask.cycle || ask.session {
         let Some(body) = narrowed(&repo) else {
             eprintln!("tehas github-token: TEHAS_REPO ({repo}) is not <owner>/<name>");
             return 78;
@@ -688,7 +736,11 @@ pub fn main(given: &[String]) -> u8 {
     } else {
         None
     };
-    let dir = kept_in(ask.cycle);
+    let dir = if ask.session {
+        home_dir(SESSION_DIR)
+    } else {
+        kept_in(ask.cycle)
+    };
     let lookup = kept_in(false);
     let app = App::loaded();
     if ask.login {
@@ -886,6 +938,7 @@ mod tests {
             Ok(Ask {
                 check,
                 cycle,
+                session: false,
                 login: false,
             })
         };
@@ -900,9 +953,21 @@ mod tests {
             Ok(Ask {
                 check: false,
                 cycle: false,
+                session: false,
                 login: true
             })
         );
+        assert_eq!(
+            words_of(&["--session", "--check"]),
+            Ok(Ask {
+                check: true,
+                cycle: false,
+                session: true,
+                login: false
+            })
+        );
+        assert_eq!(words_of(&["--session", "--cycle"]), Err(64));
+        assert_eq!(words_of(&["--cycle", "--session"]), Err(64));
         assert_eq!(words_of(&["--login", "--login"]), Err(64));
         assert_eq!(words_of(&["--print"]), Err(64));
         assert_eq!(words_of(&["--check", "extra"]), Err(64));
@@ -943,6 +1008,43 @@ mod tests {
     fn a_cycles_token_is_kept_apart_from_the_apps() {
         assert!(kept_in(true).ends_with("state/github-cycle"));
         assert!(kept_in(false).ends_with("state/github"));
+        assert!(home_dir(SESSION_DIR).ends_with("state/github-session"));
+    }
+
+    // A turn or a session that runs past one renewal period reads a token
+    // made after it started: the stand-in for tehasbot writes a new one each
+    // time it is asked, as github-token --session does once the kept one is
+    // near its end.
+    #[test]
+    fn a_session_past_one_renewal_period_reads_a_fresh_token() {
+        static STOP: AtomicBool = AtomicBool::new(false);
+        let d = dir("session-renew");
+        let kept = d.path().join("state/github-session");
+        fs::create_dir_all(&kept).unwrap();
+        fs::write(kept.join("token"), "ghs_first\n").unwrap();
+        let cmd = d.path().join("tehasbot");
+        fs::write(
+            &cmd,
+            format!(
+                "#!/bin/sh\n[ \"$*\" = \"github-token --session\" ] || exit 64\necho \"$*\" >>'{0}/asked'\nprintf 'ghs_%s\\n' \"$(wc -l <'{0}/asked')\" >'{1}/token.new' && mv '{1}/token.new' '{1}/token'\n",
+                d.path().display(),
+                kept.display()
+            ),
+        )
+        .unwrap();
+        fs::set_permissions(&cmd, fs::Permissions::from_mode(0o755)).unwrap();
+        let thread = session_renewer(cmd, 1, 1, &STOP);
+        let until = Instant::now() + Duration::from_secs(10);
+        let asked = || fs::read_to_string(d.path().join("asked")).unwrap_or_default();
+        while asked().lines().count() < 2 && Instant::now() < until {
+            sleep(Duration::from_millis(50));
+        }
+        STOP.store(true, std::sync::atomic::Ordering::SeqCst);
+        thread.join().unwrap();
+        assert!(asked().lines().count() >= 2, "{}", asked());
+        let token = fs::read_to_string(kept.join("token")).unwrap();
+        assert_ne!(token, "ghs_first\n");
+        assert_ne!(token, "ghs_1\n");
     }
 
     // A fake GitHub on a local port: each route is (METHOD path, status,
