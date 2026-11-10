@@ -459,6 +459,13 @@ A planning turn waits for neither. It runs as its own unit,
 the code as a cycle runs (`tehas-cycle pin plan`, see
 [tehasbot cycle](#tehasbot-cycle)), and the poll does not wait for it: cycles start while it runs, and the first poll after it ends posts
 its outcome from the exit status it left in `~/tehas/state/plan-<issue>.json.rc`.
+Only the questions need the list of issues that carry `tehas:question`. When
+that list cannot be read, the poll logs `WARN: the issues with a question could
+not be read, so no question is answered this poll`, answers no question and
+starts no retry, and goes on to open a planning session and start the ready
+queue as it does when the list is empty. Everything else it reads still ends
+the poll when it fails: an entry of that list with no number, an issue's
+comments, and the state store.
 While the turn runs its unit holds `~/tehas/state/plan-<issue>.json.lock`, as a
 cycle holds `state/cycles/<issue>.lock`; a poll that finds it held starts no
 other turn. To count the running cycles the poll asks the state store once,
