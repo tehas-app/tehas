@@ -186,13 +186,6 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
         s["issue_types"] = json!(q.issue_types);
         typed_as_label(&mut q.open, &c.improvement_type, crate::decide::IMPROVEMENT);
     }
-    s["user"] = if c.bot_login.is_empty() {
-        calls
-            .gh(&["api", "user"])
-            .unwrap_or_else(|_| json!({"failed": true}))
-    } else {
-        json!({"login": c.bot_login})
-    };
     // What the titles of the open pull requests rest on (console pr-title).
     if let Some(pulls) = &q.open_pulls {
         s["open_pulls"] = pulls.clone();

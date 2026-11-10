@@ -120,7 +120,7 @@ impl Host for Real {
 }
 
 /// NUL-ended NAME=value entries.
-fn pairs(list: &[u8]) -> Vec<(Vec<u8>, Vec<u8>)> {
+pub(crate) fn pairs(list: &[u8]) -> Vec<(Vec<u8>, Vec<u8>)> {
     list.split(|b| *b == 0)
         .filter_map(|entry| {
             let at = entry.iter().position(|b| *b == b'=')?;

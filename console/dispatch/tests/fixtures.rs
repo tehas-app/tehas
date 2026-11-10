@@ -45,10 +45,10 @@ fn base() -> (Value, Value) {
     let settings = json!({
         "TEHAS_REPO": "acme/widget", "TEHAS_CONTROL_ISSUE": 1,
         "TEHAS_ALLOWED_LABELERS": "alice", "TEHAS_TICKET_CONCURRENCY": 1,
+        "TEHAS_BOT_LOGIN": "tehas-bot",
     });
     let snapshot = json!({
         "repo": "acme/widget",
-        "user": {"login": "tehas-bot"},
         "control": {"labels": [], "events": []},
         "plan_open": [],
         "running": [],

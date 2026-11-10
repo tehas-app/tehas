@@ -198,17 +198,7 @@ impl Run {
             self.warn(&stamp);
         }
 
-        // A GitHub App's token cannot ask GET /user, so an app's login is the
-        // setting.
-        let bot = if self.bot.is_empty() {
-            let user = calls.gh(&["api", "user"]).unwrap_or(Value::Null);
-            user.get("login")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_string()
-        } else {
-            self.bot.clone()
-        };
+        let bot = self.bot.clone();
         if bot.is_empty() {
             return self.fail("the bot's own login could not be read");
         }
