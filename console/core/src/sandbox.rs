@@ -103,6 +103,10 @@ impl Kind {
     }
 }
 
+/// Where a cycle's container has its issue relay, read and written by both
+/// sides: host/sandbox/gh-shim asks there and the host answers.
+pub const RELAY_DIR: &str = "/run/tehas/relay";
+
 /// The variable that holds the token a cycle's containers are given as their
 /// GH_TOKEN: `tehas work` sets it to the app's narrowed cycle token (#1814).
 pub const CYCLE_TOKEN: &str = "GH_CYCLE_TOKEN";
@@ -497,6 +501,12 @@ pub fn mount_options(kind: Kind, p: &Paths, agent: &str, app: Option<&str>) -> V
     if let (Some(app), true) = (app, kind.app_dir().is_some()) {
         mounts.push(format!("{app}:/run/tehas/github:ro"));
     }
+    // A cycle's token reads issues only; its issue writes go to the host
+    // through this directory (console/cycle/src/relay.rs). Its own, in its
+    // state, so no cycle sees another's requests.
+    if kind == Kind::Cycle {
+        mounts.push(format!("{state}/relay:{RELAY_DIR}"));
+    }
     // After the shared list, so this is the one build output the session has.
     if kind == Kind::Session {
         mounts.push(format!("{state}/target:{TARGET_DIR}"));
@@ -541,6 +551,9 @@ pub fn prepared_mounts(kind: Kind, p: &Paths) -> Result<Vec<String>, String> {
         format!("{}/memory", p.state),
         format!("{}/sessions", p.state),
     ];
+    if kind == Kind::Cycle {
+        dirs.push(format!("{}/relay", p.state));
+    }
     let app = kind
         .app_dir()
         .map(|dir| format!("{}/{dir}", env::var("TEHAS_HOME").unwrap_or_default()));
@@ -983,17 +996,34 @@ mod tests {
 
     #[test]
     fn every_kind_has_the_eight_mounts_in_order() {
-        for kind in [Kind::Cycle, Kind::Turn, Kind::Review] {
+        for kind in [Kind::Turn, Kind::Review] {
             assert_eq!(mount_options(kind, &PATHS, "/a", None), words(EIGHT));
+        }
+    }
+
+    #[test]
+    fn only_a_cycle_has_the_relay_and_it_is_its_own_state() {
+        assert_eq!(
+            mount_options(Kind::Cycle, &PATHS, "/a", None),
+            words(&format!("{EIGHT} -v /s/relay:/run/tehas/relay"))
+        );
+        for kind in [Kind::Turn, Kind::Session, Kind::Review] {
+            let all = mount_options(kind, &PATHS, "/a", Some("/g")).join(" ");
+            assert!(!all.contains("relay"), "{kind:?}");
         }
     }
 
     #[test]
     fn a_token_directory_is_read_only_and_never_a_reviews() {
         let want = format!("{EIGHT} -v /g:/run/tehas/github:ro");
-        for kind in [Kind::Turn, Kind::Cycle] {
-            assert_eq!(mount_options(kind, &PATHS, "/a", Some("/g")), words(&want));
-        }
+        assert_eq!(
+            mount_options(Kind::Turn, &PATHS, "/a", Some("/g")),
+            words(&want)
+        );
+        assert_eq!(
+            mount_options(Kind::Cycle, &PATHS, "/a", Some("/g")),
+            words(&format!("{want} -v /s/relay:/run/tehas/relay"))
+        );
         assert_eq!(
             mount_options(Kind::Review, &PATHS, "/a", Some("/g")),
             words(EIGHT)

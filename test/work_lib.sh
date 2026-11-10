@@ -305,7 +305,8 @@ $state/sessions:/home/vscode/.pi/agent/sessions
 $T/home/.pi/agent/mcp.json:/home/vscode/.pi/agent/mcp.json:ro
 $state/models.json:/home/vscode/.pi/agent/models.json:ro
 $T/home/.pi/agent/settings.json:/home/vscode/.pi/agent/settings.json:ro
-$T/home/tehas/state/github-cycle:/run/tehas/github:ro"
+$T/home/tehas/state/github-cycle:/run/tehas/github:ro
+$state/relay:/run/tehas/relay"
 image="tehas/pi-rukas:uid$(id -u)"
 live=$T/home/tehas/live
 

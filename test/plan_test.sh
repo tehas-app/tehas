@@ -389,11 +389,17 @@ t_eq "$(t_calls docker | grep -c '^info ')" 1
 # They are mounted at the paths a cycle's are.
 # The options without the pairs only a cycle is given: who reports its
 # handoff and the time it may take, its deadline and its gate runs at once.
+# The cycle's own: its five inputs and its issue relay, which a turn has not.
 without_cycle_only() {
-  awk 'held { if ($0 !~ /^PI_ENSEMBLE_(HANDOFF_CHANNEL|HANDOFF_TIMEOUT_MS|CYCLE_DEADLINE|VERIFY_CONCURRENCY|SPAWN_TIMEOUT_MS)=/) print "-e"; else { held = 0; next } }
-    { held = ($0 == "-e") } !held { print } END { if (held) print "-e" }'
+  awk 'held != "" {
+      own = (held == "-e" && $0 ~ /^PI_ENSEMBLE_(HANDOFF_CHANNEL|HANDOFF_TIMEOUT_MS|CYCLE_DEADLINE|VERIFY_CONCURRENCY|SPAWN_TIMEOUT_MS)=/) ||
+        (held == "-v" && $0 ~ /:\/run\/tehas\/relay$/)
+      if (own) { held = ""; next }
+      print held
+    }
+    { held = ($0 == "-e" || $0 == "-v") ? $0 : "" } held == "" { print } END { if (held != "") print held }'
 }
-t_case "docker is given what tehas work gives a cycle's container: only the name, the two directories of its own, the cycle's cid file, the cycle's own five inputs and what is run differ"
+t_case "docker is given what tehas work gives a cycle's container: only the name, the two directories of its own, the cycle's cid file, the cycle's own five inputs and relay, and what is run differ"
 turn_args | options |
   sed -e "s|^$tree:|$ws-7:|" -e 's|/ensemble-runs/plan-7:|/ensemble-runs/issue-7:|' -e 's|widget-plan-7\.state|widget-7.state|' -e 's|/state/github-session:/run/tehas/github|/state/github-cycle:/run/tehas/github|' >"$T/plan.options"
 rm -f "$T"/calls/*

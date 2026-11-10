@@ -152,6 +152,11 @@
 //! directory of its own for what it writes: its copy of the code index, its
 //! memory and Pi's sessions. Nothing it writes there is what a later cycle of
 //! another issue reads. Not the Docker socket, SSH keys or ~/.config/tehas.
+//! The token reads issues only: the container's issue writes go to this
+//! command through the relay directory in its state, `relay`, mounted
+//! read-write at /run/tehas/relay, which src/relay.rs serves while the
+//! container runs. A request still there when the container ends is answered
+//! with 1.
 //!
 //! With TEHAS_WORK_IMAGES=1 it is given two things more: the issue's images,
 //! read-only, and PI_ENSEMBLE_EXTRA_IMAGE_DIRS, their path inside the container.
@@ -358,6 +363,7 @@
 
 use crate::gives::{self, Gap};
 use crate::prepare::{self, Stop, STOPPED};
+use crate::relay;
 use crate::start;
 use crate::watch;
 use std::fs::{self, OpenOptions};
@@ -365,6 +371,9 @@ use std::io::Write;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use std::thread::JoinHandle;
 use std::time::Duration;
 use tehas_core::{self, sandbox, slice, time};
 
@@ -555,6 +564,28 @@ fn renewer(home: &Path) -> Option<Child> {
         .stdout(Stdio::null())
         .spawn();
     child.ok()
+}
+
+/// The cycle's issue relay (src/relay.rs): a thread beside the renewer that
+/// runs the container's issue writes with the app's token. `end` stops it once
+/// the container is gone and answers what is left with 1.
+struct Relay {
+    stop: Arc<AtomicBool>,
+    thread: JoinHandle<()>,
+}
+
+fn start_relay(dir: &Path, repo: &str, via: relay::Via) -> Relay {
+    let stop = Arc::new(AtomicBool::new(false));
+    let (dir, repo, flag) = (dir.to_path_buf(), repo.to_string(), stop.clone());
+    let thread = std::thread::spawn(move || relay::serve_via(&dir, &repo, &flag, &via));
+    Relay { stop, thread }
+}
+
+impl Relay {
+    fn end(self) {
+        self.stop.store(true, Ordering::SeqCst);
+        let _ = self.thread.join();
+    }
 }
 
 /// The renewer gone after the watch's TERM, or killed after five seconds.
@@ -1069,6 +1100,8 @@ pub fn run(home: &Path, g: &Given) -> i32 {
     // after the run, is kept fresh by the renewer, which ends with the
     // container, or with the watch.
     let renew = renewer(home);
+    let relay_dir = PathBuf::from(format!("{work_dir}-{n}.state/relay"));
+    let relay = start_relay(&relay_dir, &env("TEHAS_REPO"), relay::Via::from_env(home));
     let given = watch::Given {
         issue: n,
         attempt,
@@ -1089,6 +1122,7 @@ pub fn run(home: &Path, g: &Given) -> i32 {
         scratch: crate::scratch::Bounds::from_env(n),
     };
     let rc = watch::run(home, &given, stop.flag());
+    relay.end();
     if let Some(c) = renew {
         reap(c);
     }
@@ -1141,6 +1175,75 @@ mod tests {
                 "{opts}"
             );
         }
+    }
+
+    #[test]
+    fn a_relay_outlives_the_first_token() {
+        use std::time::Instant;
+        let d = tehas_core::testdir::TestDir::new("work-relay");
+        // The token command: every ask is a new token, ghs_1, ghs_2 and on.
+        let bot = d.join("tehasbot");
+        let script = format!(
+            "#!/bin/sh\ncd '{}' || exit 1\nn=$(($(cat n 2>/dev/null || echo 0) + 1))\necho $n >n\necho \"$* ghs_$n\" >>asked\necho ghs_$n\n",
+            d.display()
+        );
+        tehas_core::testing::write_exe(&bot, script).unwrap();
+        let gh = d.join("gh");
+        let script = format!(
+            "#!/bin/sh\necho \"$GH_TOKEN\" >'{}'\n",
+            d.join("gh.token").display()
+        );
+        tehas_core::testing::write_exe(&gh, script).unwrap();
+        let asked = || fs::read_to_string(d.join("asked")).unwrap_or_default();
+        // The first token, as the start has it.
+        let first = Command::new(&bot).arg("github-token").output().unwrap();
+        assert_eq!(String::from_utf8_lossy(&first.stdout), "ghs_1\n");
+        let stop = Arc::new(AtomicBool::new(false));
+        let (cmd, flag) = (bot.clone(), stop.clone());
+        let renewer = std::thread::spawn(move || {
+            let args = ["github-token".to_string(), "--cycle".to_string()];
+            crate::renew::renew(&cmd, &args, 1, 1, &flag, crate::renew::epoch_seconds)
+        });
+        let dir = d.join("relay");
+        fs::create_dir(&dir).unwrap();
+        let relay = start_relay(
+            &dir,
+            "acme/widget",
+            relay::Via {
+                gh: gh.clone(),
+                token: bot.clone(),
+                token_args: vec!["github-token".to_string()],
+            },
+        );
+        // Two renewals after the first ask.
+        let until = Instant::now() + Duration::from_secs(20);
+        while asked().matches("--cycle").count() < 3 && Instant::now() < until {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        assert!(asked().matches("--cycle").count() >= 3, "{}", asked());
+        let req = dir.join("req.77");
+        fs::create_dir(&req).unwrap();
+        fs::write(req.join("args"), "issue\0comment\x003\0--body\0hi\0").unwrap();
+        fs::write(req.join("ready"), "").unwrap();
+        let until = Instant::now() + Duration::from_secs(10);
+        while !dir.join("res.77/done").exists() && Instant::now() < until {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        relay.end();
+        stop.store(true, Ordering::SeqCst);
+        renewer.join().unwrap();
+        assert_eq!(
+            fs::read_to_string(dir.join("res.77/rc")).unwrap_or_default(),
+            "0\n"
+        );
+        let used = fs::read_to_string(d.join("gh.token")).unwrap_or_default();
+        let current = asked()
+            .lines()
+            .rfind(|l| !l.contains("--cycle"))
+            .and_then(|l| l.split(' ').next_back())
+            .map(|t| format!("{t}\n"));
+        assert_eq!(Some(used.clone()), current, "{}", asked());
+        assert_ne!(used, "ghs_1\n");
     }
 
     #[test]
