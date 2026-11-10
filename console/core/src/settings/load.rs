@@ -17,7 +17,9 @@
 //!   only setting that does; the load refuses without it. The app's login is
 //!   not a setting: state/github/login holds it, one line, `<slug>[bot]`, and
 //!   the load gives it to TEHAS_BOT_LOGIN and TEHAS_MILLWRIGHT_LOGIN, over any
-//!   value the instance holds. Without the file both stay unset. An instance
+//!   value the instance holds. Without the file the load sets neither, and a
+//!   value the instance still holds stays as it is until the first mint
+//!   writes the file. An instance
 //!   that still sets TEHAS_GITHUB_APP_INSTALLATION, TEHAS_BOT_LOGIN or
 //!   TEHAS_MILLWRIGHT_LOGIN gets a warning for each; the login file wins.
 //!   GH_TOKEN in ~/.config/tehas/env, GH_CYCLE_TOKEN and TEHAS_CYCLE_LOGIN
@@ -330,8 +332,9 @@ fn role_models(vars: &mut Vars, file: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// The names of the old way to give the factory an account. The ones the
-/// factory's own credential file or a cycle's token set stop the load.
+/// The reason each refused name of the old way to give the factory an account
+/// stops the load with: GH_TOKEN in the factory's credential file,
+/// GH_CYCLE_TOKEN and TEHAS_CYCLE_LOGIN.
 const NO_LONGER_USED: &str = "is no longer used: the factory acts as a GitHub App. Run tehas setup --new-app or give --app-id and --app-key-file.";
 
 /// The settings the app's login makes needless, ignored with a warning.

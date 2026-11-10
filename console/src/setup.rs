@@ -383,6 +383,10 @@ impl Drop for Scratch {
 
 fn made_dir(d: &Path) -> io::Result<()> {
     DirBuilder::new().recursive(true).mode(0o700).create(d)?;
+    // chmod follows a link: a link here is refused, not made 700 at its target.
+    if fs::symlink_metadata(d)?.file_type().is_symlink() {
+        return Err(io::Error::other(format!("{} is a symlink", d.display())));
+    }
     fs::set_permissions(d, fs::Permissions::from_mode(0o700))
 }
 
@@ -483,8 +487,16 @@ fn make_app(
     };
     let started = std::time::Instant::now();
     loop {
-        if app.installations().is_some_and(|n| n > 0) {
-            break;
+        match app.installations() {
+            Ok(n) if n > 0 => break,
+            Ok(_) => {}
+            // A new app may not be known everywhere at once.
+            Err(why) if why == "HTTP 404" => {}
+            Err(why) => {
+                return Err(Die(format!(
+                    "GitHub did not list the installations of {slug} ({why}); a refused app token often means the host's clock is off. Check it, install the app at {install} and run tehas setup again: it finds app {id} and checks it"
+                )));
+            }
         }
         if started.elapsed() >= INSTALL_WAIT {
             return Err(Die(format!(
@@ -998,15 +1010,11 @@ fn files(dir: &Path, args: &[String]) -> Result<Written, Fail> {
     }
     set(&inst, "TEHAS_GITHUB_APP_ID", &app.id, false)?;
     // The first poll knows the bot from this file.
-    let installed = github::App {
-        id: app.id.clone(),
-        key: app_key.clone(),
-    };
+    // check_app has asked GitHub for the login already.
     let kept_login = fs::read(lookups.join("login")).unwrap_or_default();
-    if String::from_utf8_lossy(&kept_login).trim_end() != login {
-        let _ = fs::remove_file(lookups.join("login"));
-    }
-    if installed.login(&lookups).as_deref() != Some(login.as_str()) {
+    if String::from_utf8_lossy(&kept_login).trim_end() != login
+        && !github::keep_login(&lookups, &login)
+    {
         return Err(Die(format!(
             "could not keep the app's login in {}",
             lookups.display()
@@ -1432,8 +1440,15 @@ fn write_file(file: &Path, text: &str) -> io::Result<()> {
 
 fn install_key(from: &Path, to: &Path) -> io::Result<()> {
     let tmp = to.with_extension("pem.new");
-    let done = fs::copy(from, &tmp)
-        .and_then(|_| fs::set_permissions(&tmp, fs::Permissions::from_mode(0o600)))
+    let _ = fs::remove_file(&tmp);
+    // A new file, mode 600 from the start, and never through a link.
+    let done = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(&tmp)
+        .and_then(|mut out| io::copy(&mut fs::File::open(from)?, &mut out))
         .and_then(|_| fs::rename(&tmp, to));
     if done.is_err() {
         let _ = fs::remove_file(&tmp);
