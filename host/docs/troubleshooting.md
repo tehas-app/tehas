@@ -75,17 +75,18 @@ cd ~/tehas/platform && ./install.sh --check
   `instance.env`.
 - A setting you exported in the shell is ignored: `instance.env` wins, and a
   setting it does not assign is dropped.
-- `tehas work: GH_CYCLE_TOKEN is not set (see ~/.config/tehas/env)`: no cycle
-  starts without the cycle token. Make a fine-grained token for the bot account,
+- `tehas work: GH_CYCLE_TOKEN is not set (see ~/.config/tehas/env)`: without
+  a GitHub App, no cycle starts without the cycle token. Make a fine-grained
+  token for the bot account,
   for the product repository only, with Contents, Pull requests and Issues read
   and write and Metadata read. Put it in `~/.config/tehas/env` as
   `GH_CYCLE_TOKEN=...`, then restart the dispatcher. See
   [Secrets and trust](/host#secrets-and-trust).
-- `tehas work: TEHAS_CYCLE_LOGIN is not set and a GitHub App is: ...`: with an
-  app, a cycle opens its pull request as the cycle token's account, not the
-  app, and the host needs that login to know the pull request as the factory's.
-  Put `TEHAS_CYCLE_LOGIN=<login>` in `instance.env`, the login of the account
-  `GH_CYCLE_TOKEN` belongs to. It may not be one of `TEHAS_ALLOWED_LABELERS`.
+- `tehas work: no cycle token from the app, not starting a cycle`: with a
+  GitHub App, the app could not make the cycle's token for `TEHAS_REPO`. The
+  line before it says why. Check the app with
+  `tehasbot github-token --cycle --check`: the app must be installed on the
+  product repository with Contents, Pull requests and Issues write.
 
 The dispatcher fails the same way under systemd; the line is then in
 `~/tehas/logs/dispatch.log`.

@@ -503,25 +503,38 @@ fn limits() -> Option<Vec<String>> {
     Some(words)
 }
 
-/// The app's token for the container, with at least 10 minutes left. Without
-/// an app, GH_TOKEN is the instance's.
+/// A token `tehasbot github-token` prints, with at least 10 minutes left.
+fn app_token(console: &str, words: &[&str]) -> Option<String> {
+    let out = Command::new(console)
+        .args(["tehasbot", "github-token"])
+        .args(words)
+        .stderr(Stdio::inherit())
+        .output()
+        .ok()
+        .filter(|o| o.status.success())?;
+    let token = String::from_utf8_lossy(&out.stdout)
+        .trim_end_matches('\n')
+        .to_string();
+    (!token.is_empty()).then_some(token)
+}
+
+/// The host's token and the cycle's. With an app, GH_TOKEN is the app's and
+/// the cycle token is the app's narrowed one (#1814); without, both are the
+/// instance's.
 fn github_token(console: &str) -> i32 {
     if !env("TEHAS_GITHUB_APP_ID").is_empty() {
-        let out = Command::new(console)
-            .args(["tehasbot", "github-token"])
-            .stderr(Stdio::inherit())
-            .output();
-        match out {
-            Ok(o) if o.status.success() => {
-                let token = String::from_utf8_lossy(&o.stdout);
-                // Before any thread: the process is still single-threaded.
-                std::env::set_var("GH_TOKEN", token.trim_end_matches('\n'));
-            }
-            _ => {
-                eprintln!("tehas work: no GitHub token for the app");
-                return 1;
-            }
-        }
+        // Before any thread: the process is still single-threaded.
+        std::env::remove_var(sandbox::CYCLE_TOKEN);
+        let Some(token) = app_token(console, &[]) else {
+            eprintln!("tehas work: no GitHub token for the app");
+            return 1;
+        };
+        std::env::set_var("GH_TOKEN", token);
+        let Some(token) = app_token(console, &["--cycle"]) else {
+            eprintln!("tehas work: no cycle token from the app, not starting a cycle");
+            return 1;
+        };
+        std::env::set_var(sandbox::CYCLE_TOKEN, token);
     }
     if env("GH_TOKEN").is_empty() {
         eprintln!("tehas work: GH_TOKEN is not set (source ~/tehas/env.sh)");
@@ -530,8 +543,8 @@ fn github_token(console: &str) -> i32 {
     0
 }
 
-/// The renewer of the app's token while the container reads it, none without
-/// an app. The watch ends it with a TERM.
+/// The renewer of the cycle's token while the container reads it, none
+/// without an app. The watch ends it with a TERM.
 fn renewer(home: &Path) -> Option<Child> {
     if env("TEHAS_GITHUB_APP_ID").is_empty() {
         return None;
@@ -546,7 +559,7 @@ fn renewer(home: &Path) -> Option<Child> {
         .arg("renew")
         .arg("--cmd")
         .arg(home.join("bin/tehasbot"))
-        .args(["--arg", "github-token"])
+        .args(["--arg", "github-token", "--arg", "--cycle"])
         .args(["--every", &every, "--retry", "30"])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -817,9 +830,7 @@ pub fn run(home: &Path, g: &Given) -> i32 {
         eprintln!("{line}");
         return 78;
     }
-    if let Err(line) =
-        sandbox::cycle_token("tehas work").and_then(|_| sandbox::cycle_login("tehas work"))
-    {
+    if let Err(line) = sandbox::cycle_token("tehas work") {
         eprintln!("{line}");
         return 78;
     }

@@ -1177,7 +1177,7 @@ The bot (`TEHAS_BOT_LOGIN` with an app, otherwise the token's account) is never 
 the bot approve its own work: every poll reads its own login first, before it
 reads a label or changes one. The Protolab refuses the same list, with an error
 before it reads, builds or removes a page. A poll or a pass that cannot read
-its own login stops there and does nothing else. The cycle token's account, `TEHAS_CYCLE_LOGIN`, is the factory's own in the
+its own login stops there and does nothing else. Without a GitHub App, the cycle token's account, `TEHAS_CYCLE_LOGIN`, is the factory's own in the
 same way: the settings load refuses it in `TEHAS_ALLOWED_LABELERS`, since a
 cycle acts as it from inside its container.
 
