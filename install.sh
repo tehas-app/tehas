@@ -1162,14 +1162,6 @@ for f in "$TEHAS_HOME"/sandbox/sandbox-uid.Dockerfile \
   if [ "$check" = 1 ]; then note "stale: $f"; else rm -f "$f" && echo "removed: $f"; fi
 done
 
-a_cycle_runs() { # true while a cycle holds its lock
-  local lock
-  for lock in "$TEHAS_HOME"/state/cycles/*.lock; do
-    [ -e "$lock" ] && ! { flock -n 8; } 8<"$lock" && return 0
-  done
-  return 1
-}
-
 # The files of an older layout, as the console lists them
 # (console/src/update/retired.list). Found here, removed in step 5 once systemd
 # has the new units.
@@ -1177,11 +1169,6 @@ old=()
 while IFS= read -r f; do
   to=$TEHAS_HOME/$f
   [ -e "$to" ] || continue
-  # A cycle that started before this update renews its token by this path.
-  if [ "$f" = libexec/github-token ] && a_cycle_runs; then
-    echo "later: ./install.sh again when no cycle runs   ($to stays: a running cycle renews its token through it)"
-    continue
-  fi
   old+=("$to")
   changed+=("$f")
   # A running sampler or publisher is the old file calling itself; only a

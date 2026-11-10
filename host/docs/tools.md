@@ -92,10 +92,8 @@ in the platform repository has every one with a comment.
 | `TEHAS_IMPROVE_MAX_OPEN`        | `10`                                     | How many issues labelled `tehas:improvement` may be open in one repository before the loop files no more there |
 | `TEHAS_REVIEW_REPO`             | empty                                    | Optional. `owner/name` of the repository [tehasbot review](#tehasbot-review) files the findings of a run in, as one issue a person triages. Empty: a run that found something says it filed nothing. Never `TEHAS_REPO`: the findings are a model's, and a person triages them into tickets of the product first, so loading refuses it with exit 78 |
 | `TEHAS_REVIEW`                  | `0`                                      | `1` lets [tehasbot review](#tehasbot-review) review anything: `tehas-review.timer` starts it once a week and a run that is off exits 0 at once and calls nothing. Anything but `0` or `1` stops every command with 78 (see [the review loop](/operating#the-review-loop)) |
-| `TEHAS_MILLWRIGHT_LOGIN`        | empty                                    | Optional. The account whose `tehas:ready`, and whose answer to a planning question, the dispatcher takes on [the millwright's grant](/operating#the-millwrights-grant). A GitHub App's login works with or without `[bot]`, such as `tehas-millwright[bot]`. Never the bot and never one of `TEHAS_ALLOWED_LABELERS`, in either form. Counts only with its recorded user id, as the allowed logins do. Empty: no millwright |
-| `TEHAS_GITHUB_APP_ID`           | empty                                    | Optional. The ID of the GitHub App the factory acts as ([tehasbot github-token](#tehasbot-github-token)). Set with `TEHAS_GITHUB_APP_INSTALLATION` and `TEHAS_BOT_LOGIN`, or none of the three |
-| `TEHAS_GITHUB_APP_INSTALLATION` | empty                                    | Optional. The ID of the app's installation that reaches `TEHAS_REPO`: the number at the end of the installation's settings page |
-| `TEHAS_BOT_LOGIN`               | empty                                    | Optional. The app's login, `<slug>[bot]` |
+| `TEHAS_MILLWRIGHT_LOGIN`        | the app's login                          | Not a setting. The millwright is the bot, the login in `~/tehas/state/github/login`, whose `tehas:ready`, and whose answer to a planning question, the dispatcher takes on [the millwright's grant](/operating#the-millwrights-grant). Never one of `TEHAS_ALLOWED_LABELERS`, in either form. A line in `instance.env` prints a warning and is ignored |
+| `TEHAS_GITHUB_APP_ID`           | required                                 | The ID of the GitHub App the factory acts as ([tehasbot github-token](#tehasbot-github-token)). `tehas setup` writes it. The installation and the bot's login are looked up and kept in `~/tehas/state/github`, not set. `TEHAS_GITHUB_APP_INSTALLATION` and `TEHAS_BOT_LOGIN` each print a warning and are ignored |
 | `TEHAS_OWNER`                   | empty                                    | Optional. One person's GitHub login. When the dispatcher marks an issue `tehas:running` for a cycle it also assigns the issue to this account, so GitHub shows it as taken (see [what happens next](/operating#3-what-happens-next)). A bot's login, `[bot]`, or more than one login stops every command with 78, and `tehas setup` refuses a login GitHub does not let be assigned on `TEHAS_REPO`. Empty: nobody is assigned |
 | `TEHAS_MILLWRIGHT_MAX_RETRIES`  | `2`                                      | How many cycles the millwright may start on one issue since a person last approved it |
 | `TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS` | `3`                                  | How many planning questions the millwright may answer in one session. It never answers two in a row (see [the millwright's grant](/operating#the-millwrights-grant)) |
@@ -211,7 +209,7 @@ and `PI_ENSEMBLE_POLICY_JUDGE` among them. tehas sets neither, and setting one
 is a person's decision on the instance, never something a cycle can do for
 itself.
 
-The example instance sets the five required ones, `TEHAS_HOST_ADDR`,
+The example instance sets the five required ones, `TEHAS_GITHUB_APP_ID`, `TEHAS_HOST_ADDR`,
 `PI_ENSEMBLE_HOST_ALIASES`, and, because it is public, `TEHAS_INDEXING` and the
 analytics settings. It leaves the rest at the defaults.
 
@@ -1460,12 +1458,10 @@ image, the same limits in `tehas.slice`, the same mounts and variables from
 `console/core/src/sandbox.rs`, and no Docker socket, SSH keys or `~/.config/tehas`. It
 differs in its name, in what it runs, and in having no token: a review reads
 code, and the container writes nothing to the tracker, so no `-e` carries
-`GH_TOKEN`, and on a host with a GitHub App the directory of the app's token is
-not mounted. The names of a planning turn, which this run has none of, are
+`GH_TOKEN`, and the directory of the app's token is not mounted. The names of a planning turn, which this run has none of, are
 dropped the same way. It has no cid file, so a review left by a client that
 died is not named for a later run to remove. The one call the run makes to
-GitHub is the host's own, after the container ended, with the bot's credentials
-of `~/.config/tehas/env`: the issue, or the comment on the issue that is still
+GitHub is the host's own, after the container ended, as the app: the issue, or the comment on the issue that is still
 open.
 
 The workspace is `~/tehas/work/<name>-review`, a clone made for every run and
@@ -1818,7 +1814,7 @@ In order, stopping at the first step that fails:
    `--new-app` wrote. The token is kept in no file.
 2. It writes the instance directory (`~/.config/tehas`, or the one
    `~/.config/tehas/instance-dir` names): `instance.env` with the five required
-   settings and nothing else, and `models.json` with the provider's `api`,
+   settings and `TEHAS_GITHUB_APP_ID`, and `models.json` with the provider's `api`,
    `baseUrl`, `apiKey` and the model's `id`. The directory is mode 700, the
    files 600. A given key is installed at `~/.config/tehas/github-app.pem`,
    mode 600, and `instance.env` gets `TEHAS_GITHUB_APP_ID`. Another key or
@@ -3673,8 +3669,11 @@ tehasbot github-token --check   # when it runs out, and whether it reaches TEHAS
 tehasbot github-token --cycle   # print the cycle's token, narrowed to TEHAS_REPO
 ```
 
-Makes the installation token of the GitHub App named by `TEHAS_GITHUB_APP_ID`,
-`TEHAS_GITHUB_APP_INSTALLATION` and `TEHAS_BOT_LOGIN`. It signs a JSON Web
+Makes the installation token of the GitHub App named by `TEHAS_GITHUB_APP_ID`.
+The app's installation on `TEHAS_REPO` and its login are looked up at GitHub
+with the app's key and kept in `~/tehas/state/github/installation` and
+`~/tehas/state/github/login`. If the app is not installed on `TEHAS_REPO`, the
+command names the repository and the install link. It signs a JSON Web
 Token with the app's key, `~/.config/tehas/github-app.pem` (mode 600, never
 given to a container), and exchanges it at GitHub for a token that lasts an
 hour. The token is kept in `~/tehas/state/github/token` (mode 600) and made
@@ -3705,29 +3704,29 @@ not how the status knows the poll ran it: the poll gives the status
 poll holds that token in memory: it is never logged, never written to a file,
 and never put in the poll's record. git's github.com credential helper is
 pointed at the same shim, as environment-level config (no file is written), and
-a `GH_TOKEN` left in `~/.config/tehas/env` is dropped so nothing acts as the
-user it belongs to. The dispatcher, the refresh and the Protolab take the bot's
-login from `TEHAS_BOT_LOGIN`: an installation token cannot ask GitHub who it is.
+a `GH_TOKEN` in `~/.config/tehas/env` is refused (exit 78), so nothing acts as
+the user it belongs to. The dispatcher, the refresh and the Protolab take the
+bot's login from `~/tehas/state/github/login`: an installation token cannot ask
+GitHub who it is.
 
 A cycle's container is never given the app's own token, its directory or the
-key. With an app, `tehas work` makes the cycle's token with
+key. `tehas work` makes the cycle's token with
 `tehasbot github-token --cycle` and gives the container
 `~/tehas/state/github-cycle` read-only at `/run/tehas/github`, and the token as
 its first `GH_TOKEN` (#1814). What a cycle pushes, opens and comments carries
 the app's `<slug>[bot]` login, the same as the host's. `tehas work` renews the
 cycle's token every 5 minutes while the cycle runs. If it cannot make the
-token, no cycle starts. A `GH_CYCLE_TOKEN` in `~/.config/tehas/env` is not used
-with an app.
+token, no cycle starts. `GH_CYCLE_TOKEN` and `TEHAS_CYCLE_LOGIN` are refused
+with exit 78.
 
-Without an app the container gets the cycle token, `GH_CYCLE_TOKEN` from
-`~/.config/tehas/env`, as its `GH_TOKEN` (#746): a fine-grained token of a user
-account for the product repository only. What a cycle pushes, opens and
-comments then carries that account's login, which `TEHAS_CYCLE_LOGIN` in
-`instance.env` may name. The host counts that login as the factory's own beside
-`TEHAS_BOT_LOGIN`: the cycle's report finds the cycle's pull request by it, the
-poll stops a cycle whose pull request is merged or closed, the refresh
-refreshes its conflicts, a comments retry reads its pull requests and
-leaves out its comments, and `console pr-title` keeps its title.
+The cycle's token cannot write issues. A cycle's `gh issue create`,
+`gh issue edit` and `gh issue comment` are run by the host instead, with the
+app's token, through the relay directory of the cycle (`/run/tehas/relay` in
+the container). A comment goes only on the cycle's own issue or one the cycle
+created, an edit only on an issue the cycle created during that cycle, and a
+cycle has at most 50 such writes. Labels, assignees, milestones, projects,
+state changes, another repository and any text with `<!-- tehas:` in it are
+refused with the reason (see [the relay](/github-app#the-relay-is-a-security-channel)).
 
 A planning turn's and a manual session's container is given
 `~/tehas/state/github-session` read-only at `/run/tehas/github`, never the key
@@ -4373,7 +4372,7 @@ version and runs with the hold there.
 A GitHub login can be renamed, and a login that was freed can be registered by
 someone else. So a login alone does not say who applied a label. Before
 anything moves, `tehas update` asks GitHub for the user id of each login of
-`TEHAS_ALLOWED_LABELERS` and `TEHAS_MILLWRIGHT_LOGIN` (`GET /users/<login>`)
+`TEHAS_ALLOWED_LABELERS` and the millwright (`GET /users/<login>`)
 and records the pairs in `~/tehas/state/account-ids`, one `<login> <id>` a
 line. `install.sh` does the same before its first copy. The pair of a login
 taken off the list stays, so the login, listed again, must still be the same
@@ -4395,8 +4394,8 @@ error. With no id recorded for a login, nothing of it counts until
   out of the settings.
 - GitHub that cannot be asked stops them with 78 as well, before anything is
   installed.
-- With a GitHub App and no `GH_TOKEN`, the ids are asked with the app's
-  token, made from its key as `tehasbot github-token` makes it. That is what a
+- The ids are asked with the app's token, made from its key as
+  `tehasbot github-token` makes it. That is what a
   first `tehas setup` has: the shim is not in place yet. A token that cannot be
   made stops them with 78.
 

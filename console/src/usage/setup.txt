@@ -63,8 +63,8 @@ Usage:
 
 Exit: 0 done; 1 a check or a step failed (a step's own status when it has
 one); 64 an unknown option, --app-id or --app-key-file alone or with
---new-app, or --app-owner or --app-name without it; 78 a setting is missing, malformed, or differs from the one there
-without --force, --token-file, a pasted address without this run's state, a
-key with no app ID (or an app ID with no key) for --new-app, a git config
-file git could not open, or there is no console and no checkout to build it
-from.
+--new-app, or --app-owner or --app-name without it; 78 a setting is missing,
+malformed, or differs from the one there without --force, --token-file, a
+pasted address without this run's state, a key with no app ID (or an app ID
+with no key) for --new-app, a git config file git could not open, or there is
+no console and no checkout to build it from.

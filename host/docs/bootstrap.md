@@ -372,28 +372,23 @@ them; they are here so the error is recognisable if it comes back.
 Not created by the script. All of them go in `~/.config/tehas/`, mode 600,
 never in git.
 
-**The factory's GitHub identity.** Make it a [GitHub App](/github-app): its key
-goes in `~/.config/tehas/github-app.pem`, and tehas makes its tokens itself.
-What follows is for a token instead, which `tehas setup` still asks for and a
-factory without the app settings uses: a token with write access to the product
-repository, in `~/.config/tehas/env` as `GH_TOKEN=...`. What it is used for: reading the queue and label events, relabelling and commenting, editing
-the description of a pull request to say where its preview is, pushing the
-cycle's branch, opening the pull request.
+**The factory's GitHub identity.** A [GitHub App](/github-app). `tehas setup
+--new-app` makes it in your browser, and `tehas setup --app-id <id>
+--app-key-file <key>` takes one you have. Its key goes in
+`~/.config/tehas/github-app.pem`, mode 600, and its ID in `instance.env` as
+`TEHAS_GITHUB_APP_ID`. tehas makes the app's tokens itself, an hour each, and
+nothing on the host holds a long-lived GitHub token. A `GH_TOKEN` in
+`~/.config/tehas/env` is refused. The app is used for reading the queue and
+label events, relabelling and commenting, editing the description of a pull
+request to say where its preview is, pushing the cycle's branch and opening
+the pull request.
 
-- Test it before placing it: `GH_TOKEN=... gh api repos/<owner>/<name>` must
-  answer with `push: true`.
-- A fine-grained token only reaches repositories owned by the account or
-  organisation it names as resource owner. A bot that is a collaborator on a
-  repository in another person's account gets 404 with a fine-grained token,
-  however the collaborator access is set. There the choices are a classic token
-  with the `repo` scope, or moving the repository into an organisation the bot
-  belongs to, where a fine-grained token can be limited to the one repository
-  with Contents, Issues and Pull requests read and write.
-- The token enters the cycle's container. Use one per instance so that it
-  reaches one product only; an app installed on that repository alone does
-  this by itself.
-- Note its expiry. Cycles stop at the push check on that date. An app's tokens
-  have no such date: tehas makes a new one every hour.
+- Check it with `tehasbot github-token --check`: it must say the installation
+  reaches the product repository.
+- The key never enters a cycle's container. A cycle gets a token narrowed to the
+  product repository, with Contents and Pull requests write and Issues read,
+  and the app installed on that repository alone limits the rest.
+- The tokens have no expiry date to note: tehas makes a new one every hour.
 
 **The deploy key.** For a private platform repository, a read-only deploy key:
 

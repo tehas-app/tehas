@@ -809,7 +809,7 @@ holds the issue for that poll.
 
 The millwright's own `tehas:ready` is the one label a park lets through without
 a change to the body, when its comment says the next run is not the run that
-stopped. The hold is lifted when the label came from `TEHAS_MILLWRIGHT_LOGIN`,
+stopped. The hold is lifted when the label came from the millwright,
 the instance gives a cycle images or files (`TEHAS_WORK_IMAGES=1` or
 `TEHAS_WORK_FILES=1`), and the note
 the record would take from that account is one carrying `<!-- tehas:millwright
@@ -1172,14 +1172,12 @@ turn fails before that, or is cut off by a restart of the host, there is no
 session to continue: the bot says so, the issue gets `needs-human-attention`,
 and you apply `tehas:plan` again.
 
-The bot (`TEHAS_BOT_LOGIN` with an app, otherwise the token's account) is never one of the allowed labellers. If it is listed in
+The bot (the app's login) is never one of the allowed labellers. If it is listed in
 `TEHAS_ALLOWED_LABELERS`, the dispatcher stops with an error rather than let
 the bot approve its own work: every poll reads its own login first, before it
 reads a label or changes one. The Protolab refuses the same list, with an error
 before it reads, builds or removes a page. A poll or a pass that cannot read
-its own login stops there and does nothing else. Without a GitHub App, the cycle token's account, `TEHAS_CYCLE_LOGIN`, is the factory's own in the
-same way: the settings load refuses it in `TEHAS_ALLOWED_LABELERS`, since a
-cycle acts as it from inside its container.
+its own login stops there and does nothing else. A cycle acts as the same login from inside its container, so there is no second account to refuse.
 
 
 ### The dispatcher in Rust
@@ -2062,17 +2060,16 @@ written as `how: "fixer"` still counts as the millwright's, and
 [`tehas api`](/api#tehas-api) still lists `fixer-grant` and `fixer` beside
 the new names.
 
-- **It is an account of its own**, named by `TEHAS_MILLWRIGHT_LOGIN`. It may
-  be a person's account or a GitHub App's. An App's login works in either
-  form, `tehas-millwright[bot]` or `tehas-millwright`: GitHub's REST API names
-  an App with `[bot]` and its GraphQL API without, so tehas takes the two as
-  one account, and no other. It is never the bot, because every agent posts
-  as the bot: loading the settings stops with 78 when it is
-  `TEHAS_BOT_LOGIN` in either form, and a poll stops with 78 when the bot's
-  own login is the millwright's. It is never one of `TEHAS_ALLOWED_LABELERS`:
-  loading the settings stops with 78. Unset, there is no millwright, and the
-  account's labels count as any outsider's. The approval record names an
-  App millwright without `[bot]`.
+- **It is the bot.** The millwright is the factory's GitHub App, the login in
+  `~/tehas/state/github/login`; it is not a setting. GitHub's REST API names an
+  App with `[bot]` and its GraphQL API without, so tehas takes the two as one
+  account, and no other. Because every agent posts as the bot, a `tehas:ready`
+  from the bot counts only within the grant below, and never as a person's
+  approval. It is never one of `TEHAS_ALLOWED_LABELERS`: loading the settings
+  stops with 78. Before the app's login is known there is no millwright, and
+  the account's labels count as any outsider's. `TEHAS_MILLWRIGHT_LOGIN` in
+  `instance.env` prints a warning and is ignored. The approval record names
+  the millwright without `[bot]`.
 - **Its `tehas:ready` starts a cycle only within its grant**: a person
   approved an earlier cycle of the issue, the body is still the body that
   person approved, nobody outside the list changed the title or text since,
