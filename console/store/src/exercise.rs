@@ -7,11 +7,15 @@
 //! a host runs answers 64 to this verb as to any it does not know.
 //!
 //!   store test-write --batch <n> --rows <r> [--hold]
-//!     Writes r rows of branch_checks, named test-write-<n> with head_sha 0 to
-//!     r-1 and a note of 1 KiB, in one transaction under the write lock and busy
-//!     timeout every verb that writes takes. With --hold it prints
-//!     {"held":true} once the rows are written and waits for stdin to close
-//!     before it commits, so a test can kill it mid-transaction.
+//!     Writes r rows of sweep_log, keyed (issue, at, what): the batch is the
+//!     issue, `at` is the call's now, and `what` is test-write-<n>-<row> for 0
+//!     to r-1, with action kept and reason concurrency. sweep_log is a table a
+//!     real verb writes (`sweep-locks`) and has no foreign key, so the writer
+//!     reaches no row of the host's and no batch collides with another. It
+//!     writes in one transaction under the write lock and busy timeout every
+//!     verb that writes takes. With --hold it prints {"held":true} once the
+//!     rows are written and waits for stdin to close before it commits, so a
+//!     test can kill it mid-transaction.
 
 use crate::db;
 use rusqlite::params;
@@ -62,17 +66,19 @@ pub fn write(file: &Path, w: &Write, now: i64) -> Result<String, (u8, String)> {
     let fail = |e| crate::line(db::classify(e));
     // `lock` leaves BEGIN IMMEDIATE open; a return before COMMIT rolls it back.
     let conn = db::lock(file).map_err(crate::line)?;
-    let name = format!("test-write-{}", w.batch);
-    let note = "x".repeat(1024);
     let mut insert = conn
         .prepare(
-            "INSERT INTO branch_checks (name, head_sha, at, state, note) \
-             VALUES (?1, ?2, ?3, 'pending', ?4)",
+            "INSERT INTO sweep_log (issue, at, action, what, reason) \
+             VALUES (?1, ?2, 'kept', ?3, 'concurrency')",
         )
         .map_err(fail)?;
     for row in 0..w.rows {
         insert
-            .execute(params![name, row.to_string(), now, note])
+            .execute(params![
+                w.batch as i64,
+                now,
+                format!("test-write-{}-{row}", w.batch)
+            ])
             .map_err(fail)?;
     }
     drop(insert);
