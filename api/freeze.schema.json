@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/tehas-app/tehas/api/freeze.schema.json",
+  "title": "tehas freeze and tehas thaw --json",
+  "description": "The object tehas freeze <issue> --json and tehas thaw <issue> --json print, version 1: one issue and what the freeze files of its cycle say. host/docs/api.md says what each field means. Every object is closed, so a field tehas adds must be added here too; a program that reads the object still accepts fields it does not know. The keys print in this order. test/json_contract_test.sh checks the sample beside this file against it.",
+  "type": "object",
+  "required": ["api", "asked", "frozen", "issue", "running"],
+  "additionalProperties": false,
+  "properties": {
+    "api": {"const": 1},
+    "asked": {"type": "boolean"},
+    "frozen": {"type": "boolean"},
+    "issue": {"type": "integer", "minimum": 1},
+    "running": {"type": "boolean"}
+  }
+}

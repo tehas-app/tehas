@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/tehas-app/tehas/api/api.schema.json",
+  "title": "tehas api --json",
+  "description": "The object tehas api --json prints, version 1: what this factory speaks, for a program to ask first. host/docs/api.md says what each field means. Every object is closed, so a field tehas adds must be added here too; a program that reads the object still accepts fields it does not know. The list of features is open: a release adds a word to it without changing this file. test/json_contract_test.sh checks the samples beside this file against it.",
+  "type": "object",
+  "required": ["api", "tehas", "commit", "repo", "features", "millwright", "fixer", "poll"],
+  "additionalProperties": false,
+  "properties": {
+    "api": {"const": 1},
+    "tehas": {"type": ["string", "null"]},
+    "commit": {"type": ["string", "null"]},
+    "repo": {"type": "string"},
+    "features": {"type": "array", "items": {"type": "string"}},
+    "millwright": {"type": ["string", "null"]},
+    "fixer": {"type": ["string", "null"]},
+    "poll": {
+      "type": ["object", "null"],
+      "required": ["last", "hour"],
+      "additionalProperties": false,
+      "properties": {
+        "last": {
+          "type": "object",
+          "required": ["at", "wallMs", "cpuMs", "gh", "writes", "starts", "kinds", "ageMin"],
+          "additionalProperties": false,
+          "properties": {
+            "at": {"type": "integer", "minimum": 0},
+            "wallMs": {"type": "integer", "minimum": 0},
+            "cpuMs": {"type": "integer", "minimum": 0},
+            "gh": {"type": "integer", "minimum": 0},
+            "writes": {"type": ["integer", "null"], "minimum": 0},
+            "starts": {"type": ["integer", "null"], "minimum": 0},
+            "kinds": {
+              "type": ["object", "null"],
+              "required": ["label", "comment", "edit", "other"],
+              "additionalProperties": false,
+              "properties": {
+                "label": {"type": "integer", "minimum": 0},
+                "comment": {"type": "integer", "minimum": 0},
+                "edit": {"type": "integer", "minimum": 0},
+                "other": {"type": "integer", "minimum": 0}
+              }
+            },
+            "ageMin": {"type": "integer", "minimum": 0}
+          }
+        },
+        "hour": {
+          "type": "object",
+          "required": ["polls", "cpuMs", "writes"],
+          "additionalProperties": false,
+          "properties": {
+            "polls": {"type": "integer", "minimum": 0},
+            "cpuMs": {"type": "integer", "minimum": 0},
+            "writes": {"type": ["integer", "null"], "minimum": 0}
+          }
+        }
+      }
+    }
+  }
+}

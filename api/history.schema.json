@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/tehas-app/tehas/api/history.schema.json",
+  "title": "tehas history --json",
+  "description": "The object tehas history --json prints, version 1: the cycles and planning turns that ended, oldest first. host/docs/api.md says what each field means. Every object is closed, so a field tehas adds must be added here too; a program that reads the object still accepts fields it does not know. A line is a cycle (kind work) or a planning turn (kind plan) and holds the fields of the end it lists: a field the line does not have is left out, never null, so only cursor, kind, issue, ended, status and outcome are required. A field that is there holds a value. test/json_contract_test.sh checks the samples beside this file against it.",
+  "type": "object",
+  "required": ["api", "cycles", "next"],
+  "additionalProperties": false,
+  "properties": {
+    "api": {"const": 1},
+    "cycles": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["cursor", "kind", "issue", "ended", "status", "outcome"],
+        "additionalProperties": false,
+        "properties": {
+          "cursor": {"type": "string", "pattern": "^[0-9]{1,10}-[0-9]{1,9}-[0-9]{1,15}$"},
+          "kind": {"enum": ["work", "plan"]},
+          "issue": {"type": "integer", "minimum": 1},
+          "ended": {"type": "string", "format": "date-time"},
+          "started": {"type": "string", "format": "date-time"},
+          "status": {"type": "integer", "minimum": 0},
+          "outcome": {"type": "string", "minLength": 1},
+          "turn": {"type": "integer", "minimum": 1},
+          "step": {"type": "string", "minLength": 1},
+          "stepNumber": {"type": "integer", "minimum": 1},
+          "stepTotal": {"type": "integer", "minimum": 1},
+          "round": {"type": "integer", "minimum": 1},
+          "cap": {"type": "string", "minLength": 1},
+          "parkReason": {"type": "string", "minLength": 1},
+          "failureKind": {"type": "string", "minLength": 1},
+          "failureCause": {"type": "string", "minLength": 1},
+          "provider": {"type": "boolean"},
+          "parked": {"type": "boolean"},
+          "repeat": {"type": "integer", "minimum": 1},
+          "pr": {"type": "string", "minLength": 1},
+          "by": {"type": "string", "minLength": 1},
+          "how": {"type": "string", "minLength": 1},
+          "label": {"type": "string", "minLength": 1},
+          "auto": {"type": "boolean", "const": true},
+          "filed": {"type": "array", "items": {"type": "string", "minLength": 1}}
+        }
+      }
+    },
+    "next": {"type": ["string", "null"]}
+  }
+}

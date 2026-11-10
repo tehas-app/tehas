@@ -1036,9 +1036,19 @@ t_record() { # <home> <issue> <JSON>
   t_started "$t_home" "$t_n"
 }
 
-t_history_end() { # <home> <issue> <epoch of the end> [<fields>]
+t_history_end() { # <home> <issue> <epoch of the end> [<fields>] [<step no> <step total> <round>]
   local home=$1 n=$2 e=$3 x=${4:-'{}'} started a
-  local -a t_end=()
+  local -a t_end=() t_at_step=()
+  # The two sides of an end that names where the step was: the heartbeat of the
+  # step, and the end itself. The store copies the position of the last
+  # heartbeat of the step into the line of history (console/src/cycle.rs), so an
+  # end given a step number, a total and a round is heard giving a heartbeat at
+  # that position first, at the same moment as the end and of the same step, as
+  # the supervisor of a cycle does on a host. Three numbers or none: the caller
+  # who names one names all three.
+  if [ "$#" -ge 7 ]; then
+    t_at_step=(--step-number "$5" --step-total "$6" --round "$7")
+  fi
   started=$(jq -r --argjson e "$e" '.started // ($e - 60)' <<<"$x")
   a=$(TEHAS_HOME=$home "$T_STORE" cycle-show "$n" | jq '.cycle.attempt // 0')
   if [ "$(jq -r '.by // ""' <<<"$x")" != "" ]; then
@@ -1058,6 +1068,10 @@ t_history_end() { # <home> <issue> <epoch of the end> [<fields>]
     (if .provider == true then "--provider" else empty end),
     (if .parked == true then "--parked" else empty end),
     (if .pr != null then ("--pr", (.pr | sub(".*/"; ""))) else empty end)' <<<"$x")
+  [ "${#t_at_step[@]}" = 0 ] ||
+    t_at "$e" cycle-heartbeat "$n" --running --step "$(jq -r '.step // ""' <<<"$x")" \
+      --status "$(jq -r '.status // "running"' <<<"$x")" "${t_at_step[@]}" >/dev/null ||
+      t_bad "t_history_end: the store refused the heartbeat of #$n"
   TEHAS_HOME=$home TEHAS_STORE_TEST_NOW=$e flock -w 5 "$home/state/cycles/$n.lock" "$T_STORE" cycle-end "$n" \
     --attempt $((a + 1)) "${t_end[@]}" >/dev/null || t_bad "t_history_end: the store refused the end of #$n"
 }

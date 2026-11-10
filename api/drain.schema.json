@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/tehas-app/tehas/api/drain.schema.json",
+  "title": "tehas drain --json",
+  "description": "The object tehas drain --json prints, version 1: the limit of no new work it has set, and what still runs. host/docs/api.md says what each field means. Every object is closed, so a field tehas adds must be added here too; a program that reads the object still accepts fields it does not know. limit holds the same reading as api/limit.schema.json without api, and cycles and plan are always there because drain always writes both. test/json_contract_test.sh checks the sample beside this file against it.",
+  "type": "object",
+  "required": ["api", "drained", "running", "limit"],
+  "additionalProperties": false,
+  "properties": {
+    "api": {"const": 1},
+    "drained": {"type": "boolean"},
+    "running": {"type": "array", "items": {"type": "integer", "minimum": 1}},
+    "limit": {
+      "type": "object",
+      "required": ["state", "cycles", "plan", "reason"],
+      "additionalProperties": false,
+      "properties": {
+        "state": {"enum": ["none", "ok", "expired", "unreadable"]},
+        "cycles": {"type": "integer", "const": 0},
+        "plan": {"type": "boolean", "const": false},
+        "reason": {"type": "string", "minLength": 1, "maxLength": 200}
+      }
+    }
+  }
+}

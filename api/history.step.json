@@ -1,0 +1,44 @@
+{
+  "api": 1,
+  "cycles": [
+    {
+      "cursor": "1760700000-12-1",
+      "kind": "work",
+      "issue": 12,
+      "ended": "2025-10-17T11:20:00Z",
+      "started": "2025-10-17T10:20:00Z",
+      "status": 10,
+      "outcome": "handoff",
+      "step": "review",
+      "stepNumber": 9,
+      "stepTotal": 9,
+      "round": 2,
+      "cap": "awaiting-human-merge",
+      "parkReason": "merge",
+      "failureKind": "review",
+      "failureCause": "findings-open",
+      "provider": false,
+      "parked": true,
+      "pr": "https://github.com/acme/widget/pull/9",
+      "by": "alice",
+      "how": "label"
+    },
+    {
+      "cursor": "1760700300-7-2",
+      "kind": "plan",
+      "issue": 7,
+      "ended": "2025-10-17T11:25:00Z",
+      "started": "2025-10-17T11:20:00Z",
+      "status": 0,
+      "outcome": "finished",
+      "turn": 1,
+      "by": "alice",
+      "label": "tehas:refine",
+      "auto": true,
+      "filed": [
+        "https://github.com/acme/widget/issues/41"
+      ]
+    }
+  ],
+  "next": "1760700300-7-2"
+}

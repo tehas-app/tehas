@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/tehas-app/tehas/api/panel.schema.json",
+  "title": "tehas panel --json",
+  "description": "The object tehas panel --json prints, version 1, the same one state/panels.json and live/panels.json hold. host/docs/api.md says what each field means and what the command refuses. Every object is closed, so a field tehas adds must be added here too; a program that reads the object still accepts fields it does not know. test/json_contract_test.sh checks the samples beside this file against it.",
+  "type": "object",
+  "required": ["api", "panels"],
+  "additionalProperties": false,
+  "properties": {
+    "api": {"const": 1},
+    "panels": {
+      "type": "array",
+      "maxItems": 4,
+      "items": {
+        "type": "object",
+        "required": ["id", "label", "url"],
+        "additionalProperties": false,
+        "properties": {
+          "id": {"type": "string", "pattern": "^[a-z0-9-]{1,32}$"},
+          "label": {"type": "string", "minLength": 1, "maxLength": 24},
+          "url": {"type": "string", "pattern": "^https?://[^@]{1,511}$"}
+        }
+      }
+    }
+  }
+}

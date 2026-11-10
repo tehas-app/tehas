@@ -161,6 +161,13 @@ status` does: a store that is busy or missing is `"poll": null`, not a
 failure of the command. Exit 0; 64 on an argument it does not know; 78 when the
 settings are missing or malformed.
 
+The source holds a JSON Schema of this object, `api/api.schema.json`, and two
+samples made by the code that prints it: `api/api.sample.json`, a factory
+installed from a release with a millwright and one poll on record, and
+`api/api.bare.json`, a new factory with none of the three, which is where
+`tehas`, `commit`, `millwright` and `poll` are `null`. Its tests keep the three
+in step, and a program can copy the samples into its own tests.
+
 ## tehas status --json
 
 ```
@@ -312,6 +319,13 @@ it then is, and `--json` works with the show form only.
 - `set` replaces the whole limit. The same arguments twice leave the same
   limit, and `clear` without a limit is fine.
 
+The source holds a JSON Schema of this object, `api/limit.schema.json`, and two
+samples made by the code that prints it: `api/limit.sample.json`, a factory
+under a limit of one cycle with planning held and an expiry, and
+`api/limit.empty.json`, a factory with no limit file, whose `state` is `none`.
+Its tests keep the three in step, and a program can copy the samples into its
+own tests.
+
 Exit 0; 64 on a bad argument (a `--until` in the past included), which
 writes nothing; 78 without an instance.
 
@@ -329,6 +343,14 @@ The same as `tehas limit set --cycles 0 --plan off --reason draining`, a limit
 that does not expire, then with `--wait` waiting up to that many seconds for
 the running cycles to end. `running` lists the issues whose cycles still run.
 `tehas limit clear` ends it.
+
+The source holds a JSON Schema of this object, `api/drain.schema.json`, and a
+sample made by the code that prints it, `api/drain.sample.json`, a factory with
+nothing running when it was drained. `limit` holds the same reading as
+[`tehas limit --json`](#tehas-limit) without `api`, and `cycles` and `plan`
+are always there because drain always writes both; `until` is never there
+because drain sets a limit that does not expire. Its tests keep the two in
+step, and a program can copy the sample into its own tests.
 
 Exit 0 when no cycle is running; 1 when some still are at the end of the
 wait; 64 on a bad argument; 78 without an instance.
@@ -366,6 +388,13 @@ running cycle, a freeze asked twice, or a thaw of a cycle that is not frozen.
 So a caller that asks every minute changes nothing by asking again. Exit 1
 when the request could not be written or removed; 64 on a bad argument; 78
 without an instance. `tehas api` lists the feature `freeze`.
+
+The source holds a JSON Schema of this object, `api/freeze.schema.json`, and a
+sample made by the code that prints it, `api/freeze.sample.json`: a freeze of
+#7, whose cycle holds its lock, with the request written and the watch not yet
+back, which is where `running` and `asked` are true and `frozen` is false. Its
+tests keep the two in step, and a program can copy the sample into its own
+tests.
 
 ## Industry alerts
 
@@ -489,6 +518,18 @@ exit status. A field the line does not have is left out,
 never null.
 
 Without `--json`, one line each, oldest first.
+
+The source holds a JSON Schema of this object, `api/history.schema.json`, and
+three samples made by the code that prints it: `api/history.step.json`, a cycle
+at the last step of the second round of a handoff and a planning turn that
+filed an issue, which between them hold the fields of both kinds of line;
+`api/history.parks.json`, four ends of one issue, the last two of them parks
+that stopped exactly alike, which is where `repeat` comes from; and
+`api/history.empty.json`, a store with nothing ended, whose `cycles` is empty
+and whose `next` is `null`. A line holds the fields of its own kind: a cycle
+has no `turn`, `label`, `filed` or `auto` and a planning turn has none of the
+fields of a step. Its tests keep the four in step, and a program can copy the
+samples into its own tests.
 
 Exit 0 when it printed, also with nothing to list; 1 when the state store was
 busy, which prints nothing; 64 on a bad argument, which reads nothing; 78
@@ -930,6 +971,11 @@ and no context but what is in the URL. A page that refuses to be framed shows
 an empty frame; the dock's "Open in a new tab" link still works.
 
 The checks, the list and the files are the console's (`console/src/panel.rs`).
+
+The source holds a JSON Schema of this object, `api/panel.schema.json`, and two
+samples made by the code that prints it: `api/panel.sample.json`, a factory
+with one panel, and `api/panel.empty.json`, one with none. Its tests keep the
+three in step, and a program can copy the samples into its own tests.
 
 Exit 0 done; 1 the list could not be read or written; 64 a bad argument, a fifth
 panel or a URL on `TEHAS_DOMAIN`, which writes nothing; 78 without an instance.

@@ -192,7 +192,7 @@ host.
 | `lib/improve-prompt.md` | The prompt the improvement loop's analyst reads |
 | `lib/paths.sh` | The home of each tool a host installs, and the `PATH` that finds them |
 | `lib/github-app.sh` | A login shell as the factory's GitHub App |
-| `api/` | A JSON Schema of `tehas status --json` and two samples the tests make from the code; a program that reads the object copies them into its own tests |
+| `api/` | A JSON Schema of each `--json` object a command prints, and the samples the tests make from the code that prints it; a program that reads an object copies its samples into its own tests |
 | `host/` | Everything else that is installed: units, the docs server, the sandbox image, the manual |
 | `preview/` | What `tehasbot preview` builds for a pull request of this repository |
 | `install.sh`, `bootstrap.sh` | Install tehas on a host, and prepare a host's tools |
