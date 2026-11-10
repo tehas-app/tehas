@@ -21,7 +21,7 @@ use crate::apply::Writer;
 use crate::decide::{iso, iso_now};
 use crate::read::build::{fill, snapshot, Sources};
 use crate::read::host::hostname;
-use crate::read::run::{read_gh_token, run, Calls, RetryPolicy};
+use crate::read::run::{read_gh_token, Calls, RetryPolicy};
 use crate::{decide, Settings, Snapshot};
 use serde_json::{json, Value};
 use std::fs::{File, OpenOptions};
@@ -109,27 +109,38 @@ fn pass(lines: &[String]) {
     }
 }
 
-/// The poll's own CPU and its children's, as bash's `times` prints them.
-fn times() -> String {
-    let ticks: f64 = run("getconf", &["CLK_TCK".into()], Duration::from_secs(5))
-        .out
-        .trim()
-        .parse()
-        .unwrap_or(100.0);
-    let stat = std::fs::read_to_string("/proc/self/stat").unwrap_or_default();
+/// The kernel's clock ticks per second, AT_CLKTCK of a process's auxiliary
+/// vector (/proc/<pid>/auxv): what sysconf(_SC_CLK_TCK) answers, read without
+/// libc. None when the vector does not hold it.
+fn clock_ticks_of(auxv: &[u8]) -> Option<u64> {
+    const AT_CLKTCK: u64 = 17;
+    const WORD: usize = std::mem::size_of::<usize>();
+    let word = |c: &[u8]| c.try_into().map(usize::from_ne_bytes).unwrap_or(0) as u64;
+    auxv.chunks_exact(2 * WORD)
+        .map(|pair| (word(&pair[..WORD]), word(&pair[WORD..])))
+        .find(|&(key, _)| key == AT_CLKTCK)
+        .map(|(_, v)| v)
+        .filter(|&v| v > 0)
+}
+
+/// This process's clock ticks per second; 100, Linux's USER_HZ, when its
+/// auxiliary vector cannot be read.
+fn clock_ticks() -> u64 {
+    clock_ticks_of(&std::fs::read("/proc/self/auxv").unwrap_or_default()).unwrap_or(100)
+}
+
+/// The CPU time in milliseconds of a process and of the children it waited
+/// for, from its /proc/<pid>/stat: utime, stime, cutime and cstime, fields 14
+/// to 17. 0 for a stat it cannot read.
+fn cpu_ms(stat: &str, ticks: u64) -> i64 {
     let rest: Vec<&str> = stat
         .rsplit_once(')')
         .map(|(_, r)| r.split_whitespace().collect())
         .unwrap_or_default();
-    let t = |i: usize| -> String {
-        let s = rest
-            .get(i)
-            .and_then(|v| v.parse::<f64>().ok())
-            .unwrap_or(0.0)
-            / ticks;
-        format!("{}m{:.3}s", (s / 60.0).floor(), s % 60.0)
-    };
-    format!("{} {}\n{} {}\n", t(11), t(12), t(13), t(14))
+    let sum: u64 = (11..15)
+        .filter_map(|i| rest.get(i)?.parse::<u64>().ok())
+        .sum();
+    (sum.saturating_mul(1000) / ticks.max(1)) as i64
 }
 
 /// The records of an older tehas, which install.sh imports: one still here
@@ -433,17 +444,13 @@ impl End<'_> {
             w.status(&mut printed);
             pass(&printed);
         }
-        let state = self.home.join("state");
-        let tally = state.join("poll-gh.tally");
-        let cpu = state.join("poll.times");
-        let _ = std::fs::write(&tally, "\n".repeat(self.gh as usize));
-        let _ = std::fs::write(&cpu, times());
         let started = format!("{:.6}", self.started);
-        let (t, c) = (
-            tally.to_string_lossy().into_owned(),
-            cpu.to_string_lossy().into_owned(),
-        );
-        let writes = state
+        let stat = std::fs::read_to_string("/proc/self/stat").unwrap_or_default();
+        let cpu = cpu_ms(&stat, clock_ticks()).to_string();
+        let gh = self.gh.to_string();
+        let writes = self
+            .home
+            .join("state")
             .join("github-writes.log")
             .to_string_lossy()
             .into_owned();
@@ -452,10 +459,10 @@ impl End<'_> {
             "poll-record",
             "--started",
             &started,
-            "--times",
-            &c,
-            "--tally",
-            &t,
+            "--cpu-ms",
+            &cpu,
+            "--gh",
+            &gh,
             "--writes-log",
             &writes,
             "--starts",
@@ -1153,6 +1160,31 @@ fn sweep_locks(w: &mut Writer, dry: bool) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_cpu_is_the_four_times_of_the_stat_in_milliseconds() {
+        // A command name with a space and a parenthesis, as comm may hold.
+        let stat = "42 (a (b) c) S 1 42 42 0 -1 4194560 100 0 0 0 12 3 120 15 20 0 1 0";
+        assert_eq!(super::cpu_ms(stat, 100), 1500);
+        assert_eq!(super::cpu_ms(stat, 1000), 150);
+        assert_eq!(super::cpu_ms("", 100), 0);
+        let own = std::fs::read_to_string("/proc/self/stat").unwrap();
+        assert!(super::cpu_ms(&own, super::clock_ticks()) >= 0);
+    }
+
+    #[test]
+    fn the_clock_ticks_are_at_clktck_of_the_auxiliary_vector() {
+        let auxv: Vec<u8> = [6usize, 4096, 17, 250, 0, 0]
+            .iter()
+            .flat_map(|w| w.to_ne_bytes())
+            .collect();
+        assert_eq!(super::clock_ticks_of(&auxv), Some(250));
+        assert_eq!(super::clock_ticks_of(&auxv[..16]), None);
+        assert_eq!(super::clock_ticks_of(&[]), None);
+        // The kernel gives every process USER_HZ, 100 where tehas runs.
+        let own = std::fs::read("/proc/self/auxv").unwrap();
+        assert_eq!(super::clock_ticks_of(&own), Some(100));
+    }
+
     #[test]
     fn the_poll_says_each_warning_of_the_refresh_read() {
         let snap = serde_json::json!({"refresh_warn": ["WARN: a", "WARN: b"]});
