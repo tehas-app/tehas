@@ -381,3 +381,5 @@ t_eq "$t_rc" 78
 t_contains "$t_out" "tehas: ids record: no GitHub token for the app"
 t_eq "$(t_calls gh)" ""
 
+
+t_done
