@@ -36,15 +36,15 @@ t_eq "$(started)" "8 9 3 "
 
 t_case "tehas:next from the fixer counts"
 reset
-slots 2 TEHAS_MILLWRIGHT_LOGIN=tehas-fixer
+slots 2
 queue 3 "9 tehas:next"
-label_events 9 tehas:next=tehas-fixer
+label_events 9 tehas:next=tehas-bot
 t_run "$dispatch"
 t_eq "$(started)" "9 3 "
 
 t_case "tehas:next from an outsider is ignored, and the poll says so"
 reset
-slots 2 TEHAS_MILLWRIGHT_LOGIN=tehas-fixer
+slots 2
 queue 3 "9 tehas:next"
 label_events 9 tehas:next=alice tehas:next=mallory
 t_run "$dispatch"
@@ -59,15 +59,6 @@ label_events 9 tehas:next=alice -tehas:next=alice
 t_run "$dispatch"
 t_eq "$(started)" "3 9 "
 t_contains "$t_out" "ignore #9: tehas:next was taken off by 'alice' since it was applied"
-
-t_case "with no fixer on the instance, the fixer account's tehas:next is an outsider's"
-reset
-slots 2
-queue 3 "9 tehas:next"
-label_events 9 tehas:next=tehas-fixer
-t_run "$dispatch"
-t_eq "$(started)" "3 9 "
-t_contains "$t_out" "ignore #9: tehas:next was applied by 'tehas-fixer', not an allowed account"
 
 t_case "a blocked issue waits while its blocker is open, and the slot goes to the next one"
 reset
@@ -104,16 +95,16 @@ t_contains "$(t_calls gh)" "b34: issueOrPullRequest(number: 34)"
 
 t_case "a blocked issue that starts is recorded as the ready label's, not the blocked label's"
 reset
-slots 1 TEHAS_MILLWRIGHT_LOGIN=tehas-fixer
+slots 1
 queue "7 tehas:blocked"
-label_events 7 tehas:blocked=tehas-fixer
-notes 7 "$(bnote 10 tehas-fixer '<!-- tehas:blocked by=12 -->')"
+label_events 7 tehas:blocked=tehas-bot
+notes 7 "$(bnote 10 tehas-bot '<!-- tehas:blocked by=12 -->')"
 states 12=CLOSED
 t_run "$dispatch"
 t_eq "$(started)" "7 "
 t_eq "$(t_row cycle-show 7 -- .cycle.started_by)" alice
 t_eq "$(approval '"\(.by) \(.at)"')" "alice 2026-10-01T00:00:00Z"
-t_lacks "$t_out" "authorized by @tehas-fixer"
+t_lacks "$t_out" "authorized by @tehas-bot"
 
 t_case "one open blocker of two holds the issue"
 reset
@@ -127,10 +118,10 @@ t_contains "$t_out" "wait #7: tehas:blocked holds it: #34 is open"
 
 t_case "the fixer's tehas:blocked and its comment count"
 reset
-slots 1 TEHAS_MILLWRIGHT_LOGIN=tehas-fixer
+slots 1
 queue "7 tehas:blocked"
-label_events 7 tehas:blocked=tehas-fixer
-notes 7 "$(bnote 10 tehas-fixer '<!-- tehas:blocked by=12 -->')"
+label_events 7 tehas:blocked=tehas-bot
+notes 7 "$(bnote 10 tehas-bot '<!-- tehas:blocked by=12 -->')"
 states 12=OPEN
 t_run "$dispatch"
 t_eq "$(started)" ""
@@ -138,37 +129,37 @@ t_contains "$t_out" "wait #7: tehas:blocked holds it: #12 is open"
 
 # A GitHub App as the fixer: its label events are REST's, <slug>[bot], and its
 # comments GraphQL's, <slug>. Either form of the setting is that one account.
-for setting in tehas-fixer 'tehas-fixer[bot]'; do
-  t_case "an App fixer set as $setting: its tehas:next counts"
+{
+  t_case "the app as the fixer: its tehas:next counts"
   reset
-  slots 2 "TEHAS_MILLWRIGHT_LOGIN=$setting"
+  slots 2
   queue 3 "9 tehas:next"
-  label_events 9 'tehas:next=tehas-fixer[bot]'
+  label_events 9 'tehas:next=tehas-bot[bot]'
   t_run "$dispatch"
   t_eq "$(started)" "9 3 "
 
-  t_case "an App fixer set as $setting: its tehas:blocked and its comment count"
+  t_case "the app as the fixer: its tehas:blocked and its comment count"
   reset
-  slots 1 "TEHAS_MILLWRIGHT_LOGIN=$setting"
+  slots 1
   queue "7 tehas:blocked"
-  label_events 7 'tehas:blocked=tehas-fixer[bot]'
-  notes 7 "$(bnote 10 tehas-fixer '<!-- tehas:blocked by=12 -->')"
+  label_events 7 'tehas:blocked=tehas-bot[bot]'
+  notes 7 "$(bnote 10 tehas-bot '<!-- tehas:blocked by=12 -->')"
   states 12=OPEN
   t_run "$dispatch"
   t_eq "$(started)" ""
   t_contains "$t_out" "wait #7: tehas:blocked holds it: #12 is open"
 
-  t_case "an App fixer set as $setting: a comment by a name like its own names no blockers"
+  t_case "the app as the fixer: a comment by a name like its own names no blockers"
   reset
-  slots 1 "TEHAS_MILLWRIGHT_LOGIN=$setting"
+  slots 1
   queue "7 tehas:blocked"
-  label_events 7 'tehas:blocked=tehas-fixer[bot]'
-  notes 7 "$(bnote 10 tehas-fixer2 '<!-- tehas:blocked by=12 -->')"
+  label_events 7 'tehas:blocked=tehas-bot[bot]'
+  notes 7 "$(bnote 10 tehas-bot2 '<!-- tehas:blocked by=12 -->')"
   states 12=OPEN
   t_run "$dispatch"
   t_eq "$(started)" ""
   t_contains "$t_out" "wait #7: tehas:blocked holds it: no comment of an allowed account or the fixer names its blockers"
-done
+}
 
 t_case "tehas:blocked from an outsider is ignored, and its blockers are not asked about"
 reset
@@ -179,16 +170,6 @@ states 12=OPEN
 t_run "$dispatch"
 t_eq "$(started)" "7 "
 t_contains "$t_out" "ignore #7: tehas:blocked was applied by 'mallory', not an allowed account"
-
-t_case "with no fixer on the instance, the fixer account's tehas:blocked is an outsider's"
-reset
-queue "7 tehas:blocked"
-label_events 7 tehas:blocked=tehas-fixer
-notes 7 "$(bnote 10 tehas-fixer '<!-- tehas:blocked by=12 -->')"
-states 12=OPEN
-t_run "$dispatch"
-t_eq "$(started)" "7 "
-t_contains "$t_out" "ignore #7: tehas:blocked was applied by 'tehas-fixer', not an allowed account"
 
 t_case "tehas:blocked taken off since it was applied holds nothing"
 reset
@@ -342,10 +323,10 @@ t_lacks "$(t_calls gh)" "issue edit 7 "
 
 t_case "tehas:blocked alone from the fixer holds the issue but does not start it"
 reset
-slots 1 TEHAS_MILLWRIGHT_LOGIN=tehas-fixer
+slots 1
 alone 7
-blocked_by 7 tehas-fixer
-notes 7 "$(bnote 10 tehas-fixer '<!-- tehas:blocked by=12 -->')"
+blocked_by 7 tehas-bot
+notes 7 "$(bnote 10 tehas-bot '<!-- tehas:blocked by=12 -->')"
 states 12=CLOSED
 t_run "$dispatch"
 t_eq "$(started)" ""
@@ -456,8 +437,8 @@ t_eq "$(jq -c '{waiting, oldest}' "$demand_file")" '{"waiting":1,"oldest":"2026-
 
 t_case "demand: the fixer's label waits like a person's"
 reset
-slots 1 TEHAS_MILLWRIGHT_LOGIN=tehas-fixer
-ready_at 7 tehas-fixer 2026-10-17T10:00:00Z
+slots 1
+ready_at 7 tehas-bot 2026-10-17T10:00:00Z
 hold 5
 t_run "$dispatch"
 release
