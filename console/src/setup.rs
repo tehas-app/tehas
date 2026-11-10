@@ -528,10 +528,9 @@ fn files(dir: &Path, args: &[String]) -> Result<Written, Fail> {
         // token is kept in no file.
         let given_app = github::App {
             id: g.app_id.clone(),
-            installation: g.app_inst.clone(),
             key: PathBuf::from(&g.app_key_file),
         };
-        let mint = given_app.mint(None).ok_or_else(|| {
+        let mint = given_app.mint(&g.app_inst, None).ok_or_else(|| {
             Die("the app's key could not make a token; nothing was written".into())
         })?;
         let mint: Value = serde_json::from_slice(&mint).unwrap_or_default();

@@ -60,7 +60,7 @@ pub fn require(names: &[&str]) -> Result<(), u8> {
 }
 
 /// The login in the text of state/github/login: one line, `<slug>[bot]`.
-pub(crate) fn login_of(text: &[u8]) -> Option<String> {
+pub fn login_of(text: &[u8]) -> Option<String> {
     let line = String::from_utf8_lossy(text);
     let line = line.lines().next()?.trim();
     (line.ends_with("[bot]") && line.len() > "[bot]".len() && !line.contains(char::is_whitespace))
