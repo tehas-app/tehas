@@ -8,20 +8,13 @@ use crate::read::host::held;
 use crate::read::run::run_quiet;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 /// What a stop does next.
 pub(super) enum Then {
     Go,
     /// The store cannot be used: the poll ends with 78.
     End,
-}
-
-fn now() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
 }
 
 impl Writer {
@@ -81,7 +74,7 @@ impl Writer {
             log.push(format!("WARN: {why}, but the state store's record of it does not read as one, so the poll asks nothing this time"));
             return Then::Go;
         };
-        match quiet_due(times, asked, now()) {
+        match quiet_due(times, asked, tehas_core::time::now() as u64) {
             "wait" => return Then::Go,
             "stop" => log.push(format!("WARN: {why}: stopping {unit}")),
             "again" => log.push(format!("WARN: {why}: the poll asks {unit} to stop again")),

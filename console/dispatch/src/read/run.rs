@@ -7,7 +7,7 @@ use super::retry::{retry_with, Budget, Outcome, Stopped};
 use serde_json::{json, Value};
 use std::path::Path;
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 use tehas_core::call::{self, store_executable, store_failed, store_failure, word_of, GRACE};
 pub use tehas_core::call::{
     gh_env, gh_why, run, run_grace, run_grace_env, run_input, run_input_bounded, run_input_env,
@@ -90,7 +90,9 @@ fn held() -> Option<u64> {
 /// host's own whenever no case holds one; and nothing at all for one case, which
 /// is `unmeasured` below: a poll on a host always reads its own clock, so a case
 /// that wants the clock to be unreadable says so rather than reaching for a
-/// reading no host could give.
+/// reading no host could give. The host's clock is `tehas_core::time::now`, the
+/// workspace's one clock; 0 for a clock set before 1970 is no clock, as the
+/// refusal `.ok()` made of such a clock is.
 fn poll_now() -> Option<u64> {
     #[cfg(test)]
     if let Some(at) = held() {
@@ -102,10 +104,8 @@ fn poll_now() -> Option<u64> {
     if NO_CLOCK.load(Ordering::Relaxed) {
         return None;
     }
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .ok()
-        .map(|d| d.as_secs())
+    let at = tehas_core::time::now();
+    (at > 0).then_some(at as u64)
 }
 
 /// The thread that made a call sleeps out the waits the rule named, unless a

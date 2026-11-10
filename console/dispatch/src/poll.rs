@@ -29,7 +29,7 @@ use std::io::Write as _;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, UNIX_EPOCH};
 
 /// How long a held dispatcher lock may last before it is said to hang.
 const HANG: u64 = 1800;
@@ -60,7 +60,7 @@ pub fn status_due(home: &Path, now: i64) -> bool {
 fn failed_read(home: &Path, dry: bool, line: &str) {
     say(line);
     if !dry {
-        tehas_core::github_fails::note(home, now() as i64, line);
+        tehas_core::github_fails::note(home, tehas_core::time::now(), line);
     }
 }
 
@@ -79,13 +79,6 @@ pub fn here(home: &Path) -> PathBuf {
         .ok()
         .and_then(|e| e.parent().map(Path::to_path_buf))
         .unwrap_or_else(|| home.join("libexec"))
-}
-
-fn now() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
 }
 
 /// A line of the poll's log, as log() prints it.
@@ -552,7 +545,10 @@ pub fn run_poll(home: &Path, settings: &Settings, dry: bool) -> i32 {
         let at = first(&taken);
         let digits = !at.is_empty() && at.bytes().all(|b| b.is_ascii_digit());
         if let Some(t) = at.parse::<u64>().ok().filter(|_| digits) {
-            if at.len() <= 12 && now().saturating_sub(t) > HANG && (dry || first(&stuck) != at) {
+            if at.len() <= 12
+                && tehas_core::time::now().saturating_sub(t as i64) > HANG as i64
+                && (dry || first(&stuck) != at)
+            {
                 say(&format!("WARN: the dispatcher's lock has been held since {}, more than {HANG}s: a poll hangs, and no poll runs until it ends", iso(t)));
                 if !dry && std::fs::write(&stuck, format!("{at}\n")).is_err() {
                     say(&format!("WARN: could not write {}", stuck.display()));
@@ -561,7 +557,7 @@ pub fn run_poll(home: &Path, settings: &Settings, dry: bool) -> i32 {
         }
         return 0;
     }
-    if std::fs::write(&taken, format!("{}\n", now())).is_err() {
+    if std::fs::write(&taken, format!("{}\n", tehas_core::time::now())).is_err() {
         say(&format!("WARN: could not write {}", taken.display()));
     }
     if !store_ready(home) {
@@ -575,17 +571,14 @@ pub fn run_poll(home: &Path, settings: &Settings, dry: bool) -> i32 {
         ));
         return 78;
     }
-    let started = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs_f64())
-        .unwrap_or(0.0);
+    let started = tehas_core::time::now_f64();
     // The poll's one budget of retries and its one queue of lines of failed
     // reads. Made before the `Writer` so that every `Calls` of the poll is built
     // with it: the writes of `Writer`, the snapshot's reads, and the settle and
     // status reads that go through them are one poll and spend one budget, and
     // `body` is handed the same value rather than copying a field afterwards.
     let retry = RetryPolicy::default();
-    let mut w = writer(home, settings, "", 0, now() as i64, &retry);
+    let mut w = writer(home, settings, "", 0, tehas_core::time::now(), &retry);
     // The poll's GitHub token, kept in memory from before its first call: the
     // first gh of the poll asks the host's token program once, and every gh
     // process after it is given the token as TEHAS_GH_TOKEN, so the shim of a

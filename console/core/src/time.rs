@@ -9,6 +9,22 @@ pub fn now() -> i64 {
         .map_or(0, |d| d.as_secs() as i64)
 }
 
+/// Unix milliseconds now; 0 for a clock set before 1970, as [`now`] is.
+pub fn now_ms() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis() as i64)
+}
+
+/// Unix seconds with the fraction now; 0 for a clock set before 1970, as
+/// [`now`] is. The whole seconds and the fraction of the same duration, which
+/// is what `Instant` cannot give: the stamp of a poll's row keeps six decimals.
+pub fn now_f64() -> f64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0.0, |d| d.as_secs_f64())
+}
+
 /// Days since 1970-01-01 of a civil date. The caller checks the date: a
 /// month or day out of range is counted on, not refused.
 pub fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
@@ -144,5 +160,24 @@ mod tests {
     #[test]
     fn now_is_after_this_was_written() {
         assert!(now() > 1_792_000_000);
+    }
+
+    #[test]
+    fn the_clocks_are_the_same_second() {
+        // The three clocks read the host one after the other, so each agrees
+        // with `now` to within the second a read may cross.
+        let at = now();
+        assert!((now_ms() / 1000 - at).abs() <= 1, "{}", now_ms());
+        assert!((now_f64() as i64 - at).abs() <= 1, "{}", now_f64());
+    }
+
+    #[test]
+    fn no_clock_of_the_three_is_negative() {
+        // A host whose clock stands after 1970, which is every host this runs
+        // on: none of the three reads goes below 0, so each of them keeps the
+        // refusal `now` makes of a clock set before the epoch.
+        assert!(now() >= 0);
+        assert!(now_ms() >= 0);
+        assert!(now_f64() >= 0.0);
     }
 }

@@ -11,7 +11,7 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 fn usage() -> &'static str {
     include_str!("usage/refresh.txt").trim_end_matches('\n')
@@ -294,9 +294,7 @@ pub fn main(args: &[&str]) -> i32 {
     };
     let store = home.join("libexec/store").to_string_lossy().into_owned();
     let mut calls = Calls::idle(Duration::from_secs(20), store);
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs());
+    let now = tehas_core::time::now() as u64;
     run.go(&mut calls, now)
 }
 
