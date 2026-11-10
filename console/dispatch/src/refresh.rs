@@ -1,6 +1,6 @@
 //! tehasbot refresh: the factory's own pull requests that conflict with the
 //! branch, each asked of the dispatcher in a file under state/refresh. What a
-//! run does and its statuses are in console/src/usage/refresh.txt, this command's
+//! run does and its statuses are in src/usage/refresh.txt, this command's
 //! --help.
 
 use crate::decide::{hex40, iso_now, refresh_why};
@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 fn usage() -> &'static str {
-    include_str!("../../src/usage/refresh.txt").trim_end_matches('\n')
+    include_str!("usage/refresh.txt").trim_end_matches('\n')
 }
 
 /// Whether a run goes ahead, given what `last-run` holds. A stamp from the
