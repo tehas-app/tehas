@@ -35,6 +35,9 @@ pub struct Host {
     pub allowed: Vec<String>,
     /// TEHAS_MILLWRIGHT_LOGIN, as `settings::account` has it.
     pub millwright: String,
+    /// The granting labels this poll found not to be the ones pinned
+    /// (`crate::pins`): no application of them counts.
+    pub refused_labels: Vec<String>,
     /// The bot's login, whose pull requests a retry's comments are read on.
     pub bot: String,
     /// TEHAS_OWNER: the person a claimed issue is assigned to, or empty.

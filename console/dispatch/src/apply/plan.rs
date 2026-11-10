@@ -90,8 +90,6 @@ fn refused_document(why: &str, session: Option<&Value>) -> Value {
     refusal_document(why, "", session)
 }
 
-/// True only when the plan has a Later parts section
-/// of nothing but None.
 /// The comment of a replaced issue: the issues that hold the plan, then the
 /// planner's words, disarmed (text::disarm).
 pub(crate) fn replaced_text(said: &str, words: &str) -> String {
@@ -110,6 +108,8 @@ pub(crate) fn replaces_text(n: u64, body: &str) -> String {
     format!("Replaces #{n}\n\n{}", tehas_core::text::disarm(body))
 }
 
+/// True only when the plan has a Later parts section
+/// of nothing but None.
 pub fn no_later_parts(body: &str) -> bool {
     let none = |t: &str| {
         let t: String = t
@@ -955,6 +955,9 @@ impl Writer {
         let answers = p.get("answers").and_then(Value::as_array);
         if answers.is_none_or(|a| a.iter().any(|x| x.get("millwright") == Some(&json!(true)))) {
             return Err("the millwright answered in this session".into());
+        }
+        if self.host.refused_labels.iter().any(|l| l == "tehas:plan") {
+            return Err("the label tehas:plan is not the one pinned in state/labels".into());
         }
         let repo = self.repo.clone();
         let Events::Read(events) = Events::parse(&rest_events(&mut self.calls, &repo, n)) else {

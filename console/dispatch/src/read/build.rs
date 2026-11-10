@@ -168,6 +168,9 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
     let types = !c.improvement_type.is_empty();
     let mut q = github::queue(calls, &c.repo, fields, types)?;
     s["repo"] = json!(q.repo);
+    if let Some(labels) = q.labels.take() {
+        s["tehas_labels"] = labels;
+    }
     if fields {
         s["issue_fields"] = json!(q.issue_fields);
         if q.personal {

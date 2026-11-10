@@ -173,6 +173,7 @@ fn world() -> World {
             comments: false,
             allowed: vec!["alice".into()],
             millwright: "mill-bot".into(),
+            refused_labels: Vec::new(),
             bot: "tehas-bot".into(),
             owner: String::new(),
             systemctl: s("start"),
