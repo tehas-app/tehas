@@ -4,6 +4,6 @@
   "private": true,
   "description": "One pinned npm tree: Playwright at the version host/versions.env names, with every package in it fixed by hash in package-lock.json.",
   "dependencies": {
-    "playwright": "1.64.1"
+    "playwright": "1.65.0"
   }
 }
