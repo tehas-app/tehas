@@ -1,26 +1,26 @@
 //! poll-record and poll-show.
 
-use crate::poll::{self, count_writes, cpu_ms, secs, started, Record};
+use crate::poll::{self, count_writes, secs, started, Record};
 use crate::verbs_tests::*;
 use serde_json::{json, Value};
 use std::fs;
 use std::path::Path;
 use tehas_core::time::iso;
 
-const TIMES: &str = "0m0.120s 0m0.030s\n0m1.200s 0m0.150s\n";
+/// The CPU of every poll these tests record.
+const CPU_MS: i64 = 1500;
 
-fn files(home: &Path, tally: usize, log: Option<&str>) -> Record {
+/// A poll of `gh` calls and 1.5 s of CPU, and its write log when `log` is given.
+fn files(home: &Path, gh: i64, log: Option<&str>) -> Record {
     let state = home.join("state");
-    fs::write(state.join("poll.times"), TIMES).unwrap();
-    fs::write(state.join("poll-gh.tally"), "\n".repeat(tally)).unwrap();
     let writes_log = state.join("github-writes.log");
     if let Some(l) = log {
         fs::write(&writes_log, l).unwrap();
     }
     Record {
         started_ms: 0,
-        times: state.join("poll.times"),
-        tally: state.join("poll-gh.tally"),
+        cpu_ms: CPU_MS,
+        gh,
         writes_log,
         starts: None,
     }
@@ -58,16 +58,16 @@ fn record(
 ) -> Value {
     let r = Record {
         started_ms,
-        times: r.times.clone(),
-        tally: r.tally.clone(),
+        cpu_ms: r.cpu_ms,
+        gh: r.gh,
         writes_log: r.writes_log.clone(),
         starts,
     };
     serde_json::from_str(&poll::record(home, &r, at, real_ms).unwrap()).unwrap()
 }
 
-/// One row written through the verb, which is how `--starts` arrives. The four
-/// paths are the ones `files` wrote.
+/// One row written through the verb, which is how `--starts` arrives. The
+/// write log is the one `files` wrote.
 fn record_verb(home: &Path, at: i64, started: &str, starts: &str) -> Value {
     let state = home.join("state");
     let path = |n: &str| state.join(n).to_string_lossy().into_owned();
@@ -78,10 +78,10 @@ fn record_verb(home: &Path, at: i64, started: &str, starts: &str) -> Value {
             "poll-record",
             "--started",
             started,
-            "--times",
-            &path("poll.times"),
-            "--tally",
-            &path("poll-gh.tally"),
+            "--cpu-ms",
+            "1500",
+            "--gh",
+            "2",
             "--writes-log",
             &path("github-writes.log"),
             "--starts",
@@ -97,15 +97,45 @@ fn the_arguments_are_strict() {
     assert_eq!(started("1792000000,5"), Some(1_792_000_000_500));
     assert_eq!(started("17920x"), None);
     assert_eq!(started("-1"), None);
-    assert!(usage(&["poll-record", "--started", "1"]).contains("--times is required"));
+    assert!(usage(&["poll-record", "--started", "1"]).contains("--cpu-ms is required"));
+    assert!(usage(&["poll-record", "--started", "1", "--cpu-ms", "1"]).contains("--gh is required"));
+    assert!(usage(&[
+        "poll-record",
+        "--started",
+        "1",
+        "--cpu-ms",
+        "1",
+        "--gh",
+        "1"
+    ])
+    .contains("--writes-log is required"));
+    for (cpu, gh, why) in [
+        ("0m1.2s", "1", "--cpu-ms is not a number of milliseconds"),
+        ("-1", "1", "--cpu-ms is not a number of milliseconds"),
+        ("1", "\n\n", "--gh is not a number of calls"),
+        ("1", "1.5", "--gh is not a number of calls"),
+    ] {
+        assert!(usage(&[
+            "poll-record",
+            "--started",
+            "1",
+            "--cpu-ms",
+            cpu,
+            "--gh",
+            gh,
+            "--writes-log",
+            "/l"
+        ])
+        .contains(why));
+    }
     assert!(usage(&[
         "poll-record",
         "--started",
         "x",
-        "--times",
-        "/t",
-        "--tally",
-        "/g",
+        "--cpu-ms",
+        "1",
+        "--gh",
+        "1",
         "--writes-log",
         "/l"
     ])
@@ -114,14 +144,14 @@ fn the_arguments_are_strict() {
         "poll-record",
         "--started",
         "1",
-        "--times",
-        "t",
-        "--tally",
-        "/g",
+        "--cpu-ms",
+        "1",
+        "--gh",
+        "1",
         "--writes-log",
-        "/l"
+        "l"
     ])
-    .contains("--times is not an absolute path"));
+    .contains("--writes-log is not an absolute path"));
     assert!(usage(&["poll-show", "--last"]).contains("unknown flag"));
     assert!(usage(&["poll-show", "--now", "x"]).contains("--now is not a Unix time"));
     assert!(usage(&["poll-show", "--api", "--api"]).contains("--api given twice"));
@@ -129,10 +159,10 @@ fn the_arguments_are_strict() {
         "poll-record",
         "--started",
         "1",
-        "--times",
-        "/t",
-        "--tally",
-        "/g",
+        "--cpu-ms",
+        "1",
+        "--gh",
+        "1",
         "--writes-log",
         "/l",
         "--starts",
@@ -153,14 +183,6 @@ fn the_median_is_the_middle_figure_or_the_mean_of_the_two() {
     // The mean of the two rounds rather than truncating.
     assert_eq!(poll::median(&[1, 2]), Some(2));
     assert_eq!(poll::median(&[2, 3]), Some(3));
-}
-
-#[test]
-fn bash_times_sum_to_milliseconds() {
-    assert_eq!(cpu_ms(TIMES), Some(1500));
-    assert_eq!(cpu_ms("1m2,5s 0m0s\n0m0.001s 0m0.000s\n"), Some(62_501));
-    assert_eq!(cpu_ms("0m0.1s 0m0.1s\n"), None);
-    assert_eq!(cpu_ms("real 0m0.1s 0m0.1s 0m0.1s"), None);
 }
 
 #[test]
@@ -233,7 +255,6 @@ fn a_poll_records_wall_cpu_calls_and_writes() {
 fn no_write_log_is_no_writes_on_record() {
     let home = home("poll-nolog");
     let r = files(&home, 0, None);
-    fs::remove_file(&r.tally).unwrap();
     let v = record(&home, NOW, &r, 1_000, 3_000, None);
     assert_eq!((v["gh"].as_i64(), v["writes"].is_null()), (Some(0), true));
     let s = ok_at(&home, NOW, &["poll-show"]);
@@ -241,18 +262,6 @@ fn no_write_log_is_no_writes_on_record() {
         s["line"],
         "poll      last 2.0 s wall, 1.5 s CPU, 0 gh; last hour 1 poll, 1.5 s CPU"
     );
-}
-
-#[test]
-fn garbled_times_record_nothing() {
-    let home = home("poll-garbled");
-    let r = files(&home, 1, Some(""));
-    fs::write(&r.times, "nothing").unwrap();
-    let r2 = Record { started_ms: 0, ..r };
-    let (code, why) = poll::record(&home, &r2, NOW, 1_000).unwrap_err();
-    assert_eq!(code, 1, "{why}");
-    assert!(why.starts_with("garbled"), "{why}");
-    assert_eq!(count(&home, "poll_cost"), 0);
 }
 
 #[test]
@@ -264,7 +273,7 @@ fn the_hour_sums_the_last_hour_and_ignores_older_polls() {
     record(&home, NOW - 7200, &r, real - 1000, real, None);
     record(&home, NOW - 3600, &r, real - 1000, real, None);
     record(&home, NOW - 1800, &r, real - 1000, real, None);
-    fs::write(&r.tally, "\n").unwrap();
+    let r = files(&home, 1, Some(&log));
     record(&home, NOW - 60, &r, real - 2000, real, None);
     let s = ok_at(&home, NOW, &["poll-show"]);
     assert_eq!(s["last"]["at"], NOW - 60);
@@ -484,7 +493,7 @@ fn poll_idle_names_only_the_figures_over_their_budget() {
     let home = home("poll-idle-budget");
     // No write log on this host: the answer gives no figure of writes, and a
     // budget of writes can be over nothing. The cost of the poll is the wall
-    // time asked of the record and the CPU of TIMES, 1.5 s.
+    // time asked of the record and the CPU of CPU_MS, 1.5 s.
     let r = files(&home, 1, None);
     let real = 1_792_000_010_000;
     // One idle poll of 20 s of wall, 1.5 s of CPU and one write: over none of

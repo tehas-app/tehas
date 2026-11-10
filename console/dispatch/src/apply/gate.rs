@@ -1,4 +1,4 @@
-//! What a start passes before any label changes, as libexec/dispatch does
+//! What a start passes before any label changes, as the bash dispatcher did
 //! it: systemd's answer for the cycle's unit (units_ok), the code index
 //! (index_gate, with index_busy, index_report and index_launch), and the
 //! checkout's refresh (refresh_checkout), which a start and a planning turn
