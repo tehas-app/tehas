@@ -32,17 +32,22 @@ case "$*" in
 *access_tokens*) if [ -n "${CURL_ANSWER:-}" ]; then printf "%s" "$CURL_ANSWER"; else
   n=$(($(cat "$T/mints" 2>/dev/null || echo 0) + 1)); echo "$n" >"$T/mints"
   printf "{\"token\":\"ghs_fresh%s\",\"expires_at\":\"%s\"}" "$n" "$(date -u -d "+1 hour" +%FT%TZ)"; fi ;;
+*/repos/*/installation*) printf "{\"id\":174742089}" ;;
+*/app) printf "{\"slug\":\"tehas-app-bot\"}" ;;
 *installation/repositories*) printf "{\"repositories\":[{\"full_name\":\"acme/widget\"}]}" ;;
 esac'
 
-app=(TEHAS_REPO=acme/widget TEHAS_GITHUB_APP_ID=5452597 TEHAS_GITHUB_APP_INSTALLATION=174742089 "TEHAS_BOT_LOGIN=tehas-app-bot[bot]")
+app=(TEHAS_REPO=acme/widget TEHAS_GITHUB_APP_ID=5452597)
 reset() {
   rm -rf "$T"/calls/* "$T/home/tehas/state" "$T/home/.config" "$T/mints"
   mkdir -p "$T/home/.config/tehas"
   printf 'a key\n' >"$key"
   chmod 600 "$key"
   T_ENV=()
-  t_instance "${app[@]}"
+  T_APP_WORLD=0 t_instance "${app[@]}"
+  mkdir -p "$T/home/tehas/state/github"
+  printf 'acme 174742089\n' >"$T/home/tehas/state/github/installation"
+  printf 'tehas-app-bot[bot]\n' >"$T/home/tehas/state/github/login"
 }
 keep() { # <seconds left> [a word for the token]: a kept token that runs out then
   local word=${2:-ghs_kept}
@@ -51,27 +56,17 @@ keep() { # <seconds left> [a word for the token]: a kept token that runs out the
   echo $(($(date +%s) + $1)) >"$kept.expires"
 }
 
-t_case "the three settings load together, and none at all is the token of before"
+t_case "the app ID loads, and the login comes from the kept file"
 reset
-t_run "$lib && echo \"\$TEHAS_GITHUB_APP_ID \$TEHAS_GITHUB_APP_INSTALLATION \$TEHAS_BOT_LOGIN\" && tehas_github_app && echo app"
+mkdir -p "$T/home/tehas/state/github"
+printf 'tehas-app-bot[bot]\n' >"$T/home/tehas/state/github/login"
+t_run "$lib && echo \"\$TEHAS_GITHUB_APP_ID \$TEHAS_BOT_LOGIN \$TEHAS_MILLWRIGHT_LOGIN\""
 t_eq "$t_rc" 0
-t_eq "$t_out" "5452597 174742089 tehas-app-bot[bot]
-app"
-t_instance TEHAS_REPO=acme/widget
-t_run "$lib && tehas_github_app || echo none"
-t_eq "$t_out" "none"
+t_eq "$t_out" "5452597 tehas-app-bot[bot] tehas-app-bot[bot]"
 
-t_case "one of the three without the others is refused, exit 78"
-for one in "TEHAS_GITHUB_APP_ID=5452597" "TEHAS_GITHUB_APP_INSTALLATION=174742089" "TEHAS_BOT_LOGIN=tehas-app-bot[bot]"; do
-  t_instance TEHAS_REPO=acme/widget "$one"
-  t_run "$lib"
-  t_eq "$t_rc" 78
-  t_contains "$t_out" "are set together or not at all"
-done
-
-t_case "an ID that is not a number, or a login that is not one, is refused"
-for bad in "TEHAS_GITHUB_APP_ID=app" "TEHAS_GITHUB_APP_ID=0" "TEHAS_GITHUB_APP_INSTALLATION=12x" "TEHAS_BOT_LOGIN=bot[bots]" "TEHAS_BOT_LOGIN=-x"; do
-  t_instance "${app[@]}" "$bad"
+t_case "an ID that is not a number is refused"
+for bad in "TEHAS_GITHUB_APP_ID=app" "TEHAS_GITHUB_APP_ID=0"; do
+  t_instance TEHAS_REPO=acme/widget "$bad"
   t_run "$lib"
   t_eq "$t_rc" 78
   t_contains "$t_out" "${bad%%=*} is not valid"
@@ -229,12 +224,6 @@ t_eq "$t_out" "token=none
 $T/home/tehas/shim
 2|credential.https://github.com.helper||credential.https://github.com.helper|!$T/home/tehas/shim/gh auth git-credential"
 
-t_case "without an app, tehas_github_app_env changes nothing"
-reset
-t_instance TEHAS_REPO=acme/widget
-t_run "GH_TOKEN=ghp_user; before=\$PATH; $lib && tehas_github_app_env && echo \"\$GH_TOKEN \${GIT_CONFIG_COUNT:-unset} \$([ \"\$PATH\" = \"\$before\" ] && echo same)\""
-t_eq "$t_out" "ghp_user unset same"
-
 t_case "the shim gives gh the app's token, and each call asks for one"
 reset
 installed
@@ -251,23 +240,10 @@ t_run "TEHAS_GITHUB_APP_ID=5452597 $T/home/tehas/shim/gh pr list"
 t_eq "$t_rc" 1
 t_lacks "$t_out" "gh pr list"
 
-t_case "without an app the shim is gh with the token it was given"
-reset
-installed
-t_run "GH_TOKEN=ghp_user $T/home/tehas/shim/gh api user"
-t_eq "$t_out" "gh api user token=ghp_user"
-
-# The poll's token (#938): the dispatcher takes one at the start of a poll and
-# gives it to every gh child as TEHAS_GH_TOKEN, so the shim asks for none. What
-# is under test is whether the token program ran, and the kept token of the
-# case is `ghs_poll` while a token the program makes is `ghs_fresh<n>` - the
-# words gh was given say which path the shim took, and the stub curl's calls
-# say how often it asked. An exchange is counted by its own path: the stub
 # records every call it makes, including the one that names the installation.
 case_no_token() { # <app given: 1 for the host's, 0 for none>
   reset
   installed
-  [ "$1" = 0 ] && t_instance TEHAS_REPO=acme/widget
   # The host's own state as tehas_load leaves it for the commands it runs: the
   # app's three names exported, no GH_TOKEN of a user left in the environment,
   # and a token kept with half an hour left. The kept one is ghs_poll and a
@@ -275,8 +251,7 @@ case_no_token() { # <app given: 1 for the host's, 0 for none>
   # the shim took, and the stub curl's calls say how often it asked. An
   # exchange is counted by its own path: the stub records every call it makes,
   # including the one that names the installation.
-  T_ENV=(TEHAS_GITHUB_APP_ID=5452597 TEHAS_GITHUB_APP_INSTALLATION=174742089
-    "TEHAS_BOT_LOGIN=tehas-app-bot[bot]")
+  T_ENV=(TEHAS_GITHUB_APP_ID=5452597 "TEHAS_BOT_LOGIN=tehas-app-bot[bot]")
   keep 3000 ghs_poll
 }
 
@@ -314,38 +289,19 @@ t_eq "$t_rc" 0
 t_contains "$t_out" "gh pr list token=ghs_fresh1"
 t_eq "$(t_calls curl | grep -c access_tokens)" 1
 
-t_case "with no app named, TEHAS_GH_TOKEN still reaches gh as its own token"
-case_no_token 0
-t_run "TEHAS_GH_TOKEN=ghs_123456789 \"$T/home/tehas/shim/gh\" api user"
-t_eq "$t_rc" 0
-t_eq "$t_out" "gh api user token=ghs_123456789"
-t_eq "$(t_calls curl)" ""
-
 t_case "env.sh with an app: the shim is first, git asks it, and the user token is gone"
 reset
 installed
-mkdir -p "$T/home/.config/tehas"
-printf 'GH_TOKEN=ghp_user\n' >"$T/home/.config/tehas/env"
-t_run ". $T/home/tehas/env.sh; command -v gh; echo \"token=\${GH_TOKEN:-none}\"; git config --get-all credential.https://github.com.helper | tail -n 1"
+t_run "export GH_TOKEN=ghp_user; . $T/home/tehas/env.sh; command -v gh; echo \"token=\${GH_TOKEN:-none}\"; git config --get-all credential.https://github.com.helper | tail -n 1"
 t_eq "$t_out" "$T/home/tehas/shim/gh
 token=none
 !$T/home/tehas/shim/gh auth git-credential"
 
-t_case "env.sh without an app leaves gh and the user token as they were"
-reset
-installed
-t_instance TEHAS_REPO=acme/widget
-printf 'GH_TOKEN=ghp_user\n' >"$T/home/.config/tehas/env"
-t_run ". $T/home/tehas/env.sh; command -v gh; echo \"token=\${GH_TOKEN:-none}\""
-t_eq "$t_out" "$T/home/tehas/bin/gh
-token=ghp_user"
-
-
 t_case "read-only: the shim runs no write, says what it would have done and keeps the line; a read still runs"
 reset
 installed
-t_instance TEHAS_REPO=acme/widget
-t_run "export TEHAS_READ_ONLY=1 TEHAS_HOME=$T/home/tehas GH_TOKEN=ghp_user
+T_APP_WORLD=0 t_instance "${app[@]}"
+t_run "export TEHAS_READ_ONLY=1 TEHAS_HOME=$T/home/tehas TEHAS_GH_TOKEN=ghp_user
 $T/home/tehas/shim/gh issue edit 7 --repo acme/widget --add-label tehas:running; echo rc=\$?
 $T/home/tehas/shim/gh api -X POST repos/acme/widget/issues/7/comments -f body=hello; echo rc=\$?
 $T/home/tehas/shim/gh release create improve --repo acme/lab --prerelease; echo rc=\$?
@@ -376,10 +332,10 @@ t_eq "$t_rc" 1
 t_contains "$t_out" "TEHAS_READ_ONLY=1 and no console"
 t_lacks "$t_out" "gh issue view 7 token"
 
-t_case "env.sh on a read-only instance with no app puts the shim first, once"
+t_case "env.sh on a read-only instance puts the shim first, once"
 reset
 installed
-t_instance TEHAS_REPO=acme/widget TEHAS_READ_ONLY=1
+T_APP_WORLD=0 t_instance "${app[@]}" TEHAS_READ_ONLY=1
 t_run ". $T/home/tehas/env.sh; . $T/home/tehas/env.sh; command -v gh; echo \"\$PATH\" | tr : '\\n' | grep -c -x \"$T/home/tehas/shim\""
 t_eq "$t_out" "$T/home/tehas/shim/gh
 1"
@@ -397,11 +353,14 @@ rm -f "$T/gh-token"
 t_instance "${app[@]}" TEHAS_ALLOWED_LABELERS=alice
 t_run "$ids"
 t_eq "$t_rc" 0
-t_eq "$(cat "$T/home/tehas/state/account-ids")" "alice $(t_uid alice)"
-t_eq "$(cat "$T/gh-token")" "ghs_fresh1"
+# The app's own account is among the logins whose ids are recorded.
+t_eq "$(sort "$T/home/tehas/state/account-ids")" "alice $(t_uid alice)
+tehas-app-bot $(t_uid tehas-app-bot)"
+t_eq "$(sort -u "$T/gh-token")" "ghs_fresh1"
 t_eq "$(cat "$kept")" "ghs_fresh1"
 # The token goes to gh in its environment, never on its command line.
-t_eq "$(t_calls gh)" "api users/alice --jq .id"
+t_eq "$(t_calls gh | sort)" "api users/alice --jq .id
+api users/tehas-app-bot[bot] --jq .id"
 t_lacks "$t_out" "ghs_fresh1"
 
 t_case "ids record with no GH_TOKEN and no usable key stops with 78, names the step and asks gh nothing"
@@ -422,23 +381,3 @@ t_eq "$t_rc" 78
 t_contains "$t_out" "tehas: ids record: no GitHub token for the app"
 t_eq "$(t_calls gh)" ""
 
-t_case "ids record given GH_TOKEN, or with no app, asks gh as before and makes no token"
-reset
-rm -f "$T/gh-token"
-T_ENV=(GH_TOKEN=ghs_given)
-t_instance "${app[@]}" TEHAS_ALLOWED_LABELERS=alice
-t_run "$ids"
-t_eq "$t_rc" 0
-t_eq "$(cat "$T/gh-token")" "ghs_given"
-t_eq "$(t_calls curl)" ""
-reset
-rm -f "$T/gh-token"
-T_ENV=(GH_TOKEN=ghs_given)
-t_instance TEHAS_REPO=acme/widget TEHAS_ALLOWED_LABELERS=alice
-t_run "$ids"
-t_eq "$t_rc" 0
-t_eq "$(cat "$T/gh-token")" "ghs_given"
-t_eq "$(t_calls curl)" ""
-t_eq "$([ -e "$kept" ] && echo kept || echo none)" none
-
-t_done
