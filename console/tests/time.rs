@@ -63,7 +63,11 @@ fn the_dispatch_and_the_store_read_the_time_only_through_core() {
             continue;
         }
         let text = fs::read_to_string(&path).unwrap_or_else(|e| panic!("{rel}: {e}"));
-        let hits = text.matches("SystemTime::now").count();
+        // `std::time::now` is not spelled out in the sources, so it is the
+        // shape a re-introduced private clock of a file would take: `use
+        // std::time::now as now` answers the same question `SystemTime::now`
+        // does and would leave a scan for that name alone.
+        let hits = text.matches("SystemTime::now").count() + text.matches("std::time::now").count();
         let wanted = EXEMPT.iter().filter(|(file, _)| *file == rel).count();
         if hits == wanted {
             exempt.extend(
