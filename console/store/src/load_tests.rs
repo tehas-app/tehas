@@ -78,18 +78,19 @@ fn load_fills_a_new_store_with_every_row_of_the_copy() {
 }
 
 #[test]
-fn load_replaces_the_samples_a_drained_poll_wrote() {
-    let (_from, copy) = a_copy("load-samples-from");
-    let into = home("load-samples");
+fn load_replaces_the_rows_of_the_tables_that_hold_no_history() {
+    let (_from, copy) = a_copy("load-replaced-from");
+    let into = home("load-replaced");
     conn(&into)
         .execute_batch(
             "INSERT INTO polls (at, lock_taken_at) VALUES (5, 4);
-             INSERT INTO health_samples (at, ok) VALUES (5, 1);
+             INSERT INTO sweep_log (issue, at, action, what, bytes, reason) VALUES (9, 5, 'kept', 'w', 1, 'r');
              INSERT INTO issues (issue, kind, kind_at, checked_at) VALUES (99, 'issue', 1, 1);",
         )
         .unwrap();
     load(&into, &copy).unwrap();
     assert_eq!(count(&into, "polls WHERE at = 5"), 0);
+    assert_eq!(count(&into, "sweep_log WHERE issue = 9"), 0);
     assert_eq!(count(&into, "issues WHERE issue = 99"), 0);
     assert_eq!(count(&into, "cycles WHERE issue = 7"), 1);
 }
