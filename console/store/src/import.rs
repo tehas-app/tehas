@@ -50,7 +50,7 @@ const MAX_STARTS: i64 = 100;
 const MARKER: &str = ".tehas-home";
 
 /// The kinds of row, in the order of the answer's `imported` object.
-const TABLES: [&str; 11] = [
+pub const TABLES: [&str; 11] = [
     "cycles",
     "approvals",
     "parks",
