@@ -1741,8 +1741,8 @@ in the middle. A cycle started by hand with `tehas work` refreshes nothing.
 ## tehas setup
 
 ```
-tehas setup --repo tehas-app/tehas --labellers janit --token-file - \
-  --endpoint http://gb1:8086/v1 <~/bot-token
+tehas setup --repo tehas-app/tehas --labellers janit --new-app \
+  --endpoint http://gb1:8086/v1
 ```
 
 The first setup of an instance, as the tehas user, after
@@ -1756,8 +1756,10 @@ exit 78.
 | --- | --- |
 | `--repo <owner/name>` | The product repository |
 | `--labellers "<a> <b>"` | The logins whose labels count. Never the bot |
-| `--token-file <file>` or `-` | The bot's token, from a file or standard input. There is no option that takes the token itself, so it is never on a command line or in the shell's history |
-| `--app-id <id>`, `--app-installation <id>`, `--app-key-file <file>` | The [GitHub App](/github-app) the factory acts as, in place of a token: the app's ID, its installation's ID and its private key. All three or none, and not with `--token-file`, else exit 64 |
+| `--new-app` | Make the [GitHub App](/github-app) the factory acts as (below) |
+| `--app-owner <login>` | The organisation or user that owns the new app. Without it, the repository's owner |
+| `--app-name <name>` | The new app's name, up to 34 characters. Without it, `<repository>-factory` |
+| `--app-id <id>`, `--app-key-file <file>` | A GitHub App you have, in place of `--new-app`: its ID and its private key. Both or neither, and not with `--new-app`, else exit 64 |
 | `--endpoint <url>` | The OpenAI-compatible model endpoint, with its `/v1`. Its models are read from `<url>/models` |
 | `--model <id>` | The model. Needed when the endpoint offers more than one and there is no terminal to pick on |
 | `--model-key-file <file>` or `-` | The endpoint's key, if it takes one. It goes in `~/.config/tehas/env` as `TEHAS_MODEL_KEY_<PROVIDER>`, and `models.json` names that variable. Curl gets it on standard input |
@@ -1766,47 +1768,77 @@ exit 78.
 | `--no-build` | Leave out the sandbox image and the product's gates |
 | `--force` | Replace a setting that is there and differs |
 
+`--token-file` is refused with exit 78: the factory acts as a GitHub App.
+`--app-installation` is accepted with a warning and ignored: the app's
+installation on the repository is looked up. Run again on an instance that
+names an app and has its key, setup checks that app; `--new-app` then makes
+none. A key in `~/.config/tehas/github-app.pem` with no
+`TEHAS_GITHUB_APP_ID`, or an app ID with no key, stops `--new-app` with 78 and
+names `--app-id` and `--app-key-file`.
+
+With `--new-app`, after the endpoint check:
+
+- It asks GitHub whether the owner is an organisation (`GET /users/<owner>`)
+  and builds the app's manifest: Contents, Issues and Pull requests write;
+  Metadata, Actions, Checks and Commit statuses read; no workflows, no events,
+  the webhook off; private.
+- It prints one `data:text/html` link. Pasted into a browser's address bar, the
+  page posts the manifest to GitHub's new-app form for the owner. The same page
+  is written to `~/.config/tehas/new-app.html`, mode 600, for a browser that
+  will not open the link: the file is on the host, so copy it to the machine
+  the browser runs on. A link in place of the file or its directory is not
+  written through.
+- GitHub shows the permissions. Create the app, and GitHub opens the owner's
+  page with `?code=...&state=...`. Paste that address, or the code alone, at
+  setup's prompt. An address must carry the state this run made (random, 48
+  hex digits); one with another state or none is refused with 78.
+- It sends the code to `POST /app-manifests/<code>/conversions` (no
+  authentication; the code goes to curl on standard input). A code lasts an
+  hour and works once. The answer's key is written to
+  `~/.config/tehas/github-app.pem` (a new file, mode 600) and the app's ID to
+  `instance.env` as `TEHAS_GITHUB_APP_ID` in the same step, and the page is
+  removed. The key and the app's secrets are never printed.
+- It prints the install link `https://github.com/apps/<slug>/installations/new`
+  and waits up to 10 minutes, asking `GET /app/installations` every 5 seconds,
+  for the app to be installed. Then the run goes on as with `--app-id`.
+
 In order, stopping at the first step that fails:
 
-1. It checks that the token can push to the repository
-   (`gh api repos/<repo>` answers `push: true`) and that the endpoint offers
-   the model, then makes the control issue. Nothing is written before these.
-   With an app it makes a token from the given key instead and checks that
-   the token's permissions have `contents`, `issues` and `pull_requests` at
-   `write` and that the installation lists the repository
-   (`GET /installation/repositories`). It reads the app's slug (`GET /app`)
-   and the ID of its bot, `<slug>[bot]` (`GET /users/<slug>[bot]`). A check
-   that fails stops the run with 1 and nothing written. The token is kept in
-   no file.
+1. It checks that the endpoint offers the model. It looks up the app's
+   installation on the repository (`GET /repos/<repo>/installation`); where
+   there is none it names the repository and the install link. It makes a
+   token from the key and checks that the token's permissions have
+   `contents`, `issues` and `pull_requests` at `write`. It reads the app's
+   slug (`GET /app`) and the ID of its bot, `<slug>[bot]`
+   (`GET /users/<slug>[bot]`). Each other repository `instance.env` names
+   (`TEHAS_IMPROVE_REPO`, `TEHAS_IMPROVE_RUKAS_REPO`, `TEHAS_REVIEW_REPO`,
+   `TEHAS_RELEASE_REPO`) that the app does not reach is named with the install
+   link, and the run goes on. Then it makes the control issue. A check that
+   fails stops the run with 1 and nothing written, except the key and the ID
+   `--new-app` wrote. The token is kept in no file.
 2. It writes the instance directory (`~/.config/tehas`, or the one
    `~/.config/tehas/instance-dir` names): `instance.env` with the five required
    settings and nothing else, and `models.json` with the provider's `api`,
-   `baseUrl`, `apiKey` and the model's `id`. The token goes in
-   `~/.config/tehas/env` as `GH_TOKEN`. The directory is mode 700, the files 600.
-   With an app there is no `GH_TOKEN`: the key is installed at
-   `~/.config/tehas/github-app.pem`, mode 600, and `instance.env` gets
-   `TEHAS_GITHUB_APP_ID`, `TEHAS_GITHUB_APP_INSTALLATION` and
-   `TEHAS_BOT_LOGIN=<slug>[bot]`. Another key or other app settings are
-   replaced only with `--force`. From here `gh` runs through `~/tehas/shim/gh`,
+   `baseUrl`, `apiKey` and the model's `id`. The directory is mode 700, the
+   files 600. A given key is installed at `~/.config/tehas/github-app.pem`,
+   mode 600, and `instance.env` gets `TEHAS_GITHUB_APP_ID`. Another key or
+   another app ID is replaced only with `--force`, which also drops the token
+   kept for the old key, and for another app what was looked up for it. The
+   app's login goes to `~/tehas/state/github/login`, so the first poll knows
+   the bot. From here `gh` runs through `~/tehas/shim/gh`,
    which reads the app from these files and keeps the account of what the
    factory writes ([GitHub App identity](/github-app)).
-3. It gives git the bot's login and noreply address (`<id>+<login>@users.noreply.github.com`)
-   from `gh api user`, unless git already has a name or an email, which it keeps.
-   With an app the login is `<slug>[bot]` and the ID the one step 1 read,
-   because an installation token cannot ask `/user`.
-   It gives git `gh`'s credential helper for `github.com`
-   (`gh auth setup-git --hostname github.com`) when git has none, which is what
-   lets plain git read a private product's remote: the clone in step 4 and the
-   fetches of [tehas dispatch](/operating), [tehas update](/operating) and
-   [tehas status](/tools#tehas-status). The check is what git itself would use,
-   every scope it reads, and `gh auth setup-git` also writes the same key for
-   `gist.github.com`. A helper that is there is kept and named by its count:
-   the value is a command an operator wrote and can hold a token, so it is
-   named, never printed, and an entry whose value is empty is not a helper
-   because gitcredentials ends the list there. A container's git is given its
-   helper by environment-level configuration instead, whatever the host's
-   files say. If `gh auth setup-git` fails, the run stops with 1 before the
-   identity is checked.
+3. It gives git the bot's login and noreply address
+   (`<id>+<slug>[bot]@users.noreply.github.com`, the ID the one step 1 read),
+   unless git already has a name or an email, which it keeps. git's credential
+   helper for `github.com` is the app's `~/tehas/shim/gh`, given as
+   environment-level configuration, which outranks git's files: nothing is
+   written to them. That helper is what lets plain git read a private
+   product's remote: the clone in step 4 and the fetches of
+   [tehas dispatch](/operating), [tehas update](/operating) and
+   [tehas status](/tools#tehas-status). A helper in git's files is never
+   printed: it is a command an operator wrote and can hold a token. A git
+   config file git cannot open stops the run with 78 here.
 4. It clones the product to `~/tehas/repos/<name>` when there is no checkout.
    A checkout it finds, such as one `tehas state unpack` brought from another
    host, it fetches from origin and fast-forwards on the branch it is on, with
@@ -1822,10 +1854,12 @@ In order, stopping at the first step that fails:
    `tehas check-product --sandbox` where that command is installed. Where it is
    not, it says the gates were not run.
 7. It enables `tehas-dispatch.timer` and `tehas-dispatch.path`, starts the docs
-   server and prints the dashboard's address.
+   server, runs `tehasbot github-token --check` (one mint, the login, the reach
+   of `TEHAS_REPO`, never the token) and prints the dashboard's address.
 
 A second run changes nothing that is right: a value that is there is kept, the
-control issue is not made again and an image that is there is not rebuilt. A
+control issue is not made again, no second app is made and an image that is
+there is not rebuilt. A
 setting that is there and differs is never replaced without `--force`. The run
 names each one and stops with 78 before it calls GitHub or the endpoint and
 before it writes anything.
@@ -1837,9 +1871,10 @@ builds it with cargo first, in the few lines of bash that are left of
 `libexec/setup`.
 
 Exit 0 when done, 1 when a check or a step failed (or the step's own status,
-such as 78 from `install.sh`), 64 on an unknown option, 78 for a setting that is
-missing, malformed or differs, or when there is no console and no checkout to
-build one from.
+such as 78 from `install.sh`), 64 on an unknown option or app options that do
+not go together, 78 for a setting that is missing, malformed or differs,
+`--token-file`, a pasted address without the run's state, or when there is no
+console and no checkout to build one from.
 
 ## tehas labels
 
