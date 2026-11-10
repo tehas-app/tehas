@@ -101,7 +101,7 @@ fn pass(lab: &mut Lab, live: &Path) -> u8 {
         say("the bot's own login could not be read, nothing built or removed");
         return 0;
     }
-    if allowed(&bot, &lab.allowed) {
+    if allowed(&bot, &lab.allowed) || allowed(tehas_core::accounts::account(&bot), &lab.allowed) {
         say(&format!(
             "ERROR: the bot account {bot} is in TEHAS_ALLOWED_LABELERS; the bot never authorises work"
         ));
