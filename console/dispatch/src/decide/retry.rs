@@ -339,18 +339,20 @@ impl Poll<'_> {
     }
 
     /// Rule 4: the questions that wait for an answer. A box ticked to retry
-    /// a parked cycle starts it, and the poll ends there.
+    /// a parked cycle starts it, and the poll ends there. A list that cannot
+    /// be read skips only this rule, as refreshing() does for the history of
+    /// refreshes: only the questions need it, and the poll goes on. plan_over()
+    /// is not reached, so an open session is not closed on a read the poll
+    /// could not make.
     pub(super) fn questions(&mut self, room: &Room, bot: &str) -> Step {
         let fresh = self.plan_turns();
         let Some(asking) = self.s.asking.clone() else {
             self.need("asking");
             return Ok(());
         };
-        if asking.get("failed") == Some(&json!(true)) {
-            return Err(self.fail("ERROR: gh issue list failed", 1));
-        }
         let Some(list) = asking.as_array() else {
-            return Err(self.fail("ERROR: unreadable list of issues with a question", 1));
+            self.log("WARN: the issues with a question could not be read, so no question is answered this poll");
+            return Ok(());
         };
         let mut numbers: Vec<(u64, Vec<String>)> = Vec::new();
         for i in list {
