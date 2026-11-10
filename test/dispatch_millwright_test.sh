@@ -108,6 +108,26 @@ t_run "$dispatch"
 t_eq "$(t_calls fake-start)" "7"
 t_eq "$(approval '[.retry_context[] | [.source, .by]]')" '[["millwright:81","tehas-bot[bot]"]]'
 
+# REST names the app's label actor <slug>[bot]; GraphQL names its author <slug>.
+# The one identity is both forms of one account, and no account that only
+# resembles it.
+t_case "the app's label event, by its REST login, starts the cycle on alice's approval"
+fixer_ready
+echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"tehas-bot[bot]"},"created_at":"2026-10-02T00:00:00Z"}]' >"$fx/events-7.json"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start)" "7"
+t_contains "$t_out" "start #7 (labelled by the fixer by tehas-bot[bot])"
+
+t_case "an account with a name like the app's is an outsider"
+for who in 'tehas-bot2[bot]' tehas-bot2 'tehas-bo[bot]'; do
+  fixer_ready
+  jq -nc --arg who "$who" '[{event: "labeled", label: {name: "tehas:ready"}, actor: {login: $who}, created_at: "2026-10-02T00:00:00Z"}]' >"$fx/events-7.json"
+  t_run "$dispatch"
+  t_eq "$(t_calls fake-start)" ""
+  t_contains "$t_out" "clear #7: tehas:ready off, applied by '$who' who may not authorise work here"
+done
+
 t_case "the fixer's marked comment before its label is the retry's context, whatever the comments setting"
 fixer_ready
 {
