@@ -28,10 +28,9 @@
 
 use super::{fault, say};
 use std::fs;
-use std::io::{ErrorKind, Read, Write};
-use std::os::unix::fs::OpenOptionsExt;
+use std::io::{ErrorKind, Read};
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
+use tehas_core::file::Temp;
 
 /// The units install.sh names when a unit file changed: the timers and services
 /// tehas runs, not only the changed one, since an update restarts the ones that
@@ -203,28 +202,6 @@ pub(crate) fn read_record(home: &Path) -> Result<Vec<String>, ()> {
         .collect())
 }
 
-fn temp_beside(file: &Path) -> Option<(PathBuf, fs::File)> {
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.subsec_nanos());
-    for n in 0..64u32 {
-        let mut name = file.as_os_str().to_owned();
-        name.push(format!(".{:x}{n:x}", nanos ^ std::process::id()));
-        let tmp = PathBuf::from(name);
-        match fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .open(&tmp)
-        {
-            Ok(f) => return Some((tmp, f)),
-            Err(e) if e.kind() == ErrorKind::AlreadyExists => continue,
-            Err(_) => return None,
-        }
-    }
-    None
-}
-
 /// Replace the record with these lines: what is owed after this run, in the
 /// order they run. No lines means no record. It writes through a temporary file
 /// and moves that over, because the record is the only memory a half-finished
@@ -240,18 +217,13 @@ pub(crate) fn write_record(home: &Path, lines: &[String]) -> Result<(), ()> {
         let _ = fs::remove_file(&file);
         return Ok(());
     }
-    let Some((tmp, mut f)) = temp_beside(&file) else {
+    let text: String = lines.iter().map(|l| format!("{l}\n")).collect();
+    // A name no other writer of the record can be holding: two updates of the
+    // same host must not meet in one temporary file. A temporary file that
+    // cannot be made is the failure the caller has always reported.
+    if tehas_core::file::write_atomic(&file, text.as_bytes(), 0o600, &Temp::Unique).is_err() {
         fault(&format!(
             "could not make a temporary file beside {}",
-            file.display()
-        ));
-        return Err(());
-    };
-    let text: String = lines.iter().map(|l| format!("{l}\n")).collect();
-    if f.write_all(text.as_bytes()).is_err() || fs::rename(&tmp, &file).is_err() {
-        let _ = fs::remove_file(&tmp);
-        fault(&format!(
-            "could not record the follow-ups owed in {}",
             file.display()
         ));
         return Err(());
