@@ -73,12 +73,9 @@
   const nav = document.querySelector(".topbar nav");
   if (!nav) return;
 
-  function el(tag, cls, text) {
-    const n = document.createElement(tag);
-    if (cls) n.className = cls;
-    if (text !== undefined) n.textContent = text;
-    return n;
-  }
+  // The one el(), from host/fun/dom.js, the classic script both pages load before
+  // this file.
+  const { el } = globalThis.TEHAS_DOM;
 
   let dock = null;
   let shown = null; // { item, link }
