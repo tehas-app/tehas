@@ -238,6 +238,14 @@ compute on the issue.
   permission per label: any account that can write to
   the repository can apply any label, so the list is enforced here, at the
   next poll, and not by GitHub.
+- The label must be the one the factory pinned. A label event names the
+  label by its current name, so a renamed label would carry its old
+  applications with it. The dispatcher keeps the GitHub id of each granting
+  label (`tehas:ready`, `tehas:plan`, `tehas:refine`, `tehas:finish`,
+  `tehas:urgent`, `tehas:next`, `tehas:lean`) in `~/tehas/state/labels`,
+  written the first time a poll sees the label, and an application of a label
+  with another id counts as nobody's. The poll logs each refusal with the
+  label's name and both ids. See [label pins](/github-app#label-pins).
 - An allowed account is its login and its GitHub user id, as `install.sh`
   and `tehas update` recorded them. A label from the login with another id,
   after the login changed hands, counts as nobody's; so do a tick, an answer
@@ -2061,7 +2069,9 @@ written as `how: "fixer"` still counts as the millwright's, and
 the new names.
 
 - **It is the bot.** The millwright is the factory's GitHub App, the login in
-  `~/tehas/state/github/login`; it is not a setting. GitHub's REST API names an
+  `~/tehas/state/github/login`; it is not a setting. `tehasbot github-token
+  --check` prints it (`acting as <slug>[bot]`), and so does
+  `tehasbot github-token --login`. GitHub's REST API names an
   App with `[bot]` and its GraphQL API without, so tehas takes the two as one
   account, and no other. Because every agent posts as the bot, a `tehas:ready`
   from the bot counts only within the grant below, and never as a person's

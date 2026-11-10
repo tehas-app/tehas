@@ -275,6 +275,7 @@ fn writer(
                 .map(str::to_string)
                 .collect(),
             millwright: crate::settings::account(&env("TEHAS_MILLWRIGHT_LOGIN")).to_string(),
+            refused_labels: Vec::new(),
             bot: if bot.is_empty() {
                 env("TEHAS_BOT_LOGIN")
             } else {
@@ -729,6 +730,11 @@ fn body(
     for l in refresh_warn(&snap) {
         say(l);
     }
+    let (said, refused) = crate::pins::settle(home, &mut snap, dry);
+    for l in &said {
+        say(l);
+    }
+    w.host.refused_labels = refused;
     let mut d = decide(&Snapshot::parse(&snap), settings, dry);
     while fill(&src, &mut snap, &d.needs) {
         d = decide(&Snapshot::parse(&snap), settings, dry);

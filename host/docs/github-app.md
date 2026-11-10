@@ -209,6 +209,55 @@ rate limit is sent once more after a minute, and only that call
 
 [The commands page](/tools#tehasbot-github-token) has the details.
 
+## What a container's token may do
+
+A cycle's, a planning turn's and a session's container get the narrowed
+token, never the app's own. It has these permissions on the product
+repository and on nothing else:
+
+| Permission    | Access |
+| ------------- | ------ |
+| Contents      | write  |
+| Pull requests | write  |
+| Issues        | read   |
+| Metadata      | read   |
+
+GitHub lets a token with Pull requests write manage the repository's labels:
+create, rename and delete them. GitHub's tables list Issues write or Pull
+requests write for those calls. So a container can rename a label, though it
+cannot apply one to an issue or comment on one with this token. The
+dispatcher does not take a label's name as proof of what it is: it pins each
+granting label, as the next section says.
+
+## Label pins
+
+The dispatcher keeps the GitHub node id of each label whose application
+grants work (`tehas:ready`, `tehas:plan`, `tehas:refine`, `tehas:finish`,
+`tehas:urgent`, `tehas:next` and `tehas:lean`) in `~/tehas/state/labels`,
+one `<name><tab><id>` line each. The first page of each poll reads the
+repository's `tehas:` labels with their ids, and the label events carry the
+id of their label:
+
+- A granting label with no line in the file is pinned as it is the first
+  time a poll sees it, and the poll logs `pinned the label <name> as <id>`.
+  A host with no file, a fresh one or one just updated, pins every label at
+  its first poll. A dry run says what it would pin and writes nothing.
+- An application whose label id is not the pinned one counts as nobody's:
+  it starts nothing, and the label is taken off as one applied by an
+  account that is not allowed. The poll logs `refused: ...` with the label's
+  name, the pinned id and the event's id. When the label that now carries a
+  granting name is not the pinned one, no application of it counts that poll,
+  and the log says `refused: the label <name> is not the one pinned`.
+
+A label renamed into a granting name, for example a person's `bug` renamed to
+`tehas:ready`, therefore grants nothing: its old applications carry the id of
+the old label.
+
+To delete and recreate a `tehas:` label (or to take one back after it was
+renamed), remove its line from `~/tehas/state/labels`, or the whole file, once
+the label is as it should be. The next poll pins the label it finds and logs
+it. Until then the label's applications count for nothing.
+
 ## The relay is a security channel
 
 The relay is the one way a cycle's container reaches GitHub's issues with
