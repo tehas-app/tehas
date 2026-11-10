@@ -9,7 +9,7 @@
 //! with turns the turns done before it and startedAt when it started (ISO
 //! 8601). Nothing is recorded without both. Under $TEHAS_HOME:
 //!
-//! - state/plan-<n>.json.out (libexec/plan): {session, lost, ...}, what the
+//! - state/plan-<n>.json.out (`tehas plan`): {session, lost, ...}, what the
 //!   turn left: the session on exit 0, lost when Pi no longer had it.
 //! - docs/version.txt, as for a work run.
 //!
@@ -139,7 +139,7 @@ fn how(rec: &serde_json::Map<String, Value>, turn: i64) -> &'static str {
 /// handoff   it finished (exit 0 with a session) and asked its question: a
 ///           person answers next
 /// stopped   Pi no longer had the session, which is then ended
-/// refused   no turn ran: its unit could not start, or libexec/plan ran
+/// refused   no turn ran: its unit could not start, or `tehas plan` ran
 ///           nothing (4 attachments, 64 usage, 78 settings)
 /// failed    any other end: a turn that did not settle (2), was cut off, or
 ///           left an exit status that cannot be read

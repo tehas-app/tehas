@@ -567,7 +567,7 @@ fn work_verb(home: &Path, n: u64, args: &[String], rest: &[&str]) -> ! {
     std::process::exit(work::run(home, &g));
 }
 
-/// The start and end of a cycle, as libexec/cycle holds them.
+/// The start and end of a cycle, as tehas-cycle holds them.
 fn start(n: u64, args: &[String], rest: &[&str]) -> Start {
     let mut start = Start {
         issue: n,
@@ -610,7 +610,7 @@ fn start(n: u64, args: &[String], rest: &[&str]) -> Start {
     start
 }
 
-/// What follows a cycle's record, from what libexec/cycle holds of its end.
+/// What follows a cycle's record, from what tehas-cycle holds of its end.
 fn after_verb(home: &Path, n: u64, args: &[String]) {
     let mut bytes = vec![];
     let read = std::io::Read::read_to_end(&mut std::io::stdin(), &mut bytes);

@@ -401,19 +401,15 @@ t_eq "$(t_calls cargo)" ""
 t_contains "$t_out" "next: units tehas-dispatch.timer"
 t_contains "$(cat "$th/state/update-pending")" "units tehas-dispatch.timer"
 
-t_case "a console that cannot record the steps stops the run at the first copy"
+t_case "a record of steps that cannot be written stops the run at the first copy"
 rm -f "$th/state/update-pending"
 echo "# another change" >>"$th/env.sh"
-# It records the ids of the accounts, which come before the first copy, and
-# nothing else.
-t_stub no-console '[ "$1" = ids ] && exit 0; exit 1'
-T_ENV_ALWAYS=(TEHAS_CONSOLE="$T/bin/no-console")
+# A directory where the record goes: it can be neither read nor replaced.
+mkdir -p "$th/state/update-pending/in"
 t_run "$install"
+rm -rf "$th/state/update-pending"
 t_eq "$t_rc" 1
-t_contains "$t_out" "$T/bin/no-console could not record the follow-ups of env.sh"
+t_contains "$t_out" "tehas: could not record the follow-ups of env.sh; the copies so far are installed"
 t_contains "$(cat "$th/env.sh")" "# another change"
-T_ENV_ALWAYS=(TEHAS_CONSOLE="$T_CONSOLE")
-console_env=()
-t_env
 
 t_done

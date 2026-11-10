@@ -88,19 +88,11 @@ if [[ ! $uid =~ ^[0-9]+$ ]]; then
   exit 78
 fi
 current=$image:uid$uid
-# The tracked recipe of the image, and the copy of it the build is handed, which
-# is named here before anything is asked of git or docker. What it holds and who
-# takes it back: host/docs/host.md, What two instance users of one host share.
-dockerfile=$here/Dockerfile
+# The base's recipe, and the copy of the image's the build is handed. What the
+# copy holds and who takes it back: host/docs/host.md, What two instance users
+# of one host share.
 base_recipe=$here/base.Dockerfile
 uid_recipe=$here/sandbox-uid.Dockerfile
-# One shape for a staged temporary, named once: mktemp makes the suffix six
-# characters, and the sweep, the check below, .gitignore and the cleaner's pick
-# in console/src/clean.rs all read it as six. Bracket classes, not bare ?: under
-# failglob a bare ? matches a dot and would name a hidden file of the directory.
-# A pattern held in a variable is not globbed, so the sweep and the check below
-# match against $temp_glob with it unquoted, as the pattern it is.
-temp_glob='sandbox-uid.Dockerfile.[0-9A-Za-z][0-9A-Za-z][0-9A-Za-z][0-9A-Za-z][0-9A-Za-z][0-9A-Za-z]'
 # The instance's own addition to the image, beside the settings this host loads.
 # Written by a person, built by no one else: absent is normal. Resolved the way
 # every command resolves the instance directory (tehas_instance_dir in
@@ -133,29 +125,6 @@ if [ -z "$lib" ] || [ ! -x "$cycle" ] || [ ! -x "$console" ]; then
   echo "sandbox: no libexec/tehas-cycle, libexec/console and lib/config.sh beside $here, the base cannot be checked" >&2
   exit 1
 fi
-# The recipe the image is made from goes with lib/: a toolchain that lacks it
-# says so here, as it does for the libraries, and not as a sed error later.
-if [ ! -f "$dockerfile" ]; then
-  echo "sandbox: no Dockerfile beside $here, so the image cannot be built" >&2
-  exit 1
-fi
-if [ ! -f "$base_recipe" ]; then
-  echo "sandbox: no base.Dockerfile beside $here, so the base cannot be built" >&2
-  exit 1
-fi
-# The two lines the two stages are cut at, each counted as one whole line of the
-# tracked file: the boundary, and the uid's own argument with nothing after the
-# `=`. A stage renamed, a step indented, a second declaration, or a default
-# written after the argument leaves the shared layers uncut, or gives the stage a
-# uid of its own to fall back on, and is refused here rather than read as a
-# boundary by one reader and not another. The same counts are asked of the staged
-# copy below, so the cut and its check read the recipe by one rule.
-if [ "$(grep -cxF -- 'FROM shared' "$dockerfile")" != 1 ] ||
-  [ "$(grep -cxF -- 'ARG TEHAS_UID=' "$dockerfile")" != 1 ] ||
-  [ "$(grep -c '^ARG TEHAS_UID' "$dockerfile")" != 1 ]; then
-  echo "sandbox: $dockerfile does not hold one 'FROM shared' stage and one 'ARG TEHAS_UID=' line, so the shared layers cannot be cut" >&2
-  exit 1
-fi
 # The instance directory, resolved as every command resolves it: loading
 # settings has no side effects (AGENTS.md rule 3), so sourcing the library is
 # safe here and reaches the `instance-dir` pointer that only tehas_load would
@@ -170,49 +139,10 @@ if [ -f "$(tehas_instance_dir)/instance.env" ]; then
   tehas_load || exit 78
 fi
 
-# The staged recipe below is the only file this script writes, so its name is
-# settled before anything is asked of git or docker. A link under the name is
-# written through and a directory stops the build on its redirect, so both are
-# refused. A plain file is the copy a build that never reached its cleanup left -
-# a run killed by a signal bash cannot catch, for one - and the name is the build's
-# own to take back, so the line names the time it was written. A copy of the age is
-# also what tehasbot clean takes with the rest of the host scratch.
-if [ -L "$uid_recipe" ] || { [ -e "$uid_recipe" ] && [ ! -f "$uid_recipe" ]; }; then
-  echo "sandbox: refusing to build, $uid_recipe is already there and is not a plain file" >&2
-  exit 1
-fi
-if [ -f "$uid_recipe" ]; then
-  said=$(stat -c %y "$uid_recipe" 2>/dev/null) || said='unknown (stat failed)'
-  if [ "$mode" = build ]; then
-    echo "sandbox: $uid_recipe is the copy an earlier build left, written $said; this build replaces it" >&2
-  else
-    echo "sandbox: $uid_recipe is the copy an earlier build left, written $said; the next build replaces it" >&2
-  fi
-fi
-# The temporaries of earlier runs - none of them this run's, which is made below -
-# have no owner but the run that made them, and none should stand between builds.
-# They are taken back quietly, as the trap takes this run's copy back quietly:
-# what carries the name of one and is not a plain file is refused with it rather
-# than removed, since a sweep names a file, it does not prove who wrote it.
-left=()
-# Every entry of the directory is read and matched against the shape. With
-# nothing to sweep the glob word stands as itself, names no shape, and is
-# passed over.
-for f in "$here"/*; do
-  [[ $f == "$here"/$temp_glob ]] || continue
-  if [ -f "$f" ] && [ ! -L "$f" ]; then
-    left+=("$f")
-  else
-    echo "sandbox: refusing to build, $f is named like a build's temporary and is not a plain file" >&2
-    exit 1
-  fi
-done
-if [ "${#left[@]}" != 0 ] && ! rm -f -- "${left[@]}" 2>/dev/null; then
-  # A temporary the run cannot take back is not a file to build beside: the sweep
-  # names it, it does not prove the directory lets the build own it.
-  echo "sandbox: could not take back ${left[*]}, the temporary an earlier build left" >&2
-  exit 1
-fi
+# The tracked recipe, the copy of it docker is handed (the only file this
+# script writes) and the temporaries of earlier runs are the console's to check
+# (console sandbox recipe, console/src/sandbox.rs), before git or docker is asked.
+"$console" sandbox recipe "$here" "$mode" || exit 1
 
 if ! target=$("$console" rukas target "${PI_RUKAS_FOLLOW:-}" "${PI_RUKAS_REPO:-}"); then
   echo "build: no pi-rukas commit for PI_RUKAS_FOLLOW=${PI_RUKAS_FOLLOW:-} in $PI_RUKAS_REPO" >&2
@@ -222,14 +152,10 @@ head=${target%% *} what=${target#* }
 
 if [ "$mode" != build ]; then
   have=$(docker image inspect --format '{{index .Config.Labels "tehas.rukas"}}' "$current" 2>/dev/null) || have=""
-  if [ "$have" = "$head" ]; then
-    echo "pi-rukas: $current is on $head, $what"
+  if "$console" sandbox current "$current" "$have" "$head" "$what"; then
     exit 0
   fi
-  if [ "$mode" = check ]; then
-    echo "pi-rukas: $current is on ${have:-no known commit}, $what is $head"
-    exit 1
-  fi
+  [ "$mode" != check ] || exit 1
 fi
 
 # The base, built here from the host's pi-rukas clone at the commit followed and
@@ -300,56 +226,11 @@ smoke_image() { # <image>
 }
 
 stamp=$(date -u +%y%m%d-%H%M)
-# The recipe the build is handed, written from the tracked file just before the
-# build so the two cannot drift: everything up to the line that reads exactly
-# `FROM shared`, that line opening the second stage, and the steps below it with
-# the uid's argument taken out of them - an argument is read from the line that
-# declares it, so it has to stand below the boundary and not above it. The cut
-# matches whole lines by hand, the way the checks below count them, so no value
-# read out of the recipe is ever used as a pattern.
-stage=
-staged=
-mktemp_failed=0
-stage=$(mktemp "$here/sandbox-uid.Dockerfile.XXXXXX") || mktemp_failed=1
-# From the first moment the run owns a file, the handler that takes it back
-# stands: the name this run renames onto goes into the same variable, so there is
-# nothing to disarm and nothing a later exit can leave standing.
-trap 'rm -f -- "${stage:-}" "${staged:-}"' EXIT HUP INT TERM
-if [ "$mktemp_failed" = 1 ]; then
-  echo "sandbox: could not stage a recipe beside $here" >&2
-  exit 1
-fi
-# The temporary is beside the name it ends at and owns nothing else's: a mktemp
-# that read TMPDIR elsewhere, or made a name of another shape, is this run's
-# mistake and not a file to keep. Same pattern the sweep above matches with.
-[[ $stage == "$here"/$temp_glob ]] || {
-  echo "sandbox: $stage is not the temporary this build made beside $here" >&2
-  exit 1
-}
-{
-  awk 'index($0, "FROM shared") == 1 { exit } { print }' "$dockerfile"
-  echo 'FROM shared'
-  awk 'index($0, "FROM shared") == 1 { f = 1; next } f { print }' "$dockerfile"
-} >"$stage" || {
-  echo "sandbox: could not write the staged recipe beside $here" >&2
-  exit 1
-}
-# The same counts the pre-check asks of the tracked file, asked of the copy this
-# run made, before docker is asked anything of it.
-if [ "$(grep -cxF -- 'FROM shared' "$stage")" != 1 ] ||
-  [ "$(grep -cxF -- 'ARG TEHAS_UID=' "$stage")" != 1 ] ||
-  [ "$(grep -c '^ARG TEHAS_UID' "$stage")" != 1 ]; then
-  echo "sandbox: the staged recipe does not hold one 'FROM shared' line and one 'ARG TEHAS_UID=' line" >&2
-  exit 1
-fi
-mv -f "$stage" "$uid_recipe" || {
-  echo "sandbox: could not put the staged recipe at $uid_recipe" >&2
-  exit 1
-}
-# Only from here does the name belong to this run: the trap takes back what this
-# run put there and nothing that stood there before it.
-staged=$uid_recipe
-stage=
+# The copy docker is handed, written from the tracked file just before the build
+# so the two cannot drift. Only once it stands does the name belong to this run:
+# the trap takes back what this run put there and nothing that stood before it.
+"$console" sandbox stage "$here" || exit 1
+trap 'rm -f -- "$uid_recipe"' EXIT HUP INT TERM
 docker build \
   --build-arg PI_RUKAS_IMAGE="$base" \
   --build-arg PI_RUKAS_COMMIT="$head" \

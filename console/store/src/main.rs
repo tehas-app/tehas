@@ -119,7 +119,7 @@
 //!   store sweep-locks [--days N] [--max N] [--dry-run]
 //!   store locks-held
 //!   store upkeep [--dry-run]
-//!   store poll-record --started <unix[.frac]> --times <file> --tally <file>
+//!   store poll-record --started <unix[.frac]> --cpu-ms <n> --gh <n>
 //!                --writes-log <file> [--starts <n>]
 //!   store poll-show | poll-show --api --now <unix>
 //!   store poll-idle --since <seconds> [--budget <spec>]

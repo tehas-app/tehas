@@ -3025,7 +3025,7 @@ mod tests {
 
     /// The report of a poll, at `at`, as the dispatcher's own type writes it:
     /// the bytes of `Report::to_value` with the poll's time stamped on them,
-    /// which is exactly what `libexec/dispatch` publishes as live/dispatch.json.
+    /// which is exactly what tehas-dispatch publishes as live/dispatch.json.
     fn poll_report(h: &Home, at: &str, r: &hold::Report) {
         let mut v = r.to_value();
         v[hold::KEY_TIME] = serde_json::json!(at);
