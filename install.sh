@@ -59,8 +59,8 @@
 # that holds it longer than the update lock's wait stops the run (exit 1,
 # nothing installed). Before the first copy the store judges the old files
 # (`store import --dry-run`): while one is there, a running cycle or planning
-# turn, or a file the import would hold, stops the run the same way. Each
-# state/plan-<n>.json.keep moves to $TEHAS_WORK_DIR-plan-<n>.keep.
+# turn, or a file the import would hold, stops the run the same way. A planning
+# session's kept directory moves from state/ to $TEHAS_WORK_DIR-plan-<n>.keep.
 #
 # It does not start the dispatcher or the docs server, rebuild the sandbox
 # image or write secrets. It reads the model endpoints' tokens from
@@ -736,27 +736,11 @@ record_step() { # one source path from the file table
 
 # --- 2b. The command root installed for the other accounts ------------------
 # host/login/tehas reaches an account that is not the tehas user as
-# /usr/local/bin/tehas, installed by root. Reading the marker bootstrap.sh dev
-# leaves tells whether this host has that setup at all; the file beside it is
-# compared with this checkout's copy. Nothing here writes to either.
+# /usr/local/bin/tehas, installed by root. The console compares it with this
+# checkout's copy where bootstrap.sh dev left its marker, and names the command
+# that fixes a difference (console/src/update/host.rs). Nothing writes to either.
 login_bin=${BOOTSTRAP_BIN:-/usr/local/bin}/tehas
-login_manager=${BOOTSTRAP_ETC:-/etc}/tehas/manager
-login_fix=""
-if [ -r "$login_manager" ]; then
-  # The compare and the command it names are both files of this checkout. Said
-  # as a missing checkout, as the copies say it: cmp answers 2 for a source that is
-  # not there, and that would read as a difference this host cannot fix.
-  for need in host/login/tehas bootstrap.sh; do
-    [ -f "$root/$need" ] || { echo "tehas: $root/$need is missing from this checkout" >&2; exit 1; }
-  done
-  IFS= read -r login_user <"$login_manager" || true
-  # The name goes into a printed command line, so only the shape bootstrap.sh dev
-  # accepts is used. Anything else is left for the person to fill in.
-  [[ $login_user =~ ^[a-z_][a-z0-9_-]*$ ]] || login_user=""
-  if [ ! -e "$login_bin" ] || ! cmp -s "$host/login/tehas" "$login_bin"; then
-    login_fix="sudo $root/bootstrap.sh dev ${login_user:-<tehas user>}"
-  fi
-fi
+login_fix=$("$loaded_console" update login "$root" "$login_bin" "${BOOTSTRAP_ETC:-/etc}/tehas/manager") || exit 1
 
 # --- 3. Install ---------------------------------------------------------------
 # The programs are built first and copied only after the old records are judged
@@ -886,7 +870,6 @@ fi
 # before the marker came in gets it here, and its old records are judged too.
 dispatch_held=0
 store_gate() {
-  local out
   exec 9>>"$TEHAS_HOME/state/dispatch.lock"
   if ! flock -w "$dispatch_wait" 9; then
     echo "tehas: a poll is running ($TEHAS_HOME/state/dispatch.lock still held after ${dispatch_wait}s); nothing was installed" >&2
@@ -901,21 +884,10 @@ store_gate() {
     echo "tehas: there is no store to judge the old records with ($gate_store); nothing was installed" >&2
     exit 1
   fi
-  out=$(TEHAS_HOME=$TEHAS_HOME "$gate_store" import --dry-run 2>&1) && return 0
-  case $out in
-    "store: live #"*)
-      out=${out#store: live }
-      echo "tehas: a cycle or planning turn runs (${out%%:*}); run tehas drain --wait and let it end, then install again; nothing was installed" >&2
-      ;;
-    "store: held "*)
-      printf '%s\n' "$out" >&2
-      echo "tehas: the old records listed above cannot be imported; move each one out of $TEHAS_HOME/state or mend it, then install again; nothing was installed" >&2
-      ;;
-    *)
-      printf '%s\n' "$out" | tail -n 5 >&2
-      echo "tehas: the store could not judge the old records under $TEHAS_HOME/state; nothing was installed" >&2
-      ;;
-  esac
+  # The store says its own refusals, each exit 1; any other status is a store
+  # that could not say.
+  TEHAS_HOME=$TEHAS_HOME "$gate_store" import --dry-run --say && return 0
+  [ $? = 1 ] || echo "tehas: the store could not judge the old records under $TEHAS_HOME/state; nothing was installed" >&2
   exit 1
 }
 # Given back before the first index, which takes the lock itself.
@@ -1116,7 +1088,7 @@ fi
 # A store that fails stops the run: the files are copied, the database is left
 # as it was, and the store's own line says why.
 store_db() {
-  local store=$TEHAS_HOME/libexec/store db=$TEHAS_HOME/state/tehas.db version name out verb
+  local store=$TEHAS_HOME/libexec/store db=$TEHAS_HOME/state/tehas.db version name verb
   version=$(checkout_version)
   name=${instance%/}
   name=${name##*/}
@@ -1128,53 +1100,24 @@ store_db() {
   fi
   [ -x "$store" ] || { echo "tehas: $store is not installed, so $db was neither made nor migrated" >&2; exit 1; }
   chmod 700 "$TEHAS_HOME/state" || { echo "tehas: could not keep $TEHAS_HOME/state mode 0700" >&2; exit 1; }
-  if ! out=$(TEHAS_HOME=$TEHAS_HOME "$store" "${verb[@]}" --version "$version" --commit "$store_commit" \
-    --instance "$name" --repo "$TEHAS_REPO" 2>&1); then
-    printf '%s\n' "$out" | tail -n 5 >&2
+  if ! TEHAS_HOME=$TEHAS_HOME "$store" "${verb[@]}" --version "$version" --commit "$store_commit" \
+    --instance "$name" --repo "$TEHAS_REPO" --say; then
     echo "tehas: the store could not ${verb[0]} $db; the files are installed, the database was left as it was" >&2
     exit 1
   fi
-  case ${verb[0]} in
-    init) echo "store: made $db" ;;
-    *) echo "store: $db at schema $(jq -r '.to // "?"' <<<"$out" 2>/dev/null), backup $(jq -r '.backup // "?"' <<<"$out" 2>/dev/null)" ;;
-  esac
   # The records an older tehas kept as files, made rows; each file is moved to
   # state/imported-<day>/ once its rows read back, and nothing is deleted. A run
   # again is safe: what is in the store already is not written twice.
-  if ! out=$(TEHAS_HOME=$TEHAS_HOME "$store" import 2>&1); then
-    printf '%s\n' "$out" | head -n 40 >&2
+  if ! TEHAS_HOME=$TEHAS_HOME "$store" import --say; then
     echo "tehas: the store could not import the old records under $TEHAS_HOME/state; the files are installed, the database holds what was imported, and install.sh can run again" >&2
     exit 1
-  fi
-  # shellcheck disable=SC2016  # a jq program
-  if jq -e '.moved > 0' <<<"$out" >/dev/null 2>&1; then
-    echo "store: imported $(jq -r '[.imported | to_entries[] | select(.value > 0) | "\(.key) \(.value)"] | join(", ")' <<<"$out"); moved $(jq -r .moved <<<"$out") files to $TEHAS_HOME/state/imported-$(date -u +%Y%m%d)/"
   fi
 }
 store_db
 
-# A planning session's kept directory, state/plan-<n>.json.keep, holds what a
-# container wrote, so it moves out of state/ to beside the workspaces, where
-# the planning turn now keeps it: $TEHAS_WORK_DIR-plan-<n>.keep. Only while no
-# turn holds the issue's lock, and never over a directory that is there.
-for keep in "$TEHAS_HOME"/state/plan-[0-9]*.json.keep; do
-  [ -d "$keep" ] && [ ! -L "$keep" ] || continue
-  n=${keep##*/plan-}
-  n=${n%.json.keep}
-  case $n in '' | *[!0-9]*) continue ;; esac
-  to=$TEHAS_WORK_DIR-plan-$n.keep
-  lock=$TEHAS_HOME/state/plan-$n.json.lock
-  if [ -e "$lock" ] && ! { flock -n 8; } 8<"$lock"; then
-    echo "later: ./install.sh again when the planning turn of #$n has ended   ($keep stays where it is)"
-  elif [ -e "$to" ] || [ -L "$to" ]; then
-    echo "note: $keep stays where it is: $to is there already" >&2
-  elif mkdir -p "${to%/*}" && mv -T -- "$keep" "$to"; then
-    echo "moved: $keep to $to"
-  else
-    echo "tehas: could not move $keep to $to" >&2
-    exit 1
-  fi
-done
+# A planning session's kept directory moves out of state/ to beside the
+# workspaces, while no turn holds the issue's lock (console/src/update/host.rs).
+"$loaded_console" update keeps "$TEHAS_HOME" "$TEHAS_WORK_DIR" || exit 1
 
 # A cycle used to leave state/cycles/<issue> - one empty file per issue number,
 # the record that this host had run a cycle for it. Nothing read it, and the
@@ -1241,17 +1184,14 @@ first_index() {
 # step's, which `tehas update` runs.
 first_install() {
   [ -f "$first_owed" ] || return 0
-  local units=(tehas-dispatch.timer tehas-dispatch.path) why="" energy
-  [ -z "${TEHAS_IMPROVE_REPO:-}" ] || units+=(tehas-improve.timer)
-  [ -z "${TEHAS_DOMAIN:-}" ] || units+=(tehas-protolab.timer)
-  [ "${TEHAS_PREVIEWS:-}" != 1 ] || units+=(tehas-preview.timer tehas-preview-sweep.timer)
-  # A first install runs before any shell has read env.sh, which exports this
-  # from the host's private file, so it is read from that file too.
-  energy=${TEHAS_ENERGY:-}
-  [ -n "$energy" ] || [ ! -r "$HOME/.config/tehas/env" ] ||
-    energy=$(sed -n 's/^TEHAS_ENERGY=//p' "$HOME/.config/tehas/env" | tail -n 1)
-  case "${energy:-off}" in off) ;; *) units+=(tehas-energy.service) ;; esac
-  if ! "$TEHAS_HOME/bin/tehas" labels >/dev/null; then
+  local units=() why="" line
+  # A first install runs before any shell has read env.sh, so the console reads
+  # TEHAS_ENERGY from the host's private file too.
+  line=$(export "${!TEHAS_@}"; "$loaded_console" update units "$HOME/.config/tehas/env") || line=""
+  read -ra units <<<"$line"
+  if [ "${#units[@]}" = 0 ]; then
+    why="the console at $loaded_console did not name the units"
+  elif ! "$TEHAS_HOME/bin/tehas" labels >/dev/null; then
     why="tehas labels failed"
   elif ! systemctl --user daemon-reload || ! systemctl --user enable --now "${units[@]}"; then
     why="systemctl --user enable failed"
