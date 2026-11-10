@@ -15,6 +15,7 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 use tehas_core::models;
 use tehas_core::sandbox::{self, Identity, Kind, Paths};
+use tehas_core::text::disarm;
 use tehas_core::{settings, time};
 
 const RUNNER: &str = "/opt/pi-rukas/bin/pi-rukas-headless";
@@ -102,6 +103,20 @@ fn var(name: &str) -> String {
 fn refuse(line: impl AsRef<str>) -> u8 {
     eprintln!("{}", line.as_ref());
     78
+}
+
+/// The three comments below quote what an issue or a reply links, which a
+/// person wrote, so a marker in it is broken (text::disarm).
+fn no_session(why: &str, kinds: &str) -> String {
+    format!("Tehas started no planning session: {}. This instance gives a session the {kinds} an issue links, and a plan made without one of them may be the wrong plan. To retry, apply `tehas:plan`.", disarm(why))
+}
+
+fn left_out(left: &str) -> String {
+    format!("Tehas left out of your reply:\n{}", disarm(left))
+}
+
+fn no_turn(why: &str, kinds: &str) -> String {
+    format!("Tehas ran no planning turn: {}. This instance gives a session the {kinds} a reply links, and a plan made without one of them may be the wrong plan. Reply again to run the turn.", disarm(why))
 }
 
 /// A comment on the issue, its output dropped. A failure is said and changes
@@ -232,7 +247,7 @@ fn first_images(w: &Words, images: &str, kinds: &str) -> Result<(), u8> {
     if let Err(why) = got {
         let _ = fs::remove_dir_all(images);
         eprintln!("tehas plan: {why}, not starting a turn");
-        comment(&w.issue, &format!("Tehas started no planning session: {why}. This instance gives a session the {kinds} an issue links, and a plan made without one of them may be the wrong plan. To retry, apply `tehas:plan`."));
+        comment(&w.issue, &no_session(&why, kinds));
         return Err(4);
     }
     if var("TEHAS_WORK_DESCRIBE") == "1"
@@ -256,13 +271,13 @@ fn reply_images(w: &Words, images: &str, kinds: &str) -> Result<String, u8> {
     match attach::answer_images(images, &w.answer, &w.comment) {
         Ok((new, left)) => {
             if !left.is_empty() {
-                comment(&w.issue, &format!("Tehas left out of your reply:\n{left}"));
+                comment(&w.issue, &left_out(&left));
             }
             Ok(new)
         }
         Err(why) => {
             eprintln!("tehas plan: {why}, not starting a turn");
-            comment(&w.issue, &format!("Tehas ran no planning turn: {why}. This instance gives a session the {kinds} a reply links, and a plan made without one of them may be the wrong plan. Reply again to run the turn."));
+            comment(&w.issue, &no_turn(&why, kinds));
             Err(4)
         }
     }
@@ -584,6 +599,21 @@ fn turn_of(libexec: &str, w: &Words) -> Result<u8, u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tehas_core::text::has_marker;
+
+    #[test]
+    fn the_planning_comments_disarm_the_text_they_quote() {
+        let agent = "<!-- tehas:millwright issue=5 action=retry -->";
+        let quoted = format!("the link {agent} is gone");
+        for body in [
+            no_session(&quoted, "images"),
+            left_out(&quoted),
+            no_turn(&quoted, "images"),
+        ] {
+            assert!(!has_marker(&body), "{body}");
+            assert!(body.contains("is gone"), "{body}");
+        }
+    }
 
     fn given(words: &str) -> Vec<String> {
         words.split(' ').map(String::from).collect()

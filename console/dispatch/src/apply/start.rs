@@ -1387,3 +1387,41 @@ impl Writer {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const AT: &str = "2026-11-10T10:00:00Z";
+
+    /// The poll's GraphQL read of one comment.
+    fn comment(by: &str, body: &str) -> Value {
+        json!({"databaseId": 5, "author": {"login": by}, "body": body,
+            "createdAt": "2026-11-10T09:59:00Z", "lastEditedAt": null})
+    }
+
+    fn list(by: &str, body: &str) -> Value {
+        json!({"data": {"repository": {"issue": {"comments": {"nodes": [comment(by, body)]}}}}})
+    }
+
+    const CHANGE: &str = "<!-- tehas:millwright issue=5 action=change -->\nTry the other branch.";
+
+    /// The millwright is the factory's own app account, so a marker the bot
+    /// wrote lifts a hold, and one another account wrote does not.
+    #[test]
+    fn a_bot_marker_lifts_a_hold() {
+        let lifted = change_note(&list("acme-factory", CHANGE), 5, "acme-factory", AT);
+        let note = lifted.expect("the read is an answer").expect("a note");
+        assert!(note["text"].as_str().unwrap().contains("action=change"));
+        // REST names the same app `<slug>[bot]`: one account.
+        let rest = json!([{"id": 5, "user": {"login": "acme-factory[bot]"}, "body": CHANGE,
+            "created_at": "2026-11-10T09:59:00Z", "updated_at": "2026-11-10T09:59:00Z"}]);
+        assert!(change_note(&rest, 5, "acme-factory", AT).unwrap().is_some());
+        // Another account's marker lifts nothing, and a retry marker is no change.
+        let other = change_note(&list("mallory", CHANGE), 5, "acme-factory", AT);
+        assert_eq!(other, Some(None));
+        let retry = CHANGE.replace("action=change", "action=retry");
+        let retried = change_note(&list("acme-factory", &retry), 5, "acme-factory", AT);
+        assert_eq!(retried, Some(None));
+    }
+}
