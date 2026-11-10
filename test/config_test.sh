@@ -4,6 +4,7 @@
 # shellcheck disable=SC2016  # snippets are expanded by the shell under test
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
+T_APP_WORLD=0
 
 load='. "$T_ROOT/lib/config.sh"; tehas_load'
 # shellcheck disable=SC2154  # t_console_why is set by t_console (test/lib.sh)
