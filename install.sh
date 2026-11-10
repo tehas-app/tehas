@@ -788,67 +788,55 @@ if [ ! -d "$root/console" ] && [ -f "$root/VERSION" ]; then
     fi
     store_refusal="${store_refusal:+$store_refusal; }this release has no libexec/store and none is installed"
   fi
-  program_sum() { sha256sum <"$1" | cut -d' ' -f1; }
   [ ! -x "$root/libexec/store" ] || gate_store=$root/libexec/store
-  for prog in console analytics tehas-mcp store attach tehas-dispatch tehas-cycle; do
-    from=$root/libexec/$prog
-    to=$TEHAS_HOME/libexec/$prog
-    if [ ! -x "$from" ]; then
-      [ "$prog" = store ] && [ ! -x "$to" ] && continue
-      note "this release carries no libexec/$prog; the one installed stays"
-      continue
-    fi
-    sum="release $(program_sum "$from")"
-    [ ! -x "$to" ] || [ "$(cat "$to.stamp" 2>/dev/null)" != "$sum" ] || continue
-    if [ "$check" = 1 ]; then
-      changed+=("libexec/$prog")
-      if [ -f "$to" ]; then note "differs: $to"; else note "missing: $to"; fi
-    else
-      program_puts+=("$from|$to|755")
-      program_stamps+=("$sum")
-    fi
-  done
+  programs_console=$root/libexec/console
+  programs=$("$programs_console" update programs "$TEHAS_HOME" release "$root" console analytics tehas-mcp \
+    store attach tehas-dispatch tehas-cycle) ||
+    { echo "tehas: $programs_console could not judge the programs of this release" >&2; exit 1; }
 else
   [ -d "$root/console" ] || { echo "tehas: $root/console is missing from this checkout" >&2; exit 1; }
-  # The checksum of each program's source, from the console that read the
-  # settings: the one built from this tree, or in --check the one an earlier
-  # build left or the one installed. It reads the workspace's members and what
-  # each takes by path (console/src/update/sources.rs).
-  sources_console=${built_console:-${TEHAS_SETTINGS_CMD:-$TEHAS_HOME/libexec/console}}
-  sources=$("$sources_console" update sources "$root/console" console analytics tehas-mcp store attach \
-    tehas-dispatch tehas-cycle) ||
-    { echo "tehas: $sources_console could not read the programs' source in $root/console" >&2; exit 1; }
-  program_sum() { sha256sum <"$1" | cut -d' ' -f1; }
-  due=()
-  while IFS= read -r entry; do
-    read -r prog sum <<<"$entry"
-    [[ $sum =~ ^[0-9a-f]{64}$ ]] ||
-      { echo "tehas: $sources_console gave no checksum for ${prog:-a program}: $entry" >&2; exit 1; }
-    to=$TEHAS_HOME/libexec/$prog
-    [ ! -x "$to" ] || [ "$(cat "$to.stamp" 2>/dev/null)" != "$sum $(program_sum "$to")" ] || continue
-    if [ "$check" = 1 ]; then
-      changed+=("libexec/$prog")
-      if [ -f "$to" ]; then note "differs: $to"; else note "missing: $to"; fi
-    else
-      due+=("$entry")
-    fi
-  done <<<"$sources"
-  if [ "${#due[@]}" != 0 ]; then
-    build_ready "${due[0]%% *}"
-    for entry in "${due[@]}"; do
-      read -r prog _ <<<"$entry"
-      build_program "$prog"
-    done
-    for entry in "${due[@]}"; do
-      read -r prog sum <<<"$entry"
-      to=$TEHAS_HOME/libexec/$prog
-      triple=$(program_triple "$prog")
-      [ "$prog" != store ] || gate_store=$target/${triple:+$triple/}release/store
-      program_puts+=("$target/${triple:+$triple/}release/$prog|$to|755")
-      program_stamps+=("build $sum")
-    done
-  fi
+  # The console that read the settings: the one built from this tree, or in
+  # --check the one an earlier build left or the one installed. It sums each
+  # program's source (console/src/update/sources.rs) and compares the stamps
+  # (console/src/update/programs.rs).
+  programs_console=${built_console:-${TEHAS_SETTINGS_CMD:-$TEHAS_HOME/libexec/console}}
+  programs=$("$programs_console" update programs "$TEHAS_HOME" build "$root/console" console analytics \
+    tehas-mcp store attach tehas-dispatch tehas-cycle) ||
+    { echo "tehas: $programs_console could not read the programs' source in $root/console" >&2; exit 1; }
 fi
+due=()
+while read -r state prog stamp; do
+  case $state in
+    "") ;;
+    absent)
+      [ "$prog" = store ] && [ ! -x "$TEHAS_HOME/libexec/store" ] ||
+        note "this release carries no libexec/$prog; the one installed stays"
+      ;;
+    *)
+      if [ "$check" = 1 ]; then
+        changed+=("libexec/$prog")
+        note "$state: $TEHAS_HOME/libexec/$prog"
+      else
+        due+=("$prog $stamp")
+      fi
+      ;;
+  esac
+done <<<"$programs"
+if [ "${#due[@]}" != 0 ] && [ -d "$root/console" ]; then
+  build_ready "${due[0]%% *}"
+  for entry in "${due[@]}"; do build_program "${entry%% *}"; done
+fi
+for entry in "${due[@]}"; do
+  read -r prog stamp <<<"$entry"
+  from=$root/libexec/$prog
+  if [ "$stamp" != release ]; then
+    triple=$(program_triple "$prog")
+    from=$target/${triple:+$triple/}release/$prog
+    [ "$prog" != store ] || gate_store=$from
+  fi
+  program_puts+=("$from|$TEHAS_HOME/libexec/$prog|755")
+  program_stamps+=("$stamp")
+done
 
 # The console that names the steps and records them, from here on and before the
 # first copy: the one this run installs, so the rules are the ones of this tree.
@@ -928,10 +916,7 @@ if [ "$check" != 1 ]; then
   for i in "${!program_puts[@]}"; do
     copy_files <<<"${program_puts[$i]}"
     to=${program_puts[$i]#*|}
-    to=${to%|*}
-    stamp=${program_stamps[$i]}
-    case $stamp in "build "*) stamp="${stamp#build } $(program_sum "$to")" ;; esac
-    echo "$stamp" | "$steps_console" update files write "$to.stamp" || exit 1
+    "$steps_console" update programs stamp "${to%|*}" "${program_stamps[$i]}" || exit 1
   done
 fi
 
