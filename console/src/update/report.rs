@@ -269,17 +269,17 @@ enum Sandbox {
 }
 
 /// The health is written by the status run of a poll, so it can be older
-/// than an image an update has just built. `label` is the tehas.rukas label
-/// of the image now, when it has one: an image the health did not read is
-/// not called behind on its word.
-fn behind(home: &Path, label: Option<&str>) -> Option<Sandbox> {
+/// than an image an update has just built. `label` gives the tehas.rukas
+/// label of the image now, asked only when the health says behind: an image
+/// the health did not read is not called behind on its word.
+fn behind(home: &Path, label: impl FnOnce() -> Option<String>) -> Option<Sandbox> {
     let health = json(&home.join("live/health.json"))?;
     let rukas = health.get("checks")?.get("rukas")?;
     if rukas.get("behind") != Some(&Value::Bool(true)) {
         return None;
     }
     let read = rukas.get("image").and_then(Value::as_str);
-    if let (Some(now), Some(read)) = (label.filter(|l| !l.is_empty()), read) {
+    if let (Some(now), Some(read)) = (label().filter(|l| !l.is_empty()), read) {
         if now != read {
             return Some(Sandbox::Rebuilt);
         }
@@ -352,10 +352,11 @@ pub(crate) fn report(a: &Asked, o: &mut impl Outside) -> (Vec<String>, bool) {
         lines.push(format!("  {sentence}"));
     }
 
-    let label = a.images.as_ref().and_then(|(_, image)| o.labels(image));
-    let label = label
-        .as_deref()
-        .map(|l| l.split_once('|').map_or(l, |(r, _)| r));
+    let label = || {
+        let (_, image) = a.images.as_ref()?;
+        let l = o.labels(image)?;
+        Some(l.split_once('|').map_or(l.as_str(), |(r, _)| r).to_string())
+    };
     match behind(&a.home, label) {
         Some(Sandbox::Behind(image, target)) => {
             lines.push(format!("Sandbox:      BEHIND (the image runs pi-rukas {image}, the host follows {target}; tehas update builds it)"));
