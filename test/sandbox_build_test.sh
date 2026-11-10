@@ -672,7 +672,7 @@ t_case "an instance directory with no sandbox.Dockerfile in it is no second buil
 reset
 # TEHAS_INSTANCE_DIR is set for every case in this file, so the directory being
 # there with nothing to add has to be the build above and nothing more.
-printf 'TEHAS_REPO=acme/widget\n' >"$T/instance/instance.env"
+printf 'TEHAS_GITHUB_APP_ID=1\nTEHAS_REPO=acme/widget\n' >"$T/instance/instance.env"
 t_run "$build"
 t_eq "$t_rc" 0
 t_eq "$(sandbox_builds | grep -c .)" 1
