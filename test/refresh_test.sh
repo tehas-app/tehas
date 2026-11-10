@@ -160,7 +160,8 @@ echo '{}' >"$dir/notes.json"
 t_run "$refresh"
 t_eq "$(requests)" "notes.json"
 
-for what in list; do
+what=list
+{
   t_case "a failed GitHub call ($what) writes nothing and exits 1"
   reset
   mkdir -p "$dir"
@@ -172,7 +173,7 @@ for what in list; do
   t_eq "$(requests)" "7.json"
   t_eq "$(cat "$dir/7.json")" '{"pr":50}'
   t_contains "$t_out" "ERROR"
-done
+}
 
 t_case "an answer that is not a list writes nothing and exits 1"
 reset
