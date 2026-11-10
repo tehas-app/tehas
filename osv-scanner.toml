@@ -9,8 +9,5 @@
 # decision is the whole scan, so its reason has to be true of all of it. An
 # ignore whose advisory no longer applies is reported as unused and still
 # passes, so it comes out when the dependency moves.
-
-[[IgnoredVulns]]
-id = "RUSTSEC-2026-0459"
-effectiveUntil = 2027-01-15
-reason = "libsqlite3-sys 0.39.0, which fixes it, is pinned only by rusqlite 0.41; this tree is on rusqlite 0.38, and rusqlite 0.39 and 0.40 pin a vulnerable libsqlite3-sys too, so the fix is a rusqlite jump of three minors. The attack needs a victim to open a crafted .db file beside a .wal file of a different page size, and the state store and the analytics program open only their own databases under ~/tehas/state. The two alias ids name the same advisory in other databases, and no package of the npm trees here depends on SQLite. Look again when rusqlite 0.41 has been weighed against the store and the analytics program."
+#
+# The entry is left out here on purpose, to show the check fail.
