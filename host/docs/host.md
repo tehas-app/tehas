@@ -703,7 +703,9 @@ carries between turns is a directory beside its workspace,
 when it is not installed.
 
 `install.sh` makes and migrates it on every real run, under
-`state/update.lock`:
+`state/update.lock`. It passes `--say`, so the store prints the line you read
+(`store: made ...`, or `store: ... at schema <n>, backup ...`) in place of its
+JSON answer:
 
 - When there is no `state/tehas.db`, it runs `store init`.
 - Otherwise it runs `store migrate --backup ~/tehas/state/backup`. The store

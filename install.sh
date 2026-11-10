@@ -977,7 +977,6 @@ fi
 # before the marker came in gets it here, and its old records are judged too.
 dispatch_held=0
 store_gate() {
-  local out
   exec 9>>"$TEHAS_HOME/state/dispatch.lock"
   if ! flock -w "$dispatch_wait" 9; then
     echo "tehas: a poll is running ($TEHAS_HOME/state/dispatch.lock still held after ${dispatch_wait}s); nothing was installed" >&2
@@ -992,21 +991,10 @@ store_gate() {
     echo "tehas: there is no store to judge the old records with ($gate_store); nothing was installed" >&2
     exit 1
   fi
-  out=$(TEHAS_HOME=$TEHAS_HOME "$gate_store" import --dry-run 2>&1) && return 0
-  case $out in
-    "store: live #"*)
-      out=${out#store: live }
-      echo "tehas: a cycle or planning turn runs (${out%%:*}); run tehas drain --wait and let it end, then install again; nothing was installed" >&2
-      ;;
-    "store: held "*)
-      printf '%s\n' "$out" >&2
-      echo "tehas: the old records listed above cannot be imported; move each one out of $TEHAS_HOME/state or mend it, then install again; nothing was installed" >&2
-      ;;
-    *)
-      printf '%s\n' "$out" | tail -n 5 >&2
-      echo "tehas: the store could not judge the old records under $TEHAS_HOME/state; nothing was installed" >&2
-      ;;
-  esac
+  # The store says its own refusals, each exit 1; any other status is a store
+  # that could not say.
+  TEHAS_HOME=$TEHAS_HOME "$gate_store" import --dry-run --say && return 0
+  [ $? = 1 ] || echo "tehas: the store could not judge the old records under $TEHAS_HOME/state; nothing was installed" >&2
   exit 1
 }
 # Given back before the first index, which takes the lock itself.
@@ -1232,7 +1220,7 @@ fi
 # A store that fails stops the run: the files are copied, the database is left
 # as it was, and the store's own line says why.
 store_db() {
-  local store=$TEHAS_HOME/libexec/store db=$TEHAS_HOME/state/tehas.db version name out verb
+  local store=$TEHAS_HOME/libexec/store db=$TEHAS_HOME/state/tehas.db version name verb
   version=$(checkout_version)
   name=${instance%/}
   name=${name##*/}
@@ -1244,27 +1232,17 @@ store_db() {
   fi
   [ -x "$store" ] || { echo "tehas: $store is not installed, so $db was neither made nor migrated" >&2; exit 1; }
   chmod 700 "$TEHAS_HOME/state" || { echo "tehas: could not keep $TEHAS_HOME/state mode 0700" >&2; exit 1; }
-  if ! out=$(TEHAS_HOME=$TEHAS_HOME "$store" "${verb[@]}" --version "$version" --commit "$store_commit" \
-    --instance "$name" --repo "$TEHAS_REPO" 2>&1); then
-    printf '%s\n' "$out" | tail -n 5 >&2
+  if ! TEHAS_HOME=$TEHAS_HOME "$store" "${verb[@]}" --version "$version" --commit "$store_commit" \
+    --instance "$name" --repo "$TEHAS_REPO" --say; then
     echo "tehas: the store could not ${verb[0]} $db; the files are installed, the database was left as it was" >&2
     exit 1
   fi
-  case ${verb[0]} in
-    init) echo "store: made $db" ;;
-    *) echo "store: $db at schema $(jq -r '.to // "?"' <<<"$out" 2>/dev/null), backup $(jq -r '.backup // "?"' <<<"$out" 2>/dev/null)" ;;
-  esac
   # The records an older tehas kept as files, made rows; each file is moved to
   # state/imported-<day>/ once its rows read back, and nothing is deleted. A run
   # again is safe: what is in the store already is not written twice.
-  if ! out=$(TEHAS_HOME=$TEHAS_HOME "$store" import 2>&1); then
-    printf '%s\n' "$out" | head -n 40 >&2
+  if ! TEHAS_HOME=$TEHAS_HOME "$store" import --say; then
     echo "tehas: the store could not import the old records under $TEHAS_HOME/state; the files are installed, the database holds what was imported, and install.sh can run again" >&2
     exit 1
-  fi
-  # shellcheck disable=SC2016  # a jq program
-  if jq -e '.moved > 0' <<<"$out" >/dev/null 2>&1; then
-    echo "store: imported $(jq -r '[.imported | to_entries[] | select(.value > 0) | "\(.key) \(.value)"] | join(", ")' <<<"$out"); moved $(jq -r .moved <<<"$out") files to $TEHAS_HOME/state/imported-$(date -u +%Y%m%d)/"
   fi
 }
 store_db
