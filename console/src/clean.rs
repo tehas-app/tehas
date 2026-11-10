@@ -750,11 +750,9 @@ fn plain_file(p: &Path) -> bool {
 /// is given, or the `mktemp` temporary it renames from. The temporary's suffix is
 /// the six characters `mktemp XXXXXX` makes, each one of its alphabet, so a name
 /// of six bytes that is no mktemp name is not taken for one. The same shape
-/// `host/sandbox/build.sh` sweeps and `.gitignore` ignores.
+/// the sandbox build sweeps (src/sandbox.rs) and `.gitignore` ignores.
 fn staged_recipe_shaped(n: &str) -> bool {
-    n == "sandbox-uid.Dockerfile"
-        || n.strip_prefix("sandbox-uid.Dockerfile.")
-            .is_some_and(|s| s.len() == 6 && s.bytes().all(|b| b.is_ascii_alphanumeric()))
+    n == crate::sandbox::STAGED || crate::sandbox::temp_shaped(n)
 }
 
 /// Written within <hours>, as `find -newermt "-<hours> hours"` finds it; None

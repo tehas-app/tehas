@@ -667,85 +667,41 @@ for f in "$root"/lib/polyfill-*.sh; do
 done
 shopt -u nullglob
 
-# What the instance's own sandbox file was at the last install, or nothing when
-# the host has never had one, or has one no install has seen yet. Read before the
-# record of follow-ups below, so a host that changed the file is not called
-# current and its build step is owed before any copy is made. A file that cannot
-# be read is said and stops the run: recording it as seen would owe the build
+# Whether this run owes the sandbox build, asked once before any copy is made
+# (console/src/update/sandbox.rs): the pins of versions.env the image reads, by
+# the host's copy against this checkout's, and the instance's own sandbox file
+# against what the last install saw. Asked before the record of follow-ups
+# below, so a host that changed either is not called current. A sandbox file
+# that cannot be read stops the run: recording it as seen would owe the build
 # once and then never again for a file nobody has read.
-sandbox_changed=0
 sandbox_drift=0
-sandboxunread=""
 sandbox_at_file=$TEHAS_HOME/state/sandbox.Dockerfile.sha256
-if [ -f "$instance/sandbox.Dockerfile" ]; then
-  if ! hash=$(sha256sum "$instance/sandbox.Dockerfile" 2>/dev/null); then
-    sandboxunread="$instance/sandbox.Dockerfile cannot be read (check its permissions)"
-  else
-    [ "${hash:0:64}" != "$(cat "$sandbox_at_file" 2>/dev/null)" ] && sandbox_changed=1
-  fi
-fi
+owed=$("$loaded_console" update sandbox "$TEHAS_HOME/versions.env" "$host/versions.env" \
+  "$instance/sandbox.Dockerfile" "$sandbox_at_file") ||
+  { echo "tehas: the console at $loaded_console could not tell whether the sandbox build is owed; nothing was installed" >&2; exit 1; }
+read -r versions_owed sandbox_changed sandbox_unread <<<"$owed"
 
 changed=()
 report=()
 
-# source_of <src>: the file of this checkout that a table entry names, in from.
-source_of() {
-  case "$1" in
-    /*) from=$1 ;;
-    bin/* | libexec/* | lib/*) from=$root/$1 ;;
-    *) from=$host/$1 ;;
-  esac
-}
-
-# put <entry>: install one file if its content or its mode differs.
-put() {
-  local src to mode from on_disk
-  IFS='|' read -r src to mode <<<"$1"
-  source_of "$src"
-  [ -f "$from" ] || { echo "tehas: $from is missing from this checkout" >&2; exit 1; }
-  if [ -f "$to" ] && cmp -s "$from" "$to"; then
-    # Content alone is not enough: a command that matches but is not executable,
-    # or a unit file that has picked up a wider mode, is not what this checkout
-    # installs. -L: a symlink is judged by the file it points at.
-    # A mode the list cannot name stops here, before it reaches chmod.
-    [[ $mode =~ ^[0-7]{3,4}$ ]] || { echo "tehas: the mode $mode for $src is not a number" >&2; exit 1; }
-    on_disk=$(stat -L -c %a "$to") || { echo "tehas: could not read $to" >&2; exit 1; }
-    # 0644 and 644 are the same mode written two ways.
-    on_disk=$((8#$on_disk))
-    if [ "$on_disk" = "$((8#$mode))" ]; then return 0; fi
-    changed+=("$src")
-    if [ "$check" = 1 ]; then
-      note "mode: $to is $(printf '%o' "$on_disk"), wants $mode"
-      return 0
-    fi
-    # The mode is owed, not the copy: chmod on the file in place, so no .new,
-    # no rename and no .prev beside a file whose content is already this one's.
-    chmod "$mode" "$to" || { echo "tehas: could not set mode $mode on $to" >&2; exit 1; }
-    echo "mode: $to -> $mode"
-    return 0
-  fi
-  changed+=("$src")
-  if [ "$check" = 1 ]; then
-    if [ -f "$to" ]; then note "differs: $to"; else note "missing: $to"; fi
-    return 0
-  fi
-  # Owed before it is copied, not after: a copy that fails halfway leaves behind
-  # a record of what the copies so far asked for. tehas update finishes the
-  # record and clears it; install.sh --check reports it while any of it is left.
-  record_step "$src"
-  [ -d "${to%/*}" ] || mkdir -p "${to%/*}"
-  [ -f "$to" ] && cp -p "$to" "$to.prev"
-  # Copied beside it and renamed over it, so a cycle that starts meanwhile finds
-  # the old file or the new one, never a part of one.
-  install -m "$mode" "$from" "$to.new" || { rm -f "$to.new"; echo "tehas: could not install $to" >&2; exit 1; }
-  mv -f "$to.new" "$to" || { rm -f "$to.new"; echo "tehas: could not install $to" >&2; exit 1; }
-  echo "installed: $to"
-}
-
-# write_file <path>: stdin into <path>, by the same rename.
-write_file() {
-  cat >"$1.new" || { rm -f "$1.new"; echo "tehas: could not write $1" >&2; exit 1; }
-  mv -f "$1.new" "$1" || { rm -f "$1.new"; echo "tehas: could not write $1" >&2; exit 1; }
+# copy_files [<option>...] <table: the copies, the compares and the sweeps,
+# made by the console (console/src/update/files.rs), which records each copy's
+# steps before it makes it. Its changed lines go into changed[], the others are
+# said. A failure has said why on stderr and stops the run.
+copy_files() {
+  local console=$steps_console out line rc=0 args=()
+  [ "$check" != 1 ] || { console=$loaded_console; args+=(--check); }
+  # versions.env calls for the build only for the lines the image reads (record_step).
+  [ "$versions_owed" = 1 ] || args+=(--no-steps versions.env)
+  out=$("$console" update files "${args[@]}" "$@" "$root" "$host") || rc=$?
+  while IFS= read -r line; do
+    case $line in
+      "") ;;
+      "changed "*) changed+=("${line#changed }") ;;
+      *) note "$line" ;;
+    esac
+  done <<<"$out"
+  [ "$rc" = 0 ] || exit 1
 }
 
 # The line that puts the tehas environment in every shell of the tehas user,
@@ -764,53 +720,6 @@ bashrc_ok() {
 # A first install owes the labels and the core units, recorded in this file
 # until both are done, so a run that stops partway still owes them.
 first_owed=$TEHAS_HOME/state/first-install
-
-# Do the lines the sandbox image reads differ between this checkout and the copy
-# the host holds? The build reads only the lines named SHELLCHECK_, JQ_,
-# PLAYWRIGHT_, CBM_, PI_RUKAS_, VIPUNE_ or OO_ (host/sandbox/build.sh,
-# host/sandbox/Dockerfile); the rest of versions.env is bootstrap.sh's, so a
-# change to one of those asks for nothing but the copy. 0 when equal, 1 otherwise.
-#
-# The host's copy is read before the copies begin and the answer kept, so the
-# record and the next: lines are made from one reading of the file the host held:
-# that file is what the image now on the host was built from, so a pin moved on
-# the host owes the build whether or not this run overwrites it, and a pin only
-# the checkout moves owes it because the copy this run makes hands the host pins
-# the image has never been built from. A host with no installed copy has never
-# had a build made from these pins, which is a change too. Read once, before any
-# copy: the reading after the copies would answer about the file this run writes
-# and say nothing about the one it replaced.
-versions_build_changed() {
-  local host_file current kept line
-  host_file=$TEHAS_HOME/versions.env
-  [ -f "$host_file" ] || { echo 1; return 0; }
-  current=$(grep -E '^(SHELLCHECK|JQ|PLAYWRIGHT|RUST|CBM|PI_RUKAS|VIPUNE|OO)_' "$host/versions.env") || current=""
-  # A file that names none of them cannot be compared with: the build reads what
-  # it reads, so the build is owed rather than assumed already done.
-  [ -n "$current" ] || { echo 1; return 0; }
-  kept=$(grep -E '^(SHELLCHECK|JQ|PLAYWRIGHT|RUST|CBM|PI_RUKAS|VIPUNE|OO)_' "$host_file") || kept=""
-  # A copy that holds none of them is a difference and not an agreement, for the
-  # same reason.
-  [ -n "$kept" ] || { echo 1; return 0; }
-  # One line among them is the change a person makes on a host: one pin moved,
-  # the rest as some checkout wrote it. Then that line alone is compared, read
-  # out of each file, so neither the other lines nor the order of the host's
-  # copy can change the answer. A release's pins are more than one line - the
-  # version and its checksum, a model with its revision and its hashes - so a
-  # whole block still reads as a whole block, position and all.
-  if [ "${kept//$'\n'}" = "$kept" ]; then
-    line=$kept
-    current=$(printf '%s\n' "$current" | grep -Fx "$line") || current=""
-  fi
-  [ "$kept" = "$current" ] && { echo 0; return 0; }
-  echo 1
-}
-# Whether this run owes the sandbox build because of versions.env: 1 when the
-# lines the image reads are not the ones the image the host holds was built
-# from. Read once, before any copy is made, so the record and the next: lines
-# below give one answer to one question.
-versions_owed=0
-if [ "$(versions_build_changed)" = 1 ]; then versions_owed=1; fi
 
 # The step this source calls for, added to the record of steps owed. One call per
 # copied file, so the record is never behind what the host has already been given.
@@ -835,7 +744,7 @@ login_manager=${BOOTSTRAP_ETC:-/etc}/tehas/manager
 login_fix=""
 if [ -r "$login_manager" ]; then
   # The compare and the command it names are both files of this checkout. Said
-  # as a missing checkout, as put() says it: cmp answers 2 for a source that is
+  # as a missing checkout, as the copies say it: cmp answers 2 for a source that is
   # not there, and that would read as a difference this host cannot fix.
   for need in host/login/tehas bootstrap.sh; do
     [ -f "$root/$need" ] || { echo "tehas: $root/$need is missing from this checkout" >&2; exit 1; }
@@ -984,7 +893,7 @@ store_gate() {
   fi
   dispatch_held=1
   if [ ! -e "$TEHAS_HOME/$home_marker" ] && [ ! -L "$TEHAS_HOME/$home_marker" ]; then
-    printf 'tehas\n' | write_file "$TEHAS_HOME/$home_marker"
+    printf 'tehas\n' | "$steps_console" update files write "$TEHAS_HOME/$home_marker" || exit 1
   fi
   [ -f "$TEHAS_HOME/$home_marker" ] && [ ! -L "$TEHAS_HOME/$home_marker" ] || return 0
   if [ ! -x "$gate_store" ]; then
@@ -1005,12 +914,12 @@ dispatch_release() {
 if [ "$check" != 1 ]; then
   store_gate
   for i in "${!program_puts[@]}"; do
-    put "${program_puts[$i]}"
+    copy_files <<<"${program_puts[$i]}"
     to=${program_puts[$i]#*|}
     to=${to%|*}
     stamp=${program_stamps[$i]}
     case $stamp in "build "*) stamp="${stamp#build } $(program_sum "$to")" ;; esac
-    echo "$stamp" | write_file "$to.stamp"
+    echo "$stamp" | "$steps_console" update files write "$to.stamp" || exit 1
   done
 fi
 
@@ -1029,12 +938,12 @@ if [ "$check" != 1 ]; then
   # A home with no env.sh has never been installed.
   [ -f "$TEHAS_HOME/env.sh" ] || : >"$first_owed"
   if ! bashrc_ok; then
-    { echo "$bashrc_line"; [ ! -f "$bashrc" ] || cat "$bashrc"; } | write_file "$bashrc"
+    { echo "$bashrc_line"; [ ! -f "$bashrc" ] || cat "$bashrc"; } | "$steps_console" update files write "$bashrc" || exit 1
     echo "installed: the env.sh line at the top of $bashrc"
   fi
   # The proof that this home is tehas's, written once.
   if [ ! -f "$TEHAS_HOME/$home_marker" ]; then
-    printf 'tehas\n' | write_file "$TEHAS_HOME/$home_marker"
+    printf 'tehas\n' | "$steps_console" update files write "$TEHAS_HOME/$home_marker" || exit 1
   fi
 fi
 # The instance's own sandbox file is not copied anywhere: the build reads it from
@@ -1045,11 +954,11 @@ fi
 # until the copy that saw the same content recorded it below. It is counted with
 # the files below, in its own line, and not in changed[], which holds only source
 # paths of the file table.
-if [ -n "$sandboxunread" ]; then
+if [ "$sandbox_unread" = 1 ]; then
   if [ "$check" = 1 ]; then
     note "unreadable: $instance/sandbox.Dockerfile (check its permissions)"
   else
-    echo "tehas: $sandboxunread" >&2
+    echo "tehas: $instance/sandbox.Dockerfile cannot be read (check its permissions)" >&2
     echo "tehas: nothing was installed" >&2
     exit 78
   fi
@@ -1067,7 +976,7 @@ if [ "$sandbox_changed" = 1 ]; then
     # file unseen, so tehas update owes the build and the next install sees it.
     mkdir -p "$TEHAS_HOME/state"
     if hash=$(sha256sum "$instance/sandbox.Dockerfile" 2>/dev/null); then
-      printf '%s\n' "${hash:0:64}" | write_file "$sandbox_at_file"
+      printf '%s\n' "${hash:0:64}" | "$steps_console" update files write "$sandbox_at_file" || exit 1
     else
       # Between the read above and this one the file became unreadable. The
       # step stays owed and nothing is recorded, so the next run asks again.
@@ -1076,34 +985,9 @@ if [ "$sandbox_changed" = 1 ]; then
   fi
 fi
 
-for e in "${files[@]}"; do put "$e"; done
-
 # The operating manual and the front page are directories; pages come and go.
-sync_dir() { # name: host/<name>/* -> $TEHAS_HOME/<name>/
-  local name=$1 from to
-  for from in "$host/$name"/*; do
-    put "$name/${from##*/}|$TEHAS_HOME/$name/${from##*/}|644"
-  done
-  [ -d "$TEHAS_HOME/$name" ] || return 0
-  for to in "$TEHAS_HOME/$name"/*; do
-    [ -e "$to" ] || continue
-    # A file an earlier run of this script left beside the pages and did not
-    # rename over. It is removed with the rest, and a --check names it.
-    case "$to" in
-      *.new)
-        changed+=("$name/${to##*/}")
-        if [ "$check" = 1 ]; then note "stale: $to"; else rm -f "$to" && echo "removed: $to"; fi
-        continue
-        ;;
-    esac
-    case "$to" in *.prev | */version.txt | */rukas-version.txt) continue ;; esac
-    [ -e "$host/$name/${to##*/}" ] && continue
-    changed+=("$name/${to##*/}")
-    if [ "$check" = 1 ]; then note "stale: $to"; else rm -f "$to" "$to.prev" && echo "removed: $to"; fi
-  done
-}
-sync_dir docs
-sync_dir fun
+# Not a pipe: copy_files has to run in this shell to add to changed[].
+copy_files --sync docs --sync fun <<<"$(printf '%s\n' "${files[@]}")"
 
 # The version in the footer of every page: the newest tag this checkout holds
 # and the commit it is at, in a file beside the pages, which read it. Only a
@@ -1131,7 +1015,7 @@ if [ "$check" != 1 ]; then
     if [ -z "$version" ]; then
       rm -f "$to"
     elif [ "$(cat "$to" 2>/dev/null)" != "$version" ]; then
-      echo "$version" | write_file "$to"
+      echo "$version" | "$steps_console" update files write "$to" || exit 1
       echo "version: $version in $to"
     fi
   done

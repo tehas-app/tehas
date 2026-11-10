@@ -1,6 +1,6 @@
 //! The cases of test/cycle_*_test.sh as fixtures: what each cycle left, as
-//! libexec/cycle read it, and what the bash then did. A suite is one file in
-//! tests/fixtures/, made from a run of that test file against libexec/cycle
+//! the bash cycle read it, and what the bash then did. A suite is one file in
+//! tests/fixtures/, made from a run of that test file against the bash cycle
 //! with each report traced (the pull request of #256 part 1 says how).
 //!
 //! Each case gives the facts, the GitHub answers the bash had, how its label

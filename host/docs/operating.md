@@ -559,7 +559,7 @@ store as it ends, however it ends. A dry run records nothing.
 
 - **wall**: the time from when the poll took the lock to its end.
 - **CPU**: user and system time of the poll and of the commands it waited for,
-  from bash's `times`, `console tidy run` among them.
+  as the kernel counts them for the dispatcher, `console tidy run` among them.
 - **gh**: the calls the dispatcher made to `gh` itself. Calls of the commands it
   runs, such as `tehasbot status` and `console tidy run`, and a call under
   `timeout`, are not counted.

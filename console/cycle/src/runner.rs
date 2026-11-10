@@ -281,7 +281,7 @@ pub fn run(text: &str, issue: u64) -> Run {
     }
 }
 
-/// The fields libexec/cycle reads of the progress summary, in its order:
+/// The fields tehas-cycle reads of the progress summary, in its order:
 /// reviewHeld, reason, from.failure, failure.kind, failure.role and
 /// failure.cause. Each is empty past the point where jq would stop.
 pub fn progress_fields(text: Option<&str>) -> [String; 6] {
@@ -417,7 +417,7 @@ fn rows(progress: Option<&str>) -> Option<Vec<Map<String, Value>>> {
     })
 }
 
-/// The table of token usage the comments carry, as libexec/cycle makes it,
+/// The table of token usage the comments carry, as tehas-cycle makes it,
 /// and whether the progress's rows could not be read (its WARN line).
 pub fn usage(outcome: &Value, progress: Option<&str>) -> (String, bool) {
     let own = outcome.get("usage").cloned().unwrap_or(json!({}));
