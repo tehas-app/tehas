@@ -26,7 +26,7 @@ const MAX_PATHS: usize = 15;
 pub const REPEAT: &str = "It ran out of time in develop twice on the same text: split it with `tehas:plan`, or make the body smaller, then apply `tehas:ready`.";
 const MAX_STATE: u64 = 4 << 20;
 
-/// What libexec/cycle does with the issue's body.
+/// What tehas-cycle does with the issue's body.
 #[derive(Debug, PartialEq)]
 pub enum Action {
     /// Not a develop timeout, or no body to write to.

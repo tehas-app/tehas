@@ -25,7 +25,7 @@
 //!
 //!   console --mask [--private <name>]...
 //!
-//! The mask alone: standard input to standard output, for libexec/work's own
+//! The mask alone: standard input to standard output, for tehas-cycle work's own
 //! line on the dashboard, so that the mask is written in one place.
 //!
 //!   console preview run|sweep

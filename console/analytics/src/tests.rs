@@ -129,7 +129,7 @@ fn steps(conn: &Connection) -> Vec<(String, i64, i64, i64, i64)> {
     .collect()
 }
 
-// A cycle of issue 7 from a fixture, as libexec/cycle and libexec/work leave
+// A cycle of issue 7 from a fixture, as tehas-cycle and its work leave
 // it: the result, the progress summary and the version on disk, and the facts
 // of the settings, the approval, the image's commit and the history line
 // `line`.
@@ -544,7 +544,7 @@ fn a_run_with_no_result_is_stored_with_tehas_s_status_and_times() {
                      "step": "implement", "cap": cap, "parked": true, "provider": false}),
             ],
         );
-        // What libexec/cycle passes on. The files it removed are not read.
+        // What tehas-cycle passes on. The files it removed are not read.
         put(&home, "state/cycles/12.oom", "9\n");
         put(
             &home,
@@ -2360,7 +2360,7 @@ fn a_kept_lean_record_gives_a_lean_run_its_steps() {
     assert_eq!(names(&r), stream);
 }
 
-// The live files of one poll, as tehasbot status, libexec/dispatch and
+// The live files of one poll, as tehasbot status, tehas-dispatch and
 // console energy write them, at `at`.
 fn live(home: &Path, at: i64, why: &str, limit_room: Option<i64>) {
     fs::create_dir_all(home.join("live")).unwrap();
@@ -2419,7 +2419,7 @@ fn a_sample_reads_the_live_files_of_the_poll() {
 #[test]
 fn a_sample_reads_the_report_the_dispatcher_writes() {
     // The dispatcher's own type, taken through to_value and stamped with the
-    // poll's time: the bytes libexec/dispatch publishes. The sampler reads its
+    // poll's time: the bytes tehas-dispatch publishes. The sampler reads its
     // held word and its cycle limit from those bytes by the core's key names.
     let home = scratch("sample-written");
     let now = 1_792_000_000;
@@ -2759,7 +2759,7 @@ fn an_event_far_in_the_past_is_stored_as_given() {
 }
 
 // A planning turn of issue 7 in flight: its record as the poll leaves
-// it when the turn has ended, as facts, and what libexec/plan wrote beside it.
+// it when the turn has ended, as facts, and what `tehas plan` wrote beside it.
 fn turn(home: &Path, record: Value, out: Option<Value>) {
     fs::write(facts_path(home, 7), record.to_string()).unwrap();
     if let Some(o) = out {

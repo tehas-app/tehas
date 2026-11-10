@@ -1,4 +1,4 @@
-//! What an ended cycle left, as libexec/cycle reads it for its report: the
+//! What an ended cycle left, as tehas-cycle reads it for its report: the
 //! files of the protocol in state/cycles/<issue>.*, the newest run log, the
 //! start and image on the cycle's record, the approval it used, and the
 //! state of its workspace. One JSON object; `report` decides from it.

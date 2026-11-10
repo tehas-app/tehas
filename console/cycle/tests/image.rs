@@ -1,5 +1,5 @@
 //! The image of a run in the report's arguments to `analytics run`, as
-//! libexec/cycle passes them: the id on record, when it was built, and the
+//! tehas-cycle passes them: the id on record, when it was built, and the
 //! pi-rukas commit of its label.
 
 use serde_json::{json, Value};

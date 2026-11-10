@@ -688,10 +688,8 @@ t_case "summary: the poll line under the factory line, from the last poll on rec
 reset
 t_run "$status && $summary"
 t_lacks "$t_out" "poll      "
-printf '0m1.000s 0m0.500s\n0m1.000s 0m0.600s\n' >"$T/poll.times"
-printf '\n\n\n' >"$T/poll.tally"
-t_at "$(date +%s)" poll-record --started "$(($(date +%s) - 30))" --times "$T/poll.times" \
-  --tally "$T/poll.tally" --writes-log "$T/no-such.log" >/dev/null || t_bad "no poll recorded"
+t_at "$(date +%s)" poll-record --started "$(($(date +%s) - 30))" --cpu-ms 3100 --gh 3 \
+  --writes-log "$T/no-such.log" >/dev/null || t_bad "no poll recorded"
 t_run "$summary"
 t_eq "$t_rc" 0
 t_contains "$(sed -n 2p <<<"$t_out")" "poll      last 3"
@@ -2003,18 +2001,12 @@ t_eq "$(jq -r .output "$live/health.json")" "The newest backup of the state stor
 # of CPU and 20 s of wall, so the default budget of cpu=5,wall=30,writes=0
 # leaves it alone and warns at one that costs more than that.
 poll_record() { # <cpu_seconds> <wall_seconds> [WRITES] [STARTS]: one poll of
-# the hour on record, whose CPU time is the four figures bash's `times` writes
-# (so a quarter of the figure each, which the store adds back) and whose wall
-# time is the second it names, asked of the store's own clock. WRITES left out
-# is no write log at all, which leaves the figure off the answer; 0 is a log of
-# none, which the store says as none and no budget of writes can be over.
-  local cpu=$1 wall=$2 writes=${3-} starts=${4:-0} q ms n now
+# the hour on record, whose wall time is the second it names, asked of the
+# store's own clock. WRITES left out is no write log at all, which leaves the
+# figure off the answer; 0 is a log of none, which the store says as none and
+# no budget of writes can be over.
+  local cpu=$1 wall=$2 writes=${3-} starts=${4:-0} ms n now
   now=$(date +%s)
-  q=$((cpu * 250))
-  printf '0m%s.%03ds 0m%s.%03ds\n0m%s.%03ds 0m%s.%03ds\n' \
-    "$((q / 1000))" "$((q % 1000))" "$((q / 1000))" "$((q % 1000))" \
-    "$((q / 1000))" "$((q % 1000))" "$((q / 1000))" "$((q % 1000))" >"$T/poll.times"
-  : >"$T/poll.tally"
   rm -f "$T/poll.writes"
   if [ -n "$writes" ]; then
     : >"$T/poll.writes"
@@ -2025,8 +2017,8 @@ poll_record() { # <cpu_seconds> <wall_seconds> [WRITES] [STARTS]: one poll of
   fi
   # The wall time is the difference of the two times the store reads from its
   # own clock, so both name the same second and the figure is the one asked for.
-  t_at "$now" poll-record --started "$((now - wall))" --times "$T/poll.times" \
-    --tally "$T/poll.tally" --writes-log "$([ -n "$writes" ] && printf %s "$T/poll.writes" || printf %s "$T/no-such.log")" \
+  t_at "$now" poll-record --started "$((now - wall))" --cpu-ms "$((cpu * 1000))" --gh 0 \
+    --writes-log "$([ -n "$writes" ] && printf %s "$T/poll.writes" || printf %s "$T/no-such.log")" \
     --starts "$starts" >/dev/null || t_bad "no poll recorded"
 }
 

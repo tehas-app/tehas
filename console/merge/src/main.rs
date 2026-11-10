@@ -1,5 +1,5 @@
-//! tehas-merge: the easy merge of one pull request (#1031). Started by
-//! `libexec/easy-merge` inside the sandbox container, where it is given the
+//! tehas-merge: the easy merge of one pull request (#1031). Meant to be
+//! started inside the sandbox container, where it is given the
 //! tree, the two commits and the programs it may run.
 //!
 //! Usage:
@@ -7,8 +7,8 @@
 //!               --pr <n> --issue <n> --ref <branch>
 //!               [--git <path>] [--cargo <path>] [--pi <path>] [--no-model]
 //!
-//! The tree is the pull request's head already: `libexec/easy-merge` made it
-//! and checked the head out. The merge is done in it and its one commit is
+//! The tree is the pull request's head already: its starter made it and
+//! checked the head out. No installed command starts this yet. The merge is done in it and its one commit is
 //! pushed to `refs/heads/<ref>`; nothing else is pushed, and no rebase, force
 //! or second pull request is ever made.
 //!
