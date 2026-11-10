@@ -36,7 +36,7 @@ use crate::verbs::{self, j, line, obj, Args, Fail, Kind, Q};
 use rusqlite::{params, OptionalExtension};
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
-use tehas_core::time::from_iso;
+use tehas_core::time::{from_iso, now_ms};
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Call {
@@ -322,13 +322,6 @@ pub fn run(home: &Path, call: &Call, now: i64) -> Result<String, Fail> {
         Call::Show(s) => show(home, s, now),
         Call::Idle(i) => idle(home, i, now),
     }
-}
-
-fn now_ms() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0)
 }
 
 fn garbled(what: &str) -> Fail {

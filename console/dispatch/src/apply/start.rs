@@ -138,13 +138,6 @@ enum Then {
     Unusable,
 }
 
-fn now() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0)
-}
-
 /// An id as a store argument: a number or a string, as jq -r prints it.
 fn id(v: Option<&Value>) -> String {
     match v {
@@ -750,7 +743,7 @@ impl Writer {
             }
         }
         let host = self.host.name.clone();
-        let when = iso(now() as u64).replacen('T', " ", 1);
+        let when = iso(tehas_core::time::now() as u64).replacen('T', " ", 1);
         let when = &when[..16];
         let how = text(a, "how");
         let branch = a
@@ -899,7 +892,7 @@ impl Writer {
                     .pointer("/refresh_of/branch")
                     .and_then(Value::as_str)
                     .unwrap_or("");
-                retry = json!({"links": [], "context": [{"source": "refresh", "by": "tehas", "at": iso(now() as u64),
+                retry = json!({"links": [], "context": [{"source": "refresh", "by": "tehas", "at": iso(tehas_core::time::now() as u64),
                     "text": format!("This pull request conflicts with `{b}`. Merge `{b}` into its branch, resolve the conflicts so the change still does what the issue asks, run the gate in `.pi/verify-cmd`, and push to the same branch. Do no other work.")}]});
             }
         }
@@ -936,7 +929,7 @@ impl Writer {
             _ => epoch(&given_at),
         }
         .filter(|t| (1..100_000_000_000).contains(t))
-        .unwrap_or_else(now);
+        .unwrap_or(tehas_core::time::now());
         let Some(file) = self.input_file(&Value::Object(input).to_string()) else {
             return Err(none());
         };

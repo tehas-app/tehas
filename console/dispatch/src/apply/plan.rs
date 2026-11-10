@@ -26,7 +26,6 @@ use regex::Regex;
 use serde_json::{json, Value};
 use std::path::PathBuf;
 use std::sync::OnceLock;
-use std::time::{SystemTime, UNIX_EPOCH};
 use tehas_core::events::{plan_credit, Events};
 use tehas_core::plan::{
     carries_update, clear_plan, draft_holds, is_refusal, keep_spec, refusal_document,
@@ -170,13 +169,6 @@ pub fn plan_view(row: &Value) -> Value {
         v["filed"] = f.clone();
     }
     v
-}
-
-fn now() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
 }
 
 /// Why a poll will not write the `update` of its outcome. Both refusals leave
@@ -618,7 +610,7 @@ impl Writer {
         if label != "tehas:refine" {
             return;
         }
-        let at = iso(now());
+        let at = iso(tehas_core::time::now() as u64);
         let lines: Vec<String> = out
             .get("filed")
             .and_then(Value::as_array)
