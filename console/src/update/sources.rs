@@ -28,13 +28,13 @@ use std::path::{Component, Path, PathBuf};
 
 /// A package of the workspace: its directory from the root ("" for the root),
 /// and the directories of the packages it takes by path.
-struct Package {
+pub(super) struct Package {
     dir: String,
     deps: Vec<String>,
 }
 
 /// Each package by name.
-type Workspace = BTreeMap<String, Package>;
+pub(super) type Workspace = BTreeMap<String, Package>;
 
 pub fn verb(given: &[String]) -> u8 {
     let [root, packages @ ..] = given else {
@@ -71,7 +71,7 @@ fn read(path: &Path) -> Result<String, String> {
 }
 
 /// The packages of the workspace at `root`: the root's own and each member's.
-fn workspace(root: &Path) -> Result<Workspace, String> {
+pub(super) fn workspace(root: &Path) -> Result<Workspace, String> {
     let manifest = root.join("Cargo.toml");
     let text = read(&manifest)?;
     let mut ws = Workspace::new();
@@ -329,14 +329,14 @@ fn sum_line(hex: &str, rel: &str) -> String {
     }
 }
 
-fn hex(bytes: &[u8]) -> String {
+pub(super) fn hex(bytes: &[u8]) -> String {
     Sha256::digest(bytes)
         .iter()
         .map(|b| format!("{b:02x}"))
         .collect()
 }
 
-fn source_sum(root: &Path, ws: &Workspace, name: &str) -> Result<String, String> {
+pub(super) fn source_sum(root: &Path, ws: &Workspace, name: &str) -> Result<String, String> {
     let mut files: BTreeSet<String> = ["Cargo.toml", "Cargo.lock"].map(String::from).into();
     for dir in closure(ws, name)? {
         files.extend(package_files(root, ws, &dir)?);
