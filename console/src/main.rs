@@ -74,6 +74,11 @@
 //! Which pi-rukas commit a host follows and the image upstream publishes for
 //! it, for the sandbox build, bootstrap.sh and tag-release.sh, see src/rukas.rs.
 //!
+//!   console sandbox recipe <dir> <mode> | stage <dir> | current ...
+//!
+//! The sandbox build's check and cut of its recipe, and whether the image is
+//! on the commit followed, see src/sandbox.rs.
+//!
 //!   console improve due|run <prompt file> | table
 //!
 //! One run of the improvement loop, see src/improve/mod.rs.
@@ -236,6 +241,7 @@ mod render;
 mod review;
 mod rukas;
 mod run;
+mod sandbox;
 mod settings;
 mod setup;
 mod shipped;
@@ -480,6 +486,7 @@ fn main() -> ExitCode {
             Some("init-product") => return ExitCode::from(product::init(&given[1..])),
             Some("dev") => return ExitCode::from(dev::main(&given[1..])),
             Some("rukas") => return ExitCode::from(rukas::main(&given[1..])),
+            Some("sandbox") => return ExitCode::from(sandbox::main(&given[1..])),
             Some("review") => return ExitCode::from(review::main(&given[1..])),
             Some("preview") => return ExitCode::from(preview::main(&given[1..])),
             Some("settings") => return ExitCode::from(settings::main(&given[1..])),
