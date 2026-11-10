@@ -13,7 +13,7 @@
 # The releases are the console's, and it is no stub here.
 # shellcheck disable=SC2154  # t_console_why is set by t_console (test/lib.sh)
 t_console || t_bad "no console: $t_console_why"
-T_ENV_ALWAYS=(TEHAS_CONSOLE="$T_CONSOLE")
+T_ENV_ALWAYS=(TEHAS_CONSOLE="$T_CONSOLE" GH_TOKEN=ghs_test)
 
 update="$T_ROOT/libexec/update"
 th=$T/home/tehas

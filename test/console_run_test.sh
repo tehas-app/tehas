@@ -5,6 +5,7 @@
 # shellcheck disable=SC2016  # stub bodies are expanded later
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
+T_APP_WORLD=0
 
 t_console || t_bad "no console: $t_console_why"
 t_dispatch || t_bad "no tehas-dispatch: $t_dispatch_why"

@@ -250,16 +250,15 @@ t_app_world() {
   printf '%s\n' "${1:-tehas-bot}[bot]" >"$home/state/github/login"
 }
 
-# t_instance KEY=VALUE...: the instance names the app (TEHAS_GITHUB_APP_ID=1)
-# unless it names another, and t_app_world is made unless the case made its own.
+# t_instance KEY=VALUE...: writes instance.env as given (T_MINIMAL names the
+# app), and makes t_app_world unless the case made its own or the file sets
+# T_APP_WORLD=0 (a file that counts what is on the host).
 t_instance() {
   export TEHAS_INSTANCE_DIR=$T/instance
   mkdir -p "$TEHAS_INSTANCE_DIR"
   chmod 700 "$TEHAS_INSTANCE_DIR"
-  local -a given=("$@")
-  case "${given[*]-}" in *TEHAS_GITHUB_APP_ID=*) ;; *) given+=(TEHAS_GITHUB_APP_ID=1) ;; esac
-  printf '%s\n' "${given[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
-  [ -e "$T/home/tehas/state/github/login" ] || t_app_world
+  if [ "$#" -gt 0 ]; then printf '%s\n' "$@" >"$TEHAS_INSTANCE_DIR/instance.env"; else : >"$TEHAS_INSTANCE_DIR/instance.env"; fi
+  [ "${T_APP_WORLD:-1}" = 0 ] || [ -e "$T/home/tehas/state/github/login" ] || t_app_world
 }
 # t_no_instance: the case is done with the instance its t_instance made: the
 # name is dropped, so a run that follows has no instance directory, and the

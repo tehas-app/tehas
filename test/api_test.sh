@@ -5,6 +5,7 @@
 . "$(dirname "$0")/lib.sh" || exit 1
 
 api="$T_ROOT/bin/tehas api"
+T_APP_WORLD=0
 t_console || t_bad "$t_console_why"
 T_ENV_ALWAYS=(TEHAS_CONSOLE="$T_CONSOLE")
 t_stub gh

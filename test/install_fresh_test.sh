@@ -377,10 +377,13 @@ t_case "a first install with an app and no GH_TOKEN records the ids through the 
 # The shim is not in place before the ids are recorded, so gh (signed out
 # without GH_TOKEN, exit 4) has only the token made from the app's key (#1714).
 fresh
-instance TEHAS_GITHUB_APP_ID=5452597 TEHAS_GITHUB_APP_INSTALLATION=174742089 "TEHAS_BOT_LOGIN=tehas-app-bot[bot]"
+instance TEHAS_GITHUB_APP_ID=5452597
+always=("${T_ENV_ALWAYS[@]}")
+T_ENV_ALWAYS=()
+for w in "${always[@]}"; do [[ $w == GH_TOKEN=* ]] || T_ENV_ALWAYS+=("$w"); done
 mkdir -p "$home/.config/tehas" && printf 'a key\n' >"$home/.config/tehas/github-app.pem"
 t_stub openssl '[ "$1" != dgst ] || { cat >/dev/null; printf signature; }'
-t_stub curl 'cat >/dev/null; case "$*" in *access_tokens*) printf "{\"token\":\"ghs_minted\",\"expires_at\":\"%s\"}" "$(date -u -d "+1 hour" +%FT%TZ)" ;; esac'
+t_stub curl 'cat >/dev/null; case "$*" in *access_tokens*) printf "{\"token\":\"ghs_minted\",\"expires_at\":\"%s\"}" "$(date -u -d "+1 hour" +%FT%TZ)" ;; */installation*) printf "{\"id\":174742089}" ;; */app*) printf "{\"slug\":\"tehas-app-bot\"}" ;; esac'
 t_stub gh '[ -n "${GH_TOKEN:-}" ] || { echo "gh: not logged in" >&2; exit 4; }
 [ "$1 $2" != "api users/alice" ] || printf "%s\n" "$GH_TOKEN" >"$T/gh-token"'
 rm -f "$T/gh-token"
@@ -391,6 +394,7 @@ t_eq "$t_rc" 0
 t_lacks "$t_out" "ghs_minted"
 t_lacks "$t_out" "nothing was installed"
 t_stub gh
+T_ENV_ALWAYS=("${always[@]}")
 rm -f "$T/bin/openssl" "$T/bin/curl"
 
 t_done
