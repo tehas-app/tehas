@@ -11,9 +11,12 @@
 // The figures of the host section, and the words that say how old a reading is:
 // one module, shared with the panel on the factory floor (host/fun/host-view.js).
 import { agoText, dueToRead, layout } from "./host-data.js";
+import { appendCapped, tailStep } from "./console-tail.js";
 // The "Last 10 days" section: what live/analytics.json means, worked out by one
 // module (host/fun/analytics-data.js); here it is drawn.
 import { analyticsView, dueToRead as dueAnalytics } from "./analytics-data.js";
+
+import "./dom.js";
 
 // The id of the element whose presence says the dashboard's markup is on the page.
 globalThis.TEHAS_DASHBOARD = { probe: "state" };
@@ -24,12 +27,7 @@ globalThis.TEHAS_DASHBOARD = { probe: "state" };
 export function start() {
   const MAX = 10;
   const $ = (id) => document.getElementById(id);
-  const el = (tag, cls, text) => {
-    const e = document.createElement(tag);
-    if (cls) e.className = cls;
-    if (text !== undefined) e.textContent = text;
-    return e;
-  };
+  const { el } = globalThis.TEHAS_DOM;
   const ago = (iso) => agoText((Date.now() - new Date(iso).getTime()) / 1000);
   const dur = (secs) => {
     const m = Math.floor(secs / 60), h = Math.floor(m / 60);
@@ -426,21 +424,17 @@ export function start() {
     tailing = true;
     const file = consoleFile;
     try {
-      const r = await fetch("/live/" + file, { headers: { Range: "bytes=" + offset + "-" }, cache: "no-store" });
+      const answer = await tailStep(file, offset);
       // A tab was chosen while this request was out: its answer is for the old one.
       if (file !== consoleFile) return;
-      if (r.status === 206 || (r.status === 200 && offset === 0)) {
-        const buf = new Uint8Array(await r.arrayBuffer());
-        if (file !== consoleFile) return;
-        if (buf.length) {
-          offset += buf.length;
+      if (typeof answer === "object" && answer !== null) {
+        if (answer.size) {
+          offset += answer.size;
           const pre = $("console");
-          pre.append(new TextDecoder().decode(buf));
-          // Keep the page light on a long cycle.
-          if (pre.textContent.length > 400000) pre.textContent = pre.textContent.slice(-300000);
+          appendCapped(pre, answer.text);
           if ($("follow").checked) pre.scrollTop = pre.scrollHeight;
         }
-      } else if (r.status === 200) {
+      } else if (answer === "replaced") {
         // The file was replaced by a new cycle.
         offset = 0;
         $("console").textContent = "";

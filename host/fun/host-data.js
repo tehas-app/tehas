@@ -51,6 +51,15 @@ export function agoText(secs) {
   return `${Math.round(at / 86400)} d ago`;
 }
 
+// How long ago an ISO moment was, in the same words. nowMs is the present the
+// caller names; a stamp that is empty or not a moment says nothing, which is a
+// blank beside a ticket rather than "NaN d ago".
+export function ago(iso, nowMs) {
+  if (!iso) return "";
+  const at = Date.parse(iso);
+  return Number.isNaN(at) ? "" : agoText((nowMs - at) / 1000);
+}
+
 // data: the parsed top file. nowMs: the present, by the server's clock.
 export function layout(data, nowMs) {
   const file = data && typeof data === "object" ? data : {};

@@ -309,11 +309,16 @@ test("the harness has the module itself, and the module draws only when started"
   assert.deepEqual(globalThis.TEHAS_DASHBOARD, { probe: "state" });
 });
 
-test("the module's two imports are both exercised by a page", async () => {
-  // Every import of the module, by specifier. A third one fails this case until
-  // a case here draws what it brings in.
+test("the module's imports are each exercised, by a page or by their own test", async () => {
+  // Every import of the module, by specifier. A fourth one fails this case
+  // until a case here draws what it brings in, or names the test that does.
   const imports = [...SOURCE.matchAll(/^import .* from "([^"]+)";$/gm)].map((m) => m[1]);
-  assert.deepEqual(imports, ["./host-data.js", "./analytics-data.js"]);
+  assert.deepEqual(imports, ["./host-data.js", "./console-tail.js", "./analytics-data.js"]);
+  // console-tail.js is not exercised here: these cases stub the tabs so they
+  // name no console file, and the tail is the half its own test covers
+  // (test/console_tail_test.mjs). The two files a page draws are named by what
+  // only they can draw.
+  const byPage = imports.filter((s) => s !== "./console-tail.js");
   const p = await page({ analytics: report() });
   assert.deepEqual(p.errors, []);
   // Each import, seen through what only it draws: host-data.js's layout() writes
@@ -322,8 +327,8 @@ test("the module's two imports are both exercised by a page", async () => {
     p.text("host-note").startsWith("4 CPUs, load 0.10 0.20 0.30") && "./host-data.js",
     p.text("analytics-note") === "2026-10-23 to 2026-10-24, UTC" && "./analytics-data.js",
   ].filter(Boolean);
-  assert.equal(exercised.length, imports.length);
-  assert.deepEqual(exercised, imports);
+  assert.equal(exercised.length, byPage.length);
+  assert.deepEqual(exercised, byPage);
 });
 
 test("a page asks for each file it reads once, and for no other", async () => {

@@ -10,6 +10,9 @@
 
 import { analyticsView, dueToRead as dueAnalytics } from "./analytics-data.js";
 import { layout as energyLayout, PERIOD as ENERGY_PERIOD } from "./energy-view.js";
+import { appendCapped, tailStep } from "./console-tail.js";
+import { stageOf } from "./stages.js";
+import "./dom.js";
 
 export const STALE_QUEUE = 10 * 60; // seconds, as the factory floor counts it
 export const FLIP_EVERY = 7; // seconds between waves of the line's cards
@@ -61,6 +64,10 @@ function labItems(lab, base) {
 }
 
 // The sample, as the factory floor stages it: by label, a closed one shipped.
+// stages.js says the step the labels name; the line's own key for it is the
+// row of STAGES at the same place, and the proto stage is the label the
+// Protolab keeps rather than a step of the line.
+const SAMPLE_KEY = { stopped: "stop", review: "review", building: "build", planning: "plan", line: "line", shipped: "ship" };
 function fromSample(raw) {
   const out = Object.fromEntries(STAGES.map((s) => [s.key, []]));
   for (const i of list(obj(raw).issues)) {
@@ -68,12 +75,7 @@ function fromSample(raw) {
     if (!item) continue;
     const labels = list(i.labels).map((l) => String(typeof l === "string" ? l : obj(l).name || "").toLowerCase());
     if (labels.includes("tehas:prototype")) out.proto.push(item);
-    const key = String(i.state || "").toLowerCase() === "closed" ? "ship"
-      : labels.includes("needs-human-attention") ? "stop"
-        : labels.includes("tehas:awaiting-merge") ? "review"
-          : labels.includes("tehas:running") ? "build"
-            : labels.includes("tehas:plan") || labels.includes("tehas:planning") ? "plan"
-              : labels.includes("tehas:ready") ? "line" : null;
+    const key = SAMPLE_KEY[stageOf(labels, String(i.state || "").toLowerCase() === "closed")];
     if (key) out[key].push(item);
   }
   for (const i of list(obj(raw).shippedIssues)) { const item = ticket(i); if (item) out.ship.push(item); }
@@ -185,12 +187,7 @@ export function consoleView(v, titles, nowSecs) {
 if (typeof document !== "undefined" && document.getElementById("line")) {
   const $ = (id) => document.getElementById(id);
   const NS = "http://www.w3.org/2000/svg";
-  const el = (tag, cls, text) => {
-    const e = document.createElement(tag);
-    if (cls) e.className = cls;
-    if (text != null) e.textContent = text;
-    return e;
-  };
+  const el = globalThis.TEHAS_DOM.el;
   const svgEl = (name, attrs, parent) => {
     const e = document.createElementNS(NS, name);
     for (const k in attrs) e.setAttribute(k, attrs[k]);
@@ -392,19 +389,16 @@ if (typeof document !== "undefined" && document.getElementById("line")) {
     term.tailing = true;
     const out = $("console-out"), file = term.file;
     try {
-      const r = await fetch("/live/" + file, { headers: { Range: `bytes=${term.offset}-` }, cache: "no-store" });
+      const answer = await tailStep(file, term.offset);
       if (file !== term.file) return;
-      if (r.status === 206 || (r.status === 200 && term.offset === 0)) {
-        const bytes = new Uint8Array(await r.arrayBuffer());
-        if (file !== term.file || !bytes.length) return;
-        term.offset += bytes.length;
-        out.append(new TextDecoder().decode(bytes));
-        // Keep the page light on a long cycle.
-        if (out.textContent.length > 400000) out.textContent = out.textContent.slice(-300000);
+      if (typeof answer === "object" && answer !== null) {
+        if (!answer.size) return;
+        term.offset += answer.size;
+        appendCapped(out, answer.text);
         if ($("console-follow").checked) out.scrollTop = out.scrollHeight;
-      } else if (r.status === 416) {
+      } else if (answer === "ended") {
         if (!term.running) term.idle = true;
-      } else if (r.status === 200) {
+      } else if (answer === "replaced") {
         // The file was replaced by a new cycle.
         term.offset = 0;
         out.textContent = "";

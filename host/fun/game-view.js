@@ -5,15 +5,12 @@
 // how much of a ticket's text is taken. This file polls, draws and answers
 // clicks.
 import { DEFAULT_KW, LINE, STAGES, ago, finishingIssues, normalize } from "./game-data.js";
+import { appendCapped, tailStep } from "./console-tail.js";
+import "./dom.js";
 
 (() => {
   const $ = (id) => document.getElementById(id);
-  const el = (tag, cls, text) => {
-    const e = document.createElement(tag);
-    if (cls) e.className = cls;
-    if (text !== undefined) e.textContent = text;
-    return e;
-  };
+  const { el } = globalThis.TEHAS_DOM;
 
   const STORAGE_KEY = "tehas-game-view-export-v1";
 
@@ -933,22 +930,18 @@ import { DEFAULT_KW, LINE, STAGES, ago, finishingIssues, normalize } from "./gam
     live.tailing = true;
     const out = $("console-out"), file = live.file;
     try {
-      const r = await fetch("/live/" + file, { headers: { Range: `bytes=${live.offset}-` }, cache: "no-store" });
+      const answer = await tailStep(file, live.offset);
       // A tab was chosen while this request was out: its answer is for the old one.
       if (file !== live.file) return;
-      if (r.status === 206 || (r.status === 200 && live.offset === 0)) {
-        const bytes = new Uint8Array(await r.arrayBuffer());
-        if (file !== live.file) return;
-        if (bytes.length) {
-          live.offset += bytes.length;
-          out.append(new TextDecoder().decode(bytes));
-          // Keep the page light on a long cycle.
-          if (out.textContent.length > 400000) out.textContent = out.textContent.slice(-300000);
+      if (typeof answer === "object" && answer !== null) {
+        if (answer.size) {
+          live.offset += answer.size;
+          appendCapped(out, answer.text);
           if ($("console-follow").checked) out.scrollTop = out.scrollHeight;
         }
-      } else if (r.status === 416) {
+      } else if (answer === "ended") {
         if (!live.running) live.idle = true;
-      } else if (r.status === 200) {
+      } else if (answer === "replaced") {
         // The file was replaced by a new cycle.
         live.offset = 0;
         out.textContent = "";

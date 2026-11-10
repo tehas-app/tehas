@@ -8,8 +8,10 @@
 // Ticket text is untrusted: it comes from a file the viewer loads or from the
 // factory's queue snapshot. Each piece is cut to a bound here, and the page sets
 // it only through textContent, never as markup.
+import { STAGE_ORDER, stageOf as stage } from "./stages.js";
 
-// Stages follow the labels tehas itself puts on issues (see console/src/queue.rs).
+// Stages follow the labels tehas itself puts on issues (see console/src/queue.rs):
+// the order and the labels are host/fun/stages.js, the names are the floor's.
 export const STAGES = {
   ready: "IN LINE",
   running: "BUILDING",
@@ -28,16 +30,19 @@ export const REASON_MAX = 200; // the reason a pause was asked for
 export const WORD_MAX = 40; // the words a round of Buzzword Buster is built from
 export const WORD_LEN = 10; // one word, cleaned
 
-// Which stage a ticket stands at, from its labels. The labels tehas writes are
-// the answer; a label from anywhere else is not. A closed ticket has left the
-// line whatever its labels say.
+// The floor's own names for the steps of the one table (host/fun/stages.js),
+// in its order, with the one stage of its own that has no label: a ticket no
+// label of tehas answers for is not on the line. A closed ticket has left the
+// line whatever its labels say. The floor has no planning of its own, so the
+// table is read without that step: tehas:ready still reads ready beside
+// tehas:plan.
+const STEPS = STAGE_ORDER;
+const FLOOR_STAGES = ["stopped", "review", "running", "planning", "ready"];
+
 export function stageOf(labels, closed) {
-  if (closed) return "shipped";
-  if (labels.includes("needs-human-attention")) return "stopped";
-  if (labels.includes("tehas:awaiting-merge")) return "review";
-  if (labels.includes("tehas:running")) return "running";
-  if (labels.includes("tehas:ready")) return "ready";
-  return "backlog";
+  const step = stage(labels, closed, { planning: false });
+  if (step === "shipped") return "shipped";
+  return step == null ? "backlog" : FLOOR_STAGES[STEPS.indexOf(step)];
 }
 
 // The pause, as tehasbot status writes it: {flag: {at, reason} or null, label}.
@@ -119,17 +124,11 @@ export function collectWords(raw, tickets) {
     .sort((a, b) => b.count - a.count || a.word.localeCompare(b.word)).slice(0, WORD_MAX);
 }
 
-// How long ago an ISO moment was, in the coarsest unit that reads well. nowMs is
-// the present, given by the caller: a moment ahead of it is "just now", not a
-// negative age.
-export function ago(iso, nowMs) {
-  if (!iso) return "";
-  const s = Math.max(0, (nowMs - new Date(iso).getTime()) / 1000);
-  if (s < 90) return "just now";
-  if (s < 5400) return `${Math.round(s / 60)} min ago`;
-  if (s < 129600) return `${Math.round(s / 3600)} h ago`;
-  return `${Math.round(s / 86400)} d ago`;
-}
+// The words for how long ago an ISO moment was, beside agoText: the game view's
+// stamps come from an export or the queue and need no work of their own. A
+// stamp that is empty or not a moment says nothing, which is a blank beside a
+// ticket rather than "NaN d ago".
+export { ago } from "./host-data.js";
 
 // The tickets a factory still finishes: the ones it has on the line at the
 // building stage.

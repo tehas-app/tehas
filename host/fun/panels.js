@@ -73,12 +73,11 @@
   const nav = document.querySelector(".topbar nav");
   if (!nav) return;
 
-  function el(tag, cls, text) {
-    const n = document.createElement(tag);
-    if (cls) n.className = cls;
-    if (text !== undefined) n.textContent = text;
-    return n;
-  }
+  // Every page under host/fun builds a node the same way (host/fun/dom.js).
+  // The name is read inside the document's branch, where the tags for dom.js
+  // and this file have both run; view() above is tested with no document and
+  // no dom.js at all.
+  const { el } = globalThis.TEHAS_DOM;
 
   let dock = null;
   let shown = null; // { item, link }
