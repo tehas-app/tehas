@@ -1085,7 +1085,6 @@ impl Op {
                     for table in [
                         "cycle_settings",
                         "cycle_notes",
-                        "cycle_locks",
                         "cycle_results",
                         "cycle_progress",
                     ] {

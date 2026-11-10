@@ -1,10 +1,13 @@
--- The schema of state/tehas.db, schema v5: every table, column, key and
--- index of the state store spec, section 3.1 to 3.13. Its version is
--- SCHEMA_VERSION in db.rs, kept in PRAGMA user_version. A column added in a
+-- The schema of state/tehas.db, schema v11: every table, column, key and
+-- index of the state store spec, sections 3.1 to 3.9, 3.13 and 5. Its version
+-- is SCHEMA_VERSION in db.rs, kept in PRAGMA user_version. A column added in a
 -- later version comes last in its table, where ALTER TABLE puts it, so a store
 -- migrated from an older version (db::migrate) and one init made hold the
 -- same columns. SQLite cannot change a CHECK in place, so cycles and
--- planning_notes are written as db::STEP_4 rebuilds them.
+-- planning_notes are written as db::STEP_4 rebuilds them. Sections 3.10 to 3.12
+-- are gone: schema 11 drops the eighteen tables no verb writes (#1770), which
+-- is db::STEP_11. Nothing here references them, so they are dropped rather
+-- than rebuilt.
 -- Within one version columns are only added; a change of meaning raises the
 -- version. Times are
 -- UTC Unix seconds and durations are seconds, as integers: a column named
@@ -77,16 +80,6 @@ CREATE TABLE cycles (
   stop_said_times INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX cycles_running ON cycles (ended_at, started_at);
-
--- The cache of what the flocks say, never the truth: a cycle is running while
--- its lock is held, and this table only records that a lock was found held the
--- last time something looked. probe_rc: 0 free, 1 held, 2 could not tell.
-CREATE TABLE cycle_locks (
-  issue      INTEGER PRIMARY KEY REFERENCES cycles (issue) ON DELETE CASCADE,
-  held       INTEGER NOT NULL,
-  seen_at    INTEGER NOT NULL,
-  probe_rc   INTEGER NOT NULL
-);
 
 -- One row per cycle per tick of the supervisor's 10-second write, the newest
 -- 100 of an issue. Was live/cycles/<n>.json, whose mtime was the heartbeat.
@@ -269,10 +262,11 @@ CREATE TABLE questions (
 CREATE INDEX questions_issue ON questions (issue, posted_at);
 
 -- 3.8 the histories, one row per end, the 50 newest per issue kept. Were the
--- three JSONL ledgers the shell commands parsed. The runner's words (cap,
--- park_reason, failure_kind, failure_cause) are claims, stored only cleaned to
--- a fixed set and bound. step_number, step_total and round (v10) are where the
--- step the cycle ended in was, from its last heartbeat of that step.
+-- two JSONL ledgers the shell commands parsed: the cycle's and the planning
+-- turn's. The runner's words (cap, park_reason, failure_kind, failure_cause)
+-- are claims, stored only cleaned to a fixed set and bound. step_number,
+-- step_total and round (v10) are where the step the cycle ended in was, from
+-- its last heartbeat of that step.
 CREATE TABLE cycle_history (
   id INTEGER PRIMARY KEY,
   issue INTEGER NOT NULL, attempt INTEGER NOT NULL, at INTEGER NOT NULL,
@@ -307,13 +301,9 @@ CREATE TRIGGER plan_history_order AFTER INSERT ON plan_history WHEN NEW.seq IS N
   UPDATE plan_history SET seq = 1 + max(coalesce((SELECT max(seq) FROM cycle_history), 0),
     coalesce((SELECT max(seq) FROM plan_history), 0)) WHERE id = NEW.id;
 END;
-CREATE TABLE refined (
-  id INTEGER PRIMARY KEY,
-  issue INTEGER NOT NULL, at INTEGER NOT NULL, kept INTEGER, outcome TEXT
-);
 
--- 3.9 the poll's own records and the samples of the published views. The live
--- files stay as views; the rows are the source.
+-- 3.9 the poll's own records. The live files stay as views; the rows are the
+-- source.
 CREATE TABLE polls (
   at            INTEGER PRIMARY KEY,
   lock_taken_at INTEGER NOT NULL,
@@ -339,93 +329,10 @@ CREATE TABLE poll_cost (
   starts INTEGER
 );
 CREATE INDEX poll_cost_at ON poll_cost (at);
-CREATE TABLE poll_demand (
-  at INTEGER PRIMARY KEY REFERENCES polls (at) ON DELETE CASCADE,
-  waiting INTEGER NOT NULL, oldest_at INTEGER, refresh_hold TEXT
-);
-CREATE TABLE queue_snapshot (
-  at INTEGER PRIMARY KEY,
-  in_line INTEGER, running INTEGER, awaiting INTEGER, stopped INTEGER,
-  completed INTEGER, planning INTEGER, all_hands INTEGER, all_hands_ignored_at INTEGER,
-  paused INTEGER, pause_reason TEXT, snapshot_age_seconds INTEGER
-);
--- Append-only and unbounded unless prune bounds them; prune keeps the same
--- 365 days the analytics program keeps.
-CREATE TABLE health_samples (
-  at INTEGER PRIMARY KEY, ok INTEGER NOT NULL, why TEXT, down INTEGER NOT NULL DEFAULT 0
-);
-CREATE TABLE energy_samples (
-  at INTEGER PRIMARY KEY, endpoint TEXT, watts REAL, source TEXT, ok INTEGER NOT NULL
-);
-CREATE TABLE platform_state (
-  key TEXT PRIMARY KEY, value TEXT NOT NULL
-);
-
--- 3.10 the pause, the limit, the branch checks and the product check. A
--- pause_flag that cannot be read is paused: unreadable says so. The four
--- singletons hold at most one row each, which the key of 1 enforces.
-CREATE TABLE pause_flag (
-  id INTEGER PRIMARY KEY CHECK (id = 1),
-  at INTEGER NOT NULL, reason TEXT NOT NULL, by_account TEXT NOT NULL,
-  unreadable INTEGER NOT NULL DEFAULT 0
-);
-CREATE TABLE limits (
-  id INTEGER PRIMARY KEY CHECK (id = 1),
-  cycles INTEGER, plan INTEGER, until_at INTEGER, reason TEXT, set_at INTEGER NOT NULL
-);
-CREATE TABLE branch_checks (
-  name TEXT NOT NULL, head_sha TEXT NOT NULL, at INTEGER NOT NULL,
-  state TEXT NOT NULL CHECK (state IN ('red','done','pending','none','unreadable')),
-  note TEXT,
-  PRIMARY KEY (name, head_sha)
-);
-CREATE TABLE check_product (
-  at INTEGER PRIMARY KEY, ok INTEGER NOT NULL, failures_json TEXT
-);
-
--- 3.11 refresh requests. at is a Unix second here and an ISO-8601 string in
--- the file the verb replaces; the import converts it rather than letting
--- SQLite coerce text into an INTEGER column.
-CREATE TABLE refresh_requests (
-  issue INTEGER NOT NULL REFERENCES issues (issue) ON DELETE CASCADE,
-  at INTEGER NOT NULL,
-  head_sha TEXT NOT NULL, pr INTEGER NOT NULL,
-  by_account TEXT NOT NULL,
-  settled_at INTEGER, outcome TEXT,
-  PRIMARY KEY (issue, at)
-);
-CREATE TABLE refresh_hold (
-  id INTEGER PRIMARY KEY CHECK (id = 1), reason TEXT NOT NULL, since_at INTEGER NOT NULL
-);
-
--- 3.12 the endpoint, the index, the releases, the edge takeover and the
--- improvement cap. The files beside them stay files where install.sh reads
--- them before the command exists on a fresh host.
-CREATE TABLE endpoints (
-  id INTEGER PRIMARY KEY CHECK (id = 1),
-  main TEXT NOT NULL, backup TEXT, settled_at INTEGER NOT NULL, source TEXT
-);
--- COMMIT is a keyword of SQLite, so the column of index_state that the spec
--- names `commit` is quoted here. A reader that quotes it and one that does not
--- both name the same column; only writing it in a CREATE is refused.
-CREATE TABLE index_state (
-  "commit" TEXT PRIMARY KEY, built_at INTEGER, failed_at INTEGER,
-  state TEXT NOT NULL CHECK (state IN ('current','failed','due'))
-);
-CREATE TABLE release_history (
-  tag TEXT NOT NULL, at INTEGER NOT NULL, PRIMARY KEY (tag, at)
-);
-CREATE TABLE edge_takeover (
-  id INTEGER PRIMARY KEY CHECK (id = 1), made_at INTEGER NOT NULL, note TEXT
-);
-CREATE TABLE improve_cap (
-  id INTEGER PRIMARY KEY CHECK (id = 1),
-  cap INTEGER NOT NULL CHECK (cap BETWEEN 1 AND 5),
-  set_at INTEGER NOT NULL
-);
 
 -- 3.13 the sweep's decisions, so the rules that keep or remove a workspace
--- are auditable rather than inferred from which directories are left.
+-- are auditable rather than inferred from which directories are left. Append-
+-- only unless `store prune` bounds it, as it bounds polls and poll_cost.
 CREATE TABLE sweep_log (
   issue INTEGER NOT NULL, at INTEGER NOT NULL,
   action TEXT NOT NULL CHECK (action IN ('kept','removed','would-remove')),

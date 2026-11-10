@@ -18,7 +18,7 @@ use std::time::{Duration, Instant};
 use crate::live;
 
 /// PRAGMA user_version of the schema in schema.sql.
-pub const SCHEMA_VERSION: i64 = 10;
+pub const SCHEMA_VERSION: i64 = 11;
 pub const SCHEMA: &str = include_str!("schema.sql");
 
 /// The steps from schema 1 to 2 and from 2 to 3: columns and a table added,
@@ -161,6 +161,32 @@ ALTER TABLE heartbeats ADD COLUMN step_since INTEGER;
 ALTER TABLE cycle_history ADD COLUMN step_number INTEGER;
 ALTER TABLE cycle_history ADD COLUMN step_total INTEGER;
 ALTER TABLE cycle_history ADD COLUMN round INTEGER;
+";
+
+/// The step from 10 to 11: the eighteen tables no verb writes and no reader
+/// reads go, with their rows (#1770). Nothing that survives references them,
+/// so each is dropped in place in the step's own transaction rather than
+/// rebuilt as `step_4` does, and `step` checks the foreign keys before it
+/// commits: a store the step cannot finish stays at 10 with every row.
+pub const STEP_11: &str = "
+DROP TABLE branch_checks;
+DROP TABLE check_product;
+DROP TABLE cycle_locks;
+DROP TABLE edge_takeover;
+DROP TABLE endpoints;
+DROP TABLE energy_samples;
+DROP TABLE health_samples;
+DROP TABLE improve_cap;
+DROP TABLE index_state;
+DROP TABLE limits;
+DROP TABLE pause_flag;
+DROP TABLE platform_state;
+DROP TABLE poll_demand;
+DROP TABLE queue_snapshot;
+DROP TABLE refresh_hold;
+DROP TABLE refresh_requests;
+DROP TABLE refined;
+DROP TABLE release_history;
 ";
 
 /// How long SQLite waits for a lock another connection holds before giving
@@ -468,48 +494,30 @@ pub const COUNTED_INDEXES: [&str; 14] = [
 /// The tables `check` counts. Every table of schema.sql appears here exactly
 /// once, which the test every_counted_table_exists pins, so a table that goes
 /// missing from the schema cannot go missing from the report too.
-pub const COUNTED_TABLES: [&str; 41] = [
-    "meta",
-    "issues",
-    "cycles",
-    "cycle_locks",
-    "heartbeats",
-    "endings",
+pub const COUNTED_TABLES: [&str; 23] = [
+    "actions",
     "approvals",
+    "cycle_history",
+    "cycle_notes",
+    "cycle_progress",
+    "cycle_results",
+    "cycle_settings",
+    "cycles",
+    "endings",
+    "heartbeats",
+    "issues",
+    "journal",
+    "meta",
+    "parks",
+    "plan_history",
     "planning",
     "planning_answers",
     "planning_filed",
     "planning_notes",
-    "cycle_settings",
-    "cycle_notes",
-    "cycle_results",
-    "cycle_progress",
-    "parks",
-    "questions",
-    "cycle_history",
-    "plan_history",
-    "refined",
-    "polls",
     "poll_cost",
-    "poll_demand",
-    "queue_snapshot",
-    "health_samples",
-    "energy_samples",
-    "platform_state",
-    "pause_flag",
-    "limits",
-    "branch_checks",
-    "check_product",
-    "refresh_requests",
-    "refresh_hold",
-    "endpoints",
-    "index_state",
-    "release_history",
-    "edge_takeover",
-    "improve_cap",
+    "polls",
+    "questions",
     "sweep_log",
-    "actions",
-    "journal",
 ];
 
 /// The four classes the store tells apart, each with its own word for stderr
@@ -1095,7 +1103,8 @@ pub fn migrate(
             .and_then(|()| step(conn, 7, STEP_7))
             .and_then(|()| step(conn, 8, STEP_8))
             .and_then(|()| step(conn, 9, STEP_9))
-            .and_then(|()| step(conn, 10, STEP_10)),
+            .and_then(|()| step(conn, 10, STEP_10))
+            .and_then(|()| step_11(conn)),
         2 => step(conn, 3, STEP_3)
             .and_then(|()| step_4(conn))
             .and_then(|()| step(conn, 5, STEP_5))
@@ -1103,36 +1112,47 @@ pub fn migrate(
             .and_then(|()| step(conn, 7, STEP_7))
             .and_then(|()| step(conn, 8, STEP_8))
             .and_then(|()| step(conn, 9, STEP_9))
-            .and_then(|()| step(conn, 10, STEP_10)),
+            .and_then(|()| step(conn, 10, STEP_10))
+            .and_then(|()| step_11(conn)),
         3 => step_4(conn)
             .and_then(|()| step(conn, 5, STEP_5))
             .and_then(|()| step(conn, 6, STEP_6))
             .and_then(|()| step(conn, 7, STEP_7))
             .and_then(|()| step(conn, 8, STEP_8))
             .and_then(|()| step(conn, 9, STEP_9))
-            .and_then(|()| step(conn, 10, STEP_10)),
+            .and_then(|()| step(conn, 10, STEP_10))
+            .and_then(|()| step_11(conn)),
         4 => step(conn, 5, STEP_5)
             .and_then(|()| step(conn, 6, STEP_6))
             .and_then(|()| step(conn, 7, STEP_7))
             .and_then(|()| step(conn, 8, STEP_8))
             .and_then(|()| step(conn, 9, STEP_9))
-            .and_then(|()| step(conn, 10, STEP_10)),
+            .and_then(|()| step(conn, 10, STEP_10))
+            .and_then(|()| step_11(conn)),
         5 => step(conn, 6, STEP_6)
             .and_then(|()| step(conn, 7, STEP_7))
             .and_then(|()| step(conn, 8, STEP_8))
             .and_then(|()| step(conn, 9, STEP_9))
-            .and_then(|()| step(conn, 10, STEP_10)),
+            .and_then(|()| step(conn, 10, STEP_10))
+            .and_then(|()| step_11(conn)),
         6 => step(conn, 7, STEP_7)
             .and_then(|()| step(conn, 8, STEP_8))
             .and_then(|()| step(conn, 9, STEP_9))
-            .and_then(|()| step(conn, 10, STEP_10)),
+            .and_then(|()| step(conn, 10, STEP_10))
+            .and_then(|()| step_11(conn)),
         7 => step(conn, 8, STEP_8)
             .and_then(|()| step(conn, 9, STEP_9))
-            .and_then(|()| step(conn, 10, STEP_10)),
-        8 => step(conn, 9, STEP_9).and_then(|()| step(conn, 10, STEP_10)),
-        // The store of the previous release sits at 9, so the step from it is
-        // one the shipped binary must answer for.
-        9 => step(conn, 10, STEP_10),
+            .and_then(|()| step(conn, 10, STEP_10))
+            .and_then(|()| step_11(conn)),
+        8 => step(conn, 9, STEP_9)
+            .and_then(|()| step(conn, 10, STEP_10))
+            .and_then(|()| step_11(conn)),
+        // The store of the release before last sits at 9, so the steps from it
+        // are ones the shipped binary must answer for.
+        9 => step(conn, 10, STEP_10).and_then(|()| step_11(conn)),
+        // The store of the previous release sits at 10: the drop of the
+        // eighteen is the step a host arrives with.
+        10 => step_11(conn),
         v => Err(DbError::Corrupt(format!(
             "no migration from schema {v} of {}, this binary writes {SCHEMA_VERSION}",
             file.display()
@@ -1196,6 +1216,18 @@ fn step_4(conn: &mut Connection) -> Result<(), DbError> {
     conn.pragma_update(None, "foreign_keys", "ON")
         .map_err(classify)?;
     stepped?;
+    conn.execute_batch("VACUUM").map_err(classify)
+}
+
+/// The step to 11. The drops are `step`'s own transaction, and nothing has to
+/// be rebuilt as `step_4` does: no table that survives references one of the
+/// eighteen. The VACUUM after the commit gives back the pages the dropped
+/// tables held, as `step_4`'s does, so a host's store ends the migration of a
+/// size like one `init` wrote; it cannot run inside the step's transaction, and
+/// a step that fails commits nothing, is never vacuumed, and leaves the store
+/// at 10 with every row.
+fn step_11(conn: &mut Connection) -> Result<(), DbError> {
+    step(conn, 11, STEP_11)?;
     conn.execute_batch("VACUUM").map_err(classify)
 }
 
