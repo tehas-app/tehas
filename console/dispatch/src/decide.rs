@@ -393,7 +393,7 @@ impl<'a> Poll<'a> {
         if bot.is_empty() {
             return Err(self.fail("ERROR: the bot's own login could not be read", 1));
         }
-        if c.allowed(&bot) {
+        if c.allowed(&bot) || c.allowed(crate::settings::account(&bot)) {
             return Err(self.fail(
                 format!("ERROR: the bot account {bot} is in TEHAS_ALLOWED_LABELERS; the bot never authorises work"),
                 78,

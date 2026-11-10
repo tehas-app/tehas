@@ -12,15 +12,15 @@
 fixer_ready() { # [<fixer starts since alice's approval, or - for no approval>]
   local i
   reset
-  t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1 TEHAS_MILLWRIGHT_LOGIN=tehas-fixer
+  t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1
   echo '[{"number":7,"labels":[{"name":"tehas:ready"},{"name":"needs-human-attention"},{"name":"tehas:question"},{"name":"tehas:millwright-escalated"}]}]' >"$fx/ready.json"
-  echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"tehas-fixer"},"created_at":"2026-10-02T00:00:00Z"}]' >"$fx/events-7.json"
+  echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"tehas-bot"},"created_at":"2026-10-02T00:00:00Z"}]' >"$fx/events-7.json"
   jq -n '{data: {repository: {issue: {lastEditedAt: null, editor: null, body: "Words."}}}}' >"$fx/edit-7.json"
   echo '[]' >"$fx/icomments-7.json"
   mkdir -p "$T/home/tehas/state/cycles"
   [ "${1:-0}" != - ] || return 0
   past 7 alice label 2026-10-01T00:00:00Z
-  for ((i = 1; i <= ${1:-0}; i++)); do past 7 tehas-fixer fixer "2026-10-01T0$i:00:00Z"; done
+  for ((i = 1; i <= ${1:-0}; i++)); do past 7 tehas-bot fixer "2026-10-01T0$i:00:00Z"; done
 }
 
 t_case "the fixer's tehas:ready on an issue alice approved starts a cycle that rests on her approval"
@@ -30,12 +30,12 @@ t_run "$dispatch"
 t_eq "$t_rc" 0
 t_eq "$(t_calls fake-start)" "7"
 t_eq "$(approval '[.by, .how, .fixer_starts, .rests_on.by, .rests_on.at, .rests_on.how, (.rests_on.body_sha256 == .body_sha256)]')" \
-  '["tehas-fixer","fixer",1,"alice","2026-10-01T00:00:00Z","label",true]'
-t_contains "$t_out" "start #7 (labelled by the fixer by tehas-fixer)"
-t_contains "$(t_calls gh)" "authorized by @tehas-fixer's \`tehas:ready\` label as the fixer, on alice's approval of 2026-10-01T00:00:00Z"
+  '["tehas-bot","fixer",1,"alice","2026-10-01T00:00:00Z","label",true]'
+t_contains "$t_out" "start #7 (labelled by the fixer by tehas-bot)"
+t_contains "$(t_calls gh)" "authorized by @tehas-bot's \`tehas:ready\` label as the fixer, on alice's approval of 2026-10-01T00:00:00Z"
 
 t_case "the store is told the millwright's word"
-t_contains "$(t_calls store)" "approval-record 7 --at 1790899200 --by tehas-fixer --how millwright "
+t_contains "$(t_calls store)" "approval-record 7 --at 1790899200 --by tehas-bot --how millwright "
 t_lacks "$(t_calls store)" "--how fixer"
 
 t_case "the start takes the escalation label off with the rest of the earlier outcome"
@@ -88,102 +88,50 @@ t_lacks "$(t_calls gh)" "issue comment 7"
 t_case "the fixer's label on the control issue starts nothing"
 fixer_ready
 echo '[{"number":1,"labels":[{"name":"tehas:ready"}]}]' >"$fx/ready.json"
-echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"tehas-fixer"},"created_at":"2026-10-02T00:00:00Z"}]' >"$fx/events-1.json"
+echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"tehas-bot"},"created_at":"2026-10-02T00:00:00Z"}]' >"$fx/events-1.json"
 past 1 alice label 2026-10-01T00:00:00Z
 cp "$fx/edit-7.json" "$fx/edit-1.json"
 t_run "$dispatch"
 t_eq "$(t_calls fake-start)" ""
 t_contains "$t_out" 'skip #1: the control issue is never worked on (`tehas:ready`)'
 
-t_case "with no fixer on the instance, its account is an outsider like any other"
-fixer_ready
-t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1
-t_run "$dispatch"
-t_eq "$(t_calls fake-start)" ""
-t_contains "$t_out" "clear #7: tehas:ready off, applied by 'tehas-fixer' who may not authorise work here"
-
-t_case "a bot that is the fixer stops the poll: exit 78"
-fixer_ready
-echo '{"login":"tehas-fixer"}' >"$fx/user.json"
-t_run "$dispatch"
-t_eq "$t_rc" 78
-t_contains "$t_out" "the bot account tehas-fixer is TEHAS_MILLWRIGHT_LOGIN"
-t_eq "$(t_calls fake-start)" ""
-
-# --- A GitHub App as the millwright ------------------------------------------
-# REST names an App <slug>[bot] and GraphQL <slug>: the label events and the
-# comments are REST's, so the setting in either form is the same account.
-# app_ready <setting> <label actor>: fixer_ready with the App as the fixer.
-app_ready() {
-  fixer_ready
-  t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1 "TEHAS_MILLWRIGHT_LOGIN=$1"
-  jq -nc --arg who "$2" '[{event: "labeled", label: {name: "tehas:ready"}, actor: {login: $who}, created_at: "2026-10-02T00:00:00Z"}]' >"$fx/events-7.json"
-}
-for pair in 'acme-millwright acme-millwright[bot]' 'acme-millwright[bot] acme-millwright[bot]' 'acme-millwright[bot] acme-millwright'; do
-  t_case "an App millwright set as ${pair% *} and labelling as ${pair#* } starts the cycle on alice's approval"
-  app_ready "${pair% *}" "${pair#* }"
-  t_run "$dispatch"
-  t_eq "$t_rc" 0
-  t_eq "$(t_calls fake-start)" "7"
-  t_eq "$(approval '[.by, .how, .fixer_starts, .rests_on.by]')" '["acme-millwright","fixer",1,"alice"]'
-  t_contains "$t_out" "start #7 (labelled by the fixer by ${pair#* })"
-done
-
-t_case "an account with a name like the App millwright's is an outsider"
-for who in 'acme-millwright2[bot]' acme-millwright2 'acme-millwrigh[bot]'; do
-  app_ready 'acme-millwright[bot]' "$who"
-  t_run "$dispatch"
-  t_eq "$(t_calls fake-start)" ""
-  t_contains "$t_out" "clear #7: tehas:ready off, applied by '$who' who may not authorise work here"
-done
-
-for pair in 'acme-millwright[bot] acme-millwright' 'acme-millwright acme-millwright[bot]'; do
-  t_case "a bot that is the App millwright in the other form stops the poll: millwright ${pair% *}, bot ${pair#* }"
-  app_ready "${pair% *}" "${pair% *}"
-  jq -nc --arg l "${pair#* }" '{login: $l}' >"$fx/user.json"
-  t_run "$dispatch"
-  t_eq "$t_rc" 78
-  t_contains "$t_out" "the bot account ${pair#* } is TEHAS_MILLWRIGHT_LOGIN"
-  t_eq "$(t_calls fake-start)" ""
-done
-
 t_case "the App millwright's marked comment, by its REST login, is the retry's context"
-app_ready acme-millwright 'acme-millwright[bot]'
+fixer_ready
 {
   echo '['
-  icomment 81 'acme-millwright[bot]' 2026-10-01T23:55:00Z 2026-10-01T23:55:00Z $'<!-- tehas:millwright issue=7 action=change -->\nRun the gate first.'
+  icomment 81 'tehas-bot[bot]' 2026-10-01T23:55:00Z 2026-10-01T23:55:00Z $'<!-- tehas:millwright issue=7 action=change -->\nRun the gate first.'
   echo ','
-  icomment 82 'acme-millwright2[bot]' 2026-10-01T23:58:00Z 2026-10-01T23:58:00Z $'<!-- tehas:millwright issue=7 action=change -->\nNot the millwright.'
+  icomment 82 'tehas-bot2[bot]' 2026-10-01T23:58:00Z 2026-10-01T23:58:00Z $'<!-- tehas:millwright issue=7 action=change -->\nNot the millwright.'
   echo ']'
 } >"$fx/icomments-7.json"
 t_run "$dispatch"
 t_eq "$(t_calls fake-start)" "7"
-t_eq "$(approval '[.retry_context[] | [.source, .by]]')" '[["millwright:81","acme-millwright[bot]"]]'
+t_eq "$(approval '[.retry_context[] | [.source, .by]]')" '[["millwright:81","tehas-bot[bot]"]]'
 
 t_case "the fixer's marked comment before its label is the retry's context, whatever the comments setting"
 fixer_ready
 {
   echo '['
-  icomment 81 tehas-fixer 2026-10-01T23:55:00Z 2026-10-01T23:55:00Z $'<!-- tehas:millwright issue=7 action=change -->\nRun the gate first.'
+  icomment 81 tehas-bot 2026-10-01T23:55:00Z 2026-10-01T23:55:00Z $'<!-- tehas:millwright issue=7 action=change -->\nRun the gate first.'
   echo ','
-  icomment 80 tehas-fixer 2026-10-01T20:00:00Z 2026-10-01T20:00:00Z $'<!-- tehas:millwright issue=7 action=change -->\nAn older decision.'
+  icomment 80 tehas-bot 2026-10-01T20:00:00Z 2026-10-01T20:00:00Z $'<!-- tehas:millwright issue=7 action=change -->\nAn older decision.'
   echo ','
   icomment 82 mallory 2026-10-01T23:58:00Z 2026-10-01T23:58:00Z $'<!-- tehas:millwright issue=7 action=change -->\nNot the fixer.'
   echo ','
-  icomment 83 tehas-fixer 2026-10-01T23:59:00Z 2026-10-02T01:00:00Z $'<!-- tehas:millwright issue=7 action=change -->\nEdited after the label.'
+  icomment 83 tehas-bot 2026-10-01T23:59:00Z 2026-10-02T01:00:00Z $'<!-- tehas:millwright issue=7 action=change -->\nEdited after the label.'
   echo ']'
 } >"$fx/icomments-7.json"
 t_run "$dispatch"
 t_eq "$(t_calls fake-start)" "7"
 t_eq "$(approval '.retry_context')" \
-  "$(sorted '[{"source":"millwright:81","by":"tehas-fixer","at":"2026-10-01T23:55:00Z","text":"<!-- tehas:millwright issue=7 action=change -->\nRun the gate first."}]')"
+  "$(sorted '[{"source":"millwright:81","by":"tehas-bot","at":"2026-10-01T23:55:00Z","text":"<!-- tehas:millwright issue=7 action=change -->\nRun the gate first."}]')"
 t_eq "$(approval 'has("comment_links")')" false
 
 t_case "the old fixer marker is no longer the retry's context"
 fixer_ready
 {
   echo '['
-  icomment 84 tehas-fixer 2026-10-01T23:56:00Z 2026-10-01T23:56:00Z $'<!-- tehas:fixer issue=7 action=retry -->\nTry once more.'
+  icomment 84 tehas-bot 2026-10-01T23:56:00Z 2026-10-01T23:56:00Z $'<!-- tehas:fixer issue=7 action=retry -->\nTry once more.'
   echo ']'
 } >"$fx/icomments-7.json"
 t_run "$dispatch"
@@ -192,7 +140,7 @@ t_eq "$(approval 'has("retry_context")')" false
 
 t_case "a title changed by an outsider since the person's approval: the fixer's label starts nothing"
 fixer_ready
-echo '[{"event":"renamed","actor":{"login":"mallory"},"created_at":"2026-10-01T12:00:00Z"},{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"tehas-fixer"},"created_at":"2026-10-02T00:00:00Z"}]' >"$fx/events-7.json"
+echo '[{"event":"renamed","actor":{"login":"mallory"},"created_at":"2026-10-01T12:00:00Z"},{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"tehas-bot"},"created_at":"2026-10-02T00:00:00Z"}]' >"$fx/events-7.json"
 t_run "$dispatch"
 t_eq "$(t_calls fake-start)" ""
 t_contains "$t_out" "its title or text was changed since alice approved it"
@@ -210,24 +158,24 @@ fmark='<!-- tehas:millwright issue=7 action=answer -->'
 # The session has had as many turns as the last answer on record names.
 fixer_planning() { # [<answers on record as JSON> [<who started the session>]]
   planning
-  t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1 TEHAS_MILLWRIGHT_LOGIN=tehas-fixer
+  t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1
   t_plan "$T/home/tehas" 7 "$(jq -nc --argjson a "${1:-[]}" --arg by "${2:-alice}" \
     '{by: $by, turns: ([1] + [$a[].turn] | max), options: ["Adopt all", "Change some"], comment: 4001, answers: $a}')"
 }
 freply() { # <body> [<id>]: one comment by the fixer, as JSON for comments
-  jq -nc --arg b "$1" --argjson id "${2:-4003}" '[{databaseId: $id, author: {login: "tehas-fixer"}, body: $b, createdAt: "2026-01-01T02:00:00Z"}]'
+  jq -nc --arg b "$1" --argjson id "${2:-4003}" '[{databaseId: $id, author: {login: "tehas-bot"}, body: $b, createdAt: "2026-01-01T02:00:00Z"}]'
 }
 
 t_case "a marked reply of the fixer's runs the turn, and the record says the fixer answered"
-fixer_planning '[{"turn":2,"by":"tehas-fixer","fixer":true},{"turn":3,"by":"alice","fixer":false}]'
+fixer_planning '[{"turn":2,"by":"tehas-bot","fixer":true},{"turn":3,"by":"alice","fixer":false}]'
 comments 7 "$(plan_body ' ' ' ' ' ')" "" "$(freply "$fmark"$'\nAdopt all, as alice chose in #12.')"
 t_run "$dispatch"
 t_contains "$(plan_calls)" "--answer $keep/answer.md --comment 4003"
 t_eq "$(cat "$keep/answer.md")" 'The fixer replied on the issue:
 
 Adopt all, as alice chose in #12.'
-t_contains "$t_out" "planning #7 continues (answer from tehas-fixer, the fixer)"
-t_eq "$(rec | jq -c '.answers[-1]')" '{"turn":4,"by":"tehas-fixer","fixer":true}'
+t_contains "$t_out" "planning #7 continues (answer from tehas-bot, the fixer)"
+t_eq "$(rec | jq -c '.answers[-1]')" '{"turn":4,"by":"tehas-bot","fixer":true}'
 
 t_case "a reply marked as the millwright's runs the turn, and the store is told the millwright answered"
 fixer_planning
@@ -240,29 +188,29 @@ t_lacks "$(t_calls store)" "--fixer"
 
 t_case "an App millwright set with [bot] answers as GraphQL names it, and the store has the one form"
 fixer_planning
-t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1 'TEHAS_MILLWRIGHT_LOGIN=tehas-fixer[bot]'
+t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1
 store_refuses none 1 none
 comments 7 "$(plan_body ' ' ' ' ' ')" "" "$(freply "$fmark"$'\nAdopt all.')"
 t_run "$dispatch"
 t_contains "$(plan_calls)" "--answer $keep/answer.md --comment 4003"
-t_contains "$(t_calls store)" "plan-answer 7 --turn 2 --by tehas-fixer --text-file"
+t_contains "$(t_calls store)" "plan-answer 7 --turn 2 --by tehas-bot --text-file"
 t_contains "$(t_calls store)" "--millwright"
-t_eq "$(rec | jq -c '.answers[-1]')" '{"turn":2,"by":"tehas-fixer","fixer":true}'
+t_eq "$(rec | jq -c '.answers[-1]')" '{"turn":2,"by":"tehas-bot","fixer":true}'
 
 t_case "an App millwright set with [bot] ticks a box as GraphQL names it"
 fixer_planning
-t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1 'TEHAS_MILLWRIGHT_LOGIN=tehas-fixer[bot]'
-comments 7 "$(plan_body ' ' x ' ')" tehas-fixer
+t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1
+comments 7 "$(plan_body ' ' x ' ')" tehas-bot
 t_run "$dispatch"
 t_eq "$(cat "$keep/answer.md")" "The fixer chose: Change some"
 
 t_case "a box the fixer ticked runs the turn as its choice"
 fixer_planning
-comments 7 "$(plan_body ' ' x ' ')" tehas-fixer
+comments 7 "$(plan_body ' ' x ' ')" tehas-bot
 t_run "$dispatch"
 t_eq "$(cat "$keep/answer.md")" "The fixer chose: Change some"
 t_lacks "$(plan_calls)" "--comment"
-t_eq "$(rec | jq -c '.answers')" '[{"turn":2,"by":"tehas-fixer","fixer":true}]'
+t_eq "$(rec | jq -c '.answers')" '[{"turn":2,"by":"tehas-bot","fixer":true}]'
 
 t_case "a person's reply wins over a newer reply of the fixer's, and a person's tick wins too"
 fixer_planning
@@ -278,7 +226,7 @@ t_run "$dispatch"
 t_eq "$(cat "$keep/answer.md")" "The operator chose: Change some"
 
 t_case "never two in a row: after the fixer's answer its next one runs no turn, and the issue says so once"
-fixer_planning '[{"turn":2,"by":"tehas-fixer","fixer":true}]'
+fixer_planning '[{"turn":2,"by":"tehas-bot","fixer":true}]'
 store_refuses none 1 none
 comments 7 "$(plan_body ' ' ' ' ' ')" "" "$(freply "$fmark"$'\nAdopt all.')"
 t_run "$dispatch"
@@ -300,8 +248,8 @@ t_run "$dispatch"
 t_contains "$(plan_calls)" "--comment 4005"
 
 t_case "at the limit the fixer's tick runs no turn and is unticked with a note"
-fixer_planning '[{"turn":2,"by":"tehas-fixer","fixer":true},{"turn":3,"by":"alice","fixer":false},{"turn":4,"by":"tehas-fixer","fixer":true},{"turn":5,"by":"alice","fixer":false},{"turn":6,"by":"tehas-fixer","fixer":true},{"turn":7,"by":"alice","fixer":false}]'
-comments 7 "$(plan_body x ' ' ' ')" tehas-fixer
+fixer_planning '[{"turn":2,"by":"tehas-bot","fixer":true},{"turn":3,"by":"alice","fixer":false},{"turn":4,"by":"tehas-bot","fixer":true},{"turn":5,"by":"alice","fixer":false},{"turn":6,"by":"tehas-bot","fixer":true},{"turn":7,"by":"alice","fixer":false}]'
+comments 7 "$(plan_body x ' ' ' ')" tehas-bot
 t_run "$dispatch"
 t_eq "$(plan_calls)" ""
 t_contains "$t_out" "the fixer has answered 3 questions in this session, the limit"
@@ -309,14 +257,14 @@ t_contains "$(t_calls gh)" "api -X PATCH"
 t_contains "$(t_calls gh)" "The fixer's tick was not taken as an answer"
 
 t_case "a larger limit lets it answer again"
-comments 7 "$(plan_body x ' ' ' ')" tehas-fixer
-t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1 TEHAS_MILLWRIGHT_LOGIN=tehas-fixer TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS=4
+comments 7 "$(plan_body x ' ' ' ')" tehas-bot
+t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1 TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS=4
 t_run "$dispatch"
 t_eq "$(cat "$keep/answer.md")" "The fixer chose: Adopt all"
 
 t_case "the fixer may not end a session: its tick on the way out is undone and the session goes on"
 fixer_planning
-comments 7 "$(plan_body ' ' ' ' x)" tehas-fixer
+comments 7 "$(plan_body ' ' ' ' x)" tehas-bot
 t_run "$dispatch"
 t_eq "$(plan_calls)" ""
 t_lacks "$(t_calls gh)" "Planning session ended"
@@ -326,7 +274,7 @@ t_eq "$(rec_open)" open
 
 t_case "the fixer cannot end a session with an empty marked reply beside its tick on the way out"
 fixer_planning
-comments 7 "$(plan_body ' ' ' ' x)" tehas-fixer "$(freply "$fmark")"
+comments 7 "$(plan_body ' ' ' ' x)" tehas-bot "$(freply "$fmark")"
 t_run "$dispatch"
 t_eq "$(plan_calls)" ""
 t_lacks "$(t_calls gh)" "Planning session ended"
@@ -336,7 +284,7 @@ t_eq "$(rec_open)" open
 
 t_case "nor with a marked reply that says something beside that tick"
 fixer_planning
-comments 7 "$(plan_body ' ' ' ' x)" tehas-fixer "$(freply "$fmark"$'\nDone, end it.')"
+comments 7 "$(plan_body ' ' ' ' x)" tehas-bot "$(freply "$fmark"$'\nDone, end it.')"
 t_run "$dispatch"
 t_eq "$(plan_calls)" ""
 t_contains "$t_out" "it ticked End this planning session, which only a person may"
@@ -344,8 +292,8 @@ t_eq "$(rec_open)" open
 
 t_case "a tick the fixer saved after alice edited the question is held for a person, not unticked"
 fixer_planning
-comments 7 "$(plan_body ' ' x ' ')" tehas-fixer "$(freply "$fmark"$'\nAdopt all.')"
-jq '.data.repository.issue.comments.nodes[0].userContentEdits = {totalCount: 2, nodes: [{editor: {login: "alice"}}, {editor: {login: "tehas-fixer"}}]}' \
+comments 7 "$(plan_body ' ' x ' ')" tehas-bot "$(freply "$fmark"$'\nAdopt all.')"
+jq '.data.repository.issue.comments.nodes[0].userContentEdits = {totalCount: 2, nodes: [{editor: {login: "alice"}}, {editor: {login: "tehas-bot"}}]}' \
   "$fx/comments-7.json" >"$fx/c.json" && mv "$fx/c.json" "$fx/comments-7.json"
 t_run "$dispatch"
 t_eq "$(plan_calls)" ""
@@ -366,9 +314,9 @@ t_eq "$(cat "$keep/answer.md")" "The operator chose: Change some"
 
 t_case "a held tick on a parked cycle's question starts nothing and stays"
 parked
-t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1 TEHAS_MILLWRIGHT_LOGIN=tehas-fixer
-comments 7 "$(park_body x ' ')" tehas-fixer
-jq '.data.repository.issue.comments.nodes[0].userContentEdits = {totalCount: 2, nodes: [{editor: {login: "alice"}}, {editor: {login: "tehas-fixer"}}]}' \
+t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1
+comments 7 "$(park_body x ' ')" tehas-bot
+jq '.data.repository.issue.comments.nodes[0].userContentEdits = {totalCount: 2, nodes: [{editor: {login: "alice"}}, {editor: {login: "tehas-bot"}}]}' \
   "$fx/comments-7.json" >"$fx/c.json" && mv "$fx/c.json" "$fx/comments-7.json"
 t_run "$dispatch"
 t_eq "$(t_calls fake-start)" ""
@@ -383,13 +331,13 @@ t_contains "$t_out" "its reply does not start with <!-- tehas:millwright issue=7
 
 t_case "in a session started by an account no longer allowed, the fixer answers nothing"
 fixer_planning '[]' mallory
-comments 7 "$(plan_body ' ' x ' ')" tehas-fixer
+comments 7 "$(plan_body ' ' x ' ')" tehas-bot
 t_run "$dispatch"
 t_eq "$(plan_calls)" ""
 t_contains "$t_out" "no person's tehas:plan started this session"
 
 t_case "a dry run says the fixer's reply would be refused and changes nothing"
-fixer_planning '[{"turn":2,"by":"tehas-fixer","fixer":true}]'
+fixer_planning '[{"turn":2,"by":"tehas-bot","fixer":true}]'
 comments 7 "$(plan_body ' ' ' ' ' ')" "" "$(freply "$fmark"$'\nAdopt all.')"
 before=$(rec)
 t_run "$dispatch --dry-run"
@@ -397,21 +345,12 @@ t_contains "$t_out" "skip #7: the fixer's answer runs no turn"
 t_lacks "$(t_calls gh)" "issue comment"
 t_eq "$(rec)" "$before"
 
-t_case "with no fixer on the instance, its account's tick and reply are an outsider's"
-fixer_planning
-t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1
-comments 7 "$(plan_body x ' ' ' ')" tehas-fixer "$(freply "$fmark"$'\nAdopt all.')"
-t_run "$dispatch"
-t_eq "$(plan_calls)" ""
-t_contains "$t_out" "boxes ticked by 'tehas-fixer' are no answer (stranger)"
-t_contains "$(t_calls gh)" "may not answer for this factory (tehas-fixer)"
-
 t_case "the fixer's tick on a parked cycle's question is a stranger's"
 parked
-t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1 TEHAS_MILLWRIGHT_LOGIN=tehas-fixer
-comments 7 "$(park_body x ' ')" tehas-fixer
+t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1
+comments 7 "$(park_body x ' ')" tehas-bot
 t_run "$dispatch"
 t_eq "$(t_calls fake-start)" ""
-t_contains "$t_out" "boxes ticked by 'tehas-fixer' are no answer (stranger)"
+t_contains "$t_out" "boxes ticked by 'tehas-bot' are no answer (stranger)"
 
 t_done

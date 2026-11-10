@@ -314,8 +314,8 @@ t_eq "$(t_calls fake-start)" ""
 
 t_case "an invalid instance makes no call at all and exits 78"
 reset
-rm -rf "$T/home/tehas/state" "$T/home/tehas/logs"
 t_instance TEHAS_CONTROL_ISSUE=1 TEHAS_ALLOWED_LABELERS=alice
+rm -rf "$T/home/tehas/state" "$T/home/tehas/logs"
 t_run "$dispatch"
 t_eq "$t_rc" 78
 t_contains "$t_out" "tehas: TEHAS_REPO is not set"
@@ -393,8 +393,8 @@ t_eq "$t_out" ""
 
 t_case "--help answers on a host with no instance settings yet"
 reset
-rm -rf "$T/home/tehas/state" "$T/home/tehas/logs"
 t_instance
+rm -rf "$T/home/tehas/state" "$T/home/tehas/logs"
 t_run "$dispatch --help"
 t_eq "$t_rc" 0
 t_contains "$t_out" "Usage:"
