@@ -667,23 +667,19 @@ for f in "$root"/lib/polyfill-*.sh; do
 done
 shopt -u nullglob
 
-# What the instance's own sandbox file was at the last install, or nothing when
-# the host has never had one, or has one no install has seen yet. Read before the
-# record of follow-ups below, so a host that changed the file is not called
-# current and its build step is owed before any copy is made. A file that cannot
-# be read is said and stops the run: recording it as seen would owe the build
+# Whether this run owes the sandbox build, asked once before any copy is made
+# (console/src/update/sandbox.rs): the pins of versions.env the image reads, by
+# the host's copy against this checkout's, and the instance's own sandbox file
+# against what the last install saw. Asked before the record of follow-ups
+# below, so a host that changed either is not called current. A sandbox file
+# that cannot be read stops the run: recording it as seen would owe the build
 # once and then never again for a file nobody has read.
-sandbox_changed=0
 sandbox_drift=0
-sandboxunread=""
 sandbox_at_file=$TEHAS_HOME/state/sandbox.Dockerfile.sha256
-if [ -f "$instance/sandbox.Dockerfile" ]; then
-  if ! hash=$(sha256sum "$instance/sandbox.Dockerfile" 2>/dev/null); then
-    sandboxunread="$instance/sandbox.Dockerfile cannot be read (check its permissions)"
-  else
-    [ "${hash:0:64}" != "$(cat "$sandbox_at_file" 2>/dev/null)" ] && sandbox_changed=1
-  fi
-fi
+owed=$("$loaded_console" update sandbox "$TEHAS_HOME/versions.env" "$host/versions.env" \
+  "$instance/sandbox.Dockerfile" "$sandbox_at_file") ||
+  { echo "tehas: the console at $loaded_console could not tell whether the sandbox build is owed; nothing was installed" >&2; exit 1; }
+read -r versions_owed sandbox_changed sandbox_unread <<<"$owed"
 
 changed=()
 report=()
@@ -764,53 +760,6 @@ bashrc_ok() {
 # A first install owes the labels and the core units, recorded in this file
 # until both are done, so a run that stops partway still owes them.
 first_owed=$TEHAS_HOME/state/first-install
-
-# Do the lines the sandbox image reads differ between this checkout and the copy
-# the host holds? The build reads only the lines named SHELLCHECK_, JQ_,
-# PLAYWRIGHT_, CBM_, PI_RUKAS_, VIPUNE_ or OO_ (host/sandbox/build.sh,
-# host/sandbox/Dockerfile); the rest of versions.env is bootstrap.sh's, so a
-# change to one of those asks for nothing but the copy. 0 when equal, 1 otherwise.
-#
-# The host's copy is read before the copies begin and the answer kept, so the
-# record and the next: lines are made from one reading of the file the host held:
-# that file is what the image now on the host was built from, so a pin moved on
-# the host owes the build whether or not this run overwrites it, and a pin only
-# the checkout moves owes it because the copy this run makes hands the host pins
-# the image has never been built from. A host with no installed copy has never
-# had a build made from these pins, which is a change too. Read once, before any
-# copy: the reading after the copies would answer about the file this run writes
-# and say nothing about the one it replaced.
-versions_build_changed() {
-  local host_file current kept line
-  host_file=$TEHAS_HOME/versions.env
-  [ -f "$host_file" ] || { echo 1; return 0; }
-  current=$(grep -E '^(SHELLCHECK|JQ|PLAYWRIGHT|RUST|CBM|PI_RUKAS|VIPUNE|OO)_' "$host/versions.env") || current=""
-  # A file that names none of them cannot be compared with: the build reads what
-  # it reads, so the build is owed rather than assumed already done.
-  [ -n "$current" ] || { echo 1; return 0; }
-  kept=$(grep -E '^(SHELLCHECK|JQ|PLAYWRIGHT|RUST|CBM|PI_RUKAS|VIPUNE|OO)_' "$host_file") || kept=""
-  # A copy that holds none of them is a difference and not an agreement, for the
-  # same reason.
-  [ -n "$kept" ] || { echo 1; return 0; }
-  # One line among them is the change a person makes on a host: one pin moved,
-  # the rest as some checkout wrote it. Then that line alone is compared, read
-  # out of each file, so neither the other lines nor the order of the host's
-  # copy can change the answer. A release's pins are more than one line - the
-  # version and its checksum, a model with its revision and its hashes - so a
-  # whole block still reads as a whole block, position and all.
-  if [ "${kept//$'\n'}" = "$kept" ]; then
-    line=$kept
-    current=$(printf '%s\n' "$current" | grep -Fx "$line") || current=""
-  fi
-  [ "$kept" = "$current" ] && { echo 0; return 0; }
-  echo 1
-}
-# Whether this run owes the sandbox build because of versions.env: 1 when the
-# lines the image reads are not the ones the image the host holds was built
-# from. Read once, before any copy is made, so the record and the next: lines
-# below give one answer to one question.
-versions_owed=0
-if [ "$(versions_build_changed)" = 1 ]; then versions_owed=1; fi
 
 # The step this source calls for, added to the record of steps owed. One call per
 # copied file, so the record is never behind what the host has already been given.
@@ -1057,11 +1006,11 @@ fi
 # until the copy that saw the same content recorded it below. It is counted with
 # the files below, in its own line, and not in changed[], which holds only source
 # paths of the file table.
-if [ -n "$sandboxunread" ]; then
+if [ "$sandbox_unread" = 1 ]; then
   if [ "$check" = 1 ]; then
     note "unreadable: $instance/sandbox.Dockerfile (check its permissions)"
   else
-    echo "tehas: $sandboxunread" >&2
+    echo "tehas: $instance/sandbox.Dockerfile cannot be read (check its permissions)" >&2
     echo "tehas: nothing was installed" >&2
     exit 78
   fi
