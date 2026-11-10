@@ -26,10 +26,11 @@ fn login(v: &Value, path: &str) -> String {
 /// the bot and the fixer edited the question too, or the edits read are not
 /// all of them: GitHub names who saved a comment, not who ticked which box,
 /// so the tick may be a person's. The fixer's newest reply, edited by nobody
-/// else, is fixer_reply: marked when its first line is
-/// <!-- tehas:millwright issue=<n> action=answer -->, which its text then
-/// leaves out; a marked reply with nothing after the marker is none. Whether
-/// either counts is the caller's to decide.
+/// else, is fixer_reply, and only a comment whose first line is
+/// <!-- tehas:millwright issue=<n> action=answer --> is a reply: the fixer is
+/// the bot, so every note the host writes is the fixer's comment too, and none
+/// starts with that line. Its text leaves the marker out; a reply with nothing
+/// after the marker is none. Whether either counts is the caller's to decide.
 pub fn answer(
     comments: &Value,
     bot: &str,
@@ -142,28 +143,27 @@ pub fn answer(
             "at": r.get("createdAt"), "id": r.get("databaseId")})),
     });
     if !fixer.is_empty() {
+        let mark = format!("<!-- tehas:millwright issue={issue} action=answer -->");
+        let marked = |b: &str| {
+            let first = b.split('\n').next().unwrap_or("");
+            first.strip_suffix('\r').unwrap_or(first) == mark
+        };
         let f = after.iter().rfind(|x| {
             let e = login(x, "/editor/login");
-            login(x, "/author/login") == fixer && (e.is_empty() || e == fixer)
+            login(x, "/author/login") == fixer
+                && (e.is_empty() || e == fixer)
+                && marked(x.get("body").and_then(Value::as_str).unwrap_or(""))
         });
-        let mark = format!("<!-- tehas:millwright issue={issue} action=answer -->");
         out["fixer_reply"] = match f {
             None => Value::Null,
             Some(f) => {
                 let b = f.get("body").and_then(Value::as_str).unwrap_or("");
-                let first = b.split('\n').next().unwrap_or("");
-                let first = first.strip_suffix('\r').unwrap_or(first);
-                let marked = first == mark;
-                let text = if marked {
-                    b.split_once('\n').map_or("", |(_, rest)| rest)
-                } else {
-                    b
-                };
-                if marked && text.trim().is_empty() {
+                let text = b.split_once('\n').map_or("", |(_, rest)| rest);
+                if text.trim().is_empty() {
                     Value::Null
                 } else {
                     json!({"by": login(f, "/author/login"), "text": text, "at": f.get("createdAt"),
-                        "id": f.get("databaseId"), "marked": marked})
+                        "id": f.get("databaseId"), "marked": true})
                 }
             }
         };
@@ -563,7 +563,7 @@ mod tests {
     }
 
     #[test]
-    fn a_fixer_reply_without_the_marker_of_this_issue_at_its_top_is_not_marked() {
+    fn a_fixer_comment_without_the_marker_of_this_issue_at_its_top_is_no_reply() {
         for b in [
             "Adopt all.".to_string(),
             "<!-- tehas:millwright issue=8 action=answer -->\nAdopt all.".to_string(),
@@ -573,9 +573,18 @@ mod tests {
             "<!-- tehas:fixer issue=7 action=answer -->\nAdopt all.".to_string(),
         ] {
             let a = read_with_fixer(&asked(BODY, "", fixer_said(&b)));
-            assert_eq!(a["fixer_reply"]["marked"], false, "{b}");
-            assert_eq!(a["fixer_reply"]["text"], json!(b));
+            assert_eq!(a["fixer_reply"], Value::Null, "{b}");
         }
+    }
+
+    #[test]
+    fn a_host_note_after_the_fixers_reply_leaves_the_reply_as_it_was() {
+        let later = json!([
+            {"databaseId": 8, "author": {"login": FIXER}, "body": format!("{MARK}\nAdopt all."), "createdAt": "2026-01-01T05:00:00Z"},
+            {"databaseId": 9, "author": {"login": FIXER}, "body": "Tehas did not take the fixer's reply as an answer.", "createdAt": "2026-01-01T06:00:00Z"},
+        ]);
+        let a = read_with_fixer(&asked(BODY, "", later));
+        assert_eq!(a["fixer_reply"]["id"], 8);
     }
 
     #[test]

@@ -2133,9 +2133,11 @@ the new names.
   turns in a row, so a person sees every second question at most. It may
   not tick `End this planning session`. Its reply starts with the line
   `<!-- tehas:millwright issue=<n> action=answer -->`, and the agent is told
-  the answer is the millwright's. Any other answer of the millwright's is an
-  outsider's: a tick is unticked and the bot says why, a reply is ignored
-  and the bot says why once. GitHub says who last saved a comment, not who
+  the answer is the millwright's. A comment of its account that does not
+  start with that line is no reply at all, and nothing is said of it: the
+  millwright is the bot, so the host's own notes are its comments too. A tick
+  that breaks a rule above is unticked and the bot says why; a marked reply
+  that breaks one is ignored and the bot says why once. GitHub says who last saved a comment, not who
   ticked a box, so a tick the millwright saved after another account edited the
   question is held: it is neither used nor unticked, and the bot asks a
   person, once, to tick again or reply. To overrule it, reply or tick before the next
