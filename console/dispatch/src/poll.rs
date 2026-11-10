@@ -514,6 +514,28 @@ impl PollToken {
     }
 }
 
+/// The settings with the app's login in them when the poll started without
+/// one: a mint of this poll wrote state/github/login after the load. The
+/// bot and the millwright are that login, in the environment too, for what the
+/// poll starts. None when the settings already name a bot or no login is kept.
+fn adopt_login(home: &Path, settings: &Settings) -> Option<Settings> {
+    if !settings.bot_login.is_empty() {
+        return None;
+    }
+    let login = tehas_core::settings::bot_login(home)?;
+    let mut now = settings.clone();
+    now.bot_login = login.clone();
+    if now.millwright.is_empty() {
+        now.millwright = crate::settings::account(&login).to_string();
+    }
+    for name in ["TEHAS_BOT_LOGIN", "TEHAS_MILLWRIGHT_LOGIN"] {
+        if std::env::var_os(name).is_none_or(|v| v.is_empty()) {
+            std::env::set_var(name, &login);
+        }
+    }
+    Some(now)
+}
+
 /// One poll. The exit status the bash poll would end with.
 pub fn run_poll(home: &Path, settings: &Settings, dry: bool) -> i32 {
     let state = home.join("state");
@@ -584,6 +606,12 @@ pub fn run_poll(home: &Path, settings: &Settings, dry: bool) -> i32 {
     // status reads that go through them are one poll and spend one budget, and
     // `body` is handed the same value rather than copying a field afterwards.
     let retry = RetryPolicy::default();
+    // The token is taken before anything reads the bot: a first mint writes
+    // state/github/login, and this poll acts as that login.
+    let token = PollToken::default();
+    let first_token = token.get(home);
+    let adopted = adopt_login(home, settings);
+    let settings = adopted.as_ref().unwrap_or(settings);
     let mut w = writer(home, settings, "", 0, now() as i64, &retry);
     // The poll's GitHub token, kept in memory from before its first call: the
     // first gh of the poll asks the host's token program once, and every gh
@@ -595,8 +623,7 @@ pub fn run_poll(home: &Path, settings: &Settings, dry: bool) -> i32 {
     // leaves the calls as they were: each pays for one. The token is never
     // logged, never written to a file and never put in the arguments of
     // anything.
-    let token = PollToken::default();
-    w.calls.gh_token = token.get(home);
+    w.calls.gh_token = first_token;
     let mut end = End {
         home,
         dry,
@@ -1187,6 +1214,22 @@ mod tests {
         assert!(tidy_args(true).is_empty());
         assert_eq!(own_words(false, &["index"]), ["index"]);
         assert!(own_words(true, &["index"]).is_empty());
+    }
+
+    #[test]
+    fn a_login_the_first_mint_wrote_is_the_bot_and_the_millwright_of_the_poll() {
+        let home = home_of("adopt");
+        let none = Settings::parse(&json!({}));
+        assert!(adopt_login(&home, &none).is_none(), "no login is kept yet");
+        std::fs::create_dir_all(home.join("state/github")).unwrap();
+        std::fs::write(home.join("state/github/login"), "acme-app[bot]\n").unwrap();
+        let got = adopt_login(&home, &none).expect("the kept login is adopted");
+        assert_eq!(got.bot_login, "acme-app[bot]");
+        assert!(got.is_millwright("acme-app[bot]"));
+        let named = Settings::parse(&json!({"TEHAS_BOT_LOGIN": "set[bot]"}));
+        assert!(adopt_login(&home, &named).is_none(), "a named bot stays");
+        std::env::remove_var("TEHAS_BOT_LOGIN");
+        std::env::remove_var("TEHAS_MILLWRIGHT_LOGIN");
     }
 
     /// A scratch home of this test, with `live/` in it.
