@@ -92,10 +92,11 @@ impl Kind {
 
     // The directory under $TEHAS_HOME of the app token a container reads. A
     // cycle gets its own token, narrowed to the product repository (#1814),
-    // never the app's: that one goes only to a planning turn and a session.
+    // and a planning turn and a session get one of the same body in a
+    // directory of their own. The app's own token goes to no container.
     fn app_dir(self) -> Option<&'static str> {
         match self {
-            Kind::Turn | Kind::Session => Some("state/github"),
+            Kind::Turn | Kind::Session => Some("state/github-session"),
             Kind::Cycle => Some("state/github-cycle"),
             Kind::Review => None,
         }
@@ -1000,10 +1001,10 @@ mod tests {
     }
 
     #[test]
-    fn a_cycle_reads_its_narrowed_token_never_the_apps() {
+    fn a_container_reads_a_narrowed_token_never_the_apps() {
         assert_eq!(Kind::Cycle.app_dir(), Some("state/github-cycle"));
-        assert_eq!(Kind::Turn.app_dir(), Some("state/github"));
-        assert_eq!(Kind::Session.app_dir(), Some("state/github"));
+        assert_eq!(Kind::Turn.app_dir(), Some("state/github-session"));
+        assert_eq!(Kind::Session.app_dir(), Some("state/github-session"));
         assert_eq!(Kind::Review.app_dir(), None);
     }
 

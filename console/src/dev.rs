@@ -414,6 +414,13 @@ fn token() -> Result<(), u8> {
         eprintln!("tehas dev: no GitHub token for the app");
     })?;
     env::set_var("GH_TOKEN", token);
+    // What the container is given instead: the narrowed one, which reads
+    // issues. This command keeps the app's own for what it writes itself.
+    env::remove_var(sandbox::CYCLE_TOKEN);
+    let narrowed = github::session_token_env().inspect_err(|_| {
+        eprintln!("tehas dev: no narrowed GitHub token for the app");
+    })?;
+    env::set_var(sandbox::CYCLE_TOKEN, narrowed);
     Ok(())
 }
 
@@ -665,7 +672,9 @@ fn session(given: &Words, taken: &Taken) -> u8 {
         image: &image,
         pi: &given.pi,
     };
-    let status = Command::new("docker").args(line.words()).status();
+    let status = sandbox::give_cycle_token(&mut Command::new("docker"))
+        .args(line.words())
+        .status();
     let rc = status.map_or(127, |s| {
         s.code().unwrap_or_else(|| 128 + s.signal().unwrap_or(0))
     });

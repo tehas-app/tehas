@@ -191,7 +191,7 @@ T_ENV=(SUDO_USER=alice "TEHAS_CGROUP_ROOT=$T_CGROUP")
 t_run "$entry 'Alice Example <alice@example.com>' --"
 t_eq "$t_rc" 0
 t_eq "$(cat "$T/calls/env.pwd")" "$T/home"
-t_eq "$(cat "$T/calls/docker.token")" ghs_app
+t_eq "$(cat "$T/calls/docker.token")" ghs_session
 t_eq "$(cat "$T/calls/docker.other")" unset
 t_lacks "$(session_args)" ghs_app
 rm -f "$T/tree/env.sh"

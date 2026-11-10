@@ -7,8 +7,9 @@
 //! has less. --check says when the token runs out and whether it reaches
 //! TEHAS_REPO, and never prints the token. --cycle is the cycle's token
 //! (#1814): made from the same app, narrowed to TEHAS_REPO alone with
-//! Contents, Pull requests and Issues write, kept in state/github-cycle. A
-//! cycle's container is given that directory, never the app's own. `tehasbot github-token` is what
+//! Contents and Pull requests write and Issues read, kept in state/github-cycle.
+//! A planning turn and a dev session are given the same body in
+//! state/github-session. A container is given one of those, never the app's own. `tehasbot github-token` is what
 //! the gh shim, the poll and `tehas-cycle renew` ask: `console run` loads the
 //! settings and comes here.
 //!
@@ -414,7 +415,7 @@ fn wait_for(lock: &File, wait: Duration) -> bool {
 }
 
 /// The body that narrows a cycle's token: the product repository alone, and
-/// what a cycle writes. None when TEHAS_REPO is not `<owner>/<name>`.
+/// what a cycle writes. It reads issues and never writes them or their labels. None when TEHAS_REPO is not `<owner>/<name>`.
 fn narrowed(repo: &str) -> Option<String> {
     let (owner, name) = repo.split_once('/')?;
     let word = |w: &str| {
@@ -424,7 +425,7 @@ fn narrowed(repo: &str) -> Option<String> {
     };
     (word(owner) && word(name)).then(|| {
         format!(
-            r#"{{"repositories":["{name}"],"permissions":{{"contents":"write","pull_requests":"write","issues":"write"}}}}"#
+            r#"{{"repositories":["{name}"],"permissions":{{"contents":"write","pull_requests":"write","issues":"read"}}}}"#
         )
     })
 }
@@ -589,6 +590,28 @@ pub fn token_env() -> Result<String, u8> {
         &kept_in(false),
         &repo,
         None,
+    )
+    .ok_or(1)
+}
+
+/// The narrowed token of a planning turn's or a dev session's container, kept
+/// in state/github-session: the product repository, Contents and Pull
+/// requests write, Issues read. The command keeps the app's own token (see
+/// `token_env`) for what it writes to the tracker itself.
+pub fn session_token_env() -> Result<String, u8> {
+    settings::require(&NEEDS)?;
+    let repo = env::var("TEHAS_REPO").unwrap_or_default();
+    let Some(body) = narrowed(&repo) else {
+        eprintln!("tehas: TEHAS_REPO ({repo}) is not <owner>/<name>");
+        return Err(78);
+    };
+    let home = PathBuf::from(env::var_os("TEHAS_HOME").unwrap_or_default());
+    token(
+        &App::loaded(),
+        &home.join("state/github-session"),
+        &kept_in(false),
+        &repo,
+        Some(&body),
     )
     .ok_or(1)
 }
@@ -839,7 +862,7 @@ mod tests {
         assert_eq!(body["repositories"], serde_json::json!(["widget"]));
         assert_eq!(
             body["permissions"],
-            serde_json::json!({"contents": "write", "pull_requests": "write", "issues": "write"})
+            serde_json::json!({"contents": "write", "pull_requests": "write", "issues": "read"})
         );
         for bad in [
             "widget",
@@ -851,6 +874,15 @@ mod tests {
         ] {
             assert_eq!(narrowed(bad), None, "{bad}");
         }
+    }
+
+    #[test]
+    fn a_cycles_token_leaves_issues_and_their_labels_alone() {
+        let body = narrowed("acme/widget").unwrap();
+        assert_eq!(
+            body,
+            r#"{"repositories":["widget"],"permissions":{"contents":"write","pull_requests":"write","issues":"read"}}"#
+        );
     }
 
     #[test]

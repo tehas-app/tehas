@@ -52,6 +52,7 @@ t_stub docker 'if [ "$1" = info ]; then cat "$T/docker.info"; exit; fi
 # tehas plan and tehas work ask the image what it supports.
 case " $* " in *" --capabilities "*) cat "$T/caps.json" 2>/dev/null; exit ;; esac
 printf "%s\n" "$@" >"$T/calls/docker.args.$$"
+printf "%s\n" "${GH_TOKEN:-}" >"$T/calls/docker.token.$$"
 case " $* " in
   *" stop "*) : >"$T/calls/stopped" ;;
   *" /opt/pi-rukas/bin/pi-rukas-headless plan "*)
@@ -283,8 +284,12 @@ $state/sessions:/home/vscode/.pi/agent/sessions
 $T/home/.pi/agent/mcp.json:/home/vscode/.pi/agent/mcp.json:ro
 $state/models.json:/home/vscode/.pi/agent/models.json:ro
 $T/home/.pi/agent/settings.json:/home/vscode/.pi/agent/settings.json:ro
-$T/home/tehas/state/github:/run/tehas/github:ro"
+$T/home/tehas/state/github-session:/run/tehas/github:ro"
 t_eq "$(after -v | LC_ALL=C sort)" "$(printf '%s\n' "$want" | LC_ALL=C sort)"
+
+t_case "the turn's container is given the narrowed token, never the app's"
+tok=$(grep -l -x -e /opt/pi-rukas/bin/pi-rukas-headless "$T"/calls/docker.args.* | head -n 1 | sed 's/args/token/')
+t_eq "$(cat "$tok")" "ghs_session"
 
 t_case "the turn is given its own cache, memory and sessions, and no shared one"
 t_lacks "$(after -v)" "pi-ensemble"
@@ -390,7 +395,7 @@ without_cycle_only() {
 }
 t_case "docker is given what tehas work gives a cycle's container: only the name, the two directories of its own, the cycle's cid file, the cycle's own five inputs and what is run differ"
 turn_args | options |
-  sed -e "s|^$tree:|$ws-7:|" -e 's|/ensemble-runs/plan-7:|/ensemble-runs/issue-7:|' -e 's|widget-plan-7\.state|widget-7.state|' -e 's|/state/github:/run/tehas/github|/state/github-cycle:/run/tehas/github|' >"$T/plan.options"
+  sed -e "s|^$tree:|$ws-7:|" -e 's|/ensemble-runs/plan-7:|/ensemble-runs/issue-7:|' -e 's|widget-plan-7\.state|widget-7.state|' -e 's|/state/github-session:/run/tehas/github|/state/github-cycle:/run/tehas/github|' >"$T/plan.options"
 rm -f "$T"/calls/*
 # What the image says it supports: every input the container is given.
 jq -n '{contracts: {exitCodes: {version: 1}, resultSchema: {version: 5}, ndjson: {stable: {version: 1}}},
@@ -795,7 +800,7 @@ done
 
 t_case "no token to be had starts no container"
 reset
-rm -rf "$T/home/tehas/state/github" "$T/home/tehas/state/github-cycle"
+rm -rf "$T/home/tehas/state/github" "$T/home/tehas/state/github-cycle" "$T/home/tehas/state/github-session"
 T_ENV=("TEHAS_CGROUP_ROOT=$T_CGROUP" "TEHAS_GITHUB_APP_KEY=$T/no-such-key.pem")
 t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
 t_eq "$t_rc" 1
