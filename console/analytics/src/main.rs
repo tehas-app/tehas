@@ -8,8 +8,8 @@
 //!     steps and its roles, from the facts its caller wrote to <file> (the
 //!     history line, the attempt, the approval, the settings and the image's
 //!     commit) and what the cycle left on the host (run.rs lists both). Call
-//!     it after libexec/cycle wrote the history line. The other options are
-//!     what libexec/cycle read and removed before that: the
+//!     it after tehas-cycle wrote the history line. The other options are
+//!     what tehas-cycle read and removed before that: the
 //!     image the container started from (sha256:<64 hex>), the pi-rukas
 //!     commit of its label (7 to 40 hex), and how many processes were killed
 //!     for memory and how many forks were refused. A value of another shape

@@ -1,4 +1,4 @@
-//! The lines the dashboard's status is read from, for libexec/work.
+//! The lines the dashboard's status is read from, for tehas-cycle work.
 //!
 //! The watch loop of `tehas work` wants the cycle's current step and the
 //! driver's last notice every ten seconds. Reading them from the log is seven

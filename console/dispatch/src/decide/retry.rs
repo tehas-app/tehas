@@ -1,6 +1,6 @@
 //! Rules 4, 4a and 4b: a cycle started by a retry ticked in a park's
 //! question, by the one retry a provider outage is owed, and by a refresh
-//! request. Each takes the room rules 2 and 3 left, as libexec/dispatch does.
+//! request. Each takes the room rules 2 and 3 left, as the bash dispatcher did.
 
 use super::clean::iso;
 use super::{fixer_base, has, label_actor, or_unknown, Driver, End, Poll, Room, Start, Step, LEAN};

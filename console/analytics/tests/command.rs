@@ -147,7 +147,7 @@ impl Host {
     }
 
     // A cycle of issue 7 that ended an hour ago, its failure cause full of
-    // what must not be fetched, recorded as libexec/cycle records it.
+    // what must not be fetched, recorded as tehas-cycle records it.
     fn record_a_run(&self) -> i64 {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)

@@ -1,4 +1,4 @@
-//! The console as libexec/work runs it: started beside a cycle, stopped with
+//! The console as tehas-cycle work runs it: started beside a cycle, stopped with
 //! TERM when the cycle has ended.
 
 use std::fs;
@@ -379,7 +379,7 @@ fn the_mask_alone_is_standard_input_to_standard_output() {
     );
 }
 
-// libexec/work is tested with a stub for the console, and the console with
+// tehas-cycle work is tested with a stub for the console, and the console with
 // arguments written here: this holds the two to each other.
 #[test]
 fn work_calls_the_console_by_the_arguments_it_takes() {
