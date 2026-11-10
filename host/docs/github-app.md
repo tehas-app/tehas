@@ -161,7 +161,8 @@ ignored once `~/tehas/state/github/login` exists; take them out too.
   cycle's pull request and comments carry the app's `<slug>[bot]` login, so no
   user account is behind a cycle and none can be suspended. Without the
   narrowed token no cycle starts. A planning turn's and a manual session's container is given a token
-  of the same body, made when the command starts and kept in
+  of the same body, made when the command starts, renewed every 5 minutes
+  while the container runs (`tehasbot github-token --session`) and kept in
   `~/tehas/state/github-session`, read-only, never the key or the app's own
   token, and the image's own `gh` reads the token there at every call.
   Neither token can label an issue or comment on one: the issue writes of a

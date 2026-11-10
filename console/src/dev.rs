@@ -421,6 +421,8 @@ fn token() -> Result<(), u8> {
         eprintln!("tehas dev: no narrowed GitHub token for the app");
     })?;
     env::set_var(sandbox::CYCLE_TOKEN, narrowed);
+    // The container reads it from its directory for as long as it runs.
+    github::renew_session();
     Ok(())
 }
 
