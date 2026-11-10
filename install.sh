@@ -765,6 +765,7 @@ fi
 program_puts=()
 program_stamps=()
 gate_store=$TEHAS_HOME/libexec/store
+compiled=(console analytics tehas-mcp store attach tehas-dispatch tehas-cycle)
 # The compiled programs first, the console, analytics, the MCP server, the
 # store and the attachment checker, the members of the Cargo workspace in
 # console/: a build that fails must
@@ -789,9 +790,8 @@ if [ ! -d "$root/console" ] && [ -f "$root/VERSION" ]; then
     store_refusal="${store_refusal:+$store_refusal; }this release has no libexec/store and none is installed"
   fi
   [ ! -x "$root/libexec/store" ] || gate_store=$root/libexec/store
-  programs_console=$root/libexec/console
-  programs=$("$programs_console" update programs "$TEHAS_HOME" release "$root" console analytics tehas-mcp \
-    store attach tehas-dispatch tehas-cycle) ||
+  programs_console=${steps_console:-$root/libexec/console}
+  programs=$("$programs_console" update programs "$TEHAS_HOME" release "$root" "${compiled[@]}") ||
     { echo "tehas: $programs_console could not judge the programs of this release" >&2; exit 1; }
 else
   [ -d "$root/console" ] || { echo "tehas: $root/console is missing from this checkout" >&2; exit 1; }
@@ -800,8 +800,7 @@ else
   # program's source (console/src/update/sources.rs) and compares the stamps
   # (console/src/update/programs.rs).
   programs_console=${built_console:-${TEHAS_SETTINGS_CMD:-$TEHAS_HOME/libexec/console}}
-  programs=$("$programs_console" update programs "$TEHAS_HOME" build "$root/console" console analytics \
-    tehas-mcp store attach tehas-dispatch tehas-cycle) ||
+  programs=$("$programs_console" update programs "$TEHAS_HOME" build "$root/console" "${compiled[@]}") ||
     { echo "tehas: $programs_console could not read the programs' source in $root/console" >&2; exit 1; }
 fi
 due=()
