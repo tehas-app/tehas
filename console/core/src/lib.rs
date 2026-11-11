@@ -23,6 +23,7 @@ pub mod install;
 pub mod journal;
 pub mod jq;
 pub mod kinds;
+pub mod label_pins;
 pub mod limit;
 pub mod lock;
 #[cfg(feature = "mask")]
@@ -50,5 +51,6 @@ pub mod slow;
 pub mod snapshot;
 pub mod testdir;
 pub mod testing;
+pub mod text;
 pub mod textcheck;
 pub mod time;

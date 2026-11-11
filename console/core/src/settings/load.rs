@@ -13,14 +13,17 @@
 //!   Neither is TEHAS_REPO: a person triages findings before they are tickets.
 //!   TEHAS_REVIEW is the review loop's switch: 0, the default, and tehasbot
 //!   review exits at once and calls nothing.
-//! - TEHAS_GITHUB_APP_ID, TEHAS_GITHUB_APP_INSTALLATION and TEHAS_BOT_LOGIN name
-//!   the GitHub App the factory acts as (lib/github-app.sh), all three or none.
-//!   With none, it acts with GH_TOKEN from ~/.config/tehas/env.
-//! - TEHAS_MILLWRIGHT_LOGIN names the millwright: an account whose tehas:ready
-//!   and planning answers the dispatcher takes within a narrower grant than a
-//!   person's (console/dispatch/src/decide.rs). Unset means there is none. An App's
-//!   <slug>[bot] (REST) and <slug> (GraphQL) are one account, never the bot nor
-//!   an allowed labeller. A TEHAS_FIXER_* name stops the load.
+//! - TEHAS_GITHUB_APP_ID names the GitHub App the factory acts as, and is the
+//!   only setting that does; the load refuses without it. The app's login is
+//!   not a setting: state/github/login holds it, one line, `<slug>[bot]`, and
+//!   the load gives it to TEHAS_BOT_LOGIN and TEHAS_MILLWRIGHT_LOGIN, over any
+//!   value the instance holds. Without the file the load sets neither, and a
+//!   value the instance still holds stays as it is until the first mint
+//!   writes the file. An instance
+//!   that still sets TEHAS_GITHUB_APP_INSTALLATION, TEHAS_BOT_LOGIN or
+//!   TEHAS_MILLWRIGHT_LOGIN gets a warning for each; the login file wins.
+//!   GH_TOKEN in ~/.config/tehas/env, GH_CYCLE_TOKEN and TEHAS_CYCLE_LOGIN
+//!   stop the load. A TEHAS_FIXER_* name stops it too.
 //! - TEHAS_LOW_GATE names a command the dispatcher runs before it starts the
 //!   lowest issues. Unset is valid and means there is no gate. It is asked with
 //!   nothing of the poll's environment but PATH, and it may not name a file
@@ -168,6 +171,8 @@ pub trait Host {
     fn source(&mut self, file: &str, env: &Vars) -> Sourced;
     /// What nproc says, or 1.
     fn cpus(&mut self) -> i64;
+    /// One line for standard error, without its `tehas: `.
+    fn warn(&mut self, line: &str);
 }
 
 /// The exported variables after the source, and whether it ended well.
@@ -217,14 +222,8 @@ fn sweep(vars: &mut Vars) {
 /// read as text, not run: a hostile line needs a reader that does not execute
 /// it.
 fn scan(text: &[u8], file: &str) -> Result<(), String> {
-    let space = |b: &u8| matches!(*b, b' ' | b'\t' | 0x0b | 0x0c | b'\r');
-    let strip = |line: &[u8]| match line.iter().position(|b| !space(b)) {
-        Some(at) => line[at..].to_vec(),
-        None => Vec::new(),
-    };
     for line in text.split(|b| *b == b'\n') {
-        let line = strip(line);
-        let line = strip(line.strip_prefix(b"export ").unwrap_or(&line));
+        let line = bare_line(line);
         if line.starts_with(b"TEHAS_MODEL_KEY_") {
             return Err(format!(
                 "{file} sets a TEHAS_MODEL_KEY_ token: put it in ~/.config/tehas/env"
@@ -237,6 +236,24 @@ fn scan(text: &[u8], file: &str) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+/// A line without the blanks and the `export` before the name.
+fn bare_line(line: &[u8]) -> Vec<u8> {
+    let space = |b: &u8| matches!(*b, b' ' | b'\t' | 0x0b | 0x0c | b'\r');
+    let strip = |line: &[u8]| match line.iter().position(|b| !space(b)) {
+        Some(at) => line[at..].to_vec(),
+        None => Vec::new(),
+    };
+    let line = strip(line);
+    strip(line.strip_prefix(b"export ").unwrap_or(&line))
+}
+
+/// Whether a file's text has a line that sets `name`.
+fn assigns(text: &[u8], name: &str) -> bool {
+    let head = format!("{name}=");
+    text.split(|b| *b == b'\n')
+        .any(|line| bare_line(line).starts_with(head.as_bytes()))
 }
 
 /// What the file changed, so a name it left alone stays as it was: not this
@@ -313,6 +330,60 @@ fn role_models(vars: &mut Vars, file: &str) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+/// The reason each refused name of the old way to give the factory an account
+/// stops the load with: GH_TOKEN in the factory's credential file,
+/// GH_CYCLE_TOKEN and TEHAS_CYCLE_LOGIN.
+const NO_LONGER_USED: &str = "is no longer used: the factory acts as a GitHub App. Run tehas setup --new-app or give --app-id and --app-key-file.";
+
+/// The settings the app's login makes needless, ignored with a warning.
+const OBSOLETE: [&str; 3] = [
+    "TEHAS_GITHUB_APP_INSTALLATION",
+    "TEHAS_BOT_LOGIN",
+    "TEHAS_MILLWRIGHT_LOGIN",
+];
+
+/// Where the factory's own credentials are kept, besides the instance.
+fn credential_file(vars: &Vars) -> String {
+    format!("{}/.config/tehas/env", vars.text("HOME"))
+}
+
+/// A personal token or a cycle token as the factory's account is refused.
+/// GH_TOKEN counts only in the factory's credential file: other tools read it
+/// from the environment.
+fn tokens(vars: &Vars, host: &dyn Host, instance: &[u8]) -> Result<(), String> {
+    let creds = host.read(&credential_file(vars)).unwrap_or_default();
+    let named = [
+        ("GH_TOKEN", assigns(&creds, "GH_TOKEN")),
+        (
+            "GH_CYCLE_TOKEN",
+            assigns(&creds, "GH_CYCLE_TOKEN") || assigns(instance, "GH_CYCLE_TOKEN"),
+        ),
+        ("TEHAS_CYCLE_LOGIN", vars.is_set("TEHAS_CYCLE_LOGIN")),
+    ];
+    match named.iter().find(|(_, set)| *set) {
+        Some((name, _)) => Err(format!("{name} {NO_LONGER_USED}")),
+        None => Ok(()),
+    }
+}
+
+/// The login the app has, from state/github/login, replaces whatever the
+/// instance said of the bot and the millwright. Without the file the old
+/// lines stay as they are, each with its warning, and nothing new is set.
+fn app_login(vars: &mut Vars, host: &mut dyn Host, file: &str) {
+    for name in OBSOLETE {
+        if vars.is_set(name) {
+            host.warn(&format!(
+                "{name} is no longer used: the factory is named by TEHAS_GITHUB_APP_ID alone (see {file})"
+            ));
+        }
+    }
+    let path = format!("{}/state/github/login", vars.text("TEHAS_HOME"));
+    if let Some(login) = host.read(&path).as_deref().and_then(super::login_of) {
+        vars.set("TEHAS_BOT_LOGIN", login.clone());
+        vars.set("TEHAS_MILLWRIGHT_LOGIN", login);
+    }
 }
 
 fn retired_names(vars: &mut Vars, file: &str) -> Result<(), String> {
@@ -490,17 +561,9 @@ fn together(vars: &Vars, file: &str) -> Result<(), String> {
     let on = |name: &str| vars.text(name) == "1";
     let some = |name: &str| has(vars, name);
     workarounds(vars, file)?;
-    // A GitHub App is named by all three or not at all: an ID without the
-    // installation makes no token, and a token without the bot's login leaves
-    // the dispatcher no name to keep out of the labellers.
-    let app = [
-        "TEHAS_GITHUB_APP_ID",
-        "TEHAS_GITHUB_APP_INSTALLATION",
-        "TEHAS_BOT_LOGIN",
-    ];
-    if app.iter().any(|n| some(n)) && !app.iter().all(|n| some(n)) {
+    if !some("TEHAS_GITHUB_APP_ID") {
         return Err(format!(
-            "TEHAS_GITHUB_APP_ID, TEHAS_GITHUB_APP_INSTALLATION and TEHAS_BOT_LOGIN are set together or not at all (see {file})"
+            "TEHAS_GITHUB_APP_ID is not set: run tehas setup --new-app, or give --app-id and --app-key-file (see {file})"
         ));
     }
     if some("TEHAS_ANALYTICS_SRC") && !some("TEHAS_ANALYTICS_SITE") {
@@ -532,29 +595,6 @@ fn together(vars: &Vars, file: &str) -> Result<(), String> {
                 "the improvement loop files in {repo}, the product repository: a model writes its findings from what cycles saw, so they go to a repository of their own where a person triages them (see {file})"
             ));
         }
-    }
-    let millwright = vars.text("TEHAS_MILLWRIGHT_LOGIN");
-    let bare = |login: &str| login.strip_suffix("[bot]").unwrap_or(login).to_string();
-    let cycle = vars.text("TEHAS_CYCLE_LOGIN");
-    let authorising = format!(
-        " {} {} {} ",
-        vars.text("TEHAS_ALLOWED_LABELERS"),
-        bare(&vars.text("TEHAS_BOT_LOGIN")),
-        bare(&cycle)
-    );
-    if !millwright.is_empty() && authorising.contains(&format!(" {} ", bare(&millwright))) {
-        return Err(format!(
-            "TEHAS_MILLWRIGHT_LOGIN ({millwright}) is in TEHAS_ALLOWED_LABELERS or is TEHAS_BOT_LOGIN or TEHAS_CYCLE_LOGIN: the millwright is an account of its own and works within its own grant, never as the bot or a person (see {file})"
-        ));
-    }
-    // The cycle token's account is what a cycle acts as from inside its
-    // container: a label or answer of it is the factory's own, never a
-    // person's approval.
-    let labellers = format!(" {} ", vars.text("TEHAS_ALLOWED_LABELERS"));
-    if !cycle.is_empty() && labellers.contains(&format!(" {} ", bare(&cycle))) {
-        return Err(format!(
-            "TEHAS_CYCLE_LOGIN ({cycle}) is in TEHAS_ALLOWED_LABELERS: a cycle acts as that account from inside its container, so its label would approve its own work (see {file})"
-        ));
     }
     if on("TEHAS_WORK_DESCRIBE") && !on("TEHAS_WORK_IMAGES") {
         return Err(format!(
@@ -668,7 +708,9 @@ pub fn load(vars: &mut Vars, host: &mut dyn Host, uid: &str) -> Result<(), Strin
         return Err(format!("{file} could not be read as shell"));
     }
     role_models(vars, &file)?;
+    tokens(vars, host, &text)?;
     retired_names(vars, &file)?;
+    app_login(vars, host, &file);
     defaults(vars, host, uid);
     check_values(vars, &file)?;
     together(vars, &file)?;
@@ -771,9 +813,11 @@ pub fn script(start: &Vars, vars: &Vars) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::settings::login_of;
 
     const FILE: &str = "/i/instance.env";
-    const MINIMAL: [&str; 5] = [
+    const MINIMAL: [&str; 6] = [
+        "TEHAS_GITHUB_APP_ID=1",
         "TEHAS_REPO=acme/widget",
         "TEHAS_CONTROL_ISSUE=1",
         "TEHAS_ALLOWED_LABELERS=alice",
@@ -791,6 +835,9 @@ mod tests {
         cpus_asked: u32,
         ok: bool,
         ended: bool,
+        /// Files other than instance.env, by path.
+        files: BTreeMap<String, Vec<u8>>,
+        warned: Vec<String>,
     }
 
     impl Fake {
@@ -804,7 +851,14 @@ mod tests {
                 cpus_asked: 0,
                 ok: true,
                 ended: false,
+                files: BTreeMap::new(),
+                warned: Vec::new(),
             }
+        }
+        fn file(mut self, path: &str, text: &str) -> Fake {
+            self.files
+                .insert(path.to_string(), text.as_bytes().to_vec());
+            self
         }
         fn with(extra: &[&str]) -> Fake {
             Fake::new(&[&MINIMAL[..], extra].concat())
@@ -815,6 +869,9 @@ mod tests {
         fn read(&self, path: &str) -> Option<Vec<u8>> {
             if path.ends_with("instance-dir") {
                 return self.pointer.clone();
+            }
+            if path.ends_with("/env") || path.ends_with("/state/github/login") {
+                return self.files.get(path).cloned();
             }
             self.text.clone()
         }
@@ -838,6 +895,9 @@ mod tests {
         fn cpus(&mut self) -> i64 {
             self.cpus_asked += 1;
             self.cpus
+        }
+        fn warn(&mut self, line: &str) {
+            self.warned.push(line.to_string());
         }
     }
 
@@ -1059,6 +1119,7 @@ mod tests {
             fn cpus(&mut self) -> i64 {
                 1
             }
+            fn warn(&mut self, _: &str) {}
         }
         let mut vars = start(&[]);
         assert!(load(&mut vars, &mut NoSource, "1").is_err());
@@ -1241,10 +1302,6 @@ mod tests {
                 "TEHAS_RUKAS_WORKAROUNDS names TEHAS_RUKAS_WORKAROUNDS, which is not set",
             ),
             (
-                &["TEHAS_GITHUB_APP_ID=1"][..],
-                "TEHAS_GITHUB_APP_ID, TEHAS_GITHUB_APP_INSTALLATION and TEHAS_BOT_LOGIN are set together or not at all",
-            ),
-            (
                 &["TEHAS_ANALYTICS_SRC=https://a.example/x.js"][..],
                 "TEHAS_ANALYTICS_SITE is not set and TEHAS_ANALYTICS_SRC is",
             ),
@@ -1253,24 +1310,16 @@ mod tests {
                 "TEHAS_IMPROVE_REPO is not set and TEHAS_IMPROVE_RUKAS_REPO is",
             ),
             (
-                &["TEHAS_IMPROVE_REPO=a/b", "TEHAS_IMPROVE_RUKAS_REPO=a/c", "TEHAS_IMPROVE_RUKAS_SKIP=1"][..],
+                &[
+                    "TEHAS_IMPROVE_REPO=a/b",
+                    "TEHAS_IMPROVE_RUKAS_REPO=a/c",
+                    "TEHAS_IMPROVE_RUKAS_SKIP=1",
+                ][..],
                 "TEHAS_IMPROVE_RUKAS_SKIP is 1 and TEHAS_IMPROVE_RUKAS_REPO is set",
             ),
             (
                 &["TEHAS_REVIEW_REPO=Acme/Widget"][..],
                 "the improvement loop files in acme/widget, the product repository",
-            ),
-            (
-                &["TEHAS_MILLWRIGHT_LOGIN=alice[bot]"][..],
-                "TEHAS_MILLWRIGHT_LOGIN (alice[bot]) is in TEHAS_ALLOWED_LABELERS or is TEHAS_BOT_LOGIN",
-            ),
-            (
-                &["TEHAS_CYCLE_LOGIN=acme-cycle", "TEHAS_MILLWRIGHT_LOGIN=acme-cycle"][..],
-                "TEHAS_MILLWRIGHT_LOGIN (acme-cycle) is in TEHAS_ALLOWED_LABELERS or is TEHAS_BOT_LOGIN or TEHAS_CYCLE_LOGIN",
-            ),
-            (
-                &["TEHAS_CYCLE_LOGIN=alice"][..],
-                "TEHAS_CYCLE_LOGIN (alice) is in TEHAS_ALLOWED_LABELERS: a cycle acts as that account",
             ),
             (
                 &["TEHAS_WORK_DESCRIBE=1"][..],
@@ -1323,14 +1372,101 @@ mod tests {
         ]);
     }
 
+    const REFUSAL: &str = "is no longer used: the factory acts as a GitHub App. Run tehas setup --new-app or give --app-id and --app-key-file.";
+    const LOGIN: &str = "/h/tehas/state/github/login";
+
     #[test]
-    fn a_millwright_with_a_name_like_the_bots_is_its_own_account() {
-        loads(&[
-            "TEHAS_GITHUB_APP_ID=1",
+    fn obsolete_app_settings_warn_and_are_ignored() {
+        let mut host = Fake::with(&[
             "TEHAS_GITHUB_APP_INSTALLATION=2",
-            "TEHAS_BOT_LOGIN=acme-app[bot]",
-            "TEHAS_MILLWRIGHT_LOGIN=acme-app-mill[bot]",
-        ]);
+            "TEHAS_BOT_LOGIN=old[bot]",
+            "TEHAS_MILLWRIGHT_LOGIN=mw[bot]",
+        ])
+        .file(LOGIN, "new[bot]\n");
+        let (vars, got) = run(&mut host);
+        assert_eq!(got, Ok(()));
+        assert_eq!(host.warned.len(), 3, "{:?}", host.warned);
+        for (line, name) in host.warned.iter().zip(OBSOLETE) {
+            assert!(line.contains(name), "{line}");
+            assert!(line.contains("is no longer used"), "{line}");
+        }
+        assert_eq!(vars.text("TEHAS_BOT_LOGIN"), "new[bot]");
+        assert_eq!(vars.text("TEHAS_MILLWRIGHT_LOGIN"), "new[bot]");
+    }
+
+    #[test]
+    fn without_the_login_file_the_loader_sets_no_login() {
+        let mut host = Fake::with(&[]);
+        let (vars, got) = run(&mut host);
+        assert_eq!(got, Ok(()));
+        assert!(!vars.is_set("TEHAS_BOT_LOGIN"));
+        assert!(!vars.is_set("TEHAS_MILLWRIGHT_LOGIN"));
+        assert!(host.warned.is_empty());
+        let mut host = Fake::with(&[]).file(LOGIN, "\n");
+        let (vars, _) = run(&mut host);
+        assert!(!vars.is_set("TEHAS_BOT_LOGIN"));
+    }
+
+    #[test]
+    fn token_settings_are_refused() {
+        let file = |text: &str| Fake::with(&[]).file("/h/.config/tehas/env", text);
+        let got = run(&mut file("GH_TOKEN=ghp_x\n")).1.unwrap_err();
+        assert_eq!(got, format!("GH_TOKEN {REFUSAL}"));
+        let got = run(&mut file("export GH_TOKEN=ghp_x\n")).1.unwrap_err();
+        assert_eq!(got, format!("GH_TOKEN {REFUSAL}"));
+        let got = run(&mut file("GH_CYCLE_TOKEN=ghp_x\n")).1.unwrap_err();
+        assert_eq!(got, format!("GH_CYCLE_TOKEN {REFUSAL}"));
+        assert_eq!(
+            refused(&["GH_CYCLE_TOKEN=ghp_x"]),
+            format!("GH_CYCLE_TOKEN {REFUSAL}")
+        );
+        assert_eq!(
+            refused(&["TEHAS_CYCLE_LOGIN=acme-cycle"]),
+            format!("TEHAS_CYCLE_LOGIN {REFUSAL}")
+        );
+    }
+
+    #[test]
+    fn a_gh_token_outside_the_credential_file_is_not_the_factorys() {
+        let mut vars = start(&[("GH_TOKEN", "ghp_other")]);
+        let mut host = Fake::with(&[]);
+        assert_eq!(load(&mut vars, &mut host, "1000"), Ok(()));
+        run(&mut Fake::with(&[]).file(
+            "/h/.config/tehas/env",
+            "# GH_TOKEN=x\nTEHAS_MODEL_KEY_A=1\n",
+        ))
+        .1
+        .unwrap();
+    }
+
+    #[test]
+    fn app_id_is_required() {
+        let mut host = Fake::new(&MINIMAL[1..]);
+        let got = run(&mut host).1.unwrap_err();
+        assert!(
+            got.starts_with("TEHAS_GITHUB_APP_ID is not set: run tehas setup"),
+            "{got}"
+        );
+        assert!(got.ends_with(&format!("(see {FILE})")), "{got}");
+    }
+
+    #[test]
+    fn millwright_may_be_the_bot() {
+        let vars = Fake::with(&["TEHAS_ALLOWED_LABELERS=alice"]).file(LOGIN, "acme-app[bot]\n");
+        let (vars, got) = run(&mut { vars });
+        assert_eq!(got, Ok(()));
+        assert_eq!(
+            vars.text("TEHAS_BOT_LOGIN"),
+            vars.text("TEHAS_MILLWRIGHT_LOGIN")
+        );
+    }
+
+    #[test]
+    fn the_login_of_the_app_is_one_line_slug_and_bot() {
+        assert_eq!(login_of(b"acme[bot]\n"), Some("acme[bot]".to_string()));
+        for bad in ["", "\n", "acme", "[bot]", "a b[bot]"] {
+            assert_eq!(login_of(bad.as_bytes()), None, "{bad:?}");
+        }
     }
 
     #[test]

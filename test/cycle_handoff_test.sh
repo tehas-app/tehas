@@ -115,7 +115,7 @@ t_run "$cycle 7"
 t_eq "$t_rc" 0
 t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --remove-label tehas:running --add-label tehas:awaiting-merge"
 t_contains "$(t_calls gh)" "pr comment https://github.com/acme/widget/pull/9"
-t_contains "$(t_calls gh)" "pr list --repo acme/widget --head feature/x --author @me"
+t_contains "$(t_calls gh)" "pr list --repo acme/widget --head feature/x --author tehas-bot[bot]"
 t_contains "$(t_calls gh)" "No token usage was recorded for this cycle."
 
 # #33: only a pull request that waits for nothing but a merge is labelled so.

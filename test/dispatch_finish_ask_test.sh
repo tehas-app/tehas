@@ -19,7 +19,7 @@ echo "https://github.com/acme/widget/pull/90"'
 asked() { # <who>
   reset
   T_ENV+=(TEHAS_FINISH_CMD=fake-finish)
-  t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1 TEHAS_MILLWRIGHT_LOGIN=tehas-fixer
+  t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1
   rm -f "$fx/finish-refuses"
   echo '[]' >"$fx/ready.json"
   echo '{"number":7,"state":"open","labels":[{"name":"tehas:finish"}]}' >"$fx/work-7.json"
@@ -42,11 +42,11 @@ t_contains "$t_out" "finish #7: opened https://github.com/acme/widget/pull/90, a
 t_eq "$(t_calls fake-start)" ""
 
 t_case "the millwright asks within its grant"
-asked tehas-fixer
+asked tehas-bot
 t_run "$dispatch"
 t_eq "$t_rc" 0
 t_contains "$(t_calls fake-finish)" "finish 7 "
-t_contains "$t_out" "asked by tehas-fixer (millwright)"
+t_contains "$t_out" "asked by tehas-bot (millwright)"
 
 t_case "a refusal of tehas-cycle finish takes the label off and comments with its line"
 asked alice
@@ -59,7 +59,7 @@ t_contains "$(t_calls gh)" "finished nothing: no workspace is kept for it."
 t_contains "$t_out" "finish #7: refused, asked by alice (label): no workspace is kept for it"
 
 t_case "a rule not met takes the label off and runs nothing"
-asked tehas-fixer
+asked tehas-bot
 jq -n '{data: {repository: {issue: {lastEditedAt: null, editor: null, body: "Other words.", title: "Seven"}}}}' >"$fx/edit-7.json"
 t_run "$dispatch"
 t_eq "$t_rc" 0

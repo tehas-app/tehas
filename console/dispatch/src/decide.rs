@@ -385,29 +385,13 @@ impl<'a> Poll<'a> {
                 1,
             ));
         }
-        let bot = if !c.bot_login.is_empty() {
-            c.bot_login.clone()
-        } else {
-            let Some(user) = &s.user else {
-                return Err(self.fail("ERROR: gh api user failed", 1));
-            };
-            user.get("login")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_string()
-        };
+        let bot = c.bot_login.clone();
         if bot.is_empty() {
             return Err(self.fail("ERROR: the bot's own login could not be read", 1));
         }
-        if c.allowed(&bot) {
+        if c.allowed(&bot) || c.allowed(crate::settings::account(&bot)) {
             return Err(self.fail(
                 format!("ERROR: the bot account {bot} is in TEHAS_ALLOWED_LABELERS; the bot never authorises work"),
-                78,
-            ));
-        }
-        if c.is_millwright(&bot) {
-            return Err(self.fail(
-                format!("ERROR: the bot account {bot} is TEHAS_MILLWRIGHT_LOGIN; every agent posts as the bot, so the millwright must be an account of its own"),
                 78,
             ));
         }
@@ -2203,6 +2187,25 @@ impl<'a> Poll<'a> {
                 return Ok(false);
             }
         }
+        // A Retry ticked in the park's own question is the new approval the
+        // hold waits for, also once the question label is off (#1829). A read
+        // that failed proves no tick: the hold stays, untold.
+        match self.retry_ticked(n, &p) {
+            Some(Ok(by)) => {
+                self.log(format!(
+                    "lift #{n}: its last cycle parked on {cap} and the body has not changed since, lifted on the Retry {by} ticked"
+                ));
+                return Ok(false);
+            }
+            Some(Err(())) => {
+                self.log(format!(
+                    "hold #{n}: its last cycle parked on {cap} and the body has not changed since, and its park question could not be read"
+                ));
+                self.held_parked(n, &cap);
+                return Ok(true);
+            }
+            None => {}
+        }
         let told = !p.get("told_at").unwrap_or(&Value::Null).is_null();
         if !told && !self.dry {
             self.act(json!({
@@ -2215,6 +2218,43 @@ impl<'a> Poll<'a> {
         ));
         self.held_parked(n, &cap);
         Ok(true)
+    }
+
+    /// retry_ticked: who ticked a Retry box in the question on record of the
+    /// park `p`, when one tick of an allowed account did. None when the park
+    /// has no question or nothing in it counts; Some(Err) when its comments
+    /// could not be read.
+    fn retry_ticked(&self, n: u64, p: &Value) -> Option<Result<String, ()>> {
+        let qid = match p.get("question") {
+            Some(Value::String(s)) if !s.is_empty() => s.clone(),
+            Some(Value::Number(x)) => x.to_string(),
+            _ => return None,
+        };
+        let Some(comments) = self.s.issues.get(&n).and_then(|i| i.comments.as_ref()) else {
+            return Some(Err(()));
+        };
+        let Some(ans) = crate::questions::answer(
+            comments,
+            &self.bot,
+            &self.c.allowed,
+            &qid,
+            &self.c.millwright,
+        ) else {
+            return Some(Err(()));
+        };
+        if ans["asked"] != json!(true)
+            || ans["issue"] != json!(n)
+            || ans["kind"] != json!("park")
+            || ans["tick"]["status"] != json!("one")
+        {
+            return None;
+        }
+        ans["tick"]["index"]
+            .as_u64()
+            .and_then(|i| ans["labels"].get(usize::try_from(i).ok()?))
+            .and_then(Value::as_str)
+            .and_then(tehas_core::question::retry_of)?;
+        Some(Ok(ans["tick"]["by"].as_str().unwrap_or("").to_string()))
     }
 
     /// The park's hold of `n` goes into the poll's report, so status names

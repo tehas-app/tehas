@@ -152,8 +152,6 @@ pub struct Gate {
 pub struct Snapshot {
     /// nameWithOwner, None when `gh repo view` failed.
     pub repo: Option<String>,
-    /// `gh api user`'s answer, None when it failed.
-    pub user: Option<Value>,
     /// tehas pause's flag: None when there is none, Some(Null) when it is
     /// there and cannot be read.
     pub pause_flag: Option<Value>,
@@ -451,7 +449,6 @@ impl Snapshot {
         let control = v.get("control").cloned().unwrap_or(Value::Null);
         Snapshot {
             repo: v.get("repo").and_then(Value::as_str).map(str::to_string),
-            user: v.get("user").and_then(opt),
             pause_flag: match v.get("pause_flag") {
                 None | Some(Value::Null) => None,
                 Some(Value::String(t)) if t == "unreadable" => Some(Value::Null),

@@ -432,7 +432,8 @@ fn start(argv: &[&str], doc: &str, log: &str) -> Result<Child, i32> {
         })
     };
     let (out, err) = (open(doc)?, open(log)?);
-    Command::new(argv[0])
+    // The container takes GH_TOKEN by name: the narrowed token, never the app's.
+    tehas_core::sandbox::give_cycle_token(&mut Command::new(argv[0]))
         .args(&argv[1..])
         .stdin(Stdio::null())
         .stdout(out)

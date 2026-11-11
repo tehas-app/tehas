@@ -73,8 +73,8 @@ t_lacks "$(t_calls curl)" "drawing.svg"
 t_lacks "$(t_calls curl)" "example.com"
 
 t_case "the token goes to github.com on standard input, never on the command line"
-t_lacks "$(t_calls curl)" "test-token"
-t_contains "$(cat "$T/calls/curl-headers")" "$A/1111 Authorization: Bearer test-token"
+t_lacks "$(t_calls curl)" "ghs_app"
+t_contains "$(cat "$T/calls/curl-headers")" "$A/1111 Authorization: Bearer ghs_app"
 t_lacks "$(cat "$T/calls/curl-headers")" "githubusercontent"
 
 t_case "the issue is told how many images the cycle was given and what was left out"

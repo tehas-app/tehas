@@ -2,6 +2,7 @@
 //! cycle-stop-asked.
 
 use crate::cycle::END_REASONS;
+use crate::db;
 use crate::lock;
 use crate::verbs_tests::*;
 use serde_json::{json, Value};
@@ -264,14 +265,13 @@ fn a_start_over_an_unended_row_says_so_and_replaces_it() {
 }
 
 #[test]
-fn cycle_start_clears_the_previous_attempt_s_settings_notes_locks_results_and_progress() {
+fn cycle_start_clears_the_previous_attempt_s_settings_notes_results_and_progress() {
     let home = home("start-clears");
     let (_lock, a) = start(&home, 23);
     let c = conn(&home);
     c.execute_batch(
         "INSERT INTO cycle_settings VALUES (23, 'PI_ENSEMBLE_X', '1');
          INSERT INTO cycle_notes VALUES (23, 'quiet', 'x', 1);
-         INSERT INTO cycle_locks VALUES (23, 1, 1, 1);
          INSERT INTO cycle_results VALUES (23, 1, 1, '{}');
          INSERT INTO cycle_progress VALUES (23, 1, NULL, NULL, NULL, NULL, 1);",
     )
@@ -282,7 +282,6 @@ fn cycle_start_clears_the_previous_attempt_s_settings_notes_locks_results_and_pr
     for t in [
         "cycle_settings",
         "cycle_notes",
-        "cycle_locks",
         "cycle_results",
         "cycle_progress",
     ] {
@@ -1350,12 +1349,14 @@ fn cycle_show_reports_held_while_the_test_holds_the_lock() {
 }
 
 #[test]
-fn cycle_show_writes_no_cycle_locks_row() {
+fn cycle_show_writes_no_row_of_any_counted_table() {
     let home = home("show-writes");
     let (_l, _) = start(&home, 71);
+    let before: Vec<i64> = db::COUNTED_TABLES.iter().map(|t| count(&home, t)).collect();
     ok(&home, &["cycle-show", "71"]);
     ok(&home, &["cycle-show", "--running"]);
-    assert_eq!(count(&home, "cycle_locks"), 0);
+    let after: Vec<i64> = db::COUNTED_TABLES.iter().map(|t| count(&home, t)).collect();
+    assert_eq!(after, before, "cycle-show wrote a row");
 }
 
 #[test]

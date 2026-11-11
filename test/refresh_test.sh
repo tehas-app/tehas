@@ -22,7 +22,6 @@ base_c=$(printf 'c%.0s' {1..40})
 
 t_stub gh '
 case "$1 $2" in
-  "api user") [ ! -e "$T/fx/user-fails" ] || exit 1; echo '"'"'{"login":"tehas-bot"}'"'"' ;;
   "api graphql") [ ! -e "$T/fx/list-fails" ] || exit 1; cat "$T/fx/prs.json" ;;
   *) exit 1 ;;
 esac'
@@ -46,8 +45,12 @@ prs() { printf '%s\n' "$@" | jq -s '{data: {repository: {pullRequests: {nodes: .
 reset() {
   rm -rf "$T"/calls/* "$T/home/tehas" "${fx:?}"/*
   t_instance "${T_MINIMAL[@]}" TEHAS_REFRESH_CONFLICTS=1
+  t_ids "$T/home/tehas"
   prs
 }
+# written: the files a run left on the host, not the app's kept token and login
+# or the ids the case recorded.
+written() { find "$T/home/tehas" -type f ! -path '*/state/github*' ! -name account-ids 2>/dev/null | wc -l; }
 
 t_case "with the setting off it exits 0 and calls nothing"
 reset
@@ -56,7 +59,7 @@ prs "$(pr 50 7)"
 t_run "$refresh"
 t_eq "$t_rc" 0
 t_eq "$(t_calls gh)" ""
-t_eq "$(find "$T/home/tehas" -type f 2>/dev/null | wc -l)" 0
+t_eq "$(written)" 0
 
 t_case "a conflicting pull request gets a request, and the run says what it read"
 reset
@@ -157,7 +160,8 @@ echo '{}' >"$dir/notes.json"
 t_run "$refresh"
 t_eq "$(requests)" "notes.json"
 
-for what in user list; do
+what=list
+{
   t_case "a failed GitHub call ($what) writes nothing and exits 1"
   reset
   mkdir -p "$dir"
@@ -169,7 +173,7 @@ for what in user list; do
   t_eq "$(requests)" "7.json"
   t_eq "$(cat "$dir/7.json")" '{"pr":50}'
   t_contains "$t_out" "ERROR"
-done
+}
 
 t_case "an answer that is not a list writes nothing and exits 1"
 reset
@@ -276,12 +280,12 @@ t_eq "$(requests)" ""
 t_run "TEHAS_REPO=acme/widget $T_DISPATCH refresh"
 t_eq "$t_rc" 78
 t_eq "$(t_calls gh)" ""
-t_eq "$(find "$T/home/tehas" -type f 2>/dev/null | wc -l)" 0
+t_eq "$(written)" 0
 
-t_case "with a GitHub App the bot is TEHAS_BOT_LOGIN, and GraphQL's login without [bot] is the bot's"
+t_case "the bot is the login the app kept, and GraphQL's login without [bot] is the bot's"
 reset
-t_instance "${T_MINIMAL[@]}" TEHAS_REFRESH_CONFLICTS=1 TEHAS_GITHUB_APP_ID=5452597 TEHAS_GITHUB_APP_INSTALLATION=174742089 "TEHAS_BOT_LOGIN=tehas-app-bot[bot]"
-touch "$fx/user-fails"
+printf 'tehas-app-bot[bot]\n' >"$T/home/tehas/state/github/login"
+t_ids "$T/home/tehas" tehas-app-bot
 prs "$(pr 50 7 '.author.login = "tehas-app-bot"')" "$(pr 51 8 '.author.login = "someone"')"
 t_run "$refresh"
 t_eq "$t_rc" 0

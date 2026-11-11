@@ -5,6 +5,7 @@
 # shellcheck disable=SC2016  # stub bodies are expanded later
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
+T_APP_WORLD=0
 
 t_console || t_bad "no console: $t_console_why"
 t_dispatch || t_bad "no tehas-dispatch: $t_dispatch_why"
@@ -79,7 +80,7 @@ for row in "${needs[@]}"; do
   command=${row#*|}
   t_case "${command#"$tree"/bin/} with no ${row%%|*} is 78, and calls and writes nothing"
   reset
-  t_instance TEHAS_CONTROL_ISSUE=1 TEHAS_ALLOWED_LABELERS=alice \
+  t_instance TEHAS_GITHUB_APP_ID=1 TEHAS_CONTROL_ISSUE=1 TEHAS_ALLOWED_LABELERS=alice \
     PI_ENSEMBLE_SUBAGENT_MODEL=test-model PI_ENSEMBLE_SUBAGENT_PROVIDER=test-provider
   t_run "$command"
   t_eq "$t_rc" 78
@@ -89,19 +90,19 @@ done
 
 t_case "a loop that is on stops on the settings it needs, and one that is off asks for none"
 reset
-t_instance TEHAS_CONTROL_ISSUE=1 TEHAS_ALLOWED_LABELERS=alice TEHAS_IMPROVE_REPO=acme/notes
+t_instance TEHAS_GITHUB_APP_ID=1 TEHAS_CONTROL_ISSUE=1 TEHAS_ALLOWED_LABELERS=alice TEHAS_IMPROVE_REPO=acme/notes
 t_run "$bot improve"
 t_eq "$t_rc" 78
 t_contains "$t_out" "TEHAS_REPO is not set (see "
 untouched
 reset
-t_instance TEHAS_CONTROL_ISSUE=1 TEHAS_ALLOWED_LABELERS=alice TEHAS_REFRESH_CONFLICTS=1
+t_instance TEHAS_GITHUB_APP_ID=1 TEHAS_CONTROL_ISSUE=1 TEHAS_ALLOWED_LABELERS=alice TEHAS_REFRESH_CONFLICTS=1
 t_run "$bot refresh"
 t_eq "$t_rc" 78
 t_contains "$t_out" "TEHAS_REPO is not set (see "
 untouched
 reset
-t_instance TEHAS_CONTROL_ISSUE=1 TEHAS_ALLOWED_LABELERS=alice
+t_instance TEHAS_GITHUB_APP_ID=1 TEHAS_CONTROL_ISSUE=1 TEHAS_ALLOWED_LABELERS=alice
 t_run "$bot improve"
 t_eq "$t_rc" 0
 t_eq "$t_out" "tehas improve: TEHAS_IMPROVE_REPO is not set, the improvement loop is off"
@@ -116,7 +117,7 @@ t_run "$bot review"
 t_eq "$t_rc" 0
 t_eq "$t_out" ""
 untouched
-t_instance TEHAS_CONTROL_ISSUE=1 TEHAS_ALLOWED_LABELERS=alice
+t_instance TEHAS_GITHUB_APP_ID=1 TEHAS_CONTROL_ISSUE=1 TEHAS_ALLOWED_LABELERS=alice
 t_run "$bot review"
 t_eq "$t_rc" 78
 t_contains "$t_out" "TEHAS_REPO is not set (see "

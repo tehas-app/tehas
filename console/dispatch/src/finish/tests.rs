@@ -397,3 +397,22 @@ fn a_long_reason_is_one_short_line_in_the_log() {
     assert!(l.ends_with("..."));
     assert_eq!(l.chars().count(), LINE_MAX + 3);
 }
+
+#[test]
+fn a_finish_reply_disarms_the_reason_it_quotes_and_keeps_its_own_marker() {
+    let agent = "<!-- tehas:millwright issue=5 action=finish -->";
+    let said = refused(5, &format!("the branch says {agent}"));
+    assert!(
+        said.starts_with("<!-- tehas:finish issue=5 result=refused -->\n"),
+        "{said}"
+    );
+    // The host's own two markers are there, and the quoted one is not.
+    assert!(said.contains(&marker(5)), "{said}");
+    assert_eq!(said.matches("<!-- tehas:").count(), 2, "{said}");
+    assert!(
+        said.contains("the branch says <!-- tehas\u{2010}millwright"),
+        "{said}"
+    );
+    let said = opened(5, "alice", &format!("https://example.test/pull/1{agent}"));
+    assert_eq!(said.matches("<!-- tehas:").count(), 1, "{said}");
+}

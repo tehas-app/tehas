@@ -238,6 +238,15 @@ compute on the issue.
   permission per label: any account that can write to
   the repository can apply any label, so the list is enforced here, at the
   next poll, and not by GitHub.
+- The label must be the one the factory pinned. A label event names the
+  label by its current name, so a renamed label would carry its old
+  applications with it. The dispatcher keeps the GitHub id of each granting
+  label (`tehas:ready`, `tehas:plan`, `tehas:refine`, `tehas:finish`,
+  `tehas:urgent`, `tehas:next`, `tehas:lean`) in `~/tehas/state/labels`,
+  written by `tehas labels` when it makes the labels, and an application of a
+  label with another id, or of a granting label with no pin, counts as
+  nobody's. The poll logs each refusal with the
+  label's name and both ids. See [label pins](/github-app#label-pins).
 - An allowed account is its login and its GitHub user id, as `install.sh`
   and `tehas update` recorded them. A label from the login with another id,
   after the login changed hands, counts as nobody's; so do a tick, an answer
@@ -802,14 +811,17 @@ not a provider outage it starts no cycle, leaves the park and the labels as
 they are, and says so in the poll's log. Once per park it also posts one
 comment: edit the body, or tick a retry box. The tick is the
 park's own ask and is never held, so a retry on the same text starts as it
-did, and so does a start after any change to the body. A park of a provider
+did, and so does a start after any change to the body. A retry ticked by an
+allowed account also lifts the hold of a new `tehas:ready`, so taking
+`tehas:question` off by hand after the tick does not lose it; the log then
+says `lifted on the Retry <account> ticked`. A park of a provider
 outage is held by its own rule instead, and a park of a cycle started by hand,
 which no approval bound to a body, holds nothing. A park that cannot be read
 holds the issue for that poll.
 
 The millwright's own `tehas:ready` is the one label a park lets through without
 a change to the body, when its comment says the next run is not the run that
-stopped. The hold is lifted when the label came from `TEHAS_MILLWRIGHT_LOGIN`,
+stopped. The hold is lifted when the label came from the millwright,
 the instance gives a cycle images or files (`TEHAS_WORK_IMAGES=1` or
 `TEHAS_WORK_FILES=1`), and the note
 the record would take from that account is one carrying `<!-- tehas:millwright
@@ -1172,14 +1184,12 @@ turn fails before that, or is cut off by a restart of the host, there is no
 session to continue: the bot says so, the issue gets `needs-human-attention`,
 and you apply `tehas:plan` again.
 
-The bot (`TEHAS_BOT_LOGIN` with an app, otherwise the token's account) is never one of the allowed labellers. If it is listed in
+The bot (the app's login) is never one of the allowed labellers. If it is listed in
 `TEHAS_ALLOWED_LABELERS`, the dispatcher stops with an error rather than let
 the bot approve its own work: every poll reads its own login first, before it
 reads a label or changes one. The Protolab refuses the same list, with an error
 before it reads, builds or removes a page. A poll or a pass that cannot read
-its own login stops there and does nothing else. Without a GitHub App, the cycle token's account, `TEHAS_CYCLE_LOGIN`, is the factory's own in the
-same way: the settings load refuses it in `TEHAS_ALLOWED_LABELERS`, since a
-cycle acts as it from inside its container.
+its own login stops there and does nothing else. A cycle acts as the same login from inside its container, so there is no second account to refuse.
 
 
 ### The dispatcher in Rust
@@ -2062,17 +2072,18 @@ written as `how: "fixer"` still counts as the millwright's, and
 [`tehas api`](/api#tehas-api) still lists `fixer-grant` and `fixer` beside
 the new names.
 
-- **It is an account of its own**, named by `TEHAS_MILLWRIGHT_LOGIN`. It may
-  be a person's account or a GitHub App's. An App's login works in either
-  form, `tehas-millwright[bot]` or `tehas-millwright`: GitHub's REST API names
-  an App with `[bot]` and its GraphQL API without, so tehas takes the two as
-  one account, and no other. It is never the bot, because every agent posts
-  as the bot: loading the settings stops with 78 when it is
-  `TEHAS_BOT_LOGIN` in either form, and a poll stops with 78 when the bot's
-  own login is the millwright's. It is never one of `TEHAS_ALLOWED_LABELERS`:
-  loading the settings stops with 78. Unset, there is no millwright, and the
-  account's labels count as any outsider's. The approval record names an
-  App millwright without `[bot]`.
+- **It is the bot.** The millwright is the factory's GitHub App, the login in
+  `~/tehas/state/github/login`; it is not a setting. `tehasbot github-token
+  --check` prints it (`acting as <slug>[bot]`), and so does
+  `tehasbot github-token --login`. GitHub's REST API names an
+  App with `[bot]` and its GraphQL API without, so tehas takes the two as one
+  account, and no other. Because every agent posts as the bot, a `tehas:ready`
+  from the bot counts only within the grant below, and never as a person's
+  approval. It is never one of `TEHAS_ALLOWED_LABELERS`: loading the settings
+  stops with 78. Before the app's login is known there is no millwright, and
+  the account's labels count as any outsider's. `TEHAS_MILLWRIGHT_LOGIN` in
+  `instance.env` prints a warning and is ignored. The approval record names
+  the millwright without `[bot]`.
 - **Its `tehas:ready` starts a cycle only within its grant**: a person
   approved an earlier cycle of the issue, the body is still the body that
   person approved, nobody outside the list changed the title or text since,
@@ -2136,9 +2147,11 @@ the new names.
   turns in a row, so a person sees every second question at most. It may
   not tick `End this planning session`. Its reply starts with the line
   `<!-- tehas:millwright issue=<n> action=answer -->`, and the agent is told
-  the answer is the millwright's. Any other answer of the millwright's is an
-  outsider's: a tick is unticked and the bot says why, a reply is ignored
-  and the bot says why once. GitHub says who last saved a comment, not who
+  the answer is the millwright's. A comment of its account that does not
+  start with that line is no reply at all, and nothing is said of it: the
+  millwright is the bot, so the host's own notes are its comments too. A tick
+  that breaks a rule above is unticked and the bot says why; a marked reply
+  that breaks one is ignored and the bot says why once. GitHub says who last saved a comment, not who
   ticked a box, so a tick the millwright saved after another account edited the
   question is held: it is neither used nor unticked, and the bot asks a
   person, once, to tick again or reply. To overrule it, reply or tick before the next

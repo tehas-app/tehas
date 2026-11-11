@@ -208,7 +208,7 @@ real_platform() {
   t_console || t_bad "$t_console_why"
   # shellcheck disable=SC2154  # t_cycle_why is set by t_cycle (test/lib.sh)
   t_cycle || t_bad "no tehas-cycle: $t_cycle_why"
-  T_ENV_ALWAYS=(TEHAS_CONSOLE="$T_CONSOLE" CYCLE_BIN="$T_CYCLE")
+  T_ENV_ALWAYS=(TEHAS_CONSOLE="$T_CONSOLE" CYCLE_BIN="$T_CYCLE" GH_TOKEN=ghs_test)
   rm -rf "${T:?}/home" "$T/origin" "$T/upstream" "$T/calls"/*
   mkdir -p "$T/home"
   systemctl_active
@@ -293,7 +293,7 @@ t_eq "$(state)" "main $(head_sha) none"
 t_eq "$(t_calls install)" ""
 
 t_case "a required setting left commented out stops it before git and install.sh"
-t_instance TEHAS_REPO=acme/widget TEHAS_CONTROL_ISSUE=1 TEHAS_ALLOWED_LABELERS=alice
+t_instance TEHAS_GITHUB_APP_ID=1 TEHAS_REPO=acme/widget TEHAS_CONTROL_ISSUE=1 TEHAS_ALLOWED_LABELERS=alice
 platform 2
 before=$(state)
 t_run "$update"
@@ -337,17 +337,17 @@ t_contains "$t_out" "tehas update --check"
 t_case "no console stops it with 78, and one that does not answer with 1 and where to look"
 instance
 platform 0
-T_ENV_ALWAYS=(TEHAS_CONSOLE="$T/no-console")
+T_ENV_ALWAYS=(TEHAS_CONSOLE="$T/no-console" GH_TOKEN=ghs_test)
 t_run "$update"
 t_eq "$t_rc" 78
 t_contains "$t_out" "tehas update: no console at $T/no-console: run install.sh"
 t_stub broken-console 'exit 2'
-T_ENV_ALWAYS=(TEHAS_CONSOLE="$T/bin/broken-console")
+T_ENV_ALWAYS=(TEHAS_CONSOLE="$T/bin/broken-console" GH_TOKEN=ghs_test)
 t_run "$update"
 t_eq "$t_rc" 1
 t_contains "$t_out" "the console at $T/bin/broken-console does not answer (exit 2)"
 t_contains "$t_out" "troubleshooting"
-T_ENV_ALWAYS=(TEHAS_CONSOLE="$T_CONSOLE")
+T_ENV_ALWAYS=(TEHAS_CONSOLE="$T_CONSOLE" GH_TOKEN=ghs_test)
 t_eq "$(state | cut -d' ' -f2)" "$(head_sha)"
 t_eq "$(t_calls install)" ""
 
@@ -468,9 +468,9 @@ printf '%s\n' '#!/usr/bin/env bash' \
   "[ ! -e /proc/self/fd/7 ] || echo \"console \$1 \$2\" >>'$T/calls/held'" \
   "exec '$T_CONSOLE' \"\$@\"" >"$T/console.held"
 chmod +x "$T/console.held"
-T_ENV_ALWAYS=(TEHAS_CONSOLE="$T/console.held")
+T_ENV_ALWAYS=(TEHAS_CONSOLE="$T/console.held" GH_TOKEN=ghs_test)
 t_run "$update"
-T_ENV_ALWAYS=(TEHAS_CONSOLE="$T_CONSOLE")
+T_ENV_ALWAYS=(TEHAS_CONSOLE="$T_CONSOLE" GH_TOKEN=ghs_test)
 t_eq "$t_rc" 0
 t_eq "$(owed_steps)" ""
 t_eq "$(cat "$T/calls/held" 2>/dev/null)" ""
@@ -517,7 +517,7 @@ stand_in "$T/console.now" 'echo 1; exit 0' 'finished by the console before'
 stand_in "$T/console.next" 'echo 1; exit 0' 'finished by the console installed'
 platform 0 "$new_console
 echo 'next: units tehas-dispatch.timer'"
-T_ENV_ALWAYS=(TEHAS_CONSOLE="$T/console.now")
+T_ENV_ALWAYS=(TEHAS_CONSOLE="$T/console.now" GH_TOKEN=ghs_test)
 t_run "$update"
 t_eq "$t_rc" 0
 t_contains "$t_out" "finished by the console installed"
@@ -555,7 +555,7 @@ t_contains "$t_out" "neither $T/console.now nor $T/console.now.prev can finish t
 t_eq "$(owed_steps)" "sandbox"
 t_eq "$(t_calls build)" ""
 rm -f "$T/console.now" "$T/console.now.prev" "$T/console.next"
-T_ENV_ALWAYS=(TEHAS_CONSOLE="$T_CONSOLE")
+T_ENV_ALWAYS=(TEHAS_CONSOLE="$T_CONSOLE" GH_TOKEN=ghs_test)
 
 # The release before this one ran the console's verbs one by one from bash. A
 # host on it updates once with that script, so this console keeps every verb it
