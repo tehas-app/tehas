@@ -62,6 +62,7 @@ a pull request before it tags, with the head's `scripts/collect-changelog.sh`.
 - The narrowed token of a container has Contents and Pull requests write, Issues read and Metadata read. GitHub lets Pull requests write rename the repository's labels, so each granting `tehas:` label is pinned to its GitHub id in `state/labels`: `tehas labels` pins the labels it makes, a host from before the pins is pinned by its first poll, and after that the poll pins nothing. An application of a label with another id, or of a granting label with no pin, grants nothing and is logged.
 - Once the app's login is known (the first token minted after the update), the millwright is the app. A separate millwright account loses its rights from then on: its `tehas:ready` is taken off as an unauthorised label, and its marked comments carry no grant.
 - The manual's GitHub App page starts with `tehas setup --new-app`, and the pages on the host, the millwright and bootstrap describe one app for everything the factory does.
+- A Retry ticked in a park comment is no longer lost when `tehas:question` is taken off and `tehas:ready` applied by hand: the tick lifts the park's hold, and the issue starts on the next poll (#1829).
 
 ### Held back
 
