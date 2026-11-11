@@ -282,7 +282,7 @@ t_eq "$(jq -r '.PI_ENSEMBLE_WORKSPACE_ROOT' <<<"$f")" "[withheld]"
 # This command holds the issue's lock, so it counts itself.
 t_eq "$(jq -r '.concurrentCycles' <<<"$f")" 1
 t_lacks "$f" GH_TOKEN
-t_lacks "$f" test-token
+t_lacks "$f" ghs_app
 # The file it was handed in is gone.
 t_eq "$(find "$T/home/tehas/tmp" -name 'settings.*' 2>/dev/null | wc -l)" 0
 rm -f "$T/image.inspect"

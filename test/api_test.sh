@@ -5,6 +5,7 @@
 . "$(dirname "$0")/lib.sh" || exit 1
 
 api="$T_ROOT/bin/tehas api"
+T_APP_WORLD=0
 t_console || t_bad "$t_console_why"
 T_ENV_ALWAYS=(TEHAS_CONSOLE="$T_CONSOLE")
 t_stub gh
@@ -49,20 +50,22 @@ t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "state-load"
 t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "host-bridge"
 t_eq "$(t_calls gh)$(t_calls git)" ""
 
-t_case "api --json: the millwright and the old fixer field are its login when the instance has one"
+t_case "api --json: the millwright and the old fixer field are the app's login when the factory has one"
 reset
-t_instance "${T_MINIMAL[@]}" TEHAS_MILLWRIGHT_LOGIN=millbot
 installed v0.8.0+cb6912a
+mkdir -p "$T/home/tehas/state/github"
+echo 'millbot[bot]' >"$T/home/tehas/state/github/login"
 t_run "$api --json"
 t_eq "$t_rc" 0
-t_eq "$(jq -c '[.millwright, .fixer]' <<<"$t_out")" '["millbot","millbot"]'
+t_eq "$(jq -c '[.millwright, .fixer]' <<<"$t_out")" '["millbot[bot]","millbot[bot]"]'
 
 t_case "api without --json prints the millwright's login"
 reset
-t_instance "${T_MINIMAL[@]}" TEHAS_MILLWRIGHT_LOGIN=millbot
 installed v0.8.0+cb6912a
+mkdir -p "$T/home/tehas/state/github"
+echo 'millbot[bot]' >"$T/home/tehas/state/github/login"
 t_run "$api"
-t_contains "$t_out" "millwright  millbot"
+t_contains "$t_out" "millwright  millbot[bot]"
 t_lacks "$t_out" "fixer "
 
 t_case "api --json: a checkout without a tag has a commit and no release"

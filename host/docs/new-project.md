@@ -209,13 +209,10 @@ socket.
 
 ### 2. What setup asks for
 
-- The identity the factory acts as on GitHub. Make it [a GitHub App](/github-app),
-  one per factory: its tokens last an hour, reach only the repositories it is
-  installed on, and are renewed by tehas. `tehas setup` takes the app's ID,
-  its installation's ID and its private key. The other way is a token: a
-  machine user (a second account with a token) still works without the app,
-  but GitHub can suspend an account that automation drives hard; the
-  [bootstrap page](/bootstrap) has the token trap to avoid.
+- The identity the factory acts as on GitHub: [a GitHub App](/github-app),
+  one per factory. Its tokens last an hour, reach only the repositories it is
+  installed on, and are renewed by tehas. `tehas setup --new-app` makes it in
+  your browser; `--app-id` and `--app-key-file` take one you have.
 - The logins whose labels start work. Never the bot.
 - The model endpoint's address with its `/v1`, and its key if it takes one.
 
@@ -226,25 +223,28 @@ put the `env.sh` line in `~/.bashrc`, so the first run names the release:
 
 ```
 ~/tehas/current/bin/tehas setup --repo tehas-app/tehas --labellers "janit" \
-  --app-id 5452597 --app-installation 174742089 --app-key-file ~/app.pem \
-  --endpoint http://gb1:8086/v1
+  --new-app --endpoint http://gb1:8086/v1
 ```
 
-With a token in place of the app, `--token-file - <token.txt`. The token is
-read from a file or standard input, never from the command line. It asks for
-what it is not given when there is a terminal. In this order, and stopping at
-the first step that fails, it:
+`--new-app` prints one link. Paste it into your browser's address bar (or
+copy `~/.config/tehas/new-app.html` from the host to your machine and open
+it), check the permissions and create the app, then paste the address GitHub
+opens back at the prompt. Setup writes the app's key and ID, prints the
+install link and waits for the installation. With an app you have, give
+`--app-id <id> --app-key-file <key>` instead. It asks for what it is not given
+when there is a terminal. In this order, and stopping at the first step that
+fails, it:
 
-1. checks that the app's installation lists the repository and may write its
-   contents, issues and pull requests (or that the token can push to it), and
-   that the endpoint offers the model, and makes the control issue;
-2. writes `~/.config/tehas/instance.env` with the required settings only, and
-   with an app its three settings, `models.json`, the app's key in
-   `~/.config/tehas/github-app.pem` (or the token in `~/.config/tehas/env`),
-   and the model key in `~/.config/tehas/env`, mode 600;
-3. gives git gh's credential helper for github.com, unless git has one, and
-   gives it the bot's name and noreply address, unless it has one; with an app
-   the bot is `<slug>[bot]`;
+1. checks that the endpoint offers the model, makes the app with
+   `--new-app`, checks that the app is installed on the repository and may
+   write its contents, issues and pull requests, names any other repository
+   of the instance it does not reach, and makes the control issue;
+2. writes `~/.config/tehas/instance.env` with the required settings and
+   `TEHAS_GITHUB_APP_ID`, `models.json`, the app's key in
+   `~/.config/tehas/github-app.pem` and the model key in
+   `~/.config/tehas/env`, mode 600;
+3. gives git the bot's name and noreply address, unless it has one; the bot
+   is `<slug>[bot]`;
 4. clones the product to `~/tehas/repos/<name>`, or fast-forwards the checkout
    that is there;
 5. runs `install.sh` from the release, then `tehas labels`;

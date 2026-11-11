@@ -15,6 +15,7 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 use tehas_core::models;
 use tehas_core::sandbox::{self, Identity, Kind, Paths};
+use tehas_core::text::disarm;
 use tehas_core::{settings, time};
 
 const RUNNER: &str = "/opt/pi-rukas/bin/pi-rukas-headless";
@@ -104,6 +105,20 @@ fn refuse(line: impl AsRef<str>) -> u8 {
     78
 }
 
+/// The three comments below quote what an issue or a reply links, which a
+/// person wrote, so a marker in it is broken (text::disarm).
+fn no_session(why: &str, kinds: &str) -> String {
+    format!("Tehas started no planning session: {}. This instance gives a session the {kinds} an issue links, and a plan made without one of them may be the wrong plan. To retry, apply `tehas:plan`.", disarm(why))
+}
+
+fn left_out(left: &str) -> String {
+    format!("Tehas left out of your reply:\n{}", disarm(left))
+}
+
+fn no_turn(why: &str, kinds: &str) -> String {
+    format!("Tehas ran no planning turn: {}. This instance gives a session the {kinds} a reply links, and a plan made without one of them may be the wrong plan. Reply again to run the turn.", disarm(why))
+}
+
 /// A comment on the issue, its output dropped. A failure is said and changes
 /// nothing else.
 fn comment(issue: &str, body: &str) {
@@ -184,17 +199,19 @@ fn update_issue(w: &Words) -> u8 {
 /// tehas_github_env: an app's token goes in this environment, and from there by
 /// name to the container. It is never an argument.
 fn token() -> Result<(), u8> {
-    if !var("TEHAS_GITHUB_APP_ID").is_empty() {
-        let Some(token) = github::for_a_container() else {
-            eprintln!("tehas plan: no GitHub token for the app");
-            return Err(1);
-        };
-        env::set_var("GH_TOKEN", token);
-    }
-    if var("GH_TOKEN").is_empty() {
-        eprintln!("tehas plan: GH_TOKEN is not set (source ~/tehas/env.sh)");
-        return Err(64);
-    }
+    let token = github::token_env().inspect_err(|_| {
+        eprintln!("tehas plan: no GitHub token for the app");
+    })?;
+    env::set_var("GH_TOKEN", token);
+    // What the container is given instead: the narrowed one, which reads
+    // issues. This command keeps the app's own for what it writes itself.
+    env::remove_var(sandbox::CYCLE_TOKEN);
+    let narrowed = github::session_token_env().inspect_err(|_| {
+        eprintln!("tehas plan: no narrowed GitHub token for the app");
+    })?;
+    env::set_var(sandbox::CYCLE_TOKEN, narrowed);
+    // The container reads it from its directory for as long as it runs.
+    github::renew_session();
     Ok(())
 }
 
@@ -232,7 +249,7 @@ fn first_images(w: &Words, images: &str, kinds: &str) -> Result<(), u8> {
     if let Err(why) = got {
         let _ = fs::remove_dir_all(images);
         eprintln!("tehas plan: {why}, not starting a turn");
-        comment(&w.issue, &format!("Tehas started no planning session: {why}. This instance gives a session the {kinds} an issue links, and a plan made without one of them may be the wrong plan. To retry, apply `tehas:plan`."));
+        comment(&w.issue, &no_session(&why, kinds));
         return Err(4);
     }
     if var("TEHAS_WORK_DESCRIBE") == "1"
@@ -256,13 +273,13 @@ fn reply_images(w: &Words, images: &str, kinds: &str) -> Result<String, u8> {
     match attach::answer_images(images, &w.answer, &w.comment) {
         Ok((new, left)) => {
             if !left.is_empty() {
-                comment(&w.issue, &format!("Tehas left out of your reply:\n{left}"));
+                comment(&w.issue, &left_out(&left));
             }
             Ok(new)
         }
         Err(why) => {
             eprintln!("tehas plan: {why}, not starting a turn");
-            comment(&w.issue, &format!("Tehas ran no planning turn: {why}. This instance gives a session the {kinds} a reply links, and a plan made without one of them may be the wrong plan. Reply again to run the turn."));
+            comment(&w.issue, &no_turn(&why, kinds));
             Err(4)
         }
     }
@@ -584,6 +601,21 @@ fn turn_of(libexec: &str, w: &Words) -> Result<u8, u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tehas_core::text::has_marker;
+
+    #[test]
+    fn the_planning_comments_disarm_the_text_they_quote() {
+        let agent = "<!-- tehas:millwright issue=5 action=retry -->";
+        let quoted = format!("the link {agent} is gone");
+        for body in [
+            no_session(&quoted, "images"),
+            left_out(&quoted),
+            no_turn(&quoted, "images"),
+        ] {
+            assert!(!has_marker(&body), "{body}");
+            assert!(body.contains("is gone"), "{body}");
+        }
+    }
 
     fn given(words: &str) -> Vec<String> {
         words.split(' ').map(String::from).collect()

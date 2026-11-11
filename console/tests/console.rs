@@ -472,3 +472,63 @@ fn the_now_file_holds_the_step_and_the_notice_and_is_written_again_when_they_cha
     assert!(console.0.wait().unwrap().success());
     assert_eq!(fs::read_to_string(&now).unwrap(), "review\nthe handoff\n");
 }
+
+// Every Rust source of the workspace that is not test code.
+fn sources(dir: &std::path::Path, out: &mut Vec<PathBuf>) {
+    for entry in fs::read_dir(dir).unwrap().flatten() {
+        let path = entry.path();
+        let name = entry.file_name().to_string_lossy().to_string();
+        if path.is_dir() {
+            if !["target", "tests", "fixtures"].contains(&name.as_str()) {
+                sources(&path, out);
+            }
+        } else if name.ends_with(".rs") && !name.ends_with("_tests.rs") {
+            out.push(path);
+        }
+    }
+}
+
+// The file without its `#[cfg(test)] mod`.
+fn without_tests(text: &str) -> String {
+    let lines: Vec<&str> = text.lines().collect();
+    let cut = lines
+        .windows(2)
+        .position(|w| w[0].trim() == "#[cfg(test)]" && w[1].starts_with("mod "))
+        .unwrap_or(lines.len());
+    lines[..cut].join("\n")
+}
+
+#[test]
+fn every_host_command_uses_token_env() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let mut all = Vec::new();
+    sources(&root, &mut all);
+    assert!(all.len() > 50, "the sources were found: {}", all.len());
+    let owns = |rel: &str| {
+        rel == "src/github.rs"
+            || rel == "core/src/settings.rs"
+            || rel.starts_with("core/src/settings/")
+            || rel.starts_with("src/setup")
+    };
+    let mut found = Vec::new();
+    for path in all {
+        let rel = path
+            .strip_prefix(&root)
+            .unwrap()
+            .to_string_lossy()
+            .to_string();
+        if owns(&rel) {
+            continue;
+        }
+        let text = without_tests(&fs::read_to_string(&path).unwrap());
+        for needle in ["TEHAS_GITHUB_APP_ID", "\"api\", \"user\"", "api user"] {
+            if text.contains(needle) {
+                found.push(format!("{rel} names {needle}"));
+            }
+        }
+    }
+    assert!(
+        found.is_empty(),
+        "the app is github.rs's alone, and no one asks gh who the token is: {found:#?}"
+    );
+}

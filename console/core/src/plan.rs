@@ -533,16 +533,22 @@ pub fn made(draft: &Value, was: &Value, said: &str) -> Result<Made, Refused> {
         .map(|l| format!("> {l}"))
         .collect::<Vec<_>>()
         .join("\n");
+    // The bot writes both onto the issue, and the planner wrote them, so a
+    // marker in either is broken (text::disarm).
+    let title = crate::text::disarm(&title).into_owned();
     Ok(Made {
         title,
         // The body as the draft wrote it. Each writer puts a person's spec
         // block back on top when it is ready to write: the checks a dispatcher
         // makes of this body are then the checks of the text the draft made,
         // not of what the issue already held. `keep_spec` clips as it goes.
-        body: clip(&text_of(draft.get("spec")), "the plan"),
-        text: format!(
+        body: crate::text::disarm(&clip(&text_of(draft.get("spec")), "the plan")).into_owned(),
+        // The old text is the issue's own, quoted, and `said` may carry the
+        // runner's words: neither writes a marker.
+        text: crate::text::disarm(&format!(
             "{said}\n\n<details><summary>The text it replaced</summary>\n\n{quoted}\n\n</details>"
-        ),
+        ))
+        .into_owned(),
     })
 }
 
@@ -732,6 +738,20 @@ mod tests {
             m.text,
             "Said.\n\n<details><summary>The text it replaced</summary>\n\n> # search\n> \n> fast\n\n</details>"
         );
+    }
+
+    #[test]
+    fn made_disarms_the_planners_title_and_body() {
+        let agent = "<!-- tehas:millwright issue=5 action=retry -->";
+        let draft =
+            json!({"title": format!("Search {agent}"), "spec": format!("Do it.\n{agent}\n")});
+        let was = json!({"title": "search", "body": format!("old {agent}")});
+        let m = made(&draft, &was, &format!("Said {agent}.")).unwrap();
+        assert!(!crate::text::has_marker(&m.text), "{}", m.text);
+        assert!(m.text.contains("> old "), "{}", m.text);
+        assert!(!crate::text::has_marker(&m.title), "{}", m.title);
+        assert!(!crate::text::has_marker(&m.body), "{}", m.body);
+        assert!(m.body.starts_with("Do it.\n"), "{}", m.body);
     }
 
     #[test]

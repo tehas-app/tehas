@@ -14,8 +14,8 @@ if [ -r "$TEHAS_HOME/lib/paths.sh" ]; then
   . "$TEHAS_HOME/lib/paths.sh"
   tehas_tool_paths
 fi
-# Bot credentials (GH_TOKEN) and the model endpoints' tokens (TEHAS_MODEL_KEY_*,
-# named by models.json). File is chmod 600 and stays outside the tehas tree.
+# The model endpoints' tokens (TEHAS_MODEL_KEY_*, named by models.json). The
+# file is chmod 600 and stays outside the tehas tree.
 # shellcheck source=/dev/null
 if [ -r "$HOME/.config/tehas/env" ]; then set -a; . "$HOME/.config/tehas/env"; set +a; fi
 # Instance settings: the served repository, who may label, limits, the model
@@ -27,15 +27,15 @@ if [ -r "$TEHAS_HOME/lib/config.sh" ]; then
   . "$TEHAS_HOME/lib/config.sh"
   tehas_load || true
 fi
-# The GitHub App, when the instance names one: gh and git act as the app, and a
-# user token left in ~/.config/tehas/env is dropped so nothing acts with it.
-if [ -n "${TEHAS_GITHUB_APP_ID:-}" ] && [ -r "$TEHAS_HOME/lib/github-app.sh" ]; then
+# The GitHub App: gh and git act as the app, and a user token left in the
+# environment is dropped so nothing acts with it.
+if [ -r "$TEHAS_HOME/lib/github-app.sh" ]; then
   # shellcheck source=lib/github-app.sh
   . "$TEHAS_HOME/lib/github-app.sh"
   tehas_github_app_env
 fi
-# A read-only instance (TEHAS_READ_ONLY=1) sends every gh through the shim, with
-# an app or without one: the console behind it refuses each write (#608).
+# A read-only instance (TEHAS_READ_ONLY=1) sends every gh through the shim: the
+# console behind it refuses each write (#608).
 if [ "${TEHAS_READ_ONLY:-0}" = 1 ]; then
   case ":$PATH:" in *":$TEHAS_HOME/shim:"*) ;; *) export PATH="$TEHAS_HOME/shim:$PATH" ;; esac
 fi

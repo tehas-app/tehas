@@ -49,6 +49,10 @@ no-new-privileges:true
 @T@/home/.pi/agent/mcp.json:/home/vscode/.pi/agent/mcp.json:ro
 -v
 @T@/home/.pi/agent/settings.json:/home/vscode/.pi/agent/settings.json:ro
+-v
+@T@/home/tehas/state/github-cycle:/run/tehas/github:ro
+-v
+@T@/home/tehas/work/widget-7.state/relay:/run/tehas/relay
 -e
 GH_TOKEN
 -e

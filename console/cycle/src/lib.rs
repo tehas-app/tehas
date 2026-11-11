@@ -40,6 +40,7 @@ pub mod lock;
 pub mod pin;
 pub mod prepare;
 pub mod progress;
+pub mod relay;
 pub mod renew;
 pub mod report;
 pub mod runner;

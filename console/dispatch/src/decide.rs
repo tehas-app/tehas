@@ -389,29 +389,13 @@ impl<'a> Poll<'a> {
                 1,
             ));
         }
-        let bot = if !c.bot_login.is_empty() {
-            c.bot_login.clone()
-        } else {
-            let Some(user) = &s.user else {
-                return Err(self.fail("ERROR: gh api user failed", 1));
-            };
-            user.get("login")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_string()
-        };
+        let bot = c.bot_login.clone();
         if bot.is_empty() {
             return Err(self.fail("ERROR: the bot's own login could not be read", 1));
         }
-        if c.allowed(&bot) {
+        if c.allowed(&bot) || c.allowed(crate::settings::account(&bot)) {
             return Err(self.fail(
                 format!("ERROR: the bot account {bot} is in TEHAS_ALLOWED_LABELERS; the bot never authorises work"),
-                78,
-            ));
-        }
-        if c.is_millwright(&bot) {
-            return Err(self.fail(
-                format!("ERROR: the bot account {bot} is TEHAS_MILLWRIGHT_LOGIN; every agent posts as the bot, so the millwright must be an account of its own"),
                 78,
             ));
         }

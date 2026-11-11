@@ -118,6 +118,7 @@ t_case "the ledger keeps the last 500 lines of starts"
 size_case "$size_body"
 # What a host of long standing has: a ledger of 500 lines already written.
 mkdir -p "$(dirname "$sizes")"
+t_app_world
 for i in $(seq 1 500); do printf '{"at":"2026-01-01T00:00:00Z","issue":%d,"files":0,"tests":0,"deliverables":0,"done_when":0}\n' "$i" >>"$sizes"; done
 t_run "$work 7"
 t_eq "$t_rc" 2
@@ -212,7 +213,7 @@ broken=$T/tree-broken
 mkdir -p "$broken/libexec"
 ln -s "$T_ROOT/lib" "$broken/lib"
 t_verb "$broken/libexec/work" tehas work
-printf '%s\n' '#!/bin/sh' '[ "$1" != size ] || { echo "{oops}"; exit 1; }' '[ "$1" != slice ] || exec "$T/console-bin" "$@"' >"$broken/libexec/console"
+printf '%s\n' '#!/bin/sh' '[ "$1" != tehasbot ] || { echo ghs_stand_in; exit 0; }' '[ "$1" != size ] || { echo "{oops}"; exit 1; }' '[ "$1" != slice ] || exec "$T/console-bin" "$@"' >"$broken/libexec/console"
 chmod +x "$broken/libexec/console"
 cp "$tree/libexec/tehas-cycle" "$tree/libexec/tehas-cycle.real" "$broken/libexec/"
 # The console of this tree has to be the one asked, so no other is named.
@@ -636,22 +637,22 @@ caps_good
 # A start the fixer made rests on a person's approval: record_is <by> <body>
 # turned into the fixer's record of that start.
 fixer_record() { # <rests_on by>
-  record_edit --arg by "$1" '{at: "2026-10-15T00:00:00Z", by: "tehas-fixer", how: "fixer", body_sha256, links, fixer_starts: 1,
+  record_edit --arg by "$1" '{at: "2026-10-15T00:00:00Z", by: "tehas-bot", how: "fixer", body_sha256, links, fixer_starts: 1,
     rests_on: ({at, how, body_sha256} + {by: $by})}'
 }
 
 t_case "a start the fixer made on a person's approval takes the links that person approved"
-images_on TEHAS_MILLWRIGHT_LOGIN=tehas-fixer
+images_on
 net "$A/1111" "$png"
 issue_is "![a]($A/1111)" NONE
 record_is alice "![a]($A/1111)" "$A/1111"
 fixer_record alice
 t_run "$work 7"
 t_eq "$t_rc" 2
-t_eq "$(manifest '[(.images | length), .approval.how, .approval.by]')" '[1,"fixer","tehas-fixer"]'
+t_eq "$(manifest '[(.images | length), .approval.how, .approval.by]')" '[1,"fixer","tehas-bot"]'
 
 t_case "a fixer's record that rests on no allowed account takes no link"
-images_on TEHAS_MILLWRIGHT_LOGIN=tehas-fixer
+images_on
 net "$A/1111" "$png"
 issue_is "![a]($A/1111)" NONE
 record_is alice "![a]($A/1111)" "$A/1111"
@@ -660,40 +661,40 @@ t_run "$work 7"
 t_eq "$(manifest '.images | length')" 0
 
 t_case "the fixer's note reaches the retry without comments on, and nothing else of the record"
-images_on TEHAS_MILLWRIGHT_LOGIN=tehas-fixer
+images_on
 issue_is "Words." NONE
 record_is alice "Words."
 fixer_record alice
-record_edit '.retry_context = [{source: "fixer:81", by: "tehas-fixer", at: "2026-10-15T00:00:00Z", text: "Run the gate before review."},
+record_edit '.retry_context = [{source: "fixer:81", by: "tehas-bot", at: "2026-10-15T00:00:00Z", text: "Run the gate before review."},
   {source: "pr-comment:71", by: "alice", at: "2026-01-01T00:20:00Z", text: "not a retry tick"}]'
 t_run "$work 7"
 t_eq "$(manifest .comments.file)" '"comments.json"'
-t_eq "$(blob '.items')" '[{"at":"2026-10-15T00:00:00Z","by":"tehas-fixer","id":81,"source":"fixer","text":"Run the gate before review.","url":"https://github.com/acme/widget/issues/7#issuecomment-81"}]'
+t_eq "$(blob '.items')" '[{"at":"2026-10-15T00:00:00Z","by":"tehas-bot","id":81,"source":"fixer","text":"Run the gate before review.","url":"https://github.com/acme/widget/issues/7#issuecomment-81"}]'
 
 t_case "the note the dispatcher records, under the millwright's source, reaches a cycle given files alone"
 # The polls write millwright:<id>. A record of before the rename says fixer:<id>.
-images_on TEHAS_MILLWRIGHT_LOGIN=tehas-fixer TEHAS_WORK_IMAGES=0 TEHAS_WORK_FILES=1
+images_on TEHAS_WORK_IMAGES=0 TEHAS_WORK_FILES=1
 issue_is "Words." NONE
 record_is alice "Words."
 fixer_record alice
-record_edit '.retry_context = [{source: "millwright:81", by: "tehas-fixer", at: "2026-10-15T00:00:00Z", text: "Run only the named tests."}]'
+record_edit '.retry_context = [{source: "millwright:81", by: "tehas-bot", at: "2026-10-15T00:00:00Z", text: "Run only the named tests."}]'
 t_run "$work 7"
 t_eq "$(manifest .comments.file)" '"comments.json"'
-t_eq "$(blob '.items | map([.source, .id, .by, .text])')" '[["fixer",81,"tehas-fixer","Run only the named tests."]]'
+t_eq "$(blob '.items | map([.source, .id, .by, .text])')" '[["fixer",81,"tehas-bot","Run only the named tests."]]'
 
 # REST names an App <slug>[bot] and GraphQL <slug>: either form of the setting
 # takes the note of either form, and no other account's.
-for pair in 'acme-millwright acme-millwright[bot]' 'acme-millwright[bot] acme-millwright[bot]' 'acme-millwright[bot] acme-millwright'; do
-  t_case "an App millwright set as ${pair% *} has its note by ${pair#* } reach the retry"
-  images_on "TEHAS_MILLWRIGHT_LOGIN=${pair% *}"
+t_case "the app's own note reaches the retry, in either form of its login, and no other account's"
+for by in 'tehas-bot[bot]' 'tehas-bot'; do
+  images_on
   issue_is "Words." NONE
   record_is alice "Words."
   fixer_record alice
-  record_edit --arg by "${pair#* }" '.by = "acme-millwright" | .retry_context = [{source: "fixer:82", by: "acme-millwright2[bot]", at: "2026-10-15T00:00:00Z", text: "Not the millwright."},
+  record_edit --arg by "$by" '.by = "tehas-bot" | .retry_context = [{source: "fixer:82", by: "tehas-bot2[bot]", at: "2026-10-15T00:00:00Z", text: "Not the millwright."},
     {source: "fixer:81", by: $by, at: "2026-10-15T00:00:00Z", text: "Run the gate before review."}]'
   t_run "$work 7"
   t_eq "$(manifest .comments.file)" '"comments.json"'
-  t_eq "$(blob '.items | map([.id, .by])')" "[[81,\"${pair#* }\"]]"
+  t_eq "$(blob '.items | map([.id, .by])')" "[[81,\"$by\"]]"
 done
 
 t_case "a refresh's task reaches comments.json as tehas wrote it, and only a refresh's"

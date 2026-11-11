@@ -8,6 +8,14 @@
 //! own words go to standard error, and each call is its own: a label that
 //! cannot be made stops none of the others. gh is the one on `PATH`: a first
 //! install runs this before `$TEHAS_HOME/shim/gh` has a gh to call.
+//!
+//! Once the labels are made it pins each granting `tehas:` label to its
+//! GitHub id in `$TEHAS_HOME/state/labels` (tehas_core::label_pins), so every
+//! granting label has its pin before the dispatcher reads one, and a label
+//! renamed to a granting name later grants nothing. Once the file exists it
+//! pins only a label it made this run, and never changes a pin: a label with
+//! no pin that was already there, or one that is not the pinned one, is said,
+//! and the command fails.
 
 use std::env;
 use std::fs;
@@ -67,6 +75,59 @@ fn make(repo: &str, label: &Label) -> bool {
         .is_ok_and(|s| s.success())
 }
 
+/// The GitHub node id of the label `name`, None when gh could not read it.
+fn node_id(repo: &str, name: &str) -> Option<String> {
+    let out = Command::new("gh")
+        .args([
+            "api",
+            &format!("repos/{repo}/labels/{name}"),
+            "--jq",
+            ".node_id",
+        ])
+        .stderr(Stdio::inherit())
+        .output()
+        .ok()
+        .filter(|o| o.status.success())?;
+    let id = String::from_utf8(out.stdout).ok()?.trim().to_string();
+    (!id.is_empty() && !id.contains(char::is_whitespace)).then_some(id)
+}
+
+/// Each granting label's id as `id_of` asks GitHub for it: the `before`
+/// half of what `pin` judges, read before the labels are made.
+fn ids(id_of: &mut dyn FnMut(&str) -> Option<String>) -> Vec<Option<String>> {
+    tehas_core::label_pins::GRANTING
+        .iter()
+        .map(|n| id_of(n))
+        .collect()
+}
+
+/// Pins the granting labels: `before` from `ids` before the labels were made,
+/// and `id_of` asking GitHub for each one's id now.
+fn pin(
+    home: &Path,
+    before: Vec<Option<String>>,
+    id_of: &mut dyn FnMut(&str) -> Option<String>,
+) -> u8 {
+    let seen: Vec<tehas_core::label_pins::Seen> = tehas_core::label_pins::GRANTING
+        .iter()
+        .zip(before)
+        .map(|(n, before)| tehas_core::label_pins::Seen {
+            name: n,
+            before,
+            after: id_of(n),
+        })
+        .collect();
+    let (said, whole) = tehas_core::label_pins::pin_made(home, &seen);
+    for l in &said {
+        if l.starts_with("pinned ") {
+            tehas_core::outln!("{l}");
+        } else {
+            eprintln!("tehas labels: {l}");
+        }
+    }
+    u8::from(!whole)
+}
+
 fn run(labels: &[Label], made: &mut dyn FnMut(&Label) -> bool) -> u8 {
     let mut rc = 0;
     for label in labels {
@@ -101,7 +162,10 @@ pub fn main(given: &[String]) -> u8 {
         }
     };
     let repo = env::var("TEHAS_REPO").unwrap_or_default();
-    run(&labels, &mut |label| make(&repo, label))
+    let before = ids(&mut |name| node_id(&repo, name));
+    let made = run(&labels, &mut |label| make(&repo, label));
+    let pinned = pin(Path::new(&home), before, &mut |name| node_id(&repo, name));
+    made.max(pinned)
 }
 
 #[cfg(test)]
@@ -157,5 +221,28 @@ mod tests {
         assert_eq!(rc, 1);
         assert_eq!(asked, ["a", "b", "c"]);
         assert_eq!(run(&labels, &mut |_| true), 0);
+    }
+
+    #[test]
+    fn the_granting_labels_are_pinned_after_they_are_made() {
+        let d = tehas_core::testdir::TestDir::new("labels-pin");
+        let mut asked = Vec::new();
+        let none = vec![None; tehas_core::label_pins::GRANTING.len()];
+        let rc = pin(d.path(), none.clone(), &mut |n| {
+            asked.push(n.to_string());
+            Some(format!("LA_{}", n.trim_start_matches("tehas:")))
+        });
+        assert_eq!(rc, 0);
+        assert_eq!(asked.len(), tehas_core::label_pins::GRANTING.len());
+        let pins = tehas_core::label_pins::load(d.path());
+        assert_eq!(pins["tehas:ready"], "LA_ready");
+        assert_eq!(pins.len(), tehas_core::label_pins::GRANTING.len());
+        // A label gh cannot find fails the command and pins nothing for it.
+        let d = tehas_core::testdir::TestDir::new("labels-pin-missing");
+        let rc = pin(d.path(), none, &mut |n| {
+            (n != "tehas:plan").then(|| format!("LA_{n}"))
+        });
+        assert_eq!(rc, 1);
+        assert!(!tehas_core::label_pins::load(d.path()).contains_key("tehas:plan"));
     }
 }
