@@ -12,7 +12,7 @@ use serde_json::Value;
 use std::io::Write as _;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 /// The script the turn's unit runs, plan_launch's: the turn's lock held
 /// for its length, its exit status kept, and a poll asked for at its end.
@@ -330,7 +330,8 @@ impl Writer {
             return Then::End(1);
         }
         let host = self.host.name.clone();
-        let when = crate::decide::iso(now()).replacen('T', " ", 1)[..16].to_string();
+        let when = crate::decide::iso(tehas_core::time::now() as u64).replacen('T', " ", 1)[..16]
+            .to_string();
         let path = input.to_string_lossy().into_owned();
         let mut args: Vec<String>;
         if first {
@@ -484,11 +485,4 @@ impl Writer {
         }
         true
     }
-}
-
-fn now() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
 }

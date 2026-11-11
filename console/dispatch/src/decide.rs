@@ -25,11 +25,7 @@ pub(crate) use retry::{hex40, refresh_why};
 
 /// The time now as log() writes it.
 pub fn iso_now() -> String {
-    let secs = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
-    iso(secs)
+    iso(tehas_core::time::now() as u64)
 }
 
 /// The numbers every blocker comment of an issue names, for the snapshot to
