@@ -232,7 +232,7 @@ t_eq "$(git -C "$T/ws" status --porcelain)" ""
 t_case "without read-only a write goes to gh as before"
 stub_reset
 answer 1 "done" "" 0
-T_ENV=(TEHAS_GH_BIN="$T/bin/gh" TEHAS_READ_ONLY=0)
+T_ENV=(TEHAS_GH_BIN="$T/bin/gh" TEHAS_READ_ONLY=0 TEHAS_RELAY_DIR="$T/no-relay")
 t_run "$shim issue comment 7 --body hi"
 T_ENV=()
 t_eq "$(calls)" 1
