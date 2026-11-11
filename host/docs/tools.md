@@ -41,9 +41,14 @@ tehas help [command]             # this list, or the text of one command
 
 `tehas` is the one a person types. [`tehasbot`](#tehasbot) is what the timers
 and services run. Each of their commands is a verb of the console in
-`~/tehas/libexec`, or a script beside it, installed from `libexec/` in the
-platform repository; the two commands only choose one and run it, and exit
-with its status. `tehas status` and `tehas disk` need no settings. The verbs
+`~/tehas/libexec`, or a program beside it: `install.sh` installs three bash
+scripts from `libexec/` in the platform repository (`dev-login`, `setup` and
+`update`: `tehas setup` and `tehas update` run the last two, and the sudo rule
+of `bootstrap.sh dev` runs the first) and the Rust programs it builds (the
+console, analytics, the MCP server, the state store, the attachment checker,
+`tehas-dispatch` and `tehas-cycle`). The two commands only choose one and run
+it, and exit with its status. `tehas status` and `tehas disk` need no settings.
+The verbs
 that do, `tehas state`, `limit`, `pause`, `analytics`, `stop`, `init-product` and
 `tehasbot health`, `clean`, `preview`, `protolab`, `refresh` among them, run
 under `console run`, which checks the arguments, loads the settings, requires
@@ -3882,9 +3887,9 @@ starting cycles:
    newest two builds, whatever their age, taken one `docker rmi` at a time: the
    current build and the one before it stay, for a rollback, a `<date>-product`
    counted with its `<date>`, and so does any tag a container or a `uid` tag was
-   made from: `tehasbot work` runs cycles from those images, so one in use is
+   made from: a cycle runs from those images, so one in use is
    never old. The build keeps the same two itself
-   (see [the sandbox build](#the-sandbox-build)).
+   (see [Sandbox image](/host#sandbox-image)).
 5. **The pulled base image.** The image upstream publishes for the commit
    `versions.env` follows, which a sandbox build started from before the base
    was built on the host, removed by name
