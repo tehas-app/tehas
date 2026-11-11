@@ -100,9 +100,9 @@ t_eq "$(cmp -s "$T/bin/store" "$th/libexec/store" && echo same)" same
 # The store is run with what the release says it is: the tag, and the commit
 # from its COMMIT file, and then imports what an older tehas left, which it
 # judged before the copies.
-t_eq "$(t_calls store)" "import --dry-run
-init --version v9.9.9 --commit $T_COMMIT --instance instance --repo acme/widget
-import"
+t_eq "$(t_calls store)" "import --dry-run --say
+init --version v9.9.9 --commit $T_COMMIT --instance instance --repo acme/widget --say
+import --say"
 t_eq "$(cat "$th/libexec/console.stamp")" "release $(sha256sum <"$build/console" | cut -d' ' -f1)"
 t_eq "$(t_calls cargo)" ""
 t_eq "$(cat "$th/docs/version.txt")" v9.9.9
@@ -179,12 +179,12 @@ if [ "$(uname -m)" = x86_64 ]; then
   pack_tree --store "$build/store"
   fresh
   instance
-  T_ENV_ALWAYS=()
+  T_ENV_ALWAYS=(GH_TOKEN=ghs_test)
   t_run "'$tree/install.sh'"
   t_eq "$t_rc" 0
   t_contains "$t_out" "next: units tehas-dispatch.timer"
   t_eq "$(cat "$th/state/update-pending")" "$(next_steps)"
-  T_ENV_ALWAYS=(TEHAS_CONSOLE="$T_CONSOLE")
+  T_ENV_ALWAYS=(TEHAS_CONSOLE="$T_CONSOLE" GH_TOKEN=ghs_test)
 else
   t_skip "the pack here wants an x86_64 console"
 fi

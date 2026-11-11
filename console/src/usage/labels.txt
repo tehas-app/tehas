@@ -1,10 +1,14 @@
 Create the tehas labels in the product repository, or bring their colours
 and descriptions back to the table in lib/labels.tsv. A setup step: run once
-for a new product, and again when a release changes the table.
+for a new product, and again when a release changes the table. Then pin
+each granting label (tehas:ready, tehas:plan, ...) with no pin to its GitHub
+id in state/labels; a pin that is there is never changed.
 
-Usage: tehas labels          one line per label
+Usage: tehas labels          one line per label, one per label pinned
 
-Exit: 0 every label is there; 1 a label could not be made; 64 an argument,
+Exit: 0 every label is there and every granting label is pinned; 1 a label
+could not be made, or a granting label could not be pinned or is not the
+pinned one; 64 an argument,
 this command takes none; 78 the instance settings are missing or malformed.
 
 Instance settings (lib/config.sh): TEHAS_REPO, required. Nothing else, so it

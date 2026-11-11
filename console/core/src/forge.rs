@@ -5,7 +5,7 @@
 //! for those things themselves, each in its own shape, so the forge is welded
 //! in. This module is the first half of the seam: one trait that says what
 //! tehas wants to know, and one adapter that answers it from GitHub's labels
-//! the way `libexec/dispatch` does today. Nothing calls it
+//! the way tehas-dispatch does today. Nothing calls it
 //! yet; the next issues of #800 give bash a command for it.
 //!
 //! The terms are tehas's, not GitHub's: an issue's labels, the newest event of

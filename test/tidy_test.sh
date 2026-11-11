@@ -514,7 +514,7 @@ t_eq "$(edits | wc -l)" 2
 
 t_case "without the repository nothing is called, exit 78"
 reset
-t_instance TEHAS_CONTROL_ISSUE=1
+t_instance TEHAS_GITHUB_APP_ID=1 TEHAS_CONTROL_ISSUE=1
 t_run "$tidy"
 t_eq "$t_rc" 78
 t_contains "$t_out" "TEHAS_REPO is not set"
@@ -522,7 +522,7 @@ t_eq "$(t_calls gh)" ""
 
 t_case "without the control issue nothing is called, exit 78"
 reset
-t_instance TEHAS_REPO=acme/widget
+t_instance TEHAS_GITHUB_APP_ID=1 TEHAS_REPO=acme/widget
 t_run "$tidy"
 t_eq "$t_rc" 78
 t_contains "$t_out" "TEHAS_CONTROL_ISSUE is not set"
@@ -540,7 +540,7 @@ done
 
 t_case "an unknown argument is refused before the settings are read, exit 64"
 reset
-t_instance
+t_instance TEHAS_GITHUB_APP_ID=1
 t_run "$tidy --dryrun"
 t_eq "$t_rc" 64
 t_contains "$t_out" "tehas tidy: unknown argument: --dryrun"
@@ -550,7 +550,7 @@ t_eq "$t_rc" 64
 
 t_case "--help prints the usage and calls nothing"
 reset
-t_instance
+t_instance TEHAS_GITHUB_APP_ID=1
 t_run "$tidy --help"
 t_eq "$t_rc" 0
 t_contains "$t_out" "Usage:"

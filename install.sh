@@ -59,8 +59,8 @@
 # that holds it longer than the update lock's wait stops the run (exit 1,
 # nothing installed). Before the first copy the store judges the old files
 # (`store import --dry-run`): while one is there, a running cycle or planning
-# turn, or a file the import would hold, stops the run the same way. Each
-# state/plan-<n>.json.keep moves to $TEHAS_WORK_DIR-plan-<n>.keep.
+# turn, or a file the import would hold, stops the run the same way. A planning
+# session's kept directory moves from state/ to $TEHAS_WORK_DIR-plan-<n>.keep.
 #
 # It does not start the dispatcher or the docs server, rebuild the sandbox
 # image or write secrets. It reads the model endpoints' tokens from
@@ -458,6 +458,8 @@ fi
 # load, the settings an instance has to set, and models.json against the models
 # the agents and the product's session use. What the instance's own shell
 # prints while it is sourced counts too, as it did when this was tehas_load.
+# A warning of the load (a line that opens `tehas: warning: `, such as a
+# setting that is no longer used) is shown and is not a finding.
 instance_findings() {
   local console rc=0
   console=$(_tehas_settings_console)
@@ -473,8 +475,10 @@ instance_findings() {
 # judges the settings sees the same one.
 : "${TEHAS_HOME:=$HOME/tehas}"
 export TEHAS_HOME
+# tehas_load below writes the load's warnings again, so a run with no finding
+# shows them once, from there.
 findings=$(instance_findings)
-if [ -n "$findings" ]; then
+if [ -n "$(printf '%s\n' "$findings" | grep -v '^tehas: warning: ' || true)" ]; then
   if [ "$check" = 1 ]; then
     echo "Instance:     $(tehas_instance_dir) INVALID"
     printf '%s\n' "$findings" | sed 's/^/  /'
@@ -667,85 +671,41 @@ for f in "$root"/lib/polyfill-*.sh; do
 done
 shopt -u nullglob
 
-# What the instance's own sandbox file was at the last install, or nothing when
-# the host has never had one, or has one no install has seen yet. Read before the
-# record of follow-ups below, so a host that changed the file is not called
-# current and its build step is owed before any copy is made. A file that cannot
-# be read is said and stops the run: recording it as seen would owe the build
+# Whether this run owes the sandbox build, asked once before any copy is made
+# (console/src/update/sandbox.rs): the pins of versions.env the image reads, by
+# the host's copy against this checkout's, and the instance's own sandbox file
+# against what the last install saw. Asked before the record of follow-ups
+# below, so a host that changed either is not called current. A sandbox file
+# that cannot be read stops the run: recording it as seen would owe the build
 # once and then never again for a file nobody has read.
-sandbox_changed=0
 sandbox_drift=0
-sandboxunread=""
 sandbox_at_file=$TEHAS_HOME/state/sandbox.Dockerfile.sha256
-if [ -f "$instance/sandbox.Dockerfile" ]; then
-  if ! hash=$(sha256sum "$instance/sandbox.Dockerfile" 2>/dev/null); then
-    sandboxunread="$instance/sandbox.Dockerfile cannot be read (check its permissions)"
-  else
-    [ "${hash:0:64}" != "$(cat "$sandbox_at_file" 2>/dev/null)" ] && sandbox_changed=1
-  fi
-fi
+owed=$("$loaded_console" update sandbox "$TEHAS_HOME/versions.env" "$host/versions.env" \
+  "$instance/sandbox.Dockerfile" "$sandbox_at_file") ||
+  { echo "tehas: the console at $loaded_console could not tell whether the sandbox build is owed; nothing was installed" >&2; exit 1; }
+read -r versions_owed sandbox_changed sandbox_unread <<<"$owed"
 
 changed=()
 report=()
 
-# source_of <src>: the file of this checkout that a table entry names, in from.
-source_of() {
-  case "$1" in
-    /*) from=$1 ;;
-    bin/* | libexec/* | lib/*) from=$root/$1 ;;
-    *) from=$host/$1 ;;
-  esac
-}
-
-# put <entry>: install one file if its content or its mode differs.
-put() {
-  local src to mode from on_disk
-  IFS='|' read -r src to mode <<<"$1"
-  source_of "$src"
-  [ -f "$from" ] || { echo "tehas: $from is missing from this checkout" >&2; exit 1; }
-  if [ -f "$to" ] && cmp -s "$from" "$to"; then
-    # Content alone is not enough: a command that matches but is not executable,
-    # or a unit file that has picked up a wider mode, is not what this checkout
-    # installs. -L: a symlink is judged by the file it points at.
-    # A mode the list cannot name stops here, before it reaches chmod.
-    [[ $mode =~ ^[0-7]{3,4}$ ]] || { echo "tehas: the mode $mode for $src is not a number" >&2; exit 1; }
-    on_disk=$(stat -L -c %a "$to") || { echo "tehas: could not read $to" >&2; exit 1; }
-    # 0644 and 644 are the same mode written two ways.
-    on_disk=$((8#$on_disk))
-    if [ "$on_disk" = "$((8#$mode))" ]; then return 0; fi
-    changed+=("$src")
-    if [ "$check" = 1 ]; then
-      note "mode: $to is $(printf '%o' "$on_disk"), wants $mode"
-      return 0
-    fi
-    # The mode is owed, not the copy: chmod on the file in place, so no .new,
-    # no rename and no .prev beside a file whose content is already this one's.
-    chmod "$mode" "$to" || { echo "tehas: could not set mode $mode on $to" >&2; exit 1; }
-    echo "mode: $to -> $mode"
-    return 0
-  fi
-  changed+=("$src")
-  if [ "$check" = 1 ]; then
-    if [ -f "$to" ]; then note "differs: $to"; else note "missing: $to"; fi
-    return 0
-  fi
-  # Owed before it is copied, not after: a copy that fails halfway leaves behind
-  # a record of what the copies so far asked for. tehas update finishes the
-  # record and clears it; install.sh --check reports it while any of it is left.
-  record_step "$src"
-  [ -d "${to%/*}" ] || mkdir -p "${to%/*}"
-  [ -f "$to" ] && cp -p "$to" "$to.prev"
-  # Copied beside it and renamed over it, so a cycle that starts meanwhile finds
-  # the old file or the new one, never a part of one.
-  install -m "$mode" "$from" "$to.new" || { rm -f "$to.new"; echo "tehas: could not install $to" >&2; exit 1; }
-  mv -f "$to.new" "$to" || { rm -f "$to.new"; echo "tehas: could not install $to" >&2; exit 1; }
-  echo "installed: $to"
-}
-
-# write_file <path>: stdin into <path>, by the same rename.
-write_file() {
-  cat >"$1.new" || { rm -f "$1.new"; echo "tehas: could not write $1" >&2; exit 1; }
-  mv -f "$1.new" "$1" || { rm -f "$1.new"; echo "tehas: could not write $1" >&2; exit 1; }
+# copy_files [<option>...] <table: the copies, the compares and the sweeps,
+# made by the console (console/src/update/files.rs), which records each copy's
+# steps before it makes it. Its changed lines go into changed[], the others are
+# said. A failure has said why on stderr and stops the run.
+copy_files() {
+  local console=$steps_console out line rc=0 args=()
+  [ "$check" != 1 ] || { console=$loaded_console; args+=(--check); }
+  # versions.env calls for the build only for the lines the image reads (record_step).
+  [ "$versions_owed" = 1 ] || args+=(--no-steps versions.env)
+  out=$("$console" update files "${args[@]}" "$@" "$root" "$host") || rc=$?
+  while IFS= read -r line; do
+    case $line in
+      "") ;;
+      "changed "*) changed+=("${line#changed }") ;;
+      *) note "$line" ;;
+    esac
+  done <<<"$out"
+  [ "$rc" = 0 ] || exit 1
 }
 
 # The line that puts the tehas environment in every shell of the tehas user,
@@ -765,53 +725,6 @@ bashrc_ok() {
 # until both are done, so a run that stops partway still owes them.
 first_owed=$TEHAS_HOME/state/first-install
 
-# Do the lines the sandbox image reads differ between this checkout and the copy
-# the host holds? The build reads only the lines named SHELLCHECK_, JQ_,
-# PLAYWRIGHT_, CBM_, PI_RUKAS_, VIPUNE_ or OO_ (host/sandbox/build.sh,
-# host/sandbox/Dockerfile); the rest of versions.env is bootstrap.sh's, so a
-# change to one of those asks for nothing but the copy. 0 when equal, 1 otherwise.
-#
-# The host's copy is read before the copies begin and the answer kept, so the
-# record and the next: lines are made from one reading of the file the host held:
-# that file is what the image now on the host was built from, so a pin moved on
-# the host owes the build whether or not this run overwrites it, and a pin only
-# the checkout moves owes it because the copy this run makes hands the host pins
-# the image has never been built from. A host with no installed copy has never
-# had a build made from these pins, which is a change too. Read once, before any
-# copy: the reading after the copies would answer about the file this run writes
-# and say nothing about the one it replaced.
-versions_build_changed() {
-  local host_file current kept line
-  host_file=$TEHAS_HOME/versions.env
-  [ -f "$host_file" ] || { echo 1; return 0; }
-  current=$(grep -E '^(SHELLCHECK|JQ|PLAYWRIGHT|RUST|CBM|PI_RUKAS|VIPUNE|OO)_' "$host/versions.env") || current=""
-  # A file that names none of them cannot be compared with: the build reads what
-  # it reads, so the build is owed rather than assumed already done.
-  [ -n "$current" ] || { echo 1; return 0; }
-  kept=$(grep -E '^(SHELLCHECK|JQ|PLAYWRIGHT|RUST|CBM|PI_RUKAS|VIPUNE|OO)_' "$host_file") || kept=""
-  # A copy that holds none of them is a difference and not an agreement, for the
-  # same reason.
-  [ -n "$kept" ] || { echo 1; return 0; }
-  # One line among them is the change a person makes on a host: one pin moved,
-  # the rest as some checkout wrote it. Then that line alone is compared, read
-  # out of each file, so neither the other lines nor the order of the host's
-  # copy can change the answer. A release's pins are more than one line - the
-  # version and its checksum, a model with its revision and its hashes - so a
-  # whole block still reads as a whole block, position and all.
-  if [ "${kept//$'\n'}" = "$kept" ]; then
-    line=$kept
-    current=$(printf '%s\n' "$current" | grep -Fx "$line") || current=""
-  fi
-  [ "$kept" = "$current" ] && { echo 0; return 0; }
-  echo 1
-}
-# Whether this run owes the sandbox build because of versions.env: 1 when the
-# lines the image reads are not the ones the image the host holds was built
-# from. Read once, before any copy is made, so the record and the next: lines
-# below give one answer to one question.
-versions_owed=0
-if [ "$(versions_build_changed)" = 1 ]; then versions_owed=1; fi
-
 # The step this source calls for, added to the record of steps owed. One call per
 # copied file, so the record is never behind what the host has already been given.
 record_step() { # one source path from the file table
@@ -827,27 +740,11 @@ record_step() { # one source path from the file table
 
 # --- 2b. The command root installed for the other accounts ------------------
 # host/login/tehas reaches an account that is not the tehas user as
-# /usr/local/bin/tehas, installed by root. Reading the marker bootstrap.sh dev
-# leaves tells whether this host has that setup at all; the file beside it is
-# compared with this checkout's copy. Nothing here writes to either.
+# /usr/local/bin/tehas, installed by root. The console compares it with this
+# checkout's copy where bootstrap.sh dev left its marker, and names the command
+# that fixes a difference (console/src/update/host.rs). Nothing writes to either.
 login_bin=${BOOTSTRAP_BIN:-/usr/local/bin}/tehas
-login_manager=${BOOTSTRAP_ETC:-/etc}/tehas/manager
-login_fix=""
-if [ -r "$login_manager" ]; then
-  # The compare and the command it names are both files of this checkout. Said
-  # as a missing checkout, as put() says it: cmp answers 2 for a source that is
-  # not there, and that would read as a difference this host cannot fix.
-  for need in host/login/tehas bootstrap.sh; do
-    [ -f "$root/$need" ] || { echo "tehas: $root/$need is missing from this checkout" >&2; exit 1; }
-  done
-  IFS= read -r login_user <"$login_manager" || true
-  # The name goes into a printed command line, so only the shape bootstrap.sh dev
-  # accepts is used. Anything else is left for the person to fill in.
-  [[ $login_user =~ ^[a-z_][a-z0-9_-]*$ ]] || login_user=""
-  if [ ! -e "$login_bin" ] || ! cmp -s "$host/login/tehas" "$login_bin"; then
-    login_fix="sudo $root/bootstrap.sh dev ${login_user:-<tehas user>}"
-  fi
-fi
+login_fix=$("$loaded_console" update login "$root" "$login_bin" "${BOOTSTRAP_ETC:-/etc}/tehas/manager") || exit 1
 
 # --- 3. Install ---------------------------------------------------------------
 # The programs are built first and copied only after the old records are judged
@@ -856,6 +753,7 @@ fi
 program_puts=()
 program_stamps=()
 gate_store=$TEHAS_HOME/libexec/store
+compiled=(console analytics tehas-mcp store attach tehas-dispatch tehas-cycle)
 # The compiled programs first, the console, analytics, the MCP server, the
 # store and the attachment checker, the members of the Cargo workspace in
 # console/: a build that fails must
@@ -879,67 +777,53 @@ if [ ! -d "$root/console" ] && [ -f "$root/VERSION" ]; then
     fi
     store_refusal="${store_refusal:+$store_refusal; }this release has no libexec/store and none is installed"
   fi
-  program_sum() { sha256sum <"$1" | cut -d' ' -f1; }
   [ ! -x "$root/libexec/store" ] || gate_store=$root/libexec/store
-  for prog in console analytics tehas-mcp store attach tehas-dispatch tehas-cycle; do
-    from=$root/libexec/$prog
-    to=$TEHAS_HOME/libexec/$prog
-    if [ ! -x "$from" ]; then
-      [ "$prog" = store ] && [ ! -x "$to" ] && continue
-      note "this release carries no libexec/$prog; the one installed stays"
-      continue
-    fi
-    sum="release $(program_sum "$from")"
-    [ ! -x "$to" ] || [ "$(cat "$to.stamp" 2>/dev/null)" != "$sum" ] || continue
-    if [ "$check" = 1 ]; then
-      changed+=("libexec/$prog")
-      if [ -f "$to" ]; then note "differs: $to"; else note "missing: $to"; fi
-    else
-      program_puts+=("$from|$to|755")
-      program_stamps+=("$sum")
-    fi
-  done
+  programs_console=${steps_console:-$root/libexec/console}
+  programs=$("$programs_console" update programs "$TEHAS_HOME" release "$root" "${compiled[@]}") ||
+    { echo "tehas: $programs_console could not judge the programs of this release" >&2; exit 1; }
 else
   [ -d "$root/console" ] || { echo "tehas: $root/console is missing from this checkout" >&2; exit 1; }
-  # The checksum of each program's source, from the console that read the
-  # settings: the one built from this tree, or in --check the one an earlier
-  # build left or the one installed. It reads the workspace's members and what
-  # each takes by path (console/src/update/sources.rs).
-  sources_console=${built_console:-${TEHAS_SETTINGS_CMD:-$TEHAS_HOME/libexec/console}}
-  sources=$("$sources_console" update sources "$root/console" console analytics tehas-mcp store attach \
-    tehas-dispatch tehas-cycle) ||
-    { echo "tehas: $sources_console could not read the programs' source in $root/console" >&2; exit 1; }
-  program_sum() { sha256sum <"$1" | cut -d' ' -f1; }
-  due=()
-  while IFS= read -r entry; do
-    read -r prog sum <<<"$entry"
-    [[ $sum =~ ^[0-9a-f]{64}$ ]] ||
-      { echo "tehas: $sources_console gave no checksum for ${prog:-a program}: $entry" >&2; exit 1; }
-    to=$TEHAS_HOME/libexec/$prog
-    [ ! -x "$to" ] || [ "$(cat "$to.stamp" 2>/dev/null)" != "$sum $(program_sum "$to")" ] || continue
-    if [ "$check" = 1 ]; then
-      changed+=("libexec/$prog")
-      if [ -f "$to" ]; then note "differs: $to"; else note "missing: $to"; fi
-    else
-      due+=("$entry")
-    fi
-  done <<<"$sources"
-  if [ "${#due[@]}" != 0 ]; then
-    build_ready "${due[0]%% *}"
-    for entry in "${due[@]}"; do
-      read -r prog _ <<<"$entry"
-      build_program "$prog"
-    done
-    for entry in "${due[@]}"; do
-      read -r prog sum <<<"$entry"
-      to=$TEHAS_HOME/libexec/$prog
-      triple=$(program_triple "$prog")
-      [ "$prog" != store ] || gate_store=$target/${triple:+$triple/}release/store
-      program_puts+=("$target/${triple:+$triple/}release/$prog|$to|755")
-      program_stamps+=("build $sum")
-    done
-  fi
+  # The console that read the settings: the one built from this tree, or in
+  # --check the one an earlier build left or the one installed. It sums each
+  # program's source (console/src/update/sources.rs) and compares the stamps
+  # (console/src/update/programs.rs).
+  programs_console=${built_console:-${TEHAS_SETTINGS_CMD:-$TEHAS_HOME/libexec/console}}
+  programs=$("$programs_console" update programs "$TEHAS_HOME" build "$root/console" "${compiled[@]}") ||
+    { echo "tehas: $programs_console could not read the programs' source in $root/console" >&2; exit 1; }
 fi
+due=()
+while read -r state prog stamp; do
+  case $state in
+    "") ;;
+    absent)
+      [ "$prog" = store ] && [ ! -x "$TEHAS_HOME/libexec/store" ] ||
+        note "this release carries no libexec/$prog; the one installed stays"
+      ;;
+    *)
+      if [ "$check" = 1 ]; then
+        changed+=("libexec/$prog")
+        note "$state: $TEHAS_HOME/libexec/$prog"
+      else
+        due+=("$prog $stamp")
+      fi
+      ;;
+  esac
+done <<<"$programs"
+if [ "${#due[@]}" != 0 ] && [ -d "$root/console" ]; then
+  build_ready "${due[0]%% *}"
+  for entry in "${due[@]}"; do build_program "${entry%% *}"; done
+fi
+for entry in "${due[@]}"; do
+  read -r prog stamp <<<"$entry"
+  from=$root/libexec/$prog
+  if [ "$stamp" != release ]; then
+    triple=$(program_triple "$prog")
+    from=$target/${triple:+$triple/}release/$prog
+    [ "$prog" != store ] || gate_store=$from
+  fi
+  program_puts+=("$from|$TEHAS_HOME/libexec/$prog|755")
+  program_stamps+=("$stamp")
+done
 
 # The console that names the steps and records them, from here on and before the
 # first copy: the one this run installs, so the rules are the ones of this tree.
@@ -977,7 +861,6 @@ fi
 # before the marker came in gets it here, and its old records are judged too.
 dispatch_held=0
 store_gate() {
-  local out
   exec 9>>"$TEHAS_HOME/state/dispatch.lock"
   if ! flock -w "$dispatch_wait" 9; then
     echo "tehas: a poll is running ($TEHAS_HOME/state/dispatch.lock still held after ${dispatch_wait}s); nothing was installed" >&2
@@ -985,28 +868,17 @@ store_gate() {
   fi
   dispatch_held=1
   if [ ! -e "$TEHAS_HOME/$home_marker" ] && [ ! -L "$TEHAS_HOME/$home_marker" ]; then
-    printf 'tehas\n' | write_file "$TEHAS_HOME/$home_marker"
+    printf 'tehas\n' | "$steps_console" update files write "$TEHAS_HOME/$home_marker" || exit 1
   fi
   [ -f "$TEHAS_HOME/$home_marker" ] && [ ! -L "$TEHAS_HOME/$home_marker" ] || return 0
   if [ ! -x "$gate_store" ]; then
     echo "tehas: there is no store to judge the old records with ($gate_store); nothing was installed" >&2
     exit 1
   fi
-  out=$(TEHAS_HOME=$TEHAS_HOME "$gate_store" import --dry-run 2>&1) && return 0
-  case $out in
-    "store: live #"*)
-      out=${out#store: live }
-      echo "tehas: a cycle or planning turn runs (${out%%:*}); run tehas drain --wait and let it end, then install again; nothing was installed" >&2
-      ;;
-    "store: held "*)
-      printf '%s\n' "$out" >&2
-      echo "tehas: the old records listed above cannot be imported; move each one out of $TEHAS_HOME/state or mend it, then install again; nothing was installed" >&2
-      ;;
-    *)
-      printf '%s\n' "$out" | tail -n 5 >&2
-      echo "tehas: the store could not judge the old records under $TEHAS_HOME/state; nothing was installed" >&2
-      ;;
-  esac
+  # The store says its own refusals, each exit 1; any other status is a store
+  # that could not say.
+  TEHAS_HOME=$TEHAS_HOME "$gate_store" import --dry-run --say && return 0
+  [ $? = 1 ] || echo "tehas: the store could not judge the old records under $TEHAS_HOME/state; nothing was installed" >&2
   exit 1
 }
 # Given back before the first index, which takes the lock itself.
@@ -1017,12 +889,9 @@ dispatch_release() {
 if [ "$check" != 1 ]; then
   store_gate
   for i in "${!program_puts[@]}"; do
-    put "${program_puts[$i]}"
+    copy_files <<<"${program_puts[$i]}"
     to=${program_puts[$i]#*|}
-    to=${to%|*}
-    stamp=${program_stamps[$i]}
-    case $stamp in "build "*) stamp="${stamp#build } $(program_sum "$to")" ;; esac
-    echo "$stamp" | write_file "$to.stamp"
+    "$steps_console" update programs stamp "${to%|*}" "${program_stamps[$i]}" || exit 1
   done
 fi
 
@@ -1041,12 +910,12 @@ if [ "$check" != 1 ]; then
   # A home with no env.sh has never been installed.
   [ -f "$TEHAS_HOME/env.sh" ] || : >"$first_owed"
   if ! bashrc_ok; then
-    { echo "$bashrc_line"; [ ! -f "$bashrc" ] || cat "$bashrc"; } | write_file "$bashrc"
+    { echo "$bashrc_line"; [ ! -f "$bashrc" ] || cat "$bashrc"; } | "$steps_console" update files write "$bashrc" || exit 1
     echo "installed: the env.sh line at the top of $bashrc"
   fi
   # The proof that this home is tehas's, written once.
   if [ ! -f "$TEHAS_HOME/$home_marker" ]; then
-    printf 'tehas\n' | write_file "$TEHAS_HOME/$home_marker"
+    printf 'tehas\n' | "$steps_console" update files write "$TEHAS_HOME/$home_marker" || exit 1
   fi
 fi
 # The instance's own sandbox file is not copied anywhere: the build reads it from
@@ -1057,11 +926,11 @@ fi
 # until the copy that saw the same content recorded it below. It is counted with
 # the files below, in its own line, and not in changed[], which holds only source
 # paths of the file table.
-if [ -n "$sandboxunread" ]; then
+if [ "$sandbox_unread" = 1 ]; then
   if [ "$check" = 1 ]; then
     note "unreadable: $instance/sandbox.Dockerfile (check its permissions)"
   else
-    echo "tehas: $sandboxunread" >&2
+    echo "tehas: $instance/sandbox.Dockerfile cannot be read (check its permissions)" >&2
     echo "tehas: nothing was installed" >&2
     exit 78
   fi
@@ -1079,7 +948,7 @@ if [ "$sandbox_changed" = 1 ]; then
     # file unseen, so tehas update owes the build and the next install sees it.
     mkdir -p "$TEHAS_HOME/state"
     if hash=$(sha256sum "$instance/sandbox.Dockerfile" 2>/dev/null); then
-      printf '%s\n' "${hash:0:64}" | write_file "$sandbox_at_file"
+      printf '%s\n' "${hash:0:64}" | "$steps_console" update files write "$sandbox_at_file" || exit 1
     else
       # Between the read above and this one the file became unreadable. The
       # step stays owed and nothing is recorded, so the next run asks again.
@@ -1088,34 +957,9 @@ if [ "$sandbox_changed" = 1 ]; then
   fi
 fi
 
-for e in "${files[@]}"; do put "$e"; done
-
 # The operating manual and the front page are directories; pages come and go.
-sync_dir() { # name: host/<name>/* -> $TEHAS_HOME/<name>/
-  local name=$1 from to
-  for from in "$host/$name"/*; do
-    put "$name/${from##*/}|$TEHAS_HOME/$name/${from##*/}|644"
-  done
-  [ -d "$TEHAS_HOME/$name" ] || return 0
-  for to in "$TEHAS_HOME/$name"/*; do
-    [ -e "$to" ] || continue
-    # A file an earlier run of this script left beside the pages and did not
-    # rename over. It is removed with the rest, and a --check names it.
-    case "$to" in
-      *.new)
-        changed+=("$name/${to##*/}")
-        if [ "$check" = 1 ]; then note "stale: $to"; else rm -f "$to" && echo "removed: $to"; fi
-        continue
-        ;;
-    esac
-    case "$to" in *.prev | */version.txt | */rukas-version.txt) continue ;; esac
-    [ -e "$host/$name/${to##*/}" ] && continue
-    changed+=("$name/${to##*/}")
-    if [ "$check" = 1 ]; then note "stale: $to"; else rm -f "$to" "$to.prev" && echo "removed: $to"; fi
-  done
-}
-sync_dir docs
-sync_dir fun
+# Not a pipe: copy_files has to run in this shell to add to changed[].
+copy_files --sync docs --sync fun <<<"$(printf '%s\n' "${files[@]}")"
 
 # The version in the footer of every page: the newest tag this checkout holds
 # and the commit it is at, in a file beside the pages, which read it. Only a
@@ -1143,7 +987,7 @@ if [ "$check" != 1 ]; then
     if [ -z "$version" ]; then
       rm -f "$to"
     elif [ "$(cat "$to" 2>/dev/null)" != "$version" ]; then
-      echo "$version" | write_file "$to"
+      echo "$version" | "$steps_console" update files write "$to" || exit 1
       echo "version: $version in $to"
     fi
   done
@@ -1162,6 +1006,9 @@ for f in "$TEHAS_HOME"/sandbox/sandbox-uid.Dockerfile \
   if [ "$check" = 1 ]; then note "stale: $f"; else rm -f "$f" && echo "removed: $f"; fi
 done
 
+# A cycle that started before this release renews its token through the old
+# libexec/github-token, so that file stays while one runs. This guard goes in
+# the next release, when no cycle of before this one can still be running.
 a_cycle_runs() { # true while a cycle holds its lock
   local lock
   for lock in "$TEHAS_HOME"/state/cycles/*.lock; do
@@ -1177,7 +1024,6 @@ old=()
 while IFS= read -r f; do
   to=$TEHAS_HOME/$f
   [ -e "$to" ] || continue
-  # A cycle that started before this update renews its token by this path.
   if [ "$f" = libexec/github-token ] && a_cycle_runs; then
     echo "later: ./install.sh again when no cycle runs   ($to stays: a running cycle renews its token through it)"
     continue
@@ -1232,7 +1078,7 @@ fi
 # A store that fails stops the run: the files are copied, the database is left
 # as it was, and the store's own line says why.
 store_db() {
-  local store=$TEHAS_HOME/libexec/store db=$TEHAS_HOME/state/tehas.db version name out verb
+  local store=$TEHAS_HOME/libexec/store db=$TEHAS_HOME/state/tehas.db version name verb
   version=$(checkout_version)
   name=${instance%/}
   name=${name##*/}
@@ -1244,53 +1090,24 @@ store_db() {
   fi
   [ -x "$store" ] || { echo "tehas: $store is not installed, so $db was neither made nor migrated" >&2; exit 1; }
   chmod 700 "$TEHAS_HOME/state" || { echo "tehas: could not keep $TEHAS_HOME/state mode 0700" >&2; exit 1; }
-  if ! out=$(TEHAS_HOME=$TEHAS_HOME "$store" "${verb[@]}" --version "$version" --commit "$store_commit" \
-    --instance "$name" --repo "$TEHAS_REPO" 2>&1); then
-    printf '%s\n' "$out" | tail -n 5 >&2
+  if ! TEHAS_HOME=$TEHAS_HOME "$store" "${verb[@]}" --version "$version" --commit "$store_commit" \
+    --instance "$name" --repo "$TEHAS_REPO" --say; then
     echo "tehas: the store could not ${verb[0]} $db; the files are installed, the database was left as it was" >&2
     exit 1
   fi
-  case ${verb[0]} in
-    init) echo "store: made $db" ;;
-    *) echo "store: $db at schema $(jq -r '.to // "?"' <<<"$out" 2>/dev/null), backup $(jq -r '.backup // "?"' <<<"$out" 2>/dev/null)" ;;
-  esac
   # The records an older tehas kept as files, made rows; each file is moved to
   # state/imported-<day>/ once its rows read back, and nothing is deleted. A run
   # again is safe: what is in the store already is not written twice.
-  if ! out=$(TEHAS_HOME=$TEHAS_HOME "$store" import 2>&1); then
-    printf '%s\n' "$out" | head -n 40 >&2
+  if ! TEHAS_HOME=$TEHAS_HOME "$store" import --say; then
     echo "tehas: the store could not import the old records under $TEHAS_HOME/state; the files are installed, the database holds what was imported, and install.sh can run again" >&2
     exit 1
-  fi
-  # shellcheck disable=SC2016  # a jq program
-  if jq -e '.moved > 0' <<<"$out" >/dev/null 2>&1; then
-    echo "store: imported $(jq -r '[.imported | to_entries[] | select(.value > 0) | "\(.key) \(.value)"] | join(", ")' <<<"$out"); moved $(jq -r .moved <<<"$out") files to $TEHAS_HOME/state/imported-$(date -u +%Y%m%d)/"
   fi
 }
 store_db
 
-# A planning session's kept directory, state/plan-<n>.json.keep, holds what a
-# container wrote, so it moves out of state/ to beside the workspaces, where
-# the planning turn now keeps it: $TEHAS_WORK_DIR-plan-<n>.keep. Only while no
-# turn holds the issue's lock, and never over a directory that is there.
-for keep in "$TEHAS_HOME"/state/plan-[0-9]*.json.keep; do
-  [ -d "$keep" ] && [ ! -L "$keep" ] || continue
-  n=${keep##*/plan-}
-  n=${n%.json.keep}
-  case $n in '' | *[!0-9]*) continue ;; esac
-  to=$TEHAS_WORK_DIR-plan-$n.keep
-  lock=$TEHAS_HOME/state/plan-$n.json.lock
-  if [ -e "$lock" ] && ! { flock -n 8; } 8<"$lock"; then
-    echo "later: ./install.sh again when the planning turn of #$n has ended   ($keep stays where it is)"
-  elif [ -e "$to" ] || [ -L "$to" ]; then
-    echo "note: $keep stays where it is: $to is there already" >&2
-  elif mkdir -p "${to%/*}" && mv -T -- "$keep" "$to"; then
-    echo "moved: $keep to $to"
-  else
-    echo "tehas: could not move $keep to $to" >&2
-    exit 1
-  fi
-done
+# A planning session's kept directory moves out of state/ to beside the
+# workspaces, while no turn holds the issue's lock (console/src/update/host.rs).
+"$loaded_console" update keeps "$TEHAS_HOME" "$TEHAS_WORK_DIR" || exit 1
 
 # A cycle used to leave state/cycles/<issue> - one empty file per issue number,
 # the record that this host had run a cycle for it. Nothing read it, and the
@@ -1357,17 +1174,14 @@ first_index() {
 # step's, which `tehas update` runs.
 first_install() {
   [ -f "$first_owed" ] || return 0
-  local units=(tehas-dispatch.timer tehas-dispatch.path) why="" energy
-  [ -z "${TEHAS_IMPROVE_REPO:-}" ] || units+=(tehas-improve.timer)
-  [ -z "${TEHAS_DOMAIN:-}" ] || units+=(tehas-protolab.timer)
-  [ "${TEHAS_PREVIEWS:-}" != 1 ] || units+=(tehas-preview.timer tehas-preview-sweep.timer)
-  # A first install runs before any shell has read env.sh, which exports this
-  # from the host's private file, so it is read from that file too.
-  energy=${TEHAS_ENERGY:-}
-  [ -n "$energy" ] || [ ! -r "$HOME/.config/tehas/env" ] ||
-    energy=$(sed -n 's/^TEHAS_ENERGY=//p' "$HOME/.config/tehas/env" | tail -n 1)
-  case "${energy:-off}" in off) ;; *) units+=(tehas-energy.service) ;; esac
-  if ! "$TEHAS_HOME/bin/tehas" labels >/dev/null; then
+  local units=() why="" line
+  # A first install runs before any shell has read env.sh, so the console reads
+  # TEHAS_ENERGY from the host's private file too.
+  line=$(export "${!TEHAS_@}"; "$loaded_console" update units "$HOME/.config/tehas/env") || line=""
+  read -ra units <<<"$line"
+  if [ "${#units[@]}" = 0 ]; then
+    why="the console at $loaded_console did not name the units"
+  elif ! "$TEHAS_HOME/bin/tehas" labels >/dev/null; then
     why="tehas labels failed"
   elif ! systemctl --user daemon-reload || ! systemctl --user enable --now "${units[@]}"; then
     why="systemctl --user enable failed"

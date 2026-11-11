@@ -51,8 +51,7 @@ exit "${GH_RC:-0}"'
   cp "$T_ROOT/bin/tehasbot" "$h/bin/"
   ln -sf "$T_CONSOLE" "$h/libexec/console"
   # t_instance writes the instance and names it in the runs that follow.
-  t_instance TEHAS_REPO=acme/widget TEHAS_GITHUB_APP_ID=5452597 \
-    TEHAS_GITHUB_APP_INSTALLATION=174742089 "TEHAS_BOT_LOGIN=tehas-app-bot[bot]"
+  t_instance TEHAS_REPO=acme/widget TEHAS_GITHUB_APP_ID=5452597
   mkdir -p "$T/home/.config/tehas"
   printf 'a key\n' >"$T/home/.config/tehas/github-app.pem"
   chmod 600 "$T/home/.config/tehas/github-app.pem"
@@ -424,6 +423,7 @@ t_eq "$(lines | wc -l)" 1
 t_case "a home with no state directory gets one, and the line"
 reset
 rm -rf "$T/home/tehas/state"
+T_ENV=(TEHAS_GH_TOKEN=ghs_poll)
 shim issue comment 3 -R o/r >/dev/null
 t_eq "$t_rc" 0
 t_eq "$(lines | wc -l)" 1
@@ -466,15 +466,6 @@ t_eq "$t_rc" 0
 t_contains "$t_out" "token=ghs_token"
 t_eq "$(cat "$T/token-runs" | wc -c | tr -d '[:space:]' | head -n 1)" 1
 
-t_case "with no app named, TEHAS_GH_TOKEN still reaches gh as its token"
-reset
-T_ENV=(TEHAS_GH_TOKEN=ghs_poll SHOW_TOKEN=1)
-shim api repos/o/r
-t_eq "$t_rc" 0
-t_eq "$t_out" "gh api repos/o/r
-token=ghs_poll tehas=ghs_poll"
-t_eq "$(cat "$T/token-runs" 2>/dev/null | wc -c | tr -d '[:space:]' | head -n 1)" 0
-
 t_case "with no console the shim still runs gh, with its token, and logs nothing"
 reset
 # A host that needs repair: the console is gone or cannot be run. Reads and
@@ -490,7 +481,7 @@ t_eq "$t_rc" 0
 t_contains "$t_out" "gh issue view 12"
 printf 'not a program\n' >"$T/home/tehas/libexec/console"
 chmod 644 "$T/home/tehas/libexec/console"
-T_ENV=(GH_RC=3)
+T_ENV=(GH_RC=3 TEHAS_GH_TOKEN=ghs_poll)
 shim pr merge 5 --repo o/r
 t_eq "$t_rc" 3
 t_eq "$t_out" "gh pr merge 5 --repo o/r"

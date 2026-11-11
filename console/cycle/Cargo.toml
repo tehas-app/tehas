@@ -22,7 +22,7 @@ path = "src/main.rs"
 regex = "1"
 # Clears close-on-exec on a held lock, so the programs a cycle starts inherit
 # it (src/lock.rs, #1587). No unsafe of our own.
-rustix = { version = "1", default-features = false, features = ["std"] }
+rustix = { version = "1", default-features = false, features = ["fs", "std"] }
 serde_json = "1"
 sha2 = "0.10"
 signal-hook = "0.3"

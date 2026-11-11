@@ -371,7 +371,7 @@ t_eq "$t_rc" 64
 t_case "without a repository to name its pull requests it is exit 78 and reads nothing"
 reset
 work 12 "$T0" '{"kind":"work","rc":0,"status":"merged","pr":"https://github.com/acme/widget/pull/9"}'
-t_instance TEHAS_CONTROL_ISSUE=1 TEHAS_ALLOWED_LABELERS=alice
+t_instance TEHAS_GITHUB_APP_ID=1 TEHAS_CONTROL_ISSUE=1 TEHAS_ALLOWED_LABELERS=alice
 t_store_answers history-show 0 '{"api":1,"ok":true,"verb":"history-show","rows":[]}'
 t_run "$history --json"
 t_eq "$t_rc" 78

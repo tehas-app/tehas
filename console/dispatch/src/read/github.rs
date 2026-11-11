@@ -1,7 +1,7 @@
 //! What a snapshot asks of GitHub: the open issues in pages of 25 with
 //! everything the rules read of each, the marks on closed issues and pull
 //! requests, and the reads the bash makes of one issue at a time, in the
-//! shapes libexec/dispatch reads them.
+//! shapes the bash dispatcher read them.
 
 use super::run::{Calls, GhFail};
 use serde_json::{json, Map, Value};
@@ -16,8 +16,8 @@ use tehas_core::events::Events;
 /// to take it off the list first.
 ///
 /// `host/labels.tsv` is where the label is created and described, and
-/// `libexec/dispatch`, `console/src/stop.rs` and `console/src/tidy.rs` name it in their
-/// commands: a rename has to reach this constant and those sites, and the two
+/// `console/dispatch/src/finish.rs`, `console/cycle/src/report.rs`,
+/// `console/src/stop.rs` and `console/src/tidy.rs` name it in their commands: a rename has to reach this constant and those sites, and the two
 /// tests below tie it to the queue's page and the guard's exemption.
 pub const RUNNING: &str = "tehas:running";
 
@@ -45,8 +45,8 @@ const PAGE: &str = r#"query($owner: String!, $name: String!, $cursor: String) {
         timelineItems(itemTypes: [LABELED_EVENT, UNLABELED_EVENT, RENAMED_TITLE_EVENT], last: 100) {
           nodes {
             __typename
-            ... on LabeledEvent { createdAt actor { login ...on User { databaseId } ...on Bot { databaseId } } label { name } }
-            ... on UnlabeledEvent { createdAt actor { login ...on User { databaseId } ...on Bot { databaseId } } label { name } }
+            ... on LabeledEvent { createdAt actor { login ...on User { databaseId } ...on Bot { databaseId } } label { id name } }
+            ... on UnlabeledEvent { createdAt actor { login ...on User { databaseId } ...on Bot { databaseId } } label { id name } }
             ... on RenamedTitleEvent { createdAt actor { login ...on User { databaseId } ...on Bot { databaseId } } }
           }
         }
@@ -56,6 +56,11 @@ const PAGE: &str = r#"query($owner: String!, $name: String!, $cursor: String) {
     closedRunning: issues(states: CLOSED, labels: ["tehas:running"], first: 100) { nodes { number } }{OPEN_PULLS}
   }
 }"#;
+
+/// The repository's `tehas:` labels with their node ids, on the first page
+/// alone: what `crate::pins` compares with the ids it pinned.
+const TEHAS_LABELS: &str = r#"
+    tehasLabels: labels(first: 100, query: "tehas:") { nodes { id name } }"#;
 
 /// The open pull requests, on the first page alone: the titles need no call of
 /// their own, and neither does the hold of rule 6 that reads a body for a
@@ -116,7 +121,11 @@ fn page_query_typed(first: bool, fields: bool, types: bool) -> String {
             "{OPEN_PULLS}",
             &format!(
                 "{}{owner}{owner_types}",
-                if first { OPEN_PULLS } else { "" }
+                if first {
+                    format!("{OPEN_PULLS}{TEHAS_LABELS}")
+                } else {
+                    String::new()
+                }
             ),
         )
 }
@@ -209,6 +218,8 @@ pub struct Queue {
     /// them and the first page answered the repository: empty for an owner
     /// with none.
     pub issue_types: Option<Vec<String>>,
+    /// The nodes of `tehasLabels` as the first page gave them, or None.
+    pub labels: Option<Value>,
 }
 
 fn names(v: Option<&Value>) -> Vec<String> {
@@ -239,6 +250,7 @@ pub fn queue(calls: &mut Calls, repo: &str, fields: bool, types: bool) -> Result
         issue_fields: None,
         personal: false,
         issue_types: None,
+        labels: None,
     };
     let mut cursor: Option<String> = None;
     loop {
@@ -295,6 +307,7 @@ pub fn queue(calls: &mut Calls, repo: &str, fields: bool, types: bool) -> Result
         }
         if cursor.is_none() {
             q.open_pulls = r.get("openPulls").and_then(|v| v.get("nodes")).cloned();
+            q.labels = r.pointer("/tehasLabels/nodes").cloned();
             q.closed_running = r
                 .pointer("/closedRunning/nodes")
                 .and_then(Value::as_array)

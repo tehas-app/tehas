@@ -11,11 +11,19 @@
 //!     --install-err <file> --install-rc <n>
 //!   console update release source|installed|newest|keep
 //!   console update release older|stale <version> <version>
+//!   console update files [--check] [--no-steps <source>]... [--sync <name>]... <root> <host>
+//!   console update files write <path>
 //!   console update findings <euid> [<bash>]
+//!   console update keeps <home> <work dir>
+//!   console update units <env file>
+//!   console update login <root> <login command> <marker>
 //!   console update pi <instance> <generic settings> <provider> <model> <out>
+//!   console update programs <home> release|build <tree> <program>...
+//!   console update programs stamp <installed program> release|<source sum>
 //!   console update retired
 //!   console update report <root> <instance> <options>
 //!   console update notes <root> <options>
+//!   console update sandbox <host versions> <checkout versions> <dockerfile> <recorded>
 //!   console update sources <workspace> <package>...
 //!   console update steps ids|units|valid <line>|owed|for <source>...|record <source>...
 //!   console update wait update|dispatch
@@ -30,15 +38,21 @@
 //! the update ran, and the one left has to finish it. `finish` reads install.sh's
 //! answer and runs the follow-ups, see src/update/finish.rs. `release` answers
 //! one question about the releases, and `steps` names the steps and records them
-//! for install.sh, see src/update/steps.rs. `findings` is what install.sh finds
+//! for install.sh, see src/update/steps.rs. `programs` says which compiled
+//! programs install.sh installs and writes their stamps, see
+//! src/update/programs.rs. `findings` is what install.sh finds
 //! wrong with the instance before it changes anything, see
-//! src/update/findings.rs. `pi` makes Pi's settings and model list from the
+//! src/update/findings.rs. `keeps`, `units` and `login` are three questions
+//! about the host, see src/update/host.rs. `pi` makes Pi's settings and model list from the
 //! instance, see src/update/pi.rs. `retired` names the files an older tehas
 //! installed, `report` is the --check report and `notes` what a real run says
-//! about the slice and the sandbox image, see src/update/report.rs. `sources`
+//! about the slice and the sandbox image, see src/update/report.rs. `sandbox`
+//! says whether install.sh owes the sandbox build, see src/update/sandbox.rs.
+//! `sources`
 //! gives install.sh the
 //! checksum of each program's source, see src/update/sources.rs. `wait` says how long a lock is waited
-//! for, see src/update/wait.rs.
+//! for, see src/update/wait.rs. `files` makes install.sh's copies, see
+//! src/update/files.rs.
 //!
 //! Every program is spawned by name from PATH, so a host's own tool, or a
 //! test's stub, answers. Each call outside goes through `timeout`, and only
@@ -48,13 +62,17 @@
 //! with no lock, 99 the run is over and went well, nothing more to do.
 
 mod checkout;
+mod files;
 mod findings;
 mod finish;
+mod host;
 mod lock;
 mod pi;
+mod programs;
 pub(crate) mod release;
 mod report;
 mod run;
+mod sandbox;
 mod sources;
 mod steps;
 mod wait;
@@ -551,16 +569,22 @@ pub fn main(given: &[String]) -> u8 {
         }
         Some((verb, rest)) if verb == "finish" => finish::main(rest),
         Some((verb, rest)) if verb == "release" => release::verb(rest),
+        Some((verb, rest)) if verb == "files" => files::verb(rest),
         Some((verb, rest)) if verb == "findings" => findings::verb(rest),
+        Some((verb, rest)) if verb == "keeps" => host::keeps_verb(rest),
+        Some((verb, rest)) if verb == "units" => host::units_verb(rest),
+        Some((verb, rest)) if verb == "login" => host::login_verb(rest),
         Some((verb, rest)) if verb == "pi" => pi::verb(rest),
+        Some((verb, rest)) if verb == "programs" => programs::verb(rest),
         Some((verb, rest)) if verb == "retired" => report::retired_verb(rest),
         Some((verb, rest)) if verb == "report" => report::report_verb(rest),
         Some((verb, rest)) if verb == "notes" => report::notes_verb(rest),
+        Some((verb, rest)) if verb == "sandbox" => sandbox::verb(rest),
         Some((verb, rest)) if verb == "sources" => sources::verb(rest),
         Some((verb, rest)) if verb == "steps" => steps::verb(rest),
         Some((verb, rest)) if verb == "wait" => wait::verb(rest),
         _ => {
-            tell("console update: usage: run <console> <arguments> | args | gate | prepare | api | finish | findings <euid> [<bash>] | pi <instance> <generic settings> <provider> <model> <out> | release <question> | retired | report <root> <instance> <options> | notes <root> <options> | sources <workspace> <package>... | steps <question> | wait update|dispatch");
+            tell("console update: usage: run <console> <arguments> | args | gate | prepare | api | finish | files <options> <root> <host> | files write <path> | findings <euid> [<bash>] | keeps <home> <work dir> | units <env file> | login <root> <login command> <marker> | pi <instance> <generic settings> <provider> <model> <out> | programs <home> release|build <tree> <program>... | programs stamp <program> release|<source sum> | release <question> | retired | report <root> <instance> <options> | notes <root> <options> | sandbox <host versions> <checkout versions> <dockerfile> <recorded> | sources <workspace> <package>... | steps <question> | wait update|dispatch");
             64
         }
     }

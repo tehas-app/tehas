@@ -1,6 +1,6 @@
 //! Rules 4, 4a and 4b: a cycle started by a retry ticked in a park's
 //! question, by the one retry a provider outage is owed, and by a refresh
-//! request. Each takes the room rules 2 and 3 left, as libexec/dispatch does.
+//! request. Each takes the room rules 2 and 3 left, as the bash dispatcher did.
 
 use super::clean::iso;
 use super::{fixer_base, has, label_actor, or_unknown, Driver, End, Poll, Room, Start, Step, LEAN};
@@ -25,9 +25,8 @@ pub(crate) fn hex40(v: Option<&Value>) -> bool {
 }
 
 /// tehas_refresh_rule's refresh_why: what keeps a pull request from being
-/// refreshed, empty when nothing does. The bot's are those of `bot` and of
-/// `cycle`, TEHAS_CYCLE_LOGIN, which a cycle opens its pull request as.
-pub(crate) fn refresh_why(pr: &Value, bot: &str, cycle: &str, repo: &str, control: u64) -> String {
+/// refreshed, empty when nothing does. The bot's are those of `bot`.
+pub(crate) fn refresh_why(pr: &Value, bot: &str, repo: &str, control: u64) -> String {
     let names = |v: &Value| -> Vec<String> {
         v.pointer("/labels/nodes")
             .and_then(Value::as_array)
@@ -50,7 +49,7 @@ pub(crate) fn refresh_why(pr: &Value, bot: &str, cycle: &str, repo: &str, contro
     let closing = pr
         .pointer("/closingIssuesReferences/nodes")
         .and_then(Value::as_array);
-    if !tehas_core::accounts::factorys(&s(pr, "/author/login"), bot, cycle) {
+    if !tehas_core::accounts::factorys(&s(pr, "/author/login"), bot) {
         "it is not the bot's".into()
     } else if pr.get("isCrossRepository") != Some(&json!(false))
         || !s(pr, "/headRepository/nameWithOwner").eq_ignore_ascii_case(repo)
@@ -339,18 +338,20 @@ impl Poll<'_> {
     }
 
     /// Rule 4: the questions that wait for an answer. A box ticked to retry
-    /// a parked cycle starts it, and the poll ends there.
+    /// a parked cycle starts it, and the poll ends there. A list that cannot
+    /// be read skips only this rule, as refreshing() does for the history of
+    /// refreshes: only the questions need it, and the poll goes on. plan_over()
+    /// is not reached, so an open session is not closed on a read the poll
+    /// could not make.
     pub(super) fn questions(&mut self, room: &Room, bot: &str) -> Step {
         let fresh = self.plan_turns();
         let Some(asking) = self.s.asking.clone() else {
             self.need("asking");
             return Ok(());
         };
-        if asking.get("failed") == Some(&json!(true)) {
-            return Err(self.fail("ERROR: gh issue list failed", 1));
-        }
         let Some(list) = asking.as_array() else {
-            return Err(self.fail("ERROR: unreadable list of issues with a question", 1));
+            self.log("WARN: the issues with a question could not be read, so no question is answered this poll");
+            return Ok(());
         };
         let mut numbers: Vec<(u64, Vec<String>)> = Vec::new();
         for i in list {
@@ -883,13 +884,7 @@ impl Poll<'_> {
             .get("number")
             .map(|x| x.to_string())
             .unwrap_or("null".into());
-        let rule = refresh_why(
-            &node,
-            bot,
-            &self.c.cycle_login,
-            &self.c.repo,
-            self.c.control,
-        );
+        let rule = refresh_why(&node, bot, &self.c.repo, self.c.control);
         let st = |k: &str| node.get(k).and_then(Value::as_str).unwrap_or("");
         let why = if st("state") != "OPEN" {
             format!("pull request #{number} is not open")

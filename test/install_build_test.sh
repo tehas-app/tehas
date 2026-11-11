@@ -270,6 +270,20 @@ echo "// changed" >>"$part/console/attach/src/tests.rs"
 t_run "$part/install.sh"
 t_eq "$(t_calls cargo)" ""
 
+# The refresh text the dispatcher embeds is a file of its own package, so a
+# change to it alone makes the dispatcher due: an install must not keep one that
+# prints the old help.
+t_case "a change to the refresh text the dispatcher embeds builds the dispatcher alone"
+rm -f "$T/calls/cargo"
+echo " changed" >>"$part/console/dispatch/src/usage/refresh.txt"
+t_run "$part/install.sh --check"
+t_eq "$t_rc" 1
+t_contains "$t_out" "differs: $th/libexec/tehas-dispatch"
+t_lacks "$t_out" "differs: $th/libexec/console"
+t_run "$part/install.sh"
+t_eq "$t_rc" 0
+t_eq "$(t_calls cargo)" "build --release --locked --offline --quiet --manifest-path $part/console/Cargo.toml --target-dir $T/target -p tehas-dispatch"
+
 # A crate that is not in cargo's cache: the offline build says so in cargo's own
 # words, the retry without --offline builds, and the program is installed.
 t_case "a build whose crate is missing from the cache is retried online once, and installs"

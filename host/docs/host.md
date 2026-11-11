@@ -703,7 +703,9 @@ carries between turns is a directory beside its workspace,
 when it is not installed.
 
 `install.sh` makes and migrates it on every real run, under
-`state/update.lock`:
+`state/update.lock`. It passes `--say`, so the store prints the line you read
+(`store: made ...`, or `store: ... at schema <n>, backup ...`) in place of its
+JSON answer:
 
 - When there is no `state/tehas.db`, it runs `store init`.
 - Otherwise it runs `store migrate --backup ~/tehas/state/backup`. The store
@@ -1615,7 +1617,8 @@ the image, and the dispatch log names each issue it holds.
 The build takes pi-rukas at the commit `PI_RUKAS_FOLLOW` names, as described
 under [pi-rukas comes from upstream](#pi-rukas-comes-from-upstream).
 `build.sh --if-moved` builds only when that is not the commit the current
-image was built on, and `build.sh --check` only says whether it moved. The
+image was built on, and `build.sh --check` only says whether it moved. Both
+first print which commit the current image is on. The
 factory's health reports the same comparison (`checks.rukas`), and the footers
 of the front pages show the version the image runs from there. The
 contract test proves the product's gates run inside the image, as the unprivileged user,
@@ -1670,7 +1673,8 @@ owns as stale and takes it back when it installs. The name is `~/tehas/sandbox/s
 repository gitignores it, so `tehas update` sees no local change in it and the build
 is the only thing that decides what stands there. `test/build_test.sh` reads the
 recipe docker was handed and says which step is shared and which belongs to one
-uid. `mktemp` writes the copy owner-only, and a link or a directory under the name
+uid. The console writes the copy owner-only (`console sandbox stage`,
+`console/src/sandbox.rs`, which also checks the recipe), and a link or a directory under the name
 of one of the two is refused rather than removed: the cleaner takes a copy of that
 name and shape and no other.
 
@@ -1975,11 +1979,10 @@ a theme other than the instance's design.
 
 - `~/.config/tehas/github-app.pem`: the key of the factory's
   [GitHub App](/github-app), mode 600. Never given to a container: it is given
-  the hour-long installation token from `~/tehas/state/github`, read-only.
-- `~/.config/tehas/env`: a GitHub token (`GH_TOKEN`) for a factory without an
-  app, dropped by `env.sh` when the instance names one; the cycle token
-  (`GH_CYCLE_TOKEN`), the one GitHub token a cycle's containers are given; and
-  the model
+  a token narrowed to the product repository, from `~/tehas/state/github-cycle` or `~/tehas/state/github-session`, read-only.
+- `~/.config/tehas/env`: no GitHub token. `GH_TOKEN` and `GH_CYCLE_TOKEN`
+  in it stop every command with 78, since the factory acts as a GitHub App.
+  It holds the model
   endpoints' tokens (`TEHAS_MODEL_KEY_*`, see
   [A backup model endpoint](#a-backup-model-endpoint)), mode 600. The
   energy switches `TEHAS_ENERGY` and `TEHAS_ENERGY_URL` go here too
@@ -1997,10 +2000,10 @@ Both are outside the repository and the tehas tree.
 | What else starts a cycle               | The retry box of a parked issue, ticked by one of those accounts. It counts once, and only in the question whose comment id the host has on record for that issue. Like the label, the tick approves the text as it was at that moment |
 | Who can start or continue planning     | The same accounts. A session starts when one of them applied `tehas:plan`. A turn runs on a tick or a reply from one of them to the question the session is waiting on |
 | Who can put a ticket in the Protolab   | The same accounts. `tehasbot protolab` checks who most recently applied `tehas:prototype`, as the dispatcher checks `tehas:ready`. A label from anyone else counts as no label, and a page it had is removed. The pass stops with an error when `TEHAS_ALLOWED_LABELERS` names the bot's own login. The files beside a ticket are taken only from an owner, member or collaborator |
-| What a planning container is given     | The app's token from `~/tehas/state/github` (read-only), or the bot's `GH_TOKEN` without an app: not the narrower cycle token a work cycle gets. Otherwise the same mounts and the same approve-everything mode as a work cycle's. The agent is asked to plan and file issues. Nothing in the container holds it to that |
-| What an agent can do as the bot        | Post comments, edit the bot's comments, edit the description of any pull request and apply labels, with the token. So a comment is the factory's question only if the host has its id on record in `~/tehas/state`, which no cycle or planning container is given, and an answer counts only by who gave it |
+| What a planning container is given     | A token narrowed to the product repository, with Contents and Pull requests write and Issues read, from `~/tehas/state/github-session` (read-only), renewed every 5 minutes while the turn runs. Otherwise the same mounts and the same approve-everything mode as a work cycle's. The agent is asked to plan and file issues. Nothing in the container holds it to that |
+| What an agent can do as the bot        | With the narrowed token: push the branch, open and edit pull requests, and read issues. Its `gh issue create`, `edit` and `comment` go through the host's relay, which comments only on the cycle's own issue and on issues the cycle created, edits only issues it created during that cycle, never sets labels, assignees or state, refuses any text with `<!-- tehas:` in it, and allows 50 writes a cycle. The relay is a host channel under the rule that a container's mounts and variables are not widened ([the relay](/github-app#the-relay-is-a-security-channel)). So a comment is the factory's question only if the host has its id on record in `~/tehas/state`, which no cycle or planning container is given, and an answer counts only by who gave it |
 | Where an agent's conversation is kept  | In the container's own sessions directory: `~/tehas/work/<name>-<issue>.state/sessions` for a cycle, `~/tehas/dev/<name>.state/sessions` for a manual session. No other container reads or writes it, and a cycle's goes with its workspace |
-| Does the token enter the cycle         | The cycle token does, never the host's own. Every agent in a cycle's container, and the push check before it, has `GH_CYCLE_TOKEN` as its `GH_TOKEN`: a fine-grained token of the bot account for the product repository only, with Contents, Pull requests and Issues read and write and Metadata read. Neither the app's installation token nor its `~/tehas/state/github` reaches a cycle; without `GH_CYCLE_TOKEN` a cycle does not start (exit 78). Labels are under Issues, so a cycle can still change them; it cannot start work with them, because the dispatcher checks who applied `tehas:ready`. A planning turn and a manual session are still given the app's token from `~/tehas/state/github` (read-only), or the bot's `GH_TOKEN` without an app. pi-rukas pushes the branch and opens the pull request from inside, as the cycle token's account: `TEHAS_CYCLE_LOGIN` names it, required with an app, and the host counts its pull requests and comments as the bot's own, never as a person's approval (the settings load refuses it in `TEHAS_ALLOWED_LABELERS`). Agent code can do anything the token can. So do the model endpoints' tokens that `models.json` names, as `TEHAS_MODEL_KEY_*`: Pi sends them. Agent code can read them and call the endpoints with them |
+| Does the token enter the cycle         | The cycle token does, never the host's own. Every agent in a cycle's container, and the push check before it, has the cycle token as its `GH_TOKEN`, for the product repository only, with Contents and Pull requests write, Issues read and Metadata read. It is a second installation token of the app narrowed to that (#1814), kept fresh in `~/tehas/state/github-cycle`, which the container is given read-only; the cycle acts as the app's `<slug>[bot]`. Without it a cycle does not start. Neither the app's own installation token nor its `~/tehas/state/github` reaches a cycle. Issues are read-only for it, so a cycle cannot label an issue or comment on one with this token. A planning turn and a manual session are given a token of the same body from `~/tehas/state/github-session` (read-only). pi-rukas pushes the branch and opens the pull request from inside, as the app's `<slug>[bot]`. Agent code can do anything the token can. So do the model endpoints' tokens that `models.json` names, as `TEHAS_MODEL_KEY_*`: Pi sends them. Agent code can read them and call the endpoints with them |
 | What else enters the container         | `PI_ENSEMBLE_*` settings, the bot's git name and email, the host aliases. Not the rest of the host environment                          |
 | Host paths mounted                     | The cycle's own workspace, `~/tehas/work/<name>-<issue>`, at the same path in every container; its own transcripts, `~/.pi/agent/ensemble-runs/issue-<issue>`; its own state directory, `~/tehas/work/<name>-<issue>.state` (read-write); its own `models.json` from that directory, `mcp.json`, Pi's `settings.json` (read-only). Only the last two are the same host file in every container; nothing one container writes is mounted for another |
 | Not reachable from the container       | The Docker socket, SSH keys, `~/.config/tehas`, the platform checkout, the product checkout, the instance directory                     |

@@ -21,7 +21,7 @@ use crate::apply::Writer;
 use crate::decide::{iso, iso_now};
 use crate::read::build::{fill, snapshot, Sources};
 use crate::read::host::hostname;
-use crate::read::run::{read_gh_token, run, Calls, RetryPolicy};
+use crate::read::run::{read_gh_token, Calls, RetryPolicy};
 use crate::{decide, Settings, Snapshot};
 use serde_json::{json, Value};
 use std::fs::{File, OpenOptions};
@@ -109,27 +109,40 @@ fn pass(lines: &[String]) {
     }
 }
 
-/// The poll's own CPU and its children's, as bash's `times` prints them.
-fn times() -> String {
-    let ticks: f64 = run("getconf", &["CLK_TCK".into()], Duration::from_secs(5))
-        .out
-        .trim()
-        .parse()
-        .unwrap_or(100.0);
-    let stat = std::fs::read_to_string("/proc/self/stat").unwrap_or_default();
+/// The kernel's clock ticks per second, AT_CLKTCK of a process's auxiliary
+/// vector (/proc/<pid>/auxv): what sysconf(_SC_CLK_TCK) answers, read without
+/// libc. None when the vector does not hold it.
+fn clock_ticks_of(auxv: &[u8]) -> Option<u64> {
+    const AT_CLKTCK: u64 = 17;
+    const WORD: usize = std::mem::size_of::<usize>();
+    let word = |c: &[u8]| c.try_into().map(usize::from_ne_bytes).unwrap_or(0) as u64;
+    auxv.as_chunks::<{ 2 * WORD }>()
+        .0
+        .iter()
+        .map(|pair| (word(&pair[..WORD]), word(&pair[WORD..])))
+        .find(|&(key, _)| key == AT_CLKTCK)
+        .map(|(_, v)| v)
+        .filter(|&v| v > 0)
+}
+
+/// This process's clock ticks per second; 100, Linux's USER_HZ, when its
+/// auxiliary vector cannot be read.
+fn clock_ticks() -> u64 {
+    clock_ticks_of(&std::fs::read("/proc/self/auxv").unwrap_or_default()).unwrap_or(100)
+}
+
+/// The CPU time in milliseconds of a process and of the children it waited
+/// for, from its /proc/<pid>/stat: utime, stime, cutime and cstime, fields 14
+/// to 17. 0 for a stat it cannot read.
+fn cpu_ms(stat: &str, ticks: u64) -> i64 {
     let rest: Vec<&str> = stat
         .rsplit_once(')')
         .map(|(_, r)| r.split_whitespace().collect())
         .unwrap_or_default();
-    let t = |i: usize| -> String {
-        let s = rest
-            .get(i)
-            .and_then(|v| v.parse::<f64>().ok())
-            .unwrap_or(0.0)
-            / ticks;
-        format!("{}m{:.3}s", (s / 60.0).floor(), s % 60.0)
-    };
-    format!("{} {}\n{} {}\n", t(11), t(12), t(13), t(14))
+    let sum: u64 = (11..15)
+        .filter_map(|i| rest.get(i)?.parse::<u64>().ok())
+        .sum();
+    (sum.saturating_mul(1000) / ticks.max(1)) as i64
 }
 
 /// The records of an older tehas, which install.sh imports: one still here
@@ -275,12 +288,12 @@ fn writer(
                 .map(str::to_string)
                 .collect(),
             millwright: crate::settings::account(&env("TEHAS_MILLWRIGHT_LOGIN")).to_string(),
+            refused_labels: Vec::new(),
             bot: if bot.is_empty() {
                 env("TEHAS_BOT_LOGIN")
             } else {
                 bot.to_string()
             },
-            cycle: env(tehas_core::accounts::CYCLE_LOGIN),
             owner: env("TEHAS_OWNER"),
             systemctl: "systemctl".into(),
             start_cmd: opt("TEHAS_CYCLE_START_CMD"),
@@ -433,17 +446,13 @@ impl End<'_> {
             w.status(&mut printed);
             pass(&printed);
         }
-        let state = self.home.join("state");
-        let tally = state.join("poll-gh.tally");
-        let cpu = state.join("poll.times");
-        let _ = std::fs::write(&tally, "\n".repeat(self.gh as usize));
-        let _ = std::fs::write(&cpu, times());
         let started = format!("{:.6}", self.started);
-        let (t, c) = (
-            tally.to_string_lossy().into_owned(),
-            cpu.to_string_lossy().into_owned(),
-        );
-        let writes = state
+        let stat = std::fs::read_to_string("/proc/self/stat").unwrap_or_default();
+        let cpu = cpu_ms(&stat, clock_ticks()).to_string();
+        let gh = self.gh.to_string();
+        let writes = self
+            .home
+            .join("state")
             .join("github-writes.log")
             .to_string_lossy()
             .into_owned();
@@ -452,10 +461,10 @@ impl End<'_> {
             "poll-record",
             "--started",
             &started,
-            "--times",
-            &c,
-            "--tally",
-            &t,
+            "--cpu-ms",
+            &cpu,
+            "--gh",
+            &gh,
             "--writes-log",
             &writes,
             "--starts",
@@ -493,7 +502,7 @@ const TOKEN_BOUND: Duration = Duration::from_secs(30);
 impl PollToken {
     /// The token of the host's GitHub App: the one already taken, or the first
     /// run of `$TEHAS_HOME/bin/tehasbot github-token`, which answers the token and
-    /// nothing else. Only when `TEHAS_GITHUB_APP_ID` names an app. A run that
+    /// nothing else. A run that
     /// could not be had leaves nothing taken, so the poll's gh calls go on as
     /// they did before and each pays for a token of its own. The token is held
     /// here and nowhere else: never logged, never written, never recorded.
@@ -513,6 +522,28 @@ impl PollToken {
         }
         held.clone()
     }
+}
+
+/// The settings with the app's login in them when the poll started without
+/// one: a mint of this poll wrote state/github/login after the load. The
+/// bot and the millwright are that login, in the environment too, for what the
+/// poll starts. None when the settings already name a bot or no login is kept.
+fn adopt_login(home: &Path, settings: &Settings) -> Option<Settings> {
+    if !settings.bot_login.is_empty() {
+        return None;
+    }
+    let login = tehas_core::settings::bot_login(home)?;
+    let mut now = settings.clone();
+    now.bot_login = login.clone();
+    if now.millwright.is_empty() {
+        now.millwright = crate::settings::account(&login).to_string();
+    }
+    for name in ["TEHAS_BOT_LOGIN", "TEHAS_MILLWRIGHT_LOGIN"] {
+        if std::env::var_os(name).is_none_or(|v| v.is_empty()) {
+            std::env::set_var(name, &login);
+        }
+    }
+    Some(now)
 }
 
 /// One poll. The exit status the bash poll would end with.
@@ -585,6 +616,12 @@ pub fn run_poll(home: &Path, settings: &Settings, dry: bool) -> i32 {
     // status reads that go through them are one poll and spend one budget, and
     // `body` is handed the same value rather than copying a field afterwards.
     let retry = RetryPolicy::default();
+    // The token is taken before anything reads the bot: a first mint writes
+    // state/github/login, and this poll acts as that login.
+    let token = PollToken::default();
+    let first_token = token.get(home);
+    let adopted = adopt_login(home, settings);
+    let settings = adopted.as_ref().unwrap_or(settings);
     let mut w = writer(home, settings, "", 0, now() as i64, &retry);
     // The poll's GitHub token, kept in memory from before its first call: the
     // first gh of the poll asks the host's token program once, and every gh
@@ -596,8 +633,7 @@ pub fn run_poll(home: &Path, settings: &Settings, dry: bool) -> i32 {
     // leaves the calls as they were: each pays for one. The token is never
     // logged, never written to a file and never put in the arguments of
     // anything.
-    let token = PollToken::default();
-    w.calls.gh_token = token.get(home);
+    w.calls.gh_token = first_token;
     let mut end = End {
         home,
         dry,
@@ -703,6 +739,11 @@ fn body(
     for l in refresh_warn(&snap) {
         say(l);
     }
+    let (said, refused) = crate::pins::settle(home, &mut snap, dry);
+    for l in &said {
+        say(l);
+    }
+    w.host.refused_labels = refused;
     let mut d = decide(&Snapshot::parse(&snap), settings, dry);
     while fill(&src, &mut snap, &d.needs) {
         d = decide(&Snapshot::parse(&snap), settings, dry);
@@ -1019,12 +1060,16 @@ fn demand_health(home: &Path, w: &mut Writer, d: &crate::Decision) {
         } else {
             let mut v = demand.clone();
             v["time"] = json!(iso_now());
-            let new = home.join("live/demand.json.new");
-            if std::fs::write(&new, format!("{v}\n"))
-                .and_then(|()| std::fs::rename(&new, &file))
-                .is_err()
+            // A unique name, not the fixed `demand.json.new` two polls can
+            // share: each writer holds its own file until its rename.
+            if tehas_core::file::write_atomic(
+                &file,
+                format!("{v}\n").as_bytes(),
+                0o644,
+                &tehas_core::file::Temp::Unique,
+            )
+            .is_err()
             {
-                let _ = std::fs::remove_file(&new);
                 say(&format!("WARN: could not write {}", file.display()));
             }
         }
@@ -1150,6 +1195,31 @@ fn sweep_locks(w: &mut Writer, dry: bool) {
 #[cfg(test)]
 mod tests {
     #[test]
+    fn the_cpu_is_the_four_times_of_the_stat_in_milliseconds() {
+        // A command name with a space and a parenthesis, as comm may hold.
+        let stat = "42 (a (b) c) S 1 42 42 0 -1 4194560 100 0 0 0 12 3 120 15 20 0 1 0";
+        assert_eq!(super::cpu_ms(stat, 100), 1500);
+        assert_eq!(super::cpu_ms(stat, 1000), 150);
+        assert_eq!(super::cpu_ms("", 100), 0);
+        let own = std::fs::read_to_string("/proc/self/stat").unwrap();
+        assert!(super::cpu_ms(&own, super::clock_ticks()) >= 0);
+    }
+
+    #[test]
+    fn the_clock_ticks_are_at_clktck_of_the_auxiliary_vector() {
+        let auxv: Vec<u8> = [6usize, 4096, 17, 250, 0, 0]
+            .iter()
+            .flat_map(|w| w.to_ne_bytes())
+            .collect();
+        assert_eq!(super::clock_ticks_of(&auxv), Some(250));
+        assert_eq!(super::clock_ticks_of(&auxv[..16]), None);
+        assert_eq!(super::clock_ticks_of(&[]), None);
+        // The kernel gives every process USER_HZ, 100 where tehas runs.
+        let own = std::fs::read("/proc/self/auxv").unwrap();
+        assert_eq!(super::clock_ticks_of(&own), Some(100));
+    }
+
+    #[test]
     fn the_poll_says_each_warning_of_the_refresh_read() {
         let snap = serde_json::json!({"refresh_warn": ["WARN: a", "WARN: b"]});
         assert_eq!(
@@ -1188,6 +1258,55 @@ mod tests {
         assert!(tidy_args(true).is_empty());
         assert_eq!(own_words(false, &["index"]), ["index"]);
         assert!(own_words(true, &["index"]).is_empty());
+    }
+
+    /// The two login variables of this process, put back as they were when the
+    /// guard goes, a panic included; held under a lock, since the process's
+    /// environment is shared by every test.
+    #[allow(dead_code)] // the lock is held, never read
+    struct Logins(
+        std::sync::MutexGuard<'static, ()>,
+        [(&'static str, Option<std::ffi::OsString>); 2],
+    );
+
+    impl Logins {
+        fn take() -> Logins {
+            static LOCK: Mutex<()> = Mutex::new(());
+            let held = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+            let names = ["TEHAS_BOT_LOGIN", "TEHAS_MILLWRIGHT_LOGIN"];
+            let kept = names.map(|n| (n, std::env::var_os(n)));
+            for n in names {
+                std::env::remove_var(n);
+            }
+            Logins(held, kept)
+        }
+    }
+
+    impl Drop for Logins {
+        fn drop(&mut self) {
+            for (name, value) in &self.1 {
+                match value {
+                    Some(v) => std::env::set_var(name, v),
+                    None => std::env::remove_var(name),
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_login_the_first_mint_wrote_is_the_bot_and_the_millwright_of_the_poll() {
+        let _env = Logins::take();
+        let home = home_of("adopt");
+        let none = Settings::parse(&json!({}));
+        assert!(adopt_login(&home, &none).is_none(), "no login is kept yet");
+        std::fs::create_dir_all(home.join("state/github")).unwrap();
+        std::fs::write(home.join("state/github/login"), "acme-app[bot]\n").unwrap();
+        let got = adopt_login(&home, &none).expect("the kept login is adopted");
+        assert_eq!(got.bot_login, "acme-app[bot]");
+        assert!(got.is_millwright("acme-app[bot]"));
+        assert_eq!(std::env::var("TEHAS_BOT_LOGIN").unwrap(), "acme-app[bot]");
+        let named = Settings::parse(&json!({"TEHAS_BOT_LOGIN": "set[bot]"}));
+        assert!(adopt_login(&home, &named).is_none(), "a named bot stays");
     }
 
     /// A scratch home of this test, with `live/` in it.

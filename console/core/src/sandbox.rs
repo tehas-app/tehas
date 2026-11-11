@@ -90,50 +90,34 @@ impl Kind {
         self != Kind::Review
     }
 
-    // A cycle is given the narrow cycle token, never the app's: the app's
-    // token directory is mounted only for a planning turn and a session.
-    fn app(self) -> bool {
-        matches!(self, Kind::Turn | Kind::Session)
+    // The directory under $TEHAS_HOME of the app token a container reads. A
+    // cycle gets its own token, narrowed to the product repository (#1814),
+    // and a planning turn and a session get one of the same body in a
+    // directory of their own. The app's own token goes to no container.
+    fn app_dir(self) -> Option<&'static str> {
+        match self {
+            Kind::Turn | Kind::Session => Some("state/github-session"),
+            Kind::Cycle => Some("state/github-cycle"),
+            Kind::Review => None,
+        }
     }
 }
 
-/// The variable of ~/.config/tehas/env that holds the token made for cycles: a
-/// fine-grained token of the bot account for the product repository alone
-/// (#51). A cycle's containers are given it as their GH_TOKEN.
+/// Where a cycle's container has its issue relay, read and written by both
+/// sides: host/sandbox/gh-shim asks there and the host answers.
+pub const RELAY_DIR: &str = "/run/tehas/relay";
+
+/// The variable that holds the token a cycle's containers are given as their
+/// GH_TOKEN: `tehas work` sets it to the app's narrowed cycle token (#1814).
 pub const CYCLE_TOKEN: &str = "GH_CYCLE_TOKEN";
-
-/// The cycle token, or the line that refuses the start: a cycle without it
-/// starts nothing (AGENTS.md rule 2), it never falls back to the host's token.
-pub fn cycle_token(who: &str) -> Result<String, String> {
-    match env::var(CYCLE_TOKEN) {
-        Ok(t) if !t.is_empty() => Ok(t),
-        _ => Err(format!(
-            "{who}: {CYCLE_TOKEN} is not set (see ~/.config/tehas/env)"
-        )),
-    }
-}
-
-/// The line that refuses a cycle on a host with a GitHub App and no
-/// TEHAS_CYCLE_LOGIN. The cycle opens its pull request and comments with the
-/// cycle token, which is never the app's: without the token's login the host
-/// would take the cycle's own pull requests for someone else's.
-pub fn cycle_login(who: &str) -> Result<(), String> {
-    let set = |k: &str| env::var(k).is_ok_and(|v| !v.is_empty());
-    if set("TEHAS_GITHUB_APP_ID") && !set(crate::accounts::CYCLE_LOGIN) {
-        return Err(format!(
-            "{who}: TEHAS_CYCLE_LOGIN is not set and a GitHub App is: name the account of {CYCLE_TOKEN} in instance.env"
-        ));
-    }
-    Ok(())
-}
 
 /// A docker client that starts a cycle's container: its GH_TOKEN, which the
 /// container takes by name, is the cycle token. Without one it has none, so the
 /// host's token cannot reach the container.
 pub fn give_cycle_token(cmd: &mut Command) -> &mut Command {
-    match cycle_token("") {
-        Ok(t) => cmd.env("GH_TOKEN", t),
-        Err(_) => cmd.env_remove("GH_TOKEN"),
+    match env::var(CYCLE_TOKEN) {
+        Ok(t) if !t.is_empty() => cmd.env("GH_TOKEN", t),
+        _ => cmd.env_remove("GH_TOKEN"),
     }
 }
 
@@ -499,8 +483,8 @@ pub struct Paths<'a> {
 ///
 /// `app` is the host directory of the GitHub App's token when the instance
 /// names an app: the image's gh (host/sandbox/gh-shim) reads the token the host
-/// keeps fresh there. Not the key, which stays in ~/.config/tehas. Not for a
-/// cycle, whose gh reads the cycle token from GH_TOKEN.
+/// keeps fresh there. Not the key, which stays in ~/.config/tehas. For a cycle
+/// it is the directory of the narrowed cycle token, which the caller names.
 pub fn mount_options(kind: Kind, p: &Paths, agent: &str, app: Option<&str>) -> Vec<String> {
     let (tree, host, state, runs) = (p.tree, p.host, p.state, p.runs);
     let pi = "/home/vscode/.pi/agent";
@@ -514,8 +498,14 @@ pub fn mount_options(kind: Kind, p: &Paths, agent: &str, app: Option<&str>) -> V
         format!("{agent}/mcp.json:{pi}/mcp.json:ro"),
         format!("{agent}/settings.json:{pi}/settings.json:ro"),
     ];
-    if let (Some(app), true) = (app, kind.app()) {
+    if let (Some(app), true) = (app, kind.app_dir().is_some()) {
         mounts.push(format!("{app}:/run/tehas/github:ro"));
+    }
+    // A cycle's token reads issues only; its issue writes go to the host
+    // through this directory (console/cycle/src/relay.rs). Its own, in its
+    // state, so no cycle sees another's requests.
+    if kind == Kind::Cycle {
+        mounts.push(format!("{state}/relay:{RELAY_DIR}"));
     }
     // After the shared list, so this is the one build output the session has.
     if kind == Kind::Session {
@@ -561,15 +551,12 @@ pub fn prepared_mounts(kind: Kind, p: &Paths) -> Result<Vec<String>, String> {
         format!("{}/memory", p.state),
         format!("{}/sessions", p.state),
     ];
-    let app = env::var("TEHAS_GITHUB_APP_ID")
-        .ok()
-        .filter(|id| !id.is_empty() && kind.app())
-        .map(|_| {
-            format!(
-                "{}/state/github",
-                env::var("TEHAS_HOME").unwrap_or_default()
-            )
-        });
+    if kind == Kind::Cycle {
+        dirs.push(format!("{}/relay", p.state));
+    }
+    let app = kind
+        .app_dir()
+        .map(|dir| format!("{}/{dir}", env::var("TEHAS_HOME").unwrap_or_default()));
     dirs.extend(app.clone());
     for dir in dirs {
         fs::create_dir_all(&dir).map_err(|e| format!("tehas: cannot make {dir}: {e}"))?;
@@ -1009,21 +996,46 @@ mod tests {
 
     #[test]
     fn every_kind_has_the_eight_mounts_in_order() {
-        for kind in [Kind::Cycle, Kind::Turn, Kind::Review] {
+        for kind in [Kind::Turn, Kind::Review] {
             assert_eq!(mount_options(kind, &PATHS, "/a", None), words(EIGHT));
         }
     }
 
     #[test]
-    fn the_apps_token_directory_is_read_only_and_never_a_reviews_or_a_cycles() {
+    fn only_a_cycle_has_the_relay_and_it_is_its_own_state() {
+        assert_eq!(
+            mount_options(Kind::Cycle, &PATHS, "/a", None),
+            words(&format!("{EIGHT} -v /s/relay:/run/tehas/relay"))
+        );
+        for kind in [Kind::Turn, Kind::Session, Kind::Review] {
+            let all = mount_options(kind, &PATHS, "/a", Some("/g")).join(" ");
+            assert!(!all.contains("relay"), "{kind:?}");
+        }
+    }
+
+    #[test]
+    fn a_token_directory_is_read_only_and_never_a_reviews() {
         let want = format!("{EIGHT} -v /g:/run/tehas/github:ro");
         assert_eq!(
             mount_options(Kind::Turn, &PATHS, "/a", Some("/g")),
             words(&want)
         );
-        for kind in [Kind::Cycle, Kind::Review] {
-            assert_eq!(mount_options(kind, &PATHS, "/a", Some("/g")), words(EIGHT));
-        }
+        assert_eq!(
+            mount_options(Kind::Cycle, &PATHS, "/a", Some("/g")),
+            words(&format!("{want} -v /s/relay:/run/tehas/relay"))
+        );
+        assert_eq!(
+            mount_options(Kind::Review, &PATHS, "/a", Some("/g")),
+            words(EIGHT)
+        );
+    }
+
+    #[test]
+    fn a_container_reads_a_narrowed_token_never_the_apps() {
+        assert_eq!(Kind::Cycle.app_dir(), Some("state/github-cycle"));
+        assert_eq!(Kind::Turn.app_dir(), Some("state/github-session"));
+        assert_eq!(Kind::Session.app_dir(), Some("state/github-session"));
+        assert_eq!(Kind::Review.app_dir(), None);
     }
 
     #[test]

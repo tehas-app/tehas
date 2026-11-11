@@ -259,16 +259,33 @@ fn json(file: &Path) -> Option<Value> {
     serde_json::from_slice(&fs::read(file).ok()?).ok()
 }
 
-/// The image and the commit followed, when the factory's health last called
-/// the image behind (checks.rukas).
-fn behind(home: &Path) -> Option<(String, String)> {
+/// What the factory's health last said of the sandbox image (checks.rukas).
+#[derive(Debug, PartialEq)]
+enum Sandbox {
+    /// The image it read is behind: the image and the commit followed.
+    Behind(String, String),
+    /// The image is not the one it read: an update built it since.
+    Rebuilt,
+}
+
+/// The health is written by the status run of a poll, so it can be older
+/// than an image an update has just built. `label` gives the tehas.rukas
+/// label of the image now, asked only when the health says behind: an image
+/// the health did not read is not called behind on its word.
+fn behind(home: &Path, label: impl FnOnce() -> Option<String>) -> Option<Sandbox> {
     let health = json(&home.join("live/health.json"))?;
     let rukas = health.get("checks")?.get("rukas")?;
     if rukas.get("behind") != Some(&Value::Bool(true)) {
         return None;
     }
+    let read = rukas.get("image").and_then(Value::as_str);
+    if let (Some(now), Some(read)) = (label().filter(|l| !l.is_empty()), read) {
+        if now != read {
+            return Some(Sandbox::Rebuilt);
+        }
+    }
     let field = |k: &str| rukas.get(k).unwrap_or(&Value::Null);
-    Some((
+    Some(Sandbox::Behind(
         text(or(field("imageVersion"), field("image"))),
         text(or(field("targetVersion"), field("target"))),
     ))
@@ -335,9 +352,22 @@ pub(crate) fn report(a: &Asked, o: &mut impl Outside) -> (Vec<String>, bool) {
         lines.push(format!("  {sentence}"));
     }
 
-    if let Some((image, target)) = behind(&a.home) {
-        lines.push(format!("Sandbox:      BEHIND (the image runs pi-rukas {image}, the host follows {target}; tehas update builds it)"));
-        found = true;
+    let label = || {
+        let (_, image) = a.images.as_ref()?;
+        let l = o.labels(image)?;
+        Some(l.split_once('|').map_or(l.as_str(), |(r, _)| r).to_string())
+    };
+    match behind(&a.home, label) {
+        Some(Sandbox::Behind(image, target)) => {
+            lines.push(format!("Sandbox:      BEHIND (the image runs pi-rukas {image}, the host follows {target}; tehas update builds it)"));
+            found = true;
+        }
+        // Not found: the next status run reads the new image, and the
+        // health says behind again if it is.
+        Some(Sandbox::Rebuilt) => lines.push(
+            "Sandbox:      NOT READ (the image was built after the last status run; the next one reads it)".into(),
+        ),
+        None => {}
     }
 
     // The product is not this host's install: it does not count as found.
@@ -694,6 +724,33 @@ Tests:        not run (./install.sh --check --tests runs them)"
         assert!(!said(&a, &mut Fake::default()).1);
         d.file("home/live/health.json", "not json");
         assert!(!said(&a, &mut Fake::default()).0.contains("Sandbox:"));
+    }
+
+    #[test]
+    fn an_image_built_after_the_health_was_written_is_not_called_behind() {
+        let (d, mut a) = host();
+        a.images = Some(("0".into(), "tehas/pi-rukas:uid1000".into()));
+        d.file(
+            "home/live/health.json",
+            r#"{"checks":{"rukas":{"image":"aaa","imageVersion":"v0.14.63","target":"bbb","targetVersion":"v0.14.69","behind":true}}}"#,
+        );
+        let mut o = Fake {
+            labels: Some("bbb|1".into()),
+            ..Fake::default()
+        };
+        let (out, found) = said(&a, &mut o);
+        assert!(out.contains("Sandbox:      NOT READ (the image was built after the last status run; the next one reads it)\nInstalled:"));
+        assert!(!found);
+        // The image the health read is still the one there: behind.
+        o.labels = Some("aaa|1".into());
+        let (out, found) = said(&a, &mut o);
+        assert!(out.contains("Sandbox:      BEHIND (the image runs pi-rukas v0.14.63"));
+        assert!(found);
+        // An image without the label, or none: the health's word stands.
+        for labels in [Some("|1".to_string()), None] {
+            o.labels = labels;
+            assert!(said(&a, &mut o).1);
+        }
     }
 
     #[test]
