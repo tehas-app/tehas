@@ -542,4 +542,21 @@ t_eq "$(t_calls fake-start)" "7"
 t_lacks "$t_out" "its last cycle parked on"
 t_lacks "$(t_calls gh)" "Not started: the last cycle parked on"
 
+t_case "a Retry ticked in the park comment lifts the hold once the question label is off (#1829)"
+# A person ticks Retry, then swaps the labels for tehas:ready by hand before a
+# slot frees: rule 4 no longer sees the issue, and the hold must.
+parked_again "Words."
+no_question
+comments 7 "$(park_body ' ' x ' ')" alice
+lifts
+t_contains "$t_out" "lift #7: its last cycle parked on intent-park and the body has not changed since, lifted on the Retry alice ticked"
+
+t_case "a Retry ticked by an account that may not authorise work lifts nothing"
+parked_again "Words."
+no_question
+comments 7 "$(park_body ' ' x ' ')" mallory
+holds "Words."
+t_contains "$t_out" "hold #7: its last cycle parked on intent-park and the body has not changed since"
+t_lacks "$t_out" "lift #7"
+
 t_done
