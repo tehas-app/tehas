@@ -10,7 +10,7 @@
 - `install.sh` and `tehas update` show a setting that is no longer used as a warning and go on; a refused setting still stops them.
 - A planning turn and a dev session renew their narrowed token every 5 minutes while they run (`tehasbot github-token --session`), so a session longer than an hour keeps GitHub.
 - A comment of the millwright's counts as its answer to a planning question only when its first line is `<!-- tehas:millwright issue=<n> action=answer -->`. The millwright is the bot, so the host's own notes are its comments too, and they no longer count as replies.
-- The narrowed token of a container has Contents and Pull requests write, Issues read and Metadata read. GitHub lets Pull requests write rename the repository's labels, so the dispatcher pins each granting `tehas:` label to its GitHub id in `state/labels`, on first sight, and an application of a label with another id grants nothing and is logged with both ids.
+- The narrowed token of a container has Contents and Pull requests write, Issues read and Metadata read. GitHub lets Pull requests write rename the repository's labels, so each granting `tehas:` label is pinned to its GitHub id in `state/labels`: `tehas labels` pins the labels it makes, a host from before the pins is pinned by its first poll, and after that the poll pins nothing. An application of a label with another id, or of a granting label with no pin, grants nothing and is logged.
 - Once the app's login is known (the first token minted after the update), the millwright is the app. A separate millwright account loses its rights from then on: its `tehas:ready` is taken off as an unauthorised label, and its marked comments carry no grant.
 - The manual's GitHub App page starts with `tehas setup --new-app`, and the pages on the host, the millwright and bootstrap describe one app for everything the factory does.
 
@@ -20,4 +20,4 @@ Set `TEHAS_GITHUB_APP_ID` in `instance.env` (`tehas setup --new-app` makes the a
 
 There is nothing to configure for the millwright: the app is the millwright. Whatever acted as a separate millwright account must act as the app from the update on.
 
-If you delete and recreate a `tehas:` label, remove its line from `~/tehas/state/labels` so the next poll pins the new one.
+If you delete and recreate a `tehas:` label, remove its line from `~/tehas/state/labels`, delete the label, and run `tehas labels` to make and pin it.

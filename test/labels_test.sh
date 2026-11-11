@@ -10,7 +10,10 @@ labels="$T_ROOT/bin/tehas labels"
 t_console || t_bad "$t_console_why"
 T_ENV_ALWAYS=(TEHAS_CONSOLE="$T_CONSOLE")
 table=$T/home/tehas/lib/labels.tsv
-t_stub gh 'case "$*" in *"${FAIL_ON:-no label fails}"*) exit 1 ;; esac'
+# With GH_MADE set, a label exists only once a label create made it there.
+t_stub gh 'case "$*" in *"${FAIL_ON:-no label fails}"*) exit 1 ;;
+  "label create "*) [ -z "${GH_MADE:-}" ] || touch "$GH_MADE/$3" ;;
+  "api repos/"*/labels/*) n=${2##*/}; [ -z "${GH_MADE:-}" ] || [ -e "$GH_MADE/$n" ] || exit 1; echo "LA_${n#tehas:}" ;; esac'
 reset() {
   rm -f "$T"/calls/*
   T_ENV=()
@@ -24,13 +27,46 @@ t_case "it needs only the repository, and makes the twenty-one labels there"
 reset
 t_run "$labels"
 t_eq "$t_rc" 0
-t_eq "$(t_calls gh | wc -l)" 21
+t_eq "$(t_calls gh | grep -c 'label create')" 21
 t_eq "$(t_calls gh | grep -c -e '--repo acme/widget .*--force')" 21
 for name in tehas:ready tehas:urgent tehas:running tehas:awaiting-merge tehas:shipped tehas:pause needs-human-attention \
   tehas:question tehas:plan tehas:refine tehas:planning tehas:replaced tehas:refined tehas:millwright-escalated tehas:next tehas:blocked tehas:refreshing tehas:all-hands tehas:lean epic tehas:finish; do
   t_contains "$(t_calls gh)" "label create $name --repo acme/widget"
   t_contains "$t_out" "label $name"
 done
+
+t_case "it pins each granting label to its id once the labels are made"
+pins=$T/home/tehas/state/labels
+for name in ready plan refine finish urgent next lean; do
+  t_contains "$(t_calls gh)" "api repos/acme/widget/labels/tehas:$name --jq .node_id"
+  t_contains "$t_out" "pinned the label tehas:$name as LA_$name in state/labels"
+  t_contains "$(cat "$pins")" "$(printf 'tehas:%s\tLA_%s' "$name" "$name")"
+done
+t_eq "$(wc -l <"$pins")" 7
+t_lacks "$(cat "$pins")" "tehas:running"
+
+t_case "once the file exists, a label that was there with no pin is named and not pinned, exit 1"
+printf 'tehas:ready\tLA_old\n' >"$pins"
+rm -f "$T"/calls/*
+t_run "$labels"
+t_eq "$t_rc" 1
+t_contains "$t_out" "not pinned: the label tehas:ready is LA_ready, and state/labels pins LA_old"
+t_contains "$t_out" "not pinned: the label tehas:plan (LA_plan) was there before with no pin"
+t_eq "$(cat "$pins")" "$(printf 'tehas:ready\tLA_old')"
+
+t_case "once the file exists, a label this run made is pinned"
+made=$T/gh-made
+rm -rf "$made"; mkdir -p "$made"
+T_ENV=(GH_MADE="$made")
+printf 'tehas:ready\tLA_ready\n' >"$pins"
+touch "$made/tehas:ready"
+rm -f "$T"/calls/*
+t_run "$labels"
+t_eq "$t_rc" 0
+t_contains "$t_out" "pinned the label tehas:plan as LA_plan in state/labels"
+t_eq "$(wc -l <"$pins")" 7
+T_ENV=()
+rm -f "$pins"
 
 t_case "it creates the all-hands label"
 t_contains "$(t_calls gh)" "label create tehas:all-hands "
@@ -49,7 +85,7 @@ t_run "$labels"
 t_eq "$t_rc" 1
 t_contains "$t_out" "tehas labels: could not make tehas:urgent"
 t_contains "$t_out" "label tehas:pause"
-t_eq "$(t_calls gh | wc -l)" 21
+t_eq "$(t_calls gh | grep -c 'label create')" 21
 
 t_case "without the repository nothing is called, exit 78"
 reset

@@ -243,8 +243,9 @@ compute on the issue.
   applications with it. The dispatcher keeps the GitHub id of each granting
   label (`tehas:ready`, `tehas:plan`, `tehas:refine`, `tehas:finish`,
   `tehas:urgent`, `tehas:next`, `tehas:lean`) in `~/tehas/state/labels`,
-  written the first time a poll sees the label, and an application of a label
-  with another id counts as nobody's. The poll logs each refusal with the
+  written by `tehas labels` when it makes the labels, and an application of a
+  label with another id, or of a granting label with no pin, counts as
+  nobody's. The poll logs each refusal with the
   label's name and both ids. See [label pins](/github-app#label-pins).
 - An allowed account is its login and its GitHub user id, as `install.sh`
   and `tehas update` recorded them. A label from the login with another id,

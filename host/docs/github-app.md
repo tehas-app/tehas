@@ -235,28 +235,48 @@ The dispatcher keeps the GitHub node id of each label whose application
 grants work (`tehas:ready`, `tehas:plan`, `tehas:refine`, `tehas:finish`,
 `tehas:urgent`, `tehas:next` and `tehas:lean`) in `~/tehas/state/labels`,
 one `<name><tab><id>` line each. The first page of each poll reads the
-repository's `tehas:` labels with their ids, and the label events carry the
-id of their label:
+repository's `tehas:` labels with their ids, and the label events read from
+GraphQL carry the id of their label:
 
-- A granting label with no line in the file is pinned as it is the first
-  time a poll sees it, and the poll logs `pinned the label <name> as <id>`.
-  A host with no file, a fresh one or one just updated, pins every label at
-  its first poll. A dry run says what it would pin and writes nothing.
+- `tehas labels`, which `install.sh` runs and `tehas update` runs when the
+  table of labels changes, makes the labels and then pins them, and prints
+  `pinned the label <name> as <id>`. With no file yet it pins every granting
+  label it finds, so a host that ran it at install has a pin for each. Once
+  the file exists it pins only a label it made itself, one that did not exist
+  before it ran: a label that was already there with no pin could be another
+  label renamed to the name, so it is named (`not pinned: ... was there before
+  with no pin`) and the command exits 1.
+- A host with no file, one from before the pins, is pinned by its first poll
+  that reads the labels: each granting label it finds, and the file is written
+  even when it finds none. A dry run says what it would pin and writes
+  nothing. From then on the poll pins nothing.
+- A granting label with no line in the file grants nothing: its applications
+  count as nobody's and the poll logs `refused: the label <name> (<id>) has no
+  pin`. A label that was missing when the pins were made therefore cannot be
+  brought in by renaming another label to its name.
 - An application whose label id is not the pinned one counts as nobody's:
   it starts nothing, and the label is taken off as one applied by an
   account that is not allowed. The poll logs `refused: ...` with the label's
   name, the pinned id and the event's id. When the label that now carries a
   granting name is not the pinned one, no application of it counts that poll,
   and the log says `refused: the label <name> is not the one pinned`.
+- A pinned label the poll's read of the labels did not name (deleted, or
+  pushed off the read's page of 100 by other `tehas:` labels), and every
+  pinned label when the labels could not be read, grants nothing that poll:
+  label events read from REST carry no label id, so they could not be told
+  from another label renamed to the name.
 
 A label renamed into a granting name, for example a person's `bug` renamed to
 `tehas:ready`, therefore grants nothing: its old applications carry the id of
 the old label.
 
-To delete and recreate a `tehas:` label (or to take one back after it was
-renamed), remove its line from `~/tehas/state/labels`, or the whole file, once
-the label is as it should be. The next poll pins the label it finds and logs
-it. Until then the label's applications count for nothing.
+To delete and recreate a `tehas:` label, remove its line from
+`~/tehas/state/labels` and delete the label, then run `tehas labels`: it makes
+the label and pins it. To pin a label that is there and has no pin, after
+checking on GitHub that it is the label it should be, add its line
+(`<name><tab><id>`, the id `tehas labels` printed) to the file by hand.
+`tehas labels` never changes a pin that is there. Until a label is pinned its
+applications count for nothing.
 
 ## The relay is a security channel
 

@@ -403,9 +403,10 @@ t_lacks "$(t_calls gh)" "needs-human-attention"
 t_lacks "$(t_calls gh)" "To retry, apply"
 
 # --- Label identity ------------------------------------------------------------
-# A grant by label counts only for the label pinned in state/labels: the
-# poll pins each granting tehas: label on first sight, and an application of
-# another label that now carries the name grants nothing.
+# A grant by label counts only for the label pinned in state/labels: with no
+# file the poll pins the granting tehas: labels it finds, after that it pins
+# nothing, and an application of another label that now carries the name, or
+# of a label with no pin, grants nothing.
 pins=$T/home/tehas/state/labels
 
 t_case "with no pins, a dry run says what it would pin and writes nothing"
@@ -424,6 +425,17 @@ t_eq "$(t_calls fake-start)" "7"
 t_contains "$t_out" "pinned the label tehas:ready as LA_ready in state/labels"
 t_eq "$(cat "$pins")" "$(printf 'tehas:ready\tLA_ready')"
 
+t_case "once the file is kept, a label missing when it was written is not pinned when one appears"
+reset
+printf 'tehas:urgent\tLA_urgent\n' >"$pins"
+echo '[{"id":"LA_bug","name":"tehas:ready"}]' >"$fx/labels.json"
+echo '[{"event":"labeled","label":{"name":"tehas:ready","id":"LA_bug"},"actor":{"login":"alice"}}]' >"$fx/events-7.json"
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" ""
+t_contains "$t_out" "refused: the label tehas:ready (LA_bug) has no pin in state/labels"
+t_lacks "$t_out" "pinned the label"
+t_eq "$(cat "$pins")" "$(printf 'tehas:urgent\tLA_urgent')"
+
 t_case "the pinned label grants as before, and the pins stay as they are"
 reset
 printf 'tehas:ready\tLA_ready\n' >"$pins"
@@ -437,12 +449,22 @@ t_lacks "$t_out" "refused"
 t_case "a person's other label renamed to tehas:ready grants nothing, and both ids are logged"
 reset
 printf 'tehas:ready\tLA_ready\n' >"$pins"
+echo '[{"id":"LA_ready","name":"tehas:ready"}]' >"$fx/labels.json"
 echo '[{"event":"labeled","label":{"name":"tehas:ready","id":"LA_bug"},"actor":{"login":"alice"}}]' >"$fx/events-7.json"
 t_run "$dispatch"
 t_eq "$(t_calls fake-start)" ""
 t_contains "$t_out" "refused: an application of tehas:ready on #7 is of another label than the one pinned in state/labels (pinned LA_ready, event LA_bug)"
 t_lacks "$t_out" "labelled by alice"
 t_eq "$(cat "$pins")" "$(printf 'tehas:ready\tLA_ready')"
+
+t_case "a pinned label the poll's read did not name grants nothing that poll"
+reset
+printf 'tehas:ready\tLA_ready\n' >"$pins"
+echo '[]' >"$fx/labels.json"
+echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"alice"}}]' >"$fx/events-7.json"
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" ""
+t_contains "$t_out" "refused: the pinned label tehas:ready was not among the labels this poll read"
 
 t_case "the label now called tehas:ready is not the pinned one: no application of it counts"
 reset

@@ -378,6 +378,9 @@ command -p cat "$t_got.e" >&2
 if [ "$t_rc" = 0 ] && [ ! -s "$t_got" ]; then
   case "$1 $2 $3 $4" in
     "api users/"*" --jq .id") jq -rn --arg l "${2#users/}" '$l | sub("\\[bot\\]$"; "") | explode | add' >"$t_got" ;;
+    # The node id tehas labels pins a label to (src/labels.rs): LA_ and the
+    # label's name after tehas:, unless the body answers it.
+    "api repos/"*/labels/*" --jq .node_id") t_l=${2##*/}; echo "LA_${t_l#tehas:}" >"$t_got" ;;
   esac
 fi
 if command -p grep -q '"login"' "$t_got" &&
