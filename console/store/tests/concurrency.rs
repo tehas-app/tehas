@@ -7,8 +7,8 @@
 // The writer verb exists only in debug builds, so a release test run skips this file.
 #![cfg(debug_assertions)]
 
-use rusqlite::{Connection, ErrorCode, OpenFlags};
-use std::collections::BTreeSet;
+use rusqlite::{params, Connection, ErrorCode, OpenFlags};
+use std::collections::{BTreeMap, BTreeSet};
 use std::io::{BufRead, BufReader};
 use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
@@ -51,6 +51,11 @@ const LOAD_WAITS: usize = 100;
 /// The waits of one reader's call. Load after load has shown one at most.
 const READER_WAITS: usize = 2;
 const ROWS_PER_WRITE: u32 = 3;
+/// The `issue` of the row a holder of the lock writes beside the writer's. The
+/// key of `sweep_log` is `(issue, at, what)` and the holder's `what` is its own
+/// name, so no batch of a writer can meet it. The issue is named here rather
+/// than borrowed from a batch number.
+const HELD_ISSUE: i64 = 0;
 
 /// A home with a store `init` made, as install.sh will leave it.
 fn home(name: &str) -> PathBuf {
@@ -122,8 +127,9 @@ fn held_lock(home: &Path, name: &str) -> Holder {
     conn.execute_batch("PRAGMA locking_mode = EXCLUSIVE; BEGIN EXCLUSIVE;")
         .unwrap();
     conn.execute(
-        "INSERT INTO branch_checks (name, head_sha, at, state) VALUES (?1, '0', 1, 'pending')",
-        [name],
+        "INSERT INTO sweep_log (issue, at, action, what, reason) \
+         VALUES (?1, 1, 'kept', ?2, 'concurrency')",
+        params![HELD_ISSUE, name],
     )
     .unwrap();
     Holder { conn }
@@ -173,15 +179,13 @@ fn db(home: &Path) -> PathBuf {
     home.join("state").join("tehas.db")
 }
 
-/// The rows of branch_checks by name and head, read by this process. The
+/// The rows of `sweep_log` by issue and `what`, read by this process. The
 /// reader asks for nothing: by now nothing holds the file, and a helper that
 /// waited for a lock would hide the very failure a case is checking for.
-fn rows(home: &Path) -> BTreeSet<(String, String)> {
+fn rows(home: &Path) -> BTreeSet<(i64, String)> {
     let conn = Connection::open_with_flags(db(home), OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
     conn.busy_timeout(Duration::ZERO).unwrap();
-    let mut q = conn
-        .prepare("SELECT name, head_sha FROM branch_checks")
-        .unwrap();
+    let mut q = conn.prepare("SELECT issue, what FROM sweep_log").unwrap();
     let all = q
         .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
         .unwrap()
@@ -190,8 +194,35 @@ fn rows(home: &Path) -> BTreeSet<(String, String)> {
     all
 }
 
-fn expected(batch: u32, rows: u32) -> impl Iterator<Item = (String, String)> {
-    (0..rows).map(move |row| (format!("test-write-{batch}"), row.to_string()))
+fn expected(batch: u32, rows: u32) -> impl Iterator<Item = (i64, String)> {
+    (0..rows).map(move |row| (batch as i64, format!("test-write-{batch}-{row}")))
+}
+
+/// The `rows` object of a `check` answer: the count of each counted table. The
+/// names are the store's own words, so a case can say which table holds the
+/// writer's rows and which hold none.
+fn row_counts(answer: &str) -> BTreeMap<String, i64> {
+    let body = answer
+        .split_once(r#""rows":{"#)
+        .map(|(_, rest)| rest.split('}').next().unwrap_or(""))
+        .unwrap_or("");
+    body.split(',')
+        .filter_map(|pair| {
+            let (name, n) = pair.split_once(':')?;
+            Some((name.trim_matches('"').to_string(), n.parse().ok()?))
+        })
+        .collect()
+}
+
+/// The tables of a `check` answer that hold rows beside `sweep_log` and `meta`:
+/// `init` writes the meta rows, and the only writer of this file is
+/// `test-write`, so the list is empty unless a row landed in the wrong table.
+fn tables_with_other_rows(counts: &BTreeMap<String, i64>) -> Vec<String> {
+    counts
+        .iter()
+        .filter(|(table, n)| **n != 0 && table.as_str() != "sweep_log" && table.as_str() != "meta")
+        .map(|(table, _)| table.clone())
+        .collect()
 }
 
 fn load_goes_on(end: Instant, starved: Instant, short: &AtomicU32) -> bool {
@@ -351,6 +382,47 @@ fn eight_writers_and_eight_readers_meet_no_busy_and_lose_no_write() {
 }
 
 #[test]
+fn three_batches_of_rows_keep_their_own_keys_and_check_counts_them() {
+    // The writer's rows go to `sweep_log`, the table a real verb writes
+    // (`sweep-locks`), keyed (issue, at, what): the batch is the issue and the
+    // row number is the tail of `what`, so three batches written in the same
+    // second still name nine distinct keys and no insert is refused. `check`
+    // counts them under sweep_log, and no other counted table gained a row.
+    let home = home("keys");
+    let mut want = BTreeSet::new();
+    for batch in 1..=3u32 {
+        let (batch_s, rows_s) = (batch.to_string(), "3".to_string());
+        let asked = [
+            "test-write",
+            "--batch",
+            batch_s.as_str(),
+            "--rows",
+            rows_s.as_str(),
+        ];
+        let out = run(&home, &asked);
+        assert!(out.status.success(), "batch {batch}: {}", said(&out));
+        assert!(
+            String::from_utf8_lossy(&out.stdout)
+                .contains(&format!(r#""batch":{batch},"rows":3}}"#)),
+            "batch {batch}: {}",
+            said(&out)
+        );
+        want.extend(expected(batch, 3));
+    }
+    let seen = rows(&home);
+    assert_eq!(seen.len(), 9, "no batch lost a row to another's key");
+    assert_eq!(seen, want, "each batch wrote its own `what`");
+    let out = run(&home, &["check"]);
+    assert!(out.status.success(), "check: {}", said(&out));
+    let answer = String::from_utf8_lossy(&out.stdout);
+    let counts = row_counts(&answer);
+    assert_eq!(counts.get("sweep_log"), Some(&9), "{answer}");
+    let others = tables_with_other_rows(&counts);
+    assert!(others.is_empty(), "rows outside sweep_log: {others:?}");
+    let _ = std::fs::remove_dir_all(&home);
+}
+
+#[test]
 fn a_call_kept_out_by_a_held_lock_reports_its_wait() {
     // The other side of `met_lock`, and the reason the load test above can trust
     // it: a call that really is kept out of the store says so. Without this case
@@ -403,14 +475,12 @@ fn a_call_kept_out_by_a_held_lock_reports_its_wait() {
     // the rows are there and the store still reads well.
     let out = run(&held, &["test-write", "--batch", "3", "--rows", "1"]);
     assert!(out.status.success(), "{}", said(&out));
-    assert_eq!(
-        rows(&held),
-        ["held", "test-write-1", "test-write-2", "test-write-3"]
-            .map(|name| (name.to_string(), "0".to_string()))
-            .into_iter()
-            .collect(),
-        "what the calls that waited wrote"
-    );
+    let want: BTreeSet<(i64, String)> = expected(1, 1)
+        .chain(expected(2, 1))
+        .chain(expected(3, 1))
+        .chain([(HELD_ISSUE, "held".to_string())])
+        .collect();
+    assert_eq!(rows(&held), want, "what the calls that waited wrote");
     let out = run(&held, &["check"]);
     assert!(out.status.success(), "check: {}", said(&out));
     let out = run(&reader_home, &["check"]);
@@ -418,6 +488,18 @@ fn a_call_kept_out_by_a_held_lock_reports_its_wait() {
     let _ = std::fs::remove_dir_all(&reader_home);
     let _ = std::fs::remove_dir_all(&held);
 }
+
+/// The rows of the writer this case kills. A `sweep_log` row is small: about
+/// 45 bytes of payload, ~90 bytes of page counting its key. SQLite writes dirty
+/// pages into the -wal only once they pass its 2 MiB page cache, so this many
+/// rows are what puts pages of the open transaction on disk before it dies.
+const KILLED_ROWS: u32 = 60_000;
+/// The bytes the -wal must have gained while that transaction is still open.
+/// 60_000 small rows spill about 3.5 MiB past the page cache, so a third of it
+/// is asked for: the bound says the writes reached disk, and nothing about how
+/// big one row is. It moved from the same 1 MiB over 4000 rows of 1 KiB note
+/// when `test-write` went from branch_checks to sweep_log.
+const KILLED_WAL_BYTES: u64 = 1024 * 1024;
 
 #[test]
 fn a_writer_killed_mid_transaction_leaves_a_whole_store_and_none_of_its_rows() {
@@ -430,11 +512,17 @@ fn a_writer_killed_mid_transaction_leaves_a_whole_store_and_none_of_its_rows() {
     };
     let before = wal(&home);
 
-    // Rows of 1 KiB, more of them than SQLite's page cache holds, so pages of
-    // the open transaction are in the -wal when it dies.
+    let rows_s = KILLED_ROWS.to_string();
     let mut child = store(
         &home,
-        &["test-write", "--batch", "2", "--rows", "4000", "--hold"],
+        &[
+            "test-write",
+            "--batch",
+            "2",
+            "--rows",
+            rows_s.as_str(),
+            "--hold",
+        ],
     )
     .stdin(Stdio::piped())
     .stdout(Stdio::piped())
@@ -454,16 +542,14 @@ fn a_writer_killed_mid_transaction_leaves_a_whole_store_and_none_of_its_rows() {
     let begin = probe.execute_batch("BEGIN IMMEDIATE").unwrap_err();
     assert_eq!(begin.sqlite_error_code(), Some(ErrorCode::DatabaseBusy));
     let seen: i64 = probe
-        .query_row(
-            "SELECT count(*) FROM branch_checks WHERE name = 'test-write-2'",
-            [],
-            |r| r.get(0),
-        )
+        .query_row("SELECT count(*) FROM sweep_log WHERE issue = 2", [], |r| {
+            r.get(0)
+        })
         .unwrap();
     assert_eq!(seen, 0);
     drop(probe);
     assert!(
-        wal(&home) > before + 1024 * 1024,
+        wal(&home) > before + KILLED_WAL_BYTES,
         "the -wal grew from {before} to {} bytes",
         wal(&home)
     );
@@ -476,7 +562,8 @@ fn a_writer_killed_mid_transaction_leaves_a_whole_store_and_none_of_its_rows() {
     assert!(out.status.success(), "check: {}", said(&out));
     let answer = String::from_utf8_lossy(&out.stdout);
     assert!(answer.contains("\"integrity\":\"ok\""), "{answer}");
-    assert!(answer.contains("\"branch_checks\":10,"), "{answer}");
+    let counts = row_counts(&answer);
+    assert_eq!(counts.get("sweep_log"), Some(&10), "{answer}");
     assert_eq!(rows(&home), expected(1, 10).collect());
 
     // The lock died with the process: the next writer is not kept waiting.

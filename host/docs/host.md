@@ -686,7 +686,7 @@ No container is given it. Only one program writes it: the store,
 `~/tehas/libexec/store`, which `install.sh` builds and installs with the
 console, or takes from the release.
 
-What is in it today: the schema, version 4 (`PRAGMA user_version`); `meta`,
+What is in it today: the schema, version 11 (`PRAGMA user_version`); `meta`,
 which says when the database was made, by which version and commit of tehas,
 for which instance and repository, and when records were last imported
 (`imported_at`); and the cycles' records: the approval
@@ -735,7 +735,15 @@ JSON answer:
   cycles and planning turns in one sequence, in the order they ended, which
   is what a `tehas history` cursor names now; a line written later takes the
   next number. The step to 7 adds a table for what each poll cost
-  ([What a poll costs](/operating#what-a-poll-costs)).
+  ([What a poll costs](/operating#what-a-poll-costs)). The step to 11 drops
+  eighteen tables no verb wrote and nothing read, with their rows:
+  `branch_checks`, `check_product`, `cycle_locks`, `edge_takeover`,
+  `endpoints`, `energy_samples`, `health_samples`, `improve_cap`,
+  `index_state`, `limits`, `pause_flag`, `platform_state`, `poll_demand`,
+  `queue_snapshot`, `refresh_hold`, `refresh_requests`, `refined` and
+  `release_history`. The pause, the limit and refresh requests stay in files
+  under `state/`. The step then compacts the file, so the migrate rewrites
+  it; `store check` counts 23 tables after it.
 - Then it runs `store import`: the records an older tehas kept as files (the
   cycle's under `state/cycles/`, `state/park-<n>.id`, and each planning
   session's `state/plan-<n>.json` with its brief, answer and history) become
