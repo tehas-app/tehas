@@ -25,7 +25,7 @@
 
 use serde_json::{json, Map, Value};
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 use tehas_core::hold::Report;
 use tehas_dispatch::read::build::{fill, snapshot, Sources};
 use tehas_dispatch::read::run::Calls;
@@ -126,10 +126,7 @@ fn main() {
             dry,
         ));
     }
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0);
+    let now = tehas_core::time::now();
     let began = Instant::now();
     let home = PathBuf::from(home);
     let mut src = Sources {
