@@ -17,7 +17,7 @@
 shim="$T_ROOT/host/sandbox/gh-shim"
 token=/run/tehas/github/token
 # Every case names TEHAS_RELAY_DIR: in a cycle's container /run/tehas/relay
-# exists, and an issue write there goes to the host and on to GitHub.
+# exists, and an issue write there goes to the host's relay, not the stub.
 
 # The answer of the nth call, as a script the stub reads: what gh printed on
 # stdout, what it printed on stderr, and the status it ended with. The text of an
