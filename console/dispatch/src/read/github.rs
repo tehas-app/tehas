@@ -1,7 +1,7 @@
 //! What a snapshot asks of GitHub: the open issues in pages of 25 with
 //! everything the rules read of each, the marks on closed issues and pull
 //! requests, and the reads the bash makes of one issue at a time, in the
-//! shapes libexec/dispatch reads them.
+//! shapes the bash dispatcher read them.
 
 use super::run::{Calls, GhFail};
 use serde_json::{json, Map, Value};
@@ -16,8 +16,8 @@ use tehas_core::events::Events;
 /// to take it off the list first.
 ///
 /// `host/labels.tsv` is where the label is created and described, and
-/// `libexec/dispatch`, `console/src/stop.rs` and `console/src/tidy.rs` name it in their
-/// commands: a rename has to reach this constant and those sites, and the two
+/// `console/dispatch/src/finish.rs`, `console/cycle/src/report.rs`,
+/// `console/src/stop.rs` and `console/src/tidy.rs` name it in their commands: a rename has to reach this constant and those sites, and the two
 /// tests below tie it to the queue's page and the guard's exemption.
 pub const RUNNING: &str = "tehas:running";
 

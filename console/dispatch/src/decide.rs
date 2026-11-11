@@ -1,4 +1,4 @@
-//! One poll's decisions, in the order libexec/dispatch takes them. Every line
+//! One poll's decisions, in the order the bash dispatcher took them. Every line
 //! it logs and every text it writes on an issue is the bash's, word for word,
 //! so the two can be compared line by line.
 
@@ -1141,8 +1141,7 @@ impl<'a> Poll<'a> {
 /// What the poll reads of a check's runs on the branch's head. The words are
 /// the set the store pins in console/store/src/schema.sql
 /// (`red`|`done`|`pending`|`none`|`unreadable`), so this enum is the contract
-/// in both places; `libexec/dispatch`'s jq of the same answer keeps its own
-/// copies until its own issue ports them.
+/// in both places.
 #[derive(Debug, PartialEq, Eq)]
 enum Check {
     /// A run says it failed, timed out or could not start.
@@ -1161,7 +1160,7 @@ enum Check {
     Unreadable,
 }
 
-/// The state of a branch's check runs, as libexec/dispatch reads them. Of the
+/// The state of a branch's check runs, as the bash dispatcher read them. Of the
 /// conclusions GitHub answers, these three pass: `success`, `neutral` and
 /// `skipped`; these three are red: `failure`, `timed_out` and
 /// `startup_failure`. Every other conclusion, and a finished run that names

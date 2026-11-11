@@ -9,7 +9,10 @@
 // factory's queue snapshot. Each piece is cut to a bound here, and the page sets
 // it only through textContent, never as markup.
 
-// Stages follow the labels tehas itself puts on issues (see console/src/queue.rs).
+// Stages follow the labels tehas itself puts on issues; one table, in
+// host/fun/stages.js, answers for the business page too.
+import { stageOf as stage } from "./stages.js";
+
 export const STAGES = {
   ready: "IN LINE",
   running: "BUILDING",
@@ -28,16 +31,12 @@ export const REASON_MAX = 200; // the reason a pause was asked for
 export const WORD_MAX = 40; // the words a round of Buzzword Buster is built from
 export const WORD_LEN = 10; // one word, cleaned
 
-// Which stage a ticket stands at, from its labels. The labels tehas writes are
-// the answer; a label from anywhere else is not. A closed ticket has left the
-// line whatever its labels say.
+// Which stage a ticket stands at: the one table of host/fun/stages.js, with the
+// plan stage off (the line has no place for a ticket that is only being
+// planned, so tehas:ready wins a ticket that carries both) and "backlog" for a
+// ticket none of the labels names.
 export function stageOf(labels, closed) {
-  if (closed) return "shipped";
-  if (labels.includes("needs-human-attention")) return "stopped";
-  if (labels.includes("tehas:awaiting-merge")) return "review";
-  if (labels.includes("tehas:running")) return "running";
-  if (labels.includes("tehas:ready")) return "ready";
-  return "backlog";
+  return stage(labels, closed, { planning: false, shipped: "shipped", none: "backlog" });
 }
 
 // The pause, as tehasbot status writes it: {flag: {at, reason} or null, label}.
@@ -119,17 +118,10 @@ export function collectWords(raw, tickets) {
     .sort((a, b) => b.count - a.count || a.word.localeCompare(b.word)).slice(0, WORD_MAX);
 }
 
-// How long ago an ISO moment was, in the coarsest unit that reads well. nowMs is
-// the present, given by the caller: a moment ahead of it is "just now", not a
-// negative age.
-export function ago(iso, nowMs) {
-  if (!iso) return "";
-  const s = Math.max(0, (nowMs - new Date(iso).getTime()) / 1000);
-  if (s < 90) return "just now";
-  if (s < 5400) return `${Math.round(s / 60)} min ago`;
-  if (s < 129600) return `${Math.round(s / 3600)} h ago`;
-  return `${Math.round(s / 86400)} d ago`;
-}
+// How long ago an ISO moment was is the same question the host panel asks, and
+// has one answer in host/fun/host-data.js: re-exported here so the page keeps
+// asking game-data.js for its data. An unparseable stamp reads "".
+export { ago } from "./host-data.js";
 
 // The tickets a factory still finishes: the ones it has on the line at the
 // building stage.

@@ -6,15 +6,20 @@
 //!   xtask collect-changelog --script <path> <argument>...
 //!   xtask pack-release --script <path> <argument>...
 //!   xtask tag-release --script <path> <argument>...
+//!   xtask tag-deploy --script <path> <argument>...
+//!   xtask polyfills --script <path> <argument>...
 //!   xtask test --root <dir> [path...]
 //!
 //! select-tests is scripts/select-tests.sh: src/select.rs says what it prints.
 //! pack-release is scripts/pack-release.sh, whose header (the --script) is its
 //! usage: src/pack.rs. tag-release is scripts/tag-release.sh, the same way:
 //! src/tag.rs; it works in the checkout two levels above the --script.
+//! tag-deploy is scripts/tag-deploy.sh, the same way: src/deploy.rs.
 //! collect-changelog is scripts/collect-changelog.sh, the same way:
 //! src/changelog.rs; its default changelog is the CHANGELOG.md two levels
-//! above the --script. test
+//! above the --script. polyfills is scripts/polyfills.sh, the same way:
+//! src/polyfills.rs; its default tree is the checkout two levels above the
+//! --script. test
 //! is scripts/test.sh: src/run.rs. Each check of its pool runs as
 //! `xtask test-task`, a process of this program's own.
 //!
@@ -24,7 +29,9 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 mod changelog;
+mod deploy;
 mod pack;
+mod polyfills;
 mod run;
 mod select;
 mod tag;
@@ -40,13 +47,17 @@ fn main() -> ExitCode {
         Some("select-tests") => select_tests(&args[1..]),
         Some("pack-release") => pack_release(&args[1..]),
         Some("tag-release") => tag_release(&args[1..]),
+        Some("tag-deploy") => tag_deploy(&args[1..]),
         Some("collect-changelog") => collect_changelog(&args[1..]),
+        Some("polyfills") => polyfills(&args[1..]),
         Some("test") => test(&args[1..]),
         _ => {
             eprintln!("xtask: usage: xtask select-tests --root <dir> <path>...");
             eprintln!("       xtask pack-release --script <path> <argument>...");
             eprintln!("       xtask tag-release --script <path> <argument>...");
+            eprintln!("       xtask tag-deploy --script <path> <argument>...");
             eprintln!("       xtask collect-changelog --script <path> <argument>...");
+            eprintln!("       xtask polyfills --script <path> <argument>...");
             eprintln!("       xtask test --root <dir> [path...]");
             ExitCode::from(64)
         }
@@ -127,6 +138,31 @@ fn tag_release(args: &[String]) -> ExitCode {
     ExitCode::from(tag::run(&a, &root))
 }
 
+fn tag_deploy(args: &[String]) -> ExitCode {
+    let (script, rest) = match args {
+        [flag, script, rest @ ..] if flag == "--script" => (PathBuf::from(script), rest),
+        _ => {
+            eprintln!("xtask: tag-deploy needs --script <path>");
+            return ExitCode::from(64);
+        }
+    };
+    let a = match deploy::parse(rest) {
+        Ok(deploy::Parsed::Run(a)) => a,
+        Ok(deploy::Parsed::Help) => {
+            let text = std::fs::read_to_string(&script).unwrap_or_default();
+            tehas_core::out!("{}", pack::help(&text));
+            return ExitCode::SUCCESS;
+        }
+        Err(msg) => {
+            eprintln!("tag-deploy: {msg}");
+            return ExitCode::from(64);
+        }
+    };
+    let root = pack::logical(&pwd(), &script.join("../.."));
+    let ssh = deploy::ssh_command(std::env::var("TEHAS_SSH").ok().as_deref());
+    ExitCode::from(deploy::run(&a, &mut deploy::Real::new(&root, ssh)))
+}
+
 fn collect_changelog(args: &[String]) -> ExitCode {
     let (script, rest) = match args {
         [flag, script, rest @ ..] if flag == "--script" => (PathBuf::from(script), rest),
@@ -149,6 +185,37 @@ fn collect_changelog(args: &[String]) -> ExitCode {
     };
     let default = pack::logical(&pwd(), &script.join("../../CHANGELOG.md"));
     ExitCode::from(changelog::run(&a, &default))
+}
+
+fn polyfills(args: &[String]) -> ExitCode {
+    let (script, rest) = match args {
+        [flag, script, rest @ ..] if flag == "--script" => (PathBuf::from(script), rest),
+        _ => {
+            eprintln!("xtask: polyfills needs --script <path>");
+            return ExitCode::from(64);
+        }
+    };
+    let usage = || pack::help(&std::fs::read_to_string(&script).unwrap_or_default());
+    let a = match polyfills::parse(rest) {
+        Ok(polyfills::Parsed::Run(a)) => a,
+        Ok(polyfills::Parsed::Help) => {
+            tehas_core::out!("{}", usage());
+            return ExitCode::SUCCESS;
+        }
+        Err(polyfills::Bad::Usage) => {
+            eprint!("{}", usage());
+            return ExitCode::from(64);
+        }
+        Err(polyfills::Bad::Say(msg)) => {
+            eprintln!("polyfills: {msg}");
+            return ExitCode::from(64);
+        }
+    };
+    let root = match &a.root {
+        Some(r) => pack::logical(&pwd(), r),
+        None => pack::logical(&pwd(), &script.join("../..")),
+    };
+    ExitCode::from(polyfills::run(&a, &root))
 }
 
 fn test(args: &[String]) -> ExitCode {

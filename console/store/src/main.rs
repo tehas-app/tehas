@@ -56,6 +56,13 @@
 //!     {"api":1,"verb":"import","ok":true,"imported":{<table>:N},"moved":N,
 //!     "held":[],"dry_run":false}.
 //!
+//!   --say on init, migrate and import prints the lines a person reads in
+//!   place of the answer: `store: made <db>`, `store: <db> at schema <n>,
+//!   backup <file>`, and `store: imported ...; moved <n> files to <dir>/` when
+//!   an import moved any. `import --dry-run --say` is install.sh's gate before
+//!   its first copy: silent when the install may go on, else install.sh's own
+//!   refusal lines and exit 1 (src/say.rs).
+//!
 //! This part of the store is the schema, the two housekeeping verbs, migrate,
 //! import, the record verbs of cycles, parks, questions, approvals and
 //! planning, and the history (src/verbs.rs and the files it names):
@@ -112,7 +119,7 @@
 //!   store sweep-locks [--days N] [--max N] [--dry-run]
 //!   store locks-held
 //!   store upkeep [--dry-run]
-//!   store poll-record --started <unix[.frac]> --times <file> --tally <file>
+//!   store poll-record --started <unix[.frac]> --cpu-ms <n> --gh <n>
 //!                --writes-log <file> [--starts <n>]
 //!   store poll-show | poll-show --api --now <unix>
 //!   store poll-idle --since <seconds> [--budget <spec>]
@@ -210,6 +217,7 @@ mod park;
 mod plan;
 mod poll;
 mod review_issue;
+mod say;
 mod slow;
 mod upkeep;
 mod verbs;
@@ -236,6 +244,8 @@ mod park_tests;
 mod plan_tests;
 #[cfg(test)]
 mod poll_tests;
+#[cfg(test)]
+mod say_tests;
 #[cfg(test)]
 mod schema_tests;
 #[cfg(test)]
@@ -268,7 +278,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-const USAGE: &str = "usage: store init [--force] [--version <v> --commit <sha> --instance <name> --repo <owner/name>] [--json] | migrate --backup <dir> [--json] | check [--json] | import [--dry-run] [--json] | slow <file> --out <file> | paths-overlap <body-file> <changed-file> | review-issue <path> <branch> <commit> | review-file --repo <owner/name> --doc <path> --branch <b> --commit <sha> [--ask <line>] [--private <name>]... [--gh <program>] | batch | cycle-start | cycle-image | cycle-end | cycle-show | settings-view | cycle-note | cycle-stop-asked | cycle-heartbeat | publish | park | park-show | park-retry | park-told | question-asked | question-known | question-answered | approval-record | approval-current | approval-view | plan-begin | plan-answer | plan-end | plan-note | plan-show | plan-view | history-show | backup | copy | prune | sweep-locks | locks-held | upkeep | poll-record | poll-show | poll-idle | poll-begin";
+const USAGE: &str = "usage: store init [--force] [--version <v> --commit <sha> --instance <name> --repo <owner/name>] [--json|--say] | migrate --backup <dir> [--json|--say] | check [--json] | import [--dry-run] [--json|--say] | slow <file> --out <file> | paths-overlap <body-file> <changed-file> | review-issue <path> <branch> <commit> | review-file --repo <owner/name> --doc <path> --branch <b> --commit <sha> [--ask <line>] [--private <name>]... [--gh <program>] | batch | cycle-start | cycle-image | cycle-end | cycle-show | settings-view | cycle-note | cycle-stop-asked | cycle-heartbeat | publish | park | park-show | park-retry | park-told | question-asked | question-known | question-answered | approval-record | approval-current | approval-view | plan-begin | plan-answer | plan-end | plan-note | plan-show | plan-view | history-show | backup | copy | prune | sweep-locks | locks-held | upkeep | poll-record | poll-show | poll-idle | poll-begin";
 
 /// The longest a value the caller passes may be. The four come from an
 /// instance's settings and a checkout's git, not from a container.
@@ -277,7 +287,7 @@ const MAX_REPO: usize = 200;
 const MAX_COMMIT: usize = 40;
 
 fn main() -> ExitCode {
-    let args: Vec<String> = std::env::args().skip(1).collect();
+    let (args, say) = say::strip(&std::env::args().skip(1).collect::<Vec<_>>());
     // The one setting of this build that is read from the environment at all,
     // and the only thing it buys is the line of a wait on a lock. It is judged
     // before anything is run -- the bound check included, which is the very
@@ -364,6 +374,16 @@ fn main() -> ExitCode {
         Ok(t) => t,
         Err(code) => return code,
     };
+    if say {
+        let said = say::say(&home, &verb, execute(&home, &verb, now), now);
+        for line in &said.out {
+            tehas_core::outln!("{line}");
+        }
+        for line in &said.err {
+            eprintln!("{line}");
+        }
+        return ExitCode::from(said.code);
+    }
     match execute(&home, &verb, now) {
         Ok(line) => {
             tehas_core::outln!("{line}");

@@ -51,6 +51,15 @@ export function agoText(secs) {
   return `${Math.round(at / 86400)} d ago`;
 }
 
+// How long ago an ISO stamp was, in the same words as agoText. An empty or
+// unparseable stamp is "", not a reading: a page draws no age where the file
+// names no moment. nowMs is the present, given by the caller.
+export function ago(iso, nowMs) {
+  const at = typeof iso === "string" ? Date.parse(iso) : NaN;
+  if (Number.isNaN(at)) return "";
+  return agoText((nowMs - at) / 1000);
+}
+
 // data: the parsed top file. nowMs: the present, by the server's clock.
 export function layout(data, nowMs) {
   const file = data && typeof data === "object" ? data : {};

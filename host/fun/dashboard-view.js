@@ -8,9 +8,17 @@
 // The page starts only where the fragment's markup is, so node can import
 // the file (test/dashboard_view_test.mjs, test/dashboard_host_test.mjs).
 
+// el() comes from host/fun/dom.js, the classic script that sets
+// globalThis.TEHAS_DOM. The import runs that script where there is no page (node,
+// where the tests import this module); a page loads the file with a tag of its
+// own. The function is read at the draw, so importing the module asks for no
+// element.
+import "./dom.js";
 // The figures of the host section, and the words that say how old a reading is:
 // one module, shared with the panel on the factory floor (host/fun/host-view.js).
-import { agoText, dueToRead, layout } from "./host-data.js";
+// ago() is the same words for the stamp of a file rather than a reading, so no
+// page counts an age of its own.
+import { ago, agoText, dueToRead, layout } from "./host-data.js";
 // The "Last 10 days" section: what live/analytics.json means, worked out by one
 // module (host/fun/analytics-data.js); here it is drawn.
 import { analyticsView, dueToRead as dueAnalytics } from "./analytics-data.js";
@@ -23,14 +31,8 @@ globalThis.TEHAS_DASHBOARD = { probe: "state" };
 // (test/dashboard_host_test.mjs renders two from one import).
 export function start() {
   const MAX = 10;
+  const el = globalThis.TEHAS_DOM.el;
   const $ = (id) => document.getElementById(id);
-  const el = (tag, cls, text) => {
-    const e = document.createElement(tag);
-    if (cls) e.className = cls;
-    if (text !== undefined) e.textContent = text;
-    return e;
-  };
-  const ago = (iso) => agoText((Date.now() - new Date(iso).getTime()) / 1000);
   const dur = (secs) => {
     const m = Math.floor(secs / 60), h = Math.floor(m / 60);
     return h > 0 ? h + " h " + (m % 60) + " min" : m + " min";
