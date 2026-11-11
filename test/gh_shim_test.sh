@@ -133,6 +133,42 @@ t_eq "$(cat "$T/shim.err")" "HTTP 429: Too Many Requests"
 t_eq "$(calls)" 1
 t_lacks "$(cat "$T/shim.err")" "trying once more"
 
+t_case "a call whose argument ends in =- is not retried"
+stub_reset
+answer 1 "" "HTTP 429: Too Many Requests" 1
+answer 2 "the issue" "" 0
+T_ENV=(TEHAS_GH_BIN="$T/bin/gh" TEHAS_GH_RETRY_WAIT=0)
+t_run "printf hi | $shim pr comment 7 --body-file=- >'$T/shim.out' 2>'$T/shim.err'"
+T_ENV=()
+t_eq "$t_rc" 1
+t_eq "$(cat "$T/shim.out")" ""
+t_eq "$(cat "$T/shim.err")" "HTTP 429: Too Many Requests"
+t_eq "$(calls)" 1
+t_lacks "$(cat "$T/shim.err")" "trying once more"
+
+t_case "an argument ending in =- that is no stdin read is still retried"
+stub_reset
+answer 1 "" "HTTP 429: Too Many Requests" 1
+answer 2 "the issue" "" 0
+run_shim "pr comment 7 --body=hi"
+t_eq "$t_rc" 0
+t_eq "$(cat "$T/shim.out")" "the issue"
+t_eq "$(cat "$T/shim.err")" "$retry"
+t_eq "$(calls)" 2
+
+t_case "an argument ending in @- is not retried"
+stub_reset
+answer 1 "" "HTTP 429: Too Many Requests" 1
+answer 2 "the issue" "" 0
+T_ENV=(TEHAS_GH_BIN="$T/bin/gh" TEHAS_GH_RETRY_WAIT=0)
+t_run "printf hi | $shim api repos/acme/widget/issues/7/comments -F body=@- >'$T/shim.out' 2>'$T/shim.err'"
+T_ENV=()
+t_eq "$t_rc" 1
+t_eq "$(cat "$T/shim.out")" ""
+t_eq "$(cat "$T/shim.err")" "HTTP 429: Too Many Requests"
+t_eq "$(calls)" 1
+t_lacks "$(cat "$T/shim.err")" "trying once more"
+
 t_case "the shim leaves no temporary file of its own"
 stub_reset
 answer 1 "" "HTTP 429: Too Many Requests" 1
