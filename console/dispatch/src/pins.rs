@@ -3,79 +3,39 @@
 //! A label event names a label by its current name, so an account that may
 //! manage the repository's labels could rename another label a person applied
 //! to `tehas:ready`, and the person's old application would read as an
-//! approval. The poll keeps the GitHub node id of each granting `tehas:` label
+//! approval. The pins keep the GitHub node id of each granting `tehas:` label
 //! in `$TEHAS_HOME/state/labels`, one `<name>\t<node id>` line each, and an
 //! application of a granting label counts only when its label is the pinned
-//! one:
+//! one.
+//!
+//! `tehas labels` makes the labels and then pins each granting one it finds
+//! with no pin (`pin_made`), so a host that ran it has a pin for every
+//! granting label. The poll pins only when the file does not exist yet: a host
+//! from before the pins. Its first poll that reads the labels pins the
+//! granting labels it finds and writes the file, even with no pin in it.
+//! From then on the poll pins nothing:
 //!
 //! - The first page of the queue names the repository's `tehas:` labels with
-//!   their ids. A granting label with no pin is pinned as it is now (first
-//!   sight); one whose id is not the pinned one grants nothing this poll, in
-//!   any event read of it, and the poll says so with both ids.
+//!   their ids. A granting label whose id is not the pinned one, or that has
+//!   no pin, grants nothing this poll, in any event read of it, and the poll
+//!   says so. A label missing when the pins were made has no pin, so a label
+//!   renamed to its name later grants nothing either.
 //! - An application read from GraphQL carries its label's id, and counts only
-//!   when that id is the pinned one. Without a pin for its name the first id
-//!   seen is pinned.
+//!   when that id is the pinned one. An application of a granting label with
+//!   no pin counts for nothing once the file exists.
 //! - An application that does not count keeps its place in the timeline, so
 //!   the label still reads as applied, with `unknown` as its account: no rule
 //!   takes it as anyone's approval.
 //!
 //! A person who deletes and recreates a `tehas:` label removes its line from
-//! the file (or the file) to pin the new one at the next poll.
+//! the file and runs `tehas labels`, which pins the label as it now is.
 
 use serde_json::{json, Value};
-use std::collections::{BTreeMap, BTreeSet};
-use std::fs;
-use std::io::{self, Write};
-use std::os::unix::fs::OpenOptionsExt;
+use std::collections::BTreeSet;
 use std::path::Path;
 use tehas_core::events::UNKNOWN_ACTOR;
-
-/// The labels whose application the dispatcher takes as a person's word to
-/// start, plan or order work.
-pub const GRANTING: [&str; 7] = [
-    "tehas:ready",
-    "tehas:plan",
-    "tehas:refine",
-    "tehas:finish",
-    "tehas:urgent",
-    "tehas:next",
-    "tehas:lean",
-];
-
-/// Where the pins are kept, under TEHAS_HOME.
-pub const FILE: &str = "state/labels";
-
-/// Label name to node id.
-pub type Pins = BTreeMap<String, String>;
-
-/// The pins on record. A missing or unreadable file is none; a line of no
-/// `<name>\t<id>` shape is skipped.
-pub fn load(home: &Path) -> Pins {
-    let text = fs::read_to_string(home.join(FILE)).unwrap_or_default();
-    text.lines()
-        .filter_map(|l| {
-            let (name, id) = l.split_once('\t')?;
-            (!name.is_empty() && !id.is_empty() && !id.contains('\t'))
-                .then(|| (name.to_string(), id.to_string()))
-        })
-        .collect()
-}
-
-fn save(home: &Path, pins: &Pins) -> io::Result<()> {
-    let file = home.join(FILE);
-    let new = file.with_extension("new");
-    let _ = fs::remove_file(&new);
-    let mut f = fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .open(&new)?;
-    for (name, id) in pins {
-        writeln!(f, "{name}\t{id}")?;
-    }
-    f.sync_all()?;
-    fs::rename(&new, &file)
-}
+use tehas_core::label_pins::{granting, save};
+pub use tehas_core::label_pins::{load, pin_made, Pins, FILE, GRANTING};
 
 /// What judging a poll's read found.
 #[derive(Debug, Default, PartialEq)]
@@ -86,24 +46,20 @@ pub struct Judged {
     pub refused: BTreeSet<String>,
     /// One line for each refusal.
     pub said: Vec<String>,
+    /// The current labels were read.
+    pub read: bool,
 }
 
-fn granting(name: &str) -> bool {
-    GRANTING.contains(&name)
-}
-
-/// Judges the snapshot `snap` against `pins`, adding the pins it makes: the
-/// current labels (`tehas_labels`) first, then each application in the
-/// issues' and the control issue's events, which a refused one leaves with
-/// `unknown` as its account.
-pub fn judge(pins: &mut Pins, snap: &mut Value) -> Judged {
+/// Judges the snapshot `snap` against `pins`: the current labels
+/// (`tehas_labels`) first, then each application in the issues' and the
+/// control issue's events, which a refused one leaves with `unknown` as its
+/// account. Only when the pins are not `kept` yet does it pin, and then only
+/// the current labels: an event pins nothing.
+pub fn judge(pins: &mut Pins, kept: bool, snap: &mut Value) -> Judged {
     let mut j = Judged::default();
-    for l in snap
-        .get("tehas_labels")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-    {
+    let current = snap.get("tehas_labels").and_then(Value::as_array).cloned();
+    j.read = current.is_some();
+    for l in current.iter().flatten() {
         let (Some(name), Some(id)) = (
             l.get("name").and_then(Value::as_str),
             l.get("id").and_then(Value::as_str),
@@ -114,9 +70,15 @@ pub fn judge(pins: &mut Pins, snap: &mut Value) -> Judged {
             continue;
         }
         match pins.get(name) {
-            None => {
+            None if !kept => {
                 pins.insert(name.to_string(), id.to_string());
                 j.pinned.push((name.to_string(), id.to_string()));
+            }
+            None => {
+                j.refused.insert(name.to_string());
+                j.said.push(format!(
+                    "refused: the label {name} ({id}) has no pin in {FILE}: no application of it counts until a person pins it (see tehas labels)"
+                ));
             }
             Some(p) if p != id => {
                 j.refused.insert(name.to_string());
@@ -125,6 +87,25 @@ pub fn judge(pins: &mut Pins, snap: &mut Value) -> Judged {
                 ));
             }
             Some(_) => {}
+        }
+    }
+    // Once the pins are kept, a pinned label the read did not name (gone, or
+    // pushed off the page by other labels), or every pinned label when the
+    // labels could not be read, is refused this poll: an event read without
+    // label ids, from REST, could not tell it from another label renamed to
+    // its name.
+    if kept {
+        let named: BTreeSet<&str> = current
+            .iter()
+            .flatten()
+            .filter_map(|l| l.get("name").and_then(Value::as_str))
+            .collect();
+        for name in pins.keys() {
+            if granting(name) && !named.contains(name.as_str()) && j.refused.insert(name.clone()) {
+                j.said.push(format!(
+                    "refused: the pinned label {name} was not among the labels this poll read: no application of it counts this poll"
+                ));
+            }
         }
     }
     let mut lists: Vec<(String, &mut Value)> = Vec::new();
@@ -138,12 +119,12 @@ pub fn judge(pins: &mut Pins, snap: &mut Value) -> Judged {
     let mut said = Vec::new();
     for (n, ev) in lists {
         each_event(ev, &mut |e| {
-            judge_event(pins, &mut j, &mut said, &n, e);
+            judge_event(pins, kept, &mut j, &mut said, &n, e);
         });
     }
     if let Some(ev) = snap.pointer_mut("/control/events") {
         each_event(ev, &mut |e| {
-            judge_event(pins, &mut j, &mut said, "the control issue", e);
+            judge_event(pins, kept, &mut j, &mut said, "the control issue", e);
         });
     }
     j.said.extend(said);
@@ -163,7 +144,14 @@ fn each_event(v: &mut Value, f: &mut dyn FnMut(&mut Value)) {
     }
 }
 
-fn judge_event(pins: &mut Pins, j: &mut Judged, said: &mut Vec<String>, at: &str, e: &mut Value) {
+fn judge_event(
+    pins: &Pins,
+    kept: bool,
+    j: &mut Judged,
+    said: &mut Vec<String>,
+    at: &str,
+    e: &mut Value,
+) {
     if e.get("event").and_then(Value::as_str) != Some("labeled") {
         return;
     }
@@ -181,15 +169,18 @@ fn judge_event(pins: &mut Pins, j: &mut Judged, said: &mut Vec<String>, at: &str
         .to_string();
     let refuse = if j.refused.contains(&name) {
         true
-    } else if id.is_empty() {
-        false
     } else {
         match pins.get(&name) {
+            // A host from before the pins whose labels could not be read this
+            // poll: as before the pins.
+            None if !kept => false,
             None => {
-                pins.insert(name.clone(), id.clone());
-                j.pinned.push((name.clone(), id.clone()));
-                false
+                said.push(format!(
+                    "refused: an application of {name} on {at} is of a label with no pin in {FILE}"
+                ));
+                true
             }
+            Some(_) if id.is_empty() => false,
             Some(p) if *p != id => {
                 said.push(format!(
                     "refused: an application of {name} on {at} is of another label than the one pinned in {FILE} (pinned {p}, event {id})"
@@ -208,13 +199,14 @@ fn judge_event(pins: &mut Pins, j: &mut Judged, said: &mut Vec<String>, at: &str
 /// The lines to log, and the labels refused this poll.
 pub fn settle(home: &Path, snap: &mut Value, dry: bool) -> (Vec<String>, Vec<String>) {
     let mut pins = load(home);
-    let j = judge(&mut pins, snap);
+    let kept = home.join(FILE).exists();
+    let j = judge(&mut pins, kept, snap);
     let mut said = Vec::new();
     for (name, id) in &j.pinned {
         let word = if dry { "would pin" } else { "pinned" };
         said.push(format!("{word} the label {name} as {id} in {FILE}"));
     }
-    if !dry && !j.pinned.is_empty() {
+    if !dry && (!j.pinned.is_empty() || (!kept && j.read)) {
         if let Err(e) = save(home, &pins) {
             said.push(format!(
                 "WARN: the label pins could not be kept in {FILE}: {e}"
@@ -228,6 +220,7 @@ pub fn settle(home: &Path, snap: &mut Value, dry: bool) -> (Vec<String>, Vec<Str
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
     use tehas_core::testdir::TestDir;
 
     fn snap(labels: Value, events: Value) -> Value {
@@ -252,7 +245,7 @@ mod tests {
             json!([{"name": "tehas:ready", "id": "LA_real"}]),
             json!([ready("LA_real", "alice")]),
         );
-        let j = judge(&mut pins, &mut s);
+        let j = judge(&mut pins, true, &mut s);
         assert_eq!(actor(&s), "alice");
         assert!(j.said.is_empty() && j.pinned.is_empty() && j.refused.is_empty());
     }
@@ -262,8 +255,11 @@ mod tests {
     #[test]
     fn another_label_renamed_to_ready_grants_nothing() {
         let mut pins = Pins::from([("tehas:ready".into(), "LA_real".into())]);
-        let mut s = snap(json!([]), json!([ready("LA_bug", "alice")]));
-        let j = judge(&mut pins, &mut s);
+        let mut s = snap(
+            json!([{"name": "tehas:ready", "id": "LA_real"}]),
+            json!([ready("LA_bug", "alice")]),
+        );
+        let j = judge(&mut pins, true, &mut s);
         assert_eq!(actor(&s), UNKNOWN_ACTOR);
         assert_eq!(j.said.len(), 1);
         assert!(j.said[0].contains("tehas:ready") && j.said[0].contains("#7"));
@@ -283,28 +279,96 @@ mod tests {
             json!([{"name": "tehas:ready", "id": "LA_bug"}]),
             json!([no_id]),
         );
-        let j = judge(&mut pins, &mut s);
+        let j = judge(&mut pins, true, &mut s);
         assert_eq!(actor(&s), UNKNOWN_ACTOR);
         assert_eq!(j.refused, BTreeSet::from(["tehas:ready".to_string()]));
         assert!(j.said[0].contains("pinned LA_real, now LA_bug"));
     }
 
     #[test]
-    fn with_no_pin_the_label_is_pinned_on_first_sight() {
+    fn with_no_file_the_current_labels_are_pinned_on_first_sight() {
         let mut pins = Pins::new();
         let mut s = snap(
             json!([{"name": "tehas:ready", "id": "LA_real"}, {"name": "tehas:running", "id": "LA_x"}]),
             json!([ready("LA_real", "alice")]),
         );
-        let j = judge(&mut pins, &mut s);
+        let j = judge(&mut pins, false, &mut s);
         assert_eq!(actor(&s), "alice");
         assert_eq!(j.pinned, vec![("tehas:ready".into(), "LA_real".into())]);
         assert_eq!(pins.len(), 1);
-        // And without the current labels, from the first event seen.
+        assert!(j.read);
+    }
+
+    // With no file and no label read this poll, an event pins nothing and
+    // counts as before the pins.
+    #[test]
+    fn with_no_file_an_event_pins_nothing() {
         let mut pins = Pins::new();
         let mut s = snap(Value::Null, json!([ready("LA_real", "alice")]));
-        judge(&mut pins, &mut s);
-        assert_eq!(pins["tehas:ready"], "LA_real");
+        let j = judge(&mut pins, false, &mut s);
+        assert_eq!(actor(&s), "alice");
+        assert!(pins.is_empty() && j.pinned.is_empty() && !j.read);
+    }
+
+    // tehas:plan was missing when the pins were made; a label a cycle renames
+    // to tehas:plan later is not pinned on first sight, and grants nothing.
+    #[test]
+    fn once_the_file_is_kept_a_label_with_no_pin_grants_nothing() {
+        let mut pins = Pins::from([("tehas:ready".into(), "LA_real".into())]);
+        let plan = json!({"event": "labeled", "label": {"name": "tehas:plan", "id": "LA_bug"},
+            "actor": {"login": "alice"}});
+        let mut s = snap(
+            json!([{"name": "tehas:plan", "id": "LA_bug"}, {"name": "tehas:ready", "id": "LA_real"}]),
+            json!([plan]),
+        );
+        let j = judge(&mut pins, true, &mut s);
+        assert_eq!(actor(&s), UNKNOWN_ACTOR);
+        assert!(j.pinned.is_empty());
+        assert!(!pins.contains_key("tehas:plan"));
+        assert_eq!(j.refused, BTreeSet::from(["tehas:plan".to_string()]));
+        assert!(j.said[0].contains("tehas:plan (LA_bug) has no pin"));
+        // And an event of it, with the label not on the first page, and with
+        // no id at all.
+        for label in [
+            json!({"name": "tehas:plan", "id": "LA_bug"}),
+            json!({"name": "tehas:plan"}),
+        ] {
+            let e = json!({"event": "labeled", "label": label, "actor": {"login": "alice"}});
+            let mut s = snap(
+                json!([{"name": "tehas:ready", "id": "LA_real"}]),
+                json!([e]),
+            );
+            let j = judge(&mut pins, true, &mut s);
+            assert_eq!(actor(&s), UNKNOWN_ACTOR);
+            assert!(j.said[0].contains("of a label with no pin"));
+        }
+    }
+
+    // The real tehas:plan renamed away, `bug` renamed to tehas:plan and pushed
+    // off the read's page: an event with no label id, as REST reads it, must
+    // not count. Nor when the labels could not be read at all.
+    #[test]
+    fn a_pinned_label_the_read_did_not_name_is_refused() {
+        let pins0 = Pins::from([("tehas:plan".into(), "LA_plan".into())]);
+        let no_id = json!({"event": "labeled", "label": {"name": "tehas:plan"},
+            "actor": {"login": "alice"}});
+        for labels in [json!([{"name": "tehas:x", "id": "LA_x"}]), Value::Null] {
+            let mut pins = pins0.clone();
+            let mut s = snap(labels, json!([no_id.clone()]));
+            let j = judge(&mut pins, true, &mut s);
+            assert_eq!(actor(&s), UNKNOWN_ACTOR);
+            assert_eq!(j.refused, BTreeSet::from(["tehas:plan".to_string()]));
+            assert!(j.said[0].contains("was not among the labels this poll read"));
+        }
+        // Named by the read with its pinned id, the same event counts.
+        let mut pins = pins0.clone();
+        let mut s = snap(
+            json!([{"name": "tehas:plan", "id": "LA_plan"}]),
+            json!([no_id]),
+        );
+        let j = judge(&mut pins, true, &mut s);
+        assert_eq!(actor(&s), "alice");
+        assert!(j.refused.is_empty());
     }
 
     #[test]
@@ -313,7 +377,7 @@ mod tests {
         let pause = json!({"event": "labeled", "label": {"name": "tehas:pause", "id": "LA_other"},
             "actor": {"login": "alice"}});
         let mut s = json!({"control": {"events": [pause]}});
-        let j = judge(&mut pins, &mut s);
+        let j = judge(&mut pins, true, &mut s);
         assert_eq!(s["control"]["events"][0]["actor"]["login"], "alice");
         assert!(j.said.is_empty());
     }
@@ -341,5 +405,22 @@ mod tests {
         assert_eq!(refused, vec!["tehas:ready".to_string()]);
         assert!(said[0].contains("pinned LA_real, now LA_new"));
         assert_eq!(load(d.path())["tehas:ready"], "LA_real");
+    }
+
+    #[test]
+    fn with_no_file_a_poll_that_read_the_labels_writes_it_even_empty() {
+        let d = TestDir::new("pins-empty");
+        fs::create_dir_all(d.path().join("state")).unwrap();
+        // Labels not read: nothing is written.
+        settle(d.path(), &mut json!({}), false);
+        assert!(!d.path().join(FILE).exists());
+        settle(d.path(), &mut snap(json!([]), json!([])), false);
+        assert_eq!(fs::read_to_string(d.path().join(FILE)).unwrap(), "");
+        // From then on a label that appears is not pinned.
+        let mut s = snap(json!([{"name": "tehas:ready", "id": "LA_late"}]), json!([]));
+        let (said, refused) = settle(d.path(), &mut s, false);
+        assert_eq!(refused, vec!["tehas:ready".to_string()]);
+        assert!(said[0].contains("has no pin"));
+        assert!(load(d.path()).is_empty());
     }
 }
