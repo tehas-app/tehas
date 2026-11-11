@@ -465,8 +465,7 @@ pub struct Calls {
     /// here. Every gh process of the poll gets it as `TEHAS_GH_TOKEN`, which
     /// host/shim/gh hands to gh as `GH_TOKEN` instead of asking
     /// `tehasbot github-token` for one of its own. The poll holds it in memory
-    /// only: it is never logged, written, or put in the poll's record, and a
-    /// poll with no app named has nothing here.
+    /// only: it is never logged, written, or put in the poll's record.
     pub gh_token: Option<String>,
     /// What the retry of this poll's reads costs and leaves behind: the budget of
     /// retries and the lines of the reads it could not make. It belongs to the
@@ -529,17 +528,10 @@ const BATCH_BOUND: u64 = tehas_core::file::READ_BOUND;
 
 /// The token of the host's GitHub App, asked for once by the poll that first
 /// needs it: `$TEHAS_HOME/bin/tehasbot github-token` with the poll's own environment,
-/// as the bash runs it, printing the token and nothing else. Only when
-/// `TEHAS_GITHUB_APP_ID` names an app. When the program could not be run or
-/// answered nothing, this gives nothing and the poll's gh calls go on as they
-/// did before, each asking for a token of its own.
+/// as the bash runs it, printing the token and nothing else. When the program
+/// could not be run or answered nothing, this gives nothing and the poll's gh
+/// calls go on as they did before, each asking for a token of its own.
 pub fn read_gh_token(home: &Path, bound: Duration) -> Option<String> {
-    if std::env::var("TEHAS_GITHUB_APP_ID")
-        .unwrap_or_default()
-        .is_empty()
-    {
-        return None;
-    }
     let program = home.join("bin/tehasbot").to_string_lossy().into_owned();
     let r = run(&program, &["github-token".to_string()], bound);
     let token = r.out.lines().next().unwrap_or("").trim();
@@ -706,13 +698,7 @@ impl Calls {
                 ran: Some(outcome.ran),
             });
         }
-        // Who the token is acts for nobody: the guard that refuses a bot on
-        // the allowed list reads its login as GitHub gives it.
-        Ok(if args == ["api", "user"] {
-            parse_raw(&outcome.ran.out)
-        } else {
-            parse(&outcome.ran.out)
-        })
+        Ok(parse(&outcome.ran.out))
     }
 
     /// gh's output as JSON, whatever its exit status: the bash reads some
@@ -909,7 +895,7 @@ pub(super) mod tests {
             "-f",
             "query=mutation { x }"
         ])));
-        assert!(gh_reads(&a(&["api", "user"])));
+        assert!(gh_reads(&a(&["api", "rate_limit"])));
         assert!(gh_reads(&a(&[
             "api",
             "repos/a/b/issues/7/events?per_page=100",
@@ -1082,7 +1068,7 @@ printf '[{{"number":1}}]\n'
         };
         let mut calls = calls_of(&home);
         let got = calls
-            .gh(&["api", "user"])
+            .gh(&["api", "rate_limit"])
             .unwrap_or_else(|f| panic!("the second attempt answers, not {}", f.line));
         assert_eq!(got, serde_json::json!([{"number": 1}]));
         assert_eq!(stub_calls(&home), 2, "one read, tried once more");
@@ -1114,7 +1100,7 @@ printf '[{{"number":1}}]\n'
         };
         let mut calls = calls_of(&home);
         let err = calls
-            .gh(&["api", "user"])
+            .gh(&["api", "rate_limit"])
             .expect_err("a gh that always fails answers nothing");
         assert_eq!(stub_calls(&home), 2, "made twice, never three times");
         // The poll's own counter and the stub's agree, as the case of `build.rs`
@@ -1130,7 +1116,8 @@ printf '[{{"number":1}}]\n'
         assert_eq!(lines.len(), 1, "one line for one failed read: {lines:?}");
         assert_eq!(err.line, lines[0], "the poll logs what the caller is given");
         assert!(
-            err.line.starts_with("ERROR: gh api user failed: HTTP 502"),
+            err.line
+                .starts_with("ERROR: gh api rate_limit failed: HTTP 502"),
             "gh's words of the list, not its body: {}",
             err.line
         );
@@ -1172,14 +1159,15 @@ printf '[{{"number":1}}]\n'
         };
         let mut calls = calls_of(&home);
         let err = calls
-            .gh(&["api", "user"])
+            .gh(&["api", "rate_limit"])
             .expect_err("a gh that always fails answers nothing");
         assert_eq!(stub_calls(&home), 1, "no clock, so no second attempt");
         let lines = calls.retry.taken();
         assert_eq!(lines.len(), 1, "one line for one failed read: {lines:?}");
         assert_eq!(err.line, lines[0], "the poll logs what the caller is given");
         assert!(
-            err.line.starts_with("ERROR: gh api user failed: HTTP 502"),
+            err.line
+                .starts_with("ERROR: gh api rate_limit failed: HTTP 502"),
             "gh's words of the list, not its body: {}",
             err.line
         );
@@ -1209,7 +1197,7 @@ printf '[{{"number":1}}]\n'
         };
         let mut calls = spent_calls_of(&home);
         let err = calls
-            .gh(&["api", "user"])
+            .gh(&["api", "rate_limit"])
             .expect_err("a gh that always fails answers nothing");
         assert_eq!(
             stub_calls(&home),
@@ -1233,7 +1221,7 @@ printf '[{{"number":1}}]\n'
 
     /// One read of gh, answered with the token the stub was given.
     fn given(calls: &mut Calls) -> String {
-        match calls.gh(&["api", "user"]) {
+        match calls.gh(&["api", "rate_limit"]) {
             // gh's own answer keeps the newline printf gave it, as any command's
             // does; the token is what lies before it.
             Ok(v) => v.as_str().unwrap_or_default().trim_end().to_string(),
@@ -1249,9 +1237,8 @@ printf '[{{"number":1}}]\n'
         // the poll of `poll.rs` does for its reads and its writes.
         let _guard = TOKEN_LOCK.lock().unwrap_or_else(|e| e.into_inner());
 
-        // With an app named, one run of the token program covers the whole
+        // One run of the token program covers the whole
         // poll, and every gh call of it sees the same token.
-        std::env::set_var("TEHAS_GITHUB_APP_ID", "5452597");
         let home = match token_home("token-once", true) {
             Some(d) => d,
             None => return,
@@ -1297,25 +1284,6 @@ printf '[{{"number":1}}]\n'
         );
         assert!(r.ok());
         assert_eq!(r.out.trim(), "ghs_1");
-
-        // With no app named the poll takes nothing and gh is given nothing:
-        // each call pays for a token of its own, as it did before.
-        std::env::remove_var("TEHAS_GITHUB_APP_ID");
-        let home = match token_home("token-none", true) {
-            Some(d) => d,
-            None => return,
-        };
-        let mut calls = calls_of(&home);
-        calls.gh_token = read_gh_token(&home, Duration::from_secs(5));
-        for _ in 0..3 {
-            assert_eq!(given(&mut calls), "untouched");
-        }
-        assert_eq!(calls.gh_token, None);
-        assert_eq!(calls.gh_count, 3);
-        assert!(
-            !home.join("bin/tehasbot.count").exists(),
-            "no token program runs when the instance names no app"
-        );
     }
 
     #[test]
@@ -1326,7 +1294,6 @@ printf '[{{"number":1}}]\n'
             None => return,
         };
         let program = home.join("bin/tehasbot");
-        std::env::set_var("TEHAS_GITHUB_APP_ID", "5452597");
         let mut calls = calls_of(&home);
 
         // The program is not there at all: nothing is kept, and the calls go
@@ -1349,6 +1316,5 @@ printf '[{{"number":1}}]\n'
             assert_eq!(calls.gh_token, None, "a failed run of {body}");
             assert_eq!(given(&mut calls), "untouched");
         }
-        std::env::remove_var("TEHAS_GITHUB_APP_ID");
     }
 }

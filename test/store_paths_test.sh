@@ -20,8 +20,7 @@
 # - state/dispatch.*: the poll's own lock and notes.
 # Every other record moved. install.sh imports the old files (store import),
 # and the poll stops at 78 while one is left (test/dispatch_guard_test.sh).
-# install.sh may name the old files, on the lines `allow` lists. The export copy
-# an ended session left, state/plan-<n>.turn, is neither imported nor guarded:
+# The export copy an ended session left, state/plan-<n>.turn, is neither imported nor guarded:
 # nothing reads it.
 # shellcheck disable=SC2016  # the patterns and samples are code, not expanded
 # shellcheck source=test/lib.sh
@@ -41,17 +40,6 @@ forbid() {
   forbidden+=("$1")
   forbidden_sample+=("$2")
 }
-
-# allow <file> <line pattern> <why>: lines of code that name an old file
-# because they move it away or stop on it.
-a_file=()
-a_re=()
-allow() {
-  a_file+=("$1")
-  a_re+=("$2")
-}
-allow install.sh 'plan-(<n>|\[0-9\]\*)\.json\.keep|%\.json\.keep' \
-  "install.sh moves a planning session's kept directory out of state/"
 
 # carrier <pattern> <sample> <files that may name it> <why it stays a file>
 # An empty list: no code this test reads names it. tehas-cycle reads it.
@@ -155,8 +143,8 @@ carrier '\$\{?st\}?\.rc\b|\.json\.rc\b' 'rc=$(cat "$st.rc" 2>/dev/null)' \
   'console/src/health.rs' \
   "a planning turn's exit, from the turn to the poll that collects it"
 carrier '\$\{?st\}?\.lock\b|\.json\.lock\b' '[ -f "$st.lock" ]' \
-  'install.sh console/src/health.rs' \
-  "the lock a planning turn holds while it runs; install.sh moves no .keep while it is held"
+  'console/src/health.rs' \
+  "the lock a planning turn holds while it runs; nothing moves its .keep while it is held"
 carrier '\$\{?st\}?\.out\b|\.json\.out\b' 'what=$(cat "$st.out")' \
   "$an/plan.rs $an/tests.rs" \
   "a planning container's output"
@@ -169,10 +157,6 @@ found=""
 while IFS= read -r f; do
   for re in "${forbidden[@]}"; do
     hits=$(grep -nE -- "$re" "$T_ROOT/$f" 2>/dev/null) || continue
-    for i in "${!a_file[@]}"; do
-      [ "${a_file[i]}" = "$f" ] || continue
-      hits=$(grep -vE -- "^[0-9]+:.*(${a_re[i]})" <<<"$hits") || continue 2
-    done
     found+="$f: $hits"$'\n'
   done
 done < <(code)
@@ -231,11 +215,6 @@ t_contains "$(code)" "libexec/update"
 t_contains "$(code)" "lib/config.sh"
 t_contains "$(code)" "console/analytics/src/run.rs"
 t_contains "$(code)" "install.sh"
-
-t_case "each allowed line is still there"
-for i in "${!a_file[@]}"; do
-  grep -qE -- "${a_re[i]}" "$T_ROOT/${a_file[i]}" || t_bad "${a_file[i]} has no line ${a_re[i]}: take it off the list"
-done
 
 t_case "every file the importer reads is an old record the tests look for, and stops the poll"
 imp=$T_ROOT/console/store/src/import.rs

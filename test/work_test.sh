@@ -208,7 +208,9 @@ $state/memory:/home/vscode/.vipune
 $state/sessions:/home/vscode/.pi/agent/sessions
 $T/home/.pi/agent/mcp.json:/home/vscode/.pi/agent/mcp.json:ro
 $state/models.json:/home/vscode/.pi/agent/models.json:ro
-$T/home/.pi/agent/settings.json:/home/vscode/.pi/agent/settings.json:ro"
+$T/home/.pi/agent/settings.json:/home/vscode/.pi/agent/settings.json:ro
+$T/home/tehas/state/github-cycle:/run/tehas/github:ro
+$state/relay:/run/tehas/relay"
 t_eq "$(after -v | LC_ALL=C sort)" "$(printf '%s\n' "$want" | LC_ALL=C sort)"
 
 t_case "the agents are told the path inside the container, not the host's"
@@ -222,7 +224,7 @@ t_case "the cycle's transcripts directory is its own and is made for it"
 t_eq "$(find "$runs" -maxdepth 0 -type d | wc -l)" 1
 
 t_case "the cycle's own state is made beside its workspace, and no shared directory is mounted"
-t_eq "$(find "$state" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | LC_ALL=C sort | tr '\n' ' ')" "cache memory sessions "
+t_eq "$(find "$state" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | LC_ALL=C sort | tr '\n' ' ')" "cache memory relay sessions "
 t_lacks "$(cat "$T"/calls/docker.args.*)" "pi-ensemble"
 t_lacks "$(cat "$T"/calls/docker.args.*)" "$T/home/.pi/agent/sessions"
 t_lacks "$(cat "$T"/calls/docker.args.*)" "$T/home/.vipune"
@@ -454,69 +456,52 @@ t_contains "$t_out" "not of acme/widget"
 t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
 git -C "$checkout" remote set-url origin https://github.com/acme/widget.git
 
-t_case "a missing token starts no container"
+t_case "no token to be had starts no container"
 rm -f "$T"/calls/*
-T_ENV=("TEHAS_CGROUP_ROOT=$T_CGROUP" GH_CYCLE_TOKEN=cycle-token)
+rm -rf "$T/home/tehas/state/github" "$T/home/tehas/state/github-cycle"
+T_ENV=("TEHAS_CGROUP_ROOT=$T_CGROUP" "TEHAS_GITHUB_APP_KEY=$T/no-such-key.pem")
 t_run "$work 7"
-t_eq "$t_rc" 64
-t_contains "$t_out" "GH_TOKEN is not set"
+t_eq "$t_rc" 1
+t_contains "$t_out" "tehas work: no GitHub token for the app"
 t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
+t_app_world
 
 t_case "the cycle's containers are given the cycle token, and the host's token is nowhere in them"
 rm -f "$T"/calls/*
-T_ENV=(GH_TOKEN=host-token GH_CYCLE_TOKEN=cycle-token "TEHAS_CGROUP_ROOT=$T_CGROUP")
+T_ENV=("TEHAS_CGROUP_ROOT=$T_CGROUP")
 t_run "$work 7"
-t_eq "$(cat "$T/calls/docker.token" 2>/dev/null)" "cycle-token"
+t_eq "$(cat "$T/calls/docker.token" 2>/dev/null)" "ghs_cycle"
 t_contains "$(cycle_args)" "pi-rukas-headless"
-t_lacks "$(cat "$T"/calls/docker.args.* 2>/dev/null)" "host-token"
-t_lacks "$(cat "$T"/calls/docker.args.* 2>/dev/null)" "cycle-token"
+t_lacks "$(cat "$T"/calls/docker.args.* 2>/dev/null)" "ghs_app"
+t_lacks "$(cat "$T"/calls/docker.args.* 2>/dev/null)" "ghs_cycle"
 t_contains "$(preflight_args)" "GH_TOKEN"
 T_ENV=("${env_ok[@]}")
 
-for unset in "" "GH_CYCLE_TOKEN="; do
-  t_case "without the cycle token ${unset:-unset} a cycle exits 78 and calls nothing"
-  rm -f "$T"/calls/*
-  T_ENV=(GH_TOKEN=host-token "TEHAS_CGROUP_ROOT=$T_CGROUP" ${unset:+"$unset"})
-  t_run "$work 7"
-  t_eq "$t_rc" 78
-  t_contains "$t_out" "GH_CYCLE_TOKEN is not set (see ~/.config/tehas/env)"
-  t_eq "$(find "$T/calls" -name 'docker*' -o -name 'gh*' -o -name 'git*' | wc -l)" 0
-done
-T_ENV=("${env_ok[@]}")
-
-t_case "with a GitHub App the container is given the cycle token, never the app's"
+t_case "with a GitHub App the container is given the app's narrowed cycle token, never the app's own"
 rm -f "$T"/calls/*
-cp "$TEHAS_INSTANCE_DIR/instance.env" "$T/instance.env.before"
-printf '%s\n' TEHAS_GITHUB_APP_ID=5452597 TEHAS_GITHUB_APP_INSTALLATION=174742089 "TEHAS_BOT_LOGIN=tehas-app-bot[bot]" >>"$TEHAS_INSTANCE_DIR/instance.env"
-mkdir -p "$T/home/tehas/state/github"
-printf 'ghs_app\n' >"$T/home/tehas/state/github/token"
-echo $(($(date +%s) + 3000)) >"$T/home/tehas/state/github/token.expires"
 t_console || t_bad "no console: $t_console_why"
-T_ENV=("TEHAS_CGROUP_ROOT=$T_CGROUP" TEHAS_CONSOLE_CMD="$T_CONSOLE" GH_CYCLE_TOKEN=cycle-token)
-# Without the cycle token's login the host could not tell the cycle's pull
-# request for the factory's: no cycle starts.
+T_ENV=("TEHAS_CGROUP_ROOT=$T_CGROUP" TEHAS_CONSOLE_CMD="$T_CONSOLE")
 t_run "$work 7"
-t_eq "$t_rc" 78
-t_contains "$t_out" "tehas work: TEHAS_CYCLE_LOGIN is not set and a GitHub App is"
-t_eq "$(find "$T/calls" -name 'docker*' -o -name 'gh*' -o -name 'git*' | wc -l)" 0
-printf '%s\n' TEHAS_CYCLE_LOGIN=tehas-cycle >>"$TEHAS_INSTANCE_DIR/instance.env"
-t_run "$work 7"
-t_eq "$(cat "$T/calls/docker.token" 2>/dev/null)" "cycle-token"
+t_eq "$(cat "$T/calls/docker.token" 2>/dev/null)" "ghs_cycle"
 run_args=$(cycle_args)
 t_contains "$run_args" "pi-rukas-headless"
-t_lacks "$run_args" "/run/tehas/github"
+t_contains "$run_args" "$T/home/tehas/state/github-cycle:/run/tehas/github:ro"
+t_lacks "$run_args" "state/github:"
 t_lacks "$run_args" "ghs_app"
+t_lacks "$run_args" "user-token"
 t_lacks "$run_args" "github-app.pem"
-cp "$T/instance.env.before" "$TEHAS_INSTANCE_DIR/instance.env"
-rm -f "$T/home/tehas/state/github/token" "$T/home/tehas/state/github/token.expires"
+t_lacks "$(cat "$T"/calls/docker.* 2>/dev/null)" "user-token"
 
-t_case "without a GitHub App the container is given no token directory"
-rm -f "$T"/calls/*
-T_ENV=("${env_ok[@]}")
+t_case "with a GitHub App and no cycle token to be had, no cycle starts"
+rm -f "$T"/calls/* "$T/home/tehas/state/github-cycle/token" "$T/home/tehas/state/github-cycle/token.expires"
+# No key to make one with: tehasbot github-token --cycle fails.
+T_ENV+=("TEHAS_GITHUB_APP_KEY=$T/no-such-key.pem")
 t_run "$work 7"
-run_args=$(cat "$T"/calls/docker.args.* 2>/dev/null)
-t_contains "$run_args" "pi-rukas-headless"
-t_lacks "$run_args" "/run/tehas/github"
+t_eq "$t_rc" 1
+t_contains "$t_out" "tehas work: no cycle token from the app, not starting a cycle"
+t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
+t_app_world
+T_ENV=("${env_ok[@]}")
 
 t_case "a scratch disk takes the place of the tmpfs, at the same path, and for this cycle alone"
 t_console || t_bad "no console: $t_console_why"

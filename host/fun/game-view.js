@@ -4,16 +4,14 @@
 // (test/game_view_test.mjs): the stage a ticket stands at, how a pause reads,
 // how much of a ticket's text is taken. This file polls, draws and answers
 // clicks.
+import "./dom.js";
 import { DEFAULT_KW, LINE, STAGES, ago, finishingIssues, normalize } from "./game-data.js";
 
 (() => {
   const $ = (id) => document.getElementById(id);
-  const el = (tag, cls, text) => {
-    const e = document.createElement(tag);
-    if (cls) e.className = cls;
-    if (text !== undefined) e.textContent = text;
-    return e;
-  };
+  // The one el(), from host/fun/dom.js: the import above ran the script for node,
+  // and a page loads the file with a tag of its own.
+  const el = (...args) => globalThis.TEHAS_DOM.el(...args);
 
   const STORAGE_KEY = "tehas-game-view-export-v1";
 

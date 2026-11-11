@@ -87,12 +87,12 @@ use crate::forge::CALL_BOUND;
 use serde_json::Value;
 use std::env;
 use std::fs::{self, OpenOptions, TryLockError};
-use std::io::Write;
-use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
+use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 use tehas_core::events::{pause_holds, UNKNOWN_ACTOR};
+use tehas_core::file::Temp;
 use tehas_core::forge::{Bounded, Forge, GitHub};
 use tehas_core::limit::{self as limit_file, leading_number, object, quoted};
 pub use tehas_core::limit::{epoch, oneline, REASON};
@@ -477,19 +477,9 @@ fn pause_set(file: &Path, reason: &str) -> u8 {
     // The name is the one name, so a leftover of a run killed mid-write, or
     // something planted in state/ under it, is removed first and the new file
     // made from nothing at mode 0600: what lands is this document.
-    let tmp = file.with_extension("json.new");
-    let _ = fs::remove_file(&tmp);
-    let written = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .open(&tmp)
-        .and_then(|mut f| f.write_all(doc.as_bytes()))
-        .and_then(|()| fs::set_permissions(&tmp, fs::Permissions::from_mode(0o600)))
-        .and_then(|()| fs::rename(&tmp, file));
-    if written.is_err() {
-        let _ = fs::remove_file(&tmp);
-        eprintln!("tehas pause: could not write {}", file.display());
+    if let Err(e) = tehas_core::file::write_atomic(file, doc.as_bytes(), 0o600, &Temp::Predictable)
+    {
+        eprintln!("tehas pause: could not write {}: {e}", file.display());
         return 1;
     }
     tehas_core::outln!(
@@ -1017,19 +1007,9 @@ fn write_limit(file: &Path, want: &Wanted) -> Result<(), u8> {
     // something planted in state/ under it, is removed first and the new file
     // made from nothing at mode 0600: what lands is this document, whatever
     // was there before.
-    let tmp = file.with_extension("json.new");
-    let _ = fs::remove_file(&tmp);
-    let written = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .open(&tmp)
-        .and_then(|mut f| f.write_all(doc.as_bytes()))
-        .and_then(|()| fs::set_permissions(&tmp, fs::Permissions::from_mode(0o600)))
-        .and_then(|()| fs::rename(&tmp, file));
-    if written.is_err() {
-        let _ = fs::remove_file(&tmp);
-        eprintln!("tehas limit: could not write {}", file.display());
+    if let Err(e) = tehas_core::file::write_atomic(file, doc.as_bytes(), 0o600, &Temp::Predictable)
+    {
+        eprintln!("tehas limit: could not write {}: {e}", file.display());
         return Err(1);
     }
     Ok(())
@@ -1063,7 +1043,7 @@ mod tests {
     use super::*;
     use serde_json::json;
     use std::fs::File;
-    use std::os::unix::fs::symlink;
+    use std::os::unix::fs::{symlink, PermissionsExt};
     use tehas_core::testdir::TestDir;
 
     fn dir(name: &str) -> TestDir {

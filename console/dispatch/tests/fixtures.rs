@@ -45,10 +45,10 @@ fn base() -> (Value, Value) {
     let settings = json!({
         "TEHAS_REPO": "acme/widget", "TEHAS_CONTROL_ISSUE": 1,
         "TEHAS_ALLOWED_LABELERS": "alice", "TEHAS_TICKET_CONCURRENCY": 1,
+        "TEHAS_BOT_LOGIN": "tehas-bot",
     });
     let snapshot = json!({
         "repo": "acme/widget",
-        "user": {"login": "tehas-bot"},
         "control": {"labels": [], "events": []},
         "plan_open": [],
         "running": [],
@@ -397,7 +397,7 @@ fn expand(c: &Value, snap: &mut Value) {
         }
         snap["issues"] = Value::Object(is);
     }
-    // parked: the park on record, {reason, body, told, retries}.
+    // parked: the park on record, {reason, body, told, retries, question}.
     if let Some(m) = c.get("parked").and_then(Value::as_object) {
         let mut is = issues(snap);
         for (n, x) in m {
@@ -405,6 +405,7 @@ fn expand(c: &Value, snap: &mut Value) {
             let park = json!({"reason": x.get("reason").unwrap_or(&json!("intent-park")),
                 "body_sha256": body_sha256(&json!({"body": x["body"]})),
                 "retries": x.get("retries").unwrap_or(&json!(0)),
+                "question": x.get("question").unwrap_or(&Value::Null),
                 "told_at": if told { json!("2026-10-01T03:00:00Z") } else { Value::Null }});
             let i = is.entry(n.clone()).or_insert_with(|| json!({}));
             i["park"] = park;

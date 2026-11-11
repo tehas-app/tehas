@@ -147,11 +147,8 @@ pub fn record_here(accept: &[String]) -> u8 {
         eprintln!("tehas: --accept-id {a} names no login of TEHAS_ALLOWED_LABELERS or TEHAS_MILLWRIGHT_LOGIN");
         return 64;
     }
-    let app = !env::var("TEHAS_GITHUB_APP_ID")
-        .unwrap_or_default()
-        .is_empty();
-    if app && env::var("GH_TOKEN").unwrap_or_default().is_empty() {
-        let Some(token) = crate::github::for_a_container() else {
+    if env::var("GH_TOKEN").unwrap_or_default().is_empty() {
+        let Ok(token) = crate::github::token_env() else {
             eprintln!("tehas: ids record: no GitHub token for the app, so no user id was recorded");
             return 78;
         };

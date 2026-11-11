@@ -49,6 +49,8 @@ no-new-privileges:true
 -v
 @T@/home/.pi/agent/settings.json:/home/vscode/.pi/agent/settings.json:ro
 -v
+@T@/home/tehas/state/github-session:/run/tehas/github:ro
+-v
 @T@/home/tehas/dev/main.state/target:/home/vscode/.tehas-target
 -e
 GH_TOKEN

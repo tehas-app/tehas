@@ -5,6 +5,7 @@
 . "$(dirname "$0")/lib.sh" || exit 1
 
 api="$T_ROOT/bin/tehas api"
+T_APP_WORLD=0
 t_console || t_bad "$t_console_why"
 T_ENV_ALWAYS=(TEHAS_CONSOLE="$T_CONSOLE")
 t_stub gh
@@ -49,20 +50,22 @@ t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "state-load"
 t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "host-bridge"
 t_eq "$(t_calls gh)$(t_calls git)" ""
 
-t_case "api --json: the millwright and the old fixer field are its login when the instance has one"
+t_case "api --json: the millwright and the old fixer field are the app's login when the factory has one"
 reset
-t_instance "${T_MINIMAL[@]}" TEHAS_MILLWRIGHT_LOGIN=millbot
 installed v0.8.0+cb6912a
+mkdir -p "$T/home/tehas/state/github"
+echo 'millbot[bot]' >"$T/home/tehas/state/github/login"
 t_run "$api --json"
 t_eq "$t_rc" 0
-t_eq "$(jq -c '[.millwright, .fixer]' <<<"$t_out")" '["millbot","millbot"]'
+t_eq "$(jq -c '[.millwright, .fixer]' <<<"$t_out")" '["millbot[bot]","millbot[bot]"]'
 
 t_case "api without --json prints the millwright's login"
 reset
-t_instance "${T_MINIMAL[@]}" TEHAS_MILLWRIGHT_LOGIN=millbot
 installed v0.8.0+cb6912a
+mkdir -p "$T/home/tehas/state/github"
+echo 'millbot[bot]' >"$T/home/tehas/state/github/login"
 t_run "$api"
-t_contains "$t_out" "millwright  millbot"
+t_contains "$t_out" "millwright  millbot[bot]"
 t_lacks "$t_out" "fixer "
 
 t_case "api --json: a checkout without a tag has a commit and no release"
@@ -101,11 +104,9 @@ t_case "api --json: the last poll's figures and the hour's sums, from the store"
 reset
 t_store_home "$T/home/tehas" || t_skip "no store: $t_store_why"
 installed v0.8.0+cb6912a
-printf '0m1.000s 0m0.500s\n0m1.000s 0m0.600s\n' >"$T/poll.times"
-printf '\n\n\n' >"$T/poll.tally"
 now=$(date +%s)
-t_at "$now" poll-record --started "$((now - 24))" --times "$T/poll.times" \
-  --tally "$T/poll.tally" --writes-log "$T/github-writes.log" --starts 0 >/dev/null ||
+t_at "$now" poll-record --started "$((now - 24))" --cpu-ms 3100 --gh 3 \
+  --writes-log "$T/github-writes.log" --starts 0 >/dev/null ||
   t_bad "no poll recorded"
 t_run "$api --json"
 t_eq "$t_rc" 0
@@ -125,16 +126,14 @@ t_case "api --json: the writes of the last poll, by kind"
 reset
 t_store_home "$T/home/tehas" || t_skip "no store: $t_store_why"
 installed v0.8.0+cb6912a
-printf '0m1.000s 0m0.500s\n0m1.000s 0m0.600s\n' >"$T/poll.times"
-printf '\n\n\n' >"$T/poll.tally"
 now=$(date +%s)
 {
   printf '%s\t%s\tacme/widget\t7\t0\t-\n' "$(date -u -d "@$now" +%Y-%m-%dT%H:%M:%SZ)" "label create"
   printf '%s\t%s\tacme/widget\t7\t0\t-\n' "$(date -u -d "@$now" +%Y-%m-%dT%H:%M:%SZ)" "issue comment"
   printf '%s\t%s\tacme/widget\t7\t0\t-\n' "$(date -u -d "@$now" +%Y-%m-%dT%H:%M:%SZ)" "pr edit"
 } >"$T/github-writes.log"
-t_at "$now" poll-record --started "$((now - 24))" --times "$T/poll.times" \
-  --tally "$T/poll.tally" --writes-log "$T/github-writes.log" --starts 2 >/dev/null ||
+t_at "$now" poll-record --started "$((now - 24))" --cpu-ms 3100 --gh 3 \
+  --writes-log "$T/github-writes.log" --starts 2 >/dev/null ||
   t_bad "no poll recorded"
 t_run "$api --json"
 t_eq "$(jq -r '.poll.last.writes' <<<"$t_out")" 3
@@ -146,11 +145,9 @@ t_case "api without --json: the poll line of the store, under the millwright's"
 reset
 t_store_home "$T/home/tehas" || t_skip "no store: $t_store_why"
 installed v0.8.0+cb6912a
-printf '0m1.000s 0m0.500s\n0m1.000s 0m0.600s\n' >"$T/poll.times"
-printf '\n\n\n' >"$T/poll.tally"
 now=$(date +%s)
-t_at "$now" poll-record --started "$((now - 24))" --times "$T/poll.times" \
-  --tally "$T/poll.tally" --writes-log "$T/no-such.log" --starts 0 >/dev/null ||
+t_at "$now" poll-record --started "$((now - 24))" --cpu-ms 3100 --gh 3 \
+  --writes-log "$T/no-such.log" --starts 0 >/dev/null ||
   t_bad "no poll recorded"
 t_run "$api"
 t_eq "$t_rc" 0

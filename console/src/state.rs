@@ -16,7 +16,8 @@
 //! then state/, repos/, live/ and mcp/ of the home where they exist. The
 //! store is not copied as a file: state/tehas.db is a copy the store made of
 //! itself (store copy), so what is still in its WAL is in it, and neither
-//! tehas.db-wal nor tehas.db-shm is packed. state/github, the live token, is
+//! tehas.db-wal nor tehas.db-shm is packed. state/github, state/github-cycle and
+//! state/github-session, the live tokens, are
 //! not packed either: the target mints its own, and unpack keeps the target's.
 //!
 //! Pack refuses (1) while a cycle or a planning turn runs, or a tehas-* unit
@@ -72,6 +73,10 @@ use std::os::unix::fs::{DirBuilderExt, FileTypeExt, MetadataExt, PermissionsExt}
 use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::Mutex;
+
+/// The directories under the home that hold a live token and its lookup
+/// files. None is packed, and unpack keeps the target's own.
+const TOKEN_DIRS: [&str; 3] = ["state/github", "state/github-cycle", "state/github-session"];
 
 const USAGE: &str = "usage: tehas state pack [--rehearse] - | unpack [--rehearse] - | check [--json] | copy --to <file> [--json] | load --from <file> [--json]";
 const MANIFEST: &str = "tehas-state.json";
@@ -473,6 +478,8 @@ fn pack(home: &Path, rehearse: bool) -> Result<(), Fail> {
             "--exclude=state/tehas.db-wal",
             "--exclude=state/tehas.db-shm",
             "--exclude=state/github",
+            "--exclude=state/github-cycle",
+            "--exclude=state/github-session",
         ])
         .args(["--transform", "s|^tehas\\.db\\.copy$|state/tehas.db|"]);
     if rehearse {
@@ -721,9 +728,11 @@ fn unpack(home: &Path, rehearse: bool) -> Result<(), Fail> {
     }
     walk(&new, &new)?;
     // The live token is the target's own, never the source's.
-    let token = new.join("state/github");
-    if fs::symlink_metadata(&token).is_ok() {
-        fs::remove_dir_all(&token).map_err(io_fail("could not drop the archive's token"))?;
+    for name in TOKEN_DIRS {
+        let token = new.join(name);
+        if fs::symlink_metadata(&token).is_ok() {
+            fs::remove_dir_all(&token).map_err(io_fail("could not drop the archive's token"))?;
+        }
     }
     if fs::symlink_metadata(new.join("state/tehas.db")).is_err() {
         return Err((1, "the archive holds no state store".to_string()));
@@ -742,14 +751,19 @@ fn unpack(home: &Path, rehearse: bool) -> Result<(), Fail> {
     no_active_unit()?;
     // From here a signal must not take the directory that holds the old state.
     *CLEAN.lock().unwrap_or_else(|e| e.into_inner()) = None;
-    let own_token = home.join("state/github");
-    if fs::symlink_metadata(&own_token).is_ok() {
-        fs::rename(&own_token, &token).map_err(io_fail("could not keep this host's token"))?;
+    for name in TOKEN_DIRS {
+        let own_token = home.join(name);
+        if fs::symlink_metadata(&own_token).is_ok() {
+            fs::rename(&own_token, new.join(name))
+                .map_err(io_fail("could not keep this host's token"))?;
+        }
     }
     let done = swap(home, &new, &scratch.dir.join("old"));
     if let Err(e) = done {
-        // The target's token goes back where it was found.
-        let _ = fs::rename(&token, &own_token);
+        // The target's tokens go back where they were found.
+        for name in TOKEN_DIRS {
+            let _ = fs::rename(new.join(name), home.join(name));
+        }
         if e.1.contains("left in ") {
             scratch.keep = true;
         }

@@ -62,7 +62,7 @@ t_no_instance
 
 t_case "tehas work, tehas index and tehasbot cycle stop with 78 on a missing setting, and 64 on a bad word first"
 reset
-t_instance TEHAS_CONTROL_ISSUE=1
+t_instance TEHAS_GITHUB_APP_ID=1 TEHAS_CONTROL_ISSUE=1
 for words in "$tehas work 7" "$tehas index" "$bot cycle 7"; do
   t_run "$words"
   t_eq "$t_rc" 78

@@ -24,7 +24,7 @@
 //!   console tehasbot health
 //!   console tehasbot status
 //!   console tehasbot top [--every]
-//!   console tehasbot github-token [--check]
+//!   console tehasbot github-token [--cycle | --session] [--check]
 //!   console tehasbot github-writes
 //!
 //! status, disk, top and mcp key need no settings, and dev loads its own. The
@@ -184,7 +184,7 @@ pub fn tehasbot(given: &[String]) -> u8 {
         Some("github-writes") => crate::gh_writes::main(&given[1..]),
         _ => {
             eprintln!(
-                "console tehasbot: usage: health | status | top [--every] | mcp | github-token [--check] | github-writes"
+                "console tehasbot: usage: health | status | top [--every] | mcp | github-token [--cycle | --session] [--check] | github-writes"
             );
             64
         }
@@ -515,6 +515,10 @@ mod tests {
         assert_eq!(check(&words(&["tehasbot", "health"])), 0);
         assert_eq!(check(&words(&["tehasbot", "github-token", "--check"])), 0);
         assert_eq!(check(&words(&["tehasbot", "github-token", "--print"])), 64);
+        assert_eq!(
+            check(&words(&["tehasbot", "github-token", "--cycle", "--check"])),
+            0
+        );
         assert_eq!(check(&[]), 0);
     }
 

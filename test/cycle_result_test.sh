@@ -25,7 +25,7 @@ rukas=$(printf 'e%.0s' {1..40})
 echo "$rukas" >"$fx/image.label"
 t_run "$cycle 7"
 t_eq "$t_rc" 0
-t_contains "$(t_calls gh)" "pr list --repo acme/widget --head feature/x --author @me --state all"
+t_contains "$(t_calls gh)" "pr list --repo acme/widget --head feature/x --author tehas-bot[bot] --state all"
 t_contains "$(t_calls gh)" "--remove-label tehas:running --add-label needs-human-attention"
 t_contains "$(t_calls gh)" 'Tehas cycle stopped: its state says `merged`, but the bot has no merged pull request for this issue on `feature/x`'
 t_lacks "$(t_calls gh)" "The change was merged"

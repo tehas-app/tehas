@@ -30,6 +30,7 @@ pull() {
 issue7() {
   printf '%s\n' tehas:awaiting-merge "$@" | jq -R '{name: .}' | jq -s '{number: 7, state: "open", labels: .}' >"$fx/work-7.json"
 }
+# shellcheck disable=SC2119,SC2120  # the cases that name settings pass them
 refresh_setup() { # [<instance settings>...]
   reset
   rm -rf "$refresh_dir" "$fx"/pull-* "$fx"/refreshing.json "$fx"/caps.json "$fx"/mark-fails "$fx"/mark-fails-times "$fx"/unmark-fails "$fx"/label-missing
@@ -212,8 +213,8 @@ t_eq "$(started)" "7 "
 t_eq "$(approval '[.refreshes, .rests_on.by]')" '[2,"alice"]'
 
 t_case "a refresh of a fixer's start rests on the person's approval and keeps the fixer's count"
-refresh_setup TEHAS_MILLWRIGHT_LOGIN=tehas-fixer
-past 7 tehas-fixer fixer 2026-10-02T00:00:00Z
+refresh_setup
+past 7 tehas-bot fixer 2026-10-02T00:00:00Z
 t_run "$dispatch"
 t_eq "$(started)" "7 "
 t_eq "$(approval '[.by, .how, .rests_on.by, .fixer_starts, .refreshes]')" '["alice","refresh","alice",1,1]'

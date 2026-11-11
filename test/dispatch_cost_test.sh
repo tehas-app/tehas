@@ -92,17 +92,17 @@ reset
 # graphql call of its own, so a line of the log is the shim's alone.
 install_shim
 # The shape of its own page: the document of -f beside the variables of -F.
-t_run "TEHAS_HOME=\"\$T/home/tehas\" TEHAS_GITHUB_WRITES_LOG=$log \"\$T/home/tehas/shim/gh\" api graphql -f 'query=query { viewer { login } }' -F owner=acme -F name=widget"
+t_run "TEHAS_GH_TOKEN=ghs_t TEHAS_HOME=\"\$T/home/tehas\" TEHAS_GITHUB_WRITES_LOG=$log \"\$T/home/tehas/shim/gh\" api graphql -f 'query=query { viewer { login } }' -F owner=acme -F name=widget"
 t_eq "$t_rc" 0
-t_run "TEHAS_HOME=\"\$T/home/tehas\" TEHAS_GITHUB_WRITES_LOG=$log \"\$T/home/tehas/shim/gh\" api graphql -F owner=acme -F name=widget -f 'query=query(\$owner: String!, \$name: String!) {
+t_run "TEHAS_GH_TOKEN=ghs_t TEHAS_HOME=\"\$T/home/tehas\" TEHAS_GITHUB_WRITES_LOG=$log \"\$T/home/tehas/shim/gh\" api graphql -F owner=acme -F name=widget -f 'query=query(\$owner: String!, \$name: String!) {
   repository(owner: \$owner, name: \$name) { pullRequests(states: OPEN, first: 100) { nodes { mutation } } } }'"
 t_eq "$t_rc" 0
 t_eq "$(cat "$log")" ""
 # A mutation, named first and named after a name of its own: the two lines the
 # figure of the poll counts as other, of the kind no other call of gh gives.
-t_run "TEHAS_HOME=\"\$T/home/tehas\" TEHAS_GITHUB_WRITES_LOG=$log \"\$T/home/tehas/shim/gh\" api graphql -f 'query=mutation { addLabels(subjectId: 1) { clientMutationId } }'"
+t_run "TEHAS_GH_TOKEN=ghs_t TEHAS_HOME=\"\$T/home/tehas\" TEHAS_GITHUB_WRITES_LOG=$log \"\$T/home/tehas/shim/gh\" api graphql -f 'query=mutation { addLabels(subjectId: 1) { clientMutationId } }'"
 t_eq "$t_rc" 0
-t_run "TEHAS_HOME=\"\$T/home/tehas\" TEHAS_GITHUB_WRITES_LOG=$log \"\$T/home/tehas/shim/gh\" api graphql -f 'query=AddLabel mutation(\$n: Int!) { updateLabels(subjectId: \$n) { x } }'"
+t_run "TEHAS_GH_TOKEN=ghs_t TEHAS_HOME=\"\$T/home/tehas\" TEHAS_GITHUB_WRITES_LOG=$log \"\$T/home/tehas/shim/gh\" api graphql -f 'query=AddLabel mutation(\$n: Int!) { updateLabels(subjectId: \$n) { x } }'"
 t_eq "$t_rc" 0
 t_eq "$(wc -l <"$log")" 2
 t_eq "$(tail -n 1 "$log" | cut -f2)" "api POST"

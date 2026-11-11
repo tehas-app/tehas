@@ -19,7 +19,7 @@ old_updater() { # <directory that has libexec/ and lib/ under it>
   cp "$before"/lib/*.sh "$T_ROOT/lib/config.sh" "$1/lib/"
 }
 t_cycle || t_bad "no tehas-cycle: $t_cycle_why"
-T_ENV_ALWAYS=(TEHAS_CONSOLE="$T_CONSOLE" CYCLE_BIN="$T_CYCLE")
+T_ENV_ALWAYS=(TEHAS_CONSOLE="$T_CONSOLE" CYCLE_BIN="$T_CYCLE" GH_TOKEN=ghs_test)
 
 t_case "the updater from before runs this install.sh and finishes what it asked for"
 instance_models

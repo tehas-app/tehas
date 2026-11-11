@@ -145,14 +145,14 @@ t_run "$install"
 mkdir -p "$th/state"
 printf 'sandbox\n' >"$th/state/update-pending"
 t_stub no-console 'exit 64'
-T_ENV_ALWAYS=(TEHAS_CONSOLE="$T/bin/no-console")
+T_ENV_ALWAYS=(TEHAS_CONSOLE="$T/bin/no-console" GH_TOKEN=ghs_test)
 t_run "$install --check"
 t_eq "$t_rc" 1
 t_contains "$t_out" "Follow-ups:   NOT DONE (the record $th/state/update-pending cannot be read)"
 rm -f "$th/state/update-pending"
 t_run "$install --check"
 t_lacks "$t_out" "Follow-ups:"
-T_ENV_ALWAYS=(TEHAS_CONSOLE="$T_CONSOLE")
+T_ENV_ALWAYS=(TEHAS_CONSOLE="$T_CONSOLE" GH_TOKEN=ghs_test)
 
 t_case "an install will not record into a record it cannot read"
 fresh
@@ -182,7 +182,8 @@ t_contains "$t_out" "next: units"
 
 t_case "the machine reads back as one JSON object, with no secret in it"
 fresh
-instance TEHAS_MILLWRIGHT_LOGIN=bob
+instance
+mkdir -p "$th/state/github" && printf 'bob[bot]\n' >"$th/state/github/login"
 t_run "$install </dev/null"
 t_eq "$t_rc" 0
 # The token file is what holds them, and a value written into the report would
@@ -195,7 +196,7 @@ t_eq "$t_rc" 0
 # One object, one line, and valid JSON: what a program keeps is what it read.
 t_eq "$(printf '%s\n' "$json" | wc -l)" 1
 t_eq "$(printf '%s' "$json" | jq -e '.api == 1 and .repo == "acme/widget" and
-  .fixer == "bob" and (.features | index("limit")) != null' >/dev/null && echo ok)" "ok"
+  .fixer == "bob[bot]" and (.features | index("limit")) != null' >/dev/null && echo ok)" "ok"
 # A model token is named, never written: the file that carries these facts is
 # the one a person may put anywhere, so no value of a TEHAS_MODEL_KEY_ name
 # appears in it.
@@ -254,9 +255,9 @@ t_run "$install"
 t_eq "$t_rc" 0
 # A fresh home gets its marker before the copies, so the dry run is asked too;
 # the import after init finds nothing.
-t_eq "$(t_calls store)" "import --dry-run
-init --version $(git -C "$T_ROOT" describe --tags --abbrev=0 2>/dev/null | sed 's/$/+/')$(git -C "$T_ROOT" rev-parse --short=7 HEAD) --commit $(git -C "$T_ROOT" rev-parse HEAD) --instance instance --repo acme/widget
-import"
+t_eq "$(t_calls store)" "import --dry-run --say
+init --version $(git -C "$T_ROOT" describe --tags --abbrev=0 2>/dev/null | sed 's/$/+/')$(git -C "$T_ROOT" rev-parse --short=7 HEAD) --commit $(git -C "$T_ROOT" rev-parse HEAD) --instance instance --repo acme/widget --say
+import --say"
 t_contains "$t_out" "store: made $th/state/tehas.db"
 t_eq "$(stat -c %a "$th/state")" 700
 
@@ -384,7 +385,7 @@ t_case "with the console due, the one this run built records the steps before it
 fresh
 instance
 real_console
-T_ENV_ALWAYS=()
+T_ENV_ALWAYS=(GH_TOKEN=ghs_test)
 t_run "$install"
 t_eq "$t_rc" 0
 t_contains "$t_out" "next: sandbox"
@@ -401,19 +402,15 @@ t_eq "$(t_calls cargo)" ""
 t_contains "$t_out" "next: units tehas-dispatch.timer"
 t_contains "$(cat "$th/state/update-pending")" "units tehas-dispatch.timer"
 
-t_case "a console that cannot record the steps stops the run at the first copy"
+t_case "a record of steps that cannot be written stops the run at the first copy"
 rm -f "$th/state/update-pending"
 echo "# another change" >>"$th/env.sh"
-# It records the ids of the accounts, which come before the first copy, and
-# nothing else.
-t_stub no-console '[ "$1" = ids ] && exit 0; exit 1'
-T_ENV_ALWAYS=(TEHAS_CONSOLE="$T/bin/no-console")
+# A directory where the record goes: it can be neither read nor replaced.
+mkdir -p "$th/state/update-pending/in"
 t_run "$install"
+rm -rf "$th/state/update-pending"
 t_eq "$t_rc" 1
-t_contains "$t_out" "$T/bin/no-console could not record the follow-ups of env.sh"
+t_contains "$t_out" "tehas: could not record the follow-ups of env.sh; the copies so far are installed"
 t_contains "$(cat "$th/env.sh")" "# another change"
-T_ENV_ALWAYS=(TEHAS_CONSOLE="$T_CONSOLE")
-console_env=()
-t_env
 
 t_done

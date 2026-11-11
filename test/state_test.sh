@@ -246,8 +246,11 @@ rebuilt() { tar -cf "$T/bad.tar" -C "$T/x" tehas-state.json state repos live mcp
 
 t_case "pack leaves out the live token"
 reset
-mkdir -p "$src/state/github"
-echo "ghs_live" >"$src/state/github/token"
+for d in github github-cycle github-session; do
+  mkdir -p "$src/state/$d"
+  echo "ghs_live" >"$src/state/$d/token"
+  echo "acme 1" >"$src/state/$d/installation"
+done
 pack
 t_eq "$t_rc" 0
 t_lacks "$(names "$tar_file")" "github"
@@ -255,14 +258,17 @@ t_contains "$(t_calls systemctl)" "--state=active,activating,deactivating,reload
 
 t_case "unpack drops a token the archive holds and keeps the target's own"
 staged
-mkdir -p "$T/x/state/github"
-echo "theirs" >"$T/x/state/github/token"
+for d in github github-cycle github-session; do
+  mkdir -p "$T/x/state/$d" "$dst/state/$d"
+  echo "theirs" >"$T/x/state/$d/token"
+  echo "mine-$d" >"$dst/state/$d/token"
+done
 rebuilt
-mkdir -p "$dst/state/github"
-echo "mine" >"$dst/state/github/token"
 unpack "$T/bad.tar"
 t_eq "$t_rc" 0
-t_eq "$(cat "$dst/state/github/token")" mine
+for d in github github-cycle github-session; do
+  t_eq "$(cat "$dst/state/$d/token")" "mine-$d"
+done
 
 t_case "unpack refuses a link at a top-level name"
 staged

@@ -10,6 +10,13 @@
 
 import { analyticsView, dueToRead as dueAnalytics } from "./analytics-data.js";
 import { layout as energyLayout, PERIOD as ENERGY_PERIOD } from "./energy-view.js";
+import { stageOf as labelStage } from "./stages.js";
+
+// The stage names of the table come from the labels tehas writes; the columns
+// of this line read differently, so the sample's answer is mapped (plan and
+// review are columns already).
+const COLUMN = { ready: "line", running: "build", stopped: "stop", shipped: "ship" };
+const stageColumn = (stage) => (stage == null ? null : COLUMN[stage] || stage);
 
 export const STALE_QUEUE = 10 * 60; // seconds, as the factory floor counts it
 export const FLIP_EVERY = 7; // seconds between waves of the line's cards
@@ -60,7 +67,10 @@ function labItems(lab, base) {
   }).filter(Boolean);
 }
 
-// The sample, as the factory floor stages it: by label, a closed one shipped.
+// The sample, as the factory floor stages it: the same table, but a ticket that
+// carries none of tehas's labels is nowhere on the line unless it has left it,
+// which is the one case where the two answers agree. A prototype is drawn beside
+// its stage, so a running prototype stands twice.
 function fromSample(raw) {
   const out = Object.fromEntries(STAGES.map((s) => [s.key, []]));
   for (const i of list(obj(raw).issues)) {
@@ -68,12 +78,11 @@ function fromSample(raw) {
     if (!item) continue;
     const labels = list(i.labels).map((l) => String(typeof l === "string" ? l : obj(l).name || "").toLowerCase());
     if (labels.includes("tehas:prototype")) out.proto.push(item);
-    const key = String(i.state || "").toLowerCase() === "closed" ? "ship"
-      : labels.includes("needs-human-attention") ? "stop"
-        : labels.includes("tehas:awaiting-merge") ? "review"
-          : labels.includes("tehas:running") ? "build"
-            : labels.includes("tehas:plan") || labels.includes("tehas:planning") ? "plan"
-              : labels.includes("tehas:ready") ? "line" : null;
+    const closed = String(i.state || "").toLowerCase() === "closed";
+    // `none` is asked per ticket: an unlabelled issue is nowhere on the line,
+    // unless it has left it, in which case ship is the answer anyway.
+    const key = stageColumn(labelStage(labels, closed,
+      { planning: true, shipped: "ship", none: closed ? "ship" : null }));
     if (key) out[key].push(item);
   }
   for (const i of list(obj(raw).shippedIssues)) { const item = ticket(i); if (item) out.ship.push(item); }
@@ -185,12 +194,9 @@ export function consoleView(v, titles, nowSecs) {
 if (typeof document !== "undefined" && document.getElementById("line")) {
   const $ = (id) => document.getElementById(id);
   const NS = "http://www.w3.org/2000/svg";
-  const el = (tag, cls, text) => {
-    const e = document.createElement(tag);
-    if (cls) e.className = cls;
-    if (text != null) e.textContent = text;
-    return e;
-  };
+  // The one el(), from host/fun/dom.js, the classic script every page loads
+  // before this module.
+  const { el } = globalThis.TEHAS_DOM;
   const svgEl = (name, attrs, parent) => {
     const e = document.createElementNS(NS, name);
     for (const k in attrs) e.setAttribute(k, attrs[k]);
