@@ -607,8 +607,8 @@ out, each figure a whole number of at most 9 digits: the answer gains `"over":
 [...]`, the names of the figures whose median was over its budget, and without
 `--budget` the answer has no `over`. `tehasbot health` calls the verb with
 `TEHAS_POLL_BUDGET` (default `cpu=5,wall=30,writes=0`) for the `poll_cost`
-check, and warns when the list is not empty; see [the health
-file](/tools#the-health-file).
+check, and warns when the list is not empty; see
+[`tehasbot health`](/tools#tehasbot-health).
 
 ### The report in Rust
 

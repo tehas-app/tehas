@@ -22,7 +22,7 @@ Preparing a fresh machine is on the [bootstrap page](/bootstrap).
 | `~/tehas/lib/paths.sh`               | The home of each tool this host installs, and the `PATH` that finds them. `env.sh`, `bootstrap.sh` and `install.sh` all take the list from here |
 | `~/tehas/lib/github-app.sh`          | With a GitHub App: puts the `gh` shim first on `PATH` and gives git its credential helper; sourced by `env.sh` |
 | `~/tehas/bin/`                       | The two commands on `PATH`: `tehas` for a person, `tehasbot` for the units, each a few lines that run the console's front (`console/src/front.rs`), which chooses the command. Without a console both stop with exit 78, except `tehas setup`, which builds one. Plus `gh` |
-| `~/tehas/libexec/`                   | The scripts behind the two commands, one for each thing they do. Not on `PATH` |
+| `~/tehas/libexec/`                   | The scripts behind the two commands, and the programs they run. Three bash scripts (`dev-login`, `setup` and `update`) and the Rust programs `install.sh` builds: the console, analytics, the MCP server, the state store, the attachment checker, the dispatcher and the cycle supervisor. Every other command is a verb of one of those programs. Not on `PATH` |
 | `~/tehas/run/`                       | One copy of `bin/`, `libexec/` and `lib/` for each running cycle (`cycle-<issue>-<pid>`) and planning turn (`plan-<issue>-<pid>`), as hardlinks, so an update leaves the code of what runs as it started. The next start removes the copies whose process has ended |
 | `~/tehas/platform`                   | Checkout of this repository; `install.sh` runs from it and `tehas update` pulls it |
 | `~/tehas/repos/tehas`                | The product checkout, on the default branch. Cycles are cloned from it; no container is given it |
@@ -122,7 +122,7 @@ tag of the sandbox image stands on all stay: the kept releases are the
 none is left out, and a host that holds two of them keeps the base of each. Nothing else is offered to docker:
 every name it is handed is a tag of that one repository, and the step never
 removes the images that have lost their tag. A container is what keeps an image
-here: `tehasbot work` runs its cycles from the sandbox image, so one an existing
+here: `tehas work` runs its cycles from the sandbox image, so one an existing
 container was made from stays whatever its age. Preview images are
 `tehasbot preview`'s and no step here touches them; a docker that answers no
 image list, or nothing about the containers on the host, removes nothing, since
@@ -396,7 +396,7 @@ Instance:     /home/boss/tehas/platform/instances/tehas-tehas OK
 Dependencies: OK
 Slice:        MISSING (sudo ./bootstrap.sh slice)
 Installed:    DRIFT (1 files)
-  differs: /home/boss/tehas/libexec/work
+  differs: /home/boss/tehas/libexec/update
 Follow-ups:   NOT DONE (2 from an earlier run, see /home/boss/tehas/state/update-pending)
 Tests:        not run (./install.sh --check --tests runs them)
 ```
