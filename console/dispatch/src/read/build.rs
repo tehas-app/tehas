@@ -583,12 +583,13 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
     for n in candidates {
         let park = store::park(&asked, n);
         let (shaped, _) = store::approval(&asked, n);
-        // The millwright's note may lift a park's hold. A parked issue that
-        // asks nothing has had no comment read.
+        // The millwright's note, or a Retry ticked in the park's question, may
+        // lift a park's hold. A parked issue that asks nothing has had no
+        // comment read.
         let lifts = park.is_object()
             && park.get("failed").is_none()
-            && !c.millwright.is_empty()
-            && (c.work_images || c.work_files);
+            && ((!c.millwright.is_empty() && (c.work_images || c.work_files))
+                || park.get("question").is_some_and(|q| !q.is_null()));
         let i = entry(&mut issues, n);
         i["park"] = park;
         i["approval"] = shaped;

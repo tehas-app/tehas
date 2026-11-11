@@ -811,7 +811,10 @@ not a provider outage it starts no cycle, leaves the park and the labels as
 they are, and says so in the poll's log. Once per park it also posts one
 comment: edit the body, or tick a retry box. The tick is the
 park's own ask and is never held, so a retry on the same text starts as it
-did, and so does a start after any change to the body. A park of a provider
+did, and so does a start after any change to the body. A retry ticked by an
+allowed account also lifts the hold of a new `tehas:ready`, so taking
+`tehas:question` off by hand after the tick does not lose it; the log then
+says `lifted on the Retry <account> ticked`. A park of a provider
 outage is held by its own rule instead, and a park of a cycle started by hand,
 which no approval bound to a body, holds nothing. A park that cannot be read
 holds the issue for that poll.
