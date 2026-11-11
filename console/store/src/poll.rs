@@ -305,10 +305,6 @@ pub fn run(home: &Path, call: &Call, now: i64) -> Result<String, Fail> {
     }
 }
 
-fn garbled(what: &str) -> Fail {
-    (1, format!("garbled: {what}"))
-}
-
 /// `now` dates the row; `real_ms` is the clock the wall time and the write
 /// log are read against, which a test cannot set.
 pub fn record(home: &Path, r: &Record, now: i64, real_ms: i64) -> Result<String, Fail> {
