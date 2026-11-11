@@ -562,7 +562,7 @@ mv "$T/settings.kept" "$T/home/.pi/agent/settings.json"
 t_run "$work 7"
 
 t_case "the token is passed by name, never written into the arguments"
-t_lacks "$(cycle_args)" "test-token"
+t_lacks "$(cycle_args)" "ghs_app"
 
 t_case "nothing that controls the host is reachable"
 given=$(cat "$T"/calls/docker.args.*)

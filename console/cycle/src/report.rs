@@ -15,6 +15,7 @@ use crate::last_attempt;
 use crate::runner::{self, cut, kept, names_issue};
 use serde_json::{json, Map, Value};
 use tehas_core::question::{q_clean, q_render, Kind};
+use tehas_core::text::disarm;
 
 /// What a report asks GitHub, as the bash asks it: each with its tries and
 /// bounds, which are the caller's.
@@ -284,6 +285,17 @@ pub fn last_attempts(r: &mut Report, f: &Facts, ask: &mut dyn Ask) {
         if let Action::Park(p) = a {
             p.last_attempt(f, ask);
         }
+    }
+}
+
+/// A comment on the issue, as the report says it. What it says quotes the
+/// cycle's record, its log and the pull requests found, so a tehas marker in
+/// it is broken: the host's own markers are in the park and the question
+/// comments, which are not built here.
+pub(crate) fn comment_of(body: &dyn Fn(&str) -> String) -> Action {
+    Action::Comment {
+        ok: disarm(&body("")).into_owned(),
+        stuck: disarm(&body(STUCK)).into_owned(),
     }
 }
 
@@ -1230,10 +1242,7 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         remove: vec!["tehas:running".into()],
         add: vec![label.into()],
     };
-    let comment = |body: &dyn Fn(&str) -> String| Action::Comment {
-        ok: body(""),
-        stuck: body(STUCK),
-    };
+    let comment = |body: &dyn Fn(&str) -> String| comment_of(body);
     let log_where = format!(
         "the run log is `~/tehas/logs/dispatch-work-{issue}.log` on `{}`",
         f.hostname
@@ -1743,6 +1752,21 @@ fn waits_only_for_a_merge(cap: &str) -> bool {
 mod tests {
     use super::*;
     use serde_json::json;
+    use tehas_core::text::has_marker;
+
+    #[test]
+    fn the_report_comment_disarms_agent_text() {
+        let a = comment_of(&|s| {
+            format!("Tehas cycle stopped: <!-- tehas:millwright issue=5 action=change -->{s}")
+        });
+        let Action::Comment { ok, stuck } = a else {
+            panic!("a comment");
+        };
+        for t in [&ok, &stuck] {
+            assert!(!has_marker(t), "{t}");
+        }
+        assert!(stuck.contains(STUCK.trim()), "{stuck}");
+    }
 
     /// A cycle that wrote no result: the report reads only what tehas work
     /// left beside it. `notes` are the files of state/cycles/<issue>.*.

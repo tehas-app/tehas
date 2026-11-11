@@ -410,8 +410,8 @@ dispatch_json=$T/home/tehas/live/dispatch.json
 t_after='t_no_old_state "$T/home/tehas"'
 
 reset() {
-  rm -f "$T"/calls/* "$fx"/pulls.json "$fx"/pull-* "$fx"/edit-* "$fx"/start-* "$fx"/events-* "$fx"/comments-* "$fx"/icomments-* "$fx"/perm-* "$fx"/reviews-* "$fx"/inline-* "$fx"/prs.json "$fx"/prlist.json "$fx"/pr-fails "$fx"/issue-* "$fx"/work-* "$fx"/post-fails "$fx"/patch-fails "$fx"/plan-fails "$fx"/plan-runs "$fx"/image.during "$fx"/slice-* "$fx"/orphan-* "$fx"/prs-* "$fx"/blockers* "$fx"/blocked.json "$fx"/checks* "$fx"/mark-fails "$fx"/mark-fails-times "$fx"/unmark-fails "$fx"/label-missing "$fx"/gh-stderr "$fx"/gh-stderr-fails "$fx"/closed.json
-  rm -rf "$T/home/tehas/libexec" "$T/home/tehas/state/cycles" "$T"/home/tehas/state/plan-* "$T/home/tehas/live" "$T/home/tehas/state/pause.json" "$T/home/tehas/state/limit.json" "$T/home/tehas/state/branch-check" "$T/home/tehas/state/github-failures" \
+  rm -f "$T"/calls/* "$fx"/pulls.json "$fx"/pull-* "$fx"/edit-* "$fx"/start-* "$fx"/events-* "$fx"/comments-* "$fx"/icomments-* "$fx"/perm-* "$fx"/reviews-* "$fx"/inline-* "$fx"/prs.json "$fx"/prlist.json "$fx"/pr-fails "$fx"/issue-* "$fx"/work-* "$fx"/post-fails "$fx"/patch-fails "$fx"/plan-fails "$fx"/plan-runs "$fx"/image.during "$fx"/slice-* "$fx"/orphan-* "$fx"/prs-* "$fx"/blockers* "$fx"/blocked.json "$fx"/checks* "$fx"/mark-fails "$fx"/mark-fails-times "$fx"/unmark-fails "$fx"/label-missing "$fx"/gh-stderr "$fx"/gh-stderr-fails "$fx"/closed.json "$fx"/labels.json
+  rm -rf "$T/home/tehas/libexec" "$T/home/tehas/state/labels" "$T/home/tehas/state/cycles" "$T"/home/tehas/state/plan-* "$T/home/tehas/live" "$T/home/tehas/state/pause.json" "$T/home/tehas/state/limit.json" "$T/home/tehas/state/branch-check" "$T/home/tehas/state/github-failures" \
     "$T"/home/tehas/work/widget-plan-* "$T"/home/tehas/tmp/plan-*
   # The state store a poll runs, with nothing on record.
   t_store_home "$T/home/tehas"
@@ -902,6 +902,7 @@ jq -n --argjson lists "$lists" --argjson items "$items" --argjson control "$(rea
   --argjson repo "$(read_or "$fx/repo.json" "" '{}')" --argjson locked "$locked" \
   --argjson dropped "$([ -e "$fx/page-drops-events" ] && echo true || echo false)" \
   --argjson pulls "$(read_or "$fx/pulls.json" "" null)" \
+  --argjson tlabels "$(read_or "$fx/labels.json" "" null)" \
   --argjson running '{"__typename":"LabeledEvent","createdAt":"2026-01-01T00:00:00Z","actor":{"login":"tehas-bot"},"label":{"name":"tehas:running"}}' '
   def labels($n): [$lists[][] | select((.number | tonumber?) == $n) | (.labels // [])[].name]
     + (if $n == 1 then [$control.labels[].name] else [] end)
@@ -933,6 +934,8 @@ jq -n --argjson lists "$lists" --argjson items "$items" --argjson control "$(rea
         closedByPullRequestsReferences: {nodes: (.p.data.repository.issue.closedByPullRequestsReferences.nodes // [])}}]},
     closedRunning: {nodes: [$lists[][] | select(.state == "CLOSED") | {number}]}}
     # The open pull requests, when a case wrote them.
-    + (if $pulls == null then {} else {openPulls: {nodes: $pulls}} end)}}'
+    + (if $pulls == null then {} else {openPulls: {nodes: $pulls}} end)
+    # The tehas: labels with their node ids, when a case wrote them.
+    + (if $tlabels == null then {} else {tehasLabels: {nodes: $tlabels}} end)}}'
 STUB
 chmod +x "$T/page-stub"

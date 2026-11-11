@@ -1,5 +1,11 @@
 # The factory acts as a GitHub App
 
+> Superseded in part. The factory is now named by `TEHAS_GITHUB_APP_ID` alone;
+> the installation and the bot's login are looked up and kept under
+> `state/github/`, and `tehas setup --new-app` makes the app. Read
+> [the manual page](../../host/docs/github-app.md) for how it works today. The
+> settings table and the setup part of this record describe the first version.
+
 Spec for #639. Owner decisions of 2026-10-24 are in the issue's comments.
 
 ## Why
@@ -22,9 +28,9 @@ installed on, and its writes show as `<slug>[bot]`.
    No dependency beyond openssl, curl and jq, which a host already has.
 2. `POST https://api.github.com/app/installations/<installation id>/access_tokens`
    with `Authorization: Bearer <jwt>` answers `{"token": "...", "expires_at": "..."}`.
-3. The token is kept in `$TEHAS_HOME/state/github-token` (mode 600) with its
-   expiry in `github-token.expires` (epoch seconds), and made again when fewer
-   than 10 minutes are left. One mint at a time: `github-token.lock`.
+3. The token is kept in `$TEHAS_HOME/state/github/token` (mode 600) with its
+   expiry in `token.expires` (epoch seconds), and made again when fewer
+   than 10 minutes are left. One mint at a time: `state/github/lock`.
 
 `lib/github-app.sh` does this (`tehas_github_token`).
 

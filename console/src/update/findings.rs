@@ -3,7 +3,10 @@
 //!   console update findings <euid> [<bash>]
 //!
 //! One line per finding on standard output, each opening with `tehas: `, and
-//! exit 78 when there is one; exit 0 and nothing when there is none. What the
+//! exit 78 when there is one; exit 0 when there is none. A warning of the load,
+//! such as a setting that is no longer used, is a line that opens with
+//! `tehas: warning: `, printed before the findings: it is shown, and it is not
+//! a finding, so it alone leaves the exit 0. What the
 //! instance's own shell prints while its instance.env is sourced goes to
 //! standard error, as `console settings load` leaves it. `<euid>` and `<bash>`
 //! are what lib/config.sh gives `console settings load`.
@@ -37,6 +40,10 @@ use tehas_core::settings::INSTANCE_SETTINGS;
 use super::{say, tell};
 use crate::{account, settings};
 
+/// What opens a warning's line. install.sh shows such a line and does not
+/// count it as a finding.
+pub(crate) const WARNING: &str = "tehas: warning: ";
+
 /// Who may own and write the settings.
 pub(crate) struct Me {
     pub uid: Option<u32>,
@@ -58,9 +65,14 @@ pub fn verb(given: &[String]) -> u8 {
         gid: account::gid(),
         name: account::name(),
     };
+    let mut warned = Vec::new();
     let found = findings(settings::this_environment(), &me, |vars| {
-        settings::load_into(vars, uid, bash).map_err(|line| format!("tehas: {line}"))
+        settings::load_keeping_warnings(vars, uid, bash, &mut warned)
+            .map_err(|line| format!("tehas: {line}"))
     });
+    for line in &warned {
+        say(&format!("{WARNING}{line}"));
+    }
     for line in &found {
         say(line);
     }

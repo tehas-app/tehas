@@ -40,7 +40,8 @@ t_stub_cargo
 # of the console: these run the console of this checkout.
 # shellcheck disable=SC2154  # t_console_why is set by test/lib.sh
 t_console || t_bad "$t_console_why"
-T_ENV_ALWAYS+=(TEHAS_CONSOLE="$T_CONSOLE")
+T_APP_WORLD=0
+T_ENV_ALWAYS+=(TEHAS_CONSOLE="$T_CONSOLE" GH_TOKEN=ghs_test)
 
 # An instance directory with settings and a model list that matches them.
 # shellcheck disable=SC2120  # some parts never pass it settings

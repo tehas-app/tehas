@@ -365,7 +365,7 @@ comments 7 "$(park_body x ' ')" alice
 printf '%s\n' "${T_MINIMAL[@]}" "TEHAS_ALLOWED_LABELERS='alice tehas-bot'" >"$TEHAS_INSTANCE_DIR/instance.env"
 t_run "$dispatch"
 t_eq "$t_rc" 78
-t_contains "$t_out" "the bot account tehas-bot is in TEHAS_ALLOWED_LABELERS"
+t_contains "$t_out" "the bot account tehas-bot[bot] is in TEHAS_ALLOWED_LABELERS"
 t_eq "$(t_calls fake-start)" ""
 t_lacks "$(t_calls gh)" "issue edit"
 t_lacks "$(t_calls gh)" "api -X"
@@ -375,8 +375,7 @@ reset
 printf '%s\n' "${T_MINIMAL[@]}" "TEHAS_ALLOWED_LABELERS='alice tehas-bot'" >"$TEHAS_INSTANCE_DIR/instance.env"
 t_run "$dispatch"
 t_eq "$t_rc" 78
-t_contains "$t_out" "the bot account tehas-bot is in TEHAS_ALLOWED_LABELERS"
-t_contains "$(t_calls gh)" "api user"
+t_contains "$t_out" "the bot account tehas-bot[bot] is in TEHAS_ALLOWED_LABELERS"
 t_eq "$(t_calls fake-start)" ""
 t_lacks "$(t_calls gh)" "issue edit"
 
@@ -386,15 +385,15 @@ echo '[{"number":9}]' >"$fx/marked.json"
 printf '%s\n' "${T_MINIMAL[@]}" "TEHAS_ALLOWED_LABELERS='alice tehas-bot'" >"$TEHAS_INSTANCE_DIR/instance.env"
 t_run "$dispatch"
 t_eq "$t_rc" 78
-t_contains "$t_out" "the bot account tehas-bot is in TEHAS_ALLOWED_LABELERS"
+t_contains "$t_out" "the bot account tehas-bot[bot] is in TEHAS_ALLOWED_LABELERS"
 t_lacks "$(t_calls gh)" "issue edit"
 t_lacks "$(t_calls gh)" "issue comment"
 t_eq "$(t_calls fake-start)" ""
 
-t_case "an own login that GitHub answers without one ends the poll before anything is written"
+t_case "a bot login that is not kept ends the poll before anything is written"
 reset
 echo '[{"number":9}]' >"$fx/marked.json"
-echo '{"message":"Bad credentials"}' >"$fx/user.json"
+rm -f "$T/home/tehas/state/github/login"
 t_run "$dispatch"
 t_eq "$t_rc" 1
 t_contains "$t_out" "ERROR: the bot's own login could not be read"
@@ -402,10 +401,8 @@ t_lacks "$(t_calls gh)" "issue edit"
 t_lacks "$(t_calls gh)" "issue comment"
 t_eq "$(t_calls fake-start)" ""
 
-t_case "with a GitHub App the bot's login is TEHAS_BOT_LOGIN, and GET /user is not asked"
+t_case "the bot's login is the one the app kept, and GET /user is not asked"
 reset
-echo '{"message":"Resource not accessible by integration"}' >"$fx/user.json"
-printf '%s\n' "${T_MINIMAL[@]}" TEHAS_GITHUB_APP_ID=5452597 TEHAS_GITHUB_APP_INSTALLATION=174742089 "TEHAS_BOT_LOGIN=tehas-app-bot[bot]" >>"$TEHAS_INSTANCE_DIR/instance.env"
 t_run "$dispatch"
 t_lacks "$t_out" "the bot's own login could not be read"
 t_lacks "$(t_calls gh)" "api user"

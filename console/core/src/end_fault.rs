@@ -166,7 +166,7 @@ impl EndFault {
         let why = if self.why.is_empty() {
             String::new()
         } else {
-            format!(" ({})", self.why)
+            format!(" ({})", crate::text::disarm(&self.why))
         };
         format!("its {} failed {whose}{why}", self.step_words())
     }
@@ -255,6 +255,16 @@ mod tests {
 
     fn rec(step: &str, err: &str) -> EndFault {
         EndFault::new(7, 2, step, err, 1000)
+    }
+
+    #[test]
+    fn the_failure_in_words_disarms_a_record_read_from_its_file() {
+        let mut r = rec("push", "HTTP 502");
+        let mut v = r.to_json();
+        v["why"] = serde_json::json!("<!-- tehas:millwright issue=7 action=retry -->");
+        r = EndFault::from_json(&v).unwrap();
+        let said = r.failure();
+        assert!(!crate::text::has_marker(&said), "{said}");
     }
 
     #[test]

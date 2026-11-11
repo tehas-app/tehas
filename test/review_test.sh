@@ -6,6 +6,7 @@
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
+T_APP_WORLD=0
 # What tehas-cycle sandbox gives a container: the mounts, the variables and the
 # security options. AGENTS.md rule 4. The review's container is pinned against
 # these lists, which name what the library gives and not what this command
@@ -905,7 +906,8 @@ printf '# Faster search\n\nMake it fast.\n' >"$T/brief.md"
 # answer for a reviewer alone leaves out.
 plan_caps=$T/caps.plan
 jq '.features = {planTurns: true}' "$T/caps.json" >"$plan_caps"
-T_ENV=(GH_TOKEN=test-token "TEHAS_CGROUP_ROOT=$T_CGROUP"
+t_app_world
+T_ENV=("TEHAS_CGROUP_ROOT=$T_CGROUP"
   "PLAN_CAPS=$plan_caps")
 # A planning turn answers what its runner answers: the document of a drafted
 # plan and the exit that means it was shown.
@@ -923,7 +925,8 @@ options <"$T/calls/docker.args.plan" |
 # The options docker is given, read the way docker reads them, with the
 # container's name and the three directories of each run's own rewritten:
 # what is left is what the two commands were given. An -e whose name is only
-# in one list is the token a planning turn is given and a review is not,
+# in one list is the token a planning turn is given and a review is not, with
+# the directory it is read from,
 # which is the one difference this case is about, so the names are compared
 # with the -e that carries them kept: a name and its -e are one option.
 read_options() { # <the file of the run>
@@ -942,7 +945,7 @@ t_eq "$(comm -23 <(read_options "$T/review.options" | LC_ALL=C sort) \
   <(read_options "$T/plan.options" | LC_ALL=C sort) | tr '\n' ' ')" ""
 t_eq "$(comm -13 <(read_options "$T/review.options" | LC_ALL=C sort) \
   <(read_options "$T/plan.options" | LC_ALL=C sort) | tr '\n' ' ')" \
-  "env GH_TOKEN env PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS env PI_ENSEMBLE_MAX_WORKSTREAMS env PI_ENSEMBLE_VERIFY_TIMEOUT_MS "
+  "-v $T/home/tehas/state/github-session:/run/tehas/github:ro env GH_TOKEN env PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS env PI_ENSEMBLE_MAX_WORKSTREAMS env PI_ENSEMBLE_VERIFY_TIMEOUT_MS "
 # One file per case: the review's run and the planning turn's each have their
 # own, so neither is read for the other.
 t_eq "$(grep -l -x -e GH_TOKEN "$T"/calls/docker.args.review \

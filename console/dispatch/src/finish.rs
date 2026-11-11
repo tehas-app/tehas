@@ -25,6 +25,7 @@ use crate::Settings;
 use serde_json::Value;
 use tehas_core::call::Ran;
 use tehas_core::events::{first_unallowed_rename, label_actor, Event, Events};
+use tehas_core::text::disarm;
 
 /// The label of the ask.
 pub const LABEL: &str = "tehas:finish";
@@ -271,14 +272,17 @@ fn one_line(t: &str) -> String {
 /// The reply of a finish that opened its pull request.
 pub fn opened(n: u64, by: &str, url: &str) -> String {
     format!(
-        "<!-- tehas:finish issue={n} result=opened -->\nTehas took `{LABEL}` off this issue and opened a draft pull request from what its stopped cycle left, as {by} asked: {url}\n\nIts gate did not pass. The checks and the review decide on it as on any other pull request."
+        "<!-- tehas:finish issue={n} result=opened -->\nTehas took `{LABEL}` off this issue and opened a draft pull request from what its stopped cycle left, as {} asked: {}\n\nIts gate did not pass. The checks and the review decide on it as on any other pull request.",
+        disarm(by),
+        disarm(url)
     )
 }
 
 /// The reply of a finish refused.
 pub fn refused(n: u64, why: &str) -> String {
     format!(
-        "<!-- tehas:finish issue={n} result=refused -->\nTehas took `{LABEL}` off this issue and finished nothing: {why}. To ask again, write a new comment that starts with `{}` and apply `{LABEL}`.",
+        "<!-- tehas:finish issue={n} result=refused -->\nTehas took `{LABEL}` off this issue and finished nothing: {}. To ask again, write a new comment that starts with `{}` and apply `{LABEL}`.",
+        disarm(why),
         marker(n)
     )
 }

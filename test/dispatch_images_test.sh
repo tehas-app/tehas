@@ -297,7 +297,7 @@ reviewed clean
 t_run "$dispatch"
 t_eq "$t_rc" 0
 t_eq "$(t_calls fake-start)" "7"
-t_contains "$(t_calls gh)" "pr list --repo acme/widget --author tehas-bot --state all"
+t_contains "$(t_calls gh)" "pr list --repo acme/widget --author tehas-bot[bot] --state all"
 t_eq "$(at_mark '.comment_links')" "$(sorted "[{\"link\":\"$A/7171\",\"source\":\"pr-comment:71\",\"by\":\"alice\"}]")"
 t_eq "$(at_mark '.retry_context | length')" 1
 t_contains "$(at_mark '.retry_context[0].text')" "The button goes here"
@@ -362,7 +362,7 @@ reviewed old
 t_run "$dispatch"
 t_eq "$t_rc" 0
 t_eq "$(t_calls fake-start)" "7"
-t_contains "$(t_calls gh)" "pr list --repo acme/widget --author tehas-bot --state all"
+t_contains "$(t_calls gh)" "pr list --repo acme/widget --author tehas-bot[bot] --state all"
 t_eq "$(at_mark '.comment_links')" "$(sorted "[{\"link\":\"$A/7171\",\"source\":\"pr-comment:71\",\"by\":\"alice\"}]")"
 t_eq "$(at_mark '.retry_context | length')" 1
 

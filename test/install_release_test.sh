@@ -179,12 +179,12 @@ if [ "$(uname -m)" = x86_64 ]; then
   pack_tree --store "$build/store"
   fresh
   instance
-  T_ENV_ALWAYS=()
+  T_ENV_ALWAYS=(GH_TOKEN=ghs_test)
   t_run "'$tree/install.sh'"
   t_eq "$t_rc" 0
   t_contains "$t_out" "next: units tehas-dispatch.timer"
   t_eq "$(cat "$th/state/update-pending")" "$(next_steps)"
-  T_ENV_ALWAYS=(TEHAS_CONSOLE="$T_CONSOLE")
+  T_ENV_ALWAYS=(TEHAS_CONSOLE="$T_CONSOLE" GH_TOKEN=ghs_test)
 else
   t_skip "the pack here wants an x86_64 console"
 fi

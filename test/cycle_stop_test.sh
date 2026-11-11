@@ -125,7 +125,7 @@ echo "https://github.com/acme/widget/pull/67" >"$fx/pr.txt"
 : >"$fx/pr-draft"
 t_run "$cycle 7"
 t_eq "$t_rc" 0
-t_contains "$(t_calls gh)" "pr list --repo acme/widget --head feature/x --author @me --state all --json url,state,body,headRefName,isDraft"
+t_contains "$(t_calls gh)" "pr list --repo acme/widget --head feature/x --author tehas-bot[bot] --state all --json url,state,body,headRefName,isDraft"
 t_contains "$(t_calls gh)" "Tehas cycle stopped with pull request #67 open (draft): status \`running\`, last step \`commit-pr\`"
 t_contains "$(t_calls gh)" "--remove-label tehas:running --add-label needs-human-attention"
 t_lacks "$(t_calls gh)" "without a pull request"

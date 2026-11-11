@@ -21,7 +21,7 @@ died explore plan develop commit-pr "$BRANCH"
 open_pr https://github.com/acme/widget/pull/347
 t_run "$cycle 7"
 t_eq "$t_rc" 0
-t_contains "$(t_calls gh)" "pr list --repo acme/widget --head $BRANCH --author @me --state all"
+t_contains "$(t_calls gh)" "pr list --repo acme/widget --head $BRANCH --author tehas-bot[bot] --state all"
 t_contains "$(t_calls gh)" "Tehas cycle handed off with its pull request open and its review unfinished"
 t_contains "$(t_calls gh)" "last step \`$BRANCH\` read from its run log"
 t_contains "$(t_calls gh)" "https://github.com/acme/widget/pull/347"
@@ -47,7 +47,7 @@ died explore plan develop commit-pr "$BRANCH"
 echo "[]" >"$fx/pr.json"
 t_run "$cycle 7"
 t_eq "$t_rc" 0
-t_contains "$(t_calls gh)" "pr list --repo acme/widget --head $BRANCH --author @me --state all"
+t_contains "$(t_calls gh)" "pr list --repo acme/widget --head $BRANCH --author tehas-bot[bot] --state all"
 t_contains "$(t_calls gh)" "Tehas cycle stopped without a pull request"
 t_contains "$(t_calls gh)" "- [ ] Retry with the issue text only"
 t_contains "$(t_calls gh)" "--remove-label tehas:running --add-label needs-human-attention"
@@ -245,7 +245,7 @@ t_run "$cycle 7"
 t_lacks "$(t_calls gh)" "lied-step"
 t_lacks "$(t_calls gh)" "another-lied-step"
 t_contains "$(t_calls gh)" "last step \`$BRANCH\` read from its run log"
-t_contains "$(t_calls gh)" "pr list --repo acme/widget --head $BRANCH --author @me --state all"
+t_contains "$(t_calls gh)" "pr list --repo acme/widget --head $BRANCH --author tehas-bot[bot] --state all"
 
 t_case "a step name over the bound of 100 characters is no step of a run"
 reset

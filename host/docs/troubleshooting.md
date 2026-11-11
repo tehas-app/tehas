@@ -75,13 +75,15 @@ cd ~/tehas/platform && ./install.sh --check
   `instance.env`.
 - A setting you exported in the shell is ignored: `instance.env` wins, and a
   setting it does not assign is dropped.
-- `tehas work: GH_CYCLE_TOKEN is not set (see ~/.config/tehas/env)`: without
-  a GitHub App, no cycle starts without the cycle token. Make a fine-grained
-  token for the bot account,
-  for the product repository only, with Contents, Pull requests and Issues read
-  and write and Metadata read. Put it in `~/.config/tehas/env` as
-  `GH_CYCLE_TOKEN=...`, then restart the dispatcher. See
-  [Secrets and trust](/host#secrets-and-trust).
+- `GH_TOKEN is no longer used: the factory acts as a GitHub App.` (also
+  `GH_CYCLE_TOKEN` and `TEHAS_CYCLE_LOGIN`): take the line out of
+  `~/.config/tehas/env` or `instance.env`, then run `tehas setup --new-app`
+  or give `--app-id` and `--app-key-file`. See [A GitHub App for a
+  factory](/github-app).
+- `TEHAS_GITHUB_APP_ID is not set`: the instance names no app. Run
+  `tehas setup --new-app`, or give `--app-id` and `--app-key-file`.
+- A command says the app is not installed on `TEHAS_REPO`: open the install
+  link it prints and choose the repository.
 - `tehas work: no cycle token from the app, not starting a cycle`: with a
   GitHub App, the app could not make the cycle's token for `TEHAS_REPO`. The
   line before it says why. Check the app with

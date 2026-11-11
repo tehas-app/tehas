@@ -5,6 +5,7 @@
 . "$(dirname "$0")/lib.sh" || exit 1
 
 panel="$T_ROOT/bin/tehas panel"
+T_APP_WORLD=0
 kept=$T/home/tehas/state/panels.json
 shown=$T/home/tehas/live/panels.json
 t_stub gh

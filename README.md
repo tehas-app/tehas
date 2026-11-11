@@ -31,9 +31,9 @@ And if you're wondering... tehas is Estonian for factory :)
 2. A dispatcher polls the queue every two minutes and starts a cycle for each
    issue there is room for: at most the host's CPUs minus one by default,
    fewer while `tehas.slice` has no room.
-3. The cycle runs in a container with CPU and memory limits. It gets the bot's
-   GitHub token and the product checkout. It does not get the Docker socket or
-   any SSH key.
+3. The cycle runs in a container with CPU and memory limits. It gets a
+   GitHub token narrowed to the product repository, and the product checkout.
+   It does not get the Docker socket or any SSH key.
 4. pi-rukas explores the code, plans, writes the change, runs the repository's
    own gates and reviews the result.
 5. The bot opens a pull request and comments on the issue. A person merges it.
@@ -72,8 +72,9 @@ request are the bot's. One step as root lets an account in:
   requests at once. [viiwork](https://github.com/janit/viiwork) is one that fits:
   a flexible meshed inference platform for both home and enterprise grade hardware.
   The example instance uses it. Any other OpenAI-compatible endpoint works too.
-- A GitHub App for the factory, installed on the product repository
-  ([how](host/docs/github-app.md)). A machine user with a token still works.
+- A GitHub App for the factory, installed on the product repository.
+  `tehas setup --new-app` makes it from a link in your browser
+  ([how](host/docs/github-app.md)).
 - In the product repository: `AGENTS.md`, `.pi/verify-cmd` and
   `.pi/settings.json`. The ones in this repository are a working example.
 
