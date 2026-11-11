@@ -237,4 +237,123 @@ t_run "$shim issue comment 7 --body hi"
 T_ENV=()
 t_eq "$(calls)" 1
 
+# The relay (host/sandbox/gh-shim): a cycle's issue writes go through the host.
+# A fake host in the background answers the first request it finds, as the
+# host's relay does: what it was asked goes to $T/relayed, and its answer is
+# "posted" with the status given.
+relay=$T/relay
+fake_host() { # <rc>
+  (
+    for _ in $(seq 100); do
+      for r in "$relay"/req.*/ready; do
+        [ -e "$r" ] || continue
+        d=${r%/ready}
+        pid=${d##*/req.}
+        tr '\0' ' ' <"$d/args" >"$T/relayed"
+        cp "$d/args" "$T/relayed.raw"
+        if [ -f "$d/body" ]; then cp "$d/body" "$T/relayed.body"; fi
+        rm -rf "$d"
+        mkdir "$relay/res.$pid"
+        echo posted >"$relay/res.$pid/out"
+        echo said >"$relay/res.$pid/err"
+        echo "$1" >"$relay/res.$pid/rc"
+        : >"$relay/res.$pid/done"
+        exit 0
+      done
+      sleep 0.1
+    done
+  ) &
+}
+relay_reset() {
+  stub_reset
+  rm -rf "$relay" "$T/relayed" "$T/relayed.raw" "$T/relayed.body"
+  mkdir -p "$relay"
+}
+relay_shim() { # <args...>
+  T_ENV=(TEHAS_GH_BIN="$T/bin/gh" TEHAS_GH_RETRY_WAIT=0 TEHAS_RELAY_DIR="$relay" TEHAS_RELAY_WAIT="${wait:-5}")
+  t_run "$shim $* >'$T/shim.out' 2>'$T/shim.err'"
+  T_ENV=()
+}
+
+t_case "relay: an issue comment goes to the host, which answers for gh"
+relay_reset
+fake_host 0
+relay_shim "issue comment 3 --body hi"
+wait
+t_eq "$t_rc" 0
+t_eq "$(cat "$T/shim.out")" "posted"
+t_eq "$(cat "$T/shim.err")" "said"
+t_eq "$(cat "$T/relayed")" "issue comment 3 --body hi "
+t_eq "$(seen)" ""
+t_eq "$(ls -A "$relay")" ""
+
+t_case "relay: the host's status comes back"
+relay_reset
+fake_host 1
+relay_shim "issue edit 3 --add-label tehas:ready"
+wait
+t_eq "$t_rc" 1
+t_eq "$(seen)" ""
+
+t_case "relay: a body file and standard input are copied for the host"
+relay_reset
+printf 'The body.\nTwo lines.\n' >"$T/body.md"
+fake_host 0
+relay_shim "issue create --title T --body-file '$T/body.md'"
+wait
+t_eq "$t_rc" 0
+t_eq "$(cat "$T/relayed")" "issue create --title T --body-file $T/body.md "
+t_eq "$(cat "$T/relayed.body")" "The body.
+Two lines."
+relay_reset
+fake_host 0
+T_ENV=(TEHAS_GH_BIN="$T/bin/gh" TEHAS_RELAY_DIR="$relay" TEHAS_RELAY_WAIT=5)
+t_run "printf 'from stdin' | $shim issue comment 3 -F - >'$T/shim.out' 2>'$T/shim.err'"
+T_ENV=()
+wait
+t_eq "$t_rc" 0
+t_eq "$(cat "$T/relayed.body")" "from stdin"
+t_eq "$(seen)" ""
+
+t_case "relay: an argument with spaces and an empty one reach the host whole"
+relay_reset
+fake_host 0
+relay_shim "issue comment 3 --body 'a  b' --title ''"
+wait
+t_eq "$(od -An -c "$T/relayed.raw" | tr -s ' ')" "$(printf '%s\0' issue comment 3 --body 'a  b' --title '' | od -An -c | tr -s ' ')"
+
+t_case "relay: issue view is not relayed"
+relay_reset
+answer 1 "the issue" "" 0
+relay_shim "issue view 3"
+t_eq "$t_rc" 0
+t_eq "$(cat "$T/shim.out")" "the issue"
+t_eq "$(calls)" 1
+t_eq "$(ls -A "$relay")" ""
+
+t_case "relay: no answer within TEHAS_RELAY_WAIT is exit 1 with the reason"
+relay_reset
+wait=1 relay_shim "issue comment 3 --body hi"
+t_eq "$t_rc" 1
+t_eq "$(cat "$T/shim.err")" "gh-shim: the host did not answer the relay"
+t_eq "$(seen)" ""
+t_eq "$(ls -A "$relay")" ""
+
+t_case "relay: an answer left by an earlier process of the same id is not taken"
+relay_reset
+# exec keeps the process id, so the shim is $$ of the shell that made the answer.
+T_ENV=(TEHAS_GH_BIN="$T/bin/gh" TEHAS_RELAY_DIR="$relay" TEHAS_RELAY_WAIT=1)
+t_run "sh -c 'mkdir \"\$1/res.\$\$\" && echo 0 >\"\$1/res.\$\$/rc\" && : >\"\$1/res.\$\$/done\" && exec \"\$2\" issue comment 3 --body hi' sh '$relay' '$shim' 2>'$T/shim.err'"
+T_ENV=()
+t_eq "$t_rc" 1
+t_eq "$(cat "$T/shim.err")" "gh-shim: the host did not answer the relay"
+
+t_case "relay: without the relay directory an issue write goes to gh"
+stub_reset
+answer 1 "done" "" 0
+T_ENV=(TEHAS_GH_BIN="$T/bin/gh" TEHAS_RELAY_DIR="$T/no-relay")
+t_run "$shim issue comment 7 --body hi"
+T_ENV=()
+t_eq "$(calls)" 1
+
 t_done

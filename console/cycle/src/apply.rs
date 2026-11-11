@@ -84,8 +84,9 @@ struct Tried {
     repo: String,
     issue: u64,
     gh: Gh,
-    /// TEHAS_CYCLE_LOGIN, empty when unset.
-    cycle: String,
+    /// Whose pull requests the cycle's are: the app's login, as the
+    /// dispatcher names it.
+    author: String,
 }
 
 impl Tried {
@@ -115,15 +116,14 @@ impl Tried {
     }
 }
 
-/// Whose pull requests on a branch are the bot's: the host token's own, and
-/// the cycle token's account (TEHAS_CYCLE_LOGIN), which the cycle opens its
-/// pull request as from inside its container.
-fn pr_authors(cycle: &str) -> Vec<String> {
-    let mut who = vec!["@me".to_string()];
-    if !cycle.is_empty() {
-        who.push(tehas_core::accounts::account(cycle).to_string());
+/// The author a cycle's pull requests are listed by: the bot's login, or the
+/// token's own account while the login is not known.
+fn author_of(bot: &str) -> String {
+    if bot.trim().is_empty() {
+        "@me".to_string()
+    } else {
+        bot.trim().to_string()
     }
-    who
 }
 
 fn pr_list(repo: &str, branch: &str, author: &str) -> Vec<String> {
@@ -148,30 +148,10 @@ fn pr_list(repo: &str, branch: &str, author: &str) -> Vec<String> {
     .collect()
 }
 
-/// The lists of each author as one, a pull request once.
-fn joined(lists: Vec<Vec<Value>>) -> Vec<Value> {
-    let mut all: Vec<Value> = Vec::new();
-    for p in lists.into_iter().flatten() {
-        let url = p.get("url").and_then(Value::as_str);
-        if url.is_none()
-            || !all
-                .iter()
-                .any(|q| q.get("url").and_then(Value::as_str) == url)
-        {
-            all.push(p);
-        }
-    }
-    all
-}
-
 impl Ask for Tried {
     fn prs(&mut self, branch: &str) -> Option<Vec<Value>> {
-        let mut lists = Vec::new();
-        for author in pr_authors(&self.cycle) {
-            let args = pr_list(&self.repo, branch, &author);
-            lists.push(self.tried(&args, Value::is_array)?.as_array()?.clone());
-        }
-        Some(joined(lists))
+        let args = pr_list(&self.repo, branch, &self.author);
+        Some(self.tried(&args, Value::is_array)?.as_array()?.clone())
     }
 
     fn attention(&mut self) -> Option<bool> {
@@ -763,7 +743,7 @@ pub fn run(home: &Path, s: &Start) -> i32 {
         repo: facts.repo.clone(),
         issue,
         gh,
-        cycle: std::env::var(tehas_core::accounts::CYCLE_LOGIN).unwrap_or_default(),
+        author: author_of(&std::env::var("TEHAS_BOT_LOGIN").unwrap_or_default()),
     };
     let mut r = report(&facts, &mut ask);
     clear_notes(home, issue);
@@ -846,22 +826,19 @@ pub fn run(home: &Path, s: &Start) -> i32 {
 
 #[cfg(test)]
 mod tests {
-    use super::{approved_lean, joined, pr_authors, pr_list};
+    use super::{approved_lean, author_of, pr_list};
     use serde_json::json;
 
     #[test]
-    fn the_bots_pull_requests_are_the_host_tokens_and_the_cycle_tokens() {
-        assert_eq!(pr_authors(""), ["@me"]);
-        assert_eq!(pr_authors("acme-cycle"), ["@me", "acme-cycle"]);
-        let args = pr_list("acme/widget", "feature/issue-7-a", "acme-cycle");
-        let at = args.iter().position(|a| a == "--author").unwrap();
-        assert_eq!(args[at + 1], "acme-cycle");
-        let a = json!({"url": "https://github.com/acme/widget/pull/9"});
-        let b = json!({"url": "https://github.com/acme/widget/pull/10"});
-        assert_eq!(
-            joined(vec![vec![a.clone()], vec![b.clone(), a.clone()]]),
-            vec![a, b]
+    fn the_cycles_pull_requests_are_listed_by_the_bots_login() {
+        let args = pr_list(
+            "acme/widget",
+            "feature/issue-7-a",
+            &author_of("tehas-bot[bot]"),
         );
+        let at = args.iter().position(|a| a == "--author").unwrap();
+        assert_eq!(args[at + 1], "tehas-bot[bot]");
+        assert_eq!(author_of(""), "@me");
     }
 
     #[test]

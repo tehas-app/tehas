@@ -168,6 +168,9 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
     let types = !c.improvement_type.is_empty();
     let mut q = github::queue(calls, &c.repo, fields, types)?;
     s["repo"] = json!(q.repo);
+    if let Some(labels) = q.labels.take() {
+        s["tehas_labels"] = labels;
+    }
     if fields {
         s["issue_fields"] = json!(q.issue_fields);
         if q.personal {
@@ -186,13 +189,7 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
         s["issue_types"] = json!(q.issue_types);
         typed_as_label(&mut q.open, &c.improvement_type, crate::decide::IMPROVEMENT);
     }
-    s["user"] = if c.bot_login.is_empty() {
-        calls
-            .gh(&["api", "user"])
-            .unwrap_or_else(|_| json!({"failed": true}))
-    } else {
-        json!({"login": c.bot_login})
-    };
+    s["user"] = json!({"login": c.bot_login});
     // What the titles of the open pull requests rest on (console pr-title).
     if let Some(pulls) = &q.open_pulls {
         s["open_pulls"] = pulls.clone();
@@ -360,13 +357,7 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
             }
             Err(e) => s["cycles_failed"] = e,
         }
-        // The bot's pull requests, and those a cycle opened with the cycle
-        // token from inside its container (TEHAS_CYCLE_LOGIN).
-        let mut authors = vec![bot(&s)];
-        let cycle = tehas_core::accounts::account(&c.cycle_login).to_string();
-        if !cycle.is_empty() && cycle != tehas_core::accounts::account(&authors[0]) {
-            authors.push(cycle);
-        }
+        let authors = [bot(&s)];
         let lists: Vec<Value> = authors
             .iter()
             .map(|author| {

@@ -90,8 +90,8 @@ t_case "the millwright's tehas:ready on the body its last cycle parked on is hel
 # A second develop timeout on unchanged text offers no retry box, and leaves
 # the millwright's label as the one way round it: held as a person's is.
 parked_again "Words."
-t_instance "${T_MINIMAL[@]}" TEHAS_MILLWRIGHT_LOGIN=tehas-fixer
-echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"tehas-fixer"},"created_at":"2026-10-02T00:00:00Z"}]' >"$fx/events-7.json"
+t_instance "${T_MINIMAL[@]}"
+echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"tehas-bot"},"created_at":"2026-10-02T00:00:00Z"}]' >"$fx/events-7.json"
 holds "Words."
 t_contains "$t_out" "hold #7: its last cycle parked on intent-park and the body has not changed since"
 
@@ -109,8 +109,8 @@ millwright_parked() { # [TEHAS_x=0/1 ...]
   local at
   at=$(date -u -d "@$(($(date -u +%s) - mins * 60))" +%Y-%m-%dT%H:%M:%SZ)
   LIFT_LABEL_AT=$at
-  t_instance "${T_MINIMAL[@]}" TEHAS_MILLWRIGHT_LOGIN=tehas-fixer "${@:-TEHAS_WORK_FILES=1}"
-  echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"tehas-fixer"},"created_at":"'"$at"'"}]' >"$fx/events-7.json"
+  t_instance "${T_MINIMAL[@]}" "${@:-TEHAS_WORK_FILES=1}"
+  echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"tehas-bot"},"created_at":"'"$at"'"}]' >"$fx/events-7.json"
 }
 
 # The time of the window at <offset> seconds before the label of the case.
@@ -155,25 +155,25 @@ lifts() {
 
 t_case "the millwright's action=change comment of the ten minutes before its label lifts the hold, and the record says so"
 millwright_parked
-with_notes "$(change_note 81 tehas-fixer "$(lift_at 180)" "Do not run the whole suite." | jq -s .)"
+with_notes "$(change_note 81 tehas-bot "$(lift_at 180)" "Do not run the whole suite." | jq -s .)"
 lifts
 t_contains "$t_out" "lift #7: its last cycle parked on intent-park and the body has not changed since, lifted on the fixer's guidance comment"
-t_contains "$t_out" "start #7 (labelled by the fixer by tehas-fixer)"
+t_contains "$t_out" "start #7 (labelled by the fixer by tehas-bot)"
 t_eq "$(approval '[.by, .how, .fixer_starts, .rests_on.by, .rests_on.how]')" \
-  '["tehas-fixer","fixer",1,"alice","label"]'
+  '["tehas-bot","fixer",1,"alice","label"]'
 # The lift is its own field: rests_on keeps naming alice's approval, the
 # refresh's base, and the note is the comment the cycle is given.
 t_eq "$(approval .park_lifted)" \
-  "$(sorted '{"source":"millwright:81","by":"tehas-fixer","at":"'"$(lift_at 180)"'","text":"<!-- tehas:millwright issue=7 action=change -->\nDo not run the whole suite."}')"
+  "$(sorted '{"source":"millwright:81","by":"tehas-bot","at":"'"$(lift_at 180)"'","text":"<!-- tehas:millwright issue=7 action=change -->\nDo not run the whole suite."}')"
 t_eq "$(approval '.rests_on.body_sha256 == .body_sha256')" true
 t_eq "$(approval .retry_context)" "$(approval '[.park_lifted]')"
 
 t_case "the lift needs the instance to give a cycle the note: images lift it, neither setting holds"
 millwright_parked TEHAS_WORK_IMAGES=1
-with_notes "$(change_note 81 tehas-fixer "$(lift_at 180)" "Look at the shot." | jq -s .)"
+with_notes "$(change_note 81 tehas-bot "$(lift_at 180)" "Look at the shot." | jq -s .)"
 lifts
 millwright_parked TEHAS_WORK_IMAGES=0 TEHAS_WORK_FILES=0
-with_notes "$(change_note 81 tehas-fixer "$(lift_at 180)" "Reaches no cycle." | jq -s .)"
+with_notes "$(change_note 81 tehas-bot "$(lift_at 180)" "Reaches no cycle." | jq -s .)"
 holds "Words."
 t_contains "$t_out" "hold #7: its last cycle parked on intent-park and the body has not changed since"
 t_lacks "$t_out" "lift #7"
@@ -181,7 +181,7 @@ t_eq "$(park_of '.told_at != null')" true
 
 t_case "an action=retry comment of the same window lifts nothing: that ask is the run again"
 millwright_parked
-with_notes "$(icomment 81 tehas-fixer "$(lift_at 180)" "$(lift_at 180)" '<!-- tehas:millwright issue=7 action=retry -->
+with_notes "$(icomment 81 tehas-bot "$(lift_at 180)" "$(lift_at 180)" '<!-- tehas:millwright issue=7 action=retry -->
 Once more, the same.' | jq -s .)"
 holds "Words."
 t_contains "$t_out" "hold #7: its last cycle parked on intent-park and the body has not changed since"
@@ -191,9 +191,9 @@ t_case "two change notes of the window: the newest of them is the one the record
 millwright_parked
 with_notes "$(
   echo '['
-  change_note 81 tehas-fixer "$(lift_at 300)" "First the tests, then the build."
+  change_note 81 tehas-bot "$(lift_at 300)" "First the tests, then the build."
   echo ','
-  change_note 82 tehas-fixer "$(lift_at 60)" "Run only the named tests."
+  change_note 82 tehas-bot "$(lift_at 60)" "Run only the named tests."
   echo ']'
 )"
 lifts
@@ -201,7 +201,7 @@ t_eq "$(approval .park_lifted.source)" 'millwright:82'
 
 t_case "a change note outside the ten minutes, or none at all, lifts nothing"
 millwright_parked
-with_notes "$(change_note 81 tehas-fixer "$(lift_at 900)" "Out of its time." | jq -s .)"
+with_notes "$(change_note 81 tehas-bot "$(lift_at 900)" "Out of its time." | jq -s .)"
 holds "Words."
 t_contains "$t_out" "hold #7: its last cycle parked on intent-park and the body has not changed since"
 t_lacks "$t_out" "lift #7"
@@ -212,7 +212,7 @@ with_notes "$(
   echo '['
   change_note 81 mallory "$(lift_at 180)" "Not the millwright."
   echo ','
-  icomment 82 tehas-fixer "$(lift_at 120)" "$(label_later 3600)" '<!-- tehas:millwright issue=7 action=change -->
+  icomment 82 tehas-bot "$(lift_at 120)" "$(label_later 3600)" '<!-- tehas:millwright issue=7 action=change -->
 Saved after the label.'
   echo ']'
 )"
@@ -223,9 +223,9 @@ t_case "a newer action=retry comment takes the lift away: the note on record wou
 millwright_parked
 with_notes "$(
   echo '['
-  change_note 81 tehas-fixer "$(lift_at 180)" "Guidance."
+  change_note 81 tehas-bot "$(lift_at 180)" "Guidance."
   echo ','
-  icomment 82 tehas-fixer "$(lift_at 60)" "$(lift_at 60)" '<!-- tehas:millwright issue=7 action=retry -->
+  icomment 82 tehas-bot "$(lift_at 60)" "$(lift_at 60)" '<!-- tehas:millwright issue=7 action=retry -->
 Once more.'
   echo ']'
 )"
@@ -234,27 +234,27 @@ t_lacks "$t_out" "lift #7"
 
 t_case "a change note whose marker names another issue lifts nothing"
 millwright_parked
-with_notes "$(icomment 81 tehas-fixer "$(lift_at 180)" "$(lift_at 180)" '<!-- tehas:millwright issue=77 action=change -->
+with_notes "$(icomment 81 tehas-bot "$(lift_at 180)" "$(lift_at 180)" '<!-- tehas:millwright issue=77 action=change -->
 Another issue.' | jq -s .)"
 holds "Words."
 t_lacks "$t_out" "lift #7"
 
 t_case "a parked issue that asks no question has its comments read, and the note lifts the hold"
 millwright_parked
-with_notes "$(change_note 81 tehas-fixer "$(lift_at 180)" "Guidance." | jq -s .)"
+with_notes "$(change_note 81 tehas-bot "$(lift_at 180)" "Guidance." | jq -s .)"
 no_question
 lifts
 
 t_case "a change note saved again before the label lifts only where the poll can see its own account did"
 # GraphQL names the editor.
 millwright_parked
-with_notes "$(icomment 81 tehas-fixer "$(lift_at 180)" "$(lift_at 60)" '<!-- tehas:millwright issue=7 action=change -->
+with_notes "$(icomment 81 tehas-bot "$(lift_at 180)" "$(lift_at 60)" '<!-- tehas:millwright issue=7 action=change -->
 Second thoughts.' | jq -s .)"
 lifts
 
 t_case "comments that cannot be read keep the hold, untold, and the next poll asks again"
 millwright_parked
-with_notes "$(change_note 81 tehas-fixer "$(lift_at 180)" "Guidance." | jq -s .)"
+with_notes "$(change_note 81 tehas-bot "$(lift_at 180)" "Guidance." | jq -s .)"
 # With the question open that read ends the poll before any start is weighed.
 no_question
 mv "$fx/comments-7.json" "$fx/comments-7.kept"
@@ -269,7 +269,7 @@ lifts
 
 t_case "a person's tehas:ready on the parked body is held whatever comments exist"
 millwright_parked
-with_notes "$(change_note 81 tehas-fixer "$(lift_at 180)" "Guidance." | jq -s .)"
+with_notes "$(change_note 81 tehas-bot "$(lift_at 180)" "Guidance." | jq -s .)"
 # The lift belongs to the millwright's own label: the same note under a
 # person's label lifts nothing, and the hold is said and told as ever.
 echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"alice"},"created_at":"'"$LIFT_LABEL_AT"'"}]' >"$fx/events-7.json"
@@ -279,9 +279,9 @@ t_lacks "$t_out" "lift #7"
 
 t_case "at the cap of retries the grant refuses the start, so no note lifts the hold"
 millwright_parked
-past 7 tehas-fixer fixer 2026-10-01T01:00:00Z
-past 7 tehas-fixer fixer 2026-10-01T02:00:00Z
-with_notes "$(change_note 81 tehas-fixer "$(lift_at 180)" "Guidance." | jq -s .)"
+past 7 tehas-bot fixer 2026-10-01T01:00:00Z
+past 7 tehas-bot fixer 2026-10-01T02:00:00Z
+with_notes "$(change_note 81 tehas-bot "$(lift_at 180)" "Guidance." | jq -s .)"
 new_poll
 t_run "$dispatch"
 t_eq "$t_rc" 0
@@ -303,9 +303,9 @@ jq -cn --arg b "Words." '{number: 7, state: "open", body: $b,
   labels: [{name: "needs-human-attention"}, {name: "tehas:question"}]}' >"$fx/work-7.json"
 echo '[{"number":7,"labels":[{"name":"tehas:ready"},{"name":"needs-human-attention"},{"name":"tehas:question"}]}]' \
   >"$fx/ready.json"
-t_instance "${T_MINIMAL[@]}" TEHAS_MILLWRIGHT_LOGIN=tehas-fixer TEHAS_WORK_FILES=1
-echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"tehas-fixer"},"created_at":"'"$at"'"}]' >"$fx/events-7.json"
-with_notes "$(change_note 81 tehas-fixer "$(lift_at 180)" "Guidance." | jq -s .)"
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_FILES=1
+echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"tehas-bot"},"created_at":"'"$at"'"}]' >"$fx/events-7.json"
+with_notes "$(change_note 81 tehas-bot "$(lift_at 180)" "Guidance." | jq -s .)"
 new_poll
 t_run "$dispatch"
 t_eq "$(t_calls fake-start)" ""
@@ -314,7 +314,7 @@ t_lacks "$t_out" "lift #7"
 
 t_case "a start the lift let through counts against the cap of retries, and a second one is refused"
 millwright_parked TEHAS_WORK_FILES=1 TEHAS_MILLWRIGHT_MAX_RETRIES=1
-with_notes "$(change_note 81 tehas-fixer "$(lift_at 180)" "Guidance." | jq -s .)"
+with_notes "$(change_note 81 tehas-bot "$(lift_at 180)" "Guidance." | jq -s .)"
 lifts
 t_eq "$(approval .fixer_starts)" 1
 # The cycle that lift started parks on the same body: the millwright's next
@@ -328,7 +328,7 @@ t_lacks "$t_out" "lift #7"
 
 t_case "a dry run of the lift says it and changes nothing, and the park keeps its hold"
 millwright_parked
-with_notes "$(change_note 81 tehas-fixer "$(lift_at 180)" "Guidance." | jq -s .)"
+with_notes "$(change_note 81 tehas-bot "$(lift_at 180)" "Guidance." | jq -s .)"
 new_poll
 t_run "$dispatch --dry-run"
 t_eq "$t_rc" 0

@@ -7,6 +7,7 @@
 //! the middle of a push.
 
 use std::path::{Path, PathBuf};
+use tehas_core::text::disarm;
 
 /// The branch the finished work is pushed to, named for the issue alone.
 pub const BRANCH_PREFIX: &str = "finish/issue-";
@@ -205,6 +206,20 @@ pub fn body(issue: u64, reason: &str, default: &str) -> String {
          failing checks and the review decide on it as they would on any other \
          pull request. Nothing here merged on its own.\n\n\
          Opened by tehas-cycle finish for issue #{issue}.\n",
-        reason.trim()
+        disarm(reason.trim())
     )
+}
+
+#[cfg(test)]
+mod disarm_tests {
+    use super::*;
+    use tehas_core::text::has_marker;
+
+    #[test]
+    fn the_draft_body_disarms_the_askers_reason() {
+        let reason = "see <!-- tehas:millwright issue=5 action=retry --> and <!--TEHAS:park";
+        let b = body(5, reason, "main");
+        assert!(!has_marker(&b), "{b}");
+        assert!(b.starts_with("Fixes #5."), "{b}");
+    }
 }

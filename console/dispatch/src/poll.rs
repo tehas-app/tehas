@@ -288,12 +288,12 @@ fn writer(
                 .map(str::to_string)
                 .collect(),
             millwright: crate::settings::account(&env("TEHAS_MILLWRIGHT_LOGIN")).to_string(),
+            refused_labels: Vec::new(),
             bot: if bot.is_empty() {
                 env("TEHAS_BOT_LOGIN")
             } else {
                 bot.to_string()
             },
-            cycle: env(tehas_core::accounts::CYCLE_LOGIN),
             owner: env("TEHAS_OWNER"),
             systemctl: "systemctl".into(),
             start_cmd: opt("TEHAS_CYCLE_START_CMD"),
@@ -502,7 +502,7 @@ const TOKEN_BOUND: Duration = Duration::from_secs(30);
 impl PollToken {
     /// The token of the host's GitHub App: the one already taken, or the first
     /// run of `$TEHAS_HOME/bin/tehasbot github-token`, which answers the token and
-    /// nothing else. Only when `TEHAS_GITHUB_APP_ID` names an app. A run that
+    /// nothing else. A run that
     /// could not be had leaves nothing taken, so the poll's gh calls go on as
     /// they did before and each pays for a token of its own. The token is held
     /// here and nowhere else: never logged, never written, never recorded.
@@ -522,6 +522,28 @@ impl PollToken {
         }
         held.clone()
     }
+}
+
+/// The settings with the app's login in them when the poll started without
+/// one: a mint of this poll wrote state/github/login after the load. The
+/// bot and the millwright are that login, in the environment too, for what the
+/// poll starts. None when the settings already name a bot or no login is kept.
+fn adopt_login(home: &Path, settings: &Settings) -> Option<Settings> {
+    if !settings.bot_login.is_empty() {
+        return None;
+    }
+    let login = tehas_core::settings::bot_login(home)?;
+    let mut now = settings.clone();
+    now.bot_login = login.clone();
+    if now.millwright.is_empty() {
+        now.millwright = crate::settings::account(&login).to_string();
+    }
+    for name in ["TEHAS_BOT_LOGIN", "TEHAS_MILLWRIGHT_LOGIN"] {
+        if std::env::var_os(name).is_none_or(|v| v.is_empty()) {
+            std::env::set_var(name, &login);
+        }
+    }
+    Some(now)
 }
 
 /// One poll. The exit status the bash poll would end with.
@@ -594,6 +616,12 @@ pub fn run_poll(home: &Path, settings: &Settings, dry: bool) -> i32 {
     // status reads that go through them are one poll and spend one budget, and
     // `body` is handed the same value rather than copying a field afterwards.
     let retry = RetryPolicy::default();
+    // The token is taken before anything reads the bot: a first mint writes
+    // state/github/login, and this poll acts as that login.
+    let token = PollToken::default();
+    let first_token = token.get(home);
+    let adopted = adopt_login(home, settings);
+    let settings = adopted.as_ref().unwrap_or(settings);
     let mut w = writer(home, settings, "", 0, now() as i64, &retry);
     // The poll's GitHub token, kept in memory from before its first call: the
     // first gh of the poll asks the host's token program once, and every gh
@@ -605,8 +633,7 @@ pub fn run_poll(home: &Path, settings: &Settings, dry: bool) -> i32 {
     // leaves the calls as they were: each pays for one. The token is never
     // logged, never written to a file and never put in the arguments of
     // anything.
-    let token = PollToken::default();
-    w.calls.gh_token = token.get(home);
+    w.calls.gh_token = first_token;
     let mut end = End {
         home,
         dry,
@@ -712,6 +739,11 @@ fn body(
     for l in refresh_warn(&snap) {
         say(l);
     }
+    let (said, refused) = crate::pins::settle(home, &mut snap, dry);
+    for l in &said {
+        say(l);
+    }
+    w.host.refused_labels = refused;
     let mut d = decide(&Snapshot::parse(&snap), settings, dry);
     while fill(&src, &mut snap, &d.needs) {
         d = decide(&Snapshot::parse(&snap), settings, dry);
@@ -1226,6 +1258,55 @@ mod tests {
         assert!(tidy_args(true).is_empty());
         assert_eq!(own_words(false, &["index"]), ["index"]);
         assert!(own_words(true, &["index"]).is_empty());
+    }
+
+    /// The two login variables of this process, put back as they were when the
+    /// guard goes, a panic included; held under a lock, since the process's
+    /// environment is shared by every test.
+    #[allow(dead_code)] // the lock is held, never read
+    struct Logins(
+        std::sync::MutexGuard<'static, ()>,
+        [(&'static str, Option<std::ffi::OsString>); 2],
+    );
+
+    impl Logins {
+        fn take() -> Logins {
+            static LOCK: Mutex<()> = Mutex::new(());
+            let held = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+            let names = ["TEHAS_BOT_LOGIN", "TEHAS_MILLWRIGHT_LOGIN"];
+            let kept = names.map(|n| (n, std::env::var_os(n)));
+            for n in names {
+                std::env::remove_var(n);
+            }
+            Logins(held, kept)
+        }
+    }
+
+    impl Drop for Logins {
+        fn drop(&mut self) {
+            for (name, value) in &self.1 {
+                match value {
+                    Some(v) => std::env::set_var(name, v),
+                    None => std::env::remove_var(name),
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_login_the_first_mint_wrote_is_the_bot_and_the_millwright_of_the_poll() {
+        let _env = Logins::take();
+        let home = home_of("adopt");
+        let none = Settings::parse(&json!({}));
+        assert!(adopt_login(&home, &none).is_none(), "no login is kept yet");
+        std::fs::create_dir_all(home.join("state/github")).unwrap();
+        std::fs::write(home.join("state/github/login"), "acme-app[bot]\n").unwrap();
+        let got = adopt_login(&home, &none).expect("the kept login is adopted");
+        assert_eq!(got.bot_login, "acme-app[bot]");
+        assert!(got.is_millwright("acme-app[bot]"));
+        assert_eq!(std::env::var("TEHAS_BOT_LOGIN").unwrap(), "acme-app[bot]");
+        let named = Settings::parse(&json!({"TEHAS_BOT_LOGIN": "set[bot]"}));
+        assert!(adopt_login(&home, &named).is_none(), "a named bot stays");
     }
 
     /// A scratch home of this test, with `live/` in it.

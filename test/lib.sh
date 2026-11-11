@@ -191,7 +191,7 @@ t_rc=0
 # Values a minimal valid instance needs. A case that lowers TEHAS_WORK_TIMEOUT
 # below the child bound's default names TEHAS_CHILD_TIMEOUT with it: the load
 # refuses a child that may outlive the cycle.
-T_MINIMAL=(TEHAS_REPO=acme/widget TEHAS_CONTROL_ISSUE=1 TEHAS_ALLOWED_LABELERS=alice
+T_MINIMAL=(TEHAS_GITHUB_APP_ID=1 TEHAS_REPO=acme/widget TEHAS_CONTROL_ISSUE=1 TEHAS_ALLOWED_LABELERS=alice
   PI_ENSEMBLE_SUBAGENT_MODEL=test-model PI_ENSEMBLE_SUBAGENT_PROVIDER=test-provider)
 
 t_after=""
@@ -235,11 +235,30 @@ t_skip() {
 t_contains() { case "$1" in *"$2"*) ;; *) t_bad "'$2' is not in: $1" ;; esac; }
 t_lacks() { case "$1" in *"$2"*) t_bad "'$2' should not be in: $1" ;; esac; }
 
+# t_app_world [SLUG]: the factory as the one GitHub App it is. The app's login
+# is kept in state/github/login as SLUG[bot], where the settings read the bot from, and a
+# token and the narrowed cycle and session tokens with hours left are kept beside it, so a
+# command that asks for one finds it and asks GitHub for nothing.
+t_app_world() {
+  local home=$T/home/tehas dir until
+  until=$(($(date +%s) + 86400))
+  for dir in github github-cycle github-session; do
+    mkdir -p "$home/state/$dir"
+    printf 'ghs_%s\n' "$([ "$dir" = github ] && echo app || echo "${dir#github-}")" >"$home/state/$dir/token"
+    printf '%s\n' "$until" >"$home/state/$dir/token.expires"
+  done
+  printf '%s\n' "${1:-tehas-bot}[bot]" >"$home/state/github/login"
+}
+
+# t_instance KEY=VALUE...: writes instance.env as given (T_MINIMAL names the
+# app), and makes t_app_world unless the case made its own or the file sets
+# T_APP_WORLD=0 (a file that counts what is on the host).
 t_instance() {
   export TEHAS_INSTANCE_DIR=$T/instance
   mkdir -p "$TEHAS_INSTANCE_DIR"
   chmod 700 "$TEHAS_INSTANCE_DIR"
   if [ "$#" -gt 0 ]; then printf '%s\n' "$@" >"$TEHAS_INSTANCE_DIR/instance.env"; else : >"$TEHAS_INSTANCE_DIR/instance.env"; fi
+  [ "${T_APP_WORLD:-1}" = 0 ] || [ -e "$T/home/tehas/state/github/login" ] || t_app_world
 }
 # t_no_instance: the case is done with the instance its t_instance made: the
 # name is dropped, so a run that follows has no instance directory, and the
@@ -359,6 +378,9 @@ command -p cat "$t_got.e" >&2
 if [ "$t_rc" = 0 ] && [ ! -s "$t_got" ]; then
   case "$1 $2 $3 $4" in
     "api users/"*" --jq .id") jq -rn --arg l "${2#users/}" '$l | sub("\\[bot\\]$"; "") | explode | add' >"$t_got" ;;
+    # The node id tehas labels pins a label to (src/labels.rs): LA_ and the
+    # label's name after tehas:, unless the body answers it.
+    "api repos/"*/labels/*" --jq .node_id") t_l=${2##*/}; echo "LA_${t_l#tehas:}" >"$t_got" ;;
   esac
 fi
 if command -p grep -q '"login"' "$t_got" &&
@@ -386,7 +408,7 @@ t_calls() { cat "$T/calls/$1" 2>/dev/null || true; }
 t_uid() { jq -rn --arg l "$1" '$l | sub("\\[bot\\]$"; "") | explode | add'; }
 # t_ids <home> [<login>...]: the user ids install.sh and tehas update record,
 # in <home>/state/account-ids, of every login the tests list unless named.
-T_LOGINS=(alice bob bob-2 carol boss tehas-fixer tehas-mill millbot mill-bot acme-millwright acme-app-millwright)
+T_LOGINS=(tehas-bot alice bob bob-2 carol boss tehas-fixer tehas-mill millbot mill-bot acme-millwright acme-app-millwright)
 t_ids() {
   local home=$1 l
   shift

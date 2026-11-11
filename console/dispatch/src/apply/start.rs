@@ -35,11 +35,11 @@ pub struct Host {
     pub allowed: Vec<String>,
     /// TEHAS_MILLWRIGHT_LOGIN, as `settings::account` has it.
     pub millwright: String,
+    /// The granting labels this poll found not to be the ones pinned
+    /// (`crate::pins`): no application of them counts.
+    pub refused_labels: Vec<String>,
     /// The bot's login, whose pull requests a retry's comments are read on.
     pub bot: String,
-    /// TEHAS_CYCLE_LOGIN: the cycle token's account, whose pull requests are
-    /// the bot's too. Empty when unset.
-    pub cycle: String,
     /// TEHAS_OWNER: the person a claimed issue is assigned to, or empty.
     pub owner: String,
     pub systemctl: String,
@@ -1076,21 +1076,14 @@ impl Writer {
     ) -> Option<Value> {
         let repo = self.repo.clone();
         let bot = self.host.bot.clone();
-        let cycle = self.host.cycle.clone();
         let allowed = self.host.allowed.clone();
-        let who = |l: &str| {
-            !tehas_core::accounts::factorys(l, &bot, &cycle) && allowed.iter().any(|x| x == l)
-        };
+        let who =
+            |l: &str| !tehas_core::accounts::factorys(l, &bot) && allowed.iter().any(|x| x == l);
         let mut items: Vec<Value> = Vec::new();
         for c in window(list, "", at, &who)? {
             items.push(item(&c, "issue-comment", None));
         }
-        // The bot's pull requests: the host token's and those a cycle opened
-        // with the cycle token from inside its container.
-        let mut authors = vec![bot.clone()];
-        if !cycle.is_empty() && account(&cycle) != account(&bot) {
-            authors.push(cycle.clone());
-        }
+        let authors = [bot.clone()];
         let mut mine: Vec<u64> = Vec::new();
         for author in &authors {
             let prs = self
@@ -1395,5 +1388,43 @@ impl Writer {
                 rc.unwrap_or(124)
             ));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const AT: &str = "2026-11-10T10:00:00Z";
+
+    /// The poll's GraphQL read of one comment.
+    fn comment(by: &str, body: &str) -> Value {
+        json!({"databaseId": 5, "author": {"login": by}, "body": body,
+            "createdAt": "2026-11-10T09:59:00Z", "lastEditedAt": null})
+    }
+
+    fn list(by: &str, body: &str) -> Value {
+        json!({"data": {"repository": {"issue": {"comments": {"nodes": [comment(by, body)]}}}}})
+    }
+
+    const CHANGE: &str = "<!-- tehas:millwright issue=5 action=change -->\nTry the other branch.";
+
+    /// The millwright is the factory's own app account, so a marker the bot
+    /// wrote lifts a hold, and one another account wrote does not.
+    #[test]
+    fn a_bot_marker_lifts_a_hold() {
+        let lifted = change_note(&list("acme-factory", CHANGE), 5, "acme-factory", AT);
+        let note = lifted.expect("the read is an answer").expect("a note");
+        assert!(note["text"].as_str().unwrap().contains("action=change"));
+        // REST names the same app `<slug>[bot]`: one account.
+        let rest = json!([{"id": 5, "user": {"login": "acme-factory[bot]"}, "body": CHANGE,
+            "created_at": "2026-11-10T09:59:00Z", "updated_at": "2026-11-10T09:59:00Z"}]);
+        assert!(change_note(&rest, 5, "acme-factory", AT).unwrap().is_some());
+        // Another account's marker lifts nothing, and a retry marker is no change.
+        let other = change_note(&list("mallory", CHANGE), 5, "acme-factory", AT);
+        assert_eq!(other, Some(None));
+        let retry = CHANGE.replace("action=change", "action=retry");
+        let retried = change_note(&list("acme-factory", &retry), 5, "acme-factory", AT);
+        assert_eq!(retried, Some(None));
     }
 }

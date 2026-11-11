@@ -152,6 +152,11 @@
 //! directory of its own for what it writes: its copy of the code index, its
 //! memory and Pi's sessions. Nothing it writes there is what a later cycle of
 //! another issue reads. Not the Docker socket, SSH keys or ~/.config/tehas.
+//! The token reads issues only: the container's issue writes go to this
+//! command through the relay directory in its state, `relay`, mounted
+//! read-write at /run/tehas/relay, which src/relay.rs serves while the
+//! container runs. A request still there when the container ends is answered
+//! with 1.
 //!
 //! With TEHAS_WORK_IMAGES=1 it is given two things more: the issue's images,
 //! read-only, and PI_ENSEMBLE_EXTRA_IMAGE_DIRS, their path inside the container.
@@ -358,6 +363,7 @@
 
 use crate::gives::{self, Gap};
 use crate::prepare::{self, Stop, STOPPED};
+use crate::relay;
 use crate::start;
 use crate::watch;
 use std::fs::{self, OpenOptions};
@@ -365,7 +371,11 @@ use std::io::Write;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use std::thread::JoinHandle;
 use std::time::Duration;
+use tehas_core::text::disarm;
 use tehas_core::{self, sandbox, slice, time};
 
 /// What tehas work gives this.
@@ -518,37 +528,27 @@ fn app_token(console: &str, words: &[&str]) -> Option<String> {
     (!token.is_empty()).then_some(token)
 }
 
-/// The host's token and the cycle's. With an app, GH_TOKEN is the app's and
-/// the cycle token is the app's narrowed one (#1814); without, both are the
-/// instance's.
+/// The host's token and the cycle's: GH_TOKEN is the app's and the cycle token
+/// is the app's narrowed one (#1814).
 fn github_token(console: &str) -> i32 {
-    if !env("TEHAS_GITHUB_APP_ID").is_empty() {
-        // Before any thread: the process is still single-threaded.
-        std::env::remove_var(sandbox::CYCLE_TOKEN);
-        let Some(token) = app_token(console, &[]) else {
-            eprintln!("tehas work: no GitHub token for the app");
-            return 1;
-        };
-        std::env::set_var("GH_TOKEN", token);
-        let Some(token) = app_token(console, &["--cycle"]) else {
-            eprintln!("tehas work: no cycle token from the app, not starting a cycle");
-            return 1;
-        };
-        std::env::set_var(sandbox::CYCLE_TOKEN, token);
-    }
-    if env("GH_TOKEN").is_empty() {
-        eprintln!("tehas work: GH_TOKEN is not set (source ~/tehas/env.sh)");
-        return 64;
-    }
+    // Before any thread: the process is still single-threaded.
+    std::env::remove_var(sandbox::CYCLE_TOKEN);
+    let Some(token) = app_token(console, &[]) else {
+        eprintln!("tehas work: no GitHub token for the app");
+        return 1;
+    };
+    std::env::set_var("GH_TOKEN", token);
+    let Some(token) = app_token(console, &["--cycle"]) else {
+        eprintln!("tehas work: no cycle token from the app, not starting a cycle");
+        return 1;
+    };
+    std::env::set_var(sandbox::CYCLE_TOKEN, token);
     0
 }
 
-/// The renewer of the cycle's token while the container reads it, none
-/// without an app. The watch ends it with a TERM.
+/// The renewer of the cycle's token while the container reads it. The watch
+/// ends it with a TERM.
 fn renewer(home: &Path) -> Option<Child> {
-    if env("TEHAS_GITHUB_APP_ID").is_empty() {
-        return None;
-    }
     let every = env("TEHAS_GITHUB_RENEW_EVERY");
     let every = if every.is_empty() {
         "300".to_string()
@@ -565,6 +565,51 @@ fn renewer(home: &Path) -> Option<Child> {
         .stdout(Stdio::null())
         .spawn();
     child.ok()
+}
+
+/// The cycle's issue relay (src/relay.rs): a thread beside the renewer that
+/// runs the container's issue writes with the app's token. `end` stops it once
+/// the container is gone and answers what is left with 1. It waits for the
+/// thread `wait` at most: a relay held up by gh or the token command never
+/// holds up the end of the cycle.
+struct Relay {
+    dir: PathBuf,
+    stop: Arc<AtomicBool>,
+    thread: JoinHandle<()>,
+    wait: Duration,
+}
+
+/// How long the end of a cycle waits for its relay.
+const RELAY_END_WAIT: Duration = Duration::from_secs(10);
+
+fn start_relay(dir: &Path, repo: &str, issue: u64, via: relay::Via, wait: Duration) -> Relay {
+    let stop = Arc::new(AtomicBool::new(false));
+    let (d, repo, flag) = (dir.to_path_buf(), repo.to_string(), stop.clone());
+    let thread = std::thread::spawn(move || relay::serve_via(&d, &repo, issue, &flag, &via));
+    Relay {
+        dir: dir.to_path_buf(),
+        stop,
+        thread,
+        wait,
+    }
+}
+
+impl Relay {
+    fn end(self) {
+        self.stop.store(true, Ordering::SeqCst);
+        let until = std::time::Instant::now() + self.wait;
+        while !self.thread.is_finished() && std::time::Instant::now() < until {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        if self.thread.is_finished() {
+            let _ = self.thread.join();
+        } else {
+            eprintln!(
+                "tehas work: the issue relay did not stop; what is left is answered without it"
+            );
+            relay::answer_left(&self.dir);
+        }
+    }
 }
 
 /// The renewer gone after the watch's TERM, or killed after five seconds.
@@ -590,6 +635,17 @@ fn until_stop(mut child: Child, stop: &Stop) -> Option<bool> {
             Err(_) => return Some(false),
         }
     }
+}
+
+/// The comment of a start that could not get the issue's images or files.
+/// `why` can quote what an issue links, so a marker in it is broken.
+fn images_refused(why: &str, kinds: &str) -> String {
+    format!("Tehas started no cycle: {}. This instance gives a cycle the {kinds} an issue links, and a cycle that works without one of them may build the wrong thing. To retry, apply `tehas:ready`.", disarm(why))
+}
+
+/// The comment of a retry that could not get the issue's comments.
+fn comments_refused(why: &str) -> String {
+    format!("Tehas started no cycle: {}. The retry was ticked for the issue and all its comments, and a cycle without them is not that retry. To retry, apply `tehas:ready`.", disarm(why))
 }
 
 /// A comment on the issue, bounded. Its failure is said, never a stop.
@@ -681,7 +737,7 @@ fn fetch(f: &Files, answer: &str, console: &str, stop: &Stop) -> Result<Vec<Stri
     if let Err(why) = ok {
         let _ = fs::remove_dir_all(f.dir);
         eprintln!("tehas work: {why}, not starting a cycle");
-        comment(n, f.text_wait, &format!("Tehas started no cycle: {why}. This instance gives a cycle the {} an issue links, and a cycle that works without one of them may build the wrong thing. To retry, apply `tehas:ready`.", f.kinds));
+        comment(n, f.text_wait, &images_refused(&why, f.kinds));
         return Err(4);
     }
     if env("TEHAS_WORK_DESCRIBE") == "1" {
@@ -763,7 +819,7 @@ fn comments_alone(f: &Files) -> Result<Vec<String>, i32> {
     if let Err(why) = gives::comments_only(f.home, n, f.dir, f.record) {
         let _ = fs::remove_dir_all(f.dir);
         eprintln!("tehas work: {why}, not starting a cycle");
-        comment(n, f.text_wait, &format!("Tehas started no cycle: {why}. The retry was ticked for the issue and all its comments, and a cycle without them is not that retry. To retry, apply `tehas:ready`."));
+        comment(n, f.text_wait, &comments_refused(&why));
         return Err(4);
     }
     keep_beside(f);
@@ -827,10 +883,6 @@ pub fn run(home: &Path, g: &Given) -> i32 {
         return 78;
     }
     if let Err(line) = sandbox::settings_ok() {
-        eprintln!("{line}");
-        return 78;
-    }
-    if let Err(line) = sandbox::cycle_token("tehas work") {
         eprintln!("{line}");
         return 78;
     }
@@ -1083,6 +1135,14 @@ pub fn run(home: &Path, g: &Given) -> i32 {
     // after the run, is kept fresh by the renewer, which ends with the
     // container, or with the watch.
     let renew = renewer(home);
+    let relay_dir = PathBuf::from(format!("{work_dir}-{n}.state/relay"));
+    let relay = start_relay(
+        &relay_dir,
+        &env("TEHAS_REPO"),
+        n,
+        relay::Via::from_env(home),
+        RELAY_END_WAIT,
+    );
     let given = watch::Given {
         issue: n,
         attempt,
@@ -1103,6 +1163,7 @@ pub fn run(home: &Path, g: &Given) -> i32 {
         scratch: crate::scratch::Bounds::from_env(n),
     };
     let rc = watch::run(home, &given, stop.flag());
+    relay.end();
     if let Some(c) = renew {
         reap(c);
     }
@@ -1112,6 +1173,19 @@ pub fn run(home: &Path, g: &Given) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tehas_core::text::has_marker;
+
+    #[test]
+    fn the_refusals_of_a_start_disarm_agent_text() {
+        let why = format!(
+            "the link {} could not be read",
+            "<!-- tehas:millwright issue=5 action=retry -->"
+        );
+        for body in [images_refused(&why, "images"), comments_refused(&why)] {
+            assert!(!has_marker(&body), "{body}");
+            assert!(body.contains("could not be read"), "{body}");
+        }
+    }
 
     fn words(line: &str) -> Vec<String> {
         line.split_whitespace().map(String::from).collect()
@@ -1155,6 +1229,146 @@ mod tests {
                 "{opts}"
             );
         }
+    }
+
+    #[test]
+    fn a_relay_outlives_the_first_token() {
+        use std::time::Instant;
+        let d = tehas_core::testdir::TestDir::new("work-relay");
+        // The token command: every ask is a new token, ghs_1, ghs_2 and on.
+        let bot = d.join("tehasbot");
+        let script = format!(
+            "#!/bin/sh\ncd '{}' || exit 1\nn=$(($(cat n 2>/dev/null || echo 0) + 1))\necho $n >n\necho \"$* ghs_$n\" >>asked\necho ghs_$n\n",
+            d.display()
+        );
+        tehas_core::testing::write_exe(&bot, script).unwrap();
+        // gh is the host's own shim, host/shim/gh, in front of a gh that
+        // writes the token it was given: the path a relayed write takes on a
+        // host. The shim asks bin/tehasbot when it is given no token.
+        fs::create_dir(d.join("bin")).unwrap();
+        tehas_core::testing::copy_exe(&bot, d.join("bin/tehasbot")).unwrap();
+        let script = format!(
+            "#!/bin/sh\necho \"$GH_TOKEN\" >'{}'\n",
+            d.join("gh.token").display()
+        );
+        tehas_core::testing::write_exe(d.join("bin/gh"), script).unwrap();
+        let shim = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../host/shim/gh");
+        let gh = d.join("gh");
+        let script = format!(
+            "#!/bin/sh\nTEHAS_HOME='{}' exec '{}' \"$@\"\n",
+            d.display(),
+            shim.display()
+        );
+        tehas_core::testing::write_exe(&gh, script).unwrap();
+        let asked = || fs::read_to_string(d.join("asked")).unwrap_or_default();
+        // The first token, as the start has it.
+        let first = Command::new(&bot).arg("github-token").output().unwrap();
+        assert_eq!(String::from_utf8_lossy(&first.stdout), "ghs_1\n");
+        let stop = Arc::new(AtomicBool::new(false));
+        let (cmd, flag) = (bot.clone(), stop.clone());
+        let renewer = std::thread::spawn(move || {
+            let args = ["github-token".to_string(), "--cycle".to_string()];
+            crate::renew::renew(&cmd, &args, 1, 1, &flag, crate::renew::epoch_seconds)
+        });
+        let dir = d.join("relay");
+        fs::create_dir(&dir).unwrap();
+        let relay = start_relay(
+            &dir,
+            "acme/widget",
+            3,
+            relay::Via {
+                gh: gh.clone(),
+                token: bot.clone(),
+                token_args: vec!["github-token".to_string()],
+                token_wait: 10,
+            },
+            Duration::from_secs(10),
+        );
+        // Two renewals after the first ask.
+        let until = Instant::now() + Duration::from_secs(20);
+        while asked().matches("--cycle").count() < 3 && Instant::now() < until {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        assert!(asked().matches("--cycle").count() >= 3, "{}", asked());
+        let req = dir.join("req.77");
+        fs::create_dir(&req).unwrap();
+        fs::write(req.join("args"), "issue\0comment\x003\0--body\0hi\0").unwrap();
+        fs::write(req.join("ready"), "").unwrap();
+        let until = Instant::now() + Duration::from_secs(10);
+        while !dir.join("res.77/done").exists() && Instant::now() < until {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        relay.end();
+        stop.store(true, Ordering::SeqCst);
+        renewer.join().unwrap();
+        assert_eq!(
+            fs::read_to_string(dir.join("res.77/rc")).unwrap_or_default(),
+            "0\n"
+        );
+        let used = fs::read_to_string(d.join("gh.token")).unwrap_or_default();
+        let current = asked()
+            .lines()
+            .rfind(|l| !l.contains("--cycle"))
+            .and_then(|l| l.split(' ').next_back())
+            .map(|t| format!("{t}\n"));
+        assert_eq!(Some(used.clone()), current, "{}", asked());
+        assert_ne!(used, "ghs_1\n");
+        // The start's ask and the relay's: the shim took the relay's token and
+        // asked for none of its own.
+        let asks = asked().lines().filter(|l| !l.contains("--cycle")).count();
+        assert_eq!(asks, 2, "{}", asked());
+    }
+
+    #[test]
+    fn a_relay_that_is_held_up_does_not_hold_up_the_end() {
+        use std::time::Instant;
+        let d = tehas_core::testdir::TestDir::new("work-relay-held");
+        let token = d.join("token");
+        tehas_core::testing::write_exe(&token, "#!/bin/sh\nsleep 6\necho ghs_late\n").unwrap();
+        let gh = d.join("gh");
+        tehas_core::testing::write_exe(&gh, "#!/bin/sh\necho posted\n").unwrap();
+        let dir = d.join("relay");
+        fs::create_dir(&dir).unwrap();
+        let relay = start_relay(
+            &dir,
+            "acme/widget",
+            3,
+            relay::Via {
+                gh,
+                token,
+                token_args: vec![],
+                token_wait: 30,
+            },
+            Duration::from_secs(1),
+        );
+        let ask = |pid: &str| {
+            let req = dir.join(format!("req.{pid}"));
+            fs::create_dir(&req).unwrap();
+            fs::write(req.join("args"), "issue\0comment\x003\0--body\0hi\0").unwrap();
+            fs::write(req.join("ready"), "").unwrap();
+        };
+        ask("1");
+        // The relay takes the first and waits on its token.
+        let until = Instant::now() + Duration::from_secs(5);
+        while dir.join("req.1").exists() && Instant::now() < until {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        assert!(!dir.join("req.1").exists());
+        ask("2");
+        let started = Instant::now();
+        relay.end();
+        assert!(
+            started.elapsed() < Duration::from_secs(4),
+            "{:?}",
+            started.elapsed()
+        );
+        assert_eq!(
+            fs::read_to_string(dir.join("res.2/rc")).unwrap_or_default(),
+            "1\n"
+        );
+        assert!(fs::read_to_string(dir.join("res.2/err"))
+            .unwrap_or_default()
+            .contains("the cycle ended"));
     }
 
     #[test]

@@ -458,6 +458,8 @@ fi
 # load, the settings an instance has to set, and models.json against the models
 # the agents and the product's session use. What the instance's own shell
 # prints while it is sourced counts too, as it did when this was tehas_load.
+# A warning of the load (a line that opens `tehas: warning: `, such as a
+# setting that is no longer used) is shown and is not a finding.
 instance_findings() {
   local console rc=0
   console=$(_tehas_settings_console)
@@ -473,8 +475,10 @@ instance_findings() {
 # judges the settings sees the same one.
 : "${TEHAS_HOME:=$HOME/tehas}"
 export TEHAS_HOME
+# tehas_load below writes the load's warnings again, so a run with no finding
+# shows them once, from there.
 findings=$(instance_findings)
-if [ -n "$findings" ]; then
+if [ -n "$(printf '%s\n' "$findings" | grep -v '^tehas: warning: ' || true)" ]; then
   if [ "$check" = 1 ]; then
     echo "Instance:     $(tehas_instance_dir) INVALID"
     printf '%s\n' "$findings" | sed 's/^/  /'
@@ -1002,6 +1006,9 @@ for f in "$TEHAS_HOME"/sandbox/sandbox-uid.Dockerfile \
   if [ "$check" = 1 ]; then note "stale: $f"; else rm -f "$f" && echo "removed: $f"; fi
 done
 
+# A cycle that started before this release renews its token through the old
+# libexec/github-token, so that file stays while one runs. This guard goes in
+# the next release, when no cycle of before this one can still be running.
 a_cycle_runs() { # true while a cycle holds its lock
   local lock
   for lock in "$TEHAS_HOME"/state/cycles/*.lock; do
@@ -1017,7 +1024,6 @@ old=()
 while IFS= read -r f; do
   to=$TEHAS_HOME/$f
   [ -e "$to" ] || continue
-  # A cycle that started before this update renews its token by this path.
   if [ "$f" = libexec/github-token ] && a_cycle_runs; then
     echo "later: ./install.sh again when no cycle runs   ($to stays: a running cycle renews its token through it)"
     continue

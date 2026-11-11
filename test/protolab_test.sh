@@ -104,7 +104,7 @@ reset() {
   # A zip is unpacked by the real attachment checker.
   t_attach_home "$T/home/tehas"
   t_ids "$T/home/tehas"
-  T_ENV=(GH_TOKEN=sekret-token)
+  T_ENV=()
   t_instance "${T_MINIMAL[@]}"
 }
 files_of() { (cd "$site/$1/files" 2>/dev/null && find . -type f | LC_ALL=C sort | tr '\n' ' '); }
@@ -152,8 +152,8 @@ t_lacks "$(t_calls curl)" "stranger.html"
 t_lacks "$(t_calls curl)" "example.com"
 
 t_case "the token goes to github.com on standard input, never on the command line"
-t_lacks "$(t_calls curl)" "sekret-token"
-t_contains "$(cat "$T/calls/curl-headers")" "$F/21/proto.html Authorization: Bearer sekret-token"
+t_lacks "$(t_calls curl)" "ghs_app"
+t_contains "$(cat "$T/calls/curl-headers")" "$F/21/proto.html Authorization: Bearer ghs_app"
 
 t_case "the list page and the dashboard's file name the ticket"
 t_contains "$(cat "$site/index.html")" '<a class="row" href="/7/"><b>#7</b>'
@@ -291,36 +291,23 @@ issues "$(issue 30 'Labelled by the bot' "[idea.html]($F/93/idea.html)")"
 printf '%s\n' "${T_MINIMAL[@]}" "TEHAS_ALLOWED_LABELERS='alice tehas-bot'" >"$TEHAS_INSTANCE_DIR/instance.env"
 t_protolab
 t_eq "$t_rc" 78
-t_contains "$t_out" "the bot account tehas-bot is in TEHAS_ALLOWED_LABELERS"
-t_contains "$(t_calls gh)" "api user"
+t_contains "$t_out" "the bot account tehas-bot[bot] is in TEHAS_ALLOWED_LABELERS"
+t_eq "$(t_calls gh)" ""
 t_eq "$(cd "$site" && find . -maxdepth 1 -type d ! -name . | LC_ALL=C sort | tr '\n' ' ')" ""
 t_eq "$(t_calls curl)" ""
 
-t_case "a pass that cannot ask GitHub for its own login builds nothing, even where the list names the bot"
+t_case "a pass whose app has kept no login builds nothing, even where the list names the bot"
 reset
 net "$F/94/idea.html" "<p>idea</p>"
 issues "$(issue 31 'Labelled by an owner' "[idea.html]($F/94/idea.html)")"
 printf '%s\n' "${T_MINIMAL[@]}" "TEHAS_ALLOWED_LABELERS='alice tehas-bot'" >"$TEHAS_INSTANCE_DIR/instance.env"
-: >"$fx/user-fails"
+rm -f "$T/home/tehas/state/github/login"
 t_protolab
 t_eq "$t_rc" 0
 t_contains "$t_out" "the bot's own login could not be read, nothing built or removed"
-t_eq "$(t_calls gh)" "api user"
+t_eq "$(t_calls gh)" ""
 t_eq "$(cd "$site" && find . -maxdepth 1 -type d ! -name . | LC_ALL=C sort | tr '\n' ' ')" ""
 t_eq "$(t_calls curl)" ""
-
-t_case "an own login GitHub answers without one leaves every page as it was"
-reset
-net "$F/95/idea.html" "<p>idea</p>"
-issues "$(issue 32 'Kept' "[idea.html]($F/95/idea.html)")"
-t_protolab
-before=$(cd "$site/32" && find . -type f | LC_ALL=C sort | xargs cksum)
-echo '{"message":"Bad credentials"}' >"$fx/user.json"
-t_protolab
-t_eq "$t_rc" 0
-t_contains "$t_out" "the bot's own login could not be read, nothing built or removed"
-t_eq "$(cd "$site/32" && find . -type f | LC_ALL=C sort | xargs cksum)" "$before"
-t_eq "$(jq -c '.tickets | map(.number)' "$live/protolab.json")" "[32]"
 
 t_case "10 megabytes a ticket: what does not fit is left out, what still fits is taken"
 reset
@@ -652,7 +639,7 @@ t_case "the console run alone: a setting left empty stops it with 78 before it w
 # an empty directory: an empty TEHAS_HOME would make the paths relative to it.
 bare=$T/bare
 keep_t_env=("${T_ENV[@]}")
-T_ENV=(TEHAS_HOME="$bare/home" TEHAS_REPO=acme/widget TEHAS_ALLOWED_LABELERS=alice TEHAS_BOT_LOGIN=tehas-bot)
+T_ENV=(TEHAS_HOME="$bare/home" TEHAS_REPO=acme/widget TEHAS_ALLOWED_LABELERS=alice TEHAS_BOT_LOGIN=tehas-bot[bot])
 for name in TEHAS_HOME TEHAS_REPO TEHAS_ALLOWED_LABELERS; do
   rm -rf "$bare" "$T/calls/gh"
   mkdir -p "$bare/cwd"
@@ -707,17 +694,17 @@ t_eq "$t_out" ""
 
 t_case "an app with no token to be had stops before anything is read"
 reset
-app=(TEHAS_GITHUB_APP_ID=5452597 TEHAS_GITHUB_APP_INSTALLATION=174742089 "TEHAS_BOT_LOGIN=tehas-app-bot[bot]")
-t_instance "${T_MINIMAL[@]}" "${app[@]}"
+rm -rf "$T/home/tehas/state/github" "$T/home/tehas/state/github-cycle"
+T_ENV=("TEHAS_GITHUB_APP_KEY=$T/no-such-key.pem")
 t_protolab
 t_eq "$t_rc" 1
 t_contains "$t_out" "tehasbot protolab: no GitHub token for the app"
 t_eq "$(t_calls gh)" ""
 
-t_case "the bot's login as a setting asks GitHub for no account, and the app's token is the one used"
+t_case "the bot's login is the one the app kept, GitHub is asked for no account, and the app's token is the one used"
 reset
-t_instance "${T_MINIMAL[@]}" "${app[@]}"
-mkdir -p "$T/home/tehas/state/github"
+printf 'tehas-app-bot[bot]\n' >"$T/home/tehas/state/github/login"
+t_ids "$T/home/tehas" tehas-app-bot alice
 echo app-token >"$T/home/tehas/state/github/token"
 echo $((EPOCHSECONDS + 3600)) >"$T/home/tehas/state/github/token.expires"
 net "$F/70/a.html" "<p>a</p>"

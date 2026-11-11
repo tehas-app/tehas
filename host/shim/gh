@@ -1,13 +1,12 @@
 #!/usr/bin/env bash
 # gh, acting as the factory's GitHub App. host/env.sh puts this directory first
-# on PATH, and git's github.com credential helper names this file, when the
-# instance names an app (TEHAS_GITHUB_APP_ID). Each call takes a token from
+# on PATH, and git's github.com credential helper names this file. Each call takes a token from
 # tehasbot github-token, which keeps one and makes a new one before it runs
 # out, so a command that runs for hours never holds a token that expired.
 # Given TEHAS_GH_TOKEN in its environment it uses that instead and asks for no
 # token of its own: the dispatcher's poll takes one at its start and gives it
 # to every gh child of the poll, so twenty calls of a poll run the token
-# program once and not twenty times (#938). Without an app it is gh as it was.
+# program once and not twenty times (#938).
 #
 # The real gh is $TEHAS_HOME/bin/gh, where bootstrap.sh installs it.
 #
@@ -34,7 +33,7 @@ if [ -n "${TEHAS_GH_TOKEN:-}" ]; then
   # the poll sets the name only when the program gave it a token.
   GH_TOKEN=$TEHAS_GH_TOKEN
   export GH_TOKEN
-elif [ -n "${TEHAS_GITHUB_APP_ID:-}" ]; then
+else
   GH_TOKEN=$("$home/bin/tehasbot" github-token) || exit 1
   export GH_TOKEN
 fi

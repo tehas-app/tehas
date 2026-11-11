@@ -67,6 +67,8 @@ exit "$__tehas_rc"
 
 struct Real {
     bash: String,
+    /// Where warnings go instead of standard error, when a caller keeps them.
+    warned: Option<Vec<String>>,
 }
 
 impl Host for Real {
@@ -100,6 +102,13 @@ impl Host for Real {
         }
     }
 
+    fn warn(&mut self, line: &str) {
+        match &mut self.warned {
+            Some(kept) => kept.push(line.to_string()),
+            None => eprintln!("tehas: {line}"),
+        }
+    }
+
     fn cpus(&mut self) -> i64 {
         let said = Command::new("nproc")
             .stdin(Stdio::null())
@@ -116,7 +125,7 @@ impl Host for Real {
 }
 
 /// NUL-ended NAME=value entries.
-fn pairs(list: &[u8]) -> Vec<(Vec<u8>, Vec<u8>)> {
+pub(crate) fn pairs(list: &[u8]) -> Vec<(Vec<u8>, Vec<u8>)> {
     list.split(|b| *b == 0)
         .filter_map(|entry| {
             let at = entry.iter().position(|b| *b == b'=')?;
@@ -134,6 +143,7 @@ pub(crate) fn this_environment() -> Vars {
 pub(crate) fn instance_dir(vars: &Vars) -> String {
     let host = Real {
         bash: String::new(),
+        warned: None,
     };
     load::instance_dir(vars, &host)
 }
@@ -143,8 +153,26 @@ pub(crate) fn instance_dir(vars: &Vars) -> String {
 pub(crate) fn load_into(vars: &mut Vars, uid: &str, bash: &str) -> Result<(), String> {
     let mut host = Real {
         bash: bash.to_string(),
+        warned: None,
     };
     load::load(vars, &mut host, uid)
+}
+
+/// [`load_into`], with the load's warnings kept in `warned` instead of
+/// written, each without its `tehas: `.
+pub(crate) fn load_keeping_warnings(
+    vars: &mut Vars,
+    uid: &str,
+    bash: &str,
+    warned: &mut Vec<String>,
+) -> Result<(), String> {
+    let mut host = Real {
+        bash: bash.to_string(),
+        warned: Some(Vec::new()),
+    };
+    let got = load::load(vars, &mut host, uid);
+    warned.extend(host.warned.unwrap_or_default());
+    got
 }
 
 fn run_load(uid: &str, bash: &str) -> u8 {

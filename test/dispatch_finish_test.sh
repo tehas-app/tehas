@@ -215,7 +215,7 @@ done
 t_run "$dispatch"
 t_eq "$(t_calls fake-stop)" ""
 t_eq "$(t_calls fake-start)" ""
-t_contains "$(t_calls gh)" "pr list --repo acme/widget --author tehas-bot --state all"
+t_contains "$(t_calls gh)" "pr list --repo acme/widget --author tehas-bot[bot] --state all"
 kill "$(<"$fx/holder-9")"
 
 # A poll that cannot ask stops nothing: a cycle is never given up on a guess.
@@ -246,7 +246,7 @@ for au in someone-else -; do
   t_lacks "$t_out" "would stop"
   t_eq "$(t_calls fake-stop)" ""
 done
-bot_pr 9 MERGED 2099-01-01T00:00:00Z tehas-bot
+bot_pr 9 MERGED 2099-01-01T00:00:00Z tehas-bot[bot]
 t_run "$dispatch --dry-run"
 t_contains "$t_out" "would stop tehas-cycle@9.service: its pull request https://github.com/acme/widget/pull/90 is merged"
 t_eq "$(t_calls fake-stop)" ""
