@@ -665,7 +665,7 @@ t_contains "$hostjs_text" 'Date.parse(r.headers.get("Date") || "")'
 # words for age and the bound on rows: the two cannot drift apart.
 t_case "the plain dashboard draws the host from the module the panel draws from"
 t_contains "$hostjs_text" 'import { MISS_RETRY, PERIOD, dueToRead, layout } from "./host-data.js";'
-t_contains "$dashjs_text" 'import { agoText, dueToRead, layout } from "./host-data.js";'
+t_contains "$dashjs_text" 'import { ago, agoText, dueToRead, layout } from "./host-data.js";'
 t_contains "$frag_text" '<script type="module" src="/fun/dashboard-view.js"></script>'
 t_lacks "$frag_text" '<script type="module">'
 # The dashboard's own copy of the reading is gone: no bound of its own for
