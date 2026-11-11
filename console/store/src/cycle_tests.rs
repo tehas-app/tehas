@@ -863,7 +863,7 @@ fn an_ending_keeps_a_word_the_caller_reported() {
 
 #[test]
 fn every_word_libexec_cycle_assigns_is_in_the_end_reason_set() {
-    // The words libexec/cycle sets as status, and the .done words that become
+    // The words tehas-cycle sets as status, and the .done words that become
     // one (closed, merged).
     for word in [
         "closed",

@@ -49,6 +49,7 @@ use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use tehas_core::file::Temp;
 use tehas_core::time;
 
 // How many processes the section keeps.
@@ -197,12 +198,12 @@ fn published(snapshot: &str) -> Option<String> {
 }
 
 fn write_published(file: &Path, line: &str) -> std::io::Result<()> {
-    let new = file.with_extension("json.new");
-    let wrote = fs::write(&new, format!("{line}\n")).and_then(|()| fs::rename(&new, file));
-    if wrote.is_err() {
-        let _ = fs::remove_file(&new);
-    }
-    wrote
+    tehas_core::file::write_atomic(
+        file,
+        format!("{line}\n").as_bytes(),
+        0o644,
+        &Temp::Predictable,
+    )
 }
 
 fn publish_once(home: &str) -> u8 {

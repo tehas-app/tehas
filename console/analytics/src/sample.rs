@@ -7,7 +7,7 @@
 //!   are the lengths of those lists; planning is the count of open issues
 //!   labelled tehas:plan or tehas:planning, left out by a status.json from
 //!   before it was kept; paused is 1 or 0.
-//! - live/dispatch.json (libexec/dispatch, report_hold, on a poll that gets
+//! - live/dispatch.json (tehas-dispatch, report_hold, on a poll that gets
 //!   as far as rule 3): the report of `tehas_core::hold::Report`, {time, why,
 //!   count, free, limitRoom, ...}, whose keys the sampler names by that type.
 //!   held is

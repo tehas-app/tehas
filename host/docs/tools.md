@@ -457,6 +457,13 @@ A planning turn waits for neither. It runs as its own unit,
 the code as a cycle runs (`tehas-cycle pin plan`, see
 [tehasbot cycle](#tehasbot-cycle)), and the poll does not wait for it: cycles start while it runs, and the first poll after it ends posts
 its outcome from the exit status it left in `~/tehas/state/plan-<issue>.json.rc`.
+Only the questions need the list of issues that carry `tehas:question`. When
+that list cannot be read, the poll logs `WARN: the issues with a question could
+not be read, so no question is answered this poll`, answers no question and
+starts no retry, and goes on to open a planning session and start the ready
+queue as it does when the list is empty. Everything else it reads still ends
+the poll when it fails: an entry of that list with no number, an issue's
+comments, and the state store.
 While the turn runs its unit holds `~/tehas/state/plan-<issue>.json.lock`, as a
 cycle holds `state/cycles/<issue>.lock`; a poll that finds it held starts no
 other turn. To count the running cycles the poll asks the state store once,
@@ -4265,6 +4272,24 @@ runs it and then `.pi/verify-cmd` on every tree it gates: each worktree, the
 consolidated tree and the base commit. So the whole gate still runs before a
 pull request opens, and CI runs it again.
 
+CI adds two things of its own, as steps of
+`.github/workflows/verify.yml`. It installs shellcheck and jq at the versions
+`host/versions.env` pins, each checked against a published checksum before it
+runs. And it scans the repository's lockfiles against published advisories with
+OSV-Scanner, pinned there too: the name and version of every package of
+`console/Cargo.lock` and of the npm trees under `host/npm/` and
+`host/sandbox/npm/` is queried against the OSV database, and nothing else is
+sent anywhere. A known advisory fails the run. An advisory carried on purpose is
+named in `osv-scanner.toml` with its id, the reason, and the date to look again;
+after that date the ignore no longer applies and the run fails until the
+advisory is fixed or the date moves with a new reason. This is the one part of
+the gate that reaches the network for its answers: a scan that cannot reach the
+advisory database fails the run rather than reporting nothing, and an ignore
+whose advisory has gone is reported as unused but still passes, so it comes out
+when the dependency moves. `.github/` is a protected path, so a cycle halts
+rather than changing this: see
+[the parked cycle](/troubleshooting#the-cycle-parked-needs-human-attention).
+
 A failed step shows only its last 40 lines. Each run keeps the whole output of
 every step in a log of its own, `<mode>-<UTC time>-<pid>.log` under
 `TEHAS_VERIFY_LOGS` (default `$TMPDIR/tehas-verify`, else `/tmp/tehas-verify`),
@@ -4654,8 +4679,8 @@ yet and waits 900. A poll that holds the lock
 longer stops the run with exit 1 and `a poll is running ...; nothing was
 installed`. A home installed before the marker `.tehas-home` came in gets it
 here, so its old records are judged too. Before the first copy the store the run installs judges the record
-files an older tehas kept under `state/` (`store import --dry-run`, which reads
-the files only), and the run stops with exit 1 and `nothing was installed` when:
+files an older tehas kept under `state/` (`store import --dry-run --say`, which
+reads the files only and prints the lines below itself), and the run stops with exit 1 and `nothing was installed` when:
 
 - a cycle or planning turn runs while such a file is there: `a cycle or planning
   turn runs (#N); run tehas drain --wait and let it end, then install again`.
@@ -4665,7 +4690,7 @@ the files only), and the run stops with exit 1 and `nothing was installed` when:
   line per file, which stays where it is with the other files of its issue. Move
   each one out of `state/` or mend it, then run again.
 
-After the database is made or migrated, `store import` makes the files rows and
+After the database is made or migrated, `store import --say` makes the files rows and
 moves them to `state/imported-<YYYYMMDD>/`, under their paths in `state/`, an
 issue's files together once all their rows read back; nothing is deleted. The run prints `store: imported <table>
 <rows>, ...; moved <n> files to ...` when it moved any. An import that fails
@@ -4870,14 +4895,15 @@ Every tool in `host/versions.env` and in the npm trees beside it
 moves the pins before it tags, through `scripts/pins.sh move` (`console pins`):
 each to the newest release of the major version it has, taken from the tool's
 own source: nodejs.org, GitHub releases (gh, bun, shellcheck, jq, Rust,
-codebase-memory-mcp) or tags (rustup), npm, crates.io (vipune, oo) and Docker
-Hub (Caddy). Each version moves with what the header of `versions.env` pairs
+codebase-memory-mcp, OSV-Scanner) or tags (rustup), npm, crates.io (vipune, oo)
+and Docker Hub (Caddy). Each version moves with what the header of `versions.env` pairs
 with it: the publisher's checksum or the hash of the download, the lockfile
 of an npm tree (npm locks it again; a version younger than npm's
 `min-release-age` is not taken) and its `_LOCK_SHA256`, Caddy's digest in the
 three files that name it, and vipune's model at the revision the new vipune
 asks for, with its two hashes from Hugging Face. pi-rukas is not pinned and is
-left alone.
+left alone. OSV-Scanner is the one pin `bootstrap.sh` does not install: the gate
+of `verify.yml` downloads it into the runner's own temporary directory.
 
 Under 0.x a minor release can break, so "same major" moves vipune from 0.15 to
 0.20. A later major version is never taken. The release's section of
@@ -5011,6 +5037,7 @@ scripts/polyfills.sh prune caps.json    # remove those: their files and marked l
 `prune` checks that each shell file it changed still parses, and exits 1 when
 one does not: a marked line that was part of a larger statement. The fast gate
 runs `check` on this checkout.
+The work is `xtask polyfills` in `console/xtask/`, which the script execs.
 
 ### Removed before a release
 

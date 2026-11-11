@@ -13,10 +13,10 @@
 //! after a write. A match leaves the file and its mtime alone.
 
 use rusqlite::Connection;
-use std::fs::{self, OpenOptions};
-use std::io::Write;
-use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+use std::fs;
+use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
+use tehas_core::file::Temp;
 use tehas_core::time::civil_from_days;
 
 /// The private file `<dir>/<name>`, written from `lines`: through a name of
@@ -34,30 +34,9 @@ pub fn put(dir: &Path, name: &str, lines: &[String]) -> Result<(), String> {
         .map_err(|e| why("the directory could not be given its mode", e))?;
     let to = dir.join(name);
     // A name of this run, so two writers of the same file cannot meet in it.
-    let temp = to.with_extension(format!("{}.new", std::process::id()));
-    let made = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .open(&temp)
-        .map_err(|e| why("could not be written", e))?;
-    let mut out = std::io::BufWriter::new(made);
     let body = format!("{}\n", lines.join("\n"));
-    let written = out
-        .write_all(body.as_bytes())
-        .and_then(|()| out.flush())
-        .and_then(|()| out.get_mut().sync_all());
-    // The mode of a file made by create_new is the one asked for, masked by
-    // the umask, which a service may widen. Set it again.
-    let mode = fs::set_permissions(&temp, fs::Permissions::from_mode(0o600));
-    if let Err(e) = written.and(mode) {
-        let _ = fs::remove_file(&temp);
-        return Err(why("could not be written", e));
-    }
-    fs::rename(&temp, &to).map_err(|e| {
-        let _ = fs::remove_file(&temp);
-        why("could not be put in place", e)
-    })
+    tehas_core::file::write_atomic(&to, body.as_bytes(), 0o600, &Temp::Pid)
+        .map_err(|e| why("could not be written", e))
 }
 
 /// The name of the line that says a file was written: `<name>.stamp`, beside
