@@ -140,10 +140,10 @@ echo "# edited on the host" >>"$th/libexec/setup"
 
 t_case "a copy that fails halfway leaves the installed file as it was"
 before=$(cksum <"$th/libexec/setup")
-# An install that writes part of the file where it was told to, then fails.
-t_stub install 'head -c 100 "$3" >"$4"; exit 1'
+# A directory in the way of the file the copy is made in beside it.
+mkdir -p "$th/libexec/setup.new/in"
 t_run "$install"
-rm -f "$T/bin/install"
+rm -rf "$th/libexec/setup.new"
 t_eq "$t_rc" 1
 t_contains "$t_out" "tehas: could not install $th/libexec/setup"
 t_eq "$(cksum <"$th/libexec/setup")" "$before"

@@ -703,7 +703,9 @@ carries between turns is a directory beside its workspace,
 when it is not installed.
 
 `install.sh` makes and migrates it on every real run, under
-`state/update.lock`:
+`state/update.lock`. It passes `--say`, so the store prints the line you read
+(`store: made ...`, or `store: ... at schema <n>, backup ...`) in place of its
+JSON answer:
 
 - When there is no `state/tehas.db`, it runs `store init`.
 - Otherwise it runs `store migrate --backup ~/tehas/state/backup`. The store
@@ -1615,7 +1617,8 @@ the image, and the dispatch log names each issue it holds.
 The build takes pi-rukas at the commit `PI_RUKAS_FOLLOW` names, as described
 under [pi-rukas comes from upstream](#pi-rukas-comes-from-upstream).
 `build.sh --if-moved` builds only when that is not the commit the current
-image was built on, and `build.sh --check` only says whether it moved. The
+image was built on, and `build.sh --check` only says whether it moved. Both
+first print which commit the current image is on. The
 factory's health reports the same comparison (`checks.rukas`), and the footers
 of the front pages show the version the image runs from there. The
 contract test proves the product's gates run inside the image, as the unprivileged user,
@@ -1670,7 +1673,8 @@ owns as stale and takes it back when it installs. The name is `~/tehas/sandbox/s
 repository gitignores it, so `tehas update` sees no local change in it and the build
 is the only thing that decides what stands there. `test/build_test.sh` reads the
 recipe docker was handed and says which step is shared and which belongs to one
-uid. `mktemp` writes the copy owner-only, and a link or a directory under the name
+uid. The console writes the copy owner-only (`console sandbox stage`,
+`console/src/sandbox.rs`, which also checks the recipe), and a link or a directory under the name
 of one of the two is refused rather than removed: the cleaner takes a copy of that
 name and shape and no other.
 

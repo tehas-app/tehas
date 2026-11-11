@@ -109,6 +109,11 @@ pub const TOOLS: &[Tool] = &[
         source: Source::Releases("DeusData/codebase-memory-mcp", "v"),
     },
     Tool {
+        key: "OSV_SCANNER_VERSION",
+        name: "OSV-Scanner",
+        source: Source::Releases("google/osv-scanner", "v"),
+    },
+    Tool {
         key: "CADDY_VERSION",
         name: "Caddy",
         source: Source::Caddy,
@@ -294,6 +299,16 @@ pub fn companions(
             sha256(&world.get(&format!(
                 "https://raw.githubusercontent.com/DeusData/codebase-memory-mcp/v{v}/install.sh"
             ))?),
+        ),
+        // The sum of osv-scanner_linux_amd64, the asset the gate's step
+        // downloads. The name is written in that step too, and
+        // test/advisories_test.sh checks the two agree.
+        "OSV_SCANNER_VERSION" => one(
+            "OSV_SCANNER_SHA256",
+            from_list(
+                format!("https://github.com/google/osv-scanner/releases/download/v{v}/osv-scanner_SHA256SUMS"),
+                "osv-scanner_linux_amd64".to_string(),
+            )?,
         ),
         "CADDY_VERSION" => {
             let url = format!("https://hub.docker.com/v2/repositories/library/caddy/tags/{v}");

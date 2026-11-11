@@ -34,7 +34,7 @@ pub const USAGE: &str = include_str!("usage/stop.txt");
 /// The markers that say an issue's cycle runs, owes something, or is parked,
 /// after `state/cycles/<issue>`. `.nostart.new` is there because a note is
 /// written beside its name and moved into place: a stop that takes the note
-/// takes a write that never finished, as libexec/work's own clear does.
+/// takes a write that never finished, as tehas-cycle work's own clear does.
 const NOTES: [&str; 17] = [
     ".lock",
     ".cid",
@@ -242,7 +242,7 @@ impl Names {
 
     /// What is on the host now and may go: the notes, the console file, the
     /// transcripts, and unless it is kept the workspace with what is beside
-    /// it, named the way libexec/work names them.
+    /// it, named the way tehas-cycle work names them.
     fn candidates(&self, keep: bool) -> Vec<String> {
         let mut out: Vec<String> = NOTES.iter().map(|end| self.note(end)).collect();
         out.push(format!("{}/live/console-{}.txt", self.home, self.n));

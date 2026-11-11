@@ -20,9 +20,6 @@ use crate::run::read_json;
 use rusqlite::Connection;
 use serde_json::{json, Map, Value};
 use std::collections::BTreeSet;
-use std::fs::{self, OpenOptions};
-use std::io::Write;
-use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::Path;
 use tehas_core::time::iso;
 
@@ -96,27 +93,20 @@ pub fn write(live: &Path, conn: &Connection, now: i64) -> Result<(), (u8, String
     let to = live.join(FILE);
     // A name of this run: a cycle's end and a poll may run status at once.
     // The edge serves no *.new.
-    let temp = to.with_extension(format!("{}.new", std::process::id()));
-    let mut out = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o644)
-        .open(&temp)
-        .map_err(why)?;
-    let written = out
-        .write_all(format!("{body}\n").as_bytes())
-        .and_then(|()| out.sync_all())
-        .and_then(|()| fs::set_permissions(&temp, fs::Permissions::from_mode(0o644)));
-    if let Err(e) = written.and_then(|()| fs::rename(&temp, &to)) {
-        let _ = fs::remove_file(&temp);
-        return Err(why(e));
-    }
-    Ok(())
+    tehas_core::file::write_atomic(
+        &to,
+        format!("{body}\n").as_bytes(),
+        0o644,
+        &tehas_core::file::Temp::Pid,
+    )
+    .map_err(why)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
+    use std::os::unix::fs::PermissionsExt;
 
     fn db() -> Connection {
         let conn = Connection::open_in_memory().unwrap();
