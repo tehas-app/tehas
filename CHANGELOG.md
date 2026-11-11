@@ -63,6 +63,7 @@ a pull request before it tags, with the head's `scripts/collect-changelog.sh`.
 - Once the app's login is known (the first token minted after the update), the millwright is the app. A separate millwright account loses its rights from then on: its `tehas:ready` is taken off as an unauthorised label, and its marked comments carry no grant.
 - The manual's GitHub App page starts with `tehas setup --new-app`, and the pages on the host, the millwright and bootstrap describe one app for everything the factory does.
 - A Retry ticked in a park comment is no longer lost when `tehas:question` is taken off and `tehas:ready` applied by hand: the tick lifts the park's hold, and the issue starts on the next poll (#1829).
+- The state store moves to schema 11 and drops eighteen tables that nothing wrote or read, such as `pause_flag`, `limits` and `health_samples`. The pause, the limit and refresh requests were always kept in files under `state/`. `store check` now counts 23 tables (#1770).
 
 ### Held back
 
@@ -87,6 +88,8 @@ Set `TEHAS_GITHUB_APP_ID` in `instance.env` (`tehas setup --new-app` makes the a
 There is nothing to configure for the millwright: the app is the millwright. Whatever acted as a separate millwright account must act as the app from the update on.
 
 If you delete and recreate a `tehas:` label, remove its line from `~/tehas/state/labels`, delete the label, and run `tehas labels` to make and pin it.
+
+None beyond `tehas update`. The store's migrate compacts the file after the drop, so it rewrites `state/tehas.db` once; the backup under `state/backup/` is taken before, as on every update.
 
 ## v0.25.1 (2026-11-07)
 
