@@ -1,4 +1,4 @@
-//! The starts of a decision, as start_cycles in libexec/dispatch does them:
+//! The starts of a decision, as start_cycles in the bash dispatcher did them:
 //! for each, the refresh's mark, the approval on record with its inputs, the
 //! attempt before, the park's question off the record, the mark (A1: the
 //! issue is marked running before its unit starts), the park's retry spent,
@@ -166,7 +166,7 @@ fn issue_alone(a: &Value, log: &mut Vec<String>, n: u64) -> bool {
     }
 }
 
-/// The comment window of libexec/dispatch: of the comments as the REST API
+/// The comment window of the bash dispatcher: of the comments as the REST API
 /// lists them, those an allowed account wrote at or after `since` and at or
 /// before `at`, and that nobody edited after `at`, in the order written.
 /// None when the answer is not a list of comments.

@@ -12,8 +12,8 @@
 //!
 //! The two readers of label events in this workspace - this one and
 //! `console/core/src/events.rs` - order events by the
-//! same rule, and the words [`why`] holds are the words `libexec/dispatch`'s
-//! `gh_json` greps. The dispatcher's `read::run::gh_why` keeps a regex copy of
+//! same rule, and the words [`why`] holds are the words the bash dispatcher's
+//! `gh_json` grepped. The dispatcher's `read::run::gh_why` keeps a regex copy of
 //! that list where its own caller is; `tehas-dispatch` already depends on this
 //! crate, so the copy goes when the last issue of #800 moves the callers here.
 
@@ -203,7 +203,7 @@ pub(crate) fn parse_labels(out: &str) -> Option<Vec<String>> {
 
 /// Whether a failed removal answers that the label was not there, which is the
 /// state wanted. The words are gh's own, as the poll's `refresh_unmark` and
-/// `libexec/cycle` match `Not Found`, and the status is read whole out of the
+/// tehas-cycle match `Not Found`, and the status is read whole out of the
 /// digits `find_http` located, never as "404" anywhere in the text: a gateway
 /// error whose body happens to carry those three digits is no removal.
 pub(crate) fn says_not_found(why: &str) -> bool {
@@ -216,8 +216,8 @@ pub(crate) fn says_not_found(why: &str) -> bool {
 
 /// What a failed gh call's answer says of its error: ": " and the first of a
 /// fixed list of words in what gh printed, else the exit status. The list is
-/// the one `libexec/dispatch`'s `gh_json` greps and the dispatcher's `gh_why`
-/// holds, so a caller logs the reason the poll logs. Only these words, or a
+/// the one the bash dispatcher's `gh_json` grepped and the dispatcher's
+/// `gh_why` holds, so a caller logs the reason the poll logs. Only these words, or a
 /// status: the rest of gh's answer is written by a host and may name one, or
 /// carry a token.
 pub(crate) fn why(err: &str, code: Option<i32>) -> String {

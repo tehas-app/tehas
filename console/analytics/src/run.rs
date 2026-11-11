@@ -4,7 +4,7 @@
 //! The facts are one JSON object that tehas-cycle writes for the call, a
 //! claim read as the files below are:
 //!
-//! - line: tehas's line of history of this run, written by libexec/cycle
+//! - line: tehas's line of history of this run, written by tehas-cycle
 //!   just before this program is called: at, started, rc, status, step, cap,
 //!   park_reason, failure_kind, failure_cause, provider, parked, pr, how.
 //!   tehas's own view of the run: its status says killed, stalled or timeout
@@ -14,7 +14,7 @@
 //!   how, at, when tehas:ready was accepted (ISO 8601), and the driver it bound,
 //!   absent or null on a classic start.
 //! - settings: {container: {PI_ENSEMBLE_*: value}, host: {TEHAS_*: value},
-//!   concurrentCycles} as libexec/work snapshot them for this run, values
+//!   concurrentCycles} as tehas-cycle work snapshot them for this run, values
 //!   already reduced to safe words, or null. The model and provider of each
 //!   role, and how many cycles held their lock as this one started, this one
 //!   with them.
@@ -24,7 +24,7 @@
 //! Every file is read as tehas wrote it, and none through a link. Where a
 //! file is missing its columns are NULL. Under $TEHAS_HOME:
 //!
-//! - state/cycles/<n>.result.json (libexec/work): the headless runner's raw
+//! - state/cycles/<n>.result.json (tehas-cycle work): the headless runner's raw
 //!   result, schema 3, 4 or 5, {schemaVersion, buildVersion, buildCommit,
 //!   exitCode, issues: [{issue, status, durationMs, steps: [{step,
 //!   startedAt, endedAt}], exitCode, usage: {input, output, cacheRead,
@@ -33,7 +33,7 @@
 //!   step, role, cause}}]}. toolCalls, toolErrors and driver are pi-rukas's
 //!   `usageTools` (v0.14.66), absent before it. Read
 //!   whole: tehas-cycle reads its RESULT_SCHEMA only, but the fields read here
-//!   are the same in all three. libexec/cycle removes it as the next cycle starts.
+//!   are the same in all three. tehas-cycle removes it as the next cycle starts.
 //! - state/cycles/<n>.progress.json (tehas-cycle, progress.rs):
 //!   {roles: [{role, dispatches, turns, input, output, cacheRead}], reason,
 //!   failure, reviewHeld, from}. reviewHeld, and the roles where the result
@@ -41,16 +41,16 @@
 //!
 //! The image, its tehas.rukas commit and the counts of processes killed for
 //! memory and of refused forks are given on the command line (Given):
-//! libexec/cycle reads the image and its commit from the cycle's record on
+//! tehas-cycle reads the image and its commit from the cycle's record on
 //! the state store, and reads and removes .oom and .forks, so they are not
 //! read here.
-//! - logs/work-<n>-<stamp>.jsonl (libexec/work): the runner's NDJSON progress,
+//! - logs/work-<n>-<stamp>.jsonl (tehas-cycle work): the runner's NDJSON progress,
 //!   the newest one written since the run started. Its stable step-started
 //!   lines give the steps where the result has none, and its stable
 //!   verify-completed lines each run of the product's gate: the command, its
 //!   tier (`target.kind`), whether it passed, its own milliseconds and when it
 //!   ended.
-//! - logs/work-<n>-<stamp>.jsonl.preflight (libexec/work): the push check's
+//! - logs/work-<n>-<stamp>.jsonl.preflight (tehas-cycle work): the push check's
 //!   log, with a line "model endpoint: provider <p> is on its backup" for
 //!   each provider that was on its backup endpoint.
 //! - state/cycles/<n>.lean-state.json (tehas-cycle, `apply`): the driver's own
@@ -82,7 +82,7 @@ const MAX_STREAM: u64 = 256 << 20;
 pub(crate) const MAX_GATE_RUNS: usize = 500;
 // The most milliseconds one run of the gate may claim, with the same headroom
 // as the bound above: three times the longest run the host allows
-// (TEHAS_VERIFY_TIMEOUT, 30 minutes by default, which libexec/work enforces).
+// (TEHAS_VERIFY_TIMEOUT, 30 minutes by default, which tehas-cycle work enforces).
 // The report publishes these milliseconds, so the column's name has to be
 // typed somewhere at the read boundary rather than trusted from the stream.
 pub(crate) const MAX_GATE_MS: i64 = 5_400_000;
@@ -202,7 +202,7 @@ pub struct Role {
 /// left every field read here as it was.
 const RESULT_SCHEMAS: [i64; 3] = [3, 4, 5];
 
-/// What libexec/cycle passes on: the facts file, the image the container
+/// What tehas-cycle passes on: the facts file, the image the container
 /// started from and when it was built, the pi-rukas commit of its label, and
 /// its counts of kills and refused forks.
 #[derive(Debug, Default, Clone, PartialEq)]
@@ -911,7 +911,7 @@ fn plain40(s: &str) -> Option<String> {
     plain(s, 40)
 }
 
-// A model or provider as libexec/work's settings snapshot holds it, which may
+// A model or provider as tehas-cycle work's settings snapshot holds it, which may
 // be "[withheld]".
 fn plain_model(s: &str) -> Option<String> {
     if s == "[withheld]" {

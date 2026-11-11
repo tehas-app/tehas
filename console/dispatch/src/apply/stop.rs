@@ -1,4 +1,4 @@
-//! The stops of a decision, as libexec/dispatch does them: a cycle that has
+//! The stops of a decision, as the bash dispatcher did them: a cycle that has
 //! not been heard from (the quiet loop), a cycle whose work is done, and the
 //! workspaces of issues no cycle has run on for 7 days.
 

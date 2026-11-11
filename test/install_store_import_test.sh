@@ -70,7 +70,7 @@ t_case "a host with a marker has its old records judged before the copies"
 t_run "$install"
 t_eq "$t_rc" 0
 # The stand-in store makes no database, so the second run makes it again.
-t_eq "$(t_calls store | cut -d' ' -f1-2 | tr '\n' ' ')" "import --dry-run init --version import import --dry-run init --version import "
+t_eq "$(t_calls store | cut -d' ' -f1-2 | tr '\n' ' ')" "import --dry-run init --version import --say import --dry-run init --version import --say "
 
 if real_store "old records are imported, moved to state/imported-<day>/ and counted"; then
   t_env STORE_BIN="$T_STORE"
@@ -204,7 +204,7 @@ t_env
 if real_store "an import that fails after the copies stops the run and a second run finishes it"; then
   cat >"$T/store-fails" <<EOF
 #!/usr/bin/env bash
-if [ "\$*" = import ] && [ -e "\$T/import-fails" ]; then
+if [ "\$*" = "import --say" ] && [ -e "\$T/import-fails" ]; then
   echo "store: busy the database: a stand-in" >&2
   exit 1
 fi

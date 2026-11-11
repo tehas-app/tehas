@@ -1,4 +1,4 @@
-//! apply: what a decision's actions do, in their order, as libexec/dispatch
+//! apply: what a decision's actions do, in their order, as the bash dispatcher
 //! does them. Every write to GitHub goes through the action journal of the
 //! state store (section 5 of its spec): intended, attempted, then settled
 //! with its typed result. A write the journal could not record is not made:
