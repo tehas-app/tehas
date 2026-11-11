@@ -16,6 +16,8 @@
 
 shim="$T_ROOT/host/sandbox/gh-shim"
 token=/run/tehas/github/token
+# Every case names TEHAS_RELAY_DIR: in a cycle's container /run/tehas/relay
+# exists, and an issue write there goes to the host and on to GitHub.
 
 # The answer of the nth call, as a script the stub reads: what gh printed on
 # stdout, what it printed on stderr, and the status it ended with. The text of an
@@ -56,7 +58,7 @@ calls() { cat "$T/n" 2>/dev/null || echo 0; }
 seen() { cat "$T/calls/gh" 2>/dev/null || true; }
 # The shim, run with its two streams sent to files of their own.
 run_shim() { # <args...>
-  T_ENV=(TEHAS_GH_BIN="$T/bin/gh" TEHAS_GH_RETRY_WAIT=0)
+  T_ENV=(TEHAS_GH_BIN="$T/bin/gh" TEHAS_RELAY_DIR="$T/no-relay" TEHAS_GH_RETRY_WAIT=0)
   t_run "$shim $* >'$T/shim.out' 2>'$T/shim.err'"
   T_ENV=()
 }
@@ -124,7 +126,7 @@ t_case "a call that reads standard input is not retried"
 stub_reset
 answer 1 "" "HTTP 429: Too Many Requests" 1
 answer 2 "the issue" "" 0
-T_ENV=(TEHAS_GH_BIN="$T/bin/gh" TEHAS_GH_RETRY_WAIT=0)
+T_ENV=(TEHAS_GH_BIN="$T/bin/gh" TEHAS_RELAY_DIR="$T/no-relay" TEHAS_GH_RETRY_WAIT=0)
 t_run "printf hi | $shim pr comment 7 --body-file - >'$T/shim.out' 2>'$T/shim.err'"
 T_ENV=()
 t_eq "$t_rc" 1
@@ -137,7 +139,7 @@ t_case "the shim leaves no temporary file of its own"
 stub_reset
 answer 1 "" "HTTP 429: Too Many Requests" 1
 answer 2 "the issue" "" 0
-T_ENV=(TEHAS_GH_BIN="$T/bin/gh" TEHAS_GH_RETRY_WAIT=0)
+T_ENV=(TEHAS_GH_BIN="$T/bin/gh" TEHAS_RELAY_DIR="$T/no-relay" TEHAS_GH_RETRY_WAIT=0)
 t_run "$shim pr view 7 >/dev/null 2>&1
   ls \${TMPDIR:-/tmp} | grep -c '^gh-shim' || true"
 T_ENV=()
@@ -174,7 +176,7 @@ t_eq "$t_out" ""
 
 # A read-only instance (#608): the shim of a container given TEHAS_READ_ONLY=1.
 ro_shim() { # <args...>
-  T_ENV=(TEHAS_GH_BIN="$T/bin/gh" TEHAS_GH_RETRY_WAIT=0 TEHAS_READ_ONLY=1 PI_ENSEMBLE_WORKSPACE_ROOT="$T/ws")
+  T_ENV=(TEHAS_GH_BIN="$T/bin/gh" TEHAS_RELAY_DIR="$T/no-relay" TEHAS_GH_RETRY_WAIT=0 TEHAS_READ_ONLY=1 PI_ENSEMBLE_WORKSPACE_ROOT="$T/ws")
   t_run "$shim $* >'$T/shim.out' 2>'$T/shim.err'"
   T_ENV=()
 }
@@ -206,7 +208,7 @@ done
 
 t_case "read-only: a write that reads standard input is refused before it reads it"
 stub_reset
-T_ENV=(TEHAS_GH_BIN="$T/bin/gh" TEHAS_READ_ONLY=1)
+T_ENV=(TEHAS_GH_BIN="$T/bin/gh" TEHAS_RELAY_DIR="$T/no-relay" TEHAS_READ_ONLY=1)
 t_run "printf hi | $shim issue comment 7 --body-file - 2>'$T/shim.err'"
 T_ENV=()
 t_eq "$t_rc" 0
@@ -232,7 +234,7 @@ t_eq "$(git -C "$T/ws" status --porcelain)" ""
 t_case "without read-only a write goes to gh as before"
 stub_reset
 answer 1 "done" "" 0
-T_ENV=(TEHAS_GH_BIN="$T/bin/gh" TEHAS_READ_ONLY=0)
+T_ENV=(TEHAS_GH_BIN="$T/bin/gh" TEHAS_RELAY_DIR="$T/no-relay" TEHAS_READ_ONLY=0)
 t_run "$shim issue comment 7 --body hi"
 T_ENV=()
 t_eq "$(calls)" 1
