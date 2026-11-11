@@ -346,7 +346,7 @@ if real_store "a database the install did not make is migrated and not replaced"
   made=$(sha256sum <"$th/state/tehas.db")
   t_run "$install"
   t_eq "$t_rc" 0
-  t_contains "$t_out" "backup $th/state/backup/tehas-10-"
+  t_contains "$t_out" "backup $th/state/backup/tehas-11-"
   t_eq "$(sha256sum <"$th/state/tehas.db")" "$made"
   t_lacks "$t_out" "store: made"
 fi
@@ -372,8 +372,8 @@ if real_store "a home reached through a link installs a second time"; then
   t_eq "$t_rc" 0
   t_run "$install"
   t_eq "$t_rc" 0
-  t_contains "$t_out" "backup $T/disk/state/backup/tehas-10-"
-  t_eq "$(find "$T/disk/state/backup" -type f -name 'tehas-10-*.db' | wc -l)" 1
+  t_contains "$t_out" "backup $T/disk/state/backup/tehas-11-"
+  t_eq "$(find "$T/disk/state/backup" -type f -name 'tehas-11-*.db' | wc -l)" 1
   rm -rf "$T/disk"
 fi
 t_env
