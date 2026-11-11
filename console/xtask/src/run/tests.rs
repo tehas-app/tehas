@@ -141,6 +141,15 @@ fn the_pool_is_the_cpus_the_quota_and_the_memory_allow() {
 }
 
 #[test]
+fn the_slowest_count_is_the_setting_or_five() {
+    assert_eq!(slowest_count(None), 5);
+    assert_eq!(slowest_count(Some("")), 5);
+    assert_eq!(slowest_count(Some("0")), 5);
+    assert_eq!(slowest_count(Some("soon")), 5);
+    assert_eq!(slowest_count(Some("3")), 3);
+}
+
+#[test]
 fn a_host_is_busy_once_its_load_reaches_its_cpus() {
     assert!(!busy(Some("0.00 0.00 0.00 1/100 1\n"), 8));
     assert!(!busy(Some("7.90 7.90 7.90 1/100 1\n"), 8));
@@ -202,13 +211,42 @@ fn the_slowest_five_are_named_slowest_first_ties_in_run_order() {
     .map(|(ms, n)| (*ms, n.to_string()))
     .collect();
     assert_eq!(
-        slowest(&slow),
+        slowest(&slow, 5),
         [
             "     61.2 s  d",
             "      8.4 s  b",
             "      0.1 s  a",
             "      0.1 s  c",
             "      0.0 s  f",
+        ]
+    );
+}
+
+#[test]
+fn asked_for_seven_over_eight_entries_names_seven_slowest_first() {
+    let slow: Vec<(u128, String)> = [
+        (100, "a"),
+        (8400, "b"),
+        (100, "c"),
+        (61234, "d"),
+        (5, "e"),
+        (7, "f"),
+        (2500, "g"),
+        (0, "h"),
+    ]
+    .iter()
+    .map(|(ms, n)| (*ms, n.to_string()))
+    .collect();
+    assert_eq!(
+        slowest(&slow, 7),
+        [
+            "     61.2 s  d",
+            "      8.4 s  b",
+            "      2.5 s  g",
+            "      0.1 s  a",
+            "      0.1 s  c",
+            "      0.0 s  f",
+            "      0.0 s  e",
         ]
     );
 }
