@@ -40,9 +40,33 @@ surfaces=(
   'sample	expired'
   'sample	empty'
   'sample	unreadable'
+  # The state each sample above prints, in the same order: four states of the
+  # enum, one printed by one sample. A state of the enum that no sample prints
+  # is refused below, so a row cannot be dropped and the schema cannot name a
+  # state the command never answers with.
+  'state	ok'
+  'state	expired'
+  'state	none'
+  'state	unreadable'
   'check	del(.state) | .zz = 1 | .cycles = "1"	.: state is missing'
   'check	del(.state) | .zz = 1 | .cycles = "1"	.zz: not in the schema'
   'check	del(.state) | .zz = 1 | .cycles = "1"	.cycles: string, not integer'
+  # The bounds of the schema: field, the jq that gives it the least value the
+  # schema lets through, the jq that gives it one below or beyond that, and the
+  # word the check must answer with. Each jq sets that one field of the sample
+  # and leaves every other field of it alone, so the object the check is asked
+  # about is still an object of the surface. The keyword case below proves only
+  # that a keyword is one the check knows; these prove a bound the schema states
+  # is a bound the check keeps, so a bound no reading of the command could ever
+  # break is not left in the file to be read as its contract.
+  # of the surface, so the reading is a limit of the shape the samples have and
+  # not an object of another surface with the field missing. Two hundred
+  # characters is the longest reason the command keeps (console/core/src/limit
+  # .rs), so the line above is a reading the schema lets through and the line
+  # below, one character longer, is the bound.
+  'bound	cycles	.cycles = 0	.cycles = -1	under 0'
+  'bound	until	.until = "2026-10-17T15:00:60Z"	.until = "2026-10-17T15:00:61Z"	does not match'
+  'bound	reason	.reason = "01234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789"	.reason = "012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567891"	longer than 200'
   'required	["api","state"]'
 )
 
@@ -78,15 +102,22 @@ limit_now() { # <name>
 limit_written=1792245620
 
 # <name>: the state of the world that sample is a reading of: the limit file,
-# or a directory where it would be. Each run of the console goes through t_run,
-# which builds its environment from nothing: HOME and TEHAS_HOME of the run's
-# own, so the file lands under the scratch tree and nowhere else. The clock of
-# the run that writes the file goes in the snippet itself, since an assignment
-# before the call would not reach a command t_run builds with env -i.
+# or a directory where it would be. `sample` and `expired` are one file, the one
+# the set below writes, read at two moments: an expired limit is a limit that was
+# set while it was still in force, so the write happens at the moment of the
+# reading that is in force and not at the moment of its own. Each run of the
+# console goes through t_run, which builds its environment from nothing: HOME and
+# TEHAS_HOME of the run's own, so the file lands under the scratch tree and
+# nowhere else. The clock of the run that writes the file goes in the snippet
+# itself, since an assignment before the call would not reach a command t_run
+# builds with env -i. The words `set` prints go to standard error, where they are
+# left out of `t_out` entirely, so the whole of `t_out` after such a run is the
+# object of a reading and nothing else: the object a caller takes from `printed`
+# is the one reading and not those words above it.
 limit_world() { # <name>
   case $1 in
-    sample) t_run "TEHAS_FLAGS_TEST_NOW=$limit_written '$T_CONSOLE' \
-        flags limit set ${limit_set[*]}" ||
+    sample | expired) t_run "TEHAS_FLAGS_TEST_NOW=$limit_written '$T_CONSOLE' \
+        flags limit set ${limit_set[*]} 2>&1 >/dev/null" ||
       t_bad "setting the limit failed: $t_out" ;;
     empty) ;;
     unreadable) t_run "mkdir -p '$T/home/tehas/state/limit.json'" ;;
@@ -100,12 +131,14 @@ limit_reading() { # <name>
   t_run "TEHAS_FLAGS_TEST_NOW=$(limit_now "$1") '$T_CONSOLE' ${limit_print[*]} | jq ."
 }
 
-# <surface> <name>: the object the code prints for that sample, as committed,
-# on standard output. The console of this run prints it, and the same program
-# wrote the file. Not bin/tehas: that goes through console front, whose load of
-# the instance drops every TEHAS_ name the settings hold no value for, the test
-# clock among them, so nothing can be read at a moment of its own through that
-# door.
+# <surface> <name>: the object the code prints for that sample, as committed, on
+# standard output as one JSON object. The console of this run prints it, and the
+# same program wrote the file. Not bin/tehas: that goes through console front,
+# whose load of the instance drops every TEHAS_ name the settings hold no value
+# for, the test clock among them, so nothing can be read at a moment of its own
+# through that door. The object is the one jq prints of the reading, so a caller
+# may put it in a file or pipe it to jq and get one object back, and not the
+# words of the write that made the file.
 printed() { # <surface> <name>
   local surface=$1 name=$2
   rm -rf "$T/home/tehas"
@@ -114,7 +147,7 @@ printed() { # <surface> <name>
     limit)
       limit_world "$name"
       limit_reading "$name"
-      printf '%s\n' "$t_out"
+      printf '%s\n' "$t_out" | jq .
       ;;
     *) return 1 ;;
   esac
@@ -122,6 +155,33 @@ printed() { # <surface> <name>
 
 # The `required` of the surface, as the table's `required` line gives it.
 required_json=
+
+# The object a surface's `sample` is, read once from api/ and held here for the
+# checks that bend one field of it and ask the schema about the result. Named
+# `bound_object` and not `object`, which the loop of the table already uses for
+# one word of a `check` line.
+bound_object=
+
+# The reading of one sample, made here and not read from api/: the world of the
+# sample is built and the console runs, so the object of that reading is printed
+# on standard output as one JSON object. A caller that means to prove a file of
+# api/ against what the code prints now takes it from a command substitution;
+# one that means to ask what the code prints for a field pipes it to jq. Either
+# way the object comes from this function alone, so nothing else of a run, the
+# words of the write among them, can come out with it.
+sample_object() { # <surface> <name>
+  printed "$1" "$2"
+}
+
+# The state of one sample, as JSON text, from the reading the console makes and
+# not from the file of api/: a sample that stopped printing its state is found
+# here and not agreed with. Nothing when the reading holds no state.
+sample_field_state() { # <surface> <name>
+  local object
+  object=$(sample_object "$1" "$2") || return 1
+  [ -n "$object" ] || return 1
+  printf '%s\n' "$object" | jq -c 'if has("state") then .state else "" | empty end'
+}
 
 check() { # <schema file> <json file>: the lines test/schema.jq prints for it
   local out rc
@@ -204,17 +264,23 @@ while [ "$i" -lt "${#surfaces[@]}" ]; do
   }
   i=$((i + 1))
   names=()
+  states=()
   cases=()
+  bounds=()
   required_json=
   while [ "$i" -lt "${#surfaces[@]}" ]; do
     line=${surfaces[i]}
     kind=$(surface_line "$line" 1)
     case $kind in
       sample) names+=("$(surface_line "$line" 2)") ;;
+      state) states+=("$(surface_line "$line" 2)") ;;
       required) required_json=$(surface_line "$line" 2) ;;
       check)
         object=$(surface_line "$line" 2)
         cases+=("$object"$'\t'"$(surface_line "$line" 3)")
+        ;;
+      bound)
+        bounds+=("$(surface_line "$line" 2)"$'\t'"$(surface_line "$line" 3)"$'\t'"$(surface_line "$line" 4)"$'\t'"$(surface_line "$line" 5)")
         ;;
       *) break ;;
     esac
@@ -234,6 +300,15 @@ while [ "$i" -lt "${#surfaces[@]}" ]; do
   t_eq "$(jq -r '."$schema"' "$schema")" "https://json-schema.org/draft/2020-12/schema"
   t_eq "$(jq -r '."$id"' "$schema")" "https://github.com/tehas-app/tehas/api/$surface.schema.json"
   t_eq "$(jq '.additionalProperties' "$schema")" "false"
+  # The description is kept to what a keyword of this file or a case below
+  # carries: version 1 (`api` is the const 1), that objects are closed
+  # (additionalProperties is false below), where each field is documented, and
+  # which test checks the samples. The case after the keywords proves only that
+  # the name of the test appears, so it is not a check of what the description
+  # claims: a claim about how the command behaves at runtime belongs in
+  # host/docs/api.md, which the manual case below does hold to the fields of the
+  # schema. A claim added here that nothing checks is a fault of review, not one
+  # this file can catch.
   # Every keyword of the schema is one the check looks at, so none is passed
   # over in silence: the keys of every object that holds fields of its own are
   # a keyword of the list test/schema.jq knows.
@@ -244,9 +319,29 @@ while [ "$i" -lt "${#surfaces[@]}" ]; do
         "minLength", "maxLength", "pattern", "maxItems", "format") | not)]' "$schema")" "[]"
   t_contains "$(jq -r '.description' "$schema")" "test/json_contract_test.sh"
 
+  # The state of every sample, taken from what the console prints and not from
+  # the file in api/, and the whole list compared to the enum: a state of the
+  # enum that no sample prints is refused, and so is a sample that prints
+  # another state than the row of the table names for it.
+  t_case "every state of the schema of $surface is printed by one of its samples"
+  [ "${#names[@]}" = "${#states[@]}" ] ||
+    t_bad "the table names ${#states[@]} states for ${#names[@]} samples of $surface"
+  for n in "${!names[@]}"; do
+    # The object of the reading comes from sample_object, which runs the console
+    # and prints the object of the reading and nothing else; jq here picks the one
+    # field out of it. Read from api/ the state would only be agreed with.
+    printed_state=$(sample_field_state "$surface" "${names[$n]}") ||
+      t_bad "the console printed no object for $surface ${names[$n]}"
+    [ -n "$printed_state" ] ||
+      t_bad "the reading of $surface ${names[$n]} holds no state"
+    t_eq "$printed_state" "\"${states[$n]}\""
+  done
+  t_eq "$(jq -c '.properties.state.enum | sort' "$schema")" "$(printf '%s\n' "${states[@]}" | jq -R . | jq -sc 'sort')"
+
   if [ -n "$samples_write" ]; then
     for name in "${names[@]}"; do
-      printed "$surface" "$name" >"$api/$surface.$name.json"
+      printed "$surface" "$name" >"$api/$surface.$name.json" ||
+        t_bad "the rewrite printed no object for $surface $name"
     done
   fi
 
@@ -274,6 +369,41 @@ $changes"
     t_eq "$lines" ""
   done
 
+  t_case "the rewrite prints what api/$surface holds"
+  # The rewrite of TEHAS_SAMPLES_WRITE is run here into its own directory and
+  # every file of it is compared to the one in api/, so the mode a contributor
+  # reaches for after a change to the console is a case of this file and not
+  # only a line of the header: a rewrite that lost a clock, a world or the
+  # shape jq prints fails here instead of shipping green. The files of api/ are
+  # read and never written by this case.
+  rewrite=$T/rewrite
+  mkdir -p "$rewrite"
+  for name in "${names[@]}"; do
+    sample_object "$surface" "$name" >"$rewrite/$surface.$name.json" ||
+      t_bad "the rewrite printed no object for $surface $name"
+  done
+  for name in "${names[@]}"; do
+    t_eq "$(cat "$rewrite/$surface.$name.json")" "$(cat "$api/$surface.$name.json")"
+  done
+
+  # Every field of the `required` of the schema, as one path per field, held by
+  # every sample. The walk below of the fields asks only that some sample holds
+  # a field, which is right for a field a reading may leave out; a field of
+  # `required` may not be left out of any reading, so each sample is asked on its
+  # own, and a schema that names a field none of them prints is refused here and
+  # not by a walk over all four together.
+  t_case "every sample of $surface holds every field its schema requires"
+  missing=""
+  for name in "${names[@]}"; do
+    for path in $(jq -r '.required[]' "$schema"); do
+      [ -n "$path" ] || { t_bad "the required of $surface names an empty field"; continue; }
+      case $(held_paths "$api/$surface.$name.json") in
+        *"$path"*) ;; *) missing+=" $surface.$name:$path" ;;
+      esac
+    done
+  done
+  t_eq "$missing" ""
+
   t_case "the samples of $surface between them hold every field of its schema"
   paths=$(schema_paths "$schema") || t_bad "the schema could not be walked"
   # A schema whose fields cannot be named would compare equal to a walk of
@@ -300,6 +430,42 @@ $changes"
     fi
     lines=$(check "$schema" "$T/bad.json") || t_bad "the schema check could not be run"
     t_contains "$lines" "${case_line#*$'\t'}"
+  done
+
+  # A bound of the table is the field, the jq that gives it the least value the
+  # schema lets through, the jq that gives it one step past that, and the word the
+  # check must answer with, the four words of the line as `surface_line` divides
+  # them. Each jq sets that one field of the sample and leaves every other field
+  # of it alone, so the object the check is asked about is still an object of the
+  # surface. Each value is one the command really prints or really refuses, so a
+  # bound the schema states is a bound the code has a reading on both sides of:
+  # `cycles` of 0 and one below it, an `until` with the second 60, which the
+  # reader of console/core/src/limit.rs takes, and one with 61, which it reads as
+  # unreadable, and a reason of 200 characters, the most it keeps, and one of 201.
+  # The keyword case above proves only that a keyword is one the check knows; this
+  # proves a bound the schema states is kept, so a bound no reading of the command
+  # could ever break has a case that fails without it. A ceiling the command
+  # refuses when its arguments are read is not stated here as a bound of the
+  # field: host/docs/api.md gives it with the rule and the file that enforces it.
+  t_case "the check keeps the bounds of the schema of $surface"
+  bound_object=$(jq -c . "$api/$surface.sample.json") ||
+    t_bad "$api/$surface.sample.json holds no object"
+  for bound in "${bounds[@]}"; do
+    bound_field=$(surface_line "$bound" 1)
+    ok=$(surface_line "$bound" 2)
+    bad=$(surface_line "$bound" 3)
+    word=$(surface_line "$bound" 4)
+    printf '%s\n' "$bound_object" >"$T/before.json"
+    jq ". | $ok" "$T/before.json" >"$T/bound.json" ||
+      { t_bad "the jq at the bound of $bound_field is no jq: $ok"; continue; }
+    lines=$(check "$schema" "$T/bound.json") || t_bad "the schema check could not be run"
+    t_eq "$lines" ""
+    printf '%s\n' "$bound_object" >"$T/before.json"
+    jq ". | $bad" "$T/before.json" >"$T/bound.json" ||
+      { t_bad "the jq past the bound of $bound_field is no jq: $bad"; continue; }
+    lines=$(check "$schema" "$T/bound.json") || t_bad "the schema check could not be run"
+    t_contains "$lines" ".$bound_field:"
+    t_contains "$lines" "$word"
   done
 done
 

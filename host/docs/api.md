@@ -296,15 +296,18 @@ it then is, and `--json` works with the show form only.
 
 `api/limit.schema.json` in the source says what the object holds, and
 `api/limit.sample.json`, `api/limit.expired.json`, `api/limit.empty.json` and
-`api/limit.unreadable.json` are samples of it.
+`api/limit.unreadable.json` are samples of it, one for each `state`. The four
+are what the command prints, so an expired limit prints `api`, `state`,
+`cycles`, `plan`, `until` and `reason`, and an unreadable one prints only `api`
+and `state`.
 
 | Field | Meaning |
 | --- | --- |
 | `state` | `none`, `ok`, `expired` or `unreadable` |
-| `cycles` | The most cycles running at once. Room for a new cycle is the smaller of `cycles` and `TEHAS_TICKET_CONCURRENCY`, less the cycles running, then the slice and `TEHAS_MAX_AWAITING` as always |
+| `cycles` | The most cycles running at once, a whole number from 0 to 9999: `tehas limit set` refuses anything above it with 64 (console/src/flags.rs). Room for a new cycle is the smaller of `cycles` and `TEHAS_TICKET_CONCURRENCY`, less the cycles running, then the slice and `TEHAS_MAX_AWAITING` as always |
 | `plan` | `false`: no new planning session and no improvement run. An answer to a planning question still runs: someone is waiting on it |
-| `until` | When it expires; left out when it lasts until cleared |
-| `reason` | Shown as the hold's reason. One line of at most 200 characters; control characters become spaces. Left out when empty |
+| `until` | When it expires, in the form `2026-10-17T15:00:20Z`: 20 characters, the month 01 to 12, the day 01 to 31, the hour to 23, the minute and second to 59, or 60 for the second. Left out when it lasts until cleared. An `until` of another shape makes the limit `unreadable` |
+| `reason` | Shown as the hold's reason. One line of at most 200 characters, counted as characters; control characters become spaces. Left out when empty |
 
 - **An expired or unreadable limit holds every start**: no cycle, planning
   turn, answer or improvement run. `tehas status` warns and says why. A file
