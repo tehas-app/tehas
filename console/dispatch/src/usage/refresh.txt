@@ -26,14 +26,24 @@ fork, one the rule rejects, or one whose head or base is no sha), and how
 many requests it wrote. The rest of the read are the bot's that do not
 conflict.
 
+With --pr N it reads that one pull request now, whatever
+TEHAS_REFRESH_CONFLICTS and TEHAS_REFRESH_EVERY say, and applies the same
+rule. A CONFLICTING or UNKNOWN one gets its request, with a last field
+"asked": "pr". It does not read or write last-run and removes no request.
+Its line in logs/refresh.log is "asked for pull request #N: wrote the
+request of #M" or "asked for pull request #N: not refreshed: <why>".
+
 It decides only that a pull request conflicts. Whether a refresh starts is
 the dispatcher's, which checks each request again at the start.
 
 Usage:
   tehasbot refresh             one run
+  tehasbot refresh --pr N      ask for the refresh of pull request N now
   tehasbot refresh -h|--help   print this text and exit 0
 
-Exit: 0 the run ended, or the setting is off; 64 an argument this command
-does not know; 78 instance settings are missing or malformed; 1 a call to
-GitHub failed or its answer could not be read: no request was written or
-removed.
+Exit: 0 the run ended, or the setting is off, or the --pr request was
+written; 3 --pr N is not a pull request the factory refreshes, or it does
+not conflict: why is on stderr, nothing is written; 64 an argument this
+command does not know; 78 instance settings are missing or malformed; 1 a
+call to GitHub failed or its answer could not be read: no request was
+written or removed.

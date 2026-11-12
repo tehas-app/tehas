@@ -2230,6 +2230,14 @@ a fact:
 2026-10-18T09:00:00Z read 9 pull requests: 1 conflict, 2 unknown, 3 not ours to refresh, wrote 1 requests
 ```
 
+An operator or a script can ask for one pull request at once with
+`tehasbot refresh --pr N`, while the timed run is off or not due (see
+[tehasbot refresh](/tools-github#tehasbot-refresh)). It writes the same request
+with `"asked": "pr"`, and the dispatcher still checks it at the start as below.
+With `TEHAS_REFRESH_CONFLICTS` other than 1 the dispatcher starts no refresh:
+the request waits and the dispatcher's log says `hold refreshes:
+TEHAS_REFRESH_CONFLICTS is not 1`.
+
 **When it starts.** The dispatcher checks each request again at the start,
 and starts it on the word of the person whose approval the pull request's cycle
 rests on (the `by` of the approval of the issue's last start, or the person's
