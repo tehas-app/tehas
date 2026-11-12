@@ -10,9 +10,11 @@ the filing whole -- the rule of the issue, the masking of the model's words,
 the open issue of the range and the GitHub calls (`store review-file`,
 console/store/src/review_issue.rs) -- so this command asks for the filing and
 says what it answered, and nothing else. The start is the commit in
-$TEHAS_HOME/state/review.json, else the commit 7 days back, else the root.
-Only exits 0, 10 and 20 move the record on, so a failed run leaves it and the
-next one reads the same range. What the container is given and where the logs
+$TEHAS_HOME/state/review.json, else the commit 7 days back, else the root. A
+branch whose newest commit is older than 7 days has nothing new: the run says
+so and starts no container. Only exits 0, 10 and 20 move the record on, so a
+failed run leaves it and the next one reads the same range. What the container
+is given and where the logs
 go are in host/docs/tools.md. The console (console/src/review.rs) prepares the
 sandbox, reads the range, checks what the image is given, and runs and bounds
 the container.
