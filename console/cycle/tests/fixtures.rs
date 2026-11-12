@@ -466,12 +466,40 @@ fn stop_with(prs: Value) -> String {
         .unwrap()
 }
 
+/// The bot's pull request on the branch: #1747 reads its `createdAt`, so a
+/// pull request built by a test has to carry one. It is a minute after the
+/// 1793526000 the stop fixtures give their cycle, which is the earliest one
+/// the report takes as this cycle's own.
 fn open_pr(draft: Option<bool>) -> Value {
-    let mut p = serde_json::json!({"url": "https://github.com/acme/widget/pull/67", "state": "OPEN", "body": "Fixes #7", "headRefName": "feature/x"});
+    let mut p = serde_json::json!({"url": "https://github.com/acme/widget/pull/67", "state": "OPEN", "body": "Fixes #7", "headRefName": "feature/x", "createdAt": "2026-11-01T09:41:00Z"});
     if let Some(d) = draft {
         p["isDraft"] = d.into();
     }
     serde_json::json!([p])
+}
+
+/// #1747: the merged or closed pull request of an attempt before this one is
+/// not its own, so the stop of the cycle says it has none. An open one is the
+/// branch's live pull request whoever opened it, and is named.
+#[test]
+fn a_stop_of_a_retry_names_no_pull_request_of_an_earlier_attempt() {
+    let mut prs = open_pr(Some(false));
+    prs[0]["createdAt"] = "2026-11-01T09:39:00Z".into();
+    let said = stop_with(prs);
+    assert!(
+        said.contains("Tehas cycle stopped with pull request #67 open"),
+        "OPEN: {said}"
+    );
+    for state in ["MERGED", "CLOSED"] {
+        let mut prs = open_pr(Some(false));
+        prs[0]["state"] = state.into();
+        prs[0]["createdAt"] = "2026-11-01T09:39:00Z".into();
+        let said = stop_with(prs);
+        assert!(
+            said.contains("Tehas cycle stopped without a pull request"),
+            "{state}: {said}"
+        );
+    }
 }
 
 #[test]
@@ -536,4 +564,142 @@ fn no_comment_says_without_a_pull_request_and_names_one() {
             }
         }
     }
+}
+
+/// A `prs` entry of the bot on the branch of the cases below, opened at `at`.
+fn earlier_pr(state: &str, at: &str) -> Value {
+    serde_json::json!([{
+        "url": "https://github.com/acme/widget/pull/4",
+        "state": state,
+        "body": "Fixes #7",
+        "headRefName": "feature/issue-7-x",
+        "createdAt": at
+    }])
+}
+
+/// What the report says on the issue: its comments, and the text of its parks.
+fn on_issue(r: &tehas_cycle::Report) -> String {
+    r.actions
+        .iter()
+        .map(|a| match a {
+            Action::Comment { ok, .. } => ok.clone(),
+            Action::Park(p) => p.comment(false, true),
+            _ => String::new(),
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// #1747: a retried cycle runs on the branch of the attempt before it, and the
+/// list of the bot's pull requests is taken with `--state all`. A cap park, or
+/// an outage park, must stay what it is when that list holds one pull request
+/// of the earlier attempt: the arm is the park's own, the status is never
+/// `merged`, and the earlier pull request is nowhere named. The same pull
+/// request opened at or after `started` is the cycle's own and is named, which
+/// is the only difference between the two.
+#[test]
+fn a_park_of_a_retry_is_not_made_by_an_earlier_attempts_pull_request() {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/park.json");
+    let cases: Vec<Value> = serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap();
+    // The cap park of the bash cases: a step that failed for a reason of its
+    // own, with its branch and its handoff.
+    let mut c = cases
+        .into_iter()
+        .find(|c| {
+            c["case"]
+                .as_str()
+                .unwrap_or("")
+                .starts_with("a step that failed for another reason is parked as before")
+        })
+        .unwrap();
+    c["facts"]["github"]["prs"] = serde_json::json!([]);
+    c["facts"]["github"]["attention"] = serde_json::json!(false);
+    let plain = Facts::from_json(&c["facts"]).unwrap();
+    let plain = report(&plain, &mut Given(c["facts"]["github"].clone()));
+    assert_eq!(plain.arm, "parked", "{}", plain.arm);
+    for state in ["CLOSED", "MERGED"] {
+        let mut with = c.clone();
+        with["facts"]["github"]["prs"] = earlier_pr(state, "2026-11-01T09:38:00Z");
+        let facts = Facts::from_json(&with["facts"]).unwrap();
+        let r = report(&facts, &mut Given(with["facts"]["github"].clone()));
+        assert_eq!(r.arm, plain.arm, "{state}: {}", r.arm);
+        assert_eq!(r.done, plain.done, "{state}: {}", r.done);
+        assert!(!r.arm.starts_with("merged"), "{state}: {}", r.arm);
+        assert!(!r.arm.starts_with("pr-closed"), "{state}: {}", r.arm);
+        assert!(!r.done.contains("status=merged"), "{state}: {}", r.done);
+        assert!(
+            !on_issue(&r).contains("pull/4"),
+            "{state}: {}",
+            on_issue(&r)
+        );
+        // The same pull request opened after the cycle took its lock is its
+        // own: it is the one thing that makes the earlier one wrong.
+        let mut own = c.clone();
+        own["facts"]["github"]["prs"] = earlier_pr(state, "2026-11-01T09:40:00Z");
+        let facts = Facts::from_json(&own["facts"]).unwrap();
+        let own = report(&facts, &mut Given(own["facts"]["github"].clone()));
+        assert!(
+            on_issue(&own).contains("pull/4"),
+            "{state}: the cycle's own pull request is said nowhere: {}",
+            on_issue(&own)
+        );
+    }
+}
+
+/// The refresh case of the handoff suite that pushed to its pull request, with
+/// that pull request opened before the refresh started, as every refreshed
+/// pull request is: an earlier cycle opened it.
+fn refresh_of_an_older_pr(state: &str) -> (Value, tehas_cycle::Report) {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/handoff.json");
+    let cases: Vec<Value> = serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap();
+    let mut c = cases
+        .into_iter()
+        .find(|c| {
+            c["case"].as_str().unwrap_or("")
+                == "a refresh takes tehas:refreshing off its pull request when it ends: pushed"
+        })
+        .unwrap();
+    c["facts"]["github"]["prs"][0]["createdAt"] = "2026-10-20T08:00:00Z".into();
+    c["facts"]["github"]["prs"][0]["state"] = state.into();
+    let facts = Facts::from_json(&c["facts"]).unwrap();
+    let r = report(&facts, &mut Given(c["facts"]["github"].clone()));
+    (c, r)
+}
+
+/// #1747 bounds only what a merged or closed pull request decides. A refresh
+/// pushes to the open pull request an earlier cycle opened, so that one is
+/// still the cycle's: its handoff names it and takes tehas:refreshing off it.
+#[test]
+fn a_refresh_ends_on_the_open_pull_request_an_earlier_cycle_opened() {
+    let (c, r) = refresh_of_an_older_pr("OPEN");
+    assert_eq!(r.done, c["expect"]["done"].as_str().unwrap(), "{}", r.done);
+    assert!(r.done.contains("pr=https://github.com/acme/widget/pull/9"));
+    assert!(
+        r.actions
+            .iter()
+            .any(|a| matches!(a, Action::RefreshOff { pr } if pr == "9")),
+        "{:?}",
+        r.actions
+    );
+}
+
+/// The pull request a refresh was approved for, merged while it ran, is still
+/// the cycle's end however long ago it was opened.
+#[test]
+fn a_refresh_whose_older_pull_request_merged_is_merged_outside() {
+    let (_, r) = refresh_of_an_older_pr("MERGED");
+    assert_eq!(r.arm, "merged-outside", "{}", r.arm);
+    assert!(r.done.contains("status=merged"), "{}", r.done);
+}
+
+/// Another older pull request of the branch, merged, is still not the
+/// refresh's: only the number its approval names is exempt.
+#[test]
+fn a_refresh_takes_no_other_older_merged_pull_request() {
+    let (mut c, _) = refresh_of_an_older_pr("MERGED");
+    c["facts"]["github"]["prs"][0]["url"] = "https://github.com/acme/widget/pull/90".into();
+    let facts = Facts::from_json(&c["facts"]).unwrap();
+    let r = report(&facts, &mut Given(c["facts"]["github"].clone()));
+    assert_ne!(r.arm, "merged-outside", "{}", r.arm);
+    assert!(!r.done.contains("status=merged"), "{}", r.done);
 }

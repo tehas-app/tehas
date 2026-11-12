@@ -278,6 +278,19 @@ for outcome in pushed parked failed; do
   t_eq "$(t_row history-show 7 -- '.rows[0].how')" refresh
 done
 
+t_case "a refresh that pushed to an older open pull request awaits its merge"
+# The pull request a refresh pushes to was opened by an earlier cycle, so its
+# createdAt is before this cycle's start; the bound of #1747 does not apply to it.
+reset
+refresh_started
+ended handoff commit-pr feature/issue-7-x
+jq -n '[{url: "https://github.com/acme/widget/pull/9", state: "OPEN", body: "Fixes #7",
+  headRefName: "feature/issue-7-x", isDraft: false, createdAt: "2020-01-01T00:00:00Z"}]' >"$fx/pr.json"
+t_run "$cycle 7"
+t_eq "$t_rc" 0
+t_contains "$(t_calls gh)" "--remove-label tehas:running --add-label tehas:awaiting-merge"
+t_contains "$(t_calls gh)" "$refresh_unmark"
+
 t_case "a cycle that is no refresh leaves the labels of pull requests alone"
 reset
 ended handoff commit-pr feature/x
