@@ -1,8 +1,10 @@
 //! JSON as jq reads and prints it, for the lines of `tehas status` and the
-//! frame of `tehas top`: the keys of an object keep the order they were
-//! written in, and a number keeps the text it was written with, so 0.10 is
-//! printed 0.10. serde_json does neither, and those lines were written in jq.
+//! frame of `tehas top`, and for the files a cycle leaves: the keys of an
+//! object keep the order they were written in, and a number keeps the text it
+//! was written with, so 0.10 is printed 0.10. serde_json does neither, and
+//! those lines were written in jq.
 
+use serde_json::Value;
 use std::cmp::Ordering;
 use std::fmt::Write;
 
@@ -18,7 +20,58 @@ pub enum J {
 
 pub static NULL: J = J::Null;
 
+/// A value serde_json read, as this module holds it. A scalar becomes the
+/// variant of its type, never text, so a null read from a file and a null
+/// built here are the same value.
+impl From<&Value> for J {
+    fn from(v: &Value) -> J {
+        match v {
+            Value::Null => J::Null,
+            Value::Bool(b) => J::Bool(*b),
+            Value::Number(n) => J::Num(n.to_string()),
+            Value::String(s) => J::Str(s.clone()),
+            Value::Array(a) => J::Arr(a.iter().map(J::from).collect()),
+            Value::Object(o) => J::Obj(o.iter().map(|(k, x)| (k.clone(), J::from(x))).collect()),
+        }
+    }
+}
+
 impl J {
+    /// A whole number, as jq prints one.
+    pub fn int(n: i64) -> J {
+        J::Num(n.to_string())
+    }
+
+    pub fn bool(b: bool) -> J {
+        J::Bool(b)
+    }
+
+    /// The text, or null for an empty one.
+    pub fn text_or_null(s: &str) -> J {
+        if s.is_empty() {
+            J::Null
+        } else {
+            J::Str(s.to_string())
+        }
+    }
+
+    /// `del(.key)`.
+    pub fn remove(&mut self, key: &str) {
+        if let J::Obj(o) = self {
+            o.retain(|(k, _)| k != key);
+        }
+    }
+
+    /// `walk(if type == "string" then f else . end)`.
+    pub fn each_string(&mut self, f: &impl Fn(&mut String)) {
+        match self {
+            J::Str(s) => f(s),
+            J::Arr(a) => a.iter_mut().for_each(|x| x.each_string(f)),
+            J::Obj(o) => o.iter_mut().for_each(|(_, x)| x.each_string(f)),
+            _ => {}
+        }
+    }
+
     pub fn parse(text: &str) -> Option<J> {
         let mut p = Parser {
             b: text.as_bytes(),
@@ -453,22 +506,33 @@ impl Parser<'_> {
                         b'n' => out.push('\n'),
                         b'r' => out.push('\r'),
                         b't' => out.push('\t'),
-                        b'u' => {
-                            let mut c = self.hex4()?;
-                            if (0xd800..0xdc00).contains(&c) && self.eat(b"\\u").is_some() {
-                                let low = self.hex4()?;
-                                if (0xdc00..0xe000).contains(&low) {
-                                    c = 0x10000 + ((c - 0xd800) << 10) + (low - 0xdc00);
-                                }
-                            }
-                            // A lone surrogate is read as jq reads it.
-                            out.push(char::from_u32(c).unwrap_or('\u{fffd}'));
-                        }
+                        b'u' => out.push(self.unicode()?),
                         _ => return None,
                     }
                 }
             }
         }
+    }
+
+    /// One `\u` escape. A high surrogate takes a low half at once; without one
+    /// it reads as U+FFFD and the escape that follows is read on its own, as
+    /// jq reads it.
+    fn unicode(&mut self) -> Option<char> {
+        let high = self.hex4()?;
+        if !(0xd800..0xdc00).contains(&high) {
+            return Some(char::from_u32(high).unwrap_or('\u{fffd}'));
+        }
+        if self.b.get(self.i..self.i + 2) == Some(b"\\u") {
+            let at = self.i;
+            self.i += 2;
+            let low = self.hex4()?;
+            if (0xdc00..0xe000).contains(&low) {
+                let c = 0x10000 + ((high - 0xd800) << 10) + (low - 0xdc00);
+                return Some(char::from_u32(c).unwrap_or('\u{fffd}'));
+            }
+            self.i = at;
+        }
+        Some('\u{fffd}')
     }
 }
 
@@ -545,5 +609,152 @@ mod tests {
     fn jq_truth_and_order() {
         assert!(!J::Null.truthy() && !J::Bool(false).truthy() && J::num(0.0).truthy());
         assert!(J::str("1").above_zero() && !J::Null.above_zero() && !J::num(0.0).above_zero());
+    }
+
+    /// The order and the number text of the cycle's file, where serde_json's
+    /// Value sorts its keys.
+    #[test]
+    fn keys_keep_their_order_and_numbers_their_words() {
+        let t = r#"{"b":1.50,"a":2.0,"c":100000000000000000000000,"d":[true,null,{}],"e":-0}"#;
+        assert_eq!(J::parse(t).unwrap().dump(), t);
+    }
+
+    #[test]
+    fn a_key_given_twice_keeps_its_place_and_its_last_value() {
+        assert_eq!(
+            J::parse(r#"{"a":1,"b":2,"a":3}"#).unwrap().dump(),
+            r#"{"a":3,"b":2}"#
+        );
+    }
+
+    #[test]
+    fn what_is_no_json_is_none() {
+        for t in [
+            "",
+            "not json",
+            "{",
+            "[1,",
+            r#"{"a"}"#,
+            "01",
+            "1.",
+            "tru",
+            "1 2",
+            "\"\t\"",
+            r#"{"a":1} {"b":2}"#,
+        ] {
+            assert_eq!(J::parse(t), None, "{t}");
+        }
+    }
+
+    #[test]
+    fn text_is_escaped_as_jq_escapes_it() {
+        let v = J::Str("a\"\\\u{8}\t\n\u{c}\r\u{1}\u{7f}é".into());
+        assert_eq!(v.dump(), "\"a\\\"\\\\\\b\\t\\n\\f\\r\\u0001\\u007fé\"");
+    }
+
+    #[test]
+    fn half_a_surrogate_pair_is_the_replacement_character() {
+        assert_eq!(
+            J::parse(r#""\ud83d x""#).unwrap(),
+            J::Str("\u{fffd} x".into())
+        );
+        assert_eq!(J::parse(r#""😀""#).unwrap(), J::Str("😀".into()));
+    }
+
+    /// A high surrogate followed by a `\u` escape that is no low half: the
+    /// high one is U+FFFD and the escape after it is read on its own.
+    #[test]
+    fn a_high_surrogate_followed_by_a_lone_escape_reads_each_on_its_own() {
+        assert_eq!(
+            J::parse(r#""\ud83dA""#).unwrap(),
+            J::Str("\u{fffd}A".into())
+        );
+        assert_eq!(
+            J::parse(r#""\ud83d\ud83d""#).unwrap(),
+            J::Str("\u{fffd}\u{fffd}".into())
+        );
+    }
+
+    #[test]
+    fn pretty_is_jqs() {
+        let v = J::parse(r#"{"a":1,"b":{"c":[1,"x"],"d":{}},"e":[]}"#).unwrap();
+        assert_eq!(
+            v.pretty(),
+            "{\n  \"a\": 1,\n  \"b\": {\n    \"c\": [\n      1,\n      \"x\"\n    ],\n    \"d\": {}\n  },\n  \"e\": []\n}"
+        );
+    }
+
+    #[test]
+    fn a_key_of_an_object_can_be_removed() {
+        let mut v = J::parse(r#"{"a":1,"id":"x","b":2}"#).unwrap();
+        v.remove("id");
+        assert_eq!(v.dump(), r#"{"a":1,"b":2}"#);
+        // del of a key that is not there, and of anything but an object.
+        v.remove("nothing");
+        assert_eq!(v.dump(), r#"{"a":1,"b":2}"#);
+        let mut n = J::parse("[1,2]").unwrap();
+        n.remove("a");
+        assert_eq!(n.dump(), "[1,2]");
+    }
+
+    #[test]
+    fn every_string_of_a_tree_can_be_rewritten() {
+        let mut v = J::parse(r#"{"a":"abc","b":["de",["e"],1],"c":null,"d":true}"#).unwrap();
+        v.each_string(&|s| s.push('!'));
+        assert_eq!(
+            v.dump(),
+            r#"{"a":"abc!","b":["de!",["e!"],1],"c":null,"d":true}"#
+        );
+    }
+
+    #[test]
+    fn an_empty_text_is_null() {
+        assert_eq!(J::text_or_null(""), J::Null);
+        assert_eq!(J::text_or_null("x"), J::Str("x".into()));
+        assert!(J::text_or_null("").is_null());
+    }
+
+    /// A value serde_json read becomes the variant of its own type, so a
+    /// scalar read from a file is what one built here is. The keys of a
+    /// serde_json map are sorted, which is why the cycle reads its JSON here.
+    #[test]
+    fn a_value_serde_json_read_becomes_the_value_of_its_type() {
+        let from: J =
+            J::from(&serde_json::from_str::<Value>(r#"{"a":"x","n":1.50,"t":true}"#).unwrap());
+        assert_eq!(from.dump(), r#"{"a":"x","n":1.5,"t":true}"#);
+        let text = r#"{"at":"T","yes":true,"no":false,"gone":null,"a":[1,"x",[true]],"o":{"k":null},"big":1.50}"#;
+        let from: J = J::from(&serde_json::from_str::<Value>(text).unwrap());
+        assert_eq!(from.get("at"), &J::str("T"));
+        assert_eq!(from.get("gone"), &J::Null);
+        assert!(from.get("gone").is_null());
+        assert_eq!(from.get("yes"), &J::Bool(true));
+        assert_eq!(from.get("no"), &J::Bool(false));
+        assert_eq!(from.get("big"), &J::Num("1.5".into()));
+        assert_eq!(from.get("a"), &J::parse("[1,\"x\",[true]]").unwrap());
+        assert_eq!(from.get("o").get("k"), &J::Null);
+        assert_eq!(J::from(&Value::Null), J::Null);
+        assert_eq!(J::from(&serde_json::json!(7)), J::Num("7".into()));
+        assert_eq!(J::from(&serde_json::json!(null)), J::Null);
+    }
+
+    /// The parser calls itself for every level, so a document nested deeper
+    /// than DEPTH is refused rather than run out of the thread's stack: the
+    /// array of 0 is the 256th level in one and the 257th in the other.
+    #[test]
+    fn a_document_is_read_to_its_depth_and_no_further() {
+        let deep = |n: usize| {
+            let mut t = String::new();
+            for _ in 0..n {
+                t.push('[');
+            }
+            t.push('0');
+            for _ in 0..n {
+                t.push(']');
+            }
+            t
+        };
+        assert!(J::parse(&deep(255)).is_some());
+        assert!(J::parse(&deep(256)).is_some());
+        assert_eq!(J::parse(&deep(257)), None);
     }
 }
