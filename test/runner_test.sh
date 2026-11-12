@@ -712,12 +712,19 @@ fresh
 # directory of the right spelling. Only the dump is a core file, and only the
 # dump fails the run. The bare name is asked for in the run after it, where the
 # kernel of a host that writes dumps has nothing else to leave beside it.
+#
+# The name is given to the run as well as planted: the runner reads the host's
+# file again inside its own process, and a host whose kernel answers that read
+# with another name would scan for a file this case never wrote. Then the run
+# finds nothing, prints no core line, and the case fails for the host's choice
+# rather than for what the run does with the names it is given. The name of the
+# run is a fact of the case, as it is for the TEHAS_TEST_CORES cases below.
 echo a dump from before the run >"$repo/${core_name}.4242"
 echo text >"$repo/${core_name}.txt"
 echo text >"$repo/${core_name}.abc"
 mkdir "$repo/${core_name}.9999"
 fake a_test.sh 0 2
-run
+run_env ${T_ENV[@]+"${T_ENV[@]}"} TEHAS_TEST_CORE_PATTERN="$core_name"
 t_eq "$t_rc" 1
 t_contains "$t_out" "$core_name.4242 left in the checkout by a program that crashed"
 t_contains "$(block)" "1 core files in the checkout"
@@ -738,10 +745,12 @@ fresh
 # of the checkout at its end, and a crash of its own would add a dump the host's
 # kernel chose to write, which is not the case's to name. So the tree holds one
 # dump before the run starts, of the bare name the kernel writes first, and the
-# run must find that one and nothing else.
+# run must find that one and nothing else. The run is told that name too, for
+# the reason the case above gives: the run reads the host's file itself, and a
+# host answering it with another name would look for no file of this checkout.
 fake a_test.sh 0 2
 echo a dump from a limit that did not apply >"$repo/$core_name"
-run
+run_env ${T_ENV[@]+"${T_ENV[@]}"} TEHAS_TEST_CORE_PATTERN="$core_name"
 t_eq "$t_rc" 1
 t_contains "$t_out" "$core_name left in the checkout by a program that crashed"
 t_contains "$(block)" "1 core files in the checkout"
