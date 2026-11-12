@@ -117,7 +117,7 @@ tehas api [--json]
   "tehas": "v0.8.0",
   "commit": "cb6912a",
   "repo": "tehas-app/tehas",
-  "features": ["status", "millwright-grant", "fixer-grant", "all-hands", "limit", "drain", "history", "export", "refresh-conflicts", "analytics", "state-move", "mcp-dashboard-keys", "clean", "disk", "panels", "state-check", "finish", "status-versions", "store-copy", "state-load", "freeze", "host-bridge", "host-bridge-tokens", "cycle-writes", "settings-rules", "start-order"],
+  "features": ["status", "millwright-grant", "fixer-grant", "all-hands", "limit", "drain", "history", "export", "refresh-conflicts", "analytics", "state-move", "mcp-dashboard-keys", "clean", "disk", "panels", "state-check", "finish", "status-versions", "store-copy", "state-load", "freeze", "host-bridge", "host-bridge-tokens", "cycle-writes", "settings-rules", "start-order", "host-message"],
   "millwright": null,
   "fixer": null,
   "poll": {
@@ -142,7 +142,7 @@ tehas api [--json]
 | `tehas` | The release tag the factory was installed from: `v0.10.2` for a release install, `v0.8.0` for a checkout one. `null` when the install came from a checkout with no tag, or not from a git checkout |
 | `commit` | The commit it was installed from, seven characters; `null` for a release install, which records only the tag, and when not from a git checkout |
 | `repo` | `TEHAS_REPO`, the product repository |
-| `features` | What this release has, so a program can tell a factory that predates a feature from one where it failed. Today `status`, `millwright-grant` ([the millwright's grant](/operating#the-millwrights-grant)), `fixer-grant`, `all-hands`, `limit`, `drain`, `history` ([`tehas history`](#tehas-history)), `export` ([`tehas export`](#tehas-export)), `refresh-conflicts` (the factory refreshes its own pull requests that conflict, [refreshes](/operating#refreshes)), `analytics` ([`tehas analytics export --json`](#tehas-analytics-export)), `state-move` ([`tehas state`](#tehas-state)), `mcp-dashboard-keys` (the read-only MCP server answers a key of `TEHAS_MCP_DASHBOARD_KEYS` with only the four tools that copy from `live/`, [the MCP server](/mcp-server)), `clean` ([`tehasbot clean`](#tehasbot-clean)), `disk` ([`tehas disk`](#tehas-disk)), `panels` ([`tehas panel`](#tehas-panel)), `state-check` ([`tehas state check`](#tehas-state-check)), `finish` ([the finish ask](#the-finish-ask)), `status-versions` (`versions` in [`tehas status --json`](#tehas-status---json)) `store-copy` ([`tehas state copy`](#tehas-state-copy)), `state-load` ([`tehas state load`](#tehas-state-load)), `freeze` ([`tehas freeze` and `tehas thaw`](#tehas-freeze-and-tehas-thaw)) `host-bridge` ([the host bridge](#the-host-bridge)), `host-bridge-tokens` (the dashboard draws `tokens` of [the host bridge](#the-host-bridge)) `cycle-writes` ([`tehas disk --cycles`](#tehas-disk) names what each running cycle writes), `settings-rules` (the release carries [its settings rules](#settings-rules)) and `start-order` ([`tehas order`](#tehas-order)) |
+| `features` | What this release has, so a program can tell a factory that predates a feature from one where it failed. Today `status`, `millwright-grant` ([the millwright's grant](/operating#the-millwrights-grant)), `fixer-grant`, `all-hands`, `limit`, `drain`, `history` ([`tehas history`](#tehas-history)), `export` ([`tehas export`](#tehas-export)), `refresh-conflicts` (the factory refreshes its own pull requests that conflict, [refreshes](/operating#refreshes)), `analytics` ([`tehas analytics export --json`](#tehas-analytics-export)), `state-move` ([`tehas state`](#tehas-state)), `mcp-dashboard-keys` (the read-only MCP server answers a key of `TEHAS_MCP_DASHBOARD_KEYS` with only the four tools that copy from `live/`, [the MCP server](/mcp-server)), `clean` ([`tehasbot clean`](#tehasbot-clean)), `disk` ([`tehas disk`](#tehas-disk)), `panels` ([`tehas panel`](#tehas-panel)), `state-check` ([`tehas state check`](#tehas-state-check)), `finish` ([the finish ask](#the-finish-ask)), `status-versions` (`versions` in [`tehas status --json`](#tehas-status---json)) `store-copy` ([`tehas state copy`](#tehas-state-copy)), `state-load` ([`tehas state load`](#tehas-state-load)), `freeze` ([`tehas freeze` and `tehas thaw`](#tehas-freeze-and-tehas-thaw)) `host-bridge` ([the host bridge](#the-host-bridge)), `host-bridge-tokens` (the dashboard draws `tokens` of [the host bridge](#the-host-bridge)) `cycle-writes` ([`tehas disk --cycles`](#tehas-disk) names what each running cycle writes), `settings-rules` (the release carries [its settings rules](#settings-rules)), `start-order` ([`tehas order`](#tehas-order)) and `host-message` ([`tehas host-message`](#tehas-host-message)) |
 | `millwright` | The app's login, or `null` before it is known |
 | `fixer` | The same as `millwright`. It and the feature `fixer-grant` are the old names, kept for as long as API version 1; a program reads `millwright` and `millwright-grant` |
 | `poll` | What the polls of this factory cost, or `null` when no poll is on record or the state store cannot answer. `last` is the poll that most recently held the dispatcher's lock and `hour` is the sums of the polls that ended in the last hour; both are in the fields below, so a program that keeps a copy of them can add the cost of many hosts up. See [What a poll costs](/operating#what-a-poll-costs) for what each figure counts |
@@ -1120,6 +1120,49 @@ The checks, the list and the files are the console's (`console/src/panel.rs`).
 
 Exit 0 done; 1 the list could not be read or written; 64 a bad argument, a fifth
 panel or a URL on `TEHAS_DOMAIN`, which writes nothing; 78 without an instance.
+
+## tehas host-message
+
+```
+tehas host-message [list] [--json]
+tehas host-message set <id> --level info|warn|alert --text TEXT [--link URL]
+tehas host-message clear <id>
+```
+
+```json
+{"api": 1, "messages": [{"id": "disk-low", "level": "warn", "text": "Disk 91% full", "link": null, "at": "2026-11-12T18:03:00Z"}]}
+```
+
+Short messages for this factory, posted by an operator or a supervisor
+process. The table gives every field of the schema as the schema names it, so
+a field of an item of the list is named under `messages`.
+
+| Field | Rule |
+| --- | --- |
+| `api` | The API version, 1 |
+| `messages` | The messages, in the order they were first set: at most 20, empty when none is set |
+| `messages.id` | `a-z`, `0-9` and `-`, 1 to 32 characters. `set` on an `id` that is there replaces it, in its place |
+| `messages.level` | `info`, `warn` or `alert` |
+| `messages.text` | One line, 1 to 200 characters. Control characters become spaces, as in `tehas pause` |
+| `messages.link` | `https://` or `http://`, a host, no user or password, at most 512 characters; `null` when not given |
+| `messages.at` | When the message was last set, UTC, as `2026-11-12T18:03:00Z` |
+
+- At most 20 messages. A 21st is refused.
+- The list is `~/tehas/state/host-messages.json`, mode 600, the same object
+  as `list --json`, renamed into place under `state/host-message.lock`. With no
+  messages the file is gone.
+- `set` and `clear` print the list as it then is. `clear` of an `id` that is
+  not there is fine. Reading makes no network call.
+
+`api/host-messages.schema.json` in the source says what the object holds, with
+`api/host-messages.sample.json` beside it, printed by the command.
+
+The checks, the list and the file are the console's
+(`console/src/host_message.rs`).
+
+Exit 0 done; 1 the list could not be read or written, or another
+`tehas host-message` held the lock for 10 seconds, which writes nothing; 64 a
+bad argument or a 21st message, which writes nothing; 78 without an instance.
 
 ## Files under live/
 
