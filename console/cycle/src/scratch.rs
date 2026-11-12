@@ -12,8 +12,13 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tehas_core::{call, disk};
 
-/// Entries one measure reads. A tree bigger than this counts what was read.
+/// Entries one measure reads. A tree bigger than this counts as `UNCOUNTED`.
 const ENTRIES: usize = 500_000;
+
+/// What a tree too big to read whole holds: more than any cap, and more than
+/// any scratch that was read whole. A walk that stopped short cannot say what
+/// the rest holds.
+pub const UNCOUNTED: u64 = u64::MAX;
 
 /// What the watch is given of the scratch.
 #[derive(Clone, Debug, Default)]
@@ -63,6 +68,10 @@ impl Over {
 
     pub fn line(&self) -> String {
         match self {
+            Over::Cap { held: UNCOUNTED, max } => format!(
+                "tehas work: the cycle's scratch has more than {ENTRIES} entries, too many to measure against TEHAS_SCRATCH_MAX of {} MiB, stopping it",
+                max >> 20
+            ),
             Over::Cap { held, max } => format!(
                 "tehas work: the cycle's scratch holds {} MiB, over TEHAS_SCRATCH_MAX of {} MiB, stopping it",
                 held >> 20,
@@ -79,8 +88,13 @@ impl Over {
 }
 
 /// The bytes a tree takes on disk: the blocks of every entry, links not
-/// followed and no other file system entered.
+/// followed and no other file system entered. `UNCOUNTED` when it has more
+/// than `ENTRIES` entries.
 pub fn held(dir: &Path) -> u64 {
+    held_within(dir, ENTRIES)
+}
+
+fn held_within(dir: &Path, bound: usize) -> u64 {
     let Ok(top) = fs::symlink_metadata(dir) else {
         return 0;
     };
@@ -94,8 +108,8 @@ pub fn held(dir: &Path) -> u64 {
         };
         for e in entries.flatten() {
             seen += 1;
-            if seen > ENTRIES {
-                return total;
+            if seen > bound {
+                return UNCOUNTED;
             }
             let Ok(m) = e.path().symlink_metadata() else {
                 continue;
@@ -262,5 +276,34 @@ mod tests {
         assert!(other_held < own_held, "{other_held}");
         assert_eq!(largest_other(&other), own_held);
         assert_eq!(held(&d.path().join("none")), 0);
+    }
+
+    #[test]
+    fn a_tree_too_big_to_read_whole_counts_as_over_every_cap() {
+        let d = tehas_core::testdir::TestDir::new("scratch-uncounted");
+        let own = d.path().join("tehas-1");
+        fs::create_dir_all(own.join("many")).unwrap();
+        for i in 0..4 {
+            fs::write(own.join("many").join(i.to_string()), b"").unwrap();
+        }
+        fs::create_dir_all(own.join("many/sub")).unwrap();
+        fs::write(own.join("many/sub/big"), vec![1u8; 1 << 20]).unwrap();
+        assert_eq!(held_within(&own, 3), UNCOUNTED);
+        assert!(held_within(&own, 100) < UNCOUNTED);
+
+        let got = look(&bounds(20 * G, 0), UNCOUNTED, || None, || 0);
+        assert_eq!(
+            got,
+            Some(Over::Cap {
+                held: UNCOUNTED,
+                max: 20 * G
+            })
+        );
+        assert!(got.unwrap().line().contains("more than"));
+        // Under the floor it is the largest: it stops, and the scratch beside
+        // it that was read whole does not.
+        let b = bounds(0, 5 * G);
+        assert!(look(&b, UNCOUNTED, || Some(G), || 3 * G).is_some());
+        assert_eq!(look(&b, 3 * G, || Some(G), || UNCOUNTED), None);
     }
 }
