@@ -151,8 +151,10 @@ printf 'placeholder\n' >"$checkout/one.txt"
 
 # docker answers the slice's question from a file and, like docker, refuses to
 # start a container whose cid file is already there. Only a run is recorded
-# one argument per line; what the container does is a file a case writes.
-t_stub docker 'if [ "$1" = info ]; then cat "$T/docker.info"; exit; fi
+# one argument per line; what the container does is a file a case writes. The
+# body is a string of its own, so docker_hangs gives it again with a run of the
+# container that never ends.
+DOCKER_STUB_BASE='if [ "$1" = info ]; then cat "$T/docker.info"; exit; fi
 case " $* " in *" --capabilities "*)
   printf "%s\n" "$*" >>"$T/calls/docker.caps"
   [ ! -e "$T/caps.json" ] || cat "$T/caps.json"
@@ -191,6 +193,27 @@ case " $* " in
   " kill "*) kill "$(cat "$T/sleeper.pid" 2>/dev/null)" 2>/dev/null ;;
   " pause "* | " unpause "*) printf "%s\n" "$1" >>"$T/calls/docker.freeze" ;;
 esac'
+t_stub docker "$DOCKER_STUB_BASE"
+# docker_hangs: the same docker, but the run of the container is a client that
+# never ends, as the attached `docker run` of a wedged dockerd is. It ignores
+# TERM and waits on its own, so the client of tehas work outlives the bound on
+# the wait for it and only a KILL frees the cycle. Every other verb answers as
+# the ordinary stub does, so the calls that stop the container still work: what
+# hangs here is the client of the run, not the container inside it.
+docker_hangs() {
+  # The client hangs while the file of the case is there, and writes its own pid
+  # into a file beside it, so the case kills it at the end and nothing of it
+  # outlives the case. fresh takes both away, so no other case finds a docker
+  # that hangs.
+  printf '%s\n' "$(command -pv sleep)" >"$T/client-hangs"
+  # shellcheck disable=SC2016  # the body is a program the stub runs, not this shell's
+  t_stub docker "nap=\$(cat \"\$T/client-hangs\" 2>/dev/null)
+case \"\$*\" in
+  *\"pi-rukas-headless work \"*)
+    [ -z \"\$nap\" ] || { echo \"\$\$\" >\"\$T/client-hangs.pid\"; trap '' TERM; exec \"\$nap\" 30; } ;;
+esac
+$DOCKER_STUB_BASE"
+}
 # The container of a cycle that named none: it says one line of progress and
 # ends at once, purely to keep the cycle's stream from being the empty one tehas
 # work takes for a container that never came up and writes nothing for
@@ -346,7 +369,7 @@ gone='wait; exit 137'
 # container-default, holds that default for every case that names none).
 fresh() {
   local e t_keep=()
-  rm -rf "$T"/calls/* "$live/cycles" "$T/sleeper.pid" "$T/container.sh" "$T/now.wait" "$T"/home/tehas/logs/work-7-*
+  rm -rf "$T"/calls/* "$live/cycles" "$T/sleeper.pid" "$T/container.sh" "$T/now.wait" "$T/client-hangs" "$T"/home/tehas/logs/work-7-*
   t_store_home "$T/home/tehas"
   # A fresh store has no start, so no attempt of one (under_cycle).
   for e in "${T_ENV[@]}"; do [[ $e == TEHAS_CYCLE_ATTEMPT=* ]] || t_keep+=("$e"); done

@@ -202,6 +202,36 @@ t_lacks "$(t_calls docker)" "kill "
 t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
 T_ENV=("${env_ok[@]}")
 
+t_case "a docker client that never exits is killed after the stop wait, and the cycle is reported"
+fresh
+# A dockerd that stopped answering the attached run: the client of the container
+# waits on a dockerd that answers nothing, so it outlives the bound on the wait
+# for it and only a KILL of it frees the cycle. The container itself is stopped
+# with the client, as a container of a wedged dockerd is, and writes no result:
+# what the cycle has to report is what the watch saw.
+docker_hangs
+# Its start on record, so its heartbeat goes to the store and the live view of
+# the cycle is read back below.
+under_cycle
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_TIMEOUT=1 TEHAS_CHILD_TIMEOUT=1
+T_ENV=("${env_ok[@]}" TEHAS_STOP_WAIT=1 TEHAS_WORK_GRACE=0)
+container "\"\$nap\" 30"
+began=$(date +%s)
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_contains "$t_out" "tehas work: the docker client of tehas-work-7 did not end within 1s, killing it"
+t_contains "$t_out" "its container may still run and the poll's reap removes it"
+t_contains "$t_out" "status=timeout"
+t_eq "$(jq -c '[.running, .status]' "$live/cycles/7.json")" '[false,"timeout"]'
+# The cycle is reported, not left running: its own end is the one the watch
+# stopped, and no word says the container was killed while the cycle ran.
+t_eq "$(cat "$T/home/tehas/state/cycles/7.runner_exit")" "2"
+t_lacks "$t_out" "was killed"
+[ "$(($(date +%s) - began))" -lt 20 ] ||
+  t_bad "the docker client was waited on for $(($(date +%s) - began))s"
+kill "$(cat "$T/client-hangs.pid" 2>/dev/null)" 2>/dev/null
+t_stub docker "$DOCKER_STUB_BASE"
+
 t_case "a console that does not stop on TERM is killed after its bound, and said"
 fresh
 # exec keeps the ignored TERM and leaves no child behind holding the lock.
