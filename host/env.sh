@@ -43,6 +43,8 @@ fi
 # is a viiwork mesh, and the section appears by itself. TEHAS_ENERGY=off removes
 # it (the file tells every visitor the machines' names, their draw and their
 # models). TEHAS_ENERGY_URL names the cluster URL when it is not the model
-# provider's own, for example "http://mesh.example:8086/v1/cluster". Set either
-# in ~/.config/tehas/env, not here: install.sh replaces this file.
+# provider's own, for example "http://mesh.example:8086/v1/cluster".
+# TEHAS_ENERGY_SOURCE_URL is the address the page links under DATA SOURCE; only
+# an https:// address is used, and with none set the page shows no link. Set
+# either in ~/.config/tehas/env, not here: install.sh replaces this file.
 # The service reads these when it starts: restart tehas-energy.service after a change.

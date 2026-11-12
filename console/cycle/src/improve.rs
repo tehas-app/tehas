@@ -4,7 +4,6 @@
 //! that end together do not collide.
 
 use crate::host;
-use crate::jq::J;
 use regex::Regex;
 use serde_json::Value;
 use std::fs;
@@ -14,6 +13,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::OnceLock;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use tehas_core::jq::{obj, J};
 
 /// The most bytes of an attachment file a record takes. A manifest over it is
 /// left out whole, so both writers of one cap what they list to stay under it.
@@ -91,13 +91,18 @@ fn safe_value(name: &str, v: &str) -> String {
 /// words are filed in public, and a host's addresses and the analytics settings
 /// are none of its business.
 pub fn settings(running: &str, options: &[String]) -> String {
-    static HOST: OnceLock<Regex> = OnceLock::new();
-    let host = HOST.get_or_init(|| {
-        Regex::new(
-            r"\ATEHAS_(WORK_(TIMEOUT|STALL|CPUS|MEMORY|IMAGES|FILES|COMMENTS|DESCRIBE)|CONCURRENCY|TICKET_CONCURRENCY|MAX_AWAITING|CYCLE_RESERVE|VERIFY_TIMEOUT|CHILD_TIMEOUT|PREFLIGHT_WAIT|STOP_WAIT|CONSOLE_WAIT|BRANCH)\z",
-        )
-        .unwrap()
-    });
+    settings_with(
+        running,
+        options,
+        &std::env::vars_os()
+            .filter_map(|(k, v)| Some((k.into_string().ok()?, v.to_string_lossy().into_owned())))
+            .collect::<Vec<_>>(),
+    )
+}
+
+/// The settings of a container from its -e options, and of a host from the
+/// variables it was given, which a test holds fixed.
+fn settings_with(running: &str, options: &[String], host: &[(String, String)]) -> String {
     let mut container: Vec<(String, J)> = vec![];
     let mut words = options.iter();
     while let Some(word) = words.next() {
@@ -123,31 +128,48 @@ pub fn settings(running: &str, options: &[String]) -> String {
             None => container.push((name.to_string(), value)),
         }
     }
-    let mut shape: Vec<(String, String)> = std::env::vars_os()
-        .filter_map(|(k, v)| Some((k.into_string().ok()?, v.to_string_lossy().into_owned())))
+    let shape = host_shape(host);
+    let count = running.len() < 6
+        && !running.is_empty()
+        && running.bytes().all(|b| b.is_ascii_digit())
+        && (running == "0" || !running.starts_with('0'));
+    obj(vec![
+        ("container", J::Obj(container)),
+        ("host", J::Obj(shape)),
+        (
+            "concurrentCycles",
+            if count {
+                J::Num(running.to_string())
+            } else {
+                J::Null
+            },
+        ),
+    ])
+    .pretty()
+}
+
+/// The TEHAS_* settings that shape a cycle, in their own order.
+fn host_shape(given: &[(String, String)]) -> Vec<(String, J)> {
+    static HOST: OnceLock<Regex> = OnceLock::new();
+    let host = HOST.get_or_init(|| {
+        Regex::new(
+            r"\ATEHAS_(WORK_(TIMEOUT|STALL|CPUS|MEMORY|IMAGES|FILES|COMMENTS|DESCRIBE)|CONCURRENCY|TICKET_CONCURRENCY|MAX_AWAITING|CYCLE_RESERVE|VERIFY_TIMEOUT|CHILD_TIMEOUT|PREFLIGHT_WAIT|STOP_WAIT|CONSOLE_WAIT|BRANCH)\z",
+        )
+        .unwrap()
+    });
+    let mut shape: Vec<(String, String)> = given
+        .iter()
         .filter(|(k, _)| host.is_match(k))
+        .cloned()
         .collect();
     shape.sort();
-    let shape = shape
+    shape
         .into_iter()
         .map(|(k, v)| {
             let value = J::Str(safe_value(&k, &v));
             (k, value)
         })
-        .collect();
-    let count = running.len() < 6
-        && !running.is_empty()
-        && running.bytes().all(|b| b.is_ascii_digit())
-        && (running == "0" || !running.starts_with('0'));
-    J::obj(vec![
-        ("container", J::Obj(container)),
-        ("host", J::Obj(shape)),
-        (
-            "concurrentCycles",
-            J::Lit(if count { running } else { "null" }.to_string()),
-        ),
-    ])
-    .pretty()
+        .collect()
 }
 
 /// What one cycle ended with, as far as the record says it.
@@ -233,7 +255,7 @@ fn log_of(home: &Path, issue: u64, started: i64) -> Option<PathBuf> {
 pub fn condensed(line: &str) -> Option<String> {
     let mut v = J::parse(line)?;
     let kind = match &v {
-        J::Obj(_) => v.get("type").cloned(),
+        J::Obj(_) => Some(v.get("type").clone()),
         _ => return None,
     };
     if kind == Some(J::str("message_update")) {
@@ -247,7 +269,7 @@ pub fn condensed(line: &str) -> Option<String> {
             *s = s.chars().take(2000).collect::<String>() + " [cut]";
         }
     });
-    Some(v.compact())
+    Some(v.dump())
 }
 
 fn condense(raw: &Path, to: &Path) -> std::io::Result<()> {
@@ -283,7 +305,10 @@ fn copy_or_empty(from: &Path, to: &Path) {
 
 /// Container, host and concurrentCycles of a settings-view.
 pub fn ran_with(view: &Value) -> (J, J, J) {
-    let part = |k: &str| view.get(k).map_or(J::null(), J::from);
+    let part = |k: &str| match view.get(k) {
+        Some(v) => J::from(v),
+        None => J::Null,
+    };
     (part("container"), part("host"), part("concurrentCycles"))
 }
 
@@ -359,10 +384,10 @@ pub fn write(
         ""
     };
     let (ran_with, concurrent) = match shape.map(ran_with) {
-        Some((container, host, n)) => (J::obj(vec![("container", container), ("host", host)]), n),
-        None => (J::null(), J::null()),
+        Some((container, host, n)) => (obj(vec![("container", container), ("host", host)]), n),
+        None => (J::Null, J::Null),
     };
-    let doc = J::obj(vec![
+    let doc = obj(vec![
         ("issue", J::int(e.issue as i64)),
         ("started", J::int(e.started)),
         ("seconds", J::int(now - e.started)),
@@ -371,7 +396,7 @@ pub fn write(
         ("rc", J::int(e.rc)),
         ("pr", J::text_or_null(&e.pr)),
         ("log", J::str(&name)),
-        ("oomKills", J::Lit(kills.into())),
+        ("oomKills", J::Num(kills.to_string())),
         ("rukas", J::text_or_null(rukas)),
         ("buildCommit", J::text_or_null(build)),
         ("image", J::text_or_null(image)),
@@ -379,7 +404,7 @@ pub fn write(
         ("capReason", J::text_or_null(&reason)),
         (
             "handoffDelivered",
-            e.handoff_delivered.map_or(J::null(), J::bool),
+            e.handoff_delivered.map_or(J::Null, J::bool),
         ),
         ("settings", ran_with),
         ("concurrentCycles", concurrent),
@@ -517,6 +542,79 @@ mod tests {
         let line = format!(r#"{{"text":"{}"}}"#, "é".repeat(2001));
         let want = format!(r#"{{"text":"{} [cut]"}}"#, "é".repeat(2000));
         assert_eq!(condensed(&line).unwrap(), want);
+    }
+
+    /// What the record says a cycle ran with, for fixed running, options and
+    /// variables of the host: no setting of the shell this test runs in is
+    /// read.
+    #[test]
+    fn the_settings_of_a_record_hold_the_container_the_host_and_the_count() {
+        let options = [
+            "-e".to_string(),
+            "PI_ENSEMBLE_SUBAGENT_MODEL=m1".to_string(),
+            "-e".to_string(),
+            "PI_ENSEMBLE_HOME_URL=secret".to_string(),
+            "-e".to_string(),
+            "PI_ENSEMBLE_NOT_A_SETTING=x".to_string(),
+            "--rm".to_string(),
+        ];
+        let host = [
+            ("TEHAS_WORK_TIMEOUT".to_string(), "600".to_string()),
+            ("TEHAS_WORK_STALL".to_string(), "0".to_string()),
+            ("TEHAS_GITHUB_TOKEN".to_string(), "gh_secret".to_string()),
+            ("PATH".to_string(), "/bin".to_string()),
+        ];
+        assert_eq!(
+            settings_with("3", &options, &host),
+            concat!(
+                "{\n",
+                "  \"container\": {\n",
+                "    \"PI_ENSEMBLE_SUBAGENT_MODEL\": \"m1\",\n",
+                "    \"PI_ENSEMBLE_HOME_URL\": \"[withheld]\",\n",
+                "    \"PI_ENSEMBLE_NOT_A_SETTING\": \"x\"\n",
+                "  },\n",
+                "  \"host\": {\n",
+                "    \"TEHAS_WORK_STALL\": \"0\",\n",
+                "    \"TEHAS_WORK_TIMEOUT\": \"600\"\n",
+                "  },\n",
+                "  \"concurrentCycles\": 3\n",
+                "}",
+            )
+        );
+        // A count that is no number of cycles is null, and no -e option is no
+        // container.
+        assert_eq!(
+            settings_with("03", &[], &[]),
+            concat!(
+                "{\n",
+                "  \"container\": {},\n",
+                "  \"host\": {},\n",
+                "  \"concurrentCycles\": null\n",
+                "}",
+            )
+        );
+    }
+
+    /// A stream nested deeper than core's limit is no line of a record, as a
+    /// malformed one is. The object of the line is the first level, so 255
+    /// arrays of it fill the 256 the parser reads and the 256th of them does
+    /// not.
+    #[test]
+    fn a_line_nested_past_the_depth_limit_is_dropped() {
+        let deep = |n: usize| {
+            let mut t = String::from("{\"a\":");
+            for _ in 0..n {
+                t.push('[');
+            }
+            t.push('0');
+            for _ in 0..n {
+                t.push(']');
+            }
+            t.push('}');
+            t
+        };
+        assert!(condensed(&deep(255)).is_some());
+        assert_eq!(condensed(&deep(256)), None);
     }
 
     #[test]

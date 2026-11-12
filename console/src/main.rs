@@ -267,8 +267,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread::sleep;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use tehas_core::jq;
 use tehas_core::mask;
+
+pub use tehas_core::jq;
 
 const POLL: Duration = Duration::from_millis(1500);
 // How often a stop is looked for between two polls.

@@ -34,7 +34,6 @@ pub mod gives;
 pub mod host;
 pub mod improve;
 pub mod index;
-pub mod jq;
 pub mod last_attempt;
 pub mod lock;
 pub mod pin;

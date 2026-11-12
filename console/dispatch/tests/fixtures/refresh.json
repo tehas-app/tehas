@@ -498,7 +498,7 @@
    }
   },
   {
-   "case": "a list of marked pull requests that cannot be read ends the poll",
+   "case": "a list of marked pull requests that cannot be read clears no mark and goes on",
    "settings": {
     "TEHAS_TICKET_CONCURRENCY": 2,
     "TEHAS_REFRESH_CONFLICTS": "1"
@@ -528,9 +528,116 @@
     }
    },
    "expect": {
-    "exit": 1,
+    "exit": 0,
     "log": [
-     "ERROR: gh pr list failed"
+     "WARN: the pull requests marked tehas:refreshing could not be read, so no pull request is cleared of tehas:refreshing this poll"
+    ],
+    "log_count": {
+     "the pull requests marked tehas:refreshing could not be read": 1
+    },
+    "log_lacks": [
+     "ERROR",
+     "clear pull request #50"
+    ],
+    "nothing": true,
+    "picked": []
+   }
+  },
+  {
+   "case": "marked pull requests that are not a list say the same WARN once and go on",
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 2,
+    "TEHAS_REFRESH_CONFLICTS": "1"
+   },
+   "snapshot": {
+    "ready": [],
+    "awaiting": [
+     {
+      "number": 7
+     }
+    ],
+    "refresh_history": [
+     7
+    ],
+    "refreshing": "no list",
+    "issues": {
+     "7": {
+      "events": [],
+      "current": {
+       "how": "refresh",
+       "by": "alice",
+       "refresh_pr": 50
+      }
+     }
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "log": [
+     "WARN: the pull requests marked tehas:refreshing could not be read, so no pull request is cleared of tehas:refreshing this poll"
+    ],
+    "log_count": {
+     "the pull requests marked tehas:refreshing could not be read": 1
+    },
+    "log_lacks": [
+     "ERROR",
+     "clear pull request #50"
+    ],
+    "nothing": true,
+    "picked": []
+   }
+  },
+  {
+   "case": "a poll that cannot read the marked pull requests still starts a ready issue with room for it",
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 2,
+    "TEHAS_REFRESH_CONFLICTS": "1"
+   },
+   "snapshot": {
+    "awaiting": [
+     {
+      "number": 7
+     }
+    ],
+    "refresh_history": [
+     7
+    ],
+    "refreshing": {
+     "failed": true
+    },
+    "issues": {
+     "7": {
+      "events": [],
+      "current": {
+       "how": "refresh",
+       "by": "alice",
+       "refresh_pr": 50
+      }
+     }
+    }
+   },
+   "ready_n": [
+    "20"
+   ],
+   "expect": {
+    "exit": 0,
+    "log": [
+     "WARN: the pull requests marked tehas:refreshing could not be read, so no pull request is cleared of tehas:refreshing this poll"
+    ],
+    "log_lacks": [
+     "ERROR",
+     "clear pull request #50"
+    ],
+    "no_actions": [
+     {
+      "pr": 50,
+      "remove": [
+       "tehas:refreshing"
+      ]
+     }
+    ],
+    "picked": [
+     20
     ]
    }
   },

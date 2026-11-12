@@ -171,7 +171,7 @@ tehas status                                # the slice line: room for N cycles
 ```
 
 The `slice` line of `tehas status` is what the dispatcher's last poll read,
-with that poll's own age ([`tehas status`](/tools#tehas-status)), so after a
+with that poll's own age ([`tehas status`](/tools-status#tehas-status)), so after a
 growth it can still show the old figures: the poll that updates it runs on its
 own within two minutes, or now with `tehas dispatch`. Ask the slice itself
 for the new ceiling with the `systemctl show` line above, which reads the slice

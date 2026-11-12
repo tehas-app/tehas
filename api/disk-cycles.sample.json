@@ -1,0 +1,14 @@
+{"api": 1, "generatedAt": "2026-11-12T09:14:07Z", "dockerRoot": "/var/lib/docker",
+ "filesystems": [
+   {"paths": ["/home/boss/tehas", "/var/lib/docker"], "mount": "overlay",
+    "freeBytes": 22348619337728, "totalBytes": 30723834994688},
+   {"paths": ["/tmp"], "mount": "tmpfs",
+    "freeBytes": 5423874048, "totalBytes": 6442450944}
+ ],
+ "cycles": {"state": "read", "list": [
+   {"issue": 1872, "container": "tehas-work-1872",
+    "writableBytes": 1234567890, "blockWrittenBytes": 1200000000},
+   {"issue": 1873, "container": "tehas-work-1873",
+    "writableBytes": null, "blockWrittenBytes": 0,
+    "why": "writableBytes: docker inspect --size gave no size"}
+ ]}}
