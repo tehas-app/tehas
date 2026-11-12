@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/tehas-app/tehas/api/history.schema.json",
+  "title": "tehas history --json",
+  "description": "What tehas history --json prints, version 1: the cycles and planning turns that ended, oldest first. host/docs/api.md says what each field means. Every object is closed, so a field tehas adds must be added here too; a program that reads the object still accepts fields it does not know. One items schema covers both kinds of line, so a field only one kind prints is optional here: `kind` says which line a field belongs to, and a line leaves out what it lacks, never printing it null. test/json_contract_test.sh checks the samples beside this file against it and what the command prints.",
+  "type": "object",
+  "required": ["api", "cycles", "next"],
+  "additionalProperties": false,
+  "properties": {
+    "api": {"const": 1},
+    "cycles": {
+      "type": "array",
+      "items": {
+        "required": ["cursor", "kind", "issue", "ended", "outcome"],
+        "additionalProperties": false,
+        "properties": {
+          "cursor": {"type": "string", "pattern": "^[0-9]{1,10}-[1-9][0-9]{0,8}-[1-9][0-9]{0,14}$"},
+          "kind": {"enum": ["work", "plan"]},
+          "issue": {"type": "integer", "minimum": 1, "maximum": 999999999},
+          "ended": {"type": "string", "format": "date-time"},
+          "started": {"type": "string", "format": "date-time"},
+          "status": {"type": "integer", "minimum": 0, "maximum": 255},
+          "outcome": {"type": "string", "minLength": 1, "maxLength": 40},
+          "turn": {"type": "integer", "minimum": 1, "maximum": 1000},
+          "step": {"type": "string", "minLength": 1, "maxLength": 40},
+          "stepNumber": {"type": "integer", "minimum": 1, "maximum": 1000},
+          "stepTotal": {"type": "integer", "minimum": 1, "maximum": 1000},
+          "round": {"type": "integer", "minimum": 1, "maximum": 1000},
+          "cap": {"type": "string", "minLength": 1, "maxLength": 80},
+          "parkReason": {"type": "string", "minLength": 1, "maxLength": 40},
+          "failureKind": {"type": "string", "minLength": 1, "maxLength": 40},
+          "failureCause": {"type": "string", "minLength": 1, "maxLength": 60},
+          "provider": {"type": "boolean"},
+          "parked": {"type": "boolean"},
+          "repeat": {"type": "integer", "minimum": 1},
+          "pr": {"type": "string", "maxLength": 200},
+          "by": {"type": "string", "minLength": 1, "maxLength": 40},
+          "how": {"type": "string", "minLength": 1, "maxLength": 40},
+          "label": {"type": "string", "minLength": 1, "maxLength": 40},
+          "auto": {"type": "boolean"},
+          "filed": {
+            "type": "array",
+            "items": {"type": "string", "maxLength": 200}
+          }
+        }
+      }
+    },
+    "next": {"type": ["string", "null"]}
+  }
+}

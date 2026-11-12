@@ -29,7 +29,9 @@ fresh() {
   rm -rf "$T/home/tehas" "$T/calls/curl"
   mesh 200 "@$fixture"
 }
-# One sample, taken so many seconds after NOW, with these settings.
+# One sample, taken so many seconds after NOW, with these settings. Without an
+# entry of its own TEHAS_ENERGY_SOURCE_URL is no name in the run's environment,
+# because t_run builds it with env -i.
 sample() {
   local after=$1
   shift
@@ -54,7 +56,8 @@ t_eq "$t_rc" 0
 t_eq "$t_out" ""
 t_json .generatedAt '"2026-10-09T06:15:45Z"'
 t_json '[.source, .periodSeconds, .factoryModels]' '["viiwork", 15, ["model-large"]]'
-t_json .sourceUrl '"https://github.com/janit/viiwork"'
+# The source is named, but linked only when the host names an https address.
+t_json 'has("sourceUrl")' 'false'
 # Only the alive members that serve a factory model: node-a serves another
 # model, node-c serves none and node-d has left. The totals are theirs alone.
 t_json .totals '{"watts": 734, "kWh24h": 1.44, "kWh30d": 55.08, "hosts": 1, "reporting": 1, "energyHosts": 1}'
@@ -64,6 +67,46 @@ t_json .hosts '[{"name": "node-b", "source": "nvidia-smi", "watts": 734, "kWh24h
 t_json .models '[{"name": "model-large", "hosts": ["node-b"],
   "engines": [{"version": "2.9.0", "engine": "strata", "engineName": null, "engineVersion": null}], "slots": 1, "busy": 1, "queued": 2}]'
 t_json .samples "[{\"t\": $NOW, \"w\": {\"node-b\": 734}}]"
+
+t_case "TEHAS_ENERGY_SOURCE_URL is the address the page links, and only an https one"
+fresh
+# With no setting the source is named but linked by nothing.
+sample 0
+t_eq "$t_rc" 0
+t_json 'has("sourceUrl")' 'false'
+# An https address is copied as it stands, in the key after `source`.
+sample 0 TEHAS_ENERGY_SOURCE_URL=https://example.com/mesh
+t_eq "$t_rc" 0
+t_json .sourceUrl '"https://example.com/mesh"'
+t_json '[.source, .sourceUrl]' '["viiwork", "https://example.com/mesh"]'
+# An address that is no https one is not copied at all, and the value itself
+# stays out of the file, which anyone who can open the dashboard can read.
+for odd in 'http://LEAKMARK.example' 'https:/LEAKMARK' 'HTTPS://LEAKMARK'; do
+  sample 0 TEHAS_ENERGY_SOURCE_URL="$odd"
+  t_eq "$t_rc" 0
+  t_json 'has("sourceUrl")' 'false'
+  t_lacks "$(cat "$file")" LEAKMARK
+done
+# The name empty or only spaces is no address either.
+for odd in '' '   '; do
+  sample 0 TEHAS_ENERGY_SOURCE_URL="$odd"
+  t_eq "$t_rc" 0
+  t_json 'has("sourceUrl")' 'false'
+done
+# Whether the name is there at all is the environment's, not the file's: the
+# sampler reads the name, so the state where it is absent and the empty one are
+# two states. t_run builds a run with env -i, so a name no entry of T_ENV names
+# is absent from it.
+T_ENV=()
+t_run 'printf "%s" "${TEHAS_ENERGY_SOURCE_URL+yes}"'
+t_eq "$t_out" ""
+T_ENV=(TEHAS_ENERGY_SOURCE_URL=)
+t_run 'printf "%s" "${TEHAS_ENERGY_SOURCE_URL+yes}"'
+t_eq "$t_out" "yes"
+# Once the file holds the key, a sample with no name there still leaves it out:
+# the address comes from the setting and is not carried over from the file.
+sample 15
+t_json 'has("sourceUrl")' 'false'
 
 t_case "a sample carries each machine's token count for the factory's models"
 fresh

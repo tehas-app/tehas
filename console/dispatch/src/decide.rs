@@ -466,6 +466,12 @@ impl<'a> Poll<'a> {
         self.questions(&room, &bot)?;
         self.plan_new(&room)?;
         self.plan_refine(&room)?;
+        self.start_work(room)?;
+        self.hold_cleared();
+        Ok(())
+    }
+
+    fn start_work(&mut self, room: Room) -> Step {
         // With no room for new work, only a refresh may still have room.
         if room.want == 0 {
             if self.dry {
@@ -663,6 +669,85 @@ impl<'a> Poll<'a> {
         seen.sort_unstable();
         seen.truncate(LABEL_ALONE_MAX);
         seen
+    }
+}
+
+impl<'a> Poll<'a> {
+    /// Says once that an issue's `tehas:blocked` hold has cleared when it did
+    /// not start this poll. Until the start takes the label off, the issue
+    /// reads as held, and taking the label off by hand withdraws the start an
+    /// allowed account asked for with it. A newer marker comment is a new hold,
+    /// so its clearing is said again.
+    fn hold_cleared(&mut self) {
+        let mut cleared: Vec<u64> = Vec::new();
+        let lists = [&self.s.ready.0, &self.s.blocked.0];
+        for i in lists.into_iter().flatten().flatten() {
+            let Some(n) = i.number else { continue };
+            if !has(&i.labels, BLOCKED)
+                || in_flow(&i.labels)
+                || n == self.c.control
+                || self.plan_open(n)
+                || self.running(n)
+                || self.d.picked.contains(&n)
+                || cleared.contains(&n)
+            {
+                continue;
+            }
+            let Some(issue) = self.s.issues.get(&n) else {
+                continue;
+            };
+            let Events::Read(ev) = &issue.events else {
+                continue;
+            };
+            let state = label_state(ev, BLOCKED);
+            if state.event() != "labeled" || !self.c.allowed(state.actor()) {
+                continue;
+            }
+            let links = self
+                .work(n)
+                .pointer("/issue_dependencies_summary/blocked_by")
+                .and_then(Value::as_u64)
+                .unwrap_or(0);
+            let Some(nodes) = issue
+                .comments
+                .as_ref()
+                .and_then(|a| a.pointer("/data/repository/issue/comments/nodes"))
+                .and_then(Value::as_array)
+            else {
+                continue;
+            };
+            let Some(marker) = newest_marker(nodes, self.c) else {
+                continue;
+            };
+            if links > 0 || !self.marker_hold(n, nodes).is_empty() {
+                continue;
+            }
+            let at = |x: &Value| {
+                x.get("createdAt")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string()
+            };
+            let since = at(marker);
+            let said = nodes.iter().any(|x| {
+                x.get("body")
+                    .and_then(Value::as_str)
+                    .is_some_and(|b| b.contains(HOLD_CLEARED))
+                    && at(x) >= since
+            });
+            if !said {
+                cleared.push(n);
+            }
+        }
+        for n in cleared {
+            if self.dry {
+                self.log(format!(
+                    "would say on #{n}: its tehas:blocked hold has cleared"
+                ));
+                continue;
+            }
+            self.act(json!({"issue": n, "say": format!("Every issue the `tehas:blocked` marker names is closed, so the hold has cleared. Tehas takes `tehas:blocked` off when the cycle starts. Leave it on until then: it is what asks for the start when `tehas:ready` is not on.\n\n{HOLD_CLEARED}")}));
+        }
     }
 }
 
@@ -1623,7 +1708,18 @@ impl<'a> Poll<'a> {
         else {
             return Err(self.fail(format!("ERROR: unreadable comments of #{n}"), 1));
         };
-        let why = match newest_marker(nodes, self.c) {
+        let why = self.marker_hold(n, nodes);
+        if why.is_empty() {
+            return Ok(true);
+        }
+        self.log(format!("wait #{n}: tehas:blocked holds it: {why}"));
+        Ok(false)
+    }
+
+    /// What the newest marker comment of `n` still holds it on, empty when
+    /// every blocker it names is closed.
+    fn marker_hold(&self, n: u64, nodes: &[Value]) -> String {
+        match newest_marker(nodes, self.c) {
             None => LABEL_ALONE.to_string(),
             Some(x) => {
                 let author = x
@@ -1660,12 +1756,7 @@ impl<'a> Poll<'a> {
                     }
                 }
             }
-        };
-        if why.is_empty() {
-            return Ok(true);
         }
-        self.log(format!("wait #{n}: tehas:blocked holds it: {why}"));
-        Ok(false)
     }
 
     /// work_ok: the number is still an open issue.
@@ -2983,6 +3074,10 @@ fn in_flow(labels: &[String]) -> bool {
 
 /// The most numbers `labelAlone` lists, so the line status prints is bounded.
 pub(crate) const LABEL_ALONE_MAX: usize = 50;
+
+/// The marker of the comment `hold_cleared` writes. It does not start
+/// `<!-- tehas:blocked`, so `newest_marker` never reads it as one.
+const HOLD_CLEARED: &str = "<!-- tehas:hold-cleared -->";
 
 /// The wait line of a `tehas:blocked` that counts while no comment names its
 /// blockers. The dispatcher reads blockers only from comments, so it says

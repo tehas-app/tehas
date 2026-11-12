@@ -47,7 +47,7 @@ To use an app you already have, give its ID and key:
 tehas setup --app-id <App ID> --app-key-file <downloaded>.private-key.pem
 ```
 
-[tehas setup](/tools#tehas-setup) lists every step. Setup ends with
+[tehas setup](/tools-setup#tehas-setup) lists every step. Setup ends with
 `tehasbot github-token --check`.
 
 ## Make the app by hand
@@ -205,9 +205,9 @@ and logs nothing until the console is repaired. The poll line of `tehas
 status` counts it, and `tehasbot github-writes` shows the last day by hour and
 by its busiest minute against GitHub's limits. A write GitHub refuses for a
 rate limit is sent once more after a minute, and only that call
-([the commands page](/tools#tehasbot-github-writes)).
+([the commands page](/tools-github#tehasbot-github-writes)).
 
-[The commands page](/tools#tehasbot-github-token) has the details.
+[The commands page](/tools-github#tehasbot-github-token) has the details.
 
 ## What a container's token may do
 

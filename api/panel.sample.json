@@ -1,0 +1,10 @@
+{
+  "api": 1,
+  "panels": [
+    {
+      "id": "support",
+      "label": "Ask us",
+      "url": "https://support.example.org/f/acme"
+    }
+  ]
+}
