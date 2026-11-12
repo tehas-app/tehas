@@ -299,17 +299,27 @@ t_lacks "$(t_calls gh | grep '^issue create')" cross-project
 t_case "a finding whose cycle is cited by an issue of the repository for pi-rukas carries cross-project"
 ready
 with_rukas
-jq -n -c --arg rec "$REC" '{number: 4, title: "Pause and resume", state: "OPEN", body: "**Cycles:** \($rec)", labels: []}' | jq -s . >"$fx/rukas-open.json"
+jq -n -c --arg rec "$REC" '{number: 4, title: "Pause and resume", state: "OPEN", body: "**Cycles:** \($rec)", labels: [{name: "tehas:improvement"}]}' | jq -s . >"$fx/rukas-open.json"
 findings "$(finding "The gate runs twice")"
 t_run "$improve"
 t_contains "$t_out" "filed=1 issues=#101"
 t_eq "$(t_calls gh | grep '^issue create' | grep -c -e '--label tehas:improvement --label cross-project')" 1
 t_contains "$(cat "$T/calls/body-101")" "**Names:** acme/rukas"
 
+t_case "an issue without the label is given by its title only, and its cycles are not read"
+ready
+with_rukas
+jq -n -c --arg rec "$REC" '{number: 4, title: "Pause and resume", state: "OPEN", body: "Read this. **Cycles:** \($rec)", labels: []}' | jq -s . >"$fx/rukas-open.json"
+findings "$(finding "The gate runs twice")"
+t_run "$improve"
+t_contains "$t_out" "filed=1 issues=#101"
+t_eq "$(jq -c '.[] | [.title, .body, .cycles]' "$T/calls/issues.json")" '["Pause and resume","",[]]'
+t_lacks "$(t_calls gh | grep '^issue create')" cross-project
+
 t_case "the cycle of an issue of its own repository is no other repository"
 ready
 with_rukas
-jq -n -c --arg rec "$REC" '{number: 4, title: "Pause and resume", state: "OPEN", body: "**Cycles:** \($rec)", labels: []}' | jq -s . >"$fx/open.json"
+jq -n -c --arg rec "$REC" '{number: 4, title: "Pause and resume", state: "OPEN", body: "**Cycles:** \($rec)", labels: [{name: "tehas:improvement"}]}' | jq -s . >"$fx/open.json"
 findings "$(finding "The gate runs twice")"
 t_run "$improve"
 t_contains "$t_out" "filed=1 issues=#101"
