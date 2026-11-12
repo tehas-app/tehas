@@ -104,6 +104,32 @@ surfaces=(
   'bound	limit.until	.limit.until = "2026-10-17T15:00:60Z"	.limit.until = "2026-10-17T15:00:61Z"	"2026-10-17T15:00:61Z" does not match'
   'bound	limit.reason	.limit.reason = "01234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789"	.limit.reason = "012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567891"	longer than 200'
   'required	["api","drained","running","limit"]'
+  # The object `tehas freeze <issue> --json` and `tehas thaw <issue> --json`
+  # print for the same issue: the one object of console/src/freeze.rs, read from
+  # the three files of the cycle under state/cycles. The four samples are the
+  # four readings of those files a person reaches: no cycle running, a freeze
+  # asked of a running cycle, the watch having paused its container, and a thaw
+  # asked of that one, whose `frozen` stays true till the watch unpauses it. The
+  # surface has no state, so it has no `state` lines and no enum to compare them
+  # with: the samples are still held to the schema, to the walk of its fields and
+  # to what the two commands print.
+  'surface	freeze'
+  'sample	idle'
+  'sample	asked'
+  'sample	frozen'
+  'sample	thaw'
+  # The one object of the surface, bent one way at a time: a field of
+  # `required` missing, a field the schema does not know, and each field of its
+  # own given a value the schema refuses. Three lines, the shape of every check
+  # of the table.
+  'check	del(.asked) | .zz = 1 | .running = "yes"	.: asked is missing'
+  'check	del(.asked) | .zz = 1 | .running = "yes"	.zz: not in the schema'
+  'check	del(.asked) | .zz = 1 | .running = "yes"	.running: string, not boolean'
+  # The bounds of the schema, of the one field that has one: an issue of 1,
+  # the least number the commands take (console/src/stop.rs reads an issue)
+  # and 0, which no reading of the command can print.
+  'bound	issue	.issue = 1	.issue = 0	under 1'
+  'required	["api","issue","running","asked","frozen"]'
 )
 
 # The limit of the `limit` samples, as it is set: one cycle at a time, no
@@ -207,6 +233,76 @@ limit_reading() { # <name>
   t_run "TEHAS_FLAGS_TEST_NOW=$(limit_now "$1") '$T_CONSOLE' ${limit_print[*]} | jq ."
 }
 
+# Where the three files of issue 7's cycle are, and the holder that stands for
+# the cycle itself: a cycle takes its lock for the whole of its run and ends with
+# it, so the holder must be alive while a reading is made and gone when the case
+# is done. It is a child of this shell, and a run of t_run waits for the children
+# of the shell it runs in, so the holder is made of its own session: adopted, not
+# waited for (test/lib.sh holds a lock the same way in t_hold, and test/drain_test
+# .sh holds a cycle's lock as a poll's child for the same reason).
+freeze_home=$T/home/tehas/state/cycles
+freeze_holder=
+
+# The holder is let go, once only, so a reading that made none is never asked to
+# free a lock another reading took.
+freeze_holder_end() {
+  [ -n "$freeze_holder" ] || return 0
+  kill "$freeze_holder" 2>/dev/null
+  freeze_holder=
+}
+
+# The holder, of its own session so no run of t_run waits for it. The body is in
+# single quotes on purpose: the path is the argument at the place of `$1`.
+freeze_holder_start() { # <file>
+  freeze_holder_end
+  # shellcheck disable=SC2016  # $1 is the file, given to the snippet as its word
+  setsid bash -c 'exec 9>"$1" && flock 9 && exec sleep 600' _ "$1" &
+  freeze_holder=$!
+  while kill -0 "$freeze_holder" 2>/dev/null &&
+    flock -n "$1" true; do command -p sleep 0.02; done
+}
+
+# The three files of issue 7's cycle that say whether a freeze is asked and
+# whether the watch has paused the container, as the watch leaves them: the lock
+# held by the holder, the request `tehas freeze` writes, and the pause the watch
+# writes. A lock no process holds is read as no cycle, and one a cycle leaves
+# behind when it ends says nothing on its own either (console/src/freeze.rs, and
+# the one probe of console/core/src/lock.rs that `tehas drain` reads the same
+# way). So `idle` is no lock, no request and no pause. `asked` is the lock held,
+# as test/drain_test.sh holds a running cycle's lock, with no request yet, and is
+# read by the freeze that asks for one. `frozen` adds the two files the watch
+# leaves, and is read by `tehas freeze` again, which answers it is frozen already.
+# `thaw` is that same world read by `tehas thaw`, which removes the request and
+# leaves the pause for the watch to take away.
+freeze_world() { # <name>
+  mkdir -p "$freeze_home"
+  case $1 in
+    idle) ;;
+    asked) freeze_holder_start "$freeze_home/7.lock" ;;
+    frozen | thaw)
+      freeze_holder_start "$freeze_home/7.lock"
+      printf '{}\n' >"$freeze_home/7.freeze"
+      printf '1600\n' >"$freeze_home/7.frozen"
+      ;;
+  esac
+}
+
+# The reading of one freeze sample: the command, with `--json`, in the world the
+# case made. The verb is the other half of the surface's name: `tehas freeze`
+# prints `idle`, `asked` and `frozen`, and `tehas thaw` prints `thaw`, the answer
+# of the same object after the request was removed. The object is the one jq
+# prints, as every sample of the table is written.
+freeze_reading() { # <name>
+  local verb=freeze
+  [ "$1" = thaw ] && verb=thaw
+  t_run "'$T_CONSOLE' tehas $verb 7 --json | jq ."
+}
+
+# The holder of one reading's cycle is ended with the reading, and again as every
+# case ends, so a reading that could not be made leaves no lock for the rest of
+# the file to read as a cycle that never ends.
+t_after='freeze_holder_end'
+
 # <surface> <name>: the object the code prints for that sample, as committed, on
 # standard output as one JSON object. The console of this run prints it, and the
 # same program wrote the file. Not bin/tehas: that goes through console front,
@@ -229,6 +325,15 @@ printed() { # <surface> <name>
       drain_world "$name"
       drain_reading "$name"
       printf '%s\n' "$t_out" | jq .
+      ;;
+    freeze)
+      freeze_world "$name"
+      freeze_reading "$name"
+      # The reading reads the three files and takes no lock of its own, so the
+      # answer is the world as the case wrote it; the holder goes with the
+      # reading, so nothing later waits for a cycle that has ended.
+      freeze_holder_end
+      printf '%s\n' "$t_out"
       ;;
     *) return 1 ;;
   esac
@@ -263,6 +368,19 @@ sample_field_state() { # <surface> <name> <path>
   [ -n "$object" ] || return 1
   printf '%s\n' "$object" |
     jq -c --arg path "$3" 'getpath($path | split(".")) | if . == null then empty else . end'
+}
+
+# A sample of the surface that the `check` and `bound` lines of the table bend
+# one field of: `api/<surface>.sample.json` where the surface has one, and the
+# first of the surface's samples where it has none. The two surfaces of this
+# table read their object differently and the same one line, so a surface that
+# takes the sample of its answers another name is one line here and not a
+# second kind of row. The object is read from api/, which is what the two cases
+# that use it are asked about: the check of a bent sample.
+surface_sample() { # <surface>
+  local file=$api/$1.sample.json
+  [ -f "$file" ] || file=$api/$1.${names[0]}.json
+  printf '%s\n' "$file"
 }
 
 check() { # <schema file> <json file>: the lines test/schema.jq prints for it
@@ -428,38 +546,47 @@ while [ "$i" -lt "${#surfaces[@]}" ]; do
   # The state of every sample, taken from what the console prints and not from
   # the file in api/, and the whole list compared to the enum: a state of the
   # enum that no sample prints is refused, and so is a sample that prints
-  # another state than the row of the table names for it.
+  # another state than the row of the table names for it. A surface whose schema
+  # names no state of its own has no enum and no `state` lines, and nothing of
+  # its samples is a state of anything: the other cases below still hold its
+  # samples to the schema, to what the command prints and to the walk of its
+  # fields.
   t_case "every state of the schema of $surface is printed by one of its samples"
-  [ "${#names[@]}" = "${#states[@]}" ] ||
-    t_bad "the table names ${#states[@]} states for ${#names[@]} samples of $surface"
-  for n in "${!names[@]}"; do
-    # The object of the reading comes from sample_object, which runs the console
-    # and prints the object of the reading and nothing else; jq here picks the one
-    # field out of it. Read from api/ the state would only be agreed with.
-    printed_state=$(sample_field_state "$surface" "${names[$n]}" "$state_path") ||
-      t_bad "the console printed no object for $surface ${names[$n]}"
-    [ -n "$printed_state" ] ||
-      t_bad "the reading of $surface ${names[$n]} holds no state at $state_path"
-    t_eq "$printed_state" "\"${states[$n]}\""
-  done
-  # The enum the samples are read against, held by the schema at the path the
-  # table names. For a surface that prints its own state the table's `state` lines
-  # are the whole of it, so a state of the enum no sample prints is refused here
-  # and so is a state the schema does not name. For a surface that only carries the
-  # object of another the table names the enum and the surface that owns it: the
-  # enum of this schema is asked to be the enum of that one, and every state these
-  # samples print is asked to be one of them.
-  if [ -n "$state_owner" ]; then
-    t_eq "$(enum_of "$api/$state_owner.schema.json" state)" \
-      "$(enum_of "$schema" "$state_path")"
-    for state_word in "${states[@]}"; do
-      case $(enum_of "$schema" "$state_path") in
-        *"\"$state_word\""*) ;; *) t_bad "$state_word is no state of the schema of $surface" ;;
-      esac
-    done
+  if [ -z "$state_owner" ] && [ "$(jq -r '.properties | has("state")' "$schema")" != "true" ]; then
+    [ "${#states[@]}" = 0 ] ||
+      t_bad "the table names ${#states[@]} states for a schema of $surface with no state"
   else
-    t_eq "$(printf '%s\n' "${states[@]}" | jq -R . | jq -sc 'sort')" \
-      "$(enum_of "$schema" "$state_path" | jq -c 'sort')"
+    [ "${#names[@]}" = "${#states[@]}" ] ||
+      t_bad "the table names ${#states[@]} states for ${#names[@]} samples of $surface"
+    for n in "${!names[@]}"; do
+      # The object of the reading comes from sample_object, which runs the console
+      # and prints the object of the reading and nothing else; jq here picks the one
+      # field out of it. Read from api/ the state would only be agreed with.
+      printed_state=$(sample_field_state "$surface" "${names[$n]}" "$state_path") ||
+        t_bad "the console printed no object for $surface ${names[$n]}"
+      [ -n "$printed_state" ] ||
+        t_bad "the reading of $surface ${names[$n]} holds no state at $state_path"
+      t_eq "$printed_state" "\"${states[$n]}\""
+    done
+    # The enum the samples are read against, held by the schema at the path the
+    # table names. For a surface that prints its own state the table's `state` lines
+    # are the whole of it, so a state of the enum no sample prints is refused here
+    # and so is a state the schema does not name. For a surface that only carries the
+    # object of another the table names the enum and the surface that owns it: the
+    # enum of this schema is asked to be the enum of that one, and every state these
+    # samples print is asked to be one of them.
+    if [ -n "$state_owner" ]; then
+      t_eq "$(enum_of "$api/$state_owner.schema.json" state)" \
+        "$(enum_of "$schema" "$state_path")"
+      for state_word in "${states[@]}"; do
+        case $(enum_of "$schema" "$state_path") in
+          *"\"$state_word\""*) ;; *) t_bad "$state_word is no state of the schema of $surface" ;;
+        esac
+      done
+    else
+      t_eq "$(printf '%s\n' "${states[@]}" | jq -R . | jq -sc 'sort')" \
+        "$(enum_of "$schema" "$state_path" | jq -c 'sort')"
+    fi
   fi
 
   if [ -n "$samples_write" ]; then
@@ -559,9 +686,20 @@ $changes"
   done
   t_eq "$unnamed" ""
 
+  # The freeze page owes one more thing to its reader than the fields: the three
+  # files of the cycle are the whole of what the two commands read, so the page
+  # names them under the fields it gives, as it does for every other surface of
+  # this table. Named by the sentence the page carries, so the case fails when the
+  # page drops it.
+  if [ "$surface" = freeze ]; then
+    t_case "the manual says where the fields of $surface are read from"
+    t_contains "$manual" "The three files of the cycle named under"
+  fi
+
   t_case "the check finds a field of $surface missing, one of the wrong type, and one it does not know"
+  sample=$(surface_sample "$surface")
   for case_line in "${cases[@]}"; do
-    if ! jq "${case_line%%$'\t'*}" "$api/$surface.sample.json" >"$T/bad.json"; then
+    if ! jq "${case_line%%$'\t'*}" "$sample" >"$T/bad.json"; then
       t_bad "the jq of the table's line is no jq: ${case_line%%$'\t'*}"
       continue
     fi
@@ -606,8 +744,8 @@ $changes"
   # prints, which holds the element of an array and so is not the table's own
   # path: `.running` is reported as `.running[0]`.
   t_case "the check keeps the bounds of the schema of $surface"
-  bound_object=$(jq -c . "$api/$surface.sample.json") ||
-    t_bad "$api/$surface.sample.json holds no object"
+  bound_object=$(jq -c . "$(surface_sample "$surface")") ||
+    t_bad "$(surface_sample "$surface") holds no object"
   for bound in "${bounds[@]}"; do
     bound_field=$(surface_line "$bound" 1)
     ok=$(surface_line "$bound" 2)
