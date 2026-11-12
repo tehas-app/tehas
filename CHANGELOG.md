@@ -124,6 +124,50 @@ a pull request before it tags, with the head's `scripts/collect-changelog.sh`.
   final verify failed on dozens of `core.<pid>` files its workspace root had
   collected this way (#1887).
 - `tehas drain --json` has a published contract: `api/drain.schema.json` in the source says what the object holds and `api/drain.sample.json` and `api/drain.running.json` are samples of it, made by the command. The drain section of the manual names its fields. Nothing the command prints has changed (#1894).
+- The manual's by-hand commands for the docs server and the edge router read `. ~/tehas/env.sh` first (#1697). The four `docker compose -f ~/tehas/edge/...` lines of `host.md` ran compose straight, and compose takes `TEHAS_DESIGN`, `TEHAS_INDEXING`, `TEHAS_ANALYTICS_*` and `TEHAS_HOST_ADDR` from the environment: recreated from a shell that had not sourced `~/tehas/env.sh`, a host of `TEHAS_DESIGN=pixel` came up in beesknees26 and the ports bound to `127.0.0.1`. `test/manual_test.sh` now fails when a line of the manual runs compose over a file of `host/edge` with no `. ~/tehas/env.sh` on that line or on the line before.
+- The settings table of the manual has a row for every setting the loader takes. Five were missing: `TEHAS_CYCLE_LOGIN`, which the load refuses with 78 and a row now says so; `TEHAS_SCRATCH_DIR`, `TEHAS_TOP`, `TEHAS_UPDATE_FROM` and `TEHAS_RELEASE_REPO`, each described in prose elsewhere and now listed beside the rows they belong with. `TEHAS_ENERGY_SOURCE_URL` has a row too. A new test, `test/settings_table_test.sh`, reads the loader's table in `console/core/src/settings/rules.rs` and fails when one of its settings has no row in the table, or a row names no setting (#1698).
+- A retried cycle is no longer reported by an earlier attempt's closed or
+  merged pull request. The end of a cycle took the bot's pull requests of its
+  branch with no bound on when they were opened, so a retry that parks before
+  it opens one could be reported as `pr-closed` or `merged` by the pull request
+  of the attempt before it: the issue got the wrong comment, and a failed cycle
+  was recorded as merged. A closed or merged pull request now counts only when
+  it was opened at or after the second the cycle took its lock, as the
+  dispatcher already does, or it is the pull request a refresh was approved
+  for. An open pull request on the branch still counts whoever opened it
+  (#1747).
+- A review of a branch whose newest commit is older than a week no longer reviews the whole history. It says there is nothing new and starts no container, as a branch whose record already names the tip does. A git that cannot read that week is said, and the run exits 2 without reviewing (#1750).
+- A GitHub write that times out no longer holds the poll. A call that runs out
+  of time is TERMed and KILLed as a process group, so a `gh` the shim started
+  and left behind does not keep the poll's pipe open and keep the poll from
+  running again (#1755).
+- The long-lived logs are rolled past a size cap. `store upkeep`, which `tehasbot clean` runs once an hour, now cuts `logs/dispatch.log`, `logs/review-timer.log`, `logs/refresh.log` and `state/github-writes.log` by copy and truncate when one is over 64 MiB, keeping one `.1` copy of it. Nothing is renamed, because the dispatcher's unit and every cycle hold their log open for append. The cap is one figure for the four, with no setting for it, and the store's answer names the logs it cut under `rolled`. A log that is a link, a directory, empty or not there at all is left alone (#1757).
+- A poll that finds the dispatcher's lock held leaves
+  `state/dispatch.again` alone. It used to remove that ask before it looked at
+  the lock, so a second poll started while one ran dropped the ask of the
+  running one and the freed slot waited for the 2-minute timer instead of
+  `tehas-dispatch.path` starting a poll when it ended (#1758).
+- host.md's store restore no longer gives steps of its own, which paused the
+  factory and deleted the database's `-wal` and `-shm` while the poll, health,
+  energy and the MCP server still ran: a paused poll writes the store every two
+  minutes. The page links [Backups and
+  restore](/operating#backups-and-restore) instead, which drains, stops
+  `tehas-*.timer`, `tehas-*.path`, `tehas-energy.service` and
+  `tehas-mcp.service`, swaps the copy, runs `tehas state check` and starts them
+  again. The copies `install.sh` makes before a migration are called
+  `tehas-<schema>-<time>.db` there, the name the store writes (#1766).
+- The dashboard's files are compressed and cached. The docs server sends every
+  answer compressed, and the dashboard's scripts and stylesheets are installed
+  under a name that holds the hash of their own bytes and served `immutable`,
+  while the pages keep their names and are served `no-cache`. A browser now
+  asks about a page and reuses what it has of the files it names, and a new
+  install is seen at once because a changed file gets a new name. Files read
+  with Range requests (the console of a running cycle, and the health page) are
+  sent uncompressed, as before. The theme stylesheet, the fonts and the logos
+  keep their names. (#1811)
+- Each release carries the rules of the instance settings as `api/settings-rules.json`, what the new `console settings rules --json` prints, so a tool with no factory can check `instance.env` values. `tehas api` lists the feature `settings-rules` (#1879).
+- A renamed GitHub App no longer leaves the factory under its old login. The login in `~/tehas/state/github/login` was looked up once and kept for good, so after a rename a cycle listed its pull requests by a login that names nobody, found none, and parked a pull request that waited only for a merge as `needs-human-attention`; its title then read `HALT: `. Each new token now asks GitHub for the app's login and rewrites the file when it changed.
+- The factory no longer writes the titles of its pull requests. The `WIP: ` and `HALT: ` prefixes are gone: a poll and a cycle's end no longer set them, `console pr-title` is removed, and `tehas api` no longer lists the feature `pr-title`. The labels of the linked issue carry the state: `tehas:running`, `tehas:awaiting-merge` and `needs-human-attention`. The open pull requests on the poll's first page are read with only their number and body, which is all the hold on a closing keyword reads (#1921).
 
 ### Held back
 
@@ -155,6 +199,10 @@ To keep a link under `DATA SOURCE`, set `TEHAS_ENERGY_SOURCE_URL` in
 `~/.config/tehas/env` to the address of the mesh's project and restart
 `tehas-energy.service`. Nothing to do to lose it: the old link was one
 repository named in the platform, and it is gone for every host.
+
+- After renaming the factory's GitHub App, run `console ids record` (or `tehas update`) so `state/account-ids` holds the new login; until then the millwright's labels do not count.
+
+- A pull request whose title still starts with `WIP: ` or `HALT: ` keeps it: tehas does not change it again. Take the prefix off by hand before merging if you do not want it in the merge commit. A program that read `pr-title` from `tehas api` should read the issue's labels instead.
 
 ## v0.25.1 (2026-11-07)
 
