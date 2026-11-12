@@ -297,6 +297,10 @@ pub fn state_lines(h: &J, now: i64, stale: bool, poll: &str) -> Vec<String> {
     if limit.truthy() && limit.get("state").as_str() != Some("none") {
         lines.push(limit_line(limit));
     }
+    let order = checks.get("order");
+    if let Some(state) = order.get("state").as_str().filter(|s| *s != "none") {
+        lines.push(order_line(order, state));
+    }
     if let Some(held) = checks.at(&["demand", "refreshHold"]).as_str() {
         lines.push(format!("refresh   held: {held}"));
     }
@@ -372,6 +376,47 @@ fn pause_lines(p: &J, now: i64) -> Vec<String> {
         lines.push("pause     label: tehas:pause is off the control issue, but no account in TEHAS_ALLOWED_LABELERS took it off".to_string());
     }
     lines
+}
+
+/// The start order tehas order sets, as the health file holds it.
+fn order_line(o: &J, state: &str) -> String {
+    let words = match state {
+        "ok" => {
+            let list: Vec<String> = o
+                .get("issues")
+                .items()
+                .iter()
+                .map(|n| format!("#{}", n.text()))
+                .collect();
+            let first = if list.is_empty() {
+                "no issue".to_string()
+            } else {
+                list.join(", ")
+            };
+            let rest = if o.get("only").is_true() {
+                "nothing else starts"
+            } else {
+                "then the rest"
+            };
+            let until = match o.get("until").as_str() {
+                Some(u) => format!("until {u}"),
+                None => "until cleared".to_string(),
+            };
+            match o.get("reason").as_str() {
+                Some(r) => format!(
+                    "{first} first, {rest}, {until}: {}",
+                    oneline_of(&J::Str(r.to_string()))
+                ),
+                None => format!("{first} first, {rest}, {until}"),
+            }
+        }
+        "expired" => format!(
+            "expired at {}: ready issues start lowest number first",
+            o.get("until").as_str().unwrap_or("?")
+        ),
+        _ => "unreadable: taken as none, so ready issues start lowest number first".to_string(),
+    };
+    format!("order     {words}")
 }
 
 /// The limit tehas limit sets, as the health file holds it.
@@ -813,6 +858,7 @@ pub fn status_json(h: &J, now: i64, stale: bool) -> J {
         ),
         ("allHands", checks.get("allHands").clone()),
         ("limit", limit),
+        ("order", checks.get("order").or(&J::Null).clone()),
         ("running", J::Arr(running)),
         ("planning", J::Arr(planning)),
         ("demand", demand),
@@ -821,7 +867,7 @@ pub fn status_json(h: &J, now: i64, stale: bool) -> J {
         ("room", room),
         ("versions", versions(checks)),
     ];
-    fields.retain(|(k, v)| !matches!(*k, "allHands" | "limit") || !v.is_null());
+    fields.retain(|(k, v)| !matches!(*k, "allHands" | "limit" | "order") || !v.is_null());
     // A read-only instance (#608) says so; any other leaves the key out.
     if checks.get("readOnly").is_true() {
         fields.push(("readOnly", J::Bool(true)));

@@ -365,6 +365,15 @@ pub fn sessions(calls: &mut Calls) -> Value {
     }
 }
 
+/// order-show: the start order as tehas_core::order reads it; a store that
+/// does not answer gives an unreadable order, which orders nothing.
+pub fn order(calls: &mut Calls) -> Value {
+    match calls.store(&["order-show"]) {
+        Ok(v) => tehas_core::order::Reading::of(&get(&v, "order")).value(),
+        Err(_) => json!({"state": "unreadable"}),
+    }
+}
+
 /// cycle-show --running: each running cycle's record as running_starts
 /// reads it, Err with the store's failure.
 pub fn cycles(calls: &mut Calls) -> Result<Vec<Value>, Value> {

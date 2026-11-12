@@ -697,14 +697,13 @@ fn a_plan_note_says_its_words_only_the_first_time() {
 }
 
 #[test]
-fn the_files_of_the_hold_the_gate_and_the_branch_check() {
+fn the_files_of_the_hold_and_the_branch_check() {
     let mut t = world();
     let h = t.w.home.clone();
     fs::write(h.join("state/refresh/6.json"), "{}").unwrap();
     t.apply(json!([
         {"refresh_drop": 6},
         {"refresh_held": "hold refreshes: busy"},
-        {"gate_held": true},
         {"branch_note": "main is red"},
     ]));
     assert!(!h.join("state/refresh/6.json").exists());
@@ -712,15 +711,13 @@ fn the_files_of_the_hold_the_gate_and_the_branch_check() {
         fs::read_to_string(h.join("state/refresh/.held")).unwrap(),
         "hold refreshes: busy"
     );
-    assert!(h.join("state/low-gate.held").exists());
     assert_eq!(
         fs::read_to_string(h.join("state/branch-check")).unwrap(),
         "main is red\n"
     );
-    let a = t.apply(json!([{"refresh_held": ""}, {"gate_held": false}, {"gate_held": false}]));
+    let a = t.apply(json!([{"refresh_held": ""}]));
     assert!(a.log.is_empty());
     assert!(!h.join("state/refresh/.held").exists());
-    assert!(!h.join("state/low-gate.held").exists());
     assert!(t.calls().is_empty());
 }
 
@@ -744,7 +741,7 @@ fn a_container_removed_is_said_and_one_not_there_is_not() {
 fn an_action_of_no_kind_apply_knows_is_left() {
     let mut t = world();
     let odd = json!({"mystery": 8});
-    let a = t.apply(json!([odd, {"gate_held": true}]));
+    let a = t.apply(json!([odd, {"branch_note": "x"}]));
     assert_eq!(a.left, vec![odd]);
 }
 
@@ -891,13 +888,13 @@ fn an_approval_that_started_a_cycle_already_is_skipped() {
 fn a_store_that_cannot_be_used_ends_the_poll_with_78_before_any_mark() {
     let mut t = world();
     t.fail("store", "approval-record|absent");
-    let a = t.apply(json!([start_of(7, "label"), {"gate_held": true}]));
+    let a = t.apply(json!([start_of(7, "label"), {"branch_note": "x"}]));
     assert_eq!(a.exit, Some(78));
     assert!(a.log[1].starts_with(
         "ERROR: the state store cannot be used, not starting a cycle for #7: store: absent"
     ));
     assert!(a.printed.is_empty());
-    assert!(!t.w.home.join("state/low-gate.held").exists());
+    assert!(!t.w.home.join("state/branch-check").exists());
 }
 
 #[test]
@@ -1783,10 +1780,10 @@ fn a_quiet_cycle_the_store_cannot_note() {
     // A store that cannot be used ends the poll there.
     let mut t = world();
     t.fail("store", "cycle-note|absent");
-    let a = t.apply(json!([quiet_of(7), {"gate_held": true}]));
+    let a = t.apply(json!([quiet_of(7), {"branch_note": "x"}]));
     assert_eq!(a.exit, Some(78));
     assert!(a.log[0].starts_with("ERROR: the state store cannot be used: store: absent"));
-    assert!(!t.w.home.join("state/low-gate.held").exists());
+    assert!(!t.w.home.join("state/branch-check").exists());
 }
 
 #[test]

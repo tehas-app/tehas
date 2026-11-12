@@ -411,13 +411,6 @@
       "reason": "expected a whole number from 2 to 16"
     },
     {
-      "name": "TEHAS_LOW_GATE_WAIT",
-      "rule": "low-gate-wait",
-      "when": "always",
-      "default": "60",
-      "reason": "expected at most 600 seconds"
-    },
-    {
       "name": "TEHAS_CLEAN_AFTER",
       "rule": "clean-after",
       "when": "always",
@@ -598,20 +591,6 @@
       "when": "given",
       "default": "",
       "reason": "expected the name of a check, words of letters, digits and ._()/- separated by single spaces"
-    },
-    {
-      "name": "TEHAS_LOW_GATE",
-      "rule": "low-gate",
-      "when": "given",
-      "default": "",
-      "reason": "expected an absolute path of /, letters, digits and ._-, with no empty or dot segment"
-    },
-    {
-      "name": "TEHAS_PRIORITY_FIELD",
-      "rule": "one-word",
-      "when": "given",
-      "default": null,
-      "reason": "expected one word"
     },
     {
       "name": "TEHAS_ISSUE_TYPES",

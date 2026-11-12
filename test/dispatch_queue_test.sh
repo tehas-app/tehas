@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# Tests for tehasbot dispatch: tehas:next and tehas:blocked, the gate of the
-# lowest issues, the demand written for tehas status, and live/dispatch.json.
+# Tests for tehasbot dispatch: tehas:blocked, the demand written for tehas
+# status, and live/dispatch.json.
 # shellcheck disable=SC2016  # snippets are expanded by the shell under test
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
 # shellcheck source=test/dispatch_lib.sh
 . "$(dirname "$0")/dispatch_lib.sh" || exit 1
 
-# --- Ordering the queue: tehas:next and tehas:blocked -----------------------
+# --- Holding the queue: tehas:blocked ---------------------------------------
 # bnote <id 10-59> <author> <body> [<editor>]: one comment, written at second <id>.
 bnote() {
   jq -nc --argjson id "$1" --arg a "$2" --arg b "$3" --arg e "${4:-}" '{databaseId: $id, author: {login: $a}, body: $b,
@@ -23,42 +23,6 @@ states() { # <number>=<state>...: the blockers as GitHub gives them; an empty st
   printf '%s\n' "$@" | jq -Rn '{data: {repository: (reduce (inputs | split("=")) as $p ({};
     .["b\($p[0])"] = (if $p[1] == "" then null else {state: $p[1]} end)))}}' >"$fx/blockers.json"
 }
-
-t_case "tehas:next from an allowed account comes after urgent and before lower numbers"
-reset
-slots 3
-queue 3 "8 tehas:urgent" "9 tehas:next"
-label_events 8 tehas:urgent=alice
-label_events 9 tehas:next=alice
-t_run "$dispatch"
-t_eq "$t_rc" 0
-t_eq "$(started)" "8 9 3 "
-
-t_case "tehas:next from the fixer counts"
-reset
-slots 2
-queue 3 "9 tehas:next"
-label_events 9 tehas:next=tehas-bot
-t_run "$dispatch"
-t_eq "$(started)" "9 3 "
-
-t_case "tehas:next from an outsider is ignored, and the poll says so"
-reset
-slots 2
-queue 3 "9 tehas:next"
-label_events 9 tehas:next=alice tehas:next=mallory
-t_run "$dispatch"
-t_eq "$(started)" "3 9 "
-t_contains "$t_out" "ignore #9: tehas:next was applied by 'mallory', not an allowed account"
-
-t_case "tehas:next taken off since it was applied is ignored"
-reset
-slots 2
-queue 3 "9 tehas:next"
-label_events 9 tehas:next=alice -tehas:next=alice
-t_run "$dispatch"
-t_eq "$(started)" "3 9 "
-t_contains "$t_out" "ignore #9: tehas:next was taken off by 'alice' since it was applied"
 
 t_case "a blocked issue waits while its blocker is open, and the slot goes to the next one"
 reset
@@ -130,14 +94,6 @@ t_contains "$t_out" "wait #7: tehas:blocked holds it: #12 is open"
 # A GitHub App as the fixer: its label events are REST's, <slug>[bot], and its
 # comments GraphQL's, <slug>. Either form of the setting is that one account.
 {
-  t_case "the app as the fixer: its tehas:next counts"
-  reset
-  slots 2
-  queue 3 "9 tehas:next"
-  label_events 9 'tehas:next=tehas-bot[bot]'
-  t_run "$dispatch"
-  t_eq "$(started)" "9 3 "
-
   t_case "the app as the fixer: its tehas:blocked and its comment count"
   reset
   slots 1

@@ -18,7 +18,7 @@ use std::time::{Duration, Instant};
 use crate::live;
 
 /// PRAGMA user_version of the schema in schema.sql.
-pub const SCHEMA_VERSION: i64 = 11;
+pub const SCHEMA_VERSION: i64 = 12;
 pub const SCHEMA: &str = include_str!("schema.sql");
 
 /// The steps from schema 1 to 2 and from 2 to 3: columns and a table added,
@@ -187,6 +187,18 @@ DROP TABLE refresh_hold;
 DROP TABLE refresh_requests;
 DROP TABLE refined;
 DROP TABLE release_history;
+";
+
+/// The step from 11 to 12: the start order `tehas order` sets, one row.
+pub const STEP_12: &str = "
+CREATE TABLE start_order (
+  id     INTEGER PRIMARY KEY CHECK (id = 1),
+  issues_json TEXT NOT NULL,
+  only   INTEGER NOT NULL CHECK (only IN (0, 1)),
+  until_at INTEGER,
+  reason TEXT,
+  set_at INTEGER NOT NULL
+);
 ";
 
 /// How long SQLite waits for a lock another connection holds before giving
@@ -494,7 +506,7 @@ pub const COUNTED_INDEXES: [&str; 14] = [
 /// The tables `check` counts. Every table of schema.sql appears here exactly
 /// once, which the test every_counted_table_exists pins, so a table that goes
 /// missing from the schema cannot go missing from the report too.
-pub const COUNTED_TABLES: [&str; 23] = [
+pub const COUNTED_TABLES: [&str; 24] = [
     "actions",
     "approvals",
     "cycle_history",
@@ -517,6 +529,7 @@ pub const COUNTED_TABLES: [&str; 23] = [
     "poll_cost",
     "polls",
     "questions",
+    "start_order",
     "sweep_log",
 ];
 
@@ -1104,7 +1117,8 @@ pub fn migrate(
             .and_then(|()| step(conn, 8, STEP_8))
             .and_then(|()| step(conn, 9, STEP_9))
             .and_then(|()| step(conn, 10, STEP_10))
-            .and_then(|()| step_11(conn)),
+            .and_then(|()| step_11(conn))
+            .and_then(|()| step(conn, 12, STEP_12)),
         2 => step(conn, 3, STEP_3)
             .and_then(|()| step_4(conn))
             .and_then(|()| step(conn, 5, STEP_5))
@@ -1113,7 +1127,8 @@ pub fn migrate(
             .and_then(|()| step(conn, 8, STEP_8))
             .and_then(|()| step(conn, 9, STEP_9))
             .and_then(|()| step(conn, 10, STEP_10))
-            .and_then(|()| step_11(conn)),
+            .and_then(|()| step_11(conn))
+            .and_then(|()| step(conn, 12, STEP_12)),
         3 => step_4(conn)
             .and_then(|()| step(conn, 5, STEP_5))
             .and_then(|()| step(conn, 6, STEP_6))
@@ -1121,38 +1136,45 @@ pub fn migrate(
             .and_then(|()| step(conn, 8, STEP_8))
             .and_then(|()| step(conn, 9, STEP_9))
             .and_then(|()| step(conn, 10, STEP_10))
-            .and_then(|()| step_11(conn)),
+            .and_then(|()| step_11(conn))
+            .and_then(|()| step(conn, 12, STEP_12)),
         4 => step(conn, 5, STEP_5)
             .and_then(|()| step(conn, 6, STEP_6))
             .and_then(|()| step(conn, 7, STEP_7))
             .and_then(|()| step(conn, 8, STEP_8))
             .and_then(|()| step(conn, 9, STEP_9))
             .and_then(|()| step(conn, 10, STEP_10))
-            .and_then(|()| step_11(conn)),
+            .and_then(|()| step_11(conn))
+            .and_then(|()| step(conn, 12, STEP_12)),
         5 => step(conn, 6, STEP_6)
             .and_then(|()| step(conn, 7, STEP_7))
             .and_then(|()| step(conn, 8, STEP_8))
             .and_then(|()| step(conn, 9, STEP_9))
             .and_then(|()| step(conn, 10, STEP_10))
-            .and_then(|()| step_11(conn)),
+            .and_then(|()| step_11(conn))
+            .and_then(|()| step(conn, 12, STEP_12)),
         6 => step(conn, 7, STEP_7)
             .and_then(|()| step(conn, 8, STEP_8))
             .and_then(|()| step(conn, 9, STEP_9))
             .and_then(|()| step(conn, 10, STEP_10))
-            .and_then(|()| step_11(conn)),
+            .and_then(|()| step_11(conn))
+            .and_then(|()| step(conn, 12, STEP_12)),
         7 => step(conn, 8, STEP_8)
             .and_then(|()| step(conn, 9, STEP_9))
             .and_then(|()| step(conn, 10, STEP_10))
-            .and_then(|()| step_11(conn)),
+            .and_then(|()| step_11(conn))
+            .and_then(|()| step(conn, 12, STEP_12)),
         8 => step(conn, 9, STEP_9)
             .and_then(|()| step(conn, 10, STEP_10))
-            .and_then(|()| step_11(conn)),
-        // The store of the release before last sits at 9, so the steps from it
-        // are ones the shipped binary must answer for.
-        9 => step(conn, 10, STEP_10).and_then(|()| step_11(conn)),
-        // The store of the previous release sits at 10: the drop of the
-        // eighteen is the step a host arrives with.
-        10 => step_11(conn),
+            .and_then(|()| step_11(conn))
+            .and_then(|()| step(conn, 12, STEP_12)),
+        9 => step(conn, 10, STEP_10)
+            .and_then(|()| step_11(conn))
+            .and_then(|()| step(conn, 12, STEP_12)),
+        // The store of the release before last sits at 10.
+        10 => step_11(conn).and_then(|()| step(conn, 12, STEP_12)),
+        // The store of the previous release sits at 11.
+        11 => step(conn, 12, STEP_12),
         v => Err(DbError::Corrupt(format!(
             "no migration from schema {v} of {}, this binary writes {SCHEMA_VERSION}",
             file.display()

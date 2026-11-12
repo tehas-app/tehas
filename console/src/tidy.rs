@@ -597,8 +597,6 @@ mod tests {
                     "tehas:ready",
                     "tehas:plan",
                     "tehas:refine",
-                    "tehas:urgent",
-                    "tehas:next",
                     "cross-project",
                     "bug",
                 ],

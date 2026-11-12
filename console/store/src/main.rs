@@ -77,6 +77,8 @@
 //!   store cycle-heartbeat <issue> [--attempt N] --running|--ended --status <word>
 //!                [--step <word>] [--text <notice>]
 //!   store publish [--dispatch <file>] [--health <file>]
+//!   store order-show | order-set --issues N[,N...] [--only] [--until <unix>]
+//!                [--reason TEXT] | order-clear
 //!   store park <issue> --attempt N --reason <w> [--step <w>] [--pr N]
 //!                [--comment-id <id> --body-sha <sha256>]
 //!   store park-show <issue> | --automatic | --refine
@@ -213,6 +215,7 @@ mod journal;
 mod live;
 mod load;
 mod lock;
+mod order;
 mod park;
 mod plan;
 mod poll;

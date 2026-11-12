@@ -200,17 +200,6 @@ impl Writer {
             } else if std::fs::write(&path, held).is_err() {
                 log.push(format!("WARN: could not write {}", path.display()));
             }
-        } else if let Some(held) = a.get("gate_held").and_then(Value::as_bool) {
-            let path = self.home.join("state/low-gate.held");
-            if held {
-                if std::fs::write(&path, "").is_err() {
-                    log.push(format!("WARN: could not write {}", path.display()));
-                }
-            } else if let Err(e) = std::fs::remove_file(&path) {
-                if e.kind() != std::io::ErrorKind::NotFound {
-                    log.push(format!("WARN: could not remove {}", path.display()));
-                }
-            }
         } else if let Some(note) = a.get("branch_note").and_then(Value::as_str) {
             let path = self.home.join("state/branch-check");
             if std::fs::write(&path, format!("{note}\n")).is_err() {

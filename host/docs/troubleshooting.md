@@ -174,17 +174,21 @@ Run `tehas dispatch --dry-run` and read what it prints.
   dispatcher took `tehas:ready` off and said so on
   the issue. Merge or close the pull request, then apply `tehas:ready` if work
   is still needed.
-- `ignore #N: tehas:urgent was applied by ...`: the label came from an account
-  that is not allowed, so it moves nothing: the issue keeps its place by
-  number. It is said at every poll until someone removes the label.
-- `ignore #N: Priority Urgent was set by ...`: with `TEHAS_PRIORITY_FIELD`,
-  the newest change to the issue field came from an account that does not
-  count, or the poll could not read who made it. Set the field again from an
-  allowed account.
-- `ERROR: TEHAS_PRIORITY_FIELD names ...`: the organisation that owns the
-  repository has no single-select issue field of that name. The poll stops
-  with 78. Name the field as the organisation
-  spells it, or remove the setting.
+- `wait #N: not in the start order (--only)`: the start order was set with
+  `--only` and does not name this ready issue, so it waits. Add it with
+  `tehas order set`, or clear the order with `tehas order clear`. See
+  [tehas order](/api#tehas-order).
+- `order expired at <time>: ready issues start lowest number first`: the
+  start order ran past its expiry, so the poll treats it as no order. Set a
+  new one, or clear it to stop the line.
+- `WARN: the start order could not be read from the state store: ready issues
+  start lowest number first`: the poll treats it as no order. Set it again
+  with `tehas order set`, or clear it, and run `tehas state check` if it
+  keeps coming back.
+- `TEHAS_PRIORITY_FIELD is no longer read: tehas order sets the order ready
+  issues start in, so take the line out` (the same for `TEHAS_LOW_GATE` and
+  `TEHAS_LOW_GATE_WAIT`): every command stops with 78 while the instance sets
+  one of them to a value. Take the line out. A blank value is ignored.
 - `ERROR: TEHAS_ISSUE_TYPES maps improvement to ...` (the poll or
   `improve.log`) or `... maps prototype to ...` (the Protolab's log): the
   owner of the repository has no issue type of that name. Nothing was
