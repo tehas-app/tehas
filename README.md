@@ -189,7 +189,7 @@ host.
 | Path | What it is |
 | --- | --- |
 | `bin/` | The two commands: `tehas` for a person, `tehasbot` for the units. Installed to `~/tehas/bin` |
-| `libexec/` | The scripts behind them, all bash. Installed to `~/tehas/libexec` |
+| `libexec/` | Three bash scripts: `dev-login`, `setup` and `update`. `install.sh` installs them to `~/tehas/libexec`, where it also installs the console and the other Rust programs it builds. Every other command is a verb of the console |
 | `console/` | The console of a running cycle, a Rust program. `install.sh` builds it and installs it as `~/tehas/libexec/console` |
 | `lib/config.sh` | Loads and checks the instance settings |
 | `lib/polyfill-<feature>.sh` | What tehas does itself for a pi-rukas feature no release has yet, until one has it. Each names the upstream issue and pull request. None today |
