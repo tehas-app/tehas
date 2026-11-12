@@ -4,7 +4,9 @@
 //! did in answer to it.
 
 use super::*;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
+use tehas_core::testdir::TestDir;
 
 /// What one command answers: its exit status and what it prints. `prefix` is
 /// the call it answers for, named the way a case names it: `pi -p`, `git
@@ -137,11 +139,13 @@ impl Fake {
         }
         // The reads a case leaves alone answer what the real command would:
         // the conflicted files, the files the merge commit changed, the
-        // commit HEAD stands on, and no marker anywhere.
+        // commit HEAD stands on, and no marker anywhere. The changed files are
+        // read by `git diff-tree --cc` and by the older `git diff <sha>^1 <sha>`
+        // alike, so the fake answers both spellings with the same list.
         if named.contains("--diff-filter=U") {
             return Reply::yes(&self.conflicts.join("\n"));
         }
-        if named.contains("--name-only") && named.contains("^") {
+        if named.contains("--name-only") && (named.contains("^") || named.contains("diff-tree")) {
             return Reply::yes(&self.changed.join("\n"));
         }
         if named.starts_with("git rev-parse HEAD") {
@@ -734,7 +738,10 @@ fn every_stop_after_the_session_says_the_model_ran() {
 fn the_reads_of_the_merge_commit_say_the_model_ran() {
     for (step, why) in [
         ("git rev-parse HEAD", "the merge commit could not be read"),
-        ("git diff --name-only 9", "what the merge changed could not"),
+        (
+            "git -c core.quotepath=false diff-tree --cc --name-only 9",
+            "what the merge changed could not",
+        ),
     ] {
         let (mut p, mut f) = merged(&["src/app.rs"], &["src/app.rs"]);
         // The head is read first; only the read after the commit may fail.
@@ -789,4 +796,381 @@ fn the_answer_names_the_pull_request_and_what_ran() {
         .as_array()
         .unwrap()
         .contains(&serde_json::json!("src/app.rs")));
+}
+
+// The two cases of #1746 run against a real repository rather than the faked
+// `changed` list above: the outsider check is a read of the merge commit, and
+// a fake that answers every `--name-only` with a list a case wrote cannot say
+// what git itself found. The repository is made here, in a `TestDir`, with the
+// files `a.rs` and `b.rs` of the issue inside it. The stubs `pi` and `cargo`
+// the merge runs are written by `stubs`, in a directory of the case's own.
+
+use super::stubs::Tools;
+
+/// One git call of a fixture, with an identity of its own so a host with no
+/// global `user.name` commits all the same.
+fn git(dir: &Path, args: &[&str]) -> String {
+    let out = Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args([
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@t",
+            "-c",
+            "commit.gpgsign=false",
+        ])
+        .args(args)
+        .env_remove("GIT_DIR")
+        .env_remove("GIT_WORK_TREE")
+        .env_remove("GIT_INDEX_FILE")
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "git {args:?}: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    String::from_utf8_lossy(&out.stdout).trim().to_string()
+}
+
+fn commit(dir: &Path, files: &[(&str, &str)], msg: &str) -> String {
+    for (name, text) in files {
+        let p = dir.join(name);
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(p, text).unwrap();
+    }
+    git(dir, &["add", "-A"]);
+    git(dir, &["commit", "-q", "-m", msg]);
+    git(dir, &["rev-parse", "HEAD"])
+}
+
+/// A tree that holds both sides of the merge: `base` is the branch's commit and
+/// `head` is the pull request's, made to conflict with it over `src/a.rs`.
+struct Tree {
+    _dir: TestDir,
+    tree: PathBuf,
+    head: String,
+    base: String,
+}
+
+fn tree(main: &[(&str, &str)], pr: &[(&str, &str)]) -> Tree {
+    let dir = TestDir::new("merge-repo");
+    let src = dir.join("origin");
+    std::fs::create_dir_all(&src).unwrap();
+    git(&src, &["init", "-q", "-b", "main"]);
+    commit(&src, &[("src/a.rs", "the base\n")], "base");
+    // The pull request's branch, named as the merge pushes it: a branch called
+    // `feature` would collide with `feature/issue-7` when the push is made.
+    git(&src, &["checkout", "-q", "-b", "pull"]);
+    let head = commit(&src, pr, "the pull request");
+    git(&src, &["checkout", "-q", "main"]);
+    commit(&src, main, "the branch moves");
+    let work = dir.join("work");
+    std::fs::create_dir_all(&work).unwrap();
+    git(&work, &["init", "-q", "-b", "main"]);
+    // The address the merge pushes to. A fetch by path leaves no `origin`, and
+    // the push of the merge commit is the thing these cases are about.
+    git(
+        &work,
+        &["remote", "add", "origin", &src.display().to_string()],
+    );
+    git(
+        &work,
+        &[
+            "fetch",
+            "-q",
+            "--no-tags",
+            "origin",
+            "+refs/heads/*:refs/remotes/origin/*",
+        ],
+    );
+    git(&work, &["checkout", "-q", "-B", "main", "origin/main"]);
+    // The tree stands on the pull request's head, as its starter leaves it.
+    git(&work, &["checkout", "-q", "-B", "feature/issue-7", &head]);
+    let base = git(&work, &["rev-parse", "origin/main"]);
+    Tree {
+        _dir: dir,
+        tree: work,
+        head,
+        base,
+    }
+}
+
+/// What the easy merge did to a real tree, with the model's answer stubbed.
+/// A session resolves the files it was named; `extra` names a file it writes
+/// as well that nothing asked for, which is how a case says the model strayed.
+fn easy_merge(t: &Tree, extra: &str) -> Outcome {
+    // The stubs go when the value that names them goes, so the case holds it
+    // for as long as the merge runs them (`stubs`).
+    let tools = Tools::new("merge-tools");
+    let mut plan = Plan {
+        issue: 7,
+        head: &t.head,
+        base: &t.base,
+        branch: "main",
+        pr: 50,
+        tree: t.tree.clone(),
+        branch_ref: "feature/issue-7",
+        git: tools.git.clone(),
+        cargo: tools.cargo.display().to_string(),
+        pi: tools.pi.display().to_string(),
+        model: true,
+    };
+    let mut r = Git {
+        extra: extra.to_string(),
+        calls: Vec::new(),
+    };
+    report(&mut plan, &mut r).outcome
+}
+
+/// The host's runner for these cases: each command run in the tree it is
+/// given, and the environment the stub `pi` reads to write where the model
+/// would have edited.
+struct Git {
+    extra: String,
+    calls: Vec<String>,
+}
+
+impl Runner for Git {
+    fn run(&mut self, program: &str, args: &[String], tree: &Path) -> Done {
+        self.calls.push(format!("{program} {}", args.join(" ")));
+        let mut cmd = Command::new(program);
+        cmd.args(args)
+            .current_dir(tree)
+            .env_remove("GIT_DIR")
+            .env_remove("GIT_WORK_TREE")
+            .env_remove("GIT_INDEX_FILE")
+            .env("GIT_AUTHOR_NAME", "t")
+            .env("GIT_AUTHOR_EMAIL", "t@t")
+            .env("GIT_COMMITTER_NAME", "t")
+            .env("GIT_COMMITTER_EMAIL", "t@t")
+            .env("GIT_MERGE_AUTOEDIT", "no")
+            .env("TEHAS_TEST_TREE", tree)
+            .env("TEHAS_TEST_EXTRA", &self.extra)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        let out = cmd.output().expect("the command could not be run");
+        Done {
+            status: out.status.code(),
+            out: String::from_utf8_lossy(&out.stdout).into_owned(),
+            err: String::from_utf8_lossy(&out.stderr).into_owned(),
+        }
+    }
+
+    fn calls(&mut self) -> Vec<String> {
+        self.calls.clone()
+    }
+}
+
+/// The commit the tree stands on: read before the merge and again after it, so
+/// a case can say a commit was written or not.
+fn head_of(t: &Tree) -> String {
+    let out = Command::new("git")
+        .arg("-C")
+        .arg(&t.tree)
+        .args(["rev-parse", "-q", "--verify", "HEAD"])
+        .env_remove("GIT_DIR")
+        .env_remove("GIT_WORK_TREE")
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+        .unwrap();
+    String::from_utf8_lossy(&out.stdout).trim().to_string()
+}
+
+/// The files of one commit of the tree, as git names them.
+fn files_of(t: &Tree, commit: &str) -> String {
+    git(&t.tree, &["show", "--name-only", "--format=", commit])
+}
+
+/// What the outsider check reads of one commit: the very call `finish` makes,
+/// including the setting it makes the read with, so a case can say what git
+/// printed rather than what the merge made of it. The case quotes the answer
+/// back separately, so the two spellings are both seen.
+fn changed_of(t: &Tree, commit: &str) -> Vec<String> {
+    let sha = git(&t.tree, &["rev-parse", commit]);
+    let out = Command::new("git")
+        .arg("-C")
+        .arg(&t.tree)
+        .args([
+            "-c",
+            "core.quotepath=false",
+            "diff-tree",
+            "--cc",
+            "--name-only",
+            &sha,
+        ])
+        .env_remove("GIT_DIR")
+        .env_remove("GIT_WORK_TREE")
+        .env_remove("GIT_INDEX_FILE")
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "git diff-tree: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .map(str::trim)
+        // The commit's own id opens the answer and holds no path, dropped as
+        // `finish` drops it.
+        .filter(|l| *l != sha && !l.starts_with("commit ") && !l.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
+#[test]
+fn the_branch_changing_other_files_does_not_refuse_an_easy_merge() {
+    // The condition of the issue: the pull request conflicts in `src/a.rs`
+    // while the branch also moved `README.md`, which git merged clean. The
+    // outsider check used to read that clean change as the merge's own.
+    let t = tree(
+        &[
+            ("src/a.rs", "the branch's\n"),
+            ("README.md", "the branch's\n"),
+        ],
+        &[("src/a.rs", "the pull request's\n")],
+    );
+    let out = easy_merge(&t, "");
+    assert!(out.ok(), "{}", out.why);
+    assert!(out.model, "the model was asked for src/a.rs");
+    assert_eq!(out.conflicts, ["src/a.rs"]);
+    assert!(out.pushed);
+    assert_eq!(out.sha.as_deref(), Some(head_of(&t).as_str()));
+    // The merge commit is the tree's head, holds both sides, and changed only
+    // the conflicted file: the branch's own README came in clean and nothing
+    // may be refused for it.
+    assert_eq!(files_of(&t, "HEAD"), "src/a.rs");
+    assert_eq!(
+        std::fs::read_to_string(t.tree.join("src/a.rs")).unwrap(),
+        "the model resolved it\n"
+    );
+    assert_eq!(
+        std::fs::read_to_string(t.tree.join("README.md")).unwrap(),
+        "the branch's\n"
+    );
+    assert_eq!(git(&t.tree, &["status", "--porcelain"]), "");
+    // The commit was pushed to the pull request's own branch, so the branch
+    // the tree is on and the remote's hold the same commit.
+    assert_eq!(
+        git(
+            &t.tree,
+            &["rev-parse", "refs/remotes/origin/feature/issue-7"]
+        ),
+        head_of(&t)
+    );
+}
+
+#[test]
+fn a_file_the_model_wrote_besides_the_conflict_refuses_the_merge() {
+    // The other half: a model that edited `c.rs` as well is an outsider the
+    // check must still catch, with the branch having moved files of its own.
+    let t = tree(
+        &[
+            ("src/a.rs", "the branch's\n"),
+            ("README.md", "the branch's\n"),
+        ],
+        &[("src/a.rs", "the pull request's\n")],
+    );
+    let out = easy_merge(&t, "c.rs");
+    assert!(!out.ok());
+    assert_eq!(
+        out.why,
+        "the merge commit changed a file that did not conflict: c.rs"
+    );
+    assert!(out.model, "the model was asked all the same");
+    assert!(!out.pushed, "a straying model was pushed: {:?}", out.sha);
+    // The merge commit was written before the check read it, so it is the
+    // tree's head and the commit the answer names. What the check refused is
+    // what does not go to the pull request: the remote's branch is still the
+    // pull request's head, and the tree is clean.
+    assert_eq!(out.sha.as_deref(), Some(head_of(&t).as_str()));
+    // Nothing of the pull request's branch is on the remote at all: the push
+    // that would have made it there is the one that was refused.
+    let pushed = Command::new("git")
+        .arg("-C")
+        .arg(&t.tree)
+        .args([
+            "rev-parse",
+            "-q",
+            "--verify",
+            "refs/remotes/origin/feature/issue-7",
+        ])
+        .env_remove("GIT_DIR")
+        .env_remove("GIT_WORK_TREE")
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+        .unwrap();
+    assert!(
+        !pushed.status.success(),
+        "the branch was pushed: {}",
+        String::from_utf8_lossy(&pushed.stdout)
+    );
+    assert_eq!(git(&t.tree, &["status", "--porcelain"]), "");
+}
+
+#[test]
+fn a_name_git_would_quote_is_read_as_the_path_it_names() {
+    // Two files the merge cares about, both under a directory git spells with
+    // escapes (`docs/中文`): the conflict, and a file of the rule's name that
+    // only the model writes. Left to the host's `core.quotepath`, git answers
+    // `"docs/\344\270\255\346\226\207/bash-lines.max"`, and that string is not
+    // the path: read as a path it is the quoted form `is_path` compares with
+    // the conflicts, and its last part is `bash-lines.max"`, which `rule_of`
+    // does not match. Either way the check calls the merge's own file an
+    // outsider and pushes nothing. The read turns quoting off, so the answer
+    // holds the paths the merge staged and both are known.
+    let t = tree(
+        &[
+            ("src/a.rs", "the branch's\n"),
+            ("README.md", "the branch's\n"),
+            ("docs/中文/keep.md", "the branch's\n"),
+        ],
+        &[("src/a.rs", "the pull request's\n")],
+    );
+    // The host's setting decides how git spells a non-ASCII name, so the case
+    // states it: a host that quotes is the one that shows this.
+    git(&t.tree, &["config", "core.quotepath", "true"]);
+    let out = easy_merge(&t, "docs/中文/bash-lines.max");
+    assert!(out.ok(), "{}", out.why);
+    assert!(out.pushed, "the merge's own file was called an outsider");
+    assert_eq!(out.conflicts, ["src/a.rs"]);
+    assert!(out.model, "the model was asked for src/a.rs");
+    // git quotes the name when the check is asked the same way without the
+    // setting, so the fix is what makes the difference here and not the fixture.
+    let quoted = Command::new("git")
+        .arg("-C")
+        .arg(&t.tree)
+        .args(["diff-tree", "--cc", "--name-only", "HEAD"])
+        .env_remove("GIT_DIR")
+        .env_remove("GIT_WORK_TREE")
+        .env_remove("GIT_INDEX_FILE")
+        .env("GIT_CONFIG_COUNT", "1")
+        .env("GIT_CONFIG_KEY_0", "core.quotepath")
+        .env("GIT_CONFIG_VALUE_0", "true")
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    let quoted = String::from_utf8_lossy(&quoted.stdout).into_owned();
+    assert!(
+        quoted.contains(r"\344\270\255\346\226\207"),
+        "git did not quote the name, so the case proves nothing: {quoted}"
+    );
+    // The read the merge made holds both paths themselves, and nothing else.
+    assert_eq!(
+        changed_of(&t, "HEAD"),
+        ["docs/中文/bash-lines.max", "src/a.rs"]
+    );
+    assert_eq!(
+        std::fs::read_to_string(t.tree.join("docs/中文/bash-lines.max")).unwrap(),
+        "the model wrote this\n"
+    );
+    assert_eq!(git(&t.tree, &["status", "--porcelain"]), "");
 }
