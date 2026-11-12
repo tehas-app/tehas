@@ -202,11 +202,14 @@ pub trait Net {
 }
 
 /// curl's arguments, and whether it is given the token on standard input. The
-/// token goes to github.com only and never on the command line; curl does not
-/// pass it on when GitHub redirects to its storage.
+/// token goes only to a whole link of an attachment folder on github.com and
+/// never on the command line; curl does not pass it on when GitHub redirects to
+/// its storage. curl sends the path as written, so what the rule checked is
+/// what GitHub is asked for.
 pub fn curl_args(link: &str, file: &str, most: i64, token: &str) -> (Vec<String>, bool) {
     let mut args: Vec<String> = [
         "-sSfL",
+        "--path-as-is",
         "--proto",
         "=https",
         "--proto-redir",
@@ -222,7 +225,8 @@ pub fn curl_args(link: &str, file: &str, most: i64, token: &str) -> (Vec<String>
     args.push(most.to_string());
     args.extend(["-o".to_string(), file.to_string()]);
     args.extend(["-w".to_string(), "%{content_type}".to_string()]);
-    let with_token = link.starts_with("https://github.com/") && !token.is_empty();
+    let with_token =
+        link.starts_with("https://github.com/") && given::is_link(link) && !token.is_empty();
     if with_token {
         args.extend(["-H".to_string(), "@-".to_string()]);
     }
