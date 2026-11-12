@@ -197,6 +197,49 @@ surfaces=(
   # (console/src/history.rs keeps the addresses and drops the rest).
   'bound	cycles[3].filed[0]	.cycles[3].filed = []	.cycles[3].filed = [1]	integer, not string'
   'required	["api","cycles","next"]'
+
+  # The list `tehas panel --json` prints: the pages of the project the dashboard
+  # links, and the same object as state/panels.json and live/panels.json. The two
+  # samples are the two readings a person reaches: one panel set, and none. The
+  # surface prints no state of its own, so it has no `state` lines and no enum to
+  # compare them with: the samples are still held to the schema, to what the
+  # command prints and to the walk of its fields. `panels` of the empty reading
+  # is an empty array, which the walk of the fields asks of the sample that holds
+  # a panel: an array of no item holds no path of its own.
+  'surface	panel'
+  'sample	sample'
+  'sample	empty'
+  # The one object of the surface, bent one way at a time: a field the schema
+  # does not know, the list given a word, and each of the three fields an item
+  # holds that every reading must print. Five lines, the shape of every check of
+  # the table. `panels` cannot be taken from the object the way `next` or `asked`
+  # are from theirs: the only reading of it that the command leaves out of an
+  # object is the whole array, and `del(.panels) | .panels = "1"` puts it back as
+  # a word, so its absence is reported as `.panels: string, not array`.
+  'check	del(.panels[0].label) | .zz = 1 | .panels = "1"	.zz: not in the schema'
+  'check	del(.panels[0].label) | .zz = 1 | .panels = "1"	.panels: string, not array'
+  'check	del(.panels[0].label)	.panels[0]: label is missing'
+  'check	del(.panels[0].label) | .panels[0].zz = 1	.panels[0].zz: not in the schema'
+  'check	del(.panels[0].label) | del(.panels[0].id) | del(.panels[0].url)	.panels[0]: id is missing'
+  'check	del(.panels[0].label) | del(.panels[0].id) | del(.panels[0].url)	.panels[0]: url is missing'
+  # The bounds of the schema, each the least value the command keeps and one
+  # step past it, as `set` takes it or refuses it: an id of 32 characters, the
+  # most console/src/panel.rs lets an `id` have, and 33, which it refuses with 64;
+  # a label of 24 characters, the most it keeps, and 25; a URL of 512 bytes, the
+  # longest it takes - the 28 of `https://support.example.org/` and 484 of the
+  # path after it - and 513, which `url_host` refuses before it looks at its
+  # host; and the list of four panels, which `set` answers, against a fifth, which
+  # it refuses as `at most 4 panels`. The id and the url of the two readings of a
+  # bound are both set, as well as the one field of it the line bends: a bound of
+  # `id` takes the whole list because the sample's `support` would not do for an
+  # id of 32 `a`, and a bound of `label` names the other two fields so the object
+  # the check is asked about stays an object of the surface and reports only the
+  # bound of the line.
+  'bound	panels[0].id	.panels = [{"id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","label":"Ask us","url":"https://support.example.org/f/acme"}]	.panels = [{"id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","label":"Ask us","url":"https://support.example.org/f/acme"}]	does not match'
+  'bound	panels[0].label	.panels[0].label = "aaaaaaaaaaaaaaaaaaaaaaaa" | .panels[0].id = "support" | .panels[0].url = "https://support.example.org/f/acme"	.panels[0].label = "aaaaaaaaaaaaaaaaaaaaaaaaa" | .panels[0].id = "support" | .panels[0].url = "https://support.example.org/f/acme"	longer than 24'
+  'bound	panels[0].url	.panels[0].url = "https://support.example.org/" + ("a" * 484)	.panels[0].url = "https://support.example.org/" + ("a" * 485)	longer than 512'
+  'bound	panels	.panels = ["a","b","c","d"]	.panels = ["a","b","c","d","e"]	more than 4 items'
+  'required	["api","panels"]'
 )
 
 # The limit of the `limit` samples, as it is set: one cycle at a time, no
@@ -352,6 +395,33 @@ history_reading() { # <name>
   t_run "'$T_ROOT/bin/tehas' history --json | jq ."
 }
 
+# The domain the panel samples are set and read under: `set` refuses a URL whose
+# host is the factory's own, so the sample names another one and the reading of
+# it is asked under the same name it was written under. `empty` prints nothing
+# beyond `api` and `panels`, so the name makes no difference to it.
+panel_domain=example.org
+
+# <name>: the world that sample is a reading of: the one panel of
+# api/panel.sample.json, or none. `set` prints the list as it then is to
+# standard error and standard output alike, so the words of the write are sent
+# away: the object a caller takes from `panel_reading` is the reading alone.
+panel_world() { # <name>
+  case $1 in
+    sample) t_run "TEHAS_DOMAIN=$panel_domain '$T_ROOT/bin/tehas' panel set support \
+        --label 'Ask us' --url https://support.example.org/f/acme 2>&1 >/dev/null" ||
+      t_bad "setting the panel failed: $t_out" ;;
+    empty) ;;
+  esac
+}
+
+# <name>: the reading a panel sample holds, as the command prints it. `--json`
+# goes with the show form only, and the domain goes with the reading for the
+# same reason it goes with the write above: the console reads TEHAS_DOMAIN from
+# its own environment, not from the instance file.
+panel_reading() { # <name>
+  t_run "TEHAS_DOMAIN=$panel_domain '$T_ROOT/bin/tehas' panel --json"
+}
+
 # The moment the limit file is written at: 2026-10-17T14:00:20Z, when it is in
 # force, whichever reading of it a sample is. `set` takes the same moment for
 # its own now, so it never sees a `--until` of the past. Named here so the two
@@ -494,6 +564,11 @@ printed() { # <surface> <name>
       # reading, so nothing later waits for a cycle that has ended.
       freeze_holder_end
       printf '%s\n' "$t_out"
+      ;;
+    panel)
+      panel_world "$name"
+      panel_reading "$name"
+      printf '%s\n' "$t_out" | jq .
       ;;
     *) return 1 ;;
   esac
