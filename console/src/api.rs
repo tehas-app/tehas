@@ -10,8 +10,8 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 
 /// What this release can do. A feature is added here in the release that
-/// brings it, and never taken out within api 1.
-const FEATURES: [&str; 26] = [
+/// brings it, and taken out only with the feature itself.
+const FEATURES: [&str; 25] = [
     "status",
     "millwright-grant",
     "fixer-grant",
@@ -23,7 +23,6 @@ const FEATURES: [&str; 26] = [
     "refresh-conflicts",
     "analytics",
     "state-move",
-    "pr-title",
     "mcp-dashboard-keys",
     "clean",
     "disk",

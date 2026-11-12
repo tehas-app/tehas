@@ -190,19 +190,10 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
         typed_as_label(&mut q.open, &c.improvement_type, crate::decide::IMPROVEMENT);
     }
     s["user"] = json!({"login": c.bot_login});
-    // What the titles of the open pull requests rest on (console pr-title).
+    // What rule 6 holds an issue on out of an open pull request's body:
+    // every open pull request that names it with a closing keyword, by
+    // number, whatever base it targets.
     if let Some(pulls) = &q.open_pulls {
-        s["open_pulls"] = pulls.clone();
-        s["open_labels"] = q
-            .open
-            .iter()
-            .map(|o| (o.number.to_string(), json!(o.labels)))
-            .collect::<Map<_, _>>()
-            .into();
-        // What rule 6 holds an issue on out of an open pull request's body:
-        // every open pull request that names it with a closing keyword, by
-        // number, whatever base it targets. Held beside the nodes above,
-        // which `console pr-title poll` takes as they are.
         names_from_bodies(&mut s, pulls, &q.open);
     }
     let open: BTreeSet<u64> = q.open.iter().map(|o| o.number).collect();

@@ -296,7 +296,6 @@ fn writer(
             status_args: status_cmd.1,
             health_cmd: health_cmd.0,
             health_args: health_cmd.1,
-            console_cmd: or("TEHAS_CONSOLE_CMD", "console"),
             tidy_cmd: or("TEHAS_TIDY_CMD", "console"),
             tidy_args: tidy_args(opt("TEHAS_TIDY_CMD").is_some()),
             analytics,
@@ -747,9 +746,6 @@ fn body(
     end.tidy = d.tidy;
     w.host.bot = d.bot.clone();
     demand_health(home, w, &d);
-    if d.tidy && !dry {
-        keep_titles(w, &d, &snap);
-    }
     // The decision's lines, the actions between them, and the two steps the
     // bash takes where they fall: a poll an action ends logs nothing after
     // it, as the bash exits there.
@@ -1082,41 +1078,6 @@ fn demand_health(home: &Path, w: &mut Writer, d: &crate::Decision) {
             say("WARN: the health file could not be written");
         }
     }
-}
-
-/// The titles of the open pull requests, from what the snapshot read: the
-/// console holds the rule. Whatever happens here the poll goes on.
-fn keep_titles(w: &mut Writer, d: &crate::Decision, snap: &Value) {
-    let Some(pulls) = snap["open_pulls"].as_array().filter(|p| !p.is_empty()) else {
-        return;
-    };
-    let given = json!({"bot": d.bot, "pulls": pulls, "issues": snap["open_labels"]});
-    let made = w.scratch("titles").and_then(|p| {
-        let mut f = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .open(&p)
-            .ok()?;
-        f.write_all(given.to_string().as_bytes()).ok().map(|()| p)
-    });
-    let Some(file) = made else {
-        say("WARN: the titles of the pull requests were not kept: no file to write in");
-        return;
-    };
-    let cmd = w.host.console_cmd.clone();
-    let args = [
-        "pr-title".to_string(),
-        "poll".to_string(),
-        file.to_string_lossy().into_owned(),
-    ];
-    let mut printed = Vec::new();
-    let rc = w.status_of(&cmd, &args, &mut printed);
-    pass(&printed);
-    if rc != Some(0) {
-        say("WARN: the titles of the pull requests were not kept");
-    }
-    let _ = std::fs::remove_file(&file);
 }
 
 /// live/dispatch.json through the store, with its time, and the status when
