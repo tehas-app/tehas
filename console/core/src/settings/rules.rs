@@ -113,6 +113,89 @@ pub enum Rule {
     IssueTypes,
 }
 
+impl Rule {
+    /// The rule's name in api/settings-rules.json. No wildcard arm: a new rule
+    /// has to be named here.
+    pub fn name(self) -> &'static str {
+        match self {
+            Rule::Repo => "repo",
+            Rule::Count => "count",
+            Rule::CountOrAuto => "count-or-auto",
+            Rule::SliceContainers => "slice-containers",
+            Rule::LowGateWait => "low-gate-wait",
+            Rule::Logins => "logins",
+            Rule::Person(_) => "person",
+            Rule::AppId => "app-id",
+            Rule::OneOf(_, _) => "one-of",
+            Rule::ScriptAddress => "script-address",
+            Rule::SiteAddress => "site-address",
+            Rule::SiteName => "site-name",
+            Rule::ContainerSize => "container-size",
+            Rule::HostAddress => "host-address",
+            Rule::LabAddress => "lab-address",
+            Rule::Domain => "domain",
+            Rule::PreviewMax => "preview-max",
+            Rule::FreeDisk => "free-disk",
+            Rule::Workarounds => "workarounds",
+            Rule::RefreshSlots => "refresh-slots",
+            Rule::RefreshEvery => "refresh-every",
+            Rule::CleanAfter => "clean-after",
+            Rule::KeepDays => "keep-days",
+            Rule::PollBudget => "poll-budget",
+            Rule::MeasureBound => "measure-bound",
+            Rule::ScratchDir => "scratch-dir",
+            Rule::CleanDirs => "clean-dirs",
+            Rule::Follow => "follow",
+            Rule::BranchCheck => "branch-check",
+            Rule::LowGate => "low-gate",
+            Rule::OneWord => "one-word",
+            Rule::EgressHosts => "egress-hosts",
+            Rule::IssueTypes => "issue-types",
+        }
+    }
+
+    /// A value the rule refuses with empty trees, so api/settings-rules.json
+    /// can print the reason. No wildcard arm, as in [`Rule::name`].
+    pub fn refused_example(self) -> &'static str {
+        match self {
+            Rule::Repo => "widget",
+            Rule::Count => "0",
+            Rule::CountOrAuto => "auto",
+            Rule::SliceContainers => "1",
+            Rule::LowGateWait => "601",
+            Rule::Logins => "alice  bob",
+            Rule::Person(_) => "acme-app[bot]",
+            Rule::AppId => "1234567890123",
+            // No list of words holds a space.
+            Rule::OneOf(_, _) => "no such word",
+            Rule::ScriptAddress => "http://a.example/x.js",
+            Rule::SiteAddress => "http://example.com/mesh",
+            Rule::SiteName => "two words",
+            Rule::ContainerSize => "5m",
+            Rule::HostAddress => "not an address",
+            Rule::LabAddress => "https://lab.example/",
+            Rule::Domain => "localhost",
+            Rule::PreviewMax => "100",
+            Rule::FreeDisk => "0",
+            Rule::Workarounds => "PI_ENSEMBLE_X",
+            Rule::RefreshSlots => "9",
+            Rule::RefreshEvery => "0",
+            Rule::CleanAfter => "123456",
+            Rule::KeepDays => "0",
+            Rule::PollBudget => "wall=1,cpu=1",
+            Rule::MeasureBound => "0",
+            Rule::ScratchDir => "scratch",
+            Rule::CleanDirs => "a/target",
+            Rule::Follow => "main",
+            Rule::BranchCheck => "verify&x=1",
+            Rule::LowGate => "bin/gate",
+            Rule::OneWord => "two words",
+            Rule::EgressHosts => "localhost",
+            Rule::IssueTypes => "improvement",
+        }
+    }
+}
+
 /// When a load checks a setting.
 #[derive(Clone, Copy, PartialEq)]
 pub enum When {
@@ -1188,6 +1271,47 @@ mod tests {
     fn a_name_with_no_rule_takes_anything() {
         takes("TEHAS_CYCLE_CPUS", "any thing");
         takes("PI_ENSEMBLE_HOST_ALIASES", "");
+    }
+
+    #[test]
+    fn every_rule_refuses_its_example() {
+        for setting in TABLE {
+            let example = setting.rule.refused_example();
+            let why = verdict(setting.rule, example, &Trees::default());
+            assert!(
+                why.as_ref().is_err_and(|w| !w.is_empty()),
+                "{} takes {example:?}",
+                setting.name
+            );
+            assert_eq!(check(setting.name, example, &Trees::default()), why);
+        }
+    }
+
+    #[test]
+    fn rule_names_are_kebab_case() {
+        for setting in TABLE {
+            let name = setting.rule.name();
+            assert!(
+                all(name, |c| c.is_ascii_lowercase() || c == '-')
+                    && !name.starts_with('-')
+                    && !name.ends_with('-'),
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
+    fn every_default_holds_a_value_of_its_rule() {
+        for setting in TABLE {
+            if let Some(default) = setting.default.filter(|d| !d.is_empty()) {
+                assert_eq!(
+                    check(setting.name, default, &Trees::default()),
+                    Ok(()),
+                    "{}={default}",
+                    setting.name
+                );
+            }
+        }
     }
 
     #[test]
