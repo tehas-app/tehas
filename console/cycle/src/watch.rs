@@ -192,6 +192,13 @@ impl Running {
             }
         }
     }
+
+    /// SIGKILL to the client itself, for a client that outlived the wait on it.
+    fn kill(&mut self) {
+        if let Some(c) = self.child.as_mut() {
+            let _ = c.kill();
+        }
+    }
 }
 
 /// `read -r` of a line: its spaces and tabs off both ends.
@@ -1090,7 +1097,23 @@ pub fn run(home: &Path, g: &Given, stop: Arc<AtomicBool>) -> i32 {
         stopped = true;
         w.stop_container(20);
     }
+    // The client of a container that is stopped has to end too. A dockerd that
+    // stopped answering never lets it exit, and a cycle that keeps waiting for it
+    // keeps the issue's lock and its slot and writes no report. The wait is bounded
+    // by the stop wait, as the calls that stop the container are. The container of
+    // a killed client goes to the poll's reap, as any container this command did
+    // not remove.
+    let began = Instant::now();
+    let bound = Duration::from_secs(g.stop_wait);
     while docker.alive() {
+        if began.elapsed() >= bound {
+            say(&format!(
+                "tehas work: the docker client of {} did not end within {}s, killing it: its container may still run and the poll's reap removes it",
+                g.name, g.stop_wait
+            ));
+            docker.kill();
+            break;
+        }
         w.signalled();
         std::thread::sleep(BEAT);
     }
