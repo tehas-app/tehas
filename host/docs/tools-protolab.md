@@ -114,7 +114,10 @@ and `images.md` and `comments.json` when the cycle had them. Only this
 cycle's, only plain files, at most 256 KB each, and never an image or a file
 itself. A run fetches the open
 issues and the ones closed in the last 30 days, takes the five oldest records
-that wait, and starts the analyst. The rest stay for the next run. Then it
+that wait, and starts the analyst. Of an issue the analyst is given the title
+and labels, and the body only when the issue carries `tehas:improvement` (or,
+with `TEHAS_ISSUE_TYPES`, is of the improvement type). Anyone can open an
+issue, but only an account that may triage can label one. The rest stay for the next run. Then it
 checks the one file the analyst leaves, files what passes and removes the
 records it took.
 

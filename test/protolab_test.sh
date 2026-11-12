@@ -339,7 +339,7 @@ t_protolab
 t_eq "$(files_of 10)" "./first.html "
 t_contains "$(cat "$site/10/index.html")" "<span>late.html</span><span class=\"asset-fact\">Over the 10 MB limit of a ticket.</span>"
 
-t_case "a name cannot leave the ticket's directory, and two files may share a name"
+t_case "a link that would leave its folder is not taken, and two files may share a name"
 reset
 net "$F/71/..%2F..%2Fevil.html" "<p>evil</p>"
 net "$F/72/same.html" "<p>one</p>"
@@ -349,11 +349,14 @@ while [ $# -gt 0 ]; do
   case "$1" in -o) out=$2; shift ;; https://*) url=$1 ;; esac
   shift
 done
+printf "%s\n" "$url" >> "$T/fx/asked"
 cp "$T/fx/net/$(printf %s "$url" | tr -c "A-Za-z0-9" _)" "$out" 2>/dev/null || exit 22'
 issues "$(issue 11 'Names' "$F/71/..%2F..%2Fevil.html $F/72/same.html $F/73/same.html")"
 t_protolab
-t_eq "$(files_of 11)" "./2-same.html ./2F..-2Fevil.html ./same.html "
-t_eq "$(find "$T/home" -name '*evil*' | wc -l)" 1
+t_eq "$(files_of 11)" "./2-same.html ./same.html "
+t_eq "$(find "$T/home" -name '*evil*' | wc -l)" 0
+t_eq "$(cat "$T/fx/asked")" "$F/72/same.html
+$F/73/same.html"
 
 t_case "a download that fails for now is tried again on the next run"
 reset

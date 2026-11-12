@@ -81,6 +81,11 @@ t_lacks "$b" "--build-arg"
 t_lacks "$b" "--secret"
 t_eq "$(tar -tf "$fx/docker/context.tar" | grep -c '^preview/Dockerfile$')" 1
 
+t_case "the build has no network and runs in the slice"
+t_contains "$b" "build --quiet --network none --cgroup-parent tehas.slice "
+t_lacks "$b" "--network host"
+t_lacks "$b" "--network default"
+
 t_case "the list for the dashboard has the address"
 t_eq "$(jq -r '.previews[0] | "\(.number) \(.state) \(.address) \(.title)"' "$live/previews.json")" \
   "12 serving https://uat-12.example.org/ Change 12"

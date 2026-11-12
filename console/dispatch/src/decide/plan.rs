@@ -542,10 +542,11 @@ impl Poll<'_> {
         match self.epic_part(n)? {
             super::EpicPart::Granted(g) => {
                 let ev = self.events(n)?;
-                let (_, at) = super::label_actor(&ev, label);
+                let (who, at) = super::label_actor(&ev, label);
                 if !self.unchanged_since(
                     n,
                     &at,
+                    &who,
                     &format!("the fixer applied {label}"),
                     "the fixer or a person applies it again",
                 )? {
@@ -711,6 +712,7 @@ impl Poll<'_> {
                     && !self.unchanged_since(
                         n,
                         &iso(started),
+                        &by,
                         "its last cycle began",
                         "apply tehas:refine",
                     )?

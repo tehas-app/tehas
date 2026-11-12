@@ -329,9 +329,13 @@ Such a pull request is not built and takes no place from the others.
 - A preview is public. A pull request that an owner, member or collaborator
   opens from a branch of the repository is on the internet at the next run,
   with nobody looking at it first.
-- The build runs the pull request's `preview/Dockerfile` on the host's Docker,
-  with network access. That is why forks are left out, and pull requests
-  opened by anyone outside the repository.
+- The build runs the pull request's `preview/Dockerfile` on the host's Docker.
+  That is why forks are left out, and pull requests opened by anyone outside
+  the repository. Its `RUN` steps run with `--network none` and in
+  `tehas.slice` (`--cgroup-parent`), under the slice's memory limit beside the
+  cycles. A `FROM` image is still pulled. While a build runs, its container
+  counts against the room the dispatcher sees in the slice. Not yet seen on a
+  host.
 - Who opened a pull request is what GitHub says in `author_association`. A
   member of the organisation whose membership is private may be shown as
   less than a member to the bot's token. That was not tried. If it is so,
@@ -357,7 +361,9 @@ Such a pull request is not built and takes no place from the others.
 - A recipe can start `FROM` any image in the host's local store, or from a
   registry the tehas user is signed in to. What it builds is public, so what
   is in such an image can be served to anyone.
-- A build has no CPU, memory or disk limit for its 15 minutes.
+- A build has 15 minutes. Its memory is bounded only by the slice's limit,
+  which it shares with the cycles; it has no CPU quota of its own and no disk
+  limit. BuildKit takes no `--memory` or `--cpus`.
 - The checks are of how the network was made, not of what a container on it
   can reach. Nothing tries to reach the host from inside.
 - `uat-<pr>.tehas.app` and `tehas.app` are one site to a browser. A preview's

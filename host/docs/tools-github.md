@@ -9,6 +9,7 @@ description: "Asking for refreshes, the App's tokens, and the writes of the last
 
 ```
 tehasbot refresh            # one run; one line in ~/tehas/logs/refresh.log
+tehasbot refresh --pr 50    # ask for the refresh of pull request #50 now
 systemctl --user enable --now tehas-refresh.timer
 tail ~/tehas/logs/refresh.log
 ```
@@ -26,6 +27,33 @@ written as a run begins, so a failed run counts too). With
 once and calls nothing. Exit 1 when a call to GitHub fails or takes more
 than 30 seconds: no request is written or removed, and the dispatcher checks the old ones again
 before it starts any.
+
+`tehasbot refresh --pr N` asks for one pull request now, for an operator or a
+script that runs the factory while the timed run is off or not due. It reads
+that pull request whatever `TEHAS_REFRESH_CONFLICTS` and `TEHAS_REFRESH_EVERY`
+say and applies the same rule. A `CONFLICTING` or `UNKNOWN` one gets its
+request, with a last field `"asked": "pr"`:
+
+```
+{
+  "at": "2026-11-13T09:00:00Z",
+  "pr": 50,
+  "head_sha": "<40 hex>",
+  "base_sha": "<40 hex>",
+  "asked": "pr"
+}
+```
+
+A request for the same pull request at the same head keeps its `at`. It does
+not read or write `last-run` and removes no other request. Its line in
+`~/tehas/logs/refresh.log` is `asked for pull request #50: wrote the request of
+#7` or `asked for pull request #50: not refreshed: <why>`. Exit 0 the request
+is written; 3 it is not a pull request the factory refreshes, or it does not
+conflict, with the reason on standard error and nothing written; 1 the read
+of GitHub failed or named no pull request, nothing written; 64 N is not a whole
+number above 0; 78 a setting is missing or malformed. The timed run that
+follows rewrites the request in its own layout, or removes it when the pull
+request no longer conflicts.
 
 ## tehasbot github-token
 

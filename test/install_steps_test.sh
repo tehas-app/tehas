@@ -53,8 +53,9 @@ instance
 part=$T/partial
 rm -rf "$part"
 mkdir -p "$part"
-cp -R "$T_ROOT/install.sh" "$T_ROOT/lib" "$T_ROOT/host" "$T_ROOT/bin" "$part/"
-t_console_source "$part"
+cp -R "$fixture/install.sh" "$fixture/lib" "$fixture/host" "$fixture/bin" \
+  "$fixture/libexec" "$part/"
+t_console_source "$part" "$fixture"
 chmod +x "$part/install.sh"
 rm "$part/host/pi/mcp.json"
 t_run "$part/install.sh"
@@ -280,8 +281,9 @@ instance
 nocommit=$T/nocommit
 rm -rf "$nocommit"
 mkdir -p "$nocommit"
-cp -R "$T_ROOT/install.sh" "$T_ROOT/lib" "$T_ROOT/host" "$T_ROOT/bin" "$T_ROOT/libexec" "$nocommit/"
-t_console_source "$nocommit"
+cp -R "$fixture/install.sh" "$fixture/lib" "$fixture/host" "$fixture/bin" \
+  "$fixture/libexec" "$nocommit/"
+t_console_source "$nocommit" "$fixture"
 rm -f "$nocommit/COMMIT"
 t_run "$nocommit/install.sh"
 t_eq "$t_rc" 1

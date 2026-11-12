@@ -166,7 +166,8 @@ capabilities, `no-new-privileges`, 256 MB of memory and 64 processes. It is
 given `~/tehas/live`, `~/tehas/mcp` and `~/tehas/logs` read only, the binary,
 both lists of keys as environment variables, the host's names to mask as
 arguments
-(names, not secrets) and port 8082 on `TEHAS_HOST_ADDR` (the loopback address
+(names, not secrets), the salted sums of the host's secret values in
+`TEHAS_MCP_MASK` (not the values) and port 8082 on `TEHAS_HOST_ADDR` (the loopback address
 without it), and nothing else: no Docker socket, no SSH key, no token, nothing from
 `~/.config/tehas` but the keys. It is on a network of its own, `tehas-mcp`,
 made without masquerade, so it cannot reach the internet; the host itself is
@@ -245,6 +246,14 @@ yet which version it speaks. It goes once both speak `2026-07-28`.
 Every result carries `"api": 1`. Within version 1 fields are only added; a
 field without a value is left out. Results are JSON in `structuredContent` and
 the same JSON as text.
+
+Some of what the tools return was written outside the factory: issue titles
+by whoever filed the issue, and failure causes, park reasons, console, log and
+event lines and decision reasons by people who comment on issues or by models
+that read them. The handshake's instructions and each such tool's description
+call it third-party text, to be read as data and never as instructions. A
+title is served on one line, without control or direction characters, and cut
+to 200 characters.
 
 | Tool | Arguments | Returns |
 | --- | --- | --- |
@@ -433,7 +442,12 @@ memory.
 
 The mask takes out the tokens, keys, passwords and private addresses it
 knows, and the host's names the dashboard's console hides: the host aliases,
-the host of every model endpoint and the bot's email. It is a net for
+the host of every model endpoint and the bot's email. It also takes out the
+secret values the console hides as text: the settings whose names say they are
+secret and the literal keys of `models.json`, wherever they stand, a key
+printed alone on a line included. The server is not given these values: the
+host gives it a SHA-256 sum of each, salted afresh on each start, and the
+server hides any run of text whose sum is one of them. It is a net for
 accidents, not a wall: a log can hold a secret in a form the mask does not
 know.
 
