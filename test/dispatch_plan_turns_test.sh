@@ -143,7 +143,7 @@ rm -f "$T"/calls/* "$fx/plan-fails"
 echo '[{"number":7,"labels":[{"name":"needs-human-attention"},{"name":"tehas:question"}]}]' >"$fx/asking.json"
 echo '[]' >"$fx/plans.json"
 jq -n '{data: {repository: {issue: {comments: {nodes: [
-  {databaseId: 4002, author: {login: "tehas-bot"}, createdAt: "2026-01-01T00:00:00Z", lastEditedAt: null, editor: null,
+  {databaseId: 4002, author: {login: "tehas-bot", databaseId: ("tehas-bot" | explode | add)}, createdAt: "2026-01-01T00:00:00Z", lastEditedAt: null, editor: null,
    body: "This planning turn did not finish.\n\n- [ ] End this planning session\n\n<!-- tehas:question kind=plan issue=7 turn=1 -->"},
   {databaseId: 4003, author: {login: "alice"}, body: "go on", createdAt: "2026-01-01T02:00:00Z"}]}}}}}' >"$fx/comments-7.json"
 t_run "$dispatch"

@@ -1,5 +1,6 @@
 //! The bot's questions on an issue and the answers it takes.
 
+use crate::snapshot::number;
 use regex::Regex;
 use serde_json::{json, Value};
 use std::sync::OnceLock;
@@ -31,9 +32,16 @@ fn login(v: &Value, path: &str) -> String {
 /// the bot, so every note the host writes is the fixer's comment too, and none
 /// starts with that line. Its text leaves the marker out; a reply with nothing
 /// after the marker is none. Whether either counts is the caller's to decide.
+///
+/// The bot is the account with `bot_id`, its user id on record, when one is:
+/// an id survives a rename of the app and the vouch of an unrecorded login,
+/// a login neither. With no id on record it is the login `bot`. When the
+/// comment `id` is there but another account wrote it, the answer is
+/// `{"asked": false, "written_by": <login>}`.
 pub fn answer(
     comments: &Value,
     bot: &str,
+    bot_id: Option<u64>,
     allowed: &[String],
     id: &str,
     fixer: &str,
@@ -49,9 +57,21 @@ pub fn answer(
         Some(_) => return None,
     };
     let listed = |l: &str| allowed.iter().any(|a| a == l);
+    // Whether the account at `who` of `x` is the bot.
+    let bots = |x: &Value, who: &str| match bot_id {
+        Some(i) => x.pointer(&format!("{who}/databaseId")).and_then(number) == Some(i),
+        None => login(x, &format!("{who}/login")) == bot,
+    };
     let mut q = None;
+    let mut stranger = None;
     for (k, x) in c.iter().enumerate() {
-        if login(x, "/author/login") != bot {
+        if !bots(x, "/author") {
+            if !id.is_empty()
+                && x.get("databaseId").and_then(number).map(|d| d.to_string())
+                    == Some(id.to_string())
+            {
+                stranger = Some(login(x, "/author/login"));
+            }
             continue;
         }
         // A bot comment with no text is an answer jq cannot read.
@@ -66,7 +86,10 @@ pub fn answer(
         }
     }
     let Some(k) = q else {
-        return Some(json!({"asked": false}));
+        return Some(match stranger {
+            Some(by) => json!({"asked": false, "written_by": by}),
+            None => json!({"asked": false}),
+        });
     };
     let qv = &c[k];
     let body = qv["body"].as_str().unwrap_or("");
@@ -109,10 +132,9 @@ pub fn answer(
             .unwrap_or_default();
         let total = h.get("totalCount").and_then(Value::as_f64).unwrap_or(0.0);
         if total > nodes.len() as f64
-            || nodes.iter().any(|x| {
-                let e = login(x, "/editor/login");
-                e != fixer && e != bot
-            })
+            || nodes
+                .iter()
+                .any(|x| login(x, "/editor/login") != fixer && !bots(x, "/editor"))
         {
             json!({"status": "held", "by": ed})
         } else {
@@ -224,11 +246,11 @@ mod tests {
     }
 
     fn read(c: &Value) -> Value {
-        answer(c, BOT, &people(), "", "").unwrap()
+        answer(c, BOT, None, &people(), "", "").unwrap()
     }
 
     fn read_with_fixer(c: &Value) -> Value {
-        answer(c, BOT, &people(), "", FIXER).unwrap()
+        answer(c, BOT, None, &people(), "", FIXER).unwrap()
     }
 
     /// The question's edit history, oldest first, as GitHub lists it.
@@ -380,7 +402,7 @@ mod tests {
             (&json!(20), &json!(3), &json!("none"))
         );
         // An empty comment id is no id.
-        let a = answer(&named(), BOT, &people(), "", "").unwrap();
+        let a = answer(&named(), BOT, None, &people(), "", "").unwrap();
         assert_eq!(a["comment"], 20);
     }
 
@@ -392,7 +414,7 @@ mod tests {
 
     #[test]
     fn with_a_comment_id_that_comment_is_the_question() {
-        let a = answer(&named(), BOT, &people(), "5", "").unwrap();
+        let a = answer(&named(), BOT, None, &people(), "5", "").unwrap();
         assert_eq!(
             (
                 &a["comment"],
@@ -402,7 +424,7 @@ mod tests {
             ),
             (&json!(5), &json!(2), &json!("one"), &json!(0))
         );
-        let a = answer(&named(), BOT, &people(), "20", "").unwrap();
+        let a = answer(&named(), BOT, None, &people(), "20", "").unwrap();
         assert_eq!(
             (&a["comment"], &a["turn"], &a["tick"]["status"]),
             (&json!(20), &json!(3), &json!("none"))
@@ -412,34 +434,93 @@ mod tests {
     #[test]
     fn with_a_comment_id_replies_are_counted_from_that_comment_on() {
         assert_eq!(
-            answer(&named(), BOT, &people(), "5", "").unwrap()["reply"]["text"],
+            answer(&named(), BOT, None, &people(), "5", "").unwrap()["reply"]["text"],
             "to the second"
         );
         let cut = without_the_last(named());
         assert_eq!(
-            answer(&cut, BOT, &people(), "5", "").unwrap()["reply"]["text"],
+            answer(&cut, BOT, None, &people(), "5", "").unwrap()["reply"]["text"],
             "to the first"
         );
         assert_eq!(
-            answer(&cut, BOT, &people(), "20", "").unwrap()["reply"],
+            answer(&cut, BOT, None, &people(), "20", "").unwrap()["reply"],
             Value::Null
         );
     }
 
     #[test]
     fn an_id_of_a_strangers_comment_a_plain_comment_or_nothing_is_no_question() {
-        for id in ["1", "21", "999", "2"] {
+        for id in ["21", "999", "2"] {
             assert_eq!(
-                answer(&named(), BOT, &people(), id, "").unwrap(),
+                answer(&named(), BOT, None, &people(), id, "").unwrap(),
                 json!({"asked": false})
+            );
+        }
+        assert_eq!(
+            answer(&named(), BOT, None, &people(), "1", "").unwrap(),
+            json!({"asked": false, "written_by": "mallory"})
+        );
+    }
+
+    /// The bot's question 5 after the app was renamed: GraphQL names its
+    /// author by the new slug, and the settings still by the old.
+    fn renamed(author: &str, id: u64) -> Value {
+        let mut c = asked(&ticked("Adopt all"), "alice", json!([]));
+        c["data"]["repository"]["issue"]["comments"]["nodes"][1]["author"] =
+            json!({"login": author, "databaseId": id});
+        c
+    }
+
+    #[test]
+    fn with_the_bots_id_on_record_its_question_is_found_under_a_new_login() {
+        for author in ["acme-new", "acme-new#4242"] {
+            let c = renamed(author, 4242);
+            let a = answer(&c, "acme-old[bot]", Some(4242), &people(), "5", "").unwrap();
+            assert_eq!(
+                (&a["asked"], &a["comment"], &a["tick"]["status"]),
+                (&json!(true), &json!(5), &json!("one")),
+                "{author}"
+            );
+            assert_eq!(
+                answer(&c, "acme-old[bot]", None, &people(), "5", "").unwrap(),
+                json!({"asked": false, "written_by": author})
             );
         }
     }
 
     #[test]
+    fn with_the_bots_id_on_record_its_login_alone_is_not_the_bot() {
+        let c = renamed(BOT, 7);
+        assert_eq!(
+            answer(&c, BOT, Some(4242), &people(), "5", "").unwrap(),
+            json!({"asked": false, "written_by": BOT})
+        );
+        // The stranger's comment with a marker is no question either way.
+        assert_eq!(
+            answer(&c, BOT, Some(4242), &people(), "", "").unwrap(),
+            json!({"asked": false})
+        );
+    }
+
+    #[test]
+    fn edits_by_the_bot_under_a_new_login_leave_the_tick_the_fixers() {
+        let mut c = edited(asked(&ticked("Change some"), FIXER, json!([])), &[FIXER], 2);
+        let edits = &mut c["data"]["repository"]["issue"]["comments"]["nodes"][1]
+            ["userContentEdits"]["nodes"];
+        edits.as_array_mut().unwrap().insert(
+            0,
+            json!({"editor": {"login": "acme-new", "databaseId": 4242}}),
+        );
+        c["data"]["repository"]["issue"]["comments"]["nodes"][1]["author"] =
+            json!({"login": "acme-new", "databaseId": 4242});
+        let a = answer(&c, "acme-old", Some(4242), &people(), "", FIXER).unwrap();
+        assert_eq!(a["tick"]["status"], "fixer");
+    }
+
+    #[test]
     fn an_issue_with_no_comments_has_no_question() {
         assert_eq!(
-            answer(&nodes(json!([])), BOT, &["alice".into()], "", "").unwrap(),
+            answer(&nodes(json!([])), BOT, None, &["alice".into()], "", "").unwrap(),
             json!({"asked": false})
         );
     }
@@ -447,11 +528,11 @@ mod tests {
     #[test]
     fn an_answer_that_cannot_be_read_is_an_error_not_an_empty_answer() {
         assert_eq!(
-            answer(&nodes(json!("not a list")), BOT, &people(), "", ""),
+            answer(&nodes(json!("not a list")), BOT, None, &people(), "", ""),
             None
         );
         let no_text = nodes(json!([{"databaseId": 1, "author": {"login": BOT}}]));
-        assert_eq!(answer(&no_text, BOT, &people(), "", ""), None);
+        assert_eq!(answer(&no_text, BOT, None, &people(), "", ""), None);
     }
 
     #[test]
@@ -459,6 +540,7 @@ mod tests {
         let a = answer(
             &asked(BODY, "", json!([])),
             "tehas-bot[bot]",
+            None,
             &people(),
             "",
             "",
@@ -616,7 +698,7 @@ mod tests {
                 "createdAt": "2026-01-01T01:00:00Z", "lastEditedAt": "2026-01-01T02:00:00Z",
                 "editor": {"login": "alice"}}]),
             );
-            let a = answer(&c, BOT, &["alice".into()], "", "").unwrap();
+            let a = answer(&c, BOT, None, &["alice".into()], "", "").unwrap();
             assert_eq!(a["tick"]["status"], "one");
             let what = &a["labels"][a["tick"]["index"].as_u64().unwrap() as usize];
             assert_eq!(what, want);
@@ -636,17 +718,17 @@ mod tests {
             {"databaseId": 4001, "author": {"login": "tehas-bot"}, "body": q, "createdAt": "2026-10-01T00:00:00Z",
              "lastEditedAt": "2026-10-01T01:00:00Z", "editor": {"login": "alice"}},
         ]));
-        let a = answer(&c, "tehas-bot", &["alice".into()], "", "").unwrap();
+        let a = answer(&c, "tehas-bot", None, &["alice".into()], "", "").unwrap();
         assert_eq!(a["kind"], "park");
         assert_eq!(a["boxes"], 2);
         assert_eq!(
             a["tick"],
             json!({"status": "one", "by": "alice", "index": 0, "at": "2026-10-01T01:00:00Z"})
         );
-        let b = answer(&c, "tehas-bot", &["bob".into()], "", "").unwrap();
+        let b = answer(&c, "tehas-bot", None, &["bob".into()], "", "").unwrap();
         assert_eq!(b["tick"]["status"], "stranger");
         assert_eq!(
-            answer(&c, "tehas-bot", &[], "99", "").unwrap(),
+            answer(&c, "tehas-bot", None, &[], "99", "").unwrap(),
             json!({"asked": false})
         );
     }

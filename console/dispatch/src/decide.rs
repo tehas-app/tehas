@@ -2305,6 +2305,7 @@ impl<'a> Poll<'a> {
         let Some(ans) = crate::questions::answer(
             comments,
             &self.bot,
+            self.s.bot_id,
             &self.c.allowed,
             &qid,
             &self.c.millwright,

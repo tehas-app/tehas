@@ -2013,6 +2013,56 @@
    }
   },
   {
+   "case": "after the app's slug changed, a retry ticked in the bot's question under its new login starts",
+   "world": "parked",
+   "asked": {
+    "7": [
+     "Tehas cycle stopped.\n\n- [ ] Retry with the issue and all its comments\n- [x] Retry with the issue text only\n- [ ] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->",
+     "alice"
+    ]
+   },
+   "question_author": {
+    "login": "tehas-bot-new",
+    "databaseId": 4242
+   },
+   "snapshot": {
+    "bot_id": 4242
+   },
+   "expect": {
+    "picked": [
+     7
+    ],
+    "log_lacks": [
+     "not among the last 100 comments"
+    ],
+    "exit": 0
+   }
+  },
+  {
+   "case": "a question on record written by another account than the bot is said in the log by its author",
+   "world": "parked",
+   "asked": {
+    "7": [
+     "Tehas cycle stopped.\n\n- [ ] Retry with the issue and all its comments\n- [x] Retry with the issue text only\n- [ ] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->",
+     "alice"
+    ]
+   },
+   "question_author": {
+    "login": "mallory",
+    "databaseId": 66
+   },
+   "snapshot": {
+    "bot_id": 4242
+   },
+   "expect": {
+    "picked": [],
+    "log": [
+     "skip #7: its question was written by 'mallory', not the bot 'tehas-bot'"
+    ],
+    "exit": 0
+   }
+  },
+  {
    "case": "retry is the ticked line's text, not its place: leave it parked first",
    "world": "parked",
    "asked": {

@@ -339,6 +339,9 @@ impl App {
         if let Some(old) = &kept {
             eprintln!("tehas: the GitHub App's login is now {login}, not {old}");
             renamed(old, &login);
+            if !crate::ids::carry_beside(dir, old, &login) {
+                return Some(login);
+            }
         }
         if !keep_line(dir, "login", &login) {
             eprintln!(
@@ -1465,6 +1468,41 @@ mod tests {
         );
         assert_eq!(bot.as_deref(), Ok("acme-factory[bot]"));
         assert_eq!(wright.as_deref(), Ok("someone"));
+    }
+
+    #[test]
+    fn a_renamed_app_keeps_its_user_id_and_tries_again_until_it_is_written() {
+        let d = dir("renamed-id");
+        let app = app_of(&d);
+        let lookup = d.join("state/github");
+        fs::create_dir_all(&lookup).unwrap();
+        fs::write(lookup.join("login"), "acme-old[bot]\n").unwrap();
+        let ids = d.join(tehas_core::accounts::FILE);
+        fs::write(&ids, "acme-old 4242\n").unwrap();
+        // A pair that cannot be written leaves the old login kept: here a
+        // directory stands where the new file is written first.
+        let tmp = ids.with_extension(format!("tmp{}", std::process::id()));
+        fs::create_dir_all(&tmp).unwrap();
+        let f = fake(&[SLUG]);
+        let got = against(&f, || app.login_now(&lookup));
+        assert_eq!(got.as_deref(), Some("acme-factory[bot]"));
+        assert_eq!(fs::read_to_string(&ids).unwrap(), "acme-old 4242\n");
+        assert_eq!(
+            fs::read_to_string(lookup.join("login")).unwrap(),
+            "acme-old[bot]\n"
+        );
+        // The next token sees the rename again and records the id first.
+        fs::remove_dir_all(&tmp).unwrap();
+        let got = against(&f, || app.login_now(&lookup));
+        assert_eq!(got.as_deref(), Some("acme-factory[bot]"));
+        assert_eq!(
+            fs::read_to_string(&ids).unwrap(),
+            "acme-factory 4242\nacme-old 4242\n"
+        );
+        assert_eq!(
+            fs::read_to_string(lookup.join("login")).unwrap(),
+            "acme-factory[bot]\n"
+        );
     }
 
     #[test]
