@@ -33,24 +33,22 @@ a model endpoint that answers and offers the model, free disk of at least
 the free slots
 (`TEHAS_TICKET_CONCURRENCY` less the running cycles, after that housekeeping),
 the cap on issues awaiting merge or being worked on, the room, the containers'
-ceilings and the memory pressure in the slice, who applied `tehas:urgent`
-and `tehas:next`, then who applied `tehas:ready`, then whether `tehas:blocked`
-holds it, then urgent first, [refreshes](/operating#refreshes) second, next
-third and lowest number. The cap on issues awaiting merge holds no refresh:
-it takes a pull request out of awaiting merge as it starts. A `tehas:urgent`
-counts only when an allowed account applied it most recently: one applied by
-the bot or anyone else is ignored and logged, and the issue keeps its place by
-number. A `tehas:next` counts when its latest event applies it and is by an
-allowed account or the millwright. With `TEHAS_PRIORITY_FIELD` set, the issue
-field orders the queue in place of those two labels: `Urgent` counts as
-`tehas:urgent` when an allowed account made the newest change to the field,
-and `High` as `tehas:next` when an allowed account or the millwright did. A
-value that does not count is logged as `ignore #N: Priority Urgent was set by
-'...', not an allowed account`, and the issue keeps its place by number. The
-poll reads the account from the field's change events: a change it cannot
-read, or one with no account, counts for nothing. The urgent and next checks run for every ready
-issue that carries the label and this poll could still start, before the free
-slots cut the queue; who applied `tehas:ready` is read at the decision, when
+ceilings and the memory pressure in the slice, then who applied `tehas:ready`,
+then whether `tehas:blocked` holds it. The candidates come in this order: the
+issues of the start order that are ready, in the order given; then
+[refreshes](/operating#refreshes); then the other ready issues, lowest number
+first. The start order is set with
+[tehas order](/api#tehas-order). With no order, ready issues start lowest
+number first. The order only sorts: an issue it names still starts only on a
+`tehas:ready` or `tehas:blocked` from an allowed account, and every hold
+applies as without it. With `--only`, a ready issue outside the order waits,
+logged as `wait #N: not in the start order (--only)`; refreshes do not wait.
+An expired order is logged as `order expired at <time>: ready issues start
+lowest number first`, and one the poll cannot read as `WARN: the
+start order could not be read from the state store: ready issues start lowest
+number first`. Either way the poll goes on as with no order. The cap on issues
+awaiting merge holds no refresh: it takes a pull request out of awaiting
+merge as it starts. Who applied `tehas:ready` is read at the decision, when
 the issue is picked. A `tehas:blocked` with no `tehas:ready` beside it
 stands for one: who applied it is read the same way, after its blockers. A
 `tehas:blocked` is checked then too, and costs two
@@ -58,58 +56,13 @@ GraphQL calls: the issue's last 100 comments, and the states of the issues
 they name (see [What happens next](/operating#3-what-happens-next)). A poll never asks
 GitHub the same question twice.
 
-An issue the poll puts on neither the urgent list nor the `tehas:next` list is
-of the lowest kind, so one whose `tehas:next` came from an account the poll does
-not count is of that kind too. With `TEHAS_LOW_GATE` set, the poll runs that
-command once at most, and only when an issue of the lowest kind would otherwise
-start, after every other check of that issue. It gets `TEHAS_LOW_GATE_WAIT`
-seconds (60 by default, at most 600), is asked to end at the end of those
-seconds and killed ten seconds after that if it does not, which is an answer
-like any other. It is given no input and nothing of the poll's environment but
-`PATH`. The poll reads only its exit status: whatever the command prints goes to
-`~/tehas/logs/low-gate.log`, rewritten by every ask, which is where a gate that
-closes for a reason says that reason. The gate is not a sandbox: it runs as the
-tehas user, and what bounds it is that a load refuses a command under
-`~/tehas` or the instance directory, the trees a merged pull request writes and
-`install.sh` fills. Changing `TEHAS_LOW_GATE` in a real instance directory is a
-security change. It gets no memory or CPU ceiling of its own: a cycle runs in
-`tehas.slice`, the gate does not. Being asked to end reaches the whole process
-group it was started in, so work it leaves in the background ends with it, and
-only a command that starts a session of its own outlives its seconds. Make it
-short, cheap and one that leaves nothing running.
-
-The wait runs while the poll holds `~/tehas/state/dispatch.lock`, so a bound
-above 600 is refused. The timer polls two minutes after a poll ends, and a poll
-asked for when a cycle ends finds the lock held and waits for that timer, so a
-slow gate can leave a freed slot idle for its seconds plus the two minutes. A
-`tehas dispatch --dry-run` waits for the gate too, and holds the lock while it
-does.
-
-Only exit 0 lets those issues start: a missing file, one that is not executable,
-a run that outlives its seconds and any other status hold them for the rest of
-the poll, each skipped with `wait #N: the low-priority gate is closed (exit S)`
-and no call to GitHub about it, so a held issue says only that line and nothing
-else the poll would have said about it: an unauthorised `tehas:ready` on it is
-cleared by a later poll where the gate opens. The poll still ends 0. The hold is
-marked by
-`~/tehas/state/low-gate.held`, which carries nothing but its existence and names
-no command, said once when it begins as `low issues wait: TEHAS_LOW_GATE
-answered S` and once when it ends as `low issues may start: TEHAS_LOW_GATE
-answered 0`, whatever the command answers while it lasts; a hold already on
-record is said by each issue's line, not again as a beginning. A dry run says it
-every time and writes nothing. Urgent issues, `tehas:next` issues, refresh
-requests and a poll with no issue of the lowest kind run nothing. It stops no
-cycle that already runs, and it is not a hold in `live/dispatch.json`: [tehas
-status](/tools-status#tehas-status) does not show it, so a gate that will not open is seen in
-`~/tehas/logs/dispatch.log` and `~/tehas/logs/low-gate.log`.
-
 Every poll that gets past the bot's login ends by running `console tidy run`,
 however the poll ends; the poll's exit status stays its own. It takes tehas's
 state labels off closed issues: `tehas:running`, `tehas:awaiting-merge`,
 `tehas:question`, `tehas:planning`, `tehas:refreshing`, `tehas:blocked`,
 `tehas:ready`, `tehas:plan` and `tehas:refine`. Not `tehas:shipped`, not
-`needs-human-attention`, and not the labels a person chooses (`tehas:urgent`,
-`tehas:next`, `tehas:lean`, `tehas:prototype`). It is one console verb
+`needs-human-attention`, and not the labels a person chooses (`tehas:lean`,
+`tehas:prototype`). It is one console verb
 (`console/src/tidy.rs`), with the settings of the poll's environment: the list,
 the searches, the decision of what comes off which issue and the edits are all
 there. It makes one search,

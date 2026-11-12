@@ -34,6 +34,18 @@
         "until": {"type": "string", "format": "date-time"}
       }
     },
+    "order": {
+      "type": "object",
+      "required": ["state"],
+      "additionalProperties": false,
+      "properties": {
+        "state": {"enum": ["none", "ok", "expired", "unreadable"]},
+        "issues": {"type": "array", "maxItems": 200, "items": {"type": "integer", "minimum": 1}},
+        "only": {"type": "boolean"},
+        "until": {"type": "string", "format": "date-time"},
+        "reason": {"type": "string", "maxLength": 200}
+      }
+    },
     "running": {
       "type": "array",
       "items": {

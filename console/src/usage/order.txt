@@ -1,0 +1,40 @@
+tehas order: the order ready issues start in.
+
+With no order, ready issues start lowest number first. An order names the
+issues to start first, in that order; the other ready issues follow, lowest
+number first. With --only they wait instead, until the order changes, is
+cleared or expires. An order only sorts: an issue still starts only on a
+tehas:ready (or tehas:blocked) label from an allowed account, and a refresh
+of an open pull request is not held by it. A person sets one by hand to put
+an issue first; a program that runs the factory sets one whenever its ranking
+changes. The order is kept in the state store (state/tehas.db): it stays
+through a restart of the host or of the program, until it is set again or
+cleared.
+
+Usage:
+  tehas order [--json]          show the order, or "none"
+  tehas order set --issues N[,N...] [--only] [--for SECONDS | --until TIME] [--reason TEXT]
+  tehas order clear
+
+  --issues N,N   the issues to start first, in order: distinct numbers, at
+                 most 200. A number that is not a ready issue is passed over.
+                 An empty list with --only starts nothing until it changes
+  --only         hold every ready issue that is not in the list
+  --for SECONDS  expire that long from now
+  --until TIME   expire then, as 2026-10-17T14:05:00Z. With neither, the
+                 order lasts until it is cleared
+  --reason TEXT  one line of at most 200 characters, shown with the order
+
+An expired order, or a file that cannot be read, is no order. Setting
+replaces the whole order; setting it twice the same way leaves the same file.
+Each command prints the order as it then is:
+
+  order     #12, #8 first, nothing else starts, until 2026-10-17T14:05:00Z
+
+With --json, {"api": 1, "state": "ok", "issues": [12, 8], "only": true,
+"until": "...", "reason": "..."}: state is none, ok, expired or unreadable,
+and a field without a value is left out.
+
+Exit: 0 shown, set or cleared; 1 the file could not be written or removed;
+64 a bad argument, which writes nothing; 78 the instance settings are missing
+or malformed, which writes nothing.

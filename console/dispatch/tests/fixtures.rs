@@ -129,8 +129,7 @@ fn expand(c: &Value, snap: &mut Value) {
     let issues = |snap: &mut Value| -> Map<String, Value> {
         snap["issues"].as_object().cloned().unwrap_or_default()
     };
-    // ready: "7", "8!": the queue as ready() writes it, each labelled by
-    // alice; "8!" is urgent, by alice too.
+    // ready_n: "7", 8: the queue as ready() writes it, each labelled by alice.
     if let Some(list) = c.get("ready_n").and_then(Value::as_array) {
         let mut ready = Vec::new();
         let mut is = issues(snap);
@@ -139,20 +138,17 @@ fn expand(c: &Value, snap: &mut Value) {
                 .as_str()
                 .map(str::to_string)
                 .unwrap_or_else(|| n.to_string());
-            let num: u64 = n.trim_end_matches('!').parse().unwrap();
-            let mut labels = vec![json!({"name": "tehas:ready"})];
-            let mut events = vec![ready_event("alice", None)];
-            if n.ends_with('!') {
-                labels.push(json!({"name": "tehas:urgent"}));
-                events.push(json!({"event": "labeled", "label": {"name": "tehas:urgent"}, "actor": {"login": "alice"}}));
-            }
-            ready.push(json!({"number": num, "labels": labels}));
-            is.insert(num.to_string(), json!({"events": events}));
+            let num: u64 = n.parse().unwrap();
+            ready.push(json!({"number": num, "labels": [{"name": "tehas:ready"}]}));
+            is.insert(
+                num.to_string(),
+                json!({"events": [ready_event("alice", None)]}),
+            );
         }
         snap["ready"] = json!(ready);
         snap["issues"] = Value::Object(is);
     }
-    // queue: "7", "9 tehas:next": each labelled tehas:ready by alice at
+    // queue: "7", "9 tehas:lean": each labelled tehas:ready by alice at
     // 2026-10-01T00:00:00Z, with the labels named after the number.
     if let Some(list) = c.get("queue").and_then(Value::as_array) {
         let mut ready = Vec::new();
@@ -200,24 +196,6 @@ fn expand(c: &Value, snap: &mut Value) {
             }
             let mut i = is.get(n).cloned().unwrap_or_else(|| json!({}));
             i["events"] = json!(ev);
-            is.insert(n.clone(), i);
-        }
-        snap["issues"] = Value::Object(is);
-    }
-    // urgent_by: tehas:ready by alice, then tehas:urgent by the login; an
-    // empty login names nobody.
-    if let Some(m) = c.get("urgent_by").and_then(Value::as_object) {
-        let mut is = issues(snap);
-        for (n, who) in m {
-            let who = who.as_str().unwrap();
-            let actor = if who.is_empty() {
-                Value::Null
-            } else {
-                json!({"login": who})
-            };
-            let mut i = is.get(n).cloned().unwrap_or_else(|| json!({}));
-            i["events"] = json!([ready_event("alice", None),
-                {"event": "labeled", "label": {"name": "tehas:urgent"}, "actor": actor}]);
             is.insert(n.clone(), i);
         }
         snap["issues"] = Value::Object(is);

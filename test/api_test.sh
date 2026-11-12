@@ -48,8 +48,9 @@ t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "store-copy"
 t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "state-load"
 t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "host-bridge"
 t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "cycle-writes"
-t_eq "$(jq -r '.features | last' <<<"$t_out")" "settings-rules"
-t_eq "$(jq -r '.features | length' <<<"$t_out")" 25
+t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "settings-rules"
+t_eq "$(jq -r '.features | last' <<<"$t_out")" "start-order"
+t_eq "$(jq -r '.features | length' <<<"$t_out")" 26
 t_eq "$(t_calls gh)$(t_calls git)" ""
 
 t_case "api --json: the millwright and the old fixer field are the app's login when the factory has one"

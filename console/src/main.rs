@@ -222,6 +222,7 @@ mod mcp;
 mod models;
 mod notice;
 mod now;
+mod order;
 mod panel;
 mod pins;
 mod plan;

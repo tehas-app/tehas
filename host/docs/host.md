@@ -779,7 +779,9 @@ JSON answer:
   `queue_snapshot`, `refresh_hold`, `refresh_requests`, `refined` and
   `release_history`. The pause, the limit and refresh requests stay in files
   under `state/`. The step then compacts the file, so the migrate rewrites
-  it; `store check` counts 23 tables after it.
+  it. The step to 12 adds `start_order`, the order
+  [`tehas order`](/api#tehas-order) sets; `store check` counts 24 tables
+  after it.
 - Then it runs `store import`: the records an older tehas kept as files (the
   cycle's under `state/cycles/`, `state/park-<n>.id`, and each planning
   session's `state/plan-<n>.json` with its brief, answer and history) become

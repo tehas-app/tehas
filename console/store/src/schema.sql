@@ -1,4 +1,4 @@
--- The schema of state/tehas.db, schema v11: every table, column, key and
+-- The schema of state/tehas.db, schema v12: every table, column, key and
 -- index of the state store spec, sections 3.1 to 3.9, 3.13 and 5. Its version
 -- is SCHEMA_VERSION in db.rs, kept in PRAGMA user_version. A column added in a
 -- later version comes last in its table, where ALTER TABLE puts it, so a store
@@ -7,7 +7,7 @@
 -- planning_notes are written as db::STEP_4 rebuilds them. Sections 3.10 to 3.12
 -- are gone: schema 11 drops the eighteen tables no verb writes (#1770), which
 -- is db::STEP_11. Nothing here references them, so they are dropped rather
--- than rebuilt.
+-- than rebuilt. Schema 12 adds start_order (db::STEP_12).
 -- Within one version columns are only added; a change of meaning raises the
 -- version. Times are
 -- UTC Unix seconds and durations are seconds, as integers: a column named
@@ -367,3 +367,13 @@ CREATE TABLE journal (
   detail TEXT
 );
 CREATE INDEX journal_action ON journal (action, at);
+-- The start order `tehas order` sets: the issues to start first, as a JSON
+-- list in order, whether every other ready issue waits, and when it expires.
+CREATE TABLE start_order (
+  id     INTEGER PRIMARY KEY CHECK (id = 1),
+  issues_json TEXT NOT NULL,
+  only   INTEGER NOT NULL CHECK (only IN (0, 1)),
+  until_at INTEGER,
+  reason TEXT,
+  set_at INTEGER NOT NULL
+);

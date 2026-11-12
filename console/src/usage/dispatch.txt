@@ -195,42 +195,19 @@ Rules, in order:
      needs-human-attention goes on, and the issue says the counts, the
      setting and the way out once. Unset, nothing here changes, and a refresh
      is never held by it.
-  7. tehas:urgent first, then refreshes, then tehas:next, then the lowest
-     issue number. An issue on neither the urgent list nor the tehas:next one
-     is of the lowest kind, so one whose tehas:next came from an account it
-     does not count is of that kind too. The urgent label counts only when
-     its most recent labelling is by an allowed account, as tehas:ready does:
-     one applied by the bot or anyone else is
-     ignored and logged, and the issue keeps its place by number. tehas:next,
-     and tehas:blocked in rule 6, count when their latest event applies them
-     and is by an allowed account or the fixer. With TEHAS_PRIORITY_FIELD
-     set, that issue field orders the queue and the two labels do not: its
-     value Urgent counts as tehas:urgent when an allowed account made the
-     newest change to the field, and High as tehas:next when an allowed
-     account or the fixer did. A field the organisation that owns the
-     repository does not have ends the poll with 78 before it writes; a
-     personal account's repository keeps the labels. A running cycle is never
-     stopped to make room. With TEHAS_LOW_GATE set, the poll runs that command
-     at most once, and only when an issue of the lowest kind would otherwise
-     start: it reads the exit status alone, and only
-     0 lets those issues start. A missing file, one that is not executable, a
-     run that outlives TEHAS_LOW_GATE_WAIT and any other status all hold them,
-     and the poll still ends 0. The run gets TEHAS_LOW_GATE_WAIT seconds, at
-     most 600 because the poll holds state/dispatch.lock while it waits, and
-     ten more to end after being asked to; one that ignores that is killed. It
-     is asked with nothing of the poll's environment but PATH, no input, and
-     with whatever it prints kept in logs/low-gate.log for the person, who is
-     the only reader of why a gate closed: it is not a sandbox, it runs as the
-     tehas user, and what keeps it small is that lib/config.sh refuses a
-     command under the trees a merged pull request writes. Once the answer is
-     known, every later issue of the lowest kind is held by that answer alone,
-     with its own line and no call to GitHub about it. The hold is marked by
-     state/low-gate.held, which carries nothing but its existence and names no
-     command, and its beginning and its end are said once each, however the
-     command's status changes while the hold lasts; a hold already on record
-     is said by each issue's line, not again as a beginning. Urgent issues,
-     tehas:next issues, refreshes and a poll with no issue of the lowest kind
-     ask nothing. Unset, nothing here changes.
+  7. The issues of the start order that are ready, in the order given, then
+     refreshes, then the other ready issues, lowest number first. tehas order
+     sets the order; with none, ready issues start lowest number first. The
+     order only sorts: an issue still starts only on a tehas:ready or
+     tehas:blocked that counts, and every rule above still holds it. With
+     --only, a ready issue outside the order waits and the log says
+     wait #N: not in the start order (--only); refreshes do not wait. An
+     expired order logs order expired at <time>: ready issues start lowest
+     number first, and one that cannot be read logs WARN: the start order
+     could not be read from the state store: ready issues start lowest
+     number first; either is no order. tehas:blocked in rule 6 counts when
+     its latest event applies it and is by an allowed account or the fixer.
+     A running cycle is never stopped to make room.
   8. After the rules, a poll that is not paused, dry or failed runs the finish
      step (no slot, no agent, no cycle) for at most three open issues that
      carry tehas:finish. The asker is who applied it last: an allowed account,
@@ -274,14 +251,6 @@ Instance settings (lib/config.sh; defaults in brackets):
                             share the cycles' slots [1]
   TEHAS_SIZE_MAX_FILES      the most files an issue's body may name before
                             the poll holds it back, none when unset
-  TEHAS_LOW_GATE            a command the poll asks before it starts the
-                            issues of the lowest kind, an absolute path, none
-                            when unset
-  TEHAS_LOW_GATE_WAIT       seconds that command gets before its answer is a
-                            closed gate, 1 to 600 [60]
-  TEHAS_PRIORITY_FIELD      the owner's single-select issue field whose
-                            Urgent and High order the queue in place of
-                            tehas:urgent and tehas:next, the labels when unset
   TEHAS_ISSUE_TYPES         kind=Type pairs: with improvement=<type> an issue
                             of the owner's type holds as tehas:improvement
                             does, the label alone when unset

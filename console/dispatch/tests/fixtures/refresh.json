@@ -7327,7 +7327,7 @@
    }
   },
   {
-   "case": "refreshes go after tehas:urgent and before tehas:next",
+   "case": "refreshes go after the start order and before the rest",
    "settings": {
     "TEHAS_TICKET_CONCURRENCY": 4,
     "TEHAS_REFRESH_CONFLICTS": "1"
@@ -7421,33 +7421,33 @@
       }
      }
     },
-    "refreshing": []
+    "refreshing": [],
+    "order": {
+     "state": "ok",
+     "issues": [
+      8,
+      9
+     ],
+     "only": false
+    }
    },
    "queue": [
     "3",
-    "8 tehas:urgent",
-    "9 tehas:next"
+    "8",
+    "9"
    ],
-   "label_events": {
-    "8": [
-     "tehas:urgent=alice"
-    ],
-    "9": [
-     "tehas:next=alice"
-    ]
-   },
    "expect": {
     "exit": 0,
     "picked": [
      8,
-     7,
      9,
+     7,
      3
     ]
    }
   },
   {
-   "case": "with TEHAS_REFRESH_SLOTS=0 a refresh takes a slot before tehas:next does",
+   "case": "with TEHAS_REFRESH_SLOTS=0 a refresh takes a slot before a ready issue does",
    "settings": {
     "TEHAS_TICKET_CONCURRENCY": 1,
     "TEHAS_REFRESH_CONFLICTS": "1",
@@ -7545,13 +7545,8 @@
     "refreshing": []
    },
    "queue": [
-    "9 tehas:next"
+    "9"
    ],
-   "label_events": {
-    "9": [
-     "tehas:next=alice"
-    ]
-   },
    "expect": {
     "picked": [
      7

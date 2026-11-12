@@ -377,11 +377,11 @@ t_run "$dispatch"
 t_eq "$(t_calls fake-start)" "7"
 t_lacks "$t_out" "its last cycle parked on"
 
-# The same hold asks nothing of an urgent or tehas:next issue either: the hold
-# is of the poll, where its kind is settled, not of the kind itself.
-t_case "an urgent issue parked on its own body is held too"
+# The same hold asks nothing of an issue first in the start order either: the
+# hold is of the poll, where its kind is settled, not of the order.
+t_case "an issue first in the start order, parked on its own body, is held too"
 parked_again "Words."
-label_events 7 "tehas:urgent=alice"
+TEHAS_HOME=$T/home/tehas "$T_STORE" order-set --issues 7 >/dev/null
 holds "Words."
 
 t_case "a changed body starts, and the park of the held go is not current after the start"
