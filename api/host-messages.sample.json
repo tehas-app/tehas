@@ -1,0 +1,12 @@
+{
+  "api": 1,
+  "messages": [
+    {
+      "id": "disk-low",
+      "level": "warn",
+      "text": "Disk 91% full",
+      "link": "https://example.org/disks",
+      "at": "2026-11-12T21:19:49Z"
+    }
+  ]
+}
