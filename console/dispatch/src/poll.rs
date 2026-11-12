@@ -908,6 +908,9 @@ impl FinishHands<'_> {
             &token,
         );
         self.w.changed = true;
+        if let Some(line) = crate::finish::said(n, &ran) {
+            say(&line);
+        }
         crate::finish::outcome(n, &ran, FINISH_BOUND)
     }
 

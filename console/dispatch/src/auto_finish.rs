@@ -10,7 +10,8 @@
 //! spent or the hour over leave the cycle stopped for the ask, and the issue is
 //! told so once.
 //!
-//! Nothing else is finished: a request's own 4xx, a handoff comment, a failed
+//! Nothing else is finished: a step the host did not see fail, which only the
+//! cycle's own result names, a request's own 4xx, a handoff comment, a failed
 //! test, a review or a park. An issue that carries `tehas:finish` is the ask's,
 //! which takes the record over, so a finish is never run twice. A running
 //! issue waits. An issue that is closed, or no longer parked, has its record
@@ -131,7 +132,7 @@ pub fn step(cases: Vec<Case>, now: i64, hands: &mut dyn Hands) {
             Due::At(_) => continue,
             // Said once, and only for a failure the poll would have finished.
             Due::Never(why) => {
-                if r.github && r.step != "handoff" && !r.said {
+                if r.github && r.host && r.step != "handoff" && !r.said {
                     stop(&mut r, why, hands);
                 }
                 continue;
@@ -237,11 +238,34 @@ mod tests {
         json!({"number": 7, "state": "open", "labels": [{"name": PARKED}]})
     }
 
+    /// A record of a failure the host saw itself.
+    fn seen(n: u64, step: &str, err: &str, at: i64) -> EndFault {
+        EndFault {
+            host: true,
+            ..EndFault::new(n, 1, step, err, at)
+        }
+    }
+
     fn case(step: &str, err: &str) -> Case {
         Case {
-            rec: EndFault::new(7, 1, step, err, AT),
+            rec: seen(7, step, err, AT),
             held: false,
             issue: Some(parked()),
+        }
+    }
+
+    #[test]
+    fn a_failure_only_the_cycles_result_names_is_never_finished_or_said() {
+        for at in [AT + 60, AT + 3700] {
+            let mut f = Fake::default();
+            let c = Case {
+                rec: EndFault::new(7, 1, "push", "HTTP 502: Bad Gateway", AT),
+                held: false,
+                issue: Some(parked()),
+            };
+            assert!(!wants(&c, at));
+            step(vec![c], at, &mut f);
+            assert!(f.finished.is_empty() && f.said.is_empty() && f.kept.is_empty());
         }
     }
 
@@ -381,7 +405,7 @@ mod tests {
     fn three_finishes_at_most_in_one_poll() {
         let cases: Vec<Case> = (1..=5)
             .map(|n| Case {
-                rec: EndFault::new(n, 1, "push", "HTTP 502", AT),
+                rec: seen(n, "push", "HTTP 502", AT),
                 held: false,
                 issue: Some(parked()),
             })
@@ -394,7 +418,7 @@ mod tests {
     #[test]
     fn the_replies_of_the_poll_disarm_what_they_quote() {
         let agent = "<!-- tehas:millwright issue=7 action=retry -->";
-        let mut r = EndFault::new(7, 1, "push", "HTTP 502", 1000);
+        let mut r = seen(7, "push", "HTTP 502", 1000);
         r.stopped = format!("the push said {agent}");
         let said = stopped(&r);
         assert!(

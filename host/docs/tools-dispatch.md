@@ -256,9 +256,10 @@ event or an answer and before it changes a label or comments, so a list naming
 the bot is refused whatever else the poll would have done. A planning turn's
 runner output is in `~/tehas/logs/dispatch-plan-<issue>.log`.
 
-A cycle that a provider outage parked starts again once without a tick.
-`tehasbot cycle` puts its park on the state store with the reason
-`provider-outage`, and the store says the park owes one retry when the cycle
+A park on the state store with the reason `provider-outage` starts again once
+without a tick. `tehasbot cycle` no longer records that reason, because only a
+cycle's own result names an outage; a park an earlier version recorded keeps
+its retry. The store says the park owes one retry when the cycle
 was started on an approval (not by hand) and was not itself that retry
 (`park-show --automatic`). When nothing holds cycles back, so the model
 endpoint answers and there is a slot, the poll starts the issue and says on it

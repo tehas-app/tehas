@@ -839,12 +839,13 @@ An issue closed since its cycle stopped is not work. Neither the tick nor a new
 `tehas:ready` starts anything on it, and the poll's log says so.
 
 A cycle that a provider outage parked says so in its comment: `parked by a
-provider outage`, with the cap. Nothing needs doing: once the model endpoint
-answers, the dispatcher starts the issue again on its own and says so on the
-issue, on the word of whoever started the cycle that parked. It does that
-once. If that cycle is parked by an outage too, the issue waits for a tick or a
-label like any other, and so does a cycle started by hand. `tehas stop` on the
-issue gives up that one retry.
+provider outage`, with the cap. Only the cycle's own result names the outage,
+so the park is recorded under its cap like any other and waits for a tick or a
+label: tick the retry box once the model endpoint answers. A park an earlier
+version recorded as `provider-outage` still owes its one retry: once the model
+endpoint answers, the dispatcher starts the issue again on its own and says so
+on the issue, on the word of whoever started the cycle that parked. `tehas
+stop` on the issue gives up that one retry.
 
 When the bot cannot post the boxes, it posts a plain comment that gives the
 label to apply. When the boxes are posted and the label `tehas:question` cannot be
@@ -958,13 +959,17 @@ What comes back on the issue is one comment of the bot's:
   pull request of the issue, a rebase that conflicts, a cycle still running,
   no marked comment, or a rule of the grant not met. The label comes off here
   too. To ask again, write a new marked comment and apply the label again.
+  The line is the rule's own words, with at most the HTTP status, limit,
+  timeout or connection words of what git or gh said. What the command said
+  can quote a commit subject of the cycle, so it goes to the log only.
 
 An ask whose label events, comments or approval record cannot be read waits
 with the label on for the next poll. Each ask taken leaves one line in
 `~/tehas/logs/dispatch.log`, `finish #<n>: opened <url>, asked by <who>
 (<label|millwright>): <reason>` or `finish #<n>: refused, asked by <who>:
 <why>`, which the MCP server's `factory_decisions` answers as the decision
-`finish`.
+`finish`. A refusal on a command's failure is preceded by `the finish of #<n>
+was refused, the command said: <its first line>`.
 
 ### A cycle whose push or pull request GitHub failed
 
@@ -976,8 +981,15 @@ error. Any other 4xx, such as a 422 or a 403 for a missing permission, is the
 request's own, and so is a failure that names none of these. A later cycle of
 the issue replaces the record, or removes it when its end failed nothing.
 
-For a push or a pull request that failed on GitHub's side, the poll runs the
-same `tehas-cycle finish` an ask runs, from the kept workspace, with no ask:
+The push and the pull request are made in the cycle's container, so the host
+knows of their failure only from the cycle's own result. The record says so
+(`"host": false`), and the poll finishes nothing on it: the cycle waits for an
+ask with `tehas:finish`, and `tehas status` says `only the cycle's own result
+says so`. The handoff comment is the host's own call (`"host": true`).
+
+For a push or a pull request that the host saw fail on GitHub's side, the poll
+runs the same `tehas-cycle finish` an ask runs, from the kept workspace, with
+no ask:
 
 - The first try is at the next poll, each next one at least 10 minutes after
   the one before, 3 tries at most, all within an hour of the failure.

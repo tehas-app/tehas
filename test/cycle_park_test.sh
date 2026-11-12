@@ -23,23 +23,24 @@ capped() { # <cap> <failure event as JSON>
 }
 outage='{"kind":"dispatch-failed-provider","step":"adversarial","at":2,"providerMessage":"Connection error."}'
 
-t_case "a step that failed on a provider error is parked by a provider outage, and asks for one retry"
+t_case "a step that failed on a provider error is parked by a provider outage, and waits for a person"
 reset
 t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
 capped step-failed:adversarial "$outage"
 echo 'echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"' >"$fx/work.sh"
-# The unit's start, on alice's label: the retry rests on her.
+# The unit's start, on alice's label: the outage is still only the result's word.
 T_ENV+=(TEHAS_CYCLE_FROM=unit)
 t_approve "$T/home/tehas" 7 alice label
 t_run "$cycle 7"
 t_eq "$t_rc" 0
 t_contains "$(t_calls gh)" "Tehas cycle parked by a provider outage: status \`handoff\`"
 t_contains "$(t_calls gh)" "cap \`step-failed:adversarial\`: Connection error."
-t_contains "$(t_calls gh)" "Tehas starts it again once on its own, when the model endpoint answers."
+t_contains "$(t_calls gh)" "Only the cycle's own result names the outage, so tehas does not start it again on its own: it waits for a person."
+t_lacks "$(t_calls gh)" "starts it again once"
 t_lacks "$(t_calls gh)" "stopped without a pull request"
 t_contains "$(t_calls gh)" "--remove-label tehas:running --add-label needs-human-attention"
 t_eq "$(park_of '[.reason, .step, .automatic, .retries, .started_by, (.started_at | type), .question]')" \
-  '["provider-outage","handoff",true,0,"alice","number",4002]'
+  '["step-failed:adversarial","handoff",false,0,"alice","number",4002]'
 t_eq "$(t_row history-show 7 -- '.rows[-1] | [.cap, .provider, .parked] | tostring')" '["step-failed:adversarial",true,true]'
 t_eq "$(jq -c '[.cap, .capReason]' "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" \
   '["step-failed:adversarial","Connection error."]'
@@ -58,9 +59,9 @@ reset
 capped step-failed:adversarial "$outage"
 t_run "$cycle 7"
 t_contains "$(t_calls gh)" "Tehas cycle parked by a provider outage"
-t_contains "$(t_calls gh)" "It was started by hand, so it waits for a person."
+t_contains "$(t_calls gh)" "it waits for a person."
 t_lacks "$(t_calls gh)" "starts it again once"
-t_eq "$(park_of '[.reason, .automatic, .started_by]')" '["provider-outage",false,null]'
+t_eq "$(park_of '[.reason, .automatic, .started_by]')" '["step-failed:adversarial",false,null]'
 
 t_case "the retry tehas made on its own, parked by an outage again, waits for a person"
 reset
@@ -70,9 +71,9 @@ T_ENV+=(TEHAS_CYCLE_FROM=unit)
 t_approve "$T/home/tehas" 7 alice outage-retry
 t_run "$cycle 7"
 t_contains "$(t_calls gh)" "Tehas cycle parked by a provider outage"
-t_contains "$(t_calls gh)" "It was the retry tehas made on its own after an outage, so it waits for a person."
+t_contains "$(t_calls gh)" "it waits for a person."
 t_lacks "$(t_calls gh)" "starts it again once"
-t_eq "$(park_of '[.reason, .automatic]')" '["provider-outage",false]'
+t_eq "$(park_of '[.reason, .automatic]')" '["step-failed:adversarial",false]'
 t_eq "$(t_row cycle-show 7 -- .cycle.requeued)" true
 
 t_case "a step that failed for another reason is parked as before, its cap on record and no retry"
@@ -151,13 +152,13 @@ failed() { # <cap> <failure kind> <reason>
     >"$fx/progress.json"
 }
 
-t_case "a failure of kind provider is an outage whatever the cap, and asks for one retry"
+t_case "a failure of kind provider is said as an outage whatever the cap, and owes no retry"
 reset
 failed spawn-backstop provider "rate limited"
 t_run "$cycle 7"
 t_contains "$(t_calls gh)" "Tehas cycle parked by a provider outage"
 t_contains "$(t_calls gh)" "cap \`spawn-backstop\`: rate limited"
-t_eq "$(park_of .reason)" provider-outage
+t_eq "$(park_of '[.reason, .automatic]')" '["spawn-backstop",false]'
 t_eq "$(t_row history-show 7 -- '.rows[-1] | [.cap, .provider] | tostring')" '["spawn-backstop",true]'
 
 t_case "a failure of another kind is no outage, even when its words look like one"
@@ -231,7 +232,7 @@ capped 'step-failed:adversarial`@x' '{"kind":"dispatch-failed-provider","at":2,"
 t_run "$cycle 7"
 t_contains "$(t_calls gh)" "cap \`step-failed:adversarialx\`: provider error alice -- 5 next line"
 t_eq "$(t_row history-show 7 -- '.rows[-1].cap')" "step-failed:adversarialx"
-t_eq "$(park_of .reason)" provider-outage
+t_eq "$(park_of .reason)" step-failed:adversarialx
 
 # A park whose failure the result gives: step develop, its kind and cause.
 park_failed() { # <cap> [park reason]
@@ -449,7 +450,7 @@ t_store_answers park 1 'store: busy #7: the database is locked'
 t_run "$cycle 7"
 t_contains "$(t_calls gh)" "Tehas cycle parked by a provider outage"
 t_lacks "$(t_calls gh)" "starts it again once"
-t_contains "$(t_calls gh)" "Its park could not be recorded, so it waits for a person."
+t_contains "$(t_calls gh)" "so tehas does not start it again on its own: it waits for a person."
 t_eq "$(park_of)" null
 
 t_case "a question the store would not take is posted, and the log says its boxes will not work"

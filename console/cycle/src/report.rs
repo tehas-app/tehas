@@ -1516,7 +1516,6 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
             "Tehas cycle stopped {stopped}: {summary} (runner exit {runner_rc}).{why}{handoff_said} {kept_said}; {log_where}.{killed}{open_pr}{foreign}"
         );
         let mut park_why = "";
-        let mut auto = String::new();
         let mut lead = String::new();
         r.arm = "parked";
         if never_started {
@@ -1553,25 +1552,23 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
             park_why = crate::conflict::NOTE;
             parked = format!("{said} {log_where}.{killed}");
         } else if provider {
+            // The kind is the result's word, and the result is the container's:
+            // the park is said as an outage but owes no retry of its own.
             r.arm = "provider";
-            park_why = "provider-outage";
             let rs = if reason.is_empty() {
                 String::new()
             } else {
                 format!(": {reason}")
             };
             parked = format!("Tehas cycle parked by a provider outage: {summary} (runner exit {runner_rc}), cap `{cap}`{rs}; {log_where}.{killed}{open_pr}{foreign}");
-            if f.requeued {
-                parked += " It was the retry tehas made on its own after an outage, so it waits for a person.";
-            } else if f.start_how == "hand" || f.start_by.is_empty() {
-                parked += " It was started by hand, so it waits for a person.";
-            } else {
-                auto = " Tehas starts it again once on its own, when the model endpoint answers."
-                    .into();
-            }
+            parked += " Only the cycle's own result names the outage, so tehas does not start it again on its own: it waits for a person.";
         }
         parked_now = true;
-        let mut p = park(park_args(park_why, &cap, &status, &step, &pr), parked, auto);
+        let mut p = park(
+            park_args(park_why, &cap, &status, &step, &pr),
+            parked,
+            String::new(),
+        );
         if let Action::Park(b) = &mut p {
             b.lead = lead;
         }

@@ -5,7 +5,7 @@
 
 use super::cmd::Scratch;
 use super::plan::{body, title, Plan};
-use super::run::{has_commits, issue_branch_of, pull_for_issue, pull_named};
+use super::run::{has_commits, issue_branch_of, pull_for_issue, pull_named, Why};
 use super::{finish, Finished};
 use crate::finish::cmd::{asked, asked_of_git, Done, Live};
 use crate::finish::Host;
@@ -756,7 +756,9 @@ fn a_rebase_that_conflicts_leaves_no_tree_and_no_branch() {
     w.stub("", "https://github.com/acme/widget/pull/1");
     let mut h = w.host();
     let got = finish(&w.plan(), &mut h);
-    assert!(got.why.contains("conflicts"), "{}", got.why);
+    assert_eq!(got.why, "the rebase onto origin/main conflicts");
+    // git quotes the cycle's commit subject: the log keeps it, the rule does not.
+    assert!(got.said.contains("the change"), "{}", got.said);
     assert_eq!(got.url, "");
     assert!(!w.remote_has("finish/issue-7"), "nothing was pushed");
     assert_eq!(
@@ -1028,10 +1030,23 @@ fn a_refusal_names_the_rule_and_one_line_of_what_the_command_said() {
     let quiet = said("", "  \nonly output\n");
     assert_eq!(quiet.said().as_deref(), Some("only output"));
     assert_eq!(said("", "").said(), None);
-    // A refusal a person reads on the issue is bounded: the rule and a short
-    // quote of the command.
-    let long = "x".repeat(500);
-    assert!(long.chars().take(300).collect::<String>().chars().count() == 300);
+    // The rule takes only the fixed words of what the command said; the rest
+    // is kept for the log, cut to 300 characters.
+    let why = Why::new("finish/issue-7 could not be pushed").said(&said(
+        "@alice error: The requested URL returned error: 502\n",
+        "",
+    ));
+    assert_eq!(
+        why.why,
+        "finish/issue-7 could not be pushed (returned error: 502)"
+    );
+    assert!(why.said.starts_with("@alice error:"), "{}", why.said);
+    let plain = Why::new("the rebase onto origin/main conflicts").said(&said(
+        &format!("error: could not apply 1a2b... @alice {}", "x".repeat(500)),
+        "",
+    ));
+    assert_eq!(plain.why, "the rebase onto origin/main conflicts");
+    assert_eq!(plain.said.chars().count(), 300);
 }
 
 #[test]
@@ -1108,7 +1123,8 @@ fn a_run_that_refused_left_nothing_and_a_run_that_finished_left_nothing() {
         finish(&w.plan(), &mut h),
         Finished {
             url: "https://github.com/acme/widget/pull/5".to_string(),
-            why: String::new()
+            why: String::new(),
+            said: String::new(),
         }
     );
     assert_eq!(w.left(), Vec::<String>::new());
