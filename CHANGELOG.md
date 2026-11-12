@@ -64,6 +64,66 @@ a pull request before it tags, with the head's `scripts/collect-changelog.sh`.
 - The manual's GitHub App page starts with `tehas setup --new-app`, and the pages on the host, the millwright and bootstrap describe one app for everything the factory does.
 - A Retry ticked in a park comment is no longer lost when `tehas:question` is taken off and `tehas:ready` applied by hand: the tick lifts the park's hold, and the issue starts on the next poll (#1829).
 - The state store moves to schema 11 and drops eighteen tables that nothing wrote or read, such as `pause_flag`, `limits` and `health_samples`. The pause, the limit and refresh requests were always kept in files under `state/`. `store check` now counts 23 tables (#1770).
+- A write from a cycle's container that reads its body from standard input as
+  `--body-file=-` is now sent once, like `--body-file -` already was. Before, a
+  rate limit made the shim send it a second time after its input was used up,
+  so the second write went out with an empty body (#1699).
+- A poll that cannot read the bot's pull requests no longer ends. It logs `WARN: the bot's pull requests could not be read, so no cycle is stopped for its pull request this poll` once, stops no cycle for a pull request, and goes on: a running cycle whose issue is closed is still stopped, the rest of the clean-ups run, and the ready queue still starts. Before, one failed `gh pr list --author <bot>` stopped the whole poll with exit 1, so no other clean-up ran and no cycle started.
+- A poll that cannot read the pull requests marked `tehas:refreshing` no longer ends. It logs `WARN: the pull requests marked tehas:refreshing could not be read, so no pull request is cleared of tehas:refreshing this poll` once, clears no mark, and goes on: the rest of the clean-ups run and the ready queue still starts. Before, one failed `gh pr list --label tehas:refreshing` stopped the whole poll with exit 1, so nothing else in it ran. (#1701)
+- The analytics report credits a merge only to the pi-rukas version of the run that made it. Before, every version whose runs reached a pull request on an issue counted the merge, so an older release was credited with work it did not ship (#1749).
+- The Energy use section of the dashboard no longer links a repository of
+  tehas's own. The energy file names the mesh software in `source` and links
+  nothing unless the host sets `TEHAS_ENERGY_SOURCE_URL` in
+  `~/.config/tehas/env` to an `https://` address, which the page then links
+  under `DATA SOURCE`. With no such setting the name is plain text. (#1774)
+- The `--json` object of `tehas limit` has a JSON Schema in the source,
+  `api/limit.schema.json`, and four samples beside it, one for each state, that
+  its tests keep in step with what the command prints. A program that reads the
+  object can copy the samples into its own tests (#1808).
+- The manual names every file the docs server publishes under `/live/`: a new
+  section of the factory API page, "Files under live/", holds one row per name,
+  with the program that writes it and what reads it. The docs server now answers
+  404 under `/live/` for any name that list does not hold, so a file a new
+  writer puts under `live/` is not served until the table and the edge's list
+  name it alike. This touches what the edge serves. Every name served today is
+  in the list and still served; the two health addresses, `/health` and
+  `/healthz`, keep reading the health file outside the list as they do today
+  (#1809).
+- When every blocker of a `tehas:blocked` issue has closed and the issue does not start in that poll, the dispatcher says once in a comment that the hold has cleared and that the label stays on until the start. An issue carrying `tehas:blocked` and `tehas:next` together no longer reads as held (#1860).
+- The `--json` object of `tehas freeze` and `tehas thaw` has a JSON Schema in
+  the source, `api/freeze.schema.json`, and four samples beside it that its
+  tests keep in step with what the commands print: no cycle running, a freeze
+  asked of a running cycle, a cycle the watch has paused, and a thaw asked of
+  that one. A program that reads the object can copy the samples into its own
+  tests (#1863).
+- The `--json` object of `tehas history` has a JSON Schema in the source,
+  `api/history.schema.json`, and two samples beside it that its tests keep in
+  step with what the command prints: `api/history.sample.json`, a listing of
+  three cycle ends and a planning turn with the cursor to keep, and
+  `api/history.empty.json`, a factory with nothing ended. A program that reads
+  the listing can copy the samples into its own tests (#1864).
+- The `--json` object of `tehas panel` has a JSON Schema in the source,
+  `api/panel.schema.json`, and two samples beside it that its tests keep in
+  step with what the command prints: `api/panel.sample.json`, one panel set, and
+  `api/panel.empty.json`, a factory with none. The same object is
+  `state/panels.json` and the `live/panels.json` the dashboard reads, so a
+  program that reads either can copy the samples into its own tests (#1865).
+- `tehas disk --cycles` says what each running cycle writes: for every container the daemon lists under the name a cycle's container has, its issue, the bytes of its writable layer and the bytes of block IO it has written. A figure that could not be read is `null` with the reason, never 0. `tehas api` lists the new feature `cycle-writes` (#1872).
+- A program that crashes during `scripts/test.sh` leaves no core file in the
+  checkout. Every task of the run starts at the core limit of 0, which its
+  test file and everything that file starts inherit, so the kernel is never
+  asked to write a dump where a later check of the tree would read one. At the
+  end of the run the checkout is read for the files the limit meant to prevent,
+  so a host where the limit did not take effect fails the run instead of
+  passing, and only `core` and `core.<pid>` are taken for a dump: `core.txt` is
+  a file a test meant to write. `TEHAS_TEST_CORES` set to anything keeps the
+  dumps and names them, which is how a person sees what a crash really leaves,
+  and `TEHAS_TEST_CORE_PATTERN` stands in for the host's
+  `/proc/sys/kernel/core_pattern` for such a run. A host with no `prlimit` is
+  told so once and the run stops, as it is for a missing cargo. A factory's
+  final verify failed on dozens of `core.<pid>` files its workspace root had
+  collected this way (#1887).
+- `tehas drain --json` has a published contract: `api/drain.schema.json` in the source says what the object holds and `api/drain.sample.json` and `api/drain.running.json` are samples of it, made by the command. The drain section of the manual names its fields. Nothing the command prints has changed (#1894).
 
 ### Held back
 
@@ -90,6 +150,11 @@ There is nothing to configure for the millwright: the app is the millwright. Wha
 If you delete and recreate a `tehas:` label, remove its line from `~/tehas/state/labels`, delete the label, and run `tehas labels` to make and pin it.
 
 None beyond `tehas update`. The store's migrate compacts the file after the drop, so it rewrites `state/tehas.db` once; the backup under `state/backup/` is taken before, as on every update.
+
+To keep a link under `DATA SOURCE`, set `TEHAS_ENERGY_SOURCE_URL` in
+`~/.config/tehas/env` to the address of the mesh's project and restart
+`tehas-energy.service`. Nothing to do to lose it: the old link was one
+repository named in the platform, and it is gone for every host.
 
 ## v0.25.1 (2026-11-07)
 
