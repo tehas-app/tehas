@@ -78,6 +78,133 @@ t_eq "$(jq -r '[.queued, .awaiting, .stopped, .completed, .running] | map(type) 
 t_eq "$(jq -r '.links | keys | join(",")' "$T_ROOT/preview/live/status.json")" "all,awaiting,completed,queued,stopped"
 t_eq "$(jq -r '[(.previews | type), (.disk | type)] | join(",")' "$T_ROOT/preview/live/previews.json")" "array,object"
 
+# What the docs server serves under /live/ is the one list "Files under live/"
+# of api.md holds: the file is read as text here because the gate has no caddy.
+docs_caddy=$T_ROOT/host/edge/docs.Caddyfile
+live_docs=$T_ROOT/host/docs/api.md
+
+# The names of the table, one per line, as the Caddyfile matches them: /<name>,
+# with the number of a cycle's file a *. Only the rows under the section's own
+# heading count: no line of the page from its heading to the next heading that
+# is not one, so a field table elsewhere on the page holds no name here. A row
+# begins with a pipe, a space and a backquote; the heading's text holds that
+# shape, so the backquote is what tells a row from a heading.
+table_names() {
+  awk '/^## / {in_section = ($0 == "## Files under live/")}
+    in_section && /^\| `/ {split(substr($0, 3), cell, "`"); print cell[2]}' "$live_docs" \
+    | sed -e 's|^|/|' -e 's|<n>|*|'
+}
+# The paths of the @unnamed matcher, which is the edge's copy of the same list:
+# the words of its own line. The respond of the matcher is no path, so it is
+# not read to: a path on a line of its own is no path of the matcher at all,
+# and the case on the list of the matcher says so by finding too few.
+unnamed_paths() {
+  awk '/^[[:space:]]*@unnamed not path / {print}' "$docs_caddy" | tr -s '[:space:]' '\n' | grep '^/'
+}
+
+t_case "the list the docs server answers 404 for is the list api.md names, both ways"
+table=$(table_names)
+unnamed=$(unnamed_paths)
+# A case that looks at nothing passes by finding nothing, so both sides are
+# named here before they are compared.
+[ -n "$table" ] || t_bad "no row read from the table of Files under live/ in api.md"
+[ -n "$unnamed" ] || t_bad "no path read from @unnamed of the docs server's Caddyfile"
+t_eq "$(comm -23 <(printf '%s\n' "$table" | LC_ALL=C sort) <(printf '%s\n' "$unnamed" | LC_ALL=C sort) | tr '\n' ' ')" ""
+t_eq "$(comm -13 <(printf '%s\n' "$table" | LC_ALL=C sort) <(printf '%s\n' "$unnamed" | LC_ALL=C sort) | tr '\n' ' ')" ""
+# Both sides are sets: a name written twice on one side and once on the other
+# is an agreement no comm above can see. Neither list may hold a name twice.
+t_eq "$(printf '%s\n' "$table" | LC_ALL=C sort -u | tr '\n' ' ')" \
+  "$(printf '%s\n' "$table" | LC_ALL=C sort | tr '\n' ' ')"
+t_eq "$(printf '%s\n' "$unnamed" | LC_ALL=C sort -u | tr '\n' ' ')" \
+  "$(printf '%s\n' "$unnamed" | LC_ALL=C sort | tr '\n' ' ')"
+
+t_case "the live list holds the 21 names the dashboard, the console and the server read"
+t_eq "$(printf '%s\n' "$table" | wc -l)" 21
+for want in /status.json /running.json /endings.json /epics.json /health.json /health.down \
+  /dispatch.json /demand.json /energy.json /analytics.json /orders.json /top.json \
+  /panels.json /disk.json /platform.json /rukas.json /previews.json /protolab.json \
+  /cycles/*.json /console-*.txt /console-*.txt.now; do
+  printf '%s\n' "$table" | grep -qxF -- "$want" || t_bad "the list does not name $want"
+done
+
+t_case "a new file under live/ is served only once both lists name it"
+# A name in the table but not the matcher, or the other way about, is a name no
+# reader reaches: the case above is the one that fails, and it fails both ways.
+without=$(printf '%s\n' "$unnamed" | grep -vx '/disk.json' | LC_ALL=C sort)
+t_eq "$(comm -23 <(printf '%s\n' "$table" | LC_ALL=C sort) <(printf '%s\n' "$without") | tr '\n' ' ')" "/disk.json "
+extra=$(printf '%s\n%s\n' "$unnamed" /secret.json | LC_ALL=C sort)
+t_eq "$(comm -13 <(printf '%s\n' "$table" | LC_ALL=C sort) <(printf '%s\n' "$extra") | tr '\n' ' ')" "/secret.json "
+
+t_case "in the live handler a half-written file, a dotfile and an unnamed name are all a 404 before the files are served"
+live=$(awk '/^        handle_path \/live\/\* \{/,/^        \}/' "$docs_caddy")
+# The case reads the handler; an empty extraction would pass by finding nothing.
+[ -n "$live" ] || t_bad "the live handler was not read from $docs_caddy"
+for want in '@unfinished path' '@unnamed not path'; do
+  # A respond naming a matcher nothing defines is a Caddyfile caddy cannot
+  # parse, and the gate has no caddy to ask: the line defining the matcher is
+  # held there by its own shape - the name whole as the first word of the line
+  # and the rule after it - so no respond can answer on its own. The paths of
+  # the list are words too, so they may not be read from this line's tail.
+  t_eq "$(printf '%s\n' "$live" | awk -v want="$want" '\
+    $1 == substr(want, 1, index(want " ", " ") - 1) && substr($0, index($0, want), length(want)) == want && \
+      substr($0, index($0, want) + length(want), 1) == " " {n++} END {print n + 0}')" 1
+done
+# The half of the rule that keeps a half-written file and a dotfile out names
+# both of them: a matcher of the right shape missing one of the two answers 200
+# for a file no reader may see, and nothing else in this file would say so.
+t_contains "$(printf '%s\n' "$live" | grep '@unfinished path')" '*.new'
+t_contains "$(printf '%s\n' "$live" | grep '@unfinished path')" '/.*'
+for want in 'respond @unfinished 404' 'respond @unnamed 404'; do
+  # The rule matched exactly, spaces and all: where a respond of the handler
+  # sits in the file is the order this case is about.
+  t_eq "$(printf '%s\n' "$live" | awk -v want="$want" '$0 ~ ("^[[:space:]]*" want "$") {n++} END {print n + 0}')" 1
+  # The matcher's name as its own word, not a line that holds it among other
+  # text, which is what ties this respond to the rule above it.
+  matcher=${want#respond }; matcher=${matcher% 404}
+  t_eq "$(printf '%s\n' "$live" | awk -v m="$matcher" '{for (i = 2; i <= NF; i++) if ($i == m) {n++; break}} END {print n + 0}')" 1
+  # The first of each, rather than the last of one and the first of the other:
+  # a second respond of the name in front of this one is not read as the rule
+  # that comes before the files are served.
+  respond_line=$(printf '%s\n' "$live" | grep -n -m1 "^[[:space:]]*$want$")
+  server_line=$(printf '%s\n' "$live" | grep -n -m1 'file_server')
+  [ -n "$respond_line" ] && [ -n "$server_line" ] ||
+    t_bad "no respond of $want or no file_server in the live handler"
+  t_eq "$((10#${respond_line%%:*} < 10#${server_line%%:*} ? 1 : 0))" 1
+done
+# The list of the names the handler serves holds health.json and health.down,
+# so the matcher's own line is the one line of the handler that may name
+# health, and no line of it may name the matcher kept for indexing: that one
+# is for the pages, and @unnamed is a matcher of its own.
+t_eq "$(printf '%s\n' "$live" | grep -v 'not path' | grep -v '^[[:space:]]*#' | grep -c 'health\|unlisted')" 0
+# @unlisted is the indexing matcher of line 13, and its name stays its own:
+# this handler answers with a matcher of another name, so the two cannot be
+# read as one rule.
+t_eq "$(awk '/^    @unlisted expression / {n++} END {print n + 0}' "$docs_caddy")" 1
+t_contains "$live" '@unnamed'
+
+t_case "the two health addresses answer 200 with the health file under root /srv/live"
+# Outside /live/*, so @unnamed never sees them; the rewrite names the file.
+t_eq "$(awk '/handle @health \{/ {h = NR} /root \* \/srv\/live/ && h && !r {r = NR} /rewrite \* \/health\.json/ && r && !w {w = NR}
+  END {print (h && r && w) ? "live root, rewritten" : "no"}' "$docs_caddy")" "live root, rewritten"
+# The 404 of an unnamed name comes before this handler, so a name the list
+# does not hold cannot reach it by a path under /live/ either.
+t_eq "$(awk '/^        handle @health \{[[:space:]]*$/ {a = NR} /^[[:space:]]*respond @unnamed 404$/ {u = NR} END {print (u && a && u < a) ? "before" : "after"}' "$docs_caddy")" before
+health=$(awk '/^        handle @health \{/,/^        \}/' "$docs_caddy")
+t_eq "$(printf '%s\n' "$health" | grep -c 'application/health+json')" 1
+t_eq "$(printf '%s\n' "$health" | grep -c 'file_server')" 1
+# 200: no status line of its own, where the down handler gives one.
+t_eq "$(printf '%s\n' "$health" | grep -c 'status ')" 0
+
+t_case "while live/health.down is there the two health addresses answer 503, and that handler comes first"
+# The marker is read off the same root, by try_files, and it is the handler
+# that answers before @health - the one whose file_server says 503.
+t_contains "$(cat "$docs_caddy")" 'try_files /health.down'
+t_eq "$(awk '/@health_down \{/ {d = NR} /handle @health \{/ {h = NR} END {print (d && h && d < h) ? "before" : "after"}' "$docs_caddy")" before
+handler=$(awk '/^        handle @health_down \{/,/^        \}/' "$docs_caddy")
+t_eq "$(printf '%s\n' "$handler" | grep -c 'status 503')" 1
+t_eq "$(printf '%s\n' "$handler" | grep -c 'rewrite \* /health.json')" 1
+t_eq "$(printf '%s\n' "$handler" | grep -c 'root \* /srv/live')" 1
+
 # The sample files stand where a host has what the store's publish and
 # tehasbot health write. Their keys are pinned to those two, so a change there
 # is seen here.
