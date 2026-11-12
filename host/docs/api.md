@@ -337,6 +337,21 @@ that does not expire, then with `--wait` waiting up to that many seconds for
 the running cycles to end. `running` lists the issues whose cycles still run.
 `tehas limit clear` ends it.
 
+`api/drain.schema.json` in the source says what the object holds, and
+`api/drain.sample.json` and `api/drain.running.json` are samples of it: nothing
+running, and one cycle's still running.
+
+| Field | Meaning |
+| --- | --- |
+| `drained` | `true` when no poll held its lock and no cycle runs. `false`: a cycle still runs, or a poll held its lock for the whole wait, which counts as work that may start |
+| `running` | The issues whose cycles hold their lock, lowest first. Empty when none does |
+| `limit` | The limit the command set, as [`tehas limit --json`](#tehas-limit) prints it but for `api`, which the object above already carries. `drain` always sets no cycles, no planning and no expiry |
+| `limit.state` | `ok` for the limit `drain` writes; the other three states only when the file it just wrote cannot be read back |
+| `limit.cycles` | `0`: no cycle starts |
+| `limit.plan` | `false`: no new planning session and no improvement run |
+| `limit.until` | Left out: a drain's limit lasts until `tehas limit clear` |
+| `limit.reason` | `draining` |
+
 Exit 0 when no cycle is running; 1 when some still are at the end of the
 wait; 64 on a bad argument; 78 without an instance.
 
