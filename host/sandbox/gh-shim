@@ -9,9 +9,9 @@
 # A call that GitHub refuses for a rate limit is tried once more: the output of
 # the first call is kept in files under ${TMPDIR:-/tmp} and thrown away, and
 # after TEHAS_GH_RETRY_WAIT seconds [60] the same arguments are run again. One
-# retry only, and only that call. A call that reads standard input (- or an
-# argument that ends in =@-) is run at once, because its input cannot be read
-# twice.
+# retry only, and only that call. A call that reads standard input (-, an
+# argument that ends in @-, or one that ends in =-, such as --body-file=-) is
+# run at once, because its input cannot be read twice.
 #
 # TEHAS_GH_BIN names the real gh and TEHAS_GH_RETRY_WAIT the pause; both are
 # seams for test/gh_shim_test.sh, and the image sets neither.
@@ -127,7 +127,7 @@ if [ -d "$relay" ] && [ "$1" = issue ]; then
   esac
 fi
 for a in "$@"; do
-  case $a in - | *@-) exec "$real" "$@" ;; esac
+  case $a in - | *@- | *=-) exec "$real" "$@" ;; esac
 done
 
 # The call, with its two streams kept in files of their own: what GitHub
