@@ -701,7 +701,6 @@ fn body(
         now,
         models: crate::read::models::Models::read(),
         endpoint: (String::new(), String::new()),
-        gate: true,
     };
     // The same token for the poll's reads as for its writes: what the shim of
     // every gh call would ask for anyway, asked once by the poll.

@@ -18,7 +18,6 @@ use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 use tehas_core::hold;
 use tehas_core::mask::mask;
-use tehas_core::time::days_from_civil;
 
 /// The most of a console a call returns, and the default.
 pub const CONSOLE_MAX: u64 = 65536;
@@ -1602,16 +1601,10 @@ pub(crate) fn word(args: &Value, key: &str) -> Result<Option<String>, ToolError>
     }
 }
 
-/// Seconds since 1970 for "YYYY-MM-DDTHH:MM:SSZ", the form the live files use.
+/// Seconds since 1970 for "YYYY-MM-DDTHH:MM:SSZ", the form the live files
+/// use. Core's strict reader, kept as the name the other MCP modules call.
 pub(crate) fn epoch(t: &str) -> Option<i64> {
-    let b = t.as_bytes();
-    if b.len() != 20 || b[4] != b'-' || b[7] != b'-' || b[10] != b'T' || b[19] != b'Z' {
-        return None;
-    }
-    let n = |r: std::ops::Range<usize>| t.get(r)?.parse::<i64>().ok();
-    let (y, m, d) = (n(0..4)?, n(5..7)?, n(8..10)?);
-    let (hh, mm, ss) = (n(11..13)?, n(14..16)?, n(17..19)?);
-    Some(days_from_civil(y, m, d) * 86400 + hh * 3600 + mm * 60 + ss)
+    tehas_core::time::from_iso(t)
 }
 
 #[cfg(test)]
@@ -1619,11 +1612,17 @@ mod tests {
     use super::*;
     use tehas_core::testdir::TestDir;
 
+    // The parser is core's; the rows that matter here are the ones this reader
+    // used to take: no colon checked, no range checked, and a field parsed
+    // with a sign.
     #[test]
     fn epoch_of_a_live_file_time() {
         assert_eq!(epoch("1970-01-01T00:00:00Z"), Some(0));
         assert_eq!(epoch("2026-10-20T08:46:07Z"), Some(1792485967));
         assert_eq!(epoch("2026-10-20 08:46:07"), None);
+        assert_eq!(epoch("2026-10-20T08-46:07Z"), None);
+        assert_eq!(epoch("2026-13-40T09:00:00Z"), None);
+        assert_eq!(epoch("2026-10-20T+8:46:07Z"), None);
     }
 
     // The log prints the name of a called tool only when `known` says it is

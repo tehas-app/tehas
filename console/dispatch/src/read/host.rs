@@ -90,37 +90,10 @@ pub fn pause(home: &Path) -> Value {
 }
 
 /// Seconds since the epoch of an ISO 8601 UTC time as fromdateiso8601 reads
-/// it: YYYY-MM-DDTHH:MM:SSZ.
+/// it: YYYY-MM-DDTHH:MM:SSZ. Core's strict reader, kept as the name the other
+/// dispatch modules call.
 pub(crate) fn epoch(s: &str) -> Option<i64> {
-    let b = s.as_bytes();
-    if b.len() != 20
-        || b[4] != b'-'
-        || b[7] != b'-'
-        || b[10] != b'T'
-        || b[13] != b':'
-        || b[16] != b':'
-        || b[19] != b'Z'
-    {
-        return None;
-    }
-    let n = |r: std::ops::Range<usize>| s.get(r)?.parse::<i64>().ok();
-    let (y, m, d, hh, mm, ss) = (
-        n(0..4)?,
-        n(5..7)?,
-        n(8..10)?,
-        n(11..13)?,
-        n(14..16)?,
-        n(17..19)?,
-    );
-    if !(1..=12).contains(&m) || !(1..=31).contains(&d) || hh > 23 || mm > 59 || ss > 60 {
-        return None;
-    }
-    let (y, m) = if m <= 2 { (y - 1, m + 9) } else { (y, m - 3) };
-    let era = y.div_euclid(400);
-    let yoe = y - era * 400;
-    let doy = (153 * m + 2) / 5 + d - 1;
-    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    Some((era * 146_097 + doe - 719_468) * 86_400 + hh * 3600 + mm * 60 + ss)
+    tehas_core::time::from_iso(s)
 }
 
 /// The limit, as `flags limit read` reads it: the one reader in tehas_core.
@@ -554,11 +527,14 @@ mod tests {
         assert!(warn.is_empty());
     }
 
+    // The parser is core's; the row that matters here is one this reader used
+    // to take: a second 60 read as a time rather than as none.
     #[test]
     fn times_read_as_fromdateiso8601_reads_them() {
         assert_eq!(epoch("1970-01-01T00:00:00Z"), Some(0));
         assert_eq!(epoch("2026-10-31T00:00:00Z"), Some(1_793_404_800));
         assert_eq!(epoch("2026-10-31 00:00:00"), None);
+        assert_eq!(epoch("2026-10-31T00:00:60Z"), None);
     }
 
     #[test]

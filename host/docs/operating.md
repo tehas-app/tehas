@@ -242,7 +242,7 @@ compute on the issue.
   label by its current name, so a renamed label would carry its old
   applications with it. The dispatcher keeps the GitHub id of each granting
   label (`tehas:ready`, `tehas:plan`, `tehas:refine`, `tehas:finish`,
-  `tehas:urgent`, `tehas:next`, `tehas:lean`) in `~/tehas/state/labels`,
+  `tehas:lean`) in `~/tehas/state/labels`,
   written by `tehas labels` when it makes the labels, and an application of a
   label with another id, or of a granting label with no pin, counts as
   nobody's. The poll logs each refusal with the
@@ -251,9 +251,9 @@ compute on the issue.
   and `tehas update` recorded them. A label from the login with another id,
   after the login changed hands, counts as nobody's; so do a tick, an answer
   and a comment. See [Accounts by user id](/tools-update#accounts-by-user-id).
-- Add **`tehas:urgent`** as well to move it ahead of other ready issues. It is
-  checked like `tehas:ready`: only one applied by an allowed account moves the
-  issue; one applied by the bot or anyone else is ignored and logged.
+- To start it ahead of other ready issues, put it first in the start order:
+  `tehas order set --issues N`. The order only sorts; the issue still needs
+  its `tehas:ready`. See [tehas order](/api#tehas-order).
 
 The factory works on open issues only. A closed issue is never taken, and the
 number of a pull request is never taken, open, merged or closed. A label does
@@ -317,15 +317,13 @@ With any other backend the section and the meter are simply not there, and
 nothing else changes. To turn them off on a viiwork mesh, see
 [the energy sampler](/tools).
 
-The dispatcher takes issues `tehas:urgent` first, then [refreshes](#refreshes) of its own pull requests, then `tehas:next`, then by the lowest issue number. With `TEHAS_PRIORITY_FIELD` on the instance (see [tehas dispatch](/tools-dispatch#tehas-dispatch)), the organisation's issue field takes the place of the two labels: `Urgent` for `tehas:urgent` and `High` for `tehas:next`, from the same accounts. It takes them as many at a time as the host's ceiling and the slice's room allow (see [Limits that hold work back](#limits-that-hold-work-back)). A running cycle is never stopped to make room for an urgent one. The dashboard lists the queue by issue number, not the order the dispatcher will work it in: whether a `tehas:urgent` or `tehas:next` moves the queue is decided by who applied the label, not by its being there. `tehas:urgent` counts from an allowed labeller. `tehas:next` counts from an allowed labeller or [the millwright](#the-millwrights-grant), when the latest event of the label applies it; one taken off since, or applied by anyone else, is ignored and logged.
-
-An issue the poll puts on neither the urgent list nor the `tehas:next` list is the lowest kind, so one whose `tehas:next` came from an account the poll does not count is of that kind too. With `TEHAS_LOW_GATE` on the instance (see [tehas dispatch](/tools-dispatch#tehas-dispatch)) the poll runs one command of yours before it starts any of them, once a poll at most, and only when such an issue would otherwise start. Only its exit status is read: 0 lets them start, and anything else holds them for that poll, a command that is missing, one that is not executable or one that outlives `TEHAS_LOW_GATE_WAIT` included, while urgent and `tehas:next` issues go ahead. What the command prints is kept in `~/tehas/logs/low-gate.log`, rewritten each time it is asked, so a gate that closes for a reason says that reason there. The log says `low issues wait: TEHAS_LOW_GATE answered S` once when the hold begins and `low issues may start: TEHAS_LOW_GATE answered 0` once when it ends, whatever the command answers while the hold lasts; after that each held issue says it on its own line. No cycle that already runs is stopped by it. A closed gate is not one of the holds [tehas status](/tools-status#tehas-status) shows, so a factory that starts nothing for it reads healthy elsewhere: look in `~/tehas/logs/dispatch.log`. With no setting there is no gate, and every ready issue is started as before.
+The dispatcher takes the ready issues of the start order first, in the order given, then [refreshes](#refreshes) of its own pull requests, then the other ready issues, lowest number first. With no order, ready issues start lowest number first. A person sets the order with `tehas order set --issues 12,8`, and it lasts until it is cleared unless `--for` or `--until` gives it an expiry; a program that runs the factory may set it on every poll instead. With `--only`, a ready issue the order does not name waits, and the log says `wait #N: not in the start order (--only)`; refreshes do not wait. An order that expired or cannot be read is no order, and the log says so. The order only sorts: an issue starts only on a `tehas:ready` or `tehas:blocked` from an allowed account, and every hold below applies as without it. [tehas status](/tools-status#tehas-status) prints an `order` line while one is set. See [tehas order](/api#tehas-order). The dispatcher takes issues as many at a time as the host's ceiling and the slice's room allow (see [Limits that hold work back](#limits-that-hold-work-back)). A running cycle is never stopped to make room for one higher in the order. The dashboard lists the queue by issue number, not the order the dispatcher will work it in.
 
 An issue with an open native blocked-by link is not started, whatever label asks for it: add the link under the issue's **Relationships** on GitHub ("Mark as blocked by"). The page each poll reads carries the count of open blockers (`issueDependenciesSummary`), so the hold costs no call of its own, and the log says `wait #N: a blocked-by link holds it: 1 blocker is open`. A link only holds an issue back. It never starts one: once every blocker is closed the issue starts under the usual approval rules, so `tehas:ready` from an allowed labeller, or a `tehas:blocked` whose marked comment counts, is still needed. Apply `tehas:ready` with the link and the issue starts when its last blocker closes. A link and a marked comment both hold: the issue waits while either names an open blocker. A forge that answers no such field holds nothing by links, and the marked comment below is all that names blockers there.
 
 With `TEHAS_OVERLAP_HOLD=1` on the instance an issue also waits while a running cycle's branch changes a path its body names in a `[paths: ...]` list. A named file holds on a change to that file, and a named directory, one that ends in `/`, on a change to any file under it; a ` (new)` after a path is ignored. The branches are the running issue's `feature/issue-N`, `feature/issue-N-*` and `finish/issue-N` as the dispatcher's own checkout last fetched them, compared with the default branch there. Git is never run in a cycle's workspace, so a cycle's first run, which has pushed no branch yet, holds nothing. The log says `wait #N: a running cycle on #M changes lib/a.sh`, nothing is said on the issue, and the issue starts at the first poll after that cycle ends or its branch stops changing the path. A branch that cannot be read holds nothing, and neither does a body with no paths list. The setting is off unless the instance turns it on.
 
-The marked comment of `tehas:blocked` keeps working for one release, then the links replace it. An issue with `tehas:blocked` is not started while an issue it names is open, so its slot goes to work that can move. Once every issue it names is closed, it starts. Apply `tehas:blocked` on its own and leave `tehas:ready` off: the dispatcher starts the issue when its blockers close, on your approval, as if you had applied `tehas:ready` then. The label counts on the same terms as `tehas:next`, with one difference: on its own it starts work, so it counts only from an allowed labeller, and only while the text is the one it approved, as `tehas:ready` does. A `tehas:blocked` the millwright applies holds an issue but does not start one. On an issue tehas is already working on, one with `tehas:running`, `tehas:awaiting-merge`, `tehas:question`, `tehas:planning`, `tehas:refreshing`, `tehas:plan` or `tehas:refine`, it starts nothing. The blockers are named in a comment by an allowed labeller or the millwright that holds the marker:
+The marked comment of `tehas:blocked` keeps working for one release, then the links replace it. An issue with `tehas:blocked` is not started while an issue it names is open, so its slot goes to work that can move. Once every issue it names is closed, it starts. Apply `tehas:blocked` on its own and leave `tehas:ready` off: the dispatcher starts the issue when its blockers close, on your approval, as if you had applied `tehas:ready` then. The label counts from an allowed labeller or [the millwright](#the-millwrights-grant), when the latest event of the label applies it, with one difference: on its own it starts work, so it counts only from an allowed labeller, and only while the text is the one it approved, as `tehas:ready` does. A `tehas:blocked` the millwright applies holds an issue but does not start one. On an issue tehas is already working on, one with `tehas:running`, `tehas:awaiting-merge`, `tehas:question`, `tehas:planning`, `tehas:refreshing`, `tehas:plan` or `tehas:refine`, it starts nothing. The blockers are named in a comment by an allowed labeller or the millwright that holds the marker:
 
 ```
 Blocked by #12 and #34.
@@ -333,7 +331,7 @@ Blocked by #12 and #34.
 <!-- tehas:blocked by=12,34 -->
 ```
 
-Up to 20 numbers, separated by commas and no spaces. The newest such comment among the last 100 counts; one by anyone else is ignored. Only comments are read: a marker in the issue's body names nothing. When the label counts and no such comment is there, the issue is held by the label alone: it names no blockers and never starts until an allowed labeller or the millwright comments a marker, or a person takes `tehas:blocked` off. The log says so at every poll, and [tehas status](/tools-status#tehas-status) lists such issues on a `blocked` line and in `demand.labelAlone`. The issue also waits, and the log says why, when the newest one does not hold a marker that reads, when it was last edited by another account, or when GitHub does not give the state of a number it names. Once every blocker is closed the issue starts, and the start takes `tehas:blocked` off with `tehas:ready`. The label stays on until that start, so an issue whose blockers have closed while it waits for a slot or another hold can carry `tehas:blocked` beside `tehas:next`: the hold is over, and the label is what asks for the start. When an allowed labeller's `tehas:blocked` clears and the issue does not start in that poll, the dispatcher says so once in a comment that holds `<!-- tehas:hold-cleared -->`. A newer marker comment is a new hold, and its clearing is said again. A blocker that is closed already holds nothing: name one that is still open, or reopen it. To start a blocked issue anyway, swap `tehas:blocked` for `tehas:ready`. To stop it starting, take the label off.
+Up to 20 numbers, separated by commas and no spaces. The newest such comment among the last 100 counts; one by anyone else is ignored. Only comments are read: a marker in the issue's body names nothing. When the label counts and no such comment is there, the issue is held by the label alone: it names no blockers and never starts until an allowed labeller or the millwright comments a marker, or a person takes `tehas:blocked` off. The log says so at every poll, and [tehas status](/tools-status#tehas-status) lists such issues on a `blocked` line and in `demand.labelAlone`. The issue also waits, and the log says why, when the newest one does not hold a marker that reads, when it was last edited by another account, or when GitHub does not give the state of a number it names. Once every blocker is closed the issue starts, and the start takes `tehas:blocked` off with `tehas:ready`. The label stays on until that start, so an issue whose blockers have closed while it waits for a slot or another hold still carries `tehas:blocked`: the hold is over, and the label is what asks for the start. When an allowed labeller's `tehas:blocked` clears and the issue does not start in that poll, the dispatcher says so once in a comment that holds `<!-- tehas:hold-cleared -->`. A newer marker comment is a new hold, and its clearing is said again. A blocker that is closed already holds nothing: name one that is still open, or reopen it. To start a blocked issue anyway, swap `tehas:blocked` for `tehas:ready`. To stop it starting, take the label off.
 
 An issue labelled `tehas:improvement` and `cross-project` together is not started: the finding says the change belongs in another repository of the stack as well as this one, so one cycle here cannot make it, and a cycle on it spends a slot and its tokens before it parks. The dispatcher starts nothing and the log says why; it takes no label off and writes no comment, because the issue is a proposal the loop filed and a person decides what becomes of it. Read the `Names` line, which says the other repositories the loop read, and either work on both sides yourself or close it. Either label alone starts a cycle as any other issue would: `cross-project` on an issue the loop did not file is a person's label and means nothing to the dispatcher, and a finding that names no other repository is worked on here. The hold is on `tehas:ready` and on a ticked retry alike; a `tehas:plan` session on such an issue is allowed, since planning where the change goes on each side is what it is for.
 
@@ -359,7 +357,6 @@ With `TEHAS_SIZE_MAX_FILES` set on the instance, an issue whose own body names m
 | `tehas:improvement`     | Filed by the improvement loop     | Read it; apply `tehas:ready` if it should be built |
 | `cross-project`         | On a finding of the loop: the change belongs in another repository of the stack too | Not started; read the `Names` line, then work both sides or close it |
 | `tehas:millwright-escalated` | The millwright left it to a person | Read the millwright's note; decide, or take the label off to hand it back |
-| `tehas:next`            | Started after urgent issues, before the rest | Take it off to give the issue its place by number back |
 | `tehas:lean`            | The lean driver is chosen for it. See [Choosing the driver](#choosing-the-driver) | Take it off to run the issue on classic |
 | `tehas:blocked`         | Started once every blocker it names is closed | Close the blockers; swap it for `tehas:ready` to start it now |
 | `tehas:refreshing`      | On a pull request: a [refresh](#refreshes) works on it | Do not merge or push to it now; it comes off when the cycle ends |
@@ -388,8 +385,8 @@ Once an issue is closed, the next poll takes tehas's state labels off it:
 `tehas:running`, `tehas:awaiting-merge`, `tehas:question`, `tehas:planning`,
 `tehas:refreshing`, `tehas:blocked`, `tehas:ready`, `tehas:plan` and
 `tehas:refine`.
-`needs-human-attention` and the labels a person chooses, such as `tehas:urgent`
-and `tehas:next`, stay. The list, the two searches, the decision of what comes
+`needs-human-attention` and the labels a person chooses, such as `tehas:lean`,
+stay. The list, the two searches, the decision of what comes
 off which issue and the edits are the console's (`console tidy run`,
 `console/src/tidy.rs`).
 
@@ -1230,8 +1227,6 @@ What follows from that shape:
 
 - A poll systemd stops with TERM ends without its cost record and tidy; the
   next poll's tidy covers it.
-- The low gate is run while the poll decides, so a poll that an earlier step
-  ends has run it; it writes `logs/low-gate.log` and nothing else.
 - The open planning sessions are read once, with the queue.
 - A closed issue is not in the query, so the poll says nothing of it.
 - A paused poll reads the queue and what its clean-up needs, and no more: not
@@ -1639,9 +1634,7 @@ only. Planning
 turns still run. `tehas status` shows the room in its `slice` line, as the
 dispatcher's last poll read it, and `tehas dispatch --dry-run` reads it
 afresh. A hold is written to `~/tehas/logs/dispatch.log` once, when its reason
-changes, and `released: cycles may start again` once when it ends. The gate of
-the lowest issues is not one of these holds: it reaches neither `tehas status`
-nor `/health`, and is seen in `logs/dispatch.log` and `logs/low-gate.log`.
+changes, and `released: cycles may start again` once when it ends.
 
 ### The gate's bound and the cycles at once
 
@@ -2163,11 +2156,15 @@ the new names.
   [finishing a stopped cycle](#finishing-a-stopped-cycle) says.
 - **`tehas:millwright-escalated`** is the millwright's word that a person decides.
   The factory does nothing on it; a start takes it off.
-- **It may order the queue** with `tehas:next` and `tehas:blocked`, and
-  name the blockers in a marked comment, as an allowed labeller may (see
-  [What happens next](#3-what-happens-next)). Neither starts anything: an
-  issue still needs a `tehas:ready` that counts. When to apply them, and how
-  many, is the millwright's to decide, not the factory's.
+- **It may hold issues** with `tehas:blocked`, and name the blockers in a
+  marked comment, as an allowed labeller may (see
+  [What happens next](#3-what-happens-next)). That starts nothing: an
+  issue still needs a `tehas:ready` that counts. When to apply it, and how
+  often, is the millwright's to decide, not the factory's. No label orders
+  the queue: the order ready issues start in is set on the host with
+  [tehas order](/api#tehas-order), by a person or by a host program that runs
+  the factory. A millwright that runs as such a program orders the queue
+  that way.
 - **Each cycle's end leaves a line** of history in the state store
   (`~/tehas/state/tehas.db`), the last 50 of each issue: when, its status,
   last step, cap, park reason, failure, whether a provider outage stopped
@@ -2284,8 +2281,8 @@ turn refreshes off on such a host.
 Pause, the limit, the slots of the lane and the slice's room hold a refresh as
 they hold any start; the limit of `tehas limit` counts refreshes and cycles
 together. `TEHAS_MAX_AWAITING` does not: the pull request is open already,
-and the start takes `tehas:awaiting-merge` off. A refresh goes after `tehas:urgent` and before
-`tehas:next`. A refresh that waits for room counts in the demand of
+and the start takes `tehas:awaiting-merge` off. A refresh goes after the ready issues of the
+start order and before the other ready issues. A refresh that waits for room counts in the demand of
 `tehas status`.
 
 **After a handoff.** The refresh takes a handed-off pull request, draft or not:

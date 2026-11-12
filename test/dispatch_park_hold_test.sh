@@ -46,7 +46,7 @@ parked_again() { # <body of the issue> [<park reason> [<- for a cycle by hand>]]
 park_comments() { # <body of the parked issue> [<notes as a REST list>]
   comments 7 "$(park_body ' ' ' ')" "" "${2:-[]}"
   local bot
-  bot=$(jq -cn --arg b "$(park_body ' ' ' ')" '{id: 4001, user: {login: "tehas-bot"},
+  bot=$(jq -cn --arg b "$(park_body ' ' ' ')" '{id: 4001, user: {login: "tehas-bot", id: ("tehas-bot" | explode | add)},
     created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z", body: $b}')
   jq -cn --argjson bot "$bot" --argjson after "${2:-[]}" '[$bot] + $after' \
     >"$fx/icomments-7.json"
@@ -377,11 +377,11 @@ t_run "$dispatch"
 t_eq "$(t_calls fake-start)" "7"
 t_lacks "$t_out" "its last cycle parked on"
 
-# The same hold asks nothing of an urgent or tehas:next issue either: the hold
-# is of the poll, where its kind is settled, not of the kind itself.
-t_case "an urgent issue parked on its own body is held too"
+# The same hold asks nothing of an issue first in the start order either: the
+# hold is of the poll, where its kind is settled, not of the order.
+t_case "an issue first in the start order, parked on its own body, is held too"
 parked_again "Words."
-label_events 7 "tehas:urgent=alice"
+TEHAS_HOME=$T/home/tehas "$T_STORE" order-set --issues 7 >/dev/null
 holds "Words."
 
 t_case "a changed body starts, and the park of the held go is not current after the start"

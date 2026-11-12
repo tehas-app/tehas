@@ -35,6 +35,19 @@ api=$T_ROOT/api
 # .schema.json` must name in its `required`. A later surface is more lines of
 # the same four kinds.
 surfaces=(
+  'surface	order'
+  'sample	sample'
+  'sample	expired'
+  'sample	empty'
+  'state	ok'
+  'state	expired'
+  'state	none'
+  'check	del(.state) | .zz = 1 | .only = "yes"	.: state is missing'
+  'check	del(.state) | .zz = 1 | .only = "yes"	.zz: not in the schema'
+  'check	del(.state) | .zz = 1 | .only = "yes"	.only: string, not boolean'
+  'bound	issues[0]	.issues[0] = 1	.issues[0] = 0	under 1'
+  'bound	reason	.reason = "01234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789"	.reason = "012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567891"	longer than 200'
+  'required	["api","state"]'
   'surface	limit'
   'sample	sample'
   'sample	expired'
@@ -422,6 +435,24 @@ panel_reading() { # <name>
   t_run "TEHAS_DOMAIN=$panel_domain '$T_ROOT/bin/tehas' panel --json"
 }
 
+# The order of the `order` samples, on the state store: issues 12 and 8 first,
+# nothing else, an expiry forty minutes on and a reason, written at the moment
+# `limit` is, and read then (`sample`) or after it expired (`expired`). A store
+# that cannot be read is no answer at all: the command exits 1.
+order_world() { # <name>
+  t_store_home "$T/home/tehas"
+  case $1 in
+    sample | expired) t_run "TEHAS_STORE_TEST_NOW=$limit_written '$T_CONSOLE' \
+        tehas order set --issues 12,8 --only --until 2026-10-17T15:00:20Z --reason held >/dev/null 2>&1" ||
+      t_bad "setting the order failed: $t_out" ;;
+    empty) ;;
+  esac
+}
+
+order_reading() { # <name>
+  t_run "TEHAS_STORE_TEST_NOW=$(limit_now "$1") '$T_CONSOLE' tehas order --json | jq ."
+}
+
 # The moment the limit file is written at: 2026-10-17T14:00:20Z, when it is in
 # force, whichever reading of it a sample is. `set` takes the same moment for
 # its own now, so it never sees a `--until` of the past. Named here so the two
@@ -541,6 +572,11 @@ printed() { # <surface> <name>
   rm -rf "$T/home/tehas"
   t_instance "${T_MINIMAL[@]}"
   case $surface in
+    order)
+      order_world "$name"
+      order_reading "$name"
+      printf '%s\n' "$t_out" | jq .
+      ;;
     limit)
       limit_world "$name"
       limit_reading "$name"

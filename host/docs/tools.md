@@ -26,6 +26,7 @@ tehas status [--json]            # print the state of the factory
 tehas api [--json]               # what this factory speaks, for a program
 tehas disk [--full] [--json]     # how full this host is, and what fills it
 tehas limit [set ...|clear]      # an outside cap on what this factory starts
+tehas order [set ...|clear]      # the order ready issues start in
 tehas drain [--wait S] [--json]  # start nothing new, wait for running cycles
 tehas history [--json] [--after C] [--issue N]  # what ended, oldest first
 tehas export [--json] --after C <dir>  # copy a cycle's records, masked
@@ -71,7 +72,7 @@ in the platform repository has every one with a comment.
 | ------------------------------- | ---------------------------------------- | --------------------------------------------------------------- |
 | `TEHAS_REPO`                    | required                                 | `owner/name` of the repository whose issues are the queue       |
 | `TEHAS_CONTROL_ISSUE`           | required                                 | Issue that carries `tehas:pause`                                |
-| `TEHAS_ALLOWED_LABELERS`        | required                                 | Logins whose labels count, space separated: `tehas:ready`, `tehas:plan`, `tehas:urgent`, `tehas:next`, `tehas:blocked` and `tehas:lean` for the dispatcher, `tehas:prototype` for the Protolab. Each counts only with the GitHub user id `install.sh` and `tehas update` recorded for it, see [Accounts by user id](/tools-update#accounts-by-user-id) |
+| `TEHAS_ALLOWED_LABELERS`        | required                                 | Logins whose labels count, space separated: `tehas:ready`, `tehas:plan`, `tehas:refine`, `tehas:finish`, `tehas:blocked` and `tehas:lean` for the dispatcher, `tehas:prototype` for the Protolab. Each counts only with the GitHub user id `install.sh` and `tehas update` recorded for it, see [Accounts by user id](/tools-update#accounts-by-user-id) |
 | `PI_ENSEMBLE_SUBAGENT_MODEL`    | required                                 | Model for every subagent role without one of its own            |
 | `PI_ENSEMBLE_SUBAGENT_PROVIDER` | required                                 | Its provider, as named in `models.json`                         |
 | `PI_ENSEMBLE_MODEL_<ROLE>`      | `PI_ENSEMBLE_SUBAGENT_MODEL`             | Model for one role: `EXPLORE`, `DEVELOPER`, `ADVERSARIAL_DEVELOPER`, `CODE_REVIEW_SPECIALIST` (the six lens reviewers) or `OPS`. Another name is refused. See [A model per role](/host#a-model-per-role) |
@@ -124,10 +125,7 @@ in the platform repository has every one with a comment.
 | `TEHAS_SCRATCH_MAX`             | `20g`                                    | What one cycle's scratch under `TEHAS_SCRATCH_DIR` may hold, measured every 10 seconds by tehas work; a cycle whose scratch holds more is stopped at the cap `disk`. Only with `TEHAS_SCRATCH_DIR`. A size such as `512m` or `20g`, else every command stops with 78 |
 | `TEHAS_CLEAN_DIRS`             | `target node_modules __pycache__ .venv .pytest_cache .mypy_cache .next .turbo .gradle` | The directory names `tehasbot clean` removes anywhere in a kept workspace, separated by single spaces. Names, not paths: one with a `/`, a bare `.` or `..`, or a dot-name in the family of the two a workspace keeps, stops every command with 78 (see [tehasbot clean](/tools-clean#tehasbot-clean)) |
 | `TEHAS_BRANCH_CHECK`           | empty                                    | Optional. The name of a check that runs on every push to `TEHAS_BRANCH`, as `verify`. While it failed on the branch's head commit no new cycle starts (see [Limits that hold work back](/operating#limits-that-hold-work-back)). Words of letters, digits and `._()/-` separated by single spaces, else every command stops with 78. Empty: the poll does not ask |
-| `TEHAS_LOW_GATE`               | empty                                    | Optional. A command the dispatcher asks before it starts an issue it puts on neither the urgent list nor the `tehas:next` list. An absolute path of `/`, letters, digits and `._-` with no empty or dot segment, and not under `~/tehas` or the instance directory, else every command stops with 78. Empty: there is no gate, and every ready issue is started as before (see [tehas dispatch](/tools-dispatch#tehas-dispatch)) |
-| `TEHAS_PRIORITY_FIELD`         | empty                                    | Optional. One word: the organisation's single-select issue field, such as `Priority`, whose value `Urgent` orders the queue as `tehas:urgent` does and `High` as `tehas:next` does. With it set, those two labels order nothing. On a repository of a personal account, which has no issue fields, the labels order the queue as before. A field the organisation does not have stops each poll with 78. Empty: the labels order the queue (see [tehas dispatch](/tools-dispatch#tehas-dispatch)) |
 | `TEHAS_ISSUE_TYPES`            | empty                                    | Optional. `kind=Type` pairs separated by single spaces, such as `improvement=Improvement prototype=Prototype`: the organisation's issue type that marks a kind in place of its label, `tehas:improvement` for the improvement loop and the dispatcher, `tehas:prototype` for the Protolab. A kind left out stays its label. Another kind, a kind named twice, or a type name of anything but letters, digits, `-` and `_` stops every command with 78; a type the organisation does not have stops the poll, the loop and the Protolab with 78 (see [Kinds as issue types](/operating#kinds-as-issue-types)). Empty: the labels |
-| `TEHAS_LOW_GATE_WAIT`          | `60`                                     | Optional. Seconds `TEHAS_LOW_GATE` gets before its answer is a closed gate. A whole number from 1 to 600, else every command stops with 78. The poll holds `~/tehas/state/dispatch.lock` while it waits, so a long value delays every later poll (see [tehas dispatch](/tools-dispatch#tehas-dispatch)) |
 | `TEHAS_WORK_REPO`               | `~/tehas/repos/<name>`                   | The product checkout cycles are cloned from. Must be a clone of `TEHAS_REPO`. A cycle works in `~/tehas/work/<name>-<issue>`, which is not a setting |
 | `TEHAS_BRANCH`                  | the checkout's `origin/HEAD`             | Branch cycles start from and pull requests target               |
 | `TEHAS_UPDATE_FROM`             | `release` or `git`, what the host has    | Where `tehas update` takes new versions from: `release`, a published release unpacked into `~/tehas/versions`, or `git`, the platform checkout, for a host that develops tehas. Unset, a host with `~/tehas/current` uses releases and one with a platform checkout uses the checkout, so a host installed before the setting existed goes on as it did; a host with neither stops with 78 and names the setting. Another word stops every command with 78 (see [tehas update](/tools-update#tehas-update)) |
@@ -420,6 +418,10 @@ FAILED: test/plan_test.sh: a case that did not pass
 
 The case total is the number to compare between runs: it does not go down
 unless cases were removed. The slowest files are the ones to split.
+
+Budget: 700 s for the whole gate (`scripts/verify.sh`) on the reference machine
+at the commit of #1801: `nproc` counts 48 CPUs, the cgroup's quota is 47 and its
+memory ceiling 12 GiB, so `TEHAS_TEST_JOBS` at its default runs 24 at a time.
 
 Every severity of shellcheck note fails the run: error, warning, info and style.
 The lint is called with no `-S` floor and no codes excluded, so a style note on a

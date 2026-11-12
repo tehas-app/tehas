@@ -70,9 +70,21 @@ pub fn iso(t: i64) -> String {
 
 /// Unix seconds of 2026-10-15T18:38:44Z, as [`iso`] and `date -u
 /// +%Y-%m-%dT%H:%M:%SZ` write it; None for any other shape.
+///
+/// This is the one strict reader of the form: every byte of the shape is
+/// checked, every field is digits and no sign, and each value is in range.
+/// A day past the month's last day, hour 24, minute or second 60 are None.
+/// The writers never emit a leap second, so second 60 is not a time.
 pub fn from_iso(s: &str) -> Option<i64> {
     let b = s.as_bytes();
-    if b.len() != 20 || b[4] != b'-' || b[7] != b'-' || b[10] != b'T' || b[19] != b'Z' {
+    if b.len() != 20
+        || b[4] != b'-'
+        || b[7] != b'-'
+        || b[10] != b'T'
+        || b[13] != b':'
+        || b[16] != b':'
+        || b[19] != b'Z'
+    {
         return None;
     }
     let n = |r: std::ops::Range<usize>| {
@@ -81,8 +93,30 @@ pub fn from_iso(s: &str) -> Option<i64> {
             .all(|b| b.is_ascii_digit())
             .then(|| v.parse().ok())?
     };
-    let days = days_from_civil(n(0..4)?, n(5..7)?, n(8..10)?);
-    Some(days * 86_400 + n(11..13)? * 3600 + n(14..16)? * 60 + n(17..19)?)
+    let (y, m, d) = (n(0..4)?, n(5..7)?, n(8..10)?);
+    let (hh, mm, ss) = (n(11..13)?, n(14..16)?, n(17..19)?);
+    if !(1..=12).contains(&m) || !(1..=days_in_month(y, m)).contains(&d) {
+        return None;
+    }
+    if hh > 23 || mm > 59 || ss > 59 {
+        return None;
+    }
+    Some(days_from_civil(y, m, d) * 86_400 + hh * 3600 + mm * 60 + ss)
+}
+
+/// The last day of month `m` of year `y` in the proleptic Gregorian calendar.
+fn days_in_month(y: i64, m: i64) -> i64 {
+    match m {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        _ => {
+            if y.rem_euclid(4) != 0 || (y.rem_euclid(100) == 0 && y.rem_euclid(400) != 0) {
+                28
+            } else {
+                29
+            }
+        }
+    }
 }
 
 /// `date -u +%y%m%d-%H%M%S`, the stamp of a log's name.
@@ -107,9 +141,70 @@ mod tests {
         for t in [0, 1_793_967_944, 86_399] {
             assert_eq!(from_iso(&iso(t)), Some(t));
         }
-        assert_eq!(from_iso("2026-10-15T18:38:44"), None);
-        assert_eq!(from_iso("2026-10-15 18:38:44Z"), None);
-        assert_eq!(from_iso("2026-1x-15T18:38:44Z"), None);
+    }
+
+    #[test]
+    fn from_iso_is_the_one_strict_parser() {
+        // A time the writer emits reads back as the second it was written.
+        for t in [0, 1_792_485_967, 951_782_400, 1_793_967_944] {
+            assert_eq!(from_iso(&iso(t)), Some(t), "{}", iso(t));
+        }
+        // The shape: every separator of the form is checked where it stands.
+        for bad in [
+            "2026-10-15T18:38:44",
+            "2026-10-15 18:38:44Z",
+            "2026-1x-15T18:38:44Z",
+            "2026x10-15T18:38:44Z",
+            "2026-10x15T18:38:44Z",
+            "2026-10-15X18:38:44Z",
+            "2026-10-15T18-38:44Z",
+            "2026-10-15T18:38-44Z",
+            "2026-10-15T18:38:44z",
+            "2026-10-15T18:38:44",
+            "2026-10-15T18:38:44Z ",
+            "",
+        ] {
+            assert_eq!(from_iso(bad), None, "{bad}");
+        }
+        // A sign in a field is not a number, and a two-digit field is two digits.
+        for bad in [
+            "-026-10-15T18:38:44Z",
+            "+026-10-15T18:38:44Z",
+            "2026--1-15T18:38:44Z",
+            "2026-+1-15T18:38:44Z",
+            "2026-10--5T18:38:44Z",
+            "2026-10-+5T18:38:44Z",
+            "2026-10-15T-8:38:44Z",
+            "2026-10-15T+8:38:44Z",
+            "2026-10-15T18-3:44Z",
+            "2026-10-15T18:+3:44Z",
+            "2026-10-15T18:38-4Z",
+            "2026-10-15T18:38:+4Z",
+        ] {
+            assert_eq!(from_iso(bad), None, "{bad}");
+        }
+        // The ranges, including the month's last day and the leap years.
+        for bad in [
+            "2026-00-15T18:38:44Z",
+            "2026-13-15T18:38:44Z",
+            "2026-01-00T18:38:44Z",
+            "2026-01-32T18:38:44Z",
+            "2026-02-30T18:38:44Z",
+            "2026-02-29T18:38:44Z",
+            "2026-04-31T18:38:44Z",
+            "2026-10-15T24:38:44Z",
+            "2026-10-15T18:60:44Z",
+            "2026-10-15T18:38:60Z",
+        ] {
+            assert_eq!(from_iso(bad), None, "{bad}");
+        }
+        // A leap day and a whole month's last day are times.
+        assert_eq!(from_iso("2024-02-29T00:00:00Z"), Some(1_709_164_800));
+        assert_eq!(from_iso("2000-02-29T00:00:00Z"), Some(951_782_400));
+        assert_eq!(from_iso("1900-02-28T00:00:00Z"), Some(-2_203_977_600));
+        assert_eq!(from_iso("1900-02-29T00:00:00Z"), None);
+        assert_eq!(from_iso("2026-01-31T23:59:59Z"), Some(1_769_903_999));
+        assert_eq!(from_iso("2026-04-30T23:59:59Z"), Some(1_777_593_599));
     }
 
     #[test]

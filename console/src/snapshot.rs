@@ -60,32 +60,10 @@ pub fn snapshot(live: &Path, lines: usize, max_age: i64, reading: &str, earlier:
     )
 }
 
-/// Seconds since the epoch of YYYY-MM-DDTHH:MM:SSZ, as fromdateiso8601 reads it.
+/// Seconds since the epoch of YYYY-MM-DDTHH:MM:SSZ. Core's strict reader,
+/// kept as the name the other console modules call.
 pub fn epoch(s: &str) -> Option<i64> {
-    let b = s.as_bytes();
-    if b.len() != 20
-        || b[4] != b'-'
-        || b[7] != b'-'
-        || b[10] != b'T'
-        || b[13] != b':'
-        || b[16] != b':'
-        || b[19] != b'Z'
-    {
-        return None;
-    }
-    let n = |r: std::ops::Range<usize>| s.get(r)?.parse::<i64>().ok();
-    let (y, m, d, hh, mm, ss) = (
-        n(0..4)?,
-        n(5..7)?,
-        n(8..10)?,
-        n(11..13)?,
-        n(14..16)?,
-        n(17..19)?,
-    );
-    if !(1..=12).contains(&m) || !(1..=31).contains(&d) || hh > 23 || mm > 59 || ss > 60 {
-        return None;
-    }
-    Some(time::days_from_civil(y, m, d) * 86_400 + hh * 3600 + mm * 60 + ss)
+    time::from_iso(s)
 }
 
 /// The bytes of a file with the control characters a terminal could act on
@@ -411,11 +389,14 @@ mod tests {
         );
     }
 
+    // The parser is core's; the row that matters here is one this reader used
+    // to take: a second 60 read as a time rather than as none.
     #[test]
     fn times_read_as_fromdateiso8601_reads_them() {
         assert_eq!(epoch("1970-01-01T00:00:00Z"), Some(0));
         assert_eq!(epoch("2026-10-31T00:00:00Z"), Some(1_793_404_800));
         assert_eq!(epoch("2026-10-31 00:00:00"), None);
+        assert_eq!(epoch("2026-10-31T00:00:60Z"), None);
     }
 
     #[test]

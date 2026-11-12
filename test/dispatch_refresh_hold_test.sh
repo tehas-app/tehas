@@ -169,21 +169,19 @@ t_run "$dispatch"
 t_eq "$t_rc" 0
 t_eq "$(started)" "7 "
 
-t_case "refreshes go after tehas:urgent and before tehas:next"
+t_case "refreshes go after the start order and before the rest"
 refresh_setup
 slots 4 TEHAS_REFRESH_CONFLICTS=1
-queue 3 "8 tehas:urgent" "9 tehas:next"
-label_events 8 tehas:urgent=alice
-label_events 9 tehas:next=alice
+queue 3 8 9
+TEHAS_HOME=$T/home/tehas "$T/store-bin" order-set --issues 8 >/dev/null || t_bad "the store refused the order"
 t_run "$dispatch"
 t_eq "$t_rc" 0
-t_eq "$(started)" "8 7 9 3 "
+t_eq "$(started)" "8 7 3 9 "
 
-t_case "with TEHAS_REFRESH_SLOTS=0 a refresh takes a slot before tehas:next does"
+t_case "with TEHAS_REFRESH_SLOTS=0 a refresh takes a slot before a ready issue does"
 refresh_setup
 slots 1 TEHAS_REFRESH_CONFLICTS=1 TEHAS_REFRESH_SLOTS=0
-queue "9 tehas:next"
-label_events 9 tehas:next=alice
+queue 9
 t_run "$dispatch"
 t_eq "$(started)" "7 "
 

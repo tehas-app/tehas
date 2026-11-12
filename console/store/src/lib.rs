@@ -16,6 +16,7 @@ mod journal;
 mod live;
 mod load;
 mod lock;
+mod order;
 mod park;
 mod plan;
 mod poll;

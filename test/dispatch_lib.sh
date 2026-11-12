@@ -470,26 +470,11 @@ release() {
 # count is read with nproc; a stub makes every test machine the same.
 t_stub nproc 'echo 8'
 slots() { t_instance "${T_MINIMAL[@]}" "TEHAS_TICKET_CONCURRENCY=$1" "${@:2}"; }
-# The label events of an issue: tehas:ready by alice, then tehas:urgent by
-# <login>. An empty login stands for a labelling that names nobody.
-urgent_by() { # <issue> <login or "">
-  jq -nc --arg w "$2" '[{event: "labeled", label: {name: "tehas:ready"}, actor: {login: "alice"}},
-    {event: "labeled", label: {name: "tehas:urgent"},
-     actor: (if $w == "" then null else {login: $w} end)}]' >"$fx/events-$1.json"
-}
-
-ready() { # issue... : the queue, each labelled by alice; "8!" is urgent, by alice too
-  local n num labels list=""
+ready() { # issue... : the queue, each labelled by alice
+  local n list=""
   for n in "$@"; do
-    num=${n%!}
-    labels='{"name":"tehas:ready"}'
-    if [ "$n" = "$num" ]; then
-      cp "$fx/events-7.json" "$fx/events-$num.json" 2>/dev/null || true
-    else
-      labels="$labels,{\"name\":\"tehas:urgent\"}"
-      urgent_by "$num" alice
-    fi
-    list="$list,{\"number\":$num,\"labels\":[$labels]}"
+    cp "$fx/events-7.json" "$fx/events-$n.json" 2>/dev/null || true
+    list="$list,{\"number\":$n,\"labels\":[{\"name\":\"tehas:ready\"}]}"
   done
   echo "[${list#,}]" >"$fx/ready.json"
 }
@@ -498,7 +483,7 @@ ready() { # issue... : the queue, each labelled by alice; "8!" is urgent, by ali
 # whatever was written after it.
 comments() { # <issue> <question body> <editor or ""> [later comments as JSON]
   jq -n --arg body "$2" --arg ed "$3" --argjson after "${4:-[]}" '{data: {repository: {issue: {comments: {nodes: ([
-    {databaseId: 4001, author: {login: "tehas-bot"}, body: $body, createdAt: "2026-01-01T00:00:00Z",
+    {databaseId: 4001, author: {login: "tehas-bot", databaseId: ("tehas-bot" | explode | add)}, body: $body, createdAt: "2026-01-01T00:00:00Z",
      lastEditedAt: (if $ed == "" then null else "2026-01-01T01:00:00Z" end),
      editor: (if $ed == "" then null else {login: $ed} end)}] + $after)}}}}}' >"$fx/comments-$1.json"
 }

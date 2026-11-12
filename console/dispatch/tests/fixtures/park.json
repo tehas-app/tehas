@@ -381,7 +381,7 @@
    }
   },
   {
-   "case": "an urgent issue parked on its own body is held too",
+   "case": "an issue first in the start order, parked on its own body, is held too",
    "snapshot": {
     "ready": [
      {
@@ -395,15 +395,19 @@
        },
        {
         "name": "tehas:question"
-       },
-       {
-        "name": "tehas:urgent"
        }
       ]
      }
     ],
     "endpoint": {
      "end": "main"
+    },
+    "order": {
+     "state": "ok",
+     "issues": [
+      7
+     ],
+     "only": false
     }
    },
    "body": {
@@ -432,11 +436,6 @@
      "told": false,
      "retries": 0
     }
-   },
-   "label_events": {
-    "7": [
-     "tehas:urgent=alice"
-    ]
    },
    "expect": {
     "picked": [],
@@ -2009,6 +2008,56 @@
     "picked": [],
     "log": [
      "skip #7: its question is not among the last 100 comments"
+    ],
+    "exit": 0
+   }
+  },
+  {
+   "case": "after the app's slug changed, a retry ticked in the bot's question under its new login starts",
+   "world": "parked",
+   "asked": {
+    "7": [
+     "Tehas cycle stopped.\n\n- [ ] Retry with the issue and all its comments\n- [x] Retry with the issue text only\n- [ ] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->",
+     "alice"
+    ]
+   },
+   "question_author": {
+    "login": "tehas-bot-new",
+    "databaseId": 4242
+   },
+   "snapshot": {
+    "bot_id": 4242
+   },
+   "expect": {
+    "picked": [
+     7
+    ],
+    "log_lacks": [
+     "not among the last 100 comments"
+    ],
+    "exit": 0
+   }
+  },
+  {
+   "case": "a question on record written by another account than the bot is said in the log by its author",
+   "world": "parked",
+   "asked": {
+    "7": [
+     "Tehas cycle stopped.\n\n- [ ] Retry with the issue and all its comments\n- [x] Retry with the issue text only\n- [ ] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->",
+     "alice"
+    ]
+   },
+   "question_author": {
+    "login": "mallory",
+    "databaseId": 66
+   },
+   "snapshot": {
+    "bot_id": 4242
+   },
+   "expect": {
+    "picked": [],
+    "log": [
+     "skip #7: its question was written by 'mallory', not the bot 'tehas-bot'"
     ],
     "exit": 0
    }

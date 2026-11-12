@@ -404,13 +404,23 @@ impl Poll<'_> {
             let Some(comments) = self.s.issues.get(&n).and_then(|i| i.comments.clone()) else {
                 return Err(self.fail("ERROR: gh api graphql failed", 1));
             };
-            let Some(mut ans) =
-                questions::answer(&comments, bot, &self.c.allowed, &qid, &self.c.millwright)
-            else {
+            let Some(mut ans) = questions::answer(
+                &comments,
+                bot,
+                self.s.bot_id,
+                &self.c.allowed,
+                &qid,
+                &self.c.millwright,
+            ) else {
                 return Err(self.fail(format!("ERROR: unreadable comments of #{n}"), 1));
             };
             if ans["asked"] != json!(true) {
-                if !qid.is_empty() {
+                if let Some(by) = ans["written_by"].as_str() {
+                    self.log(format!(
+                        "skip #{n}: its question was written by '{}', not the bot '{bot}'",
+                        or_unknown(by)
+                    ));
+                } else if !qid.is_empty() {
                     self.log(format!(
                         "skip #{n}: its question is not among the last 100 comments"
                     ));

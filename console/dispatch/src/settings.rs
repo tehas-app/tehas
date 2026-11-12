@@ -46,11 +46,6 @@ pub struct Settings {
     pub min_free_mb: u64,
     pub branch_check: String,
     pub branch: String,
-    pub low_gate: String,
-    /// TEHAS_PRIORITY_FIELD: the owner's single-select issue field whose
-    /// Urgent and High order the queue in place of `tehas:urgent` and
-    /// `tehas:next`. Empty: the labels order it.
-    pub priority_field: String,
     /// The issue type TEHAS_ISSUE_TYPES maps improvement to: an issue of it
     /// holds as `tehas:improvement` does. Empty: the label alone.
     pub improvement_type: String,
@@ -137,8 +132,6 @@ impl Settings {
             min_free_mb,
             branch_check: s("TEHAS_BRANCH_CHECK", ""),
             branch: s("TEHAS_BRANCH", "main"),
-            low_gate: s("TEHAS_LOW_GATE", ""),
-            priority_field: s("TEHAS_PRIORITY_FIELD", ""),
             improvement_type: tehas_core::kinds::type_of(
                 &s(tehas_core::kinds::SETTING, ""),
                 tehas_core::kinds::Kind::Improvement,

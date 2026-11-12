@@ -374,8 +374,7 @@ for bad in "TEHAS_CONCURRENCY=auto" "TEHAS_CONCURRENCY=0" "TEHAS_TICKET_CONCURRE
   "TEHAS_IMPROVE_MAX_OPEN=0" "TEHAS_IMPROVE_MAX_OPEN=many" "TEHAS_OWNER=acme-app[bot]" "TEHAS_OWNER=alice bob" \
   "TEHAS_RUKAS_WORKAROUNDS=PI_ENSEMBLE_X" "TEHAS_RUKAS_WORKAROUNDS=PI_ENSEMBLE_X@soon" "TEHAS_RUKAS_WORKAROUNDS=PATH@1.2" \
   "TEHAS_RUKAS_WORKAROUNDS=PI_ENSEMBLE_X@1.2  TEHAS_TOP@1.3" "TEHAS_RUKAS_WORKAROUNDS=PI_ENSEMBLE_X@1" \
-  "TEHAS_BRANCH_CHECK=verify&x=1" "TEHAS_BRANCH_CHECK=two  spaces" "TEHAS_BRANCH_CHECK= verify" "TEHAS_BRANCH_CHECK=a\"b" \
-  "TEHAS_LOW_GATE=gate" "TEHAS_LOW_GATE=./x/gate" "TEHAS_LOW_GATE=/x/cheap power" "TEHAS_LOW_GATE=/x/gate " "TEHAS_LOW_GATE=~/x/gate" "TEHAS_LOW_GATE=/x/gate\$x"; do
+  "TEHAS_BRANCH_CHECK=verify&x=1" "TEHAS_BRANCH_CHECK=two  spaces" "TEHAS_BRANCH_CHECK= verify" "TEHAS_BRANCH_CHECK=a\"b"; do
   t_case "loading rejects $bad"
   printf '%s\n' "${T_MINIMAL[@]}" "${bad%%=*}='${bad#*=}'" >"$TEHAS_INSTANCE_DIR/instance.env"
   t_run "$load; echo rc=\$?"
@@ -997,17 +996,16 @@ printf '%s\n' "${T_MINIMAL[@]}" "TEHAS_BRANCH_CHECK='build / verify (linux)'" >"
 t_run "$load && echo \"[\$TEHAS_BRANCH_CHECK]\""
 t_eq "$t_out" "[build / verify (linux)]"
 
-t_case "TEHAS_PRIORITY_FIELD: unset stays unset, a field's name is kept, two words stop the load"
-t_instance "${T_MINIMAL[@]}"
-t_run "$load && echo \"[\${TEHAS_PRIORITY_FIELD-unset}]\""
-t_eq "$t_out" "[unset]"
-printf '%s\n' "${T_MINIMAL[@]}" TEHAS_PRIORITY_FIELD=Priority >"$TEHAS_INSTANCE_DIR/instance.env"
-t_run "$load && echo \"[\$TEHAS_PRIORITY_FIELD]\""
-t_eq "$t_out" "[Priority]"
-printf '%s\n' "${T_MINIMAL[@]}" "TEHAS_PRIORITY_FIELD='Pri ority'" >"$TEHAS_INSTANCE_DIR/instance.env"
-t_run "$load; echo rc=\$?"
-t_contains "$t_out" "rc=78"
-t_contains "$t_out" "TEHAS_PRIORITY_FIELD is not valid: expected one word"
+t_case "the settings of the old queue order are refused unless blank: tehas order replaced them"
+for name in TEHAS_PRIORITY_FIELD TEHAS_LOW_GATE TEHAS_LOW_GATE_WAIT; do
+  printf '%s\n' "${T_MINIMAL[@]}" "$name=" >"$TEHAS_INSTANCE_DIR/instance.env"
+  t_run "$load && echo \"[\${$name-unset}]\""
+  t_eq "$t_out" "[unset]"
+  printf '%s\n' "${T_MINIMAL[@]}" "$name=7" >"$TEHAS_INSTANCE_DIR/instance.env"
+  t_run "$load; echo rc=\$?"
+  t_contains "$t_out" "rc=78"
+  t_contains "$t_out" "$name is no longer read: tehas order sets the order ready issues start in"
+done
 
 t_case "TEHAS_ISSUE_TYPES: unset stays unset, kind=Type pairs are kept, another kind stops the load"
 t_instance "${T_MINIMAL[@]}"
@@ -1020,68 +1018,6 @@ printf '%s\n' "${T_MINIMAL[@]}" TEHAS_ISSUE_TYPES=bug=Bug >"$TEHAS_INSTANCE_DIR/
 t_run "$load; echo rc=\$?"
 t_contains "$t_out" "rc=78"
 t_contains "$t_out" "TEHAS_ISSUE_TYPES is not valid: bug is no kind"
-
-t_case "TEHAS_LOW_GATE: unset is none, an absolute path is kept"
-t_instance "${T_MINIMAL[@]}"
-t_run "$load && set -u && echo \"[\$TEHAS_LOW_GATE]\""
-t_eq "$t_out" "[]"
-printf '%s\n' "${T_MINIMAL[@]}" TEHAS_LOW_GATE=/x/gate >"$TEHAS_INSTANCE_DIR/instance.env"
-t_run "$load && echo \"[\$TEHAS_LOW_GATE]\""
-t_eq "$t_out" "[/x/gate]"
-
-for bad in "gate" "bin/gate" "/x/cheap power" "/x/gate " "//gate" "/x/gate/" "/." "/.." "/x//gate" "/x/./gate" "/x/../gate" "/x/.."; do
-  t_case "loading rejects a TEHAS_LOW_GATE of '$bad'"
-  printf '%s\n' "${T_MINIMAL[@]}" "TEHAS_LOW_GATE='$bad'" >"$TEHAS_INSTANCE_DIR/instance.env"
-  t_run "$load"
-  t_eq "$t_rc" 78
-  t_contains "$t_out" "TEHAS_LOW_GATE is not valid: expected an absolute path of /, letters, digits and ._-, with no empty or dot segment"
-done
-# The gate runs as the tehas user in every poll, and a merged pull request
-# writes the trees under the host's tehas home and the instance directory: a
-# setting in the same pull request would otherwise name a program the factory
-# put in place. It is refused by every command, before GitHub is asked anything.
-for inside in "$T/home/tehas/bin/gate" "$T/home/tehas/libexec/gate" "$T/home/tehas/repos/widget/gate" "$T/instance/gate" "$T/home/tehas"; do
-  t_case "loading rejects a TEHAS_LOW_GATE a pull request could put there"
-  printf '%s\n' "${T_MINIMAL[@]}" "TEHAS_LOW_GATE=$inside" >"$TEHAS_INSTANCE_DIR/instance.env"
-  t_run "$load"
-  t_eq "$t_rc" 78
-  t_contains "$t_out" "TEHAS_LOW_GATE is not valid: expected a command outside"
-done
-t_case "TEHAS_LOW_GATE: a program of the person's own, outside those trees, is kept"
-printf '%s\n' "${T_MINIMAL[@]}" "TEHAS_LOW_GATE=$T/bin/cheap-power" >"$TEHAS_INSTANCE_DIR/instance.env"
-t_run "$load && echo \"[\$TEHAS_LOW_GATE]\""
-t_eq "$t_rc" 0
-t_eq "$t_out" "[$T/bin/cheap-power]"
-t_case "TEHAS_LOW_GATE_WAIT: 60 seconds unless the instance says otherwise"
-t_instance "${T_MINIMAL[@]}"
-t_run "$load && set -u && echo \"[\$TEHAS_LOW_GATE_WAIT]\""
-t_eq "$t_out" "[60]"
-printf '%s\n' "${T_MINIMAL[@]}" TEHAS_LOW_GATE=/x/gate TEHAS_LOW_GATE_WAIT=5 >"$TEHAS_INSTANCE_DIR/instance.env"
-t_run "$load && echo \"[\$TEHAS_LOW_GATE_WAIT]\""
-t_eq "$t_out" "[5]"
-for bad in "soon" "0" "-5" "1.5" "60 "; do
-  t_case "loading rejects a TEHAS_LOW_GATE_WAIT of '$bad'"
-  printf '%s\n' "${T_MINIMAL[@]}" "TEHAS_LOW_GATE_WAIT='$bad'" >"$TEHAS_INSTANCE_DIR/instance.env"
-  t_run "$load"
-  t_eq "$t_rc" 78
-  t_contains "$t_out" "TEHAS_LOW_GATE_WAIT is not valid: expected a positive whole number"
-done
-printf '%s\n' "${T_MINIMAL[@]}" TEHAS_LOW_GATE_WAIT=600 >"$TEHAS_INSTANCE_DIR/instance.env"
-t_run "$load && echo \"[\$TEHAS_LOW_GATE_WAIT]\""
-t_eq "$t_out" "[600]"
-# The poll waits for the gate while it holds state/dispatch.lock, so every later
-# poll is held up by these seconds too: a mistyped huge value must stop loading,
-# not wait for a day. A digit string no comparison can hold is refused by its
-# length, with no complaint from the comparison itself.
-for bad in "601" "9999" "99999999999999999999"; do
-  t_case "loading rejects a TEHAS_LOW_GATE_WAIT of '$bad'"
-  printf '%s\n' "${T_MINIMAL[@]}" "TEHAS_LOW_GATE_WAIT='$bad'" >"$TEHAS_INSTANCE_DIR/instance.env"
-  t_run "$load"
-  t_eq "$t_rc" 78
-  t_contains "$t_out" "TEHAS_LOW_GATE_WAIT is not valid: expected at most 600 seconds"
-  t_lacks "$t_out" "integer expression"
-done
-printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
 
 t_case "the cycle's workspace is under the tehas tree and is not a setting"
 t_instance "${T_MINIMAL[@]}" TEHAS_WORK_DIR=/somewhere/else
@@ -1585,7 +1521,7 @@ names=(PI_ENSEMBLE_MODEL_ PI_ENSEMBLE_PROVIDER_ PI_ENSEMBLE_SUBAGENT_MODEL PI_EN
   TEHAS_CLEAN_MIN_FREE TEHAS_CONCURRENCY TEHAS_CONTAINER_MEMORY TEHAS_CONTROL_ISSUE TEHAS_CYCLE_MIN_FREE TEHAS_CYCLE_REPORT
   TEHAS_CYCLE_RESERVE TEHAS_DESIGN TEHAS_DOMAIN TEHAS_EASY_MERGE TEHAS_GITHUB_APP_ID TEHAS_HOME
   TEHAS_HOST_ADDR TEHAS_IMPROVE_MAX_OPEN TEHAS_IMPROVE_REPO TEHAS_IMPROVE_RUKAS_REPO TEHAS_IMPROVE_RUKAS_SKIP
-  TEHAS_INDEXING TEHAS_INSTANCE_DIR TEHAS_LOW_GATE TEHAS_LOW_GATE_WAIT TEHAS_MAX_AWAITING
+  TEHAS_INDEXING TEHAS_INSTANCE_DIR TEHAS_MAX_AWAITING
   TEHAS_MILLWRIGHT_EPICS TEHAS_MILLWRIGHT_FEED TEHAS_MILLWRIGHT_MAX_FEEDS TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS
   TEHAS_MILLWRIGHT_MAX_RETRIES TEHAS_PLAN_MAX_TURNS TEHAS_PLAN_TIMEOUT TEHAS_POLL_BUDGET TEHAS_PREVIEWS TEHAS_PREVIEW_MAX
   TEHAS_PREVIEW_MIN_FREE TEHAS_PROTOLAB_URL TEHAS_READ_ONLY TEHAS_REFRESH_CONFLICTS TEHAS_REFRESH_EVERY TEHAS_REFRESH_MAX
@@ -1597,7 +1533,7 @@ for name in "${names[@]}"; do
   for value in "${values[@]}"; do printf '%s\0%s\0' "$name" "$value"; done
 done >"$T/pairs"
 TEHAS_HOME=/h/tehas TEHAS_INSTANCE_DIR=/i/ TEHAS_WORK_REPO=/w "$T_CONSOLE" settings valid <"$T/pairs" >"$T/verb"
-t_eq "$(sha256sum <"$T/verb" | cut -d' ' -f1)" "83b8102db1c83217ae1ac3a64ef34c21b8411892b95c7f35d356f1a0e968b972"
+t_eq "$(sha256sum <"$T/verb" | cut -d' ' -f1)" "9fe87ec87dd9e2b0053c4afc703521bbaece6f77887fae698fc633c6ba16d2a7"
 
 t_stub nproc 'echo 8'
 t_case "each kind of instance leaves the environment and the words bash left"
@@ -1614,10 +1550,6 @@ while IFS='|' read -r -u 5 -a lines; do
   grep -vE '^declare -x (PATH|PWD|OLDPWD|SHLVL|_|T|T_ROOT|TEHAS_SETTINGS_CMD|TEHAS_TEST_STORE_ANSWERS)(=|$)' <<<"${t_out//uid$EUID/uid@}" >>"$T/loads"
 done 5<<'INSTANCES'
 
-TEHAS_LOW_GATE=/x/gate
-TEHAS_LOW_GATE=$HOME/tehas/gate
-TEHAS_LOW_GATE=$TEHAS_INSTANCE_DIR/gate
-TEHAS_WORK_REPO=/else/repo|TEHAS_LOW_GATE=/else/repo/gate
 TEHAS_INDEXING=1
 TEHAS_THEME=
 TEHAS_PLAN_TIMEOUT=
@@ -1702,7 +1634,7 @@ T_INSIDE=$TEHAS_INSTANCE_DIR/$HOME
 INSTANCES
 T_ENV=()
 t_instance "${T_MINIMAL[@]}"
-t_eq "$(sha256sum <"$T/loads" | cut -d' ' -f1)" "d946ce42b1ebfe1543e4db189136a37b62dad4fe6b34deae16249bdc5bd0639d"
+t_eq "$(sha256sum <"$T/loads" | cut -d' ' -f1)" "51a211b26d30b39ccb7b818a6717fed5633fdf2236bd119b6c20e18351d1b1cf"
 t_contains "$(cat "$T/loads")" "rc=78"
 
 t_case "no instance.env keeps the environment as it was, as bash did"

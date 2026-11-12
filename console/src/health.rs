@@ -683,6 +683,7 @@ mod run_tests {
                 "publish",
                 "backup --show",
                 "poll-idle --since 3600 --budget cpu=5,wall=30,writes=0",
+                "order-show",
                 format!(
                     "publish --health {}/tmp/health.{}",
                     s.home.display(),
@@ -695,6 +696,7 @@ mod run_tests {
         assert_eq!(h["status"], "pass");
         assert_eq!(h["output"], "Idle, taking work.");
         assert_eq!(h["checks"]["queue"]["inLine"], 2);
+        assert_eq!(h["checks"]["order"]["state"], "none");
         // The copy the store's own init's day made, read with no jq.
         assert!(h["checks"]["backup"]["ageSeconds"].as_f64().unwrap() < 60.0);
         // The units read answered an empty list, which is a check that ran and
@@ -1713,6 +1715,24 @@ fn limit(home: &Path, now: i64) -> J {
         .unwrap_or_else(|| obj(vec![("state", J::Str("unreadable".to_string()))]))
 }
 
+/// The start order, as the store answers `order-show`. A home with no store
+/// has no order; a store that does not answer gives an unreadable one.
+fn order(home: &Path) -> J {
+    use tehas_core::order::Reading;
+    let r = if !store::ready(home) {
+        Reading::None
+    } else {
+        match store::call(home, &["order-show"]) {
+            Ok(v) => v
+                .get("order")
+                .map(Reading::of)
+                .unwrap_or(Reading::Unreadable),
+            Err(_) => Reading::Unreadable,
+        }
+    };
+    J::parse(&r.json()).unwrap_or_else(|| obj(vec![("state", J::Str("unreadable".to_string()))]))
+}
+
 fn report(home: &Path, g: &Given, now: i64) -> J {
     let live = home.join("live");
     let endings = match read(&live.join("endings.json")) {
@@ -1730,6 +1750,7 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
     let sessions = g.sessions.as_deref().and_then(J::parse).unwrap_or(J::Null);
     let plans = plans(home, &sessions);
     let limit = limit(home, now);
+    let order = order(home);
     let (industry_check, alerts) = match industry(home, g.industry.as_deref(), now) {
         Some((c, a)) => (Some(c), a),
         None => (None, Alerts::Missing),
@@ -2143,6 +2164,7 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
         ("slice", slice),
         ("demand", demand),
         ("limit", limit),
+        ("order", order),
         ("allHands", all_hands),
         ("pause", pause),
         ("platform", platform),

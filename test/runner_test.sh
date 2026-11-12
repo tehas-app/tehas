@@ -1271,4 +1271,28 @@ t_contains "$t_out" "leaked TEHAS_REPO"
 t_contains "$t_out" "leaked PI_RUKAS_FOLLOW"
 t_contains "$t_out" "leaked GH_TOKEN"
 
+t_case "the manual's Budget: line under scripts/test.sh gives seconds for the whole gate"
+# The one place the wall clock of scripts/verify.sh is written down (tools.md,
+# under ## scripts/test.sh). The line is read from the manual, not from a run:
+# what this case measures is that the manual says a number, and the measurement
+# of that number is a run of the gate itself.
+tools_md=$T_ROOT/host/docs/tools.md
+[ -f "$tools_md" ] || t_bad "$tools_md is not there"
+# Only the section of the runner: a Budget: line of another command is none of
+# this case's business, and a line outside the section says nothing about this.
+budget=$(awk '/^## scripts\/test\.sh$/{inside=1; next} /^## /{inside=0} inside && /^Budget: /' "$tools_md")
+if [ -z "$budget" ]; then
+  t_bad "no Budget: line under '## scripts/test.sh' of host/docs/tools.md"
+else
+  t_eq "$(printf '%s\n' "$budget" | wc -l)" 1
+  t_contains "$budget" "scripts/verify.sh"
+  # The number of seconds is the point of the line: no seconds, no budget.
+  seconds=$(printf '%s\n' "$budget" | sed -nE 's/^Budget: ([0-9]+) s\b.*/\1/p' | head -n 1)
+  if [ -z "$seconds" ]; then
+    t_bad "the Budget: line names no number of seconds: $budget"
+  elif [ "$seconds" -lt 60 ]; then
+    t_bad "the Budget: line gives $seconds s, under a minute for the whole gate: $budget"
+  fi
+fi
+
 t_done

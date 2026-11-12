@@ -82,9 +82,9 @@ unnamed=""
 for path in $(schema_paths); do
   case $path in
     # paused has a row for each of its fields and none of its own; limit,
-    # running and planning have one row that names their fields.
+    # order, running and planning have one row that names their fields.
     paused) continue ;;
-    limit.* | running.* | planning.*) word=${path%%.*} ;;
+    limit.* | order.* | running.* | planning.*) word=${path%%.*} ;;
     *) word=$path ;;
   esac
   case $manual in *"| \`$word\` |"*) ;; *) unnamed+=" $word" ;; esac
