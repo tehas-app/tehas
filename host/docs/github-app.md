@@ -186,11 +186,12 @@ ignored once `~/tehas/state/github/login` exists; take them out too.
   `~/tehas/state/github/login`, because an installation token cannot ask
   GitHub who it is. The millwright is that same login (see
   [the millwright's grant](/operating#the-millwrights-grant)).
-- Each new token asks GitHub for the app's slug again (`GET /app`). When the
-  app was renamed, `~/tehas/state/github/login` is rewritten to
-  `<new slug>[bot]`, standard error says so once, and the bot's user id in
-  `~/tehas/state/account-ids` is recorded under the new login too; the old
-  pair stays. The dispatcher knows the bot's comments by that user id, and by
+- When a new token finds the app renamed (see
+  [the commands page](/tools-github)), the bot's user id in
+  `~/tehas/state/account-ids` is recorded under the new login before
+  `~/tehas/state/github/login` is rewritten; the old pair stays. If that
+  record cannot be written, the old login is kept and the next token tries
+  again. The dispatcher knows the bot's comments by that user id, and by
   login only when none is recorded, so a question asked before the rename is
   still found.
 

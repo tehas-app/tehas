@@ -585,7 +585,7 @@ fn check_app(
         }
     }
     let login = app
-        .login(scratch, false)
+        .login(scratch)
         .filter(|l| is_slug_or_login(l.trim_end_matches("[bot]")))
         .ok_or_else(|| Die(format!("GitHub did not say the app's name; {after}")))?;
     let slug = login.trim_end_matches("[bot]");

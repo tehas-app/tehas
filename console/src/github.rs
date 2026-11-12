@@ -19,7 +19,9 @@
 //! on TEHAS_REPO and the login are looked up at GitHub with the app's JWT and
 //! kept in state/github/installation (`<owner> <id>`, looked up again for
 //! another owner) and state/github/login; the cycle's token uses the same two
-//! files, so a cycle's own directory holds a token and nothing else.
+//! files, so a cycle's own directory holds a token and nothing else. A new
+//! token asks for the login again and rewrites the file when the app was
+//! renamed (`App::login_now`).
 //!
 //! The token is $TEHAS_HOME/state/github/token (mode 600), its expiry
 //! token.expires (epoch seconds) beside it. The directory, not the file, is
@@ -283,7 +285,7 @@ impl App {
             Ok(id) => id,
             Err(why) => {
                 let slug = (why == "HTTP 404")
-                    .then(|| self.login(dir, false))
+                    .then(|| self.login(dir))
                     .flatten()
                     .map(|l| l.trim_end_matches("[bot]").to_string());
                 eprintln!("{}", not_found(repo, slug.as_deref(), &why));
@@ -300,29 +302,50 @@ impl App {
     }
 
     /// The login of the app, `<slug>[bot]`, kept in `dir/login` for the
-    /// settings to read. Asked of GitHub when the file is absent or malformed,
-    /// and with `recheck` always: a mint rechecks, so a renamed app is
-    /// noticed. When GitHub does not answer a recheck, the kept login stands.
-    pub fn login(&self, dir: &Path, recheck: bool) -> Option<String> {
-        let kept = kept_login(dir);
-        if let Some(kept) = kept.as_ref().filter(|_| !recheck) {
-            return Some(kept.clone());
+    /// settings to read. Asked of GitHub when the file is absent or malformed.
+    pub fn login(&self, dir: &Path) -> Option<String> {
+        if let Some(kept) = fs::read(dir.join("login"))
+            .ok()
+            .and_then(|t| settings::login_of(&t))
+        {
+            return Some(kept);
         }
-        let Some(slug) = self.slug() else {
-            return kept;
-        };
-        let login = format!("{slug}[bot]");
-        if kept.as_deref() == Some(login.as_str()) {
-            return kept;
-        }
+        let login = format!("{}[bot]", self.slug()?);
         if !keep_line(dir, "login", &login) {
             eprintln!(
                 "tehas: the app's login could not be kept in {}",
                 dir.display()
             );
-        } else if let Some(old) = &kept {
+        }
+        Some(login)
+    }
+
+    /// The login of the app as GitHub says it now, kept in `dir/login` when it
+    /// is not the kept one. An app can be renamed, and a login kept from
+    /// before then names no account: a cycle that lists its pull requests by
+    /// it finds none. The kept login when GitHub does not answer. Asked when a
+    /// token is made, so about once an hour.
+    pub fn login_now(&self, dir: &Path) -> Option<String> {
+        let kept = fs::read(dir.join("login"))
+            .ok()
+            .and_then(|t| settings::login_of(&t));
+        let Some(slug) = self.slug() else {
+            return kept;
+        };
+        let login = format!("{slug}[bot]");
+        if kept.as_deref() == Some(login.as_str()) {
+            return Some(login);
+        }
+        if let Some(old) = &kept {
+            eprintln!("tehas: the GitHub App's login is now {login}, not {old}");
+            renamed(old, &login);
+            if !crate::ids::carry_beside(dir, old, &login) {
+                return Some(login);
+            }
+        }
+        if !keep_line(dir, "login", &login) {
             eprintln!(
-                "tehas: the app's login is now {login}, not {old}; kept in {}",
+                "tehas: the app's login could not be kept in {}",
                 dir.display()
             );
         }
@@ -449,21 +472,22 @@ pub fn keep_login(dir: &Path, login: &str) -> bool {
     keep_line(dir, "login", login)
 }
 
-/// The login kept in `dir/login`, when it is well formed.
-fn kept_login(dir: &Path) -> Option<String> {
-    fs::read(dir.join("login"))
-        .ok()
-        .and_then(|t| settings::login_of(&t))
+/// The first poll after a fresh install should know the bot before the
+/// settings are loaded again.
+fn adopt(login: &str) {
+    for name in ["TEHAS_BOT_LOGIN", "TEHAS_MILLWRIGHT_LOGIN"] {
+        if env::var_os(name).is_none_or(|v| v.is_empty()) {
+            env::set_var(name, login);
+        }
+    }
 }
 
-/// The first poll after a fresh install should know the bot before the
-/// settings are loaded again, and so should one after the app was renamed
-/// from `was`.
-fn adopt(login: &str, was: Option<&str>) {
+/// The rest of this process acts under the app's new login where it held the
+/// old one; a login set to another account stays.
+fn renamed(old: &str, new: &str) {
     for name in ["TEHAS_BOT_LOGIN", "TEHAS_MILLWRIGHT_LOGIN"] {
-        let now = env::var(name).unwrap_or_default();
-        if now.is_empty() || (was.is_some_and(|w| w != login && w == now)) {
-            env::set_var(name, login);
+        if env::var(name).is_ok_and(|v| v == old) {
+            env::set_var(name, new);
         }
     }
 }
@@ -572,20 +596,8 @@ fn token(app: &App, dir: &Path, lookup: &Path, repo: &str, narrow: Option<&str>)
         );
         return None;
     }
-    let was = kept_login(lookup);
-    if let Some(login) = app.login(lookup, true) {
-        if let Some(old) = was.as_deref().filter(|w| *w != login) {
-            // The bot keeps its user id when the app's slug changes. `lookup`
-            // is state/github under the instance's home.
-            if let Some(home) = lookup
-                .parent()
-                .filter(|s| s.ends_with("state"))
-                .and_then(Path::parent)
-            {
-                crate::ids::carry(home, old, &login);
-            }
-        }
-        adopt(&login, was.as_deref());
+    if let Some(login) = app.login_now(lookup) {
+        adopt(&login);
     }
     Some(token)
 }
@@ -782,7 +794,7 @@ pub fn main(given: &[String]) -> u8 {
     let lookup = kept_in(false);
     let app = App::loaded();
     if ask.login {
-        let Some(login) = app.login(&lookup, false) else {
+        let Some(login) = app.login(&lookup) else {
             return 1;
         };
         say(&login);
@@ -1373,9 +1385,7 @@ mod tests {
         let d = dir("login");
         let app = app_of(&d);
         let f = fake(&[SLUG]);
-        let (a, b) = against(&f, || {
-            (app.login(d.path(), false), app.login(d.path(), false))
-        });
+        let (a, b) = against(&f, || (app.login(d.path()), app.login(d.path())));
         assert_eq!(a.as_deref(), Some("acme-factory[bot]"));
         assert_eq!(b.as_deref(), Some("acme-factory[bot]"));
         assert_eq!(f.count("GET /app"), 1);
@@ -1426,64 +1436,100 @@ mod tests {
         assert_eq!(wright.as_deref(), Ok("someone"));
     }
 
-    #[test]
-    fn a_recheck_keeps_the_slug_github_now_gives() {
-        let d = dir("login-renamed");
-        let app = app_of(&d);
-        fs::write(d.join("login"), "old[bot]\n").unwrap();
-        let f = fake(&[("GET /app", 200, r#"{"slug":"new"}"#)]);
-        assert_eq!(
-            against(&f, || app.login(d.path(), false)).as_deref(),
-            Some("old[bot]")
-        );
-        assert_eq!(f.count("GET /app"), 0);
-        let got = against(&f, || app.login(d.path(), true));
-        assert_eq!(got.as_deref(), Some("new[bot]"));
-        assert_eq!(fs::read_to_string(d.join("login")).unwrap(), "new[bot]\n");
-        // GitHub not answering leaves the kept login as it is.
-        let down = fake(&[]);
-        let got = against(&down, || app.login(d.path(), true));
-        assert_eq!(got.as_deref(), Some("new[bot]"));
-        assert_eq!(fs::read_to_string(d.join("login")).unwrap(), "new[bot]\n");
-    }
+    const MINTED: (&str, u16, &str) = (
+        "POST /app/installations/77/access_tokens",
+        201,
+        r#"{"token":"ghs_new","expires_at":"2099-01-01T00:00:00Z"}"#,
+    );
 
     #[test]
-    fn a_mint_rechecks_the_login_and_follows_a_renamed_bot() {
-        let d = dir("mint-renamed");
+    fn a_new_token_follows_a_renamed_app() {
+        let d = dir("renamed");
         let app = app_of(&d);
-        let lookup = d.join("state/github");
-        fs::create_dir_all(&lookup).unwrap();
-        fs::write(lookup.join("installation"), "acme 77\n").unwrap();
-        fs::write(lookup.join("login"), "old[bot]\n").unwrap();
-        fs::write(d.join("state/account-ids"), "alice 1001\nold 4242\n").unwrap();
-        let f = fake(&[
-            ("GET /app", 200, r#"{"slug":"new"}"#),
-            (
-                "POST /app/installations/77/access_tokens",
-                201,
-                r#"{"token":"ghs_new","expires_at":"2099-01-01T00:00:00Z"}"#,
-            ),
-        ]);
+        fs::write(d.join("installation"), "acme 77\n").unwrap();
+        fs::write(d.join("login"), "acme-old[bot]\n").unwrap();
+        let f = fake(&[SLUG, MINTED]);
         let _held = API.lock().unwrap_or_else(|e| e.into_inner());
-        env::set_var("TEHAS_BOT_LOGIN", "old[bot]");
+        env::set_var("TEHAS_BOT_LOGIN", "acme-old[bot]");
+        env::set_var("TEHAS_MILLWRIGHT_LOGIN", "someone");
         env::set_var("TEHAS_GITHUB_API", &f.url);
-        let tokens = d.join("tokens");
-        let got = token(&app, &tokens, &lookup, "acme/widget", None);
+        let got = token(&app, &d.join("tokens"), d.path(), "acme/widget", None);
         env::remove_var("TEHAS_GITHUB_API");
-        let bot = env::var("TEHAS_BOT_LOGIN");
+        let (bot, wright) = (
+            env::var("TEHAS_BOT_LOGIN"),
+            env::var("TEHAS_MILLWRIGHT_LOGIN"),
+        );
         env::remove_var("TEHAS_BOT_LOGIN");
         env::remove_var("TEHAS_MILLWRIGHT_LOGIN");
         assert_eq!(got.as_deref(), Some("ghs_new"));
-        assert_eq!(f.count("GET /app"), 1);
+        assert_eq!(
+            fs::read_to_string(d.join("login")).unwrap(),
+            "acme-factory[bot]\n"
+        );
+        assert_eq!(bot.as_deref(), Ok("acme-factory[bot]"));
+        assert_eq!(wright.as_deref(), Ok("someone"));
+    }
+
+    #[test]
+    fn a_renamed_app_keeps_its_user_id_and_tries_again_until_it_is_written() {
+        let d = dir("renamed-id");
+        let app = app_of(&d);
+        let lookup = d.join("state/github");
+        fs::create_dir_all(&lookup).unwrap();
+        fs::write(lookup.join("login"), "acme-old[bot]\n").unwrap();
+        let ids = d.join(tehas_core::accounts::FILE);
+        fs::write(&ids, "acme-old 4242\n").unwrap();
+        // A pair that cannot be written leaves the old login kept: here a
+        // directory stands where the new file is written first.
+        let tmp = ids.with_extension(format!("tmp{}", std::process::id()));
+        fs::create_dir_all(&tmp).unwrap();
+        let f = fake(&[SLUG]);
+        let got = against(&f, || app.login_now(&lookup));
+        assert_eq!(got.as_deref(), Some("acme-factory[bot]"));
+        assert_eq!(fs::read_to_string(&ids).unwrap(), "acme-old 4242\n");
         assert_eq!(
             fs::read_to_string(lookup.join("login")).unwrap(),
-            "new[bot]\n"
+            "acme-old[bot]\n"
+        );
+        // The next token sees the rename again and records the id first.
+        fs::remove_dir_all(&tmp).unwrap();
+        let got = against(&f, || app.login_now(&lookup));
+        assert_eq!(got.as_deref(), Some("acme-factory[bot]"));
+        assert_eq!(
+            fs::read_to_string(&ids).unwrap(),
+            "acme-factory 4242\nacme-old 4242\n"
         );
         assert_eq!(
-            fs::read_to_string(d.join("state/account-ids")).unwrap(),
-            "alice 1001\nnew 4242\nold 4242\n"
+            fs::read_to_string(lookup.join("login")).unwrap(),
+            "acme-factory[bot]\n"
         );
-        assert_eq!(bot.as_deref(), Ok("new[bot]"));
+    }
+
+    #[test]
+    fn a_login_github_still_says_is_not_written_again() {
+        let d = dir("login-same");
+        let app = app_of(&d);
+        fs::write(d.join("login"), "acme-factory[bot]\n").unwrap();
+        let before = fs::metadata(d.join("login")).unwrap().ino();
+        let f = fake(&[SLUG]);
+        let got = against(&f, || app.login_now(d.path()));
+        assert_eq!(got.as_deref(), Some("acme-factory[bot]"));
+        assert_eq!(f.count("GET /app"), 1);
+        assert_eq!(fs::metadata(d.join("login")).unwrap().ino(), before);
+    }
+
+    #[test]
+    fn the_kept_login_stands_when_github_does_not_answer() {
+        let d = dir("login-down");
+        let app = app_of(&d);
+        fs::write(d.join("login"), "acme-old[bot]\n").unwrap();
+        let f = fake(&[("GET /app", 502, "")]);
+        let got = against(&f, || app.login_now(d.path()));
+        assert_eq!(got.as_deref(), Some("acme-old[bot]"));
+        assert_eq!(
+            fs::read_to_string(d.join("login")).unwrap(),
+            "acme-old[bot]\n"
+        );
     }
 
     #[test]
@@ -1492,7 +1538,7 @@ mod tests {
         let app = app_of(&d);
         fs::write(d.join("login"), "acme factory\n").unwrap();
         let f = fake(&[SLUG]);
-        let got = against(&f, || app.login(d.path(), false));
+        let got = against(&f, || app.login(d.path()));
         assert_eq!(got.as_deref(), Some("acme-factory[bot]"));
         assert_eq!(f.count("GET /app"), 1);
     }

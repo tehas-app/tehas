@@ -134,29 +134,48 @@ fn write(home: &Path, ids: &BTreeMap<String, u64>) -> std::io::Result<()> {
 }
 
 /// Records the user id of `old` under `new` in `home` when the app's slug
-/// changed (`accounts::carried`), and says so on standard error. Whether
-/// the file was written; a write that failed is said too.
-pub fn carry(home: &Path, old: &str, new: &str) -> bool {
+/// changed (`accounts::carried`), and says so on standard error. Ok(true)
+/// when the file was written, Ok(false) when there was nothing to add; a
+/// write that failed is said and is the error.
+pub fn carry(home: &Path, old: &str, new: &str) -> std::io::Result<bool> {
     let Some(ids) = accounts::carried(&accounts::read(home), old, new) else {
-        return false;
+        return Ok(false);
     };
-    match write(home, &ids) {
-        Ok(()) => {
-            eprintln!(
-                "tehas: {} is recorded with the user id of {}",
-                account(new),
-                account(old)
-            );
-            true
-        }
-        Err(e) => {
-            eprintln!(
-                "tehas: could not write {}: {e}",
-                home.join(accounts::FILE).display()
-            );
-            false
-        }
+    if let Err(e) = write(home, &ids) {
+        eprintln!(
+            "tehas: could not write {}: {e}",
+            home.join(accounts::FILE).display()
+        );
+        return Err(e);
     }
+    eprintln!(
+        "tehas: {} is recorded with the user id of {}",
+        account(new),
+        account(old)
+    );
+    Ok(true)
+}
+
+/// `carry` in the home of `dir`, the state/github that keeps the app's
+/// login, before that login is rewritten from `old` to `new`. False only
+/// when the pair could not be written: the old login is then kept, so the
+/// next token sees the rename and tries again. A `dir` outside a home's
+/// state is said and records nothing.
+pub fn carry_beside(dir: &Path, old: &str, new: &str) -> bool {
+    let Some(home) = dir
+        .parent()
+        .filter(|s| s.ends_with("state"))
+        .and_then(Path::parent)
+    else {
+        eprintln!(
+            "tehas: {} is not in a home's state; the user id of {} is not recorded under {}",
+            dir.display(),
+            account(old),
+            account(new)
+        );
+        return true;
+    };
+    carry(home, old, new).is_ok()
 }
 
 /// `console ids record`, for `tehas update`'s gate.
@@ -295,15 +314,45 @@ mod tests {
     fn a_renamed_bot_is_recorded_with_its_old_id_and_the_old_pair_stays() {
         let home = std::env::temp_dir().join(format!("tehas-ids-carry-{}", std::process::id()));
         let _ = fs::remove_dir_all(&home);
-        assert!(!carry(&home, "acme-old[bot]", "acme-new[bot]"));
+        assert!(!carry(&home, "acme-old[bot]", "acme-new[bot]").unwrap());
         assert!(!home.join(accounts::FILE).exists());
         write(&home, &accounts::parse("acme-old 4242\n").unwrap()).unwrap();
-        assert!(carry(&home, "acme-old[bot]", "acme-new[bot]"));
+        assert!(carry(&home, "acme-old[bot]", "acme-new[bot]").unwrap());
         assert_eq!(
             fs::read_to_string(home.join(accounts::FILE)).unwrap(),
             "acme-new 4242\nacme-old 4242\n"
         );
-        assert!(!carry(&home, "acme-old[bot]", "acme-new[bot]"));
+        assert!(!carry(&home, "acme-old[bot]", "acme-new[bot]").unwrap());
+        fs::remove_dir_all(&home).unwrap();
+    }
+
+    #[test]
+    fn a_carry_beside_the_login_is_false_only_when_it_could_not_be_written() {
+        let home = std::env::temp_dir().join(format!("tehas-ids-beside-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&home);
+        let dir = home.join("state/github");
+        fs::create_dir_all(&dir).unwrap();
+        write(&home, &accounts::parse("acme-old 4242\n").unwrap()).unwrap();
+        assert!(carry_beside(&dir, "acme-old[bot]", "acme-new[bot]"));
+        assert_eq!(
+            fs::read_to_string(home.join(accounts::FILE)).unwrap(),
+            "acme-new 4242\nacme-old 4242\n"
+        );
+        // Nothing to add is no failure.
+        assert!(carry_beside(&dir, "acme-old[bot]", "acme-new[bot]"));
+        // A file that cannot be written is: here a directory stands in the
+        // way of the temporary file's rename.
+        let tmp = home
+            .join(accounts::FILE)
+            .with_extension(format!("tmp{}", std::process::id()));
+        fs::create_dir_all(&tmp).unwrap();
+        assert!(!carry_beside(&dir, "acme-old[bot]", "acme-other[bot]"));
+        fs::remove_dir_all(&tmp).unwrap();
+        // A login kept outside a home's state records nothing and stops nothing.
+        assert!(carry_beside(&home, "acme-old[bot]", "acme-other[bot]"));
+        assert!(!fs::read_to_string(home.join(accounts::FILE))
+            .unwrap()
+            .contains("acme-other"));
         fs::remove_dir_all(&home).unwrap();
     }
 

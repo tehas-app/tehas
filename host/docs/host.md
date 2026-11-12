@@ -497,6 +497,41 @@ it. A cycle that starts during an install runs the old file or the new one,
 never part of one, and an install that is stopped or fails partway leaves the
 file it was copying as it was.
 
+### How the dashboard's files are named and cached
+
+The manual and the front page are not copied from `host/` as they stand.
+`install.sh` first asks the console to stage them (`console update assets`,
+`console/src/update/assets.rs`), which copies `host/fun` and `host/docs` to a
+scratch directory and, for each `<script src="/fun/X.js">` and each
+`<link rel="stylesheet" href="/fun/X.css">` of `fun/index.html`,
+`fun/business.html` and `docs/dashboard.frag`, puts a copy of that file beside
+them under the name `X.<hash>.<ext>`, where `<hash>` is the first 12 hex digits
+of the sha256 of its bytes, and rewrites the tag to name it. The two syncs then
+install the stage, so `~/tehas/fun` and `~/tehas/docs` hold exactly what the
+stage holds and a hashed name of older content is removed as stale with any page
+that went away. The pages keep their own names.
+
+The docs server caches the two kinds differently (`host/edge/docs.Caddyfile`):
+a name with 12 hex digits of its own in it is served
+`public, max-age=31536000, immutable`, because such a name can only ever hold
+the bytes it was named for, and every page is served `no-cache`, so a browser
+asks about the page each time and reuses what it already has of the files it
+names. `install.sh` gives a changed file a new name, so a new install is seen at
+once and nothing has to be waited out or forced.
+
+Three things keep the name they have and are revalidated. The theme stylesheet,
+which a page's template names at the request as
+`/fun/theme-<design>.css`, so no file of the checkout can be hashed for it. Any
+file that is not a script or a stylesheet: a font, a logo, a share card. And a
+module the page loads as `type="module"`, whose own `import "./x.js"` lines name
+its siblings by name: hashing the page is safe, hashing the module would make it
+ask for files none of them is named by.
+
+Everything the server sends is compressed, zstd where the browser speaks it and
+gzip otherwise. The files under `/live/` and the two health addresses are left
+alone, because the dashboard's console reads them with Range requests whose
+offsets count the file's own bytes, and an encoded body holds none of those.
+
 One file is written, not copied: `version.txt`, beside the pages in
 `~/tehas/docs` and `~/tehas/fun`. It holds the newest tag of the checkout and
 the commit it was at when `install.sh` last ran, as `v0.1.1+11b669d`, and the
@@ -670,8 +705,8 @@ steps you have to work through yourself. Run by hand, they are:
 | --------- | -------------------------------------------------------------------------------- |
 | `units`   | `systemctl --user daemon-reload`, then `systemctl --user restart` the units named |
 | `sandbox` | `~/tehas/sandbox/build.sh`, or put an older image back by its date tag, as in [Rolling back pi-rukas](#rolling-back-pi-rukas) |
-| `docs`    | `docker compose -f ~/tehas/edge/docs.compose.yaml up -d --force-recreate`         |
-| `edge`    | `docker compose -f ~/tehas/edge/router.compose.yaml up -d --force-recreate`       |
+| `docs`    | `. ~/tehas/env.sh && docker compose -f ~/tehas/edge/docs.compose.yaml up -d --force-recreate` |
+| `edge`    | `. ~/tehas/env.sh && docker compose -f ~/tehas/edge/router.compose.yaml up -d --force-recreate` |
 | `labels`  | `~/tehas/bin/tehas labels`                                                          |
 
 They stay recorded in `~/tehas/state/update-pending`, and `install.sh --check`
@@ -710,10 +745,10 @@ JSON answer:
 
 - When there is no `state/tehas.db`, it runs `store init`.
 - Otherwise it runs `store migrate --backup ~/tehas/state/backup`. The store
-  first copies the database into `state/backup/tehas-<version>-<time>.db`, mode
+  first copies the database into `state/backup/tehas-<schema>-<time>.db`, mode
   600, with SQLite's `VACUUM INTO`, and then brings the schema forward. It
   never replaces a file: when that name is taken, as by an install in the same
-  second, the copy is `tehas-<version>-<time>-1.db`, and so on to `-99`. A copy
+  second, the copy is `tehas-<schema>-<time>-1.db`, and so on to `-99`. A copy
   that cannot be made changes nothing. A database already at the version the
   store writes is still copied, so every install leaves one copy. Nothing
   removes old copies yet; remove them by hand when there are too many. A
@@ -793,27 +828,17 @@ sqlite3 ~/tehas/state/tehas.db "VACUUM INTO '/path/to/tehas-copy.db'"
 
 Keep the copy mode 600: it holds what the database holds.
 
-**Restoring it.** Pause the factory and let running cycles end, so nothing
-writes the database while it is replaced. Then put the copy in place, remove
-the old database's `-wal` and `-shm`, and run the install again, which migrates
-the copy to the schema of the installed store:
-
-```
-tehas pause
-cp ~/tehas/state/backup/tehas-<version>-<time>.db ~/tehas/state/tehas.db.new
-chmod 600 ~/tehas/state/tehas.db.new
-rm -f ~/tehas/state/tehas.db-wal ~/tehas/state/tehas.db-shm
-mv ~/tehas/state/tehas.db.new ~/tehas/state/tehas.db
-./install.sh            # or ~/tehas/current/install.sh on a host on releases
-tehas state check
-tehas resume
-```
-
-After going back to an older release, the install stops with `future` when the
-newer release had migrated the database. Restore the copy that migration made
-first: a migration that changes the schema leaves the database as it was under
-two names, `tehas-<old>-<time>.db` and `tehas-<new>-<time>.db`, and either is
-the one to restore.
+**Restoring it.** This page has no restore steps of its own: use
+[Backups and restore](/operating#backups-and-restore). It drains the factory,
+stops every unit that reads or writes the store, puts the copy in place, runs
+`tehas state check` and starts the units again. The units are stopped rather
+than the factory paused: a paused poll still writes the store, and one unit
+left running keeps the old file open and goes on writing to it. The copy is a
+daily one, `tehas-<YYYYMMDD>.db`, or one of the migration copies named above:
+a migration that changes the schema leaves the database as it was under the
+schema it came with and the one it went to, `tehas-<old>-<time>.db` and
+`tehas-<new>-<time>.db`, and a restore after going back to an older release
+needs one of those first, or the install stops with `future`.
 
 ## Models
 
@@ -1856,7 +1881,7 @@ that cycle ran.
 
 | Service     | How it runs                                                | Check                                                  |
 | ----------- | ---------------------------------------------------------- | ------------------------------------------------------ |
-| This site   | `docker compose -f ~/tehas/edge/docs.compose.yaml up -d`   | `curl -i http://tehas-tehas:8080/health`               |
+| This site   | `. ~/tehas/env.sh && docker compose -f ~/tehas/edge/docs.compose.yaml up -d`   | `curl -i http://tehas-tehas:8080/health`               |
 | Dispatcher  | systemd user timer `tehas-dispatch.timer`, every 2 minutes, and `tehas-dispatch.path`, a poll as soon as a cycle, a planning turn or an index run ends | `tail ~/tehas/logs/dispatch.log`                       |
 | Planning turn | a unit the poll starts, `tehas-plan-<issue>.service`, one at a time. systemd stops it a quarter of an hour after `TEHAS_PLAN_TIMEOUT` | `tail ~/tehas/logs/dispatch-plan-<issue>.log` |
 | Code index | a unit the poll starts, `tehas-index.service`, before cycles start on an idle host. systemd stops it after 40 minutes | `tail ~/tehas/logs/dispatch-index.log` |
@@ -1865,14 +1890,15 @@ that cycle ran.
 | Protolab pages | systemd user timer `tehas-protolab.timer`, every 5 minutes | `tail ~/tehas/logs/protolab.log` |
 | Improvement loop, optional | systemd user timer `tehas-improve.timer`, every 3 hours. It does nothing unless `TEHAS_IMPROVE_REPO` is set | `tail ~/tehas/logs/improve.log` |
 | Cleaner | systemd user timer `tehas-clean.timer`, every hour, the first time 15 minutes after boot. It removes build output, Docker's build cache, host scratch, the sandbox image's old dated tags and the old `sha-` tags of the base repository, each removed by its own name. `install.sh` copies the unit; a person enables it. The unit prints; `tehasbot clean` writes `clean.log` | `tail ~/tehas/logs/clean.log`, and `journalctl --user -u tehas-clean` for a run that wrote nothing there |
-| Edge router | `docker compose -f ~/tehas/edge/router.compose.yaml up -d` | `curl -i http://tehas-tehas:8081/` |
+| Edge router | `. ~/tehas/env.sh && docker compose -f ~/tehas/edge/router.compose.yaml up -d` | `curl -i http://tehas-tehas:8081/` |
 | Previews | systemd user timer `tehas-preview.timer`, every 5 minutes | `tail ~/tehas/logs/preview.log`, `jq . ~/tehas/live/previews.json` |
 | Preview sweep | systemd user timer `tehas-preview-sweep.timer`, every 3 hours | `jq .lastSweep ~/tehas/live/previews.json` |
 | One preview | a container `tehas-preview-<pr>` | `docker ps --filter label=tehas.preview` |
 
 The docs server binds to `TEHAS_HOST_ADDR`, port 8080. Without the setting it
 stays on `127.0.0.1`. `docker compose` reads the address from the environment,
-so run it from a shell that has sourced `~/tehas/env.sh`.
+so each line above sources `~/tehas/env.sh` first: run from a shell that has
+not, the container is made from the defaults below.
 
 Both compose files name Caddy by digest rather than by tag, with the version in
 the comment above the image. `versions.env` records the version and the digest

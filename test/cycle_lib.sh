@@ -77,9 +77,6 @@ case "$1 $2" in
     # The body of the issue, written. $fx/patch-fails makes it fail.
     elif api_rest PATCH 7; then
       fails patch-fails
-    # The title of the pull request, written. $fx/title-fails makes it fail.
-    elif [ "$rest_verb" = PATCH ] && [ "$rest_path" = repos/acme/widget/pulls/9 ]; then
-      fails title-fails
     else
       exit 1
     fi ;;
@@ -91,15 +88,19 @@ case "$1 $2" in
     fi
     # pr.json is the whole answer. pr.txt is the address of one pull request
     # of the bot on the branch asked for, in the state pr-state says [OPEN],
-    # whose body is pr-body [Fixes #7], a draft when pr-draft is there.
+    # whose body is pr-body [Fixes #7], a draft when pr-draft is there. The
+    # pull request is created now, so it is at or after the started of every
+    # case: the report takes a closed or merged one only if its own cycle
+    # opened it (#1747), and a case that wants an earlier one writes pr.json.
     if [ -e "$T/fx/pr.json" ]; then cat "$T/fx/pr.json"
     elif [ -e "$T/fx/pr.txt" ]; then
       head=$(printf "%s\n" "$@" | sed -n "/^--head$/{n;p;}")
       jq -n --arg url "$(cat "$T/fx/pr.txt")" --arg head "$head" \
         --arg state "$(cat "$T/fx/pr-state" 2>/dev/null || echo OPEN)" \
         --arg body "$(cat "$T/fx/pr-body" 2>/dev/null || echo "Fixes #7")" \
+        --arg created "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
         --argjson draft "$([ -e "$T/fx/pr-draft" ] && echo true || echo false)" \
-        "[{url: \$url, state: \$state, body: \$body, headRefName: \$head, isDraft: \$draft}]"
+        "[{url: \$url, state: \$state, body: \$body, headRefName: \$head, isDraft: \$draft, createdAt: \$created}]"
     else echo "[]"; fi ;;
   "issue edit") [ ! -e "$T/fx/edit-slow" ] || { : >"$T/calls/edit.started"; sleep 1; }
     # The first edits fail, as many as edit-fails-times says.
@@ -123,9 +124,6 @@ case "$1 $2" in
     fi
     # comment-fails holds what gh says when it fails, which may be nothing.
     [ ! -e "$T/fx/comment-fails" ] || { cat "$T/fx/comment-fails" >&2; exit 1; } ;;
-  # Who the token is, and one pull request as REST gives it.
-  "api user") cat "$T/fx/user.json" || exit 1 ;;
-  "api repos/acme/widget/pulls/"*) cat "$T/fx/pull.json" || exit 1 ;;
   # What the number is. An open issue, unless a case writes the fixture.
   "api repos/acme/widget/issues/"[0-9]*)
     n=${2#repos/acme/widget/issues/}

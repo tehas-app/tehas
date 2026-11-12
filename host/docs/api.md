@@ -29,7 +29,8 @@ What exists today: [`tehas api`](#tehas-api),
 [`tehasbot clean`](#tehasbot-clean), [`tehas disk`](#tehas-disk),
 [`tehas panel`](#tehas-panel),
 [`tehas:all-hands`](/operating#all-hands),
-[the finish ask](#the-finish-ask) and [the host bridge](#the-host-bridge). The design of the rest is in
+[the finish ask](#the-finish-ask), [the host bridge](#the-host-bridge) and
+[the settings rules](#settings-rules). The design of the rest is in
 the spec, `docs/specs/2026-10-17-factories.md` in the source; a command is
 listed here when a release has it.
 
@@ -111,7 +112,7 @@ tehas api [--json]
   "tehas": "v0.8.0",
   "commit": "cb6912a",
   "repo": "tehas-app/tehas",
-  "features": ["status", "millwright-grant", "fixer-grant", "all-hands", "limit", "drain", "history", "export", "refresh-conflicts", "analytics", "state-move", "pr-title", "mcp-dashboard-keys", "clean", "disk", "panels", "state-check", "finish", "status-versions", "store-copy", "state-load", "freeze", "host-bridge", "host-bridge-tokens", "cycle-writes"],
+  "features": ["status", "millwright-grant", "fixer-grant", "all-hands", "limit", "drain", "history", "export", "refresh-conflicts", "analytics", "state-move", "mcp-dashboard-keys", "clean", "disk", "panels", "state-check", "finish", "status-versions", "store-copy", "state-load", "freeze", "host-bridge", "host-bridge-tokens", "cycle-writes", "settings-rules"],
   "millwright": null,
   "fixer": null,
   "poll": {
@@ -136,7 +137,7 @@ tehas api [--json]
 | `tehas` | The release tag the factory was installed from: `v0.10.2` for a release install, `v0.8.0` for a checkout one. `null` when the install came from a checkout with no tag, or not from a git checkout |
 | `commit` | The commit it was installed from, seven characters; `null` for a release install, which records only the tag, and when not from a git checkout |
 | `repo` | `TEHAS_REPO`, the product repository |
-| `features` | What this release has, so a program can tell a factory that predates a feature from one where it failed. Today `status`, `millwright-grant` ([the millwright's grant](/operating#the-millwrights-grant)), `fixer-grant`, `all-hands`, `limit`, `drain`, `history` ([`tehas history`](#tehas-history)), `export` ([`tehas export`](#tehas-export)), `refresh-conflicts` (the factory refreshes its own pull requests that conflict, [refreshes](/operating#refreshes)), `analytics` ([`tehas analytics export --json`](#tehas-analytics-export)), `state-move` ([`tehas state`](#tehas-state)), `pr-title` (the factory keeps the `WIP: ` and `HALT: ` prefixes of its pull requests itself, [pull request titles](/tools-dispatch#pull-request-titles)), `mcp-dashboard-keys` (the read-only MCP server answers a key of `TEHAS_MCP_DASHBOARD_KEYS` with only the four tools that copy from `live/`, [the MCP server](/mcp-server)), `clean` ([`tehasbot clean`](#tehasbot-clean)), `disk` ([`tehas disk`](#tehas-disk)), `panels` ([`tehas panel`](#tehas-panel)), `state-check` ([`tehas state check`](#tehas-state-check)), `finish` ([the finish ask](#the-finish-ask)), `status-versions` (`versions` in [`tehas status --json`](#tehas-status---json)) `store-copy` ([`tehas state copy`](#tehas-state-copy)), `state-load` ([`tehas state load`](#tehas-state-load)), `freeze` ([`tehas freeze` and `tehas thaw`](#tehas-freeze-and-tehas-thaw)) `host-bridge` ([the host bridge](#the-host-bridge)), `host-bridge-tokens` (the dashboard draws `tokens` of [the host bridge](#the-host-bridge)) and `cycle-writes` ([`tehas disk --cycles`](#tehas-disk) names what each running cycle writes) |
+| `features` | What this release has, so a program can tell a factory that predates a feature from one where it failed. Today `status`, `millwright-grant` ([the millwright's grant](/operating#the-millwrights-grant)), `fixer-grant`, `all-hands`, `limit`, `drain`, `history` ([`tehas history`](#tehas-history)), `export` ([`tehas export`](#tehas-export)), `refresh-conflicts` (the factory refreshes its own pull requests that conflict, [refreshes](/operating#refreshes)), `analytics` ([`tehas analytics export --json`](#tehas-analytics-export)), `state-move` ([`tehas state`](#tehas-state)), `mcp-dashboard-keys` (the read-only MCP server answers a key of `TEHAS_MCP_DASHBOARD_KEYS` with only the four tools that copy from `live/`, [the MCP server](/mcp-server)), `clean` ([`tehasbot clean`](#tehasbot-clean)), `disk` ([`tehas disk`](#tehas-disk)), `panels` ([`tehas panel`](#tehas-panel)), `state-check` ([`tehas state check`](#tehas-state-check)), `finish` ([the finish ask](#the-finish-ask)), `status-versions` (`versions` in [`tehas status --json`](#tehas-status---json)) `store-copy` ([`tehas state copy`](#tehas-state-copy)), `state-load` ([`tehas state load`](#tehas-state-load)), `freeze` ([`tehas freeze` and `tehas thaw`](#tehas-freeze-and-tehas-thaw)) `host-bridge` ([the host bridge](#the-host-bridge)), `host-bridge-tokens` (the dashboard draws `tokens` of [the host bridge](#the-host-bridge)) `cycle-writes` ([`tehas disk --cycles`](#tehas-disk) names what each running cycle writes) and `settings-rules` (the release carries [its settings rules](#settings-rules)) |
 | `millwright` | The app's login, or `null` before it is known |
 | `fixer` | The same as `millwright`. It and the feature `fixer-grant` are the old names, kept for as long as API version 1; a program reads `millwright` and `millwright-grant` |
 | `poll` | What the polls of this factory cost, or `null` when no poll is on record or the state store cannot answer. `last` is the poll that most recently held the dispatcher's lock and `hour` is the sums of the polls that ended in the last hour; both are in the fields below, so a program that keeps a copy of them can add the cost of many hosts up. See [What a poll costs](/operating#what-a-poll-costs) for what each figure counts |
@@ -1197,3 +1198,55 @@ registers no service worker, and the front pages and `/dashboard` unregister
 any they find on their origin. `live/` stays public; the bridge does not
 change it. `tehas api` lists the feature `host-bridge`, and `host-bridge-tokens`
 when the dashboard draws `tokens`.
+
+## Settings rules
+
+```
+console settings rules --json
+```
+
+```json
+{
+  "api": 1,
+  "required": ["TEHAS_REPO", "TEHAS_CONTROL_ISSUE", "TEHAS_ALLOWED_LABELERS", "PI_ENSEMBLE_SUBAGENT_MODEL", "PI_ENSEMBLE_SUBAGENT_PROVIDER"],
+  "roles": ["DEVELOPER", "OPS", "EXPLORE", "ADVERSARIAL_DEVELOPER", "CODE_REVIEW_SPECIALIST"],
+  "settings": [
+    {"name": "TEHAS_INDEXING", "rule": "one-of", "when": "always", "default": "0", "words": ["0", "1"], "reason": "expected 0 or 1"},
+    {"name": "TEHAS_REPO", "rule": "repo", "when": "required", "default": null, "reason": "expected owner/name"}
+  ]
+}
+```
+
+Every release carries the rules of the instance settings as
+`api/settings-rules.json`, at `tehas-<tag>/api/settings-rules.json` in the
+tarball. It is what `console settings rules --json` of that release prints,
+built from the table the load checks `instance.env` with, so a tool with no
+factory, such as the CI of a settings repository, can check the values. The
+source holds the JSON Schema, `api/settings-rules.schema.json`. `tehas api`
+lists the feature `settings-rules`.
+
+| Field | What it holds |
+| --- | --- |
+| `api` | The file's version, `1` |
+| `required` | The settings an instance has to set itself |
+| `roles` | The roles that take a model of their own: the suffixes of `PI_ENSEMBLE_MODEL_<ROLE>` and `PI_ENSEMBLE_PROVIDER_<ROLE>`, each a `one-word` value |
+| `settings` | One object per setting, in the order a load checks them, which picks the setting an operator is told about first |
+| `settings.name` | The setting |
+| `settings.rule` | The shape of its value, a kebab-case name such as `repo`, `count`, `one-of` or `low-gate`. Rows with the same rule take the same values, except `one-of`, whose words are the row's own |
+| `settings.when` | When a load checks it: `always` (it has a default, so it always holds something), `given` (when the instance gives it a value), `named` (when the instance names it, even with an empty value), `required` (when a command requires it) |
+| `settings.default` | What the load uses when the instance leaves it out or empty, or `null`: it stays unset, or the load works it out |
+| `settings.words` | Only for a `one-of` row: the values it takes |
+| `settings.reason` | What the check says for a value the rule refuses |
+
+An empty value means unset and is not checked against the rule, except for a
+`named` setting. An unset setting of `when` `required` is refused by the
+command that requires it.
+
+The file holds a rule's name and one reason, not the check itself: to check a
+value, run `libexec/console settings valid <name> <value>` from the tarball of
+the same release. It exits 0 for a value the setting takes, and 1 with the
+reason on standard output for one it refuses, the same reason the factory
+gives, for any rule. A `low-gate` value is also refused when it is a path under
+the host's own trees, the tehas home, the instance directory and the work
+repository, which only the host knows; the console checks those when
+`TEHAS_HOME`, `TEHAS_INSTANCE_DIR` and `TEHAS_WORK_REPO` are set.
