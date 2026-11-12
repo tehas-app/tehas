@@ -24,6 +24,8 @@ use std::cmp::Reverse;
 use std::path::{Path, PathBuf};
 use std::sync::{LazyLock, OnceLock};
 
+mod sums;
+
 fn regex(pattern: &str) -> Regex {
     Regex::new(pattern).expect("a pattern of the mask is not a regular expression")
 }
@@ -110,6 +112,10 @@ pub fn mask(s: &str) -> String {
     let s: String = s.chars().filter(|c| !is_format(*c)).collect();
     let s = match ENV_SECRETS.as_ref() {
         Some(values) => values.replace_all(&s, "***").into_owned(),
+        None => s,
+    };
+    let s = match SUMS.get() {
+        Some(sums) => sums.hide(&s),
         None => s,
     };
     let s = GITHUB_TOKEN.replace_all(&s, "${1}${2}***");
@@ -259,14 +265,12 @@ fn secret_name(name: &str) -> bool {
         .any(|w| name.contains(w))
 }
 
-/// One pattern of the secret values: those of the environment whose names say
-/// they are secret, and the literals of models.json, which name themselves.
-/// Both are trimmed and measured here, by the one bound, so a list a caller
-/// brings is no different from one read from the environment. The longest value
-/// is put first, so a value that holds another is hidden whole. None when no
-/// value is kept, and none when the file is so full of values that no pattern
-/// of them fits the regex crate's own limit.
-fn secret_values(vars: impl Iterator<Item = (String, String)>, models: &[String]) -> Option<Regex> {
+/// The secret values: those of the environment whose names say they are
+/// secret, and the literals of models.json, which name themselves. Both are
+/// trimmed and measured here, by the one bound, so a list a caller brings is no
+/// different from one read from the environment. The longest first, so a value
+/// that holds another is hidden whole.
+fn secret_list(vars: impl Iterator<Item = (String, String)>, models: &[String]) -> Vec<String> {
     let mut values: Vec<String> = vars
         .filter(|(name, _)| secret_name(name))
         .map(|(_, value)| value)
@@ -274,14 +278,44 @@ fn secret_values(vars: impl Iterator<Item = (String, String)>, models: &[String]
         .map(|value| value.trim().to_string())
         .filter(|v| v.chars().count() >= SHORTEST_SECRET)
         .collect();
+    values.sort_by_key(|v| Reverse(v.len()));
+    values.dedup();
+    values
+}
+
+/// One pattern of the secret values. None when no value is kept, and none when
+/// the file is so full of values that no pattern of them fits the regex
+/// crate's own limit.
+fn secret_values(vars: impl Iterator<Item = (String, String)>, models: &[String]) -> Option<Regex> {
+    let values = secret_list(vars, models);
     if values.is_empty() {
         return None;
     }
-    values.sort_by_key(|v| Reverse(v.len()));
-    values.dedup();
     let alternation: Vec<String> = values.iter().map(|v| regex::escape(v)).collect();
     Regex::new(&alternation.join("|")).ok()
 }
+
+/// The secret values this process masks, as a line of their salted sums for a
+/// program that is to mask them without holding them: the MCP server. The
+/// salt is the caller's, fresh for each start.
+pub fn sums_line(salt: &[u8; 16]) -> String {
+    sums::line(&secret_list(std::env::vars(), &model_values()), salt)
+}
+
+/// The same for values a caller brings, through the same bound.
+pub fn sums_line_of(values: &[String], salt: &[u8; 16]) -> String {
+    sums::line(&secret_list(std::iter::empty(), values), salt)
+}
+
+/// Sets the sums for the rest of the run, from a line of sums_line. Once: the
+/// first call wins. A line that is not one is refused, naming what is wrong.
+pub fn set_sums(line: &str) -> Result<(), String> {
+    let _ = SUMS.set(sums::parse(line)?);
+    Ok(())
+}
+
+// The values a program was given as sums; none in a program that holds them.
+static SUMS: OnceLock<sums::Sums> = OnceLock::new();
 
 // Names the host knows and an agent can print: the host aliases, the model
 // host, the bot's email. tehas work gives them with --private.
@@ -544,6 +578,18 @@ mod tests {
             values.replace_all(&format!("{kept} and {short}"), "***"),
             format!("*** and {short}")
         );
+    }
+
+    #[test]
+    fn a_value_given_as_a_sum_is_masked_bare() {
+        // The process's own sums: no other test's text holds this value.
+        let value = "Hq7vNc3Xs9Jd2Wr5Tb";
+        let line = super::sums_line_of(&[format!(" {value} "), "short".to_string()], &[7; 16]);
+        assert!(!line.contains(value));
+        assert_eq!(line.split(' ').count(), 2);
+        super::set_sums(&line).unwrap();
+        assert_eq!(mask(&format!("said {value}\n")), "said ***\n");
+        assert!(super::set_sums("not a line").is_err());
     }
 
     // models.json of the host that runs this test would join the mask too, so

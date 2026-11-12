@@ -4,7 +4,9 @@
 //!             --server-version <v> [--io-timeout <seconds>] [--private <name>]...
 //!
 //! A log is masked as the console masks it, the names given with --private
-//! included. A name is not a secret.
+//! included. A name is not a secret. The host's secret values come as salted
+//! sums in TEHAS_MCP_MASK (mask::sums_line), so a value printed bare is masked
+//! by a server that never holds it.
 //! The keys come from TEHAS_MCP_KEYS and TEHAS_MCP_DASHBOARD_KEYS in the
 //! environment, never from an argument: the second list holds the keys that
 //! are served only the four tools of `mcp::tools::DASHBOARD`. One of the two
@@ -150,6 +152,17 @@ fn main() {
     let version = version.unwrap_or_else(|| usage("--server-version is missing"));
     if let Err(why) = tehas_core::mask::set_private(&private) {
         usage(&why);
+    }
+    // The sums of the host's secret values, which the host gives by name. A
+    // server run without it masks by the patterns and its own settings alone.
+    if let Some(line) = std::env::var_os("TEHAS_MCP_MASK") {
+        let set = line
+            .to_str()
+            .ok_or("is not text".to_string())
+            .and_then(tehas_core::mask::set_sums);
+        if let Err(why) = set {
+            usage(&format!("TEHAS_MCP_MASK: {why}"));
+        }
     }
     let keys = match parse_keys(Setting::ALL.map(of)) {
         Ok(k) => k,

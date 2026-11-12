@@ -25,7 +25,8 @@ reset() {
   echo "v0.7.30+abc1234" >"$th/docs/version.txt"
   # The network the server runs on exists, and lets nothing out.
   t_stub docker 'case "$*" in "network inspect"*) echo false ;; esac
-[ "$1" != run ] || printf "%s\n%s\n" "${TEHAS_MCP_KEYS:-none}" "${TEHAS_MCP_DASHBOARD_KEYS:-none}" >"$T/keys.seen"'
+[ "$1" != run ] || printf "%s\n%s\n" "${TEHAS_MCP_KEYS:-none}" "${TEHAS_MCP_DASHBOARD_KEYS:-none}" >"$T/keys.seen"
+[ "$1" != run ] || printf "%s\n" "${TEHAS_MCP_MASK:-none}" >"$T/mask.seen"'
   t_instance "${T_MINIMAL[@]}"
   t_env
 }
@@ -90,7 +91,7 @@ t_lacks "$(t_calls docker)" "$key2"
 reset
 t_env TEHAS_MCP=1 TEHAS_MCP_KEYS="$key1" TEHAS_MCP_DASHBOARD_KEYS="$key2"
 t_run "$mcp serve"
-t_contains "$(t_calls docker)" "-e TEHAS_MCP_KEYS -e TEHAS_MCP_DASHBOARD_KEYS --entrypoint"
+t_contains "$(t_calls docker)" "-e TEHAS_MCP_KEYS -e TEHAS_MCP_DASHBOARD_KEYS -e TEHAS_MCP_MASK --entrypoint"
 t_lacks "$(t_calls docker)" "$key1"
 t_lacks "$(t_calls docker)" "$key2"
 
@@ -125,10 +126,35 @@ t_run "$mcp serve"
 t_eq "$t_rc" 0
 t_eq "$(t_calls docker)" "network inspect --format {{index .Options \"com.docker.network.bridge.enable_ip_masquerade\"}} tehas-mcp
 rm -f tehas-mcp
-run --rm --init --name tehas-mcp --user $(id -u):$(id -g) --network tehas-mcp --read-only --cap-drop ALL --security-opt no-new-privileges:true --memory 256m --pids-limit 64 -p 192.0.2.9:8082:8082 -v $th/live:/live:ro -v $th/mcp:/sessions:ro -v $th/logs:/logs:ro -v $th/libexec/tehas-mcp:/tehas-mcp:ro -e TEHAS_MCP_KEYS -e TEHAS_MCP_DASHBOARD_KEYS --entrypoint /tehas-mcp caddy@$digest --live /live --sessions /sessions --logs /logs --listen 0.0.0.0:8082 --server-version v0.7.30+abc1234 --private gpu1 --private 192.0.2.10 --private models.lan --private bot@example.com"
+run --rm --init --name tehas-mcp --user $(id -u):$(id -g) --network tehas-mcp --read-only --cap-drop ALL --security-opt no-new-privileges:true --memory 256m --pids-limit 64 -p 192.0.2.9:8082:8082 -v $th/live:/live:ro -v $th/mcp:/sessions:ro -v $th/logs:/logs:ro -v $th/libexec/tehas-mcp:/tehas-mcp:ro -e TEHAS_MCP_KEYS -e TEHAS_MCP_DASHBOARD_KEYS -e TEHAS_MCP_MASK --entrypoint /tehas-mcp caddy@$digest --live /live --sessions /sessions --logs /logs --listen 0.0.0.0:8082 --server-version v0.7.30+abc1234 --private gpu1 --private 192.0.2.10 --private models.lan --private bot@example.com"
 t_lacks "$(t_calls docker)" "$key1"
 t_lacks "$(t_calls docker)" "$key2"
 rm -rf "$T/home/.pi" "$T/home/.gitconfig"
+
+t_case "the secret values the host masks reach the container as sums, by name, never as values"
+reset
+mkdir -p "$T/home/.pi/agent"
+model_key=Qw8rTy3uIo1pAs6dFg
+echo "{\"providers\":{\"p\":{\"baseUrl\":\"http://models.lan:8086/v1\",\"apiKey\":\"$model_key\"}}}" \
+  >"$T/home/.pi/agent/models.json"
+t_env TEHAS_MCP=1 TEHAS_MCP_KEYS="$key1" SOME_MODEL_TOKEN=Zx5cVb7nMm2Lk4Jh
+t_run "$mcp serve"
+t_eq "$t_rc" 0
+t_contains "$(t_calls docker)" "-e TEHAS_MCP_MASK --entrypoint"
+seen=$(cat "$T/mask.seen")
+# The salt, then the two values and the key of TEHAS_MCP_KEYS.
+t_eq "$(wc -w <<<"$seen" | tr -d ' ')" 4
+for value in "$model_key" Zx5cVb7nMm2Lk4Jh "$key1"; do
+  t_lacks "$seen" "$value"
+  t_lacks "$(t_calls docker)" "$value"
+done
+first=$seen
+reset
+t_env TEHAS_MCP=1 TEHAS_MCP_KEYS="$key1" SOME_MODEL_TOKEN=Zx5cVb7nMm2Lk4Jh
+t_run "$mcp serve"
+t_eq "$t_rc" 0
+[ "$(cat "$T/mask.seen")" != "$first" ] || t_bad "the salt is the same on two starts"
+rm -rf "$T/home/.pi"
 
 t_case "the private names are those the console is given: none under 4 characters, none without settings"
 reset
