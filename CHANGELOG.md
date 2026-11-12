@@ -168,6 +168,42 @@ a pull request before it tags, with the head's `scripts/collect-changelog.sh`.
 - Each release carries the rules of the instance settings as `api/settings-rules.json`, what the new `console settings rules --json` prints, so a tool with no factory can check `instance.env` values. `tehas api` lists the feature `settings-rules` (#1879).
 - A renamed GitHub App no longer leaves the factory under its old login. The login in `~/tehas/state/github/login` was looked up once and kept for good, so after a rename a cycle listed its pull requests by a login that names nobody, found none, and parked a pull request that waited only for a merge as `needs-human-attention`; its title then read `HALT: `. Each new token now asks GitHub for the app's login and rewrites the file when it changed.
 - The factory no longer writes the titles of its pull requests. The `WIP: ` and `HALT: ` prefixes are gone: a poll and a cycle's end no longer set them, `console pr-title` is removed, and `tehas api` no longer lists the feature `pr-title`. The labels of the linked issue carry the state: `tehas:running`, `tehas:awaiting-merge` and `needs-human-attention`. The open pull requests on the poll's first page are read with only their number and body, which is all the hold on a closing keyword reads (#1921).
+- An easy merge is no longer refused because the branch changed files of its
+  own. The merge of a conflicting pull request checked what its merge commit
+  changed against the files that conflicted, and read that with
+  `git diff <head> <commit>`, which also names every file the branch changed
+  since the branch point and git merged clean. A pull request that conflicts
+  in one file while the branch moved any other was therefore refused almost
+  always, and the cycle fell back to a full refresh. The check now reads the
+  commit with `git diff-tree --cc`, which names only the files the merge
+  itself wrote (#1746). That read also asks git not to quote names, so a file
+  under a directory whose name is outside ASCII is still recognised as the file
+  it is, instead of being refused as one nobody asked for.
+- A stopped cycle shows as stopped on the live pages, not as running and then
+  lost. `cycle-end --stopped` and `--refused` set only the end on the record:
+  they wrote neither the closing heartbeat the page reads nor a row among the
+  ten ends, so a cycle stopped after it had sent a heartbeat was published as
+  still running until it went quiet for two minutes, and as `lost` from then on
+  on every publish until the issue started again. Health, the dashboard and the
+  MCP sessions named a lost cycle where a person had stopped one or the
+  supervisor had taken a start too late. The two ends now write the closing
+  heartbeat and the ending that a reported end writes, carrying the step and
+  the notice of the last heartbeat the cycle sent. `cycle-show` answers
+  `heard_at` with the newest heartbeat that said the cycle was at work, so the
+  closing row of an end is never the second the issue was last heard from and
+  the poll still stops a container that went on after its record was ended
+  (#1748).
+- A stopped cycle whose docker client hangs gives its slot back after the stop
+  wait instead of after 8 hours. The watch bounded the calls that stop a
+  container, but not the wait on the attached `docker run` of that container: a
+  dockerd that stops answering left the client alive, and the cycle kept the
+  issue's lock and its slot and wrote no report until the unit's own time limit
+  ended it. The watch now waits `TEHAS_STOP_WAIT` for that client, kills it, and
+  says that its container may still run: the poll's reap removes it (#1756).
+- After the GitHub App's slug changes, the bot's user id in `state/account-ids` is recorded under the new login before the kept login is rewritten, and the dispatcher finds its own questions by that user id, so a ticked Retry box on a parked issue is acted on again. A question on record written by another account is logged with its author (#1916).
+- `tehas order` sets the order ready issues start in: `tehas order set --issues 12,8` starts #12 and #8 first, then the rest lowest number first; with `--only` the rest wait. The order is kept in the state store, so it stays through restarts until it is set again or cleared; `--for` or `--until` give it an expiry. With no order, ready issues start lowest number first. `tehas status` shows the order, `status --json` carries it as `order`, and `tehas api` lists the feature `start-order` (#1918).
+- The labels `tehas:urgent` and `tehas:next`, and the settings `TEHAS_PRIORITY_FIELD`, `TEHAS_LOW_GATE` and `TEHAS_LOW_GATE_WAIT`, are gone. A line that still sets one of the three settings stops loading with 78; a blank one is ignored (#1918).
+- The state store is at schema 12 (table `start_order`); install.sh migrates it (#1918).
 
 ### Held back
 
@@ -203,6 +239,8 @@ repository named in the platform, and it is gone for every host.
 - After renaming the factory's GitHub App, run `console ids record` (or `tehas update`) so `state/account-ids` holds the new login; until then the millwright's labels do not count.
 
 - A pull request whose title still starts with `WIP: ` or `HALT: ` keeps it: tehas does not change it again. Take the prefix off by hand before merging if you do not want it in the merge commit. A program that read `pr-title` from `tehas api` should read the issue's labels instead.
+
+Take `TEHAS_PRIORITY_FIELD`, `TEHAS_LOW_GATE` and `TEHAS_LOW_GATE_WAIT` out of `instance.env` and `optional.env` before updating. To keep an issue first, run `tehas order set --issues <n>`. The labels `tehas:urgent` and `tehas:next` order nothing now; delete them from the repository with `gh label delete tehas:urgent` and `gh label delete tehas:next` once no issue needs them.
 
 ## v0.25.1 (2026-11-07)
 
