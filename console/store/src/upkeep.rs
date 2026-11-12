@@ -36,7 +36,7 @@ use crate::lock;
 use crate::verbs::{self, j, line, list, obj, Args, Fail, Kind, Q};
 use rusqlite::{params, OptionalExtension};
 use std::fs::{self, File, TryLockError};
-use std::os::unix::fs::{MetadataExt, PermissionsExt};
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
@@ -625,11 +625,21 @@ pub fn roll(home: &Path, name: &str, cap: u64) -> Result<bool, Fail> {
         PathBuf::from(copy)
     };
     // A copy, not a rename: the writer holds the file, not the name. An older
-    // `.1` is replaced, so one generation is kept, as the MCP tail reads.
-    fs::copy(&path, &copy).map_err(written)?;
-    // fs::copy carries the source's mode across, setuid bits and all: the copy
-    // is the store's own file, readable by whoever reads the log.
-    fs::set_permissions(&copy, fs::Permissions::from_mode(0o600)).map_err(written)?;
+    // `.1` is replaced, so one generation is kept, as the MCP tail reads. It is
+    // removed first and the copy made new, so a `.1` that is a link is replaced
+    // and nothing is written through it.
+    match fs::remove_file(&copy) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(written(e)),
+    }
+    let mut to = File::options()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&copy)
+        .map_err(written)?;
+    std::io::copy(&mut File::open(&path).map_err(written)?, &mut to).map_err(written)?;
     // Truncate the file that was measured, not whatever holds the name now.
     let log = File::options().write(true).open(&path).map_err(written)?;
     let now = log.metadata().map_err(written)?;

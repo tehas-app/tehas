@@ -1346,3 +1346,26 @@ fn the_prune_delete_names_its_table_and_its_four_clauses() {
         assert_eq!(sql.matches("ORDER BY at DESC, id DESC LIMIT 1").count(), 3);
     }
 }
+
+#[test]
+fn a_roll_replaces_a_linked_copy_and_writes_nothing_through_it() {
+    let home = home("roll-linked-copy");
+    let name = LONG_LIVED[0];
+    let path = home.join(name);
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::write(&path, log_text(name, 600)).unwrap();
+    // A `.1` that is a link: the copy replaces the link and leaves the file it
+    // pointed at as it was, its mode too.
+    let elsewhere = home.join("elsewhere");
+    fs::write(&elsewhere, "keep\n").unwrap();
+    fs::set_permissions(&elsewhere, fs::Permissions::from_mode(0o644)).unwrap();
+    let copy = home.join(format!("{name}.1"));
+    std::os::unix::fs::symlink(&elsewhere, &copy).unwrap();
+    assert!(roll(&home, name, TEST_CAP).unwrap());
+    assert_eq!(fs::read_to_string(&elsewhere).unwrap(), "keep\n");
+    assert_eq!(mode(&elsewhere), 0o644);
+    assert!(fs::symlink_metadata(&copy).unwrap().file_type().is_file());
+    assert_eq!(fs::read_to_string(&copy).unwrap(), log_text(name, 600));
+    assert_eq!(mode(&copy), 0o600);
+    assert_eq!(fs::read_to_string(&path).unwrap(), "");
+}
