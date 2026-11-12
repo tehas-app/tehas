@@ -358,6 +358,14 @@ mod tests {
             }
         );
         drop(lock);
+        // The lock is a flock, so a child that another test of this binary
+        // forks while the lock is open shares the open file until it execs:
+        // the lock can read held for that moment after the drop. Read until
+        // it says free, within the deadline.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(2000);
+        while seen(&d, 7).running && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
         assert!(!seen(&d, 7).running);
     }
 }
