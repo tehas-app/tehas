@@ -63,12 +63,17 @@ pub fn run_full(
     grace: Duration,
     extra: &[(&str, &str)],
 ) -> Ran {
+    use std::os::unix::process::CommandExt;
     let mut cmd = Command::new(program);
     cmd.args(args);
     for (k, v) in extra {
         cmd.env(k, v);
     }
+    // A group of its own, as run_grace_env: a program that starts another one
+    // leaves it holding the pipes when it goes, so the group is signalled
+    // rather than the child alone.
     let child = cmd
+        .process_group(0)
         .stdin(if input.is_some() {
             Stdio::piped()
         } else {
@@ -112,7 +117,7 @@ pub fn run_full(
         }
         e
     });
-    let status = wait(&mut child, bound, grace, false);
+    let status = wait(&mut child, bound, grace, true);
     Ran {
         status,
         out: reader.join().unwrap_or_default(),
@@ -475,6 +480,68 @@ mod tests {
         let r = run("sleep", &a(&["5"]), Duration::from_millis(100));
         assert_eq!(r.status, None);
         assert!(run("true", &[], Duration::from_secs(5)).ok());
+    }
+
+    #[test]
+    fn a_bound_call_ends_what_the_program_started() {
+        // The shape of the orphan of issue #1755: gh runs under the shim and
+        // a grandchild of it holds the answer's pipe open after its parent is
+        // gone. A signal to the child alone leaves the grandchild reading the
+        // request, the reader joined here never ends, and the poll waits for
+        // the grandchild instead of its bound. So the child leads a group and
+        // the whole group is signalled.
+        let d = crate::testdir::TestDir::new("bound-group");
+        use std::os::unix::fs::PermissionsExt;
+        // The script of the call, written whole by the test rather than by a
+        // shell, so no quoting of a heredoc is involved.
+        let script = d.join("holds-stdout-of-bound-group.sh");
+        std::fs::write(
+            &script,
+            "#!/bin/bash\n\
+             sleep 60 &\n\
+             echo started\n\
+             wait\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        let began = Instant::now();
+        let r = run_full(
+            "bash",
+            &a(&[script.to_str().unwrap()]),
+            Some("the request"),
+            Duration::from_secs(1),
+            Duration::from_millis(500),
+            &[],
+        );
+        let elapsed = began.elapsed();
+        // Out of time and ended by the group's TERM: `wait`'s None, as for any
+        // call that does not answer its bound. The readers ended too, which is
+        // the point: they see the end of the pipes once the group is gone, so
+        // the call returns in the bound and the grace, not whenever the
+        // grandchild decides to. The margin is the 20 ms poll of `wait`.
+        assert_eq!(r.status, None);
+        assert!(
+            elapsed < Duration::from_secs(3),
+            "the call took {elapsed:?}"
+        );
+        // What the script printed before it was cut off came back, so the pipes
+        // were read and not thrown away with the group.
+        assert_eq!(r.out, "started\n");
+
+        // The sleep is gone: its command line names the script of the call,
+        // which no other process of the host has.
+        let left = Command::new("pgrep")
+            .args(["-f", script.to_string_lossy().as_ref()])
+            .stdin(Stdio::null())
+            .stderr(Stdio::null())
+            .output()
+            .unwrap();
+        assert!(
+            left.status.code() == Some(1) && left.stdout.is_empty(),
+            "a sleep of the group survived: {}",
+            String::from_utf8_lossy(&left.stdout)
+        );
     }
 
     #[test]

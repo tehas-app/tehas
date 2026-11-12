@@ -186,7 +186,66 @@ t_eq "$(t_calls docker)" ""
 
 t_case "the manual and the front page are installed"
 t_eq "$(cd "$th/docs" && find . -type f ! -name version.txt | wc -l)" "$(find "$T_ROOT/host/docs" -type f | wc -l)"
-t_eq "$(cd "$th/fun" && find . -type f ! -name version.txt | wc -l)" "$(find "$T_ROOT/host/fun" -type f | wc -l)"
+# The front page comes from the stage console update assets made, and not from
+# host/fun as it stands: beside the files of the checkout it holds a hashed copy
+# of every script and stylesheet a dashboard page names by tag. The count is the
+# stage's own, so this case cannot be satisfied by an install that hashed nothing
+# nor by a stage that hashed what no page names.
+"$T_CONSOLE" update assets "$T_ROOT/host" "$T/stage-count" ||
+  t_bad "console update assets could not stage $T_ROOT/host"
+t_eq "$(cd "$th/fun" && find . -type f ! -name version.txt | wc -l)" \
+  "$(cd "$T/stage-count/fun" && find . -type f | wc -l)"
+# The checkout's files, each of them still there, and beside them the hashed
+# copies and nothing else. Both halves are read out of the home, where the
+# install put them: only the home proves that both came.
+t_eq "$(cd "$th/fun" && find . -type f ! -name version.txt -regextype posix-extended \
+      ! -regex '.*/[A-Za-z0-9_.-]+\.[0-9a-f]{12}\.(js|css)' | LC_ALL=C sort)" \
+  "$(cd "$T_ROOT/host/fun" && find . -type f | LC_ALL=C sort)"
+# Two pages name some of these files, so the copies are fewer than the tags.
+t_eq "$(cd "$th/fun" && find . -type f -regextype posix-extended \
+      -regex '.*/[A-Za-z0-9_.-]+\.[0-9a-f]{12}\.(js|css)' | wc -l)" 22
+
+t_case "a tag of a dashboard page names the hashed copy, which is installed"
+# The name holds the first 12 hex digits of the sha256 of the file's bytes, the
+# same 12 the docs server treats as immutable, and the page asks for that name
+# and no other.
+for name in panels.js panels.css; do
+  stem=${name%%.*}
+  extension=${name##*.}
+  hash=$(sha256sum "$T_ROOT/host/fun/$name" | cut -c1-12)
+  t_contains "$(cat "$th/fun/index.html")" "/fun/$stem.$hash.$extension"
+  t_eq "$([ -f "$th/fun/$stem.$hash.$extension" ] && echo there)" "there"
+  # The copy holds the bytes the checkout holds, under the new name.
+  t_eq "$(cmp -s "$T_ROOT/host/fun/$name" "$th/fun/$stem.$hash.$extension" && echo same)" "same"
+  # And the page asks for no other name of it.
+  t_lacks "$(cat "$th/fun/index.html")" "src=\"/fun/$name\""
+done
+# The theme a template names keeps its name: nothing here can hash a name the
+# request makes, and the file is installed as it is.
+t_contains "$(cat "$th/fun/index.html")" 'href="/fun/theme-{{ $design }}.css"'
+t_eq "$(cd "$th/fun" && find . -name 'theme-*.css' | wc -l)" 2
+
+t_case "a hashed name of older content is removed, and --check says so"
+# An earlier install's name, of bytes the checkout no longer has: it is stale by
+# the same rule as a page that went away, and a real run takes it back.
+echo "// the panel as it was" >"$th/fun/panels.0123456789ab.js"
+echo "// older still" >"$th/fun/panels.0123456789ab.js.prev"
+t_run "$install --check"
+t_contains "$t_out" "panels.0123456789ab.js"
+t_run "$install"
+t_eq "$([ -e "$th/fun/panels.0123456789ab.js" ] && echo there)" ""
+t_eq "$([ -e "$th/fun/panels.0123456789ab.js.prev" ] && echo there)" ""
+t_eq "$(cd "$th/fun" && find . -name '*.new' | wc -l)" 0
+
+t_case "the installed pages are the stage, byte for byte"
+t_run "'$T_CONSOLE' update assets '$T_ROOT/host' '$T/stage-same'"
+t_eq "$t_rc" 0
+# The home holds the stage and nothing of its own beside the version file an
+# install writes there.
+for dir in docs fun; do
+  t_eq "$(cd "$th/$dir" && find . -type f ! -name version.txt | LC_ALL=C sort)" \
+    "$(cd "$T/stage-same/$dir" && find . -type f | LC_ALL=C sort)"
+done
 
 t_case "the instance's model list is what Pi gets, with the keys it left out filled"
 # By parts, so key order is no part of the answer.

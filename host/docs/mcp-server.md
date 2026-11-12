@@ -452,8 +452,9 @@ events like the rest.
 
 The tool opens four names in the logs directory and no other: `dispatch.log`,
 `refresh.log` and their rotated copies `dispatch.log.1` and `refresh.log.1`.
-Neither log is rotated today. A link, or anything that is not a plain file, is a
-tool error that names it.
+`store upkeep` rolls each long-lived log past 64 MiB by copy and truncate and
+keeps one `.1`, so these four names are the ones it rotates. A link, or anything
+that is not a plain file, is a tool error that names it.
 
 The cursor is opaque. It holds, for each log, the file it was read from, how far
 and a hash of the file's first 128 bytes up to there, and it is checked when it
@@ -470,7 +471,8 @@ rotated twice between two polls loses the older copy, so poll more often than
 the logs rotate. A line not yet ended by a newline waits for the next poll. A
 line the copy cut is joined with its rest, the start of the new log.
 
-Rotate these logs by copy and truncate, such as logrotate's `copytruncate`. A
+Rotate these logs by copy and truncate, such as logrotate's `copytruncate`:
+`store upkeep` does this for the four long-lived logs past 64 MiB. A
 cycle's unit and the dispatcher's keep `dispatch.log` open while they run, a
 cycle for hours, and go on writing to the renamed file after a rename. The tool
 reads the `.1` copy only until it reads on in the new log, so lines written to

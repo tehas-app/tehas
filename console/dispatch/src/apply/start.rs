@@ -54,7 +54,6 @@ pub struct Host {
     /// TEHAS_HEALTH_CMD, run after the poll wrote the demand.
     pub health_cmd: String,
     pub health_args: Vec<String>,
-    pub console_cmd: String,
     /// Run by the end of every poll past the bot's login: the console's
     /// `tidy run`, or TEHAS_TIDY_CMD with no arguments.
     pub tidy_cmd: String,

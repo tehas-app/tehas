@@ -7,6 +7,7 @@
 //!   console update gate <arguments>
 //!   console update prepare --plan <file> <arguments>
 //!   console update api
+//!   console update assets <host dir> <stage dir>
 //!   console update finish --plan <file> --install-out <file> \
 //!     --install-err <file> --install-rc <n>
 //!   console update release source|installed|newest|keep
@@ -48,6 +49,8 @@
 //! installed, `report` is the --check report and `notes` what a real run says
 //! about the slice and the sandbox image, see src/update/report.rs. `sandbox`
 //! says whether install.sh owes the sandbox build, see src/update/sandbox.rs.
+//! `assets` stages the dashboard's files for install.sh, with each tag-named
+//! script and stylesheet under a content-hashed name, see src/update/assets.rs.
 //! `sources`
 //! gives install.sh the
 //! checksum of each program's source, see src/update/sources.rs. `wait` says how long a lock is waited
@@ -61,6 +64,7 @@
 //! Exit: as each verb says; 64 usage, 78 a setting is missing, 98 `gate`: go on
 //! with no lock, 99 the run is over and went well, nothing more to do.
 
+mod assets;
 mod checkout;
 mod files;
 mod findings;
@@ -580,11 +584,12 @@ pub fn main(given: &[String]) -> u8 {
         Some((verb, rest)) if verb == "report" => report::report_verb(rest),
         Some((verb, rest)) if verb == "notes" => report::notes_verb(rest),
         Some((verb, rest)) if verb == "sandbox" => sandbox::verb(rest),
+        Some((verb, rest)) if verb == "assets" => assets::verb(rest),
         Some((verb, rest)) if verb == "sources" => sources::verb(rest),
         Some((verb, rest)) if verb == "steps" => steps::verb(rest),
         Some((verb, rest)) if verb == "wait" => wait::verb(rest),
         _ => {
-            tell("console update: usage: run <console> <arguments> | args | gate | prepare | api | finish | files <options> <root> <host> | files write <path> | findings <euid> [<bash>] | keeps <home> <work dir> | units <env file> | login <root> <login command> <marker> | pi <instance> <generic settings> <provider> <model> <out> | programs <home> release|build <tree> <program>... | programs stamp <program> release|<source sum> | release <question> | retired | report <root> <instance> <options> | notes <root> <options> | sandbox <host versions> <checkout versions> <dockerfile> <recorded> | sources <workspace> <package>... | steps <question> | wait update|dispatch");
+            tell("console update: usage: run <console> <arguments> | args | gate | prepare | api | finish | files <options> <root> <host> | files write <path> | findings <euid> [<bash>] | keeps <home> <work dir> | units <env file> | login <root> <login command> <marker> | pi <instance> <generic settings> <provider> <model> <out> | programs <home> release|build <tree> <program>... | programs stamp <program> release|<source sum> | release <question> | retired | report <root> <instance> <options> | notes <root> <options> | sandbox <host versions> <checkout versions> <dockerfile> <recorded> | assets <host dir> <stage dir> | sources <workspace> <package>... | steps <question> | wait update|dispatch");
             64
         }
     }

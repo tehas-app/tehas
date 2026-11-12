@@ -85,7 +85,8 @@
       "url": "https://github.com/acme/widget/pull/347",
       "state": "OPEN",
       "body": "Fixes #7",
-      "headRefName": "feature/issue-7-install-sh-checks-instance-env"
+      "headRefName": "feature/issue-7-install-sh-checks-instance-env",
+      "createdAt": "2026-11-01T09:39:21Z"
      }
     ]
    }
@@ -222,7 +223,8 @@
       "url": "https://github.com/acme/widget/pull/347",
       "state": "OPEN",
       "body": "Fixes #7",
-      "headRefName": "feature/issue-7-install-sh-checks-instance-env"
+      "headRefName": "feature/issue-7-install-sh-checks-instance-env",
+      "createdAt": "2026-11-01T09:39:26Z"
      }
     ]
    }
@@ -507,7 +509,8 @@
       "url": "https://github.com/acme/widget/pull/9",
       "state": "MERGED",
       "body": "Fixes #7",
-      "headRefName": "feature/issue-7-install-sh-checks-instance-env"
+      "headRefName": "feature/issue-7-install-sh-checks-instance-env",
+      "createdAt": "2026-11-01T09:39:36Z"
      }
     ]
    }
@@ -644,7 +647,8 @@
       "url": "https://github.com/acme/widget/pull/347",
       "state": "CLOSED",
       "body": "Fixes #7",
-      "headRefName": "feature/issue-7-install-sh-checks-instance-env"
+      "headRefName": "feature/issue-7-install-sh-checks-instance-env",
+      "createdAt": "2026-11-01T09:39:40Z"
      }
     ]
    }
@@ -1068,7 +1072,8 @@
       "url": "https://github.com/acme/widget/pull/347",
       "state": "OPEN",
       "body": "Work on another thing",
-      "headRefName": "feature/issue-8-another-branch"
+      "headRefName": "feature/issue-8-another-branch",
+      "createdAt": "2026-11-01T09:39:58Z"
      }
     ]
    },
@@ -1799,7 +1804,8 @@
       "url": "https://github.com/acme/widget/pull/9",
       "state": "OPEN",
       "body": "Fixes #7",
-      "headRefName": "feature/issue-7-x"
+      "headRefName": "feature/issue-7-x",
+      "createdAt": "2026-11-01T09:40:27Z"
      }
     ]
    },
@@ -1957,7 +1963,8 @@
       "url": "https://github.com/acme/widget/pull/347",
       "state": "OPEN",
       "body": "Fixes #7",
-      "headRefName": "feature/issue-7-install-sh-checks-instance-env"
+      "headRefName": "feature/issue-7-install-sh-checks-instance-env",
+      "createdAt": "2026-11-01T09:40:31Z"
      }
     ]
    }
@@ -2243,7 +2250,8 @@
       "url": "https://github.com/acme/widget/pull/347",
       "state": "OPEN",
       "body": "Fixes #7",
-      "headRefName": "feature/issue-7-install-sh-checks-instance-env"
+      "headRefName": "feature/issue-7-install-sh-checks-instance-env",
+      "createdAt": "2026-11-01T09:40:43Z"
      }
     ]
    }
@@ -2380,7 +2388,8 @@
       "url": "https://github.com/acme/widget/pull/347",
       "state": "OPEN",
       "body": "Fixes #7",
-      "headRefName": "feature/issue-7-install-sh-checks-instance-env"
+      "headRefName": "feature/issue-7-install-sh-checks-instance-env",
+      "createdAt": "2026-11-01T09:40:48Z"
      }
     ]
    }
@@ -2657,7 +2666,8 @@
       "url": "https://github.com/acme/widget/pull/347",
       "state": "OPEN",
       "body": "Fixes #7",
-      "headRefName": "feature/issue-7-install-sh-checks-instance-env"
+      "headRefName": "feature/issue-7-install-sh-checks-instance-env",
+      "createdAt": "2026-11-01T09:41:01Z"
      }
     ]
    }
@@ -3231,7 +3241,8 @@
       "url": "https://github.com/acme/widget/pull/347",
       "state": "OPEN",
       "body": "Fixes #7",
-      "headRefName": "feature/issue-7-installed"
+      "headRefName": "feature/issue-7-installed",
+      "createdAt": "2026-11-01T09:41:23Z"
      }
     ]
    },
@@ -3385,7 +3396,8 @@
       "url": "https://github.com/acme/widget/pull/347",
       "state": "OPEN",
       "body": "Fixes #7",
-      "headRefName": "feature/issue-7-x"
+      "headRefName": "feature/issue-7-x",
+      "createdAt": "2026-11-01T09:41:30Z"
      }
     ],
     "attention": false
@@ -3520,7 +3532,8 @@
       "url": "https://github.com/acme/widget/pull/347",
       "state": "OPEN",
       "body": "Fixes #7",
-      "headRefName": "feature/issue-7-x"
+      "headRefName": "feature/issue-7-x",
+      "createdAt": "2026-11-01T09:41:36Z"
      }
     ],
     "attention": false
