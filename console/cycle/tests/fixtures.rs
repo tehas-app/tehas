@@ -478,12 +478,19 @@ fn open_pr(draft: Option<bool>) -> Value {
     serde_json::json!([p])
 }
 
-/// #1747: the pull request of an attempt before this one is not its own, so
-/// the stop of the cycle says it has none: the two cases above stand or fall
-/// with the second their pull request was opened.
+/// #1747: the merged or closed pull request of an attempt before this one is
+/// not its own, so the stop of the cycle says it has none. An open one is the
+/// branch's live pull request whoever opened it, and is named.
 #[test]
 fn a_stop_of_a_retry_names_no_pull_request_of_an_earlier_attempt() {
-    for state in ["OPEN", "MERGED", "CLOSED"] {
+    let mut prs = open_pr(Some(false));
+    prs[0]["createdAt"] = "2026-11-01T09:39:00Z".into();
+    let said = stop_with(prs);
+    assert!(
+        said.contains("Tehas cycle stopped with pull request #67 open"),
+        "OPEN: {said}"
+    );
+    for state in ["MERGED", "CLOSED"] {
         let mut prs = open_pr(Some(false));
         prs[0]["state"] = state.into();
         prs[0]["createdAt"] = "2026-11-01T09:39:00Z".into();
@@ -637,4 +644,62 @@ fn a_park_of_a_retry_is_not_made_by_an_earlier_attempts_pull_request() {
             on_issue(&own)
         );
     }
+}
+
+/// The refresh case of the handoff suite that pushed to its pull request, with
+/// that pull request opened before the refresh started, as every refreshed
+/// pull request is: an earlier cycle opened it.
+fn refresh_of_an_older_pr(state: &str) -> (Value, tehas_cycle::Report) {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/handoff.json");
+    let cases: Vec<Value> = serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap();
+    let mut c = cases
+        .into_iter()
+        .find(|c| {
+            c["case"].as_str().unwrap_or("")
+                == "a refresh takes tehas:refreshing off its pull request when it ends: pushed"
+        })
+        .unwrap();
+    c["facts"]["github"]["prs"][0]["createdAt"] = "2026-10-20T08:00:00Z".into();
+    c["facts"]["github"]["prs"][0]["state"] = state.into();
+    let facts = Facts::from_json(&c["facts"]).unwrap();
+    let r = report(&facts, &mut Given(c["facts"]["github"].clone()));
+    (c, r)
+}
+
+/// #1747 bounds only what a merged or closed pull request decides. A refresh
+/// pushes to the open pull request an earlier cycle opened, so that one is
+/// still the cycle's: its handoff names it and takes tehas:refreshing off it.
+#[test]
+fn a_refresh_ends_on_the_open_pull_request_an_earlier_cycle_opened() {
+    let (c, r) = refresh_of_an_older_pr("OPEN");
+    assert_eq!(r.done, c["expect"]["done"].as_str().unwrap(), "{}", r.done);
+    assert!(r.done.contains("pr=https://github.com/acme/widget/pull/9"));
+    assert!(
+        r.actions
+            .iter()
+            .any(|a| matches!(a, Action::RefreshOff { pr } if pr == "9")),
+        "{:?}",
+        r.actions
+    );
+}
+
+/// The pull request a refresh was approved for, merged while it ran, is still
+/// the cycle's end however long ago it was opened.
+#[test]
+fn a_refresh_whose_older_pull_request_merged_is_merged_outside() {
+    let (_, r) = refresh_of_an_older_pr("MERGED");
+    assert_eq!(r.arm, "merged-outside", "{}", r.arm);
+    assert!(r.done.contains("status=merged"), "{}", r.done);
+}
+
+/// Another older pull request of the branch, merged, is still not the
+/// refresh's: only the number its approval names is exempt.
+#[test]
+fn a_refresh_takes_no_other_older_merged_pull_request() {
+    let (mut c, _) = refresh_of_an_older_pr("MERGED");
+    c["facts"]["github"]["prs"][0]["url"] = "https://github.com/acme/widget/pull/90".into();
+    let facts = Facts::from_json(&c["facts"]).unwrap();
+    let r = report(&facts, &mut Given(c["facts"]["github"].clone()));
+    assert_ne!(r.arm, "merged-outside", "{}", r.arm);
+    assert!(!r.done.contains("status=merged"), "{}", r.done);
 }

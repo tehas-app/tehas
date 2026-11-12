@@ -391,6 +391,37 @@ fn opened_at_or_after(pr: &Value, started: i64) -> bool {
     tehas_core::limit::epoch(&text(pr, "createdAt")).is_some_and(|at| at >= started)
 }
 
+/// The approval this start used, if the store's answer names one.
+fn approval_used(f: &Facts) -> Option<&Value> {
+    f.approval.as_ref().ok().and_then(|a| {
+        a.get("current").filter(|c| {
+            c.is_object() && c.get("used_by").and_then(Value::as_u64) == Some(f.attempt)
+        })
+    })
+}
+
+/// The pull request a refresh approval names, `null` for any other approval.
+fn refresh_pr_of(c: &Value) -> Value {
+    if c.get("how").and_then(Value::as_str) != Some("refresh") {
+        return Value::Null;
+    }
+    match c.get("refresh_pr") {
+        None | Some(Value::Null) | Some(Value::Bool(false)) => c
+            .pointer("/input/refresh_of/pr")
+            .cloned()
+            .unwrap_or(Value::Null),
+        Some(x) => x.clone(),
+    }
+}
+
+/// Whether `url` is the address of pull request `number` (`""`: none).
+fn is_pull(url: &str, number: &str) -> bool {
+    !number.is_empty()
+        && url
+            .strip_suffix(number)
+            .is_some_and(|rest| rest.ends_with("/pull/"))
+}
+
 /// The fields jq gives as `def v`: no NUL, no line ends at the end.
 fn v(s: &str) -> String {
     s.replace('\0', "").trim_end_matches('\n').to_string()
@@ -1019,13 +1050,28 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
             }
         }
     }
+    // An open pull request is the branch's live one whoever opened it: a
+    // refresh or a later attempt pushes to it. A merged or closed one speaks
+    // for this cycle only if this start opened it, or it is the pull request
+    // this refresh was approved for (#1747).
+    let refresh_of = approval_used(f)
+        .map(refresh_pr_of)
+        .and_then(|x| match x {
+            Value::Number(n) => Some(n.to_string()),
+            Value::String(s) => Some(s),
+            _ => None,
+        })
+        .filter(|n| re(r"^[1-9][0-9]{0,9}$", n))
+        .unwrap_or_default();
     let url_in = |st: &str| {
         prs.iter()
             .filter(|p| {
                 p.is_object()
                     && text(p, "state").to_ascii_uppercase() == st
                     && names_issue(p, issue)
-                    && opened_at_or_after(p, f.started)
+                    && (st == "OPEN"
+                        || opened_at_or_after(p, f.started)
+                        || is_pull(&text(p, "url"), &refresh_of))
             })
             .filter_map(|p| p.get("url").and_then(Value::as_str))
             .find(|u| re(r"^https://[A-Za-z0-9./_-]+$", u))
@@ -1134,26 +1180,13 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
     let (mut refreshed, mut base_at, mut base_by) = (String::new(), String::new(), String::new());
     match &f.approval {
         Ok(a) => {
-            let cur = a.get("current").filter(|c| {
-                c.is_object() && c.get("used_by").and_then(Value::as_u64) == Some(f.attempt)
-            });
-            if let Some(c) = cur {
+            if let Some(c) = approval_used(f) {
                 let dash = |x: Option<&Value>| match x {
                     None | Some(Value::Null) | Some(Value::Bool(false)) => "-".to_string(),
                     Some(Value::String(s)) => s.clone(),
                     Some(o) => o.to_string(),
                 };
-                let rp = if c.get("how").and_then(Value::as_str) == Some("refresh") {
-                    match c.get("refresh_pr") {
-                        None | Some(Value::Null) | Some(Value::Bool(false)) => c
-                            .pointer("/input/refresh_of/pr")
-                            .cloned()
-                            .unwrap_or(Value::Null),
-                        Some(x) => x.clone(),
-                    }
-                } else {
-                    Value::Null
-                };
+                let rp = refresh_pr_of(c);
                 let rests = a.get("rests_on").cloned().unwrap_or(Value::Null);
                 let joined = format!(
                     "{} {} {}",
