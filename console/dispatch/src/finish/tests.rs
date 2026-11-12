@@ -254,6 +254,16 @@ fn a_rule_not_met_takes_the_label_off_runs_nothing_and_says_why() {
             "changed since alice approved it",
         ),
         (
+            // GitHub stamps to the second: an edit in the approval's second
+            // may be after it.
+            Ask {
+                edit: json!({"body": BODY, "title": "T", "lastEditedAt": "2026-10-30T10:00:00Z",
+                    "editor": {"login": "mallory"}}),
+                ..ask("acme-millwright")
+            },
+            "changed since alice approved it",
+        ),
+        (
             Ask {
                 approval: Ok(Some(
                     json!({"at": "2026-10-31T10:00:00Z", "by": "acme-millwright",
