@@ -99,8 +99,9 @@ instance
 tagged=$T/tagged
 rm -rf "$tagged"
 mkdir -p "$tagged"
-cp -R "$T_ROOT/install.sh" "$T_ROOT/lib" "$T_ROOT/host" "$T_ROOT/bin" "$T_ROOT/libexec" "$tagged/"
-t_console_source "$tagged"
+cp -R "$fixture/install.sh" "$fixture/lib" "$fixture/host" "$fixture/bin" \
+  "$fixture/libexec" "$tagged/"
+t_console_source "$tagged" "$fixture"
 t_run "$tagged/install.sh"
 t_eq "$t_rc" 0
 # Not a repository of its own: no version, and the pages show none.
@@ -122,11 +123,11 @@ t_run "$tagged/install.sh --check"
 t_contains "$t_out" "Installed:    OK"
 t_lacks "$t_out" "version.txt"
 # The word before the version is lower case, like pi-rukas on the front pages.
-t_contains "$(cat "$T_ROOT/host/docs/_layout.html")" 'tehas {{ readFile "/version.txt" | trim | html }}'
+t_contains "$(cat "$fixture/host/docs/_layout.html")" 'tehas {{ readFile "/version.txt" | trim | html }}'
 # The front pages read their versions from the factory's health instead
 # (host/fun/versions.js). A rukas-version.txt an older build left is the
 # host's: an install neither removes it nor names it stale.
-for page in "$T_ROOT/host/fun/index.html" "$T_ROOT/host/fun/business.html"; do
+for page in "$fixture/host/fun/index.html" "$fixture/host/fun/business.html"; do
   t_lacks "$(cat "$page")" 'version.txt'
   t_contains "$(cat "$page")" '<script src="/fun/versions.js"></script>'
 done
@@ -140,7 +141,8 @@ instance
 bare=$T/bare
 rm -rf "$bare"
 mkdir -p "$bare"
-cp -R "$T_ROOT/install.sh" "$T_ROOT/lib" "$T_ROOT/host" "$T_ROOT/bin" "$T_ROOT/libexec" "$bare/"
+cp -R "$fixture/install.sh" "$fixture/lib" "$fixture/host" "$fixture/bin" \
+  "$fixture/libexec" "$bare/"
 t_tree_commit "$bare"
 t_run "$bare/install.sh"
 t_eq "$t_rc" 1
