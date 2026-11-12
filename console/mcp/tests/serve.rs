@@ -82,6 +82,19 @@ impl Server {
         keys: &str,
         dashboard: Option<&str>,
     ) -> Self {
+        Self::start_full(live, sessions, logs, extra, keys, dashboard, None)
+    }
+
+    /// The same, with one more setting in the environment when `set` names one.
+    fn start_full(
+        live: &str,
+        sessions: &str,
+        logs: &str,
+        extra: &[&str],
+        keys: &str,
+        dashboard: Option<&str>,
+        set: Option<(&str, &str)>,
+    ) -> Self {
         let mut command = Command::new(BIN);
         command
             .args([
@@ -104,6 +117,10 @@ impl Server {
         // other from the environment of the run.
         if let Some(d) = dashboard {
             command.env("TEHAS_MCP_DASHBOARD_KEYS", d);
+        }
+        command.env_remove("TEHAS_MCP_MASK");
+        if let Some((name, value)) = set {
+            command.env(name, value);
         }
         let mut child = command.spawn().unwrap();
         let mut log = BufReader::new(child.stderr.take().unwrap());
@@ -1007,13 +1024,17 @@ fn every_method_and_tool_needs_a_key() {
 // The text factory_log serves of a transcript that names a host, from a
 // server given `extra` arguments.
 fn served_transcript(name: &str, extra: &[&str]) -> String {
+    served_text(name, "asked MODELS.lan:8086 for a model\n", extra, None)
+}
+
+fn served_text(name: &str, text: &str, extra: &[&str], set: Option<(&str, &str)>) -> String {
     let root = TestDir::new(&format!("mcp-serve-{name}"));
     let (live, snap, logs) = (root.join("live"), root.join("mcp"), root.join("logs"));
     for d in [&live, &snap, &logs] {
         std::fs::create_dir_all(d).unwrap();
     }
     let file = "work-7-261021-100000.jsonl";
-    std::fs::write(logs.join(file), "asked MODELS.lan:8086 for a model\n").unwrap();
+    std::fs::write(logs.join(file), text).unwrap();
     let t = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
@@ -1027,7 +1048,15 @@ fn served_transcript(name: &str, extra: &[&str]) -> String {
         serde_json::json!({"api": 1, "days": 30, "generatedAt": iso(t + 100), "sessions": 1});
     std::fs::write(snap.join("sessions.jsonl"), format!("{head}\n{session}\n")).unwrap();
     let path = |p: &Path| p.display().to_string();
-    let s = Server::start_with(&path(&live), &path(&snap), &path(&logs), extra);
+    let s = Server::start_full(
+        &path(&live),
+        &path(&snap),
+        &path(&logs),
+        extra,
+        K1,
+        None,
+        set,
+    );
     let body = serde_json::json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {
         "name": "factory_log", "arguments": {"id": id, "file": "transcript"},
         "_meta": {"io.modelcontextprotocol/protocolVersion": "2026-07-28"}}})
@@ -1066,6 +1095,46 @@ fn a_served_log_masks_the_private_names_given() {
         served_transcript("private", &["--private", "gb", "--private", "models.lan"]),
         "asked [private name]:8086 for a model\n"
     );
+}
+
+// A model key of no known shape, printed alone on a line, is masked by its sum:
+// the host gives the server the sums of its secret values and not the values.
+#[test]
+fn a_served_log_masks_the_values_given_as_sums() {
+    let value = "Hq7vNc3Xs9Jd2Wr5TbLp".to_string();
+    let text = format!("{value}\nthe key was {value}.\n");
+    let line = tehas_core::mask::sums_line_of(std::slice::from_ref(&value), &[3; 16]);
+    assert!(!line.contains(&value));
+    assert_eq!(served_text("bare", &text, &[], None), text);
+    assert_eq!(
+        served_text("sums", &text, &[], Some(("TEHAS_MCP_MASK", &line))),
+        "***\nthe key was ***.\n"
+    );
+}
+
+#[test]
+fn a_bad_line_of_sums_is_78_and_not_printed() {
+    let out = Command::new(BIN)
+        .args([
+            "--live",
+            "/x",
+            "--sessions",
+            "/x",
+            "--logs",
+            "/x",
+            "--listen",
+            "127.0.0.1:0",
+            "--server-version",
+            "v1",
+        ])
+        .env("TEHAS_MCP_KEYS", K1)
+        .env("TEHAS_MCP_MASK", "secretword 9:zz")
+        .output()
+        .unwrap();
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(out.status.code(), Some(78), "{err}");
+    assert!(err.contains("TEHAS_MCP_MASK"), "{err}");
+    assert!(!err.contains("secretword"), "{err}");
 }
 
 // factory_park through the server: the bearer key, the snapshot and the
