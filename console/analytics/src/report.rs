@@ -1218,9 +1218,9 @@ fn tally(sorted: &[i64], per: i64) -> Value {
 /// its pull request open is outcome handoff. A run that reported no usage is in
 /// no token figure and one of no length in no minutes figure. A pull request
 /// counts once per issue, because a merge is on record per issue and the runs
-/// that follow up one pull request are many. A merge is of one driver: the one
-/// whose run last reached a pull request before it, since an earlier pull
-/// request of the issue may be closed. A share is left out under
+/// that follow up one pull request are many. A merge is of one driver and one
+/// version: those of the run that last reached a pull request before it, since
+/// an earlier pull request of the issue may be closed. A share is left out under
 /// VERSION_FLOOR runs behind it.
 ///
 /// `oneAttempt` is of the runs that were their issue's first attempt (attempt
@@ -1237,12 +1237,14 @@ fn drivers(conn: &Connection, runs: &[WorkRun], from: i64, to: i64) -> rusqlite:
             .filter(|_| whole >= VERSION_FLOOR)
             .map(Value::from)
     };
-    let mut merged_by: BTreeMap<i64, (i64, &str)> = BTreeMap::new();
+    let mut merged_by: BTreeMap<i64, (i64, &str, &str)> = BTreeMap::new();
     for r in runs.iter().filter(|r| reaches(r)) {
         if merges.get(&r.issue).is_some_and(|m| *m >= r.started) {
-            let last = merged_by.entry(r.issue).or_insert((r.started, &r.driver));
+            let last = merged_by
+                .entry(r.issue)
+                .or_insert((r.started, &r.driver, &r.rukas));
             if r.started >= last.0 {
-                *last = (r.started, &r.driver);
+                *last = (r.started, &r.driver, &r.rukas);
             }
         }
     }
@@ -1262,7 +1264,11 @@ fn drivers(conn: &Connection, runs: &[WorkRun], from: i64, to: i64) -> rusqlite:
             let pulls: BTreeSet<i64> = reached.iter().map(|r| r.issue).collect();
             let merged = pulls
                 .iter()
-                .filter(|issue| merged_by.get(issue).is_some_and(|m| m.1 == driver))
+                .filter(|issue| {
+                    merged_by.get(*issue).is_some_and(|m| {
+                        m.1 == driver && named_str(m.2).unwrap_or("none") == version
+                    })
+                })
                 .count();
             let parked = of
                 .iter()
