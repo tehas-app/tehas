@@ -276,6 +276,34 @@ fn status_schema() -> Value {
             ),
         ),
         (
+            "hostMessages",
+            obj(
+                vec![
+                    (
+                        "list",
+                        arr(
+                            obj(
+                                vec![
+                                    ("id", prop("string", "Its id, a-z, 0-9 and -.")),
+                                    ("level", one_of(&["info", "warn", "alert"], "info, warn or alert. A warn or an alert makes the status warn.")),
+                                    ("text", prop("string", "The message for a person, one line of at most 200 characters. Do not parse it.")),
+                                    ("link", given("An http or https link, or null.")),
+                                    ("at", given("When it was last set, UTC.")),
+                                ],
+                                "One message.",
+                            ),
+                            "The messages tehas host-message keeps, in the order they were first set. Empty when none is set; left out when the file cannot be read.",
+                        ),
+                    ),
+                    (
+                        "unreadable",
+                        given("true when state/host-messages.json cannot be read."),
+                    ),
+                ],
+                "Short messages posted for this factory with tehas host-message. Left out when the health file has none.",
+            ),
+        ),
+        (
             "industry",
             obj(
                 vec![
@@ -1146,6 +1174,9 @@ pub fn spec_of(name: &str) -> Option<Value> {
                          "upstream": true, "fetchedAt": true},
             "rukas": {"follow": true, "target": true, "targetVersion": true, "image": true,
                       "imageVersion": true, "clone": true, "behind": true},
+            "hostMessages": {"list": [{"id": true, "level": true, "text": true, "link": true,
+                                       "at": true}],
+                             "unreadable": true},
             "industry": {"version": true,
                          "alerts": [{"kind": true, "since": true, "text": true, "link": true}],
                          "alertsTime": true, "alertsStale": true, "alertsUnreadable": true},
@@ -1355,6 +1386,11 @@ fn status(live: &Path) -> Result<Map<String, Value>, ToolError> {
         pick(&checks["platform"], &spec["platform"]),
     );
     put(&mut out, "rukas", pick(&checks["rukas"], &spec["rukas"]));
+    put(
+        &mut out,
+        "hostMessages",
+        pick(&checks["hostMessages"], &spec["hostMessages"]),
+    );
     put(
         &mut out,
         "industry",
