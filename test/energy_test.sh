@@ -29,7 +29,9 @@ fresh() {
   rm -rf "$T/home/tehas" "$T/calls/curl"
   mesh 200 "@$fixture"
 }
-# One sample, taken so many seconds after NOW, with these settings.
+# One sample, taken so many seconds after NOW, with these settings. Without an
+# entry of its own TEHAS_ENERGY_SOURCE_URL is no name in the run's environment,
+# because t_run builds it with env -i.
 sample() {
   local after=$1
   shift
@@ -79,12 +81,32 @@ t_json .sourceUrl '"https://example.com/mesh"'
 t_json '[.source, .sourceUrl]' '["viiwork", "https://example.com/mesh"]'
 # An address that is no https one is not copied at all, and the value itself
 # stays out of the file, which anyone who can open the dashboard can read.
-for odd in '' '   ' 'http://LEAKMARK.example' 'https:/LEAKMARK' 'HTTPS://LEAKMARK'; do
+for odd in 'http://LEAKMARK.example' 'https:/LEAKMARK' 'HTTPS://LEAKMARK'; do
   sample 0 TEHAS_ENERGY_SOURCE_URL="$odd"
   t_eq "$t_rc" 0
   t_json 'has("sourceUrl")' 'false'
   t_lacks "$(cat "$file")" LEAKMARK
 done
+# The name empty or only spaces is no address either.
+for odd in '' '   '; do
+  sample 0 TEHAS_ENERGY_SOURCE_URL="$odd"
+  t_eq "$t_rc" 0
+  t_json 'has("sourceUrl")' 'false'
+done
+# Whether the name is there at all is the environment's, not the file's: the
+# sampler reads the name, so the state where it is absent and the empty one are
+# two states. t_run builds a run with env -i, so a name no entry of T_ENV names
+# is absent from it.
+T_ENV=()
+t_run 'printf "%s" "${TEHAS_ENERGY_SOURCE_URL+yes}"'
+t_eq "$t_out" ""
+T_ENV=(TEHAS_ENERGY_SOURCE_URL=)
+t_run 'printf "%s" "${TEHAS_ENERGY_SOURCE_URL+yes}"'
+t_eq "$t_out" "yes"
+# Once the file holds the key, a sample with no name there still leaves it out:
+# the address comes from the setting and is not carried over from the file.
+sample 15
+t_json 'has("sourceUrl")' 'false'
 
 t_case "a sample carries each machine's token count for the factory's models"
 fresh
