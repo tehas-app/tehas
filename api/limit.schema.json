@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/tehas-app/tehas/api/limit.schema.json",
+  "title": "tehas limit --json",
+  "description": "What tehas limit --json prints, version 1. host/docs/api.md says what each field means. Every object is closed, so a field tehas adds must be added here too. test/json_contract_test.sh checks the samples beside this file against it and what the command prints.",
+  "type": "object",
+  "required": ["api", "state"],
+  "additionalProperties": false,
+  "properties": {
+    "api": {"const": 1},
+    "state": {"enum": ["none", "ok", "expired", "unreadable"]},
+    "cycles": {"type": "integer", "minimum": 0},
+    "plan": {"type": "boolean"},
+    "until": {"type": "string", "format": "date-time", "pattern": "^[0-9][0-9][0-9][0-9]-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:(60|[0-5][0-9])Z$"},
+    "reason": {"type": "string", "maxLength": 200}
+  }
+}
