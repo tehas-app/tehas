@@ -700,6 +700,27 @@ t_contains "$t_out" "nothing new since ${head:0:12}"
 t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
 t_eq "$(find "$T/home/tehas/work" "$T/home/tehas/logs" 2>/dev/null | wc -l)" 0
 
+t_case "a branch idle for longer than the window says there is nothing new and starts nothing"
+reset
+# Three commits whose newest is 30 days old, and no record: git names the tip
+# itself as the commit 7 days back, so the window holds nothing new. Reading it
+# from the root would review the whole product and log it as 7 days.
+up_idle=$T/git/acme/idle
+rm -rf "$up_idle"
+git init -q -b main "$up_idle"
+for name in one two three; do
+  GIT_COMMITTER_DATE="$old" GIT_AUTHOR_DATE="$old" git -C "$up_idle" \
+    -c user.name=t -c user.email=t@example.com commit -q --allow-empty -m "$name"
+done
+git -C "$checkout" fetch -q "$up_idle" '+refs/heads/main:refs/remotes/origin/idle'
+t_instance "${T_MINIMAL[@]}" TEHAS_REVIEW=1 TEHAS_BRANCH=idle
+t_run "$review"
+t_eq "$t_rc" 0
+t_contains "$t_out" "nothing new since"
+t_lacks "$t_out" "idle from "
+t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
+t_eq "$(find "$T/home/tehas/work" "$T/home/tehas/logs" 2>/dev/null | wc -l)" 0
+
 t_case "the checkout's own worktree decides nothing: the review is at the fetched tip"
 reset
 printf 'untracked of the person who works here\n' >"$checkout/scratch.txt"
