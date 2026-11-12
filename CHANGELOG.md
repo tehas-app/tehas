@@ -214,6 +214,21 @@ a pull request before it tags, with the head's `scripts/collect-changelog.sh`.
   `health.json`, `energy.json`, a cycle's record and a session snapshot refuse
   the same malformed times, so a file with one is stale rather than fresh for
   some tool and unreadable for another.
+- The poll reads the comments of every park it may lift in one batched call,
+  beside the questions' and the blocked issues', instead of one call per parked
+  issue (#1773).
+- The install tests run `install.sh` from a fixture built from the checkout's
+  tracked files, in the scratch directory of the run, instead of from the
+  checkout itself. An untracked file in a working tree no longer changes what
+  they report, and an uncommitted edit to a tracked file still does. A case of
+  `test/install_fresh_test.sh` pins both (#1800).
+- The console's commands (`tehas stop`, `tehas history`, `tehas export`,
+  `tehas status`, `tehas state`, `tehasbot health` and the rest) call the state
+  store in their own process instead of starting `libexec/store` for each read
+  and write. Their output and exit statuses are unchanged, and the program stays
+  installed for the scripts, the dispatcher and the cycle (#1807).
+- `tehas host-message set <id> --level info|warn|alert --text TEXT [--link URL]`, `clear <id>` and `list [--json]` keep up to 20 short messages for a factory in `state/host-messages.json`, and `tehas api` lists the feature `host-message` (#1873).
+- The MCP server masks the same values as the host: the secret settings and the literal model keys of `models.json`, wherever they stand in a log. The server gets salted sums of them, not the values.
 
 ### Held back
 
