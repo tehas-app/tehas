@@ -721,6 +721,21 @@ t_lacks "$t_out" "idle from "
 t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
 t_eq "$(find "$T/home/tehas/work" "$T/home/tehas/logs" 2>/dev/null | wc -l)" 0
 
+t_case "a window git cannot read is said and reviews nothing, not the whole history"
+reset
+# The commit 30 days old is gone from the checkout, so git cannot walk back to
+# the commit 7 days back. That failure is no young branch: read from the root
+# instead, the run would review everything.
+obj=$(git -C "$checkout" rev-parse --git-path "objects/${c1:0:2}/${c1:2}")
+case $obj in /*) ;; *) obj=$checkout/$obj ;; esac
+[ -f "$obj" ] || t_bad "the old commit is not a loose object of the checkout: $obj"
+rm -f "$obj"
+t_run "$review"
+t_eq "$t_rc" 2
+t_contains "$t_out" "nothing was reviewed"
+t_lacks "$t_out" "main from "
+t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
+
 t_case "the checkout's own worktree decides nothing: the review is at the fetched tip"
 reset
 printf 'untracked of the person who works here\n' >"$checkout/scratch.txt"
