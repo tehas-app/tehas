@@ -77,7 +77,8 @@ first form makes it anew. It holds the approved title and body, which every
 turn's workspace gets as `.tehas/brief.md`, so a later turn never plans from
 the issue as it is now; the commit the first turn's workspace was at;
 `plan-sessions/`, pi-rukas's record of the session, which it keeps in the
-clone's git directory (plain files only, at most 1 MB each); `exit`, the
+clone's git directory (plain files inside the clone only, none through a
+link, at most 1 MB each and 1024 files and 32 MB together); `exit`, the
 runner's exit status of the last turn; and with `TEHAS_WORK_IMAGES=1` the
 issue's images. Every later turn's workspace is at that commit and gets the
 record back. A later turn whose commit is missing or gone starts at the tip of
