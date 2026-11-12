@@ -289,6 +289,31 @@ no_shellcheck() { # [NAME=VALUE...]
   esac
 }
 
+# The same PATH without prlimit, for the case that says a host without the tool
+# is told so once. TEHAS_TEST_CORES keeps the run off the limit, so a case can
+# ask for the setting and still be without the command.
+no_prlimit() { # [NAME=VALUE...]
+  local c p pre=
+  rm -rf "$nobin"
+  mkdir -p "$nobin"
+  for c in bash cat dirname flock mkdir mktemp mv nproc rm sed tail shellcheck timeout; do
+    p=$(command -v "$c") || continue
+    ln -s "$p" "$nobin/$c"
+  done
+  [ "$#" = 0 ] || pre=$(printf '%q ' "$@")
+  # Only prlimit is missing from what the run sees. The harness's PATH cannot be
+  # kept: $T/bin holds the prlimit that an earlier case's t_stub left, and the
+  # commands of the list above are the ones the runner reaches for, so the run of
+  # this host is the run of a host that has no prlimit and everything else.
+  t_run "cd '$repo' && PATH='$nobin' ${pre}bash runner/runner.sh"
+  case $t_out in
+    *'command not found'*)
+      t_bad "the runner needs a command the harness left out: $(printf '%s\n' "$t_out" \
+        | sed -n 's/.*: command not found//p' | head -n 1)"
+      ;;
+  esac
+}
+
 t_case "a run where every check passes names no failure"
 fresh
 fake a_test.sh 0 3
@@ -598,9 +623,24 @@ fi
 # of them. The run puts the core limit of 0 in front of every task, so the kernel
 # is never asked to write one, and the recorder's `timeout` and the test file and
 # everything that file starts inherit the limit. Whether the kernel would have
-# written a file is its own choice, taken with the limit already off, so what a
-# case here can pin is what the run asks the kernel for: the limit on the task's
-# command, and the run that leaves it off and names what came of that.
+# written a file is its own choice, taken with the limit already off, so the
+# first case stubs prlimit and pins what the run asks the kernel for: the limit
+# on the task's command, and the limit the check itself sees. The cases after it
+# take the other halves: a run of the real prlimit under which a dump really is
+# written, the run that keeps the dumps and names them, and the run that proves
+# the limit held by looking for the files it meant to prevent.
+#
+# The name the run asks the kernel for, taken from the host's own file: a plain
+# name is a file of the directory the tasks run in, and anything else - a program
+# the kernel pipes the dump to, a path, a template - is no file of the checkout.
+# A host of the last kind cannot be tested for dumps, so the cases that need the
+# first say what this host's kernel really does.
+core_pattern=$(head -n 1 /proc/sys/kernel/core_pattern 2>/dev/null) || core_pattern=
+case $core_pattern in
+  '' | */* | *%* | *'|'*) kernel_writes_dumps=0; core_name=core ;;
+  *) kernel_writes_dumps=1; core_name=$core_pattern ;;
+esac
+
 t_case "every task runs under the core limit of 0, and a helper that crashes leaves the run clean"
 fresh
 # prlimit is stubbed to record its arguments and to run the command it was
@@ -634,6 +674,87 @@ t_contains "$(t_calls prlimit)" "shellcheck -x "
 t_eq "$(printf '%s\n' "$t_out" | sed -n 's/^soft=//p' | head -n 1)" 0
 t_eq "$(repo_cores)" ""
 
+# The case above stubs prlimit, so it pins the ask and not the effect: the stub
+# imposes the limit with its own ulimit. This one runs the real prlimit of the
+# host, so what it pins is that the limit reaches the check through the
+# recorder's timeout and every process the check starts, which is where a crash
+# happens. It needs a kernel that writes its dumps under a plain name; a host
+# that pipes them to a program or under a path of its own cannot be tested this
+# way, and says so rather than passing without observing anything.
+if [ "$kernel_writes_dumps" = 1 ]; then
+  t_case "the real prlimit holds the limit of 0 through the recorder's timeout, so a crash leaves no dump"
+  fresh
+  crashed a_test.sh
+  run
+  t_eq "$t_rc" 0
+  t_contains "$t_out" "ran a_test.sh part way"
+  # The check itself saw the limit, not the host's own: that is what prlimit put
+  # there, and the grandchildren inherit it from the check.
+  t_eq "$(printf '%s\n' "$t_out" | sed -n 's/^soft=//p' | head -n 1)" 0
+  # Nothing was asked for, so nothing was written: the checkout the run works in
+  # holds no core file of the crash the file caused.
+  t_eq "$(repo_cores)" ""
+  t_lacks "$(block)" "core files in the checkout"
+else
+  t_skip "the kernel of this host writes no dump of the working directory: its core_pattern is '$core_pattern'"
+fi
+
+# A file of the right name that ends in anything but a pid is not a dump: the
+# kernel writes `name` and `name.<pid>` and nothing else. A run that called
+# core.txt a crash would fail a checkout for a file a test meant to write. The
+# stale dump of the next case is the other half: the run looks for the files it
+# meant to prevent, so a limit the host did not apply cannot pass silently.
+t_case "only name and name.<pid> are core files, so a file of another spelling is none"
+fresh
+# Files planted before the run, so the count the block gives is the case's and
+# not this host's: of the names the kernel does write, one dump of an earlier
+# crash; of the names it does not, a text file, a suffix that is no pid, and a
+# directory of the right spelling. Only the dump is a core file, and only the
+# dump fails the run. The bare name is asked for in the run after it, where the
+# kernel of a host that writes dumps has nothing else to leave beside it.
+echo a dump from before the run >"$repo/${core_name}.4242"
+echo text >"$repo/${core_name}.txt"
+echo text >"$repo/${core_name}.abc"
+mkdir "$repo/${core_name}.9999"
+fake a_test.sh 0 2
+run
+t_eq "$t_rc" 1
+t_contains "$t_out" "$core_name.4242 left in the checkout by a program that crashed"
+t_contains "$(block)" "1 core files in the checkout"
+t_lacks "$t_out" "${core_name}.txt left"
+t_lacks "$t_out" "${core_name}.abc left"
+t_lacks "$t_out" "${core_name}.9999 left"
+# The file itself ran and reported: a dump of another time is not its failure.
+t_lacks "$(block)" "test/a_test.sh"
+
+# A run of a host whose limit did not apply still finds the dumps, because the
+# run looks for the files it meant to prevent: an acceptance criterion of this
+# change is that the tree a later check reads is clean, and a limit nobody
+# verified is not that. It is a different question from the opt-in run, so it is
+# a case of its own, and it costs one extra read of the root per run.
+t_case "a default run looks for the dumps it meant to prevent and fails when one is there"
+fresh
+# One file, which ends before the run reads the tree: the run takes the listing
+# of the checkout at its end, and a crash of its own would add a dump the host's
+# kernel chose to write, which is not the case's to name. So the tree holds one
+# dump before the run starts, of the bare name the kernel writes first, and the
+# run must find that one and nothing else.
+fake a_test.sh 0 2
+echo a dump from a limit that did not apply >"$repo/$core_name"
+run
+t_eq "$t_rc" 1
+t_contains "$t_out" "$core_name left in the checkout by a program that crashed"
+t_contains "$(block)" "1 core files in the checkout"
+# The file of the crash is not named as a failure beside it: it ran and reported.
+t_lacks "$(block)" "test/a_test.sh"
+
+
+# The three answers of the scan - files found, a directory that could not be
+# read, and nothing to ask about - are pinned in the runner's own cases at
+# console/xtask/src/run/tests.rs, where each is a fact the case sets. Here the
+# scan is pinned by what it names and what it leaves alone: a tree the run cannot
+# read is the one thing a scratch run cannot hold still, since the run lists the
+# checkout as it starts and reads it again at the end.
 t_case "a task runs under the limit with its own command, and one that crashes is not a failure of the run"
 fresh
 crashed a_test.sh
@@ -645,40 +766,39 @@ t_lacks "$(block)" "test/a_test.sh"
 # nothing beyond what the kernel was asked for.
 t_contains "$t_out" "test.sh: 1 cases in 1 files"
 
-t_case "TEHAS_TEST_CORES keeps the core files, and the run says so on the host it was asked on"
+t_case "TEHAS_TEST_CORES keeps the core files, names what the crash left, and fails"
 fresh
 crashed a_test.sh
-# The setting is the one a person sets to see what a crash really leaves. The
-# pattern stands for the host's own file, so the line says the same thing on a
-# host that sends its dumps to a program or under a path of its own; the name is
-# the one the run looks for, and a host whose kernel writes none is told so in
-# the line that names the files it found.
+# The setting is the one a person sets to see what a crash really leaves, so the
+# case makes the dump a fact rather than a property of the host: a file of the
+# name the run asks for is written before it starts, and the run must name that
+# file and fail on it. Whether this host's kernel also wrote one of its own is
+# not asked: the count line is the one thing the case cannot let the host decide.
 printf '0.00 0.00 0.00 1/1 1\n' >"$T/quiet.loadavg"
+echo a dump from a crash of the run >"$repo/$core_name"
 T_ENV=(TEHAS_TEST_JOBS=1 TMPDIR="$recs")
-run_env TEHAS_TEST_JOBS=1 TMPDIR="$recs" TEHAS_TEST_CORES=1 TEHAS_TEST_CORE_PATTERN=core \
-  TEHAS_TEST_LOADAVG="$T/quiet.loadavg"
+run_env TEHAS_TEST_JOBS=1 TMPDIR="$recs" TEHAS_TEST_CORES=1 \
+  TEHAS_TEST_CORE_PATTERN="$core_name" TEHAS_TEST_LOADAVG="$T/quiet.loadavg"
 T_ENV=(TEHAS_TEST_JOBS=1 TMPDIR="$recs")
 t_contains "$t_out" "ran a_test.sh part way"
 t_contains "$t_out" "TEHAS_TEST_CORES keeps the core files of what this run starts"
-t_contains "$t_out" "kernel.core_pattern is core"
-# A task is no longer put under the limit, which is the point of the setting.
-case "$t_out" in
-  *'left in the checkout by a program that crashed'*)
-    # A dump really was written where the tasks ran: the run named it and failed.
-    t_eq "$t_rc" 1
-    t_contains "$(block)" "core files in the checkout" ;;
-  *)
-    # This host's kernel took no dump with the limit off, so there was nothing
-    # for the run to name and the file's own case stands: a run that named a
-    # file that is not there would be the worse bug.
-    t_eq "$t_rc" 0
-    t_eq "$(repo_cores)" "" ;;
-esac
+t_contains "$t_out" "kernel.core_pattern is $core_name"
+# A task is no longer put under the limit, which is the point of the setting, and
+# the file the run found is named and fails it: a dump standing in the tree is
+# what the setting exists to show.
+t_eq "$t_rc" 1
+t_contains "$t_out" "$core_name left in the checkout by a program that crashed"
+t_contains "$(block)" "core files in the checkout"
 # The file of the crash itself is never the one named: it ran and reported.
 t_lacks "$(block)" "test/a_test.sh"
 
 t_case "a host whose kernel keeps its dumps elsewhere is asked for no core file"
 fresh
+# The name of this host's own dumps is planted before the run so the case can
+# say what the setting did not do: a run that looked anyway would name this file
+# and fail. The point is that no name of a kernel that pipes its dumps elsewhere
+# reaches the scan.
+echo a dump no run should name >"$repo/$core_name"
 crashed a_test.sh
 printf '0.00 0.00 0.00 1/1 1\n' >"$T/quiet.loadavg"
 T_ENV=(TEHAS_TEST_JOBS=1 TMPDIR="$recs")
@@ -687,10 +807,44 @@ run_env TEHAS_TEST_JOBS=1 TMPDIR="$recs" TEHAS_TEST_CORES=1 \
   TEHAS_TEST_LOADAVG="$T/quiet.loadavg"
 T_ENV=(TEHAS_TEST_JOBS=1 TMPDIR="$recs")
 # A program the kernel pipes the dump to, or a path it writes under, is no file
-# of the checkout, so the run asks for none and a run of this host passes.
+# of the checkout, so the run asks for none and a run of this host passes: not
+# even the opt-in scan runs, because there is no name under which a dump of this
+# run could stand in the directory the tasks work in. The file the run planted is
+# the proof: a scan that ran named it.
 t_eq "$t_rc" 0
 t_contains "$t_out" "ran a_test.sh part way"
 t_lacks "$t_out" "left in the checkout"
+t_lacks "$(block)" "core files in the checkout"
+
+# The one line that says a host cannot run the checks at all, in place of a task
+# per check that ends 126 and names a record path. prlimit is as much a
+# requirement of the runner as cargo or shellcheck, and the run names it missing
+# once, the way it names them.
+t_case "a host with no prlimit is told once that every task needs it"
+fresh
+fake a_test.sh 0 2
+printf '0.00 0.00 0.00 1/1 1\n' >"$T/quiet.loadavg"
+no_prlimit TEHAS_TEST_LOADAVG="$T/quiet.loadavg"
+t_eq "$t_rc" 2
+t_contains "$t_out" "prlimit is not installed, and every task needs it"
+# Nothing was run, so the block that names failed checks is not printed: the run
+# stopped where the missing command stops one for a missing cargo.
+t_lacks "$t_out" "failed checks"
+
+t_case "TEHAS_TEST_CORES does not need prlimit, since it runs no task under a limit"
+fresh
+fake a_test.sh 0 2
+# The setting is the way a person finds out what a crash really leaves, so the
+# host that lacks the tool is still allowed to ask: the run that keeps the dumps
+# puts no prlimit in front of anything, so a host without it runs its checks and
+# prints its count line like any other. Only the runner's own line is asked for
+# to be absent, which is what the case is about.
+printf '0.00 0.00 0.00 1/1 1\n' >"$T/quiet.loadavg"
+no_prlimit TEHAS_TEST_CORES=1 TEHAS_TEST_CORE_PATTERN="$core_name" \
+  TEHAS_TEST_LOADAVG="$T/quiet.loadavg"
+t_eq "$t_rc" 0
+t_contains "$t_out" "1 cases in 1 files"
+t_lacks "$t_out" "prlimit is not installed"
 
 t_case "a test file that runs past its time is stopped and named as timed out"
 fresh

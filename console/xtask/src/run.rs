@@ -9,7 +9,7 @@
 //! finished.
 
 use std::collections::HashSet;
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::fs::{self, File};
 use std::io::{self, ErrorKind, Read, Write};
 use std::os::unix::ffi::OsStrExt;
@@ -240,39 +240,78 @@ pub fn slowest_count(setting: Option<&str>) -> u128 {
 /// is a program (it starts with `|`) is what the kernel pipes the dump to; one
 /// that holds a `/` is written under its own path and one that holds a `%` named
 /// after the crash: none of them is a plain file of the working directory. An
-/// unset or empty pattern is `core`, what the kernel writes by itself.
-pub fn core_name(pattern: Option<&str>) -> Option<String> {
-    match pattern.filter(|p| !p.is_empty()) {
-        None => Some("core".into()),
-        Some(p) if p.starts_with('|') || p.contains('/') || p.contains('%') => None,
-        Some(p) => Some(p.to_string()),
+/// unset or empty pattern is `core`, what the kernel writes by itself. The name
+/// is taken byte by byte, as the names of the directory are, so a host whose
+/// pattern is no text still asks for the file its kernel would write.
+pub fn core_name(pattern: Option<&OsStr>) -> Option<OsString> {
+    let Some(p) = pattern.filter(|p| !p.is_empty()) else {
+        return Some(OsString::from("core"));
+    };
+    let bytes = p.as_bytes();
+    if bytes.starts_with(b"|") || bytes.contains(&b'/') || bytes.contains(&b'%') {
+        return None;
     }
+    Some(p.to_os_string())
+}
+
+/// Whether `name` is the core file `pattern`, or that file with the pid of the
+/// crash after it: the two spellings a kernel writes into the directory the task
+/// runs in. The bytes of both sides are compared, so a pattern that is no UTF-8
+/// text and a name that is none are still told apart.
+fn core_named(name: &OsStr, pattern: &OsStr) -> bool {
+    let (name, pattern) = (name.as_bytes(), pattern.as_bytes());
+    if name == pattern {
+        return true;
+    }
+    name.strip_prefix(pattern)
+        .filter(|rest| rest.first() == Some(&b'.'))
+        .map(|rest| &rest[1..])
+        .is_some_and(|rest| !rest.is_empty() && rest.iter().all(u8::is_ascii_digit))
+}
+
+/// What a scan of the checkout for core files came back with. There are three
+/// answers and not two, because the opt-in run exists to answer one question -
+/// does this host write a dump where the tasks run - and "I could not see" is
+/// not the answer "no", while a checkout that has gone away is what the run
+/// already failed on and needs no second name.
+pub enum Scan {
+    /// The core files of the checkout, in name order.
+    Found(Vec<OsString>),
+    /// The directory is there and could not be read, with the reason.
+    Unreadable(String),
+    /// Nothing to scan: no dump of this run could have a name here, or the
+    /// checkout is not there to be read at all.
+    None,
 }
 
 /// The core files `dir` holds under `name`: that name, and the name a kernel
 /// writes from the second crash of a run on, which is `name` with a `.` and the
-/// pid of the crash after it. A directory of either spelling is no core file,
-/// and a directory that cannot be read names nothing, so a run whose root went
-/// away reports what it could not see rather than a crash it did not have.
-pub fn left(name: &str, dir: &Path) -> Vec<String> {
-    let Ok(entries) = fs::read_dir(dir) else {
-        return Vec::new();
+/// pid of the crash after it. The digits are what tells a dump from any other
+/// file that shares the name: `core.txt` is text a test wrote, not a crash. A
+/// directory of either spelling is no core file. A directory that cannot be read
+/// is `Scan::Unreadable`, so a run that could not look says that rather than
+/// that the host wrote no dump; one that is not there is `Scan::None`.
+pub fn left(name: &OsStr, dir: &Path) -> Scan {
+    let entries = match fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == ErrorKind::NotFound => return Scan::None,
+        Err(e) => return Scan::Unreadable(format!("{}: {e}", dir.display())),
     };
-    let prefix = format!("{name}.");
-    let mut found: Vec<String> = entries
+    let mut found: Vec<OsString> = entries
         .flatten()
         .filter(|e| e.file_type().is_ok_and(|t| t.is_file()))
-        .filter_map(|e| e.file_name().into_string().ok())
-        .filter(|n| n == name || n.starts_with(&prefix))
+        .map(|e| e.file_name())
+        .filter(|n| core_named(n, name))
         .collect();
     found.sort();
-    found
+    Scan::Found(found)
 }
 
 /// Whether the core files of what the run starts are kept: TEHAS_TEST_CORES set
 /// to anything that is not empty. Without it every task runs at the core limit
 /// of 0, so a program that crashes during a run leaves no file in the checkout
-/// a later check reads.
+/// a later check reads. `0` keeps them like any other value: the setting asks
+/// for the dump, it is not a switch with an off spelling.
 pub fn cores_kept(setting: Option<&str>) -> bool {
     setting.is_some_and(|s| !s.is_empty())
 }
@@ -487,16 +526,20 @@ pub fn strict(ci: Option<&str>, asked: Option<&str>) -> bool {
     ci.is_some_and(|v| !v.is_empty()) || asked.is_some_and(|v| !v.is_empty())
 }
 
-/// The kernel's own pattern, or none when this host does not say it. Read once,
-/// before the pool starts, so the run names what this host would have written.
-/// TEHAS_TEST_CORE_PATTERN stands in for the file, for the runner's own case.
-fn kernel_core_pattern() -> Option<String> {
-    if let Some(p) = env("TEHAS_TEST_CORE_PATTERN").filter(|p| !p.is_empty()) {
-        return Some(p);
+/// What the kernel of this host says it names a dump. An empty file, or none
+/// at all, is the kernel left alone, which writes `core`: `core_name` owns that
+/// default, so this says only what the host said. TEHAS_TEST_CORE_PATTERN
+/// stands in for the file, for the runner's own case.
+fn kernel_core_pattern() -> OsString {
+    use std::os::unix::ffi::OsStringExt;
+    if let Some(p) = std::env::var_os("TEHAS_TEST_CORE_PATTERN").filter(|p| !p.is_empty()) {
+        return p;
     }
-    let text = fs::read_to_string("/proc/sys/kernel/core_pattern").ok()?;
-    let text = text.trim_end_matches(['\n', '\r']);
-    (!text.is_empty()).then(|| text.to_string())
+    let mut text = fs::read("/proc/sys/kernel/core_pattern").unwrap_or_default();
+    while matches!(text.last(), Some(b'\n' | b'\r')) {
+        text.pop();
+    }
+    OsString::from_vec(text)
 }
 
 fn on_path(name: &str) -> bool {
@@ -694,10 +737,11 @@ impl Pool<'_> {
         // The core limit goes on the task's own command, so it is set once for
         // the check and for every process the check starts, and nothing the run
         // starts later can be the one to leave it raised.
-        let mut core: Vec<&std::ffi::OsStr> = Vec::new();
-        if !self.cores {
-            core = vec!["prlimit".as_ref(), "--core=0".as_ref(), "--".as_ref()];
-        }
+        let core: &[&std::ffi::OsStr] = if self.cores {
+            &[]
+        } else {
+            &["prlimit".as_ref(), "--core=0".as_ref(), "--".as_ref()]
+        };
         let child = Command::new(self.recorder)
             .arg("test-task")
             .arg(key)
@@ -752,6 +796,15 @@ pub fn main(root: &Path, args: &[String], recorder: &Path) -> u8 {
         ran = true;
         lint = true;
     }
+    let cores_kept = cores_kept(env("TEHAS_TEST_CORES").as_deref());
+    // Every task of a run that keeps no core file starts under prlimit, which
+    // the pool puts in front of the check (Pool::run). Named once, as the run
+    // names a missing cargo or shellcheck: a host without it has no task that
+    // can start, and that is not N failures naming N record paths.
+    if !cores_kept && !on_path("prlimit") {
+        eprintln!("test.sh: prlimit is not installed, and every task needs it");
+        return 2;
+    }
 
     let host_cpus = nproc();
     let jobs = jobs(env("TEHAS_TEST_JOBS").as_deref(), || {
@@ -769,19 +822,25 @@ pub fn main(root: &Path, args: &[String], recorder: &Path) -> u8 {
         .unwrap_or_else(|| "/proc/loadavg".into());
     let limit = limit(env("TEHAS_TEST_FILE_TIMEOUT").as_deref());
     let slowest_of = slowest_count(env("TEHAS_TEST_SLOWEST").as_deref());
-    let cores_kept = cores_kept(env("TEHAS_TEST_CORES").as_deref());
     // Where the kernel of this host puts a dump: `|` is a program it pipes the
     // dump to, a `/` is a path and a `%` a template named after the crash, and
-    // none of those is a file of the directory the tasks run in. `core` is the
-    // kernel's own default, which the file says when the host leaves it alone.
-    let pattern = kernel_core_pattern().unwrap_or_else(|| "core".into());
+    // none of those is a file of the directory the tasks run in. An empty
+    // pattern is the host left alone, and `core_name` calls that `core`. The
+    // name is read as bytes, so it is the same name the directory is asked for.
+    let pattern = kernel_core_pattern();
     let core_name = core_name(Some(&pattern));
     if cores_kept {
+        let shown = pattern.to_string_lossy();
         putln(&format!(
             "test.sh: TEHAS_TEST_CORES keeps the core files of what this run starts, \
-             on a host whose kernel.core_pattern is {pattern}"
+             on a host whose kernel.core_pattern is {shown}"
         ));
     }
+    // The other half of the setting: with the limit on the run must prove it
+    // took effect, so it looks for the very files it meant to prevent. The scan
+    // is one read of the checkout's root, at the end of the run, and a file
+    // there is the failure the whole change exists to stop.
+    let scan = !cores_kept && core_name.is_some();
 
     let tmp = env("TMPDIR")
         .filter(|t| !t.is_empty())
@@ -945,27 +1004,53 @@ pub fn main(root: &Path, args: &[String], recorder: &Path) -> u8 {
             .ok()
             .and_then(|l| first_fail(&l));
     }
-    // The core files a task left in the checkout. With the limit off a crash
-    // leaves none, which is the point of the setting; with TEHAS_TEST_CORES set
-    // the run keeps them, names them here and fails, because a file a crash
-    // wrote into the tree dirties what a later check of it reads. The directory
-    // is what is asked and not a status: the program that crashes is often a
-    // helper the file started and waited for, which leaves the file ending at 0
-    // with its dump behind, so a status that says the file passed is no reason
-    // to call a core file that is standing there no core file.
+    // The core files a task left in the checkout, which the run looks for
+    // whichever way the limit went. With it on a crash leaves none, and a file
+    // standing there means the limit did not apply on this host, so the run
+    // says so instead of passing. With TEHAS_TEST_CORES set the run keeps them,
+    // names them here and fails, because a file a crash wrote into the tree
+    // dirties what a later check of it reads. The directory is what is asked and
+    // not a status: the program that crashes is often a helper the file started
+    // and waited for, which leaves the file ending at 0 with its dump behind, so
+    // a status that says the file passed is no reason to call a core file that
+    // is standing there no core file.
     let cores = match &core_name {
-        Some(name) if cores_kept => left(name, root),
+        Some(name) if cores_kept || scan => match left(name, root) {
+            Scan::Found(found) => found,
+            Scan::Unreadable(why) => {
+                // Could not look is not the same answer as found nothing: the
+                // question of whether this host wrote a dump stays open.
+                putln(&format!(
+                    "test.sh: no core file reported: could not read {why}"
+                ));
+                bad.push(Bad {
+                    name: "core files could not be checked".into(),
+                    why: clean(&why),
+                    first: None,
+                });
+                Vec::new()
+            }
+            Scan::None => Vec::new(),
+        },
         _ => Vec::new(),
     };
     for name in &cores {
+        let name = name.to_string_lossy();
         putln(&format!(
             "test.sh: {name} left in the checkout by a program that crashed"
         ));
     }
     if !cores.is_empty() {
+        // The names came off the directory: they are data, joined and cleaned
+        // like every other string that reaches the block.
+        let names = cores
+            .iter()
+            .map(|n| n.to_string_lossy().into_owned())
+            .collect::<Vec<_>>()
+            .join(" ");
         bad.push(Bad {
             name: format!("{} core files in the checkout", cores.len()),
-            why: cores.join(" "),
+            why: clean(&names),
             first: None,
         });
     }
@@ -982,8 +1067,9 @@ pub fn main(root: &Path, args: &[String], recorder: &Path) -> u8 {
 /// writes the status to <key>.rc and the time in milliseconds to <key>.ms only
 /// when the command ends, so a task that never ends leaves no status. The pool
 /// puts `prlimit --core=0 --` in front of the command to keep core files out of
-/// the checkout (Pool::run), so a host with no prlimit cannot run the checks:
-/// the task of such a host ends 126 and the run names the file it stopped.
+/// the checkout (Pool::run), so the host with no prlimit is told so once, before
+/// the pool starts, rather than by N tasks that each end on the command they
+/// cannot run.
 pub fn task(args: &[OsString]) -> u8 {
     let [key, limit, cmd @ ..] = args else {
         eprintln!("xtask: test-task needs <key> <limit> <command>...");
