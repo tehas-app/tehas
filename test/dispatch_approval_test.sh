@@ -427,14 +427,14 @@ t_eq "$(cat "$pins")" "$(printf 'tehas:ready\tLA_ready')"
 
 t_case "once the file is kept, a label missing when it was written is not pinned when one appears"
 reset
-printf 'tehas:urgent\tLA_urgent\n' >"$pins"
+printf 'tehas:plan\tLA_plan\n' >"$pins"
 echo '[{"id":"LA_bug","name":"tehas:ready"}]' >"$fx/labels.json"
 echo '[{"event":"labeled","label":{"name":"tehas:ready","id":"LA_bug"},"actor":{"login":"alice"}}]' >"$fx/events-7.json"
 t_run "$dispatch"
 t_eq "$(t_calls fake-start)" ""
 t_contains "$t_out" "refused: the label tehas:ready (LA_bug) has no pin in state/labels"
 t_lacks "$t_out" "pinned the label"
-t_eq "$(cat "$pins")" "$(printf 'tehas:urgent\tLA_urgent')"
+t_eq "$(cat "$pins")" "$(printf 'tehas:plan\tLA_plan')"
 
 t_case "the pinned label grants as before, and the pins stay as they are"
 reset

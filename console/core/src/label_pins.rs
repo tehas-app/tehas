@@ -10,14 +10,12 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
 
 /// The labels whose application the dispatcher takes as a person's word to
-/// start, plan or order work.
-pub const GRANTING: [&str; 7] = [
+/// start or plan work.
+pub const GRANTING: [&str; 5] = [
     "tehas:ready",
     "tehas:plan",
     "tehas:refine",
     "tehas:finish",
-    "tehas:urgent",
-    "tehas:next",
     "tehas:lean",
 ];
 

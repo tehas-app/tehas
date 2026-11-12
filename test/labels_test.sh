@@ -23,26 +23,26 @@ reset() {
   cp "$T_ROOT/host/labels.tsv" "$table"
 }
 
-t_case "it needs only the repository, and makes the twenty-one labels there"
+t_case "it needs only the repository, and makes the nineteen labels there"
 reset
 t_run "$labels"
 t_eq "$t_rc" 0
-t_eq "$(t_calls gh | grep -c 'label create')" 21
-t_eq "$(t_calls gh | grep -c -e '--repo acme/widget .*--force')" 21
-for name in tehas:ready tehas:urgent tehas:running tehas:awaiting-merge tehas:shipped tehas:pause needs-human-attention \
-  tehas:question tehas:plan tehas:refine tehas:planning tehas:replaced tehas:refined tehas:millwright-escalated tehas:next tehas:blocked tehas:refreshing tehas:all-hands tehas:lean epic tehas:finish; do
+t_eq "$(t_calls gh | grep -c 'label create')" 19
+t_eq "$(t_calls gh | grep -c -e '--repo acme/widget .*--force')" 19
+for name in tehas:ready tehas:running tehas:awaiting-merge tehas:shipped tehas:pause needs-human-attention \
+  tehas:question tehas:plan tehas:refine tehas:planning tehas:replaced tehas:refined tehas:millwright-escalated tehas:blocked tehas:refreshing tehas:all-hands tehas:lean epic tehas:finish; do
   t_contains "$(t_calls gh)" "label create $name --repo acme/widget"
   t_contains "$t_out" "label $name"
 done
 
 t_case "it pins each granting label to its id once the labels are made"
 pins=$T/home/tehas/state/labels
-for name in ready plan refine finish urgent next lean; do
+for name in ready plan refine finish lean; do
   t_contains "$(t_calls gh)" "api repos/acme/widget/labels/tehas:$name --jq .node_id"
   t_contains "$t_out" "pinned the label tehas:$name as LA_$name in state/labels"
   t_contains "$(cat "$pins")" "$(printf 'tehas:%s\tLA_%s' "$name" "$name")"
 done
-t_eq "$(wc -l <"$pins")" 7
+t_eq "$(wc -l <"$pins")" 5
 t_lacks "$(cat "$pins")" "tehas:running"
 
 t_case "once the file exists, a label that was there with no pin is named and not pinned, exit 1"
@@ -64,7 +64,7 @@ rm -f "$T"/calls/*
 t_run "$labels"
 t_eq "$t_rc" 0
 t_contains "$t_out" "pinned the label tehas:plan as LA_plan in state/labels"
-t_eq "$(wc -l <"$pins")" 7
+t_eq "$(wc -l <"$pins")" 5
 T_ENV=()
 rm -f "$pins"
 
@@ -80,12 +80,12 @@ t_contains "$(t_calls gh)" "label create tehas:planning "
 
 t_case "a label that cannot be made is named, the rest are still made, exit 1"
 reset
-T_ENV=(FAIL_ON=tehas:urgent)
+T_ENV=(FAIL_ON=tehas:lean)
 t_run "$labels"
 t_eq "$t_rc" 1
-t_contains "$t_out" "tehas labels: could not make tehas:urgent"
+t_contains "$t_out" "tehas labels: could not make tehas:lean"
 t_contains "$t_out" "label tehas:pause"
-t_eq "$(t_calls gh | grep -c 'label create')" 21
+t_eq "$(t_calls gh | grep -c 'label create')" 19
 
 t_case "without the repository nothing is called, exit 78"
 reset

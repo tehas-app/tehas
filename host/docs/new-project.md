@@ -382,7 +382,7 @@ turn one on.
 | -------------------------------------- | --------------------------------------------------------------------------------------------------- |
 | `TEHAS_REPO`                           | `owner/name` of the product repository                                                              |
 | `TEHAS_CONTROL_ISSUE`                  | Number of an issue you create for the pause label. Keep it open                                     |
-| `TEHAS_ALLOWED_LABELERS`               | Logins whose labels count, space separated: `tehas:ready`, `tehas:plan`, `tehas:urgent`, `tehas:prototype`. Never the bot |
+| `TEHAS_ALLOWED_LABELERS`               | Logins whose labels count, space separated: `tehas:ready`, `tehas:plan`, `tehas:prototype`. Never the bot |
 | `PI_ENSEMBLE_SUBAGENT_MODEL`, `_PROVIDER` | The model the session and every agent role use unless one has its own. Must be listed in `models.json` |
 | `PI_ENSEMBLE_MODEL_<ROLE>`, `PI_ENSEMBLE_PROVIDER_<ROLE>` | Optional. A model for one role, such as the lens reviewers, so cycles do not all wait on one model. See [A model per role](/host#a-model-per-role) |
 | `PI_ENSEMBLE_HOST_ALIASES`             | Optional. `name:address` pairs the sandbox needs, such as a model host whose name only resolves privately |

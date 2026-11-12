@@ -199,8 +199,6 @@ struct Poll<'a> {
     /// Fed starts this poll picked, beside the ones running.
     fed_picked: u64,
     work_refused: Vec<u64>,
-    gate_asked: bool,
-    gate_answer: i32,
     starts: Vec<(u64, Start)>,
     /// image_ok's answer, asked once a poll: the hold, empty for none.
     image_hold: Option<String>,
@@ -231,8 +229,6 @@ pub fn decide(s: &Snapshot, c: &Settings, dry: bool) -> Decision {
         control_skipped: false,
         fed_picked: 0,
         work_refused: Vec::new(),
-        gate_asked: false,
-        gate_answer: 0,
         starts: Vec::new(),
         image_hold: None,
         stopped: Vec::new(),
@@ -394,24 +390,6 @@ impl<'a> Poll<'a> {
                 format!("ERROR: the bot account {bot} is in TEHAS_ALLOWED_LABELERS; the bot never authorises work"),
                 78,
             ));
-        }
-        if !c.priority_field.is_empty() && !s.personal_owner {
-            let field = &c.priority_field;
-            match &s.issue_fields {
-                None => {
-                    return Err(self.fail(
-                        format!("ERROR: the issue fields of {}'s owner could not be read", c.repo),
-                        1,
-                    ))
-                }
-                Some(f) if !f.contains(field) => {
-                    return Err(self.fail(
-                        format!("ERROR: TEHAS_PRIORITY_FIELD names {field}, which is no single-select issue field of {}'s owner: name one in {}/instance.env, or leave it out for the tehas:urgent and tehas:next labels", c.repo, c.instance_dir),
-                        78,
-                    ))
-                }
-                Some(_) => {}
-            }
         }
         if !c.improvement_type.is_empty() {
             let t = &c.improvement_type;
@@ -1288,7 +1266,7 @@ impl<'a> Poll<'a> {
         ));
     }
 
-    /// order_label: tehas:next or tehas:blocked stands when an allowed account
+    /// order_label: tehas:blocked stands when an allowed account
     /// or the fixer applied it last and nobody took it off since.
     fn order_label(&mut self, n: u64, label: &str) -> Step<bool> {
         let ev = self.events(n)?;
@@ -2552,124 +2530,38 @@ impl<'a> Poll<'a> {
         Ok((base, had + 1))
     }
 
-    /// low_gate: whether an issue of the lowest kind may start now.
-    fn low_gate(&mut self, n: u64) -> bool {
-        if self.c.low_gate.is_empty() {
-            return true;
-        }
-        if !self.gate_asked {
-            self.gate_asked = true;
-            let Some(g) = self.s.gate.clone() else {
-                self.need("gate");
-                return false;
-            };
-            let mut marker = true;
-            let mut held = false;
-            if g.held == "other" {
-                let home = self.c.home.clone();
+    /// The start order `tehas order` set, when one is in force: its issues
+    /// that are ready, in order, and whether it holds every other ready issue.
+    fn ranked(&mut self, ready: &[Listed]) -> (Vec<u64>, bool) {
+        let o = &self.s.order;
+        match o.get("state").and_then(Value::as_str) {
+            Some("ok") => {}
+            Some("expired") => {
+                let until = o.get("until").and_then(Value::as_str).unwrap_or("?");
                 self.log(format!(
-                    "WARN: {home}/state/low-gate.held is not a regular file: no hold is read from it or written to it"
+                    "order expired at {until}: ready issues start lowest number first"
                 ));
-                marker = false;
-            } else if g.held == "file" {
-                held = true;
+                return (Vec::new(), false);
             }
-            self.gate_answer = g.answer;
-            if g.answer != 0 {
-                if !held || self.dry {
-                    self.log(format!(
-                        "low issues wait: TEHAS_LOW_GATE answered {}",
-                        g.answer
-                    ));
-                }
-                if !self.dry && marker && !held {
-                    self.act(json!({"gate_held": true}));
-                }
-            } else if held {
-                self.log("low issues may start: TEHAS_LOW_GATE answered 0");
-                if !self.dry {
-                    self.act(json!({"gate_held": false}));
-                }
+            Some("unreadable") => {
+                self.log(
+                    "WARN: the start order could not be read from the state store: ready issues start lowest number first",
+                );
+                return (Vec::new(), false);
             }
+            _ => return (Vec::new(), false),
         }
-        if self.gate_answer != 0 {
-            let a = self.gate_answer;
-            self.log(format!(
-                "wait #{n}: the low-priority gate is closed (exit {a})"
-            ));
-            return false;
-        }
-        true
-    }
-
-    /// The urgent and the next lists, read of `tehas:urgent` and `tehas:next`.
-    fn order_by_labels(&mut self, ready: &[Listed], want: i64) -> Step<(Vec<u64>, Vec<u64>)> {
-        let mut urgent = Vec::new();
-        for i in ready.iter().filter(|i| has(&i.labels, "tehas:urgent")) {
-            let Some(n) = i.number else { continue };
-            if want <= 0 {
-                break;
-            }
-            if self.plan_open(n) || self.running(n) {
-                continue;
-            }
-            let ev = self.events(n)?;
-            let (who, _) = label_actor(&ev, "tehas:urgent");
-            if self.c.allowed(&who) {
-                urgent.push(n);
-            } else {
-                self.deny("ignore", n, "tehas:urgent", &who);
-            }
-        }
-        let mut next = Vec::new();
-        for i in ready.iter().filter(|i| has(&i.labels, "tehas:next")) {
-            let Some(n) = i.number else { continue };
-            if want <= 0 {
-                break;
-            }
-            if self.plan_open(n) || self.running(n) {
-                continue;
-            }
-            if self.order_label(n, "tehas:next")? {
-                next.push(n);
-            }
-        }
-        Ok((urgent, next))
-    }
-
-    /// The urgent and the next lists, read of the issue field
-    /// TEHAS_PRIORITY_FIELD: Urgent as `tehas:urgent` counts, from an allowed
-    /// account, and High as `tehas:next`, from an allowed account or the
-    /// millwright. The labels count for nothing here.
-    fn order_by_field(&mut self, ready: &[Listed], want: i64) -> (Vec<u64>, Vec<u64>) {
-        let (mut urgent, mut next) = (Vec::new(), Vec::new());
-        for i in ready {
-            let Some(n) = i.number else { continue };
-            if want <= 0 {
-                break;
-            }
-            if self.plan_open(n) || self.running(n) {
-                continue;
-            }
-            let Some((value, by)) = self.s.issues.get(&n).and_then(|i| i.priority.clone()) else {
-                continue;
-            };
-            let (list, stands) = match value.as_str() {
-                "Urgent" => (&mut urgent, self.c.allowed(&by)),
-                "High" => (&mut next, self.c.allowed(&by) || self.c.is_millwright(&by)),
-                _ => continue,
-            };
-            if stands {
-                list.push(n);
-            } else {
-                let field = self.c.priority_field.clone();
-                self.log(format!(
-                    "ignore #{n}: {field} {value} was set by '{}', not an allowed account",
-                    or_unknown(&by)
-                ));
-            }
-        }
-        (urgent, next)
+        let only = o.get("only").and_then(Value::as_bool) == Some(true);
+        let listed: Vec<u64> = ready.iter().filter_map(|i| i.number).collect();
+        let ranked = o
+            .get("issues")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_u64)
+            .filter(|n| listed.contains(n))
+            .collect();
+        (ranked, only)
     }
 
     /// 6 and 7: the candidates in their order, cut to the room.
@@ -2681,30 +2573,15 @@ impl<'a> Poll<'a> {
             ..
         } = room;
         let ready = self.ready()?;
-        let (urgent, next) = if self.c.priority_field.is_empty() || self.s.personal_owner {
-            self.order_by_labels(&ready, want)?
-        } else {
-            self.order_by_field(&ready, want)
-        };
+        let (ranked, only) = self.ranked(&ready);
         let mut order: Vec<(char, u64)> = Vec::new();
         let numbers: Vec<u64> = ready.iter().filter_map(|i| i.number).collect();
-        order.extend(
-            numbers
-                .iter()
-                .filter(|n| urgent.contains(n))
-                .map(|n| ('u', *n)),
-        );
+        order.extend(ranked.iter().map(|n| ('o', *n)));
         order.extend(self.s.refresh_requests.iter().map(|n| ('r', *n)));
         order.extend(
             numbers
                 .iter()
-                .filter(|n| !urgent.contains(n) && next.contains(n))
-                .map(|n| ('n', *n)),
-        );
-        order.extend(
-            numbers
-                .iter()
-                .filter(|n| !urgent.contains(n) && !next.contains(n))
+                .filter(|n| !ranked.contains(n))
                 .map(|n| ('x', *n)),
         );
         let mut ready_picked = 0;
@@ -2735,11 +2612,10 @@ impl<'a> Poll<'a> {
                 }
                 continue;
             }
-            if kind == 'x' && self.gate_asked && self.gate_answer != 0 {
-                let a = self.gate_answer;
-                self.log(format!(
-                    "wait #{n}: the low-priority gate is closed (exit {a})"
-                ));
+            if kind == 'x' && only {
+                if !self.running(n) && n != self.c.control {
+                    self.log(format!("wait #{n}: not in the start order (--only)"));
+                }
                 continue;
             }
             if ready_picked >= want {
@@ -2859,9 +2735,6 @@ impl<'a> Poll<'a> {
                 continue;
             }
             if !self.overlap_ok(n) {
-                continue;
-            }
-            if kind == 'x' && !self.low_gate(n) {
                 continue;
             }
             let driver = match self.driver(n, &labels, fixer.is_some())? {
