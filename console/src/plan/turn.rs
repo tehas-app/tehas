@@ -32,8 +32,10 @@
 //!                   clone's git directory (.git/pi-plan-sessions) while
 //!                   PI_ENSEMBLE_PLAN_SESSION_DIR is unset. It is copied here
 //!                   when a turn ends and back before the next one starts.
-//!                   Only plain files are carried, at most 1 MB each. Nothing
-//!                   new is mounted and the container is given nothing new.
+//!                   Only plain files inside the clone are carried, none
+//!                   through a link, at most 1 MB each and 1024 entries and
+//!                   32 MB together. Nothing new is mounted and the container
+//!                   is given nothing new.
 //!   exit            the runner's exit status of the last turn.
 //!   draft.json      the title and spec of the last drafted plan (exit 12),
 //!                   and "block": the `pi-spec v1` block pi-rukas placed at
@@ -90,11 +92,13 @@
 use super::outcome;
 use serde_json::{json, Map, Value};
 use signal_hook::consts::{SIGINT, SIGTERM};
+use std::ffi::OsStr;
 use std::fs::{self, File, OpenOptions};
-use std::io::{self, ErrorKind, Write};
+use std::io::{self, ErrorKind, Read, Write};
+use std::os::fd::AsRawFd;
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::os::unix::process::ExitStatusExt;
-use std::path::Path;
+use std::path::{Component, Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -103,6 +107,10 @@ use tehas_core::plan::{criteria_directive, WHY_MAX};
 
 /// `find ! -size +1024k`: a carried file is at most this long.
 const CARRIED: u64 = tehas_core::file::READ_BOUND;
+/// Files and directories one carry takes at most.
+const CARRIED_ENTRIES: usize = 1024;
+/// Bytes one carry takes at most.
+const CARRIED_TOTAL: u64 = 32 * CARRIED;
 const POLL: Duration = Duration::from_millis(250);
 /// Where pi-rukas keeps a session, inside the clone.
 const SESSIONS: &str = ".git/pi-plan-sessions";
@@ -146,7 +154,11 @@ fn remove(path: &str) -> io::Result<()> {
 
 /// `cp`: the source's mode under the umask, which fs::copy would not apply.
 fn copy(from: &Path, to: &Path) -> io::Result<()> {
-    let mut source = File::open(from)?;
+    copy_open(File::open(from)?, to, u64::MAX)
+}
+
+/// `copy` of a file already open, of its first <most> bytes.
+fn copy_open(source: File, to: &Path, most: u64) -> io::Result<()> {
     let mode = source.metadata()?.permissions().mode();
     let mut target = OpenOptions::new()
         .write(true)
@@ -154,7 +166,7 @@ fn copy(from: &Path, to: &Path) -> io::Result<()> {
         .truncate(true)
         .mode(mode)
         .open(to)?;
-    io::copy(&mut source, &mut target).map(|_| ())
+    io::copy(&mut source.take(most), &mut target).map(|_| ())
 }
 
 /// `$(cat file)`: no NUL and no line end after the text.
@@ -227,17 +239,19 @@ pub(super) fn give(works: &str, images: &str, to: &str, give: bool) -> u8 {
     0
 }
 
-/// The plain files of one session directory into another, under the same
-/// relative paths, with what <to> held before dropped. A symlink or a file
-/// over 1 MB is left out. The copy is made beside <to> and moved into place,
-/// so a failure leaves what was there.
-pub fn carry(from: &str, to: &str) -> io::Result<()> {
+/// The plain files of <base>/<rel> into <to>, under the same relative paths,
+/// with what <to> held before dropped. <base> is the host's; no part of <rel>
+/// and nothing below it is followed if it is a link, so a turn cannot point
+/// the copy elsewhere. A link, a special file or a file over 1 MB is left out,
+/// and so is what is past `CARRIED_ENTRIES` or `CARRIED_TOTAL`. The copy is
+/// made beside <to> and moved into place, so a failure leaves what was there.
+pub fn carry(base: &str, rel: &str, to: &str) -> io::Result<()> {
     let new = format!("{to}.new");
     remove(&new)?;
-    let copied = if Path::new(from).is_dir() {
-        fs::create_dir_all(&new).and_then(|()| carry_files(Path::new(from), Path::new(&new)))
-    } else {
-        Ok(())
+    let copied = match open_below(base, rel) {
+        Some(from) => fs::create_dir_all(&new)
+            .and_then(|()| carry_files(&from, Path::new(&new), &mut Budget::default())),
+        None => Ok(()),
     };
     if let Err(e) = copied.and_then(|()| remove(to)) {
         let _ = remove(&new);
@@ -249,19 +263,76 @@ pub fn carry(from: &str, to: &str) -> io::Result<()> {
     Ok(())
 }
 
-fn carry_files(from: &Path, to: &Path) -> io::Result<()> {
+/// What one carry has taken so far.
+#[derive(Default)]
+struct Budget {
+    entries: usize,
+    bytes: u64,
+}
+
+fn open_flags(path: &Path, flags: i32) -> io::Result<File> {
+    OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_CLOEXEC | flags)
+        .open(path)
+}
+
+/// <name> in the directory held open by <dir>, reached through the handle.
+fn held(dir: &File, name: &OsStr) -> PathBuf {
+    Path::new(&format!("/proc/self/fd/{}", dir.as_raw_fd())).join(name)
+}
+
+/// The directory <base>/<rel>, with no part of <rel> a link. None when a part
+/// is not there, is not a directory or is a link.
+fn open_below(base: &str, rel: &str) -> Option<File> {
+    let mut dir = open_flags(Path::new(base), libc::O_DIRECTORY).ok()?;
+    for part in Path::new(rel).components() {
+        let Component::Normal(name) = part else {
+            return None;
+        };
+        dir = open_flags(&held(&dir, name), libc::O_DIRECTORY | libc::O_NOFOLLOW).ok()?;
+    }
+    Some(dir)
+}
+
+fn carry_files(from: &File, to: &Path, budget: &mut Budget) -> io::Result<()> {
     // As find does, a directory that cannot be read is passed over.
-    let Ok(entries) = fs::read_dir(from) else {
+    let Ok(entries) = fs::read_dir(held(from, OsStr::new("."))) else {
         return Ok(());
     };
     for entry in entries.flatten() {
-        let Ok(meta) = entry.metadata() else { continue };
-        let target = to.join(entry.file_name());
-        if meta.is_dir() {
-            carry_files(&entry.path(), &target)?;
-        } else if meta.is_file() && meta.len() <= CARRIED {
+        if budget.entries >= CARRIED_ENTRIES {
+            return Ok(());
+        }
+        let Ok(kind) = entry.file_type() else {
+            continue;
+        };
+        let name = entry.file_name();
+        let target = to.join(&name);
+        let path = held(from, &name);
+        if kind.is_dir() {
+            budget.entries += 1;
+            // A directory swapped for a link since it was listed is refused here.
+            if let Ok(dir) = open_flags(&path, libc::O_DIRECTORY | libc::O_NOFOLLOW) {
+                carry_files(&dir, &target, budget)?;
+            }
+        } else if kind.is_file() {
+            // Not waited for, should the name have become a pipe.
+            let file = match open_flags(&path, libc::O_NOFOLLOW | libc::O_NONBLOCK) {
+                Ok(file) => file,
+                Err(e) if matches!(e.raw_os_error(), Some(libc::ELOOP | libc::ENXIO)) => continue,
+                Err(e) => return Err(e),
+            };
+            let meta = file.metadata()?;
+            if !meta.is_file() || meta.len() > CARRIED || budget.bytes + meta.len() > CARRIED_TOTAL
+            {
+                continue;
+            }
+            budget.entries += 1;
+            budget.bytes += meta.len();
             fs::create_dir_all(to)?;
-            copy(&entry.path(), &target)?;
+            // No more than was counted, should it grow while it is read.
+            copy_open(file, &target, meta.len())?;
         }
     }
     Ok(())
@@ -278,12 +349,7 @@ pub(super) fn place(tree: &str, keep: &str, branch: &str, first: bool) -> u8 {
         pin(tree, keep, branch);
         // Without the record the runner says the session is lost, and the
         // session ends: that is what a missing record means.
-        if carry(
-            &format!("{keep}/plan-sessions"),
-            &format!("{tree}/{SESSIONS}"),
-        )
-        .is_err()
-        {
+        if carry(keep, "plan-sessions", &format!("{tree}/{SESSIONS}")).is_err() {
             warn(&format!(
                 "tehas plan: could not carry the session into {tree}"
             ));
@@ -615,12 +681,7 @@ fn finish(turn: &Turn, rc: i32, doc: &str, started: u64) -> u8 {
     // this one. A turn whose runner kept none replaces what an earlier one
     // kept.
     let (keep, tree) = (turn.keep, turn.tree);
-    if carry(
-        &format!("{tree}/{SESSIONS}"),
-        &format!("{keep}/plan-sessions"),
-    )
-    .is_err()
-    {
+    if carry(tree, SESSIONS, &format!("{keep}/plan-sessions")).is_err() {
         warn(&format!("tehas plan: could not keep the session of {tree}"));
     }
     if fs::write(format!("{keep}/exit"), format!("{rc}\n")).is_err() {
@@ -750,7 +811,7 @@ mod tests {
         std::os::unix::fs::symlink("/etc/passwd", s.0.join("from/link")).unwrap();
         fs::create_dir(s.0.join("from/empty")).unwrap();
         s.write("to/old", "dropped");
-        carry(&s.at("from"), &s.at("to")).unwrap();
+        carry(&s.at("."), "from", &s.at("to")).unwrap();
         assert_eq!(s.read("to/a/session.json"), "one");
         assert_eq!(s.read("to/a/b/deep.md"), "two");
         assert!(s.has("to/whole.bin"));
@@ -765,11 +826,11 @@ mod tests {
     fn carry_from_nothing_leaves_nothing() {
         let s = Scratch::new("carry-none");
         s.write("to/old", "dropped");
-        carry(&s.at("from"), &s.at("to")).unwrap();
+        carry(&s.at("."), "from", &s.at("to")).unwrap();
         assert!(!s.has("to"));
         // A directory with nothing to carry is still the session's.
         fs::create_dir(s.0.join("from")).unwrap();
-        carry(&s.at("from"), &s.at("to")).unwrap();
+        carry(&s.at("."), "from", &s.at("to")).unwrap();
         assert!(s.has("to"));
     }
 
@@ -785,9 +846,71 @@ mod tests {
         if File::open(&locked).is_ok() {
             return;
         }
-        assert!(carry(&s.at("from"), &s.at("to")).is_err());
+        assert!(carry(&s.at("."), "from", &s.at("to")).is_err());
         assert_eq!(s.read("to/old"), "kept");
         assert!(!s.has("to.new"));
+    }
+
+    #[test]
+    fn a_session_directory_that_is_a_link_carries_nothing() {
+        let s = Scratch::new("carry-link");
+        s.write("host/secret.env", "token");
+        s.write("host/pi-plan-sessions/secret.env", "token");
+        fs::create_dir_all(s.0.join("tree/.git")).unwrap();
+        std::os::unix::fs::symlink(s.0.join("host"), s.0.join("tree/.git/pi-plan-sessions"))
+            .unwrap();
+        s.write("to/old", "dropped");
+        carry(&s.at("tree"), SESSIONS, &s.at("to")).unwrap();
+        assert!(!s.has("to"));
+        // Nor a link higher up the path.
+        fs::remove_dir_all(s.0.join("tree/.git")).unwrap();
+        std::os::unix::fs::symlink(s.0.join("host"), s.0.join("tree/.git")).unwrap();
+        carry(&s.at("tree"), SESSIONS, &s.at("to")).unwrap();
+        assert!(!s.has("to"));
+        assert_eq!(s.read("host/secret.env"), "token");
+    }
+
+    #[test]
+    fn links_and_special_files_below_the_session_are_left_out() {
+        let s = Scratch::new("carry-below");
+        s.write("host/secret.env", "token");
+        s.write("tree/.git/pi-plan-sessions/a/session.json", "one");
+        let at = s.0.join("tree/.git/pi-plan-sessions");
+        std::os::unix::fs::symlink(s.0.join("host"), at.join("dir")).unwrap();
+        std::os::unix::fs::symlink(s.0.join("host"), at.join("a/dir")).unwrap();
+        std::os::unix::fs::symlink(s.0.join("host/secret.env"), at.join("a/file")).unwrap();
+        let fifo = at.join("pipe");
+        assert!(Command::new("mkfifo")
+            .arg(&fifo)
+            .status()
+            .unwrap()
+            .success());
+        carry(&s.at("tree"), SESSIONS, &s.at("to")).unwrap();
+        assert_eq!(s.read("to/a/session.json"), "one");
+        assert!(!s.has("to/dir"));
+        assert!(!s.has("to/a/dir"));
+        assert!(!s.has("to/a/file"));
+        assert!(!s.has("to/pipe"));
+    }
+
+    #[test]
+    fn a_carry_takes_so_many_files_and_bytes_at_most() {
+        let s = Scratch::new("carry-bound");
+        for n in 0..CARRIED_ENTRIES + 10 {
+            s.write(&format!("many/{n}"), "x");
+        }
+        carry(&s.at("."), "many", &s.at("to")).unwrap();
+        assert_eq!(
+            fs::read_dir(s.0.join("to")).unwrap().count(),
+            CARRIED_ENTRIES
+        );
+        let whole = "x".repeat(usize::try_from(CARRIED).unwrap());
+        let fit = usize::try_from(CARRIED_TOTAL / CARRIED).unwrap();
+        for n in 0..fit + 3 {
+            s.write(&format!("big/{n}"), &whole);
+        }
+        carry(&s.at("."), "big", &s.at("to")).unwrap();
+        assert_eq!(fs::read_dir(s.0.join("to")).unwrap().count(), fit);
     }
 
     #[test]
