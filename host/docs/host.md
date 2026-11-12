@@ -497,6 +497,41 @@ it. A cycle that starts during an install runs the old file or the new one,
 never part of one, and an install that is stopped or fails partway leaves the
 file it was copying as it was.
 
+### How the dashboard's files are named and cached
+
+The manual and the front page are not copied from `host/` as they stand.
+`install.sh` first asks the console to stage them (`console update assets`,
+`console/src/update/assets.rs`), which copies `host/fun` and `host/docs` to a
+scratch directory and, for each `<script src="/fun/X.js">` and each
+`<link rel="stylesheet" href="/fun/X.css">` of `fun/index.html`,
+`fun/business.html` and `docs/dashboard.frag`, puts a copy of that file beside
+them under the name `X.<hash>.<ext>`, where `<hash>` is the first 12 hex digits
+of the sha256 of its bytes, and rewrites the tag to name it. The two syncs then
+install the stage, so `~/tehas/fun` and `~/tehas/docs` hold exactly what the
+stage holds and a hashed name of older content is removed as stale with any page
+that went away. The pages keep their own names.
+
+The docs server caches the two kinds differently (`host/edge/docs.Caddyfile`):
+a name with 12 hex digits of its own in it is served
+`public, max-age=31536000, immutable`, because such a name can only ever hold
+the bytes it was named for, and every page is served `no-cache`, so a browser
+asks about the page each time and reuses what it already has of the files it
+names. `install.sh` gives a changed file a new name, so a new install is seen at
+once and nothing has to be waited out or forced.
+
+Three things keep the name they have and are revalidated. The theme stylesheet,
+which a page's template names at the request as
+`/fun/theme-<design>.css`, so no file of the checkout can be hashed for it. Any
+file that is not a script or a stylesheet: a font, a logo, a share card. And a
+module the page loads as `type="module"`, whose own `import "./x.js"` lines name
+its siblings by name: hashing the page is safe, hashing the module would make it
+ask for files none of them is named by.
+
+Everything the server sends is compressed, zstd where the browser speaks it and
+gzip otherwise. The files under `/live/` and the two health addresses are left
+alone, because the dashboard's console reads them with Range requests whose
+offsets count the file's own bytes, and an encoded body holds none of those.
+
 One file is written, not copied: `version.txt`, beside the pages in
 `~/tehas/docs` and `~/tehas/fun`. It holds the newest tag of the checkout and
 the commit it was at when `install.sh` last ran, as `v0.1.1+11b669d`, and the
