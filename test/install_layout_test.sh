@@ -133,18 +133,18 @@ t_contains "$t_out" "removed: $th/bin/tehas-dispatch"
 # A tree may carry a polyfill of a pi-rukas feature (scripts/polyfills.sh);
 # install.sh has no name for one, so a case makes the tree rather than the
 # repository holding one: the same tree twice, once with the file in its lib/
-# and once without. Nothing under $T_ROOT is written, and the checkout's lib/
-# is a copy, so the polyfill is never sourced from the tree that has it.
+# and once without. The tree is a copy of the fixture, so nothing under it is
+# written by a case and the polyfill is never sourced from the tree that has it.
 make_checkout() { # <dir> <polyfill?>
   local d=$1 with=${2:-}
   rm -rf "$d"
   mkdir -p "$d"
-  cp -R "$T_ROOT/install.sh" "$T_ROOT/lib" "$T_ROOT/host" "$T_ROOT/bin" \
-    "$T_ROOT/libexec" "$d/"
+  cp -R "$fixture/install.sh" "$fixture/lib" "$fixture/host" "$fixture/bin" \
+    "$fixture/libexec" "$d/"
   # An install of a checkout reads the instance's models.json before it copies
   # anything, so the copy carries the file this file's instance() writes.
   cp "$TEHAS_INSTANCE_DIR/models.json" "$d/host/"
-  t_console_source "$d"
+  t_console_source "$d" "$fixture"
   [ -z "$with" ] || echo '# polyfill of a feature the image lacks' >"$d/lib/polyfill-demo.sh"
 }
 

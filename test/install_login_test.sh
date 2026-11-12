@@ -56,7 +56,7 @@ t_run "$install --check"
 t_eq "$t_rc" 1
 t_contains "$t_out" "Login:        NOT CURRENT"
 t_contains "$t_out" "differs: $dev_bin/tehas"
-t_contains "$t_out" "sudo $T_ROOT/bootstrap.sh dev boss"
+t_contains "$t_out" "sudo $fixture/bootstrap.sh dev boss"
 # Not drift install.sh can repair, so it is not counted as drift.
 t_contains "$t_out" "Installed:    OK"
 t_eq "$(login_state)" "$before"
@@ -65,7 +65,7 @@ t_eq "$(t_calls sudo)" ""
 t_case "a real install names the command, writes nothing there and records no step"
 t_run "$install"
 t_eq "$t_rc" 0
-t_contains "$t_out" "later: sudo $T_ROOT/bootstrap.sh dev boss"
+t_contains "$t_out" "later: sudo $fixture/bootstrap.sh dev boss"
 # Not a step of tehas update: nothing was recorded as owed.
 t_eq "$(cat "$th/state/update-pending" 2>/dev/null)" ""
 t_eq "$(login_state)" "$before"
@@ -78,13 +78,13 @@ t_contains "$t_out" "Login:        NOT CURRENT"
 t_case "the command names the tehas user the marker holds"
 echo someone >"$dev_etc/tehas/manager"
 t_run "$install --check"
-t_contains "$t_out" "sudo $T_ROOT/bootstrap.sh dev someone"
+t_contains "$t_out" "sudo $fixture/bootstrap.sh dev someone"
 echo boss >"$dev_etc/tehas/manager"
 
 t_case "a marker that does not hold a plain account name is not carried into the line"
 echo 'boss; rm -rf /' >"$dev_etc/tehas/manager"
 t_run "$install --check"
-t_contains "$t_out" "sudo $T_ROOT/bootstrap.sh dev <tehas user>"
+t_contains "$t_out" "sudo $fixture/bootstrap.sh dev <tehas user>"
 t_lacks "$t_out" "rm -rf"
 echo boss >"$dev_etc/tehas/manager"
 
@@ -93,7 +93,7 @@ rm -f "$dev_bin/tehas"
 t_run "$install --check"
 t_eq "$t_rc" 1
 t_contains "$t_out" "missing: $dev_bin/tehas"
-t_contains "$t_out" "sudo $T_ROOT/bootstrap.sh dev boss"
+t_contains "$t_out" "sudo $fixture/bootstrap.sh dev boss"
 
 
 t_done
