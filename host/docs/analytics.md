@@ -282,7 +282,7 @@ So that a reader does not have to work out the common figures again:
 at each poll, and the plain dashboard shows it as "Last 10 days" (see
 [Operating](/operating#3-what-happens-next)). It holds aggregates only: no
 issue number, title, failure cause, account, model or provider. Its keys are
-listed on [Commands](/tools#tehasbot-status-and-the-console).
+listed on [Commands](/tools-health#tehasbot-status-and-the-console).
 
 The same report in a terminal:
 
@@ -290,7 +290,7 @@ The same report in a terminal:
 tehas analytics report
 ```
 
-See [tehas analytics](/tools#tehas-analytics).
+See [tehas analytics](/tools-status#tehas-analytics).
 
 ### Gate
 
@@ -321,7 +321,7 @@ ran the gate once says the same either way.
 
 The line is the report's, not the dashboard's file: `tehasbot status` publishes
 only the top-level keys it names and `gate` is not one of them (see [the keys of
-the published report](/tools#tehasbot-status-and-the-console)).
+the published report](/tools-health#tehasbot-status-and-the-console)).
 
 ### Drivers
 
@@ -343,7 +343,7 @@ apart. A run with no driver on record is classic. Each entry gives:
 | `tokens` | `n` runs that reported usage, their `total` and `median` (input, output and cache read) |
 | `pullRequests` | `n` issues whose runs reached a pull request, how many of them `merged`, and that `share` |
 | `oneAttempt` | Of the runs of `ran` that were their issue's first attempt (`attempt` 1, so a resumed or follow-up run is not one), `n`, the `pr` of them that reached a pull request, and that `share`: the one-attempt success. Left out when no such run is in the entry |
-| `handBack` | The step funnel of the entry's runs, by the rule and from the steps of the report's [`stations`](/tools#tehas-analytics) key: `n` runs, and per step the runs that reached it, `passed` of them that went on, and that `share`. A lean run's steps are the driver's own record (see [what is recorded, and when](#what-is-recorded-and-when)). Left out when no run of the entry recorded a step |
+| `handBack` | The step funnel of the entry's runs, by the rule and from the steps of the report's [`stations`](/tools-status#tehas-analytics) key: `n` runs, and per step the runs that reached it, `passed` of them that went on, and that `share`. A lean run's steps are the driver's own record (see [what is recorded, and when](#what-is-recorded-and-when)). Left out when no run of the entry recorded a step |
 
 `prShare`, `parkedShare`, `pullRequests.share` and `oneAttempt.share` are left
 out under `VERSION_FLOOR` (3) runs behind them, as in the `versions` table. The
@@ -419,7 +419,7 @@ where the two counts agree.
 The key belongs to the report a person reads, not to the file the dashboard
 shows: `tehasbot status` publishes only the top-level keys it names, and
 `sizes` is not one of them (see [the keys of the published
-report](/tools#tehasbot-status-and-the-console)).
+report](/tools-health#tehasbot-status-and-the-console)).
 
 ## Sessions
 
