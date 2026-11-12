@@ -46,7 +46,7 @@ parked_again() { # <body of the issue> [<park reason> [<- for a cycle by hand>]]
 park_comments() { # <body of the parked issue> [<notes as a REST list>]
   comments 7 "$(park_body ' ' ' ')" "" "${2:-[]}"
   local bot
-  bot=$(jq -cn --arg b "$(park_body ' ' ' ')" '{id: 4001, user: {login: "tehas-bot"},
+  bot=$(jq -cn --arg b "$(park_body ' ' ' ')" '{id: 4001, user: {login: "tehas-bot", id: ("tehas-bot" | explode | add)},
     created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z", body: $b}')
   jq -cn --argjson bot "$bot" --argjson after "${2:-[]}" '[$bot] + $after' \
     >"$fx/icomments-7.json"

@@ -133,6 +133,32 @@ fn write(home: &Path, ids: &BTreeMap<String, u64>) -> std::io::Result<()> {
     fs::rename(&tmp, &file)
 }
 
+/// Records the user id of `old` under `new` in `home` when the app's slug
+/// changed (`accounts::carried`), and says so on standard error. Whether
+/// the file was written; a write that failed is said too.
+pub fn carry(home: &Path, old: &str, new: &str) -> bool {
+    let Some(ids) = accounts::carried(&accounts::read(home), old, new) else {
+        return false;
+    };
+    match write(home, &ids) {
+        Ok(()) => {
+            eprintln!(
+                "tehas: {} is recorded with the user id of {}",
+                account(new),
+                account(old)
+            );
+            true
+        }
+        Err(e) => {
+            eprintln!(
+                "tehas: could not write {}: {e}",
+                home.join(accounts::FILE).display()
+            );
+            false
+        }
+    }
+}
+
 /// `console ids record`, for `tehas update`'s gate.
 pub fn record_here(accept: &[String]) -> u8 {
     let Some(home) = env::var("TEHAS_HOME").ok().filter(|h| !h.is_empty()) else {
@@ -263,6 +289,22 @@ mod tests {
         let had = accounts::parse("alice 1001\nbob 1002\n").unwrap();
         let (ids, _) = record(&logins(&["alice"]), &had, &[], &mut github).unwrap();
         assert_eq!(ids, had);
+    }
+
+    #[test]
+    fn a_renamed_bot_is_recorded_with_its_old_id_and_the_old_pair_stays() {
+        let home = std::env::temp_dir().join(format!("tehas-ids-carry-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&home);
+        assert!(!carry(&home, "acme-old[bot]", "acme-new[bot]"));
+        assert!(!home.join(accounts::FILE).exists());
+        write(&home, &accounts::parse("acme-old 4242\n").unwrap()).unwrap();
+        assert!(carry(&home, "acme-old[bot]", "acme-new[bot]"));
+        assert_eq!(
+            fs::read_to_string(home.join(accounts::FILE)).unwrap(),
+            "acme-new 4242\nacme-old 4242\n"
+        );
+        assert!(!carry(&home, "acme-old[bot]", "acme-new[bot]"));
+        fs::remove_dir_all(&home).unwrap();
     }
 
     #[test]

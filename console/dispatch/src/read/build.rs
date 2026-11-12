@@ -190,6 +190,9 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
         typed_as_label(&mut q.open, &c.improvement_type, crate::decide::IMPROVEMENT);
     }
     s["user"] = json!({"login": c.bot_login});
+    s["bot_id"] = json!(tehas_core::accounts::read(home)
+        .get(tehas_core::accounts::account(&c.bot_login))
+        .copied());
     // What the titles of the open pull requests rest on (console pr-title).
     if let Some(pulls) = &q.open_pulls {
         s["open_pulls"] = pulls.clone();
