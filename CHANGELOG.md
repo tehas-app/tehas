@@ -204,6 +204,16 @@ a pull request before it tags, with the head's `scripts/collect-changelog.sh`.
 - `tehas order` sets the order ready issues start in: `tehas order set --issues 12,8` starts #12 and #8 first, then the rest lowest number first; with `--only` the rest wait. The order is kept in the state store, so it stays through restarts until it is set again or cleared; `--for` or `--until` give it an expiry. With no order, ready issues start lowest number first. `tehas status` shows the order, `status --json` carries it as `order`, and `tehas api` lists the feature `start-order` (#1918).
 - The labels `tehas:urgent` and `tehas:next`, and the settings `TEHAS_PRIORITY_FIELD`, `TEHAS_LOW_GATE` and `TEHAS_LOW_GATE_WAIT`, are gone. A line that still sets one of the three settings stops loading with 78; a blank one is ignored (#1918).
 - The state store is at schema 12 (table `start_order`); install.sh migrates it (#1918).
+- One reader of the times in the live files. `tehas_core::time::from_iso` is now
+  the only parser of `YYYY-MM-DDTHH:MM:SSZ`, and the copies in the console's
+  snapshot, the dispatcher's host read and the MCP's tools call it instead of
+  each parsing on their own. It checks every separator, wants digits in every
+  field with no sign, and refuses a month 13, a day past the month's last day
+  (leap years included), an hour 24 and a minute or second 60. A time one
+  reader took and another refused now reads the same everywhere: the readers of
+  `health.json`, `energy.json`, a cycle's record and a session snapshot refuse
+  the same malformed times, so a file with one is stale rather than fresh for
+  some tool and unreadable for another.
 
 ### Held back
 
