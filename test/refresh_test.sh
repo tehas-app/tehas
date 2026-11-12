@@ -22,7 +22,11 @@ base_c=$(printf 'c%.0s' {1..40})
 
 t_stub gh '
 case "$1 $2" in
-  "api graphql") [ ! -e "$T/fx/list-fails" ] || exit 1; cat "$T/fx/prs.json" ;;
+  "api graphql")
+    case "$*" in
+      *number=*) [ ! -e "$T/fx/pr-fails" ] || exit 1; cat "$T/fx/pr.json" ;;
+      *) [ ! -e "$T/fx/list-fails" ] || exit 1; cat "$T/fx/prs.json" ;;
+    esac ;;
   *) exit 1 ;;
 esac'
 
@@ -40,6 +44,8 @@ pr() {
 }
 # requests: the request files there are, one name a line.
 requests() { find "$dir" -name '*.json' -printf '%f\n' 2>/dev/null | sort; }
+# one <node>: the answer to the read of that one pull request, open.
+one() { jq -c '{data: {repository: {pullRequest: (. + {state: "OPEN"})}}}' <<<"$1" >"$fx/pr.json"; }
 prs() { printf '%s\n' "$@" | jq -s '{data: {repository: {pullRequests: {nodes: .}}}}' >"$fx/prs.json"; }
 
 reset() {
@@ -263,7 +269,7 @@ t_contains "$t_out" "Usage:"
 # such an edit changes this line on purpose.
 t_case "the refresh text is the words it had before it moved"
 t_eq "$(sha256sum <"$T_ROOT/console/dispatch/src/usage/refresh.txt" | cut -d' ' -f1)" \
-  "5b5495769e26a847c63bf67eb913b7e869faab82a8d627f51c1dc7aa46569fa3"
+  "753b972d003984bfdf352691abb2b1451fe45ddbf0a7e82766c8956928c96843"
 
 t_case "--help prints the refresh text word for word"
 reset
@@ -291,5 +297,92 @@ t_run "$refresh"
 t_eq "$t_rc" 0
 t_lacks "$(t_calls gh)" "api user"
 t_eq "$(requests)" "7.json"
+
+t_case "--pr with the setting off writes the request of that pull request, asked"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_REFRESH_CONFLICTS=0
+one "$(pr 50 7)"
+t_run "$refresh --pr 50"
+t_eq "$t_rc" 0
+t_eq "$(jq -c '{pr, head_sha, base_sha, asked}' "$dir/7.json")" \
+  "{\"pr\":50,\"head_sha\":\"$head_a\",\"base_sha\":\"$base_c\",\"asked\":\"pr\"}"
+t_eq "$(jq -r 'keys_unsorted | join(" ")' "$dir/7.json")" "at pr head_sha base_sha asked"
+t_contains "$(t_calls gh)" "number=50"
+t_contains "$(cat "$logfile")" "asked for pull request #50: wrote the request of #7"
+t_eq "$([ -e "$dir/last-run" ] && echo stamped)" ""
+
+t_case "--pr inside the interval still writes, and last-run is unchanged"
+reset
+one "$(pr 50 7)"
+mkdir -p "$dir"
+stamp=$(($(date +%s) - 60))
+echo "$stamp" >"$dir/last-run"
+t_run "$refresh --pr 50"
+t_eq "$t_rc" 0
+t_eq "$(requests)" "7.json"
+t_eq "$(cat "$dir/last-run")" "$stamp"
+
+t_case "--pr keeps the time of a request for the same head, and writes UNKNOWN"
+reset
+mkdir -p "$dir"
+jq -n --arg h "$head_a" '{at: "2026-01-01T00:00:00Z", pr: 50, head_sha: $h, base_sha: "x"}' >"$dir/7.json"
+one "$(pr 50 7 '.mergeable = "UNKNOWN"')"
+t_run "$refresh --pr 50"
+t_eq "$t_rc" 0
+t_eq "$(jq -r .at "$dir/7.json")" "2026-01-01T00:00:00Z"
+t_eq "$(jq -r .asked "$dir/7.json")" "pr"
+
+t_case "--pr leaves every other request as it was"
+reset
+mkdir -p "$dir"
+echo '{"pr":60}' >"$dir/9.json"
+echo '{}' >"$dir/notes.json"
+one "$(pr 50 7)"
+t_run "$refresh --pr 50"
+t_eq "$t_rc" 0
+t_eq "$(requests | tr '\n' ' ')" "7.json 9.json notes.json "
+t_eq "$(cat "$dir/9.json")" '{"pr":60}'
+
+for kind in "MERGEABLE|.mergeable = \"MERGEABLE\"|it does not conflict" \
+  "another account's|.author.login = \"alice\"|it is not the bot's" \
+  "a fork|.isCrossRepository = true|its branch is not in"; do
+  t_case "--pr on ${kind%%|*} exits 3, writes nothing and says why"
+  reset
+  rest=${kind#*|}
+  one "$(pr 50 7 "${rest%%|*}")"
+  t_run "$refresh --pr 50"
+  t_eq "$t_rc" 3
+  t_eq "$(requests)" ""
+  t_contains "$t_out" "${rest#*|}"
+  t_contains "$(cat "$logfile")" "asked for pull request #50: not refreshed: ${rest#*|}"
+done
+
+t_case "--pr whose GitHub read fails, or names no pull request, exits 1 and writes nothing"
+for how in fails null; do
+  reset
+  case $how in
+    fails) : >"$fx/pr-fails" ;;
+    null) echo '{"data":{"repository":{"pullRequest":null}}}' >"$fx/pr.json" ;;
+  esac
+  t_run "$refresh --pr 50"
+  t_eq "$how $t_rc" "$how 1"
+  t_eq "$how $(requests)" "$how "
+  t_contains "$t_out" "ERROR"
+done
+
+t_case "--pr without a number above 0 is refused with 64 and calls nothing"
+reset
+for args in "--pr 0" "--pr x" "--pr" "--pr 50 51"; do
+  t_run "$refresh $args"
+  t_eq "$args $t_rc" "$args 64"
+done
+t_eq "$(t_calls gh)" ""
+t_eq "$(requests)" ""
+
+t_case "refresh --help names --pr N and exit 3"
+reset
+t_run "$refresh --help"
+t_contains "$t_out" "tehasbot refresh --pr N"
+t_contains "$t_out" "; 3 --pr N is not"
 
 t_done

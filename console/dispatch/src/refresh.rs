@@ -118,6 +118,62 @@ fn request(at: &str, c: &Conflict) -> String {
     )
 }
 
+/// The request `tehasbot refresh --pr` writes: the scan's, with `asked` last.
+fn asked_request(at: &str, c: &Conflict) -> String {
+    let scan = request(at, c);
+    format!(
+        "{},\n  \"asked\": \"pr\"\n}}\n",
+        scan.trim_end_matches("\n}\n")
+    )
+}
+
+/// What the scan's rule makes of one pull request it was asked for: the
+/// request to write, or why there is none. UNKNOWN is written, as the
+/// dispatcher waits on it.
+fn asked(node: &Value, bot: &str, repo: &str, control: u64) -> Result<Conflict, String> {
+    if node.get("state").and_then(Value::as_str) != Some("OPEN") {
+        return Err("it is not open".into());
+    }
+    let why = refresh_why(node, bot, repo, control);
+    if !why.is_empty() {
+        return Err(why);
+    }
+    let f = found(std::slice::from_ref(node), bot, repo, control);
+    if let Some(c) = f.conflicts.into_iter().next() {
+        return Ok(c);
+    }
+    if f.not_ours > 0 {
+        return Err("its head or base is no sha".into());
+    }
+    if f.unknown == 0 {
+        let state = node.get("mergeable").and_then(Value::as_str);
+        return Err(format!(
+            "it does not conflict: GitHub says {}",
+            state.unwrap_or("nothing")
+        ));
+    }
+    let s = |p: &str| node.pointer(p).and_then(Value::as_str).unwrap_or("");
+    let n = |p: &str| node.pointer(p).and_then(Value::as_u64).unwrap_or(0);
+    Ok(Conflict {
+        issue: n("/closingIssuesReferences/nodes/0/number"),
+        pr: n("/number"),
+        head: s("/headRefOid").into(),
+        base: s("/baseRefOid").into(),
+    })
+}
+
+/// The pull request of `--pr N`, when that is all the arguments say: N a
+/// whole number above 0, written without a leading 0.
+pub fn asked_pr(args: &[&str]) -> Option<u64> {
+    let [flag, n] = args else {
+        return None;
+    };
+    let number = !n.is_empty() && !n.starts_with('0') && n.bytes().all(|b| b.is_ascii_digit());
+    (*flag == "--pr" && number)
+        .then(|| n.parse().ok())
+        .flatten()
+}
+
 /// Write a file whole or not at all.
 fn put(path: &Path, text: &str) -> std::io::Result<()> {
     let mut new = path.as_os_str().to_owned();
@@ -242,14 +298,66 @@ impl Run {
     }
 }
 
+impl Run {
+    /// `--pr N`: one pull request, now. No `last-run`, no sweep.
+    fn one(&self, calls: &mut Calls, pr: u64) -> i32 {
+        let _ = fs::create_dir_all(&self.dir);
+        if let Some(logs) = self.log.parent() {
+            let _ = fs::create_dir_all(logs);
+        }
+        if self.bot.is_empty() {
+            return self.fail("the bot's own login could not be read");
+        }
+        let node = github::pull(calls, &self.repo, pr);
+        if node.is_null() || node.get("failed").is_some() {
+            return self.fail(&format!(
+                "GitHub did not answer for pull request #{pr} of {}",
+                self.repo
+            ));
+        }
+        let c = match asked(&node, &self.bot, &self.repo, self.control) {
+            Ok(c) => c,
+            Err(why) => {
+                eprintln!("tehasbot refresh: pull request #{pr} is not refreshed: {why}");
+                self.line(&format!(
+                    "asked for pull request #{pr}: not refreshed: {why}"
+                ));
+                return 3;
+            }
+        };
+        let path = self.dir.join(format!("{}.json", c.issue));
+        let at = fs::read_to_string(&path)
+            .ok()
+            .and_then(|old| kept_at(&old, c.pr, &c.head))
+            .unwrap_or_else(iso_now);
+        if put(&path, &asked_request(&at, &c)).is_err() {
+            return self.fail(&format!("could not write {}", path.display()));
+        }
+        self.line(&format!(
+            "asked for pull request #{pr}: wrote the request of #{}",
+            c.issue
+        ));
+        0
+    }
+}
+
 /// `tehas-dispatch refresh [argument...]`, with the settings `console run` loads
 /// in the environment. Returns the exit status.
 pub fn main(args: &[&str]) -> i32 {
+    let one = asked_pr(args);
     match args.first() {
         Some(&"-h" | &"--help") => {
             tehas_core::outln!("{}", usage());
             return 0;
         }
+        Some(&"--pr") if one.is_none() => {
+            eprintln!(
+                "tehasbot refresh: --pr takes the number of one pull request\n{}",
+                usage()
+            );
+            return 64;
+        }
+        Some(_) if one.is_some() => {}
         Some(a) => {
             eprintln!("tehasbot refresh: unknown argument: {a}\n{}", usage());
             return 64;
@@ -258,12 +366,17 @@ pub fn main(args: &[&str]) -> i32 {
     }
     let set = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
     let number = |k: &str| set(k).and_then(|v| v.parse::<u64>().ok());
+    // --pr runs whatever the interval says, so it does not need it.
+    let every = match one {
+        Some(_) => Some(0),
+        None => number("TEHAS_REFRESH_EVERY"),
+    };
     let (Some(home), Some(log), Some(repo), Some(control), Some(every)) = (
         set("TEHAS_HOME"),
         set("TEHAS_REFRESH_LOG"),
         set("TEHAS_REPO"),
         number("TEHAS_CONTROL_ISSUE"),
-        number("TEHAS_REFRESH_EVERY"),
+        every,
     ) else {
         eprintln!(
             "tehas-dispatch: refresh needs the settings tehasbot refresh loads (lib/config.sh, tehas_load)"
@@ -281,6 +394,9 @@ pub fn main(args: &[&str]) -> i32 {
     };
     let store = home.join("libexec/store").to_string_lossy().into_owned();
     let mut calls = Calls::idle(Duration::from_secs(20), store);
+    if let Some(pr) = one {
+        return run.one(&mut calls, pr);
+    }
     let now = tehas_core::time::now() as u64;
     run.go(&mut calls, now)
 }
@@ -487,6 +603,72 @@ mod tests {
                 "notes.json"
             ]
         );
+    }
+
+    #[test]
+    fn an_asked_request_keeps_the_scans_field_order_and_adds_asked_last() {
+        let c = &of(&[pull(50, 7)]).conflicts[0];
+        let text = asked_request("2026-01-01T00:00:00Z", c);
+        assert_eq!(
+            text,
+            format!(
+                "{{\n  \"at\": \"2026-01-01T00:00:00Z\",\n  \"pr\": 50,\n  \"head_sha\": \"{HEAD}\",\n  \"base_sha\": \"{BASE}\",\n  \"asked\": \"pr\"\n}}\n"
+            )
+        );
+        let v: Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(v["asked"], json!("pr"));
+        assert_eq!(
+            kept_at(&text, 50, HEAD).as_deref(),
+            Some("2026-01-01T00:00:00Z")
+        );
+    }
+
+    #[test]
+    fn one_pull_request_asked_for_follows_the_scans_rule() {
+        let open = |mut p: Value| {
+            p["state"] = json!("OPEN");
+            p
+        };
+        let ask = |p: Value| asked(&p, "bot[bot]", "a/b", 1);
+        let c = ask(open(pull(50, 7))).unwrap();
+        assert_eq!((c.issue, c.pr, c.head.as_str()), (7, 50, HEAD));
+        let mut unknown = open(pull(50, 7));
+        unknown["mergeable"] = json!("UNKNOWN");
+        assert_eq!(ask(unknown).unwrap().issue, 7);
+        let mut clean = open(pull(50, 7));
+        clean["mergeable"] = json!("MERGEABLE");
+        assert_eq!(
+            ask(clean).unwrap_err(),
+            "it does not conflict: GitHub says MERGEABLE"
+        );
+        let mut foreign = open(pull(50, 7));
+        foreign["author"]["login"] = json!("alice");
+        assert_eq!(ask(foreign).unwrap_err(), "it is not the bot's");
+        let mut no_sha = open(pull(50, 7));
+        no_sha["baseRefOid"] = json!("abc");
+        assert_eq!(ask(no_sha).unwrap_err(), "its head or base is no sha");
+        let mut merged = pull(50, 7);
+        merged["state"] = json!("MERGED");
+        assert_eq!(ask(merged).unwrap_err(), "it is not open");
+    }
+
+    #[test]
+    fn only_pr_and_a_whole_number_above_zero_ask_for_one() {
+        assert_eq!(asked_pr(&["--pr", "50"]), Some(50));
+        for bad in [
+            &["--pr"][..],
+            &["--pr", "0"],
+            &["--pr", "x"],
+            &["--pr", "07"],
+            &["--pr", ""],
+            &["--pr", "-1"],
+            &["--pr", "50", "51"],
+            &["--now", "50"],
+            &["--pr", "99999999999999999999999"],
+            &[],
+        ] {
+            assert_eq!(asked_pr(bad), None, "{bad:?}");
+        }
     }
 
     #[test]

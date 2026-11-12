@@ -18,7 +18,7 @@
 //! (AGENTS.md, rule 2). A command's own rule sits between 2 and 4:
 //!
 //!   improve   exit 0 before step 3 when TEHAS_IMPROVE_REPO is unset, the loop is off
-//!   refresh   exit 0 before step 3 unless TEHAS_REFRESH_CONFLICTS is 1
+//!   refresh   exit 0 before step 3 unless TEHAS_REFRESH_CONFLICTS is 1, but for --pr N
 //!   review    exit 0 after step 3 unless TEHAS_REVIEW is 1
 //!   preview   exit 78 after step 3 unless TEHAS_PREVIEWS is 1
 //!
@@ -238,12 +238,30 @@ fn init_product(rest: &[String]) -> Result<u8, u8> {
     Ok(product::init(&words))
 }
 
+/// `tehasbot refresh --pr N`, N a whole number above 0: the one form of
+/// refresh with arguments that runs under the settings, whatever
+/// TEHAS_REFRESH_CONFLICTS says. tehas-dispatch's `refresh::asked_pr` decides
+/// the same, and a test holds the two together.
+fn asks_one(rest: &[String]) -> bool {
+    match rest {
+        [flag, n] => {
+            flag == "--pr"
+                && !n.is_empty()
+                && !n.starts_with('0')
+                && n.bytes().all(|b| b.is_ascii_digit())
+                && n.parse::<u64>().is_ok()
+        }
+        _ => false,
+    }
+}
+
 /// Steps 2 to 4. Err is the status of a refusal.
 fn command(libexec: &str, uid: &str, bash: &str, words: &[String]) -> Result<u8, u8> {
     let rest = words.get(2..).unwrap_or_default();
     let name: Vec<&str> = words.iter().take(2).map(String::as_str).collect();
+    let one = asks_one(rest);
     // Before the settings, so that --help and a refusal need none.
-    if name == ["tehasbot", "refresh"] && !rest.is_empty() {
+    if name == ["tehasbot", "refresh"] && !rest.is_empty() && !one {
         return Ok(hand_to_dispatcher(libexec, rest, None));
     }
     // The load drops every TEHAS_ name it does not keep.
@@ -256,7 +274,7 @@ fn command(libexec: &str, uid: &str, bash: &str, words: &[String]) -> Result<u8,
             );
             return Ok(0);
         }
-        ["tehasbot", "refresh"] if var("TEHAS_REFRESH_CONFLICTS") != "1" => return Ok(0),
+        ["tehasbot", "refresh"] if !one && var("TEHAS_REFRESH_CONFLICTS") != "1" => return Ok(0),
         _ => {}
     }
     settings::require(commands::required(words), &vars)?;
@@ -286,7 +304,7 @@ fn command(libexec: &str, uid: &str, bash: &str, words: &[String]) -> Result<u8,
         ["tehasbot", "protolab"] => protolab_run(),
         ["tehasbot", "refresh"] => {
             let log = format!("{}/logs/refresh.log", var("TEHAS_HOME"));
-            hand_to_dispatcher(libexec, &[], Some(log))
+            hand_to_dispatcher(libexec, rest, Some(log))
         }
         ["tehasbot", "review"] if var("TEHAS_REVIEW") != "1" => 0,
         ["tehasbot", "review"] => review::main(&["main".to_string()]),
@@ -322,6 +340,33 @@ mod tests {
 
     fn scratch(name: &str) -> tehas_core::testdir::TestDir {
         tehas_core::testdir::TestDir::new(&format!("run-{name}"))
+    }
+
+    #[test]
+    fn refresh_asks_for_one_pull_request_as_the_dispatcher_reads_it() {
+        for args in [
+            &["--pr", "50"][..],
+            &["--pr", "1"],
+            &["--pr"],
+            &["--pr", "0"],
+            &["--pr", "07"],
+            &["--pr", "x"],
+            &["--pr", ""],
+            &["--pr", "-1"],
+            &["--pr", "50", "51"],
+            &["--pr", "99999999999999999999999"],
+            &["--help"],
+            &["50"],
+            &[],
+        ] {
+            let words: Vec<String> = args.iter().map(|w| w.to_string()).collect();
+            assert_eq!(
+                asks_one(&words),
+                tehas_dispatch::refresh::asked_pr(args).is_some(),
+                "{args:?}"
+            );
+        }
+        assert!(asks_one(&["--pr".to_string(), "50".to_string()]));
     }
 
     fn file(dir: &Path, bytes: &[u8], mode: u32) -> std::path::PathBuf {
