@@ -243,9 +243,11 @@ t_contains "$(t_calls gh)" "closedByPullRequestsReferences"
 # <number>|<title>|<head>|<author>|<label>|<body>. The page holds the body, and
 # the body is what a pull request into another branch closes an issue with.
 # A body of `-` is the null GitHub gives for a pull request with no description.
-open_pulls() { # <number>|<title>|<head>|<author>|<label>|<body>...
-  printf '%s\n' "$@" | jq -Rn '[inputs | split("|") | {number: (.[0] | tonumber), title: .[1],
+# An optional seventh field names the head's repository, acme/widget when absent.
+open_pulls() { # <number>|<title>|<head>|<author>|<label>|<body>[|<head repository>]...
+  printf '%s\n' "$@" | jq -Rn '[inputs | split("|") | (.[6] // "acme/widget") as $h | {number: (.[0] | tonumber), title: .[1],
     headRefName: .[2], author: {login: .[3]},
+    headRepository: {nameWithOwner: $h}, isCrossRepository: ($h != "acme/widget"),
     labels: {nodes: ([.[4] // empty | select(. != "")] | map({name: .}))},
     body: (if .[5] == "-" then null else (.[5] // "") end)}]' \
     >"$fx/pulls.json"
@@ -264,6 +266,26 @@ t_contains "$t_out" "skip #7: pull request https://github.com/acme/widget/pull/9
 t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --remove-label tehas:ready"
 t_lacks "$(t_calls gh)" "--add-label tehas:running"
 t_contains "$(t_calls gh)" "issue comment 7 --repo acme/widget --body Tehas took \`tehas:ready\` off this issue and started nothing: https://github.com/acme/widget/pull/90 is open and closes it."
+
+t_case "a pull request from a fork or by an outsider that closes issues holds none of them"
+reset
+closing_prs 7
+open_pulls '90|Fork|feature/issue-7|mallory||Closes #7, #8, #9|mallory/widget' \
+  '91|Outsider on a branch|feature/x|mallory||Fixes #7' \
+  '92|Allowed account fork|feature/y|alice||Resolves #7|alice/widget'
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start)" "7"
+t_lacks "$t_out" "is open and closes it"
+t_lacks "$(t_calls gh)" "started nothing"
+
+t_case "a linked pull request from a fork that closes the issue holds nothing back"
+reset
+jq -nc '{data: {repository: {issue: {closedByPullRequestsReferences: {nodes: [{url: "https://github.com/acme/widget/pull/90",
+  state: "OPEN", isCrossRepository: true, author: {login: "mallory"}, headRepository: {nameWithOwner: "mallory/widget"}}]}}}}}' >"$fx/prs-7.json"
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" "7"
+t_lacks "$t_out" "is open and closes it"
 
 t_case "a body of another pull request that names no closing keyword starts the issue"
 reset
