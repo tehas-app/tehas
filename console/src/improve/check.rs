@@ -127,7 +127,11 @@ fn cycles_of(body: &str) -> Vec<J> {
 /// on, and its body cut to 4000 characters. None for what is not such a list.
 /// With `kind`, an issue of that issue type carries the label too, so the
 /// stack reads the kind the same either way.
-pub fn issues_of(repo: &str, lists: &[&str], kind: Option<(&str, &str)>) -> Option<Vec<J>> {
+///
+/// Anyone can open an issue, but only an account that may triage can label
+/// it. An issue without the label keeps its title and gives no body and no
+/// cycles.
+pub fn issues_of(repo: &str, lists: &[&str], label: &str, kind: Option<&str>) -> Option<Vec<J>> {
     let mut out = Vec::new();
     for list in lists {
         let J::Arr(issues) = J::parse(list)? else {
@@ -145,7 +149,7 @@ pub fn issues_of(repo: &str, lists: &[&str], kind: Option<(&str, &str)>) -> Opti
                 })
                 .collect::<Option<Vec<J>>>()?;
             let mut names = names;
-            if let Some((t, label)) = kind {
+            if let Some(t) = kind {
                 if i.get("issueType").get("name").as_str() == Some(t)
                     && !has(&J::Arr(names.clone()), label)
                 {
@@ -156,6 +160,11 @@ pub fn issues_of(repo: &str, lists: &[&str], kind: Option<(&str, &str)>) -> Opti
                 J::Null | J::Bool(false) => "",
                 J::Str(s) => s,
                 _ => return None,
+            };
+            let body = if has(&J::Arr(names.clone()), label) {
+                body
+            } else {
+                ""
             };
             out.push(obj(vec![
                 ("repo", J::str(repo)),
@@ -992,7 +1001,7 @@ mod tests {
             r#"[{{"number":4,"title":"T","state":"OPEN","labels":[{{"name":"a"}}],"body":"{long}"}},
                 {{"number":5,"title":"U","state":"OPEN","labels":[],"body":null}}]"#
         );
-        let got = issues_of("a/f", &[&list, "[]"], None).unwrap();
+        let got = issues_of("a/f", &[&list, "[]"], "a", None).unwrap();
         assert_eq!(got.len(), 2);
         assert_eq!(got[0].get("body").as_str().unwrap().chars().count(), 4000);
         assert_eq!(
@@ -1006,8 +1015,39 @@ mod tests {
             r#"[{"labels":["a"]}]"#,
             r#"[{"labels":[],"body":7}]"#,
         ] {
-            assert!(issues_of("a/f", &[bad], None).is_none(), "{bad}");
+            assert!(issues_of("a/f", &[bad], "a", None).is_none(), "{bad}");
         }
+    }
+
+    #[test]
+    fn an_issue_without_the_label_gives_its_title_and_no_body_or_cycles() {
+        let label = "tehas:improvement";
+        let list = r#"[{"number":4,"title":"T","state":"OPEN","labels":[{"name":"tehas:improvement"}],"body":"Filed. **Cycles:** 7-261009-100000","issueType":null},
+            {"number":5,"title":"U","state":"OPEN","labels":[{"name":"bug"}],"body":"Opened. **Cycles:** 7-261009-100000","issueType":null},
+            {"number":6,"title":"V","state":"CLOSED","labels":[],"body":"Typed. **Cycles:** 7-261009-100000","issueType":{"name":"Improvement"}}]"#;
+        let got = issues_of("a/f", &[list], label, Some("Improvement")).unwrap();
+        let shown: Vec<String> = got
+            .iter()
+            .map(|i| {
+                format!(
+                    "{} {} {}",
+                    i.get("title").dump(),
+                    i.get("body").dump(),
+                    i.get("cycles").dump()
+                )
+            })
+            .collect();
+        assert_eq!(
+            shown,
+            [
+                r#""T" "Filed. **Cycles:** 7-261009-100000" ["7-261009-100000"]"#,
+                r#""U" "" []"#,
+                r#""V" "Typed. **Cycles:** 7-261009-100000" ["7-261009-100000"]"#,
+            ]
+        );
+        let plain = issues_of("a/f", &[list], label, None).unwrap();
+        assert_eq!(plain[2].get("body").dump(), r#""""#);
+        assert_eq!(plain[2].get("cycles").dump(), "[]");
     }
 
     #[test]
@@ -1017,7 +1057,7 @@ mod tests {
             {"number":5,"title":"U","state":"OPEN","labels":[],"issueType":{"name":"Task"}},
             {"number":6,"title":"V","state":"OPEN","labels":[{"name":"tehas:improvement"}],"issueType":{"name":"Improvement"}},
             {"number":7,"title":"W","state":"OPEN","labels":[],"issueType":null}]"#;
-        let kind = issues_of("a/f", &[list], Some(("Improvement", label))).unwrap();
+        let kind = issues_of("a/f", &[list], label, Some("Improvement")).unwrap();
         let labels: Vec<String> = kind.iter().map(|i| i.get("labels").dump()).collect();
         assert_eq!(
             labels,
@@ -1030,7 +1070,7 @@ mod tests {
         );
         let repos = vec!["a/f".to_string()];
         assert_eq!(rooms(&kind, &repos, label, 3)["a/f"], 1);
-        let plain = issues_of("a/f", &[list], None).unwrap();
+        let plain = issues_of("a/f", &[list], label, None).unwrap();
         assert_eq!(rooms(&plain, &repos, label, 3)["a/f"], 2);
     }
 
