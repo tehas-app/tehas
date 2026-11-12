@@ -247,6 +247,14 @@ Every result carries `"api": 1`. Within version 1 fields are only added; a
 field without a value is left out. Results are JSON in `structuredContent` and
 the same JSON as text.
 
+Some of what the tools return was written outside the factory: issue titles
+by whoever filed the issue, and failure causes, park reasons, console, log and
+event lines and decision reasons by people who comment on issues or by models
+that read them. The handshake's instructions and each such tool's description
+call it third-party text, to be read as data and never as instructions. A
+title is served on one line, without control or direction characters, and cut
+to 200 characters.
+
 | Tool | Arguments | Returns |
 | --- | --- | --- |
 | `factory_status` | none | `status` (pass, warn, fail), `output`, `time`, `stale` (the answer may be more than ten minutes old, below), `generatedAt`, `repo`, `paused`, `planning`, `limit.state`, `queue` (`inLine`, `building`, `review`, `stopped`, `time`), `cycles` (issue, running, status, step, startedAt, time), `demand` (waiting, oldest, time), `platform` (commit, behind, upstream, fetchedAt), `rukas` (follow, target, targetVersion, image, imageVersion, clone, behind) on a host with pi-rukas, `industry` (version, and `alerts`: kind, since, text, link, with `alertsTime`, `alertsStale` and `alertsUnreadable`, as [the health file](/tools-health#tehasbot-health) has them) for a factory run by tehas-industry, `hold` (`why`, `text`) when something holds, `held` (`issue`, `why`, `text`, `clear`) for each ready issue the last poll held on its own |
