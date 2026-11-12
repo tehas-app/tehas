@@ -214,6 +214,7 @@ mod gh_writes;
 mod github;
 mod health;
 mod history;
+mod host_message;
 mod ids;
 mod improve;
 mod label;

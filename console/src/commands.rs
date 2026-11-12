@@ -11,6 +11,7 @@
 //!   console tehas api [--json]
 //!   console tehas labels
 //!   console tehas panel [--json] | set <id> ... | clear <id>
+//!   console tehas host-message [list] [--json] | set <id> ... | clear <id>
 //!   console tehas resume
 //!   console tehas drain [--wait SECONDS] [--json]
 //!   console tehas history [--json] [--after CURSOR] [--issue N]
@@ -40,8 +41,8 @@
 //! Exit: the status of the command; 64 usage.
 
 use crate::{
-    api, clean, dev, disk, export, flags, freeze, github, health, history, labels, mcp, order,
-    panel, queue, review, state, status, stop, top,
+    api, clean, dev, disk, export, flags, freeze, github, health, history, host_message, labels,
+    mcp, order, panel, queue, review, state, status, stop, top,
 };
 use std::env;
 use std::io::{self, Write};
@@ -158,6 +159,7 @@ pub fn tehas(given: &[String]) -> u8 {
         "api" => api::main(rest),
         "labels" => labels::main(rest),
         "panel" => panel::main(rest),
+        "host-message" => host_message::main(rest),
         "resume" => flags::resume(rest),
         "drain" => flags::drain(rest),
         "history" => history::main(rest),
@@ -275,6 +277,7 @@ pub fn check(given: &[String]) -> u8 {
         ["tehas", "api"] => api::words(rest).map(|_| ()),
         ["tehas", "labels"] => labels::words(rest),
         ["tehas", "panel"] => panel::words(rest).map(|_| ()),
+        ["tehas", "host-message"] => host_message::words(rest).map(|_| ()),
         ["tehas", "resume"] => flags::resume_words(rest),
         ["tehas", "drain"] => flags::drain_words(rest).map(|_| ()),
         ["tehas", "history"] => history::words(rest).map(|_| ()),
@@ -373,6 +376,7 @@ pub fn text(command: &str) -> Option<&'static str> {
         "export" => include_str!("usage/export.txt"),
         "freeze" => freeze::FREEZE_USAGE,
         "history" => include_str!("usage/history.txt"),
+        "host-message" => include_str!("usage/host-message.txt"),
         "index" => include_str!("usage/index.txt"),
         "init-product" => include_str!("usage/init-product.txt"),
         "labels" => include_str!("usage/labels.txt"),
@@ -503,6 +507,11 @@ mod tests {
         assert_eq!(check(&words(&["tehas", "labels", "--force"])), 64);
         assert_eq!(check(&words(&["tehas", "panel", "show"])), 64);
         assert_eq!(check(&words(&["tehas", "panel", "--json"])), 0);
+        assert_eq!(check(&words(&["tehas", "host-message", "show"])), 64);
+        assert_eq!(
+            check(&words(&["tehas", "host-message", "list", "--json"])),
+            0
+        );
         assert_eq!(check(&words(&["tehas", "resume", "7"])), 64);
         assert_eq!(check(&words(&["tehas", "drain", "--wait"])), 64);
         assert_eq!(check(&words(&["tehas", "drain", "--wait", "1"])), 0);
@@ -669,6 +678,7 @@ mod tests {
             "drain",
             "export",
             "history",
+            "host-message",
             "index",
             "init-product",
             "labels",

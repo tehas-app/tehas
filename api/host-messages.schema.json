@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/tehas-app/tehas/api/host-messages.schema.json",
+  "title": "tehas host-message list --json",
+  "description": "What tehas host-message list --json prints, version 1: the short messages posted for this factory. host/docs/api.md says what each field means. Every object is closed, so a field tehas adds must be added here too. The same object is state/host-messages.json.",
+  "type": "object",
+  "required": ["api", "messages"],
+  "additionalProperties": false,
+  "properties": {
+    "api": {"const": 1},
+    "messages": {
+      "type": "array",
+      "maxItems": 20,
+      "items": {
+        "type": "object",
+        "required": ["id", "level", "text", "link", "at"],
+        "additionalProperties": false,
+        "properties": {
+          "id": {"type": "string", "pattern": "^[a-z0-9-]{1,32}$"},
+          "level": {"enum": ["info", "warn", "alert"]},
+          "text": {"type": "string", "minLength": 1, "maxLength": 200},
+          "link": {"type": ["string", "null"], "pattern": "^https?://", "maxLength": 512},
+          "at": {"type": "string", "format": "date-time"}
+        }
+      }
+    }
+  }
+}

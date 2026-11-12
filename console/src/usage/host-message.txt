@@ -1,0 +1,29 @@
+tehas host-message: short messages for this factory, posted by an operator or
+a supervisor process.
+
+Usage: tehas host-message [list] [--json]          list the messages
+       tehas host-message set <id> --level info|warn|alert --text TEXT [--link URL]
+                                                   add a message, or replace it
+       tehas host-message clear <id>               take a message away
+       tehas host-message -h|--help                print this text and exit 0
+
+  id     a-z, 0-9 and -, 1 to 32 characters. set on an id that is there
+         replaces it, in its place, and sets its time to now
+  level  info, warn or alert
+  text   one line, 1 to 200 characters. A control character becomes a space
+  link   optional: https:// or http://, a host, no user or password, at most
+         512 characters
+
+At most 20 messages. The list is $TEHAS_HOME/state/host-messages.json, mode
+600. With no messages the file is gone. `at` is when the message was set, in
+UTC.
+
+  {"api":1,"messages":[{"id":"disk-low","level":"warn","text":"Disk 91% full","link":null,"at":"2026-11-12T18:03:00Z"}]}
+
+set and clear print the list as it then is. clear of an id that is not there
+is fine. Reading makes no network call.
+
+Exit: 0 done; 1 the list could not be read or written, or another
+host-message held the lock, which write nothing; 64 a bad argument or a 21st
+message, which write nothing; 78 the instance settings are missing or
+malformed, which write nothing.
