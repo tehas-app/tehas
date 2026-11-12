@@ -120,7 +120,7 @@ tehas api [--json]
 api         1
 tehas       v0.8.0 (cb6912a)
 repo        tehas-app/tehas
-features    status millwright-grant fixer-grant all-hands limit drain history export refresh-conflicts analytics state-move pr-title mcp-dashboard-keys clean disk state-check finish
+features    status millwright-grant fixer-grant all-hands limit drain history export refresh-conflicts analytics state-move mcp-dashboard-keys clean disk state-check finish
 millwright  none
 poll        last 24 s wall, 1.5 s CPU, 12 gh; last hour 14 polls, 41 s CPU
 ```

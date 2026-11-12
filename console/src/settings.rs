@@ -33,6 +33,13 @@
 //! The settings an instance has to set itself, one name per line: what
 //! `require` checks, and what tehas_load hands a shell as _tehas_required.
 //!
+//!   console settings rules --json
+//!
+//! The rules a value of each setting is checked with, built from TABLE: what
+//! api/settings-rules.json holds, for a tool with no factory to check
+//! instance.env values. A rule's `reason` is what the check says for its
+//! refused example with empty trees.
+//!
 //!   console settings checkout | branch
 //!
 //! tehas_checkout and tehas_branch, as tehas_core holds them: 0, or 78 with the
@@ -48,9 +55,10 @@ use std::fs::File;
 use std::io::{self, Read, Write};
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::process::{Command, Stdio};
+use tehas_core::jq::{self, J};
 use tehas_core::sandbox;
 use tehas_core::settings::load::{self, Host, Sourced, Vars};
-use tehas_core::settings::rules::{self, Trees};
+use tehas_core::settings::rules::{self, Setting, Trees, When, TABLE};
 use tehas_core::settings::INSTANCE_SETTINGS;
 
 const REFUSED: u8 = 78;
@@ -300,6 +308,52 @@ fn valid_stream() -> u8 {
     u8::from(io::stdout().write_all(&out).is_err())
 }
 
+/// The word api/settings-rules.json gives a row's `when`.
+fn when_word(when: When) -> &'static str {
+    match when {
+        When::Always => "always",
+        When::Given => "given",
+        When::Named => "named",
+        When::Required => "required",
+    }
+}
+
+fn strings(words: &[&str]) -> J {
+    J::Arr(words.iter().map(|w| J::str(*w)).collect())
+}
+
+fn rule_row(setting: &Setting) -> J {
+    let reason = rules::check(
+        setting.name,
+        setting.rule.refused_example(),
+        &Trees::default(),
+    )
+    .err()
+    .unwrap_or_default();
+    let mut fields = vec![
+        ("name", J::str(setting.name)),
+        ("rule", J::str(setting.rule.name())),
+        ("when", J::str(when_word(setting.when))),
+        ("default", setting.default.map_or(J::Null, J::str)),
+    ];
+    if let Some(words) = rules::words(setting.name) {
+        fields.push(("words", strings(words)));
+    }
+    fields.push(("reason", J::str(reason)));
+    jq::obj(fields)
+}
+
+/// What `rules --json` prints and api/settings-rules.json holds.
+fn rules_json() -> String {
+    let object = jq::obj(vec![
+        ("api", J::int(1)),
+        ("required", strings(&INSTANCE_SETTINGS)),
+        ("roles", strings(&rules::ROLES)),
+        ("settings", J::Arr(TABLE.iter().map(rule_row).collect())),
+    ]);
+    format!("{}\n", object.pretty())
+}
+
 pub fn main(given: &[String]) -> u8 {
     let words: Vec<&str> = given.iter().map(String::as_str).collect();
     match words.as_slice() {
@@ -322,6 +376,10 @@ pub fn main(given: &[String]) -> u8 {
             }
             None => 1,
         },
+        ["rules", "--json"] => {
+            tehas_core::out!("{}", rules_json());
+            0
+        }
         ["required"] => {
             for name in INSTANCE_SETTINGS {
                 tehas_core::outln!("{name}");
@@ -349,7 +407,7 @@ pub fn main(given: &[String]) -> u8 {
         },
         _ => {
             eprintln!(
-                "usage: console settings load <euid> [<bash>] | require <euid> [<bash>] | valid [<name> <value>] | words <name> | required | checkout | branch"
+                "usage: console settings load <euid> [<bash>] | require <euid> [<bash>] | valid [<name> <value>] | words <name> | rules --json | required | checkout | branch"
             );
             64
         }
@@ -396,6 +454,37 @@ mod tests {
             "{said}"
         );
         assert!(said.ends_with(" (see /i/instance.env)"), "{said}");
+    }
+
+    #[test]
+    fn the_rules_are_the_file_a_release_carries() {
+        assert_eq!(
+            rules_json(),
+            include_str!("../../api/settings-rules.json"),
+            "write api/settings-rules.json again: console settings rules --json"
+        );
+    }
+
+    #[test]
+    fn a_reason_is_what_the_check_says_for_the_example() {
+        let object = J::parse(&rules_json()).unwrap();
+        let rows = object.get("settings").items();
+        assert_eq!(rows.len(), TABLE.len());
+        for (setting, row) in TABLE.iter().zip(rows) {
+            assert_eq!(row.get("name").as_str(), Some(setting.name));
+            let reason = row.get("reason").text();
+            assert!(!reason.is_empty(), "{}", setting.name);
+            assert_eq!(
+                rules::check(
+                    setting.name,
+                    setting.rule.refused_example(),
+                    &Trees::default()
+                ),
+                Err(reason),
+                "{}",
+                setting.name
+            );
+        }
     }
 
     #[test]

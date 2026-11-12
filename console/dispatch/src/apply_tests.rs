@@ -184,7 +184,6 @@ fn world() -> World {
             status_args: Vec::new(),
             health_cmd: s("health"),
             health_args: Vec::new(),
-            console_cmd: s("console"),
             tidy_cmd: s("tidy"),
             tidy_args: vec!["tidy".into(), "run".into()],
             analytics: None,
@@ -443,21 +442,6 @@ fn the_status_is_told_the_poll_ran_it_and_the_others_are_not() {
         printed,
         vec!["the tidy line", "the status line", "the health line"]
     );
-}
-
-#[test]
-fn the_console_commands_of_the_poll_are_not_told_it_ran_them() {
-    // The name is the status command's alone: pr-title runs through the same
-    // runner and is not the script that leaves health to the poll.
-    let mut t = world();
-    t.asks_for_from_poll("console", GIVEN);
-    let mut printed = Vec::new();
-    t.w.status_of(
-        &t.w.host.console_cmd.clone(),
-        &["pr-title".into(), "poll".into()],
-        &mut printed,
-    );
-    assert_eq!(t.token_said(GIVEN), Vec::<String>::new());
 }
 
 #[test]

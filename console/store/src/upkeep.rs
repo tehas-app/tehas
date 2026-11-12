@@ -27,27 +27,47 @@
 //!   upkeep [--dry-run]
 //!                     what tehasbot clean asks once an hour: the logs of
 //!                     cycles, planning turns, index runs and the analyst
-//!                     older than 7 days, then backup and prune --days 90. A
-//!                     dry run names the logs and touches nothing
+//!                     older than 7 days, the four long-lived logs rolled past
+//!                     64 MiB, then backup and prune --days 90. A dry run
+//!                     names the logs and touches nothing
 
 use crate::db;
 use crate::lock;
 use crate::verbs::{self, j, line, list, obj, Args, Fail, Kind, Q};
 use rusqlite::{params, OptionalExtension};
 use std::fs::{self, File, TryLockError};
-use std::os::unix::fs::MetadataExt;
+use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Call {
-    Backup { show: bool },
-    Copy { to: String },
-    Load { from: String },
-    Prune { days: i64 },
-    SweepLocks { days: i64, max: i64, dry_run: bool },
+    Backup {
+        show: bool,
+    },
+    Copy {
+        to: String,
+    },
+    Load {
+        from: String,
+    },
+    Prune {
+        days: i64,
+    },
+    SweepLocks {
+        days: i64,
+        max: i64,
+        dry_run: bool,
+    },
     LocksHeld,
-    Upkeep { dry_run: bool },
+    /// `cap` is the size a long-lived log may reach before the run cuts it. It
+    /// is a field and not `LOG_CAP` at the call so that a test proves the
+    /// verb's whole answer on a log it can write; the parse gives `LOG_CAP`,
+    /// which is what a host gets.
+    Upkeep {
+        dry_run: bool,
+        cap: u64,
+    },
 }
 
 /// The daily copies kept.
@@ -103,6 +123,7 @@ pub fn parse(name: &str, rest: &[String]) -> Option<Result<Call, String>> {
         "upkeep" => Args::parse("upkeep", rest, &[("--dry-run", Kind::Switch)], false).map(|a| {
             Call::Upkeep {
                 dry_run: a.has("--dry-run"),
+                cap: LOG_CAP,
             }
         }),
         _ => return None,
@@ -124,7 +145,7 @@ pub fn run(home: &Path, call: &Call, now: i64) -> Result<String, Fail> {
         Call::Load { from } => crate::load::load(home, from, now),
         Call::Prune { days } => prune(home, *days, now),
         Call::SweepLocks { days, max, dry_run } => sweep_locks(home, *days, *max, *dry_run, now),
-        Call::Upkeep { dry_run } => upkeep(home, *dry_run, now),
+        Call::Upkeep { dry_run, cap } => upkeep(home, *dry_run, *cap, now),
         Call::LocksHeld => locks_held(home),
     }
 }
@@ -539,7 +560,9 @@ fn locks_held(home: &Path) -> Result<String, Fail> {
 // --- upkeep -------------------------------------------------------------------
 
 /// The logs upkeep removes: a cycle's, a planning turn's, an index run's, a
-/// review's and the analyst's. Long-lived logs such as dispatch.log are not among them.
+/// review's and the analyst's. The four long-lived logs are not among them:
+/// `roll` keeps those under the cap by copy and truncate instead, because the
+/// units hold them open for append.
 fn old_log(name: &str) -> bool {
     name.starts_with("work-")
         || name.starts_with("dispatch-work-")
@@ -553,7 +576,84 @@ fn old_log(name: &str) -> bool {
 const LOG_DAYS: i64 = 7;
 const PRUNE_DAYS: i64 = 90;
 
-fn upkeep(home: &Path, dry_run: bool, now: i64) -> Result<String, Fail> {
+/// The size one long-lived log may reach before upkeep rolls it: one figure for
+/// the four, no setting for it, and nothing fsynced. The cap is a function
+/// argument all the way to `upkeep`, and the parse of the verb gives this, so a
+/// test proves the same rule on a log it can write instead of 64 MiB.
+pub const LOG_CAP: u64 = 64 * 1024 * 1024;
+
+/// The long-lived logs the units and the shim append to, by the fixed names of
+/// the tools that read them: the dispatcher's and the refresh's in `logs/`, the
+/// review timer's, and the `gh` shim's record of every GitHub write in `state/`.
+/// The four names are written out, never found by a pattern, and a rotated
+/// `.1` is never a candidate for another cut.
+pub const LONG_LIVED: [&str; 4] = [
+    "logs/dispatch.log",
+    "logs/review-timer.log",
+    "logs/refresh.log",
+    "state/github-writes.log",
+];
+
+/// Whether one long-lived log is due to be cut: a plain file over `cap`, so
+/// never a link, a directory or a fifo.
+fn rollable(m: &fs::Metadata, cap: u64) -> bool {
+    m.file_type().is_file() && m.len() > cap
+}
+
+/// Cut one long-lived log past `cap` by copy and truncate: the whole file is
+/// copied to `<name>.1`, replacing an older `.1`, and the file it was read from
+/// is then emptied. Nothing is renamed, because the dispatcher's unit and every
+/// cycle's hold the file open for append and would go on writing to a renamed
+/// one. The two steps are not one move, so the lines an open writer adds
+/// between them are lost: they are the price of a truncate no writer notices.
+/// False for a log that is not there, is not a plain file, or is not over the
+/// cap. The verb passes `LOG_CAP`.
+pub fn roll(home: &Path, name: &str, cap: u64) -> Result<bool, Fail> {
+    let path = home.join(name);
+    let written = |e: std::io::Error| (1, format!("write {name}: {e}"));
+    let m = match fs::symlink_metadata(&path) {
+        Ok(m) => m,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(e) => return Err((1, format!("unreadable {name}: {e}"))),
+    };
+    if !rollable(&m, cap) {
+        return Ok(false);
+    }
+    let copy = {
+        let mut copy = path.clone().into_os_string();
+        copy.push(".1");
+        PathBuf::from(copy)
+    };
+    // A copy, not a rename: the writer holds the file, not the name. An older
+    // `.1` is replaced, so one generation is kept, as the MCP tail reads.
+    fs::copy(&path, &copy).map_err(written)?;
+    // fs::copy carries the source's mode across, setuid bits and all: the copy
+    // is the store's own file, readable by whoever reads the log.
+    fs::set_permissions(&copy, fs::Permissions::from_mode(0o600)).map_err(written)?;
+    // Truncate the file that was measured, not whatever holds the name now.
+    let log = File::options().write(true).open(&path).map_err(written)?;
+    let now = log.metadata().map_err(written)?;
+    if now.dev() != m.dev() || now.ino() != m.ino() {
+        return Ok(false);
+    }
+    log.set_len(0).map_err(written)?;
+    Ok(true)
+}
+
+/// The long-lived logs over `cap`, cut to a `.1` and an empty file: the names
+/// of the ones that were, in `LONG_LIVED`'s order. A cap no file is over leaves
+/// every log as it is, which is how a dry run reports without writing.
+fn roll_logs(home: &Path, cap: u64) -> Result<Vec<String>, Fail> {
+    let mut rolled = Vec::new();
+    for name in LONG_LIVED {
+        if roll(home, name, cap)? {
+            rolled.push(j(name));
+        }
+    }
+    Ok(rolled)
+}
+
+fn upkeep(home: &Path, dry_run: bool, cap: u64, now: i64) -> Result<String, Fail> {
     verbs::look(home, |_| Ok(()))?;
     let logs = home.join("logs");
     let mut gone = Vec::new();
@@ -579,7 +679,14 @@ fn upkeep(home: &Path, dry_run: bool, now: i64) -> Result<String, Fail> {
         }
         gone.push(j(name));
     }
-    let mut pairs = vec![("dry_run", j(dry_run)), ("logs", list(&gone))];
+    // The long-lived logs are cut after the old ones are removed, so one answer
+    // says both what went and what was cut.
+    let rolled = roll_logs(home, if dry_run { u64::MAX } else { cap })?;
+    let mut pairs = vec![
+        ("dry_run", j(dry_run)),
+        ("logs", list(&gone)),
+        ("rolled", list(&rolled)),
+    ];
     if !dry_run {
         let (made, removed, newest) = make_backup(home, now)?;
         pairs.push((

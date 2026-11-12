@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/tehas-app/tehas/api/settings-rules.schema.json",
+  "title": "console settings rules --json",
+  "description": "The rules of the instance settings, version 1: what api/settings-rules.json of a release holds and console settings rules --json prints. host/docs/api.md says what each field means. Every object is closed, so a field tehas adds must be added here too. test/settings_rules_test.sh checks the file and the command's output against it.",
+  "type": "object",
+  "required": ["api", "required", "roles", "settings"],
+  "additionalProperties": false,
+  "properties": {
+    "api": {"const": 1},
+    "required": {"type": "array", "items": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]*$"}},
+    "roles": {"type": "array", "items": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]*$"}},
+    "settings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "rule", "when", "default", "reason"],
+        "additionalProperties": false,
+        "properties": {
+          "name": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]*$"},
+          "rule": {"type": "string", "pattern": "^[a-z]+(-[a-z]+)*$"},
+          "when": {"enum": ["always", "given", "named", "required"]},
+          "default": {"type": ["string", "null"]},
+          "words": {"type": "array", "items": {"type": "string", "minLength": 1}},
+          "reason": {"type": "string", "minLength": 1}
+        }
+      }
+    }
+  }
+}

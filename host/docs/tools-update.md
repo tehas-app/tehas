@@ -25,7 +25,8 @@ Where the new code comes from is `TEHAS_UPDATE_FROM` in `instance.env`:
 releases and a host with a platform checkout from the checkout, so a host
 installed before the setting existed goes on as it did. A host with neither
 stops with 78 and names the setting. `--to` on a host that updates from its
-checkout is refused with 64.
+checkout is refused with 64. Any other word is refused with 78 and
+`TEHAS_UPDATE_FROM is not valid: expected git or release`.
 
 ### From a release
 

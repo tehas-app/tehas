@@ -956,12 +956,32 @@ for tool in bash awk nproc id head cat tr env; do ln -sf "$(command -v "$tool")"
 t_out=$(cd "$T" && env -i PATH="$T/nogit" HOME="$T/home" TEHAS_HOME="$T/home/tehas" T_ROOT="$T_ROOT" \
   TEHAS_INSTANCE_DIR="$TEHAS_INSTANCE_DIR" TEHAS_SETTINGS_CMD="$TEHAS_SETTINGS_CMD" bash -c "$load && echo loaded" 2>&1)
 t_eq "$t_out" "loaded"
+# The load runs the console, a Rust program that needs neither git nor curl to
+# open a socket, so taking them off PATH does not show what it would do over the
+# network. Where the host lets a test take the network away, the load runs again
+# with none: a socket attempt fails the case. Where it does not, the half says so.
+unshare=$(command -v unshare || true)
+if [ -z "$unshare" ]; then
+  t_skip "no unshare on this host: the load was not asked to do without the network"
+elif ! "$unshare" -rn true 2>/dev/null; then
+  t_skip "this host refuses unshare -rn: the load was not asked to do without the network"
+else
+  t_out=$("$unshare" -rn env -i PATH="$T/nogit" HOME="$T/home" TEHAS_HOME="$T/home/tehas" T_ROOT="$T_ROOT" \
+    TEHAS_INSTANCE_DIR="$TEHAS_INSTANCE_DIR" TEHAS_SETTINGS_CMD="$TEHAS_SETTINGS_CMD" bash -c "cd '$T' && $load && echo loaded" 2>&1)
+  t_eq "$t_out" "loaded"
+fi
 
 t_case "loading writes nothing"
-before=$(find "$T/home" "$T/instance" | sort)
-t_run "$load"
-after=$(find "$T/home" "$T/instance" | sort)
+# Home and the instance are not all a load could reach: the working directory
+# and TMPDIR are its own two, so both are made fresh for the run and compared
+# with everything else.
+mkdir -p "$T/watch/cwd" "$T/watch/tmp"
+before=$(find "$T/home" "$T/instance" "$T/watch" | sort)
+T_ENV=(${T_ENV[@]+"${T_ENV[@]}"} "TMPDIR=$T/watch/tmp")
+t_run "cd '$T/watch/cwd' && $load"
+after=$(find "$T/home" "$T/instance" "$T/watch" | sort)
 t_eq "$after" "$before"
+T_ENV=()
 
 # --- A checkout -------------------------------------------------------------
 git init -q -b main "$T/upstream"
