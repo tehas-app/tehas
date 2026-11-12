@@ -159,3 +159,12 @@ next_steps() {
     edge/docs.Caddyfile edge/docs.compose.yaml edge/router.Caddyfile \
     edge/router.compose.yaml labels.tsv
 }
+
+# A checkout of its own, so a case can change the source.
+checkout() {
+  part=$T/part
+  rm -rf "$part"
+  mkdir -p "$part"
+  cp -R "$T_ROOT/install.sh" "$T_ROOT/lib" "$T_ROOT/host" "$T_ROOT/bin" "$T_ROOT/libexec" "$part/"
+  t_console_source "$part"
+}

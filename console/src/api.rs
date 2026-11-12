@@ -10,7 +10,7 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 
 /// What this release can do. A feature is added here in the release that
-/// brings it, and never taken out within api 1.
+/// brings it, and taken out only with the feature itself.
 const FEATURES: [&str; 26] = [
     "status",
     "millwright-grant",
@@ -23,7 +23,6 @@ const FEATURES: [&str; 26] = [
     "refresh-conflicts",
     "analytics",
     "state-move",
-    "pr-title",
     "mcp-dashboard-keys",
     "clean",
     "disk",
@@ -37,6 +36,7 @@ const FEATURES: [&str; 26] = [
     "host-bridge",
     "host-bridge-tokens",
     "cycle-writes",
+    "settings-rules",
     "start-order",
 ];
 
@@ -206,7 +206,7 @@ mod tests {
             r#"{"api":1,"tehas":"v1.2.3","commit":null,"repo":"acme/widget","features":["status","#
         ));
         assert!(printed.ends_with(
-            r#""disk","panels","state-check","finish","status-versions","store-copy","state-load","freeze","host-bridge","host-bridge-tokens","cycle-writes","start-order"],"millwright":"mill","fixer":"mill","poll":{"z":1,"a":2}}"#
+            r#""disk","panels","state-check","finish","status-versions","store-copy","state-load","freeze","host-bridge","host-bridge-tokens","cycle-writes","settings-rules","start-order"],"millwright":"mill","fixer":"mill","poll":{"z":1,"a":2}}"#
         ));
     }
 

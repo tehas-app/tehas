@@ -121,7 +121,7 @@
 //!
 //! One pass of the Protolab, for tehasbot protolab, see src/protolab.rs.
 //!
-//!   console settings load <euid> [<bash>] | valid [<name> <value>] | words <name> | required
+//!   console settings load <euid> [<bash>] | valid [<name> <value>] | words <name> | rules --json | required
 //!
 //! What tehas_load does and what a setting may hold, see src/settings.rs.
 //!
@@ -157,11 +157,6 @@
 //!   console slice ok|limits|cpus|verify|room|pressure ...
 //!
 //! tehas.slice as the shell reads it, see src/slice.rs.
-//!
-//!   console pr-title sync|poll ...
-//!
-//! A factory pull request's title, kept true by the prefix of its state, see
-//! src/pr_title.rs.
 //!
 //!   console check-product [--sandbox] | table
 //!   console init-product <branch> [--dry-run]
@@ -232,7 +227,6 @@ mod panel;
 mod pins;
 mod plan;
 mod platform;
-mod pr_title;
 mod preview;
 mod product;
 mod protolab;
@@ -506,7 +500,6 @@ fn main() -> ExitCode {
             Some("tidy") => return ExitCode::from(tidy::main(&given[1..])),
             Some("pins") => return ExitCode::from(pins::main(&given[1..])),
             Some("plan") => return ExitCode::from(plan::main(&given[1..])),
-            Some("pr-title") => return ExitCode::from(pr_title::main(&given[1..])),
             Some("protolab") => return ExitCode::from(protolab::main(&given[1..])),
             Some("tehas") => return ExitCode::from(commands::tehas(&given[1..])),
             Some("tehasbot") => return ExitCode::from(commands::tehasbot(&given[1..])),
