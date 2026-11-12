@@ -1,7 +1,7 @@
 //! How full this host is and what fills it, for `tehas disk`
 //! and, published, for `factory_disk` (console/mcp/src/disk.rs).
 //!
-//!   console disk [<home>] [--full] [--json] [--publish]
+//!   console disk [<home>] [--full] [--cycles] [--json] [--publish]
 //!     [--wait <seconds>] [--walk-wait <seconds>]
 //!     [--max-entries <n>] [--max-depth <n>]
 //!   console disk free <path> [<seconds>]
@@ -37,6 +37,13 @@
 //! a place that ran out of one says which bound it ran out of, and its figure
 //! says it is a part of what is there. Nothing is removed by any of this.
 //!
+//! `--cycles` adds `cycles`: for each container the daemon lists under the
+//! name a cycle's container has (`tehas-work-<n>`, so the answer names the
+//! issue beside the container), the bytes of its writable layer and the bytes
+//! its block device has written. Both figures come of two calls made once for
+//! the whole host, not once per container. Without the flag the answer, its
+//! calls and `--publish` are what they were.
+//!
 //! `--publish` writes the same object it would print to `<home>/live/disk.json`
 //! whole, through a side file renamed into place, as the poll's report is
 //! written: a reader sees a whole file or the one before it. The command's own
@@ -60,6 +67,8 @@ use std::process::Stdio;
 use std::time::{Duration, Instant};
 use tehas_core::disk::figure;
 use tehas_core::time;
+
+pub mod cycles;
 
 /// The walls of one run: the seconds an outside call is given, and the seconds
 /// a walk of one place is given. Both are `TEHAS_DISK_WAIT`, the bound the
@@ -111,7 +120,7 @@ const COMMAND_MAX: usize = 200;
 /// The most bytes of the published file. One run's answer is a few kilobytes;
 /// a file over it is not one and is not published or read.
 const PUBLISH_BOUND: u64 = 256 * 1024;
-const USAGE: &str = "usage: console disk [<home>] [--full] [--json] [--publish]
+const USAGE: &str = "usage: console disk [<home>] [--full] [--json] [--cycles] [--publish]
        [--scratch <dir>] [--wait <s>] [--walk-wait <s>] [--max-entries <n>] [--max-depth <n>]
        console disk free <path> [<seconds>]";
 
@@ -178,6 +187,7 @@ pub fn main(given: &[String]) -> u8 {
         match flag.as_str() {
             "--full" => opts.full = true,
             "--json" => opts.json = true,
+            "--cycles" => opts.cycles = true,
             "--publish" => opts.publish = true,
             "--scratch" => match it.next().filter(|s| s.starts_with('/')).map(PathBuf::from) {
                 Some(dir) => opts.scratch = Some(dir),
@@ -343,6 +353,9 @@ impl Instance {
 pub struct Options {
     pub full: bool,
     pub json: bool,
+    /// What each running cycle writes, as `cycles`: the one flag that asks the
+    /// daemon for a container's own figures.
+    pub cycles: bool,
     pub publish: bool,
     /// `TEHAS_SCRATCH_DIR`, when the instance named one: the fourth file
     /// system the answer names, read from the instance's own file.
@@ -360,6 +373,7 @@ impl Default for Options {
         Options {
             full: false,
             json: false,
+            cycles: false,
             publish: false,
             scratch: None,
             bounds: Bounds::of_this_run(),
@@ -905,6 +919,8 @@ fn stopped_containers(wait: Duration) -> (u64, Vec<Value>) {
 /// containers beside the places: asking the daemon the same question twice for
 /// one answer would be two calls where one does, and a person who asked for
 /// `--full` is given the same object whether or not it is being published.
+/// `--cycles` adds the figures of the running cycles, which neither of the
+/// other two forms asks for.
 fn answer(host: &Host, opts: &Options) -> Value {
     let docker_dir = docker_root_dir(Duration::from_secs(opts.bounds.wait));
     let paths = watched(host, opts, &docker_dir);
@@ -939,6 +955,13 @@ fn answer(host: &Host, opts: &Options) -> Value {
         }
         out.insert("full".into(), Value::Object(full));
     }
+    // The cycles are asked for only when they were asked for: the published
+    // file and `--full` stay the object they were, and a run without the flag
+    // makes no new call of the daemon.
+    if opts.cycles {
+        let wait = Duration::from_secs(opts.bounds.wait);
+        out.insert("cycles".into(), cycles::value(cycles::read(wait)));
+    }
     Value::Object(out)
 }
 
@@ -960,6 +983,11 @@ pub fn published(host: &Host, opts: &Options) -> Value {
         &Options {
             publish: true,
             full: true,
+            // The published object is the one the MCP server reads, and it is
+            // the object it has always read: the figures of the cycles are a
+            // person's question, asked by the flag and answered on the
+            // terminal, never carried into the file.
+            cycles: false,
             ..opts.clone()
         },
     )
@@ -1048,6 +1076,9 @@ pub fn lines(answer: &Value) -> Vec<String> {
         {
             out.push(format!("          {line}"));
         }
+    }
+    if answer["cycles"].is_object() {
+        out.extend(cycles::lines(&answer["cycles"]));
     }
     out
 }
@@ -1379,9 +1410,57 @@ mod tests {
             assert!(figure ^ reason, "{entry}");
         }
         assert!(answer.get("full").is_none(), "no --full, no places");
+        assert!(answer.get("cycles").is_none(), "no --cycles, no cycles");
         // The object is one line of JSON, which is what --json promises.
         let text = answer.to_string();
         assert!(!text.contains('\n'));
+    }
+
+    // `--cycles` is the one form that asks the daemon a container's own
+    // figures, and the only thing it adds to the answer is `cycles`: the file
+    // systems stay what they were, and a run without the flag stays the run it
+    // always was. What the daemon answers of a real host is the shell test's
+    // to say, with docker stubbed; what is pinned here is that the one reading
+    // this command makes of the daemon is made only when it was asked for.
+    #[test]
+    fn cycles_is_the_one_key_the_flag_adds() {
+        let d = dir("cycles");
+        let home = d.join("tehas");
+        fs::create_dir_all(&home).unwrap();
+        let plain = read(&host(&home), &opts());
+        let with_cycles = read(
+            &host(&home),
+            &Options {
+                cycles: true,
+                ..opts()
+            },
+        );
+        assert!(plain.get("cycles").is_none());
+        let mut added: Vec<&str> = with_cycles
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        let before: Vec<&str> = plain
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        added.retain(|k| !before.contains(k));
+        assert_eq!(added, ["cycles"]);
+        // The reading of the cycles is either its list or its reason, never
+        // both and never neither, which is the rule of every figure here.
+        let cycles = &with_cycles["cycles"];
+        let listed = cycles["list"].is_array();
+        let reason = cycles["state"] == "unreadable" && cycles["why"].is_string();
+        assert!(listed ^ reason, "{cycles}");
+        // The lines name the reading, or say there is none of it.
+        assert!(lines(&with_cycles)
+            .iter()
+            .any(|l| l.starts_with("cycles  ")));
+        assert!(!lines(&plain).iter().any(|l| l.starts_with("cycles  ")));
     }
 
     // A home that cannot be looked at answers with the reason, not a figure:
