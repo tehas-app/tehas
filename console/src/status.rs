@@ -227,6 +227,15 @@ pub fn oneline(s: &str) -> String {
     out.trim_matches(' ').to_string()
 }
 
+/// A text a person wrote, as a terminal prints it: one line, with no
+/// direction override or zero-width character to make it read as another.
+fn shown(v: &J) -> String {
+    oneline_of(v)
+        .chars()
+        .filter(|c| !tehas_core::mask::is_format(*c))
+        .collect()
+}
+
 fn oneline_of(v: &J) -> String {
     match v {
         J::Null | J::Bool(false) => String::new(),
@@ -296,6 +305,13 @@ pub fn state_lines(h: &J, now: i64, stale: bool, poll: &str) -> Vec<String> {
     let limit = checks.get("limit");
     if limit.truthy() && limit.get("state").as_str() != Some("none") {
         lines.push(limit_line(limit));
+    }
+    for m in checks.at(&["hostMessages", "list"]).items() {
+        lines.push(format!(
+            "message   {}: {}",
+            shown(m.get("level")),
+            shown(m.get("text"))
+        ));
     }
     let order = checks.get("order");
     if let Some(state) = order.get("state").as_str().filter(|s| *s != "none") {
@@ -1014,6 +1030,25 @@ mod tests {
         assert_eq!(
             state_lines(&health, NOW, true, "")[0],
             "factory   stale: the dispatcher last reported 20 s ago, is its timer running? It said warn: Paused."
+        );
+    }
+
+    #[test]
+    fn each_host_message_has_its_line_after_the_limit() {
+        let health = h(
+            r#"{"status":"warn","output":"Moving.","time":"2026-10-17T14:00:00Z",
+          "checks":{"limit":{"state":"ok","cycles":1,"plan":true},
+          "hostMessages":{"list":[{"id":"move","level":"alert","text":"Moving at 18:00","link":null,"at":"2026-10-17T13:00:00Z"},
+            {"id":"x","level":"info","text":"a\u202eb\u200bc\nd","link":null,"at":"2026-10-17T13:00:00Z"}]}}}"#,
+        );
+        let lines = state_lines(&health, NOW, false, "");
+        assert_eq!(
+            lines[2..],
+            [
+                "limit     1 cycle at once, planning on, until cleared",
+                "message   alert: Moving at 18:00",
+                "message   info: abc d",
+            ]
         );
     }
 
