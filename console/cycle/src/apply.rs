@@ -15,7 +15,6 @@ use std::fs;
 use std::io::Write;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
-use std::process::Command;
 use std::time::Duration;
 use tehas_core::call::{run_full, store_try, GRACE};
 use tehas_core::end_fault;
@@ -605,45 +604,6 @@ fn clear_notes(home: &Path, issue: u64) {
     }
 }
 
-/// The pull request's title. A failure is a warning.
-fn sync_title(console: &str, pr: &str, signalled: bool) {
-    let wait = if signalled { stop_wait() } else { 120 };
-    let out = Command::new("timeout")
-        .args([
-            "-k",
-            "5",
-            &wait.to_string(),
-            console,
-            "pr-title",
-            "sync",
-            pr,
-        ])
-        .stdin(std::process::Stdio::null())
-        .output();
-    let (ok, said) = match out {
-        Ok(o) => (
-            o.status.success(),
-            format!(
-                "{}{}",
-                String::from_utf8_lossy(&o.stdout),
-                String::from_utf8_lossy(&o.stderr)
-            ),
-        ),
-        Err(_) => (false, String::new()),
-    };
-    if !ok {
-        let why = said.trim_end();
-        let why = if why.is_empty() {
-            "it took too long"
-        } else {
-            why
-        };
-        log(&format!(
-            "WARN: the title of pull request #{pr} was not kept: {why}"
-        ));
-    }
-}
-
 /// `store cycle-end`, with the paths of the result and the progress in their
 /// place. False when the end is not on record.
 fn end(home: &Path, r: &Report, f: &Facts) -> bool {
@@ -796,10 +756,6 @@ pub fn run(home: &Path, s: &Start) -> i32 {
         }
     }
     log(&r.done);
-    let prefix = format!("https://github.com/{}/pull/", facts.repo);
-    if let Some(n) = r.after.ended.pr.strip_prefix(&prefix) {
-        sync_title(&s.console, n, s.signalled);
-    }
     let approved = after::approved(home, issue, s.attempt);
     let on_record = end(home, &r, &facts);
     let mut a = r.after.clone();

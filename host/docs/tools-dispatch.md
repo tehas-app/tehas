@@ -481,33 +481,3 @@ and their text, the first 20 cut at 4000 characters each, goes to
 cannot be read stop the retry: `ERROR: the comments on the pull request of
 #N could not be read`, exit 1, and the tick stays. Only conversation comments
 are read, not review comments or reviews.
-
-### Pull request titles
-
-The title of a factory pull request says its state. A factory pull request is
-one from a `feature/issue-<n>` branch by the bot's login; the number is its
-linked issue. A person's pull request is never touched.
-
-| The title starts with | When |
-| --- | --- |
-| `WIP: ` | The linked issue carries `tehas:running`, or the pull request carries `tehas:refreshing` |
-| `HALT: ` | No cycle runs, the linked issue carries `needs-human-attention`, and the pull request is not proven fine to merge |
-| nothing | Anything else: it is ok to merge. A person clearing the label clears the prefix |
-
-A pull request is proven fine to merge when all of these hold: it is not a
-draft, GitHub reports it mergeable with the state `clean`, and the factory's
-last six-pass review comment is newer than its head commit and lists no
-finding above MEDIUM. `HALT: ` stays when any of them cannot be shown, also
-when no review comment exists. Clearing the prefix leaves the label on the
-issue. `WIP: ` is never cleared this way: a running cycle may still push.
-`HALT: ` was `STUCK: ` up to v0.24.0; a poll replaces an old `STUCK: `.
-
-Each poll sets the title from what it read already, through
-`console pr-title poll`, and a cycle's end sets it once with
-`console pr-title sync <pr>`, so it is right before the next poll. A cycle
-that opens a pull request gets `WIP: ` on the next poll. Only a title that
-differs is written, through the REST endpoint `repos/<repo>/pulls/<n>`. When a
-read fails the title stays as it is, and a failed read or write is a `WARN` in
-the log and holds nothing. A cycle's end sets the title too.
-
-The preview page shows the prefix too, as it shows the title.
