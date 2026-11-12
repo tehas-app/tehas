@@ -19,7 +19,9 @@
 //! on TEHAS_REPO and the login are looked up at GitHub with the app's JWT and
 //! kept in state/github/installation (`<owner> <id>`, looked up again for
 //! another owner) and state/github/login; the cycle's token uses the same two
-//! files, so a cycle's own directory holds a token and nothing else.
+//! files, so a cycle's own directory holds a token and nothing else. A new
+//! token asks for the login again and rewrites the file when the app was
+//! renamed (`App::login_now`).
 //!
 //! The token is $TEHAS_HOME/state/github/token (mode 600), its expiry
 //! token.expires (epoch seconds) beside it. The directory, not the file, is
@@ -318,6 +320,35 @@ impl App {
         Some(login)
     }
 
+    /// The login of the app as GitHub says it now, kept in `dir/login` when it
+    /// is not the kept one. An app can be renamed, and a login kept from
+    /// before then names no account: a cycle that lists its pull requests by
+    /// it finds none. The kept login when GitHub does not answer. Asked when a
+    /// token is made, so about once an hour.
+    pub fn login_now(&self, dir: &Path) -> Option<String> {
+        let kept = fs::read(dir.join("login"))
+            .ok()
+            .and_then(|t| settings::login_of(&t));
+        let Some(slug) = self.slug() else {
+            return kept;
+        };
+        let login = format!("{slug}[bot]");
+        if kept.as_deref() == Some(login.as_str()) {
+            return Some(login);
+        }
+        if let Some(old) = &kept {
+            eprintln!("tehas: the GitHub App's login is now {login}, not {old}");
+            renamed(old, &login);
+        }
+        if !keep_line(dir, "login", &login) {
+            eprintln!(
+                "tehas: the app's login could not be kept in {}",
+                dir.display()
+            );
+        }
+        Some(login)
+    }
+
     /// How many installations the app has, from GET /app/installations, or
     /// why GitHub did not say (`HTTP <status>` for a refusal).
     pub fn installations(&self) -> Result<usize, String> {
@@ -448,6 +479,16 @@ fn adopt(login: &str) {
     }
 }
 
+/// The rest of this process acts under the app's new login where it held the
+/// old one; a login set to another account stays.
+fn renamed(old: &str, new: &str) {
+    for name in ["TEHAS_BOT_LOGIN", "TEHAS_MILLWRIGHT_LOGIN"] {
+        if env::var(name).is_ok_and(|v| v == old) {
+            env::set_var(name, new);
+        }
+    }
+}
+
 /// Written beside the old one and moved over it: a reader sees the old token
 /// or the new one, never half of one.
 fn keep(dir: &Path, token: &str, until: i64) -> bool {
@@ -552,7 +593,7 @@ fn token(app: &App, dir: &Path, lookup: &Path, repo: &str, narrow: Option<&str>)
         );
         return None;
     }
-    if let Some(login) = app.login(lookup) {
+    if let Some(login) = app.login_now(lookup) {
         adopt(&login);
     }
     Some(token)
@@ -1390,6 +1431,67 @@ mod tests {
         );
         assert_eq!(bot.as_deref(), Ok("acme-factory[bot]"));
         assert_eq!(wright.as_deref(), Ok("someone"));
+    }
+
+    const MINTED: (&str, u16, &str) = (
+        "POST /app/installations/77/access_tokens",
+        201,
+        r#"{"token":"ghs_new","expires_at":"2099-01-01T00:00:00Z"}"#,
+    );
+
+    #[test]
+    fn a_new_token_follows_a_renamed_app() {
+        let d = dir("renamed");
+        let app = app_of(&d);
+        fs::write(d.join("installation"), "acme 77\n").unwrap();
+        fs::write(d.join("login"), "acme-old[bot]\n").unwrap();
+        let f = fake(&[SLUG, MINTED]);
+        let _held = API.lock().unwrap_or_else(|e| e.into_inner());
+        env::set_var("TEHAS_BOT_LOGIN", "acme-old[bot]");
+        env::set_var("TEHAS_MILLWRIGHT_LOGIN", "someone");
+        env::set_var("TEHAS_GITHUB_API", &f.url);
+        let got = token(&app, &d.join("tokens"), d.path(), "acme/widget", None);
+        env::remove_var("TEHAS_GITHUB_API");
+        let (bot, wright) = (
+            env::var("TEHAS_BOT_LOGIN"),
+            env::var("TEHAS_MILLWRIGHT_LOGIN"),
+        );
+        env::remove_var("TEHAS_BOT_LOGIN");
+        env::remove_var("TEHAS_MILLWRIGHT_LOGIN");
+        assert_eq!(got.as_deref(), Some("ghs_new"));
+        assert_eq!(
+            fs::read_to_string(d.join("login")).unwrap(),
+            "acme-factory[bot]\n"
+        );
+        assert_eq!(bot.as_deref(), Ok("acme-factory[bot]"));
+        assert_eq!(wright.as_deref(), Ok("someone"));
+    }
+
+    #[test]
+    fn a_login_github_still_says_is_not_written_again() {
+        let d = dir("login-same");
+        let app = app_of(&d);
+        fs::write(d.join("login"), "acme-factory[bot]\n").unwrap();
+        let before = fs::metadata(d.join("login")).unwrap().ino();
+        let f = fake(&[SLUG]);
+        let got = against(&f, || app.login_now(d.path()));
+        assert_eq!(got.as_deref(), Some("acme-factory[bot]"));
+        assert_eq!(f.count("GET /app"), 1);
+        assert_eq!(fs::metadata(d.join("login")).unwrap().ino(), before);
+    }
+
+    #[test]
+    fn the_kept_login_stands_when_github_does_not_answer() {
+        let d = dir("login-down");
+        let app = app_of(&d);
+        fs::write(d.join("login"), "acme-old[bot]\n").unwrap();
+        let f = fake(&[("GET /app", 502, "")]);
+        let got = against(&f, || app.login_now(d.path()));
+        assert_eq!(got.as_deref(), Some("acme-old[bot]"));
+        assert_eq!(
+            fs::read_to_string(d.join("login")).unwrap(),
+            "acme-old[bot]\n"
+        );
     }
 
     #[test]
