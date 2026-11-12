@@ -687,6 +687,9 @@ read -r versions_owed sandbox_changed sandbox_unread <<<"$owed"
 
 changed=()
 report=()
+# Where the manual and the front page are staged before they are installed, or
+# nothing until the console has made them (section 3). copy_files reads it.
+stage=""
 
 # copy_files [<option>...] <table: the copies, the compares and the sweeps,
 # made by the console (console/src/update/files.rs), which records each copy's
@@ -695,6 +698,10 @@ report=()
 copy_files() {
   local console=$steps_console out line rc=0 args=()
   [ "$check" != 1 ] || { console=$loaded_console; args+=(--check); }
+  # The manual and the front page come from the stage, which holds the pages as
+  # the console rewrote their tags (assets_stage). Nothing is staged when there
+  # is no stage to make: --check, which writes nothing.
+  [ -z "$stage" ] || args+=(--from "$stage")
   # versions.env calls for the build only for the lines the image reads (record_step).
   [ "$versions_owed" = 1 ] || args+=(--no-steps versions.env)
   out=$("$console" update files "${args[@]}" "$@" "$root" "$host") || rc=$?
@@ -958,7 +965,25 @@ if [ "$sandbox_changed" = 1 ]; then
 fi
 
 # The operating manual and the front page are directories; pages come and go.
-# Not a pipe: copy_files has to run in this shell to add to changed[].
+# They are installed from a stage, not from host/ itself: the console stages them
+# first (console/src/update/assets.rs) and gives every script and stylesheet a
+# dashboard page names by tag a copy named with the hash of its bytes, which is
+# the name the docs server caches for ever. The two syncs below read that stage,
+# so a home holds exactly what the stage holds and a hashed name of older content
+# is swept with the rest. The verb reads no clock and no random name, so staging
+# the same host twice gives the same stage: --check, which changes nothing on a
+# host, makes one all the same, in its own scratch directory, and compares the
+# home against what a real run would have installed. It is asked of the console
+# that read the settings, not of the one that names the steps: with no console
+# that answers, the syncs compare against nothing and say so as drift, which is
+# what a host whose console cannot answer is owed.
+stage=$made/assets
+if ! "$loaded_console" update assets "$host" "$stage"; then
+  # No stage, so no pages to compare: the two syncs below report every page of
+  # the manual and the front page as missing, and the run says why.
+  stage=""
+  note "note: $loaded_console could not stage the dashboard's pages from $host"
+fi
 copy_files --sync docs --sync fun <<<"$(printf '%s\n' "${files[@]}")"
 
 # The version in the footer of every page: the newest tag this checkout holds
