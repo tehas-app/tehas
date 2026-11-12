@@ -25,7 +25,11 @@ type Why = &'static str;
 
 /// Only GitHub's own storage: nothing else is ever fetched for an issue. The
 /// dispatcher reads links by the same rule, and a test holds the two the same.
-pub const LINK_RULE: &str = r"https://(?:github\.com/user-attachments/(?:assets|files)/|github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/(?:assets|files)/[0-9]+/|user-images\.githubusercontent\.com/)[A-Za-z0-9._~%/?&=+-]+";
+///
+/// No part of the path past the folder is `.` or `..`, nor holds an escaped
+/// `.`, `/` or `\`, so no link names a place outside the folder, however a
+/// client or GitHub reads it. A link that does ends before that part.
+pub const LINK_RULE: &str = r"https://(?:github\.com/user-attachments/(?:assets|files)/|github\.com/\.*[A-Za-z0-9_-][A-Za-z0-9_.-]*/\.*[A-Za-z0-9_-][A-Za-z0-9_.-]*/(?:assets|files)/[0-9]+/|user-images\.githubusercontent\.com/)\.*(?:[A-Za-z0-9_~&=+-]|%(?:[013-46-9A-Fa-f][0-9A-Fa-f]|2[0-9A-Da-d]|5[0-9ABabD-Fd-f]))(?:[A-Za-z0-9._~?&=+-]|%(?:[013-46-9A-Fa-f][0-9A-Fa-f]|2[0-9A-Da-d]|5[0-9ABabD-Fd-f]))*(?:/\.*(?:[A-Za-z0-9_~&=+-]|%(?:[013-46-9A-Fa-f][0-9A-Fa-f]|2[0-9A-Da-d]|5[0-9ABabD-Fd-f]))(?:[A-Za-z0-9._~?&=+-]|%(?:[013-46-9A-Fa-f][0-9A-Fa-f]|2[0-9A-Da-d]|5[0-9ABabD-Fd-f]))*)*";
 
 pub const CUT_LINK: usize = 512;
 pub const MOST_LEFT: usize = 100;
@@ -109,7 +113,7 @@ pub fn cut(s: &str, most: usize) -> String {
 }
 
 /// `links == [.]`: one link of GitHub's storage and nothing else.
-fn is_link(s: &str) -> bool {
+pub fn is_link(s: &str) -> bool {
     LINK_RE
         .find(s)
         .is_some_and(|m| m.start() == 0 && m.end() == s.len())

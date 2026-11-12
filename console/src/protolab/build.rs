@@ -605,13 +605,20 @@ fn without_number(name: &str) -> &str {
     }
 }
 
-/// curl's exit status and the content type it printed. The token goes to
-/// github.com only, on standard input and never on the command line; curl does
-/// not pass it on when GitHub redirects to its storage. 63 is a file over
-/// `most`, 22 one GitHub did not hand out.
+/// Whether the token goes with a link: only to a whole link of an attachment
+/// folder on github.com.
+fn sends_token(link: &str, token: &str) -> bool {
+    link.starts_with(super::GITHUB) && super::is_attachment(link) && !token.is_empty()
+}
+
+/// curl's exit status and the content type it printed. The token goes on
+/// standard input and never on the command line, see [`sends_token`]; curl
+/// does not pass it on when GitHub redirects to its storage, and sends the path
+/// as written. 63 is a file over `most`, 22 one GitHub did not hand out.
 fn fetch(link: &str, file: &Path, most: i64, token: &str) -> (i32, String) {
     let mut curl = Command::new("curl");
-    curl.args(["-sSfL", "--proto", "=https", "--proto-redir", "=https"])
+    curl.args(["-sSfL", "--path-as-is", "--proto", "=https"])
+        .args(["--proto-redir", "=https"])
         .args(["--max-redirs", "3", "--max-time", "120"])
         .arg("--max-filesize")
         .arg(most.to_string())
@@ -619,7 +626,7 @@ fn fetch(link: &str, file: &Path, most: i64, token: &str) -> (i32, String) {
         .arg(file)
         .args(["-w", "%{content_type}"])
         .stdout(Stdio::piped());
-    let header = link.starts_with("https://github.com/") && !token.is_empty();
+    let header = sends_token(link, token);
     if header {
         curl.args(["-H", "@-"]).stdin(Stdio::piped());
     } else {
@@ -771,6 +778,30 @@ mod tests {
 
     fn scratch(name: &str) -> tehas_core::testdir::TestDir {
         tehas_core::testdir::TestDir::new(&format!("protolab-{name}"))
+    }
+
+    #[test]
+    fn the_token_goes_only_to_a_whole_attachment_link() {
+        for link in [
+            "https://github.com/o/r/files/1/a.json",
+            "https://github.com/user-attachments/files/1/a.json",
+            "https://github.com/user-attachments/assets/1",
+        ] {
+            assert!(sends_token(link, "tok"), "{link}");
+            assert!(!sends_token(link, ""), "{link}");
+        }
+        for link in [
+            "https://github.com/o/r/files/1/../../raw/main/a.json",
+            "https://github.com/o/r/files/1/%2e%2e/%2E%2E/raw/main/a.json",
+            "https://github.com/o/r/files/1/.%2e/raw/a.json",
+            "https://github.com/user-attachments/files/../../o/r/raw/a.json",
+            "https://github.com/o/r/raw/main/a.json",
+            "https://github.com/o/r/files/1/a.json#x",
+            "https://user-images.githubusercontent.com/1/a.png",
+            "https://github.com.example/o/r/files/1/a.json",
+        ] {
+            assert!(!sends_token(link, "tok"), "{link}");
+        }
     }
 
     #[test]
