@@ -31,11 +31,6 @@ loader_names() {
   }' | tr -d '", ' | grep 'TEHAS_'
 }
 
-# The settings of the loader that a row of TABLE does not name by its own
-# string: TEHAS_ISSUE_TYPES, whose row names the constant in kinds.rs, and
-# PI_RUKAS_FOLLOW, which is no TEHAS_ name. Read from the body, so a setting
-# added to the table with no string of its own shows up here too. A line of
-# the table holds one name, so a name is taken once per line.
 # The names of a setting anywhere in the body of the table, each once. The
 # count of them is what the parse of loader_names must give: every row of the
 # table names its setting by a string somewhere in it, and the two rows that
@@ -78,7 +73,9 @@ manual_names() {
 }
 
 # has <name> <list>: the list holds that name on a line of its own.
-has() { printf '%s\n' "$2" | grep -qxF "$1"; }
+# A here-string, not a pipe: grep -q stops at the first match, and under
+# pipefail the printf it leaves writing would fail the test on a match.
+has() { grep -qxF "$1" <<<"$2"; }
 
 loader=$(loader_names | sort -u)
 body=$(body_names)
@@ -87,7 +84,6 @@ kept=$(kept_names)
 manual=$(manual_names)
 
 t_case "the loader's table is read as the loader writes it"
-# The count of names is the count of rows minus the one row of the
 # The count of names is the count of rows less the two that name no TEHAS_
 # string, so a parse that reads no row, or reads the tests below the table,
 # fails here instead of passing every case after it. Every name the body of the
