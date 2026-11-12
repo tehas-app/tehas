@@ -54,7 +54,8 @@ t_eq "$t_rc" 0
 t_eq "$t_out" ""
 t_json .generatedAt '"2026-10-09T06:15:45Z"'
 t_json '[.source, .periodSeconds, .factoryModels]' '["viiwork", 15, ["model-large"]]'
-t_json .sourceUrl '"https://github.com/janit/viiwork"'
+# The source is named, but linked only when the host names an https address.
+t_json 'has("sourceUrl")' 'false'
 # Only the alive members that serve a factory model: node-a serves another
 # model, node-c serves none and node-d has left. The totals are theirs alone.
 t_json .totals '{"watts": 734, "kWh24h": 1.44, "kWh30d": 55.08, "hosts": 1, "reporting": 1, "energyHosts": 1}'
@@ -64,6 +65,26 @@ t_json .hosts '[{"name": "node-b", "source": "nvidia-smi", "watts": 734, "kWh24h
 t_json .models '[{"name": "model-large", "hosts": ["node-b"],
   "engines": [{"version": "2.9.0", "engine": "strata", "engineName": null, "engineVersion": null}], "slots": 1, "busy": 1, "queued": 2}]'
 t_json .samples "[{\"t\": $NOW, \"w\": {\"node-b\": 734}}]"
+
+t_case "TEHAS_ENERGY_SOURCE_URL is the address the page links, and only an https one"
+fresh
+# With no setting the source is named but linked by nothing.
+sample 0
+t_eq "$t_rc" 0
+t_json 'has("sourceUrl")' 'false'
+# An https address is copied as it stands, in the key after `source`.
+sample 0 TEHAS_ENERGY_SOURCE_URL=https://example.com/mesh
+t_eq "$t_rc" 0
+t_json .sourceUrl '"https://example.com/mesh"'
+t_json '[.source, .sourceUrl]' '["viiwork", "https://example.com/mesh"]'
+# An address that is no https one is not copied at all, and the value itself
+# stays out of the file, which anyone who can open the dashboard can read.
+for odd in '' '   ' 'http://LEAKMARK.example' 'https:/LEAKMARK' 'HTTPS://LEAKMARK'; do
+  sample 0 TEHAS_ENERGY_SOURCE_URL="$odd"
+  t_eq "$t_rc" 0
+  t_json 'has("sourceUrl")' 'false'
+  t_lacks "$(cat "$file")" LEAKMARK
+done
 
 t_case "a sample carries each machine's token count for the factory's models"
 fresh
