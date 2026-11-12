@@ -140,6 +140,8 @@ fn run_args(n: &str, sha: &str, repo: &str) -> Vec<String> {
     .to_vec()
 }
 
+/// The recipe's RUN steps reach no network, and run in the slice the cycles
+/// run in, under its memory limit. BuildKit takes no --memory or --cpus.
 fn build_args(n: &str, sha: &str, repo: &str) -> Vec<String> {
     let image = format!("tehas-preview:{n}");
     let (preview, commit, of_repo) = (
@@ -149,8 +151,25 @@ fn build_args(n: &str, sha: &str, repo: &str) -> Vec<String> {
     );
     let limit = BUILD_LIMIT.to_string();
     [
-        &limit, "docker", "build", "--quiet", "-f", RECIPE, "-t", &image, "--label", &preview,
-        "--label", &commit, "--label", &of_repo, "-",
+        &limit,
+        "docker",
+        "build",
+        "--quiet",
+        "--network",
+        "none",
+        "--cgroup-parent",
+        "tehas.slice",
+        "-f",
+        RECIPE,
+        "-t",
+        &image,
+        "--label",
+        &preview,
+        "--label",
+        &commit,
+        "--label",
+        &of_repo,
+        "-",
     ]
     .map(String::from)
     .to_vec()
@@ -555,8 +574,8 @@ mod tests {
     fn the_build_is_limited_and_reads_standard_input() {
         assert_eq!(
             build_args("12", "abc", "acme/widget").join(" "),
-            "900 docker build --quiet -f preview/Dockerfile -t tehas-preview:12 \
-             --label tehas.preview=12 --label tehas.sha=abc --label tehas.repo=acme/widget -"
+            "900 docker build --quiet --network none --cgroup-parent tehas.slice \
+             -f preview/Dockerfile -t tehas-preview:12 --label tehas.preview=12 --label tehas.sha=abc --label tehas.repo=acme/widget -"
         );
     }
 }
