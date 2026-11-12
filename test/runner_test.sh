@@ -141,6 +141,33 @@ killed() { # name
   chmod +x "$repo/test/$1"
 }
 
+# A fake test file whose helper dies of a signal: the crash a run of this file
+# must leave no core file for. The helper is a child of the file's own shell and
+# the file waits for it, so the run of the file ends knowing it died, and the
+# core file the kernel would write goes in the checkout the runner works in.
+crashed() { # name
+  {
+    echo '#!/usr/bin/env bash'
+    echo 'echo ran '"$1"' part way'
+    echo 'echo "soft=$(ulimit -Sc)"'
+    echo 'sh -c '"'"'kill -ABRT $$'"'"' &'
+    echo 'wait'
+    echo "echo $1: 1 cases, 0 failed"
+  } >"$repo/test/$1"
+  chmod +x "$repo/test/$1"
+}
+
+# The core files of the scratch checkout, the ones the runner's own processes
+# would have written there. A glob is not used: a name the shell cannot match
+# must say nothing rather than print the pattern back.
+repo_cores() {
+  local f found=
+  for f in "$repo"/core "$repo"/core.*; do
+    [ -f "$f" ] && found="$found ${f##*/}"
+  done
+  printf '%s\n' "${found# }"
+}
+
 # Where a scratch run keeps each test file's record: the run's root, which is
 # the TMPDIR it gives its test files, so a fake test file can name its own
 # record. Left for the fake file to expand.
@@ -248,7 +275,7 @@ no_shellcheck() { # [NAME=VALUE...]
   local c p pre=
   rm -rf "$nobin"
   mkdir -p "$nobin"
-  for c in bash cat dirname flock mkdir mktemp mv nproc rm sed tail timeout; do
+  for c in bash cat dirname flock mkdir mktemp mv nproc prlimit rm sed tail timeout; do
     p=$(command -v "$c") || continue
     ln -s "$p" "$nobin/$c"
   done
@@ -564,6 +591,106 @@ else
   t_lacks "$(block)" "test/f01_test.sh"
   t_fits
 fi
+
+# A process that dies of a signal during a run must leave no core file in the
+# checkout, because a file the kernel wrote there dirties the tree a later check
+# of it reads: git status lists it, and a factory's final verify failed on dozens
+# of them. The run puts the core limit of 0 in front of every task, so the kernel
+# is never asked to write one, and the recorder's `timeout` and the test file and
+# everything that file starts inherit the limit. Whether the kernel would have
+# written a file is its own choice, taken with the limit already off, so what a
+# case here can pin is what the run asks the kernel for: the limit on the task's
+# command, and the run that leaves it off and names what came of that.
+t_case "every task runs under the core limit of 0, and a helper that crashes leaves the run clean"
+fresh
+# prlimit is stubbed to record its arguments and to run the command it was
+# handed at the limit it was given, so the case reads the ask off the task's
+# command and off the limit the check itself sees, neither of which depends on
+# what the kernel chooses to write once the limit is already off.
+t_stub prlimit 'printf "prlimit %s\n" "$*" >>"$T/calls/prlimit"
+while [ "$#" != 0 ] && [ "$1" != -- ]; do shift; done
+[ "$#" = 0 ] || shift
+ulimit -c 0
+exec "$@"'
+crashed a_test.sh
+fake b_test.sh 0 2
+run
+t_eq "$t_rc" 0
+t_contains "$t_out" "ran a_test.sh part way"
+t_contains "$t_out" "ran b_test.sh line 2"
+t_contains "$t_out" "test.sh: 2 cases in 2 files"
+# The file of the crash is not named as a failure: it died, and the run is not
+# the one to say so, but the file still reported its case and the count says so.
+t_lacks "$(block)" "test/a_test.sh"
+# One call of prlimit per check, each of them the core limit of 0 in front of
+# the check it was given, which is the whole of what keeps a dump out of the
+# tree. The lint of each file is a task too, so the count covers both kinds.
+t_eq "$(printf '%s\n' "$(t_calls prlimit)" | grep -c '^prlimit --core=0 -- ')" 4
+t_contains "$(t_calls prlimit)" "bash $repo/test/a_test.sh"
+t_contains "$(t_calls prlimit)" "shellcheck -x "
+# And the limit is the one the check ran under, which is what the kernel is
+# asked not to write a file with: a task that ran at the host's own limit would
+# write one whenever its kernel takes dumps.
+t_eq "$(printf '%s\n' "$t_out" | sed -n 's/^soft=//p' | head -n 1)" 0
+t_eq "$(repo_cores)" ""
+
+t_case "a task runs under the limit with its own command, and one that crashes is not a failure of the run"
+fresh
+crashed a_test.sh
+run
+t_eq "$t_rc" 0
+t_contains "$t_out" "ran a_test.sh part way"
+t_lacks "$(block)" "test/a_test.sh"
+# The file ended and said how many cases it ran, so its crash costs the run
+# nothing beyond what the kernel was asked for.
+t_contains "$t_out" "test.sh: 1 cases in 1 files"
+
+t_case "TEHAS_TEST_CORES keeps the core files, and the run says so on the host it was asked on"
+fresh
+crashed a_test.sh
+# The setting is the one a person sets to see what a crash really leaves. The
+# pattern stands for the host's own file, so the line says the same thing on a
+# host that sends its dumps to a program or under a path of its own; the name is
+# the one the run looks for, and a host whose kernel writes none is told so in
+# the line that names the files it found.
+printf '0.00 0.00 0.00 1/1 1\n' >"$T/quiet.loadavg"
+T_ENV=(TEHAS_TEST_JOBS=1 TMPDIR="$recs")
+run_env TEHAS_TEST_JOBS=1 TMPDIR="$recs" TEHAS_TEST_CORES=1 TEHAS_TEST_CORE_PATTERN=core \
+  TEHAS_TEST_LOADAVG="$T/quiet.loadavg"
+T_ENV=(TEHAS_TEST_JOBS=1 TMPDIR="$recs")
+t_contains "$t_out" "ran a_test.sh part way"
+t_contains "$t_out" "TEHAS_TEST_CORES keeps the core files of what this run starts"
+t_contains "$t_out" "kernel.core_pattern is core"
+# A task is no longer put under the limit, which is the point of the setting.
+case "$t_out" in
+  *'left in the checkout by a program that crashed'*)
+    # A dump really was written where the tasks ran: the run named it and failed.
+    t_eq "$t_rc" 1
+    t_contains "$(block)" "core files in the checkout" ;;
+  *)
+    # This host's kernel took no dump with the limit off, so there was nothing
+    # for the run to name and the file's own case stands: a run that named a
+    # file that is not there would be the worse bug.
+    t_eq "$t_rc" 0
+    t_eq "$(repo_cores)" "" ;;
+esac
+# The file of the crash itself is never the one named: it ran and reported.
+t_lacks "$(block)" "test/a_test.sh"
+
+t_case "a host whose kernel keeps its dumps elsewhere is asked for no core file"
+fresh
+crashed a_test.sh
+printf '0.00 0.00 0.00 1/1 1\n' >"$T/quiet.loadavg"
+T_ENV=(TEHAS_TEST_JOBS=1 TMPDIR="$recs")
+run_env TEHAS_TEST_JOBS=1 TMPDIR="$recs" TEHAS_TEST_CORES=1 \
+  TEHAS_TEST_CORE_PATTERN='|/usr/lib/systemd/coredump %p %s' \
+  TEHAS_TEST_LOADAVG="$T/quiet.loadavg"
+T_ENV=(TEHAS_TEST_JOBS=1 TMPDIR="$recs")
+# A program the kernel pipes the dump to, or a path it writes under, is no file
+# of the checkout, so the run asks for none and a run of this host passes.
+t_eq "$t_rc" 0
+t_contains "$t_out" "ran a_test.sh part way"
+t_lacks "$t_out" "left in the checkout"
 
 t_case "a test file that runs past its time is stopped and named as timed out"
 fresh
