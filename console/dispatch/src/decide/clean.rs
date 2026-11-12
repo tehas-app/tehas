@@ -369,7 +369,11 @@ impl Poll<'_> {
     }
 
     /// A pull request marked tehas:refreshing whose refresh is not running,
-    /// or whose mark the bot did not apply, loses the mark.
+    /// or whose mark the bot did not apply, loses the mark. Only clearing the
+    /// mark needs the list of marked pull requests, so a failed or unreadable
+    /// one is said once and the poll goes on, as the failed history of
+    /// refreshes is below, and a failed list of the bot's pull requests is in
+    /// `bot_prs`.
     fn refreshing(&mut self, bot: &str) -> Step {
         let history = match &self.s.refresh_history {
             None => {
@@ -401,15 +405,10 @@ impl Poll<'_> {
                 self.need("refreshing");
                 return Ok(());
             }
-            Some(v) if v.get("failed") == Some(&json!(true)) => {
-                return Err(self.fail("ERROR: gh pr list failed", 1))
-            }
             Some(Value::Array(a)) => a.clone(),
             Some(_) => {
-                return Err(self.fail(
-                    "ERROR: unreadable list of pull requests marked as refreshing",
-                    1,
-                ))
+                self.log("WARN: the pull requests marked tehas:refreshing could not be read, so no pull request is cleared of tehas:refreshing this poll".to_string());
+                return Ok(());
             }
         };
         let mut prs: Vec<u64> = list
