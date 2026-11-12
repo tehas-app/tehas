@@ -130,6 +130,73 @@ surfaces=(
   # and 0, which no reading of the command can print.
   'bound	issue	.issue = 1	.issue = 0	under 1'
   'required	["api","issue","running","asked","frozen"]'
+  # The listing `tehas history --json` prints: the ends of cycles and of
+  # planning turns, oldest first, and the cursor to keep. The two samples are
+  # the two readings of the store: three ends on it, and nothing. One `items`
+  # schema of the array covers both kinds of line, so a field only one kind
+  # prints is optional there and `kind` says which line a field belongs to; the
+  # `required` of a line is the whole of what the command prints for either
+  # kind (console/src/history.rs). The surface prints no state of its own, so
+  # it has no `state` lines and no enum to compare them with.
+  'surface	history'
+  'sample	sample'
+  'sample	empty'
+  # The one object of the surface, bent one way at a time: the cursor to keep
+  # missing, a field the schema does not know at the top of it, the array of
+  # lines given a word, and three ways the plan line of it is wrong - a field
+  # every line prints missing, a field the schema does not know, and `kind`, the
+  # one field of a line the schema holds to two words, given the word the store
+  # calls a cycle rather than the word the command prints. The three lines of a
+  # line leave the list as the sample holds it: a word for the array answers the
+  # three above it and nothing of a line, and the object of each check is still
+  # a listing of the surface.
+  'check	del(.next) | .zz = 1 | .cycles = "1"	.: next is missing'
+  'check	del(.next) | .zz = 1 | .cycles = "1"	.zz: not in the schema'
+  'check	del(.next) | .zz = 1 | .cycles = "1"	.cycles: string, not array'
+  'check	del(.next) | del(.cycles[3].outcome)	.cycles[3]: outcome is missing'
+  # An unknown field of a line, held by a plan line on purpose: the walk of the
+  # bounds below bends one field of `.cycles[3]` and asks the check about the
+  # object whole, so a word a line of that sample does not hold would be found
+  # wrong there before it is found wrong here.
+  'check	del(.next) | .cycles[3].zz = 1	.cycles[3].zz: not in the schema'
+  'check	del(.next) | .cycles[3].kind = "cycle"	.cycles[3].kind: "cycle" is not one of ["work","plan"]'
+  # The bounds of the schema, each of a field of one line: the least value the
+  # schema lets through and one step past it, as the command prints or refuses
+  # them. The field of the line names the field as the schema does, with the
+  # place of its own line in the listing after it: `cycles[0].issue`. The path
+  # the check prints holds both of them, as the drain's `running` is reported at
+  # `.running[0]`: a name that goes into an element of a field of a line holds
+  # that element too, `cycles[3].filed[0]`, which the check prints as
+  # `.cycles[3].filed[0]`. The places are those of the one sample the case of
+  # the bounds bends, `api/history.sample.json`, whose first line is the end of a
+  # cycle and whose last is the end of a planning turn, so a field of either kind
+  # is named on a line that holds it. An issue of 1 and 0, the least
+  # number the factory reads and the one it never lists; an exit status of 255,
+  # the most this release keeps, and 256; the widest cursor the command prints
+  # and one wider still, which it refuses as an argument of --after
+  # (console/src/history.rs); the step number and the round of a heartbeat, which
+  # the store keeps from 1 to 1000 (console/store/src/live.rs); and the count of
+  # a run of parks, which the command gives only from 1 (console/src/history.rs).
+  'bound	cycles[0].issue	.cycles[0].issue = 1	.cycles[0].issue = 0	under 1'
+  'bound	cycles[0].status	.cycles[0].status = 255	.cycles[0].status = 256	over 255'
+  'bound	cycles[0].cursor	.cycles[0].cursor = "9999999999-999999999-999999999999999"	.cycles[0].cursor = "12345678901-12-1"	does not match'
+  'bound	cycles[0].stepNumber	.cycles[0].stepNumber = 1000	.cycles[0].stepNumber = 1001	over 1000'
+  'bound	cycles[0].repeat	.cycles[0].repeat = 1	.cycles[0].repeat = 0	under 1'
+  # The round of the plan line: the store keeps a heartbeat's step number, total
+  # and round from 1 to 1000 (console/store/src/live.rs), and a line prints them
+  # only when its end copied them from a heartbeat of its own step.
+  'bound	cycles[3].round	.cycles[3].round = 1	.cycles[3].round = 0	under 1'
+  # The park reason of a line, which the plan line of that sample does not
+  # print: the store keeps an empty word as no reason at all
+  # (console/store/src/cycle.rs), so the least the schema lets through is one
+  # word of a reason and the step past it nothing, which no line prints.
+  'bound	cycles[3].parkReason	.cycles[3].parkReason = "merge"	.cycles[3].parkReason = ""	shorter than 1'
+  # The issues a turn filed, of the one line of either sample that prints it:
+  # none at all is what a plan line that filed nothing leaves out, and an
+  # element that is no text is one step past what the command ever puts there
+  # (console/src/history.rs keeps the addresses and drops the rest).
+  'bound	cycles[3].filed[0]	.cycles[3].filed = []	.cycles[3].filed = [1]	integer, not string'
+  'required	["api","cycles","next"]'
 )
 
 # The limit of the `limit` samples, as it is set: one cycle at a time, no
@@ -195,6 +262,94 @@ drain_world() { # <name>
 # standard error.
 drain_reading() { # <name>
   t_run "'$T_ROOT/bin/tehas' drain --wait $drain_hold --json"
+}
+
+# The seconds of the ends the history samples are read from, as the cursors of
+# api/history.sample.json name them: four ends of three issues, the first at
+# 2025-10-17T11:20:00Z and the last five minutes on. Named here so the writing
+# of the ends and the words of the samples say the same moments.
+history_end=1760700000
+
+# <name>: the world that sample is a reading of. `empty` is a store with no end
+# on it, which is the state of the scratch home of `printed` before any end is
+# written, so nothing is written for it at all. The moments of the ends are the
+# ones the cursors of the sample name, and every end goes through a helper of
+# test/lib.sh that writes it the way the unit that ends a cycle or a turn does.
+history_world() { # <name>
+  local home=$T/home/tehas parked started a
+  local -a end=()
+  # The cycle of #12 holds its lock the whole of its run, so the file is there
+  # before the store is asked for a start of it, as t_started makes it itself.
+  mkdir -p "$home/state/cycles"
+  # The store of the reading goes in at the start of every world, including the
+  # one with no ends on it: `empty` is a store with nothing ended, which is not
+  # a home with no store at all, and the command prints no object for that one.
+  # `printed` takes the home away and writes an instance before each reading, so
+  # this is where a history world makes its store, as t_store_home does for the
+  # file of a record test.
+  t_store_home "$home"
+  [ "$1" = empty ] && return 0
+  # The park both ends of #12 stopped on: the same words each time, since a run
+  # of parks counts only the ends that stopped exactly alike (console/src/history
+  # .rs), and the second of them is the line that carries `repeat`. The reason of
+  # the park is left out of both: the store keeps an empty word as no reason at
+  # all (console/store/src/cycle.rs), so a park that names none prints no
+  # `parkReason`. The end of #9 below is the line that does name one.
+  parked='{"kind":"work","rc":10,"status":"failed","step":"develop","cap":"step-failed:develop","park_reason":"","failure_kind":"verify-failed","failure_cause":"exit-1","parked":true}'
+  # The first end, written the steps t_history_end takes for an end with `by`,
+  # and with a heartbeat between its start and its end: a heartbeat is refused
+  # before the cycle starts and after it ends (console/store/src/live.rs), and
+  # the end copies the step number, the total and the round only from a
+  # heartbeat of its own step, written at the end's own time
+  # (console/store/src/cycle.rs). The helper gives no step number, so the three
+  # fields of the sample are this end's and no other's. The pull request of the
+  # cycle is its number: the command gives the address of the repository the
+  # instance names, so the sample is one of acme/widget.
+  started=$((history_end - 60))
+  a=$(TEHAS_HOME=$home "$T_STORE" cycle-show 12 | jq '.cycle.attempt // 0')
+  t_approve "$home" 12 alice label $((started - 1 - a))
+  TEHAS_STORE_TEST_NOW=$started t_started "$home" 12
+  TEHAS_HOME=$home TEHAS_STORE_TEST_NOW=$((started + 30)) "$T_STORE" \
+    cycle-heartbeat 12 --running --status running --step develop \
+    --step-number 7 --step-total 9 --round 3 >/dev/null ||
+    t_bad "the store refused the heartbeat of #12"
+  mapfile -t end < <(jq -r '
+    "--status", .status,
+    "--rc", (.rc | tostring),
+    "--step", .step,
+    "--cap", .cap,
+    "--failure-kind", .failure_kind,
+    "--failure-cause", .failure_cause,
+    "--pr", "9",
+    (if .parked == true then "--parked" else empty end)' <<<"$parked")
+  TEHAS_HOME=$home TEHAS_STORE_TEST_NOW=$history_end \
+    flock -w 5 "$home/state/cycles/12.lock" "$T_STORE" cycle-end 12 \
+    --attempt $((a + 1)) "${end[@]}" >/dev/null ||
+    t_bad "the store refused the first end of #12"
+  # The second park of #12, stopped exactly as the first, so it is the line that
+  # carries `repeat`. No by: a by-hand start names no account, and `by` is left
+  # out of the line, which is one of the fields the samples hold nowhere else.
+  t_history_end "$home" 12 "$((history_end + 60))" "$parked"
+  # The end of another issue, stopped as those two did but on a park that names
+  # its reason, so this is the line that prints `parkReason`. An issue of its
+  # own, because a run of parks counts none of another (console/src/history.rs):
+  # the line says nothing of a repeat, and it names no pull request either, so
+  # `pr` is the field of the first line alone.
+  t_history_end "$home" 9 "$((history_end + 120))" \
+    '{"kind":"work","rc":10,"status":"failed","step":"develop","cap":"step-failed:develop","park_reason":"findings-open","failure_kind":"review","failure_cause":"findings-open","provider":false,"parked":true}'
+  # The plan end: a refine the factory started on its own, whose turn filed an
+  # issue, so `label`, `auto` and `filed` are the fields of a line of that kind.
+  # Its turn began with the minute the park of #12 ended, so the two lines of
+  # the listing name a turn that ran while the cycle of the issue before it ran.
+  t_plan_end "$home" 7 "$((history_end + 300))" \
+    '{"kind":"plan","started":1760700000,"rc":0,"status":"finished","turn":1,"by":"alice","label":"tehas:refine","filed":["https://github.com/acme/widget/issues/41"],"auto":true}'
+}
+
+# <name>: the reading a history sample holds, as the command prints it. The
+# object is the one jq prints of the reading, as every sample of the table is
+# written.
+history_reading() { # <name>
+  t_run "'$T_ROOT/bin/tehas' history --json | jq ."
 }
 
 # The moment the limit file is written at: 2026-10-17T14:00:20Z, when it is in
@@ -326,6 +481,11 @@ printed() { # <surface> <name>
       drain_reading "$name"
       printf '%s\n' "$t_out" | jq .
       ;;
+    history)
+      history_world "$name"
+      history_reading "$name"
+      printf '%s\n' "$t_out"
+      ;;
     freeze)
       freeze_world "$name"
       freeze_reading "$name"
@@ -434,6 +594,18 @@ held_paths() { # <json file>
 enum_of() { # <schema file> <path>
   jq -c --arg path "$2" 'def at($p): reduce ($p | split("."))[] as $f
            (.; getpath(["properties", $f])); at($path).enum' "$1"
+}
+
+# The path the check prints for the field of a `bound` line of a listing. The
+# name of such a line holds the field as the schema names it and the place of
+# its own line in the array of them, `cycles[0].issue`; a name that stops at a
+# field of a line that holds a list leaves that field's element out,
+# `cycles[3].filed`, the way the drain's `running` is named without its element.
+# The check reports the whole path, `.cycles[0].issue` and
+# `.cycles[3].filed[0]`, so the one element a name leaves out is put back here.
+path_of_bound() { # <field>: the dotted path the check prints for it
+  local field=$1 element=']' '[' '0' ']'
+  printf '%s\n' "${field/$element/${element[0]}${element[1]}${element[2]}${element[3]}}"
 }
 
 # A line of the table is read as its kind and the words after it, one apart on
@@ -742,7 +914,8 @@ $changes"
 
   # A bound of a path under another object is reported at the path the check
   # prints, which holds the element of an array and so is not the table's own
-  # path: `.running` is reported as `.running[0]`.
+  # path: `.running` is reported as `.running[0]`, and a field of a line of a
+  # listing as `.cycles[0].filed[0]`.
   t_case "the check keeps the bounds of the schema of $surface"
   bound_object=$(jq -c . "$(surface_sample "$surface")") ||
     t_bad "$(surface_sample "$surface") holds no object"
@@ -761,7 +934,15 @@ $changes"
       { t_bad "the jq past the bound of $bound_field is no jq: $bad"; continue; }
     lines=$(check "$schema" "$T/bound.json") || t_bad "the schema check could not be run"
     case $bound_field in
+      # The path the check prints for a bound holds the element of every array it
+      # goes through, which no name of the table ever holds: `.running[0]` for the
+      # drain's `running`. The names of a listing hold the place of their own
+      # line, so the element of the array of lines is put back where the check
+      # puts it, and the element of a field of a line that holds a list is put
+      # back too: `cycles[0].issue` is reported at `.cycles[0].issue` and
+      # `cycles[3].filed` at `.cycles[3].filed[0]`.
       running) t_contains "$lines" ".running[0]:" ;;
+      cycles.*) t_contains "$lines" ".$(path_of_bound "$bound_field"):" ;;
       *) t_contains "$lines" ".$bound_field:" ;;
     esac
     t_contains "$lines" "$word"

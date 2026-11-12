@@ -531,6 +531,46 @@ never null.
 
 Without `--json`, one line each, oldest first.
 
+`api/history.schema.json` in the source says what the object holds, with
+`api/history.sample.json` and `api/history.empty.json` beside it: a listing of
+three ends of two issues and an empty listing. The two are what the command
+prints, so `test/json_contract_test.sh` keeps them in step with it, and a
+program can copy them into its own tests. One schema of `cycles` covers both
+kinds of line, so a field only one kind prints is optional there and `kind`
+says which line it belongs to. The table gives every field of the schema as the
+schema names it, under `cycles` for a field of a line.
+
+| Field | Meaning |
+| --- | --- |
+| `api` | The API version, 1 |
+| `cycles` | The lines, oldest first: one for each cycle and each planning turn that ended |
+| `next` | The cursor to keep, as the last line's `cursor`, or `null` when the listing holds no line and none was asked for with `--after` |
+| `cycles.cursor` | The seconds of the end, the issue, and the line's place in the order the store wrote the ends, as `1760700000-12-41` |
+| `cycles.kind` | `work` for a cycle, `plan` for a planning turn |
+| `cycles.issue` | The issue the line is about |
+| `cycles.ended` | When the cycle or the turn ended |
+| `cycles.started` | When it started; left out when the record holds no start |
+| `cycles.status` | Its exit status; left out for a turn whose unit left no readable one |
+| `cycles.outcome` | What it reported: for a cycle the status of its end, for a turn `finished`, `failed`, `interrupted`, `not-started`, `not-readable` or `lost` |
+| `cycles.turn` | The turn's number in its session, from 1. A field of a plan line |
+| `cycles.step` | The step a cycle ended in. A field of a work line |
+| `cycles.stepNumber` | The step the cycle was on, from 1, as its last heartbeat at that step said. Left out when it is not known, as `running` of [`tehas status --json`](#tehas-status---json) leaves it out. A field of a work line |
+| `cycles.stepTotal` | How many steps the cycle has, from the same heartbeat. A field of a work line |
+| `cycles.round` | The round of a step that ran before in this cycle, from 2, or the round the driver gave. A field of a work line |
+| `cycles.cap` | The cap it stopped at. A field of a work line |
+| `cycles.parkReason` | Why it was parked. A field of a work line, left out when the end named no reason |
+| `cycles.failureKind` | The failure the millwright named. A field of a work line |
+| `cycles.failureCause` | Its cause, as the millwright gave it. A field of a work line |
+| `cycles.provider` | Whether its provider was asked. A field of a work line |
+| `cycles.parked` | Whether the cycle parked. A field of a work line |
+| `cycles.repeat` | The parks in a row that stopped exactly as this one did, this one not counted, so 1 on the first repeat. On the park of a run of parks only. A field of a work line |
+| `cycles.pr` | The pull request, as an address of the repository the instance names. A field of a work line that had one |
+| `cycles.by` | Who asked for it. Left out for a cycle run by hand, which names no account |
+| `cycles.how` | How it was asked for: `label`, `refresh`, `retry-tick`, `outage-retry`, `millwright` or `hand` |
+| `cycles.label` | The label that started the turn's session, `tehas:plan` or `tehas:refine`. A field of a plan line |
+| `cycles.auto` | `true` for a refine the factory started on its own when a cycle parked as underspecified or too-large. Left out otherwise. A field of a plan line |
+| `cycles.filed` | The issues the turn filed, when it filed any. A field of a plan line |
+
 Exit 0 when it printed, also with nothing to list; 1 when the state store was
 busy, which prints nothing; 64 on a bad argument, which reads nothing; 78
 without an instance, without a valid `TEHAS_REPO` or without a state store that
