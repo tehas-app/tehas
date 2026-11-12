@@ -1028,13 +1028,17 @@ tehas panel clear <id>
 A page that belongs to the project, such as a support chat, a status page or a
 feedback form, shown on the dashboard. Each panel is an item in the menu of both
 front pages, and pressing it opens the page in a dock at the side. tehas knows
-the label and the URL, nothing else.
+the label and the URL, nothing else. The table gives every field of the schema
+as the schema names it, so a field of an item of the list is named under
+`panels`.
 
 | Field | Rule |
 | --- | --- |
-| `id` | `a-z`, `0-9` and `-`, 1 to 32 characters. `set` on an `id` that is there replaces it, in its place |
-| `label` | One line, 1 to 24 characters. Control characters become spaces, as in `tehas pause` |
-| `url` | `https://` or `http://`, a host, no user or password, at most 512 characters. Its host is not `TEHAS_DOMAIN`: the frame is given `allow-same-origin`, which is safe only on another origin. A sibling name such as `support.<domain>` is another origin and is allowed |
+| `api` | The API version, 1 |
+| `panels` | The panels, in the order they were set: at most 4, empty when none is set |
+| `panels.id` | `a-z`, `0-9` and `-`, 1 to 32 characters. `set` on an `id` that is there replaces it, in its place |
+| `panels.label` | One line, 1 to 24 characters. Control characters become spaces, as in `tehas pause` |
+| `panels.url` | `https://` or `http://`, a host, no user or password, at most 512 characters. Its host is not `TEHAS_DOMAIN`: the frame is given `allow-same-origin`, which is safe only on another origin. A sibling name such as `support.<domain>` is another origin and is allowed |
 
 - At most 4 panels. A fifth is refused.
 - The list is `~/tehas/state/panels.json`, and the same object is published,
@@ -1057,6 +1061,12 @@ panel's host for nothing until a person does:
 No `allow-top-navigation`, no message channel between the page and the frame,
 and no context but what is in the URL. A page that refuses to be framed shows
 an empty frame; the dock's "Open in a new tab" link still works.
+
+`api/panel.schema.json` in the source says what the object holds, with
+`api/panel.sample.json` and `api/panel.empty.json` beside it: one panel set, and
+a factory with none. The two are what the command prints, so
+`test/json_contract_test.sh` keeps them in step with it, and a program can copy
+them into its own tests.
 
 The checks, the list and the files are the console's (`console/src/panel.rs`).
 
