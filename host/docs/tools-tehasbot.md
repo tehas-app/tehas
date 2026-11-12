@@ -336,11 +336,9 @@ provider outage is said as one: `Tehas cycle parked by a provider outage`,
 with the cap and the reason. That is a result whose `failure.kind` is
 `provider`. For an image whose result has no `failure` (v0.12.80) it is
 `step-failed:<step>` or `adversarial-infra-failure` whose reason names the
-provider, a timeout, a connection or a 5xx status. The
-park then owes the issue one retry by [tehas dispatch](/tools-dispatch#tehas-dispatch), unless
-the cycle was that retry or was started by hand; the comment says which. An
-outage park the store would not take owes nothing, and its comment says it
-waits for a person.
+provider, a timeout, a connection or a 5xx status. That is
+the cycle's own word, so the park is recorded under its cap and owes no retry:
+its comment says it waits for a person.
 
 Once its history line is written, the cycle records the run in the factory's
 analytics, `~/tehas/state/analytics.db`: `~/tehas/libexec/analytics run` with

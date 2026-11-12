@@ -174,8 +174,10 @@ pub fn branch_shaped(name: &str) -> bool {
 pub struct Finished {
     /// The pull request's URL, nothing when it opened nothing.
     pub url: String,
-    /// Why it is not done, empty when it is.
+    /// Why it is not done, in the rule's words; empty when it is done.
     pub why: String,
+    /// What the command that refused said, for the log only.
+    pub said: String,
 }
 
 impl Finished {
@@ -183,6 +185,7 @@ impl Finished {
         Finished {
             url: String::new(),
             why: why.into(),
+            said: String::new(),
         }
     }
 }

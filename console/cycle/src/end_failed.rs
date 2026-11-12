@@ -7,7 +7,9 @@
 //! a pull request or GitHub, failed one of them. The handoff comment is the
 //! host's: a handoff that reached no comment failed it. The words are read
 //! only for the fixed list of `end_fault::words`, so nothing the agent wrote
-//! goes on record.
+//! goes on record. The result is the container's, so a push or a pull request
+//! it names is on record as one the host did not see fail, and the poll
+//! finishes nothing on it.
 
 use serde_json::Value;
 use tehas_core::end_fault::EndFault;
@@ -57,8 +59,10 @@ pub fn of(l: &Left, now: i64) -> Option<EndFault> {
             return Some(EndFault::new(l.issue, l.attempt, step, &said, now));
         }
     }
-    l.handoff_failed
-        .map(|said| EndFault::new(l.issue, l.attempt, "handoff", said, now))
+    l.handoff_failed.map(|said| EndFault {
+        host: true,
+        ..EndFault::new(l.issue, l.attempt, "handoff", said, now)
+    })
 }
 
 /// The push or the pull request of `commit-pr`, and what it said.
@@ -126,7 +130,7 @@ mod tests {
     }
 
     #[test]
-    fn a_push_that_failed_on_githubs_side_is_on_record() {
+    fn a_push_that_failed_on_githubs_side_is_on_record_on_the_results_word() {
         let r = result(
             r#"{"kind":"tooling","step":"commit-pr","message":"git push failed: The requested URL returned error: 502"}"#,
         );
@@ -135,6 +139,9 @@ mod tests {
             (f.step.as_str(), f.github, f.why.as_str(), f.at, f.attempt),
             ("push", true, "returned error: 502", 100, 2)
         );
+        // The host did not see it fail, so the poll does not finish it.
+        assert!(!f.host);
+        assert!(matches!(f.due(101), tehas_core::end_fault::Due::Never(_)));
     }
 
     #[test]
@@ -162,7 +169,7 @@ mod tests {
         let r = result(r#"{"message":"git push: HTTP 502"}"#);
         assert_eq!(of(&left(&r, true, None), 100), None);
         let f = of(&left(&r, true, Some(": HTTP 503")), 100).unwrap();
-        assert_eq!((f.step.as_str(), f.github), ("handoff", true));
+        assert_eq!((f.step.as_str(), f.github, f.host), ("handoff", true, true));
     }
 
     #[test]

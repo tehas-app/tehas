@@ -38,22 +38,32 @@ const KEPT_HEAD: &str = "refs/kept/HEAD";
 /// The most of the workspace's `info/exclude` the run copies.
 const EXCLUDE_MAX: u64 = 1 << 16;
 
-/// A step the run could not do, in the words it refuses with: the rule's own
-/// sentence and, where the command said something, what it said.
+/// A step the run could not do: the rule's own sentence, which the issue is
+/// told, and what the command said, which only the log keeps.
 pub struct Why {
-    why: String,
+    pub(super) why: String,
+    pub(super) said: String,
 }
 
 impl Why {
-    fn new(why: impl Into<String>) -> Why {
-        Why { why: why.into() }
+    pub(super) fn new(why: impl Into<String>) -> Why {
+        Why {
+            why: why.into(),
+            said: String::new(),
+        }
     }
 
-    /// The command's own words after the rule's, cut to 300 characters: what a
-    /// person reads on the issue and in the poll's log.
-    fn said(mut self, d: &Done) -> Why {
+    /// The command's first line, cut to 300 characters, kept apart from the
+    /// rule: on a conflict it quotes a commit subject the cycle wrote. The rule
+    /// takes only the words of `end_fault::words`, which say whether GitHub
+    /// failed.
+    pub(super) fn said(mut self, d: &Done) -> Why {
         if let Some(w) = d.said() {
-            self.why = format!("{}: {}", self.why, w.chars().take(300).collect::<String>());
+            let words = tehas_core::end_fault::words(&w);
+            if !words.is_empty() {
+                self.why = format!("{} ({words})", self.why);
+            }
+            self.said = w.chars().take(300).collect();
         }
         self
     }
@@ -117,8 +127,12 @@ pub fn run(plan: &Plan, h: &mut dyn Host) -> Finished {
         Ok(url) => Finished {
             url,
             why: String::new(),
+            said: String::new(),
         },
-        Err(why) => Finished::refused(why.why),
+        Err(why) => Finished {
+            said: why.said,
+            ..Finished::refused(why.why)
+        },
     }
 }
 

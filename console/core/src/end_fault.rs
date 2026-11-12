@@ -8,11 +8,13 @@
 //! limit, a timeout, or a connection error. Any other 4xx is the request's
 //! own, and so is a failure that says none of these.
 //!
-//! Only a push or a pull request that failed on GitHub's side is finished by
-//! the poll: at most `TRIES` tries, at least `APART` seconds apart, within
-//! `WITHIN` seconds of the failure. A handoff comment that failed is recorded,
-//! but the poll finishes nothing for it: the pull request is open or there is
-//! no change to deliver.
+//! Only a push or a pull request that failed on GitHub's side, as the host saw
+//! it fail, is finished by the poll: at most `TRIES` tries, at least `APART`
+//! seconds apart, within `WITHIN` seconds of the failure. The push and the pull
+//! request of a cycle are its container's: a record of them made from the
+//! cycle's own result is kept and shown, but the poll finishes nothing on it.
+//! A handoff comment that failed is recorded, but the poll finishes nothing for
+//! it: the pull request is open or there is no change to deliver.
 
 use serde_json::{json, Value};
 use std::fs;
@@ -39,6 +41,9 @@ pub struct EndFault {
     pub step: String,
     /// Whether the failure was GitHub's.
     pub github: bool,
+    /// Whether the host saw the step fail, by a call of its own, rather than
+    /// only the cycle's result saying so.
+    pub host: bool,
     /// What gh or git said, in the words of a fixed list: never the agent's.
     pub why: String,
     /// When the cycle's end failed, in unix seconds.
@@ -111,6 +116,7 @@ impl EndFault {
             attempt,
             step: step.to_string(),
             github: crate::retry::githubs_fault(err),
+            host: false,
             why: words(err),
             at,
             tries: Vec::new(),
@@ -122,7 +128,7 @@ impl EndFault {
     pub fn to_json(&self) -> Value {
         json!({
             "issue": self.issue, "attempt": self.attempt, "step": self.step,
-            "github": self.github, "why": self.why, "at": self.at,
+            "github": self.github, "host": self.host, "why": self.why, "at": self.at,
             "tries": self.tries, "stopped": self.stopped, "said": self.said,
         })
     }
@@ -135,6 +141,7 @@ impl EndFault {
             attempt: v["attempt"].as_u64().unwrap_or(0),
             step: step.to_string(),
             github: v["github"].as_bool()?,
+            host: v["host"].as_bool().unwrap_or(false),
             why: one_line(v["why"].as_str().unwrap_or("")),
             at: v["at"].as_i64()?,
             tries: v["tries"]
@@ -184,6 +191,11 @@ impl EndFault {
         }
         if self.step == "handoff" {
             return Due::Never("a handoff comment that failed leaves nothing to finish".into());
+        }
+        if !self.host {
+            return Due::Never(
+                "only the cycle's own result says so, so only tehas:finish finishes it".into(),
+            );
         }
         if self.tries.len() >= TRIES {
             return Due::Never(format!("{TRIES} tries failed"));
@@ -257,6 +269,14 @@ mod tests {
         EndFault::new(7, 2, step, err, 1000)
     }
 
+    /// A record of a failure the host saw itself.
+    fn seen(step: &str, err: &str) -> EndFault {
+        EndFault {
+            host: true,
+            ..rec(step, err)
+        }
+    }
+
     #[test]
     fn the_failure_in_words_disarms_a_record_read_from_its_file() {
         let mut r = rec("push", "HTTP 502");
@@ -310,7 +330,7 @@ mod tests {
 
     #[test]
     fn a_record_reads_back_as_it_was_written() {
-        let mut r = rec("pr", "HTTP 429");
+        let mut r = seen("pr", "HTTP 429");
         r.tries = vec![1000, 1700];
         assert_eq!(EndFault::from_json(&r.to_json()), Some(r));
         assert_eq!(EndFault::from_json(&json!({"step": "deploy"})), None);
@@ -318,7 +338,7 @@ mod tests {
 
     #[test]
     fn tries_are_three_at_most_ten_minutes_apart_within_the_hour() {
-        let mut r = rec("push", "HTTP 502");
+        let mut r = seen("push", "HTTP 502");
         assert_eq!(r.due(1001), Due::Now);
         r.tries.push(1001);
         assert_eq!(r.due(1300), Due::At(1601));
@@ -326,13 +346,30 @@ mod tests {
         r.tries.push(1601);
         r.tries.push(2201);
         assert_eq!(r.due(9000), Due::Never("3 tries failed".into()));
-        let mut late = rec("push", "HTTP 502");
+        let mut late = seen("push", "HTTP 502");
         late.tries.push(4001);
         assert_eq!(
             late.due(4601),
             Due::Never("the hour after the failure is over".into())
         );
-        assert!(matches!(rec("push", "HTTP 502").due(4601), Due::Never(_)));
+        assert!(matches!(seen("push", "HTTP 502").due(4601), Due::Never(_)));
+    }
+
+    #[test]
+    fn a_failure_only_the_cycles_result_names_is_never_tried() {
+        let r = rec("push", "HTTP 502");
+        assert!(r.github);
+        assert_eq!(
+            r.due(1001),
+            Due::Never(
+                "only the cycle's own result says so, so only tehas:finish finishes it".into()
+            )
+        );
+        assert!(matches!(rec("pr", "HTTP 503").due(1001), Due::Never(_)));
+        // A record written before the field reads as one the host did not see.
+        let mut v = seen("push", "HTTP 502").to_json();
+        v.as_object_mut().unwrap().remove("host");
+        assert!(!EndFault::from_json(&v).unwrap().host);
     }
 
     #[test]
