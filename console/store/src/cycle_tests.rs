@@ -1289,9 +1289,26 @@ fn a_refused_start_ends_the_row_with_no_history() {
     assert_eq!(v["already"], false);
     assert_eq!(v["cycle"]["ended_at"], NOW);
     assert_eq!(v["cycle"]["end_reason"], Value::Null);
+    // The refused start is ended like any cycle: no history, and the closing
+    // ending and heartbeat that `--refused` has written since #1748. Neither
+    // can hold a step: the start never ran, so no heartbeat came before it.
     assert_eq!(count(&home, "cycle_history"), 0);
-    assert_eq!(count(&home, "endings"), 0);
-    assert_eq!(count(&home, "heartbeats"), 0);
+    assert_eq!(count(&home, "endings"), 1);
+    assert_eq!(
+        one::<String>(
+            &home,
+            "SELECT status || ' ' || coalesce(step, '-') FROM endings"
+        ),
+        "refused -"
+    );
+    assert_eq!(
+        one::<String>(
+            &home,
+            "SELECT at || ' ' || running || ' ' || coalesce(status, '-')
+             FROM heartbeats WHERE issue = 65"
+        ),
+        format!("{NOW} 0 refused")
+    );
     assert_eq!(count(&home, "approvals WHERE used_by IS NOT NULL"), 1);
     drop(lock_file);
     // Refused needs the caller to hold the lock.
@@ -1317,7 +1334,26 @@ fn a_stopped_end_needs_a_free_lock() {
     let v = ok(&home, &["cycle-end", &n, "--attempt", &at, "--stopped"]);
     assert_eq!(v["cycle"]["end_reason"], "stopped");
     assert_eq!(count(&home, "cycle_history"), 0);
-    assert_eq!(count(&home, "endings"), 0);
+    // The closing rows of #1748: the end publish reads, and no step for a
+    // cycle that never sent a heartbeat to take one from. One heartbeat row is
+    // on record: `cycle-heartbeat` refuses a cycle whose end is, so the
+    // closing row is the only one this issue can have.
+    assert_eq!(count(&home, "endings"), 1);
+    assert_eq!(
+        one::<String>(
+            &home,
+            "SELECT status || ' ' || coalesce(step, '-') FROM endings"
+        ),
+        "stopped -"
+    );
+    assert_eq!(
+        one::<String>(
+            &home,
+            "SELECT at || ' ' || running || ' ' || coalesce(status, '-')
+             FROM heartbeats WHERE issue = 67"
+        ),
+        format!("{NOW} 0 stopped")
+    );
     // With the lock file already removed the issue cannot be told.
     let (l2, b) = start(&home, 68);
     drop(l2);
