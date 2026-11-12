@@ -118,7 +118,10 @@ starting cycles:
    kept seven days, and `store prune`, which also removes the history of issues
    whose cycle ended more than its window ago, each of them keeping its last row
    of each history. The window and what the rule keeps are under
-   [Backups and restore](/operating#backups-and-restore). All of it is one call,
+   [Backups and restore](/operating#backups-and-restore). The same call rolls
+   `logs/dispatch.log`, `logs/review-timer.log`, `logs/refresh.log` and
+   `state/github-writes.log` once one is over 64 MiB: copied to `<name>.1`,
+   which replaces the older copy, and then emptied. All of it is one call,
    `store upkeep`, and says one line per log removed and then
    `clean: store upkeep: <answer>`. A dry run names the logs and leaves the
    store alone.

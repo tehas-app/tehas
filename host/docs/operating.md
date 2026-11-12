@@ -1972,7 +1972,9 @@ removes what has not been used for `TEHAS_CLEAN_AFTER` hours, 24 by default:
   to take one away.
 - the logs of cycles, planning turns, index runs and the improvement loop's
   analyst in `~/tehas/logs` older than 7 days, whether or not the improvement
-  loop is on. Long-lived logs such as `dispatch.log` and `clean.log` stay.
+  loop is on. Long-lived logs such as `dispatch.log` and `clean.log` stay;
+  `dispatch.log`, `review-timer.log`, `refresh.log` and
+  `state/github-writes.log` are rolled to one `.1` copy past 64 MiB.
 - the state store's upkeep: a copy a day (see below), and rows past 90 days
   removed with `store prune --days 90`: cycle endings, settled actions of the
   journal, old heartbeats of cycles that have ended, and the cycle and plan
