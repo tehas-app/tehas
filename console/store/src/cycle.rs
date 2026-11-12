@@ -426,12 +426,15 @@ pub fn cycle_json(conn: &Connection, issue: i64) -> Result<String, Fail> {
         .optional()
         .q()?;
     pairs.push(("quiet", quiet.map_or("null".to_string(), |p| obj(&p))));
-    // The newest heartbeat since this attempt started: what the stuck rule
-    // reads.
+    // The newest heartbeat the cycle itself sent, before the closing row below:
+    // what the stuck rule and the poll's quiet rule read. An end that is on
+    // record is not a cycle still at work, so its closing heartbeat must not be
+    // the newest time the issue was heard from: the poll reads the newest
+    // heartbeat of the attempt, however it got there.
     let heard: Option<i64> = conn
         .query_row(
             "SELECT max(h.at) FROM heartbeats h JOIN cycles c ON c.issue = h.issue
-             WHERE h.issue = ?1 AND h.at >= c.started_at",
+             WHERE h.issue = ?1 AND h.at >= c.started_at AND h.running <> 0",
             [issue],
             |r| r.get(0),
         )
@@ -935,6 +938,14 @@ fn end_short(home: &Path, issue: i64, attempt: i64, end: &End, now: i64) -> Resu
         }
         let already = row.ended_at.is_some();
         if !already {
+            // The word of the ending and of the closing heartbeat: the one the
+            // cycle ended as, which is `stopped` for `--stopped` (as
+            // `cycles.end_reason` already says) and `refused` for `--refused`.
+            let word = if *end == End::Refused {
+                "refused"
+            } else {
+                "stopped"
+            };
             if *end == End::Refused {
                 locked(home, issue, true, 1)?;
                 c.execute(
@@ -950,6 +961,43 @@ fn end_short(home: &Path, issue: i64, attempt: i64, end: &End, now: i64) -> Resu
                 )
                 .q()?;
             }
+            // The end of `end_short` is an end like any other: publish reads
+            // the newest heartbeat of the attempt and the ten ends, and neither
+            // row was written here, so a stopped cycle was published as still
+            // running until it went quiet, and as lost from then on. The rows
+            // are the two `end_report` writes of the same, with the step, the
+            // notice and where the step is from the last heartbeat of this
+            // attempt: this end was asked for by the supervisor or by
+            // `tehas stop`, neither of which knows the step. The row comes
+            // from a select of its own rather than from the heartbeats, as the
+            // history row of the report does, so a cycle that never sent a
+            // heartbeat still gets its closing one.
+            c.execute(
+                "INSERT OR REPLACE INTO endings (issue, started_at, ended_at, status, step)
+                 VALUES (?1, ?2, ?3, ?4, NULL)",
+                params![issue, row.started_at, now, word],
+            )
+            .q()?;
+            c.execute(
+                "DELETE FROM endings WHERE rowid NOT IN
+                   (SELECT rowid FROM endings ORDER BY ended_at DESC, rowid DESC LIMIT 10)",
+                [],
+            )
+            .q()?;
+            c.execute(
+                "INSERT OR REPLACE INTO heartbeats (issue, at, running, step, status, text,
+                   step_number, step_total, round, round_limit, step_since)
+                 SELECT ?1, ?2, 0, e.step, ?4, l.text,
+                   s.step_number, s.step_total, s.round, s.round_limit, s.step_since
+                 FROM (SELECT (SELECT step FROM heartbeats WHERE issue = ?1 AND at >= ?5
+                               ORDER BY at DESC LIMIT 1) AS step) e
+                 LEFT JOIN (SELECT text FROM heartbeats WHERE issue = ?1 AND at >= ?5
+                            ORDER BY at DESC LIMIT 1) l ON 1
+                 LEFT JOIN (SELECT * FROM heartbeats WHERE issue = ?1 AND at >= ?5
+                            ORDER BY at DESC LIMIT 1) s ON s.step = e.step",
+                params![issue, now, word, word, row.started_at],
+            )
+            .q()?;
         }
         Ok(line(
             "cycle-end",
