@@ -1,6 +1,6 @@
 //! The files install.sh copies, and the stale ones it sweeps.
 //!
-//!   console update files [--check] [--no-steps <source>]... [--sync <name>]... <root> <host>
+//!   console update files [--check] [--no-steps <source>]... [--from <dir>] [--sync <name>]... <root> <host>
 //!   console update files write <path>
 //!
 //! The first form reads the file table on standard input, one `<source>|<path>|<mode>`
@@ -10,9 +10,13 @@
 //! mode does not is given the mode in place. Any other file is copied beside its
 //! path as `<path>.new` and renamed over it, so a cycle that starts meanwhile
 //! finds the old file or the new one, never a part of one. The old one is kept as
-//! `<path>.prev`. Each `--sync <name>` then copies every file of `<host>/<name>`
-//! into `$TEHAS_HOME/<name>` as 644 and removes what is there that the checkout no
-//! longer has.
+//! `<path>.prev`. Each `--sync <name>` then copies every file of the directory
+//! `<name>` stands in for into `$TEHAS_HOME/<name>` as 644 and removes what is
+//! there that the directory no longer has. The directory is `<host>/<name>`, or
+//! `<dir>/<name>` with `--from <dir>`, which is how install.sh installs the
+//! dashboard's pages from the stage `console update assets` made (see
+//! src/update/assets.rs): the sweep then takes back a hashed name of older
+//! content along with any page that went away.
 //!
 //! Before each copy the steps its source calls for go into the record of steps
 //! owed (src/update/steps.rs), so a run that dies partway still owes them. A
@@ -37,7 +41,7 @@ use tehas_core::file::{write_atomic, Temp};
 
 use super::{fault, say, steps, tell};
 
-const USAGE: &str = "console update files: usage: [--check] [--no-steps <source>]... [--sync <name>]... <root> <host> | write <path>";
+const USAGE: &str = "console update files: usage: [--check] [--no-steps <source>]... [--from <dir>] [--sync <name>]... <root> <host> | write <path>";
 
 /// One line of the file table.
 #[derive(Debug, PartialEq)]
@@ -81,6 +85,9 @@ impl Entry {
 struct Copier {
     root: PathBuf,
     host: PathBuf,
+    /// Where the directories of `--sync` are read from: the host, or the stage
+    /// install.sh made.
+    from: PathBuf,
     home: PathBuf,
     check: bool,
     no_steps: Vec<String>,
@@ -157,9 +164,11 @@ impl Copier {
         }
     }
 
-    /// Install one file if its content or its mode differs.
-    fn put(&mut self, e: &Entry) -> Result<(), String> {
-        let from = self.source_of(&e.src);
+    /// Install one file if its content or its mode differs. `source` is the
+    /// file copied: the checkout's for a line of the file table, and the stage's
+    /// for a file of a `--sync`.
+    fn put_from(&mut self, e: &Entry, source: &Path) -> Result<(), String> {
+        let from = source;
         if !from.is_file() {
             return Err(format!("{} is missing from this checkout", from.display()));
         }
@@ -167,7 +176,7 @@ impl Copier {
         // A symlink is judged by the file it points at.
         let there = fs::metadata(&e.to).ok().filter(|m| m.is_file());
         if let Some(meta) = &there {
-            if same_content(&from, &e.to) {
+            if same_content(from, &e.to) {
                 // 0644 and 644 are the same mode written two ways.
                 let on_disk = meta.permissions().mode() & 0o7777;
                 if on_disk == e.mode {
@@ -213,27 +222,31 @@ impl Copier {
         if there.is_some() {
             keep_prev(&e.to).map_err(|_| format!("could not keep {to} as {to}.prev"))?;
         }
-        let bytes = fs::read(&from).map_err(|_| format!("could not install {to}"))?;
+        let bytes = fs::read(from).map_err(|_| format!("could not install {to}"))?;
         write_atomic(&e.to, &bytes, e.mode, &Temp::Predictable)
             .map_err(|_| format!("could not install {to}"))?;
         self.say(format!("installed: {to}"));
         Ok(())
     }
 
-    /// host/<name>/* into $TEHAS_HOME/<name>/, and what is there that the
-    /// checkout no longer has taken away. Pages come and go.
+    /// `<from>/<name>`/* into $TEHAS_HOME/<name>/, and what is there that the
+    /// directory no longer has taken away. Pages come and go, and so does a
+    /// hashed name whose content changed.
     fn sync(&mut self, name: &str) -> Result<(), String> {
-        let from_dir = self.host.join(name);
+        let from_dir = self.from.join(name);
         let to_dir = self.home.join(name);
         let sources = names(&from_dir)
             .map_err(|_| format!("{} is missing from this checkout", from_dir.display()))?;
         for file in &sources {
-            self.put(&Entry {
-                src: format!("{name}/{file}"),
-                to: to_dir.join(file),
-                mode: 0o644,
-                mode_text: "644".to_string(),
-            })?;
+            self.put_from(
+                &Entry {
+                    src: format!("{name}/{file}"),
+                    to: to_dir.join(file),
+                    mode: 0o644,
+                    mode_text: "644".to_string(),
+                },
+                &from_dir.join(file),
+            )?;
         }
         if !to_dir.is_dir() {
             return Ok(());
@@ -281,7 +294,8 @@ impl Copier {
             .map(Entry::parse)
             .collect::<Result<Vec<_>, _>>()?;
         for e in &entries {
-            self.put(e)?;
+            let from = self.source_of(&e.src);
+            self.put_from(e, &from)?;
         }
         for name in syncs {
             self.sync(name)?;
@@ -316,20 +330,21 @@ pub fn verb(given: &[String]) -> u8 {
     let mut check = false;
     let mut no_steps = Vec::new();
     let mut syncs = Vec::new();
+    let mut from = None;
     let mut places = Vec::new();
     let mut words = given.iter();
     while let Some(word) = words.next() {
         match word.as_str() {
             "--check" => check = true,
-            "--no-steps" | "--sync" => {
+            "--no-steps" | "--sync" | "--from" => {
                 let Some(value) = words.next() else {
                     tell(USAGE);
                     return 64;
                 };
-                if word == "--sync" {
-                    syncs.push(value.clone());
-                } else {
-                    no_steps.push(value.clone());
+                match word.as_str() {
+                    "--sync" => syncs.push(value.clone()),
+                    "--from" => from = Some(PathBuf::from(value)),
+                    _ => no_steps.push(value.clone()),
                 }
             }
             w if w.starts_with("--") => {
@@ -355,6 +370,7 @@ pub fn verb(given: &[String]) -> u8 {
     let mut copier = Copier {
         root: PathBuf::from(root),
         host: PathBuf::from(host_dir),
+        from: from.unwrap_or_else(|| PathBuf::from(host_dir)),
         home: host.home,
         check,
         no_steps,
@@ -382,6 +398,7 @@ mod tests {
         Copier {
             root: d.0.join("root"),
             host: d.0.join("root/host"),
+            from: d.0.join("root/host"),
             home: d.0.join("home"),
             check,
             no_steps: Vec::new(),
@@ -595,5 +612,51 @@ mod tests {
         assert_eq!(fs::read_to_string(&to).unwrap(), "hi\n");
         assert_eq!(mode_of(&to), 0o644);
         assert_eq!(c.lines[0], "changed fun/index.html");
+    }
+
+    #[test]
+    fn a_sync_reads_the_stage_and_sweeps_what_only_the_stage_holds() {
+        // --from is how install.sh installs the dashboard's pages from the stage
+        // `console update assets` made: the stage's own file is the one that
+        // comes, and a hashed name the stage no longer has is stale.
+        let d = dir("files-from");
+        d.file("root/host/fun/index.html", "the checkout's page\n");
+        d.file("stage/fun/index.html", "the staged page\n");
+        d.file("stage/fun/panels.ab12cd34ef56.js", "// the panel\n");
+        let mut c = copier(&d, false);
+        c.from = d.0.join("stage");
+        c.run("", &["fun".to_string()]).unwrap();
+        assert_eq!(
+            fs::read_to_string(d.0.join("home/fun/index.html")).unwrap(),
+            "the staged page\n"
+        );
+        assert!(d.0.join("home/fun/panels.ab12cd34ef56.js").is_file());
+
+        // The content changed, so the stage names a different hash: the old one
+        // is named as stale and taken away with its .prev.
+        fs::write(d.0.join("home/fun/panels.ab12cd34ef56.js"), "// old\n").unwrap();
+        fs::write(
+            d.0.join("home/fun/panels.ab12cd34ef56.js.prev"),
+            "// older\n",
+        )
+        .unwrap();
+        fs::remove_file(d.0.join("stage/fun/panels.ab12cd34ef56.js")).unwrap();
+        d.file("stage/fun/panels.998877665544.js", "// new\n");
+        let mut c = copier(&d, true);
+        c.from = d.0.join("stage");
+        c.run("", &["fun".to_string()]).unwrap();
+        assert!(
+            c.lines
+                .iter()
+                .any(|l| l.starts_with("stale: ") && l.ends_with("panels.ab12cd34ef56.js")),
+            "{:?}",
+            c.lines
+        );
+        let mut c = copier(&d, false);
+        c.from = d.0.join("stage");
+        c.run("", &["fun".to_string()]).unwrap();
+        assert!(!d.0.join("home/fun/panels.ab12cd34ef56.js").exists());
+        assert!(!d.0.join("home/fun/panels.ab12cd34ef56.js.prev").exists());
+        assert!(d.0.join("home/fun/panels.998877665544.js").is_file());
     }
 }

@@ -552,10 +552,6 @@ pub fn run_poll(home: &Path, settings: &Settings, dry: bool) -> i32 {
         say("ERROR: could not open the dispatcher's lock");
         return 1;
     };
-    // A cycle that ended asked for a poll, and this is it.
-    if !dry {
-        let _ = std::fs::remove_file(state.join("dispatch.again"));
-    }
     let (taken, stuck) = (state.join("dispatch.taken"), state.join("dispatch.stuck"));
     if lock.try_lock().is_err() {
         if dry {
@@ -586,6 +582,12 @@ pub fn run_poll(home: &Path, settings: &Settings, dry: bool) -> i32 {
             }
         }
         return 0;
+    }
+    // A cycle that ended asked for a poll, and this is it: taken only now,
+    // once the lock is ours. A poll that found it held would drop the ask of
+    // the running one, and the freed slot would wait for the timer.
+    if !dry {
+        let _ = std::fs::remove_file(state.join("dispatch.again"));
     }
     if std::fs::write(&taken, format!("{}\n", tehas_core::time::now())).is_err() {
         say(&format!("WARN: could not write {}", taken.display()));
@@ -1325,5 +1327,57 @@ mod tests {
         let dir = home_of("epoch");
         status_at(&dir, 0);
         assert!(status_due(&dir, NOW));
+    }
+
+    /// A home that a poll of a test can run to its end: the store of the
+    /// install is there and its file is a plain one, so `store_ready` passes
+    /// and the poll reaches the reads that a case of the lock does not make.
+    fn poll_home(name: &str) -> tehas_core::testdir::TestDir {
+        use std::os::unix::fs::PermissionsExt;
+        let home = home_of(name);
+        std::fs::create_dir_all(home.join("libexec")).unwrap();
+        std::fs::create_dir_all(home.join("state")).unwrap();
+        let store = home.join("libexec/store");
+        std::fs::write(&store, "#!/bin/sh\nexit 0\n").unwrap();
+        std::fs::set_permissions(&store, std::fs::Permissions::from_mode(0o755)).unwrap();
+        std::fs::write(home.join("state/tehas.db"), "").unwrap();
+        home
+    }
+
+    /// A second open file of the dispatcher's lock, held: what `flock -n 7`
+    /// of the shell test does, so a poll of the test finds it held.
+    fn held_lock(home: &Path) -> File {
+        let held = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(home.join("state/dispatch.lock"))
+            .unwrap();
+        held.try_lock()
+            .expect("nothing else holds this home's lock");
+        held
+    }
+
+    #[test]
+    fn a_poll_that_finds_the_lock_held_leaves_the_ask_for_the_next_poll() {
+        let home = poll_home("again-held");
+        let again = home.join("state/dispatch.again");
+        std::fs::write(&again, "").unwrap();
+        let held = held_lock(&home);
+        assert_eq!(run_poll(&home, &Settings::parse(&json!({})), false), 0);
+        // A cycle ended while a poll ran and asked for another: the ask is
+        // the running poll's to take, and one that found the lock held must
+        // leave it for `tehas-dispatch.path` to start a poll when it ends.
+        assert!(again.exists(), "a busy poll dropped the ask");
+        drop(held);
+    }
+
+    #[test]
+    fn a_poll_that_takes_the_lock_takes_the_ask_with_it() {
+        let home = poll_home("again-taken");
+        let again = home.join("state/dispatch.again");
+        std::fs::write(&again, "").unwrap();
+        let _ = run_poll(&home, &Settings::parse(&json!({})), false);
+        // This poll is the one that was asked for, so the ask is gone.
+        assert!(!again.exists(), "the poll that ran left the ask");
     }
 }

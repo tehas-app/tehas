@@ -183,8 +183,12 @@ last review read. A record is trusted only when it holds a whole commit and
 that commit is one the branch still reaches; with no record there, or one that
 is unreadable, names no commit, or names a commit the branch no longer has, the
 run starts at the commit 7 days back, or at the root when the branch is younger
-than that, and says which of the two happened. When the record already names
-the tip, the run says there is nothing new and starts no container.
+than that, and says which of the two happened. A branch whose newest commit is
+older than 7 days has nothing new in the window: the run says there is nothing
+new and starts no container. The same answer comes when the record already
+names the tip. A git that cannot walk back to the commit 7 days back
+is said with what git said, and the run exits 2 and reviews nothing rather
+than reading from the root.
 
 What a review is for is the whole range, so a run that failed records nothing
 and the next run reads the same commits again. Only the exits that mean the

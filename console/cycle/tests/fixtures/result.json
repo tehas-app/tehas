@@ -80,7 +80,8 @@
       "url": "https://github.com/acme/widget/pull/9",
       "state": "MERGED",
       "body": "Fixes #7",
-      "headRefName": "feature/x"
+      "headRefName": "feature/x",
+      "createdAt": "2026-11-01T09:39:21Z"
      }
     ]
    }
@@ -347,7 +348,8 @@
       "url": "https://github.com/acme/widget/pull/9",
       "state": "OPEN",
       "body": "Fixes #7",
-      "headRefName": "feature/x"
+      "headRefName": "feature/x",
+      "createdAt": "2026-11-01T09:39:31Z"
      }
     ]
    },
@@ -497,7 +499,8 @@
       "url": "https://github.com/acme/widget/pull/9",
       "state": "MERGED",
       "body": "Fixes #9",
-      "headRefName": "feature/issue-9-other"
+      "headRefName": "feature/issue-9-other",
+      "createdAt": "2026-11-01T09:39:35Z"
      }
     ]
    },
@@ -643,7 +646,8 @@
       "url": "https://github.com/acme/widget/pull/9",
       "state": "OPEN",
       "body": "Fixes #9 and mentions #7",
-      "headRefName": "feature/issue-9-other"
+      "headRefName": "feature/issue-9-other",
+      "createdAt": "2026-11-01T09:39:41Z"
      }
     ]
    },
@@ -791,7 +795,8 @@
       "url": "https://github.com/acme/widget/pull/9",
       "state": "OPEN",
       "body": "No keyword here.",
-      "headRefName": "feature/issue-7-the-change"
+      "headRefName": "feature/issue-7-the-change",
+      "createdAt": "2026-11-01T09:39:46Z"
      }
     ],
     "attention": false
@@ -926,7 +931,8 @@
       "url": "https://github.com/acme/widget/pull/9",
       "state": "OPEN",
       "body": "Closes #70",
-      "headRefName": "feature/x"
+      "headRefName": "feature/x",
+      "createdAt": "2026-11-01T09:39:56Z"
      }
     ]
    },
@@ -1904,7 +1910,8 @@
       "url": "https://github.com/acme/widget/pull/9",
       "state": "MERGED",
       "body": "Fixes #7",
-      "headRefName": "feature/x"
+      "headRefName": "feature/x",
+      "createdAt": "2026-11-01T09:40:34Z"
      }
     ]
    }
@@ -2032,7 +2039,8 @@
       "url": "https://github.com/acme/widget/pull/9",
       "state": "CLOSED",
       "body": "Fixes #7",
-      "headRefName": "feature/x"
+      "headRefName": "feature/x",
+      "createdAt": "2026-11-01T09:40:39Z"
      }
     ]
    }
@@ -2159,13 +2167,15 @@
       "url": "https://github.com/acme/widget/pull/8",
       "state": "CLOSED",
       "body": "Fixes #7",
-      "headRefName": "feature/x"
+      "headRefName": "feature/x",
+      "createdAt": "2026-11-01T09:40:44Z"
      },
      {
       "url": "https://github.com/acme/widget/pull/9",
       "state": "OPEN",
       "body": "Fixes #7",
-      "headRefName": "feature/x"
+      "headRefName": "feature/x",
+      "createdAt": "2026-11-01T09:40:44Z"
      }
     ],
     "attention": false
@@ -2436,7 +2446,8 @@
       "url": "https://github.com/acme/widget/pull/9",
       "state": "OPEN",
       "body": "Fixes #7",
-      "headRefName": "feature/x"
+      "headRefName": "feature/x",
+      "createdAt": "2026-11-01T09:40:55Z"
      }
     ],
     "attention": false
@@ -2571,7 +2582,8 @@
       "url": "https://github.com/acme/widget/pull/9",
       "state": "OPEN",
       "body": "Fixes #7",
-      "headRefName": "feature/x"
+      "headRefName": "feature/x",
+      "createdAt": "2026-11-01T09:41:00Z"
      }
     ],
     "attention": false
@@ -2706,7 +2718,8 @@
       "url": "https://github.com/acme/widget/pull/9",
       "state": "MERGED",
       "body": "Fixes #7",
-      "headRefName": "feature/x"
+      "headRefName": "feature/x",
+      "createdAt": "2026-11-01T09:41:04Z"
      }
     ]
    }
@@ -3112,7 +3125,8 @@
       "url": "https://github.com/acme/widget/pull/9",
       "state": "MERGED",
       "body": "Fixes #7",
-      "headRefName": "feature/x"
+      "headRefName": "feature/x",
+      "createdAt": "2026-11-01T09:41:20Z"
      }
     ]
    }
@@ -3240,7 +3254,8 @@
       "url": "https://github.com/acme/widget/pull/9",
       "state": "MERGED",
       "body": "Fixes #7",
-      "headRefName": "feature/x"
+      "headRefName": "feature/x",
+      "createdAt": "2026-11-01T09:41:27Z"
      }
     ]
    }
@@ -3766,7 +3781,8 @@
       "url": "https://github.com/acme/widget/pull/9",
       "state": "MERGED",
       "body": "Fixes #7",
-      "headRefName": "feature/x"
+      "headRefName": "feature/x",
+      "createdAt": "2026-11-01T09:41:50Z"
      }
     ]
    }
@@ -3894,7 +3910,8 @@
       "url": "https://github.com/acme/widget/pull/9",
       "state": "MERGED",
       "body": "Fixes #7",
-      "headRefName": "feature/x"
+      "headRefName": "feature/x",
+      "createdAt": "2026-11-01T09:41:54Z"
      }
     ]
    }
@@ -4022,7 +4039,8 @@
       "url": "https://github.com/acme/widget/pull/9",
       "state": "MERGED",
       "body": "Fixes #7",
-      "headRefName": "feature/x"
+      "headRefName": "feature/x",
+      "createdAt": "2026-11-01T09:41:59Z"
      }
     ]
    }
