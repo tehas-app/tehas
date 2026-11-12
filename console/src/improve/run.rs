@@ -532,8 +532,7 @@ impl Loop {
             "--json",
             fields,
         ])?;
-        let kind = self.kind.as_deref().map(|t| (t, LABEL));
-        check::issues_of(repo, &[&open, &closed], kind)
+        check::issues_of(repo, &[&open, &closed], LABEL, self.kind.as_deref())
     }
 
     /// The records are moved out one by one and the window stays, so a cycle
