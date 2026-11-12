@@ -278,7 +278,10 @@ that path. This widens what a cycle is given, and it is off unless the
 instance sets it. The images are fetched before anything else is made:
 
 - **Which.** Links to GitHub's own attachment storage in the issue text.
-  Comments are read only with `TEHAS_WORK_COMMENTS=1`, and then only those an
+  A link ends before a part of its path that is `.` or `..`, or holds an
+  escaped `.`, `/` or `\`, so it never leaves the attachment folder. curl asks
+  for the path as written, and the bot's token goes only with a whole link of
+  an attachment folder on github.com. Comments are read only with `TEHAS_WORK_COMMENTS=1`, and then only those an
   allowed account wrote and nobody edited after the approval: see below. Only
   when an allowed account approved the start,
   which approves the text with its links, or when the issue was opened by an

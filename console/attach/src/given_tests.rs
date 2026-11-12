@@ -23,6 +23,54 @@ fn the_links_rule_is_the_one_of_the_dispatcher() {
 }
 
 #[test]
+fn a_link_ends_before_a_part_that_would_leave_the_folder() {
+    let cases = [
+        ("https://github.com/o/r/files/1/../../raw/main/a.json", None),
+        ("https://github.com/o/r/files/1/./a.json", None),
+        ("https://github.com/o/r/files/1/%2e%2e/raw/a.json", None),
+        ("https://github.com/o/r/files/1/.%2E/raw/a.json", None),
+        ("https://github.com/o/r/files/1/..?x=1", None),
+        ("https://github.com/o/../files/1/a.json", None),
+        ("https://github.com/./r/files/1/a.json", None),
+        (
+            "https://github.com/user-attachments/files/../../o/r/raw/a.json",
+            None,
+        ),
+        (
+            "https://github.com/user-attachments/files/1/../../o/r/raw/a.json",
+            Some("https://github.com/user-attachments/files/1"),
+        ),
+        (
+            "https://github.com/o/r/files/1/a/../../../raw/a.json",
+            Some("https://github.com/o/r/files/1/a"),
+        ),
+        (
+            "https://github.com/o/r/files/1/a%2f..%2fb.json",
+            Some("https://github.com/o/r/files/1/a"),
+        ),
+        (
+            "https://github.com/o/r/files/1/a%5c..%5cb.json",
+            Some("https://github.com/o/r/files/1/a"),
+        ),
+        ("https://user-images.githubusercontent.com/../x.png", None),
+    ];
+    for (text, found) in cases {
+        assert!(!is_link(text), "{text}");
+        let want: Vec<String> = found.into_iter().map(String::from).collect();
+        assert_eq!(text_links(text), want, "{text}");
+    }
+    for link in [
+        "https://github.com/o/r/files/1/.hidden.json",
+        "https://github.com/o/r/files/1/a..b/...c.json",
+        "https://github.com/o.r/r.s/files/1/a%20b.json?x=../y",
+        "https://github.com/user-attachments/assets/1",
+    ] {
+        assert!(is_link(link), "{link}");
+        assert_eq!(text_links(link), [link]);
+    }
+}
+
+#[test]
 fn a_list_of_more_than_a_hundred_keeps_a_hundred_and_counts_the_rest() {
     let mut rec = record();
     rec["links"] = (0..103)
