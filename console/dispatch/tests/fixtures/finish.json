@@ -289,7 +289,7 @@
    }
   },
   {
-   "case": "a poll that cannot read the bot's pull requests stops nothing and leaves the cycle holding its lock",
+   "case": "a poll that cannot read the bot's pull requests stops nothing for a pull request and goes on",
    "snapshot": {
     "running": [
      {
@@ -299,17 +299,145 @@
       "heard": 1793404795
      }
     ],
+    "issues": {
+     "9": {
+      "work": {
+       "number": 9,
+       "state": "open"
+      }
+     }
+    },
     "bot_prs": {
      "failed": true
     }
    },
    "expect": {
-    "exit": 1,
+    "exit": 0,
     "log": [
-     "ERROR: gh pr list failed"
+     "WARN: the bot's pull requests could not be read, so no cycle is stopped for its pull request this poll"
     ],
+    "log_count": {
+     "the bot's pull requests could not be read": 1
+    },
     "log_lacks": [
-     "stop #9"
+     "stop #9",
+     "ERROR"
+    ],
+    "nothing": true,
+    "picked": []
+   }
+  },
+  {
+   "case": "a poll whose bot's pull requests are not a list says the same WARN once and goes on",
+   "snapshot": {
+    "running": [
+     {
+      "issue": 9,
+      "how": "by-hand",
+      "took": 1793404795,
+      "heard": 1793404795
+     }
+    ],
+    "issues": {
+     "9": {
+      "work": {
+       "number": 9,
+       "state": "open"
+      }
+     }
+    },
+    "bot_prs": "no list"
+   },
+   "expect": {
+    "exit": 0,
+    "log": [
+     "WARN: the bot's pull requests could not be read, so no cycle is stopped for its pull request this poll"
+    ],
+    "log_count": {
+     "the bot's pull requests could not be read": 1
+    },
+    "log_lacks": [
+     "stop #9",
+     "ERROR"
+    ],
+    "nothing": true,
+    "picked": []
+   }
+  },
+  {
+   "case": "a poll that cannot read the bot's pull requests still stops a cycle whose issue is closed",
+   "snapshot": {
+    "running": [
+     {
+      "issue": 9,
+      "how": "by-hand",
+      "took": 1793404795,
+      "heard": 1793404795
+     }
+    ],
+    "issues": {
+     "9": {
+      "work": {
+       "number": 9,
+       "state": "closed"
+      }
+     }
+    },
+    "bot_prs": {
+     "failed": true
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "log": [
+     "WARN: the bot's pull requests could not be read, so no cycle is stopped for its pull request this poll",
+     "stop #9: its issue is closed"
+    ],
+    "actions": [
+     {
+      "stop_done": 9,
+      "why": "closed"
+     }
+    ],
+    "picked": [
+     7
+    ]
+   }
+  },
+  {
+   "case": "a poll that cannot read the bot's pull requests stops a cycle whose issue is closed and stops nothing for a pull request: a dry run",
+   "dry": true,
+   "snapshot": {
+    "running": [
+     {
+      "issue": 9,
+      "how": "by-hand",
+      "took": 1793404795,
+      "heard": 1793404795
+     }
+    ],
+    "issues": {
+     "9": {
+      "work": {
+       "number": 9,
+       "state": "closed"
+      }
+     }
+    },
+    "bot_prs": {
+     "failed": true
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "log": [
+     "would stop tehas-cycle@9.service: its issue is closed"
+    ],
+    "log_count": {
+     "the bot's pull requests could not be read": 1
+    },
+    "log_lacks": [
+     "merged"
     ],
     "nothing": true
    }

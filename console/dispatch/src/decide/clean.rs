@@ -157,25 +157,33 @@ impl Poll<'_> {
         }
     }
 
+    /// The bot's pull requests, or no list at all when it could not be read:
+    /// only the stops for a pull request need it, so a failed or unreadable
+    /// list is said once and the poll goes on, as a failed history of
+    /// refreshes is in `refreshing`. The words of the failed call are left out:
+    /// the poll says them at its end, and would say them twice here.
+    fn bot_prs(&mut self) -> Vec<Value> {
+        match &self.s.bot_prs {
+            None => {
+                self.need("bot_prs");
+                Vec::new()
+            }
+            Some(Value::Array(a)) => a.clone(),
+            Some(_) => {
+                self.log("WARN: the bot's pull requests could not be read, so no cycle is stopped for its pull request this poll".to_string());
+                Vec::new()
+            }
+        }
+    }
+
     /// A running cycle whose issue is closed, or whose pull request opened
     /// since it began is merged or closed, is stopped, and its slot is free.
+    /// With no list to read, only the stops for an issue are made.
     fn finished(&mut self, running: &[u64]) -> Step {
         if running.is_empty() {
             return Ok(());
         }
-        let prs = match &self.s.bot_prs {
-            None => {
-                self.need("bot_prs");
-                return Ok(());
-            }
-            Some(v) if v.get("failed") == Some(&json!(true)) => {
-                return Err(self.fail("ERROR: gh pr list failed", 1))
-            }
-            Some(Value::Array(a)) => a.clone(),
-            Some(_) => {
-                return Err(self.fail("ERROR: unreadable list of the bot's pull requests", 1))
-            }
-        };
+        let prs = self.bot_prs();
         let url_ok = Regex::new("^https://[A-Za-z0-9./_-]+$").unwrap();
         for &n in running {
             let took = self.cycle(n).took;
