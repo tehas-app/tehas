@@ -10,5 +10,5 @@
     "writableBytes": 1234567890, "blockWrittenBytes": 1200000000},
    {"issue": 1873, "container": "tehas-work-1873",
     "writableBytes": null, "blockWrittenBytes": 0,
-    "why": "writableBytes: docker inspect --size answered no size"}
+    "why": "writableBytes: docker inspect --size gave no size"}
  ]}}

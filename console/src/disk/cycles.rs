@@ -30,6 +30,16 @@ const WORD_MAX: usize = 32;
 /// works on. `<n>` is the issue, and nothing else of it.
 const CYCLE_PREFIX: &str = "tehas-work-";
 
+/// A figure the daemon printed that is no figure, with the reason `why` of
+/// the answer says. The words name the call and the column, so a person can
+/// tell a daemon that printed `-` from one that printed a unit it does not
+/// print, and does not have to guess which of the two a flat sentence meant.
+const NO_SIZE: &str = "docker inspect --size gave no size";
+/// Why the written half of `BlockIO` of one cycle is `null`: the words of the
+/// parse that refused the column, held by the reading so the answer prints the
+/// reason the figure was read and not one written where its result is printed.
+const NO_BLOCK: &str = "docker stats gave no block figure";
+
 /// What the daemon answers for the cycles of one host, before it is turned
 /// into the answer: the issue of each cycle in the order the daemon listed
 /// them, and what the two calls said of each.
@@ -39,7 +49,8 @@ pub struct CycleRead {
     /// `SizeRw` of each container, by issue. Absent when `inspect --size`
     /// could not be run at all, which is a reason of its own.
     pub writable: Option<Vec<Value>>,
-    /// Why the writable bytes of one issue are `null`, by issue.
+    /// Why the writable bytes of one issue are `null`, by issue: the reason
+    /// the word was no size, or the words the call gave when it made none.
     pub writable_why: Vec<(u64, String)>,
     /// The written half of `BlockIO` of each container, by issue. Absent when
     /// `stats --no-stream` could not be run at all.
@@ -59,9 +70,17 @@ pub fn container_name(issue: u64) -> String {
 pub fn cycle_issue(name: &str) -> Option<u64> {
     let digits = name.strip_prefix(CYCLE_PREFIX)?;
     // A whole number with no sign and no leading zero, as the cycle names it:
-    // a listing that prints `tehas-work-07` is not a cycle of issue 7.
+    // a listing that prints `tehas-work-07` is not a cycle of issue 7. Nine
+    // digits is the widest issue number this platform publishes anywhere a
+    // number crosses a boundary - `api/host-bridge.schema.json`, the park tool
+    // of `console/mcp/src/park.rs`, `tehas api`'s ticket notes - so a name of
+    // ten of them is no cycle of this factory: it is a container of something
+    // else sharing the daemon. The listing is taken from the daemon verbatim,
+    // so the bound is decided here, and one answer that broke it would fail
+    // the `container` pattern and the `issue` bound of
+    // `api/disk-cycles.schema.json`.
     let plain = !digits.is_empty()
-        && digits.len() <= 10
+        && digits.len() <= 9
         && digits != "0"
         && !digits.starts_with('0')
         && digits.bytes().all(|b| b.is_ascii_digit());
@@ -74,13 +93,18 @@ pub fn cycle_issue(name: &str) -> Option<u64> {
 /// The bytes of one figure Docker prints, or None when it is no size. Docker
 /// prints decimal units (`B`, `kB`, `MB`, `GB`, `TB`, `PB`) and a fraction, so
 /// `1.2GB` is 1 200 000 000 bytes and `512kB` is 512 000; the figure is
-/// rounded, which is what a byte count of a fraction means. The number and its
-/// unit may stand together (`1.2GB`, as `inspect --size` prints them) or
-/// divided by blanks (`3 TB`, as `stats` pads a column), and nothing else may
-/// stand between them. `SizeRw` carries no unit at all and is a count of
-/// bytes, so a bare number is bytes too. A word that is no number, or has a
-/// unit Docker does not print (`1.2GiB`), is None: a byte count is never
-/// guessed for a figure the daemon did not say.
+/// rounded to the nearest byte. The number and its unit may stand together
+/// (`1.2GB`, as `inspect --size` prints them) or divided by blanks (`3 TB`, as
+/// `stats` pads a column), and nothing else may stand between them. `SizeRw`
+/// carries no unit at all and is a count of bytes, so a bare number is bytes
+/// too. A word that is no number, or has a unit Docker does not print
+/// (`1.2GiB`), is None: a byte count is never guessed for a figure the daemon
+/// did not say. A figure above what 64 bits count is no figure either.
+///
+/// The scaling is done in whole numbers and not in a float: `4.4PB` is
+/// 4 400 000 000 000 000 bytes, and a float reading of the same word rounds
+/// one byte high, which is the kind of figure a person compares against a
+/// disk.
 pub fn docker_bytes(word: &str) -> Option<u64> {
     let word = word.trim();
     if word.is_empty() || word.len() > WORD_MAX {
@@ -115,30 +139,71 @@ pub fn docker_bytes(word: &str) -> Option<u64> {
     if !plain_number(whole) || part.is_some_and(|p| !plain_number(p)) {
         return None;
     }
-    let value: f64 = number.parse().ok().filter(|v: &f64| v.is_finite())?;
-    if value < 0.0 {
-        return None;
-    }
-    let multiplier = match unit {
+    // The unit says how many places the figure moves: Docker's units are all
+    // powers of a thousand, so the bytes of a figure are its digits shifted,
+    // which is what keeps `4.4PB` exact where a float is one byte out.
+    let power = match unit {
         // A bare number is already bytes, which is how `SizeRw` comes.
-        "" | "B" => 1.0,
-        "kB" => 1e3,
-        "MB" => 1e6,
-        "GB" => 1e9,
-        "TB" => 1e12,
-        "PB" => 1e15,
+        "" | "B" => 0,
+        "kB" => 3,
+        "MB" => 6,
+        "GB" => 9,
+        "TB" => 12,
+        "PB" => 15,
         _ => return None,
     };
-    Some((value * multiplier).round() as u64)
+    scale(whole, part, power)
 }
 
-/// A figure Docker prints for a size: a whole number that still fits a
-/// 64-bit one, with no sign and no leading zero, as `tehas_core::disk::figure`
-/// reads the figures of `df`. An empty half is refused here, and the caller
-/// passes it for a size with no fraction.
+/// The bytes of `whole.part` moved `power` decimal places, rounded to the
+/// nearest byte, or None when the figure is above what 64 bits count. Whole
+/// numbers of any width, so no figure the daemon prints is read through a
+/// float and comes back a byte away from what it said.
+fn scale(whole: &str, part: Option<&str>, power: u32) -> Option<u64> {
+    let max = u64::MAX as u128;
+    let unit = 10u128.checked_pow(power)?;
+    let mut bytes = whole.parse::<u128>().ok()?.checked_mul(unit)?;
+    if let Some(part) = part {
+        // The fraction contributes its digits over its own power of ten, and
+        // what is left of it decides the round: half or more goes up.
+        let places = 10u128.checked_pow(part.len() as u32)?;
+        let digits = part.parse::<u128>().ok()?;
+        let moved = digits.checked_mul(unit)?;
+        bytes = bytes.checked_add(moved / places)?;
+        if moved % places * 2 >= places {
+            bytes = bytes.checked_add(1)?;
+        }
+    }
+    (bytes <= max).then_some(bytes as u64)
+}
+
+/// `docker_bytes` and the reason a word of the daemon is no figure. `None`
+/// always carries one, because the reason is what `why` of the answer says:
+/// the words come of the reading that made the figure, not of a sentence
+/// written where its result is printed.
+pub fn docker_said(word: &str) -> (Option<u64>, Option<&'static str>) {
+    match docker_bytes(word) {
+        Some(bytes) => (Some(bytes), None),
+        None => (None, Some(NO_SIZE)),
+    }
+}
+
+/// `block_written` and the reason the figure is missing, in the same shape.
+pub fn block_said(said: &str) -> (Option<u64>, Option<&'static str>) {
+    match block_written(said) {
+        Some(bytes) => (Some(bytes), None),
+        None => (None, Some(NO_BLOCK)),
+    }
+}
+
+/// A figure Docker prints for a size: a whole number with no sign, no
+/// exponent and no leading zero, as `tehas_core::disk::figure` reads the
+/// figures of `df`. The length of the word is bounded once, by `WORD_MAX` at
+/// the entry of `docker_bytes`, and this is the test that decides a figure.
+/// An empty half is refused here, and the caller passes it for a size with no
+/// fraction.
 fn plain_number(word: &str) -> bool {
     !word.is_empty()
-        && word.len() <= 18
         && (word == "0" || (!word.starts_with('0') && word.bytes().all(|b| b.is_ascii_digit())))
 }
 
@@ -196,12 +261,19 @@ pub fn read(wait: Duration) -> Result<CycleRead, String> {
             let said: Vec<&str> = said.lines().collect();
             let mut per_container = Vec::new();
             for (i, issue) in issues.iter().enumerate() {
-                match said.get(i).map(|w| docker_bytes(w.trim())) {
-                    Some(Some(bytes)) => per_container.push(Value::from(bytes)),
-                    _ => {
+                match said.get(i) {
+                    Some(word) => match docker_said(word.trim()) {
+                        (Some(bytes), _) => per_container.push(Value::from(bytes)),
+                        (None, why) => {
+                            per_container.push(Value::Null);
+                            writable_why.push((*issue, why.unwrap_or(NO_SIZE).to_string()));
+                        }
+                    },
+                    // Fewer lines than containers: the daemon said nothing of
+                    // this one at all.
+                    None => {
                         per_container.push(Value::Null);
-                        writable_why
-                            .push((*issue, "docker inspect --size answered no size".into()));
+                        writable_why.push((*issue, NO_SIZE.to_string()));
                     }
                 }
             }
@@ -229,23 +301,28 @@ pub fn read(wait: Duration) -> Result<CycleRead, String> {
             // The daemon's own names, tab-separated, so a line is matched to a
             // container by its name and not by its place: `stats` lists the
             // containers it knows in its own order.
-            let mut of: Vec<(String, Option<u64>)> = Vec::new();
+            let mut of: Vec<(String, Option<u64>, Option<&'static str>)> = Vec::new();
             for line in said.lines() {
                 let mut cols = line.split('\t');
                 let name = cols.next().unwrap_or("").trim();
                 let Some(issue) = cycle_issue(name) else {
                     continue;
                 };
-                of.push((
-                    container_name(issue),
-                    block_written(cols.next().unwrap_or("")),
-                ));
+                let (bytes, why) = block_said(cols.next().unwrap_or(""));
+                of.push((container_name(issue), bytes, why));
             }
             let mut per_container = Vec::new();
             for issue in &issues {
                 let name = container_name(*issue);
-                match of.iter().find(|(n, _)| *n == name).and_then(|(_, b)| *b) {
-                    Some(bytes) => per_container.push(Value::from(bytes)),
+                match of.iter().find(|(n, _, _)| *n == name) {
+                    Some((_, Some(bytes), _)) => per_container.push(Value::from(*bytes)),
+                    // A line whose figure was no figure keeps the reason the
+                    // word gave; a container with no line at all is the daemon
+                    // having said nothing of it.
+                    Some((_, None, why)) => {
+                        per_container.push(Value::Null);
+                        written_why.push((*issue, why.unwrap_or(NO_BLOCK).to_string()));
+                    }
                     None => {
                         per_container.push(Value::Null);
                         written_why.push((*issue, "docker stats answered nothing for it".into()));
@@ -267,7 +344,9 @@ pub fn read(wait: Duration) -> Result<CycleRead, String> {
 
 /// The answer's `cycles`: `{state, list}` with one entry per cycle, or
 /// `{state, why}` when the daemon would not list them. The two figures of a
-/// cycle are paired by issue with the reasons the reading collected.
+/// cycle are paired by issue with the reasons the reading collected: every
+/// word of `why` is one the reading said where the figure was read, or one the
+/// call itself gave, and none is written here.
 pub fn value(read: Result<CycleRead, String>) -> Value {
     let Ok(read) = read else {
         let why = match read {
@@ -323,7 +402,7 @@ pub fn value(read: Result<CycleRead, String>) -> Value {
                     let of = |whys: &Map<String, Value>| {
                         whys.get(&key)
                             .and_then(Value::as_str)
-                            .unwrap_or("no reading")
+                            .unwrap_or(NO_BLOCK)
                             .to_string()
                     };
                     let reason = match (writable.is_null(), written.is_null()) {
@@ -393,26 +472,37 @@ mod tests {
     fn reading(names: &str, sizes: &str, stats: &str) -> CycleRead {
         let issues = listed(names);
         let sizes: Vec<&str> = sizes.lines().collect();
-        let writable: Vec<Value> = issues
-            .iter()
-            .enumerate()
-            .map(
-                |(i, _)| match sizes.get(i).map(|w| docker_bytes(w.trim())) {
-                    Some(Some(b)) => Value::from(b),
-                    _ => Value::Null,
+        let mut writable: Vec<Value> = Vec::new();
+        let mut writable_why = Vec::new();
+        for (i, issue) in issues.iter().enumerate() {
+            match sizes.get(i) {
+                Some(word) => match docker_said(word.trim()) {
+                    (Some(b), _) => writable.push(Value::from(b)),
+                    (None, why) => {
+                        writable.push(Value::Null);
+                        writable_why.push((*issue, why.unwrap_or(NO_SIZE).to_string()));
+                    }
                 },
-            )
-            .collect();
+                None => {
+                    writable.push(Value::Null);
+                    writable_why.push((*issue, NO_SIZE.to_string()));
+                }
+            }
+        }
         let mut written: Vec<Value> = Vec::new();
         let mut written_why = Vec::new();
         for issue in &issues {
             let name = container_name(*issue);
             let hit = stats.lines().find_map(|line| {
                 let mut cols = line.split('\t');
-                (cols.next()? == name).then(|| block_written(cols.next().unwrap_or("")))
+                (cols.next()? == name).then(|| block_said(cols.next().unwrap_or("")))
             });
-            match hit.flatten() {
-                Some(b) => written.push(Value::from(b)),
+            match hit {
+                Some((Some(b), _)) => written.push(Value::from(b)),
+                Some((None, why)) => {
+                    written.push(Value::Null);
+                    written_why.push((*issue, why.unwrap_or(NO_BLOCK).to_string()));
+                }
                 None => {
                     written.push(Value::Null);
                     written_why.push((*issue, "docker stats answered nothing for it".into()));
@@ -422,7 +512,7 @@ mod tests {
         CycleRead {
             issues,
             writable: Some(writable),
-            writable_why: Vec::new(),
+            writable_why,
             written: Some(written),
             written_why,
         }
@@ -436,6 +526,8 @@ mod tests {
         assert_eq!(docker_bytes("1.5MB"), Some(1_500_000));
         assert_eq!(docker_bytes(" 3 TB "), Some(3_000_000_000_000));
         assert_eq!(docker_bytes("9PB"), Some(9_000_000_000_000_000));
+        // A whole figure is exact at the petabyte, which f64 alone is not.
+        assert_eq!(docker_bytes("4.4PB"), Some(4_400_000_000_000_000));
         // `SizeRw` of `inspect --size` carries no unit: a bare number is bytes.
         assert_eq!(docker_bytes("1234567890"), Some(1_234_567_890));
         assert_eq!(docker_bytes("0"), Some(0));
@@ -449,12 +541,39 @@ mod tests {
         ] {
             assert_eq!(docker_bytes(word), None, "{word}");
         }
+        // A figure above what 64 bits count is no figure either: saturating it
+        // to the largest number there is would be read as a cycle that wrote
+        // the whole disk, which is the same lie as 0.
+        for word in ["18447PB", "2000000000000TB", "999999.999PB"] {
+            assert_eq!(docker_bytes(word), None, "{word}");
+        }
+        // Just below the ceiling: the bound is the figure and not the word,
+        // so a daemon that really printed 18 446 PB is read and not refused.
+        assert_eq!(docker_bytes("18446PB"), Some(18_446_000_000_000_000_000));
+    }
+
+    #[test]
+    fn a_word_that_is_no_figure_comes_back_with_the_reason_of_it() {
+        // Each figure that is missing says which of the two readings failed,
+        // so the answer can tell a `-` from a unit the daemon does not print.
+        assert_eq!(docker_said("1.2GB"), (Some(1_200_000_000), None));
+        assert_eq!(docker_said("-"), (None, Some(NO_SIZE)));
+        assert_eq!(docker_said("1.2GiB"), (None, Some(NO_SIZE)));
+        assert_eq!(docker_said("18447PB"), (None, Some(NO_SIZE)));
+        assert_eq!(block_said("1.2GB / 0B"), (Some(1_200_000_000), None));
+        assert_eq!(block_said("1.2GiB / 0B"), (None, Some(NO_BLOCK)));
+        assert_eq!(block_said("0B"), (None, Some(NO_BLOCK)));
     }
 
     #[test]
     fn a_container_name_names_its_issue_and_nothing_else() {
         assert_eq!(cycle_issue("tehas-work-5"), Some(5));
         assert_eq!(cycle_issue("tehas-work-1872"), Some(1872));
+        // The widest issue the platform publishes, and one past it: a name of
+        // ten digits is not a cycle, so the answer never prints an object its
+        // own schema in api/ refuses.
+        assert_eq!(cycle_issue("tehas-work-999999999"), Some(999_999_999));
+        assert_eq!(cycle_issue("tehas-work-1000000000"), None);
         assert_eq!(cycle_issue("tehas-work-07"), None);
         // The exact match: a name that only starts like a cycle is no cycle.
         assert_eq!(cycle_issue("tehas-work-51x"), None);
@@ -538,15 +657,57 @@ mod tests {
 
     #[test]
     fn both_figures_missing_says_both_and_keeps_each_reason() {
-        let mut read = reading("tehas-work-5\n", "-\n", "");
-        read.writable_why
-            .push((5, "docker inspect --size answered no size".into()));
+        // The second cycle has a stats line of its own whose column is no
+        // figure; the first has only a size that is one.
+        let read = reading(
+            "tehas-work-5\ntehas-work-6\n",
+            "-\n1GB\n",
+            "tehas-work-6\t1MB / 1MB\n",
+        );
         let answer = value(Ok(read));
         assert!(answer["list"][0]["writableBytes"].is_null());
         assert!(answer["list"][0]["blockWrittenBytes"].is_null());
         assert_eq!(
             answer["list"][0]["why"].as_str().unwrap_or_default(),
-            "writableBytes and blockWrittenBytes: docker inspect --size answered no size / docker stats answered nothing for it"
+            "writableBytes and blockWrittenBytes: docker inspect --size gave no size / docker stats answered nothing for it"
+        );
+        assert!(answer["list"][1].get("why").is_none());
+    }
+
+    #[test]
+    fn the_reason_names_the_reading_that_failed_and_not_just_that_one_is_missing() {
+        // A daemon that printed a unit it does not print and one that printed
+        // `-` are two problems; the words of `why` come of the parse that
+        // refused the word, so they differ, and each names its own column.
+        let size = value(Ok(reading(
+            "tehas-work-5\n",
+            "1.2GiB\n",
+            "tehas-work-5\t5MB / 1MB\n",
+        )));
+        assert_eq!(
+            size["list"][0]["why"].as_str().unwrap_or_default(),
+            "writableBytes: docker inspect --size gave no size"
+        );
+        let block = value(Ok(reading(
+            "tehas-work-5\n",
+            "5GB\n",
+            "tehas-work-5\t5MiB / 1MB\n",
+        )));
+        // The line is there and the column of it is no figure, which is a
+        // different answer from the daemon not naming the container at all:
+        // the first says the word was wrong, the second that it was missing.
+        assert_eq!(
+            block["list"][0]["why"].as_str().unwrap_or_default(),
+            "blockWrittenBytes: docker stats gave no block figure"
+        );
+        let absent = value(Ok(reading(
+            "tehas-work-5\n",
+            "5GB\n",
+            "tehas-dev-a\t5MB / 1MB\n",
+        )));
+        assert_eq!(
+            absent["list"][0]["why"].as_str().unwrap_or_default(),
+            "blockWrittenBytes: docker stats answered nothing for it"
         );
     }
 

@@ -229,7 +229,7 @@ t_eq "$t_rc" 0
 t_eq "$(jq -r '.cycles.list[0].writableBytes | type' <<<"$t_out")" null
 t_eq "$(jq -r '.cycles.list[0].blockWrittenBytes | type' <<<"$t_out")" null
 t_eq "$(jq -r '.cycles.list[0].why' <<<"$t_out")" \
-  'writableBytes and blockWrittenBytes: docker inspect --size answered no size / docker stats answered nothing for it'
+  'writableBytes and blockWrittenBytes: docker inspect --size gave no size / docker stats answered nothing for it'
 jq . <<<"$t_out" >"$T/cycles-null.json"
 t_eq "$(jq -r --slurpfile schema "$T_ROOT/api/disk-cycles.schema.json" \
   -f "$T_ROOT/test/schema.jq" "$T/cycles-null.json")" ""
@@ -315,6 +315,52 @@ t_eq "$(jq -r --slurpfile schema "$T_ROOT/api/disk-cycles.schema.json" \
 # And the schema says the four keys the contract is judged on.
 t_eq "$(jq -r '.required | sort | @json' "$T_ROOT/api/disk-cycles.schema.json")" \
   '["api","cycles","filesystems","generatedAt"]'
+
+# The two keys this schema shares with the plain disk answer, `filesystems` and
+# `full`, are restated here because api/ has no $ref: they are a copy, and a
+# copy is only honest while it still names what the command prints. The
+# reading below is the one that prints everything the command knows how to
+# print - `--full` for the places and the docker figure, `--publish` for the
+# stopped containers, and a df that answers nothing so the entry carries its
+# `why` - so a key the code gained and the copy does not name is refused here.
+t_case "the shared part of the schema names every key the disk answer can print"
+t_disk || t_skip "no console: $t_console_why"
+t_df
+# One file system with no figure: the answer for it is an entry with a `why`
+# and nothing else, which is the key a plain reading never prints.
+DF_RC=1 t_run "DF_RC=1 $disk --full --cycles --publish --json"
+t_eq "$t_rc" 0
+{
+  jq . <<<"$t_out"
+  [ -e "$th/live/disk.json" ] && jq . "$th/live/disk.json"
+} >"$T/disk-shapes.json"
+t_eq "$(jq -sr 'length' "$T/disk-shapes.json")" 2
+for key in filesystems full; do
+  printed=$(jq -r ".[\"$key\"] | if type == \"array\" then .[] else . end | keys_unsorted[]" \
+    "$T/disk-shapes.json" | sort -u)
+  declared=$(jq -r ".properties[\"$key\"] | (.items.properties // .properties) | keys_unsorted[]" \
+    "$T_ROOT/api/disk-cycles.schema.json" | sort -u)
+  extra=$(comm -23 <(printf '%s\n' "$printed") <(printf '%s\n' "$declared"))
+  [ -z "$extra" ] || t_bad "$key: the answer prints $(printf '%s' "$extra" | tr '\n' ' ') that the schema does not know"
+done
+
+# A name the daemon did not make for a cycle of this factory is no cycle: the
+# widest issue the platform publishes is nine digits, and a container named
+# past that is something else sharing the daemon. Reading it as a cycle would
+# print an answer its own published schema refuses.
+t_case "--cycles passes over a container named past the widest issue"
+reset
+t_df
+mkdir -p "$T/fx"
+printf '%s\n' tehas-work-1000000000 tehas-work-1872 >"$T/fx/ps"
+printf '%s\n' 1000000000 2000000000 >"$T/fx/inspect"
+printf '%s\n' 'tehas-work-1872	1.2GB / 0B' 'tehas-work-1000000000	1MB / 1MB' >"$T/fx/stats"
+t_run "$disk --cycles --json"
+t_eq "$t_rc" 0
+t_eq "$(jq -r '[.cycles.list[].container] | @json' <<<"$t_out")" '["tehas-work-1872"]'
+jq . <<<"$t_out" >"$T/cycles-wide.json"
+t_eq "$(jq -r --slurpfile schema "$T_ROOT/api/disk-cycles.schema.json" \
+  -f "$T_ROOT/test/schema.jq" "$T/cycles-wide.json")" ""
 
 # The refusals of the run: the settings are read by the console, so settings
 # that are malformed stop the run before the host is asked anything, and a

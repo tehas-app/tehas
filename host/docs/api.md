@@ -870,23 +870,27 @@ of the disk.
     "writableBytes": 1234567890, "blockWrittenBytes": 1200000000},
    {"issue": 1873, "container": "tehas-work-1873",
     "writableBytes": null, "blockWrittenBytes": 0,
-    "why": "writableBytes: docker inspect --size answered no size"}
+    "why": "writableBytes: docker inspect --size gave no size"}
 ]}}
 ```
 
 One entry per container the daemon lists under the name a cycle's container
 has: `tehas-work-<n>`, where `<n>` is the issue the cycle works on. The name
 is matched exactly, so `tehas-work-51x` and a dev container are no cycle, and
-a paused container counts as a running one. `writableBytes` is the size of the
-container's writable layer and `blockWrittenBytes` the bytes its block device
-has written. A host with no cycle running has `"list": []`; when the daemon
-would not answer the listing at all the object is
-`{"state": "unreadable", "why": "..."}` and has no `list`.
+a paused container counts as a running one. The name carries at most nine
+digits, the widest issue this platform publishes an issue number as, so a
+container of something else that shares the host's daemon is not read as a
+cycle. `writableBytes` is the size of the container's writable layer and
+`blockWrittenBytes` the bytes its block device has written. A host with no
+cycle running has `"list": []`; when the daemon would not answer the listing at
+all the object is `{"state": "unreadable", "why": "..."}` and has no `list`.
 
 The same rule as every other figure here: one that could not be read is `null`
 with `why` naming which figure and why, never `0`. A cycle that wrote nothing
 and a cycle the daemon would not speak of are two different facts, and 0 would
-be read as the first of them.
+be read as the first of them. The reason comes of the reading that failed: a
+size the daemon printed as no size, a `BlockIO` column that was no figure, or
+the words the call gave when it made no answer at all.
 
 The figures are read by three calls made once for the whole host, not once per
 container: the listing, one `docker inspect --size` for `SizeRw`, and one
@@ -894,8 +898,11 @@ container: the listing, one `docker inspect --size` for `SizeRw`, and one
 by `TEHAS_DISK_WAIT` as every other call of this command is. Docker prints
 those sizes in decimal units - `kB`, `MB`, `GB` - so `blockWrittenBytes` and
 `writableBytes` are the figure it printed, rounded to bytes: `1.2GB` is
-1 200 000 000 bytes, not 1 288 490 188. A figure in a unit Docker does not
-print is no figure, with a reason.
+1 200 000 000 bytes, not 1 288 490 188. The rounding is done in whole numbers,
+so a figure with no fraction such as `4.4PB` is the exact 4 400 000 000 000
+000 bytes. A figure in a unit Docker does not print is no figure, with a
+reason, and so is one too large to count in 64 bits: no reading is `null`,
+never the largest number there is.
 
 The object `tehas disk --cycles --json` prints is `api/disk-cycles.schema.json`
 in the source, and `api/disk-cycles.sample.json` is a sample of it. The
