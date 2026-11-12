@@ -424,15 +424,44 @@ fn finish(
         Some(sha) => sha,
         None => return Err(Why::new("the merge commit is not a commit")),
     };
-    // The merge commit is two parents; what it changed is what it wrote over
-    // the pull request's head, which is exactly the files that conflicted plus
-    // the lockfiles written again. Anything else it touched is a file nobody
-    // asked it to touch, and this is not the place to decide what to do with
-    // one. `HEAD^1` is the pull request's head, `HEAD^2` the branch's commit.
+    // What the merge itself wrote is what its commit differs from in both
+    // parents: the files that conflicted plus the lockfiles written again. A
+    // plain `diff <head> <sha>` also lists every file the branch changed since
+    // the merge base and git merged them clean, which is most merges, so the
+    // read is `diff-tree --cc`: the combined form of git's own, which omits a
+    // file the commit took from one parent. Its answer leads with the commit's
+    // own id, which is not a path and so is dropped here. Anything the rest
+    // names that nobody asked for is an outsider, and this is not the place to
+    // decide what to do with one.
+    //
+    // `-c core.quotepath=false` is part of the read, not decoration: by
+    // default git spells a name with bytes above 0x7F as `"docs/\344\270\255"`,
+    // and that string is not a path the merge holds. Quoted, a name is neither
+    // the conflict `is_path` compares with nor a name `rule_of` knows (its last
+    // part gains a closing quote), so a host that quotes would refuse a merge
+    // over a file the merge itself wrote. A tree holds one path per name, so
+    // the answer cannot name one file twice, quoted and plain.
     let changed = plan
-        .git_of(r, &["diff", "--name-only", &format!("{sha}^1"), &sha])
+        .git_of(
+            r,
+            &[
+                "-c",
+                "core.quotepath=false",
+                "diff-tree",
+                "--cc",
+                "--name-only",
+                &sha,
+            ],
+        )
         .let_say("what the merge changed could not be read")?;
-    let changed: Vec<String> = changed.lines().map(|l| l.trim().to_string()).collect();
+    let changed: Vec<String> = changed
+        .lines()
+        .map(str::trim)
+        // git's own line, which opens the answer and holds no path.
+        .filter(|l| *l != sha)
+        .filter(|l| !l.is_empty())
+        .map(str::to_string)
+        .collect();
     let outsiders: Vec<String> = changed
         .iter()
         .filter(|f| !is_path(conflicts, f) && rule_of(f).is_none())
@@ -635,5 +664,7 @@ fn commit(plan: &mut Plan, r: &mut dyn Runner) -> Result<(), Why> {
     Ok(())
 }
 
+#[cfg(test)]
+mod stubs;
 #[cfg(test)]
 mod tests;
