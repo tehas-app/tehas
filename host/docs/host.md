@@ -710,10 +710,10 @@ JSON answer:
 
 - When there is no `state/tehas.db`, it runs `store init`.
 - Otherwise it runs `store migrate --backup ~/tehas/state/backup`. The store
-  first copies the database into `state/backup/tehas-<version>-<time>.db`, mode
+  first copies the database into `state/backup/tehas-<schema>-<time>.db`, mode
   600, with SQLite's `VACUUM INTO`, and then brings the schema forward. It
   never replaces a file: when that name is taken, as by an install in the same
-  second, the copy is `tehas-<version>-<time>-1.db`, and so on to `-99`. A copy
+  second, the copy is `tehas-<schema>-<time>-1.db`, and so on to `-99`. A copy
   that cannot be made changes nothing. A database already at the version the
   store writes is still copied, so every install leaves one copy. Nothing
   removes old copies yet; remove them by hand when there are too many. A
@@ -793,27 +793,17 @@ sqlite3 ~/tehas/state/tehas.db "VACUUM INTO '/path/to/tehas-copy.db'"
 
 Keep the copy mode 600: it holds what the database holds.
 
-**Restoring it.** Pause the factory and let running cycles end, so nothing
-writes the database while it is replaced. Then put the copy in place, remove
-the old database's `-wal` and `-shm`, and run the install again, which migrates
-the copy to the schema of the installed store:
-
-```
-tehas pause
-cp ~/tehas/state/backup/tehas-<version>-<time>.db ~/tehas/state/tehas.db.new
-chmod 600 ~/tehas/state/tehas.db.new
-rm -f ~/tehas/state/tehas.db-wal ~/tehas/state/tehas.db-shm
-mv ~/tehas/state/tehas.db.new ~/tehas/state/tehas.db
-./install.sh            # or ~/tehas/current/install.sh on a host on releases
-tehas state check
-tehas resume
-```
-
-After going back to an older release, the install stops with `future` when the
-newer release had migrated the database. Restore the copy that migration made
-first: a migration that changes the schema leaves the database as it was under
-two names, `tehas-<old>-<time>.db` and `tehas-<new>-<time>.db`, and either is
-the one to restore.
+**Restoring it.** This page has no restore steps of its own: use
+[Backups and restore](/operating#backups-and-restore). It drains the factory,
+stops every unit that reads or writes the store, puts the copy in place, runs
+`tehas state check` and starts the units again. The units are stopped rather
+than the factory paused: a paused poll still writes the store, and one unit
+left running keeps the old file open and goes on writing to it. The copy is a
+daily one, `tehas-<YYYYMMDD>.db`, or one of the migration copies named above:
+a migration that changes the schema leaves the database as it was under the
+schema it came with and the one it went to, `tehas-<old>-<time>.db` and
+`tehas-<new>-<time>.db`, and a restore after going back to an older release
+needs one of those first, or the install stops with `future`.
 
 ## Models
 
