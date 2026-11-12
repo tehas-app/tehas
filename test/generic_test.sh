@@ -328,6 +328,15 @@ t_run "$lint"
 t_eq "$t_rc" 1
 t_contains "$t_out" "docs/a\\nb:1:see $nm"
 
+t_case "a link is not read: one to the names list does not print the list"
+fresh
+printf '%s\n' "$nm" "zqxwv" >"$repo/scripts/check-generic.names"
+ln -s ../scripts/check-generic.names "$repo/docs/list"
+t_run "$lint"
+t_eq "$t_rc" 0
+t_lacks "$t_out" "docs/list:"
+t_lacks "$t_out" "zqxwv"
+
 t_case "the list of names is ignored by git in this repository"
 t_eq "$(git -C "$T_ROOT" check-ignore -q scripts/check-generic.names && echo ignored)" ignored
 

@@ -5,9 +5,9 @@
 # the tools it downloads at the pinned versions of host/versions.env, and for
 # the advisory scan, which sends the name and version of each package of those
 # lockfiles to the OSV database and nothing else. The one secret it may use
-# is GENERIC_NAMES, the private list of names for scripts/check-generic.sh; a
-# run without it checks addresses only and says so. A pull request from a fork
-# does not run this job at all.
+# is GENERIC_NAMES, the private list of names for scripts/check-generic.sh,
+# and only the names job sees it; a run without it says so. A pull request
+# from a fork does not run these jobs at all.
 name: verify
 on:
   pull_request:
@@ -34,6 +34,10 @@ jobs:
     if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ${{ startsWith(github.event.pull_request.title, 'Express Lane') && fromJSON('["self-hosted", "speedlane"]') || fromJSON('["self-hosted", "tehas"]') }}
     timeout-minutes: 30
+    # The runners keep their checkout between jobs, and a pull request's code
+    # runs on them: a pass kept there by one run is not trusted by another.
+    env:
+      TEHAS_VERIFY_FRESH: 1
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -85,16 +89,6 @@ jobs:
           chmod 755 "$RUNNER_TEMP/jq/jq"
           echo "$RUNNER_TEMP/jq" >> "$GITHUB_PATH"
           test "$("$RUNNER_TEMP/jq/jq" --version)" = "jq-$JQ_VERSION"
-      - name: names list for scripts/check-generic.sh
-        env:
-          GENERIC_NAMES: ${{ secrets.GENERIC_NAMES }}
-        run: |
-          if [ -n "$GENERIC_NAMES" ]; then
-            printf '%s\n' "$GENERIC_NAMES" > scripts/check-generic.names
-          fi
-      - name: names in commit messages and the branch
-        if: github.event_name == 'pull_request'
-        run: scripts/check-generic.sh --messages "origin/$GITHUB_BASE_REF..HEAD"
       - name: the cargo build kept between runs
         run: |
           # The checkout's git clean removes console/target, so it lives outside
@@ -105,6 +99,37 @@ jobs:
           echo "CARGO_TARGET_DIR=$dir" >> "$GITHUB_ENV"
       - name: scripts/verify.sh
         run: scripts/verify.sh
-      - name: remove the names list
-        if: always()
-        run: rm -f scripts/check-generic.names
+  names:
+    # The private list of names, on a hosted runner that is gone after the job.
+    # It is never written on our runners, which run a pull request's code. On a
+    # pull request the lint is the base branch's, so no code of the pull
+    # request runs while the list is here: the files are read as data.
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: the lint of the base branch
+        if: github.event_name == 'pull_request'
+        run: |
+          rm -f scripts/check-generic.sh
+          git show "origin/$GITHUB_BASE_REF:scripts/check-generic.sh" > scripts/check-generic.sh
+      - name: names in the files, the commit messages and the branch
+        env:
+          GENERIC_NAMES: ${{ secrets.GENERIC_NAMES }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          if [ -z "$GENERIC_NAMES" ]; then
+            echo "no GENERIC_NAMES secret: names not checked"
+            exit 0
+          fi
+          # Written to a plain file in a plain directory, never through a link.
+          [ -d scripts ] && [ ! -L scripts ] || { echo "scripts is not a directory" >&2; exit 1; }
+          rm -f scripts/check-generic.names
+          printf '%s\n' "$GENERIC_NAMES" > scripts/check-generic.names
+          args=(--names-only)
+          [ "$EVENT" != pull_request ] || args+=(--messages "origin/$GITHUB_BASE_REF..HEAD")
+          bash scripts/check-generic.sh "${args[@]}"
