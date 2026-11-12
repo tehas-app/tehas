@@ -111,7 +111,7 @@ tehas api [--json]
   "tehas": "v0.8.0",
   "commit": "cb6912a",
   "repo": "tehas-app/tehas",
-  "features": ["status", "millwright-grant", "fixer-grant", "all-hands", "limit", "drain", "history", "export", "refresh-conflicts", "analytics", "state-move", "pr-title", "mcp-dashboard-keys", "clean", "disk", "panels", "state-check", "finish", "status-versions", "store-copy", "state-load", "freeze", "host-bridge", "host-bridge-tokens"],
+  "features": ["status", "millwright-grant", "fixer-grant", "all-hands", "limit", "drain", "history", "export", "refresh-conflicts", "analytics", "state-move", "pr-title", "mcp-dashboard-keys", "clean", "disk", "panels", "state-check", "finish", "status-versions", "store-copy", "state-load", "freeze", "host-bridge", "host-bridge-tokens", "cycle-writes"],
   "millwright": null,
   "fixer": null,
   "poll": {
@@ -136,7 +136,7 @@ tehas api [--json]
 | `tehas` | The release tag the factory was installed from: `v0.10.2` for a release install, `v0.8.0` for a checkout one. `null` when the install came from a checkout with no tag, or not from a git checkout |
 | `commit` | The commit it was installed from, seven characters; `null` for a release install, which records only the tag, and when not from a git checkout |
 | `repo` | `TEHAS_REPO`, the product repository |
-| `features` | What this release has, so a program can tell a factory that predates a feature from one where it failed. Today `status`, `millwright-grant` ([the millwright's grant](/operating#the-millwrights-grant)), `fixer-grant`, `all-hands`, `limit`, `drain`, `history` ([`tehas history`](#tehas-history)), `export` ([`tehas export`](#tehas-export)), `refresh-conflicts` (the factory refreshes its own pull requests that conflict, [refreshes](/operating#refreshes)), `analytics` ([`tehas analytics export --json`](#tehas-analytics-export)), `state-move` ([`tehas state`](#tehas-state)), `pr-title` (the factory keeps the `WIP: ` and `HALT: ` prefixes of its pull requests itself, [pull request titles](/tools-dispatch#pull-request-titles)), `mcp-dashboard-keys` (the read-only MCP server answers a key of `TEHAS_MCP_DASHBOARD_KEYS` with only the four tools that copy from `live/`, [the MCP server](/mcp-server)), `clean` ([`tehasbot clean`](#tehasbot-clean)), `disk` ([`tehas disk`](#tehas-disk)), `panels` ([`tehas panel`](#tehas-panel)), `state-check` ([`tehas state check`](#tehas-state-check)), `finish` ([the finish ask](#the-finish-ask)), `status-versions` (`versions` in [`tehas status --json`](#tehas-status---json)) `store-copy` ([`tehas state copy`](#tehas-state-copy)), `state-load` ([`tehas state load`](#tehas-state-load)), `freeze` ([`tehas freeze` and `tehas thaw`](#tehas-freeze-and-tehas-thaw)) `host-bridge` ([the host bridge](#the-host-bridge)) and `host-bridge-tokens` (the dashboard draws `tokens` of [the host bridge](#the-host-bridge)) |
+| `features` | What this release has, so a program can tell a factory that predates a feature from one where it failed. Today `status`, `millwright-grant` ([the millwright's grant](/operating#the-millwrights-grant)), `fixer-grant`, `all-hands`, `limit`, `drain`, `history` ([`tehas history`](#tehas-history)), `export` ([`tehas export`](#tehas-export)), `refresh-conflicts` (the factory refreshes its own pull requests that conflict, [refreshes](/operating#refreshes)), `analytics` ([`tehas analytics export --json`](#tehas-analytics-export)), `state-move` ([`tehas state`](#tehas-state)), `pr-title` (the factory keeps the `WIP: ` and `HALT: ` prefixes of its pull requests itself, [pull request titles](/tools-dispatch#pull-request-titles)), `mcp-dashboard-keys` (the read-only MCP server answers a key of `TEHAS_MCP_DASHBOARD_KEYS` with only the four tools that copy from `live/`, [the MCP server](/mcp-server)), `clean` ([`tehasbot clean`](#tehasbot-clean)), `disk` ([`tehas disk`](#tehas-disk)), `panels` ([`tehas panel`](#tehas-panel)), `state-check` ([`tehas state check`](#tehas-state-check)), `finish` ([the finish ask](#the-finish-ask)), `status-versions` (`versions` in [`tehas status --json`](#tehas-status---json)) `store-copy` ([`tehas state copy`](#tehas-state-copy)), `state-load` ([`tehas state load`](#tehas-state-load)), `freeze` ([`tehas freeze` and `tehas thaw`](#tehas-freeze-and-tehas-thaw)) `host-bridge` ([the host bridge](#the-host-bridge)), `host-bridge-tokens` (the dashboard draws `tokens` of [the host bridge](#the-host-bridge)) and `cycle-writes` ([`tehas disk --cycles`](#tehas-disk) names what each running cycle writes) |
 | `millwright` | The app's login, or `null` before it is known |
 | `fixer` | The same as `millwright`. It and the feature `fixer-grant` are the old names, kept for as long as API version 1; a program reads `millwright` and `millwright-grant` |
 | `poll` | What the polls of this factory cost, or `null` when no poll is on record or the state store cannot answer. `last` is the poll that most recently held the dispatcher's lock and `hour` is the sums of the polls that ended in the last hour; both are in the fields below, so a program that keeps a copy of them can add the cost of many hosts up. See [What a poll costs](/operating#what-a-poll-costs) for what each figure counts |
@@ -818,7 +818,7 @@ beside the command, before any Docker, find or rm call.
 ## tehas disk
 
 ```
-tehas disk [--full] [--json] [--publish]
+tehas disk [--full] [--cycles] [--json] [--publish]
 ```
 
 ```json
@@ -862,6 +862,46 @@ the daemon printed it, `state` `read`, `none` or `unreadable`.
 and belong to the published file alone: they are a question of the daemon, not
 of the disk.
 
+`--cycles` adds `cycles`: what each running cycle writes.
+
+```json
+{"cycles": {"state": "read", "list": [
+   {"issue": 1872, "container": "tehas-work-1872",
+    "writableBytes": 1234567890, "blockWrittenBytes": 1200000000},
+   {"issue": 1873, "container": "tehas-work-1873",
+    "writableBytes": null, "blockWrittenBytes": 0,
+    "why": "writableBytes: docker inspect --size answered no size"}
+]}}
+```
+
+One entry per container the daemon lists under the name a cycle's container
+has: `tehas-work-<n>`, where `<n>` is the issue the cycle works on. The name
+is matched exactly, so `tehas-work-51x` and a dev container are no cycle, and
+a paused container counts as a running one. `writableBytes` is the size of the
+container's writable layer and `blockWrittenBytes` the bytes its block device
+has written. A host with no cycle running has `"list": []`; when the daemon
+would not answer the listing at all the object is
+`{"state": "unreadable", "why": "..."}` and has no `list`.
+
+The same rule as every other figure here: one that could not be read is `null`
+with `why` naming which figure and why, never `0`. A cycle that wrote nothing
+and a cycle the daemon would not speak of are two different facts, and 0 would
+be read as the first of them.
+
+The figures are read by three calls made once for the whole host, not once per
+container: the listing, one `docker inspect --size` for `SizeRw`, and one
+`docker stats --no-stream` for the written half of `BlockIO`. Each is bounded
+by `TEHAS_DISK_WAIT` as every other call of this command is. Docker prints
+those sizes in decimal units - `kB`, `MB`, `GB` - so `blockWrittenBytes` and
+`writableBytes` are the figure it printed, rounded to bytes: `1.2GB` is
+1 200 000 000 bytes, not 1 288 490 188. A figure in a unit Docker does not
+print is no figure, with a reason.
+
+The object `tehas disk --cycles --json` prints is `api/disk-cycles.schema.json`
+in the source, and `api/disk-cycles.sample.json` is a sample of it. The
+feature `cycle-writes` of [`tehas api`](#tehas-api) says the release has the
+figures; a factory that predates it prints no `cycles` at all.
+
 `--publish` also writes that object to `~/tehas/live/disk.json`, whole, through
 a side file renamed into place, so a reader sees a whole answer or the last
 one. It is the only form that writes anything, and it prints the reading as
@@ -874,7 +914,8 @@ and never runs the command, so the server asks the host's disk nothing.
 
 The reading, the bounds and the printing are the console's
 (`console/src/disk.rs`), which reads the home, the scratch disk and the bound
-from the instance's own file. The bound is `TEHAS_DISK_WAIT`, the one the dispatcher's hold and
+from the instance's own file; the figures of the cycles are the module beside
+it (`console/src/disk/cycles.rs`). The bound is `TEHAS_DISK_WAIT`, the one the dispatcher's hold and
 the previews' measure already read the host's space under: one outside call is
 given it, and one walk of a place twice it.
 

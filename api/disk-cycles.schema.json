@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/tehas-app/tehas/api/disk-cycles.schema.json",
+  "title": "tehas disk --cycles --json",
+  "description": "The object tehas disk --cycles --json prints, version 1: what each running cycle writes, beside the file systems tehas disk always names. The feature cycle-writes of tehas api says the release has it. host/docs/api.md, under tehas disk, says what each field means and how it is read: that a figure is never 0 for no reading, that blockWrittenBytes is rounded from the decimal units Docker prints, and which calls make the figures. Every object is closed, so a field tehas adds must be added here too; a program that reads the object still accepts fields it does not know. test/disk_test.sh checks the sample beside this file, and what the command prints, against it.",
+  "type": "object",
+  "required": ["api", "generatedAt", "filesystems", "cycles"],
+  "additionalProperties": false,
+  "properties": {
+    "api": {"const": 1},
+    "generatedAt": {"type": "string", "format": "date-time"},
+    "dockerRoot": {"type": "string", "maxLength": 4096},
+    "filesystems": {
+      "type": "array",
+      "maxItems": 8,
+      "items": {
+        "type": "object",
+        "required": ["paths"],
+        "additionalProperties": false,
+        "properties": {
+          "paths": {"type": "array", "maxItems": 8, "items": {"type": "string", "minLength": 1, "maxLength": 4096}},
+          "mount": {"type": "string", "maxLength": 256},
+          "freeBytes": {"type": ["integer", "null"], "minimum": 0},
+          "totalBytes": {"type": ["integer", "null"], "minimum": 0},
+          "why": {"type": "string", "minLength": 1, "maxLength": 200}
+        }
+      }
+    },
+    "full": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "places": {
+          "type": "array",
+          "maxItems": 12,
+          "items": {
+            "type": "object",
+            "required": ["path", "cut"],
+            "additionalProperties": false,
+            "properties": {
+              "path": {"type": "string", "minLength": 1, "maxLength": 4096},
+              "bytes": {"type": ["integer", "null"], "minimum": 0},
+              "cut": {"enum": ["whole", "entries", "depth", "time", "unreadable"]}
+            }
+          }
+        },
+        "docker": {
+          "type": "object",
+          "required": ["state"],
+          "additionalProperties": false,
+          "properties": {
+            "state": {"enum": ["read", "none", "unreadable"]},
+            "lines": {"type": "array", "maxItems": 12, "items": {"type": "string", "maxLength": 200}}
+          }
+        },
+        "stoppedContainers": {"type": "integer", "minimum": 0},
+        "containers": {
+          "type": "array",
+          "maxItems": 50,
+          "items": {
+            "type": "object",
+            "required": ["id", "image"],
+            "additionalProperties": false,
+            "properties": {
+              "id": {"type": "string", "maxLength": 64},
+              "image": {"type": "string", "maxLength": 200},
+              "command": {"type": ["string", "null"], "maxLength": 200}
+            }
+          }
+        }
+      }
+    },
+    "cycles": {
+      "type": "object",
+      "required": ["state"],
+      "additionalProperties": false,
+      "properties": {
+        "state": {"enum": ["read", "unreadable"]},
+        "why": {"type": "string", "minLength": 1, "maxLength": 200},
+        "list": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "type": "object",
+            "required": ["issue", "container", "writableBytes", "blockWrittenBytes"],
+            "additionalProperties": false,
+            "properties": {
+              "issue": {"type": "integer", "minimum": 1, "maximum": 999999999},
+              "container": {"type": "string", "pattern": "^tehas-work-[1-9][0-9]{0,8}$"},
+              "writableBytes": {"type": ["integer", "null"], "minimum": 0},
+              "blockWrittenBytes": {"type": ["integer", "null"], "minimum": 0},
+              "why": {"type": "string", "minLength": 1, "maxLength": 400}
+            }
+          }
+        }
+      }
+    }
+  }
+}
