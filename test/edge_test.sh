@@ -274,4 +274,65 @@ t_eq "$(grep -c -F '/^https:\/\/uat-([1-9][0-9]{0,8}|main)\.[a-z0-9.-]+\/$/.test
 t_eq "$(grep -c -F '/^https:\/\/lab-[1-9][0-9]{0,8}\.[a-z0-9.-]+\/$/.test(t.address)' "$T_ROOT/host/fun/game-view.js")" 1
 t_eq "$(grep -c -e 'uat-\[0-9\]+' -e 'lab-\[0-9\]+' "$T_ROOT/host/fun/dashboard-view.js" "$T_ROOT/host/fun/game-view.js" | grep -c -v ':0$')" 0
 
+# The dashboard's files are compressed on their way out and cached by the
+# browser: the scripts and stylesheets under a name that holds their own bytes,
+# and the pages by no name at all, so a page is asked about every time. The gate
+# has no caddy to ask, so the rules are read as they are written.
+t_case "the docs server compresses what it serves, but not what a Range request reads"
+# The two addresses and the tree the dashboard's console is read from by
+# offsets into the file's own bytes: an encoded body has none of those, so these
+# three must be left out of the matcher of encode, not merely served as well.
+encode=$(awk '/^[[:space:]]*@compress not path / {print}' "$docs_caddy")
+[ -n "$encode" ] || t_bad "no @compress matcher in $docs_caddy"
+# The words of the line, as the matcher's own list of paths: the matcher's name
+# and its two words of rule are no paths, so the count says the list holds just
+# the three the console and the health page are read from.
+paths=$(printf '%s\n' "$encode" | tr -s '[:space:]' '\n' | grep '^/')
+for want in '/live/*' '/health' '/healthz'; do
+  printf '%s\n' "$paths" | grep -qxF -- "$want" ||
+    t_bad "@compress does not leave out $want: $encode"
+done
+# The matcher names nothing else: a path taken out of it is a file that is
+# compressed for no reason and asked for with an offset it no longer has.
+t_eq "$(printf '%s\n' "$paths" | wc -l)" 3
+t_eq "$(printf '%s\n' "$paths" | LC_ALL=C sort -u | wc -l)" 3
+t_eq "$(grep -c -E '^[[:space:]]*encode @compress zstd gzip$' "$docs_caddy")" 1
+t_eq "$(grep -c -E '^[[:space:]]*encode ' "$docs_caddy")" 1
+
+t_case "a hashed script or style is cached for ever, and only a hashed one"
+fun=$(awk '/handle_path \/fun\/[*] [{]/ {on = 1} on {print} on && /^[[:space:]]*\}[[:space:]]*$/ {exit}' "$docs_caddy")
+# An empty extraction would pass by finding nothing.
+[ -n "$fun" ] || t_bad "the /fun handler was not read from $docs_caddy"
+t_eq "$(printf '%s\n' "$fun" | grep -c -F 'header @hashed Cache-Control "public, max-age=31536000, immutable"')" 1
+# The matcher of the immutable header names the form console update assets
+# makes: the stem, the 12 hex digits of the file's sha256, and the extension.
+hashed=$(printf '%s\n' "$fun" | grep '@hashed ')
+[ -n "$hashed" ] || t_bad "no @hashed matcher of the /fun handler"
+t_contains "$hashed" '[0-9a-f]{12}'
+t_contains "$hashed" '\.(js|css)$'
+# A name of the plain form asks for the file, and gets no such header: nothing
+# here may promise a browser that theme-beesknees26.css never changes. The
+# header is the one line of its kind, asked for with the word before it.
+t_eq "$(printf '%s\n' "$fun" | grep -c -E '^[[:space:]]*header ')" 1
+t_eq "$(printf '%s\n' "$fun" | grep -c '@hashed')" 2
+# The 404 of a backup comes first: install.sh keeps a replaced file beside the
+# one it replaced, and an immutable header on the name of a backup would cache
+# the bytes of the file before it.
+t_eq "$(printf '%s\n' "$fun" | awk '/respond @backup 404/ {r = NR} /header @hashed / {h = NR} END {print (r && h && r < h) ? "before" : "after"}')" before
+
+t_case "the pages are never cached, so a new install is seen at once"
+for handler in '@business' '@front'; do
+  body=$(awk -v want="        handle $handler {" 'index($0, want) == 1 {on = 1}
+    on {print} on && /^        \}$/ {exit}' "$docs_caddy")
+  [ -n "$body" ] || t_bad "no handler of $handler in $docs_caddy"
+  t_eq "$(printf '%s\n' "$body" | grep -c -F 'header Cache-Control "no-cache"')" 1
+done
+# The closing handler is the layout every manual page is read through, and it
+# answers after the rewrite of the path, where a matcher of the page's own name
+# would no longer match.
+layout=$(awk '/^        rewrite \* \/_layout\.html$/ {on = 1} on {print} on && /^    \}$/ {exit}' "$docs_caddy")
+[ -n "$layout" ] || t_bad "no layout handler at the end of $docs_caddy"
+t_eq "$(printf '%s\n' "$layout" | grep -c -F 'header Cache-Control "no-cache"')" 1
+t_eq "$(printf '%s\n' "$layout" | grep -c 'rewrite \* /_layout.html')" 1
+
 t_done

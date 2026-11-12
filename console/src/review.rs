@@ -502,7 +502,8 @@ fn recorded(record: &str) -> Option<String> {
 }
 
 // The start is the recorded commit when the tip still reaches it (a
-// force-push makes it no start), else the commit 7 days back, else the root.
+// force-push makes it no start), else the commit 7 days back, else the tip
+// itself when the whole branch is older than the window, else the root.
 fn since(repo: &str, branch: &str, record: &str) -> Result<(String, String, String), u8> {
     let mut ignored = String::new();
     let Some(head) = git(
@@ -536,6 +537,9 @@ fn since(repo: &str, branch: &str, record: &str) -> Result<(String, String, Stri
             start = None;
         }
     }
+    // Set when the window itself held no new commit: git named the tip as the
+    // commit 7 days back, so the branch is idle.
+    let mut idle = false;
     let (start, from) = match start {
         Some(commit) => (commit, "record".to_string()),
         None => {
@@ -543,20 +547,37 @@ fn since(repo: &str, branch: &str, record: &str) -> Result<(String, String, Stri
             // branch.
             let mut said = String::new();
             let before = format!("--before={DAYS}.days ago");
-            let older =
-                git(repo, &["rev-list", "-1", &before, &head], &mut said).unwrap_or_default();
-            let found = if !older.is_empty() && older != head {
-                (older, format!("{DAYS} days"))
-            } else {
+            let Some(older) = git(repo, &["rev-list", "-1", &before, &head], &mut said) else {
+                warn(&format!(
+                    "git said: {}",
+                    said.replace('\n', " ")
+                        .chars()
+                        .take(200)
+                        .collect::<String>()
+                ));
+                warn(&format!(
+                    "the commit {DAYS} days back on origin/{branch} could not be read, nothing was reviewed"
+                ));
+                return Err(2);
+            };
+            // A tip older than the window answers for itself: git names the
+            // tip as the commit 7 days back, so nothing of the branch is new.
+            // The root is only for a branch with no commit 7 days back at
+            // all, which is one younger than the window.
+            let found = if older.is_empty() {
                 let root = git(repo, &["rev-list", "--max-parents=0", &head], &mut said)
                     .and_then(|roots| roots.lines().last().map(str::to_string))
                     .unwrap_or_else(|| head.clone());
-                let from = if root == head {
-                    "root".to_string()
+                if root == head {
+                    (head.clone(), "root".to_string())
                 } else {
-                    format!("{DAYS} days")
-                };
-                (root, from)
+                    (root, format!("{DAYS} days"))
+                }
+            } else if older == head {
+                idle = true;
+                (head.clone(), format!("{DAYS} days"))
+            } else {
+                (older, format!("{DAYS} days"))
             };
             let said = said.replace('\n', " ");
             if !said.trim().is_empty() {
@@ -568,7 +589,10 @@ fn since(repo: &str, branch: &str, record: &str) -> Result<(String, String, Stri
             found
         }
     };
-    if start == head && Path::new(record).is_file() {
+    // Nothing new is the answer when the window itself held no new commit, or
+    // when a record already names the tip. A branch read from its root is not
+    // that: its start is the tip because the tip is all there is to read.
+    if start == head && (idle || Path::new(record).is_file()) {
         warn(&format!(
             "branch={branch} nothing new since {}",
             short(&head)

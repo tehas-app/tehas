@@ -1,10 +1,11 @@
 //! backup, prune and sweep-locks.
 
-use crate::upkeep::{date, history_delete, HistoryTable, KEEP};
+use crate::upkeep::{date, history_delete, roll, HistoryTable, KEEP, LOG_CAP, LONG_LIVED};
 use crate::verbs_tests::*;
 use rusqlite::Connection;
 use serde_json::Value;
 use std::fs::{self, File};
+use std::io::Write;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::time::{Duration, UNIX_EPOCH};
@@ -799,6 +800,250 @@ fn upkeep_removes_old_logs_backs_up_and_prunes() {
             "work-5-261013-000000.jsonl"
         ]
     );
+    // None of the four long-lived logs was over the cap, so none was cut, and
+    // the names that only look like them are still there in their own bytes.
+    assert_eq!(v["rolled"], serde_json::json!([]));
+    assert_eq!(fs::read_to_string(logs.join("dispatch.log")).unwrap(), "x");
+    assert!(!logs.join("dispatch.log.1").exists());
+    assert!(!home.join("state/github-writes.log.1").exists());
+}
+
+// --- the long-lived logs -------------------------------------------------------
+
+/// The verb's answer for `args`, with the tests' `cap` in place of the parse's
+/// `LOG_CAP`. The cap is a field of the call and not a constant read inside the
+/// verb, so this proves what `upkeep` itself rolls and answers rather than a
+/// copy of its body: the same `execute` path a host's call takes.
+fn upkeep(home: &Path, cap: u64, args: &[&str]) -> Value {
+    let mut asked = vec!["upkeep".to_string()];
+    asked.extend(args.iter().map(|a| a.to_string()));
+    let Some(Ok(mut call)) = crate::verbs::parse(&asked) else {
+        panic!("not an upkeep call: {args:?}");
+    };
+    let crate::verbs::Call::Upkeep(upkeep) = &mut call else {
+        panic!("not an upkeep call: {args:?}");
+    };
+    let crate::upkeep::Call::Upkeep { cap: field, .. } = upkeep else {
+        panic!("not an upkeep call: {args:?}");
+    };
+    *field = cap;
+    let line = crate::execute(home, &crate::Verb::Record(call), NOW)
+        .unwrap_or_else(|e| panic!("upkeep {args:?}: {e:?}"));
+    assert_eq!(line.lines().count(), 1, "{line}");
+    let v: Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(v["verb"], "upkeep");
+    assert_eq!(v["ok"], true);
+    v
+}
+
+/// A cap every log these tests write is over, and no log of the store's own is:
+/// the roll takes a cap as an argument, so no test writes 64 MiB.
+const TEST_CAP: u64 = 4096;
+
+/// One log's text: its own name in every line, so a `.1` says which log it was.
+fn log_text(name: &str, lines: usize) -> String {
+    format!("{name}\n").repeat(lines)
+}
+
+/// The four logs the units and the shim append to, each of `lines` lines, from
+/// a state an earlier test may have left behind.
+fn long_lived(home: &TestDir, lines: usize) {
+    for name in LONG_LIVED {
+        let path = home.join(name);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let _ = fs::remove_file(&path);
+        let _ = fs::remove_file(format!("{name}.1", name = path.display()));
+        fs::write(&path, log_text(name, lines)).unwrap();
+    }
+}
+
+/// The bytes of one log of `lines` lines.
+fn log_len(name: &str, lines: usize) -> u64 {
+    log_text(name, lines).len() as u64
+}
+
+#[test]
+fn upkeep_rolls_each_long_lived_log_over_the_cap_and_a_dry_run_cuts_nothing() {
+    let home = home("upkeep-roll");
+    let cap = TEST_CAP;
+    // 600 lines of the log's own name: over the tests' cap and far under the
+    // host's, which is what the verb of a host rolls past.
+    let lines = 600usize;
+    long_lived(&home, lines);
+    let v = upkeep(&home, cap, &["--dry-run"]);
+    // A dry run names nothing it has not cut, and cuts nothing.
+    assert_eq!(v["rolled"], serde_json::json!([]));
+    for name in LONG_LIVED {
+        assert_eq!(
+            fs::metadata(home.join(name)).unwrap().len(),
+            log_len(name, lines),
+            "{name}"
+        );
+        assert!(!home.join(format!("{name}.1")).exists(), "{name}");
+    }
+    let v = upkeep(&home, cap, &[]);
+    // The four, in the order the verb names them, and nothing else.
+    assert_eq!(v["rolled"], serde_json::json!(LONG_LIVED));
+    for name in LONG_LIVED {
+        let path = home.join(name);
+        let copy = home.join(format!("{name}.1"));
+        assert_eq!(fs::read_to_string(&path).unwrap(), "", "{name}");
+        assert_eq!(
+            fs::read_to_string(&copy).unwrap(),
+            log_text(name, lines),
+            "{name}"
+        );
+        // The copy is the store's own file, whatever mode the log had.
+        assert_eq!(mode(&copy) & 0o777, 0o600, "{name}");
+        // Only one generation is kept: the log and its `.1`, and no other name
+        // of the directory starts with the log's own.
+        let base = name.rsplit('/').next().unwrap();
+        assert_eq!(
+            names(path.parent().unwrap())
+                .into_iter()
+                .filter(|n| n.starts_with(base))
+                .collect::<Vec<_>>(),
+            vec![base.to_string(), format!("{base}.1")],
+            "{name}"
+        );
+    }
+    // A second upkeep finds nothing over the cap, so it cuts nothing again.
+    assert_eq!(upkeep(&home, cap, &[])["rolled"], serde_json::json!([]));
+    // What a host rolls past, and what these tests wrote themselves under.
+    assert_eq!(LOG_CAP, 64 * 1024 * 1024);
+    assert!(log_len(LONG_LIVED[0], lines) > cap && log_len(LONG_LIVED[0], lines) < LOG_CAP);
+}
+
+#[test]
+fn a_log_at_or_under_the_cap_is_left_whole() {
+    let home = home("roll-under");
+    let cap = TEST_CAP;
+    for name in LONG_LIVED {
+        let path = home.join(name);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let _ = fs::remove_file(&path);
+        fs::write(&path, "x".repeat(cap as usize)).unwrap();
+        assert!(!roll(&home, name, cap).unwrap(), "{name}");
+        assert_eq!(fs::metadata(&path).unwrap().len(), cap, "{name}");
+        assert!(!home.join(format!("{name}.1")).exists(), "{name}");
+    }
+    // One byte over the cap is over it, and the whole file moves to the `.1`.
+    let name = LONG_LIVED[0];
+    fs::write(home.join(name), "x".repeat(cap as usize + 1)).unwrap();
+    assert!(roll(&home, name, cap).unwrap());
+    assert_eq!(fs::metadata(home.join(name)).unwrap().len(), 0);
+    assert_eq!(
+        fs::read_to_string(home.join(format!("{name}.1"))).unwrap(),
+        "x".repeat(cap as usize + 1)
+    );
+}
+
+#[test]
+fn a_link_a_directory_or_an_empty_log_is_left_alone() {
+    let home = home("roll-odd");
+    let cap = TEST_CAP;
+    fs::create_dir_all(home.join("logs")).unwrap();
+    fs::create_dir_all(home.join("state")).unwrap();
+    // A log that is a link: its target keeps every byte, and no `.1` is made.
+    // The target is named for none of the four, so nothing else can cut it.
+    let target = home.join("elsewhere.log");
+    fs::write(&target, log_text("elsewhere.log", 600)).unwrap();
+    let target_len = fs::metadata(&target).unwrap().len();
+    assert!(target_len > cap);
+    let _ = fs::remove_file(home.join(LONG_LIVED[0]));
+    std::os::unix::fs::symlink(&target, home.join(LONG_LIVED[0])).unwrap();
+    assert!(!roll(&home, LONG_LIVED[0], cap).unwrap());
+    assert_eq!(fs::metadata(&target).unwrap().len(), target_len);
+    assert!(!home.join(format!("{}.1", LONG_LIVED[0])).exists());
+    // A log that is a directory: nothing of it is taken.
+    let _ = fs::remove_file(home.join(LONG_LIVED[1]));
+    fs::create_dir_all(home.join(LONG_LIVED[1])).unwrap();
+    assert!(!roll(&home, LONG_LIVED[1], cap).unwrap());
+    assert!(home.join(LONG_LIVED[1]).is_dir());
+    // A log of no write at all is over no cap, and one that is not there at all
+    // is not an error: a host that has never refreshed has no refresh.log.
+    let _ = fs::remove_file(home.join(LONG_LIVED[2]));
+    File::create(home.join(LONG_LIVED[2])).unwrap();
+    assert!(!roll(&home, LONG_LIVED[2], cap).unwrap());
+    assert_eq!(fs::metadata(home.join(LONG_LIVED[2])).unwrap().len(), 0);
+    let _ = fs::remove_file(home.join(LONG_LIVED[3]));
+    assert!(!roll(&home, LONG_LIVED[3], cap).unwrap());
+    assert!(!home.join(LONG_LIVED[3]).exists());
+}
+
+#[test]
+fn upkeep_touches_no_name_but_the_four() {
+    let home = home("roll-names");
+    let cap = TEST_CAP;
+    assert!(log_len("logs/other.log", 600) > cap);
+    fs::create_dir_all(home.join("logs")).unwrap();
+    fs::create_dir_all(home.join("state")).unwrap();
+    // The four are opened by their fixed names, so no other name of `logs/` or
+    // `state/` is ever cut, however big it is: a log of another program, one of
+    // the four with a suffix, and a name of the whole directory upkeep never
+    // names. The four's own `.1` is the exception: the next roll replaces it.
+    let others = ["logs/other.log", "logs/dispatch.log.old", "state/other.log"];
+    long_lived(&home, 600);
+    for other in &others {
+        fs::write(home.join(other), log_text("a line of its own", 600)).unwrap();
+    }
+    assert_eq!(
+        upkeep(&home, cap, &[])["rolled"],
+        serde_json::json!(LONG_LIVED)
+    );
+    for other in &others {
+        assert_eq!(
+            fs::read_to_string(home.join(other)).unwrap(),
+            log_text("a line of its own", 600),
+            "{other}"
+        );
+    }
+}
+
+#[test]
+fn a_roll_replaces_the_older_copy_and_leaves_an_open_writer_writing() {
+    let home = home("roll-twice");
+    let cap = TEST_CAP;
+    let name = LONG_LIVED[3];
+    let path = home.join(name);
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let _ = fs::remove_file(&path);
+    fs::write(&path, log_text(name, 600)).unwrap();
+    // An open writer, as the dispatcher's unit and every cycle hold their log.
+    let mut writer = fs::OpenOptions::new().append(true).open(&path).unwrap();
+    assert!(roll(&home, name, cap).unwrap());
+    // The writer holds the file, not the name, so what it adds after the copy
+    // lands in the emptied log and nothing is renamed out from under it.
+    writeln!(writer, "after").unwrap();
+    drop(writer);
+    assert_eq!(fs::read_to_string(&path).unwrap(), "after\n");
+    // The log grows past the cap again and is cut: the older copy goes, so one
+    // generation is kept and no `.2` is ever made. Only these two names of the
+    // directory belong to the log, as they did before the first roll.
+    fs::write(&path, log_text(name, 600)).unwrap();
+    assert!(roll(&home, name, cap).unwrap());
+    assert_eq!(fs::read_to_string(&path).unwrap(), "");
+    assert_eq!(
+        fs::read_to_string(home.join(format!("{name}.1"))).unwrap(),
+        log_text(name, 600)
+    );
+    let base = name.rsplit('/').next().unwrap();
+    assert_eq!(
+        names(path.parent().unwrap())
+            .into_iter()
+            .filter(|n| n.starts_with(base))
+            .collect::<Vec<_>>(),
+        vec![base.to_string(), format!("{base}.1")]
+    );
+}
+
+#[test]
+fn upkeep_of_a_home_with_no_logs_at_all_rolls_nothing() {
+    // A fresh host has neither logs/ nor the shim's record.
+    let home = home("roll-none");
+    let cap = TEST_CAP;
+    assert_eq!(upkeep(&home, cap, &[])["rolled"], serde_json::json!([]));
+    assert!(!home.join("logs").exists());
 }
 
 #[test]

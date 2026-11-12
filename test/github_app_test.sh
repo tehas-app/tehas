@@ -93,7 +93,9 @@ t_eq "$(stat -c %a "$kept")" 600
 t_contains "$(t_calls curl)" "-X POST"
 t_contains "$(t_calls curl)" "/app/installations/174742089/access_tokens"
 t_contains "$(t_calls curl)" "https://api.github.com/app/"
-t_eq "$(t_calls auth | wc -l)" 1
+# One JWT for the mint and one for GET /app, which says whether the app was
+# renamed since its login was kept.
+t_eq "$(t_calls auth | wc -l)" 2
 
 t_case "the JWT goes to curl on standard input, never on its command line"
 t_contains "$(t_calls auth)" 'header = "Authorization: Bearer '
@@ -102,7 +104,7 @@ t_lacks "$(t_calls curl)" "Authorization"
 t_lacks "$(t_calls openssl)" "Bearer"
 
 t_case "the JWT names the app and lasts at most ten minutes"
-payload=$(t_calls auth | sed -n 's/.*Bearer [^.]*\.\([^.]*\)\..*/\1/p' | tr '_-' '/+')
+payload=$(t_calls auth | head -1 | sed -n 's/.*Bearer [^.]*\.\([^.]*\)\..*/\1/p' | tr '_-' '/+')
 while [ $((${#payload} % 4)) != 0 ]; do payload="$payload="; done
 claims=$(base64 -d <<<"$payload")
 t_eq "$(jq -r .iss <<<"$claims")" 5452597
