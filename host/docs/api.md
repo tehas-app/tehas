@@ -368,6 +368,25 @@ cycle to that deadline sooner: it then parks at a step boundary with a
 handoff. A stop of the cycle or of the factory still works on a frozen cycle,
 and a freeze ends with its cycle.
 
+| Field | Meaning |
+| --- | --- |
+| `api` | The API version, 1 |
+| `issue` | The issue number the command was given |
+| `running` | The cycle of the issue holds its lock, `state/cycles/<issue>.lock`. A lock that cannot be probed counts as held |
+| `asked` | The request `state/cycles/<issue>.freeze` is there: `tehas freeze` wrote it and `tehas thaw`, a stop or the end of the cycle removes it |
+| `frozen` | The watch has paused the container and wrote `state/cycles/<issue>.frozen`; the word stays until the watch has unpaused it, so a thaw reports it true |
+
+The three files of the cycle named under `running`, `asked` and `frozen` are the
+whole of what the two commands read: they take no lock, make no call and write
+nothing.
+
+Both commands print the same object, and the source holds its JSON Schema,
+`api/freeze.schema.json`, with four samples beside it that the tests keep in
+step with what the commands print: `api/freeze.idle.json` (no cycle running),
+`api/freeze.asked.json` (a freeze asked of a running cycle),
+`api/freeze.frozen.json` (the watch has paused it, so a freeze again answers
+"frozen already") and `api/freeze.thaw.json` (`tehas thaw` from that state).
+
 Both answer 0 when there is nothing left to do: a freeze of an issue with no
 running cycle, a freeze asked twice, or a thaw of a cycle that is not frozen.
 So a caller that asks every minute changes nothing by asking again. Exit 1
