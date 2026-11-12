@@ -8,8 +8,13 @@
 //! `|<times>` after them when only the first `<times>` calls are answered. A
 //! call whose arguments are `<args>`, or begin with `<args>` and a space, gets
 //! `<rc>` and `<line>` without running; a `batch` gets them when any call in it
-//! matches. The newest line that matches is the one that answers, and the
-//! calls it answered are counted in `<file>.n`. No file is no answers.
+//! matches. The tests' `t_store_answers` (test/lib.sh) writes the file anew on
+//! each call, so the answer it plants replaces the one before; a file of
+//! several lines is read from the bottom up, and the last line that matches is
+//! the one that answers. Every call a line matches is counted in `<file>.n`,
+//! answered or past its `<times>`. That count is the one counter of the
+//! answers file, shared by all its lines, so `<times>` counts the calls every
+//! line of the file has matched. No file is no answers.
 //! install.sh builds `--release`, which never reads the variable.
 
 use crate::{batch, execute, now, parse, say, verbs, Verb, USAGE};
@@ -120,8 +125,9 @@ fn home_of(home: &Path) -> Result<&Path, (u8, String)> {
 }
 
 /// The planted answer for a call made of `calls` (one for a verb, each call of
-/// a batch), when the newest line of `file` that matches one of them still has
-/// times left. Each call it matched is counted in `<file>.n`.
+/// a batch), when the last line of `file` that matches one of them still has
+/// times left on the file's one counter. Each call it matched is counted in
+/// `<file>.n`.
 fn planted(file: &Path, calls: &[String]) -> Option<Answer> {
     let text = fs::read_to_string(file).ok()?;
     let (rc, line, times) = text.lines().rev().find_map(|row| {

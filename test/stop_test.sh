@@ -664,14 +664,28 @@ t_eq "$t_out" "refused"
 # --- The cycle's record on the state store ------------------------------------
 t_case "a cycle killed outright has its record ended as stopped, before its lock file goes"
 reset
-# Its start is on record and never reported: no unit, no lock held.
+# Its start is on record and never reported: no unit, no lock held, and the
+# lock file it left.
 t_started "$th" 5 --by-hand
+mkdir -p "$state"
+: >"$state/5.lock"
+# The cycle-end is seen as it happens: a line with no times left answers
+# nothing, so the real store ends the record, but the seam still counts the
+# call in store-answers.n. That count is a symlink to the lock file, so it is
+# written into the lock file's inode when the lock file is there at the
+# cycle-end, and into a new file when it is gone. lock-seen is a second name of
+# that inode, kept after the stop removes the lock file.
+t_store_answers cycle-end 0 unused 0
+ln "$state/5.lock" "$T/lock-seen"
+ln -s "$state/5.lock" "$T/store-answers.n"
 t_run "$stop_cmd 5"
 t_eq "$t_rc" 0
 t_contains "$t_out" "ended the record of the cycle of #5 as stopped"
 t_eq "$(t_row cycle-show 5 -- '[(.cycle.ended_at != null), .cycle.end_reason] | tostring')" '[true,"stopped"]'
-# The end comes first: an end the store refuses leaves the lock file, below.
+# The end comes first: the lock file was there at the cycle-end, and is gone.
+t_eq "$(cat "$T/lock-seen")" 1
 t_eq "$(find "$state/5.lock" 2>/dev/null | wc -l)" 0
+rm -f "$T/lock-seen" "$T/store-answers.n"
 # No history is written for it: tehas stop writes none.
 t_eq "$(t_row history-show 5 -- '.rows | length')" 0
 

@@ -226,8 +226,18 @@ allowed=(
   'console/src/store.rs:    home.join("libexec").join("store")'
   'console/src/clean.rs:        let bin = self.home.join("libexec").join("store");'
 )
-named=$(git -C "$T_ROOT" grep -nE 'libexec/store\b|"libexec"\)\.join\("store"\)' -- 'console/src/*.rs' \
-  ':!console/src/update/programs.rs' | sed -E 's/^([^:]+):[0-9]+:/\1:/')
+# The tests of console/src/update/programs.rs make the programs a home holds,
+# the store among them, so the lines of its #[cfg(test)] module are left out:
+# the one module, from its attribute to the closing brace on the file's last
+# line. Its other lines are searched as every file is.
+programs=console/src/update/programs.rs
+tests_at=$(grep -n '^#\[cfg(test)\]$' "$T_ROOT/$programs" | cut -d: -f1)
+t_eq "$(wc -l <<<"$tests_at")" 1
+t_eq "$(sed -n "$((tests_at + 1))p" "$T_ROOT/$programs")" "mod tests {"
+t_eq "$(sed -n "$tests_at,\$p" "$T_ROOT/$programs" | grep -n '^}' | head -1 | cut -d: -f1)" \
+  "$(($(wc -l <"$T_ROOT/$programs") - tests_at + 1))"
+named=$(git -C "$T_ROOT" grep -nE 'libexec/store\b|"libexec"\)\.join\("store"\)' -- 'console/src/*.rs' |
+  awk -F: -v f="$programs" -v t="$tests_at" '!($1 == f && $2 >= t)' | sed -E 's/^([^:]+):[0-9]+:/\1:/')
 while IFS= read -r hit; do
   [ -n "$hit" ] || continue
   ok=no

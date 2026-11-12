@@ -52,7 +52,8 @@
 #   t_store_answers ARGS RC LINE [TIMES]
 #                                    the store of a run answers a call of ARGS
 #                                    with RC and LINE for its first TIMES calls,
-#                                    and is the real store otherwise
+#                                    and is the real store otherwise; each
+#                                    call replaces the answer before it
 #   t_store_answered                 how many calls that answer matched
 #   t_approve HOME N BY HOW [AT] [ARGS...]
 #                                    an approval of issue N on record, as the
