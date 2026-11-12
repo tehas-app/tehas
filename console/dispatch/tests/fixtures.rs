@@ -446,6 +446,10 @@ fn expand(c: &Value, snap: &mut Value) {
             if let Some(h) = c.get("held_edits") {
                 nodes[0]["userContentEdits"] = h.clone();
             }
+            // question_author: who GraphQL says wrote the question.
+            if let Some(a) = c.get("question_author") {
+                nodes[0]["author"] = a.clone();
+            }
             nodes.extend(
                 x.get(2)
                     .and_then(Value::as_array)

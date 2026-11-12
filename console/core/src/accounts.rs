@@ -53,6 +53,22 @@ pub fn text(ids: &BTreeMap<String, u64>) -> String {
     ids.iter().map(|(l, i)| format!("{l} {i}\n")).collect()
 }
 
+/// The pairs with `new` given the user id of `old`, for an account whose
+/// login changed: a GitHub App's slug renamed its bot. The pair of `old`
+/// stays. None when nothing is to be added: `old` has no recorded id, or
+/// `new` already has one, the same or another, which only `tehas update
+/// --accept-id` changes.
+pub fn carried(ids: &BTreeMap<String, u64>, old: &str, new: &str) -> Option<BTreeMap<String, u64>> {
+    let (old, new) = (account(old), account(new));
+    let id = *ids.get(old)?;
+    if new.is_empty() || ids.contains_key(new) {
+        return None;
+    }
+    let mut out = ids.clone();
+    out.insert(new.to_string(), id);
+    Some(out)
+}
+
 /// The pairs recorded in `home`. An absent or unreadable file is no pairs, so
 /// every listed login fails to count until one is recorded.
 pub fn read(home: &Path) -> BTreeMap<String, u64> {
@@ -280,6 +296,25 @@ mod tests {
         assert_eq!(parse("alice x\n"), None);
         assert_eq!(parse(" 5\n"), None);
         assert_eq!(parse(""), Some(BTreeMap::new()));
+    }
+
+    #[test]
+    fn a_renamed_bot_keeps_its_id_under_the_new_login() {
+        let had = parse("alice 1001\nacme-old 4242\n").unwrap();
+        let ids = carried(&had, "acme-old[bot]", "acme-new[bot]").unwrap();
+        assert_eq!(text(&ids), "acme-new 4242\nacme-old 4242\nalice 1001\n");
+        let bot = |ids| Accounts::new(listed("alice", "acme-new[bot]"), ids);
+        let mut v = json!({"author": {"login": "acme-new", "databaseId": 4242}});
+        bot(had.clone()).vouch(&mut v);
+        assert_eq!(v["author"]["login"], "acme-new#4242");
+        let mut v = json!({"author": {"login": "acme-new", "databaseId": 4242}});
+        bot(ids.clone()).vouch(&mut v);
+        assert_eq!(v["author"]["login"], "acme-new");
+        // Nothing to carry, or a pair already there, adds nothing.
+        assert_eq!(carried(&had, "gone[bot]", "acme-new[bot]"), None);
+        assert_eq!(carried(&ids, "acme-old", "acme-new"), None);
+        let other = parse("acme-old 4242\nacme-new 7\n").unwrap();
+        assert_eq!(carried(&other, "acme-old", "acme-new"), None);
     }
 
     #[test]

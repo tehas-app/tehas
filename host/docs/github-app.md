@@ -186,6 +186,14 @@ ignored once `~/tehas/state/github/login` exists; take them out too.
   `~/tehas/state/github/login`, because an installation token cannot ask
   GitHub who it is. The millwright is that same login (see
   [the millwright's grant](/operating#the-millwrights-grant)).
+- When a new token finds the app renamed (see
+  [the commands page](/tools-github)), the bot's user id in
+  `~/tehas/state/account-ids` is recorded under the new login before
+  `~/tehas/state/github/login` is rewritten; the old pair stays. If that
+  record cannot be written, the old login is kept and the next token tries
+  again. The dispatcher knows the bot's comments by that user id, and by
+  login only when none is recorded, so a question asked before the rename is
+  still found.
 
 The shim's `gh` keeps an account of what the factory writes. A call that writes
 to GitHub - a comment, a label, an `api` call that posts, patches, puts or
@@ -312,4 +320,7 @@ as the factory's.
   account wrote stay where they are, but if that account is suspended they are
   hidden, and the dispatcher cannot see a question it asked there
   (`skip #N: its question is not among the last 100 comments`). Apply
-  `tehas:ready` or `tehas:refine` again to go on with such an issue.
+  `tehas:ready` or `tehas:refine` again to go on with such an issue. A
+  question on record that is there but was written by another account than
+  the bot is said as `skip #N: its question was written by 'X', not the bot
+  'Y'`.

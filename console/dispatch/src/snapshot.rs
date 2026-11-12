@@ -220,6 +220,9 @@ pub struct Snapshot {
     /// The poll's clock, in seconds, and this host's name.
     pub now: Option<u64>,
     pub hostname: Option<String>,
+    /// The bot's user id recorded in state/account-ids, which names its
+    /// comments when its login changed.
+    pub bot_id: Option<u64>,
     /// The running cycles' records, by issue, from the entries of `running`;
     /// Err when the store could not list them (`cycles_failed`).
     pub cycles: Result<BTreeMap<u64, Cycle>, StoreErr>,
@@ -593,6 +596,7 @@ impl Snapshot {
                 .get("hostname")
                 .and_then(Value::as_str)
                 .map(str::to_string),
+            bot_id: v.get("bot_id").and_then(Value::as_u64),
             cycles: match v.get("cycles_failed") {
                 Some(e) => Err(StoreErr::parse(e)),
                 None => cycles(v.get("running")),

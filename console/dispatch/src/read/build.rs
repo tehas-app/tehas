@@ -121,6 +121,9 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
         typed_as_label(&mut q.open, &c.improvement_type, crate::decide::IMPROVEMENT);
     }
     s["user"] = json!({"login": c.bot_login});
+    s["bot_id"] = json!(tehas_core::accounts::read(home)
+        .get(tehas_core::accounts::account(&c.bot_login))
+        .copied());
     // What rule 6 holds an issue on out of an open pull request's body:
     // every open pull request that names it with a closing keyword, by
     // number, whatever base it targets.

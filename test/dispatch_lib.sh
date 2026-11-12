@@ -483,7 +483,7 @@ ready() { # issue... : the queue, each labelled by alice
 # whatever was written after it.
 comments() { # <issue> <question body> <editor or ""> [later comments as JSON]
   jq -n --arg body "$2" --arg ed "$3" --argjson after "${4:-[]}" '{data: {repository: {issue: {comments: {nodes: ([
-    {databaseId: 4001, author: {login: "tehas-bot"}, body: $body, createdAt: "2026-01-01T00:00:00Z",
+    {databaseId: 4001, author: {login: "tehas-bot", databaseId: ("tehas-bot" | explode | add)}, body: $body, createdAt: "2026-01-01T00:00:00Z",
      lastEditedAt: (if $ed == "" then null else "2026-01-01T01:00:00Z" end),
      editor: (if $ed == "" then null else {login: $ed} end)}] + $after)}}}}}' >"$fx/comments-$1.json"
 }
