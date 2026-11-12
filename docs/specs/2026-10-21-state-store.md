@@ -177,7 +177,7 @@ table of section 3.
 
 | Path | Writer | Readers | Fate |
 | --- | --- | --- | --- |
-| `state/dispatch.again` | `libexec/cycle:1192`, `lib/planning.sh:435`; **removed by the poll before it tries its lock** (`dispatch:365`) | `host/systemd/tehas-dispatch.path` (`PathExists=%h/tehas/state/dispatch.again`) | **file**: a systemd path unit triggers on a file's existence. It cannot trigger on a row |
+| `state/dispatch.again` | `libexec/cycle:1192`, `lib/planning.sh:435`; **removed by the poll once it holds its lock** (`console/dispatch/src/poll.rs`, #1758; before that, before it tried the lock), and by `tehas-dispatch.service` before each poll | `host/systemd/tehas-dispatch.path` (`PathExists=%h/tehas/state/dispatch.again`) | **file**: a systemd path unit triggers on a file's existence. It cannot trigger on a row |
 | `state/dispatch.taken` | `dispatch:378`, `date +%s` | the poll itself (`:372`) and `host/docs/troubleshooting.md:212` | table: `polls.lock_taken_at`; the file stays only as long as the poll's own hang warning reads it, and #254 moves that to the row |
 | `state/dispatch.stuck` | `dispatch:380`, the `taken` value it last complained about | the poll (dedupes the WARN) | table: `polls.stuck_said_for` |
 | `state/pause.json` | `libexec/pause:52` (`{at, reason, by}`); `libexec/resume:50` removes it | `libexec/dispatch:1733`, `libexec/health:138`, `libexec/status:239` | table: `pause_flag` (3.10). A row that is absent means not paused; a row that cannot be read means paused (fail closed, as today) |
