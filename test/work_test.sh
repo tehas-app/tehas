@@ -172,7 +172,7 @@ chmod +x "$tree/libexec/console"
 echo stale >"$live/console-7.txt.now"
 rm -f "$T"/calls/* "$T/now.step"
 t_run "$work 7"
-t_lacks "$(t_calls store)" "--step develop"
+t_lacks "$(t_row cycle-show 7 -- .)" '"step":"develop"'
 t_eq "$(find "$live" -maxdepth 1 -name 'console-7.txt.now' | wc -l)" 0
 rm -f "$T/now.text"
 

@@ -56,7 +56,7 @@ rm -f "$T"/calls/*
 t_store_answers approval-view 0 '{"api":1,"verb":"approval-view","ok":true,"view":{"at":"2026-10-20T12:00:00Z","by":"alice","how":"label","links":[],"driver":"lean"}}'
 t_run "$scall; run_facts 7 1"
 t_eq "$(jq -c '.approval | [.how, .driver]' "$T/calls/facts.json")" '["label","lean"]'
-cp -f --remove-destination "$T_STORE" "$home/libexec/store"
+rm -f "$T/store-answers"
 
 t_case "a fact the store has none of for this attempt, or cannot give, is null"
 rm -f "$T"/calls/*

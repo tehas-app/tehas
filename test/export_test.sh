@@ -170,7 +170,7 @@ turn 7 "$((T0 + 60))" '{"kind":"plan","rc":0,"status":"finished","turn":1}'
 t_store_answers plan-show 1 'store: busy #7: the database is locked'
 run_export --json --after $((T0 - 1))-1 "$out"
 t_eq "$t_rc" 1
-t_contains "$(t_calls store)" "plan-show 7"
+t_eq "$(t_store_answered)" 1
 t_eq "$(listing 1760700000-12-1 | head -n 1)" "history.json"
 t_eq "$([ -e "$out/cycles/1760700060-7-2/plan.json" ] && echo written)" ""
 t_store_home "$home"

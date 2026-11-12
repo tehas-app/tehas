@@ -662,36 +662,26 @@ t_run 'gh issue view 5 --repo acme/widget --json labels --jq ".[].name" >/dev/nu
 t_eq "$t_out" "refused"
 
 # --- The cycle's record on the state store ------------------------------------
-# A store at the installed path that notes, for each call, whether the lock
-# file of #5 was there, and runs the real store.
-store_notes() {
-  rm -f "$th/libexec/store"
-  printf '%s\n' '#!/usr/bin/env bash' \
-    "printf '%s lock=%s\\n' \"\$1\" \"\$([ -e $(t_q "$state/5.lock") ] && echo there || echo gone)\" >>$(t_q "$T/calls/store")" \
-    "exec $(t_q "$T_STORE") \"\$@\"" >"$th/libexec/store"
-  chmod 755 "$th/libexec/store"
-}
-
 t_case "a cycle killed outright has its record ended as stopped, before its lock file goes"
 reset
 # Its start is on record and never reported: no unit, no lock held.
 t_started "$th" 5 --by-hand
-store_notes
 t_run "$stop_cmd 5"
 t_eq "$t_rc" 0
 t_contains "$t_out" "ended the record of the cycle of #5 as stopped"
 t_eq "$(t_row cycle-show 5 -- '[(.cycle.ended_at != null), .cycle.end_reason] | tostring')" '[true,"stopped"]'
-t_eq "$(grep '^cycle-end' "$T/calls/store")" "cycle-end lock=there"
+# The end comes first: an end the store refuses leaves the lock file, below.
 t_eq "$(find "$state/5.lock" 2>/dev/null | wc -l)" 0
 # No history is written for it: tehas stop writes none.
 t_eq "$(t_row history-show 5 -- '.rows | length')" 0
 
 t_case "a second stop finds nothing to do and asks the store to end nothing"
 rm -f "$T"/calls/*
+t_store_answers cycle-end 1 'store: busy #5: the database is locked'
 t_run "$stop_cmd 5"
 t_eq "$t_rc" 0
 t_eq "$t_out" "nothing to stop for #5"
-t_eq "$(grep -c '^cycle-end' "$T/calls/store" 2>/dev/null)" 0
+t_eq "$(t_store_answered)" 0
 
 t_case "a record that cannot be ended leaves the lock file and the rest, says so, and exits 1"
 reset

@@ -420,7 +420,7 @@ t_store_answers park 1 'store: busy #7: the database is locked'
 t_run "$cycle 7"
 t_eq "$t_rc" 0
 t_contains "$t_out" "WARN: could not record the park of #7 (busy: store: busy #7: the database is locked), so it asks no question"
-t_eq "$(grep -c '^park 7 ' "$T/calls/store")" 3
+t_eq "$(t_store_answered)" 3
 t_lacks "$(t_calls gh)" "api repos/acme/widget/issues/7/comments"
 t_contains "$(t_calls gh)" "issue comment 7 --repo acme/widget --body"
 t_contains "$(t_calls gh)" "Tehas cycle stopped without a pull request"

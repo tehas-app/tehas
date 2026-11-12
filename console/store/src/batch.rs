@@ -84,11 +84,11 @@ pub struct Request {
 }
 
 impl Request {
-    /// The request of one batch: the standard input read whole and judged by
+    /// The request of one batch: the text `read_input` read, judged by
     /// `parse`. A caller with no usable home asks for nothing, so this is not
-    /// reached before the guard of `main` has passed.
-    pub fn read() -> Result<Request, String> {
-        parse(&read_input()?).map(|asked| Request { asked })
+    /// reached before the guard of `call` has passed.
+    pub fn of(text: &str) -> Result<Request, String> {
+        parse(text).map(|asked| Request { asked })
     }
 }
 
@@ -144,9 +144,10 @@ pub fn parse(text: &str) -> Result<Vec<Asked>, String> {
     Ok(asked)
 }
 
-/// The request on standard input, read whole and bounded. The caller closes
-/// the pipe when there is nothing to read, as the poll does.
-pub fn read_input() -> Result<String, String> {
+/// The request on `input`, the program's standard input, read whole and
+/// bounded. The caller closes the pipe when there is nothing to read, as the
+/// poll does.
+pub fn read_input(input: &mut dyn Read) -> Result<String, String> {
     let mut text = String::new();
     // The poll writes its request from a thread and does not close the pipe, so
     // a plain read would wait for the other end forever. A read that returns
@@ -155,7 +156,7 @@ pub fn read_input() -> Result<String, String> {
     // after that is a pipe that was never written, which is the usage error it
     // is: the poll that wrote nothing asked for nothing, and a batch of no
     // calls is not read.
-    let mut stdin = std::io::stdin().take(MAX_BYTES + 1);
+    let mut stdin = input.take(MAX_BYTES + 1);
     let mut buf = [0u8; 8192];
     loop {
         let got = stdin

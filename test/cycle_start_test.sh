@@ -51,10 +51,9 @@ t_store_answers cycle-end 1 'store: busy #7: the database is locked'
 t_run "$cycle 7"
 t_eq "$t_rc" 65
 t_contains "$t_out" "ERROR: the refused start of #7 is not on record (busy): cycle-end 7 --attempt 1 --refused"
-t_eq "$(t_calls store | grep -c '^cycle-end')" 5
+t_eq "$(t_store_answered)" 5
 t_eq "$(t_row cycle-show 7 -- '[.cycle.attempt, .cycle.ended_at] | tostring')" '[1,null]'
-rm -f "$T/home/tehas/libexec/store" "$fx/issue-7.json"
-cp "$T_STORE" "$T/home/tehas/libexec/store"
+rm -f "$T/store-answers" "$fx/issue-7.json"
 t_run "$cycle 7"
 t_eq "$t_rc" 0
 t_eq "$(t_row cycle-show 7 -- .cycle.attempt)" 2
@@ -216,7 +215,7 @@ t_approve "$T/home/tehas" 7 alice label
 t_store_answers cycle-start 1 'store: busy #7: the database is locked'
 t_run "$cycle 7"
 t_eq "$t_rc" 75
-t_eq "$(grep -c '^cycle-start' <<<"$(t_calls store)")" 3
+t_eq "$(t_store_answered)" 3
 t_eq "$(t_calls gh)$(t_calls fake-work)" ""
 t_eq "$(t_row approval-current 7 -- '[.approval.by, .current] | tostring')" '["alice",null]'
 

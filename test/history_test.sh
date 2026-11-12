@@ -376,7 +376,7 @@ t_store_answers history-show 0 '{"api":1,"ok":true,"verb":"history-show","rows":
 t_run "$history --json"
 t_eq "$t_rc" 78
 t_contains "$t_out" "TEHAS_REPO is not set"
-t_eq "$(t_calls store)" ""
+t_eq "$(t_store_answered)" 0
 
 t_case "without a console there is nothing to run: exit 78"
 reset
