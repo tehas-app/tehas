@@ -1,0 +1,680 @@
+{
+  "api": 1,
+  "required": [
+    "TEHAS_REPO",
+    "TEHAS_CONTROL_ISSUE",
+    "TEHAS_ALLOWED_LABELERS",
+    "PI_ENSEMBLE_SUBAGENT_MODEL",
+    "PI_ENSEMBLE_SUBAGENT_PROVIDER"
+  ],
+  "roles": [
+    "DEVELOPER",
+    "OPS",
+    "EXPLORE",
+    "ADVERSARIAL_DEVELOPER",
+    "CODE_REVIEW_SPECIALIST"
+  ],
+  "settings": [
+    {
+      "name": "TEHAS_INDEXING",
+      "rule": "one-of",
+      "when": "always",
+      "default": "0",
+      "words": [
+        "0",
+        "1"
+      ],
+      "reason": "expected 0 or 1"
+    },
+    {
+      "name": "TEHAS_WORK_IMAGES",
+      "rule": "one-of",
+      "when": "always",
+      "default": "0",
+      "words": [
+        "0",
+        "1"
+      ],
+      "reason": "expected 0 or 1"
+    },
+    {
+      "name": "TEHAS_WORK_DESCRIBE",
+      "rule": "one-of",
+      "when": "always",
+      "default": "0",
+      "words": [
+        "0",
+        "1"
+      ],
+      "reason": "expected 0 or 1"
+    },
+    {
+      "name": "TEHAS_WORK_FILES",
+      "rule": "one-of",
+      "when": "always",
+      "default": "0",
+      "words": [
+        "0",
+        "1"
+      ],
+      "reason": "expected 0 or 1"
+    },
+    {
+      "name": "TEHAS_WORK_COMMENTS",
+      "rule": "one-of",
+      "when": "always",
+      "default": "0",
+      "words": [
+        "0",
+        "1"
+      ],
+      "reason": "expected 0 or 1"
+    },
+    {
+      "name": "TEHAS_WORK_ZIPS",
+      "rule": "one-of",
+      "when": "always",
+      "default": "0",
+      "words": [
+        "0",
+        "1"
+      ],
+      "reason": "expected 0 or 1"
+    },
+    {
+      "name": "TEHAS_ANALYTICS",
+      "rule": "one-of",
+      "when": "always",
+      "default": "on",
+      "words": [
+        "on",
+        "off"
+      ],
+      "reason": "expected on or off"
+    },
+    {
+      "name": "TEHAS_ANALYTICS_COOKIE",
+      "rule": "one-of",
+      "when": "always",
+      "default": "0",
+      "words": [
+        "0",
+        "1"
+      ],
+      "reason": "expected 0 or 1"
+    },
+    {
+      "name": "TEHAS_DESIGN",
+      "rule": "one-of",
+      "when": "always",
+      "default": "beesknees26",
+      "words": [
+        "beesknees26",
+        "pixel"
+      ],
+      "reason": "expected beesknees26 or pixel"
+    },
+    {
+      "name": "TEHAS_TOP",
+      "rule": "one-of",
+      "when": "always",
+      "default": "0",
+      "words": [
+        "0",
+        "1"
+      ],
+      "reason": "expected 0 or 1"
+    },
+    {
+      "name": "TEHAS_EASY_MERGE",
+      "rule": "one-of",
+      "when": "always",
+      "default": "0",
+      "words": [
+        "0",
+        "1"
+      ],
+      "reason": "expected 0 or 1"
+    },
+    {
+      "name": "TEHAS_OVERLAP_HOLD",
+      "rule": "one-of",
+      "when": "always",
+      "default": "0",
+      "words": [
+        "0",
+        "1"
+      ],
+      "reason": "expected 0 or 1"
+    },
+    {
+      "name": "TEHAS_READ_ONLY",
+      "rule": "one-of",
+      "when": "always",
+      "default": "0",
+      "words": [
+        "0",
+        "1"
+      ],
+      "reason": "expected 0 or 1"
+    },
+    {
+      "name": "TEHAS_IMPROVE_RUKAS_SKIP",
+      "rule": "one-of",
+      "when": "always",
+      "default": "0",
+      "words": [
+        "0",
+        "1"
+      ],
+      "reason": "expected 0 or 1"
+    },
+    {
+      "name": "TEHAS_REVIEW",
+      "rule": "one-of",
+      "when": "always",
+      "default": "0",
+      "words": [
+        "0",
+        "1"
+      ],
+      "reason": "expected 0 or 1"
+    },
+    {
+      "name": "TEHAS_CONCURRENCY",
+      "rule": "count",
+      "when": "always",
+      "default": "1",
+      "reason": "expected a positive whole number"
+    },
+    {
+      "name": "TEHAS_TICKET_CONCURRENCY",
+      "rule": "count-or-auto",
+      "when": "always",
+      "default": null,
+      "reason": "expected a whole number (auto is not usable yet)"
+    },
+    {
+      "name": "TEHAS_HOST_ADDR",
+      "rule": "host-address",
+      "when": "always",
+      "default": "127.0.0.1",
+      "reason": "expected an address or host name"
+    },
+    {
+      "name": "TEHAS_MAX_AWAITING",
+      "rule": "count",
+      "when": "always",
+      "default": null,
+      "reason": "expected a positive whole number"
+    },
+    {
+      "name": "TEHAS_WORK_TIMEOUT",
+      "rule": "count",
+      "when": "always",
+      "default": "21600",
+      "reason": "expected a positive whole number"
+    },
+    {
+      "name": "TEHAS_WORK_STALL",
+      "rule": "count",
+      "when": "always",
+      "default": "3600",
+      "reason": "expected a positive whole number"
+    },
+    {
+      "name": "TEHAS_VERIFY_TIMEOUT",
+      "rule": "count",
+      "when": "always",
+      "default": "1800",
+      "reason": "expected a positive whole number"
+    },
+    {
+      "name": "TEHAS_CHILD_TIMEOUT",
+      "rule": "count",
+      "when": "always",
+      "default": null,
+      "reason": "expected a positive whole number"
+    },
+    {
+      "name": "TEHAS_PLAN_MAX_TURNS",
+      "rule": "count",
+      "when": "always",
+      "default": "20",
+      "reason": "expected a positive whole number"
+    },
+    {
+      "name": "TEHAS_PLAN_TIMEOUT",
+      "rule": "count",
+      "when": "always",
+      "default": null,
+      "reason": "expected a positive whole number"
+    },
+    {
+      "name": "TEHAS_MILLWRIGHT_MAX_RETRIES",
+      "rule": "count",
+      "when": "always",
+      "default": "2",
+      "reason": "expected a positive whole number"
+    },
+    {
+      "name": "TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS",
+      "rule": "count",
+      "when": "always",
+      "default": "3",
+      "reason": "expected a positive whole number"
+    },
+    {
+      "name": "TEHAS_MILLWRIGHT_FEED",
+      "rule": "one-of",
+      "when": "always",
+      "default": "0",
+      "words": [
+        "0",
+        "1"
+      ],
+      "reason": "expected 0 or 1"
+    },
+    {
+      "name": "TEHAS_MILLWRIGHT_MAX_FEEDS",
+      "rule": "count",
+      "when": "always",
+      "default": "2",
+      "reason": "expected a positive whole number"
+    },
+    {
+      "name": "TEHAS_MILLWRIGHT_EPICS",
+      "rule": "one-of",
+      "when": "always",
+      "default": "0",
+      "words": [
+        "0",
+        "1"
+      ],
+      "reason": "expected 0 or 1"
+    },
+    {
+      "name": "TEHAS_REFRESH_CONFLICTS",
+      "rule": "one-of",
+      "when": "always",
+      "default": "0",
+      "words": [
+        "0",
+        "1"
+      ],
+      "reason": "expected 0 or 1"
+    },
+    {
+      "name": "TEHAS_REFRESH_MAX",
+      "rule": "count",
+      "when": "always",
+      "default": "2",
+      "reason": "expected a positive whole number"
+    },
+    {
+      "name": "TEHAS_REFRESH_EVERY",
+      "rule": "refresh-every",
+      "when": "always",
+      "default": "10",
+      "reason": "expected a whole number of minutes from 1 to 1440"
+    },
+    {
+      "name": "TEHAS_REFRESH_SLOTS",
+      "rule": "refresh-slots",
+      "when": "always",
+      "default": "1",
+      "reason": "expected a whole number from 0 to 8"
+    },
+    {
+      "name": "TEHAS_PREVIEWS",
+      "rule": "one-of",
+      "when": "always",
+      "default": "0",
+      "words": [
+        "0",
+        "1"
+      ],
+      "reason": "expected 0 or 1"
+    },
+    {
+      "name": "TEHAS_EGRESS",
+      "rule": "one-of",
+      "when": "always",
+      "default": "0",
+      "words": [
+        "0",
+        "1"
+      ],
+      "reason": "expected 0 or 1"
+    },
+    {
+      "name": "TEHAS_EGRESS_HOSTS",
+      "rule": "egress-hosts",
+      "when": "given",
+      "default": "",
+      "reason": "expected host names such as pypi.org or host:port, separated by single spaces"
+    },
+    {
+      "name": "TEHAS_PREVIEW_MAX",
+      "rule": "preview-max",
+      "when": "always",
+      "default": "5",
+      "reason": "expected a number from 1 to 99"
+    },
+    {
+      "name": "TEHAS_PREVIEW_MIN_FREE",
+      "rule": "free-disk",
+      "when": "always",
+      "default": "5g",
+      "reason": "expected a size such as 512m or 5g"
+    },
+    {
+      "name": "TEHAS_CYCLE_MIN_FREE",
+      "rule": "free-disk",
+      "when": "always",
+      "default": "10g",
+      "reason": "expected a size such as 512m or 5g"
+    },
+    {
+      "name": "TEHAS_CLEAN_MIN_FREE",
+      "rule": "free-disk",
+      "when": "always",
+      "default": "30g",
+      "reason": "expected a size such as 512m or 5g"
+    },
+    {
+      "name": "TEHAS_CYCLE_STOP_FREE",
+      "rule": "free-disk",
+      "when": "always",
+      "default": "5g",
+      "reason": "expected a size such as 512m or 5g"
+    },
+    {
+      "name": "TEHAS_SCRATCH_MAX",
+      "rule": "free-disk",
+      "when": "always",
+      "default": "20g",
+      "reason": "expected a size such as 512m or 5g"
+    },
+    {
+      "name": "TEHAS_CYCLE_RESERVE",
+      "rule": "container-size",
+      "when": "always",
+      "default": "2g",
+      "reason": "expected a size of at least 6m, such as 512m or 2g"
+    },
+    {
+      "name": "TEHAS_SLICE_CONTAINERS",
+      "rule": "slice-containers",
+      "when": "always",
+      "default": "4",
+      "reason": "expected a whole number from 2 to 16"
+    },
+    {
+      "name": "TEHAS_LOW_GATE_WAIT",
+      "rule": "low-gate-wait",
+      "when": "always",
+      "default": "60",
+      "reason": "expected at most 600 seconds"
+    },
+    {
+      "name": "TEHAS_CLEAN_AFTER",
+      "rule": "clean-after",
+      "when": "always",
+      "default": "24",
+      "reason": "expected a whole number of hours of at least 1"
+    },
+    {
+      "name": "TEHAS_WORKSPACE_KEEP_DAYS",
+      "rule": "keep-days",
+      "when": "always",
+      "default": "7",
+      "reason": "expected a whole number of days of at least 1"
+    },
+    {
+      "name": "TEHAS_POLL_BUDGET",
+      "rule": "poll-budget",
+      "when": "always",
+      "default": "cpu=5,wall=30,writes=0",
+      "reason": "expected cpu=<s>,wall=<s>,writes=<n>, any part left out"
+    },
+    {
+      "name": "TEHAS_SIZE_MAX_BYTES",
+      "rule": "measure-bound",
+      "when": "always",
+      "default": "131072",
+      "reason": "expected a whole number of at least 1"
+    },
+    {
+      "name": "TEHAS_SIZE_MAX_LINES",
+      "rule": "measure-bound",
+      "when": "always",
+      "default": "1000",
+      "reason": "expected a whole number of at least 1"
+    },
+    {
+      "name": "TEHAS_BUILD_TIMEOUT",
+      "rule": "count",
+      "when": "given",
+      "default": null,
+      "reason": "expected a positive whole number"
+    },
+    {
+      "name": "PI_RUKAS_FOLLOW",
+      "rule": "follow",
+      "when": "named",
+      "default": null,
+      "reason": "expected release, release:<line>, branch:<name> or commit:<40 hex>"
+    },
+    {
+      "name": "TEHAS_BRANCH",
+      "rule": "one-word",
+      "when": "given",
+      "default": null,
+      "reason": "expected one word"
+    },
+    {
+      "name": "TEHAS_DOMAIN",
+      "rule": "domain",
+      "when": "given",
+      "default": "",
+      "reason": "expected a domain such as example.org, in lower case, with no scheme and no path"
+    },
+    {
+      "name": "TEHAS_PROTOLAB_URL",
+      "rule": "lab-address",
+      "when": "given",
+      "default": null,
+      "reason": "expected an address such as https://lab.example, with no path and no slash at the end"
+    },
+    {
+      "name": "TEHAS_ENERGY_SOURCE_URL",
+      "rule": "site-address",
+      "when": "given",
+      "default": null,
+      "reason": "expected an https address such as https://example.com/mesh"
+    },
+    {
+      "name": "TEHAS_UPDATE_FROM",
+      "rule": "one-of",
+      "when": "given",
+      "default": null,
+      "words": [
+        "git",
+        "release"
+      ],
+      "reason": "expected git or release"
+    },
+    {
+      "name": "TEHAS_RELEASE_REPO",
+      "rule": "repo",
+      "when": "given",
+      "default": null,
+      "reason": "expected owner/name"
+    },
+    {
+      "name": "TEHAS_SIZE_MAX_FILES",
+      "rule": "count",
+      "when": "given",
+      "default": "",
+      "reason": "expected a positive whole number"
+    },
+    {
+      "name": "TEHAS_CYCLE_REPORT",
+      "rule": "one-of",
+      "when": "given",
+      "default": null,
+      "words": [
+        "rust"
+      ],
+      "reason": "expected rust: the report in bash is gone"
+    },
+    {
+      "name": "TEHAS_SCRATCH_DIR",
+      "rule": "scratch-dir",
+      "when": "given",
+      "default": null,
+      "reason": "expected an absolute path such as /mnt/scratch"
+    },
+    {
+      "name": "TEHAS_ANALYTICS_SRC",
+      "rule": "script-address",
+      "when": "given",
+      "default": "",
+      "reason": "expected the https address of a script"
+    },
+    {
+      "name": "TEHAS_ANALYTICS_SITE",
+      "rule": "site-name",
+      "when": "given",
+      "default": "",
+      "reason": "expected one word of letters, digits, dots and dashes"
+    },
+    {
+      "name": "TEHAS_IMPROVE_REPO",
+      "rule": "repo",
+      "when": "given",
+      "default": "",
+      "reason": "expected owner/name"
+    },
+    {
+      "name": "TEHAS_IMPROVE_RUKAS_REPO",
+      "rule": "repo",
+      "when": "given",
+      "default": "",
+      "reason": "expected owner/name"
+    },
+    {
+      "name": "TEHAS_IMPROVE_MAX_OPEN",
+      "rule": "count",
+      "when": "given",
+      "default": "10",
+      "reason": "expected a positive whole number"
+    },
+    {
+      "name": "TEHAS_GITHUB_APP_ID",
+      "rule": "app-id",
+      "when": "given",
+      "default": "",
+      "reason": "expected the ID GitHub shows, a whole number"
+    },
+    {
+      "name": "TEHAS_OWNER",
+      "rule": "person",
+      "when": "given",
+      "default": "",
+      "reason": "expected the GitHub login of one person: GitHub assigns no app's bot"
+    },
+    {
+      "name": "TEHAS_RUKAS_WORKAROUNDS",
+      "rule": "workarounds",
+      "when": "given",
+      "default": "",
+      "reason": "expected NAME@VERSION entries separated by single spaces, such as PI_ENSEMBLE_COMMENT_RETENTION@0.12.80"
+    },
+    {
+      "name": "TEHAS_BRANCH_CHECK",
+      "rule": "branch-check",
+      "when": "given",
+      "default": "",
+      "reason": "expected the name of a check, words of letters, digits and ._()/- separated by single spaces"
+    },
+    {
+      "name": "TEHAS_LOW_GATE",
+      "rule": "low-gate",
+      "when": "given",
+      "default": "",
+      "reason": "expected an absolute path of /, letters, digits and ._-, with no empty or dot segment"
+    },
+    {
+      "name": "TEHAS_PRIORITY_FIELD",
+      "rule": "one-word",
+      "when": "given",
+      "default": null,
+      "reason": "expected one word"
+    },
+    {
+      "name": "TEHAS_ISSUE_TYPES",
+      "rule": "issue-types",
+      "when": "given",
+      "default": null,
+      "reason": "expected kind=Type pairs, such as improvement=Improvement prototype=Prototype, not improvement"
+    },
+    {
+      "name": "TEHAS_CLEAN_DIRS",
+      "rule": "clean-dirs",
+      "when": "given",
+      "default": "target node_modules __pycache__ .venv .pytest_cache .mypy_cache .next .turbo .gradle",
+      "reason": "expected directory names of letters, digits and ._-, separated by single spaces"
+    },
+    {
+      "name": "TEHAS_REPO",
+      "rule": "repo",
+      "when": "required",
+      "default": null,
+      "reason": "expected owner/name"
+    },
+    {
+      "name": "TEHAS_CONTROL_ISSUE",
+      "rule": "count",
+      "when": "required",
+      "default": null,
+      "reason": "expected a positive whole number"
+    },
+    {
+      "name": "TEHAS_ALLOWED_LABELERS",
+      "rule": "logins",
+      "when": "required",
+      "default": null,
+      "reason": "expected GitHub logins separated by single spaces"
+    },
+    {
+      "name": "PI_ENSEMBLE_SUBAGENT_MODEL",
+      "rule": "one-word",
+      "when": "required",
+      "default": null,
+      "reason": "expected one word"
+    },
+    {
+      "name": "PI_ENSEMBLE_SUBAGENT_PROVIDER",
+      "rule": "one-word",
+      "when": "required",
+      "default": null,
+      "reason": "expected one word"
+    },
+    {
+      "name": "TEHAS_CONTAINER_MEMORY",
+      "rule": "container-size",
+      "when": "required",
+      "default": null,
+      "reason": "expected a size of at least 6m, such as 512m or 2g"
+    },
+    {
+      "name": "TEHAS_REVIEW_REPO",
+      "rule": "repo",
+      "when": "required",
+      "default": "",
+      "reason": "expected owner/name"
+    }
+  ]
+}

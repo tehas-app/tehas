@@ -107,6 +107,7 @@ make_tree() {
   cp "$T_ROOT/host/sandbox/build.sh" "$tree/host/sandbox/"
   mkdir -p "$tree/instances"
   cp -R "$T_ROOT/instances/example" "$tree/instances/"
+  cp -R "$T_ROOT/api" "$tree/"
 }
 
 t_case "a pack writes the tarball, its .sha256 and nothing else, and says both"
@@ -175,7 +176,7 @@ t_case "the list packs what lib/release.sh did, and the tarball carries the list
 # it was a plain file, but for the list itself.
 t_eq "$(release_list dirs | tr '\n' ' ')" "bin libexec lib host "
 t_eq "$(release_list plain | tr '\n' ' ')" "install.sh bootstrap.sh LICENSE NOTICE AGENTS.md CHANGELOG.md "
-t_eq "$(release_list extra | tr '\n' ' ')" "instances/example "
+t_eq "$(release_list extra | tr '\n' ' ')" "instances/example api "
 t_contains "$list" "tehas-v9.9.9/lib/release.list"
 case $list in
   *"tehas-v9.9.9/lib/release.sh"*) t_bad "the retired lib/release.sh is in the tarball" ;;
@@ -199,6 +200,8 @@ done
 # The example instance is packed, and no instance of a running factory with it.
 t_contains "$list" "tehas-v9.9.9/instances/example/instance.env"
 t_eq "$(grep '^tehas-v9.9.9/instances/[^/]*/' <<<"$list" | grep -v '^tehas-v9.9.9/instances/example/')" ""
+# The rules of the settings, for a tool that checks instance.env off the host.
+t_contains "$list" "tehas-v9.9.9/api/settings-rules.json"
 
 # The git record is the one thing beside those directories that the copy could
 # have carried with the tree, so the tree is made to look like a checkout: a
@@ -713,7 +716,7 @@ cp "$T_ROOT/bootstrap.sh" "$tree/bootstrap.sh"
 TEHAS_PACK_ROOT=$tree t_pack
 t_eq "$t_rc" 0
 t_eq "$(tar -tzf "$dist/$tar_gz" | cut -d/ -f2 | grep -v '^$' | LC_ALL=C sort -u | tr '\n' ' ')" \
-  "AGENTS.md CHANGELOG.md LICENSE NOTICE VERSION bin bootstrap.sh host install.sh instances lib libexec "
+  "AGENTS.md CHANGELOG.md LICENSE NOTICE VERSION api bin bootstrap.sh host install.sh instances lib libexec "
 
 t_case "the tree's own build of the console is refused, by path and by content"
 t_pack_reset
