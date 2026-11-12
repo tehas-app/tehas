@@ -877,7 +877,10 @@ jq -n --argjson lists "$lists" --argjson items "$items" --argjson control "$(rea
         timelineItems: {nodes: ([.ev[] | select($dropped | not) | {__typename: (if .event == "labeled" then "LabeledEvent"
             elif .event == "unlabeled" then "UnlabeledEvent" else "RenamedTitleEvent" end),
           createdAt: .created_at, actor: actor, label: .label}] + [select(any($locked[]; . == $i.n) and ($dropped | not)) | $running])},
-        closedByPullRequestsReferences: {nodes: (.p.data.repository.issue.closedByPullRequestsReferences.nodes // [])}}]},
+        # A linked pull request is of the bot on a branch of the repository,
+        # unless a case says otherwise.
+        closedByPullRequestsReferences: {nodes: ((.p.data.repository.issue.closedByPullRequestsReferences.nodes // [])
+          | map({isCrossRepository: false, author: {login: "tehas-bot"}, headRepository: {nameWithOwner: "acme/widget"}} + .))}}]},
     closedRunning: {nodes: [$lists[][] | select(.state == "CLOSED") | {number}]}}
     # The open pull requests, when a case wrote them.
     + (if $pulls == null then {} else {openPulls: {nodes: $pulls}} end)

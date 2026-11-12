@@ -198,7 +198,7 @@ fn the_token_goes_to_github_com_only_and_on_standard_input() {
     assert!(with);
     assert_eq!(
         args.join(" "),
-        "-sSfL --proto =https --proto-redir =https --max-redirs 3 --max-time 120 --max-filesize 9 -o /d/.part -w %{content_type} -H @- https://github.com/a/b/assets/1/x"
+        "-sSfL --path-as-is --proto =https --proto-redir =https --max-redirs 3 --max-time 120 --max-filesize 9 -o /d/.part -w %{content_type} -H @- https://github.com/a/b/assets/1/x"
     );
     assert!(!args.iter().any(|a| a.contains("tok")));
     let (args, with) = curl_args(
@@ -212,6 +212,62 @@ fn the_token_goes_to_github_com_only_and_on_standard_input() {
     assert!(!with);
     let (_, with) = curl_args("https://github.com/a/b/assets/1/x", "f", 9, "");
     assert!(!with);
+}
+
+/// Links that would leave an attachment folder once a dot part is read.
+const OUTSIDE_FOLDER: [&str; 8] = [
+    "https://github.com/o/r/files/1/../../raw/main/notes.json",
+    "https://github.com/o/r/files/1/./x/../../../raw/main/notes.json",
+    "https://github.com/user-attachments/files/../../o/r/raw/main/notes.json",
+    "https://github.com/o/r/files/1/%2e%2e/%2E%2E/raw/main/notes.json",
+    "https://github.com/o/r/files/1/.%2e/.%2E/raw/main/notes.json",
+    "https://github.com/o/r/files/1/a%2f..%2f..%2fraw/notes.json",
+    "https://github.com/o/r/files/1/..?/notes.json",
+    "https://github.com/o/../files/1/notes.json",
+];
+
+#[test]
+fn a_link_out_of_an_attachment_folder_gets_no_token() {
+    for link in OUTSIDE_FOLDER {
+        let (args, with) = curl_args(link, "f", 9, "tok");
+        assert!(!with, "{link}");
+        assert!(!args.contains(&"-H".to_string()), "{link}");
+        assert!(args.contains(&"--path-as-is".to_string()));
+    }
+    for link in [
+        "https://github.com/o/r/files/1/.hidden.json",
+        "https://github.com/o/r/files/1/a..b/c.json",
+        "https://github.com/user-attachments/files/7/a%20b.json",
+    ] {
+        assert!(curl_args(link, "f", 9, "tok").1, "{link}");
+    }
+}
+
+#[test]
+fn a_link_out_of_an_attachment_folder_is_never_fetched() {
+    let (_scratch, base) = scratch();
+    let dir = format!("{base}/images");
+    let record = format!("{base}/record.json");
+    fs::write(
+        &record,
+        json!({"at": "t", "by": "alice", "how": "label", "links": OUTSIDE_FOLDER}).to_string(),
+    )
+    .unwrap();
+    let body = format!("{} {}", OUTSIDE_FOLDER.join(" "), file(5, "ok.png"));
+    let data = json!({"author_association": "OWNER", "body": body}).to_string();
+    let net = Fake::default();
+    let _ = issue(&run_of(&dir, &data, ""), &net);
+    assert!(net
+        .fetched
+        .borrow()
+        .iter()
+        .any(|(l, _)| *l == file(5, "ok.png")));
+    let _ = issue(&run_of(&dir, &data, &record), &net);
+    for (link, _) in net.fetched.borrow().iter() {
+        let lower = link.to_ascii_lowercase();
+        assert!(!lower.contains("/.") && !lower.contains("%2"), "{link}");
+        assert!(!lower.contains("raw"), "{link}");
+    }
 }
 
 #[test]

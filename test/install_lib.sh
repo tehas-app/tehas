@@ -6,7 +6,36 @@
 # shellcheck disable=SC2034  # the variables here are read by the test files
 # The part has sourced test/lib.sh before this.
 
-install="$T_ROOT/install.sh"
+# install_fixture <checkout> <dir>: a fixture of <checkout> made of its tracked
+# files and nothing else, so an untracked file in a working tree cannot change
+# what an install sees. Uncommitted edits to a tracked file are in it, because
+# the files are copied from the working tree; files removed from it are left
+# out, as a release leaves them. The fixture has no .git, so it names itself as
+# a release tree does: COMMIT, and VERSION as <newest tag>+<short hash>, the
+# hash alone where there is no tag, which is what install.sh reads from git.
+install_fixture() { # <checkout> <dir>
+  local from=$1 to=$2 kept=$T/ls-files deleted=$T/ls-deleted tag hash
+  # What a run of this takes is the result of the last copy, so a tree whose
+  # tracked files cannot be read says so instead of leaving a fixture of part
+  # of them behind.
+  rm -rf "$to"
+  mkdir -p "$to"
+  git -C "$from" ls-files -z >"$kept" || return 1
+  git -C "$from" ls-files -z --deleted >"$deleted" || return 1
+  (cd "$from" && comm -z -23 "$kept" "$deleted" |
+    xargs -0 -r cp -P --parents -t "$to/") || return 1
+  rm -f "$kept" "$deleted"
+  git -C "$from" rev-parse HEAD >"$to/COMMIT"
+  hash=$(git -C "$from" rev-parse --short=7 HEAD)
+  tag=$(git -C "$from" describe --tags --abbrev=0 2>/dev/null) || tag=""
+  printf '%s\n' "${tag:+$tag+}$hash" >"$to/VERSION"
+}
+# The tree every install of this file runs: built once here from this checkout,
+# in $T, so no case writes into the checkout and none reads an untracked file.
+# A case that changes the tree copies it first.
+fixture=$T/tree
+install_fixture "$T_ROOT" "$fixture"
+install="$fixture/install.sh"
 home=$T/home
 th=$home/tehas
 # bootstrap.sh dev writes two files outside any home, and install.sh reads them to
@@ -165,6 +194,7 @@ checkout() {
   part=$T/part
   rm -rf "$part"
   mkdir -p "$part"
-  cp -R "$T_ROOT/install.sh" "$T_ROOT/lib" "$T_ROOT/host" "$T_ROOT/bin" "$T_ROOT/libexec" "$part/"
-  t_console_source "$part"
+  cp -R "$fixture/install.sh" "$fixture/lib" "$fixture/host" "$fixture/bin" \
+    "$fixture/libexec" "$part/"
+  t_console_source "$part" "$fixture"
 }

@@ -125,15 +125,20 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
         .get(tehas_core::accounts::account(&c.bot_login))
         .copied());
     // What rule 6 holds an issue on out of an open pull request's body:
-    // every open pull request that names it with a closing keyword, by
-    // number, whatever base it targets.
+    // every open pull request of `own_pull` that names it with a closing
+    // keyword, by number, whatever base it targets. GitHub's own links are
+    // kept to the same pull requests.
     if let Some(pulls) = &q.open_pulls {
-        names_from_bodies(&mut s, pulls, &q.open);
+        names_from_bodies(&mut s, pulls, &q.open, c);
     }
     let open: BTreeSet<u64> = q.open.iter().map(|o| o.number).collect();
     let mut issues = Map::new();
     for o in &q.open {
-        issues.insert(o.number.to_string(), Value::Object(github::issue(o)));
+        let mut i = github::issue(o);
+        if let Some(prs) = i.get_mut("prs").and_then(Value::as_array_mut) {
+            prs.retain(|p| own_pull(p, c));
+        }
+        issues.insert(o.number.to_string(), Value::Object(i));
     }
     // Those the page left out are read as the bash reads them, side by side.
     // The bot's `RUNNING` mark is the one label the queue does not ask about:
@@ -476,13 +481,22 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
         return Ok(s);
     }
 
-    // The questions waiting for an answer and the blocked candidates read their
-    // comments in one read of the whole list rather than of one issue at a
-    // time: one aliased query a chunk answers every asking issue and every
-    // blocked candidate the question read does not cover (#1198), and one call
+    // The questions waiting for an answer, the blocked candidates and the
+    // candidates whose park may lift read their comments in one read of the
+    // whole list rather than of one issue at a time: one aliased query a chunk
+    // answers every asking issue, every blocked candidate the question read does
+    // not cover (#1198), and every park that may lift (#1773), and one call
     // reads the states of the blockers the whole queue names (#1161).
     let blocked = blocked_list(&q, &candidates, &asking);
-    let wanted: Vec<u64> = asking.iter().chain(&blocked).copied().collect();
+    // The list is built from the park answers the batch above already holds, so
+    // it is planned after that run and before this one.
+    let lifting = lifting_parks(&asked, &q, &candidates, &asking, c);
+    let wanted: Vec<u64> = asking
+        .iter()
+        .chain(&blocked)
+        .chain(&lifting)
+        .copied()
+        .collect();
     let mut read = github::comments_of(calls, &c.repo, &wanted).into_iter();
     let mut asked_of: BTreeMap<u64, Value> = BTreeMap::new();
     for (n, comments) in asking.iter().zip(read.by_ref()) {
@@ -492,28 +506,29 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
         i["comments"] = comments.clone();
         asked_of.insert(*n, comments);
     }
-    let comments: BTreeMap<u64, Value> = blocked.into_iter().zip(read).collect();
+    let comments: BTreeMap<u64, Value> = blocked.into_iter().zip(read.by_ref()).collect();
+    // What the batch answered of the parks that may lift, taken in the order
+    // `lifting` holds them: the batch's iterator still has exactly that many
+    // answers left, and an issue the question read answered first keeps that
+    // answer rather than a second one for the same number.
+    let lifted: BTreeMap<u64, Value> = lifting.into_iter().zip(read).collect();
     let states = blocker_reads(calls, &c.repo, &q, &candidates, &comments, &asked_of);
 
     // The candidates of rule 6: what their start rests on. Membership of the
-    // blocked batch is decided once, in `blocked_list`, and the rule's own test
-    // is the same predicate, so the two cannot disagree about an issue.
+    // blocked batch is decided once, in `blocked_list`, and of the lifting
+    // batch once, in `lifting_parks`, and the rule's own tests are those two
+    // predicates, so the batches and the rule cannot disagree about an issue.
     for n in candidates {
         let park = store::park(&asked, n);
         let (shaped, _) = store::approval(&asked, n);
-        // The millwright's note, or a Retry ticked in the park's question, may
-        // lift a park's hold. A parked issue that asks nothing has had no
-        // comment read.
-        let lifts = park.is_object()
-            && park.get("failed").is_none()
-            && ((!c.millwright.is_empty() && (c.work_images || c.work_files))
-                || park.get("question").is_some_and(|q| !q.is_null()));
         let i = entry(&mut issues, n);
         i["park"] = park;
         i["approval"] = shaped;
         if !is_blocked(&q, n) {
-            if lifts && i.get("comments").is_none() {
-                i["comments"] = github::comments(calls, &c.repo, n);
+            if i.get("comments").is_none() {
+                if let Some(list) = lifted.get(&n) {
+                    i["comments"] = list.clone();
+                }
             }
             continue;
         }
@@ -604,6 +619,38 @@ fn blocked_list(q: &github::Queue, candidates: &[u64], asking: &[u64]) -> Vec<u6
         .collect()
 }
 
+/// Whether the millwright's note, or a Retry ticked in the park's question, may
+/// lift `park`'s hold: the test rule 6 applies to a candidate, held here so the
+/// batch of comment reads and the rule ask the same issues (#1773). The read
+/// says nothing either way, so a park whose read failed is no park to lift on.
+fn park_lifts(park: &Value, c: &Settings) -> bool {
+    park.is_object()
+        && park.get("failed").is_none()
+        && ((!c.millwright.is_empty() && (c.work_images || c.work_files))
+            || park.get("question").is_some_and(|q| !q.is_null()))
+}
+
+/// The unblocked candidates of rule 6 whose comments the poll reads beside the
+/// questions': each unblocked one the question read does not already cover, and
+/// whose park may lift. Membership is decided once, by `park_lifts`, so the
+/// batch and the rule that consumes it cannot disagree about which issue's park
+/// may lift. An asking issue is read once, by the question read.
+fn lifting_parks(
+    asked: &store::Asked,
+    q: &github::Queue,
+    candidates: &[u64],
+    asking: &[u64],
+    c: &Settings,
+) -> Vec<u64> {
+    candidates
+        .iter()
+        .copied()
+        .filter(|n| {
+            !is_blocked(q, *n) && !asking.contains(n) && park_lifts(&store::park(asked, *n), c)
+        })
+        .collect()
+}
+
 /// The states of the blockers the blocked candidates' comments name, in one
 /// call for the union of them (#1161).
 ///
@@ -674,6 +721,19 @@ fn closed(issues: &mut Map<String, Value>, n: u64) {
     }
 }
 
+/// Whether a pull request may hold an issue: its branch is in the product
+/// repository and the factory or an allowed account opened it. Anyone can open
+/// a pull request from a fork with any body, so no other one holds an issue.
+fn own_pull(p: &Value, c: &Settings) -> bool {
+    let s = |ptr: &str| p.pointer(ptr).and_then(Value::as_str).unwrap_or("");
+    let author = s("/author/login");
+    p.get("isCrossRepository") == Some(&json!(false))
+        && !c.repo.is_empty()
+        && s("/headRepository/nameWithOwner").eq_ignore_ascii_case(&c.repo)
+        && (tehas_core::accounts::factorys(author, &c.bot_login)
+            || c.allowed(crate::settings::account(author)))
+}
+
 /// Which open pull requests name an open issue with a closing keyword in their
 /// own description, written to `pulls_name` of the snapshot by issue number.
 ///
@@ -681,12 +741,13 @@ fn closed(issues: &mut Map<String, Value>, n: u64) {
 /// 25 issues over 100 bodies is 2500 matches otherwise, and most descriptions
 /// hold no keyword at all. The nodes are what the page answered: a list of no
 /// shape a rule reads holds nothing, and no issue is held on a body no poll read.
-fn names_from_bodies(s: &mut Value, pulls: &Value, open: &[github::Open]) {
+fn names_from_bodies(s: &mut Value, pulls: &Value, open: &[github::Open], c: &Settings) {
     let Some(nodes) = pulls.as_array() else {
         return;
     };
     let mentions: BTreeMap<u64, Vec<u64>> = nodes
         .iter()
+        .filter(|p| own_pull(p, c))
         .filter_map(|p| {
             let pr = p.get("number").and_then(Value::as_u64)?;
             // A body of no shape a rule reads, none or absent, is a description
@@ -811,7 +872,13 @@ mod tests {
     /// What separates two calls in a stub's record: a word of nothing that no
     /// argument of a real gh or store call contains, named once so that neither
     /// the body of a stub nor the reader of the record spells an escape.
-    const RECORD_SEP: &str = "«tehas-record-separator»";
+    const RECORD_SEP: &str = "»tehas-record«";
+    /// Separates the verb `batch` from the request it was given on standard
+    /// input, inside one record of the store's calls.
+    const REQUEST_SEP: &str = "«tehas-request»";
+    /// Ends the request of a run of the batch, where the verb of the call whose
+    /// record follows the run begins.
+    const RUST_SEP: &str = "«tehas-rust»";
 
     /// The word only the comment query carries, and the word only the blocker
     /// query carries: the shape a poll's calls are counted by, so a per-issue
@@ -976,6 +1043,24 @@ mod tests {
             ["plan-show", "history-show", "park-show"].join("\n"),
         )
         .unwrap();
+        // A world whose issues are parked names them in `parks`, and the store
+        // answers their `park-show` and `approval-current` with the records of
+        // the lifted-park case rather than the quiet ones. The answer of each
+        // issue is the single line the store itself writes for the verb, held in
+        // a file beside the programs named for the call and its number.
+        for n in world["parks"].as_array().into_iter().flatten() {
+            let Some(n) = n.as_u64() else {
+                continue;
+            };
+            let sum = tehas_core::approval::body_sha256(&json!({"body": "Words."}));
+            let at = world["ready_at"].as_str().unwrap_or("2026-10-30T23:58:00Z");
+            std::fs::write(dir.join(format!(".park-show-{n}")), park_answer(&sum)).unwrap();
+            std::fs::write(
+                dir.join(format!(".approval-current-{n}")),
+                approval_answer(at, &sum),
+            )
+            .unwrap();
+        }
         for (n, r) in READS.iter().enumerate() {
             let answer = format!(
                 "{}{}",
@@ -1075,31 +1160,65 @@ printf '{}' >"$out""#,
         // tested beside the store, so here a quiet host's store is enough. The
         // words the store is asked by are held in `store-words` so that a case
         // can widen them without a second place to edit.
-
-        stub(
-            &dir.join("bin"),
-            "store",
-            r#"case "$line" in
-  batch) printf '%s' "${line#batch }" >"$args.req"
-    jq -c '[ .[] | {rc: 0, out: (
-        if .[0] == "plan-show" then
-          "{\"api\":1,\"ok\":true,\"verb\":\"plan-show\",\"planning\":null}"
-        elif .[0] == "park-show" then
-          "{\"api\":1,\"ok\":true,\"verb\":\"park-show\",\"park\":null}"
-        elif .[0] == "history-show" then
-          "{\"api\":1,\"ok\":true,\"verb\":\"history-show\",\"rows\":[]}"
-        else
-          "{\"api\":1,\"ok\":true,\"verb\":\"approval-current\",\"current\":null}"
-        end)}]' "$args.req" >"$out"
+        let store_body = String::from(
+            r#"# `batch` is the one verb whose request is on standard input rather than in
+# the arguments, as `store batch` reads it, so the request is taken from there
+# and the words of the call are just the verb.
+case "$line" in
+  batch*) req=$(mktemp "$here/../store-req.XXXXXX")
+    # The request arrives on the poll's standard input, after the verb: read whole
+    # here, appended to the record of the call the header opened, and kept for the
+    # answer below. The separators are substituted by `stub`, so the answer of a
+    # run cannot write one of them itself.
+    read -r batch_request
+    printf '%s' "{sep}{req}$batch_request{rust}" >>"$here/{name}-calls"
+    printf '%s' "$batch_request" >"$req"
+    acc=[]
+    # One answer per call of the request, in its order. A record a case wrote
+    # beside the programs, named for the verb and its number, answers that call
+    # with the very bytes the single call would have printed; a call with no
+    # record of its own gets the quiet answer this host has always given. The
+    # line goes into the answer as text, as `store batch` puts a verb's line in
+    # `out` -- which is why the record's bytes are handed to `jq` as an argument
+    # rather than read by it, and are not parsed on the way.
+    n=$(jq 'length' "$req")
+    i=0
+    while [ "$i" -lt "$n" ]; do
+      verb=$(jq -r ".[$i][0] // \"\"" "$req")
+      num=$(jq -r ".[$i][1] // \"\"" "$req")
+      f="$here/../.$verb-$num"
+      if [ -f "$f" ]; then
+        said=$(cat "$f")
+      else
+        case "$verb" in
+          plan-show) said='{"api":1,"ok":true,"verb":"plan-show","planning":null}' ;;
+          history-show) said='{"api":1,"ok":true,"verb":"history-show","rows":[]}' ;;
+          approval-current) said='{"api":1,"ok":true,"verb":"approval-current","current":null}' ;;
+          park-show) said='{"api":1,"ok":true,"verb":"park-show","park":null}' ;;
+          question-known) said='{"api":1,"ok":true,"verb":"question-known","known":true}' ;;
+          *) said='{"api":1,"ok":true,"verb":"'"$verb"'"}' ;;
+        esac
+      fi
+      acc=$(printf '%s' "$acc" | jq -c --arg out "$said" '. + [{rc: 0, out: $out}]')
+      i=$((i + 1))
+    done
+    rm -f "$req"
+    printf '{"api":1,"ok":true,"verb":"batch","answers":%s}' "$acc" >"$out"
     answer 0 ;;
   $(sed -n 1p "$here/../store-words")*) printf '%s' '{"api":1,"ok":true,"verb":"plan-show","sessions":[]}' >"$out" ;;
   cycle-show*) printf '%s' '{"api":1,"ok":true,"verb":"cycle-show","cycles":[]}' >"$out" ;;
   $(sed -n 2p "$here/../store-words")*) printf '%s' '{"api":1,"ok":true,"verb":"history-show","rows":[]}' >"$out" ;;
   $(sed -n 3p "$here/../store-words")*) printf '%s' '{"api":1,"ok":true,"verb":"park-show","parks":[]}' >"$out" ;;
   approval-current*) printf '%s' '{"api":1,"ok":true,"verb":"approval-current","current":null}' >"$out" ;;
+  # The answer of any other verb is the one line of its own: a store of this
+  # host has nothing to say. The leading dot is spelled out so that the body
+  # file `tehas_core::testing` leaves beside the program cannot answer for a
+  # read of one issue, whose name begins the same way.
+  .store*.body | *.body) printf '{}' >"$out" ;;
   *) printf '%s' "{\"api\":1,\"ok\":true,\"verb\":\"$1\"}" >"$out" ;;
 esac"#,
         );
+        stub(&dir.join("bin"), "store", &store_body);
         dir
     }
 
@@ -1118,9 +1237,19 @@ esac"#,
             format!("here='{}'", bin.display()),
             "args=$(mktemp \"$here/{name}-args.XXXXXX\")".to_string(),
             "out=$(mktemp \"$here/{name}-out.XXXXXX\")".to_string(),
+            // The running list of answers the stub of the store builds, one
+            // element per call of the batch's request. The request of a run of
+            // the batch is read here, where the poll's standard input is still
+            // open: it answers the calls below and is recorded beside the verb,
+            // so a case sees what each run asked.
+            "acc=[]".to_string(),
+            // The record of the call is the whole call as it was asked. `batch`
+            // carries its request on standard input, as the store reads it, and
+            // the request is recorded beside the verb: a case counts the runs of
+            // the batch and sees the calls each one asked.
             format!(
                 "printf '%s{sep}' \"$*\" >>\"$here/{name}-calls\"; printf '%s' \"$*\" >\"$args\"",
-                sep = RECORD_SEP
+                sep = RECORD_SEP,
             ),
             "line=$(cat \"$args\")".to_string(),
             "rm -f \"$args\"".to_string(),
@@ -1137,7 +1266,18 @@ esac"#,
         .to_vec();
         lines.extend(body.lines().map(str::to_string));
         lines.push("answer 0".to_string());
-        tehas_core::testing::write_exe(bin.join(name), lines.join("\n") + "\n").unwrap();
+        // A call is one record: the arguments, and for `batch` the request the
+        // poll wrote on its standard input, which the body reads. They are joined
+        // with the separator that keeps a record of its own, so `calls_of` reads
+        // one entry a call and sees the request beside the verb that asked it.
+        let script = lines
+            .join("\n")
+            .replace("{name}", name)
+            .replace("{sep}", RECORD_SEP)
+            .replace("{req}", REQUEST_SEP)
+            .replace("{rust}", RUST_SEP)
+            + "\n";
+        tehas_core::testing::write_exe(bin.join(name), script).unwrap();
     }
 
     /// Whether a comment call asks for the comments of #n: its alias in the
@@ -1196,6 +1336,91 @@ esac"#,
         w
     }
 
+    /// The world of the lifted-park case: #21 to #23 sit open on the queue's
+    /// page with `tehas:ready` and no other flow, so rule 6 reads each of them
+    /// and none of them is in the blocked or the asking batch. `at` is when the
+    /// millwright applied the label, and `note_at` ten minutes before it is when
+    /// its guidance comment was written.
+    fn parked_world(count: u64, at: &str, note_at: &str) -> Value {
+        let mut w = world();
+        let numbers: Vec<u64> = (21..21 + count).collect();
+        let node = |n: u64| {
+            json!({
+                "number": n, "title": format!("issue {n}"), "body": "Words.",
+                "createdAt": "2026-10-01T00:00:00Z", "author": {"login": "alice"},
+                "lastEditedAt": null, "editor": null,
+                "labels": {"nodes": [{"name": "tehas:ready"}]},
+                // The page's timeline holds the label's event, so the poll
+                // trusts the page and pays no read by name for these issues.
+                "timelineItems": {"nodes": [
+                    {"__typename": "LabeledEvent",
+                     "createdAt": at,
+                     "actor": {"login": "tehas-fixer"}, "label": {"name": "tehas:ready"}}
+                ]},
+                "closedByPullRequestsReferences": {"nodes": []}
+            })
+        };
+        // The millwright's comment of guidance for the issue: what `change_note`
+        // lifts the park's hold on, and the read the batch now pays once.
+        let note = |n: u64| {
+            json!({"data": {"repository": {"issue": {"comments": {"nodes": [
+                {"databaseId": 600 + n, "author": {"login": "tehas-fixer"},
+                 "body": format!("<!-- tehas:millwright issue={n} action=change -->\\nDo not run the whole suite."),
+                 "createdAt": note_at, "lastEditedAt": null, "editor": null,
+                 "userContentEdits": {"totalCount": 0, "nodes": []}}
+            ]}}}}})
+        };
+        w["queue"]["data"]["repository"]["issues"]["nodes"] =
+            Value::Array(numbers.iter().map(|n| node(*n)).collect());
+        w["ready"] = numbers
+            .iter()
+            .map(|n| json!({"number": n, "labels": [{"name": "tehas:ready"}]}))
+            .collect();
+        w["blocked"] = json!([]);
+        w["states"] = json!({"data": {"repository": {}}});
+        w["comments"] = numbers
+            .iter()
+            .map(|n| (n.to_string(), note(*n)))
+            .collect::<serde_json::Map<String, Value>>()
+            .into();
+        // The events of the control issue are read by name, so its answer is
+        // the empty list rather than the blocked world's label events.
+        w["events"] = json!({"1": []});
+        w["parks"] = Value::Array(numbers.iter().map(|n| json!(n)).collect());
+        w["ready_at"] = json!(at);
+        w
+    }
+
+    /// The settings of the lifted-park case: the millwright has an account, and
+    /// a cycle is given the files its issue links, which is what makes the
+    /// millwright's comment of guidance able to lift a park's hold.
+    fn millwright_settings() -> Settings {
+        let mut c = settings();
+        c.millwright = "tehas-fixer".into();
+        c.work_files = true;
+        c
+    }
+
+    /// The store's answer of one `park-show <n>`: a park of the issue's own,
+    /// told, with no retries and its question off, so only the millwright's
+    /// comment of guidance can lift its hold.
+    fn park_answer(sum: &str) -> String {
+        format!(
+            "{{\"api\":1,\"ok\":true,\"verb\":\"park-show\",\"park\":{{\"reason\":\"intent-park\",\"body_sha256\":\"{sum}\",\"retries\":0,\"question\":null,\"told_at\":\"2026-10-01T03:00:00Z\"}}}}"
+        )
+    }
+
+    /// The store's answer of one `approval-current <n>`: the fixer's start on
+    /// the text `sum` of the issue, resting on alice's approval of the same
+    /// text, with a start left to the fixer. `at` is the instant the millwright
+    /// applied the label, so the label and the approval cover one text.
+    fn approval_answer(at: &str, sum: &str) -> String {
+        let at = tehas_core::time::from_iso(at).unwrap_or_default();
+        format!(
+"{{\"api\":1,\"ok\":true,\"verb\":\"approval-current\",\"current\":{{\"at\":{at},\"by\":\"tehas-fixer\",\"how\":\"millwright\",\"body_sha256\":\"{sum}\",\"input\":{{}}}},\"rests_on\":{{\"at\":{at},\"by\":\"alice\",\"how\":\"label\",\"body_sha256\":\"{sum}\"}},\"millwright_starts\":1,\"fixer_starts\":1}}"
+        )
+    }
+
     /// A snapshot given the room of a quiet host, as the fixtures' world has it:
     /// a slice with nothing in it and disk to spare, so what the rules decide
     /// rests on the issues alone.
@@ -1212,12 +1437,6 @@ esac"#,
             "pressure": "some avg10=0.00 avg60=0.00 avg300=0.00 total=0\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=0",
         });
         snap["disk_kb"] = json!(40 * 1_048_576u64);
-        // The store stub answers no batch, so each issue's store records are
-        // the quiet ones the fixtures give: no park and no approval.
-        for (_, i) in snap["issues"].as_object_mut().into_iter().flatten() {
-            i["park"] = Value::Null;
-            i["approval"] = Value::Null;
-        }
         snap
     }
 
@@ -1228,6 +1447,50 @@ esac"#,
             .split(RECORD_SEP)
             .filter(|s| !s.is_empty())
             .map(str::to_string)
+            .collect()
+    }
+
+    /// The runs of `store batch` the poll asked, as one call per run: the verb,
+    /// the separator of the request, and the request itself. A `park-show` of the
+    /// lists owed a run of its own is not a run of the batch.
+    fn batch_runs(store: &[String]) -> Vec<String> {
+        // The record of a run of the batch holds the verb, the separator, and the
+        // request: `batch [..]` is the call, and its request is what a case reads.
+        store
+            .iter()
+            .filter(|c| c.contains(REQUEST_SEP))
+            .cloned()
+            .collect()
+    }
+
+    /// The calls the runs of `store batch` asked, as one list: each element a
+    /// `[verb, argument]` pair, in the order the store was asked for them.
+    fn batched_calls(store: &[String]) -> Vec<Vec<String>> {
+        batch_runs(store)
+            .iter()
+            .flat_map(|c| {
+                // `batch«tehas-request»[..]park-show --automatic`: the request is
+                // the JSON array between the separator and the verb of the call
+                // whose record follows it.
+                let after_verb = c.split_once(REQUEST_SEP).map_or("", |(_, r)| r);
+                let request = after_verb
+                    .split_once(RUST_SEP)
+                    .map_or(after_verb, |(r, _)| r);
+                let Ok(Value::Array(calls)) = serde_json::from_str(request) else {
+                    return Vec::new();
+                };
+                calls
+                    .into_iter()
+                    .filter_map(|c| {
+                        let pair = c.as_array()?.clone();
+                        (pair.len() == 2).then(|| {
+                            pair.iter()
+                                .map(|a| a.as_str().unwrap_or("").to_string())
+                                .collect()
+                        })
+                    })
+                    .collect()
+            })
             .collect()
     }
 
@@ -1388,12 +1651,32 @@ esac"#,
                 "issue {n} keeps its own comments"
             );
         }
-        // The store is still asked once for the per-issue reads: batching the
-        // two reads of rule 6 did not turn one run of `store batch` into two.
-        assert_eq!(
-            store.iter().filter(|c| c.starts_with("batch")).count(),
-            1,
-            "the per-issue reads are one run of the store"
+        // The store is still asked once for the per-issue reads of the three
+        // issues: batching the two reads of rule 6 did not turn one run of
+        // `store batch` into three, and every park and approval of the list is
+        // asked in one of its requests rather than by a call of its own.
+        let runs = batch_runs(&store);
+        let asked = batched_calls(&store);
+        for n in 21..=23 {
+            assert!(
+                asked
+                    .iter()
+                    .any(|c| c == &["park-show".to_string(), n.to_string()]),
+                "issue {n}'s park is asked in a run of the batch: {store:?}"
+            );
+            assert!(
+                asked
+                    .iter()
+                    .any(|c| c == &["approval-current".to_string(), n.to_string()]),
+                "issue {n}'s approval is asked in a run of the batch: {store:?}"
+            );
+        }
+        // The three issues are two reads apiece: the runs that asked them are
+        // fewer than the calls, so the list went in batches and not one apiece.
+        assert!(
+            runs.len() < asked.len(),
+            "{} runs of the store answered the {asked:?} of the batch",
+            runs.len()
         );
     }
 
@@ -1770,6 +2053,150 @@ esac"#,
         );
     }
 
+    /// Three parked issues whose park may lift read their comments in the one
+    /// batched call the asking and the blocked issues are read in: three of them
+    /// cost the same gh calls as one, and the poll pays no read of one issue at a
+    /// time (#1773). Each keeps its own answer, and what the rule lifts on is the
+    /// comment the batch read, so the hold lets the issue start.
+    ///
+    /// The count is the contract, not the snapshot's shape: a read that went back
+    /// to one `github::comments` call per lifted park pays one gh process for
+    /// each, and `calls.gh_count` moves with the number of issues.
+    #[test]
+    fn the_lifted_parks_read_their_comments_in_the_one_batched_call() {
+        // The millwright applied `tehas:ready` at 23:58 and wrote its comment of
+        // guidance in the ten minutes before, which is what `change_note` lifts
+        // the park's hold on.
+        let at = "2026-10-30T23:58:00Z";
+        let note_at = "2026-10-30T23:55:00Z";
+        let mut counts: Vec<(u32, usize, Vec<usize>)> = Vec::new();
+        // The runs of `store batch` one poll of this host asks, counted once here
+        // and asserted again for every width of the park list: three parks pay
+        // what one does, and neither number is read from the world.
+        let mut one_batch_runs: Vec<String> = Vec::new();
+        for count in [1u64, 3] {
+            let w = parked_world(count, at, note_at);
+            let (snap, calls, gh_count, store) = poll_with(&w, &[], &millwright_settings());
+            if count == 1 {
+                one_batch_runs = batch_runs(&store);
+                assert!(
+                    !one_batch_runs.is_empty(),
+                    "the poll asks the store's batch: {store:?}"
+                );
+            }
+            let comment_calls = queries(&calls, COMMENT_MARK);
+            let parks: Vec<Value> = (21..21 + count)
+                .map(|n| snap["issues"][n.to_string()]["park"].clone())
+                .collect();
+            assert_eq!(
+                parks.iter().filter(|p| p.is_object()).count(),
+                count as usize,
+                "{count} parks are read from the store: {parks:?}"
+            );
+            counts.push((
+                gh_count,
+                comment_calls.len(),
+                comment_calls
+                    .iter()
+                    .map(|c| c.matches(": issue(number:").count())
+                    .collect::<Vec<usize>>(),
+            ));
+
+            // One call of the chunked read, not one per issue, and it asked each
+            // of the parked issues exactly once.
+            assert_eq!(
+                comment_calls.len(),
+                1,
+                "{count} lifted parks are one comment call: {calls:?}"
+            );
+            assert_eq!(
+                comment_calls[0].matches(": issue(number:").count(),
+                count as usize,
+                "the query asks of the lifted parks and of no other: {}",
+                comment_calls[0]
+            );
+            for n in 21..21 + count {
+                assert!(
+                    asks(&comment_calls[0], n),
+                    "issue {n} is asked for its comments: {}",
+                    comment_calls[0]
+                );
+                assert_eq!(
+                    snap["issues"][n.to_string()]["comments"],
+                    w["comments"][n.to_string()],
+                    "issue {n} keeps the answer the batch gave"
+                );
+            }
+            // The per-issue read is gone: no call asks one issue by the single
+            // query's own argument, only the aliased chunk of the batch.
+            assert!(
+                !calls.iter().any(|c| c.contains("number=2")),
+                "no per-issue comment read is paid: {calls:?}"
+            );
+            // The parks and the approvals are asked in the batch, not one call
+            // apiece, and the runs the store was asked in do not move with the
+            // number of issues.
+            let calls_of_runs = batched_calls(&store);
+            for n in 21..21 + count {
+                assert!(
+                    calls_of_runs
+                        .iter()
+                        .any(|c| c == &["park-show".to_string(), n.to_string()]),
+                    "issue {n}'s park is asked in the batch: {store:?}"
+                );
+                assert!(
+                    calls_of_runs
+                        .iter()
+                        .any(|c| c == &["approval-current".to_string(), n.to_string()]),
+                    "issue {n}'s approval is asked in the batch: {store:?}"
+                );
+            }
+            // The runs are the same shape whatever the width of the park list:
+            // the parks go in the run that asks the candidates, so three pay what
+            // one does. Only the request of each run differs, by its calls.
+            let shape = |runs: &Vec<String>| {
+                runs.iter()
+                    .map(|c| {
+                        c.split_once(REQUEST_SEP)
+                            .map_or_else(|| c.clone(), |(v, _)| format!("{v}{REQUEST_SEP}"))
+                    })
+                    .collect::<Vec<String>>()
+            };
+            assert_eq!(
+                shape(&batch_runs(&store)),
+                shape(&one_batch_runs),
+                "{count} lifted parks pay the runs one does: {store:?}"
+            );
+
+            // The decision the comments carry: the hold lifts and the issue starts.
+            let d = crate::decide::decide(
+                &Snapshot::parse(&roomy(snap.clone())),
+                &millwright_settings(),
+                true,
+            );
+            let picked: Vec<u64> = (21..21 + count).collect();
+            assert_eq!(d.picked, picked, "every lifted park starts: {:?}", d.log);
+            for n in 21..21 + count {
+                assert!(
+                    d.log.iter().any(|l| l
+                        == &format!("lift #{n}: its last cycle parked on intent-park and the body has not changed since, lifted on the fixer's guidance comment")),
+                    "issue {n} says what lifted it: {:?}",
+                    d.log
+                );
+            }
+        }
+        // Three parks cost what one does: the poll's own count, the number of
+        // comment calls and the width of that one query all held still.
+        let (one, one_calls, _) = &counts[0];
+        let (three, three_calls, three_sizes) = &counts[1];
+        assert_eq!(
+            three, one,
+            "three lifted parks pay the gh calls one does: {counts:?}"
+        );
+        assert_eq!(three_calls, one_calls, "{counts:?}");
+        assert_eq!(three_sizes, &vec![3], "{counts:?}");
+    }
+
     /// An issue the blocked list carries but the queue's page left out is not a
     /// blocked candidate: the batch and rule 6 test the same predicate, so an
     /// issue one of them holds is never written as blocked by the other. The
@@ -1825,7 +2252,88 @@ esac"#,
     fn pull_body(n: u64, body: Value) -> Value {
         json!({"number": n, "title": format!("pull {n}"), "body": body,
                "headRefName": format!("feature/other-{n}"),
+               "isCrossRepository": false, "headRepository": {"nameWithOwner": "acme/widget"},
                "author": {"login": "alice"}, "labels": {"nodes": []}})
+    }
+
+    /// A pull request that is not the repository's own names nothing: one from
+    /// a fork, one of an account neither the factory nor allowed, and one whose
+    /// author or head cannot be read. Each closes #21 and #22 in its body, and
+    /// neither issue is held.
+    #[test]
+    fn a_pull_request_not_of_the_repository_names_nothing() {
+        type Change = fn(&mut Value);
+        let cases: [(&str, Change); 6] = [
+            ("an outsider's fork", |p| {
+                p["isCrossRepository"] = json!(true);
+                p["headRepository"] = json!({"nameWithOwner": "mallory/widget"});
+                p["author"] = json!({"login": "mallory"});
+            }),
+            ("an allowed account's fork", |p| {
+                p["isCrossRepository"] = json!(true);
+                p["headRepository"] = json!({"nameWithOwner": "alice/widget"});
+            }),
+            ("an outsider on a branch of the repository", |p| {
+                p["author"] = json!({"login": "mallory"});
+            }),
+            ("a head of another repository", |p| {
+                p["headRepository"] = json!({"nameWithOwner": "acme/other"});
+            }),
+            ("no author", |p| {
+                p["author"] = Value::Null;
+            }),
+            ("no cross-repository answer", |p| {
+                p.as_object_mut().unwrap().remove("isCrossRepository");
+            }),
+        ];
+        for (what, change) in cases {
+            let mut w = world();
+            let mut p = pull(90, "Closes #21, #22");
+            change(&mut p);
+            w["queue"]["data"]["repository"]["openPulls"]["nodes"] = json!([p]);
+            let (snap, _, _, _) = poll(&w, &[]);
+            assert_eq!(snap.get("pulls_name"), None, "{what} names nothing");
+            assert!(
+                Snapshot::parse(&snap).pulls_name.is_empty(),
+                "{what} holds nothing"
+            );
+        }
+    }
+
+    /// The factory's own pull request and an allowed account's, both on a
+    /// branch of the repository, name what their bodies close.
+    #[test]
+    fn the_factorys_and_an_allowed_accounts_pull_requests_name_their_issues() {
+        let mut w = world();
+        let mut bot = pull(90, "Closes #21");
+        bot["author"] = json!({"login": "app/tehas-bot"});
+        let mut person = pull(91, "Fixes #22");
+        person["headRepository"] = json!({"nameWithOwner": "Acme/Widget"});
+        w["queue"]["data"]["repository"]["openPulls"]["nodes"] = json!([bot, person]);
+        let (snap, _, _, _) = poll(&w, &[]);
+        assert_eq!(snap["pulls_name"], json!({"21": [90], "22": [91]}));
+    }
+
+    /// GitHub links a fork's pull request that closes an issue too: the linked
+    /// list keeps only the repository's own, so an outsider's holds nothing.
+    #[test]
+    fn a_linked_pull_request_not_of_the_repository_is_left_out() {
+        let mut w = world();
+        let own = json!({"url": "https://github.com/acme/widget/pull/90", "state": "OPEN",
+            "isCrossRepository": false, "author": {"login": "tehas-bot"},
+            "headRepository": {"nameWithOwner": "acme/widget"}});
+        let fork = json!({"url": "https://github.com/acme/widget/pull/91", "state": "OPEN",
+            "isCrossRepository": true, "author": {"login": "mallory"},
+            "headRepository": {"nameWithOwner": "mallory/widget"}});
+        let nodes = w["queue"]["data"]["repository"]["issues"]["nodes"]
+            .as_array_mut()
+            .unwrap();
+        nodes[0]["closedByPullRequestsReferences"]["nodes"] = json!([fork, own]);
+        nodes[1]["closedByPullRequestsReferences"]["nodes"] = json!([fork]);
+        let (snap, _, _, _) = poll(&w, &[]);
+        let parsed = Snapshot::parse(&snap);
+        assert_eq!(parsed.issues[&21].prs, Some(vec![own]));
+        assert_eq!(parsed.issues[&22].prs, Some(vec![]));
     }
 
     /// The page's own bodies are what hold an issue a pull request into another

@@ -536,14 +536,16 @@ domain need. The product's part is one file:
   no token, and it reaches nothing but the other previews: no database, no
   API, not the internet, not the host. What it shows has to be in the image.
 - It gets 256 MB of memory, one CPU and 128 processes.
-- The build has 15 minutes and does have the network.
+- The build has 15 minutes and no network: a `RUN` step reaches nothing, so
+  what it needs comes from the commit or the `FROM` image, which is still
+  pulled. It runs in `tehas.slice`, under the slice's memory limit.
 
 This repository's own `preview/Dockerfile` is the example: the manual and the
 dashboard on sample data, served by the same server a host uses. To try a
 recipe by hand, from the product's checkout:
 
 ```
-git archive HEAD | docker build -f preview/Dockerfile -t tehas-preview:local -
+git archive HEAD | docker build --network none -f preview/Dockerfile -t tehas-preview:local -
 docker run --rm -p 127.0.0.1:18080:8080 --read-only --tmpfs /tmp --tmpfs /config --tmpfs /data \
   --cap-drop ALL --cap-add NET_BIND_SERVICE --security-opt no-new-privileges:true \
   --memory 256m --cpus 1 --pids-limit 128 --log-opt max-size=10m --log-opt max-file=2 \

@@ -710,6 +710,116 @@
      "would run a cycle for #7 (labelled by alice)"
     ]
    }
+  },
+  {
+   "case": "an edit by another account in the second of the approval is after it",
+   "snapshot": {
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "alice"
+        },
+        "created_at": "2026-01-01T00:00:00Z"
+       }
+      ],
+      "edit": {
+       "lastEditedAt": "2026-01-01T00:00:00Z",
+       "editor": {
+        "login": "mallory"
+       }
+      }
+     }
+    }
+   },
+   "dry": true,
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "nothing": true,
+    "log": [
+     "skip #7: its text was changed by 'mallory' after alice applied tehas:ready; apply the label again to approve it"
+    ]
+   }
+  },
+  {
+   "case": "a rename by another account in the second of the approval is after it",
+   "snapshot": {
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "alice"
+        },
+        "created_at": "2026-01-01T00:00:00Z"
+       },
+       {
+        "event": "renamed",
+        "actor": {
+         "login": "mallory"
+        },
+        "created_at": "2026-01-01T00:00:00Z"
+       }
+      ]
+     }
+    }
+   },
+   "dry": true,
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "nothing": true,
+    "log": [
+     "skip #7: its text was changed by 'mallory' after alice applied tehas:ready; apply the label again to approve it"
+    ]
+   }
+  },
+  {
+   "case": "the approver's own edit in the second of the approval is the text it approved",
+   "snapshot": {
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "alice"
+        },
+        "created_at": "2026-01-01T00:00:00Z"
+       }
+      ],
+      "edit": {
+       "lastEditedAt": "2026-01-01T00:00:00Z",
+       "editor": {
+        "login": "alice"
+       }
+      }
+     }
+    }
+   },
+   "dry": true,
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ],
+    "log": [
+     "would run a cycle for #7 (labelled by alice)"
+    ]
+   }
   }
  ]
 }

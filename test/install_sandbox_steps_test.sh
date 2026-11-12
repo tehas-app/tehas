@@ -104,7 +104,7 @@ versions_line NODE_VERSION 22.22.2
 t_run "$install"
 t_eq "$t_rc" 0
 t_contains "$t_out" "installed: $th/versions.env"
-t_contains "$t_out" "later: $T_ROOT/bootstrap.sh user   (versions.env changed"
+t_contains "$t_out" "later: $fixture/bootstrap.sh user   (versions.env changed"
 t_lacks "$t_out" "next: sandbox"
 t_lacks "$(cat "$th/state/update-pending" 2>/dev/null)" "sandbox"
 # The same file read again owes nothing at all: what is compared is its content.
@@ -117,7 +117,7 @@ versions_line NODE_VERSION 22.22.3
 t_run "$install"
 t_eq "$t_rc" 0
 t_contains "$t_out" "installed: $th/versions.env"
-t_contains "$t_out" "later: $T_ROOT/bootstrap.sh user   (versions.env changed"
+t_contains "$t_out" "later: $fixture/bootstrap.sh user   (versions.env changed"
 t_lacks "$t_out" "next: sandbox"
 
 t_case "versions.env whose image pin changed asks for the sandbox build"

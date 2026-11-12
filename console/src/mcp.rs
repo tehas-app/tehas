@@ -177,6 +177,9 @@ struct Run {
     digest: String,
     version: String,
     private: Vec<String>,
+    /// The sums of the secret values the host masks, given to the container by
+    /// name as the keys are: the server masks them and never holds them.
+    sums: String,
 }
 
 /// Every argument the container gets. A change here widens or narrows what a
@@ -216,6 +219,8 @@ fn run_args(run: &Run) -> Vec<String> {
         "TEHAS_MCP_KEYS",
         "-e",
         "TEHAS_MCP_DASHBOARD_KEYS",
+        "-e",
+        "TEHAS_MCP_MASK",
         "--entrypoint",
         "/tehas-mcp",
         &format!("caddy@{}", run.digest),
@@ -263,6 +268,10 @@ fn prepare(home: &str) -> Result<Run, (u8, String)> {
         )))?
         .to_string();
     let version = version(&fs::read(format!("{home}/docs/version.txt")).unwrap_or_default());
+    let mut salt = [0u8; 16];
+    File::open("/dev/urandom")
+        .and_then(|mut f| f.read_exact(&mut salt))
+        .map_err(|e| fail(format!("could not read /dev/urandom: {e}")))?;
     network().map_err(fail)?;
     snapshot_dir(&Path::new(home).join("mcp")).map_err(fail)?;
     // Standard error stays the command's, as git's complaint about a broken
@@ -286,6 +295,7 @@ fn prepare(home: &str) -> Result<Run, (u8, String)> {
         digest,
         version,
         private: mask::host_names(&models::host_path(), &email),
+        sums: mask::sums_line(&salt),
     })
 }
 
@@ -412,7 +422,10 @@ fn serve() -> u8 {
         }
     };
     remove_container();
-    let error = Command::new("docker").args(run_args(&run)).exec();
+    let error = Command::new("docker")
+        .args(run_args(&run))
+        .env("TEHAS_MCP_MASK", &run.sums)
+        .exec();
     say(&format!("could not run docker: {error}"));
     127
 }
@@ -485,6 +498,7 @@ mod tests {
             digest: "sha256:x".to_string(),
             version: "v1".to_string(),
             private: vec!["gpu1".to_string()],
+            sums: "salt 9:abcd:sum".to_string(),
         });
         let mounts: Vec<&String> = args
             .iter()
@@ -502,6 +516,9 @@ mod tests {
             ]
         );
         assert_eq!(args[args.len() - 2..], ["--private", "gpu1"]);
+        // The sums go by name, never in an argument.
+        assert!(args.iter().any(|a| a == "TEHAS_MCP_MASK"));
+        assert!(!args.iter().any(|a| a.contains("abcd")));
     }
 
     /// A home with the binary install.sh puts in libexec/.
