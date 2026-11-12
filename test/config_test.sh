@@ -1547,7 +1547,7 @@ while IFS='|' read -r -u 5 -a lines; do
   t_out=${t_out//$T/@T}
   # Bash 5.3 names the command it was parsing here, and 5.2 does not.
   t_out=$(sed -E "s/(unexpected end of file) from \`if' command on line [0-9]+/\1/" <<<"$t_out")
-  grep -vE '^declare -x (PATH|PWD|OLDPWD|SHLVL|_|T|T_ROOT|TEHAS_SETTINGS_CMD)(=|$)' <<<"${t_out//uid$EUID/uid@}" >>"$T/loads"
+  grep -vE '^declare -x (PATH|PWD|OLDPWD|SHLVL|_|T|T_ROOT|TEHAS_SETTINGS_CMD|TEHAS_TEST_STORE_ANSWERS)(=|$)' <<<"${t_out//uid$EUID/uid@}" >>"$T/loads"
 done 5<<'INSTANCES'
 
 TEHAS_INDEXING=1

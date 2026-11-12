@@ -733,10 +733,14 @@ its question (`tehasbot cycle`, the dispatcher); and each planning session,
 with its brief, its answers, the issues it filed, its open question and the
 last 50 lines of history of its turns (the dispatcher). What a planning turn
 carries between turns is a directory beside its workspace,
-`~/tehas/work/<name>-plan-<issue>.keep`. The commands run the store, `~/tehas/libexec/store`;
-`tehas dispatch`, `tehasbot cycle`, `tehas work`, `tehas stop`, `tehas history`,
-`tehas export` and `tehasbot health` stop with exit 78 before anything else
-when it is not installed.
+`~/tehas/work/<name>-plan-<issue>.keep`. The scripts, `tehas dispatch` and
+`tehasbot cycle` run the store, `~/tehas/libexec/store`. The commands of the
+console (`tehas stop`, `tehas history`, `tehas export`, `tehas status`,
+`tehas api`, `tehas state`, `tehasbot health`, `tehas clean`'s upkeep and a
+cycle's review) call the store in their own process, with the same code, and
+do not start the program; they still need it installed. `tehas dispatch`, `tehasbot cycle`, `tehas work`,
+`tehas stop`, `tehas history`, `tehas export` and `tehasbot health` stop with
+exit 78 before anything else when it is not installed.
 
 `install.sh` makes and migrates it on every real run, under
 `state/update.lock`. It passes `--say`, so the store prints the line you read

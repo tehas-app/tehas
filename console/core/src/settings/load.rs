@@ -94,6 +94,9 @@ const KEPT: &[&str] = &[
     "TEHAS_MCP_DASHBOARD_KEYS",
     "TEHAS_PROC_DIR",
     "TEHAS_SETTINGS_CMD",
+    // The tests' answers of the store (store/src/call.rs), which a release
+    // build of the store never reads.
+    "TEHAS_TEST_STORE_ANSWERS",
 ];
 
 /// The names an earlier version read are refused, not ignored: a line that

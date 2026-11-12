@@ -712,14 +712,16 @@ fn load_brings_a_copy_of_an_older_schema_forward_as_migrate_does() {
 }
 
 /// The sources of the verbs, without their tests.
-const VERB_SOURCES: [(&str, &str); 20] = [
+const VERB_SOURCES: [(&str, &str); 22] = [
     ("approval.rs", include_str!("approval.rs")),
     ("batch.rs", include_str!("batch.rs")),
+    ("call.rs", include_str!("call.rs")),
     ("cycle.rs", include_str!("cycle.rs")),
     ("db.rs", include_str!("db.rs")),
     ("history.rs", include_str!("history.rs")),
     ("import.rs", include_str!("import.rs")),
     ("journal.rs", include_str!("journal.rs")),
+    ("lib.rs", include_str!("lib.rs")),
     ("live.rs", include_str!("live.rs")),
     ("load.rs", include_str!("load.rs")),
     ("lock.rs", include_str!("lock.rs")),

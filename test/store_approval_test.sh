@@ -77,7 +77,7 @@ t_eq "$t_out" false
 t_store_answers approval-view 0 '{"api":1,"verb":"approval-view","ok":true,"view":{"at":"2026-10-20T12:00:00Z","by":"alice","how":"label","body_sha256":"x","links":[],"driver":"lean"}}'
 lib 'view 7 | jq -r .driver'
 t_eq "$t_out" lean
-cp -f --remove-destination "$T_STORE" "$home/libexec/store"
+rm -f "$T/store-answers"
 
 t_case "approval-view with an attempt: the approval of that start, and no other"
 lib 'view 7 1 >/dev/null; echo "rc=$?"; view 7 2; echo "rc=$?"'

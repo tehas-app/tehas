@@ -11,8 +11,7 @@
 
 # store_back: the real store again, on the same database.
 store_back() {
-  rm -f "$T/home/tehas/libexec/store"
-  ln "$T_STORE" "$T/home/tehas/libexec/store"
+  rm -f "$T/store-answers"
 }
 # The question a poll of this run posts, and the turn it names.
 posted_turn() { t_calls gh | grep -c "<!-- tehas:question kind=plan issue=7 turn=$1 -->"; }

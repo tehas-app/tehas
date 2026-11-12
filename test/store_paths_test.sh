@@ -216,6 +216,38 @@ t_contains "$(code)" "lib/config.sh"
 t_contains "$(code)" "console/analytics/src/run.rs"
 t_contains "$(code)" "install.sh"
 
+t_case "the console names the store program only to see that it is installed"
+# The console calls the store in its own process (console/src/store.rs). The
+# program stays installed for the shell, the cycle and the dispatcher, so the
+# console names its path only where it asks whether it is there: ready and the
+# absent refusal through store::program, and clean's upkeep check. The update
+# installs the program and never runs it.
+allowed=(
+  'console/src/store.rs:    home.join("libexec").join("store")'
+  'console/src/clean.rs:        let bin = self.home.join("libexec").join("store");'
+)
+# The tests of console/src/update/programs.rs make the programs a home holds,
+# the store among them, so the lines of its #[cfg(test)] module are left out:
+# the one module, from its attribute to the closing brace on the file's last
+# line. Its other lines are searched as every file is.
+programs=console/src/update/programs.rs
+tests_at=$(grep -n '^#\[cfg(test)\]$' "$T_ROOT/$programs" | cut -d: -f1)
+t_eq "$(wc -l <<<"$tests_at")" 1
+t_eq "$(sed -n "$((tests_at + 1))p" "$T_ROOT/$programs")" "mod tests {"
+t_eq "$(sed -n "$tests_at,\$p" "$T_ROOT/$programs" | grep -n '^}' | head -1 | cut -d: -f1)" \
+  "$(($(wc -l <"$T_ROOT/$programs") - tests_at + 1))"
+named=$(git -C "$T_ROOT" grep -nE 'libexec/store\b|"libexec"\)\.join\("store"\)' -- 'console/src/*.rs' |
+  awk -F: -v f="$programs" -v t="$tests_at" '!($1 == f && $2 >= t)' | sed -E 's/^([^:]+):[0-9]+:/\1:/')
+while IFS= read -r hit; do
+  [ -n "$hit" ] || continue
+  ok=no
+  for a in "${allowed[@]}"; do [ "$hit" = "$a" ] && ok=yes; done
+  [ "$ok" = yes ] || t_bad "the console names the store program: $hit"
+done <<<"$named"
+for a in "${allowed[@]}"; do
+  t_contains "$named" "$a"
+done
+
 t_case "every file the importer reads is an old record the tests look for, and stops the poll"
 imp=$T_ROOT/console/store/src/import.rs
 names=()

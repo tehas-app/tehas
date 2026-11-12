@@ -197,15 +197,17 @@ t_eq "$(cat "$th/libexec/tehas-mcp")" "a tehas-mcp built from source"
 t_eq "$(stat -c %a "$th/libexec/tehas-mcp")" 755
 t_eq "$(cut -d' ' -f2 "$th/libexec/tehas-mcp.stamp")" "$(sha256sum <"$th/libexec/tehas-mcp" | cut -d' ' -f1)"
 
-t_case "a change to the store alone builds the store alone, and its tests build nothing"
+t_case "a change to the store builds the console too, which links it, and its tests build nothing"
 rm -f "$T/calls/cargo"
 echo "// changed" >>"$part/console/store/src/main.rs"
 t_run "$part/install.sh --check"
 t_contains "$t_out" "differs: $th/libexec/store"
-t_lacks "$t_out" "differs: $th/libexec/console"
+t_contains "$t_out" "differs: $th/libexec/console"
 t_run "$part/install.sh"
 t_eq "$t_rc" 0
-t_eq "$(t_calls cargo)" "build --release --locked --offline --quiet --manifest-path $part/console/Cargo.toml --target-dir $T/target -p store"
+t_eq "$(t_calls cargo | wc -l)" 2
+t_contains "$(t_calls cargo)" "build --release --locked --offline --quiet --manifest-path $part/console/Cargo.toml --target-dir $T/target -p store"
+t_contains "$(t_calls cargo)" "-p console"
 t_eq "$(stat -c %a "$th/libexec/store")" 755
 t_eq "$(cut -d' ' -f2 "$th/libexec/store.stamp")" "$(sha256sum <"$th/libexec/store" | cut -d' ' -f1)"
 rm -f "$T/calls/cargo"

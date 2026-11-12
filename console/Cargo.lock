@@ -95,6 +95,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "signal-hook",
+ "store",
  "tehas-core",
  "tehas-cycle",
  "tehas-dispatch",

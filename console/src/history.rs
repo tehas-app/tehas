@@ -773,10 +773,16 @@ mod tests {
         dir
     }
 
-    fn store_says(home: &Path, script: &str) {
-        let store = home.join("libexec/store");
-        tehas_core::testing::write_exe(&store, format!("#!/bin/sh\n{script}\n")).unwrap();
+    /// The store of `home` answers each call that begins with `args` with
+    /// `rc` and `line`, newest first (store/src/call.rs).
+    fn store_says(home: &Path, args: &str, rc: u8, line: &str) {
+        tehas_core::testing::write_exe(store::program(home), "#!/bin/sh\n").unwrap();
         fs::write(home.join("state/tehas.db"), "").unwrap();
+        let file = home.join("answers");
+        let mut said = fs::read_to_string(&file).unwrap_or_default();
+        said.push_str(&format!("{args}|{rc}|{line}\n"));
+        fs::write(&file, said).unwrap();
+        store::testing::plant(home, &file);
     }
 
     #[test]
@@ -787,13 +793,11 @@ mod tests {
         assert_eq!(no.rc, 78);
         assert!(no.said.contains("not installed"), "{}", no.said);
 
-        let args = home.join("args");
         store_says(
             &home,
-            &format!(
-                r#"echo "$@" >{}; echo '{{"api":1,"ok":true,"verb":"history-show","rows":[]}}'"#,
-                args.display()
-            ),
+            "history-show",
+            0,
+            r#"{"api":1,"ok":true,"verb":"history-show","rows":[]}"#,
         );
         let query = Query {
             after: Cursor::parse("5-1"),
@@ -801,11 +805,13 @@ mod tests {
         };
         let read = listing(&home, "acme/widget", &query).unwrap();
         assert_eq!(read.next.as_deref(), Some("5-1"));
-        assert_eq!(fs::read_to_string(args).unwrap(), "history-show 12\n");
+        assert_eq!(store::testing::calls(&home), ["history-show 12"]);
 
         store_says(
             &home,
-            "echo 'store: busy #0: the database is locked'; exit 1",
+            "history-show",
+            1,
+            "store: busy #0: the database is locked",
         );
         let no = listing(&home, "acme/widget", &query).unwrap_err();
         assert_eq!(no.rc, 1);
@@ -813,9 +819,9 @@ mod tests {
             no.said,
             "ERROR: the history could not be read from the state store: store: busy #0: the database is locked"
         );
-        store_says(&home, "echo 'store: corrupt: not a database'; exit 78");
+        store_says(&home, "history-show", 78, "store: corrupt: not a database");
         assert_eq!(listing(&home, "acme/widget", &query).unwrap_err().rc, 78);
-        store_says(&home, "echo 'store: usage: no'; exit 64");
+        store_says(&home, "history-show", 64, "store: usage: no");
         assert_eq!(listing(&home, "acme/widget", &query).unwrap_err().rc, 78);
     }
 }
