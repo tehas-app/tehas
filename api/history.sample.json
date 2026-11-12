@@ -1,0 +1,80 @@
+{
+  "api": 1,
+  "cycles": [
+    {
+      "cursor": "1760700000-12-1",
+      "kind": "work",
+      "issue": 12,
+      "ended": "2025-10-17T11:20:00Z",
+      "started": "2025-10-17T11:19:00Z",
+      "status": 10,
+      "outcome": "failed",
+      "step": "develop",
+      "stepNumber": 7,
+      "stepTotal": 9,
+      "round": 3,
+      "cap": "step-failed:develop",
+      "failureKind": "verify-failed",
+      "failureCause": "exit-1",
+      "provider": false,
+      "parked": true,
+      "pr": "https://github.com/acme/widget/pull/9",
+      "by": "alice",
+      "how": "label"
+    },
+    {
+      "cursor": "1760700060-12-2",
+      "kind": "work",
+      "issue": 12,
+      "ended": "2025-10-17T11:21:00Z",
+      "started": "2025-10-17T11:20:00Z",
+      "status": 10,
+      "outcome": "failed",
+      "step": "develop",
+      "stepNumber": 7,
+      "stepTotal": 9,
+      "round": 3,
+      "cap": "step-failed:develop",
+      "failureKind": "verify-failed",
+      "failureCause": "exit-1",
+      "provider": false,
+      "parked": true,
+      "how": "hand",
+      "repeat": 1
+    },
+    {
+      "cursor": "1760700120-9-3",
+      "kind": "work",
+      "issue": 9,
+      "ended": "2025-10-17T11:22:00Z",
+      "started": "2025-10-17T11:21:00Z",
+      "status": 10,
+      "outcome": "failed",
+      "step": "develop",
+      "cap": "step-failed:develop",
+      "parkReason": "findings-open",
+      "failureKind": "review",
+      "failureCause": "findings-open",
+      "provider": false,
+      "parked": true,
+      "how": "hand"
+    },
+    {
+      "cursor": "1760700300-7-4",
+      "kind": "plan",
+      "issue": 7,
+      "ended": "2025-10-17T11:25:00Z",
+      "started": "2025-10-17T11:20:00Z",
+      "status": 0,
+      "outcome": "finished",
+      "turn": 1,
+      "by": "alice",
+      "label": "tehas:refine",
+      "auto": true,
+      "filed": [
+        "https://github.com/acme/widget/issues/41"
+      ]
+    }
+  ],
+  "next": "1760700300-7-4"
+}

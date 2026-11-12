@@ -1,0 +1,11 @@
+{
+  "api": 1,
+  "drained": true,
+  "running": [],
+  "limit": {
+    "state": "ok",
+    "cycles": 0,
+    "plan": false,
+    "reason": "draining"
+  }
+}

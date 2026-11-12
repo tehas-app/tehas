@@ -114,7 +114,7 @@ issue text.
 The rules behind each column:
 
 - **A cycle** is given the issue's title and body. With
-  `TEHAS_WORK_IMAGES=1` [tehas work](/tools#tehas-work) also fetches the
+  `TEHAS_WORK_IMAGES=1` [tehas work](/tools-work#tehas-work) also fetches the
   images the body links, at most 8 and 10 MB, and mounts them read-only in
   the cycle's container with a manifest. They are taken when an allowed
   account labelled the issue, whoever opened it, or when an owner, member or
@@ -141,7 +141,7 @@ The rules behind each column:
   and its encoding, and counts against the same limits. An svg, a nested
   archive or any other binary is left out with its path in the archive and the
   reason. The files are named on from the linked ones, and the archive is not
-  kept. See [tehas work](/tools#tehas-work).
+  kept. See [tehas work](/tools-work#tehas-work).
 - **A planning session** is given the same images and files by the same
   rules, once at its start, and is shown the images when the same label says
   so. A reply to its question can carry more. See
@@ -250,7 +250,7 @@ compute on the issue.
 - An allowed account is its login and its GitHub user id, as `install.sh`
   and `tehas update` recorded them. A label from the login with another id,
   after the login changed hands, counts as nobody's; so do a tick, an answer
-  and a comment. See [Accounts by user id](/tools#accounts-by-user-id).
+  and a comment. See [Accounts by user id](/tools-update#accounts-by-user-id).
 - Add **`tehas:urgent`** as well to move it ahead of other ready issues. It is
   checked like `tehas:ready`: only one applied by an allowed account moves the
   issue; one applied by the bot or anyone else is ignored and logged.
@@ -284,7 +284,7 @@ Watch it on the [factory floor](/floor) or the [plain dashboard](/dashboard): th
 console streaming live, and what is waiting for you.
 
 Unless `TEHAS_ANALYTICS=off`, the plain dashboard also has a section **Last 10
-days**, from `live/analytics.json` (see [tehasbot status](/tools#tehasbot-status-and-the-console)):
+days**, from `live/analytics.json` (see [tehasbot status](/tools-health#tehasbot-status-and-the-console)):
 a row of figures (shipped, with a bar a day; planned, with its trend; runs by
 how they ended; first-pass yield; lead time; cycle time; machine time; tokens;
 availability; and energy per shipped issue where the mesh reports it), a chart
@@ -317,9 +317,9 @@ With any other backend the section and the meter are simply not there, and
 nothing else changes. To turn them off on a viiwork mesh, see
 [the energy sampler](/tools).
 
-The dispatcher takes issues `tehas:urgent` first, then [refreshes](#refreshes) of its own pull requests, then `tehas:next`, then by the lowest issue number. With `TEHAS_PRIORITY_FIELD` on the instance (see [tehas dispatch](/tools#tehas-dispatch)), the organisation's issue field takes the place of the two labels: `Urgent` for `tehas:urgent` and `High` for `tehas:next`, from the same accounts. It takes them as many at a time as the host's ceiling and the slice's room allow (see [Limits that hold work back](#limits-that-hold-work-back)). A running cycle is never stopped to make room for an urgent one. The dashboard lists the queue by issue number, not the order the dispatcher will work it in: whether a `tehas:urgent` or `tehas:next` moves the queue is decided by who applied the label, not by its being there. `tehas:urgent` counts from an allowed labeller. `tehas:next` counts from an allowed labeller or [the millwright](#the-millwrights-grant), when the latest event of the label applies it; one taken off since, or applied by anyone else, is ignored and logged.
+The dispatcher takes issues `tehas:urgent` first, then [refreshes](#refreshes) of its own pull requests, then `tehas:next`, then by the lowest issue number. With `TEHAS_PRIORITY_FIELD` on the instance (see [tehas dispatch](/tools-dispatch#tehas-dispatch)), the organisation's issue field takes the place of the two labels: `Urgent` for `tehas:urgent` and `High` for `tehas:next`, from the same accounts. It takes them as many at a time as the host's ceiling and the slice's room allow (see [Limits that hold work back](#limits-that-hold-work-back)). A running cycle is never stopped to make room for an urgent one. The dashboard lists the queue by issue number, not the order the dispatcher will work it in: whether a `tehas:urgent` or `tehas:next` moves the queue is decided by who applied the label, not by its being there. `tehas:urgent` counts from an allowed labeller. `tehas:next` counts from an allowed labeller or [the millwright](#the-millwrights-grant), when the latest event of the label applies it; one taken off since, or applied by anyone else, is ignored and logged.
 
-An issue the poll puts on neither the urgent list nor the `tehas:next` list is the lowest kind, so one whose `tehas:next` came from an account the poll does not count is of that kind too. With `TEHAS_LOW_GATE` on the instance (see [tehas dispatch](/tools#tehas-dispatch)) the poll runs one command of yours before it starts any of them, once a poll at most, and only when such an issue would otherwise start. Only its exit status is read: 0 lets them start, and anything else holds them for that poll, a command that is missing, one that is not executable or one that outlives `TEHAS_LOW_GATE_WAIT` included, while urgent and `tehas:next` issues go ahead. What the command prints is kept in `~/tehas/logs/low-gate.log`, rewritten each time it is asked, so a gate that closes for a reason says that reason there. The log says `low issues wait: TEHAS_LOW_GATE answered S` once when the hold begins and `low issues may start: TEHAS_LOW_GATE answered 0` once when it ends, whatever the command answers while the hold lasts; after that each held issue says it on its own line. No cycle that already runs is stopped by it. A closed gate is not one of the holds [tehas status](/tools#tehas-status) shows, so a factory that starts nothing for it reads healthy elsewhere: look in `~/tehas/logs/dispatch.log`. With no setting there is no gate, and every ready issue is started as before.
+An issue the poll puts on neither the urgent list nor the `tehas:next` list is the lowest kind, so one whose `tehas:next` came from an account the poll does not count is of that kind too. With `TEHAS_LOW_GATE` on the instance (see [tehas dispatch](/tools-dispatch#tehas-dispatch)) the poll runs one command of yours before it starts any of them, once a poll at most, and only when such an issue would otherwise start. Only its exit status is read: 0 lets them start, and anything else holds them for that poll, a command that is missing, one that is not executable or one that outlives `TEHAS_LOW_GATE_WAIT` included, while urgent and `tehas:next` issues go ahead. What the command prints is kept in `~/tehas/logs/low-gate.log`, rewritten each time it is asked, so a gate that closes for a reason says that reason there. The log says `low issues wait: TEHAS_LOW_GATE answered S` once when the hold begins and `low issues may start: TEHAS_LOW_GATE answered 0` once when it ends, whatever the command answers while the hold lasts; after that each held issue says it on its own line. No cycle that already runs is stopped by it. A closed gate is not one of the holds [tehas status](/tools-status#tehas-status) shows, so a factory that starts nothing for it reads healthy elsewhere: look in `~/tehas/logs/dispatch.log`. With no setting there is no gate, and every ready issue is started as before.
 
 An issue with an open native blocked-by link is not started, whatever label asks for it: add the link under the issue's **Relationships** on GitHub ("Mark as blocked by"). The page each poll reads carries the count of open blockers (`issueDependenciesSummary`), so the hold costs no call of its own, and the log says `wait #N: a blocked-by link holds it: 1 blocker is open`. A link only holds an issue back. It never starts one: once every blocker is closed the issue starts under the usual approval rules, so `tehas:ready` from an allowed labeller, or a `tehas:blocked` whose marked comment counts, is still needed. Apply `tehas:ready` with the link and the issue starts when its last blocker closes. A link and a marked comment both hold: the issue waits while either names an open blocker. A forge that answers no such field holds nothing by links, and the marked comment below is all that names blockers there.
 
@@ -333,7 +333,7 @@ Blocked by #12 and #34.
 <!-- tehas:blocked by=12,34 -->
 ```
 
-Up to 20 numbers, separated by commas and no spaces. The newest such comment among the last 100 counts; one by anyone else is ignored. Only comments are read: a marker in the issue's body names nothing. When the label counts and no such comment is there, the issue is held by the label alone: it names no blockers and never starts until an allowed labeller or the millwright comments a marker, or a person takes `tehas:blocked` off. The log says so at every poll, and [tehas status](/tools#tehas-status) lists such issues on a `blocked` line and in `demand.labelAlone`. The issue also waits, and the log says why, when the newest one does not hold a marker that reads, when it was last edited by another account, or when GitHub does not give the state of a number it names. Once every blocker is closed the issue starts, and the start takes `tehas:blocked` off with `tehas:ready`. A blocker that is closed already holds nothing: name one that is still open, or reopen it. To start a blocked issue anyway, swap `tehas:blocked` for `tehas:ready`. To stop it starting, take the label off.
+Up to 20 numbers, separated by commas and no spaces. The newest such comment among the last 100 counts; one by anyone else is ignored. Only comments are read: a marker in the issue's body names nothing. When the label counts and no such comment is there, the issue is held by the label alone: it names no blockers and never starts until an allowed labeller or the millwright comments a marker, or a person takes `tehas:blocked` off. The log says so at every poll, and [tehas status](/tools-status#tehas-status) lists such issues on a `blocked` line and in `demand.labelAlone`. The issue also waits, and the log says why, when the newest one does not hold a marker that reads, when it was last edited by another account, or when GitHub does not give the state of a number it names. Once every blocker is closed the issue starts, and the start takes `tehas:blocked` off with `tehas:ready`. The label stays on until that start, so an issue whose blockers have closed while it waits for a slot or another hold can carry `tehas:blocked` beside `tehas:next`: the hold is over, and the label is what asks for the start. When an allowed labeller's `tehas:blocked` clears and the issue does not start in that poll, the dispatcher says so once in a comment that holds `<!-- tehas:hold-cleared -->`. A newer marker comment is a new hold, and its clearing is said again. A blocker that is closed already holds nothing: name one that is still open, or reopen it. To start a blocked issue anyway, swap `tehas:blocked` for `tehas:ready`. To stop it starting, take the label off.
 
 An issue labelled `tehas:improvement` and `cross-project` together is not started: the finding says the change belongs in another repository of the stack as well as this one, so one cycle here cannot make it, and a cycle on it spends a slot and its tokens before it parks. The dispatcher starts nothing and the log says why; it takes no label off and writes no comment, because the issue is a proposal the loop filed and a person decides what becomes of it. Read the `Names` line, which says the other repositories the loop read, and either work on both sides yourself or close it. Either label alone starts a cycle as any other issue would: `cross-project` on an issue the loop did not file is a person's label and means nothing to the dispatcher, and a finding that names no other repository is worked on here. The hold is on `tehas:ready` and on a ticked retry alike; a `tehas:plan` session on such an issue is allowed, since planning where the change goes on each side is what it is for.
 
@@ -454,7 +454,7 @@ host: its container, its workspace, its transcripts, and the files in
 parked. It keeps the cycle's record and its logs. Its last step is the issue's
 own: when the host part went clean, `tehas:running` comes off it, with no other
 label added and nothing written there. See
-[`tehas stop`](/tools#tehas-stop).
+[`tehas stop`](/tools-control#tehas-stop).
 
 `tehas` is the one command to type on the host; `tehas help` lists what it
 does. See [Commands](/tools).
@@ -472,7 +472,7 @@ image that cannot run it, the start is refused and
 does not run in its place. Whether lean merges is the product's
 `.pi/work.json` `autoMerge`, which tehas leaves alone. A lean start is never a
 refresh: no `--continue-pr`. By hand, `tehas work <issue> --driver lean` runs
-lean without the label ([tehas work](/tools#tehas-work)).
+lean without the label ([tehas work](/tools-work#tehas-work)).
 
 - It counts only from an account in `TEHAS_ALLOWED_LABELERS`, read from the
   label's events. The millwright's does not count.
@@ -608,7 +608,7 @@ out, each figure a whole number of at most 9 digits: the answer gains `"over":
 `--budget` the answer has no `over`. `tehasbot health` calls the verb with
 `TEHAS_POLL_BUDGET` (default `cpu=5,wall=30,writes=0`) for the `poll_cost`
 check, and warns when the list is not empty; see
-[`tehasbot health`](/tools#tehasbot-health).
+[`tehasbot health`](/tools-health#tehasbot-health).
 
 ### The report in Rust
 
@@ -922,7 +922,7 @@ A cycle can finish its change and still stop on something outside it: a flaky
 test in a file the change does not touch, a review lane out of disk, the
 gate's time bound. Its workspace is kept, and the factory can open what it
 holds as a draft pull request with [`tehas-cycle
-finish`](/tools#the-pull-request-of-a-stopped-cycle). To ask for that from the
+finish`](/tools-tehasbot#the-pull-request-of-a-stopped-cycle). To ask for that from the
 issue, with no access to the host:
 
 1. Write a comment whose first line is
@@ -1888,7 +1888,7 @@ systemctl --user enable --now tehas-review.timer
 ```
 
 `~/tehas/logs/review-timer.log` says what the runs did and `~/tehas/logs/review-<time>.json`
-holds one run's document. See [tehasbot review](/tools#tehasbot-review) for the
+holds one run's document. See [tehasbot review](/tools-plan#tehasbot-review) for the
 container, the record and the exits.
 
 To turn it off, set `TEHAS_REVIEW=0` (or remove it) in `instance.env`: a run
@@ -1955,7 +1955,7 @@ removes what has not been used for `TEHAS_CLEAN_AFTER` hours, 24 by default:
   build. Nothing else under `<name>.state` is ever named, so the clone, its
   memory, sessions, transcripts, code index, author and images stay. `du -sh
   ~/tehas/dev/*.state/target` says what the sessions hold, and `rm -rf` of that
-  path clears one clone's build by hand (see [tehas dev](/tools#tehas-dev)).
+  path clears one clone's build by hand (see [tehas dev](/tools-dev#tehas-dev)).
 - the sandbox image's dated tags before the newest two builds, whatever their
   age, each with its own `docker rmi`: the current build and the one before it
   stay, a `<date>-product` counted with its `<date>`, and so does any tag a
@@ -1997,7 +1997,7 @@ name the gitdir of one of its worktrees`, for a worktree whose record git no
 longer answers for - a stale worktree, a moved clone, or a `.git` file that names
 nothing. The second is why a worktree record that went stale keeps an issue's
 build output on the disk: the cleaner takes what it dated, and a tree it could
-not date is not taken. [Commands](/tools#tehasbot-clean) carries the wording of
+not date is not taken. [Commands](/tools-clean#tehasbot-clean) carries the wording of
 all four. A timer run prints to
 the journal: what it refuses
 to do before it can open the log - settings it will not accept, another run
@@ -2380,7 +2380,7 @@ one exception is a host that still has record files of a tehas from before the
 state store: that update moves them into the store, refuses while a cycle or a
 planning turn runs, and installs nothing. Drain it first with
 `tehas drain --wait 3600`, let planning turns end, update, then
-`tehas limit clear` (see [tehas drain](/tools#tehas-drain), and `install.sh` in
+`tehas limit clear` (see [tehas drain](/tools-control#tehas-drain), and `install.sh` in
 [the tools](/tools)). The update moves each old record file it imported to
 `~/tehas/state/imported-<YYYYMMDD>/`; remove that directory once satisfied.
 While a record file of the older tehas is still in `state/`, every poll stops

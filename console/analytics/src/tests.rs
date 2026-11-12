@@ -4128,6 +4128,47 @@ fn the_report_splits_by_driver_and_counts_a_null_row_as_classic() {
     assert_eq!(row("lean"), "lean none 3 3 66.7% 33.3% 30 - (n=0) 2 1 -/-");
 }
 
+/// A merge belongs to the pi-rukas version of the run that last reached the
+/// pull request before it, not to every version whose runs reached one.
+#[test]
+fn a_merge_is_credited_to_the_version_of_the_run_that_reached_the_pull_request() {
+    let home = scratch("report-driver-merge-version");
+    let day0 = 1_792_022_400;
+    let (conn, _) = db::open(&db::path(&home), day0).unwrap();
+    // One issue, two releases: the older reached a pull request first, the
+    // newer last, and the merge followed both.
+    lean_run(&conn, "a", 5, day0, "pr", "0.14.49");
+    lean_run(&conn, "b", 5, day0 + 1000, "pr", "0.14.50");
+    db::event(&conn, 5, "merged", day0 + 2000).unwrap();
+    // The newer version needs enough runs for its own share to be published.
+    for (id, issue, outcome) in [("c", 6, "pr"), ("d", 7, "failed"), ("e", 8, "pr")] {
+        lean_run(&conn, id, issue, day0, outcome, "0.14.50");
+    }
+    let got = crate::report::build(&conn, day0 + DAY).unwrap();
+    let lean = &got["drivers"]["lean"];
+    assert_eq!(
+        lean["0.14.49"]["pullRequests"],
+        json!({"n": 1, "merged": 0})
+    );
+    assert_eq!(
+        lean["0.14.50"]["pullRequests"],
+        json!({"n": 3, "merged": 1, "share": 0.333})
+    );
+    // The terminal prints the same split: no merged count on the older line.
+    let rows = crate::report::text(&got)
+        .lines()
+        .map(|l| l.split_whitespace().collect::<Vec<_>>().join(" "))
+        .filter(|l| l.starts_with("lean "))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        rows,
+        vec![
+            "lean 0.14.49 1 1 - - 10 - (n=0) 1 0 -/-",
+            "lean 0.14.50 4 4 75% 0% 40 - (n=0) 3 1 -/-",
+        ]
+    );
+}
+
 #[test]
 fn a_drivers_shares_are_of_its_runs_that_ran() {
     let home = scratch("report-driver-ran");
