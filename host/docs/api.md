@@ -294,6 +294,10 @@ tehas limit clear
 An outside cap on what the factory starts. Every command prints the limit as
 it then is, and `--json` works with the show form only.
 
+`api/limit.schema.json` in the source says what the object holds, and
+`api/limit.sample.json`, `api/limit.expired.json`, `api/limit.empty.json` and
+`api/limit.unreadable.json` are samples of it.
+
 | Field | Meaning |
 | --- | --- |
 | `state` | `none`, `ok`, `expired` or `unreadable` |
