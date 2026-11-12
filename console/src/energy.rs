@@ -18,6 +18,8 @@
 //! that endpoint, with its token. With no word there it asks main and then
 //! backup, so an update of the dispatcher never blanks the floor.
 //! TEHAS_ENERGY_URL names a cluster URL instead, asked with no token.
+//! TEHAS_ENERGY_SOURCE_URL is the address the dashboard links under DATA
+//! SOURCE; with none set the file names no address and the page shows no link.
 //! TEHAS_ENERGY=off removes the file.
 //!
 //!   one answers with a cluster snapshot        the file is rewritten
@@ -103,6 +105,9 @@ fn sample(home: &Path) -> u8 {
         let _ = std::fs::remove_file(&file);
         return 0;
     }
+    // Read once, before the asks, so one sample gives one file whatever the
+    // environment holds while the mesh is asked.
+    let source = source_url();
     let mut later = false;
     let mut body = None;
     for (url, key) in &asks {
@@ -125,7 +130,10 @@ fn sample(home: &Path) -> u8 {
         .and_then(|t| J::parse_first(&t))
         .unwrap_or(J::Null);
     let Some(now) = clock() else { return 1 };
-    write(&file, &snapshot(&body, &prev, &now, &factory_models()))
+    write(
+        &file,
+        &snapshot(&body, &prev, &now, &factory_models(), source.as_deref()),
+    )
 }
 
 // TEHAS_ENERGY_NOW holds the sample's time for a test. What is no number
@@ -509,9 +517,19 @@ fn kept_samples(prev: &J, now: f64) -> Vec<J> {
         .collect()
 }
 
+/// The address the page links as the source of the numbers: only a host
+/// setting that is an `https://` one. Platform code names no project of its
+/// own, and a value that is no address is not published to the visitors.
+fn source_url() -> Option<String> {
+    match env("TEHAS_ENERGY_SOURCE_URL").trim() {
+        given if given.starts_with("https://") => Some(given.to_string()),
+        _ => None,
+    }
+}
+
 /// The energy file from a cluster snapshot and the file before it. Every field
 /// that reaches the file is named here: it can be on the internet.
-fn snapshot(cluster: &J, prev: &J, now: &J, factory: &[String]) -> J {
+fn snapshot(cluster: &J, prev: &J, now: &J, factory: &[String], source: Option<&str>) -> J {
     let at = now.as_f64().unwrap_or(0.0);
     let mut alive: Vec<(&str, &J)> = cluster
         .get("members")
@@ -558,10 +576,14 @@ fn snapshot(cluster: &J, prev: &J, now: &J, factory: &[String]) -> J {
     samples.push(obj(new));
     samples.sort_by(|a, b| a.get("t").cmp(b.get("t")));
 
-    obj(vec![
+    let mut fields = vec![
         ("generatedAt", J::str(time::iso(at.floor() as i64))),
         ("source", J::str("viiwork")),
-        ("sourceUrl", J::str("https://github.com/janit/viiwork")),
+    ];
+    if let Some(url) = source {
+        fields.push(("sourceUrl", J::str(url)));
+    }
+    fields.extend(vec![
         ("periodSeconds", J::num(PERIOD as f64)),
         (
             "factoryModels",
@@ -587,7 +609,8 @@ fn snapshot(cluster: &J, prev: &J, now: &J, factory: &[String]) -> J {
         ("hosts", J::Arr(hosts.iter().map(Host::json).collect())),
         ("models", J::Arr(models)),
         ("samples", J::Arr(samples)),
-    ])
+    ]);
+    obj(fields)
 }
 
 #[cfg(test)]
@@ -600,7 +623,48 @@ mod tests {
 
     fn file(cluster: &str, prev: &str, now: i64, factory: &[&str]) -> J {
         let factory: Vec<String> = factory.iter().map(|s| s.to_string()).collect();
-        snapshot(&parse(cluster), &parse(prev), &J::num(now as f64), &factory)
+        // The address is the host's to give: no case of the file gives one.
+        snapshot(
+            &parse(cluster),
+            &parse(prev),
+            &J::num(now as f64),
+            &factory,
+            None,
+        )
+    }
+
+    #[test]
+    fn only_an_https_setting_gives_the_file_a_source_address() {
+        // The address is a host setting, and the file carries only an https
+        // one. A value the sampler turns down reaches the file not at all: the
+        // LEAKMARK of these values shows it.
+        let cluster = one_machine(r#"{"models": [{"name": "m", "slots": 1}]}"#);
+        let with = |given: &str| {
+            let given = given.trim();
+            let source = given.starts_with("https://").then(|| given.to_string());
+            snapshot(
+                &parse(&cluster),
+                &J::Null,
+                &J::num(1800.0),
+                &["m".to_string()],
+                source.as_deref(),
+            )
+        };
+        assert_eq!(
+            with(" https://example.com/mesh ").at(&["sourceUrl"]).dump(),
+            "\"https://example.com/mesh\""
+        );
+        for weak in [
+            "",
+            "   ",
+            "http://LEAKMARK.example",
+            "https:/LEAKMARK",
+            "HTTPS://LEAKMARK",
+        ] {
+            let got = with(weak);
+            assert_eq!(got.at(&["sourceUrl"]).dump(), "null", "{weak:?}");
+            assert!(!got.dump().contains("LEAKMARK"), "{weak:?}");
+        }
     }
 
     fn one_machine(status: &str) -> String {
@@ -644,7 +708,29 @@ mod tests {
             got.dump(),
             concat!(
                 r#"{"generatedAt":"1970-01-01T00:30:00Z","source":"viiwork","#,
-                r#""sourceUrl":"https://github.com/janit/viiwork","periodSeconds":15,"#,
+                r#""periodSeconds":15,"#,
+                r#""factoryModels":["m"],"totals":{"watts":null,"kWh24h":null,"kWh30d":null,"#,
+                r#""hosts":1,"reporting":0,"energyHosts":0},"#,
+                r#""hosts":[{"name":"n","source":null,"watts":null,"kWh24h":null,"kWh30d":null,"#,
+                r#""ramUsedMb":null,"ramTotalMb":null}],"#,
+                r#""models":[{"name":"m","hosts":["n"],"engines":[],"slots":1,"busy":0,"queued":0}],"#,
+                r#""samples":[{"t":1800,"w":{},"k":{"n":9}}]}"#
+            )
+        );
+        // With an address the key follows `source` and nothing else moves.
+        let cluster =
+            one_machine(r#"{"models": [{"name": "m", "slots": 1, "tokens_total": 9.7}]}"#);
+        let with = snapshot(
+            &parse(&cluster),
+            &J::Null,
+            &J::num(1800.0),
+            &["m".to_string()],
+            Some("https://example.com/mesh"),
+        );
+        assert_eq!(
+            with.dump(),
+            concat!(
+                r#"{"generatedAt":"1970-01-01T00:30:00Z","source":"viiwork","sourceUrl":"https://example.com/mesh","periodSeconds":15,"#,
                 r#""factoryModels":["m"],"totals":{"watts":null,"kWh24h":null,"kWh30d":null,"#,
                 r#""hosts":1,"reporting":0,"energyHosts":0},"#,
                 r#""hosts":[{"name":"n","source":null,"watts":null,"kWh24h":null,"kWh30d":null,"#,

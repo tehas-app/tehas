@@ -540,12 +540,16 @@ id where the mesh gives no name, then its version where there is one. So
 `viiwork 2.9.0 (llamacpp)` from an older one. A model with no element shows a
 dash.
 
-The file's `source` and `sourceUrl` name the mesh software and its project. The
-section ends with a line that says so, `DATA SOURCE: viiwork`. The name is a
-link when `sourceUrl` is an `https://` address.
+The file's `source` names the mesh software. The section ends with a line that
+says so, `DATA SOURCE: viiwork`. `TEHAS_ENERGY_SOURCE_URL` in
+`~/.config/tehas/env` gives the address that name links; the sampler copies it
+into the file's `sourceUrl` only when it is an `https://` address, and the page
+shows the name as plain text with no `sourceUrl` in the file. The address is
+the operator's to give: the sampler holds none of its own, so an adopter who
+wants no link sets nothing.
 
 The service reads its settings when it starts: run
-`systemctl --user restart tehas-energy.service` after changing either one.
+`systemctl --user restart tehas-energy.service` after changing one of them.
 Stopping the service does not hide the section; the last file stays and the
 page calls it stale. To hide it, set `TEHAS_ENERGY=off` and restart, or stop the
 service and delete `~/tehas/live/energy.json`.
