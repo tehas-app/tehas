@@ -628,6 +628,6 @@ app = { path = "app" }
         }
         // The attachment checker takes the shared library, as its manifest says.
         assert!(ws["attach"].deps.contains(&"core".to_string()));
-        assert_eq!(ws["console"].deps, ["core", "cycle"]);
+        assert_eq!(ws["console"].deps, ["store", "core", "cycle"]);
     }
 }

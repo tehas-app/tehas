@@ -2128,14 +2128,17 @@ mod tests {
         assert!(!run.upkeep());
         assert_eq!(said()["ok"], json!(false));
         assert_eq!(said()["word"], json!("absent"));
-        let bin = run.home.join("libexec/store");
-        fs::create_dir_all(bin.parent().unwrap()).unwrap();
+        fs::create_dir_all(run.home.join("libexec")).unwrap();
+        tehas_core::testing::write_exe(store::program(&run.home), "#!/bin/sh\n").unwrap();
         fs::write(run.home.join("state/tehas.db"), "").unwrap();
-        let store = |body: &str| {
-            fs::write(&bin, format!("#!/bin/sh\n{body}\n")).unwrap();
-            fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
+        let answers = run.home.join("answers");
+        store::testing::plant(&run.home, &answers);
+        let store = |line: &str| {
+            let mut said = fs::read_to_string(&answers).unwrap_or_default();
+            said.push_str(&format!("upkeep|{line}\n"));
+            fs::write(&answers, said).unwrap();
         };
-        store("echo 'store: busy: the lock is held'; exit 1");
+        store("1|store: busy: the lock is held");
         let before = time::now();
         assert!(!run.upkeep());
         let v = said();
@@ -2143,7 +2146,7 @@ mod tests {
         assert_eq!(v["word"], json!("busy"));
         assert_eq!(v["line"], json!("store: busy: the lock is held"));
         assert!(v["at"].as_i64().unwrap() >= before);
-        store(r#"echo '{"api":1,"ok":true,"verb":"upkeep","logs":[],"backup":null,"prune":null}'"#);
+        store(r#"0|{"api":1,"ok":true,"verb":"upkeep","logs":[],"backup":null,"prune":null}"#);
         assert!(run.upkeep());
         let v = said();
         assert_eq!(v["ok"], json!(true));

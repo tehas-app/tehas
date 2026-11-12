@@ -49,11 +49,12 @@
 #                                    answer
 #   t_at EPOCH VERB ARGS...          the real store at that time, against that
 #                                    home (TEHAS_STORE_TEST_NOW)
-#   t_store_answers VERB RC LINE [TIMES]
-#                                    the installed store answers VERB with RC
-#                                    and LINE (or never answers: RC hang) for
-#                                    its first TIMES calls, and runs the real
-#                                    store otherwise; t_calls store
+#   t_store_answers ARGS RC LINE [TIMES]
+#                                    the store of a run answers a call of ARGS
+#                                    with RC and LINE for its first TIMES calls,
+#                                    and is the real store otherwise; each
+#                                    call replaces the answer before it
+#   t_store_answered                 how many calls that answer matched
 #   t_approve HOME N BY HOW [AT] [ARGS...]
 #                                    an approval of issue N on record, as the
 #                                    dispatcher records it: at AT [1760000000],
@@ -888,8 +889,8 @@ t_store_db() {
 }
 # t_store_home <home>: the home a command runs the store in. A record test
 # fails without the store rather than skip: the gate needs cargo anyway. The
-# binary is a hard link to $T_STORE, so a case that changes it removes it
-# first, as t_store_answers does.
+# binary is a hard link to $T_STORE, and the answers of t_store_answers are
+# gone.
 t_store_at=""
 t_store_home() {
   t_store_at=$1
@@ -898,7 +899,7 @@ t_store_home() {
     return 1
   fi
   mkdir -p "$1/libexec"
-  rm -f "$1/libexec/store" "$T/store-answers.n" "$T/calls/store"
+  rm -f "$1/libexec/store" "$T/store-answers" "$T/store-answers.n" "$T/calls/store"
   ln "$T_STORE" "$1/libexec/store" 2>/dev/null || cp "$T_STORE" "$1/libexec/store"
   t_store_db "$1" || t_bad "the store's init failed in $1"
   # A command that runs the store reads an issue's attachments in the same home.
@@ -938,32 +939,20 @@ t_at() {
   TEHAS_HOME=$t_store_at TEHAS_STORE_TEST_NOW=$1 "$T_STORE" "${@:2}"
 }
 t_q() { printf %q "$1"; }
-# t_store_answers <verb> <rc> <line> [<times>]: a store at the home of
-# t_store_home that answers <verb> with <rc>, and <line> on stdout for 0 and
-# on stderr otherwise, for its first <times> calls (all when not given).
-# <rc> hang is a store that never answers. Every other call goes to the real
-# store. Each call is noted in t_calls store.
+# t_store_answers <args> <rc> <line> [<times>]: the store of a run answers a
+# call whose arguments are <args>, or begin with <args> and a space, with <rc>,
+# and <line> on stdout for 0 and on stderr otherwise, for its first <times>
+# calls (all when not given), without running; every other call is the real
+# store's. In a batch, any call of it that matches answers the batch. The
+# answer is $T/store-answers, which t_run passes to the console and to the
+# store program as TEHAS_TEST_STORE_ANSWERS (console/store/src/call.rs). Each
+# call replaces the answer before it; removing the file takes it back.
 t_store_answers() {
-  local t_bin=$t_store_at/libexec/store t_times=${4:-all} t_answer
-  case $2 in
-    hang) t_answer="exec $(printf %q "$(command -pv sleep)") 600" ;;
-    0) t_answer="printf '%s\\n' $(printf %q "$3"); exit 0" ;;
-    *) t_answer="printf '%s\\n' $(printf %q "$3") >&2; exit $(printf %q "$2")" ;;
-  esac
-  rm -f "$t_bin" "$T/store-answers.n"
-  mkdir -p "${t_bin%/*}"
-  printf '%s\n' '#!/usr/bin/env bash' \
-    "printf '%s\\n' \"\$*\" >>$(t_q "$T/calls/store")" \
-    "if [ \"\${1:-}\" = $(t_q "$1") ]; then" \
-    "  n=\$((\$(cat $(t_q "$T/store-answers.n") 2>/dev/null || echo 0) + 1))" \
-    "  echo \"\$n\" >$(t_q "$T/store-answers.n")" \
-    "  if [ $(t_q "$t_times") = all ] || [ \"\$n\" -le $(t_q "$t_times") ]; then" \
-    "    $t_answer" \
-    "  fi" \
-    "fi" \
-    "exec $(t_q "$T_STORE") \"\$@\"" >"$t_bin"
-  chmod 755 "$t_bin"
+  printf '%s|%s|%s%s\n' "$1" "$2" "$3" "${4:+|$4}" >"$T/store-answers"
+  rm -f "$T/store-answers.n"
 }
+# t_store_answered: how many calls the answer matched, $T/store-answers.n.
+t_store_answered() { cat "$T/store-answers.n" 2>/dev/null || echo 0; }
 T_WSUM=$(printf 'Words.' | sha256sum | cut -d' ' -f1)
 t_approve() { # <home> <issue> <by> <how> [<at>] [<approval-record args>...]
   local t_home=$1 t_n=$2 t_by=$3 t_how=$4 t_when=${5:-1760000000} t_args
@@ -1265,7 +1254,7 @@ t_run() {
   fi
   t_out=$(env -i "${jail[@]}" PATH="$T/bin:$T/deny:$PATH" HOME="$T/home" TEHAS_HOME="$T/home/tehas" \
     T="$T" T_ROOT="$T_ROOT" CARGO_TARGET_DIR="$T/target" TEHAS_SETTINGS_CMD="$TEHAS_SETTINGS_CMD" \
-    "${instance_env[@]}" "${T_ENV[@]}" "${T_ENV_ALWAYS[@]}" \
+    TEHAS_TEST_STORE_ANSWERS="$T/store-answers" "${instance_env[@]}" "${T_ENV[@]}" "${T_ENV_ALWAYS[@]}" \
     bash -c "$1" 2>&1)
   t_rc=$?
 }

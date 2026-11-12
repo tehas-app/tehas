@@ -25,7 +25,6 @@ fixer_ready() { # [<fixer starts since alice's approval, or - for no approval>]
 
 t_case "the fixer's tehas:ready on an issue alice approved starts a cycle that rests on her approval"
 fixer_ready
-store_refuses none 1 none
 t_run "$dispatch"
 t_eq "$t_rc" 0
 t_eq "$(t_calls fake-start)" "7"
@@ -35,8 +34,7 @@ t_contains "$t_out" "start #7 (labelled by the fixer by tehas-bot)"
 t_contains "$(t_calls gh)" "authorized by @tehas-bot's \`tehas:ready\` label as the fixer, on alice's approval of 2026-10-01T00:00:00Z"
 
 t_case "the store is told the millwright's word"
-t_contains "$(t_calls store)" "approval-record 7 --at 1790899200 --by tehas-bot --how millwright "
-t_lacks "$(t_calls store)" "--how fixer"
+t_eq "$(t_row approval-current 7 -- '[.current.at, .current.by, .current.how] | tostring')" '[1790899200,"tehas-bot","millwright"]'
 
 t_case "the start takes the escalation label off with the rest of the earlier outcome"
 t_contains "$(t_calls gh)" "--remove-label tehas:ready --remove-label tehas:question --remove-label tehas:millwright-escalated"
@@ -199,22 +197,18 @@ t_eq "$(rec | jq -c '.answers[-1]')" '{"turn":4,"by":"tehas-bot","fixer":true}'
 
 t_case "a reply marked as the millwright's runs the turn, and the store is told the millwright answered"
 fixer_planning
-store_refuses none 1 none
 comments 7 "$(plan_body ' ' ' ' ' ')" "" "$(freply '<!-- tehas:millwright issue=7 action=answer -->'$'\nAdopt all.')"
 t_run "$dispatch"
 t_contains "$(plan_calls)" "--answer $keep/answer.md --comment 4003"
-t_contains "$(t_calls store)" "--millwright"
-t_lacks "$(t_calls store)" "--fixer"
+t_eq "$(t_row plan-show 7 -- '.planning.answers[-1].millwright')" true
 
 t_case "an App millwright set with [bot] answers as GraphQL names it, and the store has the one form"
 fixer_planning
 t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1
-store_refuses none 1 none
 comments 7 "$(plan_body ' ' ' ' ' ')" "" "$(freply "$fmark"$'\nAdopt all.')"
 t_run "$dispatch"
 t_contains "$(plan_calls)" "--answer $keep/answer.md --comment 4003"
-t_contains "$(t_calls store)" "plan-answer 7 --turn 2 --by tehas-bot --text-file"
-t_contains "$(t_calls store)" "--millwright"
+t_eq "$(t_row plan-show 7 -- '.planning.answers[-1] | [.turn, .by, .millwright] | tostring')" '[2,"tehas-bot",true]'
 t_eq "$(rec | jq -c '.answers[-1]')" '{"turn":2,"by":"tehas-bot","fixer":true}'
 
 t_case "an App millwright set with [bot] ticks a box as GraphQL names it"
@@ -247,7 +241,6 @@ t_eq "$(cat "$keep/answer.md")" "The operator chose: Change some"
 
 t_case "never two in a row: after the fixer's answer its next one runs no turn, and the issue says so once"
 fixer_planning '[{"turn":2,"by":"tehas-bot","fixer":true}]'
-store_refuses none 1 none
 comments 7 "$(plan_body ' ' ' ' ' ')" "" "$(freply "$fmark"$'\nAdopt all.')"
 t_run "$dispatch"
 t_eq "$(plan_calls)" ""
@@ -255,7 +248,7 @@ t_contains "$t_out" "skip #7: the fixer's answer runs no turn: the fixer answere
 t_eq "$(t_calls gh | grep -c '^issue comment 7 ')" 1
 t_contains "$(t_calls gh)" "Tehas did not take the fixer's reply as an answer"
 t_eq "$(rec | jq -c '.fixer_refused')" '[4003]'
-t_contains "$(t_calls store)" "--kind millwright-refused --id 4003"
+t_eq "$(t_row plan-show 7 -- '.planning.notes.millwright_refused | tostring')" '[4003]'
 rm -f "$T"/calls/*
 t_run "$dispatch"
 t_eq "$(plan_calls)" ""

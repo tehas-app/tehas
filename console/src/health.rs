@@ -75,8 +75,8 @@ const DISK_MAX_AGE: i64 = 1800;
 const BEHIND_FOR: i64 = 86_400;
 /// The newest backup of the store is old after this.
 const BACKUP_MAX_AGE: f64 = 172_800.0;
-/// The whole publish of the report, three tries of a store that is busy or
-/// timed out included. Each try is bounded at 20 s of its own and the poll
+/// The whole publish of the report, three tries of a busy store included.
+/// Each try is bounded by the store's own busy and lock waits, and the poll
 /// that runs health bounds the run at 120 s, so the publish must stop well
 /// inside that or the run is killed with no file written.
 const PUBLISH_BUDGET: Duration = Duration::from_secs(30);
@@ -266,9 +266,9 @@ fn refused_publish(no: &Refusal) -> u8 {
 /// The publish of the report: `tehas_store_try 3 publish --health <file>`,
 /// again while the store is busy or timed out, 1 s apart, but only within
 /// <budget> of its own. The poll bounds the whole health run at 120 s while it
-/// holds state/dispatch.lock, and each try is itself bounded at 20 s, so three
-/// slow tries would reach that bound and leave no file at all: the earlier of
-/// the three tries and the budget is what answers.
+/// holds state/dispatch.lock, and each try waits on the store's locks, so slow
+/// tries could reach that bound and leave no file at all: the earlier of the
+/// three tries and the budget is what answers.
 fn publish_health(home: &Path, file: &Path, budget: Duration) -> Result<(), Refusal> {
     let arg = file.display().to_string();
     let args = ["publish", "--health", arg.as_str()];
@@ -483,16 +483,15 @@ fn run_with(home: &Path, budget: String, systemctl: &Path, mcp: &Mcp) -> u8 {
     }
 }
 
-/// A run of `console health run` against a home with the store of this build
-/// in it. The store answers the verbs itself; a case that wants a refusal
-/// wraps it in a script that refuses the one verb and leaves the rest alone,
-/// as the shell tests' `t_store_answers` does.
+/// A run of `console health run` against a home with a store made by the
+/// store's own init. The store answers the verbs itself; a case that wants a
+/// refusal plants an answer for the one call and leaves the rest alone, as the
+/// shell tests' `t_store_answers` does.
 #[cfg(test)]
 mod run_tests {
     use super::*;
-    use std::process::Command;
     use tehas_core::testdir::TestDir;
-    use tehas_core::testing::{copy_exe, write_exe};
+    use tehas_core::testing::write_exe;
 
     const COMMIT: &str = "0123456789abcdef0123456789abcdef01234567";
 
@@ -505,215 +504,71 @@ mod run_tests {
 
     struct Store {
         home: TestDir,
-        real: PathBuf,
-        /// The refusals the wrapper answers, one line for each call the case
-        /// stands in for. Every call the run makes is written down.
-        body: Vec<String>,
-        record: bool,
         /// Where the run looks for the MCP server: off unless a case turns
         /// it on.
         mcp: Mcp,
     }
 
-    /// The store of this build: looked for beside the test binary and one
-    /// directory up, and built once when neither holds it.
-    ///
-    /// The two directories are the profile under test, `target/<profile>/deps`
-    /// and `target/<profile>`, where a run of the workspace puts the store it
-    /// built with the binaries. A run of a package of its own builds only that
-    /// package, so the sibling `store` is not there at all. An absent store is
-    /// built, not skipped: these cases are honest about the program a host runs
-    /// only when they run the real one. A cold target directory builds the
-    /// store's bundled SQLite, which is the slow part of this path; the gate
-    /// builds the workspace first, so it does not pay for it.
-    fn store_of_this_build() -> PathBuf {
-        let deps = std::env::current_exe()
-            .unwrap()
-            .parent()
-            .unwrap()
-            .to_path_buf();
-        let dirs = [deps.to_path_buf(), deps.parent().unwrap().to_path_buf()];
-        find_store(&dirs).unwrap_or_else(|| {
-            build_store();
-            find_store(&dirs)
-                .unwrap_or_else(|| panic!("the store of this build is beside the test binary"))
-        })
-    }
-
-    /// The `store` of one of these directories, if it is there.
-    fn find_store(dirs: &[PathBuf]) -> Option<PathBuf> {
-        dirs.iter()
-            .map(|dir| dir.join("store"))
-            .find(|here| here.is_file())
-    }
-
-    /// One build of the store for the whole harness, into the directory the
-    /// harness's own profile uses, and its words when it did not build. A
-    /// `OnceLock` rather than a `Once` so every thread of the parallel harness
-    /// reads the same outcome, including the ones that lost the race and so ran
-    /// no closure of their own. cargo is given `timeout(1)` as every other
-    /// outside call of this file is: a cargo that blocks on the lock of a
-    /// target directory it does not own must fail with its own words rather
-    /// than hold the harness. The build scripts of the crates run here, so the
-    /// environment keeps no variable named like a secret, the bot's token among
-    /// them, as `build_ready` (install.sh) prunes it before a build.
-    fn build_store() {
-        static BUILT: std::sync::OnceLock<Result<(), String>> = std::sync::OnceLock::new();
-        let built = BUILT.get_or_init(|| {
-            let manifest = Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
-            // cargo names the directory when it was asked for one of its own;
-            // the workspace's default is the one this manifest's target dir is.
-            let target = std::env::var_os("CARGO_TARGET_DIR")
-                .map(PathBuf::from)
-                .unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("target"));
-            let mut cmd = crate::store::bounded("10", "900", "cargo");
-            cmd.arg("build")
-                .args(["--locked", "--offline", "--quiet", "--manifest-path"])
-                .arg(&manifest)
-                .args(["--target-dir"])
-                .arg(&target)
-                .args(["-p", "store"])
-                .args((!cfg!(debug_assertions)).then_some("--release"));
-            for name in std::env::vars_os().map(|(k, _)| k) {
-                let name = name.to_string_lossy();
-                let secret = ["TOKEN", "SECRET", "PASSWORD", "API_KEY"]
-                    .iter()
-                    .any(|part| name.contains(part));
-                if secret {
-                    cmd.env_remove(name.as_ref());
-                }
-            }
-            match cmd.output() {
-                Ok(out) if out.status.success() => Ok(()),
-                Ok(out) => Err(String::from_utf8_lossy(&out.stderr).trim().to_string()),
-                Err(e) => Err(format!("cargo: {e}")),
-            }
-        });
-        if let Err(words) = built {
-            panic!("the store of this build could not be built: {words}");
-        }
-    }
-
-    /// The store of a home: the store of this build, in a wrapper that writes
-    /// down every call made to it and answers the refusals a case named before
-    /// the call. Every other verb is the store's own answer, so no case here
-    /// leans on the store's arithmetic.
     impl Store {
         fn new(name: &str) -> Self {
             let home = TestDir::new(&format!("health-run-{name}"));
-            fs::create_dir_all(home.join("libexec")).unwrap();
-            fs::create_dir_all(home.join("state")).unwrap();
-            fs::create_dir_all(home.join("bin")).unwrap();
-            // The store of this build, taken from the command line of whoever
-            // built the tests: the store's own cases run in the same build, so
-            // one of its processes knows the binary's path. The gate builds the
-            // two programs out of two target directories, so neither can be
-            // found beside the other.
-            let real = store_of_this_build();
+            for dir in ["libexec", "state", "bin"] {
+                fs::create_dir_all(home.join(dir)).unwrap();
+            }
             fs::write(home.join(".tehas-home"), format!("{}\n", home.display())).unwrap();
-            // The store itself is kept under a name of its own, because the
-            // home's `libexec/store` is the wrapper every call is recorded in.
-            copy_exe(&real, home.join("store.real")).unwrap();
-            let mut s = Store {
+            // The program install.sh leaves, which the run asks is there.
+            write_exe(store::program(&home), "#!/bin/sh\nexit 1\n").unwrap();
+            // init and the copy of the day are the store's own bookkeeping,
+            // not calls of the run, so they are made outside the console's
+            // calls the case reads.
+            let own = |args: &[&str]| {
+                let said = ::store::call(&home, args, &mut std::io::empty());
+                assert!(said.is_ok(), "{args:?}: {said:?}");
+            };
+            own(&[
+                "init",
+                "--version",
+                "v0.0.0",
+                "--commit",
+                COMMIT,
+                "--instance",
+                "instance",
+                "--repo",
+                "acme/widget",
+            ]);
+            // A host that passes has a copy of the store from today, so the
+            // report of these cases is not held back by a missing one.
+            own(&["backup"]);
+            fs::write(home.join("answers"), "").unwrap();
+            store::testing::plant(&home, &home.join("answers"));
+            Store {
                 home,
-                real,
-                body: Vec::new(),
-                record: true,
                 mcp: Mcp {
                     on: String::new(),
                     addr: String::new(),
                     port: 0,
                 },
-            };
-            s.install();
-            // init and the copy of the day are the store's own bookkeeping,
-            // not calls of the run, so they are made before the record begins.
-            s.record = false;
-            s.install();
-            let (rc, said) = merged(
-                Command::new(&s.real)
-                    .args([
-                        "init",
-                        "--version",
-                        "v0.0.0",
-                        "--commit",
-                        COMMIT,
-                        "--instance",
-                        "instance",
-                        "--repo",
-                        "acme/widget",
-                    ])
-                    .env("TEHAS_HOME", s.home.path())
-                    .stdin(Stdio::null()),
-            );
-            assert_eq!(rc, 0, "the store's init said: {said}");
-            // A host that passes has a copy of the store from today, so the
-            // report of these cases is not held back by a missing one.
-            let (rc, said) = merged(
-                Command::new(s.home.join("store.real"))
-                    .args(["backup"])
-                    .env("TEHAS_HOME", s.home.path())
-                    .stdin(Stdio::null()),
-            );
-            assert_eq!(rc, 0, "the store made no backup: {said}");
-            s.record = true;
-            s.install();
-            s
+            }
         }
 
-        /// The wrapper written as the case left it.
-        fn install(&self) {
-            let record = if self.record {
-                format!(
-                    "printf '%s\n' \"$*\" >>'{}'",
-                    self.home.join("calls").display()
-                )
-            } else {
-                String::new()
-            };
-            // The refusals are chained: one `if` and the rest `elif`, so the
-            // first whose test the call answers is the store's refusal of it.
-            // Each refusal is a block of its own, so one that did not answer
-            // leaves the next test intact: the `if` and its `fi` are the two
-            // halves of the one line the case wrote.
-            let body = self
-                .body
-                .iter()
-                .map(|line| format!("{line}\n"))
-                .collect::<String>();
-            let wrapper = format!(
-                "#!/usr/bin/env bash\n{record}\n{body}\nexec '{real}' \"$@\"\n",
-                real = self.home.join("store.real").display(),
-            );
-            write_exe(self.home.join("libexec/store"), &wrapper).unwrap();
-        }
-
-        /// The refusals the wrapper answers, one for each call the case stands
-        /// in for: <test> says which call, <rc> and <line> are the store's own
-        /// refusal of it.
+        /// The refusal the store answers for the call the case stands in for:
+        /// <rc> and <line> are the store's own refusal of it.
         fn refuses_of(&mut self, verb: &str, only: Publish, rc: u8, line: &str) {
-            // The two publishes are told apart by the argument only the
-            // report's has.
-            let test = match (&only, verb) {
-                (Publish::Views, "publish") => {
-                    "[ \"${1:-}\" = publish ] && [ \"${2:-}\" != --health ]"
-                }
-                (Publish::Health, "publish") => "[ \"${2:-}\" = --health ]",
-                (_, verb) => return self.refuse(&format!("[ \"${{1:-}}\" = {verb} ]"), rc, line),
+            // The publish of the views comes first and is the only one without
+            // more arguments, so its refusal is the first publish only.
+            let planted = match (&only, verb) {
+                (Publish::Views, "publish") => format!("publish|{rc}|{line}|1"),
+                (Publish::Health, "publish") => format!("publish --health|{rc}|{line}"),
+                (_, verb) => format!("{verb}|{rc}|{line}"),
             };
-            self.refuse(test, rc, line)
+            let file = self.home.join("answers");
+            let mut said = fs::read_to_string(&file).unwrap_or_default();
+            said.push_str(&format!("{planted}\n"));
+            fs::write(&file, said).unwrap();
         }
 
-        fn refuse(&mut self, test: &str, rc: u8, line: &str) {
-            let said = line.replace('\'', "'\\''");
-            self.body.push(format!(
-                "if {test}; then printf '%s\n' '{said}' >&2; exit {rc}; fi"
-            ));
-            self.install()
-        }
-
-        /// The store wrapped so one verb refuses with `rc` and `line` while
-        /// every other call goes to the store itself.
+        /// The store answers `verb` with `rc` and `line` while every other
+        /// call goes to the store itself.
         fn refuses(&mut self, verb: &str, rc: u8, line: &str) {
             self.refuses_of(verb, Publish::Any, rc, line)
         }
@@ -724,12 +579,9 @@ mod run_tests {
             self.refuses_of("publish", which, rc, line)
         }
 
-        /// The home's store put back as install.sh left it: the case that
-        /// removes the binary or the database has nothing of the wrapper left
-        /// in its way.
+        /// The home's store with no answers planted, as install.sh left it.
         fn plain(&mut self) {
-            self.record = false;
-            self.install()
+            fs::write(self.home.join("answers"), "").unwrap();
         }
 
         /// How many calls began with <verb>, which is how a case counts the
@@ -739,11 +591,7 @@ mod run_tests {
         }
 
         fn calls(&self) -> Vec<String> {
-            fs::read_to_string(self.home.join("calls"))
-                .unwrap_or_default()
-                .lines()
-                .map(String::from)
-                .collect()
+            store::testing::calls(&self.home)
         }
 
         /// A fresh queue snapshot and nothing else: the home a run of this
@@ -867,7 +715,7 @@ mod run_tests {
         let mut s = Store::new("no-store");
         s.queue();
         s.plain();
-        fs::remove_file(s.home.join("libexec/store")).unwrap();
+        fs::remove_file(store::program(&s.home)).unwrap();
         assert_eq!(s.run(), 78);
         assert!(!s.written());
         assert!(s.calls().is_empty());

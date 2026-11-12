@@ -446,11 +446,12 @@ t_eq "$(jq -rc '.checks.poll_cost.over' "$live/health.json")" '["writes"]'
 
 # The budget the instance set is the one the store is asked to measure against,
 # and the health file carries it so a reader sees the figures beside their
-# ceiling. The stub of the verb gives an over figure so the case does not lean
-# on the store's arithmetic, which the store's own tests cover.
+# ceiling. The answer of the verb, for those arguments only, gives an over
+# figure so the case does not lean on the store's arithmetic, which the
+# store's own tests cover.
 t_case "the budget of the instance is what the store is asked for, and the health file says it"
 reset
-t_store_answers poll-idle 0 '{"api":1,"ok":true,"verb":"poll-idle","polls":1,"cpu_ms":6000,"wall_ms":20000,"writes":0,"over":["cpu"]}'
+t_store_answers "poll-idle --since 3600 --budget cpu=10,wall=10" 0 '{"api":1,"ok":true,"verb":"poll-idle","polls":1,"cpu_ms":6000,"wall_ms":20000,"writes":0,"over":["cpu"]}'
 T_ENV=(TEHAS_INSTANCE_DIR="$T/budget-instance")
 mkdir -p "$T/budget-instance"
 printf '%s\n' "${T_MINIMAL[@]}" "TEHAS_POLL_BUDGET=cpu=10,wall=10" >"$T/budget-instance/instance.env"
@@ -458,7 +459,7 @@ poll_record 3 20
 t_run "$status"
 t_eq "$(jq -r .status "$live/health.json")" warn
 t_eq "$(jq -rc .checks.poll_cost "$live/health.json")" '{"over":["cpu"],"budget":"cpu=10,wall=10"}'
-t_contains "$(t_calls store)" "poll-idle --since 3600 --budget cpu=10,wall=10"
+t_eq "$(t_store_answered)" 1
 T_ENV=()
 
 t_case "a poll that started a cycle is not an idle poll and costs no warning"

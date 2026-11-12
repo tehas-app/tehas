@@ -10,6 +10,14 @@ edition = "2021"
 rust-version = "1.89"
 publish = false
 
+# The verbs are a library as well, so the console calls the store in its own
+# process (src/call.rs) rather than starting this program.
+[lib]
+name = "store"
+path = "src/lib.rs"
+# The comments are the program's manual, not examples to run.
+doctest = false
+
 [[bin]]
 name = "store"
 path = "src/main.rs"
