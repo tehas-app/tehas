@@ -68,6 +68,42 @@ surfaces=(
   'bound	until	.until = "2026-10-17T15:00:60Z"	.until = "2026-10-17T15:00:61Z"	does not match'
   'bound	reason	.reason = "01234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789"	.reason = "012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567891"	longer than 200'
   'required	["api","state"]'
+
+  'surface	drain'
+  'sample	sample'
+  'sample	running'
+  # The path the state of a sample is read at, the whole enum the surface's
+  # schema holds there, and the surface that owns that enum: the words of the
+  # line after its kind, the path in the form jq takes a path, with no dot before
+  # its first field. A surface that prints its state itself gives no line at all
+  # and lists the enum with its `state` lines. A surface that carries the limit
+  # of another gives `limit.state`, which is at home in api/limit.schema.json and
+  # not at the top level here, and the name of the surface that prints each state
+  # of its enum in its own samples - so the states are not asked of samples that
+  # could never print them, and are not left out of the contract either. The
+  # enum itself is read from the schema and never written here: a list in the
+  # table could disagree with the file and be agreed with.
+  'state_path	limit.state	limit'
+  'state	ok'
+  'state	ok'
+  'check	del(.drained) | .zz = 1 | .running = "1" | del(.limit.state)	.: drained is missing'
+  'check	del(.drained) | .zz = 1 | .running = "1" | del(.limit.state)	.zz: not in the schema'
+  'check	del(.drained) | .zz = 1 | .running = "1" | del(.limit.state)	.running: string, not array'
+  'check	del(.drained) | .zz = 1 | .running = "1" | del(.limit.state)	.limit: state is missing'
+  # The bounds of the schema, as the `limit` surface states them above: the
+  # object the check is asked about is `api/drain.sample.json` with the one
+  # field set, so every other field of the sample is left as the command
+  # printed it, and the object is still an object of the surface. The word the
+  # check must answer with is the whole of the words after the path of the
+  # field, as the check prints them: no line of the table and no case below
+  # cuts a phrase to a part of it, since a part of a line is in every line.
+  'bound	drained	.drained = false	.drained = "true"	string, not boolean'
+  'bound	running	.running = [0]	.running = [1.5]	number, not integer'
+  'bound	limit.cycles	.limit.cycles = 0	.limit.cycles = -1	-1 is under 0'
+  'bound	limit.plan	.limit.plan = true	.limit.plan = "on"	string, not boolean'
+  'bound	limit.until	.limit.until = "2026-10-17T15:00:60Z"	.limit.until = "2026-10-17T15:00:61Z"	"2026-10-17T15:00:61Z" does not match'
+  'bound	limit.reason	.limit.reason = "01234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789"	.limit.reason = "012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567891"	longer than 200'
+  'required	["api","drained","running","limit"]'
 )
 
 # The limit of the `limit` samples, as it is set: one cycle at a time, no
@@ -76,7 +112,10 @@ surfaces=(
 # refuses one with 64, at the moment it is set at. The reading of the file, not
 # the writing of it, is what a sample is, so `set` prints its words and not
 # `--json`: as the last argument of set, `--json` is refused as an option
-# without its value.
+# without its value. The reason is one line, so the field prints; a limit with
+# no reason leaves it out, and `until` is the field the samples of the limit
+# surface do not print at all, so the walk of the fields over all four of them
+# finds it only in the two that hold an expiry.
 limit_set=(--cycles 1 --plan off --until 2026-10-17T15:00:20Z --reason held)
 # 2026-10-17T14:00:20Z, the moment the limit above is in force at, and twenty
 # minutes on, when it has expired.
@@ -93,6 +132,43 @@ limit_print=(flags limit show --json)
 # `set` refuses a `--until` of the past: `expired` is that file, read later.
 limit_now() { # <name>
   [ "$1" = expired ] && printf '%s\n' "$now_expired" || printf '%s\n' "$now_ok"
+}
+
+# The two samples of `drain` differ only by the lock below: an issue's cycle
+# that holds it for a minute, as test/drain_test.sh holds one. The drain takes
+# no lock of its own, so 0 is a wait long enough for the lock to be tried and
+# not one the case waits through, and `running` is the list made at once.
+drain_hold=0
+# 12, the issue of test/drain_test.sh whose cycle holds its lock for the
+# `running` sample: 12.lock is the file drain finds and names.
+drain_issue=12
+
+# <name>: the world that sample is a reading of. Both of them are drained by
+# the command itself, so the state it finds is one the case puts there: nothing
+# for `sample`, and issue 12's cycle lock held for a minute by a sleeper of the
+# case for `running`. The sleeper is killed when the case ends, so a later case
+# never inherits a lock no one means to hold.
+drain_world() { # <name>
+  [ "$1" = running ] || return 0
+  mkdir -p "$T/home/tehas/state/cycles"
+  printf '#!%s\nexec 7>"%s/%s.lock" && flock 7\nsleep 60\n' \
+    "$T_BASH" "$T/home/tehas/state/cycles" "$drain_issue" >"$T/bin/held-cycle"
+  chmod +x "$T/bin/held-cycle"
+  env -i PATH="$T/bin:$PATH" HOME="$T/home" TEHAS_HOME="$T/home/tehas" \
+    CYCLE_LOCK="$T/home/tehas/state/cycles/$drain_issue.lock" held-cycle \
+    >/dev/null 2>&1 &
+  t_after="kill $! 2>/dev/null; wait $! 2>/dev/null"
+  while kill -0 "$!" 2>/dev/null && flock -n "$T/home/tehas/state/cycles/$drain_issue.lock" true; do
+    sleep 0.02
+  done
+}
+
+# <name>: the reading a drain sample holds, as the command prints it. The wait
+# is named on the command line, and so is --json: the object is the whole of
+# standard output, since every word the command says to a person goes to
+# standard error.
+drain_reading() { # <name>
+  t_run "'$T_ROOT/bin/tehas' drain --wait $drain_hold --json"
 }
 
 # The moment the limit file is written at: 2026-10-17T14:00:20Z, when it is in
@@ -149,6 +225,11 @@ printed() { # <surface> <name>
       limit_reading "$name"
       printf '%s\n' "$t_out" | jq .
       ;;
+    drain)
+      drain_world "$name"
+      drain_reading "$name"
+      printf '%s\n' "$t_out" | jq .
+      ;;
     *) return 1 ;;
   esac
 }
@@ -173,14 +254,15 @@ sample_object() { # <surface> <name>
   printed "$1" "$2"
 }
 
-# The state of one sample, as JSON text, from the reading the console makes and
-# not from the file of api/: a sample that stopped printing its state is found
-# here and not agreed with. Nothing when the reading holds no state.
-sample_field_state() { # <surface> <name>
+# <path>: the state of one sample, as JSON text, from the reading the console
+# makes and not from the file of api/: a sample that stopped printing its state
+# is found here and not agreed with. Nothing when the reading holds no state.
+sample_field_state() { # <surface> <name> <path>
   local object
   object=$(sample_object "$1" "$2") || return 1
   [ -n "$object" ] || return 1
-  printf '%s\n' "$object" | jq -c 'if has("state") then .state else "" | empty end'
+  printf '%s\n' "$object" |
+    jq -c --arg path "$3" 'getpath($path | split(".")) | if . == null then empty else . end'
 }
 
 check() { # <schema file> <json file>: the lines test/schema.jq prints for it
@@ -226,6 +308,16 @@ held_paths() { # <json file>
   printf '%s\n' "$out" | sort -u
 }
 
+# The enum a schema holds at one path of its fields, as JSON, and nothing when
+# it holds none there. Each field of the path is taken under `properties`, so
+# the state a surface prints itself is held by its path alone, `state`, and the
+# state of the limit a drain carries by `limit.state`, which lies under the
+# properties of the object that carries it.
+enum_of() { # <schema file> <path>
+  jq -c --arg path "$2" 'def at($p): reduce ($p | split("."))[] as $f
+           (.; getpath(["properties", $f])); at($path).enum' "$1"
+}
+
 # A line of the table is read as its kind and the words after it, one apart on
 # a tab: the kind of the first, so a `check` line keeps every space of its jq
 # and of the line it is reported with, and neither of the two holds the tab
@@ -265,6 +357,12 @@ while [ "$i" -lt "${#surfaces[@]}" ]; do
   i=$((i + 1))
   names=()
   states=()
+  # The path the state of a sample is read at, and the surface that owns the
+  # enum of it: the two words of the `state_path` line after its kind, and
+  # nothing at all for a surface that prints its own state, which lists the enum
+  # with its `state` lines.
+  state_path=state
+  state_owner=
   cases=()
   bounds=()
   required_json=
@@ -273,6 +371,14 @@ while [ "$i" -lt "${#surfaces[@]}" ]; do
     kind=$(surface_line "$line" 1)
     case $kind in
       sample) names+=("$(surface_line "$line" 2)") ;;
+      state_path)
+        # The path and the surface that owns the enum held there, both of them
+        # named or the line is no `state_path` line: a surface that carries the
+        # object of another says whose it is, so its states are asked of that
+        # surface's samples and its enum is asked to be that one's.
+        state_path=$(surface_line "$line" 2)
+        state_owner=$(surface_line "$line" 3)
+        ;;
       state) states+=("$(surface_line "$line" 2)") ;;
       required) required_json=$(surface_line "$line" 2) ;;
       check)
@@ -330,13 +436,31 @@ while [ "$i" -lt "${#surfaces[@]}" ]; do
     # The object of the reading comes from sample_object, which runs the console
     # and prints the object of the reading and nothing else; jq here picks the one
     # field out of it. Read from api/ the state would only be agreed with.
-    printed_state=$(sample_field_state "$surface" "${names[$n]}") ||
+    printed_state=$(sample_field_state "$surface" "${names[$n]}" "$state_path") ||
       t_bad "the console printed no object for $surface ${names[$n]}"
     [ -n "$printed_state" ] ||
-      t_bad "the reading of $surface ${names[$n]} holds no state"
+      t_bad "the reading of $surface ${names[$n]} holds no state at $state_path"
     t_eq "$printed_state" "\"${states[$n]}\""
   done
-  t_eq "$(jq -c '.properties.state.enum | sort' "$schema")" "$(printf '%s\n' "${states[@]}" | jq -R . | jq -sc 'sort')"
+  # The enum the samples are read against, held by the schema at the path the
+  # table names. For a surface that prints its own state the table's `state` lines
+  # are the whole of it, so a state of the enum no sample prints is refused here
+  # and so is a state the schema does not name. For a surface that only carries the
+  # object of another the table names the enum and the surface that owns it: the
+  # enum of this schema is asked to be the enum of that one, and every state these
+  # samples print is asked to be one of them.
+  if [ -n "$state_owner" ]; then
+    t_eq "$(enum_of "$api/$state_owner.schema.json" state)" \
+      "$(enum_of "$schema" "$state_path")"
+    for state_word in "${states[@]}"; do
+      case $(enum_of "$schema" "$state_path") in
+        *"\"$state_word\""*) ;; *) t_bad "$state_word is no state of the schema of $surface" ;;
+      esac
+    done
+  else
+    t_eq "$(printf '%s\n' "${states[@]}" | jq -R . | jq -sc 'sort')" \
+      "$(enum_of "$schema" "$state_path" | jq -c 'sort')"
+  fi
 
   if [ -n "$samples_write" ]; then
     for name in "${names[@]}"; do
@@ -411,8 +535,21 @@ $changes"
   [ -n "$paths" ] || t_bad "the schema of $surface names no field"
   held=$(for name in "${names[@]}"; do held_paths "$api/$surface.$name.json"; done | sort -u)
   case $held in *"could not be read"*) t_bad "a sample of $surface holds no object:$held" ;; esac
+  # The fields under the limit a surface carries are carried by the samples of
+  # the surface that prints that object itself, so they are asked of it and not of
+  # these: for a drain that is every field of the limit but `until`, which no
+  # drain can hold because its limit is in force to no time and lasts until it is
+  # cleared (host/docs/api.md). A drain that ever printed an `until` is refused by
+  # the case above, which asks both samples for the object the command prints now.
+  carried=
+  [ -z "$state_owner" ] ||
+    carried=$(jq -r 'def walk_props($p): (.properties // {}) | to_entries[]
+             | ($p + .key) as $q | $q, (.value | (.items // .) | walk_props($q + "."));
+             walk_props("limit.")' "$schema" | sort -u)
+  wanted=$(comm -23 <(printf '%s\n' "$paths") <(printf '%s\n' "$carried"))
+  wanted=$(printf '%s\n' "$wanted" | grep -vx 'limit\.until')
   [ -n "$held" ] || t_bad "no sample of $surface holds a field"
-  t_eq "$(comm -23 <(printf '%s\n' "$paths") <(printf '%s\n' "$held"))" ""
+  t_eq "$(comm -23 <(printf '%s\n' "$wanted") <(printf '%s\n' "$held"))" ""
 
   t_case "the manual names every field of the schema of $surface"
   manual=$(cat "$T_ROOT/host/docs/api.md")
@@ -447,6 +584,27 @@ $changes"
   # could ever break has a case that fails without it. A ceiling the command
   # refuses when its arguments are read is not stated here as a bound of the
   # field: host/docs/api.md gives it with the rule and the file that enforces it.
+  # The limit of a surface that carries one is the limit of the surface that
+  # owns it, with the `api` of its properties taken out, as api/ has no $ref for
+  # the one to point at the other (see api/disk-cycles.schema.json, which
+  # restates what tehas status prints the same way). The whole of the object is
+  # compared to the whole of it: its type, its closedness, the fields it may hold
+  # and their bounds, so a keyword, a bound or a state of the enum that one file
+  # has and the other has not is named here and not left for a reader to notice.
+  # The `required` of the two are not the same and no field is taken from either,
+  # so the one of the owner is named as what the copy does not carry: an object of
+  # this surface holds a state and no api, since the one it prints sits above it,
+  # at the top level (console/src/flags.rs, drain_report).
+  if [ -n "$state_owner" ]; then
+    t_case "the limit of the schema of $surface is the schema of $state_owner, less api"
+    t_eq "$(jq -cS '.properties.limit.properties | del(.api)' "$schema")" \
+      "$(jq -cS '.properties | del(.api)' "$api/$state_owner.schema.json")"
+    t_eq "$(jq -c '.properties.limit.required' "$schema")" '["state"]'
+  fi
+
+  # A bound of a path under another object is reported at the path the check
+  # prints, which holds the element of an array and so is not the table's own
+  # path: `.running` is reported as `.running[0]`.
   t_case "the check keeps the bounds of the schema of $surface"
   bound_object=$(jq -c . "$api/$surface.sample.json") ||
     t_bad "$api/$surface.sample.json holds no object"
@@ -464,7 +622,10 @@ $changes"
     jq ". | $bad" "$T/before.json" >"$T/bound.json" ||
       { t_bad "the jq past the bound of $bound_field is no jq: $bad"; continue; }
     lines=$(check "$schema" "$T/bound.json") || t_bad "the schema check could not be run"
-    t_contains "$lines" ".$bound_field:"
+    case $bound_field in
+      running) t_contains "$lines" ".running[0]:" ;;
+      *) t_contains "$lines" ".$bound_field:" ;;
+    esac
     t_contains "$lines" "$word"
   done
 done
