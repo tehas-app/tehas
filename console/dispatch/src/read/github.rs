@@ -50,7 +50,7 @@ const PAGE: &str = r#"query($owner: String!, $name: String!, $cursor: String) {
             ... on RenamedTitleEvent { createdAt actor { login ...on User { databaseId } ...on Bot { databaseId } } }
           }
         }
-        closedByPullRequestsReferences(first: 20) { nodes { url state } }{TYPE}
+        closedByPullRequestsReferences(first: 20) { nodes { url state isCrossRepository author { login ...on User { databaseId } ...on Bot { databaseId } } headRepository { nameWithOwner } } }{TYPE}
       }
     }
     closedRunning: issues(states: CLOSED, labels: ["tehas:running"], first: 100) { nodes { number } }{OPEN_PULLS}
@@ -66,9 +66,10 @@ const TEHAS_LABELS: &str = r#"
 /// reads a body for a closing keyword needs no call of its own. Last in the
 /// page, and small, for the budget `ISSUE_PAGE` names. `body` is read whole,
 /// and it is the one field of the page that a description can make long.
+/// The author and head repository are what `build::own_pull` reads.
 const OPEN_PULLS: &str = r#"
     openPulls: pullRequests(states: OPEN, first: 100, orderBy: {field: CREATED_AT, direction: DESC}) {
-      nodes { number body }
+      nodes { number body isCrossRepository author { login ...on User { databaseId } ...on Bot { databaseId } } headRepository { nameWithOwner } }
     }"#;
 
 // The page above names `tehas:running` inside a GraphQL string, where the
