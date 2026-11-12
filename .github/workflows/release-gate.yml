@@ -35,6 +35,8 @@ jobs:
     timeout-minutes: 90
     env:
       COMMIT: ${{ inputs.commit }}
+      # The lane runs pull requests too: their kept passes are not trusted.
+      TEHAS_VERIFY_FRESH: 1
     steps:
       - name: the commit is a full commit id
         run: |
@@ -65,13 +67,6 @@ jobs:
           chmod 755 "$RUNNER_TEMP/jq/jq"
           echo "$RUNNER_TEMP/jq" >> "$GITHUB_PATH"
           test "$("$RUNNER_TEMP/jq/jq" --version)" = "jq-$JQ_VERSION"
-      - name: names list for scripts/check-generic.sh
-        env:
-          GENERIC_NAMES: ${{ secrets.GENERIC_NAMES }}
-        run: |
-          if [ -n "$GENERIC_NAMES" ]; then
-            printf '%s\n' "$GENERIC_NAMES" > scripts/check-generic.names
-          fi
       - name: the cargo build kept between runs
         run: |
           dir=$HOME/.cache/tehas-target/$RUNNER_NAME
@@ -93,9 +88,6 @@ jobs:
           echo "test jobs: $jobs ($cores cores, $((mem / 1073741824)) GiB)"
       - name: scripts/verify.sh
         run: scripts/verify.sh
-      - name: remove the names list
-        if: always()
-        run: rm -f scripts/check-generic.names
       - name: the sandbox base and image, built by host/sandbox/build.sh
         run: |
           . host/versions.env
@@ -125,3 +117,31 @@ jobs:
             jq --version
             codebase-memory-mcp --version
           '
+  names:
+    # The private list of names, on a hosted runner, as in verify.yml: the
+    # lane runs pull requests' code, so the list is never written there.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      COMMIT: ${{ inputs.commit }}
+    steps:
+      - name: the commit is a full commit id
+        run: |
+          [[ $COMMIT =~ ^[0-9a-f]{40}$ ]] || { echo "not a full commit id: $COMMIT" >&2; exit 1; }
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.commit }}
+          persist-credentials: false
+      - name: names in the files
+        env:
+          GENERIC_NAMES: ${{ secrets.GENERIC_NAMES }}
+        run: |
+          if [ -z "$GENERIC_NAMES" ]; then
+            echo "no GENERIC_NAMES secret: names not checked"
+            exit 0
+          fi
+          # Written to a plain file in a plain directory, never through a link.
+          [ -d scripts ] && [ ! -L scripts ] || { echo "scripts is not a directory" >&2; exit 1; }
+          rm -f scripts/check-generic.names
+          printf '%s\n' "$GENERIC_NAMES" > scripts/check-generic.names
+          bash scripts/check-generic.sh --names-only

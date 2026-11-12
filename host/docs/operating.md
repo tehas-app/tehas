@@ -2419,8 +2419,9 @@ Two things run there:
   `TEHAS_TEST_MEMORY_MAX` set from the runner's own cores and memory, then
   builds the sandbox base image and the sandbox image with
   `host/sandbox/build.sh`, as a host builds them, and runs vipune, jq and
-  codebase-memory-mcp in the image offline. The run's title is
-  `release-gate <commit>`.
+  codebase-memory-mcp in the image offline. A second job checks the names
+  list on a GitHub-hosted runner, so the list never reaches the lane. The
+  run's title is `release-gate <commit>`.
 - **Express batches.** `verify.yml` runs a pull request whose title starts
   with `Express Lane` on `[self-hosted, speedlane]`. Every other pull request
   and every push to main runs where it always has.

@@ -122,7 +122,9 @@ report() { # <path> <matching lines>
   done <<<"$2"
 }
 while IFS= read -r -d '' path; do
-  [ -f "$path" ] || continue
+  # A link is not followed: its target is checked as its own path, or is
+  # outside the tree, and it could point at the names list.
+  [ -f "$path" ] && [ ! -L "$path" ] || continue
   [ "$path" = scripts/check-generic.names ] && continue
   if [ "$names_only" -eq 0 ] && out=$(grep -n -a -i -E -e "$addresses" -- "$path"); then report "$path" "$out"; fi
   [ -n "$names" ] || continue
