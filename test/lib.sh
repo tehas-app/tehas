@@ -27,10 +27,13 @@
 #                                    target's directory when given --target;
 #                                    CARGO_OFFLINE is what a build that asked
 #                                    for --offline answers: miss, noise or fail
-#   t_console_source DIR             copy the source of the console, analytics,
+#   t_console_source DIR [TREE]      copy the source of the console, analytics,
 #                                    the MCP server, the store and the
 #                                    attachment checker into a scratch
-#                                    checkout, and name its commit (t_tree_commit)
+#                                    checkout, and name its commit
+#                                    (t_tree_commit). The tree copied from is
+#                                    $T_ROOT unless a second argument names
+#                                    another; a test with a fixture passes it.
 #   t_tree_commit DIR                write COMMIT, as a release tree carries it
 #   t_store                          the real store, built once per run of
 #                                    the tests, in $T_STORE; 1 when there is
@@ -649,12 +652,12 @@ EOF
 # The source of the workspace's crates without what a build here left beside
 # it: every member, so install.sh reads the workspace as a checkout has it.
 t_console_source() {
-  local member
+  local member from=${2:-$T_ROOT}
   mkdir -p "$1/console"
-  cp -R "$T_ROOT/console/Cargo.toml" "$T_ROOT/console/Cargo.lock" "$T_ROOT/console/src" "$1/console/"
+  cp -R "$from/console/Cargo.toml" "$from/console/Cargo.lock" "$from/console/src" "$1/console/"
   for member in analytics attach core cycle dispatch mcp merge store xtask; do
     mkdir -p "$1/console/$member"
-    cp -R "$T_ROOT/console/$member/Cargo.toml" "$T_ROOT/console/$member/src" "$1/console/$member/"
+    cp -R "$from/console/$member/Cargo.toml" "$from/console/$member/src" "$1/console/$member/"
   done
   t_tree_commit "$1"
 }

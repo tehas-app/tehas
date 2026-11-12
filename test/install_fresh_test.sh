@@ -70,17 +70,19 @@ t_eq "$t_rc" 0
 t_eq "$(install_list_report "$(sorted "$files")" "$(core_files)")" ""
 # The console's loader is installed beside the other commands, ready to run, and
 # the table of labels beside the libraries.
-t_eq "$([ -x "$th/libexec/console" ] && cmp -s "$T_ROOT/host/labels.tsv" "$th/lib/labels.tsv" && echo both)" "both"
+t_eq "$([ -x "$th/libexec/console" ] && cmp -s "$fixture/host/labels.tsv" "$th/lib/labels.tsv" && echo both)" "both"
 # Every script in libexec/ is installed: a command bin/tehas knows has its script.
 missing=""
-for f in "$T_ROOT"/libexec/*; do [ -x "$th/libexec/${f##*/}" ] || missing="$missing ${f##*/}"; done
-for f in "$T_ROOT"/lib/*.sh; do [ -f "$th/lib/${f##*/}" ] || missing="$missing ${f##*/}"; done
+for f in "$fixture"/libexec/*; do [ -x "$th/libexec/${f##*/}" ] || missing="$missing ${f##*/}"; done
+for f in "$fixture"/lib/*.sh; do [ -f "$th/lib/${f##*/}" ] || missing="$missing ${f##*/}"; done
 t_eq "$missing" ""
 # The follow-ups these copies call for are asked for by id and recorded as owed.
 t_eq "$(printf '%s\n' "$t_out" | sed -n 's/^next: //p')" "$(next_steps)"
 t_eq "$(cat "$th/state/update-pending")" "$(next_steps)"
-# Every file in lib/ is installed: the commands source them from there.
-t_eq "$(cd "$T_ROOT" && git ls-files lib | while read -r f; do [ -f "$th/$f" ] || echo "$f"; done)" ""
+# Every file in lib/ is installed: the commands source them from there. The
+# fixture has no git, so the names come from the checkout and the files from the
+# fixture the install above read.
+t_eq "$(git -C "$T_ROOT" ls-files lib | while read -r f; do [ -f "$fixture/$f" ] || echo "$f"; done)" ""
 # A first install makes the labels and enables the core units, and asks systemd
 # nothing else: a copied unit file is not in effect until the step that
 # restarts the units has reloaded it.
@@ -185,14 +187,14 @@ t_run "$install --check"
 t_eq "$(t_calls docker)" ""
 
 t_case "the manual and the front page are installed"
-t_eq "$(cd "$th/docs" && find . -type f ! -name version.txt | wc -l)" "$(find "$T_ROOT/host/docs" -type f | wc -l)"
+t_eq "$(cd "$th/docs" && find . -type f ! -name version.txt | wc -l)" "$(find "$fixture/host/docs" -type f | wc -l)"
 # The front page comes from the stage console update assets made, and not from
 # host/fun as it stands: beside the files of the checkout it holds a hashed copy
 # of every script and stylesheet a dashboard page names by tag. The count is the
 # stage's own, so this case cannot be satisfied by an install that hashed nothing
 # nor by a stage that hashed what no page names.
-"$T_CONSOLE" update assets "$T_ROOT/host" "$T/stage-count" ||
-  t_bad "console update assets could not stage $T_ROOT/host"
+"$T_CONSOLE" update assets "$fixture/host" "$T/stage-count" ||
+  t_bad "console update assets could not stage $fixture/host"
 t_eq "$(cd "$th/fun" && find . -type f ! -name version.txt | wc -l)" \
   "$(cd "$T/stage-count/fun" && find . -type f | wc -l)"
 # The checkout's files, each of them still there, and beside them the hashed
@@ -200,7 +202,7 @@ t_eq "$(cd "$th/fun" && find . -type f ! -name version.txt | wc -l)" \
 # install put them: only the home proves that both came.
 t_eq "$(cd "$th/fun" && find . -type f ! -name version.txt -regextype posix-extended \
       ! -regex '.*/[A-Za-z0-9_.-]+\.[0-9a-f]{12}\.(js|css)' | LC_ALL=C sort)" \
-  "$(cd "$T_ROOT/host/fun" && find . -type f | LC_ALL=C sort)"
+  "$(cd "$fixture/host/fun" && find . -type f | LC_ALL=C sort)"
 # Two pages name some of these files, so the copies are fewer than the tags.
 t_eq "$(cd "$th/fun" && find . -type f -regextype posix-extended \
       -regex '.*/[A-Za-z0-9_.-]+\.[0-9a-f]{12}\.(js|css)' | wc -l)" 22
@@ -212,11 +214,11 @@ t_case "a tag of a dashboard page names the hashed copy, which is installed"
 for name in panels.js panels.css; do
   stem=${name%%.*}
   extension=${name##*.}
-  hash=$(sha256sum "$T_ROOT/host/fun/$name" | cut -c1-12)
+  hash=$(sha256sum "$fixture/host/fun/$name" | cut -c1-12)
   t_contains "$(cat "$th/fun/index.html")" "/fun/$stem.$hash.$extension"
   t_eq "$([ -f "$th/fun/$stem.$hash.$extension" ] && echo there)" "there"
   # The copy holds the bytes the checkout holds, under the new name.
-  t_eq "$(cmp -s "$T_ROOT/host/fun/$name" "$th/fun/$stem.$hash.$extension" && echo same)" "same"
+  t_eq "$(cmp -s "$fixture/host/fun/$name" "$th/fun/$stem.$hash.$extension" && echo same)" "same"
   # And the page asks for no other name of it.
   t_lacks "$(cat "$th/fun/index.html")" "src=\"/fun/$name\""
 done
@@ -238,7 +240,7 @@ t_eq "$([ -e "$th/fun/panels.0123456789ab.js.prev" ] && echo there)" ""
 t_eq "$(cd "$th/fun" && find . -name '*.new' | wc -l)" 0
 
 t_case "the installed pages are the stage, byte for byte"
-t_run "'$T_CONSOLE' update assets '$T_ROOT/host' '$T/stage-same'"
+t_run "'$T_CONSOLE' update assets '$fixture/host' '$T/stage-same'"
 t_eq "$t_rc" 0
 # The home holds the stage and nothing of its own beside the version file an
 # install writes there.
@@ -406,7 +408,7 @@ brief=$(tr '\n' ' ' <"$th/lib/issue-brief.md")
 t_contains "$brief" 'the nearby files the cycle must not touch, by path'
 # The page is one of the installed manual's own: nothing planted beside it.
 t_eq "$(cd "$th/docs" && find . -type f ! -name version.txt | LC_ALL=C sort)" \
-  "$(cd "$T_ROOT/host/docs" && find . -type f | LC_ALL=C sort)"
+  "$(cd "$fixture/host/docs" && find . -type f | LC_ALL=C sort)"
 
 t_case "a login that does not resolve stops the install with 78 before the first copy"
 fresh
@@ -455,5 +457,53 @@ t_lacks "$t_out" "nothing was installed"
 t_stub gh
 T_ENV_ALWAYS=("${always[@]}")
 rm -f "$T/bin/openssl" "$T/bin/curl"
+
+# The fixture of install_lib.sh is what every install here runs, so the case
+# that pins it plants in a checkout of its own: a test file cannot plant in
+# $T_ROOT, which the test files of a run read in parallel. Nothing is committed
+# but the tracked files, so the untracked ones and the uncommitted edit are what
+# the build is asked about.
+t_case "a fixture is the checkout's tracked files, and no file beside them"
+fresh
+instance
+planted=$T/planted
+rm -rf "$planted"
+cp -R "$fixture" "$planted"
+git init -q -b main "$planted"
+git -C "$planted" -c user.name=t -c user.email=t@example.com add -A
+git -C "$planted" -c user.name=t -c user.email=t@example.com commit -q -m fixture
+# COMMIT and VERSION are the build's own output, so the tree the build reads
+# holds neither: left in, a run that copied the tree and wrote nothing would
+# answer for them.
+rm -f "$planted/COMMIT" "$planted/VERSION"
+# Two files nobody tracks, and no ignore rule that hides them: a plain copy of
+# the tree would take them and an install would put them on the host.
+echo '# nobody tracks this page' >"$planted/host/docs/zz-untracked.md"
+echo '# nobody ships this' >"$planted/lib/polyfill-zz.sh"
+# An edit to a tracked file, left uncommitted: the fixture is the working tree,
+# so this is what the next case installs.
+echo '# edited and not committed' >>"$planted/lib/paths.sh"
+planted_fixture=$T/planted-fixture
+install_fixture "$planted" "$planted_fixture"
+t_eq "$([ -e "$planted_fixture/host/docs/zz-untracked.md" ] && echo there)" ""
+t_eq "$([ -e "$planted_fixture/lib/polyfill-zz.sh" ] && echo there)" ""
+t_eq "$(cat "$planted_fixture/lib/paths.sh")" "$(cat "$planted/lib/paths.sh")"
+# COMMIT and VERSION name the tree with no git the way install.sh would have
+# read them from the checkout: neither is in the tree it was built from, so
+# these two lines answer for the build rather than for the copy.
+t_eq "$([ -e "$planted/COMMIT" ] || [ -e "$planted/VERSION" ] && echo there)" ""
+t_eq "$(cat "$planted_fixture/COMMIT")" "$(git -C "$planted" rev-parse HEAD)"
+t_eq "$(cat "$planted_fixture/VERSION")" "$(git -C "$planted" rev-parse --short=7 HEAD)"
+t_run "$planted_fixture/install.sh"
+t_eq "$t_rc" 0
+t_eq "$(cd "$home" && find . -name 'zz-untracked.md' -o -name 'polyfill-zz.sh')" ""
+t_eq "$(install_list_report "$(sorted "$files")" "$(core_files)")" ""
+# The same tree with one tracked file taken out of the working tree: the build
+# leaves it out and still exits, so a file a person is mid-way through deleting
+# does not stop the fixture.
+rm "$planted_fixture/lib/paths.sh" "$planted/lib/paths.sh"
+install_fixture "$planted" "$planted_fixture"
+t_eq "$t_rc" 0
+t_eq "$([ -e "$planted_fixture/lib/paths.sh" ] && echo there)" ""
 
 t_done
