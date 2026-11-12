@@ -11,10 +11,12 @@ use tehas_cycle::{progress, Facts, Report};
 
 const PR: &str = "https://github.com/acme/widget/pull/41";
 
-/// The bot's pull request on lean's branch, as GitHub lists it.
+/// The bot's pull request on lean's branch, as GitHub lists it. The cycle of
+/// these cases starts at 1000, so `createdAt` is after it: the report takes
+/// only what its own cycle opened (#1747).
 fn pr(state: &str, draft: bool) -> Value {
     json!([{"url": PR, "state": state, "isDraft": draft, "headRefName": "lean/issue-7",
-            "body": "Closes #7"}])
+            "body": "Closes #7", "createdAt": "2026-10-01T00:00:00Z"}])
 }
 
 /// The result of the ending `name`.

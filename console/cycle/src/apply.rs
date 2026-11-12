@@ -139,7 +139,7 @@ fn pr_list(repo: &str, branch: &str, author: &str) -> Vec<String> {
         "--state",
         "all",
         "--json",
-        "url,state,body,headRefName,isDraft",
+        "url,state,body,headRefName,isDraft,createdAt",
         "--limit",
         "20",
     ]
@@ -839,6 +839,13 @@ mod tests {
         let at = args.iter().position(|a| a == "--author").unwrap();
         assert_eq!(args[at + 1], "tehas-bot[bot]");
         assert_eq!(author_of(""), "@me");
+        // createdAt is what keeps an earlier attempt's pull request out of
+        // this cycle's report (#1747), so the call has to ask for it.
+        let json = args.iter().position(|a| a == "--json").unwrap();
+        assert_eq!(
+            args[json + 1],
+            "url,state,body,headRefName,isDraft,createdAt"
+        );
     }
 
     #[test]

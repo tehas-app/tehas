@@ -190,8 +190,11 @@ t_eq "$(find "$workdir" -maxdepth 0 | wc -l)" 1
 t_case "an open pull request beside a closed one is the cycle's"
 reset
 ended handoff commit-pr feature/x
-jq -n '[{url: "https://github.com/acme/widget/pull/8", state: "CLOSED", body: "Fixes #7", headRefName: "feature/x"},
-        {url: "https://github.com/acme/widget/pull/9", state: "OPEN", body: "Fixes #7", headRefName: "feature/x"}]' >"$fx/pr.json"
+jq -n --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '
+  [{url: "https://github.com/acme/widget/pull/8", state: "CLOSED", body: "Fixes #7",
+    headRefName: "feature/x", createdAt: $at},
+   {url: "https://github.com/acme/widget/pull/9", state: "OPEN", body: "Fixes #7",
+    headRefName: "feature/x", createdAt: $at}]' >"$fx/pr.json"
 t_run "$cycle 7"
 t_contains "$(t_calls gh)" "--remove-label tehas:running --add-label tehas:awaiting-merge"
 t_contains "$(t_calls gh)" "Pull request waiting for a human: https://github.com/acme/widget/pull/9"
