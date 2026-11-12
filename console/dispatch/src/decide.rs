@@ -9,8 +9,8 @@ use crate::snapshot::{Issues, Listed, Snapshot};
 use crate::text;
 use serde_json::{json, Map, Value};
 use tehas_core::events::{
-    first_unallowed_rename, label_actor, label_state, pause_holds, plan_credit, sole_application,
-    Event, Events, LabelState, UNKNOWN_ACTOR,
+    changed_after, first_unallowed_rename, label_actor, label_state, pause_holds, plan_credit,
+    sole_application, Event, Events, LabelState, UNKNOWN_ACTOR,
 };
 use tehas_core::hold::{Held, Report, Why, HELD_PARKED, HELD_TEXT_MAX};
 
@@ -1493,13 +1493,21 @@ impl<'a> Poll<'a> {
     /// change rank a missing time in opposite directions on purpose: an
     /// unstamped rename counts as after the approval and holds the start (see
     /// `first_unallowed_rename`), and an unstamped edit is no edit at all, as
-    /// the bash poll's `[ -n "$edited_at" ]` reads it.
-    fn unchanged_since(&mut self, n: u64, since: &str, what: &str, again: &str) -> Step<bool> {
+    /// the bash poll's `[ -n "$edited_at" ]` reads it. A change in the second
+    /// of `since` is after it unless `approver` made it (`changed_after`).
+    fn unchanged_since(
+        &mut self,
+        n: u64,
+        since: &str,
+        approver: &str,
+        what: &str,
+        again: &str,
+    ) -> Step<bool> {
         let ev = self.events(n)?;
         let c = self.c;
         // The rename is asked first and answers first: it is the one change of
         // the two GitHub stamps least often.
-        let stale = match first_unallowed_rename(&ev, since, &|w| c.allowed(w)) {
+        let stale = match first_unallowed_rename(&ev, since, approver, &|w| c.allowed(w)) {
             Some(who) => Some(who),
             None => {
                 let Some(edit) = self.s.issues.get(&n).and_then(|i| i.edit.clone()) else {
@@ -1514,7 +1522,7 @@ impl<'a> Poll<'a> {
                     .and_then(|e| e.get("login"))
                     .and_then(Value::as_str)
                     .unwrap_or("");
-                if !at.is_empty() && (since.is_empty() || at > since) {
+                if !at.is_empty() && changed_after(at, by, since, approver) {
                     let who = or_unknown(by).to_string();
                     (!self.c.allowed(&who)).then_some(who)
                 } else {
@@ -1548,6 +1556,7 @@ impl<'a> Poll<'a> {
         if self.unchanged_since(
             n,
             &at,
+            &who,
             &format!("{who} applied {label}"),
             "apply the label again",
         )? {
@@ -1599,7 +1608,8 @@ impl<'a> Poll<'a> {
                 "`tehas:ready` was taken off or applied again since the plan was written",
             ));
         }
-        if !self.unchanged_since(n, &at, "the plan was written", "apply `tehas:ready`")? {
+        // The bot's own write of the plan may share the label's second.
+        if !self.unchanged_since(n, &at, &who, "the plan was written", "apply `tehas:ready`")? {
             return Ok(self.plan_taken_off(n, "its text was changed since the plan was written"));
         }
         // The time cannot see a change made before the label went on.
@@ -1998,7 +2008,7 @@ impl<'a> Poll<'a> {
                 or_unknown(&editor)
             ));
         }
-        if let Some(who) = first_unallowed_rename(&ev, "", &ours) {
+        if let Some(who) = first_unallowed_rename(&ev, "", "", &ours) {
             return refuse(format!("its title was changed by {who}"));
         }
         Ok(EpicPart::Granted(EpicGrant { by, at, epic: p }))
@@ -2009,7 +2019,7 @@ impl<'a> Poll<'a> {
     /// over it or a cycle of it was approved before, which the fixer's grant
     /// decides as for any issue; Some(None) with the label off and the
     /// reason said.
-    fn epic_ready(&mut self, n: u64, at: &str) -> Step<Option<Option<EpicGrant>>> {
+    fn epic_ready(&mut self, n: u64, who: &str, at: &str) -> Step<Option<Option<EpicGrant>>> {
         if !matches!(self.s.issues.get(&n), Some(i) if matches!(i.approval, Some(Ok(None)))) {
             return Ok(None);
         }
@@ -2023,6 +2033,7 @@ impl<'a> Poll<'a> {
                 if !self.unchanged_since(
                     n,
                     at,
+                    who,
                     "the fixer applied tehas:ready",
                     "the fixer or a person applies it again",
                 )? {
@@ -2349,10 +2360,17 @@ impl<'a> Poll<'a> {
     /// approval it rests on and the count of fixer starts with this one, or
     /// None with the label off and the reason said. With the feed on, an
     /// issue never approved may rest on its author instead (feed_ok).
-    fn fixer_ok(&mut self, n: u64, at: &str, labels: &[String]) -> Step<Option<(Value, u64)>> {
+    fn fixer_ok(
+        &mut self,
+        n: u64,
+        who: &str,
+        at: &str,
+        labels: &[String],
+    ) -> Step<Option<(Value, u64)>> {
         if !self.unchanged_since(
             n,
             at,
+            who,
             "the fixer applied tehas:ready",
             "the fixer or a person applies it again",
         )? {
@@ -2376,6 +2394,7 @@ impl<'a> Poll<'a> {
                 if self.unchanged_since(
                     n,
                     &since,
+                    &by,
                     &format!("{by} approved it"),
                     "a person applies tehas:ready",
                 )? {
@@ -2472,6 +2491,7 @@ impl<'a> Poll<'a> {
         if !self.unchanged_since(
             n,
             &written,
+            &author,
             &format!("{author} wrote it"),
             "a person applies tehas:ready",
         )? {
@@ -2672,7 +2692,7 @@ impl<'a> Poll<'a> {
                         {
                             let ev = self.events(n)?;
                             let (_, at) = label_actor(&ev, "tehas:ready");
-                            match self.epic_ready(n, &at)? {
+                            match self.epic_ready(n, &refused, &at)? {
                                 Some(Some(g)) => {
                                     let by = g.by.clone();
                                     epic = Some(g);
@@ -2680,7 +2700,7 @@ impl<'a> Poll<'a> {
                                 }
                                 Some(None) => continue,
                                 None => {
-                                    match self.fixer_ok(n, &at, &labels)? {
+                                    match self.fixer_ok(n, &refused, &at, &labels)? {
                                         Some(grant) => fixer = Some(grant),
                                         None => continue,
                                     }

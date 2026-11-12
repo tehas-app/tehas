@@ -7,6 +7,7 @@
 //! (`first_unallowed_rename`: an unstamped rename is never the title an
 //! approval covered). Each direction holds the start, never lets it.
 
+use crate::accounts::account;
 use serde_json::Value;
 
 /// The account of an event that names nobody: tehas's word for it, the same
@@ -216,25 +217,38 @@ pub fn pause_holds(events: &[Event], allowed: &dyn Fn(&str) -> bool) -> Option<(
     }
 }
 
+/// Whether a change `who` made at `at` is after an approval `approver` gave
+/// at `since`. GitHub stamps to the second, so a change in the approval's own
+/// second may have come after it: it counts as after, unless the approver's
+/// own account made it. An empty `since` has every change after it.
+pub fn changed_after(at: &str, who: &str, since: &str, approver: &str) -> bool {
+    since.is_empty()
+        || at > since
+        || (at == since && (approver.is_empty() || account(who) != account(approver)))
+}
+
 /// The first `renamed` event after `since` (any of them when `since` is
 /// empty) whose account is not allowed, or the veto of nobody: "unknown" for
 /// a rename that names no account. None when no rename holds the title back.
-/// One with no time is not old: it counts as after `since`, so an unstamped
-/// rename never reads as a title the approval covered - the opposite of the
-/// rule for the events that must authorise something, in the header. A stamp
-/// GitHub sent in a shape the poll cannot read is read the same way, as no
-/// stamp: it is GitHub's to send well, and the safe reading of one it did not
-/// is the one that holds the start. The events come in GitHub's order, so the
-/// newest of them answers first: the walk is from the back and stops at the
-/// first veto.
+/// After is as `changed_after` reads it. One with no time is not old: it
+/// counts as after `since`, so an unstamped rename never reads as a title the
+/// approval covered - the opposite of the rule for the events that must
+/// authorise something, in the header. A stamp GitHub sent in a shape the
+/// poll cannot read is read the same way, as no stamp: it is GitHub's to send
+/// well, and the safe reading of one it did not is the one that holds the
+/// start. The events come in GitHub's order, so the newest of them answers
+/// first: the walk is from the back and stops at the first veto.
 pub fn first_unallowed_rename(
     events: &[Event],
     since: &str,
+    approver: &str,
     allowed: &dyn Fn(&str) -> bool,
 ) -> Option<String> {
     events.iter().rev().find_map(|e| {
         if e.event != "renamed"
-            || (!since.is_empty() && e.at.as_deref().is_some_and(|at| at <= since))
+            || e.at
+                .as_deref()
+                .is_some_and(|at| !changed_after(at, &e.actor, since, approver))
         {
             return None;
         }
@@ -355,7 +369,7 @@ mod plan_tests {
 
 #[cfg(test)]
 mod renamed_tests {
-    use super::{first_unallowed_rename, Event, UNKNOWN_ACTOR};
+    use super::{changed_after, first_unallowed_rename, Event, UNKNOWN_ACTOR};
 
     const SINCE: &str = "2026-01-02T10:00:00Z";
 
@@ -369,7 +383,7 @@ mod renamed_tests {
     }
 
     fn vetoed(events: &[Event], since: &str) -> Option<String> {
-        first_unallowed_rename(events, since, &|w| w == "alice")
+        first_unallowed_rename(events, since, "alice", &|w| w == "alice")
     }
 
     /// An event with no time is later than any when it must veto one, so an
@@ -386,9 +400,45 @@ mod renamed_tests {
     fn a_rename_before_the_approval_is_the_title_it_covered() {
         let before = [event("renamed", "mallory", Some("2026-01-02T09:59:00Z"))];
         assert_eq!(vetoed(&before, SINCE), None);
-        // The second of the same stamp is not after it either.
+    }
+
+    /// GitHub stamps to the second: a rename in the approval's second may
+    /// have come after the label, so one by an account outside the list holds
+    /// the start.
+    #[test]
+    fn a_rename_in_the_second_of_the_approval_counts_as_after_it() {
         let same = [event("renamed", "mallory", Some(SINCE))];
-        assert_eq!(vetoed(&same, SINCE), None);
+        assert_eq!(vetoed(&same, SINCE).as_deref(), Some("mallory"));
+        let nobody = [event("renamed", "", Some(SINCE))];
+        assert_eq!(vetoed(&nobody, SINCE).as_deref(), Some(UNKNOWN_ACTOR));
+        let mine = [event("renamed", "alice", Some(SINCE))];
+        assert_eq!(vetoed(&mine, SINCE), None);
+    }
+
+    /// The approver's own rename in that second is the title it approved,
+    /// even when the approver is not on the list (the bot of a plan's start).
+    #[test]
+    fn the_approvers_own_rename_in_its_second_is_before_it() {
+        let bot = [event("renamed", "tehas-bot[bot]", Some(SINCE))];
+        let by_bot = first_unallowed_rename(&bot, SINCE, "tehas-bot", &|w| w == "alice");
+        assert_eq!(by_bot, None);
+        let by_alice = first_unallowed_rename(&bot, SINCE, "alice", &|w| w == "alice");
+        assert_eq!(by_alice.as_deref(), Some("tehas-bot[bot]"));
+    }
+
+    #[test]
+    fn a_change_in_the_second_of_an_approval_is_after_it_unless_the_approvers() {
+        const AFTER: &str = "2026-01-02T10:00:01Z";
+        const BEFORE: &str = "2026-01-02T09:59:59Z";
+        assert!(changed_after(SINCE, "mallory", SINCE, "alice"));
+        assert!(changed_after(SINCE, "", SINCE, "alice"));
+        assert!(changed_after(SINCE, "", SINCE, ""));
+        assert!(changed_after(SINCE, "alice", SINCE, ""));
+        assert!(!changed_after(SINCE, "alice", SINCE, "alice"));
+        assert!(!changed_after(SINCE, "bot[bot]", SINCE, "bot"));
+        assert!(changed_after(AFTER, "alice", SINCE, "alice"));
+        assert!(!changed_after(BEFORE, "mallory", SINCE, "alice"));
+        assert!(changed_after(BEFORE, "mallory", "", "alice"));
     }
 
     /// The names of every rename after `since` are read, in GitHub's order,
