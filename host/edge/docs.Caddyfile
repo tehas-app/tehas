@@ -31,6 +31,12 @@
             # Only the finished files: not a half-written one, not a dotfile.
             @unfinished path *.new /.*
             respond @unfinished 404
+            # Only the files the manual lists: "Files under live/" in api.md.
+            # The two lists are one, and test/edge_test.sh says so; a name a
+            # writer adds under live/ is served once both name it. The health
+            # handlers below read /srv/live outside this list on purpose.
+            @unnamed not path /status.json /running.json /endings.json /epics.json /health.json /health.down /dispatch.json /demand.json /energy.json /analytics.json /orders.json /top.json /panels.json /disk.json /platform.json /rukas.json /previews.json /protolab.json /cycles/*.json /console-*.txt /console-*.txt.now
+            respond @unnamed 404
             header Cache-Control "no-store"
             file_server
         }
