@@ -182,6 +182,152 @@ fn a_quiet_cycle_whose_lock_is_free_is_lost() {
     assert_eq!(count(&home, "endings"), 0);
 }
 
+/// `cycle-end --stopped` and `--refused` end the cycle as `end_report` does:
+/// with a closing heartbeat that says it is not running and a row among the
+/// ten ends. Before that they set only `cycles.ended_at`, which publish never
+/// reads, so the page showed the stopped cycle as running for two minutes and
+/// as lost for ever after.
+fn a_short_end_publishes_the_cycle_as_ended(
+    name: &str,
+    issue: i64,
+    mode: &str,
+    word: &str,
+    reason: Value,
+) {
+    let home = home(name);
+    let (lock, attempt) = start_by(&home, issue, "alice", "label", 1000);
+    let (n, a) = (issue.to_string(), attempt.to_string());
+    beat(
+        &home,
+        1010,
+        issue,
+        true,
+        "running",
+        "develop",
+        "Writing the fix",
+    );
+    // The lock of the short end is what its caller holds: a person's stop has
+    // let go of it and the container's, the supervisor of a refused start has
+    // not. The end asks for the pair of them.
+    let mut lock = Some(lock);
+    if mode == "--stopped" {
+        lock.take();
+    }
+    let v = ok_at(&home, 1020, &["cycle-end", &n, "--attempt", &a, mode]);
+    assert_eq!(v["cycle"]["end_reason"], reason, "{mode}");
+    // heard_at stays the second of the heartbeat the cycle sent: the closing
+    // row says the cycle is not running, and the poll's quiet rule reads the
+    // newest heartbeat to tell a cycle that died from one still at work.
+    assert_eq!(v["cycle"]["heard_at"], 1010, "{mode}");
+    drop(lock);
+    // At once: running.json has no cycles, and the end is the closing row
+    // rather than one the lost rule made up.
+    publish(&home, 1020, &[]).unwrap();
+    let v: Value = serde_json::from_str(&read(&home, "running.json")).unwrap();
+    assert_eq!(v["cycles"], serde_json::json!([]), "{mode}");
+    assert_eq!(v["last"]["issue"], issue, "{mode}");
+    assert_eq!(v["last"]["status"], word, "{mode}");
+    assert_eq!(v["last"]["running"], false, "{mode}");
+    assert_eq!(v["last"]["updatedAt"], 1020, "{mode}");
+    // The step and the notice of the last heartbeat the cycle sent are kept.
+    assert_eq!(v["last"]["step"], "develop", "{mode}");
+    assert_eq!(v["last"]["statusText"], "Writing the fix", "{mode}");
+    let e: Value = serde_json::from_str(&read(&home, "endings.json")).unwrap();
+    assert_eq!(
+        e,
+        serde_json::json!([{"issue": issue, "status": word, "step": Value::Null,
+                            "startedAt": 1000, "updatedAt": 1020}]),
+        "{mode}"
+    );
+    // Past LOST_AFTER with a free lock: the lost rule has nothing to relabel,
+    // so the end keeps the word the person asked for and is named once.
+    publish(&home, 1020 + LOST_AFTER + 80, &[]).unwrap();
+    let v: Value = serde_json::from_str(&read(&home, "running.json")).unwrap();
+    assert_eq!(v["cycles"], serde_json::json!([]), "{mode}");
+    assert_eq!(v["last"]["status"], word, "{mode}");
+    assert_eq!(v["last"]["updatedAt"], 1020, "{mode}");
+    let e: Value = serde_json::from_str(&read(&home, "endings.json")).unwrap();
+    assert_eq!(e.as_array().unwrap().len(), 1, "{mode}");
+    assert_eq!(e[0]["status"], word, "{mode}");
+    assert_eq!(e[0]["startedAt"], 1000, "{mode}");
+    assert_eq!(e[0]["updatedAt"], 1020, "{mode}");
+    // The short ends write no cycle_history row, as they never did.
+    assert_eq!(count(&home, "cycle_history"), 0, "{mode}");
+}
+
+#[test]
+fn a_stopped_cycle_is_published_as_stopped_and_never_as_lost() {
+    a_short_end_publishes_the_cycle_as_ended(
+        "publish-stopped",
+        22,
+        "--stopped",
+        "stopped",
+        Value::from("stopped"),
+    );
+}
+
+#[test]
+fn a_refused_start_is_published_as_refused_and_never_as_lost() {
+    // The row keeps no end reason for a start the supervisor took late and
+    // never ran, as it never did: the ending and the heartbeat carry the word.
+    a_short_end_publishes_the_cycle_as_ended(
+        "publish-refused",
+        23,
+        "--refused",
+        "refused",
+        Value::Null,
+    );
+}
+
+/// The closing heartbeat of a short end is not the second the poll last heard
+/// from the issue: `cycle-show --running` answers `heard_at` with the newest
+/// heartbeat that said the cycle was at work, so the poll's quiet rule still
+/// stops a container that went on after its record was ended, and still names
+/// the stopped one as a cycle nobody heard from at the end's own second.
+#[test]
+fn the_closing_heartbeat_is_never_the_second_the_cycle_was_last_heard_from() {
+    let home = home("publish-heard");
+    let (lock, attempt) = start_by(&home, 24, "alice", "label", 1000);
+    let (n, a) = (24.to_string(), attempt.to_string());
+    beat(
+        &home,
+        1010,
+        24,
+        true,
+        "running",
+        "develop",
+        "Writing the fix",
+    );
+    drop(lock);
+    ok_at(
+        &home,
+        1020,
+        &["cycle-end", &n, "--attempt", &a, "--stopped"],
+    );
+    assert_eq!(
+        ok(&home, &["cycle-show", "24"])["cycle"]["heard_at"],
+        1010,
+        "the end of a cycle is no word from it"
+    );
+    // A cycle whose record was ended is not heard from again, so the time
+    // stays where the last heartbeat of the attempt put it.
+    // A cycle that never sent a heartbeat: its closing row is the only one the
+    // attempt has, and it is no word from the cycle either.
+    let (_lock, attempt) = start_by(&home, 25, "alice", "label", 2000);
+    let (n, a) = (25.to_string(), attempt.to_string());
+    drop(_lock);
+    ok_at(
+        &home,
+        2020,
+        &["cycle-end", &n, "--attempt", &a, "--stopped"],
+    );
+    assert_eq!(
+        ok(&home, &["cycle-show", "25"])["cycle"]["heard_at"],
+        Value::Null,
+        "a cycle that never sent a heartbeat was never heard from"
+    );
+}
+
 #[test]
 fn a_fresh_running_cycle_with_a_free_lock_is_running() {
     let home = home("publish-fresh");
