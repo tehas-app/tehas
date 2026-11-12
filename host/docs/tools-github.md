@@ -39,8 +39,13 @@ tehasbot github-token --session # the same body, for a planning turn or a manual
 Makes the installation token of the GitHub App named by `TEHAS_GITHUB_APP_ID`.
 The app's installation on `TEHAS_REPO` and its login are looked up at GitHub
 with the app's key and kept in `~/tehas/state/github/installation` and
-`~/tehas/state/github/login`. If the app is not installed on `TEHAS_REPO`, the
-command names the repository and the install link. It signs a JSON Web
+`~/tehas/state/github/login`. Each new token asks GitHub for the login again
+and rewrites the file when the app was renamed, with a line on standard error,
+and so does `TEHAS_BOT_LOGIN` for the rest of that command. A renamed app also
+needs `console ids record` for its new login: until then `state/account-ids`
+holds the old one, and the millwright's labels do not count. If the app is not
+installed on `TEHAS_REPO`, the command names the repository and the install
+link. It signs a JSON Web
 Token with the app's key, `~/.config/tehas/github-app.pem` (mode 600, never
 given to a container), and exchanges it at GitHub for a token that lasts an
 hour. The token is kept in `~/tehas/state/github/token` (mode 600) and made
