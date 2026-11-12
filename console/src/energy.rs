@@ -521,10 +521,14 @@ fn kept_samples(prev: &J, now: f64) -> Vec<J> {
 /// setting that is an `https://` one. Platform code names no project of its
 /// own, and a value that is no address is not published to the visitors.
 fn source_url() -> Option<String> {
-    match env("TEHAS_ENERGY_SOURCE_URL").trim() {
-        given if given.starts_with("https://") => Some(given.to_string()),
-        _ => None,
-    }
+    source_url_from(&env("TEHAS_ENERGY_SOURCE_URL"))
+}
+
+/// The whole accept rule, apart from the read so a test holds the one the
+/// sampler runs.
+fn source_url_from(given: &str) -> Option<String> {
+    let given = given.trim();
+    given.starts_with("https://").then(|| given.to_string())
 }
 
 /// The energy file from a cluster snapshot and the file before it. Every field
@@ -640,8 +644,7 @@ mod tests {
         // LEAKMARK of these values shows it.
         let cluster = one_machine(r#"{"models": [{"name": "m", "slots": 1}]}"#);
         let with = |given: &str| {
-            let given = given.trim();
-            let source = given.starts_with("https://").then(|| given.to_string());
+            let source = source_url_from(given);
             snapshot(
                 &parse(&cluster),
                 &J::Null,
