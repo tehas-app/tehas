@@ -466,12 +466,33 @@ fn stop_with(prs: Value) -> String {
         .unwrap()
 }
 
+/// The bot's pull request on the branch: #1747 reads its `createdAt`, so a
+/// pull request built by a test has to carry one. It is a minute after the
+/// 1793526000 the stop fixtures give their cycle, which is the earliest one
+/// the report takes as this cycle's own.
 fn open_pr(draft: Option<bool>) -> Value {
-    let mut p = serde_json::json!({"url": "https://github.com/acme/widget/pull/67", "state": "OPEN", "body": "Fixes #7", "headRefName": "feature/x"});
+    let mut p = serde_json::json!({"url": "https://github.com/acme/widget/pull/67", "state": "OPEN", "body": "Fixes #7", "headRefName": "feature/x", "createdAt": "2026-11-01T09:41:00Z"});
     if let Some(d) = draft {
         p["isDraft"] = d.into();
     }
     serde_json::json!([p])
+}
+
+/// #1747: the pull request of an attempt before this one is not its own, so
+/// the stop of the cycle says it has none: the two cases above stand or fall
+/// with the second their pull request was opened.
+#[test]
+fn a_stop_of_a_retry_names_no_pull_request_of_an_earlier_attempt() {
+    for state in ["OPEN", "MERGED", "CLOSED"] {
+        let mut prs = open_pr(Some(false));
+        prs[0]["state"] = state.into();
+        prs[0]["createdAt"] = "2026-11-01T09:39:00Z".into();
+        let said = stop_with(prs);
+        assert!(
+            said.contains("Tehas cycle stopped without a pull request"),
+            "{state}: {said}"
+        );
+    }
 }
 
 #[test]
@@ -535,5 +556,85 @@ fn no_comment_says_without_a_pull_request_and_names_one() {
                 );
             }
         }
+    }
+}
+
+/// A `prs` entry of the bot on the branch of the cases below, opened at `at`.
+fn earlier_pr(state: &str, at: &str) -> Value {
+    serde_json::json!([{
+        "url": "https://github.com/acme/widget/pull/4",
+        "state": state,
+        "body": "Fixes #7",
+        "headRefName": "feature/issue-7-x",
+        "createdAt": at
+    }])
+}
+
+/// What the report says on the issue: its comments, and the text of its parks.
+fn on_issue(r: &tehas_cycle::Report) -> String {
+    r.actions
+        .iter()
+        .map(|a| match a {
+            Action::Comment { ok, .. } => ok.clone(),
+            Action::Park(p) => p.comment(false, true),
+            _ => String::new(),
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// #1747: a retried cycle runs on the branch of the attempt before it, and the
+/// list of the bot's pull requests is taken with `--state all`. A cap park, or
+/// an outage park, must stay what it is when that list holds one pull request
+/// of the earlier attempt: the arm is the park's own, the status is never
+/// `merged`, and the earlier pull request is nowhere named. The same pull
+/// request opened at or after `started` is the cycle's own and is named, which
+/// is the only difference between the two.
+#[test]
+fn a_park_of_a_retry_is_not_made_by_an_earlier_attempts_pull_request() {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/park.json");
+    let cases: Vec<Value> = serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap();
+    // The cap park of the bash cases: a step that failed for a reason of its
+    // own, with its branch and its handoff.
+    let mut c = cases
+        .into_iter()
+        .find(|c| {
+            c["case"]
+                .as_str()
+                .unwrap_or("")
+                .starts_with("a step that failed for another reason is parked as before")
+        })
+        .unwrap();
+    c["facts"]["github"]["prs"] = serde_json::json!([]);
+    c["facts"]["github"]["attention"] = serde_json::json!(false);
+    let plain = Facts::from_json(&c["facts"]).unwrap();
+    let plain = report(&plain, &mut Given(c["facts"]["github"].clone()));
+    assert_eq!(plain.arm, "parked", "{}", plain.arm);
+    for state in ["CLOSED", "MERGED"] {
+        let mut with = c.clone();
+        with["facts"]["github"]["prs"] = earlier_pr(state, "2026-11-01T09:38:00Z");
+        let facts = Facts::from_json(&with["facts"]).unwrap();
+        let r = report(&facts, &mut Given(with["facts"]["github"].clone()));
+        assert_eq!(r.arm, plain.arm, "{state}: {}", r.arm);
+        assert_eq!(r.done, plain.done, "{state}: {}", r.done);
+        assert!(!r.arm.starts_with("merged"), "{state}: {}", r.arm);
+        assert!(!r.arm.starts_with("pr-closed"), "{state}: {}", r.arm);
+        assert!(!r.done.contains("status=merged"), "{state}: {}", r.done);
+        assert!(
+            !on_issue(&r).contains("pull/4"),
+            "{state}: {}",
+            on_issue(&r)
+        );
+        // The same pull request opened after the cycle took its lock is its
+        // own: it is the one thing that makes the earlier one wrong.
+        let mut own = c.clone();
+        own["facts"]["github"]["prs"] = earlier_pr(state, "2026-11-01T09:40:00Z");
+        let facts = Facts::from_json(&own["facts"]).unwrap();
+        let own = report(&facts, &mut Given(own["facts"]["github"].clone()));
+        assert!(
+            on_issue(&own).contains("pull/4"),
+            "{state}: the cycle's own pull request is said nowhere: {}",
+            on_issue(&own)
+        );
     }
 }

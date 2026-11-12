@@ -380,6 +380,17 @@ fn iso(secs: i64) -> String {
     tehas_core::time::iso(secs)
 }
 
+/// Whether `gh pr list` says a pull request was created at or after the second
+/// the cycle took its lock. A retried cycle runs on the branch of the attempt
+/// before it, so `--state all` brings that attempt's closed or merged pull
+/// request back; only what this start opened may speak for it (#1747). A pull
+/// request with no `createdAt` of the shape gh writes is an earlier one: the
+/// dispatcher reads the same field, and one it cannot place is never taken as
+/// this cycle's.
+fn opened_at_or_after(pr: &Value, started: i64) -> bool {
+    tehas_core::limit::epoch(&text(pr, "createdAt")).is_some_and(|at| at >= started)
+}
+
 /// The fields jq gives as `def v`: no NUL, no line ends at the end.
 fn v(s: &str) -> String {
     s.replace('\0', "").trim_end_matches('\n').to_string()
@@ -1014,6 +1025,7 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
                 p.is_object()
                     && text(p, "state").to_ascii_uppercase() == st
                     && names_issue(p, issue)
+                    && opened_at_or_after(p, f.started)
             })
             .filter_map(|p| p.get("url").and_then(Value::as_str))
             .find(|u| re(r"^https://[A-Za-z0-9./_-]+$", u))
@@ -2106,5 +2118,100 @@ mod tests {
         let r = refused("0\n", None);
         assert_eq!(end_cap(&r), None, "{:?}", r.end);
         assert!(r.history.get("cap").is_none(), "{}", r.history);
+    }
+
+    /// The report of a cycle that started at `started` and found `prs` on its
+    /// branch: the same park of a step that failed, with only the pull requests
+    /// of GitHub and the second the lock was taken changing between cases.
+    fn retried(started: i64, prs: Value) -> Report {
+        let result = json!({"schemaVersion": runner::RESULT_SCHEMA, "issues": [
+            {"issue": 7, "status": "aborted", "failedStep": "develop",
+             "branch": "feature/issue-7-x", "cap": "step-failed:develop"}]}
+        );
+        let facts = json!({
+            "issue": 7,
+            "repo": "acme/widget",
+            "home": "/home/tehas",
+            "rc": 20,
+            "started": started,
+            "now": started + 600,
+            "start": { "attempt": 2 },
+            "files": {
+                "result.json": result.to_string(),
+                "progress.json": "{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}\n",
+                "runner_exit": "20\n",
+            },
+            "record": { "cycle": { "attempt": 2 } },
+            "github": { "prs": prs, "attention": false },
+        });
+        let f = Facts::from_json(&facts).expect("the facts read");
+        report(&f, &mut Given(facts["github"].clone()))
+    }
+
+    /// One pull request of the bot on the branch of the cycle above, opened at
+    /// `at` (`None`: gh says nothing of when) in the state `state`.
+    fn on_branch(state: &str, at: Option<&str>) -> Value {
+        let mut p = json!({"url": "https://github.com/acme/widget/pull/3",
+                           "state": state, "body": "Fixes #7",
+                           "headRefName": "feature/issue-7-x"});
+        if let Some(at) = at {
+            p["createdAt"] = json!(at);
+        }
+        json!([p])
+    }
+
+    // #1747: a retry runs on the branch of the attempt before it, and
+    // `--state all` brings that attempt's pull request back with it. Only what
+    // this start opened may decide how the cycle ended. The pull request
+    // opened after the lock is the cycle's own: it takes the arm it took
+    // before this bound, so the arm of the two cases below differs only in the
+    // second its pull request was opened.
+    #[test]
+    fn an_earlier_attempts_closed_pull_request_is_no_pr_closed_arm() {
+        let started = 1_793_525_961; // 2026-10-31T12:19:21Z
+        let before = iso(started - 60);
+        let after = iso(started + 60);
+        for (at, arm, said) in [
+            (Some(before.as_str()), "parked", false),
+            (None, "parked", false),
+            (Some("nonsense"), "parked", false),
+            (Some(after.as_str()), "pr-closed", true),
+        ] {
+            let r = retried(started, on_branch("CLOSED", at));
+            assert_eq!(r.arm, arm, "createdAt {at:?}: {}", r.arm);
+            let said_all = comments(&r).join("\n");
+            assert_eq!(
+                said_all.contains("was closed without being merged"),
+                said,
+                "createdAt {at:?}: {said_all}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_earlier_attempts_merged_pull_request_is_no_merged_arm() {
+        let started = 1_793_525_961; // 2026-10-31T12:19:21Z
+        let before = iso(started - 60);
+        let after = iso(started + 60);
+        for (at, arm, done) in [
+            // The earlier attempt's merged pull request leaves the cycle the
+            // step failure it was: the record keeps the runner's status.
+            (Some(before.as_str()), "parked", "status=aborted"),
+            (None, "parked", "status=aborted"),
+            // The cycle's own merged pull request is still its end: the record
+            // says merged and 0 whatever the runner exited with.
+            (Some(after.as_str()), "merged-outside", "status=merged"),
+        ] {
+            let r = retried(started, on_branch("MERGED", at));
+            assert_eq!(r.arm, arm, "createdAt {at:?}: {}", r.arm);
+            assert!(r.done.contains(done), "{at:?}: {}", r.done);
+        }
+    }
+
+    #[test]
+    fn a_pull_request_at_the_second_the_cycle_started_is_its_own() {
+        let started = 1_793_525_961; // 2026-10-31T12:19:21Z
+        let r = retried(started, on_branch("CLOSED", Some(&iso(started))));
+        assert_eq!(r.arm, "pr-closed", "{}", r.arm);
     }
 }

@@ -48,6 +48,12 @@ struct Host {
     dir: TestDir,
 }
 
+/// The `createdAt` of a pull request these cases put on GitHub. Every report
+/// below runs with `--started 1000` (1970-01-01T00:16:40Z): the report takes
+/// only the pull requests opened at or after its own start (#1747), so one it
+/// is meant to take carries a second after it.
+const CREATED: &str = "1970-01-01T00:20:00Z";
+
 fn exe(p: &Path, text: &str) {
     tehas_core::testing::write_exe(p, text).unwrap();
 }
@@ -386,7 +392,7 @@ fn a_merged_cycle_removes_its_workspace_and_its_notes() {
     fs::write(h.dir.join("state/cycles/7.oom"), "2\n").unwrap();
     fs::write(h.dir.join("state/cycles/7.done"), "merged\n").unwrap();
     let prs: Value = json!([{"url": "https://github.com/a/b/pull/9", "state": "MERGED",
-        "body": "Fixes #7", "headRefName": "feature/issue-7-x"}]);
+        "body": "Fixes #7", "headRefName": "feature/issue-7-x", "createdAt": CREATED}]);
     fs::write(h.dir.join("prs.json"), prs.to_string()).unwrap();
     let o = h.report(0, false);
     assert!(o.status.success(), "{}", out(&o));
@@ -502,7 +508,7 @@ fn a_handoff_on_awaiting_human_merge_waits_for_a_merge() {
     fs::write(work.join(".tehas-workspaces"), "").unwrap();
     fs::create_dir_all(work.join("widget-7")).unwrap();
     let prs: Value = json!([{"url": "https://github.com/a/b/pull/9", "state": "OPEN",
-        "body": "Fixes #7", "headRefName": "feature/issue-7-x"}]);
+        "body": "Fixes #7", "headRefName": "feature/issue-7-x", "createdAt": CREATED}]);
     fs::write(h.dir.join("prs.json"), prs.to_string()).unwrap();
     fs::write(
         h.dir.join("issue.json"),
@@ -549,7 +555,7 @@ fn a_handoff_on_lens_fix_reposition_waits_for_a_merge() {
     );
     fs::write(h.dir.join("state/cycles/7.runner_exit"), "10\n").unwrap();
     let prs: Value = json!([{"url": "https://github.com/a/b/pull/9", "state": "OPEN",
-        "body": "Fixes #7", "headRefName": "feature/issue-7-x"}]);
+        "body": "Fixes #7", "headRefName": "feature/issue-7-x", "createdAt": CREATED}]);
     fs::write(h.dir.join("prs.json"), prs.to_string()).unwrap();
     fs::write(
         h.dir.join("issue.json"),
