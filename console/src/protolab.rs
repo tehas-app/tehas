@@ -596,19 +596,19 @@ const GITHUB: &str = "https://github.com/";
 
 /// The byte one past the link that begins at `at`, or None when no branch of
 /// the regular expression of console/attach matches there. Each branch is
-/// the host, the folders that say the file is GitHub's own, and then a run of
-/// URL characters that holds the file.
+/// the host, the folders that say the file is GitHub's own, and then the path
+/// that holds the file.
 fn address(bytes: &[u8], at: usize) -> Option<usize> {
     if let Some(tail) = rest(bytes, at).strip_prefix(ATTACHMENTS) {
         // An attachment of the issue: assets/ or files/, and the file.
-        if tail.starts_with("assets/") || tail.starts_with("files/") {
-            return Some(run(bytes, at + ATTACHMENTS.len() + "assets/".len()));
-        }
-        return None;
+        let folder = ["assets/", "files/"]
+            .into_iter()
+            .find(|folder| tail.starts_with(folder))?;
+        return path(bytes, at + ATTACHMENTS.len() + folder.len());
     }
     if rest(bytes, at).starts_with(IMAGES) {
         // A pasted image: the host says it all, the name of the file follows.
-        return Some(run(bytes, at + IMAGES.len()));
+        return path(bytes, at + IMAGES.len());
     }
     if rest(bytes, at).starts_with(GITHUB) {
         // A file of a repository: the owner, the repository, the folder and
@@ -622,12 +622,16 @@ fn address(bytes: &[u8], at: usize) -> Option<usize> {
         if held == 0 || !tail[..held].bytes().all(|b| b.is_ascii_digit()) {
             return None;
         }
-        // The file begins past the number, and its name runs to the end of the
-        // URL characters that follow it.
+        // The file begins past the number.
         let past = rest(bytes, at).len() - tail.len() + held + 1;
-        return Some(run(bytes, at + past));
+        return path(bytes, at + past);
     }
     None
+}
+
+/// Whether a link is one whole address of GitHub's attachment folders.
+fn is_attachment(link: &str) -> bool {
+    address(link.as_bytes(), 0) == Some(link.len())
 }
 
 /// The rest of the text from `at`, empty when nothing is there.
@@ -636,32 +640,62 @@ fn rest(bytes: &[u8], at: usize) -> &str {
 }
 
 /// A repository or an owner's name at the front of `tail`: letters, digits and
-/// . _ -, at least one, then the slash that ends it. The name and what follows
-/// the slash.
+/// . _ -, not dots alone, then the slash that ends it. The name and what
+/// follows the slash.
 fn name(tail: &str) -> Option<(&str, &str)> {
     let cut = tail.find('/')?;
     let (seen, after) = (&tail[..cut], &tail[cut + 1..]);
-    (!seen.is_empty()
+    (seen.bytes().any(|b| b != b'.')
         && seen
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.' | b'-')))
     .then_some((seen, after))
 }
 
-/// The byte one past the run of URL characters at `at`. A fragment is no part
-/// of where GitHub holds a file, so the run stops at one.
-fn run(bytes: &[u8], at: usize) -> usize {
+/// The byte one past the path at `at`: parts parted by '/', ending before the
+/// first that is not one. None when the first is not.
+fn path(bytes: &[u8], at: usize) -> Option<usize> {
+    let mut end = part(bytes, at)?;
+    while bytes.get(end) == Some(&b'/') {
+        match part(bytes, end + 1) {
+            Some(next) => end = next,
+            None => break,
+        }
+    }
+    Some(end)
+}
+
+/// One part of a path: dots, then a URL character that is neither '.' nor
+/// '?', then URL characters. Never `.` or `..`. A fragment is no part of where
+/// GitHub holds a file, so a part stops at one.
+fn part(bytes: &[u8], at: usize) -> Option<usize> {
     let mut end = at;
-    while bytes.get(end).is_some_and(|b| {
-        b.is_ascii_alphanumeric()
-            || matches!(
-                b,
-                b'.' | b'_' | b'~' | b'%' | b'/' | b'?' | b'&' | b'=' | b'+' | b'-'
-            )
-    }) {
+    while bytes.get(end) == Some(&b'.') {
         end += 1;
     }
-    end
+    end = unit(bytes, end, false)?;
+    while let Some(next) = unit(bytes, end, true) {
+        end = next;
+    }
+    Some(end)
+}
+
+/// The byte past one URL character at `at`, an escape being one. An escaped
+/// '.', '/' or '\' is none, and '.' and '?' are one only when `later`.
+fn unit(bytes: &[u8], at: usize, later: bool) -> Option<usize> {
+    let b = *bytes.get(at)?;
+    if b == b'%' {
+        let (hi, lo) = (*bytes.get(at + 1)?, *bytes.get(at + 2)?);
+        let refused = matches!(
+            (hi, lo.to_ascii_lowercase()),
+            (b'2', b'e' | b'f') | (b'5', b'c')
+        );
+        return (hi.is_ascii_hexdigit() && lo.is_ascii_hexdigit() && !refused).then_some(at + 3);
+    }
+    let plain = b.is_ascii_alphanumeric()
+        || matches!(b, b'_' | b'~' | b'&' | b'=' | b'+' | b'-')
+        || (later && matches!(b, b'.' | b'?'));
+    plain.then_some(at + 1)
 }
 
 #[cfg(test)]
@@ -1082,6 +1116,46 @@ mod tests {
             links("https://github.com/ac-me.my_org/w-id.get/files/7/x.js"),
             ["https://github.com/ac-me.my_org/w-id.get/files/7/x.js"]
         );
+    }
+
+    #[test]
+    fn a_link_ends_before_a_part_that_would_leave_the_folder() {
+        let cases = [
+            "https://github.com/o/r/files/1/../../raw/main/a.json",
+            "https://github.com/o/r/files/1/./a.json",
+            "https://github.com/o/r/files/1/%2e%2e/raw/a.json",
+            "https://github.com/o/r/files/1/.%2E/raw/a.json",
+            "https://github.com/o/r/files/1/..?x=1",
+            "https://github.com/o/../files/1/a.json",
+            "https://github.com/user-attachments/files/../../o/r/raw/a.json",
+            "https://user-images.githubusercontent.com/../x.png",
+            "https://github.com/user-attachments/files/1/../../o/r/raw/a.json",
+            "https://github.com/o/r/files/1/a/../../../raw/a.json",
+            "https://github.com/o/r/files/1/a%2f..%2fb.json",
+            "https://github.com/o/r/files/1/a%5C..%5cb.json",
+            "https://github.com/o/r/files/1/.hidden.json",
+            "https://github.com/o/r/files/1/a..b/...c.json",
+            "https://github.com/o.r/r.s/files/1/a%20b.json?x=../y",
+        ];
+        let text = cases.join(" ");
+        let found = links(&text);
+        assert_eq!(
+            found,
+            [
+                "https://github.com/user-attachments/files/1",
+                "https://github.com/o/r/files/1/a",
+                "https://github.com/o/r/files/1/.hidden.json",
+                "https://github.com/o/r/files/1/a..b/...c.json",
+                "https://github.com/o.r/r.s/files/1/a%20b.json?x=../y",
+            ]
+        );
+        for link in &cases[..12] {
+            assert!(!is_attachment(link), "{link}");
+        }
+        // jq's scan lists a link each time it is found.
+        let mut said = links_of_the_rule(&text);
+        said.dedup();
+        assert!(said.is_empty() || said == found, "{said:?}");
     }
 
     #[test]

@@ -144,7 +144,7 @@ owned 'https://github.com/user-attachments/assets/1'
 rm -f "$T"/calls/*
 t_run "TEHAS_REPO=acme/widget GH_TOKEN=sekret-token; $lib; take 7 $T/images"
 t_eq "$t_rc" 0
-t_eq "$(t_calls curl)" "-sSfL --proto =https --proto-redir =https --max-redirs 3 --max-time 120 --max-filesize 10485760 -o $T/images/.part -w %{content_type} -H @- https://github.com/user-attachments/assets/1"
+t_eq "$(t_calls curl)" "-sSfL --path-as-is --proto =https --proto-redir =https --max-redirs 3 --max-time 120 --max-filesize 10485760 -o $T/images/.part -w %{content_type} -H @- https://github.com/user-attachments/assets/1"
 
 t_case "the token goes to github.com on standard input, never on the command line"
 t_eq "$(cat "$T/calls/curl-stdin")" "stdin: Authorization: Bearer sekret-token"
