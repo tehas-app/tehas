@@ -218,8 +218,10 @@ t_eq "$(t_calls fake-start)" ""
 t_contains "$(t_calls gh)" "pr list --repo acme/widget --author tehas-bot[bot] --state all"
 kill "$(<"$fx/holder-9")"
 
-# A poll that cannot ask stops nothing: a cycle is never given up on a guess.
-t_case "a poll that cannot read the bot's pull requests stops nothing and leaves the cycle holding its lock"
+# A poll that cannot read the bot's pull requests stops nothing for a pull
+# request: a cycle is never given up on a guess. It still makes its other
+# decisions (#823 part 2).
+t_case "a poll that cannot read the bot's pull requests stops nothing for a pull request and goes on"
 reset
 stop_by_kill
 ready 7
@@ -227,12 +229,45 @@ hold_proc 9
 bot_pr 9 MERGED 2099-01-01T00:00:00Z
 : >"$fx/pr-fails"
 t_run "$dispatch"
-t_eq "$t_rc" 1
-t_contains "$t_out" "ERROR: gh pr list failed"
+t_eq "$t_rc" 0
+t_contains "$t_out" "WARN: the bot's pull requests could not be read, so no cycle is stopped for its pull request this poll"
+t_eq "$(grep -c "the bot's pull requests could not be read" <<<"$t_out")" 1
 t_lacks "$t_out" "stop #9"
 t_eq "$(t_calls fake-stop)" ""
 t_eq "$(find "$T/home/tehas/state/cycles/9.done" 2>/dev/null | wc -l)" 0
 still_holding 9
+kill "$(<"$fx/holder-9")"
+
+t_case "a poll that cannot read the bot's pull requests still stops a cycle whose issue is closed, and fills its slot"
+reset
+stop_by_kill
+ready 7
+hold_proc 9
+bot_pr 9 MERGED 2099-01-01T00:00:00Z
+: >"$fx/pr-fails"
+echo '{"number":9,"state":"closed"}' >"$fx/work-9.json"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_contains "$t_out" "stop #9: its issue is closed"
+t_lacks "$t_out" "its pull request https"
+t_eq "$(t_calls fake-stop)" "9"
+t_eq "$(<"$T/home/tehas/state/cycles/9.done")" closed
+t_eq "$(t_calls fake-start)" "7"
+
+t_case "a poll that cannot read the bot's pull requests stops nothing for a pull request: a dry run"
+reset
+stop_by_kill
+ready 7
+hold_proc 9
+bot_pr 9 MERGED 2099-01-01T00:00:00Z
+: >"$fx/pr-fails"
+echo '{"number":9,"state":"closed"}' >"$fx/work-9.json"
+t_run "$dispatch --dry-run"
+t_eq "$t_rc" 0
+t_contains "$t_out" "would stop tehas-cycle@9.service: its issue is closed"
+t_lacks "$t_out" "merged"
+t_eq "$(t_calls fake-stop)" ""
+t_eq "$(find "$T/home/tehas/state/cycles/9.done" 2>/dev/null | wc -l)" 0
 kill "$(<"$fx/holder-9")"
 
 t_case "a merged pull request of another account, or one with no author, stops nothing; the bot's own stops it"
