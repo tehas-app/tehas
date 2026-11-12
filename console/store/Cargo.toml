@@ -15,6 +15,8 @@ publish = false
 [lib]
 name = "store"
 path = "src/lib.rs"
+# The comments are the program's manual, not examples to run.
+doctest = false
 
 [[bin]]
 name = "store"
