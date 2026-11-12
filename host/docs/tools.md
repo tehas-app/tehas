@@ -5156,8 +5156,9 @@ nothing past the run.
 
 Each file's output is printed whole, in name order, once all the tasks have
 ended. The run then says what it covered, the total number of cases over all
-the files and the five slowest of them with their times, and ends with a block
-that says what did not pass:
+the files and the slowest of them with their times (five of them by default, as
+many as `TEHAS_TEST_SLOWEST` names), and ends with a block that says what did
+not pass:
 
 ```
 test.sh: 431 cases in 96 files, 16 at a time
