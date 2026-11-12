@@ -93,8 +93,8 @@ case "$1 $2" in
     # of the bot on the branch asked for, in the state pr-state says [OPEN],
     # whose body is pr-body [Fixes #7], a draft when pr-draft is there. The
     # pull request is created now, so it is at or after the started of every
-    # case: the report takes only what its own cycle opened (#1747), and a
-    # case that wants an earlier one writes pr.json itself.
+    # case: the report takes a closed or merged one only if its own cycle
+    # opened it (#1747), and a case that wants an earlier one writes pr.json.
     if [ -e "$T/fx/pr.json" ]; then cat "$T/fx/pr.json"
     elif [ -e "$T/fx/pr.txt" ]; then
       head=$(printf "%s\n" "$@" | sed -n "/^--head$/{n;p;}")
