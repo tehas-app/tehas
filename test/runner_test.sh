@@ -716,11 +716,24 @@ for n in 1 2 3 4; do
 done
 run_env TEHAS_TEST_SLOWEST=3
 t_eq "$t_rc" 0
-block=$(printf '%s\n' "$t_out" | sed -n '/the slowest files:/{n;p;n;p;n;p}')
-t_eq "$(printf '%s\n' "$block" | wc -l)" 3
-t_eq "$(printf '%s\n' "$block" | sed 's/.* s  //')" "test/t4_test.sh
+# The block is everything between its own header and the next one, so the
+# count is read from the run's output rather than from a window of its own.
+slowest=$(printf '%s\n' "$t_out" | sed -n '/^test\.sh: the slowest files:$/{n;:a;/^    .* s  /{p;n;ba};q}')
+t_eq "$(printf '%s\n' "$slowest" | wc -l)" 3
+t_eq "$(printf '%s\n' "$slowest" | sed 's/.* s  //')" "test/t4_test.sh
 test/t3_test.sh
 test/t2_test.sh"
+
+# More than there are files names every one of them, so a measurement run
+# reads its whole timing out of one go.
+run_env TEHAS_TEST_SLOWEST=9
+t_eq "$t_rc" 0
+slowest=$(printf '%s\n' "$t_out" | sed -n '/^test\.sh: the slowest files:$/{n;:a;/^    .* s  /{p;n;ba};q}')
+t_eq "$(printf '%s\n' "$slowest" | wc -l)" 4
+t_eq "$(printf '%s\n' "$slowest" | sed 's/.* s  //')" "test/t4_test.sh
+test/t3_test.sh
+test/t2_test.sh
+test/t1_test.sh"
 
 t_case "the slowest files run first, from the list, the others after in name order"
 fresh

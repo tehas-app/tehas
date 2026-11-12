@@ -229,8 +229,8 @@ pub fn limit(setting: Option<&str>) -> u128 {
     setting.and_then(positive).unwrap_or(300)
 }
 
-/// TEHAS_TEST_SLOWEST when it is a number, else 5: how many of the slowest
-/// files a run names.
+/// TEHAS_TEST_SLOWEST when it is a number, empty or not, else 5: how many of
+/// the slowest files a run names.
 pub fn slowest_count(setting: Option<&str>) -> u128 {
     setting.and_then(positive).unwrap_or(5)
 }
@@ -313,12 +313,15 @@ fn value(p: &Path) -> Option<String> {
 }
 
 /// The lines naming the slowest files, at most `count` of them, slowest first.
+/// A count over the files names them all: the count is clamped, never narrowed.
 pub fn slowest(slow: &[(u128, String)], count: u128) -> Vec<String> {
     let mut sorted: Vec<&(u128, String)> = slow.iter().collect();
     sorted.sort_by_key(|a| std::cmp::Reverse(a.0));
     sorted
         .into_iter()
-        .take(count as usize)
+        // Narrowing a u128 would drop its high bits: 2^64 would become 0 and
+        // name nothing, so a count too big for usize names every file.
+        .take(usize::try_from(count).unwrap_or(usize::MAX))
         .map(|(ms, name)| format!("    {:>3}.{} s  {name}", ms / 1000, ms % 1000 / 100))
         .collect()
 }

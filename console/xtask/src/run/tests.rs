@@ -147,6 +147,7 @@ fn the_slowest_count_is_the_setting_or_five() {
     assert_eq!(slowest_count(Some("0")), 5);
     assert_eq!(slowest_count(Some("soon")), 5);
     assert_eq!(slowest_count(Some("3")), 3);
+    assert_eq!(slowest_count(Some("007")), 5);
 }
 
 #[test]
@@ -249,6 +250,23 @@ fn asked_for_seven_over_eight_entries_names_seven_slowest_first() {
             "      0.0 s  e",
         ]
     );
+}
+
+#[test]
+fn a_count_too_big_for_usize_names_every_file() {
+    let slow: Vec<(u128, String)> = [(100, "a"), (8400, "b"), (5, "c")]
+        .iter()
+        .map(|(ms, n)| (*ms, n.to_string()))
+        .collect();
+    // 2^64 is a positive whole number, and narrows to 0 in a usize.
+    for count in ["18446744073709551616", "36893488147419103232", "1000"] {
+        let asked = positive(count).expect("a positive whole number");
+        assert_eq!(
+            slowest(&slow, asked),
+            ["      8.4 s  b", "      0.1 s  a", "      0.0 s  c"],
+            "{count} names every file"
+        );
+    }
 }
 
 #[test]
