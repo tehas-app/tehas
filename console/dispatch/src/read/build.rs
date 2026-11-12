@@ -125,15 +125,20 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
         .get(tehas_core::accounts::account(&c.bot_login))
         .copied());
     // What rule 6 holds an issue on out of an open pull request's body:
-    // every open pull request that names it with a closing keyword, by
-    // number, whatever base it targets.
+    // every open pull request of `own_pull` that names it with a closing
+    // keyword, by number, whatever base it targets. GitHub's own links are
+    // kept to the same pull requests.
     if let Some(pulls) = &q.open_pulls {
-        names_from_bodies(&mut s, pulls, &q.open);
+        names_from_bodies(&mut s, pulls, &q.open, c);
     }
     let open: BTreeSet<u64> = q.open.iter().map(|o| o.number).collect();
     let mut issues = Map::new();
     for o in &q.open {
-        issues.insert(o.number.to_string(), Value::Object(github::issue(o)));
+        let mut i = github::issue(o);
+        if let Some(prs) = i.get_mut("prs").and_then(Value::as_array_mut) {
+            prs.retain(|p| own_pull(p, c));
+        }
+        issues.insert(o.number.to_string(), Value::Object(i));
     }
     // Those the page left out are read as the bash reads them, side by side.
     // The bot's `RUNNING` mark is the one label the queue does not ask about:
@@ -716,6 +721,19 @@ fn closed(issues: &mut Map<String, Value>, n: u64) {
     }
 }
 
+/// Whether a pull request may hold an issue: its branch is in the product
+/// repository and the factory or an allowed account opened it. Anyone can open
+/// a pull request from a fork with any body, so no other one holds an issue.
+fn own_pull(p: &Value, c: &Settings) -> bool {
+    let s = |ptr: &str| p.pointer(ptr).and_then(Value::as_str).unwrap_or("");
+    let author = s("/author/login");
+    p.get("isCrossRepository") == Some(&json!(false))
+        && !c.repo.is_empty()
+        && s("/headRepository/nameWithOwner").eq_ignore_ascii_case(&c.repo)
+        && (tehas_core::accounts::factorys(author, &c.bot_login)
+            || c.allowed(crate::settings::account(author)))
+}
+
 /// Which open pull requests name an open issue with a closing keyword in their
 /// own description, written to `pulls_name` of the snapshot by issue number.
 ///
@@ -723,12 +741,13 @@ fn closed(issues: &mut Map<String, Value>, n: u64) {
 /// 25 issues over 100 bodies is 2500 matches otherwise, and most descriptions
 /// hold no keyword at all. The nodes are what the page answered: a list of no
 /// shape a rule reads holds nothing, and no issue is held on a body no poll read.
-fn names_from_bodies(s: &mut Value, pulls: &Value, open: &[github::Open]) {
+fn names_from_bodies(s: &mut Value, pulls: &Value, open: &[github::Open], c: &Settings) {
     let Some(nodes) = pulls.as_array() else {
         return;
     };
     let mentions: BTreeMap<u64, Vec<u64>> = nodes
         .iter()
+        .filter(|p| own_pull(p, c))
         .filter_map(|p| {
             let pr = p.get("number").and_then(Value::as_u64)?;
             // A body of no shape a rule reads, none or absent, is a description
@@ -2233,7 +2252,88 @@ esac"#,
     fn pull_body(n: u64, body: Value) -> Value {
         json!({"number": n, "title": format!("pull {n}"), "body": body,
                "headRefName": format!("feature/other-{n}"),
+               "isCrossRepository": false, "headRepository": {"nameWithOwner": "acme/widget"},
                "author": {"login": "alice"}, "labels": {"nodes": []}})
+    }
+
+    /// A pull request that is not the repository's own names nothing: one from
+    /// a fork, one of an account neither the factory nor allowed, and one whose
+    /// author or head cannot be read. Each closes #21 and #22 in its body, and
+    /// neither issue is held.
+    #[test]
+    fn a_pull_request_not_of_the_repository_names_nothing() {
+        type Change = fn(&mut Value);
+        let cases: [(&str, Change); 6] = [
+            ("an outsider's fork", |p| {
+                p["isCrossRepository"] = json!(true);
+                p["headRepository"] = json!({"nameWithOwner": "mallory/widget"});
+                p["author"] = json!({"login": "mallory"});
+            }),
+            ("an allowed account's fork", |p| {
+                p["isCrossRepository"] = json!(true);
+                p["headRepository"] = json!({"nameWithOwner": "alice/widget"});
+            }),
+            ("an outsider on a branch of the repository", |p| {
+                p["author"] = json!({"login": "mallory"});
+            }),
+            ("a head of another repository", |p| {
+                p["headRepository"] = json!({"nameWithOwner": "acme/other"});
+            }),
+            ("no author", |p| {
+                p["author"] = Value::Null;
+            }),
+            ("no cross-repository answer", |p| {
+                p.as_object_mut().unwrap().remove("isCrossRepository");
+            }),
+        ];
+        for (what, change) in cases {
+            let mut w = world();
+            let mut p = pull(90, "Closes #21, #22");
+            change(&mut p);
+            w["queue"]["data"]["repository"]["openPulls"]["nodes"] = json!([p]);
+            let (snap, _, _, _) = poll(&w, &[]);
+            assert_eq!(snap.get("pulls_name"), None, "{what} names nothing");
+            assert!(
+                Snapshot::parse(&snap).pulls_name.is_empty(),
+                "{what} holds nothing"
+            );
+        }
+    }
+
+    /// The factory's own pull request and an allowed account's, both on a
+    /// branch of the repository, name what their bodies close.
+    #[test]
+    fn the_factorys_and_an_allowed_accounts_pull_requests_name_their_issues() {
+        let mut w = world();
+        let mut bot = pull(90, "Closes #21");
+        bot["author"] = json!({"login": "app/tehas-bot"});
+        let mut person = pull(91, "Fixes #22");
+        person["headRepository"] = json!({"nameWithOwner": "Acme/Widget"});
+        w["queue"]["data"]["repository"]["openPulls"]["nodes"] = json!([bot, person]);
+        let (snap, _, _, _) = poll(&w, &[]);
+        assert_eq!(snap["pulls_name"], json!({"21": [90], "22": [91]}));
+    }
+
+    /// GitHub links a fork's pull request that closes an issue too: the linked
+    /// list keeps only the repository's own, so an outsider's holds nothing.
+    #[test]
+    fn a_linked_pull_request_not_of_the_repository_is_left_out() {
+        let mut w = world();
+        let own = json!({"url": "https://github.com/acme/widget/pull/90", "state": "OPEN",
+            "isCrossRepository": false, "author": {"login": "tehas-bot"},
+            "headRepository": {"nameWithOwner": "acme/widget"}});
+        let fork = json!({"url": "https://github.com/acme/widget/pull/91", "state": "OPEN",
+            "isCrossRepository": true, "author": {"login": "mallory"},
+            "headRepository": {"nameWithOwner": "mallory/widget"}});
+        let nodes = w["queue"]["data"]["repository"]["issues"]["nodes"]
+            .as_array_mut()
+            .unwrap();
+        nodes[0]["closedByPullRequestsReferences"]["nodes"] = json!([fork, own]);
+        nodes[1]["closedByPullRequestsReferences"]["nodes"] = json!([fork]);
+        let (snap, _, _, _) = poll(&w, &[]);
+        let parsed = Snapshot::parse(&snap);
+        assert_eq!(parsed.issues[&21].prs, Some(vec![own]));
+        assert_eq!(parsed.issues[&22].prs, Some(vec![]));
     }
 
     /// The page's own bodies are what hold an issue a pull request into another
