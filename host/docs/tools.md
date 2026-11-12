@@ -362,6 +362,27 @@ instead. So the runner needs cargo, as the gate does. Each check of the pool
 is an `xtask test-task` process that runs it under the timeout and records its
 status and time when it ends.
 
+Every task runs at the core limit of 0, which the run puts in front of the
+check with `prlimit --core=0`, so a program that crashes during a run leaves no
+core file in the checkout. The dump would land in the directory the task runs
+in, which is the checkout, and a file the kernel wrote there is a file a later
+check of the tree reads: a factory's gate failed on dozens of `core.<pid>`
+files no test had meant to write. The limit is inherited by every process a test
+file starts, which is where the crashes are. At the end of every run the
+checkout is read for the files the limit meant to prevent, and one standing
+there is a failure of the run: a host whose `prlimit` did not take effect is
+named rather than passed. `TEHAS_TEST_CORES` set to anything keeps the dumps
+instead, which is what a person sets to see what a crash really leaves; the run
+then names the files the checkout holds and fails. A dump is the name the
+kernel writes, `core` or `core.<pid>`: a file that merely shares the name is
+not one, so `core.txt` stays a file a test meant to write. What the kernel
+writes is its own file, `/proc/sys/kernel/core_pattern`, and a host that pipes
+the dump to a program or writes it under a path of its own has no dump of the
+checkout for any run to name; `TEHAS_TEST_CORE_PATTERN` stands in for that file,
+for a run that must say what another host would have done. A host with no
+`prlimit` cannot run the checks: the run says so and stops with 2, as it does
+for a missing cargo, because every task of it would end `126`.
+
 Each task is stopped after `TEHAS_TEST_FILE_TIMEOUT` seconds (300 by default)
 and counts as a failure, named with `timed out`. A file that hangs therefore
 costs the timeout and nothing more, and the run still prints its block.
