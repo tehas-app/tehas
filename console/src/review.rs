@@ -547,8 +547,19 @@ fn since(repo: &str, branch: &str, record: &str) -> Result<(String, String, Stri
             // branch.
             let mut said = String::new();
             let before = format!("--before={DAYS}.days ago");
-            let older =
-                git(repo, &["rev-list", "-1", &before, &head], &mut said).unwrap_or_default();
+            let Some(older) = git(repo, &["rev-list", "-1", &before, &head], &mut said) else {
+                warn(&format!(
+                    "git said: {}",
+                    said.replace('\n', " ")
+                        .chars()
+                        .take(200)
+                        .collect::<String>()
+                ));
+                warn(&format!(
+                    "the commit {DAYS} days back on origin/{branch} could not be read, nothing was reviewed"
+                ));
+                return Err(2);
+            };
             // A tip older than the window answers for itself: git names the
             // tip as the commit 7 days back, so nothing of the branch is new.
             // The root is only for a branch with no commit 7 days back at
