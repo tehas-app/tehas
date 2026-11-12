@@ -125,12 +125,12 @@ t_lacks "$t_out" "WARN"
 t_case "a poll that finds the lock held does not change when it was taken"
 t_eq "$(<"$taken_file")" "$stamp"
 
-t_case "a poll that finds the lock held still takes the ended cycle's request, so the path unit does not start poll after poll"
+t_case "a poll that finds the lock held leaves the ended cycle's request, so the path unit starts a poll when the running one ends"
 again=$T/home/tehas/state/dispatch.again
 : >"$again"
 t_run "$dispatch"
 t_eq "$t_rc" 0
-t_eq "$(find "$again" 2>/dev/null | wc -l)" 0
+t_eq "$(find "$again" 2>/dev/null | wc -l)" 1
 exec {lockfd}>&-
 
 t_case "a poll takes the request an ended cycle left, and a dry run leaves it"
