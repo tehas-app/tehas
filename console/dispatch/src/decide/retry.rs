@@ -538,6 +538,7 @@ impl Poll<'_> {
             if !self.unchanged_since(
                 n,
                 &at,
+                &by,
                 &format!("{by} ticked retry"),
                 "untick the box and tick it again",
             )? {
@@ -697,6 +698,7 @@ impl Poll<'_> {
                 || !self.unchanged_since(
                     n,
                     &iso(started),
+                    &by,
                     "its last cycle began",
                     "apply tehas:ready",
                 )?;
@@ -869,6 +871,7 @@ impl Poll<'_> {
         if !self.unchanged_since(
             n,
             &at,
+            &by,
             &format!("{by} approved it"),
             "a person applies tehas:ready",
         )? {

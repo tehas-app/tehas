@@ -24,7 +24,7 @@ use crate::text::body_sha256;
 use crate::Settings;
 use serde_json::Value;
 use tehas_core::call::Ran;
-use tehas_core::events::{first_unallowed_rename, label_actor, Event, Events};
+use tehas_core::events::{changed_after, first_unallowed_rename, label_actor, Event, Events};
 use tehas_core::text::disarm;
 
 /// The label of the ask.
@@ -178,13 +178,13 @@ fn grant(c: &Settings, a: &Ask) -> Result<Option<String>, String> {
     }
     let edited = s(&a.edit, "/lastEditedAt");
     let editor = s(&a.edit, "/editor/login");
-    if !edited.is_empty() && edited > since && !c.allowed(editor) {
+    if !edited.is_empty() && changed_after(edited, editor, since, by) && !c.allowed(editor) {
         return Ok(Some(format!(
             "its title or text was changed since {by} approved it"
         )));
     }
     if let Events::Read(ev) = &a.events {
-        if first_unallowed_rename(ev, since, &|w| c.allowed(w)).is_some() {
+        if first_unallowed_rename(ev, since, by, &|w| c.allowed(w)).is_some() {
             return Ok(Some(format!(
                 "its title or text was changed since {by} approved it"
             )));
