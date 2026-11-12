@@ -229,6 +229,12 @@ pub fn limit(setting: Option<&str>) -> u128 {
     setting.and_then(positive).unwrap_or(300)
 }
 
+/// TEHAS_TEST_SLOWEST when it is a number, empty or not, else 5: how many of
+/// the slowest files a run names.
+pub fn slowest_count(setting: Option<&str>) -> u128 {
+    setting.and_then(positive).unwrap_or(5)
+}
+
 /// Whether the host is busy: the load average's whole part has reached its
 /// CPUs. A load that cannot be read holds nothing back.
 pub fn busy(loadavg: Option<&str>, host_cpus: u128) -> bool {
@@ -306,13 +312,16 @@ fn value(p: &Path) -> Option<String> {
     Some(text.trim_end_matches('\n').to_string())
 }
 
-/// The lines naming the slowest files, at most five, slowest first.
-pub fn slowest(slow: &[(u128, String)]) -> Vec<String> {
+/// The lines naming the slowest files, at most `count` of them, slowest first.
+/// A count over the files names them all: the count is clamped, never narrowed.
+pub fn slowest(slow: &[(u128, String)], count: u128) -> Vec<String> {
     let mut sorted: Vec<&(u128, String)> = slow.iter().collect();
     sorted.sort_by_key(|a| std::cmp::Reverse(a.0));
     sorted
         .into_iter()
-        .take(5)
+        // Narrowing a u128 would drop its high bits: 2^64 would become 0 and
+        // name nothing, so a count too big for usize names every file.
+        .take(usize::try_from(count).unwrap_or(usize::MAX))
         .map(|(ms, name)| format!("    {:>3}.{} s  {name}", ms / 1000, ms % 1000 / 100))
         .collect()
 }
@@ -696,6 +705,7 @@ pub fn main(root: &Path, args: &[String], recorder: &Path) -> u8 {
         .filter(|l| !l.is_empty())
         .unwrap_or_else(|| "/proc/loadavg".into());
     let limit = limit(env("TEHAS_TEST_FILE_TIMEOUT").as_deref());
+    let slowest_of = slowest_count(env("TEHAS_TEST_SLOWEST").as_deref());
 
     let tmp = env("TMPDIR")
         .filter(|t| !t.is_empty())
@@ -840,7 +850,7 @@ pub fn main(root: &Path, args: &[String], recorder: &Path) -> u8 {
             tests.len()
         ));
         putln("test.sh: the slowest files:");
-        for line in slowest(&slow) {
+        for line in slowest(&slow, slowest_of) {
             putln(&line);
         }
     }
