@@ -342,6 +342,31 @@ marked_refreshing
 t_run "$dispatch"
 t_contains "$t_out" "clear pull request #50: tehas:refreshing off, no refresh on this host names it"
 
+t_case "a poll that cannot read the marked pull requests clears no mark and goes on"
+refresh_setup
+rm -f "$refresh_dir/7.json"
+refresh_record 1
+marked_refreshing
+: >"$fx/pr-fails"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_contains "$t_out" "WARN: the pull requests marked tehas:refreshing could not be read, so no pull request is cleared of tehas:refreshing this poll"
+t_eq "$(grep -c 'the pull requests marked tehas:refreshing could not be read' <<<"$t_out")" 1
+t_lacks "$(t_calls gh)" "$unmark_call"
+
+t_case "a poll that cannot read the marked pull requests still starts a ready issue"
+refresh_setup
+rm -f "$refresh_dir/7.json"
+refresh_record 1
+marked_refreshing
+queue 20
+: >"$fx/pr-fails"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_contains "$t_out" "WARN: the pull requests marked tehas:refreshing could not be read, so no pull request is cleared of tehas:refreshing this poll"
+t_eq "$(started)" "20 "
+t_lacks "$(t_calls gh)" "$unmark_call"
+
 t_case "a host that never refreshed does not ask for the mark"
 reset
 t_run "$dispatch"

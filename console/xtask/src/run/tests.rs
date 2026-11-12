@@ -141,6 +141,16 @@ fn the_pool_is_the_cpus_the_quota_and_the_memory_allow() {
 }
 
 #[test]
+fn the_slowest_count_is_the_setting_or_five() {
+    assert_eq!(slowest_count(None), 5);
+    assert_eq!(slowest_count(Some("")), 5);
+    assert_eq!(slowest_count(Some("0")), 5);
+    assert_eq!(slowest_count(Some("soon")), 5);
+    assert_eq!(slowest_count(Some("3")), 3);
+    assert_eq!(slowest_count(Some("007")), 5);
+}
+
+#[test]
 fn a_host_is_busy_once_its_load_reaches_its_cpus() {
     assert!(!busy(Some("0.00 0.00 0.00 1/100 1\n"), 8));
     assert!(!busy(Some("7.90 7.90 7.90 1/100 1\n"), 8));
@@ -202,7 +212,7 @@ fn the_slowest_five_are_named_slowest_first_ties_in_run_order() {
     .map(|(ms, n)| (*ms, n.to_string()))
     .collect();
     assert_eq!(
-        slowest(&slow),
+        slowest(&slow, 5),
         [
             "     61.2 s  d",
             "      8.4 s  b",
@@ -211,6 +221,52 @@ fn the_slowest_five_are_named_slowest_first_ties_in_run_order() {
             "      0.0 s  f",
         ]
     );
+}
+
+#[test]
+fn asked_for_seven_over_eight_entries_names_seven_slowest_first() {
+    let slow: Vec<(u128, String)> = [
+        (100, "a"),
+        (8400, "b"),
+        (100, "c"),
+        (61234, "d"),
+        (5, "e"),
+        (7, "f"),
+        (2500, "g"),
+        (0, "h"),
+    ]
+    .iter()
+    .map(|(ms, n)| (*ms, n.to_string()))
+    .collect();
+    assert_eq!(
+        slowest(&slow, 7),
+        [
+            "     61.2 s  d",
+            "      8.4 s  b",
+            "      2.5 s  g",
+            "      0.1 s  a",
+            "      0.1 s  c",
+            "      0.0 s  f",
+            "      0.0 s  e",
+        ]
+    );
+}
+
+#[test]
+fn a_count_too_big_for_usize_names_every_file() {
+    let slow: Vec<(u128, String)> = [(100, "a"), (8400, "b"), (5, "c")]
+        .iter()
+        .map(|(ms, n)| (*ms, n.to_string()))
+        .collect();
+    // 2^64 is a positive whole number, and narrows to 0 in a usize.
+    for count in ["18446744073709551616", "36893488147419103232", "1000"] {
+        let asked = positive(count).expect("a positive whole number");
+        assert_eq!(
+            slowest(&slow, asked),
+            ["      8.4 s  b", "      0.1 s  a", "      0.0 s  c"],
+            "{count} names every file"
+        );
+    }
 }
 
 #[test]
@@ -358,4 +414,116 @@ fn a_task_records_its_output_status_and_time_when_it_ends() {
     );
 
     assert_eq!(task(&[]), 64);
+}
+
+#[test]
+fn a_dump_the_kernel_keeps_in_the_working_directory_is_the_name_the_run_asks_for() {
+    // The kernel's own default, and the name a host that leaves the pattern
+    // alone has in its file: a plain name is a file of the working directory.
+    assert_eq!(
+        core_name(Some(OsStr::new("core"))).as_deref(),
+        Some(OsStr::new("core"))
+    );
+    assert_eq!(
+        core_name(Some(OsStr::new("tehas.core"))).as_deref(),
+        Some(OsStr::new("tehas.core"))
+    );
+    // An unset or empty pattern is the same default.
+    assert_eq!(core_name(None).as_deref(), Some(OsStr::new("core")));
+    assert_eq!(
+        core_name(Some(OsStr::new(""))).as_deref(),
+        Some(OsStr::new("core"))
+    );
+    // A program the kernel pipes the dump to, a path it writes under, and a
+    // template it names after the crash are none a run finds in the checkout,
+    // so such a host is asked for nothing.
+    assert_eq!(
+        core_name(Some(OsStr::new("|/usr/lib/systemd/coredump %p"))),
+        None
+    );
+    assert_eq!(core_name(Some(OsStr::new("/var/crash/core"))), None);
+    assert_eq!(core_name(Some(OsStr::new("core.%p"))), None);
+    // Bytes that are no UTF-8 text are still a name: the comparison is made on
+    // bytes, so a pattern the host cannot print still asks for its file.
+    let odd = OsStr::from_bytes(b"core\xff");
+    assert_eq!(core_name(Some(odd)).as_deref(), Some(odd));
+}
+
+#[test]
+fn the_core_files_of_a_directory_are_named_in_order_and_nothing_else_is() {
+    let d = TestDir::new("run-core-left");
+    let core = OsStr::new("core");
+    fs::write(d.join("core"), "a dump").unwrap();
+    fs::write(d.join("core.4242"), "another dump").unwrap();
+    fs::write(d.join("core.4243"), "a third").unwrap();
+    // Neither a file of another name nor a hidden one nor a directory of the
+    // right name is a core file of the run, and neither is a file that shares
+    // the name but ends in anything the kernel does not write there: only the
+    // pid of the crash follows the dot.
+    fs::write(d.join("notes.md"), "text").unwrap();
+    fs::write(d.join(".core"), "hidden").unwrap();
+    fs::write(d.join("coredump.txt"), "not a dump").unwrap();
+    fs::write(d.join("core.txt"), "text").unwrap();
+    fs::write(d.join("core.abc"), "not a pid").unwrap();
+    fs::write(d.join("core.1.txt"), "not a pid").unwrap();
+    fs::create_dir_all(d.join("core.9999")).unwrap();
+    // A name of the directory that is no UTF-8 text is found by the same byte
+    // comparison, and a byte that is no digit does not make it a pid.
+    fs::write(d.join(OsStr::from_bytes(b"core.\xff")), "no").unwrap();
+    let names = |got: Scan| -> Vec<String> {
+        match got {
+            Scan::Found(got) => got
+                .iter()
+                .map(|n| n.to_string_lossy().into_owned())
+                .collect(),
+            Scan::Unreadable(why) => panic!("the directory could not be read: {why}"),
+            Scan::None => panic!("the directory was not read at all"),
+        }
+    };
+    assert_eq!(
+        names(left(core, d.path())),
+        ["core", "core.4242", "core.4243"]
+    );
+    // The name a host with another pattern uses is asked for in that spelling.
+    fs::write(d.join("tehas.core"), "a dump").unwrap();
+    assert_eq!(
+        names(left(OsStr::new("tehas.core"), d.path())),
+        ["tehas.core"]
+    );
+    // A directory that is not there at all is nothing to ask about: the run has
+    // no tree of its own to name a file of. A directory that cannot be read is
+    // the other answer, and says why, so a run that could not look does not
+    // report that the host wrote no dump.
+    assert!(matches!(left(core, &d.join("nowhere")), Scan::None));
+    let why = unreadable(d.join("private"));
+    assert!(
+        why.contains("private"),
+        "the reason does not name the directory: {why}"
+    );
+}
+
+/// Why a directory the owner cannot read is unreadable. The mode is set and put
+/// back here, so no other case of this run finds a directory it cannot enter.
+fn unreadable(dir: PathBuf) -> String {
+    use std::os::unix::fs::PermissionsExt;
+    fs::create_dir_all(&dir).unwrap();
+    fs::set_permissions(&dir, fs::Permissions::from_mode(0o000)).unwrap();
+    let got = left(OsStr::new("core"), &dir);
+    fs::set_permissions(&dir, fs::Permissions::from_mode(0o755)).unwrap();
+    match got {
+        Scan::Unreadable(why) => why,
+        Scan::Found(found) => panic!("a directory of no mode named {} files", found.len()),
+        Scan::None => panic!("a directory of no mode was taken for no directory"),
+    }
+}
+
+#[test]
+fn the_core_files_are_kept_only_when_the_setting_names_them() {
+    // Unset and empty are the run of a host that wants no core file; any other
+    // value is the case that shows the check works on a host that leaves them,
+    // `0` included: the setting asks for the dump, it has no off spelling.
+    assert!(!cores_kept(None));
+    assert!(!cores_kept(Some("")));
+    assert!(cores_kept(Some("1")));
+    assert!(cores_kept(Some("0")));
 }

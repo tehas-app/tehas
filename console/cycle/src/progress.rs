@@ -8,12 +8,12 @@
 //! empty. reviewHeld is a stable cap-hit that ended the review on its round cap
 //! and sent the cycle on to ci, so its findings were left open.
 
-use crate::jq::J;
 use crate::runner::{self, kept, RESULT_SCHEMA};
 use serde_json::Value;
 use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::path::Path;
+use tehas_core::jq::{obj, J};
 
 fn stable(o: &Value) -> bool {
     matches!(
@@ -39,7 +39,7 @@ fn figure(x: f64) -> J {
     if x.fract() == 0.0 && x.abs() < 1e17 {
         J::int(x as i64)
     } else {
-        J::Lit(format!("{x}"))
+        J::Num(format!("{x}"))
     }
 }
 
@@ -77,7 +77,7 @@ struct Row {
 
 fn role_row(role: &str, r: [J; 5]) -> J {
     let [dispatches, turns, input, output, cache_read] = r;
-    J::obj(vec![
+    obj(vec![
         ("role", J::str(role)),
         ("dispatches", dispatches),
         ("turns", turns),
@@ -202,39 +202,39 @@ fn entry(path: &Path, issue: u64) -> Option<J> {
     if !is_number(r.get("schemaVersion"), RESULT_SCHEMA as f64) {
         return None;
     }
-    let entries: Vec<&J> = match r.get("issues")? {
+    let entries: Vec<&J> = match r.get("issues") {
         J::Arr(a) => a.iter().collect(),
         J::Obj(o) => o.iter().map(|(_, v)| v).collect(),
         _ => return None,
     };
     entries
         .into_iter()
-        .find(|e| matches!(e, J::Obj(_)) && is_number(e.get("issue"), issue as f64))
+        .find(|e| matches!(**e, J::Obj(_)) && is_number(e.get("issue"), issue as f64))
         .cloned()
 }
 
-fn is_number(v: Option<&J>, n: f64) -> bool {
-    matches!(v, Some(J::Lit(l)) if l.parse::<f64>() == Ok(n))
+fn is_number(v: &J, n: f64) -> bool {
+    matches!(v, J::Num(l) if l.parse::<f64>() == Ok(n))
 }
 
-fn plain(v: Option<&J>) -> J {
+fn plain(v: &J) -> J {
     J::Str(match v {
-        Some(J::Str(s)) => kept(s, |c| c.is_ascii_alphanumeric() || "_.:-".contains(c)),
+        J::Str(s) => kept(s, |c| c.is_ascii_alphanumeric() || "_.:-".contains(c)),
         _ => String::new(),
     })
 }
 
 /// A number of at least 0, as written; else 0.
-fn at_least_zero(v: Option<&J>) -> J {
+fn at_least_zero(v: &J) -> J {
     match v {
-        Some(J::Lit(l)) if l.parse::<f64>().is_ok_and(|x| x >= 0.0) => J::Lit(l.clone()),
+        J::Num(l) if l.parse::<f64>().is_ok_and(|x| x >= 0.0) => J::Num(l.clone()),
         _ => J::int(0),
     }
 }
 
 fn result_roles(entry: &J) -> J {
-    let by_role = match entry.get("usage").and_then(|u| u.get("byRole")) {
-        Some(J::Obj(o)) => o.as_slice(),
+    let by_role = match entry.get("usage").get("byRole") {
+        J::Obj(o) => o.as_slice(),
         _ => &[],
     };
     J::Arr(
@@ -242,7 +242,7 @@ fn result_roles(entry: &J) -> J {
             .iter()
             .filter(|(_, v)| matches!(v, J::Obj(_)))
             .map(|(k, v)| {
-                let name = match plain(Some(&J::str(k))) {
+                let name = match plain(&J::str(k)) {
                     J::Str(s) if !s.is_empty() => s,
                     _ => "driver".to_string(),
                 };
@@ -268,15 +268,17 @@ pub fn summary(ndjson: &Path, result: Option<(&Path, u64)>) -> String {
     let text = fs::read(ndjson).unwrap_or_default();
     let lines = from_lines(&String::from_utf8_lossy(&text));
     let entry = result.and_then(|(path, issue)| entry(path, issue));
+    // The failure of the entry, only when it is an object: a plain get of a
+    // missing key is null, which is not a failure.
     let failure = entry
         .as_ref()
-        .and_then(|e| e.get("failure"))
+        .map(|e| e.get("failure"))
         .filter(|f| matches!(f, J::Obj(_)));
-    let from = |w: &str| J::obj(vec![("roles", J::str(w)), ("failure", J::str(w))]);
+    let from = |w: &str| obj(vec![("roles", J::str(w)), ("failure", J::str(w))]);
     let reason = |f: Option<&J>| {
         [
-            f.and_then(|f| f.get("providerMessage")),
-            f.and_then(|f| f.get("message")),
+            f.map(|f| f.get("providerMessage")),
+            f.map(|f| f.get("message")),
         ]
         .into_iter()
         .flatten()
@@ -291,26 +293,26 @@ pub fn summary(ndjson: &Path, result: Option<(&Path, u64)>) -> String {
             result_roles(e),
             reason(failure),
             match failure {
-                Some(f) => J::obj(vec![
+                Some(f) => obj(vec![
                     ("kind", plain(f.get("kind"))),
                     ("step", plain(f.get("step"))),
                     ("role", plain(f.get("role"))),
                     ("cause", plain(f.get("cause"))),
                 ]),
-                None => J::null(),
+                None => J::Null,
             },
             "result",
         ),
-        None => (lines.roles, lines.reason, J::null(), "progress"),
+        None => (lines.roles, lines.reason, J::Null, "progress"),
     };
-    J::obj(vec![
+    obj(vec![
         ("roles", roles),
         ("reason", J::Str(why)),
         ("failure", fail),
-        ("reviewHeld", J::bool(lines.review_held)),
+        ("reviewHeld", J::Bool(lines.review_held)),
         ("from", from(word)),
     ])
-    .compact()
+    .dump()
 }
 
 /// Whether `text` is a schema 5 result with no issue entry at all, as a refusal

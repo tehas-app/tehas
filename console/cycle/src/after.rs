@@ -8,13 +8,13 @@
 
 use crate::host;
 use crate::improve::{self, Ended};
-use crate::jq::J;
 use serde_json::Value;
 use std::fs;
 use std::io::Write;
 use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use tehas_core::jq::{obj, J};
 use tehas_core::time::{iso, now};
 
 /// A call of the analytics may take this long: a stopped cycle has
@@ -102,10 +102,13 @@ fn analytics(home: &Path, args: &[&str]) {
 pub fn approval_of(answer: &Value) -> J {
     let view = answer.get("view").filter(|v| v.is_object());
     let Some(view) = view else {
-        return J::null();
+        return J::Null;
     };
-    let field = |k: &str| view.get(k).map_or(J::null(), J::from);
-    J::obj(vec![
+    let field = |k: &str| match view.get(k) {
+        Some(v) => J::from(v),
+        None => J::Null,
+    };
+    obj(vec![
         ("at", field("at")),
         ("how", field("how")),
         ("driver", field("driver")),
@@ -119,7 +122,7 @@ pub fn approved(home: &Path, issue: u64, attempt: u64) -> String {
     }
     let (n, a) = (issue.to_string(), attempt.to_string());
     match host::store(home, &["approval-view", &n, "--attempt", &a]) {
-        Ok(a) => approval_of(&a).compact(),
+        Ok(a) => approval_of(&a).dump(),
         Err(_) => "null".into(),
     }
 }
@@ -143,8 +146,8 @@ pub fn history_line(a: &After, at: &str) -> J {
     text("park_reason", &a.park_reason);
     text("failure_kind", &a.failure_kind);
     text("failure_cause", &a.failure_cause);
-    f.push(("provider".into(), J::bool(a.provider)));
-    f.push(("parked".into(), J::bool(a.parked)));
+    f.push(("provider".into(), J::Bool(a.provider)));
+    f.push(("parked".into(), J::Bool(a.parked)));
     let mut text = |k: &str, v: &str| {
         if !v.is_empty() {
             f.push((k.into(), J::str(v)));
@@ -163,19 +166,19 @@ pub fn run_facts(line: &J, attempt: Option<u64>, approved: &str, view: Option<&V
     let view = view.filter(|_| attempt.is_some());
     let settings = view.and_then(|v| v.get("view")).filter(|v| v.is_object());
     let rukas = view.and_then(|v| v.get("rukas_commit"));
-    J::obj(vec![
+    obj(vec![
         ("line", line.clone()),
-        ("attempt", attempt.map_or(J::null(), |n| J::int(n as i64))),
-        ("approval", J::parse(approved).unwrap_or(J::null())),
+        ("attempt", attempt.map_or(J::Null, |n| J::int(n as i64))),
+        ("approval", J::parse(approved).unwrap_or(J::Null)),
         (
             "settings",
             settings
                 .map(improve::ran_with)
-                .map_or(J::null(), |(c, h, n)| {
-                    J::obj(vec![("container", c), ("host", h), ("concurrentCycles", n)])
+                .map_or(J::Null, |(c, h, n)| {
+                    obj(vec![("container", c), ("host", h), ("concurrentCycles", n)])
                 }),
         ),
-        ("rukas", rukas.map_or(J::null(), J::from)),
+        ("rukas", rukas.map_or(J::Null, J::from)),
     ])
 }
 
@@ -200,7 +203,7 @@ fn analytics_run(home: &Path, a: &After) {
     }
     let real_dir = fs::symlink_metadata(&dir).is_ok_and(|m| m.is_dir());
     let file = real_dir
-        .then(|| improve::private_file(&dir, "analytics-facts.", &facts.compact()))
+        .then(|| improve::private_file(&dir, "analytics-facts.", &facts.dump()))
         .flatten();
     let Some(file) = file else {
         log("WARN analytics run: no facts written");
@@ -304,15 +307,15 @@ mod tests {
     fn the_approval_of_a_run_is_three_fields_of_the_view() {
         let a = json!({"view": {"at": "T", "by": "alice", "how": "label", "links": [], "driver": "lean"}});
         assert_eq!(
-            approval_of(&a).compact(),
+            approval_of(&a).dump(),
             r#"{"at":"T","how":"label","driver":"lean"}"#
         );
         let b = json!({"view": {"at": "T", "how": "label"}});
         assert_eq!(
-            approval_of(&b).compact(),
+            approval_of(&b).dump(),
             r#"{"at":"T","how":"label","driver":null}"#
         );
-        assert_eq!(approval_of(&json!({"view": null})), J::null());
+        assert_eq!(approval_of(&json!({"view": null})), J::Null);
     }
 
     fn ended() -> After {
@@ -333,7 +336,7 @@ mod tests {
     #[test]
     fn the_line_of_a_run_keeps_the_order_and_leaves_out_what_is_empty() {
         assert_eq!(
-            history_line(&ended(), "T").compact(),
+            history_line(&ended(), "T").dump(),
             r#"{"at":"T","started":100,"rc":2,"status":"failed","step":"develop","provider":true,"parked":false,"by":"alice"}"#
         );
     }
@@ -343,10 +346,10 @@ mod tests {
         let rec = json!({"view": {"host": {"TEHAS_X": "1"}}, "rukas_commit": "abcdef1"});
         let line = history_line(&ended(), "T");
         assert_eq!(
-            run_facts(&line, None, "null", Some(&rec)).compact(),
+            run_facts(&line, None, "null", Some(&rec)).dump(),
             format!(
                 r#"{{"line":{},"attempt":null,"approval":null,"settings":null,"rukas":null}}"#,
-                line.compact()
+                line.dump()
             )
         );
     }
@@ -355,7 +358,7 @@ mod tests {
     fn a_line_longer_than_one_argument_may_be_is_given_whole() {
         let mut a = ended();
         a.failure_cause = "x".repeat(200_000);
-        let facts = run_facts(&history_line(&a, "T"), Some(1), "null", None).compact();
+        let facts = run_facts(&history_line(&a, "T"), Some(1), "null", None).dump();
         let back: Value = serde_json::from_str(&facts).unwrap();
         assert_eq!(
             back["line"]["failure_cause"].as_str().unwrap().len(),
@@ -368,12 +371,12 @@ mod tests {
         let line = J::parse("{}").unwrap();
         let view = json!({"view": null, "rukas_commit": null});
         assert_eq!(
-            run_facts(&line, Some(2), "null", Some(&view)).compact(),
+            run_facts(&line, Some(2), "null", Some(&view)).dump(),
             r#"{"line":{},"attempt":2,"approval":null,"settings":null,"rukas":null}"#
         );
         let view = json!({"view": {"concurrentCycles": null, "container": {}, "host": {"TEHAS_X": "1"}}, "rukas_commit": "abcdef1"});
         assert_eq!(
-            run_facts(&line, Some(1), "null", Some(&view)).compact(),
+            run_facts(&line, Some(1), "null", Some(&view)).dump(),
             r#"{"line":{},"attempt":1,"approval":null,"settings":{"container":{},"host":{"TEHAS_X":"1"},"concurrentCycles":null},"rukas":"abcdef1"}"#
         );
     }

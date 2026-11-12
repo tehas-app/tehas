@@ -146,6 +146,20 @@ for want in tehas-v9.9.9/bin/tehas tehas-v9.9.9/bin/tehasbot \
   tehas-v9.9.9/libexec/setup tehas-v9.9.9/libexec/console tehas-v9.9.9/lib/config.sh \
   tehas-v9.9.9/VERSION tehas-v9.9.9/host/versions.env \
   tehas-v9.9.9/host/sandbox/build.sh tehas-v9.9.9/host/docs/tools.md \
+  tehas-v9.9.9/host/docs/tools-dispatch.md \
+  tehas-v9.9.9/host/docs/tools-work.md \
+  tehas-v9.9.9/host/docs/tools-plan.md \
+  tehas-v9.9.9/host/docs/tools-dev.md \
+  tehas-v9.9.9/host/docs/tools-setup.md \
+  tehas-v9.9.9/host/docs/tools-control.md \
+  tehas-v9.9.9/host/docs/tools-status.md \
+  tehas-v9.9.9/host/docs/tools-tehasbot.md \
+  tehas-v9.9.9/host/docs/tools-health.md \
+  tehas-v9.9.9/host/docs/tools-protolab.md \
+  tehas-v9.9.9/host/docs/tools-github.md \
+  tehas-v9.9.9/host/docs/tools-clean.md \
+  tehas-v9.9.9/host/docs/tools-update.md \
+  tehas-v9.9.9/host/docs/tools-releases.md \
   tehas-v9.9.9/host/release/minisign.pub; do
   case $list in
     *"$want"*) ;;
@@ -766,7 +780,7 @@ t_case "the names the release workflow is written against are the ones this writ
 # one. The environment prefix and the command's own name are taken off as far as
 # the first placeholder, so the test does not depend on how the manual quotes
 # either of them.
-manual=$T_ROOT/host/docs/tools.md
+manual=$T_ROOT/host/docs/tools-releases.md
 t_eq "$(grep -c 'tehas-<tag>-linux-<arch>.tar.gz' "$manual")" 1
 start=$(grep -n "^TEHAS_PACK_ROOT='<checkout>' scripts/pack-release.sh <tag>" "$manual" | cut -d: -f1)
 end=$(awk -v n="$start" 'NR > n && /^```$/ { print NR; exit }' "$manual")
