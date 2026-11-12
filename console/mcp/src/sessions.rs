@@ -856,7 +856,7 @@ pub(crate) fn issue(dirs: &Dirs, args: &Value) -> Result<Map<String, Value>, Too
     if let Some(s) = stage {
         out.insert("stage".into(), json!(s));
     }
-    put(&mut out, "title", copied(&row, "title"));
+    put(&mut out, "title", tools::title(copied(&row, "title")));
     if let Some(c) = &running_cycle {
         let mut r = Map::new();
         put(&mut r, "step", copied(c, "step"));
