@@ -99,7 +99,7 @@ const KEPT: &[&str] = &[
 /// The names an earlier version read are refused, not ignored: a line that
 /// does nothing in an instance file is a mistake the operator sees. The order
 /// picks which of two retired lines is reported.
-const RETIRED: [&str; 9] = [
+const RETIRED: [&str; 12] = [
     "TEHAS_FIXER_LOGIN",
     "TEHAS_FIXER_MAX_RETRIES",
     "TEHAS_FIXER_MAX_PLAN_ANSWERS",
@@ -109,6 +109,9 @@ const RETIRED: [&str; 9] = [
     "TEHAS_DISPATCHER",
     "TEHAS_THEME",
     "TEHAS_LAYOUT",
+    "TEHAS_LOW_GATE",
+    "TEHAS_LOW_GATE_WAIT",
+    "TEHAS_PRIORITY_FIELD",
 ];
 
 /// What the shell of the source sets for itself. BASH_ENV is not given to it:
@@ -403,6 +406,10 @@ fn retired_names(vars: &mut Vars, file: &str) -> Result<(), String> {
                 | ("TEHAS_DISPATCHER", "rust" | "")
                 | ("TEHAS_THEME", "beesknees26" | "")
                 | ("TEHAS_LAYOUT", "business" | "")
+                | (
+                    "TEHAS_LOW_GATE" | "TEHAS_LOW_GATE_WAIT" | "TEHAS_PRIORITY_FIELD",
+                    ""
+                )
         ) {
             vars.unset(name.as_bytes());
             continue;
@@ -418,6 +425,7 @@ fn retired_names(vars: &mut Vars, file: &str) -> Result<(), String> {
             }
             "TEHAS_DISPATCHER" => "is set and this version of tehas has no bash poll: every poll is tehas-dispatch, so take the line out".to_string(),
             "TEHAS_THEME" => "is no longer read: TEHAS_DESIGN draws the whole site, beesknees26 by default or pixel, so take the line out".to_string(),
+            "TEHAS_LOW_GATE" | "TEHAS_LOW_GATE_WAIT" | "TEHAS_PRIORITY_FIELD" => "is no longer read: tehas order sets the order ready issues start in, so take the line out".to_string(),
             "TEHAS_LAYOUT" => "is no longer read: the front page follows TEHAS_DESIGN, the business page for beesknees26 and the factory floor for pixel, so take the line out".to_string(),
             _ => format!(
                 "is no longer read: rename it TEHAS_MILLWRIGHT_{}",
@@ -1231,6 +1239,8 @@ mod tests {
             "TEHAS_THEME=beesknees26",
             "TEHAS_LAYOUT=",
             "TEHAS_LAYOUT=business",
+            "TEHAS_LOW_GATE=",
+            "TEHAS_PRIORITY_FIELD=",
         ] {
             let vars = loads(&[line]);
             assert!(!vars.is_set(line.split('=').next().unwrap()));
@@ -1239,6 +1249,14 @@ mod tests {
             (
                 "TEHAS_THEME=pixel",
                 "is no longer read: TEHAS_DESIGN draws the whole site, beesknees26 by default or pixel, so take the line out",
+            ),
+            (
+                "TEHAS_PRIORITY_FIELD=Priority",
+                "is no longer read: tehas order sets the order ready issues start in, so take the line out",
+            ),
+            (
+                "TEHAS_LOW_GATE=/x/gate",
+                "is no longer read: tehas order sets the order ready issues start in, so take the line out",
             ),
             (
                 "TEHAS_LAYOUT=floor",

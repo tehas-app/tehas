@@ -129,8 +129,6 @@ dispatcher. A second adapter would need them as well:
 - blockers: `tehas:blocked` and the `<!-- tehas:blocked by=... -->` comment
   marker, with the open or closed state of each issue it names (see
   [Operating](/operating));
-- priority: `tehas:urgent` and `tehas:next`, which the dispatcher reads with
-  the rest of the queue;
 - the issue's text, its comments and the edits made to them, which the
   approval of a changed text and the question flow read;
 - the pull requests of a cycle: opening, reading and refreshing them;

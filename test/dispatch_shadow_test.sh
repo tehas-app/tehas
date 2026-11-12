@@ -45,10 +45,10 @@ hold 9
 agree
 release
 
-t_case "the urgent issue first, by an allowed account's label"
+t_case "three ready issues and two slots: both start the two lowest"
 reset
 slots 2
-ready 7 8 9!
+ready 7 8 9
 agree
 
 t_case "the pause label on the control issue: both are paused"

@@ -381,7 +381,7 @@
    }
   },
   {
-   "case": "an urgent issue parked on its own body is held too",
+   "case": "an issue first in the start order, parked on its own body, is held too",
    "snapshot": {
     "ready": [
      {
@@ -395,15 +395,19 @@
        },
        {
         "name": "tehas:question"
-       },
-       {
-        "name": "tehas:urgent"
        }
       ]
      }
     ],
     "endpoint": {
      "end": "main"
+    },
+    "order": {
+     "state": "ok",
+     "issues": [
+      7
+     ],
+     "only": false
     }
    },
    "body": {
@@ -432,11 +436,6 @@
      "told": false,
      "retries": 0
     }
-   },
-   "label_events": {
-    "7": [
-     "tehas:urgent=alice"
-    ]
    },
    "expect": {
     "picked": [],

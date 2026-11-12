@@ -18,6 +18,16 @@
     "plan": true,
     "until": "2026-10-17T15:00:00Z"
   },
+  "order": {
+    "state": "ok",
+    "issues": [
+      42,
+      40
+    ],
+    "only": true,
+    "until": "2026-10-18T00:00:00Z",
+    "reason": "industry queue"
+  },
   "running": [
     {
       "issue": 12,

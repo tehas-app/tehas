@@ -19,6 +19,7 @@ remain the way to change anything.
 
 What exists today: [`tehas api`](#tehas-api),
 [`tehas status --json`](#tehas-status---json), [`tehas limit`](#tehas-limit),
+[`tehas order`](#tehas-order),
 [`tehas drain`](#tehas-drain), [`tehas freeze`](#tehas-freeze-and-tehas-thaw),
 [`tehas thaw`](#tehas-freeze-and-tehas-thaw), [`tehas history`](#tehas-history),
 [`tehas export`](#tehas-export),
@@ -69,7 +70,11 @@ listed here when a release has it.
    expiry (`--for`), and set it again before it runs out. If the program
    stops, the limit expires and the factory starts nothing, rather than
    running without a limit.
-4. Before an upgrade or a move, [`tehas drain --wait`](#tehas-drain), then
+4. Hand over the order work starts in with [`tehas order set`](#tehas-order).
+   With `--only`, an issue the program leaves out waits. The order stays on
+   disk through restarts until it is set again or cleared; give `--for` only
+   when an order should lapse if the program stops setting it.
+5. Before an upgrade or a move, [`tehas drain --wait`](#tehas-drain), then
    `tehas limit clear` once it is done.
 
 ## Creating a factory
@@ -111,7 +116,7 @@ tehas api [--json]
   "tehas": "v0.8.0",
   "commit": "cb6912a",
   "repo": "tehas-app/tehas",
-  "features": ["status", "millwright-grant", "fixer-grant", "all-hands", "limit", "drain", "history", "export", "refresh-conflicts", "analytics", "state-move", "pr-title", "mcp-dashboard-keys", "clean", "disk", "panels", "state-check", "finish", "status-versions", "store-copy", "state-load", "freeze", "host-bridge", "host-bridge-tokens", "cycle-writes"],
+  "features": ["status", "millwright-grant", "fixer-grant", "all-hands", "limit", "drain", "history", "export", "refresh-conflicts", "analytics", "state-move", "pr-title", "mcp-dashboard-keys", "clean", "disk", "panels", "state-check", "finish", "status-versions", "store-copy", "state-load", "freeze", "host-bridge", "host-bridge-tokens", "cycle-writes", "start-order"],
   "millwright": null,
   "fixer": null,
   "poll": {
@@ -136,7 +141,7 @@ tehas api [--json]
 | `tehas` | The release tag the factory was installed from: `v0.10.2` for a release install, `v0.8.0` for a checkout one. `null` when the install came from a checkout with no tag, or not from a git checkout |
 | `commit` | The commit it was installed from, seven characters; `null` for a release install, which records only the tag, and when not from a git checkout |
 | `repo` | `TEHAS_REPO`, the product repository |
-| `features` | What this release has, so a program can tell a factory that predates a feature from one where it failed. Today `status`, `millwright-grant` ([the millwright's grant](/operating#the-millwrights-grant)), `fixer-grant`, `all-hands`, `limit`, `drain`, `history` ([`tehas history`](#tehas-history)), `export` ([`tehas export`](#tehas-export)), `refresh-conflicts` (the factory refreshes its own pull requests that conflict, [refreshes](/operating#refreshes)), `analytics` ([`tehas analytics export --json`](#tehas-analytics-export)), `state-move` ([`tehas state`](#tehas-state)), `pr-title` (the factory keeps the `WIP: ` and `HALT: ` prefixes of its pull requests itself, [pull request titles](/tools-dispatch#pull-request-titles)), `mcp-dashboard-keys` (the read-only MCP server answers a key of `TEHAS_MCP_DASHBOARD_KEYS` with only the four tools that copy from `live/`, [the MCP server](/mcp-server)), `clean` ([`tehasbot clean`](#tehasbot-clean)), `disk` ([`tehas disk`](#tehas-disk)), `panels` ([`tehas panel`](#tehas-panel)), `state-check` ([`tehas state check`](#tehas-state-check)), `finish` ([the finish ask](#the-finish-ask)), `status-versions` (`versions` in [`tehas status --json`](#tehas-status---json)) `store-copy` ([`tehas state copy`](#tehas-state-copy)), `state-load` ([`tehas state load`](#tehas-state-load)), `freeze` ([`tehas freeze` and `tehas thaw`](#tehas-freeze-and-tehas-thaw)) `host-bridge` ([the host bridge](#the-host-bridge)), `host-bridge-tokens` (the dashboard draws `tokens` of [the host bridge](#the-host-bridge)) and `cycle-writes` ([`tehas disk --cycles`](#tehas-disk) names what each running cycle writes) |
+| `features` | What this release has, so a program can tell a factory that predates a feature from one where it failed. Today `status`, `millwright-grant` ([the millwright's grant](/operating#the-millwrights-grant)), `fixer-grant`, `all-hands`, `limit`, `drain`, `history` ([`tehas history`](#tehas-history)), `export` ([`tehas export`](#tehas-export)), `refresh-conflicts` (the factory refreshes its own pull requests that conflict, [refreshes](/operating#refreshes)), `analytics` ([`tehas analytics export --json`](#tehas-analytics-export)), `state-move` ([`tehas state`](#tehas-state)), `pr-title` (the factory keeps the `WIP: ` and `HALT: ` prefixes of its pull requests itself, [pull request titles](/tools-dispatch#pull-request-titles)), `mcp-dashboard-keys` (the read-only MCP server answers a key of `TEHAS_MCP_DASHBOARD_KEYS` with only the four tools that copy from `live/`, [the MCP server](/mcp-server)), `clean` ([`tehasbot clean`](#tehasbot-clean)), `disk` ([`tehas disk`](#tehas-disk)), `panels` ([`tehas panel`](#tehas-panel)), `state-check` ([`tehas state check`](#tehas-state-check)), `finish` ([the finish ask](#the-finish-ask)), `status-versions` (`versions` in [`tehas status --json`](#tehas-status---json)) `store-copy` ([`tehas state copy`](#tehas-state-copy)), `state-load` ([`tehas state load`](#tehas-state-load)), `freeze` ([`tehas freeze` and `tehas thaw`](#tehas-freeze-and-tehas-thaw)) `host-bridge` ([the host bridge](#the-host-bridge)), `host-bridge-tokens` (the dashboard draws `tokens` of [the host bridge](#the-host-bridge)) `cycle-writes` ([`tehas disk --cycles`](#tehas-disk) names what each running cycle writes) and `start-order` ([`tehas order`](#tehas-order)) |
 | `millwright` | The app's login, or `null` before it is known |
 | `fixer` | The same as `millwright`. It and the feature `fixer-grant` are the old names, kept for as long as API version 1; a program reads `millwright` and `millwright-grant` |
 | `poll` | What the polls of this factory cost, or `null` when no poll is on record or the state store cannot answer. `last` is the poll that most recently held the dispatcher's lock and `hour` is the sums of the polls that ended in the last hour; both are in the fields below, so a program that keeps a copy of them can add the cost of many hosts up. See [What a poll costs](/operating#what-a-poll-costs) for what each figure counts |
@@ -203,6 +208,7 @@ tehas status --json
 | `readOnly` | `true` on a read-only instance (`TEHAS_READ_ONLY=1`), which writes nothing to GitHub (see [read-only](/operating#read-only)). Left out on any other instance, and by a release before the setting |
 | `allHands` | `tehas:all-hands` holds on the control issue: it is on the issue and an allowed account applied it. It changes nothing in this factory. Left out when the last snapshot could not read it or is more than ten minutes old |
 | `limit` | The limit, as [`tehas limit --json`](#tehas-limit) prints it without `api` and `reason`: `{"state": "none"}` when none is set |
+| `order` | The start order, as [`tehas order --json`](#tehas-order) prints it without `api`, or `{"state": "unreadable"}` when the store did not answer. Left out by a factory that predates `start-order` |
 | `running` | The running cycles: `issue`, `since` (when it started) and `step`, and where the step is: `stepNumber` (the step the cycle is on, from 1, as the driver counts it), `stepTotal` (how many steps the cycle has), `round` (the round of a step that has run before in this cycle, from 2, or the round the driver gave), `roundLimit` (the most rounds the step may run, when the driver gives a limit) and `stepSince` (when the step started). Each is left out when not known yet. `stepNumber`, `stepTotal` and `roundLimit` are there only when the driver puts them on its `step-started` lines |
 | `planning` | The planning turns in flight: `issue`, `turn` (the session's turn that runs, from 1) and `since` (when it started; left out for a turn started before this was kept). A session whose last turn ended in error and waits for a person is not in flight and is not here; the text summary has a line for it |
 | `demand.waiting` | Open issues that would start if there were room: `tehas:ready` applied last by an account in `TEHAS_ALLOWED_LABELERS` or the millwright, with no cycle and no planning session open, and the refresh requests waiting, unless refreshes are held |
@@ -321,6 +327,47 @@ and `state`.
 
 Exit 0; 64 on a bad argument (a `--until` in the past included), which
 writes nothing; 78 without an instance.
+
+## tehas order
+
+```
+tehas order [--json]
+tehas order set --issues N[,N...] [--only] [--for SECONDS | --until TIME] [--reason TEXT] [--json]
+tehas order clear [--json]
+```
+
+```json
+{"api": 1, "state": "ok", "issues": [12, 8], "only": true, "until": "2026-10-17T15:00:20Z", "reason": "held"}
+```
+
+The order ready issues start in, kept in the state store (`state/tehas.db`),
+so it stays through a restart and moves with `tehas state pack`. With no order,
+ready issues start lowest number first. Every command prints the order as it
+then is.
+
+`api/order.schema.json` in the source says what the object holds, and
+`api/order.sample.json`, `api/order.expired.json` and `api/order.empty.json`
+are samples of it, one for each `state`. A store that cannot be read is no
+answer: the command exits 1.
+
+| Field | Meaning |
+| --- | --- |
+| `state` | `none`, `ok` or `expired` |
+| `issues` | The issues to start first, in order: distinct numbers from 1, at most 200. A number that is not a ready issue is passed over. Empty with `only`: nothing starts until the order changes |
+| `only` | `true`: a ready issue that is not in `issues` waits. Refreshes of open pull requests are not held |
+| `until` | When it expires, in the form `2026-10-17T15:00:20Z`. Left out when it lasts until cleared |
+| `reason` | One line of at most 200 characters. Left out when empty |
+
+- **An order only sorts.** An issue starts only on a `tehas:ready` or
+  `tehas:blocked` label from an allowed account, and every hold applies as
+  without an order.
+- **An expired order is no order**: ready issues start lowest number first,
+  and the poll log says so. So is one the poll cannot read from the store.
+- `set` replaces the whole order. The same arguments twice leave the file as
+  it was, so a program may set it on every poll.
+
+Exit 0; 1 the file could not be written or removed; 64 on a bad argument,
+which writes nothing; 78 without an instance.
 
 ## tehas drain
 

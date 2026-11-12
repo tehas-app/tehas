@@ -52,9 +52,6 @@ pub enum Rule {
     Count,
     CountOrAuto,
     SliceContainers,
-    /// The dispatcher waits for the gate while it holds state/dispatch.lock,
-    /// so these seconds delay every later poll too: that is the ceiling.
-    LowGateWait,
     /// Exactly one space between logins and none around them: the dispatcher
     /// matches " login " inside " list ", and a stray space would make an
     /// empty name match.
@@ -101,10 +98,6 @@ pub enum Rule {
     Follow,
     /// A check run's name goes into a URL and into the log.
     BranchCheck,
-    /// Run by the dispatcher as one word, with no shell between. Every segment
-    /// is named: //, /./ and /../ would let one file be named another way,
-    /// which is how a check on where a path sits is defeated.
-    LowGate,
     OneWord,
     /// Host names, each with `:<port>` if not 443, one space apart: the
     /// egress proxy's own list takes nothing else.
@@ -219,7 +212,6 @@ pub const TABLE: &[Setting] = &[
     always("TEHAS_SCRATCH_MAX", Rule::FreeDisk, "20g"),
     always("TEHAS_CYCLE_RESERVE", Rule::ContainerSize, "2g"),
     always("TEHAS_SLICE_CONTAINERS", Rule::SliceContainers, "4"),
-    always("TEHAS_LOW_GATE_WAIT", Rule::LowGateWait, "60"),
     always("TEHAS_CLEAN_AFTER", Rule::CleanAfter, "24"),
     always("TEHAS_WORKSPACE_KEEP_DAYS", Rule::KeepDays, "7"),
     always(
@@ -255,8 +247,6 @@ pub const TABLE: &[Setting] = &[
     given_or("TEHAS_OWNER", Rule::Person(LOGIN_OWNER), ""),
     given_or("TEHAS_RUKAS_WORKAROUNDS", Rule::Workarounds, ""),
     given_or("TEHAS_BRANCH_CHECK", Rule::BranchCheck, ""),
-    given_or("TEHAS_LOW_GATE", Rule::LowGate, ""),
-    given("TEHAS_PRIORITY_FIELD", Rule::OneWord),
     given(crate::kinds::SETTING, Rule::IssueTypes),
     given_or("TEHAS_CLEAN_DIRS", Rule::CleanDirs, CLEAN_DIRS),
     required("TEHAS_REPO", Rule::Repo),
@@ -299,7 +289,7 @@ pub fn check(name: &str, value: &str, trees: &Trees) -> Result<(), String> {
     }
 }
 
-fn verdict(rule: Rule, v: &str, trees: &Trees) -> Result<(), String> {
+fn verdict(rule: Rule, v: &str, _trees: &Trees) -> Result<(), String> {
     let refuse = |ok: bool, why: &str| if ok { Ok(()) } else { Err(why.to_string()) };
     match rule {
         Rule::Repo => refuse(is_repo(v), "expected owner/name"),
@@ -314,13 +304,6 @@ fn verdict(rule: Rule, v: &str, trees: &Trees) -> Result<(), String> {
             refuse(
                 matches!(n, Some(2..=16)),
                 "expected a whole number from 2 to 16",
-            )
-        }
-        Rule::LowGateWait => {
-            refuse(leading(v, usize::MAX), POSITIVE)?;
-            refuse(
-                v.len() <= 3 && v.parse::<u32>().is_ok_and(|n| n <= 600),
-                "expected at most 600 seconds",
             )
         }
         Rule::Logins => refuse(
@@ -413,7 +396,6 @@ fn verdict(rule: Rule, v: &str, trees: &Trees) -> Result<(), String> {
             v.split(' ').all(|w| all(w, class("._()/-"))),
             "expected the name of a check, words of letters, digits and ._()/- separated by single spaces",
         ),
-        Rule::LowGate => low_gate(v, trees),
         Rule::OneWord => refuse(
             !v.is_empty() && !v.bytes().any(is_space),
             "expected one word",
@@ -428,8 +410,6 @@ fn verdict(rule: Rule, v: &str, trees: &Trees) -> Result<(), String> {
 
 const AUTO: &str = "expected a whole number (auto is not usable yet)";
 const POSITIVE: &str = "expected a positive whole number";
-const GATE_PATH: &str =
-    "expected an absolute path of /, letters, digits and ._-, with no empty or dot segment";
 
 fn all(s: &str, ok: impl Fn(char) -> bool) -> bool {
     !s.is_empty() && s.chars().all(ok)
@@ -620,30 +600,6 @@ fn follow(v: &str) -> Result<(), String> {
     Err("expected release, release:<line>, branch:<name> or commit:<40 hex>".into())
 }
 
-fn low_gate(v: &str, trees: &Trees) -> Result<(), String> {
-    let path = v.strip_prefix('/').is_some_and(|rest| {
-        rest.split('/')
-            .all(|p| all(p, class("._-")) && p != "." && p != "..")
-    });
-    if !path {
-        return Err(GATE_PATH.to_string());
-    }
-    // The gate is run as the tehas user by every poll. A merged pull request
-    // writes the trees under the host's tehas home and the instance directory,
-    // and install.sh puts a new bin/ or libexec/ file there from the same
-    // change, so a gate named by an instance setting must be a program no pull
-    // request can put in place.
-    for base in [trees.home, trees.instance, trees.work_repo] {
-        let base = base.strip_suffix('/').unwrap_or(base);
-        if !base.is_empty() && format!("{v}/").starts_with(&format!("{base}/")) {
-            return Err(format!(
-                "expected a command outside {base}, which a merged pull request can change"
-            ));
-        }
-    }
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -697,15 +653,6 @@ mod tests {
                 bad,
                 "expected a whole number from 2 to 16",
             );
-        }
-    }
-
-    #[test]
-    fn the_wait_for_a_low_gate_is_ten_minutes_at_most() {
-        takes("TEHAS_LOW_GATE_WAIT", "600");
-        refuses("TEHAS_LOW_GATE_WAIT", "soon", POSITIVE);
-        for bad in ["601", "9999", "99999999999999999999"] {
-            refuses("TEHAS_LOW_GATE_WAIT", bad, "expected at most 600 seconds");
         }
     }
 
@@ -1129,43 +1076,6 @@ mod tests {
         for bad in ["verify&x=1", "two  spaces", " verify", "a\"b"] {
             refuses("TEHAS_BRANCH_CHECK", bad, why);
         }
-    }
-
-    #[test]
-    fn a_low_gate_is_a_named_absolute_path() {
-        takes("TEHAS_LOW_GATE", "/x/gate");
-        for bad in [
-            "gate",
-            "bin/gate",
-            "//gate",
-            "/x/gate/",
-            "/.",
-            "/..",
-            "/x/./gate",
-            "/x/../gate",
-            "/x//gate",
-            "/x/gate ",
-        ] {
-            refuses("TEHAS_LOW_GATE", bad, GATE_PATH);
-        }
-    }
-
-    #[test]
-    fn a_low_gate_sits_outside_the_trees_a_pull_request_writes() {
-        let trees = Trees {
-            home: "/h/tehas/",
-            instance: "/etc/instance",
-            work_repo: "/h/tehas/repos/w",
-        };
-        let inside = |v| check("TEHAS_LOW_GATE", v, &trees).unwrap_err();
-        let home = "expected a command outside /h/tehas, which a merged pull request can change";
-        assert_eq!(inside("/h/tehas/bin/gate"), home);
-        assert_eq!(inside("/h/tehas"), home);
-        assert_eq!(
-            inside("/etc/instance/gate"),
-            "expected a command outside /etc/instance, which a merged pull request can change"
-        );
-        assert_eq!(check("TEHAS_LOW_GATE", "/h/tehas2/gate", &trees), Ok(()));
     }
 
     #[test]

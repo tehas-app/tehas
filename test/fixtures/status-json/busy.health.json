@@ -28,6 +28,7 @@
     "demand": {"time": "2026-10-17T13:59:30Z", "waiting": 2, "oldest": "2026-10-17T12:29:40Z",
                "refreshHold": "refreshes are off on this host", "labelAlone": [12]},
     "limit": {"state": "ok", "cycles": 3, "plan": true, "until": "2026-10-17T15:00:00Z", "reason": "shared with another factory"},
+    "order": {"state": "ok", "issues": [42, 40], "only": true, "until": "2026-10-18T00:00:00Z", "reason": "industry queue"},
     "allHands": true,
     "pause": {"flag": {"at": "2026-10-17T13:00:00Z", "reason": "weekend"}, "label": false, "lifted": false},
     "platform": {"release": "v0.11.0", "newest": "v0.11.0", "behind": 0, "upstream": "releases", "fetchedAt": "2026-10-17T13:00:00Z"},

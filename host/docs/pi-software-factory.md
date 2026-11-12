@@ -72,7 +72,7 @@ short, and [Operating](/operating) covers the day-to-day.
 
 | Running Pi yourself                          | With tehas                                                                                                    |
 | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| You start a session and stay with it         | Issues wait in GitHub and are picked up as slots come free, urgent ones first                                 |
+| You start a session and stay with it         | Issues wait in GitHub and are picked up as slots come free, in the start order if one is set                 |
 | Whoever has the terminal decides what runs   | Only a label from an account on the allow list starts work                                                    |
 | The agent runs with your files and your keys | It runs in a container with memory and process limits and one bot token: no Docker socket, no SSH keys            |
 | You decide when it is done                   | The repository's own gates decide, and the cycle halts if its patch touches `.pi/`, `.github/`, `CODEOWNERS` or `agents.json`. An edit to `AGENTS.md` is not halted: it ships, and the cycle is judged against the doctrine at its base commit |

@@ -177,11 +177,11 @@ mod tests {
     #[test]
     fn the_table_of_the_repository_is_read_whole() {
         let labels = table(THE_TABLE).unwrap();
-        assert_eq!(labels.len(), 21);
+        assert_eq!(labels.len(), 19);
         assert_eq!(labels[0].name, "tehas:ready");
         assert_eq!(labels[0].color, "0e8a16");
         assert_eq!(
-            labels[6],
+            labels[5],
             Label {
                 name: "needs-human-attention",
                 color: "b60205",
@@ -191,7 +191,7 @@ mod tests {
         let mut names: Vec<&str> = labels.iter().map(|l| l.name).collect();
         names.sort_unstable();
         names.dedup();
-        assert_eq!(names.len(), 21, "a name twice");
+        assert_eq!(names.len(), 19, "a name twice");
     }
 
     #[test]

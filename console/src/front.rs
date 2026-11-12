@@ -54,7 +54,7 @@ fn script(which: &str, command: &str) -> Option<&'static str> {
 
 /// The verbs of `tehas`. work and index are tehas-cycle's, which takes their
 /// lock (src/run.rs).
-const VERBS: [&str; 25] = [
+const VERBS: [&str; 26] = [
     "work",
     "index",
     "dispatch",
@@ -65,6 +65,7 @@ const VERBS: [&str; 25] = [
     "disk",
     "state",
     "limit",
+    "order",
     "panel",
     "pause",
     "analytics",
@@ -272,6 +273,7 @@ mod tests {
         for c in [
             "state",
             "limit",
+            "order",
             "panel",
             "pause",
             "analytics",
