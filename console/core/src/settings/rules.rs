@@ -66,6 +66,9 @@ pub enum Rule {
     /// Both analytics settings end up in an HTML attribute of every page, so
     /// no quote, space or angle bracket may get through.
     ScriptAddress,
+    /// An https address of a site, path included, with no space, control
+    /// character or quote: the energy page's source link is published.
+    SiteAddress,
     SiteName,
     /// The shape tehas_core::slice reads at every start: no leading zero, at most
     /// twelve digits of bytes or nine with a unit, and a size Docker takes:
@@ -231,6 +234,7 @@ pub const TABLE: &[Setting] = &[
     given("TEHAS_BRANCH", Rule::OneWord),
     given_or("TEHAS_DOMAIN", Rule::Domain, ""),
     given("TEHAS_PROTOLAB_URL", Rule::LabAddress),
+    given("TEHAS_ENERGY_SOURCE_URL", Rule::SiteAddress),
     given(
         "TEHAS_UPDATE_FROM",
         Rule::OneOf(&["git", "release"], "expected git or release"),
@@ -335,6 +339,17 @@ fn verdict(rule: Rule, v: &str, trees: &Trees) -> Result<(), String> {
                     is_host(host) && path.chars().all(class("._/-"))
                 }),
                 "expected the https address of a script",
+            )
+        }
+        // The energy page's source link: an https host, then a path of the
+        // ordinary characters of a URL. The sampler's own https check is the
+        // second gate; this one speaks at the load, where an operator hears it.
+        Rule::SiteAddress => {
+            let rest = v.strip_prefix("https://").unwrap_or("");
+            let (host, path) = rest.split_once('/').unwrap_or((rest, ""));
+            refuse(
+                is_host(host) && path.chars().all(class("_~+?#=")),
+                "expected an https address such as https://example.com/mesh",
             )
         }
         Rule::SiteName => refuse(
@@ -767,6 +782,42 @@ mod tests {
         ] {
             refuses("TEHAS_ANALYTICS_SRC", bad, why);
         }
+    }
+
+    #[test]
+    fn the_energy_source_address_is_https_and_one_word() {
+        takes("TEHAS_ENERGY_SOURCE_URL", "https://example.com/mesh");
+        takes("TEHAS_ENERGY_SOURCE_URL", "https://example.com");
+        takes(
+            "TEHAS_ENERGY_SOURCE_URL",
+            "https://example.com:8443/a_b~c+d#top",
+        );
+        let why = "expected an https address such as https://example.com/mesh";
+        refuses("TEHAS_ENERGY_SOURCE_URL", "", why);
+        refuses("TEHAS_ENERGY_SOURCE_URL", "   ", why);
+        // A value the sampler would turn down is refused here as well: the two
+        // gates say the same thing about an address.
+        for weak in [
+            "http://LEAKMARK.example",
+            "https:/LEAKMARK",
+            "HTTPS://LEAKMARK",
+            "https://a.example/x?a=1&b=2",
+            "https://a.example/x y",
+        ] {
+            refuses("TEHAS_ENERGY_SOURCE_URL", weak, why);
+        }
+        // The value reaches an <a href> of the dashboard, so no quote, space or
+        // control character gets through.
+        refuses(
+            "TEHAS_ENERGY_SOURCE_URL",
+            "https://a.example/x\" onload=\"x",
+            why,
+        );
+        refuses(
+            "TEHAS_ENERGY_SOURCE_URL",
+            &format!("https://a.example/x{}User-Agent: x", '\r'),
+            why,
+        );
     }
 
     #[test]
