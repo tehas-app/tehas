@@ -14,6 +14,13 @@
     header @unlisted X-Robots-Tag "noindex, nofollow"
     @data path /live/* /health /healthz *.md
     header @data X-Robots-Tag "noindex"
+    # The pages, their scripts and their stylesheets go out compressed: zstd
+    # where the browser speaks it and gzip elsewhere. The files under /live/ and
+    # the two health addresses are left alone, because the dashboard's console
+    # reads them with Range requests, whose offsets count the file's own bytes,
+    # and an encoded body has none of those (host/fun/dashboard-view.js).
+    @compress not path /live/* /health /healthz
+    encode @compress zstd gzip
     # route keeps this order: the 404 has to see the path before the rewrite.
     # No page here is meant to be read as another type than the one it is sent as.
     header X-Content-Type-Options "nosniff"
@@ -74,10 +81,15 @@
         # at /dashboard.
         redir /fun /
         redir /fun/ /
+        # The pages keep their names and are revalidated every time: install.sh
+        # may have replaced them, and a page is small enough to ask about. The
+        # scripts and stylesheets it names keep their content under a hashed
+        # name, cached for ever, which is why a page is never cached.
         @business expression `path('/business') || (path('/') && "{$TEHAS_DESIGN:beesknees26}" != "pixel")`
         handle @business {
             root * /srv/fun
             rewrite * /business.html
+            header Cache-Control "no-cache"
             templates
             file_server
         }
@@ -85,6 +97,7 @@
         handle @front {
             root * /srv/fun
             rewrite * /index.html
+            header Cache-Control "no-cache"
             # A template only for the absolute address in its share tags.
             templates
             file_server
@@ -97,6 +110,13 @@
             # install.sh keeps the previous copy of a replaced file beside it.
             @backup path *.prev
             respond @backup 404
+            # install.sh gives every script and stylesheet a page names by tag
+            # a name with the first 12 hex digits of its content in it, so a
+            # name always holds the same bytes and may be cached for ever. The
+            # theme file, which a template names at the request, stays as it is
+            # and is revalidated.
+            @hashed path_regexp ^/[A-Za-z0-9_.-]+\.[0-9a-f]{12}\.(js|css)$
+            header @hashed Cache-Control "public, max-age=31536000, immutable"
             file_server
         }
         # For agents: the entry point. A template, so its links are absolute
@@ -119,6 +139,7 @@
         @source path *.md *.frag *.prev /_layout.html
         respond @source 404
         rewrite * /_layout.html
+        header Cache-Control "no-cache"
         templates
         file_server
     }
