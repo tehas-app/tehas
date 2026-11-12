@@ -421,6 +421,10 @@ FAILED: test/plan_test.sh: a case that did not pass
 The case total is the number to compare between runs: it does not go down
 unless cases were removed. The slowest files are the ones to split.
 
+Budget: 700 s for the whole gate (`scripts/verify.sh`) on the reference machine
+at the commit of #1801: `nproc` counts 48 CPUs, the cgroup's quota is 47 and its
+memory ceiling 12 GiB, so `TEHAS_TEST_JOBS` at its default runs 24 at a time.
+
 Every severity of shellcheck note fails the run: error, warning, info and style.
 The lint is called with no `-S` floor and no codes excluded, so a style note on a
 shell script is as much a failed check as an error, and a platform checkout is
