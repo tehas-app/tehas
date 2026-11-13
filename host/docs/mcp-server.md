@@ -471,8 +471,8 @@ keeps one `.1`, so these four names are the ones it rotates. A link, or anything
 that is not a plain file, is a tool error that names it.
 
 The cursor is opaque. It holds, for each log, the file it was read from, how far
-and a hash of the file's first 128 bytes up to there, and it is checked when it
-comes back: one of another shape is a tool error. A cursor names a line's start,
+and a hash of the file's first 128 bytes up to there, masked as the events are,
+and it is checked when it comes back: one of another shape is a tool error. A cursor names a line's start,
 or a place inside a line longer than a read, from where the tool reads on at the
 next line. One that names any other place in a line is taken as a file it did
 not read, so no part of a line is ever answered without the rest of it to mask.
