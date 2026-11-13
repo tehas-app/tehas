@@ -311,7 +311,7 @@ fn a_head_that_carries_the_newest_tag_is_left_as_it_is() {
 #[test]
 fn a_new_head_is_tagged_and_pushed_and_the_worktree_removed() {
     let r = Remote::new();
-    r.changelog("## Unreleased\n\n### Adopter action\n\nSet X.\n");
+    r.changelog("## Unreleased\n\n### Changes\n\n- x\n\n### Adopter action\n\nSet X.\n");
     assert_eq!(r.run(&["--dry-run"]), 0);
     assert_eq!(r.tags(), "v0.1.0");
     assert_eq!(r.run(&["--minor", "--message", "by hand"]), 0);
@@ -343,6 +343,10 @@ fn a_release_without_an_adopter_action_or_a_changelog_is_not_tagged() {
     r.changelog("## Unreleased\n\n### Changes\n\n- a\n");
     assert_eq!(r.run(&[]), 1);
     assert_eq!(r.run(&["--dry-run"]), 1);
+    // An Adopter action over no changes describes nothing.
+    r.changelog("## Unreleased\n\n### Adopter action\n\nNone.\n");
+    assert_eq!(r.run(&[]), 1);
+    assert_eq!(r.run(&["--dry-run"]), 1);
     r.changelog("## v0.1.0\n\n### Adopter action\n\nNone.\n");
     assert_eq!(r.run(&[]), 1);
     r.git(&["-C", "up", "rm", "--quiet", "CHANGELOG.md"]);
@@ -368,7 +372,7 @@ fn a_newest_tag_off_the_branch_stops_it() {
     r.git(&["-C", "up", "tag", "v0.9.0"]);
     r.git(&["-C", "up", "push", "--quiet", "origin", "v0.9.0"]);
     r.git(&["-C", "up", "checkout", "--quiet", "main"]);
-    r.changelog("## Unreleased\n\n### Adopter action\n\nNone again.\n");
+    r.changelog("## Unreleased\n\n### Changes\n\n- y\n\n### Adopter action\n\nNone again.\n");
     assert_eq!(r.run(&[]), 1);
     assert_eq!(r.tags(), "v0.1.0 v0.9.0");
 }
