@@ -27,33 +27,10 @@ use std::os::unix::fs::OpenOptionsExt as _;
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
+use tehas_core::cycle_notes;
 use tehas_core::lock::{probe, Probe};
 
 pub const USAGE: &str = include_str!("../../src/usage/stop.txt");
-
-/// The markers that say an issue's cycle runs, owes something, or is parked,
-/// after `state/cycles/<issue>`. `.nostart.new` is there because a note is
-/// written beside its name and moved into place: a stop that takes the note
-/// takes a write that never finished, as tehas-cycle work's own clear does.
-const NOTES: [&str; 17] = [
-    ".lock",
-    ".cid",
-    ".done",
-    ".stalled",
-    ".timed",
-    ".signal",
-    ".stopped",
-    ".oom",
-    ".forks",
-    ".nostart",
-    ".nostart.new",
-    ".lean-refused",
-    ".refresh-conflict",
-    ".progress.json",
-    ".result.json",
-    ".freeze",
-    ".frozen",
-];
 
 /// What the words of a run asked for.
 #[derive(Debug, PartialEq, Eq)]
@@ -244,7 +221,11 @@ impl Names {
     /// transcripts, and unless it is kept the workspace with what is beside
     /// it, named the way tehas-cycle work names them.
     fn candidates(&self, keep: bool) -> Vec<String> {
-        let mut out: Vec<String> = NOTES.iter().map(|end| self.note(end)).collect();
+        // The notes that say an issue's cycle runs, owes something, or is
+        // parked.
+        let mut out: Vec<String> = cycle_notes::stopped()
+            .map(|name| self.note(&format!(".{name}")))
+            .collect();
         out.push(format!("{}/live/console-{}.txt", self.home, self.n));
         out.push(format!(
             "{}/.pi/agent/ensemble-runs/issue-{}",
@@ -703,7 +684,7 @@ mod tests {
         let five = names("5");
         let fifty_one = names("51");
         let all = five.candidates(false);
-        assert_eq!(all.len(), NOTES.len() + 6);
+        assert_eq!(all.len(), cycle_notes::stopped().count() + 6);
         for path in &all {
             assert!(!path.contains('*'), "{path}");
             assert!(!fifty_one.candidates(false).contains(path), "{path}");
@@ -718,9 +699,27 @@ mod tests {
     }
 
     #[test]
+    fn a_stop_takes_every_note_but_the_record() {
+        let all = names("5").candidates(true);
+        for end in [
+            ".disk",
+            ".comments",
+            ".signal",
+            ".freeze",
+            ".frozen",
+            ".status.new",
+        ] {
+            assert!(
+                all.contains(&format!("/h/tehas/state/cycles/5{end}")),
+                "{end}"
+            );
+        }
+    }
+
+    #[test]
     fn a_kept_workspace_is_not_a_candidate() {
         let kept = names("5").candidates(true);
-        assert_eq!(kept.len(), NOTES.len() + 2);
+        assert_eq!(kept.len(), cycle_notes::stopped().count() + 2);
         assert!(kept.iter().all(|p| !p.contains("/work/")));
     }
 
