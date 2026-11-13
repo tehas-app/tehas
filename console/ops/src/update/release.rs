@@ -755,6 +755,12 @@ fn prune(host: &Host) {
         if !dir.is_dir() || keep.contains(&name.as_str()) || same_file(&dir, &host.current()) {
             continue;
         }
+        // VERSION goes first: a tree it is left in is taken as whole, and a
+        // removal that stops partway must not leave one that is not.
+        match fs::remove_file(dir.join("VERSION")) {
+            Err(e) if e.kind() != ErrorKind::NotFound => continue,
+            _ => {}
+        }
         if fs::remove_dir_all(&dir).is_ok() {
             say(&format!(
                 "release: removed {name}, older than the last three"
@@ -1389,6 +1395,23 @@ mod tests {
             left,
             [".unpack-abc", "v1.0.0", "v1.1.0", "v1.2.0", "v1.3.0"]
         );
+    }
+
+    #[test]
+    fn a_tree_prune_could_not_remove_whole_no_longer_says_its_version() {
+        use std::os::unix::fs::PermissionsExt;
+        let d = dir("prune-part");
+        d.file("versions/v1.0.0/VERSION", "v1.0.0");
+        d.file("versions/v1.0.0/stuck/file", "");
+        d.file("versions/v1.1.0/VERSION", "v1.1.0");
+        d.file("state/release-history", "v1.1.0\n");
+        unix_fs::symlink("versions/v1.1.0", d.0.join("current")).unwrap();
+        let stuck = d.0.join("versions/v1.0.0/stuck");
+        fs::set_permissions(&stuck, fs::Permissions::from_mode(0o500)).unwrap();
+        prune(&host(&d.0));
+        fs::set_permissions(&stuck, fs::Permissions::from_mode(0o700)).ok();
+        assert_eq!(first_line(&d.0.join("versions/v1.0.0/VERSION")), "");
+        assert_eq!(first_line(&d.0.join("versions/v1.1.0/VERSION")), "v1.1.0");
     }
 
     #[test]
