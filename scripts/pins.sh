@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Move the pinned tools of this tree to the newest release of the major
 # version each has, with what moves with each: `console pins`, built from this
-# tree's workspace (console/src/pins/mod.rs says what it reads and writes).
+# tree's workspace (console/ops/src/pins/mod.rs says what it reads and writes).
 # scripts/tag-release.sh runs `move` before it tags. Needs cargo, curl, tar,
 # and npm for the npm trees.
 #
