@@ -5,6 +5,7 @@ use super::run::{say, Preview, MAIN};
 use crate::edge;
 use serde_json::{json, Map, Value};
 use std::fs;
+use std::io::{self, Write};
 use std::path::Path;
 use tehas_core::time;
 
@@ -87,22 +88,48 @@ impl Preview {
         first_value(&self.state_file(n)).map_or(String::new(), |state| word(state.get(key)))
     }
 
-    /// Written only when it differs, so "time" is when the state began.
+    /// Written only when it differs, so "time" is when the state began. A
+    /// state that was not written says why on standard error, so the line of
+    /// the state is never printed for a state that is not on disk.
     pub(super) fn mark(&self, n: &str, sha: &str, state: &str, reason: &str) -> bool {
+        let who = if n == MAIN {
+            n.to_string()
+        } else {
+            format!("#{n}")
+        };
+        match self.write_state(n, sha, state, reason) {
+            Ok(false) => {}
+            Ok(true) if reason.is_empty() => say(format_args!("{who}: {state}")),
+            Ok(true) => say(format_args!("{who}: {state} ({reason})")),
+            Err(why) => {
+                let _ = writeln!(
+                    io::stderr(),
+                    "console preview: {who}: the state {state} was not recorded: {why}"
+                );
+                return false;
+            }
+        }
+        true
+    }
+
+    /// True when the state was written, false when it was already there, and
+    /// the cause when it could not be written.
+    fn write_state(&self, n: &str, sha: &str, state: &str, reason: &str) -> Result<bool, String> {
         if self.field(n, "sha") == sha && self.field(n, "state") == state {
-            return true;
+            return Ok(false);
         }
         let dir = self.root.join(n);
-        if fs::create_dir_all(&dir).is_err() {
-            return false;
-        }
+        fs::create_dir_all(&dir)
+            .map_err(|why| format!("cannot create {}: {why}", dir.display()))?;
         let pull = dir.join("pull.json");
         if !pull.is_file() {
-            let _ = fs::write(&pull, "{}\n");
+            fs::write(&pull, "{}\n")
+                .map_err(|why| format!("cannot write {}: {why}", pull.display()))?;
         }
-        let Some((title, url)) = first_value(&pull).as_ref().and_then(title_and_url) else {
-            return false;
-        };
+        let (title, url) = first_value(&pull)
+            .as_ref()
+            .and_then(title_and_url)
+            .ok_or_else(|| format!("{} is not an object of JSON", pull.display()))?;
         let digits = n.bytes().all(|b| b.is_ascii_digit());
         let mut row = json!({
             "number": if digits { n.parse().ok() } else { None::<u64> },
@@ -112,20 +139,10 @@ impl Preview {
         if !digits {
             row["name"] = json!(n);
         }
-        if edge::put(&self.state_file(n), &pretty(&row)).is_err() {
-            return false;
-        }
-        let who = if n == MAIN {
-            n.to_string()
-        } else {
-            format!("#{n}")
-        };
-        if reason.is_empty() {
-            say(format_args!("{who}: {state}"));
-        } else {
-            say(format_args!("{who}: {state} ({reason})"));
-        }
-        true
+        let file = self.state_file(n);
+        edge::put(&file, &pretty(&row))
+            .map_err(|why| format!("cannot write {}: {why}", file.display()))?;
+        Ok(true)
     }
 
     /// A pull request that got a new title has it in its state, whatever the
@@ -307,6 +324,41 @@ mod tests {
             preview.mark("12", "abc", "serving", ""),
             "empty is no title"
         );
+    }
+
+    #[test]
+    fn a_state_that_cannot_be_written_names_the_cause_and_is_not_recorded() {
+        let preview = scratch("mark-fails");
+        fs::write(preview.root.join("12"), "a file").unwrap();
+        let why = preview.write_state("12", "abc", "serving", "").unwrap_err();
+        assert!(why.starts_with("cannot create "), "{why}");
+        assert!(why.contains("/12: "), "{why}");
+        assert!(!preview.mark("12", "abc", "serving", ""));
+
+        fs::create_dir_all(preview.root.join("13")).unwrap();
+        for bad in ["not json", "[]"] {
+            fs::write(preview.root.join("13/pull.json"), bad).unwrap();
+            let why = preview.write_state("13", "abc", "serving", "").unwrap_err();
+            assert!(why.ends_with("pull.json is not an object of JSON"), "{why}");
+        }
+        assert!(!preview.state_file("13").exists());
+
+        fs::create_dir_all(preview.state_file("14")).unwrap();
+        let why = preview.write_state("14", "abc", "serving", "").unwrap_err();
+        assert!(why.starts_with("cannot write "), "{why}");
+        assert!(why.contains("state.json: "), "{why}");
+        assert!(!preview.mark("14", "abc", "serving", ""));
+        assert!(preview.state_file("14").is_dir());
+        assert_eq!(preview.field("14", "state"), "");
+    }
+
+    #[test]
+    fn a_recorded_state_says_it_was_written_and_then_that_it_was_there() {
+        let preview = scratch("mark-written");
+        assert_eq!(preview.write_state("12", "abc", "serving", ""), Ok(true));
+        assert_eq!(preview.write_state("12", "abc", "serving", ""), Ok(false));
+        assert!(preview.mark("12", "abc", "serving", ""));
+        assert_eq!(preview.field("12", "state"), "serving");
     }
 
     #[test]
