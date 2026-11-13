@@ -33,6 +33,13 @@ for want in 'name: tehas-edge' 'read_only: true' '- ALL' 'no-new-privileges:true
 done
 t_lacks "$(cat "$compose")" "docker.sock"
 
+t_case "the docs server is held as the router is"
+docs_compose=$T_ROOT/host/edge/docs.compose.yaml
+for want in 'read_only: true' '- /config' '- /data' '- ALL' '- NET_BIND_SERVICE' 'no-new-privileges:true'; do
+  t_contains "$(cat "$docs_compose")" "$want"
+done
+t_lacks "$(cat "$docs_compose")" "docker.sock"
+
 t_case "the router keeps its protections"
 t_contains "$(cat "$caddyfile")" 'respond @kept 404'
 t_contains "$(cat "$caddyfile")" '@odd header_regexp odd Host ^(uat|lab)-'
