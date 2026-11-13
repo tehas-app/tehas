@@ -214,10 +214,6 @@ pub struct Snapshot {
     /// park-show --automatic's parks, owed a retry after an outage.
     pub owed: Option<Result<Vec<Value>, StoreErr>>,
     pub images: Option<Images>,
-    /// With TEHAS_OVERLAP_HOLD: the files each running cycle's branches
-    /// change, by issue, None for one that could not be read. Read when a
-    /// start asks.
-    pub overlap: Option<BTreeMap<u64, Option<Vec<String>>>>,
     pub issues: BTreeMap<u64, Issue>,
     /// The open issues whose title starts with the epic marker and that do not
     /// carry `epic`, the control issue left out.
@@ -587,19 +583,6 @@ impl Snapshot {
                 commit: i.get("commit").and_then(Value::as_str).unwrap_or("").into(),
                 declares: i.get("declares").and_then(Value::as_bool) == Some(true),
                 answers: i.get("answers").and_then(Value::as_bool) == Some(true),
-            }),
-            overlap: v.get("overlap").and_then(Value::as_object).map(|m| {
-                m.iter()
-                    .filter_map(|(n, files)| {
-                        let list = files.as_array().map(|a| {
-                            a.iter()
-                                .filter_map(Value::as_str)
-                                .map(str::to_string)
-                                .collect()
-                        });
-                        Some((n.parse().ok()?, list))
-                    })
-                    .collect()
             }),
             now: v.get("now").and_then(Value::as_u64),
             hostname: v
