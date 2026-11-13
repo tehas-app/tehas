@@ -848,6 +848,7 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
     }
     killed += &comments_said(f);
     let forks = count("forks");
+    let pids = pids_limit(f.file("forks").text().unwrap_or(""));
     let (mut image_id, mut image_rukas) = (String::new(), String::new());
     match &f.record {
         Ok(rec) => (image_id, image_rukas) = record_image(rec, f.attempt),
@@ -937,7 +938,8 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
     }
     if forks != "0" {
         killed += &format!(
-            " Its container reached its limit of processes and {forks} starts of a process were refused: what the cycle ran after that may not have run."
+            " Its container reached its {} (`--pids-limit`, which follows `TEHAS_TICKET_CONCURRENCY` and `TEHAS_SLICE_CONTAINERS`) and {forks} starts of a process were refused: what the cycle ran after that may not have run.",
+            limit_of(&pids)
         );
     }
     let mut branch = result_branch;
@@ -1037,7 +1039,10 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
             format!(", step {step} in flight")
         };
         reason = runner::cut_reason(
-            &format!("its container reached its limit of processes and refused {forks} starts of a process{in_flight}{tail}"),
+            &format!(
+                "its container reached its {} (--pids-limit, which follows TEHAS_TICKET_CONCURRENCY and TEHAS_SLICE_CONTAINERS) and refused {forks} starts of a process{in_flight}{tail}",
+                limit_of(&pids)
+            ),
         );
     }
     if let Some((bad, of)) = unparsed(progress) {
@@ -1771,6 +1776,19 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
 /// that worked (`ok`) and one that did not (`stuck`).
 /// The lines of the stream the progress says could not be parsed, and of how
 /// many, when there were any.
+/// The container's pids limit, the second line of its `.forks` file.
+fn pids_limit(text: &str) -> Option<String> {
+    let n = text.split('\n').nth(1)?;
+    re(r"^[1-9][0-9]{0,8}$", n).then(|| n.to_string())
+}
+
+fn limit_of(pids: &Option<String>) -> String {
+    match pids {
+        Some(n) => format!("limit of {n} processes"),
+        None => "limit of processes".to_string(),
+    }
+}
+
 fn unparsed(progress: Option<&str>) -> Option<(u64, u64)> {
     let v: Value = serde_json::from_str(progress?.trim()).ok()?;
     let count = |k: &str| v.get("unparsed")?.get(k)?.as_u64();
@@ -2256,7 +2274,7 @@ mod tests {
             r.after
                 .ended
                 .reason
-                .contains("refused 6 starts of a process, step commit in flight"),
+                .contains("its container reached its limit of processes (--pids-limit, which follows TEHAS_TICKET_CONCURRENCY and TEHAS_SLICE_CONTAINERS) and refused 6 starts of a process, step commit in flight"),
             "{}",
             r.after.ended.reason
         );
@@ -2286,6 +2304,41 @@ mod tests {
             "{}",
             park.text
         );
+    }
+
+    #[test]
+    fn the_limit_the_container_reached_is_named_with_its_settings() {
+        let r = refused("21\n2048\n", None);
+        assert!(r.done.contains("forks_refused=21"), "{}", r.done);
+        assert!(
+            r.after.ended.reason.contains(
+                "its container reached its limit of 2048 processes (--pids-limit, which follows TEHAS_TICKET_CONCURRENCY and TEHAS_SLICE_CONTAINERS) and refused 21 starts"
+            ),
+            "{}",
+            r.after.ended.reason
+        );
+        let said = comments(&r).join("\n");
+        assert!(
+            said.contains("Its container reached its limit of 2048 processes (`--pids-limit`, which follows `TEHAS_TICKET_CONCURRENCY` and `TEHAS_SLICE_CONTAINERS`) and 21 starts of a process were refused"),
+            "{said}"
+        );
+        for bad in [
+            "21\nmax\n",
+            "21\n0\n",
+            "21\n-4\n",
+            "21\n1234567890\n",
+            "21\n4096; x\n",
+        ] {
+            let r = refused(bad, None);
+            assert!(
+                r.after
+                    .ended
+                    .reason
+                    .contains("its container reached its limit of processes ("),
+                "{bad:?}: {}",
+                r.after.ended.reason
+            );
+        }
     }
 
     #[test]

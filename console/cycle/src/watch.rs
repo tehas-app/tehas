@@ -291,6 +291,15 @@ pub fn event(text: &str, key: &str) -> Option<u32> {
     found.next_back()
 }
 
+/// The number of a cgroup's pids.max. None for `max`, no limit.
+pub fn pids_max(text: &str) -> Option<u32> {
+    let v = text.trim();
+    (!v.is_empty() && v.len() < 10 && v.bytes().all(|b| b.is_ascii_digit()))
+        .then(|| v.parse().ok())
+        .flatten()
+        .filter(|n| *n > 0)
+}
+
 /// The kills of the kernel log named for this container.
 pub fn kills_in(log: &str, id: &str) -> u32 {
     let scope = format!("task_memcg=/tehas.slice/docker-{id}.scope,");
@@ -628,6 +637,8 @@ struct Watch<'a> {
     publish_said: bool,
     ooms: u32,
     forks: u32,
+    /// The container's pids.max, when it is a number.
+    pids_max: Option<u32>,
     oom_id: String,
     /// The container is paused by a freeze, and the cycle clock read when it
     /// was paused, if it could be read.
@@ -818,6 +829,9 @@ impl Watch<'_> {
         }
         if let Some(n) = event(&read("pids.events"), "max") {
             self.forks = n;
+        }
+        if let Some(n) = pids_max(&read("pids.max")) {
+            self.pids_max = Some(n);
         }
     }
 
@@ -1014,6 +1028,7 @@ pub fn run(home: &Path, g: &Given, stop: Arc<AtomicBool>) -> i32 {
         publish_said: false,
         ooms: 0,
         forks: 0,
+        pids_max: None,
         oom_id: String::new(),
         paused: false,
         frozen_at: None,
@@ -1246,7 +1261,9 @@ pub fn run(home: &Path, g: &Given, stop: Arc<AtomicBool>) -> i32 {
             "tehas work: this cycle's container reached its limit of processes, {} starts were refused",
             w.forks
         ));
-        w.write_or_say(&w.files.forks, &format!("{}\n", w.forks));
+        // The limit on a second line, so the report can name it.
+        let max = w.pids_max.map(|m| format!("{m}\n")).unwrap_or_default();
+        w.write_or_say(&w.files.forks, &format!("{}\n{max}", w.forks));
     }
     // Let the console catch the last transcript lines.
     std::thread::sleep(settle);
@@ -1960,6 +1977,14 @@ mod tests {
     }
 
     #[test]
+    fn a_pids_limit_is_a_number_and_max_is_none() {
+        assert_eq!(pids_max("4096\n"), Some(4096));
+        for none in ["max\n", "", "0\n", "-1", "40 96", "1234567890"] {
+            assert_eq!(pids_max(none), None, "{none:?}");
+        }
+    }
+
+    #[test]
     fn the_cgroup_of_a_container_is_read_from_its_cid() {
         let d = dir("cgroup");
         let id = "a".repeat(64);
@@ -2039,6 +2064,7 @@ mod tests {
             publish_said: false,
             ooms: 0,
             forks: 0,
+            pids_max: None,
             oom_id: String::new(),
             paused: false,
             frozen_at: None,
