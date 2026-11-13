@@ -376,9 +376,11 @@ fn auth_from(key: &str, value: impl Fn(&str) -> String) -> String {
         return String::new();
     }
     let v = value(name);
-    if v.is_empty() {
+    // A line end would start a line of curl's config of its own.
+    if v.is_empty() || v.chars().any(char::is_control) {
         String::new()
     } else {
+        let v = v.replace('\\', "\\\\").replace('"', "\\\"");
         format!("header = \"Authorization: Bearer {v}\"\n")
     }
 }
@@ -633,5 +635,15 @@ mod tests {
     fn a_word_or_an_unset_variable_sends_nothing() {
         assert_eq!(auth_from("unused", |_| "s3cret".into()), "");
         assert_eq!(auth_from("$TEHAS_MODEL_KEY_MAIN", |_| String::new()), "");
+    }
+
+    #[test]
+    fn a_key_stays_inside_its_quoted_header() {
+        assert_eq!(
+            auth_from("$K", |_| r#"a"b\c"#.into()),
+            "header = \"Authorization: Bearer a\\\"b\\\\c\"\n"
+        );
+        assert_eq!(auth_from("$K", |_| "a\"\nurl = \"x".into()), "");
+        assert_eq!(auth_from("$K", |_| "a\rb".into()), "");
     }
 }

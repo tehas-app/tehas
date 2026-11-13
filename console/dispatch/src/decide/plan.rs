@@ -42,6 +42,11 @@ use crate::settings::Settings;
 use crate::text;
 use serde_json::{json, Value};
 
+/// The largest issue number and the latest cycle start (epoch seconds) a
+/// park owed a refine is read with.
+const ISSUE_MAX: u64 = 9_999_999_999;
+const TIME_MAX: u64 = 99_999_999_999;
+
 fn digits(v: &Value) -> Option<String> {
     let s = match v {
         Value::Number(n) => n.to_string(),
@@ -594,15 +599,24 @@ impl Poll<'_> {
             Some(Ok(o)) => o,
         };
         for p in owed {
-            let (Some(n), Some(started)) = (
-                p.get("issue").and_then(Value::as_u64),
-                p.get("started_at").and_then(Value::as_u64),
-            ) else {
+            // A row the store gave of a shape it never writes is said, every
+            // poll: one with no issue number cannot be spent, and the rest of
+            // the list still runs.
+            let Some(n) = p
+                .get("issue")
+                .and_then(Value::as_u64)
+                .filter(|n| (1..=ISSUE_MAX).contains(n))
+            else {
+                self.log(format!(
+                    "WARN: a park owed a refine names no issue tehas can read (issue={})",
+                    p.get("issue").unwrap_or(&Value::Null)
+                ));
                 continue;
             };
-            if n == 0 || n > 9_999_999_999 || started > 99_999_999_999 {
-                continue;
-            }
+            let started = p
+                .get("started_at")
+                .and_then(Value::as_u64)
+                .filter(|t| *t <= TIME_MAX);
             let field = |k: &str| match p.get(k) {
                 None | Some(Value::Null) | Some(Value::Bool(false)) => "-".to_string(),
                 Some(Value::String(s)) => s.clone(),
@@ -638,6 +652,17 @@ impl Poll<'_> {
                 ));
                 continue;
             }
+            let Some(started) = started else {
+                // Spent like any other refusal, or it is owed every poll.
+                self.log(format!(
+                    "skip #{n}: not refined: its park record has no time its cycle began (started_at={})",
+                    p.get("started_at").unwrap_or(&Value::Null)
+                ));
+                if !self.dry {
+                    self.act(json!({"park_retry": n, "how": "skipped"}));
+                }
+                continue;
+            };
             let mut why = String::new();
             if self.control_ask(
                 n,

@@ -239,10 +239,12 @@ t_eq "$(find "$T/home/tehas/work" 2>/dev/null | wc -l)" 0
 
 t_case "the indexing container gets no network, no token and no option beyond these"
 t_eq "$(after --network)" none
+t_eq "$(after --cap-drop)" ALL
+t_eq "$(after --security-opt)" "no-new-privileges:true"
 t_eq "$(after --user)" "$(id -u):$(id -g)"
 # An init collects what git and the indexer leave behind, as in a cycle.
 t_eq "$(run_args | grep -c -x -e --init)" 1
-t_eq "$(run_args | unknown_options "$image" "--name --network $limits --user -e -w -v --entrypoint" "--rm --init")" ""
+t_eq "$(run_args | unknown_options "$image" "--name --network --cap-drop --security-opt $limits --user -e -w -v --entrypoint" "--rm --init")" ""
 args=$(cat "$T"/calls/docker.args.*)
 t_lacks "$args" "test-token"
 t_lacks "$args" "GH_TOKEN"
@@ -272,7 +274,7 @@ t_eq "$(after --cpu-shares)" "1024"
 t_eq "$(after --network)" none
 t_eq "$(after --cpus)" "15.00"
 t_lacks "$(run_args)" "--cidfile"
-t_eq "$(run_args | unknown_options "$image" "--name --network $limits --user -e -w -v --entrypoint" "--rm --init")" ""
+t_eq "$(run_args | unknown_options "$image" "--name --network --cap-drop --security-opt $limits --user -e -w -v --entrypoint" "--rm --init")" ""
 t_instance "${T_MINIMAL[@]}"
 
 t_case "the slice is read once: one systemctl call, one docker info"

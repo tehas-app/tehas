@@ -587,19 +587,7 @@ fn clear_workspace(workdir: &str) {
 /// left as it starts (src/supervise.rs), which is the one point reached
 /// however the cycle before it ended.
 fn clear_notes(home: &Path, issue: u64) {
-    for name in [
-        "oom",
-        "forks",
-        "stalled",
-        "timed",
-        "signal",
-        "disk",
-        "stopped",
-        "nostart",
-        "done",
-        "runner_exit",
-        "status",
-    ] {
+    for name in tehas_core::cycle_notes::ENDED {
         let _ = fs::remove_file(home.join(format!("state/cycles/{issue}.{name}")));
     }
 }

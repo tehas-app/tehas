@@ -144,6 +144,8 @@ created, an edit only on an issue the cycle created during that cycle, and a
 cycle has at most 50 such writes. Labels, assignees, milestones, projects,
 state changes, another repository and any text with `<!-- tehas:` in it are
 refused with the reason (see [the relay](/github-app#the-relay-is-a-security-channel)).
+What it posts is masked as the console masks a log, and its `@` mentions
+notify nobody.
 
 A planning turn's and a manual session's container is given
 `~/tehas/state/github-session` read-only at `/run/tehas/github`, never the key

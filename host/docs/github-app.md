@@ -310,6 +310,11 @@ runs it. It refuses, with the reason written back to the cycle:
   `<!-- tehas:`, in any letter case and with any white space after `<!--`;
 - the 51st write of a cycle.
 
+A title and a body that pass are posted masked as the console masks a log:
+tokens, keys, passwords, private addresses and the host's names are taken
+out. Every `@` mention gets a zero-width space after the `@`, so a cycle's
+text notifies nobody.
+
 The host also takes the marker apart where it quotes an agent's text itself, in
 its own comments and in the plan, so a marker an agent wrote cannot come back
 as the factory's.

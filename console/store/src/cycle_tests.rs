@@ -406,7 +406,7 @@ fn cycle_image_records_the_image_when_settings_are_refused() {
 }
 
 #[test]
-fn cycle_image_refuses_each_of_the_six_secret_shapes() {
+fn cycle_image_refuses_each_of_the_secret_shapes() {
     let home = home("image-secret");
     let (_lock, a) = start(&home, 32);
     let shapes = [
@@ -416,6 +416,7 @@ fn cycle_image_refuses_each_of_the_six_secret_shapes() {
         format!("xoxb-{}", "1".repeat(10)),
         format!("AKIA{}", "ABCDEFGH12345678"),
         "-----BEGIN RSA PRIVATE KEY-----".to_string(),
+        "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJl".to_string(),
     ];
     for shape in &shapes {
         assert!(secret(shape.as_bytes()), "{shape}");
@@ -437,7 +438,7 @@ fn cycle_image_refuses_each_of_the_six_secret_shapes() {
         "secret"
     );
     for near in [
-        format!("ghp_{}", "A".repeat(35)),
+        format!("ghp_{}", "A".repeat(15)),
         format!("xsk-{}", "a".repeat(20)),
         format!("AKIA{}", "abcdefgh12345678"),
         "-----BEGIN PUBLIC KEY-----".to_string(),
