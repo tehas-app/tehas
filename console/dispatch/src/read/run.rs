@@ -206,7 +206,12 @@ fn answered(ran: &Ran) -> bool {
 pub(crate) type GhRun = fn(&str, &[String], Duration, &[(&str, &str)]) -> Ran;
 
 /// The gh process of every `Calls` but a case's.
-pub(crate) fn gh_process(gh: &str, args: &[String], bound: Duration, extra: &[(&str, &str)]) -> Ran {
+pub(crate) fn gh_process(
+    gh: &str,
+    args: &[String],
+    bound: Duration,
+    extra: &[(&str, &str)],
+) -> Ran {
     run_input_env(gh, args, None, bound, extra)
 }
 
@@ -1498,7 +1503,14 @@ printf '[{{"number":1}}]\n'
             [Err(f)] => panic!("the retry's answer, not {}", f.line),
             other => panic!("one read, not {}", other.len()),
         }
-        assert_eq!(UNREAD_ONCE.load(Ordering::SeqCst), 2, "the chunk's read and one more");
-        assert!(calls.retry.taken().is_empty(), "a cleared read leaves no line");
+        assert_eq!(
+            UNREAD_ONCE.load(Ordering::SeqCst),
+            2,
+            "the chunk's read and one more"
+        );
+        assert!(
+            calls.retry.taken().is_empty(),
+            "a cleared read leaves no line"
+        );
     }
 }
