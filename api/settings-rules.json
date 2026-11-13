@@ -294,29 +294,11 @@
       "reason": "expected 0 or 1"
     },
     {
-      "name": "TEHAS_REFRESH_CONFLICTS",
-      "rule": "one-of",
-      "when": "always",
-      "default": "0",
-      "words": [
-        "0",
-        "1"
-      ],
-      "reason": "expected 0 or 1"
-    },
-    {
       "name": "TEHAS_REFRESH_MAX",
       "rule": "count",
       "when": "always",
       "default": "2",
       "reason": "expected a positive whole number"
-    },
-    {
-      "name": "TEHAS_REFRESH_EVERY",
-      "rule": "refresh-every",
-      "when": "always",
-      "default": "10",
-      "reason": "expected a whole number of minutes from 1 to 1440"
     },
     {
       "name": "TEHAS_REFRESH_SLOTS",

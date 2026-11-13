@@ -243,8 +243,6 @@ pub struct Load {
     pub containers: String,
     /// TEHAS_TICKET_CONCURRENCY.
     pub cycles: String,
-    /// TEHAS_REFRESH_CONFLICTS.
-    pub conflicts: String,
     /// TEHAS_REFRESH_SLOTS.
     pub slots: String,
 }
@@ -257,7 +255,6 @@ impl Load {
             reserve: var("TEHAS_CYCLE_RESERVE"),
             containers: var_or("TEHAS_SLICE_CONTAINERS", "4"),
             cycles: var("TEHAS_TICKET_CONCURRENCY"),
-            conflicts: var("TEHAS_REFRESH_CONFLICTS"),
             slots: var("TEHAS_REFRESH_SLOTS"),
         }
     }
@@ -412,12 +409,10 @@ fn spare(cpus: u64) -> u64 {
 
 // One cycle's share of `spare` CPUs in hundredths, never below one CPU: what it
 // gets when every cycle side by side is busy. The cycles are counted at most
-// TEHAS_SLICE_CONTAINERS, with the refresh lane when it takes conflicts.
+// TEHAS_SLICE_CONTAINERS, with the refresh lane.
 fn share(spare: u64, load: &Load) -> Option<u64> {
-    let mut cycles = num(&load.cycles).filter(|n| *n > 0)?;
-    if load.conflicts == "1" {
-        cycles += num(&load.slots).unwrap_or(0);
-    }
+    let cycles = num(&load.cycles).filter(|n| *n > 0)?;
+    let cycles = cycles + num(&load.slots).unwrap_or(0);
     let cycles = cycles.min(num(&load.containers).filter(|n| *n > 0)?);
     Some((spare * 100 / cycles).max(100))
 }
@@ -888,29 +883,27 @@ mod tests {
     }
 
     // From test/slice_test.sh: the cycles side by side are counted at most
-    // TEHAS_SLICE_CONTAINERS, with the refresh lane when it takes conflicts.
+    // TEHAS_SLICE_CONTAINERS, with the refresh lane.
     #[test]
     fn the_pids_limit_follows_the_share_with_the_refresh_lane() {
-        for (host, cycles, lane, on, n, quota, pids) in [
-            (8, 2, 1, "1", 4, "7.00", 3072),
-            (8, 2, 0, "1", 4, "7.00", 4096),
-            (8, 2, 1, "0", 4, "7.00", 4096),
-            (8, 4, 1, "1", 4, "7.00", 2048),
-            (8, 3, 2, "1", 4, "7.00", 2048),
-            (16, 5, 1, "1", 4, "15.00", 4096),
-            (16, 5, 1, "1", 6, "15.00", 3072),
+        for (host, cycles, lane, n, quota, pids) in [
+            (8, 2, 1, 4, "7.00", 3072),
+            (8, 2, 0, 4, "7.00", 4096),
+            (8, 4, 1, 4, "7.00", 2048),
+            (8, 3, 2, 4, "7.00", 2048),
+            (16, 5, 1, 4, "15.00", 4096),
+            (16, 5, 1, 6, "15.00", 3072),
         ] {
             let l = Load {
                 reserve: "2g".into(),
                 containers: n.to_string(),
                 cycles: cycles.to_string(),
-                conflicts: on.into(),
                 slots: lane.to_string(),
             };
             assert_eq!(
                 cpus(host, &l),
                 Some((quota.to_string(), pids)),
-                "{host} {cycles} {lane} {on} {n}"
+                "{host} {cycles} {lane} {n}"
             );
         }
     }
@@ -955,10 +948,9 @@ mod tests {
     }
 
     #[test]
-    fn the_refresh_lane_counts_only_with_refreshes_on_and_a_number() {
+    fn the_refresh_lane_counts_only_with_a_number() {
         let mut l = load(2);
         assert_eq!(share(8, &l), Some(400));
-        l.conflicts = "1".into();
         l.slots = "1".into();
         assert_eq!(share(8, &l), Some(266));
         l.slots = "many".into();

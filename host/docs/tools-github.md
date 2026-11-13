@@ -8,31 +8,20 @@ description: "Asking for refreshes, the App's tokens, and the writes of the last
 ## tehasbot refresh
 
 ```
-tehasbot refresh            # one run; one line in ~/tehas/logs/refresh.log
 tehasbot refresh --pr 50    # ask for the refresh of pull request #50 now
-systemctl --user enable --now tehas-refresh.timer
 tail ~/tehas/logs/refresh.log
 ```
 
-Finds the factory's own pull requests that conflict with the branch and
-writes a request for each, `~/tehas/state/refresh/<issue>.json`, for the
-dispatcher to start (see [refreshes](/operating#refreshes)). The poll reads a
-request of up to 4096 bytes; a larger file is not read, counts as an unreadable
-request, and the poll's log names it with a `WARN:` line. Deterministic, no
-model, no container. `tehas-refresh.timer` starts it every minute, the first
-time 15 minutes after boot, and a run goes ahead only when the last one began
-`TEHAS_REFRESH_EVERY` minutes ago or more (`~/tehas/state/refresh/last-run`,
-written as a run begins, so a failed run counts too). With
-`TEHAS_REFRESH_CONFLICTS` other than 1, or inside the interval, it exits 0 at
-once and calls nothing. Exit 1 when a call to GitHub fails or takes more
-than 30 seconds: no request is written or removed, and the dispatcher checks the old ones again
-before it starts any.
+Asks for the refresh of one of the factory's own pull requests that conflicts
+with the branch: it writes a request, `~/tehas/state/refresh/<issue>.json`, for
+the dispatcher to start (see [refreshes](/operating#refreshes)). Nothing runs it
+on a timer: what schedules the factory's refreshes runs it for each pull
+request. The poll reads a request of up to 4096 bytes; a larger file is not
+read, counts as an unreadable request, and the poll's log names it with a
+`WARN:` line. Deterministic, no model, no container.
 
-`tehasbot refresh --pr N` asks for one pull request now, for an operator or a
-script that runs the factory while the timed run is off or not due. It reads
-that pull request whatever `TEHAS_REFRESH_CONFLICTS` and `TEHAS_REFRESH_EVERY`
-say and applies the same rule. A `CONFLICTING` or `UNKNOWN` one gets its
-request, with a last field `"asked": "pr"`:
+It reads pull request N now and applies the refresh rule. A `CONFLICTING` or
+`UNKNOWN` one gets its request, with a last field `"asked": "pr"`:
 
 ```
 {
@@ -44,16 +33,15 @@ request, with a last field `"asked": "pr"`:
 }
 ```
 
-A request for the same pull request at the same head keeps its `at`. It does
-not read or write `last-run` and removes no other request. Its line in
-`~/tehas/logs/refresh.log` is `asked for pull request #50: wrote the request of
-#7` or `asked for pull request #50: not refreshed: <why>`. Exit 0 the request
-is written; 3 it is not a pull request the factory refreshes, or it does not
-conflict, with the reason on standard error and nothing written; 1 the read
-of GitHub failed or named no pull request, nothing written; 64 N is not a whole
-number above 0; 78 a setting is missing or malformed. The timed run that
-follows rewrites the request in its own layout, or removes it when the pull
-request no longer conflicts.
+A request for the same pull request at the same head keeps its `at`. It
+removes no other request. Its line in `~/tehas/logs/refresh.log` is
+`asked for pull request #50: wrote the request of #7` or `asked for pull
+request #50: not refreshed: <why>`. Exit 0 the request is written; 3 it is not
+a pull request the factory refreshes, or it does not conflict, with the reason
+on standard error and nothing written; 1 the read of GitHub failed or took
+more than 20 seconds, or named no pull request, nothing written; 64 no `--pr`,
+or N is not a whole number above 0, before any setting is read; 78 a setting
+is missing or malformed.
 
 ## tehasbot github-token
 

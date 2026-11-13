@@ -629,7 +629,7 @@ refresh_request() {
 
 t_case "a refresh of a wide issue starts: the hold is never asked of one"
 wide_issue 6
-slots 1 TEHAS_SIZE_MAX_FILES=3 TEHAS_REFRESH_CONFLICTS=1
+slots 1 TEHAS_SIZE_MAX_FILES=3
 echo '[]' >"$fx/ready.json"
 echo '[]' >"$fx/events-7.json"
 echo '[{"number":7}]' >"$fx/awaiting.json"

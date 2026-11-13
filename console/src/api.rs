@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 
 /// What this release can do. A feature is added here in the release that
 /// brings it, and taken out only with the feature itself.
-const FEATURES: [&str; 30] = [
+const FEATURES: [&str; 29] = [
     "status",
     "millwright-grant",
     "fixer-grant",
@@ -20,7 +20,6 @@ const FEATURES: [&str; 30] = [
     "drain",
     "history",
     "export",
-    "refresh-conflicts",
     "analytics",
     "state-move",
     "mcp-dashboard-keys",

@@ -43,10 +43,10 @@ Rules, in order:
      with no cycle behind it is cleared. The poll ends after that, before
      rule 4.
   2. At most TEHAS_TICKET_CONCURRENCY cycles run at once. With
-     TEHAS_REFRESH_CONFLICTS=1 and TEHAS_REFRESH_SLOTS above 0, refreshes run
-     in a lane of their own: at most TEHAS_REFRESH_SLOTS of them, not
-     counted against TEHAS_TICKET_CONCURRENCY, and new cycles leave as many
-     containers of the slice's room as the lane has free. A running cycle is
+     TEHAS_REFRESH_SLOTS above 0, while a refresh request waits or a refresh
+     runs, refreshes run in a lane of their own: at most TEHAS_REFRESH_SLOTS
+     of them, not counted against TEHAS_TICKET_CONCURRENCY, and new cycles
+     leave as many containers of the slice's room as the lane has free. A running cycle is
      a refresh when the state store says it started as one.
      An open issue marked tehas:running whose cycle holds no lock on this
      host is handed to a human, once a fresh read shows it still marked.
@@ -99,12 +99,12 @@ Rules, in order:
      later polls only log. A body that changed, a tick of "Retry from a clean
      start", the retry rule 4a makes and a park of a run by hand all start as
      they did.
-  4b. A refresh request, state/refresh/<issue>.json from tehasbot refresh,
-     starts a cycle that merges the branch into the bot's pull request of
-     that issue and pushes to the same branch, on the word of the person
-     whose approval the pull request's cycle rests on. Only with
-     TEHAS_REFRESH_CONFLICTS=1 and a sandbox image whose pi-rukas takes
-     --continue-pr; otherwise it starts nothing, said once. Read again at the
+  4b. A refresh request, state/refresh/<issue>.json from
+     tehasbot refresh --pr N, starts a cycle that merges the branch into the
+     bot's pull request of that issue and pushes to the same branch, on the
+     word of the person whose approval the pull request's cycle rests on.
+     Only with a sandbox image whose pi-rukas takes --continue-pr; otherwise
+     it starts nothing, said once. Read again at the
      start: the issue is open, carries tehas:awaiting-merge or
      needs-human-attention (a handoff, and then not tehas:ready) and none of
      tehas:running, either escalation label, tehas:plan, and
@@ -242,7 +242,6 @@ Instance settings (lib/config.sh; defaults in brackets):
                             approval [2]
   TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS
                             the millwright's answers in one planning session [3]
-  TEHAS_REFRESH_CONFLICTS   1 lets refresh requests start cycles [0]
   TEHAS_BRANCH_CHECK        the check whose failure on the branch's head
                             commit holds new cycles back, none when unset
   TEHAS_REFRESH_MAX         refreshes of one pull request since the

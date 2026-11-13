@@ -83,7 +83,6 @@ pub enum Rule {
     FreeDisk,
     Workarounds,
     RefreshSlots,
-    RefreshEvery,
     /// Hours: docker's `until` and find's `-newermt`.
     CleanAfter,
     /// Days a kept workspace of an open issue waits before the sweep.
@@ -134,7 +133,6 @@ impl Rule {
             Rule::FreeDisk => "free-disk",
             Rule::Workarounds => "workarounds",
             Rule::RefreshSlots => "refresh-slots",
-            Rule::RefreshEvery => "refresh-every",
             Rule::CleanAfter => "clean-after",
             Rule::KeepDays => "keep-days",
             Rule::PollBudget => "poll-budget",
@@ -174,7 +172,6 @@ impl Rule {
             Rule::FreeDisk => "0",
             Rule::Workarounds => "PI_ENSEMBLE_X",
             Rule::RefreshSlots => "9",
-            Rule::RefreshEvery => "0",
             Rule::CleanAfter => "123456",
             Rule::KeepDays => "0",
             Rule::PollBudget => "wall=1,cpu=1",
@@ -281,9 +278,7 @@ pub const TABLE: &[Setting] = &[
     always("TEHAS_MILLWRIGHT_FEED", SWITCH, "0"),
     always("TEHAS_MILLWRIGHT_MAX_FEEDS", Rule::Count, "2"),
     always("TEHAS_MILLWRIGHT_EPICS", SWITCH, "0"),
-    always("TEHAS_REFRESH_CONFLICTS", SWITCH, "0"),
     always("TEHAS_REFRESH_MAX", Rule::Count, "2"),
-    always("TEHAS_REFRESH_EVERY", Rule::RefreshEvery, "10"),
     always("TEHAS_REFRESH_SLOTS", Rule::RefreshSlots, "1"),
     always("TEHAS_PREVIEWS", SWITCH, "0"),
     always("TEHAS_EGRESS", SWITCH, "0"),
@@ -458,10 +453,6 @@ fn verdict(rule: Rule, v: &str, _trees: &Trees) -> Result<(), String> {
         Rule::RefreshSlots => refuse(
             matches!(v.as_bytes(), [b'0'..=b'8']),
             "expected a whole number from 0 to 8",
-        ),
-        Rule::RefreshEvery => refuse(
-            leading(v, 4) && v.parse::<u32>().is_ok_and(|n| n <= 1440),
-            "expected a whole number of minutes from 1 to 1440",
         ),
         Rule::CleanAfter => refuse(
             leading(v, 5),
@@ -1040,15 +1031,6 @@ mod tests {
                 bad,
                 "expected a whole number from 0 to 8",
             );
-        }
-    }
-
-    #[test]
-    fn the_refresh_minutes_are_a_day_at_most() {
-        takes("TEHAS_REFRESH_EVERY", "1440");
-        let why = "expected a whole number of minutes from 1 to 1440";
-        for bad in ["0", "1441", "010", "10m", "99999"] {
-            refuses("TEHAS_REFRESH_EVERY", bad, why);
         }
     }
 

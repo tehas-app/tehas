@@ -18,7 +18,7 @@
 //! (AGENTS.md, rule 2). A command's own rule sits between 2 and 4:
 //!
 //!   improve   exit 0 before step 3 when TEHAS_IMPROVE_REPO is unset, the loop is off
-//!   refresh   exit 0 before step 3 unless TEHAS_REFRESH_CONFLICTS is 1, but for --pr N
+//!   refresh   exit 64 before step 2 unless the arguments are --pr N
 //!   review    exit 0 after step 3 unless TEHAS_REVIEW is 1
 //!   preview   exit 78 after step 3 unless TEHAS_PREVIEWS is 1
 //!
@@ -239,9 +239,8 @@ fn init_product(rest: &[String]) -> Result<u8, u8> {
 }
 
 /// `tehasbot refresh --pr N`, N a whole number above 0: the one form of
-/// refresh with arguments that runs under the settings, whatever
-/// TEHAS_REFRESH_CONFLICTS says. tehas-dispatch's `refresh::asked_pr` decides
-/// the same, and a test holds the two together.
+/// refresh that runs under the settings. tehas-dispatch's `refresh::asked_pr`
+/// decides the same, and a test holds the two together.
 fn asks_one(rest: &[String]) -> bool {
     match rest {
         [flag, n] => {
@@ -261,7 +260,7 @@ fn command(libexec: &str, uid: &str, bash: &str, words: &[String]) -> Result<u8,
     let name: Vec<&str> = words.iter().take(2).map(String::as_str).collect();
     let one = asks_one(rest);
     // Before the settings, so that --help and a refusal need none.
-    if name == ["tehasbot", "refresh"] && !rest.is_empty() && !one {
+    if name == ["tehasbot", "refresh"] && !one {
         return Ok(hand_to_dispatcher(libexec, rest, None));
     }
     // The load drops every TEHAS_ name it does not keep.
@@ -274,7 +273,6 @@ fn command(libexec: &str, uid: &str, bash: &str, words: &[String]) -> Result<u8,
             );
             return Ok(0);
         }
-        ["tehasbot", "refresh"] if !one && var("TEHAS_REFRESH_CONFLICTS") != "1" => return Ok(0),
         _ => {}
     }
     settings::require(commands::required(words), &vars)?;

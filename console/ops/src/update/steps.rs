@@ -45,7 +45,6 @@ pub(crate) const UNITS: &[&str] = &[
     "tehas-preview-sweep.timer",
     "tehas-protolab.timer",
     "tehas-improve.timer",
-    "tehas-refresh.timer",
     "tehas-review.timer",
     "tehas-clean.timer",
 ];

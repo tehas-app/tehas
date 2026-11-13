@@ -35,7 +35,7 @@ t_contains "$t_out" "removed: $th/bin/tehas-dispatch"
 t_contains "$t_out" "removed: $th/bin/tehas-test"
 # A running sampler is the old file calling itself. The units step restarts it,
 # so the step is asked for and owed although no unit file changed.
-t_contains "$t_out" "next: units tehas-dispatch.timer tehas-energy.service tehas-top.service tehas-mcp.service tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-improve.timer tehas-refresh.timer tehas-review.timer tehas-clean.timer"
+t_contains "$t_out" "next: units tehas-dispatch.timer tehas-energy.service tehas-top.service tehas-mcp.service tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-improve.timer tehas-review.timer tehas-clean.timer"
 t_contains "$(cat "$th/state/update-pending")" "units tehas-dispatch.timer tehas-energy.service"
 # systemd reloaded before the files its old units name were removed.
 t_eq "$(t_calls systemctl | head -n 1)" "--user daemon-reload"
@@ -88,6 +88,36 @@ t_run "$install"
 t_eq "$t_rc" 0
 t_contains "$t_out" "removed: $th/lib/edge.sh"
 t_eq "$([ -e "$th/lib/edge.sh" ] || echo gone)" "gone"
+
+t_case "the units of the timed refresh scan are named, then stopped and removed"
+units=$home/.config/systemd/user
+echo "[Timer]" >"$units/tehas-refresh.timer"
+echo "[Service]" >"$units/tehas-refresh.service"
+t_run "$install --check"
+t_eq "$t_rc" 1
+t_contains "$t_out" "stale: $units/tehas-refresh.timer"
+t_contains "$t_out" "stale: $units/tehas-refresh.service"
+rm -f "$T/calls/systemctl"
+t_run "$install"
+t_eq "$t_rc" 0
+t_contains "$t_out" "removed: $units/tehas-refresh.timer"
+t_contains "$t_out" "removed: $units/tehas-refresh.service"
+t_eq "$(t_calls systemctl | head -n 2)" "--user disable --now tehas-refresh.timer
+--user daemon-reload"
+t_eq "$([ -e "$units/tehas-refresh.timer" ] || [ -e "$units/tehas-refresh.service" ] || echo gone)" "gone"
+t_run "$install"
+t_contains "$t_out" "tehas is up to date"
+
+t_case "they stay while systemd cannot disable the timer"
+echo "[Timer]" >"$units/tehas-refresh.timer"
+t_stub systemctl 'exit 1'
+t_run "$install"
+t_eq "$t_rc" 0
+t_contains "$t_out" "later: ./install.sh again   (systemctl --user disable --now tehas-refresh.timer failed"
+t_eq "$([ -e "$units/tehas-refresh.timer" ] && echo there)" "there"
+t_stub systemctl
+t_run "$install"
+t_contains "$t_out" "removed: $units/tehas-refresh.timer"
 
 t_case "while a poll holds the dispatcher's lock nothing is installed, and the next run removes them"
 old_layout

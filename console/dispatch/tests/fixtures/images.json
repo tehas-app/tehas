@@ -1152,8 +1152,7 @@
    "case": "a refresh of an issue whose text promises a file starts nothing",
    "settings": {
     "TEHAS_WORK_IMAGES": "1",
-    "PI_ENSEMBLE_SUBAGENT_MODEL": "test-model",
-    "TEHAS_REFRESH_CONFLICTS": "1"
+    "PI_ENSEMBLE_SUBAGENT_MODEL": "test-model"
    },
    "snapshot": {
     "ready": [],

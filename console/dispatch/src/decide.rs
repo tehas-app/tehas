@@ -554,15 +554,12 @@ impl<'a> Poll<'a> {
             }
         }
         // A refresh request waits as a ready issue does, unless the image holds
-        // every refresh or TEHAS_REFRESH_CONFLICTS holds this one (a request
-        // `tehasbot refresh --pr N` wrote is not held by the setting). The hold
-        // is in the file, and the log has it once.
+        // every refresh. The hold is in the file, and the log has it once.
         let mut held = String::new();
         let requests = self.s.refresh_requests.clone();
         if !requests.is_empty() {
             held = self.refresh_held().unwrap_or_default();
             if held.is_empty() {
-                let mut by_setting = false;
                 for n in requests {
                     if self.plan_open(n) || self.running(n) {
                         continue;
@@ -573,10 +570,6 @@ impl<'a> Poll<'a> {
                         .get(&n)
                         .and_then(|i| i.request.clone())
                         .unwrap_or(Value::Null);
-                    if self.refresh_setting_held(&req) {
-                        by_setting = true;
-                        continue;
-                    }
                     let at = req
                         .get("at")
                         .and_then(Value::as_str)
@@ -586,9 +579,6 @@ impl<'a> Poll<'a> {
                     if !at.is_empty() && (oldest.is_empty() || at < oldest) {
                         oldest = at;
                     }
-                }
-                if by_setting {
-                    held = retry::REFRESH_SETTING_HOLD.to_string();
                 }
             }
             if held != self.s.refresh_held {
@@ -773,19 +763,9 @@ impl<'a> Poll<'a> {
         Ok(all)
     }
 
-    /// pr_asked: a waiting refresh request was written by
-    /// `tehasbot refresh --pr N` (`"asked": "pr"`), which starts with
-    /// `TEHAS_REFRESH_CONFLICTS` off.
-    fn pr_asked(&self) -> bool {
-        self.s.refresh_requests.iter().any(|n| {
-            self.s
-                .issues
-                .get(n)
-                .and_then(|i| i.request.as_ref())
-                .and_then(|r| r.get("asked"))
-                .and_then(Value::as_str)
-                == Some("pr")
-        })
+    /// refresh_waits: a refresh request is on this host.
+    fn refresh_waits(&self) -> bool {
+        !self.s.refresh_requests.is_empty()
     }
 
     /// 2 and 3: the slots, the limit, the slice and the cap on unreviewed
@@ -797,9 +777,9 @@ impl<'a> Poll<'a> {
         let mut cycles = count;
         let mut lane: Option<i64> = None;
         let refreshing = self.live().filter(|(_, how)| how == "refresh").count() as i64;
-        // With the setting off the lane is kept only while a `--pr` request
-        // waits or a refresh runs, so the cycles keep every slot otherwise.
-        if c.refresh_slots > 0 && (c.refresh_conflicts || refreshing > 0 || self.pr_asked()) {
+        // The lane is kept only while a request waits or a refresh runs, so
+        // the cycles keep every slot otherwise.
+        if c.refresh_slots > 0 && (refreshing > 0 || self.refresh_waits()) {
             cycles = count - refreshing;
             lane = Some((c.refresh_slots - refreshing).max(0));
         }
