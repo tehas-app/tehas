@@ -2051,101 +2051,18 @@ fn slow_names_a_file_argument_and_refuses_any_other_shape() {
     }
 }
 
-// --- paths-overlap ------------------------------------------------------------
-// The paths an issue's body names that a running cycle's branch changes
-// (tehas_core::overlap), as the dispatcher asks before a start.
-
-/// The answer of `paths-overlap` for a body and the changed files, one a line.
-fn paths_overlap(
-    home: &Path,
-    body: &str,
-    changed: &str,
-    name: &str,
-) -> Result<String, (u8, String)> {
-    let dir = scratch(name);
-    let body_file = dir.join("body.md");
-    let changed_file = dir.join("changed.txt");
-    fs::write(&body_file, body).unwrap();
-    fs::write(&changed_file, changed).unwrap();
-    execute(
-        home,
-        &Verb::PathsOverlap {
-            body: body_file,
-            changed: changed_file,
-        },
-        1_792_000_000,
-    )
-}
+// --- paths-overlap, gone ------------------------------------------------------
+// The overlap hold left the factory: a host holds an issue out of the start
+// order instead (`tehas order set --only`), so the store has no verb for it.
 
 #[test]
-fn paths_overlap_answers_two_matches_in_one_line_of_the_store() {
-    let home = scratch("overlap-home");
-    let body = "1. [paths: `lib/config.sh`, `console/core/src/overlap.rs` (new)]\n\
-                2. [paths: `libexec/`, `README.md`]\n";
-    let changed = "libexec/dispatch\nconsole/store/src/main.rs\nlib/config.sh\n";
-    let answer = paths_overlap(&home, body, changed, "overlap-two").unwrap();
-    assert_eq!(
-        answer,
-        "{\"api\":1,\"verb\":\"paths-overlap\",\"ok\":true,\"matches\":[\"lib/config.sh\",\"libexec/\"]}"
-    );
-    assert!(!answer.contains('\n'), "{answer}");
-}
-
-#[test]
-fn paths_overlap_with_no_match_answers_an_empty_list() {
-    let home = scratch("overlap-none-home");
-    let answer = paths_overlap(
-        &home,
-        "[paths: `lib/config.sh`]",
-        "libexec/dispatch\n",
-        "overlap-none",
-    )
-    .unwrap();
-    assert_eq!(
-        answer,
-        "{\"api\":1,\"verb\":\"paths-overlap\",\"ok\":true,\"matches\":[]}"
-    );
-    // No paths list at all, and no changed file at all: the same answer.
-    let answer = paths_overlap(&home, "Change `lib/config.sh`.", "", "overlap-empty").unwrap();
-    assert!(answer.ends_with("\"matches\":[]}"), "{answer}");
-}
-
-#[test]
-fn paths_overlap_refuses_a_missing_file_with_64() {
-    let home = scratch("overlap-missing-home");
-    let dir = scratch("overlap-missing");
-    let there = dir.join("changed.txt");
-    fs::write(&there, "lib/config.sh\n").unwrap();
-    for (body, changed) in [
-        (dir.join("no-body.md"), there.clone()),
-        (there.clone(), dir.join("no-changed.txt")),
-        // A directory is no plain file either.
-        (dir.to_path_buf(), there.clone()),
-    ] {
-        let (code, why) =
-            execute(&home, &Verb::PathsOverlap { body, changed }, 1_792_000_000).unwrap_err();
-        assert_eq!(code, 64, "{why}");
-        assert!(why.starts_with("paths-overlap: "), "{why}");
-    }
-}
-
-#[test]
-fn paths_overlap_names_two_file_arguments_and_refuses_any_other_shape() {
-    assert_eq!(
-        parse(&["paths-overlap".into(), "/a".into(), "/b".into()]),
-        Some(Verb::PathsOverlap {
-            body: PathBuf::from("/a"),
-            changed: PathBuf::from("/b"),
-        })
-    );
+fn paths_overlap_is_no_verb_any_more() {
     for args in [
         vec!["paths-overlap".to_string()],
-        vec!["paths-overlap".to_string(), "/a".to_string()],
         vec![
             "paths-overlap".to_string(),
             "/a".to_string(),
             "/b".to_string(),
-            "/c".to_string(),
         ],
     ] {
         assert_eq!(parse(&args), None, "{args:?}");

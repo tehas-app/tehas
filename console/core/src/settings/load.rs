@@ -105,7 +105,7 @@ const KEPT: &[&str] = &[
 /// The names an earlier version read are refused, not ignored: a line that
 /// does nothing in an instance file is a mistake the operator sees. The order
 /// picks which of two retired lines is reported.
-const RETIRED: [&str; 12] = [
+const RETIRED: [&str; 13] = [
     "TEHAS_FIXER_LOGIN",
     "TEHAS_FIXER_MAX_RETRIES",
     "TEHAS_FIXER_MAX_PLAN_ANSWERS",
@@ -118,6 +118,7 @@ const RETIRED: [&str; 12] = [
     "TEHAS_LOW_GATE",
     "TEHAS_LOW_GATE_WAIT",
     "TEHAS_PRIORITY_FIELD",
+    "TEHAS_OVERLAP_HOLD",
 ];
 
 /// What the shell of the source sets for itself. BASH_ENV is not given to it:
@@ -421,7 +422,10 @@ fn retired_names(vars: &mut Vars, file: &str) -> Result<(), String> {
                 | ("TEHAS_THEME", "beesknees26" | "")
                 | ("TEHAS_LAYOUT", "business" | "")
                 | (
-                    "TEHAS_LOW_GATE" | "TEHAS_LOW_GATE_WAIT" | "TEHAS_PRIORITY_FIELD",
+                    "TEHAS_LOW_GATE"
+                        | "TEHAS_LOW_GATE_WAIT"
+                        | "TEHAS_PRIORITY_FIELD"
+                        | "TEHAS_OVERLAP_HOLD",
                     ""
                 )
         ) {
@@ -440,6 +444,7 @@ fn retired_names(vars: &mut Vars, file: &str) -> Result<(), String> {
             "TEHAS_DISPATCHER" => "is set and this version of tehas has no bash poll: every poll is tehas-dispatch, so take the line out".to_string(),
             "TEHAS_THEME" => "is no longer read: TEHAS_DESIGN draws the whole site, beesknees26 by default or pixel, so take the line out".to_string(),
             "TEHAS_LOW_GATE" | "TEHAS_LOW_GATE_WAIT" | "TEHAS_PRIORITY_FIELD" => "is no longer read: tehas order sets the order ready issues start in, so take the line out".to_string(),
+            "TEHAS_OVERLAP_HOLD" => "is no longer read: a host holds an issue out of the start order with tehas order set --only, so take the line out".to_string(),
             "TEHAS_LAYOUT" => "is no longer read: the front page follows TEHAS_DESIGN, the business page for beesknees26 and the factory floor for pixel, so take the line out".to_string(),
             _ => format!(
                 "is no longer read: rename it TEHAS_MILLWRIGHT_{}",
@@ -1255,6 +1260,7 @@ mod tests {
             "TEHAS_LAYOUT=business",
             "TEHAS_LOW_GATE=",
             "TEHAS_PRIORITY_FIELD=",
+            "TEHAS_OVERLAP_HOLD=",
         ] {
             let vars = loads(&[line]);
             assert!(!vars.is_set(line.split('=').next().unwrap()));
@@ -1271,6 +1277,14 @@ mod tests {
             (
                 "TEHAS_LOW_GATE=/x/gate",
                 "is no longer read: tehas order sets the order ready issues start in, so take the line out",
+            ),
+            (
+                "TEHAS_OVERLAP_HOLD=1",
+                "is no longer read: a host holds an issue out of the start order with tehas order set --only, so take the line out",
+            ),
+            (
+                "TEHAS_OVERLAP_HOLD=0",
+                "is no longer read: a host holds an issue out of the start order with tehas order set --only, so take the line out",
             ),
             (
                 "TEHAS_LAYOUT=floor",
