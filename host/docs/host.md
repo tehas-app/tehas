@@ -1278,6 +1278,7 @@ hold a slot for ever:
 
 | Step | Bound | After it |
 | --- | --- | --- |
+| GitHub's answer for the issue before a cycle starts | 60 s a try, then a kill 10 s later; three tries | The cycle refuses its number and exits 65, with `GitHub could not be asked what the number is (3 tries, the last: no answer within 60s)` |
 | The image's `--capabilities` answer before a cycle | 120 s | `tehas work` exits 78, with `gave no --capabilities answer` |
 | The push check before a cycle | 300 s | `tehas work` exits 3, with `the push check did not end within 300s` |
 | The product's install before a cycle | 1800 s | `tehas work` exits 78, with `the install did not end within 1800s` in the `.preflight` file |
