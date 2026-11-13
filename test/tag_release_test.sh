@@ -153,6 +153,20 @@ t_eq "$t_rc" 1
 t_contains "$t_out" "Unreleased section of CHANGELOG.md needs"
 t_eq "$(tags)" "v0.1.0 "
 
+t_case "an Adopter action over no changes makes no tag and names the empty section"
+changelog '# Changelog\n\n## Unreleased\n\n### Adopter action\n\nNone.\n\n## v0.1.0 (2026-01-01)\n\n### Changes\n\n- a\n\n### Adopter action\n\nNone.\n'
+t_run "$work/scripts/tag-release.sh --no-verify"
+t_eq "$t_rc" 1
+t_contains "$t_out" "Unreleased section of CHANGELOG.md lists no changes"
+t_eq "$(tags)" "v0.1.0 "
+
+t_case "a Changes heading with nothing under it lists no changes"
+changelog '# Changelog\n\n## Unreleased\n\n### Changes\n\n### Adopter action\n\nNone.\n'
+t_run "$work/scripts/tag-release.sh --dry-run"
+t_eq "$t_rc" 1
+t_contains "$t_out" '"### Changes" heading with a line under it'
+t_lacks "$t_out" "would tag"
+
 t_case "--dry-run checks CHANGELOG.md too"
 t_run "$work/scripts/tag-release.sh --dry-run"
 t_eq "$t_rc" 1
