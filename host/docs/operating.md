@@ -2232,7 +2232,7 @@ takes `--continue-pr` and says so with `features.continuePr` in its
 nothing and the dispatcher says so.
 
 **What it reads.** `tehasbot refresh`, every `TEHAS_REFRESH_EVERY` minutes (10
-unless the instance says otherwise), lists the open pull requests of the repository. It keeps the bot's that close
+unless the instance says otherwise), lists the open pull requests of the repository, all of them in pages of 100. It keeps the bot's that close
 exactly one open issue carrying `tehas:awaiting-merge`, or `needs-human-attention`
 after a handoff that left the pull request open, without `tehas:running` and not
 the control issue, that are the only open pull request that closes it, and come
