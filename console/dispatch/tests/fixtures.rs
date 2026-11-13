@@ -855,3 +855,8 @@ fn queue() {
 fn slots() {
     run_suite("slots");
 }
+
+#[test]
+fn host_start() {
+    run_suite("host_start");
+}

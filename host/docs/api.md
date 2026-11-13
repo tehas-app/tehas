@@ -19,7 +19,7 @@ remain the way to change anything.
 
 What exists today: [`tehas api`](#tehas-api),
 [`tehas status --json`](#tehas-status---json), [`tehas limit`](#tehas-limit),
-[`tehas order`](#tehas-order),
+[`tehas order`](#tehas-order), [`tehas start`](#tehas-start),
 [`tehas drain`](#tehas-drain), [`tehas freeze`](#tehas-freeze-and-tehas-thaw),
 [`tehas thaw`](#tehas-freeze-and-tehas-thaw), [`tehas history`](#tehas-history),
 [`tehas export`](#tehas-export),
@@ -75,6 +75,8 @@ listed here when a release has it.
    With `--only`, an issue the program leaves out waits. The order stays on
    disk through restarts until it is set again or cleared; give `--for` only
    when an order should lapse if the program stops setting it.
+   To say which issue starts at all, with no label of a GitHub account,
+   approve it with [`tehas start N`](#tehas-start).
 5. Before an upgrade or a move, [`tehas drain --wait`](#tehas-drain), then
    `tehas limit clear` once it is done.
 
@@ -117,7 +119,7 @@ tehas api [--json]
   "tehas": "v0.8.0",
   "commit": "cb6912a",
   "repo": "tehas-app/tehas",
-  "features": ["status", "millwright-grant", "fixer-grant", "all-hands", "limit", "drain", "history", "export", "refresh-conflicts", "analytics", "state-move", "mcp-dashboard-keys", "clean", "disk", "panels", "state-check", "finish", "status-versions", "store-copy", "state-load", "freeze", "host-bridge", "cycle-writes", "settings-rules", "start-order", "host-message", "refresh-pr", "host-message-health", "refresh-pr-starts", "refresh-pr-lane", "refresh-pr-sweep", "refresh-pr-json"],
+  "features": ["status", "millwright-grant", "fixer-grant", "all-hands", "limit", "drain", "history", "export", "refresh-conflicts", "analytics", "state-move", "mcp-dashboard-keys", "clean", "disk", "panels", "state-check", "finish", "status-versions", "store-copy", "state-load", "freeze", "host-bridge", "cycle-writes", "settings-rules", "start-order", "host-message", "refresh-pr", "host-message-health", "refresh-pr-starts", "refresh-pr-lane", "refresh-pr-sweep", "refresh-pr-json", "host-start"],
   "millwright": null,
   "fixer": null,
   "refreshScan": false,
@@ -143,7 +145,7 @@ tehas api [--json]
 | `tehas` | The release tag the factory was installed from: `v0.10.2` for a release install, `v0.8.0` for a checkout one. `null` when the install came from a checkout with no tag, or not from a git checkout |
 | `commit` | The commit it was installed from, seven characters; `null` for a release install, which records only the tag, and when not from a git checkout |
 | `repo` | `TEHAS_REPO`, the product repository |
-| `features` | What this release has, so a program can tell a factory that predates a feature from one where it failed. Today `status`, `millwright-grant` ([the millwright's grant](/operating#the-millwrights-grant)), `fixer-grant`, `all-hands`, `limit`, `drain`, `history` ([`tehas history`](#tehas-history)), `export` ([`tehas export`](#tehas-export)), `refresh-conflicts` (the factory refreshes its own pull requests that conflict, [refreshes](/operating#refreshes)), `analytics` ([`tehas analytics export --json`](#tehas-analytics-export)), `state-move` ([`tehas state`](#tehas-state)), `mcp-dashboard-keys` (the read-only MCP server answers a key of `TEHAS_MCP_DASHBOARD_KEYS` with only the four tools that copy from `live/`, [the MCP server](/mcp-server)), `clean` ([`tehasbot clean`](#tehasbot-clean)), `disk` ([`tehas disk`](#tehas-disk)), `panels` ([`tehas panel`](#tehas-panel)), `state-check` ([`tehas state check`](#tehas-state-check)), `finish` ([the finish ask](#the-finish-ask)), `status-versions` (`versions` in [`tehas status --json`](#tehas-status---json)) `store-copy` ([`tehas state copy`](#tehas-state-copy)), `state-load` ([`tehas state load`](#tehas-state-load)), `freeze` ([`tehas freeze` and `tehas thaw`](#tehas-freeze-and-tehas-thaw)) `host-bridge` ([the host bridge](#the-host-bridge)), `cycle-writes` ([`tehas disk --cycles`](#tehas-disk) names what each running cycle writes), `settings-rules` (the release carries [its settings rules](#settings-rules)), `start-order` ([`tehas order`](#tehas-order)), `host-message` ([`tehas host-message`](#tehas-host-message)), `refresh-pr` ([`tehasbot refresh --pr N`](/tools-github#tehasbot-refresh) asks for the refresh of one pull request), `host-message-health` (health, `tehas status`, the MCP server and the dashboard show [the host messages](#tehas-host-message)), `refresh-pr-starts` (the dispatcher starts a refresh `tehasbot refresh --pr N` asked for while `TEHAS_REFRESH_CONFLICTS` is not 1, [refreshes](/operating#refreshes)) `refresh-pr-lane` (such a refresh runs in the refresh lane, not in a cycle slot, [refreshes](/operating#refreshes)), `refresh-pr-sweep` (while `TEHAS_REFRESH_CONFLICTS` is not 1 the dispatcher drops a request the timed run wrote once a start check fails, [refreshes](/operating#refreshes)) and `refresh-pr-json` ([`tehasbot refresh --pr N --json`](/tools-github#tehasbot-refresh) prints what it asked as one object, and `refreshScan` is in this answer) |
+| `features` | What this release has, so a program can tell a factory that predates a feature from one where it failed. Today `status`, `millwright-grant` ([the millwright's grant](/operating#the-millwrights-grant)), `fixer-grant`, `all-hands`, `limit`, `drain`, `history` ([`tehas history`](#tehas-history)), `export` ([`tehas export`](#tehas-export)), `refresh-conflicts` (the factory refreshes its own pull requests that conflict, [refreshes](/operating#refreshes)), `analytics` ([`tehas analytics export --json`](#tehas-analytics-export)), `state-move` ([`tehas state`](#tehas-state)), `mcp-dashboard-keys` (the read-only MCP server answers a key of `TEHAS_MCP_DASHBOARD_KEYS` with only the four tools that copy from `live/`, [the MCP server](/mcp-server)), `clean` ([`tehasbot clean`](#tehasbot-clean)), `disk` ([`tehas disk`](#tehas-disk)), `panels` ([`tehas panel`](#tehas-panel)), `state-check` ([`tehas state check`](#tehas-state-check)), `finish` ([the finish ask](#the-finish-ask)), `status-versions` (`versions` in [`tehas status --json`](#tehas-status---json)) `store-copy` ([`tehas state copy`](#tehas-state-copy)), `state-load` ([`tehas state load`](#tehas-state-load)), `freeze` ([`tehas freeze` and `tehas thaw`](#tehas-freeze-and-tehas-thaw)) `host-bridge` ([the host bridge](#the-host-bridge)), `cycle-writes` ([`tehas disk --cycles`](#tehas-disk) names what each running cycle writes), `settings-rules` (the release carries [its settings rules](#settings-rules)), `start-order` ([`tehas order`](#tehas-order)), `host-message` ([`tehas host-message`](#tehas-host-message)), `refresh-pr` ([`tehasbot refresh --pr N`](/tools-github#tehasbot-refresh) asks for the refresh of one pull request), `host-message-health` (health, `tehas status`, the MCP server and the dashboard show [the host messages](#tehas-host-message)), `refresh-pr-starts` (the dispatcher starts a refresh `tehasbot refresh --pr N` asked for while `TEHAS_REFRESH_CONFLICTS` is not 1, [refreshes](/operating#refreshes)) `refresh-pr-lane` (such a refresh runs in the refresh lane, not in a cycle slot, [refreshes](/operating#refreshes)), `refresh-pr-sweep` (while `TEHAS_REFRESH_CONFLICTS` is not 1 the dispatcher drops a request the timed run wrote once a start check fails, [refreshes](/operating#refreshes)), `refresh-pr-json` ([`tehasbot refresh --pr N --json`](/tools-github#tehasbot-refresh) prints what it asked as one object, and `refreshScan` is in this answer) and `host-start` ([`tehas start`](#tehas-start) approves an issue from the host) |
 | `millwright` | The app's login, or `null` before it is known |
 | `fixer` | The same as `millwright`. It and the feature `fixer-grant` are the old names, kept for as long as API version 1; a program reads `millwright` and `millwright-grant` |
 | `refreshScan` | `true` when the timed scan of `tehas-refresh.timer` looks for conflicting pull requests: `TEHAS_REFRESH_CONFLICTS` is 1. `false` when its runs exit at once, and a refresh starts only when `tehasbot refresh --pr N` asks for one. Whether the timer is enabled is not read |
@@ -371,6 +373,49 @@ answer: the command exits 1.
 
 Exit 0; 1 the file could not be written or removed; 64 on a bad argument,
 which writes nothing; 78 without an instance.
+
+## tehas start
+
+```
+tehas start <issue> [--json]
+tehas start <issue> --clear [--json]
+```
+
+```json
+{"api": 1, "issue": 12, "approval": {"at": "2026-10-17T14:05:00Z", "by": "host", "how": "host", "body_sha256": "...", "title_sha256": "..."}, "cleared": false}
+```
+
+Approves an open issue for a start, from the host, in place of a
+`tehas:ready` label from an allowed account. It runs as the factory's user and
+needs no GitHub login of its own: the approval is a row of the state store of
+its own kind, `host`. It reads the issue from GitHub once, to refuse a number
+that is no open issue and to bind the title and text the approval covers.
+
+Nothing starts at once and nothing passes a hold. The next poll starts the
+issue under the rules every start passes: the slots and the limit, a pause or
+a drain, a blocked-by link or `tehas:blocked`, an open pull request that
+closes it, a park on the same text and the start order, which sorts it with
+the ready issues. A title or text changed since the approval starts nothing,
+and the poll log says to run `tehas start` again. Running it again replaces
+the approval that waits; any start of the issue uses it up.
+
+`--clear` takes back an approval that has not started a cycle, and answers
+it, or `null` with `cleared: false` when none waited.
+
+| Field | Meaning |
+| --- | --- |
+| `issue` | The issue |
+| `approval` | What was recorded or taken back: `at`, `by` and `how` (both `host`), and the sums of the text and the title. `null` from a `--clear` that found none |
+| `cleared` | `true` when `--clear` took an approval back |
+
+The start comment on the issue, [`tehas history`](#tehas-history) (`"how":
+"host"`) and `tehas status` say the cycle was started from the host. The
+millwright may retry such a cycle as one a person's label started, and may
+ask for its finish.
+
+Exit 0 recorded, taken back or nothing to take back; 1 GitHub has no open
+issue of that number or did not answer, or the store refused; 64 on a bad
+argument, which writes nothing; 78 without an instance.
 
 ## tehas drain
 
@@ -616,7 +661,7 @@ schema names it, under `cycles` for a field of a line.
 | `cycles.repeat` | The parks in a row that stopped exactly as this one did, this one not counted, so 1 on the first repeat. On the park of a run of parks only. A field of a work line |
 | `cycles.pr` | The pull request, as an address of the repository the instance names. A field of a work line that had one |
 | `cycles.by` | Who asked for it. Left out for a cycle run by hand, which names no account |
-| `cycles.how` | How it was asked for: `label`, `refresh`, `retry-tick`, `outage-retry`, `millwright` or `hand` |
+| `cycles.how` | How it was asked for: `label`, `refresh`, `retry-tick`, `outage-retry`, `millwright`, `host` ([`tehas start`](#tehas-start)) or `hand` |
 | `cycles.label` | The label that started the turn's session, `tehas:plan` or `tehas:refine`. A field of a plan line |
 | `cycles.auto` | `true` for a refine the factory started on its own when a cycle parked as underspecified or too-large. Left out otherwise. A field of a plan line |
 | `cycles.filed` | The issues the turn filed, when it filed any. A field of a plan line |
