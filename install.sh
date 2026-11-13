@@ -615,6 +615,13 @@ files=(
   "sandbox/gh-shim|$TEHAS_HOME/sandbox/gh-shim|755"
   "sandbox/npm/playwright/package.json|$TEHAS_HOME/sandbox/npm/playwright/package.json|644"
   "sandbox/npm/playwright/package-lock.json|$TEHAS_HOME/sandbox/npm/playwright/package-lock.json|644"
+  # The npm trees the sandbox base installs pi, ctx7 and parallel-cli from.
+  "npm/pi/package.json|$TEHAS_HOME/npm/pi/package.json|644"
+  "npm/pi/package-lock.json|$TEHAS_HOME/npm/pi/package-lock.json|644"
+  "npm/ctx7/package.json|$TEHAS_HOME/npm/ctx7/package.json|644"
+  "npm/ctx7/package-lock.json|$TEHAS_HOME/npm/ctx7/package-lock.json|644"
+  "npm/parallel-web-cli/package.json|$TEHAS_HOME/npm/parallel-web-cli/package.json|644"
+  "npm/parallel-web-cli/package-lock.json|$TEHAS_HOME/npm/parallel-web-cli/package-lock.json|644"
   "edge/docs.Caddyfile|$TEHAS_HOME/edge/docs.Caddyfile|644"
   "edge/docs.compose.yaml|$TEHAS_HOME/edge/docs.compose.yaml|644"
   "edge/router.Caddyfile|$TEHAS_HOME/edge/router.Caddyfile|644"

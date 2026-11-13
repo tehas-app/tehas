@@ -178,7 +178,7 @@ accepts and which of them it requires:
 | Step                        | install.sh asks for it when         | tehas update runs it when                                        |
 | --------------------------- | ------------------------------------ | ----------------------------------------------------------------- |
 | `units <unit>...`           | a unit file changed                  | systemd reloaded its unit files, and the unit is active: restarted, never enabled |
-| `sandbox`                   | `sandbox/` changed, or `versions.env` changed in a line the image build reads: one named `SHELLCHECK_`, `PLAYWRIGHT_`, `CBM_`, `PI_RUKAS_` or `VIPUNE_` | always                                                            |
+| `sandbox`                   | `sandbox/` changed, or `versions.env` changed in a line the image build reads: one named `SHELLCHECK_`, `JQ_`, `PLAYWRIGHT_`, `RUST_`, `RUSTUP_`, `CBM_`, `PI_`, `CTX7_`, `PARALLEL_CLI_`, `NODE_`, `GH_`, `BUN_`, `VIPUNE_` or `OO_` | always                                                            |
 | `docs --force-recreate`     | `edge/docs.*` changed                | its container is running: recreated with that flag                 |
 | `edge --force-recreate`     | `edge/router.*` changed              | its container is running: recreated with that flag                 |
 
