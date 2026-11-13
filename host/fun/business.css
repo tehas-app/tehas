@@ -163,14 +163,6 @@ svg text { fill: var(--text-faint); font: max(var(--type-small), 11px) var(--fon
 .reasons ul { display: contents; list-style: none; }
 .reasons b { font-weight: 500; color: var(--text-quiet); margin-left: 4px; font-variant-numeric: tabular-nums; }
 .chart .note { margin-top: 6px; }
-.token-use { padding: 22px 28px 25px; border-top: var(--edge) solid var(--rule); display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: 14px 28px; align-items: start; }
-.token-use h3, .token-use .note { grid-column: 1 / -1; }
-.token-use h3 { font-size: max(var(--type-small), 11px); font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-quiet); }
-.token-table { width: 100%; border-collapse: collapse; font-size: max(var(--type-small), 12px); font-variant-numeric: tabular-nums; }
-.token-table th, .token-table td { padding: 3px 0 3px 12px; text-align: right; border-bottom: var(--edge) solid var(--rule); font-weight: 400; }
-.token-table th:first-child { padding-left: 0; text-align: left; overflow-wrap: anywhere; }
-.token-table thead th { color: var(--text-faint); font-weight: 600; }
-.token-table .is-cached { color: var(--text-faint); }
 .stations { padding: 25px 28px; border-left: var(--edge) solid var(--rule); min-width: 0; }
 .stations ol { list-style: none; margin: 20px 0 12px; padding: 0; display: grid; gap: 7px; }
 .stations li { display: grid; grid-template-columns: 92px minmax(0, 1fr) 38px; align-items: center; gap: 9px; font-size: max(var(--type-small), 12px); line-height: 18px; }
@@ -277,7 +269,7 @@ td a:hover { text-decoration: underline; text-underline-offset: 3px; }
   .panel-head { padding: 20px; align-items: start; }
   .stage { flex-basis: 100%; min-height: 0; padding: 20px; }
   .tile { padding: 18px; }
-  .chart, .stations, .token-use { padding: 20px; }
+  .chart, .stations { padding: 20px; }
   .console-body { padding: 16px 20px; }
   #console-out { height: 260px; }
   .section-break { margin-top: 55px; }
