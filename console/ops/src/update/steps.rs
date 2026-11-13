@@ -49,6 +49,11 @@ pub(crate) const UNITS: &[&str] = &[
     "tehas-clean.timer",
 ];
 
+/// Units an earlier version named and this one no longer installs. A record
+/// written before the update may still name them on its `units` line; that line
+/// is owed work, not a stranger, so the names are dropped rather than the line.
+pub(crate) const RETIRED_UNITS: &[&str] = &["tehas-refresh.timer"];
+
 /// The ids, in the order they run: systemd first, because a unit file is not in
 /// effect until it is reloaded and its unit restarted, and the containers last.
 pub(crate) const IDS: &[&str] = &["units", "sandbox", "docs", "edge", "labels"];
@@ -147,6 +152,22 @@ pub(crate) fn valid(line: &str) -> bool {
     }
 }
 
+/// A step line as this version reads it: a `units` line without the units an
+/// earlier version retired, or nothing when those were all it named. Every
+/// other line is kept as it is, for valid() to judge.
+pub(crate) fn current(line: &str) -> Option<String> {
+    let argv = words(line);
+    if argv.first() != Some(&"units") || !argv.iter().any(|w| RETIRED_UNITS.contains(w)) {
+        return Some(line.to_string());
+    }
+    let kept: Vec<&str> = argv[1..]
+        .iter()
+        .copied()
+        .filter(|w| !RETIRED_UNITS.contains(w))
+        .collect();
+    (!kept.is_empty()).then(|| format!("units {}", kept.join(" ")))
+}
+
 fn line_id(line: &str) -> &str {
     step_id(line.split(' ').next().unwrap_or(""))
 }
@@ -198,7 +219,7 @@ pub(crate) fn read_record(home: &Path) -> Result<Vec<String>, ()> {
     Ok(String::from_utf8_lossy(&text)
         .split('\n')
         .filter(|l| !l.is_empty())
-        .map(str::to_string)
+        .filter_map(current)
         .collect())
 }
 
@@ -683,6 +704,26 @@ mod tests {
         let d = dir("record-newline");
         d.file("state/update-pending", "sandbox\n\nlabels");
         assert_eq!(read_record(&d.0).unwrap(), lines(&["sandbox", "labels"]));
+    }
+
+    #[test]
+    fn a_recorded_units_line_naming_a_retired_unit_still_runs_without_it() {
+        let d = dir("record-retired");
+        let mut old: Vec<&str> = UNITS.to_vec();
+        old.insert(1, "tehas-refresh.timer");
+        d.file(
+            "state/update-pending",
+            &format!(
+                "units {}\nunits tehas-refresh.timer\nlabels\n",
+                old.join(" ")
+            ),
+        );
+        let now = format!("units {}", UNITS.join(" "));
+        assert!(!valid(&format!("units {}", old.join(" "))));
+        assert_eq!(read_record(&d.0).unwrap(), lines(&[now.as_str(), "labels"]));
+        assert!(valid(&now));
+        assert_eq!(current("sandbox").as_deref(), Some("sandbox"));
+        assert_eq!(current("units tehas-refresh.timer"), None);
     }
 
     #[test]

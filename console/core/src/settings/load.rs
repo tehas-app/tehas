@@ -459,9 +459,13 @@ fn retired_names(vars: &mut Vars, file: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// A value the retired TEHAS_REFRESH_EVERY took: 1 to 1440, no leading 0.
+/// A value the retired TEHAS_REFRESH_EVERY took: 1 to 1440 in ASCII digits, no
+/// leading 0. The digits check matters: u32's parse also takes a leading '+'.
 fn minutes(v: &str) -> bool {
-    !v.starts_with('0') && v.len() <= 4 && v.parse::<u32>().is_ok_and(|n| (1..=1440).contains(&n))
+    v.bytes().all(|b| b.is_ascii_digit())
+        && !v.starts_with('0')
+        && v.len() <= 4
+        && v.parse::<u32>().is_ok_and(|n| (1..=1440).contains(&n))
 }
 
 /// `export NAME=${NAME:-default}`.
@@ -1297,6 +1301,14 @@ mod tests {
             ),
             (
                 "TEHAS_REFRESH_EVERY=010",
+                "is not valid and no longer read: this version of tehas has no timed refresh scan, refreshes are asked for one pull request at a time with tehasbot refresh --pr N, so take the line out",
+            ),
+            (
+                "TEHAS_REFRESH_EVERY=+10",
+                "is not valid and no longer read: this version of tehas has no timed refresh scan, refreshes are asked for one pull request at a time with tehasbot refresh --pr N, so take the line out",
+            ),
+            (
+                "TEHAS_REFRESH_EVERY=+1",
                 "is not valid and no longer read: this version of tehas has no timed refresh scan, refreshes are asked for one pull request at a time with tehasbot refresh --pr N, so take the line out",
             ),
             (
