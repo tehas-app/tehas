@@ -201,9 +201,7 @@ pub fn facts(home: &Path, s: &Start) -> Value {
     f["record"] = store(home, &["cycle-show", &n]).unwrap_or_else(|w| json!({"error": w}));
     f["approval"] = store(home, &["approval-current", &n]).unwrap_or_else(|w| json!({"error": w}));
     f["history"] = store(home, &["history-show", &n]).unwrap_or_else(|w| json!({"error": w}));
-    if let Some(state) =
-        crate::last_attempt::state(Path::new(f["workdir"].as_str().unwrap_or("")), issue)
-    {
+    if let Some(state) = work_state(&workdir, issue) {
         f["work_state"] = state;
     }
     let (id, _) = crate::report::record_image(&f["record"], s.attempt);
@@ -211,6 +209,17 @@ pub fn facts(home: &Path, s: &Start) -> Value {
         f["image_built"] = json!(built(&id));
     }
     f
+}
+
+/// The work state of the issue in the workspace `workdir`, read only when it
+/// is an absolute path: a relative one, as an unset TEHAS_WORK_DIR leaves,
+/// would read the current directory as if it were the workspace.
+fn work_state(workdir: &str, issue: u64) -> Option<Value> {
+    let w = Path::new(workdir);
+    if !w.is_absolute() {
+        return None;
+    }
+    crate::last_attempt::state(w, issue)
 }
 
 /// The newest run log as the facts hold it: its name and its text, of a log
@@ -264,6 +273,34 @@ mod tests {
     use super::*;
     use crate::runner::LOG_TAIL;
     use tehas_core::testdir::TestDir;
+
+    #[test]
+    fn the_work_state_is_read_only_from_an_absolute_workspace() {
+        let d = TestDir::new("host-work-state");
+        let ws = d.join("w-7");
+        fs::create_dir_all(ws.join(".pi/work-state")).unwrap();
+        fs::write(ws.join(".pi/work-state/7.json"), "{\"step\":\"ci\"}").unwrap();
+        let abs = ws.to_str().unwrap();
+        assert_eq!(work_state(abs, 7), Some(serde_json::json!({"step": "ci"})));
+        // The same tree named relative to the current directory, as an
+        // unset TEHAS_WORK_DIR gives "-7": refused, not read from the cwd.
+        let cwd = std::env::current_dir().unwrap();
+        let rel = pathdiff(&ws, &cwd);
+        assert!(Path::new(&cwd)
+            .join(&rel)
+            .join(".pi/work-state/7.json")
+            .is_file());
+        assert_eq!(work_state(&rel, 7), None);
+        assert_eq!(work_state("", 7), None);
+        assert_eq!(work_state("-7", 7), None);
+    }
+
+    /// `p` relative to `base`, by as many `..` as `base` is deep.
+    fn pathdiff(p: &Path, base: &Path) -> String {
+        let ups = base.components().count() - 1;
+        let back = "../".repeat(ups);
+        format!("{back}{}", p.strip_prefix("/").unwrap().display())
+    }
 
     #[test]
     fn each_name_of_files_is_a_cycle_note() {

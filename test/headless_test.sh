@@ -173,13 +173,13 @@ p=$(tehas_headless_progress "$nx/progress.jsonl")
 t_eq "$(jq -c '[.roles, .failure, .from]' <<<"$p")" '[[],null,{"roles":"progress","failure":"progress"}]'
 t_contains "$(jq -r .reason <<<"$p")" "cancelled (abort signal)"
 
-t_case "no result, another issue, a schema 3 result or a result that is a link gives the progress lines"
-for args in "$T/missing.json 7" "$sx/result.json 8" "$nx/result.json 7"; do
-  # shellcheck disable=SC2086  # the file and the issue, two arguments
-  t_eq "$(tehas_headless_progress "$nx/progress.jsonl" $args | jq -c .from)" '{"roles":"progress","failure":"progress"}'
-done
+t_case "no result gives the progress lines; another issue, a schema 3 result or a link is a bad result"
+t_eq "$(tehas_headless_progress "$nx/progress.jsonl" "$T/missing.json" 7 | jq -c .from)" '{"roles":"progress","failure":"progress"}'
 ln -s "$sx/result.json" "$T/link.json"
-t_eq "$(tehas_headless_progress "$nx/progress.jsonl" "$T/link.json" 7 | jq -c .from)" '{"roles":"progress","failure":"progress"}'
+for args in "$sx/result.json 8" "$nx/result.json 7" "$T/link.json 7"; do
+  # shellcheck disable=SC2086  # the file and the issue, two arguments
+  t_eq "$(tehas_headless_progress "$nx/progress.jsonl" $args | jq -c .from)" '{"roles":"bad-result","failure":"bad-result"}'
+done
 t_eq "$(tehas_headless_progress /dev/null /dev/null 7 | jq -c '[.roles, .reason, .failure]')" '[[],"",null]'
 
 # The log of a run whose runner died: one line per stable step-started line, in
