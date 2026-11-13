@@ -2163,7 +2163,8 @@ impl<'a> Poll<'a> {
 
     /// overlap_ok: with TEHAS_OVERLAP_HOLD=1, a start waits while a running
     /// cycle's branch changes a path the issue's body names. A branch that
-    /// could not be read holds nothing, and nothing on the issue changes.
+    /// could not be read holds nothing, but the log names it, and nothing on
+    /// the issue changes.
     fn overlap_ok(&mut self, n: u64) -> bool {
         if !self.c.overlap_hold {
             return true;
@@ -2191,6 +2192,17 @@ impl<'a> Poll<'a> {
             Some((*m, path))
         });
         let Some((m, path)) = hit else {
+            let unread: Vec<String> = others
+                .iter()
+                .filter(|m| matches!(changed.get(m), Some(None)))
+                .map(|m| format!("#{m}"))
+                .collect();
+            if !unread.is_empty() {
+                let list = unread.join(", ");
+                self.log(format!(
+                    "#{n} starts unchecked for overlap: the changes of the running cycle on {list} could not be read"
+                ));
+            }
             return true;
         };
         self.log(format!("wait #{n}: a running cycle on #{m} changes {path}"));
