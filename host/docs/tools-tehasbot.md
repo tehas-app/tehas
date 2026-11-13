@@ -185,7 +185,7 @@ the dispatcher did that before it started the unit. It does check the number:
 once it holds its lock it starts its record in the state store, then asks
 GitHub what the number is before a label is changed, a comment is posted or a
 container starts, tried three times like its other calls, each try cut after
-30 seconds, and refuses a closed
+60 seconds, and refuses a closed
 issue and a pull request (exit 65) with one line in the log, ending its record
 as refused. A number GitHub could not answer for at all is refused the same
 way, with a line that says that. Because the start was on record first, the

@@ -25,6 +25,7 @@ case "$1 $2" in
   "api graphql")
     case "$*" in
       *number=*) [ ! -e "$T/fx/pr-fails" ] || exit 1; cat "$T/fx/pr.json" ;;
+      *cursor=*) cat "$T/fx/prs-2.json" ;;
       *) [ ! -e "$T/fx/list-fails" ] || exit 1; cat "$T/fx/prs.json" ;;
     esac ;;
   *) exit 1 ;;
@@ -157,6 +158,18 @@ t_run "$refresh"
 t_eq "$t_rc" 0
 t_eq "$(requests)" "7.json"
 t_eq "$(jq -r .pr "$dir/7.json")" 50
+
+t_case "the open pull requests are read to the last page, and one there keeps its request"
+reset
+mkdir -p "$dir"
+echo '{}' >"$dir/8.json"
+pr 50 7 | jq -s '{data: {repository: {pullRequests: {pageInfo: {hasNextPage: true, endCursor: "c1"}, nodes: .}}}}' >"$fx/prs.json"
+pr 51 8 '.mergeable = "UNKNOWN"' | jq -s '{data: {repository: {pullRequests: {pageInfo: {hasNextPage: false, endCursor: null}, nodes: .}}}}' >"$fx/prs-2.json"
+t_run "$refresh"
+t_eq "$t_rc" 0
+t_eq "$(requests)" "$(printf '7.json\n8.json')"
+t_contains "$(t_calls gh)" "cursor=c1"
+t_contains "$(cat "$logfile")" "read 2 pull requests: 1 conflict, 1 unknown"
 
 t_case "a request whose pull request is gone is removed; a stray file is left"
 reset
