@@ -189,6 +189,11 @@ Run `tehas dispatch --dry-run` and read what it prints.
   issues start in, so take the line out` (the same for `TEHAS_LOW_GATE` and
   `TEHAS_LOW_GATE_WAIT`): every command stops with 78 while the instance sets
   one of them to a value. Take the line out. A blank value is ignored.
+- `TEHAS_OVERLAP_HOLD is no longer read: to keep an issue from starting
+  beside another, leave it out of the start order with tehas order set
+  --only, so take the line out`: every command stops with 78 while the
+  instance sets it to 1. Take the line out, and hold the issue with
+  [tehas order](/api#tehas-order) instead. A blank value or 0 is ignored.
 - `ERROR: TEHAS_ISSUE_TYPES maps improvement to ...` (the poll or
   `improve.log`) or `... maps prototype to ...` (the Protolab's log): the
   owner of the repository has no issue type of that name. Nothing was

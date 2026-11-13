@@ -27,7 +27,7 @@ pub struct Sources<'a> {
 
 /// The facts a decision names in needs that are read only when it asks:
 /// the sandbox image's and the model's answers to images, whether the
-/// image takes --continue-pr, and what the running cycles' branches change.
+/// image takes --continue-pr.
 /// Returns whether any was read.
 pub fn fill(src: &Sources, snap: &mut Value, needs: &[&str]) -> bool {
     let mut read = false;
@@ -37,18 +37,6 @@ pub fn fill(src: &Sources, snap: &mut Value, needs: &[&str]) -> bool {
     }
     if needs.contains(&"continues") && snap.get("continues").is_none() {
         snap["continues"] = json!(models::continues());
-        read = true;
-    }
-    if needs.contains(&"overlap") && snap.get("overlap").is_none() {
-        let running: Vec<u64> = snap["running"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(|r| r["issue"].as_u64())
-            .collect();
-        let checkout = std::env::var("TEHAS_WORK_REPO").unwrap_or_default();
-        let default = std::env::var("TEHAS_BRANCH").unwrap_or_else(|_| "main".into());
-        snap["overlap"] = host::changed(&checkout, &default, &running);
         read = true;
     }
     read

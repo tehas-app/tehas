@@ -497,15 +497,6 @@ for bad in "TEHAS_EASY_MERGE=yes" "TEHAS_EASY_MERGE=2"; do
   t_contains "$t_out" "tehas: ${bad%%=*} is not valid"
 done
 
-t_case "the overlap hold is off unless the instance turns it on, and a value that is not 0 or 1 stops the load"
-printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
-t_run "$load && set -u && echo \"[\$TEHAS_OVERLAP_HOLD]\""
-t_eq "$t_out" "[0]"
-printf '%s\n' "${T_MINIMAL[@]}" TEHAS_OVERLAP_HOLD=2 >"$TEHAS_INSTANCE_DIR/instance.env"
-t_run "$load; echo rc=\$?"
-t_contains "$t_out" "rc=78"
-t_contains "$t_out" "tehas: TEHAS_OVERLAP_HOLD is not valid"
-
 t_case "read-only is off unless the instance turns it on, and a value that is not 0 or 1 stops the load"
 printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
 t_run "$load && set -u && echo \"[\$TEHAS_READ_ONLY]\""
@@ -1006,6 +997,17 @@ for name in TEHAS_PRIORITY_FIELD TEHAS_LOW_GATE TEHAS_LOW_GATE_WAIT; do
   t_contains "$t_out" "rc=78"
   t_contains "$t_out" "$name is no longer read: tehas order sets the order ready issues start in"
 done
+
+t_case "TEHAS_OVERLAP_HOLD is refused unless blank or 0: tehas order --only replaced it"
+for value in "" 0; do
+  printf '%s\n' "${T_MINIMAL[@]}" "TEHAS_OVERLAP_HOLD=$value" >"$TEHAS_INSTANCE_DIR/instance.env"
+  t_run "$load && echo \"[\${TEHAS_OVERLAP_HOLD-unset}]\""
+  t_eq "$t_out" "[unset]"
+done
+printf '%s\n' "${T_MINIMAL[@]}" TEHAS_OVERLAP_HOLD=1 >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load; echo rc=\$?"
+t_contains "$t_out" "rc=78"
+t_contains "$t_out" "TEHAS_OVERLAP_HOLD is no longer read: to keep an issue from starting beside another"
 
 t_case "TEHAS_ISSUE_TYPES: unset stays unset, kind=Type pairs are kept, another kind stops the load"
 t_instance "${T_MINIMAL[@]}"
