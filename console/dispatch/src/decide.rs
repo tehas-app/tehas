@@ -553,12 +553,44 @@ impl<'a> Poll<'a> {
                 oldest = at;
             }
         }
-        // A refresh request waits as a ready issue does, unless refreshes are
-        // held. The hold is in the file, and the log has it once.
+        // A refresh request waits as a ready issue does, unless the image holds
+        // every refresh or TEHAS_REFRESH_CONFLICTS holds this one (a request
+        // `tehasbot refresh --pr N` wrote is not held by the setting). The hold
+        // is in the file, and the log has it once.
         let mut held = String::new();
         let requests = self.s.refresh_requests.clone();
         if !requests.is_empty() {
             held = self.refresh_held().unwrap_or_default();
+            if held.is_empty() {
+                let mut by_setting = false;
+                for n in requests {
+                    if self.plan_open(n) || self.running(n) {
+                        continue;
+                    }
+                    let req = self
+                        .s
+                        .issues
+                        .get(&n)
+                        .and_then(|i| i.request.clone())
+                        .unwrap_or(Value::Null);
+                    if self.refresh_setting_held(&req) {
+                        by_setting = true;
+                        continue;
+                    }
+                    let at = req
+                        .get("at")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_string();
+                    waiting += 1;
+                    if !at.is_empty() && (oldest.is_empty() || at < oldest) {
+                        oldest = at;
+                    }
+                }
+                if by_setting {
+                    held = retry::REFRESH_SETTING_HOLD.to_string();
+                }
+            }
             if held != self.s.refresh_held {
                 if !held.is_empty() {
                     self.log(format!("hold refreshes: {held}"));
@@ -568,26 +600,6 @@ impl<'a> Poll<'a> {
             self.refresh_said = true;
         } else if !self.s.refresh_held.is_empty() {
             self.act(json!({"refresh_held": ""}));
-        }
-        if held.is_empty() {
-            for n in requests {
-                if self.plan_open(n) || self.running(n) {
-                    continue;
-                }
-                let at = self
-                    .s
-                    .issues
-                    .get(&n)
-                    .and_then(|i| i.request.as_ref())
-                    .and_then(|r| r.get("at"))
-                    .and_then(Value::as_str)
-                    .unwrap_or("")
-                    .to_string();
-                waiting += 1;
-                if !at.is_empty() && (oldest.is_empty() || at < oldest) {
-                    oldest = at;
-                }
-            }
         }
         let mut m = Map::new();
         m.insert("waiting".into(), json!(waiting));
