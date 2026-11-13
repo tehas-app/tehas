@@ -690,20 +690,18 @@ fn a_store_the_tests_did_not_shorten_waits_the_installed_bounds() {
     // what a host runs, and the short pair's two hundred milliseconds here.
 }
 
-/// The store of this build, for the one test that must run the program rather
-/// than call into it. cargo names it for an integration test; the unit tests of
-/// the binary find it beside the harness it was built with.
-fn store_binary() -> PathBuf {
-    let deps = std::env::current_exe()
-        .unwrap()
-        .parent()
-        .unwrap()
-        .to_path_buf();
-    let here = deps.join("store");
-    if here.exists() {
-        return here;
-    }
-    deps.parent().unwrap().join("store")
+/// The store of this build, for the tests that must run the program rather
+/// than call into it. cargo names it for an integration test; the unit tests
+/// find it in the nearest directory above their harness that holds it. That is
+/// `deps/..` in cargo's old layout, and `target/debug` in the build-dir layout,
+/// where the harness sits in `build/store/<hash>/out`.
+pub(crate) fn store_binary() -> PathBuf {
+    let exe = std::env::current_exe().unwrap();
+    exe.ancestors()
+        .skip(1)
+        .map(|dir| dir.join("store"))
+        .find(|p| p.is_file())
+        .unwrap_or_else(|| panic!("no store program above {}", exe.display()))
 }
 
 #[test]
