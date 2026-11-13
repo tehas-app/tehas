@@ -753,7 +753,11 @@ runner started, and no note is left for it. The comment says `no step started`, 
 `step` is `no-step`, and its `capReason` names the container's own exit status
 (`the container ended with the exit status 1 and wrote no line of its stream, so
 the driver wrote no event and no step started`), so a run of this kind can be
-counted and grouped with the others of it. The word of the step is tehas's own:
+counted and grouped with the others of it. A note that could not be read is
+still the note: the cycle is on record the same way, its `capReason` says the
+exit status could not be read, and `tehasbot cycle` warns of it. A note that is
+a link, or holds anything but an exit status of 1 to 999, is no note, and
+`tehasbot cycle` warns of that too. The word of the step is tehas's own:
 no step of pi-rukas is named there, and it is kept clear of the word
 `not-started`, which names a start `tehas work` refused at exit 4.
 
