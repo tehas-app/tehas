@@ -29,7 +29,6 @@ pub struct Settings {
     /// The most cycles `auto` may take, so a big host does not outstrip the
     /// model endpoint. Never unset: config.sh's default is slots::MAX.
     pub cycle_ceiling: String,
-    pub refresh_conflicts: bool,
     /// TEHAS_EASY_MERGE: 1 lets the dispatcher choose an easy merge for a
     /// refresh start instead of the full cycle. Off unless the instance says
     /// so; with it off every refresh is a full refresh as before (#1031).
@@ -123,7 +122,6 @@ impl Settings {
             container_memory: s("TEHAS_CONTAINER_MEMORY", "8g"),
             cycle_cpus: s("TEHAS_CYCLE_CPUS", "4"),
             cycle_ceiling: s("TEHAS_CYCLE_CEILING", "16"),
-            refresh_conflicts: s("TEHAS_REFRESH_CONFLICTS", "0") == "1",
             easy_merge: s("TEHAS_EASY_MERGE", "0") == "1",
             overlap_hold: s("TEHAS_OVERLAP_HOLD", "0") == "1",
             read_only: s("TEHAS_READ_ONLY", "0") == "1",

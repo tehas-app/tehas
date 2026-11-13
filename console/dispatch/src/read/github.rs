@@ -187,13 +187,6 @@ const PULL: &str = concat!(
     " } } }"
 );
 
-const PULLS: &str = concat!(
-    r#"query($owner: String!, $name: String!, $cursor: String) { repository(owner: $owner, name: $name) {
-      pullRequests(states: OPEN, first: 100, after: $cursor) { pageInfo { hasNextPage endCursor } nodes { "#,
-    pull_fields!(),
-    " } } } }"
-);
-
 /// One open issue as the page gave it.
 pub struct Open {
     pub number: u64,
@@ -647,24 +640,6 @@ pub fn pull(calls: &mut Calls, repo: &str, pr: u64) -> Value {
     }
 }
 
-/// The open pull requests as tehasbot refresh reads them: gh's whole answer,
-/// its list holding the nodes of every page.
-pub fn pulls(calls: &mut Calls, repo: &str) -> Result<Value, GhFail> {
-    let (owner, name) = split(repo);
-    let query = format!("query={PULLS}");
-    let mut first = calls.gh(&["api", "graphql", "-F", &owner, "-F", &name, "-f", &query])?;
-    let all = rest_of(&first, "/data/repository/pullRequests", |c| {
-        let cur = format!("cursor={c}");
-        calls.gh(&[
-            "api", "graphql", "-F", &owner, "-F", &name, "-f", &query, "-f", &cur,
-        ])
-    })?;
-    if let (Some(all), Some(list)) = (all, first.pointer_mut("/data/repository/pullRequests")) {
-        list["nodes"] = all;
-    }
-    Ok(first)
-}
-
 /// A list gh answers, or {"failed": true}.
 pub fn list(calls: &mut Calls, args: &[&str]) -> Value {
     calls.gh(args).unwrap_or_else(|_| json!({"failed": true}))
@@ -675,13 +650,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_list_and_the_one_pull_request_ask_the_same_fields() {
+    fn the_one_pull_request_asks_the_refresh_rules_fields() {
         let fields = pull_fields!();
         assert!(PULL.contains(&format!("{{ state {fields} }}")));
-        assert!(PULLS.contains(&format!(
-            "pageInfo {{ hasNextPage endCursor }} nodes {{ {fields} }}"
-        )));
-        assert!(PULLS.contains("pullRequests(states: OPEN, first: 100, after: $cursor)"));
         assert!(OPEN_PULLS.contains(&format!("nodes {{ {} }}", open_pull_fields!())));
         assert!(MORE_OPEN_PULLS.contains(&format!("nodes {{ {} }}", open_pull_fields!())));
         let args = [
@@ -690,7 +661,7 @@ mod tests {
             "-F".to_string(),
             "owner=a".to_string(),
             "-f".to_string(),
-            format!("query={PULLS}"),
+            format!("query={PULL}"),
         ];
         assert!(crate::read::run::gh_reads(&args));
     }
@@ -741,7 +712,6 @@ mod tests {
             COMMENTS.to_string(),
             comments_query(&[7, 8]),
             PULL.to_string(),
-            PULLS.to_string(),
             MORE_OPEN_PULLS.to_string(),
         ] {
             assert_eq!(

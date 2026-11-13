@@ -642,8 +642,6 @@ files=(
   "systemd/tehas-preview.timer|$units/tehas-preview.timer|644"
   "systemd/tehas-preview-sweep.service|$units/tehas-preview-sweep.service|644"
   "systemd/tehas-preview-sweep.timer|$units/tehas-preview-sweep.timer|644"
-  "systemd/tehas-refresh.service|$units/tehas-refresh.service|644"
-  "systemd/tehas-refresh.timer|$units/tehas-refresh.timer|644"
   "systemd/tehas-review.service|$units/tehas-review.service|644"
   "systemd/tehas-review.timer|$units/tehas-review.timer|644"
   "systemd/tehas-top.service|$units/tehas-top.service|644"
@@ -1067,6 +1065,17 @@ while IFS= read -r f; do
   if [ "$check" = 1 ]; then note "stale: $to"; else record_step "$f"; fi
 done <<<"$retired"
 
+# The units of the timed refresh scan, which this version does not have:
+# refreshes are asked for one pull request at a time. Found here; in step 5
+# the timer is stopped and disabled and both files go.
+old_units=()
+scan_units=$units
+for unit in tehas-refresh.timer tehas-refresh.service; do
+  [ -e "$scan_units/$unit" ] || [ -L "$scan_units/$unit" ] || continue
+  old_units+=("$unit")
+  [ "$check" = 0 ] || note "stale: $scan_units/$unit"
+done
+
 # The slice file on the host, which the console compares with the one in this
 # checkout, and what the sandbox image says of the images a cycle is given
 # (console/ops/src/update/report.rs). Inside the tests the slice is not checked
@@ -1090,7 +1099,7 @@ if [ "$check" = 1 ]; then
   bashrc_ok || asked+=(--shell-missing "$bashrc")
   rc=0
   printf '%s\n' "${report[@]}" | "$loaded_console" update report "$root" "$instance" "${slice[@]}" "${images[@]}" \
-    "${asked[@]}" --drift "$((${#changed[@]} + sandbox_drift))" --store "$store_refusal" \
+    "${asked[@]}" --drift "$((${#changed[@]} + sandbox_drift + ${#old_units[@]}))" --store "$store_refusal" \
     --login "$login_bin" "$login_fix" --steps "$steps_console" || rc=$?
   case $rc in
     0 | 1) exit "$rc" ;;
@@ -1252,6 +1261,22 @@ report_login() {
     echo "later: $login_fix   ($login_bin is not this checkout's host/login/tehas; only root installs it)"
   fi
 }
+
+# The scan's timer is stopped before its files go, so systemd holds no
+# timer whose unit file is gone. A unit systemd cannot let go of is left,
+# and the next run tries again.
+if [ "${#old_units[@]}" -gt 0 ]; then
+  if [ ! -e "$scan_units/tehas-refresh.timer" ] ||
+    systemctl --user disable --now tehas-refresh.timer >/dev/null 2>&1; then
+    for unit in "${old_units[@]}"; do
+      rm -f "$scan_units/$unit" && echo "removed: $scan_units/$unit"
+    done
+    systemctl --user daemon-reload >/dev/null 2>&1 ||
+      echo "later: systemctl --user daemon-reload   (the refresh scan's units are removed)"
+  else
+    echo "later: ./install.sh again   (systemctl --user disable --now tehas-refresh.timer failed, so the refresh scan's units were left)"
+  fi
+fi
 
 if [ "${#changed[@]}" = 0 ] && [ "$sandbox_changed" != 1 ]; then
   echo "tehas is up to date"

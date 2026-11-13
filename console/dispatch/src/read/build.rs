@@ -366,17 +366,13 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
         Value::Array(_) => json!(from),
         e => e,
     };
-    // The requests are read before the list: with the setting off, a request
-    // `tehasbot refresh --pr N` wrote starts in the lane, and the clean-up of
-    // the marks runs while it waits. A request without that marker does not.
+    // The requests are read before the list: the clean-up of the marks runs
+    // while a request waits, as well as after a refresh on record.
     let (requests, refresh_warn) = host::requests(home);
     if !refresh_warn.is_empty() {
         s["refresh_warn"] = json!(refresh_warn);
     }
-    let pr_asked = requests
-        .iter()
-        .any(|(_, r)| r.get("asked").and_then(Value::as_str) == Some("pr"));
-    if c.refresh_conflicts || !from.is_empty() || pr_asked {
+    if !from.is_empty() || !requests.is_empty() {
         s["refreshing"] = github::list(
             calls,
             &[
@@ -1779,10 +1775,17 @@ esac"#,
             w["events"][n.to_string()] = labeled(n);
         }
         w["together"] = json!([31, 32, 33]);
-        // #34 has no events to give, so its read is refused.
-        let mut s = settings();
-        s.refresh_conflicts = true;
-        let (snap, calls, gh_count, _) = poll_with(&w, &[], &s);
+        // #34 has no events to give, so its read is refused. A waiting
+        // request is what has the list read.
+        let _clock = crate::read::run::no_case_clock();
+        let dir = host(&w, &[]);
+        std::fs::write(dir.join("state/refresh/40.json"), r#"{"asked":"pr"}"#).unwrap();
+        let mut src = sources(&dir);
+        let snap = match snapshot(&mut src, &settings()) {
+            Ok(s) => s,
+            Err(f) => panic!("the stubs answer: {}", f.line),
+        };
+        let (calls, gh_count) = (calls_of(&dir, "gh"), src.calls.gh_count);
 
         for n in 31..=33u64 {
             assert_eq!(
@@ -1806,21 +1809,25 @@ esac"#,
         );
     }
 
-    /// With `TEHAS_REFRESH_CONFLICTS` off and no refresh on record, the
-    /// pull requests marked tehas:refreshing are listed while a request
-    /// `tehasbot refresh --pr N` wrote waits, and not for a request without
-    /// that marker.
+    /// With no refresh on record, the pull requests marked tehas:refreshing
+    /// are listed while a request waits, whoever wrote it, and not when none
+    /// does.
     #[test]
-    fn the_refreshing_list_is_read_with_the_setting_off_while_a_pr_request_waits() {
-        for (body, read) in [(r#"{"asked":"pr"}"#, true), (r#"{"at":"x"}"#, false)] {
+    fn the_refreshing_list_is_read_while_a_request_waits() {
+        for (body, read) in [
+            (Some(r#"{"asked":"pr"}"#), true),
+            (Some(r#"{"at":"x"}"#), true),
+            (None, false),
+        ] {
             let _clock = crate::read::run::no_case_clock();
             let mut w = world();
             w["refreshing"] = json!([]);
             let dir = host(&w, &[]);
-            std::fs::write(dir.join("state/refresh/40.json"), body).unwrap();
+            if let Some(body) = body {
+                std::fs::write(dir.join("state/refresh/40.json"), body).unwrap();
+            }
             let mut src = sources(&dir);
             let s = settings();
-            assert!(!s.refresh_conflicts, "the setting is off");
             let snap = match snapshot(&mut src, &s) {
                 Ok(s) => s,
                 Err(f) => panic!("the stubs answer: {}", f.line),
@@ -1829,10 +1836,15 @@ esac"#,
             assert_eq!(
                 calls.iter().any(|c| c.contains("tehas:refreshing")),
                 read,
-                "{body}: {calls:?}"
+                "{body:?}: {calls:?}"
             );
-            assert_eq!(snap.get("refreshing").is_some(), read, "{body}");
-            assert_eq!(snap["refresh_requests"], json!([40]));
+            assert_eq!(snap.get("refreshing").is_some(), read, "{body:?}");
+            let waiting = if body.is_some() {
+                json!([40])
+            } else {
+                json!([])
+            };
+            assert_eq!(snap["refresh_requests"], waiting);
         }
     }
 

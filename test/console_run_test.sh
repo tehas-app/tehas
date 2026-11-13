@@ -39,7 +39,7 @@ commands=(
   "$tehas analytics report" "$tehas drain" "$tehas history" "$tehas stop 7" "$tehas mcp serve"
   "$tehas dispatch" "$tehas check-product" "$tehas init-product"
   "$bot health" "$bot status" "$bot top" "$bot mcp serve" "$bot dispatch" "$bot protolab"
-  "$bot preview" "$bot improve" "$bot refresh" "$bot review" "$bot clean" "$bot github-token"
+  "$bot preview" "$bot improve" "$bot refresh --pr 50" "$bot review" "$bot clean" "$bot github-token"
 )
 for command in "${commands[@]}"; do
   name=${command#"$tree"/bin/}
@@ -96,8 +96,8 @@ t_eq "$t_rc" 78
 t_contains "$t_out" "TEHAS_REPO is not set (see "
 untouched
 reset
-t_instance TEHAS_GITHUB_APP_ID=1 TEHAS_CONTROL_ISSUE=1 TEHAS_ALLOWED_LABELERS=alice TEHAS_REFRESH_CONFLICTS=1
-t_run "$bot refresh"
+t_instance TEHAS_GITHUB_APP_ID=1 TEHAS_CONTROL_ISSUE=1 TEHAS_ALLOWED_LABELERS=alice
+t_run "$bot refresh --pr 50"
 t_eq "$t_rc" 78
 t_contains "$t_out" "TEHAS_REPO is not set (see "
 untouched
@@ -106,9 +106,15 @@ t_instance TEHAS_GITHUB_APP_ID=1 TEHAS_CONTROL_ISSUE=1 TEHAS_ALLOWED_LABELERS=al
 t_run "$bot improve"
 t_eq "$t_rc" 0
 t_eq "$t_out" "tehas improve: TEHAS_IMPROVE_REPO is not set, the improvement loop is off"
+untouched
+
+t_case "refresh with no --pr N is 64 before the settings are read"
+reset
+t_instance 'echo "settings were read" >&2; exit 9'
 t_run "$bot refresh"
-t_eq "$t_rc" 0
-t_eq "$t_out" ""
+t_eq "$t_rc" 64
+t_contains "$t_out" "tehasbot refresh: --pr takes the number of one pull request"
+t_lacks "$t_out" "settings were read"
 untouched
 
 t_case "the review's gate sits below the settings it needs"
@@ -174,7 +180,7 @@ checkout=$home/repos/widget
 
 t_case "the poll is given what a shell's load exports, no more and no fewer"
 reset
-t_instance "${T_MINIMAL[@]}" TEHAS_REFRESH_CONFLICTS=1 'SOMETHING_ELSE=x' TEHAS_WORK_REPO="$checkout"
+t_instance "${T_MINIMAL[@]}" TEHAS_REFRESH_SLOTS=2 'SOMETHING_ELSE=x' TEHAS_WORK_REPO="$checkout"
 real_git=$(PATH=${PATH#"$T/bin:"} command -v git)
 mkdir -p "$checkout"
 "$real_git" -C "$checkout" init -q

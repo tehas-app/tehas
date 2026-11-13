@@ -35,7 +35,7 @@ issue7() {
 refresh_setup() { # [<instance settings>...]
   reset
   rm -rf "$refresh_dir" "$fx"/pull-* "$fx"/refreshing.json "$fx"/caps.json "$fx"/mark-fails "$fx"/mark-fails-times "$fx"/unmark-fails "$fx"/label-missing
-  slots 2 TEHAS_REFRESH_CONFLICTS=1 "$@"
+  slots 2 "$@"
   echo '[]' >"$fx/ready.json"
   echo '[]' >"$fx/events-7.json"
   echo '[{"number":7}]' >"$fx/awaiting.json"
@@ -93,7 +93,7 @@ t_eq "$(t_calls gh | grep -c 'issue comment 7 .*does not refresh')" 1
 
 t_case "TEHAS_REFRESH_MAX sets the cap"
 refresh_setup
-slots 2 TEHAS_REFRESH_CONFLICTS=1 TEHAS_REFRESH_MAX=3
+slots 2 TEHAS_REFRESH_MAX=3
 refresh_record 2
 t_run "$dispatch"
 t_eq "$(started)" "7 "
@@ -147,7 +147,7 @@ t_eq "$(find "$refresh_dir" -name '7.json' | wc -l)" 1
 
 t_case "with TEHAS_REFRESH_SLOTS=0 full slots hold a refresh"
 refresh_setup
-slots 1 TEHAS_REFRESH_CONFLICTS=1 TEHAS_REFRESH_SLOTS=0
+slots 1 TEHAS_REFRESH_SLOTS=0
 hold 9
 t_run "$dispatch"
 release
@@ -162,7 +162,7 @@ t_eq "$(started)" ""
 
 t_case "the awaiting-merge cap does not hold a refresh, and holds the ready issues"
 refresh_setup
-slots 2 TEHAS_REFRESH_CONFLICTS=1 TEHAS_MAX_AWAITING=2
+slots 2 TEHAS_MAX_AWAITING=2
 echo '[{"number":7},{"number":20},{"number":21}]' >"$fx/awaiting.json"
 queue 3
 t_run "$dispatch"
@@ -171,7 +171,7 @@ t_eq "$(started)" "7 "
 
 t_case "refreshes go after the start order and before the rest"
 refresh_setup
-slots 4 TEHAS_REFRESH_CONFLICTS=1
+slots 4
 queue 3 8 9
 TEHAS_HOME=$T/home/tehas "$T/store-bin" order-set --issues 8 >/dev/null || t_bad "the store refused the order"
 t_run "$dispatch"
@@ -180,7 +180,7 @@ t_eq "$(started)" "8 7 3 9 "
 
 t_case "with TEHAS_REFRESH_SLOTS=0 a refresh takes a slot before a ready issue does"
 refresh_setup
-slots 1 TEHAS_REFRESH_CONFLICTS=1 TEHAS_REFRESH_SLOTS=0
+slots 1 TEHAS_REFRESH_SLOTS=0
 queue 9
 t_run "$dispatch"
 t_eq "$(started)" "7 "
@@ -191,7 +191,7 @@ t_eq "$(started)" "7 "
 
 t_case "the lane: with every cycle slot busy a refresh starts, and the hold says the lane"
 refresh_setup
-slots 3 TEHAS_REFRESH_CONFLICTS=1
+slots 3
 hold 9; hold 10; hold 11
 t_run "$dispatch"
 release
@@ -202,7 +202,7 @@ t_eq "$(jq -c '{free, refreshRoom}' "$dispatch_json")" '{"free":0,"refreshRoom":
 
 t_case "the lane and a free slot: the refresh and a ready issue both start"
 refresh_setup
-slots 2 TEHAS_REFRESH_CONFLICTS=1
+slots 2
 queue 20
 hold 9
 t_run "$dispatch"
@@ -211,7 +211,7 @@ t_eq "$(started)" "7 20 "
 
 t_case "a running refresh fills the lane: the next one waits and a cycle slot does not take it"
 refresh_setup
-slots 3 TEHAS_REFRESH_CONFLICTS=1
+slots 3
 running_refresh 8
 t_run "$dispatch"
 release
@@ -222,7 +222,7 @@ t_eq "$(find "$refresh_dir" -name '7.json' | wc -l)" 1
 
 t_case "a running refresh does not count against TEHAS_TICKET_CONCURRENCY"
 refresh_setup
-slots 1 TEHAS_REFRESH_CONFLICTS=1
+slots 1
 rm "$refresh_dir/7.json"
 queue 20
 running_refresh 8
@@ -232,37 +232,35 @@ t_eq "$(started)" "20 "
 
 t_case "TEHAS_REFRESH_SLOTS=2 runs two refreshes side by side"
 refresh_setup
-slots 2 TEHAS_REFRESH_CONFLICTS=1 TEHAS_REFRESH_SLOTS=2
+slots 2 TEHAS_REFRESH_SLOTS=2
 hold 9; hold 10
 running_refresh 8
 t_run "$dispatch"
 release
 t_eq "$(started)" "7 "
 
-t_case "new cycles leave the lane's room in the slice: three of four start, and the poll says why"
+t_case "while a request waits new cycles leave the lane's room in the slice: the refresh and three of four start, and the poll says why"
 refresh_setup
-slots 4 TEHAS_REFRESH_CONFLICTS=1
-rm "$refresh_dir/7.json"
+slots 4
 queue 20 21 22 23
 t_run "$dispatch"
-t_eq "$(started)" "20 21 22 "
+t_eq "$(started)" "7 20 21 22 "
 t_contains "$t_out" "holding: 3 of 4 free slots start: tehas.slice has room for 4 more and the refresh lane keeps 1"
 
-t_case "with three cycles in a slice of four the lane keeps the last room from a ready issue"
+t_case "with three cycles in a slice of four and a request waiting the lane keeps the last room from a ready issue"
 refresh_setup
-slots 4 TEHAS_REFRESH_CONFLICTS=1
-rm "$refresh_dir/7.json"
+slots 4
 queue 20
 hold 9; hold 10; hold 11
 t_run "$dispatch"
 release
-t_eq "$(started)" ""
+t_eq "$(started)" "7 "
 t_contains "$t_out" "holding: tehas.slice has room for 1 more and the refresh lane keeps 1"
 t_eq "$(jq -r .why "$dispatch_json")" lane
 
 t_case "a full slice holds a refresh and a ready issue alike"
 refresh_setup
-slots 4 TEHAS_REFRESH_CONFLICTS=1 TEHAS_REFRESH_SLOTS=2
+slots 4 TEHAS_REFRESH_SLOTS=2
 queue 20
 hold 9; hold 10; hold 11; hold 12
 t_run "$dispatch"
@@ -270,7 +268,7 @@ release
 t_eq "$(started)" ""
 t_eq "$(find "$refresh_dir" -name '7.json' | wc -l)" 1
 
-t_case "with refreshes off the lane keeps nothing: four of four start"
+t_case "with no request and no refresh the lane keeps nothing: four of four start"
 refresh_setup
 slots 4
 rm "$refresh_dir/7.json"
@@ -333,9 +331,11 @@ release
 t_contains "$(t_calls gh)" "$unmark_call"
 t_contains "$t_out" "it was applied by 'alice', not by tehas"
 
-t_case "a tehas:refreshing on a pull request no refresh of this host names is taken off"
+t_case "a tehas:refreshing on a pull request no refresh of this host names is taken off while a request waits"
 refresh_setup
 rm -f "$refresh_dir/7.json"
+# A request that cannot be read still waits until the poll drops it.
+echo '{}' >"$refresh_dir/8.json"
 marked_refreshing
 t_run "$dispatch"
 t_contains "$t_out" "clear pull request #50: tehas:refreshing off, no refresh on this host names it"
