@@ -218,6 +218,19 @@ t_eq "$(t_calls fake-start)" ""
 t_contains "$(t_calls gh)" "pr list --repo acme/widget --author tehas-bot[bot] --state all"
 kill "$(<"$fx/holder-9")"
 
+t_case "a closed pull request of another issue's branch that says it fixes this issue stops nothing"
+reset
+stop_by_kill
+echo '[]' >"$fx/ready.json"
+hold_proc 9
+bot_pr 8 CLOSED 2099-01-01T00:00:00Z
+jq '.[0].body = "Fixes #8, #9"' "$fx/prlist.json" >"$fx/prlist.tmp" && mv "$fx/prlist.tmp" "$fx/prlist.json"
+t_run "$dispatch"
+t_lacks "$t_out" "stop #9"
+t_eq "$(t_calls fake-stop)" ""
+still_holding 9
+kill "$(<"$fx/holder-9")"
+
 # A poll that cannot read the bot's pull requests stops nothing for a pull
 # request: a cycle is never given up on a guess. It still makes its other
 # decisions (#823 part 2).
