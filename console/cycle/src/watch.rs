@@ -397,8 +397,14 @@ pub struct Seen<'a> {
     pub stopped: bool,
     /// The time limit had passed when the container ended.
     pub at_limit: bool,
-    /// The container's stream holds nothing.
+    /// The container's stream holds nothing. False when it could not be read.
     pub log_empty: bool,
+}
+
+/// Whether the stream at `log` holds nothing. A failure to look is an error,
+/// not an empty stream: tehas work created the file before the container ran.
+pub fn stream_empty(log: &Path) -> std::io::Result<bool> {
+    fs::metadata(log).map(|m| m.len() == 0)
 }
 
 /// What that end means.
@@ -1143,7 +1149,8 @@ pub fn run(home: &Path, g: &Given, stop: Arc<AtomicBool>) -> i32 {
     // what the report makes of the run after this point may fail, and this word
     // must not go with it.
     w.write_note(&w.files.runner_exit, &rc.to_string());
-    let log_empty = fs::metadata(&g.log).map_or(true, |m| m.len() == 0);
+    let log_look = stream_empty(&g.log);
+    let log_empty = matches!(log_look, Ok(true));
     let seen_end = Seen {
         rc,
         outcome: outcome.as_ref(),
@@ -1206,6 +1213,17 @@ pub fn run(home: &Path, g: &Given, stop: Arc<AtomicBool>) -> i32 {
             g.issue
         );
         w.append_or_say(line.as_bytes());
+    }
+    if let Err(e) = &log_look {
+        if outcome.is_none() {
+            let line = format!(
+                "tehas work: issue {} ended with the container's exit {rc} and its stream {} could not be read ({e}): whether a step started is not known. Look at the disk and the file, not the driver.\n",
+                g.issue,
+                g.log.display()
+            );
+            say(line.trim_end());
+            w.append_or_say(line.as_bytes());
+        }
     }
     if w.ooms > 0 {
         say(&format!(
@@ -1607,6 +1625,24 @@ mod tests {
             })
             .killed
         );
+    }
+
+    #[test]
+    fn a_stream_that_cannot_be_read_is_not_an_empty_one() {
+        let d = dir("stream");
+        let empty = d.join("empty.jsonl");
+        fs::write(&empty, "").unwrap();
+        let full = d.join("full.jsonl");
+        fs::write(&full, "{}\n").unwrap();
+        assert!(stream_empty(&empty).unwrap());
+        assert!(!stream_empty(&full).unwrap());
+        let gone = stream_empty(&d.join("gone.jsonl"));
+        assert!(gone.is_err());
+        let s = Seen {
+            log_empty: matches!(gone, Ok(true)),
+            ..seen(1)
+        };
+        assert!(!decide(&s).nostart);
     }
 
     #[test]
