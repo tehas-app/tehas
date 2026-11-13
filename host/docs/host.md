@@ -1775,8 +1775,19 @@ built in a stage of their own at `VIPUNE_VERSION` and `OO_VERSION`, on
 `ubuntu:24.04` too: vipune's embeddings link the onnxruntime that ort-sys
 downloads, which needs glibc 2.38 or newer and did not link on Debian bookworm.
 That stage runs vipune and oo, so a binary that does
-not start stops the base build. pi is
-the version pi-rukas's own recipe pins, read from that file in the tree. The
+not start stops the base build.
+
+The base is built from pinned inputs only. Both stages start from `ubuntu:24.04`
+by digest. node, gh, bun and rustup are the versions `versions.env` names, each
+download checked against its `_SHA256` there before it runs; the first stage
+builds with `RUST_VERSION`. pi, ctx7 and parallel-cli are installed from their
+npm trees in `npm/` beside `versions.env`, as `bootstrap.sh` installs them on
+the host: `build.sh` hands that directory to the build as a context named `npm`,
+and the build stops when a lockfile is not the one whose `_LOCK_SHA256` is
+recorded. pi is `PI_VERSION`, and the build stops when that is older than the
+version pi-rukas's own recipe pins. To move the ubuntu digest, take the index
+digest from `docker buildx imagetools inspect ubuntu:24.04` and change both
+`FROM` lines. The
 user `vscode` is made at the tehas user's uid in the first layer, so the remap
 of the sandbox layer finds nothing to copy: it used to store every file twice.
 Playwright brings only its headless shell, since a container has no display.

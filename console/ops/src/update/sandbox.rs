@@ -21,15 +21,21 @@ use std::fs;
 use std::path::Path;
 
 /// The prefixes of the versions.env lines the sandbox image reads
-/// (host/sandbox/build.sh, host/sandbox/Dockerfile). The rest of the file is
+/// (host/sandbox/build.sh, its Dockerfile and base.Dockerfile). The rest of the file is
 /// bootstrap.sh's, so a change there asks for nothing but the copy.
 const IMAGE_PINS: &[&str] = &[
     "SHELLCHECK_",
     "JQ_",
     "PLAYWRIGHT_",
     "RUST_",
+    "RUSTUP_",
     "CBM_",
-    "PI_RUKAS_",
+    "PI_",
+    "CTX7_",
+    "PARALLEL_CLI_",
+    "NODE_",
+    "GH_",
+    "BUN_",
     "VIPUNE_",
     "OO_",
 ];
@@ -119,7 +125,7 @@ mod tests {
     use super::*;
     use std::os::unix::fs::PermissionsExt;
 
-    const CHECKOUT: &str = "# pins\nNODE_VERSION=22.1.0\nSHELLCHECK_VERSION=0.11.0\n\
+    const CHECKOUT: &str = "# pins\nOSV_SCANNER_VERSION=2.7.1\nSHELLCHECK_VERSION=0.11.0\n\
 SHELLCHECK_SHA256=bb\nPLAYWRIGHT_VERSION=1.55.2\nVIPUNE_VERSION=0.20.2\n\
 VIPUNE_MODEL_REVISION=r1\nVIPUNE_MODEL_SHA256_ONNX=cc\n";
 
@@ -140,7 +146,7 @@ VIPUNE_MODEL_REVISION=r1\nVIPUNE_MODEL_SHA256_ONNX=cc\n";
     #[test]
     fn a_host_copy_with_none_of_the_prefixes_owes_the_build() {
         assert!(owed(
-            Some("NODE_VERSION=22.1.0\nGH_VERSION=2.1.0\n"),
+            Some("OSV_SCANNER_VERSION=2.7.1\nCADDY_VERSION=2.11.9\n"),
             CHECKOUT
         ));
         assert!(owed(Some(""), CHECKOUT));
@@ -148,13 +154,13 @@ VIPUNE_MODEL_REVISION=r1\nVIPUNE_MODEL_SHA256_ONNX=cc\n";
 
     #[test]
     fn a_checkout_with_none_of_the_prefixes_or_none_at_all_owes_the_build() {
-        assert!(owed(Some(CHECKOUT), "NODE_VERSION=22.1.0\n"));
+        assert!(owed(Some(CHECKOUT), "OSV_SCANNER_VERSION=2.7.1\n"));
         assert!(versions_owed(Some(CHECKOUT.as_bytes()), None));
     }
 
     #[test]
     fn a_host_only_pin_moved_owes_nothing() {
-        let host = CHECKOUT.replace("NODE_VERSION=22.1.0", "NODE_VERSION=22.2.0");
+        let host = CHECKOUT.replace("OSV_SCANNER_VERSION=2.7.1", "OSV_SCANNER_VERSION=2.7.2");
         assert!(!owed(Some(&host), CHECKOUT));
     }
 
@@ -199,6 +205,23 @@ VIPUNE_VERSION=0.20.2\nVIPUNE_MODEL_REVISION=r1\nVIPUNE_MODEL_SHA256_ONNX=cc\n";
         let checkout = format!("{CHECKOUT}RUST_VERSION=1.90.0\n");
         let host = format!("{CHECKOUT}RUST_VERSION=1.91.0\n");
         assert!(owed(Some(&host), &checkout));
+    }
+
+    #[test]
+    fn the_base_image_pins_are_read_by_the_image() {
+        for (from, to) in [
+            ("NODE_SHA256=aa", "NODE_SHA256=ab"),
+            ("GH_VERSION=2.1.0", "GH_VERSION=2.2.0"),
+            ("BUN_VERSION=1.4.4", "BUN_VERSION=1.4.5"),
+            ("RUSTUP_SHA256=aa", "RUSTUP_SHA256=ab"),
+            ("PI_LOCK_SHA256=aa", "PI_LOCK_SHA256=ab"),
+            ("CTX7_VERSION=0.10.0", "CTX7_VERSION=0.10.1"),
+            ("PARALLEL_CLI_VERSION=0.9.4", "PARALLEL_CLI_VERSION=0.9.5"),
+        ] {
+            let checkout = format!("{CHECKOUT}{from}\n");
+            let host = format!("{CHECKOUT}{to}\n");
+            assert!(owed(Some(&host), &checkout), "{from}");
+        }
     }
 
     #[test]
