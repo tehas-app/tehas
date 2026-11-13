@@ -31,6 +31,26 @@ pub fn values(text: &str) -> Option<Vec<Value>> {
         .ok()
 }
 
+/// The issue's entry of one result value: the first object of its `issues`,
+/// a list or an object, whose `issue` is that whole number. Every reader of
+/// an entry goes through here, so they agree on the entry they describe.
+pub fn issue_entry(result: &Value, issue: u64) -> Option<&Value> {
+    let entries: Box<dyn Iterator<Item = &Value>> = match result.get("issues")? {
+        Value::Array(a) => Box::new(a.iter()),
+        Value::Object(o) => Box::new(o.values()),
+        _ => return None,
+    };
+    entries
+        .filter(|e| e.is_object())
+        .find(|e| e.get("issue").and_then(Value::as_u64) == Some(issue))
+}
+
+/// The issue's entry in the last of a result's values that has one: a file
+/// a re-run appended to describes the newest run.
+pub fn last_issue_entry(results: &[Value], issue: u64) -> Option<&Value> {
+    results.iter().rev().find_map(|r| issue_entry(r, issue))
+}
+
 /// A string with only the bytes of `keep`, as gsub("[^...]"; "") leaves it.
 pub fn kept(s: &str, keep: fn(char) -> bool) -> String {
     s.chars().filter(|c| keep(*c)).collect()
@@ -92,17 +112,7 @@ fn outcome_of(r: &Value, issue: u64) -> Option<Value> {
     if o.get("schemaVersion").and_then(Value::as_f64) != Some(RESULT_SCHEMA as f64) {
         return None;
     }
-    let e = match o.get("issues") {
-        Some(Value::Array(a)) => a
-            .iter()
-            .filter_map(Value::as_object)
-            .find(|e| e.get("issue").and_then(Value::as_f64) == Some(issue as f64))?,
-        Some(Value::Object(m)) => m
-            .values()
-            .filter_map(Value::as_object)
-            .find(|e| e.get("issue").and_then(Value::as_f64) == Some(issue as f64))?,
-        _ => return None,
-    };
+    let e = issue_entry(r, issue)?;
     // `.handoff.body?` of a handoff that is no object makes no value, and so
     // no object at all; a usage that is no object stops jq.
     if hides(e.get("handoff")) {
@@ -559,6 +569,39 @@ mod tests {
             7
         )
         .is_none());
+    }
+
+    #[test]
+    fn every_reader_takes_the_same_entry_of_a_result() {
+        let cases = [
+            (r#"{"issues":[{"issue":8},{"issue":7,"n":1}]}"#, Some(1)),
+            (r#"{"issues":{"a":{"issue":7,"n":1}}}"#, Some(1)),
+            (
+                r#"{"issues":[{"issue":7,"n":1},{"issue":7,"n":2}]}"#,
+                Some(1),
+            ),
+            (r#"{"issues":[{"issue":7.0,"n":1}]}"#, None),
+            (r#"{"issues":[{"issue":"7","n":1}]}"#, None),
+            (r#"{"issues":[7,{"issue":7,"n":1}]}"#, Some(1)),
+            (r#"{"issues":7}"#, None),
+            (
+                "{\"issues\":[{\"issue\":7,\"n\":1}]}\n{\"issues\":[{\"issue\":7,\"n\":2}]}",
+                Some(2),
+            ),
+            (
+                "{\"issues\":[{\"issue\":7,\"n\":1}]}\n{\"issues\":[{\"issue\":8}]}",
+                Some(1),
+            ),
+        ];
+        for (text, n) in cases {
+            let all = values(text).unwrap();
+            let got = last_issue_entry(&all, 7).map(|e| e["n"].as_u64().unwrap());
+            assert_eq!(got, n, "{text}");
+            let schema5 = text.replace("{\"issues\"", "{\"schemaVersion\":5,\"issues\"");
+            assert_eq!(outcome(&schema5, 7).is_some(), n.is_some(), "{text}");
+            let end = crate::end_failed::entry(text, 7);
+            assert_eq!(end["n"].as_u64(), n, "{text}");
+        }
     }
 
     #[test]
