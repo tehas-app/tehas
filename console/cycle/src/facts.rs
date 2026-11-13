@@ -4,7 +4,8 @@
 //! state of its workspace. One JSON object; `report` decides from it.
 //!
 //! A file is a string (a regular file and what it holds), {"link": true} (a
-//! link, which is never read), or absent. The run log is {"name", "text"}, with
+//! link, which is never read), {"unreadable": true} (a regular file that could
+//! not be read), or absent. The run log is {"name", "text"}, with
 //! {"truncated": true} when only its end is held, or {"name", "unreadable":
 //! true} for one that could not be read.
 
@@ -18,6 +19,8 @@ use crate::runner::LOG_TAIL;
 pub enum File {
     Absent,
     Link,
+    /// A regular file that is there but could not be read.
+    Unreadable,
     Text(String),
 }
 
@@ -26,6 +29,9 @@ impl File {
         match v {
             Some(Value::String(s)) => File::Text(s.clone()),
             Some(Value::Object(o)) if o.get("link") == Some(&Value::Bool(true)) => File::Link,
+            Some(Value::Object(o)) if o.get("unreadable") == Some(&Value::Bool(true)) => {
+                File::Unreadable
+            }
             _ => File::Absent,
         }
     }
