@@ -5494,16 +5494,69 @@ fn outcomes_count_how_the_cycle_ended() {
         None,
         None,
     );
+    // A second run like the first, in the same second: SQLite answers one
+    // row for both, and each map counts the two of them.
+    add_outcome_run(
+        &conn,
+        "work-5-a",
+        now - 2 * DAY,
+        Some("v1"),
+        None,
+        Some("merged"),
+        None,
+        None,
+    );
+    // A kind and a reason the guard refuses: counted under a word of the
+    // code's own, never under what the column held.
+    let long = "x".repeat(65);
+    add_outcome_run(
+        &conn,
+        "work-6-a",
+        now - 2 * DAY,
+        Some("v1"),
+        None,
+        Some("failed"),
+        Some("not a word!"),
+        None,
+    );
+    add_outcome_run(
+        &conn,
+        "work-7-a",
+        now - 2 * DAY,
+        Some("v1"),
+        None,
+        Some("parked"),
+        None,
+        Some(&long),
+    );
     let out = entries(
         &conn,
         now,
         &ofilter(Some("v1"), None, None, None, "version"),
     );
     assert_eq!(out.len(), 1);
-    assert_eq!(out[0]["runs"], 4);
-    assert_eq!(out[0]["outcomes"]["merged"], 1);
-    assert_eq!(out[0]["outcomes"]["failed"], 1);
-    assert_eq!(out[0]["outcomes"]["parked"], 1);
+    assert_eq!(out[0]["runs"], 7);
+    let sum = |map: &str| -> u64 {
+        out[0][map]
+            .as_object()
+            .unwrap()
+            .values()
+            .map(|v| v.as_u64().unwrap())
+            .sum()
+    };
+    assert_eq!(sum("outcomes"), 7, "every run is in outcomes");
+    assert_eq!(sum("failureKinds"), 2, "both failed runs carry a kind");
+    assert_eq!(sum("parkReasons"), 2, "both parked runs carry a reason");
+    assert_eq!(out[0]["failureKinds"]["unrecognised"], 1);
+    assert_eq!(out[0]["parkReasons"]["unrecognised"], 1);
+    let text = out[0].to_string();
+    assert!(
+        !text.contains("not a word") && !text.contains(&long),
+        "{text}"
+    );
+    assert_eq!(out[0]["outcomes"]["merged"], 2);
+    assert_eq!(out[0]["outcomes"]["failed"], 2);
+    assert_eq!(out[0]["outcomes"]["parked"], 2);
     assert_eq!(
         out[0]["outcomes"]["unknown"], 1,
         "a run of no outcome is counted, not dropped"

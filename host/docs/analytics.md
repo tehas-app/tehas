@@ -479,7 +479,9 @@ by version (the default) a group is a pair of `tehasVersion` and
 group with neither key. Grouped by `week` a group is `week`, the Monday that
 opens the UTC week, `YYYY-MM-DD`, newest first. A run is counted on its end,
 and a run that never ended on its start. An outcome the schema does not allow,
-or none at all, counts under `unknown`. The counting is the database's: one
+or none at all, counts under `unknown`. A failure kind or park reason that
+is recorded but is no word counts under `unrecognised`; one not recorded is
+left out of its map. The counting is the database's: one
 row per group of the window leaves SQLite, not one per run of it, which is what
 keeps the whole-year scan short enough for the poll that asks for it.
 
