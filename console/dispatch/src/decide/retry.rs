@@ -24,6 +24,26 @@ pub(crate) fn hex40(v: Option<&Value>) -> bool {
         .is_some_and(|s| s.len() == 40 && s.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')))
 }
 
+/// Why the labels `have` of an issue keep its refresh from starting, None
+/// when they do not.
+fn refresh_labels_why(have: &[String]) -> Option<String> {
+    if !has(have, "tehas:awaiting-merge") && !has(have, "needs-human-attention") {
+        return Some("it carries neither tehas:awaiting-merge nor needs-human-attention".into());
+    }
+    if has(have, "needs-human-attention") && has(have, "tehas:ready") {
+        return Some("it was handed off and carries tehas:ready".into());
+    }
+    [
+        "tehas:running",
+        "tehas:millwright-escalated",
+        "tehas:plan",
+        "tehas:planning",
+    ]
+    .into_iter()
+    .find(|l| has(have, l))
+    .map(|l| format!("it carries {l}"))
+}
+
 /// tehas_refresh_rule's refresh_why: what keeps a pull request from being
 /// refreshed, empty when nothing does. The bot's are those of `bot`.
 pub(crate) fn refresh_why(pr: &Value, bot: &str, repo: &str, control: u64) -> String {
@@ -789,6 +809,118 @@ impl Poll<'_> {
         !self.c.refresh_conflicts && req.get("asked").and_then(Value::as_str) != Some("pr")
     }
 
+    /// What of pull request `node` keeps the refresh of `n` that `req` asks
+    /// for from starting: "wait" while GitHub has not said whether it
+    /// conflicts, "busy" while it carries tehas:refreshing, empty when
+    /// nothing does, and otherwise why the request goes.
+    fn refresh_pull_why(&self, n: u64, node: &Value, req: &Value, bot: &str) -> String {
+        let number = node
+            .get("number")
+            .map(|x| x.to_string())
+            .unwrap_or("null".into());
+        let rule = refresh_why(node, bot, &self.c.repo, self.c.control);
+        let st = |k: &str| node.get(k).and_then(Value::as_str).unwrap_or("");
+        if st("state") != "OPEN" {
+            format!("pull request #{number} is not open")
+        } else if !rule.is_empty() {
+            format!("pull request #{number}: {rule}")
+        } else if node
+            .pointer("/closingIssuesReferences/nodes/0/number")
+            .and_then(Value::as_u64)
+            != Some(n)
+        {
+            format!("pull request #{number} does not close #{n}")
+        } else if node.get("headRefOid") != req.get("head_sha") {
+            format!("pull request #{number} moved since the request")
+        } else if st("mergeable") == "UNKNOWN" {
+            "wait".into()
+        } else if st("mergeable") != "CONFLICTING" {
+            format!("pull request #{number} no longer conflicts")
+        } else if node
+            .pointer("/labels/nodes")
+            .and_then(Value::as_array)
+            .is_some_and(|a| {
+                a.iter()
+                    .any(|l| l.get("name").and_then(Value::as_str) == Some("tehas:refreshing"))
+            })
+        {
+            "busy".into()
+        } else {
+            String::new()
+        }
+    }
+
+    /// refresh_sweep (#1973): with `TEHAS_REFRESH_CONFLICTS` off the timed
+    /// scan exits at once and rule 4b holds a request it wrote before, so
+    /// nothing would ever remove one. Each such request goes through the
+    /// start checks that read only what the poll already holds: it is
+    /// dropped when its issue is closed or no longer waits for a merge, or
+    /// when its pull request is closed, moved, no longer conflicts or no
+    /// longer one the factory refreshes. One that passes them still waits.
+    /// A read that failed or cannot be told keeps the request, and the poll
+    /// goes on. Runs before the demand, so `refreshHold` clears in the poll
+    /// that drops the last such request, and whatever the room.
+    pub(super) fn refresh_sweep(&mut self, bot: &str) {
+        if self.c.refresh_conflicts {
+            return;
+        }
+        for n in self.s.refresh_requests.clone() {
+            if self.running(n) || self.plan_open(n) {
+                continue;
+            }
+            let Some(req) = self.s.issues.get(&n).and_then(|i| i.request.clone()) else {
+                continue;
+            };
+            if !self.refresh_setting_held(&req) {
+                continue;
+            }
+            if let Some(why) = self.refresh_sweep_why(n, &req, bot) {
+                let _ = self.refresh_drop(n, &why);
+                self.refresh_swept.push(n);
+            }
+        }
+    }
+
+    /// Why refresh_sweep drops the request `req` of `n`, None to keep it.
+    fn refresh_sweep_why(&self, n: u64, req: &Value, bot: &str) -> Option<String> {
+        if !(req.get("pr").is_some_and(Value::is_number)
+            && hex40(req.get("head_sha"))
+            && hex40(req.get("base_sha")))
+        {
+            return Some("its request cannot be read".into());
+        }
+        let w = self.work(n);
+        if !w.is_object() {
+            return None;
+        }
+        let state = w
+            .get("state")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_lowercase();
+        if !w.get("pull_request").unwrap_or(&Value::Null).is_null() || state == "closed" {
+            return Some("it is not an open issue".into());
+        }
+        if state != "open" {
+            return None;
+        }
+        if let Some(why) = refresh_labels_why(&labels(&w)) {
+            return Some(why);
+        }
+        let pr = req["pr"].as_u64().unwrap_or(0);
+        let node = self.s.pulls.get(&pr)?;
+        if node.get("failed") == Some(&json!(true)) {
+            return None;
+        }
+        if !node.is_object() {
+            return Some(format!("pull request #{pr} cannot be read"));
+        }
+        match self.refresh_pull_why(n, node, req, bot).as_str() {
+            "" | "wait" | "busy" => None,
+            w => Some(w.to_string()),
+        }
+    }
+
     fn refresh_drop(&mut self, n: u64, why: &str) -> Step<Option<Start>> {
         self.log(format!("drop the refresh of #{n}: {why}"));
         if !self.dry {
@@ -854,24 +986,8 @@ impl Poll<'_> {
             return self.refresh_drop(n, "it is not an open issue");
         }
         let have = labels(&self.work(n));
-        if !has(&have, "tehas:awaiting-merge") && !has(&have, "needs-human-attention") {
-            return self.refresh_drop(
-                n,
-                "it carries neither tehas:awaiting-merge nor needs-human-attention",
-            );
-        }
-        if has(&have, "needs-human-attention") && has(&have, "tehas:ready") {
-            return self.refresh_drop(n, "it was handed off and carries tehas:ready");
-        }
-        for l in [
-            "tehas:running",
-            "tehas:millwright-escalated",
-            "tehas:plan",
-            "tehas:planning",
-        ] {
-            if has(&have, l) {
-                return self.refresh_drop(n, &format!("it carries {l}"));
-            }
+        if let Some(why) = refresh_labels_why(&have) {
+            return self.refresh_drop(n, &why);
         }
         let none = "this host has no approval of a person's that its pull request rests on";
         let record = match self.s.issues.get(&n).and_then(|i| i.approval.clone()) {
@@ -919,40 +1035,8 @@ impl Poll<'_> {
         if !node.is_object() {
             return self.refresh_drop(n, &format!("pull request #{pr} cannot be read"));
         }
-        let number = node
-            .get("number")
-            .map(|x| x.to_string())
-            .unwrap_or("null".into());
-        let rule = refresh_why(&node, bot, &self.c.repo, self.c.control);
+        let why = self.refresh_pull_why(n, &node, &req, bot);
         let st = |k: &str| node.get(k).and_then(Value::as_str).unwrap_or("");
-        let why = if st("state") != "OPEN" {
-            format!("pull request #{number} is not open")
-        } else if !rule.is_empty() {
-            format!("pull request #{number}: {rule}")
-        } else if node
-            .pointer("/closingIssuesReferences/nodes/0/number")
-            .and_then(Value::as_u64)
-            != Some(n)
-        {
-            format!("pull request #{number} does not close #{n}")
-        } else if node.get("headRefOid") != req.get("head_sha") {
-            format!("pull request #{number} moved since the request")
-        } else if st("mergeable") == "UNKNOWN" {
-            "wait".into()
-        } else if st("mergeable") != "CONFLICTING" {
-            format!("pull request #{number} no longer conflicts")
-        } else if node
-            .pointer("/labels/nodes")
-            .and_then(Value::as_array)
-            .is_some_and(|a| {
-                a.iter()
-                    .any(|l| l.get("name").and_then(Value::as_str) == Some("tehas:refreshing"))
-            })
-        {
-            "busy".into()
-        } else {
-            String::new()
-        };
         match why.as_str() {
             "" => {}
             "wait" => {
