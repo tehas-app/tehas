@@ -261,6 +261,43 @@ a pull request before it tags, with the head's `scripts/collect-changelog.sh`.
   the issue waits until it is approved again. The approver's own change in that
   second is still the text it approved.
 - The scratch cap counts every file a cycle writes: a scratch under `TEHAS_SCRATCH_DIR` with more than 500,000 files and directories counts as over `TEHAS_SCRATCH_MAX`, and as the largest under `TEHAS_CYCLE_STOP_FREE`, instead of as the part that was read.
+- The console's operations (setup, update, clean, health, flags, stop, the store
+  calls and the modules they share) are a library of their own in
+  `console/ops/`, which builds and tests alone. Commands, output and exit
+  statuses are unchanged; the help of `tehas disk`, `tehas limit`, `tehas pause`
+  and `tehas resume` names the new source path (#1806).
+- With `TEHAS_REFRESH_CONFLICTS` other than 1 and `TEHAS_REFRESH_SLOTS` above 0, a refresh `tehasbot refresh --pr N` asked for runs in the refresh lane, not in a cycle slot. The lane is kept only while such a request waits or a refresh runs, and the pull requests marked `tehas:refreshing` are listed and their stale marks cleared at those times too. A request without `"asked"` keeps no lane. With `TEHAS_REFRESH_SLOTS=0` refreshes take cycle slots as before. `tehas api` lists the feature `refresh-pr-lane` (#1877).
+- `tehas-cycle finish` counts only the factory's own open pull requests, as the poll does: one on a branch of the repository that the bot or an account of `TEHAS_ALLOWED_LABELERS` opened. A pull request from a fork, or from any other account, that names the issue no longer stops it. It reads the list through GraphQL and refuses when `TEHAS_ALLOWED_LABELERS` names no account.
+- A running cycle is stopped for a merged or closed pull request only when
+  that pull request is on its issue's own branch, `feature/issue-N`. A pull
+  request on another branch whose description says `Fixes #N` no longer stops
+  the cycle of #N.
+- The poll decides a cycle's end from the host's own record. A push or a pull
+  request that only the cycle's result says failed is on record and in
+  `tehas status`, but the poll no longer finishes it on its own: it waits for
+  `tehas:finish`.
+- A cycle whose result names a provider outage is parked under its cap and
+  waits for a person, with a retry box. It is no longer started again on its
+  own. A park recorded as `provider-outage` by an earlier version keeps its
+  one retry.
+- A refused `tehas:finish` tells the issue the rule's own words. What git or
+  gh said goes to `dispatch.log` on a line of its own.
+- `tehas labels` makes `tehas:prototype` and pins it in `~/tehas/state/labels`
+  with the granting labels. The Protolab puts no ticket at the prototype stage
+  while the label under that name is not the pinned one, and does not publish
+  a title changed after the labelling by an account outside
+  `TEHAS_ALLOWED_LABELERS`. With `TEHAS_ISSUE_TYPES`, who set the type is
+  checked by user id as well as login.
+- `tehas update` on a host that updates from its checkout
+  (`TEHAS_UPDATE_FROM=git`) updates only the default branch of origin. A
+  checkout on another branch, or one whose `origin/HEAD` is not set, now
+  changes nothing and exits 1. To install another branch, run `./install.sh`
+  in the checkout by hand.
+- The command printed for root when `/usr/local/bin/tehas` is not current now
+  reads `sudo <root-owned copy>/bootstrap.sh dev <user>`. The bootstrap page
+  says to run `bootstrap.sh` as root only from a copy root owns, never from
+  the tehas user's checkout or `~/tehas/current`.
+- `TEHAS_MILLWRIGHT_APP=<slug>[bot]` in `instance.env` names a second GitHub App the factory trusts as its millwright in place of its own app. The load gives it to `TEHAS_MILLWRIGHT_LOGIN`; the factory still acts as its own app, whose `tehas:ready` then counts as any outsider's. A value that is not `<slug>[bot]` stops every command with 78. A `TEHAS_MILLWRIGHT_LOGIN` line still warns and is ignored.
 
 ### Held back
 
@@ -300,6 +337,18 @@ repository named in the platform, and it is gone for every host.
 Take `TEHAS_PRIORITY_FIELD`, `TEHAS_LOW_GATE` and `TEHAS_LOW_GATE_WAIT` out of `instance.env` and `optional.env` before updating. To keep an issue first, run `tehas order set --issues <n>`. The labels `tehas:urgent` and `tehas:next` order nothing now; delete them from the repository with `gh label delete tehas:urgent` and `gh label delete tehas:next` once no issue needs them.
 
 A `preview/Dockerfile` whose `RUN` steps fetch from the network (a package install, a download) now fails to build. Put what it needs in the commit or in the `FROM` image. To try a recipe by hand, build it with `docker build --network none`.
+
+On a host where `tehas:prototype` already exists, the labels step of the
+update says `not pinned: the label tehas:prototype (<id>) was there before
+with no pin` and stays owed. Check on GitHub that it is your prototype label,
+add the line `tehas:prototype<tab><id>` to `~/tehas/state/labels`, and run
+`tehas labels` again. Until then the Protolab lists no ticket.
+
+On a host with `TEHAS_UPDATE_FROM=git`, check that the platform checkout is on
+origin's default branch and that `origin/HEAD` is set:
+`git -C ~/tehas/platform remote set-head origin --auto` sets it. Before root
+next runs `bootstrap.sh`, make root's own copy as the bootstrap page says
+(`sudo git clone <the platform repository> /opt/tehas`) and run it from there.
 
 ## v0.25.1 (2026-11-07)
 
