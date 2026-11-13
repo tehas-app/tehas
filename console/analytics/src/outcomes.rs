@@ -38,6 +38,8 @@ const WORD_MAX: usize = 64;
 const DAY: i64 = 86_400;
 /// Outcomes with no word in `runs.outcome`.
 const UNKNOWN: &str = "unknown";
+/// A failure kind or a park reason the column holds but that is no word.
+const UNRECOGNISED: &str = "unrecognised";
 /// How the entries are grouped.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum By {
@@ -99,8 +101,15 @@ enum Group {
     Week(String),
 }
 
-fn bump(counts: &mut BTreeMap<String, u64>, key: &str) {
-    *counts.entry(key.to_string()).or_default() += 1;
+fn bump(counts: &mut BTreeMap<String, u64>, key: &str, runs: u64) {
+    *counts.entry(key.to_string()).or_default() += runs;
+}
+
+/// The word a kind or a reason counts under: none when the run recorded
+/// none, and a word of the code's own when what it recorded is no word.
+fn recorded(v: &Option<String>) -> Option<String> {
+    v.as_ref()
+        .map(|_| column(v).unwrap_or_else(|| UNRECOGNISED.to_string()))
 }
 
 /// The week a moment belongs to: `YYYY-MM-DD` of its Monday.
@@ -221,14 +230,15 @@ pub fn lines(conn: &Connection, now: i64, f: &Filter) -> rusqlite::Result<Vec<St
         };
         let row = grouped.entry(group).or_default();
         // One group of the window's rows, which is how many runs it holds.
-        row.runs += r.runs.max(0) as u64;
+        let runs = r.runs.max(0) as u64;
+        row.runs += runs;
         let outcome = column(&r.outcome).unwrap_or_else(|| UNKNOWN.to_string());
-        bump(&mut row.outcomes, &outcome);
-        if let Some(k) = column(&r.kind) {
-            bump(&mut row.kinds, &k);
+        bump(&mut row.outcomes, &outcome, runs);
+        if let Some(k) = recorded(&r.kind) {
+            bump(&mut row.kinds, &k, runs);
         }
-        if let Some(p) = column(&r.park) {
-            bump(&mut row.parks, &p);
+        if let Some(p) = recorded(&r.park) {
+            bump(&mut row.parks, &p, runs);
         }
     }
     // The most runs first, and the name of the group the other way for a tie;
