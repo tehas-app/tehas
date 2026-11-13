@@ -48,6 +48,35 @@ t_contains "$(t_calls gh)" 'tehas stopped the cycle: the cap `signal`.'
 # The note is read once and gone.
 t_eq "$(find "$state/7.signal" 2>/dev/null | wc -l)" 0
 
+t_case "a container killed after its pull request opened is on record as container-killed, with its memory kills and its pull request"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
+# A driver that names its branch in an event after commit-pr, not as a step,
+# and a container killed out of memory in lens-fix, with no result.
+for s in explore develop commit-pr lens-review; do
+  jq -nc --arg s "$s" '{v: 1, kind: "step-started", issue: 7, event: {kind: "step-started", step: $s}}'
+done >"$fx/stream"
+jq -nc '{v: 1, kind: "lens-residuals-posted", issue: 7, unstable: true,
+  event: {kind: "lens-residuals-posted", prNumber: 347, branch: "feature/issue-7-checks"}}' >>"$fx/stream"
+jq -nc '{v: 1, kind: "step-started", issue: 7, event: {kind: "step-started", step: "lens-fix"}}' >>"$fx/stream"
+cat >"$fx/work.sh" <<'EOS'
+s=$TEHAS_HOME/state/cycles
+: >"$s/7.result.json"
+echo killed >"$s/7.status"
+echo 137 >"$s/7.runner_exit"
+echo 4 >"$s/7.oom"
+cp "$T/fx/stream" "$TEHAS_HOME/logs/work-7-261011-120000.jsonl"
+cp "$T/fx/stream" "$TEHAS_HOME/logs/dispatch-work-7.log"
+exit 137
+EOS
+open_pr
+t_run "$cycle 7"
+rec=$T/home/tehas/tmp/improve/window/7-261011-120000
+t_eq "$(jq -c '[.status, .step, .cap, .capReason, .oomKills, .pr]' "$rec/cycle.json")" \
+  '["handoff","lens-fix","container-killed","the container was killed with the exit status 137 and tehas did not stop it, step lens-fix in flight; 4 processes in it were killed for memory",4,"https://github.com/acme/widget/pull/347"]'
+t_contains "$(t_calls gh)" "pr list --repo acme/widget --head feature/issue-7-checks"
+t_contains "$(t_calls gh)" "https://github.com/acme/widget/pull/347"
+
 t_case "a runner that stopped itself at the time limit with no result is on record as wall-clock at the step it was in, not running"
 reset
 t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
