@@ -17,3 +17,4 @@ tehas:refreshing	1d76db	Tehas: a cycle is refreshing this pull request; do not m
 tehas:all-hands	b60205	Tehas: on the control issue, asks for all hands on this project (reported only)
 epic	3e4b9e	Tehas: an epic; its parts are its sub-issues (added to a title that starts with Epic)
 tehas:finish	c5def5	Tehas: open the draft PR of a stopped cycle; a marked comment gives the reason
+tehas:prototype	d4c5f9	Tehas: at the prototype stage, published in the Protolab (apply by hand)

@@ -16,6 +16,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use tehas_core::events::{first_unallowed_rename, label_actor};
 use tehas_core::forge::{Bounded, Forge, GhRunner, GitHub};
 use tehas_core::kinds::Kind;
 
@@ -143,24 +144,48 @@ fn pass(lab: &mut Lab, live: &Path) -> u8 {
         return 0;
     };
 
+    // A label event names a label by its current name, so the label that now
+    // carries the name must be the one `tehas labels` pinned: another label
+    // renamed to it would bring its old applications along. With no pin, or
+    // another label under the name, no ticket is at the stage.
+    let refused = match &kind {
+        Some(_) => None,
+        None if tickets.is_empty() => None,
+        None => {
+            let path = format!("repos/{}/labels/{LABEL}", lab.repo);
+            let Some(id) = gh.run(&["api", &path]).ok().and_then(|a| node_id(&a)) else {
+                say(&format!(
+                    "the label {LABEL} could not be read, nothing built or removed"
+                ));
+                return 0;
+            };
+            let pins = tehas_core::label_pins::load(&lab.home);
+            refusal(pins.get(LABEL).map(String::as_str), &id)
+        }
+    };
+    if let Some(line) = &refused {
+        say(line);
+    }
+
     let mut keep = Vec::new();
-    for ticket in &tickets {
+    for ticket in tickets.iter().filter(|_| refused.is_none()) {
         let n = ticket["number"].as_u64().unwrap_or_default();
         // The label is checked before the ticket is published: who applied it
         // most recently. An agent in a cycle holds the bot's token, and the bot
         // can label. A type is checked the same way: who set it.
         let read = match &kind {
-            Some(t) => forge.typed_by(n, t),
-            None => forge.applied_by(n, LABEL),
+            Some(t) => forge
+                .typed_by(n, t)
+                .map(|a| (a.map(|a| (a.actor, a.at)).unwrap_or_default(), None)),
+            None => forge
+                .label_events(n)
+                .map(|ev| (label_actor(&ev, LABEL), Some(ev))),
         };
-        let who = match read {
-            Ok(approval) => approval.map(|a| a.actor).unwrap_or_default(),
+        let ((who, since), events) = match read {
+            Ok(read) => read,
             Err(_) => {
                 // Not a refusal: nothing is built, and the removal keeps it.
-                say(&format!(
-                    "#{n}: its {} events could not be read, nothing built or removed",
-                    if kind.is_some() { "type" } else { "label" }
-                ));
+                say(&unread(n, kind.is_some()));
                 keep.push(n.to_string());
                 continue;
             }
@@ -175,6 +200,24 @@ fn pass(lab: &mut Lab, live: &Path) -> u8 {
         if fs::read_to_string(place.join(".stamp"))
             .is_ok_and(|had| had.trim_end_matches('\n') == stamp)
         {
+            continue;
+        }
+        // A title changed since the approval by an account outside the list
+        // is not published: the page stays as it was until the label or the
+        // type is given again.
+        let events = match events.map_or_else(|| forge.label_events(n), Ok) {
+            Ok(events) => events,
+            Err(_) => {
+                say(&unread(n, false));
+                continue;
+            }
+        };
+        if let Some(by) =
+            first_unallowed_rename(&events, &since, &who, &|w| allowed(w, &lab.allowed))
+        {
+            say(&format!(
+                "#{n}: its title was changed by '{by}' since {who} approved it, left as it was"
+            ));
             continue;
         }
         match build(lab, &mut gh, n, ticket, &stamp, &home_url) {
@@ -245,6 +288,33 @@ fn stamp_of(hash: u64, len: usize, domain: &str, design: &str) -> String {
 /// Whole logins, split by spaces, exact case. An empty name is nobody.
 fn allowed(who: &str, list: &str) -> bool {
     !who.is_empty() && list.split(' ').any(|login| login == who)
+}
+
+fn unread(n: u64, typed: bool) -> String {
+    let what = if typed { "type" } else { "label" };
+    format!("#{n}: its {what} events could not be read, nothing built or removed")
+}
+
+/// The node id of GitHub's answer for one label. None when it names none.
+fn node_id(answer: &str) -> Option<String> {
+    let v: Value = serde_json::from_str(answer).ok()?;
+    let id = v["node_id"].as_str()?;
+    (!id.is_empty()).then(|| id.to_string())
+}
+
+/// Why no application of the label counts this pass, or None when the label
+/// that carries the name is the pinned one.
+fn refusal(pin: Option<&str>, id: &str) -> Option<String> {
+    let file = tehas_core::label_pins::FILE;
+    match pin {
+        Some(p) if p == id => None,
+        Some(p) => Some(format!(
+            "refused: the label {LABEL} is not the one pinned in {file} (pinned {p}, now {id}): no ticket is at the prototype stage"
+        )),
+        None => Some(format!(
+            "refused: the label {LABEL} ({id}) has no pin in {file}: no ticket is at the prototype stage until a person pins it (see tehas labels)"
+        )),
+    }
 }
 
 fn denied(n: u64, who: &str, kind: Option<&str>) -> String {
@@ -811,6 +881,34 @@ mod tests {
         assert!(!allowed("ali", "alice bob"));
         assert!(!allowed("Alice", "alice bob"));
         assert!(!allowed("", "alice  bob"));
+    }
+
+    #[test]
+    fn only_the_pinned_label_puts_a_ticket_at_the_stage() {
+        assert_eq!(refusal(Some("LA_p"), "LA_p"), None);
+        assert_eq!(
+            refusal(Some("LA_p"), "LA_bug").unwrap(),
+            "refused: the label tehas:prototype is not the one pinned in state/labels (pinned LA_p, now LA_bug): no ticket is at the prototype stage"
+        );
+        assert!(refusal(None, "LA_p")
+            .unwrap()
+            .starts_with("refused: the label tehas:prototype (LA_p) has no pin in state/labels"));
+    }
+
+    #[test]
+    fn a_label_answer_names_its_node_id_or_none() {
+        assert_eq!(
+            node_id(r#"{"name":"tehas:prototype","node_id":"LA_p"}"#),
+            Some("LA_p".to_string())
+        );
+        for bad in [
+            r#"{"node_id":""}"#,
+            r#"{"message":"Not Found"}"#,
+            "[]",
+            "no json",
+        ] {
+            assert_eq!(node_id(bad), None, "{bad}");
+        }
     }
 
     #[test]

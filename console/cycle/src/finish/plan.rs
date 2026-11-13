@@ -2,9 +2,9 @@
 //! asked of the host.
 //!
 //! The words are the ones part 2's poll step passes down. The command reads no
-//! settings of its own, so the instance's settings stay the settings of the
-//! command that asks, and a word that is no word is refused here rather than in
-//! the middle of a push.
+//! settings of its own but the work dir and whose pull requests count, so the
+//! instance's settings stay the settings of the command that asks, and a word
+//! that is no word is refused here rather than in the middle of a push.
 
 use std::path::{Path, PathBuf};
 use tehas_core::text::disarm;
@@ -31,6 +31,10 @@ pub struct Plan {
     /// Where the work is pushed. `None` is GitHub's URL of `repo`, as a host's
     /// workspaces are cloned; a case names a repository of its own.
     pub remote: Option<String>,
+    /// `TEHAS_BOT_LOGIN` and `TEHAS_ALLOWED_LABELERS`: whose open pull requests
+    /// on a branch of `repo` stop a run (`tehas_core::accounts::own_pull`).
+    pub bot: String,
+    pub allowed: Vec<String>,
 }
 
 impl Plan {
@@ -62,6 +66,9 @@ impl Plan {
         }
         if self.reason.trim().is_empty() {
             return Err("the reason is nothing".to_string());
+        }
+        if self.allowed.is_empty() {
+            return Err("TEHAS_ALLOWED_LABELERS names no account".to_string());
         }
         Ok(())
     }

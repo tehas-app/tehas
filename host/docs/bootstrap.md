@@ -37,18 +37,42 @@ checkouts and tehas itself come after it, on the [new project page](/new-project
 ## Run it
 
 ```
-git clone <the platform repository> ~/tehas/platform
-cd ~/tehas/platform
+sudo git clone <the platform repository> /opt/tehas   # root's own copy: see below
+cd /opt/tehas
 sudo ./bootstrap.sh root boss     # 1. as root, naming the tehas user; runs step 2 as boss too
-./bootstrap.sh check              # 3. as the tehas user: one line per tool, and one each for the slice, its rule and its reload unit
-./bootstrap.sh user               # 4. in a checkout, after its first ./install.sh: pi-rukas, which needs the console
 sudo ./bootstrap.sh slice         # only if step 1 could not install the slice, or it changed
 sudo ./bootstrap.sh dev boss alice   # optional: let the account alice type "tehas dev"
 sudo ./bootstrap.sh clock         # optional, for a host that is a VM: see below
 ```
 
+Then as the tehas user, in its own checkout:
+
+```
+git clone <the platform repository> ~/tehas/platform
+cd ~/tehas/platform
+./bootstrap.sh check              # 3. one line per tool, and one each for the slice, its rule and its reload unit
+./bootstrap.sh user               # 4. after the first ./install.sh: pi-rukas, which needs the console
+```
+
 If the platform repository is private, the clone needs the deploy key from the
 credentials section first; create that key by hand and come back.
+
+### Root runs its own copy
+
+Root runs `bootstrap.sh` only from a copy of the platform that root owns and
+no other account can write, such as `/opt/tehas` above. Never run it as root
+from the tehas user's checkout or from `~/tehas/current`: the tehas user, and so
+anything that runs as that user, can change those files, and root would run
+what they hold. A command tehas prints for root, such as
+`sudo <root-owned copy>/bootstrap.sh dev boss`, means that copy.
+
+Before each later run, bring root's copy to the version the host runs, from the
+platform repository and not from the tehas user's files:
+
+```
+sudo git -C /opt/tehas fetch --tags origin
+sudo git -C /opt/tehas checkout --detach vX.Y.Z   # the host's version; on a checkout host, origin/main
+```
 
 ### 1. `root <user>`
 
@@ -78,8 +102,8 @@ Last, it runs step 2, `user`, as the tehas user, with `runuser -l`. That is a
 new login session, which reads the groups again, so it has the `docker` group
 and there is no logout in the middle. A shell of that user that was open before
 gets the group at its next login. The user must be able to read the directory
-`bootstrap.sh` is in: a checkout or a release unpacked under the user's home
-is. `--root-only` stops before step 2, for running it by hand later.
+`bootstrap.sh` is in: root's copy in `/opt/tehas`, cloned with root's default
+umask, is. `--root-only` stops before step 2, for running it by hand later.
 
 ### `slice`
 

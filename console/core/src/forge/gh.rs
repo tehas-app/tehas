@@ -281,7 +281,7 @@ pub(crate) const ISSUE_TYPES: &str = "query($owner: String!, $name: String!) { r
 
 /// The question of an issue's type and the newest changes of it, each with the
 /// account that made it.
-pub(crate) const TYPE_EVENTS: &str = "query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) { issue(number: $number) { issueType { name } timelineItems(itemTypes: [ISSUE_TYPE_ADDED_EVENT, ISSUE_TYPE_CHANGED_EVENT, ISSUE_TYPE_REMOVED_EVENT], last: 20) { nodes { __typename ... on IssueTypeAddedEvent { createdAt actor { login } issueType { name } } ... on IssueTypeChangedEvent { createdAt actor { login } issueType { name } } ... on IssueTypeRemovedEvent { createdAt actor { login } issueType { name } } } } } } }";
+pub(crate) const TYPE_EVENTS: &str = "query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) { issue(number: $number) { issueType { name } timelineItems(itemTypes: [ISSUE_TYPE_ADDED_EVENT, ISSUE_TYPE_CHANGED_EVENT, ISSUE_TYPE_REMOVED_EVENT], last: 20) { nodes { __typename ... on IssueTypeAddedEvent { createdAt actor { login ...on User { databaseId } ...on Bot { databaseId } } issueType { name } } ... on IssueTypeChangedEvent { createdAt actor { login ...on User { databaseId } ...on Bot { databaseId } } issueType { name } } ... on IssueTypeRemovedEvent { createdAt actor { login ...on User { databaseId } ...on Bot { databaseId } } issueType { name } } } } } } }";
 
 fn graphql(out: &str) -> Result<Value, String> {
     serde_json::from_str(out).map_err(|_| "the answer is no JSON".to_string())
@@ -314,9 +314,12 @@ pub(crate) fn parse_issue_types(out: &str) -> Result<Vec<String>, String> {
 /// GitHub gives the timeline oldest first, so the newest change is the last.
 /// It names the setter only when it is the change that set `name`: a removal,
 /// a change to another type, or none at all, and the type came some way the
-/// page does not show, which counts for nobody.
+/// page does not show, which counts for nobody. A listed login whose actor
+/// does not carry its recorded user id counts for nobody too, as in a label
+/// event.
 pub(crate) fn parse_typed_by(out: &str, name: &str) -> Result<Option<super::Approval>, String> {
-    let v = graphql(out)?;
+    let mut v = graphql(out)?;
+    crate::accounts::vouch(&mut v);
     let Some(issue) = v
         .pointer("/data/repository/issue")
         .filter(|i| i.is_object())

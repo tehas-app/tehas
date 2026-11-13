@@ -26,19 +26,32 @@ t_eq "$(t_calls docker)" ""
 # Nothing was started and nothing was taken back off the list.
 t_eq "$(owed_steps)" "edge --force-recreate"
 
-t_case "a checkout on a branch that is not the remote's default says so"
+t_case "a checkout on a branch that is not the remote's default is not pulled or installed"
 instance
 platform 0 'echo "installed: nothing"'
 push_branch other
 git -C "$checkout" fetch -q origin
-git -C "$checkout" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main
 git -C "$checkout" checkout -q other
+before=$(head_sha)
 t_run "$update"
-t_eq "$t_rc" 0
-t_contains "$t_out" "checkout: $checkout is on branch other; the default branch of origin is main"
-t_contains "$t_out" "checkout: other is up to date at $(head_sha)"
+t_eq "$t_rc" 1
+t_contains "$t_out" "checkout: $checkout is on branch other; tehas update installs only the default branch of origin, main"
+t_contains "$t_out" "run ./install.sh in it by hand to install other"
 t_eq "$(git -C "$checkout" symbolic-ref --quiet --short HEAD)" "other"
-t_eq "$(t_calls install)" "install "
+t_eq "$(head_sha)" "$before"
+t_eq "$(t_calls install)" ""
+
+t_case "a checkout that does not know the remote's default branch is not pulled"
+instance
+platform 1 'echo "installed: nothing"'
+git -C "$checkout" symbolic-ref --delete refs/remotes/origin/HEAD
+before=$(head_sha)
+t_run "$update"
+t_eq "$t_rc" 1
+t_contains "$t_out" "does not know the default branch of origin; nothing was changed"
+t_contains "$t_out" "remote set-head origin --auto"
+t_eq "$(head_sha)" "$before"
+t_eq "$(t_calls install)" ""
 
 t_case "a dirty checkout changes nothing and runs no install.sh"
 instance
@@ -376,6 +389,8 @@ t_case "a branch origin does not have stops before install.sh"
 instance
 platform 0 'echo "installed: nothing"'
 git -C "$checkout" checkout -q -b local-only
+# A default branch the remote has since lost, so the branch passes as the default.
+git -C "$checkout" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/local-only
 before=$(head_sha)
 t_run "$update"
 t_eq "$t_rc" 1
