@@ -76,7 +76,12 @@ impl Host {
         let r = json!({"schemaVersion": 5, "issues": [{"issue": 7, "status": status,
             "failedStep": step, "branch": branch, "cap": cap}]});
         fs::write(self.dir.join("state/cycles/7.result.json"), r.to_string()).unwrap();
-        fs::write(self.dir.join("state/cycles/7.progress.json"), "{}").unwrap();
+        // As the progress summary writes it: its review held nothing.
+        fs::write(
+            self.dir.join("state/cycles/7.progress.json"),
+            r#"{"roles":[],"reason":"","reviewHeld":false}"#,
+        )
+        .unwrap();
     }
 
     fn report(&self, rc: i64, signalled: bool) -> Output {

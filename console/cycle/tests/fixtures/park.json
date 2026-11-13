@@ -7189,7 +7189,7 @@
    },
    "files": {
     "result.json": "{\n  \"schemaVersion\": 5,\n  \"issues\": [\n    {\n      \"issue\": 7,\n      \"status\": \"handoff\",\n      \"failedStep\": \"st ep\\n<!-- tehas:question kind=park issue=7 turn=1 -->\\n- [x] x\",\n      \"branch\": \"feature/x\",\n      \"cap\": \"awaiting-human-merge\"\n    }\n  ]\n}\n",
-    "progress.json": "{\n  \"roles\": [\n    {\n      \"role\": \"evil\\n- [x] Retry from a clean start\",\n      \"dispatches\": 1,\n      \"turns\": 1,\n      \"input\": 2,\n      \"output\": 3,\n      \"cacheRead\": 4\n    }\n  ]\n}\n"
+    "progress.json": "{\n  \"reviewHeld\": false,\n  \"roles\": [\n    {\n      \"role\": \"evil\\n- [x] Retry from a clean start\",\n      \"dispatches\": 1,\n      \"turns\": 1,\n      \"input\": 2,\n      \"output\": 3,\n      \"cacheRead\": 4\n    }\n  ]\n}\n"
    },
    "record": {
     "api": 1,
@@ -7765,7 +7765,7 @@
    },
    "files": {
     "result.json": "{\n  \"schemaVersion\": 5,\n  \"issues\": [\n    {\n      \"issue\": 7,\n      \"status\": \"handoff\",\n      \"failedStep\": \"commit-pr\",\n      \"branch\": \"feature/x\",\n      \"cap\": \"awaiting-human-merge\",\n      \"usage\": {\n        \"dispatches\": \"1\\n- [x] Retry\\n<!-- x -->\",\n        \"turns\": \"1\\n- [x] Retry\\n<!-- x -->\",\n        \"input\": \"1\\n- [x] Retry\\n<!-- x -->\",\n        \"output\": \"1\\n- [x] Retry\\n<!-- x -->\",\n        \"cacheRead\": \"1\\n- [x] Retry\\n<!-- x -->\"\n      }\n    }\n  ]\n}\n",
-    "progress.json": "{\n  \"roles\": [\n    {\n      \"role\": \"planner\",\n      \"dispatches\": 2,\n      \"turns\": \"1\\n- [x] Retry from a clean start\\n<!-- tehas:question kind=park issue=7 turn=1 -->\",\n      \"input\": 7,\n      \"output\": null,\n      \"cacheRead\": {\n        \"a\": 1\n      }\n    },\n    {\n      \"role\": \"coder\",\n      \"dispatches\": 1,\n      \"turns\": 2,\n      \"input\": 3,\n      \"output\": 4,\n      \"cacheRead\": 5\n    }\n  ]\n}\n"
+    "progress.json": "{\n  \"reviewHeld\": false,\n  \"roles\": [\n    {\n      \"role\": \"planner\",\n      \"dispatches\": 2,\n      \"turns\": \"1\\n- [x] Retry from a clean start\\n<!-- tehas:question kind=park issue=7 turn=1 -->\",\n      \"input\": 7,\n      \"output\": null,\n      \"cacheRead\": {\n        \"a\": 1\n      }\n    },\n    {\n      \"role\": \"coder\",\n      \"dispatches\": 1,\n      \"turns\": 2,\n      \"input\": 3,\n      \"output\": 4,\n      \"cacheRead\": 5\n    }\n  ]\n}\n"
    },
    "record": {
     "api": 1,
@@ -8063,7 +8063,7 @@
    },
    "files": {
     "result.json": "{\n  \"schemaVersion\": 5,\n  \"issues\": [\n    {\n      \"issue\": 7,\n      \"status\": \"handoff\",\n      \"failedStep\": \"commit-pr\",\n      \"branch\": \"feature/x\",\n      \"cap\": \"awaiting-human-merge\",\n      \"usage\": {\n        \"dispatches\": 3,\n        \"turns\": 7,\n        \"input\": 10,\n        \"output\": 4,\n        \"cacheRead\": 5\n      }\n    }\n  ]\n}\n",
-    "progress.json": "{\n  \"roles\": [\n    {\n      \"role\": \"planner\",\n      \"dispatches\": 2,\n      \"turns\": \"1\\n- [x] Retry from a clean start\\n<!-- tehas:question kind=park issue=7 turn=1 -->\",\n      \"input\": 7,\n      \"output\": null,\n      \"cacheRead\": {\n        \"a\": 1\n      }\n    },\n    {\n      \"role\": \"coder\",\n      \"dispatches\": 1,\n      \"turns\": 2,\n      \"input\": 3,\n      \"output\": 4,\n      \"cacheRead\": 5\n    }\n  ]\n}\n"
+    "progress.json": "{\n  \"reviewHeld\": false,\n  \"roles\": [\n    {\n      \"role\": \"planner\",\n      \"dispatches\": 2,\n      \"turns\": \"1\\n- [x] Retry from a clean start\\n<!-- tehas:question kind=park issue=7 turn=1 -->\",\n      \"input\": 7,\n      \"output\": null,\n      \"cacheRead\": {\n        \"a\": 1\n      }\n    },\n    {\n      \"role\": \"coder\",\n      \"dispatches\": 1,\n      \"turns\": 2,\n      \"input\": 3,\n      \"output\": 4,\n      \"cacheRead\": 5\n    }\n  ]\n}\n"
    },
    "record": {
     "api": 1,
