@@ -2,6 +2,7 @@
 Description=Tehas: remove what the host can make again
 
 [Service]
+NoNewPrivileges=yes
 Type=oneshot
 # No redirect: tehasbot clean is the one writer of logs/clean.log and prints
 # each line as well, so a redirect into that file would write every line of a

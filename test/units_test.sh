@@ -101,4 +101,16 @@ for unit in "$units"/*.service; do
 done
 t_eq "$missing" ""
 
+t_case "every service gains no privileges through what it runs"
+# Nothing a unit runs needs a setuid program: docker is reached through its
+# socket and the group, and other units are started through systemd.
+for unit in "$units"/*.service; do
+  t_eq "${unit##*/}:$(grep -c '^NoNewPrivileges=yes$' "$unit")" "${unit##*/}:1"
+done
+
+t_case "the services that never end have a memory ceiling"
+for name in mcp top energy; do
+  t_eq "$name:$(sed -n 's/^MemoryMax=//p' "$units/tehas-$name.service")" "$name:256M"
+done
+
 t_done
