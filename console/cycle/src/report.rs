@@ -642,15 +642,41 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         }
     }
     let watched = f.file("runner_exit").text().is_some();
-    // The note of a container that never started.
+    // The note of a container that never started. A regular file that could
+    // not be read is still the note, with its status not known. A link or a
+    // text out of shape is no note, and is said.
     let mut nostart_rc = String::new();
-    if let Some(t) = f.file("nostart").text() {
-        nostart_rc = words(t, Some(100)).first().cloned().unwrap_or_default();
-        if !re(r"^[1-9][0-9]{0,2}$", &nostart_rc) {
-            nostart_rc.clear();
+    let mut nostart_seen = false;
+    match f.file("nostart") {
+        File::Text(t) => {
+            nostart_rc = words(t, Some(100)).first().cloned().unwrap_or_default();
+            if re(r"^[1-9][0-9]{0,2}$", &nostart_rc) {
+                nostart_seen = true;
+            } else {
+                nostart_rc.clear();
+                if no_result {
+                    warn(
+                        &mut r,
+                        format!("the note of #{issue} that its container never started holds no exit status of 1 to 999, so it is not read"),
+                    );
+                }
+            }
         }
+        File::Link if no_result => warn(
+            &mut r,
+            format!(
+                "the note of #{issue} that its container never started is a link, it is not read"
+            ),
+        ),
+        File::Unreadable if no_result => {
+            nostart_seen = true;
+            warn(
+                &mut r,
+                format!("the note of #{issue} that its container never started could not be read, so its exit status is not known"),
+            );
+        }
+        _ => {}
     }
-    let nostart_seen = !nostart_rc.is_empty();
     let read_log_steps = no_result && watched && progress_seen;
     // The two stop files of tehas work, each read ONCE: its seconds go with
     // its step, so the step below and the stop below cannot disagree. A first
@@ -757,7 +783,7 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
     if !disk_step.is_empty() {
         step_wanted = false;
     }
-    if !nostart_rc.is_empty() {
+    if nostart_seen {
         step_wanted = false;
     }
     if !stalled_step.is_empty() || !timed_step.is_empty() {
@@ -812,7 +838,7 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
     if step == "-" {
         step_from = "result";
     }
-    if !nostart_rc.is_empty() && no_result {
+    if nostart_seen && no_result {
         step = "no-step".into();
         step_from = "nostart";
     }
@@ -964,7 +990,12 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
     let mut stop_why = String::new();
     if nostart_seen && no_result {
         own = "runner-never-started";
-        stop_why = format!("the container ended with the exit status {nostart_rc} and wrote no line of its stream, so the driver wrote no event and no step started");
+        let ended = if nostart_rc.is_empty() {
+            "with an exit status that could not be read".to_string()
+        } else {
+            format!("with the exit status {nostart_rc}")
+        };
+        stop_why = format!("the container ended {ended} and wrote no line of its stream, so the driver wrote no event and no step started");
     } else if timed_secs != "0" && (cap.is_empty() || status == "timeout") {
         own = "wall-clock";
         stop_why = if timed_by == "runner" {
