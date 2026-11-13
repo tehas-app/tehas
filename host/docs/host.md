@@ -1422,7 +1422,9 @@ Cycles that run side by side know nothing of each other:
 By default a container is on Docker's default bridge and can connect to any
 address: the host's own ports, the local network and the internet. With
 `TEHAS_EGRESS=1` in `instance.env`, a cycle, a planning turn, a review and a
-`tehas dev` session are put on `tehas-egress` instead, an internal Docker
+`tehas dev` session are put on `tehas-egress` instead, and so are the two
+containers before a cycle, the push check and the install of the product's
+dependencies, an internal Docker
 network with no way out and no address on the host. Each is given
 `HTTPS_PROXY` and `HTTP_PROXY` (and the lower-case spellings, and
 `NODE_USE_ENV_PROXY=1` for node) naming the proxy, `http://tehas-egress:3128`.
@@ -1461,9 +1463,9 @@ again.
 Checked on 2026-11-06 with the pi-rukas image on a development machine: curl,
 git, gh, npm, cargo and bun went through the proxy, node 22 only with
 `NODE_USE_ENV_PROXY=1`, and a direct connection or a name not on the list
-failed. Not yet: a whole cycle on a host. The container that installs the
-product's dependencies before a cycle and the push check stay on the default
-bridge; neither is given the cycle's variables.
+failed. Not yet: a whole cycle on a host. An install that fetches from a
+host not on the list fails with the cycle not started: add the host to
+`TEHAS_EGRESS_HOSTS`.
 
 ### The slice
 

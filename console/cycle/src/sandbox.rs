@@ -222,8 +222,8 @@ pub fn table() -> String {
     let none: [String; 0] = [];
     let runs = [
         sandbox::capabilities(image),
-        sandbox::push_check(&none, "", &none, "", "", image),
-        sandbox::install_run(&none, &none, "", "", "", image, ""),
+        sandbox::push_check(&none, "", &none, &none, "", "", image),
+        sandbox::install_run(&none, "", &none, "", "", image, ""),
         sandbox::cycle_run(&sandbox::CycleRun {
             name: "",
             limits: &none,

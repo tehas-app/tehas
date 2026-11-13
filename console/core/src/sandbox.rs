@@ -248,10 +248,12 @@ pub fn cycle_variables(verify: &str, child_seconds: u64, deadline: Option<i64>) 
 /// The container that asks whether the sandbox can push, before a cycle spends
 /// an hour of model time: a dry run needs the same credentials a real push does
 /// and creates nothing. It is outside the slice: a container of a few seconds.
+/// `network` is the cycle's [`network`], so it reaches only what the cycle can.
 pub fn push_check(
     security: &[String],
     user: &str,
     env: &[String],
+    network: &[String],
     tree: &str,
     host: &str,
     image: &str,
@@ -260,6 +262,7 @@ pub fn push_check(
     w.extend_from_slice(security);
     w.extend(words(&["--user", user, "-e", "HOME=/home/vscode"]));
     w.extend_from_slice(env);
+    w.extend_from_slice(network);
     w.extend(words(&["-w", tree, "-v", &format!("{host}:{tree}")]));
     w.extend(words(&["--entrypoint", "git", image]));
     w.extend(words(&["push", "--dry-run", "origin"]));
@@ -270,20 +273,22 @@ pub fn push_check(
 /// The container that installs the product's dependencies in a cycle's
 /// workspace before the cycle starts: <script> is [`crate::install::script`].
 /// It has the cycle's limits and the workspace at the cycle's path, and none of
-/// the cycle's variables: an install runs code no one reviewed.
+/// the cycle's variables: an install runs code no one reviewed. `held` is the
+/// cycle's limits and then its security options; `network` is the cycle's
+/// [`network`], so it reaches only what the cycle can.
 pub fn install_run(
-    limits: &[String],
-    security: &[String],
+    held: &[String],
     user: &str,
+    network: &[String],
     tree: &str,
     host: &str,
     image: &str,
     script: &str,
 ) -> Vec<String> {
     let mut w = words(&["docker", "run", "--rm"]);
-    w.extend_from_slice(limits);
-    w.extend_from_slice(security);
+    w.extend_from_slice(held);
     w.extend(words(&["--user", user, "-e", "HOME=/home/vscode"]));
+    w.extend_from_slice(network);
     w.extend(words(&["-w", tree, "-v", &format!("{host}:{tree}")]));
     w.extend(words(&["--entrypoint", "bash", image]));
     w.extend(words(&["-c", script]));
