@@ -82,6 +82,70 @@
    }
   },
   {
+   "case": "a park whose question is no longer on record does not hold a new tehas:ready",
+   "snapshot": {
+    "ready": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       },
+       {
+        "name": "needs-human-attention"
+       },
+       {
+        "name": "tehas:question"
+       }
+      ]
+     }
+    ],
+    "endpoint": {
+     "end": "main"
+    }
+   },
+   "body": {
+    "7": "Words."
+   },
+   "work": {
+    "7": {
+     "body": "Words.",
+     "labels": [
+      {
+       "name": "needs-human-attention"
+      },
+      {
+       "name": "tehas:question"
+      },
+      {
+       "name": "tehas:ready"
+      }
+     ]
+    }
+   },
+   "parked": {
+    "7": {
+     "reason": "intent-park",
+     "body": "Words.",
+     "told": false,
+     "retries": 0,
+     "question": null
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ],
+    "log": [
+     "lift #7: its last cycle parked on intent-park and the body has not changed since, lifted as its park has no question on record to tick"
+    ],
+    "log_lacks": [
+     "hold #7: its last cycle parked on intent-park and the body has not changed since"
+    ]
+   }
+  },
+  {
    "case": "and the next poll of the same park only logs, with no comment",
    "snapshot": {
     "ready": [
