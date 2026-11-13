@@ -205,7 +205,10 @@ failure, for `tehasbot cycle`. They come from the result (`usage.byRole` and
 (`features.usageByRole`, `features.failureReason`). An image that does not,
 v0.12.80, gives the usage of the stable `dispatch-completed` lines, each
 counted once by its key, and a reason read from lines the runner marks
-unstable, which may be empty.
+unstable, which may be empty. Its `from` says which: `result`, `progress`
+when the run wrote no result, or `bad-result` when the result is there but
+gives no entry for the issue (a link, no JSON, another schema version, or no
+entry with the issue's number).
 Before the cycle's container, after the push check, `tehas work` installs the
 product's dependencies in the workspace, in a container of the sandbox image
 with the cycle's limits and security options, the workspace and no token (see
