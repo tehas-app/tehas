@@ -68,8 +68,9 @@ done
 t_case "a cycle's unit starts the cycle from its own copy of the code"
 # tehas-cycle run copies bin/, libexec/ and lib/ and execs tehasbot cycle from
 # the copy, so an update while the cycle runs does not change its code (#989).
+# The instance is the shell's first argument, never part of the script.
 t_eq "$(sed -n 's/^ExecStart=//p' "$units/tehas-cycle@.service")" \
-  "/bin/bash -c \". %h/tehas/env.sh && exec %h/tehas/libexec/tehas-cycle run %i >> %h/tehas/logs/dispatch.log 2>&1\""
+  "/bin/bash -c \". %h/tehas/env.sh && exec %h/tehas/libexec/tehas-cycle run \\\"\$\$1\\\" >> %h/tehas/logs/dispatch.log 2>&1\" tehas-cycle %i"
 
 t_case "the poll's unit removes the file that starts it before the poll runs"
 # A poll that stops on its settings writes nothing, so the unit removes the
@@ -100,5 +101,17 @@ for unit in "$units"/*.service; do
   fi
 done
 t_eq "$missing" ""
+
+t_case "every service gains no privileges through what it runs"
+# Nothing a unit runs needs a setuid program: docker is reached through its
+# socket and the group, and other units are started through systemd.
+for unit in "$units"/*.service; do
+  t_eq "${unit##*/}:$(grep -c '^NoNewPrivileges=yes$' "$unit")" "${unit##*/}:1"
+done
+
+t_case "the services that never end have a memory ceiling"
+for name in mcp top energy; do
+  t_eq "$name:$(sed -n 's/^MemoryMax=//p' "$units/tehas-$name.service")" "$name:256M"
+done
 
 t_done

@@ -2,6 +2,7 @@
 Description=Tehas: one run of the review loop, reads the branch since the last review
 
 [Service]
+NoNewPrivileges=yes
 Type=oneshot
 ExecStart=/bin/bash -c ". %h/tehas/env.sh && exec %h/tehas/bin/tehasbot review >> %h/tehas/logs/review-timer.log 2>&1"
 # A review is one headless turn: TEHAS_PLAN_TIMEOUT bounds it (7200 s by

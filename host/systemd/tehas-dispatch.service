@@ -2,6 +2,7 @@
 Description=Tehas: one poll of the issue queue, starts the cycles
 
 [Service]
+NoNewPrivileges=yes
 Type=oneshot
 # The file that started this poll goes before it runs, so a poll that stops on
 # its settings does not leave it for tehas-dispatch.path to start again at once.

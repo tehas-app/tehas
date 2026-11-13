@@ -1422,7 +1422,9 @@ Cycles that run side by side know nothing of each other:
 By default a container is on Docker's default bridge and can connect to any
 address: the host's own ports, the local network and the internet. With
 `TEHAS_EGRESS=1` in `instance.env`, a cycle, a planning turn, a review and a
-`tehas dev` session are put on `tehas-egress` instead, an internal Docker
+`tehas dev` session are put on `tehas-egress` instead, and so are the two
+containers before a cycle, the push check and the install of the product's
+dependencies, an internal Docker
 network with no way out and no address on the host. Each is given
 `HTTPS_PROXY` and `HTTP_PROXY` (and the lower-case spellings, and
 `NODE_USE_ENV_PROXY=1` for node) naming the proxy, `http://tehas-egress:3128`.
@@ -1461,9 +1463,9 @@ again.
 Checked on 2026-11-06 with the pi-rukas image on a development machine: curl,
 git, gh, npm, cargo and bun went through the proxy, node 22 only with
 `NODE_USE_ENV_PROXY=1`, and a direct connection or a name not on the list
-failed. Not yet: a whole cycle on a host. The container that installs the
-product's dependencies before a cycle and the push check stay on the default
-bridge; neither is given the cycle's variables.
+failed. Not yet: a whole cycle on a host. An install that fetches from a
+host not on the list fails with the cycle not started: add the host to
+`TEHAS_EGRESS_HOSTS`.
 
 ### The slice
 
@@ -1913,10 +1915,20 @@ that cycle ran.
 | Preview sweep | systemd user timer `tehas-preview-sweep.timer`, every 3 hours | `jq .lastSweep ~/tehas/live/previews.json` |
 | One preview | a container `tehas-preview-<pr>` | `docker ps --filter label=tehas.preview` |
 
+Every service in `host/systemd` sets `NoNewPrivileges=yes`: nothing a unit
+runs gains rights through a setuid program. The three that never end,
+`tehas-mcp`, `tehas-top` and `tehas-energy`, also have `MemoryMax=256M`. The
+ceiling holds where the user's systemd is given the memory controller, as
+current systemd does by default.
+
 The docs server binds to `TEHAS_HOST_ADDR`, port 8080. Without the setting it
 stays on `127.0.0.1`. `docker compose` reads the address from the environment,
 so each line above sources `~/tehas/env.sh` first: run from a shell that has
 not, the container is made from the defaults below.
+
+Both containers have a read-only root with `/config` and `/data` in memory,
+every capability dropped but `NET_BIND_SERVICE`, which the image's caddy is
+marked with, and `no-new-privileges`.
 
 Both compose files name Caddy by digest rather than by tag, with the version in
 the comment above the image. `versions.env` records the version and the digest
@@ -2060,7 +2072,7 @@ Both are outside the repository and the tehas tree.
 | What else enters the container         | `PI_ENSEMBLE_*` settings, the bot's git name and email, the host aliases. Not the rest of the host environment                          |
 | Host paths mounted                     | The cycle's own workspace, `~/tehas/work/<name>-<issue>`, at the same path in every container; its own transcripts, `~/.pi/agent/ensemble-runs/issue-<issue>`; its own state directory, `~/tehas/work/<name>-<issue>.state` (read-write); its own `models.json` from that directory, `mcp.json`, Pi's `settings.json` (read-only). Only the last two are the same host file in every container; nothing one container writes is mounted for another |
 | Not reachable from the container       | The Docker socket, SSH keys, `~/.config/tehas`, the platform checkout, the product checkout, the instance directory                     |
-| What the host runs from the workspace  | Nothing but the cleaner's one bounded `git rev-parse` of a worktree's gitdir, which reads no config of the tree and takes nothing from it. Every other git the host runs is in the product checkout, which no container has written. It reads nothing from the workspace: a cycle's outcome is the runner's result, from its standard output |
+| What the host runs from the workspace  | Nothing but the cleaner's one bounded `git rev-parse` of a worktree's gitdir, which reads no config of the tree and takes nothing from it. Every other git the host runs is in the product checkout, which no container has written. It reads three files of the workspace, as data: the product's `.pi/settings.json`, for the retry line of the cycle's log, and the runner's record of the attempt, `.pi/work-state/<issue>.json` or `.pi/lean-state/<issue>.json`. Each only as a plain file with no link on the way, and only up to a size bound. A cycle's outcome is the runner's result, from its standard output |
 | The indexing container                 | `tehas index` runs the indexer, not an agent: a clone of the product read-only, and `~/tehas/state/index` to write, which no other container is given; no network, no token            |
 | The improvement loop's container       | `tehasbot improve` runs plain Pi, not pi-rukas: the records of the cycles read-only, one directory to write its findings in, and its own `models.json`. No GitHub token, only the model endpoints' tokens; no repository, no tool that runs a command. The host makes every GitHub call and checks the findings against a fixed shape before it files one |
 | The network                            | Not restricted by default: the container reaches GitHub, the model endpoint and whatever else the host can route to. With `TEHAS_EGRESS=1`, only the hosts of the egress proxy's list, through the proxy. See [Where a container may connect](#where-a-container-may-connect) |

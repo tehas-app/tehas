@@ -2,6 +2,8 @@
 Description=Tehas: the read-only MCP server for agents outside this host
 
 [Service]
+NoNewPrivileges=yes
+MemoryMax=256M
 # Off unless ~/.config/tehas/env says TEHAS_MCP=1: then the command exits 0 and
 # the unit stays stopped. A setting that is malformed ends it with 78, and
 # that is not restarted: the journal says which setting once, not every 5
