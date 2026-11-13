@@ -1,5 +1,5 @@
 //! `tehas stop <issue>`: end a cycle by hand and clear what it left on this
-//! host. src/usage/stop.txt is the text a person reads; this says what the
+//! host. console/src/usage/stop.txt is the text a person reads; this says what the
 //! code must keep.
 //!
 //! The order is the point: the marker, the unit, the container, the record
@@ -17,7 +17,7 @@
 //! calls of systemctl, docker and gh keep the bounds of `timeout` they had in
 //! bash, and gh is the one on PATH.
 //!
-//! Exit: see src/usage/stop.txt.
+//! Exit: see console/src/usage/stop.txt.
 
 use crate::{account, store};
 use std::env;
@@ -29,7 +29,7 @@ use std::process::{Command, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tehas_core::lock::{probe, Probe};
 
-pub const USAGE: &str = include_str!("usage/stop.txt");
+pub const USAGE: &str = include_str!("../../src/usage/stop.txt");
 
 /// The markers that say an issue's cycle runs, owes something, or is parked,
 /// after `state/cycles/<issue>`. `.nostart.new` is there because a note is

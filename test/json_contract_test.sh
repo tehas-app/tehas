@@ -118,7 +118,7 @@ surfaces=(
   'bound	limit.reason	.limit.reason = "01234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789"	.limit.reason = "012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567891"	longer than 200'
   'required	["api","drained","running","limit"]'
   # The object `tehas freeze <issue> --json` and `tehas thaw <issue> --json`
-  # print for the same issue: the one object of console/src/freeze.rs, read from
+  # print for the same issue: the one object of console/ops/src/freeze.rs, read from
   # the three files of the cycle under state/cycles. The four samples are the
   # four readings of those files a person reaches: no cycle running, a freeze
   # asked of a running cycle, the watch having paused its container, and a thaw
@@ -139,7 +139,7 @@ surfaces=(
   'check	del(.asked) | .zz = 1 | .running = "yes"	.zz: not in the schema'
   'check	del(.asked) | .zz = 1 | .running = "yes"	.running: string, not boolean'
   # The bounds of the schema, of the one field that has one: an issue of 1,
-  # the least number the commands take (console/src/stop.rs reads an issue)
+  # the least number the commands take (console/ops/src/stop.rs reads an issue)
   # and 0, which no reading of the command can print.
   'bound	issue	.issue = 1	.issue = 0	under 1'
   'required	["api","issue","running","asked","frozen"]'
@@ -237,7 +237,7 @@ surfaces=(
   'check	del(.panels[0].label) | del(.panels[0].id) | del(.panels[0].url)	.panels[0]: url is missing'
   # The bounds of the schema, each the least value the command keeps and one
   # step past it, as `set` takes it or refuses it: an id of 32 characters, the
-  # most console/src/panel.rs lets an `id` have, and 33, which it refuses with 64;
+  # most console/ops/src/panel.rs lets an `id` have, and 33, which it refuses with 64;
   # a label of 24 characters, the most it keeps, and 25; a URL of 512 bytes, the
   # longest it takes - the 28 of `https://support.example.org/` and 484 of the
   # path after it - and 513, which `url_host` refuses before it looks at its
@@ -522,7 +522,7 @@ freeze_holder_start() { # <file>
 # whether the watch has paused the container, as the watch leaves them: the lock
 # held by the holder, the request `tehas freeze` writes, and the pause the watch
 # writes. A lock no process holds is read as no cycle, and one a cycle leaves
-# behind when it ends says nothing on its own either (console/src/freeze.rs, and
+# behind when it ends says nothing on its own either (console/ops/src/freeze.rs, and
 # the one probe of console/core/src/lock.rs that `tehas drain` reads the same
 # way). So `idle` is no lock, no request and no pause. `asked` is the lock held,
 # as test/drain_test.sh holds a running cycle's lock, with no request yet, and is
@@ -1015,7 +1015,7 @@ $changes"
   # The `required` of the two are not the same and no field is taken from either,
   # so the one of the owner is named as what the copy does not carry: an object of
   # this surface holds a state and no api, since the one it prints sits above it,
-  # at the top level (console/src/flags.rs, drain_report).
+  # at the top level (console/ops/src/flags.rs, drain_report).
   if [ -n "$state_owner" ]; then
     t_case "the limit of the schema of $surface is the schema of $state_owner, less api"
     t_eq "$(jq -cS '.properties.limit.properties | del(.api)' "$schema")" \

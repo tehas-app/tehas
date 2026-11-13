@@ -296,7 +296,7 @@ t_stub docker
 poll room "holding: the reason"
 t_run "$status && $summary"
 t_eq "$(t_calls systemctl)" "--user --failed --plain --no-legend tehas-*"
-# Only status asks docker, for the label of the image cycles run (src/rukas.rs).
+# Only status asks docker, for the label of the image cycles run (console/ops/src/rukas.rs).
 t_eq "$(t_calls docker)" "image inspect --format {{.Id}} {{index .Config.Labels \"tehas.rukas\"}} tehas/pi-rukas:uid$(id -u)"
 rm -f "$T"/calls/docker
 t_run "$health && $summary"

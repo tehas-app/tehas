@@ -29,7 +29,7 @@ internals=(
 not_read='info/exclude'
 
 code() { # every tracked file that is installed or run
-  git -C "$T_ROOT" ls-files -- bin libexec lib host console/src console/core install.sh bootstrap.sh scripts ':!host/docs'
+  git -C "$T_ROOT" ls-files -- bin libexec lib host console/src console/ops/src console/core install.sh bootstrap.sh scripts ':!host/docs'
 }
 
 t_case "no code reads pi-rukas internals"

@@ -13,7 +13,7 @@
 //! not confirms the new id with --accept-id. Nothing is written then.
 //!
 //! With an app named and no GH_TOKEN, gh is given the app's token, made from
-//! its key as `tehasbot github-token` makes it (console/src/github.rs). A first
+//! its key as `tehasbot github-token` makes it (console/ops/src/github.rs). A first
 //! install runs this before the shim is in place, so gh has no other token. A
 //! token that cannot be had stops with 78.
 //!

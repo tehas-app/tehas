@@ -487,7 +487,7 @@ impl Preview {
         }
         self.measure();
         // A preview runs the pull request's own code. Nothing is built unless
-        // the network keeps it from the host: console/src/edge.rs says what
+        // the network keeps it from the host: console/ops/src/edge.rs says what
         // that takes.
         if let Some(why) = edge::network_fault(NET) {
             say(format_args!(

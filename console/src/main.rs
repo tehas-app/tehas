@@ -34,12 +34,12 @@
 //!
 //! A preview of every open pull request and which ones get one, see
 //! src/preview.rs, and whether the previews' network keeps the host out, see
-//! src/edge.rs.
+//! ops/src/edge.rs.
 //!
 //!   console pins check|move --root <dir> ...
 //!
 //! The release's move of the pinned tools to the newest minor and patch of
-//! their major, see src/pins/mod.rs.
+//! their major, see ops/src/pins/mod.rs.
 //!
 //!   console plan update|descriptor ...
 //!
@@ -53,7 +53,7 @@
 //!
 //!   console health run <home> [--budget <spec>] | report ...
 //!
-//! The health file tehasbot health writes, see src/health.rs.
+//! The health file tehasbot health writes, see ops/src/health.rs.
 //!
 //!   console status show|json ...
 //!
@@ -67,17 +67,17 @@
 //!
 //!   console clean run ...
 //!
-//! What tehasbot clean removes, see src/clean.rs.
+//! What tehasbot clean removes, see ops/src/clean.rs.
 //!
 //!   console rukas target <follow> <repo> | image <repo> <commit>
 //!
 //! Which pi-rukas commit a host follows and the image upstream publishes for
-//! it, for the sandbox build, bootstrap.sh and tag-release.sh, see src/rukas.rs.
+//! it, for the sandbox build, bootstrap.sh and tag-release.sh, see ops/src/rukas.rs.
 //!
 //!   console sandbox recipe <dir> <mode> | stage <dir> | current ...
 //!
 //! The sandbox build's check and cut of its recipe, and whether the image is
-//! on the commit followed, see src/sandbox.rs.
+//! on the commit followed, see ops/src/sandbox.rs.
 //!
 //!   console improve due|run <prompt file> | table
 //!
@@ -86,7 +86,7 @@
 //!   console disk <home> [--full] [--json] [--publish]
 //!
 //! How full this host is and what fills it, for tehas disk and the MCP tool
-//! factory_disk, see src/disk.rs.
+//! factory_disk, see ops/src/disk.rs.
 //!
 //!   console energy [--every]
 //!
@@ -95,12 +95,12 @@
 //!
 //!   console disk free <path> [<seconds>]
 //!
-//! The free kilobytes a command holds work on, see src/disk.rs.
+//! The free kilobytes a command holds work on, see ops/src/disk.rs.
 //!
 //!   console size measure | record <issue> <ledger>
 //!
 //! The measure of an issue body and the ledger of what approved starts
-//! measured, see src/size.rs.
+//! measured, see ops/src/size.rs.
 //!
 //!   console epics <owner/name> <out>
 //!
@@ -110,7 +110,7 @@
 //!   console flags limit show|set|clear|read ...
 //!
 //! The flags under state/ of one instance: the limit tehas limit sets, see
-//! src/flags.rs.
+//! ops/src/flags.rs.
 //!
 //!   console state pack|unpack ... | check [--json]
 //!
@@ -123,27 +123,27 @@
 //!
 //!   console settings load <euid> [<bash>] | valid [<name> <value>] | words <name> | rules --json | required
 //!
-//! What tehas_load does and what a setting may hold, see src/settings.rs.
+//! What tehas_load does and what a setting may hold, see ops/src/settings.rs.
 //!
 //!   console setup run <libexec dir> <euid> <bash> [options]...
 //!
-//! tehas setup, once libexec/setup has a console, see src/setup.rs.
+//! tehas setup, once libexec/setup has a console, see ops/src/setup.rs.
 //!
 //!   console shipped page
 //!
 //! What closed an issue: the page and the GraphQL query of the read, and what its
-//! answer says, see src/shipped.rs.
+//! answer says, see ops/src/shipped.rs.
 //!
 //!   console tidy run [--dry-run]
 //!
 //! The poll's tidy of closed issues: their state labels come off, and tehas:shipped
-//! goes on the ones a merged pull request closed, see src/tidy.rs.
+//! goes on the ones a merged pull request closed, see ops/src/tidy.rs.
 //!
 //!   console forge labels|label-state|approval|add-label|remove-label ...
 //!
 //! The forge as a command bash can call: an issue's labels, the newest event of
 //! one label, who applied the label that lets a cycle start, and a label put on
-//! or taken off, asked of GitHub through tehas_core::forge, see src/forge.rs.
+//! or taken off, asked of GitHub through tehas_core::forge, see ops/src/forge.rs.
 //!
 //!   console label actor|allowed|pause-holds ...
 //!
@@ -156,7 +156,7 @@
 //!
 //!   console slice ok|limits|cpus|verify|room|pressure ...
 //!
-//! tehas.slice as the shell reads it, see src/slice.rs.
+//! tehas.slice as the shell reads it, see ops/src/slice.rs.
 //!
 //!   console check-product [--sandbox] | table
 //!   console init-product <branch> [--dry-run]
@@ -188,44 +188,34 @@
 //!
 //!   console update args|gate|prepare|api|finish|release|steps ...
 //!
-//! What tehas update decides and does, see src/update/mod.rs.
+//! What tehas update decides and does, see ops/src/update/mod.rs.
 //!
 //! Exit: 0 stopped by a signal or masked, 1 the console file or standard
 //! output cannot be written, 2 usage.
 
-mod account;
+use tehas_ops::{
+    account, clean, disk, edge, flags, forge, freeze, github, health, host_message, ids, mcp,
+    panel, pins, rukas, sandbox, settings, setup, shipped, size, slice, stop, store, tidy, update,
+};
 mod api;
 mod attach;
-mod clean;
 mod commands;
 mod dev;
-mod disk;
-mod edge;
 mod energy;
 mod epics;
 mod export;
-mod flags;
-mod forge;
 mod frame;
-mod freeze;
 mod front;
 mod gh_shim;
 mod gh_writes;
-mod github;
-mod health;
 mod history;
-mod host_message;
-mod ids;
 mod improve;
 mod label;
 mod labels;
-mod mcp;
 mod models;
 mod notice;
 mod now;
 mod order;
-mod panel;
-mod pins;
 mod plan;
 mod platform;
 mod preview;
@@ -235,23 +225,12 @@ mod publish;
 mod queue;
 mod render;
 mod review;
-mod rukas;
 mod run;
-mod sandbox;
-mod settings;
-mod setup;
-mod shipped;
-mod size;
-mod slice;
 mod snapshot;
 mod state;
 mod status;
-mod stop;
-mod store;
 mod tail;
-mod tidy;
 mod top;
-mod update;
 
 use render::Entry;
 use std::collections::HashSet;

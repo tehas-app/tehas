@@ -1,5 +1,5 @@
 //! `tehas host-message`: short messages an operator or a supervisor posts for
-//! a factory, src/usage/host-message.txt.
+//! a factory, console/src/usage/host-message.txt.
 //!
 //! The list is state/host-messages.json, mode 600, and gone with no messages.
 //! Every write is under state/host-message.lock, beside the file and renamed
@@ -131,6 +131,7 @@ pub fn json(messages: &[Message]) -> String {
 
 /// The list a file holds, or an error when it is not a list this command
 /// would have written.
+#[allow(clippy::result_unit_err)]
 pub fn parse(text: &str) -> Result<Vec<Message>, ()> {
     let doc: Value = serde_json::from_str(text).map_err(|_| ())?;
     let list = doc.get("messages").and_then(Value::as_array).ok_or(())?;

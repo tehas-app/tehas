@@ -595,7 +595,7 @@ mod tests {
 
     #[test]
     fn the_script_and_this_console_agree() {
-        let script = include_str!("../../../libexec/update");
+        let script = include_str!("../../../../libexec/update");
         assert!(script.contains(r#"exec "$console" update run "$console" "$@""#));
     }
 

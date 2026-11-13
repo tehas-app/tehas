@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Tests for `tehas disk`: how full this host is, and what fills it. The
 # reading itself, its bounds and its figures are the console's and are tested
-# of console/src/disk.rs; what is tested here is the command and the run it
+# of console/ops/src/disk.rs; what is tested here is the command and the run it
 # makes: that the settings of the instance name the file systems the answer
 # holds, and that settings that are malformed stop the run before the host is
 # asked anything.
@@ -176,7 +176,7 @@ t_eq "$([ -e "$th/live/disk.json" ] && echo written)" ""
 # --cycles is the one form that asks the daemon a container's own figures:
 # the bytes of a cycle's writable layer and the bytes it has written. The
 # figures themselves are the module's, and are tested of
-# console/src/disk/cycles.rs; what is tested here is the command: that the
+# console/ops/src/disk/cycles.rs; what is tested here is the command: that the
 # answer holds them, that it fits the schema beside which a program reads it,
 # that a figure with no reading stays a figure with no reading, and that none
 # of this is asked of the daemon when the flag was not given.

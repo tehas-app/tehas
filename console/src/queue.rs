@@ -13,7 +13,7 @@
 //! written with no words, and the page counts the tickets it does list.
 //!
 //! The run also writes live/platform.json (src/platform.rs), live/rukas.json
-//! (src/rukas.rs), live/epics.json
+//! (ops/src/rukas.rs), live/epics.json
 //! (src/epics.rs) and what the analytics program publishes (src/publish.rs),
 //! and it refreshes the health file unless the poll ran it: the poll sets
 //! TEHAS_FROM_POLL and runs health a moment later. Those last two happen at

@@ -311,7 +311,7 @@ and `state`.
 | Field | Meaning |
 | --- | --- |
 | `state` | `none`, `ok`, `expired` or `unreadable` |
-| `cycles` | The most cycles running at once, a whole number from 0 to 9999: `tehas limit set` refuses anything above it with 64 (console/src/flags.rs). Room for a new cycle is the smaller of `cycles` and `TEHAS_TICKET_CONCURRENCY`, less the cycles running, then the slice and `TEHAS_MAX_AWAITING` as always |
+| `cycles` | The most cycles running at once, a whole number from 0 to 9999: `tehas limit set` refuses anything above it with 64 (console/ops/src/flags.rs). Room for a new cycle is the smaller of `cycles` and `TEHAS_TICKET_CONCURRENCY`, less the cycles running, then the slice and `TEHAS_MAX_AWAITING` as always |
 | `plan` | `false`: no new planning session and no improvement run. An answer to a planning question still runs: someone is waiting on it |
 | `until` | When it expires, in the form `2026-10-17T15:00:20Z`: 20 characters, the month 01 to 12, the day 01 to 31, the hour to 23, the minute and second to 59, or 60 for the second. Left out when it lasts until cleared. An `until` of another shape makes the limit `unreadable` |
 | `reason` | Shown as the hold's reason. One line of at most 200 characters, counted as characters; control characters become spaces. Left out when empty |
@@ -1049,9 +1049,9 @@ person or a program can ask for a reading at any moment. The
 and never runs the command, so the server asks the host's disk nothing.
 
 The reading, the bounds and the printing are the console's
-(`console/src/disk.rs`), which reads the home, the scratch disk and the bound
+(`console/ops/src/disk.rs`), which reads the home, the scratch disk and the bound
 from the instance's own file; the figures of the cycles are the module beside
-it (`console/src/disk/cycles.rs`). The bound is `TEHAS_DISK_WAIT`, the one the dispatcher's hold and
+it (`console/ops/src/disk/cycles.rs`). The bound is `TEHAS_DISK_WAIT`, the one the dispatcher's hold and
 the previews' measure already read the host's space under: one outside call is
 given it, and one walk of a place twice it.
 
@@ -1116,7 +1116,7 @@ a factory with none. The two are what the command prints, so
 `test/json_contract_test.sh` keeps them in step with it, and a program can copy
 them into its own tests.
 
-The checks, the list and the files are the console's (`console/src/panel.rs`).
+The checks, the list and the files are the console's (`console/ops/src/panel.rs`).
 
 Exit 0 done; 1 the list could not be read or written; 64 a bad argument, a fifth
 panel or a URL on `TEHAS_DOMAIN`, which writes nothing; 78 without an instance.
@@ -1177,7 +1177,7 @@ true}` for a file that does not parse.
   and the terminal leaves out direction overrides and zero-width characters.
 
 The checks, the list and the file are the console's
-(`console/src/host_message.rs`).
+(`console/ops/src/host_message.rs`).
 
 Exit 0 done; 1 the list could not be read or written, or another
 `tehas host-message` held the lock for 10 seconds, which writes nothing; 64 a
@@ -1197,23 +1197,23 @@ written, and still: treat all of it as public.
 
 | Name | Written by | Read by |
 | --- | --- | --- |
-| `status.json` | `console/src/queue.rs`, run as `tehasbot status` ([tehasbot status and the console](/tools-health#tehasbot-status-and-the-console)) | `host/fun/dashboard-view.js`, `host/fun/business-view.js`, `host/fun/game-view.js`; the store's `publish` and `analytics orders`; `console/src/health.rs`, `console/analytics/src/sample.rs`, the MCP server (`factory_status`, `factory_issues`, `factory_issue`, `factory_sessions`) |
-| `running.json` | the store's `publish` (`console/store/src/live.rs`) | `host/fun/dashboard-view.js`, `host/fun/business-view.js`, `host/fun/game-view.js`, `host/fun/console-tabs.js`; `console/src/health.rs`, `console/src/dev.rs`; the MCP server (`factory_status`, `factory_issue`, `factory_sessions`) |
-| `endings.json` | the store's `publish` (`console/store/src/live.rs`) | `console/src/health.rs`; the MCP server (`factory_endings`) |
-| `epics.json` | `console/src/epics.rs`, run by `tehasbot status` | `host/fun/epics-view.js`; `console/src/health.rs` |
-| `health.json` | `console/src/health.rs` run as `tehasbot health`, published by the store's `publish` ([tehasbot health](/tools-health#tehasbot-health)) | `/health` and `/healthz`, and `host/fun/versions.js`; `console/src/status.rs`, `console/src/update/report.rs`; the MCP server (`factory_status`, `factory_issue`) |
+| `status.json` | `console/src/queue.rs`, run as `tehasbot status` ([tehasbot status and the console](/tools-health#tehasbot-status-and-the-console)) | `host/fun/dashboard-view.js`, `host/fun/business-view.js`, `host/fun/game-view.js`; the store's `publish` and `analytics orders`; `console/ops/src/health.rs`, `console/analytics/src/sample.rs`, the MCP server (`factory_status`, `factory_issues`, `factory_issue`, `factory_sessions`) |
+| `running.json` | the store's `publish` (`console/store/src/live.rs`) | `host/fun/dashboard-view.js`, `host/fun/business-view.js`, `host/fun/game-view.js`, `host/fun/console-tabs.js`; `console/ops/src/health.rs`, `console/src/dev.rs`; the MCP server (`factory_status`, `factory_issue`, `factory_sessions`) |
+| `endings.json` | the store's `publish` (`console/store/src/live.rs`) | `console/ops/src/health.rs`; the MCP server (`factory_endings`) |
+| `epics.json` | `console/src/epics.rs`, run by `tehasbot status` | `host/fun/epics-view.js`; `console/ops/src/health.rs` |
+| `health.json` | `console/ops/src/health.rs` run as `tehasbot health`, published by the store's `publish` ([tehasbot health](/tools-health#tehasbot-health)) | `/health` and `/healthz`, and `host/fun/versions.js`; `console/src/status.rs`, `console/ops/src/update/report.rs`; the MCP server (`factory_status`, `factory_issue`) |
 | `health.down` | the store's `publish`, which makes it before a `fail` health report and removes it after any other | the docs server's `/health` and `/healthz`, which answer 503 while it is there |
-| `dispatch.json` | `console/dispatch/src/poll.rs` of `tehas dispatch`, published by the store's `publish` ([tehas dispatch](/tools-dispatch#tehas-dispatch)) | `console/src/health.rs`, `console/src/queue.rs`, `console/src/energy.rs`, `console/analytics/src/sample.rs`; the MCP server (`factory_status`) |
-| `demand.json` | `console/dispatch/src/poll.rs` of `tehas dispatch`, at every real poll | `console/src/health.rs` |
+| `dispatch.json` | `console/dispatch/src/poll.rs` of `tehas dispatch`, published by the store's `publish` ([tehas dispatch](/tools-dispatch#tehas-dispatch)) | `console/ops/src/health.rs`, `console/src/queue.rs`, `console/src/energy.rs`, `console/analytics/src/sample.rs`; the MCP server (`factory_status`) |
+| `demand.json` | `console/dispatch/src/poll.rs` of `tehas dispatch`, at every real poll | `console/ops/src/health.rs` |
 | `energy.json` | `console/src/energy.rs` run as `tehasbot energy` ([tehasbot energy](/tools-health#tehasbot-energy)) | `host/fun/energy-view.js`, `host/fun/business-view.js`; `console/analytics/src/sample.rs` |
 | `analytics.json` | `console/src/publish.rs`, run by `tehasbot status` from the analytics program's `report --json` | `host/fun/dashboard-view.js`, `host/fun/business-view.js`, `host/fun/analytics-data.js`; the MCP server (`factory_stats`) |
 | `orders.json` | `console/analytics/src/orders.rs`, run by `tehasbot status` | `host/fun/work-orders.js` |
 | `top.json` | `console/src/top.rs` run as `tehasbot top`, when `TEHAS_TOP=1` ([tehasbot top](/tools-health#tehasbot-top)) | `host/fun/host-view.js`, `host/fun/host-data.js`, `host/fun/dashboard-view.js` |
-| `panels.json` | `console/src/panel.rs`, the copy of the person's list ([`tehas panel`](#tehas-panel)) | `host/fun/panels.js` |
-| `disk.json` | `console/src/disk.rs` with `--publish`, run hourly by `tehasbot clean` ([`tehas disk`](#tehas-disk)) | the MCP server (`factory_disk`) |
-| `platform.json` | `console/src/platform.rs`, run by `tehasbot status` | `console/src/health.rs`, which answers it as `checks.platform` |
-| `rukas.json` | `console/src/rukas.rs`, run by `tehasbot status` | `console/src/health.rs`, which answers it as `checks.rukas` |
-| `previews.json` | `console/src/preview/list.rs` of `tehasbot preview` ([tehasbot preview](/tools-clean#tehasbot-preview)) | `host/fun/dashboard-view.js`; `console/src/health.rs` |
+| `panels.json` | `console/ops/src/panel.rs`, the copy of the person's list ([`tehas panel`](#tehas-panel)) | `host/fun/panels.js` |
+| `disk.json` | `console/ops/src/disk.rs` with `--publish`, run hourly by `tehasbot clean` ([`tehas disk`](#tehas-disk)) | the MCP server (`factory_disk`) |
+| `platform.json` | `console/src/platform.rs`, run by `tehasbot status` | `console/ops/src/health.rs`, which answers it as `checks.platform` |
+| `rukas.json` | `console/ops/src/rukas.rs`, run by `tehasbot status` | `console/ops/src/health.rs`, which answers it as `checks.rukas` |
+| `previews.json` | `console/src/preview/list.rs` of `tehasbot preview` ([tehasbot preview](/tools-clean#tehasbot-preview)) | `host/fun/dashboard-view.js`; `console/ops/src/health.rs` |
 | `protolab.json` | `console/src/protolab/build.rs` of `tehasbot protolab` ([tehasbot protolab](/tools-protolab#tehasbot-protolab)) | `host/fun/business-view.js`, `host/fun/game-view.js`; `console/src/status.rs`, which answers it as `prototypes` |
 | `cycles/<n>.json` | the store's `publish`, one file per running cycle and the last that finished | the pages that read `running.json` (`host/fun/dashboard-view.js`, `host/fun/business-view.js`, `host/fun/console-tabs.js`) draw the same view; no page asks for the file by its own path |
 | `console-<n>.txt` | `console` (`console/src/tail.rs`), started by the cycle's watch (`console/cycle/src/watch.rs`) | `host/fun/dashboard-view.js`, `host/fun/business-view.js` and `host/fun/game-view.js`, each by the name in `running.json`, and the console of the MCP server (`factory_console`) |

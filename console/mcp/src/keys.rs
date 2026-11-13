@@ -10,7 +10,7 @@
 //! lists is refused, so no key's scope is a guess.
 //!
 //! The shape a key must have is the rule of [`listed`] alone; the check in
-//! `console/src/mcp.rs` of the same two settings is a fast reading of it before the
+//! `console/ops/src/mcp.rs` of the same two settings is a fast reading of it before the
 //! container is started, and says nothing the server does not enforce.
 //!
 //! The server is still given `~/tehas/mcp` and `~/tehas/logs`: the scope
@@ -141,7 +141,7 @@ pub fn parse_keys(of: [(&'static Setting, &str); 2]) -> Result<Keys, String> {
 }
 
 /// One list of keys, each checked: at least [`MIN_LEN`] characters of
-/// `A-Za-z0-9_-`. `console/src/mcp.rs` reads the same rule for the same two
+/// `A-Za-z0-9_-`. `console/ops/src/mcp.rs` reads the same rule for the same two
 /// settings before it starts the container; this is the rule that stands. The error
 /// names the setting and the key's place in it, never the key.
 fn listed(raw: &str, of: Setting) -> Result<Vec<String>, String> {

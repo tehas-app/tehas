@@ -360,7 +360,7 @@ FAIL
       # login it names with no id is given the test's one, t_uid, so the check
       # of the recorded pair (console/core/src/accounts.rs) sees what GitHub
       # sends. A fixture with "id": null stands for an account that carries
-      # none. The user id install.sh and tehas update ask for (src/ids.rs) is
+      # none. The user id install.sh and tehas update ask for (console/ops/src/ids.rs) is
       # t_uid's too, unless the body answers it.
       echo 't_answer() {'
       [ -z "$body" ] || echo "$body"
@@ -655,7 +655,7 @@ t_console_source() {
   local member from=${2:-$T_ROOT}
   mkdir -p "$1/console"
   cp -R "$from/console/Cargo.toml" "$from/console/Cargo.lock" "$from/console/src" "$1/console/"
-  for member in analytics attach core cycle dispatch mcp merge store xtask; do
+  for member in analytics attach core cycle dispatch mcp merge ops store xtask; do
     mkdir -p "$1/console/$member"
     cp -R "$from/console/$member/Cargo.toml" "$from/console/$member/src" "$1/console/$member/"
   done
@@ -857,7 +857,7 @@ t_front() {
   cp "$T_CONSOLE" "$1/libexec/console"
 }
 # t_health: tehasbot health as a host runs it, bin/tehasbot above the console
-# that builds its report (console/src/health.rs), as the one command $T_HEALTH.
+# that builds its report (console/ops/src/health.rs), as the one command $T_HEALTH.
 # The console is beside it, as on a host. The commands are copies, not symlinks, so they find their
 # siblings beside themselves.
 T_HEALTH=$T/health-tree/libexec/health

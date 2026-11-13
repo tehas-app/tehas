@@ -1,5 +1,5 @@
 //! tehas setup, after libexec/setup has found or built this console
-//! (src/usage/setup.txt says what the command does as a whole).
+//! (console/src/usage/setup.txt says what the command does as a whole).
 //!
 //!   console setup run <libexec dir> <euid> <bash> [options of tehas setup]...
 //!
@@ -1619,7 +1619,7 @@ mod tests {
 
     #[test]
     fn the_app_gets_its_shim_and_helper_and_loses_a_token() {
-        let lib = Path::new(env!("CARGO_MANIFEST_DIR")).join("../lib/github-app.sh");
+        let lib = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../lib/github-app.sh");
         let mut vars = Vars::new([(b"PATH".to_vec(), b"/usr/bin:/bin".to_vec())]);
         vars.set("TEHAS_HOME", "/h");
         vars.set("GH_TOKEN", "old");

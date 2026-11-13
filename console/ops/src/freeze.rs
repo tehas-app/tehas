@@ -1,6 +1,6 @@
 //! `tehas freeze <issue>` and `tehas thaw <issue>`: hold one running cycle
-//! still without ending it, and let it go on (#1745). src/usage/freeze.txt
-//! and src/usage/thaw.txt are the texts a person reads.
+//! still without ending it, and let it go on (#1745). console/src/usage/freeze.txt
+//! and console/src/usage/thaw.txt are the texts a person reads.
 //!
 //! The commands only write and remove the request,
 //! `state/cycles/<issue>.freeze`. The watch of the cycle owns the container
@@ -23,8 +23,8 @@ use std::path::{Path, PathBuf};
 use tehas_core::lock::{probe, Probe};
 use tehas_core::time;
 
-pub const FREEZE_USAGE: &str = include_str!("usage/freeze.txt");
-pub const THAW_USAGE: &str = include_str!("usage/thaw.txt");
+pub const FREEZE_USAGE: &str = include_str!("../../src/usage/freeze.txt");
+pub const THAW_USAGE: &str = include_str!("../../src/usage/thaw.txt");
 
 /// What the words of a run asked for.
 #[derive(Debug, PartialEq, Eq)]

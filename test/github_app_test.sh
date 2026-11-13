@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Tests for lib/github-app.sh and tehasbot github-token, with the console behind
-# it (console/src/github.rs): the GitHub App's installation token, made from a
+# it (console/ops/src/github.rs): the GitHub App's installation token, made from a
 # signed JWT and kept until 10 minutes are left. openssl and curl are stubs: no
 # key is read, no network is asked.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs

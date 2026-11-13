@@ -3,7 +3,7 @@
 # agree on, the sources that call for each step through the verbs install.sh
 # calls, and the reader of the record install.sh --check asks. What
 # counts as a step line, the order the steps run in and how the record is merged
-# are the Rust tests of console/src/update/steps.rs.
+# are the Rust tests of console/ops/src/update/steps.rs.
 # shellcheck disable=SC2016  # snippets are expanded by the shell under test
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1

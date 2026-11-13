@@ -2,7 +2,7 @@
 //! can be used, the limits of one container and the room it has. The rule is
 //! written here once. The dispatcher answers it from a snapshot, the commands
 //! that start a container with [`Host`] through `tehas-cycle sandbox`, and the
-//! bash through `console slice` (console/src/slice.rs). A fault is never read
+//! bash through `console slice` (console/ops/src/slice.rs). A fault is never read
 //! as "no limit" or "an empty slice": the answer is then "not ok" or "no room".
 
 use serde_json::{Map, Value};

@@ -40,7 +40,7 @@ size 'Size an issue from its body.
 1. `lib/sizing.sh` with tehas_issue_size.
 2. `test/sizing_test.sh` with the cases.
 3. `docs/specs/sizing.md` says the rules, and the manual says so too.
-4. `console/src/size.rs` is for a later issue.
+4. `console/ops/src/size.rs` is for a later issue.
 
 Not `test/work_test.sh`.
 

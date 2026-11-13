@@ -17,7 +17,7 @@ use tehas_core::events::Events;
 ///
 /// `host/labels.tsv` is where the label is created and described, and
 /// `console/dispatch/src/finish.rs`, `console/cycle/src/report.rs`,
-/// `console/src/stop.rs` and `console/src/tidy.rs` name it in their commands: a rename has to reach this constant and those sites, and the two
+/// `console/ops/src/stop.rs` and `console/ops/src/tidy.rs` name it in their commands: a rename has to reach this constant and those sites, and the two
 /// tests below tie it to the queue's page and the guard's exemption.
 pub const RUNNING: &str = "tehas:running";
 

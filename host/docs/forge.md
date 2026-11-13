@@ -159,7 +159,7 @@ console forge remove-label <issue> <label>
 
 It exits 0 when the call answered, 1 when the forge failed, 64 for a bad
 argument and 78 when `TEHAS_REPO` is unset or not `owner/name`, or no gh can
-be run. The full contract is at the top of `console/src/forge.rs`.
+be run. The full contract is at the top of `console/ops/src/forge.rs`.
 
 ## Testing an adapter
 
