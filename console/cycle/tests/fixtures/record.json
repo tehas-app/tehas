@@ -988,6 +988,8 @@
     "0",
     "--forks",
     "0",
+    "--cap",
+    "container-killed",
     "--parked"
    ],
    "park": [
@@ -995,7 +997,7 @@
     "--attempt",
     "1",
     "--reason",
-    "killed",
+    "container-killed",
     "--step",
     "-"
    ],
@@ -1009,7 +1011,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped without a pull request: status `killed`, last step `-`, 0 min (runner exit 137). This cycle left no workspace on this host; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nThe retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped without a pull request: status `killed`, last step `-`, 0 min (runner exit 137). Its cause is recorded as the cap `container-killed`. This cycle left no workspace on this host; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nThe retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=3968b9ad3974b1f8b463e3ea79a7321b70cd8e58c2db9e3d3b991c04e981dbbe -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -1125,6 +1127,8 @@
     "0",
     "--forks",
     "0",
+    "--cap",
+    "container-killed",
     "--parked"
    ],
    "park": [
@@ -1132,7 +1136,7 @@
     "--attempt",
     "1",
     "--reason",
-    "killed",
+    "container-killed",
     "--step",
     "develop"
    ],
@@ -1144,7 +1148,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped without a pull request: status `killed`, last step `develop`, 0 min (runner exit 137). The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nThe retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=develop kind= provider=0 sig=f25ff331a7f9960c458526d7b95b14f9fedd00ddfe504a1800921c36c4c7908c -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped without a pull request: status `killed`, last step `develop`, 0 min (runner exit 137). Its cause is recorded as the cap `container-killed`. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nThe retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=develop kind= provider=0 sig=b35b4d3655647bcea61331e9ed1555eeb1b6899368211610ea5664fee62b323c -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -1553,6 +1557,8 @@
     "3",
     "--forks",
     "0",
+    "--cap",
+    "container-killed",
     "--parked"
    ],
    "park": [
@@ -1560,7 +1566,7 @@
     "--attempt",
     "1",
     "--reason",
-    "killed",
+    "container-killed",
     "--step",
     "-"
    ],
@@ -1574,7 +1580,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped without a pull request: status `killed`, last step `-`, 0 min (runner exit 137). This cycle left no workspace on this host; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. 3 processes were killed for memory in its container.\n\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nThe retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped without a pull request: status `killed`, last step `-`, 0 min (runner exit 137). Its cause is recorded as the cap `container-killed`. This cycle left no workspace on this host; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. 3 processes were killed for memory in its container.\n\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nThe retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=3968b9ad3974b1f8b463e3ea79a7321b70cd8e58c2db9e3d3b991c04e981dbbe -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
