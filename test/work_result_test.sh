@@ -227,9 +227,9 @@ cycle_log=$(printf '%s\n' "$t_out" | sed -n 's/^tehas work: issue 7 started, log
 err=$(cat "$cycle_log.err")
 t_eq "$(printf '%s\n' "$err" | sed -n '/^\[pi-rukas\]/p' | wc -L)" 1000
 t_lacks "$err" "ends here"
-# The line of the cap (51), the copied line (1000), the line of the stream's
+# The line of the cap, with no evidence (80), the copied line (1000), the line of the stream's
 # name (47), each with its end of line.
-t_eq "$(wc -c <"$cycle_log.err")" 1127
+t_eq "$(wc -c <"$cycle_log.err")" 1156
 
 t_case "the copied lines of the stream together stay under 64 KiB of the record"
 fresh
@@ -244,9 +244,9 @@ t_eq "$t_rc" 10
 cycle_log=$(printf '%s\n' "$t_out" | sed -n 's/^tehas work: issue 7 started, log //p')
 err=$(cat "$cycle_log.err")
 t_eq "$(printf '%s\n' "$err" | grep -c '^\[pi-rukas\]')" 20
-# 20 lines of 1000 characters, the line of the cap (52), the line of the
+# 20 lines of 1000 characters, the line of the cap with no evidence (81), the line of the
 # stream's name (47), each with its end of line: well under the 64 KiB.
-t_eq "$(wc -c <"$cycle_log.err")" 20146
+t_eq "$(wc -c <"$cycle_log.err")" 20175
 t_contains "$err" "repetition 100"
 
 t_case "the reason of the cap is kept to what the park comment can hold"
