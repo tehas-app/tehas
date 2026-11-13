@@ -48,20 +48,13 @@ pub(crate) fn quiet_due(times: u64, asked: u64, now: u64) -> &'static str {
     }
 }
 
-/// tehas_names_issue: a pull request of issue `n` by its branch or its body.
-fn names_issue(pr: &Value, n: u64) -> bool {
-    let text = |k: &str| match pr.get(k) {
-        None | Some(Value::Null) => String::new(),
-        Some(Value::String(s)) => s.clone(),
-        Some(v) => v.to_string(),
-    };
-    let head = text("headRefName");
+/// A pull request of issue `n`'s own branch, `feature/issue-<n>` or
+/// `feature/issue-<n>-*`. Its body does not count: any cycle can write
+/// `Fixes #<n>` in a pull request of its own.
+fn own_branch(pr: &Value, n: u64) -> bool {
+    let head = pr.get("headRefName").and_then(Value::as_str).unwrap_or("");
     let branch = format!("feature/issue-{n}");
-    if head == branch || head.starts_with(&format!("{branch}-")) {
-        return true;
-    }
-    let body = text("body");
-    crate::text::closing_numbers(&body).contains(&n)
+    head == branch || head.starts_with(&format!("{branch}-"))
 }
 
 impl Poll<'_> {
@@ -211,7 +204,7 @@ impl Poll<'_> {
                 };
                 let mut mine: Vec<&Value> = prs
                     .iter()
-                    .filter(|p| p.is_object() && created(p) >= since && names_issue(p, n))
+                    .filter(|p| p.is_object() && created(p) >= since && own_branch(p, n))
                     .collect();
                 mine.sort_by_key(|p| created(p));
                 let last = mine.last();
@@ -546,17 +539,15 @@ mod tests {
     }
 
     #[test]
-    fn a_pull_request_names_its_issue() {
+    fn only_a_pull_request_of_the_issues_branch_is_its_own() {
         let pr = |head: &str, body: &str| json!({"headRefName": head, "body": body});
-        assert!(names_issue(&pr("feature/issue-9-x", ""), 9));
-        assert!(!names_issue(&pr("feature/issue-91", ""), 9));
-        assert!(names_issue(&pr("", "Fixes #9"), 9));
-        assert!(!names_issue(&pr("", "Fixes #91"), 9));
-        assert!(names_issue(&pr("", "closes: #9."), 9));
-        // A keyword shared by a run of references holds each of them.
-        assert!(names_issue(&pr("", "Closes #8 and #9"), 9));
-        assert!(!names_issue(&pr("", "Closes #91 and #90"), 9));
-        // No keyword, no name: a number pointed at is nothing.
-        assert!(!names_issue(&pr("", "See #9 and #8 for background"), 9));
+        assert!(own_branch(&pr("feature/issue-9", ""), 9));
+        assert!(own_branch(&pr("feature/issue-9-x", ""), 9));
+        assert!(!own_branch(&pr("feature/issue-91", ""), 9));
+        assert!(!own_branch(&pr("x/feature/issue-9", ""), 9));
+        // A body that closes the issue, from another branch, is not its own.
+        assert!(!own_branch(&pr("feature/issue-8-x", "Fixes #9"), 9));
+        assert!(!own_branch(&pr("", "Closes #8 and #9"), 9));
+        assert!(!own_branch(&json!({"body": "Fixes #9"}), 9));
     }
 }
