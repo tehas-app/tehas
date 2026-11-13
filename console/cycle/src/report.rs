@@ -1432,8 +1432,12 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         });
         r.actions.push(tidy);
     } else if (rc == 10 || rc == 11) && status == "handoff" && !pr.is_empty() {
-        let held = if review_held != "false" && cap == "awaiting-human-merge" {
+        let held = if review_held == "true" && cap == "awaiting-human-merge" {
             " Its review ran out of rounds with findings still open, so it is not waiting only for a merge."
+        } else if review_held.is_empty() && waits_only_for_a_merge(&cap) {
+            let s = " Its progress does not say whether its review left findings open, so it is not taken for a pull request that waits only for a merge.";
+            warn(&mut r, format!("the progress of #{issue} does not say whether its review held findings, so its pull request is not said to wait only for a merge"));
+            s
         } else {
             ""
         };
@@ -2077,6 +2081,63 @@ mod tests {
         });
         let f = Facts::from_json(&facts).expect("the facts read");
         report(&f, &mut Given(facts["github"].clone()))
+    }
+
+    /// A cycle that handed off at the cap `awaiting-human-merge` with a
+    /// ready pull request open, its progress file `progress` (`None`: none).
+    fn handed(progress: Option<&str>) -> Report {
+        let result = json!({"schemaVersion": runner::RESULT_SCHEMA, "issues": [
+            {"issue": 7, "status": "handoff", "branch": "feature/x", "cap": "awaiting-human-merge"}]});
+        let pr = json!({"url": "https://github.com/acme/widget/pull/9", "state": "OPEN", "isDraft": false,
+                        "body": "Fixes #7", "title": "x", "headRefName": "feature/x"});
+        let mut files = json!({"result.json": result.to_string(), "runner_exit": "10\n"});
+        if let Some(p) = progress {
+            files["progress.json"] = json!(p);
+        }
+        let facts = json!({
+            "issue": 7,
+            "repo": "acme/widget",
+            "home": "/home/tehas",
+            "rc": 10,
+            "started": 1000,
+            "now": 2620,
+            "start": { "attempt": 1 },
+            "files": files,
+            "record": { "cycle": { "attempt": 1 } },
+            "github": { "prs": [pr], "attention": false },
+        });
+        let f = Facts::from_json(&facts).expect("the facts read");
+        report(&f, &mut Given(facts["github"].clone()))
+    }
+
+    // A review whose progress does not say it held nothing is not taken for
+    // one that did: only an explicit `reviewHeld: false` waits for a merge.
+    #[test]
+    fn only_a_review_that_said_it_held_nothing_waits_for_a_merge() {
+        let r = handed(Some(r#"{"roles":[],"reason":"","reviewHeld":false}"#));
+        assert_eq!(r.arm, "awaiting-merge", "{:?}", r.log);
+        let r = handed(Some(r#"{"roles":[],"reason":"","reviewHeld":true}"#));
+        assert_eq!(r.arm, "handoff-parked");
+        let said = comments(&r).join("\n");
+        assert!(said.contains("ran out of rounds"), "{said}");
+        for (case, progress) in [
+            ("absent", None),
+            ("not json", Some("{\"roles\":[")),
+            ("an array", Some("[1]")),
+            ("no field", Some(r#"{"roles":[],"reason":""}"#)),
+            ("not a boolean", Some(r#"{"reviewHeld":"false"}"#)),
+        ] {
+            let r = handed(progress);
+            assert_eq!(r.arm, "handoff-parked", "{case}");
+            let said = comments(&r).join("\n");
+            assert!(said.contains("does not say whether its review"), "{case}: {said}");
+            assert!(!said.contains("ran out of rounds"), "{case}: {said}");
+            assert!(
+                r.log.iter().any(|l| l.starts_with("WARN: ") && l.contains("does not say whether its review")),
+                "{case}: {:?}",
+                r.log
+            );
+        }
     }
 
     fn end_cap(r: &Report) -> Option<&str> {
