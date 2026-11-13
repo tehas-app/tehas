@@ -397,7 +397,7 @@ impl Poll<'_> {
         );
         from.sort_unstable();
         from.dedup();
-        if !self.c.refresh_conflicts && from.is_empty() {
+        if !self.c.refresh_conflicts && from.is_empty() && !self.pr_asked() {
             return Ok(());
         }
         let list = match &self.s.refreshing {

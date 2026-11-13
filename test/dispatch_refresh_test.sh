@@ -313,6 +313,63 @@ t_contains "$(jq -r .refreshHold "$demand_file")" "does not take --continue-pr"
 t_eq "$(jq -r .waiting "$demand_file")" 0
 t_eq "$(find "$refresh_dir" -name '7.json' | wc -l)" 1
 
+# The slice of reset holds four containers: a quarter of it is a container's
+# ceiling.
+t_case "with the setting off a --pr request keeps the lane: it starts there and the hold says so"
+refresh_setup
+slots 4 TEHAS_REFRESH_SLOTS=1
+asked_pr
+queue 20 21 22 23
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(started)" "7 20 21 22 "
+t_contains "$t_out" "holding: 3 of 4 free slots start: tehas.slice has room for 4 more and the refresh lane keeps 1"
+t_contains "$t_out" "start #7 (refresh by alice)"
+
+t_case "with the setting off a running refresh fills the lane: a --pr request waits"
+refresh_setup
+slots 3 TEHAS_REFRESH_SLOTS=1
+asked_pr
+running_refresh 8
+t_run "$dispatch"
+release
+t_eq "$t_rc" 0
+t_eq "$(started)" ""
+t_contains "$t_out" "wait #7: the refresh lane is full (1 of 1)"
+t_eq "$(find "$refresh_dir" -name '7.json' | wc -l)" 1
+
+t_case "with the setting off and TEHAS_REFRESH_SLOTS=0 a --pr request takes a cycle slot"
+refresh_setup
+slots 1 TEHAS_REFRESH_SLOTS=0
+asked_pr
+queue 9
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(started)" "7 "
+t_lacks "$t_out" "refresh lane"
+t_eq "$(jq -r .refreshRoom "$dispatch_json")" null
+
+t_case "with the setting off a request without asked keeps no lane, and tehas:refreshing is not listed"
+refresh_setup
+slots 4
+queue 20 21 22 23
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(started)" "20 21 22 23 "
+t_lacks "$t_out" "refresh lane"
+t_lacks "$(t_calls gh)" "--label tehas:refreshing"
+
+t_case "with the setting off a stale tehas:refreshing is cleared while a --pr request waits"
+refresh_setup
+slots 2
+asked_pr
+echo '[{"number":60,"labels":[{"name":"tehas:refreshing"}]}]' >"$fx/refreshing.json"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_contains "$(t_calls gh)" "--label tehas:refreshing"
+t_contains "$(t_calls gh)" "api -X DELETE repos/acme/widget/issues/60/labels/tehas:refreshing"
+t_contains "$t_out" "clear pull request #60: tehas:refreshing off, no refresh on this host names it"
+
 t_case "an image without --continue-pr holds refreshes: said once, and in tehas status's demand"
 refresh_setup
 echo '{"verbs":{"work":{"flags":["--json","--timeout","--restart"]}}}' >"$fx/caps.json"
