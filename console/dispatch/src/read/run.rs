@@ -1340,6 +1340,7 @@ printf '[{{"number":1}}]\n'
                 out: String::new(),
                 err: format!("store: {out}\n"),
                 truncated: false,
+                unread: false,
             };
             let (rc1, word1, _) =
                 store_failure("park-show", &alone, Duration::from_secs(5), "store").unwrap();

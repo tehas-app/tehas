@@ -157,6 +157,7 @@ fn read(
                 out,
                 err: String::new(),
                 truncated: false,
+                unread: false,
             },
             // Bounded says so of a call it stopped at its bound: no exit, as
             // the rule reads a cut-off call.
@@ -165,6 +166,7 @@ fn read(
                 out: String::new(),
                 err,
                 truncated: false,
+                unread: false,
             },
         },
         budget,

@@ -206,7 +206,7 @@ fn cut_off(r: &Ran) -> bool {
     }
 }
 
-/// Whether a call is owed another process. Three classes are, and each is
+/// Whether a call is owed another process. Four classes are, and each is
 /// pinned by a case of its own; everything the answer explains is not. The
 /// classes are `Class`, and `class_of` says which of them the lines of an
 /// answer name and which of those wins.
@@ -216,6 +216,8 @@ fn cut_off(r: &Ran) -> bool {
 ///   does clear. One 4xx, one class, one arm.
 /// - A call we stopped at its bound, unless it carries the words that say it
 ///   never started.
+/// - A call whose answer could not be read: what it said is not known, so it
+///   explains nothing, even with an exit of 0.
 ///
 /// What a retry is not owed: a 404, a 422 and a rate limit say the same thing
 /// twice, and an exit of its own with no status of gh's is the program's
@@ -234,7 +236,7 @@ fn cut_off(r: &Ran) -> bool {
 /// passes one must treat a cut answer as the store does, as garbled, and not
 /// as something to try again.
 pub fn owed_a_retry(r: &Ran) -> bool {
-    if cut_off(r) {
+    if r.unread || cut_off(r) {
         return true;
     }
     if r.ok() {
@@ -484,6 +486,7 @@ mod tests {
             out: String::new(),
             err: err.to_string(),
             truncated: false,
+            unread: false,
         }
     }
 
@@ -494,6 +497,7 @@ mod tests {
             out: "[{\"number\":1}]".to_string(),
             err: String::new(),
             truncated: false,
+            unread: false,
         }
     }
 
@@ -505,6 +509,7 @@ mod tests {
             out: String::new(),
             err: String::new(),
             truncated: false,
+            unread: false,
         }
     }
 
@@ -516,6 +521,7 @@ mod tests {
             out: String::new(),
             err: format!("{program} could not be run"),
             truncated: false,
+            unread: false,
         }
     }
 
@@ -690,6 +696,25 @@ mod tests {
     }
 
     #[test]
+    fn a_call_whose_answer_could_not_be_read_is_tried_again() {
+        // Exit 0 and nothing read is not an answer of nothing: the reader
+        // failed, and a second process is the one that can clear it.
+        let lost = Ran {
+            unread: true,
+            out: String::new(),
+            ..answered()
+        };
+        assert!(owed_a_retry(&lost));
+        let (got, made) = call_of(vec![lost, answered()]);
+        assert_eq!(made, 2);
+        assert!(got.ran.ok());
+        assert!(owed_a_retry(&Ran {
+            unread: true,
+            ..failed(1, "")
+        }));
+    }
+
+    #[test]
     fn a_call_cut_off_at_its_bound_is_tried_again() {
         // No exit at all: the answer of `wait` for a program past its bound.
         assert!(owed_a_retry(&stopped()));
@@ -703,6 +728,7 @@ mod tests {
             out: String::new(),
             err: String::new(),
             truncated: false,
+            unread: false,
         };
         assert!(owed_a_retry(&killed));
         assert_eq!(tries(vec![killed, answered()]), 2);
@@ -717,6 +743,7 @@ mod tests {
             out: String::new(),
             err: "context deadline exceeded".to_string(),
             truncated: false,
+            unread: false,
         }));
 
         // A child ended by a signal, or a call that ran out of time on its

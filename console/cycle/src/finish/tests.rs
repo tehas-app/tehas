@@ -1606,3 +1606,16 @@ fn an_exclude_that_is_a_link_is_not_followed() {
     let got = finish(&w.plan(), &mut h);
     assert!(got.why.contains("never committed"), "{}", got.why);
 }
+
+#[test]
+fn a_byte_that_is_not_utf8_does_not_empty_what_a_program_printed() {
+    // A stream read as text alone loses all of itself to one such byte, and a
+    // rule would then decide from an empty answer the program never gave.
+    let dir = root("lossy");
+    let says = dir.join("says");
+    write_exe(&says, "#!/bin/sh\nprintf 'main\\377\\n'\n").unwrap();
+    let mut h = live(&says, &says);
+    let got = h.run("gh", &["x".to_string()], &dir);
+    assert_eq!(got.status, Some(0), "{got:?}");
+    assert_eq!(got.out, "main\u{fffd}\n", "{got:?}");
+}
