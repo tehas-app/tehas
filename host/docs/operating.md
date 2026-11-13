@@ -350,7 +350,7 @@ With `TEHAS_SIZE_MAX_FILES` set on the instance, an issue whose own body names m
 | `tehas:ready`           | Queued                            | Wait, or remove the label to withdraw it |
 | `tehas:running`         | A cycle owns it; with `TEHAS_OWNER` set, the issue is assigned to that account too | Leave the issue and its branch alone     |
 | `tehas:awaiting-merge`  | Pull request open, only the merge left | Review and merge                    |
-| `tehas:shipped`         | A merged pull request closed it, or GitHub's own list of pull requests closing it holds a merged one   | Nothing; `tehas tidy` and `tehasbot status` give it |
+| `tehas:shipped`         | A merged pull request closed it, or GitHub's own list of pull requests closing it holds a merged one   | Nothing; the poll's tidy and `tehasbot status` give it |
 | `needs-human-attention` | The cycle stopped                 | Read the comment; see below              |
 | `tehas:plan`            | A planning session is asked for   | Wait for the first comment               |
 | `tehas:refine`          | A refining session is asked for: planning with the refine brief | Wait for the first comment |
@@ -1233,7 +1233,7 @@ store's action journal first, and a poll begins by settling the writes a poll
 before it left open there: each is read again on GitHub and recorded as done
 or as not done, and never made again. A read of GitHub that failed on a bad
 minute (a 5xx, a bare 403, or its bound) is tried once more after a short
-wait, at most six times a poll; `tehasbot status` and `tehas tidy` follow the
+wait, at most six times a poll; `tehasbot status` and `console tidy run` follow the
 same rule for their reads. A read that still failed is a line that names gh's
 error by words of a fixed list only (`HTTP 502`, `rate limit`, `timed out`),
 and goes on `~/tehas/state/github-failures`, the record of the last ten
@@ -2500,7 +2500,12 @@ its pi-rukas clone in `~/.cache/tehas-speedlane/repos/pi-rukas` between runs.
 Skips the queue, the labels and the comments:
 
 ```
-tehas work 123            # exit 0: merged or parked, 1: aborted, 2: died or timed out
+tehas work 123            # exit 0 merged; 10, 11, 20, 21, 30 or 40 are the runner's own:
+                          # handoff, handoff for clarification, aborted, interrupted,
+                          # a crash or its time limit, refused to start. 2 means this
+                          # command stopped it as stalled or at the limit, or the runner
+                          # ended without a result
+                          # (see tehas work: console/cycle/src/work.rs)
 tehas work 123 --restart
 ```
 
