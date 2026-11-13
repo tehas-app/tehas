@@ -1150,9 +1150,11 @@ run it, and it is not recorded as owed. Run the command it names yourself:
   then `install.sh --check` says `Dependencies: NOT OK`.
 - `later: ~/tehas/bin/tehas index`: the code index was not built. It needs the
   sandbox image and the product checkout.
-- `later: sudo <checkout>/bootstrap.sh dev <user>`: root's copy of the command
-  behind `tehas dev` for other accounts is not this checkout's. Only root can
-  install it.
+- `later: sudo <root-owned copy>/bootstrap.sh dev <user>`: root's copy of the
+  command behind `tehas dev` for other accounts is not this checkout's. Only
+  root can install it, from a copy of the platform root owns at this version,
+  not from the checkout: see
+  [Root runs its own copy](/bootstrap#root-runs-its-own-copy).
 - `later: ./install.sh again ...`: old files were left in place. The line says
   when to run it.
 

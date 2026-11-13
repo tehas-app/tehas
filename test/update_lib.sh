@@ -143,6 +143,7 @@ platform() { # [behind] [install body] [bin of the host, where its tehas is put]
   git -C "$checkout" commit -qm first
   git clone --bare -q "$checkout" "$T/origin"
   git -C "$checkout" remote add origin "$T/origin"
+  git -C "$checkout" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main
   # The sandbox build and the two compose files, as install.sh would have put
   # them. The build is a stub; the compose files only have to exist.
   printf '#!/usr/bin/env bash\nprintf "%%s\\n" "build" >>"%s/build"\necho "built tehas/pi-rukas"\n' \
@@ -317,6 +318,7 @@ real_platform() {
   git -C "$checkout" commit -qm first
   git clone --bare -q "$checkout" "$T/origin"
   git -C "$checkout" remote add origin "$T/origin"
+  git -C "$checkout" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main
   push_one "change 1"
 }
 
