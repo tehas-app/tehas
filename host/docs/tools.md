@@ -539,7 +539,8 @@ of its own on a GitHub-hosted runner: it writes the list from the
 branch's `check-generic.sh`, not the pull request's. The jobs on the
 organization's own runners never get the list, so their run of the lint
 checks addresses only. `scripts/verify.sh` runs the
-lint and `scripts/test.sh` together.
+lint and `scripts/test.sh` together, and reports the step as a `skip` line when
+the list is missing.
 ## The pages
 
 The text of each command is on the page named for it. The list above,
