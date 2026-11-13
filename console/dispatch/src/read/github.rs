@@ -62,15 +62,41 @@ const PAGE: &str = r#"query($owner: String!, $name: String!, $cursor: String) {
 const TEHAS_LABELS: &str = r#"
     tehasLabels: labels(first: 100, query: "tehas:") { nodes { id name } }"#;
 
-/// The open pull requests, on the first page alone: the hold of rule 6 that
-/// reads a body for a closing keyword needs no call of its own. Last in the
-/// page, and small, for the budget `ISSUE_PAGE` names. `body` is read whole,
-/// and it is the one field of the page that a description can make long.
-/// The author and head repository are what `build::own_pull` reads.
-const OPEN_PULLS: &str = r#"
+/// What the hold of rule 6 reads of an open pull request. `body` is read
+/// whole, and it is the one field of the page that a description can make
+/// long. The author and head repository are what `build::own_pull` reads.
+macro_rules! open_pull_fields {
+    () => {
+        "number body isCrossRepository author { login ...on User { databaseId } ...on Bot { databaseId } } headRepository { nameWithOwner }"
+    };
+}
+
+/// The open pull requests, on the first page: the hold of rule 6 that reads a
+/// body for a closing keyword needs no call of its own while they fit in one
+/// list. Last in the page, and small, for the budget `ISSUE_PAGE` names. More
+/// than one list are read on with `MORE_OPEN_PULLS`.
+const OPEN_PULLS: &str = concat!(
+    r#"
     openPulls: pullRequests(states: OPEN, first: 100, orderBy: {field: CREATED_AT, direction: DESC}) {
-      nodes { number body isCrossRepository author { login ...on User { databaseId } ...on Bot { databaseId } } headRepository { nameWithOwner } }
-    }"#;
+      pageInfo { hasNextPage endCursor }
+      nodes { "#,
+    open_pull_fields!(),
+    " }\n    }"
+);
+
+/// The open pull requests after the first list of the queue's page.
+const MORE_OPEN_PULLS: &str = concat!(
+    r#"query($owner: String!, $name: String!, $cursor: String) { repository(owner: $owner, name: $name) {
+      openPulls: pullRequests(states: OPEN, first: 100, after: $cursor, orderBy: {field: CREATED_AT, direction: DESC}) {
+        pageInfo { hasNextPage endCursor }
+        nodes { "#,
+    open_pull_fields!(),
+    " } } } }"
+);
+
+/// The most lists of 100 a read of the open pull requests goes on to. A
+/// repository with more open is a read that failed.
+const PULL_PAGES: usize = 50;
 
 // The page above names `tehas:running` inside a GraphQL string, where the
 // constant cannot reach it; this test is what ties the word in the query to
@@ -162,8 +188,8 @@ const PULL: &str = concat!(
 );
 
 const PULLS: &str = concat!(
-    r#"query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) {
-      pullRequests(states: OPEN, first: 100) { nodes { "#,
+    r#"query($owner: String!, $name: String!, $cursor: String) { repository(owner: $owner, name: $name) {
+      pullRequests(states: OPEN, first: 100, after: $cursor) { pageInfo { hasNextPage endCursor } nodes { "#,
     pull_fields!(),
     " } } } }"
 );
@@ -257,7 +283,19 @@ pub fn queue(calls: &mut Calls, repo: &str, types: bool) -> Result<Queue, GhFail
             q.issue_types = Some(names(r.get("issueTypes")));
         }
         if cursor.is_none() {
-            q.open_pulls = r.get("openPulls").and_then(|v| v.get("nodes")).cloned();
+            q.open_pulls = rest_of(&r, "/openPulls", |c| {
+                let cur = format!("cursor={c}");
+                let query = format!("query={MORE_OPEN_PULLS}");
+                calls
+                    .gh(&[
+                        "api", "graphql", "-F", &owner, "-F", &name, "-f", &query, "-f", &cur,
+                    ])
+                    .map(|v| {
+                        v.pointer("/data/repository")
+                            .cloned()
+                            .unwrap_or(Value::Null)
+                    })
+            })?;
             q.labels = r.pointer("/tehasLabels/nodes").cloned();
             q.closed_running = r
                 .pointer("/closedRunning/nodes")
@@ -280,6 +318,45 @@ pub fn queue(calls: &mut Calls, repo: &str, types: bool) -> Result<Queue, GhFail
         }
     }
     Ok(q)
+}
+
+/// The nodes of a list read on to its last page: `first` is the answer that
+/// holds the first list at `at`, and `more` reads the list after a cursor,
+/// answering what holds it at the same `at`. None when an answer holds no
+/// list, which is nothing known rather than nothing there.
+fn rest_of(
+    first: &Value,
+    at: &str,
+    mut more: impl FnMut(&str) -> Result<Value, GhFail>,
+) -> Result<Option<Value>, GhFail> {
+    let mut page = first.clone();
+    let mut nodes = Vec::new();
+    for _ in 0..PULL_PAGES {
+        let Some(list) = page
+            .pointer(&format!("{at}/nodes"))
+            .and_then(Value::as_array)
+        else {
+            return Ok(None);
+        };
+        nodes.extend(list.iter().cloned());
+        let next = page
+            .pointer(&format!("{at}/pageInfo"))
+            .filter(|p| p.get("hasNextPage") == Some(&json!(true)))
+            .and_then(|p| p.get("endCursor"))
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        let Some(cursor) = next else {
+            return Ok(Some(Value::Array(nodes)));
+        };
+        page = more(&cursor)?;
+    }
+    Err(GhFail {
+        line: format!(
+            "ERROR: more than {} open pull requests to read",
+            PULL_PAGES * 100
+        ),
+        ran: None,
+    })
 }
 
 /// The label events of an issue as the REST events list gives them.
@@ -570,11 +647,22 @@ pub fn pull(calls: &mut Calls, repo: &str, pr: u64) -> Value {
     }
 }
 
-/// The open pull requests as tehasbot refresh reads them: gh's whole answer.
+/// The open pull requests as tehasbot refresh reads them: gh's whole answer,
+/// its list holding the nodes of every page.
 pub fn pulls(calls: &mut Calls, repo: &str) -> Result<Value, GhFail> {
     let (owner, name) = split(repo);
     let query = format!("query={PULLS}");
-    calls.gh(&["api", "graphql", "-F", &owner, "-F", &name, "-f", &query])
+    let mut first = calls.gh(&["api", "graphql", "-F", &owner, "-F", &name, "-f", &query])?;
+    let all = rest_of(&first, "/data/repository/pullRequests", |c| {
+        let cur = format!("cursor={c}");
+        calls.gh(&[
+            "api", "graphql", "-F", &owner, "-F", &name, "-f", &query, "-f", &cur,
+        ])
+    })?;
+    if let (Some(all), Some(list)) = (all, first.pointer_mut("/data/repository/pullRequests")) {
+        list["nodes"] = all;
+    }
+    Ok(first)
 }
 
 /// A list gh answers, or {"failed": true}.
@@ -590,8 +678,12 @@ mod tests {
     fn the_list_and_the_one_pull_request_ask_the_same_fields() {
         let fields = pull_fields!();
         assert!(PULL.contains(&format!("{{ state {fields} }}")));
-        assert!(PULLS.contains(&format!("{{ nodes {{ {fields} }}")));
-        assert!(PULLS.contains("pullRequests(states: OPEN, first: 100)"));
+        assert!(PULLS.contains(&format!(
+            "pageInfo {{ hasNextPage endCursor }} nodes {{ {fields} }}"
+        )));
+        assert!(PULLS.contains("pullRequests(states: OPEN, first: 100, after: $cursor)"));
+        assert!(OPEN_PULLS.contains(&format!("nodes {{ {} }}", open_pull_fields!())));
+        assert!(MORE_OPEN_PULLS.contains(&format!("nodes {{ {} }}", open_pull_fields!())));
         let args = [
             "api".to_string(),
             "graphql".to_string(),
@@ -601,6 +693,43 @@ mod tests {
             format!("query={PULLS}"),
         ];
         assert!(crate::read::run::gh_reads(&args));
+    }
+
+    fn list(nodes: &[u64], next: Option<&str>) -> Value {
+        json!({"l": {"pageInfo": {"hasNextPage": next.is_some(), "endCursor": next},
+            "nodes": nodes.iter().map(|n| json!({"number": n})).collect::<Vec<_>>()}})
+    }
+
+    #[test]
+    fn a_list_of_more_than_one_page_is_read_to_its_end() {
+        let mut asked = Vec::new();
+        let all = rest_of(&list(&[1, 2], Some("a")), "/l", |c| {
+            asked.push(c.to_string());
+            Ok(match c {
+                "a" => list(&[3], Some("b")),
+                _ => list(&[4], None),
+            })
+        });
+        assert_eq!(asked, ["a", "b"]);
+        assert_eq!(
+            all.ok().flatten(),
+            Some(json!([{"number": 1}, {"number": 2}, {"number": 3}, {"number": 4}]))
+        );
+    }
+
+    #[test]
+    fn a_list_that_one_page_does_not_answer_is_not_known() {
+        let all = rest_of(&list(&[1], Some("a")), "/l", |_| Ok(json!({})));
+        assert_eq!(all.ok(), Some(None));
+        let failed = rest_of(&list(&[1], Some("a")), "/l", |_| {
+            Err(GhFail {
+                line: "ERROR: gh failed".into(),
+                ran: None,
+            })
+        });
+        assert!(failed.is_err());
+        let endless = rest_of(&list(&[1], Some("a")), "/l", |_| Ok(list(&[1], Some("a"))));
+        assert!(endless.is_err());
     }
 
     #[test]
@@ -613,6 +742,7 @@ mod tests {
             comments_query(&[7, 8]),
             PULL.to_string(),
             PULLS.to_string(),
+            MORE_OPEN_PULLS.to_string(),
         ] {
             assert_eq!(
                 q.matches("login").count(),

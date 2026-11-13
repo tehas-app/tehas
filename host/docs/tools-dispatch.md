@@ -357,8 +357,8 @@ the work done after paying for its explore and plan. GitHub links the two when
 the pull request's description says `Closes #N` (or `Fixes` or `Resolves`) and
 the pull request targets the default branch, or when a person links them by
 hand. A pull request of another branch, stacked on another, earns no such
-reference, so the poll reads the open pull requests' own descriptions from the
-queue's page and holds an issue one of them names with a closing keyword,
+reference, so the poll reads the open pull requests' own descriptions, all of
+them in lists of 100 from the queue's first page on, and holds an issue one of them names with a closing keyword,
 whatever branch it targets: a keyword and the references held to it by commas
 or the words `and` and `or`, so `Closes #7, #8 and #9` holds three issues. The
 text is a description nobody has reviewed, from any author: all it can do is
@@ -368,7 +368,8 @@ request it is. The log line is `skip #N: pull request <url> is open and closes
 it`, the same whether GitHub linked the two or the description says so. A
 merged or closed pull request holds nothing back. A
 page that answered no list of open pull requests holds nothing on a body, and
-a call that fails, or an answer that cannot be read, ends the poll with exit 1.
+a call that fails, an answer that cannot be read, or more than 5000 open pull
+requests, ends the poll with exit 1.
 
 A `tehas:ready` from any other account asks for nothing, so it comes off the
 issue with a comment naming who
