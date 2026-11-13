@@ -125,8 +125,9 @@ state store is not installed (run install.sh)`.
 Under `tehasbot cycle`, as the container starts, the image's id, the pi-rukas
 commit of its label `tehas.rukas` and the settings the cycle is given go on the
 cycle's record in the state store (`cycle-image`), for its report. A store that
-is busy or does not answer in time only costs the record: the command says so
-on its error stream and the cycle runs. Any other refusal stops the start with
+is busy or does not answer in time is asked once more a second later. One that
+is still busy only costs the record: the command says so on its error stream,
+with the image id the container runs, and the cycle runs. Any other refusal stops the start with
 exit 4, and the issue is told `Tehas started no cycle: its record on this host
 could not be updated as it started`. A run on its own has no attempt and
 records no image.

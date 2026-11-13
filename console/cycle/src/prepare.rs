@@ -867,8 +867,9 @@ fn image_of(text: &str) -> Option<(String, Option<String>)> {
 /// The image the cycle runs, as the container starts: a rebuild or a new pin
 /// while the cycle runs does not change what it ran. On the cycle's record with
 /// what the container is given of the settings, and how many cycles run now. A
-/// record that is not this start's, or has ended, is no start to run; a store
-/// that is only busy costs the record, not the cycle. False stops the start.
+/// record that is not this start's, or has ended, is no start to run. A busy
+/// store is asked once more a second later; one still busy costs the record,
+/// not the cycle. False stops the start.
 fn on_record(home: &Path, r: &Record, state: &Value, seen: &Seen) -> bool {
     let Some((id, commit)) = seen else {
         return true;
@@ -889,7 +890,7 @@ fn on_record(home: &Path, r: &Record, state: &Value, seen: &Seen) -> bool {
             eprintln!("tehas work: the settings of this cycle could not be written for its record")
         }
     }
-    let done = host::store_said(home, &args);
+    let done = host::store_try(home, 2, &args);
     if let Some(p) = &settings {
         let _ = fs::remove_file(p);
     }
@@ -902,7 +903,7 @@ fn on_record(home: &Path, r: &Record, state: &Value, seen: &Seen) -> bool {
     }
     if matches!(refused.word.as_str(), "busy" | "timeout") {
         eprintln!(
-            "tehas work: the image of #{n} is not on its record: the state store did not answer ({})",
+            "tehas work: the image of #{n} is not on its record: the state store did not answer twice ({}), the container runs {id} all the same",
             refused.word
         );
         return true;
@@ -1071,6 +1072,48 @@ mod tests {
             assert_eq!(image(&image_of(text)).0, tag, "{text}");
         }
         assert_eq!(image(&None).0, tag);
+    }
+
+    /// A store that answers busy to the first `busy` calls of cycle-image, and
+    /// writes the verb of every call to `calls`.
+    fn busy_store(name: &str, busy: u32) -> tehas_core::testdir::TestDir {
+        let h = tehas_core::testdir::TestDir::new(name);
+        fs::create_dir_all(h.join("libexec")).unwrap();
+        let script = format!(
+            "#!/bin/sh\necho \"$1\" >> \"$TEHAS_HOME/calls\"\n\
+             [ \"$1\" = cycle-image ] || exit 78\n\
+             n=$(grep -c '^cycle-image$' \"$TEHAS_HOME/calls\")\n\
+             if [ \"$n\" -le {busy} ]; then echo 'store: busy: the database is locked' >&2; exit 1; fi\n\
+             printf '%s\\n' '{{\"api\":1,\"ok\":true,\"verb\":\"cycle-image\"}}'\n"
+        );
+        tehas_core::testing::write_exe(h.join("libexec/store"), script).unwrap();
+        h
+    }
+
+    #[test]
+    fn a_busy_store_is_asked_once_more_for_the_image_and_the_cycle_starts() {
+        let r = Record {
+            issue: 7,
+            file: PathBuf::new(),
+            attempt: "1".into(),
+            log: PathBuf::new(),
+            name: "tehas-7".into(),
+            stop_wait: 1,
+            text_wait: 1,
+            gap: String::new(),
+            images: Vec::new(),
+            stop: Stop::default(),
+        };
+        let seen: Seen = Some((format!("sha256:{}", "e".repeat(64)), None));
+        // Busy once: the second ask puts the image on the record. Busy twice:
+        // the record goes without it, and only the record pays.
+        for busy in [1, 2] {
+            let h = busy_store(&format!("prepare-busy-{busy}"), busy);
+            assert!(on_record(h.path(), &r, &json!({}), &seen), "{busy}");
+            let calls = fs::read_to_string(h.join("calls")).unwrap();
+            let asked = calls.lines().filter(|l| *l == "cycle-image").count();
+            assert_eq!(asked, 2, "{busy}: {calls}");
+        }
     }
 
     #[test]
