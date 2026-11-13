@@ -642,15 +642,41 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         }
     }
     let watched = f.file("runner_exit").text().is_some();
-    // The note of a container that never started.
+    // The note of a container that never started. A regular file that could
+    // not be read is still the note, with its status not known. A link or a
+    // text out of shape is no note, and is said.
     let mut nostart_rc = String::new();
-    if let Some(t) = f.file("nostart").text() {
-        nostart_rc = words(t, Some(100)).first().cloned().unwrap_or_default();
-        if !re(r"^[1-9][0-9]{0,2}$", &nostart_rc) {
-            nostart_rc.clear();
+    let mut nostart_seen = false;
+    match f.file("nostart") {
+        File::Text(t) => {
+            nostart_rc = words(t, Some(100)).first().cloned().unwrap_or_default();
+            if re(r"^[1-9][0-9]{0,2}$", &nostart_rc) {
+                nostart_seen = true;
+            } else {
+                nostart_rc.clear();
+                if no_result {
+                    warn(
+                        &mut r,
+                        format!("the note of #{issue} that its container never started holds no exit status of 1 to 999, so it is not read"),
+                    );
+                }
+            }
         }
+        File::Link if no_result => warn(
+            &mut r,
+            format!(
+                "the note of #{issue} that its container never started is a link, it is not read"
+            ),
+        ),
+        File::Unreadable if no_result => {
+            nostart_seen = true;
+            warn(
+                &mut r,
+                format!("the note of #{issue} that its container never started could not be read, so its exit status is not known"),
+            );
+        }
+        _ => {}
     }
-    let nostart_seen = !nostart_rc.is_empty();
     let read_log_steps = no_result && watched && progress_seen;
     // The two stop files of tehas work, each read ONCE: its seconds go with
     // its step, so the step below and the stop below cannot disagree. A first
@@ -757,7 +783,7 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
     if !disk_step.is_empty() {
         step_wanted = false;
     }
-    if !nostart_rc.is_empty() {
+    if nostart_seen {
         step_wanted = false;
     }
     if !stalled_step.is_empty() || !timed_step.is_empty() {
@@ -812,7 +838,7 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
     if step == "-" {
         step_from = "result";
     }
-    if !nostart_rc.is_empty() && no_result {
+    if nostart_seen && no_result {
         step = "no-step".into();
         step_from = "nostart";
     }
@@ -964,7 +990,12 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
     let mut stop_why = String::new();
     if nostart_seen && no_result {
         own = "runner-never-started";
-        stop_why = format!("the container ended with the exit status {nostart_rc} and wrote no line of its stream, so the driver wrote no event and no step started");
+        let ended = if nostart_rc.is_empty() {
+            "with an exit status that could not be read".to_string()
+        } else {
+            format!("with the exit status {nostart_rc}")
+        };
+        stop_why = format!("the container ended {ended} and wrote no line of its stream, so the driver wrote no event and no step started");
     } else if timed_secs != "0" && (cap.is_empty() || status == "timeout") {
         own = "wall-clock";
         stop_why = if timed_by == "runner" {
@@ -1039,6 +1070,31 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         reason = runner::cut_reason(
             &format!("its container reached its limit of processes and refused {forks} starts of a process{in_flight}{tail}"),
         );
+    }
+    // A container killed from outside the cycle, out of memory or by a kill
+    // nobody here sent, with no cap of its own: the kill is its end.
+    let container_killed =
+        cap.is_empty() && status == "killed" && !stopped_by_person && !process_limit;
+    if container_killed {
+        cap = "container-killed".into();
+        let in_flight = if step == "-" {
+            String::new()
+        } else {
+            format!(", step {step} in flight")
+        };
+        let memory = if kills == "0" {
+            "no process in it was counted as killed for memory".to_string()
+        } else {
+            format!("{kills} processes in it were killed for memory")
+        };
+        let tail = if reason.is_empty() {
+            String::new()
+        } else {
+            format!("; {reason}")
+        };
+        reason = runner::cut_reason(&format!(
+            "the container was killed with the exit status 137 and tehas did not stop it{in_flight}; {memory}{tail}"
+        ));
     }
     if let Some((bad, of)) = unparsed(progress) {
         warn(
@@ -1143,7 +1199,7 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
     let mut why = String::new();
     if OWN_CAPS.contains(&cap.as_str()) {
         why = format!(" tehas stopped the cycle: the cap `{cap}`.");
-    } else if process_limit {
+    } else if process_limit || container_killed {
         why = format!(" Its cause is recorded as the cap `{cap}`.");
     } else if !cap.is_empty() {
         let pr_why = if park_reason.is_empty() {
@@ -2027,6 +2083,45 @@ mod tests {
             "{:?}",
             comments(&r)
         );
+    }
+
+    #[test]
+    fn a_container_killed_from_outside_is_the_cap_container_killed_with_its_memory_kills() {
+        let r = notes(vec![("status", "killed\n"), ("oom", "4\n")]);
+        assert!(r.done.contains("status=killed"), "{}", r.done);
+        assert_eq!(end_cap(&r), Some("container-killed"), "{:?}", r.end);
+        assert_eq!(r.after.ended.cap, "container-killed");
+        assert_eq!(
+            r.after.ended.reason,
+            "the container was killed with the exit status 137 and tehas did not stop it; 4 processes in it were killed for memory"
+        );
+        assert!(
+            comments(&r)
+                .iter()
+                .any(|c| c.contains("Its cause is recorded as the cap `container-killed`.")),
+            "{:?}",
+            comments(&r)
+        );
+        let r = notes(vec![("status", "killed\n")]);
+        assert!(
+            r.after
+                .ended
+                .reason
+                .ends_with("no process in it was counted as killed for memory"),
+            "{}",
+            r.after.ended.reason
+        );
+    }
+
+    #[test]
+    fn a_killed_container_keeps_a_cap_it_had_and_a_persons_stop() {
+        let r = notes(vec![
+            ("status", "killed\n"),
+            ("stopped", "1792000000 alice\n"),
+        ]);
+        assert_eq!(r.after.ended.cap, "");
+        let r = notes(vec![("status", "killed\n"), ("forks", "3\n")]);
+        assert_eq!(r.after.ended.cap, "process-limit");
     }
 
     #[test]

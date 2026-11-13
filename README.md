@@ -75,8 +75,10 @@ request are the bot's. One step as root lets an account in:
 - A GitHub App for the factory, installed on the product repository.
   `tehas setup --new-app` makes it from a link in your browser
   ([how](host/docs/github-app.md)).
-- In the product repository: `AGENTS.md`, `.pi/verify-cmd` and
-  `.pi/settings.json`. The ones in this repository are a working example.
+- In the product repository: `AGENTS.md` and `.pi/verify-cmd`. A
+  `.pi/settings.json` is optional: `tehas check-product` checks the model it
+  names only when the product has one. The ones in this repository are a
+  working example.
 
 One install serves one repository.
 
@@ -196,7 +198,7 @@ host.
 | `lib/improve-prompt.md` | The prompt the improvement loop's analyst reads |
 | `lib/paths.sh` | The home of each tool a host installs, and the `PATH` that finds them |
 | `lib/github-app.sh` | A login shell as the factory's GitHub App |
-| `api/` | A JSON Schema of `tehas status --json` and two samples the tests make from the code; a program that reads the object copies them into its own tests |
+| `api/` | The JSON Schemas and the samples of the factory API's JSON objects: `tehas status --json`, `tehas state copy`, `tehas state load`, the industry alerts and the rest, each made from the code by the tests; a program that reads an object copies its sample into its own tests |
 | `host/` | Everything else that is installed: units, the docs server, the sandbox image, the manual |
 | `preview/` | What `tehasbot preview` builds for a pull request of this repository |
 | `install.sh`, `bootstrap.sh` | Install tehas on a host, and prepare a host's tools |
