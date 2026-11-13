@@ -315,11 +315,47 @@ pub fn run(text: &str, issue: u64) -> Run {
     if branch == "commit-pr" || !branch_of(issue, &branch) {
         branch.clear();
     }
+    if branch.is_empty() && at.is_some() {
+        branch = branch_said_after_push(text, issue);
+    }
     Run {
         step: steps.last().cloned().unwrap_or_default(),
         branch,
         ..Run::default()
     }
+}
+
+/// The last branch of this issue an event after the last commit-pr names in its
+/// `branch` field, unstable events too. A driver that names no branch as the
+/// step after commit-pr names it there. It only says which branch to ask GitHub
+/// about: the pull request is still GitHub's answer.
+fn branch_said_after_push(text: &str, issue: u64) -> String {
+    let mut pushed = false;
+    let mut branch = String::new();
+    for l in text.split('\n') {
+        let Ok(v) = serde_json::from_str::<Value>(l) else {
+            continue;
+        };
+        if v.get("v").and_then(Value::as_f64) != Some(1.0) {
+            continue;
+        }
+        let Some(e) = v.get("event").filter(|e| e.is_object()) else {
+            continue;
+        };
+        if v.get("kind").and_then(Value::as_str) == Some("step-started") {
+            if e.get("step").and_then(Value::as_str) == Some("commit-pr") {
+                pushed = true;
+                branch.clear();
+            }
+            continue;
+        }
+        if let Some(b) = e.get("branch").and_then(Value::as_str) {
+            if pushed && branch_of(issue, b) {
+                branch = b.to_string();
+            }
+        }
+    }
+    branch
 }
 
 /// The fields tehas-cycle reads of the progress summary, in its order:
@@ -716,6 +752,31 @@ mod tests {
         assert_eq!(run(&l("commit-pr"), 7).branch, "");
         let bad = l("plan") + "{\"v\":1,\"kind\":\"step-started\",\"event\":\"x\"}\n";
         assert_eq!(run(&bad, 7).step, "");
+    }
+
+    #[test]
+    fn a_log_with_no_branch_step_after_commit_pr_names_the_branch_a_later_event_carries() {
+        let l = started;
+        let said = |b: &str| {
+            format!("{{\"v\":1,\"kind\":\"lens-residuals-posted\",\"unstable\":true,\"event\":{{\"prNumber\":9,\"branch\":\"{b}\"}}}}\n")
+        };
+        let log = [
+            l("commit-pr"),
+            l("lens-review"),
+            said("feature/issue-7-a"),
+            l("lens-fix"),
+        ]
+        .concat();
+        assert_eq!(run(&log, 7).branch, "feature/issue-7-a");
+        assert_eq!(run(&log, 7).step, "lens-fix");
+        // Only a branch of this issue, only after a push, and the branch step
+        // after commit-pr comes first.
+        let other = l("commit-pr") + &said("feature/issue-8-a");
+        assert_eq!(run(&other, 7).branch, "");
+        let before = said("feature/issue-7-a") + &l("commit-pr") + &l("lens-review");
+        assert_eq!(run(&before, 7).branch, "");
+        let both = l("commit-pr") + &l("feature/issue-7-b") + &said("feature/issue-7-a");
+        assert_eq!(run(&both, 7).branch, "feature/issue-7-b");
     }
 
     #[test]
