@@ -52,12 +52,15 @@ t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "settings-rules"
 t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "start-order"
 t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "host-message"
 t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "refresh-pr"
-t_eq "$(jq -r '.features | last' <<<"$t_out")" "refresh-pr-starts"
-t_eq "$(jq -r '.features | length' <<<"$t_out")" 30
+t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "refresh-pr-starts"
+t_eq "$(jq -r '.features | last' <<<"$t_out")" "refresh-pr-lane"
+t_eq "$(jq -r '.features | length' <<<"$t_out")" 31
 t_contains "$(cat "$T_ROOT/host/docs/api.md")" '"refresh-pr"'
 t_contains "$(cat "$T_ROOT/host/docs/api.md")" '`refresh-pr` ('
 t_contains "$(cat "$T_ROOT/host/docs/api.md")" '"refresh-pr-starts"'
 t_contains "$(cat "$T_ROOT/host/docs/api.md")" '`refresh-pr-starts` ('
+t_contains "$(cat "$T_ROOT/host/docs/api.md")" '"refresh-pr-lane"'
+t_contains "$(cat "$T_ROOT/host/docs/api.md")" '`refresh-pr-lane` ('
 t_eq "$(t_calls gh)$(t_calls git)" ""
 
 t_case "api --json: the millwright and the old fixer field are the app's login when the factory has one"
