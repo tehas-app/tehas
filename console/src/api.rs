@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 
 /// What this release can do. A feature is added here in the release that
 /// brings it, and taken out only with the feature itself.
-const FEATURES: [&str; 31] = [
+const FEATURES: [&str; 32] = [
     "status",
     "millwright-grant",
     "fixer-grant",
@@ -43,6 +43,7 @@ const FEATURES: [&str; 31] = [
     "refresh-pr-starts",
     "refresh-pr-lane",
     "refresh-pr-sweep",
+    "refresh-pr-json",
 ];
 
 /// The longest version text read, which `head -c` kept it to.
@@ -111,7 +112,7 @@ fn poll_of(answer: &J) -> J {
     ])
 }
 
-fn object(version: &str, repo: &str, login: &str, poll: J) -> J {
+fn object(version: &str, repo: &str, login: &str, scan: bool, poll: J) -> J {
     let (tehas, commit) = split_version(version);
     let millwright = if login.is_empty() {
         J::Null
@@ -129,13 +130,14 @@ fn object(version: &str, repo: &str, login: &str, poll: J) -> J {
         ),
         ("millwright", millwright.clone()),
         ("fixer", millwright),
+        ("refreshScan", J::Bool(scan)),
         ("poll", poll),
     ])
 }
 
 /// The lines for a person. The poll line is the store's own words, with its
 /// first word brought to the column of the others.
-fn lines(version: &str, repo: &str, login: &str, poll_line: &str) -> Vec<String> {
+fn lines(version: &str, repo: &str, login: &str, scan: bool, poll_line: &str) -> Vec<String> {
     let (tehas, commit) = split_version(version);
     let release = tehas.unwrap_or_else(|| "unknown".to_string());
     let commit = commit.map_or(String::new(), |c| format!(" ({c})"));
@@ -146,6 +148,7 @@ fn lines(version: &str, repo: &str, login: &str, poll_line: &str) -> Vec<String>
         format!("repo        {repo}"),
         format!("features    {}", FEATURES.join(" ")),
         format!("millwright  {mill}"),
+        format!("refresh     scan {}", if scan { "on" } else { "off" }),
     ];
     if !poll_line.is_empty() {
         out.push(match poll_line.strip_prefix("poll") {
@@ -165,17 +168,19 @@ pub fn main(given: &[String]) -> u8 {
     let repo = env::var("TEHAS_REPO").unwrap_or_default();
     let login = env::var("TEHAS_MILLWRIGHT_LOGIN").unwrap_or_default();
     let version = version_text(&home.join("docs/version.txt"));
+    // The timed scan of tehas-refresh.timer runs only with the setting at 1.
+    let scan = env::var("TEHAS_REFRESH_CONFLICTS").is_ok_and(|v| v == "1");
     if json {
         let now = tehas_core::time::now().to_string();
         let poll = store::line(&home, &["poll-show", "--api", "--now", &now])
             .ok()
             .and_then(|text| J::parse(&text))
             .map_or(J::Null, |answer| poll_of(&answer));
-        tehas_core::outln!("{}", object(&version, &repo, &login, poll).dump());
+        tehas_core::outln!("{}", object(&version, &repo, &login, scan, poll).dump());
     } else {
         let poll = store::call(&home, &["poll-show"]).ok();
         let line = poll.as_ref().and_then(|v| v["line"].as_str()).unwrap_or("");
-        for line in lines(&version, &repo, &login, line) {
+        for line in lines(&version, &repo, &login, scan, line) {
             tehas_core::outln!("{line}");
         }
     }
@@ -206,12 +211,12 @@ mod tests {
     #[test]
     fn the_keys_stay_in_the_order_of_the_api() {
         let poll = J::parse(r#"{"z":1,"a":2}"#).unwrap();
-        let printed = object("v1.2.3", "acme/widget", "mill", poll).dump();
+        let printed = object("v1.2.3", "acme/widget", "mill", true, poll).dump();
         assert!(printed.starts_with(
             r#"{"api":1,"tehas":"v1.2.3","commit":null,"repo":"acme/widget","features":["status","#
         ));
         assert!(printed.ends_with(
-            r#""disk","panels","state-check","finish","status-versions","store-copy","state-load","freeze","host-bridge","cycle-writes","settings-rules","start-order","host-message","refresh-pr","host-message-health","refresh-pr-starts","refresh-pr-lane","refresh-pr-sweep"],"millwright":"mill","fixer":"mill","poll":{"z":1,"a":2}}"#
+            r#""disk","panels","state-check","finish","status-versions","store-copy","state-load","freeze","host-bridge","cycle-writes","settings-rules","start-order","host-message","refresh-pr","host-message-health","refresh-pr-starts","refresh-pr-lane","refresh-pr-sweep","refresh-pr-json"],"millwright":"mill","fixer":"mill","refreshScan":true,"poll":{"z":1,"a":2}}"#
         ));
     }
 
@@ -229,10 +234,12 @@ mod tests {
 
     #[test]
     fn the_poll_line_takes_the_column_of_the_others() {
-        let got = lines("cb6912a", "a/b", "", "poll  last 2 s wall");
+        let got = lines("cb6912a", "a/b", "", false, "poll  last 2 s wall");
         assert_eq!(got[1], "tehas       unknown (cb6912a)");
         assert_eq!(got[4], "millwright  none");
-        assert_eq!(got[5], "poll        last 2 s wall");
-        assert_eq!(lines("", "a/b", "", "").len(), 5);
+        assert_eq!(got[5], "refresh     scan off");
+        assert_eq!(got[6], "poll        last 2 s wall");
+        assert_eq!(lines("", "a/b", "", true, "").len(), 6);
+        assert_eq!(lines("", "a/b", "", true, "")[5], "refresh     scan on");
     }
 }
