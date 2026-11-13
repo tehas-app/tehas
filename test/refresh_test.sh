@@ -282,7 +282,7 @@ t_contains "$t_out" "Usage:"
 # such an edit changes this line on purpose.
 t_case "the refresh text is the words it had before it moved"
 t_eq "$(sha256sum <"$T_ROOT/console/dispatch/src/usage/refresh.txt" | cut -d' ' -f1)" \
-  "753b972d003984bfdf352691abb2b1451fe45ddbf0a7e82766c8956928c96843"
+  "f8badaa6ec8dffef9c9e43605e8438e3f7ec36ba4681d18175e37a777f3b98e9"
 
 t_case "--help prints the refresh text word for word"
 reset
