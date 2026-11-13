@@ -433,6 +433,29 @@ fn status_names_the_pi_rukas_the_image_runs_and_the_industry() {
 }
 
 #[test]
+fn status_carries_the_host_messages() {
+    let out = call(&live(), "factory_status", &json!({})).unwrap();
+    let m = &out["hostMessages"]["list"][0];
+    assert_eq!(m["id"], "move");
+    assert_eq!(m["level"], "warn");
+    assert_eq!(m["text"], "The factory moves at 18:00.");
+    assert_eq!(m["link"], "https://example.com/move");
+    assert_eq!(m["at"], "2026-10-20T08:00:00Z");
+    assert!(m.get("secretKey").is_none());
+    // A health file without them has no key.
+    let dir = copy("no-host-messages");
+    let file = dir.join("health.json");
+    let mut health: Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+    health["checks"]
+        .as_object_mut()
+        .unwrap()
+        .remove("hostMessages");
+    std::fs::write(&file, health.to_string()).unwrap();
+    let out = call(&dir, "factory_status", &json!({})).unwrap();
+    assert!(out.get("hostMessages").is_none());
+}
+
+#[test]
 fn issues_by_stage() {
     let all = call(&live(), "factory_issues", &json!({})).unwrap();
     assert_eq!(all["queued"][0]["title"], "Queued issue");
@@ -664,6 +687,9 @@ const INDUSTRY: &str = r##""industry":{"version":"v0.9.0","alertsTime":"2026-10-
 const UNREADABLE_INDUSTRY: &str =
     r#""industry":{"version":"v0.9.0","alerts":null,"alertsUnreadable":true}"#;
 
+const HOST_MESSAGES: &str = r#""hostMessages":{"list":[{"id":"move","level":"warn","text":"The factory moves at 18:00.","link":"https://example.com/move","at":"2026-10-20T08:00:00Z","secretKey":"SECRET"}]}"#;
+const UNREADABLE_HOST_MESSAGES: &str = r#""hostMessages":{"list":null,"unreadable":true}"#;
+
 // Adding a key to what a tool returns is a change someone makes on purpose:
 // it shows up here.
 #[test]
@@ -715,6 +741,14 @@ fn every_key_is_listed() {
                 "rukas.imageVersion",
                 "rukas.clone",
                 "rukas.behind",
+                "hostMessages",
+                "hostMessages.list",
+                "hostMessages.list[].id",
+                "hostMessages.list[].level",
+                "hostMessages.list[].text",
+                "hostMessages.list[].link",
+                "hostMessages.list[].at",
+                "hostMessages.unreadable",
                 "industry",
                 "industry.version",
                 "industry.alerts",
@@ -920,6 +954,9 @@ fn every_key_is_listed() {
             // and an industry whose alerts cannot be read.
             .replace(INDUSTRY, UNREADABLE_INDUSTRY);
             assert!(health.contains(UNREADABLE_INDUSTRY));
+            // Host messages that cannot be read.
+            let health = health.replace(HOST_MESSAGES, UNREADABLE_HOST_MESSAGES);
+            assert!(health.contains(UNREADABLE_HOST_MESSAGES));
             std::fs::write(&file, health).unwrap();
             got.extend(key_paths(&call(&c, name, &args(name)).unwrap()));
         }
@@ -968,6 +1005,9 @@ fn schema_matches_output() {
             // and an industry whose alerts cannot be read.
             .replace(INDUSTRY, UNREADABLE_INDUSTRY);
             assert!(health.contains(UNREADABLE_INDUSTRY));
+            // Host messages that cannot be read.
+            let health = health.replace(HOST_MESSAGES, UNREADABLE_HOST_MESSAGES);
+            assert!(health.contains(UNREADABLE_HOST_MESSAGES));
             std::fs::write(&file, health).unwrap();
             got.extend(key_paths(&call(&c, name, &args(name)).unwrap()));
         }

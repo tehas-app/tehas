@@ -4,17 +4,19 @@
 // sandbox image runs from checks.rukas, and the tehas-industry that runs the
 // factory from checks.industry, when there is one, with the alerts it raised
 // about this factory. So the footer, the banner, /health and the MCP server
-// tell one story, however the image was built.
+// tell one story, however the image was built. The banner also lists the
+// messages of tehas host-message, from checks.hostMessages.
 //
-// line() and alerts() are the pure steps from the file to the text, and draw()
-// sets the banner through the document it is given; all three are tested
-// without a browser (test/versions_test.mjs). The file comes from the network:
-// a value of another shape is left out, and every word is set as text.
+// line(), alerts() and messages() are the pure steps from the file to the
+// text, and draw() sets the banner through the document it is given; all are
+// tested without a browser (test/versions_test.mjs). The file comes from the
+// network: a value of another shape is left out, and every word is set as text.
 (() => {
   const VERSION = /^v[0-9]{1,6}(\.[0-9]{1,6}){1,3}(-[0-9A-Za-z.]{1,32})?$/;
   const COMMIT = /^[0-9a-f]{7,40}$/;
   const WEB = /^https?:\/\/[^\s]+$/;
   const KINDS = { paused: "Paused", frozen: "Frozen", "held-by-one": "Held by one ticket" };
+  const LEVELS = { alert: "Alert", warn: "Warning", info: "Notice" };
   const version = (v) => (typeof v === "string" && VERSION.test(v) ? v : null);
   const commit = (c) => (typeof c === "string" && COMMIT.test(c) ? c.slice(0, 7) : null);
   const object = (o) => (o !== null && typeof o === "object" ? o : {});
@@ -64,7 +66,25 @@
       }));
   }
 
-  // The banner: one line for each alert, hidden when there is none.
+  // The host messages, each as { word, text, ago, link, set: true }: none for
+  // a file with no list or one that cannot be read. A message of a level this
+  // page does not know is left out.
+  function messages(health, now = Date.now()) {
+    const list = object(object(object(health).checks).hostMessages).list;
+    if (!Array.isArray(list)) return [];
+    return list
+      .map(object)
+      .filter((m) => typeof m.level === "string" && Object.hasOwn(LEVELS, m.level))
+      .map((m) => ({
+        word: LEVELS[m.level],
+        text: text(m.text),
+        ago: ago(m.at, now),
+        link: typeof m.link === "string" && WEB.test(m.link) ? m.link : null,
+        set: true,
+      }));
+  }
+
+  // The banner: one line for each alert and message, hidden when there is none.
   function draw(el, list, doc) {
     const node = (name, cls, words) => {
       const n = doc.createElement(name);
@@ -76,7 +96,7 @@
       ...list.map((a) => {
         const p = node("p", "industry-alert");
         p.append(node("b", "", a.word), node("span", "", a.text));
-        if (a.ago) p.append(node("small", "", `started ${a.ago}`));
+        if (a.ago) p.append(node("small", "", `${a.set ? "set" : "started"} ${a.ago}`));
         if (a.link) {
           const l = node("a", "", "Open");
           l.href = a.link;
@@ -90,7 +110,7 @@
     el.hidden = list.length === 0;
   }
 
-  globalThis.TEHAS_VERSIONS = { line, alerts, draw };
+  globalThis.TEHAS_VERSIONS = { line, alerts, messages, draw };
 
   if (typeof document === "undefined") return;
   const el = document.getElementById("versions");
@@ -108,7 +128,7 @@
     }
     // No health yet keeps what the page showed last, or nothing.
     if (health === null) return;
-    if (banner) draw(banner, alerts(health), document);
+    if (banner) draw(banner, [...alerts(health), ...messages(health)], document);
     const said = line(health);
     if (!el || said === null) return;
     el.textContent = said;

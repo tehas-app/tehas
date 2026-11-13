@@ -37,6 +37,7 @@
 //! Exit: 0 the report was printed; 2 usage.
 
 use crate::flags::{self, epoch};
+use crate::host_message;
 use crate::jq::{first, obj, J, NULL};
 use crate::mcp::{liveness, Liveness};
 use crate::store::{self, bounded, merged, Refusal};
@@ -1188,6 +1189,67 @@ fn alerts(path: &Path, now: i64) -> Alerts {
     }
 }
 
+/// Where `tehas host-message` keeps the factory's messages.
+const HOST_MESSAGES_FILE: &str = "state/host-messages.json";
+
+/// `checks.hostMessages`, and the messages it lists: `{"list": [...]}`, empty
+/// with no file, and `{"list": null, "unreadable": true}` with None for a file
+/// that is not what `tehas host-message` writes.
+fn host_messages(home: &Path) -> (J, Option<Vec<host_message::Message>>) {
+    let read = match tehas_core::file::read_regular(
+        &home.join(HOST_MESSAGES_FILE),
+        tehas_core::file::READ_BOUND,
+    ) {
+        Ok((bytes, _)) => String::from_utf8(bytes)
+            .ok()
+            .and_then(|t| host_message::parse(&t).ok()),
+        Err(tehas_core::file::ReadError::Io(e)) if e.kind() == io::ErrorKind::NotFound => {
+            Some(Vec::new())
+        }
+        Err(_) => None,
+    };
+    let Some(list) = read else {
+        return (
+            obj(vec![("list", J::Null), ("unreadable", J::Bool(true))]),
+            None,
+        );
+    };
+    let items = list
+        .iter()
+        .map(|m| {
+            obj(vec![
+                ("id", J::str(m.id.clone())),
+                ("level", J::str(m.level.clone())),
+                ("text", J::str(m.text.clone())),
+                ("link", m.link.clone().map_or(J::Null, J::Str)),
+                ("at", J::str(m.at.clone())),
+            ])
+        })
+        .collect();
+    (obj(vec![("list", J::Arr(items))]), Some(list))
+}
+
+/// The line of the first `alert` message, else of the first `warn` one. The
+/// text is the writer's: a direction override or a zero-width character is
+/// left out, as the line is printed in terminals, and a text of nothing else
+/// is said by its id.
+fn host_message_line(list: &[host_message::Message]) -> Option<String> {
+    let first = ["alert", "warn"]
+        .iter()
+        .find_map(|level| list.iter().find(|m| m.level == *level))?;
+    let shown: String = first
+        .text
+        .chars()
+        .filter(|c| !tehas_core::mask::is_format(*c))
+        .collect();
+    let shown = shown.trim();
+    Some(if shown.is_empty() {
+        format!("The host message {} is set.", first.id)
+    } else {
+        shown.to_string()
+    })
+}
+
 /// Seconds since the epoch of an RFC 3339 time: UTC or an offset, with or
 /// without a fraction of a second, which is dropped.
 fn rfc3339(s: &str) -> Option<i64> {
@@ -1765,6 +1827,9 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
         }
     });
     let alerts_unreadable = alerts == Alerts::Unreadable;
+    let (host_messages_check, host_messages) = host_messages(home);
+    let message_line = host_messages.as_deref().and_then(host_message_line);
+    let messages_unreadable = host_messages.is_none();
 
     let flag = pause_flag(home);
     let bool_or_false = |v: &J| match v {
@@ -1904,6 +1969,8 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
     } else if old_queue
         || alert_line.is_some()
         || alerts_unreadable
+        || message_line.is_some()
+        || messages_unreadable
         || paused
         || limit_holds
         || no_start
@@ -1947,6 +2014,8 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
             github.last.as_ref().map_or("", |(_, l)| l.as_str())
         )
     } else if let Some(line) = alert_line {
+        line
+    } else if let Some(line) = message_line {
         line
     } else if paused {
         "The factory is paused.".to_string()
@@ -2037,6 +2106,8 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
         )
     } else if alerts_unreadable {
         format!("The industry's alerts cannot be read: {ALERTS_FILE} is not what tehas-industry writes.")
+    } else if messages_unreadable {
+        format!("The host messages cannot be read: {HOST_MESSAGES_FILE}")
     } else if !unlinked.is_empty() {
         let mut named: Vec<String> = unlinked
             .iter()
@@ -2176,6 +2247,7 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
         ("epics", epics),
         ("mcp", mcp),
         ("github", github_check),
+        ("hostMessages", host_messages_check),
     ];
     if let Some(i) = industry_check {
         checks.push(("industry", i));
@@ -3196,6 +3268,116 @@ mod tests {
             r#"{"version":"v0.9.0","alertsTime":"2026-10-17T14:00:00Z","alerts":[],"alertsStale":false}"#
         );
         assert_eq!(said(&r), ("pass".into(), "Idle, taking work.".into()));
+    }
+
+    fn message(id: &str, level: &str, text: &str) -> String {
+        format!(
+            r#"{{"id":"{id}","level":"{level}","text":"{text}","link":null,"at":"2026-10-17T13:00:00Z"}}"#
+        )
+    }
+
+    fn with_messages(h: &Home, messages: &[String]) -> J {
+        h.write(
+            "state/host-messages.json",
+            &format!(r#"{{"api":1,"messages":[{}]}}"#, messages.join(",")),
+        );
+        h.report(&Given::default())
+    }
+
+    #[test]
+    fn no_host_messages_is_an_empty_list_and_a_warn_message_warns_with_its_text() {
+        let h = home("messages-none");
+        let r = h.report(&Given::default());
+        assert_eq!(r.at(&["checks", "hostMessages"]).dump(), r#"{"list":[]}"#);
+        assert_eq!(said(&r), ("pass".into(), "Idle, taking work.".into()));
+        let r = with_messages(
+            &h,
+            &[
+                message("note", "info", "Read the notes."),
+                message("disk", "warn", "Disk 91% full"),
+                message("later", "warn", "Second"),
+            ],
+        );
+        assert_eq!(said(&r), ("warn".into(), "Disk 91% full".into()));
+        assert_eq!(r.at(&["checks", "hostMessages", "list"]).len(), 3);
+        // An alert is said before a warning set before it.
+        let r = with_messages(
+            &h,
+            &[
+                message("disk", "warn", "Disk 91% full"),
+                message("move", "alert", "Moving at 18:00"),
+            ],
+        );
+        assert_eq!(said(&r), ("warn".into(), "Moving at 18:00".into()));
+    }
+
+    #[test]
+    fn an_info_message_is_listed_and_changes_no_status() {
+        let h = home("messages-info");
+        h.write(
+            "state/host-messages.json",
+            r#"{"api":1,"messages":[{"id":"note","level":"info","text":"Read the notes.","link":"https://example.com/notes","at":"2026-10-17T13:00:00Z"}]}"#,
+        );
+        let r = h.report(&Given::default());
+        assert_eq!(
+            r.at(&["checks", "hostMessages"]).dump(),
+            r#"{"list":[{"id":"note","level":"info","text":"Read the notes.","link":"https://example.com/notes","at":"2026-10-17T13:00:00Z"}]}"#
+        );
+        assert_eq!(said(&r), ("pass".into(), "Idle, taking work.".into()));
+    }
+
+    #[test]
+    fn an_unreadable_host_messages_file_warns() {
+        let h = home("messages-unreadable");
+        for text in [
+            "{",
+            r#"{"api":1,"messages":[{"id":"x","level":"loud","text":"t","link":null,"at":"2026-10-17T13:00:00Z"}]}"#,
+        ] {
+            h.write("state/host-messages.json", text);
+            let r = h.report(&Given::default());
+            assert_eq!(
+                r.at(&["checks", "hostMessages"]).dump(),
+                r#"{"list":null,"unreadable":true}"#
+            );
+            assert_eq!(
+                said(&r),
+                (
+                    "warn".into(),
+                    "The host messages cannot be read: state/host-messages.json".into()
+                )
+            );
+        }
+    }
+
+    #[test]
+    fn a_current_alert_is_said_before_a_host_message() {
+        let h = home("messages-alerts");
+        let file = alerts_file(
+            "2026-10-17T14:00:00Z",
+            r#"[{"kind":"paused","since":"2026-10-17T10:00:00Z","text":"Paused for 4 h.","link":null}]"#,
+        );
+        h.write(
+            "state/host-messages.json",
+            &format!(
+                r#"{{"api":1,"messages":[{}]}}"#,
+                message("move", "alert", "Moving at 18:00")
+            ),
+        );
+        let r = with_alerts(&h, Some(&file));
+        assert_eq!(said(&r), ("warn".into(), "Paused for 4 h.".into()));
+        assert_eq!(r.at(&["checks", "hostMessages", "list"]).len(), 1);
+    }
+
+    #[test]
+    fn a_host_message_line_leaves_out_direction_overrides() {
+        let h = home("messages-bidi");
+        let r = with_messages(&h, &[message("x", "warn", "a\u{202e}b\u{200b}c")]);
+        assert_eq!(said(&r), ("warn".into(), "abc".into()));
+        let r = with_messages(&h, &[message("x", "alert", "\u{200b}\u{3000}")]);
+        assert_eq!(
+            said(&r),
+            ("warn".into(), "The host message x is set.".into())
+        );
     }
 
     #[test]
