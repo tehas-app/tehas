@@ -756,6 +756,9 @@ fn finish_verb(n: u64, args: &[String], rest: &[&str]) -> ! {
     };
     let done = finish::finish(&plan, &mut host);
     if done.url.is_empty() {
+        if !done.said.is_empty() {
+            finish::say(n, &format!("{}{}", finish::SAID, done.said));
+        }
         finish::say(n, &done.why);
         std::process::exit(1);
     }

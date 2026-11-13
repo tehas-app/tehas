@@ -55,6 +55,10 @@ pub fn finish(plan: &Plan, h: &mut dyn Host) -> Finished {
     run::run(plan, h)
 }
 
+/// The lead of the line before a refusal that holds what the command which
+/// refused said. The refusal itself is the last line.
+pub const SAID: &str = "the command said: ";
+
 /// The prefix of every line this command says, so the poll's log of part 2 names
 /// the step that refused without adding words of its own.
 pub fn say(issue: u64, why: &str) {
