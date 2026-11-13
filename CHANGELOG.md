@@ -389,6 +389,16 @@ a pull request before it tags, with the head's `scripts/collect-changelog.sh`.
   trees in `host/npm`, which `install.sh` now installs to `~/tehas/npm`. The
   first stage builds with `RUST_VERSION` instead of stable. A change to any of
   these pins asks for a sandbox build.
+- After an easy merge, a pull request that conflicts again is refreshed the easy
+  way again, and one whose named check went red gets the full refresh. The two
+  rules of #1031 were there but read nothing: `history-show` answered no easy
+  mark for a refresh row, so every refresh after the first easy merge took the
+  full path, and the PULL query never asked for the checks of a pull request, so
+  the red-check rule could not see a check. A cycle's easy mark now lives on the
+  approval of its start, is answered by `history-show`, and is kept past the
+  keeping of a later start and past the end of a cycle that never ran, so the
+  record of a host still says which start ran as an easy merge and never offers
+  the same easy merge twice (#1751).
 
 ### Held back
 
