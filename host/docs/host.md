@@ -273,7 +273,8 @@ Rules that hold for every command:
   A `cd` in it moves no command, an `exit` in it is a refusal, and what it
   prints goes to standard error. Keep it writable by the tehas
   user only. `./install.sh --check` reports it if it is not, and reads the
-  file no further once it has a finding: the owner and mode of the instance
+  file no further once it has a finding: the owner and mode of
+  `~/.config/tehas/env`, of `~/.config/tehas/instance-dir`, of the instance
   directory, of `instance.env` and of `sandbox.Dockerfile` are checked before
   the settings are read. The last is not sourced, but it is built into the
   image every cycle runs, so its bytes carry the same trust.
