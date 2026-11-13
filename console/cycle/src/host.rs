@@ -88,7 +88,8 @@ pub struct Start {
     pub status_args: Vec<String>,
 }
 
-/// A file as the facts hold it: its text, {"link": true}, or nothing.
+/// A file as the facts hold it: its text, {"link": true}, {"unreadable": true}
+/// for a regular file whose read failed, or nothing.
 ///
 /// A protocol file is read whole, and its size decides nothing. A file is
 /// seen or not seen, as `[ -f ]` sees it: the result of a multi-issue run, with
@@ -104,8 +105,10 @@ fn file(p: &Path) -> Option<Value> {
     if !m.is_file() {
         return None;
     }
-    let b = fs::read(p).ok()?;
-    Some(Value::String(String::from_utf8_lossy(&b).into_owned()))
+    match fs::read(p) {
+        Ok(b) => Some(Value::String(String::from_utf8_lossy(&b).into_owned())),
+        Err(_) => Some(json!({"unreadable": true})),
+    }
 }
 
 /// A failed call of the store: its word, and its line for a log.
@@ -294,6 +297,20 @@ mod tests {
             format!("{{\"handoffBody\":\"{body}\"}}\n")
         );
         assert_eq!(file(&d.join("7.stopped")), None);
+    }
+
+    #[test]
+    fn a_protocol_file_that_cannot_be_read_says_unreadable_not_absent() {
+        use std::os::unix::fs::PermissionsExt;
+        let d = TestDir::new("host-file-unreadable");
+        let p = d.join("7.stalled");
+        fs::write(&p, "600\ndevelop\n").unwrap();
+        fs::set_permissions(&p, fs::Permissions::from_mode(0o000)).unwrap();
+        // Root reads it anyway; there is nothing to see then.
+        if fs::read(&p).is_err() {
+            assert_eq!(file(&p), Some(json!({"unreadable": true})));
+        }
+        fs::set_permissions(&p, fs::Permissions::from_mode(0o600)).unwrap();
     }
 
     #[test]
