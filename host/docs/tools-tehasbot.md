@@ -23,6 +23,7 @@ tehasbot preview --sweep      # the second check; what tehas-preview-sweep.timer
 tehasbot improve              # one run of the improvement loop; what tehas-improve.timer runs
 tehasbot refresh              # ask for refreshes of conflicting pull requests; what tehas-refresh.timer runs
 tehasbot refresh --pr N       # ask for the refresh of pull request N now
+tehasbot refresh --pr N --json  # the same, and print what it asked as one object
 tehasbot review               # one review of the branch; what tehas-review.timer runs
 tehasbot clean                # remove what the host can make again; what tehas-clean.timer runs
 tehasbot github-token [--check]  # the GitHub App's token, or a check of it
