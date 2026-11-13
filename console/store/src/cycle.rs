@@ -552,6 +552,19 @@ fn start(
                 params![issue, at, now, attempt],
             )
             .q()?;
+            // What a start is stays on the approval it ran: the keeping below
+            // deletes the approvals of the starts the base no longer rests on, and a
+            // record that forgot what its starts were would answer no refreshes, no
+            // easy merge, and no mark for the row of a cycle whose approval is gone
+            // (#1751).
+            c.execute(
+                "UPDATE approvals
+                 SET started_by = ?2, started_how = ?3,
+                     started_easy = CASE WHEN easy = 1 THEN 1 ELSE 0 END
+                 WHERE issue = ?1 AND at = ?4",
+                params![issue, attempt, how, at],
+            )
+            .q()?;
             approval::retain(c, issue)?;
         }
         Ok(line(
@@ -906,8 +919,18 @@ fn end_report(home: &Path, issue: i64, attempt: i64, r: &Report, now: i64) -> Re
         )
         .q()?;
         if r.never_ran {
+            // A start that ran nothing leaves no base behind, so every used approval
+            // goes with it -- except the row of a merge that ran, which the read of
+            // #1751 still needs: `history-show` answers the mark of that cycle off it,
+            // and with nothing to read the row would answer a plain `false` and the
+            // next poll would choose that very easy merge a second time. The row of
+            // the cycle being ended is not kept: its own start ran nothing.
             c.execute(
-                "DELETE FROM approvals WHERE issue = ?1 AND used_by IS NOT NULL",
+                &format!(
+                    "DELETE FROM approvals WHERE issue = ?1 AND used_by IS NOT NULL
+                       AND NOT ({})",
+                    crate::approval::EASY_KEPT
+                ),
                 [issue],
             )
             .q()?;

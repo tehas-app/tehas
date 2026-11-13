@@ -202,26 +202,35 @@ fn refresh_count(record: &Value, base: &Value) -> Option<u64> {
 }
 
 /// The pull request's own answer to "did the last easy merge go wrong": a run
-/// of the check `TEHAS_BRANCH_CHECK` names that says it failed. A pull request
-/// that conflicts again is told apart by the rules above, which start nothing
-/// at all until a person or an easy merge resolves it. With no check named
-/// nothing here says so, and only a new conflict starts the full refresh
-/// (#1031).
-fn ended_badly(node: &Value) -> bool {
-    node.pointer("/statusCheckRollup")
+/// of the check the instance names that says it failed, as the PULL query
+/// answers `statusCheckRollup` -- a `CheckRun` of its `name` and its
+/// `conclusion`, or a `StatusContext` of its `context` and its `state`. A run
+/// of another name says nothing: the setting names the check that gates the
+/// branch. A pull request that conflicts again is told apart by the rules
+/// above, which start nothing at all until a person or an easy merge resolves
+/// it. With no check named nothing here says so, and only a new conflict starts
+/// the full refresh (#1031).
+fn ended_badly(node: &Value, check: &str) -> bool {
+    let Some(runs) = node
+        .pointer("/statusCheckRollup/nodes")
         .and_then(Value::as_array)
-        .is_some_and(|runs| {
-            runs.iter().any(|r| {
-                matches!(
-                    r.get("conclusion").and_then(Value::as_str),
-                    Some("FAILURE")
-                        | Some("TIMED_OUT")
-                        | Some("ACTION_REQUIRED")
-                        | Some("STARTUP_FAILURE")
-                        | Some("CANCELLED")
-                )
-            })
-        })
+    else {
+        return false;
+    };
+    runs.iter().any(|r| {
+        let named = |k: &str| r.get(k).and_then(Value::as_str) == Some(check);
+        let red = |k: &str| {
+            matches!(
+                r.get(k).and_then(Value::as_str),
+                Some("FAILURE")
+                    | Some("TIMED_OUT")
+                    | Some("ACTION_REQUIRED")
+                    | Some("STARTUP_FAILURE")
+                    | Some("CANCELLED")
+            )
+        };
+        (named("name") && red("conclusion")) || (named("context") && red("state"))
+    })
 }
 
 /// The last refresh the store says ran as an easy merge, as `read::store::history`
@@ -263,16 +272,16 @@ fn last_row(history: &[Value]) -> Option<&Value> {
 /// poll cannot place is the full one. A head that has moved off the request is
 /// named too: an easy merge leaves the head alone, so a pull request someone
 /// else pushed to is refreshed in full whatever the merge did. A pull request
-/// whose check is still running waits above, and `check_named` says whether a
-/// check was named at all: with none, only a new conflict says the merge went
-/// wrong.
+/// whose check is still running waits above, and `check` is the name the
+/// instance set for the branch's check -- the empty string when it set none,
+/// which is the case where only a new conflict says the merge went wrong.
 fn refresh_kind(
     allowed: bool,
     had: bool,
     req: &Value,
     node: &Value,
     history: &[Value],
-    check_named: bool,
+    check: &str,
 ) -> (bool, String) {
     if !allowed {
         return (false, String::new());
@@ -301,7 +310,7 @@ fn refresh_kind(
     let pushed = last_row(history).is_some_and(later);
     let why = if !pushed {
         "the last easy merge pushed nothing"
-    } else if check_named && ended_badly(node) {
+    } else if !check.is_empty() && ended_badly(node, check) {
         "the check on its pull request failed after the last easy merge"
     } else {
         return (true, String::new());
@@ -1044,7 +1053,7 @@ impl Poll<'_> {
             &req,
             &node,
             &history,
-            !self.c.branch_check.is_empty(),
+            &self.c.branch_check,
         );
         if !why.is_empty() {
             self.log(format!("#{n}: its refresh is the full one: {why}"));
@@ -1165,9 +1174,22 @@ mod tests {
     }
 
     /// The pull request of the refresh fixtures: the head GitHub says it has
-    /// now, and the runs of the check the instance may name.
+    /// now, and the nodes of its `statusCheckRollup` as the PULL query answers
+    /// them. `CHECK` is the name the instance sets for the branch's check.
     fn pull(head: &str, runs: Value) -> Value {
-        json!({"number": 50, "headRefOid": head, "statusCheckRollup": runs})
+        json!({"number": 50, "headRefOid": head, "statusCheckRollup": {"nodes": runs}})
+    }
+
+    const CHECK: &str = "gate";
+
+    /// A `CheckRun` of the branch's check with `conclusion`, and one of another
+    /// name, which the rule must not read.
+    fn run(conclusion: &str) -> Value {
+        json!({"__typename": "CheckRun", "name": CHECK, "conclusion": conclusion})
+    }
+
+    fn other(conclusion: &str) -> Value {
+        json!({"__typename": "CheckRun", "name": "something else", "conclusion": conclusion})
     }
 
     const HEAD: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -1190,123 +1212,153 @@ mod tests {
     }
 
     /// One case of the choice of deliverable 1: [why, allowed, had, history,
-    /// node, check named, the kind it must choose].
-    type Kind = (&'static str, bool, bool, Vec<Value>, Value, bool, bool);
+    /// node, the check named, the kind it must choose].
+    type Kind = (
+        &'static str,
+        bool,
+        bool,
+        Vec<Value>,
+        Value,
+        &'static str,
+        bool,
+    );
 
     fn kinds() -> Vec<Kind> {
         vec![
-        (
-            "with the setting off the refresh is the full one",
-            false,
-            false,
-            vec![],
-            pull(HEAD, json!([])),
-            false,
-            false,
-        ),
-        (
-            "an approval that has had no easy merge gets one",
-            true,
-            false,
-            vec![],
-            pull(HEAD, json!([])),
-            false,
-            true,
-        ),
-        (
-            "a refresh row of an older store spends no easy merge, so the start is one",
-            true,
-            false,
-            vec![cycle(1790899201)],
-            pull(HEAD, json!([])),
-            false,
-            true,
-        ),
-        (
-            "a cycle that ran after the merge is its push, and a clean pull request is refreshed in easy again",
-            true,
-            true,
-            vec![easy(1790899201), cycle(1790899400)],
-            pull(HEAD, json!([{"conclusion": "SUCCESS"}])),
-            true,
-            true,
-        ),
-        (
-            "a merge that pushed nothing is refreshed in full",
-            true,
-            true,
-            vec![easy(1790899201)],
-            pull(HEAD, json!([])),
-            true,
-            false,
-        ),
-        (
-            "a merge that is the last thing the issue ever did pushed nothing",
-            true,
-            true,
-            vec![cycle(1790899000), easy(1790899201)],
-            pull(HEAD, json!([])),
-            true,
-            false,
-        ),
-        (
-            "the check failing after the merge is refreshed in full",
-            true,
-            true,
-            vec![easy(1790899201), cycle(1790899400)],
-            pull(HEAD, json!([{"conclusion": "SUCCESS"}, {"conclusion": "FAILURE"}])),
-            true,
-            false,
-        ),
-        (
-            "a check that is not red holds nothing: success, neutral, skipped and a run still going",
-            true,
-            true,
-            vec![easy(1790899201), cycle(1790899400)],
-            pull(
-                HEAD,
-                json!([{"conclusion": "SUCCESS"}, {"conclusion": "NEUTRAL"}, {"conclusion": "SKIPPED"}, {"status": "IN_PROGRESS"}]),
+            (
+                "with the setting off the refresh is the full one",
+                false,
+                false,
+                vec![],
+                pull(HEAD, json!([])),
+                "",
+                false,
             ),
-            true,
-            true,
-        ),
-        (
-            "with no check named a red run says nothing, and only a new conflict starts the full refresh",
-            true,
-            true,
-            vec![easy(1790899201), cycle(1790899400)],
-            pull(HEAD, json!([{"conclusion": "FAILURE"}])),
-            false,
-            true,
-        ),
-        (
-            "a merge whose cycle is undated is the full refresh: the poll cannot tell it pushed",
-            true,
-            true,
-            vec![easy(1790899201), json!({"how": "refresh", "parked": false})],
-            pull(HEAD, json!([])),
-            true,
-            false,
-        ),
-        (
-            "the store says the merge was had and names no row of it: the full refresh",
-            true,
-            true,
-            vec![cycle(1790899201)],
-            pull(HEAD, json!([])),
-            true,
-            false,
-        ),
-        (
-            "a head that moved since the request is named beside the merge that pushed nothing",
-            true,
-            true,
-            vec![easy(1790899201)],
-            pull(OTHER, json!([])),
-            true,
-            false,
-        ),
-    ]
+            (
+                "an approval that has had no easy merge gets one",
+                true,
+                false,
+                vec![],
+                pull(HEAD, json!([])),
+                "",
+                true,
+            ),
+            (
+                "a refresh row of an older store spends no easy merge, so the start is one",
+                true,
+                false,
+                vec![cycle(1790899201)],
+                pull(HEAD, json!([])),
+                "",
+                true,
+            ),
+            (
+                "a cycle that ran after the merge is its push, and a clean pull request is refreshed in easy again",
+                true,
+                true,
+                vec![easy(1790899201), cycle(1790899400)],
+                pull(HEAD, json!([run("SUCCESS")])),
+                CHECK,
+                true,
+            ),
+            (
+                "a merge that pushed nothing is refreshed in full",
+                true,
+                true,
+                vec![easy(1790899201)],
+                pull(HEAD, json!([])),
+                CHECK,
+                false,
+            ),
+            (
+                "a merge that is the last thing the issue ever did pushed nothing",
+                true,
+                true,
+                vec![cycle(1790899000), easy(1790899201)],
+                pull(HEAD, json!([])),
+                CHECK,
+                false,
+            ),
+            (
+                "the check failing after the merge is refreshed in full",
+                true,
+                true,
+                vec![easy(1790899201), cycle(1790899400)],
+                pull(HEAD, json!([run("SUCCESS"), run("FAILURE")])),
+                CHECK,
+                false,
+            ),
+            (
+                "a check that is not red holds nothing: success, neutral, skipped and a run still going",
+                true,
+                true,
+                vec![easy(1790899201), cycle(1790899400)],
+                pull(
+                    HEAD,
+                    json!([run("SUCCESS"), run("NEUTRAL"), run("SKIPPED"),
+                           {"__typename": "CheckRun", "name": CHECK, "status": "IN_PROGRESS"}]),
+                ),
+                CHECK,
+                true,
+            ),
+            (
+                "with no check named a red run says nothing, and only a new conflict starts the full refresh",
+                true,
+                true,
+                vec![easy(1790899201), cycle(1790899400)],
+                pull(HEAD, json!([run("FAILURE")])),
+                "",
+                true,
+            ),
+            (
+                "a red run of another check is no answer: only the named check gates the branch",
+                true,
+                true,
+                vec![easy(1790899201), cycle(1790899400)],
+                pull(HEAD, json!([other("FAILURE"), run("SUCCESS")])),
+                CHECK,
+                true,
+            ),
+            (
+                "a red commit status of the named context holds the easy merge back",
+                true,
+                true,
+                vec![easy(1790899201), cycle(1790899400)],
+                pull(
+                    HEAD,
+                    json!([{"__typename": "StatusContext", "context": CHECK, "state": "FAILURE"}]),
+                ),
+                CHECK,
+                false,
+            ),
+            (
+                "a merge whose cycle is undated is the full refresh: the poll cannot tell it pushed",
+                true,
+                true,
+                vec![easy(1790899201), json!({"how": "refresh", "parked": false})],
+                pull(HEAD, json!([])),
+                CHECK,
+                false,
+            ),
+            (
+                "the store says the merge was had and names no row of it: the full refresh",
+                true,
+                true,
+                vec![cycle(1790899201)],
+                pull(HEAD, json!([])),
+                CHECK,
+                false,
+            ),
+            (
+                "a head that moved since the request is named beside the merge that pushed nothing",
+                true,
+                true,
+                vec![easy(1790899201)],
+                pull(OTHER, json!([])),
+                CHECK,
+                false,
+            ),
+        ]
     }
 
     #[test]
@@ -1332,7 +1384,7 @@ mod tests {
             &request(),
             &pull(OTHER, json!([])),
             &[easy(1790899201)],
-            true,
+            CHECK,
         )
         .1;
         assert!(
@@ -1346,7 +1398,7 @@ mod tests {
             &request(),
             &pull(HEAD, json!([])),
             &[easy(1790899201)],
-            true,
+            CHECK,
         )
         .1;
         assert!(!said.contains("head moved"), "{said}");
@@ -1358,9 +1410,9 @@ mod tests {
             true,
             true,
             &request(),
-            &pull(HEAD, json!([{"conclusion": "TIMED_OUT"}])),
+            &pull(HEAD, json!([run("TIMED_OUT")])),
             &[easy(1790899201), cycle(1790899400)],
-            true,
+            CHECK,
         )
         .1;
         assert_eq!(

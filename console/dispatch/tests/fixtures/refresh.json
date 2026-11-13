@@ -1405,14 +1405,20 @@
         }
        ]
       },
-      "statusCheckRollup": [
-       {
-        "conclusion": "SUCCESS"
-       },
-       {
-        "conclusion": "FAILURE"
-       }
-      ]
+      "statusCheckRollup": {
+       "nodes": [
+        {
+         "__typename": "CheckRun",
+         "name": "gate",
+         "conclusion": "SUCCESS"
+        },
+        {
+         "__typename": "CheckRun",
+         "name": "gate",
+         "conclusion": "FAILURE"
+        }
+       ]
+      }
      }
     },
     "issues": {
@@ -1577,11 +1583,15 @@
         }
        ]
       },
-      "statusCheckRollup": [
-       {
-        "conclusion": "FAILURE"
-       }
-      ]
+      "statusCheckRollup": {
+       "nodes": [
+        {
+         "__typename": "CheckRun",
+         "name": "gate",
+         "conclusion": "FAILURE"
+        }
+       ]
+      }
      }
     },
     "issues": {

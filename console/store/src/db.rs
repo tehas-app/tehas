@@ -18,7 +18,7 @@ use std::time::{Duration, Instant};
 use crate::live;
 
 /// PRAGMA user_version of the schema in schema.sql.
-pub const SCHEMA_VERSION: i64 = 12;
+pub const SCHEMA_VERSION: i64 = 13;
 pub const SCHEMA: &str = include_str!("schema.sql");
 
 /// The steps from schema 1 to 2 and from 2 to 3: columns and a table added,
@@ -199,6 +199,27 @@ CREATE TABLE start_order (
   reason TEXT,
   set_at INTEGER NOT NULL
 );
+";
+
+/// The step from 12 to 13: what a start was, kept on the approval it ran on (#1751).
+/// The keeping after a start deletes the approvals of the starts the base no longer
+/// rests on, and a record left with only its live rows answered no refreshes, no easy
+/// merge, and no mark for the row of a cycle whose approval had gone: the poll took
+/// every refresh after the first easy merge for the full one, and could drop the
+/// refresh it owed for want of a count. `started_by`, `started_how` and `started_easy`
+/// are written by the start itself, so the record says what its starts were after their
+/// rows are gone. The `UPDATE` backfills them from the rows that still stand, which is
+/// all a store can say of the starts whose approvals it kept; a start whose row the
+/// keeping deleted before this step is unknowable, and counts nowhere it was not
+/// already counted.
+pub const STEP_13: &str = "
+ALTER TABLE approvals ADD COLUMN started_by INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE approvals ADD COLUMN started_how TEXT NOT NULL DEFAULT '';
+ALTER TABLE approvals ADD COLUMN started_easy INTEGER NOT NULL DEFAULT 0
+  CHECK (started_easy IN (0, 1));
+UPDATE approvals SET started_by = used_by, started_how = how,
+                     started_easy = CASE WHEN easy = 1 THEN 1 ELSE 0 END
+  WHERE used_by IS NOT NULL;
 ";
 
 /// How long SQLite waits for a lock another connection holds before giving
@@ -1118,7 +1139,8 @@ pub fn migrate(
             .and_then(|()| step(conn, 9, STEP_9))
             .and_then(|()| step(conn, 10, STEP_10))
             .and_then(|()| step_11(conn))
-            .and_then(|()| step(conn, 12, STEP_12)),
+            .and_then(|()| step(conn, 12, STEP_12))
+            .and_then(|()| step(conn, 13, STEP_13)),
         2 => step(conn, 3, STEP_3)
             .and_then(|()| step_4(conn))
             .and_then(|()| step(conn, 5, STEP_5))
@@ -1128,7 +1150,8 @@ pub fn migrate(
             .and_then(|()| step(conn, 9, STEP_9))
             .and_then(|()| step(conn, 10, STEP_10))
             .and_then(|()| step_11(conn))
-            .and_then(|()| step(conn, 12, STEP_12)),
+            .and_then(|()| step(conn, 12, STEP_12))
+            .and_then(|()| step(conn, 13, STEP_13)),
         3 => step_4(conn)
             .and_then(|()| step(conn, 5, STEP_5))
             .and_then(|()| step(conn, 6, STEP_6))
@@ -1137,7 +1160,8 @@ pub fn migrate(
             .and_then(|()| step(conn, 9, STEP_9))
             .and_then(|()| step(conn, 10, STEP_10))
             .and_then(|()| step_11(conn))
-            .and_then(|()| step(conn, 12, STEP_12)),
+            .and_then(|()| step(conn, 12, STEP_12))
+            .and_then(|()| step(conn, 13, STEP_13)),
         4 => step(conn, 5, STEP_5)
             .and_then(|()| step(conn, 6, STEP_6))
             .and_then(|()| step(conn, 7, STEP_7))
@@ -1145,36 +1169,47 @@ pub fn migrate(
             .and_then(|()| step(conn, 9, STEP_9))
             .and_then(|()| step(conn, 10, STEP_10))
             .and_then(|()| step_11(conn))
-            .and_then(|()| step(conn, 12, STEP_12)),
+            .and_then(|()| step(conn, 12, STEP_12))
+            .and_then(|()| step(conn, 13, STEP_13)),
         5 => step(conn, 6, STEP_6)
             .and_then(|()| step(conn, 7, STEP_7))
             .and_then(|()| step(conn, 8, STEP_8))
             .and_then(|()| step(conn, 9, STEP_9))
             .and_then(|()| step(conn, 10, STEP_10))
             .and_then(|()| step_11(conn))
-            .and_then(|()| step(conn, 12, STEP_12)),
+            .and_then(|()| step(conn, 12, STEP_12))
+            .and_then(|()| step(conn, 13, STEP_13)),
         6 => step(conn, 7, STEP_7)
             .and_then(|()| step(conn, 8, STEP_8))
             .and_then(|()| step(conn, 9, STEP_9))
             .and_then(|()| step(conn, 10, STEP_10))
             .and_then(|()| step_11(conn))
-            .and_then(|()| step(conn, 12, STEP_12)),
+            .and_then(|()| step(conn, 12, STEP_12))
+            .and_then(|()| step(conn, 13, STEP_13)),
         7 => step(conn, 8, STEP_8)
             .and_then(|()| step(conn, 9, STEP_9))
             .and_then(|()| step(conn, 10, STEP_10))
             .and_then(|()| step_11(conn))
-            .and_then(|()| step(conn, 12, STEP_12)),
+            .and_then(|()| step(conn, 12, STEP_12))
+            .and_then(|()| step(conn, 13, STEP_13)),
         8 => step(conn, 9, STEP_9)
             .and_then(|()| step(conn, 10, STEP_10))
             .and_then(|()| step_11(conn))
-            .and_then(|()| step(conn, 12, STEP_12)),
+            .and_then(|()| step(conn, 12, STEP_12))
+            .and_then(|()| step(conn, 13, STEP_13)),
         9 => step(conn, 10, STEP_10)
             .and_then(|()| step_11(conn))
-            .and_then(|()| step(conn, 12, STEP_12)),
+            .and_then(|()| step(conn, 12, STEP_12))
+            .and_then(|()| step(conn, 13, STEP_13)),
         // The store of the release before last sits at 10.
-        10 => step_11(conn).and_then(|()| step(conn, 12, STEP_12)),
+        10 => step_11(conn)
+            .and_then(|()| step(conn, 12, STEP_12))
+            .and_then(|()| step(conn, 13, STEP_13)),
         // The store of the previous release sits at 11.
-        11 => step(conn, 12, STEP_12),
+        11 => step(conn, 12, STEP_12).and_then(|()| step(conn, 13, STEP_13)),
+        // A store at 12 is one this binary wrote before the easy mark was kept
+        // on the approval: the step to 13 is all it needs.
+        12 => step(conn, 13, STEP_13),
         v => Err(DbError::Corrupt(format!(
             "no migration from schema {v} of {}, this binary writes {SCHEMA_VERSION}",
             file.display()
