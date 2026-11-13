@@ -1,12 +1,16 @@
 //! What a cycle leaves in state/cycles/<issue>.progress.json, and whether a
-//! result is an error only. The file is read by [`crate::runner`].
+//! result is an error only. The watch writes the file at a cycle's end; the
+//! watch's end and the report read it through [`crate::runner::progress_fields`],
+//! and the analytics import (console/analytics/src/run.rs) reads it for the
+//! fields host/docs/analytics.md lists. A change to its shape reaches all three.
 //!
 //! roles and failure come from the issue's entry of a schema 5 result, in the
 //! order the result lists its roles. With no such entry they come from the
 //! progress: the stable dispatch-completed lines, each counted once by its
 //! key, and for the reason the lines the runner marks unstable, which may be
 //! empty. reviewHeld is a stable cap-hit that ended the review on its round cap
-//! and sent the cycle on to ci, so its findings were left open.
+//! and sent the cycle on to ci, so its findings were left open. It always
+//! comes from the progress lines, whatever `from` says of roles and failure.
 
 use crate::runner::{self, kept, RESULT_SCHEMA};
 use serde_json::Value;
