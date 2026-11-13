@@ -1924,6 +1924,10 @@ stays on `127.0.0.1`. `docker compose` reads the address from the environment,
 so each line above sources `~/tehas/env.sh` first: run from a shell that has
 not, the container is made from the defaults below.
 
+Both containers have a read-only root with `/config` and `/data` in memory,
+every capability dropped but `NET_BIND_SERVICE`, which the image's caddy is
+marked with, and `no-new-privileges`.
+
 Both compose files name Caddy by digest rather than by tag, with the version in
 the comment above the image. `versions.env` records the version and the digest
 together; `preview/Dockerfile` names the same digest, and `test/edge_test.sh`
