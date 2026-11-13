@@ -23,7 +23,9 @@
 //! `<login command>` (/usr/local/bin/tehas), with `<root>/host/login/tehas`.
 //! Only where `bootstrap.sh dev` left its marker, `<marker>`
 //! (/etc/tehas/manager), which names the tehas user. When the two differ it
-//! prints the command that installs the checkout's copy, else nothing. Exit 0,
+//! prints the command that installs the checkout's copy, else nothing. The
+//! command names a copy of the platform root owns, never `<root>`: the tehas
+//! user can write `<root>`, and root would run what it holds. Exit 0,
 //! 1 a file of the checkout is missing, 64 usage.
 
 use super::{fault, say, tell};
@@ -226,8 +228,13 @@ fn login_fix(root: &Path, bin: &Path, marker: &Path) -> Result<Option<String>, P
         (Ok(a), Ok(b)) => a == b,
         _ => false,
     };
-    Ok((!same).then(|| format!("sudo {}/bootstrap.sh dev {user}", root.display())))
+    Ok((!same).then(|| format!("sudo {ROOT_COPY}/bootstrap.sh dev {user}")))
 }
+
+/// Where root runs bootstrap.sh from, in a printed command: a copy of the
+/// platform at this version that only root can write. The manual's bootstrap
+/// page says how to make one.
+const ROOT_COPY: &str = "<root-owned copy>";
 
 /// The shape of an account name bootstrap.sh dev accepts. Anything else is left
 /// for the person to fill in, since the name goes into a printed command.
@@ -404,7 +411,7 @@ mod tests {
         let marker = d.0.join("etc/tehas/manager");
         assert_eq!(login_fix(&root, &bin, &marker), Ok(None));
         d.file("etc/tehas/manager", "boss\n");
-        let fix = format!("sudo {}/bootstrap.sh dev boss", root.display());
+        let fix = "sudo <root-owned copy>/bootstrap.sh dev boss".to_string();
         assert_eq!(login_fix(&root, &bin, &marker), Ok(Some(fix.clone())));
         d.file("bin/tehas", "#!/bin/sh\nexec tehas\n");
         assert_eq!(login_fix(&root, &bin, &marker), Ok(None));
@@ -420,7 +427,7 @@ mod tests {
         d.file("root/bootstrap.sh", "");
         let bin = d.0.join("bin/tehas");
         let marker = d.0.join("manager");
-        let fix = |user: &str| format!("sudo {}/bootstrap.sh dev {user}", root.display());
+        let fix = |user: &str| format!("sudo <root-owned copy>/bootstrap.sh dev {user}");
         for (text, user) in [
             ("someone\nsecond line\n", "someone"),
             ("_svc-1", "_svc-1"),

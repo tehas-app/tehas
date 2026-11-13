@@ -1,6 +1,6 @@
 //! The git half of `tehas update`: fast-forward the platform checkout, for a
 //! host that develops tehas. It changes nothing when the checkout has local
-//! changes or cannot be fast-forwarded.
+//! changes, is not on the default branch of origin, or cannot be fast-forwarded.
 
 use super::{output, say, tell, timed, Host, Mode, Plan};
 use crate::store::merged;
@@ -61,13 +61,21 @@ fn short(sha: &str) -> &str {
     &sha[..sha.len().min(12)]
 }
 
-fn branch_note(checkout: &str, branch: &str, default: &str) {
-    let default = default.strip_prefix("origin/").unwrap_or(default);
-    if !default.is_empty() && default != branch {
-        tell(&format!(
-            "checkout: {checkout} is on branch {branch}; the default branch of origin is {default}. This update uses {branch}."
+/// The default branch of origin, or a refusal. Only that branch is updated:
+/// nothing reaches it without a person, while any other branch takes what
+/// anyone who can push puts there.
+fn default_only(checkout: &str, branch: &str, default: &str) -> Result<(), String> {
+    let Some(default) = default.strip_prefix("origin/").filter(|d| !d.is_empty()) else {
+        return Err(format!(
+            "checkout: {checkout} does not know the default branch of origin; nothing was changed\n  git -C {checkout} remote set-head origin --auto sets it"
         ));
+    };
+    if default == branch {
+        return Ok(());
     }
+    Err(format!(
+        "checkout: {checkout} is on branch {branch}; tehas update installs only the default branch of origin, {default}. Nothing was changed\n  switch the checkout to {default}, or run ./install.sh in it by hand to install {branch}"
+    ))
 }
 
 /// `checkout` at the remote's commit, or a refusal. 0 goes on to install.sh.
@@ -102,7 +110,10 @@ pub(crate) fn pull(host: &Host, plan: &mut Plan) -> u8 {
             "refs/remotes/origin/HEAD",
         ],
     );
-    branch_note(checkout, &branch, &default);
+    if let Err(refusal) = default_only(checkout, &branch, &default) {
+        tell(&refusal);
+        return 1;
+    }
 
     let (rc, changes) = output(git(checkout).args(["status", "--porcelain"]));
     if rc != 0 {
@@ -301,6 +312,38 @@ mod tests {
         let checkout = behind(&d.0);
         run(&checkout, &["checkout", "-q", "--detach", "HEAD"]);
         assert_eq!(pull(&host(&d.0), &mut Plan::default()), 1);
+    }
+
+    #[test]
+    fn a_branch_that_is_not_the_default_is_not_pulled() {
+        let d = dir("pull-other-branch");
+        let checkout = behind(&d.0);
+        run(&checkout, &["checkout", "-q", "-b", "other"]);
+        run(&checkout, &["push", "-q", "origin", "other"]);
+        let before = head(&checkout);
+        let mut plan = Plan::default();
+        assert_eq!(pull(&host(&d.0), &mut plan), 1);
+        assert_eq!(head(&checkout), before);
+        assert!(!plan.found);
+    }
+
+    #[test]
+    fn a_checkout_that_does_not_know_the_default_is_not_pulled() {
+        let d = dir("pull-no-default");
+        let checkout = behind(&d.0);
+        run(&checkout, &["remote", "set-head", "origin", "-d"]);
+        let before = head(&checkout);
+        assert_eq!(pull(&host(&d.0), &mut Plan::default()), 1);
+        assert_eq!(head(&checkout), before);
+    }
+
+    #[test]
+    fn only_the_default_branch_is_updated() {
+        assert!(default_only("/c", "main", "origin/main").is_ok());
+        let other = default_only("/c", "other", "origin/main").unwrap_err();
+        assert!(other.contains("installs only the default branch of origin, main"));
+        assert!(default_only("/c", "main", "").is_err());
+        assert!(default_only("/c", "main", "origin/").is_err());
     }
 
     #[test]

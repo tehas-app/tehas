@@ -2127,8 +2127,10 @@ What a member of the group gets, and does not:
 `/usr/local/bin/tehas` is a copy of `host/login/tehas`, so an update of the
 platform can leave the accounts typing an older command. No tehas command runs as
 root, so none replaces it: `install.sh --check` reports it as `Login: NOT CURRENT`
-and a real install prints `later: sudo ./bootstrap.sh dev boss`. Run that command
-again after an update that changed `host/login/tehas`.
+and a real install prints `later: sudo <root-owned copy>/bootstrap.sh dev boss`.
+Run that command again after an update that changed `host/login/tehas`, from
+root's own copy at the new version: see
+[Root runs its own copy](/bootstrap#root-runs-its-own-copy).
 
 A host that ran cycles before the workspace existed gave its containers the
 product checkout itself. Replace that checkout once with a fresh clone, so
