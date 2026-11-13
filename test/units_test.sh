@@ -68,8 +68,9 @@ done
 t_case "a cycle's unit starts the cycle from its own copy of the code"
 # tehas-cycle run copies bin/, libexec/ and lib/ and execs tehasbot cycle from
 # the copy, so an update while the cycle runs does not change its code (#989).
+# The instance is the shell's first argument, never part of the script.
 t_eq "$(sed -n 's/^ExecStart=//p' "$units/tehas-cycle@.service")" \
-  "/bin/bash -c \". %h/tehas/env.sh && exec %h/tehas/libexec/tehas-cycle run %i >> %h/tehas/logs/dispatch.log 2>&1\""
+  "/bin/bash -c \". %h/tehas/env.sh && exec %h/tehas/libexec/tehas-cycle run \\\"\$\$1\\\" >> %h/tehas/logs/dispatch.log 2>&1\" tehas-cycle %i"
 
 t_case "the poll's unit removes the file that starts it before the poll runs"
 # A poll that stops on its settings writes nothing, so the unit removes the
