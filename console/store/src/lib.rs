@@ -86,7 +86,7 @@ use std::collections::BTreeMap;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
-const USAGE: &str = "usage: store init [--force] [--version <v> --commit <sha> --instance <name> --repo <owner/name>] [--json|--say] | migrate --backup <dir> [--json|--say] | check [--json] | import [--dry-run] [--json|--say] | slow <file> --out <file> | paths-overlap <body-file> <changed-file> | review-issue <path> <branch> <commit> | review-file --repo <owner/name> --doc <path> --branch <b> --commit <sha> [--ask <line>] [--private <name>]... [--gh <program>] | batch | cycle-start | cycle-image | cycle-end | cycle-show | settings-view | cycle-note | cycle-stop-asked | cycle-heartbeat | publish | park | park-show | park-retry | park-told | question-asked | question-known | question-answered | approval-record | approval-current | approval-view | plan-begin | plan-answer | plan-end | plan-note | plan-show | plan-view | history-show | backup | copy | prune | sweep-locks | locks-held | upkeep | poll-record | poll-show | poll-idle | poll-begin";
+const USAGE: &str = "usage: store init [--force] [--version <v> --commit <sha> --instance <name> --repo <owner/name>] [--json|--say] | migrate --backup <dir> [--json|--say] | check [--json] | import [--dry-run] [--json|--say] | slow <file> --out <file> | review-issue <path> <branch> <commit> | review-file --repo <owner/name> --doc <path> --branch <b> --commit <sha> [--ask <line>] [--private <name>]... [--gh <program>] | batch | cycle-start | cycle-image | cycle-end | cycle-show | settings-view | cycle-note | cycle-stop-asked | cycle-heartbeat | publish | park | park-show | park-retry | park-told | question-asked | question-known | question-answered | approval-record | approval-current | approval-view | plan-begin | plan-answer | plan-end | plan-note | plan-show | plan-view | history-show | backup | copy | prune | sweep-locks | locks-held | upkeep | poll-record | poll-show | poll-idle | poll-begin";
 
 /// The longest a value the caller passes may be. The four come from an
 /// instance's settings and a checkout's git, not from a container.
@@ -147,10 +147,6 @@ pub enum Verb {
         file: PathBuf,
         out: PathBuf,
     },
-    PathsOverlap {
-        body: PathBuf,
-        changed: PathBuf,
-    },
     ReviewIssue(ReviewIssue),
     ReviewFile(ReviewFile),
     /// The calls of one `store batch`, already read from standard input and
@@ -183,12 +179,6 @@ fn parse(args: &[String]) -> Option<Verb> {
         [verb, file, flag, out] if verb == "slow" && flag == "--out" => Some(Verb::Slow {
             file: PathBuf::from(file),
             out: PathBuf::from(out),
-        }),
-        // The dispatcher's question before a start: the paths an issue's body
-        // names that a running cycle's branch changes (tehas_core::overlap).
-        [verb, body, changed] if verb == "paths-overlap" => Some(Verb::PathsOverlap {
-            body: PathBuf::from(body),
-            changed: PathBuf::from(changed),
         }),
         // The review issue of one run's document. The two names are checked
         // here and not in the verb, so a call that stops at its arguments is
@@ -565,7 +555,6 @@ pub fn execute(home: &Path, verb: &Verb, now: i64) -> Result<String, (u8, String
         #[cfg(debug_assertions)]
         Verb::TestWrite(w) => exercise::write(&file, w, now),
         Verb::Slow { file, out } => slow::run(file, out),
-        Verb::PathsOverlap { body, changed } => paths_overlap(body, changed),
         Verb::ReviewIssue(r) => review_issue::run(&r.path, &r.branch, &r.commit),
         // The names of the host go to the mask once, before the first call of
         // it, as the console's `review run` sets them before it masks the two
@@ -592,43 +581,6 @@ pub fn execute(home: &Path, verb: &Verb, now: i64) -> Result<String, (u8, String
         Verb::Batch(asked) => batch::run(home, asked),
         Verb::Record(call) => verbs::run(home, call, now),
     }
-}
-
-/// An issue's body is at most 65536 characters on GitHub, and the files one
-/// branch changes are a few hundred lines. This is far above both, and bounds
-/// what `paths-overlap` is ever asked to read.
-const MAX_OVERLAP_BYTES: u64 = 1 << 20;
-
-/// `paths-overlap <body-file> <changed-file>`: the dispatcher's question before
-/// a start, which paths an issue's body names that a running cycle's branch
-/// already changes (#725). <changed-file> holds one path a line, as
-/// `git diff --name-only` prints them. The answer is the named paths that
-/// match, each once, in the order the body names them, `[]` for none; the rule
-/// is tehas_core::overlap, where it is tested. No row of the database is read.
-/// A file that is missing, unreadable or not a plain file under the bound is
-/// the caller's argument that is wrong: 64, `paths-overlap: ...`.
-fn paths_overlap(body: &Path, changed: &Path) -> Result<String, (u8, String)> {
-    let text = |file: &Path| {
-        verbs::read_file(file, MAX_OVERLAP_BYTES)
-            .map(|(bytes, _)| String::from_utf8_lossy(&bytes).into_owned())
-            .map_err(|_| {
-                (
-                    64,
-                    format!(
-                        "paths-overlap: {} is not a plain file under the bound",
-                        file.display()
-                    ),
-                )
-            })
-    };
-    let body = text(body)?;
-    let changed = text(changed)?;
-    let files: Vec<&str> = changed.lines().collect();
-    let found = tehas_core::overlap::matches(&body, &files);
-    Ok(verbs::line(
-        "paths-overlap",
-        &[("matches", verbs::j(found))],
-    ))
 }
 
 /// `migrate --backup <dir>`: the copy first, then the steps forward.
