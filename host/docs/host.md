@@ -273,7 +273,8 @@ Rules that hold for every command:
   A `cd` in it moves no command, an `exit` in it is a refusal, and what it
   prints goes to standard error. Keep it writable by the tehas
   user only. `./install.sh --check` reports it if it is not, and reads the
-  file no further once it has a finding: the owner and mode of the instance
+  file no further once it has a finding: the owner and mode of
+  `~/.config/tehas/env`, of `~/.config/tehas/instance-dir`, of the instance
   directory, of `instance.env` and of `sandbox.Dockerfile` are checked before
   the settings are read. The last is not sourced, but it is built into the
   image every cycle runs, so its bytes carry the same trust.
@@ -1447,7 +1448,9 @@ Anything else is answered `403` and the proxy logs one line naming it:
 `docker logs tehas-egress`. A tool that ignores the proxy variables reaches
 nothing, so a failure is closed, not open. Names are compared, not addresses:
 the proxy resolves a name itself, through the names of
-`PI_ENSEMBLE_HOST_ALIASES` first, which it is given too.
+`PI_ENSEMBLE_HOST_ALIASES` first, which it is given too. A plain `http://`
+request goes on with the `Host` of its allowed target, never the one the
+client sent.
 
 The first container that needs the proxy makes both networks and starts it,
 under `~/tehas/state/egress.lock`. It is started again when its list, the
@@ -2074,7 +2077,7 @@ Both are outside the repository and the tehas tree.
 | Host paths mounted                     | The cycle's own workspace, `~/tehas/work/<name>-<issue>`, at the same path in every container; its own transcripts, `~/.pi/agent/ensemble-runs/issue-<issue>`; its own state directory, `~/tehas/work/<name>-<issue>.state` (read-write); its own `models.json` from that directory, `mcp.json`, Pi's `settings.json` (read-only). Only the last two are the same host file in every container; nothing one container writes is mounted for another |
 | Not reachable from the container       | The Docker socket, SSH keys, `~/.config/tehas`, the platform checkout, the product checkout, the instance directory                     |
 | What the host runs from the workspace  | Nothing but the cleaner's one bounded `git rev-parse` of a worktree's gitdir, which reads no config of the tree and takes nothing from it. Every other git the host runs is in the product checkout, which no container has written. It reads three files of the workspace, as data: the product's `.pi/settings.json`, for the retry line of the cycle's log, and the runner's record of the attempt, `.pi/work-state/<issue>.json` or `.pi/lean-state/<issue>.json`. Each only as a plain file with no link on the way, and only up to a size bound. A cycle's outcome is the runner's result, from its standard output |
-| The indexing container                 | `tehas index` runs the indexer, not an agent: a clone of the product read-only, and `~/tehas/state/index` to write, which no other container is given; no network, no token            |
+| The indexing container                 | `tehas index` runs the indexer, not an agent: a clone of the product read-only, and `~/tehas/state/index` to write, which no other container is given; no network, no token, no capabilities and `no-new-privileges` |
 | The improvement loop's container       | `tehasbot improve` runs plain Pi, not pi-rukas: the records of the cycles read-only, one directory to write its findings in, and its own `models.json`. No GitHub token, only the model endpoints' tokens; no repository, no tool that runs a command. The host makes every GitHub call and checks the findings against a fixed shape before it files one |
 | The network                            | Not restricted by default: the container reaches GitHub, the model endpoint and whatever else the host can route to. With `TEHAS_EGRESS=1`, only the hosts of the egress proxy's list, through the proxy. See [Where a container may connect](#where-a-container-may-connect) |
 | Merging                                | The token could merge where the repository lets it. Nothing does, because `AGENTS.md` forbids it and the dispatcher never merges        |

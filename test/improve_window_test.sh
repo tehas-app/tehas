@@ -17,15 +17,17 @@ t_lacks "$body" "<!--"
 t_contains "$body" "&lt;!-- hidden"
 t_lacks "$body" 'a ``` b'
 
-t_case "a log with the shape of a token is not uploaded and the issue says so"
+t_case "a private key in a log goes up hidden"
 ready
-# A shape the mask leaves: what it hides goes up hidden, as the next case says.
-echo "-----BEGIN OPENSSH PRIVATE KEY-----" >>"$home/logs/work-$REC.jsonl"
+# The mask and the upload's check know the same shapes, so what the check would
+# refuse the mask has hidden first.
+printf '%s\n' "-----BEGIN OPENSSH PRIVATE KEY-----" "b3BlbnNzaC1rZXk" >>"$home/logs/work-$REC.jsonl"
 t_run "$improve"
 t_eq "$t_rc" 0
-t_eq "$(cat "$T/calls/assets" 2>/dev/null)" ""
-t_contains "$(cat "$T/calls/body-101")" "shaped like a token"
-t_contains "$t_out" "secret-shape=$REC"
+t_eq "$(wc -l <"$T/calls/assets")" 1
+t_contains "$(cat "$T/calls/uploaded")" "-----BEGIN OPENSSH PRIVATE KEY-----***"
+t_lacks "$(cat "$T/calls/uploaded")" "b3BlbnNzaC1rZXk"
+t_lacks "$t_out" "secret-shape="
 
 t_case "the log goes up as the console masks it"
 ready
