@@ -979,6 +979,13 @@ mod tests {
     use super::*;
 
     #[test]
+    fn each_name_of_protocol_is_a_cycle_note() {
+        for name in PROTOCOL {
+            assert!(tehas_core::cycle_notes::is_note(name), "{name}");
+        }
+    }
+
+    #[test]
     fn the_container_runs_the_image_its_record_got_and_the_tag_without_one() {
         let id = format!("sha256:{}", "e".repeat(64));
         let r = Record {
