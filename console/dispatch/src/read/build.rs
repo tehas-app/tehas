@@ -296,7 +296,7 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
                         "--state",
                         "all",
                         "--json",
-                        "url,state,body,headRefName,createdAt",
+                        "url,state,headRefName,createdAt",
                         "--limit",
                         "100",
                     ],

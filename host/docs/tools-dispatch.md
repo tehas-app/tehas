@@ -25,7 +25,8 @@ and the usage on standard error, before the instance settings are read. A mistyp
 Order of rules: the pause switches (this host's flag, then the label on the
 control issue) decide that this poll starts nothing. They do not stop it cleaning
 up what this host already has: it still stops a cycle whose issue is closed or
-whose pull request is merged or closed, stops a cycle nobody has heard from, and
+whose pull request, the bot's on the issue's own branch, is merged or closed,
+stops a cycle nobody has heard from, and
 clears an issue marked `tehas:running` with no cycle behind it. The poll ends
 there. For a factory that is not paused it goes on: a usable `tehas.slice`,
 a model endpoint that answers and offers the model, free disk of at least
