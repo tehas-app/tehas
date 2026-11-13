@@ -658,26 +658,28 @@ Each finding of the six-pass review has a severity: CRITICAL, HIGH, MEDIUM or
 LOW. Which severity stops a cycle is the product's decision, not the reviewer's
 and not pi-rukas's. pi-rukas reads it from the product repository's doctrine
 (`AGENTS.md`, or `CLAUDE.md` when the product has one), at the commit the cycle
-started from, so a cycle cannot lower its own bar mid-run. For this repository
-the bar is MEDIUM and above, decided in the platform repository's
-`docs/adr/0002-review-severity-policy.md`, a record in the source rather than a
-file on a host. A finding at the bar or above sends the change back to a fix
-step and the review runs again, up to two rounds from pi-rukas v0.14.49 (three
-before it). Only LOW findings may be
+started from, so a cycle cannot lower its own bar mid-run. Where the doctrine
+states none, pi-rukas takes its own default, which is HIGH from v0.14.50 and was
+MEDIUM up to v0.14.49. This repository's `AGENTS.md` states no bar, because rule
+7 gives that file to a person, so a cycle here blocks at HIGH: pi-rukas's
+default is what applies today. The bar the platform repository decided is
+recorded in `docs/adr/0002-review-severity-policy.md`, a record in the source
+rather than a file on a host; the ADR still names MEDIUM, the bar of the
+pi-rukas release that defaulted to it, so a person updating it to HIGH and
+adding the sentence below to `AGENTS.md` is what makes the decided bar the one a
+cycle reads. A finding at the bar or above sends the change
+back to a fix step and the review runs again, up to two rounds from pi-rukas
+v0.14.49 (three before it). Only LOW findings may be
 deferred: they are notes on the pull request and start no fix round. A CRITICAL
 finding blocks whatever the bar says.
 
-`AGENTS.md` of this repository does not state the bar yet, because rule 7 gives
-that file to a person, so a cycle's log still records the verdict as `unstated`
-and takes pi-rukas's default. That default is MEDIUM up to pi-rukas v0.14.49 and
-HIGH from v0.14.50, so on v0.14.50 a cycle here blocks at HIGH, not at the
-MEDIUM the record decided, until a person adds the sentence. Once the sentence
-is there the log names the bar it quoted, whatever the release's default. The
-sentence has to be one pi-rukas can read: one sentence that names the bar with a
-relation, `This repository blocks at MEDIUM severity and above.` pi-rukas takes
+The sentence `AGENTS.md` has to carry is one pi-rukas can read: one sentence
+that names the bar with a relation, `This repository blocks at HIGH severity and
+above.` pi-rukas takes
 the severity out of the sentence the judge quotes and checks that sentence
 against the file word for word, so a paraphrase that names the severities
 without the relation is a silent no-op and the cycle takes the default again.
+While the sentence is missing a cycle's log records the verdict as `unstated`.
 
 An instance can set the bar itself with `PI_ENSEMBLE_REVIEW_THRESHOLD`, which
 wins over what the product says (see [Commands](/tools#instance-settings)).
