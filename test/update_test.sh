@@ -114,6 +114,7 @@ platform() { # [behind] [install body]
   git -C "$checkout" commit -qm first
   git clone --bare -q "$checkout" "$T/origin"
   git -C "$checkout" remote add origin "$T/origin"
+  git -C "$checkout" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main
   # The sandbox build and the two compose files, as install.sh would have put
   # them. The build is a stub; the compose files only have to exist.
   printf '#!/usr/bin/env bash\nprintf "%%s\\n" "build" >>"%s/build"\necho "built tehas/pi-rukas"\n' \
@@ -228,6 +229,7 @@ real_platform() {
   git -C "$checkout" commit -qm first
   git clone --bare -q "$checkout" "$T/origin"
   git -C "$checkout" remote add origin "$T/origin"
+  git -C "$checkout" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main
   push_one "change 1"
 }
 
@@ -880,7 +882,8 @@ before=$(login_state)
 # step of this update rather than made by a first install on the spot.
 t_run "mkdir -p '$th/state'; : >'$th/state/first-install'; '$update'"
 t_eq "$t_rc" 0
-t_contains "$t_out" "later: sudo $checkout/bootstrap.sh dev boss"
+t_contains "$t_out" "later: sudo <root-owned copy>/bootstrap.sh dev boss"
+t_lacks "$t_out" "sudo $checkout/bootstrap.sh"
 t_contains "$t_out" "$dev_bin/tehas is not this checkout's host/login/tehas"
 # Not a step: nothing was recorded for it, no sudo ran, and the copy was not
 # touched. The labels step of the copied table ran in the same call, so the
@@ -893,7 +896,7 @@ t_run "$update --check"
 t_eq "$t_rc" 1
 t_contains "$t_out" "Login:        NOT CURRENT"
 t_contains "$t_out" "differs: $dev_bin/tehas"
-t_contains "$t_out" "sudo $checkout/bootstrap.sh dev boss"
+t_contains "$t_out" "sudo <root-owned copy>/bootstrap.sh dev boss"
 t_eq "$(t_calls sudo)" ""
 t_eq "$(login_state)" "$before"
 
@@ -911,7 +914,7 @@ t_contains "$t_out" "no follow-up was run"
 # A comparison that could not be made is no finding about the host's copy: the
 # run says the checkout is missing a file, as it does for one it would install.
 t_lacks "$t_out" "differs: $dev_bin/tehas"
-t_lacks "$t_out" "sudo $checkout/bootstrap.sh dev boss"
+t_lacks "$t_out" "sudo <root-owned copy>/bootstrap.sh dev boss"
 t_eq "$(owed_steps)" ""
 t_eq "$(login_state)" "$before"
 # The next --check says the same, and not that the host's copy differs.
