@@ -358,13 +358,9 @@ pub fn open_gates(stream: &[u8], issue: u64) -> Vec<(String, String)> {
             Some("verify-started") => open.push((word("step"), word("command"))),
             Some("verify-completed" | "verify-aborted") => {
                 let step = word("step");
-                match open.iter().rposition(|(s, _)| *s == step) {
-                    Some(i) => {
-                        open.remove(i);
-                    }
-                    None => {
-                        open.pop();
-                    }
+                // An end that matches no start says nothing of the gates still open.
+                if let Some(i) = open.iter().rposition(|(s, _)| *s == step) {
+                    open.remove(i);
                 }
             }
             _ => {}
@@ -401,8 +397,14 @@ pub struct Seen<'a> {
     pub stopped: bool,
     /// The time limit had passed when the container ended.
     pub at_limit: bool,
-    /// The container's stream holds nothing.
+    /// The container's stream holds nothing. False when it could not be read.
     pub log_empty: bool,
+}
+
+/// Whether the stream at `log` holds nothing. A failure to look is an error,
+/// not an empty stream: tehas work created the file before the container ran.
+pub fn stream_empty(log: &Path) -> std::io::Result<bool> {
+    fs::metadata(log).map(|m| m.len() == 0)
 }
 
 /// What that end means.
@@ -1147,7 +1149,8 @@ pub fn run(home: &Path, g: &Given, stop: Arc<AtomicBool>) -> i32 {
     // what the report makes of the run after this point may fail, and this word
     // must not go with it.
     w.write_note(&w.files.runner_exit, &rc.to_string());
-    let log_empty = fs::metadata(&g.log).map_or(true, |m| m.len() == 0);
+    let log_look = stream_empty(&g.log);
+    let log_empty = matches!(log_look, Ok(true));
     let seen_end = Seen {
         rc,
         outcome: outcome.as_ref(),
@@ -1210,6 +1213,17 @@ pub fn run(home: &Path, g: &Given, stop: Arc<AtomicBool>) -> i32 {
             g.issue
         );
         w.append_or_say(line.as_bytes());
+    }
+    if let Err(e) = &log_look {
+        if outcome.is_none() {
+            let line = format!(
+                "tehas work: issue {} ended with the container's exit {rc} and its stream {} could not be read ({e}): whether a step started is not known. Look at the disk and the file, not the driver.\n",
+                g.issue,
+                g.log.display()
+            );
+            say(line.trim_end());
+            w.append_or_say(line.as_bytes());
+        }
     }
     if w.ooms > 0 {
         say(&format!(
@@ -1614,6 +1628,24 @@ mod tests {
     }
 
     #[test]
+    fn a_stream_that_cannot_be_read_is_not_an_empty_one() {
+        let d = dir("stream");
+        let empty = d.join("empty.jsonl");
+        fs::write(&empty, "").unwrap();
+        let full = d.join("full.jsonl");
+        fs::write(&full, "{}\n").unwrap();
+        assert!(stream_empty(&empty).unwrap());
+        assert!(!stream_empty(&full).unwrap());
+        let gone = stream_empty(&d.join("gone.jsonl"));
+        assert!(gone.is_err());
+        let s = Seen {
+            log_empty: matches!(gone, Ok(true)),
+            ..seen(1)
+        };
+        assert!(!decide(&s).nostart);
+    }
+
+    #[test]
     fn nostart_is_a_container_with_no_result_no_line_and_no_stop() {
         let quiet = |rc| Seen {
             log_empty: true,
@@ -1698,6 +1730,17 @@ mod tests {
         // A gate closed by an aborted line is closed.
         let aborted = cut + &aborted_line(7, "verify", "make test", "TERM", 5);
         assert!(open_gates(aborted.as_bytes(), 7).is_empty());
+        // An end with no start of its step closes no gate that is running.
+        let stray = line("verify-started", "develop")
+            + &line("verify-started", "verify")
+            + &line("verify-completed", "lensreview");
+        assert_eq!(
+            open_gates(stray.as_bytes(), 7),
+            vec![
+                ("develop".to_string(), "make test".to_string()),
+                ("verify".to_string(), "make test".to_string())
+            ]
+        );
     }
 
     #[test]

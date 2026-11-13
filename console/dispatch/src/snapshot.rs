@@ -172,6 +172,11 @@ pub struct Snapshot {
     pub limit: Value,
     /// The start order as `tehas order` reads it (tehas_core::order).
     pub order: Value,
+    /// The open issues `tehas start` approved that no cycle has used yet, as
+    /// `store approval-hosts` lists them with each issue's labels: {issue,
+    /// at, body_sha256, title_sha256, labels}. None when the list could not
+    /// be read.
+    pub host_starts: Option<Vec<Value>>,
     pub slice: Reading,
     /// What the model endpoints answered: the hold, when both failed, and
     /// which endpoint the subagent provider is on.
@@ -209,10 +214,6 @@ pub struct Snapshot {
     /// park-show --automatic's parks, owed a retry after an outage.
     pub owed: Option<Result<Vec<Value>, StoreErr>>,
     pub images: Option<Images>,
-    /// With TEHAS_OVERLAP_HOLD: the files each running cycle's branches
-    /// change, by issue, None for one that could not be read. Read when a
-    /// start asks.
-    pub overlap: Option<BTreeMap<u64, Option<Vec<String>>>>,
     pub issues: BTreeMap<u64, Issue>,
     /// The open issues whose title starts with the epic marker and that do not
     /// carry `epic`, the control issue left out.
@@ -509,6 +510,11 @@ impl Snapshot {
                 .get("order")
                 .cloned()
                 .unwrap_or_else(|| serde_json::json!({"state": "none"})),
+            host_starts: match v.get("host_starts") {
+                None => Some(Vec::new()),
+                Some(Value::Array(a)) => Some(a.clone()),
+                Some(_) => None,
+            },
             slice: reading(v.get("slice").unwrap_or(&Value::Null)),
             endpoint_hold: v
                 .get("endpoint")
@@ -577,19 +583,6 @@ impl Snapshot {
                 commit: i.get("commit").and_then(Value::as_str).unwrap_or("").into(),
                 declares: i.get("declares").and_then(Value::as_bool) == Some(true),
                 answers: i.get("answers").and_then(Value::as_bool) == Some(true),
-            }),
-            overlap: v.get("overlap").and_then(Value::as_object).map(|m| {
-                m.iter()
-                    .filter_map(|(n, files)| {
-                        let list = files.as_array().map(|a| {
-                            a.iter()
-                                .filter_map(Value::as_str)
-                                .map(str::to_string)
-                                .collect()
-                        });
-                        Some((n.parse().ok()?, list))
-                    })
-                    .collect()
             }),
             now: v.get("now").and_then(Value::as_u64),
             hostname: v

@@ -1063,3 +1063,62 @@ fn a_retry_context_with_nothing_in_it_is_no_key_of_a_view() {
     used(&home, 7);
     assert_eq!(view(&home, 7).get("retry_context"), None);
 }
+
+/// #1967: the host's approval is a kind of its own. It takes no label, the
+/// list names it while it waits and the cycle it starts while that runs, and a
+/// millwright's start rests on it as on a person's label.
+#[test]
+fn the_hosts_approval_waits_starts_a_cycle_and_is_a_base() {
+    let home = home("approval-host");
+    let v = record(&home, 31, 1_791_000_000, "host", "host");
+    assert_eq!(v["approval"]["how"], "host");
+    assert_eq!(v["approval"]["label"], "host");
+    let v = ok(&home, &["approval-hosts"]);
+    assert_eq!(
+        v["waiting"],
+        json!([{"issue": 31, "at": 1_791_000_000, "body_sha256": SHA, "title_sha256": null}])
+    );
+    assert_eq!(v["running"], json!([]));
+    let (rc, line) = call(
+        &home,
+        &[
+            "approval-record",
+            "31",
+            "--at",
+            "1791000001",
+            "--by",
+            "host",
+            "--how",
+            "host",
+            "--label",
+            "tehas:ready",
+            "--body-sha",
+            SHA,
+        ],
+    )
+    .unwrap_err();
+    assert_eq!(rc, 64, "{line}");
+    let _lock = hold(&home, 31);
+    let s = ok(&home, &["cycle-start", "31"]);
+    assert_eq!(s["how"], "host");
+    let v = ok(&home, &["approval-hosts"]);
+    assert_eq!(v["waiting"], json!([]));
+    assert_eq!(v["running"][0]["issue"], 31);
+    record(&home, 31, 1_791_000_100, "tehas-millwright", "millwright");
+    let v = current(&home, 31);
+    assert_eq!(v["rests_on"]["how"], "host");
+    assert_eq!(v["rests_on"]["by"], "host");
+}
+
+/// `--undo` takes back a host approval that has not started a cycle.
+#[test]
+fn a_waiting_host_approval_is_undone() {
+    let home = home("approval-host-undo");
+    record(&home, 32, 1_791_000_000, "host", "host");
+    let v = ok(
+        &home,
+        &["approval-record", "32", "--undo", "--at", "1791000000"],
+    );
+    assert_eq!(v["undone"], true);
+    assert_eq!(ok(&home, &["approval-hosts"])["waiting"], json!([]));
+}

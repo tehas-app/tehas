@@ -3,7 +3,10 @@
 //! request. Each takes the room rules 2 and 3 left, as the bash dispatcher did.
 
 use super::clean::iso;
-use super::{fixer_base, has, label_actor, or_unknown, Driver, End, Poll, Room, Start, Step, LEAN};
+use super::{
+    base_stands, fixer_base, has, label_actor, or_unknown, Driver, End, Poll, Room, Start, Step,
+    LEAN,
+};
 use crate::questions;
 use crate::text;
 use serde_json::{json, Map, Value};
@@ -1002,9 +1005,7 @@ impl Poll<'_> {
             Some(Ok(None)) => return self.refresh_drop(n, none),
             Some(Ok(Some(r))) => r,
         };
-        let Some(rests) =
-            fixer_base(&record).filter(|b| self.c.allowed(b["by"].as_str().unwrap_or("")))
-        else {
+        let Some(rests) = fixer_base(&record).filter(|b| base_stands(self.c, b)) else {
             return self.refresh_drop(n, none);
         };
         let count = refresh_count(&record, &rests);

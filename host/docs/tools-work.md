@@ -205,7 +205,11 @@ failure, for `tehasbot cycle`. They come from the result (`usage.byRole` and
 (`features.usageByRole`, `features.failureReason`). An image that does not,
 v0.12.80, gives the usage of the stable `dispatch-completed` lines, each
 counted once by its key, and a reason read from lines the runner marks
-unstable, which may be empty. Its `from` says which: `result`, `progress`
+unstable, which may be empty. A line of the log that is no JSON, such as the
+last line of a container killed mid-write, is left out of that count; the file
+then names how many lines it left out and of how many, as
+`"unparsed":{"lines":N,"of":M}`, and `tehasbot cycle` says so in its log.
+Its `from` says where roles and failure come from: `result`, `progress`
 when the run wrote no result, or `bad-result` when the result is there but
 gives no entry for the issue (a link, no JSON, another schema version, or no
 entry with the issue's number).
@@ -261,7 +265,10 @@ container it saw killed leaves the word `killed` in
 the runner wrote no result at all. A container it watched to its end that wrote
 no result and not one line of its stream leaves its own exit status, one line of
 digits, in `~/tehas/state/cycles/<issue>.nostart`, which is what says this issue
-started no runner rather than one that died part way through. The four files
+started no runner rather than one that died part way through. A log that could
+not be looked at is not taken for an empty one: it leaves no `nostart`, and the
+error stream of the cycle says the stream could not be read, so the disk is
+the place to look rather than the driver. The four files
 `tehasbot cycle` reads and removes for a cycle say four things: `runner_exit` is
 there when this command watched the run and holds the runner's own exit,
 `status` carries the one word `killed` when it saw the container killed,

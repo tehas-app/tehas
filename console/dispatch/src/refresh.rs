@@ -162,11 +162,12 @@ fn asked(node: &Value, bot: &str, repo: &str, control: u64) -> Result<Conflict, 
     })
 }
 
-/// The pull request of `--pr N`, when that is all the arguments say: N a
-/// whole number above 0, written without a leading 0.
+/// The pull request of `--pr N` or `--pr N --json`, when that is all the
+/// arguments say: N a whole number above 0, written without a leading 0.
 pub fn asked_pr(args: &[&str]) -> Option<u64> {
-    let [flag, n] = args else {
-        return None;
+    let (flag, n) = match args {
+        [flag, n] | [flag, n, "--json"] => (flag, n),
+        _ => return None,
     };
     let number = !n.is_empty() && !n.starts_with('0') && n.bytes().all(|b| b.is_ascii_digit());
     (*flag == "--pr" && number)
@@ -203,6 +204,27 @@ fn sweep(dir: &Path, keep: &BTreeSet<u64>) {
             let _ = fs::remove_file(path);
         }
     }
+}
+
+/// What `--pr N --json` prints: whether a request was written, and why not
+/// when it was not. The issue and head are null when GitHub did not say.
+fn said(pr: u64, issue: Option<u64>, head: Option<&str>, why: Option<&str>) -> String {
+    format!(
+        "{{\"asked\":{},\"pr\":{pr},\"issue\":{},\"head_sha\":{},\"why\":{}}}",
+        why.is_none(),
+        json!(issue),
+        json!(head),
+        json!(why)
+    )
+}
+
+/// The issue and head of a pull request GitHub answered for, as far as it says.
+fn named(node: &Value) -> (Option<u64>, Option<&str>) {
+    (
+        node.pointer("/closingIssuesReferences/nodes/0/number")
+            .and_then(Value::as_u64),
+        node.get("headRefOid").and_then(Value::as_str),
+    )
 }
 
 struct Run {
@@ -299,25 +321,37 @@ impl Run {
 }
 
 impl Run {
-    /// `--pr N`: one pull request, now. No `last-run`, no sweep.
-    fn one(&self, calls: &mut Calls, pr: u64) -> i32 {
+    /// `--pr N`: one pull request, now. No `last-run`, no sweep. With
+    /// `--json` one object on standard output says how it went, for 0, 3 and 1.
+    fn one(&self, calls: &mut Calls, pr: u64, json: bool) -> i32 {
+        let print = |text: String| {
+            if json {
+                tehas_core::outln!("{text}");
+            }
+        };
         let _ = fs::create_dir_all(&self.dir);
         if let Some(logs) = self.log.parent() {
             let _ = fs::create_dir_all(logs);
         }
         if self.bot.is_empty() {
-            return self.fail("the bot's own login could not be read");
+            let why = "the bot's own login could not be read";
+            print(said(pr, None, None, Some(why)));
+            return self.fail(why);
         }
         let node = github::pull(calls, &self.repo, pr);
         if node.is_null() || node.get("failed").is_some() {
-            return self.fail(&format!(
+            let why = format!(
                 "GitHub did not answer for pull request #{pr} of {}",
                 self.repo
-            ));
+            );
+            print(said(pr, None, None, Some(&why)));
+            return self.fail(&why);
         }
         let c = match asked(&node, &self.bot, &self.repo, self.control) {
             Ok(c) => c,
             Err(why) => {
+                let (issue, head) = named(&node);
+                print(said(pr, issue, head, Some(&why)));
                 eprintln!("tehasbot refresh: pull request #{pr} is not refreshed: {why}");
                 self.line(&format!(
                     "asked for pull request #{pr}: not refreshed: {why}"
@@ -331,12 +365,15 @@ impl Run {
             .and_then(|old| kept_at(&old, c.pr, &c.head))
             .unwrap_or_else(iso_now);
         if put(&path, &asked_request(&at, &c)).is_err() {
-            return self.fail(&format!("could not write {}", path.display()));
+            let why = format!("could not write {}", path.display());
+            print(said(pr, Some(c.issue), Some(&c.head), Some(&why)));
+            return self.fail(&why);
         }
         self.line(&format!(
             "asked for pull request #{pr}: wrote the request of #{}",
             c.issue
         ));
+        print(said(pr, Some(c.issue), Some(&c.head), None));
         0
     }
 }
@@ -395,7 +432,7 @@ pub fn main(args: &[&str]) -> i32 {
     let store = home.join("libexec/store").to_string_lossy().into_owned();
     let mut calls = Calls::idle(Duration::from_secs(20), store);
     if let Some(pr) = one {
-        return run.one(&mut calls, pr);
+        return run.one(&mut calls, pr, args.last() == Some(&"--json"));
     }
     let now = tehas_core::time::now() as u64;
     run.go(&mut calls, now)
@@ -655,8 +692,14 @@ mod tests {
     #[test]
     fn only_pr_and_a_whole_number_above_zero_ask_for_one() {
         assert_eq!(asked_pr(&["--pr", "50"]), Some(50));
+        assert_eq!(asked_pr(&["--pr", "50", "--json"]), Some(50));
         for bad in [
             &["--pr"][..],
+            &["--pr", "50", "--jsn"],
+            &["--json", "--pr", "50"],
+            &["--pr", "--json"],
+            &["--pr", "0", "--json"],
+            &["--pr", "50", "--json", "--json"],
             &["--pr", "0"],
             &["--pr", "x"],
             &["--pr", "07"],
@@ -669,6 +712,23 @@ mod tests {
         ] {
             assert_eq!(asked_pr(bad), None, "{bad:?}");
         }
+    }
+
+    #[test]
+    fn the_json_of_one_ask_says_whether_it_was_asked_and_why_not() {
+        assert_eq!(
+            said(50, Some(7), Some(HEAD), None),
+            format!(r#"{{"asked":true,"pr":50,"issue":7,"head_sha":"{HEAD}","why":null}}"#)
+        );
+        assert_eq!(
+            said(50, None, None, Some("it is \"not\" open")),
+            r#"{"asked":false,"pr":50,"issue":null,"head_sha":null,"why":"it is \"not\" open"}"#
+        );
+        let mut p = pull(50, 7);
+        assert_eq!(named(&p), (Some(7), Some(HEAD)));
+        p["closingIssuesReferences"]["nodes"] = json!([]);
+        p["headRefOid"] = json!(null);
+        assert_eq!(named(&p), (None, None));
     }
 
     #[test]
