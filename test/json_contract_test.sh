@@ -253,6 +253,69 @@ surfaces=(
   'bound	panels[0].url	.panels[0].url = "https://support.example.org/" + ("a" * 484)	.panels[0].url = "https://support.example.org/" + ("a" * 485)	longer than 512'
   'bound	panels	.panels = ["a","b","c","d"]	.panels = ["a","b","c","d","e"]	more than 4 items'
   'required	["api","panels"]'
+
+  # The answer `tehas disk --json` and `tehas disk --full --json` print: how
+  # full this host is, and with the flag what fills it. The two samples are the
+  # two readings a person or a host program reaches: the plain answer, and the
+  # one with `full`, which holds every field of it - a file system whose figure
+  # could not be read, a place that ran out of a bound with its `cut`, the
+  # daemon's `docker system df` lines, and the containers it still holds back.
+  # The surface prints no state of its own, so it has no `state` lines and no
+  # enum to compare them with: the samples are still held to the schema, to what
+  # the command prints and to the walk of its fields. The shape of the answer is
+  # the host's - how many file systems the watched paths fold into, and which
+  # places the home holds - so the reading each sample is made of plants its own
+  # home and says what `df` and the daemon answer, as test/disk_test.sh does.
+  # `generatedAt` is the clock of the run that made the answer, which no name in
+  # the environment bounds: the case of the clock below compares the two samples
+  # with what the command prints now with that one field taken out of both sides,
+  # and asks that the field is there, of the right shape, and nothing else.
+  'surface	disk'
+  'sample	sample'
+  'sample	full'
+  # The one object of the surface, bent one way at a time: a field of `required`
+  # missing, a field the schema does not know at the top of it, and the list of
+  # file systems given a word where the command prints an array. Three lines,
+  # the shape of every check of the table.
+  'check	del(.generatedAt) | .zz = 1 | .filesystems = "1"	.: generatedAt is missing'
+  'check	del(.generatedAt) | .zz = 1 | .filesystems = "1"	.zz: not in the schema'
+  'check	del(.generatedAt) | .zz = 1 | .filesystems = "1"	.filesystems: string, not array'
+  # The same three of the reading that carries `full`, bent on the object of that
+  # name: the sample of the third word of the row is read and bent, as the rows of
+  # the surface's own `sample` are. It cannot be taken out of the object the way
+  # `state` or `panels` are from theirs: the one reading of it that the command
+  # leaves out is the whole object, and `del(.full) | .full = "1"` puts it back as
+  # a word, so its absence is reported as `.full: string, not object`.
+  'check	del(.full) | .zz = 1 | .full = "1"	.zz: not in the schema	full'
+  'check	del(.full) | .zz = 1 | .full = "1"	.full: string, not object	full'
+  # The bounds of the schema, each the least value the command keeps and one step
+  # past it. The five of `full` are read off the sample that holds it, named as the
+  # third word of the row, since `full` is the key no plain reading prints: the
+  # count of what the daemon holds back, which `docker ps` answers with no listings
+  # being none and which no reading answers with one below it
+  # (console/ops/src/disk.rs, stopped_containers); the `cut` of a place, which is
+  # one of the five words the walk answers with and never the word a bound of no
+  # name is; the `bytes` of a place, which is a count of bytes or no figure and
+  # never a word; the `lines` of `docker system df`, which the daemon answers in at
+  # most twelve lines - the thirteenth is past what the reading keeps
+  # (console/ops/src/disk.rs, docker_df); and the `image` of one container the
+  # daemon named, which the reading cuts to the two hundred characters it keeps
+  # (console/ops/src/disk.rs, COMMAND_MAX).
+  # The bound of the plain reading is the list of paths of one file system: the
+  # names that stand on it, two of them for the entry the sample holds, the home
+  # and the directory of the images. An element that is no text is one step past
+  # what the command ever puts there (console/ops/src/disk.rs, file_systems). A
+  # bound of a list is named at the element the command prints it at, as the
+  # drain's `running` is reported at `.running[0]`, and the arm of the case below
+  # puts the element of a list the row's own name holds back where the check puts
+  # it: `filesystems[0].paths[0]` is reported at `.filesystems[0].paths[0]`.
+  'bound	full.stoppedContainers	.full.stoppedContainers = 0	.full.stoppedContainers = -1	under 0	full'
+  'bound	full.places[0].cut	.full.places[0].cut = "time"	.full.places[0].cut = "forever"	is not one of	full'
+  'bound	full.places[0].bytes	.full.places[0].bytes = 0	.full.places[0].bytes = "many"	string, not integer or null	full'
+  'bound	full.docker.lines	.full.docker.lines = ["a"]	.full.docker.lines = ["a"] + [range(12) | "b"]	more than 12 items	full'
+  'bound	full.containers[0].image	.full.containers[0].image = "a"	.full.containers[0].image = "a" * 201	longer than 200	full'
+  'bound	filesystems[0].paths[0]	.filesystems[0].paths = ["/home/boss/tehas"]	.filesystems[0].paths = [1]	integer, not string'
+  'required	["api","generatedAt","filesystems"]'
 )
 
 # The limit of the `limit` samples, as it is set: one cycle at a time, no
@@ -559,6 +622,101 @@ freeze_reading() { # <name>
 # the file to read as a cycle that never ends.
 t_after='freeze_holder_end'
 
+# The two readings of `tehas disk` name the same file systems and the same
+# places, so one world makes both: the home of the run, its logs, one clone's
+# build output, and the trees whose figures a sample says something about. The
+# figures themselves come of the two stubs below, so a sample is a reading of a
+# host that answered in the words the sample holds and nothing of the machine
+# the tests run on. The scratch disk is the fourth file system and the entry
+# with no figure of its own: the instance names it, so the reading has a path to
+# answer for, and `df` is stubbed to say nothing of it.
+disk_scratch=/mnt/scratch
+
+# The one `df` answer every disk sample wants: the 40 GiB free of a host with
+# room on it, which is what the reading prints for every path but the scratch
+# disk. The stub answers nothing at all for the path of the scratch disk, which
+# is the reading's "df answered nothing": the entry of that file system is the
+# one of these samples with no figure and a `why`, the shape the disk tests'
+# own stub gives a figure a case does not plant (test/disk_test.sh). The path is
+# named here and not under the scratch tree of the run: two paths of one file
+# system are one entry (console/ops/src/disk.rs, same_dev), so a scratch under
+# `$T` would be folded into the entry of the home and print no entry of its own
+# at all, and no figure of its own to carry a `why`.
+t_stub df 'case "$*" in
+  *scratch) exit 1 ;;
+esac
+printf "%s\n" \
+  "Filesystem 1024-blocks Used Available Capacity Mounted on" \
+  "/dev/x 60000000 1 41943040 1% /"
+'
+
+# The daemon of every disk sample: the directory of the images, the four lines
+# of `docker system df` that the sample with `full` holds, and the two containers
+# it still holds back. The listing is the `ps` question a `--full` reading asks
+# without `--publish`, which is the whole of why the answer of that form carries
+# them: a reader that must not write the host can still ask for both figures.
+t_stub docker 'case "$*" in
+  *DockerRootDir*) echo /var/lib/docker ;;
+  "system df"*) printf "TYPE\tTOTAL\tACTIVE\tSIZE\tRECLAIMABLE\nImages\t2\t1\t1.2GB\t0B (0%%)\n" ;;
+  "ps "*) printf "ab12c34d5e6f\ttehas-sandbox:latest\t/bin/sh -c sleep\n0123456789ab\tubuntu:24.04\n" ;;
+esac
+'
+
+# <name>: the trees the reading of that sample walks. `sample` is the plain
+# answer, which reads no place at all, and so needs the home alone; `full` is the
+# reading that names them, so it plants the logs of 200 KiB, one clone's build
+# output of 50 KiB, and the tree of six names below the depth the walk goes to,
+# which is the place the sample prints with `cut` of `depth` and no figure. The
+# scratch disk is planted for both: the instance names it either way, so the
+# plain answer names the file system too.
+disk_world() { # <name>
+  mkdir -p "$T/home/tehas/logs" "$T/home/tehas/dev/alpha.state/target"
+  dd if=/dev/zero of="$T/home/tehas/logs/big.log" bs=1k count=200 status=none
+  dd if=/dev/zero of="$T/home/tehas/dev/alpha.state/target/out" bs=1k count=50 status=none
+  if [ "$1" = full ]; then
+    mkdir -p "$T/home/tehas/deep/a/b/c/d/e"
+    dd if=/dev/zero of="$T/home/tehas/deep/a/b/c/d/e/f" bs=1k count=1 status=none
+  fi
+}
+
+# <name>: the reading a disk sample holds, as the console prints it. The home is
+# named on the command line, so the run asks the instance nothing and the bounds
+# of the walk are named with it: `--max-depth 2` is the bound the `deep` tree of
+# the `full` sample runs out of, which is the `cut` that sample prints. The
+# object is the one jq prints of the reading, as every sample in api/ is written.
+disk_reading() { # <name>
+  local -a bound=()
+  [ "$1" = full ] && bound=(--max-depth 2)
+  t_run "'$T_CONSOLE' disk --json ${bound[*]} | jq ."
+}
+
+disk_full_reading() { # the reading of the sample with `full`, and no side file
+  t_run "'$T_CONSOLE' disk --full --json --max-depth 2 | jq ."
+}
+
+# The clock of the answer is the run's own: `generatedAt` is the moment the
+# reading was made, and no name in the environment bounds it, so the two samples
+# cannot hold a moment a later run prints. The samples keep the moment of the run
+# that wrote them, and every case that compares a sample with what the command
+# prints now takes the field out of both sides: the diff below, the rewrite, and
+# the case of the clock, which is where the field itself is asked about - that it
+# is there, that it is the shape the schema states, and that nothing else of the
+# object differs. The stubs above answer the same way for every run of one file,
+# so the two sides of each comparison are two runs of one host.
+disk_without_clock() { # <json>: the object with the run's moment taken out
+  # The two fields that hold no fact of the host are taken out of both sides of
+  # every comparison, and are written out of api/ by the rewrite. `generatedAt` is
+  # the moment of the reading. The name of the scratch tree of this run, which
+  # `mktemp` makes different for every run of one checkout
+  # (test/lib.sh, `T`), stands in the paths of the home and of its places: the
+  # name is no more a fact of the host than the moment is, so the tree is named
+  # `<home>` on both sides, the way the manual names the home.
+  local home=$T/home
+  jq -c --arg home "$home" 'del(.generatedAt)
+         | .filesystems[].paths |= map(sub("^" + $home + "/"; "<home>/"))
+         | .full.places[]?.path |= sub("^" + $home + "/"; "<home>/")'
+}
+
 # <surface> <name>: the object the code prints for that sample, as committed, on
 # standard output as one JSON object. The console of this run prints it, and the
 # same program wrote the file. Not bin/tehas: that goes through console front,
@@ -571,6 +729,13 @@ printed() { # <surface> <name>
   local surface=$1 name=$2
   rm -rf "$T/home/tehas"
   t_instance "${T_MINIMAL[@]}"
+  # The disk answer names the file system of the instance's scratch disk, and
+  # names it only when the instance names one: the line is the setting the
+  # command reads for it, and the stub of `df` below has nothing to say of the
+  # path, so the entry is the file system of the sample with no figure and a
+  # `why`.
+  [ "$surface" != disk ] ||
+    t_instance "${T_MINIMAL[@]}" "TEHAS_SCRATCH_DIR=$disk_scratch"
   case $surface in
     order)
       order_world "$name"
@@ -606,18 +771,23 @@ printed() { # <surface> <name>
       panel_reading "$name"
       printf '%s\n' "$t_out" | jq .
       ;;
+    disk)
+      # The reading of the world this file stubs, as the command prints it, with
+      # the run's own moment in it. The cases that compare it with a sample take
+      # the field out of both sides, as the note above gives.
+      disk_world "$name"
+      case $name in
+        full) disk_full_reading ;;
+        *) disk_reading "$name" ;;
+      esac
+      printf '%s\n' "$t_out"
+      ;;
     *) return 1 ;;
   esac
 }
 
 # The `required` of the surface, as the table's `required` line gives it.
 required_json=
-
-# The object a surface's `sample` is, read once from api/ and held here for the
-# checks that bend one field of it and ask the schema about the result. Named
-# `bound_object` and not `object`, which the loop of the table already uses for
-# one word of a `check` line.
-bound_object=
 
 # The reading of one sample, made here and not read from api/: the world of the
 # sample is built and the console runs, so the object of that reading is printed
@@ -627,7 +797,14 @@ bound_object=
 # way the object comes from this function alone, so nothing else of a run, the
 # words of the write among them, can come out with it.
 sample_object() { # <surface> <name>
-  printed "$1" "$2"
+  # The rewrite of a disk sample is the object the cases below compare to api/, so
+  # the two fields that hold no fact of the host are taken out of it here as well
+  # as of both sides of every other comparison: the moment of the reading and the
+  # name the scratch tree of this run gives the paths of the home.
+  case $1 in
+    disk) printed "$1" "$2" | disk_without_clock ;;
+    *) printed "$1" "$2" ;;
+  esac
 }
 
 # <path>: the state of one sample, as JSON text, from the reading the console
@@ -714,9 +891,27 @@ enum_of() { # <schema file> <path>
 # `cycles[3].filed`, the way the drain's `running` is named without its element.
 # The check reports the whole path, `.cycles[0].issue` and
 # `.cycles[3].filed[0]`, so the one element a name leaves out is put back here.
-path_of_bound() { # <field>: the dotted path the check prints for it
-  local field=$1 element=']' '[' '0' ']'
-  printf '%s\n' "${field/$element/${element[0]}${element[1]}${element[2]}${element[3]}}"
+#
+# The two words are named, not worked out. A name of the table already holds the
+# element of the array of lines - the `0` of `cycles[0]`, or the `0` of the
+# scratch path of `filesystems[0].paths[0]` - and holds no element of a field of
+# its own, which is the one the check adds and the table's name leaves out: a
+# row that goes into such a field names the second element too, `cycles[3].filed[0]`, and
+# is printed as it is named. No rule of the shape of a name tells the two apart,
+# since `cycles[3].round` and `cycles[3].filed` have the same shape and one of
+# them gains an element and the other does not, so each of the five rows that
+# goes into a field of a line says so on its own line, and the row of a listing
+# that names no field of its own, the drain's `running`, is named too.
+path_of_bound() { # <path>: the dotted path the check prints for it
+  case $1 in
+    running) printf '%s\n' "running[0]" ;;
+    'cycles[3].filed[0]') printf '%s\n' "cycles[3].filed[0]" ;;
+    'full.places[0].cut') printf '%s\n' "full.places[0].cut[0]" ;;
+    'full.places[0].bytes') printf '%s\n' "full.places[0].bytes[0]" ;;
+    'full.containers[0].image') printf '%s\n' "full.containers[0].image[0]" ;;
+    'filesystems[0].paths[0]') printf '%s\n' "filesystems[0].paths[0]" ;;
+    *) printf '%s\n' "$1" ;;
+  esac
 }
 
 # A line of the table is read as its kind and the words after it, one apart on
@@ -876,6 +1071,24 @@ while [ "$i" -lt "${#surfaces[@]}" ]; do
     for name in "${names[@]}"; do
       printed "$surface" "$name" >"$api/$surface.$name.json" ||
         t_bad "the rewrite printed no object for $surface $name"
+      # The two fields of a disk sample that hold no fact of the host are taken
+      # out of it: the clock of the reading, whose value the committed file keeps
+      # so the rewrite changes nothing beside it, and the name of the scratch tree
+      # of this run, which `disk_without_clock` writes as `<home>` on both sides of
+      # every comparison and so must not stand in api/. One jq, so the file the
+      # rewrite leaves is the file the cases below compare.
+      if [ "$surface" = disk ]; then
+        if jq -c --arg home "$T/home" --argjson kept \
+          "$(jq .generatedAt "$api/$surface.$name.json")" \
+          '. + {generatedAt: $kept}
+           | .filesystems[].paths |= map(sub("^" + $home + "/"; "<home>/"))
+           | .full.places[]?.path |= sub("^" + $home + "/"; "<home>/")' \
+          "$api/$surface.$name.json" >"$T/rewrite-clock.json"; then
+          mv "$T/rewrite-clock.json" "$api/$surface.$name.json"
+        else
+          t_bad "the disk sample $name could not be rewritten"
+        fi
+      fi
     done
   fi
 
@@ -892,6 +1105,13 @@ while [ "$i" -lt "${#surfaces[@]}" ]; do
       t_bad "the console printed nothing for $surface $name"
     committed=$(jq . "$api/$surface.$name.json" 2>&1) ||
       t_bad "$api/$surface.$name.json holds no object: $committed"
+    # The clock of a disk run is the moment of this run, which no sample can
+    # hold: the comparison takes the field out of both sides, and the case of the
+    # clock asks that each side has one and that nothing else of them differs.
+    if [ "$surface" = disk ]; then
+      printed_now=$(printf '%s\n' "$printed_now" | disk_without_clock)
+      committed=$(printf '%s\n' "$committed" | disk_without_clock)
+    fi
     if ! changes=$(diff <(printf '%s\n' "$printed_now") <(printf '%s\n' "$committed")); then
       t_bad "the code prints another object; when the change is only an addition, write the samples again:
 $changes"
@@ -917,8 +1137,35 @@ $changes"
       t_bad "the rewrite printed no object for $surface $name"
   done
   for name in "${names[@]}"; do
+    if [ "$surface" = disk ]; then
+      # The rewrite of a disk sample carries the moment of its own run and the
+      # name of the scratch tree of the run, in the two fields the command cannot
+      # print twice, so the comparison below is of the two objects without them.
+      # The fields themselves are the case of the clock's.
+      jq -c 'del(.generatedAt)' "$rewrite/$surface.$name.json" >"$T/rewrite-a.json"
+      jq -c 'del(.generatedAt)' "$api/$surface.$name.json" >"$T/rewrite-b.json"
+      t_eq "$(cat "$T/rewrite-a.json")" "$(cat "$T/rewrite-b.json")"
+      continue
+    fi
     t_eq "$(cat "$rewrite/$surface.$name.json")" "$(cat "$api/$surface.$name.json")"
   done
+
+  # The one field of this surface no sample can hold as the command prints it:
+  # `generatedAt` is the moment the reading was made. The case asks that both
+  # sides of it are there, both of the shape the schema states for it, and that
+  # the two moments are not the same field of a copied file - the samples are two
+  # readings of one host made by two runs, and the fields beside them are asked
+  # for, field by field, by the case of the diff above.
+  if [ "$surface" = disk ]; then
+    t_case "the disk samples carry a generatedAt of the run that made them"
+    for name in "${names[@]}"; do
+      t_eq "$(jq -r '.generatedAt | type' "$api/$surface.$name.json")" "string"
+      t_eq "$(jq -r '.generatedAt | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$")' "$api/$surface.$name.json")" "true"
+      printed_now=$(printed "$surface" "$name") ||
+        t_bad "the console printed no object for $surface $name"
+      t_eq "$(jq -r '.generatedAt | type' <<<"$printed_now")" "string"
+    done
+  fi
 
   # Every field of the `required` of the schema, as one path per field, held by
   # every sample. The walk below of the fields asks only that some sample holds
@@ -980,14 +1227,24 @@ $changes"
   fi
 
   t_case "the check finds a field of $surface missing, one of the wrong type, and one it does not know"
-  sample=$(surface_sample "$surface")
   for case_line in "${cases[@]}"; do
-    if ! jq "${case_line%%$'\t'*}" "$sample" >"$T/bad.json"; then
-      t_bad "the jq of the table's line is no jq: ${case_line%%$'\t'*}"
+    # The jq of the row makes the object the check is asked about. The file it is
+    # read from is the surface's own `sample`, except for a row of the disk surface
+    # that bends a key no plain reading prints: a field of its own `full` is read
+    # off the sample of that name, the second of the surface's two.
+    object=$(surface_line "$case_line" 1)
+    sample=$(surface_sample "$surface")
+    if [ "$surface" = disk ]; then
+      case $object in
+        *'.full = "1"'* | .full*) sample=$api/$surface.full.json ;;
+      esac
+    fi
+    if ! jq "$object" "$sample" >"$T/bad.json"; then
+      t_bad "the jq of the table's line is no jq: $object"
       continue
     fi
     lines=$(check "$schema" "$T/bad.json") || t_bad "the schema check could not be run"
-    t_contains "$lines" "${case_line#*$'\t'}"
+    t_contains "$lines" "$(surface_line "$case_line" 2)"
   done
 
   # A bound of the table is the field, the jq that gives it the least value the
@@ -1028,19 +1285,25 @@ $changes"
   # path: `.running` is reported as `.running[0]`, and a field of a line of a
   # listing as `.cycles[0].filed[0]`.
   t_case "the check keeps the bounds of the schema of $surface"
-  bound_object=$(jq -c . "$(surface_sample "$surface")") ||
-    t_bad "$(surface_sample "$surface") holds no object"
   for bound in "${bounds[@]}"; do
     bound_field=$(surface_line "$bound" 1)
     ok=$(surface_line "$bound" 2)
     bad=$(surface_line "$bound" 3)
     word=$(surface_line "$bound" 4)
-    printf '%s\n' "$bound_object" >"$T/before.json"
+    # The object the row bends, from the surface's own sample, or from the reading
+    # with `full` for the five disk rows under that key: the field of the row names
+    # it, and no plain reading prints it. The jq of a row sets that one field and
+    # leaves every other field of the object as the command printed it.
+    bound_sample=$(jq -c . "$(surface_sample "$surface")")
+    case $bound_field in
+      full.*) bound_sample=$(jq -c . "$api/$surface.full.json") ;;
+    esac
+    printf '%s\n' "$bound_sample" >"$T/before.json"
     jq ". | $ok" "$T/before.json" >"$T/bound.json" ||
       { t_bad "the jq at the bound of $bound_field is no jq: $ok"; continue; }
     lines=$(check "$schema" "$T/bound.json") || t_bad "the schema check could not be run"
     t_eq "$lines" ""
-    printf '%s\n' "$bound_object" >"$T/before.json"
+    printf '%s\n' "$bound_sample" >"$T/before.json"
     jq ". | $bad" "$T/before.json" >"$T/bound.json" ||
       { t_bad "the jq past the bound of $bound_field is no jq: $bad"; continue; }
     lines=$(check "$schema" "$T/bound.json") || t_bad "the schema check could not be run"
@@ -1054,7 +1317,13 @@ $changes"
       # `cycles[3].filed` at `.cycles[3].filed[0]`.
       running) t_contains "$lines" ".running[0]:" ;;
       cycles.*) t_contains "$lines" ".$(path_of_bound "$bound_field"):" ;;
-      *) t_contains "$lines" ".$bound_field:" ;;
+      # A bound of a list is named at the element the command prints it at. A row
+      # whose own name already holds that element - the disk surface's
+      # `filesystems[0].paths[0]` - is reported at the name the row holds, since
+      # `path_of_bound` puts an element back where no name holds one and would ask
+      # the check for a second element of the same path.
+      *"[0]"*) t_contains "$lines" ".$bound_field:" ;;
+      *) t_contains "$lines" ".$(path_of_bound "$bound_field"):" ;;
     esac
     t_contains "$lines" "$word"
   done
