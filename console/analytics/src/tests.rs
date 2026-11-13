@@ -3598,6 +3598,45 @@ fn plan_s_arguments_are_checked() {
     }
 }
 
+// The issue, the --at of an event and the --rc of plan are whole numbers under
+// the one rule in tehas_core::grammar::digits: no leading zero, a cap on the
+// digits, and "0" only where zero is a value. Each word is put in its place in
+// a command that is otherwise right, so a refusal is the number's own.
+#[test]
+fn the_whole_numbers_of_the_arguments_follow_the_shared_rule() {
+    let parsed = |words: &[&str]| parse(&words.iter().map(|w| w.to_string()).collect::<Vec<_>>());
+    let issue = |n: &str| parsed(&["event", n, "merged"]);
+    let at = |t: &str| parsed(&["event", "12", "ready", "--at", t]);
+    let rc = |c: &str| parsed(&["plan", "7", "--rc", c, "--facts", "/f.json"]);
+    assert_eq!(issue("1"), Some(Cmd::Event(1, "merged".into(), None)));
+    assert_eq!(
+        issue("999999999"),
+        Some(Cmd::Event(999_999_999, "merged".into(), None))
+    );
+    for bad in ["", "0", "00", "012", "1234567890", "1a", "+1", " 1"] {
+        assert_eq!(issue(bad), None, "issue {bad:?}");
+    }
+    for (t, secs) in [("0", 0), ("1", 1), ("999999999999", 999_999_999_999)] {
+        assert_eq!(
+            at(t),
+            Some(Cmd::Event(12, "ready".into(), Some(secs))),
+            "--at {t}"
+        );
+    }
+    for bad in ["", "00", "012", "1234567890123", "1a", "+1"] {
+        assert_eq!(at(bad), None, "--at {bad:?}");
+    }
+    for c in ["0", "1", "255", "999"] {
+        assert!(
+            matches!(rc(c), Some(Cmd::Plan(7, ref g)) if g.rc == c),
+            "--rc {c}"
+        );
+    }
+    for bad in ["", "00", "012", "1000", "1a", "+1"] {
+        assert_eq!(rc(bad), None, "--rc {bad:?}");
+    }
+}
+
 // The known data set of the report's tests: six work runs in the window on
 // three version pairs, one before it, a planning turn, three shipped issues,
 // six samples (one before the window) and the gate of three of the runs.
@@ -5494,16 +5533,69 @@ fn outcomes_count_how_the_cycle_ended() {
         None,
         None,
     );
+    // A second run like the first, in the same second: SQLite answers one
+    // row for both, and each map counts the two of them.
+    add_outcome_run(
+        &conn,
+        "work-5-a",
+        now - 2 * DAY,
+        Some("v1"),
+        None,
+        Some("merged"),
+        None,
+        None,
+    );
+    // A kind and a reason the guard refuses: counted under a word of the
+    // code's own, never under what the column held.
+    let long = "x".repeat(65);
+    add_outcome_run(
+        &conn,
+        "work-6-a",
+        now - 2 * DAY,
+        Some("v1"),
+        None,
+        Some("failed"),
+        Some("not a word!"),
+        None,
+    );
+    add_outcome_run(
+        &conn,
+        "work-7-a",
+        now - 2 * DAY,
+        Some("v1"),
+        None,
+        Some("parked"),
+        None,
+        Some(&long),
+    );
     let out = entries(
         &conn,
         now,
         &ofilter(Some("v1"), None, None, None, "version"),
     );
     assert_eq!(out.len(), 1);
-    assert_eq!(out[0]["runs"], 4);
-    assert_eq!(out[0]["outcomes"]["merged"], 1);
-    assert_eq!(out[0]["outcomes"]["failed"], 1);
-    assert_eq!(out[0]["outcomes"]["parked"], 1);
+    assert_eq!(out[0]["runs"], 7);
+    let sum = |map: &str| -> u64 {
+        out[0][map]
+            .as_object()
+            .unwrap()
+            .values()
+            .map(|v| v.as_u64().unwrap())
+            .sum()
+    };
+    assert_eq!(sum("outcomes"), 7, "every run is in outcomes");
+    assert_eq!(sum("failureKinds"), 2, "both failed runs carry a kind");
+    assert_eq!(sum("parkReasons"), 2, "both parked runs carry a reason");
+    assert_eq!(out[0]["failureKinds"]["unrecognised"], 1);
+    assert_eq!(out[0]["parkReasons"]["unrecognised"], 1);
+    let text = out[0].to_string();
+    assert!(
+        !text.contains("not a word") && !text.contains(&long),
+        "{text}"
+    );
+    assert_eq!(out[0]["outcomes"]["merged"], 2);
+    assert_eq!(out[0]["outcomes"]["failed"], 2);
+    assert_eq!(out[0]["outcomes"]["parked"], 2);
     assert_eq!(
         out[0]["outcomes"]["unknown"], 1,
         "a run of no outcome is counted, not dropped"
