@@ -4,10 +4,12 @@
 //! the token a container reads under `state/github` does not run out at the
 //! top of its hour.
 //!
-//! The bash loop of `lib/github-app.sh` it replaces asked every
-//! `TEHAS_GITHUB_RENEW_EVERY` seconds and threw away what the token command
-//! said, so two failed asks in a row let the token expire and nothing was
-//! logged. Here a failed ask is one line on standard error, which the cycle's
+//! The token and its expiry are kept by console/ops/src/github.rs, which
+//! hands out the kept token while it has [`LEFT`] seconds left and makes a new
+//! one otherwise. The bash loop this replaced, once in `lib/github-app.sh`,
+//! asked every `TEHAS_GITHUB_RENEW_EVERY` seconds and threw away what the
+//! token command said, so two failed asks in a row let the token expire and
+//! nothing was logged. Here a failed ask is one line on standard error, which the cycle's
 //! work log keeps, and the next ask comes after `--retry` seconds instead of
 //! waiting the whole of `--every`.
 //!
@@ -17,7 +19,7 @@
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// The clock the waits are counted on: whole seconds. The real one is the
 /// wall clock; a test's own says what the case wants it to read.
@@ -28,6 +30,34 @@ pub type Now = fn() -> u64;
 /// which only ever makes a wait end at once.
 pub fn epoch_seconds() -> u64 {
     tehas_core::time::now().max(0) as u64
+}
+
+/// The seconds a kept token must still have for `tehasbot github-token` to
+/// hand it out instead of making a new one (console/ops/src/github.rs). A
+/// renewer that waits longer than this between two asks lets the token run
+/// out.
+pub const LEFT: u64 = 600;
+
+/// The wait after a successful ask when `TEHAS_GITHUB_RENEW_EVERY` is unset.
+pub const EVERY: u64 = 300;
+
+/// The wait after a failed ask.
+pub const RETRY: u64 = 30;
+
+/// The longest wait after a successful ask: the token it kept or made has
+/// more than [`LEFT`] seconds left, so it is still good after this wait, one
+/// failed ask and the [`RETRY`] that follows it.
+pub const MOST: u64 = LEFT - 2 * RETRY;
+
+const _: () = assert!(EVERY <= MOST && MOST + RETRY < LEFT);
+
+/// The wait after a successful ask that `TEHAS_GITHUB_RENEW_EVERY` sets:
+/// [`EVERY`] when it is empty, not a whole number or 0, and at most [`MOST`].
+pub fn every(setting: &str) -> u64 {
+    match setting.trim().parse::<u64>() {
+        Ok(0) | Err(_) => EVERY,
+        Ok(s) => s.min(MOST),
+    }
 }
 
 /// When the next ask is made after one that ended `ok`: the whole of `every`
@@ -54,31 +84,82 @@ fn failure_line(wait: u64) -> String {
 /// still with it.
 const STEP: Duration = Duration::from_millis(50);
 
+/// How long one ask may run before it is stopped and counted a failure. The
+/// token command makes one signature and one call to GitHub, and its call is
+/// bounded at 30 seconds by curl: an ask past this bound is hung, and a hung
+/// ask must not hold the loop where the stop flag is never read and no line
+/// says why the token was not renewed.
+pub const ASK_BOUND: Duration = Duration::from_secs(60);
+
+/// The grace between the TERM a stopped ask is sent and the KILL after it.
+/// It is short of the five seconds the cycle gives the renewer itself after
+/// its own TERM, so the token command is gone before the renewer is.
+const ASK_GRACE: Duration = Duration::from_secs(2);
+
 /// Runs `cmd` once, with its standard input closed and its output discarded;
 /// its error stream is the caller's own, so the reason a token command gives
 /// reaches the cycle's work log. True when it ended without a status.
-fn ask(cmd: &Path, args: &[String]) -> bool {
-    match Command::new(cmd)
+///
+/// The command leads a process group of its own. When it outlives `bound`,
+/// or `stop` is set while it runs, the group is sent TERM and, after a grace,
+/// KILL, so what it started goes with it, and the ask is a failure.
+fn ask(cmd: &Path, args: &[String], bound: Duration, stop: &AtomicBool) -> bool {
+    use std::os::unix::process::CommandExt;
+    let Ok(mut child) = Command::new(cmd)
         .args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
+        .process_group(0)
         .spawn()
-    {
-        Ok(mut child) => child.wait().map(|s| s.success()).unwrap_or(false),
-        Err(_) => false,
+    else {
+        return false;
+    };
+    let began = Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return status.success(),
+            Ok(None) if began.elapsed() < bound && !stop.load(Ordering::Relaxed) => {
+                std::thread::sleep(STEP);
+            }
+            _ => {
+                // Out of time, stopped, or not to be waited on: the group is
+                // ended as a bounded call ends it, and the ask failed.
+                let _ = tehas_core::call::wait(&mut child, Duration::ZERO, ASK_GRACE, true);
+                return false;
+            }
+        }
     }
 }
 
 /// Asks `cmd` for a token, waits, and asks again, while `stop` is not set:
 /// the whole of `every` seconds after a success and `retry` after a failure,
 /// with one line on standard error for each failure. It returns as soon as
-/// `stop` is set, which is what makes the verb end 0 on TERM.
+/// `stop` is set, which is what makes the verb end 0 on TERM. One ask runs for
+/// `ASK_BOUND` at most, and a stop ends it too.
 pub fn renew(cmd: &Path, args: &[String], every: u64, retry: u64, stop: &AtomicBool, now: Now) {
+    renew_bounded(cmd, args, every, retry, ASK_BOUND, stop, now);
+}
+
+/// `renew` with the bound of one ask given, so a case can give a short one.
+fn renew_bounded(
+    cmd: &Path,
+    args: &[String],
+    every: u64,
+    retry: u64,
+    bound: Duration,
+    stop: &AtomicBool,
+    now: Now,
+) {
     loop {
         if stop.load(Ordering::Relaxed) {
             return;
         }
-        let ok = ask(cmd, args);
+        let ok = ask(cmd, args, bound, stop);
+        // A stop that came while the ask ran ends the loop here, before a
+        // line for an ask that was cut short.
+        if stop.load(Ordering::Relaxed) {
+            return;
+        }
         let wait = next_wait(ok, every, retry);
         if !ok {
             eprint!("{}", failure_line(wait));
@@ -120,6 +201,17 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::thread;
     use tehas_core::testdir::TestDir;
+
+    #[test]
+    fn the_wait_keeps_the_token_alive_through_one_failed_ask() {
+        assert_eq!(every(""), EVERY);
+        assert_eq!(every("x"), EVERY);
+        assert_eq!(every("0"), EVERY);
+        assert_eq!(every("-5"), EVERY);
+        assert_eq!(every("120"), 120);
+        assert_eq!(every("900"), MOST);
+        assert_eq!(every(&u64::MAX.to_string()), MOST);
+    }
 
     /// A clock a case winds: the seconds it reads, and how many times it has
     /// been read. The loop reads it and counts its steps on it; the case winds
@@ -489,8 +581,143 @@ mod tests {
             format!("#!/bin/sh\nprintf '%s\\n' \"$*\" >'{}'\n", said.display()),
         )
         .unwrap();
-        assert!(ask(&path, &["github-token".to_string()]));
+        assert!(ask(
+            &path,
+            &["github-token".to_string()],
+            ASK_BOUND,
+            &AtomicBool::new(false)
+        ));
         assert_eq!(fs::read_to_string(&said).unwrap(), "github-token\n");
+    }
+
+    /// A command that counts its ask, starts a child of its own that sleeps
+    /// and waits for it, so it never ends on its own: the token command of a
+    /// host whose call to GitHub hangs. The child's process id is left in
+    /// `<path>.child` before the ask is counted, so a case that sees the
+    /// count finds the id.
+    fn hanging(name: &str) -> Cmd {
+        let dir = TestDir::new(&format!("renew-hang-{name}"));
+        let path = dir.join("cmd");
+        tehas_core::testing::write_exe(
+            &path,
+            format!(
+                "#!/bin/sh\nsleep 1000 &\necho $! >'{r}.child'\nn=$(cat '{r}.count' 2>/dev/null || echo 0)\necho $((n + 1)) >'{r}.count'\nwait\n",
+                r = path.display(),
+            ),
+        )
+        .unwrap();
+        Cmd {
+            path,
+            _dir: Some(dir),
+        }
+    }
+
+    /// Whether the process `pid` is gone: no longer there, or a zombie that
+    /// has ended and waits only to be reaped by whoever adopted it.
+    fn gone(pid: &str) -> bool {
+        (0..100).any(|_| {
+            let state = fs::read_to_string(format!("/proc/{pid}/stat")).ok();
+            let ended = state.as_deref().is_none_or(|s| {
+                s.rsplit_once(')')
+                    .is_some_and(|(_, rest)| rest.trim_start().starts_with('Z'))
+            });
+            if !ended {
+                thread::sleep(STEP);
+            }
+            ended
+        })
+    }
+
+    /// Joins `handle` if it ends within `limit`, and says whether it did.
+    fn ends_within(handle: thread::JoinHandle<()>, limit: Duration) -> bool {
+        let began = Instant::now();
+        while !handle.is_finished() {
+            if began.elapsed() > limit {
+                return false;
+            }
+            thread::sleep(STEP);
+        }
+        handle.join().is_ok()
+    }
+
+    #[test]
+    fn an_ask_that_outlives_its_bound_is_stopped_and_fails() {
+        let cmd = hanging("bound");
+        let began = Instant::now();
+        let ok = ask(
+            &cmd.path,
+            &[],
+            Duration::from_secs(1),
+            &AtomicBool::new(false),
+        );
+        assert!(!ok, "a hung ask counted as a success");
+        assert!(
+            began.elapsed() < Duration::from_secs(10),
+            "the ask was not ended at its bound: {:?}",
+            began.elapsed()
+        );
+        assert_eq!(cmd.asks(), 1);
+        // What the command started goes with it, so no hung call outlives the
+        // ask that made it.
+        let child = fs::read_to_string(format!("{}.child", cmd.path.display())).unwrap();
+        assert!(
+            gone(child.trim()),
+            "the command's own child outlived the ask"
+        );
+    }
+
+    #[test]
+    fn a_hung_ask_is_a_failure_and_the_loop_asks_again() {
+        let cmd = hanging("again");
+        let stop = Arc::new(AtomicBool::new(false));
+        let (path, s) = (cmd.path.clone(), Arc::clone(&stop));
+        let handle = thread::spawn(move || {
+            renew_bounded(&path, &[], 300, 0, Duration::from_millis(200), &s, || 1000);
+        });
+        // The first ask hangs; at its bound it fails, and with a retry of
+        // nothing the loop asks again at once, where an ask with no bound
+        // would hold it at the first ask for good.
+        let again = (0..200).any(|_| {
+            let n = cmd.asks();
+            if n < 2 {
+                thread::sleep(STEP);
+            }
+            n >= 2
+        });
+        stop.store(true, Ordering::Relaxed);
+        assert!(ends_within(handle, Duration::from_secs(10)));
+        assert!(again, "the loop did not ask again after a hung ask");
+    }
+
+    #[test]
+    fn a_signal_ends_the_loop_while_an_ask_hangs() {
+        let cmd = hanging("stop");
+        let stop = Arc::new(AtomicBool::new(false));
+        let (path, s) = (cmd.path.clone(), Arc::clone(&stop));
+        // The real bound, a minute: only the flag can end this ask in time.
+        let handle = thread::spawn(move || renew(&path, &[], 300, 30, &s, || 1000));
+        assert!(
+            (0..100).any(|_| {
+                let asked = cmd.asks() >= 1;
+                if !asked {
+                    thread::sleep(STEP);
+                }
+                asked
+            }),
+            "the command was never asked"
+        );
+        stop.store(true, Ordering::Relaxed);
+        // TERM, the grace and KILL at most: short of the five seconds the
+        // cycle gives the renewer before it kills it.
+        assert!(
+            ends_within(handle, Duration::from_secs(5)),
+            "the loop did not end on the signal while the ask hung"
+        );
+        let child = fs::read_to_string(format!("{}.child", cmd.path.display())).unwrap();
+        assert!(
+            gone(child.trim()),
+            "the command's own child outlived the stop"
+        );
     }
 
     #[test]

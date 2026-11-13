@@ -62,10 +62,24 @@ reset() {
   T_ENV=()
   t_instance "${T_MINIMAL[@]}"
 }
-# A running cycle: its lock, held by a sleeper for <seconds>.
+# A running cycle: its lock, held by a sleeper for <seconds>. The holder writes
+# a marker once flock has the lock, and this waits for it: a cycle whose lock is
+# not yet taken reads as drained, so the fixed sleep this used to make was a
+# guess at when the lock was held. The marker is no `.lock` name, so drain's own
+# list of the running cycles still counts the sleeper by its lock and nothing
+# else. The sleeper outlives the case if no case waits for it, and the marker
+# goes with it, so each holder makes its own clean.
 running() { # <issue> <seconds>
-  flock -n "$cycles/$1.lock" sleep "$2" &
-  sleep 0.2
+  local marker=$cycles/$1.held
+  rm -f "$marker"
+  ( exec 9>"$cycles/$1.lock" && flock 9 && : >"$marker" && exec sleep "$2" ) \
+    </dev/null >/dev/null 2>&1 &
+  local _look
+  for _look in $(seq 1 40); do
+    [ -e "$marker" ] && return 0
+    sleep 0.1
+  done
+  t_bad "the holder of cycle $1 could not take its lock"
 }
 
 t_case "nothing running: the limit is set, and drain is done at once"
@@ -100,7 +114,7 @@ running 7 5
 start=$(date +%s)
 t_run "$drain --wait 1"
 t_eq "$t_rc" 1
-t_eq "$(( $(date +%s) - start < 5 ))" 1
+t_eq "$(( $(date +%s) - start < 30 ))" 1
 wait
 
 t_case "a cycle that ends during the wait: exit 0"

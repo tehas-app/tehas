@@ -110,7 +110,7 @@ mod tests;
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
-use tehas_core::grammar::{count, is_hex, is_image};
+use tehas_core::grammar::{count, digits, is_hex, is_image};
 use tehas_core::time::now;
 
 /// The rule one state ledger is read under, held once for both readers: bytes
@@ -161,11 +161,7 @@ pub enum Cmd {
 }
 
 fn parse(args: &[String]) -> Option<Cmd> {
-    let issue = |s: &str| {
-        (!s.starts_with('0') && s.len() <= 9 && s.bytes().all(|b| b.is_ascii_digit()))
-            .then(|| s.parse::<i64>().ok())
-            .flatten()
-    };
+    let issue = |s: &str| digits(s, 9, false);
     match args {
         [c, n, rest @ ..] if c == "run" => Some(Cmd::Run(issue(n)?, given(rest)?)),
         [c, n, rest @ ..] if c == "plan" => Some(Cmd::Plan(issue(n)?, plan_given(rest)?)),
@@ -265,9 +261,7 @@ fn outcome_command(args: &[String]) -> Option<Cmd> {
 
 // Epoch seconds: digits, no leading zero, at most twelve of them.
 fn epoch(s: &str) -> Option<i64> {
-    (s == "0" || (!s.starts_with('0') && s.len() <= 12 && s.bytes().all(|b| b.is_ascii_digit())))
-        .then(|| s.parse::<i64>().ok())
-        .flatten()
+    digits(s, 12, true)
 }
 
 /// How far ahead of now an event's --at may be before it is refused. The
@@ -354,11 +348,7 @@ fn plan_given(args: &[String]) -> Option<plan::Given> {
         let v = value.as_str();
         match flag.as_str() {
             "--rc" if rc.is_none() => {
-                let code = v == "0"
-                    || (!v.starts_with('0')
-                        && v.len() <= 3
-                        && v.bytes().all(|b| b.is_ascii_digit()));
-                (code || plan::RC_WORDS.contains(&v)).then_some(())?;
+                (digits(v, 3, true).is_some() || plan::RC_WORDS.contains(&v)).then_some(())?;
                 rc = Some(v.to_string());
             }
             "--rukas-image" if g.rukas_image.is_none() => {

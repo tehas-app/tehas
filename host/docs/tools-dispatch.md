@@ -114,8 +114,7 @@ Every real poll that holds the dispatcher's lock ends with one sample in the
 factory's analytics, `~/tehas/state/analytics.db`, when its work could have
 changed the queue: a write to GitHub, a start, a stop or a planning turn. A
 paused, held or failed poll that changed nothing takes none, so an idle factory
-writes no row rather than the same reading again; `analytics prune` keeps its
-schedule whatever the poll did. One consequence: the report counts each sample
+writes no row rather than the same reading again. One consequence: the report counts each sample
 for the time to the next, at most ten minutes (see
 [`availability`](/tools-health#tehasbot-status-and-the-console)), so a stretch with no
 sample - a long pause or an idle week - counts as not available rather than as
@@ -125,8 +124,10 @@ a merge, stopped and in planning from
 `~/tehas/live/status.json`, the hold and the cycles allowed from
 `~/tehas/live/dispatch.json`, and the mesh's draw from
 `~/tehas/live/energy.json`. A file older than ten minutes gives no value, and a
-`dispatch.json` older than two and a half, an earlier poll's, neither. Then
-`analytics prune` removes what is older than 365 days. A start records the
+`dispatch.json` older than two and a half, an earlier poll's, neither. Nothing
+at the end of the poll prunes the analytics database: each write of the program
+- `run`, `plan`, `event` and `sample` - prunes after it writes, so a poll that
+wrote nothing has nothing to prune (#1769). A start records the
 events `ready`, as its approval record is written and at the time that record
 says `tehas:ready` was accepted (`at`), and `started`, once its cycle came up,
 the first time for each issue. Each call may take 5 seconds.
