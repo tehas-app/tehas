@@ -211,7 +211,7 @@ mod tests {
             r#"{"api":1,"tehas":"v1.2.3","commit":null,"repo":"acme/widget","features":["status","#
         ));
         assert!(printed.ends_with(
-            r#""disk","panels","state-check","finish","status-versions","store-copy","state-load","freeze","host-bridge","cycle-writes","settings-rules","start-order","host-message","refresh-pr","host-message-health","refresh-pr-starts","refresh-pr-lane"],"millwright":"mill","fixer":"mill","poll":{"z":1,"a":2}}"#
+            r#""disk","panels","state-check","finish","status-versions","store-copy","state-load","freeze","host-bridge","cycle-writes","settings-rules","start-order","host-message","refresh-pr","host-message-health","refresh-pr-starts","refresh-pr-lane","host-start"],"millwright":"mill","fixer":"mill","poll":{"z":1,"a":2}}"#
         ));
     }
 
