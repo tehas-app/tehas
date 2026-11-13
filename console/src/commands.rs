@@ -349,7 +349,8 @@ fn issue_words(word: Option<&String>, usage: &str) -> Result<(), u8> {
 pub fn required(given: &[String]) -> &'static [&'static str] {
     let words: Vec<&str> = given.iter().take(2).map(String::as_str).collect();
     match words[..] {
-        ["tehas", "api" | "check-product" | "export" | "history" | "index" | "init-product" | "labels" | "start"]
+        ["tehas", "api" | "check-product" | "export" | "history" | "index" | "init-product" | "labels"
+        | "start"]
         | ["tehasbot", "cycle" | "preview"] => &["TEHAS_REPO"],
         ["tehas", "resume"] | ["tehasbot", "status"] => &[
             "TEHAS_REPO",

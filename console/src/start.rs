@@ -238,7 +238,10 @@ mod tests {
     }
 
     fn issue(n: u64, state: &str) -> Gh {
-        Gh(Ok(json!({"number": n, "state": state}).to_string()), Vec::new())
+        Gh(
+            Ok(json!({"number": n, "state": state}).to_string()),
+            Vec::new(),
+        )
     }
 
     /// A home with the store program where install.sh puts it and a store
@@ -306,7 +309,13 @@ mod tests {
         let home = home("approve");
         let mut gh = issue(12, "open");
         assert_eq!(
-            run_in(&home, &asked(12, false), Some(&mut gh), "acme/widget", Some(1)),
+            run_in(
+                &home,
+                &asked(12, false),
+                Some(&mut gh),
+                "acme/widget",
+                Some(1)
+            ),
             0
         );
         assert_eq!(gh.1, ["api repos/acme/widget/issues/12"]);
@@ -314,14 +323,26 @@ mod tests {
         assert_eq!(listed(&home)[0]["issue"], 12);
         // Again: the approval is the one there, and nothing more is written.
         assert_eq!(
-            run_in(&home, &asked(12, false), Some(&mut gh), "acme/widget", Some(1)),
+            run_in(
+                &home,
+                &asked(12, false),
+                Some(&mut gh),
+                "acme/widget",
+                Some(1)
+            ),
             0
         );
         assert_eq!(listed(&home).as_array().map(Vec::len), Some(1));
         // --clear asks GitHub nothing.
-        assert_eq!(run_in(&home, &asked(12, true), None, "acme/widget", Some(1)), 0);
+        assert_eq!(
+            run_in(&home, &asked(12, true), None, "acme/widget", Some(1)),
+            0
+        );
         assert_eq!(listed(&home), json!([]));
-        assert_eq!(run_in(&home, &asked(12, true), None, "acme/widget", Some(1)), 0);
+        assert_eq!(
+            run_in(&home, &asked(12, true), None, "acme/widget", Some(1)),
+            0
+        );
     }
 
     #[test]
@@ -334,16 +355,31 @@ mod tests {
         );
         for mut gh in [unknown, pr, issue(12, "closed"), issue(13, "open")] {
             assert_eq!(
-                run_in(&home, &asked(12, false), Some(&mut gh), "acme/widget", Some(1)),
+                run_in(
+                    &home,
+                    &asked(12, false),
+                    Some(&mut gh),
+                    "acme/widget",
+                    Some(1)
+                ),
                 1
             );
         }
         let mut gh = issue(1, "open");
         assert_eq!(
-            run_in(&home, &asked(1, false), Some(&mut gh), "acme/widget", Some(1)),
+            run_in(
+                &home,
+                &asked(1, false),
+                Some(&mut gh),
+                "acme/widget",
+                Some(1)
+            ),
             1
         );
-        assert!(gh.1.is_empty(), "the control issue is refused before GitHub is asked");
+        assert!(
+            gh.1.is_empty(),
+            "the control issue is refused before GitHub is asked"
+        );
         assert_eq!(listed(&home), json!([]));
     }
 
@@ -351,7 +387,10 @@ mod tests {
     fn the_refusals_say_why() {
         let mut unknown = Gh(Err("exit 1".into()), Vec::new());
         let why = may_start(&mut unknown, "acme/widget", None, 99).unwrap_err();
-        assert!(why.contains("#99 could not be read from acme/widget"), "{why}");
+        assert!(
+            why.contains("#99 could not be read from acme/widget"),
+            "{why}"
+        );
         let why = may_start(&mut issue(12, "closed"), "acme/widget", None, 12).unwrap_err();
         assert!(why.contains("closed"), "{why}");
     }
