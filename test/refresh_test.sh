@@ -282,7 +282,7 @@ t_contains "$t_out" "Usage:"
 # such an edit changes this line on purpose.
 t_case "the refresh text is the words it had before it moved"
 t_eq "$(sha256sum <"$T_ROOT/console/dispatch/src/usage/refresh.txt" | cut -d' ' -f1)" \
-  "753b972d003984bfdf352691abb2b1451fe45ddbf0a7e82766c8956928c96843"
+  "3be15c7b336e92e84b774e6c3cbadeac7c2f30cec888064ce9cbdfc5840cdae5"
 
 t_case "--help prints the refresh text word for word"
 reset
@@ -383,9 +383,38 @@ for how in fails null; do
   t_contains "$t_out" "ERROR"
 done
 
+t_case "--pr N --json prints what it asked on standard output, whatever the setting"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_REFRESH_CONFLICTS=0
+one "$(pr 50 7)"
+t_run "$refresh --pr 50 --json 2>/dev/null"
+t_eq "$t_rc" 0
+t_eq "$t_out" "{\"asked\":true,\"pr\":50,\"issue\":7,\"head_sha\":\"$head_a\",\"why\":null}"
+t_eq "$(jq -r .asked "$dir/7.json")" "pr"
+t_contains "$(cat "$logfile")" "asked for pull request #50: wrote the request of #7"
+
+t_case "--pr N --json on one not refreshed exits 3 and says why in the object"
+reset
+one "$(pr 50 7 '.mergeable = "MERGEABLE"')"
+t_run "$refresh --pr 50 --json 2>/dev/null"
+t_eq "$t_rc" 3
+t_eq "$(jq -c . <<<"$t_out")" "{\"asked\":false,\"pr\":50,\"issue\":7,\"head_sha\":\"$head_a\",\"why\":\"it does not conflict: GitHub says MERGEABLE\"}"
+t_eq "$(requests)" ""
+t_run "$refresh --pr 50 --json 2>&1 >/dev/null"
+t_contains "$t_out" "is not refreshed: it does not conflict"
+
+t_case "--pr N --json whose GitHub read fails exits 1 with a null issue and head"
+reset
+: >"$fx/pr-fails"
+t_run "$refresh --pr 50 --json 2>/dev/null"
+t_eq "$t_rc" 1
+t_eq "$(jq -c '[.asked, .pr, .issue, .head_sha]' <<<"$t_out")" '[false,50,null,null]'
+t_contains "$(jq -r .why <<<"$t_out")" "GitHub did not answer for pull request #50"
+t_eq "$(requests)" ""
+
 t_case "--pr without a number above 0 is refused with 64 and calls nothing"
 reset
-for args in "--pr 0" "--pr x" "--pr" "--pr 50 51"; do
+for args in "--pr 0" "--pr x" "--pr" "--pr 50 51" "--pr 50 --jsn" "--json --pr 50" "--pr 0 --json"; do
   t_run "$refresh $args"
   t_eq "$args $t_rc" "$args 64"
 done
