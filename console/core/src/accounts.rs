@@ -37,6 +37,21 @@ pub fn factorys(login: &str, bot: &str) -> bool {
     !login.is_empty() && !bot.is_empty() && bare(bot) == login
 }
 
+/// Whether a pull request is the factory's own to count: its branch is in
+/// `repo` and the bot or an account `allowed` takes opened it. Anyone can open
+/// a pull request from a fork with any branch name and any body, so no other
+/// one stands for an issue. `p` is GraphQL's node: `isCrossRepository`,
+/// `headRepository { nameWithOwner }` and `author { login }`.
+pub fn own_pull(p: &Value, repo: &str, bot: &str, allowed: impl Fn(&str) -> bool) -> bool {
+    let s = |ptr: &str| p.pointer(ptr).and_then(Value::as_str).unwrap_or("");
+    let author = s("/author/login");
+    p.get("isCrossRepository").and_then(Value::as_bool) == Some(false)
+        && !repo.is_empty()
+        && s("/headRepository/nameWithOwner").eq_ignore_ascii_case(repo)
+        && !author.is_empty()
+        && (factorys(author, bot) || allowed(account(author)))
+}
+
 /// The pairs of a file's text. None when a line is not `<login> <id>`.
 pub fn parse(text: &str) -> Option<BTreeMap<String, u64>> {
     let mut ids = BTreeMap::new();
@@ -226,6 +241,31 @@ mod tests {
         assert!(!factorys("", ""));
         assert!(!factorys("alice", ""));
         assert!(factorys("tehas-bot", "tehas-bot"));
+    }
+
+    #[test]
+    fn a_pull_request_counts_only_from_the_repository_and_its_accounts() {
+        let own = json!({"isCrossRepository": false,
+            "headRepository": {"nameWithOwner": "acme/widget"},
+            "author": {"login": "alice"}});
+        let alice = |a: &str| a == "alice";
+        assert!(own_pull(&own, "acme/widget", "bot", alice));
+        assert!(own_pull(&own, "Acme/Widget", "bot", alice));
+        assert!(!own_pull(&own, "", "bot", alice));
+        assert!(!own_pull(&own, "acme/other", "bot", alice));
+        assert!(!own_pull(&own, "acme/widget", "bot", |_| false));
+        let mut bot = own.clone();
+        bot["author"] = json!({"login": "app/bot"});
+        assert!(own_pull(&bot, "acme/widget", "bot", |_| false));
+        let mut fork = own.clone();
+        fork["isCrossRepository"] = json!(true);
+        assert!(!own_pull(&fork, "acme/widget", "bot", alice));
+        let mut unknown = own.clone();
+        unknown.as_object_mut().unwrap().remove("isCrossRepository");
+        assert!(!own_pull(&unknown, "acme/widget", "bot", alice));
+        let mut nobody = own.clone();
+        nobody["author"] = Value::Null;
+        assert!(!own_pull(&nobody, "acme/widget", "", |_| true));
     }
 
     fn alice() -> Accounts {

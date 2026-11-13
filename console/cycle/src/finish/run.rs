@@ -9,7 +9,7 @@
 //!    never committed;
 //! 3. the remote holds the default branch, and the branch has a commit over it;
 //! 4. the name the work would be pushed to is not on the remote, and the issue
-//!    has no open pull request;
+//!    has no open pull request of the factory's own;
 //! 5. the rebase of the branch's commits onto the remote's default branch is
 //!    clean and leaves a commit;
 //! 6. the push of the new name is accepted, and GitHub answers for the draft.
@@ -338,35 +338,53 @@ pub fn has_commits(count: &str) -> bool {
 /// `--head` would be the narrower ask for the branch, but a pull request whose
 /// head is named otherwise names the issue just the same, so the heads and the
 /// bodies have to be read either way and one call answers both questions.
+///
+/// Only the factory's own count, by the poll's rule: a branch of the repository
+/// that the bot or an allowed account opened. GraphQL is asked because that
+/// rule reads the author's user id, which `gh pr list` does not give.
 fn open_pull(plan: &Plan, h: &mut dyn Host, pushed: &str) -> Result<Option<String>, Why> {
+    let (owner, name) = plan.repo.split_once('/').unwrap_or_default();
     let out = gh(
         h,
         &plan.home,
         &[
-            "pr",
-            "list",
-            "--repo",
-            &plan.repo,
-            "--state",
-            "open",
-            "--json",
-            "url,headRefName,body",
-            "--limit",
-            "100",
+            "api",
+            "graphql",
+            "-f",
+            &format!("query={OPEN_PULLS}"),
+            "-f",
+            &format!("owner={owner}"),
+            "-f",
+            &format!("name={name}"),
         ],
     )
     .let_say("the open pull requests could not be read")?;
-    Ok(pull_named(&out, pushed).or_else(|| pull_for_issue(&out, plan.issue)))
+    let own = own_pulls(&out, plan);
+    Ok(pull_named(&own, pushed).or_else(|| pull_for_issue(&own, plan.issue)))
 }
 
-/// The pull requests of a `--json` answer, or none at all when the answer is no
-/// list: an answer GitHub did not give is read as nothing open, and the call's
-/// own failure is what refuses the run.
-fn list(out: &str) -> Vec<Value> {
-    serde_json::from_str::<Value>(out.trim())
-        .ok()
-        .and_then(|v| v.as_array().cloned())
-        .unwrap_or_default()
+/// The open pull requests, with what `tehas_core::accounts::own_pull` reads.
+const OPEN_PULLS: &str =
+    "query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { \
+pullRequests(states: OPEN, first: 100, orderBy: {field: CREATED_AT, direction: DESC}) { \
+nodes { url headRefName body isCrossRepository \
+author { login ...on User { databaseId } ...on Bot { databaseId } } \
+headRepository { nameWithOwner } } } } }";
+
+/// The factory's own pull requests of a GraphQL answer, each account vouched
+/// for as the poll vouches. An answer of no such shape is nothing open: the
+/// call's own failure is what refuses the run.
+pub fn own_pulls(out: &str, plan: &Plan) -> Vec<Value> {
+    let mut v = serde_json::from_str::<Value>(out.trim()).unwrap_or_default();
+    tehas_core::accounts::vouch(&mut v);
+    let allowed = |a: &str| plan.allowed.iter().any(|l| l == a);
+    v.pointer("/data/repository/pullRequests/nodes")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|p| tehas_core::accounts::own_pull(p, &plan.repo, &plan.bot, allowed))
+        .cloned()
+        .collect()
 }
 
 /// The URL of one pull request of an answer, when it is an https one.
@@ -378,20 +396,20 @@ fn url_of(pull: &Value) -> Option<String> {
 }
 
 /// The URL of the open pull request whose head is exactly `branch`.
-pub fn pull_named(out: &str, branch: &str) -> Option<String> {
-    list(out).into_iter().find_map(|p| {
-        (p.get("headRefName").and_then(Value::as_str) == Some(branch)).then(|| url_of(&p))?
+pub fn pull_named(pulls: &[Value], branch: &str) -> Option<String> {
+    pulls.iter().find_map(|p| {
+        (p.get("headRefName").and_then(Value::as_str) == Some(branch)).then(|| url_of(p))?
     })
 }
 
 /// The URL of the open pull request of issue `n`: one whose head is the issue's
 /// branch as pi-rukas names it, or whose body closes it. None is no such pull
 /// request in the answer.
-pub fn pull_for_issue(out: &str, n: u64) -> Option<String> {
+pub fn pull_for_issue(pulls: &[Value], n: u64) -> Option<String> {
     let head = format!("feature/issue-{n}");
     let slug = format!("{head}-");
     let reference = format!("#{n}");
-    list(out).into_iter().find_map(|p| {
+    pulls.iter().find_map(|p| {
         let named = match p.get("headRefName").and_then(Value::as_str) {
             Some(h) => h == head || (h.starts_with(&slug) && branch_shaped(h)),
             None => false,
@@ -400,7 +418,7 @@ pub fn pull_for_issue(out: &str, n: u64) -> Option<String> {
             .get("body")
             .and_then(Value::as_str)
             .is_some_and(|b| closes_issue(b, &reference));
-        (named || closes).then(|| url_of(&p)).flatten()
+        (named || closes).then(|| url_of(p)).flatten()
     })
 }
 
