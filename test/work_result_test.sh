@@ -295,6 +295,20 @@ exit 30"
 t_run "$work 7"
 t_eq "$(jq -c '.roles' "$progress_file")" '[{"role":"developer","dispatches":2,"turns":4,"input":20,"output":8,"cacheRead":2},{"role":"opsx","dispatches":1,"turns":2,"input":10,"output":4,"cacheRead":1}]'
 t_eq "$(jq -r '.reason' "$progress_file")" "502 Bad Gateway"
+t_eq "$(jq -c '.from' "$progress_file")" '{"roles":"progress","failure":"progress"}'
+
+t_case "a container that prints nothing leaves an empty result, which is no result: progress, not a bad result"
+fresh
+container 'exit 1'
+t_run "$work 7"
+t_eq "$(cat "$result_file")" ""
+t_eq "$(jq -c '[.roles, .failure, .from]' "$progress_file")" '[[],null,{"roles":"progress","failure":"progress"}]'
+
+t_case "a result of another schema is a bad result"
+fresh
+container 'says merged | sed "s/\"schemaVersion\":5/\"schemaVersion\":3/"; exit 0'
+t_run "$work 7"
+t_eq "$(jq -c '.from' "$progress_file")" '{"roles":"bad-result","failure":"bad-result"}'
 
 t_case "the usage per role and the failure of a schema 5 run come from its result"
 fresh
