@@ -987,7 +987,12 @@ or the handoff comment, and whether the failure was GitHub's. GitHub's is an
 HTTP 5xx, a 429, a 403 that names a rate limit, a timeout or a connection
 error. Any other 4xx, such as a 422 or a 403 for a missing permission, is the
 request's own, and so is a failure that names none of these. A later cycle of
-the issue replaces the record, or removes it when its end failed nothing.
+the issue replaces the record, or removes it when its end failed nothing. A
+record the report cannot write, or an earlier one it cannot remove, is
+`ERROR: the failed end of #N is not on record: <why>` or `ERROR: the failed end
+of an earlier cycle of #N is still on record: <why>`, where the why names the
+file and the error, and the cycle ends with exit 70 rather than 0: without the
+record the poll tries nothing and `tehas status` shows nothing.
 
 The push and the pull request are made in the cycle's container, so the host
 knows of their failure only from the cycle's own result. The record says so

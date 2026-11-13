@@ -869,13 +869,19 @@ impl crate::auto_finish::Hands for FinishHands<'_> {
     }
 
     fn keep(&mut self, r: &tehas_core::end_fault::EndFault) -> bool {
-        tehas_core::end_fault::write(Path::new(&self.home), r)
+        match tehas_core::end_fault::write(Path::new(&self.home), r) {
+            Ok(()) => true,
+            Err(why) => {
+                say(&format!("WARN: the failed end of #{}: {why}", r.issue));
+                false
+            }
+        }
     }
 
     fn drop(&mut self, n: u64) {
-        if !tehas_core::end_fault::remove(Path::new(&self.home), n) {
+        if let Err(why) = tehas_core::end_fault::remove(Path::new(&self.home), n) {
             say(&format!(
-                "WARN: the failed end of #{n} could not be removed"
+                "WARN: the failed end of #{n} could not be removed: {why}"
             ));
         }
     }
