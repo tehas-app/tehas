@@ -101,25 +101,25 @@ carrier "$n"'\.status\b' 'status_file=$TEHAS_HOME/state/cycles/$issue.status' \
   '' \
   "work tells the cycle the runner's status word"
 carrier '\.oom\b' 'oom_file=${cycles:?}/${issue:?}.oom' \
-  "console/ops/src/stop.rs $an/main.rs $an/run.rs $an/tests.rs" \
+  "$an/main.rs $an/run.rs $an/tests.rs" \
   "work counts the container's kills for memory for the cycle"
 carrier '\.forks\b' 'forks_file=$TEHAS_HOME/state/cycles/$issue.forks' \
-  "console/ops/src/stop.rs $an/main.rs $an/run.rs" \
+  "$an/main.rs $an/run.rs" \
   "work counts the container's refused forks for the cycle"
 carrier '\.stalled\b' 'stall_file=${cycles:?}/${issue:?}.stalled' \
-  'console/ops/src/stop.rs' \
+  '' \
   "work tells the cycle the container stalled"
 carrier '\.timed\b' 'timed_file=${cycles:?}/${issue:?}.timed' \
-  'console/ops/src/stop.rs' \
+  '' \
   "work tells the cycle the container ran out of time"
 carrier '\.nostart\b' 'nostart_file=$TEHAS_HOME/state/cycles/$issue.nostart' \
-  'console/ops/src/stop.rs' \
+  '' \
   "work tells the cycle the runner never started"
 carrier '\.result\.json\b' 'result=$TEHAS_HOME/state/cycles/$issue.result.json' \
-  "console/src/export.rs console/ops/src/stop.rs $an/run.rs $an/sessions.rs $an/tests.rs" \
+  "console/src/export.rs $an/run.rs $an/sessions.rs $an/tests.rs" \
   "the container's result, kept to the next start for tehas export"
 carrier '\.progress\.json\b' 'progress=$TEHAS_HOME/state/cycles/$issue.progress.json' \
-  "console/src/export.rs console/ops/src/stop.rs $an/run.rs $an/tests.rs" \
+  "console/src/export.rs $an/run.rs $an/tests.rs" \
   "the summary of the container's output, kept to the next start for tehas export"
 carrier "$n"'\.done\b' 'echo "$done_why" >"$TEHAS_HOME/state/cycles/$n.done"' \
   '' \
@@ -128,7 +128,7 @@ carrier "$n"'\.stopped\b' 'stopped_marker=$state/$n.stopped' \
   'console/ops/src/stop.rs' \
   "tehas stop tells a running cycle it was stopped"
 carrier '\.cid\b' 'cid_file=$TEHAS_HOME/state/cycles/$issue.cid' \
-  'console/src/dev.rs console/ops/src/stop.rs' \
+  'console/src/dev.rs' \
   "the container's id, for docker"
 carrier '\.manifest\.json\b' 'kept=$TEHAS_HOME/state/cycles/$issue.manifest.json' \
   'console/src/export.rs console/ops/src/stop.rs' \
