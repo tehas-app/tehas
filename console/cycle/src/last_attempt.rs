@@ -68,14 +68,8 @@ pub fn of_issue(
     result: Option<&str>,
     state: Option<&Value>,
 ) -> Option<Action> {
-    let r: Value = serde_json::from_str(result?).ok()?;
-    let entry = r
-        .get("issues")
-        .and_then(Value::as_array)
-        .and_then(|l| {
-            l.iter()
-                .find(|e| e.get("issue").and_then(Value::as_u64) == Some(n))
-        })
+    let all = crate::runner::values(result?).filter(|a| !a.is_empty())?;
+    let entry = crate::runner::last_issue_entry(&all, n)
         .cloned()
         .unwrap_or(Value::Null);
     let body = match issue.get("body") {
@@ -320,6 +314,25 @@ mod tests {
         );
         assert!(body.contains("  - `host/docs/tools.md`"), "{body}");
         assert!(!body.contains("passwd") && !body.contains("a b"), "{body}");
+    }
+
+    #[test]
+    fn a_result_a_rerun_appended_to_is_read_for_its_last_run() {
+        let issue = json!({"body": "Fix it."});
+        let first = json!({"issues": [{"issue": 7, "cap": "child-timeout:explore"}]});
+        let last = json!({"issues": {"7": {"issue": 7, "cap": CAP}}});
+        let text = format!("{first}\n{last}");
+        let Some(Action::Edit(body)) = of_issue(7, &issue, Some(&text), None) else {
+            panic!("no edit");
+        };
+        assert!(body.contains("ran past its time bound."), "{body}");
+        let text = format!("{last}\n{first}");
+        assert_eq!(
+            of_issue(7, &issue, Some(&text), None),
+            Some(Action::Nothing)
+        );
+        assert_eq!(of_issue(7, &issue, Some(""), None), None);
+        assert_eq!(of_issue(7, &issue, Some("{"), None), None);
     }
 
     #[test]
