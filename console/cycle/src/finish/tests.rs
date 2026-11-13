@@ -1405,6 +1405,40 @@ sleep 60
 }
 
 #[test]
+fn a_call_killed_by_a_signal_before_its_bound_does_not_say_it_was_stopped() {
+    // A program that dies of a signal has no exit code either, but it ended on
+    // its own and long before the bound. Its own last words are what a refusal
+    // quotes, and nothing claims the run stopped it.
+    let dir = root("signalled");
+    let stub = dir.join("stub");
+    write_exe(
+        &stub,
+        "#!/bin/sh
+printf 'fatal: the last word\\n' >&2
+kill -KILL $$
+",
+    )
+    .unwrap();
+    let began = std::time::Instant::now();
+    let got = within(
+        stub.to_str().unwrap(),
+        &[],
+        &dir,
+        std::time::Duration::from_secs(30),
+        std::time::Duration::from_secs(1),
+    );
+    let took = began.elapsed();
+    assert!(took.as_secs() < 10, "the call waited {took:?}: {got:?}");
+    assert_eq!(got.status, None, "{got:?}");
+    assert_eq!(
+        got.said().as_deref(),
+        Some("fatal: the last word"),
+        "{got:?}"
+    );
+    assert!(!got.err.contains("did not end within"), "{got:?}");
+}
+
+#[test]
 fn a_stream_past_what_is_kept_is_read_to_its_end_and_cut() {
     // A program that prints more than a run keeps is still read to its end, so it
     // never stops on a full pipe, and the run keeps only the first of it.
