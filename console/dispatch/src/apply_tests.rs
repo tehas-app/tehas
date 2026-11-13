@@ -3,7 +3,7 @@
 
 use super::*;
 use crate::poll::End;
-use crate::read::run::{Calls, RetryPolicy};
+use crate::read::run::{gh_process, Calls, RetryPolicy};
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::sync::{Arc, Mutex, Weak};
@@ -162,6 +162,7 @@ fn world() -> World {
             gh_count: 0,
             gh_token: None,
             retry: RetryPolicy::default(),
+            run_gh: gh_process,
         },
         poll_at: 1000,
         row_not_begun: false,
