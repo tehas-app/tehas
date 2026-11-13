@@ -330,6 +330,56 @@ fn an_end_the_store_will_not_take_is_exit_70_and_what_follows_still_runs() {
     assert!(h.dir.join("state/dispatch.again").exists());
 }
 
+/// The record of a failed end is where a directory is: no write lands on it
+/// and no remove takes it, whoever runs the test.
+fn block_end_fault(h: &Host) {
+    fs::create_dir_all(h.dir.join("state/cycles/7.end-failed.json/x")).unwrap();
+}
+
+#[test]
+fn a_failed_end_whose_record_cannot_be_written_is_exit_70_and_says_why() {
+    let h = Host::new("end-fault-unwritten");
+    h.result("handoff", "commit-pr", "feature/issue-7-a", "");
+    let r = json!({"schemaVersion": 5, "issues": [{"issue": 7, "status": "handoff",
+        "failedStep": "commit-pr", "branch": "feature/issue-7-a",
+        "failure": {"step": "commit-pr", "message": "git push failed: The requested URL returned error: 502"}}]});
+    fs::write(h.dir.join("state/cycles/7.result.json"), r.to_string()).unwrap();
+    block_end_fault(&h);
+    let o = h.report(0, false);
+    let said = out(&o);
+    assert_eq!(o.status.code(), Some(70), "{said}");
+    assert!(
+        said.contains("ERROR: the failed end of #7 is not on record: cannot rename it to "),
+        "{said}"
+    );
+    // The rest of the end still ran.
+    assert_eq!(h.count("store cycle-end"), 1);
+}
+
+#[test]
+fn a_clean_end_that_cannot_remove_an_earlier_record_is_exit_70_and_says_why() {
+    let h = Host::new("end-fault-unremoved");
+    h.result("aborted", "develop", "", "");
+    block_end_fault(&h);
+    let o = h.report(20, false);
+    let said = out(&o);
+    assert_eq!(o.status.code(), Some(70), "{said}");
+    assert!(
+        said.contains(
+            "ERROR: the failed end of an earlier cycle of #7 is still on record: cannot remove "
+        ),
+        "{said}"
+    );
+}
+
+#[test]
+fn a_clean_end_with_no_record_to_remove_is_exit_0() {
+    let h = Host::new("end-fault-none");
+    h.result("aborted", "develop", "", "");
+    let o = h.report(20, false);
+    assert_eq!(o.status.code(), Some(0), "{}", out(&o));
+}
+
 #[test]
 fn a_write_the_journal_cannot_record_is_made_with_no_row() {
     for verb in ["poll-begin", "journal-record", "journal-attempt"] {
