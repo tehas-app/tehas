@@ -34,6 +34,18 @@ fn stream(text: &str) -> Vec<Value> {
         .collect()
 }
 
+/// How many of the lines of a stream are no JSON, and of how many lines. A
+/// container killed mid-write leaves its last line cut; [`stream`] leaves such
+/// lines out, and this says that it did.
+fn unparsed(text: &str) -> (usize, usize) {
+    let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
+    let bad = lines
+        .iter()
+        .filter(|l| serde_json::from_str::<Value>(l).is_err())
+        .count();
+    (bad, lines.len())
+}
+
 /// A number jq would print: whole ones without a point.
 fn figure(x: f64) -> J {
     if x.fract() == 0.0 && x.abs() < 1e17 {
@@ -266,7 +278,9 @@ fn result_roles(entry: &J) -> J {
 /// when the run has them.
 pub fn summary(ndjson: &Path, result: Option<(&Path, u64)>) -> String {
     let text = fs::read(ndjson).unwrap_or_default();
-    let lines = from_lines(&String::from_utf8_lossy(&text));
+    let text = String::from_utf8_lossy(&text);
+    let lines = from_lines(&text);
+    let (bad, of) = unparsed(&text);
     let entry = result.and_then(|(path, issue)| entry(path, issue));
     // The failure of the entry, only when it is an object: a plain get of a
     // missing key is null, which is not a failure.
@@ -305,14 +319,21 @@ pub fn summary(ndjson: &Path, result: Option<(&Path, u64)>) -> String {
         ),
         None => (lines.roles, lines.reason, J::Null, "progress"),
     };
-    obj(vec![
+    let mut fields = vec![
         ("roles", roles),
         ("reason", J::Str(why)),
         ("failure", fail),
         ("reviewHeld", J::Bool(lines.review_held)),
         ("from", from(word)),
-    ])
-    .dump()
+    ];
+    if bad > 0 {
+        let count = |n: usize| J::int(n as i64);
+        fields.push((
+            "unparsed",
+            obj(vec![("lines", count(bad)), ("of", count(of))]),
+        ));
+    }
+    obj(fields).dump()
 }
 
 /// Whether `text` is a schema 5 result with no issue entry at all, as a refusal
@@ -367,7 +388,39 @@ mod tests {
             concat!(
                 r#"{"roles":[{"role":"dev","dispatches":1,"turns":2,"input":3,"output":4,"cacheRead":0},"#,
                 r#"{"role":"driver","dispatches":1,"turns":0,"input":0,"output":0,"cacheRead":0}],"#,
-                r#""reason":"","failure":null,"reviewHeld":false,"from":{"roles":"progress","failure":"progress"}}"#
+                r#""reason":"","failure":null,"reviewHeld":false,"from":{"roles":"progress","failure":"progress"},"#,
+                r#""unparsed":{"lines":1,"of":5}}"#
+            )
+        );
+    }
+
+    #[test]
+    fn a_cut_line_is_counted_and_the_whole_lines_still_answer() {
+        let d = TestDir::new("progress");
+        let log = file(
+            &d,
+            "cut.jsonl",
+            concat!(
+                r#"{"v":1,"kind":"dispatch-completed","key":"k1","event":{"role":"dev","usage":{"turns":2}}}"#,
+                "\n",
+                r#"{"v":1,"unstable":true,"kind":"dispatch-failed","event":{"errorTail":"boom"}}"#,
+                "\n",
+                r#"{"v":1,"kind":"dispatch-comp"#,
+            ),
+        );
+        let s = summary(&log, None);
+        assert!(
+            s.contains(r#""role":"dev","dispatches":1,"turns":2"#),
+            "{s}"
+        );
+        assert!(s.contains(r#""reason":"boom""#), "{s}");
+        assert!(s.ends_with(r#""unparsed":{"lines":1,"of":3}}"#), "{s}");
+        let only = file(&d, "only.jsonl", r#"{"v":1,"kind":"disp"#);
+        assert_eq!(
+            summary(&only, None),
+            concat!(
+                r#"{"roles":[],"reason":"","failure":null,"reviewHeld":false,"#,
+                r#""from":{"roles":"progress","failure":"progress"},"unparsed":{"lines":1,"of":1}}"#
             )
         );
     }
