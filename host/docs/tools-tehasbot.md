@@ -200,7 +200,7 @@ keeps `tehas:running`, and the next poll clears it in silence.
 
 **The start on record.** The record holds the attempt, when it started, the
 approval it used and who gave it, how (`label`, `retry-tick`, `millwright`,
-`refresh`, `outage-retry`, or `hand`), whether it is the one retry after an
+`refresh`, `outage-retry`, `host`, or `hand`), whether it is the one retry after an
 outage, and the pi-rukas commit of the sandbox image. Docker is asked for that
 commit before the record starts, and a daemon that has not answered in 30
 seconds costs only the commit: the start goes on record without it. Started by

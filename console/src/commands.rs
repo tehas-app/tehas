@@ -42,7 +42,7 @@
 
 use crate::{
     api, clean, dev, disk, export, flags, freeze, github, health, history, host_message, labels,
-    mcp, order, panel, queue, review, state, status, stop, top,
+    mcp, order, panel, queue, review, start, state, status, stop, top,
 };
 use std::env;
 use std::io::{self, Write};
@@ -153,6 +153,7 @@ pub fn tehas(given: &[String]) -> u8 {
         "state" => state::main(rest),
         "limit" => flag(limit_words(rest)),
         "order" => order::main(rest),
+        "start" => start::main(rest),
         "pause" => flag(pause_words(rest)),
         "analytics" => analytics(rest),
         "top" => top::view(rest),
@@ -272,6 +273,7 @@ pub fn check(given: &[String]) -> u8 {
     let said = match words[..] {
         ["tehas", "limit"] => limit_words(rest).map(|_| ()),
         ["tehas", "order"] => order::words(rest).map(|_| ()),
+        ["tehas", "start"] => start::words(rest).map(|_| ()),
         ["tehas", "pause"] => pause_words(rest).map(|_| ()),
         ["tehas", "analytics"] => analytics_words(rest),
         ["tehas", "api"] => api::words(rest).map(|_| ()),
@@ -383,6 +385,7 @@ pub fn text(command: &str) -> Option<&'static str> {
         "limit" => include_str!("usage/limit.txt"),
         "mcp" => include_str!("usage/mcp.txt"),
         "order" => include_str!("usage/order.txt"),
+        "start" => include_str!("usage/start.txt"),
         "dev" => dev::USAGE,
         "panel" => include_str!("usage/panel.txt"),
         "pause" => include_str!("usage/pause.txt"),
