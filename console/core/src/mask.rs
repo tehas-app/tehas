@@ -1,6 +1,6 @@
-//! Masks tokens, keys, passwords, the program's own secret settings, the
-//! provider keys the host's models.json holds as literals, and private
-//! network addresses.
+//! Masks tokens (the shapes of crate::secret), keys, passwords, the program's
+//! own secret settings, the provider keys the host's models.json holds as
+//! literals, and private network addresses.
 //!
 //! An agent can print its environment and the console file is served by the
 //! dashboard, which may be on the internet. The mask is a net for accidents,
@@ -30,19 +30,11 @@ fn regex(pattern: &str) -> Regex {
     Regex::new(pattern).expect("a pattern of the mask is not a regular expression")
 }
 
-// A token is a token whatever comes before it: a URL-encoded one follows a
-// letter or a digit. A classic token has no underscore, which keeps the
-// pattern off words of snake case.
-static GITHUB_TOKEN: LazyLock<Regex> =
-    LazyLock::new(|| regex(r"(gh[pousr]_)[A-Za-z0-9]{16,}|(github_pat_)[A-Za-z0-9_]{16,}"));
 static URL_PASSWORD: LazyLock<Regex> =
     LazyLock::new(|| regex(r"(?i)([a-z][a-z0-9+.-]*://[^:/\s@]*:)[^@\s/]+@"));
 static SECRET_ASSIGNMENT: LazyLock<Regex> = LazyLock::new(|| {
     regex(r"(?-u:\b)([A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|PASSWD|KEY|CREDENTIAL)[A-Z0-9_]*=)\S+")
 });
-// The shape model providers give their keys: sk-, then a long run.
-static PROVIDER_KEY: LazyLock<Regex> =
-    LazyLock::new(|| regex(r"(?-u:\b)(sk-)[A-Za-z0-9][A-Za-z0-9_-]{19,}"));
 // A name that ends in one of these words, in any case, then `=` or `:`, as in
 // a shell, a YAML file or JSON (`"apiKey": "..."`). The value ends where a
 // quote, a separator or white space does, so the rest of the line is kept.
@@ -118,12 +110,12 @@ pub fn mask(s: &str) -> String {
         Some(sums) => sums.hide(&s),
         None => s,
     };
-    let s = GITHUB_TOKEN.replace_all(&s, "${1}${2}***");
+    // The shapes of a token are the store's check's own: one list.
+    let s = crate::secret::hide(&s);
     let s = URL_PASSWORD.replace_all(&s, "${1}***@");
     let s = SECRET_ASSIGNMENT.replace_all(&s, "${1}***");
     let s = KEYED_SECRET.replace_all(&s, "${1}***");
     let s = BEARER.replace_all(&s, "${1}***");
-    let s = PROVIDER_KEY.replace_all(&s, "${1}***");
     let s = PRIVATE_IPV4.replace_all(&s, private_address);
     let s = PRIVATE_IPV6.replace_all(&s, private_address);
     let s = TAILNET_NAME.replace_all(&s, "[private name]");
@@ -543,6 +535,31 @@ mod tests {
         );
         assert_eq!(mask("SIGNING_KEY=s3cr3t"), "SIGNING_KEY=***");
         assert_eq!(mask("A_CREDENTIAL=xyz"), "A_CREDENTIAL=***");
+    }
+
+    #[test]
+    fn masks_every_shape_the_store_refuses() {
+        let jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJl";
+        for (text, masked) in [
+            (
+                format!("slack xoxb-{} no", "1".repeat(12)),
+                "slack xoxb-*** no".to_string(),
+            ),
+            (
+                format!("aws AKIA{} no", "B".repeat(16)),
+                "aws AKIA*** no".to_string(),
+            ),
+            (format!("jwt {jwt} no"), "jwt eyJ*** no".to_string()),
+            (
+                "-----BEGIN EC PRIVATE KEY-----\nMHcCAQEE\n-----END EC PRIVATE KEY-----"
+                    .to_string(),
+                "-----BEGIN EC PRIVATE KEY-----***".to_string(),
+            ),
+        ] {
+            assert!(crate::secret::secret(text.as_bytes()), "{text}");
+            assert_eq!(mask(&text), masked);
+            assert!(!crate::secret::secret(mask(&text).as_bytes()), "{text}");
+        }
     }
 
     #[test]
