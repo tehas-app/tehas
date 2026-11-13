@@ -45,7 +45,7 @@ fn candidate_of(version: &str) -> Option<(&str, &str)> {
 
 /// The shape of a published version: vX.Y.Z, or a release candidate of one,
 /// vX.Y.Z-rc.N.
-pub(crate) fn tag_ok(tag: &str) -> bool {
+pub fn tag_ok(tag: &str) -> bool {
     let Some(rest) = tag.strip_prefix('v') else {
         return false;
     };
@@ -56,7 +56,7 @@ pub(crate) fn tag_ok(tag: &str) -> bool {
 
 /// A release candidate, vX.Y.Z-rc.N: published as a prerelease, installed only
 /// when named.
-pub(crate) fn candidate(tag: &str) -> bool {
+pub fn candidate(tag: &str) -> bool {
     tag_ok(tag) && candidate_of(tag).is_some()
 }
 
@@ -139,7 +139,7 @@ pub fn older(a: &str, b: &str) -> bool {
 
 /// A kept newest version that cannot be said: no version, or older than the one
 /// the host runs, which no published list of that repository holds.
-pub(crate) fn stale(newest: &str, installed: &str) -> bool {
+pub fn stale(newest: &str, installed: &str) -> bool {
     !tag_ok(newest) || !tag_ok(installed) || older(newest, installed)
 }
 

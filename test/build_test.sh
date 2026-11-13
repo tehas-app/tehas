@@ -727,7 +727,7 @@ build_rest=$(image_steps "$T/docker-build-recipe" | awk -F '\t' '$1 == "comment"
 t_eq "$build_rest" "$tracked_rest"
 
 # The footers read the pi-rukas version from the factory's health
-# (src/rukas.rs), so the build writes no file beside the pages.
+# (console/ops/src/rukas.rs), so the build writes no file beside the pages.
 t_case "a build and an --if-moved with nothing to build write no version file"
 setup
 install_host_toolchain

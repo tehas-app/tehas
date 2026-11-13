@@ -61,7 +61,7 @@ esac'
 # otherwise; CURL_RC is what curl answers with, and 22 is no answer at all.
 t_stub curl '[ ! -e "${CURL_RC:-}" ] && exit "${CURL_RC:-0}"; exit 0'
 # No sandbox image: status asks docker for the label of the one cycles run
-# (src/rukas.rs), and this host's own must not answer.
+# (console/ops/src/rukas.rs), and this host's own must not answer.
 t_stub docker 'exit 1'
 # The failed tehas units, as systemctl --user --failed --plain --no-legend lists
 # them: none until a case writes $T/failed-units, and the read fails with

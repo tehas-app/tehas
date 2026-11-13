@@ -6,7 +6,7 @@
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
 
-# The flag is read, written and printed by the console (console/src/flags.rs).
+# The flag is read, written and printed by the console (console/ops/src/flags.rs).
 # A command looks for it beside itself, where install.sh puts it, which a test
 # has none of: TEHAS_CONSOLE names the console of this checkout instead.
 t_console || t_bad "$t_console_why"

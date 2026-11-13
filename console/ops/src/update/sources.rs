@@ -613,7 +613,7 @@ app = { path = "app" }
 
     #[test]
     fn this_workspace_reads_and_every_program_install_sh_builds_is_in_it() {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let root = &Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
         let ws = workspace(root).unwrap();
         for prog in [
             "console",
@@ -628,6 +628,6 @@ app = { path = "app" }
         }
         // The attachment checker takes the shared library, as its manifest says.
         assert!(ws["attach"].deps.contains(&"core".to_string()));
-        assert_eq!(ws["console"].deps, ["store", "core", "cycle"]);
+        assert_eq!(ws["console"].deps, ["store", "core", "cycle", "ops"]);
     }
 }

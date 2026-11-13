@@ -21,7 +21,7 @@ to the flag and shown by tehas status and on the dashboard, which may be
 public: write nothing in it that should not be read in public.
 
 The argument is checked here, the settings are loaded here, and the reading,
-the writing and the printing are the console's (console/src/flags.rs).
+the writing and the printing are the console's (console/ops/src/flags.rs).
 
 Exit: 0 the host is paused (this command wrote the flag, or it was already
 there and is kept as it was); 64 more than one argument; 78 the instance

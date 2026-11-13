@@ -1,4 +1,4 @@
-//! `tehas panel`: the pages of the project the dashboard links, src/usage/panel.txt.
+//! `tehas panel`: the pages of the project the dashboard links, console/src/usage/panel.txt.
 //!
 //! The list is state/panels.json, mode 600, and the same object is published
 //! to live/panels.json, which the dashboard reads (host/fun/panels.js). With no
@@ -175,6 +175,7 @@ pub fn json(panels: &[Panel]) -> String {
 
 /// The list a file holds: none when there is no file, an error when it is not
 /// a list of panels this command would have written.
+#[allow(clippy::result_unit_err)]
 pub fn parse(text: &str) -> Result<Vec<Panel>, ()> {
     let doc: Value = serde_json::from_str(text).map_err(|_| ())?;
     let list = doc.get("panels").and_then(Value::as_array).ok_or(())?;

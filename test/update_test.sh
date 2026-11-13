@@ -434,7 +434,7 @@ t_eq "$(t_calls install)" "install "
 
 # The rule a held lock is measured by, asked of the console as libexec/update and
 # install.sh ask it, before tehas_load. Every form of the knob is in the Rust
-# tests of console/src/update/wait.rs; these are the two ends of the range and
+# tests of console/ops/src/update/wait.rs; these are the two ends of the range and
 # a refused shape on each side.
 t_case "the wait rule takes 0 through 300 and is 10 otherwise"
 t_run "for v in 0 300 301 05 soon; do TEHAS_UPDATE_LOCK_WAIT=\$v '$T_CONSOLE' update wait update; done
@@ -1292,7 +1292,7 @@ t_eq "$(owed_steps)" ""
 
 # The labels of a product repository are the last thing an update touches, so a
 # step that follows one would run the containers before the labels existed. There
-# is no step after it in the order console/src/update/steps.rs gives them.
+# is no step after it in the order console/ops/src/update/steps.rs gives them.
 t_case "the labels step runs after the other steps, and a failing one keeps it owed"
 instance
 platform 0

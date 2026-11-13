@@ -2,7 +2,7 @@
 //! `console tidy run` and `tehasbot status`. The acceptance rule has one
 //! statement here. Two commands act on it: tidy (src/tidy.rs) puts tehas:shipped
 //! on in the edit that takes the state labels off, and tehasbot status
-//! (src/queue.rs) lists the shipped issues and gives them the label, and the
+//! (console/src/queue.rs) lists the shipped issues and gives them the label, and the
 //! two must not disagree.
 //!
 //!   console shipped page

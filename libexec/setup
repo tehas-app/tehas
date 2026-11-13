@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # tehas setup: find or build the console, which does the rest
-# (console/src/setup.rs). Bash because a new host has no console to run yet.
+# (console/ops/src/setup.rs). Bash because a new host has no console to run yet.
 #
 # Usage: tehas setup [options], see tehas help setup
 #

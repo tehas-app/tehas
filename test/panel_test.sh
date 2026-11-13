@@ -10,7 +10,7 @@ kept=$T/home/tehas/state/panels.json
 shown=$T/home/tehas/live/panels.json
 t_stub gh
 
-# The list is read and written by the console (console/src/panel.rs). A command
+# The list is read and written by the console (console/ops/src/panel.rs). A command
 # looks for it beside itself, where install.sh puts it, which a test has none
 # of: TEHAS_CONSOLE names the console of this checkout instead.
 t_console || t_bad "$t_console_why"
